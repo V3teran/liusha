@@ -361,7 +361,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 //
 // source=internal 唯一来源：browser-svc.py 持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
 // 认证凭证位置）→ POST /internal/v1/flows/ingest → snap.Source="internal" + snap.AgentRunID。
-// 反查 agent 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
+// 反查 agent_run 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.AgentRunID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
