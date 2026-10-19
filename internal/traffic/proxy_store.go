@@ -10,15 +10,14 @@ import (
 )
 
 // ProxyStore 封装 proxy_traffic 表——代理捕获流量，按 host 归属，先于 task。
+// raw 报文在 proxy 层捕获时已截断，此处不做二次截断（AgentStore 才有 body 截断阈值）。
 type ProxyStore struct {
-	pool        *pgxpool.Pool
-	maxReqBody  int
-	maxRespBody int
+	pool *pgxpool.Pool
 }
 
-// NewProxyStore 构造 ProxyStore（body 截断阈值默认 32 KiB）。
+// NewProxyStore 构造 ProxyStore。
 func NewProxyStore(pool *pgxpool.Pool) *ProxyStore {
-	return &ProxyStore{pool: pool, maxReqBody: defaultMaxBody, maxRespBody: defaultMaxBody}
+	return &ProxyStore{pool: pool}
 }
 
 const proxyCols = "id, host, method, scheme, url, path, status_code, " +
@@ -336,7 +335,7 @@ func (s *ProxyStore) DistinctContentTypes(ctx context.Context) ([]string, error)
 	return out, rows.Err()
 }
 
-// ListByTask 按 captured_at 升序列出某 passive task 消费的流量（含 raw 报文），供 traffic-analysis 读这批。
+// ListByTask 按 captured_at 升序列出某 passive task 消费的流量（含 raw 报文），供认知循环的流量工具读这批。
 func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraffic, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+proxyColsP+" FROM proxy_traffic p JOIN traffic_task tt ON tt.traffic_id = p.id "+

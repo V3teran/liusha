@@ -50,7 +50,6 @@ type mockTool struct {
 	description string
 	handler     func(args json.RawMessage) (any, error)
 	timeout     time.Duration
-	concSafe    bool
 }
 
 func (t *mockTool) Name() string {
@@ -85,11 +84,18 @@ func (t *mockTool) Timeout() time.Duration {
 	return t.timeout
 }
 
-func (t *mockTool) ConcurrencySafe() bool {
-	return t.concSafe
+// TestReActRuntime_SimpleQuestion 测试简单问答（无工具调用）
+// defaultTestConfig 返回测试用默认配置（生产代码各自显式构造 ReActConfig，
+// 不存在共享的"默认配置"）。
+func defaultTestConfig() *ReActConfig {
+	return &ReActConfig{
+		MaxIterations: 10,
+		Temperature:   0.7,
+		MaxTokens:     4096,
+		StreamEnabled: false,
+	}
 }
 
-// TestReActRuntime_SimpleQuestion 测试简单问答（无工具调用）
 func TestReActRuntime_SimpleQuestion(t *testing.T) {
 	runtime := NewReActRuntime()
 
@@ -102,7 +108,7 @@ func TestReActRuntime_SimpleQuestion(t *testing.T) {
 		},
 	}
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "计算 2 + 2"
 	config.LLMProvider = mockProvider
 
@@ -165,7 +171,7 @@ func TestReActRuntime_ToolCalling(t *testing.T) {
 		},
 	}
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "计算 2+2"
 	config.LLMProvider = mockProvider
 
@@ -215,7 +221,7 @@ func TestReActRuntime_MaxIterations(t *testing.T) {
 	}
 	_ = runtime.RegisterTool(thinkTool)
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "无解问题"
 	config.LLMProvider = mockProvider
 	config.MaxIterations = 3
@@ -241,7 +247,7 @@ func TestReActRuntime_EarlyStopCondition(t *testing.T) {
 		},
 	}
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "终极问题的答案"
 	config.LLMProvider = mockProvider
 	config.EarlyStopCondition = func(thought string) bool {
@@ -271,7 +277,7 @@ func TestReActRuntime_RunIsolationAndContinuation(t *testing.T) {
 		},
 	}
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.LLMProvider = mockProvider
 
 	// 第一轮对话
@@ -332,7 +338,7 @@ func TestReActRuntime_ContextCancellation(t *testing.T) {
 	}
 	_ = runtime.RegisterTool(slowTool)
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "测试取消"
 	config.LLMProvider = mockProvider
 
@@ -389,7 +395,7 @@ func TestReActRuntime_Callbacks(t *testing.T) {
 	var observations []string
 	var iterations []int
 
-	config := DefaultReActConfig()
+	config := defaultTestConfig()
 	config.Objective = "测试回调"
 	config.LLMProvider = mockProvider
 	config.OnThought = func(thought string) {

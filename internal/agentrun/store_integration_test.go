@@ -35,7 +35,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 
 	id, err := s.Create(ctx, NewParams{
 		TaskID: taskID,
-		Role:   "traffic-analysis",
+		Role:   "planner",
 		Input:  json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestStore_SetError(t *testing.T) {
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestStore_SetAborted(t *testing.T) {
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestStore_ListByTask(t *testing.T) {
 	s, taskID := setup(t)
 
 	for i := 0; i < 3; i++ {
-		if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "traffic-analysis"}); err != nil {
+		if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); err != nil {
 			t.Fatalf("seed %d: %v", i, err)
 		}
 	}

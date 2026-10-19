@@ -51,7 +51,7 @@ type AgentConfig struct {
 	Executor     Interface
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
-	MaxSteps     int         // 最大执行步数（0 表示无限制）
+	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
 	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
 

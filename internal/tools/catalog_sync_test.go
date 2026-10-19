@@ -26,9 +26,6 @@ func (noOpCredProvider) BatchSave(_ context.Context, _ map[string][]credential.I
 func (noOpCredProvider) GetIdentitiesByHost(_ context.Context, _ string) ([]credential.Identity, error) {
 	return nil, nil
 }
-func (noOpCredProvider) List(_ context.Context, _ string) (map[string][]credential.Identity, error) {
-	return nil, nil
-}
 func (noOpCredProvider) Delete(_ context.Context, _ string) error { return nil }
 
 type noOpSandbox struct{}

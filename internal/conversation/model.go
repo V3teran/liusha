@@ -1,7 +1,7 @@
 // Package conversation 实现会话式平台（阶段B）的 conversation + message model + store。
 //
 // 业务定位：用户在前端与 liusha 会话发起扫描，agent 过程事件流式展示并落库可回看
-// （见 docs/superpowers/specs/2026-06-07-conversational-platform.md §B + 记忆 project_phaseb_sse_arch）。
+// 。
 //
 //   - Conversation：一次会话。TaskID 关联本会话所属的 task（纯聊天时空）。
 //   - Message：会话内的消息。Kind 区分普通会话消息与 agent 过程事件（UI 渲染不同）。
@@ -14,15 +14,15 @@ import (
 	"time"
 )
 
-// ConversationRole 是消息的发言角色（对齐 LLM 消息角色）。
-type ConversationRole string
+// Role 是消息的发言角色（对齐 LLM 消息角色）。
+type Role string
 
 // 会话消息角色。
 const (
-	RoleUser      ConversationRole = "user"
-	RoleAssistant ConversationRole = "assistant"
-	RoleSystem    ConversationRole = "system"
-	RoleTool      ConversationRole = "tool"
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleSystem    Role = "system"
+	RoleTool      Role = "tool"
 )
 
 // Kind 区分普通会话消息与 agent 过程事件。
@@ -60,7 +60,7 @@ type Message struct {
 	Seq            int64 // 全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
 	ID             string
 	ConversationID string
-	Role           ConversationRole
+	Role           Role
 	Kind           Kind
 	Content        string
 	Metadata       json.RawMessage // 可空——event 的结构化详情（tool name/args、finding id…）

@@ -93,7 +93,7 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 // 回归背景：归一化曾藏在节点构造内部（值拷贝上矫正），事件路径的 Attempt
 // 携带原始破碎形状（数组信封/标量断言）直通复现门被确定性杀死，4 条真漏洞
 // 假设冤死为 invalid_recipe，而节点上存的却是修复后的配方。
-func TestProcessExecutorOutput_NormalizationPropagatesToAttempt(t *testing.T) {
+func TestProcessOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	out := &bytes.Buffer{}
 	e := NewEngine(EngineConfig{
@@ -121,9 +121,9 @@ func TestProcessExecutorOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 			"\"repro\":" + string(rawRepro) + "}]}\n```",
 	}
 
-	attempts, err := e.processExecutorOutput(context.Background(), action, result)
+	attempts, err := e.processOutput(context.Background(), action, result)
 	if err != nil {
-		t.Fatalf("processExecutorOutput: %v", err)
+		t.Fatalf("processOutput: %v", err)
 	}
 	if len(attempts) != 1 {
 		t.Fatalf("应产出 1 个 Attempt: %d\nlogs:\n%s", len(attempts), out.String())

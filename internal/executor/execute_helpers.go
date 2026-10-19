@@ -271,7 +271,7 @@ func (e *Engine) executeReActRuntime(
 func (e *Engine) fallbackExtractHypothesis(
 	ctx context.Context,
 	config *runtime.ReActConfig,
-	actionID string,
+	_ string,
 ) (*runtime.ReActResult, error) {
 	// 1. 构建降级 prompt：以任务目标为据推导假设（不是 SystemPrompt——
 	// 角色章程已在 provider 侧生效，这里喂任务本体）
@@ -323,21 +323,21 @@ func (e *Engine) fallbackExtractHypothesis(
 	}, nil
 }
 
-// processExecutorOutput 处理 Executor 输出，创建 Observation 节点
-func (e *Engine) processExecutorOutput(
+// processOutput 处理 Executor 输出，创建 Observation 节点
+func (e *Engine) processOutput(
 	ctx context.Context,
 	action explorationgraph.Node,
 	result *runtime.ReActResult,
 ) ([]evaluator.Attempt, error) {
 	// 解析输出
-	output, err := ParseExecutorOutput(result)
+	output, err := ParseOutput(result)
 	if err != nil {
 		e.logger.Warn().
 			Err(err).
 			Str("action_id", action.ID).
 			Msg("解析 Executor 输出失败，使用空输出")
 
-		output = &ExecutorOutput{
+		output = &Output{
 			Status:       "completed",
 			Summary:      "执行完成，但输出格式解析失败",
 			Observations: []Observation{},

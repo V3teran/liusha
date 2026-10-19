@@ -13,9 +13,6 @@ type Provider interface {
 	// 不注入 anonymous：anonymous 是 LLM 临时构造的测试概念，不是持久化对象。
 	GetIdentitiesByHost(ctx context.Context, host string) ([]Identity, error)
 
-	// List 形态等价于 GetIdentitiesByHost，但以 map 形式返回，方便调用方传给批量 API。
-	List(ctx context.Context, host string) (map[string][]Identity, error)
-
 	// Delete 清空指定 host 下所有持久化的身份。
 	Delete(ctx context.Context, host string) error
 }

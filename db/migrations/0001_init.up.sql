@@ -27,10 +27,10 @@ CREATE TABLE traffic_window (
 CREATE INDEX traffic_window_engagement_status_idx
     ON traffic_window (engagement_id, status, started_at);
 
-CREATE TABLE agent_run (
+CREATE TABLE agent_task (
     id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     engagement_id   uuid        NOT NULL REFERENCES engagement(id) ON DELETE CASCADE,
-    parent_run_id   uuid        REFERENCES agent_run(id) ON DELETE SET NULL,
+    parent_task_id  uuid        REFERENCES agent_task(id) ON DELETE SET NULL,
     role            text        NOT NULL,
     skill           text        NOT NULL DEFAULT '',
     input           jsonb       NOT NULL DEFAULT '{}'::jsonb,
@@ -41,7 +41,7 @@ CREATE TABLE agent_run (
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX agent_run_engagement_idx ON agent_run (engagement_id, created_at);
+CREATE INDEX agent_task_engagement_idx ON agent_task (engagement_id, created_at);
 
 CREATE TABLE graph_node (
     id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

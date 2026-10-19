@@ -64,7 +64,8 @@ func (r *DefaultReActRuntime) runIteration(
 		// 中间件：AfterIteration（即使提前终止也要调用）
 		if config.MiddlewareChain != nil {
 			state := r.buildIterationState(iteration, result, trace)
-			config.MiddlewareChain.AfterIteration(ctx, state)
+			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
+			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
 		}
 
 		return trace, true, nil
@@ -82,7 +83,8 @@ func (r *DefaultReActRuntime) runIteration(
 		// 中间件：AfterIteration
 		if config.MiddlewareChain != nil {
 			state := r.buildIterationState(iteration, result, trace)
-			config.MiddlewareChain.AfterIteration(ctx, state)
+			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
+			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
 		}
 
 		return trace, true, nil
@@ -139,7 +141,8 @@ func (r *DefaultReActRuntime) runIteration(
 		// 中间件：AfterIteration
 		if config.MiddlewareChain != nil {
 			state := r.buildIterationState(iteration, result, trace)
-			config.MiddlewareChain.AfterIteration(ctx, state)
+			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
+			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
 		}
 
 		return trace, true, nil

@@ -111,15 +111,6 @@ func (r *RedisProvider) GetIdentitiesByHost(ctx context.Context, host string) ([
 	return out, nil
 }
 
-// List 是 GetIdentitiesByHost 的 map 形式封装，方便批量 API 直接消费。
-func (r *RedisProvider) List(ctx context.Context, host string) (map[string][]Identity, error) {
-	ids, err := r.GetIdentitiesByHost(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	return map[string][]Identity{host: ids}, nil
-}
-
 // Delete 清空 host 下所有持久化身份；anonymous 不受影响（不存于 Redis）。
 // 一次 DEL 即可，不再需要 SCAN 游标循环。
 func (r *RedisProvider) Delete(ctx context.Context, host string) error {

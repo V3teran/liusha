@@ -44,7 +44,7 @@ type AgentConfig struct {
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
 }
 
-// NewAgent NewPlannerAgent 创建 Agent。
+// NewAgent 创建 planner Agent。
 func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 10 * time.Second

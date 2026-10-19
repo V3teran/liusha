@@ -121,15 +121,12 @@ const RoleFallback = "__fallback__"
 //
 // 两类 key 混在此表：
 //   - agent（DB 有配置行，用户可在「智能体」页改 complexity，DB 优先于本表）：
-//     planner / exploitation：active 链路需 browser-use 截图 + 深度规划 → complex
-//     traffic-analysis      ：passive 流量逐批挖洞，标准推理 → medium
+//     planner：认知循环规划链路需深度规划 → complex
 //   - 轻量路由 key（非 agent，无 DB 行、无 UI，仅借名路由到 simple 档）：
 //     inspector：意图分类 + 探索图摘要复用（cmd/api）
 //     compactor：ReAct 会话历史压缩（cmd/runner）
 var agentComplexityTable = map[string]string{
 	constants.AgentCodePlanner: ComplexityComplex,
-	"exploitation":             ComplexityComplex,
-	"traffic-analysis":         ComplexityMedium,
 	"inspector":                ComplexitySimple,
 	"compactor":                ComplexitySimple,
 }

@@ -89,10 +89,9 @@ func sessionIdentityName(taskID string) string {
 	return sessionIdentityPrefix + taskID + ":" + SessionIdentityName
 }
 
-func newHTTPRequestTool(deps Deps, timeout time.Duration, safe bool) *httpRequestTool {
+func newHTTPRequestTool(deps Deps, timeout time.Duration) *httpRequestTool {
 	t := &httpRequestTool{deps: deps, jar: map[string]string{}, lastWritten: map[string]string{}}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -411,7 +410,7 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 	if err != nil {
 		return registry.ToolResult{Error: "http_request: " + err.Error()}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 4. 读取响应体
 	respBody, err := io.ReadAll(resp.Body)

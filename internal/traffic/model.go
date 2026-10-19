@@ -1,14 +1,15 @@
 // Package traffic 实现两张流量表的持久化层，按「流量的产生者」拆分（见 spec §5）：
 //
 //   - proxy_traffic（ProxyStore）：代理捕获的真实用户流量，被分析的输入，属于 host，
-//     先于任何 task 存在。ingestor external 链路写入；passive traffic-analysis 读它。
+//     先于任何 task 存在。ingestor external 链路写入；passive 认知循环经 list/view_traffic 读它。
 //   - agent_traffic（AgentStore）：agent 在 sandbox 自产的流量，干活副产物/弹药，属于 task。
 //     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/view_traffic 工具读它。
 //
 // 两表唯一共同点是「长得像 HTTP 请求」——共享的持久化机制（body 截断、header 归一、
 // URL 抽取）在 httputil.go，领域差异（归属、消费标记、身份戳）在各自 store。
 //
-// body 大字段在 Append 内按 maxReqBody / maxRespBody 截断（32 KiB）。
+// agent_traffic 的 body 大字段在 AgentStore.Append 内截断（32 KiB）；proxy_traffic 存
+// raw 报文，截断发生在 proxy 捕获层。
 package traffic
 
 import (

@@ -29,10 +29,9 @@ type readSkillTool struct {
 	skills skill.Reader
 }
 
-func newReadSkillTool(skills skill.Reader, timeout time.Duration, safe bool) *readSkillTool {
+func newReadSkillTool(skills skill.Reader, timeout time.Duration) *readSkillTool {
 	t := &readSkillTool{skills: skills}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 

@@ -4,6 +4,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
+// ResultAnalysis 是 planner 对当前 Objective 完成度的分析结论。
 type ResultAnalysis struct {
 	Completed           bool                 // 当前 Objective 是否已完成
 	Evidence            []string             // 支撑完成判断的证据（Result IDs）

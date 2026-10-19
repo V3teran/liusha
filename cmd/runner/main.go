@@ -1,15 +1,15 @@
 // Package main 是 liusha runner 进程入口。
 //
 //	职责：
-//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 启发式打分 → 入 agent 队列
-//	  2. 启 asynq.Server：消费 agent:react 队列，每个 task 跑 1 个 agent agent
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建 passive task → 入 executor 队列
+//	  2. 启 asynq.Server：消费 executor 队列，每个 task 跑认知循环（planner/executor/evaluator/monitor 四 agent）
 //	  3. healthz HTTP；graceful shutdown
 //
-// **部署约束：runner 当前是单实例**。planner 派生的子任务（in-process parentRegistries
-// (sync.Map) + exploitation goroutine）只在本进程内跑（共享 ctx 树 + sandbox 容器 + WaitAll 清理）。
-// 多实例部署需先实现 Registry 跨进程协同（如 Redis-backed Registry）才能解锁。
-// active planner在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合本约束
-// 避免"planner 在 A 实例 crash → asynq retry 给 B → B 看不到 A 内存的 exploitation Registry"僵尸场景。
+// **部署约束：runner 当前是单实例**。认知循环的进程内状态（bus 广播、task 的共享
+// sandbox 容器、浏览器 session）只在本进程内，asynq retry 到另一实例将看不到这些状态。
+// 多实例部署需先实现跨进程的状态协同（如 Redis-backed bus）才能解锁。
+// active 任务在 enqueue 时已设 asynq.MaxRetry(0)，crash 后不重试——配合单实例约束
+// 避免"任务在 A 实例 crash → asynq retry 给 B → B 缺 A 的进程内状态"僵尸场景。
 package main
 
 import (
@@ -227,7 +227,6 @@ func main() {
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
 				worker.QueueExecutor: runnerCfg.QueueAgentWeight,
-				worker.QueueDispatch: runnerCfg.QueueDispatchWeight,
 			},
 		},
 	)
@@ -344,7 +343,6 @@ func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 
 	return &runnerSkills{toolsManifest: toolsManifest}
 }
-
 
 // newSandboxLauncher 构造容器化沙箱启动器并清理上次崩溃残留的孤儿容器。
 //

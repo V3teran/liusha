@@ -23,6 +23,7 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/task"
@@ -38,7 +39,7 @@ import (
 // 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
 	CreateConversation(ctx context.Context, title, taskID string) (conversation.Conversation, error)
-	AppendMessage(ctx context.Context, convID string, role conversation.ConversationRole, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
+	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
 // internalQueueSize 是进程内 internal 流量队列容量。
@@ -46,6 +47,13 @@ type ConversationCreator interface {
 // 不再绕 redis（ingest_handler 与 ingestor 同进程，自环 broker 是冗余）。
 // 有界 → 满时 SubmitInternal 返 false，handler 回 503 给沙箱明确背压信号。
 const internalQueueSize = 1024
+
+// PEL 回收参数：处理失败未 ACK 的消息滞留超过 reclaimMinIdle 后由 reclaimLoop
+// XAUTOCLAIM 重投；单消息处理（毫秒级）远小于该阈值，不会误回收在途消息。
+const (
+	reclaimMinIdle  = 60 * time.Second
+	reclaimInterval = 30 * time.Second
+)
 
 // Traffic 是流量入口的 Stream 消费者。
 type Traffic struct {
@@ -111,7 +119,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
 		assignments:   deps.Assignments,
 		tasks:         deps.Tasks,
-		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window),
+		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window, deps.Logger),
 		proxyStore:    deps.ProxyStore,
 		agentStore:    deps.AgentStore,
 		agentRuns:     deps.AgentRuns,
@@ -195,12 +203,14 @@ func (t *Traffic) sweepOnce(ctx context.Context) {
 	}
 }
 
-// Run 阻塞读 stream → 处理每条 snap → ack；ctx 取消即返回。
-// 同时启动 drainInternal goroutine 消费进程内 internal 队列（passive 走 redis，active 走 channel）。
+// Run 阻塞读 stream → 处理每条 snap → 成功才 ack；ctx 取消即返回。
+// 同时启动 drainInternal goroutine 消费进程内 internal 队列（passive 走 redis，active 走 channel），
+// 以及 reclaimLoop 回收 PEL 滞留消息（处理失败未 ACK / 崩溃残留）。
 func (t *Traffic) Run(ctx context.Context) error {
 	t.logger.Info().Str("stream", t.stream).Str("group", t.group).Msg("ingestor.traffic 已启动")
 	go t.drainInternal(ctx)
-	go t.sweepLoop(ctx) //nolint:gosec // 长生命周期 ctx（随 Run 取消），非 request-scoped
+	go t.sweepLoop(ctx)   //nolint:gosec // 长生命周期 ctx（随 Run 取消），非 request-scoped
+	go t.reclaimLoop(ctx) //nolint:gosec // 同上
 	// 超时补偿：定时扫活跃 host 窗口，兜住静默 host 的尾批
 	for {
 		select {
@@ -231,28 +241,76 @@ func (t *Traffic) Run(ctx context.Context) error {
 		}
 		for _, s := range streams {
 			for _, msg := range s.Messages {
-				t.handleMessage(ctx, msg)
+				t.process(ctx, msg)
 			}
 		}
 	}
 }
 
-// handleMessage 处理单条 stream entry：按 source 分流。
-func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
-	defer func() {
-		if err := t.rdb.XAck(ctx, t.stream, t.group, msg.ID).Err(); err != nil {
-			t.logger.Warn().Err(err).Str("msg_id", msg.ID).Msg("XACK 失败")
-		}
-	}()
+// process 处理并 ACK 单条消息：处理成功或永久失败（毒消息，重投无意义）才 ACK；
+// 瞬时故障（落库失败等）不 ACK，消息留在 PEL 由 reclaimLoop 重投——at-least-once，
+// 重投可能产生重复 proxy_traffic 行，换取瞬时故障下流量不丢失。
+func (t *Traffic) process(ctx context.Context, msg redis.XMessage) {
+	if err := t.handleMessage(ctx, msg); err != nil {
+		t.logger.Warn().Err(err).Str("msg_id", msg.ID).Msg("处理失败，留在 PEL 等待重投")
+		return
+	}
+	if err := t.rdb.XAck(ctx, t.stream, t.group, msg.ID).Err(); err != nil {
+		t.logger.Warn().Err(err).Str("msg_id", msg.ID).Msg("XACK 失败（消息留在 PEL，等待回收重投）")
+	}
+}
 
+// reclaimLoop 周期 XAUTOCLAIM 回收 PEL 中滞留超过 reclaimMinIdle 的消息
+// （处理失败未 ACK / 消费者崩溃残留），重新走 process。单消息处理远快于
+// reclaimMinIdle，不会误回收在途消息。
+func (t *Traffic) reclaimLoop(ctx context.Context) {
+	ticker := time.NewTicker(reclaimInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		start := "0-0"
+		for {
+			msgs, next, err := t.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+				Stream:   t.stream,
+				Group:    t.group,
+				Consumer: t.name,
+				MinIdle:  reclaimMinIdle,
+				Start:    start,
+				Count:    t.readBatch,
+			}).Result()
+			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					t.logger.Warn().Err(err).Msg("XAUTOCLAIM 失败（下轮重试）")
+				}
+				break
+			}
+			for _, msg := range msgs {
+				t.process(ctx, msg)
+			}
+			if next == "0-0" || len(msgs) == 0 {
+				break
+			}
+			start = next
+		}
+	}
+}
+
+// handleMessage 处理单条 stream entry：按 source 分流。
+// 返回 nil = 可安全 ACK（成功，或永久失败）；返回 error = 瞬时故障，不应 ACK。
+func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) error {
 	raw, ok := msg.Values["snap"].(string)
 	if !ok {
-		return
+		t.logger.Warn().Str("msg_id", msg.ID).Msg("snap 字段缺失，丢弃消息")
+		return nil
 	}
 	var snap proxy.TrafficSnapshot
 	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
-		t.logger.Warn().Err(err).Msg("snap 解析失败")
-		return
+		t.logger.Warn().Err(err).Str("msg_id", msg.ID).Msg("snap 解析失败，丢弃消息")
+		return nil
 	}
 
 	source := snap.Source
@@ -260,14 +318,17 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) {
 		source = "external" // 兼容老 snap 无 source 字段
 	}
 	if source == "internal" {
+		// internal 流量是 best-effort 副产物：缺 AgentRunID/反查失败直接丢弃（见 handleInternalSnap）
 		t.handleInternalSnap(ctx, &snap)
-		return
+		return nil
 	}
-	t.handleExternalSnap(ctx, &snap)
+	return t.handleExternalSnap(ctx, &snap)
 }
 
 // handleExternalSnap 处理代理捕获流量：落 proxy_traffic（按 host）+ 喂聚合窗口，达阈值则建 passive task。
-func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
+// 仅落库失败返回 error（瞬时，留 PEL 重投）；落库之后的下游失败只 warn——流量已安全在库，
+// 未消费部分由后续 task 的 ClaimUnconsumedByHost 或超时 sweep 兜底。
+func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) error {
 	if _, err := t.proxyStore.Append(ctx, traffic.ProxyTraffic{
 		Host:        snap.Host,
 		Method:      snap.Method,
@@ -281,32 +342,32 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 		HTTPVersion: snap.HTTPVersion,
 		RespLen:     int64(len(snap.ResponseBody)),
 	}); err != nil {
-		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("proxy_traffic 落库失败，跳过本流量")
-		return
+		return fmt.Errorf("proxy_traffic 落库失败（host=%s）: %w", snap.Host, err)
 	}
 
 	// 喂聚合窗口：达 batch 阈值或超窗口时长 → 抢锁建 task。
 	w, err := t.agg.observe(ctx, snap.Host)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("聚合窗口 observe 失败（流量已落库，等下条重试触发）")
-		return
+		return nil
 	}
 	if !w.Triggered {
-		return
+		return nil
 	}
 	won, err := t.agg.claimAndReset(ctx, snap.Host)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", snap.Host).Msg("聚合抢锁失败")
-		return
+		return nil
 	}
 	if !won {
-		return // 别的实例正在建 task
+		return nil // 别的实例正在建 task
 	}
 	t.spawnPassiveTask(ctx, snap.Host)
+	return nil
 }
 
 // spawnPassiveTask 为某 host 攒够的一批流量建 passive task：
-// 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑会话 → enqueue traffic-analysis。
+// 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑会话 → enqueue。
 //
 // 领取用条件更新（consumed_by_task_id IS NULL），跨实例幂等（§13.2）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
@@ -354,7 +415,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	}
 	t.logger.Info().
 		Str("task_id", tk.ID).Str("host", host).Int64("traffic", claimed).
-		Msg("passive task 已建并入 traffic-analysis 队列")
+		Msg("passive task 已建并入 executor 队列")
 }
 
 // handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
@@ -400,7 +461,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	t.logger.Info().
 		Str("task_id", run.TaskID).Str("agent_run_id", snap.AgentRunID).Int64("traffic_id", trafficID).
 		Str("method", snap.Method).Str("url", snap.URI).
-		Msg("internal 流量已入 agent_traffic（不触发 trafficAnalysis）")
+		Msg("internal 流量已入 agent_traffic（不触发 passive 分析）")
 }
 
 // ensureConversation 为 passive task 建会话流（title=host）并回填 conversation.task_id，
@@ -449,7 +510,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
 	hid, err := t.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
-		Role:   "traffic-analysis",
+		Role:   constants.AgentCodePlanner,
 		Input:  payloadInput,
 	})
 	if err != nil {

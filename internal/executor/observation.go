@@ -87,12 +87,12 @@ func (e *Engine) createObservationNode(
 	case CategoryIssue:
 		// issue 是确定的问题，直接设为 factual（不需要验证）
 		// 如果有 repro，可用于后续复现或深度验证
-		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
+		factual := explorationgraph.ConfidenceFactual
 		node.Confidence = &factual
 
 	case CategoryState:
 		// state 是客观事实，写入即终态
-		factual := explorationgraph.Confidence(explorationgraph.ConfidenceFactual)
+		factual := explorationgraph.ConfidenceFactual
 		node.Confidence = &factual
 
 	default:
@@ -175,9 +175,12 @@ func (e *Engine) observationToAttempt(
 type ObservationCategory string
 
 const (
-	CategoryState      ObservationCategory = "state"      // 状态信息
-	CategoryIssue      ObservationCategory = "issue"      // 问题/异常
-	CategoryHypothesis ObservationCategory = "hypothesis" // 待验证推测
+	// CategoryState 状态信息（客观事实，写入即终态）。
+	CategoryState ObservationCategory = "state"
+	// CategoryIssue 问题/异常。
+	CategoryIssue ObservationCategory = "issue"
+	// CategoryHypothesis 待验证推测（须携 repro，经复现门裁决成 result）。
+	CategoryHypothesis ObservationCategory = "hypothesis"
 )
 
 // Observation 是执行器从环境感知到的一条断言：

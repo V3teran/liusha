@@ -53,16 +53,19 @@ func NewProgressTrackingMiddleware(maxNoOutputIterations, maxConsecutiveFailures
 	}
 }
 
+// Name 返回中间件标识（日志/调试用）。
 func (m *ProgressTrackingMiddleware) Name() string {
 	return "progress_tracking"
 }
 
-func (m *ProgressTrackingMiddleware) BeforeIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// BeforeIteration 是 Middleware 接口的空实现（检测都在 AfterIteration）。
+func (m *ProgressTrackingMiddleware) BeforeIteration(_ context.Context, _ *IterationState) (*StopSignal, error) {
 	// BeforeIteration 不做检测
 	return nil, nil
 }
 
-func (m *ProgressTrackingMiddleware) AfterIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// AfterIteration 在每轮结束后检测连续失败等无进展信号，命中则要求终止。
+func (m *ProgressTrackingMiddleware) AfterIteration(_ context.Context, state *IterationState) (*StopSignal, error) {
 	// 检测 1: 连续失败
 	if state.ConsecutiveToolFailures >= m.MaxConsecutiveFailures {
 		return &StopSignal{

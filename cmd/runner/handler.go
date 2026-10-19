@@ -204,12 +204,18 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Msg("asynq task ◀ exit")
 	}()
 
-	if run, getErr := h.agentRuns.GetByID(ctx, p.AgentRunID); getErr == nil && run.Status != agentrun.StatusPending {
+	run, getErr := h.agentRuns.GetByID(ctx, p.AgentRunID)
+	switch {
+	case getErr == nil && run.Status != agentrun.StatusPending:
 		h.logger.Warn().
 			Str("agent_run_id", p.AgentRunID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
+	case getErr != nil:
+		// 查询失败不阻断执行（幂等检查 best-effort），但必须可见——否则重复消费只能靠下游发现。
+		h.logger.Warn().Err(getErr).Str("agent_run_id", p.AgentRunID).
+			Msg("agent_run 查询失败，幂等防重检查被跳过")
 	}
 
 	if h.hostSem != nil {

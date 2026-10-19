@@ -2,8 +2,6 @@
 //
 // sandbox-server 端实现：见 internal/sandbox/server/
 // 主进程端 client：见 client.go / launcher.go（后续任务）
-//
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 package sandbox
 
 // ExecRequest 是 POST /exec 的请求体。

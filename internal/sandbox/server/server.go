@@ -7,8 +7,6 @@
 //
 // 设计哲学：sandbox-server 是纯 sh 执行器，**不感知 chrome / browser-use 等
 // 具体工具**——按需启动由调用者（如 browser-cli）自负。
-//
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 package server
 
 import (

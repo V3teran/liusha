@@ -9,8 +9,8 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
-// ExecutorOutput 是 Executor 的标准输出格式（通用）
-type ExecutorOutput struct {
+// Output 是 Executor 的标准输出格式（通用）
+type Output struct {
 	Status       string        `json:"status"`       // completed / failed
 	Summary      string        `json:"summary"`      // 执行总结
 	Observations []Observation `json:"observations"` // 观察结果列表
@@ -18,8 +18,8 @@ type ExecutorOutput struct {
 
 // Observation 及其执行轨迹载荷与本文件同包（observation.go）
 
-// ParseExecutorOutput 从 ReAct 结果中解析 Executor 的输出
-func ParseExecutorOutput(result *runtime.ReActResult) (*ExecutorOutput, error) {
+// ParseOutput 从 ReAct 结果中解析 Executor 的输出
+func ParseOutput(result *runtime.ReActResult) (*Output, error) {
 	// 策略 1：尝试从最后一条 assistant 消息中解析 JSON
 	output, err := parseFromLastMessage(result)
 	if err == nil && output != nil {
@@ -41,7 +41,7 @@ func ParseExecutorOutput(result *runtime.ReActResult) (*ExecutorOutput, error) {
 	}
 
 	// 策略 4：返回空输出（没有观察结果）
-	return &ExecutorOutput{
+	return &Output{
 		Status:       "completed",
 		Summary:      "执行完成，无观察结果",
 		Observations: []Observation{},
@@ -49,7 +49,7 @@ func ParseExecutorOutput(result *runtime.ReActResult) (*ExecutorOutput, error) {
 }
 
 // parseFromLastMessage 从最后一条 assistant 消息中解析
-func parseFromLastMessage(result *runtime.ReActResult) (*ExecutorOutput, error) {
+func parseFromLastMessage(result *runtime.ReActResult) (*Output, error) {
 	if len(result.MessageHistory) == 0 {
 		return nil, fmt.Errorf("no history")
 	}
@@ -66,14 +66,14 @@ func parseFromLastMessage(result *runtime.ReActResult) (*ExecutorOutput, error) 
 }
 
 // parseFromText 从文本中提取 JSON 块并解析
-func parseFromText(text string) (*ExecutorOutput, error) {
+func parseFromText(text string) (*Output, error) {
 	// 查找 JSON 代码块
 	jsonBlocks := extractJSONBlocks(text)
 
 	for _, block := range jsonBlocks {
-		var output ExecutorOutput
+		var output Output
 		if err := json.Unmarshal([]byte(block), &output); err == nil {
-			// 验证是否是有效的 ExecutorOutput
+			// 验证是否是有效的 Output
 			if output.Status != "" {
 				return &output, nil
 			}
@@ -81,7 +81,7 @@ func parseFromText(text string) (*ExecutorOutput, error) {
 	}
 
 	// 尝试直接解析整个文本
-	var output ExecutorOutput
+	var output Output
 	if err := json.Unmarshal([]byte(text), &output); err == nil {
 		if output.Status != "" {
 			return &output, nil
@@ -92,7 +92,7 @@ func parseFromText(text string) (*ExecutorOutput, error) {
 }
 
 // parseFromHistory 从对话历史中查找并解析输出
-func parseFromHistory(history []llm.Message) (*ExecutorOutput, error) {
+func parseFromHistory(history []llm.Message) (*Output, error) {
 	// 从后往前扫描，查找包含 "observations" 关键字的 assistant 消息
 	for i := len(history) - 1; i >= 0; i-- {
 		msg := history[i]

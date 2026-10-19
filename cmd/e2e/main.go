@@ -25,12 +25,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-const (
-	pollInterval = 15 * time.Second
-	dialTimeout  = 10 * time.Second
-	rawIOTimeout = 100 * time.Second
-)
-
 // pollDeadline 从 ENV LIUSHA_E2E_POLL_DEADLINE_SECONDS 读取，缺省无超时（0 表示不限制）。
 func pollDeadline() time.Duration {
 	if v := os.Getenv("LIUSHA_E2E_POLL_DEADLINE_SECONDS"); v != "" {

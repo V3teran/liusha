@@ -18,10 +18,6 @@ type Reader interface {
 	Load(ctx context.Context, name string) (*Card, error)
 }
 
-// Set 把多个分类目录（skills/tooling、skills/vuln …）的 Loader 聚合成单一裸名命名空间。
-//
-// 各 root 内的 skill 名本就裸（tooling 下 "browser-use"、vuln 下 "dom-xss"），
-// 跨目录重名时启动期报错；agent 的 skills 声明因此可以统一写成
 // View 是 Reader 的白名单视图：agent.skills 声明哪些 skill，本视图就只暴露哪些。
 // 语义与 function_tools/cli_tools 白名单一致：nil=全部（未配置视图），空=空集。
 // 装配层（cognition）按各 agent 配置分别建视图——executor 与 evaluator 可各自独立。

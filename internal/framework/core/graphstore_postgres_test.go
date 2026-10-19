@@ -26,10 +26,10 @@ func TestPostgresGraphStore_CreateAndGetNode(t *testing.T) {
 
 	// 创建节点
 	node := &GraphNode{
-		ID:       "test-node-1",
+		ID:       "11111111-1111-4111-8111-111111111111",
 		Kind:     string(KindAction),
 		Content:  json.RawMessage(`{"title":"test action"}`),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		State:    string(ActionStateOpen),
 	}
 
@@ -37,9 +37,9 @@ func TestPostgresGraphStore_CreateAndGetNode(t *testing.T) {
 	require.NoError(t, err, "创建节点应该成功")
 
 	// 获取节点
-	retrieved, err := store.GetNode(ctx, "test-node-1")
+	retrieved, err := store.GetNode(ctx, "11111111-1111-4111-8111-111111111111")
 	require.NoError(t, err, "获取节点应该成功")
-	assert.Equal(t, "test-node-1", retrieved.ID)
+	assert.Equal(t, "11111111-1111-4111-8111-111111111111", retrieved.ID)
 	assert.Equal(t, string(KindAction), retrieved.Kind)
 	assert.Equal(t, string(ActionStateOpen), retrieved.State)
 	assert.JSONEq(t, `{"title":"test action"}`, string(retrieved.Content))
@@ -60,11 +60,11 @@ func TestPostgresGraphStore_UpdateNode(t *testing.T) {
 
 	// 创建初始节点
 	node := &GraphNode{
-		ID:       "test-node-2",
+		ID:       "22222222-2222-4222-8222-222222222222",
 		Kind:     string(KindAction),
 		Content:  json.RawMessage(`{"title":"initial"}`),
 		State:    string(ActionStateOpen),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -73,11 +73,11 @@ func TestPostgresGraphStore_UpdateNode(t *testing.T) {
 		State:   string(ActionStateRunning),
 		Content: json.RawMessage(`{"title":"updated"}`),
 	}
-	err := store.UpdateNode(ctx, "test-node-2", update)
+	err := store.UpdateNode(ctx, "22222222-2222-4222-8222-222222222222", update)
 	require.NoError(t, err, "更新节点应该成功")
 
 	// 验证更新
-	updated, err := store.GetNode(ctx, "test-node-2")
+	updated, err := store.GetNode(ctx, "22222222-2222-4222-8222-222222222222")
 	require.NoError(t, err)
 	assert.Equal(t, string(ActionStateRunning), updated.State)
 	assert.JSONEq(t, `{"title":"updated"}`, string(updated.Content))
@@ -98,10 +98,11 @@ func TestPostgresGraphStore_OptimisticLocking(t *testing.T) {
 
 	// 创建节点
 	node := &GraphNode{
-		ID:       "test-node-3",
+		ID:       "33333333-3333-4333-8333-333333333333",
 		Kind:     string(KindAction),
+		Content:  json.RawMessage(`{}`),
 		State:    string(ActionStateOpen),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -111,7 +112,7 @@ func TestPostgresGraphStore_OptimisticLocking(t *testing.T) {
 		State:           string(ActionStateRunning),
 		ExpectedVersion: &v1,
 	}
-	err := store.UpdateNode(ctx, "test-node-3", update1)
+	err := store.UpdateNode(ctx, "33333333-3333-4333-8333-333333333333", update1)
 	require.NoError(t, err, "版本匹配时更新应该成功")
 
 	// 第二次更新，但使用旧版本号（应该失败）
@@ -119,12 +120,12 @@ func TestPostgresGraphStore_OptimisticLocking(t *testing.T) {
 		State:           string(ActionStateDone),
 		ExpectedVersion: &v1, // 还是用版本1，但实际已经是版本2
 	}
-	err = store.UpdateNode(ctx, "test-node-3", update2)
+	err = store.UpdateNode(ctx, "33333333-3333-4333-8333-333333333333", update2)
 	assert.Error(t, err, "版本冲突时更新应该失败")
 	assert.Contains(t, err.Error(), "version mismatch", "应该包含版本冲突错误信息")
 
 	// 验证状态未被错误更新
-	node, _ = store.GetNode(ctx, "test-node-3")
+	node, _ = store.GetNode(ctx, "33333333-3333-4333-8333-333333333333")
 	assert.Equal(t, string(ActionStateRunning), node.State, "版本冲突时状态不应该被更新")
 	assert.Equal(t, int64(2), node.Version)
 }
@@ -143,16 +144,17 @@ func TestPostgresGraphStore_CompareAndSwapState(t *testing.T) {
 
 	// 创建节点
 	node := &GraphNode{
-		ID:       "test-node-4",
+		ID:       "44444444-4444-4444-8444-444444444444",
 		Kind:     string(KindAction),
+		Content:  json.RawMessage(`{}`),
 		State:    string(ActionStateOpen),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
 	t.Run("CAS成功", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
-			ctx, "task-1", "test-node-4",
+			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
 			string(ActionStateOpen),
 			string(ActionStateRunning),
 		)
@@ -160,13 +162,13 @@ func TestPostgresGraphStore_CompareAndSwapState(t *testing.T) {
 		assert.True(t, swapped, "状态匹配时CAS应该成功")
 
 		// 验证状态已更新
-		updated, _ := store.GetNode(ctx, "test-node-4")
+		updated, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
 		assert.Equal(t, string(ActionStateRunning), updated.State)
 	})
 
 	t.Run("CAS失败", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
-			ctx, "task-1", "test-node-4",
+			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
 			string(ActionStateOpen), // 期望是 open，但实际是 running
 			string(ActionStateDone),
 		)
@@ -174,7 +176,7 @@ func TestPostgresGraphStore_CompareAndSwapState(t *testing.T) {
 		assert.False(t, swapped, "状态不匹配时CAS应该失败")
 
 		// 验证状态未改变
-		node, _ := store.GetNode(ctx, "test-node-4")
+		node, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
 		assert.Equal(t, string(ActionStateRunning), node.State)
 	})
 }
@@ -194,22 +196,25 @@ func TestPostgresGraphStore_ListNodes(t *testing.T) {
 	// 创建多个节点
 	nodes := []*GraphNode{
 		{
-			ID:       "list-node-1",
+			ID:       "aaaaaaaa-0000-4000-8000-000000000001",
 			Kind:     string(KindAction),
+			Content:  json.RawMessage(`{}`),
 			State:    string(ActionStateOpen),
-			Metadata: map[string]interface{}{"task_id": "task-1", "priority": "high"},
+			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "high"},
 		},
 		{
-			ID:       "list-node-2",
+			ID:       "aaaaaaaa-0000-4000-8000-000000000002",
 			Kind:     string(KindObjective),
+			Content:  json.RawMessage(`{}`),
 			State:    string(ActionStateRunning),
-			Metadata: map[string]interface{}{"task_id": "task-1", "priority": "medium"},
+			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "medium"},
 		},
 		{
-			ID:       "list-node-3",
+			ID:       "aaaaaaaa-0000-4000-8000-000000000003",
 			Kind:     string(KindAction),
+			Content:  json.RawMessage(`{}`),
 			State:    string(ActionStateDone),
-			Metadata: map[string]interface{}{"task_id": "task-2", "priority": "high"},
+			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000002", "priority": "high"},
 		},
 	}
 
@@ -237,7 +242,7 @@ func TestPostgresGraphStore_ListNodes(t *testing.T) {
 
 	t.Run("按Metadata过滤", func(t *testing.T) {
 		query := GraphNodeQuery{
-			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
+			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -247,7 +252,8 @@ func TestPostgresGraphStore_ListNodes(t *testing.T) {
 	t.Run("组合查询", func(t *testing.T) {
 		query := GraphNodeQuery{
 			Kind:    string(KindAction),
-			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
+			State:   string(ActionStateOpen),
+			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -279,14 +285,17 @@ func TestPostgresGraphStore_CreateAndListEdges(t *testing.T) {
 	// 创建节点
 	nodes := []*GraphNode{
 		{
-			ID:       "edge-node-1",
+			ID:       "bbbbbbbb-0000-4000-8000-000000000001",
 			Kind:     string(KindAction),
-			Metadata: map[string]interface{}{"task_id": "task-1"},
+			State:    string(ActionStateOpen),
+			Content:  json.RawMessage(`{}`),
+			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		},
 		{
-			ID:       "edge-node-2",
+			ID:       "bbbbbbbb-0000-4000-8000-000000000002",
 			Kind:     string(KindObservation),
-			Metadata: map[string]interface{}{"task_id": "task-1"},
+			Content:  json.RawMessage(`{}`),
+			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		},
 	}
 	for _, n := range nodes {
@@ -295,22 +304,22 @@ func TestPostgresGraphStore_CreateAndListEdges(t *testing.T) {
 
 	// 创建边
 	edge := &GraphEdge{
-		TaskID:   "task-1",
-		From:     "edge-node-1",
-		To:       "edge-node-2",
+		TaskID:   "cccccccc-0000-4000-8000-000000000001",
+		From:     "bbbbbbbb-0000-4000-8000-000000000001",
+		To:       "bbbbbbbb-0000-4000-8000-000000000002",
 		Relation: string(RelationGenerates),
 	}
 	err := store.CreateEdge(ctx, edge)
 	require.NoError(t, err, "创建边应该成功")
 
 	// 查询边
-	edges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "edge-node-1"})
+	edges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "bbbbbbbb-0000-4000-8000-000000000001"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(edges), 1, "应该至少有1条边")
 
 	found := false
 	for _, e := range edges {
-		if e.From == "edge-node-1" && e.To == "edge-node-2" && e.Relation == string(RelationGenerates) {
+		if e.From == "bbbbbbbb-0000-4000-8000-000000000001" && e.To == "bbbbbbbb-0000-4000-8000-000000000002" && e.Relation == string(RelationGenerates) {
 			found = true
 			break
 		}
@@ -332,24 +341,27 @@ func TestPostgresGraphStore_CreateNodeWithEdges(t *testing.T) {
 
 	// 创建一个已存在的节点
 	existingNode := &GraphNode{
-		ID:       "tx-existing-node",
+		ID:       "ffffffff-0000-4000-8000-000000000001",
 		Kind:     string(KindAction),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		State:    string(ActionStateOpen),
+		Content:  json.RawMessage(`{}`),
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 	require.NoError(t, store.CreateNode(ctx, existingNode))
 
 	// 事务性创建新节点及其边
 	newNode := &GraphNode{
-		ID:       "tx-new-node",
+		ID:       "ffffffff-0000-4000-8000-000000000002",
 		Kind:     string(KindObservation),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		Content:  json.RawMessage(`{}`),
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 
 	edges := []*GraphEdge{
 		{
-			TaskID:   "task-1",
-			From:     "tx-existing-node",
-			To:       "tx-new-node",
+			TaskID:   "cccccccc-0000-4000-8000-000000000001",
+			From:     "ffffffff-0000-4000-8000-000000000001",
+			To:       "ffffffff-0000-4000-8000-000000000002",
 			Relation: string(RelationGenerates),
 		},
 	}
@@ -358,12 +370,12 @@ func TestPostgresGraphStore_CreateNodeWithEdges(t *testing.T) {
 	require.NoError(t, err, "事务性创建应该成功")
 
 	// 验证节点已创建
-	node, err := store.GetNode(ctx, "tx-new-node")
+	node, err := store.GetNode(ctx, "ffffffff-0000-4000-8000-000000000002")
 	require.NoError(t, err)
-	assert.Equal(t, "tx-new-node", node.ID)
+	assert.Equal(t, "ffffffff-0000-4000-8000-000000000002", node.ID)
 
 	// 验证边已创建
-	allEdges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "tx-existing-node"})
+	allEdges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "ffffffff-0000-4000-8000-000000000001"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(allEdges), 1, "应该至少有1条边")
 }
@@ -382,18 +394,20 @@ func TestPostgresGraphStore_DeleteNode(t *testing.T) {
 
 	// 创建节点
 	node := &GraphNode{
-		ID:       "delete-node-1",
+		ID:       "dddddddd-0000-4000-8000-000000000001",
 		Kind:     string(KindAction),
-		Metadata: map[string]interface{}{"task_id": "task-1"},
+		State:    string(ActionStateOpen),
+		Content:  json.RawMessage(`{}`),
+		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
 	// 删除节点
-	err := store.DeleteNode(ctx, "delete-node-1")
+	err := store.DeleteNode(ctx, "dddddddd-0000-4000-8000-000000000001")
 	require.NoError(t, err, "删除节点应该成功")
 
 	// 验证节点已删除
-	_, err = store.GetNode(ctx, "delete-node-1")
+	_, err = store.GetNode(ctx, "dddddddd-0000-4000-8000-000000000001")
 	assert.ErrorIs(t, err, ErrGraphNodeNotFound, "节点应该已被删除")
 }
 
@@ -411,32 +425,32 @@ func TestPostgresGraphStore_DeleteEdge(t *testing.T) {
 
 	// 创建节点和边
 	nodes := []*GraphNode{
-		{ID: "del-edge-1", Kind: string(KindAction), Metadata: map[string]interface{}{"task_id": "task-1"}},
-		{ID: "del-edge-2", Kind: string(KindObservation), Metadata: map[string]interface{}{"task_id": "task-1"}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000001", Kind: string(KindAction), State: string(ActionStateOpen), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000002", Kind: string(KindObservation), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
 	}
 	for _, n := range nodes {
 		require.NoError(t, store.CreateNode(ctx, n))
 	}
 
 	edge := &GraphEdge{
-		TaskID:   "task-1",
-		From:     "del-edge-1",
-		To:       "del-edge-2",
+		TaskID:   "cccccccc-0000-4000-8000-000000000001",
+		From:     "eeeeeeee-0000-4000-8000-000000000001",
+		To:       "eeeeeeee-0000-4000-8000-000000000002",
 		Relation: string(RelationGenerates),
 	}
 	require.NoError(t, store.CreateEdge(ctx, edge))
 
 	// 删除边
-	err := store.DeleteEdge(ctx, "del-edge-1", "del-edge-2", string(RelationGenerates))
+	err := store.DeleteEdge(ctx, "eeeeeeee-0000-4000-8000-000000000001", "eeeeeeee-0000-4000-8000-000000000002", string(RelationGenerates))
 	require.NoError(t, err, "删除边应该成功")
 
 	// 验证边已删除
-	edges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "del-edge-1"})
+	edges, err := store.ListEdges(ctx, GraphEdgeQuery{From: "eeeeeeee-0000-4000-8000-000000000001"})
 	require.NoError(t, err)
 
 	found := false
 	for _, e := range edges {
-		if e.From == "del-edge-1" && e.To == "del-edge-2" {
+		if e.From == "eeeeeeee-0000-4000-8000-000000000001" && e.To == "eeeeeeee-0000-4000-8000-000000000002" {
 			found = true
 			break
 		}

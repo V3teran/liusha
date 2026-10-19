@@ -25,9 +25,6 @@ func TestRole_Queue(t *testing.T) {
 	if got := RoleExecutor.Queue(); got != QueueExecutor {
 		t.Fatalf("RoleExecutor.Queue() = %q, want %q", got, QueueExecutor)
 	}
-	if got := RoleDispatch.Queue(); got != QueueDispatch {
-		t.Fatalf("RoleDispatch.Queue() = %q, want %q", got, QueueDispatch)
-	}
 }
 
 func TestClient_Enqueue_RoutesQueue(t *testing.T) {
@@ -46,22 +43,6 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	}
 	if q != QueueExecutor {
 		t.Fatalf("queue = %q, want %q", q, QueueExecutor)
-	}
-}
-
-func TestClient_Enqueue_DispatchQueue(t *testing.T) {
-	c, _ := newTestClient(t)
-
-	_, q, err := c.Enqueue(
-		context.Background(),
-		RoleDispatch,
-		Payload{AgentRunID: "task-op-1", TaskID: "task-1", TaskRole: RoleDispatch},
-	)
-	if err != nil {
-		t.Fatalf("Enqueue err = %v", err)
-	}
-	if q != QueueDispatch {
-		t.Fatalf("queue = %q, want %q", q, QueueDispatch)
 	}
 }
 
@@ -115,7 +96,7 @@ func TestMux_UnknownRole_SkipsRetry(t *testing.T) {
 	m := NewMux()
 	mux := m.AsynqMux()
 
-	payloadBytes, _ := json.Marshal(Payload{AgentRunID: "t1", TaskRole: RoleDispatch})
+	payloadBytes, _ := json.Marshal(Payload{AgentRunID: "t1", TaskRole: TaskRole("nonexistent")})
 	task := asynq.NewTask(TaskTypeRun, payloadBytes)
 
 	err := mux.ProcessTask(context.Background(), task)
@@ -154,7 +135,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 		asynq.RedisClientOpt{Addr: mr.Addr()},
 		asynq.Config{
 			Concurrency: 1,
-			Queues:      map[string]int{QueueExecutor: 5, QueueDispatch: 1},
+			Queues:      map[string]int{QueueExecutor: 5},
 			Logger:      discardLogger{},
 		},
 	)

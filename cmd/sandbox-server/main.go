@@ -15,8 +15,6 @@
 //
 // sandbox-server 完全不感知 chrome / browser-use 等具体工具——按需启动由
 // 调用者（如 browser-cli）自负。
-//
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 package main
 
 import (

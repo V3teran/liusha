@@ -36,9 +36,6 @@ func NewPublisher(rdb *redis.Client, stream string, maxLen int64) (*Publisher, e
 	return &Publisher{rdb: rdb, stream: stream, maxLen: maxLen}, nil
 }
 
-// Stream 返回 publisher 当前使用的 stream 名（供 ingestor 等外部一致引用）。
-func (p *Publisher) Stream() string { return p.stream }
-
 // Publish 发布一条 snapshot；snap 为 nil 直接返回。redis 错误透传给上层处理。
 func (p *Publisher) Publish(ctx context.Context, snap *TrafficSnapshot) error {
 	if snap == nil {

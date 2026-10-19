@@ -227,30 +227,6 @@ func TestRedis_BatchSave_OverwriteExisting(t *testing.T) {
 	}
 }
 
-// TestRedis_List 验证：List 返回 map[host][]Identity。
-func TestRedis_List(t *testing.T) {
-	ctx := context.Background()
-	p := newProvider(t)
-
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"h": {{Name: "alice", Role: "admin"}},
-	}, 0); err != nil {
-		t.Fatalf("batch save: %v", err)
-	}
-
-	got, err := p.List(ctx, "h")
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	ids, ok := got["h"]
-	if !ok {
-		t.Fatalf("List 结果应包含 host=h, got keys=%v", got)
-	}
-	if !equalSlices(names(ids), []string{"alice"}) {
-		t.Fatalf("List 内容错误, got=%v", names(ids))
-	}
-}
-
 // TestRedis_BatchSave_SkipsAnonymous 验证：调用方传入 anonymous 时不持久化（避免污染存储）。
 func TestRedis_BatchSave_SkipsAnonymous(t *testing.T) {
 	ctx := context.Background()
