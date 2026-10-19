@@ -10,12 +10,12 @@ package worker
 // （cmd/api / ingestor / active_spawner 创建 agent run 时按 mode + isParent 写入），
 // 跟 asynq 路由解耦。
 //
-//   - RoleExecutor   = 所有 agent task 走的统一 queue
+//   - RoleExecutor   = 所有 agent 运行走的统一 queue
 //   - RoleDispatch = 备用调度队列（v1.5+ 优先级或专属队列）
 type TaskRole string
 
 const (
-	// RoleExecutor agent 任务统一 queue（agent 小队的全部 agent task）。
+	// RoleExecutor agent 运行统一 queue（agent 小队的全部运行实例）。
 	RoleExecutor TaskRole = "executor"
 	// RoleDispatch 备用调度队列（v1.5+ 优先级或专属队列）。
 	RoleDispatch TaskRole = "dispatch"

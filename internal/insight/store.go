@@ -40,15 +40,18 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 	if insight.Tags == nil {
 		insight.Tags = []string{}
 	}
+	if insight.RelatedNodes == nil {
+		insight.RelatedNodes = []string{}
+	}
 
 	query := `
 		INSERT INTO insight (
 			assignment_id, category, priority, confidence,
 			summary, body, tags,
-			source_task_id, source_agent_run_id,
+			source_task_id, source_agent_run_id, related_nodes,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err := s.pool.Exec(ctx, query,
 		assignmentID,
@@ -60,6 +63,7 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 		insight.Tags,
 		insight.SourceTaskID,
 		insight.SourceAgentRunID,
+		insight.RelatedNodes,
 		insight.CreatedAt,
 		insight.UpdatedAt,
 	)
