@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 )
 
 // aggregator.go：passive 流量按 host 攒批的分布式窗口（见 spec §6.2 + §13.1）。
@@ -39,10 +40,11 @@ type aggregator struct {
 	keyPrefix string
 	batchSize int64
 	window    time.Duration
+	logger    zerolog.Logger
 }
 
-func newAggregator(rdb *redis.Client, keyPrefix string, batchSize int, window time.Duration) *aggregator {
-	return &aggregator{rdb: rdb, keyPrefix: keyPrefix, batchSize: int64(batchSize), window: window}
+func newAggregator(rdb *redis.Client, keyPrefix string, batchSize int, window time.Duration, logger zerolog.Logger) *aggregator {
+	return &aggregator{rdb: rdb, keyPrefix: keyPrefix, batchSize: int64(batchSize), window: window, logger: logger}
 }
 
 // batchN 返回配置的批大小（领取 proxy_traffic 时的上限）。
@@ -67,10 +69,18 @@ func (a *aggregator) observe(ctx context.Context, host string) (hostWindow, erro
 	}
 	if count == 1 {
 		// 本窗口第一条：记首条时间戳 + 给两个键都设兜底 TTL（防某 host 再无流量时键泄漏）。
-		a.rdb.Set(ctx, a.firstKey(host), nowMs, ttl)
-		a.rdb.Expire(ctx, a.countKey(host), ttl)
+		// 这些是 best-effort 写，但失败要可见：Set 失败→超时判定退化为"从当前起算"；
+		// SAdd 失败→静默 host 失去超时补偿（尾批永不触发）。
+		if err := a.rdb.Set(ctx, a.firstKey(host), nowMs, ttl).Err(); err != nil {
+			a.logger.Warn().Err(err).Str("host", host).Msg("agg 首条时间戳写入失败（超时判定退化）")
+		}
+		if err := a.rdb.Expire(ctx, a.countKey(host), ttl).Err(); err != nil {
+			a.logger.Warn().Err(err).Str("host", host).Msg("agg 计数键 TTL 设置失败（可能键泄漏）")
+		}
 		// 登记进活跃 host 集，供 sweepExpired 遍历（超时补偿路径）。claimAndReset 成功时 SREM。
-		a.rdb.SAdd(ctx, a.hostsKey(), host)
+		if err := a.rdb.SAdd(ctx, a.hostsKey(), host).Err(); err != nil {
+			a.logger.Warn().Err(err).Str("host", host).Msg("agg 活跃集登记失败（静默 host 将失去超时补偿）")
+		}
 	}
 	firstMs, err := a.rdb.Get(ctx, a.firstKey(host)).Int64()
 	if err != nil {
@@ -97,9 +107,14 @@ func (a *aggregator) claimAndReset(ctx context.Context, host string) (bool, erro
 		return false, nil // 抢锁失败（其他实例已占）
 	}
 	// 抢到锁：清窗口计数 + 首条键 + 从活跃集移除，让后续流量开新窗口。
-	// 锁不立即删——留 TTL 内挡住并发重复触发。
-	a.rdb.Del(ctx, a.countKey(host), a.firstKey(host))
-	a.rdb.SRem(ctx, a.hostsKey(), host)
+	// 锁不立即删——留 TTL 内挡住并发重复触发。Del 失败要可见：计数残留会让下一窗口
+	// 立即误触发（锁 TTL 过期后可能重复建 task）。
+	if err := a.rdb.Del(ctx, a.countKey(host), a.firstKey(host)).Err(); err != nil {
+		a.logger.Warn().Err(err).Str("host", host).Msg("agg 窗口清零失败（下一窗口可能误触发）")
+	}
+	if err := a.rdb.SRem(ctx, a.hostsKey(), host).Err(); err != nil {
+		a.logger.Warn().Err(err).Str("host", host).Msg("agg 活跃集移除失败（sweep 将按孤儿剔除）")
+	}
 	return true, nil
 }
 

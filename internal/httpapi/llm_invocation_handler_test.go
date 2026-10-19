@@ -68,8 +68,8 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{rows: []llminvocation.Invocation{
 			{ID: 1, TaskID: &taskID, RequestID: "r1", Role: "planner"},
-			{ID: 2, TaskID: &taskID, RequestID: "r2", Role: "exploitation"},
-			{ID: 3, TaskID: &taskID, RequestID: "r3", Role: "exploitation"},
+			{ID: 2, TaskID: &taskID, RequestID: "r2", Role: "executor"},
+			{ID: 3, TaskID: &taskID, RequestID: "r3", Role: "executor"},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
@@ -320,7 +320,7 @@ func TestLLMInvocationsHandler_Stat(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1/stat?role=exploitation&model=glm-5.3-flash&only_err=1", nil)
+			srv.URL+"/llm/invocations/t1/stat?role=executor&model=glm-5.3-flash&only_err=1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -329,7 +329,7 @@ func TestLLMInvocationsHandler_Stat(t *testing.T) {
 		defer func() { _ = resp.Body.Close() }()
 
 		f := fake.gotAggF
-		if f.Role != "exploitation" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
+		if f.Role != "executor" || f.Model != "glm-5.3-flash" || !f.OnlyErr {
 			t.Errorf("统计未收到筛选条件: %+v", f)
 		}
 		if f.Limit != 0 || f.Offset != 0 {
@@ -341,7 +341,7 @@ func TestLLMInvocationsHandler_Stat(t *testing.T) {
 func TestLLMInvocationFacetsHandler(t *testing.T) {
 	t.Run("200 返回 role/model 候选", func(t *testing.T) {
 		fake := &fakeInvocations{facets: llminvocation.Facets{
-			Roles:  []string{"exploitation", "planner"},
+			Roles:  []string{"executor", "planner"},
 			Models: []string{"glm-5.3-flash"},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
@@ -362,7 +362,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if len(body.Roles) != 2 || body.Roles[0] != "exploitation" {
+		if len(body.Roles) != 2 || body.Roles[0] != "executor" {
 			t.Errorf("roles 不符: %+v", body.Roles)
 		}
 		if len(body.Models) != 1 || body.Models[0] != "glm-5.3-flash" {

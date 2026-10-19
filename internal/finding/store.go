@@ -65,7 +65,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	// 0074 UNIQUE(task_id, dedup_key) — dedup_key 是 PG generated column（host + summary 前 60 字，
 	// 宁可误判不漏判），单次扫描（task）内去重。
-	// planner / exploitation agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
+	// 多 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	// depends_on 是 uuid[]，empty slice → DEFAULT '{}'（PG 数组默认值）
 	deps := f.DependsOn

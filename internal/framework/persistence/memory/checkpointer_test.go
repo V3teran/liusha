@@ -159,7 +159,7 @@ func TestCheckpointer_Concurrent(t *testing.T) {
 	// 并发保存
 	done := make(chan error, numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
-		go func(iteration int) {
+		go func(_ int) {
 			checkpoint := core.Checkpoint{
 				TaskID:        taskID,
 				Phase:         "exploration",

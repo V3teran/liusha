@@ -1,6 +1,7 @@
 // Package skill 负责加载 SKILL.md（frontmatter + 正文），返回 Card 描述。
 //
-// agent 小队架构：trafficAnalysis（reconnaissance）/ planner（编排者）/ exploitation（exploitation）按 (mode, 是否 planner) 拼 system_prompt_{trafficAnalysis,planner,exploitation}.md。
+// skill 是 agent 可声明加载的操作手册（agent.skills 白名单 → system prompt 技能索引，
+// 正文经 read_skill 按需拉取），章程本体在 agent 表（种子 = agents/*.md）。
 // frontmatter 必填字段：
 //   - name                          机器 ID（与文件夹名一致，如 agent）
 //   - description                   一句话描述（保留供未来多 skill 时进 catalog 用）

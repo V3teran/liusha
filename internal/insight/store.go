@@ -3,9 +3,18 @@ package insight
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// nullIfEmpty 把空字符串转 nil（pgx 写 NULL），非空原样返回——用于 nullable uuid 列。
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
 
 // Store 是洞察黑板的 PostgreSQL 持久化层。
 type Store struct {
@@ -34,9 +43,6 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 	if insight.Confidence == "" {
 		insight.Confidence = ConfidencePossible
 	}
-	if insight.Confidence == "" {
-		insight.Confidence = ConfidencePossible
-	}
 	if insight.Tags == nil {
 		insight.Tags = []string{}
 	}
@@ -53,6 +59,16 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
+	// source_task_id / source_agent_run_id 是 uuid 列：空串必须写 NULL（空串是非法 uuid，
+	// 归属缺位（如 agent_run 反查失败）不该让整条 insight 写入失败。
+	// 时间戳未填（零值）时兜底 now()，避免落 0001-01-01。
+	now := time.Now()
+	if insight.CreatedAt.IsZero() {
+		insight.CreatedAt = now
+	}
+	if insight.UpdatedAt.IsZero() {
+		insight.UpdatedAt = now
+	}
 	_, err := s.pool.Exec(ctx, query,
 		assignmentID,
 		insight.Category,
@@ -61,8 +77,8 @@ func (s *Store) Append(ctx context.Context, assignmentID string, insight Insight
 		insight.Summary,
 		insight.Body,
 		insight.Tags,
-		insight.SourceTaskID,
-		insight.SourceAgentRunID,
+		nullIfEmpty(insight.SourceTaskID),
+		nullIfEmpty(insight.SourceAgentRunID),
 		insight.RelatedNodes,
 		insight.CreatedAt,
 		insight.UpdatedAt,
@@ -87,7 +103,7 @@ func (s *Store) list(ctx context.Context, label, where string, args []any, order
 			id, assignment_id,
 			category, priority, confidence,
 			summary, body, tags,
-			source_task_id, source_agent_run_id,
+			source_task_id, source_agent_run_id, related_nodes,
 			created_at, updated_at
 		FROM insight
 		WHERE %s
@@ -105,15 +121,23 @@ func (s *Store) list(ctx context.Context, label, where string, args []any, order
 	var insights []Insight
 	for rows.Next() {
 		var i Insight
+		// source_task_id / source_agent_run_id 可空（归属缺位写 NULL），扫进指针再解引用。
+		var sourceTaskID, sourceAgentRunID *string
 		err := rows.Scan(
 			&i.ID, &i.AssignmentID,
 			&i.Category, &i.Priority, &i.Confidence,
 			&i.Summary, &i.Body, &i.Tags,
-			&i.SourceTaskID, &i.SourceAgentRunID,
+			&sourceTaskID, &sourceAgentRunID, &i.RelatedNodes,
 			&i.CreatedAt, &i.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("insight.Store.%s: scan: %w", label, err)
+		}
+		if sourceTaskID != nil {
+			i.SourceTaskID = *sourceTaskID
+		}
+		if sourceAgentRunID != nil {
+			i.SourceAgentRunID = *sourceAgentRunID
 		}
 		insights = append(insights, i)
 	}

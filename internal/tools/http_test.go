@@ -18,7 +18,7 @@ import (
 // 夹具全部 httptest 级——不依赖任何真实靶机。
 
 func newHTTPToolForTest() *httpRequestTool {
-	return newHTTPRequestTool(Deps{}, 5*time.Second, false)
+	return newHTTPRequestTool(Deps{}, 5*time.Second)
 }
 
 func runHTTPTool(t *testing.T, tool *httpRequestTool, args string) map[string]interface{} {
@@ -203,9 +203,6 @@ func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) 
 	defer f.mu.Unlock()
 	return f.byHost[host], f.getErr
 }
-func (f *fakeCredsProvider) List(_ context.Context, _ string) (map[string][]credential.Identity, error) {
-	return nil, nil
-}
 func (f *fakeCredsProvider) Delete(_ context.Context, _ string) error { return nil }
 
 // ② N 凭证 × M 位置注入：headers/query/body 全位置、多身份、冲突规则（显式优先、
@@ -243,7 +240,7 @@ func TestHTTPTool_ApplyStoredCredentials_MultiPosition(t *testing.T) {
 	creds.byHost[host] = creds.byHost["target.local"]
 	delete(creds.byHost, "target.local")
 
-	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second, false)
+	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second)
 	out := runHTTPTool(t, tool, `{"url":"`+srv.URL+`/api","method":"POST"}`)
 
 	// 注入明细（不含值）
@@ -278,7 +275,7 @@ func TestHTTPTool_ExplicitWinsOverStore(t *testing.T) {
 		{Type: credential.TypeBody, Key: "password", Value: "from-store"},
 	}}}
 
-	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second, false)
+	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second)
 	runHTTPTool(t, tool, `{"url":"`+srv.URL+`/api?token=explicit-token","method":"POST","headers":{"X-API-Key":"explicit"},"body":"password=explicit-pass"}`)
 }
 
@@ -298,7 +295,7 @@ func TestHTTPTool_JSONBodySkipsBodyCreds(t *testing.T) {
 		{Type: credential.TypeBody, Key: "password", Value: "x"},
 	}}}
 
-	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second, false)
+	tool := newHTTPRequestTool(Deps{Creds: creds}, 5*time.Second)
 	runHTTPTool(t, tool, `{"url":"`+srv.URL+`/api","headers":{"Content-Type":"application/json"},"body":"{\"a\":1}"}`)
 }
 
@@ -324,7 +321,7 @@ func TestHTTPTool_SetCookieSyncsToStore(t *testing.T) {
 		{Type: credential.TypeHeaders, Key: "X-Extra", Value: "keep-me"},
 	}}}
 
-	tool := newHTTPRequestTool(Deps{Creds: creds, TaskID: "t-1"}, 5*time.Second, false)
+	tool := newHTTPRequestTool(Deps{Creds: creds, TaskID: "t-1"}, 5*time.Second)
 	runHTTPTool(t, tool, `{"url":"`+srv.URL+`/login"}`) // Set-Cookie → 入库
 
 	if len(creds.saves) != 1 || creds.saveTTLs[0] != 0 {
@@ -391,7 +388,7 @@ func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
 	_ = srvA
 
 	// task A 的工具：注入自己的会话 ✓
-	toolA := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-A"}, 5*time.Second, false)
+	toolA := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-A"}, 5*time.Second)
 	out := runHTTPTool(t, toolA, `{"url":"`+srv.URL+`/x","headers":{}}`)
 	reqObj := out["request"].(map[string]interface{})
 	hdrs, _ := reqObj["headers"].(map[string]interface{})
@@ -400,7 +397,7 @@ func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
 	}
 
 	// task B 的工具：A 的会话不可见（不注入）
-	toolB := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-B"}, 5*time.Second, false)
+	toolB := newHTTPRequestTool(Deps{Creds: creds, TaskID: "task-B"}, 5*time.Second)
 	out = runHTTPTool(t, toolB, `{"url":"`+srv.URL+`/x","headers":{}}`)
 	reqObj = out["request"].(map[string]interface{})
 	hdrs, _ = reqObj["headers"].(map[string]interface{})

@@ -57,16 +57,19 @@ func NewGoalAlignmentMiddleware(objective string, maxConsecutiveOffTarget int) *
 	}
 }
 
+// Name 返回中间件标识（日志/调试用）。
 func (m *GoalAlignmentMiddleware) Name() string {
 	return "goal_alignment"
 }
 
-func (m *GoalAlignmentMiddleware) BeforeIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// BeforeIteration 是 Middleware 接口的空实现（检测都在 AfterIteration）。
+func (m *GoalAlignmentMiddleware) BeforeIteration(_ context.Context, _ *IterationState) (*StopSignal, error) {
 	// BeforeIteration 不做检测
 	return nil, nil
 }
 
-func (m *GoalAlignmentMiddleware) AfterIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// AfterIteration 在每轮结束后检查思考/工具调用与目标的偏离度，连续越限则要求终止。
+func (m *GoalAlignmentMiddleware) AfterIteration(_ context.Context, state *IterationState) (*StopSignal, error) {
 	// 检查当前思考和工具调用是否与目标对齐
 	currentContext := m.buildCurrentContext(state)
 	isAligned := m.isAlignedWithGoal(currentContext)

@@ -36,7 +36,7 @@ type ObserveStateTool struct {
 // NewObserveStateTool 构造探索图状态观察工具（planner 专属）。只读、并发安全。
 func NewObserveStateTool(graph *explorationgraph.Store) *ObserveStateTool {
 	t := &ObserveStateTool{graph: graph}
-	t.WithTimeout(30 * time.Second).WithConcurrencySafe(true)
+	t.WithTimeout(30 * time.Second)
 	return t
 }
 
@@ -173,7 +173,7 @@ type EvaluateProgressTool struct {
 // NewEvaluateProgressTool 构造进展评估工具（planner 专属）。
 func NewEvaluateProgressTool(graph *explorationgraph.Store) *EvaluateProgressTool {
 	t := &EvaluateProgressTool{graph: graph}
-	t.WithTimeout(30 * time.Second).WithConcurrencySafe(true)
+	t.WithTimeout(30 * time.Second)
 	return t
 }
 

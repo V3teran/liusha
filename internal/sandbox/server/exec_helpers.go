@@ -90,7 +90,7 @@ func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDi
 }
 
 // executeCommand 执行命令并捕获输出
-func executeCommand(cmd *exec.Cmd, cmdCtx context.Context) (stdout, stderr string, exitCode int, timedOut bool) {
+func executeCommand(cmdCtx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode int, timedOut bool) {
 	var stdoutBuilder, stderrBuilder strings.Builder
 	cmd.Stdout = &stdoutBuilder
 	cmd.Stderr = &stderrBuilder

@@ -333,40 +333,17 @@ func orEmptyRaw(b json.RawMessage) json.RawMessage {
 // 几乎必然命中任意页面——断言无鉴别力，坐实即假阳性。
 const minBodyContainsLen = 4
 
-// commonSuccessCodes 是页面常态状态码：无 baseline 时仅凭它们不构成漏洞证据
-// （有 baseline 时由运行时差分护栏判定，不在此拦）。
-var commonSuccessCodes = map[int]bool{200: true, 301: true, 302: true, 304: true}
-
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
 //   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）
 //     注意：已移除自指检查和无 baseline 的强谓词检查，让 LLM Judge 做最终判断
-func assertDiscriminative(a Assertion, exploitSrc httpreplay.Source, hasBaseline bool) error {
+func assertDiscriminative(a Assertion, _ httpreplay.Source, _ bool) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < minBodyContainsLen {
 			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
 		}
-		// 移除自指检测：让 LLM Judge 判断这种情况
-		// 原因：有些合理的场景可能被误伤（如检查 payload 回显）
-		/*
-			if strings.Contains(strings.ToLower(exploitSrc.URL), strings.ToLower(strings.TrimSpace(want))) {
-				return fmt.Errorf("%w: body_contains 子串 %q 就是请求 URL 的组成部分（自指：正常响应也必命中）。断言应捕捉攻击响应独有特征，而不是页面本来就有的内容", evaluator.ErrAssertNotDiscriminative, want)
-			}
-		*/
+		// 自指检查已移除（payload 回显等合理场景会被误伤），由 LLM Judge 终判。
 	}
-	// 移除无 baseline 时的强谓词检查
-	// 让 LLM Judge 判断 status_code=200 是否有意义
-	/*
-		if hasBaseline {
-			return nil // 有良性对照：鉴别力由运行时基线差分护栏判定
-		}
-		strong := len(a.BodyContains) > 0 || len(a.HeaderContains) > 0 || a.MinDurationMs != nil
-		if !strong && a.StatusCode != nil && !commonSuccessCodes[*a.StatusCode] {
-			strong = true // 非常态状态码（401/403/500…）本身可为信号
-		}
-		if !strong {
-			return fmt.Errorf("%w: 无 baseline 时至少需要一个强谓词（body_contains/header_contains/min_duration_ms，或非 200/301/302/304 的 status_code）。页面常态断言（裸 status_code=200 类）命中不构成漏洞证据；建议附 baseline 良性对照", evaluator.ErrAssertNotDiscriminative)
-		}
-	*/
+	// 无 baseline 的强谓词检查已移除（常态 200 类断言的鉴别力由 LLM Judge 终判）。
 	return nil
 }
 

@@ -1,6 +1,8 @@
-// Package tools 提供所有17个域工具的实现，每个工具实现 registry.Tool 接口。
+// Package tools 提供跨角色共享的 function calling 域工具（共 11 个），每个工具实现
+// registry.Tool 接口；角色专属工具（planner 的 observe_state、monitor 的
+// publish_decision、evaluator 的 replay_for_verification 等）在各角色包内自建。
 //
-// 工具按功能域分文件：control / credentials / findings / corpus / lead / traffic / sandbox / skill。
+// 工具按功能域分文件：credentials / corpus / insight / traffic / sandbox / skill。
 // register.go 提供 RegisterAll 一次性注入所有工具到 registry.Registry。
 package tools
 

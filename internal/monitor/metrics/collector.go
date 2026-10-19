@@ -11,13 +11,13 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// MetricsCollector 收集和计算任务的时间序列指标
+// Collector 收集和计算任务的时间序列指标
 //
 // 用于 Monitor 判断：
 // - "每小时 action 数 <3" → 探索停滞
 // - "每小时 result 数下降" → 方向错误
 // - "result/action 比率 <0.1" → 资源耗尽
-type MetricsCollector struct {
+type Collector struct {
 	graph  *explorationgraph.Store
 	taskID string
 	logger zerolog.Logger
@@ -32,14 +32,14 @@ type MetricsCollector struct {
 	lastResultTimestamp time.Time
 }
 
-// NewMetricsCollector 创建指标收集器
+// NewCollector 创建指标收集器
 //
 // 默认窗口大小：1 小时，桶大小：10 分钟
-func NewMetricsCollector(graph *explorationgraph.Store, taskID string, logger zerolog.Logger) *MetricsCollector {
+func NewCollector(graph *explorationgraph.Store, taskID string, logger zerolog.Logger) *Collector {
 	bucketSize := 10 * time.Minute
 	windowSize := 1 * time.Hour
 
-	return &MetricsCollector{
+	return &Collector{
 		graph:               graph,
 		taskID:              taskID,
 		logger:              logger,
@@ -54,7 +54,7 @@ func NewMetricsCollector(graph *explorationgraph.Store, taskID string, logger ze
 // Update 更新指标（从探索图查询最新数据）
 //
 // 应该在每次 Monitor 评估前调用，收集最新的 action/result。
-func (c *MetricsCollector) Update(ctx context.Context) error {
+func (c *Collector) Update(ctx context.Context) error {
 	// 1. 统计最近创建的 actions
 	if err := c.updateActions(ctx); err != nil {
 		return fmt.Errorf("update actions: %w", err)
@@ -72,7 +72,7 @@ func (c *MetricsCollector) Update(ctx context.Context) error {
 }
 
 // updateActions 统计最近创建的 actions
-func (c *MetricsCollector) updateActions(ctx context.Context) error {
+func (c *Collector) updateActions(ctx context.Context) error {
 	// 查询所有 actions
 	actions, err := c.graph.ListNodesByKind(ctx, c.taskID, core.KindAction)
 	if err != nil {
@@ -111,7 +111,7 @@ func (c *MetricsCollector) updateActions(ctx context.Context) error {
 }
 
 // updateResults 统计最近创建的 results
-func (c *MetricsCollector) updateResults(ctx context.Context) error {
+func (c *Collector) updateResults(ctx context.Context) error {
 	// 查询所有 results
 	results, err := c.graph.ListNodesByKind(ctx, c.taskID, core.KindResult)
 	if err != nil {
@@ -150,7 +150,7 @@ func (c *MetricsCollector) updateResults(ctx context.Context) error {
 }
 
 // updateRatio 计算并更新 result/action 比率
-func (c *MetricsCollector) updateRatio() {
+func (c *Collector) updateRatio() {
 	actionRate := c.actionWindow.Rate()
 	resultRate := c.resultWindow.Rate()
 
@@ -167,7 +167,7 @@ func (c *MetricsCollector) updateRatio() {
 }
 
 // GetMetrics 获取当前指标快照
-func (c *MetricsCollector) GetMetrics() Metrics {
+func (c *Collector) GetMetrics() Metrics {
 	return Metrics{
 		ActionRatePerHour:    c.actionWindow.Rate(),
 		ResultRatePerHour:    c.resultWindow.Rate(),

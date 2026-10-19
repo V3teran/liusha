@@ -18,13 +18,9 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	store := insight.NewStore(pool)
 
-	// 清理测试数据
-	_, err := pool.Exec(ctx, "DELETE FROM insight WHERE assignment_id LIKE 'test-assignment-%'")
-	require.NoError(t, err)
-
-	assignmentID := "test-assignment-related-node"
-	nodeID1 := "node-123"
-	nodeID2 := "node-456"
+	assignmentID := "99999999-0000-4000-8000-000000000001"
+	nodeID1 := "12345678-0000-4000-8000-000000000001"
+	nodeID2 := "12345678-0000-4000-8000-000000000002"
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, "DELETE FROM insight WHERE assignment_id = $1", assignmentID)
@@ -38,7 +34,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 			Confidence:   insight.ConfidenceConfirmed,
 			Summary:      "发现可疑行为",
 			RelatedNodes: []string{nodeID1, nodeID2},
-			SourceTaskID: "task-1",
+			SourceTaskID: "87654321-0000-4000-8000-000000000001",
 			CreatedAt:    time.Now(),
 			UpdatedAt:    time.Now(),
 		},
@@ -48,7 +44,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 			Confidence:   insight.ConfidenceProbable,
 			Summary:      "发现安全问题",
 			RelatedNodes: []string{nodeID1},
-			SourceTaskID: "task-1",
+			SourceTaskID: "87654321-0000-4000-8000-000000000001",
 			CreatedAt:    time.Now(),
 			UpdatedAt:    time.Now(),
 		},
@@ -58,7 +54,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 			Confidence:   insight.ConfidencePossible,
 			Summary:      "其他备注",
 			RelatedNodes: []string{nodeID2},
-			SourceTaskID: "task-1",
+			SourceTaskID: "87654321-0000-4000-8000-000000000001",
 			CreatedAt:    time.Now(),
 			UpdatedAt:    time.Now(),
 		},
@@ -71,7 +67,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 	}
 
 	// 测试：查询包含 nodeID1 的洞察
-	t.Run("查询包含node-123的洞察", func(t *testing.T) {
+	t.Run("查询包含 nodeID1 的洞察", func(t *testing.T) {
 		results, err := store.ListByRelatedNode(ctx, assignmentID, nodeID1, 10)
 		require.NoError(t, err)
 		assert.Len(t, results, 2, "应该找到 2 个包含 node-123 的洞察")
@@ -83,7 +79,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 	})
 
 	// 测试：查询包含 nodeID2 的洞察
-	t.Run("查询包含node-456的洞察", func(t *testing.T) {
+	t.Run("查询包含 nodeID2 的洞察", func(t *testing.T) {
 		results, err := store.ListByRelatedNode(ctx, assignmentID, nodeID2, 10)
 		require.NoError(t, err)
 		assert.Len(t, results, 2, "应该找到 2 个包含 node-456 的洞察")
@@ -95,7 +91,7 @@ func TestStore_ListByRelatedNode(t *testing.T) {
 
 	// 测试：查询不存在的节点
 	t.Run("查询不存在的节点", func(t *testing.T) {
-		results, err := store.ListByRelatedNode(ctx, assignmentID, "node-999", 10)
+		results, err := store.ListByRelatedNode(ctx, assignmentID, "00000000-0000-4000-8000-000000000099", 10)
 		require.NoError(t, err)
 		assert.Empty(t, results, "不应该找到任何结果")
 	})

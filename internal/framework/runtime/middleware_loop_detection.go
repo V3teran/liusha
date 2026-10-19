@@ -49,16 +49,19 @@ func NewLoopDetectionMiddleware(maxSameTools, maxSimilarThoughts int) *LoopDetec
 	}
 }
 
+// Name 返回中间件标识（日志/调试用）。
 func (m *LoopDetectionMiddleware) Name() string {
 	return "loop_detection"
 }
 
-func (m *LoopDetectionMiddleware) BeforeIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// BeforeIteration 是 Middleware 接口的空实现（检测都在 AfterIteration）。
+func (m *LoopDetectionMiddleware) BeforeIteration(_ context.Context, _ *IterationState) (*StopSignal, error) {
 	// BeforeIteration 不做检测，因为还没有新的工具调用
 	return nil, nil
 }
 
-func (m *LoopDetectionMiddleware) AfterIteration(ctx context.Context, state *IterationState) (*StopSignal, error) {
+// AfterIteration 在每轮结束后检测工具调用/思维内容的重复循环，命中则要求终止。
+func (m *LoopDetectionMiddleware) AfterIteration(_ context.Context, state *IterationState) (*StopSignal, error) {
 	// 检测 1: 工具调用循环
 	if signal := m.detectToolLoop(state); signal != nil {
 		return signal, nil

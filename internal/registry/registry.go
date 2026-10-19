@@ -4,7 +4,6 @@ package registry
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -94,8 +93,8 @@ func ErrorMaskInterceptor(ctx context.Context, tool Tool, args []byte, next Exec
 //  Registry
 // ─────────────────────────────────────────────
 
-// Registry 管理工具集并实现带 Interceptor 链的并发执行。
-// 并发安全：Register/Get/ExecuteParallel 可被多 goroutine 同时调用。
+// Registry 管理工具集并实现带 Interceptor 链的执行。
+// 并发安全：Register/Get 可被多 goroutine 同时调用。
 type Registry struct {
 	mu           sync.RWMutex
 	tools        map[string]Tool
@@ -178,23 +177,6 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 	return out
 }
 
-// execute 通过 Interceptor 链执行单个工具调用。
-func (r *Registry) execute(ctx context.Context, call llm.ToolCall) ToolResult {
-	t, ok := r.Get(call.Name)
-	if !ok {
-		return ToolResult{Error: fmt.Sprintf("tool %q not registered", call.Name)}
-	}
-	final := ExecuteFunc(func(ctx context.Context, tool Tool, args []byte) (ToolResult, error) {
-		return tool.Execute(ctx, args)
-	})
-	res, err := chain(r.interceptorChain(), final)(ctx, t, call.Arguments)
-	if err != nil {
-		// 到这里说明是 context cancel，直接标记错误
-		return ToolResult{Error: err.Error()}
-	}
-	return res
-}
-
 // WrapTool 返回一个 Execute 走完整 Interceptor 链的装饰工具。
 //
 // 背景：ReAct runtime 直调 tool.Execute（不经 Registry.execute），拦截器链
@@ -215,29 +197,9 @@ func (w *wrappedTool) ShortDesc() string       { return w.inner.ShortDesc() }
 func (w *wrappedTool) Desc() string            { return w.inner.Desc() }
 func (w *wrappedTool) Schema() json.RawMessage { return w.inner.Schema() }
 func (w *wrappedTool) Timeout() time.Duration  { return w.inner.Timeout() }
-func (w *wrappedTool) ConcurrencySafe() bool   { return w.inner.ConcurrencySafe() }
 func (w *wrappedTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	final := ExecuteFunc(func(_ context.Context, tool Tool, a []byte) (ToolResult, error) {
 		return tool.Execute(ctx, a)
 	})
 	return chain(w.reg.interceptorChain(), final)(ctx, w.inner, args)
-}
-
-// ExecuteParallel 并发执行一批 tool_call，结果按原始顺序收集。
-// LLM 单次返回多个 tool_call 时使用。
-func (r *Registry) ExecuteParallel(ctx context.Context, calls []llm.ToolCall) []ToolResult {
-	if len(calls) == 0 {
-		return nil
-	}
-	results := make([]ToolResult, len(calls))
-	var wg sync.WaitGroup
-	for i, call := range calls {
-		wg.Add(1)
-		go func(idx int, c llm.ToolCall) {
-			defer wg.Done()
-			results[idx] = r.execute(ctx, c)
-		}(i, call)
-	}
-	wg.Wait()
-	return results
 }

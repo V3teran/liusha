@@ -8,6 +8,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
+// Run 是 planner Agent 的事件循环：订阅 bus 事件 + 轮询图，规划新 action 并写图。
 func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：规划调用归 task/本轮 run、角色 planner。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "planner"})

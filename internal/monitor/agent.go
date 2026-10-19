@@ -40,7 +40,7 @@ type Agent struct {
 	checkpointPolicy runtime.CheckpointPolicy
 
 	// 时间序列指标收集器
-	metricsCollector *metrics.MetricsCollector
+	metricsCollector *metrics.Collector
 }
 
 // Config 是 Monitor Agent 的配置。
@@ -79,7 +79,7 @@ func New(cfg Config) *Agent {
 	reactRuntime := runtime.NewReActRuntime()
 
 	// 创建指标收集器
-	metricsCollector := metrics.NewMetricsCollector(cfg.Graph, cfg.TaskID, cfg.Logger)
+	metricsCollector := metrics.NewCollector(cfg.Graph, cfg.TaskID, cfg.Logger)
 
 	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
 	var registryTools []registry.Tool
@@ -266,7 +266,7 @@ type RunningActionView struct {
 	Instruction    string  `json:"instruction"`
 	RunningMinutes float64 `json:"running_minutes"`
 	// IdleMinutes 是距最近一次工具活动的分钟数；-1 = 尚无任何工具活动
-	//（还没开始干活），与"干着干着停了"是两种完全不同的处置依据。
+	// （还没开始干活），与"干着干着停了"是两种完全不同的处置依据。
 	IdleMinutes float64 `json:"idle_minutes"`
 }
 

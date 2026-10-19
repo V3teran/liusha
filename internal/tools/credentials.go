@@ -25,10 +25,9 @@ type readCredentialsTool struct {
 	deps Deps
 }
 
-func newReadCredentialsTool(deps Deps, timeout time.Duration, safe bool) *readCredentialsTool {
+func newReadCredentialsTool(deps Deps, timeout time.Duration) *readCredentialsTool {
 	t := &readCredentialsTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -113,10 +112,9 @@ type writeCredentialTool struct {
 	deps Deps
 }
 
-func newWriteCredentialTool(deps Deps, timeout time.Duration, safe bool) *writeCredentialTool {
+func newWriteCredentialTool(deps Deps, timeout time.Duration) *writeCredentialTool {
 	t := &writeCredentialTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 

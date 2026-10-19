@@ -27,10 +27,9 @@ type searchCorpusTool struct {
 	deps Deps
 }
 
-func newSearchCorpusTool(deps Deps, timeout time.Duration, safe bool) *searchCorpusTool {
+func newSearchCorpusTool(deps Deps, timeout time.Duration) *searchCorpusTool {
 	t := &searchCorpusTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 

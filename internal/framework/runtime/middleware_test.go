@@ -83,7 +83,7 @@ func TestProgressTrackingMiddleware_NoOutputProgress(t *testing.T) {
 		ConsecutiveToolFailures: 0,
 		OutputCount:             3,
 	}
-	m.AfterIteration(ctx, state)
+	_, _ = m.AfterIteration(ctx, state)
 
 	// 模拟连续 5 次迭代无新输出
 	for i := 2; i <= 6; i++ {
@@ -123,7 +123,7 @@ func TestProgressTrackingMiddleware_WithNewOutput(t *testing.T) {
 			Iteration:   i,
 			OutputCount: 3,
 		}
-		m.AfterIteration(ctx, state)
+		_, _ = m.AfterIteration(ctx, state)
 	}
 
 	// 第 4 次有新输出，应该重置计数器

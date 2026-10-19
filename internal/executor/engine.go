@@ -129,7 +129,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	}
 
 	// 9. 处理输出并生成 Attempts
-	return e.processExecutorOutput(ctx, action, result)
+	return e.processOutput(ctx, action, result)
 }
 
 // buildSystemPrompt 组装 executor system prompt：

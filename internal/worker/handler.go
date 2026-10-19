@@ -10,8 +10,7 @@ import (
 // Payload 是所有 agent 任务的统一载荷。
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
-//
-// 现行 active 路径用 dispatcher/actor 进程内编排，exploitation 不入 asynq，故入队 Payload 此字段恒空；
+// 全部生产者（cmd/api active 下发 / ingestor passive 攒批）都填 AgentRunID + TaskID。
 type Payload struct {
 	AgentRunID string `json:"agent_run_id"` // 所属 agent_run.id（幂等键，见 client.go）
 	TaskID     string `json:"task_id"`      // 所属 task.id

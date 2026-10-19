@@ -48,10 +48,9 @@ type readInsightsTool struct {
 	deps Deps
 }
 
-func newReadInsightsTool(deps Deps, timeout time.Duration, safe bool) *readInsightsTool {
+func newReadInsightsTool(deps Deps, timeout time.Duration) *readInsightsTool {
 	t := &readInsightsTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -240,10 +239,9 @@ type writeInsightTool struct {
 	deps Deps
 }
 
-func newWriteInsightTool(deps Deps, timeout time.Duration, safe bool) *writeInsightTool {
+func newWriteInsightTool(deps Deps, timeout time.Duration) *writeInsightTool {
 	t := &writeInsightTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 

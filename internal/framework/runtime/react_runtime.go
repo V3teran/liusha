@@ -186,16 +186,6 @@ const (
 	IterationStatusFailed   IterationStatus = "failed"
 )
 
-// DefaultReActConfig 返回默认配置
-func DefaultReActConfig() *ReActConfig {
-	return &ReActConfig{
-		MaxIterations: 10,
-		Temperature:   0.7,
-		MaxTokens:     4096,
-		StreamEnabled: false,
-	}
-}
-
 // Validate 验证配置的合法性
 func (c *ReActConfig) Validate() error {
 	if c.Objective == "" {

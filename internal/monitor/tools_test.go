@@ -57,7 +57,7 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 
 	// 创建 metrics collector
 	logger := zerolog.New(zerolog.NewTestWriter(t))
-	metricsCollector := metrics.NewMetricsCollector(graph, "t1", logger)
+	metricsCollector := metrics.NewCollector(graph, "t1", logger)
 
 	tool := NewGetGlobalStateTool(graph, "t1", metricsCollector)
 	out, err := tool.Execute(ctx, []byte(`{}`))

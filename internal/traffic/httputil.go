@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// defaultMaxBody 是 body 截断阈值（32 KiB）；两个 store 共用。
+// defaultMaxBody 是 body 截断阈值（32 KiB），AgentStore.Append 使用。
 const defaultMaxBody = 32 * 1024
 
 // truncate 把超出 max 的 byte 切片截到 max；max<=0 表示禁用截断。

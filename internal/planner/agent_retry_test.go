@@ -21,7 +21,7 @@ type fakePlanner struct {
 	result    []explorationgraph.Node
 }
 
-func (f *fakePlanner) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
+func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ []string) ([]explorationgraph.Node, error) {
 	idx := int(atomic.AddInt32(&f.callCount, 1)) - 1
 	if idx < len(f.errors) {
 		return nil, f.errors[idx]
@@ -29,32 +29,32 @@ func (f *fakePlanner) Plan(ctx context.Context, graph *explorationgraph.Store, t
 	return f.result, nil
 }
 
-func (f *fakePlanner) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
+func (f *fakePlanner) AnalyzeResults(_ context.Context, _ *explorationgraph.Store, _ string, _ []explorationgraph.Node) (*ResultAnalysis, error) {
 	return &ResultAnalysis{}, nil
 }
 
 // fakeEventBus 简单的内存事件总线
 type fakeEventBus struct{}
 
-func (f *fakeEventBus) Publish(event bus.Event) {}
+func (f *fakeEventBus) Publish(_ bus.Event) {}
 
-func (f *fakeEventBus) SubscribeTask(taskID string) *bus.TaskSubscription {
+func (f *fakeEventBus) SubscribeTask(_ string) *bus.TaskSubscription {
 	return nil
 }
 
-func (f *fakeEventBus) PublishActionProposed(taskID, actionID string) {}
+func (f *fakeEventBus) PublishActionProposed(_, _ string) {}
 
-func (f *fakeEventBus) PublishActionCompleted(taskID, actionID string) {}
+func (f *fakeEventBus) PublishActionCompleted(_, _ string) {}
 
-func (f *fakeEventBus) PublishAttemptGenerated(taskID, actionID string, attempt interface{}) {}
+func (f *fakeEventBus) PublishAttemptGenerated(_, _ string, _ interface{}) {}
 
-func (f *fakeEventBus) PublishVerificationPassed(taskID, nodeID string) {}
+func (f *fakeEventBus) PublishVerificationPassed(_, _ string) {}
 
-func (f *fakeEventBus) PublishVerificationRefuted(taskID, actionID string) {}
+func (f *fakeEventBus) PublishVerificationRefuted(_, _ string) {}
 
-func (f *fakeEventBus) PublishTaskConverged(taskID, reason string) {}
+func (f *fakeEventBus) PublishTaskConverged(_, _ string) {}
 
-func (f *fakeEventBus) PublishReplanRequested(taskID, reason string) {}
+func (f *fakeEventBus) PublishReplanRequested(_, _ string) {}
 
 func TestGenerateNewActions_RetryOn429(t *testing.T) {
 	fake := &fakePlanner{

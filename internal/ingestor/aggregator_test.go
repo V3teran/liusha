@@ -8,6 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 )
 
 // newTestAggregator 起 miniredis + 构造 aggregator，测试结束自动清理。
@@ -16,7 +17,7 @@ func newTestAggregator(t *testing.T, batchSize int, window time.Duration) (*aggr
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return newAggregator(rdb, "test", batchSize, window), mr
+	return newAggregator(rdb, "test", batchSize, window, zerolog.Nop()), mr
 }
 
 // 阈值触发：攒够 batchSize 条即 Triggered，不足则否。

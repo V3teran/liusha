@@ -18,8 +18,6 @@ import (
 //	Spawn          启动容器 + 等 healthz → 返回 Client
 //	Destroy        停止 + 删除容器
 //	CleanupOrphans 启动时一次性清理上次进程崩前残留的容器
-//
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 type Launcher interface {
 	Spawn(ctx context.Context, agentID string) (Client, error)
 	Destroy(ctx context.Context, agentID string) error
@@ -85,7 +83,7 @@ func NewDockerLauncher(image string) *DockerLauncher {
 
 // Spawn 启动 sandbox 容器并等待 healthz。返回绑定到该容器 host 端口的 Client。
 //
-// agentID：仅作 docker 容器名（per-agent 隔离）。注意 planner + exploitation 共享同一容器，
+// agentID：仅作 docker 容器名。同一 task 的全部 agent 角色共享同一容器，
 // 所以容器级不注入 agent 身份 env——身份由 browser-svc.py 按 session→agent 逐请求归属
 // （sandbox-server /exec 每命令带 AGENT_ID env → wrapper 经 unix socket 转发 → daemon 建 tab 时登记）。
 // 容器级只注入 LIUSHA_INGEST_URL/TOKEN（常量），供 browser-svc.py CDP capture push 流量。
@@ -128,7 +126,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 	}
 	// CDP capture ingest env（容器级常量，非身份）：browser-svc.py 读 LIUSHA_INGEST_URL 决定是否
 	// 启用 Network observer，读 LIUSHA_INGEST_TOKEN 作 Bearer。URL 空则整体不注入 → capture 不启用。
-	// agent_id 不在这注入——planner/exploitation 共享容器，由 browser-svc.py 按 session→agent 逐请求归属。
+	// agent_id 不在这注入——全部 agent 角色共享容器，由 browser-svc.py 按 session→agent 逐请求归属。
 	if l.IngestURL != "" {
 		args = append(args, "-e", "LIUSHA_INGEST_URL="+l.IngestURL)
 		if l.IngestToken != "" {

@@ -69,6 +69,8 @@ func executeHTTPRequest(ctx context.Context, req *http.Request, timeoutSeconds i
 		},
 	}
 
+	// 绑定 ctx：任务取消/超时能中断在途请求（而非干等 timeout）
+	req = req.WithContext(ctx)
 	start := time.Now()
 	resp, err := client.Do(req)
 	durMs := int(time.Since(start).Milliseconds())

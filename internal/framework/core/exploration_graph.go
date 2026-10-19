@@ -106,13 +106,14 @@ const (
 type ObservationConfidence string
 
 const (
-	// 假设生命周期（evaluator 复现门独占流转）
-	ConfidenceUnverified ObservationConfidence = "unverified" // 待裁决
-	ConfidenceVerified   ObservationConfidence = "verified"   // 已坐实（result）
-	ConfidenceRefuted    ObservationConfidence = "refuted"    // 已证伪
-
-	// 事实终态（executor 写入即终态）
-	ConfidenceFactual ObservationConfidence = "factual" // 已确认事实
+	// ConfidenceUnverified 待裁决（假设生命周期由 evaluator 复现门独占流转）。
+	ConfidenceUnverified ObservationConfidence = "unverified"
+	// ConfidenceVerified 已坐实（晋升 result）。
+	ConfidenceVerified ObservationConfidence = "verified"
+	// ConfidenceRefuted 已证伪。
+	ConfidenceRefuted ObservationConfidence = "refuted"
+	// ConfidenceFactual 已确认事实（executor 写入即终态）。
+	ConfidenceFactual ObservationConfidence = "factual"
 )
 
 // Priority 是节点的优先级

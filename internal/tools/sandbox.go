@@ -31,10 +31,9 @@ type runCommandTool struct {
 	deps Deps
 }
 
-func newRunCommandTool(deps Deps, timeout time.Duration, safe bool) *runCommandTool {
+func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
 	t := &runCommandTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -142,10 +141,9 @@ type driveBrowserTool struct {
 	deps Deps
 }
 
-func newDriveBrowserTool(deps Deps, timeout time.Duration, safe bool) *driveBrowserTool {
+func newDriveBrowserTool(deps Deps, timeout time.Duration) *driveBrowserTool {
 	t := &driveBrowserTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 

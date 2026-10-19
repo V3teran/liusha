@@ -24,7 +24,7 @@ type GetGlobalStateTool struct {
 	registry.BaseTool
 	graph            *explorationgraph.Store
 	taskID           string
-	metricsCollector *metrics.MetricsCollector
+	metricsCollector *metrics.Collector
 	// activity 返回 action 距最近一次工具活动的时长（false=无记录）。
 	// 图上"无输出"是长 ReAct 执行期的正常形态，工具活动才是活性真信号——
 	// kill 决策必须看它，否则会把正在深挖的 action 当卡死冤杀。
@@ -32,14 +32,13 @@ type GetGlobalStateTool struct {
 }
 
 // NewGetGlobalStateTool 构造全局态势工具。
-func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string, metricsCollector *metrics.MetricsCollector) *GetGlobalStateTool {
+func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string, metricsCollector *metrics.Collector) *GetGlobalStateTool {
 	t := &GetGlobalStateTool{
 		graph:            graph,
 		taskID:           taskID,
 		metricsCollector: metricsCollector,
 	}
 	t.SetTimeout(constants.ToolTimeoutLong)
-	t.SetConcurrencySafe(true)
 	return t
 }
 
@@ -161,7 +160,6 @@ func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.Bus, tas
 		taskID:   taskID,
 	}
 	t.SetTimeout(constants.ToolTimeoutMedium)
-	t.SetConcurrencySafe(false) // 决策操作不能并发
 	return t
 }
 

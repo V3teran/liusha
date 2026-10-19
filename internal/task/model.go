@@ -4,7 +4,7 @@
 //   - 输入统一为一段 brief 文本（用户自然语言目标描述）；target_host 为派生列，
 //     由 runner 从 brief 抽取后 SetTargetHost 回填，非用户输入的第二形态。
 //
-// 相较旧双表的语义变化（见 docs/superpowers/specs/2026-07-05-assignment-task-lead-design.md §2）：
+// 相较旧双表的语义变化：
 //   - 每批流量/每次下发产一个独立 task，同 host 可多个。「是否在监控」从 proxy_traffic 派生。
 //   - owner_type + owner_id 多态坍缩为 task_id：附属表（agent/finding/...）直接挂 task.id。
 //

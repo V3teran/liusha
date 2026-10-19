@@ -82,14 +82,10 @@ func (p *stubCredProvider) GetIdentitiesByHost(context.Context, string) ([]crede
 	return p.identities, nil
 }
 
-func (p *stubCredProvider) List(ctx context.Context, host string) (map[string][]credential.Identity, error) {
-	return map[string][]credential.Identity{host: p.identities}, nil
-}
-
-func (p *stubCredProvider) BatchSave(ctx context.Context, byHost map[string][]credential.Identity, ttlSeconds int) error {
+func (p *stubCredProvider) BatchSave(_ context.Context, _ map[string][]credential.Identity, _ int) error {
 	return nil
 }
 
-func (p *stubCredProvider) Delete(ctx context.Context, host string) error {
+func (p *stubCredProvider) Delete(_ context.Context, _ string) error {
 	return nil
 }

@@ -20,7 +20,7 @@ func TestMetricsCollector_Update(t *testing.T) {
 	taskID := "test-task"
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 
-	collector := NewMetricsCollector(graph, taskID, logger)
+	collector := NewCollector(graph, taskID, logger)
 
 	// 创建一些 actions
 	for i := 0; i < 5; i++ {
@@ -67,7 +67,7 @@ func TestMetricsCollector_IncrementalUpdate(t *testing.T) {
 	taskID := "test-task"
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 
-	collector := NewMetricsCollector(graph, taskID, logger)
+	collector := NewCollector(graph, taskID, logger)
 
 	// 第一次更新：3 个 actions
 	for i := 0; i < 3; i++ {
@@ -116,7 +116,7 @@ func TestMetricsCollector_EmptyGraph(t *testing.T) {
 	taskID := "test-task"
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 
-	collector := NewMetricsCollector(graph, taskID, logger)
+	collector := NewCollector(graph, taskID, logger)
 
 	// 空图
 	err := collector.Update(ctx)
@@ -136,7 +136,7 @@ func TestMetricsCollector_Ratio(t *testing.T) {
 	taskID := "test-task"
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 
-	collector := NewMetricsCollector(graph, taskID, logger)
+	collector := NewCollector(graph, taskID, logger)
 
 	// 创建 10 个 actions
 	for i := 0; i < 10; i++ {

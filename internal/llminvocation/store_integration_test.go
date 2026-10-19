@@ -197,8 +197,8 @@ func TestStore_AggregateByTask(t *testing.T) {
 
 	rows := []Invocation{
 		{Provider: "deepseek", Model: "deepseek-chat", Role: "planner", InTokens: 100, OutTokens: 10, CachedTokens: 5, LatencyMs: 200},
-		{Provider: "deepseek", Model: "deepseek-chat", Role: "exploitation", InTokens: 200, OutTokens: 20, CachedTokens: 0, LatencyMs: 300},
-		{Provider: "deepseek", Model: "deepseek-chat", Role: "exploitation", InTokens: 50, OutTokens: 5, CachedTokens: 50, LatencyMs: 100},
+		{Provider: "deepseek", Model: "deepseek-chat", Role: "executor", InTokens: 200, OutTokens: 20, CachedTokens: 0, LatencyMs: 300},
+		{Provider: "deepseek", Model: "deepseek-chat", Role: "executor", InTokens: 50, OutTokens: 5, CachedTokens: 50, LatencyMs: 100},
 	}
 	for i := range rows {
 		rows[i].TaskID = &taskID
@@ -231,8 +231,8 @@ func seedFiltered(t *testing.T, s *Store, taskID string) {
 	ctx := context.Background()
 	rows := []Invocation{
 		{Role: "planner", Model: "glm-5.3-flash", InTokens: 100, OutTokens: 10},
-		{Role: "exploitation", Model: "glm-5.3-flash", InTokens: 200, OutTokens: 20},
-		{Role: "exploitation", Model: "deepseek-chat", InTokens: 400, OutTokens: 40, Error: "429 rate limited"},
+		{Role: "executor", Model: "glm-5.3-flash", InTokens: 200, OutTokens: 20},
+		{Role: "executor", Model: "deepseek-chat", InTokens: 400, OutTokens: 40, Error: "429 rate limited"},
 	}
 	for i := range rows {
 		rows[i].TaskID = &taskID
@@ -258,10 +258,10 @@ func TestStore_ListByTask_Filters(t *testing.T) {
 		want int
 	}{
 		{"不筛=全量", ListFilter{}, 3},
-		{"按 role", ListFilter{Role: "exploitation"}, 2},
+		{"按 role", ListFilter{Role: "executor"}, 2},
 		{"按 model", ListFilter{Model: "glm-5.3-flash"}, 2},
 		{"仅错误", ListFilter{OnlyErr: true}, 1},
-		{"role+model 交集", ListFilter{Role: "exploitation", Model: "glm-5.3-flash"}, 1},
+		{"role+model 交集", ListFilter{Role: "executor", Model: "glm-5.3-flash"}, 1},
 		{"无匹配", ListFilter{Role: "nobody"}, 0},
 	}
 	for _, c := range cases {
@@ -284,7 +284,7 @@ func TestStore_AggregateByTask_Filtered(t *testing.T) {
 	s, taskID := setup(t)
 	seedFiltered(t, s, taskID)
 
-	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{Role: "exploitation"})
+	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{Role: "executor"})
 	if err != nil {
 		t.Fatalf("aggregate filtered: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestStore_FacetsByTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facets: %v", err)
 	}
-	if len(f.Roles) != 2 || f.Roles[0] != "exploitation" || f.Roles[1] != "planner" {
+	if len(f.Roles) != 2 || f.Roles[0] != "executor" || f.Roles[1] != "planner" {
 		t.Errorf("roles 应去重且有序: %+v", f.Roles)
 	}
 	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "glm-5.3-flash" {

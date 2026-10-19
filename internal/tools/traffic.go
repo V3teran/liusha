@@ -32,10 +32,9 @@ type listTrafficTool struct {
 	deps Deps
 }
 
-func newListTrafficTool(deps Deps, timeout time.Duration, safe bool) *listTrafficTool {
+func newListTrafficTool(deps Deps, timeout time.Duration) *listTrafficTool {
 	t := &listTrafficTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -147,10 +146,9 @@ type viewTrafficTool struct {
 	deps Deps
 }
 
-func newViewTrafficTool(deps Deps, timeout time.Duration, safe bool) *viewTrafficTool {
+func newViewTrafficTool(deps Deps, timeout time.Duration) *viewTrafficTool {
 	t := &viewTrafficTool{deps: deps}
 	t.SetTimeout(timeout)
-	t.SetConcurrencySafe(safe)
 	return t
 }
 
@@ -208,5 +206,3 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 	return registry.ToolResult{Error: fmt.Sprintf("view_traffic: 未找到 id=%d 的流量记录", a.ID)}, nil
 }
-
-// ─── replay_traffic ──────────────────────────────────────────────────────────

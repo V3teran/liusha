@@ -210,8 +210,8 @@ func (a *scanAdapter) FollowUp(ctx context.Context, taskID, conversationID, brie
 // enqueuePlannerRun 建 planner agent run 并入队——expandItem（首跑）与 FollowUp（续跑）
 // 共用同一份入队语义。
 //
-// planner 跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管时新 runner 进程
-// parentRegistries 是空的，PreDoneCheck 永放行，旧 PG exploitation 留 status=running 僵尸态。
+// 任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管的新 runner 进程没有
+// 原进程的认知循环状态（bus/共享沙箱），重跑只会产出脏状态。
 // MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
 func (a *scanAdapter) enqueuePlannerRun(ctx context.Context, taskID, conversationID string, payloadInput []byte) (string, error) {
 	tid, err := a.agentRuns.Create(ctx, agentrun.NewParams{

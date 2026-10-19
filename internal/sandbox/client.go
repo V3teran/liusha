@@ -14,8 +14,6 @@ import (
 //
 // 一个 Client 实例对应一个 sandbox 容器（一次 agent run）；
 // Launcher.Spawn 返回 Client，run 结束 Launcher.Destroy 销毁容器。
-//
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 type Client interface {
 	Exec(ctx context.Context, req ExecRequest) (ExecResult, error)
 	Close() error

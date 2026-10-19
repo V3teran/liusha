@@ -71,8 +71,6 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage) (ToolResult, error)
 	// Timeout 返回工具的执行超时时间（0 表示使用全局默认值）。
 	Timeout() time.Duration
-	// ConcurrencySafe 声明工具是否可与其他工具并发执行。
-	ConcurrencySafe() bool
 }
 
 // ─────────────────────────────────────────────
@@ -81,18 +79,12 @@ type Tool interface {
 
 // BaseTool 为 Tool 接口提供默认实现，工具可嵌入此类型减少样板代码。
 type BaseTool struct {
-	timeout         time.Duration
-	concurrencySafe bool
+	timeout time.Duration
 }
 
 // Timeout 返回工具超时时间（0 = 使用全局默认 120 秒）。
 func (b BaseTool) Timeout() time.Duration {
 	return b.timeout
-}
-
-// ConcurrencySafe 返回工具是否并发安全（默认 false）。
-func (b BaseTool) ConcurrencySafe() bool {
-	return b.concurrencySafe
 }
 
 // WithTimeout 设置超时时间（构造器辅助方法）。
@@ -101,20 +93,9 @@ func (b *BaseTool) WithTimeout(d time.Duration) *BaseTool {
 	return b
 }
 
-// WithConcurrencySafe 设置并发安全标识（构造器辅助方法）。
-func (b *BaseTool) WithConcurrencySafe(safe bool) *BaseTool {
-	b.concurrencySafe = safe
-	return b
-}
-
 // SetTimeout 设置超时时间（setter 方法）。
 func (b *BaseTool) SetTimeout(d time.Duration) {
 	b.timeout = d
-}
-
-// SetConcurrencySafe 设置并发安全标识（setter 方法）。
-func (b *BaseTool) SetConcurrencySafe(safe bool) {
-	b.concurrencySafe = safe
 }
 
 // Allows 报告 name 是否在白名单内。白名单语义全项目统一：

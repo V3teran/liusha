@@ -1,16 +1,16 @@
 // ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口（从 cmd/proxy 迁来）。
 //
-// 背景：active 模式下 planner/exploitation 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
+// 背景：active 模式下 executor 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
 // 真实认证请求（Document/XHR/Fetch）必须进 agent_traffic 字典，LLM 才能看到真实请求结构 + 凭证位置
-// → 转 replay_traffic 做水平/垂直越权（BAC）测试。
+// → 供 http_request / evaluator 复现门做水平/垂直越权（BAC）测试。
 //
 // 两条抓取前端（都在沙箱内，都 POST 到这里）：
 //   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→agent 归属）
 //   - CLI：容器内本地 mitmdump + mitm-capture.py，工具经 HTTP_PROXY 走它（owner 级归属，executor_id 走 env）
 //
-// 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → publisher.Publish
+// 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → Traffic.SubmitInternal
 //
-//	→ XADD flow_events stream → ingestor.handleInternalSnap 消费（与 sanitizer 路径同下游）。
+//	→ 进程内有界队列 → ingestor.drainInternal → handleInternalSnap 落库（不绕 Redis，自环 broker 冗余）。
 //
 // 路径：POST /internal/v1/flows/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :9090）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
@@ -18,6 +18,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -85,7 +86,7 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 			return
 		}
 
-		if tokenRequired && r.Header.Get("Authorization") != expected {
+		if tokenRequired && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
 			logger.Warn().Str("remote", r.RemoteAddr).Msg("ingest 鉴权失败")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

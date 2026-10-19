@@ -27,7 +27,7 @@ EXCLUDES=(
 )
 
 # 禁用术语（旧架构残留，全称匹配大小写不敏感）。
-# 注意：lead（情报线索）/ lesson（历史沿革注释）/ engagement（英文领域用语）为允许术语，不进禁用表。
+# engagement：0001 顶层会话概念，0041/0153 已删表、代码零引用——assignment 取代，防回流。
 FORBIDDEN=(
   '知识图谱'
   '认知图'
@@ -47,6 +47,7 @@ FORBIDDEN=(
   'vulnerability_scan'
   'indicative'
   'domain\.Profile'
+  'engagement'
 )
 
 MODE="${1:-check}"

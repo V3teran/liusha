@@ -1,9 +1,8 @@
-package repro
-
-// 本文件承载复现配方的归一化设施（域信封解析/矫正/分域校验）。
+// Package repro 承载复现配方的域信封契约：归一化、矫正、分域校验。
+// 它是纯函数叶子包（零内部依赖），executor 收割侧与 evaluator 裁决门共同依赖。
 // 观察节点的唯一生产路径是 executor 引擎收割（ReAct 最终 JSON →
-// createObservationNode），归一化在落图前统一执行；曾有的
-// write_observation 白名单工具已随架构演化删除（0 调用实证）。
+// createObservationNode），归一化在落图前统一执行。
+package repro
 
 import (
 	"encoding/json"
@@ -11,10 +10,6 @@ import (
 	"strings"
 )
 
-// Package repro 承载复现配方的域信封契约：归一化、矫正、分域校验。
-// 它是纯函数叶子包（零内部依赖），executor 收割侧与 evaluator 裁决门
-// 共同依赖——同一配方契约，两条消费路径各说各话曾致真假设冤死。
-//
 // NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
 // 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封；
 // assert 误放进 recipe 时自动提升（返回的教学提示随工具输出回给 LLM）。

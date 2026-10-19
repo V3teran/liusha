@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // fakeTool 是可编程的最小 Tool：记录调用次数，返回预设结果。
@@ -140,33 +138,5 @@ func TestRegistry_TimeoutInterceptor(t *testing.T) {
 	_, err := r.WrapTool(slow).Execute(ctx, nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("超时应上抛 context.DeadlineExceeded, got %v", err)
-	}
-}
-
-// ExecuteParallel：并发执行多个调用，结果按入参顺序返回。
-func TestRegistry_ExecuteParallel(t *testing.T) {
-	r := New()
-	a := &fakeTool{name: "a", output: "A"}
-	b := &fakeTool{name: "b", resErr: "B-bad"}
-	r.Register(a)
-	r.Register(b)
-
-	calls := []llm.ToolCall{
-		{ID: "c1", Name: "a", Arguments: json.RawMessage(`{}`)},
-		{ID: "c2", Name: "b", Arguments: json.RawMessage(`{}`)},
-		{ID: "c3", Name: "missing", Arguments: json.RawMessage(`{}`)},
-	}
-	results := r.ExecuteParallel(context.Background(), calls)
-	if len(results) != 3 {
-		t.Fatalf("应有 3 个结果, got %d", len(results))
-	}
-	if results[0].Output != "A" {
-		t.Fatalf("结果应按入参顺序: results[0]=%q", results[0].Output)
-	}
-	if results[1].Error == "" {
-		t.Fatal("工具级错误应进 results[1].Error")
-	}
-	if results[2].Error == "" {
-		t.Fatal("未注册工具应产生错误而非静默")
 	}
 }

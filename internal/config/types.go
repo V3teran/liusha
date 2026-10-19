@@ -206,8 +206,7 @@ type RunnerConfig struct {
 	TrafficMaxResponseBody      int    `mapstructure:"traffic_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
-	QueueAgentWeight    int `mapstructure:"queue_agent_weight"`
-	QueueDispatchWeight int `mapstructure:"queue_dispatch_weight"`
+	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
 
 	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。
 	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active planner
@@ -254,7 +253,9 @@ type HistoryCompactConfig struct {
 //
 // 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
 // （per-agent-run 容器模型下这些参数没有按  owner 调整的需求）。
-// 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md。
+
+// SandboxConfig 是沙箱容器执行配置（镜像、资源、抓流回传地址等）。
+// per-task 共享容器模型下这些参数没有按 owner 调整的需求。
 type SandboxConfig struct {
 	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。
 	DefaultImage string `mapstructure:"default_image"`

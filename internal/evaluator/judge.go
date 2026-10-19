@@ -240,7 +240,7 @@ type replayTool struct {
 
 func newReplayTool(replay ReplayFunc) *replayTool {
 	t := &replayTool{replay: replay}
-	t.WithTimeout(60 * time.Second).WithConcurrencySafe(false) // 重放串行
+	t.WithTimeout(60 * time.Second)
 	return t
 }
 
