@@ -44,8 +44,6 @@ function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocati
     out_tokens: 50,
     cached_tokens: 0,
     latency_ms: 1500,
-    ttft_ms: 0,
-    is_stream: false,
     finish_reason: 'stop',
     error_message: '',
     role: 'planner',

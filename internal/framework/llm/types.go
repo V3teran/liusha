@@ -117,7 +117,7 @@ type GenOpts struct {
 	Temperature *float64 // 采样温度；nil = 默认
 }
 
-// OptionsGenerator 是按调用传可选参数的能力接口（与 StreamChatGenerator 同一模式）。
+// OptionsGenerator 是按调用传可选参数的能力接口。
 // 适配器实现它后，Provider 桥接层会把 Request.Temperature 透传到协议请求。
 type OptionsGenerator interface {
 	GenerateWithOpts(ctx context.Context, messages []Message, tools []ToolSchema, opts GenOpts) (Result, error)

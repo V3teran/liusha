@@ -21,19 +21,6 @@ func (s *slowProvider) Complete(ctx context.Context, _ Request) (Response, error
 	}
 }
 
-func (s *slowProvider) Stream(ctx context.Context, _ Request) (<-chan StreamEvent, error) {
-	ch := make(chan StreamEvent)
-	go func() {
-		defer close(ch)
-		select {
-		case <-time.After(s.delay):
-		case <-ctx.Done():
-			return
-		}
-	}()
-	return ch, nil
-}
-
 func (s *slowProvider) CountTokens(_ context.Context, _ Request) (int, error) { return 0, nil }
 func (s *slowProvider) ModelID() string                                       { return "slow" }
 func (s *slowProvider) ProviderID() string                                    { return "slow" }
@@ -54,20 +41,6 @@ func TestWithCallTimeout_WithinBudget(t *testing.T) {
 	resp, err := p.Complete(context.Background(), Request{})
 	require.NoError(t, err)
 	assert.Equal(t, "done", resp.Content)
-}
-
-// TestWithCallTimeout_StreamCloses 验证流式超时后事件通道关闭。
-func TestWithCallTimeout_StreamCloses(t *testing.T) {
-	p := WithCallTimeout(&slowProvider{delay: 5 * time.Second}, 50*time.Millisecond)
-
-	ch, err := p.Stream(context.Background(), Request{})
-	require.NoError(t, err)
-
-	events := 0
-	for range ch {
-		events++
-	}
-	assert.Equal(t, 0, events, "超时应无事件、通道直接关闭")
 }
 
 // TestWithCallTimeout_ZeroNoop 验证非正超时不装饰（透传原 provider）。

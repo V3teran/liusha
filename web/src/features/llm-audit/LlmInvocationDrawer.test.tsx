@@ -15,8 +15,6 @@ function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocation
     out_tokens: 50,
     cached_tokens: 0,
     latency_ms: 2000,
-    ttft_ms: 0,
-    is_stream: false,
     finish_reason: 'stop',
     error_message: '',
     role: 'planner',

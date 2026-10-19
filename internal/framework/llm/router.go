@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Complexity 是 LLM 复杂度分级标识。
@@ -41,40 +42,74 @@ func ParseComplexity(complexity string) Complexity {
 // 由调用方从配置的全局备胎（保留 role __fallback__）装配。
 type RouterFallbackFactory func(ctx context.Context) (Provider, error)
 
-// Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全）。
+// providerCacheTTL 是已构造 Provider 实例的缓存有效期。
+// 缓存把 API key/model/baseURL 烤进实例——前端改配置后若缓存不过期，
+// 新配置直到进程重启才生效。TTL 把这个窗口封顶（llmstore 侧的多级缓存
+// 仍负责读路径的即时失效，本 TTL 只兜「已构造实例」这一层）。
+const providerCacheTTL = 30 * time.Second
+
+// cachedProvider 是 Router 的缓存条目（实例 + 构造时刻）。
+type cachedProvider struct {
+	p       Provider
+	builtAt time.Time
+}
+
+// Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全，
+// 条目经 providerCacheTTL 过期，保证配置变更有界生效）。
 type Router struct {
-	store    RouterStore
-	pool     *ClientPool
-	fallback RouterFallbackFactory
+	store     RouterStore
+	pool      *ClientPool
+	fallback  RouterFallbackFactory
+	retryOpts RetryOptions
 	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
 	// 在首次 For() 之前设置；并发不安全。
 	providerWrapper func(Provider) Provider
 	mu              sync.Mutex
-	cached          map[Complexity]Provider
+	cached          map[Complexity]cachedProvider
 }
 
 // NewRouter 构造 Router。
 func NewRouter(store RouterStore) *Router {
-	return NewRouterWithFallback(store, nil)
+	return NewRouterWithFallbackOpts(store, nil, DefaultRetryOptions())
 }
 
-// NewRouterWithFallback 构造带可选兜底的 Router。
+// NewRouterWithFallback 构造带可选兜底的 Router（默认退避表）。
 func NewRouterWithFallback(store RouterStore, fallback RouterFallbackFactory) *Router {
+	return NewRouterWithFallbackOpts(store, fallback, DefaultRetryOptions())
+}
+
+// NewRouterWithFallbackOpts 构造带可选兜底与自定义退避表的 Router
+// （opts 零值字段由 DefaultRetryOptions 逐项兜底）。
+func NewRouterWithFallbackOpts(store RouterStore, fallback RouterFallbackFactory, opts RetryOptions) *Router {
+	def := DefaultRetryOptions()
+	if opts.MaxRetries429 == 0 {
+		opts.MaxRetries429 = def.MaxRetries429
+	}
+	if opts.MaxRetries529 == 0 {
+		opts.MaxRetries529 = def.MaxRetries529
+	}
+	if opts.MaxRetries5xx == 0 {
+		opts.MaxRetries5xx = def.MaxRetries5xx
+	}
+	if opts.MaxRetriesNet == 0 {
+		opts.MaxRetriesNet = def.MaxRetriesNet
+	}
 	return &Router{
-		store:    store,
-		pool:     NewClientPool(),
-		fallback: fallback,
-		cached:   make(map[Complexity]Provider),
+		store:     store,
+		pool:      NewClientPool(),
+		fallback:  fallback,
+		retryOpts: opts,
+		cached:    make(map[Complexity]cachedProvider),
 	}
 }
 
-// For 返回指定 Complexity 的 Provider（首次构造后缓存）。
-// 配置变更后可调用 Invalidate 清缓存。
+// For 返回指定 Complexity 的 Provider（缓存命中且未过期直接返回）。
+// 配置变更可调用 Invalidate 清缓存；不调用也会经 providerCacheTTL 自然过期。
 func (r *Router) For(ctx context.Context, complexity Complexity) (Provider, error) {
 	r.mu.Lock()
-	if p, ok := r.cached[complexity]; ok {
+	if e, ok := r.cached[complexity]; ok && time.Since(e.builtAt) < providerCacheTTL {
 		r.mu.Unlock()
-		return p, nil
+		return e.p, nil
 	}
 	r.mu.Unlock()
 
@@ -84,7 +119,7 @@ func (r *Router) For(ctx context.Context, complexity Complexity) (Provider, erro
 	}
 
 	r.mu.Lock()
-	r.cached[complexity] = p
+	r.cached[complexity] = cachedProvider{p: p, builtAt: time.Now()}
 	r.mu.Unlock()
 	return p, nil
 }
@@ -99,7 +134,7 @@ func (r *Router) Invalidate(complexity Complexity) {
 // InvalidateAll 清除所有缓存。
 func (r *Router) InvalidateAll() {
 	r.mu.Lock()
-	r.cached = make(map[Complexity]Provider)
+	r.cached = make(map[Complexity]cachedProvider)
 	r.mu.Unlock()
 }
 
@@ -131,7 +166,7 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		}
 	}
 
-	prov := WithFallback(NewProvider(g), fallback, DefaultRetryOptions())
+	prov := WithFallback(NewProvider(g), fallback, r.retryOpts)
 	if r.providerWrapper != nil {
 		prov = r.providerWrapper(prov)
 	}
@@ -143,7 +178,7 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.mu.Lock()
 	r.providerWrapper = fn
-	r.cached = make(map[Complexity]Provider) // 换钩子后作废旧缓存
+	r.cached = make(map[Complexity]cachedProvider) // 换钩子后作废旧缓存
 	r.mu.Unlock()
 }
 

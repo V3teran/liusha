@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { clockTime, dateOnly, fullTime, humanDuration, humanTokens } from '@/lib/format'
 import { invocationStatus } from '@/lib/llmInvocationStatus'
-import { isTimeout, latencyLevel, throughputLabel, ttftLevel, type TimingLevel } from '@/lib/llmTiming'
+import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from '@/lib/llmTiming'
 
 const columnHelper = createColumnHelper<LLMInvocationSummary>()
 
@@ -96,12 +96,6 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         const warnStatus = status?.level === 'warn' ? status : null
         return (
           <span className="flex flex-col gap-px whitespace-nowrap text-[12.5px]">
-            {v.is_stream && v.ttft_ms > 0 && (
-              <em className="flex items-center gap-1.5 text-[10.5px] font-normal not-italic text-muted opacity-75">
-                <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${TIMING_DOT[ttftLevel(v.ttft_ms)]}`} />
-                首字 {humanDuration(v.ttft_ms)}
-              </em>
-            )}
             <span className="flex items-center gap-1.5">
               <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${timeout ? 'bg-sev-critical' : TIMING_DOT[latencyLevel(v.latency_ms, v.out_tokens)]}`} />
               <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>

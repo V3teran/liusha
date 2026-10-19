@@ -41,22 +41,6 @@ func (p *testMockProvider) Complete(_ context.Context, _ llm.Request) (llm.Respo
 	return resp, nil
 }
 
-func (p *testMockProvider) Stream(_ context.Context, _ llm.Request) (<-chan llm.StreamEvent, error) {
-	ch := make(chan llm.StreamEvent, 1)
-	go func() {
-		defer close(ch)
-		ch <- llm.StreamEvent{
-			Kind:    llm.StreamText,
-			Content: p.Responses[p.Index%len(p.Responses)],
-		}
-		p.Index++
-		ch <- llm.StreamEvent{
-			Kind: llm.StreamDone,
-		}
-	}()
-	return ch, nil
-}
-
 func (p *testMockProvider) CountTokens(_ context.Context, _ llm.Request) (int, error) {
 	return 100, nil
 }

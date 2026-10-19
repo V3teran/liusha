@@ -37,11 +37,6 @@ export function latencyLevel(latencyMs: number, outTokens: number): TimingLevel 
   return throughputLevel(outTokens / seconds)
 }
 
-/** TTFT 分档（首 token 与输出量无关，纯看耗时）。 */
-export function ttftLevel(ttftMs: number): TimingLevel {
-  return durationLevel(ttftMs / 1000)
-}
-
 /** 是否为看门狗超时打点（此时延迟数字不代表真实响应耗时）。 */
 export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>): boolean {
   return v.latency_ms >= LLM_TIMEOUT_MS

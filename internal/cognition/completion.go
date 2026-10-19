@@ -1,4 +1,6 @@
-// Package cognition 提供认知循环的完成检测机制
+// Package cognition 实现认知循环：四 Agent（planner/executor/evaluator/monitor）
+// 的装配与驱动（loop.go）、启停生命周期（lifecycle.go）、控制平面消费（control.go）、
+// 工具遥测（telemetry.go）与完成检测（本文件）。
 package cognition
 
 import (

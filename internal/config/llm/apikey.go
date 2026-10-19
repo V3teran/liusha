@@ -6,7 +6,7 @@ import (
 )
 
 // KeyDecrypter 解密 Provider.EncryptedAPIKey（*cryptx.Cipher 自动满足）。
-// llmcfg 包不直接依赖 cryptx——避免持久化层认识加密细节，调用方（internal/llm、internal/provider）
+// llmcfg 包不直接依赖 cryptx——避免持久化层认识加密细节，调用方（framework/llm router 装配层、探测适配器）
 // 在构造 LLM client 那一刻传入具体实现。
 type KeyDecrypter interface {
 	Decrypt(sealed []byte) (string, error)

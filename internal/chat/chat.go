@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/llm"
+	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // Deps 是纯聊天所需的最小依赖（cmd/api 注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。

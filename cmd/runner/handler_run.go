@@ -2,102 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sync/atomic"
-	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
 
-	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/worker"
 )
-
-// const
-// heartbeatThrottleMs: minimum gap between consecutive heartbeat writes.
-const heartbeatThrottleMs = 10_000
 
 // ─────────────────────────────────────────────────────────────
 //  Tool-invocation recorder (heartbeat + DB telemetry)
 // ─────────────────────────────────────────────────────────────
-
-// toolRecordInterceptor returns a registry.Interceptor that records every tool
-// call to toolinvocation.Store and throttles task heartbeats.
-func (h handler) toolRecordInterceptor(agentRunID, taskID string, activities *activityTracker) registry.Interceptor {
-	lastBeatMs := new(atomic.Int64)
-	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
-		h.logger.Debug().
-			Str("task_id", taskID).
-			Str("tool_name", t.Name()).
-			Msg("tool call intercepted")
-
-		start := time.Now()
-		res, err := next(ctx, t, args)
-		durMs := int(time.Since(start).Milliseconds())
-
-		errMsg := ""
-		if res.Error != "" {
-			errMsg = res.Error
-		} else if err != nil {
-			errMsg = err.Error()
-		}
-		// record tool invocation (best-effort)
-		if h.toolCalls != nil {
-			preview := res.Output
-			if len(preview) > 512 {
-				preview = preview[:512]
-			}
-			invID, appendErr := h.toolCalls.Append(ctx, toolinvocation.Invocation{
-				AgentRunID:    agentRunID,
-				TaskID:        taskID,
-				ToolName:      t.Name(),
-				Args:          json.RawMessage(args),
-				OutputSize:    len(res.Output),
-				OutputPreview: preview,
-				DurationMs:    durMs,
-				ErrorMessage:  errMsg,
-			})
-			if appendErr != nil {
-				h.logger.Error().Err(appendErr).
-					Str("task_id", taskID).
-					Str("tool_name", t.Name()).
-					Msg("failed to record tool invocation")
-			} else {
-				h.logger.Debug().
-					Str("task_id", taskID).
-					Str("tool_name", t.Name()).
-					Int64("invocation_id", invID).
-					Msg("tool invocation recorded")
-			}
-		} else {
-			h.logger.Warn().
-				Str("task_id", taskID).
-				Str("tool_name", t.Name()).
-				Msg("h.toolCalls is nil, cannot record invocation")
-		}
-		// 活动打点：monitor 的 kill 判据依据（图上无输出 ≠ 卡死）
-		if activities != nil {
-			activities.touch(ctx)
-		}
-
-		// throttled heartbeat
-		if taskID != "" {
-			now := time.Now().UnixMilli()
-			last := lastBeatMs.Load()
-			if now-last >= heartbeatThrottleMs {
-				if lastBeatMs.CompareAndSwap(last, now) {
-					hctx, hcancel := context.WithTimeout(context.Background(), 3*time.Second)
-					defer hcancel()
-					if h.tasks != nil {
-						_ = h.tasks.Heartbeat(hctx, taskID)
-					}
-				}
-			}
-		}
-		return res, err
-	}
-}
 
 // ─────────────────────────────────────────────────────────────
 //  Cognition handler (新架构统一入口)

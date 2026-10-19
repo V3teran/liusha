@@ -214,7 +214,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			c.AgentRunID, c.TaskID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
-			c.LatencyMs, c.TTFTMs, c.IsStream,
+			c.LatencyMs,
 			c.FinishReason, c.Error, c.Role,
 			c.Messages, c.Result,
 		}
@@ -226,7 +226,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			"agent_run_id", "task_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
-			"latency_ms", "ttft_ms", "is_stream",
+			"latency_ms",
 			"finish_reason", "error_message", "role",
 			"messages", "result",
 		},
@@ -313,7 +313,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		SELECT id, request_id, agent_run_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms, ttft_ms, is_stream,
+		       latency_ms,
 		       finish_reason, error_message, role,
 		       created_at,
 		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
@@ -338,7 +338,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 			&v.Provider, &v.Model,
 			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.LatencyMs, &v.TTFTMs, &v.IsStream,
+			&v.LatencyMs,
 			&v.FinishReason, &v.Error, &v.Role,
 			&v.CreatedAt,
 			&v.ToolNames, &v.TextPreview,
@@ -363,7 +363,7 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		SELECT id, request_id, agent_run_id, task_id::text,
 		       provider, model,
 		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms, ttft_ms, is_stream,
+		       latency_ms,
 		       finish_reason, error_message, role,
 		       messages, result, created_at
 		FROM llm_invocation
@@ -371,7 +371,7 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
-		&v.LatencyMs, &v.TTFTMs, &v.IsStream,
+		&v.LatencyMs,
 		&v.FinishReason, &v.Error, &v.Role,
 		&v.Messages, &v.Result, &v.CreatedAt,
 	)

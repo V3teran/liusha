@@ -70,8 +70,6 @@ type ReActConfig struct {
 	MaxTokens int
 
 	// 是否启用流式输出
-	StreamEnabled bool
-
 	// 消息预处理链（在 LLM 调用前对消息历史进行转换）
 	// 包括：消息压缩、字段注入、验证等
 	MessageModifierChain *MessageModifierChain

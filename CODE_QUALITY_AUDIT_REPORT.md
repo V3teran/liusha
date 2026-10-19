@@ -91,13 +91,39 @@
 - **golangci-lint 从 171 条降至 0**（该工具此前未接入任何入口；建议后续把 `golangci-lint run ./...` 加进 `make lint`，见 §6）。
 - 中间件 Before/AfterIteration 签名、导出符号注释格式、unconvert、ctx 参数位置等全部修复。
 
-## 6. 遗留决策项（建议，未擅动）
+## 6. 决策项裁决（第 3 轮，2026-10-19 下午——已全部实施并验证）
 
-1. **流式 LLM 路径生产不可达**：`StreamEnabled` 在 4 处生产构造点从不置 true；Provider.Stream + 4 个适配器 + runtime 聚合 + TTFT 统计共数百行，仅测试可达。前端 SSE 走 scanstream（Redis Pub/Sub），与 LLM token 流无关。建议：若半年内无 token 级前端需求，整体移除（含 Provider 接口的 Stream 方法，为每个新适配器减负）。
-2. **LLM 双路由栈**：`framework/llm.Router`（complexity 键，runner/四角色）与 `internal/llm.Router+Factory`（role 键，api 的 chat/qa/msgclass）并存，两套 retry、两套装配维护同一 llmstore。建议：api 侧迁到 framework/llm 后退役 internal/llm（~620 行）。属独立重构，不宜搭车。
-3. **internal/cognition 名不副实**：包内只有 CompletionDetector，真正的认知循环编排在 `cmd/runner/cognition.go`（main 包，434 行装配代码）。建议：将 assembleStack/runCognition 下沉为 internal/cognition 的显式依赖注入结构，提升可测性。
-4. **golangci-lint 接入**：`make lint` 增加 `golangci-lint run ./...`（现已 0 基线）。
-5. proxy `Server.Stop()` 为 no-op（proxify 限制，已注释声明）、sanitizer goroutine 无关闭——关停路径缺陷，影响面小，建议随 proxify 升级一并处理。
+### 6.1 流式 LLM 路径 → 已整体移除
+裁决依据：`StreamEnabled` 在 4 处生产构造点从不置 true 且无任何配置入口（yaml/env 全无）；
+其唯一设计动机「首 token 即回调 OnThought」在生产同样无人装配；前端实时性由 scanstream
+（事件级 Redis Pub/Sub）承担，产品不存在 token 级流式需求；接口税落在 Provider 全部 6 个实现上；
+聚合逻辑与 Complete 解析是平行双路径（漂移风险）。未来需要时 git 历史可完整找回。
+已删：Provider.Stream + StreamEvent 类型、anthropic/openai 流式实现与 helper（362 行）、
+timeout/usage/retry/bridge 的 Stream、runtime StreamEnabled/callLLMStreaming、全部相关测试。
+连带退场：llm_invocation 的 ttft_ms/is_stream 死列（迁移 0171 删列）+ Go 字段 + API 输出
++ 前端死展示（恒 false 门控）。
+
+### 6.2 LLM 双路由栈 → 已合并到 framework/llm，internal/llm 退役
+核实修正：初判「两套 retry 引擎」不准确——internal/llm 的分类/退避表本就别名自 framework；
+真正重复的是 ①构造 switch 逐行双份（framework 那份注释明言「导出供业务策略层共用」却被无视）
+②retry 循环体 Generator/Provider 两种形状各一份 ③types.go 纯别名壳。合并后：
+- framework Router 补两处能力：retry 选项注入（api 从 yaml 装配退避表）+ Provider 缓存 30s TTL
+  （顺带修复「前端改 provider 配置直到重启才生效」的存量缺陷——此前 InvalidateAll 全仓零调用）；
+- cmd/api 以 roleRouter 适配（role → llmcfg.AgentComplexity → framework Router → Provider→Generate
+  薄适配），chat/qa/msgclass 的最小依赖接口不变；
+- 兜底工厂下沉 llmstore（runner/api 共用）；provider 实连探测改用 framework 构造器；
+- 删除 internal/llm 整包（~620 行）与 llmstore.ProviderForRole 孤儿方法。
+行为差异（有意）：api 侧配置热更新从「即时」变为「≤30s」（换来 runner 侧从「永不」变「≤30s」）。
+
+### 6.3 internal/cognition 名不副实 → 认知循环已下沉入包
+cmd/runner 的 434 行 main 包装配（四 Agent 组装/控制平面消费/生命周期/工具遥测/活动打点）
+全部迁入 internal/cognition（loop/lifecycle/control/telemetry/activity.go），handler 侧只剩
+Deps 组装的薄适配。理由：包名与领域核心概念（认知循环）对齐；装配链正是本轮 BuildTools
+白名单 bug 的发生地，独立成包 + 显式 Deps 后可脱离 asynq/handler 单测；符合 main 包只做
+装配的 Go 惯例。纯结构迁移，零行为变化（测试全绿佐证）。
+
+### 6.4 golangci-lint 已接入 `make lint`
+基线 0 发现，后续回归即失败。
 
 ## 7. 未变更项（有充分理由不动）
 

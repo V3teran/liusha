@@ -109,3 +109,15 @@ func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, 
 
 // messageShape 把消息序列压成紧凑形状摘要（如 "sys,user,a(2),t,t"），
 // 随 4xx 错误输出——远程排障时不用回放就能看出序列形状。
+
+// wrapOpenAICompatErr 把 openai SDK 错误归一为 *HTTPError（retry 分类按状态码工作）。
+func wrapOpenAICompatErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) {
+		return &HTTPError{Code: apiErr.HTTPStatusCode, Inner: err}
+	}
+	return err
+}

@@ -11,10 +11,11 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/chat"
+	llmcfg "github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/finding"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
-	"github.com/V3teran/liusha/internal/llm"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/msgclass"
 	"github.com/V3teran/liusha/internal/qa"
@@ -113,7 +114,7 @@ type scanAdapter struct {
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
 
-	router    *llm.Router           // 多轮：意图分类 + 问答（light provider）
+	router    *roleRouter           // 多轮：意图分类 + 问答（light provider，role→档→framework Router）
 	findings  *finding.Store        // 问答读 task 黑板 finding
 	publisher *scanstream.Publisher // 问答回答 publish SSE
 
@@ -282,7 +283,7 @@ func (a *scanAdapter) HandleMessage(ctx context.Context, convID, content string)
 	}
 
 	// 意图分流（action/qa）对纯聊天、active、passive 通用：判定走 light LLM。
-	g, err := a.router.For(ctx, "inspector") // light provider
+	g, err := a.router.generator(ctx, "inspector") // light provider
 	if err != nil {
 		return "", false, err
 	}
@@ -346,11 +347,42 @@ func (a *scanAdapter) FindingsSummary(ctx context.Context, _, taskID string) (st
 	return b.String(), nil
 }
 
-// Generate 满足 qa.Deps：调 light provider。
-func (a *scanAdapter) Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error) {
-	g, err := a.router.For(ctx, "inspector")
+// roleRouter 按业务 role 路由：role → llmcfg.AgentComplexity 归档（inspector 等
+// 轻量路由 key 落 simple）→ framework Router（complexity 档 → provider，带
+// retry/fallback/审计包装）。唯一职责是把 role 语义接到 complexity 栈上。
+type roleRouter struct {
+	router *fwllm.Router
+}
+
+// providerGen 把已带 retry/fallback 的 Provider 适配成 Generator 形状
+// （chat/qa/msgclass 的最小依赖接口）。
+type providerGen struct{ p fwllm.Provider }
+
+func (g providerGen) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
+	resp, err := g.p.Complete(ctx, fwllm.Request{Messages: msgs, Tools: tools})
 	if err != nil {
-		return llm.Result{}, err
+		return fwllm.Result{}, err
+	}
+	return fwllm.Result{
+		Content: resp.Content, ToolCalls: resp.ToolCalls, Usage: resp.Usage,
+		FinishReason: resp.FinishReason, Provider: g.p.ProviderID(), Model: g.p.ModelID(),
+	}, nil
+}
+
+// generator 解析 role 对应的 Generator（Provider 已在 Router 侧包好 retry/fallback）。
+func (r roleRouter) generator(ctx context.Context, role string) (providerGen, error) {
+	p, err := r.router.For(ctx, fwllm.ParseComplexity(llmcfg.AgentComplexity(role)))
+	if err != nil {
+		return providerGen{}, err
+	}
+	return providerGen{p: p}, nil
+}
+
+// Generate 满足 qa.Deps：调 light provider。
+func (a *scanAdapter) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
+	g, err := a.router.generator(ctx, "inspector")
+	if err != nil {
+		return fwllm.Result{}, err
 	}
 	return g.Generate(ctx, msgs, tools)
 }
@@ -389,7 +421,7 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, 
 	}
 
 	// 消息分流闸：light LLM 判 action/qa（解析失败默认 qa，见 msgclass.Classify）。
-	g, err := a.router.For(ctx, "inspector") // light provider
+	g, err := a.router.generator(ctx, "inspector") // light provider
 	if err != nil {
 		return "", "", fmt.Errorf("msgclass provider: %w", err)
 	}
@@ -420,13 +452,13 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, 
 func (a *scanAdapter) genTitle(convID, brief string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	g, err := a.router.For(ctx, "inspector") // light provider，便宜
+	g, err := a.router.generator(ctx, "inspector") // light provider，便宜
 	if err != nil {
 		return
 	}
 	prompt := "把下面的渗透测试任务描述总结成一个不超过 16 字的简短中文标题，" +
 		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + brief
-	res, err := g.Generate(ctx, []llm.Message{{Role: llm.RoleUser, Content: prompt}}, nil)
+	res, err := g.Generate(ctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: prompt}}, nil)
 	if err != nil {
 		return
 	}

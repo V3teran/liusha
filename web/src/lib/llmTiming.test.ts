@@ -6,7 +6,6 @@ import {
   latencyLevel,
   throughputLabel,
   throughputLevel,
-  ttftLevel,
 } from './llmTiming'
 
 describe('throughputLevel', () => {
@@ -50,13 +49,6 @@ describe('latencyLevel', () => {
   })
 })
 
-describe('ttftLevel', () => {
-  it('按首 token 耗时分档（与输出量无关）', () => {
-    expect(ttftLevel(800)).toBe('good')
-    expect(ttftLevel(6_000)).toBe('warn')
-    expect(ttftLevel(15_000)).toBe('bad')
-  })
-})
 
 describe('isTimeout', () => {
   it('达到看门狗上限即判为超时打点', () => {

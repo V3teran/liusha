@@ -31,29 +31,6 @@ func (p *timeoutProvider) Complete(ctx context.Context, req Request) (Response, 
 	return p.inner.Complete(ctx, req)
 }
 
-func (p *timeoutProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	innerCtx, cancel := context.WithTimeout(ctx, p.timeout)
-	// innerCtx 超时/取消时底层流关闭；消费方随外层 ctx 放弃时转发也退出（防泄漏）。
-	ch, err := p.inner.Stream(innerCtx, req)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	wrapped := make(chan StreamEvent)
-	go func() {
-		defer close(wrapped)
-		defer cancel()
-		for ev := range ch {
-			select {
-			case wrapped <- ev:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return wrapped, nil
-}
-
 func (p *timeoutProvider) CountTokens(ctx context.Context, req Request) (int, error) {
 	return p.inner.CountTokens(ctx, req)
 }

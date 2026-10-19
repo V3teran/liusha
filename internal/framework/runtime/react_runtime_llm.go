@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
@@ -49,66 +48,14 @@ func (r *DefaultReActRuntime) callLLM(
 		request.Tools = r.convertToolsToLLMFormat()
 	}
 
-	// 调用 LLM：流式开关生效——StreamEnabled 走 Stream 聚合（TTFT 可测、首 token
-	// 即回调），否则非流式 Complete。两条路径产出同构的 llmResponse。
-	var response llm.Response
-	var err error
-	if config.StreamEnabled {
-		response, err = r.callLLMStreaming(ctx, config, request)
-	} else {
-		response, err = config.LLMProvider.Complete(ctx, request)
-	}
+	// 调用 LLM（非流式 Complete）。
+	response, err := config.LLMProvider.Complete(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
 	// 解析响应
 	return r.parseLLMResponse(response)
-}
-
-// callLLMStreaming 流式调用并聚合为完整响应：text 增量拼接（首个增量即触发
-// OnThought 前置回调的素材就绪）、StreamToolCall 收集、StreamDone 补 usage。
-func (r *DefaultReActRuntime) callLLMStreaming(
-	ctx context.Context,
-	config *ReActConfig,
-	request llm.Request,
-) (llm.Response, error) {
-	ch, err := config.LLMProvider.Stream(ctx, request)
-	if err != nil {
-		// provider 不支持流式 → 显式降级非流式（调用方语义仍是"拿到一次生成"）
-		if strings.Contains(err.Error(), "不支持流式") {
-			return config.LLMProvider.Complete(ctx, request)
-		}
-		return llm.Response{}, err
-	}
-
-	var resp llm.Response
-	var sb strings.Builder
-	for ev := range ch {
-		switch ev.Kind {
-		case llm.StreamText:
-			sb.WriteString(ev.Content)
-		case llm.StreamToolCall:
-			if ev.Tool != nil {
-				resp.ToolCalls = append(resp.ToolCalls, *ev.Tool)
-			}
-		case llm.StreamDone:
-			if ev.Usage != nil {
-				resp.Usage = *ev.Usage
-			}
-		case llm.StreamError:
-			if ev.Err != nil {
-				return llm.Response{}, fmt.Errorf("stream error: %w", ev.Err)
-			}
-			return llm.Response{}, fmt.Errorf("stream closed with error event")
-		}
-		if ctx.Err() != nil {
-			return llm.Response{}, ctx.Err()
-		}
-	}
-	resp.Content = sb.String()
-	resp.FinishReason = "stop"
-	return resp, nil
 }
 
 // llmResponse 是 LLM 响应的内部表示

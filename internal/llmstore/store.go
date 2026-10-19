@@ -119,24 +119,6 @@ func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 
 // ── 运行期解析（热路径：两个 LLM 工厂共用，取代旧的双份 resolveProviderKey/lookupLLMField switch）──
 
-// ProviderForRole 把 role 解析到 provider 部署：role → 档（代码映射）→ provider code → 部署行。
-// 路由快照 + provider 行均走多级缓存。role 未配置则无解析（返回 UnresolvedError，不静默兜底）。
-// 解析不出 provider code（heavy 档亦缺失）时返回明确错误，绝不静默兜底到任意 provider。
-func (s *Store) ProviderForRole(ctx context.Context, role string) (llmcfg.Provider, error) {
-	routing, err := s.Routing(ctx)
-	if err != nil {
-		return llmcfg.Provider{}, err
-	}
-	// role → provider：经 llmcfg.AgentComplexity 代码映射收敛到档位（inspector/compactor 等旁路
-	// role 落轻档）。agent.complexity 不在此查——认知循环四 agent 的档位由 cognition 经
-	// cfgstore 直读直传 router.For，不走本 role 路由。
-	key := routing.ProviderCodeForRole(role)
-	if key == "" {
-		return llmcfg.Provider{}, &UnresolvedError{Role: role}
-	}
-	return s.ProviderByCode(ctx, key)
-}
-
 // ProviderForFallback 解析全局备胎 provider 部署（Router 取 __fallback__ 装配兜底用）。
 // 备胎未配置（保留 role __fallback__ 无绑定）时返回明确错误。
 func (s *Store) ProviderForFallback(ctx context.Context) (llmcfg.Provider, error) {
