@@ -251,13 +251,14 @@ func (t *writeInsightTool) Schema() json.RawMessage { return writeLeadSchema }
 
 func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
-		Category   string   `json:"category"`
-		Priority   string   `json:"priority"`
-		Confidence string   `json:"confidence"`
-		Severity   string   `json:"severity"`
-		Summary    string   `json:"summary"`
-		Body       string   `json:"body"`
-		Tags       []string `json:"tags"`
+		Category     string   `json:"category"`
+		Priority     string   `json:"priority"`
+		Confidence   string   `json:"confidence"`
+		Severity     string   `json:"severity"`
+		Summary      string   `json:"summary"`
+		Body         string   `json:"body"`
+		Tags         []string `json:"tags"`
+		RelatedNodes []string `json:"related_nodes"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "write_insight: 解析参数失败: " + err.Error()}, nil
@@ -290,6 +291,7 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 		Summary:          a.Summary,
 		Body:             a.Body,
 		Tags:             a.Tags,
+		RelatedNodes:     a.RelatedNodes,
 		SourceTaskID:     t.deps.TaskID,
 		SourceAgentRunID: t.deps.AgentRunID,
 		CreatedAt:        time.Now(),

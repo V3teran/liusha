@@ -196,7 +196,7 @@ type AgentsConfig struct {
 
 // RunnerConfig 是 cmd/runner 进程的运行时参数。
 type RunnerConfig struct {
-	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // agent task 整体超时（asynq handler 入口 WithTimeout）
+	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // agent 运行整体超时（asynq handler 入口 WithTimeout）
 	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时

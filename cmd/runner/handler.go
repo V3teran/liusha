@@ -185,7 +185,7 @@ func (h handler) failTask(ctx context.Context, agentRunID string, err error) err
 	return err
 }
 
-// handle 是单个 agent task 的处理入口。
+// handle 是单个 agent 运行的处理入口。
 func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
 	h.logger.Info().
