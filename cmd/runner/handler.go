@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"regexp"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"

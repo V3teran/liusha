@@ -225,6 +225,11 @@ var writeLeadSchema = json.RawMessage(`{
       "type": "array",
       "items": {"type": "string"},
       "description": "自由标签（可选）"
+    },
+    "related_nodes": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "关联的探索图节点 ID（observation/result/action），用于追溯情报来源"
     }
   },
   "required": ["category", "summary"]
