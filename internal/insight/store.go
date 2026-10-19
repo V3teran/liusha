@@ -168,3 +168,20 @@ func (s *Store) ReadRecent(ctx context.Context, assignmentID string) (map[Priori
 
 	return grouped, nil
 }
+
+// ListByRelatedNode 返回包含指定探索图节点的所有洞察。
+// 用于追溯：给定一个 observation/result/action 节点，找到引用它的所有情报。
+func (s *Store) ListByRelatedNode(ctx context.Context, assignmentID string, nodeID string, limit int) ([]Insight, error) {
+	if assignmentID == "" {
+		return nil, fmt.Errorf("insight.Store.ListByRelatedNode: assignmentID 必填")
+	}
+	if nodeID == "" {
+		return nil, fmt.Errorf("insight.Store.ListByRelatedNode: nodeID 必填")
+	}
+	// 使用 JSONB 包含操作符 @> 查询（需要 GIN 索引优化）
+	return s.list(ctx, "ListByRelatedNode",
+		"assignment_id = $1 AND related_nodes @> $2",
+		[]any{assignmentID, fmt.Sprintf(`["%s"]`, nodeID)},
+		"created_at DESC",
+		limit)
+}

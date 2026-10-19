@@ -93,7 +93,7 @@ type Insight struct {
 	// 追溯
 	SourceTaskID     string   `json:"source_task_id"`
 	SourceAgentRunID string   `json:"source_agent_run_id,omitempty"` // 产出该情报的认知轮次 agent_run.id
-	RelatedNodes     []string `json:"related_nodes,omitempty"`        // 关联的探索图节点 ID（observation/result/action）
+	RelatedNodes     []string `json:"related_nodes,omitempty"`       // 关联的探索图节点 ID（observation/result/action）
 
 	// 时间
 	CreatedAt time.Time `json:"created_at"`
