@@ -10,13 +10,18 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('hello world')).toContain('<p>hello world</p>')
   })
 
-  it('代码块外包 .code-block 容器 + 注入复制按钮', () => {
+  it('代码块外包 .code-block 容器 + 注入图标复制按钮（无文字）', () => {
     const html = renderMarkdown('```bash\nnmap -sV target\n```')
     expect(html).toContain('code-block')
     expect(html).toContain('code-copy')
     // 复制按钮把源码存 data-code
     expect(html).toContain('data-code')
     expect(html).toContain('nmap -sV target')
+    // 纯图标形态：copy/check 双图标 + aria-label 提示，按钮本体不渲染「复制」文字
+    expect(html).toContain('icon-copy')
+    expect(html).toContain('icon-check')
+    expect(html).toContain('aria-label="复制代码"')
+    expect(html).not.toContain('>复制<')
   })
 
   it('bash 代码块带 hljs 高亮 class', () => {
