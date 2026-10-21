@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Activity, Bot, Brain, Bug, ChevronDown, Loader2, Wrench, type LucideIcon } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
-import { buildThreadRows, inFlightToolCalls, type ThreadRow } from '@/lib/threadRows'
+import { buildThreadRows, inFlightToolCalls, pairToolResults, type ThreadRow } from '@/lib/threadRows'
 import { classifyMessage } from '@/lib/messageKind'
 import { agentAccent } from '@/lib/agentColor'
 import { useTypewriter } from '@/hooks/useTypewriter'
@@ -106,6 +106,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   const rows = buildThreadRows(messages, { dayKey, dayLabel })
   // 执行中的工具调用：任务活跃才计算（终态后悬挂的 call 不转，避免死任务永挂 spinner）。
   const runningTools = active ? inFlightToolCalls(messages) : undefined
+  // 一动作一卡：调用与结果配对（FIFO 同口径），孤儿结果兜底展示。
+  const toolPairs = pairToolResults(messages)
   // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
   // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
@@ -206,9 +208,9 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
             return <TaskStatusCard key={r.key} md={r.msg.Metadata!} />
           }
-          // 工具组 → 独立缩进行（工具调用不是推理，不进 agent 卡）；组内执行中带 spinner。
+          // 工具组 → 独立缩进行（工具动作不是推理，不进 agent 卡）；一动作一卡 + 组头执行中 spinner。
           if (r.kind === 'tools') {
-            return <StepTools key={r.key} tools={r.tools} runningSeqs={runningTools} />
+            return <StepTools key={r.key} tools={r.tools} runningSeqs={runningTools} pairs={toolPairs} />
           }
           // AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（图标在卡外 + surface 卡框 + 脚注时间/复制）。
           const agent = rowAgent(r)
