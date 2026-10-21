@@ -175,12 +175,23 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h handler) failTask(ctx context.Context, agentRunID string, err error) error {
+func (h handler) failTask(ctx context.Context, agentRunID, taskID, convID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
 	if setErr := h.agentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
 		h.logger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
+	}
+	// task 终态：失败即 aborted（此前缺失——task 停留 active 直至 reaper 判死，
+	// 期间前端显示「进行中」名不副实）。守卫幂等：已终态（如用户抢先停止）不覆盖。
+	if taskID != "" {
+		if abortErr := h.tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
+			h.logger.Warn().Err(abortErr).Str("task_id", taskID).Msg("task 失败终态迁移被拒（保持既有终态）")
+		} else {
+			h.appendTaskStatus(writeCtx, convID, taskID,
+				conversation.TaskStatusFailed, "扫描执行失败",
+				map[string]any{"reason": err.Error()})
+		}
 	}
 	return err
 }
@@ -218,6 +229,21 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Msg("agent_run 查询失败，幂等防重检查被跳过")
 	}
 
+	// task 终态守卫：排队期间被用户停止/判死的任务不得开跑（terminate 只对
+	// 运行中的循环生效，队列里的迟到领取靠此闸拦下），agent_run 直落 aborted。
+	if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.Status != task.StatusActive {
+		h.logger.Info().
+			Str("task_id", p.TaskID).
+			Str("status", string(tk.Status)).
+			Msg("task 已终态（排队期间被停止/判死），跳过执行")
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		if err := h.agentRuns.SetAborted(writeCtx, p.AgentRunID); err != nil {
+			h.logger.Warn().Err(err).Str("agent_run_id", p.AgentRunID).Msg("agent_run 置 aborted 失败")
+		}
+		return asynq.SkipRetry
+	}
+
 	if h.hostSem != nil {
 		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
 			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
@@ -242,7 +268,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.AgentRunID, err)
+		return h.failTask(ctx, p.AgentRunID, p.TaskID, p.ConversationID, err)
 	}
 
 	// 设置超时

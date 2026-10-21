@@ -66,3 +66,49 @@ type Message struct {
 	Metadata       json.RawMessage // 可空——event 的结构化详情（tool name/args、finding id…）
 	CreatedAt      time.Time
 }
+
+// TaskStatus 是任务生命周期节点在时间线上的状态值（metadata.status）。
+// 生命周期事实源是 task.status（active/completed/aborted）；时间线节点是
+// 各迁移写者随迁移落的可见事件（dispatched 是下发时刻的记录，无对应终态列）。
+const (
+	TaskStatusDispatched = "dispatched" // 已下发扫描（api 入队成功后）
+	TaskStatusCompleted  = "completed"  // 认知循环自然收敛（runner）
+	TaskStatusAborted    = "aborted"    // 用户停止 / 判死（api / reaper）
+	TaskStatusFailed     = "failed"     // 执行失败（runner failTask）
+)
+
+// TaskStatusMeta 构造时间线任务状态节点的 metadata（单一契约源，五处迁移写者共用）：
+//
+//	{kind:"task_status", status:..., 其余字段按迁移可选（stop_why/steps/findings/
+//	 duration_ms/reason——completed 携报告、aborted/failed 携原因）}
+//
+// 负值哨兵（调用方读依赖失败时的 -1 缺省）与零值一并省略——wire 上不出现
+// "无意义字段"。前端按 kind=task_status 渲染系统状态卡。
+func TaskStatusMeta(status string, fields map[string]any) json.RawMessage {
+	m := map[string]any{"kind": "task_status", "status": status}
+	for k, v := range fields {
+		switch t := v.(type) {
+		case string:
+			if t != "" {
+				m[k] = t
+			}
+		case int:
+			if t > 0 {
+				m[k] = t
+			}
+		case int64:
+			if t > 0 {
+				m[k] = t
+			}
+		default:
+			if v != nil {
+				m[k] = v
+			}
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return json.RawMessage(`{"kind":"task_status","status":"` + status + `"}`)
+	}
+	return b
+}
