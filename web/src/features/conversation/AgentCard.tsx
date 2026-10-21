@@ -2,7 +2,6 @@ import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { clockTime, fullTime } from '@/lib/format'
 import { CopyButton } from '@/components/CopyButton'
-import { cn } from '@/lib/utils'
 
 interface AgentCardProps {
   /** 动作分类图标（lucide 线性）：推理=Brain、派发=Rocket、漏洞=Bug、压缩=Archive。 */
@@ -11,8 +10,6 @@ interface AgentCardProps {
   accent: string
   /** 图标底色 = 该 agent soft 色。 */
   soft: string
-  /** 子代理卡：整体右缩一档，表达「从属于调度者」。 */
-  sub?: boolean
   /** 脚注时间戳（与用户指令块一致）。 */
   createdAt?: string
   copied?: boolean
@@ -31,7 +28,6 @@ export function AgentCard({
   icon: Icon,
   accent,
   soft,
-  sub = false,
   createdAt,
   copied = false,
   onCopy,
@@ -41,7 +37,7 @@ export function AgentCard({
   const showCopy = !!copyText && !!onCopy
   const showFooter = !!createdAt || showCopy
   return (
-    <div className={cn('flex justify-start pb-[18px]', sub && 'pl-6')}>
+    <div className="flex justify-start pb-[18px]">
       <div className="flex max-w-[85%] flex-col items-start">
         <div className="flex gap-2.5">
           <span

@@ -19,20 +19,15 @@ import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
 import { CompactionCard } from './cards/CompactionCard'
 
-// 每行的 agent 归属：驱动缩进（子代理右缩一档）+ 卡外图标配色 + 卡内领头名。
+// 每行的 agent 归属：驱动卡外图标配色 + 卡内领头名。
 // 取该行动作的施动 agent（Metadata.agent_name）：推理/工具/漏洞归产出者，派发归调度者(编排)；
 // tools 组取首条 tool 的 agent。user/assistant 不走此路（各自左右独立块）。
+// 四 agent 平级协作（bus 广播、互相制衡），不做主从缩进——身份由配色/图标/领头名承担；
+// 缩进语言保留给未来真正的 orchestrator→subagent 派发场景。
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.Metadata?.agent_name || ''
   if (r.kind === 'msg') return r.msg.Metadata?.agent_name || ''
   return ''
-}
-
-// 子代理缩进：缩进表达「从属于某个调度者」，而非「名字不是 planner」。
-// 仅在编排模式（会话里出现过 planner 派发子代理）下，非 planner 的 agent 才缩进一档 +
-// 配色连接线。passive/chatmodel 单 agent 模式没有调度者，主 agent（如 traffic-analysis）不缩进。
-function isSubAgent(agent: string, hasplanner: boolean): boolean {
-  return hasplanner && !!agent && agent !== 'planner'
 }
 
 // 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、派发=Rocket、漏洞=Bug、
@@ -119,9 +114,6 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   const { copiedKey, copy } = useCopyToClipboard()
 
   const rows = buildThreadRows(messages, { dayKey, dayLabel })
-  // 是否编排模式：会话里出现过 planner 归属的消息（或 planner 道正在流式）= 存在调度者。
-  const hasplanner =
-    liveOrder.includes('planner') || messages.some((m) => m.Metadata?.agent_name === 'planner')
   // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
   // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
@@ -224,11 +216,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           }
           // 工具组 → 独立缩进行（工具调用不是推理，不进 agent 卡）；子代理工具组再右缩一档。
           if (r.kind === 'tools') {
-            return <StepTools key={r.key} tools={r.tools} sub={isSubAgent(rowAgent(r), hasplanner)} />
+            return <StepTools key={r.key} tools={r.tools} />
           }
           // AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（图标在卡外 + surface 卡框 + 脚注时间/复制）。
           const agent = rowAgent(r)
-          const sub = isSubAgent(agent, hasplanner)
           const color = agentAccent(agent)
           const Icon = rowIcon(r)
           const copyText = cardCopyText(r)
@@ -238,7 +229,6 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               icon={Icon}
               accent={color.accent}
               soft={color.soft}
-              sub={sub}
               createdAt={r.msg.CreatedAt}
               copied={copiedKey === r.msg.ID}
               onCopy={copyText ? () => copy(r.msg.ID, copyText) : undefined}
@@ -273,7 +263,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             aria-hidden：内容随后由终态卡完整呈现，避免读屏重复播报。 */}
         {liveOrder.map((lane) => (
           <div key={lane} data-live-node aria-hidden="true">
-            <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} hasplanner={hasplanner} />
+            <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} />
           </div>
         ))}
 
@@ -385,11 +375,9 @@ function ThinkingFold({ text }: { text?: string }) {
 function LiveThoughtLane({
   agentName,
   lane,
-  hasplanner,
 }: {
   agentName: string
   lane: { thinking: string; text: string }
-  hasplanner: boolean
 }) {
   const typed = useTypewriter(lane.text)
   if (agentName === 'assistant') {
@@ -406,7 +394,7 @@ function LiveThoughtLane({
   }
   const color = agentAccent(agentName)
   return (
-    <AgentCard icon={Brain} accent={color.accent} soft={color.soft} sub={isSubAgent(agentName, hasplanner)}>
+    <AgentCard icon={Brain} accent={color.accent} soft={color.soft}>
       {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
       <ReasoningCard text={typed} agentName={agentName} streaming />
     </AgentCard>

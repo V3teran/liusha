@@ -8,12 +8,11 @@ import { ToolResultCard } from './cards/ToolResultCard'
 
 interface StepToolsProps {
   tools: Message[]
-  sub?: boolean // 子代理的工具组：整体右缩一档，与该子代理的 agent 卡对齐
 }
 
 // 步内工具折叠（方案 B）：一次推理之下的若干工具调用聚成独立一行，缩进对齐卡片正文（ml-9），
 // 点击展开。工具调用不是推理，故独立成行而非折进推理卡；默认收起减少噪音，细节按需查看。
-export function StepTools({ tools, sub = false }: StepToolsProps) {
+export function StepTools({ tools }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
   // 工具调用次数：一次调用产生 tool_call + tool_result 两条消息，计数只数 tool_call（发起）——
@@ -37,7 +36,7 @@ export function StepTools({ tools, sub = false }: StepToolsProps) {
   const preview = entries.length > 4 ? `${head} 等` : head
 
   return (
-    <div className={cn('ml-9 max-w-[85%] pb-[18px]', sub && 'pl-6')}>
+    <div className="ml-9 max-w-[85%] pb-[18px]">
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
