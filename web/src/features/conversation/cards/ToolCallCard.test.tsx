@@ -48,4 +48,17 @@ describe('ToolCallCard', () => {
     await user.click(screen.getByText('x'))
     expect(container.querySelector('pre')).toBeNull()
   })
+
+  it('执行中态：spinner 替换状态点 + 「执行中…」提示', () => {
+    const { container } = render(<ToolCallCard tool="drive_browser" args="" agentName="executor" running />)
+    expect(screen.getByText('执行中…')).toBeTruthy()
+    expect(container.querySelector('.animate-spin')).toBeTruthy()
+    expect(container.querySelector('[data-card="tool-call"]')?.getAttribute('data-running')).toBe('true')
+  })
+
+  it('非执行中态无 spinner 与提示', () => {
+    const { container } = render(<ToolCallCard tool="x" args="" />)
+    expect(screen.queryByText('执行中…')).toBeNull()
+    expect(container.querySelector('.animate-spin')).toBeNull()
+  })
 })

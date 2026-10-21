@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 import type { Message } from '@/api/types'
 import { classifyMessage } from '@/lib/messageKind'
 import { cn } from '@/lib/utils'
@@ -8,17 +8,23 @@ import { ToolResultCard } from './cards/ToolResultCard'
 
 interface StepToolsProps {
   tools: Message[]
+  /** 执行中的 tool_call Seq 集合（任务活跃时计算）；组内任一执行中 → 组头 spinner。 */
+  runningSeqs?: Set<number>
 }
 
 // 步内工具折叠（方案 B）：一次推理之下的若干工具调用聚成独立一行，缩进对齐卡片正文（ml-9），
 // 点击展开。工具调用不是推理，故独立成行而非折进推理卡；默认收起减少噪音，细节按需查看。
-export function StepTools({ tools }: StepToolsProps) {
+// 组内任一调用执行中时组头带 spinner——默认折叠态下执行进展也一眼可见。
+export function StepTools({ tools, runningSeqs }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
   // 工具调用次数：一次调用产生 tool_call + tool_result 两条消息，计数只数 tool_call（发起）——
   // 否则一来一回会翻倍（38 次显示成 76）。全是孤立 result（call 丢失）时回退总条数兜底。
   const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call').length
   const callCount = calls > 0 ? calls : tools.length
+
+  // 组内是否有执行中的调用（已发 call 未见配对 result）。
+  const running = !!runningSeqs && tools.some((t) => t.Metadata?.kind === 'tool_call' && runningSeqs.has(t.Seq))
 
   // 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
   // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
@@ -46,7 +52,9 @@ export function StepTools({ tools }: StepToolsProps) {
         )}
       >
         <ChevronRight className={cn('h-3 w-3 flex-none transition-transform', expanded && 'rotate-90')} strokeWidth={2.5} />
+        {running ? <Loader2 className="h-3 w-3 flex-none animate-spin text-accent" aria-label="执行中" /> : null}
         <span className="font-semibold">{callCount} 次工具调用</span>
+        {running && <span className="text-faint">执行中…</span>}
         {!expanded && preview && (
           <span className="ml-0.5 max-w-[320px] overflow-hidden truncate font-mono opacity-70">
             · {preview}
@@ -59,7 +67,13 @@ export function StepTools({ tools }: StepToolsProps) {
             const tag = classifyMessage(t)
             if (tag === 'tool-call') {
               return (
-                <ToolCallCard key={t.Seq} tool={t.Metadata?.tool_name || ''} args={t.Metadata?.args || ''} agentName={t.Metadata?.agent_name} />
+                <ToolCallCard
+                  key={t.Seq}
+                  tool={t.Metadata?.tool_name || ''}
+                  args={t.Metadata?.args || ''}
+                  agentName={t.Metadata?.agent_name}
+                  running={runningSeqs?.has(t.Seq)}
+                />
               )
             }
             if (tag === 'tool-result') {
