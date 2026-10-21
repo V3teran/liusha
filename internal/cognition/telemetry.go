@@ -36,7 +36,8 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 		} else if err != nil {
 			errMsg = err.Error()
 		}
-		// record tool invocation (best-effort)
+		// record tool invocation (best-effort)；role 取 ctx 的 agent 身份
+		// （lifecycle 启动时注入）——跨 agent 行为审计的归属列。
 		if d.ToolCalls != nil {
 			preview := res.Output
 			if len(preview) > 512 {
@@ -45,6 +46,7 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 			invID, appendErr := d.ToolCalls.Append(ctx, toolinvocation.Invocation{
 				AgentRunID:    agentRunID,
 				TaskID:        taskID,
+				Role:          AgentFromCtx(ctx),
 				ToolName:      t.Name(),
 				Args:          json.RawMessage(args),
 				OutputSize:    len(res.Output),

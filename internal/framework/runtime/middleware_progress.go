@@ -5,26 +5,18 @@ import (
 	"fmt"
 )
 
-// ProgressTrackingMiddleware 检测执行进展，防止有活动但无产出的空转。
+// ProgressTrackingMiddleware 检测执行进展中的「有活动无产出」空转：
+// 连续 N 轮迭代没有新观察产出即要求终止。
 //
-// 检测策略：
-// 1. 迭代无产出：连续 N 次迭代没有生成新的有效输出
-// 2. 持续失败：连续 N 次工具调用失败
+// 连续失败止损不在此处——由 runtime 内置机制唯一承担（迭代中即时生效、
+// 阈值随装配下发）：此前这里的失败分支恒不可达（内置默认 8 先于一切
+// 中间件阈值在同迭代内触发），双机制冗余且阈值失义，已删除。
 //
-// 业界实践：
-// - AutoGPT: 连续 5 次无进展则终止
-// - CrewAI: 连续 3 次失败则重新规划
-// - BabyAGI: 连续 10 次无新任务则认为完成
-//
-// 本实现区分"空转"和"正常探索"：
-// - 空转：重复失败、无新输出
-// - 正常探索：尝试不同方法、产生新观察
+// 空转与正常探索的区分：正常探索持续产生新观察（OutputCount 前进），
+// 空转则是模型换着姿势重复无效动作（观察数停滞）。
 type ProgressTrackingMiddleware struct {
 	// MaxIterationsWithoutOutput 是无新输出的最大迭代次数
 	MaxIterationsWithoutOutput int
-
-	// MaxConsecutiveFailures 是连续失败的最大次数
-	MaxConsecutiveFailures int
 
 	// lastOutputCount 记录上次检查时的输出数量
 	lastOutputCount int
@@ -33,21 +25,13 @@ type ProgressTrackingMiddleware struct {
 	iterationsSinceLastOutput int
 }
 
-// NewProgressTrackingMiddleware 创建进展追踪中间件。
-//
-// 参数：
-//   - maxNoOutputIterations: 无新输出的最大迭代次数（推荐 15-20）
-//   - maxConsecutiveFailures: 连续失败的最大次数（推荐 8-12）
-func NewProgressTrackingMiddleware(maxNoOutputIterations, maxConsecutiveFailures int) *ProgressTrackingMiddleware {
+// NewProgressTrackingMiddleware 创建进展追踪中间件（无新输出检测）。
+func NewProgressTrackingMiddleware(maxNoOutputIterations int) *ProgressTrackingMiddleware {
 	if maxNoOutputIterations <= 0 {
 		maxNoOutputIterations = 15
 	}
-	if maxConsecutiveFailures <= 0 {
-		maxConsecutiveFailures = 10
-	}
 	return &ProgressTrackingMiddleware{
 		MaxIterationsWithoutOutput: maxNoOutputIterations,
-		MaxConsecutiveFailures:     maxConsecutiveFailures,
 		lastOutputCount:            0,
 		iterationsSinceLastOutput:  0,
 	}
@@ -60,25 +44,11 @@ func (m *ProgressTrackingMiddleware) Name() string {
 
 // BeforeIteration 是 Middleware 接口的空实现（检测都在 AfterIteration）。
 func (m *ProgressTrackingMiddleware) BeforeIteration(_ context.Context, _ *IterationState) (*StopSignal, error) {
-	// BeforeIteration 不做检测
 	return nil, nil
 }
 
-// AfterIteration 在每轮结束后检测连续失败等无进展信号，命中则要求终止。
+// AfterIteration 在每轮结束后检测无新输出的空转信号，命中则要求终止。
 func (m *ProgressTrackingMiddleware) AfterIteration(_ context.Context, state *IterationState) (*StopSignal, error) {
-	// 检测 1: 连续失败
-	if state.ConsecutiveToolFailures >= m.MaxConsecutiveFailures {
-		return &StopSignal{
-			ShouldStop: true,
-			Reason:     StopReasonNoProgress,
-			Message: fmt.Sprintf(
-				"连续 %d 次工具调用失败，任务可能无法完成",
-				state.ConsecutiveToolFailures,
-			),
-		}, nil
-	}
-
-	// 检测 2: 长时间无新输出
 	currentOutputCount := state.OutputCount
 	if currentOutputCount > m.lastOutputCount {
 		// 有新输出，重置计数器

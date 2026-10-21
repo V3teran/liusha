@@ -37,7 +37,14 @@ func (r *DefaultReActRuntime) runIteration(
 		}
 	}
 
-	// 1. 调用 LLM（Thought + Action）
+	// 1. 调用 LLM（Thought + Action）——外部中止在此先行检查：长生成期间
+	//    的止血不等迭代边界。
+	if config.AbortCheck != nil && config.AbortCheck() {
+		result.AddUserMessage("（外部中止：本轮执行已被裁决终止，停止后续调用）")
+		trace.Status = IterationStatusComplete
+		trace.EndTime = time.Now().UnixMilli()
+		return trace, true, nil
+	}
 	response, err := r.callLLM(ctx, config, result.MessageHistory)
 	if err != nil {
 		trace.Status = IterationStatusFailed
@@ -98,8 +105,15 @@ func (r *DefaultReActRuntime) runIteration(
 	// 添加助手消息（包含工具调用；thinking 随消息携带供多轮 tool_use 规范回传）
 	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 
-	// 3. 执行工具调用（Observation）
+	// 3. 执行工具调用（Observation）——每个工具执行前同样检查外部中止：
+	//    浏览器/长命令执行期间的 kill 即刻生效。
 	for _, toolCall := range response.ToolCalls {
+		if config.AbortCheck != nil && config.AbortCheck() {
+			result.AddUserMessage("（外部中止：本轮执行已被裁决终止，跳过剩余工具调用）")
+			trace.Status = IterationStatusComplete
+			trace.EndTime = time.Now().UnixMilli()
+			return trace, true, nil
+		}
 		action := &Action{
 			ToolCall:  toolCall,
 			Thought:   response.Content,
@@ -113,9 +127,12 @@ func (r *DefaultReActRuntime) runIteration(
 		}
 
 		// 执行工具
-		observation, err := r.executeTool(ctx, toolCall)
+		observation, failed, err := r.executeTool(ctx, toolCall)
 		if err != nil {
 			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
+			failed = true
+		}
+		if failed {
 			r.consecutiveToolFailures++
 		} else {
 			r.consecutiveToolFailures = 0
@@ -182,12 +199,20 @@ func (r *DefaultReActRuntime) buildIterationState(
 	result *ReActResult,
 	trace *IterationTrace,
 ) *IterationState {
+	// OutputCount 取累计观察数（含当前迭代）：工具还在产出输出 = 有进展，
+	// 进度中间件的「无新输出」检测据此复位——此前该字段无人填充，检测
+	// 永远看不见进展，退化成隐形的迭代硬顶（长而有效的 ReAct 被误判腰斩）。
+	outputCount := len(trace.Observations)
+	for _, t := range result.Trace {
+		outputCount += len(t.Observations)
+	}
 	state := &IterationState{
 		Iteration:               iteration,
 		Thought:                 trace.Thought,
 		ToolCalls:               trace.Actions,
 		ConsecutiveToolFailures: r.consecutiveToolFailures,
 		IterationSucceeded:      trace.Status == IterationStatusComplete,
+		OutputCount:             outputCount,
 		Metadata:                make(map[string]interface{}),
 	}
 

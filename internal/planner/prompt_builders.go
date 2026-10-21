@@ -171,6 +171,54 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
+// buildAbortedActionsSection 构建外部纠偏中止部分——被 monitor kill 的动作
+// 连同 blocked_reason 呈现，规划者据此不再派等效方向（否则 kill 反馈回路断一半）。
+func buildAbortedActionsSection(actions []explorationgraph.Node) string {
+	if len(actions) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 被外部纠偏中止的动作（禁止等效重提）\n")
+	for _, action := range actions {
+		var a struct {
+			Instruction string `json:"instruction"`
+		}
+		if err := json.Unmarshal(action.Content, &a); err != nil {
+			fmt.Fprintf(&sb, "- [已中止] (解析失败: %v)\n", err)
+			continue
+		}
+		reason := "未注明"
+		if action.Metadata != nil {
+			var m struct {
+				BlockedReason string `json:"blocked_reason"`
+			}
+			if json.Unmarshal(action.Metadata, &m) == nil && m.BlockedReason != "" {
+				reason = m.BlockedReason
+			}
+		}
+		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（纠偏原因：%s）\n", action.ID, a.Instruction, reason)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildBlackboardSection 构建经验黑板部分——跨 agent 确认经验的摘要行
+// （cognition 注入，格式化完成），规划者直接消费执行者的经验。
+func buildBlackboardSection(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 经验黑板（跨 agent 已确认经验）\n")
+	for _, line := range lines {
+		fmt.Fprintf(&sb, "- %s\n", line)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // buildResultsSection 构建已确认发现部分
 func buildResultsSection(results []explorationgraph.Node) string {
 	if len(results) == 0 {

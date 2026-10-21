@@ -12,8 +12,9 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 	config *ReActConfig,
 	result *ReActResult,
 ) error {
-	// 构造强制总结的 prompt
-	summaryPrompt := `你已经达到最大迭代次数限制。请基于当前已收集的所有观察和执行结果，输出一个最终总结。
+	// 构造收尾总结的 prompt（收尾原因如实陈述——谎报「已达最大迭代次数」
+	// 会污染下游推理：monitor 曾在总结里复述该假前提并据此给出交接建议）。
+	summaryPrompt := `请基于当前已收集的所有观察和执行结果，输出一个最终总结。
 
 要求：
 1. 使用 Final Answer: 开头标记最终答案

@@ -176,7 +176,7 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		Statement:  "会话已建立且过滤机制由 X 控制",
 		Confidence: "high",
 	}
-	stateAttempt := e.harvestObservation(context.Background(), action, state, ExecutionTrace{})
+	stateAttempt, _ := e.harvestObservation(context.Background(), action, state, ExecutionTrace{})
 	if stateAttempt != nil {
 		t.Fatal("state 不得产出 Attempt（不进裁决管道）")
 	}
@@ -194,7 +194,7 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		Statement: "X 参数存在可复现的注入现象",
 		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 发请求 2. 观察回显"},"assert":{"description":"看到回显"}}`),
 	}
-	hypAttempt := e.harvestObservation(context.Background(), action, hyp, ExecutionTrace{})
+	hypAttempt, _ := e.harvestObservation(context.Background(), action, hyp, ExecutionTrace{})
 	if hypAttempt == nil {
 		t.Fatal("hypothesis 应产出 Attempt（进裁决管道）")
 	}
@@ -213,7 +213,7 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		Category:  CategoryHypothesis,
 		Statement: "未实测的推测",
 	}
-	specAttempt := e.harvestObservation(context.Background(), action, speculative, ExecutionTrace{})
+	specAttempt, _ := e.harvestObservation(context.Background(), action, speculative, ExecutionTrace{})
 	if specAttempt != nil {
 		t.Fatal("无配方 hypothesis 不得产出 Attempt")
 	}

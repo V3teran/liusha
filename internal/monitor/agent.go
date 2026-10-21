@@ -62,6 +62,11 @@ type Config struct {
 	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
 	Activity func(actionID string) (time.Duration, bool)
 
+	// WrapTool 把监察工具包进共享拦截链（遥测/心跳/时间线）——系统里
+	// 破坏性最大的决策（kill）不应是审计盲区（实测 tool_invocation 0 行）。
+	// nil=不包装（独立部署/测试）。
+	WrapTool func(registry.Tool) registry.Tool
+
 	SystemPrompt  string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Thoughts      reasoning.Tap // 思考流出口（认知循环注入；nil=不流式）
@@ -95,6 +100,9 @@ func New(cfg Config) *Agent {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
+		if cfg.WrapTool != nil {
+			tool = cfg.WrapTool(tool)
+		}
 		if err := reactRuntime.RegisterTool(tool); err != nil {
 			cfg.Logger.Warn().Err(err).Str("tool", tool.Name()).Msg("注册工具失败")
 		}

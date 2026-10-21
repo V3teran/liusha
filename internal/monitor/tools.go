@@ -220,8 +220,22 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 
 	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
-	// P2：request_replan 发布事件 + 写入图的 metadata
+	// 状态校验先行：open（阻止认领）与 running（中止在途）可 kill，已终态
+	// （done/failed/exhausted/aborted）拒绝——幻觉 action_id 或改写终态都会
+	// 污染图终态与统计。
 	if decision.Type == "kill_action" && t.graph != nil {
+		node, gErr := t.graph.GetNode(ctx, decision.ActionID)
+		if gErr != nil {
+			return registry.ToolResult{Error: fmt.Sprintf("kill_action 查询动作失败: %v", gErr)}, nil
+		}
+		if state := node.State; state == nil ||
+			(*state != explorationgraph.StateOpen && *state != explorationgraph.StateRunning) {
+			shown := "unknown"
+			if state != nil {
+				shown = string(*state)
+			}
+			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：动作 %s 已终态（%s），仅 open/running 可 kill", decision.ActionID, shown)}, nil
+		}
 		reason := decision.Reason
 		if err := t.graph.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
 			return registry.ToolResult{Error: fmt.Sprintf("kill_action 状态变更失败: %v", err)}, nil

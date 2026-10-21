@@ -11,8 +11,8 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/reasoning"
+	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/repro"
 )
 
@@ -69,7 +69,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	// 构建中间件链：防止工具循环、目标偏离、无进展
 	middlewareChain := runtime.NewMiddlewareChain(
 		runtime.NewLoopDetectionMiddleware(10, 8),        // 连续 10 次相同工具 / 8 次相似思考
-		runtime.NewProgressTrackingMiddleware(15, 10),    // 15 次无新输出 / 10 次连续失败
+		runtime.NewProgressTrackingMiddleware(15),        // 15 轮无新输出终止（连续失败止损由 runtime 内置，阈值随下下发）
 		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 
@@ -82,17 +82,18 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
 	config := &runtime.ReActConfig{
-		Objective:            objective,
-		SystemPrompt:         systemPrompt,
-		LLMProvider:          provider,
-		MaxIterations:        e.maxIt,
-		OnThoughtDelta:       onThoughtDelta,
-		OnThinkingDelta:      onThinkingDelta,
-		Temperature:          0.7,
-		MaxTokens:            4000,
-		MessageModifierChain: runtime.NewDefaultModifierChain(15),
-		MiddlewareChain:      middlewareChain,
-		TaskID:               action.TaskID,
+		Objective:                  objective,
+		SystemPrompt:               systemPrompt,
+		LLMProvider:                provider,
+		MaxIterations:              e.maxIt,
+		MaxConsecutiveToolFailures: 10, // 连续工具失败止损阈值（单机制：runtime 内置，执行链路容忍中档）
+		OnThoughtDelta:             onThoughtDelta,
+		OnThinkingDelta:            onThinkingDelta,
+		Temperature:                0.7,
+		MaxTokens:                  4000,
+		MessageModifierChain:       runtime.NewDefaultModifierChain(15),
+		MiddlewareChain:            middlewareChain,
+		TaskID:                     action.TaskID,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
 		OutputFormatSchema: `请输出以下JSON格式：
@@ -148,6 +149,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
 		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
 		EarlyStopCondition: func(string) bool { return killed.Load() },
+		// AbortCheck 把止血粒度从迭代边界压到当前步骤：callLLM 与每个
+		// 工具执行前即检查（长生成/长工具期间的 kill 即刻生效）。
+		AbortCheck: killed.Load,
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			e.logger.Debug().
 				Str("action_id", action.ID).
@@ -385,10 +389,22 @@ func (e *Engine) processOutput(
 		Int("total_observations", len(output.Observations)).
 		Msg("开始处理 observations")
 
+	anyObserved := false
 	for _, obs := range output.Observations {
-		if attempt := e.harvestObservation(ctx, action, obs, trace); attempt != nil {
+		attempt, observed := e.harvestObservation(ctx, action, obs, trace)
+		if observed {
+			anyObserved = true
+		}
+		if attempt != nil {
 			attempts = append(attempts, *attempt)
 		}
+	}
+
+	// 图完整性不变式：动作完结必须给图留下可见输出。LLM 把事实写进黑板、
+	// 或观察列表为空时（实测 82% 的 done 动作无任何 observation 节点），
+	// 以执行总结落一条 state 观察——「图 = 共享状态面」不因输出路由偏好破。
+	if !anyObserved {
+		e.ensureSummaryObservation(ctx, action, output)
 	}
 
 	e.logger.Info().
@@ -397,6 +413,24 @@ func (e *Engine) processOutput(
 		Msg("Executor 输出处理完成")
 
 	return attempts, nil
+}
+
+// ensureSummaryObservation 为零观察完结的动作补一条执行总结观察（state 类，
+// 写入即终态）——规划者在图上至少能看到该动作的结论，而不是只剩指令回显。
+func (e *Engine) ensureSummaryObservation(ctx context.Context, action explorationgraph.Node, output *Output) {
+	summary := strings.TrimSpace(output.Summary)
+	if summary == "" {
+		summary = "执行完结（无总结产出）"
+	}
+	obs := Observation{
+		Category:  CategoryState,
+		Statement: "执行总结：" + summary,
+	}
+	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
+		e.logger.Info().
+			Str("action_id", action.ID).
+			Msg("动作零观察完结，已补执行总结观察（图完整性不变式）")
+	}
 }
 
 // collectTrace 从 agent_traffic 读取该 action 的完整 HTTP 轨迹；未配置收集器
@@ -435,7 +469,7 @@ func (e *Engine) harvestObservation(
 	action explorationgraph.Node,
 	obs Observation,
 	trace ExecutionTrace,
-) *evaluator.Attempt {
+) (attempt *evaluator.Attempt, observed bool) {
 	// 降级模式产出的推测没有实测支撑：作为事实（低置信线索）落图供
 	// planner 参考——绝不作为主张（无配方会在落图时被拒）。
 	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
@@ -486,8 +520,9 @@ func (e *Engine) harvestObservation(
 			Err(err).
 			Str("action_id", action.ID).
 			Msg("创建 observation 节点失败")
-		return nil
+		return nil, false
 	}
+	observed = true
 	e.logger.Info().
 		Str("action_id", action.ID).
 		Str("observation_id", node.ID).
@@ -498,18 +533,18 @@ func (e *Engine) harvestObservation(
 	// 只有假设进裁决管道（Attempt → 复现门）；事实是终态，无 Attempt、
 	// 无事件、无晋升——planner 直接从图上读。
 	if obs.Category != CategoryHypothesis {
-		return nil
+		return nil, observed
 	}
 
-	attempt, err := e.observationToAttempt(action.TaskID, node, obs)
+	converted, err := e.observationToAttempt(action.TaskID, node, obs)
 	if err != nil {
 		e.logger.Error().
 			Err(err).
 			Str("observation_id", node.ID).
 			Msg("转换 observation 为 Attempt 失败")
-		return nil
+		return nil, observed
 	}
-	return &attempt
+	return &converted, observed
 }
 
 // terminalIsJSON 判断 ReAct 终稿是否 JSON 形态（对象/数组起收）——执行协议

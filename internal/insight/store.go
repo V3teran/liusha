@@ -157,12 +157,30 @@ func (s *Store) List(ctx context.Context, assignmentID string, limit int) ([]Ins
 	return s.list(ctx, "List", "assignment_id = $1", []any{assignmentID}, "", limit)
 }
 
-// ListByPriority 返回指定 assignment 和优先级的洞察。
+// ListByPriority 返回指定 assignment「不低于该优先级」的洞察（阈值语义：
+// high 查询包含 high 与 critical——安全黑板按优先级过滤时漏看更高危条目
+// 是方向性错误；此前等值匹配恰恰如此）。
 func (s *Store) ListByPriority(ctx context.Context, assignmentID string, priority Priority, limit int) ([]Insight, error) {
 	if assignmentID == "" {
 		return nil, fmt.Errorf("insight.Store.ListByPriority: assignmentID 必填")
 	}
-	return s.list(ctx, "ListByPriority", "assignment_id = $1 AND priority = $2", []any{assignmentID, priority}, "created_at DESC", limit)
+	return s.list(ctx, "ListByPriority",
+		"assignment_id = $1 AND priority = ANY($2)", []any{assignmentID, priorityAtOrAbove(priority)},
+		"created_at DESC", limit)
+}
+
+// priorityAtOrAbove 展开阈值优先级集合（低→高：low < medium < high < critical）。
+func priorityAtOrAbove(p Priority) []Priority {
+	switch p {
+	case PriorityCritical:
+		return []Priority{PriorityCritical}
+	case PriorityHigh:
+		return []Priority{PriorityHigh, PriorityCritical}
+	case PriorityMedium:
+		return []Priority{PriorityMedium, PriorityHigh, PriorityCritical}
+	default: // low 及未知值：全量（阈值语义的宽容兜底）
+		return []Priority{PriorityLow, PriorityMedium, PriorityHigh, PriorityCritical}
+	}
 }
 
 // ListByCategory 返回指定 assignment 和分类的洞察。
@@ -173,39 +191,3 @@ func (s *Store) ListByCategory(ctx context.Context, assignmentID string, categor
 	return s.list(ctx, "ListByCategory", "assignment_id = $1 AND category = $2", []any{assignmentID, category}, "created_at DESC", limit)
 }
 
-// ReadRecent 返回指定 assignment 的近期洞察，按优先级分组。
-// 用于构建 prompt 时展示洞察黑板。
-func (s *Store) ReadRecent(ctx context.Context, assignmentID string) (map[Priority]map[Category][]Insight, error) {
-	insights, err := s.List(ctx, assignmentID, 100)
-	if err != nil {
-		return nil, err
-	}
-
-	// 按 priority → category 两级分组
-	grouped := make(map[Priority]map[Category][]Insight)
-	for _, i := range insights {
-		if grouped[i.Priority] == nil {
-			grouped[i.Priority] = make(map[Category][]Insight)
-		}
-		grouped[i.Priority][i.Category] = append(grouped[i.Priority][i.Category], i)
-	}
-
-	return grouped, nil
-}
-
-// ListByRelatedNode 返回包含指定探索图节点的所有洞察。
-// 用于追溯：给定一个 observation/result/action 节点，找到引用它的所有情报。
-func (s *Store) ListByRelatedNode(ctx context.Context, assignmentID string, nodeID string, limit int) ([]Insight, error) {
-	if assignmentID == "" {
-		return nil, fmt.Errorf("insight.Store.ListByRelatedNode: assignmentID 必填")
-	}
-	if nodeID == "" {
-		return nil, fmt.Errorf("insight.Store.ListByRelatedNode: nodeID 必填")
-	}
-	// 使用 JSONB 包含操作符 @> 查询（需要 GIN 索引优化）
-	return s.list(ctx, "ListByRelatedNode",
-		"assignment_id = $1 AND related_nodes @> $2",
-		[]any{assignmentID, fmt.Sprintf(`["%s"]`, nodeID)},
-		"created_at DESC",
-		limit)
-}

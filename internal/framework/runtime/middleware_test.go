@@ -49,31 +49,27 @@ func TestLoopDetectionMiddleware_NoLoop(t *testing.T) {
 	}
 }
 
-func TestProgressTrackingMiddleware_ConsecutiveFailures(t *testing.T) {
-	m := NewProgressTrackingMiddleware(15, 8)
+func TestProgressTrackingMiddleware_OutputStagnationOnly(t *testing.T) {
+	// 连续失败止损已收敛为 runtime 内置单机制（迭代中即时生效、阈值随装配
+	// 下发）——中间件只承担无新输出检测；连续失败计数不再触发中间件停止。
+	m := NewProgressTrackingMiddleware(15)
 
 	state := &IterationState{
 		Iteration:               10,
 		ConsecutiveToolFailures: 8,
 		OutputCount:             5,
 	}
-
 	signal, err := m.AfterIteration(context.Background(), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if signal == nil || !signal.ShouldStop {
-		t.Error("expected stop signal for consecutive failures")
-	}
-
-	if signal.Reason != StopReasonNoProgress {
-		t.Errorf("expected reason %s, got %s", StopReasonNoProgress, signal.Reason)
+	if signal != nil && signal.ShouldStop {
+		t.Error("连续失败分支已移除（runtime 内置单机制），中间件不应因失败计数停止")
 	}
 }
 
 func TestProgressTrackingMiddleware_NoOutputProgress(t *testing.T) {
-	m := NewProgressTrackingMiddleware(5, 10)
+	m := NewProgressTrackingMiddleware(5)
 
 	ctx := context.Background()
 
@@ -113,7 +109,7 @@ func TestProgressTrackingMiddleware_NoOutputProgress(t *testing.T) {
 }
 
 func TestProgressTrackingMiddleware_WithNewOutput(t *testing.T) {
-	m := NewProgressTrackingMiddleware(5, 10)
+	m := NewProgressTrackingMiddleware(5)
 
 	ctx := context.Background()
 
@@ -213,7 +209,7 @@ func TestGoalAlignmentMiddleware_Drift(t *testing.T) {
 
 func TestMiddlewareChain(t *testing.T) {
 	loop := NewLoopDetectionMiddleware(5, 5)
-	progress := NewProgressTrackingMiddleware(10, 8)
+	progress := NewProgressTrackingMiddleware(10)
 	goal := NewGoalAlignmentMiddleware("测试目标", 5)
 
 	chain := NewMiddlewareChain(loop, progress, goal)
