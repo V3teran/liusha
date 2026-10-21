@@ -177,7 +177,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     {finding.target?.path}
                   </div>
                   {/* 定位行复制：渗透测试场景下最常需要粘贴到 curl/Burp 去复现的目标 URL。 */}
-                  <CopyButton compact copied={copiedKey === 'target'} onClick={() => void copy('target', targetLine)} className="mt-0.5" />
+                  <CopyButton copied={copiedKey === 'target'} onClick={() => void copy('target', targetLine)} className="mt-0.5" />
                 </div>
               </div>
 

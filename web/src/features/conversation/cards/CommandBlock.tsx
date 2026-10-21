@@ -29,12 +29,7 @@ export function CommandBlock({ content, createdAt, copied, onCopy }: CommandBloc
               {clockTime(createdAt)}
             </time>
           )}
-          <CopyButton
-            compact
-            copied={copied}
-            onClick={onCopy}
-            className="opacity-60 transition-opacity hover:opacity-100"
-          />
+          <CopyButton copied={copied} onClick={onCopy} />
         </div>
       </div>
     </div>

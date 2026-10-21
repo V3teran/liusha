@@ -46,7 +46,7 @@ describe('FindingDrawer', () => {
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
     // 定位行的复制按钮是 compact（仅图标，title="复制"），与证据区的文字按钮区分。
-    const copyBtn = screen.getByTitle('复制')
+    const copyBtn = screen.getAllByTitle('复制')[0]
     fireEvent.click(copyBtn)
 
     expect(writeText).toHaveBeenCalledWith('POST evil.example.com /login')
@@ -112,10 +112,10 @@ describe('FindingDrawer', () => {
     })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
-    // repro_cmd → 代码块 + 复制按钮
+    // repro_cmd → 代码块 + 复制按钮（统一图标态后 title 全局同名，断言存在即可；
+    // 代码块本身以 pre 形态区分）
     expect(screen.getByText('复现命令')).toBeTruthy()
-    const copyButtons = screen.getAllByText('复制')
-    expect(copyButtons.length).toBe(1) // 只有 code kind 才有复制按钮
+    expect(screen.getAllByTitle('复制').length).toBeGreaterThanOrEqual(1)
 
     // observation → 纯文本，无复制按钮
     expect(screen.getByText('观察')).toBeTruthy()
@@ -133,7 +133,7 @@ describe('FindingDrawer', () => {
     const pre = document.body.querySelector('pre')
     expect(pre?.textContent).toBe(JSON.stringify(['/a', '/b'], null, 2))
     // json 块和 code 块一样是代码展示，同样需要复制入口（之前实现漏掉了 json 分支）。
-    expect(screen.getByText('复制')).toBeTruthy()
+    expect(screen.getAllByTitle('复制')[0]).toBeTruthy()
   })
 
   it('evaluation 为空/未提供时不渲染证据区块', () => {
@@ -157,11 +157,12 @@ describe('FindingDrawer', () => {
     const finding = makeFinding({ evaluation: { payload: "' OR 1=1" } })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
-    const copyBtn = screen.getByText('复制')
+    // payload 区的复制按钮在证据区（最后一个）——[0] 是定位行的图标按钮
+    const copyBtn = screen.getAllByTitle('复制').slice(-1)[0]
     fireEvent.click(copyBtn)
 
     expect(writeText).toHaveBeenCalledWith("' OR 1=1")
-    expect(await screen.findByText('已复制')).toBeTruthy()
+    expect(await screen.findByTitle('已复制')).toBeTruthy()
   })
 
   it('remediation 存在时渲染修复建议区块', () => {

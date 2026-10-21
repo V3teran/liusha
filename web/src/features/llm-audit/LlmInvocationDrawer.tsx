@@ -107,7 +107,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     <dt className="text-xs text-muted">request_id</dt>
                     <dd className="flex items-center gap-2 break-all font-mono text-[12.5px] text-text">
                       {detail.request_id}
-                      <CopyButton compact copied={copiedKey === 'rid'} onClick={() => void copy('rid', detail.request_id)} />
+                      <CopyButton copied={copiedKey === 'rid'} onClick={() => void copy('rid', detail.request_id)} />
                     </dd>
                     <dt className="text-xs text-muted">时间</dt>
                     <dd className="font-mono text-[12.5px] text-text">{fullTime(detail.created_at)}</dd>
