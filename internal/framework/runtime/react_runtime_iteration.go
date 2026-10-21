@@ -59,7 +59,8 @@ func (r *DefaultReActRuntime) runIteration(
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
-		result.AddAssistantMessage(response.Content, nil)
+		result.AddAssistantMessage(response.Content, nil, response.Thinking)
+		result.FinalThinking = thinkingText(response.Thinking)
 
 		// 中间件：AfterIteration（即使提前终止也要调用）
 		if config.MiddlewareChain != nil {
@@ -78,7 +79,8 @@ func (r *DefaultReActRuntime) runIteration(
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
-		result.AddAssistantMessage(response.Content, nil)
+		result.AddAssistantMessage(response.Content, nil, response.Thinking)
+		result.FinalThinking = thinkingText(response.Thinking)
 
 		// 中间件：AfterIteration
 		if config.MiddlewareChain != nil {
@@ -90,8 +92,8 @@ func (r *DefaultReActRuntime) runIteration(
 		return trace, true, nil
 	}
 
-	// 添加助手消息（包含工具调用）
-	result.AddAssistantMessage(response.Content, response.ToolCalls)
+	// 添加助手消息（包含工具调用；thinking 随消息携带供多轮 tool_use 规范回传）
+	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 
 	// 3. 执行工具调用（Observation）
 	for _, toolCall := range response.ToolCalls {

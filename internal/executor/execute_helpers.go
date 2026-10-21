@@ -74,9 +74,10 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	// 构建配置，包含 monitor kill 检查
 	var killed atomic.Bool
 	// 思考流（nil=不流式）：方法值不能从 nil 接口取，先守卫。
-	var onThoughtDelta func(string)
+	var onThoughtDelta, onThinkingDelta func(string)
 	if e.thoughts != nil {
 		onThoughtDelta = e.thoughts.Delta
+		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
 	config := &runtime.ReActConfig{
 		Objective:            objective,
@@ -84,6 +85,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		LLMProvider:          provider,
 		MaxIterations:        e.maxIt,
 		OnThoughtDelta:       onThoughtDelta,
+		OnThinkingDelta:      onThinkingDelta,
 		Temperature:          0.7,
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(15),
@@ -243,7 +245,7 @@ func (e *Engine) executeReActRuntime(
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err == nil && e.thoughts != nil {
-		e.thoughts.Done(result.FinalAnswer)
+		e.thoughts.Done(result.FinalAnswer, result.FinalThinking)
 	}
 	if err != nil {
 		// ReAct 失败：尝试降级策略——强制提取假设
@@ -262,7 +264,7 @@ func (e *Engine) executeReActRuntime(
 			Str("action_id", actionID).
 			Msg("降级模式成功提取假设")
 		if e.thoughts != nil {
-			e.thoughts.Done(fallbackResult.FinalAnswer)
+			e.thoughts.Done(fallbackResult.FinalAnswer, fallbackResult.FinalThinking)
 		}
 		return fallbackResult, nil
 	}

@@ -176,12 +176,20 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		runtime.NewGoalAlignmentMiddleware(planCtx.Objective, 5), // 5 次偏离目标
 	)
 
-	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要
+	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要。
+	// 思考流出口（nil=不流式）：方法值不能从 nil 接口取，先守卫。
+	var onThoughtDelta, onThinkingDelta func(string)
+	if i.thoughts != nil {
+		onThoughtDelta = i.thoughts.Delta
+		onThinkingDelta = i.thoughts.ThinkingDelta
+	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            prompt,
 		SystemPrompt:         i.buildPlannerSystemPrompt(),
 		LLMProvider:          provider,
 		MaxIterations:        i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		OnThoughtDelta:       onThoughtDelta,
+		OnThinkingDelta:      onThinkingDelta,
 		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewDefaultModifierChain(20),
 		MiddlewareChain:      middlewareChain,
@@ -212,7 +220,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
 	if i.thoughts != nil {
-		i.thoughts.Done(result.FinalAnswer)
+		i.thoughts.Done(result.FinalAnswer, result.FinalThinking)
 	}
 	i.budget = i.timeout // 成功即回落基准预算
 

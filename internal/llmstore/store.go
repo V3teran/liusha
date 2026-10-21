@@ -236,5 +236,6 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 	return fwllm.ProviderSpec{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
 		APIKey: apiKey, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
+		ThinkingBudget: p.ThinkingBudgetTokens,
 	}, nil
 }

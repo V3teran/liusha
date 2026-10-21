@@ -9,8 +9,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
 
-// prepareAnthropicRequest 准备 Anthropic 请求参数
-func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic.Model, maxTokens int64) (anthropic.MessageNewParams, error) {
+// prepareAnthropicRequest 准备 Anthropic 请求参数。thinkingBudget > 0 时开启
+// 扩展思考（模型先流式产出 thinking block 再产正文；流式路径不设 temperature——
+// 开思考时协议只允许 1，不设即协议默认）。
+//
+// 请求级 maxTokens（调用方按任务收窄，如 judge 1500）可能小于 provider 级
+// thinking budget（如 4096）——协议硬约束 budget < max_tokens（真 Anthropic
+// 直接 400；宽容后端则思考吞光正文预算）。此处在请求边界把 budget clamp 到
+// maxTokens 的 3/4：思考有上限、正文恒留 1/4 余量，两边都不违约。
+func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic.Model, maxTokens, thinkingBudget int64) (anthropic.MessageNewParams, error) {
 	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
 	if err != nil {
 		return anthropic.MessageNewParams{}, fmt.Errorf("convert messages: %w", err)
@@ -32,6 +39,12 @@ func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic
 	}
 	if len(anthropicTools) > 0 {
 		params.Tools = anthropicTools
+	}
+	if thinkingBudget > 0 {
+		if ceiling := maxTokens * 3 / 4; thinkingBudget > ceiling {
+			thinkingBudget = ceiling
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
 	}
 
 	return params, nil
@@ -75,7 +88,16 @@ func processAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthro
 		OutTokens:    int(acc.Usage.OutputTokens),
 		CachedTokens: int(acc.Usage.CacheReadInputTokens),
 	}
-	emit(StreamEvent{Kind: StreamDone, Usage: &u})
+	// 思考块签名在流收尾才完整（SDK Accumulate 聚合出完整 ThinkingBlock）；
+	// 随 StreamDone 透出，与 CollectStream 聚合的思考文本组成 ThinkingBlock。
+	sig := ""
+	for _, block := range acc.Content {
+		if tb, ok := block.AsAny().(anthropic.ThinkingBlock); ok && tb.Signature != "" {
+			sig = tb.Signature
+			break
+		}
+	}
+	emit(StreamEvent{Kind: StreamDone, Usage: &u, Signature: sig})
 }
 
 // handleStreamEvent 处理单个流事件

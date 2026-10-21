@@ -49,8 +49,11 @@ type Provider struct {
 	Description     string
 	SortOrder       int
 	Enabled         bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// ThinkingBudgetTokens 是扩展思考预算（anthropic thinking.budget_tokens）。
+	// >0 = 开启扩展思考；0 = 不开启。仅 anthropic 协议消费。
+	ThinkingBudgetTokens int64
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // HasStoredKey 报告该 provider 是否已有可用密钥来源（加密落库或 ENV 变量名），
@@ -65,21 +68,22 @@ func (p Provider) HasStoredKey() bool {
 // 这里只收密文字节。KeepExistingKey=true 时 Update 不改动 encrypted_api_key 列（前端编辑
 // 表单不重新填密钥即保留原值，符合「已设置」不回显明文的交互）。
 type ProviderParams struct {
-	Code            string // 稳定引用标识（角色路由 FK 指向；列名 code）
-	Type            string
-	BaseURL         string
-	DefaultModel    string
-	LegacyAPIKeyEnv string // 旧模式：ENV 变量名，仅 seed（yaml 首填）路径使用
-	EncryptedAPIKey []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
-	APIKeyLast4     string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
-	KeepExistingKey bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
-	MaxTokens       int
-	SupportsTools   bool
-	SupportsVision  bool
-	ContextWindow   int
-	Description     string
-	SortOrder       int
-	Enabled         bool
+	Code                 string // 稳定引用标识（角色路由 FK 指向；列名 code）
+	Type                 string
+	BaseURL              string
+	DefaultModel         string
+	LegacyAPIKeyEnv      string // 旧模式：ENV 变量名，仅 seed（yaml 首填）路径使用
+	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
+	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
+	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
+	MaxTokens            int
+	SupportsTools        bool
+	SupportsVision       bool
+	ContextWindow        int
+	Description          string
+	SortOrder            int
+	Enabled              bool
+	ThinkingBudgetTokens int64
 }
 
 // RoleRoute 是「档/保留槽 → provider code」的一行绑定（heavy→qwen、__fallback__→… 等）。

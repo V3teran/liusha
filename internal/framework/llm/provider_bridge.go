@@ -46,6 +46,7 @@ func (p *generatorProvider) Complete(ctx context.Context, req Request) (Response
 		ToolCalls:    res.ToolCalls,
 		Usage:        res.Usage,
 		FinishReason: res.FinishReason,
+		Thinking:     res.Thinking,
 	}, nil
 }
 

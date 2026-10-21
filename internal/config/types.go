@@ -121,6 +121,11 @@ type ProviderConfig struct {
 	// 同 SupportsVision 模式：*int 区分"未填"（nil）与"显式 0"——validate 强制必填，
 	// 避免 caller 用默认值估算导致 prompt 真爆（例如 32k 模型按 128k 算阈值）。
 	ContextWindow *int `mapstructure:"context_window"`
+
+	// ThinkingBudgetTokens 是扩展思考预算（anthropic thinking.budget_tokens）。
+	// >0 = 开启扩展思考（模型先流式产出内部 CoT 再产正文）；0/缺省 = 不开启。
+	// 仅 anthropic 协议 provider 消费。
+	ThinkingBudgetTokens int64 `mapstructure:"thinking_budget_tokens"`
 }
 
 // ProxyConfig 控制 in-process MITM 切片 + 责任链过滤 + 聚合参数 + 进程入口。

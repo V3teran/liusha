@@ -24,25 +24,25 @@ func (f *fakeDeps) Generate(_ context.Context, _ []llm.Message, _ []llm.ToolSche
 }
 
 // GenerateStream 模拟流式：整段回复切成两块逐段回调（覆盖打字机链路）。
-func (f *fakeDeps) GenerateStream(_ context.Context, msgs []llm.Message, tools []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error) {
-	res, err := f.Generate(context.Background(), msgs, tools)
+func (f *fakeDeps) GenerateStream(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, onText, _ func(chunk string)) (llm.Result, error) {
+	res, err := f.Generate(context.Background(), msgs, nil)
 	if err != nil {
 		return res, err
 	}
-	if onDelta != nil {
+	if onText != nil {
 		runes := []rune(res.Content)
 		half := len(runes) / 2
 		if half > 0 {
-			onDelta(string(runes[:half]))
+			onText(string(runes[:half]))
 		}
-		onDelta(string(runes[half:]))
+		onText(string(runes[half:]))
 	}
 	return res, nil
 }
 
-func (f *fakeDeps) PublishDelta(_ context.Context, _, _ string) error { return nil }
+func (f *fakeDeps) PublishDelta(_ context.Context, _, _, _ string) error { return nil }
 
-func (f *fakeDeps) AppendAssistant(_ context.Context, _, content string) ([]byte, error) {
+func (f *fakeDeps) AppendAssistant(_ context.Context, _, content, _ string) ([]byte, error) {
 	f.appended = content
 	return json.Marshal(map[string]string{"content": content})
 }

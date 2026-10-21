@@ -54,16 +54,17 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) er
 			contextWindow = *p.ContextWindow
 		}
 		if _, err := s.CreateProvider(ctx, llmcfg.ProviderParams{
-			Code:            key,
-			Type:            typ,
-			BaseURL:         p.BaseURL,
-			DefaultModel:    p.DefaultModel,
-			LegacyAPIKeyEnv: p.APIKeyEnv,
-			MaxTokens:       p.MaxTokens,
-			SupportsTools:   p.SupportsTools,
-			SupportsVision:  supportsVision,
-			ContextWindow:   contextWindow,
-			Enabled:         true,
+			Code:                 key,
+			Type:                 typ,
+			BaseURL:              p.BaseURL,
+			DefaultModel:         p.DefaultModel,
+			LegacyAPIKeyEnv:      p.APIKeyEnv,
+			MaxTokens:            p.MaxTokens,
+			SupportsTools:        p.SupportsTools,
+			SupportsVision:       supportsVision,
+			ContextWindow:        contextWindow,
+			ThinkingBudgetTokens: p.ThinkingBudgetTokens,
+			Enabled:              true,
 		}); err != nil {
 			return fmt.Errorf("建 provider %q: %w", key, err)
 		}

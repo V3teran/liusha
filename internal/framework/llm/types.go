@@ -35,13 +35,16 @@ const (
 //
 // Content 与 ContentParts 互斥：纯文本走 Content（默认路径）；含图/多模态走 ContentParts。
 // ContentParts 非空时 provider 必须支持 vision；否则返 ErrVisionUnsupported。
+// Thinking 是 assistant 消息携带的扩展思考块（anthropic 多轮 tool_use 规范回传用；
+// 其余角色恒为 nil）。
 type Message struct {
-	Role         MessageRole   `json:"role"`
-	Content      string        `json:"content,omitempty"`
-	ContentParts []ContentPart `json:"content_parts,omitempty"`
-	Name         string        `json:"name,omitempty"`
-	ToolCallID   string        `json:"tool_call_id,omitempty"`
-	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	Role         MessageRole    `json:"role"`
+	Content      string         `json:"content,omitempty"`
+	ContentParts []ContentPart  `json:"content_parts,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	ToolCallID   string         `json:"tool_call_id,omitempty"`
+	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`
+	Thinking     *ThinkingBlock `json:"thinking,omitempty"`
 }
 
 // ContentPart 是 multimodal message 的内容块。Type ∈ {"text", "image_url"}。
@@ -68,6 +71,17 @@ type ToolCall struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+}
+
+// ThinkingBlock 是模型的扩展思考块（协议原生形态：anthropic thinking block /
+// openai 系 reasoning_content 的归一表示）。
+//
+// Text 是思考原文（流式增量聚合而成，供时间线展示与落库）；Signature 是协议
+// 回传校验签名——anthropic 规范要求：开启扩展思考的多轮 tool_use 中，assistant
+// 消息须原样回传 thinking block（含签名），故随 Message 持久携带。
+type ThinkingBlock struct {
+	Text      string `json:"text"`
+	Signature string `json:"signature,omitempty"`
 }
 
 // ToolSchema 描述一个工具的元信息（名字 + 描述 + JSON Schema 参数）。
@@ -101,6 +115,8 @@ type Result struct {
 	FinishReason string
 	Provider     string
 	Model        string
+	// Thinking 是本次生成的扩展思考块（模型内部 CoT；未开启/未产出为 nil）。
+	Thinking *ThinkingBlock
 }
 
 // Generator 是 LLM 生成器统一接口（非流式）。

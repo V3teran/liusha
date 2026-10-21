@@ -199,13 +199,14 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	// 运行 ReAct 循环（思考流出口非空时逐段回调增量）
 	if a.thoughts != nil {
 		config.OnThoughtDelta = a.thoughts.Delta
+		config.OnThinkingDelta = a.thoughts.ThinkingDelta
 	}
 	result, err := a.reactRuntime.Run(ctx, config)
 	if err != nil {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
 	}
 	if a.thoughts != nil {
-		a.thoughts.Done(result.FinalAnswer)
+		a.thoughts.Done(result.FinalAnswer, result.FinalThinking)
 	}
 
 	a.logger.Info().

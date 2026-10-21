@@ -12,9 +12,18 @@ func (r *DefaultReActRuntime) parseLLMResponse(response llm.Response) (*llmRespo
 	result := &llmResponse{
 		Content:   response.Content,
 		ToolCalls: response.ToolCalls,
+		Thinking:  response.Thinking,
 	}
 
 	return result, nil
+}
+
+// thinkingText nil-safe 取思考原文。
+func thinkingText(t *llm.ThinkingBlock) string {
+	if t == nil {
+		return ""
+	}
+	return t.Text
 }
 
 // executeTool 执行工具

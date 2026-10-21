@@ -64,9 +64,13 @@ type ReActConfig struct {
 	// （此时只有整段 OnThought，无增量）。与 OnThought 的分工：Delta 逐段、
 	// Thought 每轮一次携完整文本。
 	OnThoughtDelta func(chunk string)
-	OnAction       func(action *Action)
-	OnObservation  func(observation string)
-	OnIteration    func(iteration int, status IterationStatus)
+	// OnThinkingDelta 是扩展思考（模型内部 CoT，anthropic thinking block）的
+	// 流式增量回调——与 OnThoughtDelta 分道：思考先流、正文后流，前端分两个
+	// 展示区（思考折叠区 + 正文打字机）。可空 = 调用方不消费思考流。
+	OnThinkingDelta func(chunk string)
+	OnAction        func(action *Action)
+	OnObservation   func(observation string)
+	OnIteration     func(iteration int, status IterationStatus)
 
 	// 温度参数（0-1，控制随机性）
 	Temperature float64
@@ -99,6 +103,10 @@ type ReActConfig struct {
 type ReActResult struct {
 	// 最终答案
 	FinalAnswer string
+
+	// FinalThinking 是最终轮的扩展思考原文（模型内部 CoT；供会话时间线落库，
+	// 与 FinalAnswer 一道构成该轮的完整产出一一正文是结论、思考是过程）。
+	FinalThinking string
 
 	// 消息历史
 	MessageHistory []llm.Message
@@ -226,12 +234,14 @@ func (r *ReActResult) AddUserMessage(content string) {
 	})
 }
 
-// AddAssistantMessage 添加助手消息
-func (r *ReActResult) AddAssistantMessage(content string, toolCalls []llm.ToolCall) {
+// AddAssistantMessage 添加助手消息。thinking 是该轮的扩展思考块（anthropic
+// 多轮 tool_use 规范回传用；无思考为 nil）。
+func (r *ReActResult) AddAssistantMessage(content string, toolCalls []llm.ToolCall, thinking *llm.ThinkingBlock) {
 	r.MessageHistory = append(r.MessageHistory, llm.Message{
 		Role:      llm.RoleAssistant,
 		Content:   content,
 		ToolCalls: toolCalls,
+		Thinking:  thinking,
 	})
 }
 
