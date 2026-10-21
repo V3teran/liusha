@@ -132,8 +132,8 @@ func (j *RouterJudge) Judge(
 	// 构建中间件链：防止验证循环、无进展
 	// 注意：Evaluator 不需要 GoalAlignment（验证任务目标固定）
 	middlewareChain := runtime.NewMiddlewareChain(
-		runtime.NewLoopDetectionMiddleware(12, 10),    // 连续 12 次相同工具 / 10 次相似思考
-		runtime.NewProgressTrackingMiddleware(20, 12), // 20 次无新输出 / 12 次连续失败
+		runtime.NewLoopDetectionMiddleware(12, 10), // 连续 12 次相同工具 / 10 次相似思考
+		runtime.NewProgressTrackingMiddleware(20),  // 20 轮无新输出终止（连续失败止损由 runtime 内置，阈值随下下发）
 	)
 
 	var onThoughtDelta, onThinkingDelta func(string)
@@ -142,15 +142,16 @@ func (j *RouterJudge) Judge(
 		onThinkingDelta = j.thoughts.ThinkingDelta
 	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
-		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
-		SystemPrompt:         j.systemPrompt(),
-		LLMProvider:          provider,
-		MaxIterations:        j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		OnThoughtDelta:       onThoughtDelta,
-		OnThinkingDelta:      onThinkingDelta,
-		MaxTokens:            1500,
-		MessageModifierChain: runtime.NewDefaultModifierChain(10),
-		MiddlewareChain:      middlewareChain,
+		Objective:                  j.buildObjective(hypothesis, recipe, initialEvidence),
+		SystemPrompt:               j.systemPrompt(),
+		LLMProvider:                provider,
+		MaxIterations:              j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		MaxConsecutiveToolFailures: 12,      // 连续工具失败止损阈值（单机制：runtime 内置，裁决链路容忍更高）
+		OnThoughtDelta:             onThoughtDelta,
+		OnThinkingDelta:            onThinkingDelta,
+		MaxTokens:                  1500,
+		MessageModifierChain:       runtime.NewDefaultModifierChain(10),
+		MiddlewareChain:            middlewareChain,
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
