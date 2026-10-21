@@ -30,7 +30,6 @@ function CopyableCell({ value }: { value: string }) {
       </span>
       {value && (
         <CopyButton
-          compact
           copied={copiedKey === 'cell'}
           onClick={() => copy('cell', value)}
           label="复制"

@@ -141,8 +141,9 @@ describe('LlmInvocationDrawer', () => {
     const writeText = navigator.clipboard.writeText
     const detail = makeDetail({ request_id: 'req-xyz' })
     render(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    // request_id 旁的复制按钮是 compact（仅图标，title="复制"），与其他 section 的文字按钮区分。
-    const copyBtn = screen.getByTitle('复制')
+    // request_id 旁的复制按钮是图标态；其他 section 的带字按钮也带 title（tooltip）
+    // ——统一 hover 语言后按首个 title 命中（rid 行在抽屉顶部）。
+    const copyBtn = screen.getAllByTitle('复制')[0]
     fireEvent.click(copyBtn)
     // copy() 内部 await clipboard.writeText 后才 setState；等按钮态切换（title 变为「已复制」），避免 act() 警告。
     expect(await screen.findByTitle('已复制')).toBeTruthy()
@@ -158,7 +159,7 @@ describe('LlmInvocationDrawer', () => {
     expect(copyBtn).toBeTruthy()
     fireEvent.click(copyBtn!)
     expect(writeText).toHaveBeenCalledWith('思考内容 A')
-    expect(await screen.findByText('已复制')).toBeTruthy()
+    expect(await screen.findByTitle('已复制')).toBeTruthy()
   })
 
   it('无输入消息且无 messages 时显示占位', () => {

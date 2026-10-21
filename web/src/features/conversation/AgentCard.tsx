@@ -60,12 +60,7 @@ export function AgentCard({
               </time>
             )}
             {showCopy && (
-              <CopyButton
-                compact
-                copied={copied}
-                onClick={onCopy}
-                className="opacity-60 transition-opacity hover:opacity-100"
-              />
+              <CopyButton copied={copied} onClick={onCopy} />
             )}
           </div>
         )}

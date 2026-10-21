@@ -4,33 +4,33 @@ import { cn } from '@/lib/utils'
 interface CopyButtonProps {
   copied: boolean
   onClick: () => void
-  label?: string // 未复制时文案，默认「复制」
-  copiedLabel?: string // 已复制时文案，默认「已复制」
-  /** 紧凑态：只显示图标（配 title/aria-label），用于元信息行内联按钮等空间受限场景。 */
-  compact?: boolean
+  label?: string // tooltip/读屏文案，默认「复制」
+  copiedLabel?: string // 已复制态 tooltip，默认「已复制」
   className?: string
 }
 
-// 统一的「复制」按钮：图标 + 文案，点击后短暂切到已复制态。取代过去分散在
-// FindingDrawer/LlmInvocationDrawer 里各自手写、且互不一致的复制按钮实现
-// （有的用裸字符 ✓，有的用 lucide Check，视觉语言不统一）。
-export function CopyButton({ copied, onClick, label = '复制', copiedLabel = '已复制', compact = false, className }: CopyButtonProps) {
+// 统一的「复制」按钮：全站唯一图标形态（16px + title 提示）——业界消息操作
+// 惯例（hover 可辨、不占空间、无文字冗余）。淡色常显 → hover 强调色 + 底色；
+// 点击后短暂切到已复制态（Check + 强调色）。label 仅作 tooltip，不渲染文字。
+export function CopyButton({ copied, onClick, label = '复制', copiedLabel = '已复制', className }: CopyButtonProps) {
   const text = copied ? copiedLabel : label
   return (
     <button
       type="button"
       onClick={onClick}
-      title={compact ? text : undefined}
-      aria-label={compact ? text : undefined}
+      title={text}
+      aria-label={text}
       className={cn(
-        'inline-flex flex-shrink-0 items-center gap-1 rounded border border-border text-[11px]',
-        compact ? 'p-1' : 'px-2 py-0.5',
-        copied ? 'border-accent text-accent' : 'text-muted hover:border-accent hover:text-accent',
+        'inline-flex flex-shrink-0 items-center justify-center rounded-md p-1.5 transition-colors',
+        copied ? 'text-accent' : 'text-faint hover:bg-surface-2 hover:text-accent',
         className,
       )}
     >
-      {copied ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
-      {!compact && text}
+      {copied ? (
+        <Check className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <Copy className="h-4 w-4" aria-hidden="true" />
+      )}
     </button>
   )
 }

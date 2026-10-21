@@ -36,12 +36,7 @@ export function ReplyBlock({ content, agentName, createdAt, copied, onCopy }: Re
               {clockTime(createdAt)}
             </time>
           )}
-          <CopyButton
-            compact
-            copied={copied}
-            onClick={onCopy}
-            className="opacity-60 transition-opacity hover:opacity-100"
-          />
+          <CopyButton copied={copied} onClick={onCopy} />
         </div>
       </div>
     </div>
