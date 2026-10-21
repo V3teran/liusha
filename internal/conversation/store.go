@@ -111,6 +111,27 @@ func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 	return running, nil
 }
 
+// CountReasoningSinceDispatched 统计本会话最近一次任务下发（dispatched 状态节点）
+// 之后的 reasoning 终态数——与前端时间线卡片的步号同一口径（一次 agent 推理=一步），
+// 完成节点的「N 步」由此而来，不再与动作计数混用。无下发节点时统计全会话。
+func (s *Store) CountReasoningSinceDispatched(ctx context.Context, convID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM message m
+		WHERE m.conversation_id = $1
+		  AND m.metadata->>'kind' = 'reasoning'
+		  AND m.seq > COALESCE((
+		        SELECT max(seq) FROM message
+		        WHERE conversation_id = $1
+		          AND metadata->>'kind' = 'task_status'
+		          AND metadata->>'status' = 'dispatched'
+		      ), 0)`, convID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count reasoning since dispatched for %s: %w", convID, err)
+	}
+	return n, nil
+}
+
 // WallclockMs 返回本会话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
 // 跑中用 now()-created_at，结束用 ended_at-created_at；再减 task.paused_ms（多轮 follow-up
 // 复活间的用户停顿累计，见 task.Reopen）。首次扫描 paused_ms=0。纯聊天/无关联 task 返回 0。

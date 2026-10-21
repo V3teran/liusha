@@ -7,6 +7,7 @@ const md = (over: Partial<ScanEvent>): ScanEvent => ({
   kind: 'task_status',
   status: 'completed',
   steps: 0,
+  actions: 0,
   findings: 0,
   stop_why: '',
   reason: '',
@@ -25,12 +26,15 @@ const md = (over: Partial<ScanEvent>): ScanEvent => ({
 })
 
 describe('TaskStatusCard', () => {
-  it('completed：标签 + 报告字段（步数/漏洞/收敛原因）', () => {
-    render(<TaskStatusCard md={md({ status: 'completed', steps: 15, findings: 2, stop_why: 'task_converged' })} />)
+  it('completed：标签 + 报告字段（推理步数/动作数/漏洞/收敛原因中文映射）', () => {
+    render(<TaskStatusCard md={md({ status: 'completed', steps: 22, actions: 8, findings: 1, stop_why: 'task_converged' })} />)
     expect(screen.getByText('扫描完成')).toBeTruthy()
-    expect(screen.getByText(/15 步/)).toBeTruthy()
-    expect(screen.getByText(/2 个漏洞/)).toBeTruthy()
-    expect(screen.getByText(/task_converged/)).toBeTruthy()
+    expect(screen.getByText(/22 步/)).toBeTruthy()
+    expect(screen.getByText(/8 个动作/)).toBeTruthy()
+    expect(screen.getByText(/1 个漏洞/)).toBeTruthy()
+    expect(screen.getByText(/任务收敛/)).toBeTruthy()
+    // 机器枚举不直出人面
+    expect(screen.queryByText(/task_converged/)).toBeNull()
   })
 
   it('dispatched：仅标签，无报告字段行', () => {

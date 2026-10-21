@@ -13,17 +13,22 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
  * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
 export interface ScanEvent {
-  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | string
+  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed）
-  steps: number // task_status/completed：执行步数
+  steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
+  actions: number // task_status/completed：完成的 Action 数（认知循环派发的动作计数）
   findings: number // task_status/completed：产出漏洞数
-  stop_why: string // task_status/completed：收敛原因
+  stop_why: string // task_status/completed：收敛原因（控制面枚举，前端映射中文）
   reason: string // task_status/aborted|failed：原因
   tool_name: string // tool_call/tool_result：工具名
   args: string // tool_call：入参 JSON 原文
   result: string // tool_result：输出预览（超长截断）
   duration_ms: number // tool_result：工具执行耗时(ms)
   err: string // tool_result：错误信息（空=成功）
+  summary: string // finding：漏洞标题
+  severity: string // finding：分级（critical/high/medium/low/info）
+  host: string // finding：目标主机
+  target: string // finding：目标定位（URL/路径等）
   text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 LLM 审计页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
