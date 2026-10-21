@@ -128,7 +128,7 @@ function ModelField({
     setProbeMsg('')
     try {
       const list = await listProviderModels({
-        code: draft.code || undefined,
+        key: draft.key || undefined,
         type: draft.type,
         base_url: draft.base_url,
         api_key: draft.api_key || undefined,
@@ -179,11 +179,11 @@ function ModelField({
 // 能力标志保守（不支持视觉、支持工具调用），context_window 给常见 64K。
 export function blankProvider(): ProviderConfig {
   return {
-    code: '',
+    key: '',
     type: 'openai_compat',
     base_url: '',
     default_model: '',
-    api_code: '',
+    api_key: '',
     key_present: false,
     max_tokens: 4096,
     supports_tools: true,
@@ -199,7 +199,7 @@ export function blankProvider(): ProviderConfig {
 // api_key：新建必填（后端 400 拒绝空密钥新建）；编辑留空 = 不修改已存密钥，故不校验。
 export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boolean {
   return (
-    !d?.code ||
+    !d?.key ||
     !d?.base_url ||
     !d?.default_model ||
     (isNew && !d?.api_key) ||
@@ -235,11 +235,11 @@ export function ProviderFormBody({
         <Field label="标识键" hint={isNew ? '稳定引用键，创建后不可改' : 'key'}>
           <input
             className={INPUT_CLASS}
-            value={draft.code}
+            value={draft.key}
             spellCheck={false}
             disabled={!isNew}
             placeholder="deepseek"
-            onChange={(e) => patch({ code: e.target.value })}
+            onChange={(e) => patch({ key: e.target.value })}
           />
         </Field>
         <Field label="协议">
