@@ -74,11 +74,14 @@ llm:
 providers:
   # —— 智谱 GLM（国产大模型，支持工具调用）
   glm:
-    type: openai_compat
-    base_url: https://open.bigmodel.cn/api/coding/paas/v4
+    # anthropic 原生协议：thinking block 一等公民（扩展思考流式/签名/多轮 tool_use
+    # 规范回传），openai_compat 的 reasoning_content 扩展无 SDK 支持。
+    type: anthropic
+    base_url: https://open.bigmodel.cn/api/anthropic
     default_model: glm-5.3-flash
     api_key_env: GLM_API_KEY
     max_tokens: 8192
+    thinking_budget_tokens: 4096              # 扩展思考预算（>0 开启；<max_tokens）
     supports_tools: true
     supports_vision: false
     context_window: 128000                    # GLM-5 128K 上下文

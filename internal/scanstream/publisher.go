@@ -45,25 +45,40 @@ func (p *Publisher) Publish(ctx context.Context, conversationID string, payload 
 	return nil
 }
 
-// DeltaFrame 是流式思考增量帧：agent 思考文本的逐段实时广播，不持久化——
-// 终态以落库的 conversation message（kind=reasoning / assistant 回复）为准，
-// 前端收到终态消息即清空对应气泡。delta:true 是 SSE handler 的帧类型判别位。
+// DeltaFrame 是流式增量帧：agent 输出的逐段实时广播，不持久化——
+// 终态以落库的 conversation message 为准，前端收到终态消息即清空对应气泡。
+// delta:true 是 SSE handler 的帧类型判别位；channel 区分双通道：
+//
+//	"thinking" — 扩展思考增量（模型内部 CoT，先流）
+//	"text"     — 正文增量（ReAct thought / 最终回答，后流）
+//
+// channel 缺省按 "text" 解读（旧帧兼容）。
 type DeltaFrame struct {
 	Delta     bool   `json:"delta"`
 	AgentName string `json:"agent_name,omitempty"` // 产生增量的 agent（chat 助手为 assistant）
+	Channel   string `json:"channel,omitempty"`    // "thinking" | "text"（缺省 text）
 	Text      string `json:"text"`
 }
 
-// PublishDelta 广播一帧思考增量（AgentName 为空按 assistant 归档）。
-// 与 Publish 同样 best-effort：丢帧无害，终态消息兜底。
-func (p *Publisher) PublishDelta(ctx context.Context, conversationID, agentName, text string) error {
+// 增量通道常量（SSE 帧与前端共用的字面量契约）。
+const (
+	ChannelText     = "text"
+	ChannelThinking = "thinking"
+)
+
+// PublishDelta 广播一帧增量（AgentName 为空按 assistant 归档；channel 见
+// DeltaFrame.Channel，空按 text）。与 Publish 同样 best-effort：丢帧无害，终态消息兜底。
+func (p *Publisher) PublishDelta(ctx context.Context, conversationID, agentName, channel, text string) error {
 	if conversationID == "" || text == "" {
 		return nil
 	}
 	if agentName == "" {
 		agentName = "assistant"
 	}
-	payload, err := json.Marshal(DeltaFrame{Delta: true, AgentName: agentName, Text: text})
+	if channel == "" {
+		channel = ChannelText
+	}
+	payload, err := json.Marshal(DeltaFrame{Delta: true, AgentName: agentName, Channel: channel, Text: text})
 	if err != nil {
 		return fmt.Errorf("scanstream marshal delta: %w", err)
 	}

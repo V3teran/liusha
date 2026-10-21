@@ -62,6 +62,9 @@ type StreamEvent struct {
 	Tool    *ToolCall // StreamToolCall 有效
 	Usage   *Usage    // StreamDone 有效
 	Err     error     // StreamError 有效
+	// Signature 是思考块的回传校验签名，StreamDone 有效（anthropic 流在收尾时
+	// 才给出完整 signature；与 StreamThinking 增量聚合的 Text 组成 ThinkingBlock）。
+	Signature string
 }
 
 // ErrStreamingUnsupported 表示底层 Generator 无流式能力（桥接层判定），
@@ -78,10 +81,11 @@ type Request struct {
 	Temperature *float64
 }
 
-// Response 是非流式调用的完整输出。
+// Response 是一次调用的完整输出（非流式直出；流式由 CollectStream 聚合得到同构结果）。
 type Response struct {
 	Content      string     // 文本内容（ToolCalls 非空时可能为空）
 	ToolCalls    []ToolCall // 工具调用请求列表
 	Usage        Usage
-	FinishReason string // "stop" | "tool_use" | "max_tokens" | "error"
+	FinishReason string         // "stop" | "tool_use" | "max_tokens" | "error"
+	Thinking     *ThinkingBlock // 扩展思考块（Text=增量聚合，Signature=收尾透出）
 }

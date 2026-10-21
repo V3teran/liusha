@@ -15,15 +15,15 @@ import (
 type fakePub struct {
 	mu     sync.Mutex
 	deltas []struct {
-		agent, text string
+		agent, channel, text string
 	}
 	payloads [][]byte
 }
 
-func (f *fakePub) PublishDelta(_ context.Context, _, agent, text string) error {
+func (f *fakePub) PublishDelta(_ context.Context, _, agent, channel, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.deltas = append(f.deltas, struct{ agent, text string }{agent, text})
+	f.deltas = append(f.deltas, struct{ agent, channel, text string }{agent, channel, text})
 	return nil
 }
 
@@ -86,7 +86,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	tap := s.TapFor("executor")
 
 	tap.Delta("思考片段")
-	tap.Done("本轮结论")
+	tap.Done("本轮结论", "思考终稿")
 
 	if len(pub.deltas) != 1 || pub.deltas[0].text != "思考片段" {
 		t.Fatalf("Done 应先冲刷待发增量, got %+v", pub.deltas)
@@ -119,7 +119,7 @@ func TestStream_DisabledWhenNoConversation(t *testing.T) {
 	s, pub, w := newTestStream("")
 	tap := s.TapFor("executor")
 	tap.Delta("x")
-	tap.Done("y")
+	tap.Done("y", "")
 	s.flush()
 	s.Close()
 	if len(pub.deltas) != 0 || len(pub.payloads) != 0 || len(w.appended) != 0 {
@@ -145,10 +145,72 @@ func TestStream_SummaryTruncated(t *testing.T) {
 	for i := range long {
 		long[i] = '字'
 	}
-	s.TapFor("planner").Done(string(long))
+	s.TapFor("planner").Done(string(long), "")
 	got := []rune(w.appended[0].Content)
 	if len(got) > maxSummaryRunes+10 {
 		t.Fatalf("终稿应截断, got %d runes", len(got))
+	}
+	s.Close()
+}
+
+// 回归：flush 清空 pending 后，同 agent 下一窗口的增量只允许发布一帧。
+// order 是首现序登记表，首现判定不得查 pending（flush 后恒为空，会让
+// order 每周期重复追加同名道 → flush 按 order 逐项发布时同一帧放大 N 倍）。
+func TestStream_FlushDoesNotAmplifyAcrossCycles(t *testing.T) {
+	s, pub, _ := newTestStream("c1")
+	tap := s.TapFor("monitor")
+
+	tap.Delta("第1周期")
+	s.flush()
+	tap.Delta("第2周期")
+	s.flush()
+	tap.Delta("第3周期")
+	s.flush()
+
+	if len(pub.deltas) != 3 {
+		t.Fatalf("3 个周期应只发布 3 帧, got %d: %+v", len(pub.deltas), pub.deltas)
+	}
+	s.mu.Lock()
+	order := append([]string(nil), s.order...)
+	s.mu.Unlock()
+	if len(order) != 1 {
+		t.Fatalf("order 应只登记一次首现序, got %v", order)
+	}
+	s.Close()
+}
+
+// 双通道：thinking 与 text 分道发布（thinking 先、text 后，与模型产出时序一致）；
+// Done 终稿落库 metadata 携带 thinking 原文。
+func TestStream_DualChannelThinkingAndText(t *testing.T) {
+	s, pub, w := newTestStream("c1")
+	tap := s.TapFor("executor")
+
+	tap.ThinkingDelta("先想")
+	tap.ThinkingDelta("一步")
+	tap.Delta("后说")
+	s.flush()
+
+	if len(pub.deltas) != 2 {
+		t.Fatalf("双通道应发布 2 帧, got %d: %+v", len(pub.deltas), pub.deltas)
+	}
+	if pub.deltas[0].channel != "thinking" || pub.deltas[0].text != "先想一步" {
+		t.Fatalf("thinking 帧 = %+v", pub.deltas[0])
+	}
+	if pub.deltas[1].channel != "text" || pub.deltas[1].text != "后说" {
+		t.Fatalf("text 帧 = %+v", pub.deltas[1])
+	}
+
+	tap.Done("结论", "完整思考")
+	var meta struct {
+		Kind      string `json:"kind"`
+		AgentName string `json:"agent_name"`
+		Thinking  string `json:"thinking"`
+	}
+	if err := json.Unmarshal(w.metas[len(w.metas)-1], &meta); err != nil {
+		t.Fatalf("metadata 解析: %v", err)
+	}
+	if meta.Kind != "reasoning" || meta.AgentName != "executor" || meta.Thinking != "完整思考" {
+		t.Fatalf("metadata = %+v", meta)
 	}
 	s.Close()
 }

@@ -43,7 +43,8 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 	}
 
 	// 将总结添加到消息历史
-	result.AddAssistantMessage(resp.Content, nil)
+	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
+	result.FinalThinking = thinkingText(resp.Thinking)
 
 	return nil
 }
@@ -93,7 +94,8 @@ func (r *DefaultReActRuntime) forceStructuredOutput(
 	}
 
 	// 将结构化输出添加到消息历史
-	result.AddAssistantMessage(resp.Content, nil)
+	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
+	result.FinalThinking = thinkingText(resp.Thinking)
 
 	return nil
 }

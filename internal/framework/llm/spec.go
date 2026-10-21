@@ -18,6 +18,10 @@ type ProviderSpec struct {
 	APIKey         string // 明文密钥（业务侧解析后传入；框架不落盘不记录）
 	MaxTokens      int
 	SupportsVision bool
+	// ThinkingBudget 是扩展思考预算（anthropic thinking.budget_tokens）。
+	// >0 = 开启扩展思考（模型先流式产出内部 CoT 再产正文）；0 = 不开启。
+	// openai_compat 协议当前不消费此参数。
+	ThinkingBudget int64
 }
 
 // 协议类型常量（与业务侧 config/llm 的字符串值一致——wire 契约）。

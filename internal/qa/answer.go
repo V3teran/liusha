@@ -15,12 +15,13 @@ type Deps interface {
 	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
 	// Generate 调便宜 LLM（一次性返回全文）。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
-	// GenerateStream 流式生成：文本增量即时回调 onDelta。
-	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error)
-	// PublishDelta 广播一帧回答增量（SSE 打字机）。
-	PublishDelta(ctx context.Context, conversationID, text string) error
-	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
-	AppendAssistant(ctx context.Context, conversationID, content string) ([]byte, error)
+	// GenerateStream 流式生成：正文与扩展思考增量分别回调（可空）。
+	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onText, onThinking func(chunk string)) (llm.Result, error)
+	// PublishDelta 广播一帧增量（channel ∈ {text, thinking}）。
+	PublishDelta(ctx context.Context, conversationID, channel, text string) error
+	// AppendAssistant 落 assistant 消息（KindMessage，metadata.thinking 携带
+	// 思考终稿供前端折叠区回看），返回该消息的 SSE JSON payload。
+	AppendAssistant(ctx context.Context, conversationID, content, thinking string) ([]byte, error)
 	// Publish 把消息 payload 推 SSE。
 	Publish(ctx context.Context, conversationID string, payload []byte) error
 }
@@ -42,17 +43,23 @@ func (s *Service) Answer(ctx context.Context, conversationID, taskID, question s
 	if err != nil {
 		return fmt.Errorf("读 finding: %w", err)
 	}
-	// 流式生成：增量即时广播（打字机），全文以落库的 assistant 消息为准。
+	// 流式生成：思考增量与正文增量分道广播（前端思考折叠区 + 打字机），
+	// 全文以落库的 assistant 消息为准。
 	res, err := s.deps.GenerateStream(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt},
 		{Role: llm.RoleUser, Content: "已挖到的 finding：\n" + findings + "\n\n用户问题：" + question},
-	}, nil, func(chunk string) {
-		_ = s.deps.PublishDelta(ctx, conversationID, chunk)
-	})
+	}, nil,
+		func(chunk string) { _ = s.deps.PublishDelta(ctx, conversationID, "text", chunk) },
+		func(chunk string) { _ = s.deps.PublishDelta(ctx, conversationID, "thinking", chunk) },
+	)
 	if err != nil {
 		return fmt.Errorf("生成回答: %w", err)
 	}
-	payload, err := s.deps.AppendAssistant(ctx, conversationID, res.Content)
+	thinking := ""
+	if res.Thinking != nil {
+		thinking = res.Thinking.Text
+	}
+	payload, err := s.deps.AppendAssistant(ctx, conversationID, res.Content, thinking)
 	if err != nil {
 		return fmt.Errorf("落 assistant 消息: %w", err)
 	}

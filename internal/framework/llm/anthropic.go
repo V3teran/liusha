@@ -25,6 +25,10 @@ type AnthropicConfig struct {
 	Model     string // 如 claude-sonnet-4-6
 	APIKey    string // 仅用于配置传递；client 已经从 ClientPool 注入
 	MaxTokens int    // Anthropic 这个字段必填，0 时本包默认填 4096
+	// ThinkingBudget 是扩展思考预算（thinking.budget_tokens）。>0 时请求开启
+	// 扩展思考：模型先流式产出 thinking block（内部 CoT），再产出正文/tool_use。
+	// 0 = 不开启。必须 < MaxTokens。
+	ThinkingBudget int64
 }
 
 const anthropicDefaultMaxTokens = 4096
@@ -34,10 +38,11 @@ const anthropicDefaultMaxTokens = 4096
 // 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 type anthropicGen struct {
-	client    anthropic.Client
-	model     anthropic.Model
-	maxTokens int64
-	provider  string
+	client         anthropic.Client
+	model          anthropic.Model
+	maxTokens      int64
+	thinkingBudget int64
+	provider       string
 }
 
 // NewAnthropic 构造无状态 Generator。
@@ -54,11 +59,15 @@ func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, clie
 	if maxTokens <= 0 {
 		maxTokens = anthropicDefaultMaxTokens
 	}
+	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(maxTokens) {
+		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, maxTokens)
+	}
 	return &anthropicGen{
-		client:    *client,
-		model:     c.Model,
-		maxTokens: int64(maxTokens),
-		provider:  providerKey,
+		client:         *client,
+		model:          c.Model,
+		maxTokens:      int64(maxTokens),
+		thinkingBudget: c.ThinkingBudget,
+		provider:       providerKey,
 	}, nil
 }
 
@@ -92,7 +101,11 @@ func (g *anthropicGen) GenerateWithOpts(ctx context.Context, msgs []Message, too
 	if len(anthropicTools) > 0 {
 		req.Tools = anthropicTools
 	}
-	if opts.Temperature != nil {
+	// 扩展思考：协议约束开启时 temperature 只能为 1，干脆不设（协议默认即 1）——
+	// 调用方传入的温度在该模式下被忽略，避免上游 400。
+	if g.thinkingBudget > 0 {
+		req.Thinking = anthropic.ThinkingConfigParamOfEnabled(g.thinkingBudget)
+	} else if opts.Temperature != nil {
 		req.Temperature = anthropic.Float(*opts.Temperature)
 	}
 
@@ -134,7 +147,12 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 				out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
 			}
 		case RoleAssistant:
-			blocks := make([]anthropic.ContentBlockParamUnion, 0, 1+len(m.ToolCalls))
+			blocks := make([]anthropic.ContentBlockParamUnion, 0, 2+len(m.ToolCalls))
+			// anthropic 规范：开启扩展思考的多轮 tool_use 中，assistant 消息须原样
+			// 回传 thinking block（含 signature），且必须是首个 content block。
+			if m.Thinking != nil && m.Thinking.Text != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(m.Thinking.Signature, m.Thinking.Text))
+			}
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
@@ -280,6 +298,11 @@ func fromAnthropicResponse(resp *anthropic.Message, provider, model string) Resu
 	var contentBuilder []byte
 	for _, block := range resp.Content {
 		switch block.Type {
+		case "thinking":
+			// 扩展思考块：保留原文与签名（签名供多轮 tool_use 回传校验）。
+			if block.Thinking != "" {
+				res.Thinking = &ThinkingBlock{Text: block.Thinking, Signature: block.Signature}
+			}
 		case "text":
 			if block.Text != "" {
 				if len(contentBuilder) > 0 {
@@ -305,14 +328,14 @@ func fromAnthropicResponse(resp *anthropic.Message, provider, model string) Resu
 
 // ─── CountTokens（Provider 桥接用可选能力） ────────────────────────────────────
 
-// StreamChat 流式生成：text/thinking 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
+// StreamChat 流式生成：thinking/text 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
 // maxTokens ≤ 0 时走构造时的配置默认。
 func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
 	mt := g.maxTokens
 	if maxTokens > 0 {
 		mt = int64(maxTokens)
 	}
-	params, err := prepareAnthropicRequest(msgs, tools, g.model, mt)
+	params, err := prepareAnthropicRequest(msgs, tools, g.model, mt, g.thinkingBudget)
 	if err != nil {
 		return nil, err
 	}

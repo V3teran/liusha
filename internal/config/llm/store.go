@@ -18,7 +18,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // provColsSelect 是 provider 所有 SELECT/RETURNING 的统一列序，与 scanProvider 一一对应。
-const provColsSelect = "code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled, created_at, updated_at"
+const provColsSelect = "code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
 
 // validateProviderType 应用层校验 type（与 DB CHECK 双保险）。
 func validateProviderType(t string) error {
@@ -41,11 +41,11 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		return Provider{}, fmt.Errorf("create provider %q: context_window 必须 > 0", p.Code)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled, thinking_budget_tokens)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("create provider %q: %w", p.Code, err)
@@ -73,11 +73,11 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	row := s.pool.QueryRow(ctx, `
 		UPDATE llm_provider
 		SET type=$2, base_url=$3, default_model=$4, api_key_env=$5, encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$8,
-		    supports_tools=$9, supports_vision=$10, context_window=$11, description=$12, sort_order=$13, enabled=$14, updated_at=now()
+		    supports_tools=$9, supports_vision=$10, context_window=$11, description=$12, sort_order=$13, enabled=$14, thinking_budget_tokens=$15, updated_at=now()
 		WHERE code=$1
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("update provider %q: %w", p.Code, err)
@@ -211,7 +211,7 @@ func scanProvider(r scanner, p *Provider) error {
 	var apiKeyEnv, apiKeyLast4 sql.NullString
 	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &apiKeyEnv, &p.EncryptedAPIKey, &apiKeyLast4,
 		&p.MaxTokens, &p.SupportsTools, &p.SupportsVision, &p.ContextWindow,
-		&p.Description, &p.SortOrder, &p.Enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&p.Description, &p.SortOrder, &p.Enabled, &p.ThinkingBudgetTokens, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return err
 	}
 	p.APIKeyEnv = apiKeyEnv.String

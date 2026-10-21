@@ -16,13 +16,14 @@ import (
 type Deps interface {
 	// Generate 调便宜 LLM（一次性返回全文）。
 	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
-	// GenerateStream 流式生成：文本增量即时回调 onDelta（provider 不支持流式时
-	// 退化为一次完整回调或不回调），返回值与 Generate 同构。
-	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onDelta func(chunk string)) (llm.Result, error)
-	// PublishDelta 广播一帧回答增量（SSE 打字机；丢帧无害，终态消息兜底）。
-	PublishDelta(ctx context.Context, conversationID, text string) error
-	// AppendAssistant 落 assistant 消息（KindMessage），返回该消息的 SSE JSON payload。
-	AppendAssistant(ctx context.Context, conversationID, content string) ([]byte, error)
+	// GenerateStream 流式生成：正文与扩展思考增量分别回调（可空；provider 不
+	// 支持流式时退化为一次完整回调或不回调），返回值与 Generate 同构。
+	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onText, onThinking func(chunk string)) (llm.Result, error)
+	// PublishDelta 广播一帧增量（channel ∈ {text, thinking}；丢帧无害，终态消息兜底）。
+	PublishDelta(ctx context.Context, conversationID, channel, text string) error
+	// AppendAssistant 落 assistant 消息（KindMessage，metadata.thinking 携带
+	// 思考终稿供前端折叠区回看），返回该消息的 SSE JSON payload。
+	AppendAssistant(ctx context.Context, conversationID, content, thinking string) ([]byte, error)
 	// Publish 把消息 payload 推 SSE。
 	Publish(ctx context.Context, conversationID string, payload []byte) error
 }
@@ -38,17 +39,23 @@ const systemPrompt = `你是渗透测试助手，正在与用户闲聊或答疑�
 
 // Answer 用通用助手回答用户消息 → 落 assistant 消息 + publish SSE。不读 finding、不触发扫描。
 func (s *Service) Answer(ctx context.Context, conversationID, message string) error {
-	// 流式生成：增量即时广播（打字机），全文以落库的 assistant 消息为准。
+	// 流式生成：思考增量与正文增量分道广播（前端思考折叠区 + 打字机），
+	// 全文以落库的 assistant 消息为准。
 	res, err := s.deps.GenerateStream(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt},
 		{Role: llm.RoleUser, Content: message},
-	}, nil, func(chunk string) {
-		_ = s.deps.PublishDelta(ctx, conversationID, chunk)
-	})
+	}, nil,
+		func(chunk string) { _ = s.deps.PublishDelta(ctx, conversationID, "text", chunk) },
+		func(chunk string) { _ = s.deps.PublishDelta(ctx, conversationID, "thinking", chunk) },
+	)
 	if err != nil {
 		return fmt.Errorf("生成回答: %w", err)
 	}
-	payload, err := s.deps.AppendAssistant(ctx, conversationID, res.Content)
+	thinking := ""
+	if res.Thinking != nil {
+		thinking = res.Thinking.Text
+	}
+	payload, err := s.deps.AppendAssistant(ctx, conversationID, res.Content, thinking)
 	if err != nil {
 		return fmt.Errorf("落 assistant 消息: %w", err)
 	}

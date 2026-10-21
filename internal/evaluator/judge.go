@@ -136,9 +136,10 @@ func (j *RouterJudge) Judge(
 		runtime.NewProgressTrackingMiddleware(20, 12), // 20 次无新输出 / 12 次连续失败
 	)
 
-	var onThoughtDelta func(string)
+	var onThoughtDelta, onThinkingDelta func(string)
 	if j.thoughts != nil {
 		onThoughtDelta = j.thoughts.Delta
+		onThinkingDelta = j.thoughts.ThinkingDelta
 	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:            j.buildObjective(hypothesis, recipe, initialEvidence),
@@ -146,6 +147,7 @@ func (j *RouterJudge) Judge(
 		LLMProvider:          provider,
 		MaxIterations:        j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		OnThoughtDelta:       onThoughtDelta,
+		OnThinkingDelta:      onThinkingDelta,
 		MaxTokens:            1500,
 		MessageModifierChain: runtime.NewDefaultModifierChain(10),
 		MiddlewareChain:      middlewareChain,
@@ -154,7 +156,7 @@ func (j *RouterJudge) Judge(
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
 	}
 	if j.thoughts != nil {
-		j.thoughts.Done(result.FinalAnswer)
+		j.thoughts.Done(result.FinalAnswer, result.FinalThinking)
 	}
 	return parseVerdict(result.FinalAnswer)
 }

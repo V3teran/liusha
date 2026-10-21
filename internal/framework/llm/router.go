@@ -193,6 +193,7 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 		}
 		return NewAnthropic(ctx, p.Code, AnthropicConfig{
 			BaseURL: p.BaseURL, Model: p.Model, APIKey: p.APIKey, MaxTokens: p.MaxTokens,
+			ThinkingBudget: p.ThinkingBudget,
 		}, cli)
 	case ProviderTypeOpenAICompat, "":
 		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey)
