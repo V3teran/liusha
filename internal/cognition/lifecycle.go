@@ -54,11 +54,12 @@ func (l *agentLifecycle) Start() {
 }
 
 // runAgent 在 lifecycle 的 WaitGroup 下启动单个 agent goroutine（仅 Start 内调用）。
+// 启动即注入 agent 身份：该 agent 全链路（含工具拦截器）可从 ctx 取到调用方归属。
 func (l *agentLifecycle) runAgent(agentCtx context.Context, ag agentSpec) {
 	l.wg.Add(1)
 	logx.Go(l.logger, ag.name+"-agent", func() {
 		defer l.wg.Done()
-		if err := ag.start(agentCtx); err != nil && agentCtx.Err() == nil {
+		if err := ag.start(WithAgent(agentCtx, ag.name)); err != nil && agentCtx.Err() == nil {
 			l.logger.Error().Err(err).Str("task_id", l.taskID).Msg(ag.name + " agent 异常退出")
 		}
 	})

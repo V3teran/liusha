@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bot, Bug, Rocket, Brain, ChevronDown, Loader2, Wrench, Archive, type LucideIcon } from 'lucide-react'
+import { Activity, Bot, Brain, ChevronDown, Loader2, Wrench, type LucideIcon } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
 import { buildThreadRows, type ThreadRow } from '@/lib/threadRows'
@@ -12,12 +12,9 @@ import { StepTools } from './StepTools'
 import { CommandBlock } from './cards/CommandBlock'
 import { ReplyBlock } from './cards/ReplyBlock'
 import { ReasoningCard } from './cards/ReasoningCard'
-import { SpawnCard } from './cards/SpawnCard'
 import { ToolCallCard } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
-import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
-import { CompactionCard } from './cards/CompactionCard'
 
 // 每行的 agent 归属：驱动卡外图标配色 + 卡内领头名。
 // 取该行动作的施动 agent（Metadata.agent_name）：推理/工具/漏洞归产出者，派发归调度者(编排)；
@@ -30,8 +27,8 @@ function rowAgent(r: ThreadRow): string {
   return ''
 }
 
-// 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、派发=Rocket、漏洞=Bug、
-// 压缩=Archive、答复=Bot）。图标本身即分类索引，与 AppShell/Composer 的 lucide 语言统一。
+// 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、状态=Activity、
+// 答复=Bot）。图标本身即分类索引，与 AppShell/Composer 的 lucide 语言统一。
 function rowIcon(r: ThreadRow): LucideIcon {
   if (r.kind !== 'msg') return Wrench
   const tag = classifyMessage(r.msg)
@@ -40,16 +37,6 @@ function rowIcon(r: ThreadRow): LucideIcon {
       return Brain
     case 'task-status':
       return Activity
-    case 'spawn':
-    case 'spawn-done':
-      return Rocket
-    case 'finding':
-      return Bug
-    case 'compaction':
-      return Archive
-    case 'tool-call':
-    case 'tool-result':
-      return Wrench
     default:
       return Bot
   }
@@ -308,14 +295,6 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
         />
       )
     }
-    case 'spawn':
-      return <SpawnCard dispatcher={md?.agent_name} args={md?.args} />
-    case 'spawn-done':
-      return <SpawnCard done dispatcher={md?.agent_name} durationMs={md?.duration_ms} err={md?.err} />
-    case 'finding':
-      return <FindingCard args={md?.args || ''} />
-    case 'compaction':
-      return <CompactionCard label={md?.result || ''} summary={md?.text || ''} />
     case 'tool-call':
       return <ToolCallCard tool={md?.tool_name || ''} args={md?.args || ''} agentName={md?.agent_name} />
     case 'tool-result':

@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -68,5 +70,87 @@ func TestInstrumentProvider_NilMetaLeavesAttributionEmpty(t *testing.T) {
 	rec := sink.recs[0]
 	if rec.TaskID != "" || rec.AgentRunID != "" || rec.Role != "" {
 		t.Errorf("无 CallMeta 时归属字段应为空: %+v", rec)
+	}
+}
+
+// streamStubProvider 按脚本吐流式事件（text/thinking/tool_call 增量 + done 收尾）。
+type streamStubProvider struct{ events []StreamEvent }
+
+func (p *streamStubProvider) ProviderID() string { return "stub" }
+func (p *streamStubProvider) ModelID() string    { return "stub-model" }
+func (p *streamStubProvider) Complete(_ context.Context, _ Request) (Response, error) {
+	return Response{}, nil
+}
+func (p *streamStubProvider) Stream(_ context.Context, _ Request) (<-chan StreamEvent, error) {
+	ch := make(chan StreamEvent, len(p.events))
+	for _, ev := range p.events {
+		ch <- ev
+	}
+	close(ch)
+	return ch, nil
+}
+func (p *streamStubProvider) CountTokens(_ context.Context, _ Request) (int, error) {
+	return 0, nil
+}
+
+// 流式调用的审计 Result 影子聚合：content/thinking/tool_calls/usage 与 Complete
+// 路径同构——此前流式行 result 恒 {}，审计对 agent 主路径失明。
+func TestInstrumentProvider_StreamRecordsAssembledResult(t *testing.T) {
+	sink := &captureSink{}
+	p := InstrumentProvider(&streamStubProvider{events: []StreamEvent{
+		{Kind: StreamText, Content: "先想"},
+		{Kind: StreamText, Content: "后说"},
+		{Kind: StreamThinking, Content: "思考增量"},
+		{Kind: StreamToolCall, Tool: &ToolCall{ID: "c1", Name: "run_command", Arguments: []byte(`{"cmd":"ls"}`)}},
+		{Kind: StreamDone, Usage: &Usage{InTokens: 7, OutTokens: 9}, Signature: "sig-1"},
+	}}, sink)
+
+	ch, err := p.Stream(context.Background(), Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch { // 排空（审计在通道关闭后落）
+	}
+
+	if len(sink.recs) != 1 {
+		t.Fatalf("应落 1 行审计, got %d", len(sink.recs))
+	}
+	rec := sink.recs[0]
+	if rec.InTokens != 7 || rec.OutTokens != 9 {
+		t.Errorf("用量未达 sink: %+v", rec)
+	}
+	var got Response
+	if err := json.Unmarshal(rec.Result, &got); err != nil {
+		t.Fatalf("Result 应为 Response JSON: %v", err)
+	}
+	if got.Content != "先想后说" {
+		t.Errorf("正文聚合 = %q", got.Content)
+	}
+	if got.Thinking == nil || got.Thinking.Text != "思考增量" || got.Thinking.Signature != "sig-1" {
+		t.Errorf("思考聚合 = %+v", got.Thinking)
+	}
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "run_command" {
+		t.Errorf("工具调用聚合 = %+v", got.ToolCalls)
+	}
+}
+
+// 流式以 StreamError 收尾：不写 Result（与 Complete 错误路径口径一致），错误入 FinishReason。
+func TestInstrumentProvider_StreamErrorOmitsResult(t *testing.T) {
+	sink := &captureSink{}
+	p := InstrumentProvider(&streamStubProvider{events: []StreamEvent{
+		{Kind: StreamText, Content: "部分"},
+		{Kind: StreamError, Err: errors.New("boom")},
+	}}, sink)
+
+	ch, _ := p.Stream(context.Background(), Request{})
+	for range ch {
+	}
+
+	rec := sink.recs[0]
+	if string(rec.Result) != "" && string(rec.Result) != "{}" {
+		t.Errorf("错误流不应写 Result, got %s", rec.Result)
+	}
+	if rec.FinishReason != "error: boom" {
+		t.Errorf("FinishReason = %q", rec.FinishReason)
 	}
 }

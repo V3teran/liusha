@@ -5,7 +5,7 @@ import { classifyMessage, isCollapsibleTool } from './messageKind'
 // 分组逻辑与渲染解耦，便于独立测试。
 //
 // 分组规则：
-//   - reasoning(想)/spawn(派发)/spawn-done/finding(漏洞)/user/assistant 各自独立成 msg 行；
+//   - reasoning(想)/user/assistant/task_status 各自独立成 msg 行；
 //   - 紧随其后的普通工具调用(tool-call/tool-result)累积成一个 tools 折叠组（遇非工具消息 flush）；
 //   - 按天插入 divider；
 //   - reasoning 行带 step（本次用户指令内的全局推理步号，每条 user 消息重置——一次指令=一个计数周期）。
@@ -34,7 +34,6 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
   }
   for (const m of messages) {
     const tag = classifyMessage(m)
-    if (tag === 'hidden') continue
     if (isCollapsibleTool(tag)) {
       bucket.push(m)
       continue
