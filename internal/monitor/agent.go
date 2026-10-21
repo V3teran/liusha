@@ -206,7 +206,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
 	}
 	if a.thoughts != nil {
-		a.thoughts.Done(result.FinalAnswer, result.FinalThinking)
+		a.thoughts.Done(reasoning.RoundOf(result))
 	}
 
 	a.logger.Info().

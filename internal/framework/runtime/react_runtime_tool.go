@@ -13,6 +13,7 @@ func (r *DefaultReActRuntime) parseLLMResponse(response llm.Response) (*llmRespo
 		Content:   response.Content,
 		ToolCalls: response.ToolCalls,
 		Thinking:  response.Thinking,
+		Usage:     response.Usage,
 	}
 
 	return result, nil

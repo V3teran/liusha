@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/scanstream"
 )
 
@@ -31,14 +32,35 @@ const flushInterval = 150 * time.Millisecond
 // 是完整 JSON 动作清单、思考可能长达数千 token，时间线只需要可读的过程与结论。
 const maxSummaryRunes = 4000
 
+// Round 是一个 agent 一轮的终态产出：正文与思考终稿 + 该轮用量元信息
+// （token 累计与墙钟耗时，时间线每步 chip 的数据源）。
+type Round struct {
+	Summary   string
+	Thinking  string
+	InTokens  int
+	OutTokens int
+	LatencyMs int64
+}
+
 // Tap 是单个 agent 的输出流出口。Delta 记正文增量（ReAct thought）；
 // ThinkingDelta 记扩展思考增量（模型内部 CoT）；Done 结束当前一轮——
-// summary 为正文终稿、thinking 为思考终稿（落库 + 广播，前端据此清空气泡）。
+// Round 携带终稿与用量（落库 + 广播，前端据此清空气泡并渲染用量 chip）。
 // 三者并发安全。
 type Tap interface {
 	Delta(chunk string)
 	ThinkingDelta(chunk string)
-	Done(summary, thinking string)
+	Done(round Round)
+}
+
+// RoundOf 把 ReAct 运行终稿折成时间线一轮的载荷（四 agent 共用，字段映射单一出处）。
+func RoundOf(res *runtime.ReActResult) Round {
+	return Round{
+		Summary:   res.FinalAnswer,
+		Thinking:  res.FinalThinking,
+		InTokens:  res.Usage.InTokens,
+		OutTokens: res.Usage.OutTokens,
+		LatencyMs: res.ElapsedMs,
+	}
 }
 
 // Publisher 是增量与终态的实时广播通道（*scanstream.Publisher 满足）。
@@ -203,8 +225,8 @@ func (t agentTap) ThinkingDelta(chunk string) {
 }
 
 // Done 结束当前一轮：先冲刷该 agent 的待发增量（保序），再落终态消息并广播。
-// summary/thinking 为空时仍落一条终态——终态帧是前端清空气泡的信号，不可省。
-func (t agentTap) Done(summary, thinking string) {
+// 终稿为空时仍落一条终态——终态帧是前端清空气泡的信号，不可省。
+func (t agentTap) Done(round Round) {
 	if t.s.convID == "" {
 		return
 	}
@@ -216,23 +238,26 @@ func (t agentTap) Done(summary, thinking string) {
 	if buf != nil {
 		t.s.publishLane(t.agent, buf)
 	}
-	t.publishFinal(summary, thinking)
+	t.publishFinal(round)
 }
 
-// publishFinal 落库并广播终态 reasoning 消息（思考原文随 metadata 携带，
-// 前端终态卡以折叠区呈现，正文以消息 Content 呈现）。
-func (t agentTap) publishFinal(summary, thinking string) {
-	meta, err := json.Marshal(map[string]string{
+// publishFinal 落库并广播终态 reasoning 消息（思考原文与用量随 metadata 携带，
+// 前端终态卡以折叠区呈现思考、以 chip 呈现 token/耗时，正文以消息 Content 呈现）。
+func (t agentTap) publishFinal(round Round) {
+	meta, err := json.Marshal(map[string]any{
 		"kind":       "reasoning",
 		"agent_name": t.agent,
-		"thinking":   truncateRunes(thinking, maxSummaryRunes),
+		"thinking":   truncateRunes(round.Thinking, maxSummaryRunes),
+		"in_tokens":  round.InTokens,
+		"out_tokens": round.OutTokens,
+		"latency_ms": round.LatencyMs,
 	})
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 元数据序列化失败")
 		return
 	}
 	msg, err := t.s.writer.AppendMessage(t.s.ctx, t.s.convID,
-		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(summary, maxSummaryRunes), meta)
+		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(round.Summary, maxSummaryRunes), meta)
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终稿落库失败（气泡清理将延迟到重连）")
 		return

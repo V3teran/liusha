@@ -86,7 +86,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	tap := s.TapFor("executor")
 
 	tap.Delta("思考片段")
-	tap.Done("本轮结论", "思考终稿")
+	tap.Done(Round{Summary: "本轮结论", Thinking: "思考终稿", InTokens: 120, OutTokens: 80, LatencyMs: 2500})
 
 	if len(pub.deltas) != 1 || pub.deltas[0].text != "思考片段" {
 		t.Fatalf("Done 应先冲刷待发增量, got %+v", pub.deltas)
@@ -101,12 +101,19 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	var meta struct {
 		Kind      string `json:"kind"`
 		AgentName string `json:"agent_name"`
+		InTokens  int    `json:"in_tokens"`
+		OutTokens int    `json:"out_tokens"`
+		LatencyMs int64  `json:"latency_ms"`
 	}
 	if err := json.Unmarshal(w.metas[0], &meta); err != nil {
 		t.Fatalf("metadata 解析: %v", err)
 	}
 	if meta.Kind != "reasoning" || meta.AgentName != "executor" {
 		t.Fatalf("metadata = %+v", meta)
+	}
+	// 用量元信息随终态落库（时间线每步 chip 的数据源）。
+	if meta.InTokens != 120 || meta.OutTokens != 80 || meta.LatencyMs != 2500 {
+		t.Fatalf("用量元信息 = %+v", meta)
 	}
 	if len(pub.payloads) != 1 {
 		t.Fatalf("终态消息应广播, got %d", len(pub.payloads))
@@ -119,7 +126,7 @@ func TestStream_DisabledWhenNoConversation(t *testing.T) {
 	s, pub, w := newTestStream("")
 	tap := s.TapFor("executor")
 	tap.Delta("x")
-	tap.Done("y", "")
+	tap.Done(Round{Summary: "y"})
 	s.flush()
 	s.Close()
 	if len(pub.deltas) != 0 || len(pub.payloads) != 0 || len(w.appended) != 0 {
@@ -145,7 +152,7 @@ func TestStream_SummaryTruncated(t *testing.T) {
 	for i := range long {
 		long[i] = '字'
 	}
-	s.TapFor("planner").Done(string(long), "")
+	s.TapFor("planner").Done(Round{Summary: string(long)})
 	got := []rune(w.appended[0].Content)
 	if len(got) > maxSummaryRunes+10 {
 		t.Fatalf("终稿应截断, got %d runes", len(got))
@@ -200,7 +207,7 @@ func TestStream_DualChannelThinkingAndText(t *testing.T) {
 		t.Fatalf("text 帧 = %+v", pub.deltas[1])
 	}
 
-	tap.Done("结论", "完整思考")
+	tap.Done(Round{Summary: "结论", Thinking: "完整思考"})
 	var meta struct {
 		Kind      string `json:"kind"`
 		AgentName string `json:"agent_name"`

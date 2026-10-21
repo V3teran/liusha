@@ -42,6 +42,18 @@ describe('TimelineThread', () => {
     expect(screen.getByText('扫这个目标')).toBeTruthy()
   })
 
+  it('reasoning 终态卡渲染每步用量 chip（metadata 用量驱动，含 k/s 简写）', () => {
+    const s = useConversationStore.getState()
+    const msg = reasoningMsg(2, 'planner', '规划完成')
+    msg.Metadata = { ...msg.Metadata!, in_tokens: 4348, out_tokens: 800, latency_ms: 58882 }
+    s.ingest(userMsg(1, '扫这个目标'))
+    s.ingest(msg)
+    render(<TimelineThread />)
+    expect(screen.getByText('↑ 4.3k')).toBeTruthy()
+    expect(screen.getByText('↓ 800')).toBeTruthy()
+    expect(screen.getByText('⏱ 58.9s')).toBeTruthy()
+  })
+
   it('普通工具调用折叠进 StepTools', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
