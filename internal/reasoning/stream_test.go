@@ -86,7 +86,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	tap := s.TapFor("executor")
 
 	tap.Delta("思考片段")
-	tap.Done(Round{Summary: "本轮结论", Thinking: "思考终稿", InTokens: 120, OutTokens: 80, LatencyMs: 2500})
+	tap.Done(Round{Summary: "本轮结论", Thinking: "思考终稿", Raw: `{"should_continue":false}`, InTokens: 120, OutTokens: 80, LatencyMs: 2500})
 
 	if len(pub.deltas) != 1 || pub.deltas[0].text != "思考片段" {
 		t.Fatalf("Done 应先冲刷待发增量, got %+v", pub.deltas)
@@ -104,6 +104,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 		InTokens  int    `json:"in_tokens"`
 		OutTokens int    `json:"out_tokens"`
 		LatencyMs int64  `json:"latency_ms"`
+		Raw       string `json:"raw"`
 	}
 	if err := json.Unmarshal(w.metas[0], &meta); err != nil {
 		t.Fatalf("metadata 解析: %v", err)
@@ -114,6 +115,10 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	// 用量元信息随终态落库（时间线每步 chip 的数据源）。
 	if meta.InTokens != 120 || meta.OutTokens != 80 || meta.LatencyMs != 2500 {
 		t.Fatalf("用量元信息 = %+v", meta)
+	}
+	// 协议原文随 raw 落库（正文为解析后叙述时的折叠可查来源）。
+	if meta.Raw != `{"should_continue":false}` {
+		t.Fatalf("raw = %q", meta.Raw)
 	}
 	if len(pub.payloads) != 1 {
 		t.Fatalf("终态消息应广播, got %d", len(pub.payloads))

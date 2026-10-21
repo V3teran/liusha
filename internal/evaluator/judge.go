@@ -155,10 +155,33 @@ func (j *RouterJudge) Judge(
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
 	}
-	if j.thoughts != nil {
-		j.thoughts.Done(reasoning.RoundOf(result))
+	// 终态叙述在解析边界完成：裁决协议转人读摘要作正文、协议原文随 raw 折叠
+	// 可查（谁解析谁叙述，前端不解释协议）；解析失败时正文回退原文，终态帧照落。
+	v, verr := parseVerdict(result.FinalAnswer)
+	round := reasoning.RoundOf(result)
+	if verr == nil {
+		round.Summary, round.Raw = verdictNarrative(v), result.FinalAnswer
 	}
-	return parseVerdict(result.FinalAnswer)
+	if j.thoughts != nil {
+		j.thoughts.Done(round)
+	}
+	return v, verr
+}
+
+// verdictNarrative 把裁决协议转成时间线人读叙述：结论 + 置信度 + 理由。
+func verdictNarrative(v Verdict) string {
+	ruling := v.Verdict
+	switch v.Verdict {
+	case "confirmed":
+		ruling = "坐实"
+	case "refuted":
+		ruling = "证伪"
+	}
+	head := fmt.Sprintf("裁决：%s（置信度 %.0f%%）", ruling, v.Confidence*100)
+	if v.Reasoning == "" {
+		return head
+	}
+	return head + "\n\n理由：" + v.Reasoning
 }
 
 // buildObjective 组装裁决输入（假设 + 自包含配方 + 预跑对照摘要）。

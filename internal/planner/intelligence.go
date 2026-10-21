@@ -219,15 +219,21 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		i.adaptBudget(err)
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
-	if i.thoughts != nil {
-		i.thoughts.Done(reasoning.RoundOf(result))
-	}
 	i.budget = i.timeout // 成功即回落基准预算
 
-	// 4. 解析最终答案为 PlanningResponse
-	response, err := i.parsePlanningResponse(result.FinalAnswer)
-	if err != nil {
-		return nil, fmt.Errorf("解析规划输出失败: %w", err)
+	// 4. 解析最终答案为 PlanningResponse。终态叙述在解析边界完成：协议转人读
+	//    摘要作正文、协议原文随 raw 折叠可查（谁解析谁叙述，前端不解释协议）；
+	//    解析失败时正文回退原文——终态帧始终落库，清空气泡语义不受解析成败影响。
+	response, perr := i.parsePlanningResponse(result.FinalAnswer)
+	round := reasoning.RoundOf(result)
+	if perr == nil && response != nil {
+		round.Summary, round.Raw = planningNarrative(*response), result.FinalAnswer
+	}
+	if i.thoughts != nil {
+		i.thoughts.Done(round)
+	}
+	if perr != nil {
+		return nil, fmt.Errorf("解析规划输出失败: %w", perr)
 	}
 
 	// 5. 如果 LLM 判断不应该继续，返回空
@@ -537,4 +543,26 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 	}
 
 	return nodes
+}
+
+// planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 理由。
+// 协议原文随 Round.Raw 折叠可查——叙述只在此处发生一次，前端不做协议解释。
+func planningNarrative(r PlanningResponse) string {
+	var b strings.Builder
+	if r.ShouldContinue {
+		fmt.Fprintf(&b, "继续执行，本轮派发 %d 个动作：", len(r.Actions))
+		for i, a := range r.Actions {
+			if a.Type != "" {
+				fmt.Fprintf(&b, "\n%d. [%s] %s", i+1, a.Type, a.Instruction)
+			} else {
+				fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
+			}
+		}
+	} else {
+		b.WriteString("任务收敛，不再派发动作。")
+	}
+	if r.Reasoning != "" {
+		b.WriteString("\n\n理由：" + r.Reasoning)
+	}
+	return b.String()
 }
