@@ -262,7 +262,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           ))}
         </div>
       ) : hasConv || store.messages.length > 0 ? (
-        <TimelineThread />
+        <TimelineThread active={scanning} elapsedMs={usage?.duration_ms} />
       ) : (
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
           <div className="max-w-[420px] text-center text-muted">

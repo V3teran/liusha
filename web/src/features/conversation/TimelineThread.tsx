@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bot, Bug, Rocket, Brain, ChevronDown, Wrench, Archive, type LucideIcon } from 'lucide-react'
+import { Activity, Bot, Bug, Rocket, Brain, ChevronDown, Loader2, Wrench, Archive, type LucideIcon } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
 import { buildThreadRows, type ThreadRow } from '@/lib/threadRows'
@@ -73,7 +73,41 @@ function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): str
 //     + surface 卡框 + 脚注时间/复制，与用户块左右对称、材质等重；子代理右缩一档。
 //   - 卡内领头「agent 动作」：agent 名领头(agent 色)、动作词弱化——每节点=某 agent 在做某事。
 //   - 工具调用聚成独立缩进行（StepTools），不折进推理卡；答复走左侧 ReplyBlock，与用户块对称。
-export function TimelineThread() {
+// RunningIndicator 是任务运行中的间隙指示：任务在跑且当前无任何活动道时，
+// 在时间线底部持续跳动（spinner + 墙钟计时）——agent 轮次之间的工具执行/
+// 机器复放/事件传播空窗不再死寂（业界 CI job spinner / Claude Code Working 同款
+// 范式：只要有活动就没静止）。任何 agent 道开始流时它让位（道本身即活动信号）。
+//
+// elapsedMs 是后端 usage 的墙钟口径（duration_ms，4s 轮询校准）；本地每秒平滑
+// 进位，校准到达时以校准值为新基线——不回跳（取基线推进的单调插值）。
+function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+  const baseRef = useRef<{ ms: number; at: number }>({ ms: elapsedMs ?? 0, at: Date.now() })
+  useEffect(() => {
+    const prev = baseRef.current
+    // 校准仅在前进时重置基线（usage 偶发回退不采纳，计时单调）。
+    if ((elapsedMs ?? 0) >= prev.ms) baseRef.current = { ms: elapsedMs ?? 0, at: Date.now() }
+  }, [elapsedMs])
+  const shown = Math.max(0, baseRef.current.ms + (now - baseRef.current.at))
+  const mm = Math.floor(shown / 60000)
+  const ss = Math.floor((shown % 60000) / 1000)
+  const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
+  return (
+    <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
+      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-[12px] text-muted">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <span>agent 工作中</span>
+        <span className="font-mono text-[11px]">{label}</span>
+      </div>
+    </div>
+  )
+}
+
+export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapsedMs?: number }) {
   const messages = useConversationStore((s) => s.messages)
   const liveStreams = useConversationStore((s) => s.liveStreams)
   const liveOrder = useConversationStore((s) => s.liveOrder)
@@ -131,7 +165,7 @@ export function TimelineThread() {
 
   useEffect(() => {
     stickToBottom()
-  }, [liveOrder, liveStreams, stickToBottom])
+  }, [liveOrder, liveStreams, active, stickToBottom])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -242,6 +276,10 @@ export function TimelineThread() {
             <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} hasplanner={hasplanner} />
           </div>
         ))}
+
+        {/* 间隙运行指示：任务在跑且无任何活动道（agent 轮次之间的工具执行/
+            复放/唤醒空窗）时持续跳动；有道时让位，终态后消失。 */}
+        {active && liveOrder.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
       </div>
 
       {!atBottom && (

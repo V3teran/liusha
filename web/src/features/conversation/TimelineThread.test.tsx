@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TimelineThread } from './TimelineThread'
 import { useConversationStore } from '@/stores/conversation'
-import type { Message } from '@/api/types'
+import type { Message, ScanEvent } from '@/api/types'
 
 const base = { ID: 'm', ConversationID: 'c', CreatedAt: '', Content: '' }
 
@@ -29,6 +29,8 @@ function toolCallMsg(seq: number, agentName: string): Message {
     ...base,
   } as Message
 }
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 0))
 
 describe('TimelineThread', () => {
   beforeEach(() => useConversationStore.getState().reset())
@@ -147,5 +149,56 @@ describe('TimelineThread', () => {
     const { container } = render(<TimelineThread />)
     // 过程节点保留卡外语义图标点（Brain 等），验证 AgentCard 图标未被误删。
     expect(container.querySelector('.h-\\[26px\\].w-\\[26px\\]')).toBeTruthy()
+  })
+})
+
+describe('RunningIndicator（间隙运行指示）', () => {
+  it('active 且无活动道时渲染指示器', () => {
+    render(<TimelineThread active />)
+    expect(screen.queryByTestId('running') ?? document.querySelector('[data-running-indicator]')).toBeTruthy()
+  })
+
+  it('有活动道时让位（道本身即活动信号）', async () => {
+    const store = useConversationStore.getState()
+    store.appendReasoningDelta('规划中', 'planner')
+    render(<TimelineThread active />)
+    await flush()
+    expect(document.querySelector('[data-running-indicator]')).toBeNull()
+    useConversationStore.getState().reset()
+  })
+
+  it('非 active（任务未在跑）不渲染', () => {
+    render(<TimelineThread />)
+    expect(document.querySelector('[data-running-indicator]')).toBeNull()
+  })
+})
+
+describe('task_status 节点渲染（renderCard 集成）', () => {
+  it('completed 节点渲染居中状态卡（含报告字段）', async () => {
+    const s = useConversationStore.getState()
+    s.ingest({
+      ...base, Seq: 1, Role: 'assistant', Kind: 'event',
+      Metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_why: 'task_converged' } as ScanEvent,
+    })
+    render(<TimelineThread />)
+    await flush()
+    expect(screen.getByText('扫描完成')).toBeTruthy()
+    expect(screen.getByText(/11 步/)).toBeTruthy()
+    expect(screen.getByText(/2 个漏洞/)).toBeTruthy()
+    expect(screen.getByText(/task_converged/)).toBeTruthy()
+  })
+
+  it('aborted 节点渲染停止卡并清空全部活动道', async () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('执行中', 'executor')
+    s.ingest({
+      ...base, Seq: 2, Role: 'assistant', Kind: 'event',
+      Metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as ScanEvent,
+    })
+    render(<TimelineThread />)
+    await flush()
+    expect(screen.getByText('扫描已停止')).toBeTruthy()
+    expect(screen.getByText(/用户停止/)).toBeTruthy()
+    expect(document.querySelector('[data-live-node]')).toBeNull()
   })
 })
