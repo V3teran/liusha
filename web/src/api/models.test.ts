@@ -26,7 +26,7 @@ const PROV: ProviderConfig = {
   type: 'openai_compat',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
-  api_key: 'sk-test-secret',
+  api_key: 'mock-plaintext-input',
   key_present: true,
   max_tokens: 4096,
   supports_tools: true,
@@ -63,7 +63,7 @@ describe('models API 客户端', () => {
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
-      api_key: 'sk-test-secret',
+      api_key: 'mock-plaintext-input',
       max_tokens: 4096,
       supports_tools: true,
       supports_vision: false,
@@ -74,7 +74,7 @@ describe('models API 客户端', () => {
     })
     // 安全：body 只带明文 api_key（走 HTTPS 一次性提交，后端加密落库），不回传 key_present。
     expect(body).not.toHaveProperty('key_present')
-    expect(body.api_key).toBe('sk-test-secret')
+    expect(body.api_key).toBe('mock-plaintext-input')
   })
 
   it('saveProvider 编辑走 PUT /models/providers/:key（key 做 URL 编码）', async () => {
