@@ -1,33 +1,33 @@
 import { useState } from 'react'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import type { Message } from '@/api/types'
-import { classifyMessage } from '@/lib/messageKind'
 import { cn } from '@/lib/utils'
-import { ToolCallCard } from './cards/ToolCallCard'
+import { ToolCallCard, type ToolResultInfo } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
 
 interface StepToolsProps {
   tools: Message[]
   /** 执行中的 tool_call Seq 集合（任务活跃时计算）；组内任一执行中 → 组头 spinner。 */
   runningSeqs?: Set<number>
+  /** 调用→结果配对（一动作一卡）；缺省时不配对（历史兼容渲染）。 */
+  pairs?: { matched: Map<number, Message>; orphanResults: Message[] }
 }
 
-// 步内工具折叠（方案 B）：一次推理之下的若干工具调用聚成独立一行，缩进对齐卡片正文（ml-9），
-// 点击展开。工具调用不是推理，故独立成行而非折进推理卡；默认收起减少噪音，细节按需查看。
-// 组内任一调用执行中时组头带 spinner——默认折叠态下执行进展也一眼可见。
-export function StepTools({ tools, runningSeqs }: StepToolsProps) {
+// 步内工具折叠（方案 B）：一次推理之下的若干工具动作聚成独立一行，缩进对齐卡片正文（ml-9），
+// 点击展开。工具动作不是推理，故独立成行而非折进推理卡；默认收起减少噪音。
+// 一动作一卡：call 与配对 result 同卡呈现（业界动作卡范式）；组头 spinner 在默认
+// 折叠态也可见执行进展；孤儿结果（call 丢失）以独立结果卡兜底。
+export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
-  // 工具调用次数：一次调用产生 tool_call + tool_result 两条消息，计数只数 tool_call（发起）——
-  // 否则一来一回会翻倍（38 次显示成 76）。全是孤立 result（call 丢失）时回退总条数兜底。
-  const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call').length
-  const callCount = calls > 0 ? calls : tools.length
+  const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call')
+  const callCount = calls.length > 0 ? calls.length : tools.length
+  const orphans = pairs?.orphanResults ?? tools.filter((t) => t.Metadata?.kind === 'tool_result')
 
-  // 组内是否有执行中的调用（已发 call 未见配对 result）。
-  const running = !!runningSeqs && tools.some((t) => t.Metadata?.kind === 'tool_call' && runningSeqs.has(t.Seq))
+  const running = !!runningSeqs && calls.some((t) => runningSeqs.has(t.Seq))
 
   // 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
-  // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
+  // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。
   const counts: Record<string, number> = {}
   for (const t of tools) {
     if (t.Metadata?.kind !== 'tool_call') continue
@@ -63,33 +63,36 @@ export function StepTools({ tools, runningSeqs }: StepToolsProps) {
       </button>
       {expanded && (
         <div className="mt-1.5 flex flex-col gap-1.5">
-          {tools.map((t) => {
-            const tag = classifyMessage(t)
-            if (tag === 'tool-call') {
-              return (
-                <ToolCallCard
-                  key={t.Seq}
-                  tool={t.Metadata?.tool_name || ''}
-                  args={t.Metadata?.args || ''}
-                  agentName={t.Metadata?.agent_name}
-                  running={runningSeqs?.has(t.Seq)}
-                />
-              )
-            }
-            if (tag === 'tool-result') {
-              return (
-                <ToolResultCard
-                  key={t.Seq}
-                  tool={t.Metadata?.tool_name || ''}
-                  result={t.Metadata?.result || ''}
-                  durationMs={t.Metadata?.duration_ms || 0}
-                  err={t.Metadata?.err || ''}
-                  agentName={t.Metadata?.agent_name}
-                />
-              )
-            }
-            return null
+          {calls.map((t) => {
+            const paired = pairs?.matched.get(t.Seq)
+            const result: ToolResultInfo | undefined = paired
+              ? {
+                  text: paired.Metadata?.result || '',
+                  durationMs: paired.Metadata?.duration_ms || 0,
+                  err: paired.Metadata?.err || '',
+                }
+              : undefined
+            return (
+              <ToolCallCard
+                key={t.Seq}
+                tool={t.Metadata?.tool_name || ''}
+                args={t.Metadata?.args || ''}
+                agentName={t.Metadata?.agent_name}
+                running={runningSeqs?.has(t.Seq)}
+                result={result}
+              />
+            )
           })}
+          {orphans.map((t) => (
+            <ToolResultCard
+              key={t.Seq}
+              tool={t.Metadata?.tool_name || ''}
+              result={t.Metadata?.result || ''}
+              durationMs={t.Metadata?.duration_ms || 0}
+              err={t.Metadata?.err || ''}
+              agentName={t.Metadata?.agent_name}
+            />
+          ))}
         </div>
       )}
     </div>

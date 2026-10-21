@@ -79,3 +79,33 @@ export function inFlightToolCalls(messages: Message[]): Set<number> {
   }
   return running
 }
+
+// ToolPairs 是调用→结果的配对结果：matched 为 call Seq → result 消息；
+// orphanResults 是配不上 call 的孤立结果（call 丢失时的展示兜底）。
+export interface ToolPairs {
+  matched: Map<number, Message>
+  orphanResults: Message[]
+}
+
+// pairToolResults 把 tool_call 与 tool_result 配成「一动作一卡」：同 (agent, tool)
+// FIFO 消耗（与 inFlightToolCalls 同一配对口径），孤儿结果单独返回。
+export function pairToolResults(messages: Message[]): ToolPairs {
+  const queues = new Map<string, number[]>()
+  const matched = new Map<number, Message>()
+  const orphanResults: Message[] = []
+  for (const m of messages) {
+    const ev = m.Metadata
+    if (!ev?.tool_name) continue
+    const k = `${ev.agent_name}\u0000${ev.tool_name}`
+    if (ev.kind === 'tool_call') {
+      const q = queues.get(k) ?? []
+      q.push(m.Seq)
+      queues.set(k, q)
+    } else if (ev.kind === 'tool_result') {
+      const seq = queues.get(k)?.shift()
+      if (seq !== undefined) matched.set(seq, m)
+      else orphanResults.push(m)
+    }
+  }
+  return { matched, orphanResults }
+}
