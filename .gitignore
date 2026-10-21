@@ -22,6 +22,11 @@ cmd/*/dist/
 # 前端构建产物（web/ 源码同仓，dist 由 nginx 镜像多阶段构建生成，不入 git）
 web/dist/
 web/node_modules/
+# 根目录 node_modules（仅 vite 依赖缓存等游离产物；依赖本体在 web/ 并由 lock 复现）
+/node_modules/
+
+# Mimosa 安全扫描的本机状态（扫描历史/门禁基线/报告缓存，任意层级，可随时重建）
+.mimosa/
 
 # Coverage
 coverage.out
