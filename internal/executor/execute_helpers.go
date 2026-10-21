@@ -247,12 +247,12 @@ func (e *Engine) executeReActRuntime(
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err == nil && e.thoughts != nil {
-		// 终态叙述在解析边界完成：执行协议转人读摘要、原文随 raw 折叠。仅当
-		// 终稿确为 JSON 且解析成功才叙述——ParseOutput 的兜底策略永不报错，
-		// 散文终稿若被兜底摘要覆盖反而是信息损失。
+		// 终态叙述在解析边界完成：执行协议转人读摘要（谁解析谁叙述，原文由
+		// 审计面保存）。仅当终稿确为 JSON 且解析成功才叙述——ParseOutput 的
+		// 兜底策略永不报错，散文终稿若被兜底摘要覆盖反而是信息损失。
 		round := reasoning.RoundOf(result)
 		if output, perr := ParseOutput(result); perr == nil && terminalIsJSON(result.FinalAnswer) {
-			round.Summary, round.Raw = outputNarrative(output), result.FinalAnswer
+			round.Summary = outputNarrative(output)
 		}
 		e.thoughts.Done(round)
 	}

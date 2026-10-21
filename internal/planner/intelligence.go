@@ -222,12 +222,12 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	i.budget = i.timeout // 成功即回落基准预算
 
 	// 4. 解析最终答案为 PlanningResponse。终态叙述在解析边界完成：协议转人读
-	//    摘要作正文、协议原文随 raw 折叠可查（谁解析谁叙述，前端不解释协议）；
+	//    摘要作正文（谁解析谁叙述，前端不解释协议；协议原文由审计面保存）；
 	//    解析失败时正文回退原文——终态帧始终落库，清空气泡语义不受解析成败影响。
 	response, perr := i.parsePlanningResponse(result.FinalAnswer)
 	round := reasoning.RoundOf(result)
 	if perr == nil && response != nil {
-		round.Summary, round.Raw = planningNarrative(*response), result.FinalAnswer
+		round.Summary = planningNarrative(*response)
 	}
 	if i.thoughts != nil {
 		i.thoughts.Done(round)

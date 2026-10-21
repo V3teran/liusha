@@ -289,7 +289,6 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
         <ReasoningCard
           text={text}
           thinking={md?.thinking || undefined}
-          raw={md?.raw || undefined}
           agentName={md?.agent_name}
           step={r.step}
           inTokens={md?.in_tokens}

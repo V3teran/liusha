@@ -33,12 +33,12 @@ const flushInterval = 150 * time.Millisecond
 const maxSummaryRunes = 4000
 
 // Round 是一个 agent 一轮的终态产出：正文与思考终稿 + 该轮用量元信息
-// （token 累计与墙钟耗时，时间线每步 chip 的数据源）。Raw 携带协议原文——
-// 当正文是解析后的人读叙述（如规划/裁决/执行协议）时，原始输出随折叠区可查。
+// （token 累计与墙钟耗时，时间线每步 chip 的数据源）。正文约定为呈现就绪的
+// 人读形态（已知协议在解析边界叙述）；协议原文的完整保存在 llm_invocation
+// （审计面），时间线不重复携带。
 type Round struct {
 	Summary   string
 	Thinking  string
-	Raw       string
 	InTokens  int
 	OutTokens int
 	LatencyMs int64
@@ -246,24 +246,20 @@ func (t agentTap) Done(round Round) {
 // publishFinal 落库并广播终态 reasoning 消息（思考原文与用量随 metadata 携带，
 // 前端终态卡以折叠区呈现思考、以 chip 呈现 token/耗时，正文以消息 Content 呈现）。
 func (t agentTap) publishFinal(round Round) {
-	meta := map[string]any{
+	meta, err := json.Marshal(map[string]any{
 		"kind":       "reasoning",
 		"agent_name": t.agent,
 		"thinking":   truncateRunes(round.Thinking, maxSummaryRunes),
 		"in_tokens":  round.InTokens,
 		"out_tokens": round.OutTokens,
 		"latency_ms": round.LatencyMs,
-	}
-	if round.Raw != "" {
-		meta["raw"] = truncateRunes(round.Raw, maxSummaryRunes)
-	}
-	metaJSON, err := json.Marshal(meta)
+	})
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 元数据序列化失败")
 		return
 	}
 	msg, err := t.s.writer.AppendMessage(t.s.ctx, t.s.convID,
-		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(round.Summary, maxSummaryRunes), metaJSON)
+		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(round.Summary, maxSummaryRunes), meta)
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终稿落库失败（气泡清理将延迟到重连）")
 		return

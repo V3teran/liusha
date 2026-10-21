@@ -66,16 +66,16 @@ describe('ReasoningCard', () => {
     expect(container.querySelector('.markdown-body')).toBeNull()
   })
 
-  it('raw 存在时渲染「原始输出」折叠（正文为解析后叙述）', () => {
-    render(<ReasoningCard text="任务收敛，不再派发动作。" raw='{"should_continue":false}' />)
-    expect(screen.getByText('原始输出')).toBeTruthy()
+  it('叙述正文直出，不再有「原始输出」折叠（面分离：原文在 LLM 审计页按调用可查）', () => {
+    render(<ReasoningCard text="任务收敛，不再派发动作。" />)
     expect(screen.getByText('任务收敛，不再派发动作。')).toBeTruthy()
+    expect(screen.queryByText('原始输出')).toBeNull()
   })
 
-  it('流式态不渲染折叠区（JSON 判定与 raw 都等终稿）', () => {
-    render(<ReasoningCard text='{"a":1}' raw='{"a":1}' streaming />)
+  it('流式态不渲染折叠区（JSON 判定与思考折叠都等终稿）', () => {
+    render(<ReasoningCard text='{"a":1}' thinking="x" streaming />)
     expect(screen.queryByText('结构化输出')).toBeNull()
-    expect(screen.queryByText('原始输出')).toBeNull()
+    expect(screen.queryByText('内部思考')).toBeNull()
   })
 
   it('终稿正文为空时渲染占位（模型思考耗尽输出预算的轮次），流式空正文不带占位', () => {
