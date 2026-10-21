@@ -466,7 +466,8 @@ func (d *Deps) buildEvaluatorAgent(
 		WithExtraTools(extraTools)
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
-	// 由领域包注入——通用门对领域零感知。漏洞落库即发时间线事件（会话漏洞卡）。
+	// 由领域包注入——通用门对领域零感知。坐实发现（晋升 result 的主张，中性
+	// 领域词——信息成果与漏洞同为发现）落库即发时间线事件（会话发现卡）。
 	claimSink := finding.NewClaimSink(d.Findings, agentRunID)
 	if conversationID != "" {
 		timeline := d.toolTimelineEvents()

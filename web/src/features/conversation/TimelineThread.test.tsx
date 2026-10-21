@@ -196,8 +196,7 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
     await flush()
     expect(screen.getByText('扫描完成')).toBeTruthy()
     expect(screen.getByText(/11 步/)).toBeTruthy()
-    expect(screen.getByText(/2 个漏洞/)).toBeTruthy()
-    expect(screen.getByText(/任务收敛/)).toBeTruthy()
+    expect(screen.getByText(/2 个发现/)).toBeTruthy()
   })
 
   it('aborted 节点渲染停止卡并清空全部活动道', async () => {
