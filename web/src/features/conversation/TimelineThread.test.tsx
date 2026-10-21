@@ -15,7 +15,7 @@ function reasoningMsg(seq: number, agentName: string, text = '思考'): Message 
     Seq: seq,
     Role: 'assistant',
     Kind: 'event',
-    Metadata: { Kind: 'reasoning', Text: text, AgentName: agentName, ToolName: '', Args: '', Result: '', DurationMs: 0, Err: '', InTokens: 0, OutTokens: 0, LatencyMs: 0 },
+    Metadata: { kind: 'reasoning', text, agent_name: agentName, tool_name: '', args: '', result: '', duration_ms: 0, err: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }
@@ -25,7 +25,7 @@ function toolCallMsg(seq: number, agentName: string): Message {
     Seq: seq,
     Role: 'tool',
     Kind: 'event',
-    Metadata: { Kind: 'tool_call', ToolName: 'run_command', Args: 'ls', Result: '', DurationMs: 0, Err: '', AgentName: agentName, Text: '', InTokens: 0, OutTokens: 0, LatencyMs: 0 },
+    Metadata: { kind: 'tool_call', tool_name: 'run_command', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }

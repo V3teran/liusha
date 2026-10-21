@@ -21,6 +21,7 @@ interface ComposerProps {
 // 前端一律放行，交给后端按 409 busy 精确拒绝，qa 类追问随时可用。
 export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
+  const beginThinking = useConversationStore((s) => s.beginThinking)
   const [brief, setBrief] = useState('')
   const [busyMsg, setBusyMsg] = useState('')
   const [sending, setSending] = useState(false)
@@ -33,13 +34,15 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
       if (convId) {
         // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 lastSeq 不影响此快照值。
         const beforeSeq = lastSeq
-        const r = await followUp(convId, brief)
+        await followUp(convId, brief)
         setBrief('')
-        setBusyMsg(r.intent === 'qa' ? '正在回答…' : '已触发扫描')
+        // 占位气泡立起：意图分类+首 token 的空窗里给「在干活」的可见反馈
+        beginThinking()
         onAppended(beforeSeq)
       } else {
         const { conversation_id } = await startChat(brief)
         setBrief('')
+        beginThinking()
         onStarted(conversation_id)
       }
     } catch (e) {

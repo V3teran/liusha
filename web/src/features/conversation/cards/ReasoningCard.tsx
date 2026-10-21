@@ -1,9 +1,11 @@
+import { Brain, ChevronDown } from 'lucide-react'
 import { agentAccent, agentLabel as toLabel } from '@/lib/agentColor'
 import { CardHeader } from './CardHeader'
 import { Markdown } from './Markdown'
 
 interface ReasoningCardProps {
   text: string
+  thinking?: string // 模型扩展思考终稿（metadata.thinking）；折叠区展示，缺省无
   agentName?: string // 产出该推理的 agent（编排/侦察/利用/流量分析）
   step?: number // 本次用户指令内的全局推理步号（跨 agent 统一计数，追加指令从头）
   inTokens?: number
@@ -19,12 +21,24 @@ const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] t
 
 // 推理正文（方案 B）：agent 的思路/分析/计划（markdown 富文本）+ step/token/耗时元信息。
 // 外层 AgentCard 承载图标（谁在想）+ 脚注复制；卡内领头「agent 推理」+ 元信息 chip。
-export function ReasoningCard({ text, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
+export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
   const accent = agentAccent(agentName)
   const agent = toLabel(agentName)
 
   return (
     <div data-card="reasoning">
+      {!!thinking && !streaming && (
+        <details className="group mb-2 rounded-lg border border-border/60 bg-background/40">
+          <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] text-muted">
+            <Brain className="h-3 w-3" />
+            <span>内部思考</span>
+            <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-[12px] leading-relaxed text-muted/90 whitespace-pre-wrap">
+            {thinking}
+          </div>
+        </details>
+      )}
       <CardHeader
         agent={agent || undefined}
         agentColor={accent.accent}

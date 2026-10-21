@@ -16,7 +16,7 @@ const msg = (seq: number): Message => ({
 const reasoningFinal = (seq: number, agent: string): Message => ({
   ...msg(seq),
   Role: 'assistant',
-  Metadata: { Kind: 'reasoning', AgentName: agent } as ScanEvent,
+  Metadata: { kind: 'reasoning', agent_name: agent } as ScanEvent,
 })
 
 describe('conversation store', () => {
@@ -59,17 +59,22 @@ describe('conversation store', () => {
   it('增量按 agent 分道累积，互不串道', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('规划', 'planner')
-    s.appendReasoningDelta('中', 'planner')
     s.appendReasoningDelta('执行', 'executor')
+    s.appendReasoningDelta('再规划', 'planner')
     const state = useConversationStore.getState()
-    expect(state.liveStreams).toEqual({ planner: '规划中', executor: '执行' })
+    expect(state.liveStreams).toEqual({
+      planner: { thinking: '', text: '规划再规划' },
+      executor: { thinking: '', text: '执行' },
+    })
     expect(state.liveOrder).toEqual(['planner', 'executor'])
   })
 
-  it('无 agent_name 的增量归 assistant 道（聊天打字机）', () => {
+  it('无 agent_name 归 assistant 道', () => {
     const s = useConversationStore.getState()
-    s.appendReasoningDelta('你好')
-    expect(useConversationStore.getState().liveStreams).toEqual({ assistant: '你好' })
+    s.appendReasoningDelta('你好', undefined)
+    expect(useConversationStore.getState().liveStreams).toEqual({
+      assistant: { thinking: '', text: '你好' },
+    })
   })
 
   it('agent 推理终态只清该 agent 的道，其余道保留', () => {
@@ -78,7 +83,7 @@ describe('conversation store', () => {
     s.appendReasoningDelta('执行', 'executor')
     s.ingest(reasoningFinal(2, 'executor'))
     const state = useConversationStore.getState()
-    expect(state.liveStreams).toEqual({ planner: '规划' })
+    expect(state.liveStreams).toEqual({ planner: { thinking: '', text: '规划' } })
     expect(state.liveOrder).toEqual(['planner'])
   })
 
@@ -88,7 +93,7 @@ describe('conversation store', () => {
     s.appendReasoningDelta('思考', 'planner')
     s.ingest({ ...msg(2), Role: 'assistant', Kind: 'message', Content: '回答全文' })
     const state = useConversationStore.getState()
-    expect(state.liveStreams).toEqual({ planner: '思考' })
+    expect(state.liveStreams).toEqual({ planner: { thinking: '', text: '思考' } })
   })
 
   it('补历史的终态消息同样清道（重连场景）', () => {
@@ -97,5 +102,86 @@ describe('conversation store', () => {
     // 断线重连后补历史：终态消息经 ingest 到达
     s.ingest(reasoningFinal(1, 'evaluator'))
     expect(useConversationStore.getState().liveStreams).toEqual({})
+  })
+
+  // ── 双通道（thinking / text）──
+
+  it('thinking 与 text 分通道累积，互不混流', () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('内部推演', 'executor', 'thinking')
+    s.appendReasoningDelta('正文陈述', 'executor', 'text')
+    s.appendReasoningDelta('（缺省归 text）', 'executor')
+    expect(useConversationStore.getState().liveStreams).toEqual({
+      executor: { thinking: '内部推演', text: '正文陈述（缺省归 text）' },
+    })
+  })
+
+  // ── thinking 占位 ──
+
+  it('thinking 占位：置位后由首个增量帧清除（任意通道）', () => {
+    const s = useConversationStore.getState()
+    s.beginThinking()
+    expect(useConversationStore.getState().thinking).toBe(true)
+    s.appendReasoningDelta('首字', undefined)
+    expect(useConversationStore.getState().thinking).toBe(false)
+    s.beginThinking()
+    s.appendReasoningDelta('思考首字', 'planner', 'thinking')
+    expect(useConversationStore.getState().thinking).toBe(false)
+  })
+
+  it('thinking 占位：assistant 消息落地清除（回答终稿先于首增量的降级场景）', () => {
+    const s = useConversationStore.getState()
+    s.beginThinking()
+    s.ingest({ ...msg(2), Role: 'assistant', Kind: 'message', Content: '回答全文' })
+    expect(useConversationStore.getState().thinking).toBe(false)
+  })
+
+  it('thinking 占位：用户消息 ingest（补拉）不清除', () => {
+    const s = useConversationStore.getState()
+    s.beginThinking()
+    s.ingest({ ...msg(1), Role: 'user', Kind: 'message', Content: '我自己的消息' })
+    expect(useConversationStore.getState().thinking).toBe(true)
+  })
+
+  it('thinking 占位：reset 保留（新会话发送链路 open→reset 紧随置位，清掉会闪没）', () => {
+    const s = useConversationStore.getState()
+    s.beginThinking()
+    s.reset()
+    expect(useConversationStore.getState().thinking).toBe(true)
+  })
+
+  it('thinking 占位：切旧会话由历史 ingest 清除（assistant 消息落地）', () => {
+    const s = useConversationStore.getState()
+    s.beginThinking()
+    s.reset()
+    // 切到旧会话：拉回的历史含 assistant 回答
+    s.ingest({ ...msg(1), Role: 'assistant', Kind: 'message', Content: '旧回答' })
+    expect(useConversationStore.getState().thinking).toBe(false)
+  })
+
+  // ── 任务生命周期终态节点清全部道 ──
+
+  it('task_status 终态节点清全部活动道（停止后气泡不残留）', () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('规划中', 'planner')
+    s.appendReasoningDelta('执行中', 'executor')
+    s.appendReasoningDelta('回答', undefined)
+    s.ingest({
+      ...msg(3), Role: 'assistant', Kind: 'event',
+      Metadata: { kind: 'task_status', status: 'aborted' } as ScanEvent,
+    })
+    const state = useConversationStore.getState()
+    expect(state.liveStreams).toEqual({})
+    expect(state.liveOrder).toEqual([])
+  })
+
+  it('task_status 非终态节点（dispatched）不清道', () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('规划中', 'planner')
+    s.ingest({
+      ...msg(3), Role: 'assistant', Kind: 'event',
+      Metadata: { kind: 'task_status', status: 'dispatched' } as ScanEvent,
+    })
+    expect(useConversationStore.getState().liveStreams).toEqual({ planner: { thinking: '', text: '规划中' } })
   })
 })

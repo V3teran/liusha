@@ -14,10 +14,11 @@ export interface StreamHandle {
 
 const MAX_BACKOFF_MS = 15000
 
-/** SSE 帧回调：默认帧（Message JSON）与 event:delta（流式增量）分开派发。 */
+/** SSE 帧回调：默认帧（Message JSON）与 event:delta（流式增量）分开派发。
+ * channel 区分增量双通道：thinking（模型内部 CoT）/ text（正文）。 */
 export interface StreamHandlers {
   onMessage(msg: Message): void
-  onDelta?(text: string, agentName?: string): void
+  onDelta?(text: string, agentName?: string, channel?: 'thinking' | 'text'): void
 }
 
 /**
@@ -76,12 +77,13 @@ export function connectEventStream(
     src.addEventListener('delta', (e: MessageEvent) => {
       if (!handlers.onDelta) return
       try {
-        const { text, agent_name } = JSON.parse(e.data) as {
+        const { text, agent_name, channel } = JSON.parse(e.data) as {
           delta: boolean
           text: string
           agent_name?: string
+          channel?: 'thinking' | 'text'
         }
-        handlers.onDelta(text, agent_name)
+        handlers.onDelta(text, agent_name, channel)
       } catch {
         // 坏帧忽略
       }
@@ -132,7 +134,7 @@ export function openEventStream(
     convID,
     {
       onMessage: (msg) => store.ingest(msg),
-      onDelta: (text, agentName) => store.appendReasoningDelta(text, agentName),
+      onDelta: (text, agentName, channel) => store.appendReasoningDelta(text, agentName, channel),
     },
     onStatusChange,
   )
