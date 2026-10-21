@@ -91,6 +91,23 @@ func (s *Store) Create(ctx context.Context, taskID string, command Command, payl
 	return id, nil
 }
 
+// ResolvePendingTerminates 把该 task 全部未处理的 terminate 事件标记 processed。
+// 供续接（FollowUp/Reopen）前调用：上一轮运行期间用户停止产生的 terminate 若未被
+// 已停的消费者取走，会滞留 pending，被续接 run 的控制消费者迟到消费而误杀新 run。
+func (s *Store) ResolvePendingTerminates(ctx context.Context, taskID string) (int, error) {
+	if taskID == "" {
+		return 0, fmt.Errorf("controlplane: taskID 为空")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE task_control_event
+		SET status='processed', processed_at=now(), error=''
+		WHERE task_id = $1 AND command = 'terminate' AND status = 'pending'`, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("controlplane: resolve pending terminates failed: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ListPending 读取指定 Task 的待处理事件
 func (s *Store) ListPending(ctx context.Context, taskID string) ([]ControlEvent, error) {
 	if taskID == "" {

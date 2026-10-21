@@ -13,6 +13,7 @@
 package main
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"net"
@@ -239,7 +240,7 @@ func main() {
 	hs := newHealthGateway(cfg, runnerCfg, trafficIngestor, logger)
 	go runHealthGateway(hs, logger)
 
-	startTaskReaper(trafficCtx, stores.tasks, cfg, logger)
+	startTaskReaper(trafficCtx, stores.tasks, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
 
 	// llm_invocation 留存清理：记录含完整 prompt/response 敏感载荷，
 	// retention_days > 0 时每日删除到期行（0 = 永久留存，审计全量）。
@@ -487,11 +488,19 @@ func startInvocationRetentionSweep(ctx context.Context, calls *llminvocation.Sto
 // startTaskReaper 启动 task 心跳探活循环（B2 进度探活）：task.heartbeat_at 由 agent 每次工具
 // 调用驱动续命（见 toolRecordInterceptor 心跳逻辑）+ handler 入口重置一次。runner 进程崩溃或
 // 扫描卡死后心跳停摆，reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
+// 会话任务同步落 aborted 时间线节点（判死对用户可见，而非静默翻转）。
 //
 // staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
 // 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
 // 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
-func startTaskReaper(ctx context.Context, taskStore *task.Store, cfg config.Config, logger zerolog.Logger) {
+func startTaskReaper(
+	ctx context.Context,
+	taskStore *task.Store,
+	cfg config.Config,
+	convs *conversation.Store,
+	pub *scanstream.Publisher,
+	logger zerolog.Logger,
+) {
 	go func() {
 		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
 		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
@@ -502,11 +511,31 @@ func startTaskReaper(ctx context.Context, taskStore *task.Store, cfg config.Conf
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if n, err := taskStore.ReapStale(ctx, staleAfter); err != nil {
+				ids, err := taskStore.ReapStale(ctx, staleAfter)
+				if err != nil {
 					logger.Warn().Err(err).Msg("task reap stale failed")
-				} else if n > 0 {
-					logger.Warn().Int("aborted", n).Dur("stale_after", staleAfter).
+					continue
+				}
+				for _, id := range ids {
+					logger.Warn().Str("task_id", id).Dur("stale_after", staleAfter).
 						Msg("task 心跳超时回收（进程崩溃或扫描卡死）")
+					if convs == nil || pub == nil {
+						continue
+					}
+					convID, cerr := convs.ResolveConvByTask(ctx, id)
+					if cerr != nil || convID == "" {
+						continue // 无会话（纯后台扫描）或解析失败——静默，回收本体已完成
+					}
+					msg, aerr := convs.AppendMessage(ctx, convID,
+						conversation.RoleAssistant, conversation.KindEvent,
+						"扫描已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
+							map[string]any{"reason": "心跳超时（runner 崩溃或任务卡死）"}))
+					if aerr != nil {
+						continue
+					}
+					if payload, merr := json.Marshal(msg); merr == nil {
+						_ = pub.Publish(ctx, convID, payload)
+					}
 				}
 			}
 		}
