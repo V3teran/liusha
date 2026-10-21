@@ -49,6 +49,9 @@ services:
       LIUSHA_REDIS_ADDR: redis:6379
       LIUSHA_API_ADDR: 0.0.0.0:8090  # 与本地 dev（run-svc.sh）同端口；8080 易被 Burp 占用
       LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
+      # 测试期免认证：设置后 X-API-Key 与 SSE stream cookie 校验全部跳过（auth.go 直通）。
+      # 恢复认证 = 删除本行并重建 api 容器。
+      LIUSHA_AUTH_DISABLED: "true"
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
       LIUSHA_CONFIG: /app/config/config.yaml

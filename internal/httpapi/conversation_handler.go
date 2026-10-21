@@ -132,9 +132,9 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 	}
 }
 
-// FollowUpAPI 处理会话追加消息：内部判意图（action/qa）+ 落消息 + 分流。
-// 返回 intent（"action"|"qa"）、busy（action 但扫描进行中 → 应排队/拒绝）、err。
-// ID：纯聊天会话（无 task）升级为 action 时用于建 task；已绑 task 的会话续接忽略之。
+// FollowUpAPI 处理会话追加消息：落 user 消息后立即返回，意图分类/分流在服务端异步完成。
+// intent 固定返回 "accepted"（busy 恒 false——扫描进行中收到 action 指令时服务端往
+// 时间线落提示消息，不再 409）。返回后前端拉增量补进时间线，回答/扫描进展经 SSE 流出。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
 }
