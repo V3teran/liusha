@@ -93,8 +93,16 @@ export function renderMarkdown(src: string): string {
   return wrapCodeBlocks(clean)
 }
 
+// 代码块复制按钮的图标（lucide copy/check 的 path）：默认 copy，复制成功由 .copied
+// class 切换显示 check。注入路径在 DOMPurify 消毒之后，不经过 React 组件树，故内联 SVG。
+const CODE_COPY_ICON =
+  '<svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+const CODE_CHECK_ICON =
+  '<svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
+
 // wrapCodeBlocks 用 DOMParser 把 <pre><code> 包进 .code-block 容器 + 注入复制按钮。
-// 按钮不带内联 handler（CSP 友好），复制逻辑由 markdown 容器的事件委托处理（见 useCodeCopy）。
+// 按钮纯图标（与全局 CopyButton 同一形态，提示走 title/aria-label），悬浮代码块右上角；
+// 不带内联 handler（CSP 友好），复制逻辑由 markdown 容器的事件委托处理（见 useCodeCopy）。
 function wrapCodeBlocks(html: string): string {
   if (!html.includes('<pre')) return html
   const doc = new DOMParser().parseFromString(html, 'text/html')
@@ -110,7 +118,8 @@ function wrapCodeBlocks(html: string): string {
     btn.type = 'button'
     btn.setAttribute('data-code', raw)
     btn.setAttribute('aria-label', '复制代码')
-    btn.textContent = '复制'
+    btn.setAttribute('title', '复制代码')
+    btn.innerHTML = CODE_COPY_ICON + CODE_CHECK_ICON
 
     pre.replaceWith(wrapper)
     wrapper.appendChild(pre)

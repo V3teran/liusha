@@ -328,6 +328,48 @@ pre {
   background: none;
   padding: 0;
 }
+/* 代码块复制按钮（renderMarkdown 注入的 .code-copy）：与全局 CopyButton 同一形态——
+   纯图标、提示走 title/aria-label、复制成功换 check 图标，悬浮于代码块右上角。 */
+.code-block {
+  position: relative;
+}
+.code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+.code-copy:hover {
+  color: var(--accent);
+  background: var(--surface);
+}
+.code-copy svg {
+  width: 14px;
+  height: 14px;
+}
+.code-copy .icon-check {
+  display: none;
+}
+.code-copy.copied {
+  color: var(--accent);
+}
+.code-copy.copied .icon-copy {
+  display: none;
+}
+.code-copy.copied .icon-check {
+  display: block;
+}
 .markdown-body blockquote {
   border-left: 3px solid var(--border-strong);
   padding-left: 0.9em;
