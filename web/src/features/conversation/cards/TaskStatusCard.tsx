@@ -27,31 +27,14 @@ function statusShape(md: ScanEvent): StatusShape {
   }
 }
 
-// stop_why 是控制面枚举（wire 契约，DB 存枚举），人面映射中文——
-// 机器枚举不直出时间线（与协议叙述化同一条原则）。未知值原样兜底。
-function stopWhyLabel(why: string): string {
-  switch (why) {
-    case 'task_converged':
-      return '任务收敛'
-    case 'max_steps_reached':
-      return '达到步数上限'
-    case 'manual_abort':
-      return '手动停止'
-    case 'context_cancelled':
-      return '上下文取消'
-    default:
-      return why // executor 侧本就是中文（达到最大步数/任务取消）
-  }
-}
-
-// 报告字段行：completed 携 steps/findings/stop_why，aborted/failed 携 reason。
-// 字段缺失（旧消息/降级路径）整体隐藏该行。
+// 报告字段行：completed 携 steps/findings，aborted/failed 携 reason。
+// 领域词中性化：ClaimSink 交付的是晋升 result 的坐实主张（信息收集成果
+// 不是漏洞），计数用「发现」；stop_why/actions 留在 wire 不渲染——自然
+// 收敛无需复述「扫描完成」，异常停止由 aborted/failed 的 reason 承担。
 function reportFields(md: ScanEvent): string[] {
   const parts: string[] = []
   if (md.steps && md.steps > 0) parts.push(`${md.steps} 步`)
-  if (md.actions && md.actions > 0) parts.push(`${md.actions} 个动作`)
-  if (md.findings !== undefined && md.findings > 0) parts.push(`${md.findings} 个漏洞`)
-  if (md.stop_why) parts.push(stopWhyLabel(md.stop_why))
+  if (md.findings !== undefined && md.findings > 0) parts.push(`${md.findings} 个发现`)
   if (md.reason) parts.push(md.reason)
   return parts
 }

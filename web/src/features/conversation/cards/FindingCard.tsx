@@ -7,9 +7,9 @@ interface FindingCardProps {
   target?: string
 }
 
-// 漏洞卡：裁决官坐实的漏洞在时间线单独成卡（evaluator 经 ClaimSink 落库即发
-// finding 事件）——漏洞是任务的核心产出，不能只藏在完成节点的计数里。
-// 分级配色沿用 severity 单一真相源。
+// 坐实发现卡：裁决官坐实的主张（晋升 result 节点）经 ClaimSink 落库即发
+// finding 事件——领域词中性（信息收集成果与漏洞同为「发现」，severity 的
+// info 档即非漏洞成果），分级配色沿用 severity 单一真相源。
 export function FindingCard({ summary, severity, host, target }: FindingCardProps) {
   const sev = (severity || 'info').toLowerCase()
   const tag = severityTagColor(sev)
