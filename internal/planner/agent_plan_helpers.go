@@ -2,6 +2,7 @@ package planner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -187,17 +188,135 @@ func isRetriableError(err error) bool {
 // handleNoActions 处理 planner 未生成新 Action 的情况。
 //
 // "本轮无新计划" ≠ "任务收敛"：图上还有非终态 action（running/open/blocked）
-// 时，planner 返回空只是对在途执行的等待——发布收敛会终止整个认知循环、
-// 掐断在途执行与裁决。只有图上再无任何未完结工作且 planner 也没有新方向，
-// 才是真正的收敛。
+// 或**未裁决观察**时，planner 返回空只是对在途工作的等待——发布收敛会终止
+// 整个认知循环、掐断在途执行与裁决。只有图上再无任何未完结工作且 planner
+// 也没有新方向，才是真正的收敛。
 func (a *Agent) handleNoActions(ctx context.Context) {
 	if a.hasUnsettledWork(ctx) {
 		a.logger.Info().Msg("Planner 暂无新 Action，但仍有在途/待执行动作——等待其产出，不收敛")
 		return
 	}
+	if a.hasPendingVerdicts(ctx) {
+		a.logger.Info().Msg("Planner 暂无新 Action，但有观察待裁决（unverified）——等裁决落定，不收敛")
+		return
+	}
 
-	a.logger.Info().Msg("Planner 未生成新 Action 且图上无未完结动作（任务收敛）")
+	a.logger.Info().Msg("Planner 未生成新 Action 且图上无未完结工作（任务收敛）")
+	// 收敛去重：记录结论与图指纹——之后无终态变迁的唤醒不再重复审议。
+	if fp, err := a.graphFingerprint(ctx); err == nil {
+		a.convergedAt, a.convergedPending = fp, true
+	}
 	a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions and no unsettled work in graph")
+}
+
+// hasPendingVerdicts 判断图上是否还有未裁决的假设观察（confidence=unverified）。
+// 收敛必须等裁决清零：带着积压收敛会留下永久悬空的假设（实测任务完成时
+// 遗留 1 条 unverified，无任何路径补裁决）。判定失败保守返回 true。
+func (a *Agent) hasPendingVerdicts(ctx context.Context) bool {
+	observations, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取 Observation 失败，保守视为有待裁决观察")
+		return true
+	}
+	for _, obs := range observations {
+		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceUnverified {
+			return true
+		}
+	}
+	return false
+}
+
+// graphFingerprint 是图的终态指纹：终态动作计数 + result/裁决落定计数。
+// 指纹不变 = 自上轮审议以来图上没有任何新信息，重新审议必然得出同一结论。
+type graphFingerprint struct {
+	done, failed, aborted, exhausted int
+	results                          int
+	verified, refuted, facts         int
+}
+
+func (f graphFingerprint) equal(o graphFingerprint) bool {
+	return f == o
+}
+
+// graphFingerprint 计算当前图终态指纹。任一计数失败返回错误（调用方据此
+// 放弃去重、宁可多审议一次也不跳过）。
+func (a *Agent) graphFingerprint(ctx context.Context) (graphFingerprint, error) {
+	var fp graphFingerprint
+	states, err := a.graph.ListActionStates(ctx, a.taskID)
+	if err != nil {
+		return fp, err
+	}
+	for _, st := range states {
+		switch st {
+		case explorationgraph.StateDone:
+			fp.done++
+		case explorationgraph.StateFailed:
+			fp.failed++
+		case explorationgraph.StateAborted:
+			fp.aborted++
+		case explorationgraph.StateExhausted:
+			fp.exhausted++
+		}
+	}
+	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
+	if err != nil {
+		return fp, err
+	}
+	fp.results = len(results)
+
+	observations, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
+	if err != nil {
+		return fp, err
+	}
+	for _, obs := range observations {
+		if obs.Confidence == nil {
+			continue
+		}
+		switch *obs.Confidence {
+		case explorationgraph.ConfidenceVerified:
+			fp.verified++
+		case explorationgraph.ConfidenceRefuted:
+			fp.refuted++
+		case explorationgraph.ConfidenceFactual:
+			fp.facts++
+		}
+	}
+	return fp, nil
+}
+
+// consumeMonitorRequest 恢复持久化的外部纠偏请求：monitor 发 replan 事件时
+// 双写 objective.content.monitor_request（事件是 fire-and-forget，bus 缓冲满
+// 即丢）。planner 每次规划前检查该标记，有则消费（清标记 + 强制重规划），
+// 与事件路径构成 at-least-once：事件丢了大不了下一个轮询周期补上。
+func (a *Agent) consumeMonitorRequest(ctx context.Context) (forced bool, reason string) {
+	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
+	if err != nil || len(objectives) == 0 {
+		return false, ""
+	}
+	var content map[string]json.RawMessage
+	if json.Unmarshal(objectives[0].Content, &content) != nil {
+		return false, ""
+	}
+	raw, ok := content["monitor_request"]
+	if !ok {
+		return false, ""
+	}
+	var req struct {
+		MonitorReplanRequest struct {
+			Reason string `json:"reason"`
+		} `json:"monitor_replan_request"`
+	}
+	_ = json.Unmarshal(raw, &req)
+	if req.MonitorReplanRequest.Reason == "" {
+		return false, ""
+	}
+
+	// 消费即清标记（防重复触发；清失败仍强制本轮——宁可多规划一次）。
+	delete(content, "monitor_request")
+	if updated, err := json.Marshal(content); err == nil {
+		_ = a.graph.UpdateNodeContent(ctx, objectives[0].ID, updated)
+	}
+	return true, req.MonitorReplanRequest.Reason
 }
 
 // hasUnsettledWork 判断图上是否还有非终态 action（running/open/blocked）。

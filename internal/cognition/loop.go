@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -153,6 +154,10 @@ func (d *Deps) run(
 	result := stack.detector.Start(ctx)
 	lifecycle.Stop()
 
+	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
+	// 周期缺终态语义）。被终止的任务标 aborted，其余标 done。best-effort。
+	d.closeRootObjective(ctx, taskID, result.StopWhy)
+
 	d.Logger.Info().
 		Str("task_id", taskID).
 		Int("steps", result.Steps).
@@ -167,6 +172,25 @@ func (d *Deps) run(
 		Attempts: result.Attempts,
 		StopWhy:  result.StopWhy,
 	}, nil
+}
+
+// closeRootObjective 把任务的根目标节点置终态（done；被终止的任务 aborted）。
+// 图生命周期自此完整：objective 有始有终，不再永远 open。
+func (d *Deps) closeRootObjective(ctx context.Context, taskID, stopWhy string) {
+	if d.Graph == nil {
+		return
+	}
+	objectives, err := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
+	if err != nil || len(objectives) == 0 {
+		return
+	}
+	terminal := explorationgraph.StateDone
+	if strings.Contains(stopWhy, "terminate") || strings.Contains(stopWhy, "cancel") {
+		terminal = explorationgraph.StateAborted
+	}
+	if err := d.Graph.UpdateActionStateWithReason(ctx, objectives[0].ID, terminal, nil); err != nil {
+		d.Logger.Warn().Err(err).Str("task_id", taskID).Msg("根目标终态回写失败（objective 保持 open）")
+	}
 }
 
 // ensureRootObjective 创建任务根 Objective 节点（幂等：onboard 已建则跳过，防双根）。
@@ -318,11 +342,33 @@ func (d *Deps) assembleStack(
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
-	// planner
+	// planner。黑板摘要：assignment 内 insight 按写入序取顶并格式化——
+	// 规划者消费执行者经验（黑板单向是审计确认的断裂：executor 写、只有
+	// executor 读）。经 gatherContext 注入而非注册工具：决策变量显式喂给
+	// 决策者，不指望模型自己想起来查。
+	plannerDigest := func(ctx context.Context) []string {
+		if d.Insights == nil || d.Tasks == nil {
+			return nil
+		}
+		tk, err := d.Tasks.GetByID(ctx, taskID)
+		if err != nil {
+			return nil
+		}
+		entries, err := d.Insights.List(ctx, tk.AssignmentID, 20)
+		if err != nil {
+			return nil
+		}
+		lines := make([]string, 0, len(entries))
+		for _, e := range entries {
+			lines = append(lines, fmt.Sprintf("[%s/%s/%s] %s", e.Category, e.Priority, e.Confidence, e.Summary))
+		}
+		return lines
+	}
 	intelligence := planner.NewIntelligence(d.Router, d.Logger).
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
+		WithInsightsDigest(plannerDigest).
 		WithThoughts(thoughts.TapFor("planner"))
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
@@ -351,6 +397,7 @@ func (d *Deps) assembleStack(
 		Provider:      provider,
 		Interval:      constants.MonitorInterval,
 		Activity:      activities.idleFor,
+		WrapTool:      reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:        d.Logger.With().Str("component", "monitor_agent").Logger(),
 		Checkpointer:  d.Checkpointer,
 	})

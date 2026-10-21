@@ -30,6 +30,18 @@ type Intelligence struct {
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	timeout    time.Duration  // 单次规划超时基准（0=不设限；默认 3 分钟）
 	budget     time.Duration  // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
+
+	// insightsDigest 是跨 agent 经验黑板的摘要出口（cognition 注入闭包；
+	// nil=无黑板）。黑板的核心价值是规划者消费执行者的经验——没有它，
+	// 黑板退化成 executor 的自说自话。
+	insightsDigest func(ctx context.Context) []string
+}
+
+// WithInsightsDigest 注入经验黑板摘要出口（cognition 闭包：assignment 内
+// insight 按优先级取顶，格式化为一行一条）。nil=无黑板，规划上下文不带该节。
+func (i *Intelligence) WithInsightsDigest(fn func(ctx context.Context) []string) *Intelligence {
+	i.insightsDigest = fn
+	return i
 }
 
 // maxBudgetFactor 是自适应预算的放大上限（基准的倍数）——无界放大等于取消保护。
@@ -99,8 +111,10 @@ type PlanningContext struct {
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果（经裁决坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
+	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
+	Blackboard        []string                // 跨 agent 经验黑板摘要（assignment 级 insight，规划者消费执行者经验）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -172,7 +186,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	// 构建中间件链：防止重复规划、无进展、目标偏离
 	middlewareChain := runtime.NewMiddlewareChain(
 		runtime.NewLoopDetectionMiddleware(8, 6),                 // 连续 8 次相同工具 / 6 次相似思考
-		runtime.NewProgressTrackingMiddleware(12, 8),             // 12 次无新输出 / 8 次连续失败
+		runtime.NewProgressTrackingMiddleware(12),                // 12 轮无新输出终止（连续失败止损由 runtime 内置，阈值随下下发）
 		runtime.NewGoalAlignmentMiddleware(planCtx.Objective, 5), // 5 次偏离目标
 	)
 
@@ -184,15 +198,16 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		onThinkingDelta = i.thoughts.ThinkingDelta
 	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
-		Objective:            prompt,
-		SystemPrompt:         i.buildPlannerSystemPrompt(),
-		LLMProvider:          provider,
-		MaxIterations:        i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		OnThoughtDelta:       onThoughtDelta,
-		OnThinkingDelta:      onThinkingDelta,
-		MaxTokens:            4000,
-		MessageModifierChain: runtime.NewDefaultModifierChain(20),
-		MiddlewareChain:      middlewareChain,
+		Objective:                  prompt,
+		SystemPrompt:               i.buildPlannerSystemPrompt(),
+		LLMProvider:                provider,
+		MaxIterations:              i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		MaxConsecutiveToolFailures: 8,       // 连续工具失败止损阈值（单机制：runtime 内置，随装配按角色调参）
+		OnThoughtDelta:             onThoughtDelta,
+		OnThinkingDelta:            onThinkingDelta,
+		MaxTokens:                  4000,
+		MessageModifierChain:       runtime.NewDefaultModifierChain(20),
+		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
 		OutputFormatSchema: `请输出以下JSON格式：
@@ -294,6 +309,10 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 			planCtx.PendingActions = append(planCtx.PendingActions, action)
 		case explorationgraph.StateFailed:
 			planCtx.FailedActions = append(planCtx.FailedActions, action)
+		case explorationgraph.StateAborted:
+			// 外部纠偏（monitor kill）的中止动作必须进规划视野：携带 blocked_reason
+			// 呈现"这条路被砍及原因"，否则规划者失明、重规划会原样再派等效动作。
+			planCtx.AbortedActions = append(planCtx.AbortedActions, action)
 		}
 	}
 
@@ -304,13 +323,15 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 	}
 	planCtx.Results = results
 
-	// 获取已确认的世界状态（fact 观察是写入即终态，无流转）——规划的
-	// 基底：已建立的会话、已探明的机制、已确认的资源，直接拿来用。
-	factObservations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
+	// 观察一次取全量，fact（世界状态）与 refuted（已证伪假设）两视图共用——
+	// 避免同表连查两次。
+	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
 	}
-	for _, obs := range factObservations {
+	// 已确认的世界状态（fact 观察是写入即终态，无流转）——规划的基底：
+	// 已建立的会话、已探明的机制、已确认的资源，直接拿来用。
+	for _, obs := range observations {
 		if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceFactual {
 			continue
 		}
@@ -325,11 +346,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
 	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
 	// refute_reason 一并带出：复现失败类可换配方重试，语义证伪类才是方向作废。
-	refutedObservations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
-	if err != nil {
-		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
-	}
-	for _, obs := range refutedObservations {
+	for _, obs := range observations {
 		if obs.Metadata == nil {
 			continue
 		}
@@ -349,6 +366,11 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 				Reason:    m.RefuteReason,
 			})
 		}
+	}
+
+	// 跨 agent 经验黑板摘要（assignment 级 insight）——规划者消费执行者经验。
+	if i.insightsDigest != nil {
+		planCtx.Blackboard = i.insightsDigest(ctx)
 	}
 
 	return planCtx, nil
@@ -379,11 +401,17 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 7. 失败的尝试
 	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
 
+	// 7.5 被外部纠偏中止的动作（禁止等效重提）
+	sb.WriteString(buildAbortedActionsSection(ctx.AbortedActions))
+
 	// 8. 已确认的发现
 	sb.WriteString(buildResultsSection(ctx.Results))
 
 	// 8.5 已确认的世界状态（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
+
+	// 8.6 经验黑板（跨 agent 已确认经验）
+	sb.WriteString(buildBlackboardSection(ctx.Blackboard))
 
 	// 9. 已被证伪的假设
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))

@@ -27,14 +27,16 @@ func thinkingText(t *llm.ThinkingBlock) string {
 	return t.Text
 }
 
-// executeTool 执行工具
-func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (string, error) {
+// executeTool 执行工具。failed 区分「结果性失败」（ErrorMask 语义：错误经
+// ToolResult.Error 传递、err 为 nil——连续失败止损的计数依据，此前只看 err
+// 导致生产链路永不计数、止损恒死）与成功。
+func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (observation string, failed bool, err error) {
 	r.mu.RLock()
 	tool, exists := r.tools[toolCall.Name]
 	r.mu.RUnlock()
 
 	if !exists {
-		return "", fmt.Errorf("工具 %s 未注册", toolCall.Name)
+		return "", true, fmt.Errorf("工具 %s 未注册", toolCall.Name)
 	}
 
 	// 获取工具超时时间
@@ -60,24 +62,23 @@ func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.Tool
 
 	// 等待结果或超时
 	var result registry.ToolResult
-	var err error
 
 	select {
 	case result = <-resultCh:
 		// 成功获取结果
 	case err = <-errCh:
-		return "", err
+		return "", true, err
 	case <-ctx.Done():
-		return "", fmt.Errorf("工具 %s 执行超时（%s）", toolCall.Name, timeout)
+		return "", true, fmt.Errorf("工具 %s 执行超时（%s）", toolCall.Name, timeout)
 	}
 
-	// 如果工具返回错误
+	// 结果性失败：错误文本即观察内容（链尾 ErrorMask 把错误装进结果字段）
 	if result.Error != "" {
-		return result.Error, nil
+		return result.Error, true, nil
 	}
 
 	// 返回工具输出（Output 字段已经是字符串）
-	return result.Output, nil
+	return result.Output, false, nil
 }
 
 // saveCheckpoint 保存当前执行状态到检查点

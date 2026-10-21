@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // GoalAlignmentMiddleware 检测执行是否偏离任务目标。
@@ -187,6 +188,28 @@ func extractKeywords(text string) []string {
 		// 过滤条件：长度 >= 2，非停用词
 		if len(word) >= 2 && !stopWords[wordLower] {
 			keywordSet[word] = true
+		}
+	}
+
+	// CJK 段附加字符二元组：中文无分隔符，整段成单一"关键词"会让对齐判定
+	// 退化成逐字包含（要么永不匹配、要么靠 URL 恒真）——二元组给出可匹配
+	// 的语义粒度，目标对齐检测对中文目标才有意义。
+	for _, word := range words {
+		runes := []rune(strings.TrimSpace(word))
+		cjk := 0
+		for _, r := range runes {
+			if unicode.Is(unicode.Han, r) {
+				cjk++
+			}
+		}
+		if cjk < 2 {
+			continue
+		}
+		for i := 0; i+2 <= len(runes); i++ {
+			bigram := string(runes[i : i+2])
+			if !stopWords[bigram] {
+				keywordSet[bigram] = true
+			}
 		}
 	}
 

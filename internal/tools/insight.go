@@ -301,8 +301,14 @@ func (t *writeInsightTool) Execute(ctx context.Context, args json.RawMessage) (r
 		UpdatedAt:        time.Now(),
 	}
 
-	// severity 仅对 category=issue 有意义
-	if a.Severity != "" && entry.Category == insight.CategoryIssue {
+	// severity 仅对 category=issue 有意义——非 issue 携带 severity 不再静默
+	// 丢弃（实测全表 severity NULL、维度形同虚设，模型无从自知）：显式拒回
+	// 让模型要么改 category、要么去 severity，自校正而非无声失真。
+	if a.Severity != "" {
+		if entry.Category != insight.CategoryIssue {
+			return registry.ToolResult{Error: fmt.Sprintf(
+				"write_insight: severity 仅 category=issue 可用（当前 %s）——改 category 为 issue 或去掉 severity", entry.Category)}, nil
+		}
 		normalizedSeverity := normalizeSeverity(a.Severity)
 		entry.Severity = &normalizedSeverity
 	}
