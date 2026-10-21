@@ -280,12 +280,13 @@ func (d *Deps) assembleStack(
 		d.Logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
 	}
 
-	// 工具注册表 + 遥测 interceptor：每次工具调用落 tool_invocation 并节流续命
-	// task.heartbeat_at（reaper 判活依据）。跨包工具依赖（executor 注册与
-	// evaluator BuildTools 共用同一份，避免字面量漂移）。
+	// 工具注册表 + 拦截器链：遥测（tool_invocation 落库 + 节流续命）与时间线
+	// （工具过程事件进会话）各一个拦截器，单一职责。跨包工具依赖（executor 注册
+	// 与 evaluator BuildTools 共用同一份，避免字面量漂移）。
 	activities := newActivityTracker()
 	reg := registry.New()
 	reg.AddInterceptor(d.toolRecordInterceptor(agentRunID, taskID, activities))
+	reg.AddInterceptor(d.toolTimelineInterceptor(conversationID))
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
 			TaskID:     taskID,
@@ -315,7 +316,7 @@ func (d *Deps) assembleStack(
 
 	// evaluator：裁决官（ReAct judge）→ 复现晋升门 → Agent
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, cfgs.evaluator,
-		evaluatorSkillView, toolDeps, thoughts.TapFor("evaluator"))
+		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
 	// planner
 	intelligence := planner.NewIntelligence(d.Router, d.Logger).
@@ -441,11 +442,18 @@ func (d *Deps) buildEvaluatorAgent(
 	cfg agent.Agent,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
+	reg *registry.Registry,
 	thoughts reasoning.Tap,
 ) *evaluator.Agent {
 	var evaluatorCLImanifest *manifest.Manifest
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
 		evaluatorCLImanifest = d.ToolsManifest.FilterByNames(cfg.CliTools)
+	}
+	// 裁决工具走共享拦截器链（遥测/心跳/时间线）——裁决官对目标的动作
+	// （复现重放/HTTP 复核）与 executor 同一执行面，不遗漏、归属一致。
+	extraTools := tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools)
+	for i := range extraTools {
+		extraTools[i] = reg.WrapTool(extraTools[i])
 	}
 	judge := evaluator.NewRouterJudge(d.Router, d.Logger).
 		WithFunctionTools(cfg.FunctionTools).
@@ -455,7 +463,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
 		WithThoughts(thoughts).
-		WithExtraTools(tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools))
+		WithExtraTools(extraTools)
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
 	// 由领域包注入——通用门对领域零感知

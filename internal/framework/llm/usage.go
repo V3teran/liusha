@@ -116,12 +116,35 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		var (
 			usage  Usage
 			finish string
+			// 影子聚合：与 Complete 路径同构的 Response——流式调用的审计 Result
+			// 由此而来（content/tool_calls/thinking 原文不再缺失）。
+			shadow  Response
+			failed  bool
 		)
 		for ev := range ch {
-			if ev.Kind == StreamDone && ev.Usage != nil {
-				usage = *ev.Usage
-			}
-			if ev.Kind == StreamError {
+			switch ev.Kind {
+			case StreamText:
+				shadow.Content += ev.Content
+			case StreamThinking:
+				if ev.Content != "" {
+					if shadow.Thinking == nil {
+						shadow.Thinking = &ThinkingBlock{}
+					}
+					shadow.Thinking.Text += ev.Content
+				}
+			case StreamToolCall:
+				if ev.Tool != nil {
+					shadow.ToolCalls = append(shadow.ToolCalls, *ev.Tool)
+				}
+			case StreamDone:
+				if ev.Usage != nil {
+					usage = *ev.Usage
+				}
+				if shadow.Thinking != nil {
+					shadow.Thinking.Signature = ev.Signature
+				}
+			case StreamError:
+				failed = true
 				if ev.Err != nil {
 					finish = "error: " + ev.Err.Error()
 				} else {
@@ -137,6 +160,11 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		rec.CachedTokens = usage.CachedTokens
 		rec.FinishReason = finish
 		rec.Messages, _ = json.Marshal(req.Messages)
+		if !failed {
+			shadow.Usage = usage
+			shadow.FinishReason = "stop"
+			rec.Result, _ = json.Marshal(shadow)
+		}
 		p.sink.RecordUsage(ctx, rec)
 	}()
 	return out, nil

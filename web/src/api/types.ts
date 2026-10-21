@@ -13,23 +13,23 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
  * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
 export interface ScanEvent {
-  kind: 'reasoning' | 'spawn' | 'compaction' | 'tool_call' | 'tool_result' | 'task_status' | string
+  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed）
   steps: number // task_status/completed：执行步数
   findings: number // task_status/completed：产出漏洞数
   stop_why: string // task_status/completed：收敛原因
   reason: string // task_status/aborted|failed：原因
-  tool_name: string
-  args: string
-  result: string
-  duration_ms: number
-  err: string
+  tool_name: string // tool_call/tool_result：工具名
+  args: string // tool_call：入参 JSON 原文
+  result: string // tool_result：输出预览（超长截断）
+  duration_ms: number // tool_result：工具执行耗时(ms)
+  err: string // tool_result：错误信息（空=成功）
   text: string // reasoning 的推理文字
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
-  agent_name: string // reasoning：产出该推理的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
-  in_tokens: number // reasoning：本次 LLM 输入 token
-  out_tokens: number // reasoning：本次 LLM 输出 token
-  latency_ms: number // reasoning：本次 LLM 耗时(ms)
+  agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
+  in_tokens: number // reasoning：本轮 LLM 输入 token 累计
+  out_tokens: number // reasoning：本轮 LLM 输出 token 累计
+  latency_ms: number // reasoning：本轮墙钟耗时(ms)
 }
 
 /**

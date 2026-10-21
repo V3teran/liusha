@@ -1,22 +1,15 @@
 import type { Message } from '../api/types'
 
 // 会话卡片分类——单一真相源，TimelineThread（agent 卡渲染分发）与 threadRows（按步分组折叠）共用，避免逻辑分叉。
-//
-// write_finding 一次产生两条事件：tool_call（带 Args=漏洞详情）+ tool_result（仅 {id}）。
-// → tool_call 渲染 finding 卡（须含 summary，否则是残缺重发→hidden）；tool_result 隐藏。
-// task（派发）的 tool_result = 派发完成（带子代理执行总时长）→ spawn-done。
+// 事件面（后端写者）：reasoning（agent 每轮终稿）、task_status（任务生命周期节点）、
+// tool_call/tool_result（工具过程事件，执行前后各一条）。
 export type MessageKindTag =
   | 'user'
   | 'assistant'
   | 'reasoning'
   | 'task-status'
-  | 'spawn'
-  | 'spawn-done'
   | 'tool-call'
   | 'tool-result'
-  | 'finding'
-  | 'compaction'
-  | 'hidden'
 
 export function classifyMessage(m: Message): MessageKindTag {
   if (m.Kind === 'message') return m.Role === 'user' ? 'user' : 'assistant'
@@ -24,23 +17,12 @@ export function classifyMessage(m: Message): MessageKindTag {
   if (!ev) return 'assistant'
   if (ev.kind === 'reasoning') return 'reasoning'
   if (ev.kind === 'task_status') return 'task-status'
-  if (ev.kind === 'spawn') return 'spawn'
-  if (ev.kind === 'compaction') return 'compaction'
-  if (ev.tool_name === 'write_finding') {
-    if (ev.kind !== 'tool_call' || ev.err) return 'hidden'
-    try {
-      if (!JSON.parse(ev.args || '{}').summary) return 'hidden'
-    } catch {
-      return 'hidden'
-    }
-    return 'finding'
-  }
-  if (ev.tool_name === 'task' && ev.kind === 'tool_result') return 'spawn-done'
   if (ev.kind === 'tool_call') return 'tool-call'
-  return 'tool-result'
+  if (ev.kind === 'tool_result') return 'tool-result'
+  return 'assistant'
 }
 
-// 普通工具调用（tool-call / tool-result）——会被折叠进步组；其余（漏洞/派发/派发完成/想/会话）留在外面。
+// 普通工具调用（tool-call / tool-result）——会被折叠进步组；其余（推理/状态/会话）独立成行。
 export function isCollapsibleTool(tag: MessageKindTag): boolean {
   return tag === 'tool-call' || tag === 'tool-result'
 }
