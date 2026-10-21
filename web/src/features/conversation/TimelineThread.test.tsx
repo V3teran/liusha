@@ -30,6 +30,16 @@ function toolCallMsg(seq: number, agentName: string): Message {
   } as Message
 }
 
+function toolResultMsg(seq: number, agentName: string): Message {
+  return {
+    Seq: seq,
+    Role: 'tool',
+    Kind: 'event',
+    Metadata: { kind: 'tool_result', tool_name: 'run_command', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    ...base,
+  } as Message
+}
+
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
 
 describe('TimelineThread', () => {
@@ -52,6 +62,20 @@ describe('TimelineThread', () => {
     expect(screen.getByText('↑ 4.3k')).toBeTruthy()
     expect(screen.getByText('↓ 800')).toBeTruthy()
     expect(screen.getByText('⏱ 58.9s')).toBeTruthy()
+  })
+
+  it('任务活跃时悬挂 tool_call 组头显示「执行中」；非活跃不显示', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '扫这个目标'))
+    s.ingest(toolCallMsg(2, 'executor'))
+    s.ingest(toolResultMsg(3, 'executor'))
+    s.ingest(toolCallMsg(4, 'executor')) // 悬挂：已发 call 未见 result
+
+    const { rerender } = render(<TimelineThread active />)
+    expect(screen.getByText('执行中…')).toBeTruthy()
+
+    rerender(<TimelineThread />) // 任务终态：门控关闭，悬挂 call 不转
+    expect(screen.queryByText('执行中…')).toBeNull()
   })
 
   it('普通工具调用折叠进 StepTools', () => {

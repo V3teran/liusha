@@ -55,3 +55,27 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
   flush()
   return out
 }
+
+// inFlightToolCalls 计算执行中的工具调用：同 (agent, tool) 的 tool_call 先进先出
+// 配对 tool_result，队列残留（已见 call 未见 result）即执行中。executor 并发执行
+// 同名工具时交错到达（call call result result），FIFO 配对保持一对一消耗。
+// 任务终态后不再有新 result——呈现层须以任务活跃门控，避免死任务的悬挂 call 永转。
+export function inFlightToolCalls(messages: Message[]): Set<number> {
+  const queues = new Map<string, number[]>()
+  const running = new Set<number>()
+  for (const m of messages) {
+    const ev = m.Metadata
+    if (!ev?.tool_name) continue
+    const k = `${ev.agent_name}\u0000${ev.tool_name}`
+    if (ev.kind === 'tool_call') {
+      const q = queues.get(k) ?? []
+      q.push(m.Seq)
+      queues.set(k, q)
+      running.add(m.Seq)
+    } else if (ev.kind === 'tool_result') {
+      const seq = queues.get(k)?.shift()
+      if (seq !== undefined) running.delete(seq)
+    }
+  }
+  return running
+}
