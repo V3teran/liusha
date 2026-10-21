@@ -134,6 +134,22 @@ func New(cfg Config) *Agent {
 
 // Name 返回 Agent 的名称。
 
+// hasSupervisableWork 判断图上是否有可监察对象（open/running 动作）。
+// 判定失败保守返回 true（宁可空评一次，不可漏评真实在途）。
+func (a *Agent) hasSupervisableWork(ctx context.Context) bool {
+	states, err := a.graph.ListActionStates(ctx, a.taskID)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取动作状态失败，保守视为有在途工作")
+		return true
+	}
+	for _, st := range states {
+		if st == explorationgraph.StateOpen || st == explorationgraph.StateRunning {
+			return true
+		}
+	}
+	return false
+}
+
 // Run 周期评估主循环（ctx 取消即停止）。
 func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：监察调用归 task/本轮 run、角色 monitor。
@@ -144,9 +160,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 
-	// 启动时立即评估一次（消除 6 分钟首评盲区）
-	if err := a.evaluate(ctx); err != nil {
-		a.logger.Error().Err(err).Msg("首次评估失败")
+	// 启动即评估仅在有在途工作时成立：空图上的首评只会得出「无可监察」
+	// 的确定结论——烧一轮 LLM（含强制总结共 3 次调用）监察不存在的工作。
+	// 图上无 open/running 动作时跳过首评，等定时器（届时若任务真实必有在途）。
+	if a.hasSupervisableWork(ctx) {
+		if err := a.evaluate(ctx); err != nil {
+			a.logger.Error().Err(err).Msg("首次评估失败")
+		}
+	} else {
+		a.logger.Info().Msg("启动时图上无在途动作，跳过首评（无可监察对象）")
 	}
 
 	for {
@@ -156,6 +178,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
+			// 同一守卫作用于周期评估：静止图（全终态、无在途）无监察对象，
+			// 规划器自会对静态图反应——monitor 的价值在动作执行中的纠偏。
+			if !a.hasSupervisableWork(ctx) {
+				a.logger.Debug().Msg("周期评估跳过：图上无在途动作")
+				continue
+			}
 			if err := a.evaluate(ctx); err != nil {
 				a.logger.Error().Err(err).Msg("evaluation failed")
 				// 继续运行，不中断
