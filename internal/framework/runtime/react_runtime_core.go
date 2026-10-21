@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -56,6 +57,10 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 	// 2. 初始化结果
 	result := initializeResult()
+	start := time.Now()
+	result.Model = config.LLMProvider.ModelID()
+	// 墙钟耗时覆盖所有退出路径（含错误/取消/迭代上限），defer 挂在 result 初始化后。
+	defer func() { result.ElapsedMs = time.Since(start).Milliseconds() }()
 
 	// 3. 恢复或初始化执行状态
 	startIteration, err := r.restoreFromCheckpoint(ctx, config, result)

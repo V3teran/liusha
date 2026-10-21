@@ -45,6 +45,9 @@ func (r *DefaultReActRuntime) runIteration(
 		return trace, false, fmt.Errorf("LLM 调用失败: %w", err)
 	}
 
+	// token 用量逐迭代累计（时间线每步用量 chip 的数据源）。
+	result.Usage = result.Usage.Add(response.Usage)
+
 	// 提取思考内容
 	trace.Thought = response.Content
 

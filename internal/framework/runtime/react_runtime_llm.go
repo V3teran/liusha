@@ -72,6 +72,8 @@ type llmResponse struct {
 	ToolCalls []llm.ToolCall
 	// Thinking 是该轮扩展思考块（含回传签名；无思考为 nil）。
 	Thinking *llm.ThinkingBlock
+	// Usage 是该次调用的 token 用量（供 ReActResult.Usage 逐迭代累计）。
+	Usage llm.Usage
 }
 
 // convertToolsToLLMFormat 转换工具为 LLM 格式

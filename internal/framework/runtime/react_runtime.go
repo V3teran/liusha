@@ -108,6 +108,16 @@ type ReActResult struct {
 	// 与 FinalAnswer 一道构成该轮的完整产出一一正文是结论、思考是过程）。
 	FinalThinking string
 
+	// Usage 是本轮所有 LLM 调用的 token 累计（时间线每步用量 chip 的数据源；
+	// 每次 callLLM 后累加，含工具循环里的全部迭代）。
+	Usage llm.Usage
+
+	// Model 是本轮绑定的模型标识（provider 侧 ModelID；供审计/展示归属）。
+	Model string
+
+	// ElapsedMs 是本轮 Run 的墙钟耗时（含 LLM 与工具执行——「这一步我等了多久」）。
+	ElapsedMs int64
+
 	// 消息历史
 	MessageHistory []llm.Message
 

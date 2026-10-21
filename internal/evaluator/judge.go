@@ -156,7 +156,7 @@ func (j *RouterJudge) Judge(
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
 	}
 	if j.thoughts != nil {
-		j.thoughts.Done(result.FinalAnswer, result.FinalThinking)
+		j.thoughts.Done(reasoning.RoundOf(result))
 	}
 	return parseVerdict(result.FinalAnswer)
 }

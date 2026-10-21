@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/repro"
 )
 
@@ -245,7 +246,7 @@ func (e *Engine) executeReActRuntime(
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err == nil && e.thoughts != nil {
-		e.thoughts.Done(result.FinalAnswer, result.FinalThinking)
+		e.thoughts.Done(reasoning.RoundOf(result))
 	}
 	if err != nil {
 		// ReAct 失败：尝试降级策略——强制提取假设
@@ -264,7 +265,7 @@ func (e *Engine) executeReActRuntime(
 			Str("action_id", actionID).
 			Msg("降级模式成功提取假设")
 		if e.thoughts != nil {
-			e.thoughts.Done(fallbackResult.FinalAnswer, fallbackResult.FinalThinking)
+			e.thoughts.Done(reasoning.RoundOf(fallbackResult))
 		}
 		return fallbackResult, nil
 	}

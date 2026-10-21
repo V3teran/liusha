@@ -220,7 +220,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
 	if i.thoughts != nil {
-		i.thoughts.Done(result.FinalAnswer, result.FinalThinking)
+		i.thoughts.Done(reasoning.RoundOf(result))
 	}
 	i.budget = i.timeout // 成功即回落基准预算
 
