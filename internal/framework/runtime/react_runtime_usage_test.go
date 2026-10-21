@@ -19,7 +19,8 @@ func TestRun_UsageAccumulatesAcrossIterations(t *testing.T) {
 			Usage:     llm.Usage{InTokens: 10, OutTokens: 4},
 		},
 		{
-			Content: "结论：目标可达",
+			// 结构化终稿：不触发强制补写（该路径另有独立测试），保持纯迭代累计口径
+			Content: `{"conclusion":"目标可达"}`,
 			Usage:   llm.Usage{InTokens: 20, OutTokens: 6},
 		},
 	}}
