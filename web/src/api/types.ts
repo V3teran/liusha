@@ -24,9 +24,8 @@ export interface ScanEvent {
   result: string // tool_result：输出预览（超长截断）
   duration_ms: number // tool_result：工具执行耗时(ms)
   err: string // tool_result：错误信息（空=成功）
-  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述）
+  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 LLM 审计页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
-  raw: string // 协议原文（metadata.raw）；正文为叙述时折叠可查，缺省无
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
   out_tokens: number // reasoning：本轮 LLM 输出 token 累计

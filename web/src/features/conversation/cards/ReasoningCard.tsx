@@ -1,4 +1,4 @@
-import { Brain, Braces, ChevronDown, FileCode } from 'lucide-react'
+import { Brain, Braces, ChevronDown } from 'lucide-react'
 import { agentAccent, agentLabel as toLabel } from '@/lib/agentColor'
 import { CardHeader } from './CardHeader'
 import { Markdown } from './Markdown'
@@ -6,7 +6,6 @@ import { Markdown } from './Markdown'
 interface ReasoningCardProps {
   text: string
   thinking?: string // 模型扩展思考终稿（metadata.thinking）；折叠区展示，缺省无
-  raw?: string // 协议原文（metadata.raw）；正文为解析后叙述时折叠可查
   agentName?: string // 产出该推理的 agent（编排/侦察/利用/流量分析）
   step?: number // 本次用户指令内的全局推理步号（跨 agent 统一计数，追加指令从头）
   inTokens?: number
@@ -54,7 +53,8 @@ function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; 
 
 // 推理正文（方案 B）：agent 的思路/分析/计划（markdown 富文本）+ step/token/耗时元信息。
 // 外层 AgentCard 承载图标（谁在想）+ 脚注复制；卡内领头「agent 推理」+ 元信息 chip。
-export function ReasoningCard({ text, thinking, raw, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
+// 协议原文不在时间线展示（面分离：原文属审计面，按调用在 LLM 审计页可查）。
+export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
   const accent = agentAccent(agentName)
   const agent = toLabel(agentName)
   const jsonBody = !streaming && looksLikeJson(text)
@@ -62,7 +62,6 @@ export function ReasoningCard({ text, thinking, raw, agentName, step, inTokens, 
   return (
     <div data-card="reasoning">
       {!!thinking && !streaming && <Fold icon={Brain} label="内部思考" text={thinking} />}
-      {!!raw && !streaming && <Fold icon={FileCode} label="原始输出" text={prettyJson(raw)} />}
       <CardHeader
         agent={agent || undefined}
         agentColor={accent.accent}
