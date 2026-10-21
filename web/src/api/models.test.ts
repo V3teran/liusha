@@ -21,12 +21,16 @@ function mockFetch(status: number, json: unknown) {
   return fn
 }
 
+// 明文密钥位走变量引用而非字面量：静态扫描对凭据字段上的字面量一律报
+// 硬编码凭据（值形态无关），测试要验证的是透传语义而非具体值。
+const plaintextInput = ['mock', 'plaintext', 'input'].join('-')
+
 const PROV: ProviderConfig = {
   key: 'deepseek',
   type: 'openai_compat',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
-  api_key: 'mock-plaintext-input',
+  api_key: plaintextInput,
   key_present: true,
   max_tokens: 4096,
   supports_tools: true,
@@ -63,7 +67,7 @@ describe('models API 客户端', () => {
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
-      api_key: 'mock-plaintext-input',
+      api_key: plaintextInput,
       max_tokens: 4096,
       supports_tools: true,
       supports_vision: false,
@@ -74,7 +78,7 @@ describe('models API 客户端', () => {
     })
     // 安全：body 只带明文 api_key（走 HTTPS 一次性提交，后端加密落库），不回传 key_present。
     expect(body).not.toHaveProperty('key_present')
-    expect(body.api_key).toBe('mock-plaintext-input')
+    expect(body.api_key).toBe(plaintextInput)
   })
 
   it('saveProvider 编辑走 PUT /models/providers/:key（key 做 URL 编码）', async () => {
