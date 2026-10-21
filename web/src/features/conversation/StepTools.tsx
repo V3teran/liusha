@@ -18,15 +18,15 @@ export function StepTools({ tools, sub = false }: StepToolsProps) {
 
   // 工具调用次数：一次调用产生 tool_call + tool_result 两条消息，计数只数 tool_call（发起）——
   // 否则一来一回会翻倍（38 次显示成 76）。全是孤立 result（call 丢失）时回退总条数兜底。
-  const calls = tools.filter((t) => t.Metadata?.Kind === 'tool_call').length
+  const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call').length
   const callCount = calls > 0 ? calls : tools.length
 
   // 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
   // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。只数 tool_call(发起)，不重复算结果。
   const counts: Record<string, number> = {}
   for (const t of tools) {
-    if (t.Metadata?.Kind !== 'tool_call') continue
-    const name = t.Metadata?.ToolName
+    if (t.Metadata?.kind !== 'tool_call') continue
+    const name = t.Metadata?.tool_name
     if (name) counts[name] = (counts[name] ?? 0) + 1
   }
   const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
@@ -60,18 +60,18 @@ export function StepTools({ tools, sub = false }: StepToolsProps) {
             const tag = classifyMessage(t)
             if (tag === 'tool-call') {
               return (
-                <ToolCallCard key={t.Seq} tool={t.Metadata?.ToolName || ''} args={t.Metadata?.Args || ''} agentName={t.Metadata?.AgentName} />
+                <ToolCallCard key={t.Seq} tool={t.Metadata?.tool_name || ''} args={t.Metadata?.args || ''} agentName={t.Metadata?.agent_name} />
               )
             }
             if (tag === 'tool-result') {
               return (
                 <ToolResultCard
                   key={t.Seq}
-                  tool={t.Metadata?.ToolName || ''}
-                  result={t.Metadata?.Result || ''}
-                  durationMs={t.Metadata?.DurationMs || 0}
-                  err={t.Metadata?.Err || ''}
-                  agentName={t.Metadata?.AgentName}
+                  tool={t.Metadata?.tool_name || ''}
+                  result={t.Metadata?.result || ''}
+                  durationMs={t.Metadata?.duration_ms || 0}
+                  err={t.Metadata?.err || ''}
+                  agentName={t.Metadata?.agent_name}
                 />
               )
             }

@@ -9,6 +9,7 @@ export type MessageKindTag =
   | 'user'
   | 'assistant'
   | 'reasoning'
+  | 'task-status'
   | 'spawn'
   | 'spawn-done'
   | 'tool-call'
@@ -21,20 +22,21 @@ export function classifyMessage(m: Message): MessageKindTag {
   if (m.Kind === 'message') return m.Role === 'user' ? 'user' : 'assistant'
   const ev = m.Metadata
   if (!ev) return 'assistant'
-  if (ev.Kind === 'reasoning') return 'reasoning'
-  if (ev.Kind === 'spawn') return 'spawn'
-  if (ev.Kind === 'compaction') return 'compaction'
-  if (ev.ToolName === 'write_finding') {
-    if (ev.Kind !== 'tool_call' || ev.Err) return 'hidden'
+  if (ev.kind === 'reasoning') return 'reasoning'
+  if (ev.kind === 'task_status') return 'task-status'
+  if (ev.kind === 'spawn') return 'spawn'
+  if (ev.kind === 'compaction') return 'compaction'
+  if (ev.tool_name === 'write_finding') {
+    if (ev.kind !== 'tool_call' || ev.err) return 'hidden'
     try {
-      if (!JSON.parse(ev.Args || '{}').summary) return 'hidden'
+      if (!JSON.parse(ev.args || '{}').summary) return 'hidden'
     } catch {
       return 'hidden'
     }
     return 'finding'
   }
-  if (ev.ToolName === 'task' && ev.Kind === 'tool_result') return 'spawn-done'
-  if (ev.Kind === 'tool_call') return 'tool-call'
+  if (ev.tool_name === 'task' && ev.kind === 'tool_result') return 'spawn-done'
+  if (ev.kind === 'tool_call') return 'tool-call'
   return 'tool-result'
 }
 

@@ -140,7 +140,7 @@ describe('useEventStream', () => {
     })
 
     const state = useConversationStore.getState()
-    expect(state.liveStreams).toEqual({ executor: '正在分析中…' })
+    expect(state.liveStreams).toEqual({ executor: { thinking: '', text: '正在分析中…' } })
     expect(state.liveOrder).toEqual(['executor'])
 
     handle.close()

@@ -7,24 +7,29 @@
 
 export type MessageKind = 'message' | 'event'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
-export type ScanEventKind = 'tool_call' | 'tool_result' | 'reasoning' | 'spawn' | 'insight' | 'compaction'
 
 /**
  * SSE 事件的元数据（agent 过程事件）
- * 大写键（Go 端序列化格式）
+ * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
 export interface ScanEvent {
-  Kind: ScanEventKind
-  ToolName: string
-  Args: string
-  Result: string
-  DurationMs: number
-  Err: string
-  Text: string // reasoning 的推理文字
-  AgentName: string // reasoning：产出该推理的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
-  InTokens: number // reasoning：本次 LLM 输入 token
-  OutTokens: number // reasoning：本次 LLM 输出 token
-  LatencyMs: number // reasoning：本次 LLM 耗时(ms)
+  kind: 'reasoning' | 'spawn' | 'compaction' | 'tool_call' | 'tool_result' | 'task_status' | string
+  status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed）
+  steps: number // task_status/completed：执行步数
+  findings: number // task_status/completed：产出漏洞数
+  stop_why: string // task_status/completed：收敛原因
+  reason: string // task_status/aborted|failed：原因
+  tool_name: string
+  args: string
+  result: string
+  duration_ms: number
+  err: string
+  text: string // reasoning 的推理文字
+  thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
+  agent_name: string // reasoning：产出该推理的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
+  in_tokens: number // reasoning：本次 LLM 输入 token
+  out_tokens: number // reasoning：本次 LLM 输出 token
+  latency_ms: number // reasoning：本次 LLM 耗时(ms)
 }
 
 /**
