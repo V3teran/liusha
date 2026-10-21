@@ -42,7 +42,8 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 		return fmt.Errorf("force final summary LLM call failed: %w", err)
 	}
 
-	// 将总结添加到消息历史
+	// 将总结添加到消息历史；强制调用同样计入本轮用量（时间线每步 chip 不漏计）。
+	result.Usage = result.Usage.Add(resp.Usage)
 	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
 	result.FinalThinking = thinkingText(resp.Thinking)
 
@@ -93,7 +94,8 @@ func (r *DefaultReActRuntime) forceStructuredOutput(
 		return fmt.Errorf("force structured output LLM call failed: %w", err)
 	}
 
-	// 将结构化输出添加到消息历史
+	// 将结构化输出添加到消息历史；强制调用同样计入本轮用量（时间线每步 chip 不漏计）。
+	result.Usage = result.Usage.Add(resp.Usage)
 	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
 	result.FinalThinking = thinkingText(resp.Thinking)
 

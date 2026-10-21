@@ -97,6 +97,10 @@ export function ReasoningCard({ text, thinking, raw, agentName, step, inTokens, 
       />
       {jsonBody ? (
         <Fold icon={Braces} label="结构化输出" text={prettyJson(text)} />
+      ) : !text.trim() && !streaming ? (
+        // 空正文占位：模型把输出预算全花在思考上时正文为零（实测发生）——
+        // 空白卡无从区分「在等」与「没产出」，占位明示本轮仅有思考。
+        <div className="text-[12.5px] italic text-faint">（本轮未产出正文，仅有内部思考）</div>
       ) : (
         <div className="text-sm leading-relaxed text-text">
           <Markdown content={text} className="inline" />

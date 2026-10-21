@@ -77,4 +77,13 @@ describe('ReasoningCard', () => {
     expect(screen.queryByText('结构化输出')).toBeNull()
     expect(screen.queryByText('原始输出')).toBeNull()
   })
+
+  it('终稿正文为空时渲染占位（模型思考耗尽输出预算的轮次），流式空正文不带占位', () => {
+    const { rerender } = render(<ReasoningCard text="" thinking="很长的思考" />)
+    expect(screen.getByText('（本轮未产出正文，仅有内部思考）')).toBeTruthy()
+    rerender(<ReasoningCard text="  " />)
+    expect(screen.getByText('（本轮未产出正文，仅有内部思考）')).toBeTruthy()
+    rerender(<ReasoningCard text="" streaming />)
+    expect(screen.queryByText('（本轮未产出正文，仅有内部思考）')).toBeNull()
+  })
 })
