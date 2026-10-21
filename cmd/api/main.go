@@ -223,7 +223,7 @@ func main() {
 		llmstore.NewFallbackProviderFactory(llmStore, llmKeyCipher),
 		retryOptionsFromConfig(cfg.LLM.Retry))}
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, control: controlPlaneStore, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。

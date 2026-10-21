@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,13 @@ import (
 //
 // /dev-config.json（dev API key 自动填充端点）按设计先于鉴权——它正是用来发 key 的，
 // 且仅在 LIUSHA_DEV_AUTOFILL 开启时注册，production 不存在。真正敏感的数据接口仍受保护。
+//
+// LIUSHA_AUTH_DISABLED 非空时整个中间件退化为直通：所有路由（含 SSE stream）不再校验
+// X-API-Key 与 stream cookie——测试期免认证开关，恢复认证 = 去掉该 env，无需改代码。
 func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
+	if os.Getenv("LIUSHA_AUTH_DISABLED") != "" {
+		return func(c *gin.Context) { c.Next() }
+	}
 	return func(c *gin.Context) {
 		// /healthz、/dev-config.json 直接放行；FullPath 是注册路由模板。
 		fp := c.FullPath()
