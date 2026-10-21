@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -246,7 +247,14 @@ func (e *Engine) executeReActRuntime(
 
 	result, err := reactRuntime.Run(ctx, config)
 	if err == nil && e.thoughts != nil {
-		e.thoughts.Done(reasoning.RoundOf(result))
+		// 终态叙述在解析边界完成：执行协议转人读摘要、原文随 raw 折叠。仅当
+		// 终稿确为 JSON 且解析成功才叙述——ParseOutput 的兜底策略永不报错，
+		// 散文终稿若被兜底摘要覆盖反而是信息损失。
+		round := reasoning.RoundOf(result)
+		if output, perr := ParseOutput(result); perr == nil && terminalIsJSON(result.FinalAnswer) {
+			round.Summary, round.Raw = outputNarrative(output), result.FinalAnswer
+		}
+		e.thoughts.Done(round)
 	}
 	if err != nil {
 		// ReAct 失败：尝试降级策略——强制提取假设
@@ -502,4 +510,32 @@ func (e *Engine) harvestObservation(
 		return nil
 	}
 	return &attempt
+}
+
+// terminalIsJSON 判断 ReAct 终稿是否 JSON 形态（对象/数组起收）——执行协议
+// 叙述的守卫：散文终稿不经协议摘要覆盖。模型常把协议包在 markdown 围栏里
+// （```json … ```），剥除后再判定。
+func terminalIsJSON(text string) bool {
+	t := strings.TrimSpace(text)
+	if strings.HasPrefix(t, "```") {
+		if _, rest, ok := strings.Cut(t, "\n"); ok {
+			t = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rest), "```"))
+		}
+	}
+	return (strings.HasPrefix(t, "{") && strings.HasSuffix(t, "}")) ||
+		(strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]"))
+}
+
+// outputNarrative 把执行协议转成时间线人读叙述：状态 + 观察数 + 总结。
+// 协议原文随 Round.Raw 折叠可查——叙述只在此处发生一次，前端不做协议解释。
+func outputNarrative(o *Output) string {
+	status := "执行完成"
+	if o.Status == "failed" {
+		status = "执行失败"
+	}
+	head := fmt.Sprintf("%s · %d 条观察", status, len(o.Observations))
+	if o.Summary == "" {
+		return head
+	}
+	return head + "\n\n" + o.Summary
 }

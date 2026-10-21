@@ -58,4 +58,23 @@ describe('ReasoningCard', () => {
     const { container } = render(<ReasoningCard text="**重点**内容" />)
     expect(container.querySelector('strong')?.textContent).toBe('重点')
   })
+
+  it('正文为 JSON 形态时折叠为「结构化输出」（残留协议兜底，只格式化不解释）', () => {
+    const { container } = render(<ReasoningCard text='{"should_continue":false,"actions":[]}' />)
+    expect(screen.getByText('结构化输出')).toBeTruthy()
+    // 不再以 markdown 正文直出 JSON
+    expect(container.querySelector('.markdown-body')).toBeNull()
+  })
+
+  it('raw 存在时渲染「原始输出」折叠（正文为解析后叙述）', () => {
+    render(<ReasoningCard text="任务收敛，不再派发动作。" raw='{"should_continue":false}' />)
+    expect(screen.getByText('原始输出')).toBeTruthy()
+    expect(screen.getByText('任务收敛，不再派发动作。')).toBeTruthy()
+  })
+
+  it('流式态不渲染折叠区（JSON 判定与 raw 都等终稿）', () => {
+    render(<ReasoningCard text='{"a":1}' raw='{"a":1}' streaming />)
+    expect(screen.queryByText('结构化输出')).toBeNull()
+    expect(screen.queryByText('原始输出')).toBeNull()
+  })
 })
