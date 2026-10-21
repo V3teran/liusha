@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bot, Brain, ChevronDown, Loader2, Wrench, type LucideIcon } from 'lucide-react'
+import { Activity, Bot, Brain, Bug, ChevronDown, Loader2, Wrench, type LucideIcon } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
 import { buildThreadRows, inFlightToolCalls, type ThreadRow } from '@/lib/threadRows'
@@ -14,6 +14,7 @@ import { ReplyBlock } from './cards/ReplyBlock'
 import { ReasoningCard } from './cards/ReasoningCard'
 import { ToolCallCard } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
+import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
 
 // 每行的 agent 归属：驱动卡外图标配色 + 卡内领头名。
@@ -28,7 +29,7 @@ function rowAgent(r: ThreadRow): string {
 }
 
 // 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、状态=Activity、
-// 答复=Bot）。图标本身即分类索引，与 AppShell/Composer 的 lucide 语言统一。
+// 漏洞=Bug、答复=Bot）。图标本身即分类索引，与 AppShell/Composer 的 lucide 语言统一。
 function rowIcon(r: ThreadRow): LucideIcon {
   if (r.kind !== 'msg') return Wrench
   const tag = classifyMessage(r.msg)
@@ -37,6 +38,8 @@ function rowIcon(r: ThreadRow): LucideIcon {
       return Brain
     case 'task-status':
       return Activity
+    case 'finding':
+      return Bug
     default:
       return Bot
   }
@@ -299,6 +302,15 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
     }
     case 'tool-call':
       return <ToolCallCard tool={md?.tool_name || ''} args={md?.args || ''} agentName={md?.agent_name} />
+    case 'finding':
+      return (
+        <FindingCard
+          summary={md?.summary || ''}
+          severity={md?.severity || 'info'}
+          host={md?.host || undefined}
+          target={md?.target || undefined}
+        />
+      )
     case 'tool-result':
       return (
         <ToolResultCard

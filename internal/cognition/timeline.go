@@ -100,8 +100,22 @@ func (e *toolTimelineEvents) emit(ctx context.Context, convID string, meta map[s
 	}
 }
 
+// Emit 对外发射一条过程事件（漏洞卡等非工具事件与工具事件共用同一出口、
+// 同一 best-effort 语义）。conversationID 为空或依赖缺位时 no-op。
+func (e *toolTimelineEvents) Emit(ctx context.Context, conversationID string, meta map[string]any) {
+	if conversationID == "" || e.writer == nil || e.pub == nil {
+		return
+	}
+	e.emit(ctx, conversationID, meta)
+}
+
 // toolTimelineInterceptor 从 Deps 装配工具过程事件拦截器（依赖缺位时整体直通）。
 func (d *Deps) toolTimelineInterceptor(conversationID string) registry.Interceptor {
+	return d.toolTimelineEvents().interceptor(conversationID)
+}
+
+// toolTimelineEvents 从 Deps 装配时间线事件出口（依赖缺位时各发射点 no-op）。
+func (d *Deps) toolTimelineEvents() *toolTimelineEvents {
 	var w timelineWriter
 	if d.Conversations != nil {
 		w = d.Conversations
@@ -110,7 +124,7 @@ func (d *Deps) toolTimelineInterceptor(conversationID string) registry.Intercept
 	if d.EventPublisher != nil {
 		p = d.EventPublisher
 	}
-	return newToolTimelineEvents(w, p, d.Logger).interceptor(conversationID)
+	return newToolTimelineEvents(w, p, d.Logger)
 }
 
 // truncateEventRunes 按 rune 截断并追加省略标记（上限 maxToolEventRunes）。

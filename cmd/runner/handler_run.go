@@ -94,19 +94,34 @@ func (h handler) handleCognition(
 		h.logger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
 	}
 
-	// task 成功终态：守卫拒绁（任务已被用户停止/判死）时不覆盖——aborted 节点
+	// task 成功终态：守卫拒绝（任务已被用户停止/判死）时不覆盖——aborted 节点
 	// 由对应写者（api/reaper）负责，此处不落 completed。
 	if err := h.tasks.Complete(doneCtx, taskID); err != nil {
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 完成迁移被拒（保持既有终态）")
 	} else {
+		// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
+		// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
+		reasoningSteps := 0
+		if p.ConversationID != "" {
+			if n, cErr := h.conversations.CountReasoningSinceDispatched(doneCtx, p.ConversationID); cErr != nil {
+				h.logger.Warn().Err(cErr).Str("conv", p.ConversationID).Msg("推理步数统计失败（steps 回退动作数口径）")
+			} else {
+				reasoningSteps = n
+			}
+		}
+		stepsField := reasoningSteps
+		if stepsField == 0 {
+			stepsField = report.Steps
+		}
 		h.appendTaskStatus(doneCtx, p.ConversationID, taskID,
 			conversation.TaskStatusCompleted, "扫描完成",
 			map[string]any{
-				"steps":       report.Steps,
-				"promoted":    report.Promoted,
-				"attempts":    report.Attempts,
-				"stop_why":    report.StopWhy,
-				"findings":    h.findingsCount(doneCtx, taskID),
+				"steps":    stepsField,
+				"actions":  report.Steps,
+				"promoted": report.Promoted,
+				"attempts": report.Attempts,
+				"stop_why": report.StopWhy,
+				"findings": h.findingsCount(doneCtx, taskID),
 			})
 	}
 	doneCancel()

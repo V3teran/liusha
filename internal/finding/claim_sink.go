@@ -22,12 +22,21 @@ type findingStore interface {
 // 通用门对领域零感知。
 type ClaimSink struct {
 	store      findingStore
-	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键）
+	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键)
+	// onSaved 是落库成功后的观察者（会话时间线的漏洞卡事件源）；
+	// nil=无观察者。观察者失败不影响交付本体。
+	onSaved func(ctx context.Context, f VulnFinding)
 }
 
 // NewClaimSink 构造交付管道。
 func NewClaimSink(store findingStore, agentRunID string) *ClaimSink {
 	return &ClaimSink{store: store, agentRunID: agentRunID}
+}
+
+// WithObserver 注入落库成功后的观察者（链式）。
+func (s *ClaimSink) WithObserver(fn func(ctx context.Context, f VulnFinding)) *ClaimSink {
+	s.onSaved = fn
+	return s
 }
 
 // Record 落一条交付物。host 优先取主张载荷自带值，缺省从复现证据的
@@ -62,7 +71,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	}
 
 	agentRunID := s.agentRunID
-	_, err = s.store.Save(ctx, VulnFinding{
+	saved, err := s.store.Save(ctx, VulnFinding{
 		TaskID:     c.TaskID,
 		AgentRunID: &agentRunID,
 		Host:       host,
@@ -72,7 +81,13 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		Target:     c.Target,
 		Repro:      c.Repro,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if s.onSaved != nil {
+		s.onSaved(ctx, saved)
+	}
+	return nil
 }
 
 // hostFromEvidence 从复现证据的 url 字段抽主机（抽不出回 unknown）。

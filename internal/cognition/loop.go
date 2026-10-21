@@ -315,7 +315,7 @@ func (d *Deps) assembleStack(
 		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"))
 
 	// evaluator：裁决官（ReAct judge）→ 复现晋升门 → Agent
-	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, cfgs.evaluator,
+	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
 	// planner
@@ -438,7 +438,7 @@ func (d *Deps) buildExecutorAgent(
 // 登录态重放，防真实漏洞因重放落到登录页而被机器护栏误证伪。
 func (d *Deps) buildEvaluatorAgent(
 	ctx context.Context,
-	taskID, host, agentRunID string,
+	taskID, host, agentRunID, conversationID string,
 	cfg agent.Agent,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
@@ -466,9 +466,22 @@ func (d *Deps) buildEvaluatorAgent(
 		WithExtraTools(extraTools)
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
-	// 由领域包注入——通用门对领域零感知
-	promoter := evaluator.New(d.Graph, executor.NewReplayer().WithCredentials(d.Creds, host),
-		finding.NewClaimSink(d.Findings, agentRunID)).
+	// 由领域包注入——通用门对领域零感知。漏洞落库即发时间线事件（会话漏洞卡）。
+	claimSink := finding.NewClaimSink(d.Findings, agentRunID)
+	if conversationID != "" {
+		timeline := d.toolTimelineEvents()
+		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.VulnFinding) {
+			timeline.Emit(octx, conversationID, map[string]any{
+				"kind":       "finding",
+				"agent_name": "evaluator",
+				"summary":    f.Summary,
+				"severity":   f.Severity,
+				"host":       f.Host,
+				"target":     f.Target,
+			})
+		})
+	}
+	promoter := evaluator.New(d.Graph, executor.NewReplayer().WithCredentials(d.Creds, host), claimSink).
 		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
 		WithFingerprintCodec(finding.FingerprintNormalizer{}).
 		WithLogger(d.Logger)
