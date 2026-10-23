@@ -1,17 +1,17 @@
 import { Brain, Braces, ChevronDown } from 'lucide-react'
-import { agentAccent, agentLabel as toLabel } from '@/lib/agentColor'
+import { agentProfile } from '@/lib/agentColor'
 import { CardHeader } from './CardHeader'
 import { Markdown } from './Markdown'
 
 interface ReasoningCardProps {
   text: string
-  thinking?: string // 模型扩展思考终稿（metadata.thinking）；折叠区展示，缺省无
-  agentName?: string // 产出该推理的 agent（编排/侦察/利用/流量分析）
-  step?: number // 本次用户指令内的全局推理步号（跨 agent 统一计数，追加指令从头）
+  thinking?: string | unknown  // 类型守卫：应对后端类型异常
+  agentName?: string
+  step?: number
   inTokens?: number
   outTokens?: number
   latencyMs?: number
-  streaming?: boolean // 流式活动节点：显示「推理中」+ 闪烁光标，token/耗时 chip 待最终帧
+  streaming?: boolean
 }
 
 const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)) : '')
@@ -19,9 +19,6 @@ const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) +
 
 const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted'
 
-// 残留 JSON 正文的判定：对象/数组起收。已知协议（规划/裁决/执行）在后端解析
-// 边界转叙述；此处只兜底未覆盖的 JSON 形态（协议漂移/自由输出）——格式化呈现，
-// 不解释语义。
 function looksLikeJson(text: string): boolean {
   const t = text.trim()
   return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))
@@ -35,7 +32,6 @@ function prettyJson(text: string): string {
   }
 }
 
-// 折叠区（内部思考/结构化输出/原始输出共用的展示形态）。
 function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; text: string }) {
   return (
     <details className="group mb-2 rounded-lg border border-border/60 bg-background/40">
@@ -51,27 +47,26 @@ function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; 
   )
 }
 
-// 推理正文（方案 B）：agent 的思路/分析/计划（markdown 富文本）+ step/token/耗时元信息。
-// 外层 AgentCard 承载图标（谁在想）+ 脚注复制；卡内领头「agent 推理」+ 元信息 chip。
-// 协议原文不在时间线展示（面分离：原文属审计面，按调用在 LLM 审计页可查）。
 export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
-  const accent = agentAccent(agentName)
-  const agent = toLabel(agentName)
+  const profile = agentProfile(agentName)
   const jsonBody = !streaming && looksLikeJson(text)
+
+  // 类型守卫：验证 thinking 是有效字符串，过滤空对象/空字符串
+  const validThinking = thinking && typeof thinking === 'string' && thinking.trim() !== '' ? thinking : undefined
 
   return (
     <div data-card="reasoning">
-      {!!thinking && !streaming && <Fold icon={Brain} label="内部思考" text={thinking} />}
+      {!!validThinking && !streaming && <Fold icon={Brain} label="内部思考" text={validThinking} />}
       <CardHeader
-        agent={agent || undefined}
-        agentColor={accent.accent}
+        agent={profile.label || undefined}
+        agentColor={profile.accent}
         action={streaming ? '推理中' : '推理'}
         extras={
           <>
             {!!step && (
               <span
                 className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-muted"
-                title="本次指令的第几步推理（全局计数，追加指令从头）"
+                title="本次指令的第几步推理"
               >
                 第 {step} 步
               </span>
@@ -97,8 +92,6 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
       {jsonBody ? (
         <Fold icon={Braces} label="结构化输出" text={prettyJson(text)} />
       ) : !text.trim() && !streaming ? (
-        // 空正文占位：模型把输出预算全花在思考上时正文为零（实测发生）——
-        // 空白卡无从区分「在等」与「没产出」，占位明示本轮仅有思考。
         <div className="text-[12.5px] italic text-faint">（本轮未产出正文，仅有内部思考）</div>
       ) : (
         <div className="text-sm leading-relaxed text-text">
@@ -106,7 +99,7 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
           {streaming && (
             <span
               className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-[1px] align-text-bottom"
-              style={{ background: accent.accent }}
+              style={{ background: profile.accent }}
             />
           )}
         </div>
