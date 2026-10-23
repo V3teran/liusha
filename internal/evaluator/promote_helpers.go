@@ -95,7 +95,8 @@ func (v *PromotionEvaluator) executeLLMJudge(
 	verdict, err := v.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
 		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if err != nil {
-		return Verdict{}, fmt.Errorf("verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w", err)
+		return Verdict{}, fmt.Errorf("%w: verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w",
+			ErrAdjudicationUnavailable, err)
 	}
 	return verdict, nil
 }

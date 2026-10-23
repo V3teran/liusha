@@ -20,6 +20,7 @@ export interface ScanEvent {
   findings: number // task_status/completed：坐实发现数（晋升 result 的主张，中性领域词）
   stop_why: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
   reason: string // task_status/aborted|failed：原因
+  call_id: string // tool_call/tool_result：同一次工具调用的关联 ID（并发同名工具乱序完成时按它精确配对）
   tool_name: string // tool_call/tool_result：工具名
   args: string // tool_call：入参 JSON 原文
   result: string // tool_result：输出预览（超长截断）

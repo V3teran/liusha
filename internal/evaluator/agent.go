@@ -281,8 +281,9 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 
 	dispatched := 0
 	for _, obs := range observations {
-		// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；
-		// 解析失败意味着数据损坏，持续告警直到修复。
+		// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；content
+		// 解析失败才是真损坏（executor 写入侧 content 必为合法 JSON），持续
+		// 告警。repro 形状问题已在 parse 内宽容化（保留原始配方继续派发）。
 		attempt, err := a.parseObservationToAttempt(obs)
 		if err != nil {
 			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
@@ -389,14 +390,26 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		return
 	}
 
+	// 耗尽出圈的 refute_reason 分流：配方确定性缺陷 → invalid_recipe（planner
+	// 视为换配方才有意义的方向）；裁决官侧基础设施失败（LLM 调用/输出解析
+	// 反复失败）→ adjudication_failed——机器重放可能全过、主张可能为真，
+	// 只是裁决环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把
+	// 可重试方向误判成配方作废（实测真漏洞因此出圈）。
+	refuteReason := RefuteInvalidRecipe
+	adjudicationFailed := errors.Is(cause, ErrAdjudicationUnavailable)
+	if adjudicationFailed {
+		refuteReason = RefuteAdjudicationFailed
+	}
+
 	a.logger.Warn().
 		Str("observation_id", observationID).
+		Str("refute_reason", refuteReason).
 		Int("attempts", attempts).
 		Msg("验证反复失败达上限，标记裁决失败出圈")
 
 	mark, mErr := json.Marshal(map[string]interface{}{
-		"verification_outcome": RefuteInvalidRecipe,
-		"refute_reason":        RefuteInvalidRecipe,
+		"verification_outcome": refuteReason,
+		"refute_reason":        refuteReason,
 		"confidence":           explorationgraph.ConfidenceRefuted,
 		"failure_reason":       cause.Error(),
 		"verify_attempts":      attempts,
@@ -408,20 +421,25 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		a.logger.Error().Err(uErr).Str("observation_id", observationID).Msg("裁决失败标记写入失败")
 	}
 
-	// 审计链留档：invalid_recipe 也是裁决结论（该假设无法被本门裁决），
-	// 证伪/失败都落 exploration_verification，保证全链路可回放。
+	// 审计链留档：invalid_recipe / adjudication_failed 都是裁决结论（前者是
+	// 配方无法被本门执行，后者是裁决环节不可用），证伪/失败都落
+	// exploration_verification，保证全链路可回放。
+	audit := map[string]interface{}{
+		"refute_reason":  refuteReason,
+		"reason":         cause.Error(),
+		"verify_attempts": attempts,
+	}
+	if refuteReason == RefuteInvalidRecipe {
+		audit["invalid_recipe"] = true
+	}
 	if _, vErr := a.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.taskID,
 		NodeID:     observationID,
 		Primitives: coalescePrimitives(attempt.Primitives),
 		Outcome:    explorationgraph.OutcomeRefuted,
-		Evaluation: mustJSON(map[string]interface{}{
-			"invalid_recipe":  true,
-			"reason":          cause.Error(),
-			"verify_attempts": attempts,
-		}),
-		CreatedAt: time.Now(),
+		Evaluation: mustJSON(audit),
+		CreatedAt:  time.Now(),
 	}); vErr != nil {
 		a.logger.Warn().Err(vErr).Str("observation_id", observationID).Msg("invalid_recipe 审计留档失败")
 	}
@@ -464,11 +482,17 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
-	// 归一化repro：处理数组格式、缺失domain等历史兼容问题
-	// 防止Replayer解析失败（json: cannot unmarshal array into Go value of type executor.ReproEnvelope）
+	// 归一化 repro：处理数组格式、缺失 domain 等历史兼容问题。
+	// 归一化失败不整条丢弃——与事件路径（handleEvent）同口径：保留原始配方
+	// 继续派发，由复现门/裁决官终局（确定性配方缺陷 fail-fast 出圈；generic
+	// 域 judge_only 无机器断言也可裁决）。此前整条丢弃会让该假设永远
+	// unverified：轮询每 5s 重解析重告警（实测同一节点连告 39 次），且
+	// hasPendingVerdicts 永真——planner 永不收敛，任务只能被外部终止。
 	normalized, hint, err := repro.NormalizeReproEnvelope(content.Repro)
 	if err != nil {
-		return Attempt{}, fmt.Errorf("归一化 repro 失败: %w", err)
+		a.logger.Warn().Err(err).Str("observation_id", obs.ID).
+			Msg("repro 归一化失败，保留原始配方继续派发（由裁决门终局）")
+		normalized = content.Repro
 	}
 	if hint != "" {
 		a.logger.Debug().

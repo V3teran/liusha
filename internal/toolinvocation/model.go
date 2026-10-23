@@ -28,6 +28,5 @@ type Invocation struct {
 	OutputPreview string          // 首 4096 字符预览
 	DurationMs    int             // Execute 耗时
 	ErrorMessage  string          // Execute 错误时填；成功为空
-	Done          bool            // Result.Done 信号——终止 ReAct 循环的 finding 提交
 	CreatedAt     time.Time
 }

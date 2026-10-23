@@ -301,12 +301,22 @@ func (a *Agent) executeAction(
 	// 执行 Action（调用 Interface）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
+	// 终态标记的 ctx：执行期 ctx 被取消（terminate/kill）时，用已死的 ctx
+	// 做 CAS 必然失败——图终态只能等恢复监控 6 分钟后兜底（实测窗口）。
+	// 取消路径换独立短超时 ctx，让 kill 时刻的终态立即落图。
+	markCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		markCtx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+	}
+
 	// 终态标记用 CAS（running → done/failed）：执行期间外部裁决（恢复监控判死、
 	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
 	if execErr != nil {
 		errMsg := execErr.Error()
 		ok, casErr := a.graph.CompareAndSwapActionState(
-			ctx, action.TaskID, action.ID,
+			markCtx, action.TaskID, action.ID,
 			explorationgraph.StateRunning, explorationgraph.StateFailed,
 		)
 		if casErr != nil {
@@ -321,7 +331,7 @@ func (a *Agent) executeAction(
 		}
 		// CAS 成功后补失败原因（metadata 合并写，不影响已生效的 failed 状态）
 		if b, mErr := json.Marshal(map[string]string{"blocked_reason": errMsg}); mErr == nil {
-			if uErr := a.graph.UpdateNodeMetadata(ctx, action.ID, b); uErr != nil {
+			if uErr := a.graph.UpdateNodeMetadata(markCtx, action.ID, b); uErr != nil {
 				a.logger.Warn().Err(uErr).Str("action_id", action.ID).Msg("失败原因写入失败")
 			}
 		}
@@ -329,7 +339,7 @@ func (a *Agent) executeAction(
 	}
 
 	ok, err = a.graph.CompareAndSwapActionState(
-		ctx, action.TaskID, action.ID,
+		markCtx, action.TaskID, action.ID,
 		explorationgraph.StateRunning, explorationgraph.StateDone,
 	)
 	if err != nil {

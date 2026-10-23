@@ -8,15 +8,23 @@ import { ToolResultCard } from './cards/ToolResultCard'
 interface StepToolsProps {
   tools: Message[]
   runningSeqs?: Set<number>
-  pairs?: { matched: Map<number, Message>; orphanResults: Message[] }
+  pairs?: { matched: Map<number, Message>; matchedResultSeqs: Set<number> }
+  /** 任务已终态：悬挂 call（有 call 无 result）按「已中断」呈现而非脉冲点。 */
+  ended?: boolean
 }
 
-export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
+export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
   const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call')
   const callCount = calls.length > 0 ? calls.length : tools.length
-  const orphans = pairs?.orphanResults ?? tools.filter((t) => t.Metadata?.kind === 'tool_result')
+  // 孤儿结果只渲染本组区间内的（每个 result 消息只落在一个折叠组）——此前
+  // 直接用全局 orphanResults，任一组展开都会重复渲染全会话的孤儿。
+  const orphans = pairs
+    ? tools.filter(
+        (t) => t.Metadata?.kind === 'tool_result' && !pairs.matchedResultSeqs.has(t.Seq),
+      )
+    : tools.filter((t) => t.Metadata?.kind === 'tool_result')
 
   const running = !!runningSeqs && calls.some((t) => runningSeqs.has(t.Seq))
 
@@ -71,6 +79,7 @@ export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
                 args={t.Metadata?.args || ''}
                 agentName={t.Metadata?.agent_name}
                 running={runningSeqs?.has(t.Seq)}
+                ended={ended}
                 result={result}
               />
             )

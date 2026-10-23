@@ -52,11 +52,11 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO tool_invocation
 			(agent_run_id, task_id, role, tool_name, args,
-			 output_size, output_preview, duration_ms, error_message, done)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
+			 output_size, output_preview, duration_ms, error_message)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		v.AgentRunID, v.TaskID, v.Role, v.ToolName, args,
-		v.OutputSize, preview, v.DurationMs, errMsg, v.Done,
+		v.OutputSize, preview, v.DurationMs, errMsg,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append tool_invocation: %w", err)
