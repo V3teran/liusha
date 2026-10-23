@@ -152,6 +152,24 @@ func (j *RouterJudge) Judge(
 		MaxTokens:                  1500,
 		MessageModifierChain:       runtime.NewDefaultModifierChain(10),
 		MiddlewareChain:            middlewareChain,
+		// 裁决终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
+		// 是自由散文——裁决结论写在散文里（"假设坐实 confirmed 0.99"）而
+		// parseVerdict 只认 JSON，实测真漏洞因输出格式漂移连败三次被误判
+		// invalid_recipe 出圈。设此字段后 runtime 的 forceStructuredOutput
+		// 会在散文终稿上强制补一轮 JSON 输出。
+		OutputFormatPrompt: "你是裁决官，已完成取证，现在需要输出最终裁决。",
+		OutputFormatSchema: `请输出以下JSON格式（只输出一个 JSON 对象，不要包裹 markdown）：
+
+` + "```json\n" + `{
+  "verdict": "confirmed 或 refuted",
+  "confidence": 0.9,
+  "reasoning": "一句话裁决理由（引用你亲见的差分）",
+  "finding": {"class": "漏洞类别", "method": "请求方法", "host": "目标主机:端口", "path": "/URL/路径", "param": "注入点参数名"}
+}
+` + "```\n\n" + `说明：
+- verdict 只能是 confirmed 或 refuted 两个取值之一
+- confidence 是 0.0-1.0 的数字
+- finding 仅 verdict=confirmed 时必填（refuted 时省略）`,
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)

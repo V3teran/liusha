@@ -134,7 +134,16 @@ const (
 	RefuteClaimInvalid            = "claim_invalid"             // 裁决官语义证伪：复现成立但主张不成立——方向作废
 	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 质量门：断言无鉴别力，配方无法构成证据——须换断言重提
 	RefuteInvalidRecipe           = "invalid_recipe"            // 确定性配方缺陷：重放必然同样失败，快速终局出圈
+	RefuteAdjudicationFailed      = "adjudication_failed"       // 裁决官不可用耗尽（LLM 调用/输出解析反复失败）——配方未必有错，方向可重试
 )
+
+// ErrAdjudicationUnavailable 标记裁决官侧的基础设施失败（LLM 调用失败/终稿
+// 解析失败）——与配方损坏性质不同：机器重放可能全部通过、漏洞真实存在，
+// 只是裁决这一环没跑通。耗尽重试后以 RefuteAdjudicationFailed 出圈而非
+// invalid_recipe，planner 的 refuted 视野据此把方向视为可重试而非配方作废
+// （实测：断言全过 + 裁决散文写明 confirmed 0.99 的真漏洞被误标
+// invalid_recipe/refuted 出圈）。
+var ErrAdjudicationUnavailable = errors.New("裁决官不可用")
 
 // verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
 // 域字面量与 executor.ReproEnvelope 的 domain 约定保持一致：web 有机器重放通道；
@@ -180,8 +189,10 @@ func (v *PromotionEvaluator) WithFingerprintCodec(codec FingerprintNormalizer) *
 	return v
 }
 
-// WithJudge 注入 LLM 裁决器（链式）。裁决语义：机器重放采集证据，LLM 终裁坐实/证伪；
-// LLM 调用失败时回退机器断言判定（可用性优先——LLM 抖动不卡死晋升链）。
+// WithJudge 注入 LLM 裁决器（链式）。裁决语义：机器重放只采集证据，LLM 终裁
+// 坐实/证伪——机器不持判定权，LLM 失败不回退机器断言（否则断言命中即坐实
+// 会放过"命中即常态输出"的假阳性）；本次未裁决，错误带
+// ErrAdjudicationUnavailable 交由调用方重试/止损分流。
 func (v *PromotionEvaluator) WithJudge(j LLMJudge) *PromotionEvaluator {
 	v.judge = j
 	return v

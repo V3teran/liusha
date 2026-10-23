@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronRight, Loader2, CheckCircle2, XCircle, MinusCircle } from 'lucide-react'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +15,7 @@ interface ToolCallCardProps {
   args: string
   agentName?: string
   running?: boolean // 执行中：已发 tool_call 未见配对 tool_result（任务活跃时）
+  ended?: boolean // 任务已终态：无结果的悬挂 call 是被中断，不是执行中
   result?: ToolResultInfo // 已配对的结果；与 running 互斥
 }
 
@@ -40,13 +41,14 @@ function resultPreview(r: ToolResultInfo): string {
  * 2. 更好的信息层次：工具名突出、参数折叠、结果预览
  * 3. 更流畅的交互：悬停高亮、平滑展开
  */
-export function ToolCallCard({ tool, args, agentName, running, result }: ToolCallCardProps) {
+export function ToolCallCard({ tool, args, agentName, running, ended, result }: ToolCallCardProps) {
   const [open, setOpen] = useState(false)
   const pretty = prettyArgs(args)
   const hasArgs = !!pretty && pretty !== '{}'
   const accent = agentAccent(agentName)
   const failed = !!result?.err
   const success = result && !failed
+  const interrupted = !running && !result && !!ended
 
   return (
     <div
@@ -95,6 +97,11 @@ export function ToolCallCard({ tool, args, agentName, running, result }: ToolCal
             className="h-4 w-4 flex-shrink-0 text-status-success"
             aria-label="执行成功"
           />
+        ) : interrupted ? (
+          <MinusCircle
+            className="h-4 w-4 flex-shrink-0 text-text-tertiary"
+            aria-label="已中断"
+          />
         ) : (
           <span className="h-2 w-2 flex-shrink-0 rounded-full bg-accent status-pulse" />
         )}
@@ -123,6 +130,9 @@ export function ToolCallCard({ tool, args, agentName, running, result }: ToolCal
           {/* 执行中提示 */}
           {running && (
             <span className="flex-shrink-0 text-xs text-text-tertiary">执行中…</span>
+          )}
+          {interrupted && (
+            <span className="flex-shrink-0 text-xs text-text-tertiary">未返回结果（任务结束时在途）</span>
           )}
 
           {/* 结果预览（折叠时显示）*/}

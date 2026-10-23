@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
@@ -49,8 +50,13 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 			return next(ctx, t, args)
 		}
 		agent := AgentFromCtx(ctx)
+		// call_id 贯穿本次调用的两个事件：并发执行同名工具时（多 action 并行）
+		// result 完成序与 call 发起序可能交错，仅凭 (agent, tool) 的 FIFO 配对
+		// 会把 A 的结果配到 B 的卡上。事件内联身份后消费端按 ID 精确配对。
+		callID := uuid.NewString()
 		e.emit(ctx, conversationID, map[string]any{
 			"kind":       "tool_call",
+			"call_id":    callID,
 			"agent_name": agent,
 			"tool_name":  t.Name(),
 			"args":       truncateEventRunes(string(args)),
@@ -67,6 +73,7 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 		}
 		e.emit(ctx, conversationID, map[string]any{
 			"kind":        "tool_result",
+			"call_id":     callID,
 			"agent_name":  agent,
 			"tool_name":   t.Name(),
 			"result":      truncateEventRunes(res.Output),

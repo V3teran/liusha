@@ -27,14 +27,23 @@ function statusShape(md: ScanEvent): StatusShape {
   }
 }
 
-// 报告字段行：completed 携 steps/findings，aborted/failed 携 reason。
-// 领域词中性化：ClaimSink 交付的是晋升 result 的坐实主张（信息收集成果
-// 不是漏洞），计数用「发现」；stop_why/actions 留在 wire 不渲染——自然
-// 收敛无需复述「扫描完成」，异常停止由 aborted/failed 的 reason 承担。
+// 停止原因的人读映射：stop_why 是终态的唯一「怎么停的」事实源——不渲染时
+// 用户终止与自然收敛在时间线上逐像素相同（实测 stop_why='control-plane:
+// terminate' 的任务显示绿色「扫描完成」）。
+const STOP_WHY_LABELS: Record<string, string> = {
+  'control-plane: terminate': '手动终止',
+  context_cancelled: '执行被取消',
+  task_converged: '目标收敛',
+  max_steps_reached: '达到步数上限',
+}
+
+// 报告字段行：completed/aborted 携 steps/findings 与停止原因，failed 携 reason。
+// stop_why 有映射才渲染（未知值原样展示，宁多一字不瞒一况）。
 function reportFields(md: ScanEvent): string[] {
   const parts: string[] = []
   if (md.steps && md.steps > 0) parts.push(`${md.steps} 步`)
   if (md.findings !== undefined && md.findings > 0) parts.push(`${md.findings} 个发现`)
+  if (md.stop_why) parts.push(STOP_WHY_LABELS[md.stop_why] ?? md.stop_why)
   if (md.reason) parts.push(md.reason)
   return parts
 }

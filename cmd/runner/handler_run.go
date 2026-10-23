@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/conversation"
-
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/task"
 
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -94,38 +95,70 @@ func (h handler) handleCognition(
 		h.logger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
 	}
 
-	// task 成功终态：守卫拒绝（任务已被用户停止/判死）时不覆盖——aborted 节点
-	// 由对应写者（api/reaper）负责，此处不落 completed。
-	if err := h.tasks.Complete(doneCtx, taskID); err != nil {
+	// task 终态回写：按停止原因与 agent_run 同口径分流——被终止（控制平面
+	// terminate / ctx 取消）落 aborted，自然收敛才落 completed。此前无条件
+	// Complete：terminate 路径无人写 aborted（api abort 端点只是其中一条来
+	// 路），CAS 守卫形同虚设，被杀任务标 completed、时间线广播「扫描完成」。
+	if terminated {
+		h.finishTerminatedTask(doneCtx, p, taskID, report)
+	} else if err := h.tasks.Complete(doneCtx, taskID); err != nil {
 		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 完成迁移被拒（保持既有终态）")
 	} else {
 		// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
 		// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
-		reasoningSteps := 0
-		if p.ConversationID != "" {
-			if n, cErr := h.conversations.CountReasoningSinceDispatched(doneCtx, p.ConversationID); cErr != nil {
-				h.logger.Warn().Err(cErr).Str("conv", p.ConversationID).Msg("推理步数统计失败（steps 回退动作数口径）")
-			} else {
-				reasoningSteps = n
-			}
-		}
-		stepsField := reasoningSteps
-		if stepsField == 0 {
-			stepsField = report.Steps
-		}
 		h.appendTaskStatus(doneCtx, p.ConversationID, taskID,
-			conversation.TaskStatusCompleted, "扫描完成",
-			map[string]any{
-				"steps":    stepsField,
-				"actions":  report.Steps,
-				"promoted": report.Promoted,
-				"attempts": report.Attempts,
-				"stop_why": report.StopWhy,
-				"findings": h.findingsCount(doneCtx, taskID),
-			})
+			conversation.TaskStatusCompleted, "扫描完成", h.completionFields(doneCtx, p.ConversationID, taskID, report))
 	}
 	doneCancel()
 	return nil
+}
+
+// finishTerminatedTask 处理被终止任务的 task 终态与时间线：task 落 aborted
+// （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的
+// abort 端点可能已先行写 aborted + 「扫描已停止」节点（CAS 先到者赢）——此时
+// 不重复落节点；runner 侧节点只在本次真正完成迁移时写。
+func (h handler) finishTerminatedTask(ctx context.Context, p worker.Payload, taskID string, report executor.Report) {
+	tk, gErr := h.tasks.GetByID(ctx, taskID)
+	if gErr != nil {
+		h.logger.Warn().Err(gErr).Str("task_id", taskID).Msg("终止收尾读取 task 失败（终态交由 reaper 兜底）")
+		return
+	}
+	if tk.Status != task.StatusActive {
+		return // api abort / reaper 已落终态及其时间线节点
+	}
+	if err := h.tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopWhy+"）"); err != nil {
+		h.logger.Warn().Err(err).Str("task_id", taskID).Msg("task 终止迁移被拒（保持既有终态）")
+		return
+	}
+	h.appendTaskStatus(ctx, p.ConversationID, taskID,
+		conversation.TaskStatusAborted, "扫描已终止",
+		h.completionFields(ctx, p.ConversationID, taskID, report))
+}
+
+// completionFields 汇总终态时间线节点的报告字段（completed/aborted 共用口径）。
+func (h handler) completionFields(ctx context.Context, conversationID, taskID string, report executor.Report) map[string]any {
+	// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
+	// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
+	reasoningSteps := 0
+	if conversationID != "" {
+		if n, cErr := h.conversations.CountReasoningSinceDispatched(ctx, conversationID); cErr != nil {
+			h.logger.Warn().Err(cErr).Str("conv", conversationID).Msg("推理步数统计失败（steps 回退动作数口径）")
+		} else {
+			reasoningSteps = n
+		}
+	}
+	stepsField := reasoningSteps
+	if stepsField == 0 {
+		stepsField = report.Steps
+	}
+	return map[string]any{
+		"steps":    stepsField,
+		"actions":  report.Steps,
+		"promoted": report.Promoted,
+		"attempts": report.Attempts,
+		"stop_why": report.StopWhy,
+		"findings": h.findingsCount(ctx, taskID),
+	}
 }
 
 // appendTaskStatus 落任务生命周期节点并广播 SSE（会话任务专用；无会话纯后台

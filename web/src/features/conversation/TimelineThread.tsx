@@ -164,7 +164,15 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             return <TaskStatusCard key={r.key} md={r.msg.Metadata!} />
           }
           if (r.kind === 'tools') {
-            return <StepTools key={r.key} tools={r.tools} runningSeqs={runningTools} pairs={toolPairs} />
+            return (
+              <StepTools
+                key={r.key}
+                tools={r.tools}
+                runningSeqs={runningTools}
+                pairs={toolPairs}
+                ended={!active}
+              />
+            )
           }
           const agent = rowAgent(r)
           const copyText = cardCopyText(r)

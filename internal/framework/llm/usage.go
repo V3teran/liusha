@@ -118,8 +118,9 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 			finish string
 			// 影子聚合：与 Complete 路径同构的 Response——流式调用的审计 Result
 			// 由此而来（content/tool_calls/thinking 原文不再缺失）。
-			shadow  Response
-			failed  bool
+			shadow      Response
+			failed      bool
+			streamError string
 		)
 		for ev := range ch {
 			switch ev.Kind {
@@ -146,8 +147,10 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 			case StreamError:
 				failed = true
 				if ev.Err != nil {
-					finish = "error: " + ev.Err.Error()
+					streamError = ev.Err.Error()
+					finish = "error: " + streamError
 				} else {
+					streamError = "stream error (no detail)"
 					finish = "error"
 				}
 			}
@@ -158,11 +161,23 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		rec.InTokens = usage.InTokens
 		rec.OutTokens = usage.OutTokens
 		rec.CachedTokens = usage.CachedTokens
+		if !failed {
+			// 成功收尾的终止原因也写列：只进 shadow jsonb 会让 finish_reason
+			// 列在流式路径恒空（实测 197 行里 164 行空串），按列筛选成功调用
+			// 永远查不到；错误（"error: ..."）与成功（"stop"）同列可辨。
+			finish = "stop"
+		} else {
+			// 流上错误同时落 error_message：失败调用的查询口径统一为
+			// error_message <> ''（此前流错误只在 finish_reason、Complete
+			// 错误只在 error_message，「查全部失败」要 OR 两列）。finish_reason
+			// 保留 "error: ..." 原值，兼容既有按列查询。
+			rec.Err = streamError
+		}
 		rec.FinishReason = finish
 		rec.Messages, _ = json.Marshal(req.Messages)
 		if !failed {
 			shadow.Usage = usage
-			shadow.FinishReason = "stop"
+			shadow.FinishReason = finish
 			rec.Result, _ = json.Marshal(shadow)
 		}
 		p.sink.RecordUsage(ctx, rec)

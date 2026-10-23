@@ -56,56 +56,85 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
   return out
 }
 
-// inFlightToolCalls 计算执行中的工具调用：同 (agent, tool) 的 tool_call 先进先出
-// 配对 tool_result，队列残留（已见 call 未见 result）即执行中。executor 并发执行
-// 同名工具时交错到达（call call result result），FIFO 配对保持一对一消耗。
-// 任务终态后不再有新 result——呈现层须以任务活跃门控，避免死任务的悬挂 call 永转。
-export function inFlightToolCalls(messages: Message[]): Set<number> {
-  const queues = new Map<string, number[]>()
-  const running = new Set<number>()
+// 配对核心（单一事实源，inFlightToolCalls 与 pairToolResults 共用——两套
+// 配对实现会漂移，后端的双路径分裂就是这么来的）：
+//   - call_id 配对：同一 (call_id) 的 call/result 精确匹配——并发同名工具
+//     乱序完成（call1 call2 result2 result1）时 FIFO 会把 result2 配给 call1；
+//   - FIFO 兜底：无 call_id 的历史事件按同 (agent, tool) 队列消耗；
+//   - 带 call_id 但对不上号的 result 视为孤儿（其 call 事件已丢，FIFO 会
+//     错拿别人的 call）。
+interface PairingState {
+  matched: Map<number, Message> // call Seq → result 消息
+  matchedResultSeqs: Set<number> // 已配对的 result Seq
+  orphanResults: Message[] // 配不上 call 的孤立结果
+  running: Set<number> // 已见 call 未见 result（执行中/悬挂）
+}
+
+function pairCallsAndResults(messages: Message[]): PairingState {
+  const fifo = new Map<string, number[]>()
+  const byCallID = new Map<string, number>()
+  const state: PairingState = {
+    matched: new Map(),
+    matchedResultSeqs: new Set(),
+    orphanResults: [],
+    running: new Set(),
+  }
   for (const m of messages) {
     const ev = m.Metadata
     if (!ev?.tool_name) continue
     const k = `${ev.agent_name}\u0000${ev.tool_name}`
     if (ev.kind === 'tool_call') {
-      const q = queues.get(k) ?? []
-      q.push(m.Seq)
-      queues.set(k, q)
-      running.add(m.Seq)
+      if (ev.call_id) byCallID.set(ev.call_id, m.Seq)
+      else {
+        const q = fifo.get(k) ?? []
+        q.push(m.Seq)
+        fifo.set(k, q)
+      }
+      state.running.add(m.Seq)
     } else if (ev.kind === 'tool_result') {
-      const seq = queues.get(k)?.shift()
-      if (seq !== undefined) running.delete(seq)
+      let callSeq: number | undefined
+      if (ev.call_id) {
+        callSeq = byCallID.get(ev.call_id)
+        if (callSeq !== undefined) byCallID.delete(ev.call_id)
+      } else {
+        const q = fifo.get(k)
+        if (q && q.length > 0) {
+          callSeq = q.shift()
+          fifo.set(k, q)
+        }
+      }
+      if (callSeq !== undefined) {
+        state.matched.set(callSeq, m)
+        state.matchedResultSeqs.add(m.Seq)
+        state.running.delete(callSeq)
+      } else {
+        state.orphanResults.push(m)
+      }
     }
   }
-  return running
+  return state
+}
+
+// inFlightToolCalls 计算执行中的工具调用：队列残留（已见 call 未见 result）
+// 即执行中。任务终态后不再有新 result——呈现层须以任务活跃门控，避免死任务
+// 的悬挂 call 永转。
+export function inFlightToolCalls(messages: Message[]): Set<number> {
+  return pairCallsAndResults(messages).running
 }
 
 // ToolPairs 是调用→结果的配对结果：matched 为 call Seq → result 消息；
-// orphanResults 是配不上 call 的孤立结果（call 丢失时的展示兜底）。
+// orphanResults 是配不上 call 的孤立结果（call 丢失时的展示兜底）；
+// matchedResultSeqs 是已配对的 result Seq 集——各组按它把孤儿结果限定在
+// 自己的消息区间内渲染（全局列表会让每个折叠组重复渲染同一批孤儿）。
 export interface ToolPairs {
   matched: Map<number, Message>
   orphanResults: Message[]
+  matchedResultSeqs: Set<number>
 }
 
-// pairToolResults 把 tool_call 与 tool_result 配成「一动作一卡」：同 (agent, tool)
-// FIFO 消耗（与 inFlightToolCalls 同一配对口径），孤儿结果单独返回。
+// pairToolResults 把 tool_call 与 tool_result 配成「一动作一卡」（配对口径
+// 见 pairCallsAndResults）。
 export function pairToolResults(messages: Message[]): ToolPairs {
-  const queues = new Map<string, number[]>()
-  const matched = new Map<number, Message>()
-  const orphanResults: Message[] = []
-  for (const m of messages) {
-    const ev = m.Metadata
-    if (!ev?.tool_name) continue
-    const k = `${ev.agent_name}\u0000${ev.tool_name}`
-    if (ev.kind === 'tool_call') {
-      const q = queues.get(k) ?? []
-      q.push(m.Seq)
-      queues.set(k, q)
-    } else if (ev.kind === 'tool_result') {
-      const seq = queues.get(k)?.shift()
-      if (seq !== undefined) matched.set(seq, m)
-      else orphanResults.push(m)
-    }
-  }
-  return { matched, orphanResults }
+  const { matched, matchedResultSeqs, orphanResults } = pairCallsAndResults(messages)
+  return { matched, matchedResultSeqs, orphanResults }
 }
