@@ -11,8 +11,13 @@ interface FindingCardProps {
 // finding 事件——领域词中性（信息收集成果与漏洞同为「发现」，severity 的
 // info 档即非漏洞成果），分级配色沿用 severity 单一真相源。
 export function FindingCard({ summary, severity, host, target }: FindingCardProps) {
-  const sev = (severity || 'info').toLowerCase()
+  // 类型守卫：severity 应为非空字符串，否则兜底为 'info'
+  const rawSev = typeof severity === 'string' && severity.trim() !== '' ? severity : 'info'
+  const sev = rawSev.toLowerCase()
   const tag = severityTagColor(sev)
+
+  // 类型守卫：确保 severityLabel[sev] 返回字符串
+  const label = severityLabel[sev] || sev
 
   return (
     <div
@@ -31,7 +36,7 @@ export function FindingCard({ summary, severity, host, target }: FindingCardProp
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
           {(host || target) && (
             <span className="break-all font-mono">
-              <span className="mr-1 opacity-70">{severityLabel[sev] || sev}</span>
+              <span className="mr-1 opacity-70">{label}</span>
               {target || host}
             </span>
           )}

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Bot, Brain, Bug, ChevronDown, Loader2, Wrench, type LucideIcon } from 'lucide-react'
+import { Brain, ChevronDown, Loader2 } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
 import { buildThreadRows, inFlightToolCalls, pairToolResults, type ThreadRow } from '@/lib/threadRows'
 import { classifyMessage } from '@/lib/messageKind'
-import { agentAccent } from '@/lib/agentColor'
 import { useTypewriter } from '@/hooks/useTypewriter'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { AgentCard } from './AgentCard'
@@ -17,54 +16,18 @@ import { ToolResultCard } from './cards/ToolResultCard'
 import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
 
-// 每行的 agent 归属：驱动卡外图标配色 + 卡内领头名。
-// 取该行动作的施动 agent（Metadata.agent_name）：推理/工具/漏洞归产出者，派发归调度者(编排)；
-// tools 组取首条 tool 的 agent。user/assistant 不走此路（各自左右独立块）。
-// 四 agent 平级协作（bus 广播、互相制衡），不做主从缩进——身份由配色/图标/领头名承担；
-// 缩进语言保留给未来真正的 orchestrator→subagent 派发场景。
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.Metadata?.agent_name || ''
   if (r.kind === 'msg') return r.msg.Metadata?.agent_name || ''
   return ''
 }
 
-// 行图标：每行按语义取一个 lucide 图标（想=Brain、工具=Wrench、状态=Activity、
-// 漏洞=Bug、答复=Bot）。图标本身即分类索引，与 AppShell/Composer 的 lucide 语言统一。
-function rowIcon(r: ThreadRow): LucideIcon {
-  if (r.kind !== 'msg') return Wrench
-  const tag = classifyMessage(r.msg)
-  switch (tag) {
-    case 'reasoning':
-      return Brain
-    case 'task-status':
-      return Activity
-    case 'finding':
-      return Bug
-    default:
-      return Bot
-  }
-}
-
-// 卡内可复制正文：推理取推理文本，答复走独立块，其余（派发/漏洞/压缩）无脚注复制。
 function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): string | undefined {
   const m = r.msg
   if (classifyMessage(m) === 'reasoning') return m.Metadata?.text || m.Content
   return undefined
 }
 
-// 方案 B · 统一活动时间轴：观测「AI 自主作战」。
-//   - 用户指令 → 右侧独立指令块（CommandBlock）：accent 软底 + 右上收角 + 脚注时间/复制。
-//   - AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（AgentCard）：图标在卡外(形状=动作、色=agent)
-//     + surface 卡框 + 脚注时间/复制，与用户块左右对称、材质等重；子代理右缩一档。
-//   - 卡内领头「agent 动作」：agent 名领头(agent 色)、动作词弱化——每节点=某 agent 在做某事。
-//   - 工具调用聚成独立缩进行（StepTools），不折进推理卡；答复走左侧 ReplyBlock，与用户块对称。
-// RunningIndicator 是任务运行中的间隙指示：任务在跑且当前无任何活动道时，
-// 在时间线底部持续跳动（spinner + 墙钟计时）——agent 轮次之间的工具执行/
-// 机器复放/事件传播空窗不再死寂（业界 CI job spinner / Claude Code Working 同款
-// 范式：只要有活动就没静止）。任何 agent 道开始流时它让位（道本身即活动信号）。
-//
-// elapsedMs 是后端 usage 的墙钟口径（duration_ms，4s 轮询校准）；本地每秒平滑
-// 进位，校准到达时以校准值为新基线——不回跳（取基线推进的单调插值）。
 function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -74,7 +37,6 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   const baseRef = useRef<{ ms: number; at: number }>({ ms: elapsedMs ?? 0, at: Date.now() })
   useEffect(() => {
     const prev = baseRef.current
-    // 校准仅在前进时重置基线（usage 偶发回退不采纳，计时单调）。
     if ((elapsedMs ?? 0) >= prev.ms) baseRef.current = { ms: elapsedMs ?? 0, at: Date.now() }
   }, [elapsedMs])
   const shown = Math.max(0, baseRef.current.ms + (now - baseRef.current.at))
@@ -104,12 +66,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   const { copiedKey, copy } = useCopyToClipboard()
 
   const rows = buildThreadRows(messages, { dayKey, dayLabel })
-  // 执行中的工具调用：任务活跃才计算（终态后悬挂的 call 不转，避免死任务永挂 spinner）。
   const runningTools = active ? inFlightToolCalls(messages) : undefined
-  // 一动作一卡：调用与结果配对（FIFO 同口径），孤儿结果兜底展示。
   const toolPairs = pairToolResults(messages)
-  // 未读计数以「渲染行(动态)」为单位（非原始消息条数）：一次推理+工具调用后端落 3 条消息，
-  // 渲染只成 2 行（想 + 折叠工具组），数原始消息会与用户实际看到的行数对不上。divider 不计。
   const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
 
   const nearBottom = useCallback(() => {
@@ -174,7 +132,6 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               </div>
             )
           }
-          // 用户指令 → 右侧独立指令块（与左侧 agent 卡左右对称）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'user') {
             return (
               <CommandBlock
@@ -186,12 +143,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               />
             )
           }
-          // agent 答复 → 左侧独立答复块（与用户指令块左右对称）；终稿携带
-          // metadata.thinking 时上方渲染折叠思考区（回看历史同样可见）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'assistant') {
             return (
-              <div key={r.key} className="flex justify-start pb-[18px]">
-                <div className="flex max-w-[80%] flex-col items-start">
+              <div key={r.key} className="flex justify-start pb-5">
+                <div className="flex w-full max-w-3xl flex-col items-start">
                   <ThinkingFold text={r.msg.Metadata?.thinking} />
                   <ReplyBlock
                     content={r.msg.Content}
@@ -208,21 +163,15 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
             return <TaskStatusCard key={r.key} md={r.msg.Metadata!} />
           }
-          // 工具组 → 独立缩进行（工具动作不是推理，不进 agent 卡）；一动作一卡 + 组头执行中 spinner。
           if (r.kind === 'tools') {
             return <StepTools key={r.key} tools={r.tools} runningSeqs={runningTools} pairs={toolPairs} />
           }
-          // AI 动作（推理/派发/漏洞/压缩）→ 左侧 agent 卡（图标在卡外 + surface 卡框 + 脚注时间/复制）。
           const agent = rowAgent(r)
-          const color = agentAccent(agent)
-          const Icon = rowIcon(r)
           const copyText = cardCopyText(r)
           return (
             <AgentCard
               key={r.key}
-              icon={Icon}
-              accent={color.accent}
-              soft={color.soft}
+              agentName={agent}
               createdAt={r.msg.CreatedAt}
               copied={copiedKey === r.msg.ID}
               onCopy={copyText ? () => copy(r.msg.ID, copyText) : undefined}
@@ -233,13 +182,9 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           )
         })}
 
-        {/* 「正在思考」占位：用户消息发出 → 首个 AI 信号之间的空窗指示（意图分类 +
-            首 token 延迟可达十几秒，无占位则无从区分「在干活」与「挂了」）。
-            首个增量帧或 assistant 消息落地即被 store 清除，与活动气泡自然衔接。
-            与 ReplyBlock 同构（左侧 surface-2 气泡、左上收角），三点错拍跳动。 */}
         {thinking && (
-          <div className="flex justify-start pb-[18px]" role="status" aria-live="polite" data-thinking-node>
-            <div className="flex max-w-[80%] flex-col items-start">
+          <div className="flex justify-start pb-5" role="status" aria-live="polite" data-thinking-node>
+            <div className="flex w-full max-w-3xl flex-col items-start">
               <div className="flex items-center gap-2.5 rounded-2xl rounded-tl-md bg-surface-2 px-4 py-3">
                 <span className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:0ms]" />
@@ -252,17 +197,12 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           </div>
         )}
 
-        {/* 流式活动节点：每条道一个气泡（四 agent 并发 + 聊天助手），thinking 通道
-            折叠思考区 + text 通道打字机，各自逐字揭示。
-            aria-hidden：内容随后由终态卡完整呈现，避免读屏重复播报。 */}
         {liveOrder.map((lane) => (
           <div key={lane} data-live-node aria-hidden="true">
             <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} />
           </div>
         ))}
 
-        {/* 间隙运行指示：任务在跑且无任何活动道（agent 轮次之间的工具执行/
-            复放/唤醒空窗）时持续跳动；有道时让位，终态后消失。 */}
         {active && liveOrder.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
       </div>
 
@@ -280,8 +220,6 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   )
 }
 
-// agent 卡内容：按分类渲染对应卡片。复制/时间由外层 AgentCard 脚注承担（与用户块一致）。
-// tools 组不入此（map 里直接 StepTools 独立成行）；user/assistant 各走 CommandBlock/ReplyBlock。
 function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
   const m = r.msg
   const md = m.Metadata
@@ -307,10 +245,10 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
     case 'finding':
       return (
         <FindingCard
-          summary={md?.summary || ''}
-          severity={md?.severity || 'info'}
-          host={md?.host || undefined}
-          target={md?.target || undefined}
+          summary={typeof md?.summary === 'string' ? md.summary : ''}
+          severity={typeof md?.severity === 'string' ? md.severity : 'info'}
+          host={typeof md?.host === 'string' ? md.host : undefined}
+          target={typeof md?.target === 'string' ? md.target : undefined}
         />
       )
     case 'tool-result':
@@ -328,10 +266,9 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
   }
 }
 
-// ThinkingStream 是扩展思考折叠区：模型内部 CoT 的流式展示（业界范式——流式期间
-// 可见逐字、限定高度滚动防挤占正文、终稿由落定卡的折叠区接管）。原文直出，
-// 不做假动画——打字速度即模型真实 token 速度。
-function ThinkingStream({ text }: { text: string }) {
+function ThinkingStream({ text }: { text: string | unknown }) {
+  // 类型守卫：流式 thinking 增量，严格验证类型并过滤空值
+  if (!text || typeof text !== 'string' || text.trim() === '') return null
   const typed = useTypewriter(text)
   return (
     <div className="mb-2 rounded-lg border border-border/60 bg-background/40">
@@ -346,10 +283,10 @@ function ThinkingStream({ text }: { text: string }) {
   )
 }
 
-// ThinkingFold 是思考终稿折叠区（落库回看形态）：默认收起成「内部思考」，
-// 点击展开（业界 Claude「已思考 X 秒」同款交互）。
-function ThinkingFold({ text }: { text?: string }) {
-  if (!text) return null
+function ThinkingFold({ text }: { text?: string | unknown }) {
+  // 类型守卫：后端已修复空 thinking 不序列化，但历史数据可能残留空字符串或空对象。
+  // 严格验证类型并过滤空值，确保只渲染有效的思考内容。
+  if (!text || typeof text !== 'string' || text.trim() === '') return null
   return (
     <details className="group mb-2 self-start rounded-lg border border-border/60 bg-background/40">
       <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] text-muted">
@@ -364,9 +301,6 @@ function ThinkingFold({ text }: { text?: string }) {
   )
 }
 
-// LiveThoughtLane 是一条流式活动道：thinking 通道渲染折叠思考区（先流）、text
-// 通道渲染打字机（后流）；assistant 道是聊天助手（与 ReplyBlock 同形态），agent
-// 道与落定推理卡同布局（AgentCard 包裹）。
 function LiveThoughtLane({
   agentName,
   lane,
@@ -377,8 +311,8 @@ function LiveThoughtLane({
   const typed = useTypewriter(lane.text)
   if (agentName === 'assistant') {
     return (
-      <div className="flex justify-start pb-[18px]">
-        <div className="flex max-w-[80%] flex-col items-start">
+      <div className="flex justify-start pb-5">
+        <div className="flex w-full max-w-3xl flex-col items-start">
           {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
           <div className="rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-text">
             {typed}
@@ -387,9 +321,8 @@ function LiveThoughtLane({
       </div>
     )
   }
-  const color = agentAccent(agentName)
   return (
-    <AgentCard icon={Brain} accent={color.accent} soft={color.soft}>
+    <AgentCard agentName={agentName}>
       {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
       <ReasoningCard text={typed} agentName={agentName} streaming />
     </AgentCard>

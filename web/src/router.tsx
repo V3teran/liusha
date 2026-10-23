@@ -9,10 +9,12 @@ const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ de
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AgentAdmin = lazy(() => import('@/pages/AgentAdmin').then((m) => ({ default: m.AgentAdmin })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
+const SkillsPage = lazy(() => import('@/pages/SkillsPage'))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
 const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
 const SystemConfig = lazy(() => import('@/pages/SystemConfig').then((m) => ({ default: m.SystemConfig })))
 const ExplorationGraphPage = lazy(() => import('@/pages/ExplorationGraphPage').then((m) => ({ default: m.ExplorationGraphPage })))
+const CredentialsPage = lazy(() => import('@/pages/CredentialsPage'))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -52,13 +54,14 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/config/agents" replace /> },
           { path: 'agents', element: withSuspense(<AgentAdmin />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
+          { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
           // 旧「模型路由」独立路由已并入 /config/models（模块内 ?tab=assignment），重定向保链接可用。
           { path: 'routing', element: <Navigate to="/config/models?tab=assignment" replace /> },
           { path: 'system', element: withSuspense(<SystemConfig />) },
         ],
       },
-      { path: 'credentials', element: <PlaceholderPage title="凭证库" /> },
+      { path: 'credentials', element: withSuspense(<CredentialsPage />) },
       { path: 'settings', element: <PlaceholderPage title="设置" /> },
     ],
   },

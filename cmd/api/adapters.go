@@ -354,13 +354,14 @@ func (a *scanAdapter) dispatchFollowUp(convID, taskID, content string) {
 	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
 	defer cancel()
 
-	g, err := a.router.generator(ctx, "inspector") // light provider
+	kind, err := a.classifyIntent(ctx, convID, content)
 	if err != nil {
-		chatLog.Warn().Err(err).Str("conv", convID).Msg("意图分类 provider 失败")
-		a.publishNotice(ctx, convID, "（服务暂不可用，请稍后重试）")
+		// 会话内入口无 HTTP 响应可承载失败——发可见提示，不静默降级 qa
+		// （那会把用户的动作请求悄悄变成聊天回答）。
+		a.publishNotice(ctx, convID, "（意图分类暂不可用，请稍后重试）")
 		return
 	}
-	isAction := msgclass.Classify(ctx, g, content) == msgclass.KindAction
+	isAction := kind == msgclass.KindAction
 
 	// 纯聊天会话（无 task）：action 升级为扫描（建 task + 绑会话）；否则通用助手回答。
 	if taskID == "" {
@@ -511,11 +512,23 @@ func (a *scanAdapter) PublishDelta(ctx context.Context, conversationID, channel,
 
 // AppendAssistant 满足 qa.Deps：落 assistant 消息（metadata.thinking 携带思考终稿），
 // 返回 SSE payload。
+//
+// metadata 规范化：thinking 为空时不序列化该字段（保持 wire/数据库清洁），
+// 避免前端收到 `{"thinking":""}` 空字符串或 `{"thinking":{}}` 空对象导致渲染异常。
 func (a *scanAdapter) AppendAssistant(ctx context.Context, convID, content, thinking string) ([]byte, error) {
-	meta, err := json.Marshal(map[string]string{"thinking": thinking})
-	if err != nil {
-		meta = nil
+	var meta json.RawMessage
+	if thinking != "" {
+		// 仅在 thinking 非空时序列化进 metadata，避免空字符串污染数据
+		m, err := json.Marshal(map[string]string{"thinking": thinking})
+		if err != nil {
+			// 序列化失败（极端情况，如 thinking 含非法 UTF-8）：降级为 nil metadata，
+			// 不阻断消息落库，但记录告警以便排查。
+			chatLog.Warn().Err(err).Str("conv", convID).Msg("thinking 序列化失败，metadata 降级为 nil")
+		} else {
+			meta = m
+		}
 	}
+	// thinking 为空或序列化失败时 meta=nil → metadata 列存 NULL → 前端 Metadata 为 null（符合类型契约）
 	msg, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleAssistant, conversation.KindMessage, content, meta)
 	if err != nil {
 		return nil, err
@@ -533,10 +546,13 @@ func (a *scanAdapter) CreateScan(ctx context.Context, brief string) (string, str
 	return a.createScan(ctx, brief, "")
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建会话 + 落用户首条消息后**立即返回**——
-// 意图分类、扫描下发、纯聊天回答全部异步（dispatchConversation）。请求路径零 LLM
-// 调用（原实现在请求里同步做分类+回答，GLM 慢时浏览器干等几十秒甚至超时断开、
-// 回答丢失），前端拿到 conversationID 即打开 SSE，后续全程从时间线流出。
+// StartChatScan 满足 httpapi.ChatAPI：建会话 + 落用户首条消息 + **同步意图闸**。
+//
+// 分类必须留在请求路径：ChatResponse 的 task_id 是程序化调用方（e2e 触发器、
+// API 集成）拿任务句柄的唯一通道，异步分发会让该字段结构性恒空（契约破裂，
+// 消费方无从发现任务）。分类是单 token 的 light LLM 调用（秒级），同步代价
+// 可忽略；真正慢的是 qa 回答生成与扫描执行——两者保持异步（原「GLM 慢时浏览器
+// 干等几十秒」的病灶在慢回答，不在分类）。
 func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, string, error) {
 	conv, err := a.conversations.CreateConversation(ctx, briefTitle(brief), "")
 	if err != nil {
@@ -546,41 +562,47 @@ func (a *scanAdapter) StartChatScan(ctx context.Context, brief string) (string, 
 	if _, err := a.conversations.AppendMessage(ctx, convID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
 		return "", "", fmt.Errorf("append user message: %w", err)
 	}
-	go a.dispatchConversation(convID, brief) //nolint:gosec // G118：分发独立于请求生命周期
-	return convID, "", nil
-}
 
-// dispatchConversation 新会话的异步分发：意图闸（action/qa）→ 下发扫描或纯聊天回答。
-// 首条消息与追加消息共用同一道闸，语义与原同步版一致，只是搬出请求路径。
-func (a *scanAdapter) dispatchConversation(convID, brief string) {
-	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
-	defer cancel()
+	kind, clsErr := a.classifyIntent(ctx, convID, brief)
+	if clsErr != nil {
+		return convID, "", clsErr
+	}
+	if kind != msgclass.KindAction {
+		go a.answerChatAsync(convID, brief) //nolint:gosec // G118：回答独立于请求生命周期
+		return convID, "", nil
+	}
 
-	g, err := a.router.generator(ctx, "inspector") // light provider
-	if err != nil {
-		chatLog.Warn().Err(err).Str("conv", convID).Msg("意图分类 provider 失败")
-		a.publishNotice(ctx, convID, "（服务暂不可用，请稍后重试）")
-		return
-	}
-	if msgclass.Classify(ctx, g, brief) != msgclass.KindAction {
-		// 纯聊天：不下发 task，用通用助手回答（增量经 SSE 打字机，全文落库兜底）。
-		if err := chat.New(a).Answer(ctx, convID, brief); err != nil {
-			chatLog.Warn().Err(err).Str("conv", convID).Msg("纯聊天回答失败")
-			a.publishNotice(ctx, convID, "（回答生成失败，请重试）")
-		}
-		return
-	}
 	taskID, _, err := a.createScan(ctx, brief, convID)
 	if err != nil {
-		chatLog.Warn().Err(err).Str("conv", convID).Msg("扫描下发失败")
-		a.publishNotice(ctx, convID, "（扫描下发失败："+err.Error()+"）")
-		return
+		return convID, "", fmt.Errorf("dispatch scan: %w", err)
 	}
 	if err := a.conversations.LinkTask(ctx, convID, taskID); err != nil {
 		chatLog.Warn().Err(err).Str("conv", convID).Msg("link task 失败")
 	}
-	// 异步生成智能标题（light LLM 把 brief 总结成短标题）；失败保留 briefTitle 兜底。
 	go a.genTitle(convID, brief) //nolint:gosec // G118：标题生成独立生命周期
+	return convID, taskID, nil
+}
+
+// classifyIntent 用 light provider 判定消息意图。provider 不可用返回显式 error
+// （入口方自行决定报错还是提示），不静默降级 qa。
+func (a *scanAdapter) classifyIntent(ctx context.Context, convID, content string) (msgclass.MessageKind, error) {
+	g, err := a.router.generator(ctx, "inspector") // light provider
+	if err != nil {
+		chatLog.Warn().Err(err).Str("conv", convID).Msg("意图分类 provider 失败")
+		return msgclass.KindQA, fmt.Errorf("intent classify provider: %w", err)
+	}
+	return msgclass.Classify(ctx, g, content)
+}
+
+// answerChatAsync 纯聊天的异步回答：增量经 SSE 打字机流出，全文落库兜底。
+// 回答生成慢（数十秒级），独立 context 不随请求结束被 cancel。
+func (a *scanAdapter) answerChatAsync(convID, brief string) {
+	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
+	defer cancel()
+	if err := chat.New(a).Answer(ctx, convID, brief); err != nil {
+		chatLog.Warn().Err(err).Str("conv", convID).Msg("纯聊天回答失败")
+		a.publishNotice(ctx, convID, "（回答生成失败，请重试）")
+	}
 }
 
 // publishNotice 落一条 assistant 提示消息并广播（异步分支失败/忙碌时给时间线的可见反馈，
