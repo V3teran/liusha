@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink } from 'react-router-dom'
-import { Bug, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { NavLink, Link } from 'react-router-dom'
+import { Bug, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, RefreshCw, Search, Trash2, Network } from 'lucide-react'
 import { deleteConversation, listConversations, renameConversation } from '@/api/client'
 import type { Conversation } from '@/api/types'
 import { fullTime, relativeTime } from '@/lib/format'
@@ -227,7 +227,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         </div>
         <div className="flex flex-shrink-0 items-stretch gap-1.5">
           {allowNew ? (
-            <button type="button" onClick={onNew} className={cn(HEADER_CONTROL, 'bg-accent text-white hover:bg-accent-hover')}>
+            <button type="button" onClick={onNew} className={cn(HEADER_CONTROL, 'bg-accent-soft hover:bg-accent/10 text-accent hover:text-accent-hover')}>
               <Plus className="h-4 w-4" />
               新对话
             </button>
@@ -392,6 +392,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               style={menuStyle}
               onClick={(e) => e.stopPropagation()}
             >
+              <Link
+                to={`/exploration-graph?task_id=${menuConv.TaskID}`}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+                onClick={() => setMenuOpen('')}
+              >
+                <Network className="h-3.5 w-3.5" />
+                查看探索图
+              </Link>
               <button
                 type="button"
                 onClick={(ev) => startRename(menuConv, ev)}

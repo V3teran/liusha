@@ -82,16 +82,16 @@ const (
 // Relation 是边的关系类型（5 种，全大写）
 type Relation string
 
-// 探索图关系：动作产出观察、结果触发新方向、动作间依赖。
+// 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致，migration 0174 收紧）：
 // generates 是贯穿推导链的"产出"关系：
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
-// （不存在证据确认/反驳类关系：executor 侧证据归 observation 载荷，
-// 坐实/证伪裁决归 exploration_verification 审计链。）
+// triggers 是"发现滋生动作/新方向"的因果溯源（result → objective/action）——
+// 攻击链（漏洞A 催生后续动作进而产出漏洞B）沿边可回溯。
+// depends_on 是动作间执行依赖（DAG 调度）。
 const (
 	RelGenerates Relation = "generates"  // 上游产出下游（推导链）
-	RelEnables   Relation = "enables"    // result → action（使能，预留）
 	RelDependsOn Relation = "depends_on" // action → action（依赖）
-	RelTriggers  Relation = "triggers"   // result → objective/action（结果触发新方向/后续动作）
+	RelTriggers  Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
 )
 
 // SourceType 是节点的来源类型

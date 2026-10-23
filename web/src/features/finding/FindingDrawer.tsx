@@ -8,6 +8,7 @@ import { fullTime } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { cn } from '@/lib/utils'
 
 interface FindingDrawerProps {
   open: boolean
@@ -18,7 +19,6 @@ interface FindingDrawerProps {
 
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info']
 
-// evaluation key → 人类可读中文标签（常见 key 映射，未知 key 原样）。
 const EV_LABELS: Record<string, string> = {
   repro_cmd: '复现命令',
   repro_cmd_time: '复现命令（时间盲注）',
@@ -42,10 +42,6 @@ const EV_LABELS: Record<string, string> = {
   affected_users: '受影响用户',
 }
 
-// evaluation 展示优先级：先复现（命令/步骤/payload），再观察，再结论/影响，其余未列举 key 排最后。
-// 原实现按 Object.entries 原始插入顺序渲染——顺序跟数据库/LLM 写入顺序走，不同 finding 间
-// 展示顺序不一致，用户体验上"信息类别"跳来跳去。改成固定语义顺序后，任意 finding 都遵循
-// 同一套"先怎么复现、再看到了什么、最后结论是什么"的阅读节奏。
 const EV_PRIORITY: string[] = [
   'repro_cmd',
   'repro_cmd_time',
@@ -75,7 +71,6 @@ interface EvItem {
   kind: 'code' | 'text' | 'json'
 }
 
-// evaluation 分类渲染：命令类 key（含 cmd/命令）用代码块 + 复制；对象/数组 JSON 折行；其余纯文本。
 function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
   if (!evaluation) return []
   const items: EvItem[] = []
@@ -88,7 +83,6 @@ function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
       value = JSON.stringify(raw, null, 2)
     } else {
       value = String(raw)
-      // 命令/请求类 → 等宽代码块（便于复制复现）
       if (/cmd|command|curl|repro|request|payload/i.test(k)) kind = 'code'
     }
     items.push({ key: k, value, kind })
@@ -100,204 +94,245 @@ function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
   return items.sort((a, b) => rank(a.key) - rank(b.key))
 }
 
-// 漏洞详情抽屉：点台账某行→右侧滑出，展示完整 evaluation（裁决/重放日志/assert 明细）、修复建议、
-// CWE/OWASP、聚合扫描次数，并支持 triage（状态 + 备注，两者解耦可单独存）。
+/**
+ * FindingDrawer - 漏洞详情抽屉
+ *
+ * 设计改进：
+ * 1. 更现代的抽屉样式（圆角、阴影、背景模糊）
+ * 2. 更清晰的信息层次
+ * 3. 更精致的表单控件
+ * 4. 统一的间距和圆角
+ */
 export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDrawerProps) {
-  const [editStatus, setEditStatus] = useState('open')
-  const [editSeverity, setEditSeverity] = useState('info')
-  const [editNote, setEditNote] = useState('')
+  const [status, setStatus] = useState('')
+  const [severity, setSeverity] = useState('')
+  const [note, setNote] = useState('')
   const { copiedKey, copy } = useCopyToClipboard()
 
-  // 本地编辑态：抽屉打开/切换 finding 时，从当前 finding 初始化。
   useEffect(() => {
-    setEditStatus(finding?.status ?? 'open')
-    setEditSeverity(finding?.severity ?? 'info')
-    setEditNote(finding?.triage_note ?? '')
+    if (finding) {
+      setStatus(finding.status)
+      setSeverity(finding.severity)
+      setNote(finding.triage_note || '')
+    }
   }, [finding])
 
-  const dirty =
-    !!finding &&
-    (editStatus !== finding.status || editSeverity !== finding.severity || editNote !== (finding.triage_note ?? ''))
+  if (!finding) return null
 
-  const sevColorVar = severityColor[(finding?.severity ?? 'info').toLowerCase()] ?? '#6e7681'
-  const sevLabelText = severityLabel[(finding?.severity ?? '').toLowerCase()] || finding?.severity || ''
-  const statusMeta = findingStatusMeta(editStatus)
-  const evidenceItems = buildEvaluationItems(finding?.evaluation)
-  // 定位行（方法 + host + path）：渗透测试场景下最常需要复制去粘贴到 curl/Burp 复现的目标 URL。
-  const targetLine = finding ? [finding.target?.method, finding.host, finding.target?.path].filter(Boolean).join(' ') : ''
+  const evItems = buildEvaluationItems(finding.evaluation)
+  const sevColor = severityColor[finding.severity.toLowerCase()] || '#6e7681'
+  const changed = status !== finding.status || severity !== finding.severity || note !== (finding.triage_note || '')
 
   const handleSave = () => {
-    if (!finding || !dirty) return
-    onSave({ id: finding.id, status: editStatus, severity: editSeverity, note: editNote })
+    onSave({ id: finding.id, status, severity, note })
   }
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-[var(--shadow-lg)] focus:outline-none">
-          <Dialog.Title className="sr-only">漏洞详情</Dialog.Title>
-          {finding && (
-            <>
-              {/* 头部：severity + summary + 模式 + 定位 */}
-              <div
-                className="border-b border-border border-l-4 px-5 pb-4 pt-4.5"
-                style={{
-                  borderLeftColor: sevColorVar,
-                  background: `linear-gradient(90deg, ${sevColorVar}14, transparent 60%)`,
-                }}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className="rounded-full px-3 py-0.5 text-xs font-bold tracking-wide text-white"
-                    style={{ background: sevColorVar }}
-                  >
-                    {sevLabelText}
-                  </span>
-                  <Badge
-                    dot={false}
-                    color={finding.source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
-                  >
-                    {finding.source === 'auto' ? '被动代理' : '主动下发'}
-                  </Badge>
-                  <Dialog.Close
-                    aria-label="关闭"
-                    className="ml-auto text-muted hover:text-text"
-                  >
-                    <X className="h-4 w-4" />
-                  </Dialog.Close>
-                </div>
-                <h2 className="mb-2 mt-3 text-base font-semibold leading-relaxed text-text">{finding.summary}</h2>
-                <div className="flex items-start gap-2">
-                  <div className="break-all font-mono text-[12.5px] text-muted">
-                    {finding.target?.method && (
-                      <span className="mr-1.5 font-bold text-accent">{finding.target.method}</span>
-                    )}
-                    {finding.host}
-                    {finding.target?.path}
-                  </div>
-                  {/* 定位行复制：渗透测试场景下最常需要粘贴到 curl/Burp 去复现的目标 URL。 */}
-                  <CopyButton copied={copiedKey === 'target'} onClick={() => void copy('target', targetLine)} className="mt-0.5" />
-                </div>
+        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content
+          className={cn(
+            'tac-modal fixed right-0 top-0 z-50 flex h-full w-[720px] flex-col',
+            'rounded-l-2xl border-l border-border bg-surface shadow-2xl'
+          )}
+        >
+          {/* 头部 */}
+          <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
+            <div className="min-w-0 flex-1">
+              <div className="mb-2 flex items-center gap-3">
+                <Badge color={sevColor} size="md">
+                  {severityLabel[finding.severity.toLowerCase()] || finding.severity}
+                </Badge>
+                <Badge
+                  color={findingStatusMeta(finding.status).color}
+                  size="md"
+                  dot={false}
+                >
+                  {findingStatusMeta(finding.status).label}
+                </Badge>
               </div>
+              <Dialog.Title className="text-lg font-semibold text-text">
+                {finding.summary}
+              </Dialog.Title>
+            </div>
+            <Dialog.Close
+              className={cn(
+                'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
+                'text-text-secondary transition-all hover:bg-surface-2 hover:text-text'
+              )}
+            >
+              <X className="h-5 w-5" />
+            </Dialog.Close>
+          </div>
 
-              <div className="flex flex-1 min-h-0 flex-col gap-5.5 overflow-y-auto px-5 py-4.5">
-                {/* Triage 区 */}
-                <section className="rounded-xl bg-surface-2 p-3.5">
-                  <h3 className="mb-2.5 text-[13px] font-semibold text-text">处置</h3>
-                  <div className="mb-2.5 flex items-center gap-2">
-                    <label className="w-11 flex-shrink-0 text-xs text-muted">状态</label>
-                    <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: statusMeta.color }} />
-                    <select
-                      value={editStatus}
-                      onChange={(e) => setEditStatus(e.target.value)}
-                      className="w-36 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-accent"
-                    >
-                      {FINDING_STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
+          {/* 内容区域 */}
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="space-y-6">
+              {/* 基本信息 */}
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-text">基本信息</h3>
+                <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-4 text-sm">
+                  <div className="flex items-start gap-3">
+                    <span className="w-20 flex-shrink-0 text-text-secondary">位置</span>
+                    <span className="min-w-0 flex-1 font-mono text-xs text-text">
+                      {finding.target?.method} {finding.host}
+                      {finding.target?.path}
+                    </span>
                   </div>
-                  <div className="mb-2.5 flex items-center gap-2">
-                    <label className="w-11 flex-shrink-0 text-xs text-muted">严重度</label>
-                    <select
-                      value={editSeverity}
-                      onChange={(e) => setEditSeverity(e.target.value)}
-                      className="w-36 rounded-md border border-border bg-surface px-2 py-1 text-sm text-text outline-none focus:border-accent"
+                  {finding.cwe_id && (
+                    <div className="flex items-start gap-3">
+                      <span className="w-20 flex-shrink-0 text-text-secondary">CWE ID</span>
+                      <span className="font-mono text-text">{finding.cwe_id}</span>
+                    </div>
+                  )}
+                  <div className="flex items-start gap-3">
+                    <span className="w-20 flex-shrink-0 text-text-secondary">来源</span>
+                    <Badge
+                      color={finding.source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
+                      size="sm"
+                      dot={false}
                     >
-                      {SEVERITY_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-[11px] text-muted">可覆盖扫描定级</span>
+                      {finding.source === 'auto' ? '被动代理' : '主动下发'}
+                    </Badge>
                   </div>
-                  <textarea
-                    value={editNote}
-                    onChange={(e) => setEditNote(e.target.value)}
-                    rows={2}
-                    placeholder="处置备注（如误报原因、修复责任人、验证方式…）"
-                    className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent"
-                  />
-                  <div className="mt-2.5 flex items-center justify-between gap-3">
-                    {finding.triaged_at && (
-                      <span className="font-mono text-[11.5px] text-muted">最后处置 {fullTime(finding.triaged_at)}</span>
-                    )}
-                    <button
-                      type="button"
-                      disabled={!dirty}
-                      onClick={handleSave}
-                      className="ml-auto rounded-lg bg-accent px-4.5 py-1.5 text-[13px] text-white hover:bg-accent-hover disabled:cursor-default disabled:opacity-40"
-                    >
-                      保存
-                    </button>
+                  <div className="flex items-start gap-3">
+                    <span className="w-20 flex-shrink-0 text-text-secondary">发现时间</span>
+                    <span className="text-text-secondary" title={fullTime(finding.created_at)}>
+                      {fullTime(finding.created_at)}
+                    </span>
                   </div>
-                </section>
+                </div>
+              </section>
 
-                {/* Evidence */}
-                {evidenceItems.length > 0 && (
-                  <section>
-                    <h3 className="mb-2.5 flex items-baseline gap-2 text-[13px] font-semibold text-text">
-                      证据 / 复现<span className="text-[11px] font-normal text-muted">{evidenceItems.length} 项</span>
-                    </h3>
-                    {evidenceItems.map((item) => (
-                      <div key={item.key} className="mb-3 last:mb-0">
-                        <div className="mb-1 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-muted">{EV_LABELS[item.key] || item.key}</span>
-                          {/* code（命令/curl）与 json（数组/对象证据，如受影响端点列表）都是代码块展示，
-                              同样需要复制——之前只判 code，json 块被漏掉了复制入口。 */}
-                          {(item.kind === 'code' || item.kind === 'json') && (
-                            <CopyButton copied={copiedKey === item.key} onClick={() => void copy(item.key, item.value)} />
+              {/* Evaluation 评估信息 */}
+              {evItems.length > 0 && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">评估详情</h3>
+                  <div className="space-y-3">
+                    {evItems.map((item) => (
+                      <div key={item.key} className="rounded-lg border border-border bg-surface-2 p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-sm font-medium text-text">
+                            {EV_LABELS[item.key] || item.key}
+                          </span>
+                          {item.kind === 'code' && (
+                            <CopyButton
+                              copied={copiedKey === item.key}
+                              onClick={() => copy(item.key, item.value)}
+                              size="sm"
+                            />
                           )}
                         </div>
-                        {item.kind === 'code' || item.kind === 'json' ? (
-                          <pre className="whitespace-pre-wrap break-all rounded-lg border border-border bg-surface-2 px-3 py-2.5 font-mono text-xs leading-relaxed text-text">
+                        {item.kind === 'code' ? (
+                          <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
+                            {item.value}
+                          </pre>
+                        ) : item.kind === 'json' ? (
+                          <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
                             {item.value}
                           </pre>
                         ) : (
-                          <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-text">{item.value}</div>
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
+                            {item.value}
+                          </p>
                         )}
                       </div>
                     ))}
-                  </section>
-                )}
-
-                {/* 修复建议 */}
-                {finding.remediation && (
-                  <section>
-                    <h3 className="mb-2.5 text-[13px] font-semibold text-text">修复建议</h3>
-                    <div className="rounded-lg border-l-3 border-sev-info bg-sev-info/10 px-3.5 py-3 text-[13px] leading-relaxed text-text">
-                      {finding.remediation}
-                    </div>
-                  </section>
-                )}
-
-                {/* 元信息 */}
-                <section>
-                  <h3 className="mb-2.5 text-[13px] font-semibold text-text">元信息</h3>
-                  <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
-                    {finding.cwe_id && (
-                      <>
-                        <span className="text-muted">CWE</span>
-                        <span className="font-mono text-text">{finding.cwe_id}</span>
-                      </>
-                    )}
-                    {finding.owasp_category && (
-                      <>
-                        <span className="text-muted">OWASP</span>
-                        <span className="font-mono text-text">{finding.owasp_category}</span>
-                      </>
-                    )}
-                    <span className="text-muted">首次发现</span>
-                    <span className="font-mono text-text">{fullTime(finding.created_at)}</span>
                   </div>
                 </section>
-              </div>
-            </>
-          )}
+              )}
+
+              {/* 处置区域 */}
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-text">漏洞处置</h3>
+                <div className="space-y-4 rounded-lg border border-border bg-surface-2 p-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-text">
+                      状态
+                    </label>
+                    <select
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                      className={cn(
+                        'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text',
+                        'outline-none transition-all focus:border-accent focus:glow-accent'
+                      )}
+                    >
+                      {FINDING_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-text">
+                      严重度
+                    </label>
+                    <select
+                      value={severity}
+                      onChange={(e) => setSeverity(e.target.value)}
+                      className={cn(
+                        'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text',
+                        'outline-none transition-all focus:border-accent focus:glow-accent'
+                      )}
+                    >
+                      {SEVERITY_OPTIONS.map((sev) => (
+                        <option key={sev} value={sev}>
+                          {severityLabel[sev] || sev}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-text">
+                      备注
+                    </label>
+                    <textarea
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={4}
+                      placeholder="记录处置思路、修复方案或风险评估…"
+                      className={cn(
+                        'w-full resize-y rounded-lg border border-border bg-surface px-3 py-2',
+                        'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
+                        'outline-none transition-all focus:border-accent focus:glow-accent'
+                      )}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          {/* 底部操作栏 */}
+          <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
+            <Dialog.Close
+              className={cn(
+                'rounded-lg border border-border px-4 py-2 text-sm font-medium text-text',
+                'transition-all hover:bg-surface-2'
+              )}
+            >
+              取消
+            </Dialog.Close>
+            <button
+              type="button"
+              disabled={!changed}
+              onClick={handleSave}
+              className={cn(
+                'rounded-lg px-4 py-2 text-sm font-semibold text-white',
+                'transition-all',
+                changed
+                  ? 'bg-accent hover:bg-accent-hover hover:shadow-lg'
+                  : 'cursor-not-allowed bg-surface-2 text-text-disabled'
+              )}
+            >
+              保存处置
+            </button>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

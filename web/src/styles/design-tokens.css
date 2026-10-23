@@ -1,0 +1,198 @@
+/* ============================================================
+   设计 Token 中心化定义
+   所有设计决策集中在此，便于全局调整与主题扩展
+   ============================================================ */
+
+/* 字体家族 */
+@theme {
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+:root {
+  /* ========== 色彩系统 ========== */
+
+  /* 表面层次（浅色）*/
+  --background: oklch(98.5% 0 0);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0 0);
+  --surface-3: oklch(94% 0 0);
+
+  /* 边框 */
+  --border: oklch(91% 0 0);
+  --border-strong: oklch(85% 0 0);
+  --border-subtle: oklch(95% 0 0);
+
+  /* 文本层次 */
+  --text: oklch(20% 0 0);
+  --text-secondary: oklch(45% 0 0);
+  --text-tertiary: oklch(60% 0 0);
+  --text-disabled: oklch(70% 0 0);
+
+  /* 强调色：浅色主题用深蓝灰（微量饱和度，保持克制）*/
+  --accent: oklch(35% 0.02 250);
+  --accent-hover: oklch(30% 0.02 250);
+  --accent-active: oklch(25% 0.02 250);
+  --accent-soft: oklch(35% 0.02 250 / 0.12);
+  --accent-softer: oklch(35% 0.02 250 / 0.06);
+
+  /* 语义色：威胁等级 */
+  --sev-critical: oklch(58% 0.24 25);
+  --sev-high: oklch(64% 0.19 40);
+  --sev-medium: oklch(75% 0.15 85);
+  --sev-low: oklch(60% 0.02 260);
+  --sev-info: oklch(60% 0.15 240);
+
+  /* 语义色：来源类型 */
+  --source-manual: oklch(65% 0.15 220);
+  --source-auto: oklch(65% 0.15 300);
+
+  /* 语义色：状态 */
+  --status-success: oklch(65% 0.17 162);
+  --status-error: oklch(58% 0.24 25);
+  --status-warning: oklch(75% 0.15 85);
+  --status-info: oklch(60% 0.15 240);
+  --status-neutral: oklch(60% 0.02 260);
+
+  /* ========== 空间系统 ========== */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+
+  /* ========== 圆角系统 ========== */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
+
+  /* ========== 阴影系统 ========== */
+  --shadow-none: none;
+  --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04);
+  --shadow-md: 0 4px 6px oklch(0% 0 0 / 0.07), 0 2px 4px oklch(0% 0 0 / 0.05);
+  --shadow-lg: 0 10px 15px oklch(0% 0 0 / 0.08), 0 4px 6px oklch(0% 0 0 / 0.04);
+  --shadow-xl: 0 20px 25px oklch(0% 0 0 / 0.1), 0 10px 10px oklch(0% 0 0 / 0.04);
+
+  /* ========== 战术终端辉光 ========== */
+  --glow-accent: 0 0 0 1px var(--accent-soft);
+  --glow-accent-strong: 0 0 0 1px var(--accent);
+  --glow-error: 0 0 0 1px oklch(58% 0.24 25 / 0.3);
+
+  /* ========== 过渡动画 ========== */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 350ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ========== Z-index 层级 ========== */
+  --z-dropdown: 50;
+  --z-sticky: 100;
+  --z-fixed: 200;
+  --z-modal-backdrop: 300;
+  --z-modal: 400;
+  --z-popover: 500;
+  --z-tooltip: 600;
+
+  color-scheme: light;
+}
+
+/* ========== 深色主题 ========== */
+.dark {
+  --background: oklch(14% 0.004 285);
+  --surface: oklch(17% 0.004 285);
+  --surface-2: oklch(20% 0.005 285);
+  --surface-3: oklch(23% 0.006 285);
+
+  --border: oklch(27% 0.006 285);
+  --border-strong: oklch(35% 0.008 285);
+  --border-subtle: oklch(22% 0.005 285);
+
+  --text: oklch(94% 0.002 285);
+  --text-secondary: oklch(65% 0.005 285);
+  --text-tertiary: oklch(50% 0.005 285);
+  --text-disabled: oklch(40% 0.005 285);
+
+  /* 强调色：深色主题用浅蓝灰（微量饱和度，保持克制）*/
+  --accent: oklch(85% 0.02 250);
+  --accent-hover: oklch(88% 0.02 250);
+  --accent-active: oklch(92% 0.02 250);
+  --accent-soft: oklch(85% 0.02 250 / 0.15);
+  --accent-softer: oklch(85% 0.02 250 / 0.08);
+
+  --sev-critical: oklch(65% 0.22 25);
+  --sev-high: oklch(70% 0.18 45);
+  --sev-medium: oklch(80% 0.15 90);
+  --sev-low: oklch(55% 0.02 260);
+  --sev-info: oklch(65% 0.15 240);
+
+  --source-manual: oklch(70% 0.14 220);
+  --source-auto: oklch(70% 0.14 300);
+
+  --status-success: oklch(70% 0.16 162);
+  --status-error: oklch(65% 0.22 25);
+  --status-warning: oklch(80% 0.15 90);
+  --status-info: oklch(65% 0.15 240);
+  --status-neutral: oklch(55% 0.02 260);
+
+  --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.3);
+  --shadow-md: 0 4px 6px oklch(0% 0 0 / 0.5), 0 2px 4px oklch(0% 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px oklch(0% 0 0 / 0.6), 0 4px 6px oklch(0% 0 0 / 0.5);
+  --shadow-xl: 0 20px 25px oklch(0% 0 0 / 0.7), 0 10px 10px oklch(0% 0 0 / 0.6);
+
+  /* 战术终端辉光（深色态）：浅蓝灰辉光 */
+  --glow-accent: 0 0 0 1px var(--accent-soft), 0 0 16px oklch(85% 0.02 250 / 0.18);
+  --glow-accent-strong: 0 0 0 1px var(--accent), 0 0 24px oklch(85% 0.02 250 / 0.35);
+  --glow-error: 0 0 0 1px oklch(65% 0.22 25 / 0.4), 0 0 16px oklch(65% 0.22 25 / 0.25);
+
+  color-scheme: dark;
+}
+
+/* ========== 将 CSS 变量桥接到 Tailwind 颜色系统 ========== */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-softer: var(--accent-softer);
+
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-high: var(--sev-high);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-low: var(--sev-low);
+  --color-sev-info: var(--sev-info);
+
+  --color-source-manual: var(--source-manual);
+  --color-source-auto: var(--source-auto);
+
+  --color-status-success: var(--status-success);
+  --color-status-error: var(--status-error);
+  --color-status-warning: var(--status-warning);
+  --color-status-info: var(--status-info);
+  --color-status-neutral: var(--status-neutral);
+}

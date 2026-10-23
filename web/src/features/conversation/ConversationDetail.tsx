@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Square } from 'lucide-react'
-import { abortScan, getConversationUsage, listMessages } from '@/api/client'
+import { Link } from 'react-router-dom'
+import { Square, Network } from 'lucide-react'
+import { abortScan, getConversationUsage, listMessages, listConversations } from '@/api/client'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
@@ -37,10 +38,11 @@ function emptyCopy(source: 'manual' | 'auto') {
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
-  const [loading, setLoading] = useState(false) // 补历史中→骨架屏
-  const [loadError, setLoadError] = useState(false) // 补历史失败→错误重试卡
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('open')
   const [usage, setUsage] = useState<ConversationUsage | null>(null)
+  const [taskId, setTaskId] = useState<string>('')
   const handleRef = useRef<StreamHandle | null>(null)
   const usageDebounceRef = useRef<number | undefined>(undefined)
   const convIdRef = useRef(convId)
@@ -48,9 +50,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
   const hasConv = !!convId
   const startedAt = store.messages[0]?.CreatedAt ?? ''
-  // 权威运行态：后端 usage.running（active_scan/passive_session 是否仍 active）。
   const scanning = hasConv && (usage?.running ?? false)
-  // 顶部三态（进行中/已完成/已中止）用 usage.status 真实态，与左列表共用 scanStatusMeta。
   const topStatus = scanStatusMeta(usage?.status)
 
   const refreshUsage = useCallback(async () => {
@@ -58,12 +58,26 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     if (!reqConv) return
     try {
       const u = await getConversationUsage(reqConv)
-      // stale 防护：在途期间用户已切走会话→丢弃旧响应，避免把上个会话的用量短暂写到当前头部。
-      if (convIdRef.current === reqConv) setUsage(u)
+      if (convIdRef.current === reqConv) {
+        setUsage(u)
+      }
+
+      // 获取taskId（从conversations列表中查找）
+      if (!taskId) {
+        try {
+          const { conversations } = await listConversations(20, 0, '')
+          const conv = conversations.find(c => c.ID === reqConv)
+          if (conv?.TaskID && convIdRef.current === reqConv) {
+            setTaskId(conv.TaskID)
+          }
+        } catch {
+          // 静默失败
+        }
+      }
     } catch {
-      // 静默：用量是增强信息，拉取失败不打断观察。
+      // 静默
     }
-  }, [])
+  }, [taskId])
 
   // 事件驱动刷新：每有新消息落定（seq 增长）防抖 800ms 刷用量，不依赖固定轮询启发。
   const scheduleUsageRefresh = useCallback(() => {
@@ -231,6 +245,16 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 <Square className="h-3 w-3 fill-current" />
                 停止扫描
               </button>
+            )}
+            {taskId && (
+              <Link
+                to={`/exploration-graph?task_id=${taskId}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1 text-[12.5px] font-medium text-text hover:bg-surface-2"
+                title="查看探索图"
+              >
+                <Network className="h-3.5 w-3.5" />
+                探索图
+              </Link>
             )}
           </div>
         </div>

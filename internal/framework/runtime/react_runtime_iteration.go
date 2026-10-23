@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -84,6 +85,26 @@ func (r *DefaultReActRuntime) runIteration(
 
 	// 2. 检查是否有工具调用
 	if len(response.ToolCalls) == 0 {
+		// 空响应不是完成：正文与工具调用双空的助手轮次对 ReAct 协议零信息——
+		// 几乎总是生成预算被思考过程耗尽后截断（finish_reason=length 的常见
+		// 形态）。接受它会让本轮以空 FinalAnswer 收场、调用方把已完成的迭代
+		// 全部作废；这里改为注入纠偏指令继续循环，预算压力随上下文重排自然缓解。
+		if strings.TrimSpace(response.Content) == "" {
+			r.consecutiveEmptyResponses++
+			if r.consecutiveEmptyResponses >= 2 {
+				result.AddAssistantMessage(response.Content, nil, response.Thinking)
+				trace.Status = IterationStatusFailed
+				trace.EndTime = time.Now().UnixMilli()
+				return trace, false, fmt.Errorf("连续 %d 次空响应（生成截断或模型退化）", r.consecutiveEmptyResponses)
+			}
+			result.AddAssistantMessage(response.Content, nil, response.Thinking)
+			result.AddUserMessage("（上一条响应正文为空——生成被截断。请直接输出最终结果正文，不要展开新的思考过程）")
+			trace.Status = IterationStatusFailed
+			trace.EndTime = time.Now().UnixMilli()
+			return trace, false, nil
+		}
+		r.consecutiveEmptyResponses = 0
+
 		// 没有工具调用 = 得出最终答案
 		trace.Status = IterationStatusComplete
 		trace.EndTime = time.Now().UnixMilli()
@@ -102,6 +123,9 @@ func (r *DefaultReActRuntime) runIteration(
 		return trace, true, nil
 	}
 
+	// 2.5 工具调用轮次（无工具调用的路径已在上方 return）：
+	// 有效轮次清空连续空响应计数——空响应止损只统计真正连续的空转。
+	r.consecutiveEmptyResponses = 0
 	// 添加助手消息（包含工具调用；thinking 随消息携带供多轮 tool_use 规范回传）
 	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 

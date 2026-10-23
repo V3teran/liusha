@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Send, Square } from 'lucide-react'
+import { Send, Square, Loader2 } from 'lucide-react'
 import { followUp, startChat } from '@/api/client'
 import { useConversationStore } from '@/stores/conversation'
+import { cn } from '@/lib/utils'
 
 interface ComposerProps {
   convId?: string
@@ -11,14 +12,15 @@ interface ComposerProps {
   onStop: () => void
 }
 
-// 发起器：写 brief 发送。
-// 有 convId 走追加（followUp），否则新建会话（startChat）并向上抛新会话 ID。
-//
-// 首次消息不再必然下发扫描——后端先过意图闸（intent.Classify）：action 才建 task，qa/闲聊只回答。
-// 追加发送不由前端按 scanning 一刀切拦截——passive 会话的 task 往往长期 active（持续收流量），
-// 若在此按 scanning 拦，QA 类追问（passive 下最常见用法）会被永久锁死。真正该拦的只是「意图为
-// action 且扫描在跑」，这个判断后端已经做了（HandleMessage 先判意图，仅 action+busy 才 409）。
-// 前端一律放行，交给后端按 409 busy 精确拒绝，qa 类追问随时可用。
+/**
+ * Composer - 消息输入组件
+ *
+ * 设计改进：
+ * 1. 更现代的输入框样式（圆角、聚焦状态）
+ * 2. 更清晰的按钮层次（主操作 vs 次要操作）
+ * 3. 更友好的交互提示
+ * 4. 更流畅的状态反馈
+ */
 export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const beginThinking = useConversationStore((s) => s.beginThinking)
@@ -32,11 +34,9 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
     setSending(true)
     try {
       if (convId) {
-        // followUp 前快照 seq——user 消息 seq 必 > 此（发送后才新增）；后续 SSE 推高 lastSeq 不影响此快照值。
         const beforeSeq = lastSeq
         await followUp(convId, brief)
         setBrief('')
-        // 占位气泡立起：意图分类+首 token 的空窗里给「在干活」的可见反馈
         beginThinking()
         onAppended(beforeSeq)
       } else {
@@ -53,8 +53,6 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
     }
   }
 
-  // Enter 发送、Shift+Enter 换行——聊天类输入框的通行范式（Slack/Discord/Linear 评论框），
-  // 比原来的 Cmd/Ctrl+Enter 更符合直觉（后者常见于表单提交场景，不是聊天场景）。
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -66,46 +64,95 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
     ? '继续提问 / 追加指令…'
     : '描述要扫的目标 / 任务（URL、账号、测试方向）…'
 
+  const canSend = brief.trim() && !sending
+
   return (
-    <div className="flex flex-shrink-0 flex-col gap-2.5 border-t border-border bg-surface px-4 py-3.5">
-      <div className="flex items-center gap-3">
-        <span className="ml-auto text-[11px] text-faint">Enter 发送 · Shift+Enter 换行</span>
+    <div className="flex flex-shrink-0 flex-col gap-3 border-t border-border bg-surface px-5 py-4">
+      {/* 顶部提示栏 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-text-tertiary">
+          <kbd className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd> 发送 ·
+          <kbd className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px]">Shift+Enter</kbd> 换行
+        </span>
+        {busyMsg && (
+          <span className="text-xs font-medium text-status-error animate-slide-down">
+            {busyMsg}
+          </span>
+        )}
       </div>
-      <div className="rounded-lg border border-border bg-background transition-colors focus-within:border-accent">
+
+      {/* 输入区域 */}
+      <div
+        className={cn(
+          'rounded-xl border-2 bg-background transition-all duration-200',
+          'focus-within:border-accent focus-within:glow-accent',
+          busyMsg ? 'border-status-error' : 'border-border'
+        )}
+      >
         <textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={placeholder}
-          className="w-full min-h-[56px] max-h-[200px] resize-y bg-transparent px-3 pt-3 text-sm leading-relaxed text-text outline-none"
+          disabled={sending}
+          className={cn(
+            'w-full min-h-[72px] max-h-[240px] resize-y bg-transparent px-4 pt-3.5 pb-2',
+            'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
+            'outline-none disabled:opacity-50 disabled:cursor-not-allowed'
+          )}
         />
-        <div className="flex items-center justify-end gap-3 px-2.5 py-2">
-          {busyMsg && <span className="text-[12.5px] text-muted">{busyMsg}</span>}
-          {convId && scanning && (
+
+        {/* 底部操作栏 */}
+        <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5">
+          {/* 字数统计 */}
+          <span className="text-xs text-text-tertiary tabular-nums">
+            {brief.length > 0 && `${brief.length} 字符`}
+          </span>
+
+          {/* 操作按钮组 */}
+          <div className="flex items-center gap-2">
+            {/* 停止扫描按钮（仅扫描中显示）*/}
+            {convId && scanning && (
+              <button
+                type="button"
+                onClick={onStop}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border-2 border-status-error px-3.5 py-2',
+                  'text-xs font-semibold text-status-error',
+                  'transition-all hover:bg-status-error/10',
+                )}
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+                停止扫描
+              </button>
+            )}
+
+            {/* 发送按钮 */}
             <button
               type="button"
-              onClick={onStop}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-sev-critical px-3.5 py-2 text-[13px] font-semibold text-sev-critical hover:bg-sev-critical/15"
+              disabled={!canSend}
+              onClick={() => void send()}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-lg px-4 py-2',
+                'text-sm font-semibold transition-all',
+                canSend
+                  ? 'bg-accent text-white hover:bg-accent-hover hover:shadow-lg'
+                  : 'bg-surface-2 text-text-disabled cursor-not-allowed'
+              )}
             >
-              <Square className="h-3.5 w-3.5 fill-current" />
-              停止扫描
+              {sending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  发送中
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4" />
+                  发送
+                </>
+              )}
             </button>
-          )}
-          <button
-            type="button"
-            disabled={!brief.trim() || sending}
-            onClick={() => void send()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4.5 py-2 text-[13.5px] font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {sending ? (
-              '发送中…'
-            ) : (
-              <>
-                <Send className="h-3.5 w-3.5" />
-                {convId ? '追加' : '发起扫描'}
-              </>
-            )}
-          </button>
+          </div>
         </div>
       </div>
     </div>

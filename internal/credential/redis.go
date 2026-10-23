@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -26,6 +27,54 @@ var credLog = logx.New("credential")
 //	EXPIRE  <prefix><host> <ttl>    // 整个 host 一起过期
 const fallbackHashKeyPrefix = "credentials:"
 
+// CanonicalHost 把目标地址归一到凭据池的 scope 键：注册主机（不含端口、不含
+// scheme/路径/userinfo）。凭据按主机维度索引的理由：浏览器 Cookie 本就跨端口
+// 共享（端口不参与 Cookie 隔离），Authorization 等会话材料在测试工具链里同样
+// 按主机配置——"111.229.193.40" 与 "111.229.193.40:34280" 指同一份登录态。
+// 归一必须在存储边界单点完成（hashKey 是全部读写的唯一通道）：同一目标若因
+// 调用方书写形态不同而散落多个键，任一读取方都只能看到局部凭据——权威登录态
+// 与自动会话快照互相不可见，重放会拿到过期会话，把真实漏洞整体误证伪。
+func CanonicalHost(addr string) string {
+	h := strings.TrimSpace(addr)
+	if h == "" {
+		return ""
+	}
+	h = strings.ToLower(h)
+	// scheme:// 前缀
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	}
+	// userinfo@
+	if i := strings.LastIndex(h, "@"); i >= 0 {
+		h = h[i+1:]
+	}
+	// 路径 / query / fragment
+	if i := strings.IndexAny(h, "/?#"); i >= 0 {
+		h = h[:i]
+	}
+	// 端口。IPv6 字面量：保留 [] 内主机，剥 ] 后端口。
+	if i := strings.Index(h, "]"); i >= 0 {
+		return strings.Trim(h[:i+1], "[]")
+	}
+	if i := strings.LastIndex(h, ":"); i > 0 && isAllDigits(h[i+1:]) {
+		h = h[:i]
+	}
+	return strings.TrimSuffix(h, ".")
+}
+
+// isAllDigits 判定 s 非空且全为数字（端口段判定）。
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // RedisProvider 是 Provider 的 Redis 实现。
 //
 // keyPrefix 由 cmd 层从 config.Credential.RedisKeyPrefix 注入；
@@ -43,9 +92,10 @@ func NewRedis(client *redis.Client, keyPrefix string) *RedisProvider {
 	return &RedisProvider{client: client, keyPrefix: keyPrefix}
 }
 
-// hashKey 拼接 host hash 的完整 Redis key。
+// hashKey 拼接 host hash 的完整 Redis key。host 经 CanonicalHost 归一——
+// 所有写读共用此单点，调用方传 "host"、"host:port" 或完整 URL 落到同一键。
 func (r *RedisProvider) hashKey(host string) string {
-	return r.keyPrefix + host
+	return r.keyPrefix + CanonicalHost(host)
 }
 
 // BatchSave 用 Pipeline 批量写入；多 host 各自一次 HSET，再可选 EXPIRE。

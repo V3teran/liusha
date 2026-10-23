@@ -105,7 +105,7 @@ type Fact struct {
 
 // PlanningContext 规划上下文
 type PlanningContext struct {
-	Objective         string                  // 根目标描述（任务章程）
+	Objective         string                  // 根目标描述（任务目标）
 	Objectives        []explorationgraph.Node // 全部目标（含派生方向）——规划面向全图
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
@@ -119,13 +119,14 @@ type PlanningContext struct {
 
 // ActionProposal LLM 返回的 Action 提案
 type ActionProposal struct {
-	Type        string                 `json:"type"`        // Action 类型
-	Instruction string                 `json:"instruction"` // 执行指令
-	Complexity  string                 `json:"complexity"`  // 复杂度: simple/moderate/complex
-	Priority    string                 `json:"priority"`    // 优先级: critical/high/medium/low
-	Reason      string                 `json:"reason"`      // 规划理由
-	DependsOn   []string               `json:"depends_on"`  // 依赖的 Action ID
-	Metadata    map[string]interface{} `json:"metadata"`    // 额外元数据
+	Type        string                 `json:"type"`         // Action 类型
+	Instruction string                 `json:"instruction"`  // 执行指令
+	Complexity  string                 `json:"complexity"`   // 复杂度: simple/moderate/complex
+	Priority    string                 `json:"priority"`     // 优先级: critical/high/medium/low
+	Reason      string                 `json:"reason"`       // 规划理由
+	DependsOn   []string               `json:"depends_on"`   // 依赖的 Action ID
+	TriggeredBy []string               `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
+	Metadata    map[string]interface{} `json:"metadata"`     // 额外元数据
 }
 
 // PlanningResponse LLM 响应
@@ -167,7 +168,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
-	// function_tools 白名单过滤（nil=全量，空=空集——严格白名单，与 cli_tools 语义一致）
+	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
 	react := runtime.NewReActRuntime()
 	if registry.Allows(functionTools, "observe_state") {
 		if err := react.RegisterTool(NewObserveStateTool(graph)); err != nil {
@@ -221,14 +222,17 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
       "instruction": "具体要做什么",
       "complexity": "trivial/moderate/complex",
       "priority": "low/medium/high/critical",
-      "depends_on": []
+      "depends_on": [],
+      "triggered_by": []
     }
   ]
 }
 ` + "```\n\n" + `说明：
 - should_continue: 如果任务还未完成，设为true；如果已完成目标或无法继续，设为false
 - actions: 要执行的action列表，如果should_continue=false则为空数组[]
-- 每个action必须包含type、instruction和complexity`,
+- 每个action必须包含type、instruction和complexity
+- depends_on: 本动作须等待完成的其它 action 的 ID（来自上文动作清单）
+- triggered_by: 滋生本动作的已确认发现（Result）的 ID——动作若源于某个已坐实发现（它启发了方向，或它产出的会话/凭据/入口使本动作可行），填其 ID；因果不成立就不填，宁缺勿假`,
 	})
 	if err != nil {
 		i.adaptBudget(err)
@@ -281,7 +285,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 		return nil, fmt.Errorf("获取 Objective 失败: %w", err)
 	}
 	planCtx.Objectives = objectives
-	// 根目标描述（创建序最早 = 任务入口创建的章程）
+	// 根目标描述（创建序最早 = 任务入口创建的根任务目标）
 	if len(objectives) > 0 {
 		var obj struct {
 			Description string `json:"description"`
@@ -512,6 +516,19 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 		existingIDs[a.ID] = true
 	}
 
+	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
+	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
+	resultIDs := map[string]bool(nil)
+	if results, rErr := graph.ListNodesByKind(ctx, taskID, core.KindResult); rErr == nil {
+		resultIDs = make(map[string]bool, len(results))
+		for _, r := range results {
+			resultIDs[r.ID] = true
+		}
+	} else {
+		i.logger.Warn().Err(rErr).Str("task_id", taskID).
+			Msg("查询 Result 失败，本轮跳过 triggered_by 存在性过滤（仅格式校验）")
+	}
+
 	var nodes []explorationgraph.Node
 	for _, proposal := range proposals {
 		// 生成节点 ID
@@ -532,16 +549,23 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 				}
 			}
 		}
+		validTriggeredBy := filterValidDependencies(proposal.TriggeredBy, resultIDs)
+		if len(validTriggeredBy) < len(proposal.TriggeredBy) {
+			i.logger.Warn().Int("dropped", len(proposal.TriggeredBy)-len(validTriggeredBy)).
+				Str("action_id", actionID).
+				Msg("过滤掉无效/幻影的 triggered_by（图中不存在该 result——因果溯源只认真实节点）")
+		}
 
 		// 构建 Action 内容
 		actionContent := map[string]interface{}{
-			"type":        proposal.Type,
-			"instruction": proposal.Instruction,
-			"complexity":  complexity,
-			"priority":    priority,
-			"reason":      proposal.Reason,
-			"depends_on":  validDependsOn,
-			"metadata":    proposal.Metadata,
+			"type":         proposal.Type,
+			"instruction":  proposal.Instruction,
+			"complexity":   complexity,
+			"priority":     priority,
+			"reason":       proposal.Reason,
+			"depends_on":   validDependsOn,
+			"triggered_by": validTriggeredBy,
+			"metadata":     proposal.Metadata,
 		}
 
 		contentBytes, _ := json.Marshal(actionContent)

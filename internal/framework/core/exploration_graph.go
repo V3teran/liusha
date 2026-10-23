@@ -37,33 +37,20 @@ const (
 // RelationKind 是探索图关系的标准类型
 type RelationKind string
 
+// 边关系枚举与 DB 约束 ck_exploration_edge_rel 严格一致（migration 0174 收紧）：
+// 只保留有真实生产者的关系。删除历史死值（confirms/refutes/enables/belongs_to）
+// ——它们自引入起零生产者，语义由现存三种关系完整承担。
 const (
-	// RelationGenerates 表示生成关系（action → observation）
-	// 语义：动作生成观察结果
+	// RelationGenerates 表示生成关系（推导链：objective → action、
+	// action → observation、observation → result）
 	RelationGenerates RelationKind = "generates"
-
-	// RelationConfirms 表示确认关系（evidence → observation）
-	// 语义：executor 侧证据（content.type=evidence 的 observation）确认假设
-	RelationConfirms RelationKind = "confirms"
-
-	// RelationRefutes 表示反驳关系（evidence → observation）
-	// 语义：executor 侧证据反驳假设
-	RelationRefutes RelationKind = "refutes"
-
-	// RelationEnables 表示使能关系（result → action）
-	// 语义：结果使能新动作。预留——当前无生产者（planner 派生用 triggers）
-	RelationEnables RelationKind = "enables"
 
 	// RelationDependsOn 表示依赖关系（action → action）
 	// 语义：动作依赖另一个动作完成
 	RelationDependsOn RelationKind = "depends_on"
 
-	// RelationBelongsTo 表示归属关系（action → objective）
-	// 语义：动作服务于目标。预留——当前无生产者
-	RelationBelongsTo RelationKind = "belongs_to"
-
 	// RelationTriggers 表示触发关系（result → objective/action）
-	// 语义：结果触发新的目标或下一轮动作
+	// 语义：发现滋生动作/新方向——某个坐实结果催生了后续探索
 	RelationTriggers RelationKind = "triggers"
 )
 

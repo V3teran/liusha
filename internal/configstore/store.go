@@ -40,6 +40,7 @@ type skillStore interface {
 	GetByID(ctx context.Context, id string) (skillstore.Skill, error)
 	GetByCode(ctx context.Context, code string) (skillstore.Skill, error)
 	List(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
+	Count(ctx context.Context, p skillstore.ListParams) (int, error)
 	ListEnabled(ctx context.Context) ([]skillstore.Skill, error)
 	Create(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
 	Update(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
@@ -253,6 +254,11 @@ func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
 // 原因：支持搜索和分页，key 空间无限，缓存收益低
 func (s *Store) ListSkills(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error) {
 	return s.skills.List(ctx, p)
+}
+
+// CountSkills 统计 Skill 数量（直穿 DB，不缓存）
+func (s *Store) CountSkills(ctx context.Context, p skillstore.ListParams) (int, error) {
+	return s.skills.Count(ctx, p)
 }
 
 // UpdateSkill 更新 Skill，失效缓存（单条键 + 启用列表键）

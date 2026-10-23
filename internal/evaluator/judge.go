@@ -35,7 +35,7 @@ type RouterJudge struct {
 	router        *llm.Router
 	logger        zerolog.Logger
 	thoughts      reasoning.Tap      // 思考流出口（认知循环注入；nil=不流式）
-	functionTools []string           // function_tools 白名单（nil=全量；空=空集）
+	functionTools []string           // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
 	extraTools    []registry.Tool    // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
 	cliManifest   *manifest.Manifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
 	skills        []*skill.Card      // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）

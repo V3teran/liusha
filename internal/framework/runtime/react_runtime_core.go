@@ -22,6 +22,11 @@ type DefaultReActRuntime struct {
 	// consecutiveToolFailures 是本轮 Run 内连续工具失败计数（跨迭代累计，
 	// 成功即清零）——连续失败止损的依据。Run 开始时归零。
 	consecutiveToolFailures int
+
+	// consecutiveEmptyResponses 是本轮 Run 内连续空响应计数（正文与工具调用
+	// 双空，通常为生成截断）。空响应触发纠偏续跑；连续两次判截断绝症、报错
+	// 交调用方重试阶梯。任何非空响应清零。Run 开始时归零。
+	consecutiveEmptyResponses int
 }
 
 // NewReActRuntime 创建 ReAct 运行时
@@ -68,6 +73,7 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 		return nil, err
 	}
 	r.consecutiveToolFailures = 0
+	r.consecutiveEmptyResponses = 0
 	if startIteration == 1 {
 		r.initializeNewExecution(config, result)
 	}

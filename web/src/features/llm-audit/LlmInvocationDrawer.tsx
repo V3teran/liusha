@@ -233,7 +233,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                       <CopyButton
                         copied={copiedKey === 'raw'}
                         onClick={() => void copy('raw', JSON.stringify(detail.result, null, 2))}
-                        label="复制原始响应 JSON（完整字段）"
                         className="text-[10.5px] opacity-85"
                       />
                     </div>

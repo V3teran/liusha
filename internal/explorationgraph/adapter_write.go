@@ -122,9 +122,10 @@ func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.R
 	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{Content: content})
 }
 
-// UpdateActionStateWithReason 更新 action 状态和阻塞原因（单条 UPDATE，原子生效）。
-// aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。
-func (s *Store) UpdateActionStateWithReason(ctx context.Context, id string, state State, blockedReason *string) error {
+// TransitionState 迁移节点状态（action/objective 通用）并可选附带原因。
+// 单条 UPDATE 原子生效；aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。
+// reason 落 metadata.blocked_reason（依赖阻塞 / kill 与判死理由等）。
+func (s *Store) TransitionState(ctx context.Context, id string, state State, reason *string) error {
 	// 先检查当前状态（防止覆盖 aborted）
 	current, err := s.GetNode(ctx, id)
 	if err != nil {
@@ -140,9 +141,9 @@ func (s *Store) UpdateActionStateWithReason(ctx context.Context, id string, stat
 		State: string(state),
 	}
 
-	if blockedReason != nil {
+	if reason != nil {
 		update.Metadata = map[string]interface{}{
-			"blocked_reason": *blockedReason,
+			"blocked_reason": *reason,
 		}
 	}
 

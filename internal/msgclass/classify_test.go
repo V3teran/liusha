@@ -2,6 +2,7 @@ package msgclass
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	llm "github.com/V3teran/liusha/internal/framework/llm"
@@ -37,7 +38,10 @@ func TestClassify(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := Classify(context.Background(), fakeGen{reply: c.reply}, "用户消息")
+			got, err := Classify(context.Background(), fakeGen{reply: c.reply}, "用户消息")
+			if err != nil {
+				t.Fatalf("reply=%q 意外错误: %v", c.reply, err)
+			}
 			if got != c.want {
 				t.Errorf("reply=%q want %v got %v", c.reply, c.want, got)
 			}
@@ -45,9 +49,16 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestClassify_ErrorFallsBackQA(t *testing.T) {
-	got := Classify(context.Background(), fakeGen{err: context.DeadlineExceeded}, "x")
+func TestClassify_ErrorReturnsError(t *testing.T) {
+	// 生成失败必须显式报错：意图闸失明静默降级 qa 会把扫描请求悄悄变成聊天回答。
+	got, err := Classify(context.Background(), fakeGen{err: context.DeadlineExceeded}, "x")
+	if err == nil {
+		t.Fatal("调用失败应返回 error，得 nil")
+	}
 	if got != KindQA {
-		t.Errorf("调用失败应默认 qa，得 %v", got)
+		t.Errorf("错误返回时应携带保守缺省 qa，得 %v", got)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error 应保留底层原因，得 %v", err)
 	}
 }

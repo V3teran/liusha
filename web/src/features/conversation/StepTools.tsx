@@ -7,16 +7,10 @@ import { ToolResultCard } from './cards/ToolResultCard'
 
 interface StepToolsProps {
   tools: Message[]
-  /** 执行中的 tool_call Seq 集合（任务活跃时计算）；组内任一执行中 → 组头 spinner。 */
   runningSeqs?: Set<number>
-  /** 调用→结果配对（一动作一卡）；缺省时不配对（历史兼容渲染）。 */
   pairs?: { matched: Map<number, Message>; orphanResults: Message[] }
 }
 
-// 步内工具折叠（方案 B）：一次推理之下的若干工具动作聚成独立一行，缩进对齐卡片正文（ml-9），
-// 点击展开。工具动作不是推理，故独立成行而非折进推理卡；默认收起减少噪音。
-// 一动作一卡：call 与配对 result 同卡呈现（业界动作卡范式）；组头 spinner 在默认
-// 折叠态也可见执行进展；孤儿结果（call 丢失）以独立结果卡兜底。
 export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -26,8 +20,6 @@ export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
 
   const running = !!runningSeqs && calls.some((t) => runningSeqs.has(t.Seq))
 
-  // 工具预览：按类别聚合「次数」——计数用「次」(callCount 总次数)反映工作量，预览用
-  // 「类别 ×次数」(run_command ×5、drive_browser ×2)反映干了啥+各几次。
   const counts: Record<string, number> = {}
   for (const t of tools) {
     if (t.Metadata?.kind !== 'tool_call') continue
@@ -42,7 +34,7 @@ export function StepTools({ tools, runningSeqs, pairs }: StepToolsProps) {
   const preview = entries.length > 4 ? `${head} 等` : head
 
   return (
-    <div className="ml-9 max-w-[85%] pb-[18px]">
+    <div className="ml-9 max-w-3xl pb-5">
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}

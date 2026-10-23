@@ -1,23 +1,19 @@
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
 import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { cn } from '@/lib/utils'
 
-// 每页卡片数（客户端分页缺省档）：4 列 × 3 行的整屏网格。超过才出翻页条，数据少时零干扰。
 const PAGE_SIZE = 12
 
-// 服务端分页描述：父组件已按页取数，外壳只负责渲染翻页条并回调换页。
-// size/onSize 传入时额外渲染每页条数选择器（对齐流量/漏洞模块），缺省时不显示选择器
-// （仍走固定 size 的服务端分页——如仅一次性传参、不需要用户调节的场景）。
 export interface ServerPaging {
-  page: number // 1-based 当前页
+  page: number
   totalPages: number
-  count: number // 总条数（跨页）
-  onPage: (page: number) => void // 换页（传 1-based 目标页）
-  size?: number // 传入时渲染每页条数选择器
+  count: number
+  onPage: (page: number) => void
+  size?: number
   onSize?: (size: number) => void
 }
 
-// 头部搜索框描述：受控输入，值与回调由父组件持有（配合服务端过滤）。
 export interface SearchBox {
   value: string
   onChange: (v: string) => void
@@ -26,22 +22,27 @@ export interface SearchBox {
 
 interface ConfigListShellProps {
   title: string
-  subtitle: string // 一句话说明该资源是什么
+  subtitle: string
   loading: boolean
   error: string
   empty: boolean
   emptyHint: string
-  onNew?: () => void // 缺省 = 不渲染「新建」（只读资源如工具目录）
-  children: ReactNode // 卡片集合（每个资源一张 ConfigRow）
-  search?: SearchBox // 传入 = 头部渲染搜索框
-  server?: ServerPaging // 传入 = 服务端分页（外壳不再客户端切片）；缺省 = 客户端分页
-  headerExtra?: ReactNode // 头部标题行右侧额外控件（如卡片/表格视图切换）
+  onNew?: () => void
+  children: ReactNode
+  search?: SearchBox
+  server?: ServerPaging
+  headerExtra?: ReactNode
 }
 
-// 配置管理三页共用的列表外壳：头部（标题 + 说明 + 搜索 + 新建）+ 加载/错误/空态 + 卡片网格 + 分页。
-// 两种分页模式：
-//   - server 传入：父组件按页取数，外壳原样渲染当前页 children，翻页回调父组件重取。
-//   - server 缺省：客户端分页，外壳按 PAGE_SIZE 切片 children。
+/**
+ * ConfigListShell - 配置管理页面外壳
+ *
+ * 设计改进：
+ * 1. 更现代的头部设计
+ * 2. 更清晰的加载/错误/空状态
+ * 3. 更流畅的卡片网格布局
+ * 4. 更优雅的分页控件
+ */
 export function ConfigListShell({
   title,
   subtitle,
@@ -57,32 +58,26 @@ export function ConfigListShell({
 }: ConfigListShellProps) {
   const items = useMemo(() => Children.toArray(children), [children])
 
-  // 客户端分页态（仅 server 缺省时启用）。
   const clientTotalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
   const [clientPage, setClientPage] = useState(0)
 
-  // 数据量变化（重载/增删）后夹紧页码，避免停在已不存在的空页。
   useEffect(() => {
     setClientPage((p) => Math.min(p, clientTotalPages - 1))
   }, [clientTotalPages])
 
   const pageItems = server ? items : items.slice(clientPage * PAGE_SIZE, clientPage * PAGE_SIZE + PAGE_SIZE)
 
-  // 底部 PagerBar 仅客户端分页（server 缺省）时渲染——server 模式的翻页已内嵌进上方
-  // 筛选行（总数/每页条数同一行，对齐流量/漏洞/LLM 审计），不再重复一份在页面最下方。
-  //
-  // 只要有数据就显示（哪怕只有 1 页）——对齐流量/漏洞模块：翻页按钮始终可见，仅在边界处置灰，
-  // 不是"总页数 > 1 时才整块出现"。
   const showBottomPager = server ? false : items.length > 0
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 标题行：只留标题/说明 + 新建按钮。搜索框/分页移到下方筛选栏——
-          对齐流量/漏洞模块的布局（筛选控件挨着数据，不占标题行）。 */}
-      <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
+      {/* 头部 */}
+      <header className="flex items-center justify-between gap-4 border-b border-border bg-surface/50 px-6 py-5">
         <div className="min-w-0">
-          <h1 className="tac-prompt font-mono text-[15px] font-semibold text-text">{title}</h1>
-          <p className="mt-0.5 text-[12.5px] text-muted">{subtitle}</p>
+          <h1 className="terminal-prompt flex items-center gap-2 font-mono text-base font-semibold text-text">
+            {title}
+          </h1>
+          <p className="mt-1 text-xs text-text-secondary">{subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-3">
           {headerExtra}
@@ -90,35 +85,43 @@ export function ConfigListShell({
             <button
               type="button"
               onClick={onNew}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)]"
+              className={cn(
+                'flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5',
+                'text-sm font-semibold text-white',
+                'transition-all hover:bg-accent-hover hover:shadow-lg'
+              )}
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
               新建
             </button>
           )}
         </div>
       </header>
 
+      {/* 搜索/筛选栏 */}
       {(search || (server?.size != null && server.onSize)) && (
-        <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-6 py-3">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 py-3">
           {search && (
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
               <input
                 type="search"
                 value={search.value}
                 spellCheck={false}
                 placeholder={search.placeholder ?? '搜索'}
                 onChange={(e) => search.onChange(e.target.value)}
-                className="w-64 rounded-md border border-border bg-surface py-1.5 pl-8 pr-2.5 text-[13px] text-text outline-none transition-shadow placeholder:text-faint focus:border-accent focus:shadow-[var(--glow-accent)]"
+                className={cn(
+                  'h-9 w-72 rounded-lg border border-border bg-surface pl-9 pr-3 text-sm text-text',
+                  'outline-none transition-all placeholder:text-text-tertiary',
+                  'focus:border-accent focus:glow-accent'
+                )}
               />
             </div>
           )}
-          {/* 总数 + 每页条数 + 翻页同一行（ml-auto 贴右）——对齐流量/漏洞/LLM 审计模块，
-              不再拆成"筛选行 + 右下角独立翻页条"两处。仅在有数据/非首页时出现，避免空态还占一行。 */}
+
           {server?.size != null && server.onSize && (server.count > 0 || server.page > 1) && (
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-[12px] text-muted tabular-nums">共 {server.count} 项</span>
+            <div className="ml-auto flex items-center gap-2.5">
+              <span className="text-xs text-text-tertiary tabular-nums">共 {server.count} 项</span>
               <PageSizeSelect value={server.size} onChange={server.onSize} />
               <PagerControls
                 page={server.page - 1}
@@ -130,20 +133,35 @@ export function ConfigListShell({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      {/* 内容区 */}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-background p-6">
         {loading ? (
-          <div className="tac-cursor py-16 text-center font-mono text-[13.5px] text-muted">加载中</div>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-3 border-accent border-t-transparent" />
+            <p className="mt-4 font-mono text-sm text-text-secondary terminal-cursor">加载中</p>
+          </div>
         ) : error ? (
-          <div className="py-16 text-center font-mono text-[13.5px] text-sev-critical">⚠ {error}</div>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-status-error/10">
+              <span className="text-2xl">⚠</span>
+            </div>
+            <p className="mt-4 font-mono text-sm text-status-error">{error}</p>
+          </div>
         ) : empty ? (
-          <div className="py-16 text-center text-[13.5px] text-muted">{emptyHint}</div>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2">
+              <span className="text-3xl opacity-50">📦</span>
+            </div>
+            <p className="mt-4 text-sm text-text-secondary">{emptyHint}</p>
+          </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">{pageItems}</div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
+            {pageItems}
+          </div>
         )}
       </div>
 
-      {/* server 模式且缺 size/onSize（固定档位、无需用户调节每页条数）时，翻页仍需要落地——
-          这类场景没有上方筛选行可挂，保留独立底部 PagerBar。 */}
+      {/* 服务端分页且无 size 选择器时的底部分页条 */}
       {server && server.size == null && server.count > 0 && (
         <PagerBar
           page={server.page - 1}
@@ -154,6 +172,7 @@ export function ConfigListShell({
         />
       )}
 
+      {/* 客户端分页的底部分页条 */}
       {showBottomPager && (
         <PagerBar
           page={clientPage}
@@ -167,13 +186,9 @@ export function ConfigListShell({
   )
 }
 
-// 分页按钮：图标化前后翻页（‹ ›），对齐流量/漏洞/LLM 审计模块的样式（compact 模式，即
-// server.size 存在时——client 分页 / 无每页条数选择器的场景保留原文字按钮，不强行套壳）。
 const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
-// 紧凑翻页控件（‹ 页码/总页数 ›）：内嵌进筛选行的每页条数选择器旁，与流量/漏洞/LLM 审计
-// 同一套按钮样式（PAGER_BTN）。page 为 0-based。
 function PagerControls({
   page,
   totalPages,
@@ -194,7 +209,7 @@ function PagerControls({
       >
         <span aria-hidden>‹</span>
       </button>
-      <span className="min-w-[52px] text-center text-[12px] text-muted tabular-nums">
+      <span className="min-w-[52px] text-center text-xs text-text-secondary tabular-nums">
         <span className="font-semibold text-text">{page + 1}</span> / {totalPages}
       </span>
       <button
@@ -210,8 +225,6 @@ function PagerControls({
   )
 }
 
-// 翻页条：page 为 0-based。仅在多于一页时挂出。文字按钮 + Chevron 图标（信息密度低场景，
-// 无每页条数选择器同行可挂——即客户端分页、或 server 模式缺 size/onSize 时的独立底部条）。
 function PagerBar({
   page,
   totalPages,
@@ -225,18 +238,23 @@ function PagerBar({
   onPage: (p: number) => void
   showCount: boolean
 }) {
-  const btn =
-    'flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[12.5px] text-text transition-colors hover:border-accent/60 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent'
+  const btn = cn(
+    'flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5',
+    'text-xs text-text transition-colors',
+    'hover:border-accent/40 hover:bg-surface-2',
+    'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent'
+  )
+
   return (
-    <div className="flex items-center justify-between border-t border-border px-6 py-2.5">
-      {showCount ? <span className="font-mono text-[12px] text-muted">共 {count} 项</span> : <span />}
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between border-t border-border bg-surface/50 px-6 py-3">
+      {showCount ? <span className="font-mono text-xs text-text-secondary">共 {count} 项</span> : <span />}
+      <div className="flex items-center gap-2.5">
         <button type="button" onClick={() => onPage(page - 1)} disabled={page === 0} className={btn}>
           <ChevronLeft className="h-3.5 w-3.5" />
           上一页
         </button>
-        <span className="font-mono text-[12.5px] text-muted">
-          第 {page + 1} / {totalPages} 页
+        <span className="font-mono text-xs text-text-secondary">
+          第 <span className="font-semibold text-text">{page + 1}</span> / {totalPages} 页
         </span>
         <button
           type="button"
@@ -252,8 +270,14 @@ function PagerBar({
   )
 }
 
-// 配置卡片：整卡可点开编辑抽屉。名称为主（大字），描述为次（多行省略），右上徽章/元信息。
-// 不展示 code（内部标识符），面向用户只见名称与描述。
+/**
+ * ConfigRow - 配置卡片
+ *
+ * 设计改进：
+ * 1. 更精致的卡片样式（柔和阴影、圆角）
+ * 2. 更清晰的悬停状态
+ * 3. 更流畅的过渡效果
+ */
 export function ConfigRow({
   name,
   description,
@@ -263,29 +287,32 @@ export function ConfigRow({
   active = false,
 }: {
   name: string
-  description?: string // 次要说明，两行截断
+  description?: string
   onClick: () => void
-  right?: ReactNode // 右侧徽章/元信息
-  dimmed?: boolean // disabled 项淡显
-  active?: boolean // 选中态（主从视图预留）：荧光竖条 + 描边
+  right?: ReactNode
+  dimmed?: boolean
+  active?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={
-        'flex min-h-[120px] flex-col gap-2 rounded-xl border bg-surface px-5 py-4 text-left transition-all ' +
-        (active
-          ? 'tac-row-active'
-          : 'border-border hover:border-accent/60 hover:bg-surface-2 hover:shadow-[var(--glow-accent)]') +
-        (dimmed ? ' opacity-55' : '')
-      }
+      className={cn(
+        'group flex min-h-[130px] flex-col gap-3 rounded-xl border bg-surface p-5 text-left',
+        'transition-all duration-200',
+        active
+          ? 'row-selected shadow-md'
+          : 'border-border shadow-sm hover:border-accent/40 hover:bg-surface-2 hover:shadow-md hover:glow-accent',
+        dimmed && 'opacity-50'
+      )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-text">{name}</span>
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0 flex-1 truncate text-base font-semibold text-text group-hover:text-accent transition-colors">
+          {name}
+        </span>
         {right && <div className="flex-shrink-0">{right}</div>}
       </div>
-      <p className="tac-clamp-2 min-w-0 text-[12.5px] leading-relaxed text-muted">
+      <p className="truncate-2 min-w-0 text-xs leading-relaxed text-text-secondary">
         {description || '暂无描述'}
       </p>
     </button>

@@ -5,16 +5,22 @@ interface StatChipProps {
   title?: string
 }
 
-// 工具栏统计 chip：色条 + label + 数值。LlmAuditPage 里原本 5 个几乎相同的手写 <span>，
-// 只有颜色/文案/数值不同——抽成一个组件，新增一个统计维度只需加一行调用。
+/**
+ * StatChip - 统计芯片组件
+ *
+ * 设计改进：
+ * 1. 更精致的样式（圆角、间距）
+ * 2. 更清晰的视觉层次
+ * 3. 悬停状态反馈
+ */
 export function StatChip({ color, label, value, title }: StatChipProps) {
   return (
     <span
-      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs text-muted"
+      className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs transition-all hover:bg-surface-2"
       title={title}
     >
-      <i className="h-3.5 w-0.5 flex-shrink-0 rounded-full" style={{ background: color }} />
-      {label}
+      <i className="h-4 w-1 flex-shrink-0 rounded-full" style={{ background: color }} />
+      <span className="text-text-secondary">{label}</span>
       <b className="font-mono font-semibold tabular-nums text-text">{value}</b>
     </span>
   )

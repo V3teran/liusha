@@ -219,7 +219,7 @@ func listOpenActions(ctx context.Context, t *testing.T, store *explorationgraph.
 
 func updateActionState(ctx context.Context, t *testing.T, store *explorationgraph.Store, actionID string, newState string) {
 	t.Helper()
-	if err := store.UpdateActionStateWithReason(ctx, actionID, explorationgraph.State(newState), nil); err != nil {
+	if err := store.TransitionState(ctx, actionID, explorationgraph.State(newState), nil); err != nil {
 		t.Fatalf("更新 action %s 状态: %v", actionID, err)
 	}
 }

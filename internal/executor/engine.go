@@ -27,7 +27,7 @@ type Engine struct {
 	findings       FindingLister
 	graph          *explorationgraph.Store // 探索图存储
 	registry       *Registry               // 使用 executor 包的 Registry
-	functionTools  []string                // function_tools 白名单（nil=全量）
+	functionTools  []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
 	toolsManifest  ToolsManifest           // 过滤后的 CLI 工具清单
 	skills         []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
 	charter        string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
@@ -47,7 +47,7 @@ type EngineConfig struct {
 	Findings       FindingLister
 	Graph          *explorationgraph.Store
 	Registry       *Registry
-	FunctionTools  []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
+	FunctionTools  []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 	ToolsManifest  ToolsManifest // 过滤后的 CLI 工具清单
 	Skills         []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
 	SystemPrompt   string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）

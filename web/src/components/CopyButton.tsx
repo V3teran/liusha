@@ -4,32 +4,47 @@ import { cn } from '@/lib/utils'
 interface CopyButtonProps {
   copied: boolean
   onClick: () => void
-  label?: string // tooltip/读屏文案，默认「复制」
-  copiedLabel?: string // 已复制态 tooltip，默认「已复制」
+  size?: 'sm' | 'md'
   className?: string
 }
 
-// 统一的「复制」按钮：全站唯一图标形态（16px + title 提示）——业界消息操作
-// 惯例（hover 可辨、不占空间、无文字冗余）。淡色常显 → hover 强调色 + 底色；
-// 点击后短暂切到已复制态（Check + 强调色）。label 仅作 tooltip，不渲染文字。
-export function CopyButton({ copied, onClick, label = '复制', copiedLabel = '已复制', className }: CopyButtonProps) {
-  const text = copied ? copiedLabel : label
+/**
+ * CopyButton - 复制按钮组件
+ *
+ * 设计改进：
+ * 1. 支持不同尺寸
+ * 2. 更清晰的状态反馈（图标切换 + 颜色变化）
+ * 3. 更流畅的过渡动画
+ */
+export function CopyButton({ copied, onClick, size = 'md', className }: CopyButtonProps) {
+  const sizeClasses = {
+    sm: 'h-7 w-7 p-1.5',
+    md: 'h-8 w-8 p-2',
+  }
+
+  const iconSizes = {
+    sm: 'h-3.5 w-3.5',
+    md: 'h-4 w-4',
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
-      title={text}
-      aria-label={text}
+      aria-label={copied ? '已复制' : '复制'}
       className={cn(
-        'inline-flex flex-shrink-0 items-center justify-center rounded-md p-1.5 transition-colors',
-        copied ? 'text-accent' : 'text-faint hover:bg-surface-2 hover:text-accent',
-        className,
+        'inline-flex items-center justify-center rounded-md',
+        'text-text-tertiary transition-all duration-200',
+        'hover:bg-surface-2 hover:text-accent',
+        copied && 'text-status-success',
+        sizeClasses[size],
+        className
       )}
     >
       {copied ? (
-        <Check className="h-4 w-4" aria-hidden="true" />
+        <Check className={cn(iconSizes[size], 'animate-scale-in')} strokeWidth={2.5} />
       ) : (
-        <Copy className="h-4 w-4" aria-hidden="true" />
+        <Copy className={iconSizes[size]} strokeWidth={2} />
       )}
     </button>
   )

@@ -48,7 +48,7 @@ type AgentConfig struct {
 	EventBus      bus.Bus
 	Logger        zerolog.Logger
 	PollInterval  time.Duration // 默认 10s
-	FunctionTools []string      // function_tools 白名单（agent 配置；nil=全量，空=空集）
+	FunctionTools []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 }
 
 // NewAgent 创建 planner Agent。

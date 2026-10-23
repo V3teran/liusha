@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { ChevronRight, Search, StickyNote } from 'lucide-react'
+import { ChevronRight, Search, StickyNote, TrendingUp } from 'lucide-react'
 import { updateFindingTriage } from '@/api/client'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
@@ -19,20 +19,19 @@ function sevVar(sev: string): string {
   return severityColor[sev.toLowerCase()] ?? '#6e7681'
 }
 
-// 分页按钮：图标化前后翻页（‹ ›），对齐流量模块 TrafficPage 的样式。
 const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
 const columnHelper = createColumnHelper<FindingRow>()
 
-// 漏洞页（全局台账）：跨 task/host 展示所有漏洞（active + passive），支持 triage 处置流转。
-// 布局：紧凑的一行 severity 统计条（并入筛选栏上方，不再是占地 100px 的独立大卡片）+
-// 搜索/筛选栏 + TanStack Table 渲染的密集表格（真实 <table> 语义，列宽由 column def 单点定义，
-// 不再是列头/数据行各自一份 grid-cols 字符串手动同步）。
-// 每行整行可点 → 右侧详情抽屉（evidence/PoC/修复建议/状态·严重度·备注编辑）；行尾 › 展开提示。
-//
-// 数据层走 React Query + URL state（对齐流量模块 useTrafficQueries/useTrafficFilters）：
-// 服务端分页（seq desc，最新优先），筛选/page/size 持久化进 URL，可刷新/分享还原。
+/**
+ * FindingsPage - 漏洞管理页面
+ *
+ * 设计改进：
+ * 1. 更紧凑的统计卡片（减少视觉噪声）
+ * 2. 更清晰的表格层次
+ * 3. 更流畅的交互反馈
+ */
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize } = useFindingFilters()
   const queryClient = useQueryClient()
@@ -49,20 +48,17 @@ export function FindingsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
 
-  // 前端搜索过滤后的行（后端已按维度筛 + 分页，这里叠加标题/host/path 模糊，仅作用于当前页）。
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return rows
     return rows.filter((f) => `${f.summary}${f.host}${f.target?.path ?? ''}`.toLowerCase().includes(q))
   }, [rows, query])
 
-  // severity 计数（紧凑统计条），基于当前页可见集——分页后不再是全量口径，仅反映本页分布。
   const sevCounts = useMemo(
     () => SEVERITIES.map((s) => ({ sev: s, n: visible.filter((f) => f.severity.toLowerCase() === s).length })),
     [visible],
   )
 
-  // 点统计条某个 severity 段 = 按该 severity 筛选（重拉；再点取消）。
   const toggleSevFilter = (sev: string) => setFilters({ ...filters, severity: filters.severity === sev ? '' : sev })
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: ['findings', 'list'] })
@@ -72,7 +68,6 @@ export function FindingsPage() {
     setDrawerOpen(true)
   }
 
-  // 抽屉内保存 triage（状态 + 严重度 + 备注一起）：成功后重拉当前页（服务端权威覆盖乐观态）。
   const saveTriage = async (payload: { id: string; status: string; severity: string; note: string }) => {
     setSavingId(payload.id)
     try {
@@ -88,35 +83,34 @@ export function FindingsPage() {
 
   const hasFilter = !!(filters.host || filters.severity || filters.status || filters.source)
 
-  // 列定义单点声明列宽——不再是列头/数据行各自一份 grid-cols 字符串手动保持同步。
   const columns = useMemo(
     () => [
       columnHelper.accessor('seq', {
         header: '#',
-        size: 48, // 紧凑对外顺序号（bigserial）——短号可引用，内部主键仍是 uuid
+        size: 48,
         cell: (ctx) => (
-          <span className="block text-right font-mono text-[12px] tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
+          <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
         ),
       }),
       columnHelper.accessor('severity', {
         header: '严重度',
-        size: 76, // 相对权重（非像素）——经 columnWidthPercents 换算成百分比，随容器宽度缩放
+        size: 90,
         cell: (ctx) => {
           const sev = ctx.getValue()
-          return (
-            <Badge color={sevVar(sev)}>{severityLabel[sev.toLowerCase()] || sev}</Badge>
-          )
+          return <Badge color={sevVar(sev)} size="sm">{severityLabel[sev.toLowerCase()] || sev}</Badge>
         },
       }),
       columnHelper.accessor('summary', {
         header: '漏洞',
-        size: 320, // 权重最大——占比例布局里的剩余大头空间
+        size: 320,
         cell: (ctx) => {
           const f = ctx.row.original
           return (
-            <span className="flex items-center gap-1.5 overflow-hidden truncate">
-              {f.summary}
-              {f.triage_note && <StickyNote className="h-3 w-3 flex-shrink-0 text-muted" aria-label="有处置备注" />}
+            <span className="flex items-center gap-2 overflow-hidden">
+              <span className="truncate">{f.summary}</span>
+              {f.triage_note && (
+                <StickyNote className="h-3.5 w-3.5 flex-shrink-0 text-text-tertiary" aria-label="有处置备注" />
+              )}
             </span>
           )
         },
@@ -128,7 +122,7 @@ export function FindingsPage() {
         cell: (ctx) => {
           const f = ctx.row.original
           return (
-            <span className="overflow-hidden truncate font-mono text-[11.5px] text-muted">
+            <span className="overflow-hidden truncate font-mono text-xs text-text-secondary">
               {f.target?.method} {f.host}
               {f.target?.path}
               {f.cwe_id && ` · ${f.cwe_id}`}
@@ -138,12 +132,13 @@ export function FindingsPage() {
       }),
       columnHelper.accessor('source', {
         header: '来源',
-        size: 72,
+        size: 90,
         cell: (ctx) => {
           const source = ctx.getValue()
           return (
             <Badge
               dot={false}
+              size="sm"
               color={source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
             >
               {source === 'auto' ? '被动代理' : '主动下发'}
@@ -153,17 +148,17 @@ export function FindingsPage() {
       }),
       columnHelper.accessor('status', {
         header: '状态',
-        size: 96,
+        size: 90,
         cell: (ctx) => {
           const meta = findingStatusMeta(ctx.getValue())
-          return <Badge color={meta.color}>{meta.label}</Badge>
+          return <Badge color={meta.color} size="sm">{meta.label}</Badge>
         },
       }),
       columnHelper.display({
         id: 'expand',
         header: '',
-        size: 20,
-        cell: () => <ChevronRight className="h-4 w-4 text-muted opacity-50" />,
+        size: 32,
+        cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
       }),
     ],
     [],
@@ -182,36 +177,55 @@ export function FindingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-5.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {listQuery.isPending ? (
-          <div className="py-16 text-center text-[13.5px] text-muted">加载中…</div>
+          <div className="py-16 text-center text-sm text-text-secondary">
+            <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <p className="mt-3">加载中…</p>
+          </div>
         ) : listError ? (
-          <div className="py-16 text-center text-[13.5px] text-sev-critical">⚠ {listError}</div>
+          <div className="py-16 text-center text-sm text-status-error">⚠ {listError}</div>
         ) : rows.length === 0 ? (
-          <div className="py-16 text-center text-[13.5px] text-muted">
+          <div className="py-16 text-center text-sm text-text-secondary">
             {hasFilter ? '当前筛选无匹配漏洞' : '暂无漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此'}
           </div>
         ) : (
           <>
-            {/* 顶部汇总条：大总数 + severity 堆叠占比条 + 可点图例。此区块信息密度低但是本页
-                第一眼要看的东西——总数、待处理数、严重度分布——字号故意放大，不做成紧凑单行。 */}
-            <div className="mb-4 flex items-center gap-8 rounded-[18px] border border-border bg-surface px-5.5 py-4.5 shadow">
-              <div className="flex flex-shrink-0 items-center gap-3.5">
-                <span className="text-[48px] font-extrabold leading-none tracking-tight text-text tabular-nums">
-                  {total}
-                </span>
-                <span className="text-[13px] leading-relaxed text-muted">
-                  漏洞总数
-                  <br />
-                  <em className="text-xs font-normal not-italic text-faint">
-                    {visible.filter((f) => f.status === 'open').length} 待处理 ·{' '}
-                    {visible.filter((f) => f.status === 'confirmed').length} 已确认
-                    <span className="ml-1">（本页）</span>
-                  </em>
-                </span>
+            {/* 紧凑统计卡片 */}
+            <div className="mb-5 flex items-center gap-6 rounded-xl border border-border bg-surface px-6 py-4 shadow-sm">
+              {/* 总数指示 */}
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-accent/10">
+                  <TrendingUp className="h-7 w-7 text-accent" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold tabular-nums text-text">{total}</div>
+                  <div className="text-xs text-text-secondary">漏洞总数</div>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex h-4 gap-0.5 overflow-hidden rounded-full bg-surface-2/60">
+
+              {/* 分隔线 */}
+              <div className="h-12 w-px bg-border" />
+
+              {/* 快速统计 */}
+              <div className="flex flex-1 items-center gap-4 text-xs">
+                <div>
+                  <span className="text-text-tertiary">待处理</span>
+                  <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
+                    {visible.filter((f) => f.status === 'open').length}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-text-tertiary">已确认</span>
+                  <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
+                    {visible.filter((f) => f.status === 'confirmed').length}
+                  </span>
+                </div>
+              </div>
+
+              {/* 严重度分布条 */}
+              <div className="flex-1">
+                <div className="mb-2 flex h-3 gap-0.5 overflow-hidden rounded-full bg-surface-2">
                   {sevCounts
                     .filter((c) => c.n)
                     .map((x) => (
@@ -222,13 +236,13 @@ export function FindingsPage() {
                         title={`${severityLabel[x.sev]} ${x.n}`}
                         style={{ flex: x.n, background: sevVar(x.sev) }}
                         className={cn(
-                          'rounded-[3px] transition-opacity hover:opacity-80',
-                          filters.severity === x.sev && 'ring-2 ring-inset ring-text',
+                          'rounded-sm transition-all hover:opacity-80',
+                          filters.severity === x.sev && 'ring-2 ring-inset ring-white',
                         )}
                       />
                     ))}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-x-4.5 gap-y-2 text-[12.5px] text-muted">
+                <div className="flex flex-wrap gap-3 text-xs">
                   {sevCounts.map((x) => (
                     <button
                       key={x.sev}
@@ -236,45 +250,48 @@ export function FindingsPage() {
                       disabled={!x.n}
                       onClick={() => toggleSevFilter(x.sev)}
                       className={cn(
-                        'select-none rounded-md px-2 py-0.5 transition-colors',
+                        'flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors',
                         x.n ? 'hover:bg-surface-2' : 'cursor-default opacity-40',
-                        filters.severity === x.sev && 'bg-surface-2 text-text ring-1 ring-inset ring-border-strong',
+                        filters.severity === x.sev && 'bg-surface-2 ring-1 ring-inset ring-border-strong',
                       )}
                     >
-                      <i className="mr-1.5 inline-block h-2.5 w-2.5 rounded-[3px] align-[-1px]" style={{ background: sevVar(x.sev) }} />
-                      {severityLabel[x.sev]} <b className="text-text tabular-nums">{x.n}</b>
+                      <span className="h-2 w-2 rounded-sm" style={{ background: sevVar(x.sev) }} />
+                      <span className="text-text-secondary">{severityLabel[x.sev]}</span>
+                      <span className="font-mono font-semibold tabular-nums text-text">{x.n}</span>
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* 搜索 + 筛选栏 */}
-            <div className="mb-3.5 flex items-center gap-2.5">
-              <div className="flex h-9 flex-1 items-center gap-2 rounded-[10px] border border-border bg-surface px-3">
-                <Search className="h-4 w-4 flex-shrink-0 text-muted" />
+            {/* 搜索筛选栏 */}
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-3 transition-colors focus-within:border-accent focus-within:glow-accent">
+                <Search className="h-4 w-4 flex-shrink-0 text-text-tertiary" />
                 <input
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索漏洞标题 / host / 路径…（仅筛当前页）"
+                  placeholder="搜索漏洞标题 / host / 路径…"
                   spellCheck={false}
-                  className="flex-1 bg-transparent text-[13.5px] text-text outline-none placeholder:text-muted"
+                  className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-tertiary"
                 />
               </div>
+
               <select
                 value={filters.source}
                 onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+                className="h-9 w-32 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
               >
                 <option value="">全部来源</option>
                 <option value="manual">主动下发</option>
                 <option value="auto">被动代理</option>
               </select>
+
               <select
                 value={filters.status}
                 onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="w-[120px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+                className="h-9 w-32 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
               >
                 <option value="">全部状态</option>
                 {FINDING_STATUS_OPTIONS.map((o) => (
@@ -283,10 +300,11 @@ export function FindingsPage() {
                   </option>
                 ))}
               </select>
+
               <select
                 value={filters.host}
                 onChange={(e) => setFilters({ ...filters, host: e.target.value })}
-                className="w-[180px] rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
+                className="h-9 w-44 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
               >
                 <option value="">全部 host</option>
                 {(hostsQuery.data ?? []).map((h) => (
@@ -296,9 +314,9 @@ export function FindingsPage() {
                 ))}
               </select>
 
-              {/* 总数 + 每页条数 + 翻页——与流量模块同一套控件与交互。 */}
-              <span className="flex-shrink-0 pl-0.5 text-[12.5px] text-muted tabular-nums">共 {compactNumber(total)} 条</span>
+              <span className="flex-shrink-0 text-xs text-text-tertiary tabular-nums">共 {compactNumber(total)} 条</span>
               <PageSizeSelect value={size} onChange={setSize} />
+
               <div className="flex flex-shrink-0 items-center gap-1.5">
                 <button
                   type="button"
@@ -309,7 +327,7 @@ export function FindingsPage() {
                 >
                   <span aria-hidden>‹</span>
                 </button>
-                <span className="min-w-[52px] text-center text-[12px] text-muted tabular-nums">
+                <span className="min-w-[52px] text-center text-xs text-text-secondary tabular-nums">
                   <span className="font-semibold text-text">{page}</span> / {totalPages}
                 </span>
                 <button
@@ -324,10 +342,8 @@ export function FindingsPage() {
               </div>
             </div>
 
-            {/* 密集表格：真实 <table> 语义，table-fixed + colgroup 百分比宽度——列宽由
-                columnDef.size（相对权重）换算成百分比，随容器宽度等比缩放，不会出现
-                某列固定 px 不变、把其它列挤到断行的问题。 */}
-            <div className="overflow-hidden rounded-[18px] border border-border bg-surface shadow">
+            {/* 表格 */}
+            <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
               <table className="w-full border-collapse table-fixed">
                 <colgroup>
                   {leafColumns.map((col, i) => (
@@ -338,7 +354,7 @@ export function FindingsPage() {
                   {table.getHeaderGroups().map((hg) => (
                     <tr key={hg.id} className="border-b border-border">
                       {hg.headers.map((h) => (
-                        <th key={h.id} className="px-4.5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted opacity-70">
+                        <th key={h.id} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary">
                           {flexRender(h.column.columnDef.header, h.getContext())}
                         </th>
                       ))}
@@ -363,13 +379,13 @@ export function FindingsPage() {
                         }}
                         style={{ '--sev': sevVar(f.severity) } as React.CSSProperties}
                         className={cn(
-                          'cursor-pointer border-b border-l-[3px] border-border border-l-transparent text-[13px] transition-colors',
+                          'group cursor-pointer border-b border-l-2 border-border border-l-transparent text-sm transition-all',
                           'last:border-b-0 hover:bg-surface-2 hover:border-l-[var(--sev)]',
-                          savingId === f.id && 'opacity-55',
+                          savingId === f.id && 'opacity-50',
                         )}
                       >
                         {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="overflow-hidden px-4.5 py-3">
+                          <td key={cell.id} className="overflow-hidden px-4 py-3">
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </td>
                         ))}

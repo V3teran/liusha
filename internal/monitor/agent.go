@@ -55,7 +55,7 @@ type Config struct {
 	Interval   time.Duration // 评估间隔，默认 6 分钟
 	Logger     zerolog.Logger
 
-	FunctionTools []string // function_tools 白名单（agent 配置；nil=全量，空=空集）
+	FunctionTools []string // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 
 	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
 	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
@@ -89,7 +89,7 @@ func New(cfg Config) *Agent {
 	// 创建指标收集器
 	metricsCollector := metrics.NewCollector(cfg.Graph, cfg.TaskID, cfg.Logger)
 
-	// 注册监察工具（function_tools 白名单过滤；nil=全量，空=空集）
+	// 注册监察工具（function_tools 白名单过滤；nil=拒绝，[]=空集，["*"]=全量）
 	var registryTools []registry.Tool
 	if registry.Allows(cfg.FunctionTools, "get_global_state") {
 		tool := NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector)
@@ -294,7 +294,9 @@ func (a *Agent) buildSystemPrompt() string {
 type GlobalState struct {
 	Objective explorationgraph.ObjectiveNode `json:"objective"`
 	Actions   []explorationgraph.Node        `json:"actions"`
-	Findings  []explorationgraph.Node        `json:"findings"`
+	// Results 是坐实发现（图上 kind=result 节点）。与 finding 表（安全域
+	// 交付物）是两个概念：result 是图状态面，finding 是交付面。
+	Results []explorationgraph.Node `json:"results"`
 
 	// RunningActions 是 running 态动作的已运行时长视图——monitor 的 kill 阈值
 	// 判断依据（e2e 实测：只给原始 created_at/updated_at 时间戳时，LLM 无从

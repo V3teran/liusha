@@ -26,7 +26,7 @@ type View struct {
 	allow map[string]struct{} // nil=全部
 }
 
-// Allow 给 src 建白名单视图。names=nil 表示不过滤（全量）；空 slice=空集。
+// Allow 给 src 建白名单视图。names=nil 表示拒绝（默认拒绝）；空 slice=空集；["*"]=全量。
 // 声明里不存在的名字在 Metas 过滤时自然消失（配置漂移不致命，索引里看不到）。
 func Allow(src Reader, names []string) *View {
 	v := &View{src: src}

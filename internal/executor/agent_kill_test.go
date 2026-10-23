@@ -30,12 +30,12 @@ func TestExecutor_AbortedStateNotOverwritten(t *testing.T) {
 	require.NoError(t, err)
 
 	// 模拟执行开始：open → running
-	err = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateRunning, nil)
+	err = graph.TransitionState(ctx, action, explorationgraph.StateRunning, nil)
 	require.NoError(t, err)
 
 	// 模拟 Monitor kill action
 	reason := "monitor detected stuck for 30 minutes"
-	err = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateAborted, &reason)
+	err = graph.TransitionState(ctx, action, explorationgraph.StateAborted, &reason)
 	require.NoError(t, err)
 	t.Log("✅ Monitor 已 kill action (aborted)")
 
@@ -52,7 +52,7 @@ func TestExecutor_AbortedStateNotOverwritten(t *testing.T) {
 	// 这里模拟检查逻辑
 	if isAborted {
 		t.Log("✅ 检测到 aborted，跳过状态更新")
-		// 不执行 UpdateActionStateWithReason(done/failed)
+		// 不执行 TransitionState(done/failed)
 	} else {
 		// 原来的错误行为：无条件覆盖
 		t.Fatal("❌ 未检测到 aborted，会被错误覆盖")
@@ -83,7 +83,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 	require.NoError(t, err)
 
 	// 正常执行：open → running → done
-	err = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateRunning, nil)
+	err = graph.TransitionState(ctx, action, explorationgraph.StateRunning, nil)
 	require.NoError(t, err)
 
 	// 检查状态（未被 kill）
@@ -93,7 +93,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 
 	if !isAborted {
 		// 正常完成
-		err = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateDone, nil)
+		err = graph.TransitionState(ctx, action, explorationgraph.StateDone, nil)
 		require.NoError(t, err)
 	}
 
@@ -121,14 +121,14 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 	require.NoError(t, err)
 
 	// 执行开始
-	err = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateRunning, nil)
+	err = graph.TransitionState(ctx, action, explorationgraph.StateRunning, nil)
 	require.NoError(t, err)
 
 	// 模拟执行中被 kill（发生在执行完成前）
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		reason := "killed during execution"
-		_ = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateAborted, &reason)
+		_ = graph.TransitionState(ctx, action, explorationgraph.StateAborted, &reason)
 	}()
 
 	// 模拟执行持续 100ms
@@ -143,7 +143,7 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 		// 不执行状态更新
 	} else {
 		// 未被 kill，正常更新
-		_ = graph.UpdateActionStateWithReason(ctx, action, explorationgraph.StateDone, nil)
+		_ = graph.TransitionState(ctx, action, explorationgraph.StateDone, nil)
 	}
 
 	// 验证最终状态

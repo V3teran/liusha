@@ -45,10 +45,10 @@ func buildStopCriteria() string {
 	return sb.String()
 }
 
-// buildObjectiveSection 构建任务目标部分：根目标为章程，全部目标（含派生方向）逐条列出。
+// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体，全部目标（含派生方向）逐条列出。
 func buildObjectiveSection(objective string, objectives []explorationgraph.Node) string {
 	var sb strings.Builder
-	sb.WriteString("## 任务目标（章程）\n")
+	sb.WriteString("## 任务目标\n")
 	if objective != "" {
 		sb.WriteString(objective)
 	} else {
@@ -235,7 +235,8 @@ func buildResultsSection(results []explorationgraph.Node) string {
 			fmt.Fprintf(&sb, "- (解析失败: %v)\n", err)
 			continue
 		}
-		fmt.Fprintf(&sb, "- %s\n", r.Summary)
+		// ID 必须展示：新动作的 triggered_by 因果声明引用它（发现滋生动作）。
+		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, r.Summary)
 	}
 	sb.WriteString("\n")
 	return sb.String()

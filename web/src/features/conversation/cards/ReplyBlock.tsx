@@ -1,43 +1,60 @@
-import { clockTime, fullTime } from '@/lib/format'
-import { agentAccent, agentLabel } from '@/lib/agentColor'
+import { relativeTime, fullTime } from '@/lib/format'
+import { agentProfile } from '@/lib/agentColor'
 import { CopyButton } from '@/components/CopyButton'
 import { CardHeader } from './CardHeader'
 import { Markdown } from './Markdown'
+import { cn } from '@/lib/utils'
 
 interface ReplyBlockProps {
   content: string
-  agentName?: string // 产出答复的 agent（通常是编排）
+  agentName?: string
   createdAt?: string
   copied: boolean
   onCopy: () => void
+  className?: string
 }
 
-// agent 答复块（方案 B）：与用户指令块（CommandBlock）左右对称——用户在右、accent 软底、右上收角；
-// agent 在左、中性 surface 底、左上收角。领头「agent 答复」（agent 色 + 弱化动作）与推理/派发卡
-// 一致。答复是「对用户的最终回复」，是会话轮次的一方，故与用户指令平级左右分置。
-export function ReplyBlock({ content, agentName, createdAt, copied, onCopy }: ReplyBlockProps) {
-  const accent = agentAccent(agentName)
-  const agent = agentLabel(agentName)
+/**
+ * ReplyBlock - AI 回复内容块
+ *
+ * 设计改进：
+ * 1. 更柔和的背景色，减少视觉疲劳
+ * 2. 更清晰的内容层次
+ * 3. 悬停时元信息渐显
+ */
+export function ReplyBlock({ content, agentName, createdAt, copied, onCopy, className }: ReplyBlockProps) {
+  const profile = agentProfile(agentName)
 
   return (
-    <div className="flex justify-start pb-[18px]">
-      <div className="flex max-w-[80%] flex-col items-start">
-        <div className="w-full rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5">
-          <CardHeader agent={agent || undefined} agentColor={accent.accent} action="答复" />
-          <Markdown content={content} className="text-sm leading-relaxed text-text" />
-        </div>
-        <div className="mt-1 flex items-center gap-1.5">
-          {createdAt && (
-            <time
-              className="px-1 font-mono text-[11px] leading-none text-faint"
-              dateTime={createdAt}
-              title={fullTime(createdAt)}
-            >
-              {clockTime(createdAt)}
-            </time>
-          )}
-          <CopyButton copied={copied} onClick={onCopy} />
-        </div>
+    <div
+      className={cn(
+        'group w-full rounded-xl rounded-tl-md border border-transparent bg-surface-2 px-4 py-3',
+        'transition-colors duration-200 hover:border-border-subtle',
+        className
+      )}
+    >
+      <CardHeader
+        agent={profile.label || undefined}
+        agentColor={profile.accent}
+        action="答复"
+      />
+
+      <Markdown
+        content={content}
+        className="mt-2 text-sm leading-relaxed text-text"
+      />
+
+      <div className="mt-3 flex items-center gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        {createdAt && (
+          <time
+            className="px-1 text-xs text-text-tertiary tabular-nums"
+            dateTime={createdAt}
+            title={fullTime(createdAt)}
+          >
+            {relativeTime(createdAt)}
+          </time>
+        )}
+        <CopyButton copied={copied} onClick={onCopy} size="sm" />
       </div>
     </div>
   )

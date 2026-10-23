@@ -32,7 +32,6 @@ function CopyableCell({ value }: { value: string }) {
         <CopyButton
           copied={copiedKey === 'cell'}
           onClick={() => copy('cell', value)}
-          label="复制"
           className="flex-shrink-0 opacity-0 transition-opacity group-hover/cell:opacity-100"
         />
       )}
