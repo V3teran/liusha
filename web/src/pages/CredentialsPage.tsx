@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listCredentials, saveCredentialsBatch, deleteCredentials } from '@/api/client'
+import { listCredentials, deleteCredentials } from '@/api/client'
 import type { Identity } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
@@ -66,7 +66,6 @@ export default function CredentialsPage() {
         error={error}
         empty={hosts.length === 0}
         emptyHint="暂无凭证 · 从代理捕获或手动录入"
-        search={null}
       >
         {hosts.map((host) => (
           <ConfigRow
@@ -122,7 +121,7 @@ export default function CredentialsPage() {
                             </div>
 
                             {id.credentials.map((cred, credIdx) => (
-                              <Field key={credIdx} label={cred.name}>
+                              <Field key={credIdx} label={cred.key}>
                                 <textarea
                                   className={INPUT_CLASS + ' min-h-[4rem] resize-y font-mono text-[12px]'}
                                   value={cred.value}

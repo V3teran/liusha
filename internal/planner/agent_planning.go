@@ -72,7 +72,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 }
 
 // rootObjective 返回任务的根目标节点（创建序最早——根目标由任务入口创建，
-// planner 派生的次级目标晚于它）。规划产出的 Action 以根目标为章程归属。
+// planner 派生的次级目标晚于它）。规划产出的 Action 以根任务目标为归属。
 func (a *Agent) rootObjective(ctx context.Context) (explorationgraph.Node, error) {
 	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
 	if err != nil {
@@ -84,10 +84,10 @@ func (a *Agent) rootObjective(ctx context.Context) (explorationgraph.Node, error
 	return objectives[0], nil
 }
 
-// writeActionsFromPlan 将 planner 返回的 action 节点连同章程归属边
-// （根 objective → action）原子写入图。指令级去重：与图上既有动作
-// instruction 完全一致的提案跳过（语义去重仍靠 LLM 的 refuted 视野，
-// 字面复读在这里结构化拦断）。
+// writeActionsFromPlan 将 planner 返回的 action 节点连同目标归属边
+// （根 objective → action）与发现滋生边（result → action，TRIGGERS）原子写入图。
+// 指令级去重：与图上既有动作 instruction 完全一致的提案跳过（语义去重仍靠
+// LLM 的 refuted 视野，字面复读在这里结构化拦断）。
 func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) error {
 	a.logger.Info().
 		Int("action_count", len(actions)).
@@ -108,9 +108,11 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 	failed, duplicated := 0, 0
 	for i, action := range actions {
 		var c struct {
-			Instruction string `json:"instruction"`
+			Instruction string   `json:"instruction"`
+			TriggeredBy []string `json:"triggered_by"`
 		}
-		if json.Unmarshal(action.Content, &c) == nil && c.Instruction != "" {
+		_ = json.Unmarshal(action.Content, &c)
+		if c.Instruction != "" {
 			if known[c.Instruction] {
 				duplicated++
 				a.logger.Info().Str("instruction", c.Instruction).Msg("提案与既有动作指令重复，跳过写入")
@@ -124,31 +126,41 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 			Str("action_id", action.ID).
 			Msg("准备创建 Action")
 
+		// 边集：目标归属（generates）+ 发现滋生（triggers）——后者是攻击链
+		// 溯源（漏洞A 催生本动作）的图上事实，与节点原子落库。
+		edges := make([]explorationgraph.Edge, 0, 1+len(c.TriggeredBy))
 		if primaryObjective.ID != "" {
-			edge := explorationgraph.Edge{
+			edges = append(edges, explorationgraph.Edge{
 				TaskID:    a.taskID,
 				SrcID:     primaryObjective.ID,
 				Rel:       explorationgraph.RelGenerates,
 				DstID:     action.ID,
 				CreatedAt: time.Now(),
-			}
-			if err := a.graph.CreateNodeWithEdges(ctx, action, []explorationgraph.Edge{edge}); err != nil {
-				failed++
-				a.logger.Error().
-					Err(err).
-					Str("action_id", action.ID).
-					Msg("写入 Action 失败")
-				continue
-			}
+			})
+		}
+		for _, resultID := range c.TriggeredBy {
+			edges = append(edges, explorationgraph.Edge{
+				TaskID:    a.taskID,
+				SrcID:     resultID,
+				Rel:       explorationgraph.RelTriggers,
+				DstID:     action.ID,
+				CreatedAt: time.Now(),
+			})
+		}
+
+		var writeErr error
+		if len(edges) > 0 {
+			writeErr = a.graph.CreateNodeWithEdges(ctx, action, edges)
 		} else {
-			if _, err := a.graph.CreateNode(ctx, action); err != nil {
-				failed++
-				a.logger.Error().
-					Err(err).
-					Str("action_id", action.ID).
-					Msg("写入 Action 失败")
-				continue
-			}
+			_, writeErr = a.graph.CreateNode(ctx, action)
+		}
+		if writeErr != nil {
+			failed++
+			a.logger.Error().
+				Err(writeErr).
+				Str("action_id", action.ID).
+				Msg("写入 Action 失败")
+			continue
 		}
 
 		a.logger.Info().

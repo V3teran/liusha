@@ -156,7 +156,7 @@ func (d *Deps) run(
 
 	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
 	// 周期缺终态语义）。被终止的任务标 aborted，其余标 done。best-effort。
-	d.closeRootObjective(ctx, taskID, result.StopWhy)
+	d.closeObjectives(ctx, taskID, result.StopWhy)
 
 	d.Logger.Info().
 		Str("task_id", taskID).
@@ -174,9 +174,10 @@ func (d *Deps) run(
 	}, nil
 }
 
-// closeRootObjective 把任务的根目标节点置终态（done；被终止的任务 aborted）。
-// 图生命周期自此完整：objective 有始有终，不再永远 open。
-func (d *Deps) closeRootObjective(ctx context.Context, taskID, stopWhy string) {
+// closeObjectives 把任务的全部 open 目标节点置终态（done；被终止的任务
+// aborted）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
+// 有始有终。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
+func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	if d.Graph == nil {
 		return
 	}
@@ -188,8 +189,14 @@ func (d *Deps) closeRootObjective(ctx context.Context, taskID, stopWhy string) {
 	if strings.Contains(stopWhy, "terminate") || strings.Contains(stopWhy, "cancel") {
 		terminal = explorationgraph.StateAborted
 	}
-	if err := d.Graph.UpdateActionStateWithReason(ctx, objectives[0].ID, terminal, nil); err != nil {
-		d.Logger.Warn().Err(err).Str("task_id", taskID).Msg("根目标终态回写失败（objective 保持 open）")
+	for _, obj := range objectives {
+		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {
+			continue // 已终态（done/failed/aborted）不重复迁移
+		}
+		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
+			d.Logger.Warn().Err(err).Str("task_id", taskID).Str("objective_id", obj.ID).
+				Msg("目标终态回写失败（该 objective 保持 open）")
+		}
 	}
 }
 
@@ -454,7 +461,7 @@ func (d *Deps) buildExecutorAgent(
 		Graph:          d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:     agentRunID, // LLM 审计归属本轮 run
 		Registry:       execRegistry,
-		FunctionTools:  cfg.FunctionTools,                                 // function_tools 白名单（nil=全量）
+		FunctionTools:  cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:  filteredManifest,                                  // CLI 工具清单（白名单过滤后）
 		Skills:         skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
 		SystemPrompt:   cfg.SystemPrompt,                                  // 角色章程（agent.system_prompt，前端可调）

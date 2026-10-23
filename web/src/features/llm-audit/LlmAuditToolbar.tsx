@@ -9,10 +9,16 @@ interface LlmAuditToolbarProps {
   stat?: LLMInvocationStat
 }
 
-// 工具栏：会话选择 + 统计 chip（调用数/输入/输出/缓存/耗时）。
+/**
+ * LlmAuditToolbar - LLM 审计工具栏
+ *
+ * 设计改进：
+ * 1. 更紧凑的布局
+ * 2. 统计 chip 使用设计系统颜色
+ */
 export function LlmAuditToolbar({ taskId, onTaskIdChange, stat }: LlmAuditToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-4.5 border-b border-border px-5.5 py-3">
+    <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-3.5">
       <OwnerPicker value={taskId} onChange={onTaskIdChange} />
       {stat && (
         <div className="flex flex-wrap items-center gap-2">

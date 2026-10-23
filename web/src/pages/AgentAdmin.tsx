@@ -7,29 +7,10 @@ import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 
-const DEFAULT_MAX_ITERATIONS = 20
-
 // 智能体分页取数：适配 usePagedList 的 (page,size,q) → {items,total} 契约。
 const fetchAgents = async (page: number, size: number, q: string) => {
   const res = await listAgentsPaged(page, size, q)
   return { items: res.agents, total: res.total }
-}
-
-// 新建智能体空白初值。
-function blankAgent(): AgentConfig {
-  return {
-    id: '',
-    code: '',
-    name: '',
-    description: '',
-    system_prompt: '',
-    function_tools: [],
-    cli_tools: [],
-    skills: [],
-    max_iterations: DEFAULT_MAX_ITERATIONS,
-    complexity: 'medium',
-    enabled: true,
-  }
 }
 
 // 智能体配置管理页（后端资源仍名 agent）：领域智能体系统提示词 + 工具集 + 调度摘要，全字段编辑。
@@ -109,8 +90,7 @@ export function AgentAdmin() {
         loading={loading}
         error={error}
         empty={rows.length === 0}
-        emptyHint={list.query ? '无匹配智能体' : '暂无智能体——点右上「新建」创建第一个'}
-        onNew={() => setDraft(blankAgent())}
+        emptyHint={list.query ? '无匹配智能体' : '暂无智能体'}
         search={{ value: list.query, onChange: list.setQuery, placeholder: '搜索名称 / 标识 / 描述' }}
         server={{
           page: list.page,
@@ -152,7 +132,7 @@ export function AgentAdmin() {
                   content: (
                     <>
                       <div className="flex gap-3">
-                        <Field label="标识符" hint="ID">
+                        <Field label="标识符" hint="唯一ID，创建后不可修改">
                           <input
                             className={INPUT_CLASS}
                             value={draft.code}
@@ -214,49 +194,110 @@ export function AgentAdmin() {
                   value: 'prompt',
                   label: '系统提示词',
                   content: (
-                    <Field label="系统提示词" hint="该智能体运行时的 system prompt（种子=agents/*.md，改后经多级缓存即时生效）">
+                    <Field label="系统提示词" hint="该智能体运行时的 system prompt">
                       <textarea
-                        className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono'}
+                        className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono text-[13px]'}
                         value={draft.system_prompt}
+                        placeholder="你是一个专业的安全扫描助手..."
                         onChange={(e) => patch({ system_prompt: e.target.value })}
                       />
                     </Field>
                   ),
                 },
                 {
-                  value: 'tools',
-                  label: '工具集',
-                  // 内部/外部工具是同一装配决策的两半，窄屏堆叠、≥640px 并排一屏对照。
+                  value: 'function_tools',
+                  label: '内部工具',
                   content: (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <Field label="内部工具集" hint="进程内函数工具；勾选后运行期可调用">
+                    <Field
+                      label="内部函数工具"
+                      hint="进程内工具，提供核心能力（如数据库查询、文件操作等）"
+                    >
+                      {draft.function_tools?.length === 1 && draft.function_tools[0] === '*' ? (
+                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
+                              全量模式
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              自动装配所有内部工具
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
                         <ToolPicker
                           catalog={functionTools}
                           selected={draft.function_tools}
                           onToggle={(name) => toggleTool('function_tools', name)}
-                          emptyHint="无可用函数工具目录"
+                          emptyHint="无可用内部工具"
                         />
-                      </Field>
-                      <Field label="外部工具集" hint="严格白名单：仅勾选的外部 CLI 工具装配，未勾选=不装配">
+                      )}
+                    </Field>
+                  ),
+                },
+                {
+                  value: 'cli_tools',
+                  label: '外部工具',
+                  content: (
+                    <Field
+                      label="外部 CLI 工具"
+                      hint="严格白名单：仅勾选的外部工具可调用（如 nmap、sqlmap 等安全工具）"
+                    >
+                      {draft.cli_tools?.length === 1 && draft.cli_tools[0] === '*' ? (
+                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
+                              全量模式
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              自动装配所有 {cliTools.length} 个外部工具（沙箱隔离保证安全）
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
                         <ToolPicker
                           catalog={cliTools}
                           selected={draft.cli_tools}
                           onToggle={(name) => toggleTool('cli_tools', name)}
-                          emptyHint="无可用外部工具目录"
+                          emptyHint="无可用外部工具"
                         />
-                      </Field>
-                      <Field
-                        label="技能集（skills）"
-                        hint="渐进式加载白名单：勾选的 skill 进 system prompt 技能索引，可被 read_skill 读取；不勾=不装配"
-                      >
+                      )}
+                    </Field>
+                  ),
+                },
+                {
+                  value: 'skills',
+                  label: '技能集',
+                  content: (
+                    <Field
+                      label="技能知识库"
+                      hint="渐进式加载的领域知识，智能体可通过 read_skill 按需读取"
+                    >
+                      {draft.skills?.length === 1 && draft.skills[0] === '*' ? (
+                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
+                              全量模式
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              自动装配所有技能知识库
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
                         <ToolPicker
-                          catalog={skills.map((sk) => ({ name: sk.code, category: sk.category, description: sk.description, kind: 'function' as const, sort_order: 0 }))}
+                          catalog={skills.map((sk) => ({
+                            name: sk.code,
+                            category: sk.category,
+                            description: sk.description,
+                            kind: 'function' as const,
+                            sort_order: 0
+                          }))}
                           selected={draft.skills}
                           onToggle={(name) => toggleTool('skills', name)}
-                          emptyHint="无可用 skill 目录（知识库页可新建）"
+                          emptyHint="无可用技能知识库（可在「知识库」页创建）"
                         />
-                      </Field>
-                    </div>
+                      )}
+                    </Field>
                   ),
                 },
               ]

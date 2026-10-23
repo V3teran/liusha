@@ -159,8 +159,7 @@ describe('TimelineThread', () => {
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'planner', '分析'))
     const { container } = render(<TimelineThread />)
-    // 过程节点保留卡外语义图标点（Brain 等），验证 AgentCard 图标未被误删。
-    expect(container.querySelector('.h-\\[26px\\].w-\\[26px\\]')).toBeTruthy()
+    expect(container.querySelector('.h-8.w-8')).toBeTruthy()
   })
 })
 

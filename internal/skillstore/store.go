@@ -89,6 +89,42 @@ func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
 	return out, rows.Err()
 }
 
+// Count 统计符合条件的 Skill 数量
+func (s *Store) Count(ctx context.Context, p ListParams) (int, error) {
+	var whereParts []string
+	var args []any
+	argIdx := 1
+
+	if p.Category != "" {
+		whereParts = append(whereParts, fmt.Sprintf("category=$%d", argIdx))
+		args = append(args, p.Category)
+		argIdx++
+	}
+
+	if p.OnlyEnabled {
+		whereParts = append(whereParts, "enabled=true")
+	}
+
+	if p.Search != "" {
+		whereParts = append(whereParts, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx))
+		args = append(args, "%"+p.Search+"%")
+	}
+
+	where := ""
+	if len(whereParts) > 0 {
+		where = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+
+	q := "SELECT COUNT(*) FROM skill" + where
+
+	var count int
+	err := s.pool.QueryRow(ctx, q, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count skills: %w", err)
+	}
+	return count, nil
+}
+
 // Create 创建新 Skill。
 func (s *Store) Create(ctx context.Context, sk Skill) (Skill, error) {
 	q := `

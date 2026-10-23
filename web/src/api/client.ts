@@ -24,6 +24,7 @@ import type {
   FindingFilters,
   FindingListResponse,
   ControlEvent,
+  Skill,
 } from './types'
 
 const KEY_STORAGE = 'liusha_api_key'
@@ -135,7 +136,22 @@ export async function listAgentsPaged(
 ): Promise<{ agents: AgentConfig[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (q) params.set('q', q)
-  return get<{ agents: AgentConfig[]; total: number }>(`/executors?${params}`)
+  const res = await get<{ executors: AgentConfig[]; total: number }>(`/executors?${params}`)
+  return { agents: res.executors, total: res.total }
+}
+
+/**
+ * 分页 + 搜索获取技能（技能管理页用）。
+ */
+export async function listSkillsPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ skills: Skill[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  const res = await get<{ skills: Skill[]; total: number }>(`/skills?${params}`)
+  return res
 }
 
 /**

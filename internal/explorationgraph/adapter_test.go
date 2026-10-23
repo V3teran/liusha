@@ -67,9 +67,9 @@ func TestStore_ActionStateManagement(t *testing.T) {
 		assert.Len(t, openActions, 2)
 	})
 
-	t.Run("UpdateActionStateWithReason 迁移并留痕", func(t *testing.T) {
+	t.Run("TransitionState 迁移并留痕", func(t *testing.T) {
 		blocked := "missing credentials"
-		require.NoError(t, store.UpdateActionStateWithReason(ctx, "action-open-1", StateBlocked, &blocked))
+		require.NoError(t, store.TransitionState(ctx, "action-open-1", StateBlocked, &blocked))
 
 		node, err := store.GetNode(ctx, "action-open-1")
 		require.NoError(t, err)

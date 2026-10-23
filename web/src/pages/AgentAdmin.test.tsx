@@ -77,7 +77,7 @@ describe('AgentAdmin', () => {
     render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
-    await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
+    await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
     // 两个函数工具候选都渲染为可勾选标签；已选项 aria-pressed=true。
     const selected = (await screen.findByText('read_findings')).closest('button') as HTMLButtonElement
     expect(selected.getAttribute('aria-pressed')).toBe('true')
@@ -91,7 +91,7 @@ describe('AgentAdmin', () => {
     render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
-    await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
+    await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
     await userEvent.click(await screen.findByText('write_finding'))
     await userEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(mSave).toHaveBeenCalled())
@@ -125,7 +125,7 @@ describe('AgentAdmin', () => {
     render(<AgentAdmin />)
     await userEvent.click(await screen.findByText('侦察智能体'))
     await screen.findByText('编辑智能体')
-    await userEvent.click(screen.getByRole('tab', { name: '工具集' }))
+    await userEvent.click(screen.getByRole('tab', { name: '外部工具' }))
     // 候选来自 listToolCandidates('cli')，点 nmap 加入白名单。
     await userEvent.click(await screen.findByText('nmap'))
     await userEvent.click(screen.getByText('保存'))

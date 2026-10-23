@@ -99,16 +99,23 @@ func (b *BaseTool) SetTimeout(d time.Duration) {
 }
 
 // Allows 报告 name 是否在白名单内。白名单语义全项目统一：
-// nil = 全量放行；非 nil（含空切片）= 严格白名单，不在名单即拒绝。
+// nil = 默认拒绝（符合业界最佳实践：默认拒绝原则）；
+// 空切片 = 空集（严格白名单，明确表示不需要任何工具）；
+// ["*"] = 全量放行（显式声明需要所有工具）；
+// [...] = 严格白名单（只允许列表中的工具）。
 // function_tools/cli_tools/skills 四处 agent 装配共用本判定，避免各写一份闭包。
 func Allows(allowlist []string, name string) bool {
 	if allowlist == nil {
-		return true
+		return false // nil = 默认拒绝
+	}
+	// 特殊标记：显式全量
+	if len(allowlist) == 1 && allowlist[0] == "*" {
+		return true // "*" = 全量放行
 	}
 	for _, n := range allowlist {
 		if n == name {
 			return true
 		}
 	}
-	return false
+	return false // 不在白名单 = 拒绝
 }

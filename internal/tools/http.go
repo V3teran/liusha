@@ -171,7 +171,15 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 	if len(ids) == 0 {
 		return nil
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].Name < ids[j].Name })
+	// 持久身份先于自动会话快照（快照可能停在中间状态，权威凭据优先），
+	// 名称破平保证确定性——注入去重是先到先得，排序即选择策略。
+	sort.SliceStable(ids, func(i, j int) bool {
+		pi, pj := IsAutoSessionIdentity(ids[i].Name), IsAutoSessionIdentity(ids[j].Name)
+		if pi != pj {
+			return !pi
+		}
+		return ids[i].Name < ids[j].Name
+	})
 
 	appliedKeys := map[string]bool{} // "pos|key" 已注入（跨身份去重）
 	var applied []appliedCredential

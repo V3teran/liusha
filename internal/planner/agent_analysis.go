@@ -82,12 +82,16 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 			continue
 		}
 
+		// objective 类型节点必须有非空 state（DB 约束 ck_state_by_kind；
+		// 根目标创建处同理）。漏设会让派生目标在 PG 后端被约束拒绝、静默丢弃。
+		openState := explorationgraph.StateOpen
 		node := explorationgraph.Node{
 			ID:         objID,
 			TaskID:     a.taskID,
 			Kind:       core.KindObjective,
 			Content:    contentJSON,
 			Priority:   obj.Priority,
+			State:      &openState,
 			SourceType: explorationgraph.SourcePlanner,
 			SourceID:   "result-analyzer",
 			CreatedAt:  time.Now(),
@@ -123,7 +127,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 }
 
 // createContinuationActions 在根 Objective 下创建延续 Action 节点，
-// 章程归属边（objective → action）与触发溯源边（result → action）一并原子落图。
+// 目标归属边（objective → action）与触发溯源边（result → action）一并原子落图。
 func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
 	currentObjective, err := a.rootObjective(ctx)
 	if err != nil {

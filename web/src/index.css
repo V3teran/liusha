@@ -1,130 +1,135 @@
 @import "tailwindcss";
 
 /* ============================================================
-   石墨深空 (Graphite) 设计 token
-   深色主打：zinc-950 底 + emerald-400 单一强调色，Geist Sans/Mono。
-   浅色对应版：zinc-50 底，同色系强调色。切换靠 html.dark class。
+   设计系统导入
    ============================================================ */
-@theme {
-  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+@import "./styles/design-tokens.css";
+@import "./styles/utilities.css";
+@import "./styles/markdown.css";
+@import "./styles/advanced.css";
+
+/* ============================================================
+   全局基础样式
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
 }
 
-:root {
-  /* 表面层次（浅色） */
-  --background: oklch(98.5% 0 0);
-  --surface: oklch(100% 0 0);
-  --surface-2: oklch(97% 0 0);
-  --border: oklch(91% 0 0);
-  --border-strong: oklch(85% 0 0);
-
-  /* 文本 */
-  --text: oklch(20% 0 0);
-  --muted: oklch(45% 0 0);
-  --faint: oklch(60% 0 0);
-
-  /* 强调色：emerald */
-  --accent: oklch(69% 0.17 162);
-  --accent-hover: oklch(63% 0.18 162);
-  --accent-soft: oklch(69% 0.17 162 / 0.12);
-
-  /* 语义色（威胁等级：仅红/黄/绿区分，其余中性） */
-  --sev-critical: oklch(58% 0.24 25);
-  --sev-high: oklch(64% 0.19 40);
-  --sev-medium: oklch(75% 0.15 85);
-  --sev-low: oklch(60% 0.02 260);
-  --sev-info: oklch(60% 0.15 240);
-
-  /* 来源语义色（主动下发 manual / 被动代理 auto） */
-  --source-manual: oklch(65% 0.15 220);
-  --source-auto: oklch(65% 0.15 300);
-
-  /* 图节点/边配色由 ExplorationGraphPage 的 NODE_COLORS 硬编码（objective/action/observation/result），此处不再维护独立变量。 */
-
-  --radius: 0.5rem;
-  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.05);
-  --shadow: 0 1px 3px oklch(0% 0 0 / 0.06), 0 8px 24px oklch(0% 0 0 / 0.08);
-  --shadow-lg: 0 4px 20px oklch(0% 0 0 / 0.12);
-
-  /* 战术终端辉光：浅色态克制（Swiss 式，仅微弱聚焦环，无发散辉光）。
-     深色态在 .dark 覆盖为发散荧光。全部走 --accent，不引入新色相。 */
-  --glow-accent: 0 0 0 1px var(--accent-soft);
-  --glow-accent-strong: 0 0 0 1px var(--accent);
-
-  color-scheme: light;
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
 }
 
-.dark {
-  /* 表面层次（zinc-950 深空） */
-  --background: oklch(14% 0.004 285);
-  --surface: oklch(17% 0.004 285);
-  --surface-2: oklch(20% 0.005 285);
-  --border: oklch(27% 0.006 285);
-  --border-strong: oklch(35% 0.008 285);
-
-  --text: oklch(94% 0.002 285);
-  --muted: oklch(65% 0.005 285);
-  --faint: oklch(50% 0.005 285);
-
-  /* 强调色：emerald-400，深色下更亮 */
-  --accent: oklch(76% 0.17 162);
-  --accent-hover: oklch(82% 0.16 162);
-  --accent-soft: oklch(76% 0.17 162 / 0.15);
-
-  --sev-critical: oklch(65% 0.22 25);
-  --sev-high: oklch(70% 0.18 45);
-  --sev-medium: oklch(80% 0.15 90);
-  --sev-low: oklch(55% 0.02 260);
-  --sev-info: oklch(65% 0.15 240);
-
-  --source-manual: oklch(70% 0.14 220);
-  --source-auto: oklch(70% 0.14 300);
-
-
-  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.4);
-  --shadow: 0 2px 10px oklch(0% 0 0 / 0.5), 0 16px 48px oklch(0% 0 0 / 0.3);
-  --shadow-lg: 0 8px 40px oklch(0% 0 0 / 0.55);
-
-  /* 战术终端辉光（深色态）：emerald 描边 + 向外发散的荧光晕。
-     仅用 box-shadow（合成器友好），不改 accent 色相。 */
-  --glow-accent: 0 0 0 1px var(--accent-soft), 0 0 16px oklch(76% 0.17 162 / 0.18);
-  --glow-accent-strong: 0 0 0 1px var(--accent), 0 0 24px oklch(76% 0.17 162 / 0.35);
-
-  color-scheme: dark;
+body {
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-text: var(--text);
-  --color-muted: var(--muted);
-  --color-faint: var(--faint);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-soft: var(--accent-soft);
-  --color-sev-critical: var(--sev-critical);
-  --color-sev-high: var(--sev-high);
-  --color-sev-medium: var(--sev-medium);
-  --color-sev-low: var(--sev-low);
-  --color-sev-info: var(--sev-info);
-  --color-source-manual: var(--source-manual);
-  --color-source-auto: var(--source-auto);
+code,
+pre {
+  font-family: var(--font-mono);
 }
 
-/* 品牌冷寒蓝：与 logo/favicon 沙齿剑徽记同色系，纯色，固定不随主题切换 */
+/* ============================================================
+   品牌标识
+   ============================================================ */
+
 .brand-mark {
   color: #4a68a2;
 }
 
 /* ============================================================
-   战术终端质感工具类（配置资源管理三页共用）
-   全部走 --accent / --glow-* token，深浅色自适应；仅 box-shadow/opacity。
+   旧类名兼容层（渐进迁移）
+   直接使用 CSS 属性，不依赖 @apply
    ============================================================ */
 
-/* 多行截断：超出显示省略号（卡片描述用两行） */
+/* 文本颜色 */
+.text-muted {
+  color: var(--text-secondary);
+}
+
+.text-faint {
+  color: var(--text-tertiary);
+}
+
+/* 背景色 */
+.bg-background {
+  background-color: var(--background);
+}
+
+.bg-surface {
+  background-color: var(--surface);
+}
+
+.bg-surface-2 {
+  background-color: var(--surface-2);
+}
+
+/* 边框色 */
+.border-border {
+  border-color: var(--border);
+}
+
+.border-border-strong {
+  border-color: var(--border-strong);
+}
+
+/* 强调色 */
+.text-accent {
+  color: var(--accent);
+}
+
+.bg-accent {
+  background-color: var(--accent);
+}
+
+.bg-accent-soft {
+  background-color: var(--accent-soft);
+}
+
+.border-accent {
+  border-color: var(--accent);
+}
+
+/* 语义色 - 严重度 */
+.text-sev-critical {
+  color: var(--sev-critical);
+}
+
+.text-sev-high {
+  color: var(--sev-high);
+}
+
+.text-sev-medium {
+  color: var(--sev-medium);
+}
+
+.text-sev-low {
+  color: var(--sev-low);
+}
+
+.text-sev-info {
+  color: var(--sev-info);
+}
+
+/* 语义色 - 状态 */
+.text-status-success {
+  color: var(--status-success);
+}
+
+.text-status-error {
+  color: var(--status-error);
+}
+
+/* 旧的战术终端工具类映射 */
 .tac-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -133,21 +138,19 @@
   overflow: hidden;
 }
 
-/* 选中/聚焦荧光环：描边 + 深色态发散晕 */
 .tac-glow {
   box-shadow: var(--glow-accent);
 }
+
 .tac-glow-strong {
   box-shadow: var(--glow-accent-strong);
 }
 
-/* 列表行选中：左侧荧光竖条 + 描边（用 inset 竖条避免占位） */
 .tac-row-active {
   box-shadow: inset 3px 0 0 var(--accent), var(--glow-accent);
   border-color: var(--accent) !important;
 }
 
-/* 终端窗点：面板右上角 ● ● ● 装饰 */
 .tac-dots::before {
   content: "";
   position: absolute;
@@ -164,214 +167,55 @@
   opacity: 0.85;
 }
 
-/* 终端提示符：等宽绿色 ▚ 前缀，用于列表标题 */
 .tac-prompt::before {
   content: "▚ ";
   color: var(--accent);
   font-family: var(--font-mono);
 }
 
-/* 光标闪烁：加载/空态末尾 ▋，reduced-motion 下不闪 */
 .tac-cursor::after {
   content: "▋";
   margin-left: 2px;
   color: var(--accent);
-  animation: tac-blink 1.1s step-end infinite;
+  animation: cursor-blink 1.1s step-end infinite;
 }
-@keyframes tac-blink {
+
+@keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tac-cursor::after {
-    animation: none;
-  }
+
+.tac-modal-overlay {
+  /* 由 Radix UI 控制 */
 }
 
-/* 居中模态入场：遮罩淡入 + 面板弹出。用于配置抽屉 / 漏洞详情等居中 Dialog。
-   面板保留 Tailwind 的 -translate-x-1/2 -translate-y-1/2 定位，from 写全 transform、
-   to 隐含回到该定位值，故居中不漂移。reduced-motion 由全局 media query 兜住。 */
 .tac-modal-overlay[data-state='open'] {
-  animation: tac-fade 160ms ease-out;
+  animation: fade-in 160ms ease-out;
 }
+
+.tac-modal {
+  /* 由 Radix UI 控制 */
+}
+
 .tac-modal[data-state='open'] {
-  animation: tac-pop 190ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modal-pop 190ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes tac-fade {
+
+@keyframes fade-in {
   from {
     opacity: 0;
   }
 }
-@keyframes tac-pop {
+
+@keyframes modal-pop {
   from {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.96);
   }
 }
 
-* {
-  box-sizing: border-box;
-  border-color: var(--border);
-}
-
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
-
-code,
-pre {
-  font-family: var(--font-mono);
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-}
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 8px;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .tac-cursor::after {
+    animation: none;
   }
-}
-
-/* ============================================================
-   Markdown 富文本（AssistantText / ReasoningCard 共用 .markdown-body）
-   Tailwind preflight 把标签边距清零，未加样式时多段落会粘连、列表无缩进。
-   这里给出克制的排版节奏；关键：首元素清顶、末元素清底，使气泡内边距与用户
-   纯文本气泡（px-4 py-2.5）视觉对称——修「时间与用户/agent 气泡距离不一样」。
-   ============================================================ */
-.markdown-body > :first-child {
-  margin-top: 0;
-}
-.markdown-body > :last-child {
-  margin-bottom: 0;
-}
-.markdown-body p,
-.markdown-body ul,
-.markdown-body ol,
-.markdown-body pre,
-.markdown-body blockquote,
-.markdown-body table {
-  margin: 0.6em 0;
-}
-.markdown-body ul,
-.markdown-body ol {
-  padding-left: 1.4em;
-}
-.markdown-body ul {
-  list-style: disc;
-}
-.markdown-body ol {
-  list-style: decimal;
-}
-.markdown-body li {
-  margin: 0.2em 0;
-}
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3,
-.markdown-body h4 {
-  margin: 1em 0 0.5em;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.markdown-body h1 {
-  font-size: 1.4em;
-}
-.markdown-body h2 {
-  font-size: 1.25em;
-}
-.markdown-body h3 {
-  font-size: 1.1em;
-}
-.markdown-body a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.markdown-body code {
-  border-radius: 4px;
-  background: var(--surface-2);
-  padding: 0.1em 0.35em;
-  font-size: 0.9em;
-}
-.markdown-body pre {
-  overflow-x: auto;
-  border-radius: 8px;
-  background: var(--surface-2);
-  padding: 0.85em 1em;
-}
-.markdown-body pre code {
-  background: none;
-  padding: 0;
-}
-/* 代码块复制按钮（renderMarkdown 注入的 .code-copy）：与全局 CopyButton 同一形态——
-   纯图标、提示走 title/aria-label、复制成功换 check 图标，悬浮于代码块右上角。 */
-.code-block {
-  position: relative;
-}
-.code-copy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background-color 0.15s;
-}
-.code-copy:hover {
-  color: var(--accent);
-  background: var(--surface);
-}
-.code-copy svg {
-  width: 14px;
-  height: 14px;
-}
-.code-copy .icon-check {
-  display: none;
-}
-.code-copy.copied {
-  color: var(--accent);
-}
-.code-copy.copied .icon-copy {
-  display: none;
-}
-.code-copy.copied .icon-check {
-  display: block;
-}
-.markdown-body blockquote {
-  border-left: 3px solid var(--border-strong);
-  padding-left: 0.9em;
-  color: var(--muted);
 }

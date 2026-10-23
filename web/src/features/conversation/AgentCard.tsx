@@ -1,66 +1,90 @@
-import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { clockTime, fullTime } from '@/lib/format'
+import { relativeTime, fullTime } from '@/lib/format'
+import { agentProfile } from '@/lib/agentColor'
 import { CopyButton } from '@/components/CopyButton'
+import { cn } from '@/lib/utils'
 
 interface AgentCardProps {
-  /** 动作分类图标（lucide 线性）：推理=Brain、派发=Rocket、漏洞=Bug、压缩=Archive。 */
-  icon: LucideIcon
-  /** 图标主色 = 该 agent 配色（与卡内领头名同色，一眼归属）。 */
-  accent: string
-  /** 图标底色 = 该 agent soft 色。 */
-  soft: string
-  /** 脚注时间戳（与用户指令块一致）。 */
+  agentName?: string
   createdAt?: string
   copied?: boolean
   onCopy?: () => void
-  /** 有可复制正文时传入——脚注渲染复制按钮（与用户指令块一致）。 */
   copyText?: string
   children: ReactNode
+  className?: string
 }
 
-// agent 活动卡（方案 B）：与用户指令块左右对称、材质等重。
-//   - 图标在卡外左上：形状=动作分类，颜色=该 agent；
-//   - surface 卡框包裹正文（推理/派发/漏洞…），左上收角与用户块右上收角镜像；
-//   - 脚注时间 + 复制按钮，与用户指令块完全一致。
-// 取代旧的「左侧裸文字挂图标导轨」——用户块有框、agent 无框的材质割裂就此消除。
+/**
+ * AgentCard - AI 智能体消息卡片
+ *
+ * 设计理念：
+ * 1. 清晰的身份标识：头像色环 + 角色名
+ * 2. 分层的视觉层次：头像突出、内容收敛
+ * 3. 渐进的信息披露：时间戳/操作按钮悬停可见
+ */
 export function AgentCard({
-  icon: Icon,
-  accent,
-  soft,
+  agentName,
   createdAt,
   copied = false,
   onCopy,
   copyText,
   children,
+  className,
 }: AgentCardProps) {
+  const profile = agentProfile(agentName)
+  const Icon = profile.icon
   const showCopy = !!copyText && !!onCopy
   const showFooter = !!createdAt || showCopy
+
   return (
-    <div className="flex justify-start pb-[18px]">
-      <div className="flex max-w-[85%] flex-col items-start">
-        <div className="flex gap-2.5">
-          <span
-            className="mt-0.5 flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg"
-            style={{ color: accent, background: soft }}
+    <div className="group flex justify-start pb-6 animate-slide-up">
+      <div className="flex w-full max-w-4xl flex-col">
+        {/* 主体：头像 + 内容气泡 */}
+        <div className="flex gap-3">
+          {/* 智能体头像：色环 + 图标 */}
+          <div
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-shadow group-hover:ring-2"
+            style={{
+              color: profile.accent,
+              background: profile.soft,
+              // @ts-ignore - CSS custom property
+              '--tw-ring-color': profile.accent + '40',
+            } as React.CSSProperties}
           >
-            <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-          </span>
-          <div className="min-w-0 rounded-2xl rounded-tl-md bg-surface px-3.5 py-2.5">{children}</div>
+            <Icon className="h-5 w-5" strokeWidth={2.2} />
+          </div>
+
+          {/* 内容气泡 */}
+          <div
+            className={cn(
+              'min-w-0 flex-1 rounded-xl rounded-tl-md bg-surface px-4 py-3',
+              'border border-transparent transition-colors',
+              'group-hover:border-border-subtle',
+              className
+            )}
+          >
+            {children}
+          </div>
         </div>
+
+        {/* 元信息：时间戳 + 操作 */}
         {showFooter && (
-          <div className="ml-9 mt-1 flex items-center gap-1.5">
+          <div className="ml-12 mt-1.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
             {createdAt && (
               <time
-                className="px-1 font-mono text-[11px] leading-none text-faint"
+                className="px-1 text-xs text-text-tertiary tabular-nums"
                 dateTime={createdAt}
                 title={fullTime(createdAt)}
               >
-                {clockTime(createdAt)}
+                {relativeTime(createdAt)}
               </time>
             )}
             {showCopy && (
-              <CopyButton copied={copied} onClick={onCopy} />
+              <CopyButton
+                copied={copied}
+                onClick={onCopy}
+                size="sm"
+              />
             )}
           </div>
         )}

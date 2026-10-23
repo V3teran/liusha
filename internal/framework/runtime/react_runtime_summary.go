@@ -3,9 +3,68 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
+
+// maxForcedOutputTokens 是强制收尾请求的输出预算上限（翻倍重试的封顶值）。
+// 封顶理由：超限预算会被 provider 直接拒绝，把「截断重试」变成「请求报错」。
+const maxForcedOutputTokens = 16384
+
+// completeForced 执行强制收尾的一次 LLM 调用，空响应时自适应重试。
+//
+// 收尾调用的输入是整轮消息历史（含全部思考块），扩展思考对新预算的消耗随
+// 历史长度增长——固定预算下「思考吃满、正文被截断」是确定性失败，同预算
+// 重试没有意义。这里按 2× 逐次放大输出预算（封顶 maxForcedOutputTokens），
+// 并在重试间注入「直接输出正文」的纠偏指令。返回最后一次响应与错误；
+// err 非 nil 时响应不可用。
+func (r *DefaultReActRuntime) completeForced(
+	ctx context.Context,
+	config *ReActConfig,
+	result *ReActResult,
+	ask string,
+) (llm.Response, error) {
+	budget := config.MaxTokens
+	if budget <= 0 {
+		budget = maxForcedOutputTokens
+	}
+	var last llm.Response
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			budget *= 2
+			if budget > maxForcedOutputTokens {
+				budget = maxForcedOutputTokens
+			}
+			result.AddUserMessage("（上一条输出正文为空——生成被截断。" + ask + "，不要输出思考过程）")
+		}
+		request := llm.Request{
+			Messages:  result.MessageHistory,
+			MaxTokens: budget,
+		}
+		if config.Temperature > 0 {
+			t := config.Temperature
+			request.Temperature = &t
+		}
+		resp, err := config.LLMProvider.Complete(ctx, request)
+		if err != nil {
+			return llm.Response{}, fmt.Errorf("forced output LLM call failed: %w", err)
+		}
+		result.Usage = result.Usage.Add(resp.Usage)
+		if strings.TrimSpace(resp.Content) != "" {
+			return resp, nil
+		}
+		last = resp
+	}
+	return last, fmt.Errorf("forced output 连续 3 次空响应（输出预算 %d 仍被截断）", budget)
+}
+
+// appendForcedResult 把强制收尾得到的正文落进消息历史（思考块随行，供多轮
+// tool_use 规范回传）。
+func appendForcedResult(result *ReActResult, resp llm.Response) {
+	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
+	result.FinalThinking = thinkingText(resp.Thinking)
+}
 
 func (r *DefaultReActRuntime) forceFinalSummary(
 	ctx context.Context,
@@ -27,27 +86,12 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 	// 添加总结 prompt 到消息历史
 	result.AddUserMessage(summaryPrompt)
 
-	// 调用 LLM 获取最终总结（不允许工具调用）
-	request := llm.Request{
-		Messages:  result.MessageHistory,
-		MaxTokens: config.MaxTokens,
-	}
-	if config.Temperature > 0 {
-		t := config.Temperature
-		request.Temperature = &t
-	}
-	// 注意：不添加 tools，禁止工具调用
-
-	resp, err := config.LLMProvider.Complete(ctx, request)
+	// 调用 LLM 获取最终总结（不允许工具调用；空响应自适应重试）
+	resp, err := r.completeForced(ctx, config, result, "输出最终总结")
 	if err != nil {
-		return fmt.Errorf("force final summary LLM call failed: %w", err)
+		return fmt.Errorf("force final summary failed: %w", err)
 	}
-
-	// 将总结添加到消息历史；强制调用同样计入本轮用量（时间线每步 chip 不漏计）。
-	result.Usage = result.Usage.Add(resp.Usage)
-	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
-	result.FinalThinking = thinkingText(resp.Thinking)
-
+	appendForcedResult(result, resp)
 	return nil
 }
 
@@ -80,25 +124,11 @@ func (r *DefaultReActRuntime) forceStructuredOutput(
 
 	result.AddUserMessage(promptBuilder)
 
-	// 调用 LLM 获取结构化输出（不允许工具调用）
-	request := llm.Request{
-		Messages:  result.MessageHistory,
-		MaxTokens: config.MaxTokens,
-	}
-	if config.Temperature > 0 {
-		t := config.Temperature
-		request.Temperature = &t
-	}
-
-	resp, err := config.LLMProvider.Complete(ctx, request)
+	// 调用 LLM 获取结构化输出（不允许工具调用；空响应自适应重试）
+	resp, err := r.completeForced(ctx, config, result, "立即输出符合格式要求的 JSON")
 	if err != nil {
-		return fmt.Errorf("force structured output LLM call failed: %w", err)
+		return fmt.Errorf("force structured output failed: %w", err)
 	}
-
-	// 将结构化输出添加到消息历史；强制调用同样计入本轮用量（时间线每步 chip 不漏计）。
-	result.Usage = result.Usage.Add(resp.Usage)
-	result.AddAssistantMessage(resp.Content, nil, resp.Thinking)
-	result.FinalThinking = thinkingText(resp.Thinking)
-
+	appendForcedResult(result, resp)
 	return nil
 }

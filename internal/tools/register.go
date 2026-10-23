@@ -8,14 +8,14 @@ import (
 // RegisterAll 向 reg 注入全部域工具（按 deps 中可用的存储按需注册）。
 // sandbox / skill 工具在对应依赖为 nil 时跳过，不影响其余工具。
 func RegisterAll(reg *registry.Registry, deps Deps) {
-	for _, t := range BuildTools(deps, nil) {
+	for _, t := range BuildTools(deps, []string{"*"}) {
 		reg.Register(t)
 	}
 }
 
 // BuildTools 按 deps 构造工具集，再按 names 白名单过滤（agent.function_tools 配置的
-// 运行时执行点）。names 为 nil = 全量；空 slice = 空集（严格白名单，与 cli_tools 语义
-// 一致，同 registry.Allows 的 nil/空区分）；白名单里不存在的名字静默忽略（配置漂移
+// 运行时执行点）。names 为 nil = 拒绝；空 slice = 空集；["*"] = 全量；[...] = 白名单（严格白名单，与 cli_tools 语义
+// 一致，同 registry.Allows 的语义）；白名单里不存在的名字静默忽略（配置漂移
 // 不致命）。control/观察类工具（publish_decision、observe_state 等）在各角色包内自建，
 // 不在此注册。
 func BuildTools(deps Deps, names []string) []registry.Tool {
@@ -63,8 +63,13 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 	}
 
 	if names == nil {
+		return []registry.Tool{} // nil = 默认拒绝
+	}
+	// ["*"] = 全量
+	if len(names) == 1 && names[0] == "*" {
 		return all
 	}
+	// 白名单过滤
 	allow := make(map[string]struct{}, len(names))
 	for _, n := range names {
 		allow[n] = struct{}{}

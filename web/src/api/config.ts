@@ -20,7 +20,8 @@ import type {
 
 /** 拉全量操作员（含 planner/executor 两类、含 disabled）。 */
 export async function listAgentConfigs(): Promise<AgentConfig[]> {
-  return (await get<{ agents: AgentConfig[] }>('/executors')).agents
+  const res = await get<{ executors: AgentConfig[] }>('/executors')
+  return res.executors
 }
 
 /** 保存操作员：有 id 走 PUT，否则 POST。键名与后端 agentBody 严格对齐。 */
@@ -38,9 +39,9 @@ export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
     enabled: h.enabled,
   }
   const res = h.id
-    ? await put<{ agent: AgentConfig }>(`/executors/${h.id}`, body)
-    : await post<{ agent: AgentConfig }>('/executors', body)
-  return res.agent
+    ? await put<{ executor: AgentConfig }>(`/executors/${h.id}`, body)
+    : await post<{ executor: AgentConfig }>('/executors', body)
+  return res.executor
 }
 
 /**
@@ -48,8 +49,8 @@ export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
  * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 executor。
  */
 export async function saveAgentComplexity(id: string, complexity: string): Promise<AgentConfig> {
-  const res = await patch<{ agent: AgentConfig }>(`/executors/${id}/complexity`, { complexity })
-  return res.agent
+  const res = await patch<{ executor: AgentConfig }>(`/executors/${id}/complexity`, { complexity })
+  return res.executor
 }
 
 /** 拉 skill 目录全量（GET /skills），供 AgentAdmin skills 多选器候选。 */

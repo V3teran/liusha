@@ -55,7 +55,7 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 	}
 
 	registered := make(map[string]bool)
-	for _, tl := range BuildTools(deps, nil) {
+	for _, tl := range BuildTools(deps, []string{"*"}) { // "*" = 全量（nil 现语义为默认拒绝）
 		registered[tl.Name()] = true
 	}
 	registered["replay_for_verification"] = true // evaluator judge 本地注册

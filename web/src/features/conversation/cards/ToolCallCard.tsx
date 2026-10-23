@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
@@ -29,67 +29,163 @@ function prettyArgs(args: string): string {
 
 function resultPreview(r: ToolResultInfo): string {
   const s = (r.err || r.text || '').replace(/\s+/g, ' ').trim()
-  return s.length > 64 ? s.slice(0, 64) + '…' : s
+  return s.length > 120 ? s.slice(0, 120) + '…' : s
 }
 
-// 工具动作卡：一动作一卡——调用（工具名/入参）与观测（输出/耗时/错误）同卡
-// 呈现，折叠展开看详情。按 agent 名着左边框 + chip 色；执行中 spinner、
-// 失败红点红边、成功绿点。孤儿结果（call 丢失）由 ToolResultCard 兜底展示。
+/**
+ * ToolCallCard - 工具调用卡片
+ *
+ * 设计改进：
+ * 1. 更清晰的状态指示：执行中（脉冲动画）、成功（绿勾）、失败（红叉）
+ * 2. 更好的信息层次：工具名突出、参数折叠、结果预览
+ * 3. 更流畅的交互：悬停高亮、平滑展开
+ */
 export function ToolCallCard({ tool, args, agentName, running, result }: ToolCallCardProps) {
   const [open, setOpen] = useState(false)
   const pretty = prettyArgs(args)
   const hasArgs = !!pretty && pretty !== '{}'
-  const accent = agentAccent(agentName) // 每个 agent 独立色
+  const accent = agentAccent(agentName)
   const failed = !!result?.err
+  const success = result && !failed
 
   return (
-    <div data-card="tool-call" data-running={!!running} data-error={failed} className="self-start max-w-[85%]">
+    <div
+      data-card="tool-call"
+      data-running={!!running}
+      data-error={failed}
+      className="self-start max-w-[90%] animate-slide-up"
+    >
+      {/* 卡片头部：可点击展开/折叠 */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        style={agentName ? { borderLeft: `2px solid ${accent.accent}` } : undefined}
+        style={agentName ? { borderLeftColor: accent.accent } : undefined}
         className={cn(
-          'inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px] text-text',
-          'hover:border-accent',
-          failed && 'border-sev-critical',
+          'group/tool inline-flex w-full items-center gap-2.5 rounded-lg border-l-2 border-r border-y',
+          'bg-surface px-3.5 py-2.5 text-sm text-text',
+          'transition-all duration-200',
+          failed
+            ? 'border-r-status-error border-y-status-error bg-status-error/5 hover:bg-status-error/10'
+            : 'border-r-border border-y-border hover:border-r-accent/40 hover:border-y-accent/40 hover:bg-surface-2',
+          !agentName && 'border-l-accent/30',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 text-muted transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
-        {running ? (
-          <Loader2 className="h-3 w-3 animate-spin text-accent" aria-label="执行中" />
-        ) : (
-          <span className={cn('h-1.5 w-1.5 rounded-full', failed ? 'bg-sev-critical' : result ? 'bg-emerald-500' : 'bg-accent')} />
-        )}
-        <span className="text-muted">调用</span>
-        <code className="font-mono font-semibold text-accent">{tool}</code>
-        {agentName && (
-          <span
-            className="rounded-md px-1.5 py-0 font-mono text-[10.5px]"
-            style={{ color: accent.accent, background: accent.soft }}
-          >
-            {agentLabel(agentName)}
-          </span>
-        )}
-        {running && <span className="text-[11px] text-faint">执行中…</span>}
-        {!running && result && <span className="text-[11px] text-muted">{result.durationMs}ms</span>}
-        {!open && result && <span className="overflow-hidden truncate font-mono text-muted">{resultPreview(result)}</span>}
-      </button>
-      {open && (
-        <div className="mt-1.5 flex max-w-full flex-col gap-1.5">
-          {hasArgs && (
-            <pre className="max-h-[280px] overflow-auto rounded-[6px] border border-border bg-background p-2.5 text-xs">
-              {pretty}
-            </pre>
+        {/* 展开指示器 */}
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 flex-shrink-0 text-text-tertiary transition-transform duration-200',
+            open && 'rotate-90'
           )}
-          {result && (
-            <pre
+          strokeWidth={2.5}
+        />
+
+        {/* 状态指示器 */}
+        {running ? (
+          <Loader2
+            className="h-4 w-4 flex-shrink-0 animate-spin text-accent"
+            aria-label="执行中"
+          />
+        ) : failed ? (
+          <XCircle
+            className="h-4 w-4 flex-shrink-0 text-status-error"
+            aria-label="执行失败"
+          />
+        ) : success ? (
+          <CheckCircle2
+            className="h-4 w-4 flex-shrink-0 text-status-success"
+            aria-label="执行成功"
+          />
+        ) : (
+          <span className="h-2 w-2 flex-shrink-0 rounded-full bg-accent status-pulse" />
+        )}
+
+        {/* 工具信息 */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className="flex-shrink-0 text-xs text-text-secondary">调用</span>
+          <code className="font-mono text-sm font-semibold text-accent">{tool}</code>
+
+          {agentName && (
+            <span
+              className="flex-shrink-0 rounded-md px-2 py-0.5 font-mono text-xs font-medium"
+              style={{ color: accent.accent, background: accent.soft }}
+            >
+              {agentLabel(agentName)}
+            </span>
+          )}
+
+          {/* 耗时 */}
+          {!running && result && (
+            <span className="flex-shrink-0 font-mono text-xs tabular-nums text-text-tertiary">
+              {result.durationMs}ms
+            </span>
+          )}
+
+          {/* 执行中提示 */}
+          {running && (
+            <span className="flex-shrink-0 text-xs text-text-tertiary">执行中…</span>
+          )}
+
+          {/* 结果预览（折叠时显示）*/}
+          {!open && result && (
+            <span
               className={cn(
-                'max-h-[280px] overflow-auto rounded-[6px] border border-border bg-background p-2.5 text-xs',
-                failed && 'border-sev-critical text-sev-critical',
+                'min-w-0 flex-1 truncate font-mono text-xs',
+                failed ? 'text-status-error' : 'text-text-tertiary'
               )}
             >
-              {result.err || result.text}
-            </pre>
+              {resultPreview(result)}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* 展开内容：参数 + 结果 */}
+      {open && (
+        <div className="mt-2 flex max-w-full flex-col gap-2 animate-slide-down">
+          {/* 参数 */}
+          {hasArgs && (
+            <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
+              <div className="border-b border-border px-3 py-1.5">
+                <span className="text-xs font-medium text-text-secondary">参数</span>
+              </div>
+              <pre className="max-h-[320px] overflow-auto p-3 text-xs leading-relaxed">
+                {pretty}
+              </pre>
+            </div>
+          )}
+
+          {/* 结果 */}
+          {result && (
+            <div
+              className={cn(
+                'overflow-hidden rounded-lg border bg-surface-2',
+                failed ? 'border-status-error' : 'border-border'
+              )}
+            >
+              <div
+                className={cn(
+                  'border-b px-3 py-1.5',
+                  failed ? 'border-status-error' : 'border-border'
+                )}
+              >
+                <span
+                  className={cn(
+                    'text-xs font-medium',
+                    failed ? 'text-status-error' : 'text-text-secondary'
+                  )}
+                >
+                  {failed ? '错误' : '输出'}
+                </span>
+              </div>
+              <pre
+                className={cn(
+                  'max-h-[320px] overflow-auto p-3 text-xs leading-relaxed',
+                  failed && 'text-status-error'
+                )}
+              >
+                {result.err || result.text}
+              </pre>
+            </div>
           )}
         </div>
       )}

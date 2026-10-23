@@ -54,7 +54,7 @@ func (t *GetGlobalStateTool) ShortDesc() string {
 
 // Desc 实现工具接口。
 func (t *GetGlobalStateTool) Desc() string {
-	return "获取任务的全局状态，包括 Objective、所有 Actions 和 Findings"
+	return "获取任务的全局状态，包括 Objective、所有 Actions 和 Results"
 }
 
 // Schema 实现工具接口。
@@ -74,10 +74,10 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("list actions: %v", err)}, nil
 	}
 
-	// 读取所有 Findings
+	// 读取所有坐实发现（kind=result）
 	findings, err := t.graph.ListResults(ctx, t.taskID)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("list findings: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("list results: %v", err)}, nil
 	}
 
 	// 读取 Objective
@@ -90,7 +90,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 	state := GlobalState{
 		Objective:      objective,
 		Actions:        allActions,
-		Findings:       findings,
+		Results:        findings,
 		RunningActions: t.runningActionViews(allActions, time.Now()),
 		Metrics:        t.metricsCollector.GetMetrics(),
 	}
@@ -237,7 +237,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：动作 %s 已终态（%s），仅 open/running 可 kill", decision.ActionID, shown)}, nil
 		}
 		reason := decision.Reason
-		if err := t.graph.UpdateActionStateWithReason(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
+		if err := t.graph.TransitionState(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
 			return registry.ToolResult{Error: fmt.Sprintf("kill_action 状态变更失败: %v", err)}, nil
 		}
 	}

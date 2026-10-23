@@ -1,0 +1,266 @@
+/* ============================================================
+   Markdown 富文本样式
+   AssistantText / ReasoningCard / 文档内容共用
+   ============================================================ */
+
+.markdown-body {
+  /* 首元素清顶、末元素清底，使气泡内边距与用户纯文本气泡视觉对称 */
+  & > :first-child {
+    margin-top: 0;
+  }
+
+  & > :last-child {
+    margin-bottom: 0;
+  }
+
+  /* 段落与块元素间距 */
+  p,
+  ul,
+  ol,
+  pre,
+  blockquote,
+  table {
+    margin: 0.75em 0;
+  }
+
+  /* 列表 */
+  ul,
+  ol {
+    padding-left: 1.5em;
+  }
+
+  ul {
+    list-style: disc;
+  }
+
+  ol {
+    list-style: decimal;
+  }
+
+  li {
+    margin: 0.25em 0;
+  }
+
+  /* 嵌套列表 */
+  ul ul,
+  ol ol,
+  ul ol,
+  ol ul {
+    margin: 0.25em 0;
+  }
+
+  /* 标题 */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 1.25em 0 0.5em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text);
+  }
+
+  h1 {
+    font-size: 1.5em;
+  }
+
+  h2 {
+    font-size: 1.3em;
+  }
+
+  h3 {
+    font-size: 1.15em;
+  }
+
+  h4 {
+    font-size: 1.05em;
+  }
+
+  h5,
+  h6 {
+    font-size: 1em;
+  }
+
+  /* 链接 */
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color var(--duration-fast);
+
+    &:hover {
+      color: var(--accent-hover);
+    }
+  }
+
+  /* 行内代码 */
+  code {
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    padding: 0.15em 0.4em;
+    font-size: 0.9em;
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+
+  /* 代码块 */
+  pre {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 1em 1.25em;
+    font-size: 0.875em;
+    line-height: 1.6;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+
+  /* 引用块 */
+  blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 1em;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  /* 水平分隔线 */
+  hr {
+    margin: 1.5em 0;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  /* 表格 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  thead {
+    background: var(--surface-2);
+  }
+
+  th,
+  td {
+    padding: 0.5em 0.75em;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  td {
+    color: var(--text-secondary);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover {
+    background: var(--surface-2);
+  }
+
+  /* 图片 */
+  img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+
+  /* 强调 */
+  strong {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  em {
+    font-style: italic;
+  }
+
+  /* 删除线 */
+  del {
+    text-decoration: line-through;
+    opacity: 0.7;
+  }
+
+  /* 任务列表 */
+  input[type="checkbox"] {
+    margin-right: 0.5em;
+    accent-color: var(--accent);
+  }
+}
+
+/* ============================================================
+   代码块复制按钮（renderMarkdown 注入的 .code-copy）
+   与全局 CopyButton 同一形态
+   ============================================================ */
+
+.code-block {
+  position: relative;
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast),
+    color var(--duration-fast),
+    background-color var(--duration-fast);
+}
+
+.code-block:hover .code-copy {
+  opacity: 1;
+}
+
+.code-copy:hover {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+
+.code-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.code-copy .icon-check {
+  display: none;
+}
+
+.code-copy.copied {
+  color: var(--status-success);
+  opacity: 1;
+}
+
+.code-copy.copied .icon-copy {
+  display: none;
+}
+
+.code-copy.copied .icon-check {
+  display: block;
+}
