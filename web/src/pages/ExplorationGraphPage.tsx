@@ -258,7 +258,6 @@ export function ExplorationGraphPage() {
           <p className="text-sm text-text-secondary">
             智能体推理与行动的可视化决策树
           </p>
-        </div>
           {stats.total > 0 && (
             <div className="flex items-center gap-3 text-xs text-text-tertiary">
               <span>共 {stats.total} 个节点</span>
