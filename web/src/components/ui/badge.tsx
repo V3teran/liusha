@@ -22,9 +22,9 @@ const badgeVariants = cva(
         solid: 'border-0', // 实底+白字，颜色由 style prop 传入
       },
       size: {
-        sm: 'px-2 py-0.5 text-[10px]',
-        md: 'px-2.5 py-1 text-[11px]',
-        lg: 'px-3 py-1.5 text-xs',
+        sm: 'px-2 py-0.5 text-xs',
+        md: 'px-2.5 py-1 text-xs',
+        lg: 'px-3 py-1.5 text-sm',
       },
     },
     defaultVariants: {
