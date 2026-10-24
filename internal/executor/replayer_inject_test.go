@@ -15,13 +15,13 @@ func TestInjectSessionContext_PrefersDurableIdentity(t *testing.T) {
 	// 故意按"自动快照在前"排列（模拟 HGetAll 任意序的不利情况）
 	r := NewReplayer().WithCredentials(&stubCredProvider{identities: []credential.Identity{
 		{
-			Name: "task:t1:session",
+			Username: "task:t1:session",
 			Credentials: []credential.Credential{
 				{Type: credential.TypeHeaders, Key: "Cookie", Value: "PHPSESSID=auto; security=impossible"},
 			},
 		},
 		{
-			Name: "admin_low",
+			Username: "admin_low",
 			Credentials: []credential.Credential{
 				{Type: credential.TypeHeaders, Key: "Cookie", Value: "PHPSESSID=durable; security=low"},
 			},
@@ -48,7 +48,7 @@ func TestInjectSessionContext_PrefersDurableIdentity(t *testing.T) {
 // 无持久身份时自动快照兜底；配方自带的 cookie 键不被覆盖。
 func TestInjectSessionContext_FallbackAndExplicitWin(t *testing.T) {
 	r := NewReplayer().WithCredentials(&stubCredProvider{identities: []credential.Identity{
-		{Name: "task:t1:session", Credentials: []credential.Credential{
+		{Username: "task:t1:session", Credentials: []credential.Credential{
 			{Type: credential.TypeHeaders, Key: "Cookie", Value: "PHPSESSID=auto; security=low"},
 		}},
 	}}, "t.local:8080")
@@ -82,10 +82,22 @@ func (p *stubCredProvider) GetIdentitiesByHost(context.Context, string) ([]crede
 	return p.identities, nil
 }
 
-func (p *stubCredProvider) BatchSave(_ context.Context, _ map[string][]credential.Identity, _ int) error {
+func (p *stubCredProvider) SaveIdentities(_ context.Context, _ string, _ []credential.Identity) error {
 	return nil
 }
 
-func (p *stubCredProvider) Delete(_ context.Context, _ string) error {
+func (p *stubCredProvider) DeleteIdentity(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (p *stubCredProvider) DeleteSessions(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (p *stubCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
+	return nil, nil
+}
+
+func (p *stubCredProvider) DeleteHost(_ context.Context, _ string) error {
 	return nil
 }

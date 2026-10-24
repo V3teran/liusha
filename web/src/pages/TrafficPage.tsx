@@ -78,7 +78,7 @@ export function TrafficPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-4.5 border-b border-border px-5.5 py-3">
-        <h1 className="text-sm font-semibold text-text">流量</h1>
+        <h1 className="text-sm font-semibold text-text">代理流量</h1>
         <span className="text-[12.5px] text-muted">代理捕获的真实流量 · 按主机归属</span>
       </div>
 

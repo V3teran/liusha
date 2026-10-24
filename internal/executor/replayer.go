@@ -13,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/httpreplay"
-	"github.com/V3teran/liusha/internal/tools"
 )
 
 // SelfContainedRequest 是自包含的完整 HTTP 请求（repro.request 的形状）。
@@ -160,11 +159,11 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 	// 全部假设打到修复版难度上整体证伪。持久身份是显式录入的权威凭据；
 	// 自动会话快照只在无持久身份时兜底。
 	sort.SliceStable(identities, func(i, j int) bool {
-		pi, pj := tools.IsAutoSessionIdentity(identities[i].Name), tools.IsAutoSessionIdentity(identities[j].Name)
+		pi, pj := credential.IsSessionIdentity(identities[i].Username), credential.IsSessionIdentity(identities[j].Username)
 		if pi != pj {
 			return !pi // 持久在前
 		}
-		return identities[i].Name < identities[j].Name
+		return identities[i].Username < identities[j].Username
 	})
 	// 首个身份的 headers 型凭证拼成 Cookie/Authorization 头（配方已带的键不覆盖）
 	extra := map[string]string{}
@@ -343,11 +342,11 @@ func (r *Replayer) sessionRefreshCandidates(ctx context.Context) []struct {
 		return nil
 	}
 	sort.SliceStable(identities, func(i, j int) bool {
-		pi, pj := tools.IsAutoSessionIdentity(identities[i].Name), tools.IsAutoSessionIdentity(identities[j].Name)
+		pi, pj := credential.IsSessionIdentity(identities[i].Username), credential.IsSessionIdentity(identities[j].Username)
 		if pi != pj {
 			return !pi // 持久在前
 		}
-		return identities[i].Name < identities[j].Name
+		return identities[i].Username < identities[j].Username
 	})
 	const maxCandidates = 3
 	out := make([]struct {
@@ -368,7 +367,7 @@ func (r *Replayer) sessionRefreshCandidates(ctx context.Context) []struct {
 		out = append(out, struct {
 			label   string
 			headers map[string]string
-		}{label: id.Name, headers: headers})
+		}{label: id.Username, headers: headers})
 		if len(out) >= maxCandidates {
 			break
 		}

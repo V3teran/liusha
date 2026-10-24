@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/task"
@@ -66,6 +68,15 @@ func (h handler) handleCognition(
 
 	// 执行四Agent认知循环
 	report, err := h.runCognition(ctx, taskID, virtualHost, brief, p.ConversationID, sb.Client)
+
+	// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
+	// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期
+	// 由事件驱动，这里是主通道；进程崩溃没跑到这里时由终态清扫器按任务状态
+	// 兜底。独立短超时 ctx（task ctx 可能已取消）；best-effort + 审计。
+	reclaimCtx, reclaimCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	h.reclaimSessionIdentity(reclaimCtx, taskID, virtualHost)
+	reclaimCancel()
+
 	if err != nil {
 		return h.failTask(ctx, p.AgentRunID, taskID, p.ConversationID, err)
 	}
@@ -80,6 +91,7 @@ func (h handler) handleCognition(
 	// agent_run 终态回写（成功路径）：认知报告随 result 落库，审计面不再残留
 	// running 脏态。独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
 	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer doneCancel()
 	// run 终态按停止原因分流：外部终止（控制平面 terminate / ctx 取消）落
 	// aborted——被杀的 run 标 done 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。
@@ -109,7 +121,6 @@ func (h handler) handleCognition(
 		h.appendTaskStatus(doneCtx, p.ConversationID, taskID,
 			conversation.TaskStatusCompleted, "扫描完成", h.completionFields(doneCtx, p.ConversationID, taskID, report))
 	}
-	doneCancel()
 	return nil
 }
 
@@ -189,4 +200,29 @@ func (h handler) findingsCount(ctx context.Context, taskID string) int {
 		return -1
 	}
 	return len(fs)
+}
+
+// reclaimSessionIdentity 删除本任务的自动会话身份（task:{taskID}:session）。
+// best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；成功落审计。
+func (h handler) reclaimSessionIdentity(ctx context.Context, taskID, host string) {
+	if h.creds == nil || host == "" || taskID == "" {
+		return
+	}
+	name := credential.SessionIdentityName(taskID)
+	if err := h.creds.DeleteIdentity(ctx, host, name); err != nil {
+		h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", host).
+			Msg("会话身份回收失败（终态清扫器将按任务状态兜底）")
+		return
+	}
+	if h.audit != nil {
+		if _, aErr := h.audit.Append(ctx, audit.Event{
+			Actor:      audit.ActorRunner,
+			Action:     audit.ActionCredentialDelete,
+			TargetKind: "credential",
+			TargetID:   credential.CanonicalHost(host),
+			Metadata:   json.RawMessage(`{"identity":"` + name + `","scope":"task-terminal"}`),
+		}); aErr != nil {
+			h.logger.Warn().Err(aErr).Str("task_id", taskID).Msg("会话身份回收审计写入失败")
+		}
+	}
 }

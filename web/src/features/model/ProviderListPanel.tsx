@@ -10,20 +10,23 @@ interface ProviderListPanelProps {
   loading: boolean
   error: string
   selectedKey: string // 当前选中 provider 的 key；新建态传 '__new__'
+  dirtySelected: boolean // 选中项有未保存草稿（行尾 accent 点提示）
   onSelect: (p: ProviderConfig) => void
   onNew: () => void
+  onRetry: () => void
 }
 
 // 左列表面板：搜索 + 新建 + provider 行集合，量小（部署通常几个到十几个）故本地过滤，
-// 不接服务端分页——对齐 AssignmentView/ConversationList 这类小数据量列表的做法，
-// 面向少量条目的前端全量渲染，而非服务端翻页的 ConfigListShell。
+// 不接服务端分页——面向少量条目的前端全量渲染，而非服务端翻页的 ConfigListShell。
 export function ProviderListPanel({
   providers,
   loading,
   error,
   selectedKey,
+  dirtySelected,
   onSelect,
   onNew,
+  onRetry,
 }: ProviderListPanelProps) {
   const [query, setQuery] = useState('')
 
@@ -31,7 +34,7 @@ export function ProviderListPanel({
     const q = query.trim().toLowerCase()
     if (!q) return providers
     return providers.filter(
-      (p) => p.key.toLowerCase().includes(q) || p.default_model.toLowerCase().includes(q),
+      (p) => p.code.toLowerCase().includes(q) || p.default_model.toLowerCase().includes(q),
     )
   }, [providers, query])
 
@@ -72,20 +75,29 @@ export function ProviderListPanel({
         {loading ? (
           <li className="tac-cursor py-10 text-center font-mono text-[13px] text-muted">加载中</li>
         ) : error ? (
-          <li className="py-10 text-center text-[13px] text-sev-critical">⚠ {error}</li>
+          <li className="flex flex-col items-center gap-2 py-10 text-[13px] text-sev-critical">
+            <span>⚠ {error}</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-accent hover:text-accent"
+            >
+              重试
+            </button>
+          </li>
         ) : filtered.length === 0 ? (
           <li className="py-10 text-center text-[13px] text-muted">
             {query.trim() ? '无匹配部署' : '暂无部署——点右上「+」接入第一个 provider'}
           </li>
         ) : (
           filtered.map((p) => (
-            <li key={p.key}>
+            <li key={p.code}>
               <button
                 type="button"
                 onClick={() => onSelect(p)}
                 className={cn(
                   'flex w-full flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2',
-                  p.key === selectedKey && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
+                  p.code === selectedKey && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
                   !p.enabled && 'opacity-55',
                 )}
               >
@@ -98,7 +110,14 @@ export function ProviderListPanel({
                         className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-high"
                       />
                     )}
-                    <span className="min-w-0 truncate text-[13.5px] font-medium text-text">{p.key}</span>
+                    <span className="min-w-0 truncate text-[13.5px] font-medium text-text">{p.code}</span>
+                    {p.code === selectedKey && dirtySelected && (
+                      <span
+                        aria-label="有未保存更改"
+                        title="有未保存更改"
+                        className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent"
+                      />
+                    )}
                   </span>
                   <Badge variant="outline" className="flex-shrink-0">
                     {TYPE_LABEL[p.type]}

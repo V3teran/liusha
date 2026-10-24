@@ -29,7 +29,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
   { to: '/findings', label: '漏洞', icon: Bug },
-  { to: '/traffic', label: '流量', icon: Activity },
+  { to: '/traffic', label: '代理流量', icon: Activity },
   { to: '/exploration-graph', label: '探索图', icon: GitBranch },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
@@ -60,11 +60,11 @@ export function AppShell() {
         {/* Logo 区域 */}
         <div className="flex h-16 items-center gap-3 border-b border-border px-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
-            <img src="/logo.svg" alt="" className="h-5 w-5" />
+            <img src="/logo.svg" alt="" className="h-6 w-6" />
           </div>
           <div className="flex flex-col">
             <span className="brand-mark font-mono text-base font-bold tracking-tight">liusha</span>
-            <span className="text-xs text-text-tertiary">渗透测试平台</span>
+            <span className="text-xs text-text-tertiary">智能化渗透测试平台</span>
           </div>
         </div>
 

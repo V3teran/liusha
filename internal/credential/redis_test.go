@@ -44,7 +44,7 @@ func newProvider(t *testing.T) *RedisProvider {
 func names(ids []Identity) []string {
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, id.Name)
+		out = append(out, id.Username)
 	}
 	sort.Strings(out)
 	return out
@@ -71,16 +71,18 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 
 	in := map[string][]Identity{
 		"vulnapp": {
-			{Name: "admin", Role: "admin", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=admin_sess"}}},
-			{Name: "user", Role: "user", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=user_sess"}}},
+			{Username: "admin", Role: "admin", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=admin_sess"}}},
+			{Username: "user", Role: "user", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=user_sess"}}},
 		},
 		"another": {
-			{Name: "alice", Role: "admin", Credentials: []Credential{{Type: TypeQuery, Key: "token", Value: "alice_tk"}}},
-			{Name: "bob", Role: "user", Credentials: []Credential{{Type: TypeBody, Key: "auth", Value: "bob_tk"}}},
+			{Username: "alice", Role: "admin", Credentials: []Credential{{Type: TypeQuery, Key: "token", Value: "alice_tk"}}},
+			{Username: "bob", Role: "user", Credentials: []Credential{{Type: TypeBody, Key: "auth", Value: "bob_tk"}}},
 		},
 	}
-	if err := p.BatchSave(ctx, in, 0); err != nil {
-		t.Fatalf("batch save: %v", err)
+	for host, ids := range in {
+		if err := p.SaveIdentities(ctx, host, ids); err != nil {
+			t.Fatalf("save %s: %v", host, err)
+		}
 	}
 
 	got1, err := p.GetIdentitiesByHost(ctx, "vulnapp")
@@ -101,7 +103,7 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 
 	// 校验 credential 字段被正确反序列化。
 	for _, id := range got1 {
-		if id.Name == "admin" {
+		if id.Username == "admin" {
 			if len(id.Credentials) != 1 || id.Credentials[0].Value != "session=admin_sess" {
 				t.Fatalf("admin credentials 反序列化错误: %+v", id.Credentials)
 			}
@@ -109,47 +111,34 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 	}
 }
 
-// TestRedis_TTL 验证：ttl=1 秒后取不到。
-func TestRedis_TTL(t *testing.T) {
+// TestRedis_PermanentStorage 验证永久存储约定：任何时长后凭证仍在——
+// 本库零过期机制，生命周期由任务终态清理/清扫器/人工删除驱动。
+func TestRedis_PermanentStorage(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"h": {{Name: "u", Role: "user"}},
-	}, 1); err != nil {
-		t.Fatalf("batch save: %v", err)
+	if err := p.SaveIdentities(ctx, "h", []Identity{{Username: "u", Role: "user"}}); err != nil {
+		t.Fatalf("save: %v", err)
 	}
-
-	// 立即查询应能取到 u。
-	got, err := p.GetIdentitiesByHost(ctx, "h")
-	if err != nil {
-		t.Fatalf("get before ttl: %v", err)
-	}
-	if !equalSlices(names(got), []string{"u"}) {
-		t.Fatalf("过期前应为 [u], got=%v", names(got))
-	}
-
-	// 等待过期。
 	time.Sleep(1100 * time.Millisecond)
 
-	got, err = p.GetIdentitiesByHost(ctx, "h")
+	got, err := p.GetIdentitiesByHost(ctx, "h")
 	if err != nil {
-		t.Fatalf("get after ttl: %v", err)
+		t.Fatalf("get: %v", err)
 	}
-	if !equalSlices(names(got), []string{}) {
-		t.Fatalf("过期后应为空, got=%v", names(got))
+	if !equalSlices(names(got), []string{"u"}) {
+		t.Fatalf("无过期机制——任何时长后凭证应仍在, got=%v", names(got))
 	}
 }
 
-// TestRedis_PermanentTTL 验证：ttl=0 不调 Expire，key 永久存活（PTTL = -1）。
-func TestRedis_PermanentTTL(t *testing.T) {
+// TestRedis_NoExpiryKey 验证键上无任何 TTL（PTTL=-1）——零过期是本库的
+// 硬约定，存储层不得偷偷挂 EXPIRE。
+func TestRedis_NoExpiryKey(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"perm": {{Name: "alice", Role: "admin"}},
-	}, 0); err != nil {
-		t.Fatalf("batch save: %v", err)
+	if err := p.SaveIdentities(ctx, "perm", []Identity{{Username: "alice", Role: "admin"}}); err != nil {
+		t.Fatalf("save: %v", err)
 	}
 
 	d, err := p.client.TTL(ctx, p.hashKey("perm")).Result()
@@ -167,16 +156,14 @@ func TestRedis_Delete(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"target": {
-			{Name: "a", Role: "admin"},
-			{Name: "b", Role: "user"},
-		},
-	}, 0); err != nil {
+	if err := p.SaveIdentities(ctx, "target", []Identity{
+		{Username: "a", Role: "admin"},
+		{Username: "b", Role: "user"},
+	}); err != nil {
 		t.Fatalf("batch save: %v", err)
 	}
 
-	if err := p.Delete(ctx, "target"); err != nil {
+	if err := p.DeleteHost(ctx, "target"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 
@@ -189,20 +176,16 @@ func TestRedis_Delete(t *testing.T) {
 	}
 }
 
-// TestRedis_BatchSave_OverwriteExisting 验证：重复 BatchSave 同 host 同 name 覆盖旧值。
-func TestRedis_BatchSave_OverwriteExisting(t *testing.T) {
+// TestRedis_SaveIdentities_OverwriteExisting 验证：重复保存同 host 同 name 覆盖旧值。
+func TestRedis_SaveIdentities_OverwriteExisting(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"h": {{Name: "u", Role: "user", Credentials: []Credential{{Type: TypeHeaders, Key: "X-Token", Value: "v1"}}}},
-	}, 0); err != nil {
+	if err := p.SaveIdentities(ctx, "h", []Identity{{Username: "u", Role: "user", Credentials: []Credential{{Type: TypeHeaders, Key: "X-Token", Value: "v1"}}}}); err != nil {
 		t.Fatalf("first save: %v", err)
 	}
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"h": {{Name: "u", Role: "admin", Credentials: []Credential{{Type: TypeHeaders, Key: "X-Token", Value: "v2"}}}},
-	}, 0); err != nil {
+	if err := p.SaveIdentities(ctx, "h", []Identity{{Username: "u", Role: "admin", Credentials: []Credential{{Type: TypeHeaders, Key: "X-Token", Value: "v2"}}}}); err != nil {
 		t.Fatalf("second save: %v", err)
 	}
 
@@ -212,7 +195,7 @@ func TestRedis_BatchSave_OverwriteExisting(t *testing.T) {
 	}
 	var found bool
 	for _, id := range got {
-		if id.Name == "u" {
+		if id.Username == "u" {
 			found = true
 			if id.Role != "admin" {
 				t.Fatalf("覆盖后 role 应为 admin, got=%s", id.Role)
@@ -227,18 +210,16 @@ func TestRedis_BatchSave_OverwriteExisting(t *testing.T) {
 	}
 }
 
-// TestRedis_BatchSave_SkipsAnonymous 验证：调用方传入 anonymous 时不持久化（避免污染存储）。
-func TestRedis_BatchSave_SkipsAnonymous(t *testing.T) {
+// TestRedis_SaveIdentities_SkipsAnonymous 验证：调用方传入 anonymous 时不持久化（避免污染存储）。
+func TestRedis_SaveIdentities_SkipsAnonymous(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
-	if err := p.BatchSave(ctx, map[string][]Identity{
-		"h": {
-			{Name: AnonymousName, Role: "anonymous"},
-			{Name: "real", Role: "user"},
-		},
-	}, 0); err != nil {
-		t.Fatalf("batch save: %v", err)
+	if err := p.SaveIdentities(ctx, "h", []Identity{
+		{Username: AnonymousName, Role: "anonymous"},
+		{Username: "real", Role: "user"},
+	}); err != nil {
+		t.Fatalf("save: %v", err)
 	}
 
 	// 直接探测 hash field：anonymous field 不应被写入（hash 本身因为 real 存在）。

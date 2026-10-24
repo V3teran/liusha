@@ -35,6 +35,21 @@ var auditLog = logx.New("api.audit")
 // chatLog 记纯聊天回答的 best-effort 失败——会话与用户消息已落库，回答缺失不阻断会话创建。
 var chatLog = logx.New("api.chat")
 
+// taskStatusAdapter 把 task store 适配到 httpapi.TaskStatusResolver：
+// 凭证详情里每个会话身份标注归属任务的当前状态。
+type taskStatusAdapter struct {
+	tasks *task.Store
+}
+
+// TaskStatus 返回任务状态与存在性（行不存在 = 已级联删除）。
+func (a taskStatusAdapter) TaskStatus(ctx context.Context, taskID string) (string, bool) {
+	t, err := a.tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return "", false
+	}
+	return string(t.Status), true
+}
+
 // taskAPIAdapter 把 task store 适配到 httpapi.TaskAPI 窄接口。
 //
 // Abort/List 直接走 task store，无双表试探。

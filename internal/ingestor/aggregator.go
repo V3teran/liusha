@@ -21,11 +21,11 @@ import (
 //      流量则永不触发。故用后台 sweepExpired（独立时钟，见 traffic.sweepLoop）遍历活跃 host
 //      集，对已超 window 的窗口主动建 task——兜住"打一批就停"的尾批（e2e 场景 + 生产静默 host）。
 //
-// 键（key 前缀由 caller 拼）：
-//   {p}:agg:count:{host}   int   本窗口累计条数（INCR）
-//   {p}:agg:first:{host}   int64 本窗口首条 unix ms（SET NX，判超时用）
-//   {p}:agg:lock:{host}    lock  建 task 抢占锁（SET NX EX，防并发重复建）
-//   {p}:agg:hosts          set   有未触发窗口的活跃 host 集（供 sweepExpired 遍历）
+// 键（aggKeyPrefix 自有命名空间）：
+//   liusha:agg:count:{host}   int   本窗口累计条数（INCR）
+//   liusha:agg:first:{host}   int64 本窗口首条 unix ms（SET NX，判超时用）
+//   liusha:agg:lock:{host}    lock  建 task 抢占锁（SET NX EX，防并发重复建）
+//   liusha:agg:hosts          set   有未触发窗口的活跃 host 集（供 sweepExpired 遍历）
 
 // hostWindow 是聚合器对单 host 窗口的判定结果。
 type hostWindow struct {
@@ -37,23 +37,27 @@ type hostWindow struct {
 // aggregator 用 Redis 维护 per-host 攒批窗口。
 type aggregator struct {
 	rdb       *redis.Client
-	keyPrefix string
 	batchSize int64
 	window    time.Duration
 	logger    zerolog.Logger
 }
 
-func newAggregator(rdb *redis.Client, keyPrefix string, batchSize int, window time.Duration, logger zerolog.Logger) *aggregator {
-	return &aggregator{rdb: rdb, keyPrefix: keyPrefix, batchSize: int64(batchSize), window: window, logger: logger}
+// aggKeyPrefix 是聚合窗口的自有命名空间——运行时键必须与凭证库等业务命名空间
+// 隔离：凭证库枚举（SCAN）依赖其命名空间纯净，借用别人的前缀会在对方枚举里
+// 长出假键。
+const aggKeyPrefix = "liusha:agg"
+
+func newAggregator(rdb *redis.Client, batchSize int, window time.Duration, logger zerolog.Logger) *aggregator {
+	return &aggregator{rdb: rdb, batchSize: int64(batchSize), window: window, logger: logger}
 }
 
 // batchN 返回配置的批大小（领取 proxy_traffic 时的上限）。
 func (a *aggregator) batchN() int { return int(a.batchSize) }
 
-func (a *aggregator) countKey(host string) string { return a.keyPrefix + ":agg:count:" + host }
-func (a *aggregator) firstKey(host string) string { return a.keyPrefix + ":agg:first:" + host }
-func (a *aggregator) lockKey(host string) string  { return a.keyPrefix + ":agg:lock:" + host }
-func (a *aggregator) hostsKey() string            { return a.keyPrefix + ":agg:hosts" }
+func (a *aggregator) countKey(host string) string { return aggKeyPrefix + ":count:" + host }
+func (a *aggregator) firstKey(host string) string { return aggKeyPrefix + ":first:" + host }
+func (a *aggregator) lockKey(host string) string  { return aggKeyPrefix + ":lock:" + host }
+func (a *aggregator) hostsKey() string            { return aggKeyPrefix + ":hosts" }
 
 // observe 记一条 host 流量进窗口，返回是否应触发建 task。
 //

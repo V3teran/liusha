@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, Loader2, RefreshCw } from 'lucide-react'
 import type { ProviderConfig, ProviderType } from '@/api/types'
 import { listProviderModels } from '@/api/models'
+import { Switch } from '@/components/ui/switch'
 import { Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 
 // 协议类型展示标签（后端枚举值不变，仅前端呈现）。
@@ -128,7 +129,7 @@ function ModelField({
     setProbeMsg('')
     try {
       const list = await listProviderModels({
-        key: draft.key || undefined,
+        code: draft.code || undefined,
         type: draft.type,
         base_url: draft.base_url,
         api_key: draft.api_key || undefined,
@@ -179,7 +180,7 @@ function ModelField({
 // 能力标志保守（不支持视觉、支持工具调用），context_window 给常见 64K。
 export function blankProvider(): ProviderConfig {
   return {
-    key: '',
+    code: '',
     type: 'openai_compat',
     base_url: '',
     default_model: '',
@@ -199,7 +200,7 @@ export function blankProvider(): ProviderConfig {
 // api_key：新建必填（后端 400 拒绝空密钥新建）；编辑留空 = 不修改已存密钥，故不校验。
 export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boolean {
   return (
-    !d?.key ||
+    !d?.code ||
     !d?.base_url ||
     !d?.default_model ||
     (isNew && !d?.api_key) ||
@@ -214,6 +215,30 @@ function GroupLabel({ children }: { children: ReactNode }) {
     <h3 className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
       {children}
     </h3>
+  )
+}
+
+// 布尔设置行：标题 + 说明在左、开关在右的两端对齐行（设置页标准布局）。
+// 替代原生 checkbox——开关语义（启用/能力声明）与全站控件体系一致，热区也更大。
+function ToggleField({
+  label,
+  hint,
+  checked,
+  onCheckedChange,
+}: {
+  label: string
+  hint?: string
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-3.5 py-2.5">
+      <span className="min-w-0">
+        <span className="block text-[13px] text-text">{label}</span>
+        {hint && <span className="mt-0.5 block text-[12px] leading-snug text-faint">{hint}</span>}
+      </span>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
+    </div>
   )
 }
 
@@ -235,11 +260,11 @@ export function ProviderFormBody({
         <Field label="标识键" hint={isNew ? '稳定引用键，创建后不可改' : 'key'}>
           <input
             className={INPUT_CLASS}
-            value={draft.key}
+            value={draft.code}
             spellCheck={false}
             disabled={!isNew}
             placeholder="deepseek"
-            onChange={(e) => patch({ key: e.target.value })}
+            onChange={(e) => patch({ code: e.target.value })}
           />
         </Field>
         <Field label="协议">
@@ -264,14 +289,12 @@ export function ProviderFormBody({
       </Field>
       <ModelField draft={draft} patch={patch} />
       <ApiKeyField draft={draft} patch={patch} isNew={isNew} />
-      <label className="flex items-center gap-2 text-[13px] text-text">
-        <input
-          type="checkbox"
-          checked={draft.enabled}
-          onChange={(e) => patch({ enabled: e.target.checked })}
-        />
-        启用
-      </label>
+      <ToggleField
+        label="启用"
+        hint="停用后该部署不再参与路由解析，但配置保留"
+        checked={draft.enabled}
+        onCheckedChange={(v) => patch({ enabled: v })}
+      />
 
       <GroupLabel>能力</GroupLabel>
       <Field label="上下文窗口" hint="model 总上下文 tokens；ReAct 历史压缩按此算阈值，必填 > 0">
@@ -292,25 +315,21 @@ export function ProviderFormBody({
           onChange={(e) => patch({ max_tokens: Number(e.target.value) })}
         />
       </Field>
-      {/* 工具/视觉手动勾选：模型名看不出模态（如小米 MiMo 全模态但名字无 vl 标记），
+      {/* 工具/视觉手动声明：模型名看不出模态（如小米 MiMo 全模态但名字无 vl 标记），
           无法靠名字前缀可靠推断，故必须让用户按 provider 实际能力显式声明。
           视觉标志错配会导致含图消息路由到不支持读图的 model。 */}
-      <label className="flex items-center gap-2 text-[13px] text-text">
-        <input
-          type="checkbox"
-          checked={draft.supports_tools}
-          onChange={(e) => patch({ supports_tools: e.target.checked })}
-        />
-        支持工具调用（function calling）
-      </label>
-      <label className="flex items-center gap-2 text-[13px] text-text">
-        <input
-          type="checkbox"
-          checked={draft.supports_vision}
-          onChange={(e) => patch({ supports_vision: e.target.checked })}
-        />
-        支持视觉（含图消息路由依赖此标志，须按 provider 实际能力显式声明）
-      </label>
+      <ToggleField
+        label="支持工具调用"
+        hint="function calling——ReAct 循环依赖工具调用，不勾选则该部署不参与执行类档位"
+        checked={draft.supports_tools}
+        onCheckedChange={(v) => patch({ supports_tools: v })}
+      />
+      <ToggleField
+        label="支持视觉"
+        hint="含图消息的路由依赖此标志，须按 provider 实际能力显式声明"
+        checked={draft.supports_vision}
+        onCheckedChange={(v) => patch({ supports_vision: v })}
+      />
       <Field label="描述">
         <input
           className={INPUT_CLASS}
@@ -321,4 +340,3 @@ export function ProviderFormBody({
     </div>
   )
 }
-

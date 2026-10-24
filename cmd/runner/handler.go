@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/setting"
@@ -60,6 +61,7 @@ type handler struct {
 
 	// 工具装配依赖（与 prompt 拼装共用）
 	creds         credential.Provider
+	audit         *audit.Store // 凭证库等敏感操作的 runner 侧审计（会话身份回收）
 	toolCalls     *toolinvocation.Store
 	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
 	toolsManifest *manifest.Manifest

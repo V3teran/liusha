@@ -177,9 +177,9 @@ export interface ToolDetail {
 export type ProviderType = 'openai_compat' | 'anthropic'
 
 // ProviderConfig 是一个 LLM provider 部署（连接参数 + 能力标志）。
-// key 是稳定引用键（角色路由 FK 指向它），创建后不可改。
+// code 是稳定引用键（角色路由 FK 指向它），创建后不可改；后端 JSON 字段即 code。
 export interface ProviderConfig {
-  key: string
+  code: string
   type: ProviderType
   base_url: string
   default_model: string
@@ -206,7 +206,7 @@ export interface ProviderConfig {
 //   __fallback__ 主 provider 重试耗尽后的备份 provider
 export interface RoleRouteConfig {
   role: string
-  provider_key: string
+  provider_code: string
   created_at?: string
   updated_at?: string
 }
@@ -231,7 +231,7 @@ export const ROLE_FALLBACK = '__fallback__'
 
 // ProviderProbeRequest 是测试连接 / 模型探测的公共请求体。
 export interface ProviderProbeRequest {
-  key?: string // 已存 provider key；api_key 留空时后端据此取已存密钥
+  code?: string // 已存 provider code；api_key 留空时后端据此取已存密钥
   type?: ProviderType
   base_url: string
   default_model?: string // 测试连接必填（指定用哪个 model 验证）；模型探测可空
@@ -446,18 +446,35 @@ export interface TrafficFilters {
 }
 
 /* ============================================================
-   凭证库（GET/POST/DELETE /credential）
-   host → Identity[]（每个 Identity 含多条 Credential）
+   凭证库（GET/PUT/DELETE /credentials…）
+   永久存储、无 TTL；值全量明文（操作台语义）。
    ============================================================ */
-export interface Credential {
-  type: string
+
+/** 单条凭证（注入位置 + 键值）。 */
+export interface CredentialEntry {
+  type: 'headers' | 'query' | 'body' | string
   key: string
-  value: string
+  value: string // 全量明文
 }
-export interface Identity {
-  name: string
+
+/** 登录身份（真实登录用户名 + 凭证集）+ 详情视图派生字段（kind/task_id/task_status 由用户名派生）。
+ *  主机不落在身份载荷里——展示一律取行上的 host（存储键归一的 host[:port]）。 */
+export interface CredentialIdentity {
+  username: string
   role: string
-  credentials: Credential[]
+  credentials: CredentialEntry[]
+  created_at?: string
+  updated_at?: string
+  kind?: 'session' | 'persistent'
+  task_id?: string
+  task_status?: string // active/completed/aborted/failed/gone
+}
+
+/** host 汇总行（枚举只含计数，不含凭证值）。 */
+export interface CredentialHostSummary {
+  host: string
+  usernames: number
+  sessions: number
 }
 
 /* ============================================================

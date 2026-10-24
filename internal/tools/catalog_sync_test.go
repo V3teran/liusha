@@ -20,13 +20,16 @@ import (
 // Execute 才用）——让全部分支工具都进入注册集，供 catalog 一致性比对。
 type noOpCredProvider struct{}
 
-func (noOpCredProvider) BatchSave(_ context.Context, _ map[string][]credential.Identity, _ int) error {
+func (noOpCredProvider) SaveIdentities(_ context.Context, _ string, _ []credential.Identity) error {
 	return nil
 }
 func (noOpCredProvider) GetIdentitiesByHost(_ context.Context, _ string) ([]credential.Identity, error) {
 	return nil, nil
 }
-func (noOpCredProvider) Delete(_ context.Context, _ string) error { return nil }
+func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (noOpCredProvider) DeleteSessions(_ context.Context, _ string) (int, error) { return 0, nil }
+func (noOpCredProvider) DeleteHost(_ context.Context, _ string) error { return nil }
+func (noOpCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) { return nil, nil }
 
 type noOpSandbox struct{}
 

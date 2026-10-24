@@ -185,11 +185,14 @@ pre {
   50% { opacity: 0; }
 }
 
-.tac-modal-overlay {
-  /* 由 Radix UI 控制 */
+.app-overlay {
+  /* 全站弹层遮罩唯一规格：纯压暗 50%、零背景模糊（scrim 职责是聚焦前景，
+   * 模糊破坏后文可读且耗 GPU——Material 3 / shadcn 等主流规范均不用）。
+   * 定位与层级由使用方补：className="app-overlay fixed inset-0 z-50" */
+  background: rgb(0 0 0 / 0.5);
 }
 
-.tac-modal-overlay[data-state='open'] {
+.app-overlay[data-state='open'] {
   animation: fade-in 160ms ease-out;
 }
 

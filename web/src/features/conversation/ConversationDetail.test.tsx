@@ -46,7 +46,7 @@ describe('ConversationDetail', () => {
 
   it('无 convId（主动下发 manual）显示空状态引导文案', async () => {
     render(<ConversationDetail source="manual" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('发起一次渗透扫描')).toBeTruthy()
+    expect(await screen.findByText('发起一次渗透测试任务')).toBeTruthy()
   })
 
   it('无 convId（被动代理 auto）显示对应空状态文案', async () => {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/credential"
@@ -59,7 +58,7 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 	mine := sessionIdentityName(t.deps.TaskID)
 	filtered := identities[:0]
 	for _, id := range identities {
-		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
+		if credential.IsSessionIdentity(id.Username) && id.Username != mine {
 			continue
 		}
 		filtered = append(filtered, id)
@@ -88,7 +87,7 @@ var writeCredentialSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
     "host": {"type": "string", "description": "归属 host。"},
-    "name": {"type": "string", "description": "身份名，如 \"admin\" / \"user_alice\"。"},
+    "username": {"type": "string", "description": "登录用户名（真实登录用的用户名），如 \"admin\"。"},
     "role": {"type": "string", "description": "业务角色，如 \"admin\" / \"user\" / \"guest\"。"},
     "credentials": {
       "type": "array",
@@ -104,7 +103,7 @@ var writeCredentialSchema = json.RawMessage(`{
       }
     }
   },
-  "required": ["host", "name", "credentials"]
+  "required": ["host", "username", "credentials"]
 }`)
 
 type writeCredentialTool struct {
@@ -121,14 +120,16 @@ func newWriteCredentialTool(deps Deps, timeout time.Duration) *writeCredentialTo
 func (t *writeCredentialTool) Name() string      { return "write_credential" }
 func (t *writeCredentialTool) ShortDesc() string { return "录入活凭证" }
 func (t *writeCredentialTool) Desc() string {
-	return "把刚拿到的活凭证录入本 host 凭证池，供同 owner 下其他 executor 共享复用。"
+	return "把刚拿到的活凭证录入本 host 凭证池，供同 owner 下其他 executor 共享复用。" +
+		"username 必须是该账号真实登录用户名（如 admin），禁止自造代号" +
+		"（admin-low、xxx_r2 这类后缀是噪声）；同一账号先 read_credentials 查既有用户名并原样复用。"
 }
 func (t *writeCredentialTool) Schema() json.RawMessage { return writeCredentialSchema }
 
 func (t *writeCredentialTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
 		Host        string `json:"host"`
-		Name        string `json:"name"`
+		Username    string `json:"username"`
 		Role        string `json:"role"`
 		Credentials []struct {
 			Type  string `json:"type"`
@@ -151,10 +152,10 @@ func (t *writeCredentialTool) Execute(ctx context.Context, args json.RawMessage)
 			Value: c.Value,
 		})
 	}
-	identity := credential.Identity{Name: a.Name, Role: a.Role, Credentials: creds}
+	identity := credential.Identity{Username: a.Username, Role: a.Role, Credentials: creds}
 
-	if err := t.deps.Creds.BatchSave(ctx, map[string][]credential.Identity{a.Host: {identity}}, 0); err != nil {
+	if err := t.deps.Creds.SaveIdentities(ctx, a.Host, []credential.Identity{identity}); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("write_credential: %v", err)}, nil
 	}
-	return registry.ToolResult{Output: fmt.Sprintf("凭证已写入: host=%s name=%s", a.Host, a.Name)}, nil
+	return registry.ToolResult{Output: fmt.Sprintf("凭证已写入: host=%s username=%s", a.Host, a.Username)}, nil
 }

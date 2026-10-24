@@ -19,7 +19,9 @@ import type {
   TrafficListResponse,
   TrafficDetail,
   TrafficFilters,
-  Identity,
+  CredentialHostSummary,
+  CredentialIdentity,
+  CredentialEntry,
   FindingRow,
   FindingFilters,
   FindingListResponse,
@@ -503,30 +505,46 @@ export async function listTrafficContentTypes(): Promise<string[]> {
    凭证库
    ============================================================ */
 
-/**
- * 列出指定 host 下的全部身份（含凭证）。
- */
-export async function listCredentials(host: string): Promise<Identity[]> {
-  return (await get<{ identities: Identity[] }>(`/credential?host=${encodeURIComponent(host)}`))
-    .identities
+/* ============================================================
+   凭证库（GET /credentials、GET/PUT/DELETE /credentials/:host…）
+   凭证值全量明文（操作台要看/要复制原文）；无任何 TTL 语义——
+   生命周期由任务终态清理/清扫器/人工删除驱动。
+   ============================================================ */
+
+/** host 汇总枚举（只含身份计数，不含任何凭证值）。 */
+export async function listCredentialHosts(): Promise<CredentialHostSummary[]> {
+  return (await get<{ hosts: CredentialHostSummary[] }>('/credentials')).hosts
 }
 
-/**
- * 批量保存 host → 身份映射。
- * @param ttlSeconds 0 表示永不过期
- */
-export async function saveCredentialsBatch(
-  credentials: Record<string, Identity[]>,
-  ttlSeconds = 0
+/** 单 host 身份详情（全量明文，含会话任务状态注入）。 */
+export async function getCredentialDetail(
+  host: string,
+): Promise<{ host: string; identities: CredentialIdentity[] }> {
+  return get(`/credentials/${encodeURIComponent(host)}`)
+}
+
+/** upsert 单个登录身份（host 经服务端 CanonicalHost 归一）。 */
+export async function saveCredentialIdentity(
+  host: string,
+  identity: { username: string; role?: string; credentials: CredentialEntry[] },
 ): Promise<void> {
-  await post('/credential/batch', { ttl_seconds: ttlSeconds, credentials })
+  await put(`/credentials/${encodeURIComponent(host)}/usernames`, identity)
 }
 
-/**
- * 删除指定 host 下的全部持久化身份。
- */
-export async function deleteCredentials(host: string): Promise<void> {
-  await del(`/credential?host=${encodeURIComponent(host)}`)
+/** 删除单个登录身份。 */
+export async function deleteCredentialIdentity(host: string, username: string): Promise<void> {
+  await del(`/credentials/${encodeURIComponent(host)}/usernames/${encodeURIComponent(username)}`)
+}
+
+/** 清空该 host 会话身份（持久身份不动），返回删除数。 */
+export async function purgeCredentialSessions(host: string): Promise<number> {
+  const r = await del<{ deleted: number }>(`/credentials/${encodeURIComponent(host)}/sessions`)
+  return r.deleted
+}
+
+/** 清空该 host 全部身份。 */
+export async function deleteCredentialHost(host: string): Promise<void> {
+  await del(`/credentials/${encodeURIComponent(host)}`)
 }
 
 /* ============================================================

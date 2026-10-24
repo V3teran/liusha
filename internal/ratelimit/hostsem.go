@@ -19,20 +19,22 @@ import (
 // HostSemaphore 是按 host 的并发信号量。
 type HostSemaphore struct {
 	rdb       *redis.Client
-	keyPrefix string
 	limit     int64
 	ttl       time.Duration // 计数键兜底 TTL（防持有者崩溃泄漏）
 }
 
+// keyPrefix 是信号量的自有命名空间——运行时键必须与凭证库等业务命名空间
+// 隔离：枚举类接口（如凭证库 SCAN）依赖本命名空间纯净，借用别人的前缀
+// 会在对方的枚举里长出假键。
+const keyPrefix = "liusha:hostsem:"
+
 // NewHostSemaphore 构造 per-host 信号量。limit ≤ 0 时视为不限制（Acquire 恒成功）。
 // ttl 应 ≥ 单 task 最长运行时长 + 缓冲（防长 task 运行期被 TTL 误清导致计数漂移）。
-func NewHostSemaphore(rdb *redis.Client, keyPrefix string, limit int, ttl time.Duration) *HostSemaphore {
-	return &HostSemaphore{rdb: rdb, keyPrefix: keyPrefix, limit: int64(limit), ttl: ttl}
+func NewHostSemaphore(rdb *redis.Client, limit int, ttl time.Duration) *HostSemaphore {
+	return &HostSemaphore{rdb: rdb, limit: int64(limit), ttl: ttl}
 }
 
-// key 拼接：keyPrefix 约定自带尾部冒号（如 "credentials:"，见 credential.RedisProvider 同约定），
-// 直接紧跟 "hostsem:" 拼接，不再额外插入冒号（否则会出现 "credentials::hostsem:host" 双冒号）。
-func (s *HostSemaphore) key(host string) string { return s.keyPrefix + "hostsem:" + host }
+func (s *HostSemaphore) key(host string) string { return keyPrefix + host }
 
 // Acquire 尝试为 host 占一个并发额度。
 //   - limit ≤ 0（不限）或 host 为空 → 返回 (noopRelease, true, nil)。

@@ -296,11 +296,11 @@ export function ExplorationGraphPage() {
               onClick={handleTaskIdSubmit}
               disabled={loading || !taskId}
               className={cn(
-                'flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white',
+                'flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold',
                 'transition-all',
                 loading || !taskId
                   ? 'cursor-not-allowed bg-surface-2 text-text-disabled'
-                  : 'bg-accent hover:bg-accent-hover hover:shadow-lg'
+                  : 'bg-accent-soft hover:bg-accent/10 text-accent hover:text-accent-hover'
               )}
             >
               <Search className="h-4 w-4" />

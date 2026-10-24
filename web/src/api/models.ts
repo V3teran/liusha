@@ -32,7 +32,7 @@ export async function saveProvider(
   isNew: boolean,
 ): Promise<ProviderConfig> {
   const body = {
-    key: p.key,
+    code: p.code,
     type: p.type,
     base_url: p.base_url,
     default_model: p.default_model,
@@ -48,7 +48,7 @@ export async function saveProvider(
   const res = isNew
     ? await post<{ provider: ProviderConfig }>('/models/providers', body)
     : await put<{ provider: ProviderConfig }>(
-        `/models/providers/${encodeURIComponent(p.key)}`,
+        `/models/providers/${encodeURIComponent(p.code)}`,
         body,
       )
   return res.provider
@@ -97,7 +97,7 @@ export async function saveRoleRoute(
 ): Promise<RoleRouteConfig> {
   const res = await putModel<{ route: RoleRouteConfig }>(
     `/models/routes/${encodeURIComponent(role)}`,
-    { provider_key: providerKey },
+    { provider_code: providerKey },
   )
   return res.route
 }

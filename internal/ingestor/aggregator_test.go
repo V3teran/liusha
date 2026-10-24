@@ -17,7 +17,7 @@ func newTestAggregator(t *testing.T, batchSize int, window time.Duration) (*aggr
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return newAggregator(rdb, "test", batchSize, window, zerolog.Nop()), mr
+	return newAggregator(rdb, batchSize, window, zerolog.Nop()), mr
 }
 
 // 阈值触发：攒够 batchSize 条即 Triggered，不足则否。

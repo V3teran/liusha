@@ -8,16 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/credential"
 )
-
-// CredentialsAPI 是 handlers 对凭证存储的窄接口，
-// 仅暴露 HTTP 层真正用到的 3 个方法，便于测试 mock。
-type CredentialsAPI interface {
-	BatchSave(ctx context.Context, byHost map[string][]credential.Identity, ttlSeconds int) error
-	GetIdentitiesByHost(ctx context.Context, host string) ([]credential.Identity, error)
-	Delete(ctx context.Context, host string) error
-}
 
 // TaskAPI 是 handlers 对 task store 的窄接口。
 //
@@ -39,62 +30,6 @@ type TaskSummary struct {
 	CreatedAt    string `json:"created_at"`         // RFC3339
 	EndedAt      string `json:"ended_at,omitempty"` // RFC3339（可空）
 	ErrorMessage string `json:"error_message,omitempty"`
-}
-
-// BatchSaveRequest 是 POST /credential/batch 请求体。
-// TTLSeconds=0 表示永不过期，由底层 Provider 决定语义。
-type BatchSaveRequest struct {
-	TTLSeconds  int                              `json:"ttl_seconds"`
-	Credentials map[string][]credential.Identity `json:"credentials"`
-}
-
-// batchSaveHandler 把 host -> identities map 一次性写入凭证存储。
-func batchSaveHandler(api CredentialsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req BatchSaveRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if err := api.BatchSave(c.Request.Context(), req.Credentials, req.TTLSeconds); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// listCredentialHandler 返回指定 host 的全部 identity（含 anonymous 注入由底层负责）。
-func listCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		host := c.Query("host")
-		if host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
-			return
-		}
-		ids, err := api.GetIdentitiesByHost(c.Request.Context(), host)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"identities": ids})
-	}
-}
-
-// deleteCredentialHandler 删除指定 host 下的所有持久化身份。
-func deleteCredentialHandler(api CredentialsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		host := c.Query("host")
-		if host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
-			return
-		}
-		if err := api.Delete(c.Request.Context(), host); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
 }
 
 // listTasksHandler 处理 GET /tasks?limit=<optional>。

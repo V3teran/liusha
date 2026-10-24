@@ -165,7 +165,6 @@ type fakeCredsProvider struct {
 	mu       sync.Mutex
 	byHost   map[string][]credential.Identity
 	saves    []credential.Identity // 记录每次 BatchSave 的身份
-	saveTTLs []int
 	getErr   error
 }
 
@@ -173,27 +172,24 @@ func newFakeCreds() *fakeCredsProvider {
 	return &fakeCredsProvider{byHost: map[string][]credential.Identity{}}
 }
 
-func (f *fakeCredsProvider) BatchSave(_ context.Context, byHost map[string][]credential.Identity, ttl int) error {
+func (f *fakeCredsProvider) SaveIdentities(_ context.Context, host string, ids []credential.Identity) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for h, ids := range byHost {
-		for _, id := range ids {
-			if id.Name == credential.AnonymousName {
-				continue
+	for _, id := range ids {
+		if id.Username == credential.AnonymousName {
+			continue
+		}
+		f.saves = append(f.saves, id)
+		replaced := false
+		cur := f.byHost[host]
+		for i := range cur {
+			if cur[i].Username == id.Username {
+				cur[i] = id
+				replaced = true
 			}
-			f.saves = append(f.saves, id)
-			f.saveTTLs = append(f.saveTTLs, ttl)
-			replaced := false
-			cur := f.byHost[h]
-			for i := range cur {
-				if cur[i].Name == id.Name {
-					cur[i] = id
-					replaced = true
-				}
-			}
-			if !replaced {
-				f.byHost[h] = append(cur, id)
-			}
+		}
+		if !replaced {
+			f.byHost[host] = append(cur, id)
 		}
 	}
 	return nil
@@ -203,19 +199,26 @@ func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) 
 	defer f.mu.Unlock()
 	return f.byHost[host], f.getErr
 }
-func (f *fakeCredsProvider) Delete(_ context.Context, _ string) error { return nil }
+func (f *fakeCredsProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (f *fakeCredsProvider) DeleteSessions(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+func (f *fakeCredsProvider) DeleteHost(_ context.Context, _ string) error { return nil }
+func (f *fakeCredsProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
+	return nil, nil
+}
 
 // ② N 凭证 × M 位置注入：headers/query/body 全位置、多身份、冲突规则（显式优先、
 // 身份名序先到先得、JSON 体不注入）。
 func TestHTTPTool_ApplyStoredCredentials_MultiPosition(t *testing.T) {
 	creds := newFakeCreds()
 	creds.byHost["target.local"] = []credential.Identity{
-		{Name: "admin", Role: "admin", Credentials: []credential.Credential{
+		{Username: "admin", Role: "admin", Credentials: []credential.Credential{
 			{Type: credential.TypeHeaders, Key: "X-API-Key", Value: "secret-key"},
 			{Type: credential.TypeQuery, Key: "token", Value: "q-token"},
 			{Type: credential.TypeBody, Key: "password", Value: "p@ss"},
 		}},
-		{Name: "b-identity", Credentials: []credential.Credential{
+		{Username: "b-identity", Credentials: []credential.Credential{
 			{Type: credential.TypeHeaders, Key: "X-API-Key", Value: "should-lose"}, // 同键后到，应被 admin（名序 a<b）占先
 		}},
 	}
@@ -269,7 +272,7 @@ func TestHTTPTool_ExplicitWinsOverStore(t *testing.T) {
 	}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
-	creds.byHost[host] = []credential.Identity{{Name: "admin", Credentials: []credential.Credential{
+	creds.byHost[host] = []credential.Identity{{Username: "admin", Credentials: []credential.Credential{
 		{Type: credential.TypeHeaders, Key: "X-API-Key", Value: "from-store"},
 		{Type: credential.TypeQuery, Key: "token", Value: "from-store"},
 		{Type: credential.TypeBody, Key: "password", Value: "from-store"},
@@ -291,7 +294,7 @@ func TestHTTPTool_JSONBodySkipsBodyCreds(t *testing.T) {
 	}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
-	creds.byHost[host] = []credential.Identity{{Name: "admin", Credentials: []credential.Credential{
+	creds.byHost[host] = []credential.Identity{{Username: "admin", Credentials: []credential.Credential{
 		{Type: credential.TypeBody, Key: "password", Value: "x"},
 	}}}
 
@@ -317,19 +320,19 @@ func TestHTTPTool_SetCookieSyncsToStore(t *testing.T) {
 	}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
-	creds.byHost[host] = []credential.Identity{{Name: sessionIdentityName("t-1"), Credentials: []credential.Credential{
+	creds.byHost[host] = []credential.Identity{{Username: sessionIdentityName("t-1"), Credentials: []credential.Credential{
 		{Type: credential.TypeHeaders, Key: "X-Extra", Value: "keep-me"},
 	}}}
 
 	tool := newHTTPRequestTool(Deps{Creds: creds, TaskID: "t-1"}, 5*time.Second)
 	runHTTPTool(t, tool, `{"url":"`+srv.URL+`/login"}`) // Set-Cookie → 入库
 
-	if len(creds.saves) != 1 || creds.saveTTLs[0] != 0 {
-		t.Fatalf("应写一次且 ttl=0（host 级 EXPIRE 会误杀同 host 身份）, saves=%d ttl=%v", len(creds.saves), creds.saveTTLs)
+	if len(creds.saves) != 1 {
+		t.Fatalf("应写一次（Set-Cookie 变更入库）, saves=%d", len(creds.saves))
 	}
 	saved := creds.saves[0]
-	if saved.Name != sessionIdentityName("t-1") {
-		t.Fatalf("应写入本 task 会话身份 task:t-1:session, got %q", saved.Name)
+	if saved.Username != sessionIdentityName("t-1") {
+		t.Fatalf("应写入本 task 会话用户名 task:t-1:session, got %q", saved.Username)
 	}
 	var cookieVal, extra string
 	for _, c := range saved.Credentials {
@@ -382,7 +385,7 @@ func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
 
 	// task A 登录拿到会话
 	srvA := srv // 同 host 模拟：直接给 A 写入会话身份
-	creds.byHost[host] = []credential.Identity{{Name: sessionIdentityName("task-A"), Credentials: []credential.Credential{
+	creds.byHost[host] = []credential.Identity{{Username: sessionIdentityName("task-A"), Credentials: []credential.Credential{
 		{Type: credential.TypeHeaders, Key: "Cookie", Value: "session=A-value"},
 	}}}
 	_ = srvA
@@ -407,7 +410,7 @@ func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
 
 	// host 级共享身份（无 task: 前缀，用户预录入）：两个 task 都注入
 	creds.byHost[host] = append(creds.byHost[host], credential.Identity{
-		Name: "admin", Credentials: []credential.Credential{
+		Username: "admin", Credentials: []credential.Credential{
 			{Type: credential.TypeHeaders, Key: "X-Shared", Value: "yes"},
 		}})
 	for _, tool := range []*httpRequestTool{toolA, toolB} {
