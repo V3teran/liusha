@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Panel } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
-import { Search, RefreshCw, Filter, Info, AlertCircle, Network } from 'lucide-react'
+import { Search, RefreshCw, Filter, Info, AlertCircle } from 'lucide-react'
 import { getTaskGraph } from '@/api/explorationgraph'
 import { listConversations } from '@/api/client'
 import type { GraphNode } from '@/api/explorationgraph'
@@ -256,12 +256,9 @@ export function ExplorationGraphPage() {
             探索图
           </h1>
           {latestTaskInfo && !searchParams.get('task_id') && (
-            <div className="flex items-center gap-2 text-xs text-text-secondary">
-              <Network className="h-3.5 w-3.5" />
-              <span title={latestTaskInfo.taskId}>
-                {latestTaskInfo.title || '未命名任务'}
-              </span>
-            </div>
+            <p className="text-sm text-text-secondary" title={latestTaskInfo.taskId}>
+              {latestTaskInfo.title || '未命名任务'}
+            </p>
           )}
           {stats.total > 0 && (
             <div className="flex items-center gap-3 text-xs text-text-tertiary">
