@@ -11,7 +11,7 @@ import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 
 // 分页按钮：图标化前后翻页（‹ ›），对齐流量/漏洞模块的样式。
 const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+  'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-sm text-text-secondary transition-all hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
 // LLM 审计页：选会话 → 服务端筛选 + offset 分页拉调用明细。
 // 布局：工具栏统计 chip（非大卡片）+ 筛选栏 + 单张扁平密集表 + 总数/每页条数/翻页。点行右侧抽屉钻取完整原文。
@@ -66,7 +66,7 @@ export function LlmAuditPage() {
               trailing={
                 (rows.length > 0 || page > 1) ? (
                   <>
-                    <span className="text-[12px] text-muted tabular-nums">
+                    <span className="text-sm text-text-secondary tabular-nums">
                       共 {compactNumber(total)} 条{statQuery.data && ` / ${humanTokens(statQuery.data.calls)}`}
                     </span>
                     <PageSizeSelect value={size} onChange={setSize} />
