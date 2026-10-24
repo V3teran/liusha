@@ -276,7 +276,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           </div>
         </div>
       ) : loading ? (
-        <div className="flex flex-1 min-h-0 flex-col gap-4.5 overflow-hidden px-4 py-5" aria-busy="true" aria-label="正在加载对话">
+        <div className="flex flex-1 min-h-0 flex-col gap-4 overflow-hidden px-4 py-5" aria-busy="true" aria-label="正在加载对话">
           {[1, 2, 3, 4, 5].map((n) => (
             <div key={n} className={cn('flex max-w-[60%] flex-col gap-1.5', n % 2 === 0 && 'self-end items-end')}>
               <div className="h-[11px] w-[180px] animate-pulse rounded-md bg-surface-2" />

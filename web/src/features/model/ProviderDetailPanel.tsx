@@ -126,7 +126,7 @@ export function ProviderDetailPanel({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-[560px]">
           <ProviderFormBody draft={draft} patch={onPatch} isNew={isNew} />
         </div>
@@ -185,7 +185,7 @@ export function ProviderDetailPanel({
           onClick={() => void onTest()}
           disabled={testDisabled}
           title={testDisabled ? '需先填 Base URL、默认模型，并有可用密钥' : '发一条最小请求验证连接'}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
         >
           {test.kind === 'testing' ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -200,7 +200,7 @@ export function ProviderDetailPanel({
           disabled={saving}
           className={
             confirmingDelete
-              ? 'rounded-lg bg-sev-critical px-3.5 py-1.5 text-sm text-white transition-colors hover:opacity-90 disabled:cursor-default disabled:opacity-40'
+              ? 'rounded-lg bg-sev-critical px-4 py-1.5 text-sm text-white transition-colors hover:opacity-90 disabled:cursor-default disabled:opacity-40'
               : 'rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40'
           }
         >

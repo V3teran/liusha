@@ -18,7 +18,7 @@ interface LlmAuditToolbarProps {
  */
 export function LlmAuditToolbar({ taskId, onTaskIdChange, stat }: LlmAuditToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-3.5">
+    <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-4">
       <OwnerPicker value={taskId} onChange={onTaskIdChange} />
       {stat && (
         <div className="flex flex-wrap items-center gap-2">

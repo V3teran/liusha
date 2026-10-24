@@ -232,7 +232,7 @@ function ToggleField({
   onCheckedChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-3.5 py-2.5">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-4 py-2.5">
       <span className="min-w-0">
         <span className="block text-sm text-text">{label}</span>
         {hint && <span className="mt-0.5 block text-xs leading-snug text-faint">{hint}</span>}

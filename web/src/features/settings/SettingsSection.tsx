@@ -32,7 +32,7 @@ export function SettingsSection({
       aria-label={title}
       className="rounded-xl border border-border bg-surface shadow-sm"
     >
-      <div className="border-b border-border px-5 py-3.5">
+      <div className="border-b border-border px-5 py-4">
         <h2 className="font-mono text-sm font-semibold text-text">{title}</h2>
         <p className="mt-0.5 text-xs text-text-secondary">{subtitle}</p>
       </div>
@@ -57,7 +57,7 @@ export function SettingsSection({
                 type="button"
                 onClick={onReset}
                 disabled={saving}
-                className="rounded-lg border border-border px-3.5 py-1.5 text-sm text-text-secondary transition-colors hover:border-status-error/50 hover:text-status-error disabled:opacity-50"
+                className="rounded-lg border border-border px-4 py-1.5 text-sm text-text-secondary transition-colors hover:border-status-error/50 hover:text-status-error disabled:opacity-50"
               >
                 放弃
               </button>

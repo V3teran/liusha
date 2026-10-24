@@ -58,7 +58,7 @@ export function LlmAuditPage() {
 
       <LlmAuditToolbar taskId={taskId} onTaskIdChange={setTaskId} stat={statQuery.data} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5.5 py-4.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {!taskId ? (
           <div className="py-16 text-center text-sm text-muted">请选择一个对话查看 LLM 调用审计</div>
         ) : error ? (

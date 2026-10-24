@@ -15,7 +15,7 @@ export function CommandBlock({ content, createdAt, copied, onCopy }: CommandBloc
     <div className="flex justify-end pb-5">
       <div className="flex w-full max-w-3xl flex-col items-end">
         <div className="flex w-full gap-3">
-          <div className="w-full rounded-2xl rounded-tr-md bg-accent-soft px-3.5 py-2.5">
+          <div className="w-full rounded-2xl rounded-tr-md bg-accent-soft px-4 py-2.5">
             <div className={`mb-1 text-accent ${TITLE_CLASS}`}>指令</div>
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">{content}</div>
           </div>

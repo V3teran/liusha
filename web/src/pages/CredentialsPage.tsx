@@ -216,7 +216,7 @@ export default function CredentialsPage() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5.5 py-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
         {isError ? (
           <div className="py-16 text-center text-sm text-sev-critical">
             ⚠ {error instanceof Error ? error.message : '加载失败'}

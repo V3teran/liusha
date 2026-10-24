@@ -93,7 +93,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
             )}
           </div>
 
-          <div className="flex flex-1 min-h-0 flex-col gap-5.5 overflow-y-auto px-5 py-4.5">
+          <div className="flex flex-1 min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
             {loading ? (
               <div className="py-10 text-center text-sm text-muted">加载中…</div>
             ) : error ? (

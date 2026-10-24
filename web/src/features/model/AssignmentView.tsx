@@ -167,7 +167,7 @@ function ComplexityGroup({
 
   return (
     <section aria-label={title} className="overflow-hidden rounded-lg border border-border bg-surface">
-      <div className="border-b border-border px-5 py-3.5">
+      <div className="border-b border-border px-5 py-4">
         <h2 className="tac-prompt font-mono text-sm font-semibold text-text">{title}</h2>
         <p className="mt-0.5 text-xs text-muted">{hint}</p>
       </div>
@@ -225,7 +225,7 @@ function ComplexityRow({
   const disabledProv = value !== '' && enabled === false
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-surface-2/50">
+    <div className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-surface-2/50">
       <div className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
