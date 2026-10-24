@@ -197,7 +197,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {hasConv && (
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
           <div className="inline-flex items-center gap-3">
-            <span className="inline-flex items-center gap-2 text-[13px] text-muted">
+            <span className="inline-flex items-center gap-2 text-sm text-muted">
               <span
                 className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
                 style={{ background: topStatus.color }}
@@ -240,7 +240,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               <button
                 type="button"
                 onClick={() => void stop()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500 bg-red-500/10 px-3 py-1 text-[12.5px] font-medium text-red-500 hover:bg-red-500/20"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500 bg-red-500/10 px-3 py-1 text-sm font-medium text-red-500 hover:bg-red-500/20"
               >
                 <Square className="h-3 w-3 fill-current" />
                 停止扫描
@@ -249,7 +249,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             {taskId && (
               <Link
                 to={`/exploration-graph?task_id=${taskId}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1 text-[12.5px] font-medium text-text hover:bg-surface-2"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1 text-sm font-medium text-text hover:bg-surface-2"
                 title="查看探索图"
               >
                 <Network className="h-3.5 w-3.5" />
@@ -265,11 +265,11 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           <div className="max-w-[420px] text-center text-muted">
             <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
             <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
-            <p className="text-[13px] leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
+            <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
             <button
               type="button"
               onClick={retryLoad}
-              className="mt-4 rounded-lg bg-accent-soft px-5 py-2 text-[13px] text-accent hover:bg-accent/10 hover:text-accent-hover"
+              className="mt-4 rounded-lg bg-accent-soft px-5 py-2 text-sm text-accent hover:bg-accent/10 hover:text-accent-hover"
             >
               重试
             </button>
@@ -292,7 +292,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           <div className="max-w-[420px] text-center text-muted">
             <div className="mb-3.5 text-4xl leading-none text-accent">{copy.mark}</div>
             <h2 className="mb-2 text-[17px] text-text">{copy.title}</h2>
-            <p className="text-[13px] leading-relaxed">{copy.desc}</p>
+            <p className="text-sm leading-relaxed">{copy.desc}</p>
           </div>
         </div>
       )}

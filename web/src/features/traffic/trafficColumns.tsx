@@ -14,7 +14,7 @@ const seqCol = columnHelper.accessor('id', {
   header: '#',
   size: 52,
   cell: (ctx) => (
-    <span className="block text-right font-mono text-[12px] tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
+    <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
   ),
 })
 
@@ -25,7 +25,7 @@ function CopyableCell({ value }: { value: string }) {
   const text = value || '—'
   return (
     <span className="group/cell flex items-center gap-1">
-      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-text" title={value || undefined}>
+      <span className="min-w-0 flex-1 truncate font-mono text-sm text-text" title={value || undefined}>
         {text}
       </span>
       {value && (
@@ -72,7 +72,7 @@ const statusCol = columnHelper.accessor('status_code', {
   cell: (ctx) => {
     const code = ctx.getValue()
     return (
-      <span className="font-mono text-[12.5px] font-semibold tabular-nums" style={{ color: statusColor(code) }}>
+      <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: statusColor(code) }}>
         {code || '—'}
       </span>
     )
@@ -98,7 +98,7 @@ const contentTypeCol = columnHelper.accessor('content_type', {
   cell: (ctx) => {
     const ct = ctx.getValue()
     return (
-      <span className="block truncate font-mono text-[12px] text-muted" title={ct || undefined}>
+      <span className="block truncate font-mono text-xs text-muted" title={ct || undefined}>
         {ct || '—'}
       </span>
     )
@@ -109,7 +109,7 @@ const lengthCol = columnHelper.accessor('resp_len', {
   header: '长度',
   size: 80,
   cell: (ctx) => (
-    <span className="block text-right font-mono text-[12.5px] tabular-nums text-muted">{humanBytes(ctx.getValue())}</span>
+    <span className="block text-right font-mono text-sm tabular-nums text-muted">{humanBytes(ctx.getValue())}</span>
   ),
 })
 

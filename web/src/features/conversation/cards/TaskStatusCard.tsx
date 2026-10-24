@@ -58,7 +58,7 @@ export function TaskStatusCard({ md }: TaskStatusCardProps) {
   return (
     <div className="flex justify-center py-1.5" data-card="task-status">
       <div
-        className="inline-flex max-w-[85%] flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-[12px]"
+        className="inline-flex max-w-[85%] flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-xs"
         role="status"
       >
         <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: shape.color }}>

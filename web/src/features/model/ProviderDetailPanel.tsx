@@ -104,10 +104,10 @@ export function ProviderDetailPanel({
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
         <div className="min-w-0">
-          <h2 className="tac-prompt truncate font-mono text-[15px] font-semibold text-text">
+          <h2 className="tac-prompt truncate font-mono text-base font-semibold text-text">
             {isNew ? '接入 provider' : draft.code}
           </h2>
-          <p className="mt-0.5 truncate text-[12.5px] text-muted">
+          <p className="mt-0.5 truncate text-sm text-muted">
             {isNew ? '新增一个 provider 部署' : `${TYPE_LABEL[draft.type]} · ${draft.default_model}`}
           </p>
         </div>
@@ -136,20 +136,20 @@ export function ProviderDetailPanel({
       {pendingSwitchLabel !== null && (
         <div className="flex flex-shrink-0 items-center gap-3 border-t border-sev-high/40 bg-sev-high/5 px-6 py-3">
           <AlertTriangle className="h-4 w-4 flex-shrink-0 text-sev-high" />
-          <p className="min-w-0 flex-1 text-[12.5px] text-text">
+          <p className="min-w-0 flex-1 text-sm text-text">
             有未保存更改——切换到「{pendingSwitchLabel}」将丢弃这些更改
           </p>
           <button
             type="button"
             onClick={onKeepEditing}
-            className="flex-shrink-0 rounded-md border border-border px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-accent hover:text-accent"
+            className="flex-shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
           >
             继续编辑
           </button>
           <button
             type="button"
             onClick={onDiscardAndSwitch}
-            className="flex-shrink-0 rounded-md border border-sev-high/50 px-2.5 py-1 text-[12px] text-sev-high transition-colors hover:bg-sev-high/10"
+            className="flex-shrink-0 rounded-md border border-sev-high/50 px-2.5 py-1 text-xs text-sev-high transition-colors hover:bg-sev-high/10"
           >
             丢弃并切换
           </button>
@@ -160,7 +160,7 @@ export function ProviderDetailPanel({
       {actionError && (
         <div className="flex flex-shrink-0 items-start gap-2 border-t border-sev-critical/40 bg-sev-critical/5 px-6 py-3">
           <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-sev-critical" />
-          <p className="min-w-0 flex-1 break-all text-[12.5px] text-sev-critical">{actionError}</p>
+          <p className="min-w-0 flex-1 break-all text-sm text-sev-critical">{actionError}</p>
           <button
             type="button"
             onClick={onDismissError}
@@ -185,7 +185,7 @@ export function ProviderDetailPanel({
           onClick={() => void onTest()}
           disabled={testDisabled}
           title={testDisabled ? '需先填 Base URL、默认模型，并有可用密钥' : '发一条最小请求验证连接'}
-          className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
         >
           {test.kind === 'testing' ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -200,8 +200,8 @@ export function ProviderDetailPanel({
           disabled={saving}
           className={
             confirmingDelete
-              ? 'rounded-lg bg-sev-critical px-3.5 py-1.5 text-[13px] text-white transition-colors hover:opacity-90 disabled:cursor-default disabled:opacity-40'
-              : 'rounded-lg border border-sev-critical/40 px-4 py-1.5 text-[13px] text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40'
+              ? 'rounded-lg bg-sev-critical px-3.5 py-1.5 text-sm text-white transition-colors hover:opacity-90 disabled:cursor-default disabled:opacity-40'
+              : 'rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40'
           }
         >
           {confirmingDelete ? '确认删除？' : '删除'}
@@ -212,7 +212,7 @@ export function ProviderDetailPanel({
             onClick={onReset}
             disabled={saving}
             title="放弃草稿，恢复到打开时的值"
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             重置
@@ -222,7 +222,7 @@ export function ProviderDetailPanel({
           type="button"
           onClick={onSave}
           disabled={saving || saveDisabled || !dirty}
-          className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
+          className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-sm text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
         >
           {saving ? '保存中…' : '保存'}
         </button>
@@ -235,7 +235,7 @@ export function ProviderDetailPanel({
 function TestResultLine({ test }: { test: TestState }) {
   if (test.kind === 'testing') {
     return (
-      <span className="flex items-center gap-1.5 text-[12.5px] text-muted">
+      <span className="flex items-center gap-1.5 text-sm text-muted">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         正在验证连接…
       </span>
@@ -243,7 +243,7 @@ function TestResultLine({ test }: { test: TestState }) {
   }
   if (test.kind === 'ok') {
     return (
-      <span className="flex items-center gap-1.5 text-[12.5px] text-accent">
+      <span className="flex items-center gap-1.5 text-sm text-accent">
         <CheckCircle2 className="h-3.5 w-3.5" />
         连接成功 · {test.model} · {test.latencyMs}ms
       </span>
@@ -251,7 +251,7 @@ function TestResultLine({ test }: { test: TestState }) {
   }
   if (test.kind === 'fail') {
     return (
-      <span className="flex items-start gap-1.5 text-[12.5px] text-sev-critical">
+      <span className="flex items-start gap-1.5 text-sm text-sev-critical">
         <XCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
         {test.msg}
       </span>

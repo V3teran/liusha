@@ -37,13 +37,13 @@ function ApiKeyField({
     return (
       <Field label="API Key" hint="密钥加密落库，永不回显；如需替换请点「更换密钥」">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2">
-          <span className="flex items-center gap-2 text-[13px] text-text">
+          <span className="flex items-center gap-2 text-sm text-text">
             <KeyRound className="h-3.5 w-3.5 text-accent" />
             已配置
             {draft.key_last4 ? (
               <code className="font-mono text-muted">···· {draft.key_last4}</code>
             ) : (
-              <span className="text-[12px] text-faint">来自环境变量</span>
+              <span className="text-xs text-faint">来自环境变量</span>
             )}
           </span>
           <button
@@ -52,7 +52,7 @@ function ApiKeyField({
               setRotating(true)
               setReveal(false)
             }}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-accent hover:text-accent"
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
           >
             <RefreshCw className="h-3 w-3" />
             更换密钥
@@ -96,7 +96,7 @@ function ApiKeyField({
             setReveal(false)
             patch({ api_key: '' })
           }}
-          className="mt-1.5 text-[12px] text-faint transition-colors hover:text-muted"
+          className="mt-1.5 text-xs text-faint transition-colors hover:text-muted"
         >
           取消更换（保留原密钥）
         </button>
@@ -165,13 +165,13 @@ function ModelField({
           type="button"
           onClick={() => void probe()}
           disabled={probing}
-          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
         >
           {probing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           探测
         </button>
       </div>
-      {probeMsg && <p className="mt-1 text-[12px] text-faint">{probeMsg}</p>}
+      {probeMsg && <p className="mt-1 text-xs text-faint">{probeMsg}</p>}
     </Field>
   )
 }
@@ -212,7 +212,7 @@ export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boole
 // provider 字段总量不大，一屏滚动比「点 tab 找字段」更快，也避免 tab 内部态与重挂载的耦合。
 function GroupLabel({ children }: { children: ReactNode }) {
   return (
-    <h3 className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+    <h3 className="mt-1 text-xs font-semibold uppercase tracking-wider text-faint">
       {children}
     </h3>
   )
@@ -234,8 +234,8 @@ function ToggleField({
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-3.5 py-2.5">
       <span className="min-w-0">
-        <span className="block text-[13px] text-text">{label}</span>
-        {hint && <span className="mt-0.5 block text-[12px] leading-snug text-faint">{hint}</span>}
+        <span className="block text-sm text-text">{label}</span>
+        {hint && <span className="mt-0.5 block text-xs leading-snug text-faint">{hint}</span>}
       </span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
     </div>

@@ -26,7 +26,7 @@ export function FindingCard({ summary, severity, host, target }: FindingCardProp
       style={{ borderLeftColor: tag.textColor }}
     >
       <span
-        className="flex-shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] font-bold"
+        className="flex-shrink-0 rounded-md border px-2 py-0.5 font-mono text-xs font-bold"
         style={{ background: tag.color, color: tag.textColor, borderColor: tag.borderColor }}
       >
         {sev.toUpperCase()}

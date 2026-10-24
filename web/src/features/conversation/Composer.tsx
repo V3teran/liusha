@@ -71,8 +71,8 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
       {/* 顶部提示栏 */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-text-tertiary">
-          <kbd className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd> 发送 ·
-          <kbd className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px]">Shift+Enter</kbd> 换行
+          <kbd className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">Enter</kbd> 发送 ·
+          <kbd className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">Shift+Enter</kbd> 换行
         </span>
         {busyMsg && (
           <span className="text-xs font-medium text-status-error animate-slide-down">

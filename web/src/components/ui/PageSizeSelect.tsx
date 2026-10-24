@@ -13,7 +13,7 @@ export function PageSizeSelect({ value, onChange }: PageSizeSelectProps) {
       onChange={(e) => onChange(Number(e.target.value))}
       aria-label="每页条数"
       title="每页条数"
-      className="h-7 rounded-md border border-border bg-surface px-1.5 text-[12px] text-muted outline-none transition-colors hover:border-border-strong hover:text-text focus:border-accent"
+      className="h-7 rounded-md border border-border bg-surface px-1.5 text-xs text-muted outline-none transition-colors hover:border-border-strong hover:text-text focus:border-accent"
     >
       {PAGE_SIZE_OPTIONS.map((n) => (
         <option key={n} value={n}>

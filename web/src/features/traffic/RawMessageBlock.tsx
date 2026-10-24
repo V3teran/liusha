@@ -26,8 +26,8 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
   if (!raw) {
     return (
       <section className="min-w-0">
-        <h3 className="mb-2 text-[13px] font-semibold text-text">{title}</h3>
-        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-[12.5px] text-muted opacity-70">{emptyHint}</div>
+        <h3 className="mb-2 text-sm font-semibold text-text">{title}</h3>
+        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-sm text-muted opacity-70">{emptyHint}</div>
       </section>
     )
   }
@@ -38,18 +38,18 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
     <section className="min-w-0">
       <Tabs.Root value={showPretty ? mode : 'raw'} onValueChange={(v) => setMode(v === 'pretty' ? 'pretty' : 'raw')}>
         <div className="flex items-center gap-2 rounded-t-lg border border-border bg-surface px-2.5 py-1.5">
-          <h3 className="text-[13px] font-semibold text-text">{title}</h3>
+          <h3 className="text-sm font-semibold text-text">{title}</h3>
           <Tabs.List className="ml-2 flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5" aria-label={`${title}报文视图`}>
             <Tabs.Trigger
               value="raw"
-              className="rounded px-2 py-0.5 text-[11px] text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
+              className="rounded px-2 py-0.5 text-xs text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
             >
               原文
             </Tabs.Trigger>
             {showPretty && (
               <Tabs.Trigger
                 value="pretty"
-                className="rounded px-2 py-0.5 text-[11px] text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
+                className="rounded px-2 py-0.5 text-xs text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
               >
                 美化
               </Tabs.Trigger>

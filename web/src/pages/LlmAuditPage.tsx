@@ -60,9 +60,9 @@ export function LlmAuditPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5.5 py-4.5">
         {!taskId ? (
-          <div className="py-16 text-center text-[13.5px] text-muted">请选择一个对话查看 LLM 调用审计</div>
+          <div className="py-16 text-center text-sm text-muted">请选择一个对话查看 LLM 调用审计</div>
         ) : error ? (
-          <div className="py-16 text-center text-[13.5px] text-sev-critical">⚠ {error}</div>
+          <div className="py-16 text-center text-sm text-sev-critical">⚠ {error}</div>
         ) : (
           <>
             <LlmAuditFilterBar
@@ -88,7 +88,7 @@ export function LlmAuditPage() {
                       >
                         <span aria-hidden>‹</span>
                       </button>
-                      <span className="min-w-[52px] text-center text-[12px] text-muted tabular-nums">
+                      <span className="min-w-[52px] text-center text-xs text-muted tabular-nums">
                         <span className="font-semibold text-text">{page}</span> / {totalPages}
                       </span>
                       <button

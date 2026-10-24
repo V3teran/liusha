@@ -45,10 +45,10 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
   return (
     <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-[12px] text-muted">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-xs text-muted">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         <span>agent 工作中</span>
-        <span className="font-mono text-[11px]">{label}</span>
+        <span className="font-mono text-xs">{label}</span>
       </div>
     </div>
   )
@@ -199,7 +199,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:160ms]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:320ms]" />
                 </span>
-                <span className="text-[12.5px] text-muted">正在思考…</span>
+                <span className="text-sm text-muted">正在思考…</span>
               </div>
             </div>
           </div>
@@ -218,10 +218,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12.5px] font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
+          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-sm font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
         >
           <span>{unread > 0 ? `${unread > 99 ? '99+' : unread} 条新动态` : '回到最新'}</span>
-          <span className="text-[13px] leading-none">↓</span>
+          <span className="text-sm leading-none">↓</span>
         </button>
       )}
     </div>
@@ -284,7 +284,7 @@ function ThinkingStream({ text }: { text: string | unknown }) {
         <Brain className="h-3 w-3" />
         <span>深度思考中…</span>
       </div>
-      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-[12px] leading-relaxed text-muted/90 whitespace-pre-wrap">
+      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-muted/90 whitespace-pre-wrap">
         {typed}
       </div>
     </div>
@@ -302,7 +302,7 @@ function ThinkingFold({ text }: { text?: string | unknown }) {
         <span>内部思考</span>
         <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-[12px] leading-relaxed text-muted/90 whitespace-pre-wrap">
+      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-xs leading-relaxed text-muted/90 whitespace-pre-wrap">
         {text}
       </div>
     </details>

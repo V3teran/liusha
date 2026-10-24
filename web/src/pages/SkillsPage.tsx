@@ -100,7 +100,7 @@ export default function SkillsPage() {
                           disabled
                         />
                       </Field>
-                      <div className="flex items-center gap-4 text-[13px] text-muted-foreground">
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -127,7 +127,7 @@ export default function SkillsPage() {
                   content: (
                     <Field label="技能文档（Markdown）">
                       <textarea
-                        className={INPUT_CLASS + ' min-h-[32rem] resize-y font-mono text-[13px]'}
+                        className={INPUT_CLASS + ' min-h-[32rem] resize-y font-mono text-sm'}
                         value={draft.body}
                         disabled
                       />

@@ -42,8 +42,8 @@ export function ProviderListPanel({
     <div className="flex h-full min-h-0 flex-col border-r border-border">
       <header className="flex flex-shrink-0 items-center justify-between gap-3 px-4 py-3 pt-4">
         <div className="min-w-0">
-          <h1 className="tac-prompt font-mono text-[15px] font-semibold text-text">模型部署</h1>
-          <p className="mt-0.5 text-[12px] text-muted">provider 连接参数与能力标志</p>
+          <h1 className="tac-prompt font-mono text-base font-semibold text-text">模型部署</h1>
+          <p className="mt-0.5 text-xs text-muted">provider 连接参数与能力标志</p>
         </div>
         <button
           type="button"
@@ -66,27 +66,27 @@ export function ProviderListPanel({
             placeholder="搜索标识键 / 模型名"
             aria-label="搜索 provider"
             spellCheck={false}
-            className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-[12.5px] text-text outline-none placeholder:text-faint focus:border-accent"
+            className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-sm text-text outline-none placeholder:text-faint focus:border-accent"
           />
         </div>
       </div>
 
       <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
         {loading ? (
-          <li className="tac-cursor py-10 text-center font-mono text-[13px] text-muted">加载中</li>
+          <li className="tac-cursor py-10 text-center font-mono text-sm text-muted">加载中</li>
         ) : error ? (
-          <li className="flex flex-col items-center gap-2 py-10 text-[13px] text-sev-critical">
+          <li className="flex flex-col items-center gap-2 py-10 text-sm text-sev-critical">
             <span>⚠ {error}</span>
             <button
               type="button"
               onClick={onRetry}
-              className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-accent hover:text-accent"
+              className="rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
             >
               重试
             </button>
           </li>
         ) : filtered.length === 0 ? (
-          <li className="py-10 text-center text-[13px] text-muted">
+          <li className="py-10 text-center text-sm text-muted">
             {query.trim() ? '无匹配部署' : '暂无部署——点右上「+」接入第一个 provider'}
           </li>
         ) : (
@@ -110,7 +110,7 @@ export function ProviderListPanel({
                         className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-high"
                       />
                     )}
-                    <span className="min-w-0 truncate text-[13.5px] font-medium text-text">{p.code}</span>
+                    <span className="min-w-0 truncate text-sm font-medium text-text">{p.code}</span>
                     {p.code === selectedKey && dirtySelected && (
                       <span
                         aria-label="有未保存更改"

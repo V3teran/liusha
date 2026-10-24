@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 // 卡内领头标题字号/字重（与用户指令块「指令」标签一致）。
-export const TITLE_CLASS = 'text-[11px] font-semibold tracking-wide'
+export const TITLE_CLASS = 'text-xs font-semibold tracking-wide'
 
 interface CardHeaderProps {
   /** 领头 agent 名（编排/侦察/利用/流量分析）——以其配色显示，一眼归属。 */
@@ -27,7 +27,7 @@ export function CardHeader({ agent, agentColor, action, target, extras }: CardHe
           {agent}
         </span>
       )}
-      <span className="text-[11px] font-medium text-muted">{action}</span>
+      <span className="text-xs font-medium text-muted">{action}</span>
       {target && (
         <>
           <span className="text-faint">→</span>
