@@ -66,7 +66,7 @@ export function SettingsSection({
               type="button"
               onClick={onSave}
               disabled={saving || saveDisabled || !isDirty}
-              className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-accent-soft px-4 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? '保存中…' : '保存'}
             </button>

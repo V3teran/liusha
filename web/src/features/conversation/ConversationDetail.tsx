@@ -269,7 +269,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             <button
               type="button"
               onClick={retryLoad}
-              className="mt-4 rounded-lg bg-accent px-5 py-2 text-[13px] text-white hover:bg-accent-hover"
+              className="mt-4 rounded-lg bg-accent-soft px-5 py-2 text-[13px] text-accent hover:bg-accent/10 hover:text-accent-hover"
             >
               重试
             </button>

@@ -255,7 +255,7 @@ export default function CredentialsPage() {
                     type="button"
                     disabled={!newRowValid(newRow) || saveMutation.isPending}
                     onClick={commitCreate}
-                    className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-3 text-[12px] font-semibold text-white disabled:opacity-40"
+                    className="inline-flex h-8 items-center gap-1 rounded-md bg-accent-soft px-3 text-[12px] font-semibold text-accent hover:bg-accent/10 hover:text-accent-hover disabled:opacity-40"
                   >
                     保存
                   </button>

@@ -50,7 +50,7 @@ export function ProviderListPanel({
           onClick={onNew}
           aria-label="新建 provider"
           title="新建 provider"
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)]"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
         >
           <Plus className="h-4 w-4" />
         </button>
