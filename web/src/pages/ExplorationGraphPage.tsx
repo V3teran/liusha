@@ -77,7 +77,6 @@ export function ExplorationGraphPage() {
   const [searchText, setSearchText] = useState<string>('')
   const [direction, setDirection] = useState<'TB' | 'LR'>('TB')
   const [stats, setStats] = useState({ total: 0, objectives: 0, actions: 0, observations: 0, results: 0 })
-  const [latestTaskInfo, setLatestTaskInfo] = useState<{ title: string; taskId: string } | null>(null)
 
   useEffect(() => {
     const taskIdFromUrl = searchParams.get('task_id')
