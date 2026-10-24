@@ -85,8 +85,8 @@ export function AssignmentView() {
           ) : (
             <>
               <ComplexityGroup
-                title="能力分配"
-                hint="为每个复杂度档位分配模型；标准推理为默认档，未显式分配的智能体使用此档"
+                title=""
+                hint=""
                 groups={[...COMPLEXITY_GROUPS, ...extraGroups]}
                 providers={providers}
                 routeMap={routeMap}
