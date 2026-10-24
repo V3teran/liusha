@@ -62,7 +62,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
       {open && (
         <pre
           className={cn(
-            'mt-1.5 max-h-[280px] overflow-auto rounded-[6px] border border-border bg-background p-2.5 text-xs',
+            'mt-1.5 max-h-[280px] overflow-auto rounded-md border border-border bg-background p-2.5 text-xs',
             err && 'border-sev-critical text-sev-critical',
           )}
         >

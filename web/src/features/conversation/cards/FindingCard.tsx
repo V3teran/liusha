@@ -22,7 +22,7 @@ export function FindingCard({ summary, severity, host, target }: FindingCardProp
   return (
     <div
       data-card="finding"
-      className="flex items-start gap-3 rounded-[10px] border border-border border-l-[3px] bg-surface px-3.5 py-3"
+      className="flex items-start gap-3 rounded-xl border border-border border-l-[3px] bg-surface px-3.5 py-3"
       style={{ borderLeftColor: tag.textColor }}
     >
       <span

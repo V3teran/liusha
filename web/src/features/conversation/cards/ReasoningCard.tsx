@@ -98,7 +98,7 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
           <Markdown content={text} className="inline" />
           {streaming && (
             <span
-              className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-[1px] align-text-bottom"
+              className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm align-text-bottom"
               style={{ background: profile.accent }}
             />
           )}
