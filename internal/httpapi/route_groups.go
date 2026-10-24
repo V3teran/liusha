@@ -6,14 +6,18 @@ import "github.com/gin-gonic/gin"
 // 静态子路由先于参数路由注册，避免 gin 树冲突。
 func registerCredentialsRoutes(r *gin.Engine, d Deps) {
 	if d.Credentials == nil {
+		// DEBUG: 记录未注册原因
+		println("[DEBUG] Credentials is nil, skipping credential routes")
 		return
 	}
+	println("[DEBUG] Registering credential routes")
 	r.GET("/credentials", listCredentialHostsHandler(d.Credentials, d.CredentialAudit))
 	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/sessions", purgeCredentialSessionsHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host", deleteCredentialHostHandler(d.Credentials, d.CredentialAudit))
+	println("[DEBUG] Credential routes registered successfully")
 }
 
 // registerTaskRoutes 注册任务管理路由

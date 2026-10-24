@@ -56,7 +56,7 @@ services:
       LIUSHA_LOG_LEVEL: info
       LIUSHA_CONFIG: /app/config/config.yaml
       # LLM provider key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-}"
+      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
       # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）。dev 默认占位，prod 必须覆盖。
       LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:-changeme-dev-stream-secret}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
@@ -111,7 +111,7 @@ services:
       LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
       LIUSHA_PROXY_CERT_DIR: /app/certs
       # LLM provider key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-}"
+      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-glm}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-glm}"
       LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-glm}"
@@ -152,7 +152,7 @@ services:
       LIUSHA_ENV: development
       LIUSHA_LOG_LEVEL: info
       # LLM provider api_key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-}"
+      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
       # LLM 路由覆盖（全部使用 glm）
       LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-glm}"
       LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-glm}"
