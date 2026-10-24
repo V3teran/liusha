@@ -29,7 +29,17 @@ export function ModelPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full flex-col">
+      {/* 统一头部 */}
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">LLM 配置</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">模型部署与能力分档配置</p>
+        </div>
+      </header>
+
+      {/* Tab 切换 */}
+      <div className="flex h-full min-h-0 flex-col">
       <div
         role="tablist"
         aria-label="模型模块视图"
@@ -61,6 +71,7 @@ export function ModelPage() {
 
       <div className="min-h-0 flex-1">
         {active === 'providers' ? <ProvidersView /> : <AssignmentView />}
+      </div>
       </div>
     </div>
   )
