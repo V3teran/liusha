@@ -255,11 +255,10 @@ export function ExplorationGraphPage() {
           <h1 className="text-base font-semibold text-text">
             探索图
           </h1>
-          {latestTaskInfo && !searchParams.get('task_id') && (
-            <p className="text-sm text-text-secondary" title={latestTaskInfo.taskId}>
-              {latestTaskInfo.title || '未命名任务'}
-            </p>
-          )}
+          <p className="text-sm text-text-secondary">
+            智能体推理与行动的可视化决策树
+          </p>
+        </div>
           {stats.total > 0 && (
             <div className="flex items-center gap-3 text-xs text-text-tertiary">
               <span>共 {stats.total} 个节点</span>
