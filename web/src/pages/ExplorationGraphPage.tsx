@@ -82,8 +82,6 @@ export function ExplorationGraphPage() {
     const taskIdFromUrl = searchParams.get('task_id')
     if (taskIdFromUrl && taskIdFromUrl !== taskId) {
       setTaskId(taskIdFromUrl)
-    } else if (!taskIdFromUrl && !taskId) {
-      loadLatestTask()
     }
   }, [searchParams])
 
@@ -92,21 +90,6 @@ export function ExplorationGraphPage() {
       loadGraph()
     }
   }, [taskId])
-
-  const loadLatestTask = async () => {
-    try {
-      const { conversations } = await listConversations(1, 0, '')
-      if (conversations.length > 0 && conversations[0].TaskID) {
-        setLatestTaskInfo({
-          title: conversations[0].Title || '最新对话',
-          taskId: conversations[0].TaskID,
-        })
-        setTaskId(conversations[0].TaskID)
-      }
-    } catch {
-      // 静默失败
-    }
-  }
 
   const loadGraph = useCallback(async () => {
     if (!taskId) return
