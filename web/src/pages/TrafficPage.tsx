@@ -89,7 +89,7 @@ export function TrafficPage() {
           未选中时列表 flex-1 独占；选中后列表退为 46% 比例、详情占余下空间。 */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div
-          className={`flex min-h-0 flex-col overflow-y-auto px-5.5 py-4 ${
+          className={`flex min-h-0 flex-col overflow-y-auto px-6 py-4 ${
             hasSelection ? 'shrink-0 basis-[46%] border-b border-border' : 'flex-1'
           }`}
         >

@@ -45,7 +45,7 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
   return (
     <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-3.5 py-1.5 text-xs text-muted">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-muted">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         <span>agent 工作中</span>
         <span className="font-mono text-xs">{label}</span>
@@ -218,7 +218,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-sm font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
+          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-4 py-1.5 text-sm font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
         >
           <span>{unread > 0 ? `${unread > 99 ? '99+' : unread} 条新动态` : '回到最新'}</span>
           <span className="text-sm leading-none">↓</span>
@@ -322,7 +322,7 @@ function LiveThoughtLane({
       <div className="flex justify-start pb-5">
         <div className="flex w-full max-w-3xl flex-col items-start">
           {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
-          <div className="rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5 text-sm leading-relaxed text-text">
+          <div className="rounded-2xl rounded-tl-md bg-surface-2 px-4 py-2.5 text-sm leading-relaxed text-text">
             {typed}
           </div>
         </div>

@@ -117,7 +117,7 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
                 type="button"
                 onClick={onStop}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border-2 border-status-error px-3.5 py-2',
+                  'inline-flex items-center gap-1.5 rounded-lg border-2 border-status-error px-4 py-2',
                   'text-xs font-semibold text-status-error',
                   'transition-all hover:bg-status-error/10',
                 )}

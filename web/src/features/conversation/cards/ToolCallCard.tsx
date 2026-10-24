@@ -64,7 +64,7 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
         style={agentName ? { borderLeftColor: accent.accent } : undefined}
         className={cn(
           'group/tool inline-flex w-full items-center gap-2.5 rounded-lg border-l-2 border-r border-y',
-          'bg-surface px-3.5 py-2.5 text-sm text-text',
+          'bg-surface px-4 py-2.5 text-sm text-text',
           'transition-all duration-200',
           failed
             ? 'border-r-status-error border-y-status-error bg-status-error/5 hover:bg-status-error/10'

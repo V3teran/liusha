@@ -43,7 +43,7 @@ export function ToolDetailPanel({
         <h2 className="truncate font-mono text-base font-semibold text-text">{tool.name}</h2>
         <KindBadge kind={tool.kind} />
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
         <div className="flex items-center gap-3 text-sm">
           <span className="text-muted">分类</span>
           <span className="text-text">{categoryLabel(tool.category)}</span>
