@@ -162,26 +162,26 @@ export function ToolsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
+      <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="min-w-0">
-          <h1 className="tac-prompt font-mono text-[15px] font-semibold text-text">工具</h1>
-          <p className="mt-0.5 text-[12.5px] text-muted">
+          <h1 className="text-base font-semibold text-text">工具</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">
             内部函数工具与外部 CLI 工具的统一编目，源出代码、启动期同步入库
           </p>
         </div>
       </header>
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
-      <div className="flex items-center border-b border-border px-6 py-3">
+      <div className="flex items-center border-b border-border bg-surface/50 px-6 py-3">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
           <input
             type="search"
             value={query}
             spellCheck={false}
             placeholder="搜索工具名 / 描述"
             onChange={(e) => setQuery(e.target.value)}
-            className="w-64 rounded-md border border-border bg-surface py-1.5 pl-8 pr-2.5 text-[13px] text-text outline-none transition-shadow placeholder:text-faint focus:border-accent focus:shadow-[var(--glow-accent)]"
+            className="h-9 w-80 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
           />
         </div>
       </div>

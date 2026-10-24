@@ -10,7 +10,7 @@ import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 
 // 分页按钮：图标化前后翻页（‹ ›），方形命中区 + 边框/悬停反馈，禁用态降透明并禁指针。
 const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+  'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-sm text-text-secondary transition-all hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
 // 流量模块：代理捕获流量（proxy_traffic）全局只读浏览。按 host 归属、先于 task，是被分析的输入。
 // 布局：Burp 式常驻左右分栏——左列表（筛选 + 密集表 + 分页）+ 右详情面板（整条请求/响应报文）。
@@ -77,10 +77,12 @@ export function TrafficPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-4.5 border-b border-border px-5.5 py-3">
-        <h1 className="text-sm font-semibold text-text">代理流量</h1>
-        <span className="text-[12.5px] text-muted">代理捕获的真实流量 · 按主机归属</span>
-      </div>
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">代理流量</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">代理捕获的真实流量 · 按主机归属</p>
+        </div>
+      </header>
 
       {/* 上下分栏（对齐 Burp HTTP history）：默认列表占满全高、可浏览全部流量；
           点击某行后才在下方拆出详情面板（详情内部请求/响应再左右并排），关闭后恢复全高。
