@@ -252,7 +252,7 @@ export function ExplorationGraphPage() {
       {/* 头部 */}
       <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
         <div className="flex flex-col gap-1.5">
-          <h1 className="terminal-prompt flex items-center gap-2 font-mono text-base font-semibold text-text">
+          <h1 className="text-base font-semibold text-text">
             探索图
           </h1>
           {latestTaskInfo && !searchParams.get('task_id') && (
