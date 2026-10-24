@@ -278,7 +278,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   c.ID === activeId && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
                 )}
               >
-                <span className="mt-0.5 w-4 flex-shrink-0 text-center font-mono text-[10.5px] leading-[18px] text-faint">
+                <span className="mt-0.5 w-4 flex-shrink-0 text-center font-mono text-xs leading-[18px] text-faint">
                   {offset + idx + 1}
                 </span>
                 <span
@@ -316,7 +316,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                         {displayTitle(c)}
                       </span>
                       <span
-                        className="flex-shrink-0 whitespace-nowrap font-mono text-[10.5px] text-faint"
+                        className="flex-shrink-0 whitespace-nowrap font-mono text-xs text-faint"
                         title={fullTime(c.CreatedAt)}
                       >
                         {relativeTime(c.CreatedAt)}
@@ -325,14 +325,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <span
-                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold leading-none"
+                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none"
                       style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, transparent)` }}
                     >
                       {meta.label}
                     </span>
                     {!!c.FindingCount && (
                       <span
-                        className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold leading-none text-sev-high"
+                        className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none text-sev-high"
                         style={{ background: 'color-mix(in srgb, var(--sev-high) 16%, transparent)' }}
                         title={`${c.FindingCount} 个漏洞`}
                       >

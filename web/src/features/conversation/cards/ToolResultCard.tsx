@@ -51,7 +51,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         <span className="text-xs text-muted">{durationMs}ms</span>
         {agentName && (
           <span
-            className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-[10.5px]"
+            className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-xs"
             style={{ color: accent.accent, background: accent.soft }}
           >
             {agentLabel(agentName)}

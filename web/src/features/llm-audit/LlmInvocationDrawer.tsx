@@ -140,7 +140,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                 {detail.error_message && (
                   <section>
                     <h3 className="mb-2.5 text-sm font-semibold text-text">错误</h3>
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-xs leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
                       {detail.error_message}
                     </pre>
                   </section>
@@ -162,7 +162,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                         </span>
                       </div>
                       {inputDelta.text && (
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text">
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                           {inputDelta.text}
                         </pre>
                       )}
@@ -173,7 +173,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     </div>
                   )}
                   {messagesRaw && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text">
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {messagesRaw}
                     </pre>
                   )}
@@ -190,7 +190,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     onCopy={() => void copy('rsn', reasoning)}
                   >
                     <pre
-                      className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border-l-[3px] bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-muted"
+                      className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border-l-[3px] bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-muted"
                       style={{ borderLeftColor: 'color-mix(in srgb, var(--accent) 30%, var(--border))' }}
                     >
                       {reasoning}
@@ -206,20 +206,20 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                   onCopy={() => void copy('res', resultCopyText)}
                 >
                   {resultText && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text">
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {resultText}
                     </pre>
                   )}
                   {resultCalls.length > 0 && (
                     <>
-                      <p className="my-2 text-[11.5px] text-muted">工具调用 · {resultCalls.length}</p>
+                      <p className="my-2 text-xs text-muted">工具调用 · {resultCalls.length}</p>
                       {resultCalls.map((tc) => (
                         <ToolCallCard key={tc.id} call={tc} />
                       ))}
                     </>
                   )}
                   {resultRaw && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text">
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {resultRaw}
                     </pre>
                   )}
@@ -233,7 +233,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                       <CopyButton
                         copied={copiedKey === 'raw'}
                         onClick={() => void copy('raw', JSON.stringify(detail.result, null, 2))}
-                        className="text-[10.5px] opacity-85"
+                        className="text-xs opacity-85"
                       />
                     </div>
                   )}

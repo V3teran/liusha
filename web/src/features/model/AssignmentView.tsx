@@ -234,13 +234,13 @@ function ComplexityRow({
               {meta.key}
             </code>
             {missing && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-critical">
+              <span className="flex items-center gap-1 text-xs text-sev-critical">
                 <AlertTriangle className="h-3 w-3" />
                 部署缺失
               </span>
             )}
             {disabledProv && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high">
+              <span className="flex items-center gap-1 text-xs text-sev-high">
                 <AlertTriangle className="h-3 w-3" />
                 部署停用
               </span>
@@ -341,7 +341,7 @@ function AgentPicker({
         <code
           key={k}
           title="内建路由键（不在智能体表，不可改档）"
-          className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] text-faint"
+          className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-faint"
         >
           {k}
         </code>

@@ -270,7 +270,7 @@ function ToolMasterList({
             <section key={g.kind}>
               <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-surface-2/95 px-4 py-2 backdrop-blur">
                 <KindBadge kind={g.kind} />
-                <span className="font-mono text-[11.5px] text-faint">{g.count}</span>
+                <span className="font-mono text-xs text-faint">{g.count}</span>
               </div>
               {g.categories.map((c) => (
                 <div key={c.category}>

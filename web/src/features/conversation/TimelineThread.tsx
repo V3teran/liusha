@@ -125,7 +125,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         {rows.map((r) => {
           if (r.kind === 'divider') {
             return (
-              <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-[11.5px] text-muted">
+              <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-xs text-muted">
                 <span className="h-px flex-1 bg-border" />
                 <span className="flex-shrink-0 font-mono tracking-wide">{r.label}</span>
                 <span className="h-px flex-1 bg-border" />
@@ -280,7 +280,7 @@ function ThinkingStream({ text }: { text: string | unknown }) {
   const typed = useTypewriter(text)
   return (
     <div className="mb-2 rounded-lg border border-border/60 bg-background/40">
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] text-muted">
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
         <Brain className="h-3 w-3" />
         <span>深度思考中…</span>
       </div>
@@ -297,7 +297,7 @@ function ThinkingFold({ text }: { text?: string | unknown }) {
   if (!text || typeof text !== 'string' || text.trim() === '') return null
   return (
     <details className="group mb-2 self-start rounded-lg border border-border/60 bg-background/40">
-      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] text-muted">
+      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
         <Brain className="h-3 w-3" />
         <span>内部思考</span>
         <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />

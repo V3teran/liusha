@@ -123,7 +123,7 @@ export function ProviderListPanel({
                     {TYPE_LABEL[p.type]}
                   </Badge>
                 </div>
-                <span className="truncate font-mono text-[11.5px] text-muted">{p.default_model}</span>
+                <span className="truncate font-mono text-xs text-muted">{p.default_model}</span>
               </button>
             </li>
           ))

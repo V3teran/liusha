@@ -7,7 +7,7 @@ export function KindBadge({ kind }: { kind: ToolKind }) {
   return (
     <span
       className={
-        'inline-flex w-fit flex-shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-semibold leading-none ' +
+        'inline-flex w-fit flex-shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold leading-none ' +
         (isFn ? 'bg-accent/15 text-accent' : 'bg-amber-500/15 text-amber-500 dark:text-amber-400')
       }
     >

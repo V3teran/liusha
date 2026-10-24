@@ -35,7 +35,7 @@ function prettyJson(text: string): string {
 function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; text: string }) {
   return (
     <details className="group mb-2 rounded-lg border border-border/60 bg-background/40">
-      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] text-muted">
+      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
         <Icon className="h-3 w-3" />
         <span>{label}</span>
         <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
