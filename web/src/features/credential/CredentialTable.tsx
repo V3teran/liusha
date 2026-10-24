@@ -42,7 +42,7 @@ export function CredentialTable({
   const colCount = leafColumns.length
 
   return (
-    <div className="overflow-hidden rounded-[18px] border border-border bg-surface shadow">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow">
       <table className="w-full border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (

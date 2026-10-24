@@ -201,12 +201,12 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     return (
       <aside className="flex h-full min-h-0 flex-col gap-2">
         {/* 主动下发/被动代理 tab：按来源（source=manual/auto）切换，两个 tab 是同一视图组件的两条路由。 */}
-        <div className="flex flex-shrink-0 gap-1 rounded-[9px] bg-surface-2 p-0.5">
+        <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
             to="/conversations/manual"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-[7px] py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }
@@ -217,7 +217,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             to="/conversations/auto"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-[7px] py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }

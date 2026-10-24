@@ -28,7 +28,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
   const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
   return (
-    <div className="overflow-hidden rounded-[18px] border border-border bg-surface shadow">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow">
       {/* table-fixed + colgroup 百分比宽度：列宽由 columnDef.size（相对权重）换算成百分比，
           随容器宽度等比缩放——缩小浏览器/侧栏展开时所有列同步变窄，而不是某列固定 px 不变、
           把其它列挤到断行（截图问题的根因）。用 columnDef.size 而非 col.getSize()：
