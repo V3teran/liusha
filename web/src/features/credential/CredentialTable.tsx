@@ -55,7 +55,7 @@ export function CredentialTable({
               {hg.headers.map((h) => (
                 <th
                   key={h.id}
-                  className="px-4.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted opacity-70"
+                  className="px-4.5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70"
                 >
                   {flexRender(h.column.columnDef.header, h.getContext())}
                 </th>
@@ -76,7 +76,7 @@ export function CredentialTable({
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={colCount} className="px-4.5 py-11 text-center text-[13.5px] text-muted">
+              <td colSpan={colCount} className="px-4.5 py-11 text-center text-sm text-muted">
                 {hasFilter ? '当前筛选无匹配凭证' : '暂无凭证 · 点击右上角录入，或由扫描任务自动写入'}
               </td>
             </tr>
@@ -98,7 +98,7 @@ export function CredentialTable({
                       onRowClick(v)
                     }
                   }}
-                  className="cursor-pointer border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-surface-2 aria-selected:!bg-accent/12 aria-selected:shadow-[inset_2px_0_0_var(--accent)]"
+                  className="cursor-pointer border-b border-border text-sm transition-colors last:border-b-0 hover:bg-surface-2 aria-selected:!bg-accent/12 aria-selected:shadow-[inset_2px_0_0_var(--accent)]"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="overflow-hidden px-4.5 py-2">

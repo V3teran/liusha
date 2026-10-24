@@ -39,10 +39,10 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
 // 再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。无重复元素。
 export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDetailPaneProps) {
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-[13px] text-muted">加载中…</div>
+    return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
   }
   if (error) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[13px] text-sev-critical">⚠ {error}</div>
+    return <div className="flex h-full items-center justify-center px-6 text-center text-sm text-sev-critical">⚠ {error}</div>
   }
   if (!detail) return null
 
@@ -67,7 +67,7 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-4 pt-1">
         {consumers.length > 0 && (
           <section>
-            <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted opacity-70">消费任务</h3>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted opacity-70">消费任务</h3>
             <div className="flex flex-wrap gap-1.5">
               {consumers.map((c) => (
                 <ConsumerChip key={c.task_id} c={c} />

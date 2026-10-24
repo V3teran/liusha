@@ -30,34 +30,34 @@ export function SettingsSection({
   return (
     <section
       aria-label={title}
-      className="rounded-xl border border-border bg-surface shadow-[var(--glow-soft)]"
+      className="rounded-xl border border-border bg-surface shadow-sm"
     >
       <div className="border-b border-border px-5 py-3.5">
-        <h2 className="font-mono text-[13.5px] font-semibold text-text">{title}</h2>
-        <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>
+        <h2 className="font-mono text-sm font-semibold text-text">{title}</h2>
+        <p className="mt-0.5 text-xs text-text-secondary">{subtitle}</p>
       </div>
 
       {loading ? (
-        <div className="tac-cursor px-5 py-10 text-center font-mono text-[13px] text-muted">
+        <div className="px-5 py-10 text-center font-mono text-sm text-text-secondary">
           加载中
         </div>
       ) : (
         <>
           <div className="flex flex-col gap-4 px-5 py-4">{children}</div>
           <div className="flex items-center justify-end gap-3 border-t border-border px-5 py-3">
-            {error && <span className="text-[12.5px] text-sev-critical">⚠ {error}</span>}
+            {error && <span className="text-xs text-status-error">⚠ {error}</span>}
             {saved && !error && !isDirty && (
-              <span className="text-[12.5px] text-accent">已保存并热生效</span>
+              <span className="text-xs text-accent">已保存并热生效</span>
             )}
             {isDirty && !error && (
-              <span className="mr-auto text-[12.5px] text-sev-high">● 有未保存改动</span>
+              <span className="mr-auto text-xs text-status-warning">● 有未保存改动</span>
             )}
             {onReset && isDirty && (
               <button
                 type="button"
                 onClick={onReset}
                 disabled={saving}
-                className="rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-muted transition-colors hover:border-sev-high/50 hover:text-sev-high disabled:opacity-50"
+                className="rounded-lg border border-border px-3.5 py-1.5 text-sm text-text-secondary transition-colors hover:border-status-error/50 hover:text-status-error disabled:opacity-50"
               >
                 放弃
               </button>
@@ -66,7 +66,7 @@ export function SettingsSection({
               type="button"
               onClick={onSave}
               disabled={saving || saveDisabled || !isDirty}
-              className="rounded-lg bg-accent-soft px-4 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-accent-soft px-4 py-1.5 text-sm text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? '保存中…' : '保存'}
             </button>

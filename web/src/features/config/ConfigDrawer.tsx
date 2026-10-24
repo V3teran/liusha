@@ -62,7 +62,7 @@ export function ConfigDrawer({
                 <Tabs.Trigger
                   key={t.value}
                   value={t.value}
-                  className="relative -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] text-muted outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:text-accent"
+                  className="relative -mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:text-accent"
                 >
                   {t.label}
                 </Tabs.Trigger>
@@ -87,7 +87,7 @@ export function ConfigDrawer({
                   type="button"
                   onClick={onDelete}
                   disabled={saving}
-                  className="rounded-lg border border-sev-critical/40 px-4 py-1.5 text-[13px] text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40"
+                  className="rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40"
                 >
                   删除
                 </button>
@@ -96,7 +96,7 @@ export function ConfigDrawer({
                 type="button"
                 onClick={onSave}
                 disabled={saving || saveDisabled}
-                className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
+                className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-sm text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
               >
                 {saving ? '保存中…' : '保存'}
               </button>
@@ -131,4 +131,4 @@ export function Field({
 
 // 统一输入框样式（与漏洞抽屉一致）。聚焦态：emerald 描边 + 深色发散荧光晕（战术终端）。
 export const INPUT_CLASS =
-  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)] disabled:cursor-not-allowed disabled:opacity-60'
+  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)] disabled:cursor-not-allowed disabled:opacity-60'

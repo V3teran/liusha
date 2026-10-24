@@ -179,7 +179,7 @@ export function AgentAdmin() {
                           <option value="complex">深度推理（complex）</option>
                         </select>
                       </Field>
-                      <label className="flex items-center gap-2 text-[13px] text-text">
+                      <label className="flex items-center gap-2 text-sm text-text">
                         <input
                           type="checkbox"
                           checked={draft.enabled}
@@ -196,7 +196,7 @@ export function AgentAdmin() {
                   content: (
                     <Field label="系统提示词" hint="该智能体运行时的 system prompt">
                       <textarea
-                        className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono text-[13px]'}
+                        className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono text-sm'}
                         value={draft.system_prompt}
                         placeholder="你是一个专业的安全扫描助手..."
                         onChange={(e) => patch({ system_prompt: e.target.value })}
@@ -335,14 +335,14 @@ function ToolPicker({
   }, [catalog])
 
   if (byCategory.length === 0) {
-    return <p className="text-[13px] text-muted">{emptyHint}</p>
+    return <p className="text-sm text-muted">{emptyHint}</p>
   }
 
   return (
     <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border border-border bg-background p-3">
       {byCategory.map(([cat, tools]) => (
         <div key={cat}>
-          <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-muted">{cat}</p>
+          <p className="mb-1 font-mono text-xs uppercase tracking-wide text-muted">{cat}</p>
           <div className="flex flex-wrap gap-2">
             {tools.map((t) => {
               const active = selected.includes(t.name)
@@ -354,7 +354,7 @@ function ToolPicker({
                   aria-pressed={active}
                   onClick={() => onToggle(t.name)}
                   className={
-                    'rounded-md border px-2 py-1 font-mono text-[12px] transition-colors ' +
+                    'rounded-md border px-2 py-1 font-mono text-xs transition-colors ' +
                     (active
                       ? 'border-accent bg-accent/15 text-accent'
                       : 'border-border text-text hover:border-accent/60')

@@ -127,7 +127,7 @@ export function ProvidersView() {
       ) : (
         <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 text-muted">
           <Boxes className="h-8 w-8 text-faint" />
-          <p className="text-[13px]">选择左侧部署查看详情，或点「+」新建</p>
+          <p className="text-sm">选择左侧部署查看详情，或点「+」新建</p>
         </div>
       )}
     </div>

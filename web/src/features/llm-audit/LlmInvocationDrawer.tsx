@@ -69,7 +69,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
               </span>
               {status ? (
                 <span
-                  className="rounded px-2 py-0.5 text-[11px] font-semibold"
+                  className="rounded px-2 py-0.5 text-xs font-semibold"
                   style={{
                     color: `var(--sev-${status.level === 'critical' ? 'critical' : 'medium'})`,
                     background: `color-mix(in srgb, var(--sev-${status.level === 'critical' ? 'critical' : 'medium'}) 14%, transparent)`,
@@ -79,14 +79,14 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                   {status.label}
                 </span>
               ) : detail ? (
-                <span className="rounded bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-muted">{detail.finish_reason || '完成'}</span>
+                <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{detail.finish_reason || '完成'}</span>
               ) : null}
               <Dialog.Close className="ml-auto text-muted hover:text-text" aria-label="关闭">
                 <X className="h-4 w-4" aria-hidden="true" />
               </Dialog.Close>
             </div>
             {detail && (
-              <div className="mt-2 font-mono text-[12.5px] text-text">
+              <div className="mt-2 font-mono text-sm text-text">
                 {detail.model}
                 <span className="text-muted"> · {detail.provider}</span>
               </div>
@@ -95,29 +95,29 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
 
           <div className="flex flex-1 min-h-0 flex-col gap-5.5 overflow-y-auto px-5 py-4.5">
             {loading ? (
-              <div className="py-10 text-center text-[13px] text-muted">加载中…</div>
+              <div className="py-10 text-center text-sm text-muted">加载中…</div>
             ) : error ? (
-              <div className="py-10 text-center text-[13px] text-sev-critical">⚠ {error}</div>
+              <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
             ) : detail ? (
               <>
                 {/* 元信息：语义化定义列表，屏幕阅读器能理解字段-值对应关系。 */}
                 <section>
-                  <h3 className="mb-2.5 text-[13px] font-semibold text-text">元信息</h3>
+                  <h3 className="mb-2.5 text-sm font-semibold text-text">元信息</h3>
                   <dl className="grid grid-cols-[84px_1fr] items-baseline gap-x-3 gap-y-1.5">
                     <dt className="text-xs text-muted">request_id</dt>
-                    <dd className="flex items-center gap-2 break-all font-mono text-[12.5px] text-text">
+                    <dd className="flex items-center gap-2 break-all font-mono text-sm text-text">
                       {detail.request_id}
                       <CopyButton copied={copiedKey === 'rid'} onClick={() => void copy('rid', detail.request_id)} />
                     </dd>
                     <dt className="text-xs text-muted">时间</dt>
-                    <dd className="font-mono text-[12.5px] text-text">{fullTime(detail.created_at)}</dd>
+                    <dd className="font-mono text-sm text-text">{fullTime(detail.created_at)}</dd>
                     <dt className="text-xs text-muted">Tokens</dt>
-                    <dd className="font-mono text-[12.5px] text-text">
+                    <dd className="font-mono text-sm text-text">
                       输入 {humanTokens(detail.in_tokens)} · 输出 {humanTokens(detail.out_tokens)}
                       {detail.cached_tokens > 0 && ` · 缓存 ${humanTokens(detail.cached_tokens)}`}
                     </dd>
                     <dt className="text-xs text-muted">响应耗时</dt>
-                    <dd className="font-mono text-[12.5px] text-text">
+                    <dd className="font-mono text-sm text-text">
                       总时长 {humanDuration(detail.latency_ms)}
                       {isTimeout(detail) ? (
                         <span className="font-semibold text-sev-critical"> · 看门狗超时</span>
@@ -126,11 +126,11 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                       )}
                     </dd>
                     <dt className="text-xs text-muted">结束原因</dt>
-                    <dd className="font-mono text-[12.5px] text-text">{detail.finish_reason || '—'}</dd>
+                    <dd className="font-mono text-sm text-text">{detail.finish_reason || '—'}</dd>
                     {detail.agent_run_id && (
                       <>
                         <dt className="text-xs text-muted">agent</dt>
-                        <dd className="font-mono text-[12.5px] text-text">{detail.agent_run_id}</dd>
+                        <dd className="font-mono text-sm text-text">{detail.agent_run_id}</dd>
                       </>
                     )}
                   </dl>
@@ -139,7 +139,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                 {/* 错误单独成节，最先看到 */}
                 {detail.error_message && (
                   <section>
-                    <h3 className="mb-2.5 text-[13px] font-semibold text-text">错误</h3>
+                    <h3 className="mb-2.5 text-sm font-semibold text-text">错误</h3>
                     <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
                       {detail.error_message}
                     </pre>
@@ -157,7 +157,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                   {inputDelta && (
                     <div className="border-l-[3px] pl-2.5" style={{ borderColor: msgColor(inputDelta.role) }}>
                       <div className="mb-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: msgColor(inputDelta.role) }}>
+                        <span className="text-xs font-bold uppercase tracking-wide" style={{ color: msgColor(inputDelta.role) }}>
                           {inputDelta.role}
                         </span>
                       </div>
@@ -169,7 +169,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                       {inputDelta.calls.map((tc) => (
                         <ToolCallCard key={tc.id} call={tc} />
                       ))}
-                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-[12.5px] text-muted opacity-70">(空)</div>}
+                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-sm text-muted opacity-70">(空)</div>}
                     </div>
                   )}
                   {messagesRaw && (
@@ -177,7 +177,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                       {messagesRaw}
                     </pre>
                   )}
-                  {!inputDelta && !messagesRaw && <div className="text-[12.5px] text-muted opacity-70">无输入消息</div>}
+                  {!inputDelta && !messagesRaw && <div className="text-sm text-muted opacity-70">无输入消息</div>}
                 </CopySection>
 
                 {/* 模型思考过程 */}
@@ -224,7 +224,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     </pre>
                   )}
                   {!resultText && resultCalls.length === 0 && !resultRaw && (
-                    <div className="text-[12.5px] text-muted opacity-70">无返回内容</div>
+                    <div className="text-sm text-muted opacity-70">无返回内容</div>
                   )}
 
                   {/* 原始响应：取证用，含思考过程/extra/response_meta 等完整字段 */}

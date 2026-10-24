@@ -77,9 +77,9 @@ export function AssignmentView() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-5">
           {loading ? (
-            <div className="tac-cursor py-16 text-center font-mono text-[13.5px] text-muted">加载中</div>
+            <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
           ) : loadError ? (
-            <div className="py-16 text-center font-mono text-[13.5px] text-sev-critical">
+            <div className="py-16 text-center font-mono text-sm text-sev-critical">
               ⚠ {loadError instanceof Error ? loadError.message : '加载失败'}
             </div>
           ) : (
@@ -119,7 +119,7 @@ export function AssignmentView() {
       {actionError && (
         <div className="flex flex-shrink-0 items-start gap-2 border-t border-sev-critical/40 bg-sev-critical/5 px-6 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-sev-critical" />
-          <p className="min-w-0 flex-1 break-all text-[12.5px] text-sev-critical">{actionError}</p>
+          <p className="min-w-0 flex-1 break-all text-sm text-sev-critical">{actionError}</p>
           <button
             type="button"
             onClick={() => setActionError('')}
@@ -168,8 +168,8 @@ function ComplexityGroup({
   return (
     <section aria-label={title} className="overflow-hidden rounded-lg border border-border bg-surface">
       <div className="border-b border-border px-5 py-3.5">
-        <h2 className="tac-prompt font-mono text-[14px] font-semibold text-text">{title}</h2>
-        <p className="mt-0.5 text-[12px] text-muted">{hint}</p>
+        <h2 className="tac-prompt font-mono text-sm font-semibold text-text">{title}</h2>
+        <p className="mt-0.5 text-xs text-muted">{hint}</p>
       </div>
       <div className="flex flex-col divide-y divide-border">
         {groups.map((m) => (
@@ -229,8 +229,8 @@ function ComplexityRow({
       <div className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13.5px] font-medium text-text">{meta.label}</span>
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-faint">
+            <span className="text-sm font-medium text-text">{meta.label}</span>
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-faint">
               {meta.key}
             </code>
             {missing && (
@@ -246,14 +246,14 @@ function ComplexityRow({
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-[12px] text-muted">{meta.desc}</p>
+          <p className="mt-0.5 truncate text-xs text-muted">{meta.desc}</p>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" aria-label="保存中" />}
           <select
             aria-label={`${meta.label} 绑定部署`}
-            className="w-56 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
+            className="w-56 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
             value={value}
             disabled={saving}
             onChange={(e) => onPick(meta.key, e.target.value)}
@@ -309,7 +309,7 @@ function AgentPicker({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2">
-      <span className="mr-1 text-[11px] text-faint">智能体</span>
+      <span className="mr-1 text-xs text-faint">智能体</span>
       {agents.map((h) => {
         const inGroup = (complexityBy.get(h.id) ?? 'medium') === group
         const busy = moving.has(h.id)
@@ -317,7 +317,7 @@ function AgentPicker({
           <span
             key={h.id}
             title={`已归入${groupLabel}；改档请在目标档点击`}
-            className="flex items-center gap-1 rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 text-[12px] text-accent"
+            className="flex items-center gap-1 rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 text-xs text-accent"
           >
             <Check className="h-3 w-3" />
             {h.name}
@@ -330,7 +330,7 @@ function AgentPicker({
             disabled={busy}
             aria-label={`${h.name} 归入 ${group}`}
             title={`点击把 ${h.name} 归入${groupLabel}`}
-            className="rounded border border-transparent px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+            className="rounded border border-transparent px-1.5 py-0.5 text-xs text-muted transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
           >
             {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
             {h.name}

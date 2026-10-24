@@ -94,7 +94,7 @@ export function TrafficPage() {
           }`}
         >
           {listError ? (
-            <div className="py-16 text-center text-[13.5px] text-sev-critical">⚠ {listError}</div>
+            <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
           ) : (
             <div role="grid" tabIndex={0} onKeyDown={onListKeyDown} className="flex flex-col outline-none">
               <TrafficFilterBar
@@ -106,7 +106,7 @@ export function TrafficPage() {
                   (rows.length > 0 || page > 1) ? (
                     <>
                       {/* 总数 + 每页条数 + 翻页移到筛选栏右上（ml-auto），与各搜索框同处一行。 */}
-                      <span className="text-[12px] text-muted tabular-nums">共 {compactNumber(total)} 条</span>
+                      <span className="text-xs text-muted tabular-nums">共 {compactNumber(total)} 条</span>
                       <PageSizeSelect value={size} onChange={setSize} />
                       <div className="flex items-center gap-1.5">
                         <button
@@ -118,7 +118,7 @@ export function TrafficPage() {
                         >
                           <span aria-hidden>‹</span>
                         </button>
-                        <span className="min-w-[68px] text-center text-[12px] text-muted tabular-nums">
+                        <span className="min-w-[68px] text-center text-xs text-muted tabular-nums">
                           <span className="font-semibold text-text">{page}</span> / {totalPages}
                         </span>
                         <button

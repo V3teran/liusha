@@ -21,7 +21,7 @@ export function ToolDetailPanel({
   if (loading && !detail) {
     return (
       <PanelFrame>
-        <div className="tac-cursor py-16 text-center font-mono text-[13px] text-muted">加载中</div>
+        <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
       </PanelFrame>
     )
   }
@@ -30,8 +30,8 @@ export function ToolDetailPanel({
     return (
       <PanelFrame>
         <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="font-mono text-[13px] text-muted">从左侧选择一个工具</p>
-          <p className="text-[12px] text-faint">查看完整描述并装配到智能体</p>
+          <p className="font-mono text-sm text-muted">从左侧选择一个工具</p>
+          <p className="text-xs text-faint">查看完整描述并装配到智能体</p>
         </div>
       </PanelFrame>
     )
@@ -44,13 +44,13 @@ export function ToolDetailPanel({
         <KindBadge kind={tool.kind} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4.5">
-        <div className="flex items-center gap-3 text-[13px]">
+        <div className="flex items-center gap-3 text-sm">
           <span className="text-muted">分类</span>
           <span className="text-text">{categoryLabel(tool.category)}</span>
         </div>
         <section>
           <p className="mb-1.5 text-xs font-medium text-muted">描述</p>
-          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
             {tool.description || '暂无描述'}
           </p>
         </section>
@@ -95,7 +95,7 @@ function AgentAssignSection({
         <span className="ml-auto font-normal text-faint">点击装/卸</span>
       </p>
       {agents.length === 0 ? (
-        <p className="text-[13px] text-muted">暂无智能体</p>
+        <p className="text-sm text-muted">暂无智能体</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {agents.map((a) => {
@@ -108,7 +108,7 @@ function AgentAssignSection({
                 aria-pressed={a.involved}
                 onClick={() => onToggle(a.code, !a.involved)}
                 className={
-                  'rounded-md border px-2.5 py-1 text-[12.5px] transition-colors disabled:opacity-50 ' +
+                  'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:opacity-50 ' +
                   (a.involved
                     ? 'border-accent bg-accent/15 text-accent'
                     : 'border-border bg-background text-muted hover:border-accent/50 hover:text-text')

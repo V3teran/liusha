@@ -76,7 +76,7 @@ function InlineInput({
         }
       }}
       className={
-        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-[12.5px] text-text outline-none focus:border-accent focus:glow-accent ' +
+        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-sm text-text outline-none focus:border-accent focus:glow-accent ' +
         (mono ? 'font-mono' : '')
       }
     />
@@ -153,7 +153,7 @@ const roleCol = columnHelper.accessor('identity.role', {
         title="点击编辑角色"
         onClick={() => meta.onBeginEdit(row.rowId, 'role')}
         onKeyDown={(e) => e.key === 'Enter' && meta.onBeginEdit(row.rowId, 'role')}
-        className="block min-w-0 cursor-text truncate rounded px-1 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-text"
+        className="block min-w-0 cursor-text truncate rounded px-1 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
       >
         {ctx.getValue() || <span className="opacity-50">—</span>}
       </span>
@@ -195,7 +195,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
             }
             const line = credentialRawLine(c)
             return (
-              <div key={i} className="truncate font-mono text-[12px] leading-[1.6] text-muted opacity-60" title={line}>
+              <div key={i} className="truncate font-mono text-xs leading-[1.6] text-muted opacity-60" title={line}>
                 {line}
               </div>
             )
@@ -215,7 +215,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
     return (
       <div className="group/cell flex min-w-0 items-start gap-1">
         <div className="min-w-0 flex-1">
-          {creds.length === 0 && <span className="text-[12px] text-muted">—</span>}
+          {creds.length === 0 && <span className="text-xs text-muted">—</span>}
           {creds.map((c, i) => {
             const line = credentialRawLine(c)
             return (
@@ -226,7 +226,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
                   title="点击编辑此凭证（原始 HTTP 行）"
                   onClick={() => meta.onBeginEdit(row.rowId, 'cred', i)}
                   onKeyDown={(e) => e.key === 'Enter' && meta.onBeginEdit(row.rowId, 'cred', i)}
-                  className="block min-w-0 flex-1 cursor-text truncate rounded px-1 font-mono text-[12px] leading-[1.6] text-text hover:bg-surface-2"
+                  className="block min-w-0 flex-1 cursor-text truncate rounded px-1 font-mono text-xs leading-[1.6] text-text hover:bg-surface-2"
                 >
                   {line}
                 </span>
@@ -249,7 +249,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
             aria-label="新增凭证"
             title="新增一条凭证（原始 HTTP 行）"
             onClick={() => meta.onBeginEdit(row.rowId, 'cred-add')}
-            className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 text-[11px] text-accent opacity-0 transition-opacity hover:underline group-hover/cell:opacity-100"
+            className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 text-xs text-accent opacity-0 transition-opacity hover:underline group-hover/cell:opacity-100"
           >
             <Plus className="h-3 w-3" /> 添加
           </button>
@@ -332,7 +332,7 @@ function CopyableMono({ value }: { value: string }) {
   const text = value || '—'
   return (
     <span className="group/cell flex items-center gap-1">
-      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-text" title={value || undefined}>
+      <span className="min-w-0 flex-1 truncate font-mono text-sm text-text" title={value || undefined}>
         {text}
       </span>
       {value && (

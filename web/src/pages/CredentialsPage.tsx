@@ -29,11 +29,11 @@ const PAGER_BTN =
   'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
 const FILTER_SELECT =
-  'h-8 rounded-lg border border-border bg-surface px-2.5 text-[12.5px] text-text outline-none transition-all focus:border-accent focus:glow-accent'
+  'h-8 rounded-lg border border-border bg-surface px-2.5 text-sm text-text outline-none transition-all focus:border-accent focus:glow-accent'
 const FILTER_INPUT =
-  'h-8 w-52 rounded-lg border border-border bg-surface px-2.5 text-[12.5px] text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
+  'h-8 w-52 rounded-lg border border-border bg-surface px-2.5 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
 const INLINE_INPUT =
-  'h-8 rounded-md border border-border bg-surface px-2 text-[12.5px] text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
+  'h-8 rounded-md border border-border bg-surface px-2 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
 
 /** 行内编辑草稿（单元格级：一个单元格一个草稿，提交即 PUT 整个身份）。 */
 interface CellEdit {
@@ -218,7 +218,7 @@ export default function CredentialsPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5.5 py-4">
         {isError ? (
-          <div className="py-16 text-center text-[13.5px] text-sev-critical">
+          <div className="py-16 text-center text-sm text-sev-critical">
             ⚠ {error instanceof Error ? error.message : '加载失败'}
           </div>
         ) : (
@@ -257,14 +257,14 @@ export default function CredentialsPage() {
                     type="button"
                     disabled={!newRowValid(newRow) || saveMutation.isPending}
                     onClick={commitCreate}
-                    className="inline-flex h-8 items-center gap-1 rounded-md bg-accent-soft px-3 text-[12px] font-semibold text-accent hover:bg-accent/10 hover:text-accent-hover disabled:opacity-40"
+                    className="inline-flex h-8 items-center gap-1 rounded-md bg-accent-soft px-3 text-xs font-semibold text-accent hover:bg-accent/10 hover:text-accent-hover disabled:opacity-40"
                   >
                     保存
                   </button>
                   <button
                     type="button"
                     onClick={() => setCreating(false)}
-                    className="h-8 rounded-md border border-border px-3 text-[12px] text-muted hover:text-text"
+                    className="h-8 rounded-md border border-border px-3 text-xs text-muted hover:text-text"
                   >
                     取消
                   </button>
@@ -302,7 +302,7 @@ export default function CredentialsPage() {
                         purgeSessions.mutate(hostFilter)
                       }
                     }}
-                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-[12px] text-muted transition-colors hover:text-text"
+                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted transition-colors hover:text-text"
                   >
                     <ShieldAlert className="h-3.5 w-3.5" /> 清理会话
                   </button>
@@ -314,13 +314,13 @@ export default function CredentialsPage() {
                         setHostFilter('')
                       }
                     }}
-                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-[12px] text-muted transition-colors hover:text-status-error"
+                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted transition-colors hover:text-status-error"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> 删除主机
                   </button>
                 </>
               )}
-              <span className="ml-auto flex items-center gap-2 text-[12px] text-muted tabular-nums">
+              <span className="ml-auto flex items-center gap-2 text-xs text-muted tabular-nums">
                 共 {filtered.length} 条
                 <PageSizeSelect value={size} onChange={setSize} />
                 <button

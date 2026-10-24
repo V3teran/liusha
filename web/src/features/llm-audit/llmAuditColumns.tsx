@@ -58,7 +58,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         const v = ctx.row.original
         return (
           <span className="overflow-hidden" title={`${v.model} · ${v.provider}`}>
-            <span className="block truncate font-mono text-[12.5px]">{v.model || '—'}</span>
+            <span className="block truncate font-mono text-sm">{v.model || '—'}</span>
             {showProvider && <em className="block truncate text-[10.5px] font-normal not-italic text-muted opacity-75">{v.provider}</em>}
           </span>
         )
@@ -72,7 +72,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         const v = ctx.row.original
         return (
           <span className="flex flex-col gap-px whitespace-nowrap">
-            <span className="font-mono text-[12.5px] tabular-nums">
+            <span className="font-mono text-sm tabular-nums">
               {humanTokens(v.in_tokens)} / {humanTokens(v.out_tokens)}
             </span>
             {v.cached_tokens > 0 && (
@@ -95,7 +95,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         const status = invocationStatus(v)
         const warnStatus = status?.level === 'warn' ? status : null
         return (
-          <span className="flex flex-col gap-px whitespace-nowrap text-[12.5px]">
+          <span className="flex flex-col gap-px whitespace-nowrap text-sm">
             <span className="flex items-center gap-1.5">
               <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${timeout ? 'bg-sev-critical' : TIMING_DOT[latencyLevel(v.latency_ms, v.out_tokens)]}`} />
               <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>

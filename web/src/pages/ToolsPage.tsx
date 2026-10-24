@@ -247,7 +247,7 @@ function ToolMasterList({
               onClick={() => onKind(seg.value)}
               aria-pressed={active}
               className={
-                'flex-1 border-b-2 px-2 py-2.5 text-[12.5px] font-medium transition-colors ' +
+                'flex-1 border-b-2 px-2 py-2.5 text-sm font-medium transition-colors ' +
                 (active
                   ? 'border-b-accent bg-surface-2 text-text'
                   : 'border-b-transparent text-muted hover:bg-surface-2/60 hover:text-text')
@@ -260,11 +260,11 @@ function ToolMasterList({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="tac-cursor py-16 text-center font-mono text-[13.5px] text-muted">加载中</div>
+          <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
         ) : error ? (
-          <div className="px-4 py-16 text-center font-mono text-[13px] text-sev-critical">⚠ {error}</div>
+          <div className="px-4 py-16 text-center font-mono text-sm text-sev-critical">⚠ {error}</div>
         ) : empty ? (
-          <div className="px-4 py-16 text-center text-[13px] text-muted">{emptyHint}</div>
+          <div className="px-4 py-16 text-center text-sm text-muted">{emptyHint}</div>
         ) : (
           groups.map((g) => (
             <section key={g.kind}>
@@ -274,7 +274,7 @@ function ToolMasterList({
               </div>
               {g.categories.map((c) => (
                 <div key={c.category}>
-                  <p className="px-4 pb-1 pt-3 text-[11px] uppercase tracking-wide text-faint">
+                  <p className="px-4 pb-1 pt-3 text-xs uppercase tracking-wide text-faint">
                     {categoryLabel(c.category)}
                   </p>
                   {c.tools.map((t) => (
@@ -317,8 +317,8 @@ function ToolListRow({
           : 'border-l-transparent hover:bg-surface-2/60')
       }
     >
-      <span className="truncate font-mono text-[13px] font-semibold text-text">{tool.name}</span>
-      <span className="truncate text-[12px] text-muted">{tool.description || '暂无描述'}</span>
+      <span className="truncate font-mono text-sm font-semibold text-text">{tool.name}</span>
+      <span className="truncate text-xs text-muted">{tool.description || '暂无描述'}</span>
     </button>
   )
 }

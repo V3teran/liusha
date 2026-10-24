@@ -26,7 +26,7 @@ export function CommandBlock({ content, createdAt, copied, onCopy }: CommandBloc
         <div className="mr-11 mt-1.5 flex items-center gap-2">
           {createdAt && (
             <time
-              className="px-1 text-[11px] text-faint"
+              className="px-1 text-xs text-faint"
               dateTime={createdAt}
               title={fullTime(createdAt)}
             >

@@ -40,7 +40,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         onClick={() => setOpen((o) => !o)}
         style={agentName ? { borderLeft: `2px solid ${accent.accent}` } : undefined}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left text-[12.5px] text-text',
+          'flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left text-sm text-text',
           'hover:border-border-strong',
           err && 'border-sev-critical',
         )}
@@ -48,7 +48,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-muted transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
         <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-sev-critical' : 'bg-emerald-500')} />
         <code className="font-mono text-muted">{tool}</code>
-        <span className="text-[11px] text-muted">{durationMs}ms</span>
+        <span className="text-xs text-muted">{durationMs}ms</span>
         {agentName && (
           <span
             className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-[10.5px]"

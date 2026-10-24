@@ -43,7 +43,7 @@ const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在对话页点
 
 // 头部主控件共用尺寸：「+ 新会话」按钮 与 passive 下不可点的「流量批次」占位保持同一盒模型，
 // 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
-const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-[13.5px] font-semibold transition-colors'
+const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
 
 // 会话侧栏：按页拉会话（offset 翻页，见 api/client.ts listConversations 注释），点击向上抛选中 ID；
 // 顶部「+ 新会话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
@@ -206,7 +206,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             to="/conversations/manual"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-[7px] py-1.5 text-center text-[12.5px] font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-[7px] py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }
@@ -217,7 +217,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             to="/conversations/auto"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-[7px] py-1.5 text-center text-[12.5px] font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-[7px] py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }
@@ -262,7 +262,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           />
         </div>
         {items.length > 0 && (
-          <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-[11px] text-muted">
+          <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-muted">
             {query.trim() ? `本页 ${filtered.length}/${items.length} 条匹配` : `第 ${pageNo} 页 · 本页 ${items.length} 条`}
           </div>
         )}
@@ -308,11 +308,11 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                         }
                       }}
                       onBlur={() => void commitRename(c)}
-                      className="w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 text-[13px] text-text outline-none"
+                      className="w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 text-sm text-text outline-none"
                     />
                   ) : (
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium text-text" title={fullTitle(c)}>
+                      <span className="truncate text-sm font-medium text-text" title={fullTitle(c)}>
                         {displayTitle(c)}
                       </span>
                       <span
@@ -372,7 +372,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="font-mono text-[11px] text-muted">第 {pageNo} 页</span>
+            <span className="font-mono text-xs text-muted">第 {pageNo} 页</span>
             <button
               type="button"
               aria-label="下一页"

@@ -43,7 +43,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-border">
               {hg.headers.map((h) => (
-                <th key={h.id} className="px-4.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted opacity-70">
+                <th key={h.id} className="px-4.5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70">
                   {flexRender(h.column.columnDef.header, h.getContext())}
                 </th>
               ))}
@@ -63,7 +63,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={SKELETON_COLS} className="px-4.5 py-11 text-center text-[13.5px] text-muted">
+              <td colSpan={SKELETON_COLS} className="px-4.5 py-11 text-center text-sm text-muted">
                 {hasFilter ? '当前筛选无匹配调用' : '该对话暂无 LLM 调用记录'}
               </td>
             </tr>
@@ -83,7 +83,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
                       onRowClick(v)
                     }
                   }}
-                  className="cursor-pointer border-b border-border text-[13px] transition-colors last:border-b-0 hover:bg-surface-2 data-[error=true]:bg-sev-critical/[0.08] data-[error=true]:hover:bg-sev-critical/[0.14]"
+                  className="cursor-pointer border-b border-border text-sm transition-colors last:border-b-0 hover:bg-surface-2 data-[error=true]:bg-sev-critical/[0.08] data-[error=true]:hover:bg-sev-critical/[0.14]"
                   data-error={!!v.error_message}
                 >
                   {row.getVisibleCells().map((cell) => (

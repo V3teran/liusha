@@ -16,9 +16,9 @@ interface CopySectionProps {
 export function CopySection({ title, hint, copyText, copied, onCopy, children }: CopySectionProps) {
   return (
     <section>
-      <h3 className="mb-2.5 flex items-baseline gap-2 text-[13px] font-semibold text-text">
+      <h3 className="mb-2.5 flex items-baseline gap-2 text-sm font-semibold text-text">
         {title}
-        {hint && <span className="text-[11px] font-normal text-muted">{hint}</span>}
+        {hint && <span className="text-xs font-normal text-muted">{hint}</span>}
         {copyText && <CopyButton copied={copied} onClick={onCopy} className="ml-auto" />}
       </h3>
       {children}
