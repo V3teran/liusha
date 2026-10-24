@@ -5,7 +5,6 @@ import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
 import { Search, RefreshCw, Filter, Info, AlertCircle } from 'lucide-react'
 import { getTaskGraph } from '@/api/explorationgraph'
-import { listConversations } from '@/api/client'
 import type { GraphNode } from '@/api/explorationgraph'
 import { cn } from '@/lib/utils'
 
