@@ -33,11 +33,14 @@ export function ModelPage() {
             onClick={() => setProvidersExpanded(!providersExpanded)}
             className="flex w-full items-center justify-between px-6 py-3 text-left transition-colors hover:bg-surface-2"
           >
-            <span className="text-sm font-medium text-text">模型提供商</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium text-text">模型提供商</span>
+              <span className="text-xs text-text-secondary">接入哪些 provider，连接参数与能力标志</span>
+            </div>
             {providersExpanded ? (
-              <ChevronDown className="h-4 w-4 text-text-secondary" />
+              <ChevronDown className="h-4 w-4 flex-shrink-0 text-text-secondary" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-text-secondary" />
+              <ChevronRight className="h-4 w-4 flex-shrink-0 text-text-secondary" />
             )}
           </button>
           {providersExpanded && (
@@ -54,11 +57,14 @@ export function ModelPage() {
             onClick={() => setRoutingExpanded(!routingExpanded)}
             className="flex w-full items-center justify-between px-6 py-3 text-left transition-colors hover:bg-surface-2"
           >
-            <span className="text-sm font-medium text-text">能力路由</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium text-text">能力路由</span>
+              <span className="text-xs text-text-secondary">为每个复杂度档位分配模型，并归档智能体</span>
+            </div>
             {routingExpanded ? (
-              <ChevronDown className="h-4 w-4 text-text-secondary" />
+              <ChevronDown className="h-4 w-4 flex-shrink-0 text-text-secondary" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-text-secondary" />
+              <ChevronRight className="h-4 w-4 flex-shrink-0 text-text-secondary" />
             )}
           </button>
           {routingExpanded && (
