@@ -48,6 +48,14 @@ export function LlmAuditPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* 统一头部 */}
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">LLM 审计</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">大模型调用日志与性能分析</p>
+        </div>
+      </header>
+
       <LlmAuditToolbar taskId={taskId} onTaskIdChange={setTaskId} stat={statQuery.data} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5.5 py-4.5">
