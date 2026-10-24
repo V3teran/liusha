@@ -20,7 +20,7 @@ export default function SkillsPage() {
   }, [list.page, list.size, list.query])
 
   const { loading, error } = list
-  const rows = list.rows as Skill[]
+  const rows = (list.rows as Skill[]) || []
 
   return (
     <>
