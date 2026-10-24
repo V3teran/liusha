@@ -195,24 +195,26 @@ export default function CredentialsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-4.5 border-b border-border px-5.5 py-3">
-        <h1 className="text-sm font-semibold text-text">凭证库</h1>
-        <span className="text-[12.5px] text-muted">
-          按目标归属的登录态与会话材料 · 永久存储（无过期）· 点击单元格直接编辑
-        </span>
-        <div className="ml-auto flex items-center gap-2">
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">凭证库</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">
+            按目标归属的登录态与会话材料 · 永久存储（无过期）· 点击单元格直接编辑
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
               setCreating((c) => !c)
               setNewRow(EMPTY_NEW_ROW)
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-[12.5px] font-medium text-text transition-colors hover:border-border-strong"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent-soft px-4 text-sm font-semibold text-accent transition-all hover:bg-accent/10 hover:text-accent-hover"
           >
-            <Plus className="h-3.5 w-3.5" /> 录入
+            <Plus className="h-4 w-4" /> 录入
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5.5 py-4">
         {isError ? (
