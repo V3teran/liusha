@@ -1,91 +1,67 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Check, Loader2 } from 'lucide-react'
-import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
-import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
-import type { ProviderConfig, RoleRouteConfig, AgentConfig } from '@/api/types'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, Check, Loader2, X } from 'lucide-react'
+import type { ProviderConfig, AgentConfig } from '@/api/types'
 import { COMPLEXITY_GROUPS, RESERVED_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
-
-// 每档的即时保存态：路由写入是单字段（provider_key），无需抽屉——行内 select 改完即存，
-// 保存/成功/失败短暂回显在行尾。saving 期间禁用该行 select 防抖动。
-type RowState = 'idle' | 'saving' | 'saved' | 'error'
+import {
+  useProviders,
+  useRouting,
+  useAgentConfigs,
+  useSaveRoleRoute,
+  useSaveAgentComplexity,
+} from './useModelQueries'
 
 // 能力分档视图：agent → complexity → provider 两跳。本视图同时读写两处：
-//   1. complexity → provider：行内 select 直选部署（saveRoleRoute/deleteRoleRoute）。
-//   2. agent → 档：每档一个 agent 多选框，勾选即把智能体归入本档（saveAgentComplexity 移档）。
-//      与「智能体」页的复杂度下拉读写同一份 agent.complexity 数据，只是展示维度不同（按档聚合 vs 单体编辑）。
+//   1. complexity → provider：行内 select 直选部署（useSaveRoleRoute，空值=删路由）。
+//   2. agent → 档：每档一排归属 chip，点未归属 chip 即把智能体归入本档
+//      （useSaveAgentComplexity 移档，与「智能体」页复杂度下拉读写同一份数据）。
 // inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
+// 乐观更新在 useModelQueries 的 mutation 层（onMutate 写缓存 / onError 回滚 / onSettled 失效），
+// 组件只消费 query data 派生视图，不再自管回滚快照。
 export function AssignmentView() {
-  const [providers, setProviders] = useState<ProviderConfig[]>([])
-  const [routeMap, setRouteMap] = useState<Map<string, string>>(new Map())
-  const [agents, setAgents] = useState<AgentConfig[]>([])
-  // agentId → 档的当前归属（乐观移档只改这张表，行渲染由它派生）。
-  const [complexityBy, setComplexityBy] = useState<Map<string, string>>(new Map())
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [rowState, setRowState] = useState<Map<string, RowState>>(new Map())
-  // 正在移档的 agentId，禁用其复选框防连点。
-  const [moving, setMoving] = useState<Set<string>>(new Set())
+  const providersQuery = useProviders()
+  const routingQuery = useRouting()
+  const agentsQuery = useAgentConfigs()
+  const routeMutation = useSaveRoleRoute()
+  const moveMutation = useSaveAgentComplexity()
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    setError('')
-    Promise.all([listProviders(), getRouting(), listAgentConfigs()])
-      .then(([provs, routing, hs]) => {
-        setProviders(provs)
-        setRouteMap(new Map(routing.routes.map((r: RoleRouteConfig) => [r.role, r.provider_key])))
-        setAgents(hs)
-        setComplexityBy(new Map(hs.map((h) => [h.id, h.complexity || 'medium'])))
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
-      .finally(() => setLoading(false))
-  }, [])
+  const providers = providersQuery.data ?? []
+  const agents = agentsQuery.data ?? []
+  const loading = providersQuery.isLoading || routingQuery.isLoading || agentsQuery.isLoading
+  const loadError =
+    providersQuery.error ?? routingQuery.error ?? agentsQuery.error ?? null
 
-  useEffect(() => reload(), [reload])
+  const routeMap = useMemo(
+    () => new Map((routingQuery.data?.routes ?? []).map((r) => [r.role, r.provider_code])),
+    [routingQuery.data],
+  )
+  // 归属表由 agents 数据派生；乐观移档经 mutation onMutate 已写入缓存，此处即时反映。
+  const complexityBy = useMemo(
+    () => new Map(agents.map((h) => [h.id, h.complexity || 'medium'])),
+    [agents],
+  )
 
-  const setRow = (group: string, s: RowState) => setRowState((m) => new Map(m).set(group, s))
+  // 路由/移档失败的页面内回显（乐观更新已自动回滚视觉，这里补失败原因），下次操作即清。
+  const [actionError, setActionError] = useState('')
+  const onError = (prefix: string) => (e: unknown) =>
+    setActionError(`${prefix}：${e instanceof Error ? e.message : '操作失败'}`)
 
-  // 选空 → 删除该档路由（该档回落无解析，其余档不受影响）；选具体 provider → upsert。
-  // 乐观更新：先落 routeMap（select 立即反映新值），失败再回滚到快照并弹错。
-  const onPick = async (group: string, providerKey: string) => {
-    const prev = routeMap
-    setRow(group, 'saving')
-    setRouteMap((m) => {
-      const next = new Map(m)
-      if (providerKey === '') next.delete(group)
-      else next.set(group, providerKey)
-      return next
-    })
-    try {
-      if (providerKey === '') await deleteRoleRoute(group)
-      else await saveRoleRoute(group, providerKey)
-      setRow(group, 'saved')
-      window.setTimeout(() => setRow(group, 'idle'), 1600)
-    } catch (e) {
-      setRouteMap(prev)
-      setRow(group, 'error')
-      window.alert(e instanceof Error ? e.message : '保存失败')
-    }
+  // 选空 → 删除该档路由（该档回落标准推理档解析）；选具体 provider → upsert。
+  const onPick = (group: string, providerKey: string) => {
+    setActionError('')
+    routeMutation.mutate(
+      { role: group, providerKey },
+      { onError: onError('保存绑定失败') },
+    )
   }
 
-  // 移档：勾选把 agent 归入目标档（离开原档）。乐观改 complexityBy，失败回滚并弹错。
-  // 单值归属——勾选即隐式移出原档，无需显式取消（原档复选框由 complexityBy 派生自动落空）。
-  const onMove = async (agentId: string, group: string) => {
-    if (complexityBy.get(agentId) === group) return // 已在本档，无操作
-    const prev = complexityBy
-    setComplexityBy((m) => new Map(m).set(agentId, group))
-    setMoving((s) => new Set(s).add(agentId))
-    try {
-      await saveAgentComplexity(agentId, group)
-    } catch (e) {
-      setComplexityBy(prev)
-      window.alert(e instanceof Error ? e.message : '移档失败')
-    } finally {
-      setMoving((s) => {
-        const next = new Set(s)
-        next.delete(agentId)
-        return next
-      })
-    }
+  // 移档：点未归属 chip 把 agent 归入目标档（单值归属——移出原档由派生自动落空）。
+  const onMove = (agentId: string, group: string) => {
+    if (complexityBy.get(agentId) === group) return
+    setActionError('')
+    moveMutation.mutate(
+      { agentId, complexity: group },
+      { onError: onError('移档失败') },
+    )
   }
 
   // 已知档之外、DB 里还存在的自定义档也要列出（不丢数据，如历史遗留行）。
@@ -94,23 +70,27 @@ export function AssignmentView() {
     .filter((g) => !knownSet.has(g))
     .map(groupMeta)
 
+  const moving = useMemo(() => new Set(moveMutation.isPending ? [moveMutation.variables?.agentId ?? ''] : []), [moveMutation.isPending, moveMutation.variables])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-5">
           {loading ? (
             <div className="tac-cursor py-16 text-center font-mono text-[13.5px] text-muted">加载中</div>
-          ) : error ? (
-            <div className="py-16 text-center font-mono text-[13.5px] text-sev-critical">⚠ {error}</div>
+          ) : loadError ? (
+            <div className="py-16 text-center font-mono text-[13.5px] text-sev-critical">
+              ⚠ {loadError instanceof Error ? loadError.message : '加载失败'}
+            </div>
           ) : (
             <>
               <ComplexityGroup
                 title="能力档"
-                hint="每档绑定一个部署，并勾选归入本档的智能体；重推理为隐式默认档，未显式归档的落此"
+                hint="每档绑定一个部署，并把智能体归入对应档；标准推理为隐式默认档，未显式归档的智能体落此档"
                 groups={[...COMPLEXITY_GROUPS, ...extraGroups]}
                 providers={providers}
                 routeMap={routeMap}
-                rowState={rowState}
+                routeSavingRole={routeMutation.isPending ? routeMutation.variables?.role : null}
                 onPick={onPick}
                 agents={agents}
                 complexityBy={complexityBy}
@@ -120,11 +100,11 @@ export function AssignmentView() {
               />
               <ComplexityGroup
                 title="兜底槽"
-                hint="任一档主 provider 重试耗尽后切换的兜底部署 provider"
+                hint="任一档主 provider 重试耗尽后切换的兜底部署；未绑定时无兜底（各档耗尽即失败）"
                 groups={RESERVED_GROUPS}
                 providers={providers}
                 routeMap={routeMap}
-                rowState={rowState}
+                routeSavingRole={routeMutation.isPending ? routeMutation.variables?.role : null}
                 onPick={onPick}
                 agents={agents}
                 complexityBy={complexityBy}
@@ -135,6 +115,21 @@ export function AssignmentView() {
           )}
         </div>
       </div>
+
+      {actionError && (
+        <div className="flex flex-shrink-0 items-start gap-2 border-t border-sev-critical/40 bg-sev-critical/5 px-6 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-sev-critical" />
+          <p className="min-w-0 flex-1 break-all text-[12.5px] text-sev-critical">{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError('')}
+            aria-label="关闭错误提示"
+            className="flex-shrink-0 text-faint transition-colors hover:text-text"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -147,7 +142,7 @@ function ComplexityGroup({
   groups,
   providers,
   routeMap,
-  rowState,
+  routeSavingRole,
   onPick,
   agents,
   complexityBy,
@@ -160,7 +155,7 @@ function ComplexityGroup({
   groups: ComplexityGroupMeta[]
   providers: ProviderConfig[]
   routeMap: Map<string, string>
-  rowState: Map<string, RowState>
+  routeSavingRole: string | null
   onPick: (group: string, providerKey: string) => void
   agents: AgentConfig[]
   complexityBy: Map<string, string>
@@ -168,7 +163,7 @@ function ComplexityGroup({
   onMove: (agentId: string, group: string) => void
   allowUnset?: boolean
 }) {
-  const provState = new Map(providers.map((p) => [p.key, p.enabled] as const))
+  const provState = new Map(providers.map((p) => [p.code, p.enabled] as const))
 
   return (
     <section aria-label={title} className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -184,7 +179,7 @@ function ComplexityGroup({
             value={routeMap.get(m.key) ?? ''}
             providers={providers}
             provState={provState}
-            state={rowState.get(m.key) ?? 'idle'}
+            saving={routeSavingRole === m.key}
             onPick={onPick}
             agents={agents}
             complexityBy={complexityBy}
@@ -198,14 +193,14 @@ function ComplexityGroup({
   )
 }
 
-// 单档行：左侧档位标签 + 职责说明 + provider 选择器；下方一行 agent 复选框（勾选即移入本档）。
-// 兜底槽（reserved）无 agent 归属语义，不渲染多选区。
+// 单档行：左侧档位标签 + 职责说明 + provider 选择器；下方一行 agent 归属 chip。
+// 兜底槽（reserved）无 agent 归属语义，不渲染归属区。
 function ComplexityRow({
   meta,
   value,
   providers,
   provState,
-  state,
+  saving,
   onPick,
   agents,
   complexityBy,
@@ -217,7 +212,7 @@ function ComplexityRow({
   value: string
   providers: ProviderConfig[]
   provState: Map<string, boolean>
-  state: RowState
+  saving: boolean
   onPick: (group: string, providerKey: string) => void
   agents: AgentConfig[]
   complexityBy: Map<string, string>
@@ -255,19 +250,19 @@ function ComplexityRow({
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
-          <StateBadge state={state} />
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" aria-label="保存中" />}
           <select
             aria-label={`${meta.label} 绑定部署`}
-            className="w-48 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
+            className="w-56 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
             value={value}
-            disabled={state === 'saving'}
+            disabled={saving}
             onChange={(e) => onPick(meta.key, e.target.value)}
           >
             {allowUnset && <option value="">（未配置 · 回落标准推理档）</option>}
-            {!allowUnset && value === '' && <option value="">（未绑定）</option>}
+            {!allowUnset && value === '' && <option value="">（未绑定 · 无兜底）</option>}
             {providers.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.key}
+              <option key={p.code} value={p.code}>
+                {p.code}
                 {p.enabled ? '' : '（已停用）'}
               </option>
             ))}
@@ -278,6 +273,7 @@ function ComplexityRow({
       {!meta.reserved && (
         <AgentPicker
           group={meta.key}
+          groupLabel={meta.label}
           builtinKeys={meta.builtinKeys}
           agents={agents}
           complexityBy={complexityBy}
@@ -289,10 +285,14 @@ function ComplexityRow({
   )
 }
 
-// 单档的 agent 归属多选区：每个 agent 一个复选框，勾选即移入本档（saveAgentComplexity）。
-// 单值归属——不属于本档的 agent 复选框空勾，勾上即从原档移出。builtinKeys 只读 chip。
+// 单档的 agent 归属 chip 区：归属本档 = accent 实心（Check 标记，只表达状态），
+// 未归属 = 幽灵 chip 可点击移入（单值归属——移出原档由派生数据自动落空）。
+// 用 chip 而非 checkbox：checkbox 的多选视觉与「单值归属」语义冲突，且本档内
+// 勾选态 disabled 的复选框看起来像控件损坏；实心 chip 是明确的归属标记。
+// builtinKeys 只读 code chip（内建路由键，不在智能体表）。
 function AgentPicker({
   group,
+  groupLabel,
   builtinKeys,
   agents,
   complexityBy,
@@ -300,6 +300,7 @@ function AgentPicker({
   onMove,
 }: {
   group: string
+  groupLabel: string
   builtinKeys: string[]
   agents: AgentConfig[]
   complexityBy: Map<string, string>
@@ -312,23 +313,28 @@ function AgentPicker({
       {agents.map((h) => {
         const inGroup = (complexityBy.get(h.id) ?? 'medium') === group
         const busy = moving.has(h.id)
-        return (
-          <label
+        return inGroup ? (
+          <span
             key={h.id}
-            className={`flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-[12px] transition-colors ${
-              inGroup ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-surface-2'
-            } ${busy ? 'opacity-50' : ''}`}
+            title={`已归入${groupLabel}；改档请在目标档点击`}
+            className="flex items-center gap-1 rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 text-[12px] text-accent"
           >
-            <input
-              type="checkbox"
-              className="h-3 w-3 accent-accent"
-              checked={inGroup}
-              disabled={busy || inGroup}
-              onChange={() => onMove(h.id, group)}
-              aria-label={`${h.name} 归入 ${group}`}
-            />
+            <Check className="h-3 w-3" />
             {h.name}
-          </label>
+          </span>
+        ) : (
+          <button
+            key={h.id}
+            type="button"
+            onClick={() => onMove(h.id, group)}
+            disabled={busy}
+            aria-label={`${h.name} 归入 ${group}`}
+            title={`点击把 ${h.name} 归入${groupLabel}`}
+            className="rounded border border-transparent px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+          >
+            {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
+            {h.name}
+          </button>
         )
       })}
       {builtinKeys.map((k) => (
@@ -342,12 +348,4 @@ function AgentPicker({
       ))}
     </div>
   )
-}
-
-// 行尾即时保存态图标：saving 转圈、saved 打勾、error 警示。
-function StateBadge({ state }: { state: RowState }) {
-  if (state === 'saving') return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
-  if (state === 'saved') return <Check className="h-3.5 w-3.5 text-accent" />
-  if (state === 'error') return <AlertTriangle className="h-3.5 w-3.5 text-sev-critical" />
-  return <span className="h-3.5 w-3.5" aria-hidden />
 }

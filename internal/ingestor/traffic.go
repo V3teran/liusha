@@ -83,7 +83,6 @@ type Deps struct {
 	Redis         *redis.Client
 	Cfg           config.IngestorConfig
 	Stream        string
-	KeyPrefix     string // Redis key 前缀（聚合窗口 + 锁）
 	Assignments   *assignment.Store
 	Tasks         *task.Store
 	ProxyStore    *traffic.ProxyStore
@@ -103,10 +102,6 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 	if strings.TrimSpace(deps.Stream) == "" {
 		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
 	}
-	prefix := deps.KeyPrefix
-	if prefix == "" {
-		prefix = "liusha"
-	}
 	window := time.Duration(deps.Cfg.AggregateWindowSeconds) * time.Second
 	t := &Traffic{
 		rdb:           deps.Redis,
@@ -119,7 +114,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
 		assignments:   deps.Assignments,
 		tasks:         deps.Tasks,
-		agg:           newAggregator(deps.Redis, prefix, deps.Cfg.AggregateBatchSize, window, deps.Logger),
+		agg:           newAggregator(deps.Redis, deps.Cfg.AggregateBatchSize, window, deps.Logger),
 		proxyStore:    deps.ProxyStore,
 		agentStore:    deps.AgentStore,
 		agentRuns:     deps.AgentRuns,

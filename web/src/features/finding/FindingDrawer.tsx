@@ -130,7 +130,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="tac-modal-overlay fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
         <Dialog.Content
           className={cn(
             'tac-modal fixed right-0 top-0 z-50 flex h-full w-[720px] flex-col',

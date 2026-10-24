@@ -3,7 +3,8 @@ import {
   getApiKey, setApiKey, listConversations, listMessages, startChat, followUp, abortScan,
   listTasks, startActiveScan, abortTask, listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
-  listCredentials, saveCredentialsBatch, deleteCredentials,
+  listCredentialHosts, getCredentialDetail, saveCredentialIdentity,
+  deleteCredentialIdentity, purgeCredentialSessions, deleteCredentialHost,
   deleteConversation, renameConversation, authStream, bootstrapApiKey,
   listFindings, listFindingHosts, updateFindingTriage,
 } from './client'
@@ -291,38 +292,73 @@ describe('API 客户端', () => {
   })
 
   describe('凭证库', () => {
-    it('listCredentials 按 host 拆 identities', async () => {
+    it('listCredentialHosts GET /credentials', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ identities: [{ name: 'admin', role: 'admin', credentials: [] }] }),
+        json: vi.fn().mockResolvedValue({ hosts: [{ host: 'a.com', identities: 1, sessions: 2 }] }),
       })
       ;(global as any).fetch = mockFetch
 
-      const ids = await listCredentials('a.com')
+      const hosts = await listCredentialHosts()
 
-      expect(ids[0].name).toBe('admin')
-      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', { headers: { 'X-API-Key': '' } })
+      expect(hosts[0].host).toBe('a.com')
+      expect(mockFetch).toHaveBeenCalledWith('/api/credentials', { headers: { 'X-API-Key': '' } })
     })
 
-    it('saveCredentialsBatch POST ttl + credentials', async () => {
+    it('getCredentialDetail GET 单 host 明文详情', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ host: 'a.com', identities: [] }),
+      })
+      ;(global as any).fetch = mockFetch
+
+      await getCredentialDetail('a.com')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com', { headers: { 'X-API-Key': '' } })
+    })
+
+    it('saveCredentialIdentity PUT 单登录身份', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
       ;(global as any).fetch = mockFetch
 
-      await saveCredentialsBatch({ 'a.com': [{ name: 'u', role: 'user', credentials: [] }] }, 3600)
+      const identity = { username: 'admin', role: 'admin', credentials: [{ type: 'headers', key: 'Cookie', value: 'sid=1' }] }
+      await saveCredentialIdentity('a.com:8080', identity)
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/credential/batch', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ ttl_seconds: 3600, credentials: { 'a.com': [{ name: 'u', role: 'user', credentials: [] }] } }),
+      expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com%3A8080/usernames', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify(identity),
       }))
     })
 
-    it('deleteCredentials DELETE 带 host query', async () => {
+    it('deleteCredentialIdentity 编码用户名（会话用户名含冒号）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
       ;(global as any).fetch = mockFetch
 
-      await deleteCredentials('a.com')
+      await deleteCredentialIdentity('a.com', 'task:t1:session')
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/credential?host=a.com', expect.objectContaining({ method: 'DELETE' }))
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/credentials/a.com/usernames/task%3At1%3Asession',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+
+    it('purgeCredentialSessions 返回删除数', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ deleted: 3 }) })
+      ;(global as any).fetch = mockFetch
+
+      const n = await purgeCredentialSessions('a.com')
+
+      expect(n).toBe(3)
+      expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com/sessions', expect.objectContaining({ method: 'DELETE' }))
+    })
+
+    it('deleteCredentialHost DELETE 整 host', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
+      ;(global as any).fetch = mockFetch
+
+      await deleteCredentialHost('a.com')
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com', expect.objectContaining({ method: 'DELETE' }))
     })
   })
 

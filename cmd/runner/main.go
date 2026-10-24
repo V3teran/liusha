@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -194,6 +195,7 @@ func main() {
 		logger:     logger,
 		router:     router,
 		creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
+		audit:      audit.NewStore(pool), // 会话身份回收等 runner 侧敏感操作审计
 		toolCalls:  stores.toolCalls,
 		// skill 渐进式加载后端 = DB 事实源（经 cfgstore 的 L1/L2/DB 三级缓存；
 		// 前端改 skill → 失效总线广播 → 本进程 L1 清 → 下次读即新值，无需重启）。
@@ -241,6 +243,16 @@ func main() {
 	go runHealthGateway(hs, logger)
 
 	startTaskReaper(trafficCtx, stores.tasks, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
+
+	// 凭证库运行时键迁移：历史版本里聚合窗口/信号量借用过凭证前缀
+	//（credentials::agg:* / credentials:hostsem:*）。计数/锁类键自带短 TTL
+	// 自然消亡；唯一无 TTL 的活跃 host 集在此一次性清理。新键已在各自
+	// 命名空间（liusha:agg:* / liusha:hostsem:*）。
+	cleanupLegacyRuntimeKeys(rdb, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), logger)
+
+	// 会话身份终态清扫：任务终态清理（handler 内）的崩溃兜底——按任务状态
+	// 这个事实回收，不依赖任何过期时间。runner 单实例部署，天然单例。
+	startSessionSweep(trafficCtx, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), stores.tasks, logger)
 
 	// llm_invocation 留存清理：记录含完整 prompt/response 敏感载荷，
 	// retention_days > 0 时每日删除到期行（0 = 永久留存，审计全量）。
@@ -411,7 +423,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 // 持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
 func newHostSemaphore(rdb *redis.Client, runnerCfg config.RunnerConfig, cfg config.Config) *ratelimit.HostSemaphore {
 	hostSemTTL := time.Duration(runnerCfg.AgentRunTimeoutSeconds)*time.Second + 10*time.Minute
-	return ratelimit.NewHostSemaphore(rdb, cfg.Credential.RedisKeyPrefix, runnerCfg.PerHostConcurrency, hostSemTTL)
+	return ratelimit.NewHostSemaphore(rdb, runnerCfg.PerHostConcurrency, hostSemTTL)
 }
 
 // startTrafficIngestor 启动流量摄取消费循环。
@@ -420,7 +432,6 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
 		Stream:        cfg.Proxy.StreamName,
-		KeyPrefix:     cfg.Credential.RedisKeyPrefix,
 		Assignments:   stores.assignments,
 		Tasks:         stores.tasks,
 		ProxyStore:    stores.proxyStore,
@@ -607,4 +618,55 @@ func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, s
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
 	logger.Info().Msg("runner stopped")
+}
+
+// cleanupLegacyRuntimeKeys 一次性清理借用凭证前缀的历史运行时键（无 TTL 的
+// 那枚聚合活跃 host 集；其余计数/锁键短 TTL 自灭）。best-effort：失败仅告警，
+// 不阻塞启动——残留键不影响新命名空间的正确性。
+func cleanupLegacyRuntimeKeys(rdb *redis.Client, creds *credential.RedisProvider, logger zerolog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, key := range creds.LegacyRuntimeKeys() {
+		if err := rdb.Del(ctx, key).Err(); err != nil {
+			logger.Warn().Err(err).Str("key", key).Msg("历史运行时键清理失败（不影响新命名空间）")
+			continue
+		}
+		logger.Info().Str("key", key).Msg("已清理借用凭证前缀的历史运行时键")
+	}
+}
+
+// startSessionSweep 周期清扫已终态任务的会话身份（启动即扫一次，此后每
+// 10 分钟一轮）。判定依据是任务状态（active 保留、终态/已删除回收），
+// 不依赖时间——凭证库无过期机制，生命周期由事实驱动。
+func startSessionSweep(ctx context.Context, creds *credential.RedisProvider, tasks *task.Store, logger zerolog.Logger) {
+	lookup := func(ctx context.Context, taskID string) (string, bool) {
+		t, err := tasks.GetByID(ctx, taskID)
+		if err != nil {
+			return "", false
+		}
+		return string(t.Status), true
+	}
+	sweep := func() {
+		removed, err := credential.SweepTerminalSessions(ctx, creds, lookup)
+		if err != nil {
+			logger.Warn().Err(err).Msg("会话身份清扫失败（下轮重试）")
+			return
+		}
+		if removed > 0 {
+			logger.Info().Int("removed", removed).Msg("清扫已终态任务的会话身份")
+		}
+	}
+	logx.Go(logger, "session-sweep", func() {
+		sweep() // 启动即扫：接住上次进程崩溃遗留的会话
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	})
 }

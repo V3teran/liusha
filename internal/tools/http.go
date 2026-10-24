@@ -51,9 +51,8 @@ const (
 //	同键冲突时先到（身份名序）先得。Cookie 只是 headers 位置的一种。
 //
 //	响应侧（③B）：jar 仅作进程内缓存；Set-Cookie 变更时把完整 Cookie 头
-//	以保留身份 "session" 合并写入凭证库（store 是唯一事实源）。防抖：值未
-//	变化不写；ttl 必须 0——BatchSave 的 ttl 是 host 级 EXPIRE，带 ttl 会
-//	误杀同 host 下用户预录入身份的存活期。
+//	合并写入本任务的会话身份（store 是唯一事实源，永久存储无过期语义）。
+//	防抖：值未变化不写。
 type httpRequestTool struct {
 	registry.BaseTool
 	deps Deps
@@ -63,30 +62,12 @@ type httpRequestTool struct {
 	lastWritten map[string]string // host → 上次写入 store 的 Cookie 头（防抖）
 }
 
-// 会话身份的 task 域化命名：自动会话身份存为 "task:{taskID}:session"——
-// 共享容器/共享凭证库下，跨 task 的会话互染（A 任务登录态注入 B 任务、
-// 并发同 host 互相覆盖）由此切断。用户/LLM 手工录入的身份不带 task: 前缀，
-// 属 host 级共享（预录入语义），所有 task 可见可注入。
-const (
-	sessionIdentityPrefix = "task:"   // 自动身份保留前缀
-	SessionIdentityName   = "session" // 身份名（与前缀拼接成完整 field）
-)
-
-// IsAutoSessionIdentity 判别自动会话身份（task: 前缀）与持久录入身份：
-// 自动身份是某次浏览器/HTTP 会话的即时快照（JS 设置的 cookie 不产生
-// Set-Cookie，快照可能停在中间状态）；持久身份是 LLM/用户显式录入的
-// 权威凭据。消费方（复放注入等）在多身份间选择时应持久优先。
-func IsAutoSessionIdentity(name string) bool {
-	return strings.HasPrefix(name, sessionIdentityPrefix)
-}
-
-// sessionIdentityName 返回本 task 的自动会话身份名（taskID 空时退化为全局名，
-// 供无任务上下文的调用方如 judge 复核侧使用）。
+// sessionIdentityName 返回本 task 的自动会话身份名——命名权威在 credential
+// 包（"task:{taskID}:session"，taskID 空时退化为全局名，供无任务上下文的
+// 调用方如 judge 复核侧使用）。会话身份与持久身份的判别同样走 credential
+// 包（IsSessionIdentity），本包不再自持前缀字面量。
 func sessionIdentityName(taskID string) string {
-	if taskID == "" {
-		return SessionIdentityName
-	}
-	return sessionIdentityPrefix + taskID + ":" + SessionIdentityName
+	return credential.SessionIdentityName(taskID)
 }
 
 func newHTTPRequestTool(deps Deps, timeout time.Duration) *httpRequestTool {
@@ -174,18 +155,18 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 	// 持久身份先于自动会话快照（快照可能停在中间状态，权威凭据优先），
 	// 名称破平保证确定性——注入去重是先到先得，排序即选择策略。
 	sort.SliceStable(ids, func(i, j int) bool {
-		pi, pj := IsAutoSessionIdentity(ids[i].Name), IsAutoSessionIdentity(ids[j].Name)
+		pi, pj := credential.IsSessionIdentity(ids[i].Username), credential.IsSessionIdentity(ids[j].Username)
 		if pi != pj {
 			return !pi
 		}
-		return ids[i].Name < ids[j].Name
+		return ids[i].Username < ids[j].Username
 	})
 
 	appliedKeys := map[string]bool{} // "pos|key" 已注入（跨身份去重）
 	var applied []appliedCredential
 	for _, id := range ids {
 		for _, c := range id.Credentials {
-			if ac, ok := t.applyOneCredential(a, id.Name, c, appliedKeys); ok {
+			if ac, ok := t.applyOneCredential(a, id.Username, c, appliedKeys); ok {
 				applied = append(applied, ac)
 			}
 		}
@@ -199,11 +180,11 @@ func selectApplicableIdentities(ids []credential.Identity, taskID string, identi
 	mine := sessionIdentityName(taskID)
 	filtered := ids[:0]
 	for _, id := range ids {
-		if strings.HasPrefix(id.Name, sessionIdentityPrefix) && id.Name != mine {
+		if credential.IsSessionIdentity(id.Username) && id.Username != mine {
 			continue
 		}
 		// 如果指定了 identity，只保留该身份
-		if identity != nil && id.Name != *identity {
+		if identity != nil && id.Username != *identity {
 			continue
 		}
 		filtered = append(filtered, id)
@@ -309,10 +290,9 @@ func (t *httpRequestTool) applyBodyCredential(a *httpRequestArgs, identityName s
 	return appliedCredential{Identity: identityName, Position: "body", Key: c.Key}, true
 }
 
-// syncSessionToStore 把当前会话 Cookie 头合并写入凭证库保留身份 "session"（③B：
-// store 是事实源，jar 只是缓存）。防抖：值未变不写；全空则清 Cookie 项（保留该
-// 身份下其他凭证）。ttl 恒为 0——BatchSave 的 ttl 是 host 级 EXPIRE，会误杀
-// 同 host 用户预录入身份。
+// syncSessionToStore 把当前会话 Cookie 头合并写入本任务的会话身份（③B：
+// store 是事实源，jar 只是缓存）。防抖：值未变不写；全空则清 Cookie 项
+// （保留该身份下其他凭证）。
 func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 	if t.deps.Creds == nil || host == "" {
 		return
@@ -331,15 +311,15 @@ func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 	var session credential.Identity
 	if ids, err := t.deps.Creds.GetIdentitiesByHost(ctx, host); err == nil {
 		for _, id := range ids {
-			if id.Name == mine {
+			if id.Username == mine {
 				session = id
 				break
 			}
 		}
 	}
-	session.Name = mine
+	session.Username = mine
 	if session.Role == "" {
-		session.Role = SessionIdentityName
+		session.Role = "session"
 	}
 	kept := session.Credentials[:0:0]
 	for _, c := range session.Credentials {
@@ -352,9 +332,7 @@ func (t *httpRequestTool) syncSessionToStore(ctx context.Context, host string) {
 	}
 	session.Credentials = kept
 
-	if err := t.deps.Creds.BatchSave(ctx, map[string][]credential.Identity{
-		host: {session},
-	}, 0); err != nil {
+	if err := t.deps.Creds.SaveIdentities(ctx, host, []credential.Identity{session}); err != nil {
 		return // best-effort：写失败不阻塞响应返回，jar 缓存仍可用
 	}
 	t.mu.Lock()

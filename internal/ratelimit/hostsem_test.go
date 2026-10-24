@@ -15,7 +15,7 @@ func newTestSemaphore(t *testing.T, limit int, ttl time.Duration) (*HostSemaphor
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return NewHostSemaphore(rdb, "test", limit, ttl), mr
+	return NewHostSemaphore(rdb, limit, ttl), mr
 }
 
 // 限额内的 Acquire 都应成功，超限的第 N+1 次应被拒绝。

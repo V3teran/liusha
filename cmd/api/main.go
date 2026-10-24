@@ -259,7 +259,9 @@ func main() {
 			APIKey:             os.Getenv("LIUSHA_API_KEY"),
 			StreamCookieSecret: streamSecret,
 			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
-			Credentials:        credAPI,
+			Credentials:     credAPI,
+			CredentialAudit: auditStore, // 凭证库变更/明文读取审计（敏感操作面）
+			TaskStatus:      taskStatusAdapter{tasks: taskStore},
 			Tasks: taskAPIAdapter{
 				tasks: taskStore,
 				audit: auditStore,

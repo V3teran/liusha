@@ -11,7 +11,13 @@ import (
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
-	Tasks       TaskAPI
+	// CredentialAudit 是凭证库审计出口（*audit.Store 满足）；nil 时变更/明文读取
+	// 不落审计（单测），生产必配——凭证库是敏感操作面。
+	CredentialAudit CredentialAudit
+	// TaskStatus 把会话身份归属的 task 状态反解给凭证详情视图；nil 时会话行
+	// 不带任务状态。
+	TaskStatus TaskStatusResolver
+	Tasks      TaskAPI
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
 	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI

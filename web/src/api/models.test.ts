@@ -26,7 +26,7 @@ function mockFetch(status: number, json: unknown) {
 const plaintextInput = ['mock', 'plaintext', 'input'].join('-')
 
 const PROV: ProviderConfig = {
-  key: 'deepseek',
+  code: 'deepseek',
   type: 'openai_compat',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
@@ -52,7 +52,7 @@ describe('models API 客户端', () => {
     const rows = await listProviders()
     expect(fn.mock.calls[0][0]).toBe('/api/models/providers')
     expect(rows).toHaveLength(1)
-    expect(rows[0].key).toBe('deepseek')
+    expect(rows[0].code).toBe('deepseek')
   })
 
   it('saveProvider 新建走 POST /models/providers，全连接+能力字段进 body（不含 key_present）', async () => {
@@ -63,7 +63,7 @@ describe('models API 客户端', () => {
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body)
     expect(body).toEqual({
-      key: 'deepseek',
+      code: 'deepseek',
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
@@ -81,9 +81,9 @@ describe('models API 客户端', () => {
     expect(body.api_key).toBe(plaintextInput)
   })
 
-  it('saveProvider 编辑走 PUT /models/providers/:key（key 做 URL 编码）', async () => {
+  it('saveProvider 编辑走 PUT /models/providers/:code（code 做 URL 编码）', async () => {
     const fn = mockFetch(200, { provider: PROV })
-    await saveProvider({ ...PROV, key: 'az/gpt' }, false)
+    await saveProvider({ ...PROV, code: 'az/gpt' }, false)
     const [url, init] = fn.mock.calls[0]
     expect(url).toBe('/api/models/providers/az%2Fgpt')
     expect(init.method).toBe('PUT')
@@ -96,26 +96,26 @@ describe('models API 客户端', () => {
 
   it('getRouting 打 /models/routing 返回 routes（无别名层）', async () => {
     const fn = mockFetch(200, {
-      routes: [{ role: 'planner', provider_key: 'deepseek' }],
+      routes: [{ role: 'planner', provider_code: 'deepseek' }],
     })
     const r = await getRouting()
     expect(fn.mock.calls[0][0]).toBe('/api/models/routing')
     expect(r.routes[0].role).toBe('planner')
-    expect(r.routes[0].provider_key).toBe('deepseek')
+    expect(r.routes[0].provider_code).toBe('deepseek')
   })
 
-  it('saveRoleRoute 打 PUT /models/routes/:role 带 provider_key', async () => {
-    const fn = mockFetch(200, { route: { role: 'planner', provider_key: 'deepseek' } })
+  it('saveRoleRoute 打 PUT /models/routes/:role 带 provider_code', async () => {
+    const fn = mockFetch(200, { route: { role: 'planner', provider_code: 'deepseek' } })
     await saveRoleRoute('planner', 'deepseek')
     const [url, init] = fn.mock.calls[0]
     expect(url).toBe('/api/models/routes/planner')
     expect(init.method).toBe('PUT')
-    expect(JSON.parse(init.body)).toEqual({ provider_key: 'deepseek' })
+    expect(JSON.parse(init.body)).toEqual({ provider_code: 'deepseek' })
   })
 
   it('saveRoleRoute 遇 409 抛后端中文 error（provider 不存在）', async () => {
-    mockFetch(409, { error: 'provider_key 不存在，请先创建对应 provider' })
-    await expect(saveRoleRoute('planner', 'ghost')).rejects.toThrow('provider_key 不存在')
+    mockFetch(409, { error: 'provider_code 不存在，请先创建对应 provider' })
+    await expect(saveRoleRoute('planner', 'ghost')).rejects.toThrow('provider_code 不存在')
   })
 
   it('deleteRoleRoute 打 DELETE /models/routes/:role', async () => {
