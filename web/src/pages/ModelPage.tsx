@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, Settings } from 'lucide-react'
 import { ProvidersView } from '@/features/model/ProvidersView'
 import { AssignmentView } from '@/features/model/AssignmentView'
-import { cn } from '@/lib/utils'
 
 // LLM 配置页面 - 单页面垂直布局设计
 // 参考：Vercel AI Settings 的单页面区块式布局
