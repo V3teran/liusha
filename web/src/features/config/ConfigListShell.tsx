@@ -72,12 +72,12 @@ export function ConfigListShell({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 头部 */}
-      <header className="flex items-center justify-between gap-4 border-b border-border bg-surface/50 px-6 py-5">
+      <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
         <div className="min-w-0">
-          <h1 className="terminal-prompt flex items-center gap-2 font-mono text-base font-semibold text-text">
+          <h1 className="text-base font-semibold text-text">
             {title}
           </h1>
-          <p className="mt-1 text-xs text-text-secondary">{subtitle}</p>
+          <p className="mt-0.5 text-sm text-text-secondary">{subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-3">
           {headerExtra}
@@ -86,8 +86,8 @@ export function ConfigListShell({
               type="button"
               onClick={onNew}
               className={cn(
-                'flex items-center gap-2 rounded-lg px-4 py-2.5',
-                'text-sm font-semibold transition-colors',
+                'flex h-9 items-center gap-2 rounded-lg px-4',
+                'text-sm font-semibold transition-all',
                 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
               )}
             >
