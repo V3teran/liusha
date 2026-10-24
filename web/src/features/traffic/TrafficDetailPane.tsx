@@ -19,7 +19,7 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
     </>
   )
   const cls =
-    'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-[11.5px] transition-colors'
+    'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs transition-colors'
   if (c.conv_id) {
     return (
       <Link to={`/conversations/auto?conv=${encodeURIComponent(c.conv_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>

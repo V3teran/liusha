@@ -117,7 +117,7 @@ const usernameCol = columnHelper.accessor('identity.username', {
       <div className="flex min-w-0 flex-col gap-px">
         <CopyableMono value={row.identity.username} />
         {row.identity.kind === 'session' && row.identity.task_status && (
-          <span className="text-[10.5px] text-muted opacity-75">
+          <span className="text-xs text-muted opacity-75">
             会话 · {TASK_STATUS_SHORT[row.identity.task_status] ?? row.identity.task_status}
           </span>
         )}
@@ -272,11 +272,11 @@ const createdCol = columnHelper.accessor('identity.created_at', {
   size: 96,
   cell: (ctx) => {
     const iso = ctx.getValue()
-    if (!iso) return <span className="text-[11.5px] text-muted">—</span>
+    if (!iso) return <span className="text-xs text-muted">—</span>
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-[10.5px] font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
       </span>
     )
   },
@@ -288,11 +288,11 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
   size: 96,
   cell: (ctx) => {
     const iso = ctx.getValue()
-    if (!iso) return <span className="text-[11.5px] text-muted">—</span>
+    if (!iso) return <span className="text-xs text-muted">—</span>
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-[10.5px] font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
       </span>
     )
   },

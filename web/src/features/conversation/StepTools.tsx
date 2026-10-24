@@ -47,7 +47,7 @@ export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) 
         type="button"
         onClick={() => setExpanded((e) => !e)}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-[11.5px] text-muted',
+          'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-xs text-muted',
           'hover:bg-surface hover:text-text',
         )}
       >

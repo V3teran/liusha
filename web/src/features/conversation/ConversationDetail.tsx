@@ -211,7 +211,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               </span>
             )}
             {startedAt && (
-              <span className="font-mono text-[11.5px] text-muted" title={`发起于 ${fullTime(startedAt)}`}>
+              <span className="font-mono text-xs text-muted" title={`发起于 ${fullTime(startedAt)}`}>
                 发起 {fullTime(startedAt)}
               </span>
             )}

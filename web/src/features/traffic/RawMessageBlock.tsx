@@ -11,7 +11,7 @@ interface RawMessageBlockProps {
 }
 
 const PRE_CLASS =
-  'max-h-[38vh] overflow-auto whitespace-pre-wrap break-words rounded-b-lg border border-t-0 border-border bg-surface-2 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-text'
+  'max-h-[38vh] overflow-auto whitespace-pre-wrap break-words rounded-b-lg border border-t-0 border-border bg-surface-2 px-3 py-2.5 font-mono text-xs leading-relaxed text-text'
 
 // Burp 式整条报文块：一个标题栏（含 原文/美化 tab + 复制），下方等宽字体渲染整条报文文本。
 // 「美化」仅在 body 为可解析 JSON 时出现；切到美化只格式化 body 段，头段原样保留。

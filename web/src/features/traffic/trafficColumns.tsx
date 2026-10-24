@@ -47,7 +47,7 @@ const timeCol = columnHelper.accessor('captured_at', {
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
         <span>{dateOnly(iso) || '—'}</span>
-        <em className="block text-[10.5px] font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
       </span>
     )
   },

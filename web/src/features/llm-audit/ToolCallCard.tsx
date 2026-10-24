@@ -15,11 +15,11 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
         <span className="font-mono text-sm font-semibold text-accent">{call.name}</span>
       </div>
       {call.args ? (
-        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words bg-surface-2 px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-text">
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
           {call.args}
         </pre>
       ) : (
-        <span className="block px-2.5 py-1.5 text-[11.5px] text-muted opacity-70">无参数</span>
+        <span className="block px-2.5 py-1.5 text-xs text-muted opacity-70">无参数</span>
       )}
     </div>
   )

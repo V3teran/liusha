@@ -37,7 +37,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         return (
           <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
-            <em className="block text-[10.5px] font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+            <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
           </span>
         )
       },
@@ -59,7 +59,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         return (
           <span className="overflow-hidden" title={`${v.model} · ${v.provider}`}>
             <span className="block truncate font-mono text-sm">{v.model || '—'}</span>
-            {showProvider && <em className="block truncate text-[10.5px] font-normal not-italic text-muted opacity-75">{v.provider}</em>}
+            {showProvider && <em className="block truncate text-xs font-normal not-italic text-muted opacity-75">{v.provider}</em>}
           </span>
         )
       },
@@ -76,7 +76,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
               {humanTokens(v.in_tokens)} / {humanTokens(v.out_tokens)}
             </span>
             {v.cached_tokens > 0 && (
-              <em className="block text-[10.5px] font-normal not-italic text-muted opacity-75">缓存↓ {humanTokens(v.cached_tokens)}</em>
+              <em className="block text-xs font-normal not-italic text-muted opacity-75">缓存↓ {humanTokens(v.cached_tokens)}</em>
             )}
           </span>
         )
@@ -101,10 +101,10 @@ export function buildLlmAuditColumns(showProvider: boolean) {
               <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>
                 {humanDuration(v.latency_ms)}
               </span>
-              {!timeout && throughputLabel(v) && <em className="text-[10.5px] font-normal not-italic text-muted opacity-75">{throughputLabel(v)}</em>}
+              {!timeout && throughputLabel(v) && <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v)}</em>}
             </span>
             {warnStatus && (
-              <em className="flex items-center gap-1 text-[10.5px] font-normal not-italic text-sev-medium" title={warnStatus.detail}>
+              <em className="flex items-center gap-1 text-xs font-normal not-italic text-sev-medium" title={warnStatus.detail}>
                 <i className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-medium" />
                 {warnStatus.label}
               </em>
