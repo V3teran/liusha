@@ -39,9 +39,23 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     source === 'auto' ? '暂无流量分析对话——挂代理（passive 8888）收到流量后自动逐批分析' : undefined
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[304px_1fr]">
-      <div className="flex h-full min-h-0 flex-col border-r border-border p-2.5">
-        <ConversationList
+    <div className="flex h-full min-h-0 flex-col">
+      {/* 统一头部 */}
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">
+            {source === 'manual' ? '对话' : '流量批次'}
+          </h1>
+          <p className="mt-0.5 text-sm text-text-secondary">
+            {source === 'manual' ? '主动下发的扫描任务与对话记录' : '代理捕获流量的自动分析批次'}
+          </p>
+        </div>
+      </header>
+
+      {/* 主从双栏 */}
+      <div className="grid min-h-0 flex-1 grid-cols-[304px_1fr]">
+        <div className="flex h-full min-h-0 flex-col border-r border-border p-2.5">
+          <ConversationList
           ref={convListRef}
           activeId={currentConv || undefined}
           source={source}
@@ -59,6 +73,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
         onStarted={onStarted}
         onRunningChanged={() => void convListRef.current?.refresh()}
       />
+      </div>
     </div>
   )
 }

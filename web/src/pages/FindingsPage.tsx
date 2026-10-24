@@ -176,7 +176,18 @@ export function FindingsPage() {
   const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full flex-col bg-background">
+      {/* 统一头部 */}
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div>
+          <h1 className="text-base font-semibold text-text">漏洞</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">智能体发现的安全漏洞与配置缺陷</p>
+        </div>
+        {visible.length > 0 && (
+          <span className="text-sm text-text-secondary">共 {compactNumber(visible.length)} 个漏洞</span>
+        )}
+      </header>
+
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {listQuery.isPending ? (
           <div className="py-16 text-center text-sm text-text-secondary">
