@@ -46,10 +46,10 @@ export function ModelPage() {
               aria-selected={on}
               onClick={() => select(t.key)}
               className={cn(
-                'relative -mb-px flex items-center gap-2 border-b-2 px-4 py-2.5 text-[13px] transition-colors',
+                'relative -mb-px flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-all',
                 on
-                  ? 'border-accent font-medium text-accent'
-                  : 'border-transparent text-muted hover:text-text',
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-text-secondary hover:text-text',
               )}
             >
               <Icon className="h-4 w-4" />

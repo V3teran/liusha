@@ -25,11 +25,11 @@ const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
 export function SystemConfig() {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center gap-3 border-b border-border px-6 py-4">
+      <header className="flex items-center gap-3 border-b border-border bg-surface px-6 py-4">
         <SlidersHorizontal className="h-5 w-5 text-accent" />
         <div className="min-w-0">
-          <h1 className="tac-prompt font-mono text-[15px] font-semibold text-text">系统配置</h1>
-          <p className="mt-0.5 text-[12.5px] text-muted">
+          <h1 className="text-base font-semibold text-text">系统配置</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">
             运行期业务旋钮，保存即经多级缓存失效总线热生效，无需重启进程
           </p>
         </div>

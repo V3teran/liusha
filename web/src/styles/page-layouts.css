@@ -1,0 +1,116 @@
+/* ============================================================
+   页面头部统一组件样式
+   ============================================================ */
+
+/* 页面头部容器 */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.5rem; /* 16px 24px */
+  background: var(--surface);
+}
+
+/* 页面标题 */
+.page-title {
+  font-family: var(--font-mono);
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 600;
+  color: var(--text);
+}
+
+.page-title::before {
+  content: "▚ ";
+  color: var(--accent);
+}
+
+/* 页面副标题 */
+.page-subtitle {
+  margin-top: 0.125rem; /* 2px */
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-secondary);
+}
+
+/* ============================================================
+   统一表格/列表页面样式
+   ============================================================ */
+
+/* 筛选栏容器 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0.75rem 1.5rem; /* 12px 24px */
+}
+
+/* 分页控件容器 */
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  padding: 0.75rem 1.5rem; /* 12px 24px */
+  border-top: 1px solid var(--border);
+}
+
+/* 分页按钮 */
+.pagination-button {
+  display: inline-flex;
+  align-items: center;
+  justify-center: center;
+  height: 1.75rem; /* 28px */
+  width: 1.75rem; /* 28px */
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-in-out);
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.pagination-button:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ============================================================
+   统一卡片样式
+   ============================================================ */
+
+/* 标准卡片 */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* 卡片头部 */
+.card-header {
+  padding: 1rem 1.25rem; /* 16px 20px */
+  border-bottom: 1px solid var(--border);
+}
+
+/* 卡片内容 */
+.card-body {
+  padding: 1.25rem; /* 20px */
+}
+
+/* 卡片底部 */
+.card-footer {
+  padding: 0.75rem 1.25rem; /* 12px 20px */
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
