@@ -1,4 +1,3 @@
-import { SlidersHorizontal } from 'lucide-react'
 import {
   getCompactionSettings,
   saveCompactionSettings,
