@@ -86,9 +86,9 @@ export function ConfigListShell({
               type="button"
               onClick={onNew}
               className={cn(
-                'flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5',
-                'text-sm font-semibold text-white',
-                'transition-all hover:bg-accent-hover hover:shadow-lg'
+                'flex items-center gap-2 rounded-lg px-4 py-2.5',
+                'text-sm font-semibold transition-colors',
+                'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
               )}
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} />

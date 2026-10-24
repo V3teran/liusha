@@ -222,7 +222,7 @@ export function ProviderDetailPanel({
           type="button"
           onClick={onSave}
           disabled={saving || saveDisabled || !dirty}
-          className="ml-auto rounded-lg bg-accent px-5 py-1.5 text-[13px] text-white transition-all hover:bg-accent-hover hover:shadow-[var(--glow-accent-strong)] disabled:cursor-default disabled:opacity-40 disabled:hover:shadow-none"
+          className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
         >
           {saving ? '保存中…' : '保存'}
         </button>

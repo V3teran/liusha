@@ -218,7 +218,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12.5px] font-medium text-white shadow-lg hover:bg-accent-hover"
+          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12.5px] font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
         >
           <span>{unread > 0 ? `${unread > 99 ? '99+' : unread} 条新动态` : '回到最新'}</span>
           <span className="text-[13px] leading-none">↓</span>

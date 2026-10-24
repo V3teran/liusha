@@ -136,7 +136,7 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
                 'inline-flex items-center gap-2 rounded-lg px-4 py-2',
                 'text-sm font-semibold transition-all',
                 canSend
-                  ? 'bg-accent text-white hover:bg-accent-hover hover:shadow-lg'
+                  ? 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
                   : 'bg-surface-2 text-text-disabled cursor-not-allowed'
               )}
             >

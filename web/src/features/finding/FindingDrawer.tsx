@@ -323,10 +323,10 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
               disabled={!changed}
               onClick={handleSave}
               className={cn(
-                'rounded-lg px-4 py-2 text-sm font-semibold text-white',
+                'rounded-lg px-4 py-2 text-sm font-semibold',
                 'transition-all',
                 changed
-                  ? 'bg-accent hover:bg-accent-hover hover:shadow-lg'
+                  ? 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
                   : 'cursor-not-allowed bg-surface-2 text-text-disabled'
               )}
             >
