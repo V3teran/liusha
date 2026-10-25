@@ -101,4 +101,74 @@ describe('SystemConfig', () => {
     // 第三区 = proxy_filter
     expect(saveButtons[2]).toBeDisabled()
   })
+
+  it('搜索"压缩"仅显示会话历史压缩分区', async () => {
+    const user = userEvent.setup()
+    render(<SystemConfig />)
+
+    // 等待所有分区加载
+    await screen.findByText('会话历史压缩')
+    expect(screen.getByText('工具运行时')).toBeInTheDocument()
+    expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
+
+    // 输入搜索关键词
+    const searchInput = screen.getByPlaceholderText('搜索配置项')
+    await user.type(searchInput, '压缩')
+
+    // 只显示匹配的分区
+    expect(screen.getByText('会话历史压缩')).toBeInTheDocument()
+    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
+    expect(screen.queryByText('代理流量过滤规则')).not.toBeInTheDocument()
+  })
+
+  it('搜索"流量"仅显示代理流量过滤规则分区', async () => {
+    const user = userEvent.setup()
+    render(<SystemConfig />)
+
+    await screen.findByText('会话历史压缩')
+
+    const searchInput = screen.getByPlaceholderText('搜索配置项')
+    await user.type(searchInput, '流量')
+
+    expect(screen.queryByText('会话历史压缩')).not.toBeInTheDocument()
+    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
+    expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
+  })
+
+  it('搜索不存在的关键词显示空状态', async () => {
+    const user = userEvent.setup()
+    render(<SystemConfig />)
+
+    await screen.findByText('会话历史压缩')
+
+    const searchInput = screen.getByPlaceholderText('搜索配置项')
+    await user.type(searchInput, '不存在的配置项xyz')
+
+    expect(screen.queryByText('会话历史压缩')).not.toBeInTheDocument()
+    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
+    expect(screen.queryByText('代理流量过滤规则')).not.toBeInTheDocument()
+    expect(screen.getByText('未找到匹配的配置项')).toBeInTheDocument()
+  })
+
+  it('清空搜索框恢复显示所有分区', async () => {
+    const user = userEvent.setup()
+    render(<SystemConfig />)
+
+    await screen.findByText('会话历史压缩')
+
+    const searchInput = screen.getByPlaceholderText('搜索配置项')
+    await user.type(searchInput, '压缩')
+
+    // 只显示一个分区
+    expect(screen.getByText('会话历史压缩')).toBeInTheDocument()
+    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
+
+    // 清空搜索
+    await user.clear(searchInput)
+
+    // 恢复显示所有分区
+    expect(screen.getByText('会话历史压缩')).toBeInTheDocument()
+    expect(screen.getByText('工具运行时')).toBeInTheDocument()
+    expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
+  })
 })

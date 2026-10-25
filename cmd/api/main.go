@@ -169,8 +169,8 @@ func main() {
 	// 种子导入完成后，验证 agent 配置
 	validateAgentConfigs()
 
-	// LLM 配置种子（insert-only）：把 config.yaml 的 providers:/llm.* 首填进
-	// llm_provider/alias/role_route，空库时建默认路由。已存在的行整行跳过（DB 事实源）。
+	// LLM 配置种子（仅首次启动）：llm_provider 空表时才把 config.yaml 的 providers:/llm.*
+	// 导入建默认路由；非空库整段跳过（DB 是运行期事实源，UI 删除不被 yaml 复活）。
 	if err := seed.ImportLLM(ctx, cfg, llmcfg.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可经模型模块 CRUD 手动补齐）")
 	}
@@ -218,9 +218,8 @@ func main() {
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
-	router := &roleRouter{router: fwllm.NewRouterWithFallbackOpts(
+	router := &roleRouter{router: fwllm.NewRouterWithOpts(
 		llmStore.AsRouterStore(llmKeyCipher),
-		llmstore.NewFallbackProviderFactory(llmStore, llmKeyCipher),
 		retryOptionsFromConfig(cfg.LLM.Retry))}
 	publisher := scanstream.NewPublisher(rdb)
 	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, control: controlPlaneStore, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}

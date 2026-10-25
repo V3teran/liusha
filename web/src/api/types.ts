@@ -184,8 +184,10 @@ export interface ProviderConfig {
   base_url: string
   default_model: string
   api_key?: string // 仅保存时携带的明文输入；编辑态留空 = 不修改已存密钥。GET 响应不含此字段。
+  display_name?: string // 显示名称（昵称）：仅展示用、可随时改；空回退 code 展示
   key_present: boolean // 该 provider 当前是否已有可用密钥来源（加密落库或遗留 ENV）
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；无已存密钥或来自 ENV 时为空
+  api_key_env?: string // 密钥的 env 变量名引用（seed 引入）；非空且无密文时密钥走 env 路径
   max_tokens: number
   supports_tools: boolean
   supports_vision: boolean
@@ -216,13 +218,12 @@ export interface RoutingResponse {
   routes: RoleRouteConfig[]
 }
 
-// 三个复杂度档 + 唯一保留槽的字面常量（与后端 llmcfg.ComplexitySimple/Medium/Complex/RoleFallback 对齐）。
-// 复杂度档（与后端 llmcfg ComplexitySimple/Medium/Complex 对齐）：
-// 同时是 llm_role_route.role 的路由键——「能力分档」页按它分组建 provider。
+// 三个复杂度档的字面常量（与后端 llmcfg.ComplexitySimple/Medium/Complex 对齐）：
+// 同时是 llm_role_route.role 的路由键——「能力路由」页按它分组建 provider。
+// 无保留 role：各档重试耗尽后由后端回落标准推理档（medium）部署。
 export const COMPLEXITY_SIMPLE = 'simple'
 export const COMPLEXITY_MEDIUM = 'medium'
 export const COMPLEXITY_COMPLEX = 'complex'
-export const ROLE_FALLBACK = '__fallback__'
 
 /* ============================================================
    provider 实连探测（POST /models/providers/test|list-models）：即时反馈，不落库。

@@ -3,10 +3,12 @@ import {
   listProviders,
   saveProvider,
   deleteProvider,
+  restoreProviderEnvKey,
   getRouting,
   saveRoleRoute,
   deleteRoleRoute,
 } from '@/api/models'
+import { getLLMInvocationStat } from '@/api/client'
 import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
 import type { ProviderConfig } from '@/api/types'
 
@@ -18,6 +20,8 @@ export const modelKeys = {
   providers: ['models', 'providers'] as const,
   routing: ['models', 'routing'] as const,
   agents: ['agents', 'configs'] as const,
+  assignments: ['models', 'assignments'] as const,
+  llmStat: (taskId: string | undefined) => ['models', 'llm-stat', taskId] as const,
 }
 
 /** 全量 provider 部署（含 disabled，路由绑定选择器一次拉全）。 */
@@ -44,6 +48,24 @@ export function useAgentConfigs() {
   })
 }
 
+/** LLM 调用统计（支持选定 task_id）。 */
+export function useLLMInvocationStat(taskId: string | undefined) {
+  return useQuery({
+    queryKey: modelKeys.llmStat(taskId),
+    queryFn: () => (taskId ? getLLMInvocationStat(taskId) : Promise.resolve(null)),
+    enabled: !!taskId,
+  })
+}
+
+/** assignments 路由表（用于导出配置）。 */
+export function useAssignments() {
+  return useQuery({
+    queryKey: modelKeys.assignments,
+    queryFn: getRouting,
+    select: (data) => data.routes ?? [],
+  })
+}
+
 /** 写后失效模型模块全部缓存（providers 变更会连带影响路由绑定展示）。 */
 function useInvalidateModels() {
   const qc = useQueryClient()
@@ -67,6 +89,15 @@ export function useDeleteProvider() {
   const invalidate = useInvalidateModels()
   return useMutation({
     mutationFn: (key: string) => deleteProvider(key),
+    onSuccess: invalidate,
+  })
+}
+
+/** 恢复使用环境变量：清除 UI 设置的加密密钥，密钥解析回落 env 引用。 */
+export function useRestoreProviderEnvKey() {
+  const invalidate = useInvalidateModels()
+  return useMutation({
+    mutationFn: (code: string) => restoreProviderEnvKey(code),
     onSuccess: invalidate,
   })
 }

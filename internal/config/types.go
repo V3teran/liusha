@@ -64,7 +64,6 @@ type RedisConfig struct {
 // 档 → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
 type LLMConfig struct {
 	ComplexityRoutes map[string]string `mapstructure:"complexity_routes"` // 档(simple/medium/complex) → provider key
-	Fallback         string            `mapstructure:"fallback"`          // 主 provider 重试耗尽后的全局备胎 provider key
 
 	Retry      RetryConfig      `mapstructure:"retry"`
 	Invocation InvocationConfig `mapstructure:"invocation"`

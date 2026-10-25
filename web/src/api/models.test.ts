@@ -64,6 +64,7 @@ describe('models API 客户端', () => {
     const body = JSON.parse(init.body)
     expect(body).toEqual({
       code: 'deepseek',
+      display_name: '',
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',

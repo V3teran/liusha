@@ -15,6 +15,8 @@ import { Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 import { SettingsSection } from '@/features/settings/SettingsSection'
 import { useSettingSection } from '@/features/settings/useSettingSection'
 import { linesToList, listToLines, codesToText, textToCodes } from '@/features/settings/listText'
+import { Search } from 'lucide-react'
+import { useState, useMemo } from 'react'
 
 const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
 
@@ -22,6 +24,39 @@ const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
 // 事实源在 DB，写经后端失效广播即热改——compaction/runtime 令 runner 现读即生效，
 // proxy_filter 触发 proxy 进程热换过滤链（无需重启）。故非「列表」而是「表单」形态。
 export function SystemConfig() {
+  const [query, setQuery] = useState('')
+
+  // 定义各分区的元数据，用于搜索匹配
+  const sections = useMemo(() => [
+    {
+      id: 'compaction',
+      title: '会话历史压缩',
+      keywords: '会话 历史 压缩 触发 阈值 蒸馏 预算 超时',
+      component: <CompactionSection />,
+    },
+    {
+      id: 'runtime',
+      title: '工具运行时',
+      keywords: '工具 运行时 超时 输出 截尾 finding prompt',
+      component: <RuntimeSection />,
+    },
+    {
+      id: 'proxy_filter',
+      title: '代理流量过滤规则',
+      keywords: '代理 流量 过滤 黑名单 白名单 host 方法 协议 后缀 状态码',
+      component: <ProxyFilterSection />,
+    },
+  ], [])
+
+  const filteredSections = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return sections
+    return sections.filter(s =>
+      s.title.toLowerCase().includes(q) ||
+      s.keywords.toLowerCase().includes(q)
+    )
+  }, [sections, query])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
@@ -31,13 +66,31 @@ export function SystemConfig() {
             运行期业务旋钮，保存即经多级缓存失效总线热生效，无需重启进程
           </p>
         </div>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索配置项"
+            aria-label="搜索配置项"
+            spellCheck={false}
+            className="w-48 rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
+          />
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
-          <CompactionSection />
-          <RuntimeSection />
-          <ProxyFilterSection />
+          {filteredSections.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted">
+              未找到匹配的配置项
+            </div>
+          ) : (
+            filteredSections.map(section => (
+              <div key={section.id}>{section.component}</div>
+            ))
+          )}
         </div>
       </div>
     </div>

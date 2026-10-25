@@ -33,6 +33,7 @@ export async function saveProvider(
 ): Promise<ProviderConfig> {
   const body = {
     code: p.code,
+    display_name: p.display_name ?? '',
     type: p.type,
     base_url: p.base_url,
     default_model: p.default_model,
@@ -105,6 +106,22 @@ export async function saveRoleRoute(
 /** 删除角色路由（删后该 role 回退 __default__ 角色的 provider）。 */
 export async function deleteRoleRoute(role: string): Promise<void> {
   await delModel(`/models/routes/${encodeURIComponent(role)}`)
+}
+
+/**
+ * 恢复使用环境变量：清除 UI 设置的加密密钥（密文+尾号），api_key_env 引用保留。
+ * 返回更新后的 provider（key_last4 置空、api_key_env 保留）。
+ */
+export async function restoreProviderEnvKey(code: string): Promise<ProviderConfig> {
+  const res = await fetch(`/api/models/providers/${encodeURIComponent(code)}/key`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (res.ok) {
+    const b = (await res.json()) as { provider: ProviderConfig }
+    return b.provider
+  }
+  throw new Error(`DELETE ${code}/key → ${res.status}`)
 }
 
 // ── 带中文原因的 PUT / DELETE（409 语义） ─────────────────────────────────

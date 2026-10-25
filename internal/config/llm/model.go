@@ -8,7 +8,7 @@
 //   - agent → complexity 的绑定可配置在 DB（agent.complexity），代码内有兜底映射（AgentComplexity）；
 //   - complexity → provider 的绑定落 DB（llm_role_route 的 role 列存 complexity 名 simple/medium/complex）。
 //
-// 未显式归档的 role 落 ComplexityMedium（隐式默认档）；retry 耗尽切换到保留 role RoleFallback。
+// 未显式归档的 role 落 ComplexityMedium（隐式默认档）。无任何兜底机制：请求重试耗尽即失败。
 //
 // 为何需要中间层：complexity 是**语义分档**（快速/标准/深度），多个 agent 天然共享同一档，
 // 「换一个复杂档位的模型」只改该档配置一处即全量跟随。agent→complexity 可配置实现精细成本控制。
@@ -46,6 +46,7 @@ type Provider struct {
 	SupportsTools   bool
 	SupportsVision  bool
 	ContextWindow   int
+	DisplayName     string // 显示名称（昵称）：仅展示用、可随时改；空串回退 code
 	Description     string
 	SortOrder       int
 	Enabled         bool
@@ -76,6 +77,7 @@ type ProviderParams struct {
 	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
+	DisplayName          string // 显示名称（昵称）：仅展示用；空串回退 code
 	MaxTokens            int
 	SupportsTools        bool
 	SupportsVision       bool
@@ -86,8 +88,8 @@ type ProviderParams struct {
 	ThinkingBudgetTokens int64
 }
 
-// RoleRoute 是「档/保留槽 → provider code」的一行绑定（heavy→qwen、__fallback__→… 等）。
-// Role 列存复杂度档名（simple/medium/complex）或保留 role（__fallback__）；两者同表同解析。
+// RoleRoute 是「档 → provider code」的一行绑定（complex→glm 等）。
+// Role 列存复杂度档名（simple/medium/complex）。
 type RoleRoute struct {
 	Role         string
 	ProviderCode string
@@ -95,10 +97,10 @@ type RoleRoute struct {
 	UpdatedAt    time.Time
 }
 
-// Routing 是路由全景快照：全部「档/保留槽 → provider code」映射（三档 + __fallback__）。
+// Routing 是路由全景快照：全部「档 → provider code」映射（三档）。
 // 运行期解析（role → 档 → provider code）一次性读齐，避免多次 DB 往返。
 type Routing struct {
-	Roles map[string]string // 档(simple/medium/complex) / 保留 role(__fallback__) → provider code
+	Roles map[string]string // 档(simple/medium/complex) → provider code
 }
 
 // 复杂度分档（complexity）：agent-role 按推理复杂度需求归入三档，路由的实际单元是档而非 agent。
@@ -112,13 +114,6 @@ const (
 	ComplexityMedium  = "medium"
 	ComplexityComplex = "complex"
 )
-
-// RoleFallback 是唯一保留 role：不对应任何真实 agent，是**全局**备胎语义槽——
-// primary retry 耗尽后切换（等价旧 fallback 别名 / fallback_provider）。
-// 用 __双下划线__ 前后缀与 complexity 名（simple/medium/complex）隔离，前端「复杂度分档」单列为「全局备胎」。
-//
-// 注：ComplexityMedium 即隐式默认档，未命中的 role 落 medium，无需独立兜底槽。
-const RoleFallback = "__fallback__"
 
 // agentComplexityTable 是 role → complexity 的**代码内置兜底表**（DB 未配 complexity 的 role 落此）。
 // 未在表中的 role 落 ComplexityMedium（隐式默认档，见 AgentComplexity）。
@@ -160,7 +155,3 @@ func (r Routing) ProviderCodeForComplexity(complexity string) string {
 	return r.Roles[ComplexityMedium]
 }
 
-// FallbackProviderCode 返回全局备胎 provider code（保留 role RoleFallback）；未配置返回空。
-func (r Routing) FallbackProviderCode() string {
-	return r.Roles[RoleFallback]
-}

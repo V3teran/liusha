@@ -91,19 +91,21 @@ describe('AssignmentView', () => {
     mListAgents.mockResolvedValue(agents())
   })
 
-  it('挂载并行加载 provider + 路由 + 智能体，渲染能力档与兜底槽两组', async () => {
+  it('挂载并行加载 provider + 路由 + 智能体，单卡渲染三档（无兜底槽）', async () => {
     mGetRouting.mockResolvedValue(routing())
     renderView()
-    expect(await screen.findByText('能力档')).toBeTruthy()
-    expect(await screen.findByText('兜底槽')).toBeTruthy()
-    // 三档中文标签与保留档标签都出现。
+    // 卡片头已去重（分区标签即「能力路由」分区头）；兜底槽已删——仅三档。
+    expect(screen.queryByText('能力档')).toBeNull()
+    expect(screen.queryByText('兜底槽')).toBeNull()
+    expect(screen.queryByText('兜底部署')).toBeNull()
+    expect(screen.queryByText('__fallback__')).toBeNull()
+    // 三档中文标签都出现。
     expect(await screen.findByText('深度推理')).toBeTruthy()
     expect(await screen.findByText('标准推理')).toBeTruthy()
     expect(await screen.findByText('轻量快答')).toBeTruthy()
-    expect(await screen.findByText('兜底部署')).toBeTruthy()
-    // 内建路由键（simple 档）只读 chip。
-    expect(await screen.findByText('inspector')).toBeTruthy()
-    expect(await screen.findByText('compactor')).toBeTruthy()
+    // 内建路由键（inspector/compactor）不在 UI 展示（冗余已删）。
+    expect(screen.queryByText('inspector')).toBeNull()
+    expect(screen.queryByText('compactor')).toBeNull()
   })
 
   it('归属 chip 表达档位归属：planner 在 complex 档显示实心标记，medium 档为可点幽灵 chip', async () => {

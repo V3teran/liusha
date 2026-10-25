@@ -74,7 +74,6 @@ func validateLLMKeys(c Config) error {
 	for _, pair := range []struct{ name, role string }{
 		{c.LLM.ComplexityRoutes["simple"], "complexity_routes.simple"},
 		{c.LLM.ComplexityRoutes["complex"], "complexity_routes.complex"},
-		{c.LLM.Fallback, "fallback"},
 	} {
 		if pair.name != "" {
 			if err := check(pair.name, pair.role); err != nil {

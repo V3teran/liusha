@@ -159,16 +159,14 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// WithFallback 返回带重试与可选兜底的 Provider。
-// fallback 由调用方保证未再套 retry（避免双重退避/自循环）；可为 nil。
-func WithFallback(primary, fallback Provider, opts RetryOptions) Provider {
-	return &retryProvider{primary: primary, fallback: fallback, opts: opts}
+// WithRetry 返回带退避重试的 Provider。
+func WithRetry(primary Provider, opts RetryOptions) Provider {
+	return &retryProvider{primary: primary, opts: opts}
 }
 
 type retryProvider struct {
-	primary  Provider
-	fallback Provider
-	opts     RetryOptions
+	primary Provider
+	opts    RetryOptions
 }
 
 func (r *retryProvider) ModelID() string    { return r.primary.ModelID() }
@@ -187,18 +185,18 @@ func (r *retryProvider) Complete(ctx context.Context, req Request) (Response, er
 	case ClassOther:
 		return Response{}, err
 	case Class429:
-		return r.retryLoop(ctx, req, err, r.opts.MaxRetries429, r.opts.Backoff429, true)
+		return r.retryLoop(ctx, req, err, r.opts.MaxRetries429, r.opts.Backoff429)
 	case Class529:
 		return r.retry529(ctx, req, err)
 	case Class5xx:
-		return r.retryLoop(ctx, req, err, r.opts.MaxRetries5xx, r.opts.Backoff5xx, false)
+		return r.retryLoop(ctx, req, err, r.opts.MaxRetries5xx, r.opts.Backoff5xx)
 	case ClassNet:
-		return r.retryLoop(ctx, req, err, r.opts.MaxRetriesNet, r.opts.BackoffNet, false)
+		return r.retryLoop(ctx, req, err, r.opts.MaxRetriesNet, r.opts.BackoffNet)
 	}
 	return Response{}, err
 }
 
-func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr error, maxRetries int, schedule []time.Duration, useFallback bool) (Response, error) {
+func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr error, maxRetries int, schedule []time.Duration) (Response, error) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		var d time.Duration
 		if attempt < len(schedule) {
@@ -213,9 +211,6 @@ func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr erro
 		}
 		lastErr = err
 	}
-	if useFallback && r.fallback != nil {
-		return r.fallback.Complete(ctx, req)
-	}
 	return Response{}, lastErr
 }
 
@@ -229,9 +224,6 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 			return resp, nil
 		}
 		lastErr = err
-	}
-	if r.fallback != nil {
-		return r.fallback.Complete(ctx, req)
 	}
 	return Response{}, lastErr
 }

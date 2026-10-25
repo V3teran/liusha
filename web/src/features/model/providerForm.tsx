@@ -20,10 +20,12 @@ function ApiKeyField({
   draft,
   patch,
   isNew,
+  onRestoreEnvKey,
 }: {
   draft: ProviderConfig
   patch: (p: Partial<ProviderConfig>) => void
   isNew: boolean
+  onRestoreEnvKey?: () => void
 }) {
   const [reveal, setReveal] = useState(false)
   // 编辑态且已有密钥时，默认收起输入（只展示脱敏尾号）；点「更换密钥」才展开。
@@ -33,30 +35,67 @@ function ApiKeyField({
   // 收起态：只读展示已配置尾号 +「更换密钥」入口。
   // key_last4 有值 → 展示脱敏尾号「···· 9f2c」；为空（旧行 / 仅 ENV 变量回退，无明文尾号可脱敏）
   // → 展示「来自环境变量」而非误导性的 ····****（那串星号会被当成尾号，实则无尾号可显）。
+  // 恢复使用环境变量：仅当密文生效且存在 env 引用时可用（两段式确认）。
+  const [confirmingRestore, setConfirmingRestore] = useState(false)
+
   if (editingHasKey && !rotating) {
+    const fromEnv = !draft.key_last4
     return (
-      <Field label="API Key" hint="密钥加密落库，永不回显；如需替换请点「更换密钥」">
+      <Field
+        label="API Key"
+        hint={
+          fromEnv
+            ? '密钥来自环境变量（部署默认），未落库；点「更换密钥」设置后以此为准'
+            : '密钥加密落库，永不回显；如需替换请点「更换密钥」'
+        }
+      >
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2">
-          <span className="flex items-center gap-2 text-sm text-text">
-            <KeyRound className="h-3.5 w-3.5 text-accent" />
+          <span className="flex min-w-0 items-center gap-2 text-sm text-text">
+            <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
             已配置
-            {draft.key_last4 ? (
-              <code className="font-mono text-muted">···· {draft.key_last4}</code>
+            {fromEnv ? (
+              <span className="min-w-0 truncate text-xs text-faint">
+                来自环境变量{draft.api_key_env ? `（${draft.api_key_env}）` : ''}
+              </span>
             ) : (
-              <span className="text-xs text-faint">来自环境变量</span>
+              <code className="font-mono text-muted">···· {draft.key_last4}</code>
             )}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              setRotating(true)
-              setReveal(false)
-            }}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
-          >
-            <RefreshCw className="h-3 w-3" />
-            更换密钥
-          </button>
+          <div className="flex flex-shrink-0 items-center gap-1.5">
+            {onRestoreEnvKey && !fromEnv && draft.api_key_env && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmingRestore) {
+                    setConfirmingRestore(false)
+                    onRestoreEnvKey()
+                    return
+                  }
+                  setConfirmingRestore(true)
+                  window.setTimeout(() => setConfirmingRestore(false), 3000)
+                }}
+                title={confirmingRestore ? '再点一次确认：清除已存密文，回落环境变量' : `清除已存密文，回落环境变量 ${draft.api_key_env}`}
+                className={
+                  confirmingRestore
+                    ? 'rounded-md bg-sev-critical/10 px-2.5 py-1 text-xs text-sev-critical'
+                    : 'rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent'
+                }
+              >
+                {confirmingRestore ? '确认恢复？' : '恢复使用环境变量'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setRotating(true)
+                setReveal(false)
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+            >
+              <RefreshCw className="h-3 w-3" />
+              更换密钥
+            </button>
+          </div>
         </div>
       </Field>
     )
@@ -178,9 +217,15 @@ function ModelField({
 
 // 新建 provider 空白初值：type 默认 openai_compat（多数国产/开源模型走此协议），
 // 能力标志保守（不支持视觉、支持工具调用），context_window 给常见 64K。
+// 显示名兜底：昵称为空时回退 code——全站展示统一走这里。
+export function providerDisplayName(p: Pick<ProviderConfig, 'code' | 'display_name'>): string {
+  return p.display_name?.trim() || p.code
+}
+
 export function blankProvider(): ProviderConfig {
   return {
     code: '',
+    display_name: '',
     type: 'openai_compat',
     base_url: '',
     default_model: '',
@@ -196,14 +241,14 @@ export function blankProvider(): ProviderConfig {
   }
 }
 
-// key/base_url/default_model 必填，context_window 必须 > 0（与后端校验对齐）。
+// base_url/default_model 必填，context_window 必须 > 0（与后端校验对齐）。
+// 标识符不是用户职责：POST 由后端生成 UUID，编辑态 code 来自既有行。
 // api_key：新建必填（后端 400 拒绝空密钥新建）；编辑留空 = 不修改已存密钥，故不校验。
-export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boolean {
+export function providerInvalid(d: ProviderConfig | null, _isNew: boolean): boolean {
   return (
-    !d?.code ||
     !d?.base_url ||
     !d?.default_model ||
-    (isNew && !d?.api_key) ||
+    (_isNew && !d?.api_key) ||
     !(d?.context_window && d.context_window > 0)
   )
 }
@@ -248,25 +293,37 @@ export function ProviderFormBody({
   draft,
   patch,
   isNew,
+  onRestoreEnvKey,
 }: {
   draft: ProviderConfig
   patch: (p: Partial<ProviderConfig>) => void
   isNew: boolean
+  onRestoreEnvKey?: () => void
 }) {
   return (
     <div className="flex flex-col gap-4">
       <GroupLabel>连接</GroupLabel>
+      <Field label="显示名称" hint="仅展示用，可随时改；留空则显示标识符">
+        <input
+          className={INPUT_CLASS}
+          value={draft.display_name ?? ''}
+          spellCheck={false}
+          placeholder="glm 主力部署"
+          onChange={(e) => patch({ display_name: e.target.value })}
+        />
+      </Field>
       <div className="flex gap-3">
-        <Field label="标识键" hint={isNew ? '稳定引用键，创建后不可改' : 'key'}>
-          <input
-            className={INPUT_CLASS}
-            value={draft.code}
-            spellCheck={false}
-            disabled={!isNew}
-            placeholder="deepseek"
-            onChange={(e) => patch({ code: e.target.value })}
-          />
-        </Field>
+        {isNew ? (
+          <Field label="标识符" hint="保存后由系统生成 UUID，无需填写">
+            <div className="flex h-[34px] items-center rounded-md border border-border bg-surface-2 px-2.5 font-mono text-xs text-faint">
+              保存后自动生成
+            </div>
+          </Field>
+        ) : (
+          <Field label="标识符" hint="稳定引用键，创建后不可改">
+            <input className={INPUT_CLASS} value={draft.code} disabled />
+          </Field>
+        )}
         <Field label="协议">
           <select
             className={INPUT_CLASS}
@@ -288,7 +345,7 @@ export function ProviderFormBody({
         />
       </Field>
       <ModelField draft={draft} patch={patch} />
-      <ApiKeyField draft={draft} patch={patch} isNew={isNew} />
+      <ApiKeyField draft={draft} patch={patch} isNew={isNew} onRestoreEnvKey={onRestoreEnvKey} />
       <ToggleField
         label="启用"
         hint="停用后该部署不再参与路由解析，但配置保留"

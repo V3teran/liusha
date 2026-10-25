@@ -38,9 +38,6 @@ func ParseComplexity(complexity string) Complexity {
 	}
 }
 
-// RouterFallbackFactory 在 primary 重试耗尽后构造兜底 Provider（可空）。
-// 由调用方从配置的全局备胎（保留 role __fallback__）装配。
-type RouterFallbackFactory func(ctx context.Context) (Provider, error)
 
 // providerCacheTTL 是已构造 Provider 实例的缓存有效期。
 // 缓存把 API key/model/baseURL 烤进实例——前端改配置后若缓存不过期，
@@ -59,7 +56,6 @@ type cachedProvider struct {
 type Router struct {
 	store     RouterStore
 	pool      *ClientPool
-	fallback  RouterFallbackFactory
 	retryOpts RetryOptions
 	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
 	// 在首次 For() 之前设置；并发不安全。
@@ -68,19 +64,13 @@ type Router struct {
 	cached          map[Complexity]cachedProvider
 }
 
-// NewRouter 构造 Router。
+// NewRouter 构造 Router（默认退避表）。
 func NewRouter(store RouterStore) *Router {
-	return NewRouterWithFallbackOpts(store, nil, DefaultRetryOptions())
+	return NewRouterWithOpts(store, RetryOptions{})
 }
 
-// NewRouterWithFallback 构造带可选兜底的 Router（默认退避表）。
-func NewRouterWithFallback(store RouterStore, fallback RouterFallbackFactory) *Router {
-	return NewRouterWithFallbackOpts(store, fallback, DefaultRetryOptions())
-}
-
-// NewRouterWithFallbackOpts 构造带可选兜底与自定义退避表的 Router
-// （opts 零值字段由 DefaultRetryOptions 逐项兜底）。
-func NewRouterWithFallbackOpts(store RouterStore, fallback RouterFallbackFactory, opts RetryOptions) *Router {
+// NewRouterWithOpts 构造 Router（opts 零值字段由 DefaultRetryOptions 逐项填充）。
+func NewRouterWithOpts(store RouterStore, opts RetryOptions) *Router {
 	def := DefaultRetryOptions()
 	if opts.MaxRetries429 == 0 {
 		opts.MaxRetries429 = def.MaxRetries429
@@ -97,7 +87,6 @@ func NewRouterWithFallbackOpts(store RouterStore, fallback RouterFallbackFactory
 	return &Router{
 		store:     store,
 		pool:      NewClientPool(),
-		fallback:  fallback,
 		retryOpts: opts,
 		cached:    make(map[Complexity]cachedProvider),
 	}
@@ -158,15 +147,7 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		return nil, err
 	}
 
-	// fallback（可选）：由 store 提供（保留 role __fallback__），primary 耗尽时兜底。
-	var fallback Provider
-	if r.fallback != nil {
-		if fb, fbErr := r.fallback(ctx); fbErr == nil && fb != nil {
-			fallback = fb
-		}
-	}
-
-	prov := WithFallback(NewProvider(g), fallback, r.retryOpts)
+	prov := WithRetry(NewProvider(g), r.retryOpts)
 	if r.providerWrapper != nil {
 		prov = r.providerWrapper(prov)
 	}
