@@ -86,7 +86,7 @@ export function AgentAdmin() {
     <>
       <ConfigListShell
         title="智能体"
-        subtitle="领域智能体的系统提示词、工具集与调度摘要，编排者据此派活"
+        subtitle="领域智能体的系统提示词、工具集与调度摘要"
         loading={loading}
         error={error}
         empty={rows.length === 0}

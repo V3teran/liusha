@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { CredentialTable } from '@/features/credential/CredentialTable'
 import { parseCredentialRawLine } from '@/features/credential/credentialColumns'
 import type { CredentialTableMeta } from '@/features/credential/credentialColumns'
@@ -7,12 +7,11 @@ import type { CredentialEntry } from '@/api/types'
 import {
   useAllCredentialRows,
   type CredentialRow,
-  useDeleteCredentialHost,
   useDeleteCredentialIdentity,
-  usePurgeCredentialSessions,
   useSaveCredentialIdentity,
 } from '@/features/credential/useCredentialQueries'
-import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
+import { cn } from '@/lib/utils'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -24,12 +23,6 @@ import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
  * 用户名删、清会话、整目标删（host 筛选选定后出现在筛选栏右侧）。
  */
 
-// 分页按钮：图标化前后翻页（‹ ›），与流量/漏洞模块同款。
-const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-muted transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
-
-const FILTER_SELECT =
-  'h-8 rounded-lg border border-border bg-surface px-2.5 text-sm text-text outline-none transition-all focus:border-accent focus:glow-accent'
 const FILTER_INPUT =
   'h-8 w-52 rounded-lg border border-border bg-surface px-2.5 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
 const INLINE_INPUT =
@@ -63,7 +56,6 @@ function newRowValid(n: NewRow): boolean {
 }
 
 export default function CredentialsPage() {
-  const [hostFilter, setHostFilter] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(20)
@@ -71,16 +63,13 @@ export default function CredentialsPage() {
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
 
-  const { rows, hosts, isLoading, isError, error } = useAllCredentialRows()
+  const { rows, isLoading, isError, error } = useAllCredentialRows()
   const saveMutation = useSaveCredentialIdentity()
   const deleteIdentity = useDeleteCredentialIdentity()
-  const purgeSessions = usePurgeCredentialSessions()
-  const deleteHost = useDeleteCredentialHost()
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter((r) => {
-      if (hostFilter && r.host !== hostFilter) return false
       if (q) {
         const creds = r.identity.credentials.map((c) => `${c.key}=${c.value}`).join(' ')
         const hay = `${r.host} ${r.identity.username} ${r.identity.role} ${creds}`.toLowerCase()
@@ -88,12 +77,12 @@ export default function CredentialsPage() {
       }
       return true
     })
-  }, [rows, hostFilter, search])
+  }, [rows, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / size))
   useEffect(() => {
     setPage(1)
-  }, [hostFilter, search, size])
+  }, [search, size])
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
@@ -191,29 +180,15 @@ export default function CredentialsPage() {
     onDeleteCred: deleteCred,
   }
 
-  const hasFilter = !!(hostFilter || search)
+  const hasFilter = !!search
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">凭证库</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">
-            按目标归属的登录态与会话材料 · 永久存储（无过期）· 点击单元格直接编辑
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setCreating((c) => !c)
-              setNewRow(EMPTY_NEW_ROW)
-            }}
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent-soft px-4 text-sm font-semibold text-accent transition-all hover:bg-accent/10 hover:text-accent-hover"
-          >
-            <Plus className="h-4 w-4" /> 录入
-          </button>
-        </div>
+      <header className="border-b border-border bg-surface px-6 py-4">
+        <h1 className="text-base font-semibold text-text">凭证库</h1>
+        <p className="mt-0.5 text-sm text-text-secondary">
+          按目标归属的登录态与会话材料
+        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
@@ -272,78 +247,42 @@ export default function CredentialsPage() {
               </div>
             )}
 
-            {/* 筛选栏 + 分页 */}
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                className={FILTER_SELECT}
-                value={hostFilter}
-                onChange={(e) => setHostFilter(e.target.value)}
-                aria-label="按主机筛选"
+            {/* 筛选栏 + 分页（录入与搜索框平行；border-b 与下方表格分隔） */}
+            <div className="-mx-6 flex flex-wrap items-center gap-2 border-b border-border bg-surface/30 px-6 pb-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+                <input
+                  className={cn(FILTER_INPUT, 'pl-9')}
+                  value={search}
+                  placeholder="搜索主机 / 用户名 / 键 / 值…"
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreating((c) => !c)
+                  setNewRow(EMPTY_NEW_ROW)
+                }}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-all',
+                  creating
+                    ? 'border border-border bg-surface text-muted hover:text-text'
+                    : 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
+                )}
               >
-                <option value="">全部主机</option>
-                {hosts.map((h) => (
-                  <option key={h.host} value={h.host}>
-                    {h.host}（{h.usernames + h.sessions}）
-                  </option>
-                ))}
-              </select>
-              <input
-                className={FILTER_INPUT}
-                value={search}
-                placeholder="搜索主机 / 用户名 / 键 / 值…"
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {hostFilter && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`清理 ${hostFilter} 的全部会话快照（录入凭证不动）？`)) {
-                        purgeSessions.mutate(hostFilter)
-                      }
-                    }}
-                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted transition-colors hover:text-text"
-                  >
-                    <ShieldAlert className="h-3.5 w-3.5" /> 清理会话
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`删除 ${hostFilter} 的全部凭证？不可恢复。`)) {
-                        deleteHost.mutate(hostFilter)
-                        setHostFilter('')
-                      }
-                    }}
-                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted transition-colors hover:text-status-error"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> 删除主机
-                  </button>
-                </>
-              )}
-              <span className="ml-auto flex items-center gap-2 text-xs text-muted tabular-nums">
-                共 {filtered.length} 条
-                <PageSizeSelect value={size} onChange={setSize} />
-                <button
-                  type="button"
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                  aria-label="上一页"
-                  className={PAGER_BTN}
-                >
-                  <span aria-hidden>‹</span>
-                </button>
-                <span className="min-w-[54px] text-center">
-                  <span className="font-semibold text-text">{page}</span> / {totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(page + 1)}
-                  aria-label="下一页"
-                  className={PAGER_BTN}
-                >
-                  <span aria-hidden>›</span>
-                </button>
+                <Plus className="h-3.5 w-3.5" />
+                {creating ? '取消录入' : '录入'}
+              </button>
+              <span className="ml-auto">
+                <PaginationToolbar
+                  page={page}
+                  pageSize={size}
+                  total={filtered.length}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  onPageSizeChange={setSize}
+                />
               </span>
             </div>
 

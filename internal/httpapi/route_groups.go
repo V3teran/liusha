@@ -55,10 +55,13 @@ func registerLLMInvocationRoutes(r *gin.Engine, d Deps) {
 	if d.Invocations == nil {
 		return
 	}
-	r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
+	// 注意：更具体的路由必须在通配路由之前注册
+	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
+	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
 	r.GET("/llm/invocations/:task_id/invocation/:id", llmInvocationDetailHandler(d.Invocations))
 	r.GET("/llm/invocations/:task_id/stat", llmInvocationStatHandler(d.Invocations))
 	r.GET("/llm/invocations/:task_id/facets", llmInvocationFacetsHandler(d.Invocations))
+	r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
 }
 
 // registerScanRoutes 注册扫描路由
@@ -101,9 +104,7 @@ func registerExplorationGraphRoutes(r *gin.Engine, d Deps) {
 		return
 	}
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/api/v1/tasks/:taskId/exploration/stats", getTaskStats(d.ExplorationGraph))
-	r.GET("/api/v1/tasks/:taskId/exploration/nodes", getTaskNodes(d.ExplorationGraph))
-	r.GET("/api/v1/tasks/:taskId/exploration/graph", getTaskGraph(d.ExplorationGraph))
+	r.GET("/api/v1/conversations/:conversationId/exploration/graph", getConversationGraph(d.ExplorationGraph))
 }
 
 // registerTrafficRoutes 注册代理流量路由

@@ -104,9 +104,8 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     await screen.findByText('deepseek')
     await userEvent.click(screen.getByRole('button', { name: '新建' }))
     expect(await screen.findByRole('heading', { name: '新建 provider' })).toBeTruthy()
-    // 标识符由后端生成 UUID，创建态无输入框
-    expect(screen.queryByPlaceholderText('deepseek')).toBeNull()
-    expect(screen.getByText('保存后自动生成')).toBeTruthy()
+    // 标识符不在 UI 出现（后端生成 UUID）；创建态无输入框
+    expect(screen.queryByText('标识符')).toBeNull()
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
   })
 

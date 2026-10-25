@@ -39,7 +39,7 @@ export function ToolDetailPanel({
 
   return (
     <PanelFrame>
-      <div className="tac-dots flex items-center gap-2.5 border-b border-border px-5 py-4">
+      <div className="flex items-center gap-2.5 border-b border-border px-5 py-4">
         <h2 className="truncate font-mono text-base font-semibold text-text">{tool.name}</h2>
         <KindBadge kind={tool.kind} />
       </div>

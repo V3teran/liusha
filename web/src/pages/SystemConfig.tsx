@@ -63,7 +63,7 @@ export function SystemConfig() {
         <div>
           <h1 className="text-base font-semibold text-text">系统配置</h1>
           <p className="mt-0.5 text-sm text-text-secondary">
-            运行期业务旋钮，保存即经多级缓存失效总线热生效，无需重启进程
+            系统常规配置，热加载
           </p>
         </div>
         <div className="relative">

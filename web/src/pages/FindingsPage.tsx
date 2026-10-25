@@ -6,21 +6,17 @@ import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
 import { Badge } from '@/components/ui/badge'
-import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { columnWidthPercents } from '@/lib/tableLayout'
-import { compactNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
-import { useFindingHosts, useFindingList } from '@/features/finding/useFindingQueries'
+import { useFindingList } from '@/features/finding/useFindingQueries'
 import { useQueryClient } from '@tanstack/react-query'
 
 function sevVar(sev: string): string {
   return severityColor[sev.toLowerCase()] ?? '#6e7681'
 }
-
-const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
 
 const columnHelper = createColumnHelper<FindingRow>()
 
@@ -36,7 +32,6 @@ export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize } = useFindingFilters()
   const queryClient = useQueryClient()
 
-  const hostsQuery = useFindingHosts()
   const listQuery = useFindingList(filters, page, size)
 
   const rows = useMemo(() => listQuery.data?.findings ?? [], [listQuery.data])
@@ -183,9 +178,6 @@ export function FindingsPage() {
           <h1 className="text-base font-semibold text-text">漏洞</h1>
           <p className="mt-0.5 text-sm text-text-secondary">智能体发现的安全漏洞与配置缺陷</p>
         </div>
-        {visible.length > 0 && (
-          <span className="text-sm text-text-secondary">共 {compactNumber(visible.length)} 个漏洞</span>
-        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -276,16 +268,17 @@ export function FindingsPage() {
             </div>
 
             {/* 搜索筛选栏 */}
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-9 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-3 transition-colors focus-within:border-accent focus-within:glow-accent">
-                <Search className="h-4 w-4 flex-shrink-0 text-text-tertiary" />
+            <div className="-mx-6 mb-3 flex items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
                 <input
-                  type="search"
+                  type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="搜索漏洞标题 / host / 路径…"
                   spellCheck={false}
-                  className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-tertiary"
+                  aria-label="搜索漏洞标题、host 或路径"
+                  className="h-9 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
                 />
               </div>
 
@@ -312,45 +305,15 @@ export function FindingsPage() {
                 ))}
               </select>
 
-              <select
-                value={filters.host}
-                onChange={(e) => setFilters({ ...filters, host: e.target.value })}
-                className="h-9 w-44 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
-              >
-                <option value="">全部 host</option>
-                {(hostsQuery.data ?? []).map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-
-              <span className="flex-shrink-0 text-xs text-text-tertiary tabular-nums">共 {compactNumber(total)} 条</span>
-              <PageSizeSelect value={size} onChange={setSize} />
-
-              <div className="flex flex-shrink-0 items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={page <= 1 || listQuery.isFetching}
-                  onClick={() => setPage(page - 1)}
-                  aria-label="上一页"
-                  className={PAGER_BTN}
-                >
-                  <span aria-hidden>‹</span>
-                </button>
-                <span className="min-w-[52px] text-center text-xs text-text-secondary tabular-nums">
-                  <span className="font-semibold text-text">{page}</span> / {totalPages}
-                </span>
-                <button
-                  type="button"
-                  disabled={page >= totalPages || listQuery.isFetching}
-                  onClick={() => setPage(page + 1)}
-                  aria-label="下一页"
-                  className={PAGER_BTN}
-                >
-                  <span aria-hidden>›</span>
-                </button>
-              </div>
+              <PaginationToolbar
+                page={page}
+                pageSize={size}
+                total={total}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                onPageSizeChange={setSize}
+                loading={listQuery.isFetching}
+              />
             </div>
 
             {/* 表格 */}

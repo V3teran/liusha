@@ -3,7 +3,6 @@ import { Search } from 'lucide-react'
 import { listTools, getTool, assignTool } from '@/api/config'
 import type { Tool, ToolDetail, ToolKind } from '@/api/types'
 import { ToolDetailPanel } from '@/features/tools/ToolDetailPanel'
-import { KindBadge } from '@/features/tools/KindBadge'
 import { KIND_LABEL, categoryLabel } from '@/features/tools/toolMeta'
 
 // 种类段：全部 / 内部函数 / 外部 CLI。'' = 不过滤。
@@ -166,7 +165,7 @@ export function ToolsPage() {
         <div className="min-w-0">
           <h1 className="text-base font-semibold text-text">工具</h1>
           <p className="mt-0.5 text-sm text-text-secondary">
-            内部函数工具与外部 CLI 工具的统一编目，源出代码、启动期同步入库
+            内部与外部工具的统一编目
           </p>
         </div>
       </header>
@@ -268,13 +267,9 @@ function ToolMasterList({
         ) : (
           groups.map((g) => (
             <section key={g.kind}>
-              <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-surface-2/95 px-4 py-2 backdrop-blur">
-                <KindBadge kind={g.kind} />
-                <span className="font-mono text-xs text-faint">{g.count}</span>
-              </div>
               {g.categories.map((c) => (
                 <div key={c.category}>
-                  <p className="px-4 pb-1 pt-3 text-xs uppercase tracking-wide text-faint">
+                  <p className="sticky top-0 z-10 border-b border-border bg-surface-2/95 px-4 pb-1 pt-3 text-xs uppercase tracking-wide text-faint backdrop-blur">
                     {categoryLabel(c.category)}
                   </p>
                   {c.tools.map((t) => (

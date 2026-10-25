@@ -5,12 +5,7 @@ import { TrafficDetailPane } from '@/features/traffic/TrafficDetailPane'
 import { useTrafficFilters } from '@/features/traffic/useTrafficFilters'
 import { useTrafficContentTypes, useTrafficDetail, useTrafficList } from '@/features/traffic/useTrafficQueries'
 import type { TrafficSummary } from '@/api/types'
-import { compactNumber } from '@/lib/format'
-import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
-
-// 分页按钮：图标化前后翻页（‹ ›），方形命中区 + 边框/悬停反馈，禁用态降透明并禁指针。
-const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-sm text-text-secondary transition-all hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
+import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 
 // 流量模块：代理捕获流量（proxy_traffic）全局只读浏览。按 host 归属、先于 task，是被分析的输入。
 // 布局：Burp 式常驻左右分栏——左列表（筛选 + 密集表 + 分页）+ 右详情面板（整条请求/响应报文）。
@@ -80,7 +75,7 @@ export function TrafficPage() {
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
         <div>
           <h1 className="text-base font-semibold text-text">代理流量</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">代理捕获的真实流量 · 按主机归属</p>
+          <p className="mt-0.5 text-sm text-text-secondary">代理捕获的真实流量</p>
         </div>
       </header>
 
@@ -103,36 +98,15 @@ export function TrafficPage() {
                 onChange={setFilters}
                 onReset={resetFilters}
                 trailing={
-                  (rows.length > 0 || page > 1) ? (
-                    <>
-                      {/* 总数 + 每页条数 + 翻页移到筛选栏右上（ml-auto），与各搜索框同处一行。 */}
-                      <span className="text-xs text-muted tabular-nums">共 {compactNumber(total)} 条</span>
-                      <PageSizeSelect value={size} onChange={setSize} />
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={page <= 1 || listQuery.isFetching}
-                          onClick={() => setPage(page - 1)}
-                          aria-label="上一页"
-                          className={PAGER_BTN}
-                        >
-                          <span aria-hidden>‹</span>
-                        </button>
-                        <span className="min-w-[68px] text-center text-xs text-muted tabular-nums">
-                          <span className="font-semibold text-text">{page}</span> / {totalPages}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={page >= totalPages || listQuery.isFetching}
-                          onClick={() => setPage(page + 1)}
-                          aria-label="下一页"
-                          className={PAGER_BTN}
-                        >
-                          <span aria-hidden>›</span>
-                        </button>
-                      </div>
-                    </>
-                  ) : null
+                  <PaginationToolbar
+                    page={page}
+                    pageSize={size}
+                    total={total}
+                    totalPages={totalPages}
+                    onPageChange={setPage}
+                    onPageSizeChange={setSize}
+                    loading={listQuery.isFetching}
+                  />
                 }
               />
 

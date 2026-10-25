@@ -1,6 +1,6 @@
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
-import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 12
@@ -120,13 +120,14 @@ export function ConfigListShell({
           )}
 
           {server?.size != null && server.onSize && (server.count > 0 || server.page > 1) && (
-            <div className="ml-auto flex items-center gap-2.5">
-              <span className="text-xs text-text-tertiary tabular-nums">共 {server.count} 项</span>
-              <PageSizeSelect value={server.size} onChange={server.onSize} />
-              <PagerControls
-                page={server.page - 1}
+            <div className="ml-auto">
+              <PaginationToolbar
+                page={server.page}
+                pageSize={server.size}
+                total={server.count}
                 totalPages={server.totalPages}
-                onPage={(p) => server.onPage(p + 1)}
+                onPageChange={server.onPage}
+                onPageSizeChange={server.onSize}
               />
             </div>
           )}
@@ -182,45 +183,6 @@ export function ConfigListShell({
           showCount
         />
       )}
-    </div>
-  )
-}
-
-const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
-
-function PagerControls({
-  page,
-  totalPages,
-  onPage,
-}: {
-  page: number
-  totalPages: number
-  onPage: (p: number) => void
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        disabled={page === 0}
-        onClick={() => onPage(page - 1)}
-        aria-label="上一页"
-        className={PAGER_BTN}
-      >
-        <span aria-hidden>‹</span>
-      </button>
-      <span className="min-w-[52px] text-center text-xs text-text-secondary tabular-nums">
-        <span className="font-semibold text-text">{page + 1}</span> / {totalPages}
-      </span>
-      <button
-        type="button"
-        disabled={page >= totalPages - 1}
-        onClick={() => onPage(page + 1)}
-        aria-label="下一页"
-        className={PAGER_BTN}
-      >
-        <span aria-hidden>›</span>
-      </button>
     </div>
   )
 }

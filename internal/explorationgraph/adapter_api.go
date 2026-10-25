@@ -11,7 +11,40 @@ import (
 // HTTP API 专用方法
 // ─────────────────────────────────────────────
 
-// ListNodesForAPI 按 task_id 和可选 kind 查询节点（HTTP API 专用）
+// taskIDByConversation 把 conversation_id 解析为关联扫描任务的 task_id
+// （探索图数据按 task_id 键控，会话经 conversation.task_id 一对一关联）。
+// 会话不存在时返回 not-found 语义错误。
+func (s *Store) taskIDByConversation(ctx context.Context, conversationID string) (string, error) {
+	if s.pool == nil {
+		return "", fmt.Errorf("conversation lookup requires direct DB access (pool is nil)")
+	}
+	var taskID string
+	err := s.pool.QueryRow(ctx, `SELECT task_id FROM conversation WHERE id = $1::uuid`, conversationID).Scan(&taskID)
+	if err != nil {
+		return "", fmt.Errorf("conversation %q: %w", conversationID, err)
+	}
+	return taskID, nil
+}
+
+// ListNodesByConversationID 按 conversation_id 查询节点（经会话关联的 task）。
+func (s *Store) ListNodesByConversationID(ctx context.Context, conversationID string, kind string) ([]Node, error) {
+	taskID, err := s.taskIDByConversation(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListNodesForAPI(ctx, taskID, kind)
+}
+
+// ListEdgesByConversationID 按 conversation_id 查询边（经会话关联的 task）。
+func (s *Store) ListEdgesByConversationID(ctx context.Context, conversationID string) ([]Edge, error) {
+	taskID, err := s.taskIDByConversation(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListEdgesForAPI(ctx, taskID)
+}
+
+// ListNodesForAPI 按 task_id 和可选 kind 查询节点（会话解析后的内部查询路径）
 func (s *Store) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Filters: map[string]interface{}{
@@ -42,63 +75,6 @@ func (s *Store) ListEdgesForAPI(ctx context.Context, taskID string) ([]Edge, err
 	}
 
 	return s.convertGraphEdgesToEdges(graphEdges, taskID), nil
-}
-
-// GetStatsForAPI 返回节点类型统计（e2e 轮询专用）。
-// 聚合下推到数据库（GROUP BY），不拉取节点载荷。
-func (s *Store) GetStatsForAPI(ctx context.Context, taskID string) (map[string]int, error) {
-	stats := map[string]int{
-		"objectives":   0,
-		"actions":      0,
-		"observations": 0,
-		"results":      0,
-	}
-
-	if s.pool != nil {
-		rows, err := s.pool.Query(ctx, `
-			SELECT kind, COUNT(*) FROM exploration_node
-			WHERE task_id = $1
-			GROUP BY kind
-		`, taskID)
-		if err != nil {
-			return nil, fmt.Errorf("query node stats: %w", err)
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var kind string
-			var count int
-			if err := rows.Scan(&kind, &count); err != nil {
-				return nil, fmt.Errorf("scan node stats: %w", err)
-			}
-			if _, ok := stats[kind]; ok {
-				stats[kind] = count
-			}
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("iterate node stats: %w", err)
-		}
-		return stats, nil
-	}
-
-	// 内存后端：通用查询后在内存计数
-	nodes, err := s.ListNodesForAPI(ctx, taskID, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, node := range nodes {
-		switch node.Kind {
-		case core.KindObjective:
-			stats["objectives"]++
-		case core.KindAction:
-			stats["actions"]++
-		case core.KindObservation:
-			stats["observations"]++
-		case core.KindResult:
-			stats["results"]++
-		}
-	}
-	return stats, nil
 }
 
 // RecoverOrphanedActions 恢复孤儿 action（runner 重启时调用）

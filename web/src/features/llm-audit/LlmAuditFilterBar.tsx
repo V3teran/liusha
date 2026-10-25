@@ -13,31 +13,32 @@ interface LlmAuditFilterBarProps {
 /**
  * LlmAuditFilterBar - LLM 审计筛选栏
  *
- * 设计改进：
- * 1. 统一圆角和间距
- * 2. 聚焦辉光效果
- * 3. 更清晰的布局
+ * 业界最佳实践（参考 Datadog/Grafana）：
+ * 1. 日期范围有明确标签和占位符
+ * 2. 统一输入框样式和间距
+ * 3. 筛选控件左对齐，操作按钮右对齐
  */
 export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
   const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
 
   const selectClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all focus:border-accent focus:glow-accent'
+    'h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-text',
+    'outline-none transition-all focus:border-accent focus:ring-1 focus:ring-accent/20'
   )
 
   const inputClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all placeholder:text-text-tertiary',
-    'focus:border-accent focus:glow-accent'
+    'h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-text',
+    'outline-none transition-all placeholder:text-muted',
+    'focus:border-accent focus:ring-1 focus:ring-accent/20',
+    '[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:hover:opacity-100'
   )
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface/50 px-6 py-3">
       <select
         value={filters.role}
         onChange={(e) => onChange({ ...filters, role: e.target.value })}
-        className={cn(selectClass, 'w-40')}
+        className={cn(selectClass, 'w-32')}
       >
         <option value="">全部角色</option>
         {roles.map((r) => (
@@ -50,7 +51,7 @@ export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, t
       <select
         value={filters.model}
         onChange={(e) => onChange({ ...filters, model: e.target.value })}
-        className={cn(selectClass, 'w-44')}
+        className={cn(selectClass, 'w-40')}
       >
         <option value="">全部模型</option>
         {models.map((m) => (
@@ -61,27 +62,29 @@ export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, t
       </select>
 
       <input
+        id="filter-start"
         type="datetime-local"
         value={filters.start}
         onChange={(e) => onChange({ ...filters, start: e.target.value })}
-        className={inputClass}
+        className={cn(inputClass, 'w-48')}
       />
 
-      <span className="text-sm text-text-tertiary">→</span>
+      <span className="text-muted">→</span>
 
       <input
+        id="filter-end"
         type="datetime-local"
         value={filters.end}
         onChange={(e) => onChange({ ...filters, end: e.target.value })}
-        className={inputClass}
+        className={cn(inputClass, 'w-48')}
       />
 
-      <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
+      <label className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
         <input
           type="checkbox"
           checked={filters.onlyErr}
           onChange={(e) => onChange({ ...filters, onlyErr: e.target.checked })}
-          className="accent-accent"
+          className="h-4 w-4 cursor-pointer rounded border-border text-accent transition-colors focus:ring-1 focus:ring-accent/20"
         />
         仅错误
       </label>
@@ -90,9 +93,9 @@ export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, t
         <button
           type="button"
           onClick={onReset}
-          className="text-sm text-text-secondary transition-colors hover:text-accent"
+          className="text-sm text-muted transition-colors hover:text-accent"
         >
-          清空筛选
+          清空
         </button>
       )}
 

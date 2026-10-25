@@ -330,14 +330,6 @@ function RowHeader({
         <span className="min-w-0 truncate text-sm font-medium text-text">
           {providerDisplayName(p)}
         </span>
-        {p.display_name?.trim() && (
-          <span
-            title={`标识符 ${p.code}`}
-            className="flex-shrink-0 rounded bg-surface-2 px-1 py-0.5 font-mono text-[10.5px] text-faint"
-          >
-            {p.code}
-          </span>
-        )}
         {expanded && dirtySelected && (
           <span
             aria-label="有未保存更改"

@@ -3,8 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Panel } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
-import { Search, RefreshCw, Filter, Info, AlertCircle } from 'lucide-react'
-import { getTaskGraph } from '@/api/explorationgraph'
+import { RefreshCw, Info, AlertCircle } from 'lucide-react'
+import { getConversationGraph } from '@/api/explorationgraph'
+import { listConversations } from '@/api/client'
 import type { GraphNode } from '@/api/explorationgraph'
 import { cn } from '@/lib/utils'
 
@@ -65,8 +66,8 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
 }
 
 export function ExplorationGraphPage() {
-  const [searchParams] = useSearchParams()
-  const [taskId, setTaskId] = useState<string>(searchParams.get('task_id') || '')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [conversationId, setConversationId] = useState<string>(searchParams.get('conversation_id') || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -78,24 +79,54 @@ export function ExplorationGraphPage() {
   const [stats, setStats] = useState({ total: 0, objectives: 0, actions: 0, observations: 0, results: 0 })
 
   useEffect(() => {
-    const taskIdFromUrl = searchParams.get('task_id')
-    if (taskIdFromUrl && taskIdFromUrl !== taskId) {
-      setTaskId(taskIdFromUrl)
+    const conversationIdFromUrl = searchParams.get('conversation_id')
+    if (conversationIdFromUrl && conversationIdFromUrl !== conversationId) {
+      setConversationId(conversationIdFromUrl)
     }
   }, [searchParams])
 
   useEffect(() => {
-    if (taskId) {
+    if (conversationId) {
       loadGraph()
     }
-  }, [taskId])
+  }, [conversationId])
+
+  // 默认展示最新会话：URL 未带 conversation_id 时取最近一个会话（updated_at DESC 首条），
+  // 并回写 URL（replace）——刷新/分享链接都能还原同一张图。
+  useEffect(() => {
+    if (searchParams.get('conversation_id')) return
+    let cancelled = false
+    listConversations(1, 0, '')
+      .then(({ conversations }) => {
+        const latest = conversations[0]?.ID
+        if (!latest || cancelled) return
+        setConversationId((cur) => cur || latest)
+        setSearchParams(
+          (prev) => {
+            if (prev.get('conversation_id')) return prev
+            const p = new URLSearchParams(prev)
+            p.set('conversation_id', latest)
+            return p
+          },
+          { replace: true },
+        )
+      })
+      .catch(() => {
+        // 静默：无会话时保持空态，可手动输入对话 ID
+      })
+    return () => {
+      cancelled = true
+    }
+    // 仅挂载时判定一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadGraph = useCallback(async () => {
-    if (!taskId) return
+    if (!conversationId) return
     setLoading(true)
     setError('')
     try {
-      const data = await getTaskGraph(taskId)
+      const data = await getConversationGraph(conversationId)
 
       const flowNodes: Node[] = data.nodes.map((n: GraphNode) => {
         const baseColor = NODE_COLORS[n.kind as keyof typeof NODE_COLORS] || '#6b7280'
@@ -193,10 +224,10 @@ export function ExplorationGraphPage() {
     } finally {
       setLoading(false)
     }
-  }, [taskId, direction, setNodes, setEdges])
+  }, [conversationId, direction, setNodes, setEdges])
 
-  const handleTaskIdSubmit = () => {
-    if (taskId) {
+  const handleConversationIdSubmit = () => {
+    if (conversationId) {
       loadGraph()
     }
   }
@@ -253,36 +284,20 @@ export function ExplorationGraphPage() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={taskId}
-              onChange={(e) => setTaskId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleTaskIdSubmit()}
-              placeholder="输入任务 ID"
-              className={cn(
-                'h-9 w-80 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-                'outline-none transition-all placeholder:text-text-tertiary',
-                'focus:border-accent focus:glow-accent disabled:opacity-50'
-              )}
-              disabled={loading}
-            />
-            <button
-              onClick={handleTaskIdSubmit}
-              disabled={loading || !taskId}
-              className={cn(
-                'flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold',
-                'transition-all',
-                loading || !taskId
-                  ? 'cursor-not-allowed bg-surface-2 text-text-disabled'
-                  : 'bg-accent-soft hover:bg-accent/10 text-accent hover:text-accent-hover'
-              )}
-            >
-              <Search className="h-4 w-4" />
-              加载
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={conversationId}
+            onChange={(e) => setConversationId(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleConversationIdSubmit()}
+            placeholder="输入对话 ID"
+            className={cn(
+              'h-9 w-80 rounded-lg border border-border bg-surface px-3 text-sm text-text',
+              'outline-none transition-all placeholder:text-text-tertiary',
+              'focus:border-accent focus:glow-accent disabled:opacity-50'
+            )}
+            disabled={loading}
+          />
           {nodes.length > 0 && (
             <button
               onClick={loadGraph}
@@ -302,10 +317,6 @@ export function ExplorationGraphPage() {
       {/* 筛选栏 */}
       {nodes.length > 0 && (
         <div className="flex items-center gap-4 border-b border-border bg-surface/50 px-6 py-3">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-text-tertiary" />
-            <span className="text-sm text-text-secondary">筛选:</span>
-          </div>
           <select
             value={filterKind}
             onChange={(e) => setFilterKind(e.target.value)}
@@ -360,6 +371,7 @@ export function ExplorationGraphPage() {
         </div>
       )}
 
+
       {/* 画布区域 */}
       <div className="relative flex-1 bg-[#0a0d12]">
         {loading ? (
@@ -385,8 +397,8 @@ export function ExplorationGraphPage() {
               </div>
               <div className="mb-2 text-lg font-medium text-text">暂无数据</div>
               <div className="text-sm">
-                请输入任务 ID 并点击加载，或通过 URL 参数{' '}
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">?task_id=xxx</code> 访问
+                请输入对话 ID 并点击加载，或通过 URL 参数{' '}
+                <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">?conversation_id=xxx</code> 访问
               </div>
             </div>
           </div>
@@ -424,6 +436,7 @@ export function ExplorationGraphPage() {
           </ReactFlow>
         )}
       </div>
+
 
       {/* 图例 */}
       <div className="flex gap-8 border-t border-border bg-surface px-6 py-3 text-xs">

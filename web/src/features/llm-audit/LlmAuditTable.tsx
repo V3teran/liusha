@@ -12,7 +12,7 @@ interface LlmAuditTableProps {
 }
 
 const SKELETON_ROWS = 8
-const SKELETON_COLS = 6 // 时间/角色/模型/Tokens/响应耗时/内容——已去掉单独的「状态」列
+const SKELETON_COLS = 7 // 时间/对话/批次/角色/模型/Tokens/响应耗时
 
 // 密集审计表：真实 <table> 语义（对齐 FindingsPage 的 react-table 模式），列宽由
 // buildLlmAuditColumns 单点定义——不再是列头/骨架屏/数据行各自一份 grid-cols 字符串手动同步。
@@ -28,7 +28,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
   const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow">
+    <div className="overflow-auto rounded-2xl border border-border bg-surface shadow">
       {/* table-fixed + colgroup 百分比宽度：列宽由 columnDef.size（相对权重）换算成百分比，
           随容器宽度等比缩放——缩小浏览器/侧栏展开时所有列同步变窄，而不是某列固定 px 不变、
           把其它列挤到断行（截图问题的根因）。用 columnDef.size 而非 col.getSize()：
@@ -39,7 +39,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
             <col key={col.id} style={{ width: widthPercents[i] }} />
           ))}
         </colgroup>
-        <thead>
+        <thead className="sticky top-0 z-10 bg-surface">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-border">
               {hg.headers.map((h) => (

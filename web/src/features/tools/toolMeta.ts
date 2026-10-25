@@ -4,8 +4,8 @@ import type { ToolKind } from '@/api/types'
 //   - function：进程内原生函数工具（内部工具集）
 //   - cli     ：外置 CLI 工具白名单（外部工具集）
 export const KIND_LABEL: Record<ToolKind, string> = {
-  function: '内部函数',
-  cli: '外部 CLI',
+  function: '内部工具',
+  cli: '外部工具',
 }
 
 // 分类 code → 展示名。与 einotools 的 FunctionToolCategory 常量对齐；

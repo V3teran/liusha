@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getLLMInvocationDetail, getLLMInvocationFacets, getLLMInvocationStat, listLLMInvocations } from '@/api/client'
+import { getLLMInvocationDetail, getLLMInvocationFacets, getLLMInvocationStat, listLLMInvocations, searchLLMInvocations } from '@/api/client'
 import type { LLMInvocationFilters } from '@/api/types'
 
 // LLM 审计页数据层：统一走 React Query，取代手写 loading/error/竞态处理。
@@ -14,9 +14,11 @@ const llmAuditKeys = {
     ['llm-audit', 'list', owner, filters, page, size] as const,
   stat: (owner: string, filters: LLMInvocationFilters) => ['llm-audit', 'stat', owner, filters] as const,
   detail: (owner: string, id: number | null) => ['llm-audit', 'detail', owner, id] as const,
+  search: (search: string, filters: LLMInvocationFilters, page: number, size: number) =>
+    ['llm-audit', 'search', search, filters, page, size] as const,
 }
 
-/** role/model 候选下拉：per-owner 全集，不受当前筛选/分页影响。 */
+/** 筛选下拉候选（该 task 下所有 role / model distinct，不受筛选参数影响）。 */
 export function useLlmAuditFacets(owner: string) {
   return useQuery({
     queryKey: llmAuditKeys.facets(owner),
@@ -25,12 +27,24 @@ export function useLlmAuditFacets(owner: string) {
   })
 }
 
-/** 明细分页列表：吃 owner + 筛选 + page/size（offset 分页，对齐流量/漏洞模块）。 */
+/** 列表查询（offset 分页，对齐流量/漏洞模块）。 */
 export function useLlmAuditList(owner: string, filters: LLMInvocationFilters, page: number, size: number) {
   return useQuery({
     queryKey: llmAuditKeys.list(owner, filters, page, size),
     queryFn: () => listLLMInvocations(owner, page, size, filters),
     enabled: !!owner,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** 全局搜索查询（不限定 task_id，支持搜索 conversation_id/assignment_id）。
+ * 空搜索时返回所有数据（按时间倒序）。
+ */
+export function useLlmAuditSearch(params: { search: string; page: number; size: number } & LLMInvocationFilters) {
+  const { search, page, size, ...filters } = params
+  return useQuery({
+    queryKey: llmAuditKeys.search(search, filters, page, size),
+    queryFn: () => searchLLMInvocations(search, page, size, filters),
     placeholderData: keepPreviousData,
   })
 }
@@ -46,10 +60,10 @@ export function useLlmAuditStat(owner: string, filters: LLMInvocationFilters) {
 }
 
 /** 单条调用完整原文（含 messages/result），点击行按需拉。id=null 时不发请求。 */
-export function useLlmInvocationDetail(owner: string, id: number | null) {
+export function useLlmInvocationDetail(id: number | null) {
   return useQuery({
-    queryKey: llmAuditKeys.detail(owner, id),
-    queryFn: () => getLLMInvocationDetail(owner, id as number),
-    enabled: !!owner && id != null,
+    queryKey: ['llm-audit', 'detail', id] as const,
+    queryFn: () => getLLMInvocationDetail(id as number),
+    enabled: id != null,
   })
 }
