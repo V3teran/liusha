@@ -35,6 +35,7 @@ type llmStore interface {
 	CreateProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
 	UpdateProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
 	DeleteProvider(ctx context.Context, key string) error
+	ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error)
 	GetProvider(ctx context.Context, key string) (llmcfg.Provider, error)
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmcfg.Provider, error)
 
@@ -119,20 +120,6 @@ func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 
 // ── 运行期解析（热路径：两个 LLM 工厂共用，取代旧的双份 resolveProviderKey/lookupLLMField switch）──
 
-// ProviderForFallback 解析全局备胎 provider 部署（Router 取 __fallback__ 装配兜底用）。
-// 备胎未配置（保留 role __fallback__ 无绑定）时返回明确错误。
-func (s *Store) ProviderForFallback(ctx context.Context) (llmcfg.Provider, error) {
-	routing, err := s.Routing(ctx)
-	if err != nil {
-		return llmcfg.Provider{}, err
-	}
-	key := routing.FallbackProviderCode()
-	if key == "" {
-		return llmcfg.Provider{}, &UnresolvedError{Fallback: true}
-	}
-	return s.ProviderByCode(ctx, key)
-}
-
 // ── 全量列表读（L1/L2 缓存，key 空间固定）───────────────────────────────
 
 // ListProviders 全量 provider 列表读，走多级缓存（按 onlyEnabled 分键）。
@@ -180,6 +167,19 @@ func (s *Store) DeleteProvider(ctx context.Context, key string) error {
 		return err
 	}
 	return s.cache.Invalidate(ctx, providerKeys(key)...)
+}
+
+// ClearProviderKey 清除 provider 的加密密钥（密文+尾号置空），api_key_env 引用原样保留——
+// 「恢复使用环境变量」：解析回落 env 路径。失效其 provider 键 + 列表键。
+func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error) {
+	pr, err := s.db.ClearProviderKey(ctx, code)
+	if err != nil {
+		return llmcfg.Provider{}, err
+	}
+	if err := s.cache.Invalidate(ctx, providerKeys(code)...); err != nil {
+		return pr, err
+	}
+	return pr, nil
 }
 
 // UpsertRoleRoute upsert 一个角色 → provider code 直连映射，失效路由快照 + 路由列表键。

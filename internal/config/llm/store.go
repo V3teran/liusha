@@ -18,7 +18,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // provColsSelect 是 provider 所有 SELECT/RETURNING 的统一列序，与 scanProvider 一一对应。
-const provColsSelect = "code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
+const provColsSelect = "code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
 
 // validateProviderType 应用层校验 type（与 DB CHECK 双保险）。
 func validateProviderType(t string) error {
@@ -41,11 +41,11 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		return Provider{}, fmt.Errorf("create provider %q: context_window 必须 > 0", p.Code)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, description, sort_order, enabled, thinking_budget_tokens)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, nullableText(p.DisplayName), p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("create provider %q: %w", p.Code, err)
@@ -72,12 +72,12 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE llm_provider
-		SET type=$2, base_url=$3, default_model=$4, api_key_env=$5, encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$8,
-		    supports_tools=$9, supports_vision=$10, context_window=$11, description=$12, sort_order=$13, enabled=$14, thinking_budget_tokens=$15, updated_at=now()
+		SET type=$2, base_url=$3, default_model=$4, api_key_env=COALESCE($5, api_key_env), encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$8,
+		    supports_tools=$9, supports_vision=$10, context_window=$11, display_name=$12, description=$13, sort_order=$14, enabled=$15, thinking_budget_tokens=$16, updated_at=now()
 		WHERE code=$1
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, nullableText(p.DisplayName), p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("update provider %q: %w", p.Code, err)
@@ -85,13 +85,30 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	return pr, nil
 }
 
-// nullableText 把空串转 nil，避免 seed 之外的写路径把 api_key_env 列误写成空串
-// （NULL 才代表「无此旧路径」，与 encrypted_api_key 的 HasStoredKey 判定一致）。
+// nullableText 把空串转 nil；Update 以 COALESCE($5, api_key_env) 消费——写路径不携带
+// api_key_env（前端编辑表单不含此字段）时保留原值，避免 UI 保存把环境变量密钥引用抹掉。
+// （NULL 才代表「无此旧路径」，与 encrypted_api_key 的 HasStoredKey 判定一致。）
 func nullableText(s string) any {
 	if s == "" {
 		return nil
 	}
 	return s
+}
+
+// ClearProviderKey 清除加密密钥（密文+尾号置空），api_key_env 引用原样保留——
+// 「恢复使用环境变量」：解析回落 env 路径。行不存在时报错。
+func (s *Store) ClearProviderKey(ctx context.Context, code string) (Provider, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE llm_provider
+		SET encrypted_api_key=NULL, api_key_last4=NULL, updated_at=now()
+		WHERE code=$1
+		RETURNING `+provColsSelect,
+		code)
+	var pr Provider
+	if err := scanProvider(row, &pr); err != nil {
+		return Provider{}, fmt.Errorf("clear encrypted key %q: %w", code, err)
+	}
+	return pr, nil
 }
 
 // DeleteProvider 按 key 删 provider。被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束，错误透传。
@@ -209,12 +226,14 @@ type scanner interface {
 // api_key_env 列（migration 0103 起可空）经 sql.NullString 中转，NULL 时 Provider.APIKeyEnv 留空串。
 func scanProvider(r scanner, p *Provider) error {
 	var apiKeyEnv, apiKeyLast4 sql.NullString
+	var displayName sql.NullString
 	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &apiKeyEnv, &p.EncryptedAPIKey, &apiKeyLast4,
-		&p.MaxTokens, &p.SupportsTools, &p.SupportsVision, &p.ContextWindow,
+		&p.MaxTokens, &p.SupportsTools, &p.SupportsVision, &p.ContextWindow, &displayName,
 		&p.Description, &p.SortOrder, &p.Enabled, &p.ThinkingBudgetTokens, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return err
 	}
 	p.APIKeyEnv = apiKeyEnv.String
 	p.APIKeyLast4 = apiKeyLast4.String
+	p.DisplayName = displayName.String
 	return nil
 }

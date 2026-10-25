@@ -5,7 +5,7 @@
 // runner 进程的两个 LLM 工厂下次 For(role) 即读到最新路由（见 D7），绝不直穿底层 store。
 //
 // 路由模型：agent → tier → provider 两跳。agent→tier 固定在代码（llmcfg.AgentTier），
-// tier→provider 落 llm_role_route（role 列存档名 heavy/vision/light）。保留 role __fallback__
+// tier→provider 落 llm_role_route（role 列存档名 simple/medium/complex）。
 // （retry 备胎）与档同表，前端「能力分档」把它单列为「全局备胎」；未绑定的档回落隐式默认档 heavy。
 //
 // API Key（migration 0103）：前端直填明文，handler 用 cryptx.Cipher 加密成
@@ -18,6 +18,8 @@ package httpapi
 import (
 	"context"
 	"net/http"
+
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,6 +39,8 @@ type ModelAPI interface {
 	ProviderByCode(ctx context.Context, code string) (llmcfg.Provider, error)
 	SaveProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
 	DeleteProvider(ctx context.Context, code string) error
+	// ClearProviderKey 清除 UI 设置的加密密钥（密文+尾号），保留 api_key_env 引用——「恢复使用环境变量」。
+	ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error)
 	// 角色路由（role → provider 直连）
 	ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error)
@@ -86,6 +90,7 @@ type providerBody struct {
 	SupportsTools  bool   `json:"supports_tools"`
 	SupportsVision bool   `json:"supports_vision"`
 	ContextWindow  int    `json:"context_window"`
+	DisplayName    string `json:"display_name"`
 	Description    string `json:"description"`
 	SortOrder      int    `json:"sort_order"`
 	Enabled        bool   `json:"enabled"`
@@ -100,8 +105,8 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if b.Code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "key 不能为空"})
+		if c.Request.Method != "POST" && b.Code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code 不能为空"})
 			return
 		}
 		if b.Type != llmcfg.ProviderTypeOpenAICompat && b.Type != llmcfg.ProviderTypeAnthropic {
@@ -117,6 +122,11 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "api_key 不能为空（新建 provider 必须提供密钥）"})
 			return
 		}
+		// 标识符由系统生成（UUID）：display_name 承担人读角色后，code 不再要求用户语义。
+		// 客户端显式携带 code（脚本/导入场景）仍然尊重。
+		if b.Code == "" {
+			b.Code = uuid.NewString()
+		}
 		if b.ContextWindow <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "context_window 必须 > 0（model 总上下文窗口 tokens）"})
 			return
@@ -125,7 +135,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			Code: b.Code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
 			MaxTokens: b.MaxTokens, SupportsTools: b.SupportsTools,
 			SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
-			Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
+			DisplayName: b.DisplayName, Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
 		}
 		if b.APIKey == "" {
 			params.KeepExistingKey = true // 编辑未重填密钥：沿用已存密文
@@ -164,16 +174,31 @@ func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 	}
 }
 
+// clearProviderKeyHandler 处理 DELETE /models/providers/:code/key：「恢复使用环境变量」。
+// 清除 UI 设置的加密密钥后，解析回落到 api_key_env 指向的环境变量（引用保留，值从未进 DB）。
+func clearProviderKeyHandler(api ModelAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := c.Param("code")
+		p, err := api.ClearProviderKey(c.Request.Context(), code)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": code})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
+	}
+}
+
 // providerJSON 是 provider 响应的单一序列化点。
 // key_present：该 provider 是否已有可用密钥来源（加密落库或旧 ENV 变量名），不含密钥值本身。
 // key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；旧行或仅 ENV 回退时为空串。
 func providerJSON(p llmcfg.Provider) gin.H {
 	return gin.H{
 		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
+		"api_key_env": p.APIKeyEnv, // env 变量名引用（非密钥值）；UI 密文存在时被覆盖
 		"key_present": p.HasStoredKey(), "key_last4": p.APIKeyLast4,
 		"max_tokens": p.MaxTokens, "supports_tools": p.SupportsTools,
 		"supports_vision": p.SupportsVision, "context_window": p.ContextWindow,
-		"description": p.Description, "sort_order": p.SortOrder, "enabled": p.Enabled,
+		"display_name": p.DisplayName, "description": p.Description, "sort_order": p.SortOrder, "enabled": p.Enabled,
 		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt,
 	}
 }

@@ -30,7 +30,7 @@ const (
 	ProviderTypeAnthropic    = "anthropic"
 )
 
-// RoutingSpec 是复杂度档位（含 __fallback__）→ provider key 的路由表。
+// RoutingSpec 是复杂度档位 → provider key 的路由表。
 type RoutingSpec struct {
 	Roles map[string]string
 }

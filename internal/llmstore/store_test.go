@@ -27,6 +27,10 @@ func (f *fakeLLM) UpdateProvider(_ context.Context, p llmcfg.ProviderParams) (ll
 	return llmcfg.Provider{Code: p.Code}, nil
 }
 func (f *fakeLLM) DeleteProvider(_ context.Context, _ string) error { return nil }
+
+func (f *fakeLLM) ClearProviderKey(_ context.Context, code string) (llmcfg.Provider, error) {
+	return llmcfg.Provider{Code: code}, nil
+}
 func (f *fakeLLM) GetProvider(_ context.Context, key string) (llmcfg.Provider, error) {
 	return llmcfg.Provider{Code: key}, nil
 }

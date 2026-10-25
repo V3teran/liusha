@@ -138,15 +138,16 @@ func registerModelsRoutes(r *gin.Engine, d Deps) {
 
 	// Provider 部署 CRUD
 	r.GET("/models/providers", listProvidersHandler(d.Models))
-	r.GET("/models/providers/:key", getProviderHandler(d.Models))
+	r.GET("/models/providers/:code", getProviderHandler(d.Models))
 
 	// 保存路径必须能加密明文 API Key 才开
 	if d.KeyEncrypter != nil {
 		r.POST("/models/providers", saveProviderHandler(d.Models, d.KeyEncrypter))
-		r.PUT("/models/providers/:key", saveProviderHandler(d.Models, d.KeyEncrypter))
+		r.PUT("/models/providers/:code", saveProviderHandler(d.Models, d.KeyEncrypter))
 	}
 
-	r.DELETE("/models/providers/:key", deleteProviderHandler(d.Models))
+	r.DELETE("/models/providers/:code", deleteProviderHandler(d.Models))
+	r.DELETE("/models/providers/:code/key", clearProviderKeyHandler(d.Models))
 
 	// 角色路由
 	r.GET("/models/routing", listRoutingHandler(d.Models))

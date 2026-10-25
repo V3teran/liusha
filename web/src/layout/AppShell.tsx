@@ -31,11 +31,11 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/findings', label: '漏洞', icon: Bug },
   { to: '/traffic', label: '代理流量', icon: Activity },
   { to: '/exploration-graph', label: '探索图', icon: GitBranch },
-  { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/agents', label: '智能体', icon: Bot },
   { to: '/config/tools', label: '工具', icon: Wrench },
   { to: '/config/skills', label: '技能', icon: BookOpen },
+  { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/config/models', label: 'LLM 配置', icon: Boxes },
   { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
 ]

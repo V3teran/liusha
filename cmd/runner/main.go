@@ -169,7 +169,7 @@ func main() {
 	hostSem := newHostSemaphore(rdb, runnerCfg, cfg)
 	controlPlaneStore := controlplane.NewStore(pool)
 
-	router := llm.NewRouterWithFallback(llmStack.llmStore.AsRouterStore(llmStack.keyCipher), llmstore.NewFallbackProviderFactory(llmStack.llmStore, llmStack.keyCipher))
+	router := llm.NewRouter(llmStack.llmStore.AsRouterStore(llmStack.keyCipher))
 	// LLM 调用装配：单步看门狗（step_llm_timeout_seconds——挂死的调用会阻塞
 	// Agent 事件循环，预算超时即失败）+ llm_invocation 审计（含失败）。
 	stepLLMTimeout := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second

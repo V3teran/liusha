@@ -1,15 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="流沙">
-  <!-- 渐变圆角背景容器（和首页左上角 logo 一致）-->
+  <!-- 圆角容器：逐 token 复刻首页左上角 logo 块（AppShell：bg-surface 底 +
+       bg-gradient-to-br from-accent/20 to-accent/10 + ring-1 ring-accent/20）。
+       色值取自 design-tokens.css 暗色主题 token：--surface / --accent，非自造色。 -->
   <defs>
     <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:oklch(35% 0.02 250 / 0.2);stop-opacity:1" />
-      <stop offset="100%" style="stop-color:oklch(35% 0.02 250 / 0.1);stop-opacity:1" />
+      <stop offset="0%" style="stop-color:oklch(85% 0.02 250 / 0.2);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:oklch(85% 0.02 250 / 0.1);stop-opacity:1" />
     </linearGradient>
   </defs>
 
-  <!-- 圆角背景容器 -->
+  <!-- bg-surface -->
+  <rect width="128" height="128" rx="24" fill="oklch(17% 0.004 285)"/>
+  <!-- from-accent/20 to-accent/10 -->
   <rect width="128" height="128" rx="24" fill="url(#bg-gradient)"/>
-  <rect width="128" height="128" rx="24" fill="none" stroke="oklch(35% 0.02 250 / 0.2)" stroke-width="1"/>
+  <!-- ring-1 ring-accent/20 -->
+  <rect width="128" height="128" rx="24" fill="none" stroke="oklch(85% 0.02 250 / 0.2)" stroke-width="1.5"/>
 
   <!-- 鲨齿剑图标（修正居中：往左下移动）-->
   <g transform="translate(16, 14) scale(0.7)">

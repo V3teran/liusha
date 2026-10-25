@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+
+	"fmt"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -70,6 +72,14 @@ func (f *fakeModel) DeleteProvider(_ context.Context, key string) error {
 	}
 	f.deleted = append(f.deleted, key)
 	return nil
+}
+
+func (f *fakeModel) ClearProviderKey(_ context.Context, code string) (llmcfg.Provider, error) {
+	if f.fkOn["clear_provider_key"] {
+		return llmcfg.Provider{}, fmt.Errorf("clear encrypted key %q: 不存在", code)
+	}
+	f.deleted = append(f.deleted, "key:"+code)
+	return llmcfg.Provider{Code: code, APIKeyEnv: "GLM_API_KEY"}, nil
 }
 func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmcfg.RoleRoute, error) {
 	return f.routes, nil
@@ -143,7 +153,6 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"缺 key", map[string]any{"type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"type 非法", map[string]any{"code": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"缺 base_url", map[string]any{"code": "k", "type": "openai_compat", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"新建缺 api_key", map[string]any{"code": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "context_window": 1}},
@@ -184,6 +193,27 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	}
 	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
 		t.Fatalf("api_key 应经加密器处理，不应是明文: %v", fm.savedProvider.EncryptedAPIKey)
+	}
+}
+
+// TestSaveProvider_GeneratesCode：POST 不带 code → 服务端生成 UUID 标识符。
+func TestSaveProvider_GeneratesCode(t *testing.T) {
+	fm := &fakeModel{}
+	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
+	defer srv.Close()
+
+	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
+		"type": "openai_compat", "base_url": "https://x", "default_model": "m",
+		"api_key": "k", "context_window": 1,
+	})
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if fm.savedProvider == nil {
+		t.Fatal("SaveProvider 未被调用")
+	}
+	if len(fm.savedProvider.Code) < 32 {
+		t.Fatalf("code 应为服务端生成的 UUID: %q", fm.savedProvider.Code)
 	}
 }
 

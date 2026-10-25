@@ -3,14 +3,15 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProvidersView } from './ProvidersView'
-import { listProviders, saveProvider, deleteProvider } from '@/api/models'
+import { listProviders, saveProvider, deleteProvider, restoreProviderEnvKey } from '@/api/models'
 import type { ProviderConfig } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
   saveProvider: vi.fn(),
   deleteProvider: vi.fn(),
-  // 详情面板挂载即引用 testProvider / listProviderModels（探测/测试连接），mock 掉避免真发请求。
+  restoreProviderEnvKey: vi.fn(),
+  // 编辑面板挂载即引用 testProvider / listProviderModels（探测/测试连接），mock 掉避免真发请求。
   testProvider: vi.fn(),
   listProviderModels: vi.fn(),
 }))
@@ -18,6 +19,7 @@ vi.mock('@/api/models', () => ({
 const mList = listProviders as unknown as ReturnType<typeof vi.fn>
 const mSave = saveProvider as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteProvider as unknown as ReturnType<typeof vi.fn>
+const mRestore = restoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
 
 function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
@@ -47,31 +49,33 @@ function renderView() {
   )
 }
 
-describe('ProvidersView', () => {
+// 点行 → 该行下方下拉展开编辑面板（无弹窗）。
+async function openEdit(o: Partial<ProviderConfig> = {}) {
+  mList.mockResolvedValue([prov(o)])
+  renderView()
+  await userEvent.click(await screen.findByText('deepseek'))
+}
+
+describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', () => {
   beforeEach(() => {
     mList.mockReset()
     mSave.mockReset()
     mDelete.mockReset()
   })
 
-  it('挂载拉取全量部署，左列表渲染，右侧显示未选中占位', async () => {
+  it('挂载拉取全量部署，表格行渲染 code/协议/模型', async () => {
     mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     renderView()
     expect(await screen.findByText('deepseek')).toBeTruthy()
     expect(await screen.findByText('qwen')).toBeTruthy()
-    expect(screen.getByText('选择左侧部署查看详情，或点「+」新建')).toBeTruthy()
+    // 分区头：标题 + 新建入口
+    expect(screen.getByText('模型提供商')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '新建' })).toBeTruthy()
+    // 未展开时无编辑表单
+    expect(screen.queryByLabelText('描述')).toBeNull()
   })
 
-  it('点列表某项，右侧详情面板原地展开该 provider（不遮挡左列表）', async () => {
-    mList.mockResolvedValue([prov()])
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
-    // 详情面板标题即 key；左列表仍同屏可见（未被模态遮罩覆盖）。
-    expect(await screen.findByRole('heading', { name: 'deepseek' })).toBeTruthy()
-    expect(screen.getByDisplayValue('deepseek-chat')).toBeTruthy()
-  })
-
-  it('搜索框按标识键/模型名本地过滤左列表', async () => {
+  it('搜索框按标识键/模型名过滤列表', async () => {
     mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     renderView()
     await screen.findByText('qwen')
@@ -80,21 +84,35 @@ describe('ProvidersView', () => {
     expect(screen.getByText('qwen')).toBeTruthy()
   })
 
-  it('点「新建」在右侧展开空白表单，标识键可编辑', async () => {
-    mList.mockResolvedValue([prov()])
-    renderView()
-    await screen.findByText('deepseek')
-    await userEvent.click(screen.getByLabelText('新建 provider'))
-    expect(await screen.findByRole('heading', { name: '接入 provider' })).toBeTruthy()
-    const keyInput = screen.getByPlaceholderText('deepseek')
-    expect(keyInput).not.toBeDisabled()
-  })
-
-  it('未改动时保存禁用；改动后出现未保存徽章、重置与可用的保存', async () => {
+  it('点行在下拉展开的编辑面板渲染单页表单（连接与能力同屏），再点行收起', async () => {
     mList.mockResolvedValue([prov()])
     renderView()
     await userEvent.click(await screen.findByText('deepseek'))
-    const save = await screen.findByRole('button', { name: '保存' })
+    // 无需分页，base_url（连接组）与 context_window（能力组）同屏。
+    expect(await screen.findByDisplayValue('https://api.deepseek.com')).toBeTruthy()
+    expect(screen.getByDisplayValue('65536')).toBeTruthy()
+    // 展开行 chevron 转 down（aria-expanded=true）
+    expect(screen.getByRole('button', { name: /^deepseek/ }).getAttribute('aria-expanded')).toBe('true')
+    // 再点行头 → 收起
+    await userEvent.click(screen.getByText('deepseek'))
+    await waitFor(() => expect(screen.queryByLabelText('描述')).toBeNull())
+  })
+
+  it('新建：列表顶部下拉展开空白表单，标识符自动生成（无输入框）；必填未齐保存禁用', async () => {
+    mList.mockResolvedValue([prov()])
+    renderView()
+    await screen.findByText('deepseek')
+    await userEvent.click(screen.getByRole('button', { name: '新建' }))
+    expect(await screen.findByRole('heading', { name: '新建 provider' })).toBeTruthy()
+    // 标识符由后端生成 UUID，创建态无输入框
+    expect(screen.queryByPlaceholderText('deepseek')).toBeNull()
+    expect(screen.getByText('保存后自动生成')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+  })
+
+  it('未改动保存禁用；改动后出现未保存徽章、重置与可用的保存', async () => {
+    await openEdit()
+    const save = screen.getByRole('button', { name: '保存' })
     expect(save).toBeDisabled()
     await userEvent.type(screen.getByLabelText('描述'), '主力部署')
     expect(await screen.findByText('未保存')).toBeTruthy()
@@ -103,69 +121,97 @@ describe('ProvidersView', () => {
   })
 
   it('重置放弃草稿恢复原值，未保存徽章消失', async () => {
-    mList.mockResolvedValue([prov()])
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
-    await userEvent.type(await screen.findByLabelText('描述'), '临时改动')
-    await userEvent.click(await screen.findByRole('button', { name: '重置' }))
+    await openEdit()
+    await userEvent.type(screen.getByLabelText('描述'), '临时改动')
+    await userEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.queryByText('未保存')).toBeNull()
     expect((screen.getByLabelText('描述') as HTMLInputElement).value).toBe('')
   })
 
-  it('dirty 时点其他部署被拦截，确认后才切换', async () => {
+  it('dirty 时收起被拦截：确认条出现，丢弃后才收起', async () => {
+    await openEdit()
+    await userEvent.type(screen.getByLabelText('描述'), '改动')
+    await userEvent.click(screen.getByText('deepseek')) // 点行头收起
+    expect(await screen.findByText(/收起将丢弃这些更改/)).toBeTruthy()
+    expect(screen.getByLabelText('描述')).toBeTruthy() // 面板仍在
+    await userEvent.click(screen.getByRole('button', { name: '丢弃并收起' }))
+    await waitFor(() => expect(screen.queryByLabelText('描述')).toBeNull())
+  })
+
+  it('dirty 时点其他行被拦截：丢弃并切换后才展开目标行', async () => {
     mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     renderView()
     await userEvent.click(await screen.findByText('deepseek'))
     await userEvent.type(await screen.findByLabelText('描述'), '改动')
-    await userEvent.click(await screen.findByText('qwen'))
-    // 确认条出现，详情仍是 deepseek。
-    expect(await screen.findByText(/将丢弃这些更改/)).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'deepseek' })).toBeTruthy()
+    await userEvent.click(screen.getByText('qwen'))
+    expect(await screen.findByText(/切换到其他行将丢弃这些更改/)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: '丢弃并切换' }))
-    expect(await screen.findByRole('heading', { name: 'qwen' })).toBeTruthy()
+    // deepseek 面板收起（aria-expanded=false），qwen 行处于展开态
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^deepseek/ }).getAttribute('aria-expanded')).toBe('false'),
+    )
+    expect(screen.getByRole('button', { name: /^qwen/ }).getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('保存成功后用返回值更新详情（key_present 等服务端字段）', async () => {
-    mList.mockResolvedValue([prov({ code: 'deepseek', key_present: false })])
-    mSave.mockResolvedValue(prov({ code: 'deepseek', key_present: true }))
+  it('保存成功后面板保持展开，用返回值刷新（key_present 等服务端字段）', async () => {
+    // 首拉 key_present=false（行头密钥告警点），保存 invalidate 重拉后变 true。
+    mList.mockResolvedValueOnce([prov({ key_present: false })]).mockResolvedValueOnce([prov({ key_present: true })])
+    mSave.mockResolvedValue(prov({ key_present: true }))
     renderView()
     await userEvent.click(await screen.findByText('deepseek'))
-    expect(await screen.findByText('密钥未注入')).toBeTruthy()
+    expect(await screen.findByLabelText('密钥未注入')).toBeTruthy()
     await userEvent.type(screen.getByLabelText('描述'), 'x')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(mSave).toHaveBeenCalled())
-    await waitFor(() => expect(screen.queryByText('密钥未注入')).toBeNull())
+    // 面板保持展开；baseline 对齐后徽章与密钥告警消失
+    await waitFor(() => expect(screen.queryByText('未保存')).toBeNull())
+    await waitFor(() => expect(screen.queryByLabelText('密钥未注入')).toBeNull())
+    expect(screen.getByLabelText('描述')).toBeTruthy()
   })
 
   it('保存失败在面板内回显错误（无 window.alert）', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
-    mList.mockResolvedValue([prov()])
-    mSave.mockRejectedValue(new Error('key 已存在'))
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
+    await openEdit()
+    mSave.mockRejectedValue(new Error('code 已存在'))
     await userEvent.type(screen.getByLabelText('描述'), 'x')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(await screen.findByText('key 已存在')).toBeTruthy()
+    expect(await screen.findByText('code 已存在')).toBeTruthy()
     expect(alertSpy).not.toHaveBeenCalled()
   })
 
-  it('删除两段式确认：首击亮确认，再击才真正删除', async () => {
+  it('行级删除两段式确认：垃圾桶首击亮确认，再击才真正删除并收起', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    await openEdit()
+    mDelete.mockResolvedValue(undefined)
+    await userEvent.click(screen.getByLabelText('删除 provider deepseek'))
+    expect(mDelete).not.toHaveBeenCalled()
+    await userEvent.click(await screen.findByLabelText('确认删除 deepseek'))
+    await waitFor(() => expect(mDelete).toHaveBeenCalledWith('deepseek'))
+    expect(confirmSpy).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByLabelText('描述')).toBeNull())
+  })
+
+  it('未展开行也可直接行级删除', async () => {
     mList.mockResolvedValue([prov()])
     mDelete.mockResolvedValue(undefined)
     renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
-    await userEvent.click(screen.getByRole('button', { name: '删除' }))
-    expect(mDelete).not.toHaveBeenCalled()
-    await userEvent.click(await screen.findByRole('button', { name: '确认删除？' }))
+    await screen.findByText('deepseek')
+    await userEvent.click(screen.getByLabelText('删除 provider deepseek'))
+    await userEvent.click(await screen.findByLabelText('确认删除 deepseek'))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('deepseek'))
-    expect(confirmSpy).not.toHaveBeenCalled()
-    await waitFor(() =>
-      expect(screen.getByText('选择左侧部署查看详情，或点「+」新建')).toBeTruthy(),
-    )
   })
 
-  it('加载失败在左列表显示错误并提供重试', async () => {
+  it('测试连接缺前置时点击即给原因（不再禁用态静默拦截）', async () => {
+    mList.mockResolvedValue([prov()])
+    renderView()
+    await screen.findByText('deepseek')
+    await userEvent.click(screen.getByRole('button', { name: '新建' }))
+    await userEvent.click(await screen.findByRole('button', { name: '测试连接' }))
+    expect(await screen.findByText('需先填 Base URL、默认模型，并有可用密钥')).toBeTruthy()
+    expect(mSave).not.toHaveBeenCalled()
+  })
+
+  it('加载失败显示错误并提供重试', async () => {
     mList.mockRejectedValue(new Error('boom'))
     renderView()
     expect(await screen.findByText(/boom/)).toBeTruthy()
@@ -174,27 +220,30 @@ describe('ProvidersView', () => {
     expect(await screen.findByText('deepseek')).toBeTruthy()
   })
 
-  it('单页表单同屏可见连接与能力字段（无二级 tab）', async () => {
-    mList.mockResolvedValue([prov()])
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
-    // 无需点 tab，context_window（能力组）与 base_url（连接组）同屏可见。
-    expect(await screen.findByDisplayValue('65536')).toBeTruthy()
-    expect(screen.getByDisplayValue('https://api.deepseek.com')).toBeTruthy()
-  })
-
   it('编辑已有密钥的 provider：默认收起展示脱敏尾号 + 更换密钥入口', async () => {
-    mList.mockResolvedValue([prov({ code: 'deepseek', key_present: true, key_last4: '9f2c' })])
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
+    await openEdit({ key_present: true, key_last4: '9f2c' })
     expect(await screen.findByText(/9f2c/)).toBeTruthy()
     expect(screen.getByText('更换密钥')).toBeTruthy()
   })
 
+  it('恢复使用环境变量：仅密文生效且存在 env 引用时出现，两段式确认后清密文', async () => {
+    mRestore.mockResolvedValue(prov({ key_present: true, key_last4: undefined, api_key_env: 'GLM_API_KEY' }))
+    await openEdit({ key_present: true, key_last4: '9f2c', api_key_env: 'GLM_API_KEY' })
+    // 密文生效 + env 引用存在 → 恢复按钮出现（等编辑面板挂载后用文本查询——
+    // 按钮带 title 属性时 accessible name 取 title，role 查询会失配）
+    await screen.findByText('编辑 deepseek')
+    const btn = await screen.findByText('恢复使用环境变量')
+    expect(mRestore).not.toHaveBeenCalled()
+    await userEvent.click(btn)
+    await userEvent.click(await screen.findByText('确认恢复？'))
+    await waitFor(() => expect(mRestore).toHaveBeenCalledWith('deepseek'))
+    // 密钥字段写回：尾号消失、回落 env 展示
+    await waitFor(() => expect(screen.queryByText(/9f2c/)).toBeNull())
+    expect(await screen.findByText(/来自环境变量（GLM_API_KEY）/)).toBeTruthy()
+  })
+
   it('能力标志为开关控件（Switch role=switch），切换即改草稿', async () => {
-    mList.mockResolvedValue([prov()])
-    renderView()
-    await userEvent.click(await screen.findByText('deepseek'))
+    await openEdit()
     const vision = screen.getByRole('switch', { name: '支持视觉' })
     expect(vision.getAttribute('data-state')).toBe('unchecked')
     await userEvent.click(vision)
