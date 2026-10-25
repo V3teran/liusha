@@ -20,8 +20,11 @@ import (
 type InvocationsAPI interface {
 	Flush(ctx context.Context) error
 	ListByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) ([]llminvocation.Invocation, error)
+	ListAll(ctx context.Context, f llminvocation.ListFilter) ([]llminvocation.Invocation, error)
 	CountByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (int, error)
+	CountAll(ctx context.Context, f llminvocation.ListFilter) (int, error)
 	GetByID(ctx context.Context, taskID string, id int64) (llminvocation.Invocation, error)
+	GetDetailByID(ctx context.Context, id int64) (llminvocation.Invocation, error)
 	AggregateByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
 	FacetsByTask(ctx context.Context, taskID string) (llminvocation.Facets, error)
 }
@@ -120,20 +123,22 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		items := make([]gin.H, 0, len(invocations))
 		for _, v := range invocations {
 			items = append(items, gin.H{
-				"id":            v.ID,
-				"request_id":    v.RequestID,
-				"agent_run_id":  v.AgentRunID,
-				"task_id":       v.TaskID,
-				"provider":      v.Provider,
-				"model":         v.Model,
-				"in_tokens":     v.InTokens,
-				"out_tokens":    v.OutTokens,
-				"cached_tokens": v.CachedTokens,
-				"latency_ms":    v.LatencyMs,
-				"finish_reason": v.FinishReason,
-				"error_message": v.Error,
-				"role":          v.Role,
-				"created_at":    v.CreatedAt,
+				"id":              v.ID,
+				"request_id":      v.RequestID,
+				"agent_run_id":    v.AgentRunID,
+				"task_id":         v.TaskID,
+				"conversation_id": v.ConversationID,
+				"assignment_id":   v.AssignmentID,
+				"provider":        v.Provider,
+				"model":           v.Model,
+				"in_tokens":       v.InTokens,
+				"out_tokens":      v.OutTokens,
+				"cached_tokens":   v.CachedTokens,
+				"latency_ms":      v.LatencyMs,
+				"finish_reason":   v.FinishReason,
+				"error_message":   v.Error,
+				"role":            v.Role,
+				"created_at":      v.CreatedAt,
 				// 派生摘要（库内算，不传 result 大字段）：这次调用产出了什么。
 				"tool_names":   toolNamesOrEmpty(v.ToolNames),
 				"text_preview": v.TextPreview,
@@ -260,4 +265,132 @@ func toolNamesOrEmpty(names []string) []string {
 		return []string{}
 	}
 	return names
+}
+
+// llmInvocationsSearchHandler 处理 GET /llm/invocations/search?q=<search>&page=&size=&role=&model=&only_err=&start=&end=。
+//
+// 全局搜索端点：支持按 task_id/conversation_id/assignment_id 搜索 LLM 调用。
+// q 为空时返回所有数据（按时间倒序），不需要先选对话，适用于全局审计场景。
+//
+// 响应结构：
+//
+//	{
+//	  "total": 19, "page": 1, "size": 200,
+//	  "items": [{...含 conversation_id/assignment_id}]
+//	}
+func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q") // 允许为空，返回所有数据
+		page, size := parseInvocationPaging(c)
+		f := llminvocation.ListFilter{
+			Role:    c.Query("role"),
+			Model:   c.Query("model"),
+			OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
+			Search:  query,
+		}
+		if s := c.Query("start"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				f.Start = &t
+			}
+		}
+		if s := c.Query("end"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				f.End = &t
+			}
+		}
+		if size > 0 {
+			f.Limit = size
+			f.Offset = (page - 1) * size
+		}
+
+		_ = api.Flush(c.Request.Context())
+
+		invocations, err := api.ListAll(c.Request.Context(), f)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		total, err := api.CountAll(c.Request.Context(), f)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		items := make([]gin.H, 0, len(invocations))
+		for _, v := range invocations {
+			items = append(items, gin.H{
+				"id":              v.ID,
+				"request_id":      v.RequestID,
+				"agent_run_id":    v.AgentRunID,
+				"task_id":         v.TaskID,
+				"conversation_id": v.ConversationID,
+				"assignment_id":   v.AssignmentID,
+				"provider":        v.Provider,
+				"model":           v.Model,
+				"in_tokens":       v.InTokens,
+				"out_tokens":      v.OutTokens,
+				"cached_tokens":   v.CachedTokens,
+				"latency_ms":      v.LatencyMs,
+				"finish_reason":   v.FinishReason,
+				"error_message":   v.Error,
+				"role":            v.Role,
+				"created_at":      v.CreatedAt,
+				"tool_names":      toolNamesOrEmpty(v.ToolNames),
+				"text_preview":    v.TextPreview,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"total": total,
+			"page":  page,
+			"size":  size,
+			"items": items,
+		})
+	}
+}
+
+// llmInvocationDetailByIDHandler 处理 GET /llm/invocations/detail/:id。
+//
+// 通过 invocation ID 直接获取详情（不需要 task_id），用于全局搜索后点击详情的场景。
+func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		_ = api.Flush(c.Request.Context())
+
+		v, err := api.GetDetailByID(c.Request.Context(), id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "invocation not found", "id": id})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"id":              v.ID,
+			"request_id":      v.RequestID,
+			"agent_run_id":    v.AgentRunID,
+			"task_id":         v.TaskID,
+			"conversation_id": v.ConversationID,
+			"assignment_id":   v.AssignmentID,
+			"provider":        v.Provider,
+			"model":           v.Model,
+			"in_tokens":       v.InTokens,
+			"out_tokens":      v.OutTokens,
+			"cached_tokens":   v.CachedTokens,
+			"latency_ms":      v.LatencyMs,
+			"finish_reason":   v.FinishReason,
+			"error_message":   v.Error,
+			"role":            v.Role,
+			"messages":        json.RawMessage(rawOrEmpty(v.Messages, "[]")),
+			"result":          json.RawMessage(rawOrEmpty(v.Result, "{}")),
+			"created_at":      v.CreatedAt,
+		})
+	}
 }

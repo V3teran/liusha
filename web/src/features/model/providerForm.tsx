@@ -303,7 +303,7 @@ export function ProviderFormBody({
   return (
     <div className="flex flex-col gap-4">
       <GroupLabel>连接</GroupLabel>
-      <Field label="显示名称" hint="仅展示用，可随时改；留空则显示标识符">
+      <Field label="显示名称" hint="仅展示用，可随时改">
         <input
           className={INPUT_CLASS}
           value={draft.display_name ?? ''}
@@ -312,29 +312,16 @@ export function ProviderFormBody({
           onChange={(e) => patch({ display_name: e.target.value })}
         />
       </Field>
-      <div className="flex gap-3">
-        {isNew ? (
-          <Field label="标识符" hint="保存后由系统生成 UUID，无需填写">
-            <div className="flex h-[34px] items-center rounded-md border border-border bg-surface-2 px-2.5 font-mono text-xs text-faint">
-              保存后自动生成
-            </div>
-          </Field>
-        ) : (
-          <Field label="标识符" hint="稳定引用键，创建后不可改">
-            <input className={INPUT_CLASS} value={draft.code} disabled />
-          </Field>
-        )}
-        <Field label="协议">
-          <select
-            className={INPUT_CLASS}
-            value={draft.type}
-            onChange={(e) => patch({ type: e.target.value as ProviderType })}
-          >
-            <option value="openai_compat">OpenAI 兼容</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </Field>
-      </div>
+      <Field label="协议">
+        <select
+          className={INPUT_CLASS}
+          value={draft.type}
+          onChange={(e) => patch({ type: e.target.value as ProviderType })}
+        >
+          <option value="openai_compat">OpenAI 兼容</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+      </Field>
       <Field label="Base URL" hint="API 端点根地址">
         <input
           className={INPUT_CLASS}

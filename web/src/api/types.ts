@@ -340,6 +340,8 @@ export interface LLMInvocationSummary {
   request_id: string // 跨系统关联键（db 侧 gen_random_uuid() 生成）
   agent_run_id: string | null
   task_id: string | null
+  conversation_id: string | null // 派生字段（JOIN conversation），对话标识
+  assignment_id: string | null // 派生字段（JOIN task），批次标识
   provider: string
   model: string
   in_tokens: number

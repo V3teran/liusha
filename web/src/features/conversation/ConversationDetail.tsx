@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Square, Network } from 'lucide-react'
-import { abortScan, getConversationUsage, listMessages, listConversations } from '@/api/client'
+import { abortScan, getConversationUsage, listMessages } from '@/api/client'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
@@ -42,7 +42,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const [loadError, setLoadError] = useState(false)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('open')
   const [usage, setUsage] = useState<ConversationUsage | null>(null)
-  const [taskId, setTaskId] = useState<string>('')
   const handleRef = useRef<StreamHandle | null>(null)
   const usageDebounceRef = useRef<number | undefined>(undefined)
   const convIdRef = useRef(convId)
@@ -62,22 +61,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         setUsage(u)
       }
 
-      // 获取taskId（从conversations列表中查找）
-      if (!taskId) {
-        try {
-          const { conversations } = await listConversations(20, 0, '')
-          const conv = conversations.find(c => c.ID === reqConv)
-          if (conv?.TaskID && convIdRef.current === reqConv) {
-            setTaskId(conv.TaskID)
-          }
-        } catch {
-          // 静默失败
-        }
-      }
     } catch {
       // 静默
     }
-  }, [taskId])
+  }, [])
 
   // 事件驱动刷新：每有新消息落定（seq 增长）防抖 800ms 刷用量，不依赖固定轮询启发。
   const scheduleUsageRefresh = useCallback(() => {
@@ -246,9 +233,9 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 停止扫描
               </button>
             )}
-            {taskId && (
+            {convId && (
               <Link
-                to={`/exploration-graph?task_id=${taskId}`}
+                to={`/exploration-graph?conversation_id=${convId}`}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1 text-sm font-medium text-text hover:bg-surface-2"
                 title="查看探索图"
               >

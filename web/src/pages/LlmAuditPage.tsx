@@ -1,118 +1,134 @@
 import { useMemo, useState } from 'react'
 import { LlmAuditFilterBar } from '@/features/llm-audit/LlmAuditFilterBar'
 import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
-import { LlmAuditToolbar } from '@/features/llm-audit/LlmAuditToolbar'
+import { LlmAuditSearchBar } from '@/features/llm-audit/LlmAuditSearchBar'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
-import { useLlmAuditFacets, useLlmAuditList, useLlmAuditStat, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
+import { useLlmAuditSearch, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
 import type { LLMInvocationSummary } from '@/api/types'
 import { humanTokens, compactNumber } from '@/lib/format'
-import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
+import { StatChip } from '@/components/StatChip'
 
-// 分页按钮：图标化前后翻页（‹ ›），对齐流量/漏洞模块的样式。
-const PAGER_BTN =
-  'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-sm text-text-secondary transition-all hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-35'
-
-// LLM 审计页：选会话 → 服务端筛选 + offset 分页拉调用明细。
-// 布局：工具栏统计 chip（非大卡片）+ 筛选栏 + 单张扁平密集表 + 总数/每页条数/翻页。点行右侧抽屉钻取完整原文。
-//
-// 数据层走 React Query（见 useLlmAuditQueries）：query key 含 task/filters/page/size，任一变化
-// 即视为新查询，过期请求自动被丢弃（不再有「快速切筛选后旧请求覆盖新结果」的竞态）；
-// placeholderData: keepPreviousData 让筛选/翻页时旧数据先留在屏幕上，不必每次整表闪成骨架。
-// 筛选/分页状态持久化进 URL（见 useLlmAuditFilters）：刷新/前进后退/分享链接都能还原视图。
 export function LlmAuditPage() {
-  const { taskId, filters, page, size, setTaskId, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
-
-  const facetsQuery = useLlmAuditFacets(taskId)
-  const listQuery = useLlmAuditList(taskId, filters, page, size)
-  const statQuery = useLlmAuditStat(taskId, filters)
-
-  const rows = listQuery.data?.items ?? []
-  const total = listQuery.data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / size))
-  const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
-
-  // provider 只在该 task 下确实出现过多个时才逐行显示——单一 provider 时每行重复同一个值是纯噪声。
-  const showProvider = useMemo(() => new Set(rows.map((r) => r.provider)).size > 1, [rows])
-
-  // 详情钻取：选中行 id 驱动查询，抽屉开合与数据加载解耦。
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const detailQuery = useLlmInvocationDetail(taskId, selectedId)
+
+  const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
+
+  // 全局搜索：空搜索时返回所有数据（按时间倒序）
+  const searchQueryResult = useLlmAuditSearch({
+    search: searchQuery,
+    page,
+    size,
+    ...filters,
+  })
+
+  const detailQuery = useLlmInvocationDetail(selectedId)
+
   const openDetail = (row: LLMInvocationSummary) => {
     setSelectedId(row.id)
     setDrawerOpen(true)
   }
 
-  const error = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
+  const rows = searchQueryResult.data?.items ?? []
+  const total = searchQueryResult.data?.total ?? 0
+  const totalPages = Math.ceil(total / size)
+  const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
+
+  const showProvider = useMemo(() => {
+    const providers = new Set(rows.map((r) => r.provider))
+    return providers.size > 1
+  }, [rows])
+
+  const { roles, models } = useMemo(() => {
+    const roleSet = new Set(rows.map((r) => r.role))
+    const modelSet = new Set(rows.map((r) => r.model))
+    return {
+      roles: Array.from(roleSet).sort(),
+      models: Array.from(modelSet).sort(),
+    }
+  }, [rows])
+
+  const stats = useMemo(() => {
+    if (rows.length === 0) return null
+    const in_tokens = rows.reduce((sum, r) => sum + r.in_tokens, 0)
+    const cached_tokens = rows.reduce((sum, r) => sum + r.cached_tokens, 0)
+    const cache_rate = in_tokens > 0 ? (cached_tokens / in_tokens) * 100 : 0
+    return {
+      calls: rows.length,
+      in_tokens,
+      out_tokens: rows.reduce((sum, r) => sum + r.out_tokens, 0),
+      cached_tokens,
+      cache_rate,
+    }
+  }, [rows])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 统一头部 */}
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
         <div>
           <h1 className="text-base font-semibold text-text">LLM 审计</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">大模型调用日志与性能分析</p>
+          <p className="mt-0.5 text-sm text-text-secondary">全局搜索和监控所有 LLM 调用</p>
         </div>
       </header>
 
-      <LlmAuditToolbar taskId={taskId} onTaskIdChange={setTaskId} stat={statQuery.data} />
+      <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-4">
+        <LlmAuditSearchBar value={searchQuery} onChange={setSearchQuery} />
+        {stats && (
+          <div className="flex flex-wrap items-center gap-2">
+            <StatChip color="var(--accent)" label="调用" value={humanTokens(stats.calls)} />
+            <StatChip color="#38bdf8" label="输入" value={compactNumber(stats.in_tokens)} title={humanTokens(stats.in_tokens)} />
+            <StatChip color="#34d399" label="输出" value={compactNumber(stats.out_tokens)} title={humanTokens(stats.out_tokens)} />
+            <StatChip color="#a78bfa" label="缓存" value={compactNumber(stats.cached_tokens)} title={humanTokens(stats.cached_tokens)} />
+            <StatChip
+              color="#f59e0b"
+              label="缓存率"
+              value={`${stats.cache_rate.toFixed(1)}%`}
+              title={`${humanTokens(stats.cached_tokens)} / ${humanTokens(stats.in_tokens)}`}
+            />
+          </div>
+        )}
+      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        {!taskId ? (
-          <div className="py-16 text-center text-sm text-muted">请选择一个对话查看 LLM 调用审计</div>
-        ) : error ? (
-          <div className="py-16 text-center text-sm text-sev-critical">⚠ {error}</div>
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+        {searchQueryResult.isError ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-sev-critical">
+              加载失败：{searchQueryResult.error instanceof Error ? searchQueryResult.error.message : '未知错误'}
+            </p>
+          </div>
         ) : (
           <>
             <LlmAuditFilterBar
               filters={filters}
-              roles={facetsQuery.data?.roles ?? []}
-              models={facetsQuery.data?.models ?? []}
+              roles={roles}
+              models={models}
               onChange={setFilters}
               onReset={resetFilters}
               trailing={
-                (rows.length > 0 || page > 1) ? (
-                  <>
-                    <span className="text-sm text-text-secondary tabular-nums">
-                      共 {compactNumber(total)} 条{statQuery.data && ` / ${humanTokens(statQuery.data.calls)}`}
-                    </span>
-                    <PageSizeSelect value={size} onChange={setSize} />
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={page <= 1 || listQuery.isFetching}
-                        onClick={() => setPage(page - 1)}
-                        aria-label="上一页"
-                        className={PAGER_BTN}
-                      >
-                        <span aria-hidden>‹</span>
-                      </button>
-                      <span className="min-w-[52px] text-center text-xs text-muted tabular-nums">
-                        <span className="font-semibold text-text">{page}</span> / {totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={page >= totalPages || listQuery.isFetching}
-                        onClick={() => setPage(page + 1)}
-                        aria-label="下一页"
-                        className={PAGER_BTN}
-                      >
-                        <span aria-hidden>›</span>
-                      </button>
-                    </div>
-                  </>
-                ) : null
+                <PaginationToolbar
+                  page={page}
+                  pageSize={size}
+                  total={total}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  onPageSizeChange={setSize}
+                  loading={searchQueryResult.isPending}
+                />
               }
             />
 
-            <LlmAuditTable
-              rows={rows}
-              loading={listQuery.isPending}
-              hasFilter={hasFilter}
-              showProvider={showProvider}
-              onRowClick={openDetail}
-            />
+            <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
+              <LlmAuditTable
+                rows={rows}
+                loading={searchQueryResult.isPending}
+                hasFilter={hasFilter || !!searchQuery}
+                showProvider={showProvider}
+                onRowClick={openDetail}
+              />
+            </div>
           </>
         )}
       </div>

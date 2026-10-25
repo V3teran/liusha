@@ -253,33 +253,69 @@ type ListFilter struct {
 	OnlyErr bool       // true = 只看失败调用（error_message 非空）
 	Start   *time.Time // created_at >= Start；nil = 不限
 	End     *time.Time // created_at <= End；nil = 不限
+	Search  string     // 全局搜索：匹配 task_id/conversation_id/assignment_id；空 = 不筛
 	Limit   int        // 本页上限；<=0 或超 maxListLimit 收敛到 maxListLimit
 	Offset  int        // 本页起点（offset 分页——对齐流量/漏洞模块的总数+跳页体验）
 }
 
 // where 把筛选拼成 SQL 条件与参数（task_id 恒为 $1，故从 $2 起编号）。
 // 返回的 conds 已含 task_id 条件，调用方直接 strings.Join(conds, " AND ")。
+// 列名加 li. 前缀以支持 JOIN 查询。
 func (f ListFilter) where(taskID string) (conds []string, args []any) {
 	args = []any{taskID}
-	conds = []string{"task_id=$1::uuid"}
+	conds = []string{"li.task_id=$1::uuid"}
 	add := func(cond string, val any) {
 		args = append(args, val)
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
 	}
 	if f.Role != "" {
-		add("role = $%d", f.Role)
+		add("li.role = $%d", f.Role)
 	}
 	if f.Model != "" {
-		add("model = $%d", f.Model)
+		add("li.model = $%d", f.Model)
 	}
 	if f.OnlyErr {
-		conds = append(conds, "error_message <> ''")
+		conds = append(conds, "li.error_message <> ''")
 	}
 	if f.Start != nil {
-		add("created_at >= $%d", *f.Start)
+		add("li.created_at >= $%d", *f.Start)
 	}
 	if f.End != nil {
-		add("created_at <= $%d", *f.End)
+		add("li.created_at <= $%d", *f.End)
+	}
+	return conds, args
+}
+
+// whereAll 把筛选拼成 SQL 条件（全局搜索，不限定 task_id）。
+// Search 为空时返回所有数据，否则匹配 task_id/conversation_id/assignment_id 之一。
+func (f ListFilter) whereAll() (conds []string, args []any) {
+	args = []any{}
+	conds = []string{}
+	add := func(cond string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(cond, len(args)))
+	}
+	if f.Search != "" {
+		// 搜索：匹配 task_id/conversation_id/assignment_id
+		add("(li.task_id::text = $%d OR c.id::text = $%[1]d OR t.assignment_id::text = $%[1]d)", f.Search)
+	}
+	if f.Role != "" {
+		add("li.role = $%d", f.Role)
+	}
+	if f.Model != "" {
+		add("li.model = $%d", f.Model)
+	}
+	if f.OnlyErr {
+		conds = append(conds, "li.error_message <> ''")
+	}
+	if f.Start != nil {
+		add("li.created_at >= $%d", *f.Start)
+	}
+	if f.End != nil {
+		add("li.created_at <= $%d", *f.End)
+	}
+	if len(conds) == 0 {
+		conds = append(conds, "TRUE") // 无条件时返回所有数据
 	}
 	return conds, args
 }
@@ -310,19 +346,23 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	conds, args := f.where(taskID)
 	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(`
-		SELECT id, request_id, agent_run_id, task_id::text,
-		       provider, model,
-		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms,
-		       finish_reason, error_message, role,
-		       created_at,
+		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+		       li.provider, li.model,
+		       li.in_tokens, li.out_tokens, li.cached_tokens,
+		       li.latency_ms,
+		       li.finish_reason, li.error_message, li.role,
+		       li.created_at,
 		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
-		                 FROM jsonb_array_elements(result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
-		                 WHERE jsonb_typeof(result->'tool_calls') = 'array'), '{}') AS tool_names,
-		       left(COALESCE(result->>'content', ''), %d) AS text_preview
-		FROM llm_invocation
+		                 FROM jsonb_array_elements(li.result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
+		                 WHERE jsonb_typeof(li.result->'tool_calls') = 'array'), '{}') AS tool_names,
+		       left(COALESCE(li.result->>'content', ''), %d) AS text_preview,
+		       c.id::text AS conversation_id,
+		       t.assignment_id::text AS assignment_id
+		FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
 		WHERE %s
-		ORDER BY id ASC
+		ORDER BY li.id ASC
 		LIMIT $%d OFFSET $%d`, textPreviewLimit, strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -333,7 +373,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var tid *string
+		var tid, cid, aid *string
 		if err := rows.Scan(
 			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 			&v.Provider, &v.Model,
@@ -342,10 +382,13 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 			&v.FinishReason, &v.Error, &v.Role,
 			&v.CreatedAt,
 			&v.ToolNames, &v.TextPreview,
+			&cid, &aid,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
 		v.TaskID = tid
+		v.ConversationID = cid
+		v.AssignmentID = aid
 		out = append(out, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -379,6 +422,41 @@ func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocatio
 		return Invocation{}, fmt.Errorf("get llm_invocation %d: %w", id, err)
 	}
 	v.TaskID = tid
+	return v, nil
+}
+
+// GetDetailByID 通过 ID 直接获取详情（不需要 task_id），用于全局搜索后点击详情。
+// 包含 messages/result 大字段，以及 JOIN 获取的 conversation_id/assignment_id。
+func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error) {
+	var v Invocation
+	var tid, cid, aid *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+		       li.provider, li.model,
+		       li.in_tokens, li.out_tokens, li.cached_tokens,
+		       li.latency_ms,
+		       li.finish_reason, li.error_message, li.role,
+		       li.messages, li.result, li.created_at,
+		       c.id::text AS conversation_id,
+		       t.assignment_id::text AS assignment_id
+		FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
+		WHERE li.id=$1`, id).Scan(
+		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
+		&v.Provider, &v.Model,
+		&v.InTokens, &v.OutTokens, &v.CachedTokens,
+		&v.LatencyMs,
+		&v.FinishReason, &v.Error, &v.Role,
+		&v.Messages, &v.Result, &v.CreatedAt,
+		&cid, &aid,
+	)
+	if err != nil {
+		return Invocation{}, fmt.Errorf("get llm_invocation detail %d: %w", id, err)
+	}
+	v.TaskID = tid
+	v.ConversationID = cid
+	v.AssignmentID = aid
 	return v, nil
 }
 
@@ -420,10 +498,84 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter
 // 与 ListByTask/AggregateByTask 共用同一份筛选口径。
 func (s *Store) CountByTask(ctx context.Context, taskID string, f ListFilter) (int, error) {
 	conds, args := f.where(taskID)
-	q := fmt.Sprintf(`SELECT COUNT(*) FROM llm_invocation WHERE %s`, strings.Join(conds, " AND "))
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM llm_invocation li WHERE %s`, strings.Join(conds, " AND "))
 	var total int
 	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
 		return 0, fmt.Errorf("count llm_invocation by task %s: %w", taskID, err)
+	}
+	return total, nil
+}
+
+// ListAll 全局搜索 LLM 调用（不限定 task_id）。
+// Search 字段匹配 task_id/conversation_id/assignment_id 之一。
+func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error) {
+	conds, args := f.whereAll()
+	// 追加 LIMIT 和 OFFSET 参数
+	limitIdx := len(args) + 1
+	offsetIdx := len(args) + 2
+	args = append(args, f.limitOrDefault(), f.Offset)
+
+	q := fmt.Sprintf(`
+		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+		       li.provider, li.model,
+		       li.in_tokens, li.out_tokens, li.cached_tokens,
+		       li.latency_ms,
+		       li.finish_reason, li.error_message, li.role,
+		       li.created_at,
+		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
+		                 FROM jsonb_array_elements(li.result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
+		                 WHERE jsonb_typeof(li.result->'tool_calls') = 'array'), '{}') AS tool_names,
+		       left(COALESCE(li.result->>'content', ''), %d) AS text_preview,
+		       c.id::text AS conversation_id,
+		       t.assignment_id::text AS assignment_id
+		FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
+		WHERE %s
+		ORDER BY li.id DESC
+		LIMIT $%d OFFSET $%d`, textPreviewLimit, strings.Join(conds, " AND "), limitIdx, offsetIdx)
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all llm_invocation: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Invocation
+	for rows.Next() {
+		var v Invocation
+		var tid, cid, aid *string
+		if err := rows.Scan(
+			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
+			&v.Provider, &v.Model,
+			&v.InTokens, &v.OutTokens, &v.CachedTokens,
+			&v.LatencyMs,
+			&v.FinishReason, &v.Error, &v.Role,
+			&v.CreatedAt,
+			&v.ToolNames, &v.TextPreview,
+			&cid, &aid,
+		); err != nil {
+			return nil, fmt.Errorf("scan llm_invocation: %w", err)
+		}
+		v.TaskID = tid
+		v.ConversationID = cid
+		v.AssignmentID = aid
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// CountAll 全局搜索的总数统计。
+func (s *Store) CountAll(ctx context.Context, f ListFilter) (int, error) {
+	conds, args := f.whereAll()
+	q := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
+		WHERE %s`, strings.Join(conds, " AND "))
+	var total int
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count all llm_invocation: %w", err)
 	}
 	return total, nil
 }

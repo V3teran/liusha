@@ -1,5 +1,5 @@
 /**
- * 探索图 API 客户端
+ * 探索图 API 客户端（会话维度：经 conversation 关联的 task 解析）
  */
 
 import { get } from './client'
@@ -27,36 +27,14 @@ export interface GraphEdge {
   created_at: string
 }
 
-export interface TaskGraph {
+/**
+ * 获取会话的完整探索图（节点 + 边；后端经 conversation.task_id 解析）
+ */
+export async function getConversationGraph(conversationId: string): Promise<ConversationGraph> {
+  return get<ConversationGraph>(`/api/v1/conversations/${conversationId}/exploration/graph`)
+}
+
+export interface ConversationGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
-}
-
-export interface TaskStats {
-  objectives: number
-  actions: number
-  observations: number
-  results: number
-}
-
-/**
- * 获取任务的完整探索图（节点 + 边）
- */
-export async function getTaskGraph(taskId: string): Promise<TaskGraph> {
-  return get<TaskGraph>(`/api/v1/tasks/${taskId}/exploration/graph`)
-}
-
-/**
- * 获取任务的节点统计
- */
-export async function getTaskStats(taskId: string): Promise<TaskStats> {
-  return get<TaskStats>(`/api/v1/tasks/${taskId}/exploration/stats`)
-}
-
-/**
- * 获取任务的节点列表（可按类型筛选）
- */
-export async function getTaskNodes(taskId: string, kind?: string): Promise<GraphNode[]> {
-  const query = kind ? `?kind=${kind}` : ''
-  return (await get<{ nodes: GraphNode[] }>(`/api/v1/tasks/${taskId}/exploration/nodes${query}`)).nodes
 }

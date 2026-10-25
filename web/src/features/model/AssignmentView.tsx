@@ -68,9 +68,10 @@ export function AssignmentView() {
   }
 
   // 已知档之外、DB 里还存在的自定义档也要列出（不丢数据，如历史遗留行）。
+  // __fallback__ 是已废弃的保留 role（兜底机制已删）——瞬态残留行不展示。
   const knownSet = new Set(COMPLEXITY_GROUPS.map((m) => m.key))
   const extraGroups: ComplexityGroupMeta[] = [...routeMap.keys()]
-    .filter((g) => !knownSet.has(g))
+    .filter((g) => !knownSet.has(g) && g !== '__fallback__')
     .map(groupMeta)
 
   const moving = useMemo(() => new Set(moveMutation.isPending ? [moveMutation.variables?.agentId ?? ''] : []), [moveMutation.isPending, moveMutation.variables])

@@ -114,7 +114,19 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     <dt className="text-xs text-muted">Tokens</dt>
                     <dd className="font-mono text-sm text-text">
                       输入 {humanTokens(detail.in_tokens)} · 输出 {humanTokens(detail.out_tokens)}
-                      {detail.cached_tokens > 0 && ` · 缓存 ${humanTokens(detail.cached_tokens)}`}
+                      {detail.cached_tokens > 0 && (
+                        <>
+                          {' · 缓存 '}
+                          {humanTokens(detail.cached_tokens)}
+                          {detail.in_tokens > 0 && (
+                            <span className="font-semibold text-status-warning">
+                              {' ('}
+                              {((detail.cached_tokens / (detail.in_tokens + detail.cached_tokens)) * 100).toFixed(1)}
+                              {'%)'}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </dd>
                     <dt className="text-xs text-muted">响应耗时</dt>
                     <dd className="font-mono text-sm text-text">
@@ -125,8 +137,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                         throughputLabel(detail) && ` · ${throughputLabel(detail)}`
                       )}
                     </dd>
-                    <dt className="text-xs text-muted">结束原因</dt>
-                    <dd className="font-mono text-sm text-text">{detail.finish_reason || '—'}</dd>
                     {detail.agent_run_id && (
                       <>
                         <dt className="text-xs text-muted">agent</dt>

@@ -1,11 +1,11 @@
 import { createColumnHelper } from '@tanstack/react-table'
-import { Settings2 } from 'lucide-react'
 import type { LLMInvocationSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { clockTime, dateOnly, fullTime, humanDuration, humanTokens } from '@/lib/format'
 import { invocationStatus } from '@/lib/llmInvocationStatus'
 import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from '@/lib/llmTiming'
+import { Link } from 'react-router-dom'
 
 const columnHelper = createColumnHelper<LLMInvocationSummary>()
 
@@ -22,22 +22,58 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * showProvider：该 task 下是否出现过多个 provider，仅此时才在模型列附带展示 provider
  * （单一 provider 时每行重复同一个值是纯噪声，与原实现保持一致）。
  *
- * 没有独立的「状态」列：绝大多数调用都是正常完成，独立一列会导致几乎每行都显示"—"，
- * 挤占「内容」列的空间却没有信息量。异常态（失败/超时/截断/内容过滤）改为并入已有列：
- * 失败/超时在「响应耗时」格内联出现（原实现已如此），截断/内容过滤同样内联在该格；
- * 失败行整行标红底色（LlmAuditTable 的 data-error），一眼可扫，不需要额外一列。
+ * 业界最佳实践列顺序（参考 Datadog/Sentry）：
+ * 1. 时间 - 固定在最左，时序数据的基础维度
+ * 2. 对话 ID - 业务标识，用户最关心的上下文
+ * 3. 批次 ID - 批量操作入口
+ * 4. 角色 - 执行主体
+ * 5. 模型 - 资源信息
+ * 6. Tokens - 使用量统计
+ * 7. 响应耗时 - 性能指标（含状态）
  */
 export function buildLlmAuditColumns(showProvider: boolean) {
   return [
     columnHelper.accessor('created_at', {
       header: '时间',
-      size: 96, // 相对权重（非像素）——渲染时经 columnWidthPercents 换算成百分比，随容器宽度缩放
+      size: 96,
       cell: (ctx) => {
         const iso = ctx.getValue()
         return (
           <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
             <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+          </span>
+        )
+      },
+    }),
+    columnHelper.accessor('conversation_id', {
+      header: '对话',
+      size: 100,
+      cell: (ctx) => {
+        const convId = ctx.getValue()
+        if (!convId) return <span className="text-muted opacity-40">—</span>
+        const shortId = convId.slice(0, 8)
+        return (
+          <Link
+            to={`/conversations/manual?id=${convId}`}
+            className="font-mono text-xs text-accent hover:underline"
+            title={`查看对话 ${convId}`}
+          >
+            {shortId}
+          </Link>
+        )
+      },
+    }),
+    columnHelper.accessor('assignment_id', {
+      header: '批次',
+      size: 100,
+      cell: (ctx) => {
+        const assignId = ctx.getValue()
+        if (!assignId) return <span className="text-muted opacity-40">—</span>
+        const shortId = assignId.slice(0, 8)
+        return (
+          <span className="font-mono text-xs text-text" title={`批次 ${assignId}`}>
+            {shortId}
           </span>
         )
       },
@@ -90,8 +126,6 @@ export function buildLlmAuditColumns(showProvider: boolean) {
       cell: (ctx) => {
         const v = ctx.row.original
         const timeout = isTimeout(v)
-        // 截断/内容过滤（warn 级）没有失败也没有超时，需要单独提示，否则容易被忽略
-        // ——它们不影响本次调用是否算「成功」，但输出可能不完整/被拦截。
         const status = invocationStatus(v)
         const warnStatus = status?.level === 'warn' ? status : null
         return (
@@ -111,34 +145,6 @@ export function buildLlmAuditColumns(showProvider: boolean) {
             )}
           </span>
         )
-      },
-    }),
-    columnHelper.display({
-      id: 'content',
-      header: () => <span title="这次调用产出了什么：请求的工具名（徽章）或文本回复预览">内容</span>,
-      size: 220, // 「内容」列权重最大——占比例布局里的剩余大头空间，同一权重体系下不再需要 0 这种特殊值
-      cell: (ctx) => {
-        const v = ctx.row.original
-        if (v.tool_names.length > 0) {
-          return (
-            <span className="flex items-center gap-1.5 overflow-hidden" title={`调用了 ${v.tool_names.length} 个工具：${v.tool_names.join('、')}`}>
-              <Settings2 className="h-3 w-3 flex-shrink-0 text-muted opacity-70" aria-hidden="true" />
-              {v.tool_names.map((t, i) => (
-                <Badge key={`${v.id}-${i}`} dot={false} color="var(--accent)" className="flex-shrink-0">
-                  {t}
-                </Badge>
-              ))}
-            </span>
-          )
-        }
-        if (v.text_preview) {
-          return (
-            <span className="block overflow-hidden truncate text-xs text-muted" title={v.text_preview}>
-              {v.text_preview}
-            </span>
-          )
-        }
-        return <span className="text-muted opacity-40">—</span>
       },
     }),
   ]

@@ -26,7 +26,7 @@ export default function SkillsPage() {
     <>
       <ConfigListShell
         title="技能知识库"
-        subtitle="领域知识与方法论，智能体可通过 read_skill 按需读取"
+        subtitle="领域知识与方法论"
         loading={loading}
         error={error}
         empty={rows.length === 0}

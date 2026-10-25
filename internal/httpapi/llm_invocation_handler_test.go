@@ -46,9 +46,25 @@ func (f *fakeInvocations) CountByTask(_ context.Context, _ string, _ llminvocati
 	return len(f.rows), f.err
 }
 
+func (f *fakeInvocations) ListAll(_ context.Context, _ llminvocation.ListFilter) ([]llminvocation.Invocation, error) {
+	return f.rows, f.err
+}
+
+func (f *fakeInvocations) CountAll(_ context.Context, _ llminvocation.ListFilter) (int, error) {
+	return len(f.rows), f.err
+}
+
 func (f *fakeInvocations) GetByID(_ context.Context, taskID string, id int64) (llminvocation.Invocation, error) {
 	v, ok := f.byID[id]
 	if !ok || (v.TaskID != nil && *v.TaskID != taskID) {
+		return llminvocation.Invocation{}, pgx.ErrNoRows
+	}
+	return v, nil
+}
+
+func (f *fakeInvocations) GetDetailByID(_ context.Context, id int64) (llminvocation.Invocation, error) {
+	v, ok := f.byID[id]
+	if !ok {
 		return llminvocation.Invocation{}, pgx.ErrNoRows
 	}
 	return v, nil

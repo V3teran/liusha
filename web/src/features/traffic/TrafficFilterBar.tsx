@@ -65,7 +65,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
   )
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
       <select
         value={filters.contentType}
         onChange={(e) => onChange({ ...filters, contentType: e.target.value })}
