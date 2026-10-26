@@ -289,7 +289,7 @@ export function FindingsPage() {
                   className={cn(
                     'flex items-center gap-2 rounded-l-lg px-3 py-1.5 text-xs transition-colors',
                     viewMode === 'flat'
-                      ? 'bg-accent text-white'
+                      ? 'bg-surface-2 ring-1 ring-inset ring-border-strong text-text'
                       : 'text-text-secondary hover:bg-surface-2'
                   )}
                   title="平铺视图"
@@ -303,7 +303,7 @@ export function FindingsPage() {
                   className={cn(
                     'flex items-center gap-2 rounded-r-lg border-l border-border px-3 py-1.5 text-xs transition-colors',
                     viewMode === 'aggregated'
-                      ? 'bg-accent text-white'
+                      ? 'bg-surface-2 ring-1 ring-inset ring-border-strong text-text'
                       : 'text-text-secondary hover:bg-surface-2'
                   )}
                   title="聚合视图"
