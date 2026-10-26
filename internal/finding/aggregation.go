@@ -5,6 +5,7 @@ package finding
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -22,15 +23,15 @@ type AggregatedFinding struct {
 	AggregateKey string `json:"aggregate_key"` // host|cwe_id|normalized_path
 
 	// 最新发现（用于展示）
-	LatestID        string `json:"latest_id"`
-	LatestSummary   string `json:"latest_summary"`
-	LatestSeverity  string `json:"latest_severity"`
-	LatestStatus    string `json:"latest_status"`
-	LatestCWEID     string `json:"latest_cwe_id"`
-	LatestHost      string `json:"latest_host"`
-	LatestTarget    []byte `json:"latest_target"`    // json.RawMessage
-	LatestEval      []byte `json:"latest_evaluation"` // json.RawMessage
-	LatestSource    string `json:"latest_source"`     // manual/auto
+	LatestID       string `json:"latest_id"`
+	LatestSummary  string `json:"latest_summary"`
+	LatestSeverity string `json:"latest_severity"`
+	LatestStatus   string `json:"latest_status"`
+	LatestCWEID    string `json:"latest_cwe_id"`
+	LatestHost     string `json:"latest_host"`
+	LatestTarget   []byte `json:"latest_target"`     // json.RawMessage
+	LatestEval     []byte `json:"latest_evaluation"` // json.RawMessage
+	LatestSource   string `json:"latest_source"`     // manual/auto
 
 	// 生命周期统计
 	OccurrenceCount int       `json:"occurrence_count"` // 发现次数
@@ -261,13 +262,16 @@ func aggregationWhere(f AggregationFilter) (string, []any) {
 }
 
 func scanAggregated(row pgx.Row, a *AggregatedFinding) error {
-	return row.Scan(
+	// cwe_id / remediation 列可空（NULLIF 写入路径）——NULL 扫 string 会炸，
+	// 经 sql.NullString 中转。
+	var cweID, remediation sql.NullString
+	if err := row.Scan(
 		&a.AggregateKey,
 		&a.LatestID,
 		&a.LatestSummary,
 		&a.LatestSeverity,
 		&a.LatestStatus,
-		&a.LatestCWEID,
+		&cweID,
 		&a.LatestHost,
 		&a.LatestTarget,
 		&a.LatestEval,
@@ -282,6 +286,11 @@ func scanAggregated(row pgx.Row, a *AggregatedFinding) error {
 		&a.FalsePositiveCount,
 		&a.AcceptedCount,
 		&a.FindingIDs,
-		&a.Remediation,
-	)
+		&remediation,
+	); err != nil {
+		return err
+	}
+	a.LatestCWEID = cweID.String
+	a.Remediation = remediation.String
+	return nil
 }
