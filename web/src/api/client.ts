@@ -25,7 +25,6 @@ import type {
   FindingRow,
   FindingFilters,
   FindingListResponse,
-  AggregatedFindingListResponse,
   ControlEvent,
   Skill,
 } from './types'
@@ -376,22 +375,6 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
 /** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集，不受当前筛选/分页影响）。 */
 export async function listFindingHosts(): Promise<string[]> {
   return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
-}
-
-/**
- * 查询聚合后的漏洞视图（按 host+cwe_id+path 聚合，展示生命周期）。
- */
-export async function listAggregatedFindings(filters: FindingFilters = {}): Promise<AggregatedFindingListResponse> {
-  const params = new URLSearchParams()
-  for (const [k, v] of Object.entries(filters)) {
-    if (v) {
-      // 统一参数名：size → page_size
-      const key = k === 'size' ? 'page_size' : k
-      params.set(key, String(v))
-    }
-  }
-  const q = params.toString()
-  return get<AggregatedFindingListResponse>(`/findings/aggregated${q ? '?' + q : ''}`)
 }
 
 
