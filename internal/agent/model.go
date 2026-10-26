@@ -41,3 +41,10 @@ type UpdateParams struct {
 	MaxIterations *int
 	Complexity    *string
 }
+
+// Empty 报告没有任何待更新字段。HTTP 层用它把空 diff 拦成 400，
+// 而不是落到 Store.Update 的同款错误上变成 500。
+func (p UpdateParams) Empty() bool {
+	return p.SystemPrompt == nil && p.FunctionTools == nil && p.CliTools == nil &&
+		p.Skills == nil && p.MaxIterations == nil && p.Complexity == nil
+}

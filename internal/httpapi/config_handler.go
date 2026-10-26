@@ -1,8 +1,10 @@
-// Package httpapi 是 executor 配置 CRUD handler（前端配置管理页）。
+// Package httpapi 是 executor 配置读取/编辑 handler（前端配置管理页）。
 //
-// 写路径一律走 configstore（自动落 DB + redis 广播失效），绝不直穿底层 store——
-// 否则 api 进程改配置后 runner 进程的本地 L1 不失效，会用旧配置装配（见 D7）。
-// 读路径也走 configstore：单条读命中 L1/L2 缓存，列表读直穿 DB（低频）。
+// 角色是固定种子身份（四角色以 code 寻址）：只提供读与部分更新，
+// 不提供新建/删除——写路径一律走 configstore（自动落 DB + redis 广播失效），
+// 绝不直穿底层 store——否则 api 进程改配置后 runner 进程的本地 L1 不失效，
+// 会用旧配置装配（见 D7）。读路径也走 configstore：单条读命中 L1/L2 缓存，
+// 列表读直穿 DB（低频）。
 package httpapi
 
 import (
@@ -121,41 +123,53 @@ func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	}
 }
 
-// agentBody 是 POST/PUT executor 的请求体。
-// FunctionTools=内置函数工具；CliTools=外置 CLI 工具集（tools.yaml 名字），严格白名单，空=不装配任何外部工具。
-type agentBody struct {
-	Code          string   `json:"code"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	SystemPrompt  string   `json:"system_prompt"`
-	FunctionTools []string `json:"function_tools"`
-	CliTools      []string `json:"cli_tools"`
-	Skills        []string `json:"skills"` // 可访问 skill 裸名白名单（渐进式加载声明）
-	MaxIterations int      `json:"max_iterations"`
-	Complexity    string   `json:"complexity"`
-	Enabled       bool     `json:"enabled"`
+// agentUpdate 是 PUT /executors/:id 的请求体，部分更新语义：指针字段非 nil 才更新，nil 不动。
+// 不含寻址字段——目标行由 URL 里的 id 权威定位（与 GET 同律）；code/name/description 是
+// 固定种子身份（agent.Store.Update 拒改），enabled 由种子与运维控制，均不在此接受。
+// 未提及字段不被零值覆盖，与工具页「单工具装配」写路径并发时互不覆盖（都只动各自字段）。
+//   - SystemPrompt ：角色章程
+//   - FunctionTools：内置函数工具集（进程内原生函数 code 列表）
+//   - CliTools     ：外置 CLI 工具集（tools.yaml 名字），严格白名单，空 = 不装配任何外部工具
+//   - Skills       ：可访问 skill 裸名白名单（渐进式加载声明）
+type agentUpdate struct {
+	SystemPrompt  *string   `json:"system_prompt"`
+	FunctionTools *[]string `json:"function_tools"`
+	CliTools      *[]string `json:"cli_tools"`
+	Skills        *[]string `json:"skills"`
+	MaxIterations *int      `json:"max_iterations"`
+	Complexity    *string   `json:"complexity"`
 }
 
-// saveExecutorHandler 处理 POST /executors 与 PUT /executors/:id（均走 upsert-by-code）。
+// saveExecutorHandler 处理 PUT /executors/:id：URL id 权威定位目标行（先读后写），
+// 只更新 body 里非 nil 的字段。store 层按 code 更新，此处负责 id → code 的换算。
 func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var b agentBody
+		id := c.Param("id")
+		var b agentUpdate
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if b.Code == "" || b.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "code 与 name 不能为空"})
+		p := agent.UpdateParams{
+			SystemPrompt:  b.SystemPrompt,
+			FunctionTools: b.FunctionTools,
+			CliTools:      b.CliTools,
+			Skills:        b.Skills,
+			MaxIterations: b.MaxIterations,
+			Complexity:    b.Complexity,
+		}
+		if p.Empty() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要更新的字段"})
 			return
 		}
-		h, err := api.UpdateExecutor(c.Request.Context(), b.Code, agent.UpdateParams{
-			SystemPrompt:  &b.SystemPrompt,
-			FunctionTools: &b.FunctionTools,
-			CliTools:      &b.CliTools,
-			Skills:        &b.Skills,
-			MaxIterations: &b.MaxIterations,
-			Complexity:    &b.Complexity,
-		})
+		// 先按 id 读行换出稳定 code，再按 code 更新（读经 configstore 缓存，代价低）。
+		// 行不存在 → 404；行读取后到更新前被删在并发下不可能（固定种子无删除路径）。
+		cur, err := api.ExecutorByID(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
+			return
+		}
+		h, err := api.UpdateExecutor(c.Request.Context(), cur.Code, p)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

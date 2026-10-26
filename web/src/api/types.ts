@@ -118,9 +118,9 @@ export interface AgentConfig {
 // 工具种类：function（进程内函数工具）/ cli（外置 CLI 工具白名单项）。
 export type ToolKind = 'function' | 'cli'
 
-// Tool 是工具目录一项（GET /tools 列表、AgentAdmin function_tools/cli_tools 多选器候选）。
+// Tool 是工具目录一项（GET /tools 列表、AgentsPage function_tools/cli_tools 多选器候选）。
 // 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
-// Skill 是知识库 skill 一项（GET /skills 列表，AgentAdmin skills 多选器候选）。
+// Skill 是知识库 skill 一项（GET /skills 列表，AgentsPage skills 多选器候选）。
 // code = 裸名寻址键（= 种子目录名，如 browser-use / dom-xss），agent.skills 声明与 read_skill 都用它。
 export interface Skill {
   id: string

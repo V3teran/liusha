@@ -1,12 +1,12 @@
 /**
- * 配置管理 API 客户端（executor 资源 CRUD + 只读工具目录）
+ * 配置管理 API 客户端（executor 资源读取/编辑 + 只读工具目录）
  *
  * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 删除单独实现：executor 被引用时后端返回 409 + 中文 error，
- * 需把该提示透出给调用方（通用 del 只抛 HTTP 状态码，丢了中文原因）。
+ * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除——
+ * 后端 DELETE /executors 已移除，前端不再保留任何删除路径。
  */
 
-import { API_BASE, get, post, put, patch, getApiKey } from './client'
+import { get, put, patch } from './client'
 import type {
   AgentConfig,
   Skill,
@@ -24,24 +24,26 @@ export async function listAgentConfigs(): Promise<AgentConfig[]> {
   return res.executors
 }
 
-/** 保存操作员：有 id 走 PUT，否则 POST。键名与后端 agentBody 严格对齐。 */
-export async function saveAgent(h: AgentConfig): Promise<AgentConfig> {
-  const body = {
-    code: h.code,
-    name: h.name,
-    description: h.description,
-    system_prompt: h.system_prompt,
-    function_tools: h.function_tools,
-    cli_tools: h.cli_tools,
-    skills: h.skills,
-    max_iterations: h.max_iterations,
-    complexity: h.complexity,
-    enabled: h.enabled,
-  }
-  const res = h.id
-    ? await put<{ executor: AgentConfig }>(`/executors/${h.id}`, body)
-    : await post<{ executor: AgentConfig }>('/executors', body)
-  return res.executor
+/**
+ * 智能体可变字段集合：后端 agentBody/UpdateParams 白名单。
+ * 名称/描述/启用是固定种子身份，不在其中——接口层直接收窄，防止调用方把改不了的字段发上去。
+ */
+export interface AgentChanges {
+  system_prompt?: string
+  function_tools?: string[]
+  cli_tools?: string[]
+  skills?: string[]
+  max_iterations?: number
+  complexity?: string
+}
+
+/**
+ * 保存智能体：PUT 部分更新——只提交 changes 里出现的字段，未提及字段后端不动，
+ * 与工具页「单工具装配」（PUT /tools/:name/agents/:code）并发写互不覆盖快照。
+ * 目标行由 URL id 权威定位（与 GET 同律），body 即纯变更集，无寻址字段。
+ */
+export async function saveAgent(id: string, changes: AgentChanges): Promise<void> {
+  await put(`/executors/${encodeURIComponent(id)}`, changes)
 }
 
 /**
@@ -53,14 +55,9 @@ export async function saveAgentComplexity(id: string, complexity: string): Promi
   return res.executor
 }
 
-/** 拉 skill 目录全量（GET /skills），供 AgentAdmin skills 多选器候选。 */
+/** 拉 skill 目录全量（GET /skills），供 AgentsPage skills 多选器候选。 */
 export async function listSkillCandidates(): Promise<Skill[]> {
   return get<Skill[]>('/skills')
-}
-
-/** 删除操作员；被引用时后端 409 → 抛带中文原因的错。 */
-export async function deleteAgent(id: string): Promise<void> {
-  await delConfig(`/executors/${id}`)
 }
 
 // ── tool（只读目录）────────────────────────────────────────────────────
@@ -76,7 +73,7 @@ export interface ToolQuery {
 /**
  * 拉工具目录。
  *   - 传 page → 分页（响应带 total），工具模块列表用。
- *   - 不传 page → 全量（total = 列表长度），AgentAdmin 多选器候选用。
+ *   - 不传 page → 全量（total = 列表长度），AgentsPage 多选器候选用。
  */
 export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse> {
   const qs = new URLSearchParams()
@@ -88,7 +85,7 @@ export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse
   return get<ToolListResponse>(`/tools${suffix}`)
 }
 
-/** 拉某工具全量候选（不分页），供 AgentAdmin function_tools/cli_tools 多选器。 */
+/** 拉某工具全量候选（不分页），供 AgentsPage function_tools/cli_tools 多选器。 */
 export async function listToolCandidates(kind: ToolKind): Promise<Tool[]> {
   return (await listTools({ kind })).tools
 }
@@ -112,21 +109,4 @@ export async function assignTool(
     `/tools/${encodeURIComponent(name)}/agents/${encodeURIComponent(code)}`,
     { involved },
   )
-}
-
-/**
- * 配置删除专用 DELETE：409（被下游引用，FK RESTRICT）时读后端中文 error 抛出，
- * 供调用方 alert 提示「先解除引用再删」。其他非 2xx 抛通用状态码错。
- */
-async function delConfig(path: string): Promise<void> {
-  const res = await fetch(API_BASE + path, {
-    method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (res.ok) return
-  if (res.status === 409) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error || '该配置仍被引用，无法删除')
-  }
-  throw new Error(`DELETE ${path} → ${res.status}`)
 }

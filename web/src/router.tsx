@@ -7,7 +7,7 @@ import { PlaceholderPage } from '@/pages/PlaceholderPage'
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
-const AgentAdmin = lazy(() => import('@/pages/AgentAdmin').then((m) => ({ default: m.AgentAdmin })))
+const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const SkillsPage = lazy(() => import('@/pages/SkillsPage'))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
@@ -52,7 +52,7 @@ export const router = createBrowserRouter([
         path: 'config',
         children: [
           { index: true, element: <Navigate to="/config/agents" replace /> },
-          { path: 'agents', element: withSuspense(<AgentAdmin />) },
+          { path: 'agents', element: withSuspense(<AgentsPage />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
