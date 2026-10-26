@@ -249,7 +249,8 @@ export function ConfigRow({
   dimmed = false,
   active = false,
 }: {
-  name: string
+  // 标题支持节点：如「中文名 + 英文标识后缀」的复合标题（字符串照旧）。
+  name: ReactNode
   description?: string
   onClick: () => void
   right?: ReactNode

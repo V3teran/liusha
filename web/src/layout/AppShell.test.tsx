@@ -38,7 +38,8 @@ describe('AppShell', () => {
     expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
     expect(screen.getByText('智能体')).toBeTruthy()
-    expect(screen.getByText('设置')).toBeTruthy()
+    // 左下角「设置」入口已删（/settings 路由同步移除）。
+    expect(screen.queryByText('设置')).toBeNull()
   })
 
   it('渲染子路由内容（Outlet）', () => {

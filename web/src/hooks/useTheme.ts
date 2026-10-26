@@ -11,7 +11,14 @@ function readInitialTheme(): Theme {
 }
 
 function applyTheme(theme: Theme) {
-  document.documentElement.classList.toggle('dark', theme === 'dark')
+  const root = document.documentElement
+  // 冻结过渡 → 翻主题 → 下一帧解冻：切换成为单帧原子重绘，
+  // 避免 body 即刻变色与其余表面 150–250ms 渐变拼贴出的闪烁。
+  root.classList.add('theme-switching')
+  root.classList.toggle('dark', theme === 'dark')
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => root.classList.remove('theme-switching')),
+  )
 }
 
 /**

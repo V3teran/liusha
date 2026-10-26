@@ -11,7 +11,6 @@ import {
   KeyRound,
   MessageSquare,
   Moon,
-  Settings,
   SlidersHorizontal,
   Sun,
   Wrench,
@@ -97,16 +96,8 @@ export function AppShell() {
           })}
         </nav>
 
-        {/* 底部控制栏 */}
-        <div className="flex items-center justify-between border-t border-border px-4 py-3.5">
-          <NavLink
-            to="/settings"
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
-          >
-            <Settings className="h-4 w-4" />
-            <span>设置</span>
-          </NavLink>
-
+        {/* 底部控制栏：主题切换 */}
+        <div className="flex items-center justify-end border-t border-border px-4 py-3.5">
           <button
             type="button"
             onClick={toggle}
