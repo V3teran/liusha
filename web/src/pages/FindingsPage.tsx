@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { ChevronRight, Search, StickyNote, TrendingUp } from 'lucide-react'
+import { ChevronRight, Search, StickyNote } from 'lucide-react'
 import { updateFindingTriage } from '@/api/client'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
@@ -97,7 +97,7 @@ export function FindingsPage() {
       }),
       columnHelper.accessor('summary', {
         header: '漏洞',
-        size: 320,
+        size: 400,
         cell: (ctx) => {
           const f = ctx.row.original
           return (
@@ -113,7 +113,7 @@ export function FindingsPage() {
       columnHelper.display({
         id: 'location',
         header: '位置',
-        size: 280,
+        size: 240,
         cell: (ctx) => {
           const f = ctx.row.original
           return (
@@ -194,21 +194,17 @@ export function FindingsPage() {
           </div>
         ) : (
           <>
-            {/* 紧凑统计卡片 */}
-            <div className="mb-5 flex items-center gap-6 rounded-xl border border-border bg-surface px-6 py-4 shadow-sm">
-              {/* 总数指示 */}
+            {/* 紧凑统计卡片（瘦身版）*/}
+            <div className="mb-5 flex items-center gap-6 rounded-xl border border-border bg-surface px-6 py-3 shadow-sm">
+              {/* 总数指示（删除大图标）*/}
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-accent/10">
-                  <TrendingUp className="h-7 w-7 text-accent" strokeWidth={2.5} />
-                </div>
                 <div>
                   <div className="text-2xl font-bold tabular-nums text-text">{total}</div>
-                  <div className="text-xs text-text-secondary">漏洞总数</div>
                 </div>
               </div>
 
               {/* 分隔线 */}
-              <div className="h-12 w-px bg-border" />
+              <div className="h-10 w-px bg-border" />
 
               {/* 快速统计 */}
               <div className="flex flex-1 items-center gap-4 text-xs">
@@ -226,9 +222,9 @@ export function FindingsPage() {
                 </div>
               </div>
 
-              {/* 严重度分布条 */}
+              {/* 严重度分布条（加粗到 h-4）*/}
               <div className="flex-1">
-                <div className="mb-2 flex h-3 gap-0.5 overflow-hidden rounded-full bg-surface-2">
+                <div className="mb-2 flex h-4 gap-0.5 overflow-hidden rounded-full bg-surface-2">
                   {sevCounts
                     .filter((c) => c.n)
                     .map((x) => (
@@ -359,7 +355,7 @@ export function FindingsPage() {
                         )}
                       >
                         {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="overflow-hidden px-4 py-3">
+                          <td key={cell.id} className="overflow-hidden px-4 py-2.5">
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </td>
                         ))}
