@@ -174,7 +174,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 <h3 className="mb-3 text-sm font-semibold text-text">基本信息</h3>
                 <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-4 text-sm">
                   <div className="flex items-start gap-3">
-                    <span className="w-20 flex-shrink-0 text-text-secondary">位置</span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">位置</span>
                     <span className="min-w-0 flex-1 font-mono text-xs text-text">
                       {finding.target?.method} {finding.host}
                       {finding.target?.path}
@@ -182,12 +182,12 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   </div>
                   {finding.cwe_id && (
                     <div className="flex items-start gap-3">
-                      <span className="w-20 flex-shrink-0 text-text-secondary">CWE ID</span>
+                      <span className="w-24 flex-shrink-0 text-text-secondary">CWE ID</span>
                       <span className="font-mono text-text">{finding.cwe_id}</span>
                     </div>
                   )}
                   <div className="flex items-start gap-3">
-                    <span className="w-20 flex-shrink-0 text-text-secondary">来源</span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">来源</span>
                     <Badge
                       color={finding.source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
                       size="sm"
@@ -197,7 +197,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="w-20 flex-shrink-0 text-text-secondary">首次发现</span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">首次发现</span>
                     <span className="text-text-secondary" title={fullTime(finding.first_seen_at)}>
                       {fullTime(finding.first_seen_at)}
                       {finding.first_seen_at !== finding.created_at && (
@@ -209,7 +209,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   </div>
                   {finding.first_seen_at !== finding.created_at && (
                     <div className="flex items-start gap-3">
-                      <span className="w-20 flex-shrink-0 text-text-secondary">本次发现</span>
+                      <span className="w-24 flex-shrink-0 text-text-secondary">本次发现</span>
                       <span className="text-text-secondary" title={fullTime(finding.created_at)}>
                         {fullTime(finding.created_at)}
                       </span>
@@ -217,7 +217,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   )}
                   {finding.first_seen_at === finding.created_at && (
                     <div className="flex items-start gap-3">
-                      <span className="w-20 flex-shrink-0 text-text-secondary">发现时间</span>
+                      <span className="w-24 flex-shrink-0 text-text-secondary">发现时间</span>
                       <span className="text-text-secondary" title={fullTime(finding.created_at)}>
                         {fullTime(finding.created_at)}
                       </span>
@@ -292,9 +292,6 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         >
                           <span className="font-mono text-xs text-text-tertiary">→</span>
                           <span className="font-mono text-text">{depId}</span>
-                          <span className="text-xs text-text-secondary">
-                            （点击查看详情功能待实现）
-                          </span>
                         </div>
                       ))}
                     </div>
