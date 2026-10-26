@@ -9,7 +9,7 @@
  * 事实源是 DB；写经后端 llmstore 失效广播，runner 进程下次 For(role) 即读到最新路由。
  */
 
-import { get, post, put, getApiKey } from './client'
+import { API_BASE, get, post, put, getApiKey } from './client'
 import type {
   ProviderConfig,
   ProviderProbeRequest,
@@ -113,7 +113,7 @@ export async function deleteRoleRoute(role: string): Promise<void> {
  * 返回更新后的 provider（key_last4 置空、api_key_env 保留）。
  */
 export async function restoreProviderEnvKey(code: string): Promise<ProviderConfig> {
-  const res = await fetch(`/api/models/providers/${encodeURIComponent(code)}/key`, {
+  const res = await fetch(`${API_BASE}/models/providers/${encodeURIComponent(code)}/key`, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -131,7 +131,7 @@ export async function restoreProviderEnvKey(code: string): Promise<ProviderConfi
  * 供调用方 alert 提示「先建对应 provider」。其他非 2xx 抛通用状态码错。
  */
 async function putModel<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'PUT',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -149,7 +149,7 @@ async function putModel<T>(path: string, body: unknown): Promise<T> {
  * 供调用方 alert 提示「先解除引用再删」。其他非 2xx 抛通用状态码错。
  */
 async function delModel(path: string): Promise<void> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })

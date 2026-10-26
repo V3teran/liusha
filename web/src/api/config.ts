@@ -6,7 +6,7 @@
  * 需把该提示透出给调用方（通用 del 只抛 HTTP 状态码，丢了中文原因）。
  */
 
-import { get, post, put, patch, getApiKey } from './client'
+import { API_BASE, get, post, put, patch, getApiKey } from './client'
 import type {
   AgentConfig,
   Skill,
@@ -119,7 +119,7 @@ export async function assignTool(
  * 供调用方 alert 提示「先解除引用再删」。其他非 2xx 抛通用状态码错。
  */
 async function delConfig(path: string): Promise<void> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })

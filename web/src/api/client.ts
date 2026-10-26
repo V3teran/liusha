@@ -54,6 +54,7 @@ export function getApiKey(): string {
 export async function bootstrapApiKey(): Promise<void> {
   if (getApiKey()) return
   try {
+    // 特例：显式写 /api（不走 API_BASE）——这是鉴权前的启动引导端点，语义独立。
     const res = await fetch('/api/dev-config.json')
     if (!res.ok) return
     const { api_key } = (await res.json()) as { api_key?: string }
@@ -64,11 +65,18 @@ export async function bootstrapApiKey(): Promise<void> {
 }
 
 /**
+ * API_BASE 是后端前缀的唯一权威定义：所有请求路径一律写相对路径（/findings），
+ * 前缀由此常量统一拼接——手写 '/api/...' 会双前缀 404（历史教训，见
+ * explorationgraph.ts）。
+ */
+export const API_BASE = '/api'
+
+/**
  * 发起 GET 请求，自动添加 X-API-Key header。
  * 导出供 config.ts 等同源模块复用（单一鉴权/错误口径，不各自再拼 header）。
  */
 export async function get<T>(path: string): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     headers: { 'X-API-Key': getApiKey() },
   })
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
@@ -80,7 +88,7 @@ export async function get<T>(path: string): Promise<T> {
  * 注意：/chat 与 /conversations/:id/messages 有特殊语义（cookie / 409），各自单独实现。
  */
 export async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -93,7 +101,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
  * 发起 PUT 请求（JSON body），自动带 X-API-Key。配置管理页 upsert-by-code 用。
  */
 export async function put<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'PUT',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -106,7 +114,7 @@ export async function put<T>(path: string, body?: unknown): Promise<T> {
  * 发起 PATCH 请求（单字段/局部更新，如 agent 改能力档），自动带 X-API-Key。
  */
 export async function patch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'PATCH',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -119,7 +127,7 @@ export async function patch<T>(path: string, body?: unknown): Promise<T> {
  * 发起 DELETE 请求，自动带 X-API-Key。
  */
 export async function del<T>(path: string): Promise<T> {
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_BASE + path, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -231,7 +239,7 @@ export async function getConversationUsage(convID: string): Promise<Conversation
  * 会话 / 长扫描 / 重连"实时推送失效。credentials:'include' 让浏览器收下 Set-Cookie。
  */
 export async function authStream(convID: string): Promise<void> {
-  const res = await fetch(`/api/conversations/${convID}/stream-auth`, {
+  const res = await fetch(`${API_BASE}/conversations/${convID}/stream-auth`, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey() },
     credentials: 'include',
@@ -248,7 +256,7 @@ export async function authStream(convID: string): Promise<void> {
 export async function startChat(
   brief: string
 ): Promise<{ conversation_id: string; scan_id: string }> {
-  const res = await fetch('/api/chat', {
+  const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: {
       'X-API-Key': getApiKey(),
@@ -271,7 +279,7 @@ export async function followUp(
   convID: string,
   content: string,
 ): Promise<{ intent: string; scan_id?: string }> {
-  const res = await fetch(`/api/conversations/${convID}/messages`, {
+  const res = await fetch(`${API_BASE}/conversations/${convID}/messages`, {
     method: 'POST',
     headers: {
       'X-API-Key': getApiKey(),
@@ -293,7 +301,7 @@ export async function followUp(
  * @param convID 会话 ID
  */
 export async function abortScan(convID: string): Promise<void> {
-  const res = await fetch(`/api/conversations/${convID}/abort`, {
+  const res = await fetch(`${API_BASE}/conversations/${convID}/abort`, {
     method: 'POST',
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -303,7 +311,7 @@ export async function abortScan(convID: string): Promise<void> {
 // 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
 // 关联扫描仍在跑时后端返回 409 → 抛 'SCAN_ACTIVE' 哨兵，调用方提示「先停后删」。
 export async function deleteConversation(convID: string): Promise<void> {
-  const res = await fetch(`/api/conversations/${convID}`, {
+  const res = await fetch(`${API_BASE}/conversations/${convID}`, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
@@ -313,7 +321,7 @@ export async function deleteConversation(convID: string): Promise<void> {
 
 // 重命名会话标题（PATCH /conversations/:id）。空 title → 后端存 NULL，展示回落首条消息摘要。
 export async function renameConversation(convID: string, title: string): Promise<void> {
-  const res = await fetch(`/api/conversations/${convID}`, {
+  const res = await fetch(`${API_BASE}/conversations/${convID}`, {
     method: 'PATCH',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -389,7 +397,7 @@ export async function updateFindingTriage(
   severity = '',
   note = '',
 ): Promise<FindingRow> {
-  const res = await fetch(`/api/findings/${id}/status`, {
+  const res = await fetch(`${API_BASE}/findings/${id}/status`, {
     method: 'PATCH',
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, severity, note }),
