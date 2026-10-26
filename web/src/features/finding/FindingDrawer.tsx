@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { severityColor, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
-import { fullTime } from '@/lib/format'
+import { fullTime, daysSince } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -197,11 +197,32 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="w-20 flex-shrink-0 text-text-secondary">发现时间</span>
-                    <span className="text-text-secondary" title={fullTime(finding.created_at)}>
-                      {fullTime(finding.created_at)}
+                    <span className="w-20 flex-shrink-0 text-text-secondary">首次发现</span>
+                    <span className="text-text-secondary" title={fullTime(finding.first_seen_at)}>
+                      {fullTime(finding.first_seen_at)}
+                      {finding.first_seen_at !== finding.created_at && (
+                        <span className="ml-2 text-xs text-text-tertiary">
+                          (存在 {daysSince(finding.first_seen_at)})
+                        </span>
+                      )}
                     </span>
                   </div>
+                  {finding.first_seen_at !== finding.created_at && (
+                    <div className="flex items-start gap-3">
+                      <span className="w-20 flex-shrink-0 text-text-secondary">本次发现</span>
+                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
+                        {fullTime(finding.created_at)}
+                      </span>
+                    </div>
+                  )}
+                  {finding.first_seen_at === finding.created_at && (
+                    <div className="flex items-start gap-3">
+                      <span className="w-20 flex-shrink-0 text-text-secondary">发现时间</span>
+                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
+                        {fullTime(finding.created_at)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </section>
 
@@ -251,6 +272,32 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         )}
                       </div>
                     ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 关联漏洞（组合漏洞依赖链） */}
+              {finding.depends_on && finding.depends_on.length > 0 && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">关联漏洞</h3>
+                  <div className="rounded-lg border border-border bg-surface-2 p-4">
+                    <p className="mb-3 text-xs text-text-tertiary">
+                      本漏洞依赖于以下漏洞组合而成：
+                    </p>
+                    <div className="space-y-2">
+                      {finding.depends_on.map((depId) => (
+                        <div
+                          key={depId}
+                          className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                        >
+                          <span className="font-mono text-xs text-text-tertiary">→</span>
+                          <span className="font-mono text-text">{depId}</span>
+                          <span className="text-xs text-text-secondary">
+                            （点击查看详情功能待实现）
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </section>
               )}
