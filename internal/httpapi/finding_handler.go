@@ -133,6 +133,10 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 // findingJSON 是 finding 响应的单一序列化点（列表 + PATCH 回传共用，防字段漂移）。
 // evidence/target 用 json.RawMessage 原样透传（LLM 自由 jsonb，前端通用 KV 渲染）。
 func findingJSON(r finding.LedgerRow) gin.H {
+	deps := r.DependsOn
+	if deps == nil {
+		deps = []string{} // 确保前端收到空数组而非 null
+	}
 	return gin.H{
 		"id":             r.ID,
 		"seq":            r.Seq,
@@ -148,6 +152,8 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"status":         r.Status,
 		"triage_note":    r.TriageNote,
 		"triaged_at":     r.TriagedAt, // *time.Time，未处置为 null
+		"first_seen_at":  r.FirstSeenAt,
+		"depends_on":     deps,
 		"created_at":     r.CreatedAt,
 	}
 }

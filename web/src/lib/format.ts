@@ -99,6 +99,16 @@ export function relativeTime(iso: string): string {
   return dayLabel(iso) // 跨天 → 昨天 / 日期
 }
 
+/** 时间差（天数）：计算从 start 到 now 的天数差，>=1 显示"N天"，<1 显示"<1天"。 */
+export function daysSince(start: string): string {
+  if (!start) return ''
+  const d = new Date(start)
+  if (Number.isNaN(d.getTime())) return ''
+  const diffMs = Date.now() - d.getTime()
+  const days = Math.floor(diffMs / 86400000)
+  return days >= 1 ? `${days}天` : '<1天'
+}
+
 /** 按天分隔条标签：今天 / 昨天 / YYYY-MM-DD（绝对日期统一 ISO，不用中文年月日）。 */
 export function dayLabel(iso: string): string {
   const key = dayKey(iso)

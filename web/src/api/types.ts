@@ -309,6 +309,8 @@ export interface FindingRow {
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
+  first_seen_at: string // 首次发现时间（dedup Update 不变；追踪漏洞存续时长）
+  depends_on: string[] // 依赖的 finding ID 数组（组合漏洞依赖链）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
