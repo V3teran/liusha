@@ -164,6 +164,13 @@ complexity: medium
 - **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——经验证坐实后会直接进入漏洞台账供处置
 - **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
 
+**dedup 去重公式依赖（issue/hypothesis 必须填）**：漏洞台账按
+`host + cwe_id + 归一化路径 + method + parameter` 去重——同路径同 CWE 的
+不同参数注入点各算一个独立漏洞，**靠 target.parameter 区分**：
+- **target.method**: 触发该问题的 HTTP 方法（GET/POST/PUT/DELETE，与 repro 首请求一致）
+- **target.parameter**: 注入参数名（如 `id`、`name`、`search`）；无明确参数时填该输入的语义名。
+  不填则同路径的相似发现会被台账去重合并，导致漏洞丢失。
+
 分类纪律：
 - **state** 用于客观事实（端口、服务、版本、路径）
 - **issue** 用于确定的问题（信息泄露、配置弱点、默认配置）
