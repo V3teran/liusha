@@ -152,22 +152,6 @@ pre {
   border-color: var(--accent) !important;
 }
 
-.tac-dots::before {
-  content: "";
-  position: absolute;
-  top: 1.15rem;
-  right: 1.25rem;
-  width: 34px;
-  height: 8px;
-  background-image: radial-gradient(circle, var(--accent) 3px, transparent 3.5px),
-    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px),
-    radial-gradient(circle, var(--border-strong) 3px, transparent 3.5px);
-  background-size: 8px 8px;
-  background-position: 0 0, 13px 0, 26px 0;
-  background-repeat: no-repeat;
-  opacity: 0.85;
-}
-
 .tac-prompt::before {
   content: "▚ ";
   color: var(--accent);
@@ -222,4 +206,16 @@ pre {
   .tac-cursor::after {
     animation: none;
   }
+}
+
+/* 主题切换瞬断：明暗切换时由 useTheme 临时挂上本类，冻结全部过渡/动画——
+ * CSS 变量翻新让 body 即刻变色，而 37 处 transition-all / .card 等仍按各自
+ * 150–250ms 渐变，整页成为新旧主题的拼贴闪烁。冻结后主题变更为单帧原子
+ * 重绘，下一帧移除本类恢复悬停过渡。 */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+  animation-iteration-count: 1 !important;
 }

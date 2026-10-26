@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { LayoutGrid, Zap, Scale, Eye, Bot } from 'lucide-react'
+import { Compass, Zap, Scale, Eye, Bot } from 'lucide-react'
 
 export interface AgentAccent {
   accent: string
@@ -17,7 +17,8 @@ const FIXED: Record<string, AgentProfile> = {
   planner: {
     accent: '#a78bfa',
     soft: 'rgba(167, 139, 250, 0.14)',
-    icon: LayoutGrid,
+    // 罗盘=方向/战略，规划者的经典隐喻（原 LayoutGrid 语义偏仪表盘，易误读为总览）。
+    icon: Compass,
     label: '规划'
   },
   executor: {

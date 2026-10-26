@@ -41,9 +41,11 @@ export function AgentCard({
       <div className="flex w-full max-w-4xl flex-col">
         {/* 主体：头像 + 内容气泡 */}
         <div className="flex gap-3">
-          {/* 智能体头像：色环 + 图标 */}
+          {/* 智能体头像：色环 + 图标。28/16 对齐全站紧凑身份位
+              （会话列表操作钮、配置页身份 chip），对话流是高密度时间线，
+              头像要能认人但不与正文争宽度。 */}
           <div
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-shadow group-hover:ring-2"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-shadow group-hover:ring-2"
             style={{
               color: profile.accent,
               background: profile.soft,
@@ -51,7 +53,7 @@ export function AgentCard({
               '--tw-ring-color': profile.accent + '40',
             } as React.CSSProperties}
           >
-            <Icon className="h-5 w-5" strokeWidth={2.2} />
+            <Icon className="h-4 w-4" strokeWidth={2.2} />
           </div>
 
           {/* 内容气泡 */}
@@ -67,9 +69,10 @@ export function AgentCard({
           </div>
         </div>
 
-        {/* 元信息：时间戳 + 操作 */}
+        {/* 元信息：时间戳 + 操作（常亮——渐进披露的悬停成本是"看不到有操作存在"）。
+            ml-10 = 头像 28px + gap 12px，与气泡左缘对齐。 */}
         {showFooter && (
-          <div className="ml-12 mt-1.5 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="ml-10 mt-1.5 flex items-center gap-2">
             {createdAt && (
               <time
                 className="px-1 text-xs text-text-tertiary tabular-nums"

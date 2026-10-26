@@ -62,7 +62,6 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
-      { path: 'settings', element: <PlaceholderPage title="设置" /> },
     ],
   },
 ])
