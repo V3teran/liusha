@@ -124,15 +124,17 @@ func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // agentUpdate 是 PUT /executors/:id 的请求体，部分更新语义：指针字段非 nil 才更新，nil 不动。
-// 不含寻址字段——目标行由 URL 里的 id 权威定位（与 GET 同律）；code/name/description 是
-// 固定种子身份（agent.Store.Update 拒改），enabled 由种子与运维控制，均不在此接受。
+// 目标行由 URL 里的 id 权威定位（与 GET 同律）；code/name 是固定种子身份（agent.Store.Update 拒改），
+// enabled 由种子与运维控制，均不在此接受。Description（调度摘要）是 LLM 可读面、前端可编辑。
 // 未提及字段不被零值覆盖，与工具页「单工具装配」写路径并发时互不覆盖（都只动各自字段）。
 //   - SystemPrompt ：角色章程
+//   - Description  ：调度摘要（planner 规划时读取的角色分工摘要）
 //   - FunctionTools：内置函数工具集（进程内原生函数 code 列表）
 //   - CliTools     ：外置 CLI 工具集（tools.yaml 名字），严格白名单，空 = 不装配任何外部工具
 //   - Skills       ：可访问 skill 裸名白名单（渐进式加载声明）
 type agentUpdate struct {
 	SystemPrompt  *string   `json:"system_prompt"`
+	Description   *string   `json:"description"`
 	FunctionTools *[]string `json:"function_tools"`
 	CliTools      *[]string `json:"cli_tools"`
 	Skills        *[]string `json:"skills"`
@@ -152,6 +154,7 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		p := agent.UpdateParams{
 			SystemPrompt:  b.SystemPrompt,
+			Description:   b.Description,
 			FunctionTools: b.FunctionTools,
 			CliTools:      b.CliTools,
 			Skills:        b.Skills,

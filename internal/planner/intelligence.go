@@ -30,11 +30,27 @@ type Intelligence struct {
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	timeout    time.Duration  // 单次规划超时基准（0=不设限；默认 3 分钟）
 	budget     time.Duration  // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
+	roster     []AgentBrief   // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
 	// insightsDigest 是跨 agent 经验黑板的摘要出口（cognition 注入闭包；
 	// nil=无黑板）。黑板的核心价值是规划者消费执行者的经验——没有它，
 	// 黑板退化成 executor 的自说自话。
 	insightsDigest func(ctx context.Context) []string
+}
+
+// AgentBrief 是团队名册的一行：code 寻址键 + 展示名 + 调度摘要。
+// 调度摘要是各角色配置里面向编排者的分工描述（agent.description，前端可编辑）——
+// planner 规划/派发动作时据此理解团队分工，是 LLM 可读面。
+type AgentBrief struct {
+	Code        string
+	Name        string
+	Description string
+}
+
+// WithAgentRoster 注入四 Agent 名册（cognition 装配时从 DB 配置取；空=不渲染该节）。
+func (i *Intelligence) WithAgentRoster(roster []AgentBrief) *Intelligence {
+	i.roster = roster
+	return i
 }
 
 // WithInsightsDigest 注入经验黑板摘要出口（cognition 闭包：assignment 内
@@ -386,6 +402,9 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 1. 头部和核心原则
 	sb.WriteString(buildPlanningPromptHeader())
+
+	// 1.5 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
+	sb.WriteString(buildTeamRosterSection(i.roster))
 
 	// 2. 停止条件
 	sb.WriteString(buildStopCriteria())

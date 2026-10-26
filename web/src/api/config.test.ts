@@ -23,6 +23,7 @@ describe('config API 客户端', () => {
     const fn = mockFetch(200, { executor: { id: 'h1' } })
     await saveAgent('h1', {
       system_prompt: 'SP',
+      description: '侦察排头兵，负责目标测绘',
       function_tools: ['http_request'],
       max_iterations: 12,
       complexity: 'medium',
@@ -37,6 +38,7 @@ describe('config API 客户端', () => {
     // 目标行由 URL id 权威定位：body 即纯变更集，无任何寻址字段。
     expect(body.code).toBeUndefined()
     expect(body.system_prompt).toBe('SP')
+    expect(body.description).toBe('侦察排头兵，负责目标测绘')
     expect(body.complexity).toBe('medium')
     expect(body.skills).toEqual(['dom-xss', 'bac'])
     expect(body.function_tools).toEqual(['http_request'])

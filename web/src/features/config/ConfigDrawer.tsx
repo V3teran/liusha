@@ -43,11 +43,11 @@ export function ConfigDrawer({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 z-50 flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
           <Tabs.Root value={active} onValueChange={setActive} className="flex min-h-0 flex-1 flex-col">
-            <div className="tac-dots relative flex items-center justify-between border-b border-border px-5 py-4">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
-              <Dialog.Close className="mr-11 text-muted hover:text-text" aria-label="关闭">
+              <Dialog.Close className="text-muted hover:text-text" aria-label="关闭">
                 <X className="h-4 w-4" />
               </Dialog.Close>
             </div>
@@ -72,7 +72,9 @@ export function ConfigDrawer({
                 <Tabs.Content
                   key={t.value}
                   value={t.value}
-                  className="flex flex-col gap-4 outline-none data-[state=inactive]:hidden"
+                  // h-full：内容区（如工具多选器、长文本域）可以 flex-1 铺满抽屉剩余高度，
+                  // 在自己的面板内滚动——抽屉体不出现第二根滚轮。
+                  className="flex h-full min-h-0 flex-col gap-4 outline-none data-[state=inactive]:hidden"
                 >
                   {t.content}
                 </Tabs.Content>

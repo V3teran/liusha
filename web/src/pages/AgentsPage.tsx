@@ -15,8 +15,9 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 智能体配置管理页（后端资源名 executor）：四个固定种子角色，编辑系统提示词 + 工具集 + 技能白名单。
-// 角色身份（标识符/名称/调度摘要/启用）由种子固定，页面只读、接口不收；
+// 智能体配置管理页（后端资源名 executor）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
+// 角色身份（标识符/名称/启用）由种子固定，页面只读、接口不收；调度摘要是 planner 规划时
+// 读取的角色分工摘要（LLM 可读面），可编辑。
 // 保存只提交脏字段（PUT 部分更新），与工具页的并发装配写互不覆盖快照。
 // 工具/技能候选从目录（DB）读取，勾选而非填空——function_tools / cli_tools / skills 三区多选。
 export function AgentsPage() {
@@ -50,17 +51,27 @@ export function AgentsPage() {
   const patch = (p: Partial<AgentConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
   // 切换 function_tools / cli_tools / skills 里某项的选中态（不可变：返回新数组）。
-  const toggleTool = (field: 'function_tools' | 'cli_tools' | 'skills', name: string) =>
-    setDraft((d) =>
-      d
-        ? {
-            ...d,
-            [field]: d[field].includes(name)
-              ? d[field].filter((n) => n !== name)
-              : [...d[field], name],
-          }
-        : d,
-    )
+  // 全量哨兵 ["*"] 期间目录以全集勾选展示（与其他形式一致）；取消勾选即物化为
+  // 「全集减一」的显式白名单——与后端 applyAssignment 的卸载语义对称。
+  const toggleTool = (
+    field: 'function_tools' | 'cli_tools' | 'skills',
+    name: string,
+    catalog: string[],
+  ) =>
+    setDraft((d) => {
+      if (!d) return d
+      const next = isWildcard(d[field])
+        ? catalog.filter((n) => n !== name)
+        : d[field].includes(name)
+          ? d[field].filter((n) => n !== name)
+          : [...d[field], name]
+      return { ...d, [field]: next }
+    })
+
+  // 全选：收拢为哨兵 ["*"]（展示层永远是"目录全集勾选"，与逐个勾满语义等价，
+  // 且未来新增的工具自动装配）。
+  const selectAll = (field: 'function_tools' | 'cli_tools' | 'skills') =>
+    setDraft((d) => (d ? { ...d, [field]: ['*'] } : d))
 
   const openDraft = (h: AgentConfig) => {
     setDraft(h)
@@ -125,7 +136,13 @@ export function AgentsPage() {
                   <Icon className="h-4 w-4" strokeWidth={2.2} />
                 </span>
               }
-              name={h.name}
+              name={
+                <>
+                  {h.name}
+                  {/* 英文标识跟在中文名后：mono 弱化展示，卡片即见寻址键 */}
+                  <span className="ml-2 font-mono text-xs font-normal text-muted">{h.code}</span>
+                </>
+              }
               description={h.description}
               dimmed={!h.enabled}
               onClick={() => openDraft(h)}
@@ -137,7 +154,7 @@ export function AgentsPage() {
 
       <ConfigDrawer
         open={!!draft}
-        title="编辑智能体"
+        title={draft?.name || '智能体'}
         onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
         saving={saving}
@@ -150,24 +167,15 @@ export function AgentsPage() {
                   label: '基本信息',
                   content: (
                     <>
-                      <div className="flex gap-3">
-                        <Field label="标识符" hint="固定角色标识（code 寻址），不可修改">
-                          <input
-                            className={INPUT_CLASS}
-                            value={draft.code}
-                            spellCheck={false}
-                            disabled
-                          />
-                        </Field>
-                      </div>
-                      <Field label="名称" hint="种子固定，不可修改">
-                        <input className={INPUT_CLASS} value={draft.name} disabled />
-                      </Field>
                       <Field
                         label="调度摘要"
-                        hint="种子固定，不可修改；多智能体协同时编排者据此选派（非面向用户的描述）"
+                        hint="面向编排者的角色分工摘要：planner 规划时读取（LLM 可读，非面向用户的描述）"
                       >
-                        <input className={INPUT_CLASS} value={draft.description} disabled />
+                        <input
+                          className={INPUT_CLASS}
+                          value={draft.description}
+                          onChange={(e) => patch({ description: e.target.value })}
+                        />
                       </Field>
                       <Field label="最大迭代轮数" hint="ReAct 推理循环上限">
                         <input
@@ -217,109 +225,57 @@ export function AgentsPage() {
                   value: 'prompt',
                   label: '系统提示词',
                   content: (
-                    <Field label="系统提示词" hint="该智能体运行时的 system prompt">
-                      <textarea
-                        className={INPUT_CLASS + ' min-h-[22rem] resize-y font-mono text-sm'}
-                        value={draft.system_prompt}
-                        placeholder="你是一个专业的安全扫描助手..."
-                        onChange={(e) => patch({ system_prompt: e.target.value })}
-                      />
-                    </Field>
+                    // tab 名即字段名，不再重复 Field 标题行；flex-1 铺满抽屉剩余高度。
+                    <textarea
+                      className={INPUT_CLASS + ' min-h-[22rem] flex-1 resize-y font-mono text-sm'}
+                      value={draft.system_prompt}
+                      placeholder="你是一个专业的安全扫描助手..."
+                      onChange={(e) => patch({ system_prompt: e.target.value })}
+                    />
                   ),
                 },
                 {
                   value: 'function_tools',
                   label: '内部工具',
                   content: (
-                    <Field
-                      label="内部函数工具"
-                      hint="进程内工具，提供核心能力（如数据库查询、文件操作等）"
-                    >
-                      {draft.function_tools?.length === 1 && draft.function_tools[0] === '*' ? (
-                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
-                              全量模式
-                            </span>
-                            <span className="text-sm text-muted-foreground">
-                              自动装配所有内部工具
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <ToolPicker
-                          catalog={functionTools}
-                          selected={draft.function_tools}
-                          onToggle={(name) => toggleTool('function_tools', name)}
-                          emptyHint="无可用内部工具"
-                        />
-                      )}
-                    </Field>
+                    <ToolPicker
+                      catalog={functionTools}
+                      selected={wildcardView(draft.function_tools, functionTools.map((t) => t.name))}
+                      onToggle={(name) => toggleTool('function_tools', name, functionTools.map((t) => t.name))}
+                      onSelectAll={() => selectAll('function_tools')}
+                      emptyHint={isWildcard(draft.function_tools) ? '目录为空（全量模式下自动装配未来新增）' : '无可用内部工具'}
+                    />
                   ),
                 },
                 {
                   value: 'cli_tools',
                   label: '外部工具',
                   content: (
-                    <Field
-                      label="外部 CLI 工具"
-                      hint="严格白名单：仅勾选的外部工具可调用（如 nmap、sqlmap 等安全工具）"
-                    >
-                      {draft.cli_tools?.length === 1 && draft.cli_tools[0] === '*' ? (
-                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
-                              全量模式
-                            </span>
-                            <span className="text-sm text-muted-foreground">
-                              自动装配所有 {cliTools.length} 个外部工具（沙箱隔离保证安全）
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <ToolPicker
-                          catalog={cliTools}
-                          selected={draft.cli_tools}
-                          onToggle={(name) => toggleTool('cli_tools', name)}
-                          emptyHint="无可用外部工具"
-                        />
-                      )}
-                    </Field>
+                    <ToolPicker
+                      catalog={cliTools}
+                      selected={wildcardView(draft.cli_tools, cliTools.map((t) => t.name))}
+                      onToggle={(name) => toggleTool('cli_tools', name, cliTools.map((t) => t.name))}
+                      onSelectAll={() => selectAll('cli_tools')}
+                      emptyHint={isWildcard(draft.cli_tools) ? '目录为空（全量模式下自动装配未来新增）' : '无可用外部工具'}
+                    />
                   ),
                 },
                 {
                   value: 'skills',
-                  label: '技能集',
+                  label: '技能',
                   content: (
-                    <Field
-                      label="技能知识库"
-                      hint="渐进式加载的领域知识，智能体可通过 read_skill 按需读取"
-                    >
-                      {draft.skills?.length === 1 && draft.skills[0] === '*' ? (
-                        <div className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-accent/20 px-2 py-1 text-xs font-semibold text-accent">
-                              全量模式
-                            </span>
-                            <span className="text-sm text-muted-foreground">
-                              自动装配所有技能知识库
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <ToolPicker
-                          // 技能以 code 裸名寻址：多选器候选映射到最小结构，不再伪造 Tool 全字段。
-                          catalog={skills.map((sk) => ({
-                            name: sk.code,
-                            category: sk.category,
-                            description: sk.description,
-                          }))}
-                          selected={draft.skills}
-                          onToggle={(name) => toggleTool('skills', name)}
-                          emptyHint="无可用技能知识库（可在「知识库」页创建）"
-                        />
-                      )}
-                    </Field>
+                    <ToolPicker
+                      // 技能以 code 裸名寻址：多选器候选映射到最小结构，不再伪造 Tool 全字段。
+                      catalog={skills.map((sk) => ({
+                        name: sk.code,
+                        category: sk.category,
+                        description: sk.description,
+                      }))}
+                      selected={wildcardView(draft.skills, skills.map((sk) => sk.code))}
+                      onToggle={(name) => toggleTool('skills', name, skills.map((sk) => sk.code))}
+                      onSelectAll={() => selectAll('skills')}
+                      emptyHint={isWildcard(draft.skills) ? '目录为空（全量模式下自动装配未来新增）' : '无可用技能知识库（可在「知识库」页创建）'}
+                    />
                   ),
                 },
               ]
@@ -343,11 +299,14 @@ function ToolPicker({
   catalog,
   selected,
   onToggle,
+  onSelectAll,
   emptyHint,
 }: {
   catalog: PickerCandidate[]
   selected: string[]
   onToggle: (name: string) => void
+  // 全选动作（收拢为 ["*"]，展示层等价于目录全集勾选）；未提供或已全选时不渲染按钮。
+  onSelectAll?: () => void
   emptyHint: string
 }) {
   const byCategory = useMemo(() => {
@@ -367,9 +326,28 @@ function ToolPicker({
     return <p className="text-sm text-muted">{emptyHint}</p>
   }
 
+  const allSelected = catalog.every((t) => selected.includes(t.name))
+
+  // 结构：固定头部（计数 + 全选，不随列表滚动）+ 内部滚动区。
+  // picker 以 flex-1 铺满 tab 内容区剩余高度——单一滚动上下文（列表内部），
+  // 外层抽屉体不再出现第二根滚轮。
   return (
-    <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border border-border bg-background p-3">
-      {byCategory.map(([cat, tools]) => (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background">
+      {/* 头部定高 h-8：全选按钮出现/消失不改变行高，列表区不跳动。 */}
+      <div className="flex h-8 flex-shrink-0 items-center justify-between border-b border-border px-3">
+        <span className="text-xs text-faint">共 {catalog.length} 项</span>
+        {onSelectAll && !allSelected && (
+          <button
+            type="button"
+            onClick={onSelectAll}
+            className="rounded-md border border-border px-2 py-0.5 text-xs text-muted transition-colors hover:border-accent/60 hover:text-accent"
+          >
+            全选
+          </button>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {byCategory.map(([cat, tools]) => (
         <div key={cat}>
           <p className="mb-1 font-mono text-xs uppercase tracking-wide text-muted">{cat}</p>
           <div className="flex flex-wrap gap-2">
@@ -396,8 +374,22 @@ function ToolPicker({
           </div>
         </div>
       ))}
+      </div>
     </div>
   )
+}
+
+// ── 全量哨兵（["*"]）的编辑语义 ────────────────────────────────────────
+
+// 全量哨兵判定：数组恰为 ["*"] 时运行时语义 = 自动装配该类全部（含未来新增）。
+function isWildcard(list: string[]): boolean {
+  return list.length === 1 && list[0] === '*'
+}
+
+// picker 的选中视图：哨兵态展示为目录全集全勾选——与显式白名单形式完全一致；
+// 取消勾选由 toggleTool 物化为「全集减一」。
+function wildcardView(list: string[], catalogNames: string[]): string[] {
+  return isWildcard(list) ? catalogNames : list
 }
 
 // ── 脏字段 diff ────────────────────────────────────────────────────────
@@ -410,6 +402,7 @@ const sameList = (a: string[], b: string[]) =>
 function diffChanges(baseline: AgentConfig, draft: AgentConfig): AgentChanges {
   const c: AgentChanges = {}
   if (draft.system_prompt !== baseline.system_prompt) c.system_prompt = draft.system_prompt
+  if (draft.description !== baseline.description) c.description = draft.description
   if (draft.complexity !== baseline.complexity) c.complexity = draft.complexity
   if (draft.max_iterations !== baseline.max_iterations) c.max_iterations = draft.max_iterations
   if (!sameList(draft.function_tools, baseline.function_tools)) c.function_tools = draft.function_tools

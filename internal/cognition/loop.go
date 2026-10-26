@@ -375,6 +375,14 @@ func (d *Deps) assembleStack(
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
+		WithAgentRoster([]planner.AgentBrief{
+			// 团队名册：planner 规划时读取各角色调度摘要（agent.description，前端可编辑），
+			// 让动作指令对准执行方职责边界。
+			{Code: constants.AgentCodePlanner, Name: cfgs.planner.Name, Description: cfgs.planner.Description},
+			{Code: constants.AgentCodeExecutor, Name: cfgs.executor.Name, Description: cfgs.executor.Description},
+			{Code: constants.AgentCodeEvaluator, Name: cfgs.evaluator.Name, Description: cfgs.evaluator.Description},
+			{Code: constants.AgentCodeMonitor, Name: cfgs.monitor.Name, Description: cfgs.monitor.Description},
+		}).
 		WithInsightsDigest(plannerDigest).
 		WithThoughts(thoughts.TapFor("planner"))
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
