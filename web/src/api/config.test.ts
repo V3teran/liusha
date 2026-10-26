@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveAgent, deleteAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
+import { saveAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
 import { setApiKey } from './client'
-import type { AgentConfig } from './types'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -20,36 +19,31 @@ describe('config API 客户端', () => {
     vi.unstubAllGlobals()
   })
 
-  it('saveAgent 传 tools/skills/complexity 契约字段', async () => {
-    const fn = mockFetch(200, { agent: { id: 'h1' } })
-    const h: AgentConfig = {
-      id: '',
-      code: 'executor',
-      name: '执行者',
-      description: '',
+  it('saveAgent PUT 部分更新：URL id 定位、body 即纯变更集', async () => {
+    const fn = mockFetch(200, { executor: { id: 'h1' } })
+    await saveAgent('h1', {
       system_prompt: 'SP',
       function_tools: ['http_request'],
-      cli_tools: ['nmap', 'nuclei'],
-      skills: ['dom-xss', 'bac'],
       max_iterations: 12,
       complexity: 'medium',
-      enabled: true,
-    } as AgentConfig
-    await saveAgent(h)
-    const body = JSON.parse(fn.mock.calls[0][1].body)
-    // 键名与后端 agentBody 契约严格一致（system_prompt/complexity/skills；kind 已删除）。
+      skills: ['dom-xss', 'bac'],
+    })
+    const [url, init] = fn.mock.calls[0]
+    expect(url).toBe('/api/executors/h1')
+    expect(init.method).toBe('PUT')
+    const body = JSON.parse(init.body)
+    // 键名与后端 agentUpdate 契约严格一致（system_prompt/complexity/skills；kind 已删除）。
     expect(body.kind).toBeUndefined()
+    // 目标行由 URL id 权威定位：body 即纯变更集，无任何寻址字段。
+    expect(body.code).toBeUndefined()
     expect(body.system_prompt).toBe('SP')
     expect(body.complexity).toBe('medium')
     expect(body.skills).toEqual(['dom-xss', 'bac'])
     expect(body.function_tools).toEqual(['http_request'])
-    expect(body.cli_tools).toEqual(['nmap', 'nuclei'])
     expect(body.max_iterations).toBe(12)
-  })
-
-  it('deleteAgent 遇 409 抛后端中文错误', async () => {
-    mockFetch(409, { error: '该智能体仍被其他配置引用，请先解除引用再删除' })
-    await expect(deleteAgent('h-1')).rejects.toThrow('该智能体仍被其他配置引用')
+    // 未提及字段不出现在 body——后端部分更新语义下不被零值覆盖。
+    expect(body.cli_tools).toBeUndefined()
+    expect(body.name).toBeUndefined()
   })
 
   it('listTools 分页透传 page/size/q/kind 到 query', async () => {

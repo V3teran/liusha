@@ -12,17 +12,16 @@ export interface DrawerTab {
 
 interface ConfigDrawerProps {
   open: boolean
-  title: string // 抽屉标题（如「编辑场景」「新建智能体」）
+  title: string // 抽屉标题（如「编辑技能」「编辑智能体」）
   tabs: DrawerTab[] // 顶部分页：各页按语义分组，避免一条长表单往下滑
   onOpenChange: (open: boolean) => void
   onSave: () => void
-  onDelete?: () => void // 仅编辑态传（新建无可删）
   saving?: boolean
   saveDisabled?: boolean // 表单未过校验时禁用保存（跨分页统一判定）
 }
 
 // 配置管理资源共用的居中编辑抽屉外壳（复用漏洞页 Radix Dialog 模式）。
-// 外壳职责：遮罩 + 面板 + 头部标题/关闭 + 顶部分页栏 + 可滚动主体 + 底部保存/删除。
+// 外壳职责：遮罩 + 面板 + 头部标题/关闭 + 顶部分页栏 + 可滚动主体 + 底部保存。
 // 表单主体按 tab 分组注入；每次打开重置到第一个分页，避免残留上一条记录的分页位置。
 export function ConfigDrawer({
   open,
@@ -30,7 +29,6 @@ export function ConfigDrawer({
   tabs,
   onOpenChange,
   onSave,
-  onDelete,
   saving = false,
   saveDisabled = false,
 }: ConfigDrawerProps) {
@@ -82,16 +80,6 @@ export function ConfigDrawer({
             </div>
 
             <div className="flex items-center gap-2.5 border-t border-border px-5 py-4">
-              {onDelete && (
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  disabled={saving}
-                  className="rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40"
-                >
-                  删除
-                </button>
-              )}
               <button
                 type="button"
                 onClick={onSave}
@@ -108,14 +96,14 @@ export function ConfigDrawer({
   )
 }
 
-// 表单字段行：label + 控件竖排，配置三页共用。
+// 表单字段行：label + 控件竖排，配置三页共用。hint 可传节点（如内嵌跨页链接）。
 export function Field({
   label,
   hint,
   children,
 }: {
   label: string
-  hint?: string
+  hint?: ReactNode
   children: ReactNode
 }) {
   return (

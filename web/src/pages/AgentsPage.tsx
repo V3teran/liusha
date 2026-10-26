@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { listAgentsPaged } from '@/api/client'
-import { saveAgent, deleteAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
+import { saveAgent, listToolCandidates, listSkillCandidates, type AgentChanges } from '@/api/config'
 import type { AgentConfig, Skill, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { agentProfile } from '@/lib/agentColor'
 
 // 智能体分页取数：适配 usePagedList 的 (page,size,q) → {items,total} 契约。
 const fetchAgents = async (page: number, size: number, q: string) => {
@@ -13,9 +15,11 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 智能体配置管理页（后端资源仍名 agent）：领域智能体系统提示词 + 工具集 + 调度摘要，全字段编辑。
-// 工具集从工具目录（DB）读取候选，勾选而非填空——function_tools（内部函数工具）与 cli_tools（外部 CLI 工具）分区多选。
-export function AgentAdmin() {
+// 智能体配置管理页（后端资源名 executor）：四个固定种子角色，编辑系统提示词 + 工具集 + 技能白名单。
+// 角色身份（标识符/名称/调度摘要/启用）由种子固定，页面只读、接口不收；
+// 保存只提交脏字段（PUT 部分更新），与工具页的并发装配写互不覆盖快照。
+// 工具/技能候选从目录（DB）读取，勾选而非填空——function_tools / cli_tools / skills 三区多选。
+export function AgentsPage() {
   const list = usePagedList<AgentConfig>(fetchAgents)
   const { rows, loading, error, reload } = list
   // 工具候选：函数工具 / CLI 工具两套全量目录，一次性拉取供勾选。
@@ -23,6 +27,8 @@ export function AgentAdmin() {
   const [cliTools, setCliTools] = useState<Tool[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [draft, setDraft] = useState<AgentConfig | null>(null)
+  // 打开抽屉时的原始行快照：脏 diff 的基准（patch 全为不可变更新，行对象不会被原地改）。
+  const [baseline, setBaseline] = useState<AgentConfig | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -36,6 +42,10 @@ export function AgentAdmin() {
       .then(setSkills)
       .catch(() => setSkills([]))
   }, [])
+
+  // 本轮编辑的脏字段（空对象 = 无变更）：驱动保存按钮禁用与关闭确认。
+  const changes = draft && baseline ? diffChanges(baseline, draft) : {}
+  const dirty = Object.keys(changes).length > 0
 
   const patch = (p: Partial<AgentConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
@@ -52,12 +62,28 @@ export function AgentAdmin() {
         : d,
     )
 
+  const openDraft = (h: AgentConfig) => {
+    setDraft(h)
+    setBaseline(h)
+  }
+
+  const closeDraft = () => {
+    setDraft(null)
+    setBaseline(null)
+  }
+
+  // 用户交互关闭（Esc/遮罩/关闭钮）：有未保存更改时先确认，防误触丢大段提示词。
+  const requestClose = () => {
+    if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
+    closeDraft()
+  }
+
   const onSave = async () => {
-    if (!draft) return
+    if (!draft || !baseline || !dirty) return
     setSaving(true)
     try {
-      await saveAgent(draft)
-      setDraft(null)
+      await saveAgent(draft.id, changes)
+      closeDraft()
       reload()
     } catch (e) {
       window.alert(e instanceof Error ? e.message : '保存失败')
@@ -65,22 +91,6 @@ export function AgentAdmin() {
       setSaving(false)
     }
   }
-
-  const onDelete = async () => {
-    if (!draft?.id || !window.confirm(`确认删除智能体「${draft.name}」？`)) return
-    setSaving(true)
-    try {
-      await deleteAgent(draft.id)
-      setDraft(null)
-      reload()
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : '删除失败')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const saveDisabled = !draft?.code || !draft?.name
 
   return (
     <>
@@ -101,28 +111,37 @@ export function AgentAdmin() {
           onSize: list.setSize,
         }}
       >
-        {rows.map((h) => (
-          <ConfigRow
-            key={h.id}
-            name={h.name}
-            description={h.description}
-            dimmed={!h.enabled}
-            onClick={() => setDraft(h)}
-            right={
-              !h.enabled ? <Badge variant="outline">已停用</Badge> : undefined
-            }
-          />
-        ))}
+        {rows.map((h) => {
+          const profile = agentProfile(h.code)
+          const Icon = profile.icon
+          return (
+            <ConfigRow
+              key={h.id}
+              leading={
+                <span
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
+                  style={{ color: profile.accent, background: profile.soft }}
+                >
+                  <Icon className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+              }
+              name={h.name}
+              description={h.description}
+              dimmed={!h.enabled}
+              onClick={() => openDraft(h)}
+              right={!h.enabled ? <Badge variant="outline">已停用</Badge> : undefined}
+            />
+          )
+        })}
       </ConfigListShell>
 
       <ConfigDrawer
         open={!!draft}
-        title={draft?.id ? '编辑智能体' : '新建智能体'}
-        onOpenChange={(o) => !o && setDraft(null)}
+        title="编辑智能体"
+        onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
-        onDelete={draft?.id ? () => void onDelete() : undefined}
         saving={saving}
-        saveDisabled={saveDisabled}
+        saveDisabled={!dirty}
         tabs={
           draft
             ? [
@@ -132,29 +151,23 @@ export function AgentAdmin() {
                   content: (
                     <>
                       <div className="flex gap-3">
-                        <Field label="标识符" hint="唯一ID，创建后不可修改">
+                        <Field label="标识符" hint="固定角色标识（code 寻址），不可修改">
                           <input
                             className={INPUT_CLASS}
                             value={draft.code}
                             spellCheck={false}
-                            disabled={!!draft.id}
-                            onChange={(e) => patch({ code: e.target.value })}
+                            disabled
                           />
                         </Field>
                       </div>
-                      <Field label="名称">
-                        <input
-                          className={INPUT_CLASS}
-                          value={draft.name}
-                          onChange={(e) => patch({ name: e.target.value })}
-                        />
+                      <Field label="名称" hint="种子固定，不可修改">
+                        <input className={INPUT_CLASS} value={draft.name} disabled />
                       </Field>
-                      <Field label="调度摘要" hint="多智能体协同时编排者据此选派（非面向用户的描述）">
-                        <input
-                          className={INPUT_CLASS}
-                          value={draft.description}
-                          onChange={(e) => patch({ description: e.target.value })}
-                        />
+                      <Field
+                        label="调度摘要"
+                        hint="种子固定，不可修改；多智能体协同时编排者据此选派（非面向用户的描述）"
+                      >
+                        <input className={INPUT_CLASS} value={draft.description} disabled />
                       </Field>
                       <Field label="最大迭代轮数" hint="ReAct 推理循环上限">
                         <input
@@ -162,12 +175,24 @@ export function AgentAdmin() {
                           min={1}
                           className={INPUT_CLASS}
                           value={draft.max_iterations}
-                          onChange={(e) => patch({ max_iterations: Number(e.target.value) })}
+                          onChange={(e) => {
+                            // 逐键钳到 ≥1 的整数：Number('')=0，负数/小数/非法输入都不落 draft。
+                            const n = Math.floor(Number(e.target.value))
+                            patch({ max_iterations: Number.isFinite(n) && n >= 1 ? n : 1 })
+                          }}
                         />
                       </Field>
                       <Field
                         label="复杂度档"
-                        hint="决定该智能体的 LLM 路由档位：轻量快答 / 标准推理 / 深度推理。在「模型」页把每档指到某个部署。"
+                        hint={
+                          <>
+                            决定该智能体的 LLM 路由档位：轻量快答 / 标准推理 / 深度推理。在
+                            <Link className="text-accent hover:underline" to="/config/models?tab=assignment">
+                              「模型」页
+                            </Link>
+                            把每档指到某个部署。
+                          </>
+                        }
                       >
                         <select
                           className={INPUT_CLASS}
@@ -179,14 +204,12 @@ export function AgentAdmin() {
                           <option value="complex">深度推理（complex）</option>
                         </select>
                       </Field>
-                      <label className="flex items-center gap-2 text-sm text-text">
-                        <input
-                          type="checkbox"
-                          checked={draft.enabled}
-                          onChange={(e) => patch({ enabled: e.target.checked })}
-                        />
-                        启用
-                      </label>
+                      <Field label="启用" hint="由种子与运维控制，接口不可改">
+                        <label className="flex items-center gap-2 text-sm text-text">
+                          <input type="checkbox" checked={draft.enabled} disabled />
+                          {draft.enabled ? '已启用' : '已停用'}
+                        </label>
+                      </Field>
                     </>
                   ),
                 },
@@ -285,12 +308,11 @@ export function AgentAdmin() {
                         </div>
                       ) : (
                         <ToolPicker
+                          // 技能以 code 裸名寻址：多选器候选映射到最小结构，不再伪造 Tool 全字段。
                           catalog={skills.map((sk) => ({
                             name: sk.code,
                             category: sk.category,
                             description: sk.description,
-                            kind: 'function' as const,
-                            sort_order: 0
                           }))}
                           selected={draft.skills}
                           onToggle={(name) => toggleTool('skills', name)}
@@ -309,20 +331,27 @@ export function AgentAdmin() {
 }
 
 // 工具多选器：按 category 分组（桶内按 name 字典序）渲染可勾选的工具标签。
-// function / cli 两类共用同一交互，仅候选源不同。
+// 候选只要求「白名单键 + 分组 + 说明」最小结构——Tool 与 Skill 派生对象都天然满足，
+// 不为复用伪造 Tool 全字段。
+interface PickerCandidate {
+  name: string
+  category: string
+  description: string
+}
+
 function ToolPicker({
   catalog,
   selected,
   onToggle,
   emptyHint,
 }: {
-  catalog: Tool[]
+  catalog: PickerCandidate[]
   selected: string[]
   onToggle: (name: string) => void
   emptyHint: string
 }) {
   const byCategory = useMemo(() => {
-    const byCat = new Map<string, Tool[]>()
+    const byCat = new Map<string, PickerCandidate[]>()
     for (const t of catalog) {
       const cat = t.category || '未分类'
       const bucket = byCat.get(cat) ?? []
@@ -369,4 +398,22 @@ function ToolPicker({
       ))}
     </div>
   )
+}
+
+// ── 脏字段 diff ────────────────────────────────────────────────────────
+
+const sameList = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((v, i) => v === b[i])
+
+// baseline → draft 的字段级差异（仅可变字段）。保存只提交这些脏 diff，
+// 绝不回传整行快照——否则工具页并发装配的工具集会被旧快照覆盖回去。
+function diffChanges(baseline: AgentConfig, draft: AgentConfig): AgentChanges {
+  const c: AgentChanges = {}
+  if (draft.system_prompt !== baseline.system_prompt) c.system_prompt = draft.system_prompt
+  if (draft.complexity !== baseline.complexity) c.complexity = draft.complexity
+  if (draft.max_iterations !== baseline.max_iterations) c.max_iterations = draft.max_iterations
+  if (!sameList(draft.function_tools, baseline.function_tools)) c.function_tools = draft.function_tools
+  if (!sameList(draft.cli_tools, baseline.cli_tools)) c.cli_tools = draft.cli_tools
+  if (!sameList(draft.skills, baseline.skills)) c.skills = draft.skills
+  return c
 }

@@ -2,10 +2,10 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { ConfigListShell, ConfigRow } from './ConfigListShell'
 
-// 造 n 张卡片作为 children，用序号当 code/name 便于断言当前页可见项。
+// 造 n 张卡片作为 children，用序号当 name 便于断言当前页可见项。
 function cards(n: number) {
   return Array.from({ length: n }, (_, i) => (
-    <ConfigRow key={i} code={`c${i}`} name={`item-${i}`} onClick={() => {}} />
+    <ConfigRow key={i} name={`item-${i}`} onClick={() => {}} />
   ))
 }
 
@@ -26,6 +26,9 @@ function renderShell(n: number) {
 }
 
 describe('ConfigListShell 分页', () => {
+  // PagerBar 的页码文案被 <span> 拆分（第 <span>N</span> / M 页），精确文本匹配不到，按 textContent 匹配。
+  const pagerText = (t: string) => screen.getByText((_, el) => el?.textContent === t)
+
   it('不足一页（≤12 项）时仍显示翻页条，但下一页置灰', () => {
     renderShell(12)
     const next = screen.getByText('下一页').closest('button')!
@@ -39,7 +42,7 @@ describe('ConfigListShell 分页', () => {
     expect(screen.getByText('item-0')).toBeTruthy()
     expect(screen.getByText('item-11')).toBeTruthy()
     expect(screen.queryByText('item-12')).toBeNull() // 第 13 项落到第 2 页
-    expect(screen.getByText('第 1 / 2 页')).toBeTruthy()
+    expect(pagerText('第 1 / 2 页')).toBeTruthy()
     expect(screen.getByText('共 13 项')).toBeTruthy()
   })
 
@@ -51,7 +54,7 @@ describe('ConfigListShell 分页', () => {
 
     fireEvent.click(next)
 
-    expect(screen.getByText('第 2 / 2 页')).toBeTruthy()
+    expect(pagerText('第 2 / 2 页')).toBeTruthy()
     expect(screen.getByText('item-12')).toBeTruthy()
     expect(screen.queryByText('item-0')).toBeNull()
     expect(next).toBeDisabled() // 末页无下一页

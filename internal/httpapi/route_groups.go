@@ -77,10 +77,10 @@ func registerExecutorConfigRoutes(r gin.IRouter, d Deps) {
 	if d.ConfigStore == nil {
 		return
 	}
-	// executor 配置 CRUD（前端配置管理页）
+	// executor 配置读取/编辑（前端配置管理页）。角色为固定种子：
+	// 无 POST（不可新建）、无 DELETE（不可删），只有部分更新。
 	r.GET("/executors", listExecutorsHandler(d.ConfigStore))
 	r.GET("/executors/:id", getExecutorHandler(d.ConfigStore))
-	r.POST("/executors", saveExecutorHandler(d.ConfigStore))
 	r.PUT("/executors/:id", saveExecutorHandler(d.ConfigStore))
 	r.PATCH("/executors/:id/complexity", updateExecutorComplexityHandler(d.ConfigStore))
 }

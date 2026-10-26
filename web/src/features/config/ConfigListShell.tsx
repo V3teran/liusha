@@ -245,6 +245,7 @@ export function ConfigRow({
   description,
   onClick,
   right,
+  leading,
   dimmed = false,
   active = false,
 }: {
@@ -252,6 +253,8 @@ export function ConfigRow({
   description?: string
   onClick: () => void
   right?: ReactNode
+  // 标题左侧的身份位（如图标/色环），可选——用于展示资源自身的视觉身份。
+  leading?: ReactNode
   dimmed?: boolean
   active?: boolean
 }) {
@@ -269,9 +272,12 @@ export function ConfigRow({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="min-w-0 flex-1 truncate text-base font-semibold text-text group-hover:text-accent transition-colors">
-          {name}
-        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          {leading}
+          <span className="min-w-0 flex-1 truncate text-base font-semibold text-text group-hover:text-accent transition-colors">
+            {name}
+          </span>
+        </div>
         {right && <div className="flex-shrink-0">{right}</div>}
       </div>
       <p className="truncate-2 min-w-0 text-xs leading-relaxed text-text-secondary">

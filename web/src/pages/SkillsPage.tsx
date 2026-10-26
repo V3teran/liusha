@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { listSkillsPaged } from '@/api/client'
 import type { Skill } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
@@ -11,13 +11,11 @@ const fetchSkills = async (page: number, size: number, q: string) => {
   return { items: res.skills, total: res.total }
 }
 
+// 取数全权交给 usePagedList（内部含防抖 + 竞态丢弃）；页面不得再自行 reload——
+// 在 effect 里盯 query 逐键 reload 会绕过防抖、挂载时双请求（历史缺陷）。
 export default function SkillsPage() {
   const list = usePagedList(fetchSkills)
   const [draft, setDraft] = useState<Skill | null>(null)
-
-  useEffect(() => {
-    void list.reload()
-  }, [list.page, list.size, list.query])
 
   const { loading, error } = list
   const rows = (list.rows as Skill[]) || []
