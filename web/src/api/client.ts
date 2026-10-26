@@ -25,6 +25,7 @@ import type {
   FindingRow,
   FindingFilters,
   FindingListResponse,
+  AggregatedFindingListResponse,
   ControlEvent,
   Skill,
 } from './types'
@@ -376,6 +377,19 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
 export async function listFindingHosts(): Promise<string[]> {
   return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
 }
+
+/**
+ * 查询聚合后的漏洞视图（按 host+cwe_id+path 聚合，展示生命周期）。
+ */
+export async function listAggregatedFindings(filters: FindingFilters = {}): Promise<AggregatedFindingListResponse> {
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) params.set(k, String(v))
+  }
+  const q = params.toString()
+  return get<AggregatedFindingListResponse>(`/findings/aggregated${q ? '?' + q : ''}`)
+}
+
 
 /**
  * 人工处置一条漏洞（triage）。status 五态之一；severity 传空保留扫描原值、非空覆盖；note 可空。
