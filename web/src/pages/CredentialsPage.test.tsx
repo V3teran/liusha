@@ -78,6 +78,9 @@ beforeEach(() => {
 })
 
 describe('CredentialsPage（列表形态）', () => {
+  // PaginationToolbar 的「共 N 条」被 <strong> 拆分，按 textContent 匹配。
+  const countText = (t: string) => screen.getByText((_, el) => el?.textContent === t)
+
   it('一个身份一行：主机列、明文直显（类别信息在详情 Sheet，不再占列）', async () => {
     renderPage()
     // 行内容就位后再做同步断言（表头先于行渲染，等行不等头）
@@ -92,7 +95,7 @@ describe('CredentialsPage（列表形态）', () => {
     // 类别列已删（类别/任务状态信息移入详情 Sheet 与筛选器）
     expect(screen.queryByRole('columnheader', { name: '类别' })).toBeNull()
     // 计数 = 身份数（2 host 共 3 个身份）
-    expect(screen.getByText('共 3 条')).toBeTruthy()
+    expect(countText('共 3 条')).toBeTruthy()
   })
 
   it('行内编辑角色：点击单元格变输入框，Enter 提交 PUT', async () => {
@@ -164,11 +167,11 @@ describe('CredentialsPage（列表形态）', () => {
     const box = screen.getByPlaceholderText('搜索主机 / 用户名 / 键 / 值…')
     await user.type(box, 'guest-tk')
     // 只剩 b.com/guest 身份，计数同步
-    await waitFor(() => expect(screen.getByText('共 1 条')).toBeTruthy())
+    await waitFor(() => expect(countText('共 1 条')).toBeTruthy())
     await waitFor(() => expect(screen.queryByText(`Cookie: ${PLAINTEXT}`)).toBeNull())
 
     await user.clear(box)
-    await waitFor(() => expect(screen.getByText('共 3 条')).toBeTruthy())
+    await waitFor(() => expect(countText('共 3 条')).toBeTruthy())
   })
 
   it('分页与创建时间列', async () => {
@@ -207,17 +210,5 @@ describe('CredentialsPage（列表形态）', () => {
     )
   })
 
-  it('host 筛选后出现清理会话/删除主机操作', async () => {
-    const user = userEvent.setup()
-    renderPage()
-    await screen.findByText(`Cookie: ${PLAINTEXT}`)
-
-    const hostSelect = screen.getByLabelText('按主机筛选')
-    await user.selectOptions(hostSelect, 'a.com')
-
-    expect(screen.getByText('清理会话')).toBeTruthy()
-    expect(screen.getByText('删除主机')).toBeTruthy()
-    // a.com 的两个身份（持久+会话）
-    expect(screen.getByText('共 2 条')).toBeTruthy()
-  })
+  // 注：host 级「清理会话/删除主机」批量操作已随列表重构移除（行级删除覆盖同等语义）。
 })

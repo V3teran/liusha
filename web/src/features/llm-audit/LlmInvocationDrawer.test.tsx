@@ -67,8 +67,8 @@ describe('LlmInvocationDrawer', () => {
     const detail = makeDetail({ error_message: '', finish_reason: 'stop' })
     render(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
     expect(screen.queryByText('失败')).toBeNull()
-    // finish_reason 同时出现在头部徽章与元信息 KV 网格，共两处。
-    expect(screen.getAllByText('stop').length).toBeGreaterThanOrEqual(2)
+    // finish_reason 显示在头部徽章（元信息 KV 网格已不再重复展示）。
+    expect(screen.getAllByText('stop').length).toBeGreaterThanOrEqual(1)
   })
 
   it('本次输入只显示最后一条消息（增量），不展示完整历史', () => {
@@ -141,12 +141,11 @@ describe('LlmInvocationDrawer', () => {
     const writeText = navigator.clipboard.writeText
     const detail = makeDetail({ request_id: 'req-xyz' })
     render(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    // request_id 旁的复制按钮是图标态；其他 section 的带字按钮也带 title（tooltip）
-    // ——统一 hover 语言后按首个 title 命中（rid 行在抽屉顶部）。
-    const copyBtn = screen.getAllByTitle('复制')[0]
+    // request_id 旁的复制按钮是图标态（CopyButton 以 aria-label 表达复制/已复制态）。
+    const copyBtn = screen.getAllByRole('button', { name: '复制' })[0]
     fireEvent.click(copyBtn)
-    // copy() 内部 await clipboard.writeText 后才 setState；等按钮态切换（title 变为「已复制」），避免 act() 警告。
-    expect(await screen.findByTitle('已复制')).toBeTruthy()
+    // copy() 内部 await clipboard.writeText 后才 setState；等按钮态切换（aria-label 变为「已复制」），避免 act() 警告。
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeTruthy()
     expect(writeText).toHaveBeenCalledWith('req-xyz')
   })
 
@@ -159,7 +158,7 @@ describe('LlmInvocationDrawer', () => {
     expect(copyBtn).toBeTruthy()
     fireEvent.click(copyBtn!)
     expect(writeText).toHaveBeenCalledWith('思考内容 A')
-    expect(await screen.findByTitle('已复制')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeTruthy()
   })
 
   it('无输入消息且无 messages 时显示占位', () => {

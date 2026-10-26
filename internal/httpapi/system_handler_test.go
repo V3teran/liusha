@@ -48,7 +48,7 @@ func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/settings/compaction", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/settings/compaction", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -74,7 +74,7 @@ func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/settings/compaction", tc.body)
+			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -91,7 +91,7 @@ func TestPutCompactionSettings_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/settings/compaction", map[string]any{
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", map[string]any{
 		"trigger_ratio": 0.75, "trailing_budget_ratio": 0.4, "compactor_timeout_seconds": 45,
 	})
 	if code != 200 {
@@ -118,7 +118,7 @@ func TestPutRuntimeSettings_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/settings/runtime", tc.body)
+			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/runtime", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -132,7 +132,7 @@ func TestPutRuntimeSettings_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/settings/runtime", map[string]any{
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/runtime", map[string]any{
 		"step_tool_timeout_seconds": 90, "run_tail_bytes": 8192, "findings_limit_in_prompt": 200,
 	})
 	if code != 200 {
@@ -155,7 +155,7 @@ func TestGetProxyFilterSettings_ReturnsGroup(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/settings/proxy-filter", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/settings/proxy-filter", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -179,7 +179,7 @@ func TestPutProxyFilterSettings_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/settings/proxy-filter", tc.body)
+			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/proxy-filter", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -193,7 +193,7 @@ func TestPutProxyFilterSettings_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/settings/proxy-filter", map[string]any{
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/proxy-filter", map[string]any{
 		"allow_hosts":            []string{"*.target.com"},
 		"exclude_methods":        []string{"OPTIONS", "CONNECT"},
 		"exclude_status_codes":   []int{304},
@@ -216,7 +216,7 @@ func TestSettingsRoutes_NotRegisteredWhenNil(t *testing.T) {
 	srv := newTestServer(t, Deps{})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "GET", srv.URL+"/settings/compaction", nil)
+	code, _ := doJSON(t, "GET", srv.URL+"/api/settings/compaction", nil)
 	if code != 404 {
 		t.Fatalf("Settings=nil 应 404，got %d", code)
 	}

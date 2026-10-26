@@ -63,7 +63,7 @@ func TestTrafficHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic?host=a.com&method=get&path=/x*&content_type=application/json&search=admin*&status_min=200&status_max=299&since=2026-08-01T00:00:00Z&until=2026-08-07T00:00:00Z&page=2&size=10", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic?host=a.com&method=get&path=/x*&content_type=application/json&search=admin*&status_min=200&status_max=299&since=2026-08-01T00:00:00Z&until=2026-08-07T00:00:00Z&page=2&size=10", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -116,7 +116,7 @@ func TestTrafficHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic?size=99999", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic?size=99999", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -136,7 +136,7 @@ func TestTrafficHandler_Lookups(t *testing.T) {
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic/content-types", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic/content-types", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -160,7 +160,7 @@ func TestTrafficHandler_Lookups(t *testing.T) {
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic/hosts", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic/hosts", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -194,7 +194,7 @@ func TestTrafficHandler_Detail(t *testing.T) {
 		defer srv.Close()
 
 		// 命中
-		req, _ := http.NewRequest("GET", srv.URL+"/traffic/5", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic/5", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -222,7 +222,7 @@ func TestTrafficHandler_Detail(t *testing.T) {
 		}
 
 		// 未命中 → 404
-		req2, _ := http.NewRequest("GET", srv.URL+"/traffic/999", nil)
+		req2, _ := http.NewRequest("GET", srv.URL+"/api/traffic/999", nil)
 		req2.Header.Set("X-API-Key", "k")
 		resp2, err := http.DefaultClient.Do(req2)
 		if err != nil {

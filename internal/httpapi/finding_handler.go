@@ -157,4 +157,3 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"created_at":     r.CreatedAt,
 	}
 }
-

@@ -1,11 +1,10 @@
 package httpapi
 
 import (
-
-	"fmt"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -114,7 +113,7 @@ func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/models/providers", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/models/providers", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -160,7 +159,7 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "POST", srv.URL+"/models/providers", tc.body)
+			code, body := doJSON(t, "POST", srv.URL+"/api/models/providers", tc.body)
 			if code != 400 {
 				t.Fatalf("want 400, got %d (%v)", code, body)
 			}
@@ -177,7 +176,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
+	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
 		"code": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
 		"default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
 		"supports_vision": true, "enabled": true,
@@ -202,7 +201,7 @@ func TestSaveProvider_GeneratesCode(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
+	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
 		"type": "openai_compat", "base_url": "https://x", "default_model": "m",
 		"api_key": "k", "context_window": 1,
 	})
@@ -223,7 +222,7 @@ func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/providers/deepseek", map[string]any{
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/providers/deepseek", map[string]any{
 		"code": "deepseek", "type": "openai_compat", "base_url": "https://api.deepseek.com",
 		"default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
 	})
@@ -241,7 +240,7 @@ func TestSaveProvider_NoEncrypterMeansRouteNotRegistered(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}}) // 无 KeyEncrypter
 	defer srv.Close()
 
-	code, _ := doJSON(t, "POST", srv.URL+"/models/providers", map[string]any{
+	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
 		"code": "x", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1,
 	})
 	if code != 404 {
@@ -255,7 +254,7 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, body := doJSON(t, "DELETE", srv.URL+"/models/providers/deepseek", nil)
+	code, body := doJSON(t, "DELETE", srv.URL+"/api/models/providers/deepseek", nil)
 	if code != 409 {
 		t.Fatalf("want 409, got %d (%v)", code, body)
 	}
@@ -275,7 +274,7 @@ func TestListRouting_ReturnsRoutes(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/models/routing", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/models/routing", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -293,7 +292,7 @@ func TestSaveRoleRoute_FKConflict(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_code": "ghost"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{"provider_code": "ghost"})
 	if code != 409 {
 		t.Fatalf("want 409, got %d", code)
 	}
@@ -305,7 +304,7 @@ func TestSaveRoleRoute_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{"provider_code": "deepseek"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{"provider_code": "deepseek"})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -319,7 +318,7 @@ func TestSaveRoleRoute_MissingProviderKey(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/models/routes/planner", map[string]any{})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{})
 	if code != 400 {
 		t.Fatalf("want 400, got %d", code)
 	}
@@ -331,7 +330,7 @@ func TestDeleteRoleRoute_OK(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "DELETE", srv.URL+"/models/routes/planner", nil)
+	code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/routes/planner", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}

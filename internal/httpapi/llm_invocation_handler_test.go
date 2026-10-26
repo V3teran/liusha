@@ -90,7 +90,7 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?size=2", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1?size=2", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -134,7 +134,7 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?size=99999", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1?size=99999", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -157,7 +157,7 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1?page=2&size=2", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1?page=2&size=2", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -189,7 +189,7 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -219,7 +219,7 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -261,7 +261,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1/invocation/5", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1/invocation/5", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -289,7 +289,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1/invocation/5", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1/invocation/5", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -309,7 +309,7 @@ func TestLLMInvocationsHandler_Stat(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1/stat", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1/stat", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -336,7 +336,7 @@ func TestLLMInvocationsHandler_Stat(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET",
-			srv.URL+"/llm/invocations/t1/stat?role=executor&model=glm-5.3-flash&only_err=1", nil)
+			srv.URL+"/api/llm/invocations/t1/stat?role=executor&model=glm-5.3-flash&only_err=1", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -363,7 +363,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1/facets", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1/facets", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -392,7 +392,7 @@ func TestLLMInvocationFacetsHandler(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/llm/invocations/t1/facets", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/t1/facets", nil)
 		req.Header.Set("X-API-Key", "k")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {

@@ -80,7 +80,7 @@ describe('AppShell', () => {
     const user = userEvent.setup()
     renderShell('/conversations/manual')
 
-    const btn = screen.getByLabelText('切换到浅色')
+    const btn = screen.getByLabelText('切换到浅色模式')
     expect(btn).toBeTruthy()
     await user.click(btn)
     expect(toggle).toHaveBeenCalledTimes(1)
@@ -90,6 +90,6 @@ describe('AppShell', () => {
     mockedUseTheme.mockReturnValue({ theme: 'light', toggle: vi.fn() })
     renderShell('/conversations/manual')
 
-    expect(screen.getByLabelText('切换到深色')).toBeTruthy()
+    expect(screen.getByLabelText('切换到深色模式')).toBeTruthy()
   })
 })
