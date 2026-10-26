@@ -76,10 +76,13 @@ describe('FindingsPage', () => {
     expect(await screen.findByText(/服务器错误/)).toBeTruthy()
   })
 
-  // 图例按钮（唯一含 <b> 子元素的 button，与堆叠条分段按钮、表格行 severity 标签区分）。
+  // 图例按钮：含「标签 span + 数字计数 span」的 button，与堆叠条分段按钮（无文本）、
+  // 表格行 severity 徽章（非 button）区分。
   function findLegendButton(container: HTMLElement, label: string): HTMLElement {
     const btn = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.querySelector('b') && b.textContent?.trim().startsWith(label),
+      (b) =>
+        Array.from(b.querySelectorAll('span')).some((s) => s.textContent === label) &&
+        /\d/.test(b.textContent ?? ''),
     )
     if (!btn) throw new Error(`legend button not found: ${label}`)
     return btn
@@ -97,8 +100,8 @@ describe('FindingsPage', () => {
     // 4 条同名 finding，等待表格渲染出全部行而非单条匹配。
     await waitFor(() => expect(screen.getAllByText('SQL 注入漏洞').length).toBe(4))
 
-    // 总数 4（服务端 total）
-    expect(screen.getByText('4')).toBeTruthy()
+    // 总数 4（服务端 total；同一数字还出现在分页「共 4 条」，断言存在即可）
+    expect(screen.getAllByText('4').length).toBeGreaterThanOrEqual(1)
     // 图例：严重 2 / 高危 1 / 低危 1
     expect(within(findLegendButton(container, '严重')).getByText('2')).toBeTruthy()
     expect(within(findLegendButton(container, '高危')).getByText('1')).toBeTruthy()
@@ -200,8 +203,8 @@ describe('FindingsPage', () => {
 
     await user.click(row)
 
-    // 抽屉标题为 sr-only「漏洞详情」，处置区块「处置」应可见
-    expect(await screen.findByText('处置')).toBeTruthy()
+    // 抽屉标题为 sr-only「漏洞详情」，处置区块「漏洞处置」应可见
+    expect(await screen.findByText('漏洞处置')).toBeTruthy()
   })
 
   it('保存 triage：成功后调用 updateFindingTriage 并重拉列表', async () => {
@@ -214,10 +217,10 @@ describe('FindingsPage', () => {
     const row = await screen.findByText('SQL 注入漏洞')
     await user.click(row)
 
-    const noteBox = await screen.findByPlaceholderText(/处置备注/)
+    const noteBox = await screen.findByPlaceholderText(/处置思路/)
     await user.type(noteBox, '已核实')
 
-    const saveBtn = screen.getByRole('button', { name: '保存' })
+    const saveBtn = screen.getByRole('button', { name: '保存处置' })
     await user.click(saveBtn)
 
     await waitFor(() =>
@@ -235,10 +238,10 @@ describe('FindingsPage', () => {
     const row = await screen.findByText('SQL 注入漏洞')
     await user.click(row)
 
-    const noteBox = await screen.findByPlaceholderText(/处置备注/)
+    const noteBox = await screen.findByPlaceholderText(/处置思路/)
     await user.type(noteBox, '触发失败')
 
-    const saveBtn = screen.getByRole('button', { name: '保存' })
+    const saveBtn = screen.getByRole('button', { name: '保存处置' })
     await user.click(saveBtn)
 
     await waitFor(() => expect(window.alert).toHaveBeenCalledWith('处置保存失败，请重试'))

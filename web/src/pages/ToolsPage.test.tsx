@@ -95,10 +95,10 @@ describe('ToolsPage', () => {
     render(<ToolsPage />)
     await screen.findByText('read_findings')
     mList.mockResolvedValue({ tools: [CLI], total: 1 })
-    // 「外部 CLI」既是种类段按钮也是分组头/徽章文案，取文本恰为该值的段按钮。
+    // 「外部工具」（KIND_LABEL.cli）既是种类段按钮也是分组头/徽章文案，取文本恰为该值的段按钮。
     const cliSegment = screen
-      .getAllByText('外部 CLI')
-      .find((el) => el.tagName === 'BUTTON' && el.textContent === '外部 CLI')
+      .getAllByText('外部工具')
+      .find((el) => el.tagName === 'BUTTON' && el.textContent === '外部工具')
     expect(cliSegment).toBeTruthy()
     await userEvent.click(cliSegment!)
     await waitFor(() => expect(mList.mock.calls.some((c) => c[0]?.kind === 'cli')).toBe(true))

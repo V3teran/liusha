@@ -24,7 +24,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/描述要扫的目标/)
     await userEvent.type(textarea, '扫一下 example.com')
-    const sendBtn = screen.getByRole('button', { name: '发起扫描' })
+    const sendBtn = screen.getByRole('button', { name: '发送' })
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
@@ -50,7 +50,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
-    const sendBtn = screen.getByRole('button', { name: '追加' })
+    const sendBtn = screen.getByRole('button', { name: '发送' })
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
@@ -82,7 +82,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
-    await userEvent.click(screen.getByRole('button', { name: '追加' }))
+    await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     // 发送过程中，SSE 把 lastSeq 推高（模拟并发到达的新事件）。
     useConversationStore.getState().ingest({
@@ -110,7 +110,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
-    await userEvent.click(screen.getByRole('button', { name: '追加' }))
+    await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
       expect(screen.getByText('扫描进行中，先点停止再发')).toBeTruthy()
@@ -125,7 +125,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '这批流量里有没有可疑的')
-    await userEvent.click(screen.getByRole('button', { name: '追加' }))
+    await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
       expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的')
@@ -140,7 +140,7 @@ describe('Composer', () => {
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
-    await userEvent.click(screen.getByRole('button', { name: '追加' }))
+    await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
       expect(screen.getByText('扫描进行中，先点停止再发')).toBeTruthy()
@@ -184,7 +184,7 @@ describe('Composer', () => {
 
   it('空 brief 不发送', async () => {
     render(<Composer onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
-    const sendBtn = screen.getByRole('button', { name: '发起扫描' })
+    const sendBtn = screen.getByRole('button', { name: '发送' })
     expect(sendBtn).toBeDisabled()
     await userEvent.click(sendBtn)
     expect(startChat).not.toHaveBeenCalled()

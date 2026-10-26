@@ -46,7 +46,7 @@ describe('ModelPage', () => {
     mockedUseSaveAgentComplexity.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
-  it('渲染页面标题和导出按钮', () => {
+  it('渲染页面标题与副标题（单页设置流，无独立导出入口）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
     mockedUseAssignments.mockReturnValue({ data: [], isLoading: false })
     mockedUseLLMInvocationStat.mockReturnValue({ data: null, isLoading: false })
@@ -55,17 +55,16 @@ describe('ModelPage', () => {
 
     expect(screen.getByText('LLM 配置')).toBeTruthy()
     expect(screen.getByText('配置模型提供商和能力路由')).toBeTruthy()
-    expect(screen.getByText('导出配置')).toBeTruthy()
   })
 
-  it('渲染三个分区：LLM 审计、模型提供商、能力路由', () => {
+  it('渲染两个分区：模型提供商、能力路由', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
     mockedUseAssignments.mockReturnValue({ data: [], isLoading: false })
     mockedUseLLMInvocationStat.mockReturnValue({ data: null, isLoading: false })
 
     renderPage()
 
-    expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('模型提供商')).toBeTruthy()
+    expect(screen.getByText('能力路由')).toBeTruthy()
   })
 })

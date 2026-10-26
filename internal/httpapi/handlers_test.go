@@ -169,7 +169,7 @@ func TestAuth_RejectsMissingHeader(t *testing.T) {
 	srv := newTestServer(t, Deps{Credentials: &fakeCred{}})
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/credentials/h")
+	resp, err := http.Get(srv.URL + "/api/credentials/h")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestAuth_RejectsWrongKey(t *testing.T) {
 	srv := newTestServer(t, Deps{Credentials: &fakeCred{}})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/credentials/h", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/credentials/h", nil)
 	req.Header.Set("X-API-Key", "wrong")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -200,7 +200,7 @@ func TestTaskAbort(t *testing.T) {
 	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/tasks/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/tasks/eid-1/abort", nil)
 	req.Header.Set("X-API-Key", "k")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -220,7 +220,7 @@ func TestTaskAbort_RequiresAuth(t *testing.T) {
 	srv := newTestServer(t, Deps{Tasks: fa})
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/tasks/eid-1/abort", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/tasks/eid-1/abort", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
@@ -271,7 +271,7 @@ func TestScan_Created(t *testing.T) {
 
 	brief := "测试网站 http://111.229.193.40:34280/login.php，账号 admin/password，只测 XSS"
 	body, _ := json.Marshal(CreateScanRequest{Brief: brief})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/scan", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -310,7 +310,7 @@ func TestScan_MissingBrief(t *testing.T) {
 		srv := newTestServer(t, Deps{Scan: fs})
 
 		body, _ := json.Marshal(CreateScanRequest{Brief: b})
-		req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", srv.URL+"/api/scan", bytes.NewReader(body))
 		req.Header.Set("X-API-Key", "k")
 		req.Header.Set("Content-Type", "application/json")
 
@@ -336,7 +336,7 @@ func TestScan_RequiresAuth(t *testing.T) {
 	defer srv.Close()
 
 	body, _ := json.Marshal(CreateScanRequest{Brief: "测试 https://x.com"})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/scan", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -359,7 +359,7 @@ func TestScan_BackendError(t *testing.T) {
 	defer srv.Close()
 
 	body, _ := json.Marshal(CreateScanRequest{Brief: "测试 https://x.com"})
-	req, _ := http.NewRequest("POST", srv.URL+"/scan", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/scan", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "k")
 	req.Header.Set("Content-Type", "application/json")
 

@@ -70,7 +70,7 @@ func TestCredentialHosts_List(t *testing.T) {
 	var body struct {
 		Hosts []credential.HostSummary `json:"hosts"`
 	}
-	resp := doReq(t, "GET", env.srv.URL+"/credentials", "")
+	resp := doReq(t, "GET", env.srv.URL+"/api/credentials", "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
@@ -96,7 +96,7 @@ func TestCredentialDetail_Plaintext(t *testing.T) {
 	var body struct {
 		Identities []credentialIdentityView `json:"identities"`
 	}
-	resp := doReq(t, "GET", env.srv.URL+"/credentials/a.com", "")
+	resp := doReq(t, "GET", env.srv.URL+"/api/credentials/a.com", "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
@@ -125,7 +125,7 @@ func TestCredentialDetail_SessionEnrichment(t *testing.T) {
 	var body struct {
 		Identities []credentialIdentityView `json:"identities"`
 	}
-	resp := doReq(t, "GET", env.srv.URL+"/credentials/a.com", "")
+	resp := doReq(t, "GET", env.srv.URL+"/api/credentials/a.com", "")
 	decode(t, resp, &body)
 	byName := map[string]credentialIdentityView{}
 	for _, v := range body.Identities {
@@ -162,7 +162,7 @@ func TestCredentialUpsert_ValidationAndHostNormalization(t *testing.T) {
 		{"凭证缺 value", `{"username":"x","credentials":[{"type":"headers","key":"k","value":""}]}`, 400},
 		{"凭证类型非法", `{"username":"x","credentials":[{"type":"cookie","key":"k","value":"v"}]}`, 400},
 	} {
-		resp := doReq(t, "PUT", env.srv.URL+"/credentials/a.com:8080/usernames", tc.body)
+		resp := doReq(t, "PUT", env.srv.URL+"/api/credentials/a.com:8080/usernames", tc.body)
 		_ = resp.Body.Close()
 		if resp.StatusCode != tc.code {
 			t.Fatalf("%s: status=%d 期望 %d", tc.name, resp.StatusCode, tc.code)
@@ -188,18 +188,18 @@ func TestCredentialDelete_Kinds(t *testing.T) {
 		"a.com": {{Username: "admin"}, {Username: credential.SessionIdentityName("t1")}},
 	}, nil, true)
 
-	resp := doReq(t, "DELETE", env.srv.URL+"/credentials/a.com/usernames/task:t1:session", "")
+	resp := doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com/usernames/task:t1:session", "")
 	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("单删 status=%d", resp.StatusCode)
 	}
-	resp = doReq(t, "DELETE", env.srv.URL+"/credentials/a.com/sessions", "")
+	resp = doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com/sessions", "")
 	var purged struct{ Deleted int }
 	decode(t, resp, &purged)
 	if purged.Deleted != 0 {
 		t.Fatalf("已单删后无会话可清: %+v", purged)
 	}
-	resp = doReq(t, "DELETE", env.srv.URL+"/credentials/a.com", "")
+	resp = doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com", "")
 	_ = resp.Body.Close()
 	if resp.StatusCode != 200 || len(env.fake.deletedHosts) != 1 || env.fake.deletedHosts[0] != "a.com" {
 		t.Fatalf("整删: status=%d hosts=%v", resp.StatusCode, env.fake.deletedHosts)

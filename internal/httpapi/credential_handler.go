@@ -61,8 +61,8 @@ type TaskStatusResolver interface {
 // kind 由身份名派生（会话/持久），不落存储——单一事实源是名字本身。
 type credentialIdentityView struct {
 	credential.Identity
-	Kind       string `json:"kind"`                 // "session" | "persistent"
-	TaskID     string `json:"task_id,omitempty"`    // kind=session 时归属任务
+	Kind       string `json:"kind"`                  // "session" | "persistent"
+	TaskID     string `json:"task_id,omitempty"`     // kind=session 时归属任务
 	TaskStatus string `json:"task_status,omitempty"` // 归属任务状态（解析不到时缺省）
 }
 
