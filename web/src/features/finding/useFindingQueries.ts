@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listAggregatedFindings, listFindingHosts, listFindings } from '@/api/client'
+import { listFindingHosts, listFindings } from '@/api/client'
 import type { FindingFilters } from '@/api/types'
 
 // 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
@@ -9,8 +9,6 @@ import type { FindingFilters } from '@/api/types'
 const findingKeys = {
   hosts: ['findings', 'hosts'] as const,
   list: (filters: FindingFilters, page: number, size: number) => ['findings', 'list', filters, page, size] as const,
-  aggregated: (filters: FindingFilters, page: number, size: number) =>
-    ['findings', 'aggregated', filters, page, size] as const,
 }
 
 /** host 下拉候选：全表 distinct，不受当前筛选/分页影响。 */
@@ -26,15 +24,6 @@ export function useFindingList(filters: FindingFilters, page: number, size: numb
   return useQuery({
     queryKey: findingKeys.list(filters, page, size),
     queryFn: () => listFindings({ ...filters, page, size }),
-    placeholderData: keepPreviousData,
-  })
-}
-
-/** 聚合视图：按语义维度（host+cwe+path）聚合，展示生命周期。 */
-export function useAggregatedFindingList(filters: FindingFilters, page: number, size: number) {
-  return useQuery({
-    queryKey: findingKeys.aggregated(filters, page, size),
-    queryFn: () => listAggregatedFindings({ ...filters, page, size }),
     placeholderData: keepPreviousData,
   })
 }

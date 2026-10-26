@@ -46,8 +46,6 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
 	r.GET("/findings", listFindingsHandler(d.Findings))
-	r.GET("/findings/aggregated", listAggregatedFindingsHandler(d.Findings))
-	r.GET("/findings/aggregated/:aggregate_key/details", aggregateDetailsHandler(d.Findings))
 	r.GET("/findings/hosts", findingHostsHandler(d.Findings))
 	r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
 }

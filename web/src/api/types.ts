@@ -323,32 +323,6 @@ export interface FindingFilters {
   size?: number
 }
 
-// 聚合后的漏洞组
-export interface AggregatedFinding {
-  aggregate_key: string // host|cwe_id|normalized_path
-  latest_id: string
-  latest_summary: string
-  latest_severity: string
-  latest_status: string
-  latest_cwe_id?: string
-  latest_host: string
-  latest_target?: FindingTarget
-  latest_evaluation?: Record<string, unknown>
-  latest_source: string
-  occurrence_count: number
-  first_seen_at: string
-  last_seen_at: string
-  days_since_first: number
-  status_distribution: {
-    open: number
-    confirmed: number
-    fixed: number
-    false_positive: number
-    accepted: number
-  }
-  finding_ids: string[]
-  remediation?: string
-}
 // GET /findings 分页响应：seq desc（最新优先）+ 同筛选口径的全局 total。
 export interface FindingListResponse {
   findings: FindingRow[]
@@ -356,17 +330,6 @@ export interface FindingListResponse {
   page: number
   size: number
 }
-
-export interface AggregatedFindingListResponse {
-  aggregates: AggregatedFinding[]
-  pagination: {
-    total: number
-    page: number
-    page_size: number
-    total_pages: number
-  }
-}
-
 
 /* ============================================================
    LLM 审计（GET /llm/invocations/:task_id，扁平 items + id 游标分页）
