@@ -186,6 +186,12 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       <span className="font-mono text-text">{finding.cwe_id}</span>
                     </div>
                   )}
+                  {finding.owasp_category && (
+                    <div className="flex items-start gap-3">
+                      <span className="w-24 flex-shrink-0 text-text-secondary">OWASP</span>
+                      <span className="font-mono text-text">{finding.owasp_category}</span>
+                    </div>
+                  )}
                   <div className="flex items-start gap-3">
                     <span className="w-24 flex-shrink-0 text-text-secondary">来源</span>
                     <Badge
@@ -249,7 +255,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                           <span className="text-sm font-medium text-text">
                             {EV_LABELS[item.key] || item.key}
                           </span>
-                          {item.kind === 'code' && (
+                          {/* code/json 都是可复制原文的代码块（text 是叙述，不设复制） */}
+                          {item.kind !== 'text' && (
                             <CopyButton
                               copied={copiedKey === item.key}
                               onClick={() => copy(item.key, item.value)}
