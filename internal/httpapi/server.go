@@ -128,13 +128,15 @@ func NewServer(d Deps) http.Handler {
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
-	registerRouteGroups(r, d)
+	// 创建 /api 路由组（前端所有请求都带 /api 前缀）
+	api := r.Group("/api")
+	registerRouteGroups(api, d)
 	return r
 }
 
 // registerRouteGroups 按依赖可选性注册各路由组：
 // 每个 nil 依赖对应的能力域整组跳过（增量部署/最小暴露面）。
-func registerRouteGroups(r *gin.Engine, d Deps) {
+func registerRouteGroups(r gin.IRouter, d Deps) {
 	// 按业务模块注册路由
 	registerCredentialsRoutes(r, d)
 	registerTaskRoutes(r, d)

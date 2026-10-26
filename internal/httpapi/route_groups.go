@@ -4,7 +4,7 @@ import "github.com/gin-gonic/gin"
 
 // registerCredentialsRoutes 注册凭证库路由（资源式；host 段经 CanonicalHost 归一）。
 // 静态子路由先于参数路由注册，避免 gin 树冲突。
-func registerCredentialsRoutes(r *gin.Engine, d Deps) {
+func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
 		// DEBUG: 记录未注册原因
 		println("[DEBUG] Credentials is nil, skipping credential routes")
@@ -21,7 +21,7 @@ func registerCredentialsRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerTaskRoutes 注册任务管理路由
-func registerTaskRoutes(r *gin.Engine, d Deps) {
+func registerTaskRoutes(r gin.IRouter, d Deps) {
 	if d.Tasks == nil {
 		return
 	}
@@ -30,7 +30,7 @@ func registerTaskRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerControlPlaneRoutes 注册控制平面路由
-func registerControlPlaneRoutes(r *gin.Engine, d Deps) {
+func registerControlPlaneRoutes(r gin.IRouter, d Deps) {
 	if d.ControlPlane == nil {
 		return
 	}
@@ -40,7 +40,7 @@ func registerControlPlaneRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerFindingsRoutes 注册漏洞管理路由
-func registerFindingsRoutes(r *gin.Engine, d Deps) {
+func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	if d.Findings == nil {
 		return
 	}
@@ -53,7 +53,7 @@ func registerFindingsRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerLLMInvocationRoutes 注册 LLM 调用记录路由
-func registerLLMInvocationRoutes(r *gin.Engine, d Deps) {
+func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 	if d.Invocations == nil {
 		return
 	}
@@ -67,7 +67,7 @@ func registerLLMInvocationRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerScanRoutes 注册扫描路由
-func registerScanRoutes(r *gin.Engine, d Deps) {
+func registerScanRoutes(r gin.IRouter, d Deps) {
 	if d.Scan == nil {
 		return
 	}
@@ -75,7 +75,7 @@ func registerScanRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerExecutorConfigRoutes 注册 executor 配置路由
-func registerExecutorConfigRoutes(r *gin.Engine, d Deps) {
+func registerExecutorConfigRoutes(r gin.IRouter, d Deps) {
 	if d.ConfigStore == nil {
 		return
 	}
@@ -88,7 +88,7 @@ func registerExecutorConfigRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerSkillRoutes 注册技能/知识库路由
-func registerSkillRoutes(r *gin.Engine, d Deps) {
+func registerSkillRoutes(r gin.IRouter, d Deps) {
 	if d.SkillStore == nil {
 		return
 	}
@@ -101,7 +101,7 @@ func registerSkillRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerExplorationGraphRoutes 注册探索图路由
-func registerExplorationGraphRoutes(r *gin.Engine, d Deps) {
+func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 	if d.ExplorationGraph == nil {
 		return
 	}
@@ -110,7 +110,7 @@ func registerExplorationGraphRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerTrafficRoutes 注册代理流量路由
-func registerTrafficRoutes(r *gin.Engine, d Deps) {
+func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	if d.Traffic == nil {
 		return
 	}
@@ -123,7 +123,7 @@ func registerTrafficRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerToolCatalogRoutes 注册工具目录路由
-func registerToolCatalogRoutes(r *gin.Engine, d Deps) {
+func registerToolCatalogRoutes(r gin.IRouter, d Deps) {
 	if d.ToolCatalog == nil || d.ConfigStore == nil {
 		return
 	}
@@ -134,7 +134,7 @@ func registerToolCatalogRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerModelsRoutes 注册 LLM 模型配置路由
-func registerModelsRoutes(r *gin.Engine, d Deps) {
+func registerModelsRoutes(r gin.IRouter, d Deps) {
 	if d.Models == nil {
 		return
 	}
@@ -165,7 +165,7 @@ func registerModelsRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerSettingsRoutes 注册系统配置路由
-func registerSettingsRoutes(r *gin.Engine, d Deps) {
+func registerSettingsRoutes(r gin.IRouter, d Deps) {
 	if d.Settings == nil {
 		return
 	}
@@ -184,7 +184,7 @@ func registerSettingsRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerChatRoutes 注册聊天路由
-func registerChatRoutes(r *gin.Engine, d Deps) {
+func registerChatRoutes(r gin.IRouter, d Deps) {
 	if d.Chat == nil {
 		return
 	}
@@ -192,7 +192,7 @@ func registerChatRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerConversationRoutes 注册会话管理路由
-func registerConversationRoutes(r *gin.Engine, d Deps) {
+func registerConversationRoutes(r gin.IRouter, d Deps) {
 	if d.Conversations == nil {
 		return
 	}
@@ -227,7 +227,7 @@ func registerConversationRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerUsageRoutes 注册使用统计路由
-func registerUsageRoutes(r *gin.Engine, d Deps) {
+func registerUsageRoutes(r gin.IRouter, d Deps) {
 	if d.UsageTasks == nil || d.UsageLLM == nil || d.UsageTools == nil {
 		return
 	}
@@ -235,7 +235,7 @@ func registerUsageRoutes(r *gin.Engine, d Deps) {
 }
 
 // registerDevRoutes 注册开发辅助路由
-func registerDevRoutes(r *gin.Engine, d Deps) {
+func registerDevRoutes(r gin.IRouter, d Deps) {
 	if !d.EnableDevAutofill || d.APIKey == "" {
 		return
 	}
