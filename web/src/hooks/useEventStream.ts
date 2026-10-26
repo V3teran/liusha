@@ -1,5 +1,5 @@
 import type { Message } from '@/api/types'
-import { authStream } from '@/api/client'
+import { API_BASE, authStream } from '@/api/client'
 import type { useConversationStore } from '@/stores/conversation'
 
 type Store = ReturnType<typeof useConversationStore.getState>
@@ -59,7 +59,7 @@ export function connectEventStream(
     }
     if (closed) return
 
-    const src = new EventSource(`/api/conversations/${convID}/stream`, { withCredentials: true })
+    const src = new EventSource(`${API_BASE}/conversations/${convID}/stream`, { withCredentials: true })
     es = src
 
     src.onopen = () => {
