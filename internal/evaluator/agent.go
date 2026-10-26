@@ -425,8 +425,8 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 	// 配方无法被本门执行，后者是裁决环节不可用），证伪/失败都落
 	// exploration_verification，保证全链路可回放。
 	audit := map[string]interface{}{
-		"refute_reason":  refuteReason,
-		"reason":         cause.Error(),
+		"refute_reason":   refuteReason,
+		"reason":          cause.Error(),
 		"verify_attempts": attempts,
 	}
 	if refuteReason == RefuteInvalidRecipe {
@@ -468,10 +468,11 @@ func mustJSON(v interface{}) json.RawMessage {
 // parseObservationToAttempt 从 observation 节点解析出 Attempt
 func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, error) {
 	var content struct {
-		Statement  string          `json:"statement"`
-		Severity   string          `json:"severity"`
-		Confidence string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
-		Repro      json.RawMessage `json:"repro"`
+		Statement   string          `json:"statement"`
+		Severity    string          `json:"severity"`
+		Remediation string          `json:"remediation"`         // 修复建议——坐实后随 finding 落台账
+		Confidence  string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
+		Repro       json.RawMessage `json:"repro"`
 	}
 
 	if err := json.Unmarshal(obs.Content, &content); err != nil {
@@ -516,9 +517,10 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 
 	// 构造 Content（用于晋升后的节点）
 	attContent, err := json.Marshal(map[string]string{
-		"summary":    content.Statement,
-		"severity":   severity,
-		"confidence": confidence,
+		"summary":     content.Statement,
+		"severity":    severity,
+		"confidence":  confidence,
+		"remediation": content.Remediation,
 	})
 	if err != nil {
 		return Attempt{}, fmt.Errorf("构造 content 失败: %w", err)

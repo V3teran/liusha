@@ -59,6 +59,7 @@ type ConfirmedClaim struct {
 	VerificationID string          // 审计链回指
 	Statement      string          // 主张陈述
 	Severity       string          // 载荷自带的影响评级（可空，域侧解释与兜底）
+	Remediation    string          // 载荷自带的修复建议（可空；坐实后落 finding 台账）
 	HostHint       string          // 载荷自带的位置提示（可空，域侧可重抽）
 	Target         json.RawMessage // 载荷自带的目标引用（可空）
 	Evidence       json.RawMessage // 复现证据（基线/利用双对照 + 断言明细）
@@ -350,10 +351,11 @@ func (v *PromotionEvaluator) deliverClaim(
 	}
 
 	var content struct {
-		Summary  string          `json:"summary"`
-		Severity string          `json:"severity"`
-		Host     string          `json:"host"`
-		Target   json.RawMessage `json:"target"`
+		Summary     string          `json:"summary"`
+		Severity    string          `json:"severity"`
+		Remediation string          `json:"remediation"`
+		Host        string          `json:"host"`
+		Target      json.RawMessage `json:"target"`
 	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
 		if v.logger != nil {
@@ -368,6 +370,7 @@ func (v *PromotionEvaluator) deliverClaim(
 		VerificationID: verID,
 		Statement:      content.Summary,
 		Severity:       content.Severity,
+		Remediation:    content.Remediation,
 		HostHint:       content.Host,
 		Target:         content.Target,
 		Evidence:       res.Evaluation,

@@ -205,6 +205,18 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </div>
               </section>
 
+              {/* 修复建议（坐实主张随 remediation 落台账；无值不渲染） */}
+              {finding.remediation?.trim() && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">修复建议</h3>
+                  <div className="rounded-lg border border-border bg-surface-2 p-4">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
+                      {finding.remediation}
+                    </p>
+                  </div>
+                </section>
+              )}
+
               {/* Evaluation 评估信息 */}
               {evItems.length > 0 && (
                 <section>

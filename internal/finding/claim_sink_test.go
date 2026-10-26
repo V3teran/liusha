@@ -32,6 +32,7 @@ func TestClaimSink_ObserverReceivesSavedFinding(t *testing.T) {
 		TaskID:       "t-1",
 		Statement:    "反射型 XSS：search 参数未过滤",
 		Severity:     "high",
+		Remediation:  "对 search 参数做 HTML 实体编码输出，并启用 CSP 限制内联脚本。",
 		HostHint:     "example.com",
 		Evidence:     json.RawMessage(`{}`),
 		ResultNodeID: "n-1",
@@ -43,6 +44,10 @@ func TestClaimSink_ObserverReceivesSavedFinding(t *testing.T) {
 		t.Fatalf("应落一条交付物, got %d", len(store.saved))
 	}
 	if got.Summary != "反射型 XSS：search 参数未过滤" || got.Severity != "high" || got.Host != "example.com" {
+		t.Fatalf("基础字段映射: %+v", got)
+	}
+	if got.Remediation != "对 search 参数做 HTML 实体编码输出，并启用 CSP 限制内联脚本。" {
+		t.Fatalf("修复建议应随主张落台账: %q", got.Remediation)
 		t.Fatalf("观察者收到 = %+v", got)
 	}
 	if got.ID != "f-1" {
