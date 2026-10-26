@@ -106,7 +106,7 @@ func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/api/v1/conversations/:conversationId/exploration/graph", getConversationGraph(d.ExplorationGraph))
+	r.GET("/v1/conversations/:conversationId/exploration/graph", getConversationGraph(d.ExplorationGraph))
 }
 
 // registerTrafficRoutes 注册代理流量路由
