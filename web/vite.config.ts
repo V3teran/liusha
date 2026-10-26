@@ -21,7 +21,7 @@ export default defineConfig({
       '/api': {
         target: apiTarget,
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api/, ''),
+        // 后端路由统一挂在 /api 组下（c78fb6ec），转发保留前缀、不再剥除
       },
     },
   },
