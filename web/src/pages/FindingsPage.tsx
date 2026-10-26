@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { ChevronRight, Search, StickyNote } from 'lucide-react'
+import { ChevronRight, Search, StickyNote, List, Layers } from 'lucide-react'
 import { updateFindingTriage } from '@/api/client'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
@@ -11,7 +11,8 @@ import { columnWidthPercents } from '@/lib/tableLayout'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
-import { useFindingList } from '@/features/finding/useFindingQueries'
+import { useFindingList, useAggregatedFindingList } from '@/features/finding/useFindingQueries'
+import { AggregateCard } from '@/features/finding/AggregateCard'
 import { useQueryClient } from '@tanstack/react-query'
 
 function sevVar(sev: string): string {
@@ -20,6 +21,8 @@ function sevVar(sev: string): string {
 
 const columnHelper = createColumnHelper<FindingRow>()
 
+type ViewMode = 'flat' | 'aggregated'
+
 /**
  * FindingsPage - 漏洞管理页面
  *
@@ -27,15 +30,24 @@ const columnHelper = createColumnHelper<FindingRow>()
  * 1. 更紧凑的统计卡片（减少视觉噪声）
  * 2. 更清晰的表格层次
  * 3. 更流畅的交互反馈
+ * 4. 聚合视图：按语义维度（host+cwe+path）展示生命周期
  */
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize } = useFindingFilters()
   const queryClient = useQueryClient()
 
+  const [viewMode, setViewMode] = useState<ViewMode>('flat')
+
   const listQuery = useFindingList(filters, page, size)
+  const aggregatedQuery = useAggregatedFindingList(filters, page, size)
+
+  const activeQuery = viewMode === 'aggregated' ? aggregatedQuery : listQuery
 
   const rows = useMemo(() => listQuery.data?.findings ?? [], [listQuery.data])
-  const total = listQuery.data?.total ?? 0
+  const aggregates = useMemo(() => aggregatedQuery.data?.aggregates ?? [], [aggregatedQuery.data])
+  const total = viewMode === 'aggregated'
+    ? (aggregatedQuery.data?.pagination.total ?? 0)
+    : (listQuery.data?.total ?? 0)
   const totalPages = Math.max(1, Math.ceil(total / size))
 
   const [query, setQuery] = useState('')
@@ -168,7 +180,11 @@ export function FindingsPage() {
   const leafColumns = table.getAllLeafColumns()
   const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
-  const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
+  const listError = activeQuery.isError
+    ? (activeQuery.error instanceof Error ? activeQuery.error.message : '加载失败')
+    : ''
+
+  const hasData = viewMode === 'aggregated' ? aggregates.length > 0 : rows.length > 0
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -181,14 +197,14 @@ export function FindingsPage() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        {listQuery.isPending ? (
+        {activeQuery.isPending ? (
           <div className="py-16 text-center text-sm text-text-secondary">
             <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
             <p className="mt-3">加载中…</p>
           </div>
         ) : listError ? (
           <div className="py-16 text-center text-sm text-status-error">⚠ {listError}</div>
-        ) : rows.length === 0 ? (
+        ) : !hasData ? (
           <div className="py-16 text-center text-sm text-text-secondary">
             {hasFilter ? '当前筛选无匹配漏洞' : '暂无漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此'}
           </div>
@@ -265,6 +281,38 @@ export function FindingsPage() {
 
             {/* 搜索筛选栏 */}
             <div className="-mx-6 mb-3 flex items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
+              {/* 视图切换 */}
+              <div className="flex rounded-lg border border-border bg-surface">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('flat')}
+                  className={cn(
+                    'flex items-center gap-2 rounded-l-lg px-3 py-1.5 text-xs transition-colors',
+                    viewMode === 'flat'
+                      ? 'bg-accent text-white'
+                      : 'text-text-secondary hover:bg-surface-2'
+                  )}
+                  title="平铺视图"
+                >
+                  <List className="h-3.5 w-3.5" />
+                  <span>平铺</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('aggregated')}
+                  className={cn(
+                    'flex items-center gap-2 rounded-r-lg border-l border-border px-3 py-1.5 text-xs transition-colors',
+                    viewMode === 'aggregated'
+                      ? 'bg-accent text-white'
+                      : 'text-text-secondary hover:bg-surface-2'
+                  )}
+                  title="聚合视图"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  <span>聚合</span>
+                </button>
+              </div>
+
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
                 <input
@@ -313,58 +361,79 @@ export function FindingsPage() {
             </div>
 
             {/* 表格 */}
-            <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-              <table className="w-full border-collapse table-fixed">
-                <colgroup>
-                  {leafColumns.map((col, i) => (
-                    <col key={col.id} style={{ width: widthPercents[i] }} />
-                  ))}
-                </colgroup>
-                <thead>
-                  {table.getHeaderGroups().map((hg) => (
-                    <tr key={hg.id} className="border-b border-border">
-                      {hg.headers.map((h) => (
-                        <th key={h.id} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary">
-                          {flexRender(h.column.columnDef.header, h.getContext())}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.map((row) => {
-                    const f = row.original
-                    return (
-                      <tr
-                        key={row.id}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`查看漏洞详情：${f.summary}`}
-                        onClick={() => openDrawer(f)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            openDrawer(f)
-                          }
-                        }}
-                        style={{ '--sev': sevVar(f.severity) } as React.CSSProperties}
-                        className={cn(
-                          'group cursor-pointer border-b border-l-2 border-border border-l-transparent text-sm transition-all',
-                          'last:border-b-0 hover:bg-surface-2 hover:border-l-[var(--sev)]',
-                          savingId === f.id && 'opacity-50',
-                        )}
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="overflow-hidden px-4 py-2.5">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
+            {/* 内容区域 */}
+            {viewMode === 'aggregated' ? (
+              /* 聚合视图 */
+              <div className="space-y-3">
+                {aggregates.map((agg: typeof aggregates[0]) => (
+                  <AggregateCard
+                    key={agg.aggregate_key}
+                    aggregate={agg}
+                    onFindingClick={(id) => {
+                      // 从平铺视图中找到对应的 finding
+                      const finding = rows.find(r => r.id === id)
+                      if (finding) {
+                        openDrawer(finding)
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              /* 平铺视图（原表格）*/
+              <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+                <table className="w-full border-collapse table-fixed">
+                  <colgroup>
+                    {leafColumns.map((col, i) => (
+                      <col key={col.id} style={{ width: widthPercents[i] }} />
+                    ))}
+                  </colgroup>
+                  <thead>
+                    {table.getHeaderGroups().map((hg) => (
+                      <tr key={hg.id} className="border-b border-border">
+                        {hg.headers.map((h) => (
+                          <th key={h.id} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+                            {flexRender(h.column.columnDef.header, h.getContext())}
+                          </th>
                         ))}
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </thead>
+                  <tbody>
+                    {table.getRowModel().rows.map((row) => {
+                      const f = row.original
+                      return (
+                        <tr
+                          key={row.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`查看漏洞详情：${f.summary}`}
+                          onClick={() => openDrawer(f)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              openDrawer(f)
+                            }
+                          }}
+                          style={{ '--sev': sevVar(f.severity) } as React.CSSProperties}
+                          className={cn(
+                            'group cursor-pointer border-b border-l-2 border-border border-l-transparent text-sm transition-all',
+                            'last:border-b-0 hover:bg-surface-2 hover:border-l-[var(--sev)]',
+                            savingId === f.id && 'opacity-50',
+                          )}
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <td key={cell.id} className="overflow-hidden px-4 py-2.5">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
