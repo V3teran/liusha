@@ -21,6 +21,8 @@ type FindingsAPI interface {
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
 	DistinctHosts(ctx context.Context) ([]string, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
+	ListAggregated(ctx context.Context, f finding.AggregationFilter) ([]finding.AggregatedFinding, error)
+	CountAggregated(ctx context.Context, f finding.AggregationFilter) (int, error)
 }
 
 // 漏洞台账分页默认值/上限（与流量列表 defaultTrafficPageSize/maxTrafficPageSize 同一口径，
@@ -155,5 +157,125 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"first_seen_at":  r.FirstSeenAt,
 		"depends_on":     deps,
 		"created_at":     r.CreatedAt,
+	}
+}
+
+// listAggregatedFindingsHandler 返回聚合后的漏洞视图。
+//
+// GET /findings/aggregated?host=&severity=&status=&source=&page=1&page_size=50
+func listAggregatedFindingsHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		filter := finding.AggregationFilter{
+			Host:     c.Query("host"),
+			Severity: c.Query("severity"),
+			Status:   c.Query("status"),
+			Source:   c.Query("source"),
+		}
+
+		page, pageSize := parsePagination(
+			c.Query("page"),
+			c.Query("page_size"),
+			defaultFindingPageSize,
+			maxFindingPageSize,
+		)
+		filter.Limit = pageSize
+		filter.Offset = (page - 1) * pageSize
+
+		aggregates, err := api.ListAggregated(c.Request.Context(), filter)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		total, err := api.CountAggregated(c.Request.Context(), filter)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		totalPages := (total + pageSize - 1) / pageSize
+
+		c.JSON(http.StatusOK, gin.H{
+			"aggregates": aggregateListJSON(aggregates),
+			"pagination": gin.H{
+				"total":       total,
+				"page":        page,
+				"page_size":   pageSize,
+				"total_pages": totalPages,
+			},
+		})
+	}
+}
+
+// aggregateDetailsHandler 返回指定聚合组的详情。
+//
+// GET /findings/aggregated/:aggregate_key/details
+func aggregateDetailsHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		aggregateKey := c.Param("aggregate_key")
+		if aggregateKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "aggregate_key required"})
+			return
+		}
+
+		// 查询该聚合组
+		aggregates, err := api.ListAggregated(c.Request.Context(), finding.AggregationFilter{
+			Limit: 1000, // 取足够多避免分页丢失
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		var target *finding.AggregatedFinding
+		for i := range aggregates {
+			if aggregates[i].AggregateKey == aggregateKey {
+				target = &aggregates[i]
+				break
+			}
+		}
+
+		if target == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "aggregate not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, aggregateJSON(*target))
+	}
+}
+
+func aggregateListJSON(aggregates []finding.AggregatedFinding) []gin.H {
+	out := make([]gin.H, len(aggregates))
+	for i, a := range aggregates {
+		out[i] = aggregateJSON(a)
+	}
+	return out
+}
+
+func aggregateJSON(a finding.AggregatedFinding) gin.H {
+	return gin.H{
+		"aggregate_key":    a.AggregateKey,
+		"latest_id":        a.LatestID,
+		"latest_summary":   a.LatestSummary,
+		"latest_severity":  a.LatestSeverity,
+		"latest_status":    a.LatestStatus,
+		"latest_cwe_id":    a.LatestCWEID,
+		"latest_host":      a.LatestHost,
+		"latest_target":    json.RawMessage(rawOrEmpty(a.LatestTarget, "{}")),
+		"latest_evaluation": json.RawMessage(rawOrEmpty(a.LatestEval, "{}")),
+		"latest_source":    a.LatestSource,
+		"occurrence_count": a.OccurrenceCount,
+		"first_seen_at":    a.FirstSeenAt,
+		"last_seen_at":     a.LastSeenAt,
+		"days_since_first": a.DaysSinceFirst,
+		"status_distribution": gin.H{
+			"open":           a.OpenCount,
+			"confirmed":      a.ConfirmedCount,
+			"fixed":          a.FixedCount,
+			"false_positive": a.FalsePositiveCount,
+			"accepted":       a.AcceptedCount,
+		},
+		"finding_ids": a.FindingIDs,
+		"remediation": a.Remediation,
 	}
 }
