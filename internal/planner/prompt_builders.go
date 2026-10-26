@@ -45,6 +45,27 @@ func buildStopCriteria() string {
 	return sb.String()
 }
 
+// buildTeamRosterSection 构建多智能体分工名册：四角色的展示名 + 调度摘要。
+// 调度摘要来自各 agent.description（前端「智能体」页可编辑）——planner 据此理解
+// 团队分工、让动作指令对准执行方的职责边界。名册为空时不渲染该节。
+func buildTeamRosterSection(roster []AgentBrief) string {
+	if len(roster) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 多智能体分工\n")
+	sb.WriteString("团队由以下固定角色组成，动作指令应与执行方的职责摘要对齐：\n\n")
+	for _, a := range roster {
+		if a.Description == "" {
+			fmt.Fprintf(&sb, "- %s（%s）\n", a.Code, a.Name)
+			continue
+		}
+		fmt.Fprintf(&sb, "- %s（%s）：%s\n", a.Code, a.Name, a.Description)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // buildObjectiveSection 构建任务目标部分：根目标即任务目标本体，全部目标（含派生方向）逐条列出。
 func buildObjectiveSection(objective string, objectives []explorationgraph.Node) string {
 	var sb strings.Builder

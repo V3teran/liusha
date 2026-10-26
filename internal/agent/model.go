@@ -35,6 +35,7 @@ type Agent struct {
 // UpdateParams 是 Store.Update 的入参。
 type UpdateParams struct {
 	SystemPrompt  *string
+	Description   *string // 调度摘要：planner 规划时读取的角色分工摘要（LLM 可读面，前端可编辑）
 	FunctionTools *[]string
 	CliTools      *[]string
 	Skills        *[]string
@@ -45,6 +46,6 @@ type UpdateParams struct {
 // Empty 报告没有任何待更新字段。HTTP 层用它把空 diff 拦成 400，
 // 而不是落到 Store.Update 的同款错误上变成 500。
 func (p UpdateParams) Empty() bool {
-	return p.SystemPrompt == nil && p.FunctionTools == nil && p.CliTools == nil &&
+	return p.SystemPrompt == nil && p.Description == nil && p.FunctionTools == nil && p.CliTools == nil &&
 		p.Skills == nil && p.MaxIterations == nil && p.Complexity == nil
 }

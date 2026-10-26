@@ -31,8 +31,8 @@ func validateComplexity(c string) error {
 	}
 }
 
-// Update 更新Agent配置（只允许更新SystemPrompt、Skills和工具）。
-// 不允许修改code、name、description（这些是固定的）。
+// Update 更新Agent配置（可变面：SystemPrompt、Description 调度摘要、工具、Skills、迭代上限、复杂度）。
+// 不允许修改code、name（这些是固定的）；enabled 由种子与运维控制。
 func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent, error) {
 	setParts := []string{}
 	args := []any{code}
@@ -41,6 +41,11 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	if p.SystemPrompt != nil {
 		setParts = append(setParts, fmt.Sprintf("system_prompt=$%d", argIdx))
 		args = append(args, *p.SystemPrompt)
+		argIdx++
+	}
+	if p.Description != nil {
+		setParts = append(setParts, fmt.Sprintf("description=$%d", argIdx))
+		args = append(args, *p.Description)
 		argIdx++
 	}
 	if p.FunctionTools != nil {

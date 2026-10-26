@@ -25,11 +25,13 @@ export async function listAgentConfigs(): Promise<AgentConfig[]> {
 }
 
 /**
- * 智能体可变字段集合：后端 agentBody/UpdateParams 白名单。
- * 名称/描述/启用是固定种子身份，不在其中——接口层直接收窄，防止调用方把改不了的字段发上去。
+ * 智能体可变字段集合：后端 agentUpdate/UpdateParams 白名单。
+ * 名称/标识符是固定种子身份，不在其中；description（调度摘要）是 LLM 可读面、可编辑——
+ * 接口层直接收窄，防止调用方把改不了的字段发上去。
  */
 export interface AgentChanges {
   system_prompt?: string
+  description?: string
   function_tools?: string[]
   cli_tools?: string[]
   skills?: string[]
