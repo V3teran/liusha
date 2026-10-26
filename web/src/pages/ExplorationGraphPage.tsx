@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Panel } from '@xyflow/react'
+import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
-import { RefreshCw, Info, AlertCircle } from 'lucide-react'
+import { Search, RefreshCw, Info, AlertCircle } from 'lucide-react'
 import { getConversationGraph } from '@/api/explorationgraph'
 import { listConversations } from '@/api/client'
 import type { GraphNode } from '@/api/explorationgraph'
@@ -74,7 +74,6 @@ export function ExplorationGraphPage() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [filterKind, setFilterKind] = useState<string>('all')
   const [filterState, setFilterState] = useState<string>('all')
-  const [searchText, setSearchText] = useState<string>('')
   const [direction, setDirection] = useState<'TB' | 'LR'>('TB')
   const [stats, setStats] = useState({ total: 0, objectives: 0, actions: 0, observations: 0, results: 0 })
 
@@ -248,10 +247,6 @@ export function ExplorationGraphPage() {
     const n = node.data.node as GraphNode
     if (filterKind !== 'all' && n.kind !== filterKind) return false
     if (filterState !== 'all' && n.state !== filterState) return false
-    if (searchText) {
-      const label = node.data.label as string
-      return label.toLowerCase().includes(searchText.toLowerCase())
-    }
     return true
   })
 
@@ -263,60 +258,46 @@ export function ExplorationGraphPage() {
     <div className="flex h-full flex-col bg-background">
       {/* 头部 */}
       <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
-        <div className="flex flex-col gap-1.5">
-          <h1 className="text-base font-semibold text-text">
-            探索图
-          </h1>
-          <p className="text-sm text-text-secondary">
-            智能体推理与行动的可视化决策树
-          </p>
-          {stats.total > 0 && (
-            <div className="flex items-center gap-3 text-xs text-text-tertiary">
-              <span>共 {stats.total} 个节点</span>
-              <span>·</span>
-              <span>{stats.objectives} 目标</span>
-              <span>·</span>
-              <span>{stats.actions} 动作</span>
-              <span>·</span>
-              <span>{stats.observations} 观测</span>
-              <span>·</span>
-              <span>{stats.results} 结果</span>
-            </div>
-          )}
+        <div>
+          <h1 className="text-base font-semibold text-text">探索图</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">智能体推理与行动的可视化决策树</p>
         </div>
-        <div className="flex items-center gap-2">
+      </header>
+
+      {/* 筛选栏 */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface/50 px-6 py-3">
+        {/* 会话搜索框：回车即加载（无独立加载按钮）；常驻——空态时的唯一入口 */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
           <input
             type="text"
             value={conversationId}
             onChange={(e) => setConversationId(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleConversationIdSubmit()}
-            placeholder="输入对话 ID"
+            placeholder="输入对话 ID，回车加载"
             className={cn(
-              'h-9 w-80 rounded-lg border border-border bg-surface px-3 text-sm text-text',
+              'h-8 w-72 rounded-lg border border-border bg-surface pl-9 pr-3 text-xs text-text',
               'outline-none transition-all placeholder:text-text-tertiary',
               'focus:border-accent focus:glow-accent disabled:opacity-50'
             )}
             disabled={loading}
           />
-          {nodes.length > 0 && (
-            <button
-              onClick={loadGraph}
-              disabled={loading}
-              title="刷新"
-              className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface',
-                'transition-all hover:bg-surface-2 disabled:opacity-50'
-              )}
-            >
-              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            </button>
-          )}
         </div>
-      </header>
-
-      {/* 筛选栏 */}
-      {nodes.length > 0 && (
-        <div className="flex items-center gap-4 border-b border-border bg-surface/50 px-6 py-3">
+        {nodes.length > 0 && (
+          <button
+            onClick={loadGraph}
+            disabled={loading}
+            title="刷新"
+            className={cn(
+              'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface',
+              'transition-all hover:bg-surface-2 disabled:opacity-50'
+            )}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+          </button>
+        )}
+        {nodes.length > 0 && (
+          <>
           <select
             value={filterKind}
             onChange={(e) => setFilterKind(e.target.value)}
@@ -346,17 +327,44 @@ export function ExplorationGraphPage() {
             <option value="failed">失败</option>
             <option value="aborted">已中止</option>
           </select>
-          <input
-            type="text"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜索节点内容..."
-            className={cn(
-              'h-8 w-60 rounded-lg border border-border bg-surface px-3 text-xs text-text',
-              'outline-none transition-all placeholder:text-text-tertiary',
-              'focus:border-accent focus:glow-accent'
-            )}
-          />
+          {stats.total > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* 总数徽章：accent 描边突出 */}
+              <span
+                title="节点总数"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 text-xs font-semibold text-accent"
+              >
+                {stats.total} 节点
+              </span>
+              <span
+                title="连线总数"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 text-xs font-semibold text-accent"
+              >
+                {edges.length} 边
+              </span>
+              {/* 各类型徽章：节点色点 + 数量（NODE_COLORS 同源） */}
+              {(
+                [
+                  { key: 'objective', label: '目标', count: stats.objectives },
+                  { key: 'action', label: '动作', count: stats.actions },
+                  { key: 'observation', label: '观测', count: stats.observations },
+                  { key: 'result', label: '结果', count: stats.results },
+                ] as const
+              ).map(({ key, label, count }) => (
+                <span
+                  key={key}
+                  title={`${label}节点数`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs text-text"
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: NODE_COLORS[key as keyof typeof NODE_COLORS] }}
+                  />
+                  {count} {label}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button
               onClick={toggleDirection}
@@ -368,8 +376,9 @@ export function ExplorationGraphPage() {
               {direction === 'TB' ? '垂直布局' : '水平布局'}
             </button>
           </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
 
       {/* 画布区域 */}
@@ -421,18 +430,6 @@ export function ExplorationGraphPage() {
               pannable
               zoomable
             />
-            <Panel position="top-right" className="rounded-lg bg-surface/90 p-3 text-xs shadow-lg backdrop-blur-sm">
-              <div className="flex flex-col gap-1.5">
-                <div className="mb-1 font-semibold text-text">节点统计</div>
-                <div className="text-text-secondary">
-                  显示: <span className="font-mono font-semibold text-text">{filteredNodes.length}</span> /{' '}
-                  {nodes.length}
-                </div>
-                <div className="text-text-secondary">
-                  边: <span className="font-mono font-semibold text-text">{filteredEdges.length}</span> / {edges.length}
-                </div>
-              </div>
-            </Panel>
           </ReactFlow>
         )}
       </div>

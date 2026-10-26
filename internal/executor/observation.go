@@ -42,6 +42,9 @@ func (e *Engine) createObservationNode(
 	if obs.Confidence != "" {
 		contentMap["executor_confidence"] = obs.Confidence // 改名区分图级 confidence
 	}
+	if obs.Remediation != "" {
+		contentMap["remediation"] = obs.Remediation
+	}
 
 	// 保存执行轨迹
 	if obs.ExecutionTrace != nil {
@@ -211,6 +214,10 @@ type Observation struct {
 
 	// TestPlan：验证计划说明
 	TestPlan string `json:"test_plan,omitempty"`
+
+	// Remediation：修复建议（一段自然语言）——issue/hypothesis 必给，state 不带。
+	// 经裁决坐实后随 finding 落台账，是漏洞处置的核心输入（怎么修、为何这样修）。
+	Remediation string `json:"remediation,omitempty"`
 
 	// Repro：复现配方
 	//   - hypothesis：必须（无配方的推测无从裁决）

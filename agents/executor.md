@@ -108,6 +108,7 @@ complexity: medium
       "test_plan": "匿名访问目标接口，对比带凭证请求；确认响应独有数据",
       "confidence": "high",
       "severity": "high",
+      "remediation": "为后台接口增加认证与鉴权校验；敏感数据接口默认拒绝匿名访问，并按最小权限放行。",
       "repro": {
         "domain": "web",
         "recipe": {
@@ -151,6 +152,7 @@ complexity: medium
 - **test_plan**: 如何验证这个问题（可选）
 - **confidence**: "low" / "medium" / "high"
 - **severity**: "low" / "medium" / "high" / "critical"
+- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——issue/hypothesis 必须给，state 不带
 - **repro**: 可选（用于复现或深度验证）
 
 **category="hypothesis"（待验证推测）**——需要通过复现配方验证的推测性断言，只有这类会被独立验证并可能成为正式发现：
@@ -159,6 +161,7 @@ complexity: medium
 - **test_plan**: 如何验证这个主张
 - **confidence**: "low" / "medium" / "high"
 - **severity**: "low" / "medium" / "high" / "critical"
+- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——经验证坐实后会直接进入漏洞台账供处置
 - **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
 
 分类纪律：

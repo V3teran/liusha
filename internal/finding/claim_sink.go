@@ -72,14 +72,15 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 
 	agentRunID := s.agentRunID
 	saved, err := s.store.Save(ctx, VulnFinding{
-		TaskID:     c.TaskID,
-		AgentRunID: &agentRunID,
-		Host:       host,
-		Summary:    summary,
-		Severity:   severity,
-		Evaluation: evaluation,
-		Target:     c.Target,
-		Repro:      c.Repro,
+		TaskID:      c.TaskID,
+		AgentRunID:  &agentRunID,
+		Host:        host,
+		Summary:     summary,
+		Severity:    severity,
+		Remediation: c.Remediation, // 修复建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
+		Evaluation:  evaluation,
+		Target:      c.Target,
+		Repro:       c.Repro,
 	})
 	if err != nil {
 		return err
