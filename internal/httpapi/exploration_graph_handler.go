@@ -29,11 +29,11 @@ type NodesResponse struct {
 	Nodes []explorationgraph.Node `json:"nodes"`
 }
 
-// getConversationGraph 处理 GET /api/conversations/{conversationId}/exploration/graph
+// getConversationGraph 处理 GET /api/conversations/{id}/exploration/graph
 // 返回对话的完整探索图（nodes + edges）
 func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		conversationID := c.Param("conversationId")
+		conversationID := c.Param("id")
 		if conversationID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "conversation_id 不能为空"})
 			return
