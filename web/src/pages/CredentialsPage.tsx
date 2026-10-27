@@ -184,11 +184,30 @@ export default function CredentialsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-border bg-surface px-6 py-4">
-        <h1 className="text-base font-semibold text-text">凭证库</h1>
-        <p className="mt-0.5 text-sm text-text-secondary">
-          按目标归属的登录态与会话材料
-        </p>
+      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-text">凭证库</h1>
+          <p className="mt-0.5 text-sm text-text-secondary">
+            按目标归属的登录态与会话材料
+          </p>
+        </div>
+        {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
+        <button
+          type="button"
+          onClick={() => {
+            setCreating((c) => !c)
+            setNewRow(EMPTY_NEW_ROW)
+          }}
+          className={cn(
+            'inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold transition-all',
+            creating
+              ? 'border border-border bg-surface text-muted hover:text-text'
+              : 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover',
+          )}
+        >
+          <Plus className="h-4 w-4" />
+          {creating ? '取消录入' : '录入'}
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
@@ -258,22 +277,6 @@ export default function CredentialsPage() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setCreating((c) => !c)
-                  setNewRow(EMPTY_NEW_ROW)
-                }}
-                className={cn(
-                  'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-all',
-                  creating
-                    ? 'border border-border bg-surface text-muted hover:text-text'
-                    : 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
-                )}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {creating ? '取消录入' : '录入'}
-              </button>
               <span className="ml-auto">
                 <PaginationToolbar
                   page={page}
