@@ -103,6 +103,7 @@ func (r *RedisProvider) hashKey(host string) string {
 //     （历史回填）> 既有 field 继承 > 当前时间；
 //   - UpdatedAt（修改时间）：每次保存刷新为当前时间；调用方显式指定
 //     （历史回填）优先。
+//
 // 永久存储，无任何过期语义。
 func (r *RedisProvider) SaveIdentities(ctx context.Context, host string, ids []Identity) error {
 	key := r.hashKey(host)

@@ -66,28 +66,28 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 				c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found", "conversation_id": id})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
 		// 运行态（权威）：关联 task 是否仍 active。前端据此显示"工作中"。
 		running, err := conv.IsRunActive(ctx, id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		// 真实三态（active/completed/aborted）：顶部状态栏据此区分「已完成 vs 已中止」，
 		// 不再用二元 running（它把 aborted 错显示成已完成）。
 		runStatus, err := conv.RunStatus(ctx, id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
 		// 墙钟时长：发起→完成的真实流逝时间（"我等了多久"），跑中用 now-created。
 		wallclockMs, err := conv.WallclockMs(ctx, id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -101,12 +101,12 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 		_ = llm.Flush(ctx)
 		la, err := llm.AggregateByTask(ctx, taskID, llminvocation.ListFilter{}) // 会话总览：不筛，全量合计
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		ta, err := tool.AggregateByTask(ctx, taskID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 

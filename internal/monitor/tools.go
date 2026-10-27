@@ -115,7 +115,9 @@ func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node,
 		var c struct {
 			Instruction string `json:"instruction"`
 		}
-		_ = json.Unmarshal(a.Content, &c)
+		if err := json.Unmarshal(a.Content, &c); err != nil {
+			continue // content 由 MustJSON 写入，解析失败=节点损坏，不进运行中视图
+		}
 		mins := now.Sub(a.UpdatedAt).Minutes()
 		if mins < 0 {
 			mins = 0

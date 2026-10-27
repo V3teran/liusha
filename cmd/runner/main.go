@@ -1,8 +1,8 @@
 // Package main 是 liusha runner 进程入口。
 //
 //	职责：
-//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建 passive task → 入 executor 队列
-//	  2. 启 asynq.Server：消费 executor 队列，每个 task 跑认知循环（planner/executor/evaluator/monitor 四 agent）
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建 passive task → 入 agent 队列
+//	  2. 启 asynq.Server：消费 agent 队列，每个 task 跑认知循环（planner/executor/evaluator/monitor 四 agent）
 //	  3. healthz HTTP；graceful shutdown
 //
 // **部署约束：runner 当前是单实例**。认知循环的进程内状态（bus 广播、task 的共享
@@ -13,8 +13,8 @@
 package main
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -24,13 +24,13 @@ import (
 	"time"
 
 	"github.com/V3teran/liusha/internal/agentrun"
-	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/setting"
-	cfgstore "github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/config/settingstore"
+	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -98,7 +98,7 @@ type runnerSkills struct {
 
 // runnerLLM 聚合 LLM 配置栈（事实源 + 解密器）。
 type runnerLLM struct {
-	cfgStore  *cfgstore.Store
+	cfgStore  *configstore.Store
 	llmStore  *llmstore.Store
 	keyCipher *cryptx.Cipher
 }
@@ -217,10 +217,10 @@ func main() {
 	// 不写 DB、不跑认知循环——排查容器问题时用）。
 	if os.Getenv("SANDBOX_SMOKE") == "true" {
 		warmHandler := newWarmPoolHandler(sandboxMgr, logger)
-		mux.Register(worker.RoleExecutor, warmHandler.handle)
+		mux.Register(worker.RoleAgent, warmHandler.handle)
 		logger.Warn().Msg("using sandbox smoke handler (echo stub, no cognition, no DB writes)")
 	} else {
-		mux.Register(worker.RoleExecutor, h.handle)
+		mux.Register(worker.RoleAgent, h.handle)
 		logger.Info().Msg("using cognition handler (default)")
 	}
 
@@ -229,7 +229,7 @@ func main() {
 		asynq.Config{
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{
-				worker.QueueExecutor: runnerCfg.QueueAgentWeight,
+				worker.QueueAgent: runnerCfg.QueueAgentWeight,
 			},
 		},
 	)
@@ -392,7 +392,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config
 func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *runnerLLM {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
-	cfgStore := cfgstore.New(pool, cache)
+	cfgStore := configstore.New(pool, cache)
 
 	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -400,7 +400,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 	if err := cfgStore.ValidateAgentConfigs(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("Agent 配置验证失败")
 	}
-	logger.Info().Msg("Agent 配置验证通过（executor/planner/evaluator/monitor）")
+	logger.Info().Msg("Agent 配置验证通过（planner/executor/evaluator/monitor）")
 
 	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
@@ -542,6 +542,7 @@ func startTaskReaper(
 						"扫描已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
 							map[string]any{"reason": "心跳超时（runner 崩溃或任务卡死）"}))
 					if aerr != nil {
+						logger.Warn().Err(aerr).Str("task_id", id).Msg("回收通知写会话失败")
 						continue
 					}
 					if payload, merr := json.Marshal(msg); merr == nil {

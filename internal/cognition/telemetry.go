@@ -86,7 +86,10 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 					hctx, hcancel := context.WithTimeout(context.Background(), 3*time.Second)
 					defer hcancel()
 					if d.Tasks != nil {
-						_ = d.Tasks.Heartbeat(hctx, taskID)
+						// 心跳失败必须留痕：reaper 以心跳判活，静默失败会被误回收。
+						if hbErr := d.Tasks.Heartbeat(hctx, taskID); hbErr != nil {
+							d.Logger.Warn().Err(hbErr).Str("task_id", taskID).Msg("心跳写入失败")
+						}
 					}
 				}
 			}

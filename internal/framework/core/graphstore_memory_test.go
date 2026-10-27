@@ -262,7 +262,7 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
-		Relation: string(RelationGenerates),
+		Relation: string("generates"),
 	}
 	err := store.CreateEdge(ctx, edge)
 	require.NoError(t, err, "创建边应该成功")
@@ -273,7 +273,7 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 	assert.Len(t, edges, 1)
 	assert.Equal(t, "node-1", edges[0].From)
 	assert.Equal(t, "node-2", edges[0].To)
-	assert.Equal(t, string(RelationGenerates), edges[0].Relation)
+	assert.Equal(t, string("generates"), edges[0].Relation)
 }
 
 // TestMemoryGraphStore_CreateEdge_Idempotent 测试边创建的幂等性
@@ -299,7 +299,7 @@ func TestMemoryGraphStore_CreateEdge_Idempotent(t *testing.T) {
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
-		Relation: string(RelationGenerates),
+		Relation: string("generates"),
 	}
 
 	err1 := store.CreateEdge(ctx, edge)
@@ -335,12 +335,12 @@ func TestMemoryGraphStore_DeleteEdge(t *testing.T) {
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
-		Relation: string(RelationGenerates),
+		Relation: string("generates"),
 	}
 	require.NoError(t, store.CreateEdge(ctx, edge))
 
 	// 删除边
-	err := store.DeleteEdge(ctx, "node-1", "node-2", string(RelationGenerates))
+	err := store.DeleteEdge(ctx, "node-1", "node-2", string("generates"))
 	require.NoError(t, err)
 
 	// 验证边已删除
@@ -379,7 +379,7 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 			TaskID:   "task-1",
 			From:     "existing-node",
 			To:       "new-node",
-			Relation: string(RelationGenerates),
+			Relation: string("generates"),
 		},
 	}
 

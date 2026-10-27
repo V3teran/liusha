@@ -34,25 +34,9 @@ const (
 	KindResult NodeKind = "result"
 )
 
-// RelationKind 是探索图关系的标准类型
-type RelationKind string
-
-// 边关系枚举与 DB 约束 ck_exploration_edge_rel 严格一致（migration 0174 收紧）：
-// 只保留有真实生产者的关系。删除历史死值（confirms/refutes/enables/belongs_to）
-// ——它们自引入起零生产者，语义由现存三种关系完整承担。
-const (
-	// RelationGenerates 表示生成关系（推导链：objective → action、
-	// action → observation、observation → result）
-	RelationGenerates RelationKind = "generates"
-
-	// RelationDependsOn 表示依赖关系（action → action）
-	// 语义：动作依赖另一个动作完成
-	RelationDependsOn RelationKind = "depends_on"
-
-	// RelationTriggers 表示触发关系（result → objective/action）
-	// 语义：发现滋生动作/新方向——某个坐实结果催生了后续探索
-	RelationTriggers RelationKind = "triggers"
-)
+// 边关系枚举的权威定义在领域包 internal/explorationgraph（Relation，与 DB
+// 约束 ck_exploration_edge_rel 严格一致）；本层 GraphNode.Rel 以 string 承载，
+// 不重复定义枚举——此前在此的 RelationKind 副本与领域版漂移风险高，已删。
 
 // ActionState 是动作的执行状态
 type ActionState string

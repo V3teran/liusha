@@ -1,6 +1,5 @@
 ---
 id: planner
-kind: planner
 name: 规划者
 description: 分析探索图状态并生成下一批行动
 function_tools:

@@ -67,17 +67,6 @@ func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFil
 	return f
 }
 
-// parseInvocationPaging 解析 page/size query 参数：page 缺省/非法 = 1；size 缺省
-// defaultInvocationPageSize，超 maxInvocationPageSize 收敛到上限。
-func parseInvocationPaging(c *gin.Context) (page, size int) {
-	page = atoiOr(c.Query("page"), 1)
-	size = atoiOr(c.Query("size"), 0)
-	if size <= 0 || size > maxInvocationPageSize {
-		size = defaultInvocationPageSize
-	}
-	return page, size
-}
-
 // llmInvocationsHandler 处理 GET /llm/invocations/:task_id?page=&size=&role=&model=&only_err=&start=&end=。
 //
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数。
@@ -101,9 +90,11 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
-		page, size := parseInvocationPaging(c)
+		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultInvocationPageSize, maxInvocationPageSize)
 		f := parseInvocationFilter(c, page, size)
-		_ = api.Flush(c.Request.Context())
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
 
 		invocations, err := api.ListByTask(c.Request.Context(), eid, f)
 		if err != nil {
@@ -111,12 +102,12 @@ func llmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "task not found", "task_id": eid})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		total, err := api.CountByTask(c.Request.Context(), eid, f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -173,7 +164,7 @@ func llmInvocationDetailHandler(api InvocationsAPI) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "invocation not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -212,11 +203,13 @@ func llmInvocationStatHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
-		_ = api.Flush(c.Request.Context())
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
 		// 统计吃与列表同一套筛选，但不分页（page/size=0 → parseInvocationFilter 不设 Limit/Offset）。
 		a, err := api.AggregateByTask(c.Request.Context(), eid, parseInvocationFilter(c, 1, 0))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -241,10 +234,12 @@ func llmInvocationFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "task_id required"})
 			return
 		}
-		_ = api.Flush(c.Request.Context())
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
 		f, err := api.FacetsByTask(c.Request.Context(), eid)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		// nil slice 会序列化成 null；统一成 []，前端不必判空。
@@ -281,7 +276,7 @@ func toolNamesOrEmpty(names []string) []string {
 func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q") // 允许为空，返回所有数据
-		page, size := parseInvocationPaging(c)
+		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultInvocationPageSize, maxInvocationPageSize)
 		f := llminvocation.ListFilter{
 			Role:    c.Query("role"),
 			Model:   c.Query("model"),
@@ -303,16 +298,18 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 			f.Offset = (page - 1) * size
 		}
 
-		_ = api.Flush(c.Request.Context())
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
 
 		invocations, err := api.ListAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		total, err := api.CountAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -360,7 +357,9 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		_ = api.Flush(c.Request.Context())
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
 
 		v, err := api.GetDetailByID(c.Request.Context(), id)
 		if err != nil {
@@ -368,7 +367,7 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "invocation not found", "id": id})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 

@@ -18,7 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
-	settingstore "github.com/V3teran/liusha/internal/config/setting"
+	settingstore "github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/cronschedule"

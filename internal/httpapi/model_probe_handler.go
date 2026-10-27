@@ -93,7 +93,7 @@ func testProviderHandler(t ProviderTester) gin.HandlerFunc {
 		}
 		res, err := t.TestProvider(c.Request.Context(), spec)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusBadRequest, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -118,7 +118,7 @@ func listProviderModelsHandler(t ProviderTester) gin.HandlerFunc {
 		}
 		models, err := t.ListModels(c.Request.Context(), spec)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusBadRequest, err)
 			return
 		}
 		if models == nil {

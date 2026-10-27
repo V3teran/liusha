@@ -120,7 +120,7 @@ func newWriteCredentialTool(deps Deps, timeout time.Duration) *writeCredentialTo
 func (t *writeCredentialTool) Name() string      { return "write_credential" }
 func (t *writeCredentialTool) ShortDesc() string { return "录入活凭证" }
 func (t *writeCredentialTool) Desc() string {
-	return "把刚拿到的活凭证录入本 host 凭证池，供同 owner 下其他 executor 共享复用。" +
+	return "把刚拿到的活凭证录入本 host 凭证池，供同 task 下其他执行者共享复用。" +
 		"username 必须是该账号真实登录用户名（如 admin），禁止自造代号" +
 		"（admin-low、xxx_r2 这类后缀是噪声）；同一账号先 read_credentials 查既有用户名并原样复用。"
 }

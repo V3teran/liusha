@@ -42,10 +42,11 @@ const (
 	CategoryNote Category = "note"
 )
 
-// Priority 类型使用 explorationgraph.Priority（统一定义）
+// Priority 复用探索图优先级（insight 按 assignment/优先级与图节点同尺度排序，
+// 单一定义在 explorationgraph，此处别名引用——下游零感知）。
 type Priority = explorationgraph.Priority
 
-// Priority 常量（重新导出以保持兼容性）
+// Priority 常量（别名转发）
 const (
 	PriorityCritical = explorationgraph.PriorityCritical
 	PriorityHigh     = explorationgraph.PriorityHigh
@@ -66,7 +67,6 @@ const (
 
 // Insight 是一条洞察记录
 //
-// 设计理念：
 // - Insight 是 Agent 执行过程中的发现和洞察
 // - 作为黑板系统，供多个 Agent 读写和共享
 // - 带有分类、优先级、置信度等元数据

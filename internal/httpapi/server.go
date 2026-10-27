@@ -27,7 +27,7 @@ type Deps struct {
 	// Scan 为 nil 时 /scan 路由不注册。
 	// 由 cmd/api 注入自定义 adapter（包 task store + agent.Store + worker.Client）。
 	Scan ScanAPI
-	// 阶段B 会话式平台（任一为 nil 时对应路由不注册）：
+	// 会话式平台（任一为 nil 时对应路由不注册）：
 	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 chatAdapter）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
 	//   EventStream   GET /conversations/:id/stream SSE（cmd/api 注入 redis 适配器）
@@ -42,7 +42,7 @@ type Deps struct {
 	Deleter ConversationDeleter
 	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
-	// ConfigStore 为 nil 时 executor 配置 CRUD 路由不注册。
+	// ConfigStore 为 nil 时 agent 配置读取/编辑路由不注册。
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
 	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
 	ConfigStore ConfigAPI
@@ -144,7 +144,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerFindingsRoutes(r, d)
 	registerLLMInvocationRoutes(r, d)
 	registerScanRoutes(r, d)
-	registerExecutorConfigRoutes(r, d)
+	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTrafficRoutes(r, d)

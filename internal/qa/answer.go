@@ -13,8 +13,6 @@ import (
 type Deps interface {
 	// FindingsSummary 返回该 (conversationID, taskID) 关联 owner 的 finding 文本摘要。
 	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
-	// Generate 调便宜 LLM（一次性返回全文）。
-	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 	// GenerateStream 流式生成：正文与扩展思考增量分别回调（可空）。
 	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onText, onThinking func(chunk string)) (llm.Result, error)
 	// PublishDelta 广播一帧增量（channel ∈ {text, thinking}）。

@@ -22,8 +22,8 @@ func newTestClient(t *testing.T) (*Client, *miniredis.Miniredis) {
 }
 
 func TestRole_Queue(t *testing.T) {
-	if got := RoleExecutor.Queue(); got != QueueExecutor {
-		t.Fatalf("RoleExecutor.Queue() = %q, want %q", got, QueueExecutor)
+	if got := RoleAgent.Queue(); got != QueueAgent {
+		t.Fatalf("RoleAgent.Queue() = %q, want %q", got, QueueAgent)
 	}
 }
 
@@ -32,8 +32,8 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 
 	id, q, err := c.Enqueue(
 		context.Background(),
-		RoleExecutor,
-		Payload{AgentRunID: "task-1", TaskID: "task-1", TaskRole: RoleExecutor},
+		RoleAgent,
+		Payload{AgentRunID: "task-1", TaskID: "task-1", TaskRole: RoleAgent},
 	)
 	if err != nil {
 		t.Fatalf("Enqueue err = %v", err)
@@ -41,8 +41,8 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 	if id == "" {
 		t.Fatalf("expected non-empty task id")
 	}
-	if q != QueueExecutor {
-		t.Fatalf("queue = %q, want %q", q, QueueExecutor)
+	if q != QueueAgent {
+		t.Fatalf("queue = %q, want %q", q, QueueAgent)
 	}
 }
 
@@ -50,12 +50,12 @@ func TestClient_Enqueue_RoutesQueue(t *testing.T) {
 func TestClient_Enqueue_Idempotent(t *testing.T) {
 	c, _ := newTestClient(t)
 	ctx := context.Background()
-	p := Payload{AgentRunID: "dup-1", TaskID: "task-1", TaskRole: RoleExecutor}
+	p := Payload{AgentRunID: "dup-1", TaskID: "task-1", TaskRole: RoleAgent}
 
-	if _, _, err := c.Enqueue(ctx, RoleExecutor, p); err != nil {
+	if _, _, err := c.Enqueue(ctx, RoleAgent, p); err != nil {
 		t.Fatalf("first enqueue err = %v", err)
 	}
-	_, _, err := c.Enqueue(ctx, RoleExecutor, p)
+	_, _, err := c.Enqueue(ctx, RoleAgent, p)
 	if err == nil {
 		t.Fatalf("expected error on duplicate AgentRunID, got nil")
 	}
@@ -67,7 +67,7 @@ func TestClient_Enqueue_Idempotent(t *testing.T) {
 func TestMux_Register_AndAsynqMux(t *testing.T) {
 	m := NewMux()
 	called := false
-	m.Register(RoleExecutor, func(_ context.Context, _ Payload) error {
+	m.Register(RoleAgent, func(_ context.Context, _ Payload) error {
 		called = true
 		return nil
 	})
@@ -78,7 +78,7 @@ func TestMux_Register_AndAsynqMux(t *testing.T) {
 	}
 
 	// 直接调用 ServeMux.ProcessTask 验证路由 + 反序列化。
-	payloadBytes, err := json.Marshal(Payload{AgentRunID: "t1", TaskRole: RoleExecutor})
+	payloadBytes, err := json.Marshal(Payload{AgentRunID: "t1", TaskRole: RoleAgent})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 	)
 
 	m := NewMux()
-	m.Register(RoleExecutor, func(_ context.Context, p Payload) error {
+	m.Register(RoleAgent, func(_ context.Context, p Payload) error {
 		mu.Lock()
 		received = p
 		mu.Unlock()
@@ -135,15 +135,15 @@ func TestEndToEnd_EnqueueAndProcess(t *testing.T) {
 		asynq.RedisClientOpt{Addr: mr.Addr()},
 		asynq.Config{
 			Concurrency: 1,
-			Queues:      map[string]int{QueueExecutor: 5},
+			Queues:      map[string]int{QueueAgent: 5},
 			Logger:      discardLogger{},
 		},
 	)
 	go func() { _ = srv.Run(m.AsynqMux()) }()
 	t.Cleanup(srv.Shutdown)
 
-	want := Payload{AgentRunID: "e2e-1", TaskID: "task-e2e", TaskRole: RoleExecutor}
-	if _, _, err := c.Enqueue(ctx, RoleExecutor, want); err != nil {
+	want := Payload{AgentRunID: "e2e-1", TaskID: "task-e2e", TaskRole: RoleAgent}
+	if _, _, err := c.Enqueue(ctx, RoleAgent, want); err != nil {
 		t.Fatalf("Enqueue err = %v", err)
 	}
 

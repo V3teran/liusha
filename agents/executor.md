@@ -1,6 +1,5 @@
 ---
 id: executor
-kind: executor
 name: 执行者
 description: 执行分配的动作并报告观察结果
 function_tools:

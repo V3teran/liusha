@@ -460,7 +460,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 	return v, nil
 }
 
-// Aggregate 是某 owner 下所有 LLM 调用的合计（会话用量总览）。
+// Aggregate 是某 task 下所有 LLM 调用的合计（会话用量总览）。
 // 权威口径：UsageRecorder 对每次 ChatModel 调用（含纯 tool_call、含失败）都落一行，
 // 故此合计覆盖全部调用，不受"无文字推理不发 SSE 事件"影响。
 type Aggregate struct {

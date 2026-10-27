@@ -17,7 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/config/setting"
+	"github.com/V3teran/liusha/internal/config/settingstore"
 )
 
 // SettingsAPI 是系统配置 CRUD 依赖的窄接口；*settingstore.Store 自动满足。
@@ -38,7 +38,7 @@ func getCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.Compaction(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"compaction": v})
@@ -67,7 +67,7 @@ func putCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 			return
 		}
 		if err := api.SaveCompaction(c.Request.Context(), b); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"compaction": b})
@@ -81,7 +81,7 @@ func getRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.Runtime(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"runtime": v})
@@ -109,7 +109,7 @@ func putRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 			return
 		}
 		if err := api.SaveRuntime(c.Request.Context(), b); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"runtime": b})
@@ -123,7 +123,7 @@ func getProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v, err := api.ProxyFilter(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"proxy_filter": v})
@@ -149,7 +149,7 @@ func putProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 			return
 		}
 		if err := api.SaveProxyFilter(c.Request.Context(), b); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"proxy_filter": b})

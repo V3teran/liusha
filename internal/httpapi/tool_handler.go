@@ -49,12 +49,12 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		total, err := api.Count(ctx, params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		rows, err := api.List(ctx, params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
@@ -92,19 +92,19 @@ func getToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "name": name})
 			return
 		}
-		executors, err := cfg.ListExecutors(ctx, false)
+		agents, err := cfg.ListAgents(ctx, false)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		agents := make([]gin.H, 0, len(executors))
-		for _, h := range executors {
-			agents = append(agents, gin.H{
+		views := make([]gin.H, 0, len(agents))
+		for _, h := range agents {
+			views = append(views, gin.H{
 				"code": h.Code, "name": h.Name,
 				"involved": toolArrayContains(h, t.Kind, t.Name),
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"tool": toolJSON(t), "agents": agents})
+		c.JSON(http.StatusOK, gin.H{"tool": toolJSON(t), "agents": views})
 	}
 }
 
@@ -134,7 +134,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 		// 该 kind 的目录全集：数组为 ["*"]（全量）时卸载单个工具需展开为「全量减一」。
 		catalog, err := tools.List(ctx, cfgtool.ListParams{Kind: t.Kind})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		h, err := cfg.AgentByCode(ctx, code)
@@ -143,12 +143,12 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		fnTools, cliTools := applyAssignment(h, t.Kind, t.Name, b.Involved, catalog)
-		if _, err := cfg.UpdateExecutor(ctx, h.Code, agent.UpdateParams{
+		if _, err := cfg.UpdateAgent(ctx, h.Code, agent.UpdateParams{
 			SystemPrompt:  &h.SystemPrompt,
 			FunctionTools: &fnTools,
 			CliTools:      &cliTools,
 		}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"code": h.Code, "involved": b.Involved})

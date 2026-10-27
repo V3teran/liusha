@@ -36,7 +36,7 @@ func replayHistory(ctx context.Context, c *gin.Context, convs ConversationsAPI, 
 	history, err := convs.ListMessages(ctx, convID, afterSeq, 2000)
 	if err != nil {
 		sseLog.Error().Err(err).Str("conv", convID).Msg("SSE: 补历史失败")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondErr(c, http.StatusInternalServerError, err)
 		return afterSeq, err
 	}
 

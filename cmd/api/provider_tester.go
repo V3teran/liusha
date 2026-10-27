@@ -153,7 +153,7 @@ func (t *providerTester) ListModels(ctx context.Context, spec httpapi.ProviderPr
 
 	resp, err := t.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("拉取模型列表失败: %s", humanizeProbeErr(err))
+		return nil, fmt.Errorf("拉取模型列表失败: %s: %w", humanizeProbeErr(err), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {

@@ -5,9 +5,9 @@
 //   - task = 业务"扫描任务"（用户视角的 task，mode 区分 active/passive）
 //   - agent_run 表 = 每次 Agent 运行实例的记录（planner/executor/evaluator/monitor），挂 task_id
 //   - agent 表 = Agent 配置定义（code/name/body/tools），存储 Agent 章程
-//   - role 列 = Agent 角色（planner/executor/evaluator/monitor）
-//
-// 注：认知循环为平级四 Agent，无父子层级关系。
+//   - role 列 = 发起该 run 的 Agent 角色。当前仅 planner 建 run（一次 run =
+//     整个四 agent 认知循环，executor/evaluator/monitor 共享该行）；列保留
+//     四值枚举为按角色拆 run 留演进位。
 package agentrun
 
 import (

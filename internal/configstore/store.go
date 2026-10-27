@@ -8,11 +8,11 @@
 // 本包只贡献 agent 专有的缓存键与读写方法，缓存机制（L1/L2/总线）全在 cachestore。
 //
 // 缓存粒度：单条读 + **key 空间固定**的读均走 L1/L2 缓存——单条读（id/code）、
-// 全量列表读（ListExecutors 按 onlyEnabled 分 2 键）、两个哨兵（planner/
-// enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListExecutorsPaged
+// 全量列表读（ListAgents 按 onlyEnabled 分 2 键）、两个哨兵（planner/
+// enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListAgentsPaged
 // + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
 // 增长，L1 无 TTL 会堆积孤儿键（内存泄漏），且配置管理页低频，缓存收益近零，故直穿 DB。
-package cache
+package configstore
 
 import (
 	"context"
@@ -92,8 +92,8 @@ func boolKey(b bool) string {
 
 // ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 
-// ExecutorByID 按 uuid 读操作员（CRUD :id）。
-func (s *Store) ExecutorByID(ctx context.Context, id string) (agent.Agent, error) {
+// AgentByID 按 uuid 读 agent（CRUD :id）。
+func (s *Store) AgentByID(ctx context.Context, id string) (agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentID(id),
 		func(h agent.Agent) []string { return []string{keyAgentID(h.ID)} },
 		func(ctx context.Context) (agent.Agent, error) {
@@ -101,13 +101,8 @@ func (s *Store) ExecutorByID(ctx context.Context, id string) (agent.Agent, error
 		})
 }
 
-// ExecutorByCode 按 code 读操作员（走 code 键多级缓存，见 AgentByCode）。
-func (s *Store) ExecutorByCode(ctx context.Context, code string) (agent.Agent, error) {
-	return s.AgentByCode(ctx, code)
-}
-
 // AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
-// keyExecutorCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
+// keyAgentCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
 // 一致性：所有 agent 写路径（UpdateExecutor/UpdateAgent/UpdateExecutorComplexity）
 // 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
 // runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
@@ -123,8 +118,8 @@ func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, erro
 
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
-// ListExecutors 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一操作员写即失效两键。
-func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error) {
+// ListAgents 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一 agent 写即失效两键。
+func (s *Store) ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
 		func([]agent.Agent) []string { return []string{keyAgentsList(onlyEnabled)} },
 		func(ctx context.Context) ([]agent.Agent, error) {
@@ -135,15 +130,15 @@ func (s *Store) ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Ag
 // ── 分页/搜索列表读（不缓存，直穿 DB）─────────────────────────────────
 //
 // 键含搜索词 × limit × offset，key 空间随查询无限增长；L1 无 TTL 会堆积孤儿键（内存泄漏）。
-// 配置管理页低频，缓存收益近零，故直穿 DB（与 liusha2 一致）。
+// 配置管理页低频，缓存收益近零，故直穿 DB。
 
-// ListExecutorsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
-func (s *Store) ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error) {
+// ListAgentsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
+func (s *Store) ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error) {
 	return s.agents.ListPaged(ctx, p)
 }
 
 // CountExecutors 直穿底层 store：与 ListExecutorsPaged 同过滤的总数。
-func (s *Store) CountExecutors(ctx context.Context, p agent.ListParams) (int, error) {
+func (s *Store) CountAgents(ctx context.Context, p agent.ListParams) (int, error) {
 	return s.agents.CountList(ctx, p)
 }
 
@@ -163,7 +158,7 @@ func agentKeys(id, code string) []string {
 }
 
 // UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
-func (s *Store) UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
+func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
 	h, err := s.agents.Update(ctx, code, p)
 	if err != nil {
 		return agent.Agent{}, err
@@ -174,24 +169,10 @@ func (s *Store) UpdateExecutor(ctx context.Context, code string, p agent.UpdateP
 	return h, nil
 }
 
-// UpdateExecutorComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
+// UpdateAgentComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
 // runner 被动清 L1，下次 For(role) 经 ComplexityByCode 读到新档。不碰 agent 其余字段。
-func (s *Store) UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error) {
+func (s *Store) UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Agent, error) {
 	h, err := s.agents.UpdateComplexity(ctx, id, complexity)
-	if err != nil {
-		return agent.Agent{}, err
-	}
-	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
-		return h, err
-	}
-	return h, nil
-}
-
-// ── 通用 Agent 方法（支持 Planner/Executor/Evaluator/Monitor）─────────
-
-// UpdateAgent 更新任意 Agent 配置，失效缓存
-func (s *Store) UpdateAgent(ctx context.Context, id string, p agent.UpdateParams) (agent.Agent, error) {
-	h, err := s.agents.Update(ctx, id, p)
 	if err != nil {
 		return agent.Agent{}, err
 	}

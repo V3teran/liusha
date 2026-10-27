@@ -456,14 +456,7 @@ func coalescePrimitives(p json.RawMessage) json.RawMessage {
 	return p
 }
 
-// mustJSON 序列化（失败回空对象——审计字段不阻塞主流程）。
-func mustJSON(v interface{}) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return b
-}
+var mustJSON = explorationgraph.MustJSON
 
 // parseObservationToAttempt 从 observation 节点解析出 Attempt
 func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, error) {

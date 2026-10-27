@@ -59,7 +59,7 @@ func handleCreateControlEvent(cp ControlPlaneAPI) gin.HandlerFunc {
 
 		// 验证 payload（根据 command 类型）
 		if err := validateControlPayload(command, req.Payload); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusBadRequest, err)
 			return
 		}
 

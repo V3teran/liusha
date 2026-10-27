@@ -95,9 +95,9 @@ func Import(
 	s *skill.Store,
 ) (Result, error) {
 	var res Result
-	agents, err := importExecutors(ctx, filepath.Join(dir, "agents"), h, false)
+	agents, err := importAgents(ctx, filepath.Join(dir, "agents"), h, false)
 	if err != nil {
-		return res, fmt.Errorf("import executors: %w", err)
+		return res, fmt.Errorf("import agents: %w", err)
 	}
 	res.Agents = agents
 	skillsRes, err := importSkills(ctx, filepath.Join(dir, "skills"), s, false)
@@ -136,8 +136,8 @@ func walkFiles(dir, ext string) ([]string, error) {
 	return out, nil
 }
 
-// importExecutors 扫 dir/*.md，按 code(=frontmatter id) insert-only 建操作员。
-func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool) ([]string, error) {
+// importAgents 扫 dir/*.md，按 code(=frontmatter id) insert-only 建操作员。
+func importAgents(ctx context.Context, dir string, h *agent.Store, force bool) ([]string, error) {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
 		return nil, err
@@ -184,7 +184,7 @@ func importExecutors(ctx context.Context, dir string, h *agent.Store, force bool
 // 不跳过已存在行，prompt/工具/档位一律以种子为准。
 // 返回实际写入的 agent code 列表。常规启动路径仍走 Import（insert-only）。
 func ImportAgentsForce(ctx context.Context, dir string, h *agent.Store) ([]string, error) {
-	return importExecutors(ctx, filepath.Join(dir, "agents"), h, true)
+	return importAgents(ctx, filepath.Join(dir, "agents"), h, true)
 }
 
 // ImportSkillsForce 把 skills/**/*.md 以强制覆盖语义写入内置行（reset 语义）：

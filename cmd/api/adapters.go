@@ -282,13 +282,13 @@ func (a *scanAdapter) enqueuePlannerRun(ctx context.Context, taskID, conversatio
 	if err != nil {
 		return "", fmt.Errorf("create agent run: %w", err)
 	}
-	if _, _, err := a.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
+	if _, _, err := a.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     tid,
 		TaskID:         taskID,
-		ConversationID: conversationID, // 阶段B：会话发起时非空 → runner 发过程事件
+		ConversationID: conversationID, // 会话发起时非空 → runner 发过程事件
 		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
 		Input:    payloadInput,
-		TaskRole: worker.RoleExecutor,
+		TaskRole: worker.RoleAgent,
 	}, asynq.MaxRetry(0), asynq.Timeout(a.maxRunTimeout)); err != nil {
 		return "", fmt.Errorf("enqueue: %w", err)
 	}
@@ -503,15 +503,6 @@ func (r roleRouter) generator(ctx context.Context, role string) (providerGen, er
 		return providerGen{}, err
 	}
 	return providerGen{p: p}, nil
-}
-
-// Generate 满足 qa.Deps：调 light provider。
-func (a *scanAdapter) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
-	g, err := a.router.generator(ctx, "inspector")
-	if err != nil {
-		return fwllm.Result{}, err
-	}
-	return g.Generate(ctx, msgs, tools)
 }
 
 // GenerateStream 满足 chat/qa.Deps：流式生成（inspector 档），正文/思考增量分别回调广播。

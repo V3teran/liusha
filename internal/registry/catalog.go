@@ -27,7 +27,7 @@ type FunctionToolMeta struct {
 // evaluator 包内注册的 replay_for_verification 也在册（judge 装配用）。
 var FunctionToolCatalog = []FunctionToolMeta{
 	{"read_credentials", CatCredentials, "读取本 host 预录入的真实身份（cookie/token/body 字段），可直接拼请求做重放/越权测试。"},
-	{"write_credential", CatCredentials, "把刚拿到的活凭证录入本 host 凭证池，供同 owner 下其他 executor 共享复用。"},
+	{"write_credential", CatCredentials, "把刚拿到的活凭证录入本 host 凭证池，供同 task 下其他执行者共享复用。"},
 	{"search_corpus", CatCorpus, "检索跨目标长期知识库：沉淀的可复用打法、专家经验、历史教训。"},
 	{"read_insights", CatInsight, "读取情报黑板：其他执行者共享的情报（按 assignment 隔离，按类别/优先级过滤）。"},
 	{"write_insight", CatInsight, "写一条跨 agent 情报到情报黑板（按 host 共享给子代理/跨 run，不进交付报告）。"},

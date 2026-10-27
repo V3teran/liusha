@@ -6,7 +6,6 @@
 //
 // 两条抓取前端（都在沙箱内，都 POST 到这里）：
 //   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→agent 归属）
-//   - CLI：容器内本地 mitmdump + mitm-capture.py，工具经 HTTP_PROXY 走它（owner 级归属，executor_id 走 env）
 //
 // 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → Traffic.SubmitInternal
 //
@@ -38,7 +37,7 @@ import (
 // RequestBody/ResponseBody 是 []byte：JSON 里走 base64 字符串（Go encoding/json 约定，
 // python 端 base64.b64encode）。空字符串 → 空 []byte。
 type ingestRequest struct {
-	ExecutorID      string              `json:"executor_id"`
+	AgentID         string              `json:"agent_id"`
 	Identity        string              `json:"identity,omitempty"` // 身份名（browser 抓的填；CLI 空）
 	Tool            string              `json:"tool,omitempty"`     // 发起工具（browser='browser'；CLI=UA 解析）
 	Host            string              `json:"host"`
@@ -70,7 +69,7 @@ type internalSink interface {
 // 错误响应：
 //   - 405 method 非 POST
 //   - 401 token 不匹配（仅 token 非空时）
-//   - 400 JSON 解析失败 / executor_id 缺失
+//   - 400 JSON 解析失败 / agent_id 缺失
 //   - 503 ingestor 队列已满（背压——沙箱应退避重试）
 //   - 200 成功（不返 body，节省带宽）
 func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) http.HandlerFunc {
@@ -98,8 +97,8 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.ExecutorID == "" {
-			http.Error(w, "executor_id required", http.StatusBadRequest)
+		if req.AgentID == "" {
+			http.Error(w, "agent_id required", http.StatusBadRequest)
 			return
 		}
 
@@ -109,8 +108,8 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 		}
 
 		snap := &proxy.TrafficSnapshot{
-			ID:              "cdp-" + req.ExecutorID + "-" + ts.Format("20060102T150405.000000000"),
-			AgentRunID:      req.ExecutorID,
+			ID:              "cdp-" + req.AgentID + "-" + ts.Format("20060102T150405.000000000"),
+			AgentRunID:      req.AgentID,
 			Source:          "internal",
 			Identity:        req.Identity,
 			Tool:            req.Tool,
@@ -131,13 +130,13 @@ func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) ht
 		}
 
 		if !sink.SubmitInternal(snap) {
-			logger.Warn().Str("executor_id", req.ExecutorID).Msg("ingest 队列已满，背压 503（沙箱应退避重试）")
+			logger.Warn().Str("agent_id", req.AgentID).Msg("ingest 队列已满，背压 503（沙箱应退避重试）")
 			http.Error(w, "ingest queue full", http.StatusServiceUnavailable)
 			return
 		}
 
 		logger.Info().
-			Str("executor_id", req.ExecutorID).
+			Str("agent_id", req.AgentID).
 			Str("method", req.Method).
 			Str("host", req.Host).
 			Str("uri", req.URI).

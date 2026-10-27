@@ -21,9 +21,9 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	llmcfg "github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/config/seed"
-	"github.com/V3teran/liusha/internal/config/setting"
+	"github.com/V3teran/liusha/internal/config/settingstore"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
-	cfgstore "github.com/V3teran/liusha/internal/configstore"
+	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
@@ -115,7 +115,7 @@ func main() {
 
 	// 配置多级缓存 Store（agent CRUD 后端）。写路径经 cachestore 广播失效，
 	// runner 进程被动失效其 L1。
-	cfgStore := cfgstore.New(pool, cache)
+	cfgStore := configstore.New(pool, cache)
 
 	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
 	// （在 seed.Import 之后验证，确保种子已导入）
@@ -210,7 +210,7 @@ func main() {
 	}
 
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
-	convStore := conversation.NewStore(pool)   // 阶段B：会话/消息
+	convStore := conversation.NewStore(pool)   // 会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
@@ -258,9 +258,9 @@ func main() {
 			APIKey:             os.Getenv("LIUSHA_API_KEY"),
 			StreamCookieSecret: streamSecret,
 			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
-			Credentials:     credAPI,
-			CredentialAudit: auditStore, // 凭证库变更/明文读取审计（敏感操作面）
-			TaskStatus:      taskStatusAdapter{tasks: taskStore},
+			Credentials:        credAPI,
+			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
+			TaskStatus:         taskStatusAdapter{tasks: taskStore},
 			Tasks: taskAPIAdapter{
 				tasks: taskStore,
 				audit: auditStore,
@@ -268,7 +268,7 @@ func main() {
 			Findings:          findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
 			Invocations:       invocationStore,
 			Scan:              adapter,
-			Chat:              adapter,                      // 阶段B：POST /chat 会话发起扫描
+			Chat:              adapter,                      // POST /chat 会话发起扫描
 			FollowUp:          adapter,                      // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
@@ -282,8 +282,8 @@ func main() {
 			Settings:          settingStore,                 // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
 			Traffic:           proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
 			TrafficConv:       convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:     convStore,                    // 阶段B：会话列表 / 消息回看
-			EventStream:       eventStreamAdapter{rdb: rdb}, // 阶段B：SSE 订阅 redis 事件
+			Conversations:     convStore,                    // 会话列表 / 消息回看
+			EventStream:       eventStreamAdapter{rdb: rdb}, // SSE 订阅 redis 事件
 			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
 			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:        toolStore,                    // 会话用量：工具耗时合计

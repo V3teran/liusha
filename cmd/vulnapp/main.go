@@ -10,7 +10,7 @@
 //	GET  /api/bac/admin/users    — bac.vertical_priv_esc   (普通用户也能进)
 //	POST /api/bac/admin/delete   — bac.unauthorized_access (不调 requireLogin)
 //
-// 鉴权模型（参考 liusha2 的 requireLogin）：
+// 鉴权模型（session cookie）：
 //
 //	需登录的接口 → handler 首行调 requireLogin；anonymous 一律返回 200
 //	  + {"detail":"Unauthorized..."} 并 abort（按 BAC SKILL.md 规则视为被拒绝）。
@@ -156,7 +156,7 @@ func newRouter(logger zerolog.Logger) *gin.Engine {
 
 // requireLogin 从 cookie 解析用户；anonymous 直接 200 返回 detail 并 abort。
 //
-// 返回 200 而非 401 是参考 liusha2：BAC SKILL.md 把 body 含 "Unauthorized" /
+// 返回 200 而非 401：BAC SKILL.md 把 body 含 "Unauthorized" /
 // "Forbidden" 视为被拒绝，相似度比较走 body 文本即可。
 func requireLogin(c *gin.Context, logger zerolog.Logger) string {
 	user := whoami(c.Request)

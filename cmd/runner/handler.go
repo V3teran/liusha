@@ -15,8 +15,8 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/setting"
-	cfgstore "github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/config/settingstore"
+	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -66,7 +66,7 @@ type handler struct {
 	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
 	toolsManifest *manifest.Manifest
 
-	cfgStore *cfgstore.Store
+	cfgStore *configstore.Store
 
 	conversations  *conversation.Store
 	eventPublisher *scanstream.Publisher

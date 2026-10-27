@@ -220,10 +220,7 @@ func mapPriority(p int) explorationgraph.Priority {
 
 func ptrState(s explorationgraph.State) *explorationgraph.State { return &s }
 
-func mustJSON(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
-}
+var mustJSON = explorationgraph.MustJSON
 
 type errInvalidPayload string
 

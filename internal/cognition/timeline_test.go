@@ -42,11 +42,11 @@ func (f *fakeTimelinePub) Publish(_ context.Context, _ string, _ []byte) error {
 // echoTool 是最简工具替身。
 type echoTool struct{}
 
-func (echoTool) Name() string              { return "http_request" }
-func (echoTool) ShortDesc() string         { return "探测" }
-func (echoTool) Desc() string              { return "发 HTTP 请求" }
-func (echoTool) Schema() json.RawMessage   { return json.RawMessage(`{}`) }
-func (echoTool) Timeout() time.Duration    { return time.Second }
+func (echoTool) Name() string            { return "http_request" }
+func (echoTool) ShortDesc() string       { return "探测" }
+func (echoTool) Desc() string            { return "发 HTTP 请求" }
+func (echoTool) Schema() json.RawMessage { return json.RawMessage(`{}`) }
+func (echoTool) Timeout() time.Duration  { return time.Second }
 func (echoTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	return registry.ToolResult{Output: "观测原文：" + string(args)}, nil
 }

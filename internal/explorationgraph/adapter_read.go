@@ -39,6 +39,11 @@ func (s *Store) ListNodesByKind(ctx context.Context, taskID string, kind core.No
 	return s.convertGraphNodesToNodes(nodes), nil
 }
 
+// ListAllActions 列出所有 action
+func (s *Store) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
+	return s.ListNodesByKind(ctx, taskID, core.KindAction)
+}
+
 // ListActionsByState 列出指定 task 和 state 的 action 节点
 func (s *Store) ListActionsByState(ctx context.Context, taskID string, state State) ([]Node, error) {
 	query := core.GraphNodeQuery{
@@ -61,16 +66,6 @@ func (s *Store) ListActionsByState(ctx context.Context, taskID string, state Sta
 // ListOpenActions 列出所有 open 状态的 action
 func (s *Store) ListOpenActions(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListActionsByState(ctx, taskID, StateOpen)
-}
-
-// ListCompletedActions 列出所有 done 状态的 action
-func (s *Store) ListCompletedActions(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListActionsByState(ctx, taskID, StateDone)
-}
-
-// ListAllActions 列出所有 action
-func (s *Store) ListAllActions(ctx context.Context, taskID string) ([]Node, error) {
-	return s.ListNodesByKind(ctx, taskID, core.KindAction)
 }
 
 // ListObservationsByConfidence 按验证裁决列出 observation（如轮询

@@ -6,18 +6,14 @@ import "github.com/gin-gonic/gin"
 // 静态子路由先于参数路由注册，避免 gin 树冲突。
 func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
-		// DEBUG: 记录未注册原因
-		println("[DEBUG] Credentials is nil, skipping credential routes")
 		return
 	}
-	println("[DEBUG] Registering credential routes")
 	r.GET("/credentials", listCredentialHostsHandler(d.Credentials, d.CredentialAudit))
 	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/sessions", purgeCredentialSessionsHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host", deleteCredentialHostHandler(d.Credentials, d.CredentialAudit))
-	println("[DEBUG] Credential routes registered successfully")
 }
 
 // registerTaskRoutes 注册任务管理路由
@@ -72,17 +68,17 @@ func registerScanRoutes(r gin.IRouter, d Deps) {
 	r.POST("/scan", scanHandler(d.Scan))
 }
 
-// registerExecutorConfigRoutes 注册 executor 配置路由
-func registerExecutorConfigRoutes(r gin.IRouter, d Deps) {
+// registerAgentConfigRoutes 注册 agent 配置路由
+func registerAgentConfigRoutes(r gin.IRouter, d Deps) {
 	if d.ConfigStore == nil {
 		return
 	}
-	// executor 配置读取/编辑（前端配置管理页）。角色为固定种子：
+	// agent 配置读取/编辑（前端配置管理页）。角色为固定种子：
 	// 无 POST（不可新建）、无 DELETE（不可删），只有部分更新。
-	r.GET("/executors", listExecutorsHandler(d.ConfigStore))
-	r.GET("/executors/:id", getExecutorHandler(d.ConfigStore))
-	r.PUT("/executors/:id", saveExecutorHandler(d.ConfigStore))
-	r.PATCH("/executors/:id/complexity", updateExecutorComplexityHandler(d.ConfigStore))
+	r.GET("/agents", listAgentsHandler(d.ConfigStore))
+	r.GET("/agents/:id", getAgentHandler(d.ConfigStore))
+	r.PUT("/agents/:id", saveAgentHandler(d.ConfigStore))
+	r.PATCH("/agents/:id/complexity", updateAgentComplexityHandler(d.ConfigStore))
 }
 
 // registerSkillRoutes 注册技能/知识库路由

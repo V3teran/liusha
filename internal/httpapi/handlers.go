@@ -43,7 +43,7 @@ func listTasksHandler(api TaskAPI) gin.HandlerFunc {
 		}
 		list, err := api.List(c.Request.Context(), limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"tasks": list})
@@ -61,7 +61,7 @@ func abortTaskHandler(api TaskAPI) gin.HandlerFunc {
 			return
 		}
 		if err := api.Abort(c.Request.Context(), id); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -98,7 +98,7 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateScanRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusBadRequest, err)
 			return
 		}
 		brief := strings.TrimSpace(req.Brief)
@@ -109,7 +109,7 @@ func scanHandler(api ScanAPI) gin.HandlerFunc {
 
 		taskID, agentRunID, err := api.CreateScan(c.Request.Context(), brief)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
