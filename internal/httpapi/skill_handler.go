@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +18,12 @@ type SkillAPI interface {
 	CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
 	UpdateSkill(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
 	DeleteSkill(ctx context.Context, id string) error
+
+	// 装配到智能体（对称工具模块）：读全量 agent 算 involved、按 agent.skills
+	// 白名单写回（后端单一权威，同 tool assignToolHandler）。
+	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
+	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
+	AgentByCode(ctx context.Context, code string) (agent.Agent, error)
 }
 
 // listSkillsHandler 获取 Skill 列表（智能判断分页或全量）
@@ -197,4 +204,149 @@ func deleteSkillHandler(api SkillAPI) gin.HandlerFunc {
 
 		c.Status(http.StatusNoContent)
 	}
+}
+
+// ── 装配到智能体（对称工具模块）──────────────────────────────────────
+
+// skillAgentsView 是详情里的一个智能体条目：轻量标识 + 是否已装配该技能
+// （involved 由后端权威计算：agent.skills 白名单含 code，或含 "*" 全量哨兵）。
+type skillAgentsView struct {
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Involved bool   `json:"involved"`
+}
+
+// agentHasSkill 判据的单一实现：白名单含 "*"（executor 种子语义 = 全量装配）或含 code。
+func agentHasSkill(a agent.Agent, code string) bool {
+	for _, s := range a.Skills {
+		if s == code || s == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// getSkillDetailHandler 处理 GET /skills/:code/detail → {skill, agents}。
+// agents 为全量智能体及各自装配态（对称 GET /tools/:name 的 involved）。
+func getSkillDetailHandler(api SkillAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := c.Param("code")
+		sk, err := api.SkillByCode(c.Request.Context(), code)
+		if err != nil {
+			respondErr(c, http.StatusNotFound, err)
+			return
+		}
+		agents, err := api.ListAgents(c.Request.Context(), false)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		views := make([]skillAgentsView, 0, len(agents))
+		for _, a := range agents {
+			views = append(views, skillAgentsView{
+				Code:     a.Code,
+				Name:     a.Name,
+				Involved: agentHasSkill(a, sk.Code),
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"skill": skillJSON(sk), "agents": views})
+	}
+}
+
+// skillJSON 是 skill 响应的单一序列化点（与列表 handler 共用形状）。
+func skillJSON(sk skillstore.Skill) gin.H {
+	return gin.H{
+		"id": sk.ID, "code": sk.Code, "category": sk.Category, "name": sk.Name,
+		"description": sk.Description, "body": sk.Body,
+		"is_builtin": sk.IsBuiltin, "enabled": sk.Enabled,
+		"created_at": sk.CreatedAt, "updated_at": sk.UpdatedAt,
+	}
+}
+
+// assignSkillRequest 是 PUT /skills/:code/agents/:agentCode 的请求体：装配（true）/卸载（false）。
+type assignSkillRequest struct {
+	Involved bool `json:"involved"`
+}
+
+// assignSkillHandler 处理 PUT /skills/:code/agents/:agentCode → {agentCode, involved}。
+// 从技能侧装/卸某智能体的该技能：校验技能存在 → 按 code 取智能体 → 改 agent.skills
+// 白名单 → UpdateAgent 回存（后端单一权威）。全量哨兵 "*"：装配=幂等保留；
+// 卸载=物化为「技能全集减一」。技能/智能体不存在均 404。
+func assignSkillHandler(api SkillAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := c.Param("code")
+		agentCode := c.Param("agentCode")
+		var b assignSkillRequest
+		if err := c.ShouldBindJSON(&b); err != nil {
+			respondErr(c, http.StatusBadRequest, err)
+			return
+		}
+		ctx := c.Request.Context()
+		sk, err := api.SkillByCode(ctx, code)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": code})
+			return
+		}
+		catalog, err := api.ListSkills(ctx, skillstore.ListParams{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		a, err := api.AgentByCode(ctx, agentCode)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "agentCode": agentCode})
+			return
+		}
+
+		skills := applySkillAssignment(a, sk.Code, b.Involved, catalog)
+		if _, err := api.UpdateAgent(ctx, a.Code, agent.UpdateParams{Skills: &skills}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"agentCode": agentCode, "involved": b.Involved})
+	}
+}
+
+// applySkillAssignment 返回该智能体装/卸某技能后的 skills 白名单（不改原切片）。
+// 全量哨兵 "*"：装配=幂等保留；卸载=物化为「技能全集减一」（对称 tool 的
+// applyAssignment 物化语义）。显式白名单：装=追加、卸=剔除，幂等。
+func applySkillAssignment(a agent.Agent, code string, involved bool, catalog []skillstore.Skill) []string {
+	if containsWildcardSkill(a.Skills) {
+		if involved {
+			return a.Skills
+		}
+		out := make([]string, 0, len(catalog))
+		for _, t := range catalog {
+			if t.Code != code {
+				out = append(out, t.Code)
+			}
+		}
+		return out
+	}
+	found := false
+	out := make([]string, 0, len(a.Skills)+1)
+	for _, s := range a.Skills {
+		if s == code {
+			found = true
+			if involved {
+				out = append(out, s)
+			}
+			continue
+		}
+		out = append(out, s)
+	}
+	if involved && !found {
+		out = append(out, code)
+	}
+	return out
+}
+
+// containsWildcardSkill 报告白名单数组是否含全量哨兵 "*"。
+func containsWildcardSkill(arr []string) bool {
+	for _, s := range arr {
+		if s == "*" {
+			return true
+		}
+	}
+	return false
 }

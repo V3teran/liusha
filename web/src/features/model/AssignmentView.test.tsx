@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AssignmentView } from './AssignmentView'
@@ -108,23 +108,33 @@ describe('AssignmentView', () => {
     expect(screen.queryByText('compactor')).toBeNull()
   })
 
-  it('归属 chip 表达档位归属：planner 在 complex 档显示实心标记，medium 档为可点幽灵 chip', async () => {
+  it('归属胶囊表达档位归属：planner 在 complex 档实心禁用，medium 档为可点幽灵胶囊', async () => {
     mGetRouting.mockResolvedValue(routing())
     renderView()
-    // planner 在 complex 档 → complex 行内实心 chip（带勾，title 提示）；
-    // medium 行内是可点按钮（aria-label「planner 归入 medium」）。
-    const moveToMedium = await screen.findByRole('button', { name: 'planner 归入 medium' })
-    expect(moveToMedium).toBeTruthy()
-    // complex 档没有「移入 complex」按钮（已归属，实心标记无操作语义）。
-    expect(screen.queryByRole('button', { name: 'planner 归入 complex' })).toBeNull()
+    // 等数据渲染出 agent 胶囊（退出加载态），再做行作用域断言。
+    await screen.findAllByRole('button', { name: 'planner' })
+    // planner 归属 complex 档 → complex 行内胶囊实心禁用（单值归属无操作）；
+    // medium 行内是可点幽灵胶囊（aria-pressed=false）。
+    const complexGroup = within(screen.getByTestId('complexity-row-complex'))
+    const mediumGroup = within(screen.getByTestId('complexity-row-medium'))
+    const inComplex = complexGroup.getByRole('button', { name: 'planner' })
+    expect(inComplex).toBeTruthy()
+    expect(inComplex).toBeDisabled()
+    const ghost = mediumGroup.getByRole('button', { name: 'planner' })
+    expect(ghost).toBeEnabled()
   })
 
-  it('点未归属 chip 把智能体移入目标档，调 saveAgentComplexity(id, complexity)', async () => {
+  it('点未归属胶囊把智能体移入目标档，调 saveAgentComplexity(id, complexity)', async () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveTier.mockResolvedValue(agent('h-traffic', 'traffic-analysis', 'simple'))
     renderView()
-    // traffic-analysis 原在 medium，点 simple 行的幽灵 chip → 移入 simple。
-    const chip = await screen.findByRole('button', { name: 'traffic-analysis 归入 simple' })
+    // traffic-analysis 原在 medium，点 simple 行的幽灵胶囊 → 移入 simple。
+    await waitFor(() =>
+      expect(screen.getByTestId('complexity-row-simple').textContent).toContain('traffic-analysis'),
+    ) // 等数据渲染出行内容
+    const simpleRow = screen.getByTestId('complexity-row-simple')
+    const simpleGroup = within(simpleRow)
+    const chip = simpleGroup.getByRole('button', { name: 'traffic-analysis' })
     await userEvent.click(chip)
     await waitFor(() => expect(mSaveTier).toHaveBeenCalledWith('h-traffic', 'simple'))
   })
@@ -134,15 +144,17 @@ describe('AssignmentView', () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveTier.mockRejectedValue(new Error('移档炸了'))
     renderView()
-    const chip = await screen.findByRole('button', { name: 'traffic-analysis 归入 simple' })
+    await screen.findByRole('button', { name: 'traffic-analysis', pressed: true }) // 等数据渲染（medium 实心）
+    const simpleRow = screen.getByTestId('complexity-row-simple')
+    const simpleGroup = within(simpleRow)
+    const chip = simpleGroup.getByRole('button', { name: 'traffic-analysis' })
     await userEvent.click(chip)
     expect(await screen.findByText(/移档炸了/)).toBeTruthy()
     expect(alertSpy).not.toHaveBeenCalled()
-    // 回滚：回到 medium 档（medium 行是实心 chip），simple 行恢复为可点幽灵 chip。
-    expect(screen.queryByRole('button', { name: 'traffic-analysis 归入 medium' })).toBeNull()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'traffic-analysis 归入 simple' })).toBeTruthy(),
-    )
+    // 回滚：traffic-analysis 回到 medium 档（medium 行实心胶囊恢复），simple 行恢复幽灵。
+    const mediumRow = screen.getByTestId('complexity-row-medium')
+    expect(within(mediumRow).getByRole('button', { name: 'traffic-analysis', pressed: true })).toBeTruthy()
+    expect(simpleGroup.getByRole('button', { name: 'traffic-analysis', pressed: false })).toBeTruthy()
   })
 
   it('已指派档的 select 反映当前 provider', async () => {

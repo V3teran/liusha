@@ -57,6 +57,8 @@ func registerSkillRoutes(r gin.IRouter, d Deps) {
 	// Skill 配置 CRUD（前端知识库管理页）
 	r.GET("/skills", listSkillsHandler(d.SkillStore))
 	r.GET("/skills/:code", getSkillHandler(d.SkillStore))
+	r.GET("/skills/:code/detail", getSkillDetailHandler(d.SkillStore))
+	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))
 	r.POST("/skills", createSkillHandler(d.SkillStore))
 	r.PUT("/skills/:code", updateSkillHandler(d.SkillStore))
 	r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
