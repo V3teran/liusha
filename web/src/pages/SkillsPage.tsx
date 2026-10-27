@@ -88,10 +88,6 @@ export default function SkillsPage() {
     closeDraft()
   }
 
-  // 编辑能力分界：内置技能是 skills/*.md 种子的镜像（reseed 覆盖 name/description/
-  // body/category），编辑它们是无效功——只放开「启用」运维开关；自建技能全字段可编辑。
-  const builtinLocked = !isNew && !!draft?.is_builtin
-
   const changes = useMemo<SkillChanges | null>(() => {
     if (!draft || !baseline) return null
     const c: SkillChanges = {}
@@ -194,7 +190,7 @@ export default function SkillsPage() {
         title={isNew ? '新建技能' : draft?.name || '技能详情'}
         onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
-        onDelete={isNew || builtinLocked ? undefined : () => void onDelete()}
+        onDelete={isNew || draft?.is_builtin ? undefined : () => void onDelete()}
         saving={saving}
         saveDisabled={saveDisabled}
         tabs={
@@ -205,6 +201,12 @@ export default function SkillsPage() {
                   label: '基本信息',
                   content: (
                     <>
+                      {draft.is_builtin && (
+                        <p className="rounded-md border border-sev-high/30 bg-sev-high/5 px-3 py-2 text-xs leading-relaxed text-sev-high">
+                          内置技能：修改以数据库为准；显式 reseed 会以 skills/ 目录
+                          覆盖内置技能的名称、分类、描述与正文。
+                        </p>
+                      )}
                       <div className="flex gap-3">
                         <Field
                           label="标识符"
@@ -223,7 +225,6 @@ export default function SkillsPage() {
                         <input
                           className={INPUT_CLASS}
                           value={draft.name}
-                          disabled={builtinLocked}
                           onChange={(e) => patch({ name: e.target.value })}
                         />
                       </Field>
@@ -231,15 +232,16 @@ export default function SkillsPage() {
                         <input
                           className={INPUT_CLASS}
                           value={draft.category}
-                          disabled={builtinLocked}
                           onChange={(e) => patch({ category: e.target.value })}
                         />
                       </Field>
-                      <Field label="描述" hint="多智能体按需读取时可见的技能摘要">
+                      <Field
+                        label="描述"
+                        hint="进 agent 技能索引（Tier 1）的摘要——直接决定 LLM 何时选用本技能"
+                      >
                         <textarea
                           className={INPUT_CLASS + ' min-h-[4rem] resize-y'}
                           value={draft.description}
-                          disabled={builtinLocked}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
@@ -277,16 +279,11 @@ export default function SkillsPage() {
                   content: (
                     <Field
                       label="技能文档（Markdown）"
-                      hint={
-                        builtinLocked
-                          ? '内置技能由 skills/ 目录种子管理（reseed 覆盖），如需修改请改文件'
-                          : '渐进式加载的领域知识：Tier 1 索引进 system prompt，运行时经 read_skill 全文读取'
-                      }
+                      hint="read_skill 全文读取的方法论正文（Tier 2）；修改以数据库为准"
                     >
                       <textarea
                         className={INPUT_CLASS + ' min-h-[26rem] resize-y font-mono text-sm'}
                         value={draft.body}
-                        disabled={builtinLocked}
                         onChange={(e) => patch({ body: e.target.value })}
                       />
                     </Field>
