@@ -10,6 +10,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/db"
 )
 
 // Store 封装 cron_schedule 表的持久化操作。
@@ -154,13 +155,8 @@ func (s *Store) MarkFired(ctx context.Context, id string, firedAt time.Time) err
 	return nil
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r scanner, c *CronSchedule) error {
+func scan(r db.RowScanner, c *CronSchedule) error {
 	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title,
 		&c.Enabled, &c.NextRunAt, &c.LastRunAt, &c.CreatedAt); err != nil {
 		return err

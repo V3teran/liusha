@@ -29,7 +29,7 @@ type NodesResponse struct {
 	Nodes []explorationgraph.Node `json:"nodes"`
 }
 
-// getConversationGraph 处理 GET /api/v1/conversations/{conversationId}/exploration/graph
+// getConversationGraph 处理 GET /api/conversations/{conversationId}/exploration/graph
 // 返回对话的完整探索图（nodes + edges）
 func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

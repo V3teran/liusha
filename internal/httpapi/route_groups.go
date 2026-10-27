@@ -16,25 +16,6 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	r.DELETE("/credentials/:host", deleteCredentialHostHandler(d.Credentials, d.CredentialAudit))
 }
 
-// registerTaskRoutes 注册任务管理路由
-func registerTaskRoutes(r gin.IRouter, d Deps) {
-	if d.Tasks == nil {
-		return
-	}
-	r.POST("/tasks/:id/abort", abortTaskHandler(d.Tasks))
-	r.GET("/tasks", listTasksHandler(d.Tasks))
-}
-
-// registerControlPlaneRoutes 注册控制平面路由
-func registerControlPlaneRoutes(r gin.IRouter, d Deps) {
-	if d.ControlPlane == nil {
-		return
-	}
-	r.POST("/tasks/:id/control", handleCreateControlEvent(d.ControlPlane))
-	r.GET("/tasks/:id/control", handleListControlEvents(d.ControlPlane))
-	r.GET("/control-events/:eventID", handleGetControlEvent(d.ControlPlane))
-}
-
 // registerFindingsRoutes 注册漏洞管理路由
 func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	if d.Findings == nil {
@@ -42,7 +23,6 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
 	r.GET("/findings", listFindingsHandler(d.Findings))
-	r.GET("/findings/hosts", findingHostsHandler(d.Findings))
 	r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
 }
 
@@ -54,18 +34,6 @@ func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 	// 注意：更具体的路由必须在通配路由之前注册
 	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
 	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
-	r.GET("/llm/invocations/:task_id/invocation/:id", llmInvocationDetailHandler(d.Invocations))
-	r.GET("/llm/invocations/:task_id/stat", llmInvocationStatHandler(d.Invocations))
-	r.GET("/llm/invocations/:task_id/facets", llmInvocationFacetsHandler(d.Invocations))
-	r.GET("/llm/invocations/:task_id", llmInvocationsHandler(d.Invocations))
-}
-
-// registerScanRoutes 注册扫描路由
-func registerScanRoutes(r gin.IRouter, d Deps) {
-	if d.Scan == nil {
-		return
-	}
-	r.POST("/scan", scanHandler(d.Scan))
 }
 
 // registerAgentConfigRoutes 注册 agent 配置路由
@@ -100,7 +68,7 @@ func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/v1/conversations/:conversationId/exploration/graph", getConversationGraph(d.ExplorationGraph))
+	r.GET("/conversations/:conversationId/exploration/graph", getConversationGraph(d.ExplorationGraph))
 }
 
 // registerTrafficRoutes 注册代理流量路由
@@ -111,7 +79,6 @@ func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	// 代理捕获流量只读浏览（前端流量模块）
 	// 静态段（/hosts、/content-types）须先于 /traffic/:id 注册避免冲突
 	r.GET("/traffic", listTrafficHandler(d.Traffic))
-	r.GET("/traffic/hosts", trafficHostsHandler(d.Traffic))
 	r.GET("/traffic/content-types", trafficContentTypesHandler(d.Traffic))
 	r.GET("/traffic/:id", trafficDetailHandler(d.Traffic, d.TrafficConv))
 }
@@ -193,7 +160,6 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 
 	r.GET("/conversations", listConversationsHandler(d.Conversations))
 	r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
-	r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(d.Conversations))
 
 	if d.FollowUp != nil {
 		r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))

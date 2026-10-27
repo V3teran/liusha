@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -148,7 +149,7 @@ func (s *Store) GetByCode(ctx context.Context, code string) (Agent, error) {
 	return h, nil
 }
 
-// List 按 code 升序列出配置操作员；onlyEnabled=true 时过滤 enabled=false。
+// List 按 code 升序列出配置 agent；onlyEnabled=true 时过滤 enabled=false。
 func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
 	q := "SELECT " + colsSelect + " FROM agent"
 	if onlyEnabled {
@@ -191,7 +192,7 @@ func buildFilter(p ListParams) (string, []any) {
 	return " WHERE (code ILIKE $1 OR name ILIKE $1 OR description ILIKE $1)", []any{"%" + q + "%"}
 }
 
-// ListPaged 按 code 升序、支持模糊搜索 + 分页列出配置操作员（配置管理页）。
+// ListPaged 按 code 升序、支持模糊搜索 + 分页列出配置 agent（配置管理页）。
 // Limit<=0 时返回过滤后全量。
 func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 	where, args := buildFilter(p)
@@ -241,13 +242,8 @@ func marshalTools(tools []string) ([]byte, error) {
 	return b, nil
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r scanner, h *Agent) error {
+func scan(r db.RowScanner, h *Agent) error {
 	var fnTools, cliTools, skills []byte
 	if err := r.Scan(&h.ID, &h.Code, &h.Name, &h.Description, &h.SystemPrompt,
 		&fnTools, &cliTools, &skills, &h.MaxIterations, &h.Complexity, &h.Enabled,

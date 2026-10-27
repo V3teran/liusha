@@ -48,7 +48,7 @@ func TestGetConversationGraph(t *testing.T) {
 		ExplorationGraph: mock,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/conversations/conv-123/exploration/graph", nil)
+	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
 	req.Header.Set("X-API-Key", testAPIKey)
 	w := httptest.NewRecorder()
 
@@ -78,7 +78,7 @@ func TestGetConversationGraph_Unauthorized(t *testing.T) {
 		ExplorationGraph: mock,
 	})
 
-	req := httptest.NewRequest("GET", "/api/v1/conversations/conv-123/exploration/graph", nil)
+	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
 	req.Header.Set("X-API-Key", "wrong-key")
 	w := httptest.NewRecorder()
 

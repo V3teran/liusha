@@ -185,9 +185,7 @@ func (h handler) appendTaskStatus(ctx context.Context, convID, taskID, status, s
 		h.logger.Warn().Err(err).Str("conv", convID).Str("status", status).Msg("任务状态节点落库失败")
 		return
 	}
-	if payload, err := json.Marshal(msg); err == nil {
-		_ = h.eventPublisher.Publish(ctx, convID, payload)
-	}
+	_ = h.eventPublisher.PublishMessage(ctx, convID, msg)
 }
 
 // findingsCount 数 task 黑板 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。

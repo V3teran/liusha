@@ -4,7 +4,7 @@
 // 已存在的行一律跳过，绝不覆盖前端/运维在 DB 里的改动。
 //
 // 目录约定（dir 为配置根）：
-//   - dir/agents/*.md   ：操作员 charter（frontmatter 元信息 + body 方法论正文）
+//   - dir/agents/*.md   ：agent charter（frontmatter 元信息 + body 方法论正文）
 package seed
 
 import (
@@ -136,7 +136,7 @@ func walkFiles(dir, ext string) ([]string, error) {
 	return out, nil
 }
 
-// importAgents 扫 dir/*.md，按 code(=frontmatter id) insert-only 建操作员。
+// importAgents 扫 dir/*.md，按 code(=frontmatter id) insert-only 建 agent。
 func importAgents(ctx context.Context, dir string, h *agent.Store, force bool) ([]string, error) {
 	files, err := walkFiles(dir, ".md")
 	if err != nil {
@@ -163,7 +163,7 @@ func importAgents(ctx context.Context, dir string, h *agent.Store, force bool) (
 		if _, err := h.GetByCode(ctx, code); err == nil && !force {
 			continue // 已存在→跳过（insert-only，DB 是事实源）
 		} else if err != nil && !notFound(err) {
-			return nil, fmt.Errorf("查操作员 %q: %w", code, err)
+			return nil, fmt.Errorf("查 agent %q: %w", code, err)
 		}
 		systemPrompt := string(body)
 		if _, err := h.Upsert(ctx, code, f.Name, f.Description, systemPrompt, agent.UpdateParams{
@@ -173,7 +173,7 @@ func importAgents(ctx context.Context, dir string, h *agent.Store, force bool) (
 			MaxIterations: &f.MaxIterations,
 			Complexity:    strPtr(strings.TrimSpace(f.Complexity)),
 		}); err != nil {
-			return nil, fmt.Errorf("写操作员 %q: %w", code, err)
+			return nil, fmt.Errorf("写 agent %q: %w", code, err)
 		}
 		updated = append(updated, code)
 	}

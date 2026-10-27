@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -545,9 +544,7 @@ func startTaskReaper(
 						logger.Warn().Err(aerr).Str("task_id", id).Msg("回收通知写会话失败")
 						continue
 					}
-					if payload, merr := json.Marshal(msg); merr == nil {
-						_ = pub.Publish(ctx, convID, payload)
-					}
+					_ = pub.PublishMessage(ctx, convID, msg)
 				}
 			}
 		}

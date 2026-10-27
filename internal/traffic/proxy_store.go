@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/db"
 )
 
 // ProxyStore 封装 proxy_traffic 表——代理捕获流量，按 host 归属，先于 task。
@@ -389,7 +391,7 @@ func (s *ProxyStore) ListMonitoredHosts(ctx context.Context, withinSeconds int) 
 	return out, rows.Err()
 }
 
-func scanProxy(r scanner, f *ProxyTraffic) error {
+func scanProxy(r db.RowScanner, f *ProxyTraffic) error {
 	return r.Scan(&f.ID, &f.Host, &f.Method, &f.Scheme, &f.URL, &f.Path, &f.StatusCode,
 		&f.RequestRaw, &f.ResponseRaw, &f.ContentType, &f.HTTPVersion, &f.RespLen, &f.CapturedAt)
 }

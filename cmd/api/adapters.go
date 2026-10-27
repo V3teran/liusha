@@ -87,35 +87,6 @@ func (a taskAPIAdapter) writeAudit(ctx context.Context, action, kind, id string)
 	}
 }
 
-// List 列出最近的 task → httpapi.TaskSummary（前端下拉/列表）。各场景混列，按 created_at desc。
-func (a taskAPIAdapter) List(ctx context.Context, limit int) ([]httpapi.TaskSummary, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	tasks, err := a.tasks.List(ctx, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list tasks: %w", err)
-	}
-	out := make([]httpapi.TaskSummary, 0, len(tasks))
-	for _, t := range tasks {
-		// 输入已统一（brief 主 + target_host 派生，见 D5）：始终输出两字段，不按场景分形状。
-		scopeJSON, _ := json.Marshal(map[string]string{"brief": t.Brief, "target_host": t.TargetHost})
-		s := httpapi.TaskSummary{
-			ID:     t.ID,
-			Scope:  string(scopeJSON),
-			Status: string(t.Status),
-
-			CreatedAt:    t.CreatedAt.Format(time.RFC3339),
-			ErrorMessage: t.ErrorMessage,
-		}
-		if t.EndedAt != nil {
-			s.EndedAt = t.EndedAt.Format(time.RFC3339)
-		}
-		out = append(out, s)
-	}
-	return out, nil
-}
-
 // scanAdapter 把 task store + agentrun.Store + worker.Client 组合成
 // httpapi.ScanAPI 一站式入口：建 scan → 建 agent agent_run → 入 asynq 队列。
 //
@@ -185,9 +156,7 @@ func (a *scanAdapter) appendTaskStatus(ctx context.Context, convID, status, summ
 		chatLog.Warn().Err(err).Str("conv", convID).Str("status", status).Msg("任务状态节点落库失败")
 		return
 	}
-	if payload, err := json.Marshal(msg); err == nil {
-		_ = a.publisher.Publish(ctx, convID, payload)
-	}
+	_ = a.publisher.PublishMessage(ctx, convID, msg)
 }
 
 // expandItem 把 assignment 下的一个 item（brief）展开成 task + agent run + enqueue。
@@ -545,11 +514,6 @@ func (a *scanAdapter) AppendAssistant(ctx context.Context, convID, content, thin
 // Publish 满足 qa.Deps：推 SSE。
 func (a *scanAdapter) Publish(ctx context.Context, convID string, payload []byte) error {
 	return a.publisher.Publish(ctx, convID, payload)
-}
-
-// CreateScan 满足 httpapi.ScanAPI（无会话的纯后台扫描入口）。
-func (a *scanAdapter) CreateScan(ctx context.Context, brief string) (string, string, error) {
-	return a.createScan(ctx, brief, "")
 }
 
 // StartChatScan 满足 httpapi.ChatAPI：建会话 + 落用户首条消息 + **同步意图闸**。

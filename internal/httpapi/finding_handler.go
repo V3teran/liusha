@@ -19,7 +19,6 @@ import (
 type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
-	DistinctHosts(ctx context.Context) ([]string, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
 }
 
@@ -73,21 +72,6 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 			out = append(out, findingJSON(r))
 		}
 		c.JSON(http.StatusOK, gin.H{"total": total, "page": page, "size": size, "findings": out})
-	}
-}
-
-// findingHostsHandler 处理 GET /findings/hosts：全表 distinct host，供筛选下拉。
-func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		hosts, err := api.DistinctHosts(c.Request.Context())
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		if hosts == nil {
-			hosts = []string{}
-		}
-		c.JSON(http.StatusOK, gin.H{"hosts": hosts})
 	}
 }
 

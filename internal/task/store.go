@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -80,13 +81,8 @@ func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 	return t, nil
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r scanner, t *Task) error {
+func scan(r db.RowScanner, t *Task) error {
 	var status string
 	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Brief, &t.TargetHost, &status,
 		&t.HeartbeatAt, &t.PausedMs,

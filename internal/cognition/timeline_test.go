@@ -32,7 +32,7 @@ type fakeTimelinePub struct {
 	payloads int
 }
 
-func (f *fakeTimelinePub) Publish(_ context.Context, _ string, _ []byte) error {
+func (f *fakeTimelinePub) PublishMessage(_ context.Context, _ string, _ any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.payloads++

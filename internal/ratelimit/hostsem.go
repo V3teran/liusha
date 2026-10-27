@@ -18,9 +18,9 @@ import (
 
 // HostSemaphore 是按 host 的并发信号量。
 type HostSemaphore struct {
-	rdb       *redis.Client
-	limit     int64
-	ttl       time.Duration // 计数键兜底 TTL（防持有者崩溃泄漏）
+	rdb   *redis.Client
+	limit int64
+	ttl   time.Duration // 计数键兜底 TTL（防持有者崩溃泄漏）
 }
 
 // keyPrefix 是信号量的自有命名空间——运行时键必须与凭证库等业务命名空间

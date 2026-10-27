@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/logx"
@@ -45,7 +44,6 @@ type ChatAPI interface {
 type ConversationsAPI interface {
 	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
-	GetMessage(ctx context.Context, convID, msgID string) (conversation.Message, error)
 }
 
 // EventSubscription 是一次会话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
@@ -261,27 +259,6 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"messages": msgs})
-	}
-}
-
-// messageDetailHandler 处理 GET /conversations/:id/messages/:msg_id：按 id 取单条消息正文。
-//
-// 供「点开节点看原文」按需拉取（如执行图详情面板）：只拉用户点开的那一条，不必像
-// messagesHandler 那样翻页拉整段会话历史进内存。convID 校验同一在 Store 层做（防跨会话越权）。
-func messageDetailHandler(api ConversationsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		convID := c.Param("id")
-		msgID := c.Param("msg_id")
-		msg, err := api.GetMessage(c.Request.Context(), convID, msgID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
-				return
-			}
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, msg)
 	}
 }
 

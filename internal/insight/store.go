@@ -190,4 +190,3 @@ func (s *Store) ListByCategory(ctx context.Context, assignmentID string, categor
 	}
 	return s.list(ctx, "ListByCategory", "assignment_id = $1 AND category = $2", []any{assignmentID, category}, "created_at DESC", limit)
 }
-

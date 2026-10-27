@@ -7,7 +7,7 @@ import (
 )
 
 // Deps 是 NewServer 的注入参数集合。
-// Credentials / Tasks / Scan 为 nil 时对应路由不注册（部分场景测试用）。
+// Credentials 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
 	APIKey      string
 	Credentials CredentialsAPI
@@ -17,16 +17,12 @@ type Deps struct {
 	// TaskStatus 把会话身份归属的 task 状态反解给凭证详情视图；nil 时会话行
 	// 不带任务状态。
 	TaskStatus TaskStatusResolver
-	Tasks      TaskAPI
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
 	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
-	// Scan 为 nil 时 /scan 路由不注册。
-	// 由 cmd/api 注入自定义 adapter（包 task store + agent.Store + worker.Client）。
-	Scan ScanAPI
 	// 会话式平台（任一为 nil 时对应路由不注册）：
 	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 chatAdapter）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
@@ -88,9 +84,6 @@ type Deps struct {
 	// CookieSecure 控制 SSE 鉴权 cookie 的 Secure 属性。prod HTTPS 反代应 true；
 	// dev http 同源开发设 false（否则浏览器不种）。由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入。
 	CookieSecure bool
-	// ControlPlane 为 nil 时任务控制路由（/tasks/:id/control）不注册。
-	// 由 cmd/api 注入 *controlplane.Store（人工干预接口）。
-	ControlPlane ControlPlaneAPI
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
 	// 由 cmd/api 注入 *cache.Store（cfgstore：L1/L2/DB 多级缓存 + 写失效广播，
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
@@ -139,11 +132,8 @@ func NewServer(d Deps) http.Handler {
 func registerRouteGroups(r gin.IRouter, d Deps) {
 	// 按业务模块注册路由
 	registerCredentialsRoutes(r, d)
-	registerTaskRoutes(r, d)
-	registerControlPlaneRoutes(r, d)
 	registerFindingsRoutes(r, d)
 	registerLLMInvocationRoutes(r, d)
-	registerScanRoutes(r, d)
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)

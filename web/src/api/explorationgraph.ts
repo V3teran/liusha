@@ -31,7 +31,7 @@ export interface GraphEdge {
  * 获取会话的完整探索图（节点 + 边；后端经 conversation.task_id 解析）
  */
 export async function getConversationGraph(conversationId: string): Promise<ConversationGraph> {
-  return get<ConversationGraph>(`/v1/conversations/${conversationId}/exploration/graph`)
+  return get<ConversationGraph>(`/conversations/${conversationId}/exploration/graph`)
 }
 
 export interface ConversationGraph {

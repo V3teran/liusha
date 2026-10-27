@@ -84,3 +84,17 @@ func (p *Publisher) PublishDelta(ctx context.Context, conversationID, agentName,
 	}
 	return p.Publish(ctx, conversationID, payload)
 }
+
+// PublishMessage 是任务时间线「落库成功后广播该消息」的标准尾：序列化 + 推 SSE。
+//
+// 此前「AppendMessage → json.Marshal → Publish」三连在 repo 内复制了五份，
+// 错误口径不一（静默/告警混杂）；本方法收敛序列化与广播两步。落库（AppendMessage）
+// 由调用方完成——失败时调用方各自告警；广播失败在此上抛（多数调用方 best-effort
+// 忽略：重连补历史兜底），是否告警由调用方决定。
+func (p *Publisher) PublishMessage(ctx context.Context, convID string, msg any) error {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.Publish(ctx, convID, payload)
+}

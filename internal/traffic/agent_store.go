@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -126,12 +127,7 @@ func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f Ag
 	return out, rows.Err()
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法（本包共用）。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
-func scanAgent(r scanner, f *AgentTraffic) error {
+func scanAgent(r db.RowScanner, f *AgentTraffic) error {
 	var reqH, respH []byte
 	if err := r.Scan(&f.ID, &f.TaskID, &f.AgentRunID, &f.Identity, &f.Tool,
 		&f.Host, &f.Method, &f.URL, &f.Path,

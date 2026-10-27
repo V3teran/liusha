@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -218,13 +219,9 @@ func (s *Store) GetRouting(ctx context.Context) (Routing, error) {
 
 // ── scan ──────────────────────────────────────────────────────────────
 
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scanProvider 是 provColsSelect 列序的统一反序列化点。
 // api_key_env 列（migration 0103 起可空）经 sql.NullString 中转，NULL 时 Provider.APIKeyEnv 留空串。
-func scanProvider(r scanner, p *Provider) error {
+func scanProvider(r db.RowScanner, p *Provider) error {
 	var apiKeyEnv, apiKeyLast4 sql.NullString
 	var displayName sql.NullString
 	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &apiKeyEnv, &p.EncryptedAPIKey, &apiKeyLast4,

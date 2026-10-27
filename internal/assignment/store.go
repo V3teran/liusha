@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -119,13 +120,8 @@ func (s *Store) DeriveStatus(ctx context.Context, assignmentID string) (Status, 
 	}
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r scanner, a *Assignment) error {
+func scan(r db.RowScanner, a *Assignment) error {
 	var source string
 	if err := r.Scan(&a.ID, &source, &a.Payload, &a.Title,
 		&a.ScheduleID, &a.CreatedAt); err != nil {
