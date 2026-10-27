@@ -99,14 +99,23 @@ export function ToolsPage() {
 
   const groups = useMemo(() => groupTools(tools), [tools])
 
-  // 选中项跟随列表：当前选中仍在列表则保留，否则选中首项（主从视图恒有选中）。
+  // 渲染序扁平列表（function 组在前的可视顺序）——默认选中取它的首项，
+  // 保证左栏可视第一行就是高亮行（数据序 tools[0] 可能在滚动区深处的 cli 组）。
+  const renderOrder = useMemo(
+    () => groups.flatMap((g) => g.categories.flatMap((c) => c.tools)),
+    [groups],
+  )
+
+  // 选中项跟随列表：当前选中仍在列表则保留，否则选中可视首项（主从视图恒有选中）。
   useEffect(() => {
-    if (tools.length === 0) {
+    if (renderOrder.length === 0) {
       setSelected(null)
       return
     }
-    setSelected((prev) => (prev && tools.some((t) => t.name === prev) ? prev : tools[0].name))
-  }, [tools])
+    setSelected((prev) =>
+      prev && renderOrder.some((t) => t.name === prev) ? prev : renderOrder[0].name,
+    )
+  }, [renderOrder])
 
   // 详情取数：选中变化即拉，seq 丢弃过期。
   useEffect(() => {
@@ -210,6 +219,8 @@ export function ToolsPage() {
 }
 
 // 左栏主列表：种类分组头（含计数）+ 分类小标题 + 工具行。整栏独立滚动。
+// 选中行变化时自动滚入视野（block:nearest 不打断当前视口）——默认选中可能
+// 落在滚动区深处，不滚则高亮不可见。
 function ToolMasterList({
   groups,
   segments,
@@ -233,6 +244,15 @@ function ToolMasterList({
   selected: string | null
   onSelect: (name: string) => void
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!selected) return
+    const active = scrollRef.current?.querySelector('button[aria-pressed="true"]')
+    // jsdom 无 scrollIntoView；可选链调用防御测试环境。
+    active?.scrollIntoView?.({ block: "nearest" })
+  }, [selected, loading])
+
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
       {/* 顶部种类 tab：整宽等分，切换即过滤，无需滚动到下方分组 */}
@@ -257,7 +277,7 @@ function ToolMasterList({
           )
         })}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
         ) : error ? (
