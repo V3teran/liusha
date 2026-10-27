@@ -193,7 +193,7 @@ type SkillsConfig struct {
 	Root string `mapstructure:"root"`
 }
 
-// AgentsConfig 是 executor 角色 markdown 外部目录配置（agents/*.md，planner + 子代理）。
+// AgentsConfig 是角色 markdown 外部目录配置（agents/*.md，四角色种子事实源）。
 type AgentsConfig struct {
 	Root string `mapstructure:"root"`
 }
@@ -256,10 +256,10 @@ type HistoryCompactConfig struct {
 // 上限由 ToolruntimeConfig.StepToolTimeoutSeconds 钳。
 //
 // 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
-// （per-agent-run 容器模型下这些参数没有按  owner 调整的需求）。
+// （per-task 共享容器模型下这些参数没有按任务调整的需求）。
 
 // SandboxConfig 是沙箱容器执行配置（镜像、资源、抓流回传地址等）。
-// per-task 共享容器模型下这些参数没有按 owner 调整的需求。
+// per-task 共享容器模型下这些参数没有按任务调整的需求。
 type SandboxConfig struct {
 	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。
 	DefaultImage string `mapstructure:"default_image"`

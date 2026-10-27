@@ -116,7 +116,7 @@ type Identity struct {
 // 会话用户名数。枚举只读 field 名（HKEYS），不触碰任何凭证值——主机清单
 // 这一层不应接触秘密材料。
 type HostSummary struct {
-	Host       string `json:"host"`
+	Host      string `json:"host"`
 	Usernames int    `json:"usernames"` // 录入用户名数
 	Sessions  int    `json:"sessions"`  // 会话快照数
 }

@@ -26,9 +26,9 @@ var ErrConversationScanActive = errors.New("会话关联扫描进行中，请先
 // 包级构建一次（避免每连接触发 logx 全局写入的 race）。LIUSHA_LOG_LEVEL=debug 看逐帧。
 var sseLog = logx.New("httpapi.sse")
 
-// conversation_handler.go：会话式平台（阶段B3/B4）的 HTTP 入口。
+// conversation_handler.go：会话式平台的 HTTP 入口。
 //
-//   - POST /chat            发起会话扫描：建 conversation + active_scan，入队带 conversationID
+//   - POST /chat            发起会话扫描：建 conversation + task（assignment 派生），入队带 conversationID
 //   - GET  /conversations            列表（UI 侧栏）
 //   - GET  /conversations/:id/messages   回看（afterSeq 增量）
 //   - GET  /conversations/:id/stream     SSE：补历史 + 实时推 agent 过程事件
@@ -84,7 +84,7 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 		}
 		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		setStreamCookie(c, streamSecret, convID, secure)
@@ -154,7 +154,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 		}
 		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		if busy {
@@ -170,11 +170,11 @@ type AbortAPI interface {
 	AbortConversationScan(ctx context.Context, convID string) error
 }
 
-// abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的 active_scan。
+// abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的运行中 task。
 func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"aborted": true})
@@ -196,7 +196,7 @@ func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 				c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "scan_active": true})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
@@ -228,7 +228,7 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 			return
 		}
 		if err := api.SetTitle(c.Request.Context(), c.Param("id"), title); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"title": title})
@@ -244,7 +244,7 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("source"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore})
@@ -257,7 +257,7 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 		convID := c.Param("id")
 		msgs, err := api.ListMessages(c.Request.Context(), convID, parseAfterSeq(c), parseLimit(c, 500))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"messages": msgs})
@@ -278,7 +278,7 @@ func messageDetailHandler(api ConversationsAPI) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "message not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, msg)

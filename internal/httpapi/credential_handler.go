@@ -71,7 +71,7 @@ func listCredentialHostsHandler(api CredentialsAPI, aud CredentialAudit) gin.Han
 	return func(c *gin.Context) {
 		hosts, err := api.ListHosts(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		if hosts == nil {
@@ -92,7 +92,7 @@ func getCredentialDetailHandler(api CredentialsAPI, resolver TaskStatusResolver)
 
 		ids, err := api.GetIdentitiesByHost(c.Request.Context(), host)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -130,7 +130,7 @@ func upsertCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 		}
 		var id credential.Identity
 		if err := c.ShouldBindJSON(&id); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusBadRequest, err)
 			return
 		}
 		// 身份名先归一（与存储边界同口径：trim + 小写）再校验——否则
@@ -162,7 +162,7 @@ func upsertCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 		}
 
 		if err := api.SaveIdentities(c.Request.Context(), host, []credential.Identity{id}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialSet, host, gin.H{"username": id.Username})
@@ -180,7 +180,7 @@ func deleteCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 			return
 		}
 		if err := api.DeleteIdentity(c.Request.Context(), host, username); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"username": username})
@@ -197,7 +197,7 @@ func deleteCredentialHostHandler(api CredentialsAPI, aud CredentialAudit) gin.Ha
 			return
 		}
 		if err := api.DeleteHost(c.Request.Context(), host); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"scope": "host"})
@@ -215,7 +215,7 @@ func purgeCredentialSessionsHandler(api CredentialsAPI, aud CredentialAudit) gin
 		}
 		deleted, err := api.DeleteSessions(c.Request.Context(), host)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"scope": "sessions", "deleted": deleted})

@@ -30,11 +30,6 @@ func (s *Store) CreateNodeWithEdges(ctx context.Context, node Node, edges []Edge
 	return s.graphStore.CreateNodeWithEdges(ctx, s.nodeToGraphNode(node), graphEdges)
 }
 
-// CreateBusinessEdge 创建边。
-func (s *Store) CreateBusinessEdge(ctx context.Context, edge Edge) error {
-	return s.graphStore.CreateEdge(ctx, s.edgeToGraphEdge(&edge))
-}
-
 // nodeToGraphNode 领域节点 → 通用图节点。
 func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	metadata := map[string]interface{}{

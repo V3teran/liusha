@@ -59,12 +59,12 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 
 		rows, err := api.ListAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		total, err := api.CountAll(c.Request.Context(), f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -81,7 +81,7 @@ func findingHostsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hosts, err := api.DistinctHosts(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		if hosts == nil {

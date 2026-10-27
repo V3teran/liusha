@@ -14,7 +14,7 @@ import (
 type Payload struct {
 	AgentRunID string `json:"agent_run_id"` // 所属 agent_run.id（幂等键，见 client.go）
 	TaskID     string `json:"task_id"`      // 所属 task.id
-	// ConversationID 关联本任务所属会话（阶段B 会话发起时填）；asynq 自动入口为空——
+	// ConversationID 关联本任务所属会话（会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
 	ConversationID string          `json:"conversation_id,omitempty"`
 	TaskRole       TaskRole        `json:"role"` // asynq 队列路由角色

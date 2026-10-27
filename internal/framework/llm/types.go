@@ -1,10 +1,6 @@
 // types.go：LLM 抽象的类型事实源（框架层自包含，不 import 任何业务包）。
-//
-// internal/llm 里的同名类型全部是本文件的别名——业务层（role 路由 / 审计 /
-// fallback 编排）在框架能力之上做策略装配。
 // Package llm 是框架层 LLM 抽象：Provider 契约 + 类型事实源 + 协议适配器。
-//
-// internal/llm 是业务策略层（role 路由 / fallback 编排 / 审计），类型别名到本包。
+// 业务策略（role 路由 / 审计 / fallback 编排）在 llmstore 与各业务包之上装配。
 
 package llm
 

@@ -54,7 +54,7 @@ func listProvidersHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := api.ListProviders(c.Request.Context(), false)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
@@ -150,7 +150,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 		}
 		p, err := api.SaveProvider(c.Request.Context(), params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
@@ -219,7 +219,7 @@ func listRoutingHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		routes, err := api.ListRoleRoutes(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		outRoutes := make([]gin.H, 0, len(routes))
@@ -259,7 +259,7 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 				c.JSON(http.StatusConflict, gin.H{"error": "provider_code 不存在，请先创建对应 provider"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"route": roleRouteJSON(rr)})

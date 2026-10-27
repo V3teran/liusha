@@ -86,12 +86,12 @@ func listTrafficHandler(api TrafficAPI) gin.HandlerFunc {
 
 		rows, err := api.ListPagedGlobal(ctx, f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		total, err := api.CountGlobal(ctx, f)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -118,7 +118,7 @@ func trafficHostsHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hosts, err := api.DistinctHosts(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		if hosts == nil {
@@ -133,7 +133,7 @@ func trafficContentTypesHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cts, err := api.DistinctContentTypes(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		if cts == nil {
@@ -159,7 +159,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 				c.JSON(http.StatusNotFound, gin.H{"error": "traffic not found", "id": id})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 

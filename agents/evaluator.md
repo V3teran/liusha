@@ -1,6 +1,5 @@
 ---
 id: evaluator
-kind: evaluator
 name: 评估者
 description: 验证观察结果并将其晋升为确认结果
 function_tools:

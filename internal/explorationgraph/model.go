@@ -34,7 +34,7 @@ import (
 // State 是 action 的执行状态（类型别名，指向 core.ActionState）
 type State = core.ActionState
 
-// 状态常量别名（向后兼容）
+// 状态常量：实体定义在 core，经别名提升为领域 API（下游 115 处引用）
 const (
 	StateOpen      = core.ActionStateOpen
 	StateBlocked   = core.ActionStateBlocked
@@ -60,7 +60,7 @@ const (
 // Confidence 是 observation/result 的置信度（类型别名，指向 core.ObservationConfidence）
 type Confidence = core.ObservationConfidence
 
-// 置信度常量别名（向后兼容）
+// 置信度常量：实体定义在 core，经别名提升为领域 API
 const (
 	ConfidenceUnverified = core.ConfidenceUnverified
 	ConfidenceVerified   = core.ConfidenceVerified
@@ -71,7 +71,7 @@ const (
 // Priority 是节点的优先级（类型别名，指向 core.Priority）
 type Priority = core.Priority
 
-// 优先级常量别名（向后兼容）
+// 优先级常量：实体定义在 core，经别名提升为领域 API
 const (
 	PriorityCritical = core.PriorityCritical
 	PriorityHigh     = core.PriorityHigh

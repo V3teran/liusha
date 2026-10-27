@@ -1,4 +1,4 @@
-// Package scanstream 用 Redis Pub/Sub 做 agent 过程事件的实时管道（阶段B，方案A）。
+// Package scanstream 用 Redis Pub/Sub 做 agent 过程事件的实时管道。
 //
 // 数据流（见记忆 project_phaseb_sse_arch）：runner 跑 agent 时把过程事件 publish 到
 // channel `liusha:conv:{conversationID}`；api 的 SSE handler subscribe 同 channel 转发给前端。

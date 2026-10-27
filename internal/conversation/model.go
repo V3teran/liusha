@@ -1,4 +1,4 @@
-// Package conversation 实现会话式平台（阶段B）的 conversation + message model + store。
+// Package conversation 实现会话式平台的 conversation + message model + store。
 //
 // 业务定位：用户在前端与 liusha 会话发起扫描，agent 过程事件流式展示并落库可回看
 // 。

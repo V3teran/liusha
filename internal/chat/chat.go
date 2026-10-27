@@ -14,10 +14,8 @@ import (
 
 // Deps 是纯聊天所需的最小依赖（cmd/api 注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。
 type Deps interface {
-	// Generate 调便宜 LLM（一次性返回全文）。
-	Generate(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema) (llm.Result, error)
 	// GenerateStream 流式生成：正文与扩展思考增量分别回调（可空；provider 不
-	// 支持流式时退化为一次完整回调或不回调），返回值与 Generate 同构。
+	// 支持流式时退化为一次完整回调或不回调）。
 	GenerateStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, onText, onThinking func(chunk string)) (llm.Result, error)
 	// PublishDelta 广播一帧增量（channel ∈ {text, thinking}；丢帧无害，终态消息兜底）。
 	PublishDelta(ctx context.Context, conversationID, channel, text string) error

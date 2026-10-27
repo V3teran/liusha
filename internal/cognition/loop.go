@@ -17,7 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/bus"
-	cfgstore "github.com/V3teran/liusha/internal/configstore"
+	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -52,7 +52,7 @@ type Deps struct {
 	EventBus     bus.Bus
 	ControlPlane *controlplane.Store
 	Checkpointer core.Checkpointer
-	CfgStore     *cfgstore.Store
+	CfgStore     *configstore.Store
 	Router       *fwllm.Router
 	Logger       zerolog.Logger
 

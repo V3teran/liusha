@@ -1,4 +1,4 @@
-// Package httpapi 是 executor 配置读取/编辑 handler（前端配置管理页）。
+// Package httpapi 是 agent 配置读取/编辑 handler（前端配置管理页）。
 //
 // 角色是固定种子身份（四角色以 code 寻址）：只提供读与部分更新，
 // 不提供新建/删除——写路径一律走 configstore（自动落 DB + redis 广播失效），
@@ -18,20 +18,20 @@ import (
 	agent "github.com/V3teran/liusha/internal/agent"
 )
 
-// ConfigAPI 是 executor CRUD handler 依赖的窄接口；*configstore.Store 自动满足。
+// ConfigAPI 是 agent 配置读取/编辑 handler 依赖的窄接口；*configstore.Store 自动满足。
 // 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
 type ConfigAPI interface {
 	// agent
-	ListExecutors(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
-	ListExecutorsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
-	CountExecutors(ctx context.Context, p agent.ListParams) (int, error)
-	ExecutorByID(ctx context.Context, id string) (agent.Agent, error)
+	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
+	ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
+	CountAgents(ctx context.Context, p agent.ListParams) (int, error)
+	AgentByID(ctx context.Context, id string) (agent.Agent, error)
 	AgentByCode(ctx context.Context, code string) (agent.Agent, error)
-	UpdateExecutor(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
-	UpdateExecutorComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
+	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
+	UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
 }
 
-// configPageSize 约束 executor 分页 size 上限，防超大扫描。
+// configPageSize 约束 agent 分页 size 上限，防超大扫描。
 const (
 	defaultConfigPageSize = 12
 	maxConfigPageSize     = 100
@@ -71,59 +71,59 @@ func isForeignKeyViolation(err error) bool {
 
 // ── agent ────────────────────────────────────────────────────────────
 
-// listExecutorsHandler 处理 GET /executors（全量，含 enabled + planner/domain 两类）。
-func listExecutorsHandler(api ConfigAPI) gin.HandlerFunc {
+// listAgentsHandler 处理 GET /agents：page 缺省 = 全量（多选器依赖），有 page = 分页 + total。
+func listAgentsHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		page, size, paged := parsePaging(c)
 		// 无 page 参数：全量（含全部 kind），保前端多选器一次拉全。
 		if !paged {
-			rows, err := api.ListExecutors(ctx, false)
+			rows, err := api.ListAgents(ctx, false)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				respondErr(c, http.StatusInternalServerError, err)
 				return
 			}
 			out := make([]gin.H, 0, len(rows))
 			for _, r := range rows {
-				out = append(out, executorJSON(r))
+				out = append(out, agentJSON(r))
 			}
-			c.JSON(http.StatusOK, gin.H{"executors": out})
+			c.JSON(http.StatusOK, gin.H{"agents": out})
 			return
 		}
 		// 分页：配置管理页搜索 + 翻页，附 total。
 		params := agent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
-		total, err := api.CountExecutors(ctx, params)
+		total, err := api.CountAgents(ctx, params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		rows, err := api.ListExecutorsPaged(ctx, params)
+		rows, err := api.ListAgentsPaged(ctx, params)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		out := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
-			out = append(out, executorJSON(r))
+			out = append(out, agentJSON(r))
 		}
-		c.JSON(http.StatusOK, gin.H{"executors": out, "total": total})
+		c.JSON(http.StatusOK, gin.H{"agents": out, "total": total})
 	}
 }
 
-// getExecutorHandler 处理 GET /executors/:id。
-func getExecutorHandler(api ConfigAPI) gin.HandlerFunc {
+// getAgentHandler 处理 GET /agents/:id。
+func getAgentHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		h, err := api.ExecutorByID(c.Request.Context(), id)
+		h, err := api.AgentByID(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
+		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
 	}
 }
 
-// agentUpdate 是 PUT /executors/:id 的请求体，部分更新语义：指针字段非 nil 才更新，nil 不动。
+// agentUpdate 是 PUT /agents/:id 的请求体，部分更新语义：指针字段非 nil 才更新，nil 不动。
 // 目标行由 URL 里的 id 权威定位（与 GET 同律）；code/name 是固定种子身份（agent.Store.Update 拒改），
 // enabled 由种子与运维控制，均不在此接受。Description（调度摘要）是 LLM 可读面、前端可编辑。
 // 未提及字段不被零值覆盖，与工具页「单工具装配」写路径并发时互不覆盖（都只动各自字段）。
@@ -142,9 +142,9 @@ type agentUpdate struct {
 	Complexity    *string   `json:"complexity"`
 }
 
-// saveExecutorHandler 处理 PUT /executors/:id：URL id 权威定位目标行（先读后写），
+// saveAgentHandler 处理 PUT /agents/:id：URL id 权威定位目标行（先读后写），
 // 只更新 body 里非 nil 的字段。store 层按 code 更新，此处负责 id → code 的换算。
-func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
+func saveAgentHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var b agentUpdate
@@ -167,23 +167,23 @@ func saveExecutorHandler(api ConfigAPI) gin.HandlerFunc {
 		}
 		// 先按 id 读行换出稳定 code，再按 code 更新（读经 configstore 缓存，代价低）。
 		// 行不存在 → 404；行读取后到更新前被删在并发下不可能（固定种子无删除路径）。
-		cur, err := api.ExecutorByID(c.Request.Context(), id)
+		cur, err := api.AgentByID(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
 			return
 		}
-		h, err := api.UpdateExecutor(c.Request.Context(), cur.Code, p)
+		h, err := api.UpdateAgent(c.Request.Context(), cur.Code, p)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
+		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
 	}
 }
 
-// updateExecutorComplexityHandler 处理 PATCH /executors/:id/complexity：只改 LLM 档位单字段（分档页移档用）。
+// updateAgentComplexityHandler 处理 PATCH /agents/:id/complexity：只改 LLM 档位单字段（分档页移档用）。
 // 不碰 agent 其余字段——避免整体 upsert 覆盖别处刚改的 body/工具。
-func updateExecutorComplexityHandler(api ConfigAPI) gin.HandlerFunc {
+func updateAgentComplexityHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var b struct {
@@ -199,17 +199,17 @@ func updateExecutorComplexityHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
 			return
 		}
-		h, err := api.UpdateExecutorComplexity(c.Request.Context(), id, b.Complexity)
+		h, err := api.UpdateAgentComplexity(c.Request.Context(), id, b.Complexity)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"executor": executorJSON(h)})
+		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
 	}
 }
 
 // executorJSON 是 executor 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
-func executorJSON(h agent.Agent) gin.H {
+func agentJSON(h agent.Agent) gin.H {
 	fnTools := h.FunctionTools
 	if fnTools == nil {
 		fnTools = []string{}

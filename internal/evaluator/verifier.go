@@ -502,8 +502,7 @@ func (v *PromotionEvaluator) refuteEarly(
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 记录 verification 失败: %w", err)
 	}
-	_ = verID
-	_ = hyp
+	_ = hyp // refute 路径不复用假设对象；verID 在下方 map 中使用
 
 	if a.NodeID != "" {
 		mark, _ := json.Marshal(map[string]interface{}{

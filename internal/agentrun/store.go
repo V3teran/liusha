@@ -87,7 +87,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 	return nil
 }
 
-// SetAborted 把 pending|running 推进到 aborted（用于 owner abort 级联）。
+// SetAborted 把 pending|running 推进到 aborted（用于 task abort 级联）。
 func (s *Store) SetAborted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE agent_run SET status='aborted', updated_at=now()

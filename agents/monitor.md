@@ -1,6 +1,5 @@
 ---
 id: monitor
-kind: monitor
 name: 监察者
 description: 监督全局探索进度并在需要时干预
 function_tools:

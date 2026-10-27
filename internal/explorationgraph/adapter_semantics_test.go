@@ -190,13 +190,13 @@ func TestStore_ListEdgesTaskScoped(t *testing.T) {
 	ctx := context.Background()
 
 	for _, task := range []string{"task-1", "task-2"} {
-		_, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen, nil))
-		require.NoError(t, err)
-		_, err = store.CreateNode(ctx, mkObservation("obs-"+task, task, nil))
-		require.NoError(t, err)
-		require.NoError(t, store.CreateBusinessEdge(ctx, Edge{
+		// 溯源边随复合写落地（生产唯一边写入口）；动作节点前置创建供边引用。
+		if _, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen, nil)); err != nil {
+			require.NoError(t, err)
+		}
+		require.NoError(t, store.CreateNodeWithEdges(ctx, mkObservation("obs-"+task, task, nil), []Edge{{
 			TaskID: task, SrcID: "a-" + task, Rel: RelGenerates, DstID: "obs-" + task,
-		}))
+		}}))
 	}
 
 	t1, err := store.ListEdgesForAPI(ctx, "task-1")

@@ -42,14 +42,14 @@ func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 		// 查询所有节点
 		nodes, err := api.ListNodesByConversationID(c.Request.Context(), conversationID, "")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 
 		// 查询所有边
 		edges, err := api.ListEdgesByConversationID(c.Request.Context(), conversationID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 

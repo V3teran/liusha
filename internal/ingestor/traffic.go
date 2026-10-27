@@ -421,7 +421,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.AgentRunID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
-			Msg("internal 流量缺 executor_id，丢弃（browser-svc.py session→executor 归属异常？）")
+			Msg("internal 流量缺 agent_id，丢弃（browser-svc.py session→agent 归属异常？）")
 		return
 	}
 	run, err := t.agentRuns.GetByID(ctx, snap.AgentRunID)
@@ -511,12 +511,12 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host strin
 	if err != nil {
 		return fmt.Errorf("agentRuns.Create: %w", err)
 	}
-	if _, _, err := t.enq.Enqueue(ctx, worker.RoleExecutor, worker.Payload{
+	if _, _, err := t.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     hid,
 		TaskID:         taskID,
 		ConversationID: convID,
 		Input:          payloadInput,
-		TaskRole:       worker.RoleExecutor,
+		TaskRole:       worker.RoleAgent,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)
 	}

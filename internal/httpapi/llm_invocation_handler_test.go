@@ -142,8 +142,9 @@ func TestLLMInvocationsHandler_List(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 
-		if fake.gotFilter.Limit != defaultInvocationPageSize {
-			t.Errorf("超上限应收敛到默认值 %d，got %d", defaultInvocationPageSize, fake.gotFilter.Limit)
+		// 分页语义已与全站统一（parsePagination clamp）：超上限收敛到上限，而非回落默认。
+		if fake.gotFilter.Limit != maxInvocationPageSize {
+			t.Errorf("超上限应 clamp 到上限 %d，got %d", maxInvocationPageSize, fake.gotFilter.Limit)
 		}
 	})
 
