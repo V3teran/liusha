@@ -245,6 +245,24 @@ function ToolMasterList({
   onSelect: (name: string) => void
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // 渲染序工具名列表：键盘 ↑↓ 导航的次序来源（与可视顺序一致）。
+  const orderedNames = useMemo(
+    () => groups.flatMap((g) => g.categories.flatMap((c) => c.tools.map((t) => t.name))),
+    [groups],
+  )
+
+  // 键盘 ↑↓ 在工具行间移动选中（listbox 惯例）：容器持有焦点，行本身不必逐个 Tab。
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
+    e.preventDefault()
+    if (orderedNames.length === 0) return
+    const cur = orderedNames.indexOf(selected ?? "")
+    const next =
+      e.key === "ArrowDown"
+        ? orderedNames[Math.min(cur + 1, orderedNames.length - 1)]
+        : orderedNames[Math.max(cur - 1, 0)]
+    if (next !== selected) onSelect(next)
+  }
 
   useEffect(() => {
     if (!selected) return
@@ -277,7 +295,14 @@ function ToolMasterList({
           )
         })}
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        role="listbox"
+        aria-label="工具列表"
+        tabIndex={0}
+        onKeyDown={onListKeyDown}
+        className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:border-accent"
+      >
         {loading ? (
           <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
         ) : error ? (

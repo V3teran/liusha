@@ -92,7 +92,7 @@ function AgentAssignSection({
         <span className="font-normal text-faint">
           已装配 {involvedCount}/{agents.length}
         </span>
-        <span className="ml-auto font-normal text-faint">点击装/卸</span>
+        <span className="font-normal text-faint">· 点击胶囊装/卸</span>
       </p>
       {agents.length === 0 ? (
         <p className="text-sm text-muted">暂无智能体</p>
