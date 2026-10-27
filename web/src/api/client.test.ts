@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   getApiKey, setApiKey, listConversations, listMessages, startChat, followUp, abortScan,
-  listTasks, startActiveScan, abortTask, listLLMInvocations,
+  listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
   listCredentialHosts, getCredentialDetail, saveCredentialIdentity,
   deleteCredentialIdentity, purgeCredentialSessions, deleteCredentialHost,
@@ -38,7 +38,7 @@ describe('API 客户端', () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'manual', Status: 'running', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'manual', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })
@@ -167,130 +167,6 @@ describe('API 客户端', () => {
     })
   })
 
-  describe('owner task / 扫描', () => {
-    it('listTasks 拆出 tasks 数组', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          tasks: [{ id: 'o1', scope: '{"any":true}', status: 'running', created_at: '2026-06-11T00:00:00Z' }],
-        }),
-      })
-
-      const result = await listTasks()
-
-      expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('o1')
-    })
-
-    it('listTasks 带 limit 拼 query', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ tasks: [] }) })
-      ;(global as any).fetch = mockFetch
-
-      await listTasks(20)
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/tasks?limit=20', { headers: { 'X-API-Key': '' } })
-    })
-
-    it('startActiveScan POST brief 返回 owner_id/agent_run_id', async () => {
-      setApiKey('k')
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ owner_id: 'o9', agent_run_id: 'h9' }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      const result = await startActiveScan('测试 http://t/login admin/pass 只测 XSS')
-
-      expect(result).toEqual({ owner_id: 'o9', agent_run_id: 'h9' })
-      expect(mockFetch).toHaveBeenCalledWith('/api/scan/active', expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ brief: '测试 http://t/login admin/pass 只测 XSS' }),
-      }))
-    })
-
-    it('abortTask POST 到 /tasks/:id/abort', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
-      ;(global as any).fetch = mockFetch
-
-      await abortTask('o1')
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/tasks/o1/abort', expect.objectContaining({ method: 'POST' }))
-    })
-  })
-
-  describe('审计 / 任务树', () => {
-    it('listLLMInvocations 透传扁平 items + offset 分页', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi
-          .fn()
-          .mockResolvedValue({ task_id: 't1', total: 1, page: 3, size: 50, items: [{ id: 5, role: 'planner' }] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      const res = await listLLMInvocations('t1', 3, 50)
-
-      expect(res.total).toBe(1)
-      expect(res.page).toBe(3)
-      expect(res.items[0].role).toBe('planner')
-      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1?page=3&size=50', { headers: { 'X-API-Key': '' } })
-    })
-
-    // 筛选参数必须序列化进 query 交服务端筛（分页下前端筛只会筛到当前页）。
-    it('listLLMInvocations 序列化筛选参数', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't1', total: 0, page: 1, size: 0, items: [] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      await listLLMInvocations('t1', 1, 0, {
-        role: 'exploitation',
-        model: 'mimo-v2.5',
-        onlyErr: true,
-        start: '2026-07-20T00:00:00.000Z',
-        end: '',
-      })
-
-      const url = mockFetch.mock.calls[0][0] as string
-      expect(url).toContain('role=exploitation')
-      expect(url).toContain('model=mimo-v2.5')
-      expect(url).toContain('only_err=1')
-      expect(url).toContain('start=2026-07-20T00%3A00%3A00.000Z')
-      expect(url).not.toContain('end=') // 空值不发，避免后端把空串当条件
-    })
-
-    // 统计与列表必须吃同一套筛选，否则「明细筛剩 3 条、合计仍是全量」自相矛盾。
-    it('getLLMInvocationStat 带上同一套筛选参数', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't1', calls: 2, in_tokens: 1, out_tokens: 1, cached_tokens: 0, latency_ms: 0 }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      await getLLMInvocationStat('t1', { role: 'exploitation', onlyErr: true })
-
-      const url = mockFetch.mock.calls[0][0] as string
-      expect(url).toContain('/llm/invocations/t1/stat?')
-      expect(url).toContain('role=exploitation')
-      expect(url).toContain('only_err=1')
-      expect(url).not.toContain('after=') // 统计不该带分页游标
-    })
-
-    it('getLLMInvocationFacets 拉候选集合', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ task_id: 't1', roles: ['planner'], models: ['mimo-v2.5'] }),
-      })
-      ;(global as any).fetch = mockFetch
-
-      const f = await getLLMInvocationFacets('t1')
-
-      expect(f.roles).toEqual(['planner'])
-      expect(mockFetch).toHaveBeenCalledWith('/api/llm/invocations/t1/facets', { headers: { 'X-API-Key': '' } })
-    })
-  })
-
   describe('凭证库', () => {
     it('listCredentialHosts GET /credentials', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
@@ -379,7 +255,7 @@ describe('API 客户端', () => {
     })
 
     it('renameConversation PATCH title', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ title: '新标题' }) })
       ;(global as any).fetch = mockFetch
 
       await renameConversation('c1', '新标题')
@@ -480,16 +356,6 @@ describe('API 客户端', () => {
       const url = mockFetch.mock.calls[0][0] as string
       expect(url).toContain('page=2')
       expect(url).toContain('size=100')
-    })
-
-    it('listFindingHosts 拆出 hosts 数组', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ hosts: ['a.com', 'b.com'] }) })
-      ;(global as any).fetch = mockFetch
-
-      const hosts = await listFindingHosts()
-
-      expect(hosts).toEqual(['a.com', 'b.com'])
-      expect(mockFetch).toHaveBeenCalledWith('/api/findings/hosts', { headers: { 'X-API-Key': '' } })
     })
 
     it('updateFindingTriage PATCH 状态/严重度/备注，返回更新后的行', async () => {

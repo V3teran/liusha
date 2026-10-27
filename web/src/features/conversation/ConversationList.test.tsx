@@ -18,7 +18,6 @@ function mkConv(over: Partial<Conversation>): Conversation {
     ID: 'conv-id-00000001',
     Title: '我要扫描 example.com',
     TaskID: '',
-    TaskID: '',
     
     Source: 'manual',
     RunStatus: 'completed',

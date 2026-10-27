@@ -4,12 +4,6 @@ import { cn } from '@/lib/utils'
 
 /**
  * Badge - 徽章组件
- *
- * 设计改进：
- * 1. 更精致的圆角和间距
- * 2. 更清晰的变体区分（soft/outline/solid）
- * 3. 更流畅的过渡效果
- * 4. 统一的尺寸系统
  */
 
 const badgeVariants = cva(

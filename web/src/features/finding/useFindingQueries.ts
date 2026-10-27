@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listFindingHosts, listFindings } from '@/api/client'
+import { listFindings } from '@/api/client'
 import type { FindingFilters } from '@/api/types'
 
 // 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
@@ -7,16 +7,7 @@ import type { FindingFilters } from '@/api/types'
 // placeholderData: keepPreviousData 让筛选/翻页时旧数据先留屏，不必每次整表闪骨架。
 
 const findingKeys = {
-  hosts: ['findings', 'hosts'] as const,
   list: (filters: FindingFilters, page: number, size: number) => ['findings', 'list', filters, page, size] as const,
-}
-
-/** host 下拉候选：全表 distinct，不受当前筛选/分页影响。 */
-export function useFindingHosts() {
-  return useQuery({
-    queryKey: findingKeys.hosts,
-    queryFn: () => listFindingHosts(),
-  })
 }
 
 /** 分页列表：吃筛选 + page 号 + 每页条数（offset 分页，seq desc）。 */
@@ -27,4 +18,3 @@ export function useFindingList(filters: FindingFilters, page: number, size: numb
     placeholderData: keepPreviousData,
   })
 }
-

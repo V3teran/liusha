@@ -8,7 +8,7 @@ import { getLLMInvocationDetail, searchLLMInvocations } from '@/api/client'
 import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 
 // 页面现为「全局搜索」形态：不按会话（owner）圈定，挂载即 searchLLMInvocations 拉全量，
-// 统计 chip 由当页行前端聚合——不再有 OwnerPicker / 占位提示 / stat 接口。
+// 统计 chip 由当页行前端聚合（无独立 stat 接口）。
 vi.mock('@/api/client', () => ({
   searchLLMInvocations: vi.fn(),
   getLLMInvocationDetail: vi.fn(),

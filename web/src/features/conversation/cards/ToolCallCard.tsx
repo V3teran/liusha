@@ -35,11 +35,6 @@ function resultPreview(r: ToolResultInfo): string {
 
 /**
  * ToolCallCard - 工具调用卡片
- *
- * 设计改进：
- * 1. 更清晰的状态指示：执行中（脉冲动画）、成功（绿勾）、失败（红叉）
- * 2. 更好的信息层次：工具名突出、参数折叠、结果预览
- * 3. 更流畅的交互：悬停高亮、平滑展开
  */
 export function ToolCallCard({ tool, args, agentName, running, ended, result }: ToolCallCardProps) {
   const [open, setOpen] = useState(false)

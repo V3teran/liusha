@@ -22,7 +22,7 @@ const mkUsage = (over: Partial<ReturnType<typeof baseUsage>> = {}) => ({ ...base
 function baseUsage() {
   return {
     conversation_id: 'c1',
-    owner_id: 'o1',
+    task_id: 'o1',
     tokens: { in: 0, out: 0, cached: 0, total: 0 },
     llm_latency_ms: 0,
     tool_duration_ms: 0,

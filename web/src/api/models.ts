@@ -9,7 +9,7 @@
  * 事实源是 DB；写经后端 llmstore 失效广播，runner 进程下次 For(role) 即读到最新路由。
  */
 
-import { API_BASE, get, post, put, getApiKey } from './client'
+import { API_BASE, get, post, put, del, getApiKey } from './client'
 import type {
   ProviderConfig,
   ProviderProbeRequest,
@@ -113,15 +113,10 @@ export async function deleteRoleRoute(role: string): Promise<void> {
  * 返回更新后的 provider（key_last4 置空、api_key_env 保留）。
  */
 export async function restoreProviderEnvKey(code: string): Promise<ProviderConfig> {
-  const res = await fetch(`${API_BASE}/models/providers/${encodeURIComponent(code)}/key`, {
-    method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (res.ok) {
-    const b = (await res.json()) as { provider: ProviderConfig }
-    return b.provider
-  }
-  throw new Error(`DELETE ${code}/key → ${res.status}`)
+  const b = await del<{ provider: ProviderConfig }>(
+    `/models/providers/${encodeURIComponent(code)}/key`,
+  )
+  return b.provider
 }
 
 // ── 带中文原因的 PUT / DELETE（409 语义） ─────────────────────────────────

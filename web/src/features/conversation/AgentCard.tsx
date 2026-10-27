@@ -15,12 +15,7 @@ interface AgentCardProps {
 }
 
 /**
- * AgentCard - AI 智能体消息卡片
- *
- * 设计理念：
- * 1. 清晰的身份标识：头像色环 + 角色名
- * 2. 分层的视觉层次：头像突出、内容收敛
- * 3. 渐进的信息披露：时间戳/操作按钮悬停可见
+ * AgentCard - AI 智能体消息卡片：头像色环标识角色 + 气泡正文 + 常亮元信息（时间/复制）。
  */
 export function AgentCard({
   agentName,
