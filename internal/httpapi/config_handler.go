@@ -165,6 +165,16 @@ func saveAgentHandler(api ConfigAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要更新的字段"})
 			return
 		}
+		// complexity 在 HTTP 层先校验（与 PATCH /agents/:id/complexity 同口径），
+		// 不落到 store 层报错变 500。
+		if b.Complexity != nil {
+			switch *b.Complexity {
+			case "simple", "medium", "complex":
+			default:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
+				return
+			}
+		}
 		// 先按 id 读行换出稳定 code，再按 code 更新（读经 configstore 缓存，代价低）。
 		// 行不存在 → 404；行读取后到更新前被删在并发下不可能（固定种子无删除路径）。
 		cur, err := api.AgentByID(c.Request.Context(), id)

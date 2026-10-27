@@ -32,6 +32,7 @@ func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
 		if strings.HasSuffix(fp, "/healthz") ||
 			fp == "/dev-config.json" ||
 			path == "/dev-config.json" ||
+			path == "/api/dev-config.json" || // dev autofill 实际注册路径（/api 组）
 			path == "/favicon.ico" {
 			// favicon.ico 浏览器自动拉，没注册即 404；不走鉴权避免污染 401 日志。
 			c.Next()
