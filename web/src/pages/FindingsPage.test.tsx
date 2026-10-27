@@ -4,17 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { listFindingHosts, listFindings, updateFindingTriage } from '@/api/client'
+import { listFindings, updateFindingTriage } from '@/api/client'
 import type { FindingRow, FindingListResponse } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
   listFindings: vi.fn(),
-  listFindingHosts: vi.fn(),
   updateFindingTriage: vi.fn(),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
-const mockedListFindingHosts = listFindingHosts as unknown as ReturnType<typeof vi.fn>
 const mockedUpdateFindingTriage = updateFindingTriage as unknown as ReturnType<typeof vi.fn>
 
 function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
@@ -50,9 +48,7 @@ function renderPage() {
 describe('FindingsPage', () => {
   beforeEach(() => {
     mockedListFindings.mockReset()
-    mockedListFindingHosts.mockReset()
     mockedUpdateFindingTriage.mockReset()
-    mockedListFindingHosts.mockResolvedValue([])
     
     vi.spyOn(window, 'alert').mockImplementation(() => {})
   })

@@ -7,8 +7,7 @@ import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 // 刷新页面、前进/后退、把链接发给同事复核，筛选条件与翻页位置都能还原，不再只存在组件内存里就丢失。
 //
 // 参数名：task / role / model / only_err / start / end / page / size。
-// 用 task 而非 owner——后端早已把 owner_type/owner_id 多态坍缩为统一 task 表（commit a491e8a5），
-// 路由也全是 /llm/invocations/:task_id，前端 URL 层不该再用历史上的 owner 叫法。
+// URL 参数用 task：后端路由全是 /llm/invocations/:task_id，统一 task 叫法。
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页 + 每页条数」体验。
 const PARAM_KEYS = ['role', 'model', 'only_err', 'start', 'end'] as const
 

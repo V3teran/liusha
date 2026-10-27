@@ -11,12 +11,6 @@ import { cn } from '@/lib/utils'
 
 /**
  * ExplorationGraphPage - 探索图可视化页面
- *
- * 设计改进：
- * 1. 整合设计 Token（颜色从设计系统获取）
- * 2. 更精致的节点样式（圆角、阴影、渐变）
- * 3. 更清晰的筛选栏
- * 4. 更流畅的加载/错误/空状态
  */
 
 // 节点类型颜色（使用设计系统的色彩）
@@ -88,6 +82,8 @@ export function ExplorationGraphPage() {
     if (conversationId) {
       loadGraph()
     }
+    // 只随会话切换重拉；direction 变化走下方重排 effect，不重新取数。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
   // 默认展示最新会话：URL 未带 conversation_id 时取最近一个会话（updated_at DESC 首条），
@@ -241,6 +237,9 @@ export function ExplorationGraphPage() {
       setNodes(layouted.nodes)
       setEdges(layouted.edges)
     }
+    // 闭包中的 nodes/edges 恒为本次渲染最新值（effect 在渲染后执行）；
+    // 只随 direction 翻转重排，数据更新由 loadGraph 自带布局。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [direction])
 
   const filteredNodes = nodes.filter((node) => {

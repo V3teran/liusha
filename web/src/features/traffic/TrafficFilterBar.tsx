@@ -36,12 +36,6 @@ function isoToLocal(iso: string): string {
 
 /**
  * TrafficFilterBar - 流量筛选栏
- *
- * 设计改进：
- * 1. 统一圆角和间距（rounded-lg）
- * 2. 聚焦辉光效果
- * 3. 更清晰的搜索框样式
- * 4. 更优雅的布局
  */
 export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, trailing }: TrafficFilterBarProps) {
   const hasFilter = !!(

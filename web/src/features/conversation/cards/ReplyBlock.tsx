@@ -16,11 +16,6 @@ interface ReplyBlockProps {
 
 /**
  * ReplyBlock - AI 回复内容块
- *
- * 设计改进：
- * 1. 更柔和的背景色，减少视觉疲劳
- * 2. 更清晰的内容层次
- * 3. 悬停时元信息渐显
  */
 export function ReplyBlock({ content, agentName, createdAt, copied, onCopy, className }: ReplyBlockProps) {
   const profile = agentProfile(agentName)

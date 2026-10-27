@@ -20,7 +20,7 @@ describe('config API 客户端', () => {
   })
 
   it('saveAgent PUT 部分更新：URL id 定位、body 即纯变更集', async () => {
-    const fn = mockFetch(200, { executor: { id: 'h1' } })
+    const fn = mockFetch(200, { agent: { id: 'h1' } })
     await saveAgent('h1', {
       system_prompt: 'SP',
       description: '侦察排头兵，负责目标测绘',
@@ -30,7 +30,7 @@ describe('config API 客户端', () => {
       skills: ['dom-xss', 'bac'],
     })
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/executors/h1')
+    expect(url).toBe('/api/agents/h1')
     expect(init.method).toBe('PUT')
     const body = JSON.parse(init.body)
     // 键名与后端 agentUpdate 契约严格一致（system_prompt/complexity/skills；kind 已删除）。

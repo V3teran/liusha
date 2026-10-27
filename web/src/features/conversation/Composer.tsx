@@ -14,12 +14,6 @@ interface ComposerProps {
 
 /**
  * Composer - 消息输入组件
- *
- * 设计改进：
- * 1. 更现代的输入框样式（圆角、聚焦状态）
- * 2. 更清晰的按钮层次（主操作 vs 次要操作）
- * 3. 更友好的交互提示
- * 4. 更流畅的状态反馈
  */
 export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)

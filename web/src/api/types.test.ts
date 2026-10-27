@@ -10,13 +10,31 @@ describe('SSE 帧解析（Go 大写键）', () => {
     Role: 'tool',
     Kind: 'event',
     Content: 'done',
+    // ScanEvent 是后端手工 map 序列化的小写 snake_case 键（types.ts 契约）。
     Metadata: {
-      Kind: 'tool_result',
-      ToolName: 'run_command',
-      Args: '',
-      Result: 'ok',
-      DurationMs: 12,
-      Err: '',
+      kind: 'tool_result',
+      status: '',
+      steps: 0,
+      actions: 0,
+      findings: 0,
+      stop_why: '',
+      reason: '',
+      call_id: 'call-1',
+      tool_name: 'run_command',
+      args: '',
+      result: 'ok',
+      duration_ms: 12,
+      err: '',
+      summary: '',
+      severity: '',
+      host: '',
+      target: '',
+      text: '',
+      thinking: '',
+      agent_name: 'executor',
+      in_tokens: 0,
+      out_tokens: 0,
+      latency_ms: 0,
     },
     CreatedAt: '2026-06-10T00:00:00Z',
   }
@@ -30,13 +48,13 @@ describe('SSE 帧解析（Go 大写键）', () => {
     expect(isEventMessage(msg)).toBe(false)
   })
 
-  it('解析 ScanEvent metadata', () => {
+  it('解析 ScanEvent metadata（snake_case 键）', () => {
     const ev = parseScanEvent(frame)
     expect(ev).not.toBeNull()
-    expect(ev?.ToolName).toBe('run_command')
-    expect(ev?.Kind).toBe('tool_result')
-    expect(ev?.Result).toBe('ok')
-    expect(ev?.DurationMs).toBe(12)
+    expect(ev?.tool_name).toBe('run_command')
+    expect(ev?.kind).toBe('tool_result')
+    expect(ev?.result).toBe('ok')
+    expect(ev?.duration_ms).toBe(12)
   })
 
   it('KindMessage 无 metadata 返回 null', () => {

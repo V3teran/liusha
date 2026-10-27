@@ -10,11 +10,8 @@ import type {
   ConversationUsage,
   Message,
   AgentConfig,
-  OwnerSummary,
   LLMInvocationsResponse,
   LLMInvocationDetail,
-  LLMInvocationStat,
-  LLMInvocationFacets,
   LLMInvocationFilters,
   TrafficListResponse,
   TrafficDetail,
@@ -25,7 +22,6 @@ import type {
   FindingRow,
   FindingFilters,
   FindingListResponse,
-  ControlEvent,
   Skill,
 } from './types'
 
@@ -146,8 +142,7 @@ export async function listAgentsPaged(
 ): Promise<{ agents: AgentConfig[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (q) params.set('q', q)
-  const res = await get<{ executors: AgentConfig[]; total: number }>(`/executors?${params}`)
-  return { agents: res.executors, total: res.total }
+  return get<{ agents: AgentConfig[]; total: number }>(`/agents?${params}`)
 }
 
 /**
@@ -212,15 +207,6 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
     if (page.length < PAGE) break
   }
   return all
-}
-
-/**
- * 按 id 取单条消息正文（按需拉取，供「点开节点看原文」用——如执行图详情面板）。
- * 与 listMessages 的区别：listMessages 翻页拉整段会话历史；这里只拉一条，
- * 不必为了看一个节点的原文就把整段会话正文都拉进内存。
- */
-export async function getMessage(convID: string, msgID: string): Promise<Message> {
-  return get<Message>(`/conversations/${convID}/messages/${msgID}`)
 }
 
 /**
@@ -301,11 +287,7 @@ export async function followUp(
  * @param convID 会话 ID
  */
 export async function abortScan(convID: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/conversations/${convID}/abort`, {
-    method: 'POST',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (!res.ok) throw new Error(`POST /conversations/${convID}/abort → ${res.status}`)
+  await post(`/conversations/${convID}/abort`)
 }
 
 // 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
@@ -321,47 +303,9 @@ export async function deleteConversation(convID: string): Promise<void> {
 
 // 重命名会话标题（PATCH /conversations/:id）。空 title → 后端存 NULL，展示回落首条消息摘要。
 export async function renameConversation(convID: string, title: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/conversations/${convID}`, {
-    method: 'PATCH',
-    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  })
-  if (!res.ok) throw new Error(`PATCH /conversations/${convID} → ${res.status}`)
+  await patch(`/conversations/${convID}`, { title })
 }
 
-/* ============================================================
-   主动扫描 / 被动 task（owner）
-   ============================================================ */
-
-/**
- * 列出最近的 owner task（被动 + 主动），按 created_at 倒序。
- * @param limit 0 表示用后端默认条数
- */
-export async function listTasks(limit = 0): Promise<OwnerSummary[]> {
-  const q = limit > 0 ? `?limit=${limit}` : ''
-  return (await get<{ tasks: OwnerSummary[] }>(`/tasks${q}`)).tasks
-}
-
-/**
- * 停止（置 aborted）指定 owner task。
- */
-export async function abortTask(id: string): Promise<void> {
-  await post(`/tasks/${id}/abort`)
-}
-
-/**
- * 发起主动扫描。brief 为一句话自然语言任务简报，后端整段透传给 agent LLM。
- * @returns owner_id 与 agent_run_id（据此查任务进度 / llm 审计）
- */
-export async function startActiveScan(
-  brief: string
-): Promise<{ owner_id: string; agent_run_id: string }> {
-  return post('/scan/active', { brief })
-}
-
-/* ============================================================
-   LLM 审计 / Agent 任务树（按 owner 只读）
-   ============================================================ */
 
 /* ============================================================
    全局漏洞台账（漏洞页）：跨 task/host 全量 + triage 处置
@@ -378,11 +322,6 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
   }
   const q = params.toString()
   return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
-}
-
-/** 拉取筛选下拉候选（服务端 distinct 的 host，恒为全表全集，不受当前筛选/分页影响）。 */
-export async function listFindingHosts(): Promise<string[]> {
-  return (await get<{ hosts: string[] }>('/findings/hosts')).hosts
 }
 
 
@@ -430,23 +369,6 @@ function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchPar
 }
 
 /**
- * 拉取该 task 下 LLM 调用审计（扁平 items，offset 分页 + 服务端筛选）。
- * 列表不含 messages/result 大字段。
- */
-export async function listLLMInvocations(
-  taskID: string,
-  page = 1,
-  size = 0,
-  filters?: Partial<LLMInvocationFilters>,
-): Promise<LLMInvocationsResponse> {
-  const params = invocationFilterParams(filters)
-  if (page > 1) params.set('page', String(page))
-  if (size > 0) params.set('size', String(size))
-  const q = params.toString()
-  return get<LLMInvocationsResponse>(`/llm/invocations/${taskID}${q ? '?' + q : ''}`)
-}
-
-/**
  * 全局搜索 LLM 调用（不限定 task_id），支持搜索 task_id/conversation_id/assignment_id。
  */
 export async function searchLLMInvocations(
@@ -471,24 +393,6 @@ export async function getLLMInvocationDetail(id: number): Promise<LLMInvocationD
   // 临时方案：由于详情端点需要 task_id，这里先通过搜索获取完整数据
   // TODO: 后端提供 GET /llm/invocations/by-id/:id 端点
   return get<LLMInvocationDetail>(`/llm/invocations/detail/${id}`)
-}
-
-/**
- * 拉取该 task 下 LLM 调用的数据库层聚合统计（吃与列表同一套筛选，筛选后统计跟着变）。
- */
-export async function getLLMInvocationStat(
-  taskID: string,
-  filters?: Partial<LLMInvocationFilters>,
-): Promise<LLMInvocationStat> {
-  const q = invocationFilterParams(filters).toString()
-  return get<LLMInvocationStat>(`/llm/invocations/${taskID}/stat${q ? '?' + q : ''}`)
-}
-
-/**
- * 拉取筛选下拉候选（服务端 distinct 的 role/model，恒为该 task 全集）。
- */
-export async function getLLMInvocationFacets(taskID: string): Promise<LLMInvocationFacets> {
-  return get<LLMInvocationFacets>(`/llm/invocations/${taskID}/facets`)
 }
 
 /* ============================================================
@@ -588,29 +492,3 @@ export async function deleteCredentialHost(host: string): Promise<void> {
   await del(`/credentials/${encodeURIComponent(host)}`)
 }
 
-/* ============================================================
-   控制平面（POST/GET /tasks/:id/control）：人工干预活跃任务
-   ============================================================ */
-
-/**
- * 创建控制事件（人工干预指令）
- */
-export async function createControlEvent(
-  taskID: string,
-  command: string,
-  payload?: Record<string, unknown>
-): Promise<{ event_id: string }> {
-  return post<{ event_id: string }>(`/tasks/${taskID}/control`, {
-    command,
-    payload: payload ?? null,
-  })
-}
-
-/**
- * 列出任务的控制事件（最多 100 条）
- */
-export async function listControlEvents(taskID: string): Promise<{
-  events: ControlEvent[]
-}> {
-  return get(`/tasks/${taskID}/control`)
-}

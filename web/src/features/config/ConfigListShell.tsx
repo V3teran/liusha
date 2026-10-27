@@ -36,12 +36,6 @@ interface ConfigListShellProps {
 
 /**
  * ConfigListShell - 配置管理页面外壳
- *
- * 设计改进：
- * 1. 更现代的头部设计
- * 2. 更清晰的加载/错误/空状态
- * 3. 更流畅的卡片网格布局
- * 4. 更优雅的分页控件
  */
 export function ConfigListShell({
   title,
@@ -234,11 +228,6 @@ function PagerBar({
 
 /**
  * ConfigRow - 配置卡片
- *
- * 设计改进：
- * 1. 更精致的卡片样式（柔和阴影、圆角）
- * 2. 更清晰的悬停状态
- * 3. 更流畅的过渡效果
  */
 export function ConfigRow({
   name,

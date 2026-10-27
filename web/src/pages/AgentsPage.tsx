@@ -15,7 +15,7 @@ const fetchAgents = async (page: number, size: number, q: string) => {
   return { items: res.agents, total: res.total }
 }
 
-// 智能体配置管理页（后端资源名 executor）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
+// 智能体配置管理页（/config/agents）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
 // 角色身份（标识符/名称/启用）由种子固定，页面只读、接口不收；调度摘要是 planner 规划时
 // 读取的角色分工摘要（LLM 可读面），可编辑。
 // 保存只提交脏字段（PUT 部分更新），与工具页的并发装配写互不覆盖快照。

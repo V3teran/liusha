@@ -8,7 +8,6 @@ import {
   saveRoleRoute,
   deleteRoleRoute,
 } from '@/api/models'
-import { getLLMInvocationStat } from '@/api/client'
 import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
 import type { ProviderConfig } from '@/api/types'
 
@@ -21,7 +20,6 @@ export const modelKeys = {
   routing: ['models', 'routing'] as const,
   agents: ['agents', 'configs'] as const,
   assignments: ['models', 'assignments'] as const,
-  llmStat: (taskId: string | undefined) => ['models', 'llm-stat', taskId] as const,
 }
 
 /** 全量 provider 部署（含 disabled，路由绑定选择器一次拉全）。 */
@@ -45,15 +43,6 @@ export function useAgentConfigs() {
   return useQuery({
     queryKey: modelKeys.agents,
     queryFn: listAgentConfigs,
-  })
-}
-
-/** LLM 调用统计（支持选定 task_id）。 */
-export function useLLMInvocationStat(taskId: string | undefined) {
-  return useQuery({
-    queryKey: modelKeys.llmStat(taskId),
-    queryFn: () => (taskId ? getLLMInvocationStat(taskId) : Promise.resolve(null)),
-    enabled: !!taskId,
   })
 }
 

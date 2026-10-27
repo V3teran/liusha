@@ -1,9 +1,8 @@
 /**
- * 配置管理 API 客户端（executor 资源读取/编辑 + 只读工具目录）
+ * 配置管理 API 客户端（agent 配置读取/编辑 + 只读工具目录）
  *
- * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除——
- * 后端 DELETE /executors 已移除，前端不再保留任何删除路径。
+ * 复用 client.ts 的 get/put fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除。
  */
 
 import { get, put, patch } from './client'
@@ -16,12 +15,12 @@ import type {
   ToolListResponse,
 } from './types'
 
-// ── executor ──────────────────────────────────────────────────────────
+// ── agent 配置 ────────────────────────────────────────────────────────
 
-/** 拉全量操作员（含 planner/executor 两类、含 disabled）。 */
+/** 拉全量 agent 配置（四角色、含 disabled；分档页消费面）。 */
 export async function listAgentConfigs(): Promise<AgentConfig[]> {
-  const res = await get<{ executors: AgentConfig[] }>('/executors')
-  return res.executors
+  const res = await get<{ agents: AgentConfig[] }>('/agents')
+  return res.agents
 }
 
 /**
@@ -45,16 +44,16 @@ export interface AgentChanges {
  * 目标行由 URL id 权威定位（与 GET 同律），body 即纯变更集，无寻址字段。
  */
 export async function saveAgent(id: string, changes: AgentChanges): Promise<void> {
-  await put(`/executors/${encodeURIComponent(id)}`, changes)
+  await put(`/agents/${encodeURIComponent(id)}`, changes)
 }
 
 /**
  * 改操作员复杂度档（分档页移档用）：只 PATCH complexity 单字段，
- * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 executor。
+ * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 agent。
  */
 export async function saveAgentComplexity(id: string, complexity: string): Promise<AgentConfig> {
-  const res = await patch<{ executor: AgentConfig }>(`/executors/${id}/complexity`, { complexity })
-  return res.executor
+  const res = await patch<{ agent: AgentConfig }>(`/agents/${id}/complexity`, { complexity })
+  return res.agent
 }
 
 /** 拉 skill 目录全量（GET /skills），供 AgentsPage skills 多选器候选。 */

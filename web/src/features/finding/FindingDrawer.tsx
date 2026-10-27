@@ -96,12 +96,6 @@ function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
 
 /**
  * FindingDrawer - 漏洞详情抽屉
- *
- * 设计改进：
- * 1. 更现代的抽屉样式（圆角、阴影、背景模糊）
- * 2. 更清晰的信息层次
- * 3. 更精致的表单控件
- * 4. 统一的间距和圆角
  */
 export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDrawerProps) {
   const [status, setStatus] = useState('')

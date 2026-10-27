@@ -10,11 +10,6 @@ interface CopyButtonProps {
 
 /**
  * CopyButton - 复制按钮组件
- *
- * 设计改进：
- * 1. 支持不同尺寸
- * 2. 更清晰的状态反馈（图标切换 + 颜色变化）
- * 3. 更流畅的过渡动画
  */
 export function CopyButton({ copied, onClick, size = 'md', className }: CopyButtonProps) {
   const sizeClasses = {

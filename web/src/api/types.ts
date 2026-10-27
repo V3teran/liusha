@@ -60,7 +60,7 @@ export interface Message {
 export interface Conversation {
   ID: string
   Title: string
-  TaskID: string // 关联扫描 task.id（= owner id）——执行图/攻击面按此匹配会话拿思维链
+  TaskID: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
   // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
   RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
   FindingCount?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
@@ -76,7 +76,7 @@ export interface Conversation {
  */
 export interface ConversationUsage {
   conversation_id: string
-  owner_id: string // 纯聊天会话为空
+  task_id: string // 关联扫描 task；纯聊天会话为空
   tokens: { in: number; out: number; cached: number; total: number }
   llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
   tool_duration_ms: number // 所有工具执行耗时合计（明细）
@@ -84,7 +84,7 @@ export interface ConversationUsage {
   work_ms: number // Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅明细参考
   llm_calls: number
   tool_calls: number
-  running: boolean // 是否仍有运行中的扫描（权威：后端 owner 终态）
+  running: boolean // 是否仍有运行中的扫描（权威：后端 task 终态）
   status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
 }
 
@@ -268,19 +268,6 @@ export function isEventMessage(m: Message): boolean {
 export function parseScanEvent(m: Message): ScanEvent | null {
   if (m.Kind !== 'event' || !m.Metadata) return null
   return m.Metadata
-}
-
-/* ============================================================
-   owner 摘要：所有 task 共用（GET /tasks，各场景混列）
-   小写键（Go DTO TaskSummary）。scope 是 jsonb 原文字符串。
-   ============================================================ */
-export interface OwnerSummary {
-  id: string
-  scope: string
-  status: string
-  created_at: string
-  ended_at?: string
-  error_message?: string
 }
 
 /* ============================================================
@@ -517,33 +504,3 @@ export interface ProxyFilterSettings {
   max_response_body_size: number // 响应体切片上限字节，>0
 }
 
-// ControlCommand 控制平面命令类型
-export type ControlCommand =
-  | 'adjust_goal'
-  | 'inject_action'
-  | 'pause'
-  | 'resume'
-  | 'terminate'
-
-// AdjustGoalPayload 调整目标命令的 payload
-export interface AdjustGoalPayload {
-  new_goal: string
-}
-
-// InjectActionPayload 注入 Move 命令的 payload
-export interface InjectActionPayload {
-  kind: string // MoveKind: enumerate/probe/exploit/escalate/persist
-  target: Record<string, unknown> // 目标定位符
-  reason?: string
-  priority?: number
-}
-
-// ControlEvent 控制事件记录
-export interface ControlEvent {
-  id: string
-  task_id: string
-  command: ControlCommand
-  payload?: AdjustGoalPayload | InjectActionPayload | Record<string, unknown>
-  created_at: string
-  processed_at?: string
-}

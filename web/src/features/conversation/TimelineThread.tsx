@@ -275,9 +275,10 @@ function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
 }
 
 function ThinkingStream({ text }: { text: string | unknown }) {
-  // 类型守卫：流式 thinking 增量，严格验证类型并过滤空值
-  if (!text || typeof text !== 'string' || text.trim() === '') return null
-  const typed = useTypewriter(text)
+  // useTypewriter 必须无条件调用（Rules of Hooks——text 由空变非空时 hook 数量
+  // 不能变化），由 hasText 决定渲染与否。
+  const hasText = !!text && typeof text === 'string' && text.trim() !== ''
+  const typed = useTypewriter(hasText ? (text as string) : '')
   return (
     <div className="mb-2 rounded-lg border border-border/60 bg-background/40">
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">

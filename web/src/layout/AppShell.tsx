@@ -41,12 +41,6 @@ const NAV_ITEMS: NavItem[] = [
 
 /**
  * AppShell - 应用主框架
- *
- * 设计改进：
- * 1. 更精致的侧边栏：渐变背景、柔和阴影
- * 2. 更清晰的导航项层次：激活态辉光、悬停反馈
- * 3. 更流畅的过渡动画
- * 4. 更合理的间距和排版
  */
 export function AppShell() {
   const { theme, toggle } = useTheme()
