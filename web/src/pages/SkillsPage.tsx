@@ -254,17 +254,20 @@ export default function SkillsPage() {
                           启用
                         </label>
                       </div>
-                      {!isNew && (
-                        <AgentAssignSection
-                          agents={(assignAgents ?? []).map((a) => ({
-                            code: a.code,
-                            name: a.name,
-                            involved: a.involved,
-                          }))}
-                          savingCode={assignSaving}
-                          onToggle={toggleAssign}
-                        />
-                      )}
+                      {!isNew &&
+                        (assignAgents === null ? (
+                          <p className="text-sm text-muted">装配状态加载中…</p>
+                        ) : (
+                          <AgentAssignSection
+                            agents={assignAgents.map((a) => ({
+                              code: a.code,
+                              name: a.name,
+                              involved: a.involved,
+                            }))}
+                            savingCode={assignSaving}
+                            onToggle={toggleAssign}
+                          />
+                        ))}
                     </>
                   ),
                 },
