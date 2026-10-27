@@ -39,7 +39,6 @@ export default function SkillsPage() {
   const [saving, setSaving] = useState(false)
   // 装配 tab 数据：抽屉打开时拉详情（全量智能体及各自装配态，后端权威）。
   const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
-  const [assignLoading, setAssignLoading] = useState(false)
   const [assignSaving, setAssignSaving] = useState<string | null>(null)
 
   const patch = (p: Partial<Skill>) => setDraft((d) => (d ? { ...d, ...p } : d))
@@ -50,11 +49,9 @@ export default function SkillsPage() {
     setIsNew(false)
     setAssignAgents(null)
     // 装配态随详情拉取（后端权威）；自建/内置都可装配。
-    setAssignLoading(true)
-    getSkillDetail(sk.code)
+        getSkillDetail(sk.code)
       .then((d) => setAssignAgents(d.agents))
       .catch(() => setAssignAgents([]))
-      .finally(() => setAssignLoading(false))
   }
 
   // 装配胶囊点击：乐观翻转 → assignSkill 回存（失败回滚并提示）。后端单一权威。
@@ -257,26 +254,19 @@ export default function SkillsPage() {
                           启用
                         </label>
                       </div>
+                      {!isNew && (
+                        <AgentAssignSection
+                          agents={(assignAgents ?? []).map((a) => ({
+                            code: a.code,
+                            name: a.name,
+                            involved: a.involved,
+                          }))}
+                          savingCode={assignSaving}
+                          onToggle={toggleAssign}
+                        />
+                      )}
                     </>
                   ),
-                },
-                {
-                  value: 'assign',
-                  label: '装配到智能体',
-                  content:
-                    assignLoading && assignAgents === null ? (
-                      <p className="text-sm text-muted">加载中</p>
-                    ) : (
-                      <AgentAssignSection
-                        agents={(assignAgents ?? []).map((a) => ({
-                          code: a.code,
-                          name: a.name,
-                          involved: a.involved,
-                        }))}
-                        savingCode={assignSaving}
-                        onToggle={toggleAssign}
-                      />
-                    ),
                 },
                 {
                   value: 'content',

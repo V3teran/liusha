@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Check, Loader2, X } from 'lucide-react'
+import { AlertTriangle, Loader2, X } from 'lucide-react'
 import type { ProviderConfig, AgentConfig } from '@/api/types'
 import { COMPLEXITY_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
 import { providerDisplayName } from './providerForm'
@@ -216,9 +216,9 @@ function ComplexityRow({
   )
 }
 
-// 单档的 agent 归属胶囊区（对齐工具模块装配胶囊的设计语言）：
-// 全部渲染为 button + aria-pressed 表达归属态——归属本档 = accent 实心（Check 标记，
-// 单值归属，点击无操作），未归属 = 幽灵 chip 点击移入；头部带「已归入 N/M」计数。
+// 单档的 agent 归属胶囊区（与工具模块装配胶囊同一设计：同尺寸、仅配色区分——
+// 归属本档 = accent 高亮，未归属 = 幽灵可点移入；单值归属，归属档点击无操作）。
+// 全部渲染为 button + aria-pressed 表达归属态；头部带「已归入 N/M」计数。
 function AgentPicker({
   group,
   groupLabel,
@@ -255,14 +255,13 @@ function AgentPicker({
             disabled={busy || inGroup}
             onClick={() => onMove(h.id, group)}
             className={
-              'flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors disabled:cursor-default ' +
+              'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:cursor-default ' +
               (inGroup
-                ? 'border-accent/50 bg-accent/15 text-accent'
-                : 'border-border bg-background text-muted hover:border-accent/40 hover:bg-accent/10 hover:text-accent')
+                ? 'border-accent bg-accent/15 text-text'
+                : 'border-border bg-background text-muted hover:border-accent/50 hover:text-text')
             }
           >
-            {inGroup && <Check className="h-3 w-3" />}
-            {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+            {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
             {h.name}
           </button>
         )
