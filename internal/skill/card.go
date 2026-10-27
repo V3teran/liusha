@@ -20,11 +20,10 @@ type Card struct {
 	// 会让 LLM 拿显示名去读 skill 而必败。
 	Key string `yaml:"-"`
 
-	// Category 是 tooling 工具的领域归属（如 recon / discovery / vulnscan /
-	// injection / deserialization / auth / sast / utility），只对 tooling 类有意义；vuln 类
-	// SKILL 也留空（用 frontmatter category 字段做分组只对 tooling 有意义）。
-	// agent buildToolingCatalog 按本字段分组渲染 Tier 1 工具索引段。
-	// 空值落入"未分类"组，渲染顺序最后。
+	// Category 是技能的领域归类：种子技能取目录名（tooling / vuln），自建技能由
+	// 录入填写。消费方两处——前端页面徽章展示、Tier 1 索引标签（RenderIndex，
+	// 帮 LLM 按领域对齐任务与技能）。注：tooling 工具清单（recon / vulnscan 等）
+	// 的分组是 tools manifest 的 Category，与本字段无关，勿混写。
 	Category string `yaml:"category,omitempty"`
 
 	RequiresAuth             bool     `yaml:"requires_auth,omitempty"`
