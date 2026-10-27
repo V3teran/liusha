@@ -5,7 +5,7 @@
  * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除。
  */
 
-import { get, put, patch } from './client'
+import { get, post, put, patch, del } from './client'
 import type {
   AgentConfig,
   Skill,
@@ -59,6 +59,42 @@ export async function saveAgentComplexity(id: string, complexity: string): Promi
 /** 拉 skill 目录全量（GET /skills），供 AgentsPage skills 多选器候选。 */
 export async function listSkillCandidates(): Promise<Skill[]> {
   return get<Skill[]>('/skills')
+}
+
+// ── skill CRUD（技能页）──────────────────────────────────────────────
+
+/** 新建/编辑技能的可写字段。code 建后固定；is_builtin 由后端定（新建恒 false）。 */
+export interface SkillPayload {
+  code: string
+  name: string
+  description: string
+  category: string
+  body: string
+  enabled: boolean
+}
+
+/** 编辑已有技能的可变字段（PUT 部分更新；内置技能仅 enabled 有意义）。 */
+export interface SkillChanges {
+  name?: string
+  description?: string
+  category?: string
+  body?: string
+  enabled?: boolean
+}
+
+/** 新建自建技能（is_builtin=false，不受 reseed 覆盖）。code 冲突由后端报错。 */
+export async function createSkill(payload: SkillPayload): Promise<Skill> {
+  return post<Skill>('/skills', payload)
+}
+
+/** 更新技能（按 code 寻址，部分更新——未提及字段不动）。 */
+export async function updateSkill(code: string, changes: SkillChanges): Promise<Skill> {
+  return put<Skill>(`/skills/${encodeURIComponent(code)}`, changes)
+}
+
+/** 删除技能（后端拒绝内置技能：409）。 */
+export async function deleteSkill(code: string): Promise<void> {
+  await del(`/skills/${encodeURIComponent(code)}`)
 }
 
 // ── tool（只读目录）────────────────────────────────────────────────────
