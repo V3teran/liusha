@@ -68,9 +68,10 @@ func (v *View) Load(ctx context.Context, name string) (*Card, error) {
 	return v.src.Load(ctx, name)
 }
 
-// RenderIndex 把 Tier 1 索引（frontmatter：寻址名 + 显示名 + description）渲染成
+// RenderIndex 把 Tier 1 索引（寻址名 + 显示名 + category + description）渲染成
 // system prompt 段落。executor engine 与 evaluator judge 共用本渲染——两侧 agent
-// 看到的 skill 目录口径完全一致。寻址一律用 Key（目录名/DB code）；显示名/描述只作选题线索。
+// 看到的 skill 目录口径完全一致。寻址一律用 Key（目录名/DB code）；显示名/描述
+// 只作选题线索；category（tooling / vuln…）帮 LLM 按领域对齐任务与技能。
 func RenderIndex(cards []*Card) string {
 	if len(cards) == 0 {
 		return ""
@@ -82,10 +83,14 @@ func RenderIndex(cards []*Card) string {
 		if key == "" {
 			key = c.Name
 		}
+		tag := ""
+		if c.Category != "" {
+			tag = " [" + c.Category + "]"
+		}
 		if c.Name != "" && c.Name != key {
-			fmt.Fprintf(&sb, "- %s（%s）: %s\n", key, c.Name, c.Description)
+			fmt.Fprintf(&sb, "- %s（%s）%s: %s\n", key, c.Name, tag, c.Description)
 		} else {
-			fmt.Fprintf(&sb, "- %s: %s\n", key, c.Description)
+			fmt.Fprintf(&sb, "- %s%s: %s\n", key, tag, c.Description)
 		}
 	}
 	return sb.String()
