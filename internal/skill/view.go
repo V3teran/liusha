@@ -26,12 +26,18 @@ type View struct {
 	allow map[string]struct{} // nil=全部
 }
 
-// Allow 给 src 建白名单视图。names=nil 表示拒绝（默认拒绝）；空 slice=空集；["*"]=全量。
+// Allow 给 src 建白名单视图。names=nil 表示拒绝（默认拒绝）；空 slice=空集；
+// 含 "*"（全量哨兵，executor 种子语义）= 全量放行（allow 集合置 nil）。
 // 声明里不存在的名字在 Metas 过滤时自然消失（配置漂移不致命，索引里看不到）。
 func Allow(src Reader, names []string) *View {
 	v := &View{src: src}
 	if names == nil {
 		return v
+	}
+	for _, n := range names {
+		if n == "*" {
+			return v // 全量：不做白名单过滤
+		}
 	}
 	v.allow = make(map[string]struct{}, len(names))
 	for _, n := range names {
@@ -68,10 +74,11 @@ func (v *View) Load(ctx context.Context, name string) (*Card, error) {
 	return v.src.Load(ctx, name)
 }
 
-// RenderIndex 把 Tier 1 索引（寻址名 + 显示名 + category + description）渲染成
-// system prompt 段落。executor engine 与 evaluator judge 共用本渲染——两侧 agent
-// 看到的 skill 目录口径完全一致。寻址一律用 Key（目录名/DB code）；显示名/描述
-// 只作选题线索；category（tooling / vuln…）帮 LLM 按领域对齐任务与技能。
+// RenderIndex 把 Tier 1 索引（寻址名 + 显示名 + description）渲染成 system prompt
+// 段落。executor engine 与 evaluator judge 共用本渲染——两侧 agent 看到的 skill
+// 目录口径完全一致。寻址一律用 Key（目录名/DB code）；显示名/描述只作选题线索。
+// 刻意不含 category：业界（Agent Skills 规范等）索引即 name+description，领域语义
+// 由 description 承载；category 属页面组织层，进索引在目录规模小时是纯噪声。
 func RenderIndex(cards []*Card) string {
 	if len(cards) == 0 {
 		return ""
@@ -83,14 +90,10 @@ func RenderIndex(cards []*Card) string {
 		if key == "" {
 			key = c.Name
 		}
-		tag := ""
-		if c.Category != "" {
-			tag = " [" + c.Category + "]"
-		}
 		if c.Name != "" && c.Name != key {
-			fmt.Fprintf(&sb, "- %s（%s）%s: %s\n", key, c.Name, tag, c.Description)
+			fmt.Fprintf(&sb, "- %s（%s）: %s\n", key, c.Name, c.Description)
 		} else {
-			fmt.Fprintf(&sb, "- %s%s: %s\n", key, tag, c.Description)
+			fmt.Fprintf(&sb, "- %s: %s\n", key, c.Description)
 		}
 	}
 	return sb.String()

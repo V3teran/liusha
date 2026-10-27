@@ -97,6 +97,37 @@ export async function deleteSkill(code: string): Promise<void> {
   await del(`/skills/${encodeURIComponent(code)}`)
 }
 
+// ── 装配到智能体（对称工具模块）──────────────────────────────────────
+
+/** 技能详情里的一个智能体条目：involved 由后端权威计算（白名单含 code 或 "*"）。 */
+export interface SkillAgent {
+  code: string
+  name: string
+  involved: boolean
+}
+
+/** 技能详情：技能本体 + 全量智能体及各自装配态。 */
+export interface SkillDetail {
+  skill: Skill
+  agents: SkillAgent[]
+}
+
+/** 技能详情（装配 tab 数据源）：GET /skills/:code/detail。 */
+export async function getSkillDetail(code: string): Promise<SkillDetail> {
+  return get<SkillDetail>(`/skills/${encodeURIComponent(code)}/detail`)
+}
+
+/** 从技能侧装/卸某智能体的该技能（后端按 agent.skills 白名单回存；哨兵物化对称工具）。 */
+export async function assignSkill(
+  code: string,
+  agentCode: string,
+  involved: boolean,
+): Promise<void> {
+  await put(`/skills/${encodeURIComponent(code)}/agents/${encodeURIComponent(agentCode)}`, {
+    involved,
+  })
+}
+
 // ── tool（只读目录）────────────────────────────────────────────────────
 
 // listTools 的查询参数：kind 过滤、q 关键词、分页（page/size 缺省 = 全量不分页）。

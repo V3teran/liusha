@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { listSkillsPaged } from '@/api/client'
-import { createSkill, updateSkill, deleteSkill, type SkillChanges } from '@/api/config'
+import { createSkill, updateSkill, deleteSkill, getSkillDetail, assignSkill, type SkillChanges, type SkillAgent } from '@/api/config'
 import type { Skill } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { usePagedList } from '@/features/config/usePagedList'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { AgentAssignSection } from '@/components/AgentAssignSection'
 
 const fetchSkills = async (page: number, size: number, q: string) => {
   const res = await listSkillsPaged(page, size, q)
@@ -36,6 +37,10 @@ export default function SkillsPage() {
   // 打开抽屉时的原始快照：dirty 判断基准（patch 全为不可变更新）。
   const [baseline, setBaseline] = useState<Skill | null>(null)
   const [saving, setSaving] = useState(false)
+  // 装配 tab 数据：抽屉打开时拉详情（全量智能体及各自装配态，后端权威）。
+  const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
+  const [assignLoading, setAssignLoading] = useState(false)
+  const [assignSaving, setAssignSaving] = useState<string | null>(null)
 
   const patch = (p: Partial<Skill>) => setDraft((d) => (d ? { ...d, ...p } : d))
 
@@ -43,6 +48,30 @@ export default function SkillsPage() {
     setDraft(sk)
     setBaseline(sk)
     setIsNew(false)
+    setAssignAgents(null)
+    // 装配态随详情拉取（后端权威）；自建/内置都可装配。
+    setAssignLoading(true)
+    getSkillDetail(sk.code)
+      .then((d) => setAssignAgents(d.agents))
+      .catch(() => setAssignAgents([]))
+      .finally(() => setAssignLoading(false))
+  }
+
+  // 装配胶囊点击：乐观翻转 → assignSkill 回存（失败回滚并提示）。后端单一权威。
+  const toggleAssign = (agentCode: string, next: boolean) => {
+    if (!draft) return
+    setAssignSaving(agentCode)
+    setAssignAgents((prev) =>
+      prev ? prev.map((a) => (a.code === agentCode ? { ...a, involved: next } : a)) : prev,
+    )
+    assignSkill(draft.code, agentCode, next)
+      .catch(() => {
+        setAssignAgents((prev) =>
+          prev ? prev.map((a) => (a.code === agentCode ? { ...a, involved: !next } : a)) : prev,
+        )
+        window.alert('装配状态保存失败')
+      })
+      .finally(() => setAssignSaving(null))
   }
 
   const openNew = () => {
@@ -230,6 +259,24 @@ export default function SkillsPage() {
                       </div>
                     </>
                   ),
+                },
+                {
+                  value: 'assign',
+                  label: '装配到智能体',
+                  content:
+                    assignLoading && assignAgents === null ? (
+                      <p className="text-sm text-muted">加载中</p>
+                    ) : (
+                      <AgentAssignSection
+                        agents={(assignAgents ?? []).map((a) => ({
+                          code: a.code,
+                          name: a.name,
+                          involved: a.involved,
+                        }))}
+                        savingCode={assignSaving}
+                        onToggle={toggleAssign}
+                      />
+                    ),
                 },
                 {
                   value: 'content',

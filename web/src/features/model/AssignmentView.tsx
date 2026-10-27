@@ -160,7 +160,7 @@ function ComplexityRow({
   const saving = routeSavingRole === meta.key
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-surface-2/50">
+    <div data-testid={`complexity-row-${meta.key}`} className="flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-surface-2/50">
       <div className="flex items-center gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -216,9 +216,9 @@ function ComplexityRow({
   )
 }
 
-// 单档的 agent 归属 chip 区：归属本档 = accent 实心（Check 标记，只表达状态），
-// 未归属 = 幽灵 chip 可点击移入（单值归属——移出原档由派生数据自动落空）。
-// 用 chip 而非 checkbox：checkbox 的多选视觉与「单值归属」语义冲突；实心 chip 是明确的归属标记。
+// 单档的 agent 归属胶囊区（对齐工具模块装配胶囊的设计语言）：
+// 全部渲染为 button + aria-pressed 表达归属态——归属本档 = accent 实心（Check 标记，
+// 单值归属，点击无操作），未归属 = 幽灵 chip 点击移入；头部带「已归入 N/M」计数。
 function AgentPicker({
   group,
   groupLabel,
@@ -234,32 +234,35 @@ function AgentPicker({
   moving: Set<string>
   onMove: (agentId: string, group: string) => void
 }) {
+  const inCount = agents.filter((h) => (complexityBy.get(h.id) ?? 'medium') === group).length
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2">
-      <span className="mr-1 text-[11px] text-faint">智能体</span>
+    <div
+      role="group"
+      aria-label={`${groupLabel} 归属`}
+      className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2"
+    >
+      <span className="mr-1 text-[11px] text-faint">
+        智能体 · 已归入 {inCount}/{agents.length}
+      </span>
       {agents.map((h) => {
         const inGroup = (complexityBy.get(h.id) ?? 'medium') === group
         const busy = moving.has(h.id)
-        return inGroup ? (
-          <span
-            key={h.id}
-            title={`已归入${groupLabel}；改档请在目标档点击`}
-            className="flex items-center gap-1 rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 text-xs text-accent"
-          >
-            <Check className="h-3 w-3" />
-            {h.name}
-          </span>
-        ) : (
+        return (
           <button
             key={h.id}
             type="button"
+            aria-pressed={inGroup}
+            disabled={busy || inGroup}
             onClick={() => onMove(h.id, group)}
-            disabled={busy}
-            aria-label={`${h.name} 归入 ${group}`}
-            title={`点击把 ${h.name} 归入${groupLabel}`}
-            className="rounded border border-transparent px-1.5 py-0.5 text-xs text-muted transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+            className={
+              'flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors disabled:cursor-default ' +
+              (inGroup
+                ? 'border-accent/50 bg-accent/15 text-accent'
+                : 'border-border bg-background text-muted hover:border-accent/40 hover:bg-accent/10 hover:text-accent')
+            }
           >
-            {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
+            {inGroup && <Check className="h-3 w-3" />}
+            {busy && <Loader2 className="h-3 w-3 animate-spin" />}
             {h.name}
           </button>
         )
