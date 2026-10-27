@@ -201,12 +201,6 @@ export default function SkillsPage() {
                   label: '基本信息',
                   content: (
                     <>
-                      {draft.is_builtin && (
-                        <p className="rounded-md border border-sev-high/30 bg-sev-high/5 px-3 py-2 text-xs leading-relaxed text-sev-high">
-                          内置技能：修改以数据库为准；显式 reseed 会以 skills/ 目录
-                          覆盖内置技能的名称、分类、描述与正文。
-                        </p>
-                      )}
                       <div className="flex gap-3">
                         <Field
                           label="标识符"
