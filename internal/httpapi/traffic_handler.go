@@ -23,7 +23,6 @@ import (
 type TrafficAPI interface {
 	ListPagedGlobal(ctx context.Context, f traffic.ProxyListFilter) ([]traffic.ProxySummary, error)
 	CountGlobal(ctx context.Context, f traffic.ProxyListFilter) (int, error)
-	DistinctHosts(ctx context.Context) ([]string, error)
 	DistinctContentTypes(ctx context.Context) ([]string, error)
 	GetByID(ctx context.Context, id int64) (traffic.ProxyTraffic, error)
 }
@@ -110,21 +109,6 @@ func listTrafficHandler(api TrafficAPI) gin.HandlerFunc {
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": page, "size": size})
-	}
-}
-
-// trafficHostsHandler 处理 GET /traffic/hosts：全表 distinct host，供筛选下拉。
-func trafficHostsHandler(api TrafficAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		hosts, err := api.DistinctHosts(c.Request.Context())
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		if hosts == nil {
-			hosts = []string{}
-		}
-		c.JSON(http.StatusOK, gin.H{"hosts": hosts})
 	}
 }
 

@@ -162,10 +162,10 @@ func TestHTTPTool_CookieExpiry(t *testing.T) {
 
 // fakeCredsProvider 是 credential.Provider 的内存测试替身（记录写入供断言）。
 type fakeCredsProvider struct {
-	mu       sync.Mutex
-	byHost   map[string][]credential.Identity
-	saves    []credential.Identity // 记录每次 BatchSave 的身份
-	getErr   error
+	mu     sync.Mutex
+	byHost map[string][]credential.Identity
+	saves  []credential.Identity // 记录每次 BatchSave 的身份
+	getErr error
 }
 
 func newFakeCreds() *fakeCredsProvider {

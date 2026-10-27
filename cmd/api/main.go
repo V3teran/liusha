@@ -261,35 +261,29 @@ func main() {
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
 			TaskStatus:         taskStatusAdapter{tasks: taskStore},
-			Tasks: taskAPIAdapter{
-				tasks: taskStore,
-				audit: auditStore,
-			},
-			Findings:          findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
-			Invocations:       invocationStore,
-			Scan:              adapter,
-			Chat:              adapter,                      // POST /chat 会话发起扫描
-			FollowUp:          adapter,                      // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:             adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:           adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:           convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			ConfigStore:       cfgStore,                     // agent 配置 CRUD（配置管理页）
-			SkillStore:        cfgStore,                     // skill 配置 CRUD（知识库管理页），走多级缓存
-			ToolCatalog:       cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
-			Models:            llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
-			KeyEncrypter:      llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
-			ProviderTester:    providerTester,               // POST /models/providers/test|list-models：实连探测（不落库）
-			Settings:          settingStore,                 // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
-			Traffic:           proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:       convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:     convStore,                    // 会话列表 / 消息回看
-			EventStream:       eventStreamAdapter{rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:        convStore,                    // 会话用量：会话→task 解析
-			UsageLLM:          invocationStore,              // 会话用量：LLM token/耗时合计
-			UsageTools:        toolStore,                    // 会话用量：工具耗时合计
-			ControlPlane:      controlPlaneStore,            // 任务控制平面（人工干预）
-			ExplorationGraph:  explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
-			EnableDevAutofill: envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
+			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
+			Invocations:        invocationStore,
+			Chat:               adapter,                      // POST /chat 会话发起扫描
+			FollowUp:           adapter,                      // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:              adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:            adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Renamer:            convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
+			ConfigStore:        cfgStore,                     // agent 配置 CRUD（配置管理页）
+			SkillStore:         cfgStore,                     // skill 配置 CRUD（知识库管理页），走多级缓存
+			ToolCatalog:        cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			Models:             llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
+			KeyEncrypter:       llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
+			ProviderTester:     providerTester,               // POST /models/providers/test|list-models：实连探测（不落库）
+			Settings:           settingStore,                 // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
+			Traffic:            proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
+			TrafficConv:        convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:      convStore,                    // 会话列表 / 消息回看
+			EventStream:        eventStreamAdapter{rdb: rdb}, // SSE 订阅 redis 事件
+			UsageTasks:         convStore,                    // 会话用量：会话→task 解析
+			UsageLLM:           invocationStore,              // 会话用量：LLM token/耗时合计
+			UsageTools:         toolStore,                    // 会话用量：工具耗时合计
+			ExplorationGraph:   explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
+			EnableDevAutofill:  envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,

@@ -97,9 +97,9 @@ func (m *Manifest) Names() []string {
 	return out
 }
 
-// FilterByNames 按操作员 cli_tools 严格白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
-//   - names 为空 = 空集，该操作员不装配任何外部 CLI 工具（严格白名单，所选即所得）；
-//   - names 非空 = 只保留名字在白名单里的工具（操作员专精：只给它这几把刀）。
+// FilterByNames 按 agent cli_tools 严格白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
+//   - names 为空 = 空集，该 agent 不装配任何外部 CLI 工具（严格白名单，所选即所得）；
+//   - names 非空 = 只保留名字在白名单里的工具（agent 专精：只给它这几把刀）。
 //
 // 白名单里不存在的名字静默忽略（配置漂移不致命）。
 // Categories 元数据保持不变（过滤不影响分类定义）。

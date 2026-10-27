@@ -26,10 +26,12 @@ func (noOpCredProvider) SaveIdentities(_ context.Context, _ string, _ []credenti
 func (noOpCredProvider) GetIdentitiesByHost(_ context.Context, _ string) ([]credential.Identity, error) {
 	return nil, nil
 }
-func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) error     { return nil }
 func (noOpCredProvider) DeleteSessions(_ context.Context, _ string) (int, error) { return 0, nil }
-func (noOpCredProvider) DeleteHost(_ context.Context, _ string) error { return nil }
-func (noOpCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) { return nil, nil }
+func (noOpCredProvider) DeleteHost(_ context.Context, _ string) error            { return nil }
+func (noOpCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
+	return nil, nil
+}
 
 type noOpSandbox struct{}
 

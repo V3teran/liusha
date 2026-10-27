@@ -12,7 +12,7 @@ var apiLog = logx.New("httpapi")
 
 // respondErr 是错误响应的单一出口：结构化记录（方法/路径/状态/错误链）后
 // 把 err.Error() 作为中文错误消息回给客户端。本系统是带鉴权的单租户运维控制台，
-// 操作员依赖消息文本定位配置/依赖问题（store 层错误均为中文作者消息），故不脱敏；
+// 操作者依赖消息文本定位配置/依赖问题（store 层错误均为中文作者消息），故不脱敏；
 // 但必须落日志——否则客户端看到错误、服务端无痕迹。
 func respondErr(c *gin.Context, status int, err error) {
 	apiLog.Error().

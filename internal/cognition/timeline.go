@@ -27,7 +27,7 @@ type timelineWriter interface {
 
 // timelinePublisher 时间线事件的 SSE 广播通道（*scanstream.Publisher 满足）。
 type timelinePublisher interface {
-	Publish(ctx context.Context, conversationID string, payload []byte) error
+	PublishMessage(ctx context.Context, conversationID string, msg any) error
 }
 
 // toolTimelineEvents 把工具过程事件接入会话时间线（落库 + 实时广播）。
@@ -98,11 +98,7 @@ func (e *toolTimelineEvents) emit(ctx context.Context, convID string, meta map[s
 		e.logger.Warn().Err(err).Str("conv", convID).Msg("工具过程事件落库失败")
 		return
 	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-	if err := e.pub.Publish(ctx, convID, payload); err != nil {
+	if err := e.pub.PublishMessage(ctx, convID, msg); err != nil {
 		e.logger.Warn().Err(err).Str("conv", convID).Msg("工具过程事件广播失败（重连补历史可见）")
 	}
 }

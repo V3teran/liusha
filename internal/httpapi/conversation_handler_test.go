@@ -2,17 +2,13 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
-
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/gin-gonic/gin"
 )
 
 type fakeChat struct{}
@@ -177,8 +173,6 @@ type fakeConversations struct {
 	gotSource           string
 	convs               []conversation.Conversation
 	hasMore             bool
-	getMessageResult    conversation.Message
-	getMessageErr       error
 }
 
 func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error) {
@@ -188,13 +182,6 @@ func (f *fakeConversations) ListConversations(_ context.Context, limit, offset i
 
 func (f *fakeConversations) ListMessages(_ context.Context, _ string, _ int64, _ int) ([]conversation.Message, error) {
 	return nil, nil
-}
-
-func (f *fakeConversations) GetMessage(_ context.Context, _, _ string) (conversation.Message, error) {
-	if f.getMessageErr != nil {
-		return conversation.Message{}, f.getMessageErr
-	}
-	return f.getMessageResult, nil
 }
 
 // TestListConversationsHandler_Pagination：offset/limit 透传给 store，响应带 has_more。
@@ -253,58 +240,4 @@ func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
 	if fc.gotSource != "auto" {
 		t.Errorf("source=auto 应透传给 store，得 %q", fc.gotSource)
 	}
-}
-
-// TestMessageDetailHandler：按需拉单条消息（供执行图详情面板点开看原文），
-// 覆盖 200/404/500 三条路径——404 专门验证 pgx.ErrNoRows 被正确转译，不是泄漏成 500。
-func TestMessageDetailHandler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	t.Run("200 返回消息正文", func(t *testing.T) {
-		fc := &fakeConversations{getMessageResult: conversation.Message{
-			ID: "m1", ConversationID: "c1", Content: "工具输出原文",
-		}}
-		r := gin.New()
-		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
-		req := httptest.NewRequest("GET", "/conversations/c1/messages/m1", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-		}
-		var got conversation.Message
-		if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-			t.Fatal(err)
-		}
-		if got.ID != "m1" || got.Content != "工具输出原文" {
-			t.Errorf("响应不符：%+v", got)
-		}
-	})
-
-	t.Run("消息不存在返回 404", func(t *testing.T) {
-		fc := &fakeConversations{getMessageErr: pgx.ErrNoRows}
-		r := gin.New()
-		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
-		req := httptest.NewRequest("GET", "/conversations/c1/messages/missing", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusNotFound {
-			t.Errorf("status=%d 期望 404", w.Code)
-		}
-	})
-
-	t.Run("其他错误返回 500", func(t *testing.T) {
-		fc := &fakeConversations{getMessageErr: errors.New("db 连接超时")}
-		r := gin.New()
-		r.GET("/conversations/:id/messages/:msg_id", messageDetailHandler(fc))
-		req := httptest.NewRequest("GET", "/conversations/c1/messages/m1", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusInternalServerError {
-			t.Errorf("status=%d 期望 500", w.Code)
-		}
-	})
 }

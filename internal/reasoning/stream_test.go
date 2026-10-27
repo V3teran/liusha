@@ -17,6 +17,7 @@ type fakePub struct {
 	deltas []struct {
 		agent, channel, text string
 	}
+	msgs     []any
 	payloads [][]byte
 }
 
@@ -31,6 +32,13 @@ func (f *fakePub) Publish(_ context.Context, _ string, payload []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.payloads = append(f.payloads, payload)
+	return nil
+}
+
+func (f *fakePub) PublishMessage(_ context.Context, _ string, msg any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.msgs = append(f.msgs, msg)
 	return nil
 }
 
@@ -115,8 +123,8 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	if meta.InTokens != 120 || meta.OutTokens != 80 || meta.LatencyMs != 2500 {
 		t.Fatalf("用量元信息 = %+v", meta)
 	}
-	if len(pub.payloads) != 1 {
-		t.Fatalf("终态消息应广播, got %d", len(pub.payloads))
+	if len(pub.msgs) != 1 {
+		t.Fatalf("终态消息应广播, got %d", len(pub.msgs))
 	}
 	s.Close()
 }

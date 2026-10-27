@@ -147,7 +147,7 @@ func (s *Store) CountAgents(ctx context.Context, p agent.ListParams) (int, error
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 // 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
 
-// agentKeys 是一次操作员写/删要清的全部缓存键：id 键 + code 键 + 两个全量列表键。失效集是各 ReadThrough 回填键的超集
+// agentKeys 是一次 agent 写/删要清的全部缓存键：id 键 + code 键 + 两个全量列表键。失效集是各 ReadThrough 回填键的超集
 // （decode 失败即硬错，回填键载荷类型必须一致；失效键不受此限）。
 // complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
 func agentKeys(id, code string) []string {

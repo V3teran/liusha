@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -238,23 +239,6 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 }
 
 // DistinctHosts 返回 finding 表全量 distinct host（供筛选下拉，不受分页/筛选影响）。
-func (s *Store) DistinctHosts(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, "SELECT DISTINCT host FROM finding ORDER BY host")
-	if err != nil {
-		return nil, fmt.Errorf("distinct finding hosts: %w", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
-			return nil, fmt.Errorf("scan host: %w", err)
-		}
-		out = append(out, h)
-	}
-	return out, rows.Err()
-}
-
 // CountAll 返回同筛选口径下的全局总行数（分页 total；忽略 Limit/Offset）。
 func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	where, args := ledgerWhere(f)
@@ -318,7 +302,7 @@ const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
 // scanLedger 扫 ledgerCols 列序 + 末尾 _id, source（比 scan() 多两列）。
-func scanLedger(r scanner, out *LedgerRow) error {
+func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	var agentID *string
 	var sourceTrafficID *int64
 	var dependsOn []string
@@ -342,15 +326,10 @@ func scanLedger(r scanner, out *LedgerRow) error {
 	return nil
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scan 是 colsSelect 列序的统一反序列化点。
 // agentID / sourceTrafficID 用指针接住 NULL；AgentRunID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
-func scan(r scanner, f *VulnFinding) error {
+func scan(r db.RowScanner, f *VulnFinding) error {
 	var agentID *string
 	var sourceTrafficID *int64
 	var dependsOn []string

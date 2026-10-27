@@ -33,7 +33,7 @@ func TestRun_UsageAccumulatesAcrossIterations(t *testing.T) {
 	}
 
 	result, err := rt.Run(context.Background(), &ReActConfig{
-		LLMProvider: provider,
+		LLMProvider:   provider,
 		MaxIterations: 5,
 		Objective:     "hi",
 	})

@@ -12,9 +12,9 @@ import (
 	"github.com/V3teran/liusha/internal/task"
 )
 
-// TestListByTask_JoinConversationAndAssignment 验证 ListByTask 正确 JOIN 了 conversation 和 task 表，
+// TestListAll_JoinConversationAndAssignment 验证 ListAll 正确 JOIN 了 conversation 和 task 表，
 // 返回 conversation_id 和 assignment_id。
-func TestListByTask_JoinConversationAndAssignment(t *testing.T) {
+func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
 	invStore := NewStoreWithConfig(pool, config.InvocationConfig{})
@@ -59,7 +59,7 @@ func TestListByTask_JoinConversationAndAssignment(t *testing.T) {
 	}
 
 	// 5. 查询列表，验证返回了 conversation_id 和 assignment_id
-	list, err := invStore.ListByTask(ctx, taskID, ListFilter{})
+	list, err := invStore.ListAll(ctx, ListFilter{})
 	if err != nil {
 		t.Fatalf("list by task: %v", err)
 	}

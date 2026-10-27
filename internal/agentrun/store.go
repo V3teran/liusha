@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -135,13 +136,8 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 	return out, nil
 }
 
-// scanner 抽象 pgx.Row / pgx.Rows 的 Scan 方法。
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // scanRun 是 colsSelect 列序的统一反序列化点。
-func scanRun(r scanner, t *Run) error {
+func scanRun(r db.RowScanner, t *Run) error {
 	var input, result []byte
 	if err := r.Scan(
 		&t.ID,

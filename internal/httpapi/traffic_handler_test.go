@@ -17,7 +17,6 @@ import (
 type fakeTraffic struct {
 	rows         []traffic.ProxySummary
 	total        int
-	hosts        []string
 	contentTypes []string
 	byID         map[int64]traffic.ProxyTraffic
 	err          error
@@ -34,10 +33,6 @@ func (f *fakeTraffic) ListPagedGlobal(_ context.Context, filter traffic.ProxyLis
 
 func (f *fakeTraffic) CountGlobal(_ context.Context, _ traffic.ProxyListFilter) (int, error) {
 	return f.total, f.err
-}
-
-func (f *fakeTraffic) DistinctHosts(_ context.Context) ([]string, error) {
-	return f.hosts, f.err
 }
 
 func (f *fakeTraffic) DistinctContentTypes(_ context.Context) ([]string, error) {
@@ -152,30 +147,6 @@ func TestTrafficHandler_Lookups(t *testing.T) {
 		}
 		if body.ContentTypes == nil {
 			t.Error("content_types nil 应归一为空数组")
-		}
-	})
-
-	t.Run("hosts 下拉：nil 归一为 []", func(t *testing.T) {
-		fake := &fakeTraffic{hosts: nil}
-		srv := newTestServer(t, Deps{Traffic: fake})
-		defer srv.Close()
-
-		req, _ := http.NewRequest("GET", srv.URL+"/api/traffic/hosts", nil)
-		req.Header.Set("X-API-Key", "k")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		var body struct {
-			Hosts []string `json:"hosts"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		if body.Hosts == nil {
-			t.Error("hosts nil 应归一为空数组")
 		}
 	})
 

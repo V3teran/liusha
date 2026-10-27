@@ -69,6 +69,7 @@ func RoundOf(res *runtime.ReActResult) Round {
 type Publisher interface {
 	PublishDelta(ctx context.Context, conversationID, agentName, channel, text string) error
 	Publish(ctx context.Context, conversationID string, payload []byte) error
+	PublishMessage(ctx context.Context, conversationID string, msg any) error
 }
 
 // Writer 是终态消息的落库通道（*conversation.Store 满足）。
@@ -264,11 +265,7 @@ func (t agentTap) publishFinal(round Round) {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终稿落库失败（气泡清理将延迟到重连）")
 		return
 	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-	if err := t.s.pub.Publish(t.s.ctx, t.s.convID, payload); err != nil {
+	if err := t.s.pub.PublishMessage(t.s.ctx, t.s.convID, msg); err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终态广播失败（重连补历史可见）")
 	}
 }

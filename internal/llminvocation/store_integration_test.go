@@ -29,8 +29,8 @@ func setup(t *testing.T) (*Store, string) {
 	return NewStoreWithConfig(pool, config.InvocationConfig{}), tk.ID
 }
 
-// TestStore_Append_ListByTask 验证：插一条调用 → flush → 按 task 读回，token/role 正确。
-func TestStore_Append_ListByTask(t *testing.T) {
+// TestStore_Append_ListAll 验证：插一条调用 → flush → 读回，token/role 正确。
+func TestStore_Append_ListAll(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
@@ -51,7 +51,7 @@ func TestStore_Append_ListByTask(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
+	rows, err := s.ListAll(ctx, ListFilter{})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -70,9 +70,9 @@ func TestStore_Append_ListByTask(t *testing.T) {
 	}
 }
 
-// TestStore_ListByTask_Pagination 验证：id 游标翻页——limit 截断 + afterID 取下一页，
+// TestStore_ListAll_Pagination 验证：offset 分页——limit 截断 + offset 取下一页，
 // 不重不漏，且顺序按 id ASC（而非 created_at，同批 flush 的行 created_at 几乎相同不可靠）。
-func TestStore_ListByTask_Pagination(t *testing.T) {
+func TestStore_ListAll_Pagination(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
@@ -85,7 +85,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	page1, err := s.ListByTask(ctx, taskID, ListFilter{Limit: 2})
+	page1, err := s.ListAll(ctx, ListFilter{Limit: 2})
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestStore_ListByTask_Pagination(t *testing.T) {
 		t.Errorf("第一页顺序错: in_tokens=%d,%d", page1[0].InTokens, page1[1].InTokens)
 	}
 
-	page2, err := s.ListByTask(ctx, taskID, ListFilter{Offset: 2, Limit: 2})
+	page2, err := s.ListAll(ctx, ListFilter{Offset: 2, Limit: 2})
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestStore_GetByID(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	rows, err := s.ListByTask(ctx, taskID, ListFilter{})
+	rows, err := s.ListAll(ctx, ListFilter{})
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("list: rows=%d err=%v", len(rows), err)
 	}
@@ -214,8 +214,8 @@ func seedFiltered(t *testing.T, s *Store, taskID string) {
 	}
 }
 
-// TestStore_ListByTask_Filters 验证 role/model/仅错误 三个筛选维度各自生效。
-func TestStore_ListByTask_Filters(t *testing.T) {
+// TestStore_ListAll_Filters 验证 role/model/仅错误 三个筛选维度各自生效。
+func TestStore_ListAll_Filters(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 	seedFiltered(t, s, taskID)
@@ -234,7 +234,7 @@ func TestStore_ListByTask_Filters(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rows, err := s.ListByTask(ctx, taskID, c.f)
+			rows, err := s.ListAll(ctx, c.f)
 			if err != nil {
 				t.Fatalf("list: %v", err)
 			}
