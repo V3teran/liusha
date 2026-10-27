@@ -16,6 +16,7 @@ interface ConfigDrawerProps {
   tabs: DrawerTab[] // 顶部分页：各页按语义分组，避免一条长表单往下滑
   onOpenChange: (open: boolean) => void
   onSave: () => void
+  onDelete?: () => void // 可删资源（如用户自建技能）传；内置/固定资源不传
   saving?: boolean
   saveDisabled?: boolean // 表单未过校验时禁用保存（跨分页统一判定）
 }
@@ -29,6 +30,7 @@ export function ConfigDrawer({
   tabs,
   onOpenChange,
   onSave,
+  onDelete,
   saving = false,
   saveDisabled = false,
 }: ConfigDrawerProps) {
@@ -82,6 +84,16 @@ export function ConfigDrawer({
             </div>
 
             <div className="flex items-center gap-2.5 border-t border-border px-5 py-4">
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={saving}
+                  className="rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40"
+                >
+                  删除
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onSave}

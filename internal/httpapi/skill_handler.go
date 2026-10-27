@@ -183,6 +183,13 @@ func deleteSkillHandler(api SkillAPI) gin.HandlerFunc {
 			return
 		}
 
+		// 内置技能是 skills/*.md 种子的镜像（reseed 覆盖复位），删除无意义且
+		// 会被复活——store 层同规则拒绝，这里给出更准确的 409 语义。
+		if existing.IsBuiltin {
+			c.JSON(http.StatusConflict, gin.H{"error": "内置技能不可删除（由 skills/ 目录种子管理）"})
+			return
+		}
+
 		if err := api.DeleteSkill(c.Request.Context(), existing.ID); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return

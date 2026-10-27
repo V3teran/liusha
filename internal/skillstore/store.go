@@ -33,6 +33,34 @@ func (s *Store) GetByCode(ctx context.Context, code string) (Skill, error) {
 	return s.scanOne(s.pool.QueryRow(ctx, q, code))
 }
 
+// buildWhere 构建 List/Count 共用的 WHERE 与参数（单一口径：分页 total 与列表
+// 必须一致）。Search 覆盖 code/name/description——code 是技能寻址键（agent.skills
+// 白名单、前端多选器均展示 code），搜 code 搜不到与模块概念矛盾。
+func (s *Store) buildWhere(p ListParams) (string, []any) {
+	var whereParts []string
+	var args []any
+	argIdx := 1
+
+	if p.Category != "" {
+		whereParts = append(whereParts, fmt.Sprintf("category=$%d", argIdx))
+		args = append(args, p.Category)
+		argIdx++
+	}
+	if p.OnlyEnabled {
+		whereParts = append(whereParts, "enabled=true")
+	}
+	if p.Search != "" {
+		whereParts = append(whereParts, fmt.Sprintf("(code ILIKE $%d OR name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
+		args = append(args, "%"+p.Search+"%")
+		argIdx++
+	}
+	where := ""
+	if len(whereParts) > 0 {
+		where = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+	return where, args
+}
+
 // List 列出 Skill，支持分页和过滤。
 func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
 	var whereParts []string
@@ -50,7 +78,9 @@ func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
 	}
 
 	if p.Search != "" {
-		whereParts = append(whereParts, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx))
+		// code 一并匹配：技能以 code 寻址（agent.skills 白名单、前端多选器均展示 code），
+		// 搜 code 搜不到与模块概念矛盾。与 Count 共用同一 where（分页 total 口径一致）。
+		whereParts = append(whereParts, fmt.Sprintf("(code ILIKE $%d OR name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
 		args = append(args, "%"+p.Search+"%")
 		// argIdx++ 是最后一个参数，无需递增
 	}
@@ -91,35 +121,10 @@ func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
 
 // Count 统计符合条件的 Skill 数量
 func (s *Store) Count(ctx context.Context, p ListParams) (int, error) {
-	var whereParts []string
-	var args []any
-	argIdx := 1
-
-	if p.Category != "" {
-		whereParts = append(whereParts, fmt.Sprintf("category=$%d", argIdx))
-		args = append(args, p.Category)
-		argIdx++
-	}
-
-	if p.OnlyEnabled {
-		whereParts = append(whereParts, "enabled=true")
-	}
-
-	if p.Search != "" {
-		whereParts = append(whereParts, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx))
-		args = append(args, "%"+p.Search+"%")
-	}
-
-	where := ""
-	if len(whereParts) > 0 {
-		where = " WHERE " + strings.Join(whereParts, " AND ")
-	}
-
+	where, args := s.buildWhere(p)
 	q := "SELECT COUNT(*) FROM skill" + where
-
 	var count int
-	err := s.pool.QueryRow(ctx, q, args...).Scan(&count)
-	if err != nil {
+	if err := s.pool.QueryRow(ctx, q, args...).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count skills: %w", err)
 	}
 	return count, nil
