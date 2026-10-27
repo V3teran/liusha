@@ -70,30 +70,22 @@ describe('SkillsPage（技能 CRUD）', () => {
     expect(screen.getByText('内置')).toBeTruthy()
   })
 
-  it('内置技能抽屉：全字段只读、无删除按钮、启用切换后走 updateSkill', async () => {
+  it('内置技能抽屉：可编辑（仅标识符只读、无删除按钮），改名走 updateSkill', async () => {
     const user = userEvent.setup()
-    mUpdate.mockResolvedValue(sk({ enabled: false }))
+    mUpdate.mockResolvedValue(sk())
     renderPage()
     await user.click(await screen.findByRole('button', { name: /BAC 越权检测指南/ }))
     await screen.findByText('基本信息') // 抽屉打开（默认基本信息 tab）
 
-    // 内置：名称只读、无「删除」（后端拒删内置）
-    expect((screen.getByLabelText('名称') as HTMLInputElement).disabled).toBe(true)
+    // 内置技能：标识符只读、无「删除」按钮（内置拒删），其余字段可编辑
+    expect((screen.getByLabelText('标识符', { exact: false }) as HTMLInputElement).disabled).toBe(true)
     expect(screen.queryByText('删除')).toBeNull()
+    const name = screen.getByLabelText('名称', { exact: false })
+    expect(name).toBeEnabled()
+    await user.type(name, ' v2')
 
-    // 知识内容 tab 只读展示种子正文
-    await user.click(screen.getByRole('tab', { name: '知识内容' }))
-    const body = await screen.findByDisplayValue(/BAC 指南正文/)
-    expect(body).toHaveValue('# BAC 指南正文')
-    expect(body.disabled).toBe(true)
-
-    // 启用是内置技能唯一可变面（reseed 覆盖其余字段）：切回基本信息 → 切换 → 保存 → 只提交 enabled
-    await user.click(screen.getByRole('tab', { name: '基本信息' }))
-    await user.click(screen.getByLabelText('启用'))
     await user.click(screen.getByText('保存'))
-    await waitFor(() => expect(mUpdate).toHaveBeenCalled())
-    expect(mUpdate.mock.calls[0][0]).toBe('bac')
-    expect(mUpdate.mock.calls[0][1]).toEqual({ enabled: false })
+    await waitFor(() => expect(mUpdate).toHaveBeenCalledWith('bac', { name: 'BAC 越权检测指南 v2' }))
   })
 
   it('自建技能抽屉：可编辑 + 删除走 confirm 后 deleteSkill', async () => {
