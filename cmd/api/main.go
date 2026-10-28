@@ -222,7 +222,7 @@ func main() {
 		llmStore.AsRouterStore(llmKeyCipher),
 		retryOptionsFromConfig(cfg.LLM.Retry))}
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, router: router, findings: findStore, publisher: publisher, control: controlPlaneStore, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
+	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, schedules: cronStore, router: router, findings: findStore, publisher: publisher, control: controlPlaneStore, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
@@ -283,6 +283,8 @@ func main() {
 			UsageLLM:           invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:         toolStore,                    // 会话用量：工具耗时合计
 			ExplorationGraph:   explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
+			Tasks:              taskStore,                    // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
+			TaskDispatch:       adapter,                      // POST /tasks：任务模块「新建任务」批量/定时下发
 			EnableDevAutofill:  envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

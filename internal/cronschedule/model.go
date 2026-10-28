@@ -12,19 +12,21 @@ import (
 
 // CronSchedule 是 cron_schedule 表行的 Go 表示。
 type CronSchedule struct {
-	ID        string
-	CronExpr  string // 标准 5 段 cron（分 时 日 月 周）
-	Payload   []byte // jsonb 原文（[]assignment.Item 的序列化，触发时克隆进新 assignment）
-	Title     string
-	Enabled   bool
-	NextRunAt *time.Time
-	LastRunAt *time.Time
-	CreatedAt time.Time
+	ID          string
+	CronExpr    string // 标准 5 段 cron（分 时 日 月 周）
+	Payload     []byte // jsonb 原文（[]assignment.Item 的序列化，触发时克隆进新 assignment）
+	Title       string
+	Description string // 批次描述（触发时克隆进新 assignment.description；可空）
+	Enabled     bool
+	NextRunAt   *time.Time
+	LastRunAt   *time.Time
+	CreatedAt   time.Time
 }
 
 // NewParams 是 Store.Create 的入参。
 type NewParams struct {
-	CronExpr string
-	Items    []assignment.Item
-	Title    string
+	CronExpr    string
+	Items       []assignment.Item
+	Title       string
+	Description string
 }

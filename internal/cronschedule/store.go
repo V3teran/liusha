@@ -22,7 +22,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, cron_expr, payload, title, enabled, next_run_at, last_run_at, created_at"
+const colsSelect = "id, cron_expr, payload, title, description, enabled, next_run_at, last_run_at, created_at"
 
 const (
 	defaultListLimit = 20
@@ -56,10 +56,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (CronSchedule, error) {
 		return CronSchedule{}, fmt.Errorf("marshal cron_schedule payload: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO cron_schedule (cron_expr, payload, title, next_run_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO cron_schedule (cron_expr, payload, title, description, next_run_at)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING `+colsSelect,
-		p.CronExpr, payload, p.Title, next)
+		p.CronExpr, payload, p.Title, p.Description, next)
 	var c CronSchedule
 	if err := scan(row, &c); err != nil {
 		return CronSchedule{}, fmt.Errorf("create cron_schedule: %w", err)
@@ -157,7 +157,7 @@ func (s *Store) MarkFired(ctx context.Context, id string, firedAt time.Time) err
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, c *CronSchedule) error {
-	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title,
+	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title, &c.Description,
 		&c.Enabled, &c.NextRunAt, &c.LastRunAt, &c.CreatedAt); err != nil {
 		return err
 	}
