@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Search } from 'lucide-react'
 import type { TrafficFilters } from '@/api/types'
 import { cn } from '@/lib/utils'
@@ -38,6 +38,21 @@ function isoToLocal(iso: string): string {
  * TrafficFilterBar - 流量筛选栏
  */
 export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, trailing }: TrafficFilterBarProps) {
+  // 搜索框本地态 + 300ms 防抖：search 每键击直写 URL 会连环发请求（流量表是全系统增长最快的表），
+  // 对齐 LlmAuditSearchBar 的防抖口径。外部变化（清空筛选/回退）即时回填本地态。
+  const [localSearch, setLocalSearch] = useState(filters.search)
+  useEffect(() => {
+    setLocalSearch(filters.search)
+  }, [filters.search])
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== filters.search) {
+        onChange({ ...filters, search: localSearch })
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [localSearch, filters, onChange])
+
   const hasFilter = !!(
     filters.method ||
     filters.contentType ||
@@ -106,8 +121,8 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
         <input
           type="text"
-          value={filters.search}
-          onChange={(e) => onChange({ ...filters, search: e.target.value })}
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.target.value)}
           placeholder="搜索主机、URL（* 通配）"
           className={cn(inputClass, 'w-80 pl-10')}
           aria-label="搜索主机或 URL（支持 * 通配）"
