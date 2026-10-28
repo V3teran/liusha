@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom'
 import type { TrafficConsumer, TrafficDetail } from '@/api/types'
+import { Badge } from '@/components/ui/badge'
+import { fullTime } from '@/lib/format'
+import { methodColor, statusColor } from '@/lib/httpStatus'
 import { RawMessageBlock } from './RawMessageBlock'
 
 interface TrafficDetailPaneProps {
@@ -35,8 +38,9 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
 }
 
 // 流量详情面板（Burp 式）：按需出现在列表下方，展示单条完整流量。仅在选中某行后由页面挂载。
-// 顶部一次性呈现 method/status/url/耗时/时间 + 关闭按钮；其下为消费任务 chip 列表（M:N，空则隐藏）；
-// 再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。无重复元素。
+// 顶部元信息行（#序号 · 方法 · 状态 · URL · 时间 + 关闭按钮）让详情区自明「我在看哪条」——
+// 翻页/换筛选后选中行不在本页时（孤儿报文场景）仍可辨认，列表滚动后选中行滚出视口同理。
+// 其下为消费任务 chip 列表（M:N，空则隐藏）；再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。
 export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDetailPaneProps) {
   if (loading) {
     return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -51,14 +55,29 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* URL 那一行与顶部状态色带均已删除。关闭按钮独占一条右对齐细行（不再绝对定位悬浮，
-          避免与下方响应块表头的复制按钮重叠）；Esc 亦可关闭。 */}
-      <div className="flex flex-shrink-0 justify-end px-3 pt-2">
+      {/* 元信息行：详情区自明条目身份（孤儿报文场景下仍可辨认）；关闭按钮同行右对齐，Esc 亦可关闭。 */}
+      <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-4 py-2">
+        <span className="flex-shrink-0 font-mono text-xs tabular-nums text-muted opacity-70">#{detail.id}</span>
+        <Badge dot={false} color={methodColor(detail.method)}>
+          {detail.method}
+        </Badge>
+        <span
+          className="flex-shrink-0 font-mono text-sm font-semibold tabular-nums"
+          style={{ color: statusColor(detail.status_code) }}
+        >
+          {detail.status_code || '—'}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-text" title={detail.url || detail.path}>
+          {detail.url || detail.path || '—'}
+        </span>
+        <span className="flex-shrink-0 font-mono text-xs text-muted" title={fullTime(detail.captured_at)}>
+          {fullTime(detail.captured_at)}
+        </span>
         <button
           type="button"
           onClick={onClose}
           aria-label="关闭详情"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <span aria-hidden>✕</span>
         </button>

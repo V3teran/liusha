@@ -10,14 +10,14 @@ DELETE FROM proxy_traffic WHERE host IN ('seed.shop.local', 'seed.api.local', 's
 
 -- 1) assignment + 2 个 task（passive 消费方）+ 绑定会话（chip 跳转目标）。固定 UUID（5eed 前缀，
 -- 十六进制合法字符 5/e/e/d 拼读近似 "seed"），ON CONFLICT 跳过重建，避免重灌攒出多组重复行。
-INSERT INTO assignment (id, source, scenario_id, title, payload)
-VALUES ('5eed0000-0000-0000-0000-000000000001'::uuid, 'auto', 'api-pentest', 'seed 流量演示', '[]'::jsonb)
+INSERT INTO assignment (id, source, title, payload)
+VALUES ('5eed0000-0000-0000-0000-000000000001'::uuid, 'auto', 'seed 流量演示', '[]'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO task (id, assignment_id, scenario_id, target_host, status, brief)
+INSERT INTO task (id, assignment_id, target_host, status, brief)
 VALUES
-  ('5eed0000-0000-0000-0000-000000000002'::uuid, '5eed0000-0000-0000-0000-000000000001'::uuid, 'api-pentest', 'seed.shop.local', 'active', 'seed'),
-  ('5eed0000-0000-0000-0000-000000000003'::uuid, '5eed0000-0000-0000-0000-000000000001'::uuid, 'api-pentest', 'seed.api.local', 'completed', 'seed')
+  ('5eed0000-0000-0000-0000-000000000002'::uuid, '5eed0000-0000-0000-0000-000000000001'::uuid, 'seed.shop.local', 'active', 'seed'),
+  ('5eed0000-0000-0000-0000-000000000003'::uuid, '5eed0000-0000-0000-0000-000000000001'::uuid, 'seed.api.local', 'completed', 'seed')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO conversation (id, title, task_id)
@@ -74,17 +74,33 @@ DELETE FROM proxy_traffic WHERE host = 'seed.bulk.local';
 INSERT INTO proxy_traffic (host, method, scheme, url, path, status_code, resp_len, content_type, http_version, request_raw, response_raw)
 SELECT
   'seed.bulk.local',
-  (ARRAY['GET','POST','PUT','DELETE'])[1 + (n % 4)],
+  m.method,
   'https',
-  'https://seed.bulk.local/api/items/' || n,
-  '/api/items/' || n,
-  (ARRAY[200,201,400,404,500])[1 + (n % 5)],
-  40 + (n % 200),
+  'https://seed.bulk.local/api/items/' || gs.n,
+  '/api/items/' || gs.n,
+  m.status,
+  40 + (gs.n % 200),
   'application/json',
   'HTTP/1.1',
-  convert_to(E'GET /api/items/' || n || E' HTTP/1.1\r\nHost: seed.bulk.local\r\n\r\n', 'UTF8'),
-  convert_to(E'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":' || n || E'}', 'UTF8')
-FROM generate_series(1, 120) AS n;
+  -- 请求行与 method 一致；POST/PUT 携带 Content-Type + JSON body（演示详情页「请求美化」）
+  CASE m.method
+    WHEN 'POST' THEN convert_to(E'POST /api/items/' || gs.n || E' HTTP/1.1\r\nHost: seed.bulk.local\r\nContent-Type: application/json\r\n\r\n{"name":"item-' || gs.n || E'"}', 'UTF8')
+    WHEN 'PUT' THEN convert_to(E'PUT /api/items/' || gs.n || E' HTTP/1.1\r\nHost: seed.bulk.local\r\nContent-Type: application/json\r\n\r\n{"name":"item-' || gs.n || E'-renamed"}', 'UTF8')
+    ELSE convert_to(m.method || E' /api/items/' || gs.n || E' HTTP/1.1\r\nHost: seed.bulk.local\r\n\r\n', 'UTF8')
+  END,
+  -- 响应状态行与 status_code 列一致（此前恒写 200 OK）
+  CASE m.status
+    WHEN 200 THEN convert_to(E'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":' || gs.n || E',"name":"item-' || gs.n || E'"}', 'UTF8')
+    WHEN 201 THEN convert_to(E'HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nLocation: /api/items/' || gs.n || E'\r\n\r\n{"id":' || gs.n || E',"created":true}', 'UTF8')
+    WHEN 400 THEN convert_to(E'HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{"error":"invalid payload"}', 'UTF8')
+    WHEN 404 THEN convert_to(E'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n{"error":"not found"}', 'UTF8')
+    ELSE convert_to(E'HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\n\r\n{"error":"unexpected error"}', 'UTF8')
+  END
+FROM generate_series(1, 120) AS gs(n)
+CROSS JOIN LATERAL (
+  SELECT (ARRAY['GET','POST','PUT','DELETE'])[1 + (gs.n % 4)] AS method,
+         (ARRAY[200,201,400,404,500])[1 + (gs.n % 5)] AS status
+) m;
 
 COMMIT;
 
