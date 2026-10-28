@@ -135,6 +135,13 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 	}
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
+	if err != nil && strings.Contains(string(runOut), "already in use") {
+		// 同名容器冲突（典型：runner 重启后 warm pool 固定名容器残留，新进程内存态为空
+		// 直接 docker run 撞名）→ 强删重建一次。命名单例是可弃热备（无持久状态，
+		// SoftReset 负责借出前清理），收养不如重建稳；成本 ≈ 一次容器冷启。
+		_ = exec.CommandContext(ctx, bin, "rm", "-f", name).Run()             // #nosec G204 // 同上
+		runOut, err = exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // 同上
+	}
 	if err != nil {
 		return nil, fmt.Errorf("docker run %s: %w: %s", name, err, strings.TrimSpace(string(runOut)))
 	}

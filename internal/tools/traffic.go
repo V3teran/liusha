@@ -7,9 +7,42 @@ import (
 	"strings"
 	"time"
 
+	"strconv"
+
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/traffic"
 )
+
+// ─── 流量记录的自描述 id ─────────────────────────────────────────────────────
+//
+// agent_traffic 与 proxy_traffic 是两张独立自增表，裸数字 id 跨表撞号（实测两表
+// max 同号共存）。工具边界上的流量 id 一律为「来源前缀化」的字符串——
+// "proxy:126" / "agent:94"：list_traffic 返回它，view_traffic 解析它并**严格路由**
+// 到对应表，不做任何跨表回退猜测。正确性由数据形状保证，不依赖调用方（LLM）
+// 记得传 source。
+const (
+	trafficSourceProxy = "proxy"
+	trafficSourceAgent = "agent"
+)
+
+// qualifyTrafficRef 构造带来源前缀的流量引用 id。
+func qualifyTrafficRef(source string, id int64) string {
+	return source + ":" + strconv.FormatInt(id, 10)
+}
+
+// parseTrafficRef 解析带来源前缀的流量引用 id。裸数字（无前缀）一律拒绝——
+// 跨表撞号下裸 id 语义不明，宁报错不可错配。
+func parseTrafficRef(ref string) (source string, id int64, err error) {
+	src, num, ok := strings.Cut(strings.TrimSpace(ref), ":")
+	if !ok || (src != trafficSourceProxy && src != trafficSourceAgent) {
+		return "", 0, fmt.Errorf("流量 id 须为 %q 或 %q 形式（list_traffic 返回的 id），得到 %q", "proxy:<id>", "agent:<id>", ref)
+	}
+	id, e := strconv.ParseInt(num, 10, 64)
+	if e != nil || id <= 0 {
+		return "", 0, fmt.Errorf("流量 id 数字非法: %q", ref)
+	}
+	return src, id, nil
+}
 
 // ─── list_traffic ────────────────────────────────────────────────────────────
 
@@ -64,7 +97,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 
 	type row struct {
-		ID         int64     `json:"id"`
+		ID         string    `json:"id"` // 自描述引用 id："proxy:126" / "agent:94"（跨表撞号免疫）
 		Source     string    `json:"source"`
 		Method     string    `json:"method"`
 		Path       string    `json:"path"`
@@ -92,7 +125,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		if err == nil {
 			for _, s := range list {
 				rows = append(rows, row{
-					ID: s.ID, Source: "agent",
+					ID: qualifyTrafficRef(trafficSourceAgent, s.ID), Source: trafficSourceAgent,
 					Method: s.Method, Path: s.Path, URL: s.URL,
 					StatusCode: s.StatusCode, Identity: s.Identity, Tool: s.Tool,
 					CreatedAt: s.CreatedAt,
@@ -114,7 +147,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		if err == nil {
 			for _, s := range list {
 				rows = append(rows, row{
-					ID: s.ID, Source: "proxy",
+					ID: qualifyTrafficRef(trafficSourceProxy, s.ID), Source: trafficSourceProxy,
 					Method: s.Method, Path: s.Path, URL: s.URL,
 					StatusCode: s.StatusCode,
 					CreatedAt:  s.CapturedAt,
@@ -135,8 +168,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 var viewTrafficSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "id":     {"type": "integer", "description": "流量记录 ID（来自 list_traffic）。"},
-    "source": {"type": "string", "enum": ["agent", "proxy"], "description": "流量来源，不填自动探测。"}
+    "id": {"type": "string", "description": "流量记录引用 id（list_traffic 返回的 \"proxy:123\" / \"agent:94\" 形式，自带来源前缀）。"}
   },
   "required": ["id"]
 }`)
@@ -161,48 +193,61 @@ func (t *viewTrafficTool) Schema() json.RawMessage { return viewTrafficSchema }
 
 func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	var a struct {
-		ID     int64  `json:"id"`
-		Source string `json:"source"`
+		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return registry.ToolResult{Error: "view_traffic: 解析参数失败: " + err.Error()}, nil
 	}
 
-	// try agent first, then proxy
-	if a.Source != "proxy" && t.deps.AgentStore != nil {
-		rec, err := t.deps.AgentStore.GetByID(ctx, a.ID)
-		if err == nil {
-			b, _ := json.MarshalIndent(rec, "", "  ")
-			return registry.ToolResult{
-				Output: string(b),
-				Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
-					Content: fmt.Sprintf("[agent] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
-			}, nil
-		}
+	// id 自带来源前缀（list_traffic 返回 "proxy:126" / "agent:94"），据此严格路由到
+	// 对应表——不做跨表回退猜测（两表 id 独立自增会撞号，回退顺序是错配的根源）。
+	source, id, perr := parseTrafficRef(a.ID)
+	if perr != nil {
+		return registry.ToolResult{Error: "view_traffic: " + perr.Error()}, nil
 	}
-	if a.Source != "agent" && t.deps.ProxyStore != nil {
-		rec, err := t.deps.ProxyStore.GetByID(ctx, a.ID)
-		if err == nil {
-			type proxyView struct {
-				ID          int64  `json:"id"`
-				Method      string `json:"method"`
-				URL         string `json:"url"`
-				StatusCode  int    `json:"status_code"`
-				RequestRaw  string `json:"request_raw"`
-				ResponseRaw string `json:"response_raw"`
-			}
-			v := proxyView{
-				ID: rec.ID, Method: rec.Method, URL: rec.URL, StatusCode: rec.StatusCode,
-				RequestRaw:  string(rec.RequestRaw),
-				ResponseRaw: string(rec.ResponseRaw),
-			}
-			b, _ := json.MarshalIndent(v, "", "  ")
-			return registry.ToolResult{
-				Output: string(b),
-				Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
-					Content: fmt.Sprintf("[proxy] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
-			}, nil
+
+	switch source {
+	case trafficSourceAgent:
+		if t.deps.AgentStore == nil {
+			return registry.ToolResult{Error: "view_traffic: agent 流量存储未装配"}, nil
 		}
+		rec, err := t.deps.AgentStore.GetByID(ctx, id)
+		if err != nil {
+			return registry.ToolResult{Error: fmt.Sprintf("view_traffic: agent 流量 %s 不存在", a.ID)}, nil
+		}
+		b, _ := json.MarshalIndent(rec, "", "  ")
+		return registry.ToolResult{
+			Output: string(b),
+			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
+				Content: fmt.Sprintf("[agent] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
+		}, nil
+
+	default: // trafficSourceProxy
+		if t.deps.ProxyStore == nil {
+			return registry.ToolResult{Error: "view_traffic: proxy 流量存储未装配"}, nil
+		}
+		rec, err := t.deps.ProxyStore.GetByID(ctx, id)
+		if err != nil {
+			return registry.ToolResult{Error: fmt.Sprintf("view_traffic: proxy 流量 %s 不存在", a.ID)}, nil
+		}
+		type proxyView struct {
+			ID          int64  `json:"id"`
+			Method      string `json:"method"`
+			URL         string `json:"url"`
+			StatusCode  int    `json:"status_code"`
+			RequestRaw  string `json:"request_raw"`
+			ResponseRaw string `json:"response_raw"`
+		}
+		v := proxyView{
+			ID: rec.ID, Method: rec.Method, URL: rec.URL, StatusCode: rec.StatusCode,
+			RequestRaw:  string(rec.RequestRaw),
+			ResponseRaw: string(rec.ResponseRaw),
+		}
+		b, _ := json.MarshalIndent(v, "", "  ")
+		return registry.ToolResult{
+			Output: string(b),
+			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
+				Content: fmt.Sprintf("[proxy] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
+		}, nil
 	}
-	return registry.ToolResult{Error: fmt.Sprintf("view_traffic: 未找到 id=%d 的流量记录", a.ID)}, nil
 }

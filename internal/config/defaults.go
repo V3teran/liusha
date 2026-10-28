@@ -260,9 +260,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	if c.QueueAgentWeight == 0 {
 		c.QueueAgentWeight = 5
 	}
-	if c.PerHostConcurrency == 0 {
-		c.PerHostConcurrency = 2 // 默认同 host 并发 ≤ 2；显式设 -1 可关限速
-	}
 	if c.MaxStepsPerTask == 0 {
 		c.MaxStepsPerTask = 1000 // 默认单任务最多执行 1000 步；显式设 -1 可无限制
 	}

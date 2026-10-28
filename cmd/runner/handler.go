@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"time"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
-	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
@@ -50,7 +48,6 @@ type handler struct {
 	proxyStore *traffic.ProxyStore
 	agentStore *traffic.AgentStore
 	calls      *llminvocation.Store
-	hostSem    *ratelimit.HostSemaphore
 	settings   *settingstore.Store
 	runnerCfg  config.RunnerConfig
 	sandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
@@ -244,22 +241,6 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			h.logger.Warn().Err(err).Str("agent_run_id", p.AgentRunID).Msg("agent_run 置 aborted 失败")
 		}
 		return asynq.SkipRetry
-	}
-
-	if h.hostSem != nil {
-		if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.TargetHost != "" {
-			rel, ok, semErr := h.hostSem.Acquire(ctx, tk.TargetHost)
-			switch {
-			case semErr != nil:
-				h.logger.Warn().Err(semErr).Str("host", tk.TargetHost).Msg("per-host 信号量 acquire 失败，放行不阻塞")
-			case !ok:
-				h.logger.Info().Str("host", tk.TargetHost).Str("task_id", p.TaskID).
-					Msg("per-host 并发已达上限，退避重试")
-				return fmt.Errorf("per-host 并发上限（host=%s），退避重试", tk.TargetHost)
-			default:
-				defer rel()
-			}
-		}
 	}
 
 	if err := h.agentRuns.SetRunning(ctx, p.AgentRunID); err != nil {

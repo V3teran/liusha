@@ -204,10 +204,6 @@ type RunnerConfig struct {
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
 
-	// per-host 并发上限（§4.3）：同 host 同时运行的 task 数 ≤ 此值，防同目标叠打触发 WAF 封 IP。
-	// ≤ 0 视为不限制。默认 2（渗透场景保守值）。仅对有 target_host 的 task 生效（active planner
-	// host 空时放行——真正打 host 的是其 spawn 的子任务）。
-	PerHostConcurrency int `mapstructure:"per_host_concurrency"`
 
 	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
 	// 达到此上限时任务自动终止，防止无限循环。≤ 0 视为无限制。默认 1000。

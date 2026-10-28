@@ -100,6 +100,17 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 // M:N 语义（v0100+）：一条流量可被多个 task 复用，故不再是「未消费才领」的排他更新，而是
 // 「本 task 尚未关联过就领」。用 NOT EXISTS 排掉本 task 已关联的，FOR UPDATE SKIP LOCKED
 // 锁定候选行防跨实例重复领取；ON CONFLICT DO NOTHING 兜底并发下的主键冲突（幂等）。
+// ClaimUnconsumedByHost 为 passive task 领取某 host 的未消费流量。
+//
+// 「未消费」语义：未被任何 **活跃或已完成** 的 task 认领过——
+//   - 被活跃 task 认领 → 不可再领（防并发重复分析）；
+//   - 被已完成 task 认领 → 视为已分析，不再重领（防旧流量反复重分析 + 新流量饿死：
+//     旧实现的 NOT EXISTS 只查同 task，每批都把 host 历史流量整批重领，
+//     ASC LIMIT 之下新流量永远排不进分析批次）；
+//   - 仅被 aborted/failed task 认领 → 可回收重分析（失败批的流量不丢）。
+//
+// ORDER BY captured_at ASC：最旧的未消费流量优先。FOR UPDATE SKIP LOCKED + ON CONFLICT
+// 保证跨实例并发领取不重不漏。
 func (s *ProxyStore) ClaimUnconsumedByHost(ctx context.Context, taskID, host string, limit int) (int64, error) {
 	if limit <= 0 {
 		limit = 20
@@ -110,7 +121,10 @@ func (s *ProxyStore) ClaimUnconsumedByHost(ctx context.Context, taskID, host str
 		WHERE p.host=$2
 		  AND NOT EXISTS (
 		      SELECT 1 FROM traffic_task tt
-		      WHERE tt.traffic_id = p.id AND tt.task_id = $1::uuid)
+		      JOIN task t ON t.id = tt.task_id
+		      WHERE tt.traffic_id = p.id
+		        AND tt.task_id <> $1::uuid
+		        AND t.status IN ('active', 'completed'))
 		ORDER BY p.captured_at ASC, p.id ASC
 		LIMIT $3
 		FOR UPDATE OF p SKIP LOCKED
