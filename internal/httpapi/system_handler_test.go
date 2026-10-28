@@ -43,7 +43,7 @@ func (f *fakeSettings) SaveProxyFilter(_ context.Context, v settingstore.ProxyFi
 // TestGetCompactionSettings_ReturnsGroup：GET /settings/compaction 回 compaction 组当前旋钮。
 func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
 	fs := &fakeSettings{compaction: settingstore.CompactionSettings{
-		TriggerRatio: 0.8, TrailingBudgetRatio: 0.5, CompactorTimeoutSeconds: 30,
+		PlannerWindowMessages: 20, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 10,
 	}}
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
@@ -53,12 +53,12 @@ func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
 		t.Fatalf("status=%d", code)
 	}
 	r, _ := body["compaction"].(map[string]any)
-	if r["trigger_ratio"] != 0.8 || r["compactor_timeout_seconds"] != float64(30) {
+	if r["planner_window_messages"] != float64(20) || r["monitor_window_messages"] != float64(10) {
 		t.Fatalf("compaction 组未回传: %v", body["compaction"])
 	}
 }
 
-// TestPutCompactionSettings_ValidationRejects：比例越界或超时非正 → 400 中文。
+// TestPutCompactionSettings_ValidationRejects：窗口条数非正 → 400 中文。
 func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
 	srv := newTestServer(t, Deps{Settings: &fakeSettings{}})
 	defer srv.Close()
@@ -67,10 +67,10 @@ func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"trigger_ratio 越界", map[string]any{"trigger_ratio": 1.5, "trailing_budget_ratio": 0.5, "compactor_timeout_seconds": 30}},
-		{"trigger_ratio<=0", map[string]any{"trigger_ratio": 0, "trailing_budget_ratio": 0.5, "compactor_timeout_seconds": 30}},
-		{"trailing 越界", map[string]any{"trigger_ratio": 0.8, "trailing_budget_ratio": 2, "compactor_timeout_seconds": 30}},
-		{"timeout<=0", map[string]any{"trigger_ratio": 0.8, "trailing_budget_ratio": 0.5, "compactor_timeout_seconds": 0}},
+		{"planner 窗口<=0", map[string]any{"planner_window_messages": 0, "executor_window_messages": 15, "evaluator_window_messages": 10, "monitor_window_messages": 10}},
+		{"executor 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": -1, "evaluator_window_messages": 10, "monitor_window_messages": 10}},
+		{"evaluator 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": 15, "evaluator_window_messages": 0, "monitor_window_messages": 10}},
+		{"monitor 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": 15, "evaluator_window_messages": 10}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,13 +92,15 @@ func TestPutCompactionSettings_Wires(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", map[string]any{
-		"trigger_ratio": 0.75, "trailing_budget_ratio": 0.4, "compactor_timeout_seconds": 45,
+		"planner_window_messages": 22, "executor_window_messages": 16,
+		"evaluator_window_messages": 11, "monitor_window_messages": 9,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fs.savedCompaction == nil || fs.savedCompaction.TriggerRatio != 0.75 ||
-		fs.savedCompaction.TrailingBudgetRatio != 0.4 || fs.savedCompaction.CompactorTimeoutSeconds != 45 {
+	if fs.savedCompaction == nil || fs.savedCompaction.PlannerWindowMessages != 22 ||
+		fs.savedCompaction.ExecutorWindowMessages != 16 || fs.savedCompaction.EvaluatorWindowMessages != 11 ||
+		fs.savedCompaction.MonitorWindowMessages != 9 {
 		t.Fatalf("compaction 未透传: %+v", fs.savedCompaction)
 	}
 }
@@ -112,9 +114,9 @@ func TestPutRuntimeSettings_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"step_timeout<=0", map[string]any{"step_tool_timeout_seconds": 0, "run_tail_bytes": 4096, "findings_limit_in_prompt": 100}},
-		{"tail_bytes<=0", map[string]any{"step_tool_timeout_seconds": 60, "run_tail_bytes": 0, "findings_limit_in_prompt": 100}},
-		{"findings<=0", map[string]any{"step_tool_timeout_seconds": 60, "run_tail_bytes": 4096, "findings_limit_in_prompt": 0}},
+		{"step_tool<=0", map[string]any{"step_tool_timeout_seconds": 0, "step_llm_timeout_seconds": 300, "run_tail_bytes": 4096}},
+		{"step_llm<=0", map[string]any{"step_tool_timeout_seconds": 60, "step_llm_timeout_seconds": 0, "run_tail_bytes": 4096}},
+		{"tail_bytes<=0", map[string]any{"step_tool_timeout_seconds": 60, "step_llm_timeout_seconds": 300, "run_tail_bytes": 0}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,13 +135,13 @@ func TestPutRuntimeSettings_Wires(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/runtime", map[string]any{
-		"step_tool_timeout_seconds": 90, "run_tail_bytes": 8192, "findings_limit_in_prompt": 200,
+		"step_tool_timeout_seconds": 90, "step_llm_timeout_seconds": 240, "run_tail_bytes": 8192,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
 	if fs.savedRuntime == nil || fs.savedRuntime.StepToolTimeoutSeconds != 90 ||
-		fs.savedRuntime.RunTailBytes != 8192 || fs.savedRuntime.FindingsLimitInPrompt != 200 {
+		fs.savedRuntime.StepLLMTimeoutSeconds != 240 || fs.savedRuntime.RunTailBytes != 8192 {
 		t.Fatalf("runtime 未透传: %+v", fs.savedRuntime)
 	}
 }

@@ -24,7 +24,6 @@ import (
 // Engine 是基于 LLM + ReAct 的执行引擎
 type Engine struct {
 	router         *llm.Router
-	findings       FindingLister
 	graph          *explorationgraph.Store // 探索图存储
 	registry       *Registry               // 使用 executor 包的 Registry
 	functionTools  []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
@@ -33,6 +32,7 @@ type Engine struct {
 	charter        string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	complexity     llm.Complexity          // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
 	maxIt          int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	modifierWindow int                     // ReAct 滚动窗口条数（0=使用点回退内置默认 15）
 	brief          string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	agentRunID     string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	checkpointer   core.Checkpointer
@@ -43,18 +43,20 @@ type Engine struct {
 
 // EngineConfig 配置
 type EngineConfig struct {
-	Router         *llm.Router
-	Findings       FindingLister
-	Graph          *explorationgraph.Store
-	Registry       *Registry
-	FunctionTools  []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
-	ToolsManifest  ToolsManifest // 过滤后的 CLI 工具清单
-	Skills         []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
-	SystemPrompt   string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
-	Complexity     string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
-	MaxIterations  int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	Brief          string        // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
-	AgentRunID     string        // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
+	Router        *llm.Router
+	Graph         *explorationgraph.Store
+	Registry      *Registry
+	FunctionTools []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
+	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
+	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
+	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
+	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
+	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	// ModifierWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
+	// 0=内置默认 15——执行工具循环的中档窗口）。
+	ModifierWindow int
+	Brief          string // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
+	AgentRunID     string // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	Checkpointer   core.Checkpointer
 	TraceCollector *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
@@ -66,7 +68,6 @@ type EngineConfig struct {
 func NewEngine(cfg EngineConfig) *Engine {
 	return &Engine{
 		router:         cfg.Router,
-		findings:       cfg.Findings,
 		graph:          cfg.Graph,
 		registry:       cfg.Registry,
 		thoughts:       cfg.Thoughts,
@@ -76,6 +77,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		charter:        cfg.SystemPrompt,
 		complexity:     llm.ParseComplexity(cfg.Complexity),
 		maxIt:          cfg.MaxIterations,
+		modifierWindow: cfg.ModifierWindow,
 		brief:          cfg.Brief,
 		agentRunID:     cfg.AgentRunID,
 		checkpointer:   cfg.Checkpointer,

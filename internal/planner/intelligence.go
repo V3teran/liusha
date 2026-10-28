@@ -28,9 +28,12 @@ type Intelligence struct {
 	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	thoughts   reasoning.Tap  // 思考流出口（认知循环注入；nil=不流式）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	timeout    time.Duration  // 单次规划超时基准（0=不设限；默认 3 分钟）
-	budget     time.Duration  // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
-	roster     []AgentBrief   // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
+	// messageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
+	// 0=用 NewDefaultModifierChain 内置默认 20）。
+	messageWindow int
+	timeout       time.Duration // 单次规划超时基准（0=不设限；默认 3 分钟）
+	budget        time.Duration // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
+	roster        []AgentBrief  // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
 	// insightsDigest 是跨 agent 经验黑板的摘要出口（cognition 注入闭包；
 	// nil=无黑板）。黑板的核心价值是规划者消费执行者的经验——没有它，
@@ -82,6 +85,12 @@ func (i *Intelligence) WithSystemPrompt(charter string) *Intelligence {
 // WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
 func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
 	i.maxIt = n
+	return i
+}
+
+// WithMessageWindow 注入 ReAct 滚动窗口条数（系统配置 compaction 组；0=内置默认 20）。
+func (i *Intelligence) WithMessageWindow(n int) *Intelligence {
+	i.messageWindow = n
 	return i
 }
 
@@ -223,7 +232,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MaxTokens:                  4000,
-		MessageModifierChain:       runtime.NewDefaultModifierChain(20),
+		MessageModifierChain:       runtime.NewDefaultModifierChain(i.messageWindow),
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",

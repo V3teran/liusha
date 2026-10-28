@@ -4,7 +4,7 @@ import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
 import { LlmAuditSearchBar } from '@/features/llm-audit/LlmAuditSearchBar'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
-import { useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
+import { useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/llm-audit/useLlmAuditQueries'
 import type { LLMInvocationSummary } from '@/api/types'
 import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -29,6 +29,11 @@ export function LlmAuditPage() {
   // 50 条/页时会显示「调用 50」而分页器写「共 197 条」，同屏自相矛盾。
   const statQuery = useLlmAuditStat({ search: query, ...filters })
   const stats = statQuery.data
+
+  // 单步 LLM 看门狗（runtime 配置现读）：审计页「超时」判定与 runner 执行同源——
+  // 此前前端硬编码 300s，后端调看门狗会让超时判定全错。
+  const runtimeQuery = useRuntimeSettings()
+  const llmTimeoutMs = runtimeQuery.data ? runtimeQuery.data.step_llm_timeout_seconds * 1000 : undefined
 
   const detailQuery = useLlmInvocationDetail(selectedId)
 
@@ -117,6 +122,7 @@ export function LlmAuditPage() {
                 loading={searchQueryResult.isPending}
                 hasFilter={hasFilter || !!query}
                 showProvider={showProvider}
+                llmTimeoutMs={llmTimeoutMs}
                 onRowClick={openDetail}
               />
             </div>
@@ -129,6 +135,7 @@ export function LlmAuditPage() {
         detail={detailQuery.data ?? null}
         loading={detailQuery.isPending && selectedId != null}
         error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
+        llmTimeoutMs={llmTimeoutMs}
         onOpenChange={setDrawerOpen}
       />
     </div>

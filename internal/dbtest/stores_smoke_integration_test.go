@@ -126,10 +126,10 @@ func TestStoresSchemaSmoke(t *testing.T) {
 
 	// system_setting（group_key CHECK: compaction/runtime/proxy_filter）
 	set := settingstore.New(pool, smokeCache(t))
-	if err := set.SaveRuntime(ctx, settingstore.RuntimeSettings{FindingsLimitInPrompt: 20}); err != nil {
+	if err := set.SaveRuntime(ctx, settingstore.RuntimeSettings{StepLLMTimeoutSeconds: 240}); err != nil {
 		t.Fatalf("setting save runtime: %v", err)
 	}
-	if got, err := set.GetRuntimeRaw(ctx); err != nil || got.FindingsLimitInPrompt != 20 {
+	if got, err := set.GetRuntimeRaw(ctx); err != nil || got.StepLLMTimeoutSeconds != 240 {
 		t.Fatalf("setting get runtime: %v %+v", err, got)
 	}
 

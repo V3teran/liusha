@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/client'
+import { getRuntimeSettings } from '@/api/settings'
 import type { LLMInvocationFilters } from '@/api/types'
 
 // LLM 审计页数据层：统一走 React Query。
@@ -13,6 +14,18 @@ const llmAuditKeys = {
     ['llm-audit', 'search', search, filters, page, size] as const,
   stat: (search: string, filters: LLMInvocationFilters) =>
     ['llm-audit', 'stat', search, filters] as const,
+  runtime: () => ['settings', 'runtime'] as const,
+}
+
+/** 单步 LLM 看门狗（runtime.step_llm_timeout_seconds）——审计页超时判定的权威值。
+ * 与系统配置页共享同一 query key：那边改完这边失效即重读。
+ */
+export function useRuntimeSettings() {
+  return useQuery({
+    queryKey: llmAuditKeys.runtime(),
+    queryFn: getRuntimeSettings,
+    staleTime: 60_000,
+  })
 }
 
 /** 全局搜索查询（不限定 task_id，支持搜索 conversation_id/assignment_id）。

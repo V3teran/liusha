@@ -16,6 +16,16 @@ func (h handler) runCognition(
 	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
+	// 系统配置任务开始时现读（多级缓存命中为主）：滚动窗口 / 工具钳制 / 尾部保留
+	// 热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，不阻塞任务。
+	comp, compErr := h.settings.Compaction(ctx)
+	if compErr != nil {
+		h.logger.Warn().Err(compErr).Msg("读 compaction 配置失败，滚动窗口用内置默认")
+	}
+	rt, rtErr := h.settings.Runtime(ctx)
+	if rtErr != nil {
+		h.logger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
+	}
 	return cognition.Run(ctx, &cognition.Deps{
 		Graph:        h.graph,
 		EventBus:     h.eventBus,
@@ -42,6 +52,17 @@ func (h handler) runCognition(
 		AgentStore: h.agentStore,
 
 		MaxStepsPerTask: h.runnerCfg.MaxStepsPerTask,
+
+		Windows: cognition.MessageWindows{
+			Planner:   comp.PlannerWindowMessages,
+			Executor:  comp.ExecutorWindowMessages,
+			Evaluator: comp.EvaluatorWindowMessages,
+			Monitor:   comp.MonitorWindowMessages,
+		},
+		ToolLimits: cognition.ToolLimits{
+			StepToolTimeoutSeconds: rt.StepToolTimeoutSeconds,
+			RunTailBytes:           rt.RunTailBytes,
+		},
 
 		Conversations:  h.conversations,
 		EventPublisher: h.eventPublisher,

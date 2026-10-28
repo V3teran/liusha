@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  LLM_TIMEOUT_MS,
+  DEFAULT_LLM_TIMEOUT_MS,
   durationLevel,
   isTimeout,
   latencyLevel,
@@ -52,7 +52,7 @@ describe('latencyLevel', () => {
 
 describe('isTimeout', () => {
   it('达到看门狗上限即判为超时打点', () => {
-    expect(isTimeout({ latency_ms: LLM_TIMEOUT_MS })).toBe(true)
+    expect(isTimeout({ latency_ms: DEFAULT_LLM_TIMEOUT_MS })).toBe(true)
     expect(isTimeout({ latency_ms: 300_003 })).toBe(true) // 真实数据里的超时值
     expect(isTimeout({ latency_ms: 8_000 })).toBe(false)
   })

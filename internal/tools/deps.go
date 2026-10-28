@@ -9,7 +9,6 @@ package tools
 import (
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
@@ -25,7 +24,6 @@ type Deps struct {
 	Host       string
 
 	Tasks      *task.Store
-	Findings   *finding.Store
 	Corpus     *corpus.Store
 	Embedder   corpus.Embedder // 可 nil → 退化为纯 sparse 检索
 	Reranker   corpus.Reranker
@@ -35,4 +33,11 @@ type Deps struct {
 	Creds      credential.Provider
 	Sandbox    sandbox.Client // Spawn 后注入，可 nil
 	Skills     skill.Reader   // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+
+	// StepToolTimeoutSeconds 是 run_command 的超时钳制上限秒（系统配置 runtime 组，
+	// 任务开始时快照；0=内置默认 120s）。注册表级超时与 LLM 自传 timeout_seconds
+	// 的钳制上界同源，杜绝「配置 1800 实际 120」的三重失效。
+	StepToolTimeoutSeconds int
+	// RunTailBytes 是 run_command 输出保留尾部的字节数（0=内置默认 8192）。
+	RunTailBytes int
 }

@@ -17,6 +17,7 @@ interface LlmInvocationDrawerProps {
   detail: LLMInvocationDetail | null
   loading: boolean
   error: string
+  llmTimeoutMs?: number // 单步 LLM 看门狗（runtime 配置现读；超时判定同源）
   onOpenChange: (open: boolean) => void
 }
 
@@ -24,7 +25,7 @@ interface LlmInvocationDrawerProps {
 // messages 是 OpenAI 风格消息数组，按条渲染（role 标签 + 正文）；结构不符时退化为 JSON 展示。
 // 解析逻辑（contentToText/toMsgView/reasoning 提取）已抽到 lib/llmMessage.ts 独立测试；
 // 复制状态机抽到 useCopyToClipboard；重复的「标题+复制按钮+内容」结构抽到 CopySection。
-export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange }: LlmInvocationDrawerProps) {
+export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs, onOpenChange }: LlmInvocationDrawerProps) {
   const { copiedKey, copy } = useCopyToClipboard()
 
   // messages 是「每轮完整重发的对话历史快照」——第 N 次调用的 messages 几乎完整包含第 N-1 次的。
@@ -54,7 +55,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
   const messagesRaw = !inputDelta && rawMessages != null ? JSON.stringify(rawMessages, null, 2) : ''
 
   const { accent: roleColor } = agentAccent(detail?.role)
-  const status = detail ? invocationStatus(detail) : null
+  const status = detail ? invocationStatus(detail, llmTimeoutMs) : null
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -134,10 +135,10 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     <dt className="text-xs text-muted">响应耗时</dt>
                     <dd className="font-mono text-sm text-text">
                       总时长 {humanDuration(detail.latency_ms)}
-                      {isTimeout(detail) ? (
+                      {isTimeout(detail, llmTimeoutMs) ? (
                         <span className="font-semibold text-sev-critical"> · 看门狗超时</span>
                       ) : (
-                        throughputLabel(detail) && ` · ${throughputLabel(detail)}`
+                        throughputLabel(detail, llmTimeoutMs) && ` · ${throughputLabel(detail, llmTimeoutMs)}`
                       )}
                     </dd>
                     {detail.agent_run_id && (

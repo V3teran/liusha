@@ -27,18 +27,65 @@ const (
 	groupProxyFilter = "proxy_filter"
 )
 
-// CompactionSettings 是 agent 会话历史压缩旋钮（对应 config.HistoryCompactConfig 的活字段）。
+// CompactionSettings 是 agent 会话历史压缩旋钮：ReAct 循环用「滚动窗口」压上下文——
+// 每步 Generate 前保留 system + 最近 N 条非系统消息，N 即各角色窗口条数。
+// 窗口越大上下文越完整、token 越贵；按链路特点分角色配置（长推理链窗口大、短裁决链窗口小）。
+// 历史注：本组曾设计为 token 比例触发 + light LLM 蒸馏，该机制未落地；现字段即真实生效的
+// 滚动窗口条数（原装配点硬编码 planner 20 / executor 15 / evaluator·monitor 10，已接线）。
 type CompactionSettings struct {
-	TriggerRatio            float64 `json:"trigger_ratio"`             // 触发阈值占 ContextWindow 比例，(0,1]
-	TrailingBudgetRatio     float64 `json:"trailing_budget_ratio"`     // trailing window 占 ContextWindow 比例，(0,1]
-	CompactorTimeoutSeconds int     `json:"compactor_timeout_seconds"` // 单次蒸馏 LLM 调用超时秒
+	PlannerWindowMessages   int `json:"planner_window_messages"`   // 规划链路滚动窗口条数
+	ExecutorWindowMessages  int `json:"executor_window_messages"`  // 执行链路滚动窗口条数
+	EvaluatorWindowMessages int `json:"evaluator_window_messages"` // 裁决链路滚动窗口条数
+	MonitorWindowMessages   int `json:"monitor_window_messages"`   // 监察链路滚动窗口条数
 }
 
-// RuntimeSettings 是工具运行时 + 沙箱 + 会话的活旋钮集合。
+// normalized 把 0/负值窗口回退到内置默认（DB 旧行是旧字段结构的 JSON，新字段缺失
+// 反序列化即零值——读路径归一保证旧行无需迁移即可用）。
+func (c CompactionSettings) normalized() CompactionSettings {
+	if c.PlannerWindowMessages <= 0 {
+		c.PlannerWindowMessages = 20
+	}
+	if c.ExecutorWindowMessages <= 0 {
+		c.ExecutorWindowMessages = 15
+	}
+	if c.EvaluatorWindowMessages <= 0 {
+		c.EvaluatorWindowMessages = 10
+	}
+	if c.MonitorWindowMessages <= 0 {
+		c.MonitorWindowMessages = 10
+	}
+	return c
+}
+
+// DefaultCompaction 返回内置默认的压缩窗口配置（种子首填用；与 normalized 的兜底一致）。
+func DefaultCompaction() CompactionSettings { return CompactionSettings{}.normalized() }
+
+// RuntimeSettings 是工具运行时的活旋钮集合（对应原 config.Toolruntime/Sandbox/Runner
+// 里的散装字段，收归 DB 热配置；yaml 值仅作种子首填源）。
 type RuntimeSettings struct {
-	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // 单次工具执行兜底超时上限秒
-	RunTailBytes           int `json:"run_tail_bytes"`            // run_command stdout/stderr 截尾字节数
-	FindingsLimitInPrompt  int `json:"findings_limit_in_prompt"`  // agent prompt 注入既有 finding 的 DB 读上限
+	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界，注册表级超时同源）
+	StepLLMTimeoutSeconds  int `json:"step_llm_timeout_seconds"`  // 单步 LLM 看门狗超时秒（挂死的调用即失败；runner 每次调用现读，热改无需重启）
+	RunTailBytes           int `json:"run_tail_bytes"`            // run_command stdout/stderr 保留尾部字节数（输出末段是结果所在，头部横幅/噪音可弃）
+}
+
+// normalized 把 0/负值回退到内置默认（旧行新字段缺失同上，读路径归一免迁移）。
+func (r RuntimeSettings) normalized() RuntimeSettings {
+	if r.StepToolTimeoutSeconds <= 0 {
+		r.StepToolTimeoutSeconds = 1800
+	}
+	if r.StepLLMTimeoutSeconds <= 0 {
+		r.StepLLMTimeoutSeconds = 300
+	}
+	if r.RunTailBytes <= 0 {
+		r.RunTailBytes = 8192
+	}
+	return r
+}
+
+// DefaultRuntime 返回内置默认的工具运行时配置（stepLLMTimeoutSeconds 由调用方传入
+// yaml/启动值作 LLM 看门狗默认，其余字段用内置默认；种子首填用）。
+func DefaultRuntime(stepLLMTimeoutSeconds int) RuntimeSettings {
+	return RuntimeSettings{StepLLMTimeoutSeconds: stepLLMTimeoutSeconds}.normalized()
 }
 
 // ProxyFilterSettings 是代理流量过滤责任链规则（对应 config.ProxyConfig 的过滤字段）。
@@ -124,17 +171,25 @@ func saveGroup[T any](ctx context.Context, pool *pgxpool.Pool, group string, v T
 }
 
 func (s *dbStore) GetCompaction(ctx context.Context) (CompactionSettings, error) {
-	return getGroup[CompactionSettings](ctx, s.pool, groupCompaction)
+	v, err := getGroup[CompactionSettings](ctx, s.pool, groupCompaction)
+	if err != nil {
+		return CompactionSettings{}, err
+	}
+	return v.normalized(), nil
 }
 func (s *dbStore) SaveCompaction(ctx context.Context, v CompactionSettings) error {
-	return saveGroup(ctx, s.pool, groupCompaction, v)
+	return saveGroup(ctx, s.pool, groupCompaction, v.normalized())
 }
 
 func (s *dbStore) GetRuntime(ctx context.Context) (RuntimeSettings, error) {
-	return getGroup[RuntimeSettings](ctx, s.pool, groupRuntime)
+	v, err := getGroup[RuntimeSettings](ctx, s.pool, groupRuntime)
+	if err != nil {
+		return RuntimeSettings{}, err
+	}
+	return v.normalized(), nil
 }
 func (s *dbStore) SaveRuntime(ctx context.Context, v RuntimeSettings) error {
-	return saveGroup(ctx, s.pool, groupRuntime, v)
+	return saveGroup(ctx, s.pool, groupRuntime, v.normalized())
 }
 
 func (s *dbStore) GetProxyFilter(ctx context.Context) (ProxyFilterSettings, error) {

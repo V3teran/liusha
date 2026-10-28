@@ -29,18 +29,18 @@ describe('settings API 客户端', () => {
 
   it('getCompactionSettings 拆出 compaction 快照', async () => {
     const fn = mockFetch(200, {
-      compaction: { trigger_ratio: 0.8, trailing_budget_ratio: 0.5, compactor_timeout_seconds: 30 },
+      compaction: { planner_window_messages: 20, executor_window_messages: 15, evaluator_window_messages: 10, monitor_window_messages: 10 },
     })
     const v = await getCompactionSettings()
-    expect(v.trigger_ratio).toBe(0.8)
+    expect(v.planner_window_messages).toBe(20)
     expect(fn.mock.calls[0][0]).toBe('/api/settings/compaction')
   })
 
   it('saveCompactionSettings PUT 整组并回传', async () => {
-    const body = { trigger_ratio: 0.75, trailing_budget_ratio: 0.4, compactor_timeout_seconds: 45 }
+    const body = { planner_window_messages: 22, executor_window_messages: 15, evaluator_window_messages: 10, monitor_window_messages: 12 }
     const fn = mockFetch(200, { compaction: body })
     const v = await saveCompactionSettings(body)
-    expect(v.compactor_timeout_seconds).toBe(45)
+    expect(v.monitor_window_messages).toBe(12)
     const [url, init] = fn.mock.calls[0]
     expect(url).toBe('/api/settings/compaction')
     expect(init.method).toBe('PUT')
@@ -49,14 +49,14 @@ describe('settings API 客户端', () => {
 
   it('getRuntimeSettings 拆出 runtime 快照', async () => {
     mockFetch(200, {
-      runtime: { step_tool_timeout_seconds: 60, run_tail_bytes: 4096, findings_limit_in_prompt: 100 },
+      runtime: { step_tool_timeout_seconds: 60, step_llm_timeout_seconds: 300, run_tail_bytes: 4096 },
     })
     const v = await getRuntimeSettings()
     expect(v.run_tail_bytes).toBe(4096)
   })
 
   it('saveRuntimeSettings PUT /settings/runtime', async () => {
-    const body = { step_tool_timeout_seconds: 90, run_tail_bytes: 8192, findings_limit_in_prompt: 200 }
+    const body = { step_tool_timeout_seconds: 90, step_llm_timeout_seconds: 240, run_tail_bytes: 8192 }
     const fn = mockFetch(200, { runtime: body })
     await saveRuntimeSettings(body)
     expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime')

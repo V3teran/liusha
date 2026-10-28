@@ -26,7 +26,7 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * 时间 → 对话/批次（业务标识）→ 摘要（这次调用干了什么）→ 角色 → 模型 → Tokens → 响应耗时。
  * 摘要是审计表的主读列：正文预览 + 工具徽章，不必逐行点开详情（后端库内派生，不传大字段）。
  */
-export function buildLlmAuditColumns(showProvider: boolean) {
+export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: number) {
   return [
     columnHelper.accessor('created_at', {
       header: '时间',
@@ -162,8 +162,8 @@ export function buildLlmAuditColumns(showProvider: boolean) {
       meta: { headerTitle: '模型响应耗时。流式另显首字延迟（TTFT）与输出速率（token/秒）；异常态（失败/超时/截断/内容过滤）内联显示在此列' },
       cell: (ctx) => {
         const v = ctx.row.original
-        const timeout = isTimeout(v)
-        const status = invocationStatus(v)
+        const timeout = isTimeout(v, llmTimeoutMs)
+        const status = invocationStatus(v, llmTimeoutMs)
         // 失败/超时（critical）与截断/过滤（warn）同样值得内联——失败行只有整行红底
         // 无法回答「为什么失败」，且短耗时失败行会按分档落成绿色状态点（误导）。
         const dot = status?.level === 'critical' || timeout ? 'bg-sev-critical' : TIMING_DOT[latencyLevel(v.latency_ms, v.out_tokens)]
@@ -175,8 +175,8 @@ export function buildLlmAuditColumns(showProvider: boolean) {
               <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>
                 {humanDuration(v.latency_ms)}
               </span>
-              {!timeout && status?.level !== 'critical' && throughputLabel(v) && (
-                <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v)}</em>
+              {!timeout && status?.level !== 'critical' && throughputLabel(v, llmTimeoutMs) && (
+                <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v, llmTimeoutMs)}</em>
               )}
             </span>
             {status && (

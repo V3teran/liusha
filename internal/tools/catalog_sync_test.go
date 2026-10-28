@@ -7,7 +7,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -49,7 +48,6 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 
 	deps := Deps{
 		Tasks:      &task.Store{},
-		Findings:   &finding.Store{},
 		Corpus:     &corpus.Store{},
 		Insights:   &insight.Store{},
 		ProxyStore: &traffic.ProxyStore{},

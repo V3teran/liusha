@@ -8,14 +8,15 @@ interface LlmAuditTableProps {
   loading: boolean
   hasFilter: boolean
   showProvider: boolean
+  llmTimeoutMs?: number // 单步 LLM 看门狗（runtime 配置现读；超时判定同源）
   onRowClick: (row: LLMInvocationSummary) => void
 }
 
 // 密集审计表：真实 <table> 语义（对齐 FindingsPage 的 react-table 模式），列宽由
 // buildLlmAuditColumns 单点定义——列头/骨架屏/数据行/空态 colSpan 全部以列定义长度为准，
 // 增删列只改 llmAuditColumns 一处。
-export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowClick }: LlmAuditTableProps) {
-  const columns = buildLlmAuditColumns(showProvider)
+export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, onRowClick }: LlmAuditTableProps) {
+  const columns = buildLlmAuditColumns(showProvider, llmTimeoutMs)
   const table = useReactTable({
     data: rows,
     columns,

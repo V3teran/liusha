@@ -6,34 +6,28 @@ import (
 
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/rs/zerolog"
 )
 
 var _ Interface = (*Coordinator)(nil)
 
-// FindingLister 列出 task+host 下的 finding
-type FindingLister interface {
-	ListByTaskAndHost(ctx context.Context, taskID, host string, limit int) ([]finding.VulnFinding, error)
-}
-
 // Coordinator 是执行层的协调器
 type Coordinator struct {
-	taskID   string
-	host     string
-	findings FindingLister
-	engine   *Engine
-	logger   zerolog.Logger
+	taskID string
+	host   string
+	engine *Engine
+	logger zerolog.Logger
 }
 
-// NewCoordinatorWithEngine 创建 Coordinator
-func NewCoordinatorWithEngine(taskID, host string, findings FindingLister, engine *Engine, logger zerolog.Logger) *Coordinator {
+// NewCoordinatorWithEngine 创建 Coordinator。
+// （历史参数 findings FindingLister 已删：prompt 注入既有 finding 的特性在架构演进中
+// 被按需工具检索取代，该字段自始至终无消费者。）
+func NewCoordinatorWithEngine(taskID, host string, engine *Engine, logger zerolog.Logger) *Coordinator {
 	return &Coordinator{
-		taskID:   taskID,
-		host:     host,
-		findings: findings,
-		engine:   engine,
-		logger:   logger,
+		taskID: taskID,
+		host:   host,
+		engine: engine,
+		logger: logger,
 	}
 }
 

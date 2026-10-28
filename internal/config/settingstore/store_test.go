@@ -79,15 +79,15 @@ func newTestStore(t *testing.T) (*Store, *fakeDB, *miniredis.Miniredis) {
 func TestCompaction_RefillHitsDBOnce(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.compaction = &CompactionSettings{TriggerRatio: 0.75, TrailingBudgetRatio: 0.15, CompactorTimeoutSeconds: 30}
+	db.compaction = &CompactionSettings{PlannerWindowMessages: 25, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 10}
 
 	for i := 0; i < 3; i++ {
 		got, err := s.Compaction(ctx)
 		if err != nil {
 			t.Fatalf("compaction read #%d: %v", i, err)
 		}
-		if got.TriggerRatio != 0.75 {
-			t.Fatalf("期望 trigger_ratio 0.75，实际 %v", got.TriggerRatio)
+		if got.PlannerWindowMessages != 25 {
+			t.Fatalf("期望 planner 窗口 25，实际 %v", got.PlannerWindowMessages)
 		}
 	}
 	if got := atomic.LoadInt64(&db.compactionHit); got != 1 {
@@ -99,7 +99,7 @@ func TestCompaction_RefillHitsDBOnce(t *testing.T) {
 func TestRuntime_L2HitSkipsDB(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.runtime = &RuntimeSettings{StepToolTimeoutSeconds: 1800, RunTailBytes: 8192, FindingsLimitInPrompt: 1000}
+	db.runtime = &RuntimeSettings{StepToolTimeoutSeconds: 1800, StepLLMTimeoutSeconds: 300, RunTailBytes: 8192}
 
 	if _, err := s.Runtime(ctx); err != nil { // 回填 L1+L2
 		t.Fatalf("warm: %v", err)
@@ -135,7 +135,7 @@ func TestProxyFilter_NilSlicesNormalized(t *testing.T) {
 func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.compaction = &CompactionSettings{TriggerRatio: 0.75}
+	db.compaction = &CompactionSettings{PlannerWindowMessages: 30}
 
 	if _, err := s.Compaction(ctx); err != nil { // 暖 L1
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	if !s.cache.L1Has(keyCompaction) {
 		t.Fatal("首读后哨兵键应在 L1")
 	}
-	if err := s.SaveCompaction(ctx, CompactionSettings{TriggerRatio: 0.90, TrailingBudgetRatio: 0.20, CompactorTimeoutSeconds: 45}); err != nil {
+	if err := s.SaveCompaction(ctx, CompactionSettings{PlannerWindowMessages: 28, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 12}); err != nil {
 		t.Fatalf("save compaction: %v", err)
 	}
 	if s.cache.L1Has(keyCompaction) {
@@ -153,8 +153,8 @@ func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reread: %v", err)
 	}
-	if got.TriggerRatio != 0.90 {
-		t.Fatalf("应读到新值 0.90，实际 %v", got.TriggerRatio)
+	if got.PlannerWindowMessages != 28 {
+		t.Fatalf("应读到新值 28，实际 %v", got.PlannerWindowMessages)
 	}
 }
 

@@ -33,14 +33,15 @@ const mGetProxy = getProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
 const mSaveProxy = saveProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
 
 const compaction: CompactionSettings = {
-  trigger_ratio: 0.8,
-  trailing_budget_ratio: 0.5,
-  compactor_timeout_seconds: 30,
+  planner_window_messages: 20,
+  executor_window_messages: 15,
+  evaluator_window_messages: 10,
+  monitor_window_messages: 10,
 }
 const runtime: RuntimeSettings = {
   step_tool_timeout_seconds: 60,
+  step_llm_timeout_seconds: 300,
   run_tail_bytes: 4096,
-  findings_limit_in_prompt: 100,
 }
 const proxy: ProxyFilterSettings = {
   allow_hosts: ['*.target.com'],
@@ -70,8 +71,8 @@ describe('SystemConfig', () => {
     expect(await screen.findByText('会话历史压缩')).toBeInTheDocument()
     expect(screen.getByText('工具运行时')).toBeInTheDocument()
     expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
-    // compaction 触发阈值回填
-    await waitFor(() => expect(screen.getByDisplayValue('0.8')).toBeInTheDocument())
+    // compaction 窗口条数回填
+    await waitFor(() => expect(screen.getByDisplayValue('20')).toBeInTheDocument())
     // proxy 白名单以多行文本回填
     expect(screen.getByDisplayValue('*.target.com')).toBeInTheDocument()
   })
@@ -79,15 +80,15 @@ describe('SystemConfig', () => {
   it('编辑 compaction 触发阈值后保存 → 调 saveCompactionSettings 透传新值', async () => {
     const user = userEvent.setup()
     render(<SystemConfig />)
-    const input = await screen.findByDisplayValue('30') // compactor_timeout_seconds
+    const input = await screen.findByDisplayValue('20') // planner_window_messages
     await user.clear(input)
-    await user.type(input, '45')
+    await user.type(input, '25')
 
     const saveButtons = screen.getAllByRole('button', { name: '保存' })
     await user.click(saveButtons[0]) // 第一区 = compaction
 
     await waitFor(() => expect(mSaveCompaction).toHaveBeenCalledTimes(1))
-    expect(mSaveCompaction.mock.calls[0][0].compactor_timeout_seconds).toBe(45)
+    expect(mSaveCompaction.mock.calls[0][0].planner_window_messages).toBe(25)
     expect(await screen.findByText('已保存并热生效')).toBeInTheDocument()
   })
 

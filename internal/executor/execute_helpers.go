@@ -91,7 +91,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		OnThinkingDelta:            onThinkingDelta,
 		Temperature:                0.7,
 		MaxTokens:                  4000,
-		MessageModifierChain:       runtime.NewDefaultModifierChain(15),
+		MessageModifierChain:       runtime.NewDefaultModifierChain(e.modifierWindow), // 系统配置 compaction 组；0=内置默认 15
 		MiddlewareChain:            middlewareChain,
 		TaskID:                     action.TaskID,
 		// Executor 的结构化输出格式

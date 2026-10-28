@@ -34,8 +34,9 @@ type Agent struct {
 	interval     time.Duration
 	logger       zerolog.Logger
 
-	systemPrompt string // 角色章程（agent.system_prompt；空=不渲染）
-	maxIt        int    // ReAct 迭代上限（0=不设限）
+	systemPrompt  string // 角色章程（agent.system_prompt；空=不渲染）
+	maxIt         int    // ReAct 迭代上限（0=不设限）
+	messageWindow int    // ReAct 滚动窗口条数（0=内置默认 10）
 
 	// Checkpoint 系统
 	checkpointer     core.Checkpointer
@@ -56,6 +57,13 @@ type Config struct {
 	Logger     zerolog.Logger
 
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
+
+	// MessageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
+	// 0=内置默认 10——监察链路短，窗口最小档）。
+	MessageWindow int
+
+	// MessageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
+	// 0=内置默认 10——监察链路短，窗口最小档）。
 
 	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
 	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
@@ -125,6 +133,7 @@ func New(cfg Config) *Agent {
 		logger:           cfg.Logger,
 		systemPrompt:     cfg.SystemPrompt,
 		maxIt:            cfg.MaxIterations,
+		messageWindow:    cfg.MessageWindow, // 0 由使用点回退内置默认 10
 		checkpointer:     cfg.Checkpointer,
 		checkpointPolicy: checkpointPolicy,
 		metricsCollector: metricsCollector,
@@ -215,8 +224,8 @@ func (a *Agent) evaluate(ctx context.Context) error {
 		MaxIterations: a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:   0.3,     // 较低温度，确保稳定性
 		MaxTokens:     4000,
-		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——业务预设已按分层下沉到业务侧。
-		MessageModifierChain: runtime.NewDefaultModifierChain(10),
+		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——现由系统配置 compaction 组下发。
+		MessageModifierChain: runtime.NewDefaultModifierChain(a.messageWindow),
 
 		// Checkpoint 集成
 		Checkpointer:     a.checkpointer,

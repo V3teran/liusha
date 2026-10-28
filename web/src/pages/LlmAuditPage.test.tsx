@@ -15,6 +15,15 @@ vi.mock('@/api/client', () => ({
   getLLMInvocationDetail: vi.fn(),
 }))
 
+// runtime 现读（LLM 看门狗同源）：mock 避免测试内真实 fetch。
+vi.mock('@/api/settings', () => ({
+  getRuntimeSettings: vi.fn().mockResolvedValue({
+    step_tool_timeout_seconds: 1800,
+    step_llm_timeout_seconds: 300,
+    run_tail_bytes: 8192,
+  }),
+}))
+
 const mockedSearch = searchLLMInvocations as unknown as ReturnType<typeof vi.fn>
 const mockedStat = searchLLMInvocationStat as unknown as ReturnType<typeof vi.fn>
 const mockedGetDetail = getLLMInvocationDetail as unknown as ReturnType<typeof vi.fn>
