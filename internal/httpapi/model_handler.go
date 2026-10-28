@@ -6,7 +6,7 @@
 //
 // 路由模型：agent → tier → provider 两跳。agent→tier 固定在代码（llmcfg.AgentTier），
 // tier→provider 落 llm_role_route（role 列存档名 simple/medium/complex）。
-// （retry 备胎）与档同表，前端「能力分档」把它单列为「全局备胎」；未绑定的档回落隐式默认档 heavy。
+// 无别名层、无兜底备胎：未绑定的档回落标准推理档（medium，隐式默认）；重试耗尽即失败。
 //
 // API Key（migration 0103）：前端直填明文，handler 用 cryptx.Cipher 加密成
 // EncryptedAPIKey 才交给 llmstore 落库——本包是唯一见到明文的 Go 层（仅在这次请求处理
@@ -266,7 +266,7 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	}
 }
 
-// deleteRoleRouteHandler 处理 DELETE /models/routes/:role（删后该档回落隐式默认档 heavy）。
+// deleteRoleRouteHandler 处理 DELETE /models/routes/:role（删后该档回落标准推理档 medium；幂等）。
 func deleteRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.Param("role")

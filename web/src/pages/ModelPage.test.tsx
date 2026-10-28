@@ -8,7 +8,6 @@ import * as queries from '@/features/model/useModelQueries'
 vi.mock('@/features/model/useModelQueries')
 
 const mockedUseProviders = queries.useProviders as unknown as ReturnType<typeof vi.fn>
-const mockedUseAssignments = queries.useAssignments as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveProvider = queries.useSaveProvider as unknown as ReturnType<typeof vi.fn>
 const mockedUseDeleteProvider = queries.useDeleteProvider as unknown as ReturnType<typeof vi.fn>
 const mockedUseRestoreProviderEnvKey = queries.useRestoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
@@ -44,7 +43,6 @@ describe('ModelPage', () => {
 
   it('渲染页面标题与副标题（单页设置流，无独立导出入口）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
-    mockedUseAssignments.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
@@ -54,7 +52,6 @@ describe('ModelPage', () => {
 
   it('渲染两个分区：模型提供商、能力路由', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
-    mockedUseAssignments.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
