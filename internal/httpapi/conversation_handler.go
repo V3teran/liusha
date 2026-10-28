@@ -258,6 +258,11 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
+		// nil 切片序列化为 null——零消息会话（种子/纯聊天）会让前端分页器在 null 上炸掉、
+		// 整个会话打不开。归一为空数组（对齐 content-types/traffic 的口径）。
+		if msgs == nil {
+			msgs = []conversation.Message{}
+		}
 		c.JSON(http.StatusOK, gin.H{"messages": msgs})
 	}
 }

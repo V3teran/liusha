@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { inFlightToolCalls } from './threadRows'
 import type { Message } from '../api/types'
 
-const base = { ID: 'm', ConversationID: 'c', CreatedAt: '', Content: '' }
+const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
 
 function toolMsg(seq: number, kind: 'tool_call' | 'tool_result', agent: string, tool: string): Message {
   return {
-    Seq: seq,
-    Role: 'assistant',
-    Kind: 'event',
+    seq: seq,
+    role: 'assistant',
+    kind: 'event',
     ...base,
-    Metadata: { kind, agent_name: agent, tool_name: tool },
+    metadata: { kind, agent_name: agent, tool_name: tool },
   } as Message
 }
 
@@ -68,7 +68,7 @@ describe('call_id 配对', () => {
     callID?: string,
   ): Message {
     const m = toolMsg(seq, kind, agent, tool)
-    if (callID) m.Metadata!.call_id = callID
+    if (callID) m.metadata!.call_id = callID
     return m
   }
 
@@ -81,8 +81,8 @@ describe('call_id 配对', () => {
       toolMsgWithID(4, 'tool_result', 'executor', 'http_request', 'c1'),
     ]
     const pairs = pairToolResults(msgs)
-    expect(pairs.matched.get(2)?.Seq).toBe(3) // c2 的 result（seq3）配给 call2——FIFO 会错配给 call1
-    expect(pairs.matched.get(1)?.Seq).toBe(4) // c1 的 result（seq4）配给 call1
+    expect(pairs.matched.get(2)?.seq).toBe(3) // c2 的 result（seq3）配给 call2——FIFO 会错配给 call1
+    expect(pairs.matched.get(1)?.seq).toBe(4) // c1 的 result（seq4）配给 call1
     expect(pairs.orphanResults.length).toBe(0)
   })
 
@@ -106,7 +106,7 @@ describe('call_id 配对', () => {
       toolMsg(3, 'tool_result', 'executor', 'http_request'),
     ]
     const pairs = pairToolResults(msgs)
-    expect(pairs.matched.get(1)?.Seq).toBe(3)
+    expect(pairs.matched.get(1)?.seq).toBe(3)
     expect(inFlightToolCalls(msgs).has(2)).toBe(true)
   })
 })

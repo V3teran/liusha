@@ -3,20 +3,20 @@ import { useConversationStore } from './conversation'
 import type { Message, ScanEvent } from '@/api/types'
 
 const msg = (seq: number): Message => ({
-  Seq: seq,
-  ID: `m${seq}`,
-  ConversationID: 'c1',
-  Role: 'tool',
-  Kind: 'event',
-  Content: '',
-  Metadata: null,
-  CreatedAt: '2026-06-10T00:00:00Z',
+  seq: seq,
+  id: `m${seq}`,
+  conversation_id: 'c1',
+  role: 'tool',
+  kind: 'event',
+  content: '',
+  metadata: null,
+  created_at: '2026-06-10T00:00:00Z',
 })
 
 const reasoningFinal = (seq: number, agent: string): Message => ({
   ...msg(seq),
-  Role: 'assistant',
-  Metadata: { kind: 'reasoning', agent_name: agent } as ScanEvent,
+  role: 'assistant',
+  metadata: { kind: 'reasoning', agent_name: agent } as ScanEvent,
 })
 
 describe('conversation store', () => {
@@ -27,7 +27,7 @@ describe('conversation store', () => {
     s.ingest(msg(3))
     s.ingest(msg(1))
     s.ingest(msg(2))
-    expect(useConversationStore.getState().messages.map((m) => m.Seq)).toEqual([1, 2, 3])
+    expect(useConversationStore.getState().messages.map((m) => m.seq)).toEqual([1, 2, 3])
   })
 
   it('seq 去重（重连补历史与实时重叠）', () => {
@@ -91,7 +91,7 @@ describe('conversation store', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('回答', undefined)
     s.appendReasoningDelta('思考', 'planner')
-    s.ingest({ ...msg(2), Role: 'assistant', Kind: 'message', Content: '回答全文' })
+    s.ingest({ ...msg(2), role: 'assistant', kind: 'message', content: '回答全文' })
     const state = useConversationStore.getState()
     expect(state.liveStreams).toEqual({ planner: { thinking: '', text: '思考' } })
   })
@@ -132,14 +132,14 @@ describe('conversation store', () => {
   it('thinking 占位：assistant 消息落地清除（回答终稿先于首增量的降级场景）', () => {
     const s = useConversationStore.getState()
     s.beginThinking()
-    s.ingest({ ...msg(2), Role: 'assistant', Kind: 'message', Content: '回答全文' })
+    s.ingest({ ...msg(2), role: 'assistant', kind: 'message', content: '回答全文' })
     expect(useConversationStore.getState().thinking).toBe(false)
   })
 
   it('thinking 占位：用户消息 ingest（补拉）不清除', () => {
     const s = useConversationStore.getState()
     s.beginThinking()
-    s.ingest({ ...msg(1), Role: 'user', Kind: 'message', Content: '我自己的消息' })
+    s.ingest({ ...msg(1), role: 'user', kind: 'message', content: '我自己的消息' })
     expect(useConversationStore.getState().thinking).toBe(true)
   })
 
@@ -155,7 +155,7 @@ describe('conversation store', () => {
     s.beginThinking()
     s.reset()
     // 切到旧会话：拉回的历史含 assistant 回答
-    s.ingest({ ...msg(1), Role: 'assistant', Kind: 'message', Content: '旧回答' })
+    s.ingest({ ...msg(1), role: 'assistant', kind: 'message', content: '旧回答' })
     expect(useConversationStore.getState().thinking).toBe(false)
   })
 
@@ -167,8 +167,8 @@ describe('conversation store', () => {
     s.appendReasoningDelta('执行中', 'executor')
     s.appendReasoningDelta('回答', undefined)
     s.ingest({
-      ...msg(3), Role: 'assistant', Kind: 'event',
-      Metadata: { kind: 'task_status', status: 'aborted' } as ScanEvent,
+      ...msg(3), role: 'assistant', kind: 'event',
+      metadata: { kind: 'task_status', status: 'aborted' } as ScanEvent,
     })
     const state = useConversationStore.getState()
     expect(state.liveStreams).toEqual({})
@@ -179,8 +179,8 @@ describe('conversation store', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('规划中', 'planner')
     s.ingest({
-      ...msg(3), Role: 'assistant', Kind: 'event',
-      Metadata: { kind: 'task_status', status: 'dispatched' } as ScanEvent,
+      ...msg(3), role: 'assistant', kind: 'event',
+      metadata: { kind: 'task_status', status: 'dispatched' } as ScanEvent,
     })
     expect(useConversationStore.getState().liveStreams).toEqual({ planner: { thinking: '', text: '规划中' } })
   })

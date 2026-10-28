@@ -496,7 +496,7 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter
 		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
 		       COALESCE(SUM(cached_tokens),0),
 		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation WHERE %s`, strings.Join(conds, " AND "))
+		FROM llm_invocation li WHERE %s`, strings.Join(conds, " AND "))
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, q, args...).
 		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)

@@ -35,14 +35,14 @@ describe('Composer', () => {
 
   it('有 convId 发送时调用 followUp 并触发 onAppended（携带发送前的 seq 快照）', async () => {
     useConversationStore.getState().ingest({
-      Seq: 7,
-      ID: 'm1',
-      ConversationID: 'c1',
-      Role: 'assistant',
-      Kind: 'message',
-      Content: 'x',
-      Metadata: null,
-      CreatedAt: '',
+      seq: 7,
+      id: 'm1',
+      conversation_id: 'c1',
+      role: 'assistant',
+      kind: 'message',
+      content: 'x',
+      metadata: null,
+      created_at: '',
     })
     vi.mocked(followUp).mockResolvedValue({ intent: 'scan', scan_id: 's1' })
     const onAppended = vi.fn()
@@ -61,14 +61,14 @@ describe('Composer', () => {
 
   it('followUp 前快照的 seq 不受发送过程中 store lastSeq 增长影响（竞态修复）', async () => {
     useConversationStore.getState().ingest({
-      Seq: 3,
-      ID: 'm1',
-      ConversationID: 'c1',
-      Role: 'assistant',
-      Kind: 'message',
-      Content: 'x',
-      Metadata: null,
-      CreatedAt: '',
+      seq: 3,
+      id: 'm1',
+      conversation_id: 'c1',
+      role: 'assistant',
+      kind: 'message',
+      content: 'x',
+      metadata: null,
+      created_at: '',
     })
     let resolveFollowUp!: (v: { intent: string }) => void
     vi.mocked(followUp).mockImplementation(
@@ -86,14 +86,14 @@ describe('Composer', () => {
 
     // 发送过程中，SSE 把 lastSeq 推高（模拟并发到达的新事件）。
     useConversationStore.getState().ingest({
-      Seq: 9,
-      ID: 'm2',
-      ConversationID: 'c1',
-      Role: 'tool',
-      Kind: 'event',
-      Content: '',
-      Metadata: null,
-      CreatedAt: '',
+      seq: 9,
+      id: 'm2',
+      conversation_id: 'c1',
+      role: 'tool',
+      kind: 'event',
+      content: '',
+      metadata: null,
+      created_at: '',
     })
 
     resolveFollowUp({ intent: 'scan' })

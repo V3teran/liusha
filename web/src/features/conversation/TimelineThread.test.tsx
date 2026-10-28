@@ -4,38 +4,38 @@ import { TimelineThread } from './TimelineThread'
 import { useConversationStore } from '@/stores/conversation'
 import type { Message, ScanEvent } from '@/api/types'
 
-const base = { ID: 'm', ConversationID: 'c', CreatedAt: '', Content: '' }
+const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
 
 function userMsg(seq: number, content: string): Message {
-  return { Seq: seq, Role: 'user', Kind: 'message', Metadata: null, ...base, Content: content } as Message
+  return { seq: seq, role: 'user', kind: 'message', metadata: null, ...base, content: content } as Message
 }
 
 function reasoningMsg(seq: number, agentName: string, text = '思考'): Message {
   return {
-    Seq: seq,
-    Role: 'assistant',
-    Kind: 'event',
-    Metadata: { kind: 'reasoning', text, agent_name: agentName, tool_name: '', args: '', result: '', duration_ms: 0, err: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    seq: seq,
+    role: 'assistant',
+    kind: 'event',
+    metadata: { kind: 'reasoning', text, agent_name: agentName, tool_name: '', args: '', result: '', duration_ms: 0, err: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }
 
 function toolCallMsg(seq: number, agentName: string): Message {
   return {
-    Seq: seq,
-    Role: 'tool',
-    Kind: 'event',
-    Metadata: { kind: 'tool_call', tool_name: 'run_command', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    seq: seq,
+    role: 'tool',
+    kind: 'event',
+    metadata: { kind: 'tool_call', tool_name: 'run_command', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }
 
 function toolResultMsg(seq: number, agentName: string): Message {
   return {
-    Seq: seq,
-    Role: 'tool',
-    Kind: 'event',
-    Metadata: { kind: 'tool_result', tool_name: 'run_command', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    seq: seq,
+    role: 'tool',
+    kind: 'event',
+    metadata: { kind: 'tool_result', tool_name: 'run_command', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }
@@ -55,7 +55,7 @@ describe('TimelineThread', () => {
   it('reasoning 终态卡渲染每步用量 chip（metadata 用量驱动，含 k/s 简写）', () => {
     const s = useConversationStore.getState()
     const msg = reasoningMsg(2, 'planner', '规划完成')
-    msg.Metadata = { ...msg.Metadata!, in_tokens: 4348, out_tokens: 800, latency_ms: 58882 }
+    msg.metadata = { ...msg.metadata!, in_tokens: 4348, out_tokens: 800, latency_ms: 58882 }
     s.ingest(userMsg(1, '扫这个目标'))
     s.ingest(msg)
     render(<TimelineThread />)
@@ -188,8 +188,8 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
   it('completed 节点渲染居中状态卡（含报告字段）', async () => {
     const s = useConversationStore.getState()
     s.ingest({
-      ...base, Seq: 1, Role: 'assistant', Kind: 'event',
-      Metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_why: 'task_converged' } as ScanEvent,
+      ...base, seq: 1, role: 'assistant', kind: 'event',
+      metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_why: 'task_converged' } as ScanEvent,
     })
     render(<TimelineThread />)
     await flush()
@@ -202,8 +202,8 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('执行中', 'executor')
     s.ingest({
-      ...base, Seq: 2, Role: 'assistant', Kind: 'event',
-      Metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as ScanEvent,
+      ...base, seq: 2, role: 'assistant', kind: 'event',
+      metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as ScanEvent,
     })
     render(<TimelineThread />)
     await flush()

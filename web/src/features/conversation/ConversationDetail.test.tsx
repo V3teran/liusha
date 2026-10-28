@@ -57,7 +57,7 @@ describe('ConversationDetail', () => {
 
   it('有 convId 时拉取历史消息并订阅 SSE', async () => {
     vi.mocked(apiClient.listMessages).mockResolvedValue([
-      { Seq: 1, ID: 'm1', ConversationID: 'c1', Role: 'user', Kind: 'message', Content: 'hi', Metadata: null, CreatedAt: '' },
+      { seq: 1, id: 'm1', conversation_id: 'c1', role: 'user', kind: 'message', content: 'hi', metadata: null, created_at: '' },
     ])
     render(<MemoryRouter><ConversationDetail convId="c1" source="manual" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
