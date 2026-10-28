@@ -1,5 +1,6 @@
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import type { TrafficSummary } from '@/api/types'
+import { cn } from '@/lib/utils'
 import { columnWidthPercents } from '@/lib/tableLayout'
 import { buildTrafficColumns } from './trafficColumns'
 
@@ -40,7 +41,13 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, o
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-border">
               {hg.headers.map((h) => (
-                <th key={h.id} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70">
+                <th
+                  key={h.id}
+                  className={cn(
+                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70',
+                    h.column.columnDef.meta?.align === 'right' && 'text-right',
+                  )}
+                >
                   {flexRender(h.column.columnDef.header, h.getContext())}
                 </th>
               ))}

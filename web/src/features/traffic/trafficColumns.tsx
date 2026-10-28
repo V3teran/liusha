@@ -10,9 +10,11 @@ const columnHelper = createColumnHelper<TrafficSummary>()
 
 // # 抓包序号列：直显 bigserial id（单调、跨分页稳定、可引用，等价 Burp 的 #）。
 // 紧凑右对齐、等宽数字，不喧宾夺主。
+// 数值列统一「表头与值同靠右」（tabular-nums 按位对齐便于比大小）；文本/徽章列同靠左。
 const seqCol = columnHelper.accessor('id', {
   header: '#',
   size: 52,
+  meta: { align: 'right' },
   cell: (ctx) => (
     <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
   ),
@@ -108,6 +110,7 @@ const contentTypeCol = columnHelper.accessor('content_type', {
 const lengthCol = columnHelper.accessor('resp_len', {
   header: '长度',
   size: 80,
+  meta: { align: 'right' },
   cell: (ctx) => (
     <span className="block text-right font-mono text-sm tabular-nums text-muted">{humanBytes(ctx.getValue())}</span>
   ),

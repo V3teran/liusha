@@ -7,6 +7,22 @@
 // 权重必须全部为正数：0 权重的列会被算成 0%，在 table-fixed 下等于宽度归零、内容不可见
 // （曾经用 size:0 表示"flex 列"，但那是 table-auto 下的语义，搬到这套百分比方案里必须
 // 换成一个具体的正数权重）。
+
+import type { RowData } from '@tanstack/react-table'
+// 列对齐的单一声明点：columnDef.meta.align 声明该列对齐方向，表头渲染器据此与
+// 单元格保持同侧——数值列（# 序号 / 长度 / 字节等）表头与值一起靠右（tabular-nums
+// 按位对齐便于比大小），文本/徽章列同靠左。此前 traffic/findings 两表的数值列
+// 「表头靠左、值靠右」互相错位，即缺这一声明导致的。
+declare module '@tanstack/react-table' {
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface ColumnMeta<TData extends RowData, TValue extends RowData> {
+    /** 该列对齐方向：数值列 right（表头与值同靠右），缺省 left。表头渲染器据此与单元格同侧。 */
+    align?: 'left' | 'right'
+    /** 悬停表头时的解释文案（llm-audit 响应耗时/摘要列使用）。 */
+    headerTitle?: string
+  }
+}
+
 export function columnWidthPercents(sizes: number[]): string[] {
   const total = sizes.reduce((sum, s) => sum + s, 0)
   if (total <= 0) return sizes.map(() => 'auto')
