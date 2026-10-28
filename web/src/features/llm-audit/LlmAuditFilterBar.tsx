@@ -1,10 +1,13 @@
 import type { LLMInvocationFilters } from '@/api/types'
 import { cn } from '@/lib/utils'
+import { LlmAuditSearchBar } from './LlmAuditSearchBar'
 
 interface LlmAuditFilterBarProps {
   filters: LLMInvocationFilters
   roles: string[]
   models: string[]
+  search: string
+  onSearchChange: (value: string) => void
   onChange: (next: LLMInvocationFilters) => void
   onReset: () => void
   trailing?: React.ReactNode
@@ -13,12 +16,11 @@ interface LlmAuditFilterBarProps {
 /**
  * LlmAuditFilterBar - LLM 审计筛选栏
  *
- * 业界最佳实践（参考 Datadog/Grafana）：
- * 1. 日期范围有明确标签和占位符
- * 2. 统一输入框样式和间距
- * 3. 筛选控件左对齐，操作按钮右对齐
+ * 全站统一筛选顺序（业界最佳实践，对齐 TrafficFilterBar/TaskFilterBar/漏洞页）：
+ * 枚举下拉（粗→细：角色→模型）→ 关键词搜索 → 时间范围 → 布尔开关 → 清空 →（最右）分页。
+ * 搜索框自带 300ms 防抖（LlmAuditSearchBar 内置）。
  */
-export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
+export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
   const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
 
   const selectClass = cn(
@@ -60,6 +62,10 @@ export function LlmAuditFilterBar({ filters, roles, models, onChange, onReset, t
           </option>
         ))}
       </select>
+
+      <div className="w-64">
+        <LlmAuditSearchBar value={search} onChange={onSearchChange} />
+      </div>
 
       <input
         id="filter-start"

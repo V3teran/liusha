@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { LlmAuditFilterBar } from '@/features/llm-audit/LlmAuditFilterBar'
 import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
-import { LlmAuditSearchBar } from '@/features/llm-audit/LlmAuditSearchBar'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
 import { useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/llm-audit/useLlmAuditQueries'
@@ -71,7 +70,6 @@ export function LlmAuditPage() {
       </header>
 
       <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-4">
-        <LlmAuditSearchBar value={query} onChange={setQuery} />
         {stats && (
           <div className="flex flex-wrap items-center gap-2">
             <StatChip color="var(--accent)" label="调用" value={humanTokens(stats.calls)} />
@@ -101,6 +99,8 @@ export function LlmAuditPage() {
               filters={filters}
               roles={roles}
               models={models}
+              search={query}
+              onSearchChange={setQuery}
               onChange={setFilters}
               onReset={resetFilters}
               trailing={
