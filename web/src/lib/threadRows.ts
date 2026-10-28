@@ -28,7 +28,7 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
   let bucket: Message[] = []
   const flush = () => {
     if (bucket.length) {
-      out.push({ kind: 'tools', key: 'tools-' + bucket[0].Seq, tools: bucket })
+      out.push({ kind: 'tools', key: 'tools-' + bucket[0].seq, tools: bucket })
       bucket = []
     }
   }
@@ -39,10 +39,10 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
       continue
     }
     flush()
-    if (m.Role === 'user') step = 0 // 用户指令边界：追加 = 新指令 = 新计数周期
-    const day = deps.dayKey(m.CreatedAt)
+    if (m.role === 'user') step = 0 // 用户指令边界：追加 = 新指令 = 新计数周期
+    const day = deps.dayKey(m.created_at)
     if (day && day !== lastDay) {
-      out.push({ kind: 'divider', key: 'day-' + day, label: deps.dayLabel(m.CreatedAt) })
+      out.push({ kind: 'divider', key: 'day-' + day, label: deps.dayLabel(m.created_at) })
       lastDay = day
     }
     let stepNo: number | undefined
@@ -50,7 +50,7 @@ export function buildThreadRows(messages: Message[], deps: ThreadRowDeps): Threa
       step += 1
       stepNo = step
     }
-    out.push({ kind: 'msg', key: m.Seq, msg: m, step: stepNo })
+    out.push({ kind: 'msg', key: m.seq, msg: m, step: stepNo })
   }
   flush()
   return out
@@ -80,17 +80,17 @@ function pairCallsAndResults(messages: Message[]): PairingState {
     running: new Set(),
   }
   for (const m of messages) {
-    const ev = m.Metadata
+    const ev = m.metadata
     if (!ev?.tool_name) continue
     const k = `${ev.agent_name}\u0000${ev.tool_name}`
     if (ev.kind === 'tool_call') {
-      if (ev.call_id) byCallID.set(ev.call_id, m.Seq)
+      if (ev.call_id) byCallID.set(ev.call_id, m.seq)
       else {
         const q = fifo.get(k) ?? []
-        q.push(m.Seq)
+        q.push(m.seq)
         fifo.set(k, q)
       }
-      state.running.add(m.Seq)
+      state.running.add(m.seq)
     } else if (ev.kind === 'tool_result') {
       let callSeq: number | undefined
       if (ev.call_id) {
@@ -105,7 +105,7 @@ function pairCallsAndResults(messages: Message[]): PairingState {
       }
       if (callSeq !== undefined) {
         state.matched.set(callSeq, m)
-        state.matchedResultSeqs.add(m.Seq)
+        state.matchedResultSeqs.add(m.seq)
         state.running.delete(callSeq)
       } else {
         state.orphanResults.push(m)

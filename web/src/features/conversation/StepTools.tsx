@@ -16,22 +16,22 @@ interface StepToolsProps {
 export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) {
   const [expanded, setExpanded] = useState(false)
 
-  const calls = tools.filter((t) => t.Metadata?.kind === 'tool_call')
+  const calls = tools.filter((t) => t.metadata?.kind === 'tool_call')
   const callCount = calls.length > 0 ? calls.length : tools.length
   // 孤儿结果只渲染本组区间内的（每个 result 消息只落在一个折叠组）——此前
   // 直接用全局 orphanResults，任一组展开都会重复渲染全会话的孤儿。
   const orphans = pairs
     ? tools.filter(
-        (t) => t.Metadata?.kind === 'tool_result' && !pairs.matchedResultSeqs.has(t.Seq),
+        (t) => t.metadata?.kind === 'tool_result' && !pairs.matchedResultSeqs.has(t.seq),
       )
-    : tools.filter((t) => t.Metadata?.kind === 'tool_result')
+    : tools.filter((t) => t.metadata?.kind === 'tool_result')
 
-  const running = !!runningSeqs && calls.some((t) => runningSeqs.has(t.Seq))
+  const running = !!runningSeqs && calls.some((t) => runningSeqs.has(t.seq))
 
   const counts: Record<string, number> = {}
   for (const t of tools) {
-    if (t.Metadata?.kind !== 'tool_call') continue
-    const name = t.Metadata?.tool_name
+    if (t.metadata?.kind !== 'tool_call') continue
+    const name = t.metadata?.tool_name
     if (name) counts[name] = (counts[name] ?? 0) + 1
   }
   const entries = Object.entries(counts).sort((a, b) => b[1] - a[1])
@@ -64,21 +64,21 @@ export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) 
       {expanded && (
         <div className="mt-1.5 flex flex-col gap-1.5">
           {calls.map((t) => {
-            const paired = pairs?.matched.get(t.Seq)
+            const paired = pairs?.matched.get(t.seq)
             const result: ToolResultInfo | undefined = paired
               ? {
-                  text: paired.Metadata?.result || '',
-                  durationMs: paired.Metadata?.duration_ms || 0,
-                  err: paired.Metadata?.err || '',
+                  text: paired.metadata?.result || '',
+                  durationMs: paired.metadata?.duration_ms || 0,
+                  err: paired.metadata?.err || '',
                 }
               : undefined
             return (
               <ToolCallCard
-                key={t.Seq}
-                tool={t.Metadata?.tool_name || ''}
-                args={t.Metadata?.args || ''}
-                agentName={t.Metadata?.agent_name}
-                running={runningSeqs?.has(t.Seq)}
+                key={t.seq}
+                tool={t.metadata?.tool_name || ''}
+                args={t.metadata?.args || ''}
+                agentName={t.metadata?.agent_name}
+                running={runningSeqs?.has(t.seq)}
                 ended={ended}
                 result={result}
               />
@@ -86,12 +86,12 @@ export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) 
           })}
           {orphans.map((t) => (
             <ToolResultCard
-              key={t.Seq}
-              tool={t.Metadata?.tool_name || ''}
-              result={t.Metadata?.result || ''}
-              durationMs={t.Metadata?.duration_ms || 0}
-              err={t.Metadata?.err || ''}
-              agentName={t.Metadata?.agent_name}
+              key={t.seq}
+              tool={t.metadata?.tool_name || ''}
+              result={t.metadata?.result || ''}
+              durationMs={t.metadata?.duration_ms || 0}
+              err={t.metadata?.err || ''}
+              agentName={t.metadata?.agent_name}
             />
           ))}
         </div>

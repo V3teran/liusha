@@ -28,15 +28,15 @@ const PAGE_SIZE = 30
 
 // 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。
 function displayTitle(c: Conversation): string {
-  const raw = (c.Title || '').replace(/^我要扫描\s*/, '').trim()
-  if (!raw) return c.ID.slice(0, 8)
+  const raw = (c.title || '').replace(/^我要扫描\s*/, '').trim()
+  if (!raw) return c.id.slice(0, 8)
   const host = raw.match(/https?:\/\/([^/\s]+)/)?.[1]
   return host ? host + raw.replace(/https?:\/\/[^/\s]+/, '').slice(0, 24) : raw.slice(0, 40)
 }
 
 // 悬停 tooltip：展示完整标题（仅去「我要扫描」前缀，不截断）。
 function fullTitle(c: Conversation): string {
-  return (c.Title || '').replace(/^我要扫描\s*/, '').trim() || c.ID
+  return (c.title || '').replace(/^我要扫描\s*/, '').trim() || c.id
 }
 
 const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在对话页点「停止扫描」，停止后再删除。'
@@ -102,7 +102,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     useEffect(() => {
       const timer = window.setInterval(() => {
         if (menuOpenRef.current) return
-        if (itemsRef.current.some((c) => c.RunStatus === 'active')) void load(offsetRef.current)
+        if (itemsRef.current.some((c) => c.run_status === 'active')) void load(offsetRef.current)
       }, 8000)
       return () => clearInterval(timer)
     }, [load])
@@ -122,7 +122,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const filtered = useMemo(() => {
       const q = query.trim().toLowerCase()
       if (!q) return items
-      return items.filter((c) => fullTitle(c).toLowerCase().includes(q) || c.ID.toLowerCase().startsWith(q))
+      return items.filter((c) => fullTitle(c).toLowerCase().includes(q) || c.id.toLowerCase().startsWith(q))
     }, [items, query])
 
     const pageNo = Math.floor(offset / PAGE_SIZE) + 1
@@ -137,7 +137,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
 
     const toggleMenu = (c: Conversation, ev: React.MouseEvent) => {
       ev.stopPropagation()
-      if (menuOpen === c.ID) {
+      if (menuOpen === c.id) {
         setMenuOpen('')
         setMenuConv(null)
         return
@@ -145,7 +145,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
       setMenuStyle({ top: `${r.bottom + 4}px`, left: `${Math.max(8, r.right - 150)}px` })
       setMenuConv(c)
-      setMenuOpen(c.ID)
+      setMenuOpen(c.id)
     }
 
     const onDelete = async (c: Conversation, ev: React.MouseEvent) => {
@@ -153,16 +153,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       setMenuOpen('')
       if (deleting) return
       // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
-      if (c.RunStatus === 'active') {
+      if (c.run_status === 'active') {
         window.alert(SCAN_ACTIVE_HINT)
         return
       }
       if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
-      setDeleting(c.ID)
+      setDeleting(c.id)
       try {
-        await deleteConversation(c.ID)
-        setItems((prev) => prev.filter((x) => x.ID !== c.ID))
-        onDeleted(c.ID)
+        await deleteConversation(c.id)
+        setItems((prev) => prev.filter((x) => x.id !== c.id))
+        onDeleted(c.id)
       } catch (e) {
         window.alert(e instanceof Error && e.message === 'SCAN_ACTIVE' ? SCAN_ACTIVE_HINT : '删除失败，请重试')
       } finally {
@@ -174,7 +174,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       ev.stopPropagation()
       setMenuOpen('')
       setMenuConv(null)
-      setRenamingId(c.ID)
+      setRenamingId(c.id)
       setRenameText(fullTitle(c))
     }
     const cancelRename = () => {
@@ -182,18 +182,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       setRenameText('')
     }
     const setTitle = (convID: string, title: string) => {
-      setItems((prev) => prev.map((x) => (x.ID === convID ? { ...x, Title: title } : x)))
+      setItems((prev) => prev.map((x) => (x.id === convID ? { ...x, Title: title } : x)))
     }
     const commitRename = async (c: Conversation) => {
       const next = renameText.trim()
       setRenamingId('')
-      const prev = c.Title || ''
+      const prev = c.title || ''
       if (next === fullTitle(c)) return // 无变化
-      setTitle(c.ID, next) // 乐观更新
+      setTitle(c.id, next) // 乐观更新
       try {
-        await renameConversation(c.ID, next)
+        await renameConversation(c.id, next)
       } catch {
-        setTitle(c.ID, prev) // 回滚
+        setTitle(c.id, prev) // 回滚
         window.alert('重命名失败，请重试')
       }
     }
@@ -268,14 +268,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         )}
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {filtered.map((c, idx) => {
-            const meta = scanStatusMeta(c.RunStatus)
+            const meta = scanStatusMeta(c.run_status)
             return (
               <li
-                key={c.ID}
-                onClick={() => renamingId !== c.ID && onSelect(c.ID)}
+                key={c.id}
+                onClick={() => renamingId !== c.id && onSelect(c.id)}
                 className={cn(
                   'group flex flex-shrink-0 items-start gap-2 rounded-lg px-2.5 py-2.5 cursor-pointer transition-colors hover:bg-surface-2',
-                  c.ID === activeId && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
+                  c.id === activeId && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
                 )}
               >
                 <span className="mt-0.5 w-4 flex-shrink-0 text-center font-mono text-xs leading-[18px] text-faint">
@@ -290,7 +290,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   title={meta.label}
                 />
                 <div className="min-w-0 flex-1">
-                  {renamingId === c.ID ? (
+                  {renamingId === c.id ? (
                     <input
                       autoFocus
                       value={renameText}
@@ -317,9 +317,9 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                       </span>
                       <span
                         className="flex-shrink-0 whitespace-nowrap font-mono text-xs text-faint"
-                        title={fullTime(c.CreatedAt)}
+                        title={fullTime(c.created_at)}
                       >
-                        {relativeTime(c.CreatedAt)}
+                        {relativeTime(c.created_at)}
                       </span>
                     </div>
                   )}
@@ -330,14 +330,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                     >
                       {meta.label}
                     </span>
-                    {!!c.FindingCount && (
+                    {!!c.finding_count && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none text-sev-high"
                         style={{ background: 'color-mix(in srgb, var(--sev-high) 16%, transparent)' }}
-                        title={`${c.FindingCount} 个漏洞`}
+                        title={`${c.finding_count} 个漏洞`}
                       >
                         <Bug className="h-3 w-3" />
-                        {c.FindingCount}
+                        {c.finding_count}
                       </span>
                     )}
                   </div>
@@ -393,7 +393,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               onClick={(e) => e.stopPropagation()}
             >
               <Link
-                to={`/exploration-graph?conversation_id=${menuConv.ID}`}
+                to={`/exploration-graph?conversation_id=${menuConv.id}`}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
                 onClick={() => setMenuOpen('')}
               >
@@ -408,7 +408,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                 <Pencil className="h-3.5 w-3.5" />
                 重命名
               </button>
-              {menuConv.RunStatus === 'active' ? (
+              {menuConv.run_status === 'active' ? (
                 <button
                   type="button"
                   disabled
@@ -421,7 +421,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               ) : (
                 <button
                   type="button"
-                  disabled={deleting === menuConv.ID}
+                  disabled={deleting === menuConv.id}
                   onClick={(ev) => void onDelete(menuConv, ev)}
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-red-500/15 hover:text-red-500 disabled:opacity-50"
                 >

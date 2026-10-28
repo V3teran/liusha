@@ -43,14 +43,14 @@ export interface ScanEvent {
  * 大写键（Go 端序列化格式）
  */
 export interface Message {
-  Seq: number
-  ID: string
-  ConversationID: string
-  Role: MessageRole
-  Kind: MessageKind
-  Content: string
-  Metadata: ScanEvent | null
-  CreatedAt: string
+  seq: number
+  id: string
+  conversation_id: string
+  role: MessageRole
+  kind: MessageKind
+  content: string
+  metadata: ScanEvent | null
+  created_at: string
 }
 
 /**
@@ -58,15 +58,14 @@ export interface Message {
  * 大写键（Go 端序列化格式）
  */
 export interface Conversation {
-  ID: string
-  Title: string
-  TaskID: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
-  // Status 已退役删除（后端不再返回）——运行态用 RunStatus。
-  RunStatus?: string // 派生的真实运行态（active/completed/aborted；纯聊天空）——列表显示用此
-  FindingCount?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
-  Source?: string // 派生的下发来源（manual 主动下发 / auto 被动代理；纯聊天归 manual）——双 tab 分流
-  CreatedAt: string
-  UpdatedAt: string
+  id: string
+  title: string
+  task_id: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
+  run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
+  finding_count?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
+  source?: string // 派生的下发来源（manual 主动下发 / auto 被动代理；纯聊天归 manual）——双 tab 分流
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -258,7 +257,7 @@ export interface ProviderModelsResult {
  * 判断消息是否为 event 类型
  */
 export function isEventMessage(m: Message): boolean {
-  return m.Kind === 'event'
+  return m.kind === 'event'
 }
 
 /**
@@ -266,8 +265,8 @@ export function isEventMessage(m: Message): boolean {
  * 仅当消息类型为 event 且 Metadata 不为空时返回事件；否则返回 null。
  */
 export function parseScanEvent(m: Message): ScanEvent | null {
-  if (m.Kind !== 'event' || !m.Metadata) return null
-  return m.Metadata
+  if (m.kind !== 'event' || !m.metadata) return null
+  return m.metadata
 }
 
 /* ============================================================

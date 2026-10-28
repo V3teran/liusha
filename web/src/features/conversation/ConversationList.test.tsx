@@ -15,15 +15,15 @@ vi.mock('@/api/client', () => ({
 
 function mkConv(over: Partial<Conversation>): Conversation {
   return {
-    ID: 'conv-id-00000001',
-    Title: '我要扫描 example.com',
-    TaskID: '',
+    id: 'conv-id-00000001',
+    title: '我要扫描 example.com',
+    task_id: '',
     
     Source: 'manual',
-    RunStatus: 'completed',
-    FindingCount: 0,
-    CreatedAt: new Date().toISOString(),
-    UpdatedAt: new Date().toISOString(),
+    run_status: 'completed',
+    finding_count: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     ...over,
   }
 }
@@ -55,7 +55,7 @@ describe('ConversationList', () => {
   })
 
   it('挂载时拉取并渲染会话列表', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 a.com' }), mkConv({ ID: 'c2', Title: '我要扫描 b.com' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 a.com' }), mkConv({ id: 'c2', title: '我要扫描 b.com' })])
     renderList()
     await waitFor(() => {
       expect(screen.getByText(/a\.com/)).toBeTruthy()
@@ -64,7 +64,7 @@ describe('ConversationList', () => {
   })
 
   it('source 过滤下沉到服务端：按 source 调用 listConversations', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 manual-x.com', Source: 'manual' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 manual-x.com', Source: 'manual' })])
     renderList({ source: 'manual' })
     await waitFor(() => {
       expect(listConversations).toHaveBeenCalledWith(30, 0, 'manual')
@@ -73,7 +73,7 @@ describe('ConversationList', () => {
   })
 
   it('搜索框按标题过滤（本页内）', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 alpha.com' }), mkConv({ ID: 'c2', Title: '我要扫描 beta.com' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 alpha.com' }), mkConv({ id: 'c2', title: '我要扫描 beta.com' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/alpha\.com/)).toBeTruthy())
 
@@ -84,7 +84,7 @@ describe('ConversationList', () => {
   })
 
   it('搜索框按 id 前缀过滤', async () => {
-    mockPage([mkConv({ ID: 'abc12345', Title: '' }), mkConv({ ID: 'zzz99999', Title: '' })])
+    mockPage([mkConv({ id: 'abc12345', title: '' }), mkConv({ id: 'zzz99999', title: '' })])
     renderList()
     await waitFor(() => expect(screen.getByText('abc12345')).toBeTruthy())
 
@@ -95,7 +95,7 @@ describe('ConversationList', () => {
   })
 
   it('点击会话行调用 onSelect', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 click.com' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 click.com' })])
     const { onSelect } = renderList()
     await waitFor(() => expect(screen.getByText(/click\.com/)).toBeTruthy())
     await userEvent.click(screen.getByText(/click\.com/))
@@ -128,7 +128,7 @@ describe('ConversationList', () => {
   })
 
   it('删除流程：确认后调用 deleteConversation 并触发 onDeleted', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 del.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 del.com', run_status: 'completed' })])
     vi.mocked(deleteConversation).mockResolvedValue(undefined)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { onDeleted } = renderList()
@@ -147,7 +147,7 @@ describe('ConversationList', () => {
   })
 
   it('删除时取消确认则不调用 deleteConversation', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 keep.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 keep.com', run_status: 'completed' })])
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderList()
     await waitFor(() => expect(screen.getByText(/keep\.com/)).toBeTruthy())
@@ -160,7 +160,7 @@ describe('ConversationList', () => {
   })
 
   it('活跃扫描会话：菜单显示禁用态提示，不显示删除按钮', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 active.com', RunStatus: 'active' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 active.com', run_status: 'active' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/active\.com/)).toBeTruthy())
 
@@ -170,7 +170,7 @@ describe('ConversationList', () => {
   })
 
   it('删除接口返回 SCAN_ACTIVE 错误时弹提示', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 race.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 race.com', run_status: 'completed' })])
     vi.mocked(deleteConversation).mockRejectedValue(new Error('SCAN_ACTIVE'))
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -187,7 +187,7 @@ describe('ConversationList', () => {
   })
 
   it('重命名流程：双击菜单里的重命名，输入新标题回车提交', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 rename-me.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 rename-me.com', run_status: 'completed' })])
     vi.mocked(renameConversation).mockResolvedValue(undefined)
     renderList()
     await waitFor(() => expect(screen.getByText(/rename-me\.com/)).toBeTruthy())
@@ -206,7 +206,7 @@ describe('ConversationList', () => {
   })
 
   it('重命名失败时回滚标题并弹提示', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 rollback.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 rollback.com', run_status: 'completed' })])
     vi.mocked(renameConversation).mockRejectedValue(new Error('fail'))
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     renderList()
@@ -229,7 +229,7 @@ describe('ConversationList', () => {
   })
 
   it('Escape 取消重命名不提交', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 esc.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 esc.com', run_status: 'completed' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/esc\.com/)).toBeTruthy())
 
@@ -246,8 +246,8 @@ describe('ConversationList', () => {
 
   it('forwardRef 暴露 refresh()，调用后回第 1 页重新拉取', async () => {
     vi.mocked(listConversations)
-      .mockResolvedValueOnce({ conversations: [mkConv({ ID: 'c1', Title: '我要扫描 first.com' })], hasMore: false })
-      .mockResolvedValueOnce({ conversations: [mkConv({ ID: 'c2', Title: '我要扫描 second.com' })], hasMore: false })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 first.com' })], hasMore: false })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 second.com' })], hasMore: false })
 
     const ref = createRef<ConversationListHandle>()
     render(
@@ -265,7 +265,7 @@ describe('ConversationList', () => {
   })
 
   it('⋯ 菜单 portal 渲染到 body，仍可被 RTL 查询到', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 portal.com', RunStatus: 'completed' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 portal.com', run_status: 'completed' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/portal\.com/)).toBeTruthy())
 
@@ -276,7 +276,7 @@ describe('ConversationList', () => {
   })
 
   it('漏洞计数徽章：FindingCount > 0 时显示', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 findings.com', FindingCount: 3 })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 findings.com', finding_count: 3 })])
     renderList()
     await waitFor(() => {
       expect(screen.getByTitle('3 个漏洞')).toBeTruthy()
@@ -284,7 +284,7 @@ describe('ConversationList', () => {
   })
 
   it('序号：列表项按渲染顺序显示 1、2、3…（首页 offset=0）', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 one.com' }), mkConv({ ID: 'c2', Title: '我要扫描 two.com' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 one.com' }), mkConv({ id: 'c2', title: '我要扫描 two.com' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/one\.com/)).toBeTruthy())
     const items = screen.getAllByRole('listitem')
@@ -294,8 +294,8 @@ describe('ConversationList', () => {
 
   it('翻页：hasMore=true 时显示下一页按钮，点击后拉取 offset=PAGE_SIZE', async () => {
     vi.mocked(listConversations)
-      .mockResolvedValueOnce({ conversations: [mkConv({ ID: 'c1', Title: '我要扫描 page1.com' })], hasMore: true })
-      .mockResolvedValueOnce({ conversations: [mkConv({ ID: 'c2', Title: '我要扫描 page2.com' })], hasMore: false })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 page2.com' })], hasMore: false })
 
     renderList()
     await waitFor(() => expect(screen.getByText(/page1\.com/)).toBeTruthy())
@@ -310,7 +310,7 @@ describe('ConversationList', () => {
   })
 
   it('翻页：单页（offset=0 且 hasMore=false）时不显示翻页控件', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 only.com' })], false)
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 only.com' })], false)
     renderList()
     await waitFor(() => expect(screen.getByText(/only\.com/)).toBeTruthy())
     expect(screen.queryByRole('button', { name: '下一页' })).toBeFalsy()
@@ -318,7 +318,7 @@ describe('ConversationList', () => {
   })
 
   it('翻页：首页时「上一页」禁用', async () => {
-    mockPage([mkConv({ ID: 'c1', Title: '我要扫描 first-disabled.com' })], true)
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 first-disabled.com' })], true)
     renderList()
     await waitFor(() => expect(screen.getByText(/first-disabled\.com/)).toBeTruthy())
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled()

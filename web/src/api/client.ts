@@ -199,12 +199,14 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
   const all: Message[] = []
   let cursor = afterSeq
   for (;;) {
+    // 后端零消息时返回 null（Go nil slice）——归一为空数组，防下游 for-of 在 null 上炸
+    // （与 listConversations 的 null 归一同源防御；后端亦已归一，此处兜底旧响应）。
     const page = (
-      await get<{ messages: Message[] }>(`/conversations/${convID}/messages?after_seq=${cursor}`)
-    ).messages
+      await get<{ messages: Message[] | null }>(`/conversations/${convID}/messages?after_seq=${cursor}`)
+    ).messages ?? []
     if (page.length === 0) break
     all.push(...page)
-    cursor = page[page.length - 1].Seq
+    cursor = page[page.length - 1].seq
     if (page.length < PAGE) break
   }
   return all

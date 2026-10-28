@@ -50,22 +50,22 @@ describe('useEventStream', () => {
 
     MockES.last.onmessage!({
       data: JSON.stringify({
-        Seq: 1,
-        ID: 'm1',
-        ConversationID: 'conv-1',
-        Role: 'tool',
-        Kind: 'event',
-        Content: 'x',
-        Metadata: null,
-        CreatedAt: '',
+        seq: 1,
+        id: 'm1',
+        conversation_id: 'conv-1',
+        role: 'tool',
+        kind: 'event',
+        content: 'x',
+        metadata: null,
+        created_at: '',
       }),
       lastEventId: '1',
     })
 
     const messages = useConversationStore.getState().messages
     expect(messages).toHaveLength(1)
-    expect(messages[0].ID).toBe('m1')
-    expect(messages[0].Seq).toBe(1)
+    expect(messages[0].id).toBe('m1')
+    expect(messages[0].seq).toBe(1)
 
     handle.close()
     expect(MockES.last.closed).toBe(true)
@@ -89,14 +89,14 @@ describe('useEventStream', () => {
 
     const frame = (seq: number, id: string) => ({
       data: JSON.stringify({
-        Seq: seq,
-        ID: id,
-        ConversationID: 'conv-3',
-        Role: 'assistant',
-        Kind: 'message',
-        Content: 'msg' + seq,
-        Metadata: null,
-        CreatedAt: '',
+        seq: seq,
+        id: id,
+        conversation_id: 'conv-3',
+        role: 'assistant',
+        kind: 'message',
+        content: 'msg' + seq,
+        metadata: null,
+        created_at: '',
       }),
       lastEventId: String(seq),
     })
@@ -107,9 +107,9 @@ describe('useEventStream', () => {
 
     const messages = useConversationStore.getState().messages
     expect(messages).toHaveLength(3)
-    expect(messages[0].Seq).toBe(1)
-    expect(messages[1].Seq).toBe(2)
-    expect(messages[2].Seq).toBe(3)
+    expect(messages[0].seq).toBe(1)
+    expect(messages[1].seq).toBe(2)
+    expect(messages[2].seq).toBe(3)
 
     handle.close()
   })

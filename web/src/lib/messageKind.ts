@@ -14,8 +14,8 @@ export type MessageKindTag =
   | 'tool-result'
 
 export function classifyMessage(m: Message): MessageKindTag {
-  if (m.Kind === 'message') return m.Role === 'user' ? 'user' : 'assistant'
-  const ev = m.Metadata
+  if (m.kind === 'message') return m.role === 'user' ? 'user' : 'assistant'
+  const ev = m.metadata
   if (!ev) return 'assistant'
   if (ev.kind === 'reasoning') return 'reasoning'
   if (ev.kind === 'task_status') return 'task-status'

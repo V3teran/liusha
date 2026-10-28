@@ -48,7 +48,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   convIdRef.current = convId
 
   const hasConv = !!convId
-  const startedAt = store.messages[0]?.CreatedAt ?? ''
+  const startedAt = store.messages[0]?.created_at ?? ''
   const scanning = hasConv && (usage?.running ?? false)
   const topStatus = scanStatusMeta(usage?.status)
 

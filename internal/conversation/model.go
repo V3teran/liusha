@@ -36,35 +36,37 @@ const (
 	KindEvent Kind = "event"
 )
 
-// Conversation 是 conversation 表行的 Go 表示。
+// Conversation 是 conversation 表行的 Go 表示。json tag 是 API 契约：
+// 列表端点直出本结构，键统一小写蛇形（与 usage 等其它 DTO 同口径）。
 type Conversation struct {
-	ID        string
-	Title     string // 可空——首条消息摘要，UI 列表用
-	TaskID    string // 可空——关联本会话所属的 task
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`   // 可空——首条消息摘要，UI 列表用
+	TaskID    string    `json:"task_id"` // 可空——关联本会话所属的 task
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// RunStatus 是派生的「真实运行态」（关联 task 的 status：active/completed/aborted；
 	// 纯聊天为空）。仅 ListConversations 填充。
 	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
-	RunStatus string `json:"RunStatus,omitempty"`
+	RunStatus string `json:"run_status,omitempty"`
 	// FindingCount 是本会话关联 task 已挖到的漏洞数（派生自 finding 表）。仅 ListConversations 填充，
 	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
-	FindingCount int `json:"FindingCount,omitempty"`
+	FindingCount int `json:"finding_count,omitempty"`
 	// Source 是派生的下发来源（关联 assignment 的 source：manual 人工下发 / auto 聚合器攒批；
 	// 纯聊天/无 task 归 manual）。仅 ListConversations 填充，供前端「主动下发 / 被动代理」双 tab 分流。
-	Source string `json:"Source,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
-// Message 是 message 表行的 Go 表示。
+// Message 是 message 表行的 Go 表示。json tag 是 API 契约：messages 端点、SSE 补历史
+// 与 redis 实时帧都序列化本结构，键统一小写蛇形（前端 store 直接消费）。
 type Message struct {
-	Seq            int64 // 全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
-	ID             string
-	ConversationID string
-	Role           Role
-	Kind           Kind
-	Content        string
-	Metadata       json.RawMessage // 可空——event 的结构化详情（tool name/args、finding id…）
-	CreatedAt      time.Time
+	Seq            int64           `json:"seq"` // 全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
+	ID             string          `json:"id"`
+	ConversationID string          `json:"conversation_id"`
+	Role           Role            `json:"role"`
+	Kind           Kind            `json:"kind"`
+	Content        string          `json:"content"`
+	Metadata       json.RawMessage `json:"metadata"` // 可空——event 的结构化详情（tool name/args、finding id…）
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 // TaskStatus 是任务生命周期节点在时间线上的状态值（metadata.status）。

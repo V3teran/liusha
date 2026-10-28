@@ -2,16 +2,16 @@ import { describe, it, expect } from 'vitest'
 import { isEventMessage, parseScanEvent } from './types'
 import type { Message } from './types'
 
-describe('SSE 帧解析（Go 大写键）', () => {
+describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））', () => {
   const frame: Message = {
-    Seq: 42,
-    ID: 'm1',
-    ConversationID: 'c1',
-    Role: 'tool',
-    Kind: 'event',
-    Content: 'done',
+    seq: 42,
+    id: 'm1',
+    conversation_id: 'c1',
+    role: 'tool',
+    kind: 'event',
+    content: 'done',
     // ScanEvent 是后端手工 map 序列化的小写 snake_case 键（types.ts 契约）。
-    Metadata: {
+    metadata: {
       kind: 'tool_result',
       status: '',
       steps: 0,
@@ -36,7 +36,7 @@ describe('SSE 帧解析（Go 大写键）', () => {
       out_tokens: 0,
       latency_ms: 0,
     },
-    CreatedAt: '2026-06-10T00:00:00Z',
+    created_at: '2026-06-10T00:00:00Z',
   }
 
   it('识别 event 消息', () => {
@@ -44,7 +44,7 @@ describe('SSE 帧解析（Go 大写键）', () => {
   })
 
   it('识别 message 消息', () => {
-    const msg: Message = { ...frame, Kind: 'message', Metadata: null }
+    const msg: Message = { ...frame, kind: 'message', metadata: null }
     expect(isEventMessage(msg)).toBe(false)
   })
 
@@ -58,12 +58,12 @@ describe('SSE 帧解析（Go 大写键）', () => {
   })
 
   it('KindMessage 无 metadata 返回 null', () => {
-    const m: Message = { ...frame, Kind: 'message', Metadata: null }
+    const m: Message = { ...frame, kind: 'message', metadata: null }
     expect(parseScanEvent(m)).toBeNull()
   })
 
   it('event 消息但 metadata 为 null 返回 null', () => {
-    const m: Message = { ...frame, Kind: 'event', Metadata: null }
+    const m: Message = { ...frame, kind: 'event', metadata: null }
     expect(parseScanEvent(m)).toBeNull()
   })
 })

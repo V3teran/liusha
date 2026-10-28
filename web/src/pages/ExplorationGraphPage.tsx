@@ -93,7 +93,7 @@ export function ExplorationGraphPage() {
     let cancelled = false
     listConversations(1, 0, '')
       .then(({ conversations }) => {
-        const latest = conversations[0]?.ID
+        const latest = conversations[0]?.id
         if (!latest || cancelled) return
         setConversationId((cur) => cur || latest)
         setSearchParams(

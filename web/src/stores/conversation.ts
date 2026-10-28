@@ -34,15 +34,15 @@ interface ConversationState {
 // 任务已结束，一切流式活动随之收场（停止后四 agent 的打字气泡不得残留；
 // 正常收敛时各道已被自己的终态清过，此处幂等兜底）。
 function clearedLane(m: Message): string | undefined {
-  if (m.Metadata?.kind === 'reasoning') return m.Metadata.agent_name || undefined
-  if (m.Kind === 'message' && m.Role === 'assistant') return 'assistant'
+  if (m.metadata?.kind === 'reasoning') return m.metadata.agent_name || undefined
+  if (m.kind === 'message' && m.role === 'assistant') return 'assistant'
   return undefined
 }
 
 // isTaskFinalStatus 报告消息是否为任务生命周期终态节点（清全部道的信号）。
 function isTaskFinalStatus(m: Message): boolean {
-  if (m.Metadata?.kind !== 'task_status') return false
-  return ['completed', 'aborted', 'failed'].includes(m.Metadata.status ?? '')
+  if (m.metadata?.kind !== 'task_status') return false
+  return ['completed', 'aborted', 'failed'].includes(m.metadata.status ?? '')
 }
 
 function dropLane(streams: Record<string, LaneBuffers>, order: string[], lane: string) {
@@ -71,10 +71,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   ingest(m: Message) {
     const { seqSet, messages, liveStreams, liveOrder, thinking } = get()
     // 重复消息直接返回（seq 去重）。
-    if (seqSet.has(m.Seq)) return
+    if (seqSet.has(m.seq)) return
 
     const nextSeqSet = new Set(seqSet)
-    nextSeqSet.add(m.Seq)
+    nextSeqSet.add(m.seq)
 
     // 二分查找插入位置以保持升序。
     // 事件多数尾部追加，但补历史可能乱序到达。
@@ -82,7 +82,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     let hi = messages.length
     while (lo < hi) {
       const mid = (lo + hi) >> 1
-      if (messages[mid].Seq < m.Seq) {
+      if (messages[mid].seq < m.seq) {
         lo = mid + 1
       } else {
         hi = mid
@@ -101,9 +101,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       messages: nextMessages,
       seqSet: nextSeqSet,
-      lastSeq: m.Seq > get().lastSeq ? m.Seq : get().lastSeq,
+      lastSeq: m.seq > get().lastSeq ? m.seq : get().lastSeq,
       // 任意 assistant 侧消息落地 = AI 已在时间线可见地干活，占位退场。
-      thinking: thinking && m.Role === 'user',
+      thinking: thinking && m.role === 'user',
       ...lanes,
     })
   },

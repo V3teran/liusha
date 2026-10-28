@@ -17,14 +17,14 @@ import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
 
 function rowAgent(r: ThreadRow): string {
-  if (r.kind === 'tools') return r.tools[0]?.Metadata?.agent_name || ''
-  if (r.kind === 'msg') return r.msg.Metadata?.agent_name || ''
+  if (r.kind === 'tools') return r.tools[0]?.metadata?.agent_name || ''
+  if (r.kind === 'msg') return r.msg.metadata?.agent_name || ''
   return ''
 }
 
 function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): string | undefined {
   const m = r.msg
-  if (classifyMessage(m) === 'reasoning') return m.Metadata?.text || m.Content
+  if (classifyMessage(m) === 'reasoning') return m.metadata?.text || m.content
   return undefined
 }
 
@@ -136,10 +136,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             return (
               <CommandBlock
                 key={r.key}
-                content={r.msg.Content}
-                createdAt={r.msg.CreatedAt}
-                copied={copiedKey === r.msg.ID}
-                onCopy={() => copy(r.msg.ID, r.msg.Content)}
+                content={r.msg.content}
+                createdAt={r.msg.created_at}
+                copied={copiedKey === r.msg.id}
+                onCopy={() => copy(r.msg.id, r.msg.content)}
               />
             )
           }
@@ -147,13 +147,13 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             return (
               <div key={r.key} className="flex justify-start pb-5">
                 <div className="flex w-full max-w-3xl flex-col items-start">
-                  <ThinkingFold text={r.msg.Metadata?.thinking} />
+                  <ThinkingFold text={r.msg.metadata?.thinking} />
                   <ReplyBlock
-                    content={r.msg.Content}
-                    agentName={r.msg.Metadata?.agent_name}
-                    createdAt={r.msg.CreatedAt}
-                    copied={copiedKey === r.msg.ID}
-                    onCopy={() => copy(r.msg.ID, r.msg.Content)}
+                    content={r.msg.content}
+                    agentName={r.msg.metadata?.agent_name}
+                    createdAt={r.msg.created_at}
+                    copied={copiedKey === r.msg.id}
+                    onCopy={() => copy(r.msg.id, r.msg.content)}
                   />
                 </div>
               </div>
@@ -161,7 +161,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           }
           // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统裁决无归属）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
-            return <TaskStatusCard key={r.key} md={r.msg.Metadata!} />
+            return <TaskStatusCard key={r.key} md={r.msg.metadata!} />
           }
           if (r.kind === 'tools') {
             return (
@@ -180,9 +180,9 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             <AgentCard
               key={r.key}
               agentName={agent}
-              createdAt={r.msg.CreatedAt}
-              copied={copiedKey === r.msg.ID}
-              onCopy={copyText ? () => copy(r.msg.ID, copyText) : undefined}
+              createdAt={r.msg.created_at}
+              copied={copiedKey === r.msg.id}
+              onCopy={copyText ? () => copy(r.msg.id, copyText) : undefined}
               copyText={copyText}
             >
               {renderCard(r)}
@@ -230,12 +230,12 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
 
 function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
   const m = r.msg
-  const md = m.Metadata
+  const md = m.metadata
   const tag = classifyMessage(m)
 
   switch (tag) {
     case 'reasoning': {
-      const text = md?.text || m.Content
+      const text = md?.text || m.content
       return (
         <ReasoningCard
           text={text}
