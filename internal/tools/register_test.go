@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/corpus"
-	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
@@ -16,7 +15,6 @@ import (
 func TestBuildToolsWhitelistSemantics(t *testing.T) {
 	deps := Deps{
 		Tasks:      &task.Store{},
-		Findings:   &finding.Store{},
 		Corpus:     &corpus.Store{},
 		Insights:   &insight.Store{},
 		ProxyStore: &traffic.ProxyStore{},

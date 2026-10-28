@@ -51,7 +51,7 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 
 	// sandbox（命令执行慢且不安全，浏览器更慢）
 	if deps.Sandbox != nil {
-		add(newRunCommandTool(deps, constants.ToolTimeoutCommand))
+		add(newRunCommandTool(deps, runCommandTimeout(deps))) // 注册表级超时 = runtime.step_tool_timeout_seconds（同源钳制）
 		add(newDriveBrowserTool(deps, constants.ToolTimeoutBrowser))
 	}
 

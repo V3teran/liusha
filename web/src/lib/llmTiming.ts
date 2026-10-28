@@ -8,8 +8,12 @@ import type { LLMInvocationSummary } from '../api/types'
 
 export type TimingLevel = 'good' | 'warn' | 'bad'
 
-/** 后端看门狗 step_llm_timeout_seconds=300 → 达到该值即超时打点，非真实耗时。 */
-export const LLM_TIMEOUT_MS = 300_000
+/**
+ * 默认单步 LLM 看门狗（毫秒），与后端 runtime.step_llm_timeout_seconds 的内置默认一致。
+ * 权威值从 /api/settings/runtime 现读（LlmAuditPage 传入）——此常量仅作加载完成前的
+ * 回退与单测基线。历史上前端硬编码 300s，后端改 yaml 看门狗会导致审计页超时判定全错。
+ */
+export const DEFAULT_LLM_TIMEOUT_MS = 300_000
 
 /** 吞吐分档（输出 token/秒）：>=30 好，>=15 一般，更低差。 */
 export function throughputLevel(tokensPerSecond: number): TimingLevel {
@@ -38,15 +42,18 @@ export function latencyLevel(latencyMs: number, outTokens: number): TimingLevel 
 }
 
 /** 是否为看门狗超时打点（此时延迟数字不代表真实响应耗时）。 */
-export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>): boolean {
-  return v.latency_ms >= LLM_TIMEOUT_MS
+export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>, timeoutMs = DEFAULT_LLM_TIMEOUT_MS): boolean {
+  return v.latency_ms >= timeoutMs
 }
 
 /**
  * 输出速率文案（t/s）；无法计算时返回空串。
  * 超时打点不给速率——分母是被截断的看门狗时长，算出来没有意义。
  */
-export function throughputLabel(v: Pick<LLMInvocationSummary, 'latency_ms' | 'out_tokens'>): string {
-  if (v.latency_ms <= 0 || v.out_tokens <= 0 || isTimeout(v)) return ''
+export function throughputLabel(
+  v: Pick<LLMInvocationSummary, 'latency_ms' | 'out_tokens'>,
+  timeoutMs = DEFAULT_LLM_TIMEOUT_MS,
+): string {
+  if (v.latency_ms <= 0 || v.out_tokens <= 0 || isTimeout(v, timeoutMs)) return ''
   return `${(v.out_tokens / (v.latency_ms / 1000)).toFixed(1)} t/s`
 }

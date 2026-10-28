@@ -485,18 +485,20 @@ export interface CredentialHostSummary {
    proxy_filter 触发 proxy 进程热换流量过滤链（无需重启）。
    ============================================================ */
 
-// CompactionSettings 会话历史压缩旋钮。
+// CompactionSettings 会话历史压缩旋钮：ReAct 循环用「滚动窗口」压上下文——
+// 每步 Generate 前保留 system + 最近 N 条非系统消息，N 即各角色窗口条数。
 export interface CompactionSettings {
-  trigger_ratio: number // 触发压缩的窗口占比，(0,1]
-  trailing_budget_ratio: number // 会话历史占窗口比例，(0,1]
-  compactor_timeout_seconds: number // 旧会话蒸馏单次 LLM 超时秒，>0
+  planner_window_messages: number // 规划链路滚动窗口条数，>0
+  executor_window_messages: number // 执行链路滚动窗口条数，>0
+  evaluator_window_messages: number // 裁决链路滚动窗口条数，>0
+  monitor_window_messages: number // 监察链路滚动窗口条数，>0
 }
 
 // RuntimeSettings 工具运行时旋钮。
 export interface RuntimeSettings {
-  step_tool_timeout_seconds: number // 单步工具执行兜底超时秒，>0
-  run_tail_bytes: number // stdout/stderr 截尾字节数，>0
-  findings_limit_in_prompt: number // prompt 注入 finding 的 DB 读上限，>0
+  step_tool_timeout_seconds: number // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界），>0
+  step_llm_timeout_seconds: number // 单步 LLM 看门狗超时秒（审计页超时判定同源），>0
+  run_tail_bytes: number // run_command 输出保留尾部字节数，>0
 }
 
 // ProxyFilterSettings 代理流量过滤规则（黑白名单 + body 上限）。

@@ -76,9 +76,31 @@ type Deps struct {
 
 	MaxStepsPerTask int // 0 = 完成检测器步数无限制
 
+	// Windows 是各角色 ReAct 滚动窗口条数（DB compaction 组在任务开始时的快照，
+	// 装配层现读传入；0 值由各角色使用点回退内置默认）。
+	Windows MessageWindows
+
+	// ToolLimits 是 run_command 的超时钳制上限与输出尾部保留字节（DB runtime 组
+	// 任务开始时快照；0 值由工具层回退内置默认）。
+	ToolLimits ToolLimits
+
 	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
 	Conversations  *conversation.Store
 	EventPublisher *scanstream.Publisher
+}
+
+// MessageWindows 是各角色 ReAct 滚动窗口条数（系统配置 compaction 组快照）。
+type MessageWindows struct {
+	Planner   int
+	Executor  int
+	Evaluator int
+	Monitor   int
+}
+
+// ToolLimits 是 run_command 的运行时限制（系统配置 runtime 组快照）。
+type ToolLimits struct {
+	StepToolTimeoutSeconds int // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
+	RunTailBytes           int // stdout/stderr 保留尾部字节数
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -324,7 +346,6 @@ func (d *Deps) assembleStack(
 			AgentRunID: agentRunID,
 			Host:       host,
 			Tasks:      d.Tasks,
-			Findings:   d.Findings,
 			Corpus:     d.Corpus,
 			Embedder:   d.Embedder,
 			Reranker:   d.Reranker,
@@ -334,6 +355,10 @@ func (d *Deps) assembleStack(
 			Creds:      d.Creds,
 			Sandbox:    sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
 			Skills:     skillsView, // read_skill 依赖；声明为空时不注册
+
+			// run_command 超时钳制与输出尾部保留（系统配置 runtime 组快照）
+			StepToolTimeoutSeconds: d.ToolLimits.StepToolTimeoutSeconds,
+			RunTailBytes:           d.ToolLimits.RunTailBytes,
 		}
 	}
 	tools.RegisterAll(reg, toolDeps(executorSkillView))
@@ -384,6 +409,7 @@ func (d *Deps) assembleStack(
 			{Code: constants.AgentCodeMonitor, Name: cfgs.monitor.Name, Description: cfgs.monitor.Description},
 		}).
 		WithInsightsDigest(plannerDigest).
+		WithMessageWindow(d.Windows.Planner).
 		WithThoughts(thoughts.TapFor("planner"))
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
@@ -401,6 +427,7 @@ func (d *Deps) assembleStack(
 		return nil, fmt.Errorf("failed to get provider for monitor: %w", err)
 	}
 	monitorAgent := monitor.New(monitor.Config{
+		MessageWindow: d.Windows.Monitor,
 		Thoughts:      thoughts.TapFor("monitor"),
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
@@ -465,7 +492,6 @@ func (d *Deps) buildExecutorAgent(
 	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:         d.Router,
-		Findings:       d.Findings,
 		Graph:          d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:     agentRunID, // LLM 审计归属本轮 run
 		Registry:       execRegistry,
@@ -475,13 +501,14 @@ func (d *Deps) buildExecutorAgent(
 		SystemPrompt:   cfg.SystemPrompt,                                  // 角色章程（agent.system_prompt，前端可调）
 		Complexity:     cfg.Complexity,                                    // LLM 档位（agent.complexity，文档 complexity 种子）
 		MaxIterations:  cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
+		ModifierWindow: d.Windows.Executor,                                // ReAct 滚动窗口条数（系统配置 compaction 组）
 		Brief:          brief,                                             // 任务简报逐字进 executor system prompt（入口锚定）
 		Checkpointer:   d.Checkpointer,
 		TraceCollector: traceCollector, // 从 agent_traffic 构建完整执行轨迹
 		Thoughts:       thoughts,       // 思考流（nil=不流式）
 		Logger:         d.Logger,
 	})
-	coord := executor.NewCoordinatorWithEngine(taskID, host, d.Findings, engine, d.Logger)
+	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
 
 	return executor.NewAgent(executor.AgentConfig{
 		TaskID:       taskID,
@@ -524,6 +551,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithSystemPrompt(cfg.SystemPrompt).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
+		WithMessageWindow(d.Windows.Evaluator).
 		WithThoughts(thoughts).
 		WithExtraTools(extraTools)
 

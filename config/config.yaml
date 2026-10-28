@@ -155,11 +155,8 @@ ingestor:
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# ---- prompt_limits 参数（agent prompt 上限，用于控制 prompt 拼装时的数据量）----
-prompt_limits:
-  # agent user prompt 拼装上限（避免 prompt 膨胀；超出 LLM 用 read_findings 工具按需查）
-  findings_limit_in_prompt: 1000    # 该 host finding DB 读上限安全闸（全量注入不截断；超长由压缩器处理）
-  # lessons_limit_in_prompt 已删：跨目标知识改 corpus PULL 检索（search_corpus），不再 PUSH 注入
+# （原 prompt_limits 段已删：findings 注入 prompt 的特性被按需工具检索取代，字段无运行期消费者。
+#  findings 知识现经 corpus/insight 检索工具按需获取。）
 
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
@@ -182,17 +179,9 @@ runner:
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
 
-# ---- 会话历史压缩参数 ----
-compaction:
-  # 会话 msgs 滑窗压缩参数（防 context 爆 + 控延迟）。
-  # 触发时机：每步 Generate 前算 total tokens；超 trigger_ratio × provider.context_window 启动压缩。
-  # 永保策略：system + 首条 user prompt + trailing_budget_ratio × ctx_window 反向累加（turn 边界对齐）。
-  # 蒸馏：候选集一次性送 light_provider；失败 head-truncate 兜底。
-  # 协同：与 notes/lesson/finding 分层记忆联动——蒸馏 prompt 引导省略"已 write_* 上提"内容。
-  history_compact:
-    trigger_ratio: 0.75                     # > 75% × ctx_window 触发 eino summarization 压缩
-    trailing_budget_ratio: 0.15             # ② 会话历史最多占窗口比例（支撑性上下文，留 85% 给任务+finding+工作空间）；随窗口缩放
-    compactor_timeout_seconds: 30           # ② 旧会话蒸馏单次 light LLM 超时
+# （原 compaction/history_compact 段已删：token 比例触发 + light LLM 蒸馏的机制未落地，
+# 真实生效的是 ReAct 滚动窗口按消息条数截留——旋钮收归 DB system_setting compaction 组，
+# 前端「系统配置」页可热改，本文件不再承担该配置。）
 
 # ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
 # 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
@@ -200,15 +189,13 @@ compaction:
 # 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
   default_image: ghcr.io/v3teran/liusha-pentools:latest    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-pentools` 同名 tag，docker run 直接命中本地不拉远端。
-  # run_command 单次硬超时由 LLM 通过 timeout_seconds 必传，上限钳到 toolruntime.step_tool_timeout_seconds（1800s）
-  run_tail_bytes: 8192                     # 主进程 RunCommand 对 stdout/stderr 截尾字节数；sandbox-server 返回完整 stdout，截尾在主进程层
+  # （原 run_tail_bytes 已删：收归 DB system_setting runtime 组，前端「系统配置」页可热改。）
   # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280
   viewport_height: 800
 
-# ---- toolruntime Interceptor 参数 ----
-toolruntime:
-  step_tool_timeout_seconds: 1800       # 单步 tool Execute 上限（30 分钟）；run_command 用此值钳 LLM 自传的 timeout_seconds；其他工具（write_finding 等）受 Interceptor 层 WithTimeout 兜底。< agent_run_timeout_seconds=3600
+# （原 toolruntime 段已删：step_tool_timeout_seconds 收归 DB system_setting runtime 组——
+# 该 yaml 值历史上从未被工具执行路径消费（实际钳制点硬编码 120s），现钳制/注册表超时同源热配置。）
 
 # ---- heuristic 关键词清单 ----
 # yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

@@ -8,11 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
 const defaultCommandTimeout = 120
+
+// defaultRunTailBytes 是 run_command 输出尾部保留的默认字节数（runtime.run_tail_bytes 未配置时）。
+const defaultRunTailBytes = 8192
 
 // ─── run_command ─────────────────────────────────────────────────────────────
 
@@ -59,6 +63,11 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	if a.TimeoutSeconds <= 0 {
 		a.TimeoutSeconds = defaultCommandTimeout
 	}
+	// 钳制上界 = runtime.step_tool_timeout_seconds（系统配置，注册表级超时同源）——
+	// 防本地工具卡死；LLM 自传更长的 timeout 会被截到上界。
+	if ceiling := runCommandTimeout(t.deps); a.TimeoutSeconds > int(ceiling.Seconds()) {
+		a.TimeoutSeconds = int(ceiling.Seconds())
+	}
 
 	req := sandbox.ExecRequest{
 		TaskID:         t.deps.TaskID,
@@ -72,16 +81,20 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		return registry.ToolResult{Error: fmt.Sprintf("run_command: 沙箱执行失败: %v", err)}, nil
 	}
 
-	var sb strings.Builder
-	if res.Stdout != "" {
-		sb.WriteString(res.Stdout)
-	}
+	// stdout/stderr 合并后按 runtime.run_tail_bytes 保留尾部——命令输出的结果
+	// （报文/报错）几乎总在末段，头部横幅与噪音优先弃。截断只影响给 LLM 的
+	// Signal.Content；Output 保留全文供 tool_invocation 留档取证。
+	combined := res.Stdout
 	if res.Stderr != "" {
-		if sb.Len() > 0 {
-			sb.WriteString("\n--- stderr ---\n")
+		if combined != "" {
+			combined += "\n--- stderr ---\n"
 		}
-		sb.WriteString(res.Stderr)
+		combined += res.Stderr
 	}
+	visible := tailRunOutput(combined, t.deps.RunTailBytes)
+
+	var sb strings.Builder
+	sb.WriteString(visible)
 	if res.TimedOut {
 		fmt.Fprintf(&sb, "\n[超时: %ds]", a.TimeoutSeconds)
 	}
@@ -93,10 +106,42 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCmdOutput,
 			ToolName: "run_command",
-			Content:  truncateOutput(output, 2048),
-			Detail:   output,
+			Content:  output,
+			Detail:   combined,
 		},
 	}, nil
+}
+
+// runCommandTimeout 返回 run_command 的注册表级超时 = runtime.step_tool_timeout_seconds
+// （DB 旋钮，任务开始时快照；0=内置默认 120s）。它与 Execute 内的钳制上界同源——
+// 此前注册表硬编码 120s 而配置写 1800s，LLM 自传长超时实际仍被 120s 掐死。
+func runCommandTimeout(deps Deps) time.Duration {
+	if deps.StepToolTimeoutSeconds > 0 {
+		return time.Duration(deps.StepToolTimeoutSeconds) * time.Second
+	}
+	return constants.ToolTimeoutCommand
+}
+
+// tailRunOutput 保留 s 的尾部 n 字节（n<=0 用默认 8192）。按字节截断可能切断
+// 多字节 UTF-8 字符——从截断点回退到字符起始边界再切。
+func tailRunOutput(s string, n int) string {
+	if n <= 0 {
+		n = defaultRunTailBytes
+	}
+	b := []byte(s)
+	if len(b) <= n {
+		return s
+	}
+	cut := len(b) - n
+	for cut < len(b) && cut > 0 && b[cut]&0xC0 == 0x80 {
+		cut-- // 回退到 UTF-8 多字节序列的起始字节
+	}
+	trimmed := b[cut:]
+	head := ""
+	if cut > 0 {
+		head = "\n...[前段已截断]\n"
+	}
+	return head + string(trimmed)
 }
 
 // ─── drive_browser ─────────────────────────────────────────────────────────────

@@ -168,12 +168,24 @@ func main() {
 	hostSem := newHostSemaphore(rdb, runnerCfg, cfg)
 	controlPlaneStore := controlplane.NewStore(pool)
 
+	sysSettings := settingstore.New(pool, cache)
+
 	router := llm.NewRouter(llmStack.llmStore.AsRouterStore(llmStack.keyCipher))
 	// LLM 调用装配：单步看门狗（step_llm_timeout_seconds——挂死的调用会阻塞
 	// Agent 事件循环，预算超时即失败）+ llm_invocation 审计（含失败）。
+	// 看门狗每次调用现读 DB 热配置（runtime.step_llm_timeout_seconds），前端改完
+	// 即对本进程后续调用生效；读失败回落 yaml 启动值。
 	stepLLMTimeout := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second
 	router.SetProviderWrapper(func(p llm.Provider) llm.Provider {
-		return llm.InstrumentProvider(llm.WithCallTimeout(p, stepLLMTimeout), usageSink{store: stores.calls})
+		return llm.InstrumentProvider(llm.WithDynamicCallTimeout(p,
+			stepLLMTimeout,
+			func(ctx context.Context) time.Duration {
+				rt, err := sysSettings.Runtime(ctx)
+				if err != nil {
+					return 0
+				}
+				return time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
+			}), usageSink{store: stores.calls})
 	})
 
 	h := handler{
@@ -188,7 +200,7 @@ func main() {
 		agentStore: stores.agentStore,
 		calls:      stores.calls,
 		hostSem:    hostSem,
-		settings:   settingstore.New(pool, cache),
+		settings:   sysSettings,
 		runnerCfg:  runnerCfg,
 		sandboxMgr: sandboxMgr,
 		logger:     logger,
@@ -241,7 +253,7 @@ func main() {
 	hs := newHealthGateway(cfg, runnerCfg, trafficIngestor, logger)
 	go runHealthGateway(hs, logger)
 
-	startTaskReaper(trafficCtx, stores.tasks, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
+	startTaskReaper(trafficCtx, stores.tasks, sysSettings, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
 
 	// 凭证库运行时键迁移：历史版本里聚合窗口/信号量借用过凭证前缀
 	//（credentials::agg:* / credentials:hostsem:*）。计数/锁类键自带短 TTL
@@ -260,11 +272,17 @@ func main() {
 
 	// 启动 action 恢复监控器（检测 task 级 LLM/工具活动全停摆的 running action）。
 	// 阈值必须超过单步 LLM 看门狗（一次长 LLM 调用是合法活动形态），再加缓冲。
+	// 恢复判定阈值启动时读一次 DB 热配置（读失败回落 yaml 值）；进程内不热变——
+	// 启发式缓冲（+1 分钟）对慢漂移不敏感，重启生效足够。
+	recoveryStepLLM := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second
+	if rt, err := sysSettings.Runtime(trafficCtx); err == nil && rt.StepLLMTimeoutSeconds > 0 {
+		recoveryStepLLM = time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
+	}
 	recoveryMonitor := explorationgraph.NewRecoveryMonitor(
 		stores.graph,
 		logger,
 		30*time.Second, // 每 30 秒检查一次
-		time.Duration(runnerCfg.StepLLMTimeoutSeconds)*time.Second+time.Minute,
+		recoveryStepLLM+time.Minute,
 	)
 	go func() {
 		if err := recoveryMonitor.Start(trafficCtx); err != nil && err != context.Canceled {
@@ -506,14 +524,17 @@ func startInvocationRetentionSweep(ctx context.Context, calls *llminvocation.Sto
 func startTaskReaper(
 	ctx context.Context,
 	taskStore *task.Store,
+	settings *settingstore.Store,
 	cfg config.Config,
 	convs *conversation.Store,
 	pub *scanstream.Publisher,
 	logger zerolog.Logger,
 ) {
+	// 启动默认值作回退（1800/300 与 settingstore.normalized 的内置默认一致）：
+	// runtime 配置读失败时 staleAfter 仍有合理上界。
+	fallbackStaleAfter := time.Duration(1800+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
 	go func() {
-		staleAfter := time.Duration(cfg.Toolruntime.StepToolTimeoutSeconds+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
-		logger.Info().Dur("stale_after", staleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
+		logger.Info().Dur("stale_after", fallbackStaleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
 		ticker := time.NewTicker(scanReaperInterval)
 		defer ticker.Stop()
 		for {
@@ -521,6 +542,12 @@ func startTaskReaper(
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// staleAfter 每 tick 现读 runtime 热配置（工具超时 + 2×LLM 看门狗 + 缓冲）——
+				// 配置改大后正在跑的长任务不被新口径冤杀。
+				staleAfter := fallbackStaleAfter
+				if rt, err := settings.Runtime(ctx); err == nil {
+					staleAfter = time.Duration(rt.StepToolTimeoutSeconds+2*rt.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
+				}
 				ids, err := taskStore.ReapStale(ctx, staleAfter)
 				if err != nil {
 					logger.Warn().Err(err).Msg("task reap stale failed")

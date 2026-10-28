@@ -31,13 +31,13 @@ export function SystemConfig() {
     {
       id: 'compaction',
       title: '会话历史压缩',
-      keywords: '会话 历史 压缩 触发 阈值 蒸馏 预算 超时',
+      keywords: '会话 历史 压缩 滚动 窗口 消息 条数 规划 执行 裁决 监察',
       component: <CompactionSection />,
     },
     {
       id: 'runtime',
       title: '工具运行时',
-      keywords: '工具 运行时 超时 输出 截尾 finding prompt',
+      keywords: '工具 运行时 超时 看门狗 llm 输出 尾部 截尾 字节',
       component: <RuntimeSection />,
     },
     {
@@ -104,16 +104,15 @@ function CompactionSection() {
   const d = s.draft
   const invalid =
     !d ||
-    d.trigger_ratio <= 0 ||
-    d.trigger_ratio > 1 ||
-    d.trailing_budget_ratio <= 0 ||
-    d.trailing_budget_ratio > 1 ||
-    d.compactor_timeout_seconds <= 0
+    d.planner_window_messages <= 0 ||
+    d.executor_window_messages <= 0 ||
+    d.evaluator_window_messages <= 0 ||
+    d.monitor_window_messages <= 0
 
   return (
     <SettingsSection
       title="会话历史压缩"
-      subtitle="会话上下文接近窗口时的触发阈值与蒸馏预算"
+      subtitle="各角色 ReAct 循环的滚动窗口：每步保留 system + 最近 N 条非系统消息，N 越大上下文越完整、token 越贵"
       loading={s.loading}
       error={s.error}
       saving={s.saving}
@@ -125,40 +124,58 @@ function CompactionSection() {
     >
       {d && (
         <>
-          <Field label="触发阈值" hint="上下文占窗口比例达此值触发压缩，(0,1]">
-            <input
-              type="number"
-              step="0.05"
-              min={0}
-              max={1}
-              className={INPUT_CLASS}
-              value={d.trigger_ratio}
-              onChange={(e) => s.patch({ trigger_ratio: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="Trailing 预算比例" hint="压缩后保留的近期会话占窗口比例，(0,1]">
-            <input
-              type="number"
-              step="0.05"
-              min={0}
-              max={1}
-              className={INPUT_CLASS}
-              value={d.trailing_budget_ratio}
-              onChange={(e) => s.patch({ trailing_budget_ratio: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="蒸馏超时（秒）" hint="旧会话蒸馏单次 LLM 调用超时，>0">
-            <input
-              type="number"
-              min={1}
-              className={INPUT_CLASS}
-              value={d.compactor_timeout_seconds}
-              onChange={(e) => s.patch({ compactor_timeout_seconds: Number(e.target.value) })}
-            />
-          </Field>
+          <WindowField
+            label="规划窗口（条）"
+            hint="规划链路长、上下文价值高，窗口最大"
+            value={d.planner_window_messages}
+            onChange={(v) => s.patch({ planner_window_messages: v })}
+          />
+          <WindowField
+            label="执行窗口（条）"
+            hint="执行工具循环的中档窗口"
+            value={d.executor_window_messages}
+            onChange={(v) => s.patch({ executor_window_messages: v })}
+          />
+          <WindowField
+            label="裁决窗口（条）"
+            hint="单假设取证链路短，窗口最小"
+            value={d.evaluator_window_messages}
+            onChange={(v) => s.patch({ evaluator_window_messages: v })}
+          />
+          <WindowField
+            label="监察窗口（条）"
+            hint="周期性状态评估，链路最短"
+            value={d.monitor_window_messages}
+            onChange={(v) => s.patch({ monitor_window_messages: v })}
+          />
         </>
       )}
     </SettingsSection>
+  )
+}
+
+// WindowField 是滚动窗口条数输入（正整数）。
+function WindowField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint: string
+  value: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <Field label={label} hint={`${hint}，>0`}>
+      <input
+        type="number"
+        min={1}
+        className={INPUT_CLASS}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </Field>
   )
 }
 
@@ -170,13 +187,13 @@ function RuntimeSection() {
   const invalid =
     !d ||
     d.step_tool_timeout_seconds <= 0 ||
-    d.run_tail_bytes <= 0 ||
-    d.findings_limit_in_prompt <= 0
+    d.step_llm_timeout_seconds <= 0 ||
+    d.run_tail_bytes <= 0
 
   return (
     <SettingsSection
       title="工具运行时"
-      subtitle="单步工具执行超时、输出截尾与 prompt 注入 finding 上限"
+      subtitle="run_command 超时钳制、单步 LLM 看门狗与输出尾部保留——保存后 runner 现读即生效"
       loading={s.loading}
       error={s.error}
       saving={s.saving}
@@ -188,7 +205,7 @@ function RuntimeSection() {
     >
       {d && (
         <>
-          <Field label="单步工具超时（秒）" hint="单次工具执行兜底超时，>0">
+          <Field label="工具超时钳制（秒）" hint="run_command 超时上界：LLM 自传更长的 timeout 会被截到此值，>0">
             <input
               type="number"
               min={1}
@@ -197,22 +214,22 @@ function RuntimeSection() {
               onChange={(e) => s.patch({ step_tool_timeout_seconds: Number(e.target.value) })}
             />
           </Field>
-          <Field label="输出截尾字节数" hint="run_command stdout/stderr 保留尾部字节，>0">
+          <Field label="LLM 看门狗（秒）" hint="单步 LLM 调用超时即失败；审计页「超时」判定与此同源，>0">
+            <input
+              type="number"
+              min={1}
+              className={INPUT_CLASS}
+              value={d.step_llm_timeout_seconds}
+              onChange={(e) => s.patch({ step_llm_timeout_seconds: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="输出尾部保留（字节）" hint="run_command stdout/stderr 保留尾部字节（结果在末段，头部噪音先弃），>0">
             <input
               type="number"
               min={1}
               className={INPUT_CLASS}
               value={d.run_tail_bytes}
               onChange={(e) => s.patch({ run_tail_bytes: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="Prompt finding 上限" hint="注入 prompt 的既有 finding DB 读上限，>0">
-            <input
-              type="number"
-              min={1}
-              className={INPUT_CLASS}
-              value={d.findings_limit_in_prompt}
-              onChange={(e) => s.patch({ findings_limit_in_prompt: Number(e.target.value) })}
             />
           </Field>
         </>

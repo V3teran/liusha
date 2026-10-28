@@ -10,21 +10,18 @@ package config
 
 // Config 是 liusha 顶层配置树。
 type Config struct {
-	API          APIConfig                 `mapstructure:"api"`
-	Postgres     PostgresConfig            `mapstructure:"postgres"`
-	Redis        RedisConfig               `mapstructure:"redis"`
-	LLM          LLMConfig                 `mapstructure:"llm"`
-	Providers    map[string]ProviderConfig `mapstructure:"providers"`
-	Proxy        ProxyConfig               `mapstructure:"proxy"`
-	Ingestor     IngestorConfig            `mapstructure:"ingestor"`
-	PromptLimits PromptLimitsConfig        `mapstructure:"prompt_limits"`
-	Credential   CredentialConfig          `mapstructure:"credential"`
-	Skills       SkillsConfig              `mapstructure:"skills"`
-	Agents       AgentsConfig              `mapstructure:"agents_dir"`
-	Runner       RunnerConfig              `mapstructure:"runner"`
-	Compaction   CompactionConfig          `mapstructure:"compaction"`
-	Sandbox      SandboxConfig             `mapstructure:"sandbox"`
-	Toolruntime  ToolruntimeConfig         `mapstructure:"toolruntime"`
+	API        APIConfig                 `mapstructure:"api"`
+	Postgres   PostgresConfig            `mapstructure:"postgres"`
+	Redis      RedisConfig               `mapstructure:"redis"`
+	LLM        LLMConfig                 `mapstructure:"llm"`
+	Providers  map[string]ProviderConfig `mapstructure:"providers"`
+	Proxy      ProxyConfig               `mapstructure:"proxy"`
+	Ingestor   IngestorConfig            `mapstructure:"ingestor"`
+	Credential CredentialConfig          `mapstructure:"credential"`
+	Skills     SkillsConfig              `mapstructure:"skills"`
+	Agents     AgentsConfig              `mapstructure:"agents_dir"`
+	Runner     RunnerConfig              `mapstructure:"runner"`
+	Sandbox    SandboxConfig             `mapstructure:"sandbox"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。
@@ -175,13 +172,8 @@ type IngestorConfig struct {
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
-// PromptLimitsConfig 是 agent prompt 上限参数。
-type PromptLimitsConfig struct {
-	// agent user prompt 拼装时的上限（避免 prompt 膨胀）。
-	// FindingsLimitInPrompt：该 host 已有 finding 段的 DB 读上限安全闸（取够高，正常扫描全量注入；
-	// 不在此 top-N 截断，prompt 超长由 ① summarization 统一压缩，agent 仍可 read_findings 取全）。
-	FindingsLimitInPrompt int `mapstructure:"findings_limit_in_prompt"`
-}
+// （原 PromptLimitsConfig 已删：findings 注入 prompt 的特性在架构演进中被按需工具检索
+// 取代，该字段自始至终无运行期消费者；findings 知识现经 corpus/insight 检索工具按需获取。）
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
 type CredentialConfig struct {
@@ -222,38 +214,14 @@ type RunnerConfig struct {
 	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
 }
 
-// CompactionConfig 会话历史压缩参数。
-type CompactionConfig struct {
-	// HistoryCompact 是 agent msgs 滑窗压缩参数（防 context 爆）。
-	// 触发：每步 Generate 前算 total tokens，超 TriggerRatio×provider.ContextWindow 启动压缩。
-	// 设计原则：永保 system + 首 user，trailing 反向累加保最近 TrailingBudgetRatio×ctx_window，
-	// 候选集一次性送 light_provider 蒸馏成 1 条；失败 head-truncate 兜底。
-	// 蒸馏 prompt 引导省略"已 write_* 上提"的内容，避免重复。
-	HistoryCompact HistoryCompactConfig `mapstructure:"history_compact"`
-}
-
-// HistoryCompactConfig 是 compaction.history_compact 段配置。
-// 全部字段缺省时 applyCompactionDefaults 兜底——非阻塞启动。
-type HistoryCompactConfig struct {
-	// TriggerRatio 是触发阈值占 provider.ContextWindow 比例；> 此值触发压缩。
-	// 默认 0.75 偏保守：32k 模型阈值 24k，留 8k 给输出 + tools + cushion；
-	// 128k 模型阈值 96k，留 32k 余量。
-	TriggerRatio float64 `mapstructure:"trigger_ratio"`
-
-	// TrailingBudgetRatio 是 trailing window 占 ContextWindow 比例。
-	// 反向累加保最近 TrailingBudgetRatio × ContextWindow tokens，严格按对话 turn 边界。
-	// 默认 0.50——业界共识 trailing context 30-50%。
-	TrailingBudgetRatio float64 `mapstructure:"trailing_budget_ratio"`
-
-	// CompactorTimeoutSeconds 是单次 light LLM 蒸馏调用超时（含网络 + LLM 推理）。
-	// 超时退化为 head-truncate 兜底，不阻断主循环。默认 30s。
-	CompactorTimeoutSeconds int `mapstructure:"compactor_timeout_seconds"`
-}
+// （原 CompactionConfig/HistoryCompactConfig 已删：token 比例触发 + light LLM 蒸馏的
+// 压缩机制未落地，真实生效的是 ReAct 滚动窗口按消息条数截留——该旋钮收归 DB
+// system_setting compaction 组（settingstore.CompactionSettings，前端「系统配置」可热改）。）
 
 // SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
 //
 // run_command 单次硬超时不再有 yaml 配置——LLM 通过 timeout_seconds 必传（schema required），
-// 上限由 ToolruntimeConfig.StepToolTimeoutSeconds 钳。
+// 上限由 DB runtime.step_tool_timeout_seconds 钳（settingstore，前端「系统配置」可热改）。
 //
 // 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
 // （per-task 共享容器模型下这些参数没有按任务调整的需求）。
@@ -263,10 +231,6 @@ type HistoryCompactConfig struct {
 type SandboxConfig struct {
 	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。
 	DefaultImage string `mapstructure:"default_image"`
-
-	// RunTailBytes 是主进程 RunCommand 对 stdout/stderr 截尾的字节数。
-	// sandbox-server 返回完整 stdout，截尾在主进程层（贴近 LLM context 管理）。
-	RunTailBytes int `mapstructure:"run_tail_bytes"`
 
 	// ViewportWidth/Height 是沙箱 chromium 视口固定尺寸（像素）。
 	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
@@ -279,7 +243,6 @@ type SandboxConfig struct {
 	ViewportHeight int `mapstructure:"viewport_height"`
 }
 
-// ToolruntimeConfig 是工具执行的运行时参数（run_command 等本地工具的兜底超时）。
-type ToolruntimeConfig struct {
-	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds"` // 单次工具执行兜底超时上限（run_command timeout_seconds 的钳制上界，防本地工具卡死）
-}
+// （原 ToolruntimeConfig 已删：step_tool_timeout_seconds 收归 DB runtime 组
+// （settingstore.RuntimeSettings.StepToolTimeoutSeconds），前端「系统配置」可热改；
+// 历史上 yaml 值从未被工具执行路径消费，仅 task reaper 间接引用——reaper 现读 DB。）

@@ -14,14 +14,11 @@ func (c *Config) ApplyDefaults() {
 	c.LLM = applyLLMDefaults(c.LLM)
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
-	c.PromptLimits = applyPromptLimitsDefaults(c.PromptLimits)
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Skills = applySkillsDefaults(c.Skills)
 	c.Agents = applyAgentsDefaults(c.Agents)
 	c.Runner = applyRunnerDefaults(c.Runner)
-	c.Compaction = applyCompactionDefaults(c.Compaction)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
-	c.Toolruntime = applyToolruntimeDefaults(c.Toolruntime)
 }
 
 func applyAPIDefaults(c APIConfig) APIConfig {
@@ -214,13 +211,6 @@ func applyIngestorDefaults(c IngestorConfig) IngestorConfig {
 	return c
 }
 
-func applyPromptLimitsDefaults(c PromptLimitsConfig) PromptLimitsConfig {
-	if c.FindingsLimitInPrompt == 0 {
-		c.FindingsLimitInPrompt = 1000 // 安全闸（正常扫描全量注入，不截断；超长交 ① 压缩）
-	}
-	return c
-}
-
 func applyCredentialDefaults(c CredentialConfig) CredentialConfig {
 	if c.RedisKeyPrefix == "" {
 		c.RedisKeyPrefix = "credentials:"
@@ -279,33 +269,9 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	return c
 }
 
-func applyCompactionDefaults(c CompactionConfig) CompactionConfig {
-	c.HistoryCompact = applyHistoryCompactDefaults(c.HistoryCompact)
-	return c
-}
-
-// applyHistoryCompactDefaults 给 compaction.history_compact 段缺省字段兜底。
-// 设计取舍：所有比例/超时都允许 yaml 显式 0 → 仍兜默认（不让用户误填 0 关掉压缩）。
-// 想关压缩走 TriggerRatio 设极大值（如 99）让永不触发；或在 runtime 层注入 NoopHistoryCompactor。
-func applyHistoryCompactDefaults(c HistoryCompactConfig) HistoryCompactConfig {
-	if c.TriggerRatio <= 0 {
-		c.TriggerRatio = 0.75
-	}
-	if c.TrailingBudgetRatio <= 0 {
-		c.TrailingBudgetRatio = 0.50
-	}
-	if c.CompactorTimeoutSeconds <= 0 {
-		c.CompactorTimeoutSeconds = 30
-	}
-	return c
-}
-
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
 		c.DefaultImage = "ghcr.io/v3teran/liusha-pentools:latest"
-	}
-	if c.RunTailBytes == 0 {
-		c.RunTailBytes = 8192
 	}
 	// 视口 1280×720——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
 	if c.ViewportWidth == 0 {
@@ -313,14 +279,6 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	}
 	if c.ViewportHeight == 0 {
 		c.ViewportHeight = 720
-	}
-	return c
-}
-
-func applyToolruntimeDefaults(c ToolruntimeConfig) ToolruntimeConfig {
-	if c.StepToolTimeoutSeconds == 0 {
-		// 1800s = 30 分钟。给 sqlmap 升级 + 多 variant 重放充足上限。
-		c.StepToolTimeoutSeconds = 1800
 	}
 	return c
 }
