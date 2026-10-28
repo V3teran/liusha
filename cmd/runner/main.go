@@ -47,7 +47,6 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/ratelimit"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
@@ -165,7 +164,6 @@ func main() {
 	// EventBus：统一事件总线（进程单例，跨 Task 共享）
 	eventBus := bus.New(ctx)
 
-	hostSem := newHostSemaphore(rdb, runnerCfg, cfg)
 	controlPlaneStore := controlplane.NewStore(pool)
 
 	sysSettings := settingstore.New(pool, cache)
@@ -199,7 +197,6 @@ func main() {
 		proxyStore: stores.proxyStore,
 		agentStore: stores.agentStore,
 		calls:      stores.calls,
-		hostSem:    hostSem,
 		settings:   sysSettings,
 		runnerCfg:  runnerCfg,
 		sandboxMgr: sandboxMgr,
@@ -433,14 +430,6 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 	}
 
 	return &runnerLLM{cfgStore: cfgStore, llmStore: llmStore, keyCipher: keyCipher}
-}
-
-// newHostSemaphore 构造 per-host 并发信号量（§4.3）。
-// TTL = agent 超时 + 10min 缓冲：防长 task 运行期计数键被 TTL 误清导致 host 额度漂移；
-// 持有者崩溃时靠 TTL 到期兜底清零，不永久泄漏。
-func newHostSemaphore(rdb *redis.Client, runnerCfg config.RunnerConfig, cfg config.Config) *ratelimit.HostSemaphore {
-	hostSemTTL := time.Duration(runnerCfg.AgentRunTimeoutSeconds)*time.Second + 10*time.Minute
-	return ratelimit.NewHostSemaphore(rdb, runnerCfg.PerHostConcurrency, hostSemTTL)
 }
 
 // startTrafficIngestor 启动流量摄取消费循环。

@@ -404,7 +404,14 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("取已认领流量清单失败（首条说明降级为无明细）")
 	}
 	convID := t.ensureConversation(ctx, tk.ID, host, claimedTraffic)
-	if err := t.enqueuePassive(ctx, tk.ID, convID, host); err != nil {
+	// 下发 brief 用完整任务说明（scheme://host + 流量清单 + 工具指引），而非裸 host：
+	// runner onboard 靠 brief 里的 URL 抽取 host（hostRe 要求带协议头）建探索图 Objective，
+	// agent 的目标上下文也来自它——裸 host 曾让两者全空，被动分析失去方向。
+	scheme := "http"
+	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
+		scheme = claimedTraffic[0].Scheme
+	}
+	if err := t.enqueuePassive(ctx, tk.ID, convID, passiveBrief(scheme, host, claimedTraffic)); err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("passive task 入队失败")
 		return
 	}
@@ -472,10 +479,13 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, t
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
 		return ""
 	}
-	// 首条任务说明（role=user）：passive 流量驱动自动发起，合成说明让前端有"发起了什么"的锚点。
-	// 列出本批捕获的请求（method path → status），而非干巴的条数——用户一眼看清在分析哪些流量。
-	// best-effort——写失败仅缺首条气泡，不影响流量分析与后续事件落会话。
-	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(host, trafficList), nil); err != nil {
+	// 首条任务说明（role=user）：与下发 brief 同源（scheme://host + 流量清单 + 工具指引），
+	// 用户一眼看清在分析哪些流量。best-effort——写失败仅缺首条气泡，不影响分析与事件落会话。
+	briefScheme := "http"
+	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
+		briefScheme = trafficList[0].Scheme
+	}
+	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(briefScheme, host, trafficList), nil); err != nil {
 		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return conv.ID
@@ -484,25 +494,31 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, t
 // passiveBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
 const passiveBriefMaxList = 20
 
-// passiveBrief 合成 passive 首条任务说明：host + 本批捕获请求清单（method path → status，去重）。
-// 让用户一眼看清在分析哪些流量，而非干巴的条数。
-func passiveBrief(host string, trafficList []traffic.ProxyTraffic) string {
+// passiveBrief 合成 passive 的任务说明（一份文本两用：会话首条气泡给用户看 +
+// 下发 brief 给 agent 当目标上下文）。设计要点：
+//   - 首行必须含 scheme://host 形式的目标 URL——runner onboard 靠 hostRe（https?://…）
+//     从 brief 抽取 host；
+//   - 每条流量带 view_traffic 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
+//     list_traffic 就能按 id 拉取任意一条的完整报文；
+//   - 同 host 同 path 的重复请求在目录里无法互辨，id 是唯一可靠的对应键。
+func passiveBrief(scheme, host string, trafficList []traffic.ProxyTraffic) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "被动流量分析：监听到 host `%s` 的 %d 条 HTTP 流量，发起分析——从响应线索反推可控点，追查漏洞。\n\n捕获请求：", host, len(trafficList))
+	fmt.Fprintf(&b, "被动流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 view_traffic（id=…）可拉取完整请求与响应原文，也可用 list_traffic（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))
 	for i, f := range trafficList {
 		if i >= passiveBriefMaxList {
 			fmt.Fprintf(&b, "\n… 等共 %d 条", len(trafficList))
 			break
 		}
-		fmt.Fprintf(&b, "\n%s %s → %d", f.Method, f.Path, f.StatusCode)
+		fmt.Fprintf(&b, "\nproxy:%d %s %s → %d", f.ID, f.Method, f.Path, f.StatusCode)
 	}
 	return b.String()
 }
 
-func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, host string) error {
-	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，用 host 作 brief——
-	// runner handler 据此走派发，从 brief 抽 host 回填。
-	payloadInput, _ := json.Marshal(map[string]any{"brief": host})
+func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, brief string) error {
+	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，由 spawnPassiveTask
+	// 合成完整任务说明（scheme://host + 流量清单 + 工具指引）——runner onboard 据此抽
+	// host 建探索图 Objective，agent 目标上下文同源。
+	payloadInput, _ := json.Marshal(map[string]any{"brief": brief})
 	hid, err := t.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   constants.AgentCodePlanner,

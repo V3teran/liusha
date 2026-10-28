@@ -177,7 +177,7 @@ runner:
   traffic_max_request_body: 2097152        # 2 MiB；traffic.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
   traffic_max_response_body: 8388608       # 8 MiB；traffic.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
-  per_host_concurrency: 2                  # per-host 并发上限（§4.3）；同 host 同时运行 task 数超限则退避重试；≤0 关闭限速
+  # （原 per_host_concurrency 已删：同 host 并发限制整体移除，任务并发只受 asynq_concurrency 约束。）
 
 # （原 compaction/history_compact 段已删：token 比例触发 + light LLM 蒸馏的机制未落地，
 # 真实生效的是 ReAct 滚动窗口按消息条数截留——旋钮收归 DB system_setting compaction 组，
