@@ -77,6 +77,18 @@ export function compactNumber(n: number): string {
   return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n)
 }
 
+/**
+ * 缓存命中率（百分比数值，保留 1 位由调用方 toFixed）：cached / (in + cached)。
+ * 分母含缓存：GLM/Anthropic 口径 in_tokens 不含缓存读（存在 cached > in 的行，
+ * cached/in 会算出 >100%）；OpenAI 口径缓存 ⊆ in 时该式只会低估、不会溢出。
+ * 审计页统计 chip 与详情抽屉共用本函数，两处口径不再各算各的。
+ */
+export function cacheRatePct(inTokens: number, cachedTokens: number): number {
+  const denom = inTokens + cachedTokens
+  if (denom <= 0 || cachedTokens <= 0) return 0
+  return (cachedTokens / denom) * 100
+}
+
 /** 本地日期键 YYYY-MM-DD（按天分组用，无效输入返回空串）。 */
 export function dayKey(iso: string): string {
   if (!iso) return ''

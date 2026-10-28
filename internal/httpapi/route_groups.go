@@ -33,6 +33,7 @@ func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 	}
 	// 注意：更具体的路由必须在通配路由之前注册
 	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
+	r.GET("/llm/invocations/search/stat", llmInvocationsSearchStatHandler(d.Invocations))
 	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
 }
 

@@ -4,19 +4,17 @@ import type { LLMInvocationFilters } from '@/api/types'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 
 // 筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/排序/分页应作为 URL state」）：
-// 刷新页面、前进/后退、把链接发给同事复核，筛选条件与翻页位置都能还原，不再只存在组件内存里就丢失。
+// 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
 //
-// 参数名：task / role / model / only_err / start / end / page / size。
-// URL 参数用 task：后端路由全是 /llm/invocations/:task_id，统一 task 叫法。
+// 参数名：q / role / model / only_err / start / end / page / size。
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页 + 每页条数」体验。
-const PARAM_KEYS = ['role', 'model', 'only_err', 'start', 'end'] as const
 
 export interface LlmAuditUrlState {
-  taskId: string
+  query: string
   filters: LLMInvocationFilters
   page: number // 1-based
   size: number // 每页条数，PAGE_SIZE_OPTIONS 之一
-  setTaskId: (taskId: string) => void
+  setQuery: (q: string) => void
   setFilters: (next: LLMInvocationFilters) => void
   setPage: (page: number) => void
   setSize: (size: number) => void
@@ -33,7 +31,7 @@ function numOr(raw: string | null, fallback: number): number {
 export function useLlmAuditFilters(): LlmAuditUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const taskId = searchParams.get('task') ?? ''
+  const query = searchParams.get('q') ?? ''
   const page = useMemo(() => numOr(searchParams.get('page'), 1), [searchParams])
   const size = useMemo(() => {
     const raw = numOr(searchParams.get('size'), DEFAULT_PAGE_SIZE)
@@ -50,14 +48,12 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
     [searchParams],
   )
 
-  const setTaskId = (nextTaskId: string) => {
+  const setQuery = (q: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      if (nextTaskId) next.set('task', nextTaskId)
-      else next.delete('task')
-      // 换 task：role/model/时间范围/分页是上一个会话的筛选态，不该带过去。
-      PARAM_KEYS.forEach((k) => next.delete(k))
-      next.delete('page')
+      if (q) next.set('q', q)
+      else next.delete('q')
+      next.delete('page') // 换搜索词回到第一页
       return next
     })
   }
@@ -102,5 +98,5 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
 
   const resetFilters = () => setFilters(EMPTY_FILTERS)
 
-  return { taskId, filters, page, size, setTaskId, setFilters, setPage, setSize, resetFilters }
+  return { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters }
 }

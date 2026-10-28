@@ -31,6 +31,10 @@ func (f *fakeInvocations) CountAll(_ context.Context, _ llminvocation.ListFilter
 	return len(f.rows), f.err
 }
 
+func (f *fakeInvocations) AggregateAll(_ context.Context, _ llminvocation.ListFilter) (llminvocation.Aggregate, error) {
+	return f.agg, f.err
+}
+
 func (f *fakeInvocations) GetDetailByID(_ context.Context, id int64) (llminvocation.Invocation, error) {
 	v, ok := f.byID[id]
 	if !ok {
@@ -68,4 +72,36 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 		}
 	})
 
+}
+
+func TestLLMInvocationsHandler_SearchStat(t *testing.T) {
+	t.Run("200 返回筛选结果集的合计（与翻页无关）", func(t *testing.T) {
+		fake := &fakeInvocations{agg: llminvocation.Aggregate{Calls: 197, InTokens: 509245, OutTokens: 40121, CachedTokens: 148800, LatencyMs: 12345678}}
+		srv := newTestServer(t, Deps{Invocations: fake})
+		defer srv.Close()
+
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/search/stat?only_err=1", nil)
+		req.Header.Set("X-API-Key", "k")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != 200 {
+			t.Fatalf("状态码=%d，期望 200", resp.StatusCode)
+		}
+		var raw map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"calls", "in_tokens", "out_tokens", "cached_tokens", "latency_ms"} {
+			if raw[key] == nil {
+				t.Errorf("统计响应缺字段 %s: %+v", key, raw)
+			}
+		}
+		if raw["calls"].(float64) != 197 {
+			t.Errorf("calls=%v，期望 197", raw["calls"])
+		}
+	})
 }

@@ -12,6 +12,7 @@ import type {
   AgentConfig,
   LLMInvocationsResponse,
   LLMInvocationDetail,
+  LLMInvocationSearchStat,
   LLMInvocationFilters,
   TrafficListResponse,
   TrafficDetail,
@@ -386,12 +387,22 @@ export async function searchLLMInvocations(
 }
 
 /**
+ * 全局搜索口径的用量合计（整个筛选结果集，与翻页无关）——审计页统计 chip 数据源。
+ * 与 searchLLMInvocations 吃同一套筛选参数，统计口径永不与列表打架。
+ */
+export async function searchLLMInvocationStat(
+  search: string,
+  filters?: Partial<LLMInvocationFilters>,
+): Promise<LLMInvocationSearchStat> {
+  const params = invocationFilterParams(filters)
+  params.set('q', search)
+  return get<LLMInvocationSearchStat>(`/llm/invocations/search/stat?${params.toString()}`)
+}
+
+/**
  * 拉取单条 LLM 调用的完整原文（含 messages/result），列表页点击钻取用。
- * 注意：详情端点需要 task_id，从列表数据中获取。
  */
 export async function getLLMInvocationDetail(id: number): Promise<LLMInvocationDetail> {
-  // 临时方案：由于详情端点需要 task_id，这里先通过搜索获取完整数据
-  // TODO: 后端提供 GET /llm/invocations/by-id/:id 端点
   return get<LLMInvocationDetail>(`/llm/invocations/detail/${id}`)
 }
 

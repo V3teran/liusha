@@ -21,6 +21,7 @@ type InvocationsAPI interface {
 	Flush(ctx context.Context) error
 	ListAll(ctx context.Context, f llminvocation.ListFilter) ([]llminvocation.Invocation, error)
 	CountAll(ctx context.Context, f llminvocation.ListFilter) (int, error)
+	AggregateAll(ctx context.Context, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
 	GetDetailByID(ctx context.Context, id int64) (llminvocation.Invocation, error)
 }
 
@@ -31,16 +32,17 @@ const (
 	maxInvocationPageSize     = 1000
 )
 
-// parseInvocationFilter 从 query 解析筛选条件（列表与统计共用，保证两者口径一致）。
+// parseInvocationFilter 从 query 解析筛选条件（列表/统计共用，保证口径一致）。
 //
-//	role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
+//	q=<search> role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
 //
 // 时间用 RFC3339（前端 Date.toISOString() 直出）；解析失败的时间视为未传，不报错——
 // 审计筛选是查询辅助，宁可退化成不筛也不要因为一个坏参数把整页打成 400。
 //
-// offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数。
+// offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 Count 算总页数。
 func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFilter {
 	f := llminvocation.ListFilter{
+		Search:  c.Query("q"), // 允许为空：空 = 全量（按时间倒序），全局审计不强制先选对话
 		Role:    c.Query("role"),
 		Model:   c.Query("model"),
 		OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
@@ -83,28 +85,8 @@ func toolNamesOrEmpty(names []string) []string {
 //	}
 func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := c.Query("q") // 允许为空，返回所有数据
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultInvocationPageSize, maxInvocationPageSize)
-		f := llminvocation.ListFilter{
-			Role:    c.Query("role"),
-			Model:   c.Query("model"),
-			OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
-			Search:  query,
-		}
-		if s := c.Query("start"); s != "" {
-			if t, err := time.Parse(time.RFC3339, s); err == nil {
-				f.Start = &t
-			}
-		}
-		if s := c.Query("end"); s != "" {
-			if t, err := time.Parse(time.RFC3339, s); err == nil {
-				f.End = &t
-			}
-		}
-		if size > 0 {
-			f.Limit = size
-			f.Offset = (page - 1) * size
-		}
+		f := parseInvocationFilter(c, page, size)
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
 			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
@@ -150,6 +132,35 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 			"page":  page,
 			"size":  size,
 			"items": items,
+		})
+	}
+}
+
+// llmInvocationsSearchStatHandler 处理 GET /llm/invocations/search/stat?q=&role=&model=&only_err=&start=&end=。
+//
+// 全局搜索口径的用量合计（整个筛选结果集，与翻到第几页无关）——审计页头部统计 chip
+// 的数据源。此前前端用当页行自行 reduce 聚合，50 条/页时「调用 50」与分页器
+// 「共 197 条」同屏打架；列表与统计吃同一份 parseInvocationFilter，口径永不打架。
+func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f := parseInvocationFilter(c, 0, 0) // 统计不吃分页
+
+		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
+			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+		}
+
+		a, err := api.AggregateAll(c.Request.Context(), f)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"calls":         a.Calls,
+			"in_tokens":     a.InTokens,
+			"out_tokens":    a.OutTokens,
+			"cached_tokens": a.CachedTokens,
+			"latency_ms":    a.LatencyMs,
 		})
 	}
 }

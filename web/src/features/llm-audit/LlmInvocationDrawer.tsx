@@ -5,8 +5,8 @@ import { CopyButton } from '@/components/CopyButton'
 import { CopySection } from '@/components/CopySection'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
-import { fullTime, humanDuration, humanTokens } from '@/lib/format'
-import { contentToText, extractReasoning, msgColor, toMsgView } from '@/lib/llmMessage'
+import { cacheRatePct, fullTime, humanDuration, humanTokens } from '@/lib/format'
+import { contentToText, extractReasoning, msgColor, pickField, toMsgView } from '@/lib/llmMessage'
 import { invocationStatus } from '@/lib/llmInvocationStatus'
 import { isTimeout, throughputLabel } from '@/lib/llmTiming'
 import { toToolCalls } from '@/lib/toolCalls'
@@ -33,12 +33,15 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
   const inputDelta = Array.isArray(rawMessages) && rawMessages.length > 0 ? toMsgView(rawMessages[rawMessages.length - 1]) : null
   const historyCount = Array.isArray(rawMessages) ? rawMessages.length : 0
 
+  // result 解析带键兼容（pickField）：新行是小写 json tag 键，历史行是 Go 大写键，
+  // 两代数据在抽屉里同等结构化渲染，不再整体退化为原始 JSON。
+  // result 为纯字符串（jsonb 兜底形态）时原样展示。
   const rawResult = detail?.result
-  const resultText = rawResult == null ? '' : typeof rawResult === 'string' ? rawResult : contentToText((rawResult as Record<string, unknown>).content)
-  const resultCalls =
-    rawResult && typeof rawResult === 'object'
-      ? toToolCalls((rawResult as Record<string, unknown>).tool_calls ?? (rawResult as Record<string, unknown>).function_call)
-      : []
+  const resultText =
+    typeof rawResult === 'string' ? rawResult : contentToText(pickField(rawResult, ['content', 'Content']))
+  const resultCalls = toToolCalls(
+    pickField(rawResult, ['tool_calls', 'ToolCalls']) ?? pickField(rawResult, ['function_call', 'FunctionCall']),
+  )
   // 「返回结果」节的复制：只复制本节展示的东西（正文 + 工具调用）。
   const resultCopyText = [resultText, ...resultCalls.map((tc) => (tc.args ? `${tc.name}(${tc.args})` : `${tc.name}()`))]
     .filter(Boolean)
@@ -118,10 +121,10 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                         <>
                           {' · 缓存 '}
                           {humanTokens(detail.cached_tokens)}
-                          {detail.in_tokens > 0 && (
+                          {detail.in_tokens + detail.cached_tokens > 0 && (
                             <span className="font-semibold text-status-warning">
                               {' ('}
-                              {((detail.cached_tokens / (detail.in_tokens + detail.cached_tokens)) * 100).toFixed(1)}
+                              {cacheRatePct(detail.in_tokens, detail.cached_tokens).toFixed(1)}
                               {'%)'}
                             </span>
                           )}
@@ -237,9 +240,10 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onOpenChange
                     <div className="text-sm text-muted opacity-70">无返回内容</div>
                   )}
 
-                  {/* 原始响应：取证用，含思考过程/extra/response_meta 等完整字段 */}
+                  {/* 原始响应：取证用，含思考过程/extra/response_meta 等完整字段。
+                      右对齐——与各节标题行的复制按钮同侧，孤零零留在左下角像误放的。 */}
                   {detail.result != null && (
-                    <div className="mt-3 border-t border-dashed border-border pt-2.5">
+                    <div className="mt-3 flex justify-end border-t border-dashed border-border pt-2.5">
                       <CopyButton
                         copied={copiedKey === 'raw'}
                         onClick={() => void copy('raw', JSON.stringify(detail.result, null, 2))}

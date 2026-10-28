@@ -319,10 +319,10 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   LLM 审计（GET /llm/invocations/:task_id，扁平 items + id 游标分页）
+   LLM 审计（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
-   详情走 GET /llm/invocations/:task_id/invocation/:id 按需拉。
-   筛选（role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
+   详情走 GET /llm/invocations/detail/:id 按需拉。
+   筛选（q/role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
    ============================================================ */
 // LLMInvocationSummary 是列表行——不含 messages/result。
 export interface LLMInvocationSummary {
@@ -351,11 +351,19 @@ export interface LLMInvocationDetail extends LLMInvocationSummary {
   result: unknown
 }
 export interface LLMInvocationsResponse {
-  task_id: string
   total: number // 跨页总数（对齐流量/漏洞模块的 offset 分页口径）
   page: number
   size: number
   items: LLMInvocationSummary[]
+}
+// LLMInvocationSearchStat 是 GET /llm/invocations/search/stat 的全局筛选合计
+// （整个筛选结果集，与翻页无关）——审计页统计 chip 数据源。
+export interface LLMInvocationSearchStat {
+  calls: number
+  in_tokens: number
+  out_tokens: number
+  cached_tokens: number
+  latency_ms: number
 }
 // LLMInvocationStat 是 GET /llm/invocations/:task_id/stat 的数据库层聚合（吃同一套筛选参数）。
 export interface LLMInvocationStat {

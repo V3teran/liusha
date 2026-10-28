@@ -88,10 +88,11 @@ type ToolSchema struct {
 }
 
 // Usage 是一次调用的 token 用量。
+// json tag 同样是审计契约（Response 注释）：埋点直出进 llm_invocation.result。
 type Usage struct {
-	InTokens     int
-	OutTokens    int
-	CachedTokens int
+	InTokens     int `json:"in_tokens"`
+	OutTokens    int `json:"out_tokens"`
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // Add 返回两个 Usage 累加后的新值（值方法，不修改 receiver）。
@@ -103,16 +104,16 @@ func (u Usage) Add(o Usage) Usage {
 	}
 }
 
-// Result 是 Generate 的返回结构。
+// Result 是 Generate 的返回结构。json tag 同 Response 注释（审计直出契约）。
 type Result struct {
-	Content      string
-	ToolCalls    []ToolCall
-	Usage        Usage
-	FinishReason string
-	Provider     string
-	Model        string
+	Content      string     `json:"content,omitempty"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Usage        Usage      `json:"usage"`
+	FinishReason string     `json:"finish_reason,omitempty"`
+	Provider     string     `json:"provider,omitempty"`
+	Model        string     `json:"model,omitempty"`
 	// Thinking 是本次生成的扩展思考块（模型内部 CoT；未开启/未产出为 nil）。
-	Thinking *ThinkingBlock
+	Thinking *ThinkingBlock `json:"thinking,omitempty"`
 }
 
 // Generator 是 LLM 生成器统一接口（非流式）。
