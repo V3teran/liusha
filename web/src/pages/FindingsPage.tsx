@@ -263,21 +263,8 @@ export function FindingsPage() {
               </div>
             </div>
 
-            {/* 搜索筛选栏 */}
+            {/* 搜索筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 →（右端）分页） */}
             <div className="-mx-6 mb-3 flex items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索漏洞标题 / host / 路径…"
-                  spellCheck={false}
-                  aria-label="搜索漏洞标题、host 或路径"
-                  className="h-9 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
-                />
-              </div>
-
               <select
                 value={filters.source}
                 onChange={(e) => setFilters({ ...filters, source: e.target.value })}
@@ -301,6 +288,19 @@ export function FindingsPage() {
                 ))}
               </select>
 
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索漏洞标题 / host / 路径…"
+                  spellCheck={false}
+                  aria-label="搜索漏洞标题、host 或路径"
+                  className="h-9 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
+                />
+              </div>
+
               <PaginationToolbar
                 page={page}
                 pageSize={size}
@@ -312,9 +312,9 @@ export function FindingsPage() {
               />
             </div>
 
-            {/* 表格 */}
-            <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-                <table className="w-full border-collapse table-fixed">
+            {/* 表格（min-width 兜底：窄屏出横向滚动条，列不压缩——全站表格统一约定） */}
+            <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
+                <table className="w-full min-w-[1000px] border-collapse table-fixed">
                   <colgroup>
                     {leafColumns.map((col, i) => (
                       <col key={col.id} style={{ width: widthPercents[i] }} />

@@ -32,8 +32,9 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeo
       {/* table-fixed + colgroup 百分比宽度：列宽由 columnDef.size（相对权重）换算成百分比，
           随容器宽度等比缩放——缩小浏览器/侧栏展开时所有列同步变窄，而不是某列固定 px 不变、
           把其它列挤到断行（截图问题的根因）。用 columnDef.size 而非 col.getSize()：
-          getSize() 会套 minSize=20 下限钳位，size 较小的列会被钳位失真，破坏比例关系。 */}
-      <table className="w-full border-collapse table-fixed">
+          getSize() 会套 minSize=20 下限钳位，size 较小的列会被钳位失真，破坏比例关系。
+          min-width 兜底：窄屏时容器出横向滚动条，列不压缩（全站表格统一约定）。 */}
+      <table className="w-full min-w-[1100px] border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: widthPercents[i] }} />

@@ -30,8 +30,9 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, o
   const colCount = leafColumns.length
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow">
-      <table className="w-full border-collapse table-fixed">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
+      {/* min-width 兜底防挤压：窄屏时容器出横向滚动条，列不再被压缩变形（全站表格统一约定）。 */}
+      <table className="w-full min-w-[1080px] border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: widthPercents[i] }} />
