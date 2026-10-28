@@ -93,6 +93,13 @@ type Deps struct {
 	// Phase 1: 探索图 API（e2e 测试迁移专用）。
 	// 由 cmd/api 注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
+	// Tasks 为 nil 时任务模块读路由（GET /tasks 系列）不注册。
+	// 由 cmd/api 注入 *task.Store（自动满足 TasksAPI 窄接口）——列表/详情
+	// JOIN assignment（来源/批次）、conversation（对话链接）、finding/探索图步数派生列。
+	Tasks TasksAPI
+	// TaskDispatch 为 nil 时 POST /tasks 不注册（「新建任务」弹层的批量/定时下发）。
+	// 由 cmd/api 注入 *scanAdapter（cmd/api/adapters.go 的 DispatchBatch/DispatchScheduled）。
+	TaskDispatch TaskDispatchAPI
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -137,6 +144,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
+	registerTasksRoutes(r, d)
 	registerTrafficRoutes(r, d)
 	registerToolCatalogRoutes(r, d)
 	registerModelsRoutes(r, d)

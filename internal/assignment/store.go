@@ -18,7 +18,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, source, payload, title, schedule_id, created_at"
+const colsSelect = "id, source, payload, title, description, schedule_id, created_at"
 
 const (
 	defaultListLimit = 20
@@ -42,10 +42,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 		return Assignment{}, fmt.Errorf("marshal assignment payload: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO assignment (source, payload, title, schedule_id)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO assignment (source, payload, title, description, schedule_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING `+colsSelect,
-		string(p.Source), payload, p.Title, p.ScheduleID)
+		string(p.Source), payload, p.Title, p.Description, p.ScheduleID)
 	var a Assignment
 	if err := scan(row, &a); err != nil {
 		return Assignment{}, fmt.Errorf("create assignment: %w", err)
@@ -123,7 +123,7 @@ func (s *Store) DeriveStatus(ctx context.Context, assignmentID string) (Status, 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, a *Assignment) error {
 	var source string
-	if err := r.Scan(&a.ID, &source, &a.Payload, &a.Title,
+	if err := r.Scan(&a.ID, &source, &a.Payload, &a.Title, &a.Description,
 		&a.ScheduleID, &a.CreatedAt); err != nil {
 		return err
 	}

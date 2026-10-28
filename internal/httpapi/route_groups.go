@@ -74,6 +74,17 @@ func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 	r.GET("/conversations/:id/exploration/graph", getConversationGraph(d.ExplorationGraph))
 }
 
+// registerTasksRoutes 注册任务模块路由（前端 /tasks 页）。
+func registerTasksRoutes(r gin.IRouter, d Deps) {
+	if d.Tasks != nil {
+		r.GET("/tasks", listTasksHandler(d.Tasks))
+		r.GET("/tasks/:id", getTaskHandler(d.Tasks))
+	}
+	if d.TaskDispatch != nil {
+		r.POST("/tasks", createTasksHandler(d.TaskDispatch))
+	}
+}
+
 // registerTrafficRoutes 注册代理流量路由
 func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	if d.Traffic == nil {

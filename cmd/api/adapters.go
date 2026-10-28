@@ -15,6 +15,7 @@ import (
 	llmcfg "github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
@@ -101,6 +102,7 @@ type scanAdapter struct {
 	enq           *worker.Client
 	audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
 	conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
+	schedules     *cronschedule.Store // 任务模块「定时执行」：DispatchScheduled 建模板
 
 	router    *roleRouter           // 多轮：意图分类 + 问答（light provider，role→档→framework Router）
 	findings  *finding.Store        // 问答读 task 黑板 finding
@@ -144,6 +146,73 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID stri
 			"已下发扫描，agent 启动中…", nil)
 	}
 	return taskID, runID, nil
+}
+
+// DispatchBatch 满足 httpapi.TaskDispatchAPI：任务模块「新建任务」弹层的立即下发。
+//
+// 1 assignment(manual, N items) → N task → N conversation（1:1）：对每个 brief
+// 复用 StartChatScan 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
+// 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
+func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
+	items := make([]assignment.Item, 0, len(briefs))
+	for _, b := range briefs {
+		items = append(items, assignment.Item{Brief: b})
+	}
+	asg, err := a.assignments.Create(ctx, assignment.NewParams{
+		Source:      assignment.SourceManual,
+		Items:       items,
+		Title:       title,
+		Description: description,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("create assignment: %w", err)
+	}
+
+	out := make([]httpapi.DispatchedTask, 0, len(briefs))
+	for _, b := range briefs {
+		conv, err := a.conversations.CreateConversation(ctx, briefTitle(b), "")
+		if err != nil {
+			return asg.ID, out, fmt.Errorf("create conversation: %w", err)
+		}
+		if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, b, nil); err != nil {
+			return asg.ID, out, fmt.Errorf("append user message: %w", err)
+		}
+		taskID, _, err := a.expandItem(ctx, asg.ID, b, conv.ID)
+		if err != nil {
+			return asg.ID, out, err
+		}
+		if err := a.conversations.LinkTask(ctx, conv.ID, taskID); err != nil {
+			chatLog.Warn().Err(err).Str("conv", conv.ID).Msg("link task 失败")
+		}
+		a.appendTaskStatus(ctx, conv.ID, conversation.TaskStatusDispatched, "已下发扫描，agent 启动中…", nil)
+		go a.genTitle(conv.ID, b) //nolint:gosec // G118：标题生成独立生命周期
+		out = append(out, httpapi.DispatchedTask{TaskID: taskID, ConversationID: conv.ID})
+	}
+	return asg.ID, out, nil
+}
+
+// DispatchScheduled 满足 httpapi.TaskDispatchAPI：定时下发——建 cron_schedule 模板
+// （含批次名/描述与目标清单），不立即执行；到点由 Scheduler 克隆 assignment 展开
+// （见 cronRunner.fireOne）。cron 表达式当场校验（cronschedule.NextRun）。
+func (a *scanAdapter) DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string) (string, time.Time, error) {
+	items := make([]assignment.Item, 0, len(briefs))
+	for _, b := range briefs {
+		items = append(items, assignment.Item{Brief: b})
+	}
+	sched, err := a.schedules.Create(ctx, cronschedule.NewParams{
+		CronExpr:    cronExpr,
+		Items:       items,
+		Title:       title,
+		Description: description,
+	})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	next := time.Time{}
+	if sched.NextRunAt != nil {
+		next = *sched.NextRunAt
+	}
+	return sched.ID, next, nil
 }
 
 // appendTaskStatus 落一条任务生命周期状态节点并广播 SSE（迁移写者共用；

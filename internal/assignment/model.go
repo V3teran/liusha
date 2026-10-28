@@ -39,12 +39,13 @@ const (
 // Payload：下发清单的 jsonb 原文（[]Item 的序列化）。
 // ScheduleID：由哪个定时模板克隆而来（手动下发为 nil）。
 type Assignment struct {
-	ID         string
-	Source     Source
-	Payload    []byte // jsonb 原文（[]Item 的序列化）
-	Title      string
-	ScheduleID *string
-	CreatedAt  time.Time
+	ID          string
+	Source      Source
+	Payload     []byte // jsonb 原文（[]Item 的序列化）
+	Title       string
+	Description string // 批次描述（纯展示，任务模块「新建任务」弹层采集；可空）
+	ScheduleID  *string
+	CreatedAt   time.Time
 }
 
 // Item 是 payload 数组的单个条目。active 用 Brief（+可选 Host）；passive 用 TrafficIDs。
@@ -56,8 +57,9 @@ type Item struct {
 
 // NewParams 是 Store.Create 的入参。
 type NewParams struct {
-	Source     Source
-	Items      []Item
-	Title      string
-	ScheduleID *string // 定时克隆来源；手动下发传 nil
+	Source      Source
+	Items       []Item
+	Title       string
+	Description string  // 批次描述；可空
+	ScheduleID  *string // 定时克隆来源；手动下发传 nil
 }

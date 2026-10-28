@@ -86,10 +86,11 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 
 	scheduleID := sched.ID
 	asg, err := r.assignments.Create(ctx, assignment.NewParams{
-		Source:     assignment.SourceAuto,
-		Items:      items,
-		Title:      sched.Title,
-		ScheduleID: &scheduleID,
+		Source:      assignment.SourceAuto,
+		Items:       items,
+		Title:       sched.Title,
+		Description: sched.Description,
+		ScheduleID:  &scheduleID,
 	})
 	if err != nil {
 		return fmt.Errorf("clone assignment from schedule %s: %w", sched.ID, err)

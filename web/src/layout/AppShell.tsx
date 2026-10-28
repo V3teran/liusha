@@ -9,6 +9,7 @@ import {
   Cpu,
   GitBranch,
   KeyRound,
+  ListChecks,
   MessageSquare,
   Moon,
   SlidersHorizontal,
@@ -26,6 +27,8 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  // 任务是对话的上游容器（批次 → 任务 → 对话），置于对话之上。
+  { to: '/tasks', label: '任务', icon: ListChecks },
   { to: '/conversations/manual', label: '对话', icon: MessageSquare, match: '/conversations' },
   { to: '/findings', label: '漏洞', icon: Bug },
   { to: '/traffic', label: '代理流量', icon: Activity },

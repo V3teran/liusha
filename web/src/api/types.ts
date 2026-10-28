@@ -513,3 +513,66 @@ export interface ProxyFilterSettings {
   max_response_body_size: number // 响应体切片上限字节，>0
 }
 
+
+/* ============================================================
+   任务模块（GET/POST /tasks…）
+   ============================================================ */
+
+// TaskSummary 是任务列表/详情行：task 本体 + 派生列。
+//   - assignment_ndx/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
+//   - source：manual 主动 / auto 被动——定时克隆（scheduled=true）按业务口径归主动
+//   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
+//   - step_count：探索图 action 节点数 = 认知循环已执行步数
+//   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）
+export interface TaskSummary {
+  id: string
+  brief: string
+  target_host: string
+  status: string // active | completed | aborted
+  assignment_id: string
+  assignment_ndx: number
+  assignment_total: number
+  source: string // manual | auto
+  scheduled: boolean
+  cron: string
+  conversation_id: string
+  finding_count: number
+  step_count: number
+  created_at: string
+  ended_at: string | null
+}
+
+export interface TaskListResponse {
+  items: TaskSummary[]
+  total: number
+  page: number
+  size: number
+}
+
+// TaskFilters：source 等值 / status 等值 / search 跨 brief+批次ID 子串 /
+// since+until 创建时间范围（RFC3339，datetime-local 本地值转 ISO）。
+export interface TaskFilters {
+  source: string
+  status: string
+  search: string
+  since: string
+  until: string
+}
+
+// TaskCreateRequest 是「新建任务」弹层提交体：每行一个任务目标。
+export interface TaskCreateRequest {
+  title: string // 批次名称
+  description: string // 批次描述（可空）
+  briefs: string[] // 每行一个任务目标
+  cron: string // 空 = 立即下发；非空 = 定时模板（5 段 cron）
+}
+
+// TaskCreateResponse 两种形态按 scheduled 分流。
+export interface TaskCreateResponse {
+  scheduled: boolean
+  assignment_id?: string // 立即下发：批次 id
+  tasks?: { task_id: string; conversation_id: string }[]
+  task_count: number
+  schedule_id?: string // 定时：模板 id
+  next_run_at?: string // 定时：首次触发时间
+}
