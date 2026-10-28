@@ -78,6 +78,7 @@ export function FindingsPage() {
       columnHelper.accessor('seq', {
         header: '#',
         size: 48,
+        meta: { align: 'right' },
         cell: (ctx) => (
           <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
         ),
@@ -323,7 +324,13 @@ export function FindingsPage() {
                     {table.getHeaderGroups().map((hg) => (
                       <tr key={hg.id} className="border-b border-border">
                         {hg.headers.map((h) => (
-                          <th key={h.id} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+                          <th
+                            key={h.id}
+                            className={cn(
+                              'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary',
+                              h.column.columnDef.meta?.align === 'right' && 'text-right',
+                            )}
+                          >
                             {flexRender(h.column.columnDef.header, h.getContext())}
                           </th>
                         ))}
