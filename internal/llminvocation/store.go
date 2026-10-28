@@ -244,6 +244,16 @@ const maxListLimit = 1000
 // textPreviewLimit 是列表摘要里文字预览的截断长度：够表格一行展示，又不至于把正文搬出库。
 const textPreviewLimit = 200
 
+// resultToolCallsExpr / resultContentExpr / toolNameExpr：result jsonb 的键读取表达式。
+// 历史行是 Go 结构体无 tag 直出的大写键（Content/ToolCalls），加 tag 后的新行是小写键——
+// 派生摘要两套都认（COALESCE 先小写后大写），新旧数据在列表页同等可读。
+// 工具名同有两种形态：OpenAI 原始线格式包在 function.name 下，内部 ToolCall 是扁平 name。
+const (
+	resultToolCallsExpr = `COALESCE(li.result->'tool_calls', li.result->'ToolCalls')`
+	resultContentExpr   = `COALESCE(li.result->>'content', li.result->>'Content', '')`
+	toolNameExpr        = `COALESCE(tc->'function'->>'name', tc->>'name')`
+)
+
 // ListFilter 是列表 / 统计共用的筛选条件（零值 = 不筛，等价于全量）。
 //
 // 关键：列表与统计吃同一份筛选，否则筛选后"明细 3 条、合计仍是全量"会互相打脸。
@@ -352,18 +362,20 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		       li.latency_ms,
 		       li.finish_reason, li.error_message, li.role,
 		       li.created_at,
-		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
-		                 FROM jsonb_array_elements(li.result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
-		                 WHERE jsonb_typeof(li.result->'tool_calls') = 'array'), '{}') AS tool_names,
-		       left(COALESCE(li.result->>'content', ''), %d) AS text_preview,
+		       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
+		                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
+		                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
+		       left(%[3]s, %[4]d) AS text_preview,
 		       c.id::text AS conversation_id,
 		       t.assignment_id::text AS assignment_id
 		FROM llm_invocation li
 		LEFT JOIN task t ON t.id = li.task_id
 		LEFT JOIN conversation c ON c.task_id = li.task_id
-		WHERE %s
+		WHERE %[5]s
 		ORDER BY li.id ASC
-		LIMIT $%d OFFSET $%d`, textPreviewLimit, strings.Join(conds, " AND "), len(args)-1, len(args))
+		LIMIT $%[6]d OFFSET $%[7]d`,
+		toolNameExpr, resultToolCallsExpr, resultContentExpr, textPreviewLimit,
+		strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
@@ -522,18 +534,20 @@ func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error)
 		       li.latency_ms,
 		       li.finish_reason, li.error_message, li.role,
 		       li.created_at,
-		       COALESCE((SELECT array_agg(tc->'function'->>'name' ORDER BY ord)
-		                 FROM jsonb_array_elements(li.result->'tool_calls') WITH ORDINALITY AS t(tc, ord)
-		                 WHERE jsonb_typeof(li.result->'tool_calls') = 'array'), '{}') AS tool_names,
-		       left(COALESCE(li.result->>'content', ''), %d) AS text_preview,
+		       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
+		                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
+		                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
+		       left(%[3]s, %[4]d) AS text_preview,
 		       c.id::text AS conversation_id,
 		       t.assignment_id::text AS assignment_id
 		FROM llm_invocation li
 		LEFT JOIN task t ON t.id = li.task_id
 		LEFT JOIN conversation c ON c.task_id = li.task_id
-		WHERE %s
+		WHERE %[5]s
 		ORDER BY li.id DESC
-		LIMIT $%d OFFSET $%d`, textPreviewLimit, strings.Join(conds, " AND "), limitIdx, offsetIdx)
+		LIMIT $%[6]d OFFSET $%[7]d`,
+		toolNameExpr, resultToolCallsExpr, resultContentExpr, textPreviewLimit,
+		strings.Join(conds, " AND "), limitIdx, offsetIdx)
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list all llm_invocation: %w", err)
@@ -578,6 +592,29 @@ func (s *Store) CountAll(ctx context.Context, f ListFilter) (int, error) {
 		return 0, fmt.Errorf("count all llm_invocation: %w", err)
 	}
 	return total, nil
+}
+
+// AggregateAll 全局搜索口径的用量合计（calls/tokens/耗时），与 ListAll/CountAll
+// 共用同一份筛选（含 JOIN——Search 条件引用 task/conversation 列）。
+// 全局审计页头部统计 chip 的数据源：统计是整个筛选结果集的合计，与翻页无关。
+func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, error) {
+	conds, args := f.whereAll()
+	q := fmt.Sprintf(`
+		SELECT COUNT(*),
+		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
+		       COALESCE(SUM(cached_tokens),0),
+		       COALESCE(SUM(latency_ms),0)
+		FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
+		WHERE %s`, strings.Join(conds, " AND "))
+	var a Aggregate
+	err := s.pool.QueryRow(ctx, q, args...).
+		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
+	if err != nil {
+		return Aggregate{}, fmt.Errorf("aggregate all llm_invocation: %w", err)
+	}
+	return a, nil
 }
 
 // DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，返回删除行数。

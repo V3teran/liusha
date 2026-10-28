@@ -25,7 +25,8 @@ export function invocationStatus(v: StatusInput): InvocationStatus | null {
   if (isTimeout(v)) {
     return { level: 'critical', label: '超时', detail: '达到 LLM 看门狗上限（5 分钟），未获得响应' }
   }
-  if (v.finish_reason === 'length') {
+  // 截断两provider两叫法：OpenAI=length，Anthropic=max_tokens（stop_reason 直存）
+  if (v.finish_reason === 'length' || v.finish_reason === 'max_tokens') {
     return { level: 'warn', label: '截断', detail: '输出达到 max_tokens 上限，内容可能不完整' }
   }
   if (v.finish_reason === 'content_filter') {

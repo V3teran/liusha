@@ -4,26 +4,31 @@ import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
 import { LlmAuditSearchBar } from '@/features/llm-audit/LlmAuditSearchBar'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
-import { useLlmAuditSearch, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
+import { useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail } from '@/features/llm-audit/useLlmAuditQueries'
 import type { LLMInvocationSummary } from '@/api/types'
-import { humanTokens, compactNumber } from '@/lib/format'
+import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { StatChip } from '@/components/StatChip'
 
 export function LlmAuditPage() {
-  const [searchQuery, setSearchQuery] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
+  // 搜索词与筛选/分页同住 URL state（?q=）：刷新、分享链接都能还原完整查询上下文。
+  const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
 
   // 全局搜索：空搜索时返回所有数据（按时间倒序）
   const searchQueryResult = useLlmAuditSearch({
-    search: searchQuery,
+    search: query,
     page,
     size,
     ...filters,
   })
+
+  // 统计是服务端对整个筛选结果集的合计（与翻页无关）——此前用当页行前端聚合，
+  // 50 条/页时会显示「调用 50」而分页器写「共 197 条」，同屏自相矛盾。
+  const statQuery = useLlmAuditStat({ search: query, ...filters })
+  const stats = statQuery.data
 
   const detailQuery = useLlmInvocationDetail(selectedId)
 
@@ -51,20 +56,6 @@ export function LlmAuditPage() {
     }
   }, [rows])
 
-  const stats = useMemo(() => {
-    if (rows.length === 0) return null
-    const in_tokens = rows.reduce((sum, r) => sum + r.in_tokens, 0)
-    const cached_tokens = rows.reduce((sum, r) => sum + r.cached_tokens, 0)
-    const cache_rate = in_tokens > 0 ? (cached_tokens / in_tokens) * 100 : 0
-    return {
-      calls: rows.length,
-      in_tokens,
-      out_tokens: rows.reduce((sum, r) => sum + r.out_tokens, 0),
-      cached_tokens,
-      cache_rate,
-    }
-  }, [rows])
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
@@ -75,7 +66,7 @@ export function LlmAuditPage() {
       </header>
 
       <div className="flex flex-wrap items-center gap-4 border-b border-border bg-surface/50 px-6 py-4">
-        <LlmAuditSearchBar value={searchQuery} onChange={setSearchQuery} />
+        <LlmAuditSearchBar value={query} onChange={setQuery} />
         {stats && (
           <div className="flex flex-wrap items-center gap-2">
             <StatChip color="var(--accent)" label="调用" value={humanTokens(stats.calls)} />
@@ -85,8 +76,8 @@ export function LlmAuditPage() {
             <StatChip
               color="#f59e0b"
               label="缓存率"
-              value={`${stats.cache_rate.toFixed(1)}%`}
-              title={`${humanTokens(stats.cached_tokens)} / ${humanTokens(stats.in_tokens)}`}
+              value={`${cacheRatePct(stats.in_tokens, stats.cached_tokens).toFixed(1)}%`}
+              title={`${humanTokens(stats.cached_tokens)} / ${humanTokens(stats.in_tokens + stats.cached_tokens)}`}
             />
           </div>
         )}
@@ -124,7 +115,7 @@ export function LlmAuditPage() {
               <LlmAuditTable
                 rows={rows}
                 loading={searchQueryResult.isPending}
-                hasFilter={hasFilter || !!searchQuery}
+                hasFilter={hasFilter || !!query}
                 showProvider={showProvider}
                 onRowClick={openDetail}
               />

@@ -82,10 +82,14 @@ type Request struct {
 }
 
 // Response 是一次调用的完整输出（非流式直出；流式由 CollectStream 聚合得到同构结果）。
+//
+// json tag 是审计契约的一部分：usage.go 埋点把 Response 直接 json.Marshal 进
+// llm_invocation.result，前端抽屉与列表 SQL 派生列（tool_names/text_preview）都按
+// 小写键读取——无 tag 会序列化成 Go 大写字段名，整条审计渲染链失效。
 type Response struct {
-	Content      string     // 文本内容（ToolCalls 非空时可能为空）
-	ToolCalls    []ToolCall // 工具调用请求列表
-	Usage        Usage
-	FinishReason string         // "stop" | "tool_use" | "max_tokens" | "error"
-	Thinking     *ThinkingBlock // 扩展思考块（Text=增量聚合，Signature=收尾透出）
+	Content      string         `json:"content,omitempty"`       // 文本内容（ToolCalls 非空时可能为空）
+	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`    // 工具调用请求列表
+	Usage        Usage          `json:"usage"`                   // token 用量
+	FinishReason string         `json:"finish_reason,omitempty"` // "stop" | "tool_use" | "max_tokens" | "error"
+	Thinking     *ThinkingBlock `json:"thinking,omitempty"`      // 扩展思考块（Text=增量聚合，Signature=收尾透出）
 }

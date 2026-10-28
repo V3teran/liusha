@@ -19,17 +19,12 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * 列定义单点声明列宽（对齐 FindingsPage 的 react-table 模式）——不再是列头/骨架屏/数据行
  * 各自一份 `grid-cols-[...]` 字符串手动保持同步，改一次列宽只需改这一处。
  *
- * showProvider：该 task 下是否出现过多个 provider，仅此时才在模型列附带展示 provider
- * （单一 provider 时每行重复同一个值是纯噪声，与原实现保持一致）。
+ * showProvider：该筛选结果里是否出现过多个 provider，仅此时才在模型列附带展示 provider
+ * （单一 provider 时每行重复同一个值是纯噪声）。
  *
- * 业界最佳实践列顺序（参考 Datadog/Sentry）：
- * 1. 时间 - 固定在最左，时序数据的基础维度
- * 2. 对话 ID - 业务标识，用户最关心的上下文
- * 3. 批次 ID - 批量操作入口
- * 4. 角色 - 执行主体
- * 5. 模型 - 资源信息
- * 6. Tokens - 使用量统计
- * 7. 响应耗时 - 性能指标（含状态）
+ * 列顺序（参考 Datadog/Sentry 日志表）：
+ * 时间 → 对话/批次（业务标识）→ 摘要（这次调用干了什么）→ 角色 → 模型 → Tokens → 响应耗时。
+ * 摘要是审计表的主读列：正文预览 + 工具徽章，不必逐行点开详情（后端库内派生，不传大字段）。
  */
 export function buildLlmAuditColumns(showProvider: boolean) {
   return [
@@ -48,14 +43,16 @@ export function buildLlmAuditColumns(showProvider: boolean) {
     }),
     columnHelper.accessor('conversation_id', {
       header: '对话',
-      size: 100,
+      size: 96,
       cell: (ctx) => {
         const convId = ctx.getValue()
         if (!convId) return <span className="text-muted opacity-40">—</span>
         const shortId = convId.slice(0, 8)
         return (
           <Link
-            to={`/conversations/manual?id=${convId}`}
+            to={`/conversations/manual?conv=${convId}`}
+            onClick={(e) => e.stopPropagation() // 行整体可点开详情，链接只做跳转，不冒泡
+            }
             className="font-mono text-xs text-accent hover:underline"
             title={`查看对话 ${convId}`}
           >
@@ -66,7 +63,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
     }),
     columnHelper.accessor('assignment_id', {
       header: '批次',
-      size: 100,
+      size: 96,
       cell: (ctx) => {
         const assignId = ctx.getValue()
         if (!assignId) return <span className="text-muted opacity-40">—</span>
@@ -78,9 +75,49 @@ export function buildLlmAuditColumns(showProvider: boolean) {
         )
       },
     }),
+    columnHelper.display({
+      id: 'preview',
+      header: '摘要',
+      size: 220,
+      meta: { headerTitle: '这次调用产出了什么：正文预览 + 请求的工具；点行看完整原文（早期行可能为空）' },
+      cell: (ctx) => {
+        const v = ctx.row.original
+        const tools = v.tool_names ?? []
+        if (!v.text_preview && tools.length === 0) {
+          return <span className="text-muted opacity-40">—</span>
+        }
+        return (
+          <span className="flex flex-col gap-1 overflow-hidden">
+            {v.text_preview && (
+              <span className="block truncate text-xs text-text-secondary" title={v.text_preview}>
+                {v.text_preview}
+              </span>
+            )}
+            {tools.length > 0 && (
+              <span className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
+                {tools.slice(0, 3).map((t, i) => (
+                  <em
+                    key={`${t}-${i}`}
+                    className="rounded bg-surface-2 px-1 py-px font-mono text-[10px] not-italic text-muted"
+                    title={t}
+                  >
+                    {t}
+                  </em>
+                ))}
+                {tools.length > 3 && (
+                  <em className="text-[10px] not-italic text-muted" title={tools.join(', ')}>
+                    +{tools.length - 3}
+                  </em>
+                )}
+              </span>
+            )}
+          </span>
+        )
+      },
+    }),
     columnHelper.accessor('role', {
       header: '角色',
-      size: 96,
+      size: 88,
       cell: (ctx) => {
         const role = ctx.getValue()
         const { accent } = agentAccent(role)
@@ -89,7 +126,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
     }),
     columnHelper.accessor('model', {
       header: '模型',
-      size: 108,
+      size: 104,
       cell: (ctx) => {
         const v = ctx.row.original
         return (
@@ -103,7 +140,7 @@ export function buildLlmAuditColumns(showProvider: boolean) {
     columnHelper.display({
       id: 'tokens',
       header: 'Tokens',
-      size: 108,
+      size: 104,
       cell: (ctx) => {
         const v = ctx.row.original
         return (
@@ -121,26 +158,31 @@ export function buildLlmAuditColumns(showProvider: boolean) {
     columnHelper.display({
       id: 'latency',
       header: '响应耗时',
-      size: 124,
-      meta: { headerTitle: '模型响应耗时。流式另显首字延迟（TTFT）与输出速率（token/秒）；异常态（超时/截断/内容过滤）内联显示在此列' },
+      size: 136,
+      meta: { headerTitle: '模型响应耗时。流式另显首字延迟（TTFT）与输出速率（token/秒）；异常态（失败/超时/截断/内容过滤）内联显示在此列' },
       cell: (ctx) => {
         const v = ctx.row.original
         const timeout = isTimeout(v)
         const status = invocationStatus(v)
-        const warnStatus = status?.level === 'warn' ? status : null
+        // 失败/超时（critical）与截断/过滤（warn）同样值得内联——失败行只有整行红底
+        // 无法回答「为什么失败」，且短耗时失败行会按分档落成绿色状态点（误导）。
+        const dot = status?.level === 'critical' || timeout ? 'bg-sev-critical' : TIMING_DOT[latencyLevel(v.latency_ms, v.out_tokens)]
+        const statusColor = status?.level === 'critical' ? 'text-sev-critical' : 'text-sev-medium'
         return (
           <span className="flex flex-col gap-px whitespace-nowrap text-sm">
             <span className="flex items-center gap-1.5">
-              <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${timeout ? 'bg-sev-critical' : TIMING_DOT[latencyLevel(v.latency_ms, v.out_tokens)]}`} />
+              <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot}`} />
               <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>
                 {humanDuration(v.latency_ms)}
               </span>
-              {!timeout && throughputLabel(v) && <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v)}</em>}
+              {!timeout && status?.level !== 'critical' && throughputLabel(v) && (
+                <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v)}</em>
+              )}
             </span>
-            {warnStatus && (
-              <em className="flex items-center gap-1 text-xs font-normal not-italic text-sev-medium" title={warnStatus.detail}>
-                <i className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-medium" />
-                {warnStatus.label}
+            {status && (
+              <em className={`block truncate text-xs font-normal not-italic ${statusColor}`} title={status.detail}>
+                {status.label}
+                {v.error_message ? ` · ${v.error_message}` : ''}
               </em>
             )}
           </span>

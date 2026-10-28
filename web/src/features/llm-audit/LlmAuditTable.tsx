@@ -11,11 +11,9 @@ interface LlmAuditTableProps {
   onRowClick: (row: LLMInvocationSummary) => void
 }
 
-const SKELETON_ROWS = 8
-const SKELETON_COLS = 7 // 时间/对话/批次/角色/模型/Tokens/响应耗时
-
 // 密集审计表：真实 <table> 语义（对齐 FindingsPage 的 react-table 模式），列宽由
-// buildLlmAuditColumns 单点定义——不再是列头/骨架屏/数据行各自一份 grid-cols 字符串手动同步。
+// buildLlmAuditColumns 单点定义——列头/骨架屏/数据行/空态 colSpan 全部以列定义长度为准，
+// 增删列只改 llmAuditColumns 一处。
 export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowClick }: LlmAuditTableProps) {
   const columns = buildLlmAuditColumns(showProvider)
   const table = useReactTable({
@@ -25,6 +23,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
     getRowId: (row) => String(row.id),
   })
   const leafColumns = table.getAllLeafColumns()
+  const colCount = leafColumns.length
   const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
   return (
@@ -52,9 +51,9 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
         </thead>
         <tbody>
           {loading && rows.length === 0 ? (
-            Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+            Array.from({ length: 8 }).map((_, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
-                {Array.from({ length: SKELETON_COLS }).map((_, c) => (
+                {Array.from({ length: colCount }).map((_, c) => (
                   <td key={c} className="px-4 py-2">
                     <span className="block h-2.5 animate-pulse rounded bg-surface-2" />
                   </td>
@@ -63,8 +62,8 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, onRowCli
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={SKELETON_COLS} className="px-4 py-11 text-center text-sm text-muted">
-                {hasFilter ? '当前筛选无匹配调用' : '该对话暂无 LLM 调用记录'}
+              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-muted">
+                {hasFilter ? '当前筛选无匹配调用' : '暂无 LLM 调用记录'}
               </td>
             </tr>
           ) : (

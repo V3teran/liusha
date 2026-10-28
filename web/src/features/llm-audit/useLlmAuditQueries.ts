@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getLLMInvocationDetail, searchLLMInvocations } from '@/api/client'
+import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/client'
 import type { LLMInvocationFilters } from '@/api/types'
 
 // LLM 审计页数据层：统一走 React Query。
@@ -11,6 +11,8 @@ import type { LLMInvocationFilters } from '@/api/types'
 const llmAuditKeys = {
   search: (search: string, filters: LLMInvocationFilters, page: number, size: number) =>
     ['llm-audit', 'search', search, filters, page, size] as const,
+  stat: (search: string, filters: LLMInvocationFilters) =>
+    ['llm-audit', 'stat', search, filters] as const,
 }
 
 /** 全局搜索查询（不限定 task_id，支持搜索 conversation_id/assignment_id）。
@@ -21,6 +23,18 @@ export function useLlmAuditSearch(params: { search: string; page: number; size: 
   return useQuery({
     queryKey: llmAuditKeys.search(search, filters, page, size),
     queryFn: () => searchLLMInvocations(search, page, size, filters),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** 全局筛选口径的用量合计（服务端聚合，与翻页无关）——统计 chip 数据源。
+ * key 不含分页：统计是整个筛选结果集的合计，翻页不重新请求。
+ */
+export function useLlmAuditStat(params: { search: string } & LLMInvocationFilters) {
+  const { search, ...filters } = params
+  return useQuery({
+    queryKey: llmAuditKeys.stat(search, filters),
+    queryFn: () => searchLLMInvocationStat(search, filters),
     placeholderData: keepPreviousData,
   })
 }

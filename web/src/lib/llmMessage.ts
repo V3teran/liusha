@@ -38,10 +38,31 @@ export function toMsgView(m: unknown): MsgView {
 }
 
 /**
- * 模型思考过程：字段名在不同 provider/版本间不稳定，已知两种变体：
- * result.reasoning_content 或 result.extra['reasoning-content']。都没有则返回空串。
+ * result 键兼容取值：返回第一个「存在且非 null」的键值。
+ * 审计 result 有两代键风格——加 json tag 后的新行是小写键（content/tool_calls/thinking），
+ * 历史行是 Go 结构体直出的大写键（Content/ToolCalls/Thinking），两套都要能读。
+ */
+export function pickField<T = unknown>(obj: unknown, keys: string[]): T | undefined {
+  if (!obj || typeof obj !== 'object') return undefined
+  const o = obj as Record<string, unknown>
+  for (const k of keys) {
+    const v = o[k]
+    if (v !== undefined && v !== null) return v as T
+  }
+  return undefined
+}
+
+/**
+ * 模型思考过程，按优先级认三种变体：
+ * 1. result.thinking.text（审计 Result/Response 契约键；thinking 内部 text 同样兼容大写 Text 的历史行）
+ * 2. result.reasoning_content（OpenAI 兼容风格直出）
+ * 3. result.extra['reasoning-content']（GLM 风格 extra）
+ * 都没有则返回空串。
  */
 export function extractReasoning(result: unknown): string {
+  const thinking = pickField<Record<string, unknown>>(result, ['thinking', 'Thinking'])
+  const text = pickField<string>(thinking, ['text', 'Text'])
+  if (typeof text === 'string') return text
   if (!result || typeof result !== 'object') return ''
   const o = result as Record<string, unknown>
   if (typeof o.reasoning_content === 'string') return o.reasoning_content

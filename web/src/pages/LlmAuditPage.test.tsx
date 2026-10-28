@@ -4,17 +4,19 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { LlmAuditPage } from './LlmAuditPage'
-import { getLLMInvocationDetail, searchLLMInvocations } from '@/api/client'
+import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/client'
 import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 
-// 页面现为「全局搜索」形态：不按会话（owner）圈定，挂载即 searchLLMInvocations 拉全量，
-// 统计 chip 由当页行前端聚合（无独立 stat 接口）。
+// 页面为「全局搜索」形态：不按会话（owner）圈定，挂载即 searchLLMInvocations 拉全量；
+// 统计 chip 走服务端聚合端点 searchLLMInvocationStat（整个筛选结果集，与翻页无关）。
 vi.mock('@/api/client', () => ({
   searchLLMInvocations: vi.fn(),
+  searchLLMInvocationStat: vi.fn(),
   getLLMInvocationDetail: vi.fn(),
 }))
 
 const mockedSearch = searchLLMInvocations as unknown as ReturnType<typeof vi.fn>
+const mockedStat = searchLLMInvocationStat as unknown as ReturnType<typeof vi.fn>
 const mockedGetDetail = getLLMInvocationDetail as unknown as ReturnType<typeof vi.fn>
 
 function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocationSummary {
@@ -46,12 +48,12 @@ function makeDetail(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocatio
 
 function setupDefaultMocks() {
   mockedSearch.mockResolvedValue({
-    task_id: 'owner-1',
     total: 1,
     page: 1,
     size: 50,
     items: [makeSummary()],
   })
+  mockedStat.mockResolvedValue({ calls: 197, in_tokens: 509245, out_tokens: 40121, cached_tokens: 148800, latency_ms: 1 })
   mockedGetDetail.mockResolvedValue(makeDetail())
 }
 
@@ -71,6 +73,7 @@ function renderPage() {
 describe('LlmAuditPage', () => {
   beforeEach(() => {
     mockedSearch.mockReset()
+    mockedStat.mockReset()
     mockedGetDetail.mockReset()
   })
 
@@ -90,11 +93,14 @@ describe('LlmAuditPage', () => {
     expect(screen.getAllByText('planner').length).toBeGreaterThan(0)
   })
 
-  it('统计 chip 由当页行前端聚合渲染', async () => {
+  it('统计 chip 来自服务端聚合（searchLLMInvocationStat）', async () => {
     setupDefaultMocks()
     renderPage()
 
     expect(await screen.findByText('调用')).toBeTruthy()
+    expect(mockedStat).toHaveBeenCalledWith('', expect.objectContaining({ role: '', model: '' }))
+    // 聚合值来自 stat 接口（calls=197），不是当页行数（1 行）
+    expect(await screen.findByText('197')).toBeTruthy()
     expect(screen.getByText('输入')).toBeTruthy()
     expect(screen.getByText('输出')).toBeTruthy()
   })
@@ -128,10 +134,10 @@ describe('LlmAuditPage', () => {
   })
 
   it('空结果显示空态文案', async () => {
-    mockedSearch.mockResolvedValue({ task_id: '', total: 0, page: 1, size: 50, items: [] })
+    mockedSearch.mockResolvedValue({ total: 0, page: 1, size: 50, items: [] })
     renderPage()
 
-    expect(await screen.findByText('该对话暂无 LLM 调用记录')).toBeTruthy()
+    expect(await screen.findByText('暂无 LLM 调用记录')).toBeTruthy()
   })
 
   it('加载失败显示错误态', async () => {
