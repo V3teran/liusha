@@ -131,10 +131,13 @@ export function ProvidersView() {
       { provider: draft, isNew },
       {
         // 行内编辑保存后保持展开（用户常接着测试连接）；baseline 对齐后未保存徽章消失。
+        // 新建保存后清空搜索过滤：新行不可能匹配既有过滤词，不清会让刚保存的行
+        // 连同编辑面板一起被过滤掉，看起来像「保存了但什么都没发生」。
         onSuccess: (saved) => {
           setDraft(saved)
           setBaseline(saved)
           setIsNew(false)
+          if (isNew) setQuery('')
         },
         onError: (e) => setActionError(e instanceof Error ? e.message : '保存失败'),
       },

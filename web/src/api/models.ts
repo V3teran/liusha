@@ -103,7 +103,7 @@ export async function saveRoleRoute(
   return res.route
 }
 
-/** 删除角色路由（删后该 role 回退 __default__ 角色的 provider）。 */
+/** 删除角色路由（删后该档回落标准推理档 medium——隐式默认档；接口幂等）。 */
 export async function deleteRoleRoute(role: string): Promise<void> {
   await delModel(`/models/routes/${encodeURIComponent(role)}`)
 }

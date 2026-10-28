@@ -19,7 +19,6 @@ export const modelKeys = {
   providers: ['models', 'providers'] as const,
   routing: ['models', 'routing'] as const,
   agents: ['agents', 'configs'] as const,
-  assignments: ['models', 'assignments'] as const,
 }
 
 /** 全量 provider 部署（含 disabled，路由绑定选择器一次拉全）。 */
@@ -43,15 +42,6 @@ export function useAgentConfigs() {
   return useQuery({
     queryKey: modelKeys.agents,
     queryFn: listAgentConfigs,
-  })
-}
-
-/** assignments 路由表（用于导出配置）。 */
-export function useAssignments() {
-  return useQuery({
-    queryKey: modelKeys.assignments,
-    queryFn: getRouting,
-    select: (data) => data.routes ?? [],
   })
 }
 

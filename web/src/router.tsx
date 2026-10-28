@@ -56,8 +56,8 @@ export const router = createBrowserRouter([
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
-          // 旧「模型路由」独立路由已并入 /config/models（模块内 ?tab=assignment），重定向保链接可用。
-          { path: 'routing', element: <Navigate to="/config/models?tab=assignment" replace /> },
+          // 旧「模型路由」独立路由已并入 /config/models（provider+路由单页双分区），重定向保链接可用。
+          { path: 'routing', element: <Navigate to="/config/models" replace /> },
           { path: 'system', element: withSuspense(<SystemConfig />) },
         ],
       },

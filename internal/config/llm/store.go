@@ -174,19 +174,17 @@ func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerCode string) 
 	return rr, nil
 }
 
-// DeleteRoleRoute 按 role（能力档 heavy/vision/light）删路由（删后该档回落隐式默认档 heavy）。
+// DeleteRoleRoute 按 role（能力档 simple/medium/complex）删路由。
+// 幂等：路由已不存在（RowsAffected=0）时静默成功——双开页面先后「选空解绑」时，
+// 后到的那次不该收到 500 假性失败。
 func (s *Store) DeleteRoleRoute(ctx context.Context, role string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM llm_role_route WHERE role=$1", role)
-	if err != nil {
+	if _, err := s.pool.Exec(ctx, "DELETE FROM llm_role_route WHERE role=$1", role); err != nil {
 		return fmt.Errorf("delete role route %q: %w", role, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete role route %q: 不存在", role)
 	}
 	return nil
 }
 
-// ListRoleRoutes 按 role 列出全部路由（能力档 heavy/vision/light + 保留 role __fallback__）。
+// ListRoleRoutes 按 role 列出全部路由（能力档 simple/medium/complex；自定义/历史遗留档也会出现）。
 func (s *Store) ListRoleRoutes(ctx context.Context) ([]RoleRoute, error) {
 	rows, err := s.pool.Query(ctx, "SELECT role, provider_code, created_at, updated_at FROM llm_role_route ORDER BY role ASC")
 	if err != nil {
