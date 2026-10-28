@@ -85,3 +85,4 @@ __pycache__/
 # ZCode 会话工作目录
 /.zcode/
 $CLAUDE_JOB_DIR/
+.v2c/
