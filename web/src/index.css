@@ -181,6 +181,10 @@ pre {
   animation: fade-in 160ms ease-out;
 }
 
+.app-overlay[data-state='closed'] {
+  animation: fade-out 140ms ease-in;
+}
+
 .tac-modal {
   /* 由 Radix UI 控制 */
 }
@@ -189,21 +193,48 @@ pre {
   animation: modal-pop 190ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.tac-modal[data-state='closed'] {
+  animation: modal-pop-out 140ms ease-in;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
   }
 }
 
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* 只动 opacity + scale（独立 transform 属性）：居中位移由 Tailwind 的 translate 属性承担，
+   二者正交组合。此前 from 里写 transform: translate(-50%,-50%) scale(.96) 会与 translate
+   属性叠加——居中弹窗斜飞入场、右侧抽屉从左侧飞入（v4 语义下的全站共性缺陷）。 */
 @keyframes modal-pop {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.96);
+    scale: 0.96;
+  }
+}
+
+@keyframes modal-pop-out {
+  to {
+    opacity: 0;
+    scale: 0.96;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .tac-cursor::after {
+    animation: none;
+  }
+
+  .tac-modal[data-state='open'],
+  .tac-modal[data-state='closed'],
+  .app-overlay[data-state='open'],
+  .app-overlay[data-state='closed'] {
     animation: none;
   }
 }

@@ -77,7 +77,7 @@ export function FindingsPage() {
     () => [
       columnHelper.accessor('seq', {
         header: '#',
-        size: 48,
+        size: 64,
         meta: { align: 'right' },
         cell: (ctx) => (
           <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
@@ -139,7 +139,7 @@ export function FindingsPage() {
       }),
       columnHelper.accessor('status', {
         header: '状态',
-        size: 90,
+        size: 96,
         cell: (ctx) => {
           const meta = findingStatusMeta(ctx.getValue())
           return <Badge color={meta.color} size="sm">{meta.label}</Badge>
@@ -148,7 +148,7 @@ export function FindingsPage() {
       columnHelper.display({
         id: 'expand',
         header: '',
-        size: 32,
+        size: 48,
         cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
       }),
     ],
@@ -314,7 +314,7 @@ export function FindingsPage() {
 
             {/* 表格（min-width 兜底：窄屏出横向滚动条，列不压缩——全站表格统一约定） */}
             <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
-                <table className="w-full min-w-[1000px] border-collapse table-fixed">
+                <table className="w-full min-w-[1040px] border-collapse table-fixed">
                   <colgroup>
                     {leafColumns.map((col, i) => (
                       <col key={col.id} style={{ width: widthPercents[i] }} />

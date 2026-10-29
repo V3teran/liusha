@@ -148,14 +148,14 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
           <div className="flex flex-col gap-4 px-5 py-4">
             <div>
               <label htmlFor="nt-title" className="mb-1.5 block text-[12.5px] font-semibold text-text">
-                批次名称
+                名称
               </label>
               <input id="nt-title" className={INPUT_CLASS} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="如：DVWA 专项测试" />
             </div>
 
             <div>
               <label htmlFor="nt-desc" className="mb-1.5 block text-[12.5px] font-semibold text-text">
-                批次描述
+                描述
               </label>
               <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
             </div>
