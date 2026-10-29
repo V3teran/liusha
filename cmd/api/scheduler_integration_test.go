@@ -14,6 +14,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
@@ -39,7 +40,8 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 		tasks:       tasks,
 		proxyStore:  traffic.NewProxyStore(pool),
 		agentRuns:   agentRuns,
-		enq:         enq,
+		enq:          enq,
+		conversations: conversation.NewStore(pool),
 		scan: &scanAdapter{
 			assignments:   assignments,
 			tasks:         tasks,
@@ -120,6 +122,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 	if len(runs) != 1 || runs[0].Role != "planner" {
 		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
+
 }
 
 // TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 api-pentest 定时模板：领取该 host
@@ -164,6 +167,27 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].Role != "planner" {
 		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
+	}
+
+	// cron 展开的 passive task 必须绑会话流（title=host + 首条说明），否则
+	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
+	convID, err := r.conversations.ResolveConvByTask(ctx, found.ID)
+	if err != nil || convID == "" {
+		t.Fatalf("passive task 应绑 1 个会话，got convID=%q err=%v", convID, err)
+	}
+	conv, err := r.conversations.GetConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("get conversation: %v", err)
+	}
+	if conv.Title != host {
+		t.Errorf("会话 title 应为 host %q，got %q", host, conv.Title)
+	}
+	msgs, err := r.conversations.ListMessages(ctx, convID, 0, 10)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatalf("会话应带首条任务说明消息")
 	}
 }
 

@@ -17,7 +17,9 @@ import (
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/cronschedule"
+	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -32,14 +34,15 @@ const passiveCronClaimLimit = 200
 
 // cronRunner 持有 Scheduler 轮询所需的全部依赖。
 type cronRunner struct {
-	schedules   *cronschedule.Store
-	assignments *assignment.Store
-	tasks       *task.Store
-	proxyStore  *traffic.ProxyStore
-	agentRuns   *agentrun.Store
-	enq         *worker.Client
-	scan        *scanAdapter // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
-	logger      zerolog.Logger
+	schedules     *cronschedule.Store
+	assignments   *assignment.Store
+	tasks         *task.Store
+	proxyStore    *traffic.ProxyStore
+	agentRuns     *agentrun.Store
+	enq           *worker.Client
+	scan          *scanAdapter        // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
+	conversations *conversation.Store // passive 会话流（nil 时 cron 展开 task 不绑会话）
+	logger        zerolog.Logger
 }
 
 // run 阻塞轮询直到 ctx 取消；ctx 取消前再兜最后一轮，避免关停瞬间刚好错过一次到点模板。
@@ -153,6 +156,29 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
 	}
 
+	// 建 passive 会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
+	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
+	// PassiveBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
+	// 本次不绑会话，不影响分析主链路。
+	convID := ""
+	if r.conversations != nil {
+		conv, convErr := r.conversations.CreateConversation(ctx, host, tk.ID)
+		if convErr != nil {
+			r.logger.Warn().Err(convErr).Str("task_id", tk.ID).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
+		} else {
+			convID = conv.ID
+			if traffic, listErr := r.proxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
+				scheme := "http"
+				if traffic[0].Scheme != "" {
+					scheme = traffic[0].Scheme
+				}
+				if _, msgErr := r.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
+					r.logger.Warn().Err(msgErr).Str("conv", conv.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
+				}
+			}
+		}
+	}
+
 	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
 	hid, err := r.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: tk.ID,
@@ -163,10 +189,11 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 		return fmt.Errorf("create planner run: %w", err)
 	}
 	if _, _, err := r.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
-		AgentRunID: hid,
-		TaskID:     tk.ID,
-		Input:      payloadInput,
-		TaskRole:   worker.RoleAgent,
+		AgentRunID:     hid,
+		TaskID:         tk.ID,
+		ConversationID: convID,
+		Input:          payloadInput,
+		TaskRole:       worker.RoleAgent,
 	}); err != nil {
 		return fmt.Errorf("enqueue: %w", err)
 	}

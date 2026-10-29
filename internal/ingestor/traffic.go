@@ -411,7 +411,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
 		scheme = claimedTraffic[0].Scheme
 	}
-	if err := t.enqueuePassive(ctx, tk.ID, convID, passiveBrief(scheme, host, claimedTraffic)); err != nil {
+	if err := t.enqueuePassive(ctx, tk.ID, convID, PassiveBrief(scheme, host, claimedTraffic)); err != nil {
 		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("passive task 入队失败")
 		return
 	}
@@ -485,7 +485,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, t
 	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
 		briefScheme = trafficList[0].Scheme
 	}
-	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, passiveBrief(briefScheme, host, trafficList), nil); err != nil {
+	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, PassiveBrief(briefScheme, host, trafficList), nil); err != nil {
 		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return conv.ID
@@ -494,14 +494,15 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, t
 // passiveBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
 const passiveBriefMaxList = 20
 
-// passiveBrief 合成 passive 的任务说明（一份文本两用：会话首条气泡给用户看 +
-// 下发 brief 给 agent 当目标上下文）。设计要点：
+// PassiveBrief 合成 passive 的任务说明（一份文本两用：会话首条气泡给用户看 +
+// 下发 brief 给 agent 当目标上下文）。实时聚合与 cron 定时展开两条 passive 触发路径共用，
+// 保证会话首条气泡与 agent 目标上下文同源。设计要点：
 //   - 首行必须含 scheme://host 形式的目标 URL——runner onboard 靠 hostRe（https?://…）
 //     从 brief 抽取 host；
 //   - 每条流量带 view_traffic 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
 //     list_traffic 就能按 id 拉取任意一条的完整报文；
 //   - 同 host 同 path 的重复请求在目录里无法互辨，id 是唯一可靠的对应键。
-func passiveBrief(scheme, host string, trafficList []traffic.ProxyTraffic) string {
+func PassiveBrief(scheme, host string, trafficList []traffic.ProxyTraffic) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "被动流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 view_traffic（id=…）可拉取完整请求与响应原文，也可用 list_traffic（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))
 	for i, f := range trafficList {
