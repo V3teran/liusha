@@ -197,6 +197,7 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 			"task_id":         v.TaskID,
 			"conversation_id": v.ConversationID,
 			"assignment_id":   v.AssignmentID,
+			"source":          v.Source,
 			"provider":        v.Provider,
 			"model":           v.Model,
 			"in_tokens":       v.InTokens,

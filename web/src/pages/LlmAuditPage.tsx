@@ -123,6 +123,7 @@ export function LlmAuditPage() {
                 hasFilter={hasFilter || !!query}
                 showProvider={showProvider}
                 llmTimeoutMs={llmTimeoutMs}
+                meta={{ startIndex: (page - 1) * size }}
                 onRowClick={openDetail}
               />
             </div>

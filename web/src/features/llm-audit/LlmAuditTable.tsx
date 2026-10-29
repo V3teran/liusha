@@ -1,7 +1,7 @@
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import type { LLMInvocationSummary } from '@/api/types'
 import { columnWidthPercents } from '@/lib/tableLayout'
-import { buildLlmAuditColumns } from './llmAuditColumns'
+import { buildLlmAuditColumns, type LlmAuditTableMeta } from './llmAuditColumns'
 
 interface LlmAuditTableProps {
   rows: LLMInvocationSummary[]
@@ -9,19 +9,21 @@ interface LlmAuditTableProps {
   hasFilter: boolean
   showProvider: boolean
   llmTimeoutMs?: number // 单步 LLM 看门狗（runtime 配置现读；超时判定同源）
+  meta: LlmAuditTableMeta
   onRowClick: (row: LLMInvocationSummary) => void
 }
 
 // 密集审计表：真实 <table> 语义（对齐 FindingsPage 的 react-table 模式），列宽由
 // buildLlmAuditColumns 单点定义——列头/骨架屏/数据行/空态 colSpan 全部以列定义长度为准，
 // 增删列只改 llmAuditColumns 一处。
-export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, onRowClick }: LlmAuditTableProps) {
+export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, meta, onRowClick }: LlmAuditTableProps) {
   const columns = buildLlmAuditColumns(showProvider, llmTimeoutMs)
   const table = useReactTable({
     data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => String(row.id),
+    meta,
   })
   const leafColumns = table.getAllLeafColumns()
   const colCount = leafColumns.length
@@ -34,7 +36,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeo
           把其它列挤到断行（截图问题的根因）。用 columnDef.size 而非 col.getSize()：
           getSize() 会套 minSize=20 下限钳位，size 较小的列会被钳位失真，破坏比例关系。
           min-width 兜底：窄屏时容器出横向滚动条，列不压缩（全站表格统一约定）。 */}
-      <table className="w-full min-w-[1100px] border-collapse table-fixed">
+      <table className="w-full min-w-[970px] border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: widthPercents[i] }} />
