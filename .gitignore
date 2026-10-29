@@ -36,7 +36,6 @@ coverage.html
 /api
 /cmd/api/api
 /agent-worker
-/vulnapp
 /e2e
 /proxy
 /runner

@@ -39,5 +39,3 @@ jobs:
         run: docker build -f cmd/api/Dockerfile -t liusha/api:ci .
       - name: build runner image
         run: docker build -f cmd/runner/Dockerfile -t liusha/runner:ci .
-      - name: build vulnapp image
-        run: docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp:ci .
