@@ -14,7 +14,6 @@ import (
 // AnalyzeResults 分析 Result 节点，决定下一步行动
 func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
 	i.logger.Info().
-		Str("task_id", taskID).
 		Int("result_count", len(results)).
 		Msg("开始分析 Results")
 

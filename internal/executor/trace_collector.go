@@ -31,7 +31,6 @@ func NewTraceCollector(agentStore *traffic.AgentStore, logger zerolog.Logger) *T
 // 而不是单个 action 的 traffic。对于 Evaluator 来说，完整的 task traffic 已经足够。
 func (tc *TraceCollector) CollectTrace(ctx context.Context, taskID, actionID string) (ExecutionTrace, error) {
 	tc.logger.Debug().
-		Str("task_id", taskID).
 		Str("action_id", actionID).
 		Msg("开始收集 traffic trace（收集整个 task 的 traffic）")
 

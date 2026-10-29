@@ -135,7 +135,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
 	a.logger.Info().
-		Str("task_id", a.taskID).
 		Dur("poll_interval", a.pollInterval).
 		Msg("Evaluator Agent 启动（混合模式：事件驱动 + 轮询兜底）")
 
@@ -157,7 +156,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context done），等待在途验证落定")
+			a.logger.Info().Msg("Agent 停止（context done），等待在途验证落定")
 			a.inFlight.Wait()
 			return ctx.Err()
 

@@ -20,7 +20,6 @@ type agentLifecycle struct {
 	mu      sync.Mutex
 	parent  context.Context
 	logger  zerolog.Logger
-	taskID  string
 	agents  []agentSpec
 	wg      sync.WaitGroup
 	cancel  context.CancelFunc
@@ -34,8 +33,8 @@ type agentSpec struct {
 }
 
 // newAgentLifecycle 构造生命周期管理器，管理给定的 agent 集。
-func newAgentLifecycle(parent context.Context, logger zerolog.Logger, taskID string, agents []agentSpec) *agentLifecycle {
-	return &agentLifecycle{parent: parent, logger: logger, taskID: taskID, agents: agents}
+func newAgentLifecycle(parent context.Context, logger zerolog.Logger, agents []agentSpec) *agentLifecycle {
+	return &agentLifecycle{parent: parent, logger: logger, agents: agents}
 }
 
 // Start 幂等启动全部 agent（已在运行时为 no-op）。
@@ -60,7 +59,7 @@ func (l *agentLifecycle) runAgent(agentCtx context.Context, ag agentSpec) {
 	logx.Go(l.logger, ag.name+"-agent", func() {
 		defer l.wg.Done()
 		if err := ag.start(WithAgent(agentCtx, ag.name)); err != nil && agentCtx.Err() == nil {
-			l.logger.Error().Err(err).Str("task_id", l.taskID).Msg(ag.name + " agent 异常退出")
+			l.logger.Error().Err(err).Msg(ag.name + " agent 异常退出")
 		}
 	})
 }

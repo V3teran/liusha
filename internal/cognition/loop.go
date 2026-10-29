@@ -117,7 +117,6 @@ func (d *Deps) run(
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	d.Logger.Info().
-		Str("task_id", taskID).
 		Str("brief", brief).
 		Msg("[RUN_COGNITION] 启动四Agent架构")
 
@@ -137,7 +136,7 @@ func (d *Deps) run(
 	defer stack.thoughts.Close()
 
 	// 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
-	lifecycle := newAgentLifecycle(ctx, d.Logger, taskID, []agentSpec{
+	lifecycle := newAgentLifecycle(ctx, d.Logger, []agentSpec{
 		{name: "planner", start: stack.plannerAgent.Run},
 		{name: "executor", start: stack.executorAgent.Run},
 		{name: "evaluator", start: stack.evaluatorAgent.Run},
@@ -157,9 +156,9 @@ func (d *Deps) run(
 			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
 				TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
 			}); err != nil {
-				d.Logger.Warn().Err(err).Str("task_id", taskID).Msg("浏览器清理执行失败（best-effort）")
+				d.Logger.Warn().Err(err).Msg("浏览器清理执行失败（best-effort）")
 			} else {
-				d.Logger.Info().Str("task_id", taskID).Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
+				d.Logger.Info().Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
 			}
 		}
 	}()
@@ -170,7 +169,7 @@ func (d *Deps) run(
 		defer stopConsumer()
 	}
 
-	d.Logger.Info().Str("task_id", taskID).Msg("四个 Agent 已启动，等待任务完成")
+	d.Logger.Info().Msg("四个 Agent 已启动，等待任务完成")
 
 	// 阻塞等待完成检测，随后停止所有 Agent（浏览器清理 defer 依赖 agents 已停）
 	result := stack.detector.Start(ctx)
@@ -181,11 +180,10 @@ func (d *Deps) run(
 	d.closeObjectives(ctx, taskID, result.StopWhy)
 
 	d.Logger.Info().
-		Str("task_id", taskID).
+		Int64("duration_ms", result.Duration.Milliseconds()).
 		Int("steps", result.Steps).
 		Int("promoted", result.Promoted).
 		Str("stop_why", result.StopWhy).
-		Dur("duration", result.Duration).
 		Msg("认知循环完成")
 
 	return executor.Report{
@@ -216,7 +214,7 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 			continue // 已终态（done/failed/aborted）不重复迁移
 		}
 		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
-			d.Logger.Warn().Err(err).Str("task_id", taskID).Str("objective_id", obj.ID).
+			d.Logger.Warn().Err(err).Str("objective_id", obj.ID).
 				Msg("目标终态回写失败（该 objective 保持 open）")
 		}
 	}
@@ -226,13 +224,11 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) error {
 	if brief == "" {
 		d.Logger.Warn().
-			Str("task_id", taskID).
 			Msg("任务 brief 为空，跳过创建根 Objective")
 		return nil
 	}
 	if existing, listErr := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective); listErr == nil && len(existing) > 0 {
 		d.Logger.Info().
-			Str("task_id", taskID).
 			Int("existing_objectives", len(existing)).
 			Msg("根 Objective 已存在（onboard 创建），跳过重复创建")
 		return nil
@@ -256,7 +252,6 @@ func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) er
 		return fmt.Errorf("failed to create root objective: %w", err)
 	}
 	d.Logger.Info().
-		Str("task_id", taskID).
 		Str("root_id", createdID).
 		Str("brief", brief).
 		Msg("已创建根 Objective 节点")
@@ -330,7 +325,7 @@ func (d *Deps) assembleStack(
 	if runs, rErr := d.AgentRuns.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
 		agentRunID = runs[0].ID
 	} else if rErr != nil {
-		d.Logger.Warn().Err(rErr).Str("task_id", taskID).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
+		d.Logger.Warn().Err(rErr).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
 	}
 
 	// 工具注册表 + 拦截器链：遥测（tool_invocation 落库 + 节流续命）与时间线

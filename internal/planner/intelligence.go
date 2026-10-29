@@ -165,7 +165,7 @@ type PlanningResponse struct {
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
 func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
-	i.logger.Info().Str("task_id", taskID).Msg("开始智能规划")
+	i.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
 	// 预算耗尽）用同一预算重试是确定性失败——预算随连续超时翻倍、封顶基准
@@ -283,7 +283,6 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	// 5. 如果 LLM 判断不应该继续，返回空
 	if !response.ShouldContinue {
 		i.logger.Info().
-			Str("task_id", taskID).
 			Str("reasoning", response.Reasoning).
 			Msg("LLM 判断任务应该停止")
 		return []explorationgraph.Node{}, nil
@@ -293,7 +292,6 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 	nodes := i.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
 
 	i.logger.Info().
-		Str("task_id", taskID).
 		Int("action_count", len(nodes)).
 		Msg("智能规划完成")
 
@@ -535,7 +533,7 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。
 	existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if exErr != nil {
-		i.logger.Warn().Err(exErr).Str("task_id", taskID).
+		i.logger.Warn().Err(exErr).
 			Msg("查询已有 Action 失败，本轮跳过依赖存在性过滤（仅格式校验）")
 		existing = nil
 	}
@@ -553,7 +551,7 @@ func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explo
 			resultIDs[r.ID] = true
 		}
 	} else {
-		i.logger.Warn().Err(rErr).Str("task_id", taskID).
+		i.logger.Warn().Err(rErr).
 			Msg("查询 Result 失败，本轮跳过 triggered_by 存在性过滤（仅格式校验）")
 	}
 

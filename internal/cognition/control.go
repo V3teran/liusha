@@ -32,7 +32,7 @@ func startControlConsumer(
 	agents *agentLifecycle,
 	logger zerolog.Logger,
 ) (stop func()) {
-	logger = logger.With().Str("component", "control_consumer").Str("task_id", taskID).Logger()
+	logger = logger.With().Str("component", "control_consumer").Logger()
 	done := make(chan struct{})
 	// stopCh 让 stop 函数能主动叫停消费循环。只有 ctx.Done() 一个退出条件
 	// 是不够的：认知循环被 terminate 中止后 ctx 依然存活（它归 asynq 任务，

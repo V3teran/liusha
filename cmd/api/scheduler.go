@@ -156,6 +156,9 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
 	}
 
+	// 任务作用域派生：cron 展开的任务日志自动携带 task_id/assignment_id
+	taskLogger := r.logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
+
 	// 建 passive 会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
 	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
 	// PassiveBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
@@ -164,7 +167,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 	if r.conversations != nil {
 		conv, convErr := r.conversations.CreateConversation(ctx, host, tk.ID)
 		if convErr != nil {
-			r.logger.Warn().Err(convErr).Str("task_id", tk.ID).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
+			taskLogger.Warn().Err(convErr).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
 		} else {
 			convID = conv.ID
 			if traffic, listErr := r.proxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
@@ -173,7 +176,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 					scheme = traffic[0].Scheme
 				}
 				if _, msgErr := r.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
-					r.logger.Warn().Err(msgErr).Str("conv", conv.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
+					taskLogger.Warn().Err(msgErr).Str("conv", conv.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 				}
 			}
 		}

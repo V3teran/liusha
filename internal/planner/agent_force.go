@@ -7,7 +7,6 @@ import (
 
 func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) error {
 	a.logger.Info().
-		Str("task_id", a.taskID).
 		Str("monitor_reason", monitorReason).
 		Msg("强制重规划（Monitor 触发）")
 

@@ -234,7 +234,6 @@ func (a *Agent) evaluate(ctx context.Context) error {
 
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			a.logger.Info().
-				Str("task_id", a.taskID).
 				Int("iteration", iteration).
 				Str("status", string(status)).
 				Msg("[MONITOR] ReAct 迭代")

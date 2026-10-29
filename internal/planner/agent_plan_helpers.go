@@ -314,7 +314,10 @@ func (a *Agent) consumeMonitorRequest(ctx context.Context) (forced bool, reason 
 	// 消费即清标记（防重复触发；清失败仍强制本轮——宁可多规划一次）。
 	delete(content, "monitor_request")
 	if updated, err := json.Marshal(content); err == nil {
-		_ = a.graph.UpdateNodeContent(ctx, objectives[0].ID, updated)
+		if uErr := a.graph.UpdateNodeContent(ctx, objectives[0].ID, updated); uErr != nil {
+			a.logger.Warn().Err(uErr).Str("objective_id", objectives[0].ID).
+				Msg("清除 monitor 请求标记失败（可能重复触发一轮重规划）")
+		}
 	}
 	return true, req.MonitorReplanRequest.Reason
 }

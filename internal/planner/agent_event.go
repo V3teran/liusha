@@ -13,7 +13,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：规划调用归 task/本轮 run、角色 planner。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "planner"})
 
-	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
+	a.logger.Info().Msg("Agent 启动")
 
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
@@ -31,11 +31,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context done）")
+			a.logger.Info().Msg("Agent 停止（context done）")
 			return ctx.Err()
 
 		case <-a.stopCh:
-			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止")
+			a.logger.Info().Msg("Agent 停止")
 			return nil
 
 		case event := <-sub.Events():
@@ -62,14 +62,12 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 	case bus.EventVerificationPassed:
 		// 验证通过，可能需要新的规划
 		a.logger.Info().
-			Str("task_id", a.taskID).
 			Msg("收到 VerificationPassed 事件，触发新规划")
 		return a.planActions(ctx)
 
 	case bus.EventVerificationRefuted:
 		// 证伪，需要调整规划
 		a.logger.Info().
-			Str("task_id", a.taskID).
 			Msg("收到 VerificationRefuted 事件，触发调整规划")
 		return a.planActions(ctx)
 
@@ -80,7 +78,6 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 			reason = r
 		}
 		a.logger.Info().
-			Str("task_id", a.taskID).
 			Str("reason", reason).
 			Msg("收到 Monitor 重规划请求，强制重规划")
 		return a.forcePlanActions(ctx, reason)
