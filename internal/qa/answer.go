@@ -61,7 +61,8 @@ func (s *Service) Answer(ctx context.Context, conversationID, taskID, question s
 	if err != nil {
 		return fmt.Errorf("落 assistant 消息: %w", err)
 	}
-	// publish best-effort：已落 PG，重连补历史可见，失败不返回错误。
+	// publish best-effort：已落 PG，重连补历史可见，失败不返回错误
+	// （推送失败在 scanAdapter.Publish 单点留痕）。
 	_ = s.deps.Publish(ctx, conversationID, payload)
 	return nil
 }

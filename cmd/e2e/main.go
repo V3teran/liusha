@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/rs/zerolog"
 	"os"
 	"strconv"
 	"strings"
@@ -55,7 +56,7 @@ func main() {
 	}
 
 	// 共享 PG pool（passive / active 均用）
-	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1, 0, 0)
+	pool, err := db.NewPgPool(ctx, pgDSN, zerolog.Nop(), 5, 1, 0, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}

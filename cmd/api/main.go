@@ -73,7 +73,7 @@ func main() {
 		logger.Fatal().Err(err).Msg("load config")
 	}
 
-	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),
+	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), logger,
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
 		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
 	if err != nil {
