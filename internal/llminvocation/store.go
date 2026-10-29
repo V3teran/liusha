@@ -456,9 +456,11 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		       li.finish_reason, li.error_message, li.role,
 		       li.messages, li.result, li.created_at,
 		       c.id::text AS conversation_id,
-		       t.assignment_id::text AS assignment_id
+		       t.assignment_id::text AS assignment_id,
+		       COALESCE(a.source, '')
 		FROM llm_invocation li
 		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN assignment a ON a.id = t.assignment_id
 		LEFT JOIN conversation c ON c.task_id = li.task_id
 		WHERE li.id=$1`, id).Scan(
 		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
@@ -467,7 +469,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		&v.LatencyMs,
 		&v.FinishReason, &v.Error, &v.Role,
 		&v.Messages, &v.Result, &v.CreatedAt,
-		&cid, &aid,
+		&cid, &aid, &v.Source,
 	)
 	if err != nil {
 		return Invocation{}, fmt.Errorf("get llm_invocation detail %d: %w", id, err)

@@ -5,9 +5,13 @@ import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { clockTime, dateOnly, fullTime, humanDuration, humanTokens } from '@/lib/format'
 import { invocationStatus } from '@/lib/llmInvocationStatus'
 import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from '@/lib/llmTiming'
-import { Link } from 'react-router-dom'
 
 const columnHelper = createColumnHelper<LLMInvocationSummary>()
+
+/** 表格 meta：# 列页内序号 = startIndex + 行号 + 1（对齐凭证库 # 列口径）。 */
+export interface LlmAuditTableMeta {
+  readonly startIndex: number
+}
 
 const TIMING_DOT: Record<TimingLevel, string> = {
   good: 'bg-sev-low',
@@ -23,11 +27,23 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * （单一 provider 时每行重复同一个值是纯噪声）。
  *
  * 列顺序（参考 Datadog/Sentry 日志表）：
- * 时间 → 对话/批次（业务标识）→ 摘要（这次调用干了什么）→ 角色 → 模型 → Tokens → 响应耗时。
+ * # → 时间 → 摘要（这次调用干了什么）→ 角色 → 模型 → Tokens → 响应耗时。
  * 摘要是审计表的主读列：正文预览 + 工具徽章，不必逐行点开详情（后端库内派生，不传大字段）。
+ * 对话/批次不占列——行→详情抽屉里提供任务/对话跳转按钮（业务标识属于钻取视角，不是筛读视角）。
  */
 export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: number) {
   return [
+    columnHelper.display({
+      id: 'seq',
+      header: '#',
+      size: 48,
+      meta: { align: 'right' },
+      cell: (ctx) => (
+        <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
+          {(ctx.table.options.meta as LlmAuditTableMeta).startIndex + ctx.row.index + 1}
+        </span>
+      ),
+    }),
     columnHelper.accessor('created_at', {
       header: '时间',
       size: 104,
@@ -37,40 +53,6 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
           <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
             <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
-          </span>
-        )
-      },
-    }),
-    columnHelper.accessor('conversation_id', {
-      header: '对话',
-      size: 96,
-      cell: (ctx) => {
-        const convId = ctx.getValue()
-        if (!convId) return <span className="text-muted opacity-40">—</span>
-        const shortId = convId.slice(0, 8)
-        return (
-          <Link
-            to={`/conversations/manual?conv=${convId}`}
-            onClick={(e) => e.stopPropagation() // 行整体可点开详情，链接只做跳转，不冒泡
-            }
-            className="font-mono text-xs text-accent hover:underline"
-            title={`查看对话 ${convId}`}
-          >
-            {shortId}
-          </Link>
-        )
-      },
-    }),
-    columnHelper.accessor('assignment_id', {
-      header: '批次',
-      size: 96,
-      cell: (ctx) => {
-        const assignId = ctx.getValue()
-        if (!assignId) return <span className="text-muted opacity-40">—</span>
-        const shortId = assignId.slice(0, 8)
-        return (
-          <span className="font-mono text-xs text-text" title={`批次 ${assignId}`}>
-            {shortId}
           </span>
         )
       },

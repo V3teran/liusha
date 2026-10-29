@@ -22,6 +22,7 @@ type Invocation struct {
 	TaskID         *string // 所属 task.id（可空：SET NULL 外键）
 	ConversationID *string // 所属 conversation.id（派生字段，JOIN 查询填充）
 	AssignmentID   *string // 所属 assignment.id（派生字段，JOIN 查询填充）
+	Source         string  // 下发来源 manual|auto（派生字段，详情 JOIN assignment 填充；对话跳转定 tab）
 	Provider       string
 	Model          string
 	InTokens       int

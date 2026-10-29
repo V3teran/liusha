@@ -1,5 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { LLMInvocationDetail } from '@/api/types'
 import { CopyButton } from '@/components/CopyButton'
 import { CopySection } from '@/components/CopySection'
@@ -145,6 +146,39 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       <>
                         <dt className="text-xs text-muted">agent</dt>
                         <dd className="font-mono text-sm text-text">{detail.agent_run_id}</dd>
+                      </>
+                    )}
+                    {/* 任务/对话跳转（列表不占列，钻取视角的落点在详情）：点击跳转并收起抽屉。
+                        对话 tab 按下发来源定（auto 被动 / manual 主动），detail 缺 source 时落 manual
+                        ——纯聊天/轻量路由调用必归 manual，被动分析行后端恒带 source。 */}
+                    {detail.task_id && (
+                      <>
+                        <dt className="text-xs text-muted">任务</dt>
+                        <dd>
+                          <Link
+                            to={`/tasks?task=${detail.task_id}`}
+                            onClick={() => onOpenChange(false)}
+                            className="inline-flex items-center rounded-md bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
+                            title={`打开任务 ${detail.task_id}`}
+                          >
+                            打开任务 →
+                          </Link>
+                        </dd>
+                      </>
+                    )}
+                    {detail.conversation_id && (
+                      <>
+                        <dt className="text-xs text-muted">对话</dt>
+                        <dd>
+                          <Link
+                            to={`/conversations/${detail.source === 'auto' ? 'auto' : 'manual'}?conv=${detail.conversation_id}`}
+                            onClick={() => onOpenChange(false)}
+                            className="inline-flex items-center rounded-md bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
+                            title={`打开对话 ${detail.conversation_id}`}
+                          >
+                            打开对话 →
+                          </Link>
+                        </dd>
                       </>
                     )}
                   </dl>
