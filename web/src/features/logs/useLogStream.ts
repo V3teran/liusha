@@ -10,6 +10,12 @@ import type { LogEntry, LogFilters } from '@/api/types'
 // 立即补上），live=false 时完全停拉（静态快照，重开立即补一轮增量）。
 export const MAX_ENTRIES = 1000
 
+// 首屏每进程只取最新 300 条：打开即用（Live Tail 工具的通用首屏量级），
+// 冷读延迟 ∝ 解析行数，300 条把打开路径压到几十毫秒；增量轮询仍按
+// MAX_ENTRIES 给突发余量，已加载的更早日志不因首屏限量丢失语义
+// （truncated 提示窗口外还有）。
+const INITIAL_LIMIT = 300
+
 const POLL_MS = 3000
 
 export interface LogStream {
@@ -50,7 +56,9 @@ export function useLogStream(filters: LogFilters, live: boolean): LogStream {
 
     const poll = async () => {
       try {
-        const res = await readLogs(filters, cursorsRef.current, MAX_ENTRIES)
+        // 冷读（游标空）用首屏限量；增量轮询给满额余量抗突发
+        const limit = cursorsRef.current ? MAX_ENTRIES : INITIAL_LIMIT
+        const res = await readLogs(filters, cursorsRef.current, limit)
         if (cancelled || myReq !== reqIdRef.current) return
         cursorsRef.current = res.cursors
         setByService((prev) => {

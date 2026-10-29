@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RotateCw, Search } from 'lucide-react'
 import { listLogProcesses } from '@/api/client'
@@ -9,9 +9,10 @@ import { useLogStream } from './useLogStream'
 
 // 日志页：api/proxy/runner 三进程日志的统一视图（logs/{process}.log 尾读）。
 //
-// 交互（Datadog Live Tail 范式）：实时跟随默认开（3s 增量轮询，脉冲圆点）；
-// 向上滚动即暂停自动滚底并浮出「有新日志」回底条，滚回底部/点击恢复跟随。
-// error 或带业务字段（task_id 等）的行可展开详情。筛选态进 URL（useLogFilters）。
+// 交互（Live Tail 范式）：实时跟随默认开（3s 增量轮询，脉冲圆点）；向上滚动即
+// 暂停自动滚底并浮出「有新日志」回底条，滚回底部/点击恢复跟随。所有行可展开
+// 详情（消息全文 + error + 业务字段）——统一心智：截断行不依赖 hover title
+// （触屏无 hover），任意行都有全文出口。筛选态进 URL（useLogFilters）。
 
 // ── 展示辅助 ─────────────────────────────────────────────────────────────
 
@@ -45,37 +46,49 @@ function shortInstance(instance: string): string {
   return `${instance.slice(0, at)}@${instance.slice(at + 1).split('.')[0]}`
 }
 
-/** 行是否有可展开详情：error 值或业务扩展字段。 */
-function hasDetail(e: LogEntry): boolean {
-  return !!e.error || !!e.fields && Object.keys(e.fields).length > 0
+/** 行详情内容：消息全文 + error 值 + 业务扩展字段。 */
+function rowDetail(e: LogEntry): Array<{ label: string; value: string; tone?: 'error' }> {
+  const out: Array<{ label: string; value: string; tone?: 'error' }> = [
+    { label: 'message', value: e.message },
+  ]
+  if (e.error) out.push({ label: 'error', value: e.error, tone: 'error' })
+  for (const [k, v] of Object.entries(e.fields ?? {})) {
+    out.push({ label: k, value: typeof v === 'string' ? v : JSON.stringify(v) })
+  }
+  return out
 }
 
 // ── 单行日志 ─────────────────────────────────────────────────────────────
 
-function LogRow({ e, open, onToggle }: { e: LogEntry; open: boolean; onToggle: () => void }) {
-  const detail = hasDetail(e)
+// memo：3s 增量轮询会新建 byService Map 触发整表 diff，行内容未变的行靠
+// 引用稳定（entry 对象只增不改 + 原始值 props）跳过重渲染。
+const LogRow = memo(function LogRow({
+  e,
+  open,
+  onToggle,
+}: {
+  e: LogEntry
+  open: boolean
+  onToggle: (key: string) => void
+}) {
+  const key = `${e.service}:${e.offset}`
   return (
     <>
       <div
-        role={detail ? 'button' : undefined}
-        tabIndex={detail ? 0 : undefined}
-        aria-expanded={detail ? open : undefined}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
         aria-label={`日志：${e.message}`}
-        title={detail ? '点击展开详情' : undefined}
-        onClick={detail ? onToggle : undefined}
-        onKeyDown={
-          detail
-            ? (ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') {
-                  ev.preventDefault()
-                  onToggle()
-                }
-              }
-            : undefined
-        }
+        title="点击展开详情"
+        onClick={() => onToggle(key)}
+        onKeyDown={(ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault()
+            onToggle(key)
+          }
+        }}
         className={cn(
-          'flex items-baseline gap-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-[12.5px] leading-relaxed',
-          detail && 'cursor-pointer',
+          'flex cursor-pointer items-baseline gap-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-[12.5px] leading-relaxed',
           e.level === 'error' ? 'bg-sev-critical/6 hover:bg-sev-critical/10' : 'hover:bg-surface-2',
         )}
       >
@@ -100,24 +113,23 @@ function LogRow({ e, open, onToggle }: { e: LogEntry; open: boolean; onToggle: (
         </span>
         {e.caller && <span className="shrink-0 text-[11px] text-text-tertiary">{e.caller}</span>}
       </div>
-      {detail && open && (
+      {open && (
         <div
           className={cn(
             'mb-1.5 ml-[92px] mr-4 whitespace-pre-wrap break-all rounded-lg bg-surface-2 px-3 py-2 font-mono text-xs text-text-secondary',
             e.level === 'error' ? 'border-l-2 border-sev-critical' : 'border-l-2 border-border-strong',
           )}
         >
-          {e.error && <div className="text-sev-critical">error: {e.error}</div>}
-          {Object.entries(e.fields ?? {}).map(([k, v]) => (
-            <div key={k}>
-              {k}: {typeof v === 'string' ? v : JSON.stringify(v)}
+          {rowDetail(e).map(({ label, value, tone }) => (
+            <div key={label} className={tone === 'error' ? 'text-sev-critical' : undefined}>
+              {label}: {value}
             </div>
           ))}
         </div>
       )}
     </>
   )
-}
+})
 
 // ── 页面 ─────────────────────────────────────────────────────────────────
 
@@ -203,8 +215,7 @@ export function LogsPage() {
   }, [processes, filters.process])
 
   const [openKey, setOpenKey] = useState<string | null>(null)
-  const toggleRow = useCallback((e: LogEntry) => {
-    const key = `${e.service}:${e.offset}`
+  const toggleRow = useCallback((key: string) => {
     setOpenKey((prev) => (prev === key ? null : key))
   }, [])
 
@@ -333,7 +344,7 @@ export function LogsPage() {
                 key={`${e.service}:${e.offset}`}
                 e={e}
                 open={openKey === `${e.service}:${e.offset}`}
-                onToggle={() => toggleRow(e)}
+                onToggle={toggleRow}
               />
             ))
           )}
