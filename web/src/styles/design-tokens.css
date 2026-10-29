@@ -40,7 +40,7 @@
   --sev-critical: oklch(58% 0.24 25);
   --sev-high: oklch(64% 0.19 40);
   --sev-medium: oklch(75% 0.15 85);
-  --sev-low: oklch(60% 0.02 260);
+  --sev-low: oklch(58% 0.15 150);
   --sev-info: oklch(60% 0.15 240);
 
   /* 语义色：来源类型 */
@@ -133,7 +133,7 @@
   --sev-critical: oklch(65% 0.22 25);
   --sev-high: oklch(70% 0.18 45);
   --sev-medium: oklch(80% 0.15 90);
-  --sev-low: oklch(55% 0.02 260);
+  --sev-low: oklch(72% 0.19 150);
   --sev-info: oklch(65% 0.15 240);
 
   --source-manual: oklch(70% 0.14 220);

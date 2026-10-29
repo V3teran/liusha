@@ -1,12 +1,14 @@
 // 漏洞分级 → 颜色 / 标签 / 排序。单一真相源：FindingsPage / FindingDrawer / FindingCard /
 // SitemapPage / 执行图节点全部从此处取值，不再各自维护一份重复的 SEV_LABEL/severityColor。
 // 统一 Tailwind 400-500 调色板（暗背景清晰、威胁梯度区分度高）：
-// 红→橙→黄是危险渐变，low 蓝灰 / info 蓝是低危/信息（冷色与暖色危险区拉开）。
+// 红→橙→黄危险渐变 + 低危绿 + 信息蓝，对齐业界共识（Nessus/Tenable/Qualys/Snyk/
+// Security Hub/Burp：critical 红、high 橙、medium 黄、low 绿、info 蓝）——
+// 低危绿承载「风险可接受」语义，冷色蓝留给信息类。
 export const severityColor: Record<string, string> = {
   critical: '#ef4444', // red
   high: '#f97316', // orange
   medium: '#eab308', // amber/yellow
-  low: '#94a3b8', // slate（低危，冷灰）
+  low: '#22c55e', // green（低危≈可接受，业界低危一律绿）
   info: '#3b82f6', // blue（信息）
 }
 
