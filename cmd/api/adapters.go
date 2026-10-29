@@ -33,6 +33,10 @@ import (
 // 失败不阻塞业务但必须留可见日志（不能完全静默吞掉）。
 var auditLog = logx.New("api.audit")
 
+// dispatchLog 记任务下发的结果踪迹——下发是平台首要写操作，此前除审计表外
+// 零日志（scanAdapter 无 logger），排障「这批发出去没有」只能查库。
+var dispatchLog = logx.New("api.dispatch")
+
 // chatLog 记纯聊天回答的 best-effort 失败——会话与用户消息已落库，回答缺失不阻断会话创建。
 var chatLog = logx.New("api.chat")
 
@@ -153,7 +157,7 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID stri
 // 1 assignment(manual, N items) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatScan 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
-func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
+func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description string, briefs []string) (assignmentID string, tasks []httpapi.DispatchedTask, err error) {
 	items := make([]assignment.Item, 0, len(briefs))
 	for _, b := range briefs {
 		items = append(items, assignment.Item{Brief: b})
@@ -167,19 +171,21 @@ func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description stri
 	if err != nil {
 		return "", nil, fmt.Errorf("create assignment: %w", err)
 	}
+	dispatchLog.Info().Str("assignment_id", asg.ID).Int("task_count", len(briefs)).
+		Msg("任务批次下发开始")
 
 	out := make([]httpapi.DispatchedTask, 0, len(briefs))
 	for _, b := range briefs {
 		conv, err := a.conversations.CreateConversation(ctx, briefTitle(b), "")
 		if err != nil {
-			return asg.ID, out, fmt.Errorf("create conversation: %w", err)
+			return "", out, fmt.Errorf("create conversation: %w", err)
 		}
 		if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, b, nil); err != nil {
-			return asg.ID, out, fmt.Errorf("append user message: %w", err)
+			return assignmentID, out, fmt.Errorf("append user message: %w", err)
 		}
 		taskID, _, err := a.expandItem(ctx, asg.ID, b, conv.ID)
 		if err != nil {
-			return asg.ID, out, err
+			return assignmentID, out, err
 		}
 		if err := a.conversations.LinkTask(ctx, conv.ID, taskID); err != nil {
 			chatLog.Warn().Err(err).Str("conv", conv.ID).Msg("link task 失败")
@@ -187,8 +193,13 @@ func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description stri
 		a.appendTaskStatus(ctx, conv.ID, conversation.TaskStatusDispatched, "已下发扫描，agent 启动中…", nil)
 		go a.genTitle(conv.ID, b) //nolint:gosec // G118：标题生成独立生命周期
 		out = append(out, httpapi.DispatchedTask{TaskID: taskID, ConversationID: conv.ID})
+		dispatchLog.Info().
+			Str("assignment_id", assignmentID).
+			Str("task_id", taskID).
+			Str("conv", conv.ID).
+			Msg("任务已展开入队")
 	}
-	return asg.ID, out, nil
+	return assignmentID, out, nil
 }
 
 // DispatchScheduled 满足 httpapi.TaskDispatchAPI：定时下发——建 cron_schedule 模板
@@ -212,6 +223,11 @@ func (a *scanAdapter) DispatchScheduled(ctx context.Context, title, description 
 	if sched.NextRunAt != nil {
 		next = *sched.NextRunAt
 	}
+	dispatchLog.Info().
+		Str("schedule_id", sched.ID).
+		Int("task_count", len(briefs)).
+		Time("next_run_at", next).
+		Msg("定时下发模板已创建")
 	return sched.ID, next, nil
 }
 
@@ -582,7 +598,13 @@ func (a *scanAdapter) AppendAssistant(ctx context.Context, convID, content, thin
 
 // Publish 满足 qa.Deps：推 SSE。
 func (a *scanAdapter) Publish(ctx context.Context, convID string, payload []byte) error {
-	return a.publisher.Publish(ctx, convID, payload)
+	err := a.publisher.Publish(ctx, convID, payload)
+	if err != nil {
+		// 推送失败的用户端表现是「没有实时输出」——best-effort 不阻断，
+		// 但必须留痕，否则无从排查（重连补历史是唯一恢复通道）。
+		chatLog.Warn().Err(err).Str("conv", convID).Msg("SSE 推送失败（补历史可见，实时流缺失）")
+	}
+	return err
 }
 
 // StartChatScan 满足 httpapi.ChatAPI：建会话 + 落用户首条消息 + **同步意图闸**。

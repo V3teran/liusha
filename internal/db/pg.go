@@ -10,7 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/tracelog"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
+	"github.com/rs/zerolog"
 )
 
 // NewPgPool 构造 pgxpool.Pool 并 Ping 验证。
@@ -21,10 +23,17 @@ import (
 //	maxConnLifetimeSec:  连接最大存活时间；≤ 0 时不覆盖 pgxpool 默认
 //
 // 调用方通常从 cfg.Postgres 注入全部 4 个参数；本函数零值跳过覆盖，让 pgx 自身默认生效。
-func NewPgPool(ctx context.Context, dsn string, maxConns, minConns, connectTimeoutSec, maxConnLifetimeSec int) (*pgxpool.Pool, error) {
+func NewPgPool(ctx context.Context, dsn string, logger zerolog.Logger, maxConns, minConns, connectTimeoutSec, maxConnLifetimeSec int) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse pg dsn: %w", err)
+	}
+	// 池级日志接进 logx（pgx tracelog 适配）：连接失效/获取超时等池事件调用方
+	// 看不见，此前完全不可见。只透传 warn+——info 级是每查询一条的噪声；
+	// 查询级错误本就由各 store 调用方记录，这里兜的是池/连接内部事件。
+	cfg.ConnConfig.Tracer = &tracelog.TraceLog{
+		Logger:   pgxLogger{log: logger},
+		LogLevel: tracelog.LogLevelWarn,
 	}
 	if maxConns > 0 {
 		if maxConns > 0 && maxConns <= math.MaxInt32 {
@@ -59,4 +68,17 @@ func NewPgPool(ctx context.Context, dsn string, maxConns, minConns, connectTimeo
 		return nil, fmt.Errorf("ping pg: %w", err)
 	}
 	return pool, nil
+}
+
+// pgxLogger 把 pgx tracelog 的事件桥接到 logx。data 里是字段级上下文
+// （pid/err 等），原样平铺进结构化字段；trace/debug 在 TraceLog 层已被级别过滤。
+type pgxLogger struct{ log zerolog.Logger }
+
+func (l pgxLogger) Log(ctx context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
+	switch level {
+	case tracelog.LogLevelError:
+		l.log.Error().Fields(data).Msg(msg)
+	case tracelog.LogLevelWarn:
+		l.log.Warn().Fields(data).Msg(msg)
+	}
 }

@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"github.com/rs/zerolog"
 	"os"
 
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -45,7 +46,7 @@ func main() {
 		logger.Fatal().Err(err).Str("path", cfgPath).Msg("加载 config 失败")
 	}
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
-	pool, err := db.NewPgPool(ctx, pgDSN, 5, 1, 0, 0)
+	pool, err := db.NewPgPool(ctx, pgDSN, zerolog.Nop(), 5, 1, 0, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("连接 PG 失败")
 	}

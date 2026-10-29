@@ -40,7 +40,7 @@ func main() {
 	dir := flag.String("dir", envx.OrDefault("LIUSHA_SEED_DIR", "."), "种子根目录（含 agents/ 与 skills/）")
 	flag.Parse()
 
-	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), 2, 1, 5, 0)
+	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), zerolog.Nop(), 2, 1, 5, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}

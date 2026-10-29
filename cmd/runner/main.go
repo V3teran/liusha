@@ -239,6 +239,9 @@ func main() {
 			Queues: map[string]int{
 				worker.QueueAgent: runnerCfg.QueueAgentWeight,
 			},
+			// asynq 内部日志（投递重试/任务处理错误）事关任务是否丢失，
+			// 接进 logx——此前走默认 stderr，文件日志不可见。
+			Logger: asynqLogAdapter{logger},
 		},
 	)
 
@@ -304,7 +307,7 @@ func main() {
 
 // newPgPool 连接 PostgreSQL（DSN 走 ENV）。
 func newPgPool(ctx context.Context, cfg config.Config, logger zerolog.Logger) *pgxpool.Pool {
-	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"),
+	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), logger,
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
 		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
 	if err != nil {
@@ -684,3 +687,17 @@ func startSessionSweep(ctx context.Context, creds *credential.RedisProvider, tas
 		}
 	})
 }
+
+// asynqLogAdapter 把 asynq 内部日志桥接到 logx（asynq.Logger 接口适配）。
+type asynqLogAdapter struct{ log zerolog.Logger }
+
+func (a asynqLogAdapter) Debug(args ...any)                 { a.log.Debug().Msgf("%v", args...) }
+func (a asynqLogAdapter) Info(args ...any)                  { a.log.Info().Msgf("%v", args...) }
+func (a asynqLogAdapter) Warn(args ...any)                  { a.log.Warn().Msgf("%v", args...) }
+func (a asynqLogAdapter) Error(args ...any)                 { a.log.Error().Msgf("%v", args...) }
+func (a asynqLogAdapter) Fatal(args ...any)                 { a.log.Fatal().Msgf("%v", args...) }
+func (a asynqLogAdapter) Debugf(format string, args ...any) { a.log.Debug().Msgf(format, args...) }
+func (a asynqLogAdapter) Infof(format string, args ...any)  { a.log.Info().Msgf(format, args...) }
+func (a asynqLogAdapter) Warnf(format string, args ...any)  { a.log.Warn().Msgf(format, args...) }
+func (a asynqLogAdapter) Errorf(format string, args ...any) { a.log.Error().Msgf(format, args...) }
+func (a asynqLogAdapter) Fatalf(format string, args ...any) { a.log.Fatal().Msgf(format, args...) }

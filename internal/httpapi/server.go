@@ -2,8 +2,12 @@ package httpapi
 
 import (
 	"net/http"
+	"runtime/debug"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // Deps 是 NewServer 的注入参数集合。
@@ -111,7 +115,40 @@ type Deps struct {
 func NewServer(d Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery())
+
+	// 请求访问日志：API 可观测性的底座（此前请求级踪迹只有错误响应与 SSE
+	// 诊断，成功请求完全无痕）。/healthz 是探活高频路径，跳过防刷屏。
+	accessLog := logx.New("httpapi.access")
+	r.Use(func(c *gin.Context) {
+		if c.Request.URL.Path == "/healthz" {
+			c.Next()
+			return
+		}
+		start := time.Now()
+		c.Next()
+		ev := accessLog.Info()
+		if c.Writer.Status() >= http.StatusInternalServerError {
+			ev = accessLog.Error()
+		}
+		ev.Str("method", c.Request.Method).
+			Str("path", c.Request.URL.Path).
+			Int("status", c.Writer.Status()).
+			Int64("latency_ms", time.Since(start).Milliseconds()).
+			Str("client", c.ClientIP()).
+			Msg("request")
+	})
+
+	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（日志页数据源）看不到
+	// 崩溃现场。这里结构化记录 panic 值与调用栈后回 500。
+	r.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
+		apiLog.Error().
+			Interface("panic", err).
+			Str("stack", string(debug.Stack())).
+			Str("method", c.Request.Method).
+			Str("path", c.Request.URL.Path).
+			Msg("HTTP handler panic 已恢复")
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
 
 	// CORS middleware for development
 	r.Use(func(c *gin.Context) {
