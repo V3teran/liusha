@@ -6,34 +6,29 @@
 #                  --profile e2e --env-file .env.prod up -d
 #
 # 与默认（dev）的差异：
-#   - LIUSHA_ENV=production   → stdout 走 JSON 单行（不再彩色 console）
-#   - LIUSHA_LOG_FORMAT=json  → 显式锁死，避免被其它环境变量翻转
-#   - LIUSHA_LOG_TO_FILE=false → 不在容器内落盘；由 fluent-bit / vector / promtail
-#                                抓 docker logs / k8s logs 转发到 ELK/Loki
+#   - LIUSHA_ENV=production  → stdout 走 JSON 单行（不再彩色 console）
+#   - LIUSHA_LOG_FORMAT=json → 显式锁死，避免被其它环境变量翻转
 #
-# 12-factor 标准做法：容器只往 stdout 输出结构化日志，由外部 collector 接管。
+# 文件日志保持开启（logx 默认 to-file=true）：logs/ 共享卷是「日志」页的数据面，
+# api 进程尾读 logs/{process}.log 聚合展示三进程日志——关掉文件输出页面即空。
 
 services:
   api:
     environment:
       LIUSHA_ENV: production
       LIUSHA_LOG_FORMAT: json
-      LIUSHA_LOG_TO_FILE: "false"
 
   proxy:
     environment:
       LIUSHA_ENV: production
       LIUSHA_LOG_FORMAT: json
-      LIUSHA_LOG_TO_FILE: "false"
 
   runner:
     environment:
       LIUSHA_ENV: production
       LIUSHA_LOG_FORMAT: json
-      LIUSHA_LOG_TO_FILE: "false"
 
   vulnapp:
     environment:
       LIUSHA_ENV: production
       LIUSHA_LOG_FORMAT: json
-      LIUSHA_LOG_TO_FILE: "false"

@@ -213,6 +213,10 @@ func main() {
 	convStore := conversation.NewStore(pool)   // 会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 
+	// 日志查看（「日志」页）：api 尾读共享日志卷上各进程的 logs/{process}.log。
+	// dir 与写入端同一解析（LIUSHA_LOG_DIR）——单容器/共享卷部署三进程文件全见。
+	logReader := logx.NewReader(logx.Dir())
+
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
 	explorationGraphAdapter := explorationgraph.NewStore(pool)
 
@@ -285,6 +289,7 @@ func main() {
 			ExplorationGraph:   explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
 			Tasks:              taskStore,                    // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
 			TaskDispatch:       adapter,                      // POST /tasks：任务模块「新建任务」批量/定时下发
+			Logs:               logReader,                    // GET /logs 系列：日志页（尾读 logs/{process}.log）
 			EnableDevAutofill:  envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

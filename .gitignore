@@ -55,8 +55,9 @@ coverage.html
 
 # Runtime logs / pids（host 进程 + proxify 流量 dump，每次 dev 启动覆盖）
 /logs/
-# 各 package 测试落盘的本地 log 目录
+# 各 package 测试落盘的本地 log 目录（豁免前端源码目录）
 **/logs/
+!web/src/features/logs/
 
 # Claude Code 本地会话状态
 /.claude/

@@ -100,6 +100,10 @@ type Deps struct {
 	// TaskDispatch 为 nil 时 POST /tasks 不注册（「新建任务」弹层的批量/定时下发）。
 	// 由 cmd/api 注入 *scanAdapter（cmd/api/adapters.go 的 DispatchBatch/DispatchScheduled）。
 	TaskDispatch TaskDispatchAPI
+	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
+	// 由 cmd/api 注入 *logx.NewReader(logx.Dir())（自动满足 LogsAPI 窄接口）——
+	// 尾读共享日志卷上各进程的 JSON lines 文件，冷读 + 游标增量轮询。
+	Logs LogsAPI
 }
 
 // NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
@@ -145,6 +149,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerSkillRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
+	registerLogsRoutes(r, d)
 	registerTrafficRoutes(r, d)
 	registerToolCatalogRoutes(r, d)
 	registerModelsRoutes(r, d)

@@ -12,6 +12,7 @@ import {
   ListChecks,
   MessageSquare,
   Moon,
+  ScrollText,
   SlidersHorizontal,
   Sun,
   Wrench,
@@ -39,6 +40,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/config/skills', label: '技能', icon: BookOpen },
   { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
   { to: '/config/models', label: 'LLM 配置', icon: Boxes },
+  // 运维视图（三进程运行日志）收尾，紧邻系统配置。
+  { to: '/logs', label: '日志', icon: ScrollText },
   { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
 ]
 

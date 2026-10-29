@@ -16,6 +16,7 @@ const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default:
 const SystemConfig = lazy(() => import('@/pages/SystemConfig').then((m) => ({ default: m.SystemConfig })))
 const ExplorationGraphPage = lazy(() => import('@/pages/ExplorationGraphPage').then((m) => ({ default: m.ExplorationGraphPage })))
 const CredentialsPage = lazy(() => import('@/pages/CredentialsPage'))
+const LogsPage = lazy(() => import('@/pages/LogsPage'))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
@@ -65,6 +66,8 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
+      // 日志：三进程运行日志（api 尾读 logs/ 共享目录），运维排障视图。
+      { path: 'logs', element: withSuspense(<LogsPage />) },
     ],
   },
 ])
