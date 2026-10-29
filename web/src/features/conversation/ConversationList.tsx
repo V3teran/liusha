@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useSearchParams } from 'react-router-dom'
 import { Bug, ChevronLeft, ChevronRight, Clock3, ListChecks, Pencil, Plus, RefreshCw, Search, Trash2, Network } from 'lucide-react'
 import { deleteConversation, listConversations, renameConversation } from '@/api/client'
 import type { Conversation } from '@/api/types'
@@ -24,7 +24,8 @@ interface ConversationListProps {
 }
 
 // 每页条数：侧栏高度有限，配合翻页没必要拉大页；与后端默认对齐（parseLimit 默认也是 30）。
-const PAGE_SIZE = 30
+const PAGE_SIZE_OPTIONS = [30, 50, 100]
+const DEFAULT_PAGE_SIZE = 30
 
 // 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。
 function displayTitle(c: Conversation): string {
@@ -53,6 +54,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     { activeId, source, allowNew = true, emptyHint, heading, onSelect, onNew, onDeleted },
     ref,
   ) {
+    const [searchParams, setSearchParams] = useSearchParams()
+    const size = useMemo(() => {
+      const raw = Number(searchParams.get('size'))
+      return (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? raw : DEFAULT_PAGE_SIZE
+    }, [searchParams])
+    const setSize = (n: number) =>
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev)
+        if (n !== DEFAULT_PAGE_SIZE) p.set('size', String(n))
+        else p.delete('size')
+        return p
+      })
     const [items, setItems] = useState<Conversation[]>([])
     const [offset, setOffset] = useState(0)
     const [hasMore, setHasMore] = useState(false)
@@ -77,7 +90,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       async (o: number) => {
         setLoading(true)
         try {
-          const { conversations, hasMore: hm, total: tt } = await listConversations(PAGE_SIZE, o, source ?? '')
+          const { conversations, hasMore: hm, total: tt } = await listConversations(size, o, source ?? '')
           setItems(conversations)
           setHasMore(hm)
           setTotal(tt)
@@ -86,7 +99,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           setLoading(false)
         }
       },
-      [source],
+      [source, size],
     )
 
     // 供外部（父组件）调用的 refresh：语义是「有新变化，给我最新视图」——回第 1 页，
@@ -97,7 +110,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     useEffect(() => {
       void load(0)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source])
+    }, [source, size])
 
     // 自适应轮询：仅当当前页存在「进行中(active)」会话时每 8s 刷新（停留当前页，不跳页）——
     // 感知后台会话跑完/状态变化。全部终态则不轮询；菜单开着时跳过（不打断操作）。
@@ -127,14 +140,15 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       return items.filter((c) => fullTitle(c).toLowerCase().includes(q) || c.id.toLowerCase().startsWith(q))
     }, [items, query])
 
-    const pageNo = Math.floor(offset / PAGE_SIZE) + 1
+    const pageNo = Math.floor(offset / size) + 1
+    const totalPages = Math.max(1, Math.ceil(total / size))
     const prevPage = () => {
       if (offset <= 0 || loading) return
-      void load(Math.max(0, offset - PAGE_SIZE))
+      void load(Math.max(0, offset - size))
     }
     const nextPage = () => {
       if (!hasMore || loading) return
-      void load(offset + PAGE_SIZE)
+      void load(offset + size)
     }
 
     const toggleMenu = (c: Conversation, ev: React.MouseEvent) => {
@@ -257,21 +271,29 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
-        <div className="relative flex-shrink-0 border-b border-border pb-2.5">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索本页对话…"
-            aria-label="搜索对话"
-            spellCheck={false}
-            className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-muted focus:border-accent"
-          />
+        <div className="flex-shrink-0 border-b border-border pb-2.5">
+          {/* 图标/输入框独立成 relative 内层：外层的分隔线 padding 不参与图标垂直居中
+              （此前 top-1/2 相对带 pb 的外层算，图标整体偏低 ~5px）。 */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索本页对话…"
+              aria-label="搜索对话"
+              spellCheck={false}
+              className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-muted focus:border-accent"
+            />
+          </div>
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-muted">
-            {query.trim() ? `本页 ${filtered.length}/${items.length} 条匹配` : `共 ${total} 条 · 本页 ${items.length} 条`}
+            {/* 区间+总数（Gmail/Sentry 惯例）：一行同时表达「看到哪了」与「总量」；
+                搜索是页内过滤，匹配行如实标注「仅本页」 */}
+            {query.trim()
+              ? `匹配 ${filtered.length} 条（仅本页）`
+              : `第 ${offset + 1}–${offset + items.length} 条 · 共 ${total} 条`}
           </div>
         )}
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
@@ -379,7 +401,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
             <span className="font-mono text-xs text-muted">
-              第 {pageNo} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页
+              第 {pageNo} / {totalPages} 页
             </span>
             <button
               type="button"
@@ -390,6 +412,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
+            <select
+              value={size}
+              onChange={(e) => setSize(Number(e.target.value))}
+              aria-label="每页条数"
+              className="ml-auto h-7 rounded-md border border-border bg-surface-2 px-1.5 text-xs text-text outline-none transition-colors focus:border-accent"
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n} 条/页
+                </option>
+              ))}
+            </select>
           </div>
         )}
         {/* ⋯ 菜单挂到 body：fixed 视口坐标定位，不被 ul overflow 裁剪 */}
