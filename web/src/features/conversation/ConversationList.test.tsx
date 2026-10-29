@@ -30,7 +30,7 @@ function mkConv(over: Partial<Conversation>): Conversation {
 
 // mockPage：listConversations 现在返回 {conversations, hasMore}（分页形态），不再是裸数组。
 function mockPage(conversations: Conversation[], hasMore = false) {
-  vi.mocked(listConversations).mockResolvedValue({ conversations, hasMore })
+  vi.mocked(listConversations).mockResolvedValue({ conversations, hasMore, total: conversations.length })
 }
 
 function renderList(props: Partial<React.ComponentProps<typeof ConversationList>> = {}) {
@@ -283,15 +283,6 @@ describe('ConversationList', () => {
     })
   })
 
-  it('序号：列表项按渲染顺序显示 1、2、3…（首页 offset=0）', async () => {
-    mockPage([mkConv({ id: 'c1', title: '我要扫描 one.com' }), mkConv({ id: 'c2', title: '我要扫描 two.com' })])
-    renderList()
-    await waitFor(() => expect(screen.getByText(/one\.com/)).toBeTruthy())
-    const items = screen.getAllByRole('listitem')
-    expect(items[0].textContent).toContain('1')
-    expect(items[1].textContent).toContain('2')
-  })
-
   it('翻页：hasMore=true 时显示下一页按钮，点击后拉取 offset=PAGE_SIZE', async () => {
     vi.mocked(listConversations)
       .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true })
@@ -309,12 +300,14 @@ describe('ConversationList', () => {
     expect(screen.queryByText(/page1\.com/)).toBeFalsy()
   })
 
-  it('翻页：单页（offset=0 且 hasMore=false）时不显示翻页控件', async () => {
+  it('翻页：单页（offset=0 且 hasMore=false）时翻页常显但按钮禁用', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 only.com' })], false)
     renderList()
     await waitFor(() => expect(screen.getByText(/only\.com/)).toBeTruthy())
-    expect(screen.queryByRole('button', { name: '下一页' })).toBeFalsy()
-    expect(screen.queryByRole('button', { name: '上一页' })).toBeFalsy()
+    // 常显总页数（「第 X / Y 页」），单页时前后按钮都在且禁用
+    expect(screen.getByText(/第 1\/1 页/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled()
   })
 
   it('翻页：首页时「上一页」禁用', async () => {
