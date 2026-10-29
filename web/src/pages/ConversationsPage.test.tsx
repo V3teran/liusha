@@ -62,13 +62,13 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('被动代理(auto) 下不读取 ?conv=（仅 manual 生效）', () => {
+  it('被动代理(auto) 同样读取 ?conv=（深链双 tab 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
     renderPage('auto', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
-    expect(lastDetailCall.convId).toBeUndefined()
+    expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
   it('onStarted 设置当前会话并传给 ConversationList 的 activeId', async () => {

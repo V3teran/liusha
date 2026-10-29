@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Square } from 'lucide-react'
 import { abortScan, getConversationUsage, listMessages } from '@/api/client'
 import type { ConversationUsage } from '@/api/types'
