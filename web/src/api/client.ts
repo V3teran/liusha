@@ -180,13 +180,13 @@ export async function listConversations(
   limit = 30,
   offset = 0,
   source = '',
-): Promise<{ conversations: Conversation[]; hasMore: boolean }> {
+): Promise<{ conversations: Conversation[]; hasMore: boolean; total: number }> {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (source) q.set('source', source)
-  const res = await get<{ conversations: Conversation[] | null; has_more: boolean }>(`/conversations?${q}`)
+  const res = await get<{ conversations: Conversation[] | null; has_more: boolean; total: number }>(`/conversations?${q}`)
   // 后端无数据时 conversations 返回 null（Go 的 nil slice 序列化为 null 而非 []）——
   // 归一为空数组，避免下游 items.length 等消费点炸。
-  return { conversations: res.conversations ?? [], hasMore: res.has_more }
+  return { conversations: res.conversations ?? [], hasMore: res.has_more, total: res.total ?? 0 }
 }
 
 /**

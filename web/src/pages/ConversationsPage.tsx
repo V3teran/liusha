@@ -18,7 +18,8 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   // 主动下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
   const queryConv = searchParams.get('conv')
   useEffect(() => {
-    if (source === 'manual' && queryConv) setCurrentConv(queryConv)
+    // ?conv= 深链接对两个 tab 都生效（流量详情/任务模块等跨页跳转带 conv 打开对应会话）
+    if (queryConv) setCurrentConv(queryConv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, queryConv])
 
