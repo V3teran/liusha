@@ -241,6 +241,9 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 // maxListLimit 是 ListByTask 单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
 const maxListLimit = 1000
 
+// defaultListLimit 对齐 httpapi defaultInvocationPageSize=200——≤0 兜底用缺省而非上限。
+const defaultListLimit = 200
+
 // textPreviewLimit 是列表摘要里文字预览的截断长度：够表格一行展示，又不至于把正文搬出库。
 const textPreviewLimit = 200
 
@@ -332,7 +335,10 @@ func (f ListFilter) whereAll() (conds []string, args []any) {
 
 // limitOrDefault 收敛分页上限，防无界查询。
 func (f ListFilter) limitOrDefault() int {
-	if f.Limit <= 0 || f.Limit > maxListLimit {
+	if f.Limit <= 0 {
+		return defaultListLimit
+	}
+	if f.Limit > maxListLimit {
 		return maxListLimit
 	}
 	return f.Limit
