@@ -245,10 +245,14 @@
 
 /* ========== 滚动条样式 ========== */
 
-/* 统一滚动条外观 */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+/* 统一滚动条外观：Chromium/Safari 走下方 ::-webkit-scrollbar 8px 常显 classic；
+   标准属性只给 Firefox（@supports (-moz-appearance) 在 Chromium 为 false，已实测）——
+   Chromium 121+ 标准属性优先级高于 webkit 规则，裸放 * 上会把 8px 压成 2px 发丝线。 */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
 }
 
 *::-webkit-scrollbar {
