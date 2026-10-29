@@ -184,6 +184,10 @@ func (f *fakeConversations) ListMessages(_ context.Context, _ string, _ int64, _
 	return nil, nil
 }
 
+func (f *fakeConversations) CountConversations(_ context.Context, source string) (int, error) {
+	return len(f.convs), nil
+}
+
 // TestListConversationsHandler_Pagination：offset/limit 透传给 store，响应带 has_more。
 func TestListConversationsHandler_Pagination(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -205,6 +209,9 @@ func TestListConversationsHandler_Pagination(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"has_more":true`) {
 		t.Errorf("响应应含 has_more:true，得 %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"total":2`) {
+		t.Errorf("响应应含同口径 total（前端总页数用），得 %s", w.Body.String())
 	}
 }
 

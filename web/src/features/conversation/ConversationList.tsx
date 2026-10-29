@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, Link } from 'react-router-dom'
-import { Bug, ChevronLeft, ChevronRight, Clock3, Pencil, Plus, RefreshCw, Search, Trash2, Network } from 'lucide-react'
+import { Bug, ChevronLeft, ChevronRight, Clock3, ListChecks, Pencil, Plus, RefreshCw, Search, Trash2, Network } from 'lucide-react'
 import { deleteConversation, listConversations, renameConversation } from '@/api/client'
 import type { Conversation } from '@/api/types'
 import { fullTime, relativeTime } from '@/lib/format'
@@ -56,6 +56,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const [items, setItems] = useState<Conversation[]>([])
     const [offset, setOffset] = useState(0)
     const [hasMore, setHasMore] = useState(false)
+    const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
     const [query, setQuery] = useState('')
     const [menuOpen, setMenuOpen] = useState('')
@@ -76,9 +77,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       async (o: number) => {
         setLoading(true)
         try {
-          const { conversations, hasMore: hm } = await listConversations(PAGE_SIZE, o, source ?? '')
+          const { conversations, hasMore: hm, total: tt } = await listConversations(PAGE_SIZE, o, source ?? '')
           setItems(conversations)
           setHasMore(hm)
+          setTotal(tt)
           setOffset(o)
         } finally {
           setLoading(false)
@@ -143,7 +145,13 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         return
       }
       const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-      setMenuStyle({ top: `${r.bottom + 4}px`, left: `${Math.max(8, r.right - 150)}px` })
+      // 贴底自动上翻：菜单高约 170px（5 项），下方放不下就从按钮顶往上弹；左右夹取在视口内。
+      const MENU_H = 170
+      const MENU_W = 150
+      const openUp = r.bottom + 4 + MENU_H > window.innerHeight - 8
+      const top = openUp ? Math.max(8, r.top - MENU_H - 4) : r.bottom + 4
+      const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8)
+      setMenuStyle({ top: `${top}px`, left: `${left}px` })
       setMenuConv(c)
       setMenuOpen(c.id)
     }
@@ -263,11 +271,11 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-muted">
-            {query.trim() ? `本页 ${filtered.length}/${items.length} 条匹配` : `第 ${pageNo} 页 · 本页 ${items.length} 条`}
+            {query.trim() ? `本页 ${filtered.length}/${items.length} 条匹配` : `共 ${total} 条 · 本页 ${items.length} 条`}
           </div>
         )}
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
-          {filtered.map((c, idx) => {
+          {filtered.map((c) => {
             const meta = scanStatusMeta(c.run_status)
             return (
               <li
@@ -278,9 +286,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   c.id === activeId && 'bg-surface-2 shadow-[inset_2px_0_0_var(--accent)]',
                 )}
               >
-                <span className="mt-0.5 w-4 flex-shrink-0 text-center font-mono text-xs leading-[18px] text-faint">
-                  {offset + idx + 1}
-                </span>
                 <span
                   className={cn(
                     'mt-[7px] h-2 w-2 flex-shrink-0 rounded-full',
@@ -360,8 +365,9 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             </li>
           )}
         </ul>
-        {/* 翻页：offset 分页（非 keyset），仅当有上一页或下一页时才露出，避免单页时的多余控件。 */}
-        {(offset > 0 || hasMore) && (
+        {/* 翻页：offset 分页（非 keyset）。常显（单页时按钮禁用）——「第 X / Y 页」总页数
+            来自后端同口径 count，翻页能力始终可见可发现。 */}
+        {items.length > 0 && (
           <div className="flex flex-shrink-0 items-center justify-between gap-2 pt-0.5">
             <button
               type="button"
@@ -372,7 +378,9 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="font-mono text-xs text-muted">第 {pageNo} 页</span>
+            <span className="font-mono text-xs text-muted">
+              第 {pageNo} / {Math.max(1, Math.ceil(total / PAGE_SIZE))} 页
+            </span>
             <button
               type="button"
               aria-label="下一页"
@@ -392,13 +400,32 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               style={menuStyle}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* 任务/探索图/漏洞：会话到各上游/下游视图的跳转（任务需有关联 task） */}
+              {menuConv.task_id && (
+                <Link
+                  to={`/tasks?task=${menuConv.task_id}`}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+                  onClick={() => setMenuOpen('')}
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  任务
+                </Link>
+              )}
               <Link
                 to={`/exploration-graph?conversation_id=${menuConv.id}`}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
                 onClick={() => setMenuOpen('')}
               >
                 <Network className="h-3.5 w-3.5" />
-                查看探索图
+                探索图
+              </Link>
+              <Link
+                to={`/findings?source=${menuConv.source || 'manual'}`}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+                onClick={() => setMenuOpen('')}
+              >
+                <Bug className="h-3.5 w-3.5" />
+                漏洞
               </Link>
               <button
                 type="button"

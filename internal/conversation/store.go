@@ -211,6 +211,21 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 	return out, hasMore, nil
 }
 
+// CountConversations 与 ListConversations 同口径计数（同 source 过滤，含纯聊天归 manual），
+// 供前端「第 X / Y 页」总页数。
+func (s *Store) CountConversations(ctx context.Context, source string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM conversation c
+		LEFT JOIN task t ON t.id = c.task_id
+		LEFT JOIN assignment a ON a.id = t.assignment_id
+		WHERE ($1 = '' OR a.source = $1 OR ($1 = 'manual' AND c.task_id IS NULL))`, source).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count conversations: %w", err)
+	}
+	return n, nil
+}
+
 // SetTitle 回填会话标题（首条消息摘要）。空 title 存 NULL。
 func (s *Store) SetTitle(ctx context.Context, id, title string) error {
 	_, err := s.pool.Exec(ctx,

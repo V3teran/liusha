@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Square, Network } from 'lucide-react'
+import { Square } from 'lucide-react'
 import { abortScan, getConversationUsage, listMessages } from '@/api/client'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
@@ -232,16 +232,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 <Square className="h-3 w-3 fill-current" />
                 停止扫描
               </button>
-            )}
-            {convId && (
-              <Link
-                to={`/exploration-graph?conversation_id=${convId}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1 text-sm font-medium text-text hover:bg-surface-2"
-                title="查看探索图"
-              >
-                <Network className="h-3.5 w-3.5" />
-                探索图
-              </Link>
             )}
           </div>
         </div>

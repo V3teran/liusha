@@ -43,6 +43,7 @@ type ChatAPI interface {
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
 	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
+	CountConversations(ctx context.Context, source string) (int, error)
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
@@ -240,12 +241,18 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), c.Query("source"))
+		source := c.Query("source")
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), source)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore})
+		total, err := api.CountConversations(c.Request.Context(), source)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore, "total": total})
 	}
 }
 
