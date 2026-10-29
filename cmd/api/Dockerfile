@@ -20,5 +20,5 @@ COPY deployments/tool-images/pentools/tools.yaml /app/deployments/tool-images/pe
 # DB 空库首填 agent/skill 配置。漏拷则种子静默跳过，配置表为空、runner 装配出空 agent。
 COPY agents /app/agents
 COPY skills /app/skills
-EXPOSE 8080
+EXPOSE 8090
 ENTRYPOINT ["/app/api"]
