@@ -106,7 +106,6 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 
 	e.logger.Info().
 		Str("action_id", action.ID).
-		Str("task_id", action.TaskID).
 		Msg("开始执行 Action")
 
 	// 4. 准备工具列表

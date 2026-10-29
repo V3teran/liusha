@@ -386,9 +386,11 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 失败")
 		return
 	}
+	// 任务作用域派生：本任务后续日志自动携带 task_id/assignment_id，调用点不再手写
+	taskLogger := t.logger.With().Str("task_id", tk.ID).Str("assignment_id", asg.ID).Logger()
 	claimed, err := t.proxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, t.agg.batchN())
 	if err != nil {
-		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("领取 proxy_traffic 失败，abort 本 task")
+		taskLogger.Warn().Err(err).Msg("领取 proxy_traffic 失败，abort 本 task")
 		_ = t.tasks.Abort(ctx, tk.ID, "领取流量失败")
 		return
 	}
@@ -401,9 +403,9 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	// （首条说明仍显示条数，只是列不出明细），不阻塞分析。
 	claimedTraffic, err := t.proxyStore.ListByTask(ctx, tk.ID)
 	if err != nil {
-		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("取已认领流量清单失败（首条说明降级为无明细）")
+		taskLogger.Warn().Err(err).Msg("取已认领流量清单失败（首条说明降级为无明细）")
 	}
-	convID := t.ensureConversation(ctx, tk.ID, host, claimedTraffic)
+	convID := t.ensureConversation(ctx, taskLogger, tk.ID, host, claimedTraffic)
 	// 下发 brief 用完整任务说明（scheme://host + 流量清单 + 工具指引），而非裸 host：
 	// runner onboard 靠 brief 里的 URL 抽取 host（hostRe 要求带协议头）建探索图 Objective，
 	// agent 的目标上下文也来自它——裸 host 曾让两者全空，被动分析失去方向。
@@ -411,12 +413,13 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
 		scheme = claimedTraffic[0].Scheme
 	}
+	convLogger := taskLogger.With().Str("conv", convID).Logger()
 	if err := t.enqueuePassive(ctx, tk.ID, convID, PassiveBrief(scheme, host, claimedTraffic)); err != nil {
-		t.logger.Warn().Err(err).Str("task_id", tk.ID).Msg("passive task 入队失败")
+		convLogger.Warn().Err(err).Msg("passive task 入队失败")
 		return
 	}
-	t.logger.Info().
-		Str("task_id", tk.ID).Str("host", host).Int64("traffic", claimed).
+	convLogger.Info().
+		Str("host", host).Int64("traffic", claimed).
 		Msg("passive task 已建并入 executor 队列")
 }
 
@@ -470,13 +473,13 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 // 再写一条「任务说明」首条消息（role=user）——passive 无用户手打 brief，但有确定任务上下文
 // （host + 本批捕获的请求清单），合成说明作为会话首条右侧气泡（对齐 active 的 brief）。
 // conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落会话，但流量分析照常）。
-func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, trafficList []traffic.ProxyTraffic) string {
+func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Logger, taskID, host string, trafficList []traffic.ProxyTraffic) string {
 	if t.conversations == nil {
 		return ""
 	}
 	conv, err := t.conversations.CreateConversation(ctx, host, taskID)
 	if err != nil {
-		t.logger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
+		taskLogger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
 		return ""
 	}
 	// 首条任务说明（role=user）：与下发 brief 同源（scheme://host + 流量清单 + 工具指引），
@@ -486,7 +489,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskID, host string, t
 		briefScheme = trafficList[0].Scheme
 	}
 	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, PassiveBrief(briefScheme, host, trafficList), nil); err != nil {
-		t.logger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
+		taskLogger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return conv.ID
 }

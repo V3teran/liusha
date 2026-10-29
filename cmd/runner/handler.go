@@ -82,7 +82,7 @@ var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 //  1. 落探索图 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
-func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
+func (h handler) onboard(ctx context.Context, _, taskID, brief string, taskLogger zerolog.Logger) string {
 	matches := hostRe.FindAllStringSubmatch(brief, -1)
 	hosts := make([]string, 0, len(matches))
 	seen := map[string]bool{}
@@ -94,16 +94,14 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 	}
 	ok := len(hosts) > 0
 
-	h.logger.Info().
-		Str("task_id", taskID).
+	taskLogger.Info().
 		Str("brief", brief).
 		Bool("onboard_ok", ok).
 		Int("hosts_found", len(hosts)).
 		Msg("onboard 开始解析")
 
 	if !ok {
-		h.logger.Warn().
-			Str("task_id", taskID).
+		taskLogger.Warn().
 			Bool("ok", ok).
 			Msg("onboard 解析失败，未创建 Objective")
 		return taskID
@@ -132,27 +130,24 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 				UpdatedAt:  time.Now(),
 			}
 
-			h.logger.Info().
-				Str("task_id", taskID).
+			taskLogger.Info().
 				Str("objective_id", node.ID).
 				Str("host", targetHost).
 				Msg("准备创建 Objective 节点")
 
 			if _, err := h.graph.CreateNode(ctx, node); err != nil {
 				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
-				h.logger.Error().Err(err).Str("task_id", taskID).
+				taskLogger.Error().Err(err).
 					Str("host", targetHost).Msg("创建 objective 节点失败 - 任务将无法正常执行")
 				return taskID // 返回原 taskID，但已记录严重错误
 			}
-			h.logger.Info().
-				Str("task_id", taskID).
+			taskLogger.Info().
 				Str("objective_id", node.ID).
 				Str("host", targetHost).
 				Msg("Objective 节点创建成功")
 		}
 	} else {
-		h.logger.Warn().
-			Str("task_id", taskID).
+		taskLogger.Warn().
 			Bool("graph_nil", h.graph == nil).
 			Bool("taskID_empty", taskID == "").
 			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
@@ -161,7 +156,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string) string {
 	host := hosts[0]
 	if host != taskID {
 		if err := h.tasks.SetTargetHost(ctx, taskID, host); err != nil {
-			h.logger.Warn().Err(err).Str("task_id", taskID).Str("host", host).
+			taskLogger.Warn().Err(err).Str("host", host).
 				Msg("回填 task.target_host 失败（不阻塞扫描）")
 		}
 	}
@@ -174,20 +169,20 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h handler) failTask(ctx context.Context, agentRunID, taskID, convID string, err error) error {
+func (h handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, convID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
 	if setErr := h.agentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
-		h.logger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
+		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	// task 终态：失败即 aborted（此前缺失——task 停留 active 直至 reaper 判死，
 	// 期间前端显示「进行中」名不副实）。守卫幂等：已终态（如用户抢先停止）不覆盖。
 	if taskID != "" {
 		if abortErr := h.tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
-			h.logger.Warn().Err(abortErr).Str("task_id", taskID).Msg("task 失败终态迁移被拒（保持既有终态）")
+			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
 		} else {
-			h.appendTaskStatus(writeCtx, convID, taskID,
+			h.appendTaskStatus(writeCtx, taskLogger, convID,
 				conversation.TaskStatusFailed, "扫描执行失败",
 				map[string]any{"reason": err.Error()})
 		}
@@ -228,17 +223,30 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Msg("agent_run 查询失败，幂等防重检查被跳过")
 	}
 
+	// task 作用域派生：此后整条执行链（含 cognition 内部全部组件）经 taskLogger
+	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。assignmentID
+	// 取自 task 行；加载失败降级为空串（下游字段缺省，不阻塞执行）。
+	var assignmentID string
+	tk, tErr := h.tasks.GetByID(ctx, p.TaskID)
+	if tErr == nil {
+		assignmentID = tk.AssignmentID
+	}
+	taskLogger := h.logger.With().
+		Str("task_id", p.TaskID).
+		Str("assignment_id", assignmentID).
+		Str("conv", p.ConversationID).
+		Logger()
+
 	// task 终态守卫：排队期间被用户停止/判死的任务不得开跑（terminate 只对
 	// 运行中的循环生效，队列里的迟到领取靠此闸拦下），agent_run 直落 aborted。
-	if tk, tErr := h.tasks.GetByID(ctx, p.TaskID); tErr == nil && tk.Status != task.StatusActive {
-		h.logger.Info().
-			Str("task_id", p.TaskID).
+	if tErr == nil && tk.Status != task.StatusActive {
+		taskLogger.Info().
 			Str("status", string(tk.Status)).
 			Msg("task 已终态（排队期间被停止/判死），跳过执行")
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
 		if err := h.agentRuns.SetAborted(writeCtx, p.AgentRunID); err != nil {
-			h.logger.Warn().Err(err).Str("agent_run_id", p.AgentRunID).Msg("agent_run 置 aborted 失败")
+			taskLogger.Warn().Err(err).Str("agent_run_id", p.AgentRunID).Msg("agent_run 置 aborted 失败")
 		}
 		return asynq.SkipRetry
 	}
@@ -251,7 +259,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 		Brief string `json:"brief"`
 	}
 	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, p.AgentRunID, p.TaskID, p.ConversationID, err)
+		return h.failTask(ctx, taskLogger, p.AgentRunID, p.TaskID, p.ConversationID, err)
 	}
 
 	// 设置超时
@@ -263,5 +271,5 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 四Agent认知架构
-	return h.handleCognition(ctx, p, input.Brief)
+	return h.handleCognition(ctx, p, input.Brief, taskLogger, assignmentID)
 }

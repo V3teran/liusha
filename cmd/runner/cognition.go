@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -13,6 +15,7 @@ import (
 // 装配链是历史 bug 高发区，独立成包后可脱离 asynq/handler 单测。
 func (h handler) runCognition(
 	ctx context.Context,
+	taskLogger zerolog.Logger,
 	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
@@ -20,11 +23,11 @@ func (h handler) runCognition(
 	// 热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，不阻塞任务。
 	comp, compErr := h.settings.Compaction(ctx)
 	if compErr != nil {
-		h.logger.Warn().Err(compErr).Msg("读 compaction 配置失败，滚动窗口用内置默认")
+		taskLogger.Warn().Err(compErr).Msg("读 compaction 配置失败，滚动窗口用内置默认")
 	}
 	rt, rtErr := h.settings.Runtime(ctx)
 	if rtErr != nil {
-		h.logger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
+		taskLogger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
 	}
 	return cognition.Run(ctx, &cognition.Deps{
 		Graph:        h.graph,
@@ -33,7 +36,7 @@ func (h handler) runCognition(
 		Checkpointer: h.checkpointer,
 		CfgStore:     h.cfgStore,
 		Router:       h.router,
-		Logger:       h.logger,
+		Logger:       taskLogger,
 
 		Skills:        h.skills,
 		ToolsManifest: h.toolsManifest,

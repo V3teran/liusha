@@ -22,7 +22,6 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		d.Logger.Debug().
-			Str("task_id", taskID).
 			Str("tool_name", t.Name()).
 			Msg("tool call intercepted")
 
@@ -56,19 +55,16 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 			})
 			if appendErr != nil {
 				d.Logger.Error().Err(appendErr).
-					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
 					Msg("failed to record tool invocation")
 			} else {
 				d.Logger.Debug().
-					Str("task_id", taskID).
 					Str("tool_name", t.Name()).
 					Int64("invocation_id", invID).
 					Msg("tool invocation recorded")
 			}
 		} else {
 			d.Logger.Warn().
-				Str("task_id", taskID).
 				Str("tool_name", t.Name()).
 				Msg("d.ToolCalls is nil, cannot record invocation")
 		}
@@ -88,7 +84,7 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 					if d.Tasks != nil {
 						// 心跳失败必须留痕：reaper 以心跳判活，静默失败会被误回收。
 						if hbErr := d.Tasks.Heartbeat(hctx, taskID); hbErr != nil {
-							d.Logger.Warn().Err(hbErr).Str("task_id", taskID).Msg("心跳写入失败")
+							d.Logger.Warn().Err(hbErr).Msg("心跳写入失败")
 						}
 					}
 				}

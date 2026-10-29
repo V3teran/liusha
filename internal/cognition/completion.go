@@ -89,7 +89,6 @@ func NewCompletionDetector(cfg Config) *CompletionDetector {
 // Start 启动完成检测（阻塞直到任务完成）
 func (d *CompletionDetector) Start(ctx context.Context) Result {
 	d.logger.Info().
-		Str("task_id", d.taskID).
 		Int("max_steps", d.maxSteps).
 		Msg("完成检测器启动（持续探索模式）")
 

@@ -91,7 +91,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 // - 处理依赖关系（只执行依赖已满足的 Action）
 // - 发布 ActionCompleted 事件
 func (a *Agent) Run(ctx context.Context) error {
-	a.logger.Info().Str("task_id", a.taskID).Msg("Agent 启动")
+	a.logger.Info().Msg("Agent 启动")
 
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
@@ -112,14 +112,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info().Str("task_id", a.taskID).Msg("Agent 停止（context 取消）")
+			a.logger.Info().Msg("Agent 停止（context 取消）")
 			report.StopWhy = stopCanceled
 			a.notifyCompletion(report)
 			return ctx.Err()
 
 		case event := <-sub.Events():
 			a.logger.Debug().
-				Str("task_id", a.taskID).
 				Str("event_type", string(event.Type)).
 				Msg("收到事件")
 
@@ -134,7 +133,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			// 检查停止条件
 			if a.shouldStop(&report) {
 				a.logger.Info().
-					Str("task_id", a.taskID).
 					Str("stop_why", report.StopWhy).
 					Int("steps", report.Steps).
 					Msg("Agent 达到停止条件")
@@ -151,7 +149,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			// 检查停止条件
 			if a.shouldStop(&report) {
 				a.logger.Info().
-					Str("task_id", a.taskID).
 					Str("stop_why", report.StopWhy).
 					Int("steps", report.Steps).
 					Msg("Agent 达到停止条件（定期检查）")
@@ -168,7 +165,6 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report
 	case bus.EventActionProposed:
 		// Planner 提议了新 Action，立即处理
 		a.logger.Info().
-			Str("task_id", a.taskID).
 			Msg("收到 ActionProposed 事件，处理可执行 Action")
 		return a.processAvailableActions(ctx, report)
 
@@ -189,7 +185,7 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 	}
 
 	if len(openActions) == 0 {
-		a.logger.Debug().Str("task_id", a.taskID).Msg("无待执行 Action")
+		a.logger.Debug().Msg("无待执行 Action")
 		return nil
 	}
 
@@ -209,7 +205,6 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 
 	a.logger.Debug().
 		Int("completed_count", len(completed)).
-		Str("task_id", a.taskID).
 		Msg("已完成的 Action 数量")
 
 	// 筛选可执行的 Action（依赖已满足）
@@ -223,7 +218,6 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 	a.logger.Info().
 		Int("open_count", len(openActions)).
 		Int("executable_count", len(executable)).
-		Str("task_id", a.taskID).
 		Msg("筛选可执行 Action")
 
 	if len(executable) == 0 {

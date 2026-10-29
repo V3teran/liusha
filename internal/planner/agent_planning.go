@@ -12,16 +12,14 @@ import (
 
 func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().
-		Str("task_id", a.taskID).
 		Str("caller", "planActions").
 		Msg("▶ planActions 入口")
 
 	defer a.logger.Debug().
-		Str("task_id", a.taskID).
 		Str("caller", "planActions").
 		Msg("◀ planActions 出口")
 
-	a.logger.Debug().Str("task_id", a.taskID).Msg("开始规划 Action")
+	a.logger.Debug().Msg("开始规划 Action")
 
 	// 0. 外部纠偏的持久化恢复：monitor 的重规划请求双写在 objective 上，
 	//    事件丢失（bus fire-and-forget）时由这里兜底——at-least-once。
