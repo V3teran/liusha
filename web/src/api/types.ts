@@ -576,3 +576,43 @@ export interface TaskCreateResponse {
   schedule_id?: string // 定时：模板 id
   next_run_at?: string // 定时：首次触发时间
 }
+
+// ── 日志查看 ─────────────────────────────────────────────────────────────
+
+// LogEntry 是一行进程日志（logx JSON lines 的解析形态）。offset 是行首在文件中
+// 的字节偏移，作为增量轮询的续读游标；fields 收业务扩展键（task_id 等）。
+export interface LogEntry {
+  offset: number
+  time: string
+  level: string
+  service: string
+  instance: string
+  caller?: string
+  message: string
+  error?: string
+  fields?: Record<string, unknown>
+}
+
+// LogProcessInfo 是进程日志文件概况；文件缺失时 exists=false、instances 为空。
+export interface LogProcessInfo {
+  name: string
+  exists: boolean
+  size_bytes: number
+  mod_time: string
+  instances: string[]
+}
+
+export interface LogReadResponse {
+  entries: LogEntry[] // 跨进程按时间升序
+  cursors: Record<string, number> // 每进程续读偏移（下轮 cursor 参数回传）
+  reset: string[] // 文件比游标短（轮转/截断）而被整段重取的进程
+  truncated: string[] // 只扫到尾窗口/超限丢旧行的进程（「窗口外未加载」提示用）
+}
+
+// LogFilters：进程/实例/级别等值 + 跨消息子串；空串 = 不筛。
+export interface LogFilters {
+  process: string
+  instance: string
+  level: string
+  search: string
+}

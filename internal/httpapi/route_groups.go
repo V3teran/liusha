@@ -85,6 +85,16 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	}
 }
 
+// registerLogsRoutes 注册日志查看路由（前端 /logs 页）。
+func registerLogsRoutes(r gin.IRouter, d Deps) {
+	if d.Logs == nil {
+		return
+	}
+	// 静态子路由先注册（全站惯例）
+	r.GET("/logs/processes", logProcessesHandler(d.Logs))
+	r.GET("/logs", readLogsHandler(d.Logs))
+}
+
 // registerTrafficRoutes 注册代理流量路由
 func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	if d.Traffic == nil {

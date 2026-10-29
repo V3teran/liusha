@@ -102,6 +102,15 @@ type config struct {
 	compress    bool
 }
 
+// logDir 解析日志文件目录（LIUSHA_LOG_DIR，缺省 logs 相对进程工作目录）。
+// 写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
+func logDir() string {
+	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_DIR")); v != "" {
+		return v
+	}
+	return "logs"
+}
+
 func loadConfig() config {
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("LIUSHA_ENV")))
 	isDev := env == "" || env == "development" || env == "dev"
@@ -115,10 +124,7 @@ func loadConfig() config {
 		}
 	}
 
-	dir := strings.TrimSpace(os.Getenv("LIUSHA_LOG_DIR"))
-	if dir == "" {
-		dir = "logs"
-	}
+	dir := logDir()
 
 	return config{
 		level:       parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),

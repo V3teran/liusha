@@ -1,5 +1,5 @@
-# Logs
-logs
+# Logs（仅 web 根的运行时 litter；不含斜体会吞掉任意深度的同名源码目录，如 src/features/logs/）
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
