@@ -98,7 +98,7 @@ export function FindingsPage() {
           const f = ctx.row.original
           return (
             <span className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate">{f.summary}</span>
+              <span className="truncate" title={f.summary}>{f.summary}</span>
               {f.triage_note && (
                 <StickyNote className="h-3.5 w-3.5 flex-shrink-0 text-text-tertiary" aria-label="有处置备注" />
               )}
@@ -108,12 +108,15 @@ export function FindingsPage() {
       }),
       columnHelper.display({
         id: 'location',
-        header: '位置',
+        header: '地址',
         size: 240,
         cell: (ctx) => {
           const f = ctx.row.original
           return (
-            <span className="overflow-hidden truncate font-mono text-xs text-text-secondary">
+            <span
+              className="overflow-hidden truncate font-mono text-xs text-text-secondary"
+              title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}${f.cwe_id ? ` · ${f.cwe_id}` : ''}`}
+            >
               {f.target?.method} {f.host}
               {f.target?.path}
               {f.cwe_id && ` · ${f.cwe_id}`}

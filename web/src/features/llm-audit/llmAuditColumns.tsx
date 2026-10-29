@@ -131,7 +131,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
         const v = ctx.row.original
         return (
           <span className="overflow-hidden" title={`${v.model} · ${v.provider}`}>
-            <span className="block truncate font-mono text-sm">{v.model || '—'}</span>
+            <span className="block truncate font-mono text-sm" title={v.model || undefined}>{v.model || '—'}</span>
             {showProvider && <em className="block truncate text-xs font-normal not-italic text-muted opacity-75">{v.provider}</em>}
           </span>
         )
