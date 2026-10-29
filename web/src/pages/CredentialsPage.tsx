@@ -171,6 +171,7 @@ export default function CredentialsPage() {
   }
 
   const meta: CredentialTableMeta = {
+    startIndex: (page - 1) * size,
     onBeginEdit: beginEdit,
     editDraft: edit,
     onDraftChange: (value) => setEdit((e) => (e ? { ...e, value } : e)),

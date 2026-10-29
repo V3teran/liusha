@@ -29,6 +29,8 @@ export function credentialRawLine(c: CredentialEntry): string {
 // 主机与用户名锁定（换=删旧录新），可编辑的只有角色与凭证条目。
 
 export interface CredentialTableMeta {
+  /** 当前页首行在全量集合中的下标（0-based）——# 列页内序号 = startIndex + 行号 + 1。 */
+  readonly startIndex: number
   /** 单元格进入编辑态（rowId + 字段定位；凭证编辑带条目下标）。 */
   onBeginEdit: (rowId: string, field: 'role' | 'cred' | 'cred-add', credIndex?: number) => void
   /** 编辑中草稿的暂存值（页面持有；空串=无编辑）。 */
@@ -302,7 +304,9 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
 const actionCol = columnHelper.display({
   id: 'actions',
   header: '',
-  size: 40,
+  // 权重=最小可读像素：图标按钮 28px + 单元格左右内边距 32px = 60——
+  // 此前 40 在 min-width 下只分到 40px，按钮被 overflow-hidden 裁剪变形。
+  size: 60,
   cell: (ctx) => {
     const row = ctx.row.original
     return (
@@ -322,8 +326,22 @@ const actionCol = columnHelper.display({
   },
 })
 
+// # 页内序号列：凭证行无后端自增 id（按 host+username 聚合），用当前分页内的
+// 连续序号定位（对齐 ConversationList 的 offset+index+1 口径）。
+const seqCol = columnHelper.display({
+  id: 'seq',
+  header: '#',
+  size: 44,
+  meta: { align: 'right' },
+  cell: (ctx) => (
+    <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
+      {(ctx.table.options.meta as CredentialTableMeta).startIndex + ctx.row.index + 1}
+    </span>
+  ),
+})
+
 export function buildCredentialColumns() {
-  return [addressCol, usernameCol, roleCol, valuesCol, createdCol, updatedCol, actionCol]
+  return [seqCol, addressCol, usernameCol, roleCol, valuesCol, createdCol, updatedCol, actionCol]
 }
 
 /** CopyableMono：等宽文本单元格——截断 + hover 全文 + 悬停复制按钮（流量表同形态）。 */
