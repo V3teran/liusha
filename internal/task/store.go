@@ -22,7 +22,7 @@ const colsSelect = "id, assignment_id, brief, target_host, status, heartbeat_at,
 	"created_at, ended_at, error_message"
 
 const (
-	defaultListLimit = 20
+	defaultListLimit = 50 // 对齐 httpapi parseTaskFilter 的缺省 50——两层钳制数值必须一致
 	maxListLimit     = 200
 )
 

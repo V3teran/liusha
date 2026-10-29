@@ -239,10 +239,17 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 // 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
 // source ∈ {manual,auto}：前端「主动下发 / 被动代理」双 tab（纯聊天归 manual 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
+// maxConversationListLimit 与 conversation.Store maxListLimit 一致（两层钳制数值契约）。
+const maxConversationListLimit = 500
+
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		source := c.Query("source")
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), parseLimit(c, 30), parseOffset(c), source)
+		limit := parseLimit(c, 30)
+		if limit > maxConversationListLimit {
+			limit = maxConversationListLimit
+		}
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), limit, parseOffset(c), source)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return

@@ -19,8 +19,8 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 const (
-	defaultListLimit = 50
-	maxListLimit     = 500
+	defaultListLimit = 30 // 对齐 httpapi listConversationsHandler 的缺省 30——两层钳制数值必须一致
+	maxListLimit     = 500 // 防跑飞护栏；httpapi 层按同一上限钳（对内契约见 clampLimit）
 )
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
