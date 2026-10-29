@@ -143,6 +143,10 @@ func (r *Reader) ReadLogs(q ReadQuery) (ReadResult, error) {
 
 // readProcess 读单个进程文件：取 [max(cursor, size-scanWindow), size) 窗口内
 // 最新 limit 条匹配行。返回匹配行（升序）、续读偏移、是否轮转、是否截窗。
+//
+// 性能关键：先只做行边界字节扫描（GB/s 级），再从尾部倒序解析、凑满 limit
+// 即停——大文件的窗口内可能有几十万行，全量 json 解析只为了取最新几百条
+// 是数量级浪费；只有罕见的「筛选极少命中」才退化为整窗解析（与旧实现同界）。
 func (r *Reader) readProcess(name string, q ReadQuery) (entries []Entry, next int64, reset, truncated bool, err error) {
 	f, err := os.Open(r.filePath(name))
 	if err != nil {
@@ -181,31 +185,46 @@ func (r *Reader) readProcess(name string, q ReadQuery) (entries []Entry, next in
 	}
 	buf = buf[:n] // stat 与 read 之间文件可能变短（轮转竞态），按实读截断
 
+	// 行边界扫描：记录完整行行尾（\n）的位置
+	newlines := make([]int32, 0, len(buf)/128+1)
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == '\n' {
+			newlines = append(newlines, int32(i))
+		}
+	}
+
 	match := compileMatcher(q)
 	keep := q.Limit
 	if keep <= 0 {
 		keep = defaultReadLimit
 	}
 
-	lineOff, lastNL := 0, -1
-	for i := 0; i < len(buf); i++ {
-		if buf[i] != '\n' {
-			continue
+	// 从尾行倒序解析，凑满 keep 即停
+	for i := len(newlines) - 1; i >= 0; i-- {
+		nl := int(newlines[i])
+		lineStart := 0
+		if i > 0 {
+			lineStart = int(newlines[i-1]) + 1
 		}
-		if e := parseEntry(buf[lineOff:i], start+int64(lineOff), name); e != nil && match(e) {
+		if e := parseEntry(buf[lineStart:nl], start+int64(lineStart), name); e != nil && match(e) {
 			entries = append(entries, *e)
-			if len(entries) > keep {
-				entries = entries[1:] // 只留最新 keep 条
-				truncated = true
+			if len(entries) == keep {
+				// 停下时窗口内还有未扫的行 → 更早的匹配可能存在
+				if lineStart > 0 {
+					truncated = true
+				}
+				break
 			}
 		}
-		lastNL, lineOff = i, i+1
+	}
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 { // 倒序收集 → 反转成升序
+		entries[i], entries[j] = entries[j], entries[i]
 	}
 
 	// 续读点 = 最后一个完整行的行尾。尾行没有 \n 说明正在被写入，本轮不取，
 	// 游标停在它行首，写完整后下一轮读回；窗口内一个完整行都没有则游标不动。
-	if lastNL >= 0 {
-		next = start + int64(lastNL+1)
+	if len(newlines) > 0 {
+		next = start + int64(newlines[len(newlines)-1]) + 1
 	} else {
 		next = start
 	}
