@@ -390,7 +390,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         {/* 翻页：offset 分页（非 keyset）。常显（单页时按钮禁用）——「第 X / Y 页」总页数
             来自后端同口径 count，翻页能力始终可见可发现。 */}
         {items.length > 0 && (
-          <div className="flex flex-shrink-0 items-center justify-between gap-2 pt-0.5">
+          <div className="flex flex-shrink-0 items-center gap-1.5 pt-0.5">
             <button
               type="button"
               aria-label="上一页"
@@ -400,8 +400,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="font-mono text-xs text-muted">
-              第 {pageNo} / {totalPages} 页
+            <span className="whitespace-nowrap font-mono text-xs text-muted">
+              第 {pageNo}/{totalPages} 页
             </span>
             <button
               type="button"
