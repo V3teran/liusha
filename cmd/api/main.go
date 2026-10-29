@@ -237,14 +237,15 @@ func main() {
 	cronCtx, cronCancel := context.WithCancel(context.Background())
 	defer cronCancel()
 	runner := &cronRunner{
-		schedules:   cronStore,
-		assignments: assignmentStore,
-		tasks:       taskStore,
-		proxyStore:  proxyTrafficStore,
-		agentRuns:   agentRunStore,
-		enq:         enq,
-		scan:        adapter,
-		logger:      logger,
+		schedules:     cronStore,
+		assignments:   assignmentStore,
+		tasks:         taskStore,
+		proxyStore:    proxyTrafficStore,
+		agentRuns:     agentRunStore,
+		enq:           enq,
+		scan:          adapter,
+		conversations: convStore, // cron passive task 建会话流（与实时聚合路径同语义）
+		logger:        logger,
 	}
 	go runner.run(cronCtx)
 
