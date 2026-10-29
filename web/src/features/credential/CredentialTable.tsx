@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { columnWidthPercents } from '@/lib/tableLayout'
+import { cn } from '@/lib/utils'
 import type { CredentialRow } from './useCredentialQueries'
 import type { CredentialTableMeta } from './credentialColumns'
 import { buildCredentialColumns } from './credentialColumns'
@@ -42,8 +43,9 @@ export function CredentialTable({
   const colCount = leafColumns.length
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow">
-      <table className="w-full border-collapse table-fixed">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
+      {/* min-width 兜底：窄屏出横向滚动条，列不压缩（全站表格统一约定） */}
+      <table className="w-full min-w-[1060px] border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: widthPercents[i] }} />
@@ -55,7 +57,10 @@ export function CredentialTable({
               {hg.headers.map((h) => (
                 <th
                   key={h.id}
-                  className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70"
+                  className={cn(
+                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70',
+                    h.column.columnDef.meta?.align === 'right' && 'text-right',
+                  )}
                 >
                   {flexRender(h.column.columnDef.header, h.getContext())}
                 </th>
