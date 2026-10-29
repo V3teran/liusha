@@ -95,7 +95,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 <h3 className="mb-3 text-sm font-semibold text-text">基本信息</h3>
                 <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-4 text-sm">
                   <div className="flex items-start gap-3">
-                    <span className="w-24 flex-shrink-0 text-text-secondary">位置</span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">地址</span>
                     <span className="min-w-0 flex-1 font-mono text-xs text-text">
                       {finding.target?.method} {finding.host}
                       {finding.target?.path}
