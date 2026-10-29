@@ -1,11 +1,21 @@
-# liusha v1 docker-compose
-# 6 个 service：postgres / redis / api / nginx / proxy / runner（+ vulnapp e2e profile）
-# 默认起 postgres/redis/api/nginx；用 --profile e2e 起完整栈（含 proxy + runner + vulnapp）。
+# liusha 基座 compose：核心 6 服务全容器（生产形态直接用；本地开发见 scripts/dev/up.sh）。
+#
+# ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
+#  A 本地开发：docker compose -f deployments/docker-compose.yml up -d postgres redis
+#    （仅 pg+redis 两容器）+ ./scripts/dev/run-svc.sh 业务进程 host 二进制；
+#    runner 经宿主 docker 拉起第三个容器（沙盒 pentools，warm pool 自动管理）。
+#  B 生产全容器：make prod-up（= 迁移 + 本文件 + docker-compose.prod.yml 叠加 up）。
+#    核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
+#  C 单镜像：make single-build（deployments/single/，比赛/受限环境用）。
+#
+# migrate 是一次性迁移服务，仅 --profile migrate / e2e profile 启动
+# （make prod-up / prod-migrate 自动带上）。e2e 靶机 vulnapp 已剥离为独立仓
+# （../vulnapp），e2e 时在宿主另行启动并映射 8001。
+#
 # nginx 前置：/ → 前端 SPA，/api/* → api:8090（前端源码在仓库根 web/，同仓 monorepo）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
-# runner（cmd/runner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz）。
+# runner（cmd/runner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz + 流量 ingest）。
 # 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
-# migrate 走 host 侧 Makefile（make migrate），不在 compose 里跑。
 
 services:
   postgres:
@@ -24,6 +34,23 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # 一次性迁移服务：golang-migrate CLI + db/migrations。不自动启动（profile 门控），
+  # 由 make prod-migrate / prod-up 显式拉起（run --rm 跑完即退）。
+  migrate:
+    image: liusha/migrate
+    build:
+      context: ..
+      dockerfile: deployments/migrate/Dockerfile
+    container_name: liusha-migrate
+    environment:
+      MIGRATE_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - migrate
+      - e2e
 
   redis:
     image: redis:8
@@ -133,9 +160,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    profiles:
-      - proxy
-      - e2e
 
   # runner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
   # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
@@ -178,25 +202,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    profiles:
-      - agent
-      - e2e
-
-  # vulnapp：BAC e2e 靶机（plan 1 T31）。仅 e2e profile 启动。
-  # hostname=vulnapp 让 proxy / runner 在同一 network 内通过名字解析。
-  vulnapp:
-    image: liusha/vulnapp
-    build:
-      context: ..
-      dockerfile: cmd/vulnapp/Dockerfile
-    container_name: liusha-vulnapp
-    hostname: vulnapp
-    volumes:
-      - ../logs:/app/logs
-    ports:
-      - "8001:8001"
-    profiles:
-      - e2e
 
 volumes:
   liusha-pg:

@@ -1,9 +1,12 @@
 # 生产形态 overlay：与 docker-compose.yml 叠加使用
 #
-# 用法：
+# 用法（推荐 make prod-up，自动先跑迁移）：
+#   make prod-up
+# 或手动：
 #   docker compose -f deployments/docker-compose.yml \
 #                  -f deployments/docker-compose.prod.yml \
-#                  --profile e2e --env-file .env.prod up -d
+#                  --env-file .env.prod up -d
+# （迁移：make prod-migrate 或 docker compose -f deployments/docker-compose.yml run --rm --build migrate）
 #
 # 与默认（dev）的差异：
 #   - LIUSHA_ENV=production  → stdout 走 JSON 单行（不再彩色 console）
@@ -24,11 +27,6 @@ services:
       LIUSHA_LOG_FORMAT: json
 
   runner:
-    environment:
-      LIUSHA_ENV: production
-      LIUSHA_LOG_FORMAT: json
-
-  vulnapp:
     environment:
       LIUSHA_ENV: production
       LIUSHA_LOG_FORMAT: json

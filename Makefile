@@ -1,17 +1,49 @@
-.PHONY: up down logs migrate migrate-down run-api run-runner run-web build-api build-nginx build-proxy build-runner build-vulnapp build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
+.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-migrate prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-migrate build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
 COMPOSE = docker compose -f deployments/docker-compose.yml
+PROD_COMPOSE = docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.prod.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
 # migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
 # 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
 MIGRATE_GOPROXY ?= https://goproxy.cn,direct
 MIGRATE = GOPROXY='$(MIGRATE_GOPROXY)' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
-up:
-	$(COMPOSE) up -d
+# ── 形态 A：本地开发（pg+redis 容器 + 业务进程 host 二进制）────────────
+# up/down 是 dev 流程的别名（历史肌肉记忆兼容）；完整流程见 scripts/dev/up.sh。
+up: dev-up
+down: dev-down
 
-down:
-	$(COMPOSE) down
+dev-up:
+	bash scripts/dev/up.sh
+
+dev-down:
+	bash scripts/dev/down.sh
+
+# ── 形态 B：生产全容器（迁移 + 6 核心服务 + prod overlay）───────────────
+prod-build: build-migrate build-api build-proxy build-runner build-nginx
+
+prod-migrate:
+	$(COMPOSE) run --rm --build migrate
+
+prod-up:
+	$(COMPOSE) run --rm --build migrate
+	$(PROD_COMPOSE) up -d --build
+
+prod-down:
+	$(PROD_COMPOSE) down
+
+# ── 形态 C：单镜像（比赛/受限环境；沙盒依赖宿主 docker.sock + pentools 镜像）──
+single-build:
+	docker build -f deployments/single/Dockerfile -t liusha/single .
+
+# 目标机 amd64（比赛机常见）：docker buildx build --platform linux/amd64 -t liusha/single -f deployments/single/Dockerfile . --load
+single-run:
+	docker run -d --name liusha-single \
+	  -p 80:80 -p 8888:8888 -p 9090:9090 \
+	  -v liusha-single-data:/data \
+	  -v /var/run/docker.sock:/var/run/docker.sock \
+	  -e GLM_API_KEY="$${GLM_API_KEY:-placeholder-key}" \
+	  liusha/single
 
 logs:
 	$(COMPOSE) logs -f --tail=100
@@ -56,8 +88,9 @@ build-proxy:
 build-runner:
 	docker build -f cmd/runner/Dockerfile -t liusha/runner .
 
-build-vulnapp:
-	docker build -f cmd/vulnapp/Dockerfile -t liusha/vulnapp .
+# 一次性迁移镜像（golang-migrate CLI + db/migrations；prod-migrate / prod-up 用）。
+build-migrate:
+	docker build -f deployments/migrate/Dockerfile -t liusha/migrate .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
 # 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，
