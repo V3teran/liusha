@@ -13,7 +13,7 @@ const columnHelper = createColumnHelper<TrafficSummary>()
 // 数值列统一「表头与值同靠右」（tabular-nums 按位对齐便于比大小）；文本/徽章列同靠左。
 const seqCol = columnHelper.accessor('id', {
   header: '#',
-  size: 52,
+  size: 68,
   meta: { align: 'right' },
   cell: (ctx) => (
     <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">{ctx.getValue()}</span>
@@ -43,7 +43,7 @@ function CopyableCell({ value }: { value: string }) {
 
 const timeCol = columnHelper.accessor('captured_at', {
   header: '时间',
-  size: 96,
+  size: 104,
   cell: (ctx) => {
     const iso = ctx.getValue()
     return (
@@ -57,7 +57,7 @@ const timeCol = columnHelper.accessor('captured_at', {
 
 const methodCol = columnHelper.accessor('method', {
   header: '方法',
-  size: 72,
+  size: 94,
   cell: (ctx) => {
     const m = ctx.getValue()
     return (

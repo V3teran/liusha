@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { TaskFilterBar } from '@/features/tasks/TaskFilterBar'
 import { TaskTable } from '@/features/tasks/TaskTable'
@@ -25,6 +26,12 @@ export function TasksPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const detailQuery = useTaskDetail(selectedId)
+  // ?task=<id>（对话列表 ⋯ 菜单「任务」跳转）：进页即选中该任务打开详情板
+  const [searchParams] = useSearchParams()
+  const preselectTask = searchParams.get('task')
+  useEffect(() => {
+    if (preselectTask) setSelectedId(preselectTask)
+  }, [preselectTask])
   // 列表行已带全量派生列，详情请求返回前先用行数据撑住详情板（零闪跳）。
   const rowTask = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
   const detail = detailQuery.data ?? rowTask

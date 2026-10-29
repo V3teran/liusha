@@ -30,7 +30,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
   return [
     columnHelper.accessor('created_at', {
       header: '时间',
-      size: 96,
+      size: 104,
       cell: (ctx) => {
         const iso = ctx.getValue()
         return (
@@ -126,7 +126,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
     }),
     columnHelper.accessor('model', {
       header: '模型',
-      size: 104,
+      size: 132,
       cell: (ctx) => {
         const v = ctx.row.original
         return (
@@ -140,7 +140,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
     columnHelper.display({
       id: 'tokens',
       header: 'Tokens',
-      size: 104,
+      size: 120,
       cell: (ctx) => {
         const v = ctx.row.original
         return (

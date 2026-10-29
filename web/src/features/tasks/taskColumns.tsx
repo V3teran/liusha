@@ -17,7 +17,7 @@ function buildTaskColumns(offset: number) {
     columnHelper.display({
       id: 'seq',
       header: '#',
-      size: 36,
+      size: 44,
       meta: { align: 'right' },
       cell: (ctx) => (
         <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
@@ -40,7 +40,7 @@ function buildTaskColumns(offset: number) {
     }),
     columnHelper.accessor('brief', {
       header: '目标',
-      size: 560,
+      size: 320,
       cell: (ctx) => (
         <span className="block truncate text-sm text-text" title={ctx.getValue()}>
           {ctx.getValue()}
@@ -49,7 +49,7 @@ function buildTaskColumns(offset: number) {
     }),
     columnHelper.accessor('source', {
       header: '来源',
-      size: 92,
+      size: 88,
       cell: (ctx) => (
         <span className="flex items-center gap-1">
           <Badge dot={false} color={ctx.getValue() === 'manual' ? 'var(--source-manual)' : 'var(--source-auto)'}>
@@ -68,7 +68,7 @@ function buildTaskColumns(offset: number) {
     }),
     columnHelper.accessor('assignment_id', {
       header: '批次ID',
-      size: 118,
+      size: 116,
       cell: (ctx) => {
         const t = ctx.row.original
         const short = ctx.getValue().slice(0, 8)
@@ -116,7 +116,7 @@ function buildTaskColumns(offset: number) {
     }),
     columnHelper.accessor('step_count', {
       header: '进度',
-      size: 60,
+      size: 64,
       meta: { align: 'right' },
       cell: (ctx) => {
         const n = ctx.getValue()

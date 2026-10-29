@@ -33,7 +33,7 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
       {/* table-fixed + colgroup 百分比宽度随容器缩放；min-width 兜底防挤压——窄屏时容器出
           横向滚动条，列宽不再被压缩变形/值截断（全站表格统一约定）。 */}
-      <table className="w-full min-w-[1180px] border-collapse table-fixed">
+      <table className="w-full min-w-[1050px] border-collapse table-fixed">
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: widthPercents[i] }} />
