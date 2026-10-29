@@ -75,6 +75,9 @@ export function useAllCredentialRows() {
           })
         }
       }
+      // 倒序（新→旧）：凭证行无后端统一排序出口（host 枚举 + 逐 host 详情拼装），
+      // 组装完成后按身份创建时间排——最新录入/会话身份排在最前，浏览以新为优先。
+      rows.sort((a, b) => (b.identity.created_at ?? '').localeCompare(a.identity.created_at ?? ''))
       return rows
     },
     enabled: hostsQuery.isSuccess && hosts.length > 0,

@@ -67,7 +67,7 @@ function buildTaskColumns(offset: number) {
       ),
     }),
     columnHelper.accessor('assignment_id', {
-      header: '批次ID',
+      header: '批次',
       size: 116,
       cell: (ctx) => {
         const t = ctx.row.original
@@ -116,13 +116,14 @@ function buildTaskColumns(offset: number) {
     }),
     columnHelper.accessor('step_count', {
       header: '进度',
-      size: 64,
+      // 88：两位数「12 步」在窄窗下 64px 容不下（12px 字宽×4 字符 + px-4 内边距 32px）会被挤换行
+      size: 88,
       meta: { align: 'right' },
       cell: (ctx) => {
         const n = ctx.getValue()
         return (
           <span
-            className="block text-right font-mono text-xs tabular-nums text-muted"
+            className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-muted"
             title={ctx.row.original.status === 'active' ? `已执行 ${n} 步` : `共 ${n} 步`}
           >
             {n} 步
