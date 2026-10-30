@@ -157,9 +157,11 @@ while [ $SECONDS -lt $deadline ]; do
   curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && runner_ok=1
   # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8888 mitm 口是否在听。
   nc -z localhost 8888 2>/dev/null && proxy_ok=1
+  # 靶机 vulnapp 已剥离为独立仓（../vulnapp）：探测 8001 作为提示而非阻塞条件
   nc -z localhost 8001 2>/dev/null && vulnapp_ok=1
-  if [ "$((api_ok + runner_ok + proxy_ok + vulnapp_ok))" -eq 4 ]; then
-    echo "  ✓ 4 service 全部 healthy"
+  if [ "$((api_ok + runner_ok + proxy_ok))" -eq 3 ]; then
+    [ "$vulnapp_ok" -eq 1 ] || echo "  ⚠ 靶机 :8001 未起（cd ../vulnapp && go run .）——passive e2e 将无目标"
+    echo "  ✓ 3 service 全部 healthy"
     echo ""
     echo "  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
     echo "     task_id 跑完 e2e 后从 finding 表查："
