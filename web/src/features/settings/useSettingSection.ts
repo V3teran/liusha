@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
-// useSettingSection 封装单组旋钮的加载/编辑/保存生命周期：
+// useSettingSection 封装单组旋钮的加载/编辑/保存生命周期（draft/baseline/dirty
+// 状态机与 useDirtyDraft 同一语义——抽公共件时曾评估合并，但本 hook 的
+// load/save 生命周期是另一层职责，合并会把 loading/error 拖进泛件，故保持
+// 分离、仅声明同源）：
 // 首屏拉取填充 draft，编辑走 patch（不可变合并），保存成功回填并亮「已保存」。
 // 三组各持一份独立实例，互不影响（一组失败不阻塞其他）。
 export function useSettingSection<T>(

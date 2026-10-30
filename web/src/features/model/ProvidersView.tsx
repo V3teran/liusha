@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { ChevronRight, Plus, Search, Trash2 } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
@@ -23,8 +24,8 @@ export function ProvidersView() {
   const restoreMutation = useRestoreProviderEnvKey()
 
   const [query, setQuery] = useState('')
-  const [draft, setDraft] = useState<ProviderConfig | null>(null)
-  const [baseline, setBaseline] = useState<ProviderConfig | null>(null)
+  const { draft, setDraft, open: openDraftState, close: closeDraftState, isDirty: dirty, commit, reset: resetDraft } =
+    useDirtyDraft<ProviderConfig>()
   const [isNew, setIsNew] = useState(false)
   // dirty 时被拦截的收起/切换意图：确认条上「丢弃」按钮据此执行。
   const [pending, setPending] = useState<
@@ -35,14 +36,8 @@ export function ProvidersView() {
   const [confirmingDeleteCode, setConfirmingDeleteCode] = useState<string | null>(null)
   const deleteTimer = useRef<number>(0)
 
-  const dirty = useMemo(
-    () => !!draft && !!baseline && JSON.stringify(draft) !== JSON.stringify(baseline),
-    [draft, baseline],
-  )
-
   const startEdit = (p: ProviderConfig | null) => {
-    setDraft(p ?? blankProvider())
-    setBaseline(p ?? blankProvider())
+    openDraftState(p ?? blankProvider())
     setIsNew(!p)
     setPending(null)
     setActionError('')
@@ -56,8 +51,7 @@ export function ProvidersView() {
     collapse()
   }
   const collapse = () => {
-    setDraft(null)
-    setBaseline(null)
+    closeDraftState()
     setIsNew(false)
     setPending(null)
     setActionError('')
@@ -115,8 +109,9 @@ export function ProvidersView() {
           key_last4: p.key_last4,
           api_key_env: p.api_key_env,
         }
-        setDraft((d) => (d ? { ...d, ...keyPatch } : d))
-        setBaseline((b) => (b ? { ...b, ...keyPatch } : b))
+        const restore = (cur: ProviderConfig | null) => (cur ? { ...cur, ...keyPatch } : cur)
+        setDraft(restore)
+        commit((restore(draft) as ProviderConfig) ?? draft!)
       },
       onError: (e) => setActionError(e instanceof Error ? e.message : '恢复失败'),
     })
@@ -134,8 +129,7 @@ export function ProvidersView() {
         // 新建保存后清空搜索过滤：新行不可能匹配既有过滤词，不清会让刚保存的行
         // 连同编辑面板一起被过滤掉，看起来像「保存了但什么都没发生」。
         onSuccess: (saved) => {
-          setDraft(saved)
-          setBaseline(saved)
+          commit(saved)
           setIsNew(false)
           if (isNew) setQuery('')
         },
@@ -220,7 +214,7 @@ export function ProvidersView() {
                   onPatch={(p) => setDraft((d) => (d ? { ...d, ...p } : d))}
                   onSave={onSave}
                   onReset={() => {
-                    setDraft(baseline)
+                    resetDraft()
                     setActionError('')
                   }}
                   onRestoreEnvKey={onRestoreEnvKey}
@@ -261,7 +255,7 @@ export function ProvidersView() {
                     onPatch={(patch) => setDraft((d) => (d ? { ...d, ...patch } : d))}
                     onSave={onSave}
                     onReset={() => {
-                      setDraft(baseline)
+                      resetDraft()
                       setActionError('')
                     }}
                     onRestoreEnvKey={onRestoreEnvKey}

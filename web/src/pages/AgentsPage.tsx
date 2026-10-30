@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { Link } from 'react-router-dom'
 import { listAgentsPaged } from '@/api/client'
 import { saveAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
@@ -29,9 +30,10 @@ export function AgentsPage() {
   const [functionTools, setFunctionTools] = useState<Tool[]>([])
   const [cliTools, setCliTools] = useState<Tool[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
-  const [draft, setDraft] = useState<AgentConfig | null>(null)
-  // 打开抽屉时的原始行快照：脏 diff 的基准（patch 全为不可变更新，行对象不会被原地改）。
-  const [baseline, setBaseline] = useState<AgentConfig | null>(null)
+  // 草稿状态机（useDirtyDraft 单一实现）：baseline 快照 + JSON 深比对 dirty；
+  // baseline 同时供 diffChanges 算字段级脏集合（保存只提交脏字段）。
+  const { draft, setDraft, patch, open: openDraftState, close: closeDraftState, isDirty: dirty, baseline } =
+    useDirtyDraft<AgentConfig>()
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -47,10 +49,10 @@ export function AgentsPage() {
   }, [])
 
   // 本轮编辑的脏字段（空对象 = 无变更）：驱动保存按钮禁用与关闭确认。
-  const changes = draft && baseline ? diffChanges(baseline, draft) : {}
-  const dirty = Object.keys(changes).length > 0
-
-  const patch = (p: Partial<AgentConfig>) => setDraft((d) => (d ? { ...d, ...p } : d))
+  const changes = useMemo(
+    () => (draft && baseline ? diffChanges(baseline, draft) : {}),
+    [draft, baseline],
+  )
 
   // 切换 function_tools / cli_tools / skills 里某项的选中态（不可变：返回新数组）。
   // 全量哨兵 ["*"] 期间目录以全集勾选展示（与其他形式一致）；取消勾选即物化为
@@ -75,15 +77,8 @@ export function AgentsPage() {
   const selectAll = (field: 'function_tools' | 'cli_tools' | 'skills') =>
     setDraft((d) => (d ? { ...d, [field]: ['*'] } : d))
 
-  const openDraft = (h: AgentConfig) => {
-    setDraft(h)
-    setBaseline(h)
-  }
-
-  const closeDraft = () => {
-    setDraft(null)
-    setBaseline(null)
-  }
+  const openDraft = openDraftState
+  const closeDraft = closeDraftState
 
   // 用户交互关闭（Esc/遮罩/关闭钮）：有未保存更改时先确认，防误触丢大段提示词。
   const requestClose = () => {

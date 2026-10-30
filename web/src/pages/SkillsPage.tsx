@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { listSkillsPaged } from '@/api/client'
 import { createSkill, updateSkill, deleteSkill, getSkillDetail, assignSkill, type SkillChanges, type SkillAgent } from '@/api/config'
 import type { Skill } from '@/api/types'
@@ -31,21 +32,16 @@ export default function SkillsPage() {
   const list = usePagedList(fetchSkills)
   const rows = (list.rows as Skill[]) || []
 
-  const [draft, setDraft] = useState<Skill | null>(null)
+  const { draft, patch, open: openDraftState, close: closeDraftState, baseline } = useDirtyDraft<Skill>()
   // 新建模式（无 id 走 POST）；编辑模式按 code 走 PUT 部分更新。
   const [isNew, setIsNew] = useState(false)
-  // 打开抽屉时的原始快照：dirty 判断基准（patch 全为不可变更新）。
-  const [baseline, setBaseline] = useState<Skill | null>(null)
   const [saving, setSaving] = useState(false)
   // 装配 tab 数据：抽屉打开时拉详情（全量智能体及各自装配态，后端权威）。
   const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
   const [assignSaving, setAssignSaving] = useState<string | null>(null)
 
-  const patch = (p: Partial<Skill>) => setDraft((d) => (d ? { ...d, ...p } : d))
-
   const openDraft = (sk: Skill) => {
-    setDraft(sk)
-    setBaseline(sk)
+    openDraftState(sk)
     setIsNew(false)
     setAssignAgents(null)
     // 装配态随详情拉取（后端权威）；自建/内置都可装配。
@@ -72,14 +68,12 @@ export default function SkillsPage() {
   }
 
   const openNew = () => {
-    setDraft(EMPTY_DRAFT)
-    setBaseline(EMPTY_DRAFT)
+    openDraftState(EMPTY_DRAFT)
     setIsNew(true)
   }
 
   const closeDraft = () => {
-    setDraft(null)
-    setBaseline(null)
+    closeDraftState()
     setIsNew(false)
   }
 
