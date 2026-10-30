@@ -73,11 +73,7 @@ if [ "${#PORT_BUSY[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# 检查二进制文件是否存在
-if [ ! -x ./vulnapp ]; then
-  echo "✗ ./vulnapp 不存在，请先编译：go build -o vulnapp ./cmd/vulnapp"
-  exit 1
-fi
+# 检查二进制文件是否存在（靶机 vulnapp 已剥离为独立仓 ../vulnapp）
 if [ ! -x ./proxy ]; then
   echo "✗ ./proxy 不存在，请先编译：go build -o proxy ./cmd/proxy"
   exit 1
@@ -91,23 +87,18 @@ if [ ! -x ./runner ]; then
   exit 1
 fi
 
-# 启动顺序：vulnapp → proxy → api → runner
-echo "[1/4] vulnapp on :8001"
-./vulnapp 2>logs/vulnapp.stderr &
-VULNAPP_PID=$!
-
-sleep 2
-echo "[2/4] proxy on :8888 (mitm)"
+# 启动顺序：proxy → api → runner
+echo "[1/3] proxy on :8888 (mitm)"
 ./proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
 sleep 2
-echo "[3/4] api on $LIUSHA_API_ADDR"
+echo "[2/3] api on $LIUSHA_API_ADDR"
 ./api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
-echo "[4/4] runner on :9090"
+echo "[3/3] runner on :9090"
 ./runner 2>logs/runner.stderr &
 WORKER_PID=$!
 
@@ -118,7 +109,7 @@ sleep 3
 cleanup() {
   echo ""
   echo "===== 关闭服务 ====="
-  for pid in "$WORKER_PID" "$API_PID" "$PROXY_PID" "$VULNAPP_PID"; do
+  for pid in "$WORKER_PID" "$API_PID" "$PROXY_PID"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -129,7 +120,8 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
+echo "✓ 三服务在跑（pids: proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
+echo "🎯 e2e 靶机（外部仓）：cd ../vulnapp && go run .   # :8001"
 echo ""
 echo "📊 前端：liusha-ui 独立仓 → cd 该仓 pnpm dev（/api 已代理到本 api）"
 echo "  (X-API-Key=${LIUSHA_API_KEY}，task_id 跑完 e2e 后从 finding 表查)"

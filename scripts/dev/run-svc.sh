@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dev/run-svc.sh — host 侧并行跑 vulnapp + proxy + api + runner
+# scripts/dev/run-svc.sh — host 侧并行跑 proxy + api + runner（靶机 vulnapp 已剥离为独立仓 ../vulnapp）
 # 应用层（logx）自管落盘到 logs/{service}.log（lumberjack 轮转），shell 不再重定向。
 # Ctrl-C 全部关闭
 
@@ -58,7 +58,7 @@ echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address
 # already in use"，进而出现"半新半旧"的混跑栈（曾踩坑：proxy/api 留旧版，
-# runner/vulnapp 用新版，调试极难）。
+# runner 用新版，调试极难）。
 #
 # 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
 # /Users/.../go-build/<hash>-d/runner，没有 "cmd/" 或 "exe/" 字样，
@@ -78,10 +78,10 @@ for port in 8001 8888 8090 9090; do
 done
 sleep 1
 
-# 端口预检：5 个目标端口任一仍被占（不属于本脚本管理）→ 立即报错退出，
-# 让用户先手动清。比"启动 4 个、其中 2 个 fatal 而 healthz 还过"友好得多。
+# 端口预检：本脚本管理的 3 端口任一仍被占 → 立即报错退出（8001 是外部靶机
+# vulnapp 的口，只在上面预清残留，不预检——外部服务先起后起都行）。
 PORT_BUSY=()
-for p in 8001 8888 8090 9090; do
+for p in 8888 8090 9090; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     PORT_BUSY+=("$p")
   fi
@@ -92,24 +92,19 @@ if [ "${#PORT_BUSY[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# 启动顺序：vulnapp → proxy → api → runner
+# 启动顺序：proxy → api → runner
 # 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
-echo "[1/4] vulnapp on :8001"
-go run -mod=mod ./cmd/vulnapp 2>logs/vulnapp.stderr &
-VULNAPP_PID=$!
-
-sleep 2
-echo "[2/4] proxy on :8888 (mitm)"
+echo "[1/3] proxy on :8888 (mitm)"
 go run -mod=mod ./cmd/proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
 sleep 2
-echo "[3/4] api on $LIUSHA_API_ADDR"
+echo "[2/3] api on $LIUSHA_API_ADDR"
 go run -mod=mod ./cmd/api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
-echo "[4/4] runner on :9090"
+echo "[3/3] runner on :9090"
 go run -mod=mod ./cmd/runner 2>logs/runner.stderr &
 WORKER_PID=$!
 
@@ -120,7 +115,7 @@ sleep 3
 cleanup() {
   echo ""
   echo "===== 关闭服务 ====="
-  for pid in "$WORKER_PID" "$API_PID" "$PROXY_PID" "$VULNAPP_PID"; do
+  for pid in "$WORKER_PID" "$API_PID" "$PROXY_PID"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -131,7 +126,8 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
-echo "✓ 四服务在跑（pids: vulnapp=${VULNAPP_PID} proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
+echo "✓ 三服务在跑（pids: proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
+echo "🎯 e2e 靶机（外部仓）：cd ../vulnapp && go run .   # :8001"
 echo ""
 echo "📊 前端：liusha-ui 独立仓 → cd 该仓 pnpm dev（/api 已代理到本 api）"
 echo "  (X-API-Key=${LIUSHA_API_KEY}，task_id 跑完 e2e 后从 finding 表查)"
@@ -140,7 +136,7 @@ echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
 
 # logx 自管落盘：等待文件出现后再 tail（避免 tail 启动时 lumberjack 还没创建文件）
-for f in logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log; do
+for f in logs/proxy.log logs/api.log logs/runner.log; do
   for _ in $(seq 1 20); do
     [ -f "$f" ] && break
     sleep 0.5
@@ -151,7 +147,7 @@ done
 # 非交互（nohup/CI，如 e2e.sh 拉起）：tail 会把脚本钉死成僵尸包装进程，
 # 且多轮累积的 tail 向同一 stdout 文件灌重复流——直接退出，服务已后台运行。
 if [ -t 1 ]; then
-  tail -F logs/vulnapp.log logs/proxy.log logs/api.log logs/runner.log
+  tail -F logs/proxy.log logs/api.log logs/runner.log
 else
-  echo "✓ 非交互模式：4 服务已后台运行，脚本退出（日志见 logs/*.log）"
+  echo "✓ 非交互模式：3 服务已后台运行，脚本退出（日志见 logs/*.log）"
 fi
