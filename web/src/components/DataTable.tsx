@@ -17,6 +17,10 @@ interface DataTableProps<T> {
   emptyText: string
   /** 行数据错误标记（如 HTTP 5xx 流量行整行红染） */
   rowError?: (row: T) => boolean
+  /** 行级内联样式（如漏洞行把严重度色挂到 --sev 变量驱动左边条悬停） */
+  rowStyle?: (row: T) => React.CSSProperties | undefined
+  /** 行 className 追加（如保存中降透明度） */
+  rowClassName?: (row: T) => string | undefined
   /** 选中态（aria-selected + inset 描边；不传则行无选中语义） */
   selectedId?: string | number | null
   /** 行主键（默认 row.id；getRowId 同源） */
@@ -37,7 +41,7 @@ interface DataTableProps<T> {
  * 统一约定）+ 骨架屏/空态/行点击与键盘可达/选中态描边。
  * 之前此骨架在 Task/Traffic/LlmAudit/Findings 四张表各复制一份（~80 行/份）。
  */
-export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, meta, stickyHeader }: DataTableProps<T>) {
+export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader }: DataTableProps<T>) {
   const table = useReactTable({
     data: rows,
     columns,
@@ -115,12 +119,14 @@ export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px
                         }
                       : undefined
                   }
+                  style={rowStyle?.(v)}
                   data-error={rowError?.(v)}
                   className={cn(
                     'border-b border-border text-sm transition-colors last:border-b-0',
                     clickable && 'cursor-pointer hover:bg-surface-2',
                     clickable && selected && 'bg-accent/12 shadow-[inset_2px_0_0_var(--accent)]',
                     rowError?.(v) && 'bg-sev-critical/[0.08] hover:bg-sev-critical/[0.14]',
+                    rowClassName?.(v),
                   )}
                 >
                   {row.getVisibleCells().map((cell) => (

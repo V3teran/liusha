@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
-import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight, Search, StickyNote } from 'lucide-react'
 import { updateFindingTriage, getFindingStat } from '@/api/client'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
+import { DataTable } from '@/components/DataTable'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
 import { Badge } from '@/components/ui/badge'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
-import { columnWidthPercents } from '@/lib/tableLayout'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
@@ -171,14 +171,6 @@ export function FindingsPage() {
     [],
   )
 
-  const table = useReactTable({
-    data: visible,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getRowId: (row) => row.id,
-  })
-  const leafColumns = table.getAllLeafColumns()
-  const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
 
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
@@ -328,65 +320,20 @@ export function FindingsPage() {
               />
             </div>
 
-            {/* 表格（min-width 兜底：窄屏出横向滚动条，列不压缩——全站表格统一约定） */}
-            <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
-                <table className="w-full min-w-[1040px] border-collapse table-fixed">
-                  <colgroup>
-                    {leafColumns.map((col, i) => (
-                      <col key={col.id} style={{ width: widthPercents[i] }} />
-                    ))}
-                  </colgroup>
-                  <thead>
-                    {table.getHeaderGroups().map((hg) => (
-                      <tr key={hg.id} className="border-b border-border">
-                        {hg.headers.map((h) => (
-                          <th
-                            key={h.id}
-                            className={cn(
-                              'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary',
-                              h.column.columnDef.meta?.align === 'right' && 'text-right',
-                            )}
-                          >
-                            {flexRender(h.column.columnDef.header, h.getContext())}
-                          </th>
-                        ))}
-                      </tr>
-                    ))}
-                  </thead>
-                  <tbody>
-                    {table.getRowModel().rows.map((row) => {
-                      const f = row.original
-                      return (
-                        <tr
-                          key={row.id}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`查看漏洞详情：${f.summary}`}
-                          onClick={() => openDrawer(f)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              openDrawer(f)
-                            }
-                          }}
-                          style={{ '--sev': sevVar(f.severity) } as React.CSSProperties}
-                          className={cn(
-                            'group cursor-pointer border-b border-l-2 border-border border-l-transparent text-sm transition-all',
-                            'last:border-b-0 hover:bg-surface-2 hover:border-l-[var(--sev)]',
-                            savingId === f.id && 'opacity-50',
-                          )}
-                        >
-                          {row.getVisibleCells().map((cell) => (
-                            <td key={cell.id} className="overflow-hidden px-4 py-2.5">
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </td>
-                          ))}
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            {/* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
+                严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */}
+            <DataTable
+              rows={visible}
+              columns={columns as never}
+              minWidth={1040}
+              loading={listQuery.isFetching && rows.length === 0}
+              emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
+              getRowId={(row) => row.id}
+              onRowClick={openDrawer}
+              rowAriaLabel={(f) => `查看漏洞详情：${f.summary}`}
+              rowStyle={(f) => ({ '--sev': sevVar(f.severity) }) as React.CSSProperties}
+              rowClassName={(f) => (savingId === f.id ? 'opacity-50' : undefined)}
+            />
           </>
         )}
       </div>
