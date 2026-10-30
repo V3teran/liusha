@@ -13,6 +13,7 @@ import type {
 } from '@/api/types'
 import { Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 import { SettingsSection } from '@/features/settings/SettingsSection'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSettingSection } from '@/features/settings/useSettingSection'
 import { linesToList, listToLines, codesToText, textToCodes } from '@/features/settings/listText'
 import { Search } from 'lucide-react'
@@ -182,7 +183,12 @@ function WindowField({
 // ── runtime（工具运行时）─────────────────────────────────────────────
 
 function RuntimeSection() {
-  const s = useSettingSection<RuntimeSettings>(getRuntimeSettings, saveRuntimeSettings)
+  const queryClient = useQueryClient()
+  // onSaved 失效 LLM 审计页的 runtime 缓存（useRuntimeSettings 同 key）：
+  // 看门狗秒数改完，审计页的超时判定/展示立即可见，不再等 60s staleTime。
+  const s = useSettingSection<RuntimeSettings>(getRuntimeSettings, saveRuntimeSettings, () => {
+    void queryClient.invalidateQueries({ queryKey: ['settings', 'runtime'] })
+  })
   const d = s.draft
   const invalid =
     !d ||

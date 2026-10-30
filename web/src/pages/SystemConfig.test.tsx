@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { SystemConfig } from './SystemConfig'
 import {
@@ -55,6 +56,13 @@ const proxy: ProxyFilterSettings = {
   max_response_body_size: 2097152,
 }
 
+
+// RuntimeSection 保存后失效 React Query 缓存（useQueryClient）——测试壳须提供 Provider。
+function renderWithQueryClient(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+}
+
 describe('SystemConfig', () => {
   beforeEach(() => {
     mGetCompaction.mockReset().mockResolvedValue(compaction)
@@ -66,7 +74,7 @@ describe('SystemConfig', () => {
   })
 
   it('三组旋钮各自加载并渲染当前值', async () => {
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
     // 三个分区标题
     expect(await screen.findByText('会话历史压缩')).toBeInTheDocument()
     expect(screen.getByText('工具运行时')).toBeInTheDocument()
@@ -79,7 +87,7 @@ describe('SystemConfig', () => {
 
   it('编辑 compaction 触发阈值后保存 → 调 saveCompactionSettings 透传新值', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
     const input = await screen.findByDisplayValue('20') // planner_window_messages
     await user.clear(input)
     await user.type(input, '25')
@@ -94,7 +102,7 @@ describe('SystemConfig', () => {
 
   it('proxy body 上限清零 → 该区保存按钮禁用', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
     const reqBody = await screen.findByDisplayValue('1048576')
     await user.clear(reqBody) // 空 → Number('') = 0 → invalid
 
@@ -105,7 +113,7 @@ describe('SystemConfig', () => {
 
   it('搜索"压缩"仅显示会话历史压缩分区', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
 
     // 等待所有分区加载
     await screen.findByText('会话历史压缩')
@@ -124,7 +132,7 @@ describe('SystemConfig', () => {
 
   it('搜索"流量"仅显示代理流量过滤规则分区', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
 
     await screen.findByText('会话历史压缩')
 
@@ -138,7 +146,7 @@ describe('SystemConfig', () => {
 
   it('搜索不存在的关键词显示空状态', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
 
     await screen.findByText('会话历史压缩')
 
@@ -153,7 +161,7 @@ describe('SystemConfig', () => {
 
   it('清空搜索框恢复显示所有分区', async () => {
     const user = userEvent.setup()
-    render(<SystemConfig />)
+    renderWithQueryClient(<SystemConfig />)
 
     await screen.findByText('会话历史压缩')
 

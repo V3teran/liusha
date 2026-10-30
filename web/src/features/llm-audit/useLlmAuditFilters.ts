@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { LLMInvocationFilters } from '@/api/types'
-import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
+import { useUrlPageState } from '@/lib/useUrlPageState'
 
 // 筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/排序/分页应作为 URL state」）：
 // 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
@@ -23,20 +23,11 @@ export interface LlmAuditUrlState {
 
 const EMPTY_FILTERS: LLMInvocationFilters = { role: '', model: '', onlyErr: false, start: '', end: '' }
 
-function numOr(raw: string | null, fallback: number): number {
-  const n = Number(raw)
-  return Number.isFinite(n) && n > 0 ? n : fallback
-}
-
 export function useLlmAuditFilters(): LlmAuditUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const query = searchParams.get('q') ?? ''
-  const page = useMemo(() => numOr(searchParams.get('page'), 1), [searchParams])
-  const size = useMemo(() => {
-    const raw = numOr(searchParams.get('size'), DEFAULT_PAGE_SIZE)
-    return (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? raw : DEFAULT_PAGE_SIZE
-  }, [searchParams])
+  const { page, size, setPage, setSize } = useUrlPageState()
   const filters = useMemo<LLMInvocationFilters>(
     () => ({
       role: searchParams.get('role') ?? '',
@@ -73,26 +64,6 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
       else next.delete('end')
       next.delete('page') // 筛选变化回到第一页
       return next
-    })
-  }
-
-  const setPage = (next: number) => {
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev)
-      if (next > 1) p.set('page', String(next))
-      else p.delete('page')
-      return p
-    })
-  }
-
-  // 换每页条数：回到第一页（否则「第 3 页 · 100 条/页」可能落在数据末尾之外）。
-  const setSize = (next: number) => {
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev)
-      if (next !== DEFAULT_PAGE_SIZE) p.set('size', String(next))
-      else p.delete('size')
-      p.delete('page')
-      return p
     })
   }
 
