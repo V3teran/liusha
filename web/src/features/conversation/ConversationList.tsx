@@ -71,6 +71,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const [hasMore, setHasMore] = useState(false)
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
+    const [loadError, setLoadError] = useState('')
     const [query, setQuery] = useState('')
     const [menuOpen, setMenuOpen] = useState('')
     const [menuConv, setMenuConv] = useState<Conversation | null>(null)
@@ -95,6 +96,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           setHasMore(hm)
           setTotal(tt)
           setOffset(o)
+          setLoadError('')
+        } catch (e) {
+          // 拉取失败必须与「暂无对话」区分——否则网络抖动伪装成空列表
+          setLoadError(e instanceof Error ? e.message : '加载失败')
         } finally {
           setLoading(false)
         }
@@ -204,7 +209,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       setRenameText('')
     }
     const setTitle = (convID: string, title: string) => {
-      setItems((prev) => prev.map((x) => (x.id === convID ? { ...x, Title: title } : x)))
+      setItems((prev) => prev.map((x) => (x.id === convID ? { ...x, title } : x)))
     }
     const commitRename = async (c: Conversation) => {
       const next = renameText.trim()
@@ -381,10 +386,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               </li>
             )
           })}
-          {filtered.length === 0 && (
-            <li className="cursor-default justify-center text-xs text-muted">
-              {query.trim() ? '本页无匹配对话' : emptyHint || '暂无对话'}
+          {loadError ? (
+            <li className="cursor-default justify-center text-xs text-sev-critical">
+              ⚠ 列表加载失败：{loadError}
             </li>
+          ) : (
+            filtered.length === 0 && (
+              <li className="cursor-default justify-center text-xs text-muted">
+                {query.trim() ? '本页无匹配对话' : emptyHint || '暂无对话'}
+              </li>
+            )
           )}
         </ul>
         {/* 翻页：offset 分页（非 keyset）。常显（单页时按钮禁用）——「第 X / Y 页」总页数

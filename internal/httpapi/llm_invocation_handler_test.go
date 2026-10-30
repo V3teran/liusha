@@ -23,7 +23,8 @@ type fakeInvocations struct {
 
 func (f *fakeInvocations) Flush(_ context.Context) error { return nil }
 
-func (f *fakeInvocations) ListAll(_ context.Context, _ llminvocation.ListFilter) ([]llminvocation.Invocation, error) {
+func (f *fakeInvocations) ListAll(_ context.Context, ftr llminvocation.ListFilter) ([]llminvocation.Invocation, error) {
+	f.gotFilter = ftr
 	return f.rows, f.err
 }
 
@@ -31,7 +32,8 @@ func (f *fakeInvocations) CountAll(_ context.Context, _ llminvocation.ListFilter
 	return len(f.rows), f.err
 }
 
-func (f *fakeInvocations) AggregateAll(_ context.Context, _ llminvocation.ListFilter) (llminvocation.Aggregate, error) {
+func (f *fakeInvocations) AggregateAll(_ context.Context, ftr llminvocation.ListFilter) (llminvocation.Aggregate, error) {
+	f.gotAggF = ftr
 	return f.agg, f.err
 }
 

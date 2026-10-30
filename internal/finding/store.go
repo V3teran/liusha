@@ -131,31 +131,6 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]VulnFinding, e
 	return out, rows.Err()
 }
 
-// ListByTaskAndHost 列出 task + host 下的 finding（按 created_at desc）。
-func (s *Store) ListByTaskAndHost(ctx context.Context, taskID, host string, limit int) ([]VulnFinding, error) {
-	q := `SELECT ` + colsSelect + ` FROM finding WHERE task_id=$1::uuid AND host=$2 ORDER BY created_at DESC`
-	args := []any{taskID, host}
-	if limit > 0 {
-		q += ` LIMIT $3`
-		args = append(args, limit)
-	}
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list findings by task+host: %w", err)
-	}
-	defer rows.Close()
-
-	var out []VulnFinding
-	for rows.Next() {
-		var f VulnFinding
-		if err := scan(rows, &f); err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
-}
-
 // LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 Source。
 // 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
 type LedgerRow struct {
@@ -238,7 +213,6 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 	return out, rows.Err()
 }
 
-// DistinctHosts 返回 finding 表全量 distinct host（供筛选下拉，不受分页/筛选影响）。
 // CountAll 返回同筛选口径下的全局总行数（分页 total；忽略 Limit/Offset）。
 func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	where, args := ledgerWhere(f)

@@ -45,7 +45,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
         <div>
           <h1 className="text-base font-semibold text-text">
-            {source === 'manual' ? '对话' : '对话'}
+            对话
           </h1>
           <p className="mt-0.5 text-sm text-text-secondary">
             {source === 'manual' ? '主动下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}

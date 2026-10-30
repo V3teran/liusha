@@ -45,33 +45,6 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 	return t, nil
 }
 
-// List 按 created_at DESC 列出最近的 task。
-func (s *Store) List(ctx context.Context, limit int) ([]Task, error) {
-	if limit <= 0 {
-		limit = defaultListLimit
-	}
-	if limit > maxListLimit {
-		limit = maxListLimit
-	}
-	q := "SELECT " + colsSelect + " FROM task ORDER BY created_at DESC LIMIT $1"
-
-	rows, err := s.pool.Query(ctx, q, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list tasks: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Task
-	for rows.Next() {
-		var t Task
-		if err := scan(rows, &t); err != nil {
-			return nil, fmt.Errorf("scan task: %w", err)
-		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
-}
-
 // GetByID 按主键读取（不限 status）。
 func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM task WHERE id=$1", id)
@@ -99,9 +72,9 @@ func scan(r db.RowScanner, t *Task) error {
 // ListFilter 是任务列表的筛选条件（URL query 直读，语义对齐 parseTrafficFilter：
 // 坏参数退化成不筛，不打 400）。Since/Until 按 created_at 过滤，零值=不筛。
 type ListFilter struct {
-	Search string // brief / 批次ID 子串（ILIKE）
-	Source string // manual|auto——视图层口径：定时克隆（schedule_id 非空）归 manual
-	Status string // active|completed|aborted
+	Search string    // brief / 批次ID 子串（ILIKE）
+	Source string    // manual|auto——视图层口径：定时克隆（schedule_id 非空）归 manual
+	Status string    // active|completed|aborted
 	Since  time.Time // 创建时间下界（含）
 	Until  time.Time // 创建时间上界（含）
 	Limit  int
@@ -111,21 +84,21 @@ type ListFilter struct {
 // Summary 是任务列表行：task 本体 + 派生列（JOIN assignment/cron_schedule/
 // conversation + finding/探索图步数计数）。列表页与详情板共用这一个形状。
 type Summary struct {
-	ID            string
-	Brief         string
-	TargetHost    string
-	Status        Status
-	AssignmentID  string
-	AssignmentNdx int // 批内序号（1-based，按 created_at 排）
-	AssignmentTot int // 批内任务总数
-	Source        string // manual|auto（视图层口径：定时克隆归 manual）
-	Scheduled     bool   // 定时模板触发（assignment.schedule_id 非空）
-	CronExpr      string // 来源模板的 cron 表达式（非定时为空）
+	ID             string
+	Brief          string
+	TargetHost     string
+	Status         Status
+	AssignmentID   string
+	AssignmentNdx  int    // 批内序号（1-based，按 created_at 排）
+	AssignmentTot  int    // 批内任务总数
+	Source         string // manual|auto（视图层口径：定时克隆归 manual）
+	Scheduled      bool   // 定时模板触发（assignment.schedule_id 非空）
+	CronExpr       string // 来源模板的 cron 表达式（非定时为空）
 	ConversationID string
-	FindingCount  int
-	StepCount     int // 探索图 action 节点数 = 认知循环已执行步数
-	CreatedAt     time.Time
-	EndedAt       *time.Time
+	FindingCount   int
+	StepCount      int // 探索图 action 节点数 = 认知循环已执行步数
+	CreatedAt      time.Time
+	EndedAt        *time.Time
 }
 
 // summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。

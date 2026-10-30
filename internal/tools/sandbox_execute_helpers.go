@@ -38,7 +38,7 @@ func (t *driveBrowserTool) buildBrowserCommand(ctx context.Context, a *browserCm
 
 	// 注入身份和动作 ID
 	command = fmt.Sprintf("IDENTITY=%q %s", browserIdentity(t.deps.TaskID, a.Identity), command)
-	if actionID := getContextActionID(ctx); actionID != "" {
+	if actionID := ActionIDFromContext(ctx); actionID != "" {
 		command = fmt.Sprintf("AGENT_ID=%q %s", actionID, command)
 	}
 

@@ -90,7 +90,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		Limit      int    `json:"limit"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("read_traffic: invalid args: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("list_traffic: invalid args: %v", err)}, nil
 	}
 	if a.Limit <= 0 {
 		a.Limit = 20
@@ -109,6 +109,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 
 	var rows []row
+	var degraded []string
 
 	// agent traffic (只在 source="" 或 source="agent" 时查询)
 	if t.deps.AgentStore != nil && (a.Source == "" || a.Source == "agent") {
@@ -122,7 +123,11 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 			Limit:     a.Limit,
 		}
 		list, err := t.deps.AgentStore.ListByTaskFiltered(ctx, t.deps.TaskID, f)
-		if err == nil {
+		if err != nil {
+			// 查询失败静默吞掉会让 agent 以为「没有弹药」——必须留痕并给降级说明
+			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("list_traffic: agent 流量查询失败")
+			degraded = append(degraded, "agent 流量查询失败（该来源证据暂缺）")
+		} else {
 			for _, s := range list {
 				rows = append(rows, row{
 					ID: qualifyTrafficRef(trafficSourceAgent, s.ID), Source: trafficSourceAgent,
@@ -144,7 +149,10 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 			Limit:     a.Limit,
 		}
 		list, err := t.deps.ProxyStore.ListByTaskFiltered(ctx, t.deps.TaskID, pf)
-		if err == nil {
+		if err != nil {
+			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("list_traffic: proxy 流量查询失败")
+			degraded = append(degraded, "proxy 流量查询失败（该来源证据暂缺）")
+		} else {
 			for _, s := range list {
 				rows = append(rows, row{
 					ID: qualifyTrafficRef(trafficSourceProxy, s.ID), Source: trafficSourceProxy,
@@ -157,6 +165,9 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 
 	if len(rows) == 0 {
+		if len(degraded) > 0 {
+			return registry.ToolResult{Output: "[]", Error: strings.Join(degraded, "；")}, nil
+		}
 		return registry.ToolResult{Output: "[]"}, nil
 	}
 	b, _ := json.MarshalIndent(rows, "", "  ")

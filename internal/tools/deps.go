@@ -7,6 +7,8 @@
 package tools
 
 import (
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/insight"
@@ -22,6 +24,9 @@ type Deps struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（工具调用/证据归属）
 	Host       string
+	// Logger 是任务作用域 logger（cognition 注入，自动带 task_id）；工具内部的
+	// 降级/异常路径（如 store 查询失败）经它留痕。零值 = 丢弃输出（测试用）。
+	Logger zerolog.Logger
 
 	Tasks      *task.Store
 	Corpus     *corpus.Store

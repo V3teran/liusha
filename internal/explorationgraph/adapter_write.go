@@ -121,7 +121,9 @@ func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.R
 // 单条 UPDATE 原子生效；aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。
 // reason 落 metadata.blocked_reason（依赖阻塞 / kill 与判死理由等）。
 func (s *Store) TransitionState(ctx context.Context, id string, state State, reason *string) error {
-	// 先检查当前状态（防止覆盖 aborted）
+	// 先读当前状态做决策（aborted 终态护栏），再以该状态为 CAS 前置原子兑现——
+	// 读-判-写窗口内若被并发迁移，CAS 前置不匹配即失败，不会覆盖并发写入的
+	// 终态（此前两步 UpdateNode 存在 TOCTOU：guard 通过后 aborted 可被覆盖）。
 	current, err := s.GetNode(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get current state before update: %w", err)
@@ -132,17 +134,30 @@ func (s *Store) TransitionState(ctx context.Context, id string, state State, rea
 		return fmt.Errorf("cannot overwrite aborted state (current: aborted, target: %s)", state)
 	}
 
-	update := core.GraphNodeUpdate{
-		State: string(state),
-	}
-
-	if reason != nil {
-		update.Metadata = map[string]interface{}{
-			"blocked_reason": *reason,
+	if current.State != nil {
+		ok, err := s.graphStore.CompareAndSwapState(ctx, current.TaskID, id, string(*current.State), string(state))
+		if err != nil {
+			return fmt.Errorf("cas state transition: %w", err)
+		}
+		if !ok {
+			return fmt.Errorf("state changed concurrently (node %s expected state %s)", id, *current.State)
+		}
+	} else {
+		// 无状态节点无从 CAS，直接置状态（与旧行为一致）
+		if err := s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{State: string(state)}); err != nil {
+			return err
 		}
 	}
 
-	return s.graphStore.UpdateNode(ctx, id, update)
+	// reason 是说明性 metadata（不参与状态机），在状态原子落定后单独补写
+	if reason != nil {
+		return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{
+			Metadata: map[string]interface{}{
+				"blocked_reason": *reason,
+			},
+		})
+	}
+	return nil
 }
 
 // CompareAndSwapActionState 原子性地比较并交换 action 状态。

@@ -18,8 +18,3 @@ func ActionIDFromContext(ctx context.Context) string {
 	}
 	return ""
 }
-
-// getContextActionID 从 context 中获取当前 actionID（如果有）
-func getContextActionID(ctx context.Context) string {
-	return ActionIDFromContext(ctx)
-}

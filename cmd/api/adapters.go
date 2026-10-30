@@ -55,43 +55,6 @@ func (a taskStatusAdapter) TaskStatus(ctx context.Context, taskID string) (strin
 	return string(t.Status), true
 }
 
-// taskAPIAdapter 把 task store 适配到 httpapi.TaskAPI 窄接口。
-//
-// Abort/List 直接走 task store，无双表试探。
-// HTTP API 不暴露 errMsg：用户主动取消 task 即视为正常结束，abort 恒传 ""。
-type taskAPIAdapter struct {
-	tasks *task.Store
-	audit *audit.Store // 0047：abort 写审计事件；nil 时跳过
-}
-
-// Abort 把 task 置为 aborted。errMsg 恒空（用户主动 abort 视为正常结束）。
-// 0047：成功 abort 后写 audit_log（executor=api_user，target_kind=task）。
-func (a taskAPIAdapter) Abort(ctx context.Context, id string) error {
-	if _, err := a.tasks.GetByID(ctx, id); err != nil {
-		return fmt.Errorf("task %s not found: %w", id, err)
-	}
-	if err := a.tasks.Abort(ctx, id, ""); err != nil {
-		return err
-	}
-	a.writeAudit(ctx, audit.ActionTaskAbort, "task", id)
-	return nil
-}
-
-// writeAudit best-effort 写审计事件；失败不阻塞业务，但记 Warn 留可见痕迹。
-func (a taskAPIAdapter) writeAudit(ctx context.Context, action, kind, id string) {
-	if a.audit == nil {
-		return
-	}
-	if _, err := a.audit.Append(ctx, audit.Event{
-		Actor:      audit.ActorAPIUser,
-		Action:     action,
-		TargetKind: kind,
-		TargetID:   id,
-	}); err != nil {
-		auditLog.Warn().Err(err).Str("action", action).Str("target", id).Msg("审计事件写入失败（不阻塞业务）")
-	}
-}
-
 // scanAdapter 把 task store + agentrun.Store + worker.Client 组合成
 // httpapi.ScanAPI 一站式入口：建 scan → 建 agent agent_run → 入 asynq 队列。
 //
@@ -157,7 +120,7 @@ func (a *scanAdapter) createScan(ctx context.Context, brief, conversationID stri
 // 1 assignment(manual, N items) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatScan 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
-func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description string, briefs []string) (assignmentID string, tasks []httpapi.DispatchedTask, err error) {
+func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
 	items := make([]assignment.Item, 0, len(briefs))
 	for _, b := range briefs {
 		items = append(items, assignment.Item{Brief: b})
@@ -181,11 +144,11 @@ func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description stri
 			return "", out, fmt.Errorf("create conversation: %w", err)
 		}
 		if _, err := a.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, b, nil); err != nil {
-			return assignmentID, out, fmt.Errorf("append user message: %w", err)
+			return asg.ID, out, fmt.Errorf("append user message: %w", err)
 		}
 		taskID, _, err := a.expandItem(ctx, asg.ID, b, conv.ID)
 		if err != nil {
-			return assignmentID, out, err
+			return asg.ID, out, err
 		}
 		if err := a.conversations.LinkTask(ctx, conv.ID, taskID); err != nil {
 			chatLog.Warn().Err(err).Str("conv", conv.ID).Msg("link task 失败")
@@ -194,12 +157,12 @@ func (a *scanAdapter) DispatchBatch(ctx context.Context, title, description stri
 		go a.genTitle(conv.ID, b) //nolint:gosec // G118：标题生成独立生命周期
 		out = append(out, httpapi.DispatchedTask{TaskID: taskID, ConversationID: conv.ID})
 		dispatchLog.Info().
-			Str("assignment_id", assignmentID).
+			Str("assignment_id", asg.ID).
 			Str("task_id", taskID).
 			Str("conv", conv.ID).
 			Msg("任务已展开入队")
 	}
-	return assignmentID, out, nil
+	return asg.ID, out, nil
 }
 
 // DispatchScheduled 满足 httpapi.TaskDispatchAPI：定时下发——建 cron_schedule 模板

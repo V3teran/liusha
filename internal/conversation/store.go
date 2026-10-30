@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/db"
 )
 
 // Store 封装 conversation + message 两表的持久化操作。
@@ -19,7 +21,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 const (
-	defaultListLimit = 30 // 对齐 httpapi listConversationsHandler 的缺省 30——两层钳制数值必须一致
+	defaultListLimit = 30  // 对齐 httpapi listConversationsHandler 的缺省 30——两层钳制数值必须一致
 	maxListLimit     = 500 // 防跑飞护栏；httpapi 层按同一上限钳（对内契约见 clampLimit）
 )
 
@@ -311,18 +313,13 @@ func (s *Store) ListMessages(ctx context.Context, convID string, afterSeq int64,
 	return out, rows.Err()
 }
 
-// scanRow 是 pgx.Row / pgx.Rows 共用的 Scan 抽象（QueryRow 与 Query 迭代复用同一 scan 逻辑）。
-type scanRow interface {
-	Scan(dest ...any) error
-}
-
-func scanConversation(r scanRow, c *Conversation) error {
+func scanConversation(r db.RowScanner, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt)
 }
 
 // scanConversationWithRun 多扫 run_status + finding_count + source
 // （派生态 + 漏洞数 + 下发来源，见 ListConversations）。
-func scanConversationWithRun(r scanRow, c *Conversation) error {
+func scanConversationWithRun(r db.RowScanner, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.FindingCount, &c.Source)
 }
 
@@ -345,7 +342,7 @@ func (s *Store) RunStatus(ctx context.Context, convID string) (string, error) {
 	return status, nil
 }
 
-func scanMessage(r scanRow, m *Message) error {
+func scanMessage(r db.RowScanner, m *Message) error {
 	return r.Scan(&m.Seq, &m.ID, &m.ConversationID, &m.Role, &m.Kind, &m.Content, &m.Metadata, &m.CreatedAt)
 }
 
@@ -358,6 +355,3 @@ func clampLimit(limit int) int {
 	}
 	return limit
 }
-
-// 断言 pgx.Rows 满足 scanRow（编译期校验，迭代路径用）。
-var _ scanRow = pgx.Rows(nil)

@@ -73,12 +73,7 @@ func (r *DefaultReActRuntime) runIteration(
 		result.AddAssistantMessage(response.Content, nil, response.Thinking)
 		result.FinalThinking = thinkingText(response.Thinking)
 
-		// 中间件：AfterIteration（即使提前终止也要调用）
-		if config.MiddlewareChain != nil {
-			state := r.buildIterationState(iteration, result, trace)
-			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
-			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
-		}
+		r.finishIteration(ctx, config, iteration, result, trace)
 
 		return trace, true, nil
 	}
@@ -113,12 +108,7 @@ func (r *DefaultReActRuntime) runIteration(
 		result.AddAssistantMessage(response.Content, nil, response.Thinking)
 		result.FinalThinking = thinkingText(response.Thinking)
 
-		// 中间件：AfterIteration
-		if config.MiddlewareChain != nil {
-			state := r.buildIterationState(iteration, result, trace)
-			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
-			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
-		}
+		r.finishIteration(ctx, config, iteration, result, trace)
 
 		return trace, true, nil
 	}
@@ -184,12 +174,7 @@ func (r *DefaultReActRuntime) runIteration(
 		trace.Status = IterationStatusComplete
 		trace.EndTime = time.Now().UnixMilli()
 
-		// 中间件：AfterIteration
-		if config.MiddlewareChain != nil {
-			state := r.buildIterationState(iteration, result, trace)
-			// 本路径本轮必然结束，停止信号无意义；收尾错误不阻断已定的完成态。
-			_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
-		}
+		r.finishIteration(ctx, config, iteration, result, trace)
 
 		return trace, true, nil
 	}
@@ -215,6 +200,23 @@ func (r *DefaultReActRuntime) runIteration(
 	}
 
 	return trace, false, nil
+}
+
+// finishIteration 触发本轮 AfterIteration 中间件。三种「本轮已定局」路径
+// （提前终止 / 最终答案 / 工具失败止损）共用：停止信号对本轮无意义，
+// 收尾错误不阻断已定的完成态。
+func (r *DefaultReActRuntime) finishIteration(
+	ctx context.Context,
+	config *ReActConfig,
+	iteration int,
+	result *ReActResult,
+	trace *IterationTrace,
+) {
+	if config.MiddlewareChain == nil {
+		return
+	}
+	state := r.buildIterationState(iteration, result, trace)
+	_, _ = config.MiddlewareChain.AfterIteration(ctx, state)
 }
 
 // buildIterationState 构建迭代状态快照供中间件使用。

@@ -15,12 +15,6 @@ export function clockTime(iso: string): string {
  * 省年份而非省日期：审计表内跨天是真实情形（实测有 task 从 7/17 跨到 7/18），
  * 只显时分秒会让时序误读；年份则可由悬停 fullTime 补足。
  */
-export function shortDateTime(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** 完整日期 YYYY-MM-DD（审计表时刻列首行用，年份不再藏进悬停）。 */
 export function dateOnly(iso: string): string {

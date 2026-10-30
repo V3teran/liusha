@@ -52,7 +52,6 @@ func (s *Store) buildWhere(p ListParams) (string, []any) {
 	if p.Search != "" {
 		whereParts = append(whereParts, fmt.Sprintf("(code ILIKE $%d OR name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
 		args = append(args, "%"+p.Search+"%")
-		argIdx++
 	}
 	where := ""
 	if len(whereParts) > 0 {
@@ -61,34 +60,9 @@ func (s *Store) buildWhere(p ListParams) (string, []any) {
 	return where, args
 }
 
-// List 列出 Skill，支持分页和过滤。
+// List 列出 Skill，支持分页和过滤（WHERE 与 Count 共用 buildWhere 单一口径）。
 func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
-	var whereParts []string
-	var args []any
-	argIdx := 1
-
-	if p.Category != "" {
-		whereParts = append(whereParts, fmt.Sprintf("category=$%d", argIdx))
-		args = append(args, p.Category)
-		argIdx++
-	}
-
-	if p.OnlyEnabled {
-		whereParts = append(whereParts, "enabled=true")
-	}
-
-	if p.Search != "" {
-		// code 一并匹配：技能以 code 寻址（agent.skills 白名单、前端多选器均展示 code），
-		// 搜 code 搜不到与模块概念矛盾。与 Count 共用同一 where（分页 total 口径一致）。
-		whereParts = append(whereParts, fmt.Sprintf("(code ILIKE $%d OR name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
-		args = append(args, "%"+p.Search+"%")
-		// argIdx++ 是最后一个参数，无需递增
-	}
-
-	where := ""
-	if len(whereParts) > 0 {
-		where = " WHERE " + strings.Join(whereParts, " AND ")
-	}
+	where, args := s.buildWhere(p)
 
 	limit := p.Limit
 	if limit <= 0 {

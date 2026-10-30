@@ -34,6 +34,9 @@ export default defineConfig({
       },
     },
     globals: true,
+    // 文件级串行：重组件（ProvidersView/ConversationDetail 等）并行抢 CPU 时
+    // 会随机超时假失败——全量绿/红必须可信，用确定性换时长。
+    fileParallelism: false,
     setupFiles: ['./src/test-setup.ts'],
     coverage: {
       // vitest 4：设置 include 后默认即统计全部匹配文件（`all` 字段已移除，语义由 include 隐式接管）。

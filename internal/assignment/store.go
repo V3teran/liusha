@@ -63,34 +63,6 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 	return a, nil
 }
 
-// List 按 created_at DESC 列出最近的 assignment。
-func (s *Store) List(ctx context.Context, limit int) ([]Assignment, error) {
-	if limit <= 0 {
-		limit = defaultListLimit
-	}
-	if limit > maxListLimit {
-		limit = maxListLimit
-	}
-	q := "SELECT " + colsSelect + " FROM assignment ORDER BY created_at DESC LIMIT $1"
-	args := []any{limit}
-
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list assignments: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Assignment
-	for rows.Next() {
-		var a Assignment
-		if err := scan(rows, &a); err != nil {
-			return nil, fmt.Errorf("scan assignment: %w", err)
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
-}
-
 // DeriveStatus 读时从子 task 聚合派生 assignment 整体状态（不落存储）。
 //
 // 规则（见 spec §3.2 "整体状态由子 task 聚合派生"）：

@@ -37,7 +37,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
-		return "", fmt.Errorf("insert executor run: %w", err)
+		return "", fmt.Errorf("insert agent run: %w", err)
 	}
 	return id, nil
 }
@@ -51,7 +51,7 @@ func (s *Store) SetRunning(ctx context.Context, id string) error {
 		return fmt.Errorf("set running %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("executor run %s not in pending state", id)
+		return fmt.Errorf("agent run %s not in pending state", id)
 	}
 	return nil
 }
@@ -68,7 +68,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		return fmt.Errorf("set done %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("executor run %s not in pending|running state", id)
+		return fmt.Errorf("agent run %s not in pending|running state", id)
 	}
 	return nil
 }
@@ -83,7 +83,7 @@ func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
 		return fmt.Errorf("set error %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("executor run %s not in pending|running state", id)
+		return fmt.Errorf("agent run %s not in pending|running state", id)
 	}
 	return nil
 }
@@ -97,7 +97,7 @@ func (s *Store) SetAborted(ctx context.Context, id string) error {
 		return fmt.Errorf("set aborted %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("executor run %s not in pending|running state", id)
+		return fmt.Errorf("agent run %s not in pending|running state", id)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Run, error) {
 	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM agent_run WHERE id=$1`, id)
 	var r Run
 	if err := scanRun(row, &r); err != nil {
-		return Run{}, fmt.Errorf("get executor run %s: %w", id, err)
+		return Run{}, fmt.Errorf("get agent run %s: %w", id, err)
 	}
 	return r, nil
 }
@@ -118,7 +118,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 		`SELECT `+colsSelect+` FROM agent_run WHERE task_id=$1::uuid ORDER BY created_at ASC LIMIT $2`,
 		taskID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list executor runs by task: %w", err)
+		return nil, fmt.Errorf("list agent runs by task: %w", err)
 	}
 	defer rows.Close()
 
@@ -126,12 +126,12 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 	for rows.Next() {
 		var r Run
 		if err := scanRun(rows, &r); err != nil {
-			return nil, fmt.Errorf("scan executor run: %w", err)
+			return nil, fmt.Errorf("scan agent run: %w", err)
 		}
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate executor runs: %w", err)
+		return nil, fmt.Errorf("iterate agent runs: %w", err)
 	}
 	return out, nil
 }

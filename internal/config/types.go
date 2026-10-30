@@ -204,7 +204,6 @@ type RunnerConfig struct {
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
 
-
 	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
 	// 达到此上限时任务自动终止，防止无限循环。≤ 0 视为无限制。默认 1000。
 	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`

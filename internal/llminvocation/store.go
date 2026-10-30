@@ -344,6 +344,47 @@ func (f ListFilter) limitOrDefault() int {
 	return f.Limit
 }
 
+// listSelect / listJoin 是列表查询共享的列序与 JOIN（ListByTask / ListAll
+// 单一口径）：派生摘要（tool_names/text_preview）在库内算完再出网，业务键
+// （conversation/assignment）经 JOIN 派生。新增列时两处同步改 scanListRow。
+const listSelect = `
+	SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+	       li.provider, li.model,
+	       li.in_tokens, li.out_tokens, li.cached_tokens,
+	       li.latency_ms,
+	       li.finish_reason, li.error_message, li.role,
+	       li.created_at,
+	       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
+	                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
+	                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
+	       left(%[3]s, %[4]d) AS text_preview,
+	       c.id::text AS conversation_id,
+	       t.assignment_id::text AS assignment_id
+	FROM llm_invocation li
+	LEFT JOIN task t ON t.id = li.task_id
+	LEFT JOIN conversation c ON c.task_id = li.task_id`
+
+// scanListRow 是 listSelect 列序的统一反序列化点。
+func scanListRow(rows pgx.Rows, v *Invocation) error {
+	var tid, cid, aid *string
+	if err := rows.Scan(
+		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
+		&v.Provider, &v.Model,
+		&v.InTokens, &v.OutTokens, &v.CachedTokens,
+		&v.LatencyMs,
+		&v.FinishReason, &v.Error, &v.Role,
+		&v.CreatedAt,
+		&v.ToolNames, &v.TextPreview,
+		&cid, &aid,
+	); err != nil {
+		return err
+	}
+	v.TaskID = tid
+	v.ConversationID = cid
+	v.AssignmentID = aid
+	return nil
+}
+
 // ListByTask 列出 task 下的 LLM invocation，按 id ASC + offset 翻页
 // （对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数）。
 //
@@ -361,22 +402,7 @@ func (f ListFilter) limitOrDefault() int {
 func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
 	conds, args := f.where(taskID)
 	args = append(args, f.limitOrDefault(), f.Offset)
-	q := fmt.Sprintf(`
-		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
-		       li.provider, li.model,
-		       li.in_tokens, li.out_tokens, li.cached_tokens,
-		       li.latency_ms,
-		       li.finish_reason, li.error_message, li.role,
-		       li.created_at,
-		       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
-		                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
-		                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
-		       left(%[3]s, %[4]d) AS text_preview,
-		       c.id::text AS conversation_id,
-		       t.assignment_id::text AS assignment_id
-		FROM llm_invocation li
-		LEFT JOIN task t ON t.id = li.task_id
-		LEFT JOIN conversation c ON c.task_id = li.task_id
+	q := fmt.Sprintf(listSelect+`
 		WHERE %[5]s
 		ORDER BY li.id ASC
 		LIMIT $%[6]d OFFSET $%[7]d`,
@@ -391,56 +417,15 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var tid, cid, aid *string
-		if err := rows.Scan(
-			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
-			&v.Provider, &v.Model,
-			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.LatencyMs,
-			&v.FinishReason, &v.Error, &v.Role,
-			&v.CreatedAt,
-			&v.ToolNames, &v.TextPreview,
-			&cid, &aid,
-		); err != nil {
+		if err := scanListRow(rows, &v); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
-		v.TaskID = tid
-		v.ConversationID = cid
-		v.AssignmentID = aid
 		out = append(out, v)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate llm_invocation: %w", err)
 	}
 	return out, nil
-}
-
-// GetByID 取单条 invocation 的完整行（含 messages/result 大字段），供列表页点击钻取详情用。
-// 用 taskID+id 联合定位（而非裸 id）：防止跨 task 猜 id 越权读取审计原文。
-func (s *Store) GetByID(ctx context.Context, taskID string, id int64) (Invocation, error) {
-	var v Invocation
-	var tid *string
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, request_id, agent_run_id, task_id::text,
-		       provider, model,
-		       in_tokens, out_tokens, cached_tokens,
-		       latency_ms,
-		       finish_reason, error_message, role,
-		       messages, result, created_at
-		FROM llm_invocation
-		WHERE id=$1 AND task_id=$2::uuid`, id, taskID).Scan(
-		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
-		&v.Provider, &v.Model,
-		&v.InTokens, &v.OutTokens, &v.CachedTokens,
-		&v.LatencyMs,
-		&v.FinishReason, &v.Error, &v.Role,
-		&v.Messages, &v.Result, &v.CreatedAt,
-	)
-	if err != nil {
-		return Invocation{}, fmt.Errorf("get llm_invocation %d: %w", id, err)
-	}
-	v.TaskID = tid
-	return v, nil
 }
 
 // GetDetailByID 通过 ID 直接获取详情（不需要 task_id），用于全局搜索后点击详情。
@@ -535,22 +520,7 @@ func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error)
 	offsetIdx := len(args) + 2
 	args = append(args, f.limitOrDefault(), f.Offset)
 
-	q := fmt.Sprintf(`
-		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
-		       li.provider, li.model,
-		       li.in_tokens, li.out_tokens, li.cached_tokens,
-		       li.latency_ms,
-		       li.finish_reason, li.error_message, li.role,
-		       li.created_at,
-		       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
-		                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
-		                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
-		       left(%[3]s, %[4]d) AS text_preview,
-		       c.id::text AS conversation_id,
-		       t.assignment_id::text AS assignment_id
-		FROM llm_invocation li
-		LEFT JOIN task t ON t.id = li.task_id
-		LEFT JOIN conversation c ON c.task_id = li.task_id
+	q := fmt.Sprintf(listSelect+`
 		WHERE %[5]s
 		ORDER BY li.id DESC
 		LIMIT $%[6]d OFFSET $%[7]d`,
@@ -565,22 +535,9 @@ func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error)
 	var out []Invocation
 	for rows.Next() {
 		var v Invocation
-		var tid, cid, aid *string
-		if err := rows.Scan(
-			&v.ID, &v.RequestID, &v.AgentRunID, &tid,
-			&v.Provider, &v.Model,
-			&v.InTokens, &v.OutTokens, &v.CachedTokens,
-			&v.LatencyMs,
-			&v.FinishReason, &v.Error, &v.Role,
-			&v.CreatedAt,
-			&v.ToolNames, &v.TextPreview,
-			&cid, &aid,
-		); err != nil {
+		if err := scanListRow(rows, &v); err != nil {
 			return nil, fmt.Errorf("scan llm_invocation: %w", err)
 		}
-		v.TaskID = tid
-		v.ConversationID = cid
-		v.AssignmentID = aid
 		out = append(out, v)
 	}
 	return out, rows.Err()

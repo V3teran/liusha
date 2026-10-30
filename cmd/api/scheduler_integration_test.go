@@ -91,11 +91,11 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("触发后 next_run_at 应推进到未来，got %v", got.NextRunAt)
 	}
 
-	tasks, err := r.tasks.List(ctx, 10)
+	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
-	var found *task.Task
+	var found *task.Summary
 	for i := range tasks {
 		if tasks[i].Brief == items[0].Brief {
 			found = &tasks[i]
@@ -147,11 +147,11 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, 10)
+	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
-	var found *task.Task
+	var found *task.Summary
 	for i := range tasks {
 		if tasks[i].TargetHost == host {
 			found = &tasks[i]
@@ -210,11 +210,11 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
 	}
 
-	tasks, err := r.tasks.List(ctx, 10)
+	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
-	var found *task.Task
+	var found *task.Summary
 	for i := range tasks {
 		if tasks[i].TargetHost == items[0].Host {
 			found = &tasks[i]
@@ -247,7 +247,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.List(ctx, 10)
+	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}

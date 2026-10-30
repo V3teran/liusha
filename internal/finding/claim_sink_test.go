@@ -48,7 +48,6 @@ func TestClaimSink_ObserverReceivesSavedFinding(t *testing.T) {
 	}
 	if got.Remediation != "对 search 参数做 HTML 实体编码输出，并启用 CSP 限制内联脚本。" {
 		t.Fatalf("修复建议应随主张落台账: %q", got.Remediation)
-		t.Fatalf("观察者收到 = %+v", got)
 	}
 	if got.ID != "f-1" {
 		t.Fatalf("观察者应收到已保存（含回填 ID）的交付物, got ID=%q", got.ID)
