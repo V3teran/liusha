@@ -38,7 +38,7 @@ single-build:
 
 # 目标机 amd64（比赛机常见）：docker buildx build --platform linux/amd64 -t liusha/single -f deployments/single/Dockerfile . --load
 single-run:
-	docker run -d --name liusha-single \
+	docker run -d --restart unless-stopped --name liusha-single \
 	  -p 80:80 -p 8888:8888 -p 9090:9090 \
 	  -v liusha-single-data:/data \
 	  -v /var/run/docker.sock:/var/run/docker.sock \

@@ -1,0 +1,50 @@
+# 构建上下文裁剪：build context = 仓库根（各 Dockerfile 共用）。
+# 目标：上下文里不进 .git/历史日志/依赖目录（此前每次 build 上传 ~1.4GB，
+# 且 logs/ 是渗透测试敏感数据、web/node_modules 是宿主平台二进制——
+# nginx 构建的 COPY web/ 会用宿主 node_modules 覆盖容器内安装结果）。
+# 注意：vendor/、web/ 源码、agents/、skills/、config/、db/、deployments/
+# 是各 Dockerfile 的 COPY 对象，一律不可排除。
+
+# 版本控制与会话状态
+.git
+.zcode
+.claude
+.v2c
+.mimosa
+$CLAUDE_JOB_DIR
+
+# 运行时产物（含渗透测试敏感日志，绝不进构建上下文）
+logs
+*.log
+*.stderr
+session-store
+
+# 前端依赖与构建产物（容器内自装，宿主的是 darwin/arm64 二进制）
+node_modules
+web/node_modules
+web/dist
+
+# 本机构建产物
+bin
+api
+proxy
+runner
+vulnapp
+e2e
+agent-worker
+liusha-runner
+corpus-import
+core.test
+executor.test
+coverage.out
+coverage.html
+
+# 文档之外的杂项
+__pycache__
+*.pyc
+.DS_Store
+*.bak
+*.backup
+*.old
+llm-view-*.png
+.playwright-mcp
