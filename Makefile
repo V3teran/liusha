@@ -76,21 +76,21 @@ web-test:
 	cd web && pnpm test
 
 build-api:
-	docker build -f cmd/api/Dockerfile -t liusha/api .
+	docker build -f cmd/api/Dockerfile -t liusha/api:1.0 .
 
 # 前置 nginx 镜像：多阶段 build（node 编前端 dist + nginx 托管 + 反代 api）。
 build-nginx:
-	docker build -f deployments/nginx/Dockerfile -t liusha/nginx .
+	docker build -f deployments/nginx/Dockerfile -t liusha/nginx:1.0 .
 
 build-proxy:
-	docker build -f cmd/proxy/Dockerfile -t liusha/proxy .
+	docker build -f cmd/proxy/Dockerfile -t liusha/proxy:1.0 .
 
 build-runner:
-	docker build -f cmd/runner/Dockerfile -t liusha/runner .
+	docker build -f cmd/runner/Dockerfile -t liusha/runner:1.0 .
 
 # 一次性迁移镜像（golang-migrate CLI + db/migrations；prod-migrate / prod-up 用）。
 build-migrate:
-	docker build -f deployments/migrate/Dockerfile -t liusha/migrate .
+	docker build -f deployments/migrate/Dockerfile -t liusha/migrate:1.0 .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
 # 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，

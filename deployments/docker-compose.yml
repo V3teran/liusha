@@ -39,7 +39,7 @@ services:
   # 一次性迁移服务：golang-migrate CLI + db/migrations。不自动启动（profile 门控），
   # 由 make prod-migrate / prod-up 显式拉起（run --rm 跑完即退）。
   migrate:
-    image: liusha/migrate
+    image: liusha/migrate:1.0
     build:
       context: ..
       dockerfile: deployments/migrate/Dockerfile
@@ -68,7 +68,7 @@ services:
       retries: 10
 
   api:
-    image: liusha/api
+    image: liusha/api:1.0
     build:
       context: ..
       dockerfile: cmd/api/Dockerfile
@@ -109,7 +109,7 @@ services:
   # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8090。
   # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。
   nginx:
-    image: liusha/nginx
+    image: liusha/nginx:1.0
     build:
       context: ..
       dockerfile: deployments/nginx/Dockerfile
@@ -128,7 +128,7 @@ services:
 
   # cmd/proxy：内嵌 proxify SDK 的 MITM 代理 + filter/dedup/aggregator + Asynq 生产者
   proxy:
-    image: liusha/proxy
+    image: liusha/proxy:1.0
     build:
       context: ..
       dockerfile: cmd/proxy/Dockerfile
@@ -169,7 +169,7 @@ services:
   # runner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
   # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
   runner:
-    image: liusha/runner
+    image: liusha/runner:1.0
     build:
       context: ..
       dockerfile: cmd/runner/Dockerfile

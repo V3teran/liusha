@@ -14,5 +14,11 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /out/proxy /app/proxy
 COPY config /app/config
+# non-root 运行（密码文件无 shell 登录；app 目录属主移交）。
+# /app/certs 预建并归 app：MITM CA 卷（liusha-proxy-certs）首挂时继承此属主，
+# 否则 app 用户无法生成 CA（曾回归：certs 卷 root 属主 → proxy 启动循环崩溃）。
+RUN addgroup -S app && adduser -S app -G app -h /app
+RUN mkdir -p /app/certs && chown -R app:app /app
+USER app
 EXPOSE 8888
 ENTRYPOINT ["/app/proxy"]
