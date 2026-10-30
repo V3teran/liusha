@@ -4,16 +4,30 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { listFindings, updateFindingTriage } from '@/api/client'
+import { getFindingStat, listFindings, updateFindingTriage } from '@/api/client'
 import type { FindingRow, FindingListResponse } from '@/api/types'
 
 vi.mock('@/api/client', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
+  getFindingStat: vi.fn(),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
 const mockedUpdateFindingTriage = updateFindingTriage as unknown as ReturnType<typeof vi.fn>
+const mockedGetFindingStat = getFindingStat as unknown as ReturnType<typeof vi.fn>
+
+// stat fixture：按行聚合 status/severity，保证 chip 与列表口径一致。
+function makeStat(findings: FindingRow[]) {
+  const by_status: Record<string, number> = {}
+  const by_severity: Record<string, number> = {}
+  for (const f of findings) {
+    by_status[f.status] = (by_status[f.status] ?? 0) + 1
+    const sev = f.severity.toLowerCase()
+    by_severity[sev] = (by_severity[sev] ?? 0) + 1
+  }
+  return { total: findings.length, by_status, by_severity }
+}
 
 function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
   return {
@@ -51,6 +65,8 @@ describe('FindingsPage', () => {
     mockedUpdateFindingTriage.mockReset()
     
     vi.spyOn(window, 'alert').mockImplementation(() => {})
+    // stat 默认空口径（汇总条测试内显式覆盖）
+    mockedGetFindingStat.mockResolvedValue({ total: 0, by_status: {}, by_severity: {} })
   })
 
   it('挂载时加载 findings 列表', async () => {
@@ -92,6 +108,8 @@ describe('FindingsPage', () => {
       makeFinding({ id: 'f4', severity: 'low' }),
     ]
     mockedListFindings.mockResolvedValue(makeListResponse(findings, { total: 4 }))
+    // chip 读服务端 /findings/stat（与列表同筛选口径、与翻页无关）
+    mockedGetFindingStat.mockResolvedValue(makeStat(findings))
     const { container } = renderPage()
     // 4 条同名 finding，等待表格渲染出全部行而非单条匹配。
     await waitFor(() => expect(screen.getAllByText('SQL 注入漏洞').length).toBe(4))
@@ -173,6 +191,8 @@ describe('FindingsPage', () => {
   it('点击 severity 图例切换筛选（再点取消）', async () => {
     const user = userEvent.setup()
     mockedListFindings.mockResolvedValue(makeListResponse([makeFinding({ severity: 'critical' })]))
+    // 图例可点前提：stat 里该严重度计数 > 0（n=0 的图例禁用——不可筛选到零条）
+    mockedGetFindingStat.mockResolvedValue(makeStat([makeFinding({ severity: 'critical' })]))
     const { container } = renderPage()
     await screen.findByText('SQL 注入漏洞')
     mockedListFindings.mockClear()

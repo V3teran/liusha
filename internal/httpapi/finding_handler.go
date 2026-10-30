@@ -18,6 +18,7 @@ import (
 // FindingsAPI 是 handler 依赖的窄接口；*finding.Store 自动满足。
 type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
+	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.FindingStat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
 }
@@ -139,5 +140,24 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"first_seen_at":  r.FirstSeenAt,
 		"depends_on":     deps,
 		"created_at":     r.CreatedAt,
+	}
+}
+
+// findingStatHandler 处理 GET /findings/stat?host=&severity=&status=&source=：
+// 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
+func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f := finding.LedgerFilter{
+			Host:     c.Query("host"),
+			Severity: c.Query("severity"),
+			Status:   c.Query("status"),
+			Source:   c.Query("source"),
+		}
+		st, err := api.StatFiltered(c.Request.Context(), f)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, st)
 	}
 }

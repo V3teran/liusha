@@ -342,6 +342,13 @@ export async function renameConversation(convID: string, title: string): Promise
  * 分页拉取全局漏洞台账。可选按 host/severity/status/source 筛选；
  * page/size 缺省时后端落 1 / 50。修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
  */
+/** 台账统计（与列表同筛选口径；status/severity 分布，供头部 chip 全量口径）。 */
+export interface FindingStat {
+  total: number
+  by_status: Record<string, number>
+  by_severity: Record<string, number>
+}
+
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(filters)) {
@@ -593,4 +600,14 @@ export function readLogs(
     if (cur) params.set('cursor', cur)
   }
   return get(`/logs?${params}`)
+}
+
+/** 台账头部统计：与列表同筛选口径的 status/severity 聚合（与翻页无关）。 */
+export function getFindingStat(filters: FindingFilters): Promise<FindingStat> {
+  const params = new URLSearchParams()
+  if (filters.host) params.set('host', filters.host)
+  if (filters.severity) params.set('severity', filters.severity)
+  if (filters.status) params.set('status', filters.status)
+  if (filters.source) params.set('source', filters.source)
+  return get(`/findings/stat?${params}`)
 }
