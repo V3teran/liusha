@@ -6,6 +6,9 @@ import { useCallback, useEffect, useState } from 'react'
 export function useSettingSection<T>(
   load: () => Promise<T>,
   save: (v: T) => Promise<T>,
+  // onSaved：保存成功后的联动钩子（如失效读同一组旋钮的 React Query 缓存，
+  // 让「系统配置改完 → 依赖页立即可见」，不再等各自 staleTime 过期）。
+  onSaved?: (fresh: T) => void,
 ) {
   const [draft, setDraft] = useState<T | null>(null)
   // saved 快照：最近一次加载/保存成功的服务端值，用于 isDirty 比对与 reset 回滚。
@@ -45,12 +48,13 @@ export function useSettingSection<T>(
       setDraft(fresh)
       setSnapshot(fresh) // 保存成功即成新基线，isDirty 归零
       setSaved(true)
+      onSaved?.(fresh)
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
     } finally {
       setSaving(false)
     }
-  }, [draft, save])
+  }, [draft, save, onSaved])
 
   // 放弃改动：draft 回滚到最近基线快照，清「已保存」提示。
   const reset = useCallback(() => {

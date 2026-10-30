@@ -36,7 +36,7 @@ export interface StreamHandlers {
  * @param onStatusChange 连接状态变化回调（驱动组件里的"重连中…"提示）
  * @returns 流句柄，调用 close() 关闭连接
  */
-export function connectEventStream(
+function connectEventStream(
   convID: string,
   handlers: StreamHandlers,
   onStatusChange?: (status: StreamStatus) => void,
