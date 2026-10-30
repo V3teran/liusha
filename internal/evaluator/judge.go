@@ -92,8 +92,6 @@ func (j *RouterJudge) WithMaxIterations(n int) *RouterJudge {
 	return j
 }
 
-// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
-// 空回退 medium）。
 // WithMessageWindow 注入 ReAct 滚动窗口条数（系统配置 compaction 组；<=0 回退构造默认 10）。
 func (j *RouterJudge) WithMessageWindow(n int) *RouterJudge {
 	if n > 0 {
@@ -102,6 +100,8 @@ func (j *RouterJudge) WithMessageWindow(n int) *RouterJudge {
 	return j
 }
 
+// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
+// 空回退 medium）。
 func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
 	j.complexity = llm.ParseComplexity(complexity)
 	return j

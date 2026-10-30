@@ -63,20 +63,11 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 	}
 
 	if names == nil {
-		return []registry.Tool{} // nil = 默认拒绝
-	}
-	// ["*"] = 全量
-	if len(names) == 1 && names[0] == "*" {
-		return all
-	}
-	// 白名单过滤
-	allow := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		allow[n] = struct{}{}
+		return []registry.Tool{} // nil = 默认拒绝（registry.Allows 同口径）
 	}
 	out := make([]registry.Tool, 0, len(names))
 	for _, t := range all {
-		if _, ok := allow[t.Name()]; ok {
+		if registry.Allows(names, t.Name()) {
 			out = append(out, t)
 		}
 	}

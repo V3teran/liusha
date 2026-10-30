@@ -19,7 +19,7 @@ import (
 // ImportSystem 把 cfg 里的 compaction/runtime/proxy_filter 三组旋钮 insert-only 首填进 DB。
 // 每组独立判存（缺组才写），任一组已存在则跳过该组。
 func ImportSystem(ctx context.Context, cfg config.Config, s *settingstore.Store) error {
-	if err := importCompactionSettings(ctx, cfg, s); err != nil {
+	if err := importCompactionSettings(ctx, s); err != nil {
 		return fmt.Errorf("import compaction settings: %w", err)
 	}
 	if err := importRuntimeSettings(ctx, cfg, s); err != nil {
@@ -33,7 +33,7 @@ func ImportSystem(ctx context.Context, cfg config.Config, s *settingstore.Store)
 
 // importCompactionSettings 缺 compaction 组才用内置默认首填（窗口条数无 yaml 源——
 // DB 即事实源，normalized 兜底与 DefaultCompaction 一致）。
-func importCompactionSettings(ctx context.Context, cfg config.Config, s *settingstore.Store) error {
+func importCompactionSettings(ctx context.Context, s *settingstore.Store) error {
 	if _, err := s.GetCompactionRaw(ctx); err == nil {
 		return nil // 已存在→跳过（insert-only）
 	} else if !settingstore.IsNotFound(err) {

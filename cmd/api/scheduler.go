@@ -116,8 +116,15 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		}
 	}
 
-	if err = r.schedules.MarkFired(ctx, sched.ID, time.Now()); err != nil {
+	firedAt := time.Now()
+	ok, err := r.schedules.MarkFired(ctx, sched.ID, firedAt, *sched.NextRunAt)
+	if err != nil {
 		return fmt.Errorf("mark schedule %s fired: %w", sched.ID, err)
+	}
+	if !ok {
+		// next_run_at 已被其他副本改写：模板被抢先触发，本副本放弃
+		r.logger.Info().Str("schedule_id", sched.ID).Msg("定时模板已被其他副本触发，跳过")
+		return nil
 	}
 	r.logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
 		Msg("cron 定时模板已触发")

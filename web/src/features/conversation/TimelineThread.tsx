@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { Brain, ChevronDown, Loader2 } from 'lucide-react'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
@@ -65,10 +65,12 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   const prevLenRef = useRef(0)
   const { copiedKey, copy } = useCopyToClipboard()
 
-  const rows = buildThreadRows(messages, { dayKey, dayLabel })
-  const runningTools = active ? inFlightToolCalls(messages) : undefined
-  const toolPairs = pairToolResults(messages)
-  const activityCount = rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0)
+  // 派生值 memo 化：本组件订阅 liveStreams，SSE 每帧 delta 都会重渲染——
+  // 三个全量消息推导（行构建/在途工具/结果配对）不缓存的话每帧 O(N) 重算 + 下游卡片全量重渲染。
+  const rows = useMemo(() => buildThreadRows(messages, { dayKey, dayLabel }), [messages, dayKey, dayLabel])
+  const runningTools = useMemo(() => (active ? inFlightToolCalls(messages) : undefined), [active, messages])
+  const toolPairs = useMemo(() => pairToolResults(messages), [messages])
+  const activityCount = useMemo(() => rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0), [rows])
 
   const nearBottom = useCallback(() => {
     const e = elRef.current

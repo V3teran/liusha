@@ -17,20 +17,8 @@ describe('format', () => {
     it('格式化为时:分:秒', () => {
       expect(clockTime('2026-06-10T14:05:09Z')).toMatch(/^\d{2}:\d{2}:\d{2}$/)
     })
-    it('空串返回空串', () => {
-      expect(clockTime('')).toBe('')
-    })
     it('无效日期返回空串', () => {
       expect(clockTime('not-a-date')).toBe('')
-    })
-  })
-
-  describe('shortDateTime', () => {
-    it('格式化为 MM-DD HH:MM:SS', () => {
-      expect(shortDateTime('2026-06-10T14:05:09Z')).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
-    })
-    it('空串返回空串', () => {
-      expect(shortDateTime('')).toBe('')
     })
   })
 

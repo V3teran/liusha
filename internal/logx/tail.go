@@ -155,7 +155,7 @@ func (r *Reader) readProcess(name string, q ReadQuery) (entries []Entry, next in
 		}
 		return nil, 0, false, false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -237,7 +237,7 @@ func (r *Reader) recentInstances(name string) []string {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {

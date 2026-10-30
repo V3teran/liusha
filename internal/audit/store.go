@@ -45,43 +45,6 @@ func (s *Store) Append(ctx context.Context, e Event) (int64, error) {
 	return id, nil
 }
 
-// ListByActor 按 created_at DESC 列出指定 actor 最近的事件。
-func (s *Store) ListByActor(ctx context.Context, actor string, limit int) ([]Event, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM audit_log
-		WHERE actor=$1
-		ORDER BY created_at DESC, id DESC
-		LIMIT $2`, actor, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list audit by actor: %w", err)
-	}
-	defer rows.Close()
-	return collect(rows)
-}
-
-// ListByTarget 按 created_at DESC 列出指定 (target_kind, target_id) 的全部事件。
-// 取证场景："这个 owner 何时被中止、被谁中止"。
-func (s *Store) ListByTarget(ctx context.Context, kind, id string, limit int) ([]Event, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+colsSelect+`
-		FROM audit_log
-		WHERE target_kind=$1 AND target_id=$2
-		ORDER BY created_at DESC, id DESC
-		LIMIT $3`, kind, id, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list audit by target: %w", err)
-	}
-	defer rows.Close()
-	return collect(rows)
-}
-
 // collect 通用列表收集器。
 func collect(rows interface {
 	Next() bool

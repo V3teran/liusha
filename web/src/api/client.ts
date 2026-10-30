@@ -80,11 +80,27 @@ export const API_BASE = '/api'
  * 发起 GET 请求，自动添加 X-API-Key header。
  * 导出供 config.ts 等同源模块复用（单一鉴权/错误口径，不各自再拼 header）。
  */
+/**
+ * 错误响应的统一出口：后端错误体形如 {"error": "<中文消息>"}（respondErr 单出口），
+ * 读取后随异常抛出——调用方 catch 到的 message 直接可展示，不再丢成 "GET /x → 500"。
+ * 响应体非 JSON / 读取失败时回退状态码文本。
+ */
+async function raise(res: Response, method: string): Promise<never> {
+  let detail = ''
+  try {
+    const body = (await res.json()) as { error?: string }
+    if (body.error) detail = `: ${body.error}`
+  } catch {
+    /* 错误体不是 JSON（网关层错误等），回退状态码 */
+  }
+  throw new Error(`${method} ${res.status}${detail}`)
+}
+
 export async function get<T>(path: string): Promise<T> {
   const res = await fetch(API_BASE + path, {
     headers: { 'X-API-Key': getApiKey() },
   })
-  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`)
+  if (!res.ok) await raise(res, 'GET')
   return res.json()
 }
 
@@ -98,7 +114,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`POST ${path} → ${res.status}`)
+  if (!res.ok) await raise(res, 'POST')
   return res.json()
 }
 
@@ -111,7 +127,7 @@ export async function put<T>(path: string, body?: unknown): Promise<T> {
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`PUT ${path} → ${res.status}`)
+  if (!res.ok) await raise(res, 'PUT')
   return res.json()
 }
 
@@ -124,7 +140,7 @@ export async function patch<T>(path: string, body?: unknown): Promise<T> {
     headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}`)
+  if (!res.ok) await raise(res, 'PATCH')
   return res.json()
 }
 
@@ -136,7 +152,7 @@ export async function del<T>(path: string): Promise<T> {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
-  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`)
+  if (!res.ok) await raise(res, 'DELETE')
   return res.json()
 }
 

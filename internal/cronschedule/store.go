@@ -77,33 +77,6 @@ func (s *Store) GetByID(ctx context.Context, id string) (CronSchedule, error) {
 	return c, nil
 }
 
-// List 按 created_at DESC 列出定时模板。
-func (s *Store) List(ctx context.Context, limit int) ([]CronSchedule, error) {
-	if limit <= 0 {
-		limit = defaultListLimit
-	}
-	if limit > maxListLimit {
-		limit = maxListLimit
-	}
-	q := "SELECT " + colsSelect + " FROM cron_schedule ORDER BY created_at DESC LIMIT $1"
-
-	rows, err := s.pool.Query(ctx, q, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list cron_schedules: %w", err)
-	}
-	defer rows.Close()
-
-	var out []CronSchedule
-	for rows.Next() {
-		var c CronSchedule
-		if err := scan(rows, &c); err != nil {
-			return nil, fmt.Errorf("scan cron_schedule: %w", err)
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}
-
 // SetEnabled 切换定时模板的启用/停用（定时模板本身无终态，只有这一个开关）。
 func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	tag, err := s.pool.Exec(ctx, "UPDATE cron_schedule SET enabled=$1 WHERE id=$2", enabled, id)
@@ -137,22 +110,27 @@ func (s *Store) ListDue(ctx context.Context, now time.Time) ([]CronSchedule, err
 	return out, rows.Err()
 }
 
-// MarkFired 触发后回写 last_run_at=firedAt，并按该模板的 cron_expr 推算下一次 next_run_at。
-func (s *Store) MarkFired(ctx context.Context, id string, firedAt time.Time) error {
+// MarkFired 触发后回写 last_run_at=firedAt，并按该模板的 cron_expr 推算下一次
+// next_run_at。expectedNextRunAt 是触发方看到的到点时间（ListDue 返回值）：
+// 单条 UPDATE 带此前置条件做乐观锁——多副本同时到点时只有一家改写成功，
+// 其余收到 false 跳过，杜绝同一模板重复触发整个批次。
+func (s *Store) MarkFired(ctx context.Context, id string, firedAt, expectedNextRunAt time.Time) (bool, error) {
 	c, err := s.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
 	next, err := NextRun(c.CronExpr, firedAt)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if _, err := s.pool.Exec(ctx,
-		"UPDATE cron_schedule SET last_run_at=$1, next_run_at=$2 WHERE id=$3", firedAt, next, id,
-	); err != nil {
-		return fmt.Errorf("mark cron_schedule %s fired: %w", id, err)
+	tag, err := s.pool.Exec(ctx,
+		"UPDATE cron_schedule SET last_run_at=$1, next_run_at=$2 WHERE id=$3 AND next_run_at=$4",
+		firedAt, next, id, expectedNextRunAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark cron_schedule %s fired: %w", id, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。

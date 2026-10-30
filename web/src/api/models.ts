@@ -2,14 +2,14 @@
  * 模型模块 API 客户端（provider 部署 / 角色指派 两资源）
  *
  * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 单独实现的 putModel/delModel：撞 FK RESTRICT/违反（后端 409 + 中文 error）时需把中文原因
- * 透出给调用方（通用 del 只抛 HTTP 状态码，丢了中文原因）。
+ * 复用 client.ts 的 get/post/put/del 封装（单一 X-API-Key 鉴权口径；错误响应体含
+ * 409 的中文 FK 原因，经 raise 统一读取透出给调用方）。
  *
  * 别名中间层已废弃（0099）：角色一跳直连 provider。
  * 事实源是 DB；写经后端 llmstore 失效广播，runner 进程下次 For(role) 即读到最新路由。
  */
 
-import { API_BASE, get, post, put, del, getApiKey } from './client'
+import { get, post, put, del } from './client'
 import type {
   ProviderConfig,
   ProviderProbeRequest,
@@ -57,7 +57,7 @@ export async function saveProvider(
 
 /** 删除 provider；被角色路由 FK 引用时后端 409 → 抛带中文原因的错。 */
 export async function deleteProvider(key: string): Promise<void> {
-  await delModel(`/models/providers/${encodeURIComponent(key)}`)
+  await del(`/models/providers/${encodeURIComponent(key)}`)
 }
 
 // ── 实连探测（测试连接 / 模型列表拉取） ────────────────────────────────────
@@ -96,7 +96,7 @@ export async function saveRoleRoute(
   role: string,
   providerKey: string,
 ): Promise<RoleRouteConfig> {
-  const res = await putModel<{ route: RoleRouteConfig }>(
+  const res = await put<{ route: RoleRouteConfig }>(
     `/models/routes/${encodeURIComponent(role)}`,
     { provider_code: providerKey },
   )
@@ -105,7 +105,7 @@ export async function saveRoleRoute(
 
 /** 删除角色路由（删后该档回落标准推理档 medium——隐式默认档；接口幂等）。 */
 export async function deleteRoleRoute(role: string): Promise<void> {
-  await delModel(`/models/routes/${encodeURIComponent(role)}`)
+  await del(`/models/routes/${encodeURIComponent(role)}`)
 }
 
 /**
@@ -119,39 +119,5 @@ export async function restoreProviderEnvKey(code: string): Promise<ProviderConfi
   return b.provider
 }
 
-// ── 带中文原因的 PUT / DELETE（409 语义） ─────────────────────────────────
-
-/**
- * 模型模块专用 PUT：409（撞 FK，provider 不存在）时读后端中文 error 抛出，
- * 供调用方 alert 提示「先建对应 provider」。其他非 2xx 抛通用状态码错。
- */
-async function putModel<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(API_BASE + path, {
-    method: 'PUT',
-    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (res.ok) return res.json() as Promise<T>
-  if (res.status === 409) {
-    const b = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(b.error || '关联对象不存在')
-  }
-  throw new Error(`PUT ${path} → ${res.status}`)
-}
-
-/**
- * 模型模块专用 DELETE：409（被下游 FK RESTRICT 引用）时读后端中文 error 抛出，
- * 供调用方 alert 提示「先解除引用再删」。其他非 2xx 抛通用状态码错。
- */
-async function delModel(path: string): Promise<void> {
-  const res = await fetch(API_BASE + path, {
-    method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (res.ok) return
-  if (res.status === 409) {
-    const b = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(b.error || '该对象仍被引用，无法删除')
-  }
-  throw new Error(`DELETE ${path} → ${res.status}`)
-}
+// PUT / DELETE 走 client 统一封装：错误响应体（含 409 的中文 FK 原因）由
+// client 的 raise 统一读取抛出，此处不再有专用副本。

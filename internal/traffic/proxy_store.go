@@ -310,28 +310,8 @@ func (s *ProxyStore) CountGlobal(ctx context.Context, f ProxyListFilter) (int, e
 	return n, nil
 }
 
-// DistinctHosts 返回 proxy_traffic 里出现过的全部 host（前端筛选下拉候选），按名排序。
-// 全表 distinct，不吃筛选——候选恒为全集，否则筛完下拉自锁死（对齐 llm facets 口径）。
-func (s *ProxyStore) DistinctHosts(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, "SELECT DISTINCT host FROM proxy_traffic ORDER BY host")
-	if err != nil {
-		return nil, fmt.Errorf("distinct proxy_traffic hosts: %w", err)
-	}
-	defer rows.Close()
-
-	var out []string
-	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
-			return nil, fmt.Errorf("scan host: %w", err)
-		}
-		out = append(out, h)
-	}
-	return out, rows.Err()
-}
-
 // DistinctContentTypes 返回 proxy_traffic 里出现过的全部非空 content_type（前端筛选下拉候选），按名排序。
-// 与 DistinctHosts 同口径：全表 distinct 不吃筛选（否则筛完下拉自锁死）；空串排除（无 Content-Type 的行不进候选）。
+// 全表 distinct 不吃筛选（否则筛完下拉自锁死）；空串排除（无 Content-Type 的行不进候选）。
 func (s *ProxyStore) DistinctContentTypes(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT DISTINCT content_type FROM proxy_traffic WHERE content_type <> '' ORDER BY content_type")
@@ -372,39 +352,6 @@ func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraf
 	}
 	return out, rows.Err()
 }
-
-// MonitoredHost 是「监控中 host 列表」的一行（从 proxy_traffic 派生，见 spec §6.4）。
-type MonitoredHost struct {
-	Host         string
-	LastSeenAt   string
-	TrafficCount int
-}
-
-// ListMonitoredHosts 派生「最近 N 秒内有流量」的 host（前端监控列表），不落标志表。
-func (s *ProxyStore) ListMonitoredHosts(ctx context.Context, withinSeconds int) ([]MonitoredHost, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT host, max(captured_at)::text, count(*)
-		FROM proxy_traffic
-		WHERE captured_at > now() - ($1::text)::interval
-		GROUP BY host
-		ORDER BY max(captured_at) DESC`,
-		fmt.Sprintf("%d seconds", withinSeconds))
-	if err != nil {
-		return nil, fmt.Errorf("list monitored hosts: %w", err)
-	}
-	defer rows.Close()
-
-	var out []MonitoredHost
-	for rows.Next() {
-		var m MonitoredHost
-		if err := rows.Scan(&m.Host, &m.LastSeenAt, &m.TrafficCount); err != nil {
-			return nil, fmt.Errorf("scan monitored host: %w", err)
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
 func scanProxy(r db.RowScanner, f *ProxyTraffic) error {
 	return r.Scan(&f.ID, &f.Host, &f.Method, &f.Scheme, &f.URL, &f.Path, &f.StatusCode,
 		&f.RequestRaw, &f.ResponseRaw, &f.ContentType, &f.HTTPVersion, &f.RespLen, &f.CapturedAt)

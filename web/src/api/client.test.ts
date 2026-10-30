@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
+
+
   getApiKey, setApiKey, listConversations, listMessages, startChat, followUp, abortScan,
   listLLMInvocations,
   getLLMInvocationStat, getLLMInvocationFacets,
@@ -8,6 +10,14 @@ import {
   deleteConversation, renameConversation, authStream, bootstrapApiKey,
   listFindings, listFindingHosts, updateFindingTriage,
 } from './client'
+
+// fetch 污染治理：本文件多处替换 global.fetch（甚至置 undefined）——泄漏会让
+// 同一次全量运行中排在本文件之后的页面测试全部打到残留 mock 上。每个用例后
+// 强制还原原生 fetch。
+const nativeFetch = global.fetch
+afterEach(() => {
+  ;(global as any).fetch = nativeFetch
+})
 
 describe('API 客户端', () => {
   beforeEach(() => {
@@ -116,11 +126,15 @@ describe('API 客户端', () => {
       })
     })
 
-    it('请求失败时抛出错误', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
+    it('请求失败时抛出错误（含后端 error body）', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: '未授权' }),
+      })
       ;(global as any).fetch = mockFetch
 
-      await expect(listConversations()).rejects.toThrow('GET /conversations?limit=30&offset=0 → 401')
+      await expect(listConversations()).rejects.toThrow('GET 401: 未授权')
     })
   })
 

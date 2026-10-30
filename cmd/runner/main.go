@@ -256,7 +256,7 @@ func main() {
 	startTaskReaper(trafficCtx, stores.tasks, sysSettings, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
 
 	// 凭证库运行时键迁移：历史版本里聚合窗口/信号量借用过凭证前缀
-	//（credentials::agg:* / credentials:hostsem:*）。计数/锁类键自带短 TTL
+	// （credentials::agg:* / credentials:hostsem:*）。计数/锁类键自带短 TTL
 	// 自然消亡；唯一无 TTL 的活跃 host 集在此一次性清理。新键已在各自
 	// 命名空间（liusha:agg:* / liusha:hostsem:*）。
 	cleanupLegacyRuntimeKeys(rdb, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), logger)

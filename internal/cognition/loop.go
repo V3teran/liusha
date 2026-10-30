@@ -340,6 +340,7 @@ func (d *Deps) assembleStack(
 			TaskID:     taskID,
 			AgentRunID: agentRunID,
 			Host:       host,
+			Logger:     d.Logger,
 			Tasks:      d.Tasks,
 			Corpus:     d.Corpus,
 			Embedder:   d.Embedder,

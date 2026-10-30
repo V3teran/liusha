@@ -1,4 +1,4 @@
-// Package cache 是配置的多级缓存读写层，构建在资源无关的
+// Package configstore 是配置的多级缓存读写层，构建在资源无关的
 // cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
 //
 // 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
@@ -103,7 +103,7 @@ func (s *Store) AgentByID(ctx context.Context, id string) (agent.Agent, error) {
 
 // AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
 // keyAgentCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
-// 一致性：所有 agent 写路径（UpdateExecutor/UpdateAgent/UpdateExecutorComplexity）
+// 一致性：所有 agent 写路径（UpdateAgent/UpdateAgentComplexity）
 // 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
 // runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
 func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, error) {
@@ -137,7 +137,7 @@ func (s *Store) ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agen
 	return s.agents.ListPaged(ctx, p)
 }
 
-// CountExecutors 直穿底层 store：与 ListExecutorsPaged 同过滤的总数。
+// CountAgents 直穿底层 store：与 ListAgentsPaged 同过滤的总数。
 func (s *Store) CountAgents(ctx context.Context, p agent.ListParams) (int, error) {
 	return s.agents.CountList(ctx, p)
 }
@@ -157,7 +157,7 @@ func agentKeys(id, code string) []string {
 	}
 }
 
-// UpdateExecutor 更新Agent配置（只能更新SystemPrompt、Skills和工具）。
+// UpdateAgent 更新 agent 配置（只能更新 SystemPrompt、Skills 和工具）。
 func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
 	h, err := s.agents.Update(ctx, code, p)
 	if err != nil {

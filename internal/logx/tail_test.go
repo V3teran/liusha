@@ -85,9 +85,9 @@ func TestReadLogsIncrementalCursor(t *testing.T) {
 		logLine("2026-01-01T10:00:03Z", "info", "runner", "1@h", "c/c.go:3", "更新一条"),
 	}
 	for _, l := range newLines {
-		f.WriteString(l + "\n")
+		_, _ = f.WriteString(l + "\n")
 	}
-	f.Close()
+	_ = f.Close()
 
 	res, err := r.ReadLogs(ReadQuery{Processes: []string{"runner"}, Limit: 100, Cursors: first.Cursors})
 	if err != nil {
@@ -110,8 +110,8 @@ func TestReadLogsPartialTrailingLine(t *testing.T) {
 	// 模拟写了一半的尾行（无 \n）
 	path := filepath.Join(dir, "api.log")
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-	f.WriteString(`{"time":"2026-01-01T10:00:02Z","level":"info"`)
-	f.Close()
+	_, _ = f.WriteString(`{"time":"2026-01-01T10:00:02Z","level":"info"`)
+	_ = f.Close()
 
 	res, err := r.ReadLogs(ReadQuery{Processes: []string{"api"}, Limit: 100})
 	if err != nil {
@@ -124,8 +124,8 @@ func TestReadLogsPartialTrailingLine(t *testing.T) {
 
 	// 写完整后（补上剩余字节 + \n）带游标读：半截行应被完整取回
 	f, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-	f.WriteString(`,"message":"迟到行"}` + "\n")
-	f.Close()
+	_, _ = f.WriteString(`,"message":"迟到行"}` + "\n")
+	_ = f.Close()
 
 	res2, err := r.ReadLogs(ReadQuery{Processes: []string{"api"}, Limit: 100, Cursors: map[string]int64{"api": pending}})
 	if err != nil {

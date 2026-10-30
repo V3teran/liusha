@@ -138,8 +138,21 @@ func TestStore_MarkFired(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	firedAt := time.Date(2026, 7, 11, 4, 0, 0, 0, time.UTC)
-	if err := s.MarkFired(ctx, c.ID, firedAt); err != nil {
+	// 乐观锁前置：Create 后的 next_run_at 即触发方看到的到点时间
+	c0, err := s.GetByID(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("get before mark: %v", err)
+	}
+	if c0.NextRunAt == nil {
+		t.Fatalf("next_run_at 应非空")
+	}
+	if _, err := s.MarkFired(ctx, c.ID, firedAt, *c0.NextRunAt); err != nil {
 		t.Fatalf("mark fired: %v", err)
+	}
+
+	// 乐观锁语义：以旧 next_run_at 再抢一次应失败（RowsAffected=0）
+	if again, err := s.MarkFired(ctx, c.ID, firedAt, *c0.NextRunAt); err != nil || again {
+		t.Fatalf("重复以同一 expected 触发应不生效: again=%v err=%v", again, err)
 	}
 
 	got, err := s.GetByID(ctx, c.ID)
@@ -152,27 +165,5 @@ func TestStore_MarkFired(t *testing.T) {
 	wantNext := time.Date(2026, 7, 12, 4, 0, 0, 0, time.UTC)
 	if got.NextRunAt == nil || !got.NextRunAt.Equal(wantNext) {
 		t.Fatalf("next_run_at 应推进到 %v，got %v", wantNext, got.NextRunAt)
-	}
-}
-
-// TestStore_List 验证 List 返回已创建的定时模板。
-func TestStore_List(t *testing.T) {
-	pool := dbtest.NewPgPool(t)
-	s := NewStore(pool)
-	ctx := context.Background()
-
-	if _, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "a"}}, Title: "a1"}); err != nil {
-		t.Fatalf("create a: %v", err)
-	}
-	if _, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b1"}); err != nil {
-		t.Fatalf("create b: %v", err)
-	}
-
-	all, err := s.List(ctx, 0)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(all) < 2 {
-		t.Fatalf("List 应至少含 2 条，got %d", len(all))
 	}
 }

@@ -122,10 +122,10 @@ func getTaskHandler(api TasksAPI) gin.HandlerFunc {
 
 // taskCreateRequest 是 POST /tasks 请求体（「新建任务」弹层直出）。
 type taskCreateRequest struct {
-	Title       string   `json:"title"`                 // 批次名称
-	Description string   `json:"description"`           // 批次描述（可空）
-	Briefs      []string `json:"briefs"`                // 每行一个任务目标（已分行）
-	Cron        string   `json:"cron"`                  // 可空 = 立即下发；非空 = 定时模板（5 段 cron）
+	Title       string   `json:"title"`       // 批次名称
+	Description string   `json:"description"` // 批次描述（可空）
+	Briefs      []string `json:"briefs"`      // 每行一个任务目标（已分行）
+	Cron        string   `json:"cron"`        // 可空 = 立即下发；非空 = 定时模板（5 段 cron）
 }
 
 // createTasksHandler 处理 POST /tasks。
@@ -155,10 +155,10 @@ func createTasksHandler(api TaskDispatchAPI) gin.HandlerFunc {
 				return
 			}
 			c.JSON(http.StatusCreated, gin.H{
-				"scheduled":    true,
-				"schedule_id":  scheduleID,
-				"next_run_at":  nextRunAt,
-				"task_count":   len(briefs),
+				"scheduled":   true,
+				"schedule_id": scheduleID,
+				"next_run_at": nextRunAt,
+				"task_count":  len(briefs),
 			})
 			return
 		}
@@ -224,4 +224,6 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 }
 
 // isNoRows 判 pgx 无行（404 映射）。
-func isNoRows(err error) bool { return err != nil && strings.Contains(err.Error(), pgx.ErrNoRows.Error()) }
+func isNoRows(err error) bool {
+	return err != nil && strings.Contains(err.Error(), pgx.ErrNoRows.Error())
+}

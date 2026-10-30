@@ -74,7 +74,7 @@ func NewPgPool(ctx context.Context, dsn string, logger zerolog.Logger, maxConns,
 // （pid/err 等），原样平铺进结构化字段；trace/debug 在 TraceLog 层已被级别过滤。
 type pgxLogger struct{ log zerolog.Logger }
 
-func (l pgxLogger) Log(ctx context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
+func (l pgxLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
 	switch level {
 	case tracelog.LogLevelError:
 		l.log.Error().Fields(data).Msg(msg)
