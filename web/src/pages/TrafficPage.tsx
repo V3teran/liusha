@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { TrafficFilterBar } from '@/features/traffic/TrafficFilterBar'
 import { TrafficTable } from '@/features/traffic/TrafficTable'
 import { TrafficDetailPane } from '@/features/traffic/TrafficDetailPane'
@@ -42,31 +43,8 @@ export function TrafficPage() {
   const hasSelection = selectedId != null
 
   // ↑↓ 在当前页内移动选择（列表获焦时）。首次按下且无选中则选中首行。
-  const moveSelection = useCallback(
-    (delta: number) => {
-      if (rows.length === 0) return
-      const idx = rows.findIndex((r) => r.id === selectedId)
-      const next = idx < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, idx + delta))
-      setSelectedId(rows[next].id)
-    },
-    [rows, selectedId],
-  )
-
-  const onListKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        moveSelection(1)
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        moveSelection(-1)
-      } else if (e.key === 'Escape' && selectedId != null) {
-        e.preventDefault()
-        setSelectedId(null)
-      }
-    },
-    [moveSelection, selectedId],
-  )
+  // 键盘导航（↑/↓ 移动选中、Esc 清除）——两页同构，抽 useListKeyboardNav
+  const { onListKeyDown } = useListKeyboardNav(rows, selectedId, setSelectedId)
 
   const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
 
