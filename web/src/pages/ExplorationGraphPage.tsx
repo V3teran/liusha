@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -61,7 +61,8 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
 
 export function ExplorationGraphPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [conversationId, setConversationId] = useState<string>(searchParams.get('conversation_id') || '')
+  // conversationId 以 URL 为单一事实源（挂载时缺省回填最新会话，replace 写回）
+  const conversationId = searchParams.get('conversation_id') || ''
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -70,13 +71,6 @@ export function ExplorationGraphPage() {
   const [filterState, setFilterState] = useState<string>('all')
   const [direction, setDirection] = useState<'TB' | 'LR'>('TB')
   const [stats, setStats] = useState({ total: 0, objectives: 0, actions: 0, observations: 0, results: 0 })
-
-  useEffect(() => {
-    const conversationIdFromUrl = searchParams.get('conversation_id')
-    if (conversationIdFromUrl && conversationIdFromUrl !== conversationId) {
-      setConversationId(conversationIdFromUrl)
-    }
-  }, [searchParams])
 
   useEffect(() => {
     if (conversationId) {
@@ -95,7 +89,6 @@ export function ExplorationGraphPage() {
       .then(({ conversations }) => {
         const latest = conversations[0]?.id
         if (!latest || cancelled) return
-        setConversationId((cur) => cur || latest)
         setSearchParams(
           (prev) => {
             if (prev.get('conversation_id')) return prev
@@ -116,12 +109,15 @@ export function ExplorationGraphPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const seqRef = useRef(0)
   const loadGraph = useCallback(async () => {
     if (!conversationId) return
+    const mySeq = ++seqRef.current
     setLoading(true)
     setError('')
     try {
       const data = await getConversationGraph(conversationId)
+      if (mySeq !== seqRef.current) return // 已切换会话：丢弃过期响应
 
       const flowNodes: Node[] = data.nodes.map((n: GraphNode) => {
         const baseColor = NODE_COLORS[n.kind as keyof typeof NODE_COLORS] || '#6b7280'
@@ -271,7 +267,7 @@ export function ExplorationGraphPage() {
           <input
             type="text"
             value={conversationId}
-            onChange={(e) => setConversationId(e.target.value)}
+            onChange={(e) => setSearchParams(e.target.value ? { conversation_id: e.target.value } : {}, { replace: true })}
             onKeyDown={(e) => e.key === 'Enter' && handleConversationIdSubmit()}
             placeholder="输入对话 ID，回车加载"
             className={cn(
