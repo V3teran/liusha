@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { ChevronRight, Search, StickyNote } from 'lucide-react'
-import { updateFindingTriage } from '@/api/client'
+import { updateFindingTriage, getFindingStat } from '@/api/client'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
@@ -11,7 +11,7 @@ import { columnWidthPercents } from '@/lib/tableLayout'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
 
 function sevVar(sev: string): string {
@@ -31,6 +31,15 @@ export function FindingsPage() {
 
   const rows = useMemo(() => listQuery.data?.findings ?? [], [listQuery.data])
   const total = listQuery.data?.total ?? 0
+
+  // 头部统计走服务端聚合（与列表同筛选口径、与翻页无关）——此前按当前页行
+  // 自算，与「共 N 条」的全量口径同屏自相矛盾（LLM 审计页同款问题已修过）。
+  const statQuery = useQuery({
+    queryKey: ['findings', 'stat', filters],
+    queryFn: () => getFindingStat(filters),
+    placeholderData: keepPreviousData,
+  })
+  const stat = statQuery.data
   const totalPages = Math.max(1, Math.ceil(total / size))
 
   const [query, setQuery] = useState('')
@@ -45,8 +54,12 @@ export function FindingsPage() {
   }, [rows, query])
 
   const sevCounts = useMemo(
-    () => SEVERITIES.map((s) => ({ sev: s, n: visible.filter((f) => f.severity.toLowerCase() === s).length })),
-    [visible],
+    () =>
+      SEVERITIES.map((s) => ({
+        sev: s,
+        n: stat?.by_severity?.[s.toLowerCase()] ?? 0,
+      })),
+    [stat],
   )
 
   const toggleSevFilter = (sev: string) => setFilters({ ...filters, severity: filters.severity === sev ? '' : sev })
@@ -214,13 +227,13 @@ export function FindingsPage() {
                 <div>
                   <span className="text-text-tertiary">待处理</span>
                   <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
-                    {visible.filter((f) => f.status === 'open').length}
+                    {stat?.by_status?.open ?? 0}
                   </span>
                 </div>
                 <div>
                   <span className="text-text-tertiary">已确认</span>
                   <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
-                    {visible.filter((f) => f.status === 'confirmed').length}
+                    {stat?.by_status?.confirmed ?? 0}
                   </span>
                 </div>
               </div>

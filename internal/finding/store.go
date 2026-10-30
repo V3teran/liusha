@@ -226,6 +226,39 @@ func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	return n, nil
 }
 
+// FindingStat 是台账头部统计 chip 的数据源：与 ListAll/CountAll 同一筛选口径
+// （ledgerWhere 单一口径），按 status / severity 维度聚合——口径与列表一致，
+// 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 LLM 审计页）。
+type FindingStat struct {
+	Total          int            `json:"total"`
+	ByStatus       map[string]int `json:"by_status"`
+	BySeverity     map[string]int `json:"by_severity"`
+}
+
+// StatFiltered 按筛选聚合 status/severity 分布（单条 SQL 条件计数，与翻页无关）。
+func (s *Store) StatFiltered(ctx context.Context, f LedgerFilter) (FindingStat, error) {
+	where, args := ledgerWhere(f)
+	q := `SELECT count(*),
+			count(*) FILTER (WHERE f.status = 'open'),
+			count(*) FILTER (WHERE f.status = 'confirmed'),
+			count(*) FILTER (WHERE f.severity = 'critical'),
+			count(*) FILTER (WHERE f.severity = 'high'),
+			count(*) FILTER (WHERE f.severity = 'medium'),
+			count(*) FILTER (WHERE f.severity = 'low')
+		FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id` + where
+	var st FindingStat
+	var open, confirmed, critical, high, medium, low int
+	if err := s.pool.QueryRow(ctx, q, args...).
+		Scan(&st.Total, &open, &confirmed, &critical, &high, &medium, &low); err != nil {
+		return FindingStat{}, fmt.Errorf("stat findings: %w", err)
+	}
+	st.ByStatus = map[string]int{"open": open, "confirmed": confirmed}
+	st.BySeverity = map[string]int{"critical": critical, "high": high, "medium": medium, "low": low}
+	return st, nil
+}
+
 // UpdateTriage 人工处置一条 finding：状态 + 严重度 + 备注，triaged_at 打当前时刻，RETURNING 更新后的行。
 //
 // status 必须是五态之一（DB CHECK 兜底，这里前置校验给出友好错误）。
