@@ -345,7 +345,6 @@ func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []T
 	return ch, nil
 }
 
-
 // wrapAnthropicErr 把 SDK 的 *anthropic.Error 归一成 *HTTPError（供重试分类读状态码）。
 func wrapAnthropicErr(err error) error {
 	if err == nil {

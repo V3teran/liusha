@@ -174,4 +174,3 @@ func (s *Store) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) e
 
 	return nil
 }
-
