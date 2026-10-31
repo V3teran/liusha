@@ -46,7 +46,7 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, nullableText(p.DisplayName), p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("create provider %q: %w", p.Code, err)
@@ -78,7 +78,7 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 		WHERE code=$1
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, nullableText(p.DisplayName), p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
 		return Provider{}, fmt.Errorf("update provider %q: %w", p.Code, err)

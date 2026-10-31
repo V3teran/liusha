@@ -162,9 +162,8 @@ ingestor:
 credential:
   redis_key_prefix: "credentials:"  # HSET <prefix><host> ...
 
-# ---- skills 外部目录 ----
-skills:
-  root: ./skills
+# （原 skills 段已删：skills.root 无运行期读取者——SKILL.md 种子目录由
+#  LIUSHA_SEED_DIR 决定（seed.Import 扫 <dir>/skills），本键自始未被消费。）
 
 # ---- cmd/runner 进程运行时参数 ----
 runner:

@@ -15,8 +15,6 @@ func (c *Config) ApplyDefaults() {
 	c.Proxy = applyProxyDefaults(c.Proxy)
 	c.Ingestor = applyIngestorDefaults(c.Ingestor)
 	c.Credential = applyCredentialDefaults(c.Credential)
-	c.Skills = applySkillsDefaults(c.Skills)
-	c.Agents = applyAgentsDefaults(c.Agents)
 	c.Runner = applyRunnerDefaults(c.Runner)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
 }
@@ -218,20 +216,6 @@ func applyCredentialDefaults(c CredentialConfig) CredentialConfig {
 	return c
 }
 
-func applySkillsDefaults(c SkillsConfig) SkillsConfig {
-	if c.Root == "" {
-		c.Root = "./skills"
-	}
-	return c
-}
-
-func applyAgentsDefaults(c AgentsConfig) AgentsConfig {
-	if c.Root == "" {
-		c.Root = "./agents"
-	}
-	return c
-}
-
 func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	if c.AgentRunTimeoutSeconds == 0 {
 		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（agent_run 整体超时；> step_tool=1800，留 30min buffer 给 agent 主循环收尾）
@@ -298,11 +282,3 @@ func validate(c Config) error {
 	}
 	return nil
 }
-
-// validateLLMKeys 校验 yaml 内 LLM 种子的自洽性。仅调 LLM 的进程（runner / api）需要——
-// proxy 用 LoadWithoutLLMKeys 跳过。
-//
-// 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
-// insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
-// 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
-// providers 一旦非空则按老规矩校验（medium 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
