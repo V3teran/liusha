@@ -8,10 +8,6 @@
 #    核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
 #  C 单镜像：make single-build（deployments/single/，比赛/受限环境用）。
 #
-# migrate 是一次性迁移服务，仅 --profile migrate / e2e profile 启动
-# （make prod-up / prod-migrate 自动带上）。e2e 靶机 vulnapp 已剥离为独立仓
-# （../vulnapp），e2e 时在宿主另行启动并映射 8001。
-#
 # nginx 前置：/ → 前端 SPA，/api/* → api:8090（前端源码在仓库根 web/，同仓 monorepo）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
 # runner（cmd/runner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz + 流量 ingest）。
@@ -35,23 +31,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  # 一次性迁移服务：golang-migrate CLI + db/migrations。不自动启动（profile 门控），
-  # 由 make prod-migrate / prod-up 显式拉起（run --rm 跑完即退）。
-  migrate:
-    image: liusha/migrate:1.0
-    build:
-      context: .
-      dockerfile: deployments/migrate/Dockerfile
-    container_name: liusha-migrate
-    environment:
-      MIGRATE_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles:
-      - migrate
-      - e2e
 
   redis:
     image: redis:8
