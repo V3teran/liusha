@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -278,7 +279,7 @@ func importSkills(ctx context.Context, dir string, s *skill.Store, force bool) (
 	for code := range seen {
 		keepCodes = append(keepCodes, code)
 	}
-	sortStrings(keepCodes)
+	sort.Strings(keepCodes)
 
 	for _, code := range keepCodes {
 		item := seen[code]
@@ -310,13 +311,4 @@ func importSkills(ctx context.Context, dir string, s *skill.Store, force bool) (
 		res.Pruned = pruned
 	}
 	return res, nil
-}
-
-// sortStrings 简易排序（避免引入 sort 包；切片小开销可忽略）。
-func sortStrings(ss []string) {
-	for i := 1; i < len(ss); i++ {
-		for j := i; j > 0 && ss[j-1] > ss[j]; j-- {
-			ss[j-1], ss[j] = ss[j], ss[j-1]
-		}
-	}
 }

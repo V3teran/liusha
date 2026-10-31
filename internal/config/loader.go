@@ -42,10 +42,13 @@ func load(path string, requireLLMKeys bool) (Config, error) {
 	return c, nil
 }
 
-// ApplyDefaults 把所有 sub-struct 的 0 值字段补默认。可重复调用幂等。
+// validateLLMKeys 校验 yaml 内 LLM 种子的自洽性。仅调 LLM 的进程（runner / api）需要——
+// proxy 用 LoadWithoutLLMKeys 跳过。
 //
-// 单独导出便于测试：测试用例 `c := Config{}; c.ApplyDefaults()` 即可拿到全默认配置。
-
+// 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
+// insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
+// 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
+// providers 一旦非空则按老规矩校验（medium 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
 func validateLLMKeys(c Config) error {
 	if len(c.Providers) == 0 {
 		return nil

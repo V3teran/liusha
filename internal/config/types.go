@@ -18,8 +18,6 @@ type Config struct {
 	Proxy      ProxyConfig               `mapstructure:"proxy"`
 	Ingestor   IngestorConfig            `mapstructure:"ingestor"`
 	Credential CredentialConfig          `mapstructure:"credential"`
-	Skills     SkillsConfig              `mapstructure:"skills"`
-	Agents     AgentsConfig              `mapstructure:"agents_dir"`
 	Runner     RunnerConfig              `mapstructure:"runner"`
 	Sandbox    SandboxConfig             `mapstructure:"sandbox"`
 }
@@ -178,16 +176,6 @@ type IngestorConfig struct {
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
 type CredentialConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
-}
-
-// SkillsConfig 是 SKILL.md 外部目录。
-type SkillsConfig struct {
-	Root string `mapstructure:"root"`
-}
-
-// AgentsConfig 是角色 markdown 外部目录配置（agents/*.md，四角色种子事实源）。
-type AgentsConfig struct {
-	Root string `mapstructure:"root"`
 }
 
 // RunnerConfig 是 cmd/runner 进程的运行时参数。
