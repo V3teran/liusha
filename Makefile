@@ -1,7 +1,7 @@
 .PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-migrate prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-migrate build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
-COMPOSE = docker compose -f deployments/docker-compose.yml
-PROD_COMPOSE = docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.prod.yml
+COMPOSE = docker compose
+PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
 # migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
 # 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。

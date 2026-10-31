@@ -29,11 +29,11 @@ PG_CONTAINER="${LIUSHA_PG_CONTAINER:-liusha-postgres}"
 REDIS_CONTAINER="${LIUSHA_REDIS_CONTAINER:-liusha-redis}"
 HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-60}"
 
-# load .env.local
-if [ -f .env.local ]; then
+# load .env
+if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
-  source .env.local
+  source .env
   set +a
 fi
 
@@ -44,9 +44,8 @@ export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
 export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://111.229.193.40:38001}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
-# LLM Provider API Keys（从 .env.local 继承，显式 export 给子进程）
+# LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
 export GLM_API_KEY="${GLM_API_KEY}"
-export LIUSHA_LLM_FALLBACK="${LIUSHA_LLM_FALLBACK:-glm}"
 export LIUSHA_LLM_KEY_SECRET="${LIUSHA_LLM_KEY_SECRET}"
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="

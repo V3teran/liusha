@@ -1,7 +1,7 @@
 # liusha 基座 compose：核心 6 服务全容器（生产形态直接用；本地开发见 scripts/dev/up.sh）。
 #
 # ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
-#  A 本地开发：docker compose -f deployments/docker-compose.yml up -d postgres redis
+#  A 本地开发：docker compose up -d postgres redis（compose 文件在仓库根，根 .env 自动加载）
 #    （仅 pg+redis 两容器）+ ./scripts/dev/run-svc.sh 业务进程 host 二进制；
 #    runner 经宿主 docker 拉起第三个容器（沙盒 pentools，warm pool 自动管理）。
 #  B 生产全容器：make prod-up（= 迁移 + 本文件 + docker-compose.prod.yml 叠加 up）。
@@ -41,7 +41,7 @@ services:
   migrate:
     image: liusha/migrate:1.0
     build:
-      context: ..
+      context: .
       dockerfile: deployments/migrate/Dockerfile
     container_name: liusha-migrate
     environment:
@@ -70,7 +70,7 @@ services:
   api:
     image: liusha/api:1.0
     build:
-      context: ..
+      context: .
       dockerfile: cmd/api/Dockerfile
     container_name: liusha-api
     restart: unless-stopped
@@ -92,7 +92,7 @@ services:
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
     volumes:
-      - ../logs:/app/logs
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
   nginx:
     image: liusha/nginx:1.0
     build:
-      context: ..
+      context: .
       dockerfile: deployments/nginx/Dockerfile
     container_name: liusha-nginx
     restart: unless-stopped
@@ -130,7 +130,7 @@ services:
   proxy:
     image: liusha/proxy:1.0
     build:
-      context: ..
+      context: .
       dockerfile: cmd/proxy/Dockerfile
     container_name: liusha-proxy
     restart: unless-stopped
@@ -144,12 +144,9 @@ services:
       LIUSHA_PROXY_CERT_DIR: /app/certs
       # LLM provider key：使用 GLM
       GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
-      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-glm}"
-      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-glm}"
-      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-glm}"
     volumes:
       - liusha-proxy-certs:/app/certs
-      - ../logs:/app/logs
+      - ./logs:/app/logs
     ports:
       - "8888:8888"
     extra_hosts:
@@ -167,11 +164,11 @@ services:
       retries: 3
 
   # runner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
-  # 启动前需设 LIUSHA_DEEPSEEK_API_KEY（默认 LLM provider 的 key）。
+  # GLM_API_KEY 经根 .env 注入（compose 插值）。
   runner:
     image: liusha/runner:1.0
     build:
-      context: ..
+      context: .
       dockerfile: cmd/runner/Dockerfile
     container_name: liusha-runner
     restart: unless-stopped
@@ -183,16 +180,10 @@ services:
       LIUSHA_LOG_LEVEL: info
       # LLM provider api_key：使用 GLM
       GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
-      # LLM 路由覆盖（全部使用 glm）
-      LIUSHA_LLM_LIGHT_PROVIDER: "${LIUSHA_LLM_LIGHT_PROVIDER:-glm}"
-      LIUSHA_LLM_FALLBACK_PROVIDER: "${LIUSHA_LLM_FALLBACK_PROVIDER:-glm}"
-      LIUSHA_LLM_VISION_PROVIDER: "${LIUSHA_LLM_VISION_PROVIDER:-glm}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
-      # eino 迁移：默认走 eino ChatModelAgent 路径；=1 切回旧 react（渐进迁移期退路）
-      LIUSHA_USE_REACT: "${LIUSHA_USE_REACT:-}"
     volumes:
-      - ../logs:/app/logs
+      - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"

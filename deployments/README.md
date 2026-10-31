@@ -27,6 +27,10 @@ make build-pentools # 沙盒镜像（首次/工具变更后）
 要点：runner 是 host 进程，直接用本机 docker 拉沙盒（第三个容器）；
 改代码即重跑 run-svc.sh，无需重建镜像。
 
+环境文件：仓库根 `.env` 是唯一真值——docker compose（docker-compose.yml 在
+仓库根）插值自动加载，run-svc.sh / e2e.sh 亦 source 同一份；模板见
+`.env.example`（复制为 `.env` 填真实 key）。
+
 ## B 生产全容器
 
 ```bash
@@ -37,8 +41,8 @@ make prod-down
 - 核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
 - prod overlay 差异：`LIUSHA_ENV=production`（stdout JSON）、日志格式锁 json；
   文件日志保持开启（logs/ 共享卷是「日志」页的数据面）。
-- 密钥经 `--env-file .env.prod` 注入（API key / SSE cookie secret / LLM key
-  secret / GLM_API_KEY）。
+- 密钥经仓库根 `.env.prod` 注入（`--env-file .env.prod`；与 dev 真值根
+  `.env` 隔离，绝不入 git）。
 
 ## C 单镜像
 

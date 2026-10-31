@@ -4,7 +4,7 @@
 //   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
 //   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
 //   - 仅 LLM provider key（complexity_routes.medium 等）做强制 validate（密钥读取必须有 provider 信息）
-//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔（如 LIUSHA_LLM_FALLBACK）；注意 llm.complexity_routes 是 map，
+//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔；注意 llm.complexity_routes 是 map，
 //     AutomaticEnv 不覆盖单个 map key，改档位 provider 走 yaml 或前端「能力分档」页
 package config
 

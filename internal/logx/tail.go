@@ -90,7 +90,7 @@ func NewReader(dir string) *Reader {
 }
 
 // Dir 返回日志文件目录：LIUSHA_LOG_DIR，缺省 logs（相对进程工作目录）。
-// 容器部署三个业务进程共用一个日志卷（deployments/docker-compose.yml），
+// 容器部署三个业务进程共用一个日志卷（docker-compose.yml），
 // api 进程经它读全体进程文件；同机非容器部署要求各进程同工作目录或同设该变量。
 func Dir() string { return logDir() }
 
