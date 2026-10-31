@@ -100,7 +100,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	// skillstore
 	sk := skillstore.NewStore(pool)
 	if _, err := sk.Create(ctx, skillstore.Skill{
-		Code: "smoke", Category: "tooling", Name: "smoke", Description: "d", Body: "b",
+		Code: "smoke", Category: "tool", Name: "smoke", Description: "d", Body: "b",
 	}); err != nil {
 		t.Fatalf("skill create: %v", err)
 	}

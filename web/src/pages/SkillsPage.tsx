@@ -211,7 +211,7 @@ export default function SkillsPage() {
                           onChange={(e) => patch({ name: e.target.value })}
                         />
                       </Field>
-                      <Field label="分类" hint="tooling / vuln 等目录归类">
+                      <Field label="分类" hint="知识域：vuln（漏洞知识）/ tool（工具使用知识）">
                         <input
                           className={INPUT_CLASS}
                           value={draft.category}

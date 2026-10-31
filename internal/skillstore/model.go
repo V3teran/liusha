@@ -10,7 +10,7 @@ import "time"
 type Skill struct {
 	ID          string    `json:"id"`
 	Code        string    `json:"code"`     // 裸名寻址键（= 种子目录名，如 browser-use / dom-xss）
-	Category    string    `json:"category"` // tooling / vuln
+	Category    string    `json:"category"` // vuln（漏洞知识）/ tool（工具使用知识）
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Body        string    `json:"body"` // Markdown 正文

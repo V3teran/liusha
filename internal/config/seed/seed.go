@@ -197,17 +197,17 @@ func ImportSkillsForce(ctx context.Context, dir string, s *skill.Store) (SkillsS
 
 func strPtr(s string) *string { return &s }
 
-// skillFront 是 skills/**/*.md (如 skills/tooling/browser-use/SKILL.md) frontmatter 的解析目标。
+// skillFront 是 skills/**/*.md (如 skills/tool/browser-use/SKILL.md) frontmatter 的解析目标。
 type skillFront struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	Category    string `yaml:"category"` // tooling / vuln
+	Category    string `yaml:"category"` // vuln（漏洞知识）/ tool（工具使用知识）
 }
 
 // importSkills 扫 dir/**/*.md（递归）同步 skill 表：
 //   - code = SKILL.md 所在目录名（裸名，如 browser-use）——与 agent.skills 声明、
 //     read_skill 寻址同一命名空间
-//   - category = 相对路径首段（tooling/vuln），frontmatter 显式声明优先
+//   - category = 相对路径首段（vuln/tool），frontmatter 显式声明优先
 //   - insert-only：已存在跳过（前端对内置 skill 的正文/启停修改跨重启保留）；
 //     force=true（reseed reset 语义）则 UpsertBuiltin 强制覆盖内置行
 //   - 死行清理：文件里已不存在的内置行（目录改名/删除残留）prune 回收；
@@ -241,7 +241,7 @@ func importSkills(ctx context.Context, dir string, s *skill.Store, force bool) (
 		}
 
 		// code = SKILL.md 所在目录名（裸名）；category = 相对路径首段。
-		// 例：skills/tooling/browser-use/SKILL.md → code=browser-use, category=tooling
+		// 例：skills/tool/browser-use/SKILL.md → code=browser-use, category=tool
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return res, fmt.Errorf("计算相对路径 %s: %w", path, err)

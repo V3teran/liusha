@@ -45,7 +45,7 @@ func testSource() *fakeSource {
 	return &fakeSource{skills: []skillstore.Skill{
 		{ID: "1", Code: "dom-xss", Category: "vuln", Name: "DOM XSS 指南", Description: "d1", Body: "xss正文", Enabled: true},
 		{ID: "2", Code: "bac", Category: "vuln", Name: "BAC 指南", Description: "d2", Body: "bac正文", Enabled: true},
-		{ID: "3", Code: "dead", Category: "tooling", Name: "下线手册", Description: "d3", Body: "dead正文", Enabled: false},
+		{ID: "3", Code: "dead", Category: "tool", Name: "下线手册", Description: "d3", Body: "dead正文", Enabled: false},
 	}}
 }
 
