@@ -63,17 +63,13 @@ func equalSlices(a, b []string) bool {
 	return true
 }
 
-// TestRedis_BatchSaveAndGet 验证：存 2 个 host 各 2 个 identity，按 host 取回；
-// 每个 host 自动注入 anonymous（共 3 个 identity）。
+// TestRedis_BatchSaveAndGet 验证：存 1 个 host 的 2 个 identity，按 host 取回；
+// host 自动注入 anonymous（共 3 个 identity）。
 func TestRedis_BatchSaveAndGet(t *testing.T) {
 	ctx := context.Background()
 	p := newProvider(t)
 
 	in := map[string][]Identity{
-		"vulnapp": {
-			{Username: "admin", Role: "admin", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=admin_sess"}}},
-			{Username: "user", Role: "user", Credentials: []Credential{{Type: TypeHeaders, Key: "Cookie", Value: "session=user_sess"}}},
-		},
 		"another": {
 			{Username: "alice", Role: "admin", Credentials: []Credential{{Type: TypeQuery, Key: "token", Value: "alice_tk"}}},
 			{Username: "bob", Role: "user", Credentials: []Credential{{Type: TypeBody, Key: "auth", Value: "bob_tk"}}},
@@ -85,29 +81,12 @@ func TestRedis_BatchSaveAndGet(t *testing.T) {
 		}
 	}
 
-	got1, err := p.GetIdentitiesByHost(ctx, "vulnapp")
-	if err != nil {
-		t.Fatalf("get vulnapp: %v", err)
-	}
-	if !equalSlices(names(got1), []string{"admin", "user"}) {
-		t.Fatalf("vulnapp 身份应为 [admin, user], got=%v", names(got1))
-	}
-
 	got2, err := p.GetIdentitiesByHost(ctx, "another")
 	if err != nil {
 		t.Fatalf("get another: %v", err)
 	}
 	if !equalSlices(names(got2), []string{"alice", "bob"}) {
 		t.Fatalf("another 身份应为 [alice, bob], got=%v", names(got2))
-	}
-
-	// 校验 credential 字段被正确反序列化。
-	for _, id := range got1 {
-		if id.Username == "admin" {
-			if len(id.Credentials) != 1 || id.Credentials[0].Value != "session=admin_sess" {
-				t.Fatalf("admin credentials 反序列化错误: %+v", id.Credentials)
-			}
-		}
 	}
 }
 

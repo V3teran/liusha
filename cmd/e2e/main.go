@@ -43,9 +43,6 @@ func main() {
 	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8090")
 	apiKey := envx.OrDefault("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
-	// Phase 2: 暂时不需要这些变量（passive 模式专用）
-	// proxyURL := envx.OrDefault("LIUSHA_PROXY_ADDR", "http://localhost:8888")
-	// vulnBase := envx.OrDefault("LIUSHA_VULNAPP_BASE", "http://111.229.193.40:38001")
 
 	activeSel, err := selectProfiles(os.Args[1:])
 	if err != nil {

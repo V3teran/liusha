@@ -41,7 +41,6 @@ fi
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
 export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
-export LIUSHA_VULNAPP_BASE="${LIUSHA_VULNAPP_BASE:-http://111.229.193.40:38001}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
@@ -105,14 +104,14 @@ fi
 
 echo ""
 echo "===== 3/6 关旧 service（按端口找 PID） ====="
-for port in 8001 8888 8090 9090; do
+for port in 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8001 8888 8090 9090; do
+for port in 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
@@ -130,7 +129,7 @@ pkill -f 'dev/run-svc.sh' 2>/dev/null || true
 sleep 1
 pkill -9 -f 'dev/run-svc.sh' 2>/dev/null || true
 sleep 1
-echo "  ✓ 旧 service 已关停（端口 8001/8888/8090/9090 释放 + runner 进程兜底 pkill）"
+echo "  ✓ 旧 service 已关停（端口 8888/8090/9090 释放 + runner 进程兜底 pkill）"
 
 echo ""
 echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="
@@ -151,15 +150,12 @@ echo "  run-svc.sh background PID=${RUN_SVC_PID} (output: /tmp/liusha-run-svc.ou
 echo "  等 healthz 全部上线（最多 ${HEALTHZ_WAIT_SECONDS}s）..."
 deadline=$((SECONDS + HEALTHZ_WAIT_SECONDS))
 while [ $SECONDS -lt $deadline ]; do
-  api_ok=0; runner_ok=0; proxy_ok=0; vulnapp_ok=0
+  api_ok=0; runner_ok=0; proxy_ok=0
   curl -sf -m 2 "${LIUSHA_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
   curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && runner_ok=1
   # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8888 mitm 口是否在听。
   nc -z localhost 8888 2>/dev/null && proxy_ok=1
-  # 靶机 vulnapp 已剥离为独立仓（../vulnapp）：探测 8001 作为提示而非阻塞条件
-  nc -z localhost 8001 2>/dev/null && vulnapp_ok=1
   if [ "$((api_ok + runner_ok + proxy_ok))" -eq 3 ]; then
-    [ "$vulnapp_ok" -eq 1 ] || echo "  ⚠ 靶机 :8001 未起（cd ../vulnapp && go run .）——passive e2e 将无目标"
     echo "  ✓ 3 service 全部 healthy"
     echo ""
     echo "  📊 前端：web/（本仓）→ make run-web（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
@@ -171,7 +167,7 @@ while [ $SECONDS -lt $deadline ]; do
   sleep 2
 done
 if [ $SECONDS -ge $deadline ]; then
-  echo "  ✗ healthz 等待超时（${HEALTHZ_WAIT_SECONDS}s）— api=$api_ok runner=$runner_ok proxy=$proxy_ok vulnapp=$vulnapp_ok"
+  echo "  ✗ healthz 等待超时（${HEALTHZ_WAIT_SECONDS}s）— api=$api_ok runner=$runner_ok proxy=$proxy_ok"
   echo "  → 看 /tmp/liusha-run-svc.out 与 logs/*.stderr"
   exit 1
 fi

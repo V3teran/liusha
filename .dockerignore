@@ -29,7 +29,6 @@ bin
 api
 proxy
 runner
-vulnapp
 e2e
 agent-worker
 liusha-runner

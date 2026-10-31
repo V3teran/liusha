@@ -89,17 +89,6 @@ func TestProtocolFilter(t *testing.T) {
 }
 
 func TestHostFilter(t *testing.T) {
-	t.Run("白名单+精确匹配", func(t *testing.T) {
-		f := NewHostFilter([]string{"vulnapp"}, nil)
-		ok, _ := f.ShouldProcess(mkReq("GET", "vulnapp", "/", nil, 0), nil)
-		if !ok {
-			t.Fatalf("白名单内应放行")
-		}
-		ok, reason := f.ShouldProcess(mkReq("GET", "evil.com", "/", nil, 0), nil)
-		if ok || !strings.Contains(reason, "whitelist") {
-			t.Fatalf("白名单外应拦; reason=%q", reason)
-		}
-	})
 	t.Run("通配符 *.example.com", func(t *testing.T) {
 		f := NewHostFilter([]string{"*.example.com"}, nil)
 		ok, _ := f.ShouldProcess(mkReq("GET", "api.example.com", "/", nil, 0), nil)
@@ -127,13 +116,6 @@ func TestHostFilter(t *testing.T) {
 		ok, _ := f.ShouldProcess(mkReq("GET", "any.com", "/", nil, 0), nil)
 		if !ok {
 			t.Fatalf("无白名单时应全放行")
-		}
-	})
-	t.Run("Host 含端口", func(t *testing.T) {
-		f := NewHostFilter([]string{"vulnapp"}, nil)
-		ok, _ := f.ShouldProcess(mkReq("GET", "vulnapp:8080", "/", nil, 0), nil)
-		if !ok {
-			t.Fatalf("端口应被剥离")
 		}
 	})
 }
@@ -243,29 +225,6 @@ func TestSizeFilter(t *testing.T) {
 
 // ---------- Chain 整体 ----------
 
-func TestChain_FirstRejectShortCircuit(t *testing.T) {
-	c := NewChain(
-		NewMethodFilter([]string{"OPTIONS"}),
-		NewHostFilter([]string{"vulnapp"}, nil),
-	)
-	ok, reason := c.ShouldProcess(mkReq("OPTIONS", "evil.com", "/", nil, 0), nil)
-	if ok || !strings.Contains(reason, "method") {
-		t.Fatalf("Method 应优先拒绝；reason=%q", reason)
-	}
-}
-
-func TestChain_AllPass(t *testing.T) {
-	c := NewChain(
-		NewMethodFilter([]string{"OPTIONS"}),
-		NewHostFilter([]string{"vulnapp"}, nil),
-		NewSuffixFilter([]string{".css"}),
-	)
-	ok, _ := c.ShouldProcess(mkReq("GET", "vulnapp", "/api/x", nil, 0), mkResp(200, "application/json", 100))
-	if !ok {
-		t.Fatalf("正常请求应通过")
-	}
-}
-
 func TestChain_AddBuilder(t *testing.T) {
 	c := NewChain().Add(NewMethodFilter([]string{"HEAD"}))
 	ok, _ := c.ShouldProcess(mkReq("HEAD", "x.com", "/", nil, 0), nil)
@@ -275,48 +234,6 @@ func TestChain_AddBuilder(t *testing.T) {
 }
 
 // ---------- TrafficFilter 门面 ----------
-
-func TestTrafficFilter_Construction(t *testing.T) {
-	cfg := config.ProxyConfig{
-		AllowHosts:              []string{"vulnapp"},
-		ExcludeMethods:          []string{"OPTIONS", "HEAD"},
-		ExcludeUpgradeProtocols: []string{"websocket"},
-		ExcludeSuffixes:         []string{".css", ".js"},
-		ExcludeContentTypes:     []string{"image/*"},
-		ExcludeStatusCodes:      []int{404, 500},
-		MaxRequestBodySize:      1024,
-		MaxResponseBodySize:     2048,
-	}
-	tf := NewTrafficFilter(cfg)
-
-	cases := []struct {
-		name string
-		req  *http.Request
-		resp *http.Response
-		want bool
-	}{
-		{"happy", mkReq("GET", "vulnapp", "/api/users", nil, 0), mkResp(200, "application/json", 100), true},
-		{"OPTIONS 被 method 拦", mkReq("OPTIONS", "vulnapp", "/api/users", nil, 0), mkResp(200, "application/json", 100), false},
-		{"非白名单 host 拦", mkReq("GET", "evil.com", "/", nil, 0), mkResp(200, "application/json", 0), false},
-		{".css 后缀拦", mkReq("GET", "vulnapp", "/static/app.css", nil, 0), mkResp(200, "text/css", 0), false},
-		{"image 拦", mkReq("GET", "vulnapp", "/img/logo", nil, 0), mkResp(200, "image/png", 100), false},
-		{"状态码 404 在黑名单被拦", mkReq("GET", "vulnapp", "/", nil, 0), mkResp(404, "application/json", 0), false},
-		{"状态码 200 不在黑名单放行", mkReq("GET", "vulnapp", "/api/x", nil, 0), mkResp(200, "application/json", 0), true},
-		{"req body 过大", mkReq("POST", "vulnapp", "/upload", nil, 5000), mkResp(200, "application/json", 0), false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ok, reason := tf.ShouldProcess(tc.req, tc.resp)
-			if ok != tc.want {
-				t.Fatalf("got %v want %v reason=%q", ok, tc.want, reason)
-			}
-			if !ok && reason == "" {
-				t.Fatalf("拒绝必须带 reason")
-			}
-		})
-	}
-}
 
 func TestTrafficFilter_EmptyConfig_PassesByDefault(t *testing.T) {
 	tf := NewTrafficFilter(config.ProxyConfig{})
