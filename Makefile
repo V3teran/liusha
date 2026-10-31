@@ -1,4 +1,4 @@
-.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
+.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
 COMPOSE = docker compose
 PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
@@ -28,7 +28,7 @@ prod-up:
 prod-down:
 	$(PROD_COMPOSE) down
 
-# ── 形态 C：单镜像（比赛/受限环境；沙盒依赖宿主 docker.sock + pentools 镜像）──
+# ── 形态 C：单镜像（比赛/受限环境；沙盒依赖宿主 docker.sock + sandbox 镜像）──
 single-build:
 	docker build -f deployments/single/Dockerfile -t liusha/single .
 
@@ -54,7 +54,7 @@ run-api:
 	go run ./cmd/api
 
 # A1 部署方案：runner 跑在 host（开发 + production 当前形态），
-# 用 host 的 docker daemon 起 sandbox 容器。需 host 上有 PG/Redis（`make up`）+ pentools 镜像（`make build-pentools`）。
+# 用 host 的 docker daemon 起 sandbox 容器。需 host 上有 PG/Redis（`make up`）+ sandbox 镜像（`make build-sandbox`）。
 run-runner:
 	go run ./cmd/runner
 
@@ -85,11 +85,11 @@ build-runner:
 	docker build -f cmd/runner/Dockerfile -t liusha/runner:1.0 .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
-# 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，
+# 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/liusha-sandbox-base，
 # 本地只构建 final（ARG BASE_IMAGE 默认取 base:latest）。改 Dockerfile.base/tools.yaml 走 CI。
-build-pentools:
-	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-pentools:latest \
-		-f deployments/tool-images/pentools/Dockerfile.final .
+build-sandbox:
+	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-sandbox:latest \
+		-f deployments/tool-images/sandbox/Dockerfile.final .
 
 test: test-unit test-integration
 

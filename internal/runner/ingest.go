@@ -32,7 +32,7 @@ import (
 // ingestRequest 是沙箱抓流量推送的 JSON 体。
 //
 // 与 proxy.TrafficSnapshot 字段一一对应但有两点差异：
-//   - ID 由本 handler 生成（"cdp-<agentID>-<timestamp>"），不依赖 pentools 端
+//   - ID 由本 handler 生成（"cdp-<agentID>-<timestamp>"），不依赖 sandbox 端
 //   - Duration 单位 ms（避免 nanosecond 跨语言 JSON 精度坑——python json.dumps int 安全）
 //
 // RequestBody/ResponseBody 是 []byte：JSON 里走 base64 字符串（Go encoding/json 约定，

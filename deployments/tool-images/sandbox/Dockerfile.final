@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# pentools：liusha 沙箱镜像（基于 pentools-base）
+# sandbox：liusha 沙箱镜像（基于 liusha-sandbox-base）
 #
-# 基于 pentools-base 基础镜像，只添加：
+# 基于 liusha-sandbox-base 基础镜像，只添加：
 #   - sandbox-server 二进制（Stage 0 编译）
 #   - browser-use/browser-svc.py 薄客户端脚本
 #   - entrypoint 脚本
@@ -10,7 +10,7 @@
 # 镜像大小：与 base 相同 + sandbox-server (~20MB)
 
 # 全局 ARG（在所有 FROM 之前声明，才能在多个 stage 中使用）
-ARG BASE_IMAGE=ghcr.io/v3teran/pentools-base:latest
+ARG BASE_IMAGE=ghcr.io/v3teran/liusha-sandbox-base:latest
 
 # ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
 FROM golang:1.25-alpine AS sandbox-builder
@@ -29,8 +29,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # Layer 7: browser-use 薄客户端（覆盖 base 中的占位符）
-COPY deployments/tool-images/pentools/browser-use /usr/local/bin/browser-use
-COPY deployments/tool-images/pentools/browser-svc.py /usr/local/bin/browser-svc.py
+COPY deployments/tool-images/sandbox/browser-use /usr/local/bin/browser-use
+COPY deployments/tool-images/sandbox/browser-svc.py /usr/local/bin/browser-svc.py
 RUN chmod +x /usr/local/bin/browser-use /usr/local/bin/browser-svc.py
 
 # Layer 12: uvx 入口——base 只装了 uv；browser_use 的 LocalBrowserWatchdog 启动浏览器时

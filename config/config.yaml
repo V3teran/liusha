@@ -186,7 +186,7 @@ runner:
 # （per-agent-run 容器模型下这些参数没有按 session 调整的需求）。
 # 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
-  default_image: ghcr.io/v3teran/liusha-pentools:latest    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-pentools` 同名 tag，docker run 直接命中本地不拉远端。
+  default_image: ghcr.io/v3teran/liusha-sandbox:latest    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-sandbox` 同名 tag，docker run 直接命中本地不拉远端。
   # （原 run_tail_bytes 已删：收归 DB system_setting runtime 组，前端「系统配置」页可热改。）
   # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280

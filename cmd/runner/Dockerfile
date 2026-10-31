@@ -14,6 +14,6 @@ WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY config /app/config
 # skill 运行时事实源 = DB（经三级缓存），不再挂载 skills/ 目录——种子由 api 进程负责。
-COPY deployments/tool-images/pentools/tools.yaml /app/deployments/tool-images/pentools/tools.yaml
+COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
 EXPOSE 9090
 ENTRYPOINT ["/app/runner"]
