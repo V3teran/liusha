@@ -144,11 +144,15 @@ func adjustObjective(ctx context.Context, taskID string, graph *explorationgraph
 	}
 
 	if len(objectives) == 0 {
+		// ck_state_by_kind 要求 objective.state 非空——兜底创建与
+		// ensureRootObjective 同口径落 open 初始态。
+		state := explorationgraph.StateOpen
 		node := explorationgraph.Node{
 			ID:         uuid.New().String(),
 			TaskID:     taskID,
 			Kind:       core.KindObjective,
 			Content:    mustJSON(map[string]string{"description": newGoal}),
+			State:      &state,
 			SourceType: explorationgraph.SourceUser,
 			SourceID:   "control-plane",
 			CreatedAt:  time.Now(),

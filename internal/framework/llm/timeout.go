@@ -20,14 +20,6 @@ type timeoutProvider struct {
 	dynamic func(ctx context.Context) time.Duration
 }
 
-// WithCallTimeout 构造单调用超时装饰器。
-func WithCallTimeout(p Provider, timeout time.Duration) Provider {
-	if p == nil || timeout <= 0 {
-		return p
-	}
-	return &timeoutProvider{inner: p, timeout: timeout}
-}
-
 // WithDynamicCallTimeout 构造「每次调用现读超时」的装饰器：getTimeout 在每次
 // Complete/Stream 发起时调用（调用方接多级缓存，命中为主），返回 <=0 时回退
 // fallback。runner 单步 LLM 看门狗用此变体——runtime.step_llm_timeout_seconds
@@ -76,10 +68,6 @@ func (p *timeoutProvider) Stream(ctx context.Context, req Request) (<-chan Strea
 		}
 	}()
 	return wrapped, nil
-}
-
-func (p *timeoutProvider) CountTokens(ctx context.Context, req Request) (int, error) {
-	return p.inner.CountTokens(ctx, req)
 }
 
 func (p *timeoutProvider) ModelID() string    { return p.inner.ModelID() }

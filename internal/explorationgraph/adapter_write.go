@@ -35,7 +35,7 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	metadata := map[string]interface{}{
 		"task_id": node.TaskID,
 	}
-	// 空值不写入 metadata：让 GraphStore 落回默认值（source_type=system 等）。
+	// 空值不写入 metadata：所有创建点都显式声明来源；无「系统默认来源」语义。
 	if node.SourceType != "" {
 		metadata["source_type"] = string(node.SourceType)
 	}
@@ -100,13 +100,6 @@ func (s *Store) edgeToGraphEdge(edge *Edge) *core.GraphEdge {
 		Relation:  string(edge.Rel),
 		Metadata:  make(map[string]interface{}),
 		CreatedAt: edge.CreatedAt,
-	}
-
-	if len(edge.Attrs) > 0 {
-		var attrs map[string]interface{}
-		if err := json.Unmarshal(edge.Attrs, &attrs); err == nil {
-			graphEdge.Metadata = attrs
-		}
 	}
 
 	return graphEdge

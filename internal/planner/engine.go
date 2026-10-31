@@ -39,6 +39,10 @@ type Engine struct {
 	// nil=无黑板）。黑板的核心价值是规划者消费执行者的经验——没有它，
 	// 黑板退化成 executor 的自说自话。
 	insightsDigest func(ctx context.Context) []string
+
+	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
+	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
+	toolWrap func(registry.Tool) registry.Tool
 }
 
 // AgentBrief 是团队名册的一行：code 寻址键 + 展示名 + 调度摘要。
@@ -104,6 +108,12 @@ func (i *Engine) WithComplexity(complexity string) *Engine {
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
 func (i *Engine) WithThoughts(tap reasoning.Tap) *Engine {
 	i.thoughts = tap
+	return i
+}
+
+// WithToolWrapper 注入共享拦截链包装器（cognition 传 reg.WrapTool；nil=不包装）。
+func (i *Engine) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Engine {
+	i.toolWrap = fn
 	return i
 }
 
@@ -195,13 +205,19 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 
 	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
 	react := runtime.NewReActRuntime()
+	registerGraphTool := func(tool registry.Tool) error {
+		if i.toolWrap != nil {
+			tool = i.toolWrap(tool)
+		}
+		return react.RegisterTool(tool)
+	}
 	if registry.Allows(functionTools, "observe_state") {
-		if err := react.RegisterTool(NewObserveStateTool(graph)); err != nil {
+		if err := registerGraphTool(NewObserveStateTool(graph)); err != nil {
 			return nil, fmt.Errorf("注册 observe_state 失败: %w", err)
 		}
 	}
 	if registry.Allows(functionTools, "evaluate_progress") {
-		if err := react.RegisterTool(NewEvaluateProgressTool(graph)); err != nil {
+		if err := registerGraphTool(NewEvaluateProgressTool(graph)); err != nil {
 			return nil, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
 		}
 	}
@@ -245,10 +261,12 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
     {
       "type": "reconnaissance/analysis/testing",
       "instruction": "具体要做什么",
-      "complexity": "trivial/moderate/complex",
+      "complexity": "simple/moderate/complex",
       "priority": "low/medium/high/critical",
+      "reason": "为什么做（基于哪条观察）",
       "depends_on": [],
-      "triggered_by": []
+      "triggered_by": [],
+      "metadata": {}
     }
   ]
 }

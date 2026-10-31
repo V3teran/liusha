@@ -208,10 +208,6 @@ func (p *instrumentedProvider) finishStreamRecord(
 	return rec
 }
 
-func (p *instrumentedProvider) CountTokens(ctx context.Context, req Request) (int, error) {
-	return p.inner.CountTokens(ctx, req)
-}
-
 func (p *instrumentedProvider) ModelID() string    { return p.inner.ModelID() }
 func (p *instrumentedProvider) ProviderID() string { return p.inner.ProviderID() }
 

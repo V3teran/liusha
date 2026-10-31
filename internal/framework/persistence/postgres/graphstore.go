@@ -1,3 +1,4 @@
+// Package postgres 是 framework/core 图存储接口的 PostgreSQL 实现（生产装配唯一后端）。
 package postgres
 
 import (

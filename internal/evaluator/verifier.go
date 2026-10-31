@@ -290,17 +290,13 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 
 	// 10. 在假设节点上回写审判标记
 	mark := hypothesisMark{
-		verID:        verID,
-		outcome:      outcome,
-		confirmed:    verdict.Verdict == VerdictConfirmed,
-		tier:         tier,
-		promotedNode: "",
+		outcome:   outcome,
+		confirmed: verdict.Verdict == VerdictConfirmed,
 	}
 	switch {
 	case verdict.Verdict == VerdictRefuted:
 		mark.refuteReason = RefuteClaimInvalid
 	case duplicate != nil:
-		mark.promotedNode = duplicate.ID
 		mark.duplicateOf = duplicate.ID
 	}
 	v.markHypothesisNode(ctx, a, mark)
@@ -449,7 +445,7 @@ func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 		"phase":             "prerun",
 	})
 
-	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+	_, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
@@ -463,10 +459,8 @@ func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 	}
 
 	v.markHypothesisNode(ctx, a, hypothesisMark{
-		verID:        verID,
 		outcome:      explorationgraph.OutcomeRefuted,
 		confirmed:    false,
-		tier:         verificationTier(a.Primitives),
 		refuteReason: RefuteAssertNotDiscriminative,
 	})
 	if v.logger != nil {
@@ -489,7 +483,7 @@ func (v *PromotionGate) refuteEarly(
 	tier := verificationTier(a.Primitives)
 	evaluation := withReplayLog(res.Evaluation, tier, verdict, reasoning, replays)
 
-	verID, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+	_, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
@@ -506,11 +500,8 @@ func (v *PromotionGate) refuteEarly(
 
 	if a.NodeID != "" {
 		mark, _ := json.Marshal(map[string]interface{}{
-			"verification_id":      verID,
 			"verification_outcome": explorationgraph.OutcomeRefuted,
-			"verification_tier":    tier,
 			"refute_reason":        RefuteNotReproducible,
-			"verification_at":      time.Now().Format(time.RFC3339),
 			"confidence":           explorationgraph.ConfidenceRefuted,
 			"refuted_by":           "machine_guard",
 		})

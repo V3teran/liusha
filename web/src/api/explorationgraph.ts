@@ -22,8 +22,7 @@ export interface GraphNode {
 export interface GraphEdge {
   src_id: string
   dst_id: string
-  rel: 'generates' | 'depends_on' | 'triggers'
-  attrs?: Record<string, unknown>
+  rel: 'generates' | 'triggers'
   created_at: string
 }
 
@@ -37,4 +36,22 @@ export async function getConversationGraph(conversationId: string): Promise<Conv
 export interface ConversationGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
+}
+
+export interface Verification {
+  id: string
+  task_id: string
+  node_id: string
+  primitives: unknown
+  outcome: 'confirmed' | 'refuted'
+  evaluation: unknown
+  duration_ms: number
+  created_at: string
+}
+
+/**
+ * 获取会话的验证审计链（每次复现裁决的机器证据；node_id 回挂图节点）
+ */
+export async function getConversationVerifications(conversationId: string): Promise<{ verifications: Verification[] }> {
+  return get(`/conversations/${conversationId}/exploration/verifications`)
 }

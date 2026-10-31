@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,17 +17,16 @@ type ExplorationGraphAPI interface {
 
 	// ListEdgesByConversationID 按 conversation_id 查询边（经会话关联的 task）
 	ListEdgesByConversationID(ctx context.Context, conversationID string) ([]explorationgraph.Edge, error)
+
+	// ListVerificationsByConversationID 按 conversation_id 查询验证审计链
+	// （每条记录的 node_id 指向被裁决的假设节点）
+	ListVerificationsByConversationID(ctx context.Context, conversationID string, limit int) ([]explorationgraph.Verification, error)
 }
 
 // GraphResponse 是完整图谱响应
 type GraphResponse struct {
 	Nodes []explorationgraph.Node `json:"nodes"`
 	Edges []explorationgraph.Edge `json:"edges"`
-}
-
-// NodesResponse 是按类型筛选节点响应
-type NodesResponse struct {
-	Nodes []explorationgraph.Node `json:"nodes"`
 }
 
 // getConversationGraph 处理 GET /api/conversations/{id}/exploration/graph
@@ -57,5 +57,29 @@ func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 			Nodes: nodes,
 			Edges: edges,
 		})
+	}
+}
+
+// getConversationVerifications 处理 GET /api/conversations/{id}/exploration/verifications
+// 返回本会话任务的验证审计链（坐实与证伪的机器证据，node_id 回挂图节点）。
+func getConversationVerifications(api ExplorationGraphAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conversationID := c.Param("id")
+		if conversationID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "conversation_id 不能为空"})
+			return
+		}
+		limit := 200
+		if l := c.Query("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		verifications, err := api.ListVerificationsByConversationID(c.Request.Context(), conversationID, limit)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"verifications": verifications})
 	}
 }

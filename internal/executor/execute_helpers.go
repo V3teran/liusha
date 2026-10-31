@@ -93,7 +93,6 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		MaxTokens:                  4000,
 		MessageModifierChain:       runtime.NewDefaultModifierChain(e.modifierWindow), // 系统配置 compaction 组；0=内置默认 15
 		MiddlewareChain:            middlewareChain,
-		TaskID:                     action.TaskID,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
 		OutputFormatSchema: `请输出以下JSON格式：

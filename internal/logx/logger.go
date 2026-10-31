@@ -38,15 +38,6 @@ func New(service string) zerolog.Logger {
 		Logger()
 }
 
-// newWith 仅供单测注入 writer 与显式形态使用，不读 LIUSHA_LOG_DIR/TO_FILE。
-func newWith(w io.Writer, env string) zerolog.Logger {
-	applyGlobals(loadConfig())
-	if env == "development" {
-		return zerolog.New(newConsoleWriter(w, true)).With().Timestamp().Logger()
-	}
-	return zerolog.New(w).With().Timestamp().Logger()
-}
-
 const (
 	serviceField  = "service"
 	instanceField = "instance"

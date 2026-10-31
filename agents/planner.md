@@ -60,6 +60,7 @@ Objective (新的子目标) → 循环
       "priority": "critical|high|medium|low",
       "reason": "为什么做（基于哪条观察）",
       "depends_on": ["<前置action的ID，只引用图中真实存在的UUID>"],
+      "triggered_by": ["<滋生本动作的Result的ID，因果不成立就不填>"],
       "metadata": {}
     }
   ]

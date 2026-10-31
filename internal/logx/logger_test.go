@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
 
 func TestNew_JSONIncludesService(t *testing.T) {
@@ -205,4 +208,13 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 			t.Errorf("service=%s message = %v", want, got["message"])
 		}
 	}
+}
+
+// newWith 仅供本包单测注入 writer 与显式形态使用，不读 LIUSHA_LOG_DIR/TO_FILE。
+func newWith(w io.Writer, env string) zerolog.Logger {
+	applyGlobals(loadConfig())
+	if env == "development" {
+		return zerolog.New(newConsoleWriter(w, true)).With().Timestamp().Logger()
+	}
+	return zerolog.New(w).With().Timestamp().Logger()
 }

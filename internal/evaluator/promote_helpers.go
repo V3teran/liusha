@@ -139,13 +139,12 @@ func (v *PromotionGate) recordVerification(
 	return verID, nil
 }
 
-// hypothesisMark 是假设节点审判标记的完整载荷：验证溯源、结论、成色与归属。
+// hypothesisMark 是假设节点审判标记的载荷：结论与归属。
+// 溯源细节（验证记录 ID/档位/时刻）以 exploration_verification 行为权威事实，
+// 节点 metadata 只留结论键——mark 里不重复落指针与时间戳。
 type hypothesisMark struct {
-	verID        string
 	outcome      explorationgraph.VerifyOutcome
-	promotedNode string // 本次新建或沿用的 result 节点 ID
 	confirmed    bool
-	tier         string
 	refuteReason string
 	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
 }
@@ -168,17 +167,11 @@ func (v *PromotionGate) markHypothesisNode(
 	}
 
 	mark := map[string]interface{}{
-		"verification_id":      m.verID,
 		"verification_outcome": m.outcome,
-		"verification_tier":    m.tier,
-		"verification_at":      time.Now().Format(time.RFC3339),
 		"confidence":           confidence,
 	}
 	if m.refuteReason != "" {
 		mark["refute_reason"] = m.refuteReason
-	}
-	if m.confirmed && m.promotedNode != "" {
-		mark["promoted_node"] = m.promotedNode
 	}
 	if m.duplicateOf != "" {
 		mark["duplicate_of"] = m.duplicateOf

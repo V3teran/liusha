@@ -109,12 +109,6 @@ func (s *Store) convertGraphEdgesToEdges(graphEdges []*core.GraphEdge, taskID st
 			CreatedAt: ge.CreatedAt,
 		}
 
-		if len(ge.Metadata) > 0 {
-			if attrs, err := json.Marshal(ge.Metadata); err == nil {
-				edge.Attrs = attrs
-			}
-		}
-
 		edges = append(edges, edge)
 	}
 	return edges

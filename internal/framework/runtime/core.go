@@ -67,20 +67,14 @@ func (r *reactRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResu
 	// 墙钟耗时覆盖所有退出路径（含错误/取消/迭代上限），defer 挂在 result 初始化后。
 	defer func() { result.ElapsedMs = time.Since(start).Milliseconds() }()
 
-	// 3. 恢复或初始化执行状态
-	startIteration, err := r.restoreFromCheckpoint(ctx, config, result)
-	if err != nil {
-		return nil, err
-	}
+	// 3. 初始化执行状态
 	r.consecutiveToolFailures = 0
 	r.consecutiveEmptyResponses = 0
-	if startIteration == 1 {
-		r.initializeNewExecution(config, result)
-	}
+	r.initializeNewExecution(config, result)
 
-	// 4. ReAct 循环：从 startIteration 开始迭代
+	// 4. ReAct 循环
 	unbounded := config.MaxIterations <= 0
-	for iteration := startIteration; unbounded || iteration <= config.MaxIterations; iteration++ {
+	for iteration := 1; unbounded || iteration <= config.MaxIterations; iteration++ {
 		// 4.1 检查上下文取消
 		if err := ctx.Err(); err != nil {
 			result.Status = ReActStatusCancelled
@@ -98,24 +92,21 @@ func (r *reactRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResu
 			config.OnIteration(iteration, trace.Status)
 		}
 
-		// 4.3 处理检查点
-		r.handleCheckpoint(ctx, config, result, iteration, trace)
-
-		// 4.4 处理错误
+		// 4.3 处理错误
 		if err != nil {
 			result.Status = ReActStatusError
 			result.Error = err
 			return result, err
 		}
 
-		// 4.5 检查是否应该停止
+		// 4.4 检查是否应该停止
 		if shouldStop {
 			// 正常停止时强制输出结构化总结
 			r.handleNormalCompletion(ctx, config, result)
 			break
 		}
 
-		// 4.6 检查是否达到最大迭代次数
+		// 4.5 检查是否达到最大迭代次数
 		if !unbounded && iteration >= config.MaxIterations {
 			result.Status = ReActStatusMaxIterations
 			r.handleMaxIterationsReached(ctx, config, result)

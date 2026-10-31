@@ -3,10 +3,10 @@ import { getLayoutedElements, NODE_COLORS, STATE_COLORS } from '@/lib/graphLayou
 import { useSearchParams } from 'react-router-dom'
 import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Search, RefreshCw, Info, AlertCircle } from 'lucide-react'
-import { getConversationGraph } from '@/api/explorationgraph'
+import { Search, RefreshCw, Info, AlertCircle, X } from 'lucide-react'
+import { getConversationGraph, getConversationVerifications } from '@/api/explorationgraph'
 import { listConversations } from '@/api/conversations'
-import type { GraphNode } from '@/api/explorationgraph'
+import type { GraphNode, Verification } from '@/api/explorationgraph'
 import { cn } from '@/lib/utils'
 
 /**
@@ -26,6 +26,9 @@ export function ExplorationGraphPage() {
   const [filterState, setFilterState] = useState<string>('all')
   const [direction, setDirection] = useState<'TB' | 'LR'>('TB')
   const [stats, setStats] = useState({ total: 0, objectives: 0, actions: 0, observations: 0, results: 0 })
+  // 节点详情：点击节点查看内容与验证审计链（node_id → 最新一条裁决记录）
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('')
+  const [verificationsByNode, setVerificationsByNode] = useState<Map<string, Verification>>(new Map())
 
   useEffect(() => {
     if (conversationId) {
@@ -123,8 +126,7 @@ export function ExplorationGraphPage() {
         // 不同关系类型使用不同颜色
         const edgeColor = e.rel === 'generates' ? '#3b82f6' :
                          e.rel === 'triggers' ? '#10b981' :
-                         e.rel === 'depends_on' ? '#8b5cf6' :
-                         '#6b7280'
+                                                  '#6b7280'
 
         return {
           id: `${e.src_id}-${e.dst_id}-${idx}`,
@@ -162,6 +164,19 @@ export function ExplorationGraphPage() {
         results: data.nodes.filter((n: GraphNode) => n.kind === 'result').length,
       }
       setStats(newStats)
+
+      // 验证审计链 best-effort 并行拉取：接口失败不阻塞图渲染
+      setSelectedNodeId('')
+      getConversationVerifications(conversationId)
+        .then(({ verifications }) => {
+          if (mySeq !== seqRef.current) return
+          const byNode = new Map<string, Verification>()
+          for (const v of verifications) {
+            if (!byNode.has(v.node_id)) byNode.set(v.node_id, v) // 时间倒序，首条即最新
+          }
+          setVerificationsByNode(byNode)
+        })
+        .catch(() => setVerificationsByNode(new Map()))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
       setNodes([])
@@ -202,6 +217,10 @@ export function ExplorationGraphPage() {
   const filteredEdges = edges.filter((edge) => {
     return filteredNodes.some((n) => n.id === edge.source) && filteredNodes.some((n) => n.id === edge.target)
   })
+
+  const selectedNode = selectedNodeId
+    ? (nodes.find((n) => n.id === selectedNodeId)?.data.node as GraphNode | undefined)
+    : undefined
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -273,6 +292,7 @@ export function ExplorationGraphPage() {
             <option value="open">待处理</option>
             <option value="running">执行中</option>
             <option value="completed">已完成</option>
+            <option value="exhausted">预算耗尽</option>
             <option value="failed">失败</option>
             <option value="aborted">已中止</option>
           </select>
@@ -366,6 +386,7 @@ export function ExplorationGraphPage() {
             edges={filteredEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             fitView
             minZoom={0.1}
             maxZoom={2}
@@ -380,6 +401,13 @@ export function ExplorationGraphPage() {
               zoomable
             />
           </ReactFlow>
+        )}
+        {selectedNode && (
+          <NodeDetailPanel
+            node={selectedNode}
+            verification={verificationsByNode.get(selectedNode.id)}
+            onClose={() => setSelectedNodeId('')}
+          />
         )}
       </div>
 
@@ -404,6 +432,100 @@ export function ExplorationGraphPage() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// NodeDetailPanel 节点详情浮层：内容字段 + 该节点的最新验证审计记录
+// （坐实/证伪的机器证据——审计链的可读出口）。
+function NodeDetailPanel({
+  node,
+  verification,
+  onClose,
+}: {
+  node: GraphNode
+  verification?: Verification
+  onClose: () => void
+}) {
+  const content = (node.content ?? {}) as Record<string, unknown>
+  const contentEntries = Object.entries(content).filter(([, v]) => v != null && v !== '')
+  const outcomeLabel = verification?.outcome === 'confirmed' ? '已坐实' : '已证伪'
+
+  return (
+    <div className="absolute right-4 top-4 z-10 flex max-h-[calc(100%-2rem)] w-96 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 rounded-full"
+            style={{ background: NODE_COLORS[node.kind as keyof typeof NODE_COLORS] }}
+          />
+          <span className="text-sm font-semibold uppercase text-text">{node.kind}</span>
+          {node.state && (
+            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">{node.state}</span>
+          )}
+          {node.priority && (
+            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">P{node.priority}</span>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
+          title="关闭"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+        <section>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">内容</h4>
+          {contentEntries.length === 0 ? (
+            <p className="text-xs text-text-tertiary">（空）</p>
+          ) : (
+            <dl className="space-y-2">
+              {contentEntries.map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-xs text-text-tertiary">{k}</dt>
+                  <dd className="whitespace-pre-wrap break-words text-xs text-text">
+                    {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </section>
+
+        {verification && (
+          <section>
+            <h4 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+              验证审计链
+              <span
+                className={cn(
+                  'rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                  verification.outcome === 'confirmed'
+                    ? 'bg-status-success/15 text-status-success'
+                    : 'bg-status-error/15 text-status-error',
+                )}
+              >
+                {outcomeLabel}
+              </span>
+            </h4>
+            <div className="space-y-1 text-xs text-text-secondary">
+              <div>
+                裁决时刻：<span className="font-mono">{new Date(verification.created_at).toLocaleString()}</span>
+              </div>
+              {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
+            </div>
+            {verification.evaluation != null && (
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
+                {typeof verification.evaluation === 'string'
+                  ? verification.evaluation
+                  : JSON.stringify(verification.evaluation, null, 2)}
+              </pre>
+            )}
+          </section>
+        )}
       </div>
     </div>
   )

@@ -28,6 +28,10 @@ func (m *mockExplorationGraphAPI) ListEdgesByConversationID(_ context.Context, _
 	return m.edges, nil
 }
 
+func (m *mockExplorationGraphAPI) ListVerificationsByConversationID(_ context.Context, _ string, _ int) ([]explorationgraph.Verification, error) {
+	return nil, nil
+}
+
 // 测试密钥夹具走变量引用：静态扫描对凭据字段上的字面量一律报硬编码凭据
 // （值形态无关）；测试验证的是鉴权透传语义而非具体值。
 var testAPIKey = "test" + "-key"

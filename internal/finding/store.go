@@ -31,12 +31,11 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// 0059 加 depends_on uuid[]（组合漏洞依赖：c.depends_on = [a.id, b.id]）。
 // 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
 	"agent_run_id, source_traffic_id, host, severity, summary, target, evaluation, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
-	"depends_on::text[], status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
+	"status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
 // Save 按 (task_id, dedup_key) UPSERT 一行 finding。
 //
@@ -67,23 +66,18 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	// 宁可误判不漏判），单次扫描（task）内去重。
 	// 多 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
-	// depends_on 是 uuid[]，empty slice → DEFAULT '{}'（PG 数组默认值）
-	deps := f.DependsOn
-	if deps == nil {
-		deps = []string{}
-	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
 			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evaluation,
-			 cwe_id, owasp_category, remediation, depends_on, repro)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12::uuid[], $13)
+			 cwe_id, owasp_category, remediation, repro)
+		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12)
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.TaskID,
 		f.AgentRunID, f.SourceTrafficID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evaluation,
-		f.CWEID, f.OWASPCategory, f.Remediation, deps, f.Repro)
+		f.CWEID, f.OWASPCategory, f.Remediation, f.Repro)
 
 	var saved Finding
 	if err := scan(row, &saved); err != nil {
@@ -299,26 +293,24 @@ func validStatus(s string) bool {
 }
 
 // ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
-// 不用程序化前缀：colsSelect 含 COALESCE(...) / depends_on::text[] 等内部带逗号的表达式，
+// 不用程序化前缀：colsSelect 含 COALESCE(...) 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 _id, source。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
-	"f.depends_on::text[], f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
+	"f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
 // scanLedger 扫 ledgerCols 列序 + 末尾 _id, source（比 scan() 多两列）。
 func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	var agentID *string
 	var sourceTrafficID *int64
-	var dependsOn []string
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&out.ID, &out.TaskID,
 		&agentID, &sourceTrafficID, &out.Host, &out.Severity,
 		&out.Summary, &out.Target, &out.Evaluation,
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
-		&dependsOn,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt, &out.Seq, &out.Repro,
 		&out.Source,
@@ -327,25 +319,21 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	}
 	out.AgentRunID = agentID
 	out.SourceTrafficID = sourceTrafficID
-	out.DependsOn = dependsOn
 	out.TriagedAt = triagedAt
 	return nil
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
 // agentID / sourceTrafficID 用指针接住 NULL；AgentRunID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
-// DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
 func scan(r db.RowScanner, f *Finding) error {
 	var agentID *string
 	var sourceTrafficID *int64
-	var dependsOn []string
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
 		&agentID, &sourceTrafficID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evaluation,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
-		&dependsOn,
 		&f.Status, &f.TriageNote, &triagedAt,
 		&f.CreatedAt, &f.Seq, &f.Repro,
 	); err != nil {
@@ -353,7 +341,6 @@ func scan(r db.RowScanner, f *Finding) error {
 	}
 	f.AgentRunID = agentID
 	f.SourceTrafficID = sourceTrafficID
-	f.DependsOn = dependsOn
 	f.TriagedAt = triagedAt
 	return nil
 }

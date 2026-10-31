@@ -32,20 +32,6 @@ const (
 // ErrNoAPIKey 表示 JINA_API_KEY 未配置——调用方据此降级，不 fail-fast。
 var ErrNoAPIKey = errors.New("embedding: JINA_API_KEY 未配置")
 
-// Embedder 把文本编码为向量。窄接口，便于 mock。
-type Embedder interface {
-	// EmbedPassage 编码入库文本（task=retrieval.passage）。
-	EmbedPassage(ctx context.Context, texts []string) ([][]float32, error)
-	// EmbedQuery 编码检索 query（task=retrieval.query）。
-	EmbedQuery(ctx context.Context, text string) ([]float32, error)
-}
-
-// Reranker 对候选文档按与 query 的相关性重排，返回按相关性降序的原始下标。
-type Reranker interface {
-	// Rerank 返回 docs 的下标切片，按相关性从高到低排序，长度 ≤ topK。
-	Rerank(ctx context.Context, query string, docs []string, topK int) ([]int, error)
-}
-
 // Client 是 Jina 的 Embedder + Reranker 实现。
 type Client struct {
 	apiKey      string

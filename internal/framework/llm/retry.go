@@ -241,26 +241,3 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
 	return r.primary.Stream(ctx, req)
 }
-
-// CountTokens 走与 Complete 相同的分类策略（一次退避重试）。
-func (r *retryProvider) CountTokens(ctx context.Context, req Request) (int, error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	n, err := r.primary.CountTokens(ctx, req)
-	if err == nil {
-		return n, nil
-	}
-	if Classify(err) == ClassOther {
-		return 0, err
-	}
-	// 退避表由调用方填齐（Router 兜 DefaultRetryOptions）；防御空表取 0 间隔。
-	var backoff time.Duration
-	if len(r.opts.Backoff5xx) > 0 {
-		backoff = r.opts.Backoff5xx[0]
-	}
-	if err := SleepCtx(ctx, backoff); err != nil {
-		return 0, err
-	}
-	return r.primary.CountTokens(ctx, req)
-}

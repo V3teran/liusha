@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
 )
@@ -91,12 +90,6 @@ type ReActConfig struct {
 	// 中间件链（在每次迭代前后执行，用于检测循环、目标偏离等异常）
 	MiddlewareChain *MiddlewareChain
 
-	// Checkpoint 支持
-	CheckpointPolicy      CheckpointPolicy  // 何时保存检查点（nil 表示不保存）
-	Checkpointer          core.Checkpointer // 检查点存储（nil 表示不保存）
-	TaskID                string            // 关联任务 ID（用于检查点）
-	RestoreFromCheckpoint core.CheckpointID // 从指定检查点恢复（空表示新执行）
-
 	// 结构化输出格式（可选）
 	// 当 LLM 自然停止但输出格式不符合预期时，用于强制要求输出特定格式
 	// 如果为空，使用通用的文本总结格式
@@ -138,16 +131,9 @@ type ReActResult struct {
 	// 执行轨迹（每次迭代的详情）
 	Trace []*IterationTrace
 
-	// Checkpoint 追踪
-	CheckpointID  core.CheckpointID   // 最后保存的检查点 ID
-	CheckpointIDs []core.CheckpointID // 所有已保存的检查点 ID
-	// LastCheckpointError 是最近一次检查点保存失败的原因（nil=全部成功）。
-	// 检查点为 best-effort：失败不中断 ReAct，但不无声丢弃。
-	LastCheckpointError error
-
-	// 恢复信息
-	RestoredFromCheckpoint core.CheckpointID // 从哪个检查点恢复（空表示新执行）
-	RestoredIteration      int               // 恢复时的起始迭代（0 表示新执行）
+	// InternalError 是运行时内部非致命错误的最近一次记录（nil=无）。
+	// 此类错误不中断 ReAct（如强制结构化输出失败），但不无声丢弃。
+	InternalError error
 }
 
 // ReActStatus 执行状态

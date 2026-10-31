@@ -69,7 +69,6 @@ type Handler struct {
 	EventPublisher *convstream.Publisher
 
 	Graph        *explorationgraph.Store
-	Checkpointer core.Checkpointer
 	EventBus     bus.EventBus // 统一事件总线
 	ControlPlane *controlplane.Store
 }

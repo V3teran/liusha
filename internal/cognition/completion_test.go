@@ -87,3 +87,18 @@ func TestCompletionDetector_PauseFreezesAutoCompletion(t *testing.T) {
 
 	d2.Resume()
 }
+
+// checkNow 同步执行一次完成判定（测试的确定性驱动入口；生产走 Start 循环）。
+func (d *CompletionDetector) checkNow() (Result, bool) {
+	return d.checkCompletion()
+}
+
+// feedEvent 直接喂事件给检测器（测试绕过 bus 订阅注入；与 Start 共用 handleEvent）。
+func (d *CompletionDetector) feedEvent(event bus.Event) {
+	d.handleEvent(event)
+}
+
+// stats 获取当前统计快照（非阻塞，测试断言用）。
+func (d *CompletionDetector) stats() Result {
+	return d.makeResult("in_progress")
+}

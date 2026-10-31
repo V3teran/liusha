@@ -33,7 +33,6 @@ func (h *Handler) runCognition(
 		Graph:        h.Graph,
 		EventBus:     h.EventBus,
 		ControlPlane: h.ControlPlane,
-		Checkpointer: h.Checkpointer,
 		CfgStore:     h.CfgStore,
 		Router:       h.Router,
 		Logger:       taskLogger,

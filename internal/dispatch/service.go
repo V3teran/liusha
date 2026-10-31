@@ -475,9 +475,17 @@ type RoleRouter struct {
 
 // providerGen 把已带 retry/fallback 的 Provider 适配成 Generator 形状
 // （chat/qa/intent 的最小依赖接口）。
-type providerGen struct{ p fwllm.Provider }
+// providerGen 是 RoleRouter 解析出的生成器：Provider 已在 Router 侧包好
+// retry/fallback，audit 归属（Role）随生成器携带——ctx 在调用时注入。
+type providerGen struct {
+	p         fwllm.Provider
+	auditRole string // llm_invocation.role 标签（inspector 等；api 侧调用无 task/run 归属）
+}
 
 func (g providerGen) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
+	if g.auditRole != "" {
+		ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{Role: g.auditRole})
+	}
 	resp, err := g.p.Complete(ctx, fwllm.Request{Messages: msgs, Tools: tools})
 	if err != nil {
 		return fwllm.Result{}, err
@@ -501,6 +509,8 @@ func (r *RoleRouter) generateStream(ctx context.Context, role string, msgs []fwl
 	if err != nil {
 		return fwllm.Result{}, err
 	}
+	// 审计标签：api 侧调用无 task/run 归属，Role 标签区分 chat/qa/意图分类等路径。
+	ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{Role: role})
 	ch, err := p.Stream(ctx, fwllm.Request{Messages: msgs, Tools: tools})
 	if err != nil {
 		if errors.Is(err, fwllm.ErrStreamingUnsupported) {
@@ -525,7 +535,7 @@ func (r *RoleRouter) generator(ctx context.Context, role string) (providerGen, e
 	if err != nil {
 		return providerGen{}, err
 	}
-	return providerGen{p: p}, nil
+	return providerGen{p: p, auditRole: role}, nil
 }
 
 // GenerateStream 满足 chat/qa.Deps：流式生成（inspector 档），正文/思考增量分别回调广播。

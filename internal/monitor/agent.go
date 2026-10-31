@@ -14,7 +14,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/monitor/metrics"
@@ -29,7 +28,8 @@ type Agent struct {
 	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
 	eventBus     bus.EventBus
-	provider     llm.Provider
+	router       *llm.Router // 每次评估现取 provider——配置/密钥变更经 30s TTL 对本任务生效
+	complexity   llm.Complexity
 	reactRuntime runtime.ReActRuntime
 	interval     time.Duration
 	logger       zerolog.Logger
@@ -37,10 +37,6 @@ type Agent struct {
 	systemPrompt  string // 角色章程（agent.system_prompt；空=不渲染）
 	maxIt         int    // ReAct 迭代上限（0=不设限）
 	messageWindow int    // ReAct 滚动窗口条数（0=内置默认 10）
-
-	// Checkpoint 系统
-	checkpointer     core.Checkpointer
-	checkpointPolicy runtime.CheckpointPolicy
 
 	// 时间序列指标收集器
 	metricsCollector *metrics.Collector
@@ -52,7 +48,8 @@ type Config struct {
 	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph      *explorationgraph.Store
 	EventBus   bus.EventBus
-	Provider   llm.Provider
+	Router     *llm.Router // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
+	Complexity string      // LLM 档位（agent.complexity，simple|medium|complex）
 	Interval   time.Duration // 评估间隔，默认 6 分钟
 	Logger     zerolog.Logger
 
@@ -75,10 +72,6 @@ type Config struct {
 	SystemPrompt  string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Thoughts      reasoning.Tap // 思考流出口（认知循环注入；nil=不流式）
-
-	// Checkpoint 配置（可选）
-	Checkpointer     core.Checkpointer        // nil 表示禁用 checkpoint
-	CheckpointPolicy runtime.CheckpointPolicy // nil 使用默认策略
 }
 
 // New 创建 Monitor Agent 实例。
@@ -113,26 +106,19 @@ func New(cfg Config) *Agent {
 		}
 	}
 
-	// 默认 Checkpoint 策略：每 3 次迭代保存（Monitor 迭代少）
-	checkpointPolicy := cfg.CheckpointPolicy
-	if checkpointPolicy == nil && cfg.Checkpointer != nil {
-		checkpointPolicy = runtime.NewIterationCheckpointPolicy(3)
-	}
-
 	return &Agent{
 		taskID:           cfg.TaskID,
 		agentRunID:       cfg.AgentRunID,
 		graph:            cfg.Graph,
 		eventBus:         cfg.EventBus,
-		provider:         cfg.Provider,
+		router:           cfg.Router,
+		complexity:       llm.ParseComplexity(cfg.Complexity),
 		reactRuntime:     reactRuntime,
 		interval:         interval,
 		logger:           cfg.Logger,
 		systemPrompt:     cfg.SystemPrompt,
 		maxIt:            cfg.MaxIterations,
 		messageWindow:    cfg.MessageWindow, // 0 由使用点回退内置默认 10
-		checkpointer:     cfg.Checkpointer,
-		checkpointPolicy: checkpointPolicy,
 		metricsCollector: metricsCollector,
 		thoughts:         cfg.Thoughts,
 	}
@@ -211,21 +197,30 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	// 构建系统提示
 	systemPrompt := a.buildSystemPrompt()
 
+	// provider 每次评估现取：agent.complexity 档位经 Router 解析，配置/密钥
+	// 变更经 30s TTL 对运行中任务生效（与 planner/executor/evaluator 同口径）。
+	provider, err := a.router.For(ctx, a.complexity)
+	if err != nil {
+		return fmt.Errorf("monitor: 获取 provider: %w", err)
+	}
+
 	// 配置 ReAct 运行
 	config := &runtime.ReActConfig{
 		Objective:     objective,
 		SystemPrompt:  systemPrompt,
-		LLMProvider:   a.provider,
+		LLMProvider:   provider,
 		MaxIterations: a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:   0.3,     // 较低温度，确保稳定性
 		MaxTokens:     4000,
 		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——现由系统配置 compaction 组下发。
 		MessageModifierChain: runtime.NewDefaultModifierChain(a.messageWindow),
-
-		// Checkpoint 集成
-		Checkpointer:     a.checkpointer,
-		CheckpointPolicy: a.checkpointPolicy,
-		TaskID:           a.taskID,
+		// 监察链路也会多轮调工具（get_global_state 深挖/重试）：循环检测与
+		// 无进展止损与其余三个 agent 同口径；GoalAlignment 不适用（评估目标
+		// 每轮现构建，无固定目标可对齐——与 evaluator judge 同理）。
+		MiddlewareChain: runtime.NewMiddlewareChain(
+			runtime.NewLoopDetectionMiddleware(6, 5), // 连续 6 次相同工具 / 5 次相似思考
+			runtime.NewProgressTrackingMiddleware(8), // 8 轮无新输出终止
+		),
 
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			a.logger.Info().

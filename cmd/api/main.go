@@ -19,7 +19,6 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
@@ -37,6 +36,7 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
+	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
@@ -211,9 +211,9 @@ func main() {
 		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥加密需要它（fail-fast）")
 	}
 
-	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
-	conversationStore := conversation.NewStore(pool)   // 会话/消息
-	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
+	auditStore := audit.NewStore(pool)               // 0047：task abort / create 审计
+	conversationStore := conversation.NewStore(pool) // 会话/消息
+	toolStore := toolinvocation.NewStore(pool)       // 会话用量合计：工具耗时来源
 
 	// 日志查看（「日志」页）：api 尾读共享日志卷上各进程的 logs/{process}.log。
 	// dir 与写入端同一解析（LIUSHA_LOG_DIR）——单容器/共享卷部署三进程文件全见。
@@ -224,9 +224,24 @@ func main() {
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
-	router := &dispatch.RoleRouter{Router: fwllm.NewRouterWithOpts(
+	// 与 runner 同一埋点口径：单步看门狗（现读 runtime.step_llm_timeout_seconds 热配置）
+	// + llm_invocation 审计（chat/qa/意图分类无 run 归属，落 NULL 外键 + Role 标签）。
+	stepLLMTimeout := time.Duration(cfg.Runner.StepLLMTimeoutSeconds) * time.Second
+	apiLLMRouter := fwllm.NewRouterWithOpts(
 		llmStore.AsRouterStore(llmKeyCipher),
-		retryOptionsFromConfig(cfg.LLM.Retry))}
+		retryOptionsFromConfig(cfg.LLM.Retry))
+	apiLLMRouter.SetProviderWrapper(func(p fwllm.Provider) fwllm.Provider {
+		return fwllm.InstrumentProvider(fwllm.WithDynamicCallTimeout(p,
+			stepLLMTimeout,
+			func(ctx context.Context) time.Duration {
+				rt, err := settingStore.Runtime(ctx)
+				if err != nil {
+					return 0
+				}
+				return time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
+			}), llminvocation.UsageSink{Store: invocationStore})
+	})
+	router := &dispatch.RoleRouter{Router: apiLLMRouter}
 	publisher := convstream.NewPublisher(rdb)
 	adapter := &dispatch.Service{
 		Assignments:   assignmentStore,
@@ -287,7 +302,7 @@ func main() {
 			FollowUp:           adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:              adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:            adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:            conversationStore,                             // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
+			Renamer:            conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
 			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
 			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
 			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
@@ -296,10 +311,10 @@ func main() {
 			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
 			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
 			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:        conversationStore,                             // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:      conversationStore,                             // 会话列表 / 消息回看
+			TrafficConv:        conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:      conversationStore,                     // 会话列表 / 消息回看
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:         conversationStore,                             // 会话用量：会话→task 解析
+			UsageTasks:         conversationStore,                     // 会话用量：会话→task 解析
 			UsageLLM:           invocationStore,                       // 会话用量：LLM token/耗时合计
 			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
 			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
