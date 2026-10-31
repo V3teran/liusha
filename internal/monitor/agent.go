@@ -48,8 +48,8 @@ type Config struct {
 	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph      *explorationgraph.Store
 	EventBus   bus.EventBus
-	Router     *llm.Router // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
-	Complexity string      // LLM 档位（agent.complexity，simple|medium|complex）
+	Router     *llm.Router   // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
+	Complexity string        // LLM 档位（agent.complexity，simple|medium|complex）
 	Interval   time.Duration // 评估间隔，默认 6 分钟
 	Logger     zerolog.Logger
 

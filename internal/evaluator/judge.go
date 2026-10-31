@@ -34,15 +34,15 @@ type LLMJudge interface {
 type RouterJudge struct {
 	router        *llm.Router
 	logger        zerolog.Logger
-	thoughts      reasoning.Tap          // 思考流出口（认知循环注入；nil=不流式）
-	functionTools []string               // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
-	extraTools    []registry.Tool        // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
-	cliManifest   *manifest.ToolManifest // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
-	skills        []*skill.Card          // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
-	charter       string                 // 角色章程（agent.system_prompt，运维可调；空=不渲染）
-	complexity    llm.Complexity         // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
-	maxIt         int                    // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	messageWindow int                    // ReAct 滚动窗口条数（系统配置 compaction 组；构造默认 10，0=回退该默认）
+	thoughts      reasoning.Tap                     // 思考流出口（认知循环注入；nil=不流式）
+	functionTools []string                          // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
+	extraTools    []registry.Tool                   // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
+	cliManifest   *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
+	skills        []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
+	charter       string                            // 角色章程（agent.system_prompt，运维可调；空=不渲染）
+	complexity    llm.Complexity                    // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
+	maxIt         int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	messageWindow int                               // ReAct 滚动窗口条数（系统配置 compaction 组；构造默认 10，0=回退该默认）
 	toolWrap      func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 

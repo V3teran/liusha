@@ -25,4 +25,3 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 
 	return ch, nil
 }
-
