@@ -107,18 +107,32 @@ func (r *RedisProvider) hashKey(host string) string {
 // 永久存储，无任何过期语义。
 func (r *RedisProvider) SaveIdentities(ctx context.Context, host string, ids []Identity) error {
 	key := r.hashKey(host)
-	fields := make(map[string]any, len(ids))
-	names := make([]string, 0, len(ids))
+	// 用户名单点归一：trim + 小写——同名（含大小写/空白变体）在同一目标键下
+	// 唯一是本库不变式（HSET field=用户名），归一杜绝 "Admin"/"admin " 类
+	// 变体拆成两个登录身份。归一必须先于 HMGET 继承查询：查询键与写入键
+	// 同形，否则变体输入查不到既有 field，CreatedAt（录入时间）被静默重置。
+	type normalized struct {
+		id Identity
+	}
+	norms := make([]normalized, 0, len(ids))
 	for _, id := range ids {
 		// 防御性跳过：anonymous 不是持久化身份（是 LLM 临时构造的测试概念），
 		// caller 误传也不污染存储。
 		if id.Username == AnonymousName {
 			continue
 		}
-		names = append(names, id.Username)
+		id.Username = strings.ToLower(strings.TrimSpace(id.Username))
+		if id.Username == "" {
+			continue
+		}
+		norms = append(norms, normalized{id: id})
 	}
-	if len(names) == 0 {
+	if len(norms) == 0 {
 		return nil
+	}
+	names := make([]string, 0, len(norms))
+	for _, n := range norms {
+		names = append(names, n.id.Username)
 	}
 
 	// 继承既有录入时间：HMGET 只取本批名字的现值（不读整 hash）。
@@ -138,17 +152,9 @@ func (r *RedisProvider) SaveIdentities(ctx context.Context, host string, ids []I
 	}
 
 	now := time.Now()
-	for _, id := range ids {
-		if id.Username == AnonymousName {
-			continue
-		}
-		// 用户名单点归一：trim + 小写——同名（含大小写/空白变体）在同一
-		// 目标键下唯一是本库不变式（HSET field=用户名），归一杜绝 "Admin"/
-		// "admin " 类变体拆成两个登录身份。
-		id.Username = strings.ToLower(strings.TrimSpace(id.Username))
-		if id.Username == "" {
-			continue
-		}
+	fields := make(map[string]any, len(norms))
+	for _, n := range norms {
+		id := n.id
 		if id.CreatedAt == nil {
 			if at, ok := firstSeen[id.Username]; ok {
 				id.CreatedAt = &at
@@ -282,13 +288,6 @@ func (r *RedisProvider) ListHosts(ctx context.Context) ([]HostSummary, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
 	return out, nil
-}
-
-// LegacyRuntimeKeys 返回历史上借用凭证前缀的运行时键（聚合窗口活跃 host
-// 集，无 TTL 的那一枚）。命名空间迁出后由启动流程一次性清理；计数/锁类
-// 键自带短 TTL，自然消亡，无需处理。
-func (r *RedisProvider) LegacyRuntimeKeys() []string {
-	return []string{r.keyPrefix + ":agg:hosts"}
 }
 
 // 编译期保障：RedisProvider 满足 Provider 接口。

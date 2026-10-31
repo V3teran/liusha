@@ -1,30 +1,31 @@
-package core
+package memory
 
 import (
+	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"fmt"
 	"sync"
 	"time"
 )
 
-// InMemoryGraphStore 内存实现的 GraphStore（用于测试）
-type InMemoryGraphStore struct {
+// GraphStore 内存实现的 core.GraphStore（用于测试）
+type GraphStore struct {
 	mu    sync.RWMutex
-	nodes map[string]*GraphNode
-	edges []*GraphEdge
+	nodes map[string]*core.GraphNode
+	edges []*core.GraphEdge
 }
 
-// NewInMemoryGraphStore 创建内存 GraphStore
-func NewInMemoryGraphStore() GraphStore {
-	return &InMemoryGraphStore{
-		nodes: make(map[string]*GraphNode),
-		edges: make([]*GraphEdge, 0),
+// NewGraphStore 创建内存 core.GraphStore
+func NewGraphStore() core.GraphStore {
+	return &GraphStore{
+		nodes: make(map[string]*core.GraphNode),
+		edges: make([]*core.GraphEdge, 0),
 	}
 }
 
 // copyGraphNode 深拷贝节点（含全部字段），避免调用方与 store 内部状态共享引用。
-func copyGraphNode(node *GraphNode) *GraphNode {
-	nodeCopy := &GraphNode{
+func copyGraphNode(node *core.GraphNode) *core.GraphNode {
+	nodeCopy := &core.GraphNode{
 		ID:        node.ID,
 		Kind:      node.Kind,
 		Content:   append([]byte(nil), node.Content...),
@@ -42,7 +43,7 @@ func copyGraphNode(node *GraphNode) *GraphNode {
 }
 
 // CreateNode 创建节点
-func (s *InMemoryGraphStore) CreateNode(_ context.Context, node *GraphNode) error {
+func (s *GraphStore) CreateNode(_ context.Context, node *core.GraphNode) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,32 +76,32 @@ func (s *InMemoryGraphStore) CreateNode(_ context.Context, node *GraphNode) erro
 }
 
 // GetNode 获取节点
-func (s *InMemoryGraphStore) GetNode(_ context.Context, id string) (*GraphNode, error) {
+func (s *GraphStore) GetNode(_ context.Context, id string) (*core.GraphNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	node, exists := s.nodes[id]
 	if !exists {
-		return nil, ErrGraphNodeNotFound
+		return nil, core.ErrGraphNodeNotFound
 	}
 
 	return copyGraphNode(node), nil
 }
 
 // UpdateNode 更新节点
-func (s *InMemoryGraphStore) UpdateNode(_ context.Context, id string, update GraphNodeUpdate) error {
+func (s *GraphStore) UpdateNode(_ context.Context, id string, update core.GraphNodeUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	node, exists := s.nodes[id]
 	if !exists {
-		return ErrGraphNodeNotFound
+		return core.ErrGraphNodeNotFound
 	}
 
 	// 乐观锁检查
 	if update.ExpectedVersion != nil {
 		if node.Version != *update.ExpectedVersion {
-			return ErrVersionMismatch
+			return core.ErrVersionMismatch
 		}
 	}
 
@@ -126,13 +127,13 @@ func (s *InMemoryGraphStore) UpdateNode(_ context.Context, id string, update Gra
 }
 
 // CompareAndSwapState 原子更新节点状态（单锁内完成条件检查与写入）。
-func (s *InMemoryGraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
+func (s *GraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	node, exists := s.nodes[nodeID]
 	if !exists {
-		return false, ErrGraphNodeNotFound
+		return false, core.ErrGraphNodeNotFound
 	}
 
 	// 检查 taskID（如果提供）
@@ -158,18 +159,18 @@ func (s *InMemoryGraphStore) CompareAndSwapState(_ context.Context, taskID, node
 }
 
 // DeleteNode 删除节点
-func (s *InMemoryGraphStore) DeleteNode(_ context.Context, id string) error {
+func (s *GraphStore) DeleteNode(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, exists := s.nodes[id]; !exists {
-		return fmt.Errorf("%w: %s", ErrGraphNodeNotFound, id)
+		return fmt.Errorf("%w: %s", core.ErrGraphNodeNotFound, id)
 	}
 
 	delete(s.nodes, id)
 
 	// 删除相关边
-	newEdges := make([]*GraphEdge, 0)
+	newEdges := make([]*core.GraphEdge, 0)
 	for _, edge := range s.edges {
 		if edge.From != id && edge.To != id {
 			newEdges = append(newEdges, edge)
@@ -181,11 +182,11 @@ func (s *InMemoryGraphStore) DeleteNode(_ context.Context, id string) error {
 }
 
 // ListNodes 查询节点列表
-func (s *InMemoryGraphStore) ListNodes(_ context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
+func (s *GraphStore) ListNodes(_ context.Context, query core.GraphNodeQuery) ([]*core.GraphNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]*GraphNode, 0)
+	result := make([]*core.GraphNode, 0)
 
 	for _, node := range s.nodes {
 		// 过滤 Kind
@@ -232,11 +233,11 @@ func (s *InMemoryGraphStore) ListNodes(_ context.Context, query GraphNodeQuery) 
 
 // CreateNodeWithEdges 创建节点及边，失败时回滚本次已写入的部分——
 // 与 Postgres 事务实现保持一致的"全有或全无"语义。
-func (s *InMemoryGraphStore) CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error {
+func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNode, edges []*core.GraphEdge) error {
 	if err := s.CreateNode(ctx, node); err != nil {
 		return err
 	}
-	created := make([]*GraphEdge, 0, len(edges))
+	created := make([]*core.GraphEdge, 0, len(edges))
 	for _, edge := range edges {
 		if err := s.CreateEdge(ctx, edge); err != nil {
 			// 回滚：删除已建的边与节点
@@ -252,7 +253,7 @@ func (s *InMemoryGraphStore) CreateNodeWithEdges(ctx context.Context, node *Grap
 }
 
 // CreateEdge 创建边
-func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) error {
+func (s *GraphStore) CreateEdge(_ context.Context, edge *core.GraphEdge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -262,15 +263,15 @@ func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) erro
 
 	// 检查节点是否存在
 	if _, exists := s.nodes[edge.From]; !exists {
-		return fmt.Errorf("%w: from node %s", ErrGraphNodeNotFound, edge.From)
+		return fmt.Errorf("%w: from node %s", core.ErrGraphNodeNotFound, edge.From)
 	}
 
 	if _, exists := s.nodes[edge.To]; !exists {
-		return fmt.Errorf("%w: to node %s", ErrGraphNodeNotFound, edge.To)
+		return fmt.Errorf("%w: to node %s", core.ErrGraphNodeNotFound, edge.To)
 	}
 
 	// 深拷贝
-	edgeCopy := &GraphEdge{
+	edgeCopy := &core.GraphEdge{
 		TaskID:   edge.TaskID,
 		From:     edge.From,
 		To:       edge.To,
@@ -295,11 +296,11 @@ func (s *InMemoryGraphStore) CreateEdge(_ context.Context, edge *GraphEdge) erro
 }
 
 // ListEdges 查询边列表
-func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
+func (s *GraphStore) ListEdges(_ context.Context, query core.GraphEdgeQuery) ([]*core.GraphEdge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]*GraphEdge, 0)
+	result := make([]*core.GraphEdge, 0)
 
 	for _, edge := range s.edges {
 		// 过滤 TaskID
@@ -323,7 +324,7 @@ func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) 
 		}
 
 		// 深拷贝
-		edgeCopy := &GraphEdge{
+		edgeCopy := &core.GraphEdge{
 			TaskID:   edge.TaskID,
 			From:     edge.From,
 			To:       edge.To,
@@ -347,12 +348,12 @@ func (s *InMemoryGraphStore) ListEdges(_ context.Context, query GraphEdgeQuery) 
 }
 
 // DeleteEdge 删除边
-func (s *InMemoryGraphStore) DeleteEdge(_ context.Context, from, to, relation string) error {
+func (s *GraphStore) DeleteEdge(_ context.Context, from, to, relation string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	found := false
-	newEdges := make([]*GraphEdge, 0)
+	newEdges := make([]*core.GraphEdge, 0)
 
 	for _, edge := range s.edges {
 		if edge.From == from && edge.To == to && edge.Relation == relation {
@@ -363,7 +364,7 @@ func (s *InMemoryGraphStore) DeleteEdge(_ context.Context, from, to, relation st
 	}
 
 	if !found {
-		return fmt.Errorf("%w", ErrGraphEdgeNotFound)
+		return fmt.Errorf("%w", core.ErrGraphEdgeNotFound)
 	}
 
 	s.edges = newEdges
