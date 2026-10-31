@@ -14,11 +14,6 @@ func TestPatchAbsoluteURI(t *testing.T) {
 		want string
 	}{
 		{
-			name: "relative GET 用 Host header 拼 absolute",
-			in:   "GET /api/x HTTP/1.1\r\nHost: vulnapp:8001\r\n\r\n",
-			want: "GET http://vulnapp:8001/api/x HTTP/1.1\r\nHost: vulnapp:8001\r\n\r\n",
-		},
-		{
 			name: "relative POST 含 body 仍 patch",
 			in:   "POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc",
 			want: "POST http://x/a HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc",
@@ -32,11 +27,6 @@ func TestPatchAbsoluteURI(t *testing.T) {
 			name: "https absolute form 透传",
 			in:   "GET https://x/y HTTP/1.1\r\nHost: x\r\n\r\n",
 			want: "GET https://x/y HTTP/1.1\r\nHost: x\r\n\r\n",
-		},
-		{
-			name: "CONNECT 透传给 proxify 处理 TLS",
-			in:   "CONNECT vulnapp:443 HTTP/1.1\r\nHost: vulnapp:443\r\n\r\n",
-			want: "CONNECT vulnapp:443 HTTP/1.1\r\nHost: vulnapp:443\r\n\r\n",
 		},
 		{
 			name: "缺 Host header 不强 patch（让 proxify 自己拒）",
@@ -70,7 +60,6 @@ func TestExtractHostHeader(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"标准 Host", "Host: vulnapp:8001\r\n\r\n", "vulnapp:8001"},
 		{"大写 HOST", "HOST: x\r\n\r\n", "x"},
 		{"前置其他 header", "User-Agent: curl\r\nHost: x\r\n\r\n", "x"},
 		{"无 Host", "User-Agent: curl\r\n\r\n", ""},

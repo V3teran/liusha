@@ -14,11 +14,7 @@ import (
 	"sync"
 )
 
-// patchAbsoluteURI 把第一行从 relative form 改成 absolute form：
-//
-//	GET /path HTTP/1.1\r\nHost: vulnapp\r\n\r\n  →
-//	GET http://vulnapp/path HTTP/1.1\r\nHost: vulnapp\r\n\r\n
-//
+// patchAbsoluteURI 把第一行从 relative form 改成 absolute form（目标 URL 由 Host header 构造）。
 // 不改其它字节。已是 absolute-form / CONNECT / 缺 Host header 的报文原样返回。
 //
 // 这是 proxify (martian) 兼容 relative-URI 客户端的核心：proxify 默认要求 explicit

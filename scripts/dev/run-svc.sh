@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dev/run-svc.sh — host 侧并行跑 proxy + api + runner（靶机 vulnapp 已剥离为独立仓 ../vulnapp）
+# scripts/dev/run-svc.sh — host 侧并行跑 proxy + api + runner
 # 应用层（logx）自管落盘到 logs/{service}.log（lumberjack 轮转），shell 不再重定向。
 # Ctrl-C 全部关闭
 
@@ -62,15 +62,15 @@ echo ""
 #
 # 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
 # /Users/.../go-build/<hash>-d/runner，没有 "cmd/" 或 "exe/" 字样，
-# 匹配模式不可靠；按 5 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
-for port in 8001 8888 8090 9090; do
+# 匹配模式不可靠；按 3 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
+for port in 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8001 8888 8090 9090; do
+for port in 8888 8090 9090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
@@ -78,8 +78,7 @@ for port in 8001 8888 8090 9090; do
 done
 sleep 1
 
-# 端口预检：本脚本管理的 3 端口任一仍被占 → 立即报错退出（8001 是外部靶机
-# vulnapp 的口，只在上面预清残留，不预检——外部服务先起后起都行）。
+# 端口预检：本脚本管理的 3 端口任一仍被占 → 立即报错退出。
 PORT_BUSY=()
 for p in 8888 8090 9090; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -127,7 +126,6 @@ trap cleanup INT TERM
 
 echo ""
 echo "✓ 三服务在跑（pids: proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
-echo "🎯 e2e 靶机（外部仓）：cd ../vulnapp && go run .   # :8001"
 echo ""
 echo "📊 前端：web/（本仓）→ make run-web（/api 已代理到本 api）"
 echo "  (X-API-Key=${LIUSHA_API_KEY}，task_id 跑完 e2e 后从 finding 表查)"

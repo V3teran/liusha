@@ -19,7 +19,7 @@ import (
 // 字节；文件比游标短（lumberjack 轮转/外部截断）时对该进程置 reset 整段重取。
 // 不引入第二日志事实源——UI 看到的与文件落地的永远一致。
 
-// ViewProcesses 是日志视图的进程域：三个业务进程。vulnapp 靶机已剥离为独立仓（自带日志）不入视图；
+// ViewProcesses 是日志视图的进程域：三个业务进程；
 // 新业务进程加进此表即自动出现在进程枚举与读取结果里。
 var ViewProcesses = []string{"api", "proxy", "runner"}
 
