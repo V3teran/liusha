@@ -14,7 +14,8 @@
 // 路径：POST /internal/v1/flows/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :9090）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
 // 网络：runner healthz 监听 :9090，沙箱容器经 host.docker.internal:9090 访问
-package main
+
+package runner
 
 import (
 	"crypto/subtle"
@@ -56,13 +57,13 @@ type ingestRequest struct {
 	Timestamp       time.Time           `json:"timestamp,omitempty"`
 }
 
-// internalSink 是 ingest_handler 对 ingestor 的窄依赖：把 internal 流量直接入进程内队列
+// InternalSink 是 ingest_handler 对 ingestor 的窄依赖：把 internal 流量直接入进程内队列
 // （*ingestor.Traffic 的 SubmitInternal 满足）。同进程直送，不再绕 redis。
-type internalSink interface {
+type InternalSink interface {
 	SubmitInternal(*proxy.TrafficSnapshot) bool
 }
 
-// newIngestHandler 返回 沙箱抓流量 → 进程内 ingestor 队列的 HTTP handler。
+// NewIngestHandler 返回 沙箱抓流量 → 进程内 ingestor 队列的 HTTP handler。
 //
 // token 空时跳过认证（开发模式）；非空时强制 `Authorization: Bearer <token>`。
 //
@@ -72,7 +73,7 @@ type internalSink interface {
 //   - 400 JSON 解析失败 / agent_id 缺失
 //   - 503 ingestor 队列已满（背压——沙箱应退避重试）
 //   - 200 成功（不返 body，节省带宽）
-func newIngestHandler(sink internalSink, token string, logger zerolog.Logger) http.HandlerFunc {
+func NewIngestHandler(sink InternalSink, token string, logger zerolog.Logger) http.HandlerFunc {
 	tokenRequired := strings.TrimSpace(token) != ""
 	if !tokenRequired {
 		logger.Warn().Msg("ingest_token 未配置，ingest endpoint 不强制验证（开发模式；prod 必须设 ENV LIUSHA_INGEST_TOKEN）")

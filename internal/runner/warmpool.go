@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -10,39 +10,41 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// warmPoolHandler 是热池模式的极简 handler（完全跳过数据库，只负责 sandbox 执行）
-type warmPoolHandler struct {
-	sandboxMgr sandbox.Manager
-	logger     zerolog.Logger
+// WarmPoolHandler 是热池模式的极简 handler（完全跳过数据库，只负责 sandbox 执行）
+type WarmPoolHandler struct {
+	SandboxMgr sandbox.Manager
+	Logger     zerolog.Logger
 }
 
-func newWarmPoolHandler(sandboxMgr sandbox.Manager, logger zerolog.Logger) *warmPoolHandler {
-	return &warmPoolHandler{
-		sandboxMgr: sandboxMgr,
-		logger:     logger,
+// NewWarmPoolHandler 构造冒烟 handler。
+func NewWarmPoolHandler(sandboxMgr sandbox.Manager, logger zerolog.Logger) *WarmPoolHandler {
+	return &WarmPoolHandler{
+		SandboxMgr: sandboxMgr,
+		Logger:     logger,
 	}
 }
 
-func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
-	h.logger.Info().
+// Handle 处理单次冒烟任务：领沙箱 → 执行 echo/命令 → 释放。不写 DB、不跑认知循环。
+func (h *WarmPoolHandler) Handle(ctx context.Context, p worker.Payload) error {
+	h.Logger.Info().
 		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
 		Msg("warm pool handler: task started")
 
 	// 1. Acquire sandbox
-	sb, err := h.sandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
+	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
 		TaskID: p.TaskID,
 	})
 	if err != nil {
 		return fmt.Errorf("acquire sandbox: %w", err)
 	}
 	defer func() {
-		if relErr := h.sandboxMgr.Release(ctx, sb); relErr != nil {
-			h.logger.Warn().Err(relErr).Msg("release sandbox failed")
+		if relErr := h.SandboxMgr.Release(ctx, sb); relErr != nil {
+			h.Logger.Warn().Err(relErr).Msg("release sandbox failed")
 		}
 	}()
 
-	h.logger.Info().
+	h.Logger.Info().
 		Str("sandbox_id", sb.ID).
 		Str("task_id", p.TaskID).
 		Msg("sandbox acquired")
@@ -78,7 +80,7 @@ func (h *warmPoolHandler) handle(ctx context.Context, p worker.Payload) error {
 		return fmt.Errorf("exec command: %w", err)
 	}
 
-	h.logger.Info().
+	h.Logger.Info().
 		Int("exit_code", result.ExitCode).
 		Str("stdout", result.Stdout).
 		Str("stderr", result.Stderr).
