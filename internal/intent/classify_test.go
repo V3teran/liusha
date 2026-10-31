@@ -1,4 +1,4 @@
-package msgclass
+package intent
 
 import (
 	"context"
@@ -28,13 +28,13 @@ func (f fakeGen) Model() string {
 func TestClassify(t *testing.T) {
 	cases := []struct {
 		name, reply string
-		want        MessageKind
+		want        Kind
 	}{
-		{"明确 action", "action", KindAction},
-		{"明确 qa", "qa", KindQA},
-		{"带空格大小写", "  ACTION\n", KindAction},
-		{"模糊输出偏 qa", "我觉得是问答吧", KindQA},
-		{"空输出偏 qa", "", KindQA},
+		{"明确 action", "action", Action},
+		{"明确 qa", "qa", QA},
+		{"带空格大小写", "  ACTION\n", Action},
+		{"模糊输出偏 qa", "我觉得是问答吧", QA},
+		{"空输出偏 qa", "", QA},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestClassify_ErrorReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("调用失败应返回 error，得 nil")
 	}
-	if got != KindQA {
+	if got != QA {
 		t.Errorf("错误返回时应携带保守缺省 qa，得 %v", got)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {

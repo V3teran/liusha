@@ -22,7 +22,7 @@ export interface GraphNode {
 export interface GraphEdge {
   src_id: string
   dst_id: string
-  rel: 'GENERATES' | 'CONFIRMS' | 'REFUTES' | 'ENABLES' | 'DEPENDS_ON'
+  rel: 'generates' | 'depends_on' | 'triggers'
   attrs?: Record<string, unknown>
   created_at: string
 }

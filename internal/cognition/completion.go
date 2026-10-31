@@ -47,11 +47,11 @@ type CompletionDetector struct {
 
 // Result 是任务完成的最终报告
 type Result struct {
-	Steps    int    // 总执行步数
-	Promoted int    // 晋升的结果数量
-	Attempts int    // 总尝试次数
-	StopWhy  string // 停止原因
-	Duration time.Duration
+	Steps      int    // 总执行步数
+	Promoted   int    // 晋升的结果数量
+	Attempts   int    // 总尝试次数
+	StopReason string // 停止原因
+	Duration   time.Duration
 }
 
 // Config 配置 CompletionDetector
@@ -201,11 +201,11 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 // makeResult 构造最终报告
 func (d *CompletionDetector) makeResult(stopWhy string) Result {
 	return Result{
-		Steps:    int(d.totalSteps.Load()),
-		Promoted: int(d.promotedCount.Load()),
-		Attempts: int(d.attemptCount.Load()),
-		StopWhy:  stopWhy,
-		Duration: time.Since(d.startTime),
+		Steps:      int(d.totalSteps.Load()),
+		Promoted:   int(d.promotedCount.Load()),
+		Attempts:   int(d.attemptCount.Load()),
+		StopReason: stopWhy,
+		Duration:   time.Since(d.startTime),
 	}
 }
 

@@ -355,11 +355,11 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 
 	graph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{
-		TaskID:    "t-dedup",
-		Evaluator: promoter,
-		EventBus:  bus.New(context.Background()),
-		Graph:     graph,
-		Logger:    zerolog.Nop(),
+		TaskID:   "t-dedup",
+		Gate:     promoter,
+		EventBus: bus.New(context.Background()),
+		Graph:    graph,
+		Logger:   zerolog.Nop(),
 	})
 
 	// 三个独立假设节点共用同一配方（第二、三个应命中去重）
@@ -515,7 +515,7 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 	bus := bus.New(context.Background())
 	a := NewAgent(AgentConfig{
 		TaskID:        "t-conc",
-		Evaluator:     promoter,
+		Gate:          promoter,
 		EventBus:      bus,
 		Logger:        zerolog.Nop(),
 		MaxConcurrent: 1, // 最严苛：单并发 + 慢验证
@@ -643,10 +643,10 @@ func TestAgent_EventPathSkipsAttemptsWithoutRecipe(t *testing.T) {
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	a := NewAgent(AgentConfig{
-		TaskID:    "t-norepro",
-		Evaluator: promoter,
-		EventBus:  b,
-		Logger:    zerolog.Nop(),
+		TaskID:   "t-norepro",
+		Gate:     promoter,
+		EventBus: b,
+		Logger:   zerolog.Nop(),
 	})
 
 	a.handleEvent(context.Background(), bus.Event{
@@ -701,11 +701,11 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyPrimitives(t *testing.T) {
 	// 终局路径整体走通：确定性配方缺陷单次即出圈，节点标记落库（内存图）
 	memGraph := explorationgraph.NewMemoryStore()
 	a2 := NewAgent(AgentConfig{
-		TaskID:    "t-empty",
-		Evaluator: promoter,
-		EventBus:  bus.New(context.Background()),
-		Graph:     memGraph,
-		Logger:    zerolog.Nop(),
+		TaskID:   "t-empty",
+		Gate:     promoter,
+		EventBus: bus.New(context.Background()),
+		Graph:    memGraph,
+		Logger:   zerolog.Nop(),
 	})
 	// 生产不变式：被裁决的观察节点由 executor 先落图
 	unverified := explorationgraph.ConfidenceUnverified

@@ -164,8 +164,8 @@ func verificationTier(primitives json.RawMessage) string {
 // （可重试），而是对这条假设的**证伪裁决**：走审计链留档，不走重试上限。
 var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
-// PromotionEvaluator 是 Observation→图节点的晋升门。
-type PromotionEvaluator struct {
+// PromotionGate 是 Observation→图节点的晋升门。
+type PromotionGate struct {
 	graph    graphStore
 	replayer Replayer
 	sink     ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
@@ -175,8 +175,8 @@ type PromotionEvaluator struct {
 }
 
 // New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionEvaluator {
-	return &PromotionEvaluator{
+func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionGate {
+	return &PromotionGate{
 		graph:    graph,
 		replayer: replayer,
 		sink:     sink,
@@ -185,7 +185,7 @@ func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionEvaluato
 
 // WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把裁决官
 // 的原始指纹归一成规范键；不注入则同指纹主张不做折叠。
-func (v *PromotionEvaluator) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionEvaluator {
+func (v *PromotionGate) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionGate {
 	v.codec = codec
 	return v
 }
@@ -194,13 +194,13 @@ func (v *PromotionEvaluator) WithFingerprintCodec(codec FingerprintNormalizer) *
 // 坐实/证伪——机器不持判定权，LLM 失败不回退机器断言（否则断言命中即坐实
 // 会放过"命中即常态输出"的假阳性）；本次未裁决，错误带
 // ErrAdjudicationUnavailable 交由调用方重试/止损分流。
-func (v *PromotionEvaluator) WithJudge(j LLMJudge) *PromotionEvaluator {
+func (v *PromotionGate) WithJudge(j LLMJudge) *PromotionGate {
 	v.judge = j
 	return v
 }
 
 // WithLogger 注入可选日志器：finding 写入失败等非致命错误经此告警。
-func (v *PromotionEvaluator) WithLogger(l zerolog.Logger) *PromotionEvaluator {
+func (v *PromotionGate) WithLogger(l zerolog.Logger) *PromotionGate {
 	v.logger = &l
 	return v
 }
@@ -221,7 +221,7 @@ type replayRecord struct {
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
 // 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
-func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
+func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
 	// 1. 验证输入
 	if err := v.validateAttempt(a); err != nil {
 		return nil, err
@@ -338,7 +338,7 @@ func (v *PromotionEvaluator) Promote(ctx context.Context, a Attempt) (*explorati
 
 // deliverClaim 把坐实主张交给交付管道。交付失败不回滚晋升（图状态是
 // 事实源），只告警——与既有的非致命错误口径一致。
-func (v *PromotionEvaluator) deliverClaim(
+func (v *PromotionGate) deliverClaim(
 	ctx context.Context,
 	a Attempt,
 	node explorationgraph.Node,
@@ -386,7 +386,7 @@ func (v *PromotionEvaluator) deliverClaim(
 // findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。
 // 对照键是域归一后的指纹规范键；未带指纹的历史 result 不参与对照
 // （缺失指纹的发现保持原样，不影响其地位）。
-func (v *PromotionEvaluator) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
+func (v *PromotionGate) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
 	results, err := v.graph.ListResults(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 语义去重查询既有 result 失败: %w", err)
@@ -440,7 +440,7 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 // （带 quality_gate 标记与拒绝理由）、假设节点 confidence 流转为 refuted。
 // 语义区别于 invalid_recipe（门故障止损）：这是裁决结论——配方证明了
 // 命中不构成漏洞证据。
-func (v *PromotionEvaluator) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
+func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
 		"quality_gate":      true,
 		"refute_reason":     RefuteAssertNotDiscriminative,
@@ -480,7 +480,7 @@ func (v *PromotionEvaluator) refuteByQualityGate(ctx context.Context, a Attempt,
 
 // refuteEarly 断言未命中时的机器证伪路径：落 verification 审计（不打扰 judge）、
 // 给假设节点打 refuted 标记、发布 refuted 事件语义（node=nil）。
-func (v *PromotionEvaluator) refuteEarly(
+func (v *PromotionGate) refuteEarly(
 	ctx context.Context,
 	a Attempt, hyp string, res Result, replays []replayRecord,
 ) (*explorationgraph.Node, error) {

@@ -79,7 +79,7 @@ const (
 	PriorityLow      = core.PriorityLow
 )
 
-// Relation 是边的关系类型（5 种，全大写）
+// Relation 是边的关系类型（3 种，小写字面量即存储值）
 type Relation string
 
 // 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致，migration 0174 收紧）：

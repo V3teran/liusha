@@ -121,10 +121,9 @@ export function ExplorationGraphPage() {
 
       const flowEdges: Edge[] = data.edges.map((e, idx) => {
         // 不同关系类型使用不同颜色
-        const edgeColor = e.rel === 'GENERATES' ? '#3b82f6' :
-                         e.rel === 'CONFIRMS' ? '#10b981' :
-                         e.rel === 'REFUTES' ? '#ef4444' :
-                         e.rel === 'ENABLES' ? '#8b5cf6' :
+        const edgeColor = e.rel === 'generates' ? '#3b82f6' :
+                         e.rel === 'triggers' ? '#10b981' :
+                         e.rel === 'depends_on' ? '#8b5cf6' :
                          '#6b7280'
 
         return {

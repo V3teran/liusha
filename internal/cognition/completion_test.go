@@ -50,7 +50,7 @@ func TestCompletionDetector_AbortWins(t *testing.T) {
 	d.Abort("control-plane: terminate")
 	res, done := d.checkNow()
 	require.True(t, done, "人工中止应立即判定完成")
-	assert.Equal(t, "control-plane: terminate", res.StopWhy)
+	assert.Equal(t, "control-plane: terminate", res.StopReason)
 }
 
 func TestCompletionDetector_MaxSteps(t *testing.T) {
@@ -64,7 +64,7 @@ func TestCompletionDetector_MaxSteps(t *testing.T) {
 	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a3"})
 	res, done := d.checkNow()
 	require.True(t, done, "3/3 步应触发完成")
-	assert.Equal(t, "max_steps_reached", res.StopWhy)
+	assert.Equal(t, "max_steps_reached", res.StopReason)
 }
 
 func TestCompletionDetector_PauseFreezesAutoCompletion(t *testing.T) {

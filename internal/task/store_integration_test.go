@@ -58,11 +58,11 @@ func TestCreateAndSummary(t *testing.T) {
 		if r.AssignmentID != asg {
 			t.Errorf("assignment_id 派生列不符: %+v", r)
 		}
-		if r.AssignmentTot != 2 {
+		if r.AssignmentTotal != 2 {
 			t.Errorf("assignment_total 应为 2: %+v", r)
 		}
-		if r.AssignmentNdx < 1 || r.AssignmentNdx > 2 {
-			t.Errorf("assignment_ndx 应在 1..2: %+v", r)
+		if r.AssignmentIndex < 1 || r.AssignmentIndex > 2 {
+			t.Errorf("assignment_index 应在 1..2: %+v", r)
 		}
 		if r.Source != "manual" {
 			t.Errorf("source 派生应为 manual: %+v", r)

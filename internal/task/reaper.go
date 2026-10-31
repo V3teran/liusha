@@ -6,9 +6,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/config/settingstore"
-	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 )
 
 const (
@@ -34,7 +34,7 @@ func StartReaper(
 	settings *settingstore.Store,
 	stepLLMTimeoutSeconds int,
 	convs *conversation.Store,
-	pub *scanstream.Publisher,
+	pub *convstream.Publisher,
 	logger zerolog.Logger,
 ) {
 	// 启动默认值作回退（1800/300 与 settingstore.normalized 的内置默认一致）：

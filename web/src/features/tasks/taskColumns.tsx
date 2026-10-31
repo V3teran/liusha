@@ -4,7 +4,7 @@ import { Clock } from 'lucide-react'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { clockTime, dateOnly, fullTime } from '@/lib/format'
-import { scanStatusMeta } from '@/lib/scanStatus'
+import { taskStatusMeta } from '@/lib/taskStatus'
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
@@ -30,7 +30,7 @@ function buildTaskColumns(offset: number) {
       size: 92,
       cell: (ctx) => {
         const s = ctx.getValue()
-        const meta = scanStatusMeta(s)
+        const meta = taskStatusMeta(s)
         return (
           <Badge dot color={meta.color} className={s === 'active' ? 'animate-pulse' : undefined}>
             {s === 'active' ? '运行中' : meta.label}
@@ -77,7 +77,7 @@ function buildTaskColumns(offset: number) {
             className="block truncate font-mono text-xs text-muted"
             title={`批次 ${ctx.getValue()}`}
           >
-            {short} · {t.assignment_ndx}/{t.assignment_total}
+            {short} · {t.assignment_index}/{t.assignment_total}
           </span>
         )
       },

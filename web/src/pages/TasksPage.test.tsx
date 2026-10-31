@@ -23,7 +23,7 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     target_host: 'dvwa.local',
     status: 'active',
     assignment_id: 'a-1',
-    assignment_ndx: 1,
+    assignment_index: 1,
     assignment_total: 1,
     source: 'manual',
     scheduled: false,

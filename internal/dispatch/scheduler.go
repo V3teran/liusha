@@ -41,7 +41,7 @@ type Scheduler struct {
 	ProxyStore    *traffic.ProxyStore
 	AgentRuns     *agentrun.Store
 	Enq           *worker.Client
-	Scan          *Service            // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
+	Dispatcher    *Service            // 复用 expandItem（与单发/StartChatTask 同展开逻辑）
 	Conversations *conversation.Store // passive 会话流（nil 时 cron 展开 task 不绑会话）
 	Logger        zerolog.Logger
 }
@@ -109,7 +109,7 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.CronSchedule
 		case item.Host != "":
 			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		default:
-			_, _, expandErr = r.Scan.expandItem(ctx, asg.ID, item.Brief, "")
+			_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, "")
 		}
 		if expandErr != nil {
 			r.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).

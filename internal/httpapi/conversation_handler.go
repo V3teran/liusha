@@ -16,10 +16,10 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// ErrConversationScanActive 表示会话关联扫描仍在进行。
+// ErrConversationTaskActive 表示会话关联任务仍在进行。
 // 业界做法（GitHub Actions / 云控制台）：活跃作业不许删，只能先 Cancel。否则删了会话 = 扫描脱缰
 // 后台跑、UI 再停不掉、还在烧 token 的孤儿。Deleter 实现据此返回，handler 映射为 409。
-var ErrConversationScanActive = errors.New("会话关联扫描进行中，请先停止再删除")
+var ErrConversationTaskActive = errors.New("会话关联任务进行中，请先停止再删除")
 
 // sseLog 是 SSE 流的诊断 logger（连接/订阅/补历史/实时转发/退出全链路）。
 // 包级构建一次（避免每连接触发 logx 全局写入的 race）。LIUSHA_LOG_LEVEL=debug 看逐帧。
@@ -37,7 +37,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
 type ChatAPI interface {
-	StartChatScan(ctx context.Context, brief string) (conversationID, taskID string, err error)
+	StartChatTask(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
@@ -47,7 +47,7 @@ type ConversationsAPI interface {
 	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
-// EventSubscription 是一次会话事件订阅（cmd/api 用 scanstream.Subscription 适配）。
+// EventSubscription 是一次会话事件订阅（cmd/api 用 convstream.Subscription 适配）。
 type EventSubscription interface {
 	Events() <-chan []byte
 	Close() error
@@ -81,7 +81,7 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		convID, taskID, err := api.StartChatScan(c.Request.Context(), req.Brief)
+		convID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -166,13 +166,13 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 
 // AbortAPI 停止会话关联扫描（cmd/api 注入）。
 type AbortAPI interface {
-	AbortConversationScan(ctx context.Context, convID string) error
+	AbortConversationTask(ctx context.Context, convID string) error
 }
 
 // abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的运行中 task。
 func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if err := api.AbortConversationScan(c.Request.Context(), c.Param("id")); err != nil {
+		if err := api.AbortConversationTask(c.Request.Context(), c.Param("id")); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -186,13 +186,13 @@ type ConversationDeleter interface {
 }
 
 // deleteConversationHandler 处理 DELETE /conversations/:id：删会话+消息（不动 scan/finding 成果）。
-// 关联扫描仍在跑时返回 409（ErrConversationScanActive）——后端兜底「先停后删」，前端守卫可被绕过，
+// 关联任务仍在跑时返回 409（ErrConversationTaskActive）——后端兜底「先停后删」，前端守卫可被绕过，
 // 不变量必须在服务端把守，否则单次删除就能制造停不掉的孤儿扫描。
 func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.DeleteConversation(c.Request.Context(), c.Param("id")); err != nil {
-			if errors.Is(err, ErrConversationScanActive) {
-				c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "scan_active": true})
+			if errors.Is(err, ErrConversationTaskActive) {
+				c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "task_active": true})
 				return
 			}
 			respondErr(c, http.StatusInternalServerError, err)

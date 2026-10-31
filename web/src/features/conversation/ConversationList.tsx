@@ -5,7 +5,7 @@ import { deleteConversation, listConversations, renameConversation } from '@/api
 import type { Conversation } from '@/api/types'
 import { ConvMenu } from './ConvMenu'
 import { fullTime, relativeTime } from '@/lib/format'
-import { scanStatusMeta } from '@/lib/scanStatus'
+import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 
 export interface ConversationListHandle {
@@ -40,7 +40,7 @@ function fullTitle(c: Conversation): string {
   return (c.title || '').replace(/^我要扫描\s*/, '').trim() || c.id
 }
 
-const SCAN_ACTIVE_HINT = '扫描进行中，无法删除。请先在对话页点「停止扫描」，停止后再删除。'
+const TASK_ACTIVE_HINT = '任务进行中，无法删除。请先在对话页停止任务，删除前先等任务结束。'
 
 // 头部主控件共用尺寸：「+ 新会话」按钮 与 passive 下不可点的「流量批次」占位保持同一盒模型，
 // 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
@@ -181,7 +181,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       if (deleting) return
       // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
       if (c.run_status === 'active') {
-        window.alert(SCAN_ACTIVE_HINT)
+        window.alert(TASK_ACTIVE_HINT)
         return
       }
       if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
@@ -191,7 +191,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         setItems((prev) => prev.filter((x) => x.id !== c.id))
         onDeleted(c.id)
       } catch (e) {
-        window.alert(e instanceof Error && e.message === 'SCAN_ACTIVE' ? SCAN_ACTIVE_HINT : '删除失败，请重试')
+        window.alert(e instanceof Error && e.message === 'TASK_ACTIVE' ? TASK_ACTIVE_HINT : '删除失败，请重试')
       } finally {
         setDeleting('')
       }
@@ -303,7 +303,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         )}
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {filtered.map((c) => {
-            const meta = scanStatusMeta(c.run_status)
+            const meta = taskStatusMeta(c.run_status)
             return (
               <li
                 key={c.id}

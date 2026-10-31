@@ -1,5 +1,5 @@
-// Package msgclass 用便宜 LLM 判定用户会话消息的类别：动作（触发扫描）还是问答（读结果回答）。
-package msgclass
+// Package intent 用便宜 LLM 判定用户会话消息的类别：动作（触发扫描）还是问答（读结果回答）。
+package intent
 
 import (
 	"context"
@@ -9,13 +9,13 @@ import (
 	llm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// MessageKind 是消息类别。
-type MessageKind string
+// Kind 是消息类别。
+type Kind string
 
 // 意图分类结果：action（扫描意图）/ chat（纯聊天）。
 const (
-	KindAction MessageKind = "action" // 触发/继续扫描
-	KindQA     MessageKind = "qa"     // 就已有结果提问
+	Action Kind = "action" // 触发/继续扫描
+	QA     Kind = "qa"     // 就已有结果提问
 )
 
 // gen 是 Classify 依赖的最小 LLM 接口（llm.Generator 满足）。
@@ -37,20 +37,20 @@ const systemPrompt = `你是渗透测试会话的消息分类器。判断用户�
 //     发可见的失败提示）。
 //   - 输出无法解析为 action/qa → 归 qa 不报错：这是分类器契约内的保守缺省
 //     （prompt 已指示「无法确定时输出 qa」），输出畸形是模型质量问题，不是闸失明。
-func Classify(ctx context.Context, g gen, userMessage string) (MessageKind, error) {
+func Classify(ctx context.Context, g gen, userMessage string) (Kind, error) {
 	res, err := g.Generate(ctx, []llm.Message{
 		{Role: llm.RoleSystem, Content: systemPrompt},
 		{Role: llm.RoleUser, Content: userMessage},
 	}, nil)
 	if err != nil {
-		return KindQA, fmt.Errorf("intent classify: %w", err)
+		return QA, fmt.Errorf("intent classify: %w", err)
 	}
 	switch strings.ToLower(strings.TrimSpace(res.Content)) {
 	case "action":
-		return KindAction, nil
+		return Action, nil
 	case "qa":
-		return KindQA, nil
+		return QA, nil
 	default:
-		return KindQA, nil
+		return QA, nil
 	}
 }

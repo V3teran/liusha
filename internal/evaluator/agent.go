@@ -34,7 +34,7 @@ const maxVerifyAttempts = 3
 //
 // 职责：
 // - 事件驱动 + 轮询兜底地圈定未裁决的假设（observation，confidence=unverified）
-// - 经 PromotionEvaluator 复现门验证后晋升为 result 节点
+// - 经 PromotionGate 复现门验证后晋升为 result 节点
 // - 发布 EventVerificationPassed/Refuted 事件
 //
 // 去重分两层：
@@ -45,8 +45,8 @@ const maxVerifyAttempts = 3
 //     沿用既有裁决，不再烧 judge。
 type Agent struct {
 	taskID        string
-	agentRunID    string              // 本轮认知循环的 agent_run.id（LLM 审计归属）
-	evaluator     *PromotionEvaluator // 使用具体类型
+	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	gate          *PromotionGate // 使用具体类型
 	eventBus      bus.Bus
 	graph         *explorationgraph.Store // 探索图存储
 	logger        zerolog.Logger
@@ -88,7 +88,7 @@ type priorVerdict struct {
 type AgentConfig struct {
 	TaskID        string
 	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
-	Evaluator     *PromotionEvaluator
+	Gate          *PromotionGate
 	EventBus      bus.Bus
 	Graph         *explorationgraph.Store // 探索图存储
 	Logger        zerolog.Logger
@@ -108,7 +108,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 	return &Agent{
 		taskID:        cfg.TaskID,
 		agentRunID:    cfg.AgentRunID,
-		evaluator:     cfg.Evaluator,
+		gate:          cfg.Gate,
 		eventBus:      cfg.EventBus,
 		graph:         cfg.Graph,
 		logger:        cfg.Logger.With().Str("agent", "evaluator").Logger(),
@@ -124,8 +124,8 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 // Run 启动轮询循环（ctx 取消即停止）。
 func (a *Agent) Run(ctx context.Context) error {
-	if a.evaluator == nil {
-		return fmt.Errorf("evaluator: PromotionEvaluator is required")
+	if a.gate == nil {
+		return fmt.Errorf("evaluator: PromotionGate is required")
 	}
 	if a.graph == nil {
 		return fmt.Errorf("evaluator: Graph is required")
@@ -622,8 +622,8 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	// 调用 PromotionEvaluator 验证
-	node, err := a.evaluator.Promote(verifyCtx, attempt)
+	// 调用 PromotionGate 验证
+	node, err := a.gate.Promote(verifyCtx, attempt)
 	if err != nil {
 		// 区分超时错误和其他错误
 		if isContextTimeoutError(err) {

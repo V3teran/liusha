@@ -84,21 +84,21 @@ type ListFilter struct {
 // Summary 是任务列表行：task 本体 + 派生列（JOIN assignment/cron_schedule/
 // conversation + finding/探索图步数计数）。列表页与详情板共用这一个形状。
 type Summary struct {
-	ID             string
-	Brief          string
-	TargetHost     string
-	Status         Status
-	AssignmentID   string
-	AssignmentNdx  int    // 批内序号（1-based，按 created_at 排）
-	AssignmentTot  int    // 批内任务总数
-	Source         string // manual|auto（视图层口径：定时克隆归 manual）
-	Scheduled      bool   // 定时模板触发（assignment.schedule_id 非空）
-	CronExpr       string // 来源模板的 cron 表达式（非定时为空）
-	ConversationID string
-	FindingCount   int
-	StepCount      int // 探索图 action 节点数 = 认知循环已执行步数
-	CreatedAt      time.Time
-	EndedAt        *time.Time
+	ID              string
+	Brief           string
+	TargetHost      string
+	Status          Status
+	AssignmentID    string
+	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
+	AssignmentTotal int    // 批内任务总数
+	Source          string // manual|auto（视图层口径：定时克隆归 manual）
+	Scheduled       bool   // 定时模板触发（assignment.schedule_id 非空）
+	CronExpr        string // 来源模板的 cron 表达式（非定时为空）
+	ConversationID  string
+	FindingCount    int
+	StepCount       int // 探索图 action 节点数 = 认知循环已执行步数
+	CreatedAt       time.Time
+	EndedAt         *time.Time
 }
 
 // summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。
@@ -136,7 +136,7 @@ func timeArg(t time.Time) any {
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
 	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status,
-		&s.AssignmentID, &s.AssignmentNdx, &s.AssignmentTot, &source, &s.Scheduled,
+		&s.AssignmentID, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
 		&s.CreatedAt, &s.EndedAt); err != nil {
 		return err

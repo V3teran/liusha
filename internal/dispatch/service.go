@@ -20,14 +20,14 @@ import (
 	llmcfg "github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
+	"github.com/V3teran/liusha/internal/intent"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/msgclass"
 	"github.com/V3teran/liusha/internal/qa"
-	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/hibiken/asynq"
@@ -60,13 +60,13 @@ func (a TaskStatusAdapter) TaskStatus(ctx context.Context, taskID string) (strin
 	return string(t.Status), true
 }
 
-// EventStreamAdapter 把 scanstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
-// scanstream.Subscription 自带 Events()/Close()，满足 httpapi.EventSubscription。
+// EventStreamAdapter 把 convstream 订阅适配成 httpapi.EventStream（SSE handler 用）。
+// convstream.Subscription 自带 Events()/Close()，满足 httpapi.EventSubscription。
 type EventStreamAdapter struct{ Rdb *redis.Client }
 
-// Subscribe 满足 httpapi.EventStream：按会话订阅 scanstream 的 SSE 事件流。
+// Subscribe 满足 httpapi.EventStream：按会话订阅 convstream 的 SSE 事件流。
 func (e EventStreamAdapter) Subscribe(ctx context.Context, conversationID string) httpapi.EventSubscription {
-	return scanstream.Subscribe(ctx, e.Rdb, conversationID)
+	return convstream.Subscribe(ctx, e.Rdb, conversationID)
 }
 
 // Service 是下发域的一站式服务：建 scan → 建 agent run → 入 asynq 队列；
@@ -83,12 +83,12 @@ type Service struct {
 	AgentRuns     *agentrun.Store
 	Enq           *worker.Client
 	Audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
-	Conversations *conversation.Store // 阶段B：StartChatScan 建会话；nil 时仅 CreateScan 可用
+	Conversations *conversation.Store // 阶段B：StartChatTask 建会话；nil 时仅 CreateScan 可用
 	Schedules     *cronschedule.Store // 任务模块「定时执行」：DispatchScheduled 建模板
 
 	Router    *RoleRouter           // 多轮：意图分类 + 问答（light provider，role→档→framework Router）
 	Findings  *finding.Store        // 问答读 task 黑板 finding
-	Publisher *scanstream.Publisher // 问答回答 publish SSE
+	Publisher *convstream.Publisher // 问答回答 publish SSE
 	Control   *controlplane.Store   // 用户停止 → terminate 控制事件（停掉 runner 执行）
 
 	// Run 整体超时上限。入队时设为 asynq.Timeout，
@@ -97,10 +97,10 @@ type Service struct {
 	MaxRunTimeout time.Duration
 }
 
-// createScan 是建 scan 的核心：建 assignment + task + agent run + 入 asynq 队列（带
-// conversationID）。CreateScan（无会话纯后台）与 StartChatScan（会话发起）共用。
+// createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
+// conversationID）。CreateScan（无会话纯后台）与 StartChatTask（会话发起）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
-func (a *Service) createScan(ctx context.Context, brief, conversationID string) (string, string, error) {
+func (a *Service) createTask(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// 一切下发皆走 assignment：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.Assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceManual,
@@ -124,7 +124,7 @@ func (a *Service) createScan(ctx context.Context, brief, conversationID string) 
 // DispatchBatch 满足 httpapi.TaskDispatchAPI：任务模块「新建任务」弹层的立即下发。
 //
 // 1 assignment(manual, N items) → N task → N conversation（1:1）：对每个 brief
-// 复用 StartChatScan 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
+// 复用 StartChatTask 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
 func (a *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
 	items := make([]assignment.Item, 0, len(briefs))
@@ -214,7 +214,7 @@ func (a *Service) appendTaskStatus(ctx context.Context, convID, status, summary 
 }
 
 // expandItem 把 assignment 下的一个 item（brief）展开成 task + agent run + enqueue。
-// 单发（createScan，建单元素 assignment 后展开 1 条）与批量/定时（Scheduler，建多元素
+// 单发（createTask，建单元素 assignment 后展开 1 条）与批量/定时（Scheduler，建多元素
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（单发 vs 批量/cron）。
 //
 // target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列）。
@@ -261,7 +261,7 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 
 // FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队
 // （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
-// 入队 Payload 与 createScan 同构，仅 TaskID 复用传入 taskID、不新建 task。
+// 入队 Payload 与 createTask 同构，仅 TaskID 复用传入 taskID、不新建 task。
 func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
 	if err := a.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
@@ -318,14 +318,14 @@ func (a *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 	return tid, nil
 }
 
-// AbortConversationScan 满足 httpapi.AbortAPI：abort 会话关联的 task。
+// AbortConversationTask 满足 httpapi.AbortAPI：abort 会话关联的 task。
 //
 // 三件事一体（缺一则「停止」名不副实）：
 //  1. task 置 aborted（DB 终态，幂等/守卫见 task.Store.Abort）；
 //  2. 发 terminate 控制事件——runner 控制平面消费后停认知循环（此前缺失：
 //     只改 DB 的话 agent 继续烧 token 直到自然收敛）；
 //  3. 时间线落 aborted 节点（用户可见的停止边界）。
-func (a *Service) AbortConversationScan(ctx context.Context, convID string) error {
+func (a *Service) AbortConversationTask(ctx context.Context, convID string) error {
 	conv, err := a.Conversations.GetConversation(ctx, convID)
 	if err != nil {
 		return err
@@ -350,7 +350,7 @@ func (a *Service) AbortConversationScan(ctx context.Context, convID string) erro
 }
 
 // DeleteConversation 满足 httpapi.ConversationDeleter：删会话+消息，但关联 task 仍在跑时拒删。
-// 「先停后删」的服务端把关——返回 httpapi.ErrConversationScanActive → handler 映射 409。
+// 「先停后删」的服务端把关——返回 httpapi.ErrConversationTaskActive → handler 映射 409。
 // 防「删了会话、扫描脱缰后台跑、UI 再停不掉、还在烧 token」的孤儿：不变量在服务端守，不靠前端。
 // 仅在确证 active 时拦截；无 task / 终态 / task 读不到则照常删。
 func (a *Service) DeleteConversation(ctx context.Context, convID string) error {
@@ -360,7 +360,7 @@ func (a *Service) DeleteConversation(ctx context.Context, convID string) error {
 	}
 	if conv.TaskID != "" {
 		if tk, gerr := a.Tasks.GetByID(ctx, conv.TaskID); gerr == nil && tk.Status == task.StatusActive {
-			return httpapi.ErrConversationScanActive
+			return httpapi.ErrConversationTaskActive
 		}
 	}
 	return a.Conversations.DeleteConversation(ctx, convID)
@@ -399,7 +399,7 @@ func (a *Service) dispatchFollowUp(convID, taskID, content string) {
 		a.publishNotice(ctx, convID, "（意图分类暂不可用，请稍后重试）")
 		return
 	}
-	isAction := kind == msgclass.KindAction
+	isAction := kind == intent.Action
 
 	// 纯聊天会话（无 task）：action 升级为扫描（建 task + 绑会话）；否则通用助手回答。
 	if taskID == "" {
@@ -410,7 +410,7 @@ func (a *Service) dispatchFollowUp(convID, taskID, content string) {
 			}
 			return
 		}
-		newTaskID, _, err := a.createScan(ctx, content, convID)
+		newTaskID, _, err := a.createTask(ctx, content, convID)
 		if err != nil {
 			chatLog.Warn().Err(err).Str("conv", convID).Msg("扫描下发失败")
 			a.publishNotice(ctx, convID, "（扫描下发失败："+err.Error()+"）")
@@ -474,7 +474,7 @@ type RoleRouter struct {
 }
 
 // providerGen 把已带 retry/fallback 的 Provider 适配成 Generator 形状
-// （chat/qa/msgclass 的最小依赖接口）。
+// （chat/qa/intent 的最小依赖接口）。
 type providerGen struct{ p fwllm.Provider }
 
 func (g providerGen) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
@@ -576,14 +576,14 @@ func (a *Service) Publish(ctx context.Context, convID string, payload []byte) er
 	return err
 }
 
-// StartChatScan 满足 httpapi.ChatAPI：建会话 + 落用户首条消息 + **同步意图闸**。
+// StartChatTask 满足 httpapi.ChatAPI：建会话 + 落用户首条消息 + **同步意图闸**。
 //
 // 分类必须留在请求路径：ChatResponse 的 task_id 是程序化调用方（e2e 触发器、
 // API 集成）拿任务句柄的唯一通道，异步分发会让该字段结构性恒空（契约破裂，
 // 消费方无从发现任务）。分类是单 token 的 light LLM 调用（秒级），同步代价
 // 可忽略；真正慢的是 qa 回答生成与扫描执行——两者保持异步（原「GLM 慢时浏览器
 // 干等几十秒」的病灶在慢回答，不在分类）。
-func (a *Service) StartChatScan(ctx context.Context, brief string) (string, string, error) {
+func (a *Service) StartChatTask(ctx context.Context, brief string) (string, string, error) {
 	conv, err := a.Conversations.CreateConversation(ctx, BriefTitle(brief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
@@ -597,14 +597,14 @@ func (a *Service) StartChatScan(ctx context.Context, brief string) (string, stri
 	if clsErr != nil {
 		return convID, "", clsErr
 	}
-	if kind != msgclass.KindAction {
+	if kind != intent.Action {
 		go a.answerChatAsync(convID, brief) //nolint:gosec // G118：回答独立于请求生命周期
 		return convID, "", nil
 	}
 
-	taskID, _, err := a.createScan(ctx, brief, convID)
+	taskID, _, err := a.createTask(ctx, brief, convID)
 	if err != nil {
-		return convID, "", fmt.Errorf("dispatch scan: %w", err)
+		return convID, "", fmt.Errorf("dispatch task: %w", err)
 	}
 	if err := a.Conversations.LinkTask(ctx, convID, taskID); err != nil {
 		chatLog.Warn().Err(err).Str("conv", convID).Msg("link task 失败")
@@ -615,13 +615,13 @@ func (a *Service) StartChatScan(ctx context.Context, brief string) (string, stri
 
 // classifyIntent 用 light provider 判定消息意图。provider 不可用返回显式 error
 // （入口方自行决定报错还是提示），不静默降级 qa。
-func (a *Service) classifyIntent(ctx context.Context, convID, content string) (msgclass.MessageKind, error) {
+func (a *Service) classifyIntent(ctx context.Context, convID, content string) (intent.Kind, error) {
 	g, err := a.Router.generator(ctx, "inspector") // light provider
 	if err != nil {
 		chatLog.Warn().Err(err).Str("conv", convID).Msg("意图分类 provider 失败")
-		return msgclass.KindQA, fmt.Errorf("intent classify provider: %w", err)
+		return intent.QA, fmt.Errorf("intent classify provider: %w", err)
 	}
-	return msgclass.Classify(ctx, g, content)
+	return intent.Classify(ctx, g, content)
 }
 
 // answerChatAsync 纯聊天的异步回答：增量经 SSE 打字机流出，全文落库兜底。

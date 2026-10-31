@@ -13,7 +13,7 @@ import (
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatScan(_ context.Context, _ string) (string, string, error) {
+func (fakeChat) StartChatTask(_ context.Context, _ string) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 
@@ -108,7 +108,7 @@ func TestFollowUpHandler_ActionBusy_409(t *testing.T) {
 
 type abortFn func(context.Context, string) error
 
-func (f abortFn) AbortConversationScan(ctx context.Context, convID string) error {
+func (f abortFn) AbortConversationTask(ctx context.Context, convID string) error {
 	return f(ctx, convID)
 }
 
@@ -132,12 +132,12 @@ type deleteFn func(context.Context, string) error
 
 func (f deleteFn) DeleteConversation(ctx context.Context, id string) error { return f(ctx, id) }
 
-// TestDeleteHandler_ScanActive_409：关联扫描仍在跑 → 409（先停后删的服务端兜底）。
-func TestDeleteHandler_ScanActive_409(t *testing.T) {
+// TestDeleteHandler_TaskActive_409：关联扫描仍在跑 → 409（先停后删的服务端兜底）。
+func TestDeleteHandler_TaskActive_409(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.DELETE("/conversations/:id", deleteConversationHandler(deleteFn(func(_ context.Context, _ string) error {
-		return ErrConversationScanActive
+		return ErrConversationTaskActive
 	})))
 	req := httptest.NewRequest("DELETE", "/conversations/c1", nil)
 	w := httptest.NewRecorder()
@@ -145,8 +145,8 @@ func TestDeleteHandler_ScanActive_409(t *testing.T) {
 	if w.Code != 409 {
 		t.Errorf("扫描进行中删除应 409，得 %d (%s)", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "scan_active") {
-		t.Errorf("409 响应应含 scan_active 标记，得 %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "task_active") {
+		t.Errorf("409 响应应含 task_active 标记，得 %s", w.Body.String())
 	}
 }
 

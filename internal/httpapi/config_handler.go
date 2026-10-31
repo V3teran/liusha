@@ -22,13 +22,13 @@ import (
 // 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
 type ConfigAPI interface {
 	// agent
-	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
-	ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
+	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
+	ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error)
 	CountAgents(ctx context.Context, p agent.ListParams) (int, error)
-	AgentByID(ctx context.Context, id string) (agent.Agent, error)
-	AgentByCode(ctx context.Context, code string) (agent.Agent, error)
-	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
-	UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
+	AgentByID(ctx context.Context, id string) (agent.Profile, error)
+	AgentByCode(ctx context.Context, code string) (agent.Profile, error)
+	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
+	UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Profile, error)
 }
 
 // configPageSize 约束 agent 分页 size 上限，防超大扫描。
@@ -219,7 +219,7 @@ func updateAgentComplexityHandler(api ConfigAPI) gin.HandlerFunc {
 }
 
 // executorJSON 是 executor 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
-func agentJSON(h agent.Agent) gin.H {
+func agentJSON(h agent.Profile) gin.H {
 	fnTools := h.FunctionTools
 	if fnTools == nil {
 		fnTools = []string{}

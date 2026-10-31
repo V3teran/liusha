@@ -21,6 +21,7 @@ import (
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -35,7 +36,6 @@ import (
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
-	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -86,7 +86,7 @@ type Deps struct {
 
 	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
 	Conversations  *conversation.Store
-	EventPublisher *scanstream.Publisher
+	EventPublisher *convstream.Publisher
 }
 
 // MessageWindows 是各角色 ReAct 滚动窗口条数（系统配置 compaction 组快照）。
@@ -177,20 +177,20 @@ func (d *Deps) run(
 
 	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
 	// 周期缺终态语义）。被终止的任务标 aborted，其余标 done。best-effort。
-	d.closeObjectives(ctx, taskID, result.StopWhy)
+	d.closeObjectives(ctx, taskID, result.StopReason)
 
 	d.Logger.Info().
 		Int64("duration_ms", result.Duration.Milliseconds()).
 		Int("steps", result.Steps).
 		Int("promoted", result.Promoted).
-		Str("stop_why", result.StopWhy).
+		Str("stop_reason", result.StopReason).
 		Msg("认知循环完成")
 
 	return executor.Report{
-		Steps:    result.Steps,
-		Promoted: result.Promoted,
-		Attempts: result.Attempts,
-		StopWhy:  result.StopWhy,
+		Steps:      result.Steps,
+		Promoted:   result.Promoted,
+		Attempts:   result.Attempts,
+		StopReason: result.StopReason,
 	}, nil
 }
 
@@ -260,20 +260,20 @@ func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) er
 
 // agentConfigs 是四 Agent 的 DB 配置（function_tools/cli_tools/skills 白名单的事实源）。
 type agentConfigs struct {
-	executor  agent.Agent
-	planner   agent.Agent
-	evaluator agent.Agent
-	monitor   agent.Agent
+	executor  agent.Profile
+	planner   agent.Profile
+	evaluator agent.Profile
+	monitor   agent.Profile
 }
 
 // loadAgentConfigs 经 cfgStore 三级缓存读四 Agent 配置；读失败降级为空配置。
 // 前端改配置 → UpdateAgent 失效广播 → 本进程 L1 清 → 本任务即读新值。
 func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
-	getCfg := func(code string) agent.Agent {
+	getCfg := func(code string) agent.Profile {
 		cfg, err := d.CfgStore.AgentByCode(ctx, code)
 		if err != nil {
 			d.Logger.Warn().Err(err).Str("code", code).Msg("加载 agent 配置失败，使用空配置")
-			return agent.Agent{Code: code}
+			return agent.Profile{Code: code}
 		}
 		return cfg
 	}
@@ -392,7 +392,7 @@ func (d *Deps) assembleStack(
 		}
 		return lines
 	}
-	intelligence := planner.NewIntelligence(d.Router, d.Logger).
+	engine := planner.NewEngine(d.Router, d.Logger).
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
@@ -411,7 +411,7 @@ func (d *Deps) assembleStack(
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
 		Graph:         d.Graph,
-		Planner:       intelligence,
+		Planner:       engine,
 		EventBus:      d.EventBus,
 		Logger:        d.Logger.With().Str("component", "planner_agent").Logger(),
 		FunctionTools: cfgs.planner.FunctionTools,
@@ -479,7 +479,7 @@ func (d *Deps) filterManifest(cliTools []string) *manifest.Manifest {
 func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
 	taskID, host, brief, agentRunID string,
-	cfg agent.Agent,
+	cfg agent.Profile,
 	filteredManifest *manifest.Manifest,
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
@@ -524,7 +524,7 @@ func (d *Deps) buildExecutorAgent(
 func (d *Deps) buildEvaluatorAgent(
 	ctx context.Context,
 	taskID, host, agentRunID, conversationID string,
-	cfg agent.Agent,
+	cfg agent.Profile,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
 	reg *registry.Registry,
@@ -557,7 +557,7 @@ func (d *Deps) buildEvaluatorAgent(
 	claimSink := finding.NewClaimSink(d.Findings, agentRunID)
 	if conversationID != "" {
 		timeline := d.toolTimelineEvents()
-		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.VulnFinding) {
+		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.Vuln) {
 			timeline.Emit(octx, conversationID, map[string]any{
 				"kind":       "finding",
 				"agent_name": "evaluator",
@@ -576,7 +576,7 @@ func (d *Deps) buildEvaluatorAgent(
 	return evaluator.NewAgent(evaluator.AgentConfig{
 		TaskID:     taskID,
 		AgentRunID: agentRunID,
-		Evaluator:  promoter,
+		Gate:       promoter,
 		EventBus:   d.EventBus,
 		Graph:      d.Graph,
 		Logger:     d.Logger.With().Str("component", "evaluator_agent").Logger(),

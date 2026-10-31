@@ -28,7 +28,7 @@ import (
 // - 完全异步，不阻塞任何调用方
 type Agent struct {
 	graph        *explorationgraph.Store
-	executor     Interface
+	executor     ActionExecutor
 	eventBus     bus.Bus
 	logger       zerolog.Logger
 	taskID       string
@@ -48,7 +48,7 @@ type Agent struct {
 type AgentConfig struct {
 	TaskID       string
 	Graph        *explorationgraph.Store
-	Executor     Interface
+	Executor     ActionExecutor
 	EventBus     bus.Bus
 	Logger       zerolog.Logger
 	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
@@ -113,7 +113,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			a.logger.Info().Msg("Agent 停止（context 取消）")
-			report.StopWhy = stopCanceled
+			report.StopReason = stopCanceled
 			a.notifyCompletion(report)
 			return ctx.Err()
 
@@ -133,7 +133,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// 检查停止条件
 			if a.shouldStop(&report) {
 				a.logger.Info().
-					Str("stop_why", report.StopWhy).
+					Str("stop_reason", report.StopReason).
 					Int("steps", report.Steps).
 					Msg("Agent 达到停止条件")
 				a.notifyCompletion(report)
@@ -149,7 +149,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			// 检查停止条件
 			if a.shouldStop(&report) {
 				a.logger.Info().
-					Str("stop_why", report.StopWhy).
+					Str("stop_reason", report.StopReason).
 					Int("steps", report.Steps).
 					Msg("Agent 达到停止条件（定期检查）")
 				a.notifyCompletion(report)
@@ -292,7 +292,7 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
-	// 执行 Action（调用 Interface）
+	// 执行 Action（调用 ActionExecutor）
 	attempts, execErr := a.executor.Execute(ctx, action)
 
 	// 终态标记的 ctx：执行期 ctx 被取消（terminate/kill）时，用已死的 ctx
@@ -372,7 +372,7 @@ func (a *Agent) executeAction(
 func (a *Agent) shouldStop(report *Report) bool {
 	// 达到最大步数
 	if a.maxSteps > 0 && report.Steps >= a.maxSteps {
-		report.StopWhy = stopMaxSteps
+		report.StopReason = stopMaxSteps
 		return true
 	}
 

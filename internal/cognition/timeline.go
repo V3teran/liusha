@@ -25,7 +25,7 @@ type timelineWriter interface {
 	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
-// timelinePublisher 时间线事件的 SSE 广播通道（*scanstream.Publisher 满足）。
+// timelinePublisher 时间线事件的 SSE 广播通道（*convstream.Publisher 满足）。
 type timelinePublisher interface {
 	PublishMessage(ctx context.Context, conversationID string, msg any) error
 }

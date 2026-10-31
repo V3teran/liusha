@@ -13,7 +13,7 @@ import (
 // 非 deadline 失败不动预算。回归背景：GLM 慢速期 3 分钟基准预算必然超时，
 // 同预算重试是确定性失败——规划循环 12 分钟停摆三次复现。
 func TestIntelligenceBudgetEscalation(t *testing.T) {
-	i := NewIntelligence(nil, testLogger())
+	i := NewEngine(nil, testLogger())
 	if i.budget != i.timeout {
 		t.Fatalf("初始预算应等于基准: %v", i.budget)
 	}

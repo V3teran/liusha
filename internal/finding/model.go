@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// VulnFinding 是 finding 表行的 Go 表示。
+// Vuln 是 finding 表行的 Go 表示。
 //
 // Host 必填；Save 内空字符串校验防漏填。
 // SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
 // Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
-type VulnFinding struct {
+type Vuln struct {
 	ID              string
 	TaskID          string // 所属 task.id
 	AgentRunID      *string

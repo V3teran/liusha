@@ -21,9 +21,9 @@ type SkillAPI interface {
 
 	// 装配到智能体（对称工具模块）：读全量 agent 算 involved、按 agent.skills
 	// 白名单写回（后端单一权威，同 tool assignToolHandler）。
-	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
-	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
-	AgentByCode(ctx context.Context, code string) (agent.Agent, error)
+	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
+	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
+	AgentByCode(ctx context.Context, code string) (agent.Profile, error)
 }
 
 // listSkillsHandler 获取 Skill 列表（智能判断分页或全量）
@@ -217,7 +217,7 @@ type skillAgentsView struct {
 }
 
 // agentHasSkill 判据的单一实现：白名单含 "*"（executor 种子语义 = 全量装配）或含 code。
-func agentHasSkill(a agent.Agent, code string) bool {
+func agentHasSkill(a agent.Profile, code string) bool {
 	for _, s := range a.Skills {
 		if s == code || s == "*" {
 			return true
@@ -310,7 +310,7 @@ func assignSkillHandler(api SkillAPI) gin.HandlerFunc {
 // applySkillAssignment 返回该智能体装/卸某技能后的 skills 白名单（不改原切片）。
 // 全量哨兵 "*"：装配=幂等保留；卸载=物化为「技能全集减一」（对称 tool 的
 // applyAssignment 物化语义）。显式白名单：装=追加、卸=剔除，幂等。
-func applySkillAssignment(a agent.Agent, code string, involved bool, catalog []skillstore.Skill) []string {
+func applySkillAssignment(a agent.Profile, code string, involved bool, catalog []skillstore.Skill) []string {
 	if containsWildcardSkill(a.Skills) {
 		if involved {
 			return a.Skills

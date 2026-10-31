@@ -1,6 +1,6 @@
 // Package reasoning 聚合 agent 输出的流式增量并接入会话时间线：
 //
-//   - 增量按 agent × 通道双桶合批（150ms 窗口）经 scanstream 实时广播——不持久化，
+//   - 增量按 agent × 通道双桶合批（150ms 窗口）经 convstream 实时广播——不持久化，
 //     丢帧无害。通道分 two lanes：thinking（模型内部 CoT，先流）与 text
 //     （ReAct thought 正文，后流），前端分两个展示区（思考折叠区 + 正文打字机）；
 //   - Done 终稿落 conversation message（kind=event + metadata{kind:reasoning,
@@ -20,8 +20,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/framework/runtime"
-	"github.com/V3teran/liusha/internal/scanstream"
 )
 
 // flushInterval 是增量合批窗口：窗口内同 agent 同通道的 chunk 合并成一帧发布，
@@ -65,7 +65,7 @@ func RoundOf(res *runtime.ReActResult) Round {
 	}
 }
 
-// Publisher 是增量与终态的实时广播通道（*scanstream.Publisher 满足）。
+// Publisher 是增量与终态的实时广播通道（*convstream.Publisher 满足）。
 type Publisher interface {
 	PublishDelta(ctx context.Context, conversationID, agentName, channel, text string) error
 	Publish(ctx context.Context, conversationID string, payload []byte) error
@@ -190,12 +190,12 @@ func (s *Stream) flush() {
 // publishLane 发布一个 agent 桶的双通道增量（thinking 先、text 后）。
 func (s *Stream) publishLane(agent string, buf *laneBuffer) {
 	if buf.thinking != "" {
-		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, scanstream.ChannelThinking, buf.thinking); err != nil {
+		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, convstream.ChannelThinking, buf.thinking); err != nil {
 			s.logger.Warn().Err(err).Str("agent", agent).Msg("思考增量广播失败（丢帧无害）")
 		}
 	}
 	if buf.text != "" {
-		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, scanstream.ChannelText, buf.text); err != nil {
+		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, convstream.ChannelText, buf.text); err != nil {
 			s.logger.Warn().Err(err).Str("agent", agent).Msg("正文增量广播失败（丢帧无害）")
 		}
 	}

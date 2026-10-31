@@ -5,7 +5,7 @@ import {
   listMessages,
   startChat,
   followUp,
-  abortScan,
+  abortTask,
   deleteConversation,
   renameConversation,
   authStream,
@@ -93,14 +93,14 @@ describe('会话域 API', () => {
       setApiKey('my-key')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', scan_id: 'scan-456' }),
+        json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', task_id: 't-456' }),
       })
       ;(global as any).fetch = mockFetch
 
       const result = await startChat('scan target')
 
       expect(result.conversation_id).toBe('conv-123')
-      expect(result.scan_id).toBe('scan-456')
+      expect(result.task_id).toBe('t-456')
       expect(mockFetch).toHaveBeenCalledWith('/api/chat', {
         method: 'POST',
         headers: {
@@ -129,7 +129,7 @@ describe('会话域 API', () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: vi.fn().mockResolvedValue({ intent: 'action', scan_id: 's1' }),
+        json: vi.fn().mockResolvedValue({ intent: 'action', task_id: 't-new' }),
       })
       ;(global as any).fetch = mockFetch
 
@@ -151,7 +151,7 @@ describe('会话域 API', () => {
       await expect(followUp('c1', 'x')).rejects.toMatchObject({ busy: true })
     })
 
-    it('abortScan POST 到 /conversations/:id/abort', async () => {
+    it('abortTask POST 到 /conversations/:id/abort', async () => {
       setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -160,7 +160,7 @@ describe('会话域 API', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      await abortScan('c1')
+      await abortTask('c1')
 
       expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/abort', expect.objectContaining({ method: 'POST' }))
     })
@@ -176,10 +176,10 @@ describe('会话域 API', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1', expect.objectContaining({ method: 'DELETE' }))
     })
 
-    it('deleteConversation 409 抛 SCAN_ACTIVE 哨兵', async () => {
+    it('deleteConversation 409 抛 TASK_ACTIVE 哨兵', async () => {
       ;(global as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 409 })
 
-      await expect(deleteConversation('c1')).rejects.toThrow('SCAN_ACTIVE')
+      await expect(deleteConversation('c1')).rejects.toThrow('TASK_ACTIVE')
     })
 
     it('renameConversation PATCH title', async () => {

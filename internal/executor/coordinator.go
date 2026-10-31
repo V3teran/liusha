@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var _ Interface = (*Coordinator)(nil)
+var _ ActionExecutor = (*Coordinator)(nil)
 
 // Coordinator 是执行层的协调器
 type Coordinator struct {

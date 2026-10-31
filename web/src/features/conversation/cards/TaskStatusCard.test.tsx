@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TaskStatusCard } from './TaskStatusCard'
-import type { ScanEvent } from '@/api/types'
+import type { TimelineEventMeta } from '@/api/types'
 
-const md = (over: Partial<ScanEvent>): ScanEvent => ({
+const md = (over: Partial<TimelineEventMeta>): TimelineEventMeta => ({
   kind: 'task_status',
   status: 'completed',
   steps: 0,
   actions: 0,
   findings: 0,
-  stop_why: '',
+  stop_reason: '',
   reason: '',
   tool_name: '',
   args: '',
@@ -26,8 +26,8 @@ const md = (over: Partial<ScanEvent>): ScanEvent => ({
 })
 
 describe('TaskStatusCard', () => {
-  it('completed：标签 + 报告字段（推理步数/发现数；actions 与 stop_why 留 wire 不渲染）', () => {
-    render(<TaskStatusCard md={md({ status: 'completed', steps: 22, actions: 8, findings: 1, stop_why: 'task_converged' })} />)
+  it('completed：标签 + 报告字段（推理步数/发现数；actions 与 stop_reason 留 wire 不渲染）', () => {
+    render(<TaskStatusCard md={md({ status: 'completed', steps: 22, actions: 8, findings: 1, stop_reason: 'task_converged' })} />)
     expect(screen.getByText('扫描完成')).toBeTruthy()
     expect(screen.getByText(/22 步/)).toBeTruthy()
     expect(screen.getByText(/1 个发现/)).toBeTruthy()

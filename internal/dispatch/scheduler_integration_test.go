@@ -42,7 +42,7 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 		AgentRuns:     agentRuns,
 		Enq:           enq,
 		Conversations: conversation.NewStore(pool),
-		Scan: &Service{
+		Dispatcher: &Service{
 			Assignments:   assignments,
 			Tasks:         tasks,
 			AgentRuns:     agentRuns,

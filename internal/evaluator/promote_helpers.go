@@ -12,7 +12,7 @@ import (
 )
 
 // validateAttempt 验证 Attempt 的必填字段
-func (v *PromotionEvaluator) validateAttempt(a Attempt) error {
+func (v *PromotionGate) validateAttempt(a Attempt) error {
 	if a.TaskID == "" {
 		return fmt.Errorf("verifier: Attempt.TaskID 必填")
 	}
@@ -32,7 +32,7 @@ func (v *PromotionEvaluator) validateAttempt(a Attempt) error {
 }
 
 // createReplayFunction 创建重放闭包，记录完整证据链
-func (v *PromotionEvaluator) createReplayFunction(a Attempt, replays *[]replayRecord) func(context.Context, string) (Result, error) {
+func (v *PromotionGate) createReplayFunction(a Attempt, replays *[]replayRecord) func(context.Context, string) (Result, error) {
 	return func(rctx context.Context, phase string) (Result, error) {
 		res, err := v.replayer.Replay(rctx, a.Primitives)
 		rec := replayRecord{Phase: phase, DurationMs: res.DurationMs}
@@ -47,7 +47,7 @@ func (v *PromotionEvaluator) createReplayFunction(a Attempt, replays *[]replayRe
 }
 
 // executePrerun 执行预跑阶段
-func (v *PromotionEvaluator) executePrerun(ctx context.Context, replay func(context.Context, string) (Result, error)) (Result, error) {
+func (v *PromotionGate) executePrerun(ctx context.Context, replay func(context.Context, string) (Result, error)) (Result, error) {
 	res, err := replay(ctx, "prerun")
 	if err != nil {
 		return Result{}, fmt.Errorf("verifier: 复现执行失败: %w", err)
@@ -68,7 +68,7 @@ func extractHypothesis(a Attempt) string {
 }
 
 // checkMachineGuard 机器护栏：检查断言是否通过
-func (v *PromotionEvaluator) checkMachineGuard(
+func (v *PromotionGate) checkMachineGuard(
 	ctx context.Context,
 	a Attempt,
 	hyp string,
@@ -85,7 +85,7 @@ func (v *PromotionEvaluator) checkMachineGuard(
 }
 
 // executeLLMJudge 执行 LLM 裁决
-func (v *PromotionEvaluator) executeLLMJudge(
+func (v *PromotionGate) executeLLMJudge(
 	ctx context.Context,
 	a Attempt,
 	hyp string,
@@ -116,7 +116,7 @@ func aggregateEvidence(res Result, tier, verdict string, reasoning string, repla
 
 // recordVerification 记录验证结果到审计链。
 // node_id 指向被裁决的假设节点——审计链回答"谁被验证了"。
-func (v *PromotionEvaluator) recordVerification(
+func (v *PromotionGate) recordVerification(
 	ctx context.Context,
 	a Attempt,
 	outcome explorationgraph.VerifyOutcome,
@@ -153,7 +153,7 @@ type hypothesisMark struct {
 // markHypothesisNode 在假设节点上回写审判标记：verification_outcome 记录
 // 裁决溯源，confidence 同步流转（unverified → verified/refuted）——
 // 轮询方以 confidence=unverified 圈定待裁决集合，两个键必须一致更新。
-func (v *PromotionEvaluator) markHypothesisNode(
+func (v *PromotionGate) markHypothesisNode(
 	ctx context.Context,
 	a Attempt,
 	m hypothesisMark,
@@ -198,7 +198,7 @@ func (v *PromotionEvaluator) markHypothesisNode(
 // generates 溯源边——推导链 objective →(generates)→ action →(generates)→
 // observation →(generates)→ result 全程可溯，result 不是图孤儿。
 // fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键。
-func (v *PromotionEvaluator) createVerifiedNode(
+func (v *PromotionGate) createVerifiedNode(
 	ctx context.Context,
 	a Attempt,
 	nodeID string,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useConversationStore } from './conversation'
-import type { Message, ScanEvent } from '@/api/types'
+import type { Message, TimelineEventMeta } from '@/api/types'
 
 const msg = (seq: number): Message => ({
   seq: seq,
@@ -16,7 +16,7 @@ const msg = (seq: number): Message => ({
 const reasoningFinal = (seq: number, agent: string): Message => ({
   ...msg(seq),
   role: 'assistant',
-  metadata: { kind: 'reasoning', agent_name: agent } as ScanEvent,
+  metadata: { kind: 'reasoning', agent_name: agent } as TimelineEventMeta,
 })
 
 describe('conversation store', () => {
@@ -168,7 +168,7 @@ describe('conversation store', () => {
     s.appendReasoningDelta('回答', undefined)
     s.ingest({
       ...msg(3), role: 'assistant', kind: 'event',
-      metadata: { kind: 'task_status', status: 'aborted' } as ScanEvent,
+      metadata: { kind: 'task_status', status: 'aborted' } as TimelineEventMeta,
     })
     const state = useConversationStore.getState()
     expect(state.liveStreams).toEqual({})
@@ -180,7 +180,7 @@ describe('conversation store', () => {
     s.appendReasoningDelta('规划中', 'planner')
     s.ingest({
       ...msg(3), role: 'assistant', kind: 'event',
-      metadata: { kind: 'task_status', status: 'dispatched' } as ScanEvent,
+      metadata: { kind: 'task_status', status: 'dispatched' } as TimelineEventMeta,
     })
     expect(useConversationStore.getState().liveStreams).toEqual({ planner: { thinking: '', text: '规划中' } })
   })

@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// ReplayFunc 是裁决官可调用的机器重放（由 PromotionEvaluator 注入，绑定本 Attempt 配方）。
+// ReplayFunc 是裁决官可调用的机器重放（由 PromotionGate 注入，绑定本 Attempt 配方）。
 type ReplayFunc func(ctx context.Context) (Result, error)
 
 // LLMJudge 是晋升门的语义裁决器接口（ReAct 实现 + 测试 stub）。

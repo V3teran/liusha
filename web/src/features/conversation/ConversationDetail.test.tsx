@@ -9,7 +9,7 @@ import * as sseHook from '@/hooks/useEventStream'
 vi.mock('@/api/conversations', () => ({
   listMessages: vi.fn(),
   getConversationUsage: vi.fn(),
-  abortScan: vi.fn(),
+  abortTask: vi.fn(),
   startChat: vi.fn(),
   followUp: vi.fn(),
 }))
@@ -88,9 +88,9 @@ describe('ConversationDetail', () => {
     await waitFor(() => expect(screen.getAllByText('停止扫描').length).toBeGreaterThan(0))
   })
 
-  it('点击停止扫描调用 abortScan', async () => {
+  it('点击停止扫描调用 abortTask', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
-    vi.mocked(apiClient.abortScan).mockResolvedValue(undefined)
+    vi.mocked(apiClient.abortTask).mockResolvedValue(undefined)
     render(<MemoryRouter><ConversationDetail convId="c1" source="manual" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     const stopBtns = await waitFor(() => {
       const btns = screen.getAllByText('停止扫描')
@@ -98,7 +98,7 @@ describe('ConversationDetail', () => {
       return btns
     })
     stopBtns[0].click()
-    await waitFor(() => expect(apiClient.abortScan).toHaveBeenCalledWith('c1'))
+    await waitFor(() => expect(apiClient.abortTask).toHaveBeenCalledWith('c1'))
   })
 
   it('运行态翻转触发 onRunningChanged 回调', async () => {
