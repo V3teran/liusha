@@ -24,6 +24,33 @@ export async function listAgentConfigs(): Promise<AgentConfig[]> {
 }
 
 /**
+ * 分页 + 搜索获取智能体（配置管理页用）。
+ * 不带 page 的 listAgentConfigs 仍是全量。
+ */
+export async function listAgentsPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ agents: AgentConfig[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ agents: AgentConfig[]; total: number }>(`/agents?${params}`)
+}
+
+/**
+ * 分页 + 搜索获取技能（技能管理页用）。
+ */
+export async function listSkillsPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ skills: Skill[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ skills: Skill[]; total: number }>(`/skills?${params}`)
+}
+
+/**
  * 智能体可变字段集合：后端 agentUpdate/UpdateParams 白名单。
  * 名称/标识符是固定种子身份，不在其中；description（调度摘要）是 LLM 可读面、可编辑——
  * 接口层直接收窄，防止调用方把改不了的字段发上去。

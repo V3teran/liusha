@@ -4,10 +4,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { ConversationList, type ConversationListHandle } from './ConversationList'
-import { deleteConversation, listConversations, renameConversation } from '@/api/client'
+import { deleteConversation, listConversations, renameConversation } from '@/api/conversations'
 import type { Conversation } from '@/api/types'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/conversations', () => ({
   listConversations: vi.fn(),
   deleteConversation: vi.fn(),
   renameConversation: vi.fn(),

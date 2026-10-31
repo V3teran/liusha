@@ -92,8 +92,9 @@ func TestStore_ListAll_Pagination(t *testing.T) {
 	if len(page1) != 2 {
 		t.Fatalf("第一页应 2 行，得到 %d", len(page1))
 	}
-	if page1[0].InTokens != 0 || page1[1].InTokens != 1 {
-		t.Errorf("第一页顺序错: in_tokens=%d,%d", page1[0].InTokens, page1[1].InTokens)
+	// ListAll 按,id DESC（全局搜索口径：最新在前）。
+	if page1[0].InTokens != 2 || page1[1].InTokens != 1 {
+		t.Errorf("第一页顺序错（应最新在前）: in_tokens=%d,%d", page1[0].InTokens, page1[1].InTokens)
 	}
 
 	page2, err := s.ListAll(ctx, ListFilter{Offset: 2, Limit: 2})
@@ -103,14 +104,14 @@ func TestStore_ListAll_Pagination(t *testing.T) {
 	if len(page2) != 1 {
 		t.Fatalf("第二页应剩 1 行，得到 %d", len(page2))
 	}
-	if page2[0].InTokens != 2 {
-		t.Errorf("第二页应是第 3 条(in_tokens=2)，得到 %d", page2[0].InTokens)
+	if page2[0].InTokens != 0 {
+		t.Errorf("第二页应是最旧一条(in_tokens=0)，得到 %d", page2[0].InTokens)
 	}
 }
 
-// TestStore_GetByID 验证：详情按 id+taskID 联合定位，能读到 messages/result 原文；
-// taskID 不匹配（跨 task 猜 id）应查不到，不越权。
-func TestStore_GetByID(t *testing.T) {
+// TestStore_GetDetailByID 验证：详情按 id 全局定位（搜索页钻取路径），能读到
+// messages/result 原文；不存在的 id 报错而非静默零值。
+func TestStore_GetDetailByID(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
@@ -131,9 +132,9 @@ func TestStore_GetByID(t *testing.T) {
 	}
 	id := rows[0].ID
 
-	got, err := s.GetByID(ctx, taskID, id)
+	got, err := s.GetDetailByID(ctx, id)
 	if err != nil {
-		t.Fatalf("get by id: %v", err)
+		t.Fatalf("get detail: %v", err)
 	}
 	// jsonb 落库/读回会重排空白（"role":"user" → "role": "user"），语义比较而非字节比较。
 	var gotMsgs, wantMsgs any
@@ -153,8 +154,8 @@ func TestStore_GetByID(t *testing.T) {
 		t.Errorf("result 内容不符: %s", got.Result)
 	}
 
-	if _, err := s.GetByID(ctx, "00000000-0000-0000-0000-000000000000", id); err == nil {
-		t.Error("task_id 不匹配应查不到（不越权），却返回了行")
+	if _, err := s.GetDetailByID(ctx, 0); err == nil {
+		t.Error("不存在的 id 应报错，却返回了行")
 	}
 }
 
@@ -267,24 +268,6 @@ func TestStore_AggregateByTask_Filtered(t *testing.T) {
 	}
 	if withPaging.Calls != 3 {
 		t.Errorf("统计不该受分页影响，got calls=%d，期望 3", withPaging.Calls)
-	}
-}
-
-// TestStore_FacetsByTask 验证候选集合来自服务端 distinct（分页下前端推不出全集），且已去重排序。
-func TestStore_FacetsByTask(t *testing.T) {
-	ctx := context.Background()
-	s, taskID := setup(t)
-	seedFiltered(t, s, taskID)
-
-	f, err := s.FacetsByTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("facets: %v", err)
-	}
-	if len(f.Roles) != 2 || f.Roles[0] != "executor" || f.Roles[1] != "planner" {
-		t.Errorf("roles 应去重且有序: %+v", f.Roles)
-	}
-	if len(f.Models) != 2 || f.Models[0] != "deepseek-chat" || f.Models[1] != "glm-5.3-flash" {
-		t.Errorf("models 应去重且有序: %+v", f.Models)
 	}
 }
 

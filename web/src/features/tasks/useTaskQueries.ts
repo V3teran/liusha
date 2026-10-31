@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { createTasks, getTaskDetail, listTasks } from '@/api/client'
+import { createTasks, getTaskDetail, listTasks } from '@/api/tasks'
 import type { TaskFilters } from '@/api/types'
 
 // 任务模块 React Query hooks（对齐 useTrafficQueries 约定）：

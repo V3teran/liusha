@@ -4,10 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { getFindingStat, listFindings, updateFindingTriage } from '@/api/client'
+import { getFindingStat, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),

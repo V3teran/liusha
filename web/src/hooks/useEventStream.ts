@@ -1,5 +1,6 @@
 import type { Message } from '@/api/types'
-import { API_BASE, authStream } from '@/api/client'
+import { API_BASE } from '@/api/client'
+import { authStream } from '@/api/conversations'
 import type { useConversationStore } from '@/stores/conversation'
 
 type Store = ReturnType<typeof useConversationStore.getState>

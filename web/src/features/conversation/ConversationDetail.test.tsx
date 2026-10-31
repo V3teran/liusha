@@ -3,10 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ConversationDetail } from './ConversationDetail'
 import { useConversationStore } from '@/stores/conversation'
-import * as apiClient from '@/api/client'
+import * as apiClient from '@/api/conversations'
 import * as sseHook from '@/hooks/useEventStream'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/conversations', () => ({
   listMessages: vi.fn(),
   getConversationUsage: vi.fn(),
   abortScan: vi.fn(),

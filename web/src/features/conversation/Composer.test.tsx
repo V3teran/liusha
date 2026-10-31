@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Composer } from './Composer'
-import { followUp, startChat } from '@/api/client'
+import { followUp, startChat } from '@/api/conversations'
 import { useConversationStore } from '@/stores/conversation'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/conversations', () => ({
   followUp: vi.fn(),
   startChat: vi.fn(),
 }))

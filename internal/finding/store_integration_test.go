@@ -63,10 +63,10 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, saved.ID, again.ID, "同 dedup_key 应返回 existing 行")
 
-	// ListByTaskAndHost：按 host 过滤；limit=0 表示不限
+	// ListAll + Host 过滤：按 host 筛（与台账页同口径）
 	_, err = store.Save(ctx, finding.VulnFinding{TaskID: taskID, Host: "other.local", Summary: "另一台主机的漏洞"})
 	require.NoError(t, err)
-	byHost, err := store.ListByTaskAndHost(ctx, taskID, "target.local", 0)
+	byHost, err := store.ListAll(ctx, finding.LedgerFilter{Host: "target.local"})
 	require.NoError(t, err)
 	assert.Len(t, byHost, 1)
 	all, err := store.ListByTask(ctx, taskID)
@@ -120,9 +120,23 @@ func TestListAll_CountAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, bySeverity)
 
-	hosts, err := store.DistinctHosts(ctx)
+	// distinct host 集合：从全量行派生（DistinctHosts 专用端点已删，语义由台账行覆盖）
+	rows, err = store.ListAll(ctx, finding.LedgerFilter{})
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"ledger.local", "other.local"}, hosts)
+	hosts := make(map[string]bool)
+	for _, r := range rows {
+		hosts[r.Host] = true
+	}
+	assert.ElementsMatch(t, []string{"ledger.local", "other.local"}, mapKeys(hosts))
+}
+
+// mapKeys 提取集合键（去序）。
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // seedTask 建最小 task 行返回 id（台账 JOIN task/assignment 用）。

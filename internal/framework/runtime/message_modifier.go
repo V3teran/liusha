@@ -180,7 +180,7 @@ type RollingWindowModifier struct {
 	windowSize int
 }
 
-// NewRollingWindowModifier 见实现。
+// NewRollingWindowModifier 构造滚动窗口压缩器（windowSize<=0 用默认 20）。
 func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
 	if windowSize <= 0 {
 		windowSize = 20
@@ -240,16 +240,14 @@ func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message
 
 // ValidateModifier 验证消息合法性（例如长度、格式等）。
 type ValidateModifier struct {
-	// NewValidateModifier 见实现。
 	maxContentLength int
 }
 
-// NewValidateModifier 构造校验修饰器。
+// NewValidateModifier 构造校验修饰器（maxContentLength<=0 用默认 100k 字符）。
 func NewValidateModifier(maxContentLength int) *ValidateModifier {
 	if maxContentLength <= 0 {
 		maxContentLength = 100000 // 默认 100k 字符
 	}
-	// Modify 实现 ValidateModifier 的接口方法。
 	return &ValidateModifier{maxContentLength: maxContentLength}
 }
 

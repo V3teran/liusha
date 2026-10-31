@@ -50,5 +50,3 @@ func (r *DefaultReActRuntime) saveCheckpoint(
 
 	return cpID, nil
 }
-
-// forceFinalSummary 强制要求 LLM 输出最终总结（当达到最大迭代次数时）

@@ -2,19 +2,16 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AgentsPage } from './AgentsPage'
-import { listAgentsPaged } from '@/api/client'
-import { saveAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
+import { saveAgent, listToolCandidates, listSkillCandidates, listAgentsPaged } from '@/api/config'
 import type { AgentConfig, Tool, ToolKind } from '@/api/types'
-
-vi.mock('@/api/client', () => ({
-  listAgentsPaged: vi.fn(),
-}))
 
 vi.mock('@/api/config', () => ({
   saveAgent: vi.fn(),
   listToolCandidates: vi.fn(),
   listSkillCandidates: vi.fn(),
+  listAgentsPaged: vi.fn(),
 }))
 
 const mList = listAgentsPaged as unknown as ReturnType<typeof vi.fn>
@@ -33,8 +30,18 @@ function tool(name: string, kind: ToolKind, category: string): Tool {
 const FUNCTION_TOOLS = [tool('read_findings', 'function', 'findings'), tool('write_finding', 'function', 'findings')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
-// 复杂度档 hint 内嵌跨页 Link（→ 模型页），组件须在路由上下文中渲染。
-const renderPage = () => render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+// 列表走 React Query（需 Provider）；复杂度档 hint 内嵌跨页 Link（→ 模型页），
+// 组件须在路由上下文中渲染。
+const renderPage = () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AgentsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
 
 function h(o: Partial<AgentConfig> = {}): AgentConfig {
   return {

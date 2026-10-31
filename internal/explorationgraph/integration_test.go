@@ -106,8 +106,8 @@ func TestCompleteDataFlow(t *testing.T) {
 	_, err := store.CreateNode(ctx, move)
 	require.NoError(t, err)
 
-	// 2. 执行 move → 产出 observation
-	err = store.UpdateActionStateWithReason(ctx, move.ID, StateRunning, nil)
+	// 2. 执行 move → 产出 observation（节点与 move→observation 溯源边原子落库）
+	err = store.TransitionState(ctx, move.ID, StateRunning, nil)
 	require.NoError(t, err)
 
 	confidence := ConfidenceUnverified
@@ -123,20 +123,17 @@ func TestCompleteDataFlow(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, observation)
-	require.NoError(t, err)
-
-	// 创建边：move produces observation
-	err = store.CreateBusinessEdge(ctx, Edge{
+	err = store.CreateNodeWithEdges(ctx, observation, []Edge{{
 		SrcID:     move.ID,
 		DstID:     observation.ID,
 		Rel:       RelGenerates,
 		TaskID:    taskID,
 		CreatedAt: time.Now(),
-	})
+	}})
 	require.NoError(t, err)
 
-	// 3. 验证通过 → 晋升为 result（复现门产出的唯一终态节点）
+	// 3. 验证通过 → 晋升为 result（复现门产出的唯一终态节点）。
+	// 晋升溯源边（observation generates result）与节点原子落库。
 	verifiedConf := ConfidenceVerified
 	result := Node{
 		ID:         "66666666-6666-4666-8666-666666666666",
@@ -150,21 +147,17 @@ func TestCompleteDataFlow(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, result)
-	require.NoError(t, err)
-
-	// 创建边：observation generates result（晋升溯源——evaluator 落的推导链边）
-	err = store.CreateBusinessEdge(ctx, Edge{
+	err = store.CreateNodeWithEdges(ctx, result, []Edge{{
 		SrcID:     observation.ID,
 		DstID:     result.ID,
 		Rel:       RelGenerates,
 		TaskID:    taskID,
 		CreatedAt: time.Now(),
-	})
+	}})
 	require.NoError(t, err)
 
 	// 4. Move 完成
-	err = store.UpdateActionStateWithReason(ctx, move.ID, StateDone, nil)
+	err = store.TransitionState(ctx, move.ID, StateDone, nil)
 	require.NoError(t, err)
 
 	// 验证已晋升的 result
@@ -228,7 +221,7 @@ func TestActionDependency(t *testing.T) {
 	assert.Len(t, actions, 2)
 
 	// move-1 完成
-	err = store.UpdateActionStateWithReason(ctx, "33333333-3333-4333-8333-333333333333", StateDone, nil)
+	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateDone, nil)
 	require.NoError(t, err)
 
 	// 再次查询，只有 move-2 (move-1 已 done)

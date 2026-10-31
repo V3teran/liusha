@@ -10,6 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
+// planActions 规划主流程：消费 monitor 纠偏标记 → 分析新 Result →
+// 有可执行动作则跳过 → 收敛去重 → 生成新 Action → 写图。
 func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().
 		Str("caller", "planActions").

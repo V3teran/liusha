@@ -184,7 +184,6 @@ func isRetriableError(err error) bool {
 	return llm.IsTransient(err)
 }
 
-// handleNoActions 处理没有生成新 Action 的情况
 // handleNoActions 处理 planner 未生成新 Action 的情况。
 //
 // "本轮无新计划" ≠ "任务收敛"：图上还有非终态 action（running/open/blocked）

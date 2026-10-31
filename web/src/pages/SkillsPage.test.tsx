@@ -2,25 +2,24 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SkillsPage from './SkillsPage'
-import { listSkillsPaged } from '@/api/client'
-import { createSkill, updateSkill, deleteSkill } from '@/api/config'
+import { createSkill, updateSkill, deleteSkill, getSkillDetail, listSkillsPaged } from '@/api/config'
 import type { Skill } from '@/api/types'
-
-vi.mock('@/api/client', () => ({
-  listSkillsPaged: vi.fn(),
-}))
 
 vi.mock('@/api/config', () => ({
   createSkill: vi.fn(),
   updateSkill: vi.fn(),
   deleteSkill: vi.fn(),
+  getSkillDetail: vi.fn(),
+  listSkillsPaged: vi.fn(),
 }))
 
 const mList = listSkillsPaged as unknown as ReturnType<typeof vi.fn>
 const mCreate = createSkill as unknown as ReturnType<typeof vi.fn>
 const mUpdate = updateSkill as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteSkill as unknown as ReturnType<typeof vi.fn>
+const mGetDetail = getSkillDetail as unknown as ReturnType<typeof vi.fn>
 
 function sk(o: Partial<Skill> = {}): Skill {
   return {
@@ -38,18 +37,14 @@ function sk(o: Partial<Skill> = {}): Skill {
 
 const paged = (skills: Skill[], total = skills.length) => ({ skills, total })
 
-async function tab_debug(screen: typeof import('@testing-library/react').screen) {
-  console.log('DBG-TAB', JSON.stringify({
-    dialogs: screen.queryAllByRole('dialog').length,
-    bodyHead: document.body.textContent.slice(0, 80),
-  }));
-}
-
 function renderPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter>
-      <SkillsPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <SkillsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 
@@ -59,7 +54,9 @@ describe('SkillsPage（技能 CRUD）', () => {
     mCreate.mockReset()
     mUpdate.mockReset()
     mDelete.mockReset()
+    mGetDetail.mockReset()
     mList.mockResolvedValue(paged([sk()]))
+    mGetDetail.mockResolvedValue({ skill: sk(), agents: [] })
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })

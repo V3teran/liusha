@@ -62,9 +62,6 @@ type Config struct {
 	// 0=内置默认 10——监察链路短，窗口最小档）。
 	MessageWindow int
 
-	// MessageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
-	// 0=内置默认 10——监察链路短，窗口最小档）。
-
 	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
 	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
 	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
@@ -140,8 +137,6 @@ func New(cfg Config) *Agent {
 		thoughts:         cfg.Thoughts,
 	}
 }
-
-// Name 返回 Agent 的名称。
 
 // hasSupervisableWork 判断图上是否有可监察对象（open/running 动作）。
 // 判定失败保守返回 true（宁可空评一次，不可漏评真实在途）。

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { readLogs } from '@/api/client'
+import { readLogs } from '@/api/logs'
 import type { LogEntry, LogFilters } from '@/api/types'
 
 // 日志流取数 hook：冷读尾窗口 + live 时 3s 游标增量轮询，按进程分桶累积、

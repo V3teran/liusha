@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Send, Square, Loader2 } from 'lucide-react'
-import { followUp, startChat } from '@/api/client'
+import { followUp, startChat } from '@/api/conversations'
 import { useConversationStore } from '@/stores/conversation'
 import { cn } from '@/lib/utils'
 

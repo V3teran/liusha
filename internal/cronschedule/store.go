@@ -24,11 +24,6 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, cron_expr, payload, title, description, enabled, next_run_at, last_run_at, created_at"
 
-const (
-	defaultListLimit = 20
-	maxListLimit     = 200
-)
-
 // NextRun 解析标准 5 段 cron 表达式，返回 from 之后的下一次触发时间。
 func NextRun(expr string, from time.Time) (time.Time, error) {
 	sched, err := cron.ParseStandard(expr)

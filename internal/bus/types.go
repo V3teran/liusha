@@ -1,6 +1,7 @@
 // Package bus 提供统一的事件总线基础设施
 //
-// 支持 Task 级别和 Action 级别的事件路由，用于整个系统的事件驱动架构。
+// 支持 Task 级别的广播事件路由（同 task 的每个订阅者独立 channel、收全量拷贝），
+// 用于认知循环四 agent 的事件驱动协作。
 package bus
 
 import (

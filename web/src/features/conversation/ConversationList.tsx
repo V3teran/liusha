@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react'
-import { deleteConversation, listConversations, renameConversation } from '@/api/client'
+import { deleteConversation, listConversations, renameConversation } from '@/api/conversations'
 import type { Conversation } from '@/api/types'
 import { ConvMenu } from './ConvMenu'
 import { fullTime, relativeTime } from '@/lib/format'

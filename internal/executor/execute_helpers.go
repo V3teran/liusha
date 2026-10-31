@@ -69,7 +69,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	// 构建中间件链：防止工具循环、目标偏离、无进展
 	middlewareChain := runtime.NewMiddlewareChain(
 		runtime.NewLoopDetectionMiddleware(10, 8),        // 连续 10 次相同工具 / 8 次相似思考
-		runtime.NewProgressTrackingMiddleware(15),        // 15 轮无新输出终止（连续失败止损由 runtime 内置，阈值随下下发）
+		runtime.NewProgressTrackingMiddleware(15),        // 15 轮无新输出终止（连续失败止损由 runtime 内置，阈值随装配下发）
 		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 

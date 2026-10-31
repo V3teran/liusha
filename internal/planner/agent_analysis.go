@@ -12,6 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
+// analyzeAndProcessResults 分析增量 Results 并处理（水位由调用方维护）。
 func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
 	a.logger.Info().Int("result_count", len(results)).Msg("开始分析 Results")
 

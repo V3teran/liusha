@@ -112,36 +112,6 @@ func (s ActionState) IsTerminal() bool {
 		s == ActionStateAborted
 }
 
-// IsExecutable 判断动作状态是否可执行
-func (s ActionState) IsExecutable() bool {
-	return s == ActionStateOpen
-}
-
-// IsActive 判断动作状态是否活跃
-func (s ActionState) IsActive() bool {
-	return s == ActionStateRunning
-}
-
-// IsVerified 判断观察是否已验证（通过复现门或已确认事实）
-func (c ObservationConfidence) IsVerified() bool {
-	return c == ConfidenceVerified || c == ConfidenceFactual
-}
-
-// IsRefuted 判断观察是否已证伪
-func (c ObservationConfidence) IsRefuted() bool {
-	return c == ConfidenceRefuted
-}
-
-// IsVulnerabilityToBeTested 判断是否是待复现门裁决的漏洞假设。
-func (c ObservationConfidence) IsVulnerabilityToBeTested() bool {
-	return c == ConfidenceUnverified
-}
-
-// IsFact 判断是否是事实终态（executor 写入即终态，无流转）。
-func (c ObservationConfidence) IsFact() bool {
-	return c == ConfidenceFactual
-}
-
 // String 返回节点类型的字符串表示
 func (k NodeKind) String() string {
 	return string(k)

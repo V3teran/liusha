@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getTrafficDetail, listTraffic, listTrafficContentTypes } from '@/api/client'
+import { getTrafficDetail, listTraffic, listTrafficContentTypes } from '@/api/traffic'
 import type { TrafficFilters } from '@/api/types'
 
 // 流量浏览页数据层：统一走 React Query，取代手写 loading/error/竞态处理。

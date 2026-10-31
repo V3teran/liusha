@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+// runIteration 运行单次迭代。
+// 返回：(执行轨迹, 是否应该停止, 错误)
 func (r *DefaultReActRuntime) runIteration(
 	ctx context.Context,
 	config *ReActConfig,
@@ -282,5 +284,3 @@ func (r *DefaultReActRuntime) buildIterationState(
 
 	return state
 }
-
-// toolFailureLimit 返回止损阈值（未配置用默认 8）。
