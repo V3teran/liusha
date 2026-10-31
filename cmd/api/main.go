@@ -30,12 +30,14 @@ import (
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/dispatch"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/scanstream"
@@ -222,32 +224,45 @@ func main() {
 
 	// 多轮问答/意图分类依赖：light provider 路由 + 问答读 finding + SSE publish。
 	// llmKeyCipher 解密 provider 的加密密钥（migration 0103），构造 client 前才解密，不进缓存。
-	router := &roleRouter{router: fwllm.NewRouterWithOpts(
+	router := &dispatch.RoleRouter{Router: fwllm.NewRouterWithOpts(
 		llmStore.AsRouterStore(llmKeyCipher),
 		retryOptionsFromConfig(cfg.LLM.Retry))}
 	publisher := scanstream.NewPublisher(rdb)
-	adapter := &scanAdapter{assignments: assignmentStore, tasks: taskStore, agentRuns: agentRunStore, enq: enq, audit: auditStore, conversations: convStore, schedules: cronStore, router: router, findings: findStore, publisher: publisher, control: controlPlaneStore, maxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second}
+	adapter := &dispatch.Service{
+		Assignments:   assignmentStore,
+		Tasks:         taskStore,
+		AgentRuns:     agentRunStore,
+		Enq:           enq,
+		Audit:         auditStore,
+		Conversations: convStore,
+		Schedules:     cronStore,
+		Router:        router,
+		Findings:      findStore,
+		Publisher:     publisher,
+		Control:       controlPlaneStore,
+		MaxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second,
+	}
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
-	providerTester := newProviderTester(llmStore, llmKeyCipher, fwllm.NewClientPool())
+	providerTester := llmprobe.New(llmStore, llmKeyCipher, fwllm.NewClientPool())
 
-	// cron Scheduler（§4.2/§10 P4）：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
+	// cron Scheduler：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
 	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。
 	cronCtx, cronCancel := context.WithCancel(context.Background())
 	defer cronCancel()
-	runner := &cronRunner{
-		schedules:     cronStore,
-		assignments:   assignmentStore,
-		tasks:         taskStore,
-		proxyStore:    proxyTrafficStore,
-		agentRuns:     agentRunStore,
-		enq:           enq,
-		scan:          adapter,
-		conversations: convStore, // cron passive task 建会话流（与实时聚合路径同语义）
-		logger:        logger,
+	scheduler := &dispatch.Scheduler{
+		Schedules:     cronStore,
+		Assignments:   assignmentStore,
+		Tasks:         taskStore,
+		ProxyStore:    proxyTrafficStore,
+		AgentRuns:     agentRunStore,
+		Enq:           enq,
+		Scan:          adapter,
+		Conversations: convStore, // cron passive task 建会话流（与实时聚合路径同语义）
+		Logger:        logger,
 	}
-	go runner.run(cronCtx)
+	go scheduler.Run(cronCtx)
 
 	// SSE stream cookie 密钥：会话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
 	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
@@ -265,7 +280,7 @@ func main() {
 			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
-			TaskStatus:         taskStatusAdapter{tasks: taskStore},
+			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
 			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
 			Invocations:        invocationStore,
 			Chat:               adapter,                      // POST /chat 会话发起扫描
@@ -283,7 +298,7 @@ func main() {
 			Traffic:            proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
 			TrafficConv:        convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
 			Conversations:      convStore,                    // 会话列表 / 消息回看
-			EventStream:        eventStreamAdapter{rdb: rdb}, // SSE 订阅 redis 事件
+			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
 			UsageTasks:         convStore,                    // 会话用量：会话→task 解析
 			UsageLLM:           invocationStore,              // 会话用量：LLM token/耗时合计
 			UsageTools:         toolStore,                    // 会话用量：工具耗时合计

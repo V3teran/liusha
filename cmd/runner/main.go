@@ -62,14 +62,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	// scanReaperInterval：reaper 巡逻周期。两条 (status, heartbeat_at) 索引 UPDATE，常态命中 0 行，
-	// 30s 既灵敏又不扰库。
-	scanReaperInterval = 30 * time.Second
-	// scanReaperStaleBuffer：判死阈值在「最长合法工具+LLM 间隔」之上再加的安全缓冲（时钟偏移 / 调度抖动）。
-	scanReaperStaleBuffer = 2 * time.Minute
-)
-
 // runnerStores 聚合全部持久层句柄（pg pool + redis 的派生物）。
 type runnerStores struct {
 	tasks         *task.Store
@@ -253,22 +245,22 @@ func main() {
 	hs := newHealthGateway(cfg, runnerCfg, trafficIngestor, logger)
 	go runHealthGateway(hs, logger)
 
-	startTaskReaper(trafficCtx, stores.tasks, sysSettings, cfg, stores.conversations, scanstream.NewPublisher(rdb), logger)
-
-	// 凭证库运行时键迁移：历史版本里聚合窗口/信号量借用过凭证前缀
-	// （credentials::agg:* / credentials:hostsem:*）。计数/锁类键自带短 TTL
-	// 自然消亡；唯一无 TTL 的活跃 host 集在此一次性清理。新键已在各自
-	// 命名空间（liusha:agg:* / liusha:hostsem:*）。
-	cleanupLegacyRuntimeKeys(rdb, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), logger)
+	task.StartReaper(trafficCtx, stores.tasks, sysSettings, runnerCfg.StepLLMTimeoutSeconds, stores.conversations, scanstream.NewPublisher(rdb), logger)
 
 	// 会话身份终态清扫：任务终态清理（handler 内）的崩溃兜底——按任务状态
 	// 这个事实回收，不依赖任何过期时间。runner 单实例部署，天然单例。
-	startSessionSweep(trafficCtx, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), stores.tasks, logger)
+	credential.StartSweepLoop(trafficCtx, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), func(ctx context.Context, taskID string) (string, bool) {
+		t, err := stores.tasks.GetByID(ctx, taskID)
+		if err != nil {
+			return "", false
+		}
+		return string(t.Status), true
+	}, logger)
 
 	// llm_invocation 留存清理：记录含完整 prompt/response 敏感载荷，
 	// retention_days > 0 时每日删除到期行（0 = 永久留存，审计全量）。
 	// runner 单实例部署，天然承担单例清理职责。
-	startInvocationRetentionSweep(trafficCtx, stores.calls, cfg.LLM.Invocation, logger)
+	llminvocation.StartRetentionSweep(trafficCtx, stores.calls, cfg.LLM.Invocation, logger)
 
 	// 启动 action 恢复监控器（检测 task 级 LLM/工具活动全停摆的 running action）。
 	// 阈值必须超过单步 LLM 看门狗（一次长 LLM 调用是合法活动形态），再加缓冲。
@@ -461,115 +453,6 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 	return trafficIngestor
 }
 
-// startInvocationRetentionSweep 启动 llm_invocation 留存清理循环（每日一次）。
-// 删除前先 Flush，避免 buffer 内的新记录与删除窗口竞争。
-func startInvocationRetentionSweep(ctx context.Context, calls *llminvocation.Store, cfg config.InvocationConfig, logger zerolog.Logger) {
-	if cfg.RetentionDays <= 0 {
-		logger.Info().Msg("llm_invocation 留存未配置（retention_days<=0，永久留存）")
-		return
-	}
-
-	go func() {
-		interval := 24 * time.Hour
-		logger.Info().
-			Int("retention_days", cfg.RetentionDays).
-			Dur("interval", interval).
-			Msg("llm_invocation 留存清理已启动")
-
-		sweep := func() {
-			if err := calls.Flush(ctx); err != nil {
-				logger.Warn().Err(err).Msg("留存清理前 flush 失败（仍继续删除到期行）")
-			}
-			cutoff := time.Now().AddDate(0, 0, -cfg.RetentionDays)
-			deleted, err := calls.DeleteOlderThan(ctx, cutoff)
-			if err != nil {
-				logger.Warn().Err(err).Msg("llm_invocation 留存清理失败")
-				return
-			}
-			if deleted > 0 {
-				logger.Info().Int64("deleted", deleted).Msg("llm_invocation 到期记录已清理")
-			}
-		}
-
-		sweep()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				sweep()
-			}
-		}
-	}()
-}
-
-// startTaskReaper 启动 task 心跳探活循环（B2 进度探活）：task.heartbeat_at 由 agent 每次工具
-// 调用驱动续命（见 toolRecordInterceptor 心跳逻辑）+ handler 入口重置一次。runner 进程崩溃或
-// 扫描卡死后心跳停摆，reaper 据此把超时孤儿判为 aborted——否则前端永远显示「进行中」。
-// 会话任务同步落 aborted 时间线节点（判死对用户可见，而非静默翻转）。
-//
-// staleAfter 必须 > 单 run 内两次工具调用之间的最长合法间隔，否则冤杀正在干活的扫描：
-// 最长间隔 ≈ 一次长工具执行(step_tool_timeout) + 决定下一步的 LLM 生成(step_llm_timeout) +
-// 可能的上下文压缩 LLM(step_llm_timeout) + 缓冲。据此动态推导，不写死。
-func startTaskReaper(
-	ctx context.Context,
-	taskStore *task.Store,
-	settings *settingstore.Store,
-	cfg config.Config,
-	convs *conversation.Store,
-	pub *scanstream.Publisher,
-	logger zerolog.Logger,
-) {
-	// 启动默认值作回退（1800/300 与 settingstore.normalized 的内置默认一致）：
-	// runtime 配置读失败时 staleAfter 仍有合理上界。
-	fallbackStaleAfter := time.Duration(1800+2*cfg.Runner.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
-	go func() {
-		logger.Info().Dur("stale_after", fallbackStaleAfter).Dur("interval", scanReaperInterval).Msg("task reaper started")
-		ticker := time.NewTicker(scanReaperInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				// staleAfter 每 tick 现读 runtime 热配置（工具超时 + 2×LLM 看门狗 + 缓冲）——
-				// 配置改大后正在跑的长任务不被新口径冤杀。
-				staleAfter := fallbackStaleAfter
-				if rt, err := settings.Runtime(ctx); err == nil {
-					staleAfter = time.Duration(rt.StepToolTimeoutSeconds+2*rt.StepLLMTimeoutSeconds)*time.Second + scanReaperStaleBuffer
-				}
-				ids, err := taskStore.ReapStale(ctx, staleAfter)
-				if err != nil {
-					logger.Warn().Err(err).Msg("task reap stale failed")
-					continue
-				}
-				for _, id := range ids {
-					logger.Warn().Str("task_id", id).Dur("stale_after", staleAfter).
-						Msg("task 心跳超时回收（进程崩溃或扫描卡死）")
-					if convs == nil || pub == nil {
-						continue
-					}
-					convID, cerr := convs.ResolveConvByTask(ctx, id)
-					if cerr != nil || convID == "" {
-						continue // 无会话（纯后台扫描）或解析失败——静默，回收本体已完成
-					}
-					msg, aerr := convs.AppendMessage(ctx, convID,
-						conversation.RoleAssistant, conversation.KindEvent,
-						"扫描已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
-							map[string]any{"reason": "心跳超时（runner 崩溃或任务卡死）"}))
-					if aerr != nil {
-						logger.Warn().Err(aerr).Str("task_id", id).Msg("回收通知写会话失败")
-						continue
-					}
-					_ = pub.PublishMessage(ctx, convID, msg)
-				}
-			}
-		}
-	}()
-}
-
 // newHealthGateway 构造 healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
 // 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
 // 直接入进程内队列 → drain goroutine 落 agent_traffic。同进程直送，不再绕 redis（internal 自环冗余）。
@@ -635,57 +518,6 @@ func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, s
 		logger.Error().Err(err).Msg("healthz shutdown")
 	}
 	logger.Info().Msg("runner stopped")
-}
-
-// cleanupLegacyRuntimeKeys 一次性清理借用凭证前缀的历史运行时键（无 TTL 的
-// 那枚聚合活跃 host 集；其余计数/锁键短 TTL 自灭）。best-effort：失败仅告警，
-// 不阻塞启动——残留键不影响新命名空间的正确性。
-func cleanupLegacyRuntimeKeys(rdb *redis.Client, creds *credential.RedisProvider, logger zerolog.Logger) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	for _, key := range creds.LegacyRuntimeKeys() {
-		if err := rdb.Del(ctx, key).Err(); err != nil {
-			logger.Warn().Err(err).Str("key", key).Msg("历史运行时键清理失败（不影响新命名空间）")
-			continue
-		}
-		logger.Info().Str("key", key).Msg("已清理借用凭证前缀的历史运行时键")
-	}
-}
-
-// startSessionSweep 周期清扫已终态任务的会话身份（启动即扫一次，此后每
-// 10 分钟一轮）。判定依据是任务状态（active 保留、终态/已删除回收），
-// 不依赖时间——凭证库无过期机制，生命周期由事实驱动。
-func startSessionSweep(ctx context.Context, creds *credential.RedisProvider, tasks *task.Store, logger zerolog.Logger) {
-	lookup := func(ctx context.Context, taskID string) (string, bool) {
-		t, err := tasks.GetByID(ctx, taskID)
-		if err != nil {
-			return "", false
-		}
-		return string(t.Status), true
-	}
-	sweep := func() {
-		removed, err := credential.SweepTerminalSessions(ctx, creds, lookup)
-		if err != nil {
-			logger.Warn().Err(err).Msg("会话身份清扫失败（下轮重试）")
-			return
-		}
-		if removed > 0 {
-			logger.Info().Int("removed", removed).Msg("清扫已终态任务的会话身份")
-		}
-	}
-	logx.Go(logger, "session-sweep", func() {
-		sweep() // 启动即扫：接住上次进程崩溃遗留的会话
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				sweep()
-			}
-		}
-	})
 }
 
 // asynqLogAdapter 把 asynq 内部日志桥接到 logx（asynq.Logger 接口适配）。

@@ -1,11 +1,12 @@
-// scheduler.go 实现定时下发（spec §4.2 + §10 P4）：轮询 cron_schedule.next_run_at 到点的
-// 模板 → 克隆一个新 assignment（source=auto，schedule_id 指回模板）→ 展开子 task →
-// 回写 last_run_at/next_run_at。单副本够用；api 多副本时需另抽 leader 选举，见 spec §4.2。
+// scheduler.go 实现定时下发：轮询 cron_schedule.next_run_at 到点的模板 → 克隆一个新
+// assignment（source=auto，schedule_id 指回模板）→ 展开子 task → 回写 last_run_at/next_run_at。
+// 单副本够用；api 多副本时需另抽 leader 选举。
 //
 // 展开只按 item 形态派发输入供给（不关心引擎——引擎由 runner 按 task._id 解析，数据驱动）：
 //   - item.Host 非空 → 流量复检：建 task（brief=host）+ 领取该 host 未消费 proxy_traffic + enqueue。
 //   - 否则 → brief 扫描：建 task（brief 原文）+ enqueue，target_host 由 runner 从 brief 抽取回填。
-package main
+
+package dispatch
 
 import (
 	"context"
@@ -32,22 +33,22 @@ const cronPollInterval = 30 * time.Second
 // 定时重触发是低频操作（非实时聚合窗口），给一个宽松固定值即可，无需接聚合器配置。
 const passiveCronClaimLimit = 200
 
-// cronRunner 持有 Scheduler 轮询所需的全部依赖。
-type cronRunner struct {
-	schedules     *cronschedule.Store
-	assignments   *assignment.Store
-	tasks         *task.Store
-	proxyStore    *traffic.ProxyStore
-	agentRuns     *agentrun.Store
-	enq           *worker.Client
-	scan          *scanAdapter        // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
-	conversations *conversation.Store // passive 会话流（nil 时 cron 展开 task 不绑会话）
-	logger        zerolog.Logger
+// Scheduler 持有定时下发轮询所需的全部依赖。
+type Scheduler struct {
+	Schedules     *cronschedule.Store
+	Assignments   *assignment.Store
+	Tasks         *task.Store
+	ProxyStore    *traffic.ProxyStore
+	AgentRuns     *agentrun.Store
+	Enq           *worker.Client
+	Scan          *Service            // 复用 expandItem（与单发/StartChatScan 同展开逻辑）
+	Conversations *conversation.Store // passive 会话流（nil 时 cron 展开 task 不绑会话）
+	Logger        zerolog.Logger
 }
 
-// run 阻塞轮询直到 ctx 取消；ctx 取消前再兜最后一轮，避免关停瞬间刚好错过一次到点模板。
-func (r *cronRunner) run(ctx context.Context) {
-	r.logger.Info().Dur("interval", cronPollInterval).Msg("cron scheduler started")
+// Run 阻塞轮询直到 ctx 取消；ctx 取消前再兜最后一轮，避免关停瞬间刚好错过一次到点模板。
+func (r *Scheduler) Run(ctx context.Context) {
+	r.Logger.Info().Dur("interval", cronPollInterval).Msg("cron scheduler started")
 	ticker := time.NewTicker(cronPollInterval)
 	defer ticker.Stop()
 	for {
@@ -61,15 +62,15 @@ func (r *cronRunner) run(ctx context.Context) {
 }
 
 // fireDue 找出全部到点模板并逐个触发；单个模板失败不影响其余模板（记 Warn 继续）。
-func (r *cronRunner) fireDue(ctx context.Context) {
-	due, err := r.schedules.ListDue(ctx, time.Now())
+func (r *Scheduler) fireDue(ctx context.Context) {
+	due, err := r.Schedules.ListDue(ctx, time.Now())
 	if err != nil {
-		r.logger.Warn().Err(err).Msg("cron ListDue 失败（下轮重试）")
+		r.Logger.Warn().Err(err).Msg("cron ListDue 失败（下轮重试）")
 		return
 	}
 	for _, sched := range due {
 		if err = r.fireOne(ctx, sched); err != nil {
-			r.logger.Warn().Err(err).Str("schedule_id", sched.ID).Msg("cron 触发失败（模板保留待下轮重试）")
+			r.Logger.Warn().Err(err).Str("schedule_id", sched.ID).Msg("cron 触发失败（模板保留待下轮重试）")
 			continue
 		}
 	}
@@ -80,7 +81,7 @@ func (r *cronRunner) fireDue(ctx context.Context) {
 // 展开失败的单个 item 不回滚已建的 assignment/其余 item（与 API 单发路径"前面失败直接返错，
 // 不留中间状态"不同——这里是批量+定时场景，部分失败不该拖累整批，失败的 item 记 Warn 跳过，
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
-func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
+func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
 	var items []assignment.Item
 	var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
@@ -88,7 +89,7 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 	}
 
 	scheduleID := sched.ID
-	asg, err := r.assignments.Create(ctx, assignment.NewParams{
+	asg, err := r.Assignments.Create(ctx, assignment.NewParams{
 		Source:      assignment.SourceAuto,
 		Items:       items,
 		Title:       sched.Title,
@@ -108,25 +109,25 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 		case item.Host != "":
 			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		default:
-			_, _, expandErr = r.scan.expandItem(ctx, asg.ID, item.Brief, "")
+			_, _, expandErr = r.Scan.expandItem(ctx, asg.ID, item.Brief, "")
 		}
 		if expandErr != nil {
-			r.logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
+			r.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
 				Msg("cron 展开单个 item 失败（跳过，不影响本批其余 item）")
 		}
 	}
 
 	firedAt := time.Now()
-	ok, err := r.schedules.MarkFired(ctx, sched.ID, firedAt, *sched.NextRunAt)
+	ok, err := r.Schedules.MarkFired(ctx, sched.ID, firedAt, *sched.NextRunAt)
 	if err != nil {
 		return fmt.Errorf("mark schedule %s fired: %w", sched.ID, err)
 	}
 	if !ok {
 		// next_run_at 已被其他副本改写：模板被抢先触发，本副本放弃
-		r.logger.Info().Str("schedule_id", sched.ID).Msg("定时模板已被其他副本触发，跳过")
+		r.Logger.Info().Str("schedule_id", sched.ID).Msg("定时模板已被其他副本触发，跳过")
 		return nil
 	}
-	r.logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
+	r.Logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
 		Msg("cron 定时模板已触发")
 	return nil
 }
@@ -136,9 +137,9 @@ func (r *cronRunner) fireOne(ctx context.Context, sched cronschedule.CronSchedul
 // 定时器而非实时流量窗口（故用固定 passiveCronClaimLimit，不接聚合器配置）。
 //
 // host 显式已知，创建时即写入 target_host（无需等 runner 从 brief 回填）。
-func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
+func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
 	host := item.Host
-	tk, err := r.tasks.Create(ctx, task.NewParams{
+	tk, err := r.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Brief:        host,
 		TargetHost:   host,
@@ -150,39 +151,39 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 	// 显式流量集（TrafficIDs 非空）走精确领取，否则按 host 领未被本 task 消费的流量。
 	var claimed int64
 	if len(item.TrafficIDs) > 0 {
-		claimed, err = r.proxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
+		claimed, err = r.ProxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
 	} else {
-		claimed, err = r.proxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, passiveCronClaimLimit)
+		claimed, err = r.ProxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, passiveCronClaimLimit)
 	}
 	if err != nil {
-		_ = r.tasks.Abort(ctx, tk.ID, "领取流量失败")
+		_ = r.Tasks.Abort(ctx, tk.ID, "领取流量失败")
 		return fmt.Errorf("claim proxy_traffic for host %s: %w", host, err)
 	}
 	if claimed == 0 {
-		_ = r.tasks.Abort(ctx, tk.ID, "无可分析流量")
+		_ = r.Tasks.Abort(ctx, tk.ID, "无可分析流量")
 		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
 	}
 
 	// 任务作用域派生：cron 展开的任务日志自动携带 task_id/assignment_id
-	taskLogger := r.logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
+	taskLogger := r.Logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
 
 	// 建 passive 会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
 	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
 	// PassiveBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
 	// 本次不绑会话，不影响分析主链路。
 	convID := ""
-	if r.conversations != nil {
-		conv, convErr := r.conversations.CreateConversation(ctx, host, tk.ID)
+	if r.Conversations != nil {
+		conv, convErr := r.Conversations.CreateConversation(ctx, host, tk.ID)
 		if convErr != nil {
 			taskLogger.Warn().Err(convErr).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
 		} else {
 			convID = conv.ID
-			if traffic, listErr := r.proxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
+			if traffic, listErr := r.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
 				scheme := "http"
 				if traffic[0].Scheme != "" {
 					scheme = traffic[0].Scheme
 				}
-				if _, msgErr := r.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
+				if _, msgErr := r.Conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
 					taskLogger.Warn().Err(msgErr).Str("conv", conv.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 				}
 			}
@@ -190,7 +191,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 	}
 
 	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
-	hid, err := r.agentRuns.Create(ctx, agentrun.NewParams{
+	hid, err := r.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: tk.ID,
 		Role:   "planner",
 		Input:  payloadInput,
@@ -198,7 +199,7 @@ func (r *cronRunner) expandTrafficItem(ctx context.Context, assignmentID string,
 	if err != nil {
 		return fmt.Errorf("create planner run: %w", err)
 	}
-	if _, _, err := r.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
+	if _, _, err := r.Enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     hid,
 		TaskID:         tk.ID,
 		ConversationID: convID,

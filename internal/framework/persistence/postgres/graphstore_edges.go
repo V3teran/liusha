@@ -1,6 +1,7 @@
-package core
+package postgres
 
 import (
+	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,11 +11,11 @@ import (
 )
 
 // CreateEdge 创建边（幂等）。
-func (s *PostgresGraphStore) CreateEdge(ctx context.Context, edge *GraphEdge) error {
+func (s *GraphStore) CreateEdge(ctx context.Context, edge *core.GraphEdge) error {
 	return s.insertEdge(ctx, s.pool, edge)
 }
 
-func (s *PostgresGraphStore) insertEdge(ctx context.Context, db execer, edge *GraphEdge) error {
+func (s *GraphStore) insertEdge(ctx context.Context, db execer, edge *core.GraphEdge) error {
 	if edge == nil {
 		return errors.New("edge cannot be nil")
 	}
@@ -61,7 +62,7 @@ func (s *PostgresGraphStore) insertEdge(ctx context.Context, db execer, edge *Gr
 }
 
 // ListEdges 查询边列表。
-func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery) ([]*GraphEdge, error) {
+func (s *GraphStore) ListEdges(ctx context.Context, query core.GraphEdgeQuery) ([]*core.GraphEdge, error) {
 	whereParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -115,9 +116,9 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 	}
 	defer rows.Close()
 
-	var edges []*GraphEdge
+	var edges []*core.GraphEdge
 	for rows.Next() {
-		var edge GraphEdge
+		var edge core.GraphEdge
 		var attrsJSON []byte
 
 		err := rows.Scan(
@@ -150,7 +151,7 @@ func (s *PostgresGraphStore) ListEdges(ctx context.Context, query GraphEdgeQuery
 }
 
 // DeleteEdge 删除边。
-func (s *PostgresGraphStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
+func (s *GraphStore) DeleteEdge(ctx context.Context, from, to, relation string) error {
 	if from == "" || to == "" || relation == "" {
 		return errors.New("from/to/relation cannot be empty")
 	}
@@ -166,7 +167,7 @@ func (s *PostgresGraphStore) DeleteEdge(ctx context.Context, from, to, relation 
 	}
 
 	if result.RowsAffected() == 0 {
-		return ErrGraphEdgeNotFound
+		return core.ErrGraphEdgeNotFound
 	}
 
 	return nil

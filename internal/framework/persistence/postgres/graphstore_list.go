@@ -1,6 +1,7 @@
-package core
+package postgres
 
 import (
+	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 )
 
 // buildWhereClause 构建 WHERE 子句
-func buildWhereClause(query GraphNodeQuery) (string, []interface{}, int) {
+func buildWhereClause(query core.GraphNodeQuery) (string, []interface{}, int) {
 	whereParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -54,7 +55,7 @@ func buildWhereClause(query GraphNodeQuery) (string, []interface{}, int) {
 }
 
 // buildOrderByClause 构建 ORDER BY 子句
-func buildOrderByClause(query GraphNodeQuery) string {
+func buildOrderByClause(query core.GraphNodeQuery) string {
 	orderBy := "created_at DESC"
 	if query.OrderBy != "" {
 		if strings.HasPrefix(query.OrderBy, "-") {
@@ -67,7 +68,7 @@ func buildOrderByClause(query GraphNodeQuery) string {
 }
 
 // buildPaginationClauses 构建分页子句
-func buildPaginationClauses(query GraphNodeQuery, argIndex int) (string, string, []interface{}) {
+func buildPaginationClauses(query core.GraphNodeQuery, argIndex int) (string, string, []interface{}) {
 	args := []interface{}{}
 
 	limitClause := ""
@@ -87,7 +88,7 @@ func buildPaginationClauses(query GraphNodeQuery, argIndex int) (string, string,
 }
 
 // buildListNodesSQL 构建完整的 SQL 查询
-func (s *PostgresGraphStore) buildListNodesSQL(query GraphNodeQuery) (string, []interface{}) {
+func (s *GraphStore) buildListNodesSQL(query core.GraphNodeQuery) (string, []interface{}) {
 	whereClause, args, argIndex := buildWhereClause(query)
 	orderBy := buildOrderByClause(query)
 	limitClause, offsetClause, paginationArgs := buildPaginationClauses(query, argIndex)
@@ -106,9 +107,9 @@ func (s *PostgresGraphStore) buildListNodesSQL(query GraphNodeQuery) (string, []
 	return sqlQuery, args
 }
 
-// scanGraphNode 扫描一行数据到 GraphNode
-func scanGraphNode(rows pgx.Rows) (*GraphNode, error) {
-	var node GraphNode
+// scanGraphNode 扫描一行数据到 core.GraphNode
+func scanGraphNode(rows pgx.Rows) (*core.GraphNode, error) {
+	var node core.GraphNode
 	var state *string
 	var metadataJSON []byte
 
@@ -144,14 +145,14 @@ func scanGraphNode(rows pgx.Rows) (*GraphNode, error) {
 }
 
 // executeListNodesQuery 执行查询并扫描结果
-func executeListNodesQuery(ctx context.Context, pool *pgxpool.Pool, sqlQuery string, args []interface{}) ([]*GraphNode, error) {
+func executeListNodesQuery(ctx context.Context, pool *pgxpool.Pool, sqlQuery string, args []interface{}) ([]*core.GraphNode, error) {
 	rows, err := pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
 	}
 	defer rows.Close()
 
-	var nodes []*GraphNode
+	var nodes []*core.GraphNode
 	for rows.Next() {
 		node, err := scanGraphNode(rows)
 		if err != nil {

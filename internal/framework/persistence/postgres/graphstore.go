@@ -1,6 +1,7 @@
-package core
+package postgres
 
 import (
+	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,24 +14,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresGraphStore 是基于 PostgreSQL 的 GraphStore 实现。
+// GraphStore 是基于 PostgreSQL 的 core.GraphStore 实现。
 //
 // 表结构映射：
-// - GraphNode → exploration_node 表
-// - GraphEdge → exploration_edge 表
+// - core.GraphNode → exploration_node 表
+// - core.GraphEdge → exploration_edge 表
 //
 // 字段映射（0157 定稿后仅保留 9 列，唯一事实源 = content + metadata）：
-// - GraphNode.ID → exploration_node.id (uuid)
-// - GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
-// - GraphNode.Kind → exploration_node.kind（查询维度）
-// - GraphNode.Content → exploration_node.content (JSONB)
-// - GraphNode.Metadata → exploration_node.metadata (JSONB，含 confidence 枚举等扩展位)
-// - GraphNode.State → exploration_node.state（查询维度）
-// - GraphNode.CreatedAt/UpdatedAt/Version → 同名列
+// - core.GraphNode.ID → exploration_node.id (uuid)
+// - core.GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
+// - core.GraphNode.Kind → exploration_node.kind（查询维度）
+// - core.GraphNode.Content → exploration_node.content (JSONB)
+// - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含 confidence 枚举等扩展位)
+// - core.GraphNode.State → exploration_node.state（查询维度）
+// - core.GraphNode.CreatedAt/UpdatedAt/Version → 同名列
 //
 // confidence 是验证生命周期枚举（unverified/verified/refuted），以枚举原文存
 // metadata["confidence"]——由复现门独占写权流转，非置信度数值。
-type PostgresGraphStore struct {
+type GraphStore struct {
 	pool      *pgxpool.Pool
 	nodeTable string // 节点表名（默认 exploration_node）
 	edgeTable string // 边表名（默认 exploration_edge）
@@ -42,9 +43,9 @@ const (
 	defaultEdgeTable = "exploration_edge"
 )
 
-// NewPostgresGraphStore 创建新的 PostgreSQL GraphStore（默认探索图表名）。
-func NewPostgresGraphStore(pool *pgxpool.Pool) *PostgresGraphStore {
-	return &PostgresGraphStore{pool: pool, nodeTable: defaultNodeTable, edgeTable: defaultEdgeTable}
+// NewGraphStore 创建新的 PostgreSQL core.GraphStore（默认探索图表名）。
+func NewGraphStore(pool *pgxpool.Pool) *GraphStore {
+	return &GraphStore{pool: pool, nodeTable: defaultNodeTable, edgeTable: defaultEdgeTable}
 }
 
 // execer 抽象 pool 与 tx 共有的 Exec 能力，让节点/边 INSERT 可在事务内外复用。
@@ -53,11 +54,11 @@ type execer interface {
 }
 
 // CreateNode 创建新节点。
-func (s *PostgresGraphStore) CreateNode(ctx context.Context, node *GraphNode) error {
+func (s *GraphStore) CreateNode(ctx context.Context, node *core.GraphNode) error {
 	return s.insertNode(ctx, s.pool, node)
 }
 
-func (s *PostgresGraphStore) insertNode(ctx context.Context, db execer, node *GraphNode) error {
+func (s *GraphStore) insertNode(ctx context.Context, db execer, node *core.GraphNode) error {
 	if node == nil {
 		return errors.New("node cannot be nil")
 	}
@@ -124,7 +125,7 @@ func (s *PostgresGraphStore) insertNode(ctx context.Context, db execer, node *Gr
 }
 
 // GetNode 获取节点。
-func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode, error) {
+func (s *GraphStore) GetNode(ctx context.Context, id string) (*core.GraphNode, error) {
 	if id == "" {
 		return nil, errors.New("node ID cannot be empty")
 	}
@@ -137,7 +138,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 		WHERE id = $1
 	`
 
-	var node GraphNode
+	var node core.GraphNode
 	var state *string
 	var metadataJSON []byte
 
@@ -154,7 +155,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrGraphNodeNotFound
+			return nil, core.ErrGraphNodeNotFound
 		}
 		return nil, fmt.Errorf("query node: %w", err)
 	}
@@ -177,7 +178,7 @@ func (s *PostgresGraphStore) GetNode(ctx context.Context, id string) (*GraphNode
 }
 
 // UpdateNode 更新节点。
-func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error {
+func (s *GraphStore) UpdateNode(ctx context.Context, id string, update core.GraphNodeUpdate) error {
 	if id == "" {
 		return errors.New("node ID cannot be empty")
 	}
@@ -252,19 +253,19 @@ func (s *PostgresGraphStore) UpdateNode(ctx context.Context, id string, update G
 				return fmt.Errorf("check node existence: %w", err)
 			}
 			if !exists {
-				return ErrGraphNodeNotFound
+				return core.ErrGraphNodeNotFound
 			}
 			// 节点存在但版本不匹配
-			return ErrVersionMismatch
+			return core.ErrVersionMismatch
 		}
-		return ErrGraphNodeNotFound
+		return core.ErrGraphNodeNotFound
 	}
 
 	return nil
 }
 
 // DeleteNode 删除节点及其所有边。
-func (s *PostgresGraphStore) DeleteNode(ctx context.Context, id string) error {
+func (s *GraphStore) DeleteNode(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("node ID cannot be empty")
 	}
@@ -278,14 +279,14 @@ func (s *PostgresGraphStore) DeleteNode(ctx context.Context, id string) error {
 	}
 
 	if result.RowsAffected() == 0 {
-		return ErrGraphNodeNotFound
+		return core.ErrGraphNodeNotFound
 	}
 
 	return nil
 }
 
 // ListNodes 查询节点列表。
-func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery) ([]*GraphNode, error) {
+func (s *GraphStore) ListNodes(ctx context.Context, query core.GraphNodeQuery) ([]*core.GraphNode, error) {
 	// 1. 构建 SQL 查询
 	sqlQuery, args := s.buildListNodesSQL(query)
 
@@ -297,7 +298,7 @@ func (s *PostgresGraphStore) ListNodes(ctx context.Context, query GraphNodeQuery
 // 单条 UPDATE 同时承担条件检查与写入（WHERE state = expectedState），
 // 不存在读-改-写窗口；version 由数据库触发器在同一语句内自增。
 // 返回 (true, nil) 表示更新成功；(false, nil) 表示状态不匹配或节点不存在。
-func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
+func (s *GraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
 	if nodeID == "" {
 		return false, errors.New("node ID cannot be empty")
 	}
@@ -326,7 +327,7 @@ func (s *PostgresGraphStore) CompareAndSwapState(ctx context.Context, taskID, no
 }
 
 // CreateNodeWithEdges 在单个事务内创建节点及其关联边。
-func (s *PostgresGraphStore) CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error {
+func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNode, edges []*core.GraphEdge) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -349,7 +350,7 @@ func (s *PostgresGraphStore) CreateNodeWithEdges(ctx context.Context, node *Grap
 }
 
 // CreateEdge 创建边（幂等）。
-func (s *PostgresGraphStore) extractString(m map[string]interface{}, key, defaultValue string) string {
+func (s *GraphStore) extractString(m map[string]interface{}, key, defaultValue string) string {
 	if m == nil {
 		return defaultValue
 	}

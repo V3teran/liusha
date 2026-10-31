@@ -1,6 +1,7 @@
-package core
+package memory
 
 import (
+	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"encoding/json"
 	"testing"
@@ -12,16 +13,16 @@ import (
 
 // TestMemoryGraphStore_CreateAndGetNode 测试节点的创建和获取
 func TestMemoryGraphStore_CreateAndGetNode(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 准备测试数据
-	node := &GraphNode{
+	node := &core.GraphNode{
 		ID:        "node-1",
-		Kind:      string(KindAction),
+		Kind:      string(core.KindAction),
 		Content:   json.RawMessage(`{"title":"test action"}`),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
-		State:     string(ActionStateOpen),
+		State:     string(core.ActionStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -35,32 +36,32 @@ func TestMemoryGraphStore_CreateAndGetNode(t *testing.T) {
 	retrieved, err := store.GetNode(ctx, "node-1")
 	require.NoError(t, err, "获取节点应该成功")
 	assert.Equal(t, "node-1", retrieved.ID)
-	assert.Equal(t, string(KindAction), retrieved.Kind)
-	assert.Equal(t, string(ActionStateOpen), retrieved.State)
+	assert.Equal(t, string(core.KindAction), retrieved.Kind)
+	assert.Equal(t, string(core.ActionStateOpen), retrieved.State)
 	assert.JSONEq(t, `{"title":"test action"}`, string(retrieved.Content))
 }
 
 // TestMemoryGraphStore_GetNode_NotFound 测试获取不存在的节点
 func TestMemoryGraphStore_GetNode_NotFound(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	_, err := store.GetNode(ctx, "non-existent")
 	assert.Error(t, err, "获取不存在的节点应该返回错误")
-	assert.ErrorIs(t, err, ErrGraphNodeNotFound)
+	assert.ErrorIs(t, err, core.ErrGraphNodeNotFound)
 }
 
 // TestMemoryGraphStore_UpdateNode 测试节点更新
 func TestMemoryGraphStore_UpdateNode(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建初始节点
-	node := &GraphNode{
+	node := &core.GraphNode{
 		ID:        "node-1",
-		Kind:      string(KindAction),
+		Kind:      string(core.KindAction),
 		Content:   json.RawMessage(`{"title":"initial"}`),
-		State:     string(ActionStateOpen),
+		State:     string(core.ActionStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -68,8 +69,8 @@ func TestMemoryGraphStore_UpdateNode(t *testing.T) {
 	require.NoError(t, store.CreateNode(ctx, node))
 
 	// 更新节点
-	update := GraphNodeUpdate{
-		State:   string(ActionStateRunning),
+	update := core.GraphNodeUpdate{
+		State:   string(core.ActionStateRunning),
 		Content: json.RawMessage(`{"title":"updated"}`),
 	}
 	err := store.UpdateNode(ctx, "node-1", update)
@@ -78,21 +79,21 @@ func TestMemoryGraphStore_UpdateNode(t *testing.T) {
 	// 验证更新
 	updated, err := store.GetNode(ctx, "node-1")
 	require.NoError(t, err)
-	assert.Equal(t, string(ActionStateRunning), updated.State)
+	assert.Equal(t, string(core.ActionStateRunning), updated.State)
 	assert.JSONEq(t, `{"title":"updated"}`, string(updated.Content))
 	assert.Equal(t, int64(2), updated.Version, "版本号应该递增")
 }
 
 // TestMemoryGraphStore_CompareAndSwapState 测试 CAS 操作
 func TestMemoryGraphStore_CompareAndSwapState(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建节点
-	node := &GraphNode{
+	node := &core.GraphNode{
 		ID:        "node-1",
-		Kind:      string(KindAction),
-		State:     string(ActionStateOpen),
+		Kind:      string(core.KindAction),
+		State:     string(core.ActionStateOpen),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -103,42 +104,42 @@ func TestMemoryGraphStore_CompareAndSwapState(t *testing.T) {
 	t.Run("CAS成功 - 状态匹配", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "task-1", "node-1",
-			string(ActionStateOpen),
-			string(ActionStateRunning),
+			string(core.ActionStateOpen),
+			string(core.ActionStateRunning),
 		)
 		require.NoError(t, err)
 		assert.True(t, swapped, "状态匹配时CAS应该成功")
 
 		// 验证状态已更新
 		updated, _ := store.GetNode(ctx, "node-1")
-		assert.Equal(t, string(ActionStateRunning), updated.State)
+		assert.Equal(t, string(core.ActionStateRunning), updated.State)
 	})
 
 	t.Run("CAS失败 - 状态不匹配", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "task-1", "node-1",
-			string(ActionStateOpen), // 期望是 open，但实际是 running
-			string(ActionStateDone),
+			string(core.ActionStateOpen), // 期望是 open，但实际是 running
+			string(core.ActionStateDone),
 		)
 		require.NoError(t, err)
 		assert.False(t, swapped, "状态不匹配时CAS应该失败")
 
 		// 验证状态未改变
 		node, _ := store.GetNode(ctx, "node-1")
-		assert.Equal(t, string(ActionStateRunning), node.State)
+		assert.Equal(t, string(core.ActionStateRunning), node.State)
 	})
 }
 
 // TestMemoryGraphStore_DeleteNode 测试节点删除
 func TestMemoryGraphStore_DeleteNode(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建节点
-	node := &GraphNode{
+	node := &core.GraphNode{
 		ID:        "node-1",
-		Kind:      string(KindAction),
-		State:     string(ActionStateOpen),
+		Kind:      string(core.KindAction),
+		State:     string(core.ActionStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -151,20 +152,20 @@ func TestMemoryGraphStore_DeleteNode(t *testing.T) {
 
 	// 验证节点已删除
 	_, err = store.GetNode(ctx, "node-1")
-	assert.ErrorIs(t, err, ErrGraphNodeNotFound)
+	assert.ErrorIs(t, err, core.ErrGraphNodeNotFound)
 }
 
 // TestMemoryGraphStore_ListNodes 测试节点列表查询
 func TestMemoryGraphStore_ListNodes(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建多个节点
-	nodes := []*GraphNode{
+	nodes := []*core.GraphNode{
 		{
 			ID:        "node-1",
-			Kind:      string(KindAction),
-			State:     string(ActionStateOpen),
+			Kind:      string(core.KindAction),
+			State:     string(core.ActionStateOpen),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -172,8 +173,8 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		},
 		{
 			ID:        "node-2",
-			Kind:      string(KindObjective),
-			State:     string(ActionStateRunning),
+			Kind:      string(core.KindObjective),
+			State:     string(core.ActionStateRunning),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -181,8 +182,8 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		},
 		{
 			ID:        "node-3",
-			Kind:      string(KindAction),
-			State:     string(ActionStateDone),
+			Kind:      string(core.KindAction),
+			State:     string(core.ActionStateDone),
 			Metadata:  map[string]interface{}{"task_id": "task-2"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -195,7 +196,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	}
 
 	t.Run("按任务ID查询", func(t *testing.T) {
-		query := GraphNodeQuery{
+		query := core.GraphNodeQuery{
 			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
 		}
 		result, err := store.ListNodes(ctx, query)
@@ -204,8 +205,8 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	})
 
 	t.Run("按Kind查询", func(t *testing.T) {
-		query := GraphNodeQuery{
-			Kind: string(KindAction),
+		query := core.GraphNodeQuery{
+			Kind: string(core.KindAction),
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -213,8 +214,8 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	})
 
 	t.Run("按State查询", func(t *testing.T) {
-		query := GraphNodeQuery{
-			State: string(ActionStateOpen),
+		query := core.GraphNodeQuery{
+			State: string(core.ActionStateOpen),
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -222,8 +223,8 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	})
 
 	t.Run("组合查询", func(t *testing.T) {
-		query := GraphNodeQuery{
-			Kind:    string(KindAction),
+		query := core.GraphNodeQuery{
+			Kind:    string(core.KindAction),
 			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
 		}
 		result, err := store.ListNodes(ctx, query)
@@ -234,21 +235,21 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 
 // TestMemoryGraphStore_CreateEdge 测试边的创建
 func TestMemoryGraphStore_CreateEdge(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建两个节点
-	node1 := &GraphNode{
+	node1 := &core.GraphNode{
 		ID:        "node-1",
-		Kind:      string(KindAction),
+		Kind:      string(core.KindAction),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
 	}
-	node2 := &GraphNode{
+	node2 := &core.GraphNode{
 		ID:        "node-2",
-		Kind:      string(KindObservation),
+		Kind:      string(core.KindObservation),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -258,7 +259,7 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 	require.NoError(t, store.CreateNode(ctx, node2))
 
 	// 创建边
-	edge := &GraphEdge{
+	edge := &core.GraphEdge{
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
@@ -268,7 +269,7 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 	require.NoError(t, err, "创建边应该成功")
 
 	// 查询边
-	edges, err := store.ListEdges(ctx, GraphEdgeQuery{TaskID: "task-1"})
+	edges, err := store.ListEdges(ctx, core.GraphEdgeQuery{TaskID: "task-1"})
 	require.NoError(t, err)
 	assert.Len(t, edges, 1)
 	assert.Equal(t, "node-1", edges[0].From)
@@ -278,14 +279,14 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 
 // TestMemoryGraphStore_CreateEdge_Idempotent 测试边创建的幂等性
 func TestMemoryGraphStore_CreateEdge_Idempotent(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建节点
 	for _, id := range []string{"node-1", "node-2"} {
-		node := &GraphNode{
+		node := &core.GraphNode{
 			ID:        id,
-			Kind:      string(KindAction),
+			Kind:      string(core.KindAction),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -295,7 +296,7 @@ func TestMemoryGraphStore_CreateEdge_Idempotent(t *testing.T) {
 	}
 
 	// 创建相同的边两次
-	edge := &GraphEdge{
+	edge := &core.GraphEdge{
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
@@ -309,20 +310,20 @@ func TestMemoryGraphStore_CreateEdge_Idempotent(t *testing.T) {
 	require.NoError(t, err2, "重复创建边应该是幂等的")
 
 	// 验证只有一条边
-	edges, _ := store.ListEdges(ctx, GraphEdgeQuery{TaskID: "task-1"})
+	edges, _ := store.ListEdges(ctx, core.GraphEdgeQuery{TaskID: "task-1"})
 	assert.Len(t, edges, 1)
 }
 
 // TestMemoryGraphStore_DeleteEdge 测试边删除
 func TestMemoryGraphStore_DeleteEdge(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建节点和边
 	for _, id := range []string{"node-1", "node-2"} {
-		node := &GraphNode{
+		node := &core.GraphNode{
 			ID:        id,
-			Kind:      string(KindAction),
+			Kind:      string(core.KindAction),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -331,7 +332,7 @@ func TestMemoryGraphStore_DeleteEdge(t *testing.T) {
 		require.NoError(t, store.CreateNode(ctx, node))
 	}
 
-	edge := &GraphEdge{
+	edge := &core.GraphEdge{
 		TaskID:   "task-1",
 		From:     "node-1",
 		To:       "node-2",
@@ -344,19 +345,19 @@ func TestMemoryGraphStore_DeleteEdge(t *testing.T) {
 	require.NoError(t, err)
 
 	// 验证边已删除
-	edges, _ := store.ListEdges(ctx, GraphEdgeQuery{TaskID: "task-1"})
+	edges, _ := store.ListEdges(ctx, core.GraphEdgeQuery{TaskID: "task-1"})
 	assert.Len(t, edges, 0)
 }
 
 // TestMemoryGraphStore_CreateNodeWithEdges 测试事务性创建
 func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
-	store := NewInMemoryGraphStore()
+	store := NewGraphStore()
 	ctx := context.Background()
 
 	// 创建一个已存在的节点
-	existingNode := &GraphNode{
+	existingNode := &core.GraphNode{
 		ID:        "existing-node",
-		Kind:      string(KindAction),
+		Kind:      string(core.KindAction),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -365,16 +366,16 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 	require.NoError(t, store.CreateNode(ctx, existingNode))
 
 	// 创建新节点及其边
-	newNode := &GraphNode{
+	newNode := &core.GraphNode{
 		ID:        "new-node",
-		Kind:      string(KindObservation),
+		Kind:      string(core.KindObservation),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
 	}
 
-	edges := []*GraphEdge{
+	edges := []*core.GraphEdge{
 		{
 			TaskID:   "task-1",
 			From:     "existing-node",
@@ -391,7 +392,7 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new-node", node.ID)
 
-	allEdges, err := store.ListEdges(ctx, GraphEdgeQuery{TaskID: "task-1"})
+	allEdges, err := store.ListEdges(ctx, core.GraphEdgeQuery{TaskID: "task-1"})
 	require.NoError(t, err)
 	assert.Len(t, allEdges, 1)
 }

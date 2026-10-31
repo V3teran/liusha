@@ -1,12 +1,12 @@
-// Package main: provider 实连探测适配器，满足 httpapi.ProviderTester 窄接口。
+// Package llmprobe 实现 provider 实连探测：满足 httpapi.ProviderTester 窄接口。
 //
 // 装配 llmstore（取已存密钥，走内存/redis/DB 多级缓存）+ cryptx（解密）+ framework/llm
 // （建 client 发请求）。测试连接发一条最小 chat completion 验证 base_url+key+model；
 // 模型探测 GET {base_url}/models 拉可用模型名。
 //
-// 密钥双路径与运行期一致：请求带明文 key（新建/更换密钥）优先直用；否则据 key 从 llmstore
-// 取已存 provider 并解密——同 For(role) 一套缓存事实源，不新开直连 DB 读。
-package main
+// 密钥双路径与运行期一致：请求带明文 key（新建/更换密钥）优先直用；否则据 key 从
+// store 取已存 provider 并解密——同 For(role) 一套缓存事实源，不新开直连 DB 读。
+package llmprobe
 
 import (
 	"context"
@@ -22,22 +22,22 @@ import (
 	"github.com/V3teran/liusha/internal/httpapi"
 )
 
-// providerStore 是探测适配器对 llmstore 的窄依赖：据 key 取已存 provider（多级缓存）。
-type providerStore interface {
+// Store 是探测对 llmstore 的窄依赖：据 key 取已存 provider（多级缓存）。
+type Store interface {
 	ProviderByCode(ctx context.Context, key string) (llmcfg.Provider, error)
 }
 
-// providerTester 实现 httpapi.ProviderTester。
-type providerTester struct {
-	store providerStore
+// Tester 实现 httpapi.ProviderTester。
+type Tester struct {
+	store Store
 	dec   llmcfg.KeyDecrypter // 解密已存 provider 的密文密钥
 	pool  *fwllm.ClientPool   // 复用共享 HTTP client（与运行期同池）
 	http  *http.Client        // list-models 的裸 HTTP 探测用（带超时）
 }
 
-// newProviderTester 装配探测适配器。dec/store/pool 缺任一则不应注册路由（cmd/api 负责判空）。
-func newProviderTester(store providerStore, dec llmcfg.KeyDecrypter, pool *fwllm.ClientPool) *providerTester {
-	return &providerTester{
+// New 装配探测器。dec/store/pool 缺任一则不应注册对应路由（装配方负责判空）。
+func New(store Store, dec llmcfg.KeyDecrypter, pool *fwllm.ClientPool) *Tester {
+	return &Tester{
 		store: store,
 		dec:   dec,
 		pool:  pool,
@@ -49,7 +49,7 @@ func newProviderTester(store providerStore, dec llmcfg.KeyDecrypter, pool *fwllm
 const probeTimeout = 15 * time.Second
 
 // resolveKey 决定这次探测用哪把密钥：请求明文优先，否则据 key 取已存并解密。
-func (t *providerTester) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec) (string, error) {
+func (t *Tester) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec) (string, error) {
 	if spec.APIKey != "" {
 		return spec.APIKey, nil // 前端直填明文（新建/更换密钥），直接用
 	}
@@ -77,7 +77,7 @@ func providerFromSpec(spec httpapi.ProviderProbeSpec) llmcfg.Provider {
 
 // TestProvider 发一条最小 chat completion。连接类失败（鉴权/找不到/超时/网络）落在 Result.ErrMsg，
 // 只有无法发起（取密钥失败、建 client 失败）才返回 error。
-func (t *providerTester) TestProvider(ctx context.Context, spec httpapi.ProviderProbeSpec) (httpapi.ProviderProbeResult, error) {
+func (t *Tester) TestProvider(ctx context.Context, spec httpapi.ProviderProbeSpec) (httpapi.ProviderProbeResult, error) {
 	key, err := t.resolveKey(ctx, spec)
 	if err != nil {
 		return httpapi.ProviderProbeResult{}, err
@@ -131,7 +131,7 @@ func humanizeProbeErr(err error) string {
 
 // ListModels 拉取 provider 可用模型名。OpenAI 兼容走 GET {base_url}/models（Bearer 鉴权），
 // anthropic 走同路径但用 x-api-key + anthropic-version 头。provider 不支持时返回空切片（前端回退手填）。
-func (t *providerTester) ListModels(ctx context.Context, spec httpapi.ProviderProbeSpec) ([]string, error) {
+func (t *Tester) ListModels(ctx context.Context, spec httpapi.ProviderProbeSpec) ([]string, error) {
 	key, err := t.resolveKey(ctx, spec)
 	if err != nil {
 		return nil, err

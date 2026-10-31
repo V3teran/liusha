@@ -1,6 +1,6 @@
 //go:build integration
 
-package main
+package dispatch
 
 import (
 	"context"
@@ -22,9 +22,9 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// newTestCronRunner 起一次性 Postgres（dbtest）+ miniredis（asynq enqueue），
-// 组一份贴近生产装配的 cronRunner；返回 pool 供测试直接改 next_run_at 模拟"已到点"。
-func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
+// newTestScheduler 起一次性 Postgres（dbtest）+ miniredis（asynq enqueue），
+// 组一份贴近生产装配的 Scheduler；返回 pool 供测试直接改 next_run_at 模拟"已到点"。
+func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	mr := miniredis.RunT(t)
@@ -34,22 +34,22 @@ func newTestCronRunner(t *testing.T) (*cronRunner, *pgxpool.Pool) {
 	assignments := assignment.NewStore(pool)
 	tasks := task.NewStore(pool)
 	agentRuns := agentrun.NewStore(pool)
-	r := &cronRunner{
-		schedules:     cronschedule.NewStore(pool),
-		assignments:   assignments,
-		tasks:         tasks,
-		proxyStore:    traffic.NewProxyStore(pool),
-		agentRuns:     agentRuns,
-		enq:           enq,
-		conversations: conversation.NewStore(pool),
-		scan: &scanAdapter{
-			assignments:   assignments,
-			tasks:         tasks,
-			agentRuns:     agentRuns,
-			enq:           enq,
-			maxRunTimeout: time.Minute,
+	r := &Scheduler{
+		Schedules:     cronschedule.NewStore(pool),
+		Assignments:   assignments,
+		Tasks:         tasks,
+		ProxyStore:    traffic.NewProxyStore(pool),
+		AgentRuns:     agentRuns,
+		Enq:           enq,
+		Conversations: conversation.NewStore(pool),
+		Scan: &Service{
+			Assignments:   assignments,
+			Tasks:         tasks,
+			AgentRuns:     agentRuns,
+			Enq:           enq,
+			MaxRunTimeout: time.Minute,
 		},
-		logger: zerolog.Nop(),
+		Logger: zerolog.Nop(),
 	}
 	return r, pool
 }
@@ -63,14 +63,14 @@ func forceDue(t *testing.T, pool *pgxpool.Pool, scheduleID string) {
 	}
 }
 
-// TestFireDue_ActiveSchedule_ExpandsTaskAndAgent 验证 P4 核心场景：active 定时模板到点 →
+// TestFireDue_ActiveSchedule_ExpandsTaskAndAgent 验证定时下发核心场景：active 定时模板到点 →
 // 克隆 assignment → 展开 task + agent run + enqueue，且 next_run_at 推进到未来。
 func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
-	r, pool := newTestCronRunner(t)
+	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
 	items := []assignment.Item{{Brief: "夜间复扫 http://target.com"}}
-	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
+	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "nightly",
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	got, err := r.schedules.GetByID(ctx, sched.ID)
+	got, err := r.Schedules.GetByID(ctx, sched.ID)
 	if err != nil {
 		t.Fatalf("get schedule: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("触发后 next_run_at 应推进到未来，got %v", got.NextRunAt)
 	}
 
-	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
+	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 	if found.AssignmentID == "" {
 		t.Fatal("展开的 task 应挂到克隆出的 assignment 上")
 	}
-	asg, err := r.assignments.GetByID(ctx, found.AssignmentID)
+	asg, err := r.Assignments.GetByID(ctx, found.AssignmentID)
 	if err != nil {
 		t.Fatalf("get cloned assignment: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("克隆的 assignment 应回指模板 id，got %+v", asg.ScheduleID)
 	}
 
-	runs, err := r.agentRuns.ListByTask(ctx, found.ID, 10)
+	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}
@@ -128,16 +128,16 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 // TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 api-pentest 定时模板：领取该 host
 // 未消费的 proxy_traffic 后展开 task + planner agent run。
 func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
-	r, pool := newTestCronRunner(t)
+	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
 	host := "target.com"
-	if _, err := r.proxyStore.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
+	if _, err := r.ProxyStore.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
 		t.Fatalf("append proxy_traffic: %v", err)
 	}
 
 	items := []assignment.Item{{Host: host}}
-	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
+	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
 	})
 	if err != nil {
@@ -147,7 +147,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
+	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 		t.Fatalf("应展开出 host=%q 的 passive task，got %+v", host, tasks)
 	}
 
-	runs, err := r.agentRuns.ListByTask(ctx, found.ID, 10)
+	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}
@@ -171,18 +171,18 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	// cron 展开的 passive task 必须绑会话流（title=host + 首条说明），否则
 	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
-	convID, err := r.conversations.ResolveConvByTask(ctx, found.ID)
+	convID, err := r.Conversations.ResolveConvByTask(ctx, found.ID)
 	if err != nil || convID == "" {
 		t.Fatalf("passive task 应绑 1 个会话，got convID=%q err=%v", convID, err)
 	}
-	conv, err := r.conversations.GetConversation(ctx, convID)
+	conv, err := r.Conversations.GetConversation(ctx, convID)
 	if err != nil {
 		t.Fatalf("get conversation: %v", err)
 	}
 	if conv.Title != host {
 		t.Errorf("会话 title 应为 host %q，got %q", host, conv.Title)
 	}
-	msgs, err := r.conversations.ListMessages(ctx, convID, 0, 10)
+	msgs, err := r.Conversations.ListMessages(ctx, convID, 0, 10)
 	if err != nil {
 		t.Fatalf("list messages: %v", err)
 	}
@@ -194,11 +194,11 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 // TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError 验证：host 当前无未消费流量时，
 // 展开产生的空转 task 被 abort，且不阻塞其余到点模板（fireOne 不报错）。
 func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
-	r, pool := newTestCronRunner(t)
+	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
 	items := []assignment.Item{{Host: "never-captured.com"}}
-	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
+	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
@@ -210,7 +210,7 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
 	}
 
-	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
+	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -230,24 +230,24 @@ func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
 
 // TestFireDue_DisabledSchedule_NotFired 验证：停用的模板即使到点也不触发。
 func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
-	r, pool := newTestCronRunner(t)
+	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
 	items := []assignment.Item{{Brief: "should not fire"}}
-	sched, err := r.schedules.Create(ctx, cronschedule.NewParams{
+	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items,
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
 	}
-	if err := r.schedules.SetEnabled(ctx, sched.ID, false); err != nil {
+	if err := r.Schedules.SetEnabled(ctx, sched.ID, false); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	forceDue(t, pool, sched.ID)
 
 	r.fireDue(ctx)
 
-	tasks, err := r.tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
+	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
