@@ -7,6 +7,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// messageShape 把消息序列压成紧凑形状摘要（如 "sys,user,a(2),t,t"），
+// 随 4xx 错误输出——远程排障时不用回放就能看出序列形状。
 func messageShape(msgs []openai.ChatCompletionMessage) string {
 	parts := make([]string, 0, len(msgs))
 	for _, m := range msgs {
@@ -36,7 +38,8 @@ func messageShape(msgs []openai.ChatCompletionMessage) string {
 
 // validateMessagesForAPI 校验 messages 数组是否符合 OpenAI 协议规范（GLM 等严格实现）。
 //
-// 检查规则：// 1. 不允许连续的 assistant 消息（会触发 GLM "messages 参数非法"）
+// 检查规则：
+// 1. 不允许连续的 assistant 消息（会触发 GLM "messages 参数非法"）
 // 2. assistant 含 tool_calls 时，后续必须跟对应数量的 tool 消息
 // 3. tool 消息必须有 tool_call_id 且与前面的 tool_call.id 匹配
 func validateMessagesForAPI(msgs []Message) error {

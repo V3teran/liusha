@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listFindings } from '@/api/client'
+import { listFindings } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 
 // 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。

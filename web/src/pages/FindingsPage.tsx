@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight, Search, StickyNote } from 'lucide-react'
-import { updateFindingTriage, getFindingStat } from '@/api/client'
+import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
 import { DataTable } from '@/components/DataTable'

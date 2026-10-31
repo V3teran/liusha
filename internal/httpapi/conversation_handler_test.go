@@ -184,7 +184,7 @@ func (f *fakeConversations) ListMessages(_ context.Context, _ string, _ int64, _
 	return nil, nil
 }
 
-func (f *fakeConversations) CountConversations(_ context.Context, source string) (int, error) {
+func (f *fakeConversations) CountConversations(_ context.Context, _ string) (int, error) {
 	return len(f.convs), nil
 }
 

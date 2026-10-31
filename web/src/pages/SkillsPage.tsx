@@ -1,18 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
-import { listSkillsPaged } from '@/api/client'
 import { createSkill, updateSkill, deleteSkill, getSkillDetail, assignSkill, type SkillChanges, type SkillAgent } from '@/api/config'
 import type { Skill } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
-import { usePagedList } from '@/features/config/usePagedList'
+import { useSkillsPagedList } from '@/features/config/useConfigQueries'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
-
-const fetchSkills = async (page: number, size: number, q: string) => {
-  const res = await listSkillsPaged(page, size, q)
-  return { items: res.skills, total: res.total }
-}
 
 // 空白新建草稿（code 由用户填，建后固定；is_builtin 由后端定 = false）。
 const EMPTY_DRAFT: Skill = {
@@ -26,11 +20,12 @@ const EMPTY_DRAFT: Skill = {
   enabled: true,
 }
 
-// 取数全权交给 usePagedList（内部含防抖 + 竞态丢弃）；页面不得再自行 reload——
-// 在 effect 里盯 query 逐键 reload 会绕过防抖、挂载时双请求（历史缺陷）。
+// 取数全权交给 useSkillsPagedList（React Query：queryKey 含 page/size/q，竞态丢弃
+// 由 RQ 接管）；页面不得再自行 reload——在 effect 里盯 query 逐键 reload 会绕过
+// 防抖、挂载时双请求（历史缺陷）。保存/删除后 list.reload() 失效该资源缓存。
 export default function SkillsPage() {
-  const list = usePagedList(fetchSkills)
-  const rows = (list.rows as Skill[]) || []
+  const list = useSkillsPagedList()
+  const rows = list.rows
 
   const { draft, patch, open: openDraftState, close: closeDraftState, baseline } = useDirtyDraft<Skill>()
   // 新建模式（无 id 走 POST）；编辑模式按 code 走 PUT 部分更新。
@@ -45,7 +40,7 @@ export default function SkillsPage() {
     setIsNew(false)
     setAssignAgents(null)
     // 装配态随详情拉取（后端权威）；自建/内置都可装配。
-        getSkillDetail(sk.code)
+    getSkillDetail(sk.code)
       .then((d) => setAssignAgents(d.agents))
       .catch(() => setAssignAgents([]))
   }

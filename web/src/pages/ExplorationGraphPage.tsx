@@ -5,7 +5,7 @@ import { ReactFlow, type Node, type Edge, Background, Controls, MiniMap, useNode
 import '@xyflow/react/dist/style.css'
 import { Search, RefreshCw, Info, AlertCircle } from 'lucide-react'
 import { getConversationGraph } from '@/api/explorationgraph'
-import { listConversations } from '@/api/client'
+import { listConversations } from '@/api/conversations'
 import type { GraphNode } from '@/api/explorationgraph'
 import { cn } from '@/lib/utils'
 

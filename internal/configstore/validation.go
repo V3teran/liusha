@@ -42,6 +42,3 @@ func (s *Store) ValidateAgentConfigs(ctx context.Context) error {
 
 	return nil
 }
-
-// ValidateAgentSystemPrompt 验证单个 agent 的 system_prompt 是否非空。
-// 用于动态验证（如前端更新配置后）。

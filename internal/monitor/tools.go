@@ -204,7 +204,6 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 }
 
 // Execute 实现工具接口：kill_action 落探索图状态变更。
-// Execute 实现工具接口：kill_action 落探索图状态变更。
 func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
 	// 解析参数
 	var decision Decision

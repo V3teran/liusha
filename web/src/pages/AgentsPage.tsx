@@ -1,22 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { Link } from 'react-router-dom'
-import { listAgentsPaged } from '@/api/client'
 import { saveAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
 import { diffChanges, isWildcard, wildcardView } from '@/features/config/agentsEditor'
 import { ToolPicker } from '@/features/config/ToolPicker'
 import type { AgentConfig, Skill, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
-import { usePagedList } from '@/features/config/usePagedList'
+import { useAgentsPagedList } from '@/features/config/useConfigQueries'
 import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
 import { agentProfile } from '@/lib/agentColor'
-
-// 智能体分页取数：适配 usePagedList 的 (page,size,q) → {items,total} 契约。
-const fetchAgents = async (page: number, size: number, q: string) => {
-  const res = await listAgentsPaged(page, size, q)
-  return { items: res.agents, total: res.total }
-}
 
 // 智能体配置管理页（/config/agents）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
 // 角色身份（标识符/名称/启用）由种子固定，页面只读、接口不收；调度摘要是 planner 规划时
@@ -24,7 +17,7 @@ const fetchAgents = async (page: number, size: number, q: string) => {
 // 保存只提交脏字段（PUT 部分更新），与工具页的并发装配写互不覆盖快照。
 // 工具/技能候选从目录（DB）读取，勾选而非填空——function_tools / cli_tools / skills 三区多选。
 export function AgentsPage() {
-  const list = usePagedList<AgentConfig>(fetchAgents)
+  const list = useAgentsPagedList()
   const { rows, loading, error, reload } = list
   // 工具候选：函数工具 / CLI 工具两套全量目录，一次性拉取供勾选。
   const [functionTools, setFunctionTools] = useState<Tool[]>([])

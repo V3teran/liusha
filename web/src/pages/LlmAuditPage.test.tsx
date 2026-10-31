@@ -4,12 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { LlmAuditPage } from './LlmAuditPage'
-import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/client'
+import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/llmaudit'
 import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 
 // 页面为「全局搜索」形态：不按会话（owner）圈定，挂载即 searchLLMInvocations 拉全量；
 // 统计 chip 走服务端聚合端点 searchLLMInvocationStat（整个筛选结果集，与翻页无关）。
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/llmaudit', () => ({
   searchLLMInvocations: vi.fn(),
   searchLLMInvocationStat: vi.fn(),
   getLLMInvocationDetail: vi.fn(),

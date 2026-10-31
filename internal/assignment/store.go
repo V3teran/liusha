@@ -20,11 +20,6 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, source, payload, title, description, schedule_id, created_at"
 
-const (
-	defaultListLimit = 20
-	maxListLimit     = 200
-)
-
 // Create 建一个新 assignment（下发容器）。Items 序列化进 payload jsonb。
 // 调用方随后据返回的 assignment.ID 展开子 task（task.assignment_id 强外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {

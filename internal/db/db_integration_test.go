@@ -11,6 +11,8 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/config"
 )
 
@@ -30,7 +32,7 @@ func TestNewPgPool_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := NewPgPool(ctx, dsn, 5, 1, 5, 0)
+	pool, err := NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

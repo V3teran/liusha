@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Square } from 'lucide-react'
-import { abortScan, getConversationUsage, listMessages } from '@/api/client'
+import { abortScan, getConversationUsage, listMessages } from '@/api/conversations'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'

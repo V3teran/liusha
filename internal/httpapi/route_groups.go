@@ -8,7 +8,7 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
 		return
 	}
-	r.GET("/credentials", listCredentialHostsHandler(d.Credentials, d.CredentialAudit))
+	r.GET("/credentials", listCredentialHostsHandler(d.Credentials))
 	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
@@ -23,6 +23,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
 	r.GET("/findings", listFindingsHandler(d.Findings))
+	r.GET("/findings/stat", findingStatHandler(d.Findings))
 	r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
 }
 

@@ -154,35 +154,58 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 					finish = "error"
 				}
 			}
-			out <- ev
+			// 消费方经 ctx 放弃（如任务中止/超时）时不能傻等发送：等待会让本
+			// goroutine 永久阻塞（消费侧 CollectStream 提前返回后无人再读），
+			// 审计记录也随之丢失。放弃路径仍按失败收尾落库。
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				if !failed {
+					failed = true
+					streamError = "stream abandoned: " + ctx.Err().Error()
+					finish = "error: " + streamError
+				}
+				p.sink.RecordUsage(ctx, p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError))
+				return
+			}
 		}
-		rec := p.baseRecord(meta)
-		rec.LatencyMs = int(time.Since(start).Milliseconds())
-		rec.InTokens = usage.InTokens
-		rec.OutTokens = usage.OutTokens
-		rec.CachedTokens = usage.CachedTokens
-		if !failed {
-			// 成功收尾的终止原因也写列：只进 shadow jsonb 会让 finish_reason
-			// 列在流式路径恒空（实测 197 行里 164 行空串），按列筛选成功调用
-			// 永远查不到；错误（"error: ..."）与成功（"stop"）同列可辨。
-			finish = "stop"
-		} else {
-			// 流上错误同时落 error_message：失败调用的查询口径统一为
-			// error_message <> ''（此前流错误只在 finish_reason、Complete
-			// 错误只在 error_message，「查全部失败」要 OR 两列）。finish_reason
-			// 保留 "error: ..." 原值，兼容既有按列查询。
-			rec.Err = streamError
-		}
-		rec.FinishReason = finish
-		rec.Messages, _ = json.Marshal(req.Messages)
-		if !failed {
-			shadow.Usage = usage
-			shadow.FinishReason = finish
-			rec.Result, _ = json.Marshal(shadow)
-		}
+		rec := p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError)
 		p.sink.RecordUsage(ctx, rec)
 	}()
 	return out, nil
+}
+
+// finishStreamRecord 把流式调用的影子聚合折成审计记录（成功收尾与放弃/错误
+// 收尾共用一个落库口径）。
+func (p *instrumentedProvider) finishStreamRecord(
+	meta CallMeta, start time.Time, req Request,
+	usage Usage, shadow Response, failed bool, finish, streamError string,
+) UsageRecord {
+	rec := p.baseRecord(meta)
+	rec.LatencyMs = int(time.Since(start).Milliseconds())
+	rec.InTokens = usage.InTokens
+	rec.OutTokens = usage.OutTokens
+	rec.CachedTokens = usage.CachedTokens
+	if !failed {
+		// 成功收尾的终止原因也写列：只进 shadow jsonb 会让 finish_reason
+		// 列在流式路径恒空（实测 197 行里 164 行空串），按列筛选成功调用
+		// 永远查不到；错误（"error: ..."）与成功（"stop"）同列可辨。
+		finish = "stop"
+	} else {
+		// 流上错误同时落 error_message：失败调用的查询口径统一为
+		// error_message <> ''（此前流错误只在 finish_reason、Complete
+		// 错误只在 error_message，「查全部失败」要 OR 两列）。finish_reason
+		// 保留 "error: ..." 原值，兼容既有按列查询。
+		rec.Err = streamError
+	}
+	rec.FinishReason = finish
+	rec.Messages, _ = json.Marshal(req.Messages)
+	if !failed {
+		shadow.Usage = usage
+		shadow.FinishReason = finish
+		rec.Result, _ = json.Marshal(shadow)
+	}
+	return rec
 }
 
 func (p *instrumentedProvider) CountTokens(ctx context.Context, req Request) (int, error) {

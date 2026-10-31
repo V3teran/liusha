@@ -93,8 +93,6 @@ func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 	return tools
 }
 
-// parseLLMResponse 解析 LLM 响应
-
 // callLLMStreaming 流式调用并聚合为完整响应：正文/思考增量分别即时回调
 // OnThoughtDelta / OnThinkingDelta（双通道分流），聚合口径与非流式一致
 // （framework CollectStream 单一事实源）。Provider 无流式能力时降级 Complete

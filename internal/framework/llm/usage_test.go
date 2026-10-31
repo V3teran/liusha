@@ -109,7 +109,7 @@ func TestInstrumentProvider_StreamRecordsAssembledResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	for range ch { // 排空（审计在通道关闭后落）
+	for range ch { //nolint:revive // 排空通道（审计在关闭后落库）
 	}
 
 	if len(sink.recs) != 1 {
@@ -143,7 +143,7 @@ func TestInstrumentProvider_StreamErrorOmitsResult(t *testing.T) {
 	}}, sink)
 
 	ch, _ := p.Stream(context.Background(), Request{})
-	for range ch {
+	for range ch { //nolint:revive // 排空通道（审计在关闭后落库）
 	}
 
 	rec := sink.recs[0]

@@ -6,7 +6,7 @@ import {
   listCredentialHosts,
   purgeCredentialSessions,
   saveCredentialIdentity,
-} from '@/api/client'
+} from '@/api/credentials'
 import type { CredentialEntry, CredentialIdentity } from '@/api/types'
 
 // 凭证库数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。

@@ -18,7 +18,7 @@ import (
 // FindingsAPI 是 handler 依赖的窄接口；*finding.Store 自动满足。
 type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
-	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.FindingStat, error)
+	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.Stat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
 }

@@ -16,9 +16,6 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// colsSelect 是所有 SELECT 路径的统一列序，与 collect() 字段一一对应。
-const colsSelect = "id, actor, action, target_kind, target_id, metadata, created_at"
-
 // Append 单条插入审计事件。
 // 必填：Actor / Action / TargetKind / TargetID；Metadata 为空时落 '{}'。
 func (s *Store) Append(ctx context.Context, e Event) (int64, error) {
@@ -43,23 +40,4 @@ func (s *Store) Append(ctx context.Context, e Event) (int64, error) {
 		return 0, fmt.Errorf("append audit: %w", err)
 	}
 	return id, nil
-}
-
-// collect 通用列表收集器。
-func collect(rows interface {
-	Next() bool
-	Scan(...any) error
-	Err() error
-}) ([]Event, error) {
-	var out []Event
-	for rows.Next() {
-		var e Event
-		if err := rows.Scan(
-			&e.ID, &e.Actor, &e.Action, &e.TargetKind, &e.TargetID, &e.Metadata, &e.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan audit: %w", err)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
 }

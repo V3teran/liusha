@@ -15,6 +15,7 @@
 //	DELETE /credentials/:host/usernames/:username → 删除单个登录身份
 //	DELETE /credentials/:host                  → 清空该 host 全部身份
 //	DELETE /credentials/:host/sessions         → 仅清会话身份
+
 package httpapi
 
 import (
@@ -66,8 +67,8 @@ type credentialIdentityView struct {
 	TaskStatus string `json:"task_status,omitempty"` // 归属任务状态（解析不到时缺省）
 }
 
-// listCredentialHostsHandler 处理 GET /credentials。
-func listCredentialHostsHandler(api CredentialsAPI, aud CredentialAudit) gin.HandlerFunc {
+// listCredentialHostsHandler 处理 GET /credentials（枚举只读 field 名，不审计）。
+func listCredentialHostsHandler(api CredentialsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hosts, err := api.ListHosts(c.Request.Context())
 		if err != nil {

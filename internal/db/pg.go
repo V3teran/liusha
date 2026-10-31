@@ -35,15 +35,11 @@ func NewPgPool(ctx context.Context, dsn string, logger zerolog.Logger, maxConns,
 		Logger:   pgxLogger{log: logger},
 		LogLevel: tracelog.LogLevelWarn,
 	}
-	if maxConns > 0 {
-		if maxConns > 0 && maxConns <= math.MaxInt32 {
-			cfg.MaxConns = int32(maxConns)
-		}
+	if maxConns > 0 && maxConns <= math.MaxInt32 {
+		cfg.MaxConns = int32(maxConns)
 	}
-	if minConns >= 0 {
-		if minConns >= 0 && minConns <= math.MaxInt32 {
-			cfg.MinConns = int32(minConns)
-		}
+	if minConns > 0 && minConns <= math.MaxInt32 {
+		cfg.MinConns = int32(minConns)
 	}
 	if connectTimeoutSec > 0 {
 		cfg.ConnConfig.ConnectTimeout = time.Duration(connectTimeoutSec) * time.Second

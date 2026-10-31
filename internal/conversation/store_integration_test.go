@@ -11,6 +11,8 @@ import (
 
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/db"
+
+	"github.com/rs/zerolog"
 )
 
 // 用 dev DB（已跑过 0066 migration）测 store 往返：验证 scan 字段顺序、COALESCE/NULLIF、
@@ -26,7 +28,7 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	pool, err := db.NewPgPool(ctx, dsn, 5, 1, 5, 0)
+	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
 	if err != nil {
 		t.Fatalf("连库: %v", err)
 	}

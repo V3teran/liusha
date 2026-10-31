@@ -8,10 +8,10 @@ import {
   getCredentialDetail,
   listCredentialHosts,
   saveCredentialIdentity,
-} from '@/api/client'
+} from '@/api/credentials'
 import type { CredentialHostSummary, CredentialIdentity } from '@/api/types'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/credentials', () => ({
   listCredentialHosts: vi.fn(),
   getCredentialDetail: vi.fn(),
   saveCredentialIdentity: vi.fn(),

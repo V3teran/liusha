@@ -209,6 +209,11 @@ func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr erro
 		if err == nil {
 			return resp, nil
 		}
+		// 重试后错误类别可能变化（如限流缓解后暴露 400 参数错误）：
+		// 非重试类错误立即上抛，不按上一轮的退避表空转。
+		if Classify(err) == ClassOther {
+			return Response{}, err
+		}
 		lastErr = err
 	}
 	return Response{}, lastErr
@@ -222,6 +227,9 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 		resp, err := r.primary.Complete(ctx, req)
 		if err == nil {
 			return resp, nil
+		}
+		if Classify(err) == ClassOther {
+			return Response{}, err
 		}
 		lastErr = err
 	}
@@ -246,7 +254,12 @@ func (r *retryProvider) CountTokens(ctx context.Context, req Request) (int, erro
 	if Classify(err) == ClassOther {
 		return 0, err
 	}
-	if err := SleepCtx(ctx, r.opts.Backoff5xx[0]); err != nil {
+	// 退避表由调用方填齐（Router 兜 DefaultRetryOptions）；防御空表取 0 间隔。
+	var backoff time.Duration
+	if len(r.opts.Backoff5xx) > 0 {
+		backoff = r.opts.Backoff5xx[0]
+	}
+	if err := SleepCtx(ctx, backoff); err != nil {
 		return 0, err
 	}
 	return r.primary.CountTokens(ctx, req)

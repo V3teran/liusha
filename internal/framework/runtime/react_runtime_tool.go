@@ -80,5 +80,3 @@ func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.Tool
 	// 返回工具输出（Output 字段已经是字符串）
 	return result.Output, false, nil
 }
-
-// saveCheckpoint 保存当前执行状态到检查点

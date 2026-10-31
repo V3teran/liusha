@@ -70,6 +70,3 @@ func NewAgent(cfg AgentConfig) *Agent {
 		stopCh:            make(chan struct{}),
 	}
 }
-
-// Run 启动规划主循环（ctx 取消即停止）。
-// 启动 Agent 主循环，监听事件并生成新的 Action

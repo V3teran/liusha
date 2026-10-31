@@ -128,6 +128,3 @@ func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*Re
 
 	return result, nil
 }
-
-// runIteration 运行单次迭代
-// 返回：(执行轨迹, 是否应该停止, 错误)
