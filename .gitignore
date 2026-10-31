@@ -5,11 +5,10 @@ cmd/*/dist/
 *.test
 *.out
 
-# Local env
+# Local env（根 .env = host 脚本 source + compose 插值的唯一真值文件；模板见 .env.example）
 .env
-.env.local
-.env.*.local
-.env.docker
+# 生产密钥（make prod-up 经 --env-file .env.prod 注入，含真实凭据，绝不入 git）
+.env.prod
 # .env 备份（含密钥，绝不入 git）
 .env*.bak
 .env*.bak-*
@@ -84,5 +83,8 @@ __pycache__/
 
 # ZCode 会话工作目录
 /.zcode/
+# ZCode 工具配置（本地态不入库）与治理配置（易与代码漂移，维持本地）
+/.zcodeignore
+/.agents/
 $CLAUDE_JOB_DIR/
 .v2c/
