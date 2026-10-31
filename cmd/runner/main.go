@@ -47,6 +47,7 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/runner"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
@@ -175,39 +176,39 @@ func main() {
 					return 0
 				}
 				return time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
-			}), usageSink{store: stores.calls})
+			}), runner.UsageSink{Store: stores.calls})
 	})
 
-	h := handler{
-		agentRuns:  stores.agentRuns,
-		tasks:      stores.tasks,
-		findings:   stores.findings,
-		corpus:     stores.corpus,
-		embedder:   embedder,
-		reranker:   reranker,
-		insights:   stores.insights,
-		proxyStore: stores.proxyStore,
-		agentStore: stores.agentStore,
-		calls:      stores.calls,
-		settings:   sysSettings,
-		runnerCfg:  runnerCfg,
-		sandboxMgr: sandboxMgr,
-		logger:     logger,
-		router:     router,
-		creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
-		audit:      audit.NewStore(pool), // 会话身份回收等 runner 侧敏感操作审计
-		toolCalls:  stores.toolCalls,
+	h := &runner.Handler{
+		AgentRuns:  stores.agentRuns,
+		Tasks:      stores.tasks,
+		Findings:   stores.findings,
+		Corpus:     stores.corpus,
+		Embedder:   embedder,
+		Reranker:   reranker,
+		Insights:   stores.insights,
+		ProxyStore: stores.proxyStore,
+		AgentStore: stores.agentStore,
+		Calls:      stores.calls,
+		Settings:   sysSettings,
+		RunnerCfg:  runnerCfg,
+		SandboxMgr: sandboxMgr,
+		Logger:     logger,
+		Router:     router,
+		Creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
+		Audit:      audit.NewStore(pool), // 会话身份回收等 runner 侧敏感操作审计
+		ToolCalls:  stores.toolCalls,
 		// skill 渐进式加载后端 = DB 事实源（经 cfgstore 的 L1/L2/DB 三级缓存；
 		// 前端改 skill → 失效总线广播 → 本进程 L1 清 → 下次读即新值，无需重启）。
-		skills:         skill.NewStoreReader(llmStack.cfgStore),
-		toolsManifest:  skills.toolsManifest,
-		cfgStore:       llmStack.cfgStore,
-		conversations:  stores.conversations,
-		eventPublisher: scanstream.NewPublisher(rdb),
-		graph:          stores.graph,
-		checkpointer:   stores.checkpointer,
-		eventBus:       eventBus,
-		controlPlane:   controlPlaneStore,
+		Skills:         skill.NewStoreReader(llmStack.cfgStore),
+		ToolsManifest:  skills.toolsManifest,
+		CfgStore:       llmStack.cfgStore,
+		Conversations:  stores.conversations,
+		EventPublisher: scanstream.NewPublisher(rdb),
+		Graph:          stores.graph,
+		Checkpointer:   stores.checkpointer,
+		EventBus:       eventBus,
+		ControlPlane:   controlPlaneStore,
 	}
 
 	mux := worker.NewMux()
@@ -216,11 +217,11 @@ func main() {
 	// SANDBOX_SMOKE=true 切换为热池沙箱冒烟 handler（echo 桩，仅验证容器连通，
 	// 不写 DB、不跑认知循环——排查容器问题时用）。
 	if os.Getenv("SANDBOX_SMOKE") == "true" {
-		warmHandler := newWarmPoolHandler(sandboxMgr, logger)
-		mux.Register(worker.RoleAgent, warmHandler.handle)
+		warmHandler := runner.NewWarmPoolHandler(sandboxMgr, logger)
+		mux.Register(worker.RoleAgent, warmHandler.Handle)
 		logger.Warn().Msg("using sandbox smoke handler (echo stub, no cognition, no DB writes)")
 	} else {
-		mux.Register(worker.RoleAgent, h.handle)
+		mux.Register(worker.RoleAgent, h.Handle)
 		logger.Info().Msg("using cognition handler (default)")
 	}
 
@@ -462,7 +463,7 @@ func newHealthGateway(cfg config.Config, runnerCfg config.RunnerConfig, trafficI
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 	hsMux.HandleFunc("/internal/v1/flows/ingest",
-		newIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
+		runner.NewIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
 	return &http.Server{
 		Addr:              runnerCfg.HealthzAddr,
 		Handler:           hsMux,

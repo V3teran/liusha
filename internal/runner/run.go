@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 // 所有任务都走：Planner（6分钟评估） + Executor（5步评估）。
 // taskLogger 是 handle() 在任务作用域派生的 logger（task_id/assignment_id/conv
 // 自动附加），本函数与下游（runCognition → cognition.Deps）全部经它出日志。
-func (h handler) handleCognition(
+func (h *Handler) handleCognition(
 	ctx context.Context,
 	p worker.Payload,
 	brief string,
@@ -43,21 +43,21 @@ func (h handler) handleCognition(
 	}
 
 	taskID := p.TaskID
-	if err := h.tasks.Heartbeat(ctx, taskID); err != nil {
+	if err := h.Tasks.Heartbeat(ctx, taskID); err != nil {
 		taskLogger.Warn().Err(err).Msg("task入口心跳失败")
 	}
 
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief, taskLogger)
 
 	// 获取 Sandbox（单例模式：所有任务共享一个容器，通过工作目录隔离）
-	sb, err := h.sandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
+	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
 		TaskID: taskID,
 	})
 	if err != nil {
 		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
 	}
 	defer func() {
-		if err := h.sandboxMgr.Release(context.Background(), sb); err != nil {
+		if err := h.SandboxMgr.Release(context.Background(), sb); err != nil {
 			taskLogger.Warn().Err(err).Msg("sandboxMgr.Release 失败")
 		}
 	}()
@@ -93,9 +93,9 @@ func (h handler) handleCognition(
 	terminated := strings.Contains(report.StopWhy, "terminate") || strings.Contains(report.StopWhy, "cancel")
 	var runErr error
 	if terminated {
-		runErr = h.agentRuns.SetAborted(doneCtx, p.AgentRunID)
+		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
 	} else {
-		runErr = h.agentRuns.SetDone(doneCtx, p.AgentRunID, reportJSON)
+		runErr = h.AgentRuns.SetDone(doneCtx, p.AgentRunID, reportJSON)
 	}
 	if runErr != nil {
 		taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
@@ -107,7 +107,7 @@ func (h handler) handleCognition(
 	// 路），CAS 守卫形同虚设，被杀任务标 completed、时间线广播「扫描完成」。
 	if terminated {
 		h.finishTerminatedTask(doneCtx, taskLogger, p, taskID, report)
-	} else if err := h.tasks.Complete(doneCtx, taskID); err != nil {
+	} else if err := h.Tasks.Complete(doneCtx, taskID); err != nil {
 		taskLogger.Warn().Err(err).Msg("task 完成迁移被拒（保持既有终态）")
 	} else {
 		// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
@@ -122,8 +122,8 @@ func (h handler) handleCognition(
 // （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的
 // abort 端点可能已先行写 aborted + 「扫描已停止」节点（CAS 先到者赢）——此时
 // 不重复落节点；runner 侧节点只在本次真正完成迁移时写。
-func (h handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report executor.Report) {
-	tk, gErr := h.tasks.GetByID(ctx, taskID)
+func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report executor.Report) {
+	tk, gErr := h.Tasks.GetByID(ctx, taskID)
 	if gErr != nil {
 		taskLogger.Warn().Err(gErr).Msg("终止收尾读取 task 失败（终态交由 reaper 兜底）")
 		return
@@ -131,7 +131,7 @@ func (h handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Lo
 	if tk.Status != task.StatusActive {
 		return // api abort / reaper 已落终态及其时间线节点
 	}
-	if err := h.tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopWhy+"）"); err != nil {
+	if err := h.Tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopWhy+"）"); err != nil {
 		taskLogger.Warn().Err(err).Msg("task 终止迁移被拒（保持既有终态）")
 		return
 	}
@@ -141,12 +141,12 @@ func (h handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Lo
 }
 
 // completionFields 汇总终态时间线节点的报告字段（completed/aborted 共用口径）。
-func (h handler) completionFields(ctx context.Context, taskLogger zerolog.Logger, conversationID, taskID string, report executor.Report) map[string]any {
+func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logger, conversationID, taskID string, report executor.Report) map[string]any {
 	// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
 	// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
 	reasoningSteps := 0
 	if conversationID != "" {
-		if n, cErr := h.conversations.CountReasoningSinceDispatched(ctx, conversationID); cErr != nil {
+		if n, cErr := h.Conversations.CountReasoningSinceDispatched(ctx, conversationID); cErr != nil {
 			taskLogger.Warn().Err(cErr).Str("conv", conversationID).Msg("推理步数统计失败（steps 回退动作数口径）")
 		} else {
 			reasoningSteps = n
@@ -168,26 +168,26 @@ func (h handler) completionFields(ctx context.Context, taskLogger zerolog.Logger
 
 // appendTaskStatus 落任务生命周期节点并广播 SSE（会话任务专用；无会话纯后台
 // 扫描跳过）。best-effort——失败仅告警，不影响状态迁移本体。
-func (h handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logger, convID, status, summary string, fields map[string]any) {
+func (h *Handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logger, convID, status, summary string, fields map[string]any) {
 	if convID == "" {
 		return
 	}
-	msg, err := h.conversations.AppendMessage(ctx, convID,
+	msg, err := h.Conversations.AppendMessage(ctx, convID,
 		conversation.RoleAssistant, conversation.KindEvent,
 		summary, conversation.TaskStatusMeta(status, fields))
 	if err != nil {
 		taskLogger.Warn().Err(err).Str("conv", convID).Str("status", status).Msg("任务状态节点落库失败")
 		return
 	}
-	_ = h.eventPublisher.PublishMessage(ctx, convID, msg)
+	_ = h.EventPublisher.PublishMessage(ctx, convID, msg)
 }
 
 // findingsCount 数 task 黑板 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。
-func (h handler) findingsCount(ctx context.Context, taskID string) int {
-	if h.findings == nil {
+func (h *Handler) findingsCount(ctx context.Context, taskID string) int {
+	if h.Findings == nil {
 		return -1
 	}
-	fs, err := h.findings.ListByTask(ctx, taskID)
+	fs, err := h.Findings.ListByTask(ctx, taskID)
 	if err != nil {
 		return -1
 	}
@@ -196,18 +196,18 @@ func (h handler) findingsCount(ctx context.Context, taskID string) int {
 
 // reclaimSessionIdentity 删除本任务的自动会话身份（task:{taskID}:session）。
 // best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；成功落审计。
-func (h handler) reclaimSessionIdentity(ctx context.Context, taskLogger zerolog.Logger, taskID, host string) {
-	if h.creds == nil || host == "" || taskID == "" {
+func (h *Handler) reclaimSessionIdentity(ctx context.Context, taskLogger zerolog.Logger, taskID, host string) {
+	if h.Creds == nil || host == "" || taskID == "" {
 		return
 	}
 	name := credential.SessionIdentityName(taskID)
-	if err := h.creds.DeleteIdentity(ctx, host, name); err != nil {
+	if err := h.Creds.DeleteIdentity(ctx, host, name); err != nil {
 		taskLogger.Warn().Err(err).Str("host", host).
 			Msg("会话身份回收失败（终态清扫器将按任务状态兜底）")
 		return
 	}
-	if h.audit != nil {
-		if _, aErr := h.audit.Append(ctx, audit.Event{
+	if h.Audit != nil {
+		if _, aErr := h.Audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorRunner,
 			Action:     audit.ActionCredentialDelete,
 			TargetKind: "credential",

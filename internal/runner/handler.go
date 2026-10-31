@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -36,42 +36,42 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// handler 持有所有跨任务共享依赖。
-type handler struct {
-	agentRuns  *agentrun.Store
-	tasks      *task.Store
-	findings   *finding.Store
-	corpus     *corpus.Store
-	embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
-	reranker   corpus.Reranker
-	insights   *insight.Store
-	proxyStore *traffic.ProxyStore
-	agentStore *traffic.AgentStore
-	calls      *llminvocation.Store
-	settings   *settingstore.Store
-	runnerCfg  config.RunnerConfig
-	sandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
-	logger     zerolog.Logger
+// Handler 持有所有跨任务共享依赖。
+type Handler struct {
+	AgentRuns  *agentrun.Store
+	Tasks      *task.Store
+	Findings   *finding.Store
+	Corpus     *corpus.Store
+	Embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
+	Reranker   corpus.Reranker
+	Insights   *insight.Store
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
+	Calls      *llminvocation.Store
+	Settings   *settingstore.Store
+	RunnerCfg  config.RunnerConfig
+	SandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
+	Logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）
-	router *llm.Router
+	Router *llm.Router
 
 	// 工具装配依赖（与 prompt 拼装共用）
-	creds         credential.Provider
-	audit         *audit.Store // 凭证库等敏感操作的 runner 侧审计（会话身份回收）
-	toolCalls     *toolinvocation.Store
-	skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
-	toolsManifest *manifest.Manifest
+	Creds         credential.Provider
+	Audit         *audit.Store // 凭证库等敏感操作的 runner 侧审计（会话身份回收）
+	ToolCalls     *toolinvocation.Store
+	Skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
+	ToolsManifest *manifest.Manifest
 
-	cfgStore *configstore.Store
+	CfgStore *configstore.Store
 
-	conversations  *conversation.Store
-	eventPublisher *scanstream.Publisher
+	Conversations  *conversation.Store
+	EventPublisher *scanstream.Publisher
 
-	graph        *explorationgraph.Store
-	checkpointer core.Checkpointer
-	eventBus     bus.Bus // 统一事件总线
-	controlPlane *controlplane.Store
+	Graph        *explorationgraph.Store
+	Checkpointer core.Checkpointer
+	EventBus     bus.Bus // 统一事件总线
+	ControlPlane *controlplane.Store
 }
 
 // hostRe 匹配 brief 里的 http(s) 目标（含端口）——任务装配层的入口记账：
@@ -82,7 +82,7 @@ var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 //  1. 落探索图 KindObjective 节点（目标）；
 //  2. 回填 task.target_host 派生列；
 //  3. 返回 host key 供调用方下传。
-func (h handler) onboard(ctx context.Context, _, taskID, brief string, taskLogger zerolog.Logger) string {
+func (h *Handler) onboard(ctx context.Context, _, taskID, brief string, taskLogger zerolog.Logger) string {
 	matches := hostRe.FindAllStringSubmatch(brief, -1)
 	hosts := make([]string, 0, len(matches))
 	seen := map[string]bool{}
@@ -107,7 +107,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string, taskLogge
 		return taskID
 	}
 
-	if h.graph != nil && taskID != "" {
+	if h.Graph != nil && taskID != "" {
 		for _, targetHost := range hosts {
 			content, _ := json.Marshal(map[string]interface{}{
 				"target_host": targetHost,
@@ -135,7 +135,7 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string, taskLogge
 				Str("host", targetHost).
 				Msg("准备创建 Objective 节点")
 
-			if _, err := h.graph.CreateNode(ctx, node); err != nil {
+			if _, err := h.Graph.CreateNode(ctx, node); err != nil {
 				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
 				taskLogger.Error().Err(err).
 					Str("host", targetHost).Msg("创建 objective 节点失败 - 任务将无法正常执行")
@@ -148,14 +148,14 @@ func (h handler) onboard(ctx context.Context, _, taskID, brief string, taskLogge
 		}
 	} else {
 		taskLogger.Warn().
-			Bool("graph_nil", h.graph == nil).
+			Bool("graph_nil", h.Graph == nil).
 			Bool("taskID_empty", taskID == "").
 			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
 	}
 
 	host := hosts[0]
 	if host != taskID {
-		if err := h.tasks.SetTargetHost(ctx, taskID, host); err != nil {
+		if err := h.Tasks.SetTargetHost(ctx, taskID, host); err != nil {
 			taskLogger.Warn().Err(err).Str("host", host).
 				Msg("回填 task.target_host 失败（不阻塞扫描）")
 		}
@@ -169,17 +169,17 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, convID string, err error) error {
+func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, convID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.agentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
+	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
 		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
 	// task 终态：失败即 aborted（此前缺失——task 停留 active 直至 reaper 判死，
 	// 期间前端显示「进行中」名不副实）。守卫幂等：已终态（如用户抢先停止）不覆盖。
 	if taskID != "" {
-		if abortErr := h.tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
+		if abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
 			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
 		} else {
 			h.appendTaskStatus(writeCtx, taskLogger, convID,
@@ -190,18 +190,18 @@ func (h handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentR
 	return err
 }
 
-// handle 是单个 agent 运行的处理入口。
-func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
+// Handle 是单个 agent 运行的处理入口。
+func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	taskStart := time.Now()
-	h.logger.Info().
+	h.Logger.Info().
 		Str("agent_run_id", p.AgentRunID).
 		Str("task_id", p.TaskID).
 		Str("role", string(p.TaskRole)).
 		Msg("asynq task ▶ enter")
 	defer func() {
-		ev := h.logger.Info()
+		ev := h.Logger.Info()
 		if retErr != nil {
-			ev = h.logger.Warn().Err(retErr)
+			ev = h.Logger.Warn().Err(retErr)
 		}
 		ev.Str("agent_run_id", p.AgentRunID).
 			Str("task_id", p.TaskID).
@@ -209,17 +209,17 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Msg("asynq task ◀ exit")
 	}()
 
-	run, getErr := h.agentRuns.GetByID(ctx, p.AgentRunID)
+	run, getErr := h.AgentRuns.GetByID(ctx, p.AgentRunID)
 	switch {
 	case getErr == nil && run.Status != agentrun.StatusPending:
-		h.logger.Warn().
+		h.Logger.Warn().
 			Str("agent_run_id", p.AgentRunID).
 			Str("status", string(run.Status)).
 			Msg("asynq task 已被处理过，跳过重试（防 PG 僵尸 + 矛盾态）")
 		return asynq.SkipRetry
 	case getErr != nil:
 		// 查询失败不阻断执行（幂等检查 best-effort），但必须可见——否则重复消费只能靠下游发现。
-		h.logger.Warn().Err(getErr).Str("agent_run_id", p.AgentRunID).
+		h.Logger.Warn().Err(getErr).Str("agent_run_id", p.AgentRunID).
 			Msg("agent_run 查询失败，幂等防重检查被跳过")
 	}
 
@@ -227,11 +227,11 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。assignmentID
 	// 取自 task 行；加载失败降级为空串（下游字段缺省，不阻塞执行）。
 	var assignmentID string
-	tk, tErr := h.tasks.GetByID(ctx, p.TaskID)
+	tk, tErr := h.Tasks.GetByID(ctx, p.TaskID)
 	if tErr == nil {
 		assignmentID = tk.AssignmentID
 	}
-	taskLogger := h.logger.With().
+	taskLogger := h.Logger.With().
 		Str("task_id", p.TaskID).
 		Str("assignment_id", assignmentID).
 		Str("conv", p.ConversationID).
@@ -245,13 +245,13 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 			Msg("task 已终态（排队期间被停止/判死），跳过执行")
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
-		if err := h.agentRuns.SetAborted(writeCtx, p.AgentRunID); err != nil {
+		if err := h.AgentRuns.SetAborted(writeCtx, p.AgentRunID); err != nil {
 			taskLogger.Warn().Err(err).Str("agent_run_id", p.AgentRunID).Msg("agent_run 置 aborted 失败")
 		}
 		return asynq.SkipRetry
 	}
 
-	if err := h.agentRuns.SetRunning(ctx, p.AgentRunID); err != nil {
+	if err := h.AgentRuns.SetRunning(ctx, p.AgentRunID); err != nil {
 		return err
 	}
 
@@ -263,7 +263,7 @@ func (h handler) handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 设置超时
-	timeout := h.runnerCfg.AgentRunTimeoutSeconds
+	timeout := h.RunnerCfg.AgentRunTimeoutSeconds
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)

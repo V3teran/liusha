@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -7,11 +7,12 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 )
 
-// usageSink 把框架层 llm.UsageSink 桥到 llminvocation.Store（llm_invocation 表）。
+// UsageSink 把框架层 llm.UsageSink 桥到 llminvocation.Store（llm_invocation 表）。
 // 审计为 best-effort：Append 内部满载丢行并告警，不阻塞 Generate 路径。
-type usageSink struct{ store *llminvocation.Store }
+type UsageSink struct{ Store *llminvocation.Store }
 
-func (s usageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
+// RecordUsage 满足 framework llm.UsageSink：把一次 LLM 调用计量落 llm_invocation 表。
+func (s UsageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 	var taskID, agentRunID *string
 	if r.TaskID != "" {
 		id := r.TaskID
@@ -23,7 +24,7 @@ func (s usageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 	}
 	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
-	_, _ = s.store.Append(ctx, llminvocation.Invocation{
+	_, _ = s.Store.Append(ctx, llminvocation.Invocation{
 		TaskID:       taskID,
 		AgentRunID:   agentRunID,
 		Provider:     r.Provider,
