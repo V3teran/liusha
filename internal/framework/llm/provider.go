@@ -4,8 +4,8 @@
 //   - 本包定义 Provider 契约（Complete/Stream/CountTokens）与全部线类型
 //     （Message/ToolCall/Usage...），并持有唯一的协议适配器实现
 //     （openai_compat / anthropic，血统为生产验证过的 4 月版本）。
-//   - 业务侧（cmd/api 等）按 role 归档（llmcfg.AgentComplexity）后走本包 Router；
-//     复杂度归档表在 internal/config/llm（DB 配置优先，代码兜底）。
+//   - 业务侧（cmd/api 等）按 role 归档（llmconfig.AgentComplexity）后走本包 Router；
+//     复杂度归档表在 internal/llmconfig（DB 配置优先，代码兜底）。
 //
 // 依赖方向：本包不 import 任何业务包。
 package llm

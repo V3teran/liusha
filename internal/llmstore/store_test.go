@@ -9,45 +9,45 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/config/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // fakeLLM 是带命中计数的 llmStore 假实现，用于断言列表读是否穿透到底层。
 type fakeLLM struct {
-	providers    []llmcfg.Provider
+	providers    []llmconfig.Provider
 	providersHit int64 // ListProviders 打底层次数
-	routes       []llmcfg.RoleRoute
+	routes       []llmconfig.RoleRoute
 	routesHit    int64 // ListRoleRoutes 打底层次数
 }
 
-func (f *fakeLLM) CreateProvider(_ context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error) {
-	return llmcfg.Provider{Code: p.Code}, nil
+func (f *fakeLLM) CreateProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	return llmconfig.Provider{Code: p.Code}, nil
 }
-func (f *fakeLLM) UpdateProvider(_ context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error) {
-	return llmcfg.Provider{Code: p.Code}, nil
+func (f *fakeLLM) UpdateProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	return llmconfig.Provider{Code: p.Code}, nil
 }
 func (f *fakeLLM) DeleteProvider(_ context.Context, _ string) error { return nil }
 
-func (f *fakeLLM) ClearProviderKey(_ context.Context, code string) (llmcfg.Provider, error) {
-	return llmcfg.Provider{Code: code}, nil
+func (f *fakeLLM) ClearProviderKey(_ context.Context, code string) (llmconfig.Provider, error) {
+	return llmconfig.Provider{Code: code}, nil
 }
-func (f *fakeLLM) GetProvider(_ context.Context, key string) (llmcfg.Provider, error) {
-	return llmcfg.Provider{Code: key}, nil
+func (f *fakeLLM) GetProvider(_ context.Context, key string) (llmconfig.Provider, error) {
+	return llmconfig.Provider{Code: key}, nil
 }
-func (f *fakeLLM) ListProviders(_ context.Context, _ bool) ([]llmcfg.Provider, error) {
+func (f *fakeLLM) ListProviders(_ context.Context, _ bool) ([]llmconfig.Provider, error) {
 	atomic.AddInt64(&f.providersHit, 1)
 	return f.providers, nil
 }
-func (f *fakeLLM) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmcfg.RoleRoute, error) {
-	return llmcfg.RoleRoute{Role: role, ProviderCode: providerCode}, nil
+func (f *fakeLLM) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmconfig.RoleRoute, error) {
+	return llmconfig.RoleRoute{Role: role, ProviderCode: providerCode}, nil
 }
 func (f *fakeLLM) DeleteRoleRoute(_ context.Context, _ string) error { return nil }
-func (f *fakeLLM) ListRoleRoutes(_ context.Context) ([]llmcfg.RoleRoute, error) {
+func (f *fakeLLM) ListRoleRoutes(_ context.Context) ([]llmconfig.RoleRoute, error) {
 	atomic.AddInt64(&f.routesHit, 1)
 	return f.routes, nil
 }
-func (f *fakeLLM) GetRouting(_ context.Context) (llmcfg.Routing, error) {
-	return llmcfg.Routing{Roles: map[string]string{}}, nil
+func (f *fakeLLM) GetRouting(_ context.Context) (llmconfig.Routing, error) {
+	return llmconfig.Routing{Roles: map[string]string{}}, nil
 }
 
 // newLLMTestStore 用 miniredis + 假底层 store 构造 Store。
@@ -62,7 +62,7 @@ func newLLMTestStore(t *testing.T, f *fakeLLM) *Store {
 // TestListProviders_CachedAndInvalidated 验证：ListProviders 走缓存（二读不打底层），provider 写后失效。
 func TestListProviders_CachedAndInvalidated(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{providers: []llmcfg.Provider{{Code: "glm", Enabled: true}}}
+	f := &fakeLLM{providers: []llmconfig.Provider{{Code: "glm", Enabled: true}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListProviders(ctx, false); err != nil {
@@ -78,7 +78,7 @@ func TestListProviders_CachedAndInvalidated(t *testing.T) {
 		t.Fatal("首读后 providers 列表键应回填 L1")
 	}
 	// SaveProvider → providerCodes 含两个列表键，应失效。
-	if _, err := s.SaveProvider(ctx, llmcfg.ProviderParams{Code: "glm"}); err != nil {
+	if _, err := s.SaveProvider(ctx, llmconfig.ProviderParams{Code: "glm"}); err != nil {
 		t.Fatalf("save provider: %v", err)
 	}
 	if s.cache.L1Has(keyProvidersList(false)) {
@@ -95,7 +95,7 @@ func TestListProviders_CachedAndInvalidated(t *testing.T) {
 // TestListProviders_EnabledFlagSeparateKeys 验证：onlyEnabled 分两键，互不串味。
 func TestListProviders_EnabledFlagSeparateKeys(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{providers: []llmcfg.Provider{{Code: "glm", Enabled: true}}}
+	f := &fakeLLM{providers: []llmconfig.Provider{{Code: "glm", Enabled: true}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListProviders(ctx, false); err != nil {
@@ -116,7 +116,7 @@ func TestListProviders_EnabledFlagSeparateKeys(t *testing.T) {
 // TestListRoleRoutes_CachedAndInvalidated 验证：ListRoleRoutes 走缓存，路由写后失效（含路由快照哨兵）。
 func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderCode: "glm"}}}
+	f := &fakeLLM{routes: []llmconfig.RoleRoute{{Role: llmconfig.ComplexityMedium, ProviderCode: "glm"}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.ListRoleRoutes(ctx); err != nil {
@@ -129,7 +129,7 @@ func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 		t.Fatalf("期望路由列表只打底层 1 次（二读命中缓存），实际 %d", got)
 	}
 	// UpsertRoleRoute → routeKeys 含列表键 + 路由快照哨兵，均应失效。
-	if _, err := s.UpsertRoleRoute(ctx, llmcfg.ComplexityComplex, "glm"); err != nil {
+	if _, err := s.UpsertRoleRoute(ctx, llmconfig.ComplexityComplex, "glm"); err != nil {
 		t.Fatalf("upsert route: %v", err)
 	}
 	if s.cache.L1Has(keyRoleRoutesList) {
@@ -146,7 +146,7 @@ func TestListRoleRoutes_CachedAndInvalidated(t *testing.T) {
 // TestDeleteRoleRoute_InvalidatesRoutingSnapshot 验证：删路由也失效路由快照哨兵（两跳解析读的是它）。
 func TestDeleteRoleRoute_InvalidatesRoutingSnapshot(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeLLM{routes: []llmcfg.RoleRoute{{Role: llmcfg.ComplexityMedium, ProviderCode: "glm"}}}
+	f := &fakeLLM{routes: []llmconfig.RoleRoute{{Role: llmconfig.ComplexityMedium, ProviderCode: "glm"}}}
 	s := newLLMTestStore(t, f)
 
 	if _, err := s.Routing(ctx); err != nil { // 暖起路由快照哨兵
@@ -155,7 +155,7 @@ func TestDeleteRoleRoute_InvalidatesRoutingSnapshot(t *testing.T) {
 	if !s.cache.L1Has(keyRouting) {
 		t.Fatal("Routing 首读后应回填快照哨兵")
 	}
-	if err := s.DeleteRoleRoute(ctx, llmcfg.ComplexityMedium); err != nil {
+	if err := s.DeleteRoleRoute(ctx, llmconfig.ComplexityMedium); err != nil {
 		t.Fatalf("delete route: %v", err)
 	}
 	if s.cache.L1Has(keyRouting) {

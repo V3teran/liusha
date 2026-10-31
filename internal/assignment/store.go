@@ -81,7 +81,7 @@ func (s *Store) DeriveStatus(ctx context.Context, assignmentID string) (Status, 
 	case active > 0:
 		return StatusRunning, nil
 	case completed > 0:
-		return StatusDone, nil
+		return StatusCompleted, nil
 	default:
 		return StatusAborted, nil
 	}

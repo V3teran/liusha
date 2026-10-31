@@ -79,7 +79,7 @@ export function ExplorationGraphPage() {
         const stateColor = n.state ? STATE_COLORS[n.state as keyof typeof STATE_COLORS] : null
 
         let opacity = 1
-        if (n.state === 'done') opacity = 0.8
+        if (n.state === 'completed') opacity = 0.8
         else if (n.state === 'failed' || n.state === 'aborted') opacity = 0.6
 
         let label = n.kind.toUpperCase()
@@ -272,7 +272,7 @@ export function ExplorationGraphPage() {
             <option value="all">全部状态</option>
             <option value="open">待处理</option>
             <option value="running">执行中</option>
-            <option value="done">已完成</option>
+            <option value="completed">已完成</option>
             <option value="failed">失败</option>
             <option value="aborted">已中止</option>
           </select>

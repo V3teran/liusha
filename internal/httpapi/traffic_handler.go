@@ -30,7 +30,7 @@ type TrafficAPI interface {
 // TaskConvResolver 把 task id 反解为绑定的会话 id（消费关系 chip → 会话跳转）；
 // *conversation.Store 自动满足。nil 时详情 chip 的 conv_id 恒空（前端降级为不可跳）。
 type TaskConvResolver interface {
-	ResolveConvByTask(ctx context.Context, taskID string) (string, error)
+	ResolveConversationByTask(ctx context.Context, taskID string) (string, error)
 }
 
 // 流量列表分页默认值/上限。
@@ -149,10 +149,10 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 
 		consumers := make([]gin.H, 0, len(v.ConsumedBy))
 		for _, ct := range v.ConsumedBy {
-			convID := ""
+			conversationID := ""
 			if resolver != nil {
-				if cid, rerr := resolver.ResolveConvByTask(ctx, ct.TaskID); rerr == nil {
-					convID = cid
+				if cid, rerr := resolver.ResolveConversationByTask(ctx, ct.TaskID); rerr == nil {
+					conversationID = cid
 				}
 			}
 			consumers = append(consumers, gin.H{
@@ -160,7 +160,7 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 				"_id":     "",
 				"host":    ct.Host,
 				"status":  ct.Status,
-				"conv_id": convID,
+				"conv_id": conversationID,
 			})
 		}
 

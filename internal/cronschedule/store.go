@@ -34,13 +34,13 @@ func NextRun(expr string, from time.Time) (time.Time, error) {
 }
 
 // Create 建一个新定时模板；cron_expr 当场校验并算出首次 next_run_at。
-func (s *Store) Create(ctx context.Context, p NewParams) (CronSchedule, error) {
+func (s *Store) Create(ctx context.Context, p NewParams) (Schedule, error) {
 	if p.CronExpr == "" {
-		return CronSchedule{}, fmt.Errorf("create cron_schedule: cron_expr 必填")
+		return Schedule{}, fmt.Errorf("create cron_schedule: cron_expr 必填")
 	}
 	next, err := NextRun(p.CronExpr, time.Now())
 	if err != nil {
-		return CronSchedule{}, err
+		return Schedule{}, err
 	}
 	items := p.Items
 	if items == nil {
@@ -48,26 +48,26 @@ func (s *Store) Create(ctx context.Context, p NewParams) (CronSchedule, error) {
 	}
 	payload, err := json.Marshal(items)
 	if err != nil {
-		return CronSchedule{}, fmt.Errorf("marshal cron_schedule payload: %w", err)
+		return Schedule{}, fmt.Errorf("marshal cron_schedule payload: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO cron_schedule (cron_expr, payload, title, description, next_run_at)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING `+colsSelect,
 		p.CronExpr, payload, p.Title, p.Description, next)
-	var c CronSchedule
+	var c Schedule
 	if err := scan(row, &c); err != nil {
-		return CronSchedule{}, fmt.Errorf("create cron_schedule: %w", err)
+		return Schedule{}, fmt.Errorf("create cron_schedule: %w", err)
 	}
 	return c, nil
 }
 
 // GetByID 按主键读取。
-func (s *Store) GetByID(ctx context.Context, id string) (CronSchedule, error) {
+func (s *Store) GetByID(ctx context.Context, id string) (Schedule, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM cron_schedule WHERE id=$1", id)
-	var c CronSchedule
+	var c Schedule
 	if err := scan(row, &c); err != nil {
-		return CronSchedule{}, fmt.Errorf("get cron_schedule %s: %w", id, err)
+		return Schedule{}, fmt.Errorf("get cron_schedule %s: %w", id, err)
 	}
 	return c, nil
 }
@@ -86,7 +86,7 @@ func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 
 // ListDue 返回到点（enabled 且 next_run_at <= now）的定时模板，按 next_run_at 升序
 // （最该先跑的排前面）。Scheduler 每轮 tick 调用。
-func (s *Store) ListDue(ctx context.Context, now time.Time) ([]CronSchedule, error) {
+func (s *Store) ListDue(ctx context.Context, now time.Time) ([]Schedule, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+colsSelect+" FROM cron_schedule WHERE enabled AND next_run_at <= $1 ORDER BY next_run_at", now)
 	if err != nil {
@@ -94,9 +94,9 @@ func (s *Store) ListDue(ctx context.Context, now time.Time) ([]CronSchedule, err
 	}
 	defer rows.Close()
 
-	var out []CronSchedule
+	var out []Schedule
 	for rows.Next() {
-		var c CronSchedule
+		var c Schedule
 		if err := scan(rows, &c); err != nil {
 			return nil, fmt.Errorf("scan cron_schedule: %w", err)
 		}
@@ -129,7 +129,7 @@ func (s *Store) MarkFired(ctx context.Context, id string, firedAt, expectedNextR
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r db.RowScanner, c *CronSchedule) error {
+func scan(r db.RowScanner, c *Schedule) error {
 	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title, &c.Description,
 		&c.Enabled, &c.NextRunAt, &c.LastRunAt, &c.CreatedAt); err != nil {
 		return err

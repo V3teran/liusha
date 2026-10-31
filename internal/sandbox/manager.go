@@ -5,23 +5,23 @@ import (
 	"time"
 )
 
-// Manager 是 Sandbox 生命周期管理的统一接口。
+// Manager 是沙箱实例生命周期管理的统一接口。
 // 不同的实现策略（单例、简单池、Per-User 池、全局调度器）都实现此接口，
 // 使得切换策略时无需修改调用方代码。
 type Manager interface {
-	// Acquire 获取一个可用的 Sandbox。
+	// Acquire 获取一个可用的沙箱实例。
 	// req 包含任务 ID、用户 ID 等上下文信息。
-	Acquire(ctx context.Context, req AcquireRequest) (*Sandbox, error)
+	Acquire(ctx context.Context, req AcquireRequest) (*Instance, error)
 
-	// Release 释放 Sandbox。
+	// Release 释放沙箱实例。
 	// 不同实现的行为：
 	//   - SingletonManager: 空操作（不销毁容器）
 	//   - PoolManager: 放回池中复用
 	//   - GlobalScheduler: 根据调度策略决定是否回收
-	Release(ctx context.Context, sb *Sandbox) error
+	Release(ctx context.Context, sb *Instance) error
 
 	// Healthz 健康检查。
-	// 返回 nil 表示管理器及其管理的 Sandbox 都健康。
+	// 返回 nil 表示管理器及其管理的沙箱实例都健康。
 	Healthz(ctx context.Context) error
 
 	// Metrics 返回当前监控指标。
@@ -31,7 +31,7 @@ type Manager interface {
 	Shutdown(ctx context.Context) error
 }
 
-// AcquireRequest 是获取 Sandbox 的请求参数。
+// AcquireRequest 是获取沙箱实例的请求参数。
 type AcquireRequest struct {
 	TaskID   string        // 任务 ID（必填）
 	UserID   string        // 用户 ID（可选，Per-User 池时使用）
@@ -40,8 +40,8 @@ type AcquireRequest struct {
 	WorkDir  string        // 工作目录（可选，为空则自动生成 /work/{taskID}）
 }
 
-// Sandbox 是对容器客户端的封装，增加任务隔离能力。
-type Sandbox struct {
+// Instance 是一个活的沙箱实例：对容器客户端的封装，增加任务隔离能力。
+type Instance struct {
 	Client    Client // 底层容器客户端
 	ID        string // 容器 ID
 	TaskID    string // 当前关联的任务 ID
@@ -49,7 +49,7 @@ type Sandbox struct {
 	CreatedAt time.Time
 }
 
-// ManagerMetrics 是 Sandbox 管理器的监控指标。
+// ManagerMetrics 是沙箱实例管理器的监控指标。
 type ManagerMetrics struct {
 	// 基础指标（所有实现都支持）
 	TotalSandboxes   int     // 总容器数
@@ -74,7 +74,7 @@ type ManagerMetrics struct {
 // PrepareWorkDir 准备任务工作目录。
 // 注意：实际的工作目录由 sandbox-server 管理（/liusha/<task_id>/<agent_id>/workspace/）。
 // 这里不需要创建任何目录，sandbox-server 会自动创建。
-func (sb *Sandbox) PrepareWorkDir(_ context.Context) error {
+func (sb *Instance) PrepareWorkDir(_ context.Context) error {
 	// 设置工作目录标识（用于日志）
 	if sb.WorkDir == "" {
 		sb.WorkDir = "/liusha/" + sb.TaskID
@@ -88,7 +88,7 @@ func (sb *Sandbox) PrepareWorkDir(_ context.Context) error {
 
 // CleanupWorkDir 清理任务工作目录。
 // 注意：清理整个 Task 级别的目录（包括所有 Agent 的子目录）。
-func (sb *Sandbox) CleanupWorkDir(ctx context.Context) error {
+func (sb *Instance) CleanupWorkDir(ctx context.Context) error {
 	if sb.WorkDir == "" {
 		return nil
 	}
@@ -103,8 +103,8 @@ func (sb *Sandbox) CleanupWorkDir(ctx context.Context) error {
 	return err
 }
 
-// SoftReset 软重置 Sandbox（清理任务目录，不销毁容器）。
-func (sb *Sandbox) SoftReset(ctx context.Context) error {
+// SoftReset 软重置沙箱实例（清理任务目录，不销毁容器）。
+func (sb *Instance) SoftReset(ctx context.Context) error {
 	// 1. 清理任务目录（整个 /liusha/<task_id>/）
 	if err := sb.CleanupWorkDir(ctx); err != nil {
 		return err

@@ -220,7 +220,7 @@ export interface RoutingResponse {
   routes: RoleRouteConfig[]
 }
 
-// 三个复杂度档的字面常量（与后端 llmcfg.ComplexitySimple/Medium/Complex 对齐）：
+// 三个复杂度档的字面常量（与后端 llmconfig.ComplexitySimple/Medium/Complex 对齐）：
 // 同时是 llm_role_route.role 的路由键——「能力路由」页按它分组建 provider。
 // 无保留 role：各档重试耗尽后由后端回落标准推理档（medium）部署。
 export const COMPLEXITY_SIMPLE = 'simple'

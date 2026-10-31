@@ -1,7 +1,7 @@
 // Package convstream 用 Redis Pub/Sub 做 agent 过程事件的实时管道。
 //
 // 数据流（见记忆 project_phaseb_sse_arch）：runner 跑 agent 时把过程事件 publish 到
-// channel `liusha:conv:{conversationID}`；api 的 SSE handler subscribe 同 channel 转发给前端。
+// channel `liusha:conversation:{conversationID}`；api 的 SSE handler subscribe 同 channel 转发给前端。
 //
 // 职责单一——只做实时广播，不持久化：PG 的 conversation message（internal/conversation）才是
 // 真相源，断线重连走 ListMessages(afterSeq) 补历史。故 pub/sub（订阅者不在线即丢）足够，
@@ -20,7 +20,7 @@ import (
 )
 
 // channelPrefix 是会话事件 channel 的前缀；完整 channel = prefix + conversationID。
-const channelPrefix = "liusha:conv:"
+const channelPrefix = "liusha:conversation:"
 
 // Channel 返回某会话的事件 channel 名（Publisher / Subscriber 共用，保证拼法一致）。
 func Channel(conversationID string) string { return channelPrefix + conversationID }
@@ -40,7 +40,7 @@ func (p *Publisher) Publish(ctx context.Context, conversationID string, payload 
 		return nil
 	}
 	if err := p.rdb.Publish(ctx, Channel(conversationID), payload).Err(); err != nil {
-		return fmt.Errorf("convstream publish conv=%s: %w", conversationID, err)
+		return fmt.Errorf("convstream publish conversation=%s: %w", conversationID, err)
 	}
 	return nil
 }
@@ -91,10 +91,10 @@ func (p *Publisher) PublishDelta(ctx context.Context, conversationID, agentName,
 // 错误口径不一（静默/告警混杂）；本方法收敛序列化与广播两步。落库（AppendMessage）
 // 由调用方完成——失败时调用方各自告警；广播失败在此上抛（多数调用方 best-effort
 // 忽略：重连补历史兜底），是否告警由调用方决定。
-func (p *Publisher) PublishMessage(ctx context.Context, convID string, msg any) error {
+func (p *Publisher) PublishMessage(ctx context.Context, conversationID string, msg any) error {
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	return p.Publish(ctx, convID, payload)
+	return p.Publish(ctx, conversationID, payload)
 }

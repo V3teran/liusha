@@ -139,7 +139,7 @@ func TestStore_ListActionStates(t *testing.T) {
 
 	_, err := store.CreateNode(ctx, mkActionNode("a-open", "task-1", StateOpen, nil))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateDone, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateCompleted, nil))
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, mkActionNode("a-failed", "task-1", StateFailed, nil))
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestStore_ListActionStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]State{
 		"a-open":   StateOpen,
-		"a-done":   StateDone,
+		"a-done":   StateCompleted,
 		"a-failed": StateFailed,
 	}, states)
 }

@@ -29,7 +29,7 @@ import (
 type Agent struct {
 	graph        *explorationgraph.Store
 	executor     ActionExecutor
-	eventBus     bus.Bus
+	eventBus     bus.EventBus
 	logger       zerolog.Logger
 	taskID       string
 	maxSteps     int
@@ -49,7 +49,7 @@ type AgentConfig struct {
 	TaskID       string
 	Graph        *explorationgraph.Store
 	Executor     ActionExecutor
-	EventBus     bus.Bus
+	EventBus     bus.EventBus
 	Logger       zerolog.Logger
 	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
 	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
@@ -198,7 +198,7 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 	// 已完成的 Action ID 集合（依赖满足判据）
 	completed := make(map[string]bool, len(states))
 	for id, state := range states {
-		if state == explorationgraph.StateDone {
+		if state == explorationgraph.StateCompleted {
 			completed[id] = true
 		}
 	}
@@ -334,7 +334,7 @@ func (a *Agent) executeAction(
 
 	ok, err = a.graph.CompareAndSwapActionState(
 		markCtx, action.TaskID, action.ID,
-		explorationgraph.StateRunning, explorationgraph.StateDone,
+		explorationgraph.StateRunning, explorationgraph.StateCompleted,
 	)
 	if err != nil {
 		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")

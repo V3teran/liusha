@@ -51,8 +51,8 @@ const (
 	// ActionStateRunning 执行中
 	ActionStateRunning ActionState = "running"
 
-	// ActionStateDone 已完成
-	ActionStateDone ActionState = "done"
+	// ActionStateCompleted 已完成
+	ActionStateCompleted ActionState = "completed"
 
 	// ActionStateFailed 执行失败
 	ActionStateFailed ActionState = "failed"
@@ -106,7 +106,7 @@ const (
 
 // IsTerminal 判断动作状态是否为终态
 func (s ActionState) IsTerminal() bool {
-	return s == ActionStateDone ||
+	return s == ActionStateCompleted ||
 		s == ActionStateFailed ||
 		s == ActionStateExhausted ||
 		s == ActionStateAborted

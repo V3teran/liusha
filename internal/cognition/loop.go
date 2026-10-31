@@ -49,7 +49,7 @@ import (
 // 是历史 bug 高发区）。
 type Deps struct {
 	Graph        *explorationgraph.Store
-	EventBus     bus.Bus
+	EventBus     bus.EventBus
 	ControlPlane *controlplane.Store
 	Checkpointer core.Checkpointer
 	CfgStore     *configstore.Store
@@ -57,7 +57,7 @@ type Deps struct {
 	Logger       zerolog.Logger
 
 	Skills        *skill.StoreReader
-	ToolsManifest *manifest.Manifest
+	ToolsManifest *manifest.ToolManifest
 	Creds         credential.Provider
 
 	// 遥测后端（toolRecordInterceptor 用）
@@ -205,7 +205,7 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	if err != nil || len(objectives) == 0 {
 		return
 	}
-	terminal := explorationgraph.StateDone
+	terminal := explorationgraph.StateCompleted
 	if strings.Contains(stopWhy, "terminate") || strings.Contains(stopWhy, "cancel") {
 		terminal = explorationgraph.StateAborted
 	}
@@ -460,10 +460,10 @@ func (d *Deps) assembleStack(
 }
 
 // filterManifest 按 cli_tools 白名单过滤工具清单（nil/空清单 → 空集并告警）。
-func (d *Deps) filterManifest(cliTools []string) *manifest.Manifest {
+func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	if d.ToolsManifest == nil || len(cliTools) == 0 {
 		d.Logger.Warn().Msg("未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
-		return &manifest.Manifest{Tools: []manifest.Tool{}}
+		return &manifest.ToolManifest{Tools: []manifest.Tool{}}
 	}
 	filtered := d.ToolsManifest.FilterByNames(cliTools)
 	d.Logger.Info().
@@ -480,7 +480,7 @@ func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
 	taskID, host, brief, agentRunID string,
 	cfg agent.Profile,
-	filteredManifest *manifest.Manifest,
+	filteredManifest *manifest.ToolManifest,
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
 	thoughts reasoning.Tap,
@@ -527,10 +527,10 @@ func (d *Deps) buildEvaluatorAgent(
 	cfg agent.Profile,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
-	reg *registry.Registry,
+	reg *registry.ToolRegistry,
 	thoughts reasoning.Tap,
 ) *evaluator.Agent {
-	var evaluatorCLImanifest *manifest.Manifest
+	var evaluatorCLImanifest *manifest.ToolManifest
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
 		evaluatorCLImanifest = d.ToolsManifest.FilterByNames(cfg.CliTools)
 	}
@@ -557,7 +557,7 @@ func (d *Deps) buildEvaluatorAgent(
 	claimSink := finding.NewClaimSink(d.Findings, agentRunID)
 	if conversationID != "" {
 		timeline := d.toolTimelineEvents()
-		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.Vuln) {
+		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.Finding) {
 			timeline.Emit(octx, conversationID, map[string]any{
 				"kind":       "finding",
 				"agent_name": "evaluator",

@@ -12,7 +12,7 @@ func TestStreamCookie_SignVerify_RoundTrip(t *testing.T) {
 		t.Fatal("signStreamToken 返回空")
 	}
 	if !verifyStreamToken(secret, tok, "conv-123") {
-		t.Error("同 convID 同密钥应校验通过")
+		t.Error("同 conversationID 同密钥应校验通过")
 	}
 }
 
@@ -21,12 +21,12 @@ func TestStreamCookie_Reject(t *testing.T) {
 	valid := signStreamToken(secret, "conv-123", time.Now().Add(30*time.Minute))
 
 	cases := map[string]bool{
-		"错 convID": verifyStreamToken(secret, valid, "conv-999"),
-		"错密钥":      verifyStreamToken([]byte("wrong-secret-32-bytes-long-yyyy"), valid, "conv-123"),
-		"篡改 token": verifyStreamToken(secret, valid+"x", "conv-123"),
-		"过期":       verifyStreamToken(secret, signStreamToken(secret, "conv-123", time.Now().Add(-time.Minute)), "conv-123"),
-		"空 token":  verifyStreamToken(secret, "", "conv-123"),
-		"垃圾格式":     verifyStreamToken(secret, "not.a.valid.token", "conv-123"),
+		"错 conversationID": verifyStreamToken(secret, valid, "conv-999"),
+		"错密钥":              verifyStreamToken([]byte("wrong-secret-32-bytes-long-yyyy"), valid, "conv-123"),
+		"篡改 token":         verifyStreamToken(secret, valid+"x", "conv-123"),
+		"过期":               verifyStreamToken(secret, signStreamToken(secret, "conv-123", time.Now().Add(-time.Minute)), "conv-123"),
+		"空 token":          verifyStreamToken(secret, "", "conv-123"),
+		"垃圾格式":             verifyStreamToken(secret, "not.a.valid.token", "conv-123"),
 	}
 	for name, got := range cases {
 		if got {

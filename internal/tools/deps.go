@@ -3,7 +3,7 @@
 // publish_decision、evaluator 的 replay_for_verification 等）在各角色包内自建。
 //
 // 工具按功能域分文件：credentials / corpus / insight / traffic / sandbox / skill。
-// register.go 提供 RegisterAll 一次性注入所有工具到 registry.Registry。
+// register.go 提供 RegisterAll 一次性注入所有工具到 registry.ToolRegistry。
 package tools
 
 import (

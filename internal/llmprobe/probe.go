@@ -17,26 +17,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/config/llm"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpapi"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // Store 是探测对 llmstore 的窄依赖：据 key 取已存 provider（多级缓存）。
 type Store interface {
-	ProviderByCode(ctx context.Context, key string) (llmcfg.Provider, error)
+	ProviderByCode(ctx context.Context, key string) (llmconfig.Provider, error)
 }
 
 // Tester 实现 httpapi.ProviderTester。
 type Tester struct {
 	store Store
-	dec   llmcfg.KeyDecrypter // 解密已存 provider 的密文密钥
-	pool  *fwllm.ClientPool   // 复用共享 HTTP client（与运行期同池）
-	http  *http.Client        // list-models 的裸 HTTP 探测用（带超时）
+	dec   llmconfig.KeyDecrypter // 解密已存 provider 的密文密钥
+	pool  *fwllm.ClientPool      // 复用共享 HTTP client（与运行期同池）
+	http  *http.Client           // list-models 的裸 HTTP 探测用（带超时）
 }
 
 // New 装配探测器。dec/store/pool 缺任一则不应注册对应路由（装配方负责判空）。
-func New(store Store, dec llmcfg.KeyDecrypter, pool *fwllm.ClientPool) *Tester {
+func New(store Store, dec llmconfig.KeyDecrypter, pool *fwllm.ClientPool) *Tester {
 	return &Tester{
 		store: store,
 		dec:   dec,
@@ -57,7 +57,7 @@ func (t *Tester) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec)
 	if err != nil {
 		return "", fmt.Errorf("取已存 provider %q 失败: %w", spec.Code, err)
 	}
-	key, err := llmcfg.ResolveAPIKey(stored, t.dec) // 解密 or env 回退（旧数据路径）
+	key, err := llmconfig.ResolveAPIKey(stored, t.dec) // 解密 or env 回退（旧数据路径）
 	if err != nil {
 		return "", err
 	}
@@ -65,8 +65,8 @@ func (t *Tester) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec)
 }
 
 // providerFromSpec 用表单当前值组装待测 provider，MaxTokens 强制 1（测试只需能通就行，省 token）。
-func providerFromSpec(spec httpapi.ProviderProbeSpec) llmcfg.Provider {
-	return llmcfg.Provider{
+func providerFromSpec(spec httpapi.ProviderProbeSpec) llmconfig.Provider {
+	return llmconfig.Provider{
 		Code:         spec.Code,
 		Type:         spec.Type,
 		BaseURL:      spec.BaseURL,
@@ -144,7 +144,7 @@ func (t *Tester) ListModels(ctx context.Context, spec httpapi.ProviderProbeSpec)
 	if err != nil {
 		return nil, fmt.Errorf("构造请求失败: %w", err)
 	}
-	if spec.Type == llmcfg.ProviderTypeAnthropic {
+	if spec.Type == llmconfig.ProviderTypeAnthropic {
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("anthropic-version", "2023-06-01")
 	} else {

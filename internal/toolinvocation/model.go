@@ -22,7 +22,7 @@ type Invocation struct {
 	AgentRunID    string          // FK→agent_run.id（本轮认知循环的 run 行）
 	TaskID        string          // 所属 task.id
 	Role          string          // 调用方 agent（planner/executor/evaluator/monitor）——跨 agent 行为审计
-	ToolName      string          // 'sqlmap' / 'curl' / 'write_finding' / ...
+	ToolName      string          // 'sqlmap' / 'curl' / 'http_request' / ...
 	Args          json.RawMessage // 工具调用参数 jsonb
 	OutputSize    int             // 字节数
 	OutputPreview string          // 首 4096 字符预览

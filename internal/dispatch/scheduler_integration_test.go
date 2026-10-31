@@ -171,18 +171,18 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 
 	// cron 展开的 passive task 必须绑会话流（title=host + 首条说明），否则
 	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
-	convID, err := r.Conversations.ResolveConvByTask(ctx, found.ID)
-	if err != nil || convID == "" {
-		t.Fatalf("passive task 应绑 1 个会话，got convID=%q err=%v", convID, err)
+	conversationID, err := r.Conversations.ResolveConversationByTask(ctx, found.ID)
+	if err != nil || conversationID == "" {
+		t.Fatalf("passive task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
 	}
-	conv, err := r.Conversations.GetConversation(ctx, convID)
+	conv, err := r.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
 		t.Fatalf("get conversation: %v", err)
 	}
 	if conv.Title != host {
 		t.Errorf("会话 title 应为 host %q，got %q", host, conv.Title)
 	}
-	msgs, err := r.Conversations.ListMessages(ctx, convID, 0, 10)
+	msgs, err := r.Conversations.ListMessages(ctx, conversationID, 0, 10)
 	if err != nil {
 		t.Fatalf("list messages: %v", err)
 	}

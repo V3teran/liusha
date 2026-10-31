@@ -37,11 +37,11 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	require.NoError(t, err)
 
 	// Save：必填校验
-	_, err = store.Save(ctx, finding.Vuln{TaskID: taskID, Summary: "s"})
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Summary: "s"})
 	require.ErrorContains(t, err, "Host 必填")
 
 	// Save：正常写入，默认 severity=medium，分配 ID/Seq/Status
-	saved, err := store.Save(ctx, finding.Vuln{
+	saved, err := store.Save(ctx, finding.Finding{
 		TaskID:  taskID,
 		Host:    "target.local",
 		Summary: "SQL 注入可枚举 users 表",
@@ -54,7 +54,7 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	assert.Equal(t, "open", saved.Status)
 
 	// Save 幂等去重：同 task + 同 host/summary → 返回 existing 行（同 ID），不新增
-	again, err := store.Save(ctx, finding.Vuln{
+	again, err := store.Save(ctx, finding.Finding{
 		TaskID:  taskID,
 		Host:    "target.local",
 		Summary: "SQL 注入可枚举 users 表",
@@ -64,7 +64,7 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	assert.Equal(t, saved.ID, again.ID, "同 dedup_key 应返回 existing 行")
 
 	// ListAll + Host 过滤：按 host 筛（与台账页同口径）
-	_, err = store.Save(ctx, finding.Vuln{TaskID: taskID, Host: "other.local", Summary: "另一台主机的漏洞"})
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Host: "other.local", Summary: "另一台主机的漏洞"})
 	require.NoError(t, err)
 	byHost, err := store.ListAll(ctx, finding.LedgerFilter{Host: "target.local"})
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestListAll_CountAll(t *testing.T) {
 		{"ledger.local", "XSS", "low"},
 		{"other.local", "SSRF", "medium"},
 	} {
-		_, err := store.Save(ctx, finding.Vuln{
+		_, err := store.Save(ctx, finding.Finding{
 			TaskID: taskID, Host: tc.host, Summary: tc.summary, Severity: tc.severity,
 		})
 		require.NoError(t, err)

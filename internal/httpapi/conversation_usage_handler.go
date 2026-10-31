@@ -20,10 +20,10 @@ import (
 
 // UsageTaskResolver 把会话 id 解析成 task id + 查运行态 + 墙钟时长（*conversation.Store 满足）。
 type UsageTaskResolver interface {
-	ResolveTaskID(ctx context.Context, convID string) (string, error)
-	IsRunActive(ctx context.Context, convID string) (bool, error)
-	RunStatus(ctx context.Context, convID string) (string, error)
-	WallclockMs(ctx context.Context, convID string) (int64, error)
+	ResolveTaskID(ctx context.Context, conversationID string) (string, error)
+	IsRunActive(ctx context.Context, conversationID string) (bool, error)
+	RunStatus(ctx context.Context, conversationID string) (string, error)
+	WallclockMs(ctx context.Context, conversationID string) (int64, error)
 }
 
 // LLMUsageAggregator 合计某 task 的 LLM 用量（*llminvocation.Store 满足）。
@@ -134,9 +134,9 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 }
 
 // zeroUsage 造零用量响应（纯聊天会话无 task 时）。
-func zeroUsage(convID, taskID string, running bool, status string) gin.H {
+func zeroUsage(conversationID, taskID string, running bool, status string) gin.H {
 	return gin.H{
-		"conversation_id":  convID,
+		"conversation_id":  conversationID,
 		"task_id":          taskID,
 		"tokens":           gin.H{"in": 0, "out": 0, "cached": 0, "total": 0},
 		"llm_latency_ms":   0,

@@ -18,9 +18,9 @@ import (
 
 // ToolCatalogAPI 是工具目录 handler 依赖的窄接口；*cfgtool.Store 自动满足。
 type ToolCatalogAPI interface {
-	List(ctx context.Context, p cfgtool.ListParams) ([]cfgtool.Tool, error)
+	List(ctx context.Context, p cfgtool.ListParams) ([]cfgtool.Definition, error)
 	Count(ctx context.Context, p cfgtool.ListParams) (int, error)
-	Get(ctx context.Context, name string) (cfgtool.Tool, error)
+	Get(ctx context.Context, name string) (cfgtool.Definition, error)
 }
 
 // defaultToolPageSize / maxToolPageSize 约束分页 size，防超大扫描。
@@ -159,7 +159,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 // 按工具 kind 只动对应数组。显式白名单：involved=true 缺则追加、false 有则剔除，幂等。
 // 全量哨兵 "*"：装配任何工具都已是覆盖态（幂等 no-op，保留 "*"）；卸载则把 "*" 物化为
 // 「该 kind 目录全集减一」的显式白名单——语义等于"除了它全都要"。catalog 是该 kind 全集。
-func applyAssignment(h agent.Profile, kind cfgtool.Kind, name string, involved bool, catalog []cfgtool.Tool) (fn, cli []string) {
+func applyAssignment(h agent.Profile, kind cfgtool.Kind, name string, involved bool, catalog []cfgtool.Definition) (fn, cli []string) {
 	apply := func(arr []string) []string {
 		if containsWildcard(arr) {
 			if involved {
@@ -215,7 +215,7 @@ func toggleName(arr []string, name string, want bool) []string {
 }
 
 // toolJSON 是 tool 响应的单一序列化点（防字段漂移）。
-func toolJSON(t cfgtool.Tool) gin.H {
+func toolJSON(t cfgtool.Definition) gin.H {
 	return gin.H{
 		"name": t.Name, "kind": string(t.Kind), "category": t.Category,
 		"description": t.Description,

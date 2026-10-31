@@ -18,7 +18,7 @@ import (
 
 // ImportSystem 把 cfg 里的 compaction/runtime/proxy_filter 三组旋钮 insert-only 首填进 DB。
 // 每组独立判存（缺组才写），任一组已存在则跳过该组。
-func ImportSystem(ctx context.Context, cfg config.Config, s *settingstore.Store) error {
+func ImportSystem(ctx context.Context, cfg config.AppConfig, s *settingstore.Store) error {
 	if err := importCompactionSettings(ctx, s); err != nil {
 		return fmt.Errorf("import compaction settings: %w", err)
 	}
@@ -47,7 +47,7 @@ func importCompactionSettings(ctx context.Context, s *settingstore.Store) error 
 
 // importRuntimeSettings 缺 runtime 组才首填：LLM 看门狗默认取 yaml runner.step_llm_timeout_seconds
 // （唯一保留的 yaml 源），其余字段用内置默认。
-func importRuntimeSettings(ctx context.Context, cfg config.Config, s *settingstore.Store) error {
+func importRuntimeSettings(ctx context.Context, cfg config.AppConfig, s *settingstore.Store) error {
 	if _, err := s.GetRuntimeRaw(ctx); err == nil {
 		return nil
 	} else if !settingstore.IsNotFound(err) {
@@ -60,7 +60,7 @@ func importRuntimeSettings(ctx context.Context, cfg config.Config, s *settingsto
 }
 
 // importProxyFilterSettings 缺 proxy_filter 组才用 yaml 的 proxy.* 过滤字段首填。
-func importProxyFilterSettings(ctx context.Context, cfg config.Config, s *settingstore.Store) error {
+func importProxyFilterSettings(ctx context.Context, cfg config.AppConfig, s *settingstore.Store) error {
 	if _, err := s.GetProxyFilterRaw(ctx); err == nil {
 		return nil
 	} else if !settingstore.IsNotFound(err) {

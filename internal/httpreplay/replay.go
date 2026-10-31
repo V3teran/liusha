@@ -32,9 +32,9 @@ type Source struct {
 	Body    []byte
 }
 
-// Mods 是字段级改写：未指定的字段全继承原请求（cookie/CSRF/auth/form）。
+// Overrides 是字段级改写：未指定的字段全继承原请求（cookie/CSRF/auth/form）。
 // value=nil 表示删除该 header/query/body 字段。
-type Mods struct {
+type Overrides struct {
 	URL        string
 	Method     string
 	Headers    map[string]*string
@@ -54,11 +54,11 @@ type Result struct {
 	ResponseBody    []byte
 }
 
-// Replay 按 mods 改写 src 并直连重发。TLS 跳过校验（pentest 目标常自签名）。
-func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
+// Replay 按 overrides 改写 src 并直连重发。TLS 跳过校验（pentest 目标常自签名）。
+func Replay(ctx context.Context, src Source, overrides Overrides) (Result, error) {
 	method := src.Method
-	if mods.Method != "" {
-		method = strings.ToUpper(mods.Method)
+	if overrides.Method != "" {
+		method = strings.ToUpper(overrides.Method)
 	}
 
 	// headers 先解析（body 字段级改要据 content-type 选 JSON/form）。key 统一小写。
@@ -73,7 +73,7 @@ func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
 	for k, v := range rawHeaders {
 		headers[strings.ToLower(k)] = v
 	}
-	for k, v := range mods.Headers {
+	for k, v := range overrides.Headers {
 		key := strings.ToLower(k)
 		if v == nil {
 			delete(headers, key)
@@ -83,11 +83,11 @@ func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
 	}
 
 	body := src.Body
-	if mods.Body != nil {
-		body = []byte(*mods.Body)
+	if overrides.Body != nil {
+		body = []byte(*overrides.Body)
 	}
-	if len(mods.BodyFields) > 0 {
-		patched, err := applyBodyFieldMods(body, headers["content-type"], mods.BodyFields)
+	if len(overrides.BodyFields) > 0 {
+		patched, err := applyBodyFieldOverrides(body, headers["content-type"], overrides.BodyFields)
 		if err != nil {
 			return Result{}, err
 		}
@@ -95,11 +95,11 @@ func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
 	}
 
 	rawURL := src.URL
-	if mods.URL != "" {
-		rawURL = mods.URL
+	if overrides.URL != "" {
+		rawURL = overrides.URL
 	}
-	if len(mods.Query) > 0 {
-		patched, err := applyQueryMods(rawURL, mods.Query)
+	if len(overrides.Query) > 0 {
+		patched, err := applyQueryOverrides(rawURL, overrides.Query)
 		if err != nil {
 			return Result{}, err
 		}
@@ -140,14 +140,14 @@ func Replay(ctx context.Context, src Source, mods Mods) (Result, error) {
 	}, nil
 }
 
-// applyQueryMods 在 rawURL 的 query 上字段级增删改（value=nil 删，其余继承），返回新 URL。
-func applyQueryMods(rawURL string, mods map[string]*string) (string, error) {
+// applyQueryOverrides 在 rawURL 的 query 上字段级增删改（value=nil 删，其余继承），返回新 URL。
+func applyQueryOverrides(rawURL string, overrides map[string]*string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("query mods: 解析 URL 失败: %w", err)
+		return "", fmt.Errorf("query overrides: 解析 URL 失败: %w", err)
 	}
 	q := u.Query()
-	for k, v := range mods {
+	for k, v := range overrides {
 		if v == nil {
 			q.Del(k)
 		} else {
@@ -158,9 +158,9 @@ func applyQueryMods(rawURL string, mods map[string]*string) (string, error) {
 	return u.String(), nil
 }
 
-// applyBodyFieldMods 按 content-type 选 JSON/form 解析，字段级增删改（value=nil 删），其余继承。
+// applyBodyFieldOverrides 按 content-type 选 JSON/form 解析，字段级增删改（value=nil 删），其余继承。
 // JSON 体新值按 JSON 解析以保留数字/布尔/对象类型，失败则当字符串。不支持的 content-type 报错。
-func applyBodyFieldMods(body []byte, contentType string, mods map[string]*string) ([]byte, error) {
+func applyBodyFieldOverrides(body []byte, contentType string, overrides map[string]*string) ([]byte, error) {
 	ct := strings.ToLower(contentType)
 	switch {
 	case strings.Contains(ct, "json"):
@@ -170,7 +170,7 @@ func applyBodyFieldMods(body []byte, contentType string, mods map[string]*string
 				return nil, fmt.Errorf("body_fields: 原 body 不是 JSON 对象，无法字段级修改（改用整体 body 替换）: %w", err)
 			}
 		}
-		for k, v := range mods {
+		for k, v := range overrides {
 			if v == nil {
 				delete(obj, k)
 				continue
@@ -188,7 +188,7 @@ func applyBodyFieldMods(body []byte, contentType string, mods map[string]*string
 		if err != nil {
 			return nil, fmt.Errorf("body_fields: 原 body 不是 form-urlencoded（改用整体 body 替换）: %w", err)
 		}
-		for k, v := range mods {
+		for k, v := range overrides {
 			if v == nil {
 				vals.Del(k)
 			} else {

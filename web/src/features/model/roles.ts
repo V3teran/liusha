@@ -9,7 +9,7 @@ export interface ComplexityGroupMeta {
   desc: string
 }
 
-// 三个复杂度档（与后端 llmcfg ComplexitySimple/Medium/Complex 对齐；
+// 三个复杂度档（与后端 llmconfig ComplexitySimple/Medium/Complex 对齐；
 // 档名即 llm_role_route.role 路由键）。
 // 无保留槽、无任何兜底机制：请求重试耗尽即失败。
 export const COMPLEXITY_GROUPS: ComplexityGroupMeta[] = [

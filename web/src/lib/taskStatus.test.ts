@@ -11,7 +11,7 @@ describe('taskStatusMeta', () => {
   it('completed → 已完成', () => {
     const m = taskStatusMeta('completed')
     expect(m.label).toBe('已完成')
-    expect(m.key).toBe('done')
+    expect(m.key).toBe('completed')
   })
 
   it('aborted → 已中止', () => {

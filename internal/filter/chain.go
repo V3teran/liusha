@@ -8,30 +8,30 @@ import (
 	"strings"
 )
 
-// Filter 单个过滤器接口。返回 (true, "") 放行；返回 (false, reason) 拦截并附原因。
-type Filter interface {
+// Rule 单条过滤规则接口。返回 (true, "") 放行；返回 (false, reason) 拦截并附原因。
+type Rule interface {
 	ShouldProcess(req *http.Request, resp *http.Response) (bool, string)
 }
 
-// Chain 责任链：任一 Filter 拒绝即整体拒绝。
+// Chain 责任链：任一 Rule 拒绝即整体拒绝。
 type Chain struct {
-	filters []Filter
+	rules []Rule
 }
 
 // NewChain 构造一条责任链。
-func NewChain(filters ...Filter) *Chain {
-	return &Chain{filters: filters}
+func NewChain(rules ...Rule) *Chain {
+	return &Chain{rules: rules}
 }
 
-// Add 追加一个 Filter（链式调用风格）。
-func (c *Chain) Add(f Filter) *Chain {
-	c.filters = append(c.filters, f)
+// Add 追加一条 Rule（链式调用风格）。
+func (c *Chain) Add(f Rule) *Chain {
+	c.rules = append(c.rules, f)
 	return c
 }
 
-// ShouldProcess 顺序执行链上每个 Filter；任意拒绝即返回 false + reason。
+// ShouldProcess 顺序执行链上每条 Rule；任意拒绝即返回 false + reason。
 func (c *Chain) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
-	for _, f := range c.filters {
+	for _, f := range c.rules {
 		if ok, reason := f.ShouldProcess(req, resp); !ok {
 			return false, reason
 		}

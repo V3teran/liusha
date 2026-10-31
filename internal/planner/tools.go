@@ -96,7 +96,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	if !input.IncludeCompleted {
 		var filtered []explorationgraph.Node
 		for _, action := range actions {
-			if action.State != nil && *action.State != explorationgraph.StateDone {
+			if action.State != nil && *action.State != explorationgraph.StateCompleted {
 				filtered = append(filtered, action)
 			}
 		}
@@ -224,7 +224,7 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (
 
 	// 评估进展
 	totalActions := len(actions)
-	doneActions := stateCounts[explorationgraph.StateDone]
+	doneActions := stateCounts[explorationgraph.StateCompleted]
 	openActions := stateCounts[explorationgraph.StateOpen]
 	runningActions := stateCounts[explorationgraph.StateRunning]
 

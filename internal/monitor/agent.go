@@ -28,7 +28,7 @@ type Agent struct {
 	taskID       string
 	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
-	eventBus     bus.Bus
+	eventBus     bus.EventBus
 	provider     llm.Provider
 	reactRuntime runtime.ReActRuntime
 	interval     time.Duration
@@ -51,7 +51,7 @@ type Config struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph      *explorationgraph.Store
-	EventBus   bus.Bus
+	EventBus   bus.EventBus
 	Provider   llm.Provider
 	Interval   time.Duration // 评估间隔，默认 6 分钟
 	Logger     zerolog.Logger
@@ -309,7 +309,7 @@ type GlobalState struct {
 
 	// Metrics 是时间窗口指标（P5）
 	// 用于判断"每小时 <3 actions"、"超过 1 小时无新 Result"等场景
-	Metrics metrics.Metrics `json:"metrics"`
+	Metrics metrics.Snapshot `json:"metrics"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

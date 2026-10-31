@@ -91,7 +91,7 @@ describe('ExplorationGraphPage（探索图）', () => {
     mGraph.mockResolvedValue({
       nodes: [
         node(),
-        node({ id: 'n-act', kind: 'action', content: { instruction: '扫描登录页' }, state: 'done', source_type: 'planner' }),
+        node({ id: 'n-act', kind: 'action', content: { instruction: '扫描登录页' }, state: 'completed', source_type: 'planner' }),
       ],
       edges: [{ src_id: 'n-obj', dst_id: 'n-act', rel: 'GENERATES' as const, created_at: '2026-06-10T00:00:00Z' }],
     })

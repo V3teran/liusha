@@ -157,7 +157,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Move 完成
-	err = store.TransitionState(ctx, move.ID, StateDone, nil)
+	err = store.TransitionState(ctx, move.ID, StateCompleted, nil)
 	require.NoError(t, err)
 
 	// 验证已晋升的 result
@@ -221,7 +221,7 @@ func TestActionDependency(t *testing.T) {
 	assert.Len(t, actions, 2)
 
 	// move-1 完成
-	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateDone, nil)
+	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateCompleted, nil)
 	require.NoError(t, err)
 
 	// 再次查询，只有 move-2 (move-1 已 done)

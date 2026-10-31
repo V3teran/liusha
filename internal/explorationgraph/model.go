@@ -39,7 +39,7 @@ const (
 	StateOpen      = core.ActionStateOpen
 	StateBlocked   = core.ActionStateBlocked
 	StateRunning   = core.ActionStateRunning
-	StateDone      = core.ActionStateDone
+	StateCompleted = core.ActionStateCompleted
 	StateFailed    = core.ActionStateFailed
 	StateExhausted = core.ActionStateExhausted
 	StateAborted   = core.ActionStateAborted

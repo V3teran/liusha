@@ -29,7 +29,7 @@ func TestStatus_String(t *testing.T) {
 	}{
 		{StatusEmpty, "empty"},
 		{StatusRunning, "running"},
-		{StatusDone, "done"},
+		{StatusCompleted, "completed"},
 		{StatusAborted, "aborted"},
 	}
 	for _, tt := range tests {

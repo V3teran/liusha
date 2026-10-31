@@ -29,9 +29,9 @@ payload 全程在**客户端 JS** 里流动：从 **source**（攻击者可控�
    - payload 用可被读回的副作用，如 `<img src=x onerror="window.__xss=1">` 或 `<svg onload="window.__xss=1">`
    - 再 `drive_browser eval "window.__xss"` → 返回 `1` = sink 执行了脚本 = **确认命中**
    - 或 payload 注入一个可检测 DOM 节点（`document.title='XSSPWN'` / 插入特定 id 节点），用 `eval` / `source` 读回比对
-3. 命中后立刻 `write_finding`（evidence 带上 eval 返回 sentinel 的输出 / 触发后的截图）
+3. 命中后立刻记入 observations（evidence 带上 eval 返回 sentinel 的输出 / 触发后的截图，finding 由复现门裁决后自动落库）
 
-**反模式**：拿 curl 看到参数反射就 `write_finding` 写 DOM XSS——证据无效（没证明 JS 执行），且对纯 `#` 片段类根本测不到。
+**反模式**：拿 curl 看到参数反射就报 DOM XSS——证据无效（没证明 JS 执行），且对纯 `#` 片段类根本测不到。
 
 ## 挖掘方向（思路，不是步骤）
 
@@ -56,7 +56,7 @@ payload 全程在**客户端 JS** 里流动：从 **source**（攻击者可控�
 - CSP `script-src` 阻断了执行（控制台/eval 会报 CSP 错）
 - sink 数据其实不可控（误把服务端值当成用户输入）
 
-## write_finding 红线
+## finding 证据红线
 
 - **CWE 统一 `CWE-79`**（reflected / stored / DOM 都是 79，dedup 依赖一致）
 - **target.path 必填**（如 `"path": "/vulnerabilities/xss_d/"`）

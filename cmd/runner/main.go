@@ -84,7 +84,7 @@ type runnerStores struct {
 // skill 不在此列：运行时 skill 事实源是 DB（经 cfgstore 三级缓存读，见 handler.skills），
 // 文件目录只作 api 启动期种子。
 type runnerSkills struct {
-	toolsManifest *manifest.Manifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
+	toolsManifest *manifest.ToolManifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
 }
 
 // llmStack 聚合 LLM 配置栈（事实源 + 解密器）。
@@ -299,7 +299,7 @@ func main() {
 // ─────────────────────────────────────────────
 
 // newPgPool 连接 PostgreSQL（DSN 走 ENV）。
-func newPgPool(ctx context.Context, cfg config.Config, logger zerolog.Logger) *pgxpool.Pool {
+func newPgPool(ctx context.Context, cfg config.AppConfig, logger zerolog.Logger) *pgxpool.Pool {
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), logger,
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
 		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
@@ -310,7 +310,7 @@ func newPgPool(ctx context.Context, cfg config.Config, logger zerolog.Logger) *p
 }
 
 // newRedisClient 连接 Redis。
-func newRedisClient(ctx context.Context, cfg config.Config, logger zerolog.Logger) *redis.Client {
+func newRedisClient(ctx context.Context, cfg config.AppConfig, logger zerolog.Logger) *redis.Client {
 	rdb, err := db.NewRedis(ctx, os.Getenv("LIUSHA_REDIS_ADDR"), cfg.Redis)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("redis")
@@ -319,7 +319,7 @@ func newRedisClient(ctx context.Context, cfg config.Config, logger zerolog.Logge
 }
 
 // newRunnerStores 构造全部持久层句柄。
-func newRunnerStores(pool *pgxpool.Pool, cfg config.Config) *runnerStores {
+func newRunnerStores(pool *pgxpool.Pool, cfg config.AppConfig) *runnerStores {
 	return &runnerStores{
 		tasks:         task.NewStore(pool),
 		assignments:   assignment.NewStore(pool),
@@ -374,7 +374,7 @@ func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 //   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
 //
 // 两者都经 LIUSHA_INGEST_URL POST 到 runner 自己的 ingest endpoint。
-func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config.RunnerConfig, logger zerolog.Logger) *sandbox.DockerLauncher {
+func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg config.RunnerConfig, logger zerolog.Logger) *sandbox.DockerLauncher {
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
@@ -429,7 +429,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 }
 
 // startTrafficIngestor 启动流量摄取消费循环。
-func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Config, wc *worker.Client, stores *runnerStores, logger zerolog.Logger) *ingestor.Traffic {
+func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.AppConfig, wc *worker.Client, stores *runnerStores, logger zerolog.Logger) *ingestor.Traffic {
 	trafficIngestor, err := ingestor.NewTraffic(ctx, ingestor.Deps{
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
@@ -457,7 +457,7 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.Con
 // newHealthGateway 构造 healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
 // 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
 // 直接入进程内队列 → drain goroutine 落 agent_traffic。同进程直送，不再绕 redis（internal 自环冗余）。
-func newHealthGateway(cfg config.Config, runnerCfg config.RunnerConfig, trafficIngestor *ingestor.Traffic, logger zerolog.Logger) *http.Server {
+func newHealthGateway(cfg config.AppConfig, runnerCfg config.RunnerConfig, trafficIngestor *ingestor.Traffic, logger zerolog.Logger) *http.Server {
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))

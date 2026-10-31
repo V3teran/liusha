@@ -66,11 +66,11 @@ func StartReaper(
 					if convs == nil || pub == nil {
 						continue
 					}
-					convID, cerr := convs.ResolveConvByTask(ctx, id)
-					if cerr != nil || convID == "" {
+					conversationID, cerr := convs.ResolveConversationByTask(ctx, id)
+					if cerr != nil || conversationID == "" {
 						continue // 无会话（纯后台扫描）或解析失败——静默，回收本体已完成
 					}
-					msg, aerr := convs.AppendMessage(ctx, convID,
+					msg, aerr := convs.AppendMessage(ctx, conversationID,
 						conversation.RoleAssistant, conversation.KindEvent,
 						"扫描已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
 							map[string]any{"reason": "心跳超时（runner 崩溃或任务卡死）"}))
@@ -78,7 +78,7 @@ func StartReaper(
 						logger.Warn().Err(aerr).Str("task_id", id).Msg("回收通知写会话失败")
 						continue
 					}
-					_ = pub.PublishMessage(ctx, convID, msg)
+					_ = pub.PublishMessage(ctx, conversationID, msg)
 				}
 			}
 		}

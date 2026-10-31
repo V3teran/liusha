@@ -245,7 +245,7 @@ Observation 晋升率 = Results / Observations
     "total": 87,
     "ready": 3,
     "running": 2,
-    "done": 75,
+    "completed": 75,
     "failed": 7
   },
   "observations": {

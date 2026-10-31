@@ -76,11 +76,11 @@ func (g *anthropicGen) Model() string    { return g.model }
 
 // Generate 发起一次 messages 调用；tools 每次动态传入。
 func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
-	return g.GenerateWithOpts(ctx, msgs, tools, GenOpts{})
+	return g.GenerateWithOptions(ctx, msgs, tools, GenerateOptions{})
 }
 
-// GenerateWithOpts 实现 OptionsGenerator：按调用透传采样温度等可选参数。
-func (g *anthropicGen) GenerateWithOpts(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenOpts) (Result, error) {
+// GenerateWithOptions 实现 OptionsGenerator：按调用透传采样温度等可选参数。
+func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
 	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)

@@ -2,8 +2,8 @@
 // 自由文本 summary 主体 + 自由文本 severity（前端按前缀配色）+ 可选 evidence jsonb。
 // LLM 自决全部表达（无 kind / confidence / dedup_key 等强结构化约束）。
 //
-// dedup 由 LLM 调用方自决：写 finding 前先 findings() 查 host 已有的，自己判要不要再写。
-// Save 是 append-only：每次都 INSERT 新行。
+// dedup 在 DB 层完成：dedup_key（generated 列，host + summary 前 60 字）ON CONFLICT
+// 合并重复行，对调用方幂等。
 package finding
 
 import (
@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// Vuln 是 finding 表行的 Go 表示。
+// Finding 是 finding 表行的 Go 表示。
 //
 // Host 必填；Save 内空字符串校验防漏填。
 // SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
 // Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
-type Vuln struct {
+type Finding struct {
 	ID              string
 	TaskID          string // 所属 task.id
 	AgentRunID      *string
@@ -26,7 +26,7 @@ type Vuln struct {
 	// 其他值前端配色退化为蓝色）；DB 列无 enum CHECK 约束。
 	Severity string
 	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
-	// 工具层（write_finding）强制非空。
+	// Store.Save 强制非空。
 	Summary    string
 	Target     json.RawMessage
 	Evaluation json.RawMessage
@@ -47,7 +47,7 @@ type Vuln struct {
 
 	// —— triage 处置字段（0081 加入）——
 	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。
-	// write_finding 落库默认 open；人工在漏洞页 triage 流转。
+	// 落库默认 open（DB 列默认值）；人工在漏洞页 triage 流转。
 	Status string
 	// TriageNote 处置备注（自由文本，如误报原因）；未处置为空。
 	TriageNote string

@@ -165,18 +165,18 @@ func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logge
 
 // appendTaskStatus 落任务生命周期节点并广播 SSE（会话任务专用；无会话纯后台
 // 扫描跳过）。best-effort——失败仅告警，不影响状态迁移本体。
-func (h *Handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logger, convID, status, summary string, fields map[string]any) {
-	if convID == "" {
+func (h *Handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logger, conversationID, status, summary string, fields map[string]any) {
+	if conversationID == "" {
 		return
 	}
-	msg, err := h.Conversations.AppendMessage(ctx, convID,
+	msg, err := h.Conversations.AppendMessage(ctx, conversationID,
 		conversation.RoleAssistant, conversation.KindEvent,
 		summary, conversation.TaskStatusMeta(status, fields))
 	if err != nil {
-		taskLogger.Warn().Err(err).Str("conv", convID).Str("status", status).Msg("任务状态节点落库失败")
+		taskLogger.Warn().Err(err).Str("conv", conversationID).Str("status", status).Msg("任务状态节点落库失败")
 		return
 	}
-	_ = h.EventPublisher.PublishMessage(ctx, convID, msg)
+	_ = h.EventPublisher.PublishMessage(ctx, conversationID, msg)
 }
 
 // findingsCount 数 task 黑板 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。

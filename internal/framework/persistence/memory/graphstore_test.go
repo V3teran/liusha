@@ -119,7 +119,7 @@ func TestMemoryGraphStore_CompareAndSwapState(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "task-1", "node-1",
 			string(core.ActionStateOpen), // 期望是 open，但实际是 running
-			string(core.ActionStateDone),
+			string(core.ActionStateCompleted),
 		)
 		require.NoError(t, err)
 		assert.False(t, swapped, "状态不匹配时CAS应该失败")
@@ -183,7 +183,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		{
 			ID:        "node-3",
 			Kind:      string(core.KindAction),
-			State:     string(core.ActionStateDone),
+			State:     string(core.ActionStateCompleted),
 			Metadata:  map[string]interface{}{"task_id": "task-2"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),

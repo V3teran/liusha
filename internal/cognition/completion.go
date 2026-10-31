@@ -25,7 +25,7 @@ import (
 type CompletionDetector struct {
 	taskID string
 	graph  *explorationgraph.Store
-	bus    bus.Bus
+	bus    bus.EventBus
 	logger zerolog.Logger
 
 	// 配置
@@ -58,7 +58,7 @@ type Result struct {
 type Config struct {
 	TaskID        string
 	Graph         *explorationgraph.Store
-	Bus           bus.Bus
+	Bus           bus.EventBus
 	Logger        zerolog.Logger
 	MaxSteps      int           // 默认 0（无限制）
 	CheckInterval time.Duration // 默认 5s

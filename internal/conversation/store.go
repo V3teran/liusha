@@ -27,7 +27,7 @@ const (
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
 // 不含 status 列：conversation.status 是僵尸字段（已退役），运行态一律派生（见 RunStatus）。
-const convCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
+const conversationCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
 	"created_at, updated_at"
 
 // CreateConversation 建一个会话。title/taskID 为空时存 NULL。
@@ -35,7 +35,7 @@ func (s *Store) CreateConversation(ctx context.Context, title, taskID string) (C
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO conversation (title, task_id)
 		VALUES (NULLIF($1,''), NULLIF($2,'')::uuid)
-		RETURNING `+convCols, title, taskID)
+		RETURNING `+conversationCols, title, taskID)
 	var c Conversation
 	if err := scanConversation(row, &c); err != nil {
 		return Conversation{}, fmt.Errorf("create conversation: %w", err)
@@ -45,7 +45,7 @@ func (s *Store) CreateConversation(ctx context.Context, title, taskID string) (C
 
 // GetConversation 按主键读会话（不限 status）。
 func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, error) {
-	row := s.pool.QueryRow(ctx, "SELECT "+convCols+" FROM conversation WHERE id=$1", id)
+	row := s.pool.QueryRow(ctx, "SELECT "+conversationCols+" FROM conversation WHERE id=$1", id)
 	var c Conversation
 	if err := scanConversation(row, &c); err != nil {
 		return Conversation{}, fmt.Errorf("get conversation %s: %w", id, err)
@@ -69,46 +69,46 @@ func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 
 // ResolveTaskID 解析会话关联的 task id（用于聚合 llm_invocation / tool_invocation 用量）。
 // 两轨统一：conversation.task_id 即所属 task；纯聊天无关联 → 返回空串（调用方据此返回零用量）。
-func (s *Store) ResolveTaskID(ctx context.Context, convID string) (string, error) {
-	c, err := s.GetConversation(ctx, convID)
+func (s *Store) ResolveTaskID(ctx context.Context, conversationID string) (string, error) {
+	c, err := s.GetConversation(ctx, conversationID)
 	if err != nil {
 		return "", err
 	}
 	return c.TaskID, nil
 }
 
-// ResolveConvByTask 反向解析：task id → 绑定的会话 id（思维链来源）。
+// ResolveConversationByTask 反向解析：task id → 绑定的会话 id（思维链来源）。
 // 一 task 常对应一会话；若有多条（follow-up 复活等）取最近更新的一条。
 // 无绑定会话（纯 passive 自动路径 / task 不存在）返回空串——调用方据此只出成果链，不报错。
-func (s *Store) ResolveConvByTask(ctx context.Context, taskID string) (string, error) {
+func (s *Store) ResolveConversationByTask(ctx context.Context, taskID string) (string, error) {
 	if taskID == "" {
 		return "", nil
 	}
-	var convID string
+	var conversationID string
 	err := s.pool.QueryRow(ctx,
 		`SELECT id FROM conversation WHERE task_id = $1 ORDER BY updated_at DESC LIMIT 1`,
-		taskID).Scan(&convID)
+		taskID).Scan(&conversationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("resolve conversation for task %s: %w", taskID, err)
 	}
-	return convID, nil
+	return conversationID, nil
 }
 
 // IsRunActive 返回本会话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
 // 关联 task.status='active'（completed/aborted 为终态）；纯聊天 / 已结束返回 false。
 // 前端据此显示"agent 工作中"指示器，避免历史回灌误判。
-func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
+func (s *Store) IsRunActive(ctx context.Context, conversationID string) (bool, error) {
 	var running bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(
 		         SELECT 1 FROM task t JOIN conversation c ON c.task_id = t.id
 		         WHERE c.id = $1 AND t.status = 'active'
-		       )`, convID).Scan(&running)
+		       )`, conversationID).Scan(&running)
 	if err != nil {
-		return false, fmt.Errorf("check run active for conversation %s: %w", convID, err)
+		return false, fmt.Errorf("check run active for conversation %s: %w", conversationID, err)
 	}
 	return running, nil
 }
@@ -116,7 +116,7 @@ func (s *Store) IsRunActive(ctx context.Context, convID string) (bool, error) {
 // CountReasoningSinceDispatched 统计本会话最近一次任务下发（dispatched 状态节点）
 // 之后的 reasoning 终态数——与前端时间线卡片的步号同一口径（一次 agent 推理=一步），
 // 完成节点的「N 步」由此而来，不再与动作计数混用。无下发节点时统计全会话。
-func (s *Store) CountReasoningSinceDispatched(ctx context.Context, convID string) (int, error) {
+func (s *Store) CountReasoningSinceDispatched(ctx context.Context, conversationID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM message m
@@ -127,9 +127,9 @@ func (s *Store) CountReasoningSinceDispatched(ctx context.Context, convID string
 		        WHERE conversation_id = $1
 		          AND metadata->>'kind' = 'task_status'
 		          AND metadata->>'status' = 'dispatched'
-		      ), 0)`, convID).Scan(&n)
+		      ), 0)`, conversationID).Scan(&n)
 	if err != nil {
-		return 0, fmt.Errorf("count reasoning since dispatched for %s: %w", convID, err)
+		return 0, fmt.Errorf("count reasoning since dispatched for %s: %w", conversationID, err)
 	}
 	return n, nil
 }
@@ -137,18 +137,18 @@ func (s *Store) CountReasoningSinceDispatched(ctx context.Context, convID string
 // WallclockMs 返回本会话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
 // 跑中用 now()-created_at，结束用 ended_at-created_at；再减 task.paused_ms（多轮 follow-up
 // 复活间的用户停顿累计，见 task.Reopen）。首次扫描 paused_ms=0。纯聊天/无关联 task 返回 0。
-func (s *Store) WallclockMs(ctx context.Context, convID string) (int64, error) {
+func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, error) {
 	var ms *int64
 	err := s.pool.QueryRow(ctx, `
 		SELECT ((EXTRACT(EPOCH FROM (COALESCE(t.ended_at, now()) - t.created_at)) * 1000)::bigint - t.paused_ms)
 		FROM task t JOIN conversation c ON c.task_id = t.id
 		WHERE c.id = $1
-		LIMIT 1`, convID).Scan(&ms)
+		LIMIT 1`, conversationID).Scan(&ms)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("wallclock for conversation %s: %w", convID, err)
+		return 0, fmt.Errorf("wallclock for conversation %s: %w", conversationID, err)
 	}
 	if ms == nil {
 		return 0, nil
@@ -239,11 +239,11 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) error {
 }
 
 // LinkTask 把会话关联到一个 task（会话发起扫描后回填）。
-func (s *Store) LinkTask(ctx context.Context, convID, taskID string) error {
+func (s *Store) LinkTask(ctx context.Context, conversationID, taskID string) error {
 	_, err := s.pool.Exec(ctx,
-		"UPDATE conversation SET task_id=NULLIF($1,'')::uuid, updated_at=now() WHERE id=$2", taskID, convID)
+		"UPDATE conversation SET task_id=NULLIF($1,'')::uuid, updated_at=now() WHERE id=$2", taskID, conversationID)
 	if err != nil {
-		return fmt.Errorf("link conversation %s task: %w", convID, err)
+		return fmt.Errorf("link conversation %s task: %w", conversationID, err)
 	}
 	return nil
 }
@@ -255,50 +255,50 @@ const msgCols = "seq, id, conversation_id, role, kind, content, metadata, create
 //
 // 不开事务：append + touch updated_at 两条 Exec，与项目"保持简单不上事务"一致——
 // touch 失败仅影响列表排序，不影响消息已落库。
-func (s *Store) AppendMessage(ctx context.Context, convID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
+func (s *Store) AppendMessage(ctx context.Context, conversationID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO message (conversation_id, role, kind, content, metadata)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING `+msgCols, convID, role, kind, content, metadata)
+		RETURNING `+msgCols, conversationID, role, kind, content, metadata)
 	var m Message
 	if err := scanMessage(row, &m); err != nil {
-		return Message{}, fmt.Errorf("append message to %s: %w", convID, err)
+		return Message{}, fmt.Errorf("append message to %s: %w", conversationID, err)
 	}
 	// touch updated_at（仅真实会话消息 user/assistant）：失败仅影响列表排序，消息已落库——不报错。
 	// KindEvent 是高频 agent 过程事件（active 一次几百条），不参与会话列表排序，跳过这次 DB 往返
 	// ——省掉热路径上每事件的第二次同步写。
 	if kind != KindEvent {
-		_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", convID)
+		_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", conversationID)
 	}
 	return m, nil
 }
 
 // GetMessage 按 id 取单条消息，用于「点开节点看原文」按需拉取——调用方（如执行图详情面板）
 // 只需要 selected.ref 指向的这一条正文，不必像 ListMessages 那样翻页拉整段会话历史。
-// convID 一并校验：防止跨会话用别处泄漏的 message id 越权读取到其他会话的内容。
+// conversationID 一并校验：防止跨会话用别处泄漏的 message id 越权读取到其他会话的内容。
 // 未找到（id 不存在 / 不属于该会话）返回 pgx.ErrNoRows，调用方按需转 404。
-func (s *Store) GetMessage(ctx context.Context, convID, msgID string) (Message, error) {
+func (s *Store) GetMessage(ctx context.Context, conversationID, msgID string) (Message, error) {
 	row := s.pool.QueryRow(ctx,
-		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND id=$2", convID, msgID)
+		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND id=$2", conversationID, msgID)
 	var m Message
 	if err := scanMessage(row, &m); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Message{}, err
 		}
-		return Message{}, fmt.Errorf("get message %s of %s: %w", msgID, convID, err)
+		return Message{}, fmt.Errorf("get message %s of %s: %w", msgID, conversationID, err)
 	}
 	return m, nil
 }
 
 // ListMessages 取会话内 seq>afterSeq 的消息（按 seq 升序）。afterSeq=0 取全部（回看）；
 // SSE 重连后传上次 seq 做增量拉取。
-func (s *Store) ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]Message, error) {
+func (s *Store) ListMessages(ctx context.Context, conversationID string, afterSeq int64, limit int) ([]Message, error) {
 	limit = clampLimit(limit)
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND seq>$2 ORDER BY seq LIMIT $3",
-		convID, afterSeq, limit)
+		conversationID, afterSeq, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list messages of %s: %w", convID, err)
+		return nil, fmt.Errorf("list messages of %s: %w", conversationID, err)
 	}
 	defer rows.Close()
 
@@ -326,18 +326,18 @@ func scanConversationWithRun(r db.RowScanner, c *Conversation) error {
 // RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；
 // 纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
 // 用 conversation.status 是僵尸字段（默认 active 从不更新），不可用于显示。
-func (s *Store) RunStatus(ctx context.Context, convID string) (string, error) {
+func (s *Store) RunStatus(ctx context.Context, conversationID string) (string, error) {
 	var status string
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(t.status, '')
 		FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
-		WHERE c.id = $1`, convID).Scan(&status)
+		WHERE c.id = $1`, conversationID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("run status for conversation %s: %w", convID, err)
+		return "", fmt.Errorf("run status for conversation %s: %w", conversationID, err)
 	}
 	return status, nil
 }

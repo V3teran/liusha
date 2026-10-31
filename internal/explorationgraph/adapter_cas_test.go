@@ -39,7 +39,7 @@ func TestTransitionState_CannotOverwriteAborted(t *testing.T) {
 	assert.Equal(t, StateAborted, *node.State)
 
 	// 尝试覆盖为 done（应该失败）
-	err = graph.TransitionState(ctx, action, StateDone, nil)
+	err = graph.TransitionState(ctx, action, StateCompleted, nil)
 	assert.Error(t, err, "不应允许覆盖 aborted 状态")
 	assert.Contains(t, err.Error(), "cannot overwrite aborted state", "错误消息应明确说明")
 
@@ -112,12 +112,12 @@ func TestTransitionState_NormalTransitions(t *testing.T) {
 	assert.Equal(t, StateRunning, *node.State)
 
 	// 正常转换：running → done
-	err = graph.TransitionState(ctx, action, StateDone, nil)
+	err = graph.TransitionState(ctx, action, StateCompleted, nil)
 	assert.NoError(t, err, "running → done 应成功")
 
 	node, err = graph.GetNode(ctx, action)
 	require.NoError(t, err)
-	assert.Equal(t, StateDone, *node.State)
+	assert.Equal(t, StateCompleted, *node.State)
 
 	t.Log("✅ 正常状态转换不受影响")
 }
@@ -181,7 +181,7 @@ func TestTransitionState_ConcurrentKill(t *testing.T) {
 	require.NoError(t, err)
 
 	// Executor 尝试标记 done（应该失败）
-	err = graph.TransitionState(ctx, action, StateDone, nil)
+	err = graph.TransitionState(ctx, action, StateCompleted, nil)
 	assert.Error(t, err, "Executor 的 done 更新应被拒绝")
 
 	// 验证最终状态为 aborted（Monitor 的决策获胜）
@@ -199,7 +199,7 @@ func TestTransitionState_ErrorPropagation(t *testing.T) {
 	graph := NewMemoryStore()
 
 	// 尝试更新不存在的节点
-	err := graph.TransitionState(ctx, "non-existent", StateDone, nil)
+	err := graph.TransitionState(ctx, "non-existent", StateCompleted, nil)
 	assert.Error(t, err, "更新不存在的节点应返回错误")
 
 	t.Log("✅ 错误正确传播")

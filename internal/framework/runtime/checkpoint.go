@@ -9,7 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-func (r *DefaultReActRuntime) saveCheckpoint(
+func (r *reactRuntime) saveCheckpoint(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,

@@ -93,7 +93,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 
 	if !isAborted {
 		// 正常完成
-		err = graph.TransitionState(ctx, action, explorationgraph.StateDone, nil)
+		err = graph.TransitionState(ctx, action, explorationgraph.StateCompleted, nil)
 		require.NoError(t, err)
 	}
 
@@ -101,7 +101,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 	finalNode, err := graph.GetNode(ctx, action)
 	require.NoError(t, err)
 	require.NotNil(t, finalNode.State)
-	assert.Equal(t, explorationgraph.StateDone, *finalNode.State, "正常完成应为 done")
+	assert.Equal(t, explorationgraph.StateCompleted, *finalNode.State, "正常完成应为 done")
 	t.Log("✅ 正常执行流程不受影响")
 }
 
@@ -143,7 +143,7 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 		// 不执行状态更新
 	} else {
 		// 未被 kill，正常更新
-		_ = graph.TransitionState(ctx, action, explorationgraph.StateDone, nil)
+		_ = graph.TransitionState(ctx, action, explorationgraph.StateCompleted, nil)
 	}
 
 	// 验证最终状态

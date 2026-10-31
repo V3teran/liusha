@@ -1,13 +1,13 @@
 // 漏洞评估详情(evaluation jsonb)的领域映射:标签、优先序、条目归类。
 // 从 FindingDrawer 抽出为纯函数——排序/过滤规则可单测,渲染层只消费结果。
 
-export interface EvItem {
+export interface EvaluationItem {
   key: string
   value: string
   kind: 'code' | 'text' | 'json'
 }
 
-export const EV_LABELS: Record<string, string> = {
+export const EVALUATION_LABELS: Record<string, string> = {
   repro_cmd: '复现命令',
   repro_cmd_time: '复现命令（时间盲注）',
   repro_cmd_boolean: '复现命令（布尔盲注）',
@@ -30,7 +30,7 @@ export const EV_LABELS: Record<string, string> = {
   affected_users: '受影响用户',
 }
 
-export const EV_PRIORITY: string[] = [
+export const EVALUATION_PRIORITY: string[] = [
   'repro_cmd',
   'repro_cmd_time',
   'repro_cmd_boolean',
@@ -53,18 +53,12 @@ export const EV_PRIORITY: string[] = [
   'result',
 ]
 
-export interface EvItem {
-  key: string
-  value: string
-  kind: 'code' | 'text' | 'json'
-}
-
-export function buildEvaluationItems(evaluation?: Record<string, unknown>): EvItem[] {
+export function buildEvaluationItems(evaluation?: Record<string, unknown>): EvaluationItem[] {
   if (!evaluation) return []
-  const items: EvItem[] = []
+  const items: EvaluationItem[] = []
   for (const [k, raw] of Object.entries(evaluation)) {
     if (raw == null || raw === '') continue
-    let kind: EvItem['kind'] = 'text'
+    let kind: EvaluationItem['kind'] = 'text'
     let value: string
     if (typeof raw === 'object') {
       kind = 'json'
@@ -76,8 +70,8 @@ export function buildEvaluationItems(evaluation?: Record<string, unknown>): EvIt
     items.push({ key: k, value, kind })
   }
   const rank = (k: string) => {
-    const i = EV_PRIORITY.indexOf(k)
-    return i === -1 ? EV_PRIORITY.length : i
+    const i = EVALUATION_PRIORITY.indexOf(k)
+    return i === -1 ? EVALUATION_PRIORITY.length : i
   }
   return items.sort((a, b) => rank(a.key) - rank(b.key))
 }

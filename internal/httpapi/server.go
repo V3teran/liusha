@@ -74,7 +74,7 @@ type Deps struct {
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链（见 D7）。
 	Settings SettingsAPI
 	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
-	// cmd/api 注入 convStore / invocationStore / toolStore（各满足对应窄接口）。
+	// cmd/api 注入 conversationStore / invocationStore / toolStore（各满足对应窄接口）。
 	UsageTasks UsageTaskResolver
 	UsageLLM   LLMUsageAggregator
 	UsageTools ToolUsageAggregator

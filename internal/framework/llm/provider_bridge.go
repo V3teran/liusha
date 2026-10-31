@@ -33,7 +33,7 @@ func (p *generatorProvider) Complete(ctx context.Context, req Request) (Response
 	var res Result
 	var err error
 	if og, ok := p.g.(OptionsGenerator); ok {
-		res, err = og.GenerateWithOpts(ctx, req.Messages, req.Tools, GenOpts{Temperature: req.Temperature})
+		res, err = og.GenerateWithOptions(ctx, req.Messages, req.Tools, GenerateOptions{Temperature: req.Temperature})
 	} else {
 		res, err = p.g.Generate(ctx, req.Messages, req.Tools)
 	}

@@ -1,4 +1,4 @@
-// Package llmcfg 是 LLM 配置（provider 部署 / 复杂度路由）的持久化层。
+// Package llmconfig 是 LLM 配置（provider 部署 / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
 // 事实源是 DB（前端「模型」模块 CRUD 改这里）；yaml 仅首次 insert-only 种子。
@@ -14,7 +14,7 @@
 // 「换一个复杂档位的模型」只改该档配置一处即全量跟随。agent→complexity 可配置实现精细成本控制。
 //
 // 安全：APIKeyEnv 只存**环境变量名**，密钥值永不落库。
-package llmcfg
+package llmconfig
 
 import (
 	"time"
@@ -65,7 +65,7 @@ func (p Provider) HasStoredKey() bool {
 
 // ProviderParams 是 Provider 的 upsert 入参（Key 是稳定引用键，Update 按 Key 定位）。
 //
-// llmcfg 包本身不认识加密——明文 API Key 由 internal/httpapi 在落到本包之前用 cryptx 加密好，
+// llmconfig 包本身不认识加密——明文 API Key 由 internal/httpapi 在落到本包之前用 cryptx 加密好，
 // 这里只收密文字节。KeepExistingKey=true 时 Update 不改动 encrypted_api_key 列（前端编辑
 // 表单不重新填密钥即保留原值，符合「已设置」不回显明文的交互）。
 type ProviderParams struct {

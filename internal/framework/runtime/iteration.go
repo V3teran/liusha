@@ -9,7 +9,7 @@ import (
 
 // runIteration 运行单次迭代。
 // 返回：(执行轨迹, 是否应该停止, 错误)
-func (r *DefaultReActRuntime) runIteration(
+func (r *reactRuntime) runIteration(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -33,7 +33,7 @@ func (r *DefaultReActRuntime) runIteration(
 			return trace, false, fmt.Errorf("中间件 BeforeIteration 失败: %w", err)
 		}
 		if signal != nil && signal.ShouldStop {
-			trace.Status = IterationStatusComplete
+			trace.Status = IterationStatusCompleted
 			trace.EndTime = time.Now().UnixMilli()
 			trace.Thought = fmt.Sprintf("中间件终止: %s - %s", signal.Reason, signal.Message)
 			return trace, true, nil
@@ -44,7 +44,7 @@ func (r *DefaultReActRuntime) runIteration(
 	//    的止血不等迭代边界。
 	if config.AbortCheck != nil && config.AbortCheck() {
 		result.AddUserMessage("（外部中止：本轮执行已被裁决终止，停止后续调用）")
-		trace.Status = IterationStatusComplete
+		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 		return trace, true, nil
 	}
@@ -68,7 +68,7 @@ func (r *DefaultReActRuntime) runIteration(
 
 	// 检查提前终止条件
 	if config.EarlyStopCondition != nil && config.EarlyStopCondition(response.Content) {
-		trace.Status = IterationStatusComplete
+		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
@@ -103,7 +103,7 @@ func (r *DefaultReActRuntime) runIteration(
 		r.consecutiveEmptyResponses = 0
 
 		// 没有工具调用 = 得出最终答案
-		trace.Status = IterationStatusComplete
+		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 
 		// 添加助手消息
@@ -126,7 +126,7 @@ func (r *DefaultReActRuntime) runIteration(
 	for _, toolCall := range response.ToolCalls {
 		if config.AbortCheck != nil && config.AbortCheck() {
 			result.AddUserMessage("（外部中止：本轮执行已被裁决终止，跳过剩余工具调用）")
-			trace.Status = IterationStatusComplete
+			trace.Status = IterationStatusCompleted
 			trace.EndTime = time.Now().UnixMilli()
 			return trace, true, nil
 		}
@@ -173,7 +173,7 @@ func (r *DefaultReActRuntime) runIteration(
 			r.consecutiveToolFailures, limit)
 		result.AddUserMessage(summary)
 		r.consecutiveToolFailures = 0
-		trace.Status = IterationStatusComplete
+		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 
 		r.finishIteration(ctx, config, iteration, result, trace)
@@ -181,7 +181,7 @@ func (r *DefaultReActRuntime) runIteration(
 		return trace, true, nil
 	}
 
-	trace.Status = IterationStatusComplete
+	trace.Status = IterationStatusCompleted
 	trace.EndTime = time.Now().UnixMilli()
 
 	// 5. 中间件：AfterIteration
@@ -207,7 +207,7 @@ func (r *DefaultReActRuntime) runIteration(
 // finishIteration 触发本轮 AfterIteration 中间件。三种「本轮已定局」路径
 // （提前终止 / 最终答案 / 工具失败止损）共用：停止信号对本轮无意义，
 // 收尾错误不阻断已定的完成态。
-func (r *DefaultReActRuntime) finishIteration(
+func (r *reactRuntime) finishIteration(
 	ctx context.Context,
 	config *ReActConfig,
 	iteration int,
@@ -222,7 +222,7 @@ func (r *DefaultReActRuntime) finishIteration(
 }
 
 // buildIterationState 构建迭代状态快照供中间件使用。
-func (r *DefaultReActRuntime) buildIterationState(
+func (r *reactRuntime) buildIterationState(
 	iteration int,
 	result *ReActResult,
 	trace *IterationTrace,
@@ -239,7 +239,7 @@ func (r *DefaultReActRuntime) buildIterationState(
 		Thought:                 trace.Thought,
 		ToolCalls:               trace.Actions,
 		ConsecutiveToolFailures: r.consecutiveToolFailures,
-		IterationSucceeded:      trace.Status == IterationStatusComplete,
+		IterationSucceeded:      trace.Status == IterationStatusCompleted,
 		OutputCount:             outputCount,
 		Metadata:                make(map[string]interface{}),
 	}

@@ -77,7 +77,7 @@ func TestDeriveStatus(t *testing.T) {
 	if err := tasks.Complete(ctx, t2.ID); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := asgs.DeriveStatus(ctx, a.ID); st != StatusDone {
+	if st, _ := asgs.DeriveStatus(ctx, a.ID); st != StatusCompleted {
 		t.Fatalf("全 completed 应 done, got %s", st)
 	}
 }

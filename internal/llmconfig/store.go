@@ -1,4 +1,4 @@
-package llmcfg
+package llmconfig
 
 import (
 	"context"

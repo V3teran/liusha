@@ -14,8 +14,8 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// Bus 统一事件总线接口
-type Bus interface {
+// EventBus 统一事件总线接口
+type EventBus interface {
 	// Task 级别订阅（广播语义，返回独立订阅句柄）
 	SubscribeTask(taskID string) *TaskSubscription
 

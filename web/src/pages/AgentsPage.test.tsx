@@ -27,7 +27,7 @@ function tool(name: string, kind: ToolKind, category: string): Tool {
 }
 
 // 两套工具候选：function（内部函数）/ cli（外部 CLI）。按 kind 分派返回。
-const FUNCTION_TOOLS = [tool('read_findings', 'function', 'findings'), tool('write_finding', 'function', 'findings')]
+const FUNCTION_TOOLS = [tool('read_insights', 'function', 'findings'), tool('write_insight', 'function', 'findings')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
 // 列表走 React Query（需 Provider）；复杂度档 hint 内嵌跨页 Link（→ 模型页），
@@ -50,7 +50,7 @@ function h(o: Partial<AgentConfig> = {}): AgentConfig {
     name: '侦察智能体',
     description: '侦察排头兵',
     system_prompt: 'charter',
-    function_tools: ['read_findings'],
+    function_tools: ['read_insights'],
     cli_tools: [],
     skills: [],
     max_iterations: 20,
@@ -123,14 +123,14 @@ describe('AgentsPage', () => {
   })
 
   it('内部工具集从目录读取候选并回填选中态', async () => {
-    mList.mockResolvedValue(paged([h()])) // function_tools=['read_findings']
+    mList.mockResolvedValue(paged([h()])) // function_tools=['read_insights']
     renderPage()
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
     // 两个函数工具候选都渲染为可勾选标签；已选项 aria-pressed=true。
-    const selected = (await screen.findByText('read_findings')).closest('button') as HTMLButtonElement
+    const selected = (await screen.findByText('read_insights')).closest('button') as HTMLButtonElement
     expect(selected.getAttribute('aria-pressed')).toBe('true')
-    const unselected = screen.getByText('write_finding').closest('button') as HTMLButtonElement
+    const unselected = screen.getByText('write_insight').closest('button') as HTMLButtonElement
     expect(unselected.getAttribute('aria-pressed')).toBe('false')
   })
 
@@ -141,23 +141,23 @@ describe('AgentsPage', () => {
     const saveBtn = () => screen.getByText('保存').closest('button') as HTMLButtonElement
     expect(saveBtn().disabled).toBe(true)
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_finding'))
+    await userEvent.click(await screen.findByText('write_insight'))
     expect(saveBtn().disabled).toBe(false)
   })
 
   it('勾选内部函数工具后保存：只提交脏字段 function_tools', async () => {
-    mList.mockResolvedValue(paged([h()])) // 初值 function_tools=['read_findings']
+    mList.mockResolvedValue(paged([h()])) // 初值 function_tools=['read_insights']
     mSave.mockResolvedValue(undefined)
     renderPage()
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_finding'))
+    await userEvent.click(await screen.findByText('write_insight'))
     await userEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(mSave).toHaveBeenCalled())
     expect(mSave.mock.calls[0][0]).toBe('h1')
     // 只提交脏字段：未动过的 system_prompt/complexity/… 不出现在载荷（后端部分更新语义下不被零值覆盖）。
     expect(Object.keys(mSave.mock.calls[0][1])).toEqual(['function_tools'])
-    expect(mSave.mock.calls[0][1].function_tools).toEqual(['read_findings', 'write_finding'])
+    expect(mSave.mock.calls[0][1].function_tools).toEqual(['read_insights', 'write_insight'])
   })
 
   it('存储 ["*"]：展示层即目录全集全勾选，无「全选」按钮、无变更', async () => {
@@ -222,7 +222,7 @@ describe('AgentsPage', () => {
     renderPage()
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_finding'))
+    await userEvent.click(await screen.findByText('write_insight'))
 
     vi.mocked(window.confirm).mockReturnValueOnce(false)
     await userEvent.click(screen.getByRole('button', { name: '关闭' }))

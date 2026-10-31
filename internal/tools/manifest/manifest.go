@@ -1,10 +1,10 @@
 // Package manifest 解析 deployments/tool-images/pentools/tools.yaml。
 //
 // 设计哲学：**工具是否存在于沙箱**与**工具是否有详细手册**独立。
-//   - 本 Manifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
+//   - 本 ToolManifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
 //   - skills/tooling/<name>/SKILL.md 是"是否有详细手册"——独立可选
 //
-// agent 在每个 turn 把本 Manifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
+// agent 在每个 turn 把本 ToolManifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
 // LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
 package manifest
 
@@ -32,20 +32,20 @@ type Category struct {
 	Order int    `yaml:"order"`
 }
 
-// Manifest 是 tools.yaml 解析后的全集。
-type Manifest struct {
+// ToolManifest 是 tools.yaml 解析后的全集。
+type ToolManifest struct {
 	Categories []Category `yaml:"categories"`
 	Tools      []Tool     `yaml:"tools"`
 }
 
-// Load 从 yaml 文件加载 Manifest；返回 error 时调用方应 fail-fast——
+// Load 从 yaml 文件加载 ToolManifest；返回 error 时调用方应 fail-fast——
 // 工具清单缺失会让 LLM 看不到沙箱有什么工具，agent 无法 ReAct 决策。
-func Load(path string) (*Manifest, error) {
+func Load(path string) (*ToolManifest, error) {
 	data, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
 		return nil, fmt.Errorf("读取 tools manifest %q: %w", path, err)
 	}
-	var m Manifest
+	var m ToolManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("解析 tools manifest %q: %w", path, err)
 	}
@@ -57,7 +57,7 @@ func Load(path string) (*Manifest, error) {
 
 // ByCategory 按 category 分桶；每桶内按 name 字典序——稳定 prompt 顺序，
 // 利于 LLM provider 的 prompt cache 命中。
-func (m *Manifest) ByCategory() map[string][]Tool {
+func (m *ToolManifest) ByCategory() map[string][]Tool {
 	out := make(map[string][]Tool, 8)
 	for _, t := range m.Tools {
 		out[t.Category] = append(out[t.Category], t)
@@ -69,7 +69,7 @@ func (m *Manifest) ByCategory() map[string][]Tool {
 }
 
 // CategoryByCode 返回按 code 索引的分类元数据（O(1) 查询）。
-func (m *Manifest) CategoryByCode() map[string]Category {
+func (m *ToolManifest) CategoryByCode() map[string]Category {
 	out := make(map[string]Category, len(m.Categories))
 	for _, c := range m.Categories {
 		out[c.Code] = c
@@ -78,7 +78,7 @@ func (m *Manifest) CategoryByCode() map[string]Category {
 }
 
 // OrderedCategories 返回按 order 字段排序的分类列表（用于渲染）。
-func (m *Manifest) OrderedCategories() []Category {
+func (m *ToolManifest) OrderedCategories() []Category {
 	sorted := make([]Category, len(m.Categories))
 	copy(sorted, m.Categories)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -88,7 +88,7 @@ func (m *Manifest) OrderedCategories() []Category {
 }
 
 // Names 返回所有工具名（字典序）——供 read_skill / catalog lint 等使用。
-func (m *Manifest) Names() []string {
+func (m *ToolManifest) Names() []string {
 	out := make([]string, 0, len(m.Tools))
 	for _, t := range m.Tools {
 		out = append(out, t.Name)
@@ -97,15 +97,15 @@ func (m *Manifest) Names() []string {
 	return out
 }
 
-// FilterByNames 按 agent cli_tools 严格白名单过滤工具目录，返回新 Manifest（不改原实例——不可变）。
+// FilterByNames 按 agent cli_tools 严格白名单过滤工具目录，返回新 ToolManifest（不改原实例——不可变）。
 //   - names 为空 = 空集，该 agent 不装配任何外部 CLI 工具（严格白名单，所选即所得）；
 //   - names 非空 = 只保留名字在白名单里的工具（agent 专精：只给它这几把刀）。
 //
 // 白名单里不存在的名字静默忽略（配置漂移不致命）。
 // Categories 元数据保持不变（过滤不影响分类定义）。
-func (m *Manifest) FilterByNames(names []string) *Manifest {
+func (m *ToolManifest) FilterByNames(names []string) *ToolManifest {
 	if len(names) == 0 {
-		return &Manifest{Categories: m.Categories, Tools: []Tool{}}
+		return &ToolManifest{Categories: m.Categories, Tools: []Tool{}}
 	}
 	allow := make(map[string]struct{}, len(names))
 	for _, n := range names {
@@ -117,12 +117,12 @@ func (m *Manifest) FilterByNames(names []string) *Manifest {
 			out = append(out, t)
 		}
 	}
-	return &Manifest{Categories: m.Categories, Tools: out}
+	return &ToolManifest{Categories: m.Categories, Tools: out}
 }
 
 // CategoryOrder 返回分类的渲染顺序（按 order 字段排序）。
 // 未在 categories 中定义的分类会被追加到末尾（字典序）。
-func (m *Manifest) CategoryOrder() []string {
+func (m *ToolManifest) CategoryOrder() []string {
 	// 构建 code -> order 映射
 	orderMap := make(map[string]int, len(m.Categories))
 	for _, cat := range m.Categories {
@@ -159,7 +159,7 @@ func (m *Manifest) CategoryOrder() []string {
 
 // CategoryName 返回分类的显示名称。
 // 如果分类未在 categories 中定义，返回 code 本身。
-func (m *Manifest) CategoryName(code string) string {
+func (m *ToolManifest) CategoryName(code string) string {
 	for _, cat := range m.Categories {
 		if cat.Code == code {
 			return cat.Name

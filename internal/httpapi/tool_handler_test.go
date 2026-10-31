@@ -11,8 +11,8 @@ import (
 // 全量哨兵 "*" 的装配态语义（与运行时 BuildTools/registry.Allows 对齐）：
 // 读=全 involved；写=装配幂等 no-op、卸载物化为「目录全集减一」。
 
-func cliCatalog() []cfgtool.Tool {
-	return []cfgtool.Tool{
+func cliCatalog() []cfgtool.Definition {
+	return []cfgtool.Definition{
 		{Name: "nmap", Kind: cfgtool.KindCLI},
 		{Name: "nuclei", Kind: cfgtool.KindCLI},
 		{Name: "sqlmap", Kind: cfgtool.KindCLI},

@@ -58,11 +58,11 @@ func (g *openAICompatGen) Model() string    { return g.model }
 
 // Generate 发起一次 chat completion；tools 每次动态传入。
 func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
-	return g.GenerateWithOpts(ctx, msgs, tools, GenOpts{})
+	return g.GenerateWithOptions(ctx, msgs, tools, GenerateOptions{})
 }
 
-// GenerateWithOpts 实现 OptionsGenerator：按调用透传采样温度等可选参数。
-func (g *openAICompatGen) GenerateWithOpts(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenOpts) (Result, error) {
+// GenerateWithOptions 实现 OptionsGenerator：按调用透传采样温度等可选参数。
+func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
 	// 前置校验 messages 格式，防止 API 400 错误
 	if err := validateMessagesForAPI(msgs); err != nil {
 		// 尝试降级修复
