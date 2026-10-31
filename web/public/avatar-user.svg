@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="用户">
-  <!-- 用户头像：人物剪影（头+肩），冷寒蓝配色与沙齿剑 logo 同色系。
-       与 agent（剑徽记 logo）图形明确区分——身份一眼可辨，风格仍统一。 -->
-  <circle cx="32" cy="32" r="30" fill="#2a3d6b"/>
-  <circle cx="32" cy="32" r="29" fill="none" stroke="#4a68a2" stroke-width="1" opacity="0.5"/>
-  <circle cx="32" cy="26" r="9" fill="#c6d6ef"/>
-  <path d="M 16 50 C 16 40 24 36 32 36 C 40 36 48 40 48 50 Z" fill="#c6d6ef"/>
-</svg>
