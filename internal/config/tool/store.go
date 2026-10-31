@@ -41,7 +41,7 @@ func buildFilter(p ListParams) (string, []any) {
 
 // List 按 (kind, sort_order, name) 稳定序列出工具，支持模糊/体系过滤与分页。
 // Limit<=0 时不分页（返回过滤后全量）。
-func (s *Store) List(ctx context.Context, p ListParams) ([]Tool, error) {
+func (s *Store) List(ctx context.Context, p ListParams) ([]Definition, error) {
 	where, args := buildFilter(p)
 	q := "SELECT " + colsSelect + " FROM tool" + where + " ORDER BY kind ASC, sort_order ASC, name ASC"
 	if p.Limit > 0 {
@@ -56,9 +56,9 @@ func (s *Store) List(ctx context.Context, p ListParams) ([]Tool, error) {
 	}
 	defer rows.Close()
 
-	var out []Tool
+	var out []Definition
 	for rows.Next() {
-		var t Tool
+		var t Definition
 		if err := scan(rows, &t); err != nil {
 			return nil, fmt.Errorf("scan tool: %w", err)
 		}
@@ -78,17 +78,17 @@ func (s *Store) Count(ctx context.Context, p ListParams) (int, error) {
 }
 
 // Get 按 name 读取单个工具。
-func (s *Store) Get(ctx context.Context, name string) (Tool, error) {
+func (s *Store) Get(ctx context.Context, name string) (Definition, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM tool WHERE name=$1", name)
-	var t Tool
+	var t Definition
 	if err := scan(row, &t); err != nil {
-		return Tool{}, fmt.Errorf("get tool %q: %w", name, err)
+		return Definition{}, fmt.Errorf("get tool %q: %w", name, err)
 	}
 	return t, nil
 }
 
 // Upsert 幂等写入一条工具目录（reconcile 用）；按 name 冲突则覆盖全部字段并刷新 synced_at。
-func (s *Store) Upsert(ctx context.Context, t Tool) error {
+func (s *Store) Upsert(ctx context.Context, t Definition) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO tool (name, kind, category, description, sort_order, synced_at)
 		VALUES ($1, $2, $3, $4, $5, now())
@@ -117,7 +117,7 @@ func (s *Store) PruneExceptKind(ctx context.Context, kind Kind, keep []string) (
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r db.RowScanner, t *Tool) error {
+func scan(r db.RowScanner, t *Definition) error {
 	var kind string
 	if err := r.Scan(&t.Name, &kind, &t.Category, &t.Description,
 		&t.SortOrder, &t.SyncedAt); err != nil {

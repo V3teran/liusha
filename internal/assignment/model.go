@@ -28,10 +28,10 @@ type Status string
 // StatusRunning 等枚举定义。
 const (
 	// StatusEmpty 等枚举定义。
-	StatusEmpty   Status = "empty"   // StatusEmpty 无子 task（异常/刚建未展开）
-	StatusRunning Status = "running" // 有子 task 处于 active
-	StatusDone    Status = "done"    // 全部子 task 终态且至少一个 completed
-	StatusAborted Status = "aborted" // 全部子 task 终态且无 completed（全 aborted）
+	StatusEmpty     Status = "empty"     // StatusEmpty 无子 task（异常/刚建未展开）
+	StatusRunning   Status = "running"   // 有子 task 处于 active
+	StatusCompleted Status = "completed" // 全部子 task 终态且至少一个 completed
+	StatusAborted   Status = "aborted"   // 全部子 task 终态且无 completed（全 aborted）
 )
 
 // Assignment 是 assignment 表行的 Go 表示。

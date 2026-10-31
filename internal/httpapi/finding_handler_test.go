@@ -28,8 +28,8 @@ func (f *fakeFindings) CountAll(_ context.Context, _ finding.LedgerFilter) (int,
 	return len(f.rows), nil
 }
 
-func (f *fakeFindings) UpdateTriage(_ context.Context, _, _, _, _ string) (finding.Vuln, error) {
-	return finding.Vuln{}, nil
+func (f *fakeFindings) UpdateTriage(_ context.Context, _, _, _, _ string) (finding.Finding, error) {
+	return finding.Finding{}, nil
 }
 
 // TestFindingsRoutes_StatRegistered 回归：GET /findings/stat 必须注册。

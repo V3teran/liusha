@@ -58,7 +58,7 @@ func TestStore_ActionStateManagement(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, mkActionNode("action-open-2", "task-001", StateOpen, nil))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateDone, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateCompleted, nil))
 	require.NoError(t, err)
 
 	t.Run("ListOpenActions 只返回 open", func(t *testing.T) {

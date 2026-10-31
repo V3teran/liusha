@@ -51,7 +51,7 @@ func TestMetricsCollector_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	// 获取指标
-	metrics := collector.GetMetrics()
+	metrics := collector.Snapshot()
 
 	// 验证指标
 	assert.Equal(t, 5.0, metrics.ActionRatePerHour, "应该有 5 actions/hour")
@@ -84,7 +84,7 @@ func TestMetricsCollector_IncrementalUpdate(t *testing.T) {
 	err := collector.Update(ctx)
 	require.NoError(t, err)
 
-	metrics1 := collector.GetMetrics()
+	metrics1 := collector.Snapshot()
 	assert.Equal(t, 3.0, metrics1.ActionRatePerHour)
 
 	// 第二次更新：再添加 2 个 actions
@@ -103,7 +103,7 @@ func TestMetricsCollector_IncrementalUpdate(t *testing.T) {
 	err = collector.Update(ctx)
 	require.NoError(t, err)
 
-	metrics2 := collector.GetMetrics()
+	metrics2 := collector.Snapshot()
 	assert.Equal(t, 5.0, metrics2.ActionRatePerHour, "应该累计到 5 actions/hour")
 
 	t.Logf("第一次: %+v", metrics1)
@@ -122,7 +122,7 @@ func TestMetricsCollector_EmptyGraph(t *testing.T) {
 	err := collector.Update(ctx)
 	require.NoError(t, err)
 
-	metrics := collector.GetMetrics()
+	metrics := collector.Snapshot()
 
 	// 验证空指标
 	assert.Equal(t, 0.0, metrics.ActionRatePerHour)
@@ -164,7 +164,7 @@ func TestMetricsCollector_Ratio(t *testing.T) {
 	err = collector.Update(ctx)
 	require.NoError(t, err)
 
-	metrics := collector.GetMetrics()
+	metrics := collector.Snapshot()
 
 	// 验证比率 = 1/10 = 0.1
 	assert.InDelta(t, 0.1, metrics.AvgResultActionRatio, 0.01, "比率应该约为 0.1")

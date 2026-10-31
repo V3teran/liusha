@@ -19,8 +19,8 @@ const (
 	KindCLI      Kind = "cli"      // 外置沙箱 CLI 工具
 )
 
-// Tool 是 tool 表行的 Go 表示。
-type Tool struct {
+// Definition 是 tool 表行的 Go 表示。
+type Definition struct {
 	Name        string
 	Kind        Kind
 	Category    string

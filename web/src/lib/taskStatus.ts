@@ -6,7 +6,7 @@
 //   active=进行中 / completed=已完成 / aborted=已中止 / 空=会话（纯聊天无关联任务）。
 export interface TaskStatusMeta {
   label: string
-  key: string // active / done / aborted / idle —— 驱动 css class
+  key: string // active / completed / aborted / idle —— 驱动 css class
   color: string
 }
 
@@ -15,7 +15,7 @@ export function taskStatusMeta(status: string | undefined): TaskStatusMeta {
     case 'active':
       return { label: '进行中', key: 'active', color: '#22c55e' }
     case 'completed':
-      return { label: '已完成', key: 'done', color: '#3b82f6' }
+      return { label: '已完成', key: 'completed', color: '#3b82f6' }
     case 'aborted':
       return { label: '已中止', key: 'aborted', color: '#94a3b8' }
     default:

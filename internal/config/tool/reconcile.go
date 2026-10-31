@@ -15,11 +15,11 @@ import (
 // 语义：按体系分别 upsert + 按体系 prune 掉不再存在的旧行（下线工具）。启动期调用一次即可。
 // prune 按 kind 限定作用域：manifest 为 nil 时完全不碰既有 cli 目录（不误删）。
 // 返回同步与清理的计数，供启动日志观测。
-func Reconcile(ctx context.Context, store *Store, m *manifest.Manifest) (upserted, pruned int, err error) {
+func Reconcile(ctx context.Context, store *Store, m *manifest.ToolManifest) (upserted, pruned int, err error) {
 	// ① function 工具：按 catalog 声明顺序赋 sort_order，稳定前端展示。
 	var keepFn []string
 	for i, meta := range registry.FunctionToolCatalog {
-		t := Tool{
+		t := Definition{
 			Name:        meta.Name,
 			Kind:        KindFunction,
 			Category:    string(meta.Category),
@@ -44,7 +44,7 @@ func Reconcile(ctx context.Context, store *Store, m *manifest.Manifest) (upserte
 	}
 	var keepCLI []string
 	for i, mt := range m.Tools {
-		t := Tool{
+		t := Definition{
 			Name:        mt.Name,
 			Kind:        KindCLI,
 			Category:    mt.Category,

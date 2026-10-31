@@ -199,8 +199,8 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 	return nil
 }
 
-// Planner 规划接口（由 planner.New 提供）
-type Planner interface {
+// GraphPlanner 规划接口（由 planner.New 提供）
+type GraphPlanner interface {
 	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error)
 	AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
 }

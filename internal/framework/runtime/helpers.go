@@ -20,7 +20,7 @@ func initializeResult() *ReActResult {
 }
 
 // restoreFromCheckpoint 从检查点恢复状态
-func (r *DefaultReActRuntime) restoreFromCheckpoint(
+func (r *reactRuntime) restoreFromCheckpoint(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -58,7 +58,7 @@ func (r *DefaultReActRuntime) restoreFromCheckpoint(
 }
 
 // initializeNewExecution 初始化新执行的消息历史
-func (r *DefaultReActRuntime) initializeNewExecution(config *ReActConfig, result *ReActResult) {
+func (r *reactRuntime) initializeNewExecution(config *ReActConfig, result *ReActResult) {
 	// 加载初始历史（可选，用于多轮对话）
 	if len(config.InitialHistory) > 0 {
 		result.MessageHistory = append(result.MessageHistory, config.InitialHistory...)
@@ -74,7 +74,7 @@ func (r *DefaultReActRuntime) initializeNewExecution(config *ReActConfig, result
 }
 
 // handleCheckpoint 处理检查点保存
-func (r *DefaultReActRuntime) handleCheckpoint(
+func (r *reactRuntime) handleCheckpoint(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -100,7 +100,7 @@ func (r *DefaultReActRuntime) handleCheckpoint(
 }
 
 // handleMaxIterationsReached 处理达到最大迭代次数的情况
-func (r *DefaultReActRuntime) handleMaxIterationsReached(
+func (r *reactRuntime) handleMaxIterationsReached(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -114,7 +114,7 @@ func (r *DefaultReActRuntime) handleMaxIterationsReached(
 
 // handleNormalCompletion 处理正常完成（LLM停止调用工具）的情况
 // 确保输出格式符合下游解析器的期望
-func (r *DefaultReActRuntime) handleNormalCompletion(
+func (r *reactRuntime) handleNormalCompletion(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,

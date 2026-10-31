@@ -62,7 +62,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		result = json.RawMessage("{}")
 	}
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='done', result=$1, updated_at=now()
+		UPDATE agent_run SET status='completed', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
 	if err != nil {
 		return fmt.Errorf("set done %s: %w", id, err)

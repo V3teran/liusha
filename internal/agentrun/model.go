@@ -20,11 +20,11 @@ type Status string
 
 // agent_run 状态机：pending → running → done/aborted/error。
 const (
-	StatusPending Status = "pending"
-	StatusRunning Status = "running"
-	StatusDone    Status = "done"
-	StatusAborted Status = "aborted"
-	StatusError   Status = "error"
+	StatusPending   Status = "pending"
+	StatusRunning   Status = "running"
+	StatusCompleted Status = "completed"
+	StatusAborted   Status = "aborted"
+	StatusError     Status = "error"
 )
 
 // Run 是 agent_run 表行的 Go 表示——每次 Agent 运行实例的状态快照。

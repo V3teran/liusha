@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/V3teran/liusha/internal/config/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // pgxErrNoRows 复用底层 store 的 not-found 语义供 mock 返回。
@@ -20,11 +20,11 @@ func pgxErrNoRows() error { return pgx.ErrNoRows }
 // fakeModel 是 ModelAPI 的内存实现，记录调用以断言 handler 编排。
 // fkOn 里的方法名（"delete_provider"/"upsert_route"）触发 23503，模拟 FK 约束。
 type fakeModel struct {
-	providers []llmcfg.Provider
-	routes    []llmcfg.RoleRoute
+	providers []llmconfig.Provider
+	routes    []llmconfig.RoleRoute
 
-	savedProvider *llmcfg.ProviderParams
-	savedRoute    *llmcfg.RoleRoute
+	savedProvider *llmconfig.ProviderParams
+	savedRoute    *llmconfig.RoleRoute
 	deleted       []string // 记录被删的 key/role
 
 	fkOn   map[string]bool // 方法名 → 是否返回 FK 违反
@@ -33,11 +33,11 @@ type fakeModel struct {
 
 func fkErr() error { return &pgconn.PgError{Code: "23503", Message: "FK violation"} }
 
-func (f *fakeModel) ListProviders(_ context.Context, onlyEnabled bool) ([]llmcfg.Provider, error) {
+func (f *fakeModel) ListProviders(_ context.Context, onlyEnabled bool) ([]llmconfig.Provider, error) {
 	if !onlyEnabled {
 		return f.providers, nil
 	}
-	out := make([]llmcfg.Provider, 0, len(f.providers))
+	out := make([]llmconfig.Provider, 0, len(f.providers))
 	for _, p := range f.providers {
 		if p.Enabled {
 			out = append(out, p)
@@ -45,20 +45,20 @@ func (f *fakeModel) ListProviders(_ context.Context, onlyEnabled bool) ([]llmcfg
 	}
 	return out, nil
 }
-func (f *fakeModel) ProviderByCode(_ context.Context, key string) (llmcfg.Provider, error) {
+func (f *fakeModel) ProviderByCode(_ context.Context, key string) (llmconfig.Provider, error) {
 	if f.getErr != nil {
-		return llmcfg.Provider{}, f.getErr
+		return llmconfig.Provider{}, f.getErr
 	}
 	for _, p := range f.providers {
 		if p.Code == key {
 			return p, nil
 		}
 	}
-	return llmcfg.Provider{}, pgxErrNoRows()
+	return llmconfig.Provider{}, pgxErrNoRows()
 }
-func (f *fakeModel) SaveProvider(_ context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error) {
+func (f *fakeModel) SaveProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
 	f.savedProvider = &p
-	return llmcfg.Provider{
+	return llmconfig.Provider{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
 		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, SupportsTools: p.SupportsTools,
 		SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
@@ -73,21 +73,21 @@ func (f *fakeModel) DeleteProvider(_ context.Context, key string) error {
 	return nil
 }
 
-func (f *fakeModel) ClearProviderKey(_ context.Context, code string) (llmcfg.Provider, error) {
+func (f *fakeModel) ClearProviderKey(_ context.Context, code string) (llmconfig.Provider, error) {
 	if f.fkOn["clear_provider_key"] {
-		return llmcfg.Provider{}, fmt.Errorf("clear encrypted key %q: 不存在", code)
+		return llmconfig.Provider{}, fmt.Errorf("clear encrypted key %q: 不存在", code)
 	}
 	f.deleted = append(f.deleted, "key:"+code)
-	return llmcfg.Provider{Code: code, APIKeyEnv: "GLM_API_KEY"}, nil
+	return llmconfig.Provider{Code: code, APIKeyEnv: "GLM_API_KEY"}, nil
 }
-func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmcfg.RoleRoute, error) {
+func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmconfig.RoleRoute, error) {
 	return f.routes, nil
 }
-func (f *fakeModel) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmcfg.RoleRoute, error) {
+func (f *fakeModel) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmconfig.RoleRoute, error) {
 	if f.fkOn["upsert_route"] {
-		return llmcfg.RoleRoute{}, fkErr()
+		return llmconfig.RoleRoute{}, fkErr()
 	}
-	rr := llmcfg.RoleRoute{Role: role, ProviderCode: providerCode}
+	rr := llmconfig.RoleRoute{Role: role, ProviderCode: providerCode}
 	f.savedRoute = &rr
 	return rr, nil
 }
@@ -106,7 +106,7 @@ func (fakeEncrypter) Encrypt(plaintext string) ([]byte, error) {
 // TestListProviders_ReturnsAllWithKeyPresent：GET /models/providers 全量含 disabled，
 // 每条附 key_present（是否已有可用密钥来源）但绝不含密钥值本身（明文或密文）。
 func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
-	fm := &fakeModel{providers: []llmcfg.Provider{
+	fm := &fakeModel{providers: []llmconfig.Provider{
 		{Code: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
 		{Code: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
 	}}
@@ -266,7 +266,7 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 // TestListRouting_ReturnsRoutes：GET /models/routing 返回角色→provider 路由全景（无别名层）。
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
-		routes: []llmcfg.RoleRoute{
+		routes: []llmconfig.RoleRoute{
 			{Role: "vision", ProviderCode: "deepseek"},
 			{Role: "heavy", ProviderCode: "deepseek"},
 		},

@@ -66,31 +66,30 @@ type ReplayRecipe struct {
 
 // Assertion 是坐实断言：全部满足才算复现坐实。至少要有一条谓词，
 // 否则是橡皮图章（空断言"确认"一切）——拒绝坐实。
-// body_not_contains 与 body_absent 同义（前者是 prompt 侧口径）。
 type Assertion struct {
-	StatusCode     *int              `json:"status_code,omitempty"`     // 响应码须等于此值
-	BodyContains   []string          `json:"body_contains,omitempty"`   // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
-	BodyAbsent     []string          `json:"body_absent,omitempty"`     // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
-	HeaderContains map[string]string `json:"header_contains,omitempty"` // 响应头 key→子串
-	MinDurationMs  *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms——时间盲注入的合法证据类型
+	StatusCode      *int              `json:"status_code,omitempty"`       // 响应码须等于此值
+	BodyContains    []string          `json:"body_contains,omitempty"`     // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
+	BodyNotContains []string          `json:"body_not_contains,omitempty"` // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
+	HeaderContains  map[string]string `json:"header_contains,omitempty"`   // 响应头 key→子串
+	MinDurationMs   *int              `json:"min_duration_ms,omitempty"`   // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
-// UnmarshalJSON 接受 body_not_contains 作为 body_absent 的规范别名（prompt 教的是前者）。
+// UnmarshalJSON 接受 body_absent 作为 body_not_contains 的历史别名（容错非规范输入）。
 func (a *Assertion) UnmarshalJSON(b []byte) error {
 	var raw struct {
-		StatusCode      *int              `json:"status_code,omitempty"`
-		BodyContains    []string          `json:"body_contains,omitempty"`
-		BodyAbsent      []string          `json:"body_absent,omitempty"`
-		BodyNotContains []string          `json:"body_not_contains,omitempty"`
-		HeaderContains  map[string]string `json:"header_contains,omitempty"`
-		MinDurationMs   *int              `json:"min_duration_ms,omitempty"`
+		StatusCode       *int              `json:"status_code,omitempty"`
+		BodyContains     []string          `json:"body_contains,omitempty"`
+		BodyNotContains  []string          `json:"body_not_contains,omitempty"`
+		LegacyBodyAbsent []string          `json:"body_absent,omitempty"`
+		HeaderContains   map[string]string `json:"header_contains,omitempty"`
+		MinDurationMs    *int              `json:"min_duration_ms,omitempty"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
 	}
 	a.StatusCode = raw.StatusCode
 	a.BodyContains = raw.BodyContains
-	a.BodyAbsent = append(append([]string{}, raw.BodyAbsent...), raw.BodyNotContains...)
+	a.BodyNotContains = append(append([]string{}, raw.BodyNotContains...), raw.LegacyBodyAbsent...)
 	a.HeaderContains = raw.HeaderContains
 	a.MinDurationMs = raw.MinDurationMs
 	return nil
@@ -98,7 +97,7 @@ func (a *Assertion) UnmarshalJSON(b []byte) error {
 
 func (a Assertion) empty() bool {
 	return a.StatusCode == nil && len(a.BodyContains) == 0 &&
-		len(a.BodyAbsent) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil
+		len(a.BodyNotContains) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil
 }
 
 // ReproEnvelope 是复现配方的域信封：evaluator/图/收割层只认信封，不解析 recipe 内部
@@ -604,7 +603,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 			return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: baseline 非法——%w", bErr)
 		}
 		baseStart := time.Now()
-		bres, bErr := httpreplay.Replay(ctx, baseSrc, httpreplay.Mods{})
+		bres, bErr := httpreplay.Replay(ctx, baseSrc, httpreplay.Overrides{})
 		baseDur = time.Since(baseStart).Milliseconds()
 		if bErr != nil {
 			return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", bErr)
@@ -614,7 +613,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 
 	// 利用请求：配方 request 原样重发。
 	start := time.Now()
-	res, err := httpreplay.Replay(ctx, exploitSrc, httpreplay.Mods{})
+	res, err := httpreplay.Replay(ctx, exploitSrc, httpreplay.Overrides{})
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
 		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
@@ -667,7 +666,7 @@ func (a Assertion) eval(res httpreplay.Result, durationMs int64) (bool, []string
 			reasons = append(reasons, fmt.Sprintf("body 缺 %q ✗", want))
 		}
 	}
-	for _, absent := range a.BodyAbsent {
+	for _, absent := range a.BodyNotContains {
 		if strings.Contains(body, absent) {
 			passed = false
 			reasons = append(reasons, fmt.Sprintf("body 不应含 %q 却含 ✗", absent))

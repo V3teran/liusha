@@ -90,22 +90,22 @@ func ErrorMaskInterceptor(ctx context.Context, tool Tool, args []byte, next Exec
 }
 
 // ─────────────────────────────────────────────
-//  Registry
+//  ToolRegistry
 // ─────────────────────────────────────────────
 
-// Registry 管理工具集并实现带 Interceptor 链的执行。
+// ToolRegistry 管理工具集并实现带 Interceptor 链的执行。
 // 并发安全：Register/Get 可被多 goroutine 同时调用。
-type Registry struct {
+type ToolRegistry struct {
 	mu           sync.RWMutex
 	tools        map[string]Tool
 	interceptors []Interceptor
 }
 
-// New 返回带默认 Interceptor 链的 Registry。
+// New 返回带默认 Interceptor 链的 ToolRegistry。
 // 链顺序：EvidenceCapture → Timeout → ErrorMask → Tool.Execute。
 // 按需拦截器（工具调用录制/遥测/心跳）经 AddInterceptor 注入，插在 ErrorMask 之前。
-func New() *Registry {
-	return &Registry{
+func New() *ToolRegistry {
+	return &ToolRegistry{
 		tools: make(map[string]Tool),
 		interceptors: []Interceptor{
 			EvidenceCaptureInterceptor,
@@ -116,15 +116,15 @@ func New() *Registry {
 }
 
 // Register 注册一个工具。重名覆盖。
-func (r *Registry) Register(t Tool) {
+func (r *ToolRegistry) Register(t Tool) {
 	r.mu.Lock()
 	r.tools[t.Name()] = t
 	r.mu.Unlock()
 }
 
 // AddInterceptor 在 Interceptor 链末尾（ErrorMask 之前）追加一个拦截器。
-// 适用于在 Registry 构造后注入按需拦截器（如工具调用录制）。
-func (r *Registry) AddInterceptor(i Interceptor) {
+// 适用于在 ToolRegistry 构造后注入按需拦截器（如工具调用录制）。
+func (r *ToolRegistry) AddInterceptor(i Interceptor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// 插入到 ErrorMask 之前，保证 ErrorMask 始终是链的最后一道
@@ -137,7 +137,7 @@ func (r *Registry) AddInterceptor(i Interceptor) {
 }
 
 // interceptorChain 返回当前拦截器链副本（execute/WrapTool 与 AddInterceptor 并发安全）。
-func (r *Registry) interceptorChain() []Interceptor {
+func (r *ToolRegistry) interceptorChain() []Interceptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.interceptors
@@ -145,7 +145,7 @@ func (r *Registry) interceptorChain() []Interceptor {
 
 // Interceptors 返回当前注册的所有拦截器的副本。
 // 用于创建 sub-registry 时复制拦截器链。
-func (r *Registry) Interceptors() []Interceptor {
+func (r *ToolRegistry) Interceptors() []Interceptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	// 返回副本，避免外部修改
@@ -155,7 +155,7 @@ func (r *Registry) Interceptors() []Interceptor {
 }
 
 // Get 按名称查找工具。
-func (r *Registry) Get(name string) (Tool, bool) {
+func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
 	t, ok := r.tools[name]
 	r.mu.RUnlock()
@@ -163,7 +163,7 @@ func (r *Registry) Get(name string) (Tool, bool) {
 }
 
 // Schemas 返回所有已注册工具的 ToolSchema，供 Provider.Complete/Stream 传入。
-func (r *Registry) Schemas() []llm.ToolSchema {
+func (r *ToolRegistry) Schemas() []llm.ToolSchema {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]llm.ToolSchema, 0, len(r.tools))
@@ -179,17 +179,17 @@ func (r *Registry) Schemas() []llm.ToolSchema {
 
 // WrapTool 返回一个 Execute 走完整 Interceptor 链的装饰工具。
 //
-// 背景：ReAct runtime 直调 tool.Execute（不经 Registry.execute），拦截器链
+// 背景：ReAct runtime 直调 tool.Execute（不经 ToolRegistry.execute），拦截器链
 // （PreExecute/Logging/EvidenceCapture/Timeout/ErrorMask + AddInterceptor 注入的
 // 遥测/心跳）会被整体绕过。调用方在把工具装进 runtime 前先用本方法包一层，
 // 即可让框架外的执行路径也走统一链。
-func (r *Registry) WrapTool(t Tool) Tool {
+func (r *ToolRegistry) WrapTool(t Tool) Tool {
 	return &wrappedTool{inner: t, reg: r}
 }
 
 type wrappedTool struct {
 	inner Tool
-	reg   *Registry
+	reg   *ToolRegistry
 }
 
 func (w *wrappedTool) Name() string            { return w.inner.Name() }

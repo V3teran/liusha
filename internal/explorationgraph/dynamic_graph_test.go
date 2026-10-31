@@ -31,7 +31,7 @@ func TestDynamicActionGeneration(t *testing.T) {
 
 	// T1: 执行 A1 并完成
 	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateRunning))
-	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateCompleted))
 
 	// T2: Planner 基于 A1 的观察结果动态生成新 Action A3（依赖 A1）
 	a3ID := createTestAction(ctx, t, store, taskID, "A3", []string{a1ID})
@@ -63,9 +63,9 @@ func TestDynamicActionGeneration(t *testing.T) {
 
 	// T5: 执行并完成 A2 和 A3
 	updateActionState(ctx, t, store, a2ID, string(explorationgraph.StateRunning))
-	updateActionState(ctx, t, store, a2ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a2ID, string(explorationgraph.StateCompleted))
 	updateActionState(ctx, t, store, a3ID, string(explorationgraph.StateRunning))
-	updateActionState(ctx, t, store, a3ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a3ID, string(explorationgraph.StateCompleted))
 
 	// 验证 A4 依赖现在已满足
 	completed[a2ID] = true
@@ -172,7 +172,7 @@ func TestDynamicDependencyResolution(t *testing.T) {
 
 	// 完成 A1
 	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateRunning))
-	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateDone))
+	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateCompleted))
 	completed[a1ID] = true
 
 	// 验证 A2 现在可执行（依赖已满足）

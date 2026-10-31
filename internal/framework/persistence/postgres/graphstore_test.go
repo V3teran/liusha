@@ -118,7 +118,7 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 
 	// 第二次更新，但使用旧版本号（应该失败）
 	update2 := core.GraphNodeUpdate{
-		State:           string(core.ActionStateDone),
+		State:           string(core.ActionStateCompleted),
 		ExpectedVersion: &v1, // 还是用版本1，但实际已经是版本2
 	}
 	err = store.UpdateNode(ctx, "33333333-3333-4333-8333-333333333333", update2)
@@ -171,7 +171,7 @@ func TestGraphStore_CompareAndSwapState(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
 			string(core.ActionStateOpen), // 期望是 open，但实际是 running
-			string(core.ActionStateDone),
+			string(core.ActionStateCompleted),
 		)
 		require.NoError(t, err)
 		assert.False(t, swapped, "状态不匹配时CAS应该失败")
@@ -214,7 +214,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 			ID:       "aaaaaaaa-0000-4000-8000-000000000003",
 			Kind:     string(core.KindAction),
 			Content:  json.RawMessage(`{}`),
-			State:    string(core.ActionStateDone),
+			State:    string(core.ActionStateCompleted),
 			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000002", "priority": "high"},
 		},
 	}

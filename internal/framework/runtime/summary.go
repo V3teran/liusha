@@ -19,7 +19,7 @@ const maxForcedOutputTokens = 16384
 // 重试没有意义。这里按 2× 逐次放大输出预算（封顶 maxForcedOutputTokens），
 // 并在重试间注入「直接输出正文」的纠偏指令。返回最后一次响应与错误；
 // err 非 nil 时响应不可用。
-func (r *DefaultReActRuntime) completeForced(
+func (r *reactRuntime) completeForced(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -66,7 +66,7 @@ func appendForcedResult(result *ReActResult, resp llm.Response) {
 	result.FinalThinking = thinkingText(resp.Thinking)
 }
 
-func (r *DefaultReActRuntime) forceFinalSummary(
+func (r *reactRuntime) forceFinalSummary(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
@@ -97,7 +97,7 @@ func (r *DefaultReActRuntime) forceFinalSummary(
 
 // forceStructuredOutput 强制要求 LLM 输出结构化格式
 // 当 LLM 自然停止但未输出符合期望格式的内容时调用
-func (r *DefaultReActRuntime) forceStructuredOutput(
+func (r *reactRuntime) forceStructuredOutput(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,

@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// WarmPoolManager 是热池 Sandbox 管理器。
+// WarmPoolManager 是热池 沙箱实例管理器。
 // 维护一个温热的容器，空闲 N 分钟后自动回收，下次任务按需重建。
 // 适用场景：低并发、长任务、需要快速启动。
 type WarmPoolManager struct {
@@ -18,7 +18,7 @@ type WarmPoolManager struct {
 	logger   zerolog.Logger
 
 	mu        sync.RWMutex
-	sandbox   *Sandbox  // 当前容器（可能为空）
+	sandbox   *Instance // 当前容器（可能为空）
 	lastUsed  time.Time // 最后使用时间（Release 时更新）
 	createdAt time.Time // 创建时间
 	active    int       // 并发持有计数（asynq 并发任务共享同一容器）
@@ -80,7 +80,7 @@ func NewWarmPoolManager(launcher Launcher, logger zerolog.Logger, cfg WarmPoolCo
 	return m
 }
 
-// EnsureRunning 确保有一个预热的 Sandbox 容器。
+// EnsureRunning 确保有一个预热的 Instance 容器。
 // 此方法可选：不调用也能正常工作（首次 Acquire 时自动创建）。
 func (m *WarmPoolManager) EnsureRunning(ctx context.Context) error {
 	m.mu.Lock()
@@ -114,9 +114,9 @@ func (m *WarmPoolManager) EnsureRunning(ctx context.Context) error {
 	return nil
 }
 
-// Acquire 获取 Sandbox。
+// Acquire 获取 Instance。
 // 如果池中有容器，立即返回（0 延迟）；否则创建新容器（~1.5s）。
-func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Sandbox, error) {
+func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Instance, error) {
 	start := time.Now()
 	defer func() {
 		m.acquireTotal.Add(1)
@@ -165,7 +165,7 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 	}
 
 	// 准备任务工作目录（默认对齐 sandbox-server 约定 /liusha/<taskID>）
-	sb := &Sandbox{
+	sb := &Instance{
 		Client:    m.sandbox.Client,
 		ID:        m.sandbox.ID,
 		TaskID:    req.TaskID,
@@ -193,9 +193,9 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*San
 	return sb, nil
 }
 
-// Release 释放 Sandbox：SoftReset（清任务目录 + 杀残留进程，防跨任务数据泄漏）
+// Release 释放 Instance：SoftReset（清任务目录 + 杀残留进程，防跨任务数据泄漏）
 // 后递减持有计数；计数归零才开始计算空闲超时。
-func (m *WarmPoolManager) Release(ctx context.Context, sb *Sandbox) error {
+func (m *WarmPoolManager) Release(ctx context.Context, sb *Instance) error {
 	if sb == nil {
 		return nil
 	}
@@ -381,7 +381,7 @@ func (m *WarmPoolManager) performMaintenance() {
 
 // reapIfCurrent 空闲超时回收：仅当 m.sandbox 仍是快照容器时销毁（需持写锁，
 // 销毁是慢 IO，但仅发生在空闲容器上，Acquire 随后看到 nil 会自行重建）。
-func (m *WarmPoolManager) reapIfCurrent(sb *Sandbox, idle time.Duration, msg string) {
+func (m *WarmPoolManager) reapIfCurrent(sb *Instance, idle time.Duration, msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sandbox != sb || m.active != 0 {
@@ -402,7 +402,7 @@ func (m *WarmPoolManager) createSandboxLocked(ctx context.Context) error {
 		return fmt.Errorf("spawn warm pool sandbox: %w", err)
 	}
 
-	m.sandbox = &Sandbox{
+	m.sandbox = &Instance{
 		Client:    client,
 		ID:        "warm-sandbox",
 		CreatedAt: time.Now(),
@@ -442,7 +442,7 @@ func (m *WarmPoolManager) destroySandboxLocked() {
 }
 
 // checkHealth 检查容器健康状态。
-func (m *WarmPoolManager) checkHealth(ctx context.Context, sb *Sandbox) error {
+func (m *WarmPoolManager) checkHealth(ctx context.Context, sb *Instance) error {
 	// 执行简单命令测试容器是否响应
 	_, err := sb.Client.Exec(ctx, ExecRequest{
 		TaskID:         "healthcheck",

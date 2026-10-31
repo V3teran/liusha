@@ -35,15 +35,15 @@ const (
 	maxFileCount = 5
 )
 
-// Server 持有 HTTP 路由 + 启动时间（max lifetime 计算用）。
-type Server struct {
+// HTTPServer 持有 HTTP 路由 + 启动时间（max lifetime 计算用）。
+type HTTPServer struct {
 	mux       *http.ServeMux
 	startTime time.Time
 }
 
-// New 构造 Server，注册端点。
-func New() *Server {
-	s := &Server{
+// New 构造 HTTPServer，注册端点。
+func New() *HTTPServer {
+	s := &HTTPServer{
 		mux:       http.NewServeMux(),
 		startTime: time.Now(),
 	}
@@ -59,7 +59,7 @@ func New() *Server {
 //
 // 不设 ReadTimeout/WriteTimeout：单工具最长 30min，HTTP 同步长连接由主进程 client
 // 端 timeout 兜底（31min）。
-func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+func (s *HTTPServer) ListenAndServe(ctx context.Context, addr string) error {
 	go s.runLifetimeGuard(ctx)
 
 	srv := &http.Server{
@@ -94,7 +94,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 //
 // 直接 os.Exit 不走 graceful shutdown：场景是主进程已死（孤儿容器），无 client
 // 在等响应，立即退出最干净。
-func (s *Server) runLifetimeGuard(ctx context.Context) {
+func (s *HTTPServer) runLifetimeGuard(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -112,7 +112,7 @@ func (s *Server) runLifetimeGuard(ctx context.Context) {
 }
 
 // handleHealthz 返回 200 + {"status":"ok"}，无副作用。
-func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func (s *HTTPServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))

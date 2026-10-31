@@ -19,7 +19,7 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	invStore := NewStoreWithConfig(pool, config.InvocationConfig{})
 	taskStore := task.NewStore(pool)
-	convStore := conversation.NewStore(pool)
+	conversationStore := conversation.NewStore(pool)
 
 	// 1. 创建 assignment + task
 	assignmentID := dbtest.SeedAssignment(t, pool)
@@ -34,11 +34,11 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	taskID := tk.ID
 
 	// 2. 创建 conversation
-	conv, err := convStore.CreateConversation(ctx, "test conversation", taskID)
+	conv, err := conversationStore.CreateConversation(ctx, "test conversation", taskID)
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
-	convID := conv.ID
+	conversationID := conv.ID
 
 	// 3. 写入 llm_invocation
 	_, err = invStore.Append(ctx, Invocation{
@@ -71,8 +71,8 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	if inv.ConversationID == nil {
 		t.Fatal("conversation_id should not be nil")
 	}
-	if *inv.ConversationID != convID {
-		t.Fatalf("conversation_id mismatch: got %s, want %s", *inv.ConversationID, convID)
+	if *inv.ConversationID != conversationID {
+		t.Fatalf("conversation_id mismatch: got %s, want %s", *inv.ConversationID, conversationID)
 	}
 
 	if inv.AssignmentID == nil {

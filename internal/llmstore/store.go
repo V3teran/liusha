@@ -1,6 +1,6 @@
 // Package llmstore 是 LLM 配置（provider 部署 / 复杂度路由）的多级缓存读写层，
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
-// → DB（事实源，由 internal/config/llm.Store 打）。
+// → DB（事实源，由 internal/llmconfig.Store 打）。
 //
 // 为何分层：api 与 runner 是**多进程**。前端在 api 改模型配置后，runner 的
 // llm.Router 必须在下次 For(complexity) 时读到最新 provider/路由，
@@ -8,7 +8,7 @@
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
 // 路由模型：role → (代码档位映射) → provider（agent.complexity 的消费在 cognition 直读直传，不经此处）。
-// 两跳解析全在 llmcfg.Routing.ProviderCodeForRole 内完成，本层只管缓存路由快照 + provider 行。
+// 两跳解析全在 llmconfig.Routing.ProviderCodeForRole 内完成，本层只管缓存路由快照 + provider 行。
 //
 // 缓存粒度（key 空间固定的读全走 L1/L2 缓存）：
 //   - 单条 provider 读（热路径：每次 For(role) 解析后按 key 取部署）。
@@ -26,24 +26,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/cachestore"
-	"github.com/V3teran/liusha/internal/config/llm"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
-// llmStore 是 llmstore 依赖的底层持久化能力（*llmcfg.Store 自动满足）。
+// llmStore 是 llmstore 依赖的底层持久化能力（*llmconfig.Store 自动满足）。
 type llmStore interface {
-	CreateProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
-	UpdateProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
+	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
+	UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	DeleteProvider(ctx context.Context, key string) error
-	ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error)
-	GetProvider(ctx context.Context, key string) (llmcfg.Provider, error)
-	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmcfg.Provider, error)
+	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
+	GetProvider(ctx context.Context, key string) (llmconfig.Provider, error)
+	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
 
-	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error)
+	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
-	ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error)
+	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 
-	GetRouting(ctx context.Context) (llmcfg.Routing, error)
+	GetRouting(ctx context.Context) (llmconfig.Routing, error)
 }
 
 // Store 编排 LLM 配置的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -55,7 +55,7 @@ type Store struct {
 // New 用 pgxpool + 共享 cachestore 构造 Store（生产装配用）。
 // cache 由进程唯一构造并已 go cache.Subscribe(ctx)，与 configstore 等复用同一实例。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
-	return newWithStore(llmcfg.NewStore(pool), cache)
+	return newWithStore(llmconfig.NewStore(pool), cache)
 }
 
 // newWithStore 用已构造的底层 store 装配（测试注入 mock 用）。
@@ -101,19 +101,19 @@ func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoR
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
 
 // ProviderByCode 按 code 读 provider 部署（For(role) 解析出 code 后取连接参数 + 能力标志）。
-func (s *Store) ProviderByCode(ctx context.Context, key string) (llmcfg.Provider, error) {
+func (s *Store) ProviderByCode(ctx context.Context, key string) (llmconfig.Provider, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyProvider(key),
-		func(p llmcfg.Provider) []string { return []string{keyProvider(p.Code)} },
-		func(ctx context.Context) (llmcfg.Provider, error) {
+		func(p llmconfig.Provider) []string { return []string{keyProvider(p.Code)} },
+		func(ctx context.Context) (llmconfig.Provider, error) {
 			return s.db.GetProvider(ctx, key)
 		})
 }
 
 // Routing 读路由全景快照（role → provider code 的解析全靠它）。缓存于哨兵键。
-func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
+func (s *Store) Routing(ctx context.Context) (llmconfig.Routing, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyRouting,
-		func(llmcfg.Routing) []string { return []string{keyRouting} },
-		func(ctx context.Context) (llmcfg.Routing, error) {
+		func(llmconfig.Routing) []string { return []string{keyRouting} },
+		func(ctx context.Context) (llmconfig.Routing, error) {
 			return s.db.GetRouting(ctx)
 		})
 }
@@ -123,19 +123,19 @@ func (s *Store) Routing(ctx context.Context) (llmcfg.Routing, error) {
 // ── 全量列表读（L1/L2 缓存，key 空间固定）───────────────────────────────
 
 // ListProviders 全量 provider 列表读，走多级缓存（按 onlyEnabled 分键）。
-func (s *Store) ListProviders(ctx context.Context, onlyEnabled bool) ([]llmcfg.Provider, error) {
+func (s *Store) ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyProvidersList(onlyEnabled),
-		func([]llmcfg.Provider) []string { return []string{keyProvidersList(onlyEnabled)} },
-		func(ctx context.Context) ([]llmcfg.Provider, error) {
+		func([]llmconfig.Provider) []string { return []string{keyProvidersList(onlyEnabled)} },
+		func(ctx context.Context) ([]llmconfig.Provider, error) {
 			return s.db.ListProviders(ctx, onlyEnabled)
 		})
 }
 
 // ListRoleRoutes 全量角色路由列表读，走多级缓存（单键）。
-func (s *Store) ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error) {
+func (s *Store) ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyRoleRoutesList,
-		func([]llmcfg.RoleRoute) []string { return []string{keyRoleRoutesList} },
-		func(ctx context.Context) ([]llmcfg.RoleRoute, error) {
+		func([]llmconfig.RoleRoute) []string { return []string{keyRoleRoutesList} },
+		func(ctx context.Context) ([]llmconfig.RoleRoute, error) {
 			return s.db.ListRoleRoutes(ctx)
 		})
 }
@@ -146,13 +146,13 @@ func (s *Store) ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error) 
 
 // SaveProvider upsert 一个 provider（按 key：存在则更新、不存在则新建），失效其 provider 键 + 列表键。
 // provider 的能力（vision/context_window）参与 role 解析后的取值，但不入 routing 快照，故不失效 routing。
-func (s *Store) SaveProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error) {
+func (s *Store) SaveProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
 	pr, err := s.db.UpdateProvider(ctx, p)
 	if isNotFound(err) {
 		pr, err = s.db.CreateProvider(ctx, p)
 	}
 	if err != nil {
-		return llmcfg.Provider{}, err
+		return llmconfig.Provider{}, err
 	}
 	if err := s.cache.Invalidate(ctx, providerKeys(pr.Code)...); err != nil {
 		return pr, err
@@ -171,10 +171,10 @@ func (s *Store) DeleteProvider(ctx context.Context, key string) error {
 
 // ClearProviderKey 清除 provider 的加密密钥（密文+尾号置空），api_key_env 引用原样保留——
 // 「恢复使用环境变量」：解析回落 env 路径。失效其 provider 键 + 列表键。
-func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error) {
+func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error) {
 	pr, err := s.db.ClearProviderKey(ctx, code)
 	if err != nil {
-		return llmcfg.Provider{}, err
+		return llmconfig.Provider{}, err
 	}
 	if err := s.cache.Invalidate(ctx, providerKeys(code)...); err != nil {
 		return pr, err
@@ -183,10 +183,10 @@ func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmcfg.Provi
 }
 
 // UpsertRoleRoute upsert 一个角色 → provider code 直连映射，失效路由快照 + 路由列表键。
-func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error) {
+func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error) {
 	rr, err := s.db.UpsertRoleRoute(ctx, role, providerKey)
 	if err != nil {
-		return llmcfg.RoleRoute{}, err
+		return llmconfig.RoleRoute{}, err
 	}
 	if err := s.cache.Invalidate(ctx, routeKeys()...); err != nil {
 		return rr, err
@@ -206,11 +206,11 @@ func (s *Store) DeleteRoleRoute(ctx context.Context, role string) error {
 // key 解析（EncryptedAPIKey/ENV 回退）在此完成——框架只收已解析的 ProviderSpec。
 type RouterStoreAdapter struct {
 	s      *Store
-	cipher llmcfg.KeyDecrypter
+	cipher llmconfig.KeyDecrypter
 }
 
 // AsRouterStore 返回满足 llm.RouterStore 的适配器（cipher 用于密钥解密）。
-func (s *Store) AsRouterStore(cipher llmcfg.KeyDecrypter) *RouterStoreAdapter {
+func (s *Store) AsRouterStore(cipher llmconfig.KeyDecrypter) *RouterStoreAdapter {
 	return &RouterStoreAdapter{s: s, cipher: cipher}
 }
 
@@ -229,7 +229,7 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 	if err != nil {
 		return fwllm.ProviderSpec{}, err
 	}
-	apiKey, err := llmcfg.ResolveAPIKey(p, a.cipher)
+	apiKey, err := llmconfig.ResolveAPIKey(p, a.cipher)
 	if err != nil {
 		return fwllm.ProviderSpec{}, err
 	}

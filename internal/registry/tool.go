@@ -1,5 +1,5 @@
 // Package registry 定义工具接口、执行结果类型、Signal 证据类型，
-// 并实现带 Interceptor 链的 Registry。
+// 并实现带 Interceptor 链的 ToolRegistry。
 //
 // 依赖方向：registry ← executor ← dispatcher
 package registry
@@ -59,7 +59,7 @@ type ToolResult struct {
 type Tool interface {
 	// Name 是工具的唯一标识符，用于 LLM tool_call.name 字段。
 	Name() string
-	// ShortDesc 是一行简短说明（用于 Registry 日志和 SSE 显示）。
+	// ShortDesc 是一行简短说明（用于 ToolRegistry 日志和 SSE 显示）。
 	ShortDesc() string
 	// Desc 是完整说明，注入 ToolSchema.Description。
 	Desc() string

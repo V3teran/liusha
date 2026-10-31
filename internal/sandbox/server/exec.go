@@ -43,7 +43,7 @@ var execWaitDelay = 10 * time.Second
 //  4. 扫描 output 目录 b64 编码 + 仅返本次 exec 新增/修改文件（modtime 过滤），命令崩溃也扫
 //
 // 并发安全：sandbox-server 是 per-agent-run 容器进程，本来就是单线程串行处理 /exec。
-func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 	// 1. 解析并验证请求
 	var req sandbox.ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

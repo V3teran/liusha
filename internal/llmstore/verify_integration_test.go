@@ -10,8 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/V3teran/liusha/internal/cachestore"
-	llmcfg "github.com/V3teran/liusha/internal/config/llm"
 	"github.com/V3teran/liusha/internal/dbtest"
+	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // TestProviderCodeRoundtrip 一次性验证 0159（llm_provider.key→code）后存储/缓存/路由链路。
@@ -21,7 +21,7 @@ func TestProviderCodeRoundtrip(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	s := New(pool, cachestore.New(rdb, 0))
 
-	if _, err := s.SaveProvider(context.Background(), llmcfg.ProviderParams{
+	if _, err := s.SaveProvider(context.Background(), llmconfig.ProviderParams{
 		Code: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com",
 		DefaultModel: "deepseek-chat", MaxTokens: 4096, SupportsTools: true,
 		ContextWindow: 64000,

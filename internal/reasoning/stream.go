@@ -8,7 +8,7 @@
 //     该 agent 的活动气泡。
 //
 // 认知循环四个 agent 并发思考，Stream 按 agent 分桶合批、保序广播；
-// convID 为空（纯后台扫描）时整体 no-op。
+// conversationID 为空（纯后台扫描）时整体 no-op。
 package reasoning
 
 import (
@@ -74,7 +74,7 @@ type Publisher interface {
 
 // Writer 是终态消息的落库通道（*conversation.Store 满足）。
 type Writer interface {
-	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
+	AppendMessage(ctx context.Context, conversationID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
 // laneBuffer 是单个 agent 的待发增量双通道桶。
@@ -86,10 +86,10 @@ type laneBuffer struct {
 // Stream 是会话级的输出流聚合器：按 agent 分桶（桶内双通道），一个后台
 // flusher 统一发布。
 type Stream struct {
-	pub    Publisher
-	writer Writer
-	convID string
-	logger zerolog.Logger
+	pub            Publisher
+	writer         Writer
+	conversationID string
+	logger         zerolog.Logger
 
 	mu      sync.Mutex
 	pending map[string]*laneBuffer // agent → 待发增量
@@ -100,15 +100,15 @@ type Stream struct {
 	done   chan struct{}
 }
 
-// NewStream 构造会话输出流。convID 为空时返回 no-op 流（后台扫描无会话不发）。
-func NewStream(pub Publisher, writer Writer, convID string, logger zerolog.Logger) *Stream {
+// NewStream 构造会话输出流。conversationID 为空时返回 no-op 流（后台扫描无会话不发）。
+func NewStream(pub Publisher, writer Writer, conversationID string, logger zerolog.Logger) *Stream {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Stream{
-		pub: pub, writer: writer, convID: convID, logger: logger,
+		pub: pub, writer: writer, conversationID: conversationID, logger: logger,
 		pending: map[string]*laneBuffer{},
 		ctx:     ctx, cancel: cancel, done: make(chan struct{}),
 	}
-	if convID == "" {
+	if conversationID == "" {
 		close(s.done) // no-op：无 flusher 循环
 		return s
 	}
@@ -190,12 +190,12 @@ func (s *Stream) flush() {
 // publishLane 发布一个 agent 桶的双通道增量（thinking 先、text 后）。
 func (s *Stream) publishLane(agent string, buf *laneBuffer) {
 	if buf.thinking != "" {
-		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, convstream.ChannelThinking, buf.thinking); err != nil {
+		if err := s.pub.PublishDelta(s.ctx, s.conversationID, agent, convstream.ChannelThinking, buf.thinking); err != nil {
 			s.logger.Warn().Err(err).Str("agent", agent).Msg("思考增量广播失败（丢帧无害）")
 		}
 	}
 	if buf.text != "" {
-		if err := s.pub.PublishDelta(s.ctx, s.convID, agent, convstream.ChannelText, buf.text); err != nil {
+		if err := s.pub.PublishDelta(s.ctx, s.conversationID, agent, convstream.ChannelText, buf.text); err != nil {
 			s.logger.Warn().Err(err).Str("agent", agent).Msg("正文增量广播失败（丢帧无害）")
 		}
 	}
@@ -209,7 +209,7 @@ type agentTap struct {
 
 // Delta 记一段正文增量，等待合批窗口发布。
 func (t agentTap) Delta(chunk string) {
-	if chunk == "" || t.s.convID == "" {
+	if chunk == "" || t.s.conversationID == "" {
 		return
 	}
 	t.s.mu.Lock()
@@ -219,7 +219,7 @@ func (t agentTap) Delta(chunk string) {
 
 // ThinkingDelta 记一段扩展思考增量，等待合批窗口发布。
 func (t agentTap) ThinkingDelta(chunk string) {
-	if chunk == "" || t.s.convID == "" {
+	if chunk == "" || t.s.conversationID == "" {
 		return
 	}
 	t.s.mu.Lock()
@@ -230,7 +230,7 @@ func (t agentTap) ThinkingDelta(chunk string) {
 // Done 结束当前一轮：先冲刷该 agent 的待发增量（保序），再落终态消息并广播。
 // 终稿为空时仍落一条终态——终态帧是前端清空气泡的信号，不可省。
 func (t agentTap) Done(round Round) {
-	if t.s.convID == "" {
+	if t.s.conversationID == "" {
 		return
 	}
 	t.s.mu.Lock()
@@ -259,13 +259,13 @@ func (t agentTap) publishFinal(round Round) {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 元数据序列化失败")
 		return
 	}
-	msg, err := t.s.writer.AppendMessage(t.s.ctx, t.s.convID,
+	msg, err := t.s.writer.AppendMessage(t.s.ctx, t.s.conversationID,
 		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(round.Summary, maxSummaryRunes), meta)
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终稿落库失败（气泡清理将延迟到重连）")
 		return
 	}
-	if err := t.s.pub.PublishMessage(t.s.ctx, t.s.convID, msg); err != nil {
+	if err := t.s.pub.PublishMessage(t.s.ctx, t.s.conversationID, msg); err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终态广播失败（重连补历史可见）")
 	}
 }

@@ -22,7 +22,7 @@ const maxToolEventRunes = 4000
 
 // timelineWriter 时间线事件的落库通道（*conversation.Store 满足）。
 type timelineWriter interface {
-	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
+	AppendMessage(ctx context.Context, conversationID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
 // timelinePublisher 时间线事件的 SSE 广播通道（*convstream.Publisher 满足）。
@@ -86,20 +86,20 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 
 // emit 落一条 agent 过程事件并广播 SSE（best-effort：失败仅告警，工具执行本体
 // 不受影响——时间线是观测面，不构成执行依赖）。
-func (e *toolTimelineEvents) emit(ctx context.Context, convID string, meta map[string]any) {
+func (e *toolTimelineEvents) emit(ctx context.Context, conversationID string, meta map[string]any) {
 	raw, err := json.Marshal(meta)
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("工具过程事件序列化失败")
 		return
 	}
-	msg, err := e.writer.AppendMessage(ctx, convID,
+	msg, err := e.writer.AppendMessage(ctx, conversationID,
 		conversation.RoleAssistant, conversation.KindEvent, "", raw)
 	if err != nil {
-		e.logger.Warn().Err(err).Str("conv", convID).Msg("工具过程事件落库失败")
+		e.logger.Warn().Err(err).Str("conversation_id", conversationID).Msg("工具过程事件落库失败")
 		return
 	}
-	if err := e.pub.PublishMessage(ctx, convID, msg); err != nil {
-		e.logger.Warn().Err(err).Str("conv", convID).Msg("工具过程事件广播失败（重连补历史可见）")
+	if err := e.pub.PublishMessage(ctx, conversationID, msg); err != nil {
+		e.logger.Warn().Err(err).Str("conversation_id", conversationID).Msg("工具过程事件广播失败（重连补历史可见）")
 	}
 }
 

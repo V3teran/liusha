@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // llm.go：把 config.yaml 的 providers:/llm.* 静态配置 insert-only 首填进 llm_provider /
@@ -26,7 +26,7 @@ import (
 // ImportLLM 把 cfg 里的 provider/角色路由 insert-only 首填进 DB。
 // 顺序遵守 FK：provider → role_route（引用 provider）。
 // cfg.Providers 为空（DB 已成事实源、yaml 不再带 providers）时整体 no-op。
-func ImportLLM(ctx context.Context, cfg config.Config, s *llmcfg.Store) error {
+func ImportLLM(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) error {
 	// 首次启动门：llm_provider 非空即视为已完成引导，整段跳过——DB 是运行期唯一事实源，
 	// UI 删除的 provider 不得被 yaml 复活；yaml 只服务「空库冷启动」与「灾难后重建」。
 	existing, err := s.ListProviders(ctx, false)
@@ -50,12 +50,12 @@ func ImportLLM(ctx context.Context, cfg config.Config, s *llmcfg.Store) error {
 
 // importProviders 建 provider 部署行：标识符一律系统生成 UUID（yaml key 降级为显示名称默认值）。
 // 返回 yaml key → 生成标识符 的映射，供路由导入翻译 complexity_routes 的引用。
-func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) (map[string]string, error) {
+func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) (map[string]string, error) {
 	codeByYamlKey := make(map[string]string, len(cfg.Providers))
 	for key, p := range cfg.Providers {
 		typ := p.Type
 		if typ == "" {
-			typ = llmcfg.ProviderTypeOpenAICompat // 空 type 视为 openai_compat（与运行期一致）
+			typ = llmconfig.ProviderTypeOpenAICompat // 空 type 视为 openai_compat（与运行期一致）
 		}
 		// SupportsVision/ContextWindow 在 config.validate 已强制非 nil；仍防御性解引用。
 		supportsVision := p.SupportsVision != nil && *p.SupportsVision
@@ -65,7 +65,7 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) (m
 		}
 		code := uuid.NewString()
 		codeByYamlKey[key] = code
-		if _, err := s.CreateProvider(ctx, llmcfg.ProviderParams{
+		if _, err := s.CreateProvider(ctx, llmconfig.ProviderParams{
 			Code:                 code,
 			DisplayName:          key,
 			Type:                 typ,
@@ -88,7 +88,7 @@ func importProviders(ctx context.Context, cfg config.Config, s *llmcfg.Store) (m
 // importRoleRoutes 按 role insert-only 建路由行：3 个复杂度档（simple/medium/complex）。
 // role 列存档名；agent 档位在 agent.complexity，不入路由表。
 // 目标 provider 不存在（对应档槽位空或 provider 未建）时跳过该行——避免撞 FK RESTRICT。
-func importRoleRoutes(ctx context.Context, cfg config.Config, codeByYamlKey map[string]string, s *llmcfg.Store) error {
+func importRoleRoutes(ctx context.Context, cfg config.AppConfig, codeByYamlKey map[string]string, s *llmconfig.Store) error {
 	existing, err := s.ListRoleRoutes(ctx)
 	if err != nil {
 		return fmt.Errorf("列角色路由: %w", err)
@@ -100,9 +100,9 @@ func importRoleRoutes(ctx context.Context, cfg config.Config, codeByYamlKey map[
 
 	// 三档，key 直接是 complexity 名，value 是 provider key（无 field-name 间接层）。
 	merged := map[string]string{
-		llmcfg.ComplexitySimple:  cfg.LLM.ComplexityRoutes[llmcfg.ComplexitySimple],
-		llmcfg.ComplexityMedium:  cfg.LLM.ComplexityRoutes[llmcfg.ComplexityMedium],
-		llmcfg.ComplexityComplex: cfg.LLM.ComplexityRoutes[llmcfg.ComplexityComplex],
+		llmconfig.ComplexitySimple:  cfg.LLM.ComplexityRoutes[llmconfig.ComplexitySimple],
+		llmconfig.ComplexityMedium:  cfg.LLM.ComplexityRoutes[llmconfig.ComplexityMedium],
+		llmconfig.ComplexityComplex: cfg.LLM.ComplexityRoutes[llmconfig.ComplexityComplex],
 	}
 
 	for role, providerKey := range merged {

@@ -57,9 +57,9 @@ func (f *fakeWriter) AppendMessage(_ context.Context, _ string, role conversatio
 	return conversation.Message{ID: "m1", Role: role, Kind: kind, Content: content, Metadata: meta}, nil
 }
 
-func newTestStream(convID string) (*Stream, *fakePub, *fakeWriter) {
+func newTestStream(conversationID string) (*Stream, *fakePub, *fakeWriter) {
 	pub, w := &fakePub{}, &fakeWriter{}
-	s := NewStream(pub, w, convID, zerolog.Nop())
+	s := NewStream(pub, w, conversationID, zerolog.Nop())
 	return s, pub, w
 }
 
@@ -129,7 +129,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	s.Close()
 }
 
-// 无会话（convID 空）：全链路 no-op。
+// 无会话（conversationID 空）：全链路 no-op。
 func TestStream_DisabledWhenNoConversation(t *testing.T) {
 	s, pub, w := newTestStream("")
 	tap := s.TapFor("executor")

@@ -16,7 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/config/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // ProviderProbeSpec 是测试连接 / 模型探测的入参规格。
@@ -78,7 +78,7 @@ func testProviderHandler(t ProviderTester) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if b.Type != "" && b.Type != llmcfg.ProviderTypeOpenAICompat && b.Type != llmcfg.ProviderTypeAnthropic {
+		if b.Type != "" && b.Type != llmconfig.ProviderTypeOpenAICompat && b.Type != llmconfig.ProviderTypeAnthropic {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
 			return
 		}

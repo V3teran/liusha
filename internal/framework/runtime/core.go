@@ -9,11 +9,11 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// DefaultReActRuntime 是 ReActRuntime 的默认实现。
+// reactRuntime 是 ReActRuntime 的默认实现。
 // 一次 Run 是一次自包含执行：消息历史经 ReActConfig.InitialHistory 传入、
 // 经 ReActResult.MessageHistory 传出，运行时自身不跨 Run 保存对话状态——
 // 复用同一运行时的多次 Run 互不串扰，跨执行的延续由检查点机制承担。
-type DefaultReActRuntime struct {
+type reactRuntime struct {
 	mu sync.RWMutex
 
 	// 工具注册表
@@ -30,14 +30,14 @@ type DefaultReActRuntime struct {
 }
 
 // NewReActRuntime 创建 ReAct 运行时
-func NewReActRuntime() *DefaultReActRuntime {
-	return &DefaultReActRuntime{
+func NewReActRuntime() ReActRuntime {
+	return &reactRuntime{
 		tools: make(map[string]registry.Tool),
 	}
 }
 
 // RegisterTool 注册工具
-func (r *DefaultReActRuntime) RegisterTool(tool registry.Tool) error {
+func (r *reactRuntime) RegisterTool(tool registry.Tool) error {
 	if tool == nil {
 		return fmt.Errorf("工具不能为 nil")
 	}
@@ -54,7 +54,7 @@ func (r *DefaultReActRuntime) RegisterTool(tool registry.Tool) error {
 }
 
 // Run 运行 ReAct 循环
-func (r *DefaultReActRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResult, error) {
+func (r *reactRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResult, error) {
 	// 1. 验证配置
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("配置验证失败: %w", err)

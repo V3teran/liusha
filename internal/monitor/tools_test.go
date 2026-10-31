@@ -36,7 +36,7 @@ func newGraphWithActions(t *testing.T) *explorationgraph.Store {
 		st := state
 		content := []byte(`{"instruction":"do something"}`)
 		if id == "a-done" {
-			done := explorationgraph.StateDone
+			done := explorationgraph.StateCompleted
 			st = done
 			content = []byte(`{"instruction":"done thing"}`)
 		}
@@ -129,7 +129,7 @@ func TestPublishDecisionTool_Validation(t *testing.T) {
 func TestRunningActionViews(t *testing.T) {
 	now := time.Now()
 	running := explorationgraph.StateRunning
-	done := explorationgraph.StateDone
+	done := explorationgraph.StateCompleted
 	mk := func(id string, st explorationgraph.State, ageMin float64) explorationgraph.Node {
 		return explorationgraph.Node{
 			ID: id, Kind: core.KindAction, State: &st,

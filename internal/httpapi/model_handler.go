@@ -4,7 +4,7 @@
 // → provider 路由，0105 引入 tier 中间层）。写路径一律走 llmstore（落 DB + redis 广播失效），
 // runner 进程的两个 LLM 工厂下次 For(role) 即读到最新路由（见 D7），绝不直穿底层 store。
 //
-// 路由模型：agent → tier → provider 两跳。agent→tier 固定在代码（llmcfg.AgentTier），
+// 路由模型：agent → tier → provider 两跳。agent→tier 固定在代码（llmconfig.AgentTier），
 // tier→provider 落 llm_role_route（role 列存档名 simple/medium/complex）。
 // 无别名层、无兜底备胎：未绑定的档回落标准推理档（medium，隐式默认）；重试耗尽即失败。
 //
@@ -23,7 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/config/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
 // KeyEncrypter 加密前端直填的明文 API Key（*cryptx.Cipher 自动满足）。
@@ -35,15 +35,15 @@ type KeyEncrypter interface {
 // 读经多级缓存 / 直穿 DB、写经失效广播的语义全在 llmstore 内，handler 只做 HTTP 编解码 + 校验。
 type ModelAPI interface {
 	// provider 部署
-	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmcfg.Provider, error)
-	ProviderByCode(ctx context.Context, code string) (llmcfg.Provider, error)
-	SaveProvider(ctx context.Context, p llmcfg.ProviderParams) (llmcfg.Provider, error)
+	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
+	ProviderByCode(ctx context.Context, code string) (llmconfig.Provider, error)
+	SaveProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	DeleteProvider(ctx context.Context, code string) error
 	// ClearProviderKey 清除 UI 设置的加密密钥（密文+尾号），保留 api_key_env 引用——「恢复使用环境变量」。
-	ClearProviderKey(ctx context.Context, code string) (llmcfg.Provider, error)
+	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
 	// 角色路由（role → provider 直连）
-	ListRoleRoutes(ctx context.Context) ([]llmcfg.RoleRoute, error)
-	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmcfg.RoleRoute, error)
+	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
+	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
 }
 
@@ -109,7 +109,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "code 不能为空"})
 			return
 		}
-		if b.Type != llmcfg.ProviderTypeOpenAICompat && b.Type != llmcfg.ProviderTypeAnthropic {
+		if b.Type != llmconfig.ProviderTypeOpenAICompat && b.Type != llmconfig.ProviderTypeAnthropic {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
 			return
 		}
@@ -131,7 +131,7 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "context_window 必须 > 0（model 总上下文窗口 tokens）"})
 			return
 		}
-		params := llmcfg.ProviderParams{
+		params := llmconfig.ProviderParams{
 			Code: b.Code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
 			MaxTokens: b.MaxTokens, SupportsTools: b.SupportsTools,
 			SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
@@ -191,7 +191,7 @@ func clearProviderKeyHandler(api ModelAPI) gin.HandlerFunc {
 // providerJSON 是 provider 响应的单一序列化点。
 // key_present：该 provider 是否已有可用密钥来源（加密落库或旧 ENV 变量名），不含密钥值本身。
 // key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；旧行或仅 ENV 回退时为空串。
-func providerJSON(p llmcfg.Provider) gin.H {
+func providerJSON(p llmconfig.Provider) gin.H {
 	return gin.H{
 		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
 		"api_key_env": p.APIKeyEnv, // env 变量名引用（非密钥值）；UI 密文存在时被覆盖
@@ -279,7 +279,7 @@ func deleteRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 }
 
 // roleRouteJSON 是角色路由响应的单一序列化点。
-func roleRouteJSON(r llmcfg.RoleRoute) gin.H {
+func roleRouteJSON(r llmconfig.RoleRoute) gin.H {
 	return gin.H{
 		"role": r.Role, "provider_code": r.ProviderCode,
 		"created_at": r.CreatedAt, "updated_at": r.UpdatedAt,

@@ -3,7 +3,7 @@
 // spec.go — Router 的配置契约（框架层自包含，不 import 业务配置包）。
 //
 // 解耦口径：框架只认「已解析」的连接参数（ProviderSpec.APIKey 为明文密钥）；
-// 密钥解密（EncryptedAPIKey/ENV 回退）与 DB schema 是业务侧（internal/config/llm）
+// 密钥解密（EncryptedAPIKey/ENV 回退）与 DB schema 是业务侧（internal/llmconfig）
 // 的职责，经 RouterStore 适配层注入。框架层因此不感知 crypto 与存储。
 package llm
 
@@ -24,7 +24,7 @@ type ProviderSpec struct {
 	ThinkingBudget int64
 }
 
-// 协议类型常量（与业务侧 config/llm 的字符串值一致——wire 契约）。
+// 协议类型常量（与业务侧 llmconfig 的字符串值一致——wire 契约）。
 const (
 	ProviderTypeOpenAICompat = "openai_compat"
 	ProviderTypeAnthropic    = "anthropic"

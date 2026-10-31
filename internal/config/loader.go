@@ -11,32 +11,32 @@ import (
 // Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验。
 // Load 读配置 + 应用默认 + 完整校验（含 LLM provider key 在环境变量里非空）。
 // 调 LLM 的进程（runner / api）用它。
-func Load(path string) (Config, error) { return load(path, true) }
+func Load(path string) (AppConfig, error) { return load(path, true) }
 
 // LoadWithoutLLMKeys 与 Load 同，但跳过 LLM provider key 校验。
 // 给纯 ingress 进程（cmd/proxy 仅 MITM + XADD，从不调 LLM）用——避免强塞一堆用不到的 key 才能启动。
-func LoadWithoutLLMKeys(path string) (Config, error) { return load(path, false) }
+func LoadWithoutLLMKeys(path string) (AppConfig, error) { return load(path, false) }
 
-func load(path string, requireLLMKeys bool) (Config, error) {
+func load(path string, requireLLMKeys bool) (AppConfig, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	v.SetEnvPrefix("LIUSHA")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	if err := v.ReadInConfig(); err != nil {
-		return Config{}, fmt.Errorf("read config %s: %w", path, err)
+		return AppConfig{}, fmt.Errorf("read config %s: %w", path, err)
 	}
-	var c Config
+	var c AppConfig
 	if err := v.Unmarshal(&c); err != nil {
-		return Config{}, fmt.Errorf("unmarshal config: %w", err)
+		return AppConfig{}, fmt.Errorf("unmarshal config: %w", err)
 	}
 	c.ApplyDefaults()
 	if err := validate(c); err != nil {
-		return Config{}, err
+		return AppConfig{}, err
 	}
 	if requireLLMKeys {
 		if err := validateLLMKeys(c); err != nil {
-			return Config{}, err
+			return AppConfig{}, err
 		}
 	}
 	return c, nil
@@ -49,7 +49,7 @@ func load(path string, requireLLMKeys bool) (Config, error) {
 // insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
 // 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
 // providers 一旦非空则按老规矩校验（medium 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
-func validateLLMKeys(c Config) error {
+func validateLLMKeys(c AppConfig) error {
 	if len(c.Providers) == 0 {
 		return nil
 	}

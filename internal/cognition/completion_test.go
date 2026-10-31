@@ -16,7 +16,7 @@ import (
 // CompletionDetector 是任务终止判定的唯一入口：
 // 人工中止 > 暂停冻结 > 步数上限。事件计数（steps/attempts/promoted）必须准确。
 
-func newDetector(t *testing.T, maxSteps int) (*CompletionDetector, bus.Bus) {
+func newDetector(t *testing.T, maxSteps int) (*CompletionDetector, bus.EventBus) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

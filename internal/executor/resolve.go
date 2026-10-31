@@ -24,7 +24,7 @@ func runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("web.Replayer: resolve.request 非法——%w", err)
 	}
-	res, err := httpreplay.Replay(ctx, src, httpreplay.Mods{})
+	res, err := httpreplay.Replay(ctx, src, httpreplay.Overrides{})
 	if err != nil {
 		return "", "", fmt.Errorf("web.Replayer: 准备请求重发失败: %w", err)
 	}

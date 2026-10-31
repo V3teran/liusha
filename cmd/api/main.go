@@ -19,7 +19,7 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	llmcfg "github.com/V3teran/liusha/internal/config/llm"
+	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	cfgtool "github.com/V3teran/liusha/internal/config/tool"
@@ -173,7 +173,7 @@ func main() {
 
 	// LLM 配置种子（仅首次启动）：llm_provider 空表时才把 config.yaml 的 providers:/llm.*
 	// 导入建默认路由；非空库整段跳过（DB 是运行期事实源，UI 删除不被 yaml 复活）。
-	if err := seed.ImportLLM(ctx, cfg, llmcfg.NewStore(pool)); err != nil {
+	if err := seed.ImportLLM(ctx, cfg, llmconfig.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可经模型模块 CRUD 手动补齐）")
 	}
 
@@ -187,7 +187,7 @@ func main() {
 	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 AgentAdmin cli_tools 白名单多选器
 	// 拉取候选。与 runner 同源加载；缺失非致命（仅该只读端点不注册，配置页 cli_tools 候选为空）。
 	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
-	var toolManifest *manifest.Manifest // cli 工具事实源；nil = tools.yaml 缺失（降级：仅同步 function 工具）
+	var toolManifest *manifest.ToolManifest // cli 工具事实源；nil = tools.yaml 缺失（降级：仅同步 function 工具）
 	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
 		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（工具目录仅同步内置 function 工具）")
 	} else {
@@ -212,7 +212,7 @@ func main() {
 	}
 
 	auditStore := audit.NewStore(pool)         // 0047：task abort / create 审计
-	convStore := conversation.NewStore(pool)   // 会话/消息
+	conversationStore := conversation.NewStore(pool)   // 会话/消息
 	toolStore := toolinvocation.NewStore(pool) // 会话用量合计：工具耗时来源
 
 	// 日志查看（「日志」页）：api 尾读共享日志卷上各进程的 logs/{process}.log。
@@ -234,7 +234,7 @@ func main() {
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
 		Audit:         auditStore,
-		Conversations: convStore,
+		Conversations: conversationStore,
 		Schedules:     cronStore,
 		Router:        router,
 		Findings:      findStore,
@@ -259,7 +259,7 @@ func main() {
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
 		Dispatcher:    adapter,
-		Conversations: convStore, // cron passive task 建会话流（与实时聚合路径同语义）
+		Conversations: conversationStore, // cron passive task 建会话流（与实时聚合路径同语义）
 		Logger:        logger,
 	}
 	go scheduler.Run(cronCtx)
@@ -287,7 +287,7 @@ func main() {
 			FollowUp:           adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
 			Abort:              adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
 			Deleter:            adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:            convStore,                             // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
+			Renamer:            conversationStore,                             // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
 			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
 			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
 			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
@@ -296,10 +296,10 @@ func main() {
 			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
 			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
 			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:        convStore,                             // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:      convStore,                             // 会话列表 / 消息回看
+			TrafficConv:        conversationStore,                             // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:      conversationStore,                             // 会话列表 / 消息回看
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:         convStore,                             // 会话用量：会话→task 解析
+			UsageTasks:         conversationStore,                             // 会话用量：会话→task 解析
 			UsageLLM:           invocationStore,                       // 会话用量：LLM token/耗时合计
 			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
 			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）

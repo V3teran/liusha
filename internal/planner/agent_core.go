@@ -19,8 +19,8 @@ type Agent struct {
 	taskID        string
 	agentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph         *explorationgraph.Store
-	planner       Planner
-	eventBus      bus.Bus
+	planner       GraphPlanner
+	eventBus      bus.EventBus
 	logger        zerolog.Logger
 	functionTools []string      // function_tools 白名单
 	pollInterval  time.Duration // 轮询间隔（作为兜底）
@@ -44,8 +44,8 @@ type AgentConfig struct {
 	TaskID        string
 	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph         *explorationgraph.Store
-	Planner       Planner
-	EventBus      bus.Bus
+	Planner       GraphPlanner
+	EventBus      bus.EventBus
 	Logger        zerolog.Logger
 	PollInterval  time.Duration // 默认 10s
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）

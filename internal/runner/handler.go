@@ -61,7 +61,7 @@ type Handler struct {
 	Audit         *audit.Store // 凭证库等敏感操作的 runner 侧审计（会话身份回收）
 	ToolCalls     *toolinvocation.Store
 	Skills        *skill.StoreReader // skill 渐进式加载后端（DB 事实源 + cfgstore 三级缓存）；cognition 按 agent.skills 声明建白名单视图
-	ToolsManifest *manifest.Manifest
+	ToolsManifest *manifest.ToolManifest
 
 	CfgStore *configstore.Store
 
@@ -70,7 +70,7 @@ type Handler struct {
 
 	Graph        *explorationgraph.Store
 	Checkpointer core.Checkpointer
-	EventBus     bus.Bus // 统一事件总线
+	EventBus     bus.EventBus // 统一事件总线
 	ControlPlane *controlplane.Store
 }
 
@@ -169,7 +169,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
 }
 
-func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, convID string, err error) error {
+func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, conversationID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
 	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
@@ -182,7 +182,7 @@ func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agent
 		if abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
 			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
 		} else {
-			h.appendTaskStatus(writeCtx, taskLogger, convID,
+			h.appendTaskStatus(writeCtx, taskLogger, conversationID,
 				conversation.TaskStatusFailed, "扫描执行失败",
 				map[string]any{"reason": err.Error()})
 		}

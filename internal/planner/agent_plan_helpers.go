@@ -58,7 +58,7 @@ func (a *Agent) getCompletedActionMap(ctx context.Context) (map[string]bool, err
 
 	completed := make(map[string]bool, len(states))
 	for id, state := range states {
-		if state == explorationgraph.StateDone {
+		if state == explorationgraph.StateCompleted {
 			completed[id] = true
 		}
 	}
@@ -247,7 +247,7 @@ func (a *Agent) graphFingerprint(ctx context.Context) (graphFingerprint, error) 
 	}
 	for _, st := range states {
 		switch st {
-		case explorationgraph.StateDone:
+		case explorationgraph.StateCompleted:
 			fp.done++
 		case explorationgraph.StateFailed:
 			fp.failed++

@@ -47,7 +47,7 @@ type Agent struct {
 	taskID        string
 	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	gate          *PromotionGate // 使用具体类型
-	eventBus      bus.Bus
+	eventBus      bus.EventBus
 	graph         *explorationgraph.Store // 探索图存储
 	logger        zerolog.Logger
 	maxConcurrent int
@@ -89,7 +89,7 @@ type AgentConfig struct {
 	TaskID        string
 	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Gate          *PromotionGate
-	EventBus      bus.Bus
+	EventBus      bus.EventBus
 	Graph         *explorationgraph.Store // 探索图存储
 	Logger        zerolog.Logger
 	MaxConcurrent int
@@ -550,12 +550,12 @@ func (a *Agent) downgradeWebAssertIfNeeded(obsID string, repro json.RawMessage) 
 
 	// 检查assert是否有机器可验证的字段
 	var assert struct {
-		StatusCode     *int     `json:"status_code"`
-		BodyContains   []string `json:"body_contains"`
-		BodyAbsent     []string `json:"body_not_contains"`
-		HeaderContains []string `json:"header_contains"`
-		MinDurationMs  *int     `json:"min_duration_ms"`
-		Description    string   `json:"description"` // 只有description不够
+		StatusCode      *int     `json:"status_code"`
+		BodyContains    []string `json:"body_contains"`
+		BodyNotContains []string `json:"body_not_contains"`
+		HeaderContains  []string `json:"header_contains"`
+		MinDurationMs   *int     `json:"min_duration_ms"`
+		Description     string   `json:"description"` // 只有description不够
 	}
 
 	if err := json.Unmarshal(env.Assert, &assert); err != nil {
@@ -565,7 +565,7 @@ func (a *Agent) downgradeWebAssertIfNeeded(obsID string, repro json.RawMessage) 
 	// 判断是否只有description，缺少机器可验证字段
 	hasVerifiableField := assert.StatusCode != nil ||
 		len(assert.BodyContains) > 0 ||
-		len(assert.BodyAbsent) > 0 ||
+		len(assert.BodyNotContains) > 0 ||
 		len(assert.HeaderContains) > 0 ||
 		assert.MinDurationMs != nil
 

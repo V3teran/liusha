@@ -67,11 +67,11 @@ describe('config API 客户端', () => {
   })
 
   it('listToolCandidates 仅按 kind 过滤、拆出 tools 数组', async () => {
-    const fn = mockFetch(200, { tools: [{ name: 'read_findings', kind: 'function', category: 'findings', description: 'd', sort_order: 0 }], total: 1 })
+    const fn = mockFetch(200, { tools: [{ name: 'read_insights', kind: 'function', category: 'findings', description: 'd', sort_order: 0 }], total: 1 })
     const tools = await listToolCandidates('function')
     expect(new URLSearchParams((fn.mock.calls[0][0] as string).split('?')[1]).get('kind')).toBe('function')
     expect(tools).toHaveLength(1)
-    expect(tools[0].name).toBe('read_findings')
+    expect(tools[0].name).toBe('read_insights')
   })
 
   it('getTool 打 /tools/:name 并对名字做 URL 编码', async () => {
@@ -82,9 +82,9 @@ describe('config API 客户端', () => {
 
   it('assignTool 打 PUT /tools/:name/agents/:code 带 involved', async () => {
     const fn = mockFetch(200, { code: 'recon', involved: true })
-    await assignTool('write_finding', 'recon', true)
+    await assignTool('write_insight', 'recon', true)
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/tools/write_finding/agents/recon')
+    expect(url).toBe('/api/tools/write_insight/agents/recon')
     expect(init.method).toBe('PUT')
     expect(JSON.parse(init.body).involved).toBe(true)
   })

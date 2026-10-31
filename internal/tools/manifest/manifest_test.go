@@ -3,8 +3,8 @@ package manifest
 import "testing"
 
 // fixture 覆盖多个 category，供 ByCategory / Names / FilterByNames 断言。
-func fixture() *Manifest {
-	return &Manifest{Tools: []Tool{
+func fixture() *ToolManifest {
+	return &ToolManifest{Tools: []Tool{
 		{Name: "nuclei", Category: "vulnscan"},
 		{Name: "trivy", Category: "vulnscan"},
 		{Name: "curl", Category: "utility"},

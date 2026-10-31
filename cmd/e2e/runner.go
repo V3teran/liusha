@@ -14,14 +14,14 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 
 	for _, ap := range profs {
 		// 走会话入口（POST /chat）
-		convID, taskID, err := createChatTask(apiBase, apiKey, ap.brief)
+		conversationID, taskID, err := createChatTask(apiBase, apiKey, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createChatTask: %w", ap.name, err)
 		}
 		logger.Info().
 			Str("profile", ap.name).
 			Str("task_id", taskID).
-			Str("conversation_id", convID).
+			Str("conversation_id", conversationID).
 			Int("min_objectives", ap.acceptance.MinObjectives).
 			Int("min_actions", ap.acceptance.MinActions).
 			Int("min_results", ap.acceptance.MinResults).

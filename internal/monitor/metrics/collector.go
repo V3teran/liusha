@@ -166,17 +166,17 @@ func (c *Collector) updateRatio() {
 	}
 }
 
-// GetMetrics 获取当前指标快照
-func (c *Collector) GetMetrics() Metrics {
-	return Metrics{
+// Snapshot 返回当前指标快照。
+func (c *Collector) Snapshot() Snapshot {
+	return Snapshot{
 		ActionRatePerHour:    c.actionWindow.Rate(),
 		ResultRatePerHour:    c.resultWindow.Rate(),
 		AvgResultActionRatio: c.ratioWindow.Average(),
 	}
 }
 
-// Metrics 是指标快照
-type Metrics struct {
+// Snapshot 是指标快照
+type Snapshot struct {
 	ActionRatePerHour    float64 `json:"action_rate_per_hour"`    // 每小时 action 数
 	ResultRatePerHour    float64 `json:"result_rate_per_hour"`    // 每小时 result 数
 	AvgResultActionRatio float64 `json:"avg_result_action_ratio"` // 平均 result/action 比率

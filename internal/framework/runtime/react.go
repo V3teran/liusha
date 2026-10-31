@@ -204,12 +204,12 @@ type IterationTrace struct {
 // IterationStatus 迭代状态
 type IterationStatus string
 
-// IterationStatusComplete 等枚举定义。
+// IterationStatus 枚举。
 const (
-	// IterationStatusRunning 等枚举定义。
-	IterationStatusRunning  IterationStatus = "running"
-	IterationStatusComplete IterationStatus = "complete"
-	IterationStatusFailed   IterationStatus = "failed"
+	// IterationStatus 枚举。
+	IterationStatusRunning   IterationStatus = "running"
+	IterationStatusCompleted IterationStatus = "completed"
+	IterationStatusFailed    IterationStatus = "failed"
 )
 
 // Validate 验证配置的合法性

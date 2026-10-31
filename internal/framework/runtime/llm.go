@@ -8,7 +8,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-func (r *DefaultReActRuntime) toolFailureLimit(config *ReActConfig) int {
+func (r *reactRuntime) toolFailureLimit(config *ReActConfig) int {
 	if config.MaxConsecutiveToolFailures > 0 {
 		return config.MaxConsecutiveToolFailures
 	}
@@ -16,7 +16,7 @@ func (r *DefaultReActRuntime) toolFailureLimit(config *ReActConfig) int {
 }
 
 // callLLM 调用 LLM
-func (r *DefaultReActRuntime) callLLM(
+func (r *reactRuntime) callLLM(
 	ctx context.Context,
 	config *ReActConfig,
 	messageHistory []llm.Message,
@@ -77,7 +77,7 @@ type llmResponse struct {
 }
 
 // convertToolsToLLMFormat 转换工具为 LLM 格式
-func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
+func (r *reactRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -97,7 +97,7 @@ func (r *DefaultReActRuntime) convertToolsToLLMFormat() []llm.ToolSchema {
 // OnThoughtDelta / OnThinkingDelta（双通道分流），聚合口径与非流式一致
 // （framework CollectStream 单一事实源）。Provider 无流式能力时降级 Complete
 // （该轮无增量回调，整段思考经 llmResponse.Thinking 随终稿到达）。
-func (r *DefaultReActRuntime) callLLMStreaming(
+func (r *reactRuntime) callLLMStreaming(
 	ctx context.Context,
 	config *ReActConfig,
 	request llm.Request,

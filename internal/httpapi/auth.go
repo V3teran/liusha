@@ -39,7 +39,7 @@ func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
 			return
 		}
 		// SSE stream：EventSource 不能带 header，改用 liusha_stream cookie 鉴权。
-		// 仅此路径接受 cookie；cookie 绑 convID，须与 URL param 一致。
+		// 仅此路径接受 cookie；cookie 绑 conversationID，须与 URL param 一致。
 		// 用后缀匹配：路由挂在 /api 组下，FullPath 实为 /api/conversations/:id/stream——
 		// 精确比较漏掉组前缀，cookie 旁路成死代码，EventSource（无法带 header）永远 401。
 		if strings.HasSuffix(fp, "/conversations/:id/stream") && len(streamSecret) > 0 {

@@ -30,14 +30,14 @@ func TestPubSub_RoundTrip(t *testing.T) {
 		t.Skipf("redis 不可达（%s），跳过：%v", addr, err)
 	}
 
-	const convID = "test-conv-roundtrip"
-	sub := convstream.Subscribe(ctx, rdb, convID)
+	const conversationID = "test-conv-roundtrip"
+	sub := convstream.Subscribe(ctx, rdb, conversationID)
 	defer sub.Close()
 	// 等订阅就绪（go-redis 异步建立订阅，过早 publish 会丢）。
 	time.Sleep(200 * time.Millisecond)
 
 	pub := convstream.NewPublisher(rdb)
-	if err := pub.Publish(ctx, convID, []byte("事件1")); err != nil {
+	if err := pub.Publish(ctx, conversationID, []byte("事件1")); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 
@@ -52,6 +52,6 @@ func TestPubSub_RoundTrip(t *testing.T) {
 
 	// 空 conversationID 静默跳过（不报错）。
 	if err := pub.Publish(ctx, "", []byte("x")); err != nil {
-		t.Errorf("空 convID 应静默跳过，得错误 %v", err)
+		t.Errorf("空 conversationID 应静默跳过，得错误 %v", err)
 	}
 }

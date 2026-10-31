@@ -81,7 +81,7 @@ func (r *Scheduler) fireDue(ctx context.Context) {
 // 展开失败的单个 item 不回滚已建的 assignment/其余 item（与 API 单发路径"前面失败直接返错，
 // 不留中间状态"不同——这里是批量+定时场景，部分失败不该拖累整批，失败的 item 记 Warn 跳过，
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
-func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.CronSchedule) error {
+func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) error {
 	var items []assignment.Item
 	var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
@@ -171,20 +171,20 @@ func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
 	// PassiveBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
 	// 本次不绑会话，不影响分析主链路。
-	convID := ""
+	conversationID := ""
 	if r.Conversations != nil {
-		conv, convErr := r.Conversations.CreateConversation(ctx, host, tk.ID)
-		if convErr != nil {
-			taskLogger.Warn().Err(convErr).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
+		created, conversationErr := r.Conversations.CreateConversation(ctx, host, tk.ID)
+		if conversationErr != nil {
+			taskLogger.Warn().Err(conversationErr).Msg("cron passive task 建会话流失败（降级：本次不绑会话）")
 		} else {
-			convID = conv.ID
+			conversationID = created.ID
 			if traffic, listErr := r.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
 				scheme := "http"
 				if traffic[0].Scheme != "" {
 					scheme = traffic[0].Scheme
 				}
-				if _, msgErr := r.Conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
-					taskLogger.Warn().Err(msgErr).Str("conv", conv.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
+				if _, msgErr := r.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ingestor.PassiveBrief(scheme, host, traffic), nil); msgErr != nil {
+					taskLogger.Warn().Err(msgErr).Str("conv", created.ID).Msg("写 cron passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 				}
 			}
 		}
@@ -202,7 +202,7 @@ func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	if _, _, err := r.Enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     hid,
 		TaskID:         tk.ID,
-		ConversationID: convID,
+		ConversationID: conversationID,
 		Input:          payloadInput,
 		TaskRole:       worker.RoleAgent,
 	}); err != nil {

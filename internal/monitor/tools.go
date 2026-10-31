@@ -92,7 +92,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Actions:        allActions,
 		Results:        findings,
 		RunningActions: t.runningActionViews(allActions, time.Now()),
-		Metrics:        t.metricsCollector.GetMetrics(),
+		Metrics:        t.metricsCollector.Snapshot(),
 	}
 
 	// 序列化为 JSON
@@ -149,13 +149,13 @@ func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node,
 type PublishDecisionTool struct {
 	registry.BaseTool
 	graph    *explorationgraph.Store
-	eventBus bus.Bus // P2：需要 eventBus 发布 replan 事件
+	eventBus bus.EventBus // P2：需要 eventBus 发布 replan 事件
 	taskID   string
 }
 
 // NewPublishDecisionTool 构造决策发布工具。
 // P2：添加 eventBus 参数以支持 request_replan 事件发布
-func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.Bus, taskID string) *PublishDecisionTool {
+func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.EventBus, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
 		graph:    graph,
 		eventBus: eventBus,

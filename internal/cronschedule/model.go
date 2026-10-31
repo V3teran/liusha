@@ -10,8 +10,8 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 )
 
-// CronSchedule 是 cron_schedule 表行的 Go 表示。
-type CronSchedule struct {
+// Schedule 是 cron_schedule 表行的 Go 表示。
+type Schedule struct {
 	ID          string
 	CronExpr    string // 标准 5 段 cron（分 时 日 月 周）
 	Payload     []byte // jsonb 原文（[]assignment.Item 的序列化，触发时克隆进新 assignment）

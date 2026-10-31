@@ -39,7 +39,7 @@ import (
 // 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
 	CreateConversation(ctx context.Context, title, taskID string) (conversation.Conversation, error)
-	AppendMessage(ctx context.Context, convID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
+	AppendMessage(ctx context.Context, conversationID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
 }
 
 // internalQueueSize 是进程内 internal 流量队列容量。
@@ -405,7 +405,7 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	if err != nil {
 		taskLogger.Warn().Err(err).Msg("取已认领流量清单失败（首条说明降级为无明细）")
 	}
-	convID := t.ensureConversation(ctx, taskLogger, tk.ID, host, claimedTraffic)
+	conversationID := t.ensureConversation(ctx, taskLogger, tk.ID, host, claimedTraffic)
 	// 下发 brief 用完整任务说明（scheme://host + 流量清单 + 工具指引），而非裸 host：
 	// runner onboard 靠 brief 里的 URL 抽取 host（hostRe 要求带协议头）建探索图 Objective，
 	// agent 的目标上下文也来自它——裸 host 曾让两者全空，被动分析失去方向。
@@ -413,12 +413,12 @@ func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
 		scheme = claimedTraffic[0].Scheme
 	}
-	convLogger := taskLogger.With().Str("conv", convID).Logger()
-	if err := t.enqueuePassive(ctx, tk.ID, convID, PassiveBrief(scheme, host, claimedTraffic)); err != nil {
-		convLogger.Warn().Err(err).Msg("passive task 入队失败")
+	conversationLogger := taskLogger.With().Str("conversation_id", conversationID).Logger()
+	if err := t.enqueuePassive(ctx, tk.ID, conversationID, PassiveBrief(scheme, host, claimedTraffic)); err != nil {
+		conversationLogger.Warn().Err(err).Msg("passive task 入队失败")
 		return
 	}
-	convLogger.Info().
+	conversationLogger.Info().
 		Str("host", host).Int64("traffic", claimed).
 		Msg("passive task 已建并入 executor 队列")
 }
@@ -477,7 +477,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 	if t.conversations == nil {
 		return ""
 	}
-	conv, err := t.conversations.CreateConversation(ctx, host, taskID)
+	created, err := t.conversations.CreateConversation(ctx, host, taskID)
 	if err != nil {
 		taskLogger.Warn().Err(err).Str("host", host).Msg("建 passive task 会话流失败（降级：本次不绑会话）")
 		return ""
@@ -488,10 +488,10 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
 		briefScheme = trafficList[0].Scheme
 	}
-	if _, err := t.conversations.AppendMessage(ctx, conv.ID, conversation.RoleUser, conversation.KindMessage, PassiveBrief(briefScheme, host, trafficList), nil); err != nil {
-		taskLogger.Warn().Err(err).Str("conv", conv.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
+	if _, err := t.conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, PassiveBrief(briefScheme, host, trafficList), nil); err != nil {
+		taskLogger.Warn().Err(err).Str("conversation_id", created.ID).Msg("写 passive 任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
-	return conv.ID
+	return created.ID
 }
 
 // passiveBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
@@ -518,7 +518,7 @@ func PassiveBrief(scheme, host string, trafficList []traffic.ProxyTraffic) strin
 	return b.String()
 }
 
-func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, brief string) error {
+func (t *Traffic) enqueuePassive(ctx context.Context, taskID, conversationID, brief string) error {
 	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，由 spawnPassiveTask
 	// 合成完整任务说明（scheme://host + 流量清单 + 工具指引）——runner onboard 据此抽
 	// host 建探索图 Objective，agent 目标上下文同源。
@@ -534,7 +534,7 @@ func (t *Traffic) enqueuePassive(ctx context.Context, taskID, convID, brief stri
 	if _, _, err := t.enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     hid,
 		TaskID:         taskID,
-		ConversationID: convID,
+		ConversationID: conversationID,
 		Input:          payloadInput,
 		TaskRole:       worker.RoleAgent,
 	}); err != nil {

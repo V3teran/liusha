@@ -26,13 +26,13 @@ func TestRequireAPIKey_StreamCookieBypass(t *testing.T) {
 		t.Errorf("合法 cookie 应放行，得 %d", w.Code)
 	}
 
-	// 错 convID 的 cookie + 无 header → 401
+	// 错 conversationID 的 cookie + 无 header → 401
 	req2 := httptest.NewRequest("GET", "/conversations/conv-2/stream", nil)
 	req2.AddCookie(&http.Cookie{Name: streamCookieName, Value: tok}) // #nosec G124 // 测试请求，非真实 Set-Cookie；tok 绑 conv-1
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != 401 {
-		t.Errorf("convID 不匹配的 cookie 应 401，得 %d", w2.Code)
+		t.Errorf("conversationID 不匹配的 cookie 应 401，得 %d", w2.Code)
 	}
 
 	// 无 cookie 无 header → 401

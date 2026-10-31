@@ -10,10 +10,10 @@ func strptr(s string) *string { return &s }
 
 func TestApplyQueryMods(t *testing.T) {
 	cases := []struct {
-		name, in string
-		mods     map[string]*string
-		want     map[string]string // 期望的 query 键值（按解析后比对，避免编码顺序）
-		gone     []string          // 期望已删除的键
+		name, in  string
+		overrides map[string]*string
+		want      map[string]string // 期望的 query 键值（按解析后比对，避免编码顺序）
+		gone      []string          // 期望已删除的键
 	}{
 		{"新增参数", "http://h/p?a=1", map[string]*string{"b": strptr("2")},
 			map[string]string{"a": "1", "b": "2"}, nil},
@@ -24,7 +24,7 @@ func TestApplyQueryMods(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := applyQueryMods(c.in, c.mods)
+			got, err := applyQueryOverrides(c.in, c.overrides)
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -46,7 +46,7 @@ func TestApplyQueryMods(t *testing.T) {
 
 func TestApplyBodyFieldMods(t *testing.T) {
 	t.Run("form 改字段", func(t *testing.T) {
-		got, err := applyBodyFieldMods([]byte("a=1&b=2"), "application/x-www-form-urlencoded",
+		got, err := applyBodyFieldOverrides([]byte("a=1&b=2"), "application/x-www-form-urlencoded",
 			map[string]*string{"a": strptr("9")})
 		if err != nil {
 			t.Fatal(err)
@@ -58,7 +58,7 @@ func TestApplyBodyFieldMods(t *testing.T) {
 	})
 
 	t.Run("form 删字段（测未授权）", func(t *testing.T) {
-		got, err := applyBodyFieldMods([]byte("user=bob&csrf=tok"), "application/x-www-form-urlencoded",
+		got, err := applyBodyFieldOverrides([]byte("user=bob&csrf=tok"), "application/x-www-form-urlencoded",
 			map[string]*string{"csrf": nil})
 		if err != nil {
 			t.Fatal(err)
@@ -70,7 +70,7 @@ func TestApplyBodyFieldMods(t *testing.T) {
 	})
 
 	t.Run("JSON 改字段保留数字类型", func(t *testing.T) {
-		got, err := applyBodyFieldMods([]byte(`{"id":1,"name":"x"}`), "application/json",
+		got, err := applyBodyFieldOverrides([]byte(`{"id":1,"name":"x"}`), "application/json",
 			map[string]*string{"id": strptr("5")})
 		if err != nil {
 			t.Fatal(err)
@@ -82,7 +82,7 @@ func TestApplyBodyFieldMods(t *testing.T) {
 	})
 
 	t.Run("JSON 非法 JSON 值当字符串", func(t *testing.T) {
-		got, err := applyBodyFieldMods([]byte(`{"role":"user"}`), "application/json",
+		got, err := applyBodyFieldOverrides([]byte(`{"role":"user"}`), "application/json",
 			map[string]*string{"role": strptr("admin")})
 		if err != nil {
 			t.Fatal(err)
@@ -93,7 +93,7 @@ func TestApplyBodyFieldMods(t *testing.T) {
 	})
 
 	t.Run("不支持的 content-type 报错", func(t *testing.T) {
-		_, err := applyBodyFieldMods([]byte("<x/>"), "text/xml",
+		_, err := applyBodyFieldOverrides([]byte("<x/>"), "text/xml",
 			map[string]*string{"a": strptr("1")})
 		if err == nil {
 			t.Error("text/xml 应报错让 LLM 改用整体 body 替换")

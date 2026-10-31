@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
-import { buildEvaluationItems, EV_LABELS } from '@/lib/findingEvaluation'
+import { buildEvaluationItems, EVALUATION_LABELS } from '@/lib/findingEvaluation'
 
 interface FindingDrawerProps {
   open: boolean
@@ -174,7 +174,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       <div key={item.key} className="rounded-lg border border-border bg-surface-2 p-4">
                         <div className="mb-2 flex items-center justify-between">
                           <span className="text-sm font-medium text-text">
-                            {EV_LABELS[item.key] || item.key}
+                            {EVALUATION_LABELS[item.key] || item.key}
                           </span>
                           {/* code/json 都是可复制原文的代码块（text 是叙述，不设复制） */}
                           {item.kind !== 'text' && (

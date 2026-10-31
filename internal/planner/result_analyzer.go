@@ -74,7 +74,7 @@ func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 	}
 
 	// 转换 ContinuationActions
-	for _, action := range response.ContinuationActions {
+	for _, action := range response.NewActions {
 		analysis.ContinuationActions = append(analysis.ContinuationActions, ContinuationAction{
 			Instruction: action.Instruction,
 			Priority:    explorationgraph.NormalizePriority(action.Priority),
@@ -86,7 +86,7 @@ func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 	i.logger.Info().
 		Bool("completed", analysis.Completed).
 		Int("new_objectives", len(analysis.NewObjectives)).
-		Int("new_actions", len(analysis.ContinuationActions)).
+		Int("continuation_actions", len(analysis.ContinuationActions)).
 		Msg("Result 分析完成")
 
 	return analysis, nil
@@ -122,11 +122,11 @@ func (i *Engine) buildAnalysisPrompt(currentObjective explorationgraph.Node, res
 
 // AnalysisResponse 是 LLM 的分析响应
 type AnalysisResponse struct {
-	Completed           bool                `json:"completed"`
-	EvidenceIDs         []string            `json:"evidence_ids"`
-	Reasoning           string              `json:"reasoning"`
-	NewObjectives       []AnalysisObjective `json:"new_objectives"`
-	ContinuationActions []AnalysisAction    `json:"new_actions"`
+	Completed     bool                `json:"completed"`
+	EvidenceIDs   []string            `json:"evidence_ids"`
+	Reasoning     string              `json:"reasoning"`
+	NewObjectives []AnalysisObjective `json:"new_objectives"`
+	NewActions    []AnalysisAction    `json:"new_actions"`
 }
 
 // AnalysisObjective 是 AnalyzeResults 提议的新目标。

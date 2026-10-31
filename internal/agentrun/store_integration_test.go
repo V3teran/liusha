@@ -65,7 +65,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get done: %v", err)
 	}
-	if got.Status != StatusDone {
+	if got.Status != StatusCompleted {
 		t.Fatalf("最终 status 应为 done, got %s", got.Status)
 	}
 	var payload map[string]any

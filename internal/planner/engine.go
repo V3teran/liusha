@@ -330,7 +330,7 @@ func (i *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			continue
 		}
 		switch *action.State {
-		case explorationgraph.StateDone:
+		case explorationgraph.StateCompleted:
 			planCtx.CompletedActions = append(planCtx.CompletedActions, action)
 		case explorationgraph.StateOpen, explorationgraph.StateRunning:
 			planCtx.PendingActions = append(planCtx.PendingActions, action)

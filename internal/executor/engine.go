@@ -239,7 +239,7 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 
 // renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt。
 // 使用 manifest.Categories 的顺序和名称，避免硬编码。
-func renderCLICatalog(categoryMap map[string][]manifest.Tool, m *manifest.Manifest) string {
+func renderCLICatalog(categoryMap map[string][]manifest.Tool, m *manifest.ToolManifest) string {
 	var b strings.Builder
 	b.WriteString("**沙箱预装工具清单**（通过 run_command 调用）:\n")
 

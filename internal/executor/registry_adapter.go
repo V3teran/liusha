@@ -4,14 +4,14 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// Registry 是 executor 包对 registry.Registry 的薄封装
+// Registry 是 executor 包对 registry.ToolRegistry 的薄封装
 // 用于在 Engine 中统一管理工具注册
 type Registry struct {
-	inner *registry.Registry
+	inner *registry.ToolRegistry
 }
 
 // NewRegistry 创建工具注册表
-func NewRegistry(inner *registry.Registry) *Registry {
+func NewRegistry(inner *registry.ToolRegistry) *Registry {
 	return &Registry{inner: inner}
 }
 

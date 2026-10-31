@@ -52,21 +52,21 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 }
 
 type fakeFollowUp struct {
-	convID       string
-	calledBrief  string
-	handleIntent string
-	handleBusy   bool
+	conversationID string
+	calledBrief    string
+	handleIntent   string
+	handleBusy     bool
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, convID, content string) (string, bool, error) {
-	f.convID = convID
+func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string) (string, bool, error) {
+	f.conversationID = conversationID
 	f.calledBrief = content
 	return f.handleIntent, f.handleBusy, nil
 }
 
 func TestFollowUpHandler_QA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", handleIntent: "qa"}
+	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "qa"}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"解释下那个洞"}`))
@@ -80,7 +80,7 @@ func TestFollowUpHandler_QA(t *testing.T) {
 
 func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", handleIntent: "action", handleBusy: false}
+	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "action", handleBusy: false}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
@@ -94,7 +94,7 @@ func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
 
 func TestFollowUpHandler_ActionBusy_409(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{convID: "c1", handleIntent: "action", handleBusy: true}
+	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "action", handleBusy: true}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
@@ -108,16 +108,16 @@ func TestFollowUpHandler_ActionBusy_409(t *testing.T) {
 
 type abortFn func(context.Context, string) error
 
-func (f abortFn) AbortConversationTask(ctx context.Context, convID string) error {
-	return f(ctx, convID)
+func (f abortFn) AbortConversationTask(ctx context.Context, conversationID string) error {
+	return f(ctx, conversationID)
 }
 
 func TestAbortHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	called := ""
 	r := gin.New()
-	r.POST("/conversations/:id/abort", abortConversationHandler(abortFn(func(_ context.Context, convID string) error {
-		called = convID
+	r.POST("/conversations/:id/abort", abortConversationHandler(abortFn(func(_ context.Context, conversationID string) error {
+		called = conversationID
 		return nil
 	})))
 	req := httptest.NewRequest("POST", "/conversations/c1/abort", nil)

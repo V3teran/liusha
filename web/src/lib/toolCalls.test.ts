@@ -38,9 +38,9 @@ describe('toToolCalls', () => {
   })
 
   test('单个 function_call（非数组）也归一成数组', () => {
-    const calls = toToolCalls({ name: 'read_findings', arguments: '{}' })
+    const calls = toToolCalls({ name: 'read_insights', arguments: '{}' })
     expect(calls).toHaveLength(1)
-    expect(calls[0].name).toBe('read_findings')
+    expect(calls[0].name).toBe('read_insights')
     expect(calls[0].args).toBe('')
   })
 
@@ -59,8 +59,8 @@ describe('toToolCalls', () => {
     const calls = toToolCalls([
       { id: 'a', function: { name: 'run_command', arguments: '{}' } },
       { id: 'b', function: { name: 'run_command', arguments: '{}' } },
-      { id: 'c', function: { name: 'write_finding', arguments: '{}' } },
+      { id: 'c', function: { name: 'write_insight', arguments: '{}' } },
     ])
-    expect(calls.map((c) => c.name)).toEqual(['run_command', 'run_command', 'write_finding'])
+    expect(calls.map((c) => c.name)).toEqual(['run_command', 'run_command', 'write_insight'])
   })
 })

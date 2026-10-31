@@ -7,7 +7,7 @@ import (
 )
 
 // ApplyDefaults 把零值配置项填为默认值（进程启动装配前调用一次）。
-func (c *Config) ApplyDefaults() {
+func (c *AppConfig) ApplyDefaults() {
 	c.API = applyAPIDefaults(c.API)
 	c.Postgres = applyPostgresDefaults(c.Postgres)
 	c.Redis = applyRedisDefaults(c.Redis)
@@ -266,7 +266,7 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 
 // validate 校验 provider schema 完整性（supports_vision / context_window 必填）——
 // 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
-func validate(c Config) error {
+func validate(c AppConfig) error {
 	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
 	// 设计原则：caller（runtime / openai_compat）路由含图 message 时依赖此 flag，
 	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，

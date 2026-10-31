@@ -8,7 +8,7 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-func (r *DefaultReActRuntime) parseLLMResponse(response llm.Response) (*llmResponse, error) {
+func (r *reactRuntime) parseLLMResponse(response llm.Response) (*llmResponse, error) {
 	result := &llmResponse{
 		Content:   response.Content,
 		ToolCalls: response.ToolCalls,
@@ -30,7 +30,7 @@ func thinkingText(t *llm.ThinkingBlock) string {
 // executeTool 执行工具。failed 区分「结果性失败」（ErrorMask 语义：错误经
 // ToolResult.Error 传递、err 为 nil——连续失败止损的计数依据，此前只看 err
 // 导致生产链路永不计数、止损恒死）与成功。
-func (r *DefaultReActRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (observation string, failed bool, err error) {
+func (r *reactRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (observation string, failed bool, err error) {
 	r.mu.RLock()
 	tool, exists := r.tools[toolCall.Name]
 	r.mu.RUnlock()

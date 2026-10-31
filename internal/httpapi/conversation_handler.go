@@ -35,7 +35,7 @@ var sseLog = logx.New("httpapi.sse")
 // SSE 认证：当前走标准 X-API-Key header（curl/fetch 可带）。前端 EventSource 不能带自定义
 // header——阶段D 前端用 fetch+ReadableStream 或 query-param token 解决，此处不动认证。
 
-// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 convID）。
+// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 conversationID）。
 type ChatAPI interface {
 	StartChatTask(ctx context.Context, brief string) (conversationID, taskID string, err error)
 }
@@ -44,7 +44,7 @@ type ChatAPI interface {
 type ConversationsAPI interface {
 	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
 	CountConversations(ctx context.Context, source string) (int, error)
-	ListMessages(ctx context.Context, convID string, afterSeq int64, limit int) ([]conversation.Message, error)
+	ListMessages(ctx context.Context, conversationID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
 // EventSubscription 是一次会话事件订阅（cmd/api 用 convstream.Subscription 适配）。
@@ -81,13 +81,13 @@ func chatHandler(api ChatAPI, streamSecret []byte, secure bool) gin.HandlerFunc 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		convID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief)
+		conversationID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		setStreamCookie(c, streamSecret, convID, secure)
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: convID, TaskID: taskID})
+		setStreamCookie(c, streamSecret, conversationID, secure)
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: conversationID, TaskID: taskID})
 	}
 }
 
@@ -101,11 +101,11 @@ const streamCookieTTLSeconds = 30 * 60
 // path="/conversations" 会让浏览器视角的 /api/conversations 不匹配 → SSE 不带 cookie → 鉴权失败。
 // stream cookie 是 HttpOnly 签名 token，仅 SSE handler 校验，发到其他端点被忽略，path="/" 无害。
 // secure 由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入（dev http 设 false 也能种，prod https 应 true）。
-func setStreamCookie(c *gin.Context, streamSecret []byte, convID string, secure bool) {
-	if len(streamSecret) == 0 || convID == "" {
+func setStreamCookie(c *gin.Context, streamSecret []byte, conversationID string, secure bool) {
+	if len(streamSecret) == 0 || conversationID == "" {
 		return
 	}
-	tok := signStreamToken(streamSecret, convID, time.Now().Add(streamCookieTTLSeconds*time.Second))
+	tok := signStreamToken(streamSecret, conversationID, time.Now().Add(streamCookieTTLSeconds*time.Second))
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(streamCookieName, tok, streamCookieTTLSeconds, "/", "", secure, true)
 }
@@ -135,7 +135,7 @@ func streamAuthHandler(streamSecret []byte, secure bool) gin.HandlerFunc {
 // intent 固定返回 "accepted"（busy 恒 false——扫描进行中收到 action 指令时服务端往
 // 时间线落提示消息，不再 409）。返回后前端拉增量补进时间线，回答/扫描进展经 SSE 流出。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, convID, content string) (intent string, busy bool, err error)
+	HandleMessage(ctx context.Context, conversationID, content string) (intent string, busy bool, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
@@ -145,13 +145,13 @@ type FollowUpRequest struct {
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convID := c.Param("id")
+		conversationID := c.Param("id")
 		var req FollowUpRequest
 		if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), convID, req.Content)
+		intent, busy, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -166,7 +166,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 
 // AbortAPI 停止会话关联扫描（cmd/api 注入）。
 type AbortAPI interface {
-	AbortConversationTask(ctx context.Context, convID string) error
+	AbortConversationTask(ctx context.Context, conversationID string) error
 }
 
 // abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的运行中 task。
@@ -266,8 +266,8 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 // messagesHandler 处理 GET /conversations/:id/messages：回看（after_seq 增量）。
 func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convID := c.Param("id")
-		msgs, err := api.ListMessages(c.Request.Context(), convID, parseAfterSeq(c), parseLimit(c, 500))
+		conversationID := c.Param("id")
+		msgs, err := api.ListMessages(c.Request.Context(), conversationID, parseAfterSeq(c), parseLimit(c, 500))
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -287,33 +287,33 @@ func messagesHandler(api ConversationsAPI) gin.HandlerFunc {
 // seq 单调，天然去重补历史与实时的重叠部分；断线重连带 Last-Event-ID / after_seq 续读。
 func streamHandler(convs ConversationsAPI, stream EventStream) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		convID := c.Param("id")
+		conversationID := c.Param("id")
 		ctx := c.Request.Context()
 		afterSeq := parseAfterSeq(c)
-		sseLog.Info().Str("conv", convID).Int64("after_seq", afterSeq).Msg("SSE 连接建立")
+		sseLog.Info().Str("conv", conversationID).Int64("after_seq", afterSeq).Msg("SSE 连接建立")
 
 		// 1. 设置 SSE 响应头
 		setupSSEHeaders(c)
 
 		// 2. 验证 Flusher 支持
-		flusher, ok := validateFlusher(c, convID)
+		flusher, ok := validateFlusher(c, conversationID)
 		if !ok {
 			return
 		}
 
 		// 3. 订阅实时事件（先订阅，避免补历史与订阅之间漏事件）
-		sub := stream.Subscribe(ctx, convID)
+		sub := stream.Subscribe(ctx, conversationID)
 		defer func() { _ = sub.Close() }()
-		sseLog.Debug().Str("conv", convID).Msg("SSE: 已订阅 redis channel")
+		sseLog.Debug().Str("conv", conversationID).Msg("SSE: 已订阅 redis channel")
 
 		// 4. 补发历史消息
-		lastSeq, err := replayHistory(ctx, c, convs, convID, afterSeq, flusher)
+		lastSeq, err := replayHistory(ctx, c, convs, conversationID, afterSeq, flusher)
 		if err != nil {
 			return
 		}
 
 		// 5. 实时转发事件流
-		forwardRealtimeEvents(ctx, c, sub, convID, lastSeq, flusher)
+		forwardRealtimeEvents(ctx, c, sub, conversationID, lastSeq, flusher)
 	}
 }
 

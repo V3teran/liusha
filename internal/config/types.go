@@ -8,8 +8,8 @@
 //     AutomaticEnv 不覆盖单个 map key，改档位 provider 走 yaml 或前端「能力分档」页
 package config
 
-// Config 是 liusha 顶层配置树。
-type Config struct {
+// AppConfig 是 liusha 顶层配置树。
+type AppConfig struct {
 	API        APIConfig                 `mapstructure:"api"`
 	Postgres   PostgresConfig            `mapstructure:"postgres"`
 	Redis      RedisConfig               `mapstructure:"redis"`
