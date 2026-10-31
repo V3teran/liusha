@@ -163,7 +163,7 @@ while [ $SECONDS -lt $deadline ]; do
     [ "$vulnapp_ok" -eq 1 ] || echo "  ⚠ 靶机 :8001 未起（cd ../vulnapp && go run .）——passive e2e 将无目标"
     echo "  ✓ 3 service 全部 healthy"
     echo ""
-    echo "  📊 前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
+    echo "  📊 前端：web/（本仓）→ make run-web（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
     echo "     task_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
     echo "         \"SELECT DISTINCT task_id FROM finding ORDER BY task_id;\""
@@ -194,7 +194,7 @@ if [ $RC -eq 0 ]; then
   echo "🎉 e2e PASS"
   echo ""
   echo "📊 看图："
-  echo "  前端：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"
+  echo "  前端：web/（本仓）→ make run-web（/api 代理到本 api）"
   echo "  task 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "      \"SELECT id, mode, target_host, brief, status FROM task ORDER BY created_at DESC;\""
@@ -208,7 +208,7 @@ else
   echo "    1. logs/runner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "       'SELECT kind,severity,confidence,title FROM finding ORDER BY created_at DESC;'"
-  echo "    3. 前端看图：liusha-ui 独立仓 → pnpm dev（/api 代理到本 api）"
+  echo "    3. 前端看图：web/（本仓）→ make run-web（/api 代理到本 api）"
 fi
 
 exit $RC

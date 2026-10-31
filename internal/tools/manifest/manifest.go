@@ -2,7 +2,7 @@
 //
 // 设计哲学：**工具是否存在于沙箱**与**工具是否有详细手册**独立。
 //   - 本 ToolManifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
-//   - skills/tooling/<name>/SKILL.md 是"是否有详细手册"——独立可选
+//   - skills/tool/<name>/SKILL.md 是"是否有详细手册"——独立可选
 //
 // agent 在每个 turn 把本 ToolManifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
 // LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
