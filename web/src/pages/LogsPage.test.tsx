@@ -3,11 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import { LogsPage } from '@/features/logs/LogsPage'
-import { listLogProcesses, readLogs } from '@/api/client'
+import { LogsPage } from '@/pages/LogsPage'
+import { listLogProcesses, readLogs } from '@/api/logs'
 import type { LogEntry, LogFilters, LogProcessInfo, LogReadResponse } from '@/api/types'
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/logs', () => ({
   listLogProcesses: vi.fn(),
   readLogs: vi.fn(),
 }))

@@ -47,7 +47,6 @@ export default defineConfig({
         'src/router.tsx',
         'src/test-setup.ts',
         'src/components/ui/**',
-        'src/vite-env.d.ts',
       ],
     },
   },
