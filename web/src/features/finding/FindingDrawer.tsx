@@ -204,29 +204,6 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </section>
               )}
 
-              {/* 关联漏洞（组合漏洞依赖链） */}
-              {finding.depends_on && finding.depends_on.length > 0 && (
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold text-text">关联漏洞</h3>
-                  <div className="rounded-lg border border-border bg-surface-2 p-4">
-                    <p className="mb-3 text-xs text-text-tertiary">
-                      本漏洞依赖于以下漏洞组合而成：
-                    </p>
-                    <div className="space-y-2">
-                      {finding.depends_on.map((depId) => (
-                        <div
-                          key={depId}
-                          className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
-                        >
-                          <span className="font-mono text-xs text-text-tertiary">→</span>
-                          <span className="font-mono text-text">{depId}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-              )}
-
               {/* 处置区域 */}
               <section>
                 <h3 className="mb-3 text-sm font-semibold text-text">漏洞处置</h3>

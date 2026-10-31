@@ -37,7 +37,6 @@ type State = core.ActionState
 // 状态常量：实体定义在 core，经别名提升为领域 API（下游 115 处引用）
 const (
 	StateOpen      = core.ActionStateOpen
-	StateBlocked   = core.ActionStateBlocked
 	StateRunning   = core.ActionStateRunning
 	StateCompleted = core.ActionStateCompleted
 	StateFailed    = core.ActionStateFailed
@@ -45,16 +44,16 @@ const (
 	StateAborted   = core.ActionStateAborted
 )
 
-// Complexity 是 action 的复杂度（对标 PDDL 的 cost）
+// Complexity 是 action 的复杂度（planner 提案 → executor 提示词的可读分档；
+// 模型档位路由不读本值——LLM 档位由 agent.complexity 决定）。
 type Complexity string
 
-// 复杂度分档：决定 ReAct 迭代上限与模型档位。
+// 复杂度三档：与 planner 输出契约（simple|moderate|complex）严格一致；
+// LLM 给出的同义词（trivial/medium/extreme）在 NormalizeComplexity 归一。
 const (
-	ComplexityTrivial  Complexity = "trivial"  // 平凡（最简单）
 	ComplexitySimple   Complexity = "simple"   // 简单
 	ComplexityModerate Complexity = "moderate" // 中等
 	ComplexityComplex  Complexity = "complex"  // 复杂
-	ComplexityExtreme  Complexity = "extreme"  // 极端（最难）
 )
 
 // Confidence 是 observation/result 的置信度（类型别名，指向 core.ObservationConfidence）
@@ -82,16 +81,16 @@ const (
 // Relation 是边的关系类型（3 种，小写字面量即存储值）
 type Relation string
 
-// 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致，migration 0174 收紧）：
+// 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致）：
 // generates 是贯穿推导链的"产出"关系：
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
 // triggers 是"发现滋生动作/新方向"的因果溯源（result → objective/action）——
 // 攻击链（漏洞A 催生后续动作进而产出漏洞B）沿边可回溯。
-// depends_on 是动作间执行依赖（DAG 调度）。
+// 动作间执行依赖（DAG 调度）不走边——落在 action 节点的 metadata.depends_on，
+// 由 CanExecute 直接消费（依赖集随节点原子读写，无需二次 Join）。
 const (
-	RelGenerates Relation = "generates"  // 上游产出下游（推导链）
-	RelDependsOn Relation = "depends_on" // action → action（依赖）
-	RelTriggers  Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
+	RelGenerates Relation = "generates" // 上游产出下游（推导链）
+	RelTriggers  Relation = "triggers"  // result → objective/action（发现滋生动作/新方向）
 )
 
 // SourceType 是节点的来源类型
@@ -103,7 +102,6 @@ const (
 	SourcePlanner   SourceType = "planner"   // planner agent 创建
 	SourceExecutor  SourceType = "executor"  // executor 创建
 	SourceEvaluator SourceType = "evaluator" // evaluator 创建
-	SourceSystem    SourceType = "system"    // 系统创建
 )
 
 // Node 是探索图的节点（5 种类型统一表）
@@ -134,12 +132,11 @@ type Node struct {
 
 // Edge 是探索图的关系边（5 种关系）
 type Edge struct {
-	TaskID    string          `json:"task_id"`
-	SrcID     string          `json:"src_id"`
-	Rel       Relation        `json:"rel"`
-	DstID     string          `json:"dst_id"`
-	Attrs     json.RawMessage `json:"attrs,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	TaskID    string    `json:"task_id"`
+	SrcID     string    `json:"src_id"`
+	Rel       Relation  `json:"rel"`
+	DstID     string    `json:"dst_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // VerifyOutcome 是验证结果
@@ -225,17 +222,14 @@ func NormalizePriority(s string) Priority {
 }
 
 // NormalizeComplexity 把 LLM 输出的复杂度词归一到 Complexity（未知值归 simple）。
+// NormalizeComplexity 把 LLM 输出的复杂度词归一到三档（未知值归 moderate）。
 func NormalizeComplexity(s string) Complexity {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "moderate":
-		return ComplexityModerate
-	case "complex":
-		return ComplexityComplex
-	case "trivial":
-		return ComplexityTrivial
-	case "extreme":
-		return ComplexityExtreme
-	default:
+	case "simple", "trivial":
 		return ComplexitySimple
+	case "complex", "extreme":
+		return ComplexityComplex
+	default:
+		return ComplexityModerate
 	}
 }

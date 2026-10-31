@@ -15,8 +15,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
 // Agent 是事件驱动的执行器 Agent
@@ -38,10 +36,6 @@ type Agent struct {
 
 	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
 	reportMu sync.Mutex
-
-	// Checkpoint 系统
-	checkpointer     core.Checkpointer
-	checkpointPolicy runtime.CheckpointPolicy
 }
 
 // AgentConfig 配置 Agent
@@ -54,10 +48,6 @@ type AgentConfig struct {
 	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
 	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
-
-	// Checkpoint 配置（可选）
-	Checkpointer     core.Checkpointer
-	CheckpointPolicy runtime.CheckpointPolicy
 }
 
 // NewAgent 创建 Agent
@@ -70,17 +60,14 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 
 	return &Agent{
-		graph:            cfg.Graph,
-		executor:         cfg.Executor,
-		eventBus:         cfg.EventBus,
-		logger:           cfg.Logger.With().Str("agent", "executor").Logger(),
-		taskID:           cfg.TaskID,
-		maxSteps:         cfg.MaxSteps,
-		maxParallel:      cfg.MaxParallel,
-		completionCh:     cfg.CompletionCh,
-		checkpointer:     cfg.Checkpointer,
-		checkpointPolicy: cfg.CheckpointPolicy,
-	}
+		graph:        cfg.Graph,
+		executor:     cfg.Executor,
+		eventBus:     cfg.EventBus,
+		logger:       cfg.Logger.With().Str("agent", "executor").Logger(),
+		taskID:       cfg.TaskID,
+		maxSteps:     cfg.MaxSteps,
+		maxParallel:  cfg.MaxParallel,
+		completionCh: cfg.CompletionCh}
 }
 
 // Run 启动事件循环（ctx 取消即停止）。
@@ -293,7 +280,7 @@ func (a *Agent) executeAction(
 	}
 
 	// 执行 Action（调用 ActionExecutor）
-	attempts, execErr := a.executor.Execute(ctx, action)
+	attempts, outcome, execErr := a.executor.Execute(ctx, action)
 
 	// 终态标记的 ctx：执行期 ctx 被取消（terminate/kill）时，用已死的 ctx
 	// 做 CAS 必然失败——图终态只能等恢复监控 6 分钟后兜底（实测窗口）。
@@ -332,9 +319,15 @@ func (a *Agent) executeAction(
 		return execErr
 	}
 
+	// 成功路径按产出档分叉终态：预算内 → completed；预算耗尽 → exhausted
+	// （有产出未收敛，planner/monitor 据此区分「做完了」与「没做完」）。
+	doneState := explorationgraph.StateCompleted
+	if outcome == OutcomeExhausted {
+		doneState = explorationgraph.StateExhausted
+	}
 	ok, err = a.graph.CompareAndSwapActionState(
 		markCtx, action.TaskID, action.ID,
-		explorationgraph.StateRunning, explorationgraph.StateCompleted,
+		explorationgraph.StateRunning, doneState,
 	)
 	if err != nil {
 		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")

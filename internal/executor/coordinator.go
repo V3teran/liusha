@@ -32,9 +32,9 @@ func NewCoordinatorWithEngine(taskID, host string, engine *Engine, logger zerolo
 }
 
 // Execute 实现 ExecutorInterface
-func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error) {
+func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
 	if !action.IsAction() {
-		return nil, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
+		return nil, OutcomeDone, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
 	c.logger.Info().

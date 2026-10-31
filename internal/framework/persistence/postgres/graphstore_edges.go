@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -29,14 +28,9 @@ func (s *GraphStore) insertEdge(ctx context.Context, db execer, edge *core.Graph
 		return errors.New("edge task_id cannot be empty")
 	}
 
-	attrsJSON, err := json.Marshal(edge.Metadata)
-	if err != nil {
-		return fmt.Errorf("marshal edge metadata: %w", err)
-	}
-
 	query := `
-		INSERT INTO ` + s.edgeTable + ` (task_id, src_id, rel, dst_id, attrs, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO ` + s.edgeTable + ` (task_id, src_id, rel, dst_id, created_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (task_id, src_id, rel, dst_id) DO NOTHING
 	`
 
@@ -45,12 +39,11 @@ func (s *GraphStore) insertEdge(ctx context.Context, db execer, edge *core.Graph
 		now = edge.CreatedAt
 	}
 
-	_, err = db.Exec(ctx, query,
+	_, err := db.Exec(ctx, query,
 		edge.TaskID,
 		edge.From,
 		edge.Relation,
 		edge.To,
-		attrsJSON,
 		now,
 	)
 
@@ -103,7 +96,7 @@ func (s *GraphStore) ListEdges(ctx context.Context, query core.GraphEdgeQuery) (
 	}
 
 	sqlQuery := fmt.Sprintf(`
-		SELECT task_id, src_id, dst_id, rel, attrs, created_at
+		SELECT task_id, src_id, dst_id, rel, created_at
 		FROM `+s.edgeTable+`
 		%s
 		ORDER BY created_at DESC
@@ -119,25 +112,16 @@ func (s *GraphStore) ListEdges(ctx context.Context, query core.GraphEdgeQuery) (
 	var edges []*core.GraphEdge
 	for rows.Next() {
 		var edge core.GraphEdge
-		var attrsJSON []byte
 
 		err := rows.Scan(
 			&edge.TaskID,
 			&edge.From,
 			&edge.To,
 			&edge.Relation,
-			&attrsJSON,
 			&edge.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan edge: %w", err)
-		}
-
-		// 解析 metadata
-		if len(attrsJSON) > 0 {
-			if err := json.Unmarshal(attrsJSON, &edge.Metadata); err != nil {
-				return nil, fmt.Errorf("unmarshal edge metadata: %w", err)
-			}
 		}
 
 		edges = append(edges, &edge)

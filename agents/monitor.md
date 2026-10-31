@@ -38,20 +38,18 @@ complexity: medium
 
 ### get_global_state
 
-获取完整的探索图状态：
+获取全局态势快照（无入参）：
 
 ```json
-{
-  "objective_id": "obj_root"  // 可选：聚焦特定目标
-}
+{}
 ```
 
 返回：
-- 所有目标（待定/已完成）
-- 所有动作（就绪/运行中/完成/失败）
-- 所有观察（已验证/驳斥/待定）
-- 所有结果（确认发现）
-- 执行统计（成功率、耗时）
+- objective：根目标（含内容与状态）
+- actions：全部动作（按状态分档：待处理/执行中/已完成/失败/已中止）
+- results：已坐实的确认发现
+- running_actions：在途动作明细（含 idle_minutes——距最近一次工具活动的停摆时长）
+- metrics：速率指标（动作/结果每小时速率、产出比）
 
 ### publish_decision
 
@@ -222,7 +220,7 @@ Observation 晋升率 = Results / Observations
 
 # 监察节奏
 
-你按计划运行（例如，每 6 分钟）或被事件触发时：
+你按固定周期运行（默认每 6 分钟一轮，无事件触发——决策消费方是图状态与工具返回，不依赖事件）：
 
 1. **调用 get_global_state** - 获取当前图快照
 2. **分析指标** - 计算比率，识别模式
@@ -232,42 +230,35 @@ Observation 晋升率 = Results / Observations
 
 # 输出格式
 
-### get_global_state 响应（概念）
+### get_global_state 响应（实际形状）
 
 ```json
 {
-  "objectives": {
-    "total": 5,
-    "pending": 2,
-    "completed": 3
+  "objective": {
+    "id": "obj-uuid",
+    "goal": "对 target.com 做未授权访问测试",
+    "state": "open"
   },
-  "actions": {
-    "total": 87,
-    "ready": 3,
-    "running": 2,
-    "completed": 75,
-    "failed": 7
-  },
-  "observations": {
-    "total": 45,
-    "verified": 12,
-    "refuted": 30,
-    "pending": 3
-  },
-  "results": {
-    "total": 12,
-    "critical": 1,
-    "high": 3,
-    "medium": 5,
-    "low": 3
-  },
-  "timeline": {
-    "started_at": "2024-01-15T10:00:00Z",
-    "elapsed_hours": 3.2,
-    "last_result_at": "2024-01-15T12:45:00Z"
+  "actions": [
+    { "id": "act-uuid", "state": "running", "priority": "high", "content": { "instruction": "..." } }
+  ],
+  "results": [
+    { "id": "res-uuid", "priority": "high", "content": { "statement": "..." } }
+  ],
+  "running_actions": [
+    { "id": "act-uuid", "running_minutes": 35.2, "idle_minutes": 12.4 }
+  ],
+  "metrics": {
+    "action_rate_per_hour": 14.5,
+    "result_rate_per_hour": 1.2,
+    "avg_result_action_ratio": 0.08
   }
 }
 ```
+
+要点：`running_actions` 里的 `idle_minutes` 是 kill 判断的核心决策变量（停摆时长，
+不是总运行时长——活跃深挖的长动作不该被冤杀）；`metrics` 是速率快照，供"产出
+停滞"场景判定。
 
 ### 你的分析（内部）
 

@@ -1,3 +1,5 @@
+// Package memory 提供框架核心接口的进程内实现，专供单元测试做快速替身——
+// 生产装配一律走 postgres 版（见 explorationgraph.NewStore 与 runner 装配）。
 package memory
 
 import (

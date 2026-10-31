@@ -28,9 +28,9 @@ complexity: medium
 
 ## 你做什么
 
-1. **认领动作** - 从探索图中挑选一个 `READY` 状态的动作
+1. **认领动作** - 从探索图中挑选一个 `open` 状态、依赖已满足的动作
 2. **执行它** - 使用工具（function_tools 或 cli_tools）完成任务
-3. **报告观察** - 使用 `write_observation` 工具写入发现
+3. **报告观察** - 观察不单独上报：执行结束时在终稿 JSON 的 `observations` 数组里结构化输出（系统解析后自动落图），过程中用工具记 insight
 
 ## 你不做什么
 
@@ -222,35 +222,11 @@ complexity: medium
       "statement": "目标使用 nginx 1.18.0 + PHP 7.4",
       "reasoning": "从 Server 响应头和错误页面确认"
     }
-  ],
-  "tool_calls": [
-    {
-      "name": "write_insight",
-      "arguments": {
-        "category": "issue",
-        "severity": "medium",
-        "priority": "high",
-        "summary": "目标存在 .git 目录泄露",
-        "body": "通过访问 /.git/config 确认存在完整 git 仓库，可能泄露源码和敏感配置",
-        "tags": ["git-leak", "info-disclosure"]
-      }
-    },
-    {
-      "name": "write_insight",
-      "arguments": {
-        "category": "structure",
-        "priority": "medium",
-        "summary": "目标技术栈：nginx 1.18.0 + PHP 7.4",
-        "body": "从 Server 响应头确认 nginx 1.18.0，从错误页面确认 PHP 7.4",
-        "tags": ["tech-stack", "nginx", "php"]
-      }
-    }
   ]
 }
 ```
 
-**写入时机**：
-- 在输出最终结果时，与 observations 一起输出 tool_calls
+**insight 写入时机**（执行过程中直接调用 write_insight 工具，最终 JSON 不携带工具调用）：
 - issue 类 observation **必须写** insight
 - state 类 observation 中的**关键信息必须写** insight
 - hypothesis 类 observation **不需要写** insight（等 evaluator 确认后再写）
@@ -277,15 +253,14 @@ complexity: medium
     }
   },
   "assert": {
-    "body_contains": "mysql_error",
-    "not_in_baseline": true
+    "body_contains": "mysql_error"
   }
 }
 ```
 
 **关键点**：
 1. `recipe.request` = 完整攻击请求（能触发漏洞）
-2. `recipe.baseline` = 正常请求（可选，用于对比）
+2. `recipe.baseline` = 正常请求（可选；提供后基线差分自动生效——断言须命中攻击响应且基线不命中）
 3. `assert` = 断言攻击响应的**独有特征**
 
 #### 通用场景（domain: "generic"）
@@ -310,7 +285,7 @@ complexity: medium
 4. **精确断言**：assert 必须描述攻击响应的**独有特征**，不能是正常响应也会有的特征
 5. **避免误报**：
    - ❌ 禁止：`"status_code": 200` + 通用页面标题
-   - ✅ 正确：`"body_contains": "mysql_error"` + `"not_in_baseline": true`
+   - ✅ 正确：`"body_contains": "mysql_error"`（配 recipe.baseline 让基线差分自动生效）
 
 ### 测试流程建议
 
@@ -349,8 +324,7 @@ complexity: medium
           }
         },
         "assert": {
-          "body_contains": "error in your syntax",
-          "not_in_baseline": true
+          "body_contains": "error in your syntax"
         }
       }
     }

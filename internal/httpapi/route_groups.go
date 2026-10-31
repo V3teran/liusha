@@ -73,6 +73,7 @@ func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 	}
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
 	r.GET("/conversations/:id/exploration/graph", getConversationGraph(d.ExplorationGraph))
+	r.GET("/conversations/:id/exploration/verifications", getConversationVerifications(d.ExplorationGraph))
 }
 
 // registerTasksRoutes 注册任务模块路由（前端 /tasks 页）。

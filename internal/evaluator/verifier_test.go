@@ -595,18 +595,18 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 		t.Fatalf("同指纹不得重写 finding: findings=%d", len(fw.claims))
 	}
 
-	// 假设节点标记：confirmed + duplicate_of + promoted_node 指向既有发现
+	// 假设节点标记：confirmed + duplicate_of 指向既有发现
+	// （promoted_node 冗余已裁剪——observation→result 的 generates 边承载归属）
 	var mark struct {
 		Confidence          string `json:"confidence"`
 		VerificationOutcome string `json:"verification_outcome"`
 		DuplicateOf         string `json:"duplicate_of"`
-		PromotedNode        string `json:"promoted_node"`
 	}
 	if raw := w.metadata["node-source-2"]; raw == nil || json.Unmarshal(raw, &mark) != nil {
 		t.Fatalf("第二假设应有审判标记: %+v", w.metadata["node-source-2"])
 	}
 	if mark.Confidence != "verified" || mark.VerificationOutcome != "confirmed" ||
-		mark.DuplicateOf != node1.ID || mark.PromotedNode != node1.ID {
+		mark.DuplicateOf != node1.ID {
 		t.Fatalf("标记形状不符: %+v", mark)
 	}
 

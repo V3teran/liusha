@@ -51,7 +51,6 @@ type Deps struct {
 	Graph        *explorationgraph.Store
 	EventBus     bus.EventBus
 	ControlPlane *controlplane.Store
-	Checkpointer core.Checkpointer
 	CfgStore     *configstore.Store
 	Router       *fwllm.Router
 	Logger       zerolog.Logger
@@ -234,7 +233,8 @@ func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) er
 		return nil
 	}
 
-	contentJSON, _ := json.Marshal(map[string]string{"brief": brief})
+	// objective.content 的读契约是 description（GetObjective / planner 规划上下文都读它）
+	contentJSON, _ := json.Marshal(map[string]string{"description": brief})
 	// 数据库约束：objective 类型节点必须有非空 state
 	initialState := explorationgraph.StateOpen
 
@@ -406,7 +406,8 @@ func (d *Deps) assembleStack(
 		}).
 		WithInsightsDigest(plannerDigest).
 		WithMessageWindow(d.Windows.Planner).
-		WithThoughts(thoughts.TapFor("planner"))
+		WithThoughts(thoughts.TapFor("planner")).
+		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
@@ -417,11 +418,7 @@ func (d *Deps) assembleStack(
 		FunctionTools: cfgs.planner.FunctionTools,
 	})
 
-	// monitor（LLM 档位 = agent.complexity，文档 complexity 种子经三级缓存读）
-	provider, err := d.Router.For(ctx, fwllm.ParseComplexity(cfgs.monitor.Complexity))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get provider for monitor: %w", err)
-	}
+	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）
 	monitorAgent := monitor.New(monitor.Config{
 		MessageWindow: d.Windows.Monitor,
 		Thoughts:      thoughts.TapFor("monitor"),
@@ -432,12 +429,12 @@ func (d *Deps) assembleStack(
 		MaxIterations: cfgs.monitor.MaxIterations,
 		Graph:         d.Graph,
 		EventBus:      d.EventBus,
-		Provider:      provider,
+		Router:        d.Router,
+		Complexity:    cfgs.monitor.Complexity,
 		Interval:      constants.MonitorInterval,
 		Activity:      activities.idleFor,
 		WrapTool:      reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:        d.Logger.With().Str("component", "monitor_agent").Logger(),
-		Checkpointer:  d.Checkpointer,
 	})
 
 	detector := NewCompletionDetector(Config{
@@ -499,21 +496,19 @@ func (d *Deps) buildExecutorAgent(
 		MaxIterations:  cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
 		ModifierWindow: d.Windows.Executor,                                // ReAct 滚动窗口条数（系统配置 compaction 组）
 		Brief:          brief,                                             // 任务简报逐字进 executor system prompt（入口锚定）
-		Checkpointer:   d.Checkpointer,
-		TraceCollector: traceCollector, // 从 agent_traffic 构建完整执行轨迹
-		Thoughts:       thoughts,       // 思考流（nil=不流式）
+		TraceCollector: traceCollector,                                    // 从 agent_traffic 构建完整执行轨迹
+		Thoughts:       thoughts,                                          // 思考流（nil=不流式）
 		Logger:         d.Logger,
 	})
 	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
 
 	return executor.NewAgent(executor.AgentConfig{
-		TaskID:       taskID,
-		Graph:        d.Graph,
-		Executor:     coord,
-		EventBus:     d.EventBus,
-		Logger:       d.Logger.With().Str("component", "executor_agent").Logger(),
-		Checkpointer: d.Checkpointer,
-		MaxParallel:  4, // 无依赖 action 并发执行（DAG 定可并行性；浏览器已按 action 隔离 tab）
+		TaskID:      taskID,
+		Graph:       d.Graph,
+		Executor:    coord,
+		EventBus:    d.EventBus,
+		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
+		MaxParallel: 4, // 无依赖 action 并发执行（DAG 定可并行性；浏览器已按 action 隔离 tab）
 	})
 }
 
@@ -549,6 +544,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithMaxIterations(cfg.MaxIterations).
 		WithMessageWindow(d.Windows.Evaluator).
 		WithThoughts(thoughts).
+		WithToolWrapper(reg.WrapTool). // judge 自有的 replay_for_verification 同入审计链
 		WithExtraTools(extraTools)
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）

@@ -50,7 +50,7 @@ complexity: complex
 - **evidence**：原始数据（HTTP 响应、命令输出）
 - **repro**：机器可执行的复现配方
 
-你**不需要轮询** observation - 它们通过事件推送给你。
+observation 验证是**事件驱动 + 兜底轮询**双通道：复现门事件即时触发你的验证；每 5 秒的兜底轮询会圈定仍处 unverified 的 observation——事件丢失也不会漏验。
 
 # 工作方式（机制契约——必须遵守）
 
@@ -114,12 +114,15 @@ observation 包含一个 **repro** 字段，其中有机器可执行的配方。
 {
   "domain": "web",
   "recipe": {
-    "method": "GET",
-    "url": "https://target.com/api/user?id=1'",
-    "headers": {"User-Agent": "Mozilla/5.0"}
+    "request": {
+      "method": "GET",
+      "url": "https://target.com/api/user?id=1'",
+      "headers": {"User-Agent": "Mozilla/5.0"},
+      "body": ""
+    }
   },
   "assert": {
-    "status": 500,
+    "status_code": 500,
     "body_contains": "SQL syntax error"
   }
 }
@@ -136,15 +139,10 @@ observation 包含一个 **repro** 字段，其中有机器可执行的配方。
 {
   "domain": "generic",
   "recipe": {
-    "steps": [
-      "运行：nmap -p- target.com",
-      "识别：端口 6379（Redis）开放",
-      "测试：redis-cli -h target.com PING",
-      "验证：收到 PONG 响应"
-    ]
+    "steps": "1. 运行：nmap -p- target.com\n2. 识别：端口 6379（Redis）开放\n3. 测试：redis-cli -h target.com PING\n4. 验证：收到 PONG 响应"
   },
   "assert": {
-    "check": "Redis 无需认证即响应"
+    "description": "Redis 无需认证即响应"
   }
 }
 ```
@@ -166,27 +164,7 @@ reasoning 示例："成功复现注入漏洞。特殊字符返回全部记录，
 
 系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告。
 
-**重要**：确认发现后，**必须调用 write_insight** 将其写入跨任务知识库：
-
-```json
-{
-  "verdict": "confirmed",
-  "reasoning": "...",
-  "tool_calls": [
-    {
-      "name": "write_insight",
-      "arguments": {
-        "category": "issue",
-        "severity": "high",
-        "priority": "critical",
-        "summary": "SQL injection in /api/users endpoint",
-        "body": "成功复现注入漏洞。特殊字符返回全部记录...",
-        "tags": ["sqli", "verified", "critical"]
-      }
-    }
-  ]
-}
-```
+**重要**：确认发现后，**必须调用 write_insight** 工具将其写入跨任务知识库（执行期工具调用，与终裁 JSON 无关——终稿只含 verdict/confidence/reasoning/fingerprint）。
 
 **何时写 insight**：
 - ✅ verdict = "confirmed" 时**必须写**

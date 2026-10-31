@@ -12,6 +12,7 @@ vi.mock('@/api/conversations', () => ({
 
 vi.mock('@/api/explorationgraph', () => ({
   getConversationGraph: vi.fn(),
+  getConversationVerifications: vi.fn().mockResolvedValue({ verifications: [] }),
 }))
 
 const mListConvs = listConversations as unknown as ReturnType<typeof vi.fn>

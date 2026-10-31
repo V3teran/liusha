@@ -68,12 +68,13 @@ func TestStore_ActionStateManagement(t *testing.T) {
 	})
 
 	t.Run("TransitionState 迁移并留痕", func(t *testing.T) {
-		blocked := "missing credentials"
-		require.NoError(t, store.TransitionState(ctx, "action-open-1", StateBlocked, &blocked))
+		reason := "missing credentials"
+		require.NoError(t, store.TransitionState(ctx, "action-open-1", StateRunning, &reason))
 
 		node, err := store.GetNode(ctx, "action-open-1")
 		require.NoError(t, err)
-		assert.Equal(t, core.ActionStateBlocked, *node.State)
+		assert.Equal(t, core.ActionStateRunning, *node.State)
+		assert.Equal(t, reason, *node.BlockedReason, "迁移原因落 metadata.blocked_reason")
 	})
 
 	t.Run("CompareAndSwapActionState 并发抢占", func(t *testing.T) {

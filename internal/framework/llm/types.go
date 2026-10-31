@@ -7,13 +7,8 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 )
-
-// ErrVisionUnsupported 当 caller 传入含 image_url 的 ContentParts，但 provider 不支持视觉时返。
-// 调用方应路由到 vision_provider 或 fail-fast。
-var ErrVisionUnsupported = errors.New("llm: provider 不支持 vision，含图 message 需路由到 vision_provider")
 
 // MessageRole 是 LLM 消息角色。
 type MessageRole string

@@ -14,7 +14,8 @@ export const NODE_COLORS = {
 export const STATE_COLORS = {
   open: '#6b7280', // gray
   running: '#3b82f6', // blue
-  done: '#10b981', // green（success）
+  completed: '#10b981', // green（success）
+  exhausted: '#f59e0b', // amber（预算耗尽）
   failed: '#ef4444', // red（error）
   aborted: '#9ca3af', // gray
 }

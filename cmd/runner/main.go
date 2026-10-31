@@ -42,7 +42,6 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/framework/persistence/postgres"
 	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -76,7 +75,6 @@ type runnerStores struct {
 	agentStore    *traffic.AgentStore
 	insights      *insight.Store
 	corpus        *corpus.Store
-	checkpointer  *postgres.Checkpointer // 框架层 Checkpoint 持久化（PostgreSQL 后端）
 	calls         *llminvocation.Store
 }
 
@@ -176,7 +174,7 @@ func main() {
 					return 0
 				}
 				return time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
-			}), runner.UsageSink{Store: stores.calls})
+			}), llminvocation.UsageSink{Store: stores.calls})
 	})
 
 	h := &runner.Handler{
@@ -206,7 +204,6 @@ func main() {
 		Conversations:  stores.conversations,
 		EventPublisher: convstream.NewPublisher(rdb),
 		Graph:          stores.graph,
-		Checkpointer:   stores.checkpointer,
 		EventBus:       eventBus,
 		ControlPlane:   controlPlaneStore,
 	}
@@ -332,7 +329,6 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.AppConfig) *runnerStores {
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
 		insights:      insight.NewStore(pool),      // 情报黑板：assignment 级别共享，按 assignment_id 隔离
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
-		checkpointer:  postgres.NewCheckpointer(pool),
 		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
 	}
 }

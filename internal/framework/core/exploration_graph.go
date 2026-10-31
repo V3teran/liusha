@@ -45,9 +45,6 @@ const (
 	// ActionStateOpen 待执行
 	ActionStateOpen ActionState = "open"
 
-	// ActionStateBlocked 被阻塞（依赖未满足）
-	ActionStateBlocked ActionState = "blocked"
-
 	// ActionStateRunning 执行中
 	ActionStateRunning ActionState = "running"
 

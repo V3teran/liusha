@@ -677,14 +677,10 @@ func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, pre
 	mark := map[string]interface{}{
 		"verification_outcome": prev.outcome,
 		"confidence":           confidence,
-		"verification_at":      time.Now().Format(time.RFC3339),
 		"verdict_source":       "same-verdict-key-dedup",
 	}
 	if prev.refuteReason != "" {
 		mark["refute_reason"] = prev.refuteReason
-	}
-	if prev.tier != "" {
-		mark["verification_tier"] = prev.tier
 	}
 	m, err := json.Marshal(mark)
 	if err != nil {

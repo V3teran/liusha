@@ -43,6 +43,7 @@ type RouterJudge struct {
 	complexity    llm.Complexity         // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	maxIt         int                    // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	messageWindow int                    // ReAct 滚动窗口条数（系统配置 compaction 组；构造默认 10，0=回退该默认）
+	toolWrap      func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 
 // NewRouterJudge 构造 ReAct 裁决官。
@@ -100,6 +101,14 @@ func (j *RouterJudge) WithMessageWindow(n int) *RouterJudge {
 	return j
 }
 
+// WithToolWrapper 注入共享拦截链包装器（遥测/心跳/时间线）——裁决官对目标的
+// 主动动作（replay_for_verification 重放）与 executor 同一执行面，审计无盲区。
+// nil=不包装（独立部署/测试）。
+func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *RouterJudge {
+	j.toolWrap = fn
+	return j
+}
+
 // WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
 // 空回退 medium）。
 func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
@@ -127,7 +136,11 @@ func (j *RouterJudge) Judge(
 
 	react := runtime.NewReActRuntime()
 	if replay != nil && registry.Allows(j.functionTools, "replay_for_verification") {
-		if err := react.RegisterTool(newReplayTool(replay)); err != nil {
+		replayTool := registry.Tool(newReplayTool(replay))
+		if j.toolWrap != nil {
+			replayTool = j.toolWrap(replayTool)
+		}
+		if err := react.RegisterTool(replayTool); err != nil {
 			return Verdict{}, fmt.Errorf("judge: 注册 replay_for_verification 失败: %w", err)
 		}
 	}

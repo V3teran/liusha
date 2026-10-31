@@ -1,7 +1,7 @@
 // Package llm 是框架层 LLM 抽象——Provider 契约 + 类型事实源 + 协议适配器。
 //
 // 分层（Ports & Adapters）：
-//   - 本包定义 Provider 契约（Complete/Stream/CountTokens）与全部线类型
+//   - 本包定义 Provider 契约（Complete/Stream）与全部线类型
 //     （Message/ToolCall/Usage...），并持有唯一的协议适配器实现
 //     （openai_compat / anthropic，血统为生产验证过的 4 月版本）。
 //   - 业务侧（cmd/api 等）按 role 归档（llmconfig.AgentComplexity）后走本包 Router；
@@ -27,10 +27,6 @@ type Provider interface {
 	// 事件后关闭。底层 Generator 无流式能力时返回 ErrStreamingUnsupported
 	// （调用方可据此降级 Complete）。
 	Stream(ctx context.Context, req Request) (<-chan StreamEvent, error)
-
-	// CountTokens 计算 req 的输入 token 数（OpenAI 兼容层为本地估算）。
-	// 不消耗生成配额。
-	CountTokens(ctx context.Context, req Request) (int, error)
 
 	// ModelID 返回底层模型标识。
 	ModelID() string
