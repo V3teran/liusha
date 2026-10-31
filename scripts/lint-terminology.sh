@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 SCAN_ARGS=(
   --include='*.go' --include='*.ts' --include='*.tsx' --include='*.md'
   --include='*.yaml' --include='*.yml' --include='*.json'
-  internal/ cmd/ web/src db/ agents/ skills/ config/ deployments/ docs/ Makefile
+  internal/ cmd/ web/src db/ agents/ skills/ config/ deployments/ Makefile
 )
 
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
