@@ -8,11 +8,11 @@ cd "$(dirname "$0")/../.."
 
 mkdir -p logs
 
-# load .env.local（DEEPSEEK_API_KEY 等）
-if [ -f .env.local ]; then
+# load .env（唯一真值文件：host 脚本 source + compose 插值共用）
+if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
-  source .env.local
+  source .env
   set +a
 fi
 
@@ -42,10 +42,10 @@ export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
 
 # api key 校验（必填）：校验当前激活 provider 的密钥。
-# config.yaml 已切 xiaomi-only（mimo-v2.5，api_key_env: XIAOMI_API_KEY），
-# 旧的 DEEPSEEK_API_KEY 前置检查已废弃——按实际激活 provider 校验。
-if [ -z "${XIAOMI_API_KEY:-}" ]; then
-  echo "✗ XIAOMI_API_KEY 未设（请在 .env.local 中填入；config.yaml 激活 provider=mimo）"
+# config.yaml 种子源当前仅 glm；DB 唯一 provider 行走 api_key_env=GLM_API_KEY 回退，
+# 按实际激活 provider 校验。
+if [ -z "${GLM_API_KEY:-}" ]; then
+  echo "✗ GLM_API_KEY 未设（请在 .env 中填入；当前激活 provider=glm）"
   exit 1
 fi
 

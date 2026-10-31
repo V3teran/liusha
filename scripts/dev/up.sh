@@ -8,12 +8,12 @@ cd "$(dirname "$0")/../.."
 echo "===== 1. 起 docker 基础设施（postgres + redis） ====="
 # dev 模式只起 pg + redis；proxy/api/runner 由 run-svc.sh 在 host 跑（vulnapp 见 ../vulnapp）
 # （host proxy 与 docker proxy 都绑 :8888，起 docker proxy 会端口冲突）。
-docker compose -f deployments/docker-compose.yml up -d postgres redis
+docker compose up -d postgres redis
 
 echo ""
 echo "===== 2. 等 healthcheck（最多 30s） ====="
 for i in {1..15}; do
-  s=$(docker compose -f deployments/docker-compose.yml ps --format "{{.Status}}" 2>/dev/null | grep -c "healthy" || true)
+  s=$(docker compose ps --format "{{.Status}}" 2>/dev/null | grep -c "healthy" || true)
   if [ "$s" -ge 2 ]; then
     echo "  ✓ pg + redis healthy"
     break
@@ -27,7 +27,7 @@ make migrate
 
 echo ""
 echo "===== 4. 当前状态 ====="
-docker compose -f deployments/docker-compose.yml ps --format "table {{.Name}}\t{{.Status}}"
+docker compose ps --format "table {{.Name}}\t{{.Status}}"
 
 echo ""
 echo "✓ 基础设施就绪。下一步："

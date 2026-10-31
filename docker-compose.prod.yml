@@ -3,10 +3,10 @@
 # 用法（推荐 make prod-up，自动先跑迁移）：
 #   make prod-up
 # 或手动：
-#   docker compose -f deployments/docker-compose.yml \
-#                  -f deployments/docker-compose.prod.yml \
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.prod.yml \
 #                  --env-file .env.prod up -d
-# （迁移：make prod-migrate 或 docker compose -f deployments/docker-compose.yml run --rm --build migrate）
+# （迁移：make prod-migrate 或 docker compose -f docker-compose.yml run --rm --build migrate）
 #
 # 与默认（dev）的差异：
 #   - LIUSHA_ENV=production  → stdout 走 JSON 单行（不再彩色 console）
