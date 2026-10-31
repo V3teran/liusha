@@ -10,7 +10,7 @@ import (
 )
 
 // testImage 是集成测试用的 sandbox 镜像；和 design doc + Dockerfile 一致。
-const testImage = "liusha/pentools:latest"
+const testImage = "liusha/sandbox:latest"
 
 // skipIfNoDocker 检查 docker 二进制 + daemon 可达；不满足 t.Skip。
 func skipIfNoDocker(t *testing.T) {
@@ -159,7 +159,7 @@ func TestDockerLauncher_Timeout(t *testing.T) {
 	}
 }
 
-// TestDockerLauncher_BackgroundOrphan_DoesNotHang 在真实 pentools 容器里端到端验证 WaitDelay 修复：
+// TestDockerLauncher_BackgroundOrphan_DoesNotHang 在真实 sandbox 容器里端到端验证 WaitDelay 修复：
 //
 // 后台 `&` 起的孤儿子进程（如 RFI 测试服务器 `python3 -m http.server &`）持有 stdout pipe writer end，
 // 没 WaitDelay 时 /exec 会挂到子进程自然结束才返回——真实场景 http.server 永不退 → 挂到 client 31min

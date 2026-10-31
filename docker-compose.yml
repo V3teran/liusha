@@ -3,7 +3,7 @@
 # ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
 #  A 本地开发：docker compose up -d postgres redis（compose 文件在仓库根，根 .env 自动加载）
 #    （仅 pg+redis 两容器）+ ./scripts/dev/run-svc.sh 业务进程 host 二进制；
-#    runner 经宿主 docker 拉起第三个容器（沙盒 pentools，warm pool 自动管理）。
+#    runner 经宿主 docker 拉起第三个容器（沙盒 sandbox，warm pool 自动管理）。
 #  B 生产全容器：make prod-up（= 迁移 + 本文件 + docker-compose.prod.yml 叠加 up）。
 #    核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
 #  C 单镜像：make single-build（deployments/single/，比赛/受限环境用）。

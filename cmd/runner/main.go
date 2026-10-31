@@ -353,7 +353,7 @@ func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
 	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
 	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
-	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
+	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/sandbox/tools.yaml")
 	toolsManifest, err := manifest.Load(toolsManifestPath)
 	if err != nil {
 		logger.Fatal().Err(err).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败——LLM 看不到沙箱工具会无法 ReAct，fail-fast")

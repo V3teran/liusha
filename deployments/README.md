@@ -1,9 +1,9 @@
 # 部署形态
 
 liusha 有三种运行形态，各自面向不同环境。**沙盒说明先行**：runner 永远经
-**宿主 docker** 拉起沙盒容器（pentools 镜像，warm pool 自动管理、单例复用），
+**宿主 docker** 拉起沙盒容器（sandbox 镜像，warm pool 自动管理、单例复用），
 因此任何形态下 runner 所在位置（host 或容器）都必须能访问 docker daemon，
-且宿主上要有 pentools 镜像（`make build-pentools`）。
+且宿主上要有 sandbox 镜像（`make build-sandbox`）。
 
 | | A 本地开发 | B 生产全容器 | C 单镜像 |
 |---|---|---|---|
@@ -17,7 +17,7 @@ liusha 有三种运行形态，各自面向不同环境。**沙盒说明先行**
 
 ```bash
 make dev-up        # = scripts/dev/up.sh：起 pg+redis → 等 healthy → migrate
-make build-pentools # 沙盒镜像（首次/工具变更后）
+make build-sandbox # 沙盒镜像（首次/工具变更后）
 ./scripts/dev/run-svc.sh   # host 二进制起 proxy+api+runner（日志 logs/*.log）
 # 收工：make dev-down（加 -v 彻底清数据）
 ```
@@ -63,14 +63,14 @@ docker run -d --name liusha-single \
 nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任一进程退出即整体
 关停**（交给 `docker run --restart` 类编排重启，不做容器内自愈）。
 
-- **必须挂 docker.sock**：沙盒容器由 runner 经宿主 docker 拉起（pentools 镜像
+- **必须挂 docker.sock**：沙盒容器由 runner 经宿主 docker 拉起（sandbox 镜像
   须在宿主存在）；沙盒回连 ingest 走 `host.docker.internal:9090`，故 **9090
   必须发布**。
 - **必须发布 8888**：浏览器挂 MITM 代理走宿主 8888。
 - **数据全在 /data 卷**：PG、Redis（AOF）、CA 证书、首启生成的密钥
   （API key / SSE secret / LLM 加密密钥——env 未给时首启生成并持久化，重启
   不变；API key 启动日志会打印）。
-- 比赛下发：两台镜像 `docker save liusha/single ghcr.io/v3teran/liusha-pentools
+- 比赛下发：两台镜像 `docker save liusha/single ghcr.io/v3teran/liusha-sandbox
   | gzip > liusha.tar.gz` → 目标机 `docker load`。
 
 ## 镜像清单
@@ -82,7 +82,7 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 | liusha/proxy | cmd/proxy/Dockerfile | 纯 MITM |
 | liusha/nginx | deployments/nginx/Dockerfile | 多阶段：node 构建前端 + nginx 托管 |
 | liusha/single | deployments/single/Dockerfile | 全家桶（pg+redis+3进程+nginx） |
-| pentools | deployments/tool-images/pentools/ | 沙盒（base 由 CI 推 GHCR，final 本地构建） |
+| sandbox | deployments/tool-images/sandbox/ | 沙盒（base 由 CI 推 GHCR，final 本地构建） |
 
 直接拉取的上游镜像（非本仓构建）：`pgvector/pgvector:pg17`（postgres）、
 `redis:8`——由 docker-compose.yml 引用，不在本地构建清单内。

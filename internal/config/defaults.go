@@ -252,7 +252,7 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
-		c.DefaultImage = "ghcr.io/v3teran/liusha-pentools:latest"
+		c.DefaultImage = "ghcr.io/v3teran/liusha-sandbox:latest"
 	}
 	// 视口 1280×720——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
 	if c.ViewportWidth == 0 {

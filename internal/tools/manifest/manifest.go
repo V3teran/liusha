@@ -1,4 +1,4 @@
-// Package manifest 解析 deployments/tool-images/pentools/tools.yaml。
+// Package manifest 解析 deployments/tool-images/sandbox/tools.yaml。
 //
 // 设计哲学：**工具是否存在于沙箱**与**工具是否有详细手册**独立。
 //   - 本 ToolManifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应

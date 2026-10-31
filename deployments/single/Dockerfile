@@ -5,7 +5,7 @@
 # （单容器语义：进程共生共死，由编排器重启，不做容器内自愈）。
 #
 # 依赖（运行时，挂载进容器）：
-#   - /var/run/docker.sock：runner 经宿主 docker 拉起沙盒容器（pentools 镜像须在宿主存在）
+#   - /var/run/docker.sock：runner 经宿主 docker 拉起沙盒容器（sandbox 镜像须在宿主存在）
 #   - 沙盒回连：host.docker.internal:9090（launcher 已内置 DinD 兼容），容器须 -p 发布 9090
 #
 # 构建：make single-build（目标机 amd64 时用 docker buildx --platform linux/amd64）。
@@ -55,7 +55,7 @@ COPY db/migrations /app/migrations
 # api 启动期种子（agents/skills）与工具清单（tools.yaml）——漏拷则配置表空、cli_tools 候选空
 COPY agents /app/agents
 COPY skills /app/skills
-COPY deployments/tool-images/pentools/tools.yaml /app/deployments/tool-images/pentools/tools.yaml
+COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
 COPY --from=webbuild /web/dist /usr/share/nginx/html
 COPY deployments/single/nginx.conf /etc/nginx/liusha-single.conf
 COPY deployments/single/entrypoint.sh /app/entrypoint.sh

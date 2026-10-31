@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-# Pentools 基础镜像：Kali Linux + 90 个安全工具
+# Sandbox 基础镜像：Kali Linux + 90 个安全工具
 # 架构：按安装方式分层，每层末尾强制验证，失败立即退出
 
 FROM kalilinux/kali-rolling:latest
@@ -413,10 +413,10 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 # 元数据：嵌入工具清单
 # ══════════════════════════════════════════════════════════════════════════════
-COPY deployments/tool-images/pentools/tools.yaml /tools.yaml
+COPY deployments/tool-images/sandbox/tools.yaml /tools.yaml
 
 LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha"
-LABEL org.opencontainers.image.description="Pentools base image with 90 security tools"
+LABEL org.opencontainers.image.description="Sandbox base image with 90 security tools"
 LABEL liusha.tools.count="90"
 LABEL liusha.tools.manifest="/tools.yaml"
 

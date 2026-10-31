@@ -186,7 +186,7 @@ func main() {
 
 	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 AgentAdmin cli_tools 白名单多选器
 	// 拉取候选。与 runner 同源加载；缺失非致命（仅该只读端点不注册，配置页 cli_tools 候选为空）。
-	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/pentools/tools.yaml")
+	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/sandbox/tools.yaml")
 	var toolManifest *manifest.ToolManifest // cli 工具事实源；nil = tools.yaml 缺失（降级：仅同步 function 工具）
 	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
 		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（工具目录仅同步内置 function 工具）")
