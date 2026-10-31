@@ -1,4 +1,4 @@
-.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-migrate prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-migrate build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
+.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-pentools web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
 COMPOSE = docker compose
 PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
@@ -19,14 +19,10 @@ dev-up:
 dev-down:
 	bash scripts/dev/down.sh
 
-# ── 形态 B：生产全容器（迁移 + 6 核心服务 + prod overlay）───────────────
-prod-build: build-migrate build-api build-proxy build-runner build-nginx
-
-prod-migrate:
-	$(COMPOSE) run --rm --build migrate
+# ── 形态 B：生产全容器（6 核心服务 + prod overlay；schema 由 host 侧 make migrate 建）───
+prod-build: build-api build-proxy build-runner build-nginx
 
 prod-up:
-	$(COMPOSE) run --rm --build migrate
 	$(PROD_COMPOSE) up -d --build
 
 prod-down:
@@ -87,10 +83,6 @@ build-proxy:
 
 build-runner:
 	docker build -f cmd/runner/Dockerfile -t liusha/runner:1.0 .
-
-# 一次性迁移镜像（golang-migrate CLI + db/migrations；prod-migrate / prod-up 用）。
-build-migrate:
-	docker build -f deployments/migrate/Dockerfile -t liusha/migrate:1.0 .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
 # 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/pentools-base，

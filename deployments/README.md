@@ -9,18 +9,16 @@ liusha 有三种运行形态，各自面向不同环境。**沙盒说明先行**
 |---|---|---|---|
 | 面向 | 日常开发调试 | 正式部署 | 比赛/受限环境 |
 
-> e2e 靶机 vulnapp 已剥离为独立仓（与 liusha 平级的 `../vulnapp`）；需要 e2e
-> 目标时单独启动（`cd ../vulnapp && go run .`，端口 8001）。
 | 容器 | pg、redis、沙盒（3 个） | pg/redis/api/nginx/proxy/runner/沙盒 | liusha/single（1 个）+ 沙盒（宿主侧） |
 | 业务进程 | host 二进制（run-svc.sh） | 容器 | 容器内多进程 |
-| 迁移 | `make migrate`（host） | `make prod-migrate`（一次性容器） | 入口脚本自动跑 |
+| 迁移 | `make migrate`（host） | `make migrate`（host，对映射到宿主的 5432 执行） | 入口脚本自动跑 |
 
 ## A 本地开发
 
 ```bash
 make dev-up        # = scripts/dev/up.sh：起 pg+redis → 等 healthy → migrate
 make build-pentools # 沙盒镜像（首次/工具变更后）
-./scripts/dev/run-svc.sh   # host 二进制起 vulnapp+proxy+api+runner（日志 logs/*.log）
+./scripts/dev/run-svc.sh   # host 二进制起 proxy+api+runner（日志 logs/*.log）
 # 收工：make dev-down（加 -v 彻底清数据）
 ```
 
@@ -34,7 +32,8 @@ make build-pentools # 沙盒镜像（首次/工具变更后）
 ## B 生产全容器
 
 ```bash
-make prod-up       # 迁移（migrate 一次性容器）+ 6 核心服务 up（含 prod overlay）
+make migrate       # schema 先建（host 侧 go run golang-migrate，对映射到宿主的 5432）
+make prod-up       # 6 核心服务 up（含 prod overlay）
 make prod-down
 ```
 
@@ -82,7 +81,8 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 | liusha/runner | cmd/runner/Dockerfile | + docker-cli（沙盒拉起） |
 | liusha/proxy | cmd/proxy/Dockerfile | 纯 MITM |
 | liusha/nginx | deployments/nginx/Dockerfile | 多阶段：node 构建前端 + nginx 托管 |
-| liusha/migrate | deployments/migrate/Dockerfile | 一次性迁移（profile=migrate） |
 | liusha/single | deployments/single/Dockerfile | 全家桶（pg+redis+3进程+nginx） |
-| vulnapp | 独立仓 ../vulnapp | e2e 靶机（BAC 四类越权端点） |
 | pentools | deployments/tool-images/pentools/ | 沙盒（base 由 CI 推 GHCR，final 本地构建） |
+
+直接拉取的上游镜像（非本仓构建）：`pgvector/pgvector:pg17`（postgres）、
+`redis:8`——由 docker-compose.yml 引用，不在本地构建清单内。
