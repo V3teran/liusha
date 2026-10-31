@@ -26,6 +26,7 @@ import (
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/cryptx"
@@ -40,7 +41,6 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -227,7 +227,7 @@ func main() {
 	router := &dispatch.RoleRouter{Router: fwllm.NewRouterWithOpts(
 		llmStore.AsRouterStore(llmKeyCipher),
 		retryOptionsFromConfig(cfg.LLM.Retry))}
-	publisher := scanstream.NewPublisher(rdb)
+	publisher := convstream.NewPublisher(rdb)
 	adapter := &dispatch.Service{
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
@@ -258,7 +258,7 @@ func main() {
 		ProxyStore:    proxyTrafficStore,
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
-		Scan:          adapter,
+		Dispatcher:    adapter,
 		Conversations: convStore, // cron passive task 建会话流（与实时聚合路径同语义）
 		Logger:        logger,
 	}
@@ -283,29 +283,29 @@ func main() {
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
 			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
 			Invocations:        invocationStore,
-			Chat:               adapter,                      // POST /chat 会话发起扫描
-			FollowUp:           adapter,                      // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:              adapter,                      // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:            adapter,                      // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:            convStore,                    // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
-			ConfigStore:        cfgStore,                     // agent 配置 CRUD（配置管理页）
-			SkillStore:         cfgStore,                     // skill 配置 CRUD（知识库管理页），走多级缓存
-			ToolCatalog:        cfgToolStore,                 // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
-			Models:             llmStore,                     // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
-			KeyEncrypter:       llmKeyCipher,                 // POST/PUT /models/providers：加密前端直填的明文 API Key
-			ProviderTester:     providerTester,               // POST /models/providers/test|list-models：实连探测（不落库）
-			Settings:           settingStore,                 // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
-			Traffic:            proxyTrafficStore,            // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:        convStore,                    // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:      convStore,                    // 会话列表 / 消息回看
+			Chat:               adapter,                               // POST /chat 会话发起扫描
+			FollowUp:           adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:              adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:            adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Renamer:            convStore,                             // PATCH /conversations/:id 重命名标题（convStore.SetTitle 直接满足）
+			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
+			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
+			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
+			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
+			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
+			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
+			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
+			TrafficConv:        convStore,                             // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:      convStore,                             // 会话列表 / 消息回看
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:         convStore,                    // 会话用量：会话→task 解析
-			UsageLLM:           invocationStore,              // 会话用量：LLM token/耗时合计
-			UsageTools:         toolStore,                    // 会话用量：工具耗时合计
-			ExplorationGraph:   explorationGraphAdapter,      // Phase 1: 探索图 API（e2e 测试迁移）
-			Tasks:              taskStore,                    // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
-			TaskDispatch:       adapter,                      // POST /tasks：任务模块「新建任务」批量/定时下发
-			Logs:               logReader,                    // GET /logs 系列：日志页（尾读 logs/{process}.log）
+			UsageTasks:         convStore,                             // 会话用量：会话→task 解析
+			UsageLLM:           invocationStore,                       // 会话用量：LLM token/耗时合计
+			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
+			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
+			Tasks:              taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
+			TaskDispatch:       adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
+			Logs:               logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 			EnableDevAutofill:  envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

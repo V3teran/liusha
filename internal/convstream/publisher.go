@@ -1,4 +1,4 @@
-// Package scanstream 用 Redis Pub/Sub 做 agent 过程事件的实时管道。
+// Package convstream 用 Redis Pub/Sub 做 agent 过程事件的实时管道。
 //
 // 数据流（见记忆 project_phaseb_sse_arch）：runner 跑 agent 时把过程事件 publish 到
 // channel `liusha:conv:{conversationID}`；api 的 SSE handler subscribe 同 channel 转发给前端。
@@ -9,7 +9,7 @@
 //
 // payload 是已序列化的字节（runner 传 conversation.Message 的 JSON）；本包不解释内容、
 // 不依赖 conversation/scanagent，纯传输层。
-package scanstream
+package convstream
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func (p *Publisher) Publish(ctx context.Context, conversationID string, payload 
 		return nil
 	}
 	if err := p.rdb.Publish(ctx, Channel(conversationID), payload).Err(); err != nil {
-		return fmt.Errorf("scanstream publish conv=%s: %w", conversationID, err)
+		return fmt.Errorf("convstream publish conv=%s: %w", conversationID, err)
 	}
 	return nil
 }
@@ -80,7 +80,7 @@ func (p *Publisher) PublishDelta(ctx context.Context, conversationID, agentName,
 	}
 	payload, err := json.Marshal(DeltaFrame{Delta: true, AgentName: agentName, Channel: channel, Text: text})
 	if err != nil {
-		return fmt.Errorf("scanstream marshal delta: %w", err)
+		return fmt.Errorf("convstream marshal delta: %w", err)
 	}
 	return p.Publish(ctx, conversationID, payload)
 }

@@ -14,9 +14,9 @@ func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiK
 
 	for _, ap := range profs {
 		// 走会话入口（POST /chat）
-		convID, taskID, err := createChatScan(apiBase, apiKey, ap.brief)
+		convID, taskID, err := createChatTask(apiBase, apiKey, ap.brief)
 		if err != nil {
-			return fmt.Errorf("active profile %s: createChatScan: %w", ap.name, err)
+			return fmt.Errorf("active profile %s: createChatTask: %w", ap.name, err)
 		}
 		logger.Info().
 			Str("profile", ap.name).

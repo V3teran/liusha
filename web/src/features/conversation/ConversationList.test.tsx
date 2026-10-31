@@ -169,9 +169,9 @@ describe('ConversationList', () => {
     expect(screen.queryByText('删除对话')).toBeFalsy()
   })
 
-  it('删除接口返回 SCAN_ACTIVE 错误时弹提示', async () => {
+  it('删除接口返回 TASK_ACTIVE 错误时弹提示', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 race.com', run_status: 'completed' })])
-    vi.mocked(deleteConversation).mockRejectedValue(new Error('SCAN_ACTIVE'))
+    vi.mocked(deleteConversation).mockRejectedValue(new Error('TASK_ACTIVE'))
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     renderList()
@@ -182,7 +182,7 @@ describe('ConversationList', () => {
     await userEvent.click(delBtn)
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('扫描进行中'))
+      expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('任务进行中'))
     })
   })
 

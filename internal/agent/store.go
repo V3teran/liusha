@@ -32,9 +32,9 @@ func validateComplexity(c string) error {
 	}
 }
 
-// Update 更新Agent配置（可变面：SystemPrompt、Description 调度摘要、工具、Skills、迭代上限、复杂度）。
+// Update 更新Profile配置（可变面：SystemPrompt、Description 调度摘要、工具、Skills、迭代上限、复杂度）。
 // 不允许修改code、name（这些是固定的）；enabled 由种子与运维控制。
-func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent, error) {
+func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Profile, error) {
 	setParts := []string{}
 	args := []any{code}
 	argIdx := 2
@@ -52,7 +52,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	if p.FunctionTools != nil {
 		toolsJSON, err := marshalTools(*p.FunctionTools)
 		if err != nil {
-			return Agent{}, fmt.Errorf("marshal function_tools: %w", err)
+			return Profile{}, fmt.Errorf("marshal function_tools: %w", err)
 		}
 		setParts = append(setParts, fmt.Sprintf("function_tools=$%d", argIdx))
 		args = append(args, toolsJSON)
@@ -61,7 +61,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	if p.CliTools != nil {
 		cliJSON, err := marshalTools(*p.CliTools)
 		if err != nil {
-			return Agent{}, fmt.Errorf("marshal cli_tools: %w", err)
+			return Profile{}, fmt.Errorf("marshal cli_tools: %w", err)
 		}
 		setParts = append(setParts, fmt.Sprintf("cli_tools=$%d", argIdx))
 		args = append(args, cliJSON)
@@ -70,7 +70,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	if p.Skills != nil {
 		skillsJSON, err := marshalTools(*p.Skills)
 		if err != nil {
-			return Agent{}, fmt.Errorf("marshal skills: %w", err)
+			return Profile{}, fmt.Errorf("marshal skills: %w", err)
 		}
 		setParts = append(setParts, fmt.Sprintf("skills=$%d", argIdx))
 		args = append(args, skillsJSON)
@@ -83,7 +83,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	}
 	if p.Complexity != nil {
 		if err := validateComplexity(*p.Complexity); err != nil {
-			return Agent{}, err
+			return Profile{}, err
 		}
 		setParts = append(setParts, fmt.Sprintf("complexity=$%d", argIdx))
 		args = append(args, *p.Complexity)
@@ -91,7 +91,7 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 	}
 
 	if len(setParts) == 0 {
-		return Agent{}, fmt.Errorf("没有要更新的字段")
+		return Profile{}, fmt.Errorf("没有要更新的字段")
 	}
 
 	setParts = append(setParts, "updated_at=now()")
@@ -102,19 +102,19 @@ func (s *Store) Update(ctx context.Context, code string, p UpdateParams) (Agent,
 		RETURNING `+colsSelect, strings.Join(setParts, ", "))
 
 	row := s.pool.QueryRow(ctx, query, args...)
-	var a Agent
+	var a Profile
 	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("update agent %q: %w", code, err)
+		return Profile{}, fmt.Errorf("update agent %q: %w", code, err)
 	}
 	return a, nil
 }
 
 // GetByID 按主键读取。
-func (s *Store) GetByID(ctx context.Context, id string) (Agent, error) {
+func (s *Store) GetByID(ctx context.Context, id string) (Profile, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE id=$1", id)
-	var h Agent
+	var h Profile
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("get agent %s: %w", id, err)
+		return Profile{}, fmt.Errorf("get agent %s: %w", id, err)
 	}
 	return h, nil
 }
@@ -122,35 +122,35 @@ func (s *Store) GetByID(ctx context.Context, id string) (Agent, error) {
 // UpdateComplexity 只改某 agent 的复杂度单字段（分档页「每档选 agent」移档用），不碰其余字段——
 // 避免整体 upsert 用列表快照覆盖别处刚改的 body/工具。complexity 必填且须为 simple|medium|complex
 // （空串在此拒绝：移档语义要求明确档位，非落 DEFAULT）。返回回读的完整行供上层失效缓存。
-func (s *Store) UpdateComplexity(ctx context.Context, id, complexity string) (Agent, error) {
+func (s *Store) UpdateComplexity(ctx context.Context, id, complexity string) (Profile, error) {
 	if complexity == "" {
-		return Agent{}, fmt.Errorf("update complexity: complexity 不能为空（应为 simple|medium|complex）")
+		return Profile{}, fmt.Errorf("update complexity: complexity 不能为空（应为 simple|medium|complex）")
 	}
 	if err := validateComplexity(complexity); err != nil {
-		return Agent{}, fmt.Errorf("update complexity: %w", err)
+		return Profile{}, fmt.Errorf("update complexity: %w", err)
 	}
 	row := s.pool.QueryRow(ctx,
 		"UPDATE agent SET complexity=$2, updated_at=now() WHERE id=$1 RETURNING "+colsSelect,
 		id, complexity)
-	var h Agent
+	var h Profile
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("update agent complexity %s: %w", id, err)
+		return Profile{}, fmt.Errorf("update agent complexity %s: %w", id, err)
 	}
 	return h, nil
 }
 
 // GetByCode 按稳定引用名读取（代码与种子的主要访问路径——四角色即四个固定 code）。
-func (s *Store) GetByCode(ctx context.Context, code string) (Agent, error) {
+func (s *Store) GetByCode(ctx context.Context, code string) (Profile, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+colsSelect+" FROM agent WHERE code=$1", code)
-	var h Agent
+	var h Profile
 	if err := scan(row, &h); err != nil {
-		return Agent{}, fmt.Errorf("get agent %q: %w", code, err)
+		return Profile{}, fmt.Errorf("get agent %q: %w", code, err)
 	}
 	return h, nil
 }
 
 // List 按 code 升序列出配置 agent；onlyEnabled=true 时过滤 enabled=false。
-func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
+func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Profile, error) {
 	q := "SELECT " + colsSelect + " FROM agent"
 	if onlyEnabled {
 		q += " WHERE enabled=true"
@@ -162,9 +162,9 @@ func (s *Store) List(ctx context.Context, onlyEnabled bool) ([]Agent, error) {
 	}
 	defer rows.Close()
 
-	var out []Agent
+	var out []Profile
 	for rows.Next() {
-		var h Agent
+		var h Profile
 		if err := scan(rows, &h); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
@@ -194,7 +194,7 @@ func buildFilter(p ListParams) (string, []any) {
 
 // ListPaged 按 code 升序、支持模糊搜索 + 分页列出配置 agent（配置管理页）。
 // Limit<=0 时返回过滤后全量。
-func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
+func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Profile, error) {
 	where, args := buildFilter(p)
 	q := "SELECT " + colsSelect + " FROM agent" + where + " ORDER BY code ASC"
 	if p.Limit > 0 {
@@ -209,9 +209,9 @@ func (s *Store) ListPaged(ctx context.Context, p ListParams) ([]Agent, error) {
 	}
 	defer rows.Close()
 
-	var out []Agent
+	var out []Profile
 	for rows.Next() {
-		var h Agent
+		var h Profile
 		if err := scan(rows, &h); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
 		}
@@ -243,7 +243,7 @@ func marshalTools(tools []string) ([]byte, error) {
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-func scan(r db.RowScanner, h *Agent) error {
+func scan(r db.RowScanner, h *Profile) error {
 	var fnTools, cliTools, skills []byte
 	if err := r.Scan(&h.ID, &h.Code, &h.Name, &h.Description, &h.SystemPrompt,
 		&fnTools, &cliTools, &skills, &h.MaxIterations, &h.Complexity, &h.Enabled,
@@ -272,17 +272,17 @@ func scan(r db.RowScanner, h *Agent) error {
 // Upsert 按 code 插入或覆盖（种子导入 / reset 语义专用；常规 CRUD 走 Update）。
 //
 // ON CONFLICT 分支不触碰 enabled：enabled 是运维开关，种子不应反转既有值。
-func (s *Store) Upsert(ctx context.Context, code, name, description, systemPrompt string, p UpdateParams) (Agent, error) {
+func (s *Store) Upsert(ctx context.Context, code, name, description, systemPrompt string, p UpdateParams) (Profile, error) {
 	if code == "" {
-		return Agent{}, fmt.Errorf("upsert agent: code 必填")
+		return Profile{}, fmt.Errorf("upsert agent: code 必填")
 	}
 	if systemPrompt == "" {
-		return Agent{}, fmt.Errorf("upsert agent %q: system_prompt 必填", code)
+		return Profile{}, fmt.Errorf("upsert agent %q: system_prompt 必填", code)
 	}
 	complexity := "medium"
 	if p.Complexity != nil && *p.Complexity != "" {
 		if err := validateComplexity(*p.Complexity); err != nil {
-			return Agent{}, err
+			return Profile{}, err
 		}
 		complexity = *p.Complexity
 	}
@@ -293,17 +293,17 @@ func (s *Store) Upsert(ctx context.Context, code, name, description, systemPromp
 	var err error
 	if p.FunctionTools != nil {
 		if fnTools, err = marshalTools(*p.FunctionTools); err != nil {
-			return Agent{}, fmt.Errorf("marshal function_tools: %w", err)
+			return Profile{}, fmt.Errorf("marshal function_tools: %w", err)
 		}
 	}
 	if p.CliTools != nil {
 		if cliTools, err = marshalTools(*p.CliTools); err != nil {
-			return Agent{}, fmt.Errorf("marshal cli_tools: %w", err)
+			return Profile{}, fmt.Errorf("marshal cli_tools: %w", err)
 		}
 	}
 	if p.Skills != nil {
 		if skills, err = marshalTools(*p.Skills); err != nil {
-			return Agent{}, fmt.Errorf("marshal skills: %w", err)
+			return Profile{}, fmt.Errorf("marshal skills: %w", err)
 		}
 	}
 	maxIter := 30
@@ -329,9 +329,9 @@ func (s *Store) Upsert(ctx context.Context, code, name, description, systemPromp
 
 	row := s.pool.QueryRow(ctx, query, code, name, description, systemPrompt,
 		fnTools, cliTools, skills, maxIter, complexity)
-	var a Agent
+	var a Profile
 	if err := scan(row, &a); err != nil {
-		return Agent{}, fmt.Errorf("upsert agent %q: %w", code, err)
+		return Profile{}, fmt.Errorf("upsert agent %q: %w", code, err)
 	}
 	return a, nil
 }

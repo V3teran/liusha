@@ -85,14 +85,14 @@ export async function authStream(convID: string): Promise<void> {
 }
 
 /**
- * 发起会话扫描
+ * 从会话发起任务
  * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用，浏览器同域默认收下）
- * @param brief 扫描目标描述
- * @returns conversation_id 和 scan_id（闲聊/qa 意图不下发 task 时 scan_id 为空）
+ * @param brief 任务目标描述
+ * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
  */
 export async function startChat(
   brief: string
-): Promise<{ conversation_id: string; scan_id: string }> {
+): Promise<{ conversation_id: string; task_id: string }> {
   return post('/chat', { brief })
 }
 
@@ -101,12 +101,12 @@ export async function startChat(
  * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
  * @param convID 会话 ID
  * @param content 消息内容
- * @returns intent 和可选的 scan_id
+ * @returns intent
  */
 export async function followUp(
   convID: string,
   content: string,
-): Promise<{ intent: string; scan_id?: string }> {
+): Promise<{ intent: string }> {
   const res = await fetch(`${API_BASE}/conversations/${convID}/messages`, {
     method: 'POST',
     headers: {
@@ -128,18 +128,18 @@ export async function followUp(
  * 停止会话关联的扫描。
  * @param convID 会话 ID
  */
-export async function abortScan(convID: string): Promise<void> {
+export async function abortTask(convID: string): Promise<void> {
   await post(`/conversations/${convID}/abort`)
 }
 
 // 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
-// 关联扫描仍在跑时后端返回 409 → 抛 'SCAN_ACTIVE' 哨兵，调用方提示「先停后删」。
+// 关联任务仍在跑时后端返回 409 → 抛 'TASK_ACTIVE' 哨兵，调用方提示「先停后删」。
 export async function deleteConversation(convID: string): Promise<void> {
   const res = await fetch(`${API_BASE}/conversations/${convID}`, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   })
-  if (res.status === 409) throw new Error('SCAN_ACTIVE')
+  if (res.status === 409) throw new Error('TASK_ACTIVE')
   if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
 }
 

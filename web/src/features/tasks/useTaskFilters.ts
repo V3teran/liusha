@@ -1,5 +1,5 @@
 import type { TaskFilters } from '@/api/types'
-import { useUrlFilterFields, useUrlPageState } from '@/lib/useUrlPageState'
+import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 
 // 任务列表筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/分页应作为
 // URL state」）：刷新、前进/后退、分享链接都能还原筛选与翻页位置。

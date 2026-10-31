@@ -81,7 +81,7 @@ const (
 
 // TaskStatusMeta 构造时间线任务状态节点的 metadata（单一契约源，五处迁移写者共用）：
 //
-//	{kind:"task_status", status:..., 其余字段按迁移可选（stop_why/steps/findings/
+//	{kind:"task_status", status:..., 其余字段按迁移可选（stop_reason/steps/findings/
 //	 duration_ms/reason——completed 携报告、aborted/failed 携原因）}
 //
 // 负值哨兵（调用方读依赖失败时的 -1 缺省）与零值一并省略——wire 上不出现

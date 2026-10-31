@@ -42,12 +42,12 @@ const colsSelect = "id, task_id::text AS task_id, " +
 //
 // 流程：INSERT → commit。
 // dedup 由调用方自决（写 finding 前先 findings() 看 host 已有的）；Store 不做去重。
-func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
+func (s *Store) Save(ctx context.Context, f Vuln) (Vuln, error) {
 	if f.Host == "" {
-		return VulnFinding{}, fmt.Errorf("finding.Host 必填")
+		return Vuln{}, fmt.Errorf("finding.Host 必填")
 	}
 	if f.Summary == "" {
-		return VulnFinding{}, fmt.Errorf("finding.Summary 必填")
+		return Vuln{}, fmt.Errorf("finding.Summary 必填")
 	}
 	if f.Severity == "" {
 		f.Severity = "medium"
@@ -60,7 +60,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return VulnFinding{}, fmt.Errorf("begin tx: %w", err)
+		return Vuln{}, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
@@ -86,13 +86,13 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 		f.Summary, f.Target, f.Evaluation,
 		f.CWEID, f.OWASPCategory, f.Remediation, deps, f.Repro)
 
-	var saved VulnFinding
+	var saved Vuln
 	if err := scan(row, &saved); err != nil {
-		return VulnFinding{}, fmt.Errorf("upsert finding: %w", err)
+		return Vuln{}, fmt.Errorf("upsert finding: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return VulnFinding{}, fmt.Errorf("commit: %w", err)
+		return Vuln{}, fmt.Errorf("commit: %w", err)
 	}
 
 	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
@@ -112,7 +112,7 @@ func (s *Store) Save(ctx context.Context, f VulnFinding) (VulnFinding, error) {
 }
 
 // ListByTask 列出 task 下所有 finding（按 created_at desc）。
-func (s *Store) ListByTask(ctx context.Context, taskID string) ([]VulnFinding, error) {
+func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Vuln, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+colsSelect+` FROM finding WHERE task_id=$1::uuid ORDER BY created_at DESC`, taskID)
 	if err != nil {
@@ -120,9 +120,9 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]VulnFinding, e
 	}
 	defer rows.Close()
 
-	var out []VulnFinding
+	var out []Vuln
 	for rows.Next() {
-		var f VulnFinding
+		var f Vuln
 		if err := scan(rows, &f); err != nil {
 			return nil, fmt.Errorf("scan finding: %w", err)
 		}
@@ -132,9 +132,9 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]VulnFinding, e
 }
 
 // LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 Source。
-// 漏洞页跨 task/host 全量展示用，区别于 per-task 的 VulnFinding 列表。
+// 漏洞页跨 task/host 全量展示用，区别于 per-task 的 Vuln 列表。
 type LedgerRow struct {
-	VulnFinding
+	Vuln
 	Source string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
 }
 
@@ -264,12 +264,12 @@ func (s *Store) StatFiltered(ctx context.Context, f LedgerFilter) (Stat, error) 
 // status 必须是五态之一（DB CHECK 兜底，这里前置校验给出友好错误）。
 // severity 传空则不改（保留扫描时 LLM 定的值）；非空则直接覆盖——人工可修正 LLM 定级（triage 标配）。
 // note 可空。finding 不存在返错（ErrNoRows）。返回行含后端权威 triaged_at（前端据此覆盖乐观值）。
-func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note string) (VulnFinding, error) {
+func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note string) (Vuln, error) {
 	if id == "" {
-		return VulnFinding{}, fmt.Errorf("finding.UpdateTriage: id 必填")
+		return Vuln{}, fmt.Errorf("finding.UpdateTriage: id 必填")
 	}
 	if !validStatus(status) {
-		return VulnFinding{}, fmt.Errorf("finding.UpdateTriage: 非法 status %q（须为 open/confirmed/fixed/false_positive/accepted）", status)
+		return Vuln{}, fmt.Errorf("finding.UpdateTriage: 非法 status %q（须为 open/confirmed/fixed/false_positive/accepted）", status)
 	}
 	// severity 用 NULLIF 空跳过：传空保留原值，非空覆盖。COALESCE 让 SQL 单句表达「空则不改」。
 	row := s.pool.QueryRow(ctx,
@@ -279,12 +279,12 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 		 WHERE id = $4
 		 RETURNING `+colsSelect,
 		status, severity, note, id)
-	var updated VulnFinding
+	var updated Vuln
 	if err := scan(row, &updated); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return VulnFinding{}, fmt.Errorf("update finding triage %s: not found", id)
+			return Vuln{}, fmt.Errorf("update finding triage %s: not found", id)
 		}
-		return VulnFinding{}, fmt.Errorf("update finding triage %s: %w", id, err)
+		return Vuln{}, fmt.Errorf("update finding triage %s: %w", id, err)
 	}
 	findingLog.Info().Str("finding_id", id).Str("status", status).Str("severity", updated.Severity).Msg("finding triaged ✓")
 	return updated, nil
@@ -336,7 +336,7 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 // scan 是 colsSelect 列序的统一反序列化点。
 // agentID / sourceTrafficID 用指针接住 NULL；AgentRunID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
 // DependsOn 是 uuid[]，扫到 []string（pgx v5 默认 codec）。
-func scan(r db.RowScanner, f *VulnFinding) error {
+func scan(r db.RowScanner, f *Vuln) error {
 	var agentID *string
 	var sourceTrafficID *int64
 	var dependsOn []string

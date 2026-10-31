@@ -1,7 +1,7 @@
 /**
  * 后端镜像类型
  *
- * Go 后端 Message 和 ScanEvent 结构体无 json tag，
+ * Go 后端 Message 和 TimelineEventMeta 结构体无 json tag，
  * 序列化为大写首字母键。
  */
 
@@ -12,13 +12,16 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
  * SSE 事件的元数据（agent 过程事件）
  * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
-export interface ScanEvent {
+// TimelineEventMeta 是会话时间线事件消息（kind=event）的 metadata 载荷：
+// 按 kind 分族消费（reasoning/tool_call/tool_result/task_status/finding），
+// 各卡片只读自己族的字段。
+export interface TimelineEventMeta {
   kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed）
   steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
   actions: number // task_status/completed：完成的 Action 数（报告数据，时间线不渲染）
   findings: number // task_status/completed：坐实发现数（晋升 result 的主张，中性领域词）
-  stop_why: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
+  stop_reason: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
   reason: string // task_status/aborted|failed：原因
   call_id: string // tool_call/tool_result：同一次工具调用的关联 ID（并发同名工具乱序完成时按它精确配对）
   tool_name: string // tool_call/tool_result：工具名
@@ -40,7 +43,7 @@ export interface ScanEvent {
 
 /**
  * SSE 消息帧
- * 大写键（Go 端序列化格式）
+ * 字段名与后端 json tag 一致（snake_case，见 httpapi 各响应构造点）
  */
 export interface Message {
   seq: number
@@ -49,13 +52,13 @@ export interface Message {
   role: MessageRole
   kind: MessageKind
   content: string
-  metadata: ScanEvent | null
+  metadata: TimelineEventMeta | null
   created_at: string
 }
 
 /**
  * 会话
- * 大写键（Go 端序列化格式）
+ * 字段名与后端 json tag 一致（snake_case，见 httpapi 各响应构造点）
  */
 export interface Conversation {
   id: string
@@ -261,10 +264,10 @@ export function isEventMessage(m: Message): boolean {
 }
 
 /**
- * 从消息中解析 ScanEvent。
+ * 从消息中解析 TimelineEventMeta。
  * 仅当消息类型为 event 且 Metadata 不为空时返回事件；否则返回 null。
  */
-export function parseScanEvent(m: Message): ScanEvent | null {
+export function parseEventMeta(m: Message): TimelineEventMeta | null {
   if (m.kind !== 'event' || !m.metadata) return null
   return m.metadata
 }
@@ -521,7 +524,7 @@ export interface ProxyFilterSettings {
    ============================================================ */
 
 // TaskSummary 是任务列表/详情行：task 本体 + 派生列。
-//   - assignment_ndx/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
+//   - assignment_index/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
 //   - source：manual 主动 / auto 被动——定时克隆（scheduled=true）按业务口径归主动
 //   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
 //   - step_count：探索图 action 节点数 = 认知循环已执行步数
@@ -532,7 +535,7 @@ export interface TaskSummary {
   target_host: string
   status: string // active | completed | aborted
   assignment_id: string
-  assignment_ndx: number
+  assignment_index: number
   assignment_total: number
   source: string // manual | auto
   scheduled: boolean

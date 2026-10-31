@@ -43,7 +43,7 @@ func TestCompletionDetector_TaskConverged(t *testing.T) {
 	// 等待检测器响应
 	select {
 	case result := <-resultCh:
-		assert.Equal(t, "task_converged", result.StopWhy, "应该因任务收敛而停止")
+		assert.Equal(t, "task_converged", result.StopReason, "应该因任务收敛而停止")
 		t.Logf("✅ 任务收敛测试通过：%+v", result)
 	case <-time.After(2 * time.Second):
 		t.Fatal("超时：检测器未响应收敛事件")
@@ -83,9 +83,9 @@ func TestCompletionDetector_ConvergedBeforeMaxSteps(t *testing.T) {
 
 	select {
 	case result := <-resultCh:
-		assert.Equal(t, "task_converged", result.StopWhy, "应该因收敛停止，而非 max_steps")
+		assert.Equal(t, "task_converged", result.StopReason, "应该因收敛停止，而非 max_steps")
 		assert.Equal(t, 5, result.Steps, "应该记录 5 步")
-		t.Logf("✅ 收敛优先级测试通过：steps=%d, stop_why=%s", result.Steps, result.StopWhy)
+		t.Logf("✅ 收敛优先级测试通过：steps=%d, stop_reason=%s", result.Steps, result.StopReason)
 	case <-time.After(2 * time.Second):
 		t.Fatal("超时")
 	}
@@ -125,9 +125,9 @@ func TestCompletionDetector_NormalFlowWithoutConvergence(t *testing.T) {
 			actionCount++
 		case result := <-resultCh:
 			// 应该是 context 超时，而非收敛
-			assert.Equal(t, "context_cancelled", result.StopWhy, "无收敛事件时应持续运行直到 context 取消")
+			assert.Equal(t, "context_cancelled", result.StopReason, "无收敛事件时应持续运行直到 context 取消")
 			assert.Greater(t, result.Steps, 3, "应该执行了多步")
-			t.Logf("✅ 持续运行测试通过：steps=%d, stop_why=%s", result.Steps, result.StopWhy)
+			t.Logf("✅ 持续运行测试通过：steps=%d, stop_reason=%s", result.Steps, result.StopReason)
 			return
 		}
 	}

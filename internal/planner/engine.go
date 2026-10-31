@@ -20,8 +20,8 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// Intelligence 是基于 LLM 的智能规划器
-type Intelligence struct {
+// Engine 是基于 LLM 的智能规划器
+type Engine struct {
 	router     *llm.Router
 	logger     zerolog.Logger
 	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
@@ -51,14 +51,14 @@ type AgentBrief struct {
 }
 
 // WithAgentRoster 注入四 Agent 名册（cognition 装配时从 DB 配置取；空=不渲染该节）。
-func (i *Intelligence) WithAgentRoster(roster []AgentBrief) *Intelligence {
+func (i *Engine) WithAgentRoster(roster []AgentBrief) *Engine {
 	i.roster = roster
 	return i
 }
 
 // WithInsightsDigest 注入经验黑板摘要出口（cognition 闭包：assignment 内
 // insight 按优先级取顶，格式化为一行一条）。nil=无黑板，规划上下文不带该节。
-func (i *Intelligence) WithInsightsDigest(fn func(ctx context.Context) []string) *Intelligence {
+func (i *Engine) WithInsightsDigest(fn func(ctx context.Context) []string) *Engine {
 	i.insightsDigest = fn
 	return i
 }
@@ -66,9 +66,9 @@ func (i *Intelligence) WithInsightsDigest(fn func(ctx context.Context) []string)
 // maxBudgetFactor 是自适应预算的放大上限（基准的倍数）——无界放大等于取消保护。
 const maxBudgetFactor = 3
 
-// NewIntelligence 创建智能规划器
-func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
-	return &Intelligence{
+// NewEngine 创建智能规划器
+func NewEngine(router *llm.Router, logger zerolog.Logger) *Engine {
+	return &Engine{
 		router:  router,
 		logger:  logger.With().Str("component", "planner_intelligence").Logger(),
 		timeout: 3 * time.Minute, // 默认单次规划超时 3 分钟
@@ -77,38 +77,38 @@ func NewIntelligence(router *llm.Router, logger zerolog.Logger) *Intelligence {
 }
 
 // WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
-func (i *Intelligence) WithSystemPrompt(charter string) *Intelligence {
+func (i *Engine) WithSystemPrompt(charter string) *Engine {
 	i.charter = charter
 	return i
 }
 
 // WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
-func (i *Intelligence) WithMaxIterations(n int) *Intelligence {
+func (i *Engine) WithMaxIterations(n int) *Engine {
 	i.maxIt = n
 	return i
 }
 
 // WithMessageWindow 注入 ReAct 滚动窗口条数（系统配置 compaction 组；0=内置默认 20）。
-func (i *Intelligence) WithMessageWindow(n int) *Intelligence {
+func (i *Engine) WithMessageWindow(n int) *Engine {
 	i.messageWindow = n
 	return i
 }
 
 // WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
 // 空回退 medium）。
-func (i *Intelligence) WithComplexity(complexity string) *Intelligence {
+func (i *Engine) WithComplexity(complexity string) *Engine {
 	i.complexity = llm.ParseComplexity(complexity)
 	return i
 }
 
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
-func (i *Intelligence) WithThoughts(tap reasoning.Tap) *Intelligence {
+func (i *Engine) WithThoughts(tap reasoning.Tap) *Engine {
 	i.thoughts = tap
 	return i
 }
 
 // WithTimeout 注入单次规划超时（0=不设限；默认 3 分钟）。
-func (i *Intelligence) WithTimeout(timeout time.Duration) *Intelligence {
+func (i *Engine) WithTimeout(timeout time.Duration) *Engine {
 	i.timeout = timeout
 	return i
 }
@@ -164,7 +164,7 @@ type PlanningResponse struct {
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
+func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
 	i.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
@@ -299,7 +299,7 @@ func (i *Intelligence) Plan(ctx context.Context, graph *explorationgraph.Store, 
 }
 
 // gatherContext 收集规划所需的上下文信息
-func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
+func (i *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
 	// 全部目标（根目标 + 派生方向）都进规划视野
@@ -404,7 +404,7 @@ func (i *Intelligence) gatherContext(ctx context.Context, graph *explorationgrap
 }
 
 // buildPlanningPrompt 构建规划 prompt
-func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
+func (i *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	var sb strings.Builder
 
 	// 1. 头部和核心原则
@@ -459,7 +459,7 @@ func (i *Intelligence) buildPlanningPrompt(ctx *PlanningContext) string {
 // 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）。
 // 输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
 // charter 为空时返回空串，让 ReAct.Run 报错，强制运维配置。
-func (i *Intelligence) buildPlannerSystemPrompt() string {
+func (i *Engine) buildPlannerSystemPrompt() string {
 	charter := strings.TrimSpace(i.charter)
 	if charter == "" {
 		return "" // 让 ReAct.Run 报错，强制运维配置
@@ -468,7 +468,7 @@ func (i *Intelligence) buildPlannerSystemPrompt() string {
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
-func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse, error) {
+func (i *Engine) parsePlanningResponse(content string) (*PlanningResponse, error) {
 	if content == "" {
 		return nil, fmt.Errorf("规划输出为空")
 	}
@@ -491,9 +491,9 @@ func (i *Intelligence) parsePlanningResponse(content string) (*PlanningResponse,
 }
 
 // adaptBudget 在 deadline 型失败后放大下一轮规划预算（翻倍，封顶基准
-// maxBudgetFactor 倍）；非 deadline 失败不动预算。Intelligence 由单个
+// maxBudgetFactor 倍）；非 deadline 失败不动预算。Engine 由单个
 // planner goroutine 串行使用，无并发竞争。
-func (i *Intelligence) adaptBudget(err error) {
+func (i *Engine) adaptBudget(err error) {
 	if !errors.Is(err, context.DeadlineExceeded) || i.timeout <= 0 {
 		return
 	}
@@ -527,7 +527,7 @@ func filterValidDependencies(deps []string, existingIDs map[string]bool) []strin
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
-func (i *Intelligence) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
+func (i *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
 	// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
 	// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
 	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。

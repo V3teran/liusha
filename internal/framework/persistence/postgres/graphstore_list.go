@@ -1,10 +1,10 @@
 package postgres
 
 import (
-	"github.com/V3teran/liusha/internal/framework/core"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"strings"
 
 	"github.com/jackc/pgx/v5"

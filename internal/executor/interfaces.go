@@ -1,6 +1,4 @@
 // Package executor 定义执行层的核心接口。
-//
-// 更新（2026-08-26）：适配统一探索图（Move 合并到 Node）
 package executor
 
 import (
@@ -10,22 +8,18 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// Interface 执行一个 Move，产出 Attempt 列表（domain-agnostic）
-type Interface interface {
-	Execute(ctx context.Context, move explorationgraph.Node) ([]evaluator.Attempt, error)
-}
-
-// Promoter 验证 Attempt 并晋升到探索图（domain-agnostic）
-type Promoter interface {
-	Promote(ctx context.Context, a evaluator.Attempt) (*explorationgraph.Node, error)
+// ActionExecutor 执行单个 Action 并产出 Attempt 列表（domain-agnostic）。
+// executor.Agent 事件循环经它把图上的 open 动作交给具体引擎（ReAct Engine）执行。
+type ActionExecutor interface {
+	Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, error)
 }
 
 // Report 是认知循环的执行报告
 type Report struct {
-	Steps    int    // 执行的 Move 数量
-	Promoted int    // 晋升的节点数量
-	Attempts int    // 产出的 Attempt 数量
-	StopWhy  string // 停止原因
+	Steps      int    // 执行的动作数量
+	Promoted   int    // 晋升的节点数量
+	Attempts   int    // 产出的 Attempt 数量
+	StopReason string // 停止原因
 }
 
 // 停止原因常量

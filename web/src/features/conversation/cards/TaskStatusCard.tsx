@@ -1,8 +1,8 @@
 import { CheckCircle2, XCircle, Rocket, Square, type LucideIcon } from 'lucide-react'
-import type { ScanEvent } from '@/api/types'
+import type { TimelineEventMeta } from '@/api/types'
 
 interface TaskStatusCardProps {
-  md: ScanEvent
+  md: TimelineEventMeta
 }
 
 // 任务状态节点的呈现形状：图标 + 主文案 + 强调色（系统事件，非 agent 产出）。
@@ -12,7 +12,7 @@ interface StatusShape {
   color: string // 文案与图标色
 }
 
-function statusShape(md: ScanEvent): StatusShape {
+function statusShape(md: TimelineEventMeta): StatusShape {
   switch (md.status) {
     case 'dispatched':
       return { icon: Rocket, label: '已下发扫描', color: 'var(--color-accent)' }
@@ -27,10 +27,10 @@ function statusShape(md: ScanEvent): StatusShape {
   }
 }
 
-// 停止原因的人读映射：stop_why 是终态的唯一「怎么停的」事实源——不渲染时
-// 用户终止与自然收敛在时间线上逐像素相同（实测 stop_why='control-plane:
+// 停止原因的人读映射：stop_reason 是终态的唯一「怎么停的」事实源——不渲染时
+// 用户终止与自然收敛在时间线上逐像素相同（实测 stop_reason='control-plane:
 // terminate' 的任务显示绿色「扫描完成」）。
-const STOP_WHY_LABELS: Record<string, string> = {
+const STOP_REASON_LABELS: Record<string, string> = {
   'control-plane: terminate': '手动终止',
   context_cancelled: '执行被取消',
   task_converged: '目标收敛',
@@ -38,12 +38,12 @@ const STOP_WHY_LABELS: Record<string, string> = {
 }
 
 // 报告字段行：completed/aborted 携 steps/findings 与停止原因，failed 携 reason。
-// stop_why 有映射才渲染（未知值原样展示，宁多一字不瞒一况）。
-function reportFields(md: ScanEvent): string[] {
+// stop_reason 有映射才渲染（未知值原样展示，宁多一字不瞒一况）。
+function reportFields(md: TimelineEventMeta): string[] {
   const parts: string[] = []
   if (md.steps && md.steps > 0) parts.push(`${md.steps} 步`)
   if (md.findings !== undefined && md.findings > 0) parts.push(`${md.findings} 个发现`)
-  if (md.stop_why) parts.push(STOP_WHY_LABELS[md.stop_why] ?? md.stop_why)
+  if (md.stop_reason) parts.push(STOP_REASON_LABELS[md.stop_reason] ?? md.stop_reason)
   if (md.reason) parts.push(md.reason)
   return parts
 }

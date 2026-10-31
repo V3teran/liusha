@@ -32,6 +32,7 @@ import (
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cryptx"
@@ -49,7 +50,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/runner"
 	"github.com/V3teran/liusha/internal/sandbox"
-	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -87,8 +87,8 @@ type runnerSkills struct {
 	toolsManifest *manifest.Manifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
 }
 
-// runnerLLM 聚合 LLM 配置栈（事实源 + 解密器）。
-type runnerLLM struct {
+// llmStack 聚合 LLM 配置栈（事实源 + 解密器）。
+type llmStack struct {
 	cfgStore  *configstore.Store
 	llmStore  *llmstore.Store
 	keyCipher *cryptx.Cipher
@@ -204,7 +204,7 @@ func main() {
 		ToolsManifest:  skills.toolsManifest,
 		CfgStore:       llmStack.cfgStore,
 		Conversations:  stores.conversations,
-		EventPublisher: scanstream.NewPublisher(rdb),
+		EventPublisher: convstream.NewPublisher(rdb),
 		Graph:          stores.graph,
 		Checkpointer:   stores.checkpointer,
 		EventBus:       eventBus,
@@ -246,7 +246,7 @@ func main() {
 	hs := newHealthGateway(cfg, runnerCfg, trafficIngestor, logger)
 	go runHealthGateway(hs, logger)
 
-	task.StartReaper(trafficCtx, stores.tasks, sysSettings, runnerCfg.StepLLMTimeoutSeconds, stores.conversations, scanstream.NewPublisher(rdb), logger)
+	task.StartReaper(trafficCtx, stores.tasks, sysSettings, runnerCfg.StepLLMTimeoutSeconds, stores.conversations, convstream.NewPublisher(rdb), logger)
 
 	// 会话身份终态清扫：任务终态清理（handler 内）的崩溃兜底——按任务状态
 	// 这个事实回收，不依赖任何过期时间。runner 单实例部署，天然单例。
@@ -399,7 +399,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.Config, runnerCfg config
 }
 
 // newLLMStack 构造 LLM 配置事实源栈。
-func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *runnerLLM {
+func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *llmStack {
 	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
 	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
 	cfgStore := configstore.New(pool, cache)
@@ -425,7 +425,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Log
 		logger.Fatal().Err(err).Msg("LIUSHA_LLM_KEY_SECRET 未配置或不合法——provider 密钥解密需要它（fail-fast）")
 	}
 
-	return &runnerLLM{cfgStore: cfgStore, llmStore: llmStore, keyCipher: keyCipher}
+	return &llmStack{cfgStore: cfgStore, llmStore: llmStore, keyCipher: keyCipher}
 }
 
 // startTrafficIngestor 启动流量摄取消费循环。

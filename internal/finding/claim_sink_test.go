@@ -10,10 +10,10 @@ import (
 
 // fakeFindingStore 记录落库的交付物。
 type fakeFindingStore struct {
-	saved []VulnFinding
+	saved []Vuln
 }
 
-func (f *fakeFindingStore) Save(_ context.Context, v VulnFinding) (VulnFinding, error) {
+func (f *fakeFindingStore) Save(_ context.Context, v Vuln) (Vuln, error) {
 	v.ID = "f-1"
 	f.saved = append(f.saved, v)
 	return v, nil
@@ -23,8 +23,8 @@ func (f *fakeFindingStore) Save(_ context.Context, v VulnFinding) (VulnFinding, 
 // 观察者 panic/缺位不影响交付本体（此处验证缺位与收到两个正向面）。
 func TestClaimSink_ObserverReceivesSavedFinding(t *testing.T) {
 	store := &fakeFindingStore{}
-	var got VulnFinding
-	sink := NewClaimSink(store, "run-1").WithObserver(func(_ context.Context, f VulnFinding) {
+	var got Vuln
+	sink := NewClaimSink(store, "run-1").WithObserver(func(_ context.Context, f Vuln) {
 		got = f
 	})
 

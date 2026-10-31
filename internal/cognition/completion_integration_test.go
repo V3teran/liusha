@@ -56,7 +56,7 @@ func TestCompletionDetector_TaskConvergedE2E(t *testing.T) {
 	// 验证 detector 立即停止（不等待 max_steps）
 	select {
 	case result := <-resultChan:
-		assert.Equal(t, "task_converged", result.StopWhy, "应该以 task_converged 停止")
+		assert.Equal(t, "task_converged", result.StopReason, "应该以 task_converged 停止")
 		assert.Equal(t, 3, result.Steps, "应该记录 3 步")
 		t.Log("✅ CompletionDetector 收到 EventTaskConverged 后立即停止")
 	case <-time.After(2 * time.Second):
@@ -101,7 +101,7 @@ func TestCompletionDetector_MaxStepsStillWorksIntegration(t *testing.T) {
 	// 验证停止
 	select {
 	case result := <-resultChan:
-		assert.Equal(t, "max_steps_reached", result.StopWhy)
+		assert.Equal(t, "max_steps_reached", result.StopReason)
 		assert.Equal(t, 3, result.Steps)
 		t.Log("✅ max_steps 机制不受 P0 修复影响")
 	case <-time.After(2 * time.Second):
@@ -152,7 +152,7 @@ func TestCompletionDetector_ConvergedBeforeMaxStepsE2E(t *testing.T) {
 	// 验证以 task_converged 停止（不是 max_steps）
 	select {
 	case result := <-resultChan:
-		assert.Equal(t, "task_converged", result.StopWhy, "收敛应优先于 max_steps")
+		assert.Equal(t, "task_converged", result.StopReason, "收敛应优先于 max_steps")
 		assert.Equal(t, 10, result.Steps, "应该记录 10 步")
 		t.Log("✅ 任务收敛优先级高于 max_steps")
 	case <-time.After(2 * time.Second):
@@ -198,7 +198,7 @@ func TestCompletionDetector_MultipleConvergedEventsE2E(t *testing.T) {
 	// 验证只停止一次
 	select {
 	case result := <-resultChan:
-		assert.Equal(t, "task_converged", result.StopWhy)
+		assert.Equal(t, "task_converged", result.StopReason)
 		t.Log("✅ 多次收敛事件不会重复处理（幂等）")
 	case <-time.After(2 * time.Second):
 		t.Fatal("超时")
@@ -280,7 +280,7 @@ func TestCompletionDetector_AbortStillWorksE2E(t *testing.T) {
 	// 验证立即停止
 	select {
 	case result := <-resultChan:
-		assert.Equal(t, "user requested termination", result.StopWhy)
+		assert.Equal(t, "user requested termination", result.StopReason)
 		t.Log("✅ Abort 机制不受 P0 修复影响")
 	case <-time.After(1 * time.Second):
 		t.Fatal("超时：Abort 未生效")

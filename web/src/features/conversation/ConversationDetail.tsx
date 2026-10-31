@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Square } from 'lucide-react'
-import { abortScan, getConversationUsage, listMessages } from '@/api/conversations'
+import { abortTask, getConversationUsage, listMessages } from '@/api/conversations'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
 import { compactNumber, fullTime, humanDuration, humanTokens } from '@/lib/format'
-import { scanStatusMeta } from '@/lib/scanStatus'
+import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
@@ -49,7 +49,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const hasConv = !!convId
   const startedAt = store.messages[0]?.created_at ?? ''
   const scanning = hasConv && (usage?.running ?? false)
-  const topStatus = scanStatusMeta(usage?.status)
+  const topStatus = taskStatusMeta(usage?.status)
 
   const refreshUsage = useCallback(async () => {
     const reqConv = convIdRef.current
@@ -173,7 +173,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     if (convId) void open(convId)
   }
   const stop = async () => {
-    if (convId) await abortScan(convId)
+    if (convId) await abortTask(convId)
   }
 
   const copy = emptyCopy(source)

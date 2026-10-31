@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TimelineThread } from './TimelineThread'
 import { useConversationStore } from '@/stores/conversation'
-import type { Message, ScanEvent } from '@/api/types'
+import type { Message, TimelineEventMeta } from '@/api/types'
 
 const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
 
@@ -189,7 +189,7 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
     const s = useConversationStore.getState()
     s.ingest({
       ...base, seq: 1, role: 'assistant', kind: 'event',
-      metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_why: 'task_converged' } as ScanEvent,
+      metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_reason: 'task_converged' } as TimelineEventMeta,
     })
     render(<TimelineThread />)
     await flush()
@@ -203,7 +203,7 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
     s.appendReasoningDelta('执行中', 'executor')
     s.ingest({
       ...base, seq: 2, role: 'assistant', kind: 'event',
-      metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as ScanEvent,
+      metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as TimelineEventMeta,
     })
     render(<TimelineThread />)
     await flush()

@@ -20,18 +20,15 @@ import (
 )
 
 // ─────────────────────────────────────────────────────────────
-//  Tool-invocation recorder (heartbeat + DB telemetry)
+//  任务执行生命周期（终态回写 / 时间线 / 身份回收）
 // ─────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
-//  Cognition handler (新架构统一入口)
-// ─────────────────────────────────────────────────────────────
-
-// handleCognition 统一的任务执行入口（新架构）。
-// 所有任务都走：Planner（6分钟评估） + Executor（5步评估）。
-// taskLogger 是 handle() 在任务作用域派生的 logger（task_id/assignment_id/conv
-// 自动附加），本函数与下游（runCognition → cognition.Deps）全部经它出日志。
-func (h *Handler) handleCognition(
+// executeTask 是单个任务的执行全生命周期：心跳 → 图上线（objective）→ 沙箱获取
+// → 驱动认知循环 → 会话身份回收 → agent_run/task 终态回写。
+// 所有任务都走同一条链；taskLogger 是 Handle() 在任务作用域派生的 logger
+// （task_id/assignment_id/conv 自动附加），本函数与下游（runCognition →
+// cognition.Deps）全部经它出日志。
+func (h *Handler) executeTask(
 	ctx context.Context,
 	p worker.Payload,
 	brief string,
@@ -90,7 +87,7 @@ func (h *Handler) handleCognition(
 	// aborted——被杀的 run 标 done 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。
 	reportJSON, _ := json.Marshal(report)
-	terminated := strings.Contains(report.StopWhy, "terminate") || strings.Contains(report.StopWhy, "cancel")
+	terminated := strings.Contains(report.StopReason, "terminate") || strings.Contains(report.StopReason, "cancel")
 	var runErr error
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
@@ -131,7 +128,7 @@ func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.L
 	if tk.Status != task.StatusActive {
 		return // api abort / reaper 已落终态及其时间线节点
 	}
-	if err := h.Tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopWhy+"）"); err != nil {
+	if err := h.Tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopReason+"）"); err != nil {
 		taskLogger.Warn().Err(err).Msg("task 终止迁移被拒（保持既有终态）")
 		return
 	}
@@ -157,12 +154,12 @@ func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logge
 		stepsField = report.Steps
 	}
 	return map[string]any{
-		"steps":    stepsField,
-		"actions":  report.Steps,
-		"promoted": report.Promoted,
-		"attempts": report.Attempts,
-		"stop_why": report.StopWhy,
-		"findings": h.findingsCount(ctx, taskID),
+		"steps":       stepsField,
+		"actions":     report.Steps,
+		"promoted":    report.Promoted,
+		"attempts":    report.Attempts,
+		"stop_reason": report.StopReason,
+		"findings":    h.findingsCount(ctx, taskID),
 	}
 }
 

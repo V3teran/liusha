@@ -12,7 +12,7 @@ import (
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动
-func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
+func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
 	i.logger.Info().
 		Int("result_count", len(results)).
 		Msg("开始分析 Results")
@@ -93,7 +93,7 @@ func (i *Intelligence) AnalyzeResults(ctx context.Context, graph *explorationgra
 }
 
 // buildAnalysisPrompt 构建 Result 分析 prompt
-func (i *Intelligence) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
+func (i *Engine) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
 
 	// 1. 头部
@@ -146,7 +146,7 @@ type AnalysisAction struct {
 }
 
 // callAnalysisLLM 调用 LLM 进行分析
-func (i *Intelligence) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisResponse, error) {
+func (i *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisResponse, error) {
 	provider, err := i.router.For(ctx, i.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)

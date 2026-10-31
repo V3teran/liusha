@@ -20,7 +20,7 @@ func cliCatalog() []cfgtool.Tool {
 }
 
 func TestToolArrayContains_Wildcard(t *testing.T) {
-	h := agent.Agent{Code: "executor", CliTools: []string{"*"}}
+	h := agent.Profile{Code: "executor", CliTools: []string{"*"}}
 	if !toolArrayContains(h, cfgtool.KindCLI, "nmap") {
 		t.Error(`cli_tools=["*"] 应视为已装配任意 CLI 工具`)
 	}
@@ -34,7 +34,7 @@ func TestToolArrayContains_Wildcard(t *testing.T) {
 }
 
 func TestApplyAssignment_WildcardAssignIsNoOp(t *testing.T) {
-	h := agent.Agent{Code: "executor", CliTools: []string{"*"}}
+	h := agent.Profile{Code: "executor", CliTools: []string{"*"}}
 	_, cli := applyAssignment(h, cfgtool.KindCLI, "nmap", true, cliCatalog())
 	if !reflect.DeepEqual(cli, []string{"*"}) {
 		t.Errorf(`全量态装配应幂等保留 "*", got %v`, cli)
@@ -42,20 +42,20 @@ func TestApplyAssignment_WildcardAssignIsNoOp(t *testing.T) {
 }
 
 func TestApplyAssignment_WildcardUnassignMaterializes(t *testing.T) {
-	h := agent.Agent{Code: "executor", CliTools: []string{"*"}}
+	h := agent.Profile{Code: "executor", CliTools: []string{"*"}}
 	_, cli := applyAssignment(h, cfgtool.KindCLI, "sqlmap", false, cliCatalog())
 	want := []string{"nmap", "nuclei"}
 	if !reflect.DeepEqual(cli, want) {
 		t.Errorf(`全量态卸载 sqlmap 应物化为目录全集减一 %v, got %v`, want, cli)
 	}
 	// function_tools 不受影响。
-	if !reflect.DeepEqual(h.FunctionTools, agent.Agent{}.FunctionTools) && len(h.FunctionTools) != 0 {
+	if !reflect.DeepEqual(h.FunctionTools, agent.Profile{}.FunctionTools) && len(h.FunctionTools) != 0 {
 		t.Errorf("function_tools 不应被 CLI 工具操作改动, got %v", h.FunctionTools)
 	}
 }
 
 func TestApplyAssignment_ExplicitListUnchanged(t *testing.T) {
-	h := agent.Agent{Code: "executor", CliTools: []string{"nmap"}}
+	h := agent.Profile{Code: "executor", CliTools: []string{"nmap"}}
 	_, cli := applyAssignment(h, cfgtool.KindCLI, "nuclei", true, cliCatalog())
 	if !reflect.DeepEqual(cli, []string{"nmap", "nuclei"}) {
 		t.Errorf("显式白名单装配行为不应改变, got %v", cli)

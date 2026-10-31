@@ -107,7 +107,7 @@ func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	memGraph := explorationgraph.NewMemoryStore()
-	a := NewAgent(AgentConfig{TaskID: "t-boundary", Evaluator: promoter, EventBus: b, Graph: memGraph, Logger: zerolog.Nop()})
+	a := NewAgent(AgentConfig{TaskID: "t-boundary", Gate: promoter, EventBus: b, Graph: memGraph, Logger: zerolog.Nop()})
 
 	buildObs := func(id, statement string, conf explorationgraph.Confidence) explorationgraph.Node {
 		c := conf

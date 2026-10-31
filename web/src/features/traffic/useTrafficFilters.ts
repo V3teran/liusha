@@ -1,5 +1,5 @@
 import type { TrafficFilters } from '@/api/types'
-import { useUrlFilterFields, useUrlPageState } from '@/lib/useUrlPageState'
+import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 
 // 流量浏览筛选态迁移进 URL search params：刷新、前进/后退、把链接发给同事
 // 复核，筛选条件与翻页位置都能还原。

@@ -11,7 +11,7 @@ import (
 
 // findingStore 是交付存储的最小写接口（*Store 天然满足，测试可替身）。
 type findingStore interface {
-	Save(ctx context.Context, f VulnFinding) (VulnFinding, error)
+	Save(ctx context.Context, f Vuln) (Vuln, error)
 }
 
 // ClaimSink 把通用裁决门坐实的主张落成本域交付物（finding 表）。
@@ -25,7 +25,7 @@ type ClaimSink struct {
 	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键)
 	// onSaved 是落库成功后的观察者（会话时间线的漏洞卡事件源）；
 	// nil=无观察者。观察者失败不影响交付本体。
-	onSaved func(ctx context.Context, f VulnFinding)
+	onSaved func(ctx context.Context, f Vuln)
 }
 
 // NewClaimSink 构造交付管道。
@@ -34,7 +34,7 @@ func NewClaimSink(store findingStore, agentRunID string) *ClaimSink {
 }
 
 // WithObserver 注入落库成功后的观察者（链式）。
-func (s *ClaimSink) WithObserver(fn func(ctx context.Context, f VulnFinding)) *ClaimSink {
+func (s *ClaimSink) WithObserver(fn func(ctx context.Context, f Vuln)) *ClaimSink {
 	s.onSaved = fn
 	return s
 }
@@ -71,7 +71,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	}
 
 	agentRunID := s.agentRunID
-	saved, err := s.store.Save(ctx, VulnFinding{
+	saved, err := s.store.Save(ctx, Vuln{
 		TaskID:      c.TaskID,
 		AgentRunID:  &agentRunID,
 		Host:        host,

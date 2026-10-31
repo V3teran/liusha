@@ -3,7 +3,7 @@ import { Bug, Clock, GitBranch, MessageSquare, X } from 'lucide-react'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { fullTime, humanDuration } from '@/lib/format'
-import { scanStatusMeta } from '@/lib/scanStatus'
+import { taskStatusMeta } from '@/lib/taskStatus'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -54,8 +54,8 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">任务信息</h4>
               <dl>
                 <Kv k="状态">
-                  <Badge dot color={scanStatusMeta(task.status).color}>
-                    {task.status === 'active' ? '运行中' : scanStatusMeta(task.status).label}
+                  <Badge dot color={taskStatusMeta(task.status).color}>
+                    {task.status === 'active' ? '运行中' : taskStatusMeta(task.status).label}
                   </Badge>
                 </Kv>
                 <Kv k="来源">
@@ -72,7 +72,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
                 </Kv>
                 <Kv k="批次ID">
                   <span className="font-mono text-xs" title={task.assignment_id}>
-                    {task.assignment_id.slice(0, 8)}（第 {task.assignment_ndx} / {task.assignment_total} 个）
+                    {task.assignment_id.slice(0, 8)}（第 {task.assignment_index} / {task.assignment_total} 个）
                   </span>
                 </Kv>
                 <Kv k="进度">

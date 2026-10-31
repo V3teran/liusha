@@ -20,7 +20,7 @@ type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.Stat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
-	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.VulnFinding, error)
+	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.Vuln, error)
 }
 
 // 漏洞台账分页默认值/上限（与流量列表 defaultTrafficPageSize/maxTrafficPageSize 同一口径，
@@ -110,8 +110,8 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
-		// UpdateTriage 返回 VulnFinding（无 _id），补零值即可（前端改处置不依赖 _id）。
-		c.JSON(http.StatusOK, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{VulnFinding: updated})})
+		// UpdateTriage 返回 Vuln（无 _id），补零值即可（前端改处置不依赖 _id）。
+		c.JSON(http.StatusOK, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{Vuln: updated})})
 	}
 }
 

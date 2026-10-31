@@ -26,12 +26,12 @@ import (
 
 // agentStore 是 configstore 依赖的 agent 底层能力（*agent.Store 满足）。
 type agentStore interface {
-	GetByID(ctx context.Context, id string) (agent.Agent, error)
-	GetByCode(ctx context.Context, code string) (agent.Agent, error)
-	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error)
-	UpdateComplexity(ctx context.Context, id, complexity string) (agent.Agent, error)
-	List(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error)
-	ListPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error)
+	GetByID(ctx context.Context, id string) (agent.Profile, error)
+	GetByCode(ctx context.Context, code string) (agent.Profile, error)
+	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
+	UpdateComplexity(ctx context.Context, id, complexity string) (agent.Profile, error)
+	List(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
+	ListPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error)
 	CountList(ctx context.Context, p agent.ListParams) (int, error)
 }
 
@@ -93,25 +93,25 @@ func boolKey(b bool) string {
 // ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
 
 // AgentByID 按 uuid 读 agent（CRUD :id）。
-func (s *Store) AgentByID(ctx context.Context, id string) (agent.Agent, error) {
+func (s *Store) AgentByID(ctx context.Context, id string) (agent.Profile, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentID(id),
-		func(h agent.Agent) []string { return []string{keyAgentID(h.ID)} },
-		func(ctx context.Context) (agent.Agent, error) {
+		func(h agent.Profile) []string { return []string{keyAgentID(h.ID)} },
+		func(ctx context.Context) (agent.Profile, error) {
 			return s.agents.GetByID(ctx, id)
 		})
 }
 
 // AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
-// keyAgentCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Agent；
+// keyAgentCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Profile；
 // 一致性：所有 agent 写路径（UpdateAgent/UpdateAgentComplexity）
 // 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
 // runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
-func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, error) {
+func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Profile, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentCode(code),
-		func(h agent.Agent) []string {
+		func(h agent.Profile) []string {
 			return []string{keyAgentCode(h.Code), keyAgentID(h.ID)}
 		},
-		func(ctx context.Context) (agent.Agent, error) {
+		func(ctx context.Context) (agent.Profile, error) {
 			return s.agents.GetByCode(ctx, code)
 		})
 }
@@ -119,10 +119,10 @@ func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Agent, erro
 // ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
 
 // ListAgents 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一 agent 写即失效两键。
-func (s *Store) ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent, error) {
+func (s *Store) ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
-		func([]agent.Agent) []string { return []string{keyAgentsList(onlyEnabled)} },
-		func(ctx context.Context) ([]agent.Agent, error) {
+		func([]agent.Profile) []string { return []string{keyAgentsList(onlyEnabled)} },
+		func(ctx context.Context) ([]agent.Profile, error) {
 			return s.agents.List(ctx, onlyEnabled)
 		})
 }
@@ -133,7 +133,7 @@ func (s *Store) ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Agent
 // 配置管理页低频，缓存收益近零，故直穿 DB。
 
 // ListAgentsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
-func (s *Store) ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Agent, error) {
+func (s *Store) ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error) {
 	return s.agents.ListPaged(ctx, p)
 }
 
@@ -158,10 +158,10 @@ func agentKeys(id, code string) []string {
 }
 
 // UpdateAgent 更新 agent 配置（只能更新 SystemPrompt、Skills 和工具）。
-func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Agent, error) {
+func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error) {
 	h, err := s.agents.Update(ctx, code, p)
 	if err != nil {
-		return agent.Agent{}, err
+		return agent.Profile{}, err
 	}
 	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
 		return h, err
@@ -171,10 +171,10 @@ func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdatePara
 
 // UpdateAgentComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
 // runner 被动清 L1，下次 For(role) 经 ComplexityByCode 读到新档。不碰 agent 其余字段。
-func (s *Store) UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Agent, error) {
+func (s *Store) UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Profile, error) {
 	h, err := s.agents.UpdateComplexity(ctx, id, complexity)
 	if err != nil {
-		return agent.Agent{}, err
+		return agent.Profile{}, err
 	}
 	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
 		return h, err

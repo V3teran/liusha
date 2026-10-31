@@ -18,6 +18,7 @@ import (
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -27,7 +28,6 @@ import (
 	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/sandbox"
-	"github.com/V3teran/liusha/internal/scanstream"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -66,7 +66,7 @@ type Handler struct {
 	CfgStore *configstore.Store
 
 	Conversations  *conversation.Store
-	EventPublisher *scanstream.Publisher
+	EventPublisher *convstream.Publisher
 
 	Graph        *explorationgraph.Store
 	Checkpointer core.Checkpointer
@@ -271,5 +271,5 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 四Agent认知架构
-	return h.handleCognition(ctx, p, input.Brief, taskLogger, assignmentID)
+	return h.executeTask(ctx, p, input.Brief, taskLogger, assignmentID)
 }

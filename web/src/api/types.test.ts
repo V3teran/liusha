@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isEventMessage, parseScanEvent } from './types'
+import { isEventMessage, parseEventMeta } from './types'
 import type { Message } from './types'
 
 describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））', () => {
@@ -10,14 +10,14 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
     role: 'tool',
     kind: 'event',
     content: 'done',
-    // ScanEvent 是后端手工 map 序列化的小写 snake_case 键（types.ts 契约）。
+    // TimelineEventMeta 是后端手工 map 序列化的小写 snake_case 键（types.ts 契约）。
     metadata: {
       kind: 'tool_result',
       status: '',
       steps: 0,
       actions: 0,
       findings: 0,
-      stop_why: '',
+      stop_reason: '',
       reason: '',
       call_id: 'call-1',
       tool_name: 'run_command',
@@ -48,8 +48,8 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
     expect(isEventMessage(msg)).toBe(false)
   })
 
-  it('解析 ScanEvent metadata（snake_case 键）', () => {
-    const ev = parseScanEvent(frame)
+  it('解析 TimelineEventMeta metadata（snake_case 键）', () => {
+    const ev = parseEventMeta(frame)
     expect(ev).not.toBeNull()
     expect(ev?.tool_name).toBe('run_command')
     expect(ev?.kind).toBe('tool_result')
@@ -59,11 +59,11 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
 
   it('KindMessage 无 metadata 返回 null', () => {
     const m: Message = { ...frame, kind: 'message', metadata: null }
-    expect(parseScanEvent(m)).toBeNull()
+    expect(parseEventMeta(m)).toBeNull()
   })
 
   it('event 消息但 metadata 为 null 返回 null', () => {
     const m: Message = { ...frame, kind: 'event', metadata: null }
-    expect(parseScanEvent(m)).toBeNull()
+    expect(parseEventMeta(m)).toBeNull()
   })
 })

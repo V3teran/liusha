@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// createChatScan 调 POST /chat 发起【会话式】扫描，返回 (conversationID, taskID)。
+// createChatTask 调 POST /chat 发起【会话式】扫描，返回 (conversationID, taskID)。
 // /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e 走此入口使扫描
 // 在前端可观察（区别于纯后台无会话的 POST /scan）。taskID 即响应的 task_id，
-// brief 是用户自然语言任务简报，后端通过 msgclass 自动分类决定是否创建扫描任务。
-func createChatScan(base, key, brief string) (conversationID, taskID string, err error) {
+// brief 是用户自然语言任务简报，后端通过 intent 自动分类决定是否创建扫描任务。
+func createChatTask(base, key, brief string) (conversationID, taskID string, err error) {
 	body, _ := json.Marshal(map[string]string{"brief": brief})
 
-	// 带重试的专用客户端：/chat 是同步端点（内部跑 msgclass 分类 LLM 调用），
+	// 带重试的专用客户端：/chat 是同步端点（内部跑 intent 分类 LLM 调用），
 	// 上游 429（资源包限额）时服务端需等外部分类完成，裸 DefaultClient 无超时
 	// 且 TCP 一旦被中间层掐断就报 EOF——错误不可读、也不重试。此处：总超时
 	// 3min + 对 429/5xx/EOF 指数退避重试 3 次。
@@ -69,7 +69,7 @@ func createChatScan(base, key, brief string) (conversationID, taskID string, err
 	if out.ConversationID == "" {
 		return "", "", fmt.Errorf("chat returned empty conversation_id")
 	}
-	// e2e 要求必须创建扫描任务。如果 taskID 为空，说明 brief 被 msgclass 识别为纯聊天，
+	// e2e 要求必须创建扫描任务。如果 taskID 为空，说明 brief 被 intent 识别为纯聊天，
 	// 需要修改 brief 使其包含明确的扫描意图（如：测试、扫描、挖掘漏洞等关键词）。
 	if out.TaskID == "" {
 		return "", "", fmt.Errorf("chat returned empty task_id (brief 被识别为聊天而非扫描，需要包含扫描关键词)")

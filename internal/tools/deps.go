@@ -19,7 +19,7 @@ import (
 )
 
 // Deps 持有单次 agent run 所需的全部上下文与依赖。
-// 每次 handleCognition 调用时从 handler 字段 + 运行时参数组装。
+// 每次任务执行（runner.executeTask）时从 handler 字段 + 运行时参数组装。
 type Deps struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（工具调用/证据归属）

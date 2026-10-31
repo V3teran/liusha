@@ -1,4 +1,4 @@
-package scanstream
+package convstream
 
 import (
 	"context"

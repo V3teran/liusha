@@ -1,6 +1,6 @@
 //go:build integration
 
-package scanstream_test
+package convstream_test
 
 import (
 	"context"
@@ -10,12 +10,12 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/V3teran/liusha/internal/scanstream"
+	"github.com/V3teran/liusha/internal/convstream"
 )
 
 // 用 dev redis 测 publish→subscribe 往返。需 LIUSHA_REDIS_ADDR（缺省 localhost:6379）。
 //
-//	LIUSHA_REDIS_ADDR=localhost:6379 go test -tags integration ./internal/scanstream/
+//	LIUSHA_REDIS_ADDR=localhost:6379 go test -tags integration ./internal/convstream/
 func TestPubSub_RoundTrip(t *testing.T) {
 	addr := os.Getenv("LIUSHA_REDIS_ADDR")
 	if addr == "" {
@@ -31,12 +31,12 @@ func TestPubSub_RoundTrip(t *testing.T) {
 	}
 
 	const convID = "test-conv-roundtrip"
-	sub := scanstream.Subscribe(ctx, rdb, convID)
+	sub := convstream.Subscribe(ctx, rdb, convID)
 	defer sub.Close()
 	// 等订阅就绪（go-redis 异步建立订阅，过早 publish 会丢）。
 	time.Sleep(200 * time.Millisecond)
 
-	pub := scanstream.NewPublisher(rdb)
+	pub := convstream.NewPublisher(rdb)
 	if err := pub.Publish(ctx, convID, []byte("事件1")); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}

@@ -1,5 +1,5 @@
 import type { FindingFilters } from '@/api/types'
-import { useUrlFilterFields, useUrlPageState } from '@/lib/useUrlPageState'
+import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 
 // 漏洞台账筛选态迁移进 URL search params：刷新、前进/后退、分享链接都能还原
 // 筛选条件与翻页位置。参数名：host / severity / status / source / page / size。

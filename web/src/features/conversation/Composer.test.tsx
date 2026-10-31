@@ -18,7 +18,7 @@ describe('Composer', () => {
   })
 
   it('无 convId 发送时调用 startChat 并触发 onStarted', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', scan_id: 's1' })
+    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
     render(<Composer onStarted={onStarted} onAppended={vi.fn()} onStop={vi.fn()} />)
 
@@ -44,7 +44,7 @@ describe('Composer', () => {
       metadata: null,
       created_at: '',
     })
-    vi.mocked(followUp).mockResolvedValue({ intent: 'scan', scan_id: 's1' })
+    vi.mocked(followUp).mockResolvedValue({ intent: 'action', task_id: 't-new' })
     const onAppended = vi.fn()
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended} onStop={vi.fn()} />)
 
@@ -155,7 +155,7 @@ describe('Composer', () => {
   })
 
   it('Enter 触发发送', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', scan_id: 's1' })
+    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
     render(<Composer onStarted={onStarted} onAppended={vi.fn()} onStop={vi.fn()} />)
 

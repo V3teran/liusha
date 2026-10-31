@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { LLMInvocationFilters } from '@/api/types'
-import { useUrlPageState } from '@/lib/useUrlPageState'
+import { useUrlPageState } from '@/hooks/useUrlPageState'
 
 // 筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/排序/分页应作为 URL state」）：
 // 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
