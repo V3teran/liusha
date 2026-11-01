@@ -277,10 +277,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {(source === 'self' || hasConv) && (
         <Composer
           convId={convId}
-          scanning={scanning}
           onStarted={handleStarted}
           onAppended={handleAppended}
-          onStop={() => void stop()}
         />
       )}
     </section>
