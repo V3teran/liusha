@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 echo "===== 1. 起 docker 基础设施（postgres + redis） ====="
 # dev 模式只起 pg + redis；proxy/api/runner 由 run-svc.sh 在 host 跑
 # （host proxy 与 docker proxy 都绑 :8888，起 docker proxy 会端口冲突）。
-docker compose up -d postgres redis
+docker compose -f compose.yaml -f compose.dev.yaml up -d
 
 echo ""
 echo "===== 2. 等 healthcheck（最多 30s） ====="
