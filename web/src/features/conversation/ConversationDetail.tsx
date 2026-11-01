@@ -273,14 +273,17 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         </div>
       )}
 
-      {/* 代理模式(proxy) 无「发起新扫描」：仅当有选中会话时才露插话框；自主下发(self) 允许空态发起。 */}
-      {(source === 'self' || hasConv) && (
-        <Composer
-          convId={convId}
-          onStarted={handleStarted}
-          onAppended={handleAppended}
-        />
-      )}
+      {/* 对话框恒渲染：聊天界面框架不随数据缺失消失。代理模式未选批次时
+          禁用（无可附着会话），placeholder 引导先选批次。 */}
+      <Composer
+        convId={convId}
+        disabled={source === 'proxy' && !hasConv}
+        placeholder={
+          source === 'proxy' && !hasConv ? '选择左侧一批流量后，可在这里插话追问…' : undefined
+        }
+        onStarted={handleStarted}
+        onAppended={handleAppended}
+      />
     </section>
   )
 }

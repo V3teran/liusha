@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FilePlus2, FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
+import { FilePlus2, FolderOpen, RefreshCw, Trash2 , Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   deleteWorkspacePath,
@@ -15,14 +15,23 @@ import { cn } from '@/lib/utils'
 
 /**
  * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
- * 任务选单 → 文件树 → 查看/编辑/保存、新建（文件/目录）、删除。
- * 二进制文件只读展示元信息；编辑保存以原始字节直传（二进制安全）。
+ * 搜索任务（默认选中最新）→ 文件树 → 查看/编辑/保存、新建（文件/目录）、
+ * 删除。二进制文件只读展示元信息；编辑保存以原始字节直传（二进制安全）。
  */
 export function WorkspacePage() {
   const qc = useQueryClient()
   const tasksQuery = useQuery({ queryKey: ['workspace', 'tasks'], queryFn: listWorkspaceTasks })
   const tasks = tasksQuery.data ?? []
   const [activeTask, setActiveTask] = useState<string | null>(null)
+  // 默认选中最新任务（任务列表按活动时间倒序，首个即最新）；仅初始兜底一次
+  useEffect(() => {
+    if (!activeTask && tasks.length > 0) setActiveTask(tasks[0].name)
+  }, [tasks, activeTask])
+  const [taskQuery, setTaskQuery] = useState('')
+  const matchedTasks = useMemo(() => {
+    const q = taskQuery.trim().toLowerCase()
+    return q ? tasks.filter((t) => t.name.toLowerCase().includes(q)) : tasks
+  }, [tasks, taskQuery])
 
   const treeQuery = useQuery({
     queryKey: ['workspace', 'tree', activeTask],
@@ -30,10 +39,8 @@ export function WorkspacePage() {
     enabled: !!activeTask,
     placeholderData: keepPreviousData,
   })
-  const entries = useMemo(
-    () => (treeQuery.data ?? []).filter((e) => !e.is_dir),
-    [treeQuery.data],
-  )
+  // 目录也进树：纯目录任务区（如刚初始化的 work/out/profile）不再误显「空」
+  const entries = treeQuery.data ?? []
   const [selected, setSelected] = useState<string | null>(null)
 
   const fileQuery = useQuery({
@@ -102,20 +109,17 @@ export function WorkspacePage() {
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select
-          value={activeTask ?? ''}
-          onChange={(e) => {
-            setActiveTask(e.target.value || null)
-            setSelected(null)
-            setDraft(null)
-          }}
-          className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text"
-        >
-          <option value="">选择任务…</option>
-          {tasks.map((t) => (
-            <option key={t.name} value={t.name}>{t.name}</option>
-          ))}
-        </select>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+          <input
+            value={taskQuery}
+            onChange={(e) => setTaskQuery(e.target.value)}
+            placeholder="搜索任务 ID…"
+            spellCheck={false}
+            aria-label="搜索任务"
+            className="h-9 w-72 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent"
+          />
+        </div>
         <button
           onClick={() => refresh()}
           className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:text-text"
@@ -128,8 +132,36 @@ export function WorkspacePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
         {/* 文件树 */}
         <div className="rounded-2xl border border-border bg-surface p-3">
+          {tasks.length > 0 && (
+            <div className="mb-3 border-b border-border pb-2">
+              <p className="mb-1 px-1 text-xs uppercase tracking-wide text-muted opacity-70">任务工作区</p>
+              <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                {matchedTasks.map((t) => (
+                  <li key={t.name}>
+                    <button
+                      onClick={() => {
+                        setActiveTask(t.name)
+                        setSelected(null)
+                        setDraft(null)
+                      }}
+                      className={cn(
+                        'w-full truncate rounded-lg px-2 py-1 text-left font-mono text-xs hover:bg-surface-2',
+                        activeTask === t.name ? 'bg-surface-2 text-text' : 'text-muted',
+                      )}
+                      title={t.name}
+                    >
+                      {t.name}
+                    </button>
+                  </li>
+                ))}
+                {matchedTasks.length === 0 && (
+                  <li className="px-2 py-1 text-xs text-muted">无匹配任务</li>
+                )}
+              </ul>
+            </div>
+          )}
           {!activeTask ? (
-            <p className="p-4 text-sm text-muted">先选择一个任务工作区</p>
+            <p className="p-4 text-sm text-muted">暂无任务工作区——下发扫描任务后，沙盒工件会按任务落在这里</p>
           ) : (
             <>
               <FileTree
@@ -224,7 +256,8 @@ export function WorkspacePage() {
   )
 }
 
-/** 扁平文件树：按服务端排序（目录前、路径字典序），深度即缩进。 */
+/** 扁平文件树：按服务端排序（目录前、路径字典序），深度即缩进。
+ * 目录为弱化行（不可选中——文件操作面只针对文件），文件行可选中打开。 */
 function FileTree({
   entries,
   selected,
@@ -240,18 +273,26 @@ function FileTree({
         const depth = e.path.split('/').length - (e.is_dir ? 1 : 0)
         return (
           <li key={e.path}>
-            <button
-              onClick={() => onSelect(e.path)}
-              style={{ paddingLeft: `${depth * 14 + 8}px` }}
-              className={cn(
-                'flex w-full items-center gap-1.5 rounded-lg py-1 text-left hover:bg-surface-2',
-                selected === e.path && 'bg-surface-2 text-text',
-                !e.is_dir && 'text-text',
-                e.is_dir && 'text-muted',
-              )}
-            >
-              <span className="truncate font-mono text-xs">{e.path}</span>
-            </button>
+            {e.is_dir ? (
+              <span
+                style={{ paddingLeft: `${depth * 14 + 8}px` }}
+                className="flex items-center gap-1.5 rounded-lg py-1 text-left text-muted"
+              >
+                <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                <span className="truncate font-mono text-xs">{e.path}</span>
+              </span>
+            ) : (
+              <button
+                onClick={() => onSelect(e.path)}
+                style={{ paddingLeft: `${depth * 14 + 8}px` }}
+                className={cn(
+                  'flex w-full items-center gap-1.5 rounded-lg py-1 text-left hover:bg-surface-2',
+                  selected === e.path && 'bg-surface-2 text-text',
+                )}
+              >
+                <span className="truncate font-mono text-xs">{e.path}</span>
+              </button>
+            )}
           </li>
         )
       })}

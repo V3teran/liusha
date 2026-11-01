@@ -40,6 +40,21 @@ beforeEach(() => {
 })
 
 describe('WorkspacePage', () => {
+  it('搜索框过滤任务列表', async () => {
+    mockedList.mockResolvedValue([
+      { name: 'task-abc', mod_time: '2026-11-01T10:00:00Z' },
+      { name: 'task-xyz', mod_time: '2026-11-01T09:00:00Z' },
+    ])
+    mockedTree.mockResolvedValue([])
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('task-xyz')
+    await user.type(screen.getByLabelText('搜索任务'), 'xyz')
+    expect(screen.getByText('task-xyz')).toBeTruthy()
+    expect(screen.queryByText('task-abc')).toBeFalsy()
+  })
+
   it('选择任务后渲染文件树并可打开文件', async () => {
     mockedTree.mockResolvedValue([
       { path: 'work/', size: 96, is_dir: true, mod_time: '2026-11-01T10:00:00Z' },
@@ -52,9 +67,7 @@ describe('WorkspacePage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    // 等任务选项渲染（异步 query）再选择
-    await screen.findByText('task-abc')
-    await user.selectOptions(screen.getByRole('combobox'), 'task-abc')
+    // 默认选中最新任务（列表首个），文件树自动加载
     expect(await screen.findByText('work/poc.py')).toBeTruthy()
     await user.click(screen.getByText('work/poc.py'))
     expect(await screen.findByDisplayValue('print(1)')).toBeTruthy()
@@ -72,9 +85,8 @@ describe('WorkspacePage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('task-abc')
-    await user.selectOptions(screen.getByRole('combobox'), 'task-abc')
-    await user.click(await screen.findByText('work/poc.py'))
+    await screen.findByText('work/poc.py')
+    await user.click(screen.getByText('work/poc.py'))
     const box = await screen.findByDisplayValue('old')
     await user.clear(box)
     await user.type(box, 'new')
@@ -97,9 +109,8 @@ describe('WorkspacePage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('task-abc')
-    await user.selectOptions(screen.getByRole('combobox'), 'task-abc')
-    await user.click(await screen.findByText('out/blob.bin'))
+    await screen.findByText('out/blob.bin')
+    await user.click(screen.getByText('out/blob.bin'))
     expect(await screen.findByText('二进制')).toBeTruthy()
     // 编辑器以 base64 只读预览（文本框家族里按值定位）
     const editor = screen.getByDisplayValue('/5+A=')
