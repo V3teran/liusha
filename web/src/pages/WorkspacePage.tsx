@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import CodeMirror from '@uiw/react-codemirror'
+import { python } from '@codemirror/lang-python'
+import { javascript } from '@codemirror/lang-javascript'
+import { json } from '@codemirror/lang-json'
+import { markdown } from '@codemirror/lang-markdown'
+import { StreamLanguage } from '@codemirror/language'
+import { shell } from '@codemirror/legacy-modes/mode/shell'
 import {
   Download,
   FilePlus2,
@@ -8,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  X,
 } from 'lucide-react'
 import {
   deleteWorkspacePath,
@@ -21,6 +29,28 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
+/** 按扩展名选语言高亮；无匹配返回空数组（纯文本）。 */
+function languageExtensions(path: string) {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  switch (ext) {
+    case 'py':
+      return [python()]
+    case 'js':
+    case 'ts':
+    case 'jsx':
+    case 'tsx':
+      return [javascript()]
+    case 'json':
+      return [json()]
+    case 'md':
+      return [markdown()]
+    case 'sh':
+    case 'bash':
+      return [StreamLanguage.define(shell)]
+    default:
+      return []
+  }
+}
 /**
  * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
  * 直接展示整棵工作区文件结构（顶层即任务目录，最新在前），搜索框过滤路径；
@@ -61,6 +91,7 @@ export function WorkspacePage() {
     enabled: !!selected,
   })
   const [draft, setDraft] = useState<string | null>(null)
+  const [creating, setCreating] = useState<'file' | 'dir' | null>(null)
   const [newName, setNewName] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -81,28 +112,31 @@ export function WorkspacePage() {
     refresh()
   }
 
-  async function createFile() {
-    if (!newName.trim()) return
-    try {
-      await putWorkspaceFile(newName.trim(), new Uint8Array())
-      setNotice(`已创建 ${newName.trim()}`)
-      setNewName('')
-      setSelected(newName.trim())
-      refresh()
-    } catch (e) {
-      setNotice(`创建失败：${(e as Error).message}`)
-    }
-  }
+  // 新建流：commitCreate 统一处理文件/目录两种提交。
 
-  async function createDir() {
-    if (!newName.trim()) return
-    try {
-      await mkdirWorkspace(newName.trim())
-      setNotice(`已创建目录 ${newName.trim()}`)
-      setNewName('')
-      refresh()
-    } catch (e) {
-      setNotice(`创建失败：${(e as Error).message}`)
+  // 新建流统一提交：file 建空文件（建完打开编辑），dir 建目录（父级自动创建）。
+  function commitCreate() {
+    const p = newName.trim()
+    if (!p || !creating) return
+    if (creating === 'file') {
+      putWorkspaceFile(p, new Uint8Array())
+        .then(() => {
+          setNotice(`已创建 ${p}`)
+          setNewName('')
+          setSelected(p)
+          setCreating(null)
+          refresh()
+        })
+        .catch((e) => setNotice(`创建失败：${(e as Error).message}`))
+    } else {
+      mkdirWorkspace(p)
+        .then(() => {
+          setNotice(`已创建目录 ${p}`)
+          setNewName('')
+          setCreating(null)
+          refresh()
+        })
+        .catch((e) => setNotice(`创建失败：${(e as Error).message}`))
     }
   }
 
@@ -139,7 +173,7 @@ export function WorkspacePage() {
         <div>
           <h1 className="text-lg font-semibold">工作空间</h1>
           <p className="text-sm text-muted">
-            沙盒任务工件的宿主持久层——脚本、扫描输出、复现材料（work/out/profile）
+            沙盒任务工件的宿主持久层
           </p>
         </div>
       </header>
@@ -156,12 +190,6 @@ export function WorkspacePage() {
             className="h-9 w-72 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent"
           />
         </div>
-        <button
-          onClick={() => refresh()}
-          className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-sm text-muted hover:text-text"
-        >
-          <RefreshCw className="h-3.5 w-3.5" /> 刷新
-        </button>
         {allEntries.length > 0 && (
           <span className="text-xs text-muted opacity-75">{taskCount} 个任务工作区</span>
         )}
@@ -172,24 +200,49 @@ export function WorkspacePage() {
         {/* 文件树 + 新建工具栏 */}
         <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
           <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="新路径，如 task/work/poc.py"
-              spellCheck={false}
-              aria-label="新建路径"
-              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs"
-            />
-            <button onClick={() => void createFile()} title="新建文件" aria-label="新建文件" className="text-muted hover:text-text">
+            <button
+              onClick={() => { setCreating('file'); setNewName('') }}
+              title="新建文件"
+              aria-label="新建文件"
+              className={cn('text-muted hover:text-text', creating === 'file' && 'text-accent')}
+            >
               <FilePlus2 className="h-4 w-4" />
             </button>
-            <button onClick={() => void createDir()} title="新建目录" aria-label="新建目录" className="text-muted hover:text-text">
+            <button
+              onClick={() => { setCreating('dir'); setNewName('') }}
+              title="新建目录"
+              aria-label="新建目录"
+              className={cn('text-muted hover:text-text', creating === 'dir' && 'text-accent')}
+            >
               <FolderPlus className="h-4 w-4" />
             </button>
             <button onClick={() => refresh()} title="刷新" aria-label="刷新" className="text-muted hover:text-text">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
+          {creating && (
+            <div className="mb-3 flex items-center gap-1.5">
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitCreate()
+                  if (e.key === 'Escape') setCreating(null)
+                }}
+                placeholder={creating === 'file' ? '新文件路径，如 task/work/poc.py' : '新目录路径，如 task/work'}
+                spellCheck={false}
+                aria-label="新建路径"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs"
+              />
+              <button onClick={commitCreate} aria-label="确认新建" title="确认" className="text-accent hover:text-accent-hover">
+                ✓
+              </button>
+              <button onClick={() => setCreating(null)} aria-label="取消新建" title="取消" className="text-muted hover:text-text">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <FileTree
             entries={entries}
             selected={selected}
@@ -238,6 +291,45 @@ export function WorkspacePage() {
                 className="h-72 w-full rounded-lg border border-border bg-surface-2 p-2 font-mono text-xs"
               />
             </div>
+          ) : fileQuery.data?.truncated ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm text-text">{selected}</span>
+                <div className="flex items-center gap-2">
+                  {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
+                  <button
+                    onClick={() => void download(selected)}
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                  >
+                    <Download className="h-3.5 w-3.5" /> 下载
+                  </button>
+                  <button
+                    onClick={() => void save()}
+                    disabled={!editing}
+                    className={cn(
+                      'rounded-lg border border-border px-2.5 py-1 text-xs',
+                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-muted opacity-50',
+                    )}
+                  >
+                    保存
+                  </button>
+                  <button
+                    onClick={() => void remove(selected)}
+                    className="flex items-center gap-1 text-xs text-muted hover:text-text"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> 删除
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-muted">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
+              <textarea
+                aria-label="文件内容编辑器"
+                value={draft ?? fileQuery.data?.content ?? ''}
+                onChange={(e) => setDraft(e.target.value)}
+                spellCheck={false}
+                className="h-96 w-full rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs leading-5"
+              />
+            </div>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
@@ -268,16 +360,22 @@ export function WorkspacePage() {
                   </button>
                 </div>
               </div>
-              {fileQuery.data?.truncated && (
-                <p className="text-xs text-muted">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
-              )}
-              <textarea
+              <div
                 aria-label="文件内容编辑器"
-                value={draft ?? fileQuery.data?.content ?? ''}
-                onChange={(e) => setDraft(e.target.value)}
-                spellCheck={false}
-                className="h-96 w-full rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs leading-5"
-              />
+                className={cn(
+                  'overflow-hidden rounded-lg border border-border bg-surface-2 text-xs',
+                  '[&_.cm-editor]:min-h-[384px] [&_.cm-editor]:bg-surface-2 [&_.cm-gutters]:bg-surface-2 [&_.cm-gutters]:border-r-border',
+                )}
+              >
+                <CodeMirror
+                  value={draft ?? fileQuery.data?.content ?? ''}
+                  onChange={(v) => setDraft(v)}
+                  extensions={languageExtensions(selected)}
+                  theme="dark"
+                  height="384px"
+                  basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
+                />
+              </div>
             </div>
           )}
         </div>
