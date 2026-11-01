@@ -302,6 +302,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               : `第 ${offset + 1}–${offset + items.length} 条 · 共 ${total} 条`}
           </div>
         )}
+        {filtered.length === 0 && !loadError ? null : (
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {filtered.map((c) => {
             const meta = taskStatusMeta(c.run_status)
@@ -393,17 +394,24 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             </li>
           )}
         </ul>
-        {loadError ? null : filtered.length === 0 && (
-          /* 结构化空态：撑满列表区，替代旧浮字——空数据也是一等界面状态 */
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-lg text-muted">
+        )}
+        {loadError && (
+          <div className="rounded-xl border border-sev-critical/40 bg-surface p-4 text-center text-xs text-sev-critical">
+            ⚠ 列表加载失败：{loadError}
+          </div>
+        )}
+        {!loadError && filtered.length === 0 && (
+          /* 结构化空态：虚线框面板占据列表区并居中——空数据也是一等界面
+             状态，框架可见而非浮字 */
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong/50 px-4 py-10 text-center">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-muted">
               {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
             <p className="text-sm font-medium text-text">
               {query.trim() ? '本页无匹配对话' : emptyState?.title ?? '暂无对话'}
             </p>
             {!query.trim() && emptyState?.desc && (
-              <p className="text-xs leading-5 text-muted">{emptyState.desc}</p>
+              <p className="max-w-[220px] text-xs leading-5 text-muted">{emptyState.desc}</p>
             )}
           </div>
         )}

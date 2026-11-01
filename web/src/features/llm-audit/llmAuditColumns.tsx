@@ -27,8 +27,10 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * （单一 provider 时每行重复同一个值是纯噪声）。
  *
  * 列顺序（参考 Datadog/Sentry 日志表）：
- * # → 时间 → 摘要（这次调用干了什么）→ 角色 → 模型 → Tokens → 响应耗时。
- * 摘要是审计表的主读列：正文预览 + 工具徽章，不必逐行点开详情（后端库内派生，不传大字段）。
+ * # → 时间 → 工具（这次调用驱动了什么）→ 角色 → 模型 → Tokens → 响应耗时。
+ * 工具列是审计表的主读列：调用驱动的工具徽章，不必逐行点开详情（库内派生，
+ * 不传大字段）。正文预览已裁撤——失败行无正文、成功行的正文噪声大于信号，
+ * 完整原文在详情抽屉按需读。
  * 对话/批次不占列——行→详情抽屉里提供任务/对话跳转按钮（业务标识属于钻取视角，不是筛读视角）。
  */
 export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: number) {
@@ -58,40 +60,30 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       },
     }),
     columnHelper.display({
-      id: 'preview',
-      header: '摘要',
-      size: 220,
-      meta: { headerTitle: '这次调用产出了什么：正文预览 + 请求的工具；点行看完整原文（早期行可能为空）' },
+      id: 'tools',
+      header: '工具',
+      size: 200,
+      meta: { headerTitle: '这次调用驱动了哪些工具；点行看完整请求与响应原文' },
       cell: (ctx) => {
-        const v = ctx.row.original
-        const tools = v.tool_names ?? []
-        if (!v.text_preview && tools.length === 0) {
+        const tools = ctx.row.original.tool_names ?? []
+        if (tools.length === 0) {
           return <span className="text-muted opacity-40">—</span>
         }
         return (
-          <span className="flex flex-col gap-1 overflow-hidden">
-            {v.text_preview && (
-              <span className="block truncate text-xs text-text-secondary" title={v.text_preview}>
-                {v.text_preview}
-              </span>
-            )}
-            {tools.length > 0 && (
-              <span className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
-                {tools.slice(0, 3).map((t, i) => (
-                  <em
-                    key={`${t}-${i}`}
-                    className="rounded bg-surface-2 px-1 py-px font-mono text-[10px] not-italic text-muted"
-                    title={t}
-                  >
-                    {t}
-                  </em>
-                ))}
-                {tools.length > 3 && (
-                  <em className="text-[10px] not-italic text-muted" title={tools.join(', ')}>
-                    +{tools.length - 3}
-                  </em>
-                )}
-              </span>
+          <span className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
+            {tools.slice(0, 3).map((t, i) => (
+              <em
+                key={`${t}-${i}`}
+                className="rounded bg-surface-2 px-1 py-px font-mono text-[10px] not-italic text-muted"
+                title={t}
+              >
+                {t}
+              </em>
+            ))}
+            {tools.length > 3 && (
+              <em className="text-[10px] not-italic text-muted" title={tools.join(', ')}>
+                +{tools.length - 3}
+              </em>
             )}
           </span>
         )

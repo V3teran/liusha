@@ -21,7 +21,6 @@ function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocation
     role: 'planner',
     created_at: '2026-01-01T00:00:00Z',
     tool_names: [],
-    text_preview: '',
     messages: [],
     result: null,
     ...overrides,

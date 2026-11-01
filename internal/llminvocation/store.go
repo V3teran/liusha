@@ -244,16 +244,12 @@ const maxListLimit = 1000
 // defaultListLimit 对齐 httpapi defaultInvocationPageSize=200——≤0 兜底用缺省而非上限。
 const defaultListLimit = 200
 
-// textPreviewLimit 是列表摘要里文字预览的截断长度：够表格一行展示，又不至于把正文搬出库。
-const textPreviewLimit = 200
-
-// resultToolCallsExpr / resultContentExpr / toolNameExpr：result jsonb 的键读取表达式。
+// resultToolCallsExpr / toolNameExpr：result jsonb 的键读取表达式。
 // 历史行是 Go 结构体无 tag 直出的大写键（Content/ToolCalls），加 tag 后的新行是小写键——
 // 派生摘要两套都认（COALESCE 先小写后大写），新旧数据在列表页同等可读。
 // 工具名同有两种形态：OpenAI 原始线格式包在 function.name 下，内部 ToolCall 是扁平 name。
 const (
 	resultToolCallsExpr = `COALESCE(li.result->'tool_calls', li.result->'ToolCalls')`
-	resultContentExpr   = `COALESCE(li.result->>'content', li.result->>'Content', '')`
 	toolNameExpr        = `COALESCE(tc->'function'->>'name', tc->>'name')`
 )
 
@@ -345,7 +341,7 @@ func (f ListFilter) limitOrDefault() int {
 }
 
 // listSelect / listJoin 是列表查询共享的列序与 JOIN（ListByTask / ListAll
-// 单一口径）：派生摘要（tool_names/text_preview）在库内算完再出网，业务键
+// 单一口径）：派生工具清单（tool_names）在库内算完再出网，业务键
 // （conversation/assignment）经 JOIN 派生。新增列时两处同步改 scanListRow。
 const listSelect = `
 	SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
@@ -357,7 +353,6 @@ const listSelect = `
 	       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
 	                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
 	                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
-	       left(%[3]s, %[4]d) AS text_preview,
 	       c.id::text AS conversation_id,
 	       t.assignment_id::text AS assignment_id
 	FROM llm_invocation li
@@ -374,7 +369,7 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 		&v.LatencyMs,
 		&v.FinishReason, &v.Error, &v.ErrorKind, &v.Role,
 		&v.CreatedAt,
-		&v.ToolNames, &v.TextPreview,
+		&v.ToolNames,
 		&cid, &aid,
 	); err != nil {
 		return err
@@ -396,17 +391,17 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
 // 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计），
-// 但在 SQL 里从 result 派生出 tool_names / text_preview 两个短摘要——审计表要能一眼看出
+// 但在 SQL 里从 result 派生出 tool_names 工具清单——审计表要能一眼看出
 // 「这次调用干了什么」（派活 / 跑命令 / 写漏洞），否则得逐行点开详情才知道。
-// 摘要在库内算完再出网，仍不传大字段。
+// 工具清单在库内算完再出网，仍不传大字段。
 func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
 	conds, args := f.where(taskID)
 	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(listSelect+`
-		WHERE %[5]s
+		WHERE %[3]s
 		ORDER BY li.id DESC
-		LIMIT $%[6]d OFFSET $%[7]d`,
-		toolNameExpr, resultToolCallsExpr, resultContentExpr, textPreviewLimit,
+		LIMIT $%[4]d OFFSET $%[5]d`,
+		toolNameExpr, resultToolCallsExpr,
 		strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -521,10 +516,10 @@ func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error)
 	args = append(args, f.limitOrDefault(), f.Offset)
 
 	q := fmt.Sprintf(listSelect+`
-		WHERE %[5]s
+		WHERE %[3]s
 		ORDER BY li.id DESC
-		LIMIT $%[6]d OFFSET $%[7]d`,
-		toolNameExpr, resultToolCallsExpr, resultContentExpr, textPreviewLimit,
+		LIMIT $%[4]d OFFSET $%[5]d`,
+		toolNameExpr, resultToolCallsExpr,
 		strings.Join(conds, " AND "), limitIdx, offsetIdx)
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
