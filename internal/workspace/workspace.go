@@ -1,14 +1,17 @@
-// Package workspace 提供沙盒任务工作区的文件检索与 CRUD（宿主视角）。
+// Package workspace 提供沙盒工作区的文件检索与 CRUD（宿主视角）。
 //
 // 工作区根目录即 launcher bind 进沙盒的宿主目录（sandbox.workspace_dir，
 // 默认 ~/data/liusha/workspace）：容器内 sandbox-server 按 taskID 分
-// work/out/profile 子目录，本包在同一路径树上做安全的文件操作——路径
-// 解析被钳制在根目录内，穿越序列（.. / 绝对路径 / 符号链接逃逸）一律拒绝。
+// work/out/profile 子目录，任务目录就是工作区树的顶层。本包在同一路径树
+// 上做安全的文件操作——路径解析被钳制在根目录内，穿越序列（.. / 绝对
+// 路径 / 符号链接逃逸）一律拒绝。
 package workspace
 
 import (
+	"archive/zip"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -19,8 +22,9 @@ import (
 	"unicode/utf8"
 )
 
-// Store 是工作区文件操作的入口。所有路径参数都是相对 taskID 的斜杠路径
-// （容器内外同一棵树的语义由调用方保证：compose 以同路径挂载）。
+// Store 是工作区文件操作的入口。所有路径参数都是相对工作区根的斜杠路径
+// （顶层段即任务目录；容器内外同一棵树的语义由调用方保证：compose 以
+// 同路径挂载）。
 type Store struct {
 	root string
 }
@@ -46,85 +50,91 @@ func NewStore(root string) (*Store, error) {
 // Root 返回工作区根目录绝对路径。
 func (s *Store) Root() string { return s.root }
 
-// TaskDir 是一个任务工作区的汇总视图。
-type TaskDir struct {
-	Name    string    `json:"name"`
-	ModTime time.Time `json:"mod_time"`
-}
+// MaxReadBytes 是单次读取的内容上限（超出返回截断标记）。
+const MaxReadBytes = 4 << 20 // 4 MiB
 
-// Tasks 列出根目录下的全部任务工作区（最新活动在前）。
-func (s *Store) Tasks() ([]TaskDir, error) {
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
-		return nil, err
-	}
-	tasks := make([]TaskDir, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		tasks = append(tasks, TaskDir{Name: e.Name(), ModTime: info.ModTime()})
-	}
-	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ModTime.After(tasks[j].ModTime) })
-	return tasks, nil
-}
-
-// Entry 是文件树的一个节点（Path 为相对 taskID 的斜杠路径，目录带尾斜杠
-// 便于前端区分）。
+// Entry 是文件树的一个节点（Path 为相对工作区根的斜杠路径，目录带尾
+// 斜杠便于前端区分；Depth 为缩进层级）。
 type Entry struct {
 	Path    string    `json:"path"`
+	Depth   int       `json:"depth"`
 	Size    int64     `json:"size"`
 	IsDir   bool      `json:"is_dir"`
 	ModTime time.Time `json:"mod_time"`
 }
 
-// Tree 返回任务工作区的完整文件树（深度优先，目录在前、同类按名排序）。
-func (s *Store) Tree(taskID string) ([]Entry, error) {
-	taskRoot, err := s.taskRoot(taskID)
-	if err != nil {
-		return nil, err
-	}
+// Tree 返回整棵工作区文件树。排序：顶层任务目录按活动时间最新在前
+// （新任务的工件一眼可见），组内目录在前、路径字典序。
+func (s *Store) Tree() ([]Entry, error) {
 	var out []Entry
-	err = filepath.WalkDir(taskRoot, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if p == taskRoot {
+		if p == s.root {
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(taskRoot, p)
+		rel, err := filepath.Rel(s.root, p)
 		if err != nil {
 			return err
 		}
 		name := filepath.ToSlash(rel)
+		depth := strings.Count(name, "/")
 		if d.IsDir() {
 			name += "/"
 		}
-		out = append(out, Entry{Path: name, Size: info.Size(), IsDir: d.IsDir(), ModTime: info.ModTime()})
+		out = append(out, Entry{Path: name, Depth: depth, Size: info.Size(), IsDir: d.IsDir(), ModTime: info.ModTime()})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].IsDir != out[j].IsDir {
-			return out[i].IsDir
+
+	// 顶层任务目录按 mtime 降序赋组序；组内目录前、路径序；顶层散文件殿后。
+	topDirs := map[string]time.Time{}
+	topRank := map[string]int{}
+	rank := 0
+	for _, e := range out {
+		if e.Depth != 0 || !e.IsDir {
+			continue
 		}
-		return out[i].Path < out[j].Path
+		topDirs[strings.TrimSuffix(e.Path, "/")] = e.ModTime
+	}
+	names := make([]string, 0, len(topDirs))
+	for name := range topDirs {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return topDirs[names[i]].After(topDirs[names[j]]) })
+	for _, n := range names {
+		topRank[n] = rank
+		rank++
+	}
+	fileRank := rank
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		ka, kb := treeGroupKey(a, topRank, fileRank), treeGroupKey(b, topRank, fileRank)
+		if ka != kb {
+			return ka < kb
+		}
+		return a.Path < b.Path
 	})
 	return out, nil
 }
 
-// MaxReadBytes 是单次读取的内容上限（超出返回截断标记）。
-const MaxReadBytes = 4 << 20 // 4 MiB
+func treeGroupKey(e Entry, topRank map[string]int, fileRank int) string {
+	top := e.Path
+	if i := strings.Index(e.Path, "/"); i >= 0 {
+		top = e.Path[:i+1]
+	}
+	if r, ok := topRank[top]; ok {
+		return fmt.Sprintf("%04d|%s", r, e.Path)
+	}
+	return fmt.Sprintf("%04d|%s", fileRank, e.Path)
+}
 
 // FileContent 是读取结果：文本原样返回，二进制以 base64 编码并标记
 // binary（前端据此禁用编辑器）。
@@ -137,9 +147,9 @@ type FileContent struct {
 	ModTime   time.Time `json:"mod_time"`
 }
 
-// Read 读取任务工作区内的一个文件。
-func (s *Store) Read(taskID, rel string) (FileContent, error) {
-	full, err := s.resolve(taskID, rel)
+// Read 读取工作区内的一个文件。
+func (s *Store) Read(rel string) (FileContent, error) {
+	full, err := s.resolve(rel)
 	if err != nil {
 		return FileContent{}, err
 	}
@@ -177,9 +187,81 @@ func (s *Store) Read(taskID, rel string) (FileContent, error) {
 	}, nil
 }
 
-// Write 创建或覆盖任务工作区内的一个文件（父目录自动创建；空数据合法）。
-func (s *Store) Write(taskID, rel string, data []byte) error {
-	full, err := s.resolve(taskID, rel)
+// OpenFile 打开工作区内的一个文件供流式读取（下载通道）。
+func (s *Store) OpenFile(rel string) (*os.File, os.FileInfo, error) {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.IsDir() {
+		return nil, nil, fmt.Errorf("%s 是目录（目录下载走 ZipTo）", rel)
+	}
+	f, err := os.Open(full) // #nosec G304 // 路径已经 resolve 钳制校验
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, info, nil
+}
+
+// ZipTo 把工作区内的一个目录打包写入 w（下载通道，流式不落临时文件）。
+func (s *Store) ZipTo(rel string, w io.Writer) error {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s 不是目录", rel)
+	}
+	base := filepath.Base(full)
+	zw := zip.NewWriter(w)
+	err = filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		arc, err := filepath.Rel(full, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			_, err = zw.Create(path.Join(base, filepath.ToSlash(arc)) + "/")
+			return err
+		}
+		dInfo, err := d.Info()
+		if err != nil {
+			return err
+		}
+		hdr := &zip.FileHeader{Name: path.Join(base, filepath.ToSlash(arc)), Modified: dInfo.ModTime()}
+		hdr.SetMode(dInfo.Mode())
+		zwEntry, err := zw.CreateHeader(hdr)
+		if err != nil {
+			return err
+		}
+		f, err := os.Open(p) // #nosec G304 // WalkDir 根来自 resolve 校验
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(zwEntry, f)
+		return err
+	})
+	if err != nil {
+		_ = zw.Close()
+		return err
+	}
+	return zw.Close()
+}
+
+// Write 创建或覆盖工作区内的一个文件（父目录自动创建；空数据合法）。
+func (s *Store) Write(rel string, data []byte) error {
+	full, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
@@ -189,45 +271,32 @@ func (s *Store) Write(taskID, rel string, data []byte) error {
 	return os.WriteFile(full, data, 0o640)
 }
 
-// Mkdir 创建任务工作区内的一级目录（父目录自动创建）。
-func (s *Store) Mkdir(taskID, rel string) error {
-	full, err := s.resolve(taskID, rel)
+// Mkdir 创建工作区内的一级目录（父目录自动创建）。
+func (s *Store) Mkdir(rel string) error {
+	full, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
 	return os.MkdirAll(full, 0o750)
 }
 
-// Delete 删除任务工作区内的文件或目录（目录递归）。
-func (s *Store) Delete(taskID, rel string) error {
-	full, err := s.resolve(taskID, rel)
+// Delete 删除工作区内的文件或目录（目录递归；根目录受保护）。
+func (s *Store) Delete(rel string) error {
+	clean := path.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "" || clean == "." {
+		return fmt.Errorf("拒绝删除工作区根目录")
+	}
+	full, err := s.resolve(rel)
 	if err != nil {
 		return err
-	}
-	if full == s.taskRootUnchecked(taskID) {
-		return fmt.Errorf("拒绝删除任务工作区根目录")
 	}
 	return os.RemoveAll(full)
 }
 
-// taskRoot 校验 taskID 形态并返回其目录。
-func (s *Store) taskRoot(taskID string) (string, error) {
-	if !isSafeSegment(taskID) {
-		return "", fmt.Errorf("非法任务标识: %q", taskID)
-	}
-	return filepath.Join(s.root, taskID), nil
-}
-
-func (s *Store) taskRootUnchecked(taskID string) string {
-	return filepath.Join(s.root, taskID)
-}
-
-// resolve 把「taskID + 相对路径」钳制为根目录内的绝对路径：穿越序列、
-// 绝对路径、转义符号链接（解析后逃出根目录）一律拒绝。
-func (s *Store) resolve(taskID, rel string) (string, error) {
-	if !isSafeSegment(taskID) {
-		return "", fmt.Errorf("非法任务标识: %q", taskID)
-	}
+// resolve 把相对路径钳制为根目录内的绝对路径：穿越序列、绝对路径、
+// 转义符号链接（解析后逃出根目录）一律拒绝。
+func (s *Store) resolve(rel string) (string, error) {
 	// 绝对路径与穿越序列看原始形式即拒绝——规范化吞掉前导斜杠/抵消的
 	// ".." 是猜测性放行，显式意图不值得猜。
 	if strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) {
@@ -248,7 +317,7 @@ func (s *Store) resolve(taskID, rel string) (string, error) {
 			return "", fmt.Errorf("非法路径段: %q", seg)
 		}
 	}
-	full := filepath.Join(s.root, taskID, filepath.FromSlash(clean))
+	full := filepath.Join(s.root, filepath.FromSlash(clean))
 	if resolved, err := filepath.EvalSymlinks(filepath.Dir(full)); err == nil {
 		if resolved != s.root && !strings.HasPrefix(resolved, s.root+string(filepath.Separator)) {
 			return "", fmt.Errorf("符号链接逃逸工作区: %q", rel)
