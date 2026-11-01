@@ -42,7 +42,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - liusha-pg:/var/lib/postgresql/data
+      # 持久化统一 ~/data/liusha 前缀（HOST_DATA_DIR 可覆盖；macOS 上 pg 走
+      # virtiofs 有 IO 折损，介意者改回 named volume）
+      - ${HOST_DATA_DIR:-$HOME/data/liusha}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U liusha -d liusha"]
       interval: 5s
@@ -56,7 +58,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - liusha-redis:/data
+      - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -78,8 +80,12 @@ services:
       LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:?LIUSHA_STREAM_COOKIE_SECRET 未设置}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
+      # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
+      LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
+      LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
     volumes:
       - ./logs:/app/logs
+      - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
     depends_on: *app-deps
     ports:
       - "8090:8090"
@@ -125,7 +131,7 @@ services:
       LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
       LIUSHA_PROXY_CERT_DIR: /app/certs
     volumes:
-      - liusha-proxy-certs:/app/certs
+      - ${HOST_DATA_DIR:-$HOME/data/liusha}/proxy-certs:/app/certs
       - ./logs:/app/logs
     ports:
       - "8888:8888"
@@ -153,12 +159,17 @@ services:
       <<: *app-env
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
+      # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
+      LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
+      LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
     volumes:
       - ./logs:/app/logs
+      - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
       - /var/run/docker.sock:/var/run/docker.sock
-      # 沙盒工作区持久层：与 runner 拉起的沙盒容器挂同一宿主目录（容器化
-      # runner 场景 bind 源必须是宿主绝对路径，经 .env 的 HOST_WORKSPACE_DIR 注入）
-      - ${HOST_WORKSPACE_DIR:-/root/data/liusha/workspace}:/root/liusha/workspace
+      # 沙盒工作区持久层：宿主目录以同路径挂进容器（bind 源 = 容器内路径，
+      # LIUSHA_SANDBOX_WORKSPACE_DIR 指宿主路径供沙盒 bind 使用）
+      - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
+      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps
@@ -171,7 +182,3 @@ services:
       timeout: 3s
       retries: 3
 
-volumes:
-  liusha-pg:
-  liusha-redis:
-  liusha-proxy-certs:

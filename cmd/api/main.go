@@ -41,12 +41,14 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
+	"github.com/V3teran/liusha/internal/workspace"
 
 	"github.com/hibiken/asynq"
 )
@@ -272,12 +274,28 @@ func main() {
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
+
+	// 沙盒工作区（文件 CRUD 面）：与 runner 的沙盒 bind mount 同一宿主
+	// 目录——容器化部署经 compose 以同路径挂载，路径值两侧一致。
+	workspaceRoot := cfg.Sandbox.WorkspaceHostDir
+	if workspaceRoot == "" {
+		def, err := sandbox.DefaultWorkspaceHostDir()
+		if err != nil {
+			logger.Fatal().Err(err).Msg("解析沙盒工作区默认目录失败")
+		}
+		workspaceRoot = def
+	}
+	workspaceStore, err := workspace.NewStore(workspaceRoot)
+	if err != nil {
+		logger.Fatal().Err(err).Str("root", workspaceRoot).Msg("打开沙盒工作区失败")
+	}
+	logger.Info().Str("root", workspaceRoot).Msg("沙盒工作区已就绪")
 	srv := &http.Server{
-		Addr: listenAddr,
-		Handler: httpapi.NewServer(httpapi.Deps{
+		Addr: listenAddr, Handler: httpapi.NewServer(httpapi.Deps{
 			APIKey:             os.Getenv("LIUSHA_API_KEY"),
 			StreamCookieSecret: streamSecret,
 			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
+			Workspaces:         workspaceStore,
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},

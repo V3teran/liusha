@@ -24,6 +24,9 @@ type Deps struct {
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
 	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI
+	// Workspaces 为 nil 时 /workspaces 路由不注册。由 cmd/api 注入
+	// *workspace.Store——任务工作区的文件检索与 CRUD（沙盒工件）。
+	Workspaces WorkspaceFileAPI
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI

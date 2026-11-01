@@ -6,6 +6,7 @@ import { PlaceholderPage } from '@/pages/PlaceholderPage'
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const TasksPage = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })))
+const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((m) => ({ default: m.WorkspacePage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })))
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
       { path: 'traffic', element: withSuspense(<TrafficPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
       { path: 'exploration-graph', element: withSuspense(<ExplorationGraphPage />) },
+      { path: 'workspace', element: withSuspense(<WorkspacePage />) },
       {
         // 配置管理：智能体（后端 agent）独立页，侧栏平铺入口。
         path: 'config',

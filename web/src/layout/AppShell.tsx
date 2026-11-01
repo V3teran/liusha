@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity,
+  FolderOpen,
   BookOpen,
   Bot,
   Boxes,
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/findings', label: '漏洞', icon: Bug },
   { to: '/traffic', label: '代理流量', icon: Activity },
   { to: '/exploration-graph', label: '探索图', icon: GitBranch },
+  { to: '/workspace', label: '工作空间', icon: FolderOpen },
   { to: '/credentials', label: '凭证库', icon: KeyRound },
   { to: '/config/agents', label: '智能体', icon: Bot },
   { to: '/config/tools', label: '工具', icon: Wrench },
