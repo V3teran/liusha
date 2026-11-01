@@ -9,6 +9,11 @@ import {
 } from '@/api/credentials'
 import type { CredentialEntry, CredentialIdentity } from '@/api/types'
 
+/** 会话身份判别（与后端命名规则同源）：task:<id>:session / 保留名 session。 */
+function isSessionIdentityName(username: string): boolean {
+  return username === 'session' || (username.startsWith('task:') && username.endsWith(':session'))
+}
+
 // 凭证库数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
 // 列表视图需要「全部 host 的全部登录身份」：先枚举 host 再并行拉各 host 详情
 // （host 数量为个位级，扇出可忽略），前端拍平成行——比后端再加一个聚合
@@ -40,6 +45,7 @@ export function useCredentialDetail(host: string | null) {
 /** 列表行：一个登录身份一行（凭证集在值列与详情面板看）。 */
 export interface CredentialRow {
   rowId: string
+  isSession?: boolean
   host: string
   identity: CredentialIdentity
 }
@@ -72,6 +78,9 @@ export function useAllCredentialRows() {
             rowId: `${d.host}/${identity.username}`,
             host: d.host,
             identity,
+            // 会话身份（task:<id>:session / session）是任务期自动快照：
+            // 只读降噪展示，不参与行内编辑（编辑会把快照升格为持久身份）
+            isSession: isSessionIdentityName(identity.username),
           })
         }
       }

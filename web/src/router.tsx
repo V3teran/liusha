@@ -36,14 +36,17 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/conversations/manual" replace /> },
+      { index: true, element: <Navigate to="/conversations/self" replace /> },
       { path: 'dashboard', element: <PlaceholderPage title="总览" /> },
       // 任务：批次（assignment）→ 任务（task）列表与下发，位于对话上游。
       { path: 'tasks', element: withSuspense(<TasksPage />) },
       {
         path: 'conversations',
         children: [
-          { index: true, element: <Navigate to="/conversations/manual" replace /> },
+          { index: true, element: <Navigate to="/conversations/self" replace /> },
+          // 旧路径书签重定向（source 值收口 self/proxy 前的历史链接）
+          { path: 'manual', element: <Navigate to="/conversations/self" replace /> },
+          { path: 'auto', element: <Navigate to="/conversations/proxy" replace /> },
           { path: 'self', element: withSuspense(<ConversationsPage source="self" />) },
           { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
         ],
