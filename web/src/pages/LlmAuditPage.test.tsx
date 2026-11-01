@@ -46,7 +46,6 @@ function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocati
     role: 'planner',
     created_at: '2026-01-01T00:00:00Z',
     tool_names: [],
-    text_preview: '一些文本预览',
     ...overrides,
   }
 }

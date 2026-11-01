@@ -124,8 +124,7 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 				"role":            v.Role,
 				"created_at":      v.CreatedAt,
 				"tool_names":      toolNamesOrEmpty(v.ToolNames),
-				"text_preview":    v.TextPreview,
-			})
+				})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
