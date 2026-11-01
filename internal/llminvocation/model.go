@@ -31,6 +31,7 @@ type Invocation struct {
 	LatencyMs      int
 	FinishReason   string
 	Error          string
+	ErrorKind      string // rate_limited|network|server|error（空=成功）；写入时按框架错误分类判定
 	// ToolNames / TextPreview 是「这次调用产出了什么」的派生摘要，仅列表查询填充
 	// （由 SQL 从 result 里算出，不把 result 大字段传出库）。审计表据此一眼看出
 	// 该次调用是派活、跑命令还是写漏洞，而不必逐行点开详情。

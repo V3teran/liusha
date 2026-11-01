@@ -180,7 +180,7 @@ type CredentialConfig struct {
 
 // RunnerConfig 是 cmd/runner 进程的运行时参数。
 type RunnerConfig struct {
-	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // agent 运行整体超时（asynq handler 入口 WithTimeout）
+	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // 单个 agent run 整体秒数上限（handler 入口 WithTimeout）；<=0 不限时
 	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
@@ -193,6 +193,8 @@ type RunnerConfig struct {
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
 
 	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
+	// 0/负 = 不限制：持续探索模式的正解——收敛由完成检测器判定，步数只是
+	// 可选护栏（防失控任务烧 LLM 账单）。
 	// 达到此上限时任务自动终止，防止无限循环。≤ 0 视为无限制。默认 1000。
 	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
 }

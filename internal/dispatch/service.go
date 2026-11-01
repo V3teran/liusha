@@ -97,6 +97,19 @@ type Service struct {
 	MaxRunTimeout time.Duration
 }
 
+// noWallClockLimit 表达「run 不设墙钟上限」。asynq 无法直接表达无限时：
+// Timeout(0) 与「未设置」同形（noTimeout 哨兵就是 0），会被落回默认 30 分钟
+// 截断。持续探索模式的真实上限是完成检测器（max_steps），墙钟只是可选护栏
+// ——配置为 0 时用远超任何合法 run 时长的哨兵值顶住 asynq 默认。
+const noWallClockLimit = 365 * 24 * time.Hour
+
+func wallClockOption(d time.Duration) time.Duration {
+	if d <= 0 {
+		return noWallClockLimit
+	}
+	return d
+}
+
 // createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
 // conversationID）。CreateScan（无会话纯后台）与 StartChatTask（会话发起）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
@@ -312,7 +325,7 @@ func (a *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
 		Input:    payloadInput,
 		TaskRole: worker.RoleAgent,
-	}, asynq.MaxRetry(0), asynq.Timeout(a.MaxRunTimeout)); err != nil {
+	}, asynq.MaxRetry(0), asynq.Timeout(wallClockOption(a.MaxRunTimeout))); err != nil {
 		return "", fmt.Errorf("enqueue: %w", err)
 	}
 	return tid, nil

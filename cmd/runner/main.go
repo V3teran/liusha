@@ -159,7 +159,7 @@ func main() {
 
 	sysSettings := settingstore.New(pool, cache)
 
-	router := llm.NewRouter(llmStack.llmStore.AsRouterStore(llmStack.keyCipher))
+	router := llm.NewRouterWithOpts(llmStack.llmStore.AsRouterStore(llmStack.keyCipher), retryOptionsFromConfig(cfg.LLM.Retry))
 	// LLM 调用装配：单步看门狗（step_llm_timeout_seconds——挂死的调用会阻塞
 	// Agent 事件循环，预算超时即失败）+ llm_invocation 审计（含失败）。
 	// 看门狗每次调用现读 DB 热配置（runtime.step_llm_timeout_seconds），前端改完
@@ -530,3 +530,18 @@ func (a asynqLogAdapter) Infof(format string, args ...any)  { a.log.Info().Msgf(
 func (a asynqLogAdapter) Warnf(format string, args ...any)  { a.log.Warn().Msgf(format, args...) }
 func (a asynqLogAdapter) Errorf(format string, args ...any) { a.log.Error().Msgf(format, args...) }
 func (a asynqLogAdapter) Fatalf(format string, args ...any) { a.log.Fatal().Msgf(format, args...) }
+
+// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
+// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
+func retryOptionsFromConfig(c config.RetryConfig) llm.RetryOptions {
+	return llm.RetryOptions{
+		MaxRetries429: c.Max429,
+		MaxRetries529: c.Max529,
+		MaxRetries5xx: c.Max5xx,
+		MaxRetriesNet: c.MaxNet,
+		Backoff429:    config.AsDurations(c.Backoff429Seconds),
+		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
+		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
+		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
+	}
+}

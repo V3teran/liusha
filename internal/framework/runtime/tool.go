@@ -52,7 +52,9 @@ func (r *reactRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (
 	errCh := make(chan error, 1)
 
 	go func() {
-		result, err := tool.Execute(ctx, toolCall.Arguments)
+		// 工具参数是模型生成的 JSON：转义噪声在漏斗处归一，工具实现拿到的
+		// 永远是合法字节（合法输入零改动直通）
+		result, err := tool.Execute(ctx, llm.SanitizeJSON(toolCall.Arguments))
 		if err != nil {
 			errCh <- err
 			return

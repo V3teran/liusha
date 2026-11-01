@@ -93,7 +93,7 @@ func (e *Engine) createObservationNode(
 		factual := explorationgraph.ConfidenceFactual
 		node.Confidence = &factual
 
-	case CategoryState:
+	case CategoryFact:
 		// state 是客观事实，写入即终态
 		factual := explorationgraph.ConfidenceFactual
 		node.Confidence = &factual
@@ -178,8 +178,9 @@ func (e *Engine) observationToAttempt(
 type ObservationCategory string
 
 const (
-	// CategoryState 状态信息（客观事实，写入即终态）。
-	CategoryState ObservationCategory = "state"
+	// CategoryFact 已确认的事实（客观事实，写入即终态）——与输出契约里
+	// 教给模型的字面值一致，执行轨迹即出处，无需裁决。
+	CategoryFact ObservationCategory = "fact"
 	// CategoryIssue 问题/异常。
 	CategoryIssue ObservationCategory = "issue"
 	// CategoryHypothesis 待验证推测（须携 repro，经复现门裁决成 result）。

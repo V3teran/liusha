@@ -423,7 +423,7 @@ func (e *Engine) ensureSummaryObservation(ctx context.Context, action exploratio
 		summary = "执行完结（无总结产出）"
 	}
 	obs := Observation{
-		Category:  CategoryState,
+		Category:  CategoryFact,
 		Statement: "执行总结：" + summary,
 	}
 	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
@@ -470,23 +470,32 @@ func (e *Engine) harvestObservation(
 	obs Observation,
 	trace ExecutionTrace,
 ) (attempt *evaluator.Attempt, observed bool) {
-	// 降级模式产出的推测没有实测支撑：作为事实（低置信线索）落图供
-	// planner 参考——绝不作为主张（无配方会在落图时被拒）。
+	// 类别边界归一化：模型输出是外部输入，漏写、越界或自相矛盾（主张无
+	// 配方）一律按形状推断归类——有配方即主张（可裁决），无配方即事实
+	//（落图供 planner 参考）。推断只发生在落图前一次；观察内容永远比分
+	// 类标签值钱，Unknown 值不构成丢弃观察本体的理由。
 	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("hypothesis 缺少 repro，降级为 state 落图（无配方的主张无从裁决）")
-		obs.Category = CategoryState
+			Msg("hypothesis 缺少 repro，降级为 fact 落图（无配方的主张无从裁决）")
+		obs.Category = CategoryFact
 	}
-
-	// LLM 漏写 category 时按形状推断：有配方即主张（可裁决），无配方即
-	// 状态（无从裁决）。契约已显式教 category，这里只是兜底。
-	if obs.Category == "" {
+	switch obs.Category {
+	case CategoryFact, CategoryIssue, CategoryHypothesis:
+		// 契约内类别，原样进入落图
+	default:
+		if obs.Category != "" {
+			e.logger.Warn().
+				Str("action_id", action.ID).
+				Str("raw_category", string(obs.Category)).
+				Str("statement", obs.Statement).
+				Msg("观察类别越界，按形状推断归类")
+		}
 		if len(obs.Repro) > 0 {
 			obs.Category = CategoryHypothesis
 		} else {
-			obs.Category = CategoryState
+			obs.Category = CategoryFact
 		}
 	}
 
