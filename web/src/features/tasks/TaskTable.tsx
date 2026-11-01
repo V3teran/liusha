@@ -18,7 +18,6 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
     <DataTable
       rows={rows}
       columns={buildTaskColumns(offset) as never}
-      minWidth={1075}
       cellPadding="px-3"
       loading={loading}
       hasFilter={hasFilter}

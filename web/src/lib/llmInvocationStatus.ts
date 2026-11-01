@@ -15,7 +15,7 @@ export interface InvocationStatus {
   detail: string
 }
 
-type StatusInput = Pick<LLMInvocationSummary, 'latency_ms' | 'error_message' | 'finish_reason'>
+type StatusInput = Pick<LLMInvocationSummary, 'latency_ms' | 'error_message' | 'error_kind' | 'finish_reason'>
 
 /** 返回 null 表示正常完成，调用方不渲染状态徽章。 */
 export function invocationStatus(
@@ -23,6 +23,19 @@ export function invocationStatus(
   timeoutMs = DEFAULT_LLM_TIMEOUT_MS,
 ): InvocationStatus | null {
   if (v.error_message) {
+    // error_kind 是后端写入时按框架错误分类判定的结论；error_kind 缺失的
+    // 历史行按错误文本兜底识别限流（429 是唯一需要与普通失败区分开对待的
+    // 类别——它不是系统故障，是账号配额节奏问题）。
+    const rateLimited = v.error_kind === 'rate_limited' || /429|rate_limit/i.test(v.error_message)
+    if (rateLimited) {
+      return { level: 'critical', label: '限流', detail: v.error_message }
+    }
+    if (v.error_kind === 'network') {
+      return { level: 'critical', label: '网络错误', detail: v.error_message }
+    }
+    if (v.error_kind === 'server') {
+      return { level: 'critical', label: '服务端错误', detail: v.error_message }
+    }
     return { level: 'critical', label: '失败', detail: v.error_message }
   }
   if (isTimeout(v, timeoutMs)) {

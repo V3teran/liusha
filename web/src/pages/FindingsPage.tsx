@@ -325,7 +325,6 @@ export function FindingsPage() {
             <DataTable
               rows={visible}
               columns={columns as never}
-              minWidth={1040}
               loading={listQuery.isFetching && rows.length === 0}
               emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
               getRowId={(row) => row.id}

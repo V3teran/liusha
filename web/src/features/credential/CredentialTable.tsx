@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { columnWidthPercents } from '@/lib/tableLayout'
+import { columnPixelWidths, totalColumnWidth } from '@/lib/tableLayout'
 import { cn } from '@/lib/utils'
 import type { CredentialRow } from './useCredentialQueries'
 import type { CredentialTableMeta } from './credentialColumns'
@@ -39,16 +39,18 @@ export function CredentialTable({
     meta,
   })
   const leafColumns = table.getAllLeafColumns()
-  const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
+  const sizes = leafColumns.map((col) => col.columnDef.size ?? 1)
+  const colWidths = columnPixelWidths(sizes)
+  const minWidth = totalColumnWidth(sizes)
   const colCount = leafColumns.length
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
       {/* min-width 兜底：窄屏出横向滚动条，列不压缩（全站表格统一约定） */}
-      <table className="w-full min-w-[1060px] border-collapse table-fixed">
+      <table className="w-full border-collapse table-fixed" style={{ minWidth }}>
         <colgroup>
           {leafColumns.map((col, i) => (
-            <col key={col.id} style={{ width: widthPercents[i] }} />
+            <col key={col.id} style={{ width: colWidths[i] }} />
           ))}
         </colgroup>
         <thead>
