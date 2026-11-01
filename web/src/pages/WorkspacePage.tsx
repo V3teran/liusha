@@ -8,6 +8,9 @@ import { markdown } from '@codemirror/lang-markdown'
 import { StreamLanguage } from '@codemirror/language'
 import { shell } from '@codemirror/legacy-modes/mode/shell'
 import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
   Download,
   FilePlus2,
   FolderOpen,
@@ -60,6 +63,7 @@ function languageExtensions(path: string) {
 export function WorkspacePage() {
   const qc = useQueryClient()
   const [taskQuery, setTaskQuery] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const treeQuery = useQuery({
     queryKey: ['workspace', 'tree'],
     queryFn: getWorkspaceTree,
@@ -69,20 +73,41 @@ export function WorkspacePage() {
   // eslint-disable-next-line no-console
   console.log('WS_RENDER:', JSON.stringify({ status: treeQuery.status, fetch: treeQuery.fetchStatus, n: allEntries.length, el: !!document.querySelector('ul') }))
 
-  // 搜索过滤树：命中节点 + 祖先链保留（树形上下文不因过滤断裂）
+  // 树的可见节点 = 搜索过滤 ∩ 折叠过滤。搜索时无视折叠（命中即展开，
+  // 否则搜到的文件被藏进折叠目录里等于搜索失效）；浏览时应用折叠。
   const entries = useMemo(() => {
     const q = taskQuery.trim().toLowerCase()
-    if (!q) return allEntries
-    const hit = new Set<string>()
-    for (const e of allEntries) {
-      if (e.path.toLowerCase().includes(q)) {
-        hit.add(e.path)
-        const segs = e.path.split('/')
-        for (let i = 1; i < segs.length; i++) hit.add(segs.slice(0, i).join('/') + '/')
+    let list = allEntries
+    if (q) {
+      const hit = new Set<string>()
+      for (const e of allEntries) {
+        if (e.path.toLowerCase().includes(q)) {
+          hit.add(e.path)
+          const segs = e.path.split('/')
+          for (let i = 1; i < segs.length; i++) hit.add(segs.slice(0, i).join('/') + '/')
+        }
       }
+      list = allEntries.filter((e) => hit.has(e.path))
+    } else if (collapsed.size > 0) {
+      list = allEntries.filter(
+        (e) => ![...collapsed].some((d) => e.path.startsWith(d) && e.path !== d),
+      )
     }
-    return allEntries.filter((e) => hit.has(e.path))
-  }, [allEntries, taskQuery])
+    return list
+  }, [allEntries, taskQuery, collapsed])
+
+  function toggleDir(dirPath: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) next.delete(dirPath)
+      else next.add(dirPath)
+      return next
+    })
+  }
+
+  function collapseAll() {
+    setCollapsed(new Set(allEntries.filter((e) => e.is_dir).map((e) => e.path)))
+  }
 
   const [selected, setSelected] = useState<string | null>(null)
   const fileQuery = useQuery({
@@ -198,7 +223,7 @@ export function WorkspacePage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         {/* 文件树 + 新建工具栏 */}
-        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
+        <div className="flex max-h-[70dvh] min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
           <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
             <button
               onClick={() => { setCreating('file'); setNewName('') }}
@@ -215,6 +240,14 @@ export function WorkspacePage() {
               className={cn('text-muted hover:text-text', creating === 'dir' && 'text-accent')}
             >
               <FolderPlus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={collapseAll}
+              title="折叠全部"
+              aria-label="折叠全部"
+              className="text-muted hover:text-text"
+            >
+              <ChevronsDownUp className="h-4 w-4" />
             </button>
             <button onClick={() => refresh()} title="刷新" aria-label="刷新" className="text-muted hover:text-text">
               <RefreshCw className="h-4 w-4" />
@@ -246,6 +279,8 @@ export function WorkspacePage() {
           <FileTree
             entries={entries}
             selected={selected}
+            collapsed={collapsed}
+            onToggleDir={toggleDir}
             onSelect={(p) => {
               setSelected(p)
               setDraft(null)
@@ -389,12 +424,16 @@ export function WorkspacePage() {
 function FileTree({
   entries,
   selected,
+  collapsed,
+  onToggleDir,
   onSelect,
   onDownload,
   onDelete,
 }: {
   entries: WorkspaceEntry[]
   selected: string | null
+  collapsed: Set<string>
+  onToggleDir: (dirPath: string) => void
   onSelect: (path: string) => void
   onDownload: (path: string) => void
   onDelete: (path: string) => void
@@ -404,20 +443,26 @@ function FileTree({
       {entries.map((e) => {
         const depth = e.path.split('/').length - (e.is_dir ? 1 : 0)
         const base = e.path.split('/').pop() || e.path
+        const isCollapsedDir = e.is_dir && collapsed.has(e.path)
         return (
           <li key={e.path} className="group/row">
             <div
               style={{ paddingLeft: `${depth * 14 + 8}px` }}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg py-1 text-left',
+                e.is_dir && 'cursor-pointer hover:bg-surface-2',
                 !e.is_dir && 'cursor-pointer hover:bg-surface-2',
                 !e.is_dir && selected === e.path && 'bg-surface-2 text-text',
                 e.is_dir && 'text-muted',
               )}
-              onClick={() => !e.is_dir && onSelect(e.path)}
+              onClick={() => (e.is_dir ? onToggleDir(e.path) : onSelect(e.path))}
             >
               {e.is_dir ? (
-                <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                isCollapsedDir ? (
+                  <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                )
               ) : (
                 <span className="w-3.5 flex-shrink-0" />
               )}
