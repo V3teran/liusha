@@ -6,6 +6,10 @@ import { cn } from '@/lib/utils'
 
 interface ComposerProps {
   convId?: string
+  /** 禁用态：框架仍在（聊天界面不随数据缺失消失），输入与发送关闭。 */
+  disabled?: boolean
+  /** 禁用态的输入框占位文案（缺省走通用文案）。 */
+  placeholder?: string
   onStarted: (convID: string) => void
   onAppended: (afterSeq: number) => void
 }
@@ -13,7 +17,7 @@ interface ComposerProps {
 /**
  * Composer - 消息输入组件
  */
-export function Composer({ convId, onStarted, onAppended }: ComposerProps) {
+export function Composer({ convId, disabled = false, placeholder, onStarted, onAppended }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const beginThinking = useConversationStore((s) => s.beginThinking)
   const [brief, setBrief] = useState('')
@@ -52,11 +56,11 @@ export function Composer({ convId, onStarted, onAppended }: ComposerProps) {
     }
   }
 
-  const placeholder = convId
+  const effectivePlaceholder = placeholder ?? (convId
     ? '继续提问 / 追加指令…'
-    : '描述要扫的目标 / 任务（URL、账号、测试方向）…'
+    : '描述要扫的目标 / 任务（URL、账号、测试方向）…')
 
-  const canSend = brief.trim() && !sending
+  const canSend = brief.trim() && !sending && !disabled
 
   return (
     <div className="flex flex-shrink-0 flex-col gap-3 border-t border-border bg-surface px-5 py-4">
@@ -82,11 +86,11 @@ export function Composer({ convId, onStarted, onAppended }: ComposerProps) {
         )}
       >
         <textarea
+          disabled={disabled || sending}
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          disabled={sending}
+          placeholder={effectivePlaceholder}
           className={cn(
             'w-full min-h-[72px] max-h-[240px] resize-y bg-transparent px-4 pt-3.5 pb-2',
             'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
@@ -106,7 +110,7 @@ export function Composer({ convId, onStarted, onAppended }: ComposerProps) {
             {/* 发送按钮 */}
             <button
               type="button"
-              disabled={!canSend}
+              disabled={disabled || !canSend}
               onClick={() => void send()}
               className={cn(
                 'inline-flex items-center gap-2 rounded-lg px-4 py-2',
