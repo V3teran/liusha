@@ -12,18 +12,20 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// liushaRoot 是 per-agent 文件隔离的根目录。
+// liushaRoot 是任务工作区的容器内根目录（宿主持久层经 launcher bind mount
+// 挂到此路径）。
 //
-// v1.5 统一目录架构（task + agent 两层隔离）：
-//   - 根目录：/liusha/<task_id>/<agent_id>/
-//   - workspace: /liusha/<task_id>/<agent_id>/workspace/  → 命令执行的 cwd
-//   - output:    /liusha/<task_id>/<agent_id>/output/     → 附件输出
-//   - profile:   /liusha/<task_id>/profile/               → 浏览器、工具配置（Task 共享）
+// 目录架构（task 一层隔离）：
+//   - 根目录：/root/liusha/workspace/<task_id>/
+//   - work:    …/<task_id>/work/     → 命令执行的 cwd（scratch）
+//   - out:     …/<task_id>/out/      → 附件输出（$OUTPUT_DIR）
+//   - profile: …/<task_id>/profile/  → 浏览器登录态与工具配置（任务内共享；
+//     HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
 //
 // 隔离设计：
-//   - Task 级：同一 Task 的 Agent 共享 profile（浏览器登录态、cookies）
-//   - Task 级：workspace/out 按任务隔离，profile 任务内共享（登录态）
-//   - 同一 warm 容器承载多任务，目录即隔离边界
+//   - 任务间：目录即隔离边界（同 warm 容器多任务共存互不干扰）
+//   - 任务内：多 agent 共享 work/out/profile——共容器共目标，agent 级
+//     目录是假隔离
 //
 // 真实持久化由 launcher 的 bind mount 提供（宿主 workspace 根目录挂到
 // liushaRoot）：容器回收重建后任务工件仍在原宿主路径可恢复。
