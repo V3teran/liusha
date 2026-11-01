@@ -123,6 +123,32 @@ describe('WorkspacePage', () => {
     })
   })
 
+  it('点击目录折叠/展开子节点，折叠全部收起所有组', async () => {
+    mockedTree.mockResolvedValue([
+      makeEntry('task-abc/', true),
+      makeEntry('task-abc/work/', true),
+      makeEntry('task-abc/work/poc.py'),
+      makeEntry('task-xyz/', true),
+    ])
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('poc.py')
+    // 点目录 → 折叠（子节点消失），再点 → 展开（子节点回来）
+    await user.click(screen.getByText('task-abc/'))
+    await waitFor(() => expect(screen.queryByText('poc.py')).toBeNull())
+    await user.click(screen.getByText('task-abc/'))
+    await waitFor(() => expect(screen.getByText('poc.py')).toBeTruthy())
+    // 折叠全部 → 两组子节点都消失，目录行保留
+    await user.click(screen.getByLabelText('折叠全部'))
+    await waitFor(() => {
+      expect(screen.queryByText('poc.py')).toBeNull()
+      expect(screen.queryByText('task-abc/work/')).toBeNull()
+      expect(screen.getByText('task-abc/')).toBeTruthy()
+      expect(screen.getByText('task-xyz/')).toBeTruthy()
+    })
+  })
+
   it('删除走确认 + 根相对路径', async () => {
     mockedTree.mockResolvedValue([makeEntry('task-abc/work/poc.py')])
     vi.spyOn(window, 'confirm').mockReturnValue(true)
