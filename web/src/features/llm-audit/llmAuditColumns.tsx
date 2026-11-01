@@ -27,10 +27,9 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * （单一 provider 时每行重复同一个值是纯噪声）。
  *
  * 列顺序（参考 Datadog/Sentry 日志表）：
- * # → 时间 → 工具（这次调用驱动了什么）→ 角色 → 模型 → Tokens → 响应耗时。
- * 工具列是审计表的主读列：调用驱动的工具徽章，不必逐行点开详情（库内派生，
- * 不传大字段）。正文预览已裁撤——失败行无正文、成功行的正文噪声大于信号，
- * 完整原文在详情抽屉按需读。
+ * # → 时间 → 角色 → 模型 → Tokens → 响应耗时。
+ * 正文预览与工具徽章均已裁撤——失败行无正文、正文噪声大于信号、工具消费
+ * 面不存在；完整请求与响应原文在详情抽屉按需读。
  * 对话/批次不占列——行→详情抽屉里提供任务/对话跳转按钮（业务标识属于钻取视角，不是筛读视角）。
  */
 export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: number) {
@@ -55,36 +54,6 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
           <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
             <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
-          </span>
-        )
-      },
-    }),
-    columnHelper.display({
-      id: 'tools',
-      header: '工具',
-      size: 200,
-      meta: { headerTitle: '这次调用驱动了哪些工具；点行看完整请求与响应原文' },
-      cell: (ctx) => {
-        const tools = ctx.row.original.tool_names ?? []
-        if (tools.length === 0) {
-          return <span className="text-muted opacity-40">—</span>
-        }
-        return (
-          <span className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
-            {tools.slice(0, 3).map((t, i) => (
-              <em
-                key={`${t}-${i}`}
-                className="rounded bg-surface-2 px-1 py-px font-mono text-[10px] not-italic text-muted"
-                title={t}
-              >
-                {t}
-              </em>
-            ))}
-            {tools.length > 3 && (
-              <em className="text-[10px] not-italic text-muted" title={tools.join(', ')}>
-                +{tools.length - 3}
-              </em>
-            )}
           </span>
         )
       },

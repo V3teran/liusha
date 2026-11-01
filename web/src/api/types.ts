@@ -344,7 +344,6 @@ export interface LLMInvocationSummary {
   error_kind: string
   role: string // 调用者角色：planner/exploitation/traffic-analysis 等
   created_at: string
-  tool_names: string[] // 库内从 result.tool_calls 派生：这次调用请求了哪些工具
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
 // source 是下发来源 manual|auto（详情 JOIN assignment 派生）——对话跳转按钮据此定 tab。
