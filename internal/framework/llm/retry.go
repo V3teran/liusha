@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"strings"
 	"time"
@@ -26,18 +27,30 @@ type RetryOptions struct {
 	Backoff529 time.Duration   // 单值（529 只重试 1 次）
 }
 
-// DefaultRetryOptions 返回 spec §8.5 的官方退避表。
+// DefaultRetryOptions 返回 spec §8.5 的官方退避表。429 档取长尾：账号级限流
+// （并发/配额型）的恢复窗口以十秒计，短退避只会连撞三次后放弃；四个 Agent
+// 并发调用的场景下，长尾 + 抖动让重试天然错峰。
 func DefaultRetryOptions() RetryOptions {
 	return RetryOptions{
-		MaxRetries429: 3,
+		MaxRetries429: 4,
 		MaxRetries529: 1,
 		MaxRetries5xx: 2,
 		MaxRetriesNet: 2,
-		Backoff429:    []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second},
+		Backoff429:    []time.Duration{2 * time.Second, 8 * time.Second, 30 * time.Second, 60 * time.Second},
 		Backoff5xx:    []time.Duration{1 * time.Second, 4 * time.Second},
 		BackoffNet:    []time.Duration{1 * time.Second, 3 * time.Second},
 		Backoff529:    0, // 立即重试
 	}
+}
+
+// jitterDuration 等量抖动：在 [d/2, d) 均匀取值。固定退避表让并发调用方
+// 同相位重撞（第一轮全部 1s 后齐发），抖动把重试在时间窗内摊开。
+func jitterDuration(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	half := d / 2
+	return half + time.Duration(rand.Int64N(int64(half)))
 }
 
 // ErrorClass 是 4 类可重试错误的判别结果。
@@ -200,7 +213,7 @@ func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr erro
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		var d time.Duration
 		if attempt < len(schedule) {
-			d = schedule[attempt]
+			d = jitterDuration(schedule[attempt])
 		}
 		if err := SleepCtx(ctx, d); err != nil {
 			return Response{}, err
@@ -236,8 +249,47 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 	return Response{}, lastErr
 }
 
-// Stream 直通 primary：流式会话中途失败时已产出的事件无法收回，重试语义
-// （整体重跑）由调用方决策，重试层不替它决定。
+// Stream 对「起步失败」做与 Complete 同口径的重试：连接未建立、鉴权被拒、
+// 限流这些发生在首个事件之前的失败，没有任何已产出内容需要回收，整轮重试
+// 与 Complete 一样安全。流建立成功（返回了 channel）之后的中途失败不做重试
+// ——已产出的事件无法收回，整体重跑的决策权在调用方。
 func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	return r.primary.Stream(ctx, req)
+	ch, err := r.primary.Stream(ctx, req)
+	if err == nil {
+		return ch, nil
+	}
+	switch Classify(err) {
+	case ClassOther:
+		return nil, err
+	case Class429:
+		return r.retryStream(ctx, req, err, r.opts.MaxRetries429, r.opts.Backoff429)
+	case Class529:
+		return r.retryStream(ctx, req, err, r.opts.MaxRetries529, []time.Duration{r.opts.Backoff529})
+	case Class5xx:
+		return r.retryStream(ctx, req, err, r.opts.MaxRetries5xx, r.opts.Backoff5xx)
+	case ClassNet:
+		return r.retryStream(ctx, req, err, r.opts.MaxRetriesNet, r.opts.BackoffNet)
+	}
+	return nil, err
+}
+
+func (r *retryProvider) retryStream(ctx context.Context, req Request, lastErr error, maxRetries int, schedule []time.Duration) (<-chan StreamEvent, error) {
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		var d time.Duration
+		if attempt < len(schedule) {
+			d = jitterDuration(schedule[attempt])
+		}
+		if err := SleepCtx(ctx, d); err != nil {
+			return nil, err
+		}
+		ch, err := r.primary.Stream(ctx, req)
+		if err == nil {
+			return ch, nil
+		}
+		if Classify(err) == ClassOther {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }

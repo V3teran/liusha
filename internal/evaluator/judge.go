@@ -293,7 +293,7 @@ func parseVerdict(content string) (Verdict, error) {
 		Reasoning   string          `json:"reasoning"`
 		Fingerprint json.RawMessage `json:"finding"`
 	}
-	if err := json.Unmarshal([]byte(llm.ExtractJSON(content)), &v); err != nil {
+	if err := llm.ParseJSON(content, &v); err != nil {
 		return Verdict{}, fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)
 	}
 	switch v.Verdict {

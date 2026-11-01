@@ -2,7 +2,6 @@ package planner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -167,16 +166,13 @@ func (i *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisR
 		return nil, err
 	}
 
-	// 截取 JSON 正文（剥掉 markdown 围栏与前后闲聊）
-	content := llm.ExtractJSON(resp.Content)
-
 	var analysis AnalysisResponse
-	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
+	if err := llm.ParseJSON(resp.Content, &analysis); err != nil {
 		i.logger.Error().
 			Err(err).
 			Str("raw_response", resp.Content).
-			Msg("解析 LLM 响应失败")
-		return nil, fmt.Errorf("解析 JSON 失败: %w", err)
+			Msg("解析结果分析输出失败")
+		return nil, fmt.Errorf("解析结果分析输出失败: %w", err)
 	}
 
 	return &analysis, nil

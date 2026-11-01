@@ -2,6 +2,7 @@ package llminvocation
 
 import (
 	"context"
+	"errors"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
@@ -23,9 +24,25 @@ func (s UsageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 		id := r.AgentRunID
 		agentRunID = &id
 	}
+	// 错误分类在写入时判定（单一事实源）：框架层 Classify 是全系统瞬时错误
+	// 的唯一分类器，审计面直接消费结论而不再各自解析错误文本。
+	errorKind := ""
+	if r.Err != "" {
+		switch llm.Classify(errors.New(r.Err)) {
+		case llm.Class429:
+			errorKind = "rate_limited"
+		case llm.Class529, llm.Class5xx:
+			errorKind = "server"
+		case llm.ClassNet:
+			errorKind = "network"
+		default:
+			errorKind = "error"
+		}
+	}
 	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
 	_, _ = s.Store.Append(ctx, Invocation{
+		ErrorKind:    errorKind,
 		TaskID:       taskID,
 		AgentRunID:   agentRunID,
 		Provider:     r.Provider,

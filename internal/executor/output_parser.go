@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -72,7 +71,9 @@ func parseFromText(text string) (*Output, error) {
 
 	for _, block := range jsonBlocks {
 		var output Output
-		if err := json.Unmarshal([]byte(block), &output); err == nil {
+		// 修复式解析：模型在 JSON 字符串里写裸反斜杠（Windows 路径等）是
+		// 高频噪声，坏块值得修复后再判一次，而不是直接跳过
+		if err := llm.UnmarshalLoose([]byte(block), &output); err == nil {
 			// 验证是否是有效的 Output
 			if output.Status != "" {
 				return &output, nil
@@ -82,7 +83,7 @@ func parseFromText(text string) (*Output, error) {
 
 	// 尝试直接解析整个文本
 	var output Output
-	if err := json.Unmarshal([]byte(text), &output); err == nil {
+	if err := llm.UnmarshalLoose([]byte(text), &output); err == nil {
 		if output.Status != "" {
 			return &output, nil
 		}

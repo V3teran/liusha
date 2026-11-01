@@ -215,7 +215,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.LatencyMs,
-			c.FinishReason, c.Error, c.Role,
+			c.FinishReason, c.Error, c.ErrorKind, c.Role,
 			c.Messages, c.Result,
 		}
 	}
@@ -227,7 +227,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"latency_ms",
-			"finish_reason", "error_message", "role",
+			"finish_reason", "error_message", "error_kind", "role",
 			"messages", "result",
 		},
 		pgx.CopyFromRows(rows),
@@ -372,7 +372,7 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs,
-		&v.FinishReason, &v.Error, &v.Role,
+		&v.FinishReason, &v.Error, &v.ErrorKind, &v.Role,
 		&v.CreatedAt,
 		&v.ToolNames, &v.TextPreview,
 		&cid, &aid,
@@ -452,7 +452,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs,
-		&v.FinishReason, &v.Error, &v.Role,
+		&v.FinishReason, &v.Error, &v.ErrorKind, &v.Role,
 		&v.Messages, &v.Result, &v.CreatedAt,
 		&cid, &aid, &v.Source,
 	)

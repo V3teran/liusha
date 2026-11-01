@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -177,11 +178,13 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Node
 	return nil, fmt.Errorf("plan: 重试 %d 次后仍失败: %w", maxRetries+1, lastErr)
 }
 
-// isRetriableError 判断错误是否可重试——委托给框架层 llm.IsTransient
-// （网络抖动/限流/服务端过载/超时的唯一分类事实源，含 DNS 解析失败等
-// dial 类瞬时错误；业务侧不再自维护关键词表，避免两处漂移）。
+// isRetriableError 判断错误是否可重试：网络抖动/限流/服务端过载/超时委托给
+// 框架层 llm.IsTransient（全系统瞬时错误唯一分类事实源，含 DNS 解析失败等
+// dial 类瞬时错误）；输出不可解析（ErrPlanOutputParse）同样可重试——重规划
+// 是一次全新 LLM 生成，产出合法 JSON 的概率与首跑相同，放弃只会白烧已花的
+// 那次调用。
 func isRetriableError(err error) bool {
-	return llm.IsTransient(err)
+	return llm.IsTransient(err) || errors.Is(err, ErrPlanOutputParse)
 }
 
 // handleNoActions 处理 planner 未生成新 Action 的情况。

@@ -21,6 +21,11 @@ import (
 )
 
 // Engine 是基于 LLM 的智能规划器
+// ErrPlanOutputParse 表示规划输出经修复层后仍不可解析。它区别于网络类瞬时
+// 错误：模型换一次生成极可能产出合法 JSON，因此规划 Agent 对它的重试策略是
+// 「再问一次」而非放弃本批规划。
+var ErrPlanOutputParse = errors.New("规划输出不可解析")
+
 type Engine struct {
 	router     *llm.Router
 	logger     zerolog.Logger
@@ -491,18 +496,13 @@ func (i *Engine) parsePlanningResponse(content string) (*PlanningResponse, error
 		return nil, fmt.Errorf("规划输出为空")
 	}
 
-	jsonContent := llm.ExtractJSON(content)
-	if jsonContent == "" {
-		return nil, fmt.Errorf("LLM 响应不包含有效 JSON")
-	}
-
 	var response PlanningResponse
-	if err := json.Unmarshal([]byte(jsonContent), &response); err != nil {
+	if err := llm.ParseJSON(content, &response); err != nil {
 		i.logger.Error().
 			Err(err).
 			Str("llm_response", content).
-			Msg("解析 LLM 响应失败")
-		return nil, fmt.Errorf("解析 LLM 响应失败: %w", err)
+			Msg("解析规划输出失败")
+		return nil, fmt.Errorf("%w: %v", ErrPlanOutputParse, err)
 	}
 
 	return &response, nil

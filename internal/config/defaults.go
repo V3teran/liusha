@@ -217,9 +217,6 @@ func applyCredentialDefaults(c CredentialConfig) CredentialConfig {
 }
 
 func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
-	if c.AgentRunTimeoutSeconds == 0 {
-		c.AgentRunTimeoutSeconds = 3600 // 60 分钟（agent_run 整体超时；> step_tool=1800，留 30min buffer 给 agent 主循环收尾）
-	}
 	if c.StepLLMTimeoutSeconds == 0 {
 		c.StepLLMTimeoutSeconds = 300
 	}
@@ -243,9 +240,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	}
 	if c.QueueAgentWeight == 0 {
 		c.QueueAgentWeight = 5
-	}
-	if c.MaxStepsPerTask == 0 {
-		c.MaxStepsPerTask = 1000 // 默认单任务最多执行 1000 步；显式设 -1 可无限制
 	}
 	return c
 }

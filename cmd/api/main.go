@@ -51,21 +51,6 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
-// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
-func retryOptionsFromConfig(c config.RetryConfig) fwllm.RetryOptions {
-	return fwllm.RetryOptions{
-		MaxRetries429: c.Max429,
-		MaxRetries529: c.Max529,
-		MaxRetries5xx: c.Max5xx,
-		MaxRetriesNet: c.MaxNet,
-		Backoff429:    config.AsDurations(c.Backoff429Seconds),
-		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
-		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
-		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
-	}
-}
-
 func main() {
 	logger := logx.New("api")
 	ctx := context.Background()
@@ -346,4 +331,19 @@ func main() {
 		logger.Error().Err(err).Msg("api shutdown")
 	}
 	logger.Info().Msg("api stopped")
+}
+
+// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
+// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
+func retryOptionsFromConfig(c config.RetryConfig) fwllm.RetryOptions {
+	return fwllm.RetryOptions{
+		MaxRetries429: c.Max429,
+		MaxRetries529: c.Max529,
+		MaxRetries5xx: c.Max5xx,
+		MaxRetriesNet: c.MaxNet,
+		Backoff429:    config.AsDurations(c.Backoff429Seconds),
+		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
+		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
+		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
+	}
 }
