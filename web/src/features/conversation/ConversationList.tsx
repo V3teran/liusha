@@ -16,8 +16,9 @@ interface ConversationListProps {
   activeId?: string
   source?: string
   allowNew?: boolean
-  emptyHint?: string
   heading?: string
+  /** 空态：mark/标题/描述构成的结构化引导块（无数据时撑满列表区，替代浮字）。 */
+  emptyState?: { mark: string; title: string; desc: string }
   onSelect: (convID: string) => void
   onNew: () => void
   onDeleted: (convID: string) => void
@@ -51,7 +52,7 @@ const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 r
 // （删除/重命名），当前选中高亮。source 过滤（manual/auto）下沉到服务端——分页边界建立在已过滤集合上。
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList(
-    { activeId, source, allowNew = true, emptyHint, heading, onSelect, onNew, onDeleted },
+    { activeId, source, allowNew = true, emptyState, heading, onSelect, onNew, onDeleted },
     ref,
   ) {
     const [searchParams, setSearchParams] = useSearchParams()
@@ -227,10 +228,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
 
     return (
       <aside className="flex h-full min-h-0 flex-col gap-2">
-        {/* 主动下发/被动代理 tab：按来源（source=manual/auto）切换，两个 tab 是同一视图组件的两条路由。 */}
+        {/* 自主下发/代理模式 tab：按来源（source=self/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
-            to="/conversations/manual"
+            to="/conversations/self"
             className={({ isActive }) =>
               cn(
                 'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
@@ -238,10 +239,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            主动下发
+            自主下发
           </NavLink>
           <NavLink
-            to="/conversations/auto"
+            to="/conversations/proxy"
             className={({ isActive }) =>
               cn(
                 'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
@@ -249,7 +250,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            被动代理
+            代理模式
           </NavLink>
         </div>
         <div className="flex flex-shrink-0 items-stretch gap-1.5">
@@ -386,18 +387,26 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               </li>
             )
           })}
-          {loadError ? (
+          {loadError && (
             <li className="cursor-default justify-center text-xs text-sev-critical">
               ⚠ 列表加载失败：{loadError}
             </li>
-          ) : (
-            filtered.length === 0 && (
-              <li className="cursor-default justify-center text-xs text-muted">
-                {query.trim() ? '本页无匹配对话' : emptyHint || '暂无对话'}
-              </li>
-            )
           )}
         </ul>
+        {loadError ? null : filtered.length === 0 && (
+          /* 结构化空态：撑满列表区，替代旧浮字——空数据也是一等界面状态 */
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-lg text-muted">
+              {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
+            </span>
+            <p className="text-sm font-medium text-text">
+              {query.trim() ? '本页无匹配对话' : emptyState?.title ?? '暂无对话'}
+            </p>
+            {!query.trim() && emptyState?.desc && (
+              <p className="text-xs leading-5 text-muted">{emptyState.desc}</p>
+            )}
+          </div>
+        )}
         {/* 翻页：offset 分页（非 keyset）。常显（单页时按钮禁用）——「第 X / Y 页」总页数
             来自后端同口径 count，翻页能力始终可见可发现。 */}
         {items.length > 0 && (

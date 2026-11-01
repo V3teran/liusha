@@ -146,9 +146,9 @@ export function FindingsPage() {
             <Badge
               dot={false}
               size="sm"
-              color={source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
+              color={source === 'proxy' ? 'var(--source-proxy)' : 'var(--source-self)'}
             >
-              {source === 'auto' ? '被动代理' : '主动下发'}
+              {source === 'proxy' ? '代理模式' : '自主下发'}
             </Badge>
           )
         },

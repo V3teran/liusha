@@ -52,8 +52,8 @@ function buildTaskColumns(offset: number) {
       size: 88,
       cell: (ctx) => (
         <span className="flex items-center gap-1">
-          <Badge dot={false} color={ctx.getValue() === 'manual' ? 'var(--source-manual)' : 'var(--source-auto)'}>
-            {ctx.getValue() === 'manual' ? '主动' : '被动'}
+          <Badge dot={false} color={ctx.getValue() === 'self' ? 'var(--source-self)' : 'var(--source-proxy)'}>
+            {ctx.getValue() === 'self' ? '自主' : '代理'}
           </Badge>
           {ctx.row.original.scheduled && (
             <Clock
@@ -89,7 +89,7 @@ function buildTaskColumns(offset: number) {
       cell: (ctx) => {
         const t = ctx.row.original
         if (!t.conversation_id) return <span className="text-xs text-muted">—</span>
-        const tab = t.source === 'manual' ? 'manual' : 'auto'
+        const tab = t.source === 'self' ? 'self' : 'proxy'
         return (
           <Link
             to={`/conversations/${tab}?conv=${encodeURIComponent(t.conversation_id)}`}

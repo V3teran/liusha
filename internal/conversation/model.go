@@ -51,7 +51,7 @@ type Conversation struct {
 	// FindingCount 是本会话关联 task 已挖到的漏洞数（派生自 finding 表）。仅 ListConversations 填充，
 	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
 	FindingCount int `json:"finding_count,omitempty"`
-	// Source 是派生的下发来源（关联 assignment 的 source：manual 人工下发 / auto 聚合器攒批；
+	// Source 是派生的下发来源（关联 assignment 的 source：self 自主下发 / proxy 代理模式；
 	// 纯聊天/无 task 归 manual）。仅 ListConversations 填充，供前端「主动下发 / 被动代理」双 tab 分流。
 	Source string `json:"source,omitempty"`
 }

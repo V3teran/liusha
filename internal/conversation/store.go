@@ -159,8 +159,8 @@ func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, 
 // ListConversations 按 updated_at DESC 分页列出会话（UI 列表）。offset<0 视为 0。
 //
 // source 非空时按下发来源过滤（前端「主动下发 / 被动代理」双 tab）：
-//   - 'manual'：assignment.source='manual' 的会话 + 纯聊天会话（无 task → 无 source，归主动侧）；
-//   - 'auto'：assignment.source='auto' 的会话（聚合器攒批的被动代理流量）。
+//   - 'self'：assignment.source='self' 的会话 + 纯聊天会话（无 task → 无 source，归自主侧）；
+//   - 'proxy'：assignment.source='proxy' 的会话（代理模式攒批的流量分析）。
 //
 // source 经 conversation.task_id → task.assignment_id → assignment.source 两跳 JOIN 解析。
 //
@@ -188,7 +188,7 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 		LEFT JOIN assignment a ON a.id = t.assignment_id
 		WHERE ($3 = ''
 		       OR a.source = $3
-		       OR ($3 = 'manual' AND c.task_id IS NULL))
+		       OR ($3 = 'self' AND c.task_id IS NULL))
 		ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, limit+1, offset, source)
 	if err != nil {
 		return nil, false, fmt.Errorf("list conversations: %w", err)
@@ -221,7 +221,7 @@ func (s *Store) CountConversations(ctx context.Context, source string) (int, err
 		SELECT count(*) FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
 		LEFT JOIN assignment a ON a.id = t.assignment_id
-		WHERE ($1 = '' OR a.source = $1 OR ($1 = 'manual' AND c.task_id IS NULL))`, source).Scan(&n)
+		WHERE ($1 = '' OR a.source = $1 OR ($1 = 'self' AND c.task_id IS NULL))`, source).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count conversations: %w", err)
 	}

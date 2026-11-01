@@ -4,7 +4,7 @@ import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
 
 interface ConversationsPageProps {
-  source: 'manual' | 'auto'
+  source: 'self' | 'proxy'
 }
 
 // 对话页：主从双栏——左 ConversationList + 右 ConversationDetail。source 由路由决定
@@ -35,9 +35,19 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     if (convID === currentConv) setCurrentConv('')
   }
 
-  const heading = source === 'auto' ? '流量批次' : undefined
-  const emptyHint =
-    source === 'auto' ? '暂无流量分析对话——挂代理（passive 8888）收到流量后自动逐批分析' : undefined
+  const heading = source === 'proxy' ? '代理批次' : undefined
+  const emptyState =
+    source === 'proxy'
+      ? {
+          mark: '⇄',
+          title: '暂无代理批次',
+          desc: '把浏览器代理指向本机 8888 端口后浏览目标站，捕获的流量会自动成批进入分析队列。',
+        }
+      : {
+          mark: '⌖',
+          title: '暂无自主下发的对话',
+          desc: '点击上方「新对话」，描述目标与测试方向即可发起一次渗透测试任务。',
+        }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -48,7 +58,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
             对话
           </h1>
           <p className="mt-0.5 text-sm text-text-secondary">
-            {source === 'manual' ? '主动下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
+            {source === 'self' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
           </p>
         </div>
       </header>
@@ -60,9 +70,9 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
           ref={convListRef}
           activeId={currentConv || undefined}
           source={source}
-          allowNew={source === 'manual'}
+          allowNew={source === 'self'}
           heading={heading}
-          emptyHint={emptyHint}
+          emptyState={emptyState}
           onSelect={setCurrentConv}
           onNew={newConversation}
           onDeleted={onConvDeleted}

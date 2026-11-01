@@ -369,7 +369,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 func (t *Traffic) spawnPassiveTask(ctx context.Context, host string) {
 	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(passive, auto, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
-		Source: assignment.SourceAuto,
+		Source: assignment.SourceProxy,
 		Items:  []assignment.Item{{Host: host}},
 		Title:  host,
 	})

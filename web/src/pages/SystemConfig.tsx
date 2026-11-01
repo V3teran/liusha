@@ -257,7 +257,7 @@ function ProxyFilterSection() {
   return (
     <SettingsSection
       title="代理流量过滤规则"
-      subtitle="被动代理捕获的黑白名单与请求/响应体切片上限，保存后 proxy 进程热换过滤链"
+      subtitle="代理模式捕获的黑白名单与请求/响应体切片上限，保存后 proxy 进程热换过滤链"
       loading={s.loading}
       error={s.error}
       saving={s.saving}

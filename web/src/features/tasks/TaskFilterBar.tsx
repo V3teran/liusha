@@ -11,8 +11,8 @@ interface TaskFilterBarProps {
 }
 
 const SOURCES: Array<{ value: string; label: string }> = [
-  { value: 'manual', label: '主动下发' },
-  { value: 'auto', label: '被动代理' },
+  { value: 'self', label: '自主下发' },
+  { value: 'proxy', label: '代理模式' },
 ]
 
 const STATUSES: Array<{ value: string; label: string }> = [

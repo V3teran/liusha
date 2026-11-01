@@ -116,7 +116,7 @@ func wallClockOption(d time.Duration) time.Duration {
 func (a *Service) createTask(ctx context.Context, brief, conversationID string) (string, string, error) {
 	// 一切下发皆走 assignment：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.Assignments.Create(ctx, assignment.NewParams{
-		Source: assignment.SourceManual,
+		Source: assignment.SourceSelf,
 		Items:  []assignment.Item{{Brief: brief}},
 		Title:  BriefTitle(brief),
 	})
@@ -145,7 +145,7 @@ func (a *Service) DispatchBatch(ctx context.Context, title, description string, 
 		items = append(items, assignment.Item{Brief: b})
 	}
 	asg, err := a.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceManual,
+		Source:      assignment.SourceSelf,
 		Items:       items,
 		Title:       title,
 		Description: description,
