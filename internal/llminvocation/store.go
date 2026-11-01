@@ -341,7 +341,7 @@ func (f ListFilter) limitOrDefault() int {
 }
 
 // listSelect / listJoin 是列表查询共享的列序与 JOIN（ListByTask / ListAll
-// 单一口径）：派生工具清单（tool_names）在库内算完再出网，业务键
+// 单一口径）：业务键
 // （conversation/assignment）经 JOIN 派生。新增列时两处同步改 scanListRow。
 const listSelect = `
 	SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
@@ -350,9 +350,6 @@ const listSelect = `
 	       li.latency_ms,
 	       li.finish_reason, li.error_message, li.error_kind, li.role,
 	       li.created_at,
-	       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
-	                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
-	                 WHERE jsonb_typeof(%[2]s) = 'array'), '{}') AS tool_names,
 	       c.id::text AS conversation_id,
 	       t.assignment_id::text AS assignment_id
 	FROM llm_invocation li
@@ -369,7 +366,6 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 		&v.LatencyMs,
 		&v.FinishReason, &v.Error, &v.ErrorKind, &v.Role,
 		&v.CreatedAt,
-		&v.ToolNames,
 		&cid, &aid,
 	); err != nil {
 		return err
@@ -391,17 +387,16 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
 // 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计），
-// 但在 SQL 里从 result 派生出 tool_names 工具清单——审计表要能一眼看出
+// 审计表要能一眼看出一次调用属于哪个任务、用了什么模型、成败如何
 // 「这次调用干了什么」（派活 / 跑命令 / 写漏洞），否则得逐行点开详情才知道。
 // 工具清单在库内算完再出网，仍不传大字段。
 func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
 	conds, args := f.where(taskID)
 	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(listSelect+`
-		WHERE %[3]s
+		WHERE %[1]s
 		ORDER BY li.id DESC
-		LIMIT $%[4]d OFFSET $%[5]d`,
-		toolNameExpr, resultToolCallsExpr,
+		LIMIT $%[2]d OFFSET $%[3]d`,
 		strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -516,10 +511,9 @@ func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error)
 	args = append(args, f.limitOrDefault(), f.Offset)
 
 	q := fmt.Sprintf(listSelect+`
-		WHERE %[3]s
+		WHERE %[1]s
 		ORDER BY li.id DESC
-		LIMIT $%[4]d OFFSET $%[5]d`,
-		toolNameExpr, resultToolCallsExpr,
+		LIMIT $%[2]d OFFSET $%[3]d`,
 		strings.Join(conds, " AND "), limitIdx, offsetIdx)
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {

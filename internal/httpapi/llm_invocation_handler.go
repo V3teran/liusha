@@ -64,14 +64,6 @@ func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFil
 	return f
 }
 
-// toolNamesOrEmpty 把 nil 切片归一成空数组——前端渲染工具徽章时不必判空。
-func toolNamesOrEmpty(names []string) []string {
-	if names == nil {
-		return []string{}
-	}
-	return names
-}
-
 // llmInvocationsSearchHandler 处理 GET /llm/invocations/search?q=<search>&page=&size=&role=&model=&only_err=&start=&end=。
 //
 // 全局搜索端点：支持按 task_id/conversation_id/assignment_id 搜索 LLM 调用。
@@ -123,8 +115,7 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 				"error_kind":      v.ErrorKind,
 				"role":            v.Role,
 				"created_at":      v.CreatedAt,
-				"tool_names":      toolNamesOrEmpty(v.ToolNames),
-				})
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
