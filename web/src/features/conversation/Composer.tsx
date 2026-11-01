@@ -1,21 +1,19 @@
 import { useState } from 'react'
-import { Send, Square, Loader2 } from 'lucide-react'
+import { Send, Loader2 } from 'lucide-react'
 import { followUp, startChat } from '@/api/conversations'
 import { useConversationStore } from '@/stores/conversation'
 import { cn } from '@/lib/utils'
 
 interface ComposerProps {
   convId?: string
-  scanning?: boolean
   onStarted: (convID: string) => void
   onAppended: (afterSeq: number) => void
-  onStop: () => void
 }
 
 /**
  * Composer - 消息输入组件
  */
-export function Composer({ convId, scanning, onStarted, onAppended, onStop }: ComposerProps) {
+export function Composer({ convId, onStarted, onAppended }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const beginThinking = useConversationStore((s) => s.beginThinking)
   const [brief, setBrief] = useState('')
@@ -105,22 +103,6 @@ export function Composer({ convId, scanning, onStarted, onAppended, onStop }: Co
 
           {/* 操作按钮组 */}
           <div className="flex items-center gap-2">
-            {/* 停止扫描按钮（仅扫描中显示）*/}
-            {convId && scanning && (
-              <button
-                type="button"
-                onClick={onStop}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border-2 border-status-error px-4 py-2',
-                  'text-xs font-semibold text-status-error',
-                  'transition-all hover:bg-status-error/10',
-                )}
-              >
-                <Square className="h-3.5 w-3.5 fill-current" />
-                停止扫描
-              </button>
-            )}
-
             {/* 发送按钮 */}
             <button
               type="button"

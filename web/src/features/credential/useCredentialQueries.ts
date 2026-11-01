@@ -74,6 +74,11 @@ export function useAllCredentialRows() {
       const rows: CredentialRow[] = []
       for (const d of results) {
         for (const identity of d.identities) {
+          // 空壳会话身份不进列表：会话快照的价值在它承载的 cookie；没承载
+          // 凭据材料的空壳只是内部管道痕迹，展示出来就是一条废行
+          if (isSessionIdentityName(identity.username) && identity.credentials.length === 0) {
+            continue
+          }
           rows.push({
             rowId: `${d.host}/${identity.username}`,
             host: d.host,

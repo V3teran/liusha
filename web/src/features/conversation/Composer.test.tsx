@@ -20,7 +20,7 @@ describe('Composer', () => {
   it('无 convId 发送时调用 startChat 并触发 onStarted', async () => {
     vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
-    render(<Composer onStarted={onStarted} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer onStarted={onStarted} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/描述要扫的目标/)
     await userEvent.type(textarea, '扫一下 example.com')
@@ -46,7 +46,7 @@ describe('Composer', () => {
     })
     vi.mocked(followUp).mockResolvedValue({ intent: 'action', task_id: 't-new' })
     const onAppended = vi.fn()
-    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended} onStop={vi.fn()} />)
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
@@ -78,7 +78,7 @@ describe('Composer', () => {
         }),
     )
     const onAppended = vi.fn()
-    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended} onStop={vi.fn()} />)
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
@@ -106,7 +106,7 @@ describe('Composer', () => {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }
     err.busy = true
     vi.mocked(followUp).mockRejectedValue(err)
-    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
@@ -121,7 +121,7 @@ describe('Composer', () => {
     // passive 会话的 task 常年 active，若前端按 scanning 拦，QA 类追问会被永久锁死——
     // 这里验证 scanning=true 时输入框/发送按钮仍可用，且真的调用了 followUp。
     vi.mocked(followUp).mockResolvedValue({ intent: 'qa' })
-    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '这批流量里有没有可疑的')
@@ -136,7 +136,7 @@ describe('Composer', () => {
     const err = new Error('扫描进行中') as Error & { busy?: boolean }
     err.busy = true
     vi.mocked(followUp).mockRejectedValue(err)
-    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
     await userEvent.type(textarea, '继续扫')
@@ -147,17 +147,11 @@ describe('Composer', () => {
     })
   })
 
-  it('scanning=true 时显示停止按钮，点击触发 onStop', async () => {
-    const onStop = vi.fn()
-    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()} onStop={onStop} />)
-    await userEvent.click(screen.getByRole('button', { name: '停止扫描' }))
-    expect(onStop).toHaveBeenCalled()
-  })
 
   it('Enter 触发发送', async () => {
     vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
-    render(<Composer onStarted={onStarted} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer onStarted={onStarted} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/描述要扫的目标/)
     await userEvent.type(textarea, '扫一下 example.com')
@@ -171,7 +165,7 @@ describe('Composer', () => {
 
   it('Shift+Enter 换行，不触发发送', async () => {
     const onStarted = vi.fn()
-    render(<Composer onStarted={onStarted} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer onStarted={onStarted} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/描述要扫的目标/) as HTMLTextAreaElement
     await userEvent.type(textarea, '第一行')
@@ -183,7 +177,7 @@ describe('Composer', () => {
   })
 
   it('空 brief 不发送', async () => {
-    render(<Composer onStarted={vi.fn()} onAppended={vi.fn()} onStop={vi.fn()} />)
+    render(<Composer onStarted={vi.fn()} onAppended={vi.fn()}  />)
     const sendBtn = screen.getByRole('button', { name: '发送' })
     expect(sendBtn).toBeDisabled()
     await userEvent.click(sendBtn)
