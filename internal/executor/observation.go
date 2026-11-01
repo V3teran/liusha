@@ -19,9 +19,7 @@ import (
 //
 // 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
 // - hypothesis + repro → unverified（待复现门裁决）
-// - hypothesis 无 repro → 不创建（无配方即无从裁决的主张，不落图）
-// - issue → unverified（确定的问题，可选 repro 用于验证或复现）
-// - state → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
+// - 其余全部 → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -77,7 +75,8 @@ func (e *Engine) createObservationNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	// 图级 Confidence 由 Category 决定
+	// 图级 Confidence 由 Category 决定：只有 hypothesis 进验证生命周期
+	//（unverified → 复现门裁决），其余六个信息域都是写入即终态的事实。
 	switch obs.Category {
 	case CategoryHypothesis:
 		// hypothesis 必须有 repro
@@ -87,14 +86,8 @@ func (e *Engine) createObservationNode(
 		unverified := explorationgraph.ConfidenceUnverified
 		node.Confidence = &unverified
 
-	case CategoryIssue:
-		// issue 是确定的问题，直接设为 factual（不需要验证）
-		// 如果有 repro，可用于后续复现或深度验证
-		factual := explorationgraph.ConfidenceFactual
-		node.Confidence = &factual
-
-	case CategoryFact:
-		// state 是客观事实，写入即终态
+	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
+		CategoryIssue, CategoryNote:
 		factual := explorationgraph.ConfidenceFactual
 		node.Confidence = &factual
 
@@ -162,35 +155,35 @@ func (e *Engine) observationToAttempt(
 // 观察载荷与执行轨迹（Observation / ExecutionTrace / TraceBuilder）
 // ─────────────────────────────────────────────────────────────
 
-// ObservationCategory 是观察的分类，决定它走哪条生命周期。
+// ObservationCategory 是观察的信息类别：七个领域中立的信息域，决定观察的
+// 生命周期与检索语义。词汇表对任意领域的探索 agent 通用；领域例子由执行器
+// 章程（agent 章程种子）承载，换领域改章程不改本表。
 //
-//   - state：客观状态信息——环境的客观事实，执行后直接确认
-//     写入即终态，执行轨迹即出处，不经任何裁决
-//     映射到 insight: entity/access/structure/behavior
-//
-//   - issue：确定的问题/异常——已确认的问题、异常、障碍
-//     写入即终态，可选 repro 用于复现或深度验证
-//     映射到 insight: issue（不需要 evaluator 验证）
-//
-//   - hypothesis：待验证推测——需要通过复现配方验证的推测性断言
-//     必须携带 repro，经复现门裁决后才成为 result
-//     映射到 insight: issue（经过 evaluator 验证）
+//   - entity：环境中存在的单个对象及其属性（inventory：有什么）
+//   - access：触达与运用对象的途径（affordance：怎么用）
+//   - structure：对象之间的关系与布局（topology：怎么连）
+//   - behavior：环境受激后的反应与内在机制（dynamics：怎么动）
+//   - issue：已观察到的异常与障碍——不经复现门、直接可判定的坏事实；
+//     需要证明的判断必须走 hypothesis → 裁决 → result，不许落在 issue 里
+//   - note：无法归入上述任何域的杂项（兜底；写作顺序上的最后手段）
+//   - hypothesis：待验证的判断——必须携带复现配方，经裁决门裁决后才成为
+//     result
 type ObservationCategory string
 
 const (
-	// CategoryFact 已确认的事实（客观事实，写入即终态）——与输出契约里
-	// 教给模型的字面值一致，执行轨迹即出处，无需裁决。
-	CategoryFact ObservationCategory = "fact"
-	// CategoryIssue 问题/异常。
-	CategoryIssue ObservationCategory = "issue"
-	// CategoryHypothesis 待验证推测（须携 repro，经复现门裁决成 result）。
+	CategoryEntity     ObservationCategory = "entity"
+	CategoryAccess     ObservationCategory = "access"
+	CategoryStructure  ObservationCategory = "structure"
+	CategoryBehavior   ObservationCategory = "behavior"
+	CategoryNote       ObservationCategory = "note"
+	CategoryIssue      ObservationCategory = "issue"
 	CategoryHypothesis ObservationCategory = "hypothesis"
 )
 
-// Observation 是执行器从环境感知到的一条断言：
-//   - state：客观状态（无需验证）
-//   - issue：确定的问题（无需验证，但可能有 repro）
-//   - hypothesis：待验证推测（必须有 repro）
+// Observation 是执行器从环境感知到的一条断言（Category 七值语义见
+// ObservationCategory）。图级 confidence 由 createObservationNode 按
+// Category 设置，executor 的自评置信度只进载荷（executor_confidence），
+// 不进图状态。
 //
 // 图级 confidence 由 createObservationNode 按 Category 设置，executor
 // 的自评置信度只进载荷（executor_confidence），不进图状态。
@@ -222,8 +215,7 @@ type Observation struct {
 
 	// Repro：复现配方
 	//   - hypothesis：必须（无配方的推测无从裁决）
-	//   - issue：可选（用于复现或深度验证）
-	//   - state：通常不需要
+	//   - 其余类别：可选
 	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
 

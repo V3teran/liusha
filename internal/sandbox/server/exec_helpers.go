@@ -45,12 +45,14 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 
 // setupExecDirs 创建执行目录结构
 func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDir, outputDir, profileDir string, ok bool) {
-	// task + agent 两层隔离
+	// task 一层隔离：work = 命令 cwd，out = 产物（$OUTPUT_DIR），profile =
+	// 登录态（任务内共享；HOME 指向它，chromium 等按 $HOME 落盘的工具随
+	// 之归位）。AgentID 仍随请求透传（进程树标注/审计），不参与目录分层
+	// ——同任务多 agent 共容器共目标，agent 级目录是假隔离。
 	taskRoot := filepath.Join(liushaRoot, req.TaskID)
-	agentRoot := filepath.Join(taskRoot, req.AgentID)
-	workspaceDir = filepath.Join(agentRoot, "workspace")
-	outputDir = filepath.Join(agentRoot, "output")
-	profileDir = filepath.Join(taskRoot, "profile") // Task 共享
+	workspaceDir = filepath.Join(taskRoot, "work")
+	outputDir = filepath.Join(taskRoot, "out")
+	profileDir = filepath.Join(taskRoot, "profile")
 
 	// 创建所有必要目录
 	for _, dir := range []string{workspaceDir, outputDir, profileDir} {

@@ -49,7 +49,6 @@ func (h *Handler) runCognition(
 		Corpus:     h.Corpus,
 		Embedder:   h.Embedder,
 		Reranker:   h.Reranker,
-		Insights:   h.Insights,
 		ProxyStore: h.ProxyStore,
 		AgentStore: h.AgentStore,
 

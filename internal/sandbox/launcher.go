@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -74,7 +75,39 @@ type DockerLauncher struct {
 	// IngestToken 是上面 URL 的 Bearer token。
 	// 空 = 不带 Authorization header（dev 模式 cmd/proxy 端也不强制）；prod 应非空。
 	IngestToken string
+
+	// WorkspaceHostDir 是沙盒工作区的宿主根目录，bind mount 到容器
+	// /root/liusha/workspace（容器内按 taskID 分 work/out/profile）。空 =
+	// ~/data/liusha/workspace 默认。任务工件（脚本/PoC/扫描输出）因此跨容
+	// 器回收重建存活——warm 沙盒的文件系统是临时的，宿主目录才是工件的持
+	// 久层。
+	WorkspaceHostDir string
+
+	// WorkspaceRetentionDays 是任务工作区留存天数（CleanupOrphans 周期清
+	// 扫超期任务目录）。0 = 永久保留。
+	WorkspaceRetentionDays int
 }
+
+// DefaultWorkspaceHostDir 返回宿主工作区根目录默认值（~/data/liusha/workspace）。
+func DefaultWorkspaceHostDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", fmt.Errorf("解析用户主目录失败: %w", err)
+	}
+	return filepath.Join(home, "data", "liusha", "workspace"), nil
+}
+
+// ResolveWorkspaceHostDir 返回生效的宿主工作区根目录（配置空值走默认）。
+func (l *DockerLauncher) ResolveWorkspaceHostDir() (string, error) {
+	if l.WorkspaceHostDir != "" {
+		return l.WorkspaceHostDir, nil
+	}
+	return DefaultWorkspaceHostDir()
+}
+
+// sandboxWorkspaceMountTarget 是工作区在容器内的挂载点（sandbox-server
+// 的 liushaRoot，两边必须一致——见 internal/sandbox/server/exec.go）。
+const sandboxWorkspaceMountTarget = "/root/liusha/workspace"
 
 // NewDockerLauncher 构造 launcher。Image 必填，DockerBin 空走默认。
 func NewDockerLauncher(image string) *DockerLauncher {
@@ -133,6 +166,17 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 			args = append(args, "-e", "LIUSHA_INGEST_TOKEN="+l.IngestToken)
 		}
 	}
+	// 工作区持久层：宿主目录 bind 进容器（目录不存在由 docker 自动创建）。
+	// 宿主根目录挂载一次，容器内 taskID 子目录即隔离单元——warm 单例多任
+	// 务共存互不干扰，容器回收重建后工件仍在新容器的同一挂载下。
+	hostDir, err := l.ResolveWorkspaceHostDir()
+	if err != nil {
+		return nil, err
+	}
+	if mkErr := os.MkdirAll(hostDir, 0o750); mkErr != nil {
+		return nil, fmt.Errorf("创建工作区宿主目录 %s: %w", hostDir, mkErr)
+	}
+	args = append(args, "-v", hostDir+":"+sandboxWorkspaceMountTarget)
 	args = append(args, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil && strings.Contains(string(runOut), "already in use") {
@@ -215,6 +259,16 @@ func (l *DockerLauncher) Destroy(ctx context.Context, agentID string) error {
 // 用途：runner worker 启动时一次性清理上次进程崩前残留的容器。
 // 不是后台 sweeper——只在进程启动时跑一次，正常 Destroy + max lifetime 兜底已经覆盖大部分场景。
 func (l *DockerLauncher) CleanupOrphans(ctx context.Context) error {
+	if err := l.cleanupOrphanContainers(ctx); err != nil {
+		return err
+	}
+	l.sweepExpiredWorkspaces()
+	return nil
+}
+
+// cleanupOrphanContainers 强删本前缀下的残留容器（runner 重启后内存态为空，
+// warm/active 容器全部成为孤儿）。
+func (l *DockerLauncher) cleanupOrphanContainers(ctx context.Context) error {
 	bin := l.dockerBin()
 	out, err := exec.CommandContext(ctx, bin, "ps", "-a", // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 		"--filter=name="+containerNamePrefix,
@@ -234,6 +288,40 @@ func (l *DockerLauncher) CleanupOrphans(ctx context.Context) error {
 		return fmt.Errorf("docker rm -f orphans: %w: %s", err, strings.TrimSpace(string(rmOut)))
 	}
 	return nil
+}
+
+// sweepExpiredWorkspaces 按留存天数清扫超期任务工作区（宿主根目录的直接
+// 文件系统操作——bind mount 让 runner 侧与容器内看到同一棵树）。0 = 永久
+// 保留，不扫。目录 mtime 在整个任务生命周期内持续被写入刷新，超期即代表
+// 该任务确实久无活动。失败仅记日志（清扫是维护动作，不阻塞启动）。
+func (l *DockerLauncher) sweepExpiredWorkspaces() {
+	if l.WorkspaceRetentionDays <= 0 {
+		return
+	}
+	root, err := l.ResolveWorkspaceHostDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -l.WorkspaceRetentionDays)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+			continue
+		}
+	}
 }
 
 // waitHealthz 轮询 GET <baseURL>/healthz 直到 200 或 ctx/timeout 超时。

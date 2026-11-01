@@ -224,22 +224,6 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildBlackboardSection 构建经验黑板部分——跨 agent 确认经验的摘要行
-// （cognition 注入，格式化完成），规划者直接消费执行者的经验。
-func buildBlackboardSection(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("## 经验黑板（跨 agent 已确认经验）\n")
-	for _, line := range lines {
-		fmt.Fprintf(&sb, "- %s\n", line)
-	}
-	sb.WriteString("\n")
-	return sb.String()
-}
-
 // buildResultsSection 构建已确认发现部分
 func buildResultsSection(results []explorationgraph.Node) string {
 	if len(results) == 0 {

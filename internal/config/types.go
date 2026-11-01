@@ -226,6 +226,16 @@ type SandboxConfig struct {
 	// 高分屏可调大，但会增加 token 消耗。
 	ViewportWidth  int `mapstructure:"viewport_width"`
 	ViewportHeight int `mapstructure:"viewport_height"`
+
+	// WorkspaceHostDir 是沙盒工作区的宿主根目录（bind mount 到容器
+	// /root/liusha/workspace，容器内按 taskID 分目录隔离：work/out/profile）。
+	// 空 = 默认 ~/data/liusha/workspace（runner 侧展开；容器化 runner 必须显式
+	// 配宿主绝对路径——bind 源由宿主 docker daemon 解析）。
+	WorkspaceHostDir string `mapstructure:"workspace_dir"`
+
+	// WorkspaceRetentionDays 是任务工作区的留存天数（按目录 mtime）。
+	// 0 = 永久保留（持续探索模式的默认：工件是证据）；正数启用清扫。
+	WorkspaceRetentionDays int `mapstructure:"workspace_retention_days"`
 }
 
 // （原 ToolruntimeConfig 已删：step_tool_timeout_seconds 收归 DB runtime 组

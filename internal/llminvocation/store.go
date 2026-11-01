@@ -352,7 +352,7 @@ const listSelect = `
 	       li.provider, li.model,
 	       li.in_tokens, li.out_tokens, li.cached_tokens,
 	       li.latency_ms,
-	       li.finish_reason, li.error_message, li.role,
+	       li.finish_reason, li.error_message, li.error_kind, li.role,
 	       li.created_at,
 	       COALESCE((SELECT array_agg(COALESCE(%[1]s, '') ORDER BY ord)
 	                 FROM jsonb_array_elements(%[2]s) WITH ORDINALITY AS t(tc, ord)
@@ -438,7 +438,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		       li.provider, li.model,
 		       li.in_tokens, li.out_tokens, li.cached_tokens,
 		       li.latency_ms,
-		       li.finish_reason, li.error_message, li.role,
+		       li.finish_reason, li.error_message, li.error_kind, li.role,
 		       li.messages, li.result, li.created_at,
 		       c.id::text AS conversation_id,
 		       t.assignment_id::text AS assignment_id,

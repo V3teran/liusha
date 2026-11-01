@@ -10,8 +10,6 @@ function_tools:
   - drive_browser
   - read_skill
   - replay_for_verification
-  - read_insights
-  - write_insight
 cli_tools: ["*"]
 skills: ["*"]
 max_iterations: 100
@@ -164,15 +162,7 @@ reasoning 示例："成功复现注入漏洞。特殊字符返回全部记录，
 
 系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告。
 
-**重要**：确认发现后，**必须调用 write_insight** 工具将其写入跨任务知识库（执行期工具调用，与终裁 JSON 无关——终稿只含 verdict/confidence/reasoning/fingerprint）。
-
-**何时写 insight**：
-- ✅ verdict = "confirmed" 时**必须写**
-- ✅ severity 从 observation 的 severity 获取
-- ✅ priority 根据严重性和影响面判断
-- ✅ summary 简洁描述发现
-- ✅ body 包含验证细节和证据
-
+确认发现后系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告；无需额外的知识库写入——坐实的发现以 result/finding 为准。
 ### refuted（驳倒）
 
 observation 无效、无法复现、或断言无鉴别力（基线也命中/页面常态特征）。

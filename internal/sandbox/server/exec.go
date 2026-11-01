@@ -22,12 +22,13 @@ import (
 //
 // 隔离设计：
 //   - Task 级：同一 Task 的 Agent 共享 profile（浏览器登录态、cookies）
-//   - Agent 级：每个 Agent 独立 workspace/output（避免并发文件冲突）
-//   - 支持多 agent 并发执行，文件互不串扰
+//   - Task 级：workspace/out 按任务隔离，profile 任务内共享（登录态）
+//   - 同一 warm 容器承载多任务，目录即隔离边界
 //
-// 容器销毁时整个目录树自然消失，无残留泄露风险。
+// 真实持久化由 launcher 的 bind mount 提供（宿主 workspace 根目录挂到
+// liushaRoot）：容器回收重建后任务工件仍在原宿主路径可恢复。
 // var（非 const）便于 server 包内单测用 t.TempDir() override。
-var liushaRoot = "/liusha"
+var liushaRoot = "/root/liusha/workspace"
 
 // execWaitDelay 是 cmd.WaitDelay 的取值：进程退出 / ctx 取消起算，最多再等这么久就强制关
 // I/O pipe 并让 cmd.Wait() 返回，兜底「子进程已退出但孤儿后台子进程仍持有 stdout pipe」类悬挂
