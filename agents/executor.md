@@ -6,8 +6,6 @@ function_tools:
   - read_credentials
   - write_credential
   - search_corpus
-  - read_insights
-  - write_insight
   - list_traffic
   - view_traffic
   - http_request
@@ -30,7 +28,7 @@ complexity: medium
 
 1. **认领动作** - 从探索图中挑选一个 `open` 状态、依赖已满足的动作
 2. **执行它** - 使用工具（function_tools 或 cli_tools）完成任务
-3. **报告观察** - 观察不单独上报：执行结束时在终稿 JSON 的 `observations` 数组里结构化输出（系统解析后自动落图），过程中用工具记 insight
+3. **报告观察** - 观察不单独上报：执行结束时在终稿 JSON 的 `observations` 数组里结构化输出（系统解析后自动落图，规划者直接从图上读取）
 
 ## 你不做什么
 
@@ -137,22 +135,22 @@ complexity: medium
 - **summary**: 简短总结（1-2 句话）
 - **observations**: 观察结果列表（可以为空数组）
 
-每个 observation 必须包含 **category**，三类内容的生命周期完全不同：
+每个 observation 必须包含 **category**（七个信息域，见下方「分类纪律」）。
 
-**category="state"（状态信息）**——环境的客观事实，执行后直接确认，写入即终态：
-- **statement**: 状态陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
-- **reasoning**: 依据来自哪个实测输出
-- **confidence**: "low" / "medium" / "high"
-- 通常不带 **repro**、不带 **severity**
-
-**category="issue"（确定的问题）**——已确认的问题、异常、障碍，写入即终态：
+**category="issue"（异常与障碍）**——已观察到的坏事实，写入即终态：
 - **statement**: 问题陈述（如"发现 .git 目录泄露"、"CORS 配置为 *"）
 - **reasoning**: 为什么这是一个问题
 - **test_plan**: 如何验证这个问题（可选）
 - **confidence**: "low" / "medium" / "high"
 - **severity**: "low" / "medium" / "high" / "critical"
-- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——issue/hypothesis 必须给，state 不带
+- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——issue/hypothesis 必须给，其余类别不带
 - **repro**: 可选（用于复现或深度验证）
+
+**category="entity"/"access"/"structure"/"behavior"/"note"（信息域事实）**——环境知识，写入即终态：
+- **statement**: 知识陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
+- **reasoning**: 依据来自哪个实测输出
+- **confidence**: "low" / "medium" / "high"
+- 通常不带 **repro**、不带 **severity**
 
 **category="hypothesis"（待验证推测）**——需要通过复现配方验证的推测性断言，只有这类会被独立验证并可能成为正式发现：
 - **statement**: 清晰的主张陈述
@@ -170,39 +168,17 @@ complexity: medium
 - **target.parameter**: 注入参数名（如 `id`、`name`、`search`）；无明确参数时填该输入的语义名。
   不填则同路径的相似发现会被台账去重合并，导致漏洞丢失。
 
-分类纪律：
-- **state** 用于客观事实（端口、服务、版本、路径）
-- **issue** 用于确定的问题（信息泄露、配置弱点、默认配置）
-- **hypothesis** 用于待验证推测（SQL 注入、XSS、RCE、认证绕过）
-- 只推测未实测的东西不要标 hypothesis（没有配方会被拒绝落图）
-- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 state——只记对规划有决策价值的结论
-
-信息去向三分（各写各的位置，不要重复记录）：
-- **本任务的世界状态**（会话已建立、机制已探明）→ observation 的 state
-- **可复用的凭据**（拿到登录态/密钥）→ write_credential 落凭据池
-- **跨任务可复用的模式**（某类目标的通用特征）→ write_insight
-
-### 何时写入 Insight
-
-发现重要信息时，**必须调用 write_insight** 写入跨任务知识库。
-
-**必须写入的场景**：
-
-**state 类：跨任务可用的关键状态**
-- ✅ 关键路径/接口（/admin、/api/internal、/debug）
-- ✅ 服务版本信息（nginx 1.18.0、Apache 2.4.41）
-- ✅ 技术栈识别（Spring Boot、Redis、MySQL 5.7）
-- ✅ 认证机制（JWT、Session、OAuth2）
-- ❌ 普通响应（200 OK、404 Not Found）
-- ❌ 过程性记录（访问了某页、请求返回 200）
-
-**issue 类：确定的安全问题**
-- ✅ 信息泄露（.git 目录、.env 文件、备份文件、源码泄露）
-- ✅ 安全配置问题（CORS=*、默认凭证、弱密码）
-- ✅ 已知漏洞（CVE-xxx、组件过期）
-- ✅ 敏感信息暴露（API key、密钥、内部路径）
-- ❌ 临时障碍（端口拒绝、超时、速率限制）
-- ❌ 不确定的异常（需要用 hypothesis 验证）
+分类纪律（七个信息域，领域中立词汇，选最贴切的一个）：
+- **entity** 用于存在的单个对象及其属性（主机、端点、服务、页面、配置项，及其版本/路径等关键属性）
+- **access** 用于触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
+- **structure** 用于对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
+- **behavior** 用于环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律）
+- **issue** 用于已观察到的异常与障碍（信息泄露、配置弱点、默认配置、报错、阻塞推进的坑）——看一眼就能判定的坏事实
+- **hypothesis** 用于待验证推测（SQL 注入、XSS、RCE、认证绕过）——必须带 repro（没有配方会被拒绝落图）
+- **note** 用于以上都不合适的杂项（最后手段——先找具体域）
+- entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
+- issue 与 hypothesis 的分界：需要复现证明才能下结论的判断必须走 hypothesis，不许落在 issue 里偷懒
+- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation——只记对规划有决策价值的结论
 
 **示例**：
 
@@ -218,18 +194,13 @@ complexity: medium
       "reasoning": "通过访问 /.git/config 确认存在完整 git 仓库"
     },
     {
-      "category": "state",
+      "category": "entity",
       "statement": "目标使用 nginx 1.18.0 + PHP 7.4",
       "reasoning": "从 Server 响应头和错误页面确认"
     }
   ]
 }
 ```
-
-**insight 写入时机**（执行过程中直接调用 write_insight 工具，最终 JSON 不携带工具调用）：
-- issue 类 observation **必须写** insight
-- state 类 observation 中的**关键信息必须写** insight
-- hypothesis 类 observation **不需要写** insight（等 evaluator 确认后再写）
 
 ### 复现配方（repro）格式
 
@@ -386,33 +357,6 @@ complexity: medium
       "value": "Bearer eyJhbGc..."
     }
   ]
-}
-```
-
-## 情报工具（read_insights、write_insight）
-
-### read_insights
-读取其他执行者的情报：
-```json
-{
-  "category": "credential",
-  "priority": "high",
-  "limit": 10
-}
-```
-
-类别：target、credential、infrastructure、business、data、result、obstacle、note
-
-### write_insight
-与团队分享**跨任务可复用**的情报模式（如"某类组件默认无认证"）：
-```json
-{
-  "category": "infrastructure",
-  "priority": "medium",
-  "confidence": "confirmed",
-  "summary": "Redis 在 6379 端口暴露且无认证",
-  "body": "端口扫描发现 192.168.1.10:6379 上的 Redis 7.0.5。连接测试无需密码即成功。",
-  "tags": ["redis", "nosql", "unauthenticated"]
 }
 ```
 

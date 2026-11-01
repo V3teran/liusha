@@ -175,6 +175,10 @@ runner:
                                            # 0 = 不限——与上方墙钟同理，收敛交给完成检测器；正数启用护栏。
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
+  workspace_dir: ""                        # 沙盒工作区宿主根目录（bind 进容器 /root/liusha/workspace，
+                                           # 容器内按 taskID 分 work/out/profile）。空 = ~/data/liusha/workspace；
+                                           # 容器化 runner 必须显式配宿主绝对路径
+  workspace_retention_days: 0              # 任务工作区留存天数（0 = 永久；正数按目录 mtime 清扫）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
   healthz_addr: ":9090"                    # /healthz HTTP 监听地址

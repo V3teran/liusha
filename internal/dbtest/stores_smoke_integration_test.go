@@ -6,11 +6,13 @@ package dbtest
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/cachestore"
 
@@ -22,7 +24,8 @@ import (
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/cronschedule"
-	"github.com/V3teran/liusha/internal/insight"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
@@ -83,18 +86,18 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("audit append: %v", err)
 	}
 
-	// insight（0156 列名 + CHECK 枚举）
-	ins := insight.NewStore(pool)
-	if err := ins.Append(ctx, tk.ID, insight.Insight{
-		Category: insight.CategoryNote, Priority: insight.PriorityMedium, Confidence: insight.ConfidencePossible,
-		Summary: "smoke", Tags: []string{"t"}, SourceTaskID: tk.ID, SourceAgentRunID: runID,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	}); err != nil {
-		t.Fatalf("insight append: %v", err)
+	// insight 表已随 0188 退役（知识归一给探索图观察），冒烟改验图上
+	// observation 的七值类别落库。
+	graph := explorationgraph.NewStore(pool)
+	obsNode := explorationgraph.Node{
+		ID:       uuid.NewString(),
+		TaskID:   tk.ID,
+		Kind:     core.KindObservation,
+		Content:  json.RawMessage(`{"statement":"smoke","category":"note","reasoning":"r"}`),
+		Priority: explorationgraph.PriorityMedium,
 	}
-	listed, err := ins.List(ctx, tk.ID, 10)
-	if err != nil || len(listed) != 1 {
-		t.Fatalf("insight list: %v len=%d", err, len(listed))
+	if _, err := graph.CreateNode(ctx, obsNode); err != nil {
+		t.Fatalf("observation create: %v", err)
 	}
 
 	// skillstore

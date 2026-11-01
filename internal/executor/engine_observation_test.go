@@ -172,7 +172,7 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 
 	// state：落图为 factual 终态，无 Attempt
 	state := Observation{
-		Category:   CategoryFact,
+		Category:   CategoryNote,
 		Statement:  "会话已建立且过滤机制由 X 控制",
 		Confidence: "high",
 	}

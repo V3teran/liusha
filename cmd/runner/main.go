@@ -43,7 +43,6 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/ingestor"
-	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
@@ -73,7 +72,6 @@ type runnerStores struct {
 	toolCalls     *toolinvocation.Store
 	proxyStore    *traffic.ProxyStore
 	agentStore    *traffic.AgentStore
-	insights      *insight.Store
 	corpus        *corpus.Store
 	calls         *llminvocation.Store
 }
@@ -184,7 +182,6 @@ func main() {
 		Corpus:     stores.corpus,
 		Embedder:   embedder,
 		Reranker:   reranker,
-		Insights:   stores.insights,
 		ProxyStore: stores.proxyStore,
 		AgentStore: stores.agentStore,
 		Calls:      stores.calls,
@@ -327,7 +324,6 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.AppConfig) *runnerStores {
 		toolCalls:     toolinvocation.NewStore(pool),
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
-		insights:      insight.NewStore(pool),      // 情报黑板：assignment 级别共享，按 assignment_id 隔离
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
 		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
 	}

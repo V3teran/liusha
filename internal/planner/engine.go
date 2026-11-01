@@ -40,11 +40,6 @@ type Engine struct {
 	budget        time.Duration // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
 	roster        []AgentBrief  // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
-	// insightsDigest 是跨 agent 经验黑板的摘要出口（cognition 注入闭包；
-	// nil=无黑板）。黑板的核心价值是规划者消费执行者的经验——没有它，
-	// 黑板退化成 executor 的自说自话。
-	insightsDigest func(ctx context.Context) []string
-
 	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
 	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
 	toolWrap func(registry.Tool) registry.Tool
@@ -62,13 +57,6 @@ type AgentBrief struct {
 // WithAgentRoster 注入四 Agent 名册（cognition 装配时从 DB 配置取；空=不渲染该节）。
 func (i *Engine) WithAgentRoster(roster []AgentBrief) *Engine {
 	i.roster = roster
-	return i
-}
-
-// WithInsightsDigest 注入经验黑板摘要出口（cognition 闭包：assignment 内
-// insight 按优先级取顶，格式化为一行一条）。nil=无黑板，规划上下文不带该节。
-func (i *Engine) WithInsightsDigest(fn func(ctx context.Context) []string) *Engine {
-	i.insightsDigest = fn
 	return i
 }
 
@@ -154,7 +142,6 @@ type PlanningContext struct {
 	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
-	Blackboard        []string                // 跨 agent 经验黑板摘要（assignment 级 insight，规划者消费执行者经验）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -418,11 +405,6 @@ func (i *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 		}
 	}
 
-	// 跨 agent 经验黑板摘要（assignment 级 insight）——规划者消费执行者经验。
-	if i.insightsDigest != nil {
-		planCtx.Blackboard = i.insightsDigest(ctx)
-	}
-
 	return planCtx, nil
 }
 
@@ -462,9 +444,6 @@ func (i *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 8.5 已确认的世界状态（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
-
-	// 8.6 经验黑板（跨 agent 已确认经验）
-	sb.WriteString(buildBlackboardSection(ctx.Blackboard))
 
 	// 9. 已被证伪的假设
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))

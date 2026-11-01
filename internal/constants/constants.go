@@ -14,7 +14,7 @@ const (
 	// ToolTimeoutQuick 工具执行超时（快速工具：读配置/查列表）
 	ToolTimeoutQuick = 5 * time.Second
 
-	// ToolTimeoutMedium 工具执行超时（中等工具：insight 查询等）
+	// ToolTimeoutMedium 工具执行超时（中等工具：流量查看等）
 	ToolTimeoutMedium = 10 * time.Second
 
 	// ToolTimeoutLong 工具执行超时（长工具：图查询/重放）

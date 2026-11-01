@@ -2,7 +2,7 @@
 // registry.Tool 接口；角色专属工具（planner 的 observe_state、monitor 的
 // publish_decision、evaluator 的 replay_for_verification 等）在各角色包内自建。
 //
-// 工具按功能域分文件：credentials / corpus / insight / traffic / sandbox / skill。
+// 工具按功能域分文件：credentials / corpus / traffic / sandbox / skill / explore。
 // register.go 提供 RegisterAll 一次性注入所有工具到 registry.ToolRegistry。
 package tools
 
@@ -11,7 +11,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
@@ -32,7 +31,6 @@ type Deps struct {
 	Corpus     *corpus.Store
 	Embedder   corpus.Embedder // 可 nil → 退化为纯 sparse 检索
 	Reranker   corpus.Reranker
-	Insights   *insight.Store
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Creds      credential.Provider

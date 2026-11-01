@@ -33,12 +33,6 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 		add(newSearchCorpusTool(deps, constants.ToolTimeoutLong))
 	}
 
-	// insight 读写（快速，并发安全）
-	if deps.Insights != nil {
-		add(newReadInsightsTool(deps, constants.ToolTimeoutQuick))
-		add(newWriteInsightTool(deps, constants.ToolTimeoutQuick))
-	}
-
 	// traffic（读取可能较慢，replay 更慢且不安全）
 	if deps.ProxyStore != nil || deps.AgentStore != nil {
 		add(newListTrafficTool(deps, constants.ToolTimeoutLong))

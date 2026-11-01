@@ -30,7 +30,6 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/reasoning"
@@ -69,7 +68,6 @@ type Deps struct {
 	Corpus     *corpus.Store
 	Embedder   corpus.Embedder
 	Reranker   corpus.Reranker
-	Insights   *insight.Store
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 
@@ -345,7 +343,6 @@ func (d *Deps) assembleStack(
 			Corpus:     d.Corpus,
 			Embedder:   d.Embedder,
 			Reranker:   d.Reranker,
-			Insights:   d.Insights,
 			ProxyStore: d.ProxyStore,
 			AgentStore: d.AgentStore,
 			Creds:      d.Creds,
@@ -370,28 +367,8 @@ func (d *Deps) assembleStack(
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
-	// planner。黑板摘要：assignment 内 insight 按写入序取顶并格式化——
-	// 规划者消费执行者经验（黑板单向是审计确认的断裂：executor 写、只有
-	// executor 读）。经 gatherContext 注入而非注册工具：决策变量显式喂给
-	// 决策者，不指望模型自己想起来查。
-	plannerDigest := func(ctx context.Context) []string {
-		if d.Insights == nil || d.Tasks == nil {
-			return nil
-		}
-		tk, err := d.Tasks.GetByID(ctx, taskID)
-		if err != nil {
-			return nil
-		}
-		entries, err := d.Insights.List(ctx, tk.AssignmentID, 20)
-		if err != nil {
-			return nil
-		}
-		lines := make([]string, 0, len(entries))
-		for _, e := range entries {
-			lines = append(lines, fmt.Sprintf("[%s/%s/%s] %s", e.Category, e.Priority, e.Confidence, e.Summary))
-		}
-		return lines
-	}
+	// planner。执行经验经 gatherContext 注入：gatherContext 拉全图观察
+	//（含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
 	engine := planner.NewEngine(d.Router, d.Logger).
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
@@ -404,7 +381,6 @@ func (d *Deps) assembleStack(
 			{Code: constants.AgentCodeEvaluator, Name: cfgs.evaluator.Name, Description: cfgs.evaluator.Description},
 			{Code: constants.AgentCodeMonitor, Name: cfgs.monitor.Name, Description: cfgs.monitor.Description},
 		}).
-		WithInsightsDigest(plannerDigest).
 		WithMessageWindow(d.Windows.Planner).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）

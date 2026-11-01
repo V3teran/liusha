@@ -125,17 +125,24 @@ func (e *Engine) buildReActConfigWithMonitoring(
       }
     },
     {
-      "category": "fact",
-      "statement": "事实陈述：已确认的世界状态（含出处指向哪个实测输出）",
+      "category": "entity",
+      "statement": "对象陈述：环境中存在什么对象、有什么属性",
       "reasoning": "依据是什么（来自哪个实测输出）",
       "confidence": "low/medium/high"
     }
   ]
 }
 ` + "```\n\n" + `说明：
-- 每条 observation 必须带 category，两类内容：
-  * hypothesis：待裁决的主张——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并可能成为正式发现
-  * fact：已确认的事实/关键执行结论（对后续动作有决策价值的世界状态）——不带 repro，直接进图供规划参考
+- 每条 observation 必须带 category，七个信息域（领域中立词汇，选最贴切的一个）：
+  * hypothesis：待裁决的判断——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并可能成为正式发现
+  * entity：环境中存在的单个对象及其属性（某主机/端点/服务/页面/文件/配置项存在，及其关键属性）
+  * access：触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
+  * structure：对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
+  * behavior：环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律）
+  * issue：已观察到的异常与障碍（报错、崩溃、配置缺陷、阻塞推进的坑）——已证实、可直接判定的坏事实
+  * note：以上都不合适的杂项（最后手段——先找具体域，写不出归属再用 note）
+- entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
+- issue 与 hypothesis 的分界：看一眼就能判定的坏事实记 issue；需要复现证明才能下结论的判断记 hypothesis（必须带 repro）
 - 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
 - 没有值得记录的内容时，observations 可以是空数组 []
 - hypothesis 必须包含完整的 repro 复现步骤；只推测未实测的东西不要标 hypothesis
@@ -423,7 +430,7 @@ func (e *Engine) ensureSummaryObservation(ctx context.Context, action exploratio
 		summary = "执行完结（无总结产出）"
 	}
 	obs := Observation{
-		Category:  CategoryFact,
+		Category:  CategoryNote,
 		Statement: "执行总结：" + summary,
 	}
 	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
@@ -470,33 +477,37 @@ func (e *Engine) harvestObservation(
 	obs Observation,
 	trace ExecutionTrace,
 ) (attempt *evaluator.Attempt, observed bool) {
-	// 类别边界归一化：模型输出是外部输入，漏写、越界或自相矛盾（主张无
-	// 配方）一律按形状推断归类——有配方即主张（可裁决），无配方即事实
-	//（落图供 planner 参考）。推断只发生在落图前一次；观察内容永远比分
-	// 类标签值钱，Unknown 值不构成丢弃观察本体的理由。
+	// 类别边界归一化：模型输出是外部输入，三种失真三种处置——
+	//   漏写（空值）：按形状推断，有配方即主张（配方是主张意图的最强证据），
+	//     无配方落 note；观察本体永远比分类标签值钱，不因漏标签丢弃。
+	//   越界（契约外字面值）：落 note 兜底并告警——显式乱写不可信，不做
+	//     猜测性归类。
+	//   自相矛盾（hypothesis 无配方）：降级 note——无从裁决的主张退为杂记。
+	if obs.Category == "" {
+		if len(obs.Repro) > 0 {
+			obs.Category = CategoryHypothesis
+		} else {
+			obs.Category = CategoryNote
+		}
+	}
 	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("hypothesis 缺少 repro，降级为 fact 落图（无配方的主张无从裁决）")
-		obs.Category = CategoryFact
+			Msg("hypothesis 缺少 repro，降级为 note 落图（无配方的主张无从裁决）")
+		obs.Category = CategoryNote
 	}
 	switch obs.Category {
-	case CategoryFact, CategoryIssue, CategoryHypothesis:
+	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
+		CategoryNote, CategoryIssue, CategoryHypothesis:
 		// 契约内类别，原样进入落图
 	default:
-		if obs.Category != "" {
-			e.logger.Warn().
-				Str("action_id", action.ID).
-				Str("raw_category", string(obs.Category)).
-				Str("statement", obs.Statement).
-				Msg("观察类别越界，按形状推断归类")
-		}
-		if len(obs.Repro) > 0 {
-			obs.Category = CategoryHypothesis
-		} else {
-			obs.Category = CategoryFact
-		}
+		e.logger.Warn().
+			Str("action_id", action.ID).
+			Str("raw_category", string(obs.Category)).
+			Str("statement", obs.Statement).
+			Msg("观察类别越界，落 note 兜底")
+		obs.Category = CategoryNote
 	}
 
 	// 附加 ExecutionTrace：裁决官看到的是完整执行轨迹，而不是 executor

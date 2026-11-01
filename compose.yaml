@@ -156,6 +156,9 @@ services:
     volumes:
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
+      # 沙盒工作区持久层：与 runner 拉起的沙盒容器挂同一宿主目录（容器化
+      # runner 场景 bind 源必须是宿主绝对路径，经 .env 的 HOST_WORKSPACE_DIR 注入）
+      - ${HOST_WORKSPACE_DIR:-/root/data/liusha/workspace}:/root/liusha/workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps

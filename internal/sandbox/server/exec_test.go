@@ -220,10 +220,11 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 	}
 }
 
-// TestHandleExec_PerTaskIsolation 验证 2 个 task 写到 OUTPUT_DIR 的文件互不可见。
+// TestHandleExec_PerTaskIsolation 验证 task 级隔离与 task 内共享。
 //
-// task-a 写 a.txt；task-b 写 b.txt；task-a 再扫描时只看到 a.txt。
-// 模拟多 agent 并发场景的核心隔离不变量。
+// 任务间：task-a 写 a.txt，task-b 不可见（目录即隔离边界）。
+// 任务内：不同 agent 共享同一 work/out——同任务多 agent 共容器共目标，
+// agent 级目录是假隔离（设计裁定）。
 func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	setupTestRoots(t)
 	srv := New()
@@ -254,34 +255,27 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 		return res
 	}
 
-	// task-a 写 a.txt
-	resA1 := post(t, "test-task", "task-a", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
+	// 任务间隔离：task-a 写 a.txt，task-b 看不到
+	resA1 := post(t, "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
 	if len(resA1.Files) != 1 || resA1.Files[0].Name != "a.txt" {
 		t.Fatalf("task-a 应只看到 a.txt，got %+v", resA1.Files)
 	}
-
-	// task-b 写 b.txt — 不可看到 task-a 的 a.txt
-	resB := post(t, "test-task", "task-b", `printf 'B\n' > "$OUTPUT_DIR/b.txt"`)
+	resB := post(t, "task-b", "agent-1", `printf 'B\n' > "$OUTPUT_DIR/b.txt" && ls "$OUTPUT_DIR"`)
 	if len(resB.Files) != 1 || resB.Files[0].Name != "b.txt" {
 		t.Fatalf("task-b 应只看到 b.txt（不应捞到 task-a 的 a.txt），got %+v", resB.Files)
 	}
-
-	// task-a 第 2 次 exec ls — 仍只看到自己 a.txt
-	resA2 := post(t, "test-task", "task-a", `ls "$OUTPUT_DIR"`)
-	if !bytes.Contains([]byte(resA2.Stdout), []byte("a.txt")) {
-		t.Errorf("task-a 看不到自己的 a.txt，stdout=%q", resA2.Stdout)
-	}
-	if bytes.Contains([]byte(resA2.Stdout), []byte("b.txt")) {
-		t.Errorf("task-a 捞到了 task-b 的 b.txt，隔离失败，stdout=%q", resA2.Stdout)
+	if bytes.Contains([]byte(resB.Stdout), []byte("a.txt")) {
+		t.Errorf("task-b OUTPUT_DIR 捞到了 task-a 的 a.txt，隔离失败，stdout=%q", resB.Stdout)
 	}
 
-	// cwd 隔离：task-a 写 ./relative.txt，task-b 看不到
-	resA3 := post(t, "test-task", "task-a", `printf 'A-cwd\n' > relative.txt && ls`)
-	if !bytes.Contains([]byte(resA3.Stdout), []byte("relative.txt")) {
-		t.Errorf("task-a cwd 写文件失败，stdout=%q", resA3.Stdout)
+	// 任务内共享：同 task 两个 agent 看到同一 work/out
+	resA2 := post(t, "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a2.txt" && printf 'shared\n' > shared-in-work.txt`)
+	resA3 := post(t, "task-a", "agent-2", `ls "$OUTPUT_DIR" && cat shared-in-work.txt`)
+	if !bytes.Contains([]byte(resA3.Stdout), []byte("a2.txt")) {
+		t.Errorf("同任务 agent-2 看不到 agent-1 的产物（应共享），stdout=%q", resA3.Stdout)
 	}
-	resB2 := post(t, "test-task", "task-b", `ls`)
-	if bytes.Contains([]byte(resB2.Stdout), []byte("relative.txt")) {
-		t.Errorf("task-b cwd 看到了 task-a 的 relative.txt，隔离失败，stdout=%q", resB2.Stdout)
+	if !bytes.Contains([]byte(resA3.Stdout), []byte("shared")) {
+		t.Errorf("同任务 agent-2 看不到 agent-1 的 work 文件（应共享），stdout=%q", resA3.Stdout)
 	}
+	_ = resA2
 }

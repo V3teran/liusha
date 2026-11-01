@@ -25,7 +25,6 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/insight"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
@@ -44,7 +43,6 @@ type Handler struct {
 	Corpus     *corpus.Store
 	Embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
 	Reranker   corpus.Reranker
-	Insights   *insight.Store
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Calls      *llminvocation.Store
