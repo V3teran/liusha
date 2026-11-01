@@ -116,7 +116,7 @@ const lengthCol = columnHelper.accessor('resp_len', {
   ),
 })
 
-// 列宽为相对权重（经 columnWidthPercents 换算成百分比随容器缩放）——对齐 llmAuditColumns 模式，
+// 列宽为设计像素宽度（经 columnPixelWidths 渲染，窄容器锁像素、宽容器按权重拉伸）——对齐 llmAuditColumns 模式，
 // 列头/骨架/数据行不再各自维护一份 grid 字符串。
 //
 // showHost：仅当列表出现多个 host 时才显示 host 列（单 host 时每行重复同值是噪声，

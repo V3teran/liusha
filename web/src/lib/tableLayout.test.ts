@@ -1,21 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { columnWidthPercents } from './tableLayout'
+import { columnPixelWidths, totalColumnWidth } from './tableLayout'
 
-describe('columnWidthPercents', () => {
-  it('按权重算出等比例百分比，总和为 100%', () => {
-    const pcts = columnWidthPercents([1, 1, 2])
-    expect(pcts).toEqual(['25.000%', '25.000%', '50.000%'])
+describe('columnPixelWidths', () => {
+  it('size 即设计像素宽度，逐列输出 px', () => {
+    expect(columnPixelWidths([150, 110, 420])).toEqual(['150px', '110px', '420px'])
   })
 
-  it('单列权重占满 100%', () => {
-    expect(columnWidthPercents([42])).toEqual(['100.000%'])
-  })
-
-  it('全部权重为 0（总和为 0）时退化为 auto，不产生 NaN%', () => {
-    expect(columnWidthPercents([0, 0])).toEqual(['auto', 'auto'])
+  it('0 宽度钳到 1px（table-fixed 下 0 宽列内容不可见）', () => {
+    expect(columnPixelWidths([0, 80])).toEqual(['1px', '80px'])
   })
 
   it('空数组返回空数组', () => {
-    expect(columnWidthPercents([])).toEqual([])
+    expect(columnPixelWidths([])).toEqual([])
+  })
+})
+
+describe('totalColumnWidth', () => {
+  it('总和 = 表格最小宽度（容器窄于此值出横向滚动）', () => {
+    expect(totalColumnWidth([150, 110, 420])).toBe(680)
+  })
+
+  it('0 宽度按钳值 1 计入总和', () => {
+    expect(totalColumnWidth([0, 80])).toBe(81)
+  })
+
+  it('空数组总和为 0（表格随容器铺满，无横向滚动）', () => {
+    expect(totalColumnWidth([])).toBe(0)
   })
 })

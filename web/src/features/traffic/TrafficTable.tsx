@@ -17,7 +17,6 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, o
     <DataTable
       rows={rows}
       columns={buildTrafficColumns(showHost) as never}
-      minWidth={1080}
       loading={loading}
       hasFilter={hasFilter}
       emptyText="代理捕获流量"

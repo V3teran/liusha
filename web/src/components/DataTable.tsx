@@ -1,14 +1,12 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type TableMeta } from '@tanstack/react-table'
 import { cn } from '@/lib/utils'
-import { columnWidthPercents } from '@/lib/tableLayout'
+import { columnPixelWidths, totalColumnWidth } from '@/lib/tableLayout'
 
 const SKELETON_ROWS = 8
 
 interface DataTableProps<T> {
   rows: T[]
   columns: ColumnDef<T, any>[]
-  /** 表格最小宽度（px）——窄屏时容器出横向滚动条，列不再被压缩变形 */
-  minWidth?: number
   /** 单元格水平内边距（px-3 / px-4，表头同步） */
   cellPadding?: 'px-3' | 'px-4'
   loading: boolean
@@ -36,12 +34,12 @@ interface DataTableProps<T> {
 }
 
 /**
- * react-table 通用外壳：table-fixed + colgroup 百分比列宽（columnDef.size 单点
- * 定义，随容器等比缩放）+ min-width 兜底（窄屏出横向滚动条而非挤压变形，全站
- * 统一约定）+ 骨架屏/空态/行点击与键盘可达/选中态描边。
+ * react-table 通用外壳：table-fixed + colgroup 设计像素列宽（columnDef.size 单点
+ * 定义——窄容器锁像素出真实横向滚动，宽容器按权重等比拉伸，见 tableLayout）+
+ * 骨架屏/空态/行点击与键盘可达/选中态描边。
  * 之前此骨架在 Task/Traffic/LlmAudit/Findings 四张表各复制一份（~80 行/份）。
  */
-export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader }: DataTableProps<T>) {
+export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader }: DataTableProps<T>) {
   const table = useReactTable({
     data: rows,
     columns,
@@ -50,7 +48,9 @@ export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px
     meta,
   })
   const leafColumns = table.getAllLeafColumns()
-  const widthPercents = columnWidthPercents(leafColumns.map((col) => col.columnDef.size ?? 0))
+  const sizes = leafColumns.map((col) => col.columnDef.size ?? 1)
+  const colWidths = columnPixelWidths(sizes)
+  const minWidth = totalColumnWidth(sizes)
   const colCount = leafColumns.length
   const cellCls = `overflow-hidden ${cellPadding} py-2`
 
@@ -59,7 +59,7 @@ export function DataTable<T>({ rows, columns, minWidth = 1000, cellPadding = 'px
       <table className="w-full border-collapse table-fixed" style={{ minWidth }}>
         <colgroup>
           {leafColumns.map((col, i) => (
-            <col key={col.id} style={{ width: widthPercents[i] }} />
+            <col key={col.id} style={{ width: colWidths[i] }} />
           ))}
         </colgroup>
         <thead className={cn(stickyHeader && 'sticky top-0 z-10 bg-surface')}>

@@ -18,7 +18,6 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeo
     <DataTable
       rows={rows}
       columns={buildLlmAuditColumns(showProvider, llmTimeoutMs) as never}
-      minWidth={970}
       stickyHeader
       loading={loading}
       hasFilter={hasFilter}
