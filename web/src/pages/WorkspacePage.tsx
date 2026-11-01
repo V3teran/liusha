@@ -1,93 +1,115 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FilePlus2, FolderOpen, RefreshCw, Trash2 , Search } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import {
+  Download,
+  FilePlus2,
+  FolderOpen,
+  FolderPlus,
+  RefreshCw,
+  Search,
+  Trash2,
+} from 'lucide-react'
 import {
   deleteWorkspacePath,
+  downloadWorkspacePath,
   getWorkspaceFile,
   getWorkspaceTree,
-  listWorkspaceTasks,
   mkdirWorkspace,
   putWorkspaceFile,
   type WorkspaceEntry,
 } from '@/api/workspaces'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 /**
  * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
- * 搜索任务（默认选中最新）→ 文件树 → 查看/编辑/保存、新建（文件/目录）、
- * 删除。二进制文件只读展示元信息；编辑保存以原始字节直传（二进制安全）。
+ * 直接展示整棵工作区文件结构（顶层即任务目录，最新在前），搜索框过滤路径；
+ * 行悬停露下载/删除，工具栏新建文件/目录，文件点开可编辑保存与下载。
+ * 二进制文件只读展示元信息；编辑保存以原始字节直传（二进制安全）。
  */
 export function WorkspacePage() {
   const qc = useQueryClient()
-  const tasksQuery = useQuery({ queryKey: ['workspace', 'tasks'], queryFn: listWorkspaceTasks })
-  const tasks = tasksQuery.data ?? []
-  const [activeTask, setActiveTask] = useState<string | null>(null)
-  // 默认选中最新任务（任务列表按活动时间倒序，首个即最新）；仅初始兜底一次
-  useEffect(() => {
-    if (!activeTask && tasks.length > 0) setActiveTask(tasks[0].name)
-  }, [tasks, activeTask])
   const [taskQuery, setTaskQuery] = useState('')
-  const matchedTasks = useMemo(() => {
-    const q = taskQuery.trim().toLowerCase()
-    return q ? tasks.filter((t) => t.name.toLowerCase().includes(q)) : tasks
-  }, [tasks, taskQuery])
-
   const treeQuery = useQuery({
-    queryKey: ['workspace', 'tree', activeTask],
-    queryFn: () => getWorkspaceTree(activeTask!),
-    enabled: !!activeTask,
+    queryKey: ['workspace', 'tree'],
+    queryFn: getWorkspaceTree,
     placeholderData: keepPreviousData,
   })
-  // 目录也进树：纯目录任务区（如刚初始化的 work/out/profile）不再误显「空」
-  const entries = treeQuery.data ?? []
-  const [selected, setSelected] = useState<string | null>(null)
+  const allEntries = treeQuery.data ?? []
+  // eslint-disable-next-line no-console
+  console.log('WS_RENDER:', JSON.stringify({ status: treeQuery.status, fetch: treeQuery.fetchStatus, n: allEntries.length, el: !!document.querySelector('ul') }))
 
+  // 搜索过滤树：命中节点 + 祖先链保留（树形上下文不因过滤断裂）
+  const entries = useMemo(() => {
+    const q = taskQuery.trim().toLowerCase()
+    if (!q) return allEntries
+    const hit = new Set<string>()
+    for (const e of allEntries) {
+      if (e.path.toLowerCase().includes(q)) {
+        hit.add(e.path)
+        const segs = e.path.split('/')
+        for (let i = 1; i < segs.length; i++) hit.add(segs.slice(0, i).join('/') + '/')
+      }
+    }
+    return allEntries.filter((e) => hit.has(e.path))
+  }, [allEntries, taskQuery])
+
+  const [selected, setSelected] = useState<string | null>(null)
   const fileQuery = useQuery({
-    queryKey: ['workspace', 'file', activeTask, selected],
-    queryFn: () => getWorkspaceFile(activeTask!, selected!),
-    enabled: !!activeTask && !!selected,
+    queryKey: ['workspace', 'file', selected],
+    queryFn: () => getWorkspaceFile(selected!),
+    enabled: !!selected,
   })
   const [draft, setDraft] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [notice, setNotice] = useState('')
 
-  const editing = draft !== null
   const dirty = fileQuery.data ? draft !== null && draft !== fileQuery.data.content : false
+  const editing = draft !== null
 
   function refresh() {
     void qc.invalidateQueries({ queryKey: ['workspace'] })
   }
 
   async function save() {
-    if (!activeTask || !selected || draft === null) return
-    await putWorkspaceFile(activeTask, selected, new TextEncoder().encode(draft))
+    // eslint-disable-next-line no-console
+    console.log('SAVE_DRAFT:', JSON.stringify({ selected, draft }))
+    if (!selected || draft === null) return
+    await putWorkspaceFile(selected, new TextEncoder().encode(draft))
     setDraft(null)
     setNotice(`已保存 ${selected}`)
     refresh()
   }
 
   async function createFile() {
-    if (!activeTask || !newName.trim()) return
-    await putWorkspaceFile(activeTask, newName.trim(), new Uint8Array())
+    if (!newName.trim()) return
+    await putWorkspaceFile(newName.trim(), new Uint8Array())
+    setNotice(`已创建 ${newName.trim()}`)
     setNewName('')
     setSelected(newName.trim())
-    setDraft('')
-    setNotice(`已创建 ${newName.trim()}`)
     refresh()
   }
 
   async function createDir() {
-    if (!activeTask || !newName.trim()) return
-    await mkdirWorkspace(activeTask, newName.trim())
-    setNewName('')
+    if (!newName.trim()) return
+    await mkdirWorkspace(newName.trim())
     setNotice(`已创建目录 ${newName.trim()}`)
+    setNewName('')
     refresh()
   }
 
+  async function download(path: string) {
+    try {
+      await downloadWorkspacePath(path)
+      setNotice(`已下载 ${path}`)
+    } catch (e) {
+      setNotice(`下载失败：${(e as Error).message}`)
+    }
+  }
+
   async function remove(path: string) {
-    if (!activeTask || !window.confirm(`删除 ${path}？（目录递归删除，不可恢复）`)) return
-    await deleteWorkspacePath(activeTask, path)
+    if (!window.confirm(`删除 ${path}？（目录递归删除，不可恢复）`)) return
+    await deleteWorkspacePath(path)
     if (selected === path) {
       setSelected(null)
       setDraft(null)
@@ -95,6 +117,8 @@ export function WorkspacePage() {
     setNotice(`已删除 ${path}`)
     refresh()
   }
+
+  const taskCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -114,9 +138,9 @@ export function WorkspacePage() {
           <input
             value={taskQuery}
             onChange={(e) => setTaskQuery(e.target.value)}
-            placeholder="搜索任务 ID…"
+            placeholder="搜索路径（任务目录 / 文件名）…"
             spellCheck={false}
-            aria-label="搜索任务"
+            aria-label="搜索工作区路径"
             className="h-9 w-72 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent"
           />
         </div>
@@ -126,94 +150,80 @@ export function WorkspacePage() {
         >
           <RefreshCw className="h-3.5 w-3.5" /> 刷新
         </button>
+        {allEntries.length > 0 && (
+          <span className="text-xs text-muted opacity-75">{taskCount} 个任务工作区</span>
+        )}
         {notice && <span className="text-xs text-muted">{notice}</span>}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-        {/* 文件树 */}
-        <div className="rounded-2xl border border-border bg-surface p-3">
-          {tasks.length > 0 && (
-            <div className="mb-3 border-b border-border pb-2">
-              <p className="mb-1 px-1 text-xs uppercase tracking-wide text-muted opacity-70">任务工作区</p>
-              <ul className="max-h-40 space-y-0.5 overflow-y-auto">
-                {matchedTasks.map((t) => (
-                  <li key={t.name}>
-                    <button
-                      onClick={() => {
-                        setActiveTask(t.name)
-                        setSelected(null)
-                        setDraft(null)
-                      }}
-                      className={cn(
-                        'w-full truncate rounded-lg px-2 py-1 text-left font-mono text-xs hover:bg-surface-2',
-                        activeTask === t.name ? 'bg-surface-2 text-text' : 'text-muted',
-                      )}
-                      title={t.name}
-                    >
-                      {t.name}
-                    </button>
-                  </li>
-                ))}
-                {matchedTasks.length === 0 && (
-                  <li className="px-2 py-1 text-xs text-muted">无匹配任务</li>
-                )}
-              </ul>
-            </div>
-          )}
-          {!activeTask ? (
-            <p className="p-4 text-sm text-muted">暂无任务工作区——下发扫描任务后，沙盒工件会按任务落在这里</p>
-          ) : (
-            <>
-              <FileTree
-                entries={entries}
-                selected={selected}
-                onSelect={(p) => {
-                  setSelected(p)
-                  setDraft(null)
-                }}
-              />
-              <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-                <input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="新路径，如 work/poc.py"
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs"
-                />
-                <button onClick={() => void createFile()} title="新建文件" className="text-muted hover:text-text">
-                  <FilePlus2 className="h-4 w-4" />
-                </button>
-                <button onClick={() => void createDir()} title="新建目录" className="text-muted hover:text-text">
-                  <FolderOpen className="h-4 w-4" />
-                </button>
-              </div>
-            </>
-          )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
+        {/* 文件树 + 新建工具栏 */}
+        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
+          <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="新路径，如 task/work/poc.py"
+              spellCheck={false}
+              aria-label="新建路径"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs"
+            />
+            <button onClick={() => void createFile()} title="新建文件" aria-label="新建文件" className="text-muted hover:text-text">
+              <FilePlus2 className="h-4 w-4" />
+            </button>
+            <button onClick={() => void createDir()} title="新建目录" aria-label="新建目录" className="text-muted hover:text-text">
+              <FolderPlus className="h-4 w-4" />
+            </button>
+            <button onClick={() => refresh()} title="刷新" aria-label="刷新" className="text-muted hover:text-text">
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+          <FileTree
+            entries={entries}
+            selected={selected}
+            onSelect={(p) => {
+              setSelected(p)
+              setDraft(null)
+            }}
+            onDownload={(p) => void download(p)}
+            onDelete={(p) => void remove(p)}
+          />
         </div>
 
         {/* 查看 / 编辑 */}
         <div className="rounded-2xl border border-border bg-surface p-3">
           {!selected ? (
-            <p className="p-4 text-sm text-muted">从左侧选择文件</p>
+            <p className="p-4 text-sm text-muted">从左侧选择文件（行悬停可下载 / 删除）</p>
           ) : fileQuery.isLoading ? (
             <p className="p-4 text-sm text-muted">加载中…</p>
           ) : fileQuery.data?.binary ? (
             <div className="space-y-2 p-2">
-              <div className="flex items-center gap-2">
-                <Badge size="sm" color="neutral">二进制</Badge>
-                <span className="text-sm text-text">{selected}</span>
-                <span className="text-xs text-muted">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge size="sm" color="neutral">二进制</Badge>
+                  <span className="text-sm text-text">{selected}</span>
+                  <span className="text-xs text-muted">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => void download(selected)}
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                  >
+                    <Download className="h-3.5 w-3.5" /> 下载
+                  </button>
+                  <button
+                    onClick={() => void remove(selected)}
+                    className="flex items-center gap-1 text-xs text-muted hover:text-text"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> 删除
+                  </button>
+                </div>
               </div>
               <textarea
                 readOnly
                 value={fileQuery.data.content.slice(0, 2000)}
                 className="h-72 w-full rounded-lg border border-border bg-surface-2 p-2 font-mono text-xs"
               />
-              <button
-                onClick={() => void remove(selected)}
-                className="flex items-center gap-1 text-xs text-muted hover:text-text"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> 删除
-              </button>
             </div>
           ) : (
             <div className="space-y-2">
@@ -221,6 +231,12 @@ export function WorkspacePage() {
                 <span className="truncate text-sm text-text">{selected}</span>
                 <div className="flex items-center gap-2">
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
+                  <button
+                    onClick={() => void download(selected)}
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                  >
+                    <Download className="h-3.5 w-3.5" /> 下载
+                  </button>
                   <button
                     onClick={() => void save()}
                     disabled={!editing}
@@ -256,47 +272,73 @@ export function WorkspacePage() {
   )
 }
 
-/** 扁平文件树：按服务端排序（目录前、路径字典序），深度即缩进。
- * 目录为弱化行（不可选中——文件操作面只针对文件），文件行可选中打开。 */
+/** 扁平文件树：服务端排序（顶层任务目录最新在前，组内目录前、路径序），
+ * 深度即缩进。目录为弱化行，文件行可选中；行悬停露下载/删除。 */
 function FileTree({
   entries,
   selected,
   onSelect,
+  onDownload,
+  onDelete,
 }: {
   entries: WorkspaceEntry[]
   selected: string | null
   onSelect: (path: string) => void
+  onDownload: (path: string) => void
+  onDelete: (path: string) => void
 }) {
   return (
-    <ul className="space-y-0.5 text-sm">
+    <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto text-sm">
       {entries.map((e) => {
         const depth = e.path.split('/').length - (e.is_dir ? 1 : 0)
+        const base = e.path.split('/').pop() || e.path
         return (
-          <li key={e.path}>
-            {e.is_dir ? (
-              <span
-                style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                className="flex items-center gap-1.5 rounded-lg py-1 text-left text-muted"
-              >
+          <li key={e.path} className="group/row">
+            <div
+              style={{ paddingLeft: `${depth * 14 + 8}px` }}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg py-1 text-left',
+                !e.is_dir && 'cursor-pointer hover:bg-surface-2',
+                !e.is_dir && selected === e.path && 'bg-surface-2 text-text',
+                e.is_dir && 'text-muted',
+              )}
+              onClick={() => !e.is_dir && onSelect(e.path)}
+            >
+              {e.is_dir ? (
                 <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
-                <span className="truncate font-mono text-xs">{e.path}</span>
+              ) : (
+                <span className="w-3.5 flex-shrink-0" />
+              )}
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{base}</span>
+              <span className="hidden flex-shrink-0 items-center gap-1 group-hover/row:flex">
+                <button
+                  aria-label={`下载 ${e.path}`}
+                  title={`下载${e.is_dir ? '（zip）' : ''}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation()
+                    onDownload(e.path)
+                  }}
+                  className="text-muted hover:text-text"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  aria-label={`删除 ${e.path}`}
+                  title="删除"
+                  onClick={(ev) => {
+                    ev.stopPropagation()
+                    onDelete(e.path)
+                  }}
+                  className="text-muted hover:text-text"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </span>
-            ) : (
-              <button
-                onClick={() => onSelect(e.path)}
-                style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                className={cn(
-                  'flex w-full items-center gap-1.5 rounded-lg py-1 text-left hover:bg-surface-2',
-                  selected === e.path && 'bg-surface-2 text-text',
-                )}
-              >
-                <span className="truncate font-mono text-xs">{e.path}</span>
-              </button>
-            )}
+            </div>
           </li>
         )
       })}
-      {entries.length === 0 && <li className="p-2 text-xs text-muted">空工作区</li>}
+      {entries.length === 0 && <li className="p-2 text-xs text-muted">无匹配路径</li>}
     </ul>
   )
 }
