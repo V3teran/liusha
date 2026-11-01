@@ -237,7 +237,7 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 // listConversationsHandler 处理 GET /conversations?limit=&offset=&_id=&source=：分页会话列表（UI 侧栏翻页）。
 // _id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
 // 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
-// source ∈ {manual,auto}：前端「主动下发 / 被动代理」双 tab（纯聊天归 manual 侧，见 store）。
+// source ∈ {self,proxy}：前端「自主下发 / 代理模式」双 tab（纯聊天归 self 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 // maxConversationListLimit 与 conversation.Store maxListLimit 一致（两层钳制数值契约）。
 const maxConversationListLimit = 500

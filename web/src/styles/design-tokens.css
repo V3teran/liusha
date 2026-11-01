@@ -44,8 +44,8 @@
   --sev-info: oklch(60% 0.15 240);
 
   /* 语义色：来源类型 */
-  --source-manual: oklch(65% 0.15 220);
-  --source-auto: oklch(65% 0.15 300);
+  --source-self: oklch(65% 0.15 220);
+  --source-proxy: oklch(65% 0.15 300);
 
   /* 语义色：状态 */
   --status-success: oklch(65% 0.17 162);
@@ -136,8 +136,8 @@
   --sev-low: oklch(72% 0.19 150);
   --sev-info: oklch(65% 0.15 240);
 
-  --source-manual: oklch(70% 0.14 220);
-  --source-auto: oklch(70% 0.14 300);
+  --source-self: oklch(70% 0.14 220);
+  --source-proxy: oklch(70% 0.14 300);
 
   --status-success: oklch(70% 0.16 162);
   --status-error: oklch(65% 0.22 25);

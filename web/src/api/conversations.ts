@@ -17,7 +17,7 @@ import type { Conversation, ConversationUsage, Message } from './types'
  *
  * @param limit 每页条数（后端默认 30）
  * @param offset 跳过条数（默认 0 = 首页）
- * @param source 可选，按下发来源过滤（manual 主动下发 / auto 被动代理；纯聊天归 manual）
+ * @param source 可选，按下发来源过滤（self 自主下发 / proxy 代理模式；纯聊天归 self）
  */
 export async function listConversations(
   limit = 30,

@@ -116,11 +116,11 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   <div className="flex items-start gap-3">
                     <span className="w-24 flex-shrink-0 text-text-secondary">来源</span>
                     <Badge
-                      color={finding.source === 'auto' ? 'var(--source-auto)' : 'var(--source-manual)'}
+                      color={finding.source === 'proxy' ? 'var(--source-proxy)' : 'var(--source-self)'}
                       size="sm"
                       dot={false}
                     >
-                      {finding.source === 'auto' ? '被动代理' : '主动下发'}
+                      {finding.source === 'proxy' ? '代理模式' : '自主下发'}
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">

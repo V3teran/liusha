@@ -19,7 +19,7 @@ function mkConv(over: Partial<Conversation>): Conversation {
     title: '我要扫描 example.com',
     task_id: '',
     
-    Source: 'manual',
+    Source: 'self',
     run_status: 'completed',
     finding_count: 0,
     created_at: new Date().toISOString(),
@@ -64,11 +64,11 @@ describe('ConversationList', () => {
   })
 
   it('source 过滤下沉到服务端：按 source 调用 listConversations', async () => {
-    mockPage([mkConv({ id: 'c1', title: '我要扫描 manual-x.com', Source: 'manual' })])
-    renderList({ source: 'manual' })
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 self-x.com', Source: 'self' })])
+    renderList({ source: 'self' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith(30, 0, 'manual')
-      expect(screen.getByText(/manual-x\.com/)).toBeTruthy()
+      expect(listConversations).toHaveBeenCalledWith(30, 0, 'self')
+      expect(screen.getByText(/self-x\.com/)).toBeTruthy()
     })
   })
 
@@ -119,11 +119,12 @@ describe('ConversationList', () => {
     expect(screen.getByText('会话列表')).toBeTruthy()
   })
 
-  it('空列表显示 emptyHint', async () => {
+  it('空列表渲染结构化空态（标题 + 描述）', async () => {
     mockPage([])
-    renderList({ emptyHint: '还没有会话哦' })
+    renderList({ emptyState: { mark: '⌖', title: '还没有会话哦', desc: '发起新扫描试试' } })
     await waitFor(() => {
       expect(screen.getByText('还没有会话哦')).toBeTruthy()
+      expect(screen.getByText('发起新扫描试试')).toBeTruthy()
     })
   })
 

@@ -46,7 +46,7 @@ export function ConvMenu({
         探索图
       </Link>
       <Link
-        to={`/findings?source=${conv.source || 'manual'}`}
+        to={`/findings?source=${conv.source || 'self'}`}
         className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
         onClick={onClose}
       >

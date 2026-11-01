@@ -66,7 +66,7 @@ export interface Conversation {
   task_id: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
   run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
   finding_count?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
-  source?: string // 派生的下发来源（manual 主动下发 / auto 被动代理；纯聊天归 manual）——双 tab 分流
+  source?: string // 派生的下发来源（self 自主下发 / proxy 代理模式；纯聊天归 self）——双 tab 分流
   created_at: string
   updated_at: string
 }
@@ -294,7 +294,7 @@ export interface FindingRow {
   // evaluation 是复现门裁决评估 jsonb（verdict/reasoning/replay 日志/assert 明细，
   // 含 verification_id 回指），前端通用 KV 渲染。
   evaluation?: Record<string, unknown>
-  source: string // manual 主动下发 / auto 被动代理（JOIN assignment 派生）
+  source: string // self 自主下发 / proxy 代理模式（JOIN assignment 派生）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
@@ -525,7 +525,7 @@ export interface ProxyFilterSettings {
 
 // TaskSummary 是任务列表/详情行：task 本体 + 派生列。
 //   - assignment_index/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
-//   - source：manual 主动 / auto 被动——定时克隆（scheduled=true）按业务口径归主动
+//   - source：self 自主 / proxy 代理模式——定时克隆（scheduled=true）按业务口径归自主
 //   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
 //   - step_count：探索图 action 节点数 = 认知循环已执行步数
 //   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）

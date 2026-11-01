@@ -90,7 +90,7 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 
 	scheduleID := sched.ID
 	asg, err := r.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceAuto,
+		Source:      assignment.SourceProxy,
 		Items:       items,
 		Title:       sched.Title,
 		Description: sched.Description,

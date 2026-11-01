@@ -18,8 +18,8 @@ type Source string
 
 // assignment 来源：manual（对话下发）/ auto（被动聚合）/ cron（定时模板）。
 const (
-	SourceManual Source = "manual"
-	SourceAuto   Source = "auto"
+	SourceSelf  Source = "self"  // 自主下发：用户下 brief 主动发起
+	SourceProxy Source = "proxy" // 代理模式：聚合器攒批的代理流量
 )
 
 // Status 是 assignment 的派生整体状态（不落存储，由子 task 聚合算出）。

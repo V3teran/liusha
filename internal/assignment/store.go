@@ -24,7 +24,7 @@ const colsSelect = "id, source, payload, title, description, schedule_id, create
 // 调用方随后据返回的 assignment.ID 展开子 task（task.assignment_id 强外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 	switch p.Source {
-	case SourceManual, SourceAuto:
+	case SourceSelf, SourceProxy:
 	default:
 		return Assignment{}, fmt.Errorf("create assignment: 非法 source %q", p.Source)
 	}

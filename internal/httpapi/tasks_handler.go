@@ -37,7 +37,7 @@ type DispatchedTask struct {
 
 // TaskDispatchAPI 是「新建任务」的下发窄接口（cmd/api scanAdapter 实现）。
 type TaskDispatchAPI interface {
-	// DispatchBatch 立即下发：1 assignment(manual, N items) → N task → N conversation。
+	// DispatchBatch 立即下发：1 assignment(self, N items) → N task → N conversation。
 	DispatchBatch(ctx context.Context, title, description string, briefs []string) (assignmentID string, items []DispatchedTask, err error)
 	// DispatchScheduled 建定时模板（不立即跑）；返回模板 id 与首次触发时间。
 	DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string) (scheduleID string, nextRunAt time.Time, err error)
@@ -51,7 +51,7 @@ const (
 
 // parseTaskFilter 从 query 解析筛选 + 分页。
 //
-//	source=<manual|auto> status=<active|completed|aborted> search=<brief/批次ID 子串>
+//	source=<self|proxy> status=<active|completed|aborted> search=<brief/批次ID 子串>
 //	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
 //
 // 坏参数退化成不筛（对齐 parseTrafficFilter），page 缺省 1、size clamp 到上限。

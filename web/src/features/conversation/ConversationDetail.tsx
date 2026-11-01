@@ -12,14 +12,14 @@ import { TimelineThread } from './TimelineThread'
 
 interface ConversationDetailProps {
   convId?: string
-  source: 'manual' | 'auto'
+  source: 'self' | 'proxy'
   onStarted: (convID: string) => void
   onRunningChanged: () => void
 }
 
-// 空状态文案按来源区分（manual 可发起、auto 等流量）。
-function emptyCopy(source: 'manual' | 'auto') {
-  return source === 'auto'
+// 空状态文案按来源区分（self 可发起、proxy 等流量）。
+function emptyCopy(source: 'self' | 'proxy') {
+  return source === 'proxy'
     ? {
         mark: '⇄',
         title: '选择一批流量查看分析',
@@ -33,7 +33,7 @@ function emptyCopy(source: 'manual' | 'auto') {
 }
 
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
-// 主动下发(manual) 与 被动代理(auto) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
+// 自主下发(self) 与 代理模式(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
@@ -273,8 +273,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         </div>
       )}
 
-      {/* 被动代理(auto) 无「发起新扫描」：仅当有选中会话时才露插话框；主动下发(manual) 允许空态发起。 */}
-      {(source === 'manual' || hasConv) && (
+      {/* 代理模式(proxy) 无「发起新扫描」：仅当有选中会话时才露插话框；自主下发(self) 允许空态发起。 */}
+      {(source === 'self' || hasConv) && (
         <Composer
           convId={convId}
           scanning={scanning}

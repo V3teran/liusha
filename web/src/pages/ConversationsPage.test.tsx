@@ -53,19 +53,19 @@ function renderPage(source: 'manual' | 'auto', initialPath = '/') {
 }
 
 describe('ConversationsPage', () => {
-  it('主动下发(manual) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('自主下发(self) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('manual', '/?conv=conv-from-query')
+    renderPage('self', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('被动代理(auto) 同样读取 ?conv=（深链双 tab 生效）', () => {
+  it('代理模式(proxy) 同样读取 ?conv=（深链双 tab 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('auto', '/?conv=conv-from-query')
+    renderPage('proxy', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
@@ -113,22 +113,22 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('主动下发(manual)：allowNew=true，无自定义 heading/emptyHint', () => {
+  it('自主下发(self)：allowNew=true，无自定义 heading，带结构化空态', () => {
     listProps.mockClear()
-    renderPage('manual')
+    renderPage('self')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
     expect(lastListCall.heading).toBeUndefined()
-    expect(lastListCall.emptyHint).toBeUndefined()
+    expect(lastListCall.emptyState.title).toBe('暂无自主下发的对话')
   })
 
-  it('被动代理(auto)：allowNew=false，heading=流量批次，emptyHint 有值', () => {
+  it('代理模式(proxy)：allowNew=false，heading=代理批次，空态引导挂代理', () => {
     listProps.mockClear()
-    renderPage('auto')
+    renderPage('proxy')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(false)
-    expect(lastListCall.heading).toBe('流量批次')
-    expect(lastListCall.emptyHint).toMatch(/流量/)
+    expect(lastListCall.heading).toBe('代理批次')
+    expect(lastListCall.emptyState.desc).toMatch(/8888/)
   })
 
   it('onNew：新建会话时清空 currentConv（新建态）', async () => {

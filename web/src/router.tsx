@@ -28,8 +28,8 @@ function withSuspense(el: React.ReactNode) {
 }
 
 // 路由表：根用 AppShell 外壳，子路由为各业务页。
-// 对话：按来源分两个 tab——主动下发（source=manual，用户下 brief → AI planner 自主派子代理作战）
-// 与被动代理（source=auto，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
+// 对话：按来源分两个 tab——自主下发（source=self，用户下 brief → AI planner 自主派子代理作战）
+// 与代理模式（source=proxy，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
 export const router = createBrowserRouter([
   {
@@ -44,8 +44,8 @@ export const router = createBrowserRouter([
         path: 'conversations',
         children: [
           { index: true, element: <Navigate to="/conversations/manual" replace /> },
-          { path: 'manual', element: withSuspense(<ConversationsPage source="manual" />) },
-          { path: 'auto', element: withSuspense(<ConversationsPage source="auto" />) },
+          { path: 'self', element: withSuspense(<ConversationsPage source="self" />) },
+          { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
         ],
       },
       { path: 'findings', element: withSuspense(<FindingsPage />) },
