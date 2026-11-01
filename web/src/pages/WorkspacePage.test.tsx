@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+// CodeMirror 真实例在 jsdom 无法键盘驱动——mock 为透传 textarea（value/onChange 契约同产品）
+vi.mock('@uiw/react-codemirror', () => ({
+  default: (props: { value?: string; onChange?: (v: string) => void; 'aria-label'?: string }) => (
+    <textarea
+      aria-label={props['aria-label'] ?? '文件内容编辑器'}
+      value={props.value ?? ''}
+      onChange={(e) => props.onChange?.(e.target.value)}
+    />
+  ),
+}))
 import { fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WorkspacePage } from './WorkspacePage'
@@ -98,14 +108,16 @@ describe('WorkspacePage', () => {
     await waitFor(() => expect(screen.queryByText('poc.py')).toBeNull())
   })
 
-  it('新建文件走根相对路径', async () => {
+  it('新建文件走根相对路径（点按钮展开输入，确认提交）', async () => {
     mockedTree.mockResolvedValue([])
     mockedPut.mockResolvedValue(undefined)
     const user = userEvent.setup()
     renderPage()
 
-    await user.type(await screen.findByLabelText('新建路径'), 'task-new/work/poc.py')
-    await user.click(screen.getByLabelText('新建文件'))
+    await user.click(await screen.findByLabelText('新建文件'))
+    const input = await screen.findByLabelText('新建路径')
+    await user.type(input, 'task-new/work/poc.py')
+    await user.click(screen.getByLabelText('确认新建'))
     await waitFor(() => {
       expect(mockedPut).toHaveBeenCalledWith('task-new/work/poc.py', expect.any(Uint8Array))
     })
