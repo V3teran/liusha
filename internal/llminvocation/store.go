@@ -404,7 +404,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(listSelect+`
 		WHERE %[5]s
-		ORDER BY li.id ASC
+		ORDER BY li.id DESC
 		LIMIT $%[6]d OFFSET $%[7]d`,
 		toolNameExpr, resultToolCallsExpr, resultContentExpr, textPreviewLimit,
 		strings.Join(conds, " AND "), len(args)-1, len(args))

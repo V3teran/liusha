@@ -115,14 +115,29 @@ const usernameCol = columnHelper.accessor('identity.username', {
   size: 110,
   cell: (ctx) => {
     const row = ctx.row.original
+    // 会话身份的存储名是 task:<uuid>:session——对人不友好，展示为友好标签
+    //（原文经悬停复制保留，删改通道不受影响）。
+    if (row.identity.kind === 'session') {
+      const short = row.identity.username.replace(/^task:/, '').replace(/:session$/, '').slice(0, 8)
+      return (
+        <div className="flex min-w-0 flex-col gap-px">
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-sm text-text"
+            title={row.identity.username}
+          >
+            会话快照 · {short}
+          </span>
+          {row.identity.task_status && (
+            <span className="text-xs text-muted opacity-75">
+              会话 · {TASK_STATUS_SHORT[row.identity.task_status] ?? row.identity.task_status}
+            </span>
+          )}
+        </div>
+      )
+    }
     return (
       <div className="flex min-w-0 flex-col gap-px">
         <CopyableMono value={row.identity.username} />
-        {row.identity.kind === 'session' && row.identity.task_status && (
-          <span className="text-xs text-muted opacity-75">
-            会话 · {TASK_STATUS_SHORT[row.identity.task_status] ?? row.identity.task_status}
-          </span>
-        )}
       </div>
     )
   },

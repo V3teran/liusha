@@ -56,7 +56,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	}
 	host := c.HostHint
 	if host == "" || host == "unknown" {
-		host = hostFromEvidence(c.Evidence)
+		host = deriveHost(c.Evidence, c.Repro, c.Target)
 	}
 
 	evaluation, err := json.Marshal(map[string]interface{}{
@@ -91,15 +91,51 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	return nil
 }
 
-// hostFromEvidence 从复现证据的 url 字段抽主机（抽不出回 unknown）。
-func hostFromEvidence(ev json.RawMessage) string {
-	var e struct {
+// deriveHost 从坐实材料的可用线索抽主机：证据 url → 复现配方首请求 url →
+// 目标指向。地址的形态不唯一（host:port 只是最常见的一种），抽不出时落空串
+// 而非占位符——空是诚实的「无此维度」，占位符是伪装的数据。
+func deriveHost(evidence, repro, target json.RawMessage) string {
+	var withURL struct {
 		URL string `json:"url"`
 	}
-	if json.Unmarshal(ev, &e) == nil && e.URL != "" {
-		if u, pErr := url.Parse(e.URL); pErr == nil && u.Host != "" {
-			return u.Host
+	if json.Unmarshal(evidence, &withURL) == nil {
+		if h := hostOf(withURL.URL); h != "" {
+			return h
 		}
 	}
-	return "unknown"
+	var recipe struct {
+		Recipe struct {
+			Request struct {
+				URL string `json:"url"`
+			} `json:"request"`
+		} `json:"recipe"`
+	}
+	if json.Unmarshal(repro, &recipe) == nil {
+		if h := hostOf(recipe.Recipe.Request.URL); h != "" {
+			return h
+		}
+	}
+	var t struct {
+		URL  string `json:"url"`
+		Host string `json:"host"`
+	}
+	if json.Unmarshal(target, &t) == nil {
+		if h := hostOf(t.URL); h != "" {
+			return h
+		}
+		if t.Host != "" && t.Host != "unknown" {
+			return t.Host
+		}
+	}
+	return ""
+}
+
+func hostOf(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return ""
 }
