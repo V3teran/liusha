@@ -131,7 +131,7 @@ func main() {
 
 	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
 	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :9090）。
-	//   - 存活检测改 TCP 探 8888（MITM listen 口），见 docker-compose / run-svc。
+	//   - 存活检测改 TCP 探 8888（MITM listen 口），见 compose.yaml / run-svc。
 	// proxy 现在 = 纯 MITM passive 入口（external listener + sanitizer）。
 
 	// External proxify + sanitizer（passive 入口；唯一 listener）

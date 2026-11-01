@@ -1,17 +1,34 @@
 # liusha 基座 compose：核心 6 服务全容器（生产形态直接用；本地开发见 scripts/dev/up.sh）。
 #
 # ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
-#  A 本地开发：docker compose up -d postgres redis（compose 文件在仓库根，根 .env 自动加载）
+#  A 本地开发：docker compose -f compose.yaml -f compose.dev.yaml up -d
 #    （仅 pg+redis 两容器）+ ./scripts/dev/run-svc.sh 业务进程 host 二进制；
 #    runner 经宿主 docker 拉起第三个容器（沙盒 sandbox，warm pool 自动管理）。
-#  B 生产全容器：make prod-up（= 迁移 + 本文件 + docker-compose.prod.yml 叠加 up）。
-#    核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
+#  B 生产全容器：make prod-up（= compose.yaml + compose.prod.yaml 叠加 --profile full 全起）。
+#    api/nginx/proxy/runner 挂 full profile（dev 不起）；postgres/redis 常驻无门控。
 #  C 单镜像：make single-build（deployments/single/，比赛/受限环境用）。
 #
 # nginx 前置：/ → 前端 SPA，/api/* → api:8090（前端源码在仓库根 web/，同仓 monorepo）。
 # proxy（cmd/proxy）：内嵌 proxify SDK 的 MITM + filter/dedup/aggregator + Asynq 生产者，监听 8888。
 # runner（cmd/runner）：Asynq 消费者 + ReAct 引擎，监听 9090（healthz + 流量 ingest）。
 # 业界最佳实践：proxy 与 worker 独立进程，故障隔离 + 独立扩缩。
+
+# ── 共享定义（x- 扩展字段 + YAML 锚点）：app 服务公共 env / 依赖 / profile 只写一次 ──
+x-app-env: &app-env
+  # 密钥一律显式注入（root .env / --env-file .env.prod），基座不兜底任何环境默认值
+  LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+  LIUSHA_REDIS_ADDR: redis:6379
+  LIUSHA_CONFIG: /app/config/config.yaml
+  GLM_API_KEY: "${GLM_API_KEY:?GLM_API_KEY 未设置}"
+
+x-app-deps: &app-deps
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+x-full-profile: &full-profile
+  - full
 
 services:
   postgres:
@@ -20,7 +37,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: liusha
-      POSTGRES_PASSWORD: liusha
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}"
       POSTGRES_DB: liusha
     ports:
       - "5432:5432"
@@ -54,36 +71,25 @@ services:
     container_name: liusha-api
     restart: unless-stopped
     environment:
-      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
-      LIUSHA_REDIS_ADDR: redis:6379
+      <<: *app-env
       LIUSHA_API_ADDR: 0.0.0.0:8090  # 与本地 dev（run-svc.sh）同端口；8080 易被 Burp 占用
-      LIUSHA_API_KEY: "${LIUSHA_API_KEY:-changeme-dev-key}"
-      # 测试期免认证：设置后 X-API-Key 与 SSE stream cookie 校验全部跳过（auth.go 直通）。
-      # 恢复认证 = 删除本行并重建 api 容器。
-      LIUSHA_AUTH_DISABLED: "true"
-      LIUSHA_ENV: development
-      LIUSHA_LOG_LEVEL: info
-      LIUSHA_CONFIG: /app/config/config.yaml
-      # LLM provider key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
-      # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）。dev 默认占位，prod 必须覆盖。
-      LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:-changeme-dev-stream-secret}"
+      LIUSHA_API_KEY: "${LIUSHA_API_KEY:?LIUSHA_API_KEY 未设置（root .env 或 --env-file .env.prod）}"
+      # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）
+      LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:?LIUSHA_STREAM_COOKIE_SECRET 未设置}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
-      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
+      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *app-deps
     ports:
       - "8090:8090"
+    profiles: *full-profile
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY:-changeme-dev-key}", "http://localhost:8090/healthz"]
+      test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY}", "http://localhost:8090/healthz"]
       interval: 10s
       timeout: 3s
       retries: 3
+      start_period: 30s  # 空库首启：种子导入期间放行，避免被过早判 unhealthy
 
   # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8090。
   # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。
@@ -96,11 +102,12 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    profiles: *full-profile
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -114,27 +121,18 @@ services:
     container_name: liusha-proxy
     restart: unless-stopped
     environment:
-      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
-      LIUSHA_REDIS_ADDR: redis:6379
-      LIUSHA_CONFIG: /app/config/config.yaml
-      LIUSHA_ENV: development
-      LIUSHA_LOG_LEVEL: info
+      <<: *app-env
       LIUSHA_PROXY_LISTEN_ADDR: 0.0.0.0:8888
       LIUSHA_PROXY_CERT_DIR: /app/certs
-      # LLM provider key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
     volumes:
       - liusha-proxy-certs:/app/certs
       - ./logs:/app/logs
     ports:
       - "8888:8888"
+    profiles: *full-profile
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *app-deps
     # proxy 纯 MITM，无 healthz HTTP——探 TCP 8888（mitm 口）是否在听。
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "8888"]
@@ -152,27 +150,18 @@ services:
     container_name: liusha-runner
     restart: unless-stopped
     environment:
-      LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
-      LIUSHA_REDIS_ADDR: redis:6379
-      LIUSHA_CONFIG: /app/config/config.yaml
-      LIUSHA_ENV: development
-      LIUSHA_LOG_LEVEL: info
-      # LLM provider api_key：使用 GLM
-      GLM_API_KEY: "${GLM_API_KEY:-placeholder-key}"
+      <<: *app-env
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
-      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:-changeme-dev-encryption-secret-must-be-32-chars}"
+      LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
     volumes:
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *app-deps
     ports:
       - "9090:9090"
+    profiles: *full-profile
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
       interval: 10s

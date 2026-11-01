@@ -1,0 +1,20 @@
+# 本地开发 overlay：与 compose.yaml 叠加，显式写入 dev 环境值。
+# 常规 dev（形态 A）由 scripts/dev/up.sh 使用本文件对（仅起 pg+redis）；
+# 想在容器里跑全家桶可再加 --profile full。
+# 用法：docker compose -f compose.yaml -f compose.dev.yaml up -d
+#       docker compose -f compose.yaml -f compose.dev.yaml --profile full up -d
+# 生产值在 compose.prod.yaml（make prod-up），两 overlay 不可混用。
+
+x-dev-env: &dev-env
+  LIUSHA_ENV: development
+  LIUSHA_LOG_LEVEL: info
+
+services:
+  api:
+    environment: *dev-env
+
+  proxy:
+    environment: *dev-env
+
+  runner:
+    environment: *dev-env

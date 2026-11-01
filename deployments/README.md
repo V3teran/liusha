@@ -25,9 +25,12 @@ make build-sandbox # 沙盒镜像（首次/工具变更后）
 要点：runner 是 host 进程，直接用本机 docker 拉沙盒（第三个容器）；
 改代码即重跑 run-svc.sh，无需重建镜像。
 
-环境文件：仓库根 `.env` 是唯一真值——docker compose（docker-compose.yml 在
-仓库根）插值自动加载，run-svc.sh / e2e.sh 亦 source 同一份；模板见
-`.env.example`（复制为 `.env` 填真实 key）。
+环境文件：仓库根 `.env` 是唯一真值——docker compose（compose.yaml 在仓库根）
+插值自动加载，run-svc.sh / e2e.sh 亦 source 同一份；模板见 `.env.example`
+（复制为 `.env` 填真实 key）。compose 分层：`compose.yaml` 是中性基座（服务
+拓扑，不含任何环境语义），`compose.dev.yaml` / `compose.prod.yaml` 是环境
+overlay——**看叠加了哪个 overlay 就知道跑的哪个环境**；密钥缺失即报错
+（基座不兜底任何默认值）。
 
 ## B 生产全容器
 
@@ -85,4 +88,4 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 | sandbox | deployments/tool-images/sandbox/ | 沙盒（base 由 CI 推 GHCR，final 本地构建） |
 
 直接拉取的上游镜像（非本仓构建）：`pgvector/pgvector:pg17`（postgres）、
-`redis:8`——由 docker-compose.yml 引用，不在本地构建清单内。
+`redis:8`——由 compose.yaml 引用，不在本地构建清单内。
