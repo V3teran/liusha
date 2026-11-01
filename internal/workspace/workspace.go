@@ -326,17 +326,15 @@ func (s *Store) resolve(rel string) (string, error) {
 	return full, nil
 }
 
-// isSafeSegment 限制单段路径为文件名安全字符（uuid 任务目录、常规文件名
-// 都满足；点开头的隐藏文件合法）。
+// isSafeSegment 对单段路径做黑名单校验：拒绝空段、相对引用（./..）与控制
+// 字符；其余 unicode 字符（中文笔记、带空格的名字等）全部合法——工作区是
+// 用户与 agent 的自由文件面，字符白名单会误伤真实文件名。
 func isSafeSegment(seg string) bool {
 	if seg == "" || seg == "." || seg == ".." {
 		return false
 	}
 	for _, r := range seg {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '-', r == '_', r == '.', r == ' ':
-		default:
+		if r < 0x20 || r == 0x7f {
 			return false
 		}
 	}

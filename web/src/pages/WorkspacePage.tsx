@@ -83,19 +83,27 @@ export function WorkspacePage() {
 
   async function createFile() {
     if (!newName.trim()) return
-    await putWorkspaceFile(newName.trim(), new Uint8Array())
-    setNotice(`已创建 ${newName.trim()}`)
-    setNewName('')
-    setSelected(newName.trim())
-    refresh()
+    try {
+      await putWorkspaceFile(newName.trim(), new Uint8Array())
+      setNotice(`已创建 ${newName.trim()}`)
+      setNewName('')
+      setSelected(newName.trim())
+      refresh()
+    } catch (e) {
+      setNotice(`创建失败：${(e as Error).message}`)
+    }
   }
 
   async function createDir() {
     if (!newName.trim()) return
-    await mkdirWorkspace(newName.trim())
-    setNotice(`已创建目录 ${newName.trim()}`)
-    setNewName('')
-    refresh()
+    try {
+      await mkdirWorkspace(newName.trim())
+      setNotice(`已创建目录 ${newName.trim()}`)
+      setNewName('')
+      refresh()
+    } catch (e) {
+      setNotice(`创建失败：${(e as Error).message}`)
+    }
   }
 
   async function download(path: string) {
@@ -109,13 +117,17 @@ export function WorkspacePage() {
 
   async function remove(path: string) {
     if (!window.confirm(`删除 ${path}？（目录递归删除，不可恢复）`)) return
-    await deleteWorkspacePath(path)
-    if (selected === path) {
-      setSelected(null)
-      setDraft(null)
+    try {
+      await deleteWorkspacePath(path)
+      if (selected === path) {
+        setSelected(null)
+        setDraft(null)
+      }
+      setNotice(`已删除 ${path}`)
+      refresh()
+    } catch (e) {
+      setNotice(`删除失败：${(e as Error).message}`)
     }
-    setNotice(`已删除 ${path}`)
-    refresh()
   }
 
   const taskCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
@@ -221,6 +233,7 @@ export function WorkspacePage() {
               </div>
               <textarea
                 readOnly
+                aria-label="文件内容预览"
                 value={fileQuery.data.content.slice(0, 2000)}
                 className="h-72 w-full rounded-lg border border-border bg-surface-2 p-2 font-mono text-xs"
               />
@@ -259,6 +272,7 @@ export function WorkspacePage() {
                 <p className="text-xs text-muted">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
               )}
               <textarea
+                aria-label="文件内容编辑器"
                 value={draft ?? fileQuery.data?.content ?? ''}
                 onChange={(e) => setDraft(e.target.value)}
                 spellCheck={false}
@@ -310,7 +324,7 @@ function FileTree({
                 <span className="w-3.5 flex-shrink-0" />
               )}
               <span className="min-w-0 flex-1 truncate font-mono text-xs">{base}</span>
-              <span className="hidden flex-shrink-0 items-center gap-1 group-hover/row:flex">
+              <span className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
                 <button
                   aria-label={`下载 ${e.path}`}
                   title={`下载${e.is_dir ? '（zip）' : ''}`}

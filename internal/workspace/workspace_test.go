@@ -109,6 +109,21 @@ func TestOpenFileRejectsDir(t *testing.T) {
 	f.Close()
 }
 
+func TestUnicodeFileNamesAllowed(t *testing.T) {
+	s := newTestStore(t)
+	// 中文笔记名是真实需求（agent/用户都可能建），黑名单校验下必须合法
+	if err := s.Write("任务-1/work/渗透笔记.md", []byte("# 笔记")); err != nil {
+		t.Fatalf("中文文件名写入失败: %v", err)
+	}
+	fc, err := s.Read("任务-1/work/渗透笔记.md")
+	if err != nil || fc.Binary || fc.Content != "# 笔记" {
+		t.Fatalf("read: %+v err=%v", fc, err)
+	}
+	if err := s.Mkdir("任务-1/报告/最终版"); err != nil {
+		t.Fatalf("中文目录创建失败: %v", err)
+	}
+}
+
 func TestPathTraversalRejected(t *testing.T) {
 	s := newTestStore(t)
 	_ = s.Write("task-1/safe.txt", []byte("x"))
