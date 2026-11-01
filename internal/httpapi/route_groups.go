@@ -22,6 +22,11 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
+	r.GET("/workspaces", listWorkspacesHandler(d.Workspaces))
+	r.GET("/workspaces/:task/tree", getWorkspaceTreeHandler(d.Workspaces))
+	r.GET("/workspaces/:task/content", getWorkspaceFileHandler(d.Workspaces))
+	r.PUT("/workspaces/:task/content", putWorkspaceFileHandler(d.Workspaces))
+	r.DELETE("/workspaces/:task", deleteWorkspacePathHandler(d.Workspaces))
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
 	r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
