@@ -100,6 +100,21 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	}
 	fmt.Fprintf(&sb, "\n[exit_code: %d]", res.ExitCode)
 
+	// $OUTPUT_DIR 新增产物随结果附清单——文件本体留在 out/（宿主持久层，
+	// 操作员工作空间页可见可下载），清单进 LLM 上下文使其知道「我产出过
+	// 什么文件」，后续可 cat 复核或写进观测。此前收集结果被整个丢弃，
+	// agent 无从知晓产物通道的存在。
+	if len(res.Files) > 0 {
+		fmt.Fprintf(&sb, "\n[out/ 产物 %d 个:", len(res.Files))
+		for i, f := range res.Files {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			fmt.Fprintf(&sb, " %s(%dKB)", f.Name, len(f.B64)*3/4/1024)
+		}
+		sb.WriteString(" —— 已存档，操作员可在工作空间页查看]")
+	}
+
 	output := sb.String()
 	return registry.ToolResult{
 		Output: output,
