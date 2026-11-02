@@ -1,0 +1,79 @@
+/* 探索图画布：React Flow 默认样式 → 设计 token 桥接（亮暗主题自适应）。
+   画布底色由容器 bg-background 提供。 */
+
+/* 网格点跟随主题边框色（CSS 规则优先于 fill 属性，可安全使用 CSS 变量） */
+.react-flow__background circle {
+  fill: var(--border-strong);
+}
+
+/* 控制条（缩放/适应）：默认深底白字，改为表面色 */
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--surface-2);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+/* 小地图：走官方 CSS 变量主题化（maskColor prop 是主题固定的，两主题必须用变量分档）。
+   纱罩语义 = 视口外区域压暗/提亮：亮色主题白纱、暗色主题黑纱；节点描边用面板底色
+   制造密集节点间的分隔。 */
+.react-flow {
+  --xy-minimap-background-color: var(--surface-2);
+  --xy-minimap-mask-background-color: oklch(100% 0 0 / 0.55);
+  --xy-minimap-node-stroke-color: var(--surface-2);
+  --xy-minimap-node-stroke-width: 1;
+}
+
+.dark .react-flow {
+  --xy-minimap-mask-background-color: oklch(10% 0.005 285 / 0.55);
+}
+
+.react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* 聚焦高亮（applyFocus 写入的包装类） */
+.react-flow__node.exp-dimmed {
+  opacity: 0.22;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.react-flow__node.exp-selected .exp-card {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent-strong);
+}
+
+.react-flow__edge path {
+  transition: stroke var(--duration-fast) var(--ease-out);
+}
+
+/* 图例"执行中"样本：与画布上执行中动作的出边同款流动虚线 */
+.exp-legend-flow {
+  animation: exp-legend-dash 1s linear infinite;
+}
+
+@keyframes exp-legend-dash {
+  to {
+    stroke-dashoffset: -7;
+  }
+}

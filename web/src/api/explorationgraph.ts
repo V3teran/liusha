@@ -4,17 +4,29 @@
 
 import { get } from './client'
 
+export type NodeKind = 'objective' | 'action' | 'observation' | 'result'
+
 export interface GraphNode {
   id: string
   task_id: string
-  kind: 'objective' | 'action' | 'observation' | 'result'
+  kind: NodeKind
+  /** 按 kind 多态的业务载荷（后端 json.RawMessage） */
   content: unknown
+  /** objective/action 专属：状态机 */
   state?: string
+  /** observation/result 专属：置信度（unverified/verified/refuted/factual） */
   confidence?: string
+  /** action 专属：复杂度 */
   complexity?: string
   priority?: string
   source_type: string
   source_id: string
+  /** action 专属：依赖的其他 action 节点 ID（调度 DAG 不走边） */
+  depends_on?: string[]
+  /** action 专属：阻塞原因 */
+  blocked_reason?: string
+  /** 派生字段（verification_outcome/refute_reason 等），展开在详情面板 */
+  metadata?: unknown
   created_at: string
   updated_at: string
 }
@@ -22,7 +34,8 @@ export interface GraphNode {
 export interface GraphEdge {
   src_id: string
   dst_id: string
-  rel: 'generates' | 'triggers'
+  /** generates 推导链 / triggers 发现滋生；后端约束小写，容忍历史大写数据 */
+  rel: string
   created_at: string
 }
 
