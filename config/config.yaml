@@ -197,6 +197,11 @@ runner:
 # 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
 sandbox:
   default_image: ghcr.io/v3teran/liusha-sandbox:latest    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-sandbox` 同名 tag，docker run 直接命中本地不拉远端。
+  # 键必须存在（值可空）：viper AutomaticEnv 只对 yaml 里已有的键生效——
+  # 没有这行，容器编排注入的 LIUSHA_SANDBOX_WORKSPACE_DIR 到不了
+  # Sandbox.WorkspaceHostDir，容器内回落 $HOME=/root 指向宿主不存在的路径
+  # （runner 沙盒 bind 失败、api 工作区根目录错位）。空 = ~/data/liusha/workspace。
+  workspace_dir: ""
   # （原 run_tail_bytes 已删：收归 DB system_setting runtime 组，前端「系统配置」页可热改。）
   # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280

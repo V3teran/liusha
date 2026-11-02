@@ -371,6 +371,10 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
 	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
 	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
+	// 沙盒工作区 bind 源必须显式接配置：launcher 空值回落 os.UserHomeDir()，
+	// 容器化 runner 的 HOME=/root 会指到宿主不存在的路径（dev 形态 runner 在
+	// host 上回落值碰巧正确，掩盖了这处漏接）。
+	launcher.WorkspaceHostDir = cfg.Sandbox.WorkspaceHostDir
 
 	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
 	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :9090）。

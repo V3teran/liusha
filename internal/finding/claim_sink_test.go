@@ -3,6 +3,7 @@ package finding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -63,5 +64,42 @@ func TestClaimSink_NoObserver(t *testing.T) {
 	}
 	if len(store.saved) != 1 {
 		t.Fatalf("无观察者不应影响落库, got %d", len(store.saved))
+	}
+}
+
+
+// 主机线索全部落空时回退任务锚定的目标主机（task.target_host）——缺这层
+// 兜底，整条交付会被存储层以「finding.Host 必填」拒绝（线上曾整批丢弃）。
+func TestClaimSink_TaskHostFallback(t *testing.T) {
+	store := &fakeFindingStore{}
+	sink := NewClaimSink(store, "run-1").WithTaskHostFallback(
+		func(_ context.Context, taskID string) (string, error) {
+			if taskID != "task-1" {
+				t.Fatalf("taskID = %q, want task-1", taskID)
+			}
+			return "111.229.193.40:34280", nil
+		},
+	)
+	claim := evaluator.ConfirmedClaim{TaskID: "task-1", ResultNodeID: "n-1", Statement: "坐实"}
+	if err := sink.Record(context.Background(), claim); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if len(store.saved) != 1 || store.saved[0].Host != "111.229.193.40:34280" {
+		t.Fatalf("Host 未走兜底: %+v", store.saved)
+	}
+}
+
+// 兜底解析失败按无主机继续——交付交由存储校验拒绝（可观测），不报错不 panic。
+func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
+	store := &fakeFindingStore{}
+	sink := NewClaimSink(store, "run-1").WithTaskHostFallback(
+		func(_ context.Context, _ string) (string, error) { return "", errors.New("db down") },
+	)
+	claim := evaluator.ConfirmedClaim{TaskID: "task-1", ResultNodeID: "n-1"}
+	if err := sink.Record(context.Background(), claim); err != nil {
+		t.Fatalf("Record 不应因兜底失败报错: %v", err)
+	}
+	if len(store.saved) != 1 || store.saved[0].Host != "" {
+		t.Fatalf("Host 应保持空: %+v", store.saved)
 	}
 }

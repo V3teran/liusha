@@ -23,6 +23,9 @@ type findingStore interface {
 type ClaimSink struct {
 	store      findingStore
 	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键)
+	// taskHost 是主机线索全部落空时的最终兜底（任务锚定的目标主机——task 行
+	// 的 target_host）。nil = 无兜底，主机缺失的交付按原样被存储校验拒绝。
+	taskHost func(ctx context.Context, taskID string) (string, error)
 	// onSaved 是落库成功后的观察者（会话时间线的漏洞卡事件源）；
 	// nil=无观察者。观察者失败不影响交付本体。
 	onSaved func(ctx context.Context, f Finding)
@@ -31,6 +34,14 @@ type ClaimSink struct {
 // NewClaimSink 构造交付管道。
 func NewClaimSink(store findingStore, agentRunID string) *ClaimSink {
 	return &ClaimSink{store: store, agentRunID: agentRunID}
+}
+
+// WithTaskHostFallback 注入任务级主机兜底（链式）。坐实材料抽不出主机时查
+// 任务锚定的目标主机——它是任务的权威指向；缺这层兜底，复现配方文本化后
+// URL 抽取全部落空的交付会被存储校验以「finding.Host 必填」整批拒绝。
+func (s *ClaimSink) WithTaskHostFallback(fn func(ctx context.Context, taskID string) (string, error)) *ClaimSink {
+	s.taskHost = fn
+	return s
 }
 
 // WithObserver 注入落库成功后的观察者（链式）。
@@ -57,6 +68,12 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	host := c.HostHint
 	if host == "" || host == "unknown" {
 		host = deriveHost(c.Evidence, c.Repro, c.Target)
+	}
+	if host == "" && s.taskHost != nil {
+		// 兜底失败按无主机继续——存储校验的拒绝日志即观测点
+		if h, err := s.taskHost(ctx, c.TaskID); err == nil && h != "" && h != "unknown" {
+			host = h
+		}
 	}
 
 	evaluation, err := json.Marshal(map[string]interface{}{
