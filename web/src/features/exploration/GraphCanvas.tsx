@@ -124,6 +124,8 @@ function GraphCanvasInner({
             </svg>
             依赖
           </span>
+          {/* 关系线型（左）与活动状态（右）是两类语义，分组线隔开 */}
+          <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
           <span className="flex items-center gap-1.5">
             <svg width="18" height="4" aria-hidden>
               <line

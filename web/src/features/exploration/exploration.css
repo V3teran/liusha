@@ -77,3 +77,16 @@
     stroke-dashoffset: -7;
   }
 }
+
+/* 尊重系统「减弱动态效果」：蚂蚁线与图例流动静止（running 语义仍由
+   卡片状态点文字承载，信息不损失）。选择器加 .react-flow 前缀压过
+   React Flow 自带样式的同权重规则。 */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow .react-flow__edge.animated path {
+    animation: none;
+  }
+
+  .exp-legend-flow {
+    animation: none;
+  }
+}

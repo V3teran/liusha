@@ -43,7 +43,7 @@ export interface StateMeta {
 
 export const STATE_META: Record<string, StateMeta> = {
   open: { label: '待处理', dotClass: 'bg-status-neutral' },
-  running: { label: '执行中', dotClass: 'bg-status-info animate-pulse' },
+  running: { label: '执行中', dotClass: 'bg-status-info motion-safe:animate-pulse' },
   completed: { label: '已完成', dotClass: 'bg-status-success' },
   exhausted: { label: '预算耗尽', dotClass: 'bg-status-warning' },
   failed: { label: '失败', dotClass: 'bg-status-error' },
