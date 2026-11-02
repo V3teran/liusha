@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RotateCw, Search } from 'lucide-react'
@@ -265,11 +266,7 @@ export function LogsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-text">日志</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">进程日志</p>
-        </div>
+      <PageHeader title="日志" subtitle="进程日志">
         <button
           type="button"
           onClick={() => setLive((v) => !v)}
@@ -284,10 +281,10 @@ export function LogsPage() {
           <span className={cn('h-1.5 w-1.5 rounded-full bg-current', live && 'animate-pulse')} />
           {live ? '实时跟随中' : '已暂停'}
         </button>
-      </header>
+      </PageHeader>
 
       {/* 筛选栏（全站统一顺序）：进程 → 实例 → 级别 → 搜索（防抖）→（右）计数 */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 py-3">
+      <div className="flex flex-wrap items-center gap-3 bg-surface/30 px-6 py-3">
         <select
           value={filters.process}
           onChange={(e) => setFilters({ ...filters, process: e.target.value, instance: '' })}

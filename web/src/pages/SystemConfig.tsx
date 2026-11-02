@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import {
   getCompactionSettings,
   saveCompactionSettings,
@@ -60,13 +61,7 @@ export function SystemConfig() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">系统配置</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">
-            系统常规配置，热加载
-          </p>
-        </div>
+      <PageHeader title="系统配置" subtitle="系统常规配置，热加载">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
           <input
@@ -79,7 +74,7 @@ export function SystemConfig() {
             className="w-48 rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
           />
         </div>
-      </header>
+      </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">

@@ -36,7 +36,7 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
   )
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface/50 px-6 py-3">
+    <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
       <select
         value={filters.role}
         onChange={(e) => onChange({ ...filters, role: e.target.value })}

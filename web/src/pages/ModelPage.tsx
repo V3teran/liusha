@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { ProvidersView } from '@/features/model/ProvidersView'
 import { AssignmentView } from '@/features/model/AssignmentView'
 
@@ -9,10 +10,7 @@ import { AssignmentView } from '@/features/model/AssignmentView'
 export function ModelPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex-shrink-0 border-b border-border bg-surface px-6 py-4">
-        <h1 className="text-base font-semibold text-text">LLM 配置</h1>
-        <p className="mt-0.5 text-sm text-text-secondary">配置模型提供商和能力路由</p>
-      </header>
+      <PageHeader title="LLM 配置" subtitle="配置模型提供商和能力路由" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-6">
