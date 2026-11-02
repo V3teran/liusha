@@ -1,6 +1,7 @@
+import { SearchInput } from '@/components/SearchInput'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
-import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react'
+import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
 import { deleteConversation, listConversations, renameConversation } from '@/api/conversations'
 import type { Conversation } from '@/api/types'
 import { ConvMenu } from './ConvMenu'
@@ -293,18 +294,13 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         <div className="flex-shrink-0 border-b border-border pb-2.5">
           {/* 图标/输入框独立成 relative 内层：外层的分隔线 padding 不参与图标垂直居中
               （此前 top-1/2 相对带 pb 的外层算，图标整体偏低 ~5px）。 */}
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索本页对话…"
-              aria-label="搜索对话"
-              spellCheck={false}
-              className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-muted focus:border-accent"
-            />
-          </div>
+          <SearchInput
+            className="w-full"
+            value={query}
+            onChange={setQuery}
+            placeholder="搜索本页对话…"
+            ariaLabel="搜索对话"
+          />
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-muted">

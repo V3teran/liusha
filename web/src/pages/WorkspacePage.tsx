@@ -1,3 +1,5 @@
+import { SearchInput } from '@/components/SearchInput'
+import { PageHeader } from '@/components/PageHeader'
 import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
@@ -13,10 +15,8 @@ import {
   ChevronsDownUp,
   Download,
   FilePlus2,
-  FolderOpen,
   FolderPlus,
   RefreshCw,
-  Search,
   Trash2,
   X,
 } from 'lucide-react'
@@ -192,38 +192,27 @@ export function WorkspacePage() {
   const taskCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-8">
-      <header className="mb-6 flex items-center gap-3">
-        <FolderOpen className="h-6 w-6 text-muted" />
-        <div>
-          <h1 className="text-lg font-semibold">工作空间</h1>
-          <p className="text-sm text-muted">
-            沙盒任务工件的宿主持久层
-          </p>
-        </div>
-      </header>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <PageHeader title="工作空间" subtitle="沙盒任务工件的宿主持久层" />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-          <input
-            value={taskQuery}
-            onChange={(e) => setTaskQuery(e.target.value)}
-            placeholder="搜索路径（任务目录 / 文件名）…"
-            spellCheck={false}
-            aria-label="搜索工作区路径"
-            className="h-9 w-72 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent"
-          />
-        </div>
+      <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
+        <SearchInput
+          className="w-72"
+          value={taskQuery}
+          onChange={setTaskQuery}
+          placeholder="搜索路径（任务目录 / 文件名）…"
+          ariaLabel="搜索工作区路径"
+        />
         {allEntries.length > 0 && (
           <span className="text-xs text-muted opacity-75">{taskCount} 个任务工作区</span>
         )}
         {notice && <span className="text-xs text-muted">{notice}</span>}
       </div>
 
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* 文件树 + 新建工具栏 */}
-        <div className="flex max-h-[70dvh] min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
+        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
           <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
             <button
               onClick={() => { setCreating('file'); setNewName('') }}
@@ -414,6 +403,7 @@ export function WorkspacePage() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

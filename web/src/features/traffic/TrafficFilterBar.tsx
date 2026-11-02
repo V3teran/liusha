@@ -1,5 +1,5 @@
+import { SearchInput } from '@/components/SearchInput'
 import { type ReactNode, useEffect, useState } from 'react'
-import { Search } from 'lucide-react'
 import type { TrafficFilters } from '@/api/types'
 import { cn } from '@/lib/utils'
 
@@ -74,7 +74,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
   )
 
   return (
-    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
+    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 bg-surface/30 px-6 pb-3">
       <select
         value={filters.contentType}
         onChange={(e) => onChange({ ...filters, contentType: e.target.value })}
@@ -117,17 +117,13 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
         ))}
       </select>
 
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-        <input
-          type="text"
-          value={localSearch}
-          onChange={(e) => setLocalSearch(e.target.value)}
-          placeholder="搜索主机、URL（* 通配）"
-          className={cn(inputClass, 'w-80 pl-10')}
-          aria-label="搜索主机或 URL（支持 * 通配）"
-        />
-      </div>
+      <SearchInput
+        className="w-72"
+        value={localSearch}
+        onChange={setLocalSearch}
+        placeholder="搜索主机、URL（* 通配）"
+        ariaLabel="搜索主机或 URL（支持 * 通配）"
+      />
 
       <div className="flex items-center gap-2">
         <input

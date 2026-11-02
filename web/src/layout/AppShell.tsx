@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import type { ComponentType } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
+  ChevronLeft,
+  ChevronRight,
   Activity,
   FolderOpen,
   BookOpen,
@@ -53,24 +56,48 @@ const NAV_ITEMS: NavItem[] = [
 export function AppShell() {
   const { theme, toggle } = useTheme()
   const location = useLocation()
+  // 侧栏收缩态持久化（图标栏 ↔ 完整）；默认展开。
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('liusha-sidebar-collapsed') === '1')
+  const toggleCollapsed = () =>
+    setCollapsed((v) => {
+      localStorage.setItem('liusha-sidebar-collapsed', v ? '0' : '1')
+      return !v
+    })
 
   return (
     <div className="flex h-screen bg-background text-text">
-      {/* 侧边栏 */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface shadow-sm">
-        {/* Logo 区域 */}
-        <div className="flex h-16 items-center gap-3 border-b border-border px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
-            <img src="/logo.svg" alt="" className="h-6 w-6" />
+      {/* 侧边栏：完整 256px ↔ 图标栏 80px（收起后悬停原生 tooltip 显示页面名） */}
+      <aside
+        className={cn(
+          'flex shrink-0 flex-col overflow-hidden border-r border-border bg-surface shadow-sm transition-[width] duration-200',
+          collapsed ? 'w-20' : 'w-64',
+        )}
+      >
+        {/* Logo 行：收起开关内嵌在行内（业界标准位置），不做悬浮异物——
+            展开 = 圆标 + 品牌文案 + 收起钮；收起 = 圆标 + 展开钮并排居中 */}
+        <div className="flex h-16 flex-shrink-0 items-center border-b border-border px-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
+            <img src="/logo.svg" alt="liusha" className="h-6 w-6" />
           </div>
-          <div className="flex flex-col">
-            <span className="brand-mark font-mono text-base font-bold tracking-tight">liusha</span>
-            <span className="text-xs text-text-tertiary">智能化渗透测试平台</span>
-          </div>
+          {!collapsed && (
+            <div className="ml-3 min-w-0 flex-1">
+              <span className="brand-mark block font-mono text-base font-bold leading-tight tracking-tight">liusha</span>
+              <span className="block truncate text-xs leading-tight text-text-tertiary">智能化渗透测试平台</span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            title={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            className="ml-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
         </div>
 
         {/* 导航列表 */}
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden px-3 py-4">
           {NAV_ITEMS.map((item) => {
             const active = location.pathname.startsWith(item.match ?? item.to)
             const Icon = item.icon
@@ -78,9 +105,12 @@ export function AppShell() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                title={collapsed ? item.label : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 className={cn(
-                  'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium',
+                  'group flex items-center rounded-lg text-sm font-medium',
                   'transition-all duration-200',
+                  collapsed ? 'h-9 justify-center' : 'gap-3 px-3 py-2.5',
                   active
                     ? 'bg-accent-soft text-accent shadow-[var(--glow-accent)]'
                     : 'text-text-secondary hover:bg-surface-2 hover:text-text'
@@ -92,14 +122,14 @@ export function AppShell() {
                     active ? 'scale-110' : 'group-hover:scale-105'
                   )}
                 />
-                <span>{item.label}</span>
+                {!collapsed && <span>{item.label}</span>}
               </NavLink>
             )
           })}
         </nav>
 
         {/* 底部控制栏：主题切换 */}
-        <div className="flex items-center justify-end border-t border-border px-4 py-3.5">
+        <div className={cn('flex flex-shrink-0 items-center border-t border-border px-3 py-3.5', collapsed ? 'justify-center' : 'justify-end')}>
           <button
             type="button"
             onClick={toggle}

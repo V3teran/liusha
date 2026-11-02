@@ -1,3 +1,4 @@
+import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
 import {
   getCompactionSettings,
@@ -17,7 +18,6 @@ import { SettingsSection } from '@/features/settings/SettingsSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSettingSection } from '@/features/settings/useSettingSection'
 import { linesToList, listToLines, codesToText, textToCodes } from '@/features/settings/listText'
-import { Search } from 'lucide-react'
 import { useState, useMemo } from 'react'
 
 const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
@@ -62,18 +62,13 @@ export function SystemConfig() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="系统配置" subtitle="系统常规配置，热加载">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索配置项"
-            aria-label="搜索配置项"
-            spellCheck={false}
-            className="w-48 rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
-          />
-        </div>
+        <SearchInput
+          className="w-72"
+          value={query}
+          onChange={setQuery}
+          placeholder="搜索配置项"
+          ariaLabel="搜索配置项"
+        />
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
