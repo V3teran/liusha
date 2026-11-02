@@ -221,7 +221,7 @@ export function WorkspacePage() {
         {notice && <span className="text-xs text-muted">{notice}</span>}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* 文件树 + 新建工具栏 */}
         <div className="flex max-h-[70dvh] min-h-0 flex-col rounded-2xl border border-border bg-surface p-3">
           <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
@@ -466,7 +466,7 @@ function FileTree({
               ) : (
                 <span className="w-3.5 flex-shrink-0" />
               )}
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">{base}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={e.path}>{base}</span>
               <span className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
                 <button
                   aria-label={`下载 ${e.path}`}

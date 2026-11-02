@@ -192,7 +192,7 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
   it('source 缺省落 self tab', () => {
     const detail = makeDetail({ task_id: 't-2', conversation_id: 'c-2' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('打开对话 →').closest('a')?.getAttribute('href')).toBe('/conversations/self?conv=c-2')
+    expect(screen.getByText('打开对话 →').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')
   })
 
   it('无 task/conversation 时不渲染按钮', () => {

@@ -8,7 +8,7 @@ interface ConversationsPageProps {
 }
 
 // 对话页：主从双栏——左 ConversationList + 右 ConversationDetail。source 由路由决定
-// （/conversations/manual、/conversations/auto 共用本组件），主动下发/被动代理两个 tab
+// （/conversations/direct、/conversations/proxy 共用本组件），直连下发/代理捕获两个 tab
 // 差异仅在列表文案/是否可发起新对话，详情区的 SSE/用量/状态/插话全在 ConversationDetail 内。
 export function ConversationsPage({ source }: ConversationsPageProps) {
   const [searchParams] = useSearchParams()
@@ -73,6 +73,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
           allowNew={source === 'self'}
           heading={heading}
           emptyState={emptyState}
+          autoSelect
           onSelect={setCurrentConv}
           onNew={newConversation}
           onDeleted={onConvDeleted}

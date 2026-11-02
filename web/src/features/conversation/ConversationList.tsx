@@ -19,6 +19,8 @@ interface ConversationListProps {
   heading?: string
   /** 空态：mark/标题/描述构成的结构化引导块（无数据时撑满列表区，替代浮字）。 */
   emptyState?: { mark: string; title: string; desc: string }
+  /** 首次加载成功且当前无选中时，自动打开最新一条会话（一次性，不劫持后续交互）。 */
+  autoSelect?: boolean
   onSelect: (convID: string) => void
   onNew: () => void
   onDeleted: (convID: string) => void
@@ -52,7 +54,7 @@ const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 r
 // （删除/重命名），当前选中高亮。source 过滤（manual/auto）下沉到服务端——分页边界建立在已过滤集合上。
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList(
-    { activeId, source, allowNew = true, emptyState, heading, onSelect, onNew, onDeleted },
+    { activeId, source, allowNew = true, emptyState, heading, autoSelect, onSelect, onNew, onDeleted },
     ref,
   ) {
     const [searchParams, setSearchParams] = useSearchParams()
@@ -117,6 +119,17 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       void load(0)
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [source, size])
+
+    // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conv 深链接、
+    // 用户没点过）时选第一条——一次性消费，之后轮询刷新/「新对话」态都不再劫持。
+    const autoSelectedRef = useRef(false)
+    useEffect(() => {
+      if (!autoSelect || autoSelectedRef.current || loading || loadError) return
+      if (items.length === 0) return
+      autoSelectedRef.current = true
+      if (!activeId) onSelect(items[0].id)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [items, loading, loadError, activeId, autoSelect])
 
     // 自适应轮询：仅当当前页存在「进行中(active)」会话时每 8s 刷新（停留当前页，不跳页）——
     // 感知后台会话跑完/状态变化。全部终态则不轮询；菜单开着时跳过（不打断操作）。
@@ -231,7 +244,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         {/* 自主下发/代理模式 tab：按来源（source=self/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
-            to="/conversations/self"
+            to="/conversations/direct"
             className={({ isActive }) =>
               cn(
                 'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
@@ -359,7 +372,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <span
-                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none"
+                      className={cn(
+                        'inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none',
+                        meta.key === 'active' && 'animate-pulse',
+                      )}
                       style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, transparent)` }}
                     >
                       {meta.label}
