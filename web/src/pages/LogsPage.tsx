@@ -268,7 +268,7 @@ export function LogsPage() {
       <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
         <div className="min-w-0">
           <h1 className="text-base font-semibold text-text">日志</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">api / proxy / runner 进程日志 · 文件直读 logs/ 目录</p>
+          <p className="mt-0.5 text-sm text-text-secondary">进程日志</p>
         </div>
         <button
           type="button"

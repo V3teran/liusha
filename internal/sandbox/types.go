@@ -7,7 +7,7 @@ package sandbox
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：
-//   - TaskID：任务 ID，用于 profile 共享（/liusha/<TaskID>/profile/ 存放浏览器登录态）
+//   - TaskID：任务 ID，用于 会话状态共享（/liusha/<TaskID>/state/ 存放浏览器登录态与 $HOME 工具落盘）
 //   - AgentID：Agent 运行实例 ID，用于工作目录隔离（/liusha/<TaskID>/<AgentID>/workspace/、
 //     /liusha/<TaskID>/<AgentID>/output/），防止并发 Agent 文件互串扰；必填，server 端校验空值 400
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）

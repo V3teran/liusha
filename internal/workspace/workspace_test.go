@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,3 +168,58 @@ func TestDeleteRootDenied(t *testing.T) {
 type zipWriterAdapter struct{ b *strings.Builder }
 
 func (a *zipWriterAdapter) Write(p []byte) (int, error) { return a.b.Write(p) }
+
+
+// 会话状态子树（state/）整体排除出文件面：树不显示、读写下载归档全拒绝
+// （chromium 登录态等 $HOME 落盘是沙盒内部状态，不是操作员工件；数据保留在盘）。
+func TestStateDirExcludedFromFileSurface(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write("70bbf3bb/out/poc.py", []byte("print(1)")); err != nil {
+		t.Fatal(err)
+	}
+	// 直接写盘模拟沙盒 $HOME 落盘（不经过文件 API）
+	if err := os.MkdirAll(filepath.Join(store.Root(), "70bbf3bb/state/.cache/chromium"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root(), "70bbf3bb/state/.cache/chromium/x"), []byte("junk"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	tree, err := store.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range tree {
+		if strings.HasPrefix(e.Path, "70bbf3bb/state") {
+			t.Fatalf("树不应包含 state 子树: %s", e.Path)
+		}
+	}
+	if _, err := store.Read("70bbf3bb/state/x"); err == nil {
+		t.Fatal("Read 应拒绝 state 路径")
+	}
+	if err := store.Write("70bbf3bb/state/x", []byte("x")); err == nil {
+		t.Fatal("Write 应拒绝 state 路径")
+	}
+	if err := store.Delete("70bbf3bb/state"); err == nil {
+		t.Fatal("Delete 应拒绝 state 路径")
+	}
+	var zipBuf bytes.Buffer
+	if err := store.ZipTo("70bbf3bb", &zipBuf); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(zipBuf.Bytes()), int64(zipBuf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range zr.File {
+		if strings.Contains(f.Name, "state") {
+			t.Fatalf("归档不应包含 state 子树: %s", f.Name)
+		}
+	}
+	if _, err := store.Read("70bbf3bb/out/poc.py"); err != nil {
+		t.Fatalf("state 之外的读写不受影响: %v", err)
+	}
+}

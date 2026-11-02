@@ -17,14 +17,14 @@ import (
 //
 // 目录架构（task 一层隔离）：
 //   - 根目录：/root/liusha/workspace/<task_id>/
-//   - work:    …/<task_id>/work/     → 命令执行的 cwd（scratch）
-//   - out:     …/<task_id>/out/      → 附件输出（$OUTPUT_DIR）
-//   - profile: …/<task_id>/profile/  → 浏览器登录态与工具配置（任务内共享；
+//   - work:  …/<task_id>/work/   → 命令执行的 cwd（scratch）
+//   - out:   …/<task_id>/out/    → 附件输出（$OUTPUT_DIR）
+//   - state: …/<task_id>/state/  → 会话与环境状态（任务内共享；
 //     HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
 //
 // 隔离设计：
 //   - 任务间：目录即隔离边界（同 warm 容器多任务共存互不干扰）
-//   - 任务内：多 agent 共享 work/out/profile——共容器共目标，agent 级
+//   - 任务内：多 agent 共享 work/out/state——共容器共目标，agent 级
 //     目录是假隔离
 //
 // 真实持久化由 launcher 的 bind mount 提供（宿主 workspace 根目录挂到
@@ -58,7 +58,7 @@ func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. 创建执行目录
-	workspaceDir, outputDir, profileDir, ok := setupExecDirs(&req, w)
+	workspaceDir, outputDir, stateDir, ok := setupExecDirs(&req, w)
 	if !ok {
 		return
 	}
@@ -66,7 +66,7 @@ func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 	// 3. 构建执行命令
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
 	execStart := time.Now()
-	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, profileDir, timeout)
+	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, stateDir, timeout)
 	defer cancel()
 
 	// 4. 执行命令

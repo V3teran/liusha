@@ -44,30 +44,30 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 }
 
 // setupExecDirs 创建执行目录结构
-func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDir, outputDir, profileDir string, ok bool) {
-	// task 一层隔离：work = 命令 cwd，out = 产物（$OUTPUT_DIR），profile =
-	// 登录态（任务内共享；HOME 指向它，chromium 等按 $HOME 落盘的工具随
+func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDir, outputDir, stateDir string, ok bool) {
+	// task 一层隔离：work = 命令 cwd，out = 产物（$OUTPUT_DIR），state =
+	// 会话与环境状态（HOME 指向它——chromium 登录态等 $HOME 工具落盘随
 	// 之归位）。AgentID 仍随请求透传（进程树标注/审计），不参与目录分层
 	// ——同任务多 agent 共容器共目标，agent 级目录是假隔离。
 	taskRoot := filepath.Join(liushaRoot, req.TaskID)
 	workspaceDir = filepath.Join(taskRoot, "work")
 	outputDir = filepath.Join(taskRoot, "out")
-	profileDir = filepath.Join(taskRoot, "profile")
+	stateDir = filepath.Join(taskRoot, "state")
 
 	// 创建所有必要目录
-	for _, dir := range []string{workspaceDir, outputDir, profileDir} {
+	for _, dir := range []string{workspaceDir, outputDir, stateDir} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			writeError(w, http.StatusInternalServerError, "mkdir %s: %v", dir, err)
 			return "", "", "", false
 		}
 	}
 
-	return workspaceDir, outputDir, profileDir, true
+	return workspaceDir, outputDir, stateDir, true
 }
 
 // buildExecCommand 构建执行命令。返回的 cancel 必须由调用方在命令结束后
 // 调用（通常是 defer），否则定时器句柄泄漏到请求生命周期之外。
-func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDir, outputDir, profileDir string, timeout time.Duration) (*exec.Cmd, context.Context, context.CancelFunc) {
+func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDir, outputDir, stateDir string, timeout time.Duration) (*exec.Cmd, context.Context, context.CancelFunc) {
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", req.Command) // #nosec G204
@@ -77,8 +77,8 @@ func buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workspaceDi
 		"LIUSHA_AGENT_ID="+req.AgentID,
 		"LIUSHA_WORKSPACE="+workspaceDir,
 		"LIUSHA_OUTPUT="+outputDir,
-		"LIUSHA_PROFILE="+profileDir,
-		"HOME="+profileDir,
+		"LIUSHA_STATE="+stateDir,
+		"HOME="+stateDir,
 		"OUTPUT_DIR="+outputDir,
 	)
 

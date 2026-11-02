@@ -2,7 +2,7 @@
 //
 // 工作区根目录即 launcher bind 进沙盒的宿主目录（sandbox.workspace_dir，
 // 默认 ~/data/liusha/workspace）：容器内 sandbox-server 按 taskID 分
-// work/out/profile 子目录，任务目录就是工作区树的顶层。本包在同一路径树
+// work/out/state 子目录，任务目录就是工作区树的顶层。本包在同一路径树
 // 上做安全的文件操作——路径解析被钳制在根目录内，穿越序列（.. / 绝对
 // 路径 / 符号链接逃逸）一律拒绝。
 package workspace
@@ -53,6 +53,18 @@ func (s *Store) Root() string { return s.root }
 // MaxReadBytes 是单次读取的内容上限（超出返回截断标记）。
 const MaxReadBytes = 4 << 20 // 4 MiB
 
+// StateDirName 是沙盒会话状态目录（chromium 登录态与 $HOME 工具落盘，
+// 见 sandbox 包 exec 环境）。它是沙盒内部状态而非操作员工件：文件面
+// （树/读写/下载/归档）整体排除，数据按留存策略保留在盘。
+const StateDirName = "state"
+
+// isStatePath 报告相对路径是否落在会话状态子树（任务目录下一档：
+// <task>/state）。
+func isStatePath(rel string) bool {
+	segs := strings.SplitN(rel, "/", 3)
+	return len(segs) >= 2 && segs[1] == StateDirName
+}
+
 // Entry 是文件树的一个节点（Path 为相对工作区根的斜杠路径，目录带尾
 // 斜杠便于前端区分；Depth 为缩进层级）。
 type Entry struct {
@@ -81,6 +93,13 @@ func (s *Store) Tree() ([]Entry, error) {
 		rel, err := filepath.Rel(s.root, p)
 		if err != nil {
 			return err
+		}
+		// 会话状态子树不属于文件面：整枝跳过（数据保留在盘）
+		if isStatePath(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		name := filepath.ToSlash(rel)
 		depth := strings.Count(name, "/")
@@ -230,6 +249,13 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
+		// 目录归档同样排除会话状态子树（数据保留在盘，不进交付包）
+		if arc != "." && (arc == StateDirName || strings.HasPrefix(arc, StateDirName+"/")) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			_, err = zw.Create(path.Join(base, filepath.ToSlash(arc)) + "/")
 			return err
@@ -316,6 +342,9 @@ func (s *Store) resolve(rel string) (string, error) {
 		if !isSafeSegment(seg) {
 			return "", fmt.Errorf("非法路径段: %q", seg)
 		}
+	}
+	if isStatePath(clean) {
+		return "", fmt.Errorf("%s 为沙盒会话状态，不在文件面", StateDirName)
 	}
 	full := filepath.Join(s.root, filepath.FromSlash(clean))
 	if resolved, err := filepath.EvalSymlinks(filepath.Dir(full)); err == nil {
