@@ -67,6 +67,23 @@
   transition: stroke var(--duration-fast) var(--ease-out);
 }
 
+/* 执行中动作卡片：呼吸蓝边——活动指示挂在节点本身（刚派发的动作还没有
+   出边，动态线无法覆盖「最执行中」的时刻） */
+.exp-card-running {
+  border-color: var(--status-info);
+  animation: exp-card-running 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes exp-card-running {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-info) 35%, transparent);
+  }
+}
+
 /* 图例"执行中"样本：与画布上执行中动作的出边同款流动虚线 */
 .exp-legend-flow {
   animation: exp-legend-dash 1s linear infinite;
@@ -78,15 +95,16 @@
   }
 }
 
-/* 尊重系统「减弱动态效果」：蚂蚁线与图例流动静止（running 语义仍由
-   卡片状态点文字承载，信息不损失）。选择器加 .react-flow 前缀压过
-   React Flow 自带样式的同权重规则。 */
+/* 尊重系统「减弱动态效果」：蚂蚁线、图例流动、卡片呼吸全部静止
+   （running 语义仍由卡片状态点文字承载，信息不损失）。选择器加 .react-flow
+   前缀压过 React Flow 自带样式的同权重规则。 */
 @media (prefers-reduced-motion: reduce) {
   .react-flow .react-flow__edge.animated path {
     animation: none;
   }
 
-  .exp-legend-flow {
+  .exp-legend-flow,
+  .exp-card-running {
     animation: none;
   }
 }

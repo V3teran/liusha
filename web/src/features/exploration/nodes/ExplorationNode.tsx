@@ -27,6 +27,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
         'exp-card group relative flex h-26 w-[264px] flex-col overflow-hidden rounded-xl border border-border',
         'pl-3 shadow-xs transition-[border-color,box-shadow] duration-150',
         'hover:border-border-strong hover:shadow-md',
+        node.state === 'running' && 'exp-card-running',
       )}
       style={{ background: `color-mix(in srgb, ${profile.accent} 10%, var(--surface))` }}
     >
