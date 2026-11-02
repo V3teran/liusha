@@ -1,6 +1,7 @@
+import { SearchInput } from '@/components/SearchInput'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
 import { blankProvider, providerDisplayName, providerInvalid } from './providerForm'
 import { ProviderEditor } from './ProviderEditor'
@@ -159,18 +160,13 @@ export function ProvidersView() {
             <p className="mt-0.5 text-xs text-muted">接入哪些 provider，连接参数与能力标志</p>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索 provider 或模型名"
-                aria-label="搜索 provider"
-                spellCheck={false}
-                className="w-44 rounded-lg border border-border bg-surface-2 py-1.5 pl-8 pr-2.5 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
-              />
-            </div>
+            <SearchInput
+              className="w-72"
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索 provider 或模型名"
+              ariaLabel="搜索 provider"
+            />
             <button
               type="button"
               onClick={() => (isNew && draft ? requestCollapse() : startEdit(null))}

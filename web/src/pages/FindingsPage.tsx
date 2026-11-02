@@ -1,7 +1,8 @@
+import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
 import { useMemo, useState } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { ChevronRight, Search, StickyNote } from 'lucide-react'
+import { ChevronRight, StickyNote } from 'lucide-react'
 import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
@@ -182,7 +183,7 @@ export function FindingsPage() {
       {/* 统一头部 */}
       <PageHeader title="漏洞" subtitle="智能体发现的安全漏洞与配置缺陷" />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {listQuery.isPending ? (
           <div className="py-16 text-center text-sm text-text-secondary">
             <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
@@ -286,18 +287,13 @@ export function FindingsPage() {
                 ))}
               </select>
 
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索漏洞标题 / host / 路径…"
-                  spellCheck={false}
-                  aria-label="搜索漏洞标题、host 或路径"
-                  className="h-9 w-full rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
-                />
-              </div>
+              <SearchInput
+                className="w-72"
+                value={query}
+                onChange={setQuery}
+                placeholder="搜索漏洞标题 / host / 路径…"
+                ariaLabel="搜索漏洞标题、host 或路径"
+              />
 
               <PaginationToolbar
                 page={page}

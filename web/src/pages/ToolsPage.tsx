@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { listTools, getTool, assignTool } from '@/api/config'
@@ -170,17 +171,10 @@ export function ToolsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between px-6 py-4">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-text">工具</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">
-            内部与外部工具的统一编目
-          </p>
-        </div>
-      </header>
+      <PageHeader title="工具" subtitle="内部与外部工具的统一编目" />
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
-      <div className="flex items-center border-b border-border bg-surface/50 px-6 py-3">
+      <div className="flex items-center bg-surface/50 px-6 py-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
           <input
@@ -189,12 +183,12 @@ export function ToolsPage() {
             spellCheck={false}
             placeholder="搜索工具名 / 描述"
             onChange={(e) => setQuery(e.target.value)}
-            className="h-9 w-80 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
+            className="h-9 w-72 rounded-lg border border-border bg-surface pl-10 pr-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent"
           />
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_1fr] gap-4 overflow-hidden p-6">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_1fr] gap-4 overflow-hidden px-6 pb-6">
         <ToolMasterList
           groups={groups}
           segments={KIND_SEGMENTS}

@@ -1,6 +1,7 @@
+import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { cn } from '@/lib/utils'
 
@@ -89,23 +90,14 @@ export function ConfigListShell({
 
       {/* 搜索/筛选栏 */}
       {(search || (server?.size != null && server.onSize)) && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 py-3">
+        <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
           {search && (
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-              <input
-                type="search"
-                value={search.value}
-                spellCheck={false}
-                placeholder={search.placeholder ?? '搜索'}
-                onChange={(e) => search.onChange(e.target.value)}
-                className={cn(
-                  'h-9 w-72 rounded-lg border border-border bg-surface pl-9 pr-3 text-sm text-text',
-                  'outline-none transition-all placeholder:text-text-tertiary',
-                  'focus:border-accent focus:glow-accent'
-                )}
-              />
-            </div>
+            <SearchInput
+              className="w-72"
+              value={search.value}
+              onChange={search.onChange}
+              placeholder={search.placeholder ?? '搜索'}
+            />
           )}
 
           {server?.size != null && server.onSize && (server.count > 0 || server.page > 1) && (
@@ -124,7 +116,7 @@ export function ConfigListShell({
       )}
 
       {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto bg-background p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-background px-6 pb-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-3 border-accent border-t-transparent" />

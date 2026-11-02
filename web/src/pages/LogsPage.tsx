@@ -1,7 +1,8 @@
+import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { RotateCw, Search } from 'lucide-react'
+import { RotateCw } from 'lucide-react'
 import { listLogProcesses } from '@/api/logs'
 import type { LogEntry } from '@/api/types'
 import { cn } from '@/lib/utils'
@@ -284,7 +285,7 @@ export function LogsPage() {
       </PageHeader>
 
       {/* 筛选栏（全站统一顺序）：进程 → 实例 → 级别 → 搜索（防抖）→（右）计数 */}
-      <div className="flex flex-wrap items-center gap-3 bg-surface/30 px-6 py-3">
+      <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
         <select
           value={filters.process}
           onChange={(e) => setFilters({ ...filters, process: e.target.value, instance: '' })}
@@ -328,17 +329,13 @@ export function LogsPage() {
           <option value="debug">debug</option>
         </select>
 
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-          <input
-            type="text"
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="搜索消息、error、业务字段…"
-            className={cn(controlClass, 'w-72 pl-10')}
-            aria-label="搜索日志"
-          />
-        </div>
+        <SearchInput
+          className="w-72"
+          value={localSearch}
+          onChange={setLocalSearch}
+          placeholder="搜索消息、error、业务字段…"
+          ariaLabel="搜索日志"
+        />
 
         <div className="ml-auto flex items-center gap-3 font-mono text-xs text-text-tertiary">
           {stream.error ? (

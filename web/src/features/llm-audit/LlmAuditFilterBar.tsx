@@ -24,12 +24,12 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
   const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
 
   const selectClass = cn(
-    'h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-text',
+    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
     'outline-none transition-all focus:border-accent focus:ring-1 focus:ring-accent/20'
   )
 
   const inputClass = cn(
-    'h-8 rounded-md border border-border bg-surface px-2.5 text-sm text-text',
+    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
     'outline-none transition-all placeholder:text-muted',
     'focus:border-accent focus:ring-1 focus:ring-accent/20',
     '[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:hover:opacity-100'

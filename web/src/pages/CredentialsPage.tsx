@@ -1,6 +1,7 @@
+import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { CredentialTable } from '@/features/credential/CredentialTable'
 import { parseCredentialRawLine } from '@/features/credential/credentialColumns'
 import type { CredentialTableMeta } from '@/features/credential/credentialColumns'
@@ -24,8 +25,6 @@ import { cn } from '@/lib/utils'
  * 用户名删、清会话、整目标删（host 筛选选定后出现在筛选栏右侧）。
  */
 
-const FILTER_INPUT =
-  'h-8 w-52 rounded-lg border border-border bg-surface px-2.5 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
 const INLINE_INPUT =
   'h-8 rounded-md border border-border bg-surface px-2 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
 
@@ -266,15 +265,12 @@ export default function CredentialsPage() {
 
             {/* 筛选栏 + 分页（录入与搜索框平行；border-b 与下方表格分隔） */}
             <div className="-mx-6 flex flex-wrap items-center gap-2 bg-surface/30 px-6 pb-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-                <input
-                  className={cn(FILTER_INPUT, 'pl-9')}
-                  value={search}
-                  placeholder="搜索主机 / 用户名 / 键 / 值…"
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+              <SearchInput
+                className="w-72"
+                value={search}
+                onChange={setSearch}
+                placeholder="搜索主机 / 用户名 / 键 / 值…"
+              />
               <span className="ml-auto">
                 <PaginationToolbar
                   page={page}

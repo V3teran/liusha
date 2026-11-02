@@ -1,4 +1,5 @@
-import { Search, X } from 'lucide-react'
+import { SearchInput } from '@/components/SearchInput'
+import { X } from 'lucide-react'
 import { useState, useEffect, useCallback } from 'react'
 
 interface LlmAuditSearchBarProps {
@@ -40,25 +41,23 @@ export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话
   }, [onChange])
 
   return (
-    <div className="relative flex-1 max-w-md">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-      <input
-        type="search"
-        value={localValue}
-        onChange={(e) => setLocalValue(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-lg border border-border bg-surface py-2 pl-10 pr-10 text-sm text-text outline-none transition-colors placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent"
-      />
-      {localValue && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text"
-          aria-label="清空搜索"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </div>
+    <SearchInput
+      className="w-72"
+      value={localValue}
+      onChange={setLocalValue}
+      placeholder={placeholder}
+      trailing={
+        localValue ? (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-muted hover:text-text"
+            aria-label="清空搜索"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : undefined
+      }
+    />
   )
 }

@@ -65,7 +65,7 @@ export function LlmAuditPage() {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="LLM 审计" subtitle="全局搜索和监控所有 LLM 调用" />
 
-      <div className="flex flex-wrap items-center gap-4 bg-surface/50 px-6 py-4">
+      <div className="flex flex-wrap items-center gap-4 bg-surface/50 px-6 py-3">
         {stats && (
           <div className="flex flex-wrap items-center gap-2">
             <StatChip color="var(--accent)" label="调用" value={humanTokens(stats.calls)} />
