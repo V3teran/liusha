@@ -526,7 +526,15 @@ func (d *Deps) buildEvaluatorAgent(
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
 	// 由领域包注入——通用门对领域零感知。坐实发现（晋升 result 的主张，中性
 	// 领域词——信息成果与漏洞同为发现）落库即发时间线事件（会话发现卡）。
-	claimSink := finding.NewClaimSink(d.Findings, agentRunID)
+	claimSink := finding.NewClaimSink(d.Findings, agentRunID).
+		// 主机兜底：坐实材料抽不出主机时回任务锚定的目标主机（task.target_host）
+		WithTaskHostFallback(func(ctx context.Context, taskID string) (string, error) {
+			t, err := d.Tasks.GetByID(ctx, taskID)
+			if err != nil {
+				return "", err
+			}
+			return t.TargetHost, nil
+		})
 	if conversationID != "" {
 		timeline := d.toolTimelineEvents()
 		claimSink = claimSink.WithObserver(func(octx context.Context, f finding.Finding) {

@@ -76,6 +76,9 @@ services:
       <<: *app-env
       LIUSHA_API_ADDR: 0.0.0.0:8090  # 与本地 dev（run-svc.sh）同端口；8080 易被 Burp 占用
       LIUSHA_API_KEY: "${LIUSHA_API_KEY:?LIUSHA_API_KEY 未设置（root .env 或 --env-file .env.prod）}"
+      # dev 自动发 key 端点（/api/dev-config.json）开关：本地测试开（root .env 置 true），
+      # 生产留空关闭——开启后该未鉴权端点会返回 API key，不得暴露到不可信网络
+      LIUSHA_DEV_AUTOFILL: "${LIUSHA_DEV_AUTOFILL:-}"
       # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）
       LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:?LIUSHA_STREAM_COOKIE_SECRET 未设置}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
