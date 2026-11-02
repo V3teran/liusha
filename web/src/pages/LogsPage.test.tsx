@@ -78,7 +78,7 @@ describe('LogsPage', () => {
     expect(screen.getByText(/共 1 条/)).toBeTruthy()
   })
 
-  it('error 行展开显示 error 值与业务字段', async () => {
+  it('error 行：摘要合成「message: error」，展开显示 error 值与业务字段', async () => {
     const user = userEvent.setup()
     mockedReadLogs.mockResolvedValue(
       makeResponse([
@@ -91,13 +91,36 @@ describe('LogsPage', () => {
       ]),
     )
     renderPage()
-    const row = await screen.findByText('list conversations failed')
+    // 行内摘要 = message 前缀 + 错误文本，不再是光秃秃的 message
+    const row = await screen.findByText('list conversations failed: connect refused')
     await user.click(row)
     expect(await screen.findByText('error: connect refused')).toBeTruthy()
     expect(screen.getByText('task_id: t-1')).toBeTruthy()
     // 再点收起
     await user.click(row)
     await waitFor(() => expect(screen.queryByText('error: connect refused')).toBeNull())
+  })
+
+  it('访问日志形状合成「方法 路径 状态 · 耗时 · 客户端」摘要', async () => {
+    mockedReadLogs.mockResolvedValue(
+      makeResponse([
+        makeEntry({
+          message: 'request',
+          fields: { method: 'GET', path: '/api/logs', status: 200, latency_ms: 0, client: '::1' },
+        }),
+      ]),
+    )
+    renderPage()
+    // "request" 占位符还原为可读的访问摘要
+    expect(await screen.findByText('GET /api/logs 200 · 0ms · ::1')).toBeTruthy()
+  })
+
+  it('无错误字段时业务字段以 k=v 拼接为摘要', async () => {
+    mockedReadLogs.mockResolvedValue(
+      makeResponse([makeEntry({ message: 'action completed', fields: { task_id: 't-1', action_id: 'a-9' } })]),
+    )
+    renderPage()
+    expect(await screen.findByText('task_id=t-1 action_id=a-9')).toBeTruthy()
   })
 
   it('进程筛选变化触发带 process 参数的重取', async () => {

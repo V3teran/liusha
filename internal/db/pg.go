@@ -66,15 +66,32 @@ func NewPgPool(ctx context.Context, dsn string, logger zerolog.Logger, maxConns,
 	return pool, nil
 }
 
-// pgxLogger 把 pgx tracelog 的事件桥接到 logx。data 里是字段级上下文
-// （pid/err 等），原样平铺进结构化字段；trace/debug 在 TraceLog 层已被级别过滤。
+// pgxLogger 把 pgx tracelog 的事件桥接到 logx。pgx 的字段键与本日志器的
+// 保留键冲突，桥接时归一：err 抬到 zerolog error 字段（错误统一走 error
+// 通道，下游解析与展示把它当一等公民）；time 是操作耗时（ms），与时间戳
+// 键同名——不改名 JSON 行会出现重复键，解析取后写者导致耗时被静默吞掉，
+// 改名 elapsed_ms。
 type pgxLogger struct{ log zerolog.Logger }
 
 func (l pgxLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
-	switch level {
-	case tracelog.LogLevelError:
-		l.log.Error().Fields(data).Msg(msg)
-	case tracelog.LogLevelWarn:
-		l.log.Warn().Fields(data).Msg(msg)
+	ev := l.log.Warn()
+	if level == tracelog.LogLevelError {
+		ev = l.log.Error()
 	}
+	fields := make(map[string]any, len(data))
+	for k, v := range data {
+		switch k {
+		case "err":
+			if e, ok := v.(error); ok {
+				ev = ev.AnErr("error", e)
+				continue
+			}
+			fields["error"] = v
+		case "time":
+			fields["elapsed_ms"] = v
+		default:
+			fields[k] = v
+		}
+	}
+	ev.Fields(fields).Msg(msg)
 }

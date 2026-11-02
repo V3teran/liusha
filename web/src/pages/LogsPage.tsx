@@ -58,6 +58,41 @@ function rowDetail(e: LogEntry): Array<{ label: string; value: string; tone?: 'e
   return out
 }
 
+// ── 行内摘要合成 ─────────────────────────────────────────────────────────
+// message 往往是结构化日志的占位符（"request"/"Connect"），信息量在字段里。
+// 列表行按形状还原一行可读文本（业界日志查看器的通行做法），全量字段仍走展开。
+
+const SUMMARY_MAX = 200
+
+function summaryText(v: unknown): string {
+  // JSON.stringify(undefined) 返回 undefined 值——空缺字段兜底为空串
+  const s = typeof v === 'string' ? v : (JSON.stringify(v) ?? '')
+  return s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) + '…' : s
+}
+
+function entrySummary(e: LogEntry): string {
+  const f = e.fields ?? {}
+  // 1. HTTP 访问形状：方法 路径 状态 · 耗时 · 客户端
+  if (typeof f.method === 'string' && typeof f.path === 'string') {
+    const status = typeof f.status === 'number' ? ` ${f.status}` : ''
+    const latency = typeof f.latency_ms === 'number' ? ` · ${f.latency_ms}ms` : ''
+    const client = typeof f.client === 'string' ? ` · ${f.client}` : ''
+    return `${f.method} ${f.path}${status}${latency}${client}`
+  }
+  // 2. 错误文本是一等公民：message 作为上下文前缀（"xxx failed: connect refused"）
+  const errText = e.error || summaryText(f.err) || summaryText(f.error) || ''
+  if (errText) {
+    const cause = errText.replace(/\s+/g, ' ')
+    return e.message && e.message !== cause ? `${e.message}: ${cause}` : cause
+  }
+  // 3. 其余业务字段 k=v 紧凑拼接
+  const keys = Object.keys(f)
+  if (keys.length > 0) {
+    return keys.map((k) => `${k}=${summaryText(f[k])}`).join(' ')
+  }
+  return e.message
+}
+
 // ── 单行日志 ─────────────────────────────────────────────────────────────
 
 // memo：3s 增量轮询会新建 byService Map 触发整表 diff，行内容未变的行靠
@@ -72,13 +107,14 @@ const LogRow = memo(function LogRow({
   onToggle: (key: string) => void
 }) {
   const key = `${e.service}:${e.offset}`
+  const summary = entrySummary(e)
   return (
     <>
       <div
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-label={`日志：${e.message}`}
+        aria-label={`日志：${summary}`}
         title="点击展开详情"
         onClick={() => onToggle(key)}
         onKeyDown={(ev) => {
@@ -108,8 +144,8 @@ const LogRow = memo(function LogRow({
           {' · '}
           <span className="text-text-tertiary">{shortInstance(e.instance)}</span>]
         </span>
-        <span className="min-w-0 flex-1 truncate text-text" title={e.message}>
-          {e.message}
+        <span className="min-w-0 flex-1 truncate text-text" title={summary}>
+          {summary}
         </span>
         {e.caller && <span className="shrink-0 text-[11px] text-text-tertiary">{e.caller}</span>}
       </div>
