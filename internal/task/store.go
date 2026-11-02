@@ -96,9 +96,12 @@ type Summary struct {
 	CronExpr        string // 来源模板的 cron 表达式（非定时为空）
 	ConversationID  string
 	FindingCount    int
-	StepCount       int // 探索图 action 节点数 = 认知循环已执行步数
-	CreatedAt       time.Time
-	EndedAt         *time.Time
+	// StepCount 是认知循环推理步数（reasoning 终态数，最近一次 dispatched 之后）——
+	// 与对话时间线卡片的「第 N 步」同一口径。会话无推理步（后台任务/旧数据）时
+	// 回退探索图 action 节点数。
+	StepCount   int
+	CreatedAt   time.Time
+	EndedAt     *time.Time
 }
 
 // summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。
@@ -112,7 +115,14 @@ const summarySelect = `
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
-	(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action'),
+	COALESCE(NULLIF((SELECT count(*) FROM message m
+		WHERE m.conversation_id = c.id
+		  AND m.metadata->>'kind' = 'reasoning'
+		  AND m.seq > COALESCE((SELECT max(seq) FROM message
+		        WHERE conversation_id = c.id
+		          AND metadata->>'kind' = 'task_status'
+		          AND metadata->>'status' = 'dispatched'), 0)), 0),
+	(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action')),
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /

@@ -117,7 +117,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
               <div className="flex flex-wrap gap-2">
                 {task.conversation_id && (
                   <Link
-                    to={`/conversations/${task.source === 'self' ? 'self' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
+                    to={`/conversations/${task.source === 'self' ? 'direct' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:border-accent hover:text-accent"
                   >
                     <MessageSquare className="h-3.5 w-3.5" />对话

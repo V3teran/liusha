@@ -101,7 +101,16 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   useEffect(() => {
     const n = activityCount
     const prev = prevLenRef.current
-    if (nearBottom()) {
+    // 会话首绘（切入会话、历史批次落地）：无条件滚到最低——打开对话就该看最新，
+    // 不能依赖 nearBottom（长历史从顶部渲染时永不接近底部，粘底逻辑不会触发）。
+    const firstPaint = prev === 0 && n > 0
+    if (firstPaint) {
+      requestAnimationFrame(() => {
+        if (elRef.current) elRef.current.scrollTop = elRef.current.scrollHeight
+      })
+      setAtBottom(true)
+      setUnread(0)
+    } else if (nearBottom()) {
       stickToBottom()
     } else if (n > prev) {
       setUnread((u) => u + (n - prev))

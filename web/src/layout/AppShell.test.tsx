@@ -13,7 +13,7 @@ function renderShell(initialPath: string) {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/conversations/manual" element={<AppShell />}>
+        <Route path="/conversations/direct" element={<AppShell />}>
           <Route index element={<div>child-active</div>} />
         </Route>
         <Route path="/findings" element={<AppShell />}>
@@ -30,7 +30,7 @@ function renderShell(initialPath: string) {
 describe('AppShell', () => {
   it('渲染全部导航项', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
 
     expect(screen.getByText('对话')).toBeTruthy()
     expect(screen.getByText('漏洞')).toBeTruthy()
@@ -44,13 +44,13 @@ describe('AppShell', () => {
 
   it('渲染子路由内容（Outlet）', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
     expect(screen.getByText('child-active')).toBeTruthy()
   })
 
   it('当前路径对应的导航项高亮', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
 
     const activeLink = screen.getByText('对话').closest('a')
     const inactiveLink = screen.getByText('漏洞').closest('a')
@@ -60,7 +60,7 @@ describe('AppShell', () => {
 
   it('对话导航项在 /conversations 任意子路径下都高亮（startsWith 匹配）', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
     const activeLink = screen.getByText('对话').closest('a')
     expect(activeLink?.className).toContain('bg-accent-soft')
   })
@@ -79,7 +79,7 @@ describe('AppShell', () => {
     const toggle = vi.fn()
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle })
     const user = userEvent.setup()
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
 
     const btn = screen.getByLabelText('切换到浅色模式')
     expect(btn).toBeTruthy()
@@ -89,7 +89,7 @@ describe('AppShell', () => {
 
   it('light 主题下显示月亮图标（切换到深色）', () => {
     mockedUseTheme.mockReturnValue({ theme: 'light', toggle: vi.fn() })
-    renderShell('/conversations/manual')
+    renderShell('/conversations/direct')
 
     expect(screen.getByLabelText('切换到深色模式')).toBeTruthy()
   })

@@ -171,7 +171,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                         <dt className="text-xs text-muted">对话</dt>
                         <dd>
                           <Link
-                            to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'self'}?conv=${detail.conversation_id}`}
+                            to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'direct'}?conv=${detail.conversation_id}`}
                             onClick={() => onOpenChange(false)}
                             className="inline-flex items-center rounded-md bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
                             title={`打开对话 ${detail.conversation_id}`}

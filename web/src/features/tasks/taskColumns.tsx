@@ -31,6 +31,7 @@ function buildTaskColumns(offset: number) {
       cell: (ctx) => {
         const s = ctx.getValue()
         const meta = taskStatusMeta(s)
+        // 运行中整枚徽章呼吸（点+文字）——与对话列表的状态胶囊同一视觉语法
         return (
           <Badge dot color={meta.color} className={s === 'active' ? 'animate-pulse' : undefined}>
             {s === 'active' ? '运行中' : meta.label}
@@ -89,7 +90,7 @@ function buildTaskColumns(offset: number) {
       cell: (ctx) => {
         const t = ctx.row.original
         if (!t.conversation_id) return <span className="text-xs text-muted">—</span>
-        const tab = t.source === 'self' ? 'self' : 'proxy'
+        const tab = t.source === 'self' ? 'direct' : 'proxy'
         return (
           <Link
             to={`/conversations/${tab}?conv=${encodeURIComponent(t.conversation_id)}`}
