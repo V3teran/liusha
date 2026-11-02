@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useMemo, useState } from 'react'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { TrafficFilterBar } from '@/features/traffic/TrafficFilterBar'
@@ -50,12 +51,7 @@ export function TrafficPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">代理流量</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">代理捕获的真实流量</p>
-        </div>
-      </header>
+      <PageHeader title="代理流量" subtitle="代理捕获的真实流量" />
 
       {/* 上下分栏（对齐 Burp HTTP history）：默认列表占满全高、可浏览全部流量；
           点击某行后才在下方拆出详情面板（详情内部请求/响应再左右并排），关闭后恢复全高。

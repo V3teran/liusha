@@ -63,7 +63,7 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
   )
 
   return (
-    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
+    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 bg-surface/30 px-6 pb-3">
       <select
         value={filters.source}
         onChange={(e) => onChange({ ...filters, source: e.target.value })}

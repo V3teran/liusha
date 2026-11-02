@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -66,13 +67,7 @@ export function ConfigListShell({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 头部 */}
-      <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-text">
-            {title}
-          </h1>
-          <p className="mt-0.5 text-sm text-text-secondary">{subtitle}</p>
-        </div>
+      <PageHeader title={title} subtitle={subtitle}>
         <div className="flex flex-shrink-0 items-center gap-3">
           {headerExtra}
           {onNew && (
@@ -90,7 +85,7 @@ export function ConfigListShell({
             </button>
           )}
         </div>
-      </header>
+      </PageHeader>
 
       {/* 搜索/筛选栏 */}
       {(search || (server?.size != null && server.onSize)) && (

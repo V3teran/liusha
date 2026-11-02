@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useMemo, useState } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight, Search, StickyNote } from 'lucide-react'
@@ -84,7 +85,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(filters.host || filters.severity || filters.status || filters.source)
+  const hasFilter = !!(query || filters.host || filters.severity || filters.status || filters.source)
 
   const columns = useMemo(
     () => [
@@ -176,17 +177,10 @@ export function FindingsPage() {
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
     : ''
 
-  const hasData = rows.length > 0
-
   return (
     <div className="flex h-full flex-col bg-background">
       {/* 统一头部 */}
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">漏洞</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">智能体发现的安全漏洞与配置缺陷</p>
-        </div>
-      </header>
+      <PageHeader title="漏洞" subtitle="智能体发现的安全漏洞与配置缺陷" />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         {listQuery.isPending ? (
@@ -196,10 +190,6 @@ export function FindingsPage() {
           </div>
         ) : listError ? (
           <div className="py-16 text-center text-sm text-status-error">⚠ {listError}</div>
-        ) : !hasData ? (
-          <div className="py-16 text-center text-sm text-text-secondary">
-            {hasFilter ? '当前筛选无匹配漏洞' : '暂无漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此'}
-          </div>
         ) : (
           <>
             {/* 紧凑统计卡片（瘦身版）*/}
@@ -272,7 +262,7 @@ export function FindingsPage() {
             </div>
 
             {/* 搜索筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 →（右端）分页） */}
-            <div className="-mx-6 mb-3 flex items-center gap-3 border-b border-border bg-surface/30 px-6 pb-3">
+            <div className="-mx-6 mb-3 flex items-center gap-3 bg-surface/30 px-6 pb-3">
               <select
                 value={filters.source}
                 onChange={(e) => setFilters({ ...filters, source: e.target.value })}
@@ -326,6 +316,7 @@ export function FindingsPage() {
               rows={visible}
               columns={columns as never}
               loading={listQuery.isFetching && rows.length === 0}
+              hasFilter={hasFilter}
               emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
               getRowId={(row) => row.id}
               onRowClick={openDrawer}

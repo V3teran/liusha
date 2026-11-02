@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AlertCircle, Info } from 'lucide-react'
@@ -86,12 +87,7 @@ export function ExplorationGraphPage() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">探索图</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">智能体推理与行动的可视化决策树</p>
-        </div>
-      </header>
+      <PageHeader title="探索图" subtitle="智能体推理与行动的可视化决策树" />
 
       <Toolbar
         conversationInput={convInput}

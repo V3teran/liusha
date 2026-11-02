@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
 import { CredentialTable } from '@/features/credential/CredentialTable'
@@ -185,13 +186,8 @@ export default function CredentialsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-text">凭证库</h1>
-          <p className="mt-0.5 text-sm text-text-secondary">
-            按目标归属的登录态与会话材料
-          </p>
-        </div>
+      <PageHeader title="凭证库" subtitle="按目标归属的登录态与会话材料">
+        <div>
         {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
         <button
           type="button"
@@ -209,7 +205,8 @@ export default function CredentialsPage() {
           <Plus className="h-4 w-4" />
           {creating ? '取消录入' : '录入'}
         </button>
-      </header>
+        </div>
+      </PageHeader>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
         {isError ? (
@@ -268,7 +265,7 @@ export default function CredentialsPage() {
             )}
 
             {/* 筛选栏 + 分页（录入与搜索框平行；border-b 与下方表格分隔） */}
-            <div className="-mx-6 flex flex-wrap items-center gap-2 border-b border-border bg-surface/30 px-6 pb-3">
+            <div className="-mx-6 flex flex-wrap items-center gap-2 bg-surface/30 px-6 pb-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
                 <input

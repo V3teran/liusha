@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ConversationDetail } from '@/features/conversation/ConversationDetail'
@@ -52,16 +53,10 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 统一头部 */}
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">
-            对话
-          </h1>
-          <p className="mt-0.5 text-sm text-text-secondary">
-            {source === 'self' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="对话"
+        subtitle={source === 'self' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
+      />
 
       {/* 主从双栏 */}
       <div className="grid min-h-0 flex-1 grid-cols-[304px_1fr]">

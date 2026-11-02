@@ -170,7 +170,7 @@ export function ToolsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
+      <header className="flex items-center justify-between px-6 py-4">
         <div className="min-w-0">
           <h1 className="text-base font-semibold text-text">工具</h1>
           <p className="mt-0.5 text-sm text-text-secondary">

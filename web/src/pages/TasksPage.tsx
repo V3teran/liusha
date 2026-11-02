@@ -1,3 +1,4 @@
+import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { useSearchParams } from 'react-router-dom'
@@ -49,10 +50,7 @@ export function TasksPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold text-text">任务</h1>
-        </div>
+      <PageHeader title="任务">
         <button
           type="button"
           onClick={() => setDialogOpen(true)}
@@ -61,7 +59,7 @@ export function TasksPage() {
           <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
           新建任务
         </button>
-      </header>
+      </PageHeader>
 
       {/* 左右分栏（master-detail）：任务详情是窄格式内容（KV + 短文本 + 按钮），
           右侧常驻面板是业界主流（Sentry/Datadog/Linear——扫列表、右钻详情保持行上下文）。
