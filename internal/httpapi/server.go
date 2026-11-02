@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -129,7 +130,12 @@ func NewServer(d Deps) http.Handler {
 		}
 		start := time.Now()
 		c.Next()
+		// 日志查看端点被日志页自身 3s 增量轮询，info 级会在日志页里自我回灌成
+		// 噪音墙——降为 debug：默认视图消失，排查轮询时仍可按级别开启。
 		ev := accessLog.Info()
+		if strings.HasPrefix(c.Request.URL.Path, "/logs") {
+			ev = accessLog.Debug()
+		}
 		if c.Writer.Status() >= http.StatusInternalServerError {
 			ev = accessLog.Error()
 		}
