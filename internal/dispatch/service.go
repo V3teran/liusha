@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,6 +115,9 @@ func wallClockOption(d time.Duration) time.Duration {
 // conversationID）。CreateScan（无会话纯后台）与 StartChatTask（会话发起）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
 func (a *Service) createTask(ctx context.Context, brief, conversationID string) (string, string, error) {
+	if err := validateBrief(brief); err != nil {
+		return "", "", err
+	}
 	// 一切下发皆走 assignment：单发 = 单元素 assignment(manual) → 1 task。
 	asg, err := a.Assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceSelf,
@@ -276,6 +280,9 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 // （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
 // 入队 Payload 与 createTask 同构，仅 TaskID 复用传入 taskID、不新建 task。
 func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
+	if err := validateBrief(brief); err != nil {
+		return "", err
+	}
 	if err := a.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
 	}
@@ -469,14 +476,73 @@ func (a *Service) FindingsSummary(ctx context.Context, _, taskID string) (string
 	if err != nil {
 		return "", err
 	}
+	return renderFindingsSummary(fs), nil
+}
+
+// qaFindingsTopN 是问答上下文携带的 finding 条数上限：清单型输入按 top-k +
+// 溢出行治理——持续探索模式的 finding 随任务时长线性增长，全量渲染会无界
+// 吃掉问答调用的输入预算。
+const qaFindingsTopN = 20
+
+// severityRank 给自由文本 severity 定序（大小写不敏感前缀匹配，与 finding
+// 模型的建议值对齐）：问答最相关的是最严重的成果而非最新的，截断只丢低危。
+// 同级保持 ListByTask 的 created_at DESC 稳定序。
+func severityRank(sev string) int {
+	l := strings.ToLower(sev)
+	switch {
+	case strings.HasPrefix(l, "critical"):
+		return 5
+	case strings.HasPrefix(l, "high"):
+		return 4
+	case strings.HasPrefix(l, "medium"):
+		return 3
+	case strings.HasPrefix(l, "low"):
+		return 2
+	case strings.HasPrefix(l, "info"):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// renderFindingsSummary 渲染问答用的 finding 摘要：严重度降序取 top-N，
+// 溢出以计数行显式留痕（不静默）。
+func renderFindingsSummary(fs []finding.Finding) string {
 	if len(fs) == 0 {
-		return "（暂无 finding）", nil
+		return "（暂无 finding）"
+	}
+	sorted := make([]finding.Finding, len(fs))
+	copy(sorted, fs)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return severityRank(sorted[i].Severity) > severityRank(sorted[j].Severity)
+	})
+	shown := sorted
+	if len(sorted) > qaFindingsTopN {
+		shown = sorted[:qaFindingsTopN]
 	}
 	var b strings.Builder
-	for i, f := range fs {
+	for i, f := range shown {
 		fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, f.Severity, f.Summary)
 	}
-	return b.String(), nil
+	if len(sorted) > len(shown) {
+		fmt.Fprintf(&b, "（另有 %d 条较低严重度的 finding，完整清单见漏洞页）\n", len(sorted)-len(shown))
+	}
+	return b.String()
+}
+
+// maxBriefRunes 是任务描述（brief）的入口长度契约。brief 逐字进 executor
+// system prompt 与 planner 根目标，压缩机制不裁 system——超大 brief 绕过
+// 全部预算防线，只能在执行期被长度哨兵拦下（任务已下发、浪费一次跑）。
+// 契约在入口拒绝而非截断：上下文装配截断无损语义，任务指令被静默截断会
+// 腐蚀意图（agent 照半截指令干活），两者纪律不同。
+const maxBriefRunes = 20000
+
+// validateBrief 校验任务描述的入口契约。
+func validateBrief(brief string) error {
+	if n := len([]rune(brief)); n > maxBriefRunes {
+		return fmt.Errorf("任务描述过长（%d 字 > 上限 %d），请精简后重发", n, maxBriefRunes)
+	}
+	return nil
 }
 
 // RoleRouter 按业务 role 路由：role → llmconfig.AgentComplexity 归档（inspector 等
@@ -636,15 +702,77 @@ func (a *Service) StartChatTask(ctx context.Context, brief string) (string, stri
 	return conversationID, taskID, nil
 }
 
+// 会话上文参与 chat/qa/意图分类的体量钳制：轮次条数、单条 rune、总 token。
+// 上文是增强不是主体——超出即丢最旧（对话记忆的价值重心在近端），绝不因
+// 上文体量放大回答成本。
+const (
+	recentTurnCount    = 12   // 参与上文的 user/assistant 消息条数上限
+	recentTurnTokens   = 4000 // 上文总 token 预算
+	recentTurnMaxRunes = 4000 // 单条钳制 rune（与时间线落库截断同口径）
+)
+
+// History 满足 chat/qa.Deps：取会话的对话上文。LatestMessages 取最近 N 条
+// 真实对话消息（agent 过程事件天然排除），从最新往回收纳、超总预算丢最旧，
+// 最后剔除与当前消息内容相同的末条 user（当前消息已由入口先落库，避免重复
+// 进上下文——按内容自尾匹配对重复消息同样正确）。
+func (a *Service) History(ctx context.Context, conversationID, excludeContent string) ([]fwllm.Message, error) {
+	msgs, err := a.Conversations.LatestMessages(ctx, conversationID, recentTurnCount+1)
+	if err != nil {
+		return nil, err
+	}
+	// 自尾剔除当前消息（末条 content 相同的 user；按元素删除而非截断，
+	// 保住其后可能存在的并发消息）
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == conversation.RoleUser && msgs[i].Content == excludeContent {
+			msgs = append(msgs[:i], msgs[i+1:]...)
+			break
+		}
+	}
+	// 从最新往回收纳，超预算即止（丢最旧保最新）
+	kept := make([]fwllm.Message, 0, len(msgs))
+	used := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		content := clampRunes(msgs[i].Content, recentTurnMaxRunes)
+		t := fwllm.EstimateTokens(content)
+		if used+t > recentTurnTokens && len(kept) > 0 {
+			break
+		}
+		used += t
+		kept = append(kept, fwllm.Message{Role: fwllm.MessageRole(msgs[i].Role), Content: content})
+	}
+	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
+		kept[i], kept[j] = kept[j], kept[i]
+	}
+	return kept, nil
+}
+
+// clampRunes 按 rune 截尾（上文单条钳制）。
+func clampRunes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…（截断）"
+}
+
 // classifyIntent 用 light provider 判定消息意图。provider 不可用返回显式 error
-// （入口方自行决定报错还是提示），不静默降级 qa。
+// （入口方自行决定报错还是提示），不静默降级 qa。会话上文读取失败仅告警并
+// 去上文分类——分类闸失明才是主功能失效，上文只是指代消解的增强。
 func (a *Service) classifyIntent(ctx context.Context, conversationID, content string) (intent.Kind, error) {
 	g, err := a.Router.generator(ctx, "inspector") // light provider
 	if err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("意图分类 provider 失败")
 		return intent.QA, fmt.Errorf("intent classify provider: %w", err)
 	}
-	return intent.Classify(ctx, g, content)
+	recent, hErr := a.History(ctx, conversationID, content)
+	if hErr != nil {
+		chatLog.Warn().Err(hErr).Str("conversation_id", conversationID).Msg("读会话上文失败，去上文分类")
+		recent = nil
+	}
+	return intent.Classify(ctx, g, content, recent)
 }
 
 // answerChatAsync 纯聊天的异步回答：增量经 SSE 打字机流出，全文落库兜底。
@@ -678,8 +806,10 @@ func (a *Service) genTitle(conversationID, brief string) {
 	if err != nil {
 		return
 	}
+	// 标题只需要大意：brief 钳长后进 prompt（标题生成是单发便宜档调用，
+	// 不该为病态长 brief 买单）。
 	prompt := "把下面的渗透测试任务描述总结成一个不超过 16 字的简短中文标题，" +
-		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + brief
+		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + clampRunes(brief, 2000)
 	res, err := g.Generate(ctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: prompt}}, nil)
 	if err != nil {
 		return

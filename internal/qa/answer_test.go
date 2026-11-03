@@ -13,10 +13,15 @@ type fakeDeps struct {
 	genReply  string
 	appended  string
 	published bool
+	history   []llm.Message // History 返回的上文（nil=空）
 }
 
 func (f *fakeDeps) FindingsSummary(_ context.Context, _, _ string) (string, error) {
 	return f.findings, nil
+}
+
+func (f *fakeDeps) History(_ context.Context, _, _ string) ([]llm.Message, error) {
+	return f.history, nil
 }
 
 func (f *fakeDeps) Generate(_ context.Context, _ []llm.Message, _ []llm.ToolSchema) (llm.Result, error) {
