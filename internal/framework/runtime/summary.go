@@ -25,6 +25,18 @@ func (r *reactRuntime) completeForced(
 	result *ReActResult,
 	ask string,
 ) (llm.Response, error) {
+	// 出站请求统一受预算治理：收尾调用前同样过修改链并写回（与 callLLM 的
+	// 检查点语义同源）——历史以收敛基座进入收尾，重试注入的纠偏消息不会在
+	// 未治理的历史上连续叠加（强制收尾是唯一绕过 callLLM 的出站点，不能成为
+	// 预算治理的旁路）。
+	if config.MessageModifierChain != nil {
+		converged, err := config.MessageModifierChain.Apply(ctx, result.MessageHistory)
+		if err != nil {
+			return llm.Response{}, fmt.Errorf("message modifier chain failed: %w", err)
+		}
+		result.MessageHistory = converged
+	}
+
 	budget := config.MaxTokens
 	if budget <= 0 {
 		budget = maxForcedOutputTokens

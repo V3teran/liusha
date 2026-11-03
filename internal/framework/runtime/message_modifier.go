@@ -8,8 +8,10 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// MessageModifier 是 LLM 消息预处理单元。
-// 在 LLM 调用前对消息历史进行转换：字段注入、历史压缩、敏感信息脱敏等。
+// MessageModifier 是 LLM 消息修改单元。
+// 链产出收敛回权威消息历史（检查点语义）：压缩类修改器按需收敛历史（裁掉
+// 超预算前缀并补纪要），校验类修改器作不变量哨兵。每次 LLM 调用前执行，
+// 产出即此后追加的底座。
 type MessageModifier interface {
 	// Modify 转换消息列表，返回修改后的消息。
 	// 如果返回 error，行为由 MessageModifierChain 的 ErrorStrategy 决定。
@@ -153,17 +155,18 @@ func (c *MessageModifierChain) Apply(ctx context.Context, messages []llm.Message
 // 预设修改器链
 // ─────────────────────────────────────────────
 
-// NewDefaultModifierChain 创建默认的消息修改器链
-// 适用于大多数 Agent：验证 → 滚动窗口压缩
-func NewDefaultModifierChain(windowSize int) *MessageModifierChain {
-	if windowSize <= 0 {
-		windowSize = 20 // 默认保留 20 条消息
-	}
-
+// NewCompactionChain 构建默认消息修改链：上下文压缩（token 预算 + 蒸馏纪要）
+// → 长度校验哨兵。
+//
+// 压缩在前：超预算的臃肿前缀先被裁掉，校验只看裁后的窗口——单条超长消息在
+// 正常路径下由压缩解决，越线即真不变量（工具输出另有运行时钳制兜底）。
+// budgetTokens 是历史总预算（比例 × provider.context_window，引擎侧解析）；
+// role 是角色名（蒸馏 prompt 定侧重）；d 可空（降级纯截断）。
+func NewCompactionChain(budgetTokens int, role string, d Distiller) *MessageModifierChain {
 	return NewMessageModifierChain(
 		[]MessageModifier{
+			NewContextCompactor(budgetTokens, role, d),
 			NewValidateModifier(100000),
-			NewRollingWindowModifier(windowSize),
 		},
 		ErrorStrategyFailFast,
 		DefaultRetryConfig(),
@@ -174,69 +177,6 @@ func NewDefaultModifierChain(windowSize int) *MessageModifierChain {
 // ─────────────────────────────────────────────
 // 内置修改器实现
 // ─────────────────────────────────────────────
-
-// RollingWindowModifier 滚动窗口压缩：保留系统消息 + 最近 N 条非系统消息
-type RollingWindowModifier struct {
-	windowSize int
-}
-
-// NewRollingWindowModifier 构造滚动窗口压缩器（windowSize<=0 用默认 20）。
-func NewRollingWindowModifier(windowSize int) *RollingWindowModifier {
-	if windowSize <= 0 {
-		windowSize = 20
-	}
-	return &RollingWindowModifier{windowSize: windowSize}
-}
-
-// Modify 实现 RollingWindowModifier 的接口方法。
-func (m *RollingWindowModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
-	if len(messages) <= m.windowSize+1 {
-		return messages, nil
-	}
-
-	// 分离系统消息和其他消息
-	var systemMessages []llm.Message
-	var otherMessages []llm.Message
-
-	for _, msg := range messages {
-		if msg.Role == llm.RoleSystem {
-			systemMessages = append(systemMessages, msg)
-		} else {
-			otherMessages = append(otherMessages, msg)
-		}
-	}
-
-	compacted := false
-	// 保留最近的窗口
-	if len(otherMessages) > m.windowSize {
-		cut := len(otherMessages) - m.windowSize
-		// 边界对齐一：窗口起点不得是 tool 消息——它的父 assistant(tool_calls) 已被
-		// 切掉，悬空的 tool 结果违反消息协议（tool_call_id 无引用），协议侧会整包
-		// 拒收。丢弃整组（assistant+其全部 tool 结果）是窗口压缩的不可再分单位。
-		for cut < len(otherMessages) && otherMessages[cut].Role == llm.RoleTool {
-			cut++
-		}
-		otherMessages = otherMessages[cut:]
-		compacted = true
-	}
-
-	// 系统消息 + 窗口内消息（显式新切片，避免 append 复用 systemMessages 底层数组）
-	result := make([]llm.Message, 0, len(systemMessages)+len(otherMessages)+1)
-	result = append(result, systemMessages...)
-
-	// 边界对齐二：压缩发生后窗口必须从 user 轮开始——部分严格实现要求首条
-	// 非 system 消息是 user，assistant 开头的窗口同样会被整包拒收。
-	// 占位 user 同时承担上下文连续性提示（告知模型前情被压缩）。
-	if compacted && (len(otherMessages) == 0 || otherMessages[0].Role != llm.RoleUser) {
-		result = append(result, llm.Message{
-			Role:    llm.RoleUser,
-			Content: "（更早的对话历史已按上下文窗口压缩，以下为最近的执行上下文）",
-		})
-	}
-
-	result = append(result, otherMessages...)
-	return result, nil
-}
 
 // ValidateModifier 验证消息合法性（例如长度、格式等）。
 type ValidateModifier struct {

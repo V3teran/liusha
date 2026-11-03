@@ -82,9 +82,15 @@ type ReActConfig struct {
 	// 最大 Token 数
 	MaxTokens int
 
+	// ToolOutputTailBytes 是单条工具输出进上下文前的全局尾部保留字节（>0 启用）。
+	// 运行时统一收口：个别工具内的领域化裁剪仍先行，这里兜底保证任何工具结果
+	// 都有界——不撑爆上下文预算、不撞长度校验哨兵弄死整轮。0 = 不钳制（仅测试）。
+	ToolOutputTailBytes int
+
 	// 是否启用流式输出
-	// 消息预处理链（在 LLM 调用前对消息历史进行转换）
-	// 包括：消息压缩、字段注入、验证等
+	// MessageModifierChain 是消息修改链（压缩、校验等）。链产出收敛回权威
+	// 消息历史（检查点语义）：压缩后的紧凑基座即此后追加的底座，被裁前缀与
+	// 其纪要一次性出清，不随每次调用重复压缩。
 	MessageModifierChain *MessageModifierChain
 
 	// 中间件链（在每次迭代前后执行，用于检测循环、目标偏离等异常）

@@ -15,28 +15,31 @@ func (r *reactRuntime) toolFailureLimit(config *ReActConfig) int {
 	return 8
 }
 
-// callLLM 调用 LLM
+// callLLM 调用 LLM。
+//
+// 修改链的产出收敛回 result.MessageHistory——压缩是检查点语义而非视图层变换：
+// 权威历史以紧凑基座继续追加，超预算的被裁前缀连同其纪要一次性出清。若只把
+// 压缩结果用于当次 wire 请求（历史原样保留），则每次调用都要重新压缩增长中的
+// 同一历史——被裁前缀随之单调增长、纪要指纹次次 miss，蒸馏调用退化为每步一次；
+// 且纪要永不入权威历史，「旧纪要折叠进新纪要」的链路整体失效。写回让两者一并
+// 接活：两次压缩之间历史只增不压，纪要随权威历史进入下次被裁前缀。
 func (r *reactRuntime) callLLM(
 	ctx context.Context,
 	config *ReActConfig,
-	messageHistory []llm.Message,
+	result *ReActResult,
 ) (*llmResponse, error) {
-	// 应用消息预处理链（如果配置了）
-	processedMessages := messageHistory
+	// 应用消息预处理链（如果配置了）：产出即权威历史
 	if config.MessageModifierChain != nil {
-		var err error
-		processedMessages, err = config.MessageModifierChain.Apply(ctx, messageHistory)
+		converged, err := config.MessageModifierChain.Apply(ctx, result.MessageHistory)
 		if err != nil {
 			return nil, fmt.Errorf("message modifier chain failed: %w", err)
 		}
+		result.MessageHistory = converged
 	}
-
-	// 消息已经是 llm.Message 格式，直接使用
-	llmMessages := processedMessages
 
 	// 构建 LLM 请求（温度按调用透传——Validate 已保证 0-1，>0 才有意义下发）
 	request := llm.Request{
-		Messages:  llmMessages,
+		Messages:  result.MessageHistory,
 		MaxTokens: config.MaxTokens,
 	}
 	if config.Temperature > 0 {

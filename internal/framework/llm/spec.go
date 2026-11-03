@@ -22,6 +22,9 @@ type ProviderSpec struct {
 	// >0 = 开启扩展思考（模型先流式产出内部 CoT 再产正文）；0 = 不开启。
 	// openai_compat 协议当前不消费此参数。
 	ThinkingBudget int64
+	// ContextWindow 是模型的上下文窗口（token 数）。上下文压缩预算的基准：
+	// 历史预算 = 比例 × ContextWindow；0 = 未知（消费方回退内置兜底）。
+	ContextWindow int
 }
 
 // 协议类型常量（与业务侧 llmconfig 的字符串值一致——wire 契约）。
