@@ -26,9 +26,29 @@ type gen interface {
 const systemPrompt = `你是渗透测试会话的消息分类器。判断用户最新消息属于哪类：
 - action：让 agent 去执行——发起/继续扫描、验证某条请求、深挖某个点、重放或构造请求测试（含用户直接贴出的请求/命令要 agent 照打）。
 - qa：就已挖到的结果提问、解释、总结，不需要 agent 再动手。
+只依据最新一条用户消息判断；此前的对话仅用于消解指代（如「继续」「再来一次」指什么）。
 只输出一个词：action 或 qa。无法确定时输出 qa。`
 
-// Classify 调 light LLM 分类。
+// classifyMaxRunes 是分类对象消息的钳制上限（rune）：分类只需要消息的意图
+// 形态，不需要全文——渗透测试贴的大请求保留前段（方法/路径/意图都在头部）
+// 足以判类，钳制防病态长文撑爆便宜档调用的输入。
+const classifyMaxRunes = 8000
+
+// clampRunes 按 rune 截尾（本包内消息钳制口径；分类保头，与上下文装配保尾
+// 的口径相反——意图信息在头部）。
+func clampRunes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…（后文截断）"
+}
+
+// Classify 调 light LLM 分类。recent 是最近对话轮次（时间正序、可空）——
+// 仅为消解「继续/再来一次」类指代；分类对象始终是最新一条。
 //
 // 两类失败语义不同，调用方的处置也不同：
 //   - 生成失败（provider 不可达/限流/超时）→ 返回 error。意图闸失明不能静默
@@ -37,11 +57,12 @@ const systemPrompt = `你是渗透测试会话的消息分类器。判断用户�
 //     发可见的失败提示）。
 //   - 输出无法解析为 action/qa → 归 qa 不报错：这是分类器契约内的保守缺省
 //     （prompt 已指示「无法确定时输出 qa」），输出畸形是模型质量问题，不是闸失明。
-func Classify(ctx context.Context, g gen, userMessage string) (Kind, error) {
-	res, err := g.Generate(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: systemPrompt},
-		{Role: llm.RoleUser, Content: userMessage},
-	}, nil)
+func Classify(ctx context.Context, g gen, userMessage string, recent []llm.Message) (Kind, error) {
+	msgs := make([]llm.Message, 0, len(recent)+2)
+	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
+	msgs = append(msgs, recent...)
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: clampRunes(userMessage, classifyMaxRunes)})
+	res, err := g.Generate(ctx, msgs, nil)
 	if err != nil {
 		return QA, fmt.Errorf("intent classify: %w", err)
 	}

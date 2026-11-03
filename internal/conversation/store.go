@@ -313,6 +313,44 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, afterSe
 	return out, rows.Err()
 }
 
+// LatestMessages 取会话最近 n 条「真实对话消息」：kind=message 且 role ∈
+// user/assistant——agent 过程事件（tool/思考/任务状态）与提示节点一律排除，
+// 返回按时间正序。这是 chat / qa / 意图分类的会话记忆入口：多轮对话的上下文
+// 拼装、指代消解都从本方法取料，与时间线回放（ListMessages，含事件）分工明确。
+func (s *Store) LatestMessages(ctx context.Context, conversationID string, n int) ([]Message, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	if n > maxListLimit {
+		n = maxListLimit
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+msgCols+` FROM message
+		WHERE conversation_id=$1 AND kind='message' AND role IN ('user','assistant')
+		ORDER BY seq DESC LIMIT $2`, conversationID, n)
+	if err != nil {
+		return nil, fmt.Errorf("latest messages of %s: %w", conversationID, err)
+	}
+	defer rows.Close()
+
+	var out []Message
+	for rows.Next() {
+		var m Message
+		if err := scanMessage(rows, &m); err != nil {
+			return nil, fmt.Errorf("scan latest message: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 倒序取正序还
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 func scanConversation(r db.RowScanner, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt)
 }

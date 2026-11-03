@@ -38,7 +38,7 @@ func TestClassify(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := Classify(context.Background(), fakeGen{reply: c.reply}, "用户消息")
+			got, err := Classify(context.Background(), fakeGen{reply: c.reply}, "用户消息", nil)
 			if err != nil {
 				t.Fatalf("reply=%q 意外错误: %v", c.reply, err)
 			}
@@ -51,7 +51,7 @@ func TestClassify(t *testing.T) {
 
 func TestClassify_ErrorReturnsError(t *testing.T) {
 	// 生成失败必须显式报错：意图闸失明静默降级 qa 会把扫描请求悄悄变成聊天回答。
-	got, err := Classify(context.Background(), fakeGen{err: context.DeadlineExceeded}, "x")
+	got, err := Classify(context.Background(), fakeGen{err: context.DeadlineExceeded}, "x", nil)
 	if err == nil {
 		t.Fatal("调用失败应返回 error，得 nil")
 	}
