@@ -487,13 +487,13 @@ export interface CredentialHostSummary {
    proxy_filter 触发 proxy 进程热换流量过滤链（无需重启）。
    ============================================================ */
 
-// CompactionSettings 会话历史压缩旋钮：ReAct 循环用「滚动窗口」压上下文——
-// 每步 Generate 前保留 system + 最近 N 条非系统消息，N 即各角色窗口条数。
+// CompactionSettings 上下文压缩旋钮：ReAct 循环按「历史 token 预算」压上下文——
+// 预算 = 比例 × 本角色路由 provider 的 context_window，超预算的前缀被裁并蒸馏成纪要。
 export interface CompactionSettings {
-  planner_window_messages: number // 规划链路滚动窗口条数，>0
-  executor_window_messages: number // 执行链路滚动窗口条数，>0
-  evaluator_window_messages: number // 裁决链路滚动窗口条数，>0
-  monitor_window_messages: number // 监察链路滚动窗口条数，>0
+  planner_context_ratio: number // 规划链路历史预算占比，>0 且 ≤0.9
+  executor_context_ratio: number // 执行链路历史预算占比，>0 且 ≤0.9
+  evaluator_context_ratio: number // 裁决链路历史预算占比，>0 且 ≤0.9
+  monitor_context_ratio: number // 监察链路历史预算占比，>0 且 ≤0.9
 }
 
 // RuntimeSettings 工具运行时旋钮。
@@ -501,6 +501,7 @@ export interface RuntimeSettings {
   step_tool_timeout_seconds: number // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界），>0
   step_llm_timeout_seconds: number // 单步 LLM 看门狗超时秒（审计页超时判定同源），>0
   run_tail_bytes: number // run_command 输出保留尾部字节数，>0
+  tool_output_tail_bytes: number // 任意工具输出进上下文前的全局尾部保留字节（运行时统一收口），>0
 }
 
 // ProxyFilterSettings 代理流量过滤规则（黑白名单 + body 上限）。

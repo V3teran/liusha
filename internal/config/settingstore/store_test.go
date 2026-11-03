@@ -79,15 +79,15 @@ func newTestStore(t *testing.T) (*Store, *fakeDB, *miniredis.Miniredis) {
 func TestCompaction_RefillHitsDBOnce(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.compaction = &CompactionSettings{PlannerWindowMessages: 25, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 10}
+	db.compaction = &CompactionSettings{PlannerContextRatio: 0.7, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5}
 
 	for i := 0; i < 3; i++ {
 		got, err := s.Compaction(ctx)
 		if err != nil {
 			t.Fatalf("compaction read #%d: %v", i, err)
 		}
-		if got.PlannerWindowMessages != 25 {
-			t.Fatalf("期望 planner 窗口 25，实际 %v", got.PlannerWindowMessages)
+		if got.PlannerContextRatio != 0.7 {
+			t.Fatalf("期望 planner 占比 0.7，实际 %v", got.PlannerContextRatio)
 		}
 	}
 	if got := atomic.LoadInt64(&db.compactionHit); got != 1 {
@@ -135,7 +135,7 @@ func TestProxyFilter_NilSlicesNormalized(t *testing.T) {
 func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	ctx := context.Background()
 	s, db, _ := newTestStore(t)
-	db.compaction = &CompactionSettings{PlannerWindowMessages: 30}
+	db.compaction = &CompactionSettings{PlannerContextRatio: 0.8}
 
 	if _, err := s.Compaction(ctx); err != nil { // 暖 L1
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	if !s.cache.L1Has(keyCompaction) {
 		t.Fatal("首读后哨兵键应在 L1")
 	}
-	if err := s.SaveCompaction(ctx, CompactionSettings{PlannerWindowMessages: 28, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 12}); err != nil {
+	if err := s.SaveCompaction(ctx, CompactionSettings{PlannerContextRatio: 0.55, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5}); err != nil {
 		t.Fatalf("save compaction: %v", err)
 	}
 	if s.cache.L1Has(keyCompaction) {
@@ -153,8 +153,8 @@ func TestSaveCompaction_InvalidatesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reread: %v", err)
 	}
-	if got.PlannerWindowMessages != 28 {
-		t.Fatalf("应读到新值 28，实际 %v", got.PlannerWindowMessages)
+	if got.PlannerContextRatio != 0.55 {
+		t.Fatalf("应读到新值 0.55，实际 %v", got.PlannerContextRatio)
 	}
 }
 

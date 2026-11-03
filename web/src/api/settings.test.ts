@@ -29,18 +29,18 @@ describe('settings API 客户端', () => {
 
   it('getCompactionSettings 拆出 compaction 快照', async () => {
     const fn = mockFetch(200, {
-      compaction: { planner_window_messages: 20, executor_window_messages: 15, evaluator_window_messages: 10, monitor_window_messages: 10 },
+      compaction: { planner_context_ratio: 0.6, executor_context_ratio: 0.5, evaluator_context_ratio: 0.5, monitor_context_ratio: 0.5 },
     })
     const v = await getCompactionSettings()
-    expect(v.planner_window_messages).toBe(20)
+    expect(v.planner_context_ratio).toBe(0.6)
     expect(fn.mock.calls[0][0]).toBe('/api/settings/compaction')
   })
 
   it('saveCompactionSettings PUT 整组并回传', async () => {
-    const body = { planner_window_messages: 22, executor_window_messages: 15, evaluator_window_messages: 10, monitor_window_messages: 12 }
+    const body = { planner_context_ratio: 0.65, executor_context_ratio: 0.5, evaluator_context_ratio: 0.5, monitor_context_ratio: 0.55 }
     const fn = mockFetch(200, { compaction: body })
     const v = await saveCompactionSettings(body)
-    expect(v.monitor_window_messages).toBe(12)
+    expect(v.monitor_context_ratio).toBe(0.55)
     const [url, init] = fn.mock.calls[0]
     expect(url).toBe('/api/settings/compaction')
     expect(init.method).toBe('PUT')
