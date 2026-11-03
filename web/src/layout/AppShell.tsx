@@ -73,16 +73,21 @@ export function AppShell() {
           collapsed ? 'w-20' : 'w-64',
         )}
       >
-        {/* Logo 行：收起开关内嵌在行内（业界标准位置），不做悬浮异物——
-            展开 = 圆标 + 品牌文案 + 收起钮；收起 = 圆标 + 展开钮并排居中 */}
-        <div className="flex h-16 flex-shrink-0 items-center border-b border-border px-3">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
-            <img src="/logo.svg" alt="liusha" className="h-6 w-6" />
-          </div>
+          {/* Logo 行：收起开关内嵌在行内（业界标准位置），不做悬浮异物——
+              展开 = 圆标 + 品牌文案 + 收起钮；收起 = 圆标 + 展开钮并排居中。
+              徽记按主题取正负形：深色主题反白剪影，浅色主题黑白剪影。 */}
+          <div className="flex h-16 flex-shrink-0 items-center border-b border-border px-3">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
+              <img
+                src={theme === 'dark' ? '/brand/mark-white.svg' : '/brand/mark-black.svg'}
+                alt="liusha"
+                className="h-6 w-6"
+              />
+            </div>
           {!collapsed && (
             <div className="ml-3 min-w-0 flex-1">
               <span className="brand-mark block font-mono text-base font-bold leading-tight tracking-tight">liusha</span>
-              <span className="block truncate text-xs leading-tight text-text-tertiary">智能化渗透测试平台</span>
+              <span className="block truncate text-xs leading-tight text-text-tertiary">LLM 智能化渗透测试平台</span>
             </div>
           )}
           <button

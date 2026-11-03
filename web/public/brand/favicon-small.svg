@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="流沙（小尺寸字形）">
+  <!-- 流沙 · 16px 专用简化字形（v11 · 默认浅色系）：黑剪影——粗刃两齿 +
+       厚护手 + 大剑首，单一 #1a222b。细节（沙粒/血槽/茎）16px 下不可辨，舍弃。
+       白容器带深色发丝描边（白底标签页边缘分离）。用于渲染 favicon-16.png。 -->
+  <defs>
+    <linearGradient id="containerGrad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7eaef"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="128" height="128" rx="28" fill="url(#containerGrad)"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.25" fill="none" stroke="#1a222b" stroke-opacity="0.1" stroke-width="2"/>
+
+  <g transform="translate(14.72 14.72) scale(1.54) translate(4.6 5.4) rotate(-45 32 32)" fill="#1a222b">
+    <!-- 粗剑刃 + 两枚鲨齿 -->
+    <path d="M24.5 23 L33.5 62 L37 45 L44 40.5 L36.5 36.5 L45.5 31 L40.5 23 Z"/>
+    <!-- 厚护手 -->
+    <path d="M15.5 18 L48.5 18 L46.5 24.5 L17.5 24.5 Z" opacity="0.85"/>
+    <!-- 剑首（大菱形，下尖直接抵护手）-->
+    <path d="M32 2.5 L37.5 9.5 L32 18.5 L26.5 9.5 Z"/>
+  </g>
+</svg>
