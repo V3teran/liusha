@@ -162,6 +162,29 @@ func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.mu.Unlock()
 }
 
+// ContextWindow 返回指定档位当前路由 provider 的上下文窗口（token 数）。
+// 上下文压缩预算的基准——此前 provider.context_window 配置必填却无消费者，
+// 本方法让它承载真实语义。store 层已多级缓存，调用廉价；窗口未知（0）或
+// 读取失败时返回错误，由调用方回退内置兜底。
+func (r *Router) ContextWindow(ctx context.Context, complexity Complexity) (int, error) {
+	routing, err := r.store.GetRouting(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("provider/router: load routing: %w", err)
+	}
+	providerKey, ok := routing.Roles[string(complexity)]
+	if !ok {
+		return 0, fmt.Errorf("provider/router: no provider configured for complexity %q", complexity)
+	}
+	spec, err := r.store.GetProviderSpec(ctx, providerKey)
+	if err != nil {
+		return 0, fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
+	}
+	if spec.ContextWindow <= 0 {
+		return 0, fmt.Errorf("provider/router: provider %q context_window 未配置", providerKey)
+	}
+	return spec.ContextWindow, nil
+}
+
 // BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。
 // spec.APIKey 必须是已解析的明文密钥（解析归业务侧）。导出供业务策略层与 router 共用。
 func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool) (Generator, error) {

@@ -7,48 +7,6 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-func TestRollingWindowModifier(t *testing.T) {
-	modifier := NewRollingWindowModifier(3)
-
-	messages := []llm.Message{
-		{Role: llm.RoleSystem, Content: "系统提示1"},
-		{Role: llm.RoleSystem, Content: "系统提示2"},
-		{Role: llm.RoleUser, Content: "用户消息1"},
-		{Role: llm.RoleAssistant, Content: "助手消息1"},
-		{Role: llm.RoleUser, Content: "用户消息2"},
-		{Role: llm.RoleAssistant, Content: "助手消息2"},
-		{Role: llm.RoleUser, Content: "用户消息3"},
-		{Role: llm.RoleAssistant, Content: "助手消息3"},
-		{Role: llm.RoleUser, Content: "用户消息4"},
-	}
-
-	result, err := modifier.Modify(context.Background(), messages)
-	if err != nil {
-		t.Fatalf("Modify failed: %v", err)
-	}
-
-	// 应该保留：2条系统消息 + 最近3条非系统消息
-	if len(result) != 5 {
-		t.Errorf("expected 5 messages, got %d", len(result))
-	}
-
-	// 验证系统消息都在
-	systemCount := 0
-	for _, msg := range result {
-		if msg.Role == llm.RoleSystem {
-			systemCount++
-		}
-	}
-	if systemCount != 2 {
-		t.Errorf("expected 2 system messages, got %d", systemCount)
-	}
-
-	// 验证最后一条是用户消息4
-	if result[len(result)-1].Content != "用户消息4" {
-		t.Errorf("expected last message to be '用户消息4', got '%s'", result[len(result)-1].Content)
-	}
-}
-
 func TestValidateModifier(t *testing.T) {
 	modifier := NewValidateModifier(100)
 
@@ -103,27 +61,19 @@ func TestMessageModifierChain(t *testing.T) {
 	}
 
 	t.Run("FailFast strategy", func(t *testing.T) {
-		chain := NewMessageModifierChain(
-			[]MessageModifier{
-				NewValidateModifier(100),
-				NewRollingWindowModifier(2),
-			},
-			ErrorStrategyFailFast,
-			RetryConfig{MaxAttempts: 0},
-			10,
-		)
+		chain := NewCompactionChain(8, "test", nil) // 预算 8 token：朴素保留装不下全量历史
 
 		result, err := chain.Apply(context.Background(), messages)
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// 验证窗口截断生效：system + 占位 user（起点非 user 时补）+ 2 条
-		if len(result) != 4 {
-			t.Errorf("expected 4 messages, got %d", len(result))
+		// 压缩生效：消息数变少，且压缩后首条非 system 是 user（占位/纪要）
+		if len(result) >= len(messages) {
+			t.Errorf("expected compaction, got %d messages (input %d)", len(result), len(messages))
 		}
 		if result[1].Role != llm.RoleUser {
-			t.Errorf("压缩后窗口起点应为占位 user, got %s", result[1].Role)
+			t.Errorf("压缩后首条非 system 应为 user, got %s", result[1].Role)
 		}
 	})
 
@@ -134,7 +84,7 @@ func TestMessageModifierChain(t *testing.T) {
 		chain := NewMessageModifierChain(
 			[]MessageModifier{
 				failingModifier,
-				NewRollingWindowModifier(2), // 这个应该继续执行
+				NewContextCompactor(8, "test", nil), // 跳过失败者后压缩仍应执行
 			},
 			ErrorStrategySkip,
 			RetryConfig{MaxAttempts: 0},
@@ -146,45 +96,23 @@ func TestMessageModifierChain(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// 跳过失败的修改器，截断应该仍然生效（含占位 user）
-		if len(result) != 4 {
-			t.Errorf("expected 4 messages after skipping failed modifier, got %d", len(result))
+		if len(result) >= len(messages) {
+			t.Errorf("expected compaction after skipping failed modifier, got %d messages", len(result))
 		}
 	})
 }
 
-func TestPredefinedModifierChains(t *testing.T) {
+func TestCompactionChain_ValidationSentinel(t *testing.T) {
+	// 压缩之后的长度校验哨兵：单条超长消息越线即失败（fail-fast）——
+	// 压缩解决体量问题，哨兵守住不变量。
 	messages := []llm.Message{
 		{Role: llm.RoleSystem, Content: "系统提示"},
+		{Role: llm.RoleUser, Content: string(make([]byte, 100001))},
 	}
-	for i := 0; i < 50; i++ {
-		messages = append(messages, llm.Message{
-			Role:    llm.RoleUser,
-			Content: "用户消息",
-		})
+	chain := NewCompactionChain(1<<20, "test", nil)
+	if _, err := chain.Apply(context.Background(), messages); err == nil {
+		t.Error("expected validation error for oversized message, got nil")
 	}
-
-	t.Run("DefaultModifierChain 各窗口档位", func(t *testing.T) {
-		for _, tc := range []struct {
-			window int
-			want   int
-		}{
-			{window: 30, want: 31},
-			{window: 15, want: 16},
-			{window: 25, want: 26},
-			{window: 10, want: 11},
-		} {
-			chain := NewDefaultModifierChain(tc.window)
-			result, err := chain.Apply(context.Background(), messages)
-			if err != nil {
-				t.Fatalf("Apply failed: %v", err)
-			}
-			if len(result) != tc.want {
-				t.Errorf("window=%d: expected %d messages, got %d", tc.window, tc.want, len(result))
-			}
-		}
-	})
-
 }
 
 // mockFailingModifier 总是失败的修改器（用于测试）

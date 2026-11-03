@@ -48,7 +48,7 @@ func (r *reactRuntime) runIteration(
 		trace.EndTime = time.Now().UnixMilli()
 		return trace, true, nil
 	}
-	response, err := r.callLLM(ctx, config, result.MessageHistory)
+	response, err := r.callLLM(ctx, config, result)
 	if err != nil {
 		trace.Status = IterationStatusFailed
 		trace.EndTime = time.Now().UnixMilli()
@@ -143,7 +143,7 @@ func (r *reactRuntime) runIteration(
 		}
 
 		// 执行工具
-		observation, failed, err := r.executeTool(ctx, toolCall)
+		observation, failed, err := r.executeTool(ctx, config, toolCall)
 		if err != nil {
 			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
 			failed = true

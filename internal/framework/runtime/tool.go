@@ -30,7 +30,10 @@ func thinkingText(t *llm.ThinkingBlock) string {
 // executeTool 执行工具。failed 区分「结果性失败」（ErrorMask 语义：错误经
 // ToolResult.Error 传递、err 为 nil——连续失败止损的计数依据，此前只看 err
 // 导致生产链路永不计数、止损恒死）与成功。
-func (r *reactRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (observation string, failed bool, err error) {
+//
+// 成功输出经 config.ToolOutputTailBytes 全局钳制（尾部保留）后才作为观察进入
+// 上下文——个别工具内的领域化裁剪先行，这里兜底保证任何单条工具结果有界。
+func (r *reactRuntime) executeTool(ctx context.Context, config *ReActConfig, toolCall llm.ToolCall) (observation string, failed bool, err error) {
 	r.mu.RLock()
 	tool, exists := r.tools[toolCall.Name]
 	r.mu.RUnlock()
@@ -79,6 +82,20 @@ func (r *reactRuntime) executeTool(ctx context.Context, toolCall llm.ToolCall) (
 		return result.Error, true, nil
 	}
 
-	// 返回工具输出（Output 字段已经是字符串）
-	return result.Output, false, nil
+	// 返回工具输出（Output 字段已经是字符串），超限时尾部保留——输出末段是
+	// 结果所在（与 run_tail_bytes 同一教义），头部横幅/噪音可弃。
+	return clampTail(result.Output, config.ToolOutputTailBytes), false, nil
+}
+
+// clampTail 把输出收敛到 maxBytes 字节的尾部（maxBytes<=0 原样直通）。截口对齐
+// UTF-8 边界：字节裁切可能落在多字节 rune 中间，丢弃不完整的残字节。
+func clampTail(out string, maxBytes int) string {
+	if maxBytes <= 0 || len(out) <= maxBytes {
+		return out
+	}
+	tail := out[len(out)-maxBytes:]
+	for len(tail) > 0 && tail[0]&0xC0 == 0x80 { // 续字节（10xxxxxx）= 残 rune，前移
+		tail = tail[1:]
+	}
+	return "...[前段已截断]\n" + tail
 }
