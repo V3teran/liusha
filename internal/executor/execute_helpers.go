@@ -91,7 +91,8 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		OnThinkingDelta:            onThinkingDelta,
 		Temperature:                0.7,
 		MaxTokens:                  4000,
-		MessageModifierChain:       runtime.NewDefaultModifierChain(e.modifierWindow), // 系统配置 compaction 组；0=内置默认 15
+		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "executor", e.distiller),
+		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",

@@ -34,9 +34,12 @@ type Agent struct {
 	interval     time.Duration
 	logger       zerolog.Logger
 
-	systemPrompt  string // 角色章程（agent.system_prompt；空=不渲染）
-	maxIt         int    // ReAct 迭代上限（0=不设限）
-	messageWindow int    // ReAct 滚动窗口条数（0=内置默认 10）
+	systemPrompt string // 角色章程（agent.system_prompt；空=不渲染）
+	maxIt        int    // ReAct 迭代上限（0=不设限）
+	// contextRatio 是上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）。
+	contextRatio        float64
+	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	toolOutputTailBytes int               // 工具输出全局尾部钳制字节（0=不钳）
 
 	// 时间序列指标收集器
 	metricsCollector *metrics.Collector
@@ -55,9 +58,15 @@ type Config struct {
 
 	FunctionTools []string // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 
-	// MessageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
-	// 0=内置默认 10——监察链路短，窗口最小档）。
-	MessageWindow int
+	// ContextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
+	// compaction 组，任务开始时快照；0=压缩器内置兜底预算）。
+	ContextRatio float64
+
+	// Distiller 是上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
+	Distiller runtime.Distiller
+
+	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
+	ToolOutputTailBytes int
 
 	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
 	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
@@ -107,21 +116,37 @@ func New(cfg Config) *Agent {
 	}
 
 	return &Agent{
-		taskID:           cfg.TaskID,
-		agentRunID:       cfg.AgentRunID,
-		graph:            cfg.Graph,
-		eventBus:         cfg.EventBus,
-		router:           cfg.Router,
-		complexity:       llm.ParseComplexity(cfg.Complexity),
-		reactRuntime:     reactRuntime,
-		interval:         interval,
-		logger:           cfg.Logger,
-		systemPrompt:     cfg.SystemPrompt,
-		maxIt:            cfg.MaxIterations,
-		messageWindow:    cfg.MessageWindow, // 0 由使用点回退内置默认 10
-		metricsCollector: metricsCollector,
-		thoughts:         cfg.Thoughts,
+		taskID:              cfg.TaskID,
+		agentRunID:          cfg.AgentRunID,
+		graph:               cfg.Graph,
+		eventBus:            cfg.EventBus,
+		router:              cfg.Router,
+		complexity:          llm.ParseComplexity(cfg.Complexity),
+		reactRuntime:        reactRuntime,
+		interval:            interval,
+		logger:              cfg.Logger,
+		systemPrompt:        cfg.SystemPrompt,
+		maxIt:               cfg.MaxIterations,
+		contextRatio:        cfg.ContextRatio,
+		distiller:           cfg.Distiller,
+		toolOutputTailBytes: cfg.ToolOutputTailBytes,
+		metricsCollector:    metricsCollector,
+		thoughts:            cfg.Thoughts,
 	}
+}
+
+// contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
+// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断监察）。
+func (a *Agent) contextBudget(ctx context.Context) int {
+	if a.contextRatio <= 0 {
+		return 0
+	}
+	cw, err := a.router.ContextWindow(ctx, a.complexity)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
+		return 0
+	}
+	return int(float64(cw) * a.contextRatio)
 }
 
 // hasSupervisableWork 判断图上是否有可监察对象（open/running 动作）。
@@ -206,14 +231,14 @@ func (a *Agent) evaluate(ctx context.Context) error {
 
 	// 配置 ReAct 运行
 	config := &runtime.ReActConfig{
-		Objective:     objective,
-		SystemPrompt:  systemPrompt,
-		LLMProvider:   provider,
-		MaxIterations: a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		Temperature:   0.3,     // 较低温度，确保稳定性
-		MaxTokens:     4000,
-		// Monitor 窗口最小（原框架 Monitor 预设口径 10）——现由系统配置 compaction 组下发。
-		MessageModifierChain: runtime.NewDefaultModifierChain(a.messageWindow),
+		Objective:            objective,
+		SystemPrompt:         systemPrompt,
+		LLMProvider:          provider,
+		MaxIterations:        a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		Temperature:          0.3,     // 较低温度，确保稳定性
+		MaxTokens:            4000,
+		MessageModifierChain: runtime.NewCompactionChain(a.contextBudget(ctx), "monitor", a.distiller),
+		ToolOutputTailBytes:  a.toolOutputTailBytes,
 		// 监察链路也会多轮调工具（get_global_state 深挖/重试）：循环检测与
 		// 无进展止损与其余三个 agent 同口径；GoalAlignment 不适用（评估目标
 		// 每轮现构建，无固定目标可对齐——与 evaluator judge 同理）。

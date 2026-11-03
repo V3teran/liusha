@@ -42,16 +42,17 @@ type RouterJudge struct {
 	charter       string                            // 角色章程（agent.system_prompt，运维可调；空=不渲染）
 	complexity    llm.Complexity                    // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	maxIt         int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	messageWindow int                               // ReAct 滚动窗口条数（系统配置 compaction 组；构造默认 10，0=回退该默认）
+	contextRatio  float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
+	distiller     runtime.Distiller                 // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	toolTailBytes int                               // 工具输出全局尾部钳制字节（0=不钳）
 	toolWrap      func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 
 // NewRouterJudge 构造 ReAct 裁决官。
 func NewRouterJudge(router *llm.Router, logger zerolog.Logger) *RouterJudge {
 	return &RouterJudge{
-		router:        router,
-		logger:        logger.With().Str("component", "evaluator_judge").Logger(),
-		messageWindow: 10, // 裁决链路短，窗口最小档（历史装配点硬编码口径）
+		router: router,
+		logger: logger.With().Str("component", "evaluator_judge").Logger(),
 	}
 }
 
@@ -93,11 +94,21 @@ func (j *RouterJudge) WithMaxIterations(n int) *RouterJudge {
 	return j
 }
 
-// WithMessageWindow 注入 ReAct 滚动窗口条数（系统配置 compaction 组；<=0 回退构造默认 10）。
-func (j *RouterJudge) WithMessageWindow(n int) *RouterJudge {
-	if n > 0 {
-		j.messageWindow = n
-	}
+// WithContextRatio 注入上下文历史预算占比（系统配置 compaction 组；0=压缩器内置兜底）。
+func (j *RouterJudge) WithContextRatio(ratio float64) *RouterJudge {
+	j.contextRatio = ratio
+	return j
+}
+
+// WithDistiller 注入上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
+func (j *RouterJudge) WithDistiller(d runtime.Distiller) *RouterJudge {
+	j.distiller = d
+	return j
+}
+
+// WithToolOutputTailBytes 注入工具输出全局尾部钳制字节（0=不钳）。
+func (j *RouterJudge) WithToolOutputTailBytes(n int) *RouterJudge {
+	j.toolTailBytes = n
 	return j
 }
 
@@ -114,6 +125,20 @@ func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Rou
 func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
 	j.complexity = llm.ParseComplexity(complexity)
 	return j
+}
+
+// contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
+// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断裁决）。
+func (j *RouterJudge) contextBudget(ctx context.Context) int {
+	if j.contextRatio <= 0 {
+		return 0
+	}
+	cw, err := j.router.ContextWindow(ctx, j.complexity)
+	if err != nil {
+		j.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
+		return 0
+	}
+	return int(float64(cw) * j.contextRatio)
 }
 
 // WithExtraTools 注入跨包工具实例（装配层按白名单经 tools.BuildTools 构造）。
@@ -176,7 +201,8 @@ func (j *RouterJudge) Judge(
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MaxTokens:                  1500,
-		MessageModifierChain:       runtime.NewDefaultModifierChain(j.messageWindow),
+		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller),
+		ToolOutputTailBytes:        j.toolTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// 裁决终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
 		// 是自由散文——裁决结论写在散文里（"假设坐实 confirmed 0.99"）而

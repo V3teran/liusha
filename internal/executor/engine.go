@@ -22,21 +22,23 @@ import (
 
 // Engine 是基于 LLM + ReAct 的执行引擎
 type Engine struct {
-	router         *llm.Router
-	graph          *explorationgraph.Store // 探索图存储
-	registry       *Registry               // 使用 executor 包的 Registry
-	functionTools  []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
-	toolsManifest  ToolsManifest           // 过滤后的 CLI 工具清单
-	skills         []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter        string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	complexity     llm.Complexity          // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
-	maxIt          int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	modifierWindow int                     // ReAct 滚动窗口条数（0=使用点回退内置默认 15）
-	brief          string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
-	agentRunID     string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
-	traceCollector *TraceCollector         // trace 收集器（从 agent_traffic 构建完整执行轨迹）
-	thoughts       reasoning.Tap           // 思考流出口（nil=不流式）
-	logger         zerolog.Logger
+	router              *llm.Router
+	graph               *explorationgraph.Store // 探索图存储
+	registry            *Registry               // 使用 executor 包的 Registry
+	functionTools       []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
+	toolsManifest       ToolsManifest           // 过滤后的 CLI 工具清单
+	skills              []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter             string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	complexity          llm.Complexity          // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
+	maxIt               int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
+	distiller           runtime.Distiller       // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	toolOutputTailBytes int                     // 工具输出全局尾部钳制字节（0=不钳）
+	brief               string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
+	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	traceCollector      *TraceCollector         // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
+	logger              zerolog.Logger
 }
 
 // EngineConfig 配置
@@ -50,12 +52,16 @@ type EngineConfig struct {
 	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
 	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	// ModifierWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
-	// 0=内置默认 15——执行工具循环的中档窗口）。
-	ModifierWindow int
-	Brief          string          // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
-	AgentRunID     string          // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
-	TraceCollector *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	// ContextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
+	// compaction 组，任务开始时快照；0=压缩器内置兜底预算）。
+	ContextRatio float64
+	// Distiller 是上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
+	Distiller runtime.Distiller
+	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
+	ToolOutputTailBytes int
+	Brief               string          // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
+	AgentRunID          string          // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
+	TraceCollector      *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
 	Logger   zerolog.Logger
@@ -64,22 +70,38 @@ type EngineConfig struct {
 // NewEngine 创建执行引擎
 func NewEngine(cfg EngineConfig) *Engine {
 	return &Engine{
-		router:         cfg.Router,
-		graph:          cfg.Graph,
-		registry:       cfg.Registry,
-		thoughts:       cfg.Thoughts,
-		functionTools:  cfg.FunctionTools,
-		toolsManifest:  cfg.ToolsManifest,
-		skills:         cfg.Skills,
-		charter:        cfg.SystemPrompt,
-		complexity:     llm.ParseComplexity(cfg.Complexity),
-		maxIt:          cfg.MaxIterations,
-		modifierWindow: cfg.ModifierWindow,
-		brief:          cfg.Brief,
-		agentRunID:     cfg.AgentRunID,
-		traceCollector: cfg.TraceCollector,
-		logger:         cfg.Logger.With().Str("component", "executor_engine").Logger(),
+		router:              cfg.Router,
+		graph:               cfg.Graph,
+		registry:            cfg.Registry,
+		thoughts:            cfg.Thoughts,
+		functionTools:       cfg.FunctionTools,
+		toolsManifest:       cfg.ToolsManifest,
+		skills:              cfg.Skills,
+		charter:             cfg.SystemPrompt,
+		complexity:          llm.ParseComplexity(cfg.Complexity),
+		maxIt:               cfg.MaxIterations,
+		contextRatio:        cfg.ContextRatio,
+		distiller:           cfg.Distiller,
+		toolOutputTailBytes: cfg.ToolOutputTailBytes,
+		brief:               cfg.Brief,
+		agentRunID:          cfg.AgentRunID,
+		traceCollector:      cfg.TraceCollector,
+		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
+}
+
+// contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
+// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断执行）。
+func (e *Engine) contextBudget(ctx context.Context) int {
+	if e.contextRatio <= 0 {
+		return 0
+	}
+	cw, err := e.router.ContextWindow(ctx, e.complexity)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
+		return 0
+	}
+	return int(float64(cw) * e.contextRatio)
 }
 
 // Execute 执行一个 Action，返回生成的 Attempt 列表
