@@ -111,9 +111,28 @@ func (h *Handler) executeTask(
 		// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
 		h.appendTaskStatus(doneCtx, taskLogger, p.ConversationID,
 			conversation.TaskStatusCompleted, "扫描完成", h.completionFields(doneCtx, taskLogger, p.ConversationID, taskID, report))
+
+		// 经验蒸馏（仅自然收敛触发；被终止任务的过程性结论可能误导后续任务）：
+		// 把复现门验证过的结论蒸馏成跨任务教训写回 corpus。独立短超时 ctx 异步
+		// best-effort——教训写入失败不影响任务交付（与 reclaimSessionIdentity
+		// 同一惯例；capture brief/taskID 进 goroutine）。
+		if h.Distiller != nil {
+			go func(taskID, brief string) {
+				dctx, cancel := context.WithTimeout(context.Background(), distillTimeout)
+				defer cancel()
+				if n, err := h.Distiller.DistillTask(dctx, taskID, brief); err != nil {
+					taskLogger.Warn().Err(err).Str("task_id", taskID).Msg("任务经验蒸馏失败（corpus 无新教训）")
+				} else if n > 0 {
+					taskLogger.Info().Str("task_id", taskID).Int("lessons", n).Msg("任务经验已沉淀到知识库")
+				}
+			}(taskID, brief)
+		}
 	}
 	return nil
 }
+
+// distillTimeout 是任务经验蒸馏的总预算（LLM 生成 + embedding + 写库）。
+const distillTimeout = 2 * time.Minute
 
 // finishTerminatedTask 处理被终止任务的 task 终态与时间线：task 落 aborted
 // （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的

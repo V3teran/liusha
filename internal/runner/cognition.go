@@ -19,11 +19,12 @@ func (h *Handler) runCognition(
 	taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
-	// 系统配置任务开始时现读（多级缓存命中为主）：滚动窗口 / 工具钳制 / 尾部保留
-	// 热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，不阻塞任务。
+	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
+	// 尾部保留，热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，
+	// 不阻塞任务。
 	comp, compErr := h.Settings.Compaction(ctx)
 	if compErr != nil {
-		taskLogger.Warn().Err(compErr).Msg("读 compaction 配置失败，滚动窗口用内置默认")
+		taskLogger.Warn().Err(compErr).Msg("读 compaction 配置失败，压缩预算用内置兜底")
 	}
 	rt, rtErr := h.Settings.Runtime(ctx)
 	if rtErr != nil {
@@ -54,15 +55,16 @@ func (h *Handler) runCognition(
 
 		MaxStepsPerTask: h.RunnerCfg.MaxStepsPerTask,
 
-		Windows: cognition.MessageWindows{
-			Planner:   comp.PlannerWindowMessages,
-			Executor:  comp.ExecutorWindowMessages,
-			Evaluator: comp.EvaluatorWindowMessages,
-			Monitor:   comp.MonitorWindowMessages,
+		ContextRatios: cognition.ContextRatios{
+			Planner:   comp.PlannerContextRatio,
+			Executor:  comp.ExecutorContextRatio,
+			Evaluator: comp.EvaluatorContextRatio,
+			Monitor:   comp.MonitorContextRatio,
 		},
 		ToolLimits: cognition.ToolLimits{
 			StepToolTimeoutSeconds: rt.StepToolTimeoutSeconds,
 			RunTailBytes:           rt.RunTailBytes,
+			ToolOutputTailBytes:    rt.ToolOutputTailBytes,
 		},
 
 		Conversations:  h.Conversations,

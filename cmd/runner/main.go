@@ -37,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/distill"
 	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -203,6 +204,9 @@ func main() {
 		Graph:          stores.graph,
 		EventBus:       eventBus,
 		ControlPlane:   controlPlaneStore,
+		// 任务终态经验蒸馏：corpus source=agent 写入闭环（embedder 缺席时教训
+		// 降级纯 sparse 检索，不阻塞写入）。
+		Distiller: distill.New(router, stores.graph, stores.corpus, embedder, logger),
 	}
 
 	mux := worker.NewMux()

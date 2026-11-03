@@ -3,6 +3,7 @@ package corpus
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -103,7 +104,11 @@ func (s *Store) recallSparse(ctx context.Context, query string, tags []string, n
 }
 
 // SearchHybrid 是 hybrid 检索入口：dense + sparse 两路各召回 recallN → 按 id 合并去重 → 交给
-// reranker 精排取 topK。queryVec 为空则退纯 sparse；reranker 为空/失败则用合并顺序兜底（不阻塞）。
+// reranker 精排取 topK。queryVec 为空则退纯 sparse；reranker 为空/失败则以效用计数兜底排序
+// （hit_count 降序，稳定序保持 dense 先于 sparse 的召回相关性），不阻塞。
+//
+// 实际返回（被消费）的条目效用计数 +1——检索消费是效用信号，沉淀给兜底排序
+// 与未来的淘汰策略；这是 hit_count 的读路径闭环（写路径的重复确认已在 Add）。
 //
 // dense 召回需调用方先 embed 出 queryVec（本包不依赖 embedding 包，保持解耦、可测）。
 func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float32, tags []string, recallN, topK int, rr Reranker) ([]Entry, error) {
@@ -137,9 +142,9 @@ func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float
 		return nil, nil
 	}
 
-	// 无 reranker → 用合并顺序截 topK 兜底。
+	// 无 reranker / rerank 失败 → 效用计数兜底排序（稳定序保召回相关性）。
 	if rr == nil {
-		return capEntries(merged, topK), nil
+		return s.consume(ctx, sortByUtility(merged), topK), nil
 	}
 	docs := make([]string, len(merged))
 	for i, e := range merged {
@@ -147,8 +152,8 @@ func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float
 	}
 	order, err := rr.Rerank(ctx, query, docs, topK)
 	if err != nil || len(order) == 0 {
-		// rerank 失败降级：不阻塞检索，用合并顺序兜底。
-		return capEntries(merged, topK), nil
+		// rerank 失败降级：不阻塞检索，走效用兜底。
+		return s.consume(ctx, sortByUtility(merged), topK), nil
 	}
 	ranked := make([]Entry, 0, len(order))
 	for _, idx := range order {
@@ -156,7 +161,35 @@ func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float
 			ranked = append(ranked, merged[idx])
 		}
 	}
-	return ranked, nil
+	return s.consume(ctx, ranked, topK), nil
+}
+
+// sortByUtility 以效用计数为主序的稳定排序：hit_count 高者先（沉淀越多的
+// 教训越靠前）；同计数保持原合并序（dense 召回先于 sparse——语义相关性优先）。
+// rerank 在场时精排全权，本排序只服务于兜底路径。
+func sortByUtility(entries []Entry) []Entry {
+	sorted := make([]Entry, len(entries))
+	copy(sorted, entries)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].HitCount > sorted[j].HitCount
+	})
+	return sorted
+}
+
+// consume 截 topK 并把实际返回条目的效用计数 +1（best-effort：软信号记账，
+// 失败不影响检索交付，也不承担审计义务）。
+func (s *Store) consume(ctx context.Context, entries []Entry, topK int) []Entry {
+	out := capEntries(entries, topK)
+	ids := make([]string, 0, len(out))
+	for _, e := range out {
+		ids = append(ids, e.ID)
+	}
+	// id 列侧转 text：pgx 把 []string 编码为 text[]，uuid = text 无算子会让
+	// 本更新静默报错（错误被吞、计数器永不增长）。转型写在列侧，参数恒为
+	// text[]，对驱动编解码行为零依赖；corpus 是小表，转型扫描成本可忽略。
+	_, _ = s.pool.Exec(ctx,
+		"UPDATE corpus SET hit_count = hit_count + 1 WHERE id::text = ANY($1)", ids)
+	return out
 }
 
 // Reranker 与 embedding.Reranker 同形（此处窄声明，避免 corpus 依赖 embedding 包）。
