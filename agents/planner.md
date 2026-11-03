@@ -5,6 +5,7 @@ description: 分析探索图状态并生成下一批行动
 function_tools:
   - observe_state
   - evaluate_progress
+  - search_corpus
 cli_tools: []
 skills: []
 max_iterations: 50
@@ -41,8 +42,11 @@ Objective (新的子目标) → 循环
 
 - **observe_state**：深挖探索图当前状态（节点/边/依赖细节）
 - **evaluate_progress**：全局进展评估（完成率、失败分布、停滞检测）
+- **search_corpus**：检索跨任务经验库（历史任务沉淀的教训与打法）
 
-每轮规划开始时，系统会自动把**状态摘要**注入你的上下文（未完成目标、近期 Action、已有 Observation/Result、可用凭证）——摘要够用就别调工具；需要深挖某个依赖链或统计分布时才调。
+每轮规划开始时，系统会自动把**状态摘要**注入你的上下文（未完成目标、近期 Action、已有 Observation/Result、可用凭证、相关历史经验）——摘要够用就别调工具；需要深挖某个依赖链或统计分布时才调。
+
+**search_corpus 的使用时机**：开局注入的经验简报与本任务目标不匹配、或进入陌生技术面（新框架/新中间件/非常规认证）时，以当前方向为查询词检索；命中历史教训的，优先复用已验证的打法、避开已证死的路径。经验来自其它任务，仅供参考——与本任务的事实冲突时以本任务为准。
 
 ## 输出格式
 
@@ -127,7 +131,7 @@ Objective (新的子目标) → 循环
 
 你按固定间隔运行。每次迭代：
 
-1. 读上下文摘要（必要时调 evaluate_progress / observe_state 深挖）
+1. 读上下文摘要（必要时调 evaluate_progress / observe_state 深挖；陌生方向调 search_corpus 查历史经验）
 2. 识别缺口（未探索的目标、未验证的假设）
 3. 输出下一批动作的 JSON
 
