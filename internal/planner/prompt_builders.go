@@ -1,10 +1,12 @@
 package planner
 
 import (
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/evaluator"
 
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -115,29 +117,105 @@ func buildStatisticsSection(ctx *PlanningContext) string {
 	return sb.String()
 }
 
-// buildCompletedActionsSection 构建已完成工作部分
+// ── 渲染预算 ─────────────────────────────────────────────────────────
+// 规划 prompt 是 planner ReAct 的首条输入，其体量必须有界：探索图只增不减，
+// 长任务下全量渲染会无界增长直至撞上长度校验哨兵弄死整轮规划。按记忆价值
+// 分层——pending 动作与已确认发现全量（规划的直接输入与依据），终态动作
+// 只逐条渲染尾部、更早的折叠成类型计数行，事实近优先限量。确定性渲染，
+// 无 LLM 参与、不可能失败；折叠处以显式文字留痕（不静默）。
+
+const (
+	// actionFoldLimit 是终态动作（completed/failed/aborted）逐条渲染的上限。
+	actionFoldLimit = 30
+	// factRenderLimit 是事实逐条渲染的上限。
+	factRenderLimit = 80
+	// prompt 内嵌文本的钳长（rune）。
+	actionClampRunes  = 300
+	resultClampRunes  = 600
+	factClampRunes    = 400
+	historyClampRunes = 600
+)
+
+// foldTerminalActions 把终态动作序列拆成「逐条渲染的尾部」与「按类型折叠的
+// 前缀」。
+func foldTerminalActions(actions []explorationgraph.Node) (shown []explorationgraph.Node, folded map[string]int, foldedTotal int) {
+	if len(actions) <= actionFoldLimit {
+		return actions, nil, 0
+	}
+	cut := len(actions) - actionFoldLimit
+	folded = make(map[string]int)
+	for _, a := range actions[:cut] {
+		folded[actionType(a)]++
+	}
+	return actions[cut:], folded, cut
+}
+
+// actionType 读动作类型（content.type；缺失归 unknown）。
+func actionType(n explorationgraph.Node) string {
+	var c struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(n.Content, &c) == nil && c.Type != "" {
+		return c.Type
+	}
+	return "unknown"
+}
+
+// foldLine 渲染折叠计数行（类型 → 计数，计数降序，同计数按类型名稳定排序）。
+func foldLine(label string, folded map[string]int, total int) string {
+	if total == 0 {
+		return ""
+	}
+	type kv struct {
+		k string
+		v int
+	}
+	parts := make([]kv, 0, len(folded))
+	for k, v := range folded {
+		parts = append(parts, kv{k, v})
+	}
+	sort.Slice(parts, func(i, j int) bool {
+		if parts[i].v != parts[j].v {
+			return parts[i].v > parts[j].v
+		}
+		return parts[i].k < parts[j].k
+	})
+	strs := make([]string, len(parts))
+	for i, p := range parts {
+		strs[i] = fmt.Sprintf("%s×%d", p.k, p.v)
+	}
+	return fmt.Sprintf("- （更早的 %d 条%s已折叠：%s）\n", total, label, strings.Join(strs, "、"))
+}
+
+// actionInstruction 读动作指令并钳长。
+func actionInstruction(n explorationgraph.Node) string {
+	var a struct {
+		Instruction string `json:"instruction"`
+	}
+	if err := json.Unmarshal(n.Content, &a); err != nil {
+		return "（解析失败）"
+	}
+	return truncateRunes(a.Instruction, actionClampRunes)
+}
+
+// buildCompletedActionsSection 构建已完成工作部分（尾部逐条 + 更早折叠）。
 func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 已完成的工作\n")
-	if len(actions) > 0 {
-		for _, action := range actions {
-			var a struct {
-				Instruction string `json:"instruction"`
-			}
-			if err := json.Unmarshal(action.Content, &a); err != nil {
-				fmt.Fprintf(&sb, "- [完成] (解析失败: %v)\n", err)
-				continue
-			}
-			fmt.Fprintf(&sb, "- [完成] [ID: %s] %s\n", action.ID, a.Instruction)
-		}
-	} else {
-		sb.WriteString("（尚未完成任何操作）\n")
+	if len(actions) == 0 {
+		sb.WriteString("（尚未完成任何操作）\n\n")
+		return sb.String()
+	}
+	shown, folded, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已完成动作", folded, total))
+	for _, action := range shown {
+		fmt.Fprintf(&sb, "- [完成] [ID: %s] %s\n", action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// buildPendingActionsSection 构建进行中工作部分
+// buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。
 func buildPendingActionsSection(actions []explorationgraph.Node) string {
 	if len(actions) == 0 {
 		return ""
@@ -146,20 +224,13 @@ func buildPendingActionsSection(actions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 进行中的工作\n")
 	for _, action := range actions {
-		var a struct {
-			Instruction string `json:"instruction"`
-		}
-		if err := json.Unmarshal(action.Content, &a); err != nil {
-			fmt.Fprintf(&sb, "- [进行中] (解析失败: %v)\n", err)
-			continue
-		}
-		fmt.Fprintf(&sb, "- [进行中] [ID: %s] %s\n", action.ID, a.Instruction)
+		fmt.Fprintf(&sb, "- [进行中] [ID: %s] %s\n", action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// buildFailedActionsSection 构建失败尝试部分
+// buildFailedActionsSection 构建失败尝试部分（尾部逐条 + 更早折叠）。
 func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	if len(actions) == 0 {
 		return ""
@@ -167,26 +238,19 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 失败的尝试\n")
-	for _, action := range actions {
-		var a struct {
-			Instruction string `json:"instruction"`
-		}
-		if err := json.Unmarshal(action.Content, &a); err != nil {
-			fmt.Fprintf(&sb, "- [失败] (解析失败: %v)\n", err)
-			continue
-		}
-
+	shown, folded, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("失败动作", folded, total))
+	for _, action := range shown {
 		reason := "未知原因"
 		if action.State != nil && *action.State == explorationgraph.StateFailed {
 			var fullAction struct {
-				Instruction string `json:"instruction"`
-				Reason      string `json:"reason"`
+				Reason string `json:"reason"`
 			}
 			if err := json.Unmarshal(action.Content, &fullAction); err == nil && fullAction.Reason != "" {
 				reason = fullAction.Reason
 			}
 		}
-		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, a.Instruction, reason)
+		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), reason)
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -194,6 +258,7 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 
 // buildAbortedActionsSection 构建外部纠偏中止部分——被 monitor kill 的动作
 // 连同 blocked_reason 呈现，规划者据此不再派等效方向（否则 kill 反馈回路断一半）。
+// 尾部逐条 + 更早折叠。
 func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	if len(actions) == 0 {
 		return ""
@@ -201,14 +266,9 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 被外部纠偏中止的动作（禁止等效重提）\n")
-	for _, action := range actions {
-		var a struct {
-			Instruction string `json:"instruction"`
-		}
-		if err := json.Unmarshal(action.Content, &a); err != nil {
-			fmt.Fprintf(&sb, "- [已中止] (解析失败: %v)\n", err)
-			continue
-		}
+	shown, folded, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已中止动作", folded, total))
+	for _, action := range shown {
 		reason := "未注明"
 		if action.Metadata != nil {
 			var m struct {
@@ -218,13 +278,14 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 				reason = m.BlockedReason
 			}
 		}
-		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（纠偏原因：%s）\n", action.ID, a.Instruction, reason)
+		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（纠偏原因：%s）\n", action.ID, actionInstruction(action), reason)
 	}
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// buildResultsSection 构建已确认发现部分
+// buildResultsSection 构建已确认发现部分：按 summary 去重（同义重复的裁决
+// 不重复占视野），逐条钳长。
 func buildResultsSection(results []explorationgraph.Node) string {
 	if len(results) == 0 {
 		return ""
@@ -232,6 +293,7 @@ func buildResultsSection(results []explorationgraph.Node) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 已确认的发现\n")
+	seen := make(map[string]bool, len(results))
 	for _, result := range results {
 		var r struct {
 			Summary string `json:"summary"`
@@ -240,8 +302,12 @@ func buildResultsSection(results []explorationgraph.Node) string {
 			fmt.Fprintf(&sb, "- (解析失败: %v)\n", err)
 			continue
 		}
+		if seen[r.Summary] {
+			continue
+		}
+		seen[r.Summary] = true
 		// ID 必须展示：新动作的 triggered_by 因果声明引用它（发现滋生动作）。
-		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, r.Summary)
+		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, truncateRunes(r.Summary, resultClampRunes))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -255,9 +321,27 @@ func buildFactsSection(facts []Fact) string {
 		return ""
 	}
 
+	// 去重 + 近优先：事实按创建序传入，自最新向回收纳（同文重复取最新转写），
+	// 超上限的更早事实以计数行显式留痕。
+	dedup := make([]Fact, 0, len(facts))
+	seen := make(map[string]bool, len(facts))
+	for i := len(facts) - 1; i >= 0; i-- {
+		st := truncateRunes(facts[i].Statement, factClampRunes)
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
+		dedup = append(dedup, Fact{Statement: st})
+	}
+
 	var sb strings.Builder
 	sb.WriteString("## 已确认的世界状态（直接可用，无需重新探索）\n")
-	for _, f := range facts {
+	shown := dedup
+	if len(dedup) > factRenderLimit {
+		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 observe_state 深挖）\n", len(dedup)-factRenderLimit)
+		shown = dedup[:factRenderLimit]
+	}
+	for _, f := range shown {
 		fmt.Fprintf(&sb, "- %s\n", f.Statement)
 	}
 	sb.WriteString("\n**注意**：以上事实已确认成立。规划时直接利用（如复用已建立的会话、沿已探明的机制推导），不要生成重复确认它们的动作。\n\n")
@@ -290,8 +374,14 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 已被证伪的假设（复现门裁决）\n")
+	seen := make(map[string]bool, len(hypotheses))
 	for _, h := range hypotheses {
-		fmt.Fprintf(&sb, "- %s %s\n", h.Statement, refuteReasonHint(h.Reason))
+		st := truncateRunes(h.Statement, historyClampRunes)
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
+		fmt.Fprintf(&sb, "- %s %s\n", st, refuteReasonHint(h.Reason))
 	}
 	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提。\n\n")
 	return sb.String()
@@ -327,6 +417,34 @@ func buildPlanningRequirements() string {
 	sb.WriteString("- low: 可选补充\n\n")
 
 	return sb.String()
+}
+
+// buildExperienceSection 渲染跨任务历史经验简报：以任务目标检索出的历史教训
+// （agent 收尾蒸馏 + expert 导入同源）。每条钳长防止单条经验霸占规划视野；
+// 空列表不渲染该节。
+func buildExperienceSection(entries []corpus.Entry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 历史经验参考（来自跨任务知识库）\n")
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, truncateRunes(e.Content, 400))
+	}
+	sb.WriteString("\n**注意**：经验来自其它任务的沉淀，仅供参考——与本任务的事实/目标冲突时以本任务为准。\n\n")
+	return sb.String()
+}
+
+// truncateRunes 按 rune 截尾（prompt 内嵌文本的通用口径）。
+func truncateRunes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…（截断）"
 }
 
 // buildJSONSchema 构建 JSON 格式示例

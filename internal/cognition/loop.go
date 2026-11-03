@@ -73,12 +73,13 @@ type Deps struct {
 
 	MaxStepsPerTask int // 0 = 完成检测器步数无限制
 
-	// Windows 是各角色 ReAct 滚动窗口条数（DB compaction 组在任务开始时的快照，
-	// 装配层现读传入；0 值由各角色使用点回退内置默认）。
-	Windows MessageWindows
+	// ContextRatios 是各角色的上下文历史预算占比（DB compaction 组在任务开始时
+	// 的快照，装配层现读传入；预算 = 比例 × 本角色路由 provider 的 context_window，
+	// 0 值由压缩器回退内置兜底）。
+	ContextRatios ContextRatios
 
-	// ToolLimits 是 run_command 的超时钳制上限与输出尾部保留字节（DB runtime 组
-	// 任务开始时快照；0 值由工具层回退内置默认）。
+	// ToolLimits 是工具运行时限制（DB runtime 组任务开始时快照；0 值由使用点
+	// 回退内置默认）。
 	ToolLimits ToolLimits
 
 	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
@@ -86,18 +87,21 @@ type Deps struct {
 	EventPublisher *convstream.Publisher
 }
 
-// MessageWindows 是各角色 ReAct 滚动窗口条数（系统配置 compaction 组快照）。
-type MessageWindows struct {
-	Planner   int
-	Executor  int
-	Evaluator int
-	Monitor   int
+// ContextRatios 是各角色上下文历史预算占 config 比例（系统配置 compaction 组快照）。
+type ContextRatios struct {
+	Planner   float64
+	Executor  float64
+	Evaluator float64
+	Monitor   float64
 }
 
-// ToolLimits 是 run_command 的运行时限制（系统配置 runtime 组快照）。
+// ToolLimits 是工具运行时限制（系统配置 runtime 组快照）。
 type ToolLimits struct {
 	StepToolTimeoutSeconds int // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
-	RunTailBytes           int // stdout/stderr 保留尾部字节数
+	RunTailBytes           int // run_command stdout/stderr 保留尾部字节数
+	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
+	//（ReAct 运行时统一收口，个别工具内的领域化裁剪先行）。
+	ToolOutputTailBytes int
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -369,6 +373,15 @@ func (d *Deps) assembleStack(
 
 	// planner。执行经验经 gatherContext 注入：gatherContext 拉全图观察
 	//（含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
+	// 跨任务经验面：corpus 经验简报（开局注入）+ 白名单 function 工具
+	//（search_corpus 按需检索）——战略层与执行层同等接通长期记忆。
+	// 白名单先与规划安全工具集求交：规划者不做执行面动作（run_command/
+	// drive_browser/http_request 是 executor/evaluator 的职责），白名单误配
+	// "*" 不得把执行工具武装给规划者——角色边界由代码守护而非运维自觉。
+	plannerTools := tools.BuildTools(toolDeps(executorSkillView), intersectPlannerSafeTools(cfgs.planner.FunctionTools))
+	for i := range plannerTools {
+		plannerTools[i] = reg.WrapTool(plannerTools[i]) // function 工具入共享审计链（遥测/时间线）
+	}
 	engine := planner.NewEngine(d.Router, d.Logger).
 		WithSystemPrompt(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
@@ -381,7 +394,11 @@ func (d *Deps) assembleStack(
 			{Code: constants.AgentCodeEvaluator, Name: cfgs.evaluator.Name, Description: cfgs.evaluator.Description},
 			{Code: constants.AgentCodeMonitor, Name: cfgs.monitor.Name, Description: cfgs.monitor.Description},
 		}).
-		WithMessageWindow(d.Windows.Planner).
+		WithContextRatio(d.ContextRatios.Planner).
+		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
+		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
+		WithCorpus(d.Corpus, d.Embedder).
+		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
@@ -396,21 +413,23 @@ func (d *Deps) assembleStack(
 
 	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）
 	monitorAgent := monitor.New(monitor.Config{
-		MessageWindow: d.Windows.Monitor,
-		Thoughts:      thoughts.TapFor("monitor"),
-		TaskID:        taskID,
-		AgentRunID:    agentRunID,
-		FunctionTools: cfgs.monitor.FunctionTools,
-		SystemPrompt:  cfgs.monitor.SystemPrompt,
-		MaxIterations: cfgs.monitor.MaxIterations,
-		Graph:         d.Graph,
-		EventBus:      d.EventBus,
-		Router:        d.Router,
-		Complexity:    cfgs.monitor.Complexity,
-		Interval:      constants.MonitorInterval,
-		Activity:      activities.idleFor,
-		WrapTool:      reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
-		Logger:        d.Logger.With().Str("component", "monitor_agent").Logger(),
+		ContextRatio:        d.ContextRatios.Monitor,
+		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes,
+		Thoughts:            thoughts.TapFor("monitor"),
+		TaskID:              taskID,
+		AgentRunID:          agentRunID,
+		FunctionTools:       cfgs.monitor.FunctionTools,
+		SystemPrompt:        cfgs.monitor.SystemPrompt,
+		MaxIterations:       cfgs.monitor.MaxIterations,
+		Graph:               d.Graph,
+		EventBus:            d.EventBus,
+		Router:              d.Router,
+		Complexity:          cfgs.monitor.Complexity,
+		Interval:            constants.MonitorInterval,
+		Activity:            activities.idleFor,
+		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
+		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
 	})
 
 	detector := NewCompletionDetector(Config{
@@ -430,6 +449,31 @@ func (d *Deps) assembleStack(
 		plannerAgent:   plannerAgent,
 		monitorAgent:   monitorAgent,
 	}, nil
+}
+
+// plannerSafeTools 是规划者可持有的 function 工具上界（只读/检索面）。
+// 新增规划安全工具必须在此显式登记——这是角色边界的代码化。
+var plannerSafeTools = map[string]struct{}{
+	"observe_state":     {},
+	"evaluate_progress": {},
+	"search_corpus":     {},
+}
+
+// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交）。
+// nil 透传（保持「nil=拒绝」语义）；"*" 求交后为空集（规划安全集之外的
+// 一律不放行）。图读工具（observe_state/evaluate_progress）不走 BuildTools、
+// 由 planner.Plan 按原白名单自注册，不在求交影响面内。
+func intersectPlannerSafeTools(whitelist []string) []string {
+	if whitelist == nil {
+		return nil
+	}
+	out := make([]string, 0, len(whitelist))
+	for _, n := range whitelist {
+		if _, ok := plannerSafeTools[n]; ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // filterManifest 按 cli_tools 白名单过滤工具清单（nil/空清单 → 空集并告警）。
@@ -460,21 +504,23 @@ func (d *Deps) buildExecutorAgent(
 ) *executor.Agent {
 	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
-		Router:         d.Router,
-		Graph:          d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
-		AgentRunID:     agentRunID, // LLM 审计归属本轮 run
-		Registry:       execRegistry,
-		FunctionTools:  cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
-		ToolsManifest:  filteredManifest,                                  // CLI 工具清单（白名单过滤后）
-		Skills:         skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
-		SystemPrompt:   cfg.SystemPrompt,                                  // 角色章程（agent.system_prompt，前端可调）
-		Complexity:     cfg.Complexity,                                    // LLM 档位（agent.complexity，文档 complexity 种子）
-		MaxIterations:  cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
-		ModifierWindow: d.Windows.Executor,                                // ReAct 滚动窗口条数（系统配置 compaction 组）
-		Brief:          brief,                                             // 任务简报逐字进 executor system prompt（入口锚定）
-		TraceCollector: traceCollector,                                    // 从 agent_traffic 构建完整执行轨迹
-		Thoughts:       thoughts,                                          // 思考流（nil=不流式）
-		Logger:         d.Logger,
+		Router:              d.Router,
+		Graph:               d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		AgentRunID:          agentRunID, // LLM 审计归属本轮 run
+		Registry:            execRegistry,
+		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
+		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
+		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
+		SystemPrompt:        cfg.SystemPrompt,                                  // 角色章程（agent.system_prompt，前端可调）
+		Complexity:          cfg.Complexity,                                    // LLM 档位（agent.complexity，文档 complexity 种子）
+		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
+		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
+		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
+		Brief:               brief,                            // 任务简报逐字进 executor system prompt（入口锚定）
+		TraceCollector:      traceCollector,                   // 从 agent_traffic 构建完整执行轨迹
+		Thoughts:            thoughts,                         // 思考流（nil=不流式）
+		Logger:              d.Logger,
 	})
 	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
 
@@ -518,7 +564,9 @@ func (d *Deps) buildEvaluatorAgent(
 		WithSystemPrompt(cfg.SystemPrompt).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
-		WithMessageWindow(d.Windows.Evaluator).
+		WithContextRatio(d.ContextRatios.Evaluator).
+		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
+		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
 		WithThoughts(thoughts).
 		WithToolWrapper(reg.WrapTool). // judge 自有的 replay_for_verification 同入审计链
 		WithExtraTools(extraTools)

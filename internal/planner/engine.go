@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -33,12 +34,25 @@ type Engine struct {
 	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
 	thoughts   reasoning.Tap  // 思考流出口（认知循环注入；nil=不流式）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	// messageWindow 是 ReAct 滚动窗口条数（系统配置 compaction 组，任务开始时快照；
-	// 0=用 NewDefaultModifierChain 内置默认 20）。
-	messageWindow int
-	timeout       time.Duration // 单次规划超时基准（0=不设限；默认 3 分钟）
-	budget        time.Duration // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
-	roster        []AgentBrief  // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
+	// contextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
+	// compaction 组，任务开始时快照；0=压缩器内置兜底预算）。
+	contextRatio        float64
+	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	toolOutputTailBytes int               // 工具输出全局尾部钳制字节（0=不钳）
+	timeout             time.Duration     // 单次规划超时基准（0=不设限；默认 3 分钟）
+	budget              time.Duration     // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
+	roster              []AgentBrief      // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
+
+	// 跨任务经验面（nil=关闭）：corpus 检索开局注入经验简报；extraTools 是
+	// 白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
+	// 工厂构建），Plan 时按白名单注册进 ReAct。
+	corpus     *corpus.Store
+	embedder   corpus.Embedder
+	extraTools []registry.Tool
+	// 经验简报按任务缓存：Engine 随认知循环构造（一次任务一份），查询键
+	// （根目标）在任务内稳定——只检索一次，不随规划轮次重复烧 embedding/检索。
+	experienceLoaded bool
+	experience       []corpus.Entry
 
 	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
 	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
@@ -85,9 +99,35 @@ func (i *Engine) WithMaxIterations(n int) *Engine {
 	return i
 }
 
-// WithMessageWindow 注入 ReAct 滚动窗口条数（系统配置 compaction 组；0=内置默认 20）。
-func (i *Engine) WithMessageWindow(n int) *Engine {
-	i.messageWindow = n
+// WithContextRatio 注入上下文历史预算占比（系统配置 compaction 组；0=压缩器内置兜底）。
+func (i *Engine) WithContextRatio(ratio float64) *Engine {
+	i.contextRatio = ratio
+	return i
+}
+
+// WithDistiller 注入上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
+func (i *Engine) WithDistiller(d runtime.Distiller) *Engine {
+	i.distiller = d
+	return i
+}
+
+// WithToolOutputTailBytes 注入工具输出全局尾部钳制字节（0=不钳）。
+func (i *Engine) WithToolOutputTailBytes(n int) *Engine {
+	i.toolOutputTailBytes = n
+	return i
+}
+
+// WithCorpus 注入跨任务知识库（经验简报检索；nil=关闭该能力）。
+func (i *Engine) WithCorpus(store *corpus.Store, emb corpus.Embedder) *Engine {
+	i.corpus = store
+	i.embedder = emb
+	return i
+}
+
+// WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
+// 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
+func (i *Engine) WithExtraTools(ts []registry.Tool) *Engine {
+	i.extraTools = ts
 	return i
 }
 
@@ -96,6 +136,41 @@ func (i *Engine) WithMessageWindow(n int) *Engine {
 func (i *Engine) WithComplexity(complexity string) *Engine {
 	i.complexity = llm.ParseComplexity(complexity)
 	return i
+}
+
+// contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
+// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断规划）。
+func (i *Engine) contextBudget(ctx context.Context) int {
+	if i.contextRatio <= 0 {
+		return 0
+	}
+	cw, err := i.router.ContextWindow(ctx, i.complexity)
+	if err != nil {
+		i.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
+		return 0
+	}
+	return int(float64(cw) * i.contextRatio)
+}
+
+// experienceBriefing 检索与本任务目标相关的历史教训（agent 蒸馏与 expert 导入
+// 同源）。embedding 可用时走 hybrid 检索，否则退纯 sparse；失败返回 nil——
+// 检索不可用不能弄死规划。
+func (i *Engine) experienceBriefing(ctx context.Context, objective string) []corpus.Entry {
+	if i.corpus == nil || strings.TrimSpace(objective) == "" {
+		return nil
+	}
+	var queryVec []float32
+	if i.embedder != nil {
+		if v, err := i.embedder.EmbedQuery(ctx, objective); err == nil {
+			queryVec = v
+		}
+	}
+	entries, err := i.corpus.SearchHybrid(ctx, objective, queryVec, nil, 20, 5, nil)
+	if err != nil {
+		i.logger.Warn().Err(err).Msg("经验简报检索失败（本轮规划不带历史经验）")
+		return nil
+	}
+	return entries
 }
 
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
@@ -142,6 +217,7 @@ type PlanningContext struct {
 	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
+	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -187,6 +263,13 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	if err != nil {
 		return nil, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
+	// 历史经验简报：以任务目标检索跨任务知识库（top5，检索失败静默跳过——
+	// 经验是增益不是依赖），开局即把历史教训带进规划视野；任务内检索一次。
+	if !i.experienceLoaded {
+		i.experience = i.experienceBriefing(ctx, planCtx.Objective)
+		i.experienceLoaded = true
+	}
+	planCtx.Experience = i.experience
 	prompt := i.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
@@ -211,6 +294,14 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	if registry.Allows(functionTools, "evaluate_progress") {
 		if err := registerGraphTool(NewEvaluateProgressTool(graph)); err != nil {
 			return nil, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
+		}
+	}
+	for _, t := range i.extraTools {
+		if !registry.Allows(functionTools, t.Name()) {
+			continue
+		}
+		if err := registerGraphTool(t); err != nil {
+			return nil, fmt.Errorf("注册 %s 失败: %w", t.Name(), err)
 		}
 	}
 
@@ -240,7 +331,8 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MaxTokens:                  4000,
-		MessageModifierChain:       runtime.NewDefaultModifierChain(i.messageWindow),
+		MessageModifierChain:       runtime.NewCompactionChain(i.contextBudget(ctx), "planner", i.distiller),
+		ToolOutputTailBytes:        i.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
@@ -423,6 +515,9 @@ func (i *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 3. 任务目标
 	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
+
+	// 3.5 历史经验简报（跨任务知识库开局注入；空=不渲染该节）
+	sb.WriteString(buildExperienceSection(ctx.Experience))
 
 	// 4. 统计信息
 	sb.WriteString(buildStatisticsSection(ctx))
