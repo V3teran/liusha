@@ -27,37 +27,46 @@ const (
 	groupProxyFilter = "proxy_filter"
 )
 
-// CompactionSettings 是 agent 会话历史压缩旋钮：ReAct 循环用「滚动窗口」压上下文——
-// 每步 Generate 前保留 system + 最近 N 条非系统消息，N 即各角色窗口条数。
-// 窗口越大上下文越完整、token 越贵；按链路特点分角色配置（长推理链窗口大、短裁决链窗口小）。
-// 历史注：本组曾设计为 token 比例触发 + light LLM 蒸馏，该机制未落地；现字段即真实生效的
-// 滚动窗口条数（原装配点硬编码 planner 20 / executor 15 / evaluator·monitor 10，已接线）。
+// CompactionSettings 是 agent 上下文压缩旋钮：ReAct 循环按「历史 token 预算」压
+// 上下文——预算 = 比例 × 本角色路由 provider 的 context_window，超预算的历史前缀
+// 被裁并蒸馏成纪要。比例越大上下文越完整、token 越贵；按链路特点分角色配置
+// （长推理链预算大、短裁决链预算小）。历史的窗口条数旋钮（*_window_messages）
+// 已废：条数是 token 的粗糙代理，模型窗口差异下无法表达真实预算。
 type CompactionSettings struct {
-	PlannerWindowMessages   int `json:"planner_window_messages"`   // 规划链路滚动窗口条数
-	ExecutorWindowMessages  int `json:"executor_window_messages"`  // 执行链路滚动窗口条数
-	EvaluatorWindowMessages int `json:"evaluator_window_messages"` // 裁决链路滚动窗口条数
-	MonitorWindowMessages   int `json:"monitor_window_messages"`   // 监察链路滚动窗口条数
+	PlannerContextRatio   float64 `json:"planner_context_ratio"`   // 规划链路历史预算占比
+	ExecutorContextRatio  float64 `json:"executor_context_ratio"`  // 执行链路历史预算占比
+	EvaluatorContextRatio float64 `json:"evaluator_context_ratio"` // 裁决链路历史预算占比
+	MonitorContextRatio   float64 `json:"monitor_context_ratio"`   // 监察链路历史预算占比
 }
 
-// normalized 把 0/负值窗口回退到内置默认（DB 旧行是旧字段结构的 JSON，新字段缺失
-// 反序列化即零值——读路径归一保证旧行无需迁移即可用）。
+const (
+	// maxContextRatio 封顶历史预算占比：必须给模型输出与 system 开销留余地，
+	// 预算贴满 context_window 等于把压缩推迟到 provider 报超限。
+	maxContextRatio = 0.9
+)
+
+// normalized 把非法比例回退到内置默认（DB 旧行是旧字段结构的 JSON，新字段缺失
+// 反序列化即零值——读路径归一保证旧行无需迁移即可用）；超封顶按 maxContextRatio
+// 钳制。
 func (c CompactionSettings) normalized() CompactionSettings {
-	if c.PlannerWindowMessages <= 0 {
-		c.PlannerWindowMessages = 20
-	}
-	if c.ExecutorWindowMessages <= 0 {
-		c.ExecutorWindowMessages = 15
-	}
-	if c.EvaluatorWindowMessages <= 0 {
-		c.EvaluatorWindowMessages = 10
-	}
-	if c.MonitorWindowMessages <= 0 {
-		c.MonitorWindowMessages = 10
-	}
+	c.PlannerContextRatio = clampRatio(c.PlannerContextRatio, 0.6)
+	c.ExecutorContextRatio = clampRatio(c.ExecutorContextRatio, 0.5)
+	c.EvaluatorContextRatio = clampRatio(c.EvaluatorContextRatio, 0.5)
+	c.MonitorContextRatio = clampRatio(c.MonitorContextRatio, 0.5)
 	return c
 }
 
-// DefaultCompaction 返回内置默认的压缩窗口配置（种子首填用；与 normalized 的兜底一致）。
+func clampRatio(v, fallback float64) float64 {
+	if v <= 0 {
+		return fallback
+	}
+	if v > maxContextRatio {
+		return maxContextRatio
+	}
+	return v
+}
+
+// DefaultCompaction 返回内置默认的压缩预算配置（种子首填用；与 normalized 的兜底一致）。
 func DefaultCompaction() CompactionSettings { return CompactionSettings{}.normalized() }
 
 // RuntimeSettings 是工具运行时的活旋钮集合（对应原 config.Toolruntime/Sandbox/Runner
@@ -66,7 +75,15 @@ type RuntimeSettings struct {
 	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界，注册表级超时同源）
 	StepLLMTimeoutSeconds  int `json:"step_llm_timeout_seconds"`  // 单步 LLM 看门狗超时秒（挂死的调用即失败；runner 每次调用现读，热改无需重启）
 	RunTailBytes           int `json:"run_tail_bytes"`            // run_command stdout/stderr 保留尾部字节数（输出末段是结果所在，头部横幅/噪音可弃）
+	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节（运行时
+	// 统一收口：个别工具内的领域化裁剪仍先行，本旋钮是最后一道兜底，保证任何单条
+	// 工具结果都有界、不会撑爆上下文预算或撞长度校验哨兵弄死整轮）。
+	ToolOutputTailBytes int `json:"tool_output_tail_bytes"`
 }
+
+// defaultToolOutputTailBytes 是工具输出全局钳制的内置默认。32KiB 对绝大多数
+// 工具结果宽裕（run_command 等已有更紧的领域裁剪先行），又远小于长度校验哨兵。
+const defaultToolOutputTailBytes = 32768
 
 // normalized 把 0/负值回退到内置默认（旧行新字段缺失同上，读路径归一免迁移）。
 func (r RuntimeSettings) normalized() RuntimeSettings {
@@ -78,6 +95,9 @@ func (r RuntimeSettings) normalized() RuntimeSettings {
 	}
 	if r.RunTailBytes <= 0 {
 		r.RunTailBytes = 8192
+	}
+	if r.ToolOutputTailBytes <= 0 {
+		r.ToolOutputTailBytes = defaultToolOutputTailBytes
 	}
 	return r
 }

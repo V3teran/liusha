@@ -32,14 +32,14 @@ export function SystemConfig() {
   const sections = useMemo(() => [
     {
       id: 'compaction',
-      title: '会话历史压缩',
-      keywords: '会话 历史 压缩 滚动 窗口 消息 条数 规划 执行 裁决 监察',
+      title: '上下文压缩',
+      keywords: '上下文 压缩 历史 token 预算 占比 规划 执行 裁决 监察 纪要',
       component: <CompactionSection />,
     },
     {
       id: 'runtime',
       title: '工具运行时',
-      keywords: '工具 运行时 超时 看门狗 llm 输出 尾部 截尾 字节',
+      keywords: '工具 运行时 超时 看门狗 llm 输出 尾部 截尾 字节 钳制',
       component: <RuntimeSection />,
     },
     {
@@ -95,15 +95,19 @@ function CompactionSection() {
   const d = s.draft
   const invalid =
     !d ||
-    d.planner_window_messages <= 0 ||
-    d.executor_window_messages <= 0 ||
-    d.evaluator_window_messages <= 0 ||
-    d.monitor_window_messages <= 0
+    d.planner_context_ratio <= 0 ||
+    d.executor_context_ratio <= 0 ||
+    d.evaluator_context_ratio <= 0 ||
+    d.monitor_context_ratio <= 0 ||
+    d.planner_context_ratio > 0.9 ||
+    d.executor_context_ratio > 0.9 ||
+    d.evaluator_context_ratio > 0.9 ||
+    d.monitor_context_ratio > 0.9
 
   return (
     <SettingsSection
-      title="会话历史压缩"
-      subtitle="各角色 ReAct 循环的滚动窗口：每步保留 system + 最近 N 条非系统消息，N 越大上下文越完整、token 越贵"
+      title="上下文压缩"
+      subtitle="各角色 ReAct 循环的历史 token 预算 = 占比 × 该角色路由模型的 context_window；超预算的前缀被裁并蒸馏成纪要，占比越大上下文越完整、token 越贵"
       loading={s.loading}
       error={s.error}
       saving={s.saving}
@@ -115,29 +119,29 @@ function CompactionSection() {
     >
       {d && (
         <>
-          <WindowField
-            label="规划窗口（条）"
-            hint="规划链路长、上下文价值高，窗口最大"
-            value={d.planner_window_messages}
-            onChange={(v) => s.patch({ planner_window_messages: v })}
+          <RatioField
+            label="规划占比"
+            hint="规划链路长、上下文价值高，占比最大"
+            value={d.planner_context_ratio}
+            onChange={(v) => s.patch({ planner_context_ratio: v })}
           />
-          <WindowField
-            label="执行窗口（条）"
-            hint="执行工具循环的中档窗口"
-            value={d.executor_window_messages}
-            onChange={(v) => s.patch({ executor_window_messages: v })}
+          <RatioField
+            label="执行占比"
+            hint="执行工具循环的中档预算"
+            value={d.executor_context_ratio}
+            onChange={(v) => s.patch({ executor_context_ratio: v })}
           />
-          <WindowField
-            label="裁决窗口（条）"
-            hint="单假设取证链路短，窗口最小"
-            value={d.evaluator_window_messages}
-            onChange={(v) => s.patch({ evaluator_window_messages: v })}
+          <RatioField
+            label="裁决占比"
+            hint="单假设取证链路短，预算最小"
+            value={d.evaluator_context_ratio}
+            onChange={(v) => s.patch({ evaluator_context_ratio: v })}
           />
-          <WindowField
-            label="监察窗口（条）"
+          <RatioField
+            label="监察占比"
             hint="周期性状态评估，链路最短"
-            value={d.monitor_window_messages}
-            onChange={(v) => s.patch({ monitor_window_messages: v })}
+            value={d.monitor_context_ratio}
+            onChange={(v) => s.patch({ monitor_context_ratio: v })}
           />
         </>
       )}
@@ -145,8 +149,8 @@ function CompactionSection() {
   )
 }
 
-// WindowField 是滚动窗口条数输入（正整数）。
-function WindowField({
+// RatioField 是历史预算占比输入（0 < 比例 ≤ 0.9，步进 0.05）。
+function RatioField({
   label,
   hint,
   value,
@@ -158,10 +162,12 @@ function WindowField({
   onChange: (v: number) => void
 }) {
   return (
-    <Field label={label} hint={`${hint}，>0`}>
+    <Field label={label} hint={`${hint}，>0 且 ≤0.9`}>
       <input
         type="number"
-        min={1}
+        min={0.05}
+        max={0.9}
+        step={0.05}
         className={INPUT_CLASS}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
@@ -184,7 +190,8 @@ function RuntimeSection() {
     !d ||
     d.step_tool_timeout_seconds <= 0 ||
     d.step_llm_timeout_seconds <= 0 ||
-    d.run_tail_bytes <= 0
+    d.run_tail_bytes <= 0 ||
+    d.tool_output_tail_bytes <= 0
 
   return (
     <SettingsSection
@@ -226,6 +233,15 @@ function RuntimeSection() {
               className={INPUT_CLASS}
               value={d.run_tail_bytes}
               onChange={(e) => s.patch({ run_tail_bytes: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="工具输出全局钳制（字节）" hint="任意工具输出进上下文前的尾部保留上限——最后一道兜底，保证单条结果有界不撑爆上下文，>0">
+            <input
+              type="number"
+              min={1}
+              className={INPUT_CLASS}
+              value={d.tool_output_tail_bytes}
+              onChange={(e) => s.patch({ tool_output_tail_bytes: Number(e.target.value) })}
             />
           </Field>
         </>

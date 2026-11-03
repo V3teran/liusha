@@ -53,18 +53,19 @@ func putCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		// 各角色滚动窗口条数须为正（条数语义：保留 system + 最近 N 条非系统消息）。
+		// 各角色历史预算占比须为正且不超过封顶（占比语义：预算 = 比例 ×
+		// 该角色路由 provider 的 context_window；封顶由 settingstore 归一层兜底）。
 		for _, f := range []struct {
 			name  string
-			value int
+			value float64
 		}{
-			{"planner_window_messages", b.PlannerWindowMessages},
-			{"executor_window_messages", b.ExecutorWindowMessages},
-			{"evaluator_window_messages", b.EvaluatorWindowMessages},
-			{"monitor_window_messages", b.MonitorWindowMessages},
+			{"planner_context_ratio", b.PlannerContextRatio},
+			{"executor_context_ratio", b.ExecutorContextRatio},
+			{"evaluator_context_ratio", b.EvaluatorContextRatio},
+			{"monitor_context_ratio", b.MonitorContextRatio},
 		} {
 			if f.value <= 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": f.name + " 必须 > 0（该角色 ReAct 滚动窗口保留的消息条数）"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": f.name + " 必须 > 0（该角色历史预算占模型上下文窗口的比例）"})
 				return
 			}
 		}

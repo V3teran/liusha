@@ -43,7 +43,7 @@ func (f *fakeSettings) SaveProxyFilter(_ context.Context, v settingstore.ProxyFi
 // TestGetCompactionSettings_ReturnsGroup：GET /settings/compaction 回 compaction 组当前旋钮。
 func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
 	fs := &fakeSettings{compaction: settingstore.CompactionSettings{
-		PlannerWindowMessages: 20, ExecutorWindowMessages: 15, EvaluatorWindowMessages: 10, MonitorWindowMessages: 10,
+		PlannerContextRatio: 0.6, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5,
 	}}
 	srv := newTestServer(t, Deps{Settings: fs})
 	defer srv.Close()
@@ -53,7 +53,7 @@ func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
 		t.Fatalf("status=%d", code)
 	}
 	r, _ := body["compaction"].(map[string]any)
-	if r["planner_window_messages"] != float64(20) || r["monitor_window_messages"] != float64(10) {
+	if r["planner_context_ratio"] != float64(0.6) || r["monitor_context_ratio"] != float64(0.5) {
 		t.Fatalf("compaction 组未回传: %v", body["compaction"])
 	}
 }
@@ -67,10 +67,10 @@ func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"planner 窗口<=0", map[string]any{"planner_window_messages": 0, "executor_window_messages": 15, "evaluator_window_messages": 10, "monitor_window_messages": 10}},
-		{"executor 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": -1, "evaluator_window_messages": 10, "monitor_window_messages": 10}},
-		{"evaluator 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": 15, "evaluator_window_messages": 0, "monitor_window_messages": 10}},
-		{"monitor 窗口<=0", map[string]any{"planner_window_messages": 20, "executor_window_messages": 15, "evaluator_window_messages": 10}},
+		{"planner 占比<=0", map[string]any{"planner_context_ratio": 0, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5}},
+		{"executor 占比<=0", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": -1, "evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5}},
+		{"evaluator 占比<=0", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0, "monitor_context_ratio": 0.5}},
+		{"monitor 占比缺失", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0.5}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,15 +92,15 @@ func TestPutCompactionSettings_Wires(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", map[string]any{
-		"planner_window_messages": 22, "executor_window_messages": 16,
-		"evaluator_window_messages": 11, "monitor_window_messages": 9,
+		"planner_context_ratio": 0.65, "executor_context_ratio": 0.55,
+		"evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fs.savedCompaction == nil || fs.savedCompaction.PlannerWindowMessages != 22 ||
-		fs.savedCompaction.ExecutorWindowMessages != 16 || fs.savedCompaction.EvaluatorWindowMessages != 11 ||
-		fs.savedCompaction.MonitorWindowMessages != 9 {
+	if fs.savedCompaction == nil || fs.savedCompaction.PlannerContextRatio != 0.65 ||
+		fs.savedCompaction.ExecutorContextRatio != 0.55 || fs.savedCompaction.EvaluatorContextRatio != 0.5 ||
+		fs.savedCompaction.MonitorContextRatio != 0.5 {
 		t.Fatalf("compaction 未透传: %+v", fs.savedCompaction)
 	}
 }
