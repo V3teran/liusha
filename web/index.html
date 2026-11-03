@@ -2,9 +2,19 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+    <!-- 图标集（默认浅色系：白容器 + 黑剪影，深色对照版见 brand/app-icon-dark.svg）：
+         SVG 优先（现代浏览器），PNG 32/16 回退（SVG favicon 不渲染的环境），
+         iOS 主屏走 apple-touch-icon，Safari 固定标签页走 mask-icon（color 即着色）。
+         theme-color 取 design-tokens.css --background 换算值：浅 #fafafa / 深 #09090b。 -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=7" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=7" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=7" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=7" />
+    <link rel="mask-icon" href="/safari-pinned-tab.svg?v=7" color="#c4cfdb" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>liusha 智能化渗透测试平台</title>
+    <title>liusha LLM 智能化渗透测试平台</title>
     <script>
       // 在 React 渲染前同步应用主题，避免深/浅色切换时的闪屏（FOUC）。
       (function () {

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="流沙">
+  <!-- ============================================================
+       流沙 LIUSHA · 应用图标 / favicon（v10 · 暗主题态）
+       体系：正负形成对——本版为反白剪影 + 近黑容器（暗主题/默认）。
+       剪影取 mark-white.svg 同几何；沙粒保留渐隐透明度分层。
+       容器底端 #0f0f11 = design-tokens.css 深色 surface
+       oklch(17% 0.004 285) 的 sRGB 换算值。
+       对照版：app-icon-light.svg（黑剪影 + 白容器，浅主题）。
+       ============================================================ -->
+  <defs>
+    <linearGradient id="containerGrad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1a1d23"/>
+      <stop offset="1" stop-color="#0f0f11"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 容器：22% 圆角 + 斜向渐变 + 发丝描边 -->
+  <rect width="128" height="128" rx="28" fill="url(#containerGrad)"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.25" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1.5"/>
+
+  <!-- 鲨齿剑 · 反白剪影（几何同 mark.svg v9）-->
+  <g transform="translate(14.72 14.72) scale(1.54) translate(5.6 5.7) rotate(-45 32 32)" fill="#ffffff">
+    <circle cx="32" cy="-2.2" r="2.3" opacity="0.9"/>
+    <circle cx="32" cy="-7" r="1.5" opacity="0.7"/>
+    <circle cx="32" cy="-11" r="1.05" opacity="0.5"/>
+    <path d="M26 23.2 L32.2 60.5 L35.7 46 L40.6 44.4 Q37.1 44.7 36.5 39.2 L42.4 37.4 Q38.1 37.7 37.4 32.2 L44.1 30.6 Q39.2 30.9 38.3 23.4 Z"/>
+    <path d="M30.2 12.5 L33.8 12.5 L33.8 19.5 L30.2 19.5 Z" opacity="0.85"/>
+    <path d="M15.5 20.2 L18.6 18.8 L45.4 18.8 L48.5 20.2 L46 24.4 L18 24.4 Z" opacity="0.85"/>
+    <path d="M32 2.4 L36.6 8.5 L32 16.4 L27.4 8.5 Z"/>
+  </g>
+</svg>
