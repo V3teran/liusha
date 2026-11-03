@@ -21,6 +21,7 @@ import (
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/distill"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -69,6 +70,10 @@ type Handler struct {
 	Graph        *explorationgraph.Store
 	EventBus     bus.EventBus // 统一事件总线
 	ControlPlane *controlplane.Store
+
+	// Distiller 是任务终态经验蒸馏（corpus source=agent 写入闭环）；
+	// nil=关闭该能力（如 corpus 未装配）。
+	Distiller *distill.Service
 }
 
 // hostRe 匹配 brief 里的 http(s) 目标（含端口）——任务装配层的入口记账：
