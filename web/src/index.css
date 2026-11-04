@@ -7,7 +7,6 @@
 @import "./styles/utilities.css";
 @import "./styles/markdown.css";
 @import "./styles/advanced.css";
-@import "./styles/page-layouts.css";
 
 /* ============================================================
    全局基础样式
@@ -44,7 +43,7 @@ pre {
    ============================================================ */
 
 .brand-mark {
-  color: #4a68a2;
+  color: var(--accent);
 }
 
 /* ============================================================
