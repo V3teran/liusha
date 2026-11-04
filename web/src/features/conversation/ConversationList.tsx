@@ -413,9 +413,10 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           </div>
         )}
         {!loadError && filtered.length === 0 && (
-          /* 结构化空态：虚线框面板占据列表区并居中——空数据也是一等界面
-             状态，框架可见而非浮字 */
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong/50 px-4 py-10 text-center">
+          /* 结构化空态：居中引导块占据列表区——空数据也是一等界面状态。
+             不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
+             还会让无数据 tab（代理模式）与有数据 tab（自主下发）的左栏观感不一致。 */
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-muted">
               {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
