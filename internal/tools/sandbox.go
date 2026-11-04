@@ -233,20 +233,20 @@ func shellJoin(parts ...string) string {
 
 // browserCmdArgs 是 drive_browser 的参数（字段与 browser-svc.py 子命令约定对应）。
 type browserCmdArgs struct {
-	Action      string `json:"action"`
-	URL         string `json:"url"`
-	Index       *int   `json:"index"`
-	X           *int   `json:"x"`
-	Y           *int   `json:"y"`
-	Text        string `json:"text"`
-	By          string `json:"by"`
-	TimeoutMs   int    `json:"timeout_ms"`
-	Keys        string `json:"keys"`
-	Direction   string `json:"direction"`
-	Amount      *int   `json:"amount"`
-	JS          string `json:"js"`
-	Get         string `json:"get"`
-	Identity    string `json:"identity"`
+	Action    string `json:"action"`
+	URL       string `json:"url"`
+	Index     *int   `json:"index"`
+	X         *int   `json:"x"`
+	Y         *int   `json:"y"`
+	Text      string `json:"text"`
+	By        string `json:"by"`
+	TimeoutMs int    `json:"timeout_ms"`
+	Keys      string `json:"keys"`
+	Direction string `json:"direction"`
+	Amount    *int   `json:"amount"`
+	JS        string `json:"js"`
+	Get       string `json:"get"`
+	Identity  string `json:"identity"`
 
 	TimeoutSeconds int `json:"timeout_seconds"`
 }

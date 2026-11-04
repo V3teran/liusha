@@ -183,7 +183,7 @@ func (s *Store) Read(rel string) (FileContent, error) {
 	if err != nil {
 		return FileContent{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data := make([]byte, MaxReadBytes)
 	n, err := f.Read(data)
@@ -260,6 +260,11 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 			_, err = zw.Create(path.Join(base, filepath.ToSlash(arc)) + "/")
 			return err
 		}
+		// 不归档符号链接：工作区内容来自不受信沙箱，symlink 可指向宿主任意
+		// 路径（TOCTOU 逃逸），交付包只收真实文件。
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		dInfo, err := d.Info()
 		if err != nil {
 			return err
@@ -270,11 +275,11 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		f, err := os.Open(p) // #nosec G304 // WalkDir 根来自 resolve 校验
+		f, err := os.Open(p) // #nosec G304,G122 // WalkDir 根来自 resolve 校验，symlink 已在上方跳过（归档仅收真实文件）
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = io.Copy(zwEntry, f)
 		return err
 	})
@@ -294,6 +299,7 @@ func (s *Store) Write(rel string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 		return err
 	}
+	// #nosec G306 -- 工作区文件是共享工件（沙箱回连/交付下载），0640 组可读为刻意选择，非密钥。
 	return os.WriteFile(full, data, 0o640)
 }
 

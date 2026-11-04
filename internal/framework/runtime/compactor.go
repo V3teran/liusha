@@ -1,3 +1,5 @@
+package runtime
+
 // compactor.go 实现上下文压缩：token 预算 + 被裁前缀的蒸馏纪要。
 //
 // 设计约束（优先级从高到低）：
@@ -7,7 +9,6 @@
 //     不得落进组内；压缩后首条非 system 消息必须是 user（纪要/占位即 user）。
 //  3. 纪要可折叠——连续压缩时旧纪要随前缀被裁，抽出折叠进新纪要，长任务多轮
 //     压缩不丢早期结论。
-package runtime
 
 import (
 	"context"
@@ -192,11 +193,11 @@ func priorSummary(evicted []llm.Message) string {
 // 相邻轮次各自成键，命中不串味。
 func summaryCacheKey(role, prior string, evicted []llm.Message) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00", role, prior)
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00", role, prior)
 	for _, m := range evicted {
-		fmt.Fprintf(h, "%s\x00%s\x00", m.Role, m.Content)
+		_, _ = fmt.Fprintf(h, "%s\x00%s\x00", m.Role, m.Content)
 		for _, tc := range m.ToolCalls {
-			fmt.Fprintf(h, "tc:%s:%s\x00", tc.Name, string(tc.Arguments))
+			_, _ = fmt.Fprintf(h, "tc:%s:%s\x00", tc.Name, string(tc.Arguments))
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))

@@ -99,9 +99,9 @@ type Summary struct {
 	// StepCount 是认知循环推理步数（reasoning 终态数，最近一次 dispatched 之后）——
 	// 与对话时间线卡片的「第 N 步」同一口径。会话无推理步（后台任务/旧数据）时
 	// 回退探索图 action 节点数。
-	StepCount   int
-	CreatedAt   time.Time
-	EndedAt     *time.Time
+	StepCount int
+	CreatedAt time.Time
+	EndedAt   *time.Time
 }
 
 // summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。

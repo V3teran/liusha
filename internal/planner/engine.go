@@ -21,12 +21,12 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// Engine 是基于 LLM 的智能规划器
 // ErrPlanOutputParse 表示规划输出经修复层后仍不可解析。它区别于网络类瞬时
 // 错误：模型换一次生成极可能产出合法 JSON，因此规划 Agent 对它的重试策略是
 // 「再问一次」而非放弃本批规划。
 var ErrPlanOutputParse = errors.New("规划输出不可解析")
 
+// Engine 是基于 LLM 的智能规划器
 type Engine struct {
 	router     *llm.Router
 	logger     zerolog.Logger

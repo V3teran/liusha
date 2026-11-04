@@ -96,7 +96,7 @@ export function buildFlowGraph(
       target: e.dst_id,
       type: 'smoothstep',
       pathOptions: { borderRadius: 14 },
-      // 执行中动作的出边流动：图是运行时认知图，活跃工作可感知
+      // 执行中动作的出边流动：图是运行时探索图，活跃工作可感知
       animated: stateById.get(e.src_id) === 'running',
       ...(e.rel === 'triggers'
         ? styled(EDGE_COLORS.triggers, 1.6, '6 4')

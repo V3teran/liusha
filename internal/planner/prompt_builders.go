@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/textx"
 )
 
 // buildPlanningPromptHeader 构建 prompt 头部
@@ -195,7 +196,7 @@ func actionInstruction(n explorationgraph.Node) string {
 	if err := json.Unmarshal(n.Content, &a); err != nil {
 		return "（解析失败）"
 	}
-	return truncateRunes(a.Instruction, actionClampRunes)
+	return textx.TruncateRunes(a.Instruction, actionClampRunes, "…（截断）")
 }
 
 // buildCompletedActionsSection 构建已完成工作部分（尾部逐条 + 更早折叠）。
@@ -307,7 +308,7 @@ func buildResultsSection(results []explorationgraph.Node) string {
 		}
 		seen[r.Summary] = true
 		// ID 必须展示：新动作的 triggered_by 因果声明引用它（发现滋生动作）。
-		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, truncateRunes(r.Summary, resultClampRunes))
+		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, textx.TruncateRunes(r.Summary, resultClampRunes, "…（截断）"))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -326,7 +327,7 @@ func buildFactsSection(facts []Fact) string {
 	dedup := make([]Fact, 0, len(facts))
 	seen := make(map[string]bool, len(facts))
 	for i := len(facts) - 1; i >= 0; i-- {
-		st := truncateRunes(facts[i].Statement, factClampRunes)
+		st := textx.TruncateRunes(facts[i].Statement, factClampRunes, "…（截断）")
 		if seen[st] {
 			continue
 		}
@@ -376,7 +377,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	sb.WriteString("## 已被证伪的假设（复现门裁决）\n")
 	seen := make(map[string]bool, len(hypotheses))
 	for _, h := range hypotheses {
-		st := truncateRunes(h.Statement, historyClampRunes)
+		st := textx.TruncateRunes(h.Statement, historyClampRunes, "…（截断）")
 		if seen[st] {
 			continue
 		}
@@ -429,22 +430,10 @@ func buildExperienceSection(entries []corpus.Entry) string {
 	var sb strings.Builder
 	sb.WriteString("## 历史经验参考（来自跨任务知识库）\n")
 	for _, e := range entries {
-		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, truncateRunes(e.Content, 400))
+		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, textx.TruncateRunes(e.Content, 400, "…（截断）"))
 	}
 	sb.WriteString("\n**注意**：经验来自其它任务的沉淀，仅供参考——与本任务的事实/目标冲突时以本任务为准。\n\n")
 	return sb.String()
-}
-
-// truncateRunes 按 rune 截尾（prompt 内嵌文本的通用口径）。
-func truncateRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…（截断）"
 }
 
 // buildJSONSchema 构建 JSON 格式示例

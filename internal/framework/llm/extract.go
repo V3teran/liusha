@@ -103,7 +103,7 @@ func repairJSON(data []byte) []byte {
 			out.WriteByte(c)
 		default:
 			if c < 0x20 {
-				out.WriteString(fmt.Sprintf(`\u%04x`, c))
+				_, _ = fmt.Fprintf(&out, `\u%04x`, c)
 				continue
 			}
 			out.WriteByte(c)

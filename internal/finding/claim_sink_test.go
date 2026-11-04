@@ -67,7 +67,6 @@ func TestClaimSink_NoObserver(t *testing.T) {
 	}
 }
 
-
 // 主机线索全部落空时回退任务锚定的目标主机（task.target_host）——缺这层
 // 兜底，整条交付会被存储层以「finding.Host 必填」拒绝（线上曾整批丢弃）。
 func TestClaimSink_TaskHostFallback(t *testing.T) {

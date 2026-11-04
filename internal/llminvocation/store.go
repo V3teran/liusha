@@ -244,15 +244,6 @@ const maxListLimit = 1000
 // defaultListLimit 对齐 httpapi defaultInvocationPageSize=200——≤0 兜底用缺省而非上限。
 const defaultListLimit = 200
 
-// resultToolCallsExpr / toolNameExpr：result jsonb 的键读取表达式。
-// 历史行是 Go 结构体无 tag 直出的大写键（Content/ToolCalls），加 tag 后的新行是小写键——
-// 派生摘要两套都认（COALESCE 先小写后大写），新旧数据在列表页同等可读。
-// 工具名同有两种形态：OpenAI 原始线格式包在 function.name 下，内部 ToolCall 是扁平 name。
-const (
-	resultToolCallsExpr = `COALESCE(li.result->'tool_calls', li.result->'ToolCalls')`
-	toolNameExpr        = `COALESCE(tc->'function'->>'name', tc->>'name')`
-)
-
 // ListFilter 是列表 / 统计共用的筛选条件（零值 = 不筛，等价于全量）。
 //
 // 关键：列表与统计吃同一份筛选，否则筛选后"明细 3 条、合计仍是全量"会互相打脸。

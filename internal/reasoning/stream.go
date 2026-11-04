@@ -22,6 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/textx"
 )
 
 // flushInterval 是增量合批窗口：窗口内同 agent 同通道的 chunk 合并成一帧发布，
@@ -250,7 +251,7 @@ func (t agentTap) publishFinal(round Round) {
 	meta, err := json.Marshal(map[string]any{
 		"kind":       "reasoning",
 		"agent_name": t.agent,
-		"thinking":   truncateRunes(round.Thinking, maxSummaryRunes),
+		"thinking":   textx.TruncateRunes(round.Thinking, maxSummaryRunes, "…（截断）"),
 		"in_tokens":  round.InTokens,
 		"out_tokens": round.OutTokens,
 		"latency_ms": round.LatencyMs,
@@ -260,7 +261,7 @@ func (t agentTap) publishFinal(round Round) {
 		return
 	}
 	msg, err := t.s.writer.AppendMessage(t.s.ctx, t.s.conversationID,
-		conversation.RoleAssistant, conversation.KindEvent, truncateRunes(round.Summary, maxSummaryRunes), meta)
+		conversation.RoleAssistant, conversation.KindEvent, textx.TruncateRunes(round.Summary, maxSummaryRunes, "…（截断）"), meta)
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终稿落库失败（气泡清理将延迟到重连）")
 		return
@@ -268,15 +269,6 @@ func (t agentTap) publishFinal(round Round) {
 	if err := t.s.pub.PublishMessage(t.s.ctx, t.s.conversationID, msg); err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 终态广播失败（重连补历史可见）")
 	}
-}
-
-// truncateRunes 按 rune 截断并追加省略标记。
-func truncateRunes(s string, limit int) string {
-	runes := []rune(s)
-	if len(runes) <= limit {
-		return s
-	}
-	return string(runes[:limit]) + "…（截断）"
 }
 
 // 确认接口满足关系（编译期断言）。
