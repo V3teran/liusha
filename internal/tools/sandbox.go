@@ -190,8 +190,7 @@ var driveBrowserSchema = json.RawMessage(`{
     "amount":      {"type": "integer", "description": "scroll 像素量（默认 500）"},
     "js":          {"type": "string", "description": "action=eval 时执行的 JS 表达式"},
     "get":         {"type": "string", "enum": ["html", "title"], "description": "action=get 取页面内容"},
-    "identity":    {"type": "string", "description": "账号身份（独立 cookie jar/chromium），不填用默认"},
-    "instruction": {"type": "string", "description": "已废弃：CLI 不支持自然语言 task——改用 action 原子操作组合"}
+    "identity":    {"type": "string", "description": "账号身份（独立 cookie jar/chromium），不填用默认"}
   },
   "required": ["action"]
 }`)
@@ -248,7 +247,6 @@ type browserCmdArgs struct {
 	JS          string `json:"js"`
 	Get         string `json:"get"`
 	Identity    string `json:"identity"`
-	Instruction string `json:"instruction"`
 
 	TimeoutSeconds int `json:"timeout_seconds"`
 }

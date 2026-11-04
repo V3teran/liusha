@@ -44,8 +44,10 @@ func (t *httpRequestTool) buildHTTPRequest(ctx context.Context, a *httpRequestAr
 		req.Header.Set(k, v)
 	}
 
-	// jar 兜底：库读取失败或库中尚无 Cookie 项时，用进程内缓存补会话头
-	if req.Header.Get("Cookie") == "" {
+	// jar 兜底：库读取失败或库中尚无 Cookie 项时，用进程内缓存补会话头。
+	// 仅限未指定身份（省略/null）——匿名（""）不得被任务会话污染（否则匿名
+	// 测试全成假阳性），指定身份（"名"）不得混入会话 Cookie（跨身份串味）。
+	if a.Identity == nil && req.Header.Get("Cookie") == "" {
 		if ch := t.cookieHeader(req.URL.Host); ch != "" {
 			req.Header.Set("Cookie", ch)
 		}
@@ -79,10 +81,23 @@ func executeHTTPRequest(ctx context.Context, req *http.Request, timeoutSeconds i
 }
 
 // handleResponseCookies 处理响应 Cookie
-func (t *httpRequestTool) handleResponseCookies(ctx context.Context, req *http.Request, resp *http.Response) {
-	// 响应 Set-Cookie 入 jar（缓存）+ 变更时合并写入凭证库
-	t.storeCookies(req.URL.Host, resp.Cookies())
-	t.syncSessionToStore(ctx, req.URL.Host)
+func (t *httpRequestTool) handleResponseCookies(ctx context.Context, req *http.Request, resp *http.Response, identity *string) {
+	cookies := resp.Cookies()
+	if len(cookies) == 0 {
+		return
+	}
+	switch {
+	case identity == nil:
+		// 未指定身份：会话语义——Set-Cookie 入 jar（缓存）+ 变更时合并写入本任务会话身份。
+		t.storeCookies(req.URL.Host, cookies)
+		t.syncSessionToStore(ctx, req.URL.Host)
+	case *identity == "":
+		// 匿名请求：不落任何会话状态——登录页的 CSRF cookie 也不该混进后续请求。
+	default:
+		// 指定身份：Set-Cookie 归属该身份（会话续期），不碰任务会话 jar——
+		// 跨身份串味会让多身份矩阵的各行失去独立性。
+		t.syncNamedIdentityCookies(ctx, req.URL.Host, *identity, cookies)
+	}
 }
 
 // recordTraffic 记录流量到弹药库

@@ -197,7 +197,16 @@ func (f *fakeCredsProvider) SaveIdentities(_ context.Context, host string, ids [
 func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) ([]credential.Identity, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.byHost[host], f.getErr
+	// 深拷贝：真实 redis store 每次读都是新反序列化值，fake 必须同语义——
+	// 否则调用方对切片的原地操作会改穿存储（http_request 过滤/注入路径的
+	// 历史缺陷正是被共享数组掩盖的）。
+	src := f.byHost[host]
+	out := make([]credential.Identity, len(src))
+	for i, id := range src {
+		out[i] = id
+		out[i].Credentials = append([]credential.Credential(nil), id.Credentials...)
+	}
+	return out, f.getErr
 }
 func (f *fakeCredsProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
 func (f *fakeCredsProvider) DeleteSessions(_ context.Context, _ string) (int, error) {
@@ -420,4 +429,97 @@ func TestHTTPTool_CrossTaskSessionIsolation(t *testing.T) {
 			t.Fatal("host 级共享身份应对所有 task 注入")
 		}
 	}
+}
+
+// identity 三态语义（BAC 的身份原语契约）：
+// 省略=全注入；"身份名"=仅该身份且响应 Set-Cookie 归属该身份；""=匿名（无注入、
+// 无会话 Cookie、响应不落会话）。回归点：匿名不得被任务会话 jar 污染。
+func TestHTTPTool_IdentitySemantics(t *testing.T) {
+	creds := newFakeCreds()
+	mux := http.NewServeMux()
+	// /whoami 回显收到的凭证头，断言注入面的唯一事实源。
+	mux.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("COOKIE[" + r.Header.Get("Cookie") + "] TOKEN[" + r.Header.Get("X-Token") + "]"))
+	})
+	// /set-sess 模拟登录：Set-Cookie 一枚会话 cookie。
+	mux.HandleFunc("/set-sess", func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "sess", Value: "xyz"})
+		_, _ = w.Write([]byte("ok"))
+	})
+	// /refresh 模拟指定身份的会话续期：Set-Cookie admin_sess。
+	mux.HandleFunc("/refresh", func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "admin_sess", Value: "renewed"})
+		_, _ = w.Write([]byte("ok"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	creds.byHost[host] = []credential.Identity{
+		{Username: "admin", Role: "admin", Credentials: []credential.Credential{
+			{Type: credential.TypeHeaders, Key: "Cookie", Value: "a=1"},
+			{Type: credential.TypeHeaders, Key: "X-Token", Value: "tok-admin"},
+		}},
+		{Username: "user", Credentials: []credential.Credential{
+			{Type: credential.TypeHeaders, Key: "Cookie", Value: "u=1"},
+		}},
+	}
+	tool := newHTTPRequestTool(Deps{Creds: creds, TaskID: "t-identity"}, 5*time.Second)
+
+	body := func(args string) string {
+		t.Helper()
+		out := runHTTPTool(t, tool, args)
+		resp := out["response"].(map[string]interface{})
+		return resp["body"].(string)
+	}
+
+	// 1) 省略：全部注入（Cookie 跨身份去重取身份名序先到的 admin）。
+	b := body(`{"url":"` + srv.URL + `/whoami"}`)
+	if !strings.Contains(b, "COOKIE[a=1]") || !strings.Contains(b, "TOKEN[tok-admin]") {
+		t.Fatalf("省略 identity 应注入 admin 的 Cookie+X-Token: %s", b)
+	}
+
+	// 2) 指定身份：只注入该身份。
+	b = body(`{"url":"` + srv.URL + `/whoami", "identity":"user"}`)
+	if !strings.Contains(b, "COOKIE[u=1]") || !strings.Contains(b, "TOKEN[]") {
+		t.Fatalf("identity=user 应只见 user 的 Cookie 且无 X-Token: %s", b)
+	}
+
+	// 3) 匿名：什么凭证都不带。
+	b = body(`{"url":"` + srv.URL + `/whoami", "identity":""}`)
+	if !strings.Contains(b, "COOKIE[]") || !strings.Contains(b, "TOKEN[]") {
+		t.Fatalf("identity=\"\" 应完全匿名: %s", b)
+	}
+
+	// 4) 会话污染回归：先以会话语义登录（Set-Cookie 进 jar），再匿名——sess 不得出现。
+	_ = body(`{"url":"` + srv.URL + `/set-sess"}`)
+	b = body(`{"url":"` + srv.URL + `/whoami", "identity":""}`)
+	if strings.Contains(b, "sess=xyz") {
+		t.Fatalf("匿名请求被任务会话 Cookie 污染: %s", b)
+	}
+
+	// 5) 指定身份的响应 Set-Cookie 归属该身份（不进任务会话、不影响其他身份）。
+	_ = body(`{"url":"` + srv.URL + `/refresh", "identity":"admin"}`)
+	creds.mu.Lock()
+	var adminCookie, userCookie string
+	for _, id := range creds.byHost[host] {
+		for _, c := range id.Credentials {
+			if c.Type == credential.TypeHeaders && c.Key == "Cookie" {
+				switch id.Username {
+				case "admin":
+					adminCookie = c.Value
+				case "user":
+					userCookie = c.Value
+				}
+			}
+		}
+	}
+	creds.mu.Unlock()
+	if !strings.Contains(adminCookie, "admin_sess=renewed") || !strings.Contains(adminCookie, "a=1") {
+		t.Fatalf("admin 身份的 Cookie 应合并续期值并保留原值: %q", adminCookie)
+	}
+	if strings.Contains(userCookie, "admin_sess") {
+		t.Fatalf("续期不得串味到其他身份: %q", userCookie)
+	}
+	// 匿名路径也不落会话：匿名请求 /refresh 不写任何身份。
+	_ = body(`{"url":"` + srv.URL + `/whoami", "identity":""}`)
 }
