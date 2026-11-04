@@ -23,4 +23,4 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
 docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```
 
-数据库迁移随 `up` 自动执行（幂等）。宿主端口一律「3+容器端口」（前端 30080 / 代理 38888 / 回灌 39090 / pg 35432 / redis 36379 / api 38090 仅回环）。打开 http://localhost:30080，`admin` / `.env` 里的初始密码登录；HTTPS 反代后设 `LIUSHA_COOKIE_SECURE=true`。
+数据库迁移随 `up` 自动执行（幂等）。宿主端口一律「3+容器端口」（前端 30080 / 代理 38888 / 回灌 39594 / pg 35432 / redis 36379 / api 38090 仅回环）。打开 http://localhost:30080，`admin` / `.env` 里的初始密码登录；HTTPS 反代后设 `LIUSHA_COOKIE_SECURE=true`。

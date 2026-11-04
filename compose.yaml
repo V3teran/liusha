@@ -46,8 +46,8 @@ services:
       POSTGRES_DB: liusha
     # 仅绑回环：库不对外；host 开发进程（run-svc.sh）连 localhost 照常可达
     ports:
-      # 宿主端口一律「3+容器端口」前缀（不足五位补 0）；仅绑回环：库不对外
-      - "127.0.0.1:35432:5432"
+      # 宿主端口一律「3+容器端口」前缀（不足五位补 0）
+      - "35432:5432"
     volumes:
       # 持久化统一 ~/data/liusha 前缀（HOST_DATA_DIR 可覆盖；macOS 上 pg 走
       # virtiofs 有 IO 折损，介意者改回 named volume）
@@ -67,7 +67,7 @@ services:
     command: ["sh", "-c", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
     # 仅绑回环：队列/缓存不对外
     ports:
-      - "127.0.0.1:36379:6379"
+      - "36379:6379"
     volumes:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
@@ -208,8 +208,8 @@ services:
       # 沙盒流量回灌端点（9090 对外发布）的 Bearer：设值后 runner 与沙盒自动共享同一
       # token（launcher 透传）；空 = 开发模式不验——公网宿主必须设。
       LIUSHA_INGEST_TOKEN: "${LIUSHA_INGEST_TOKEN:-}"
-      # 沙盒回连的宿主端口（39090 映射），与容器内监听 9090 区分
-      LIUSHA_INGEST_PUBLIC_PORT: "39090"
+      # 沙盒回连的宿主端口（39594 映射），与容器内监听 9090 区分
+      LIUSHA_INGEST_PUBLIC_PORT: "39594"
     volumes:
       - ./config:/app/config:ro
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
@@ -222,10 +222,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps
-    # 39090 必须绑 0.0.0.0：沙盒容器经 host-gateway（宿主网桥 IP，非 127.0.0.1）
+    # 39594 必须绑 0.0.0.0：沙盒容器经 host-gateway（宿主网桥 IP，非 127.0.0.1）
     # 回灌流量，绑回环会断沙盒链路。公网宿主务必设 LIUSHA_INGEST_TOKEN。
     ports:
-      - "39090:9090"
+      - "39594:9090"
     profiles: *full-profile
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/healthz"]
