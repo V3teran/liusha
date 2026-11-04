@@ -350,7 +350,7 @@ func doJSON(t *testing.T, method, url string, body any) (int, map[string]any) {
 		rdr = bytes.NewReader(nil)
 	}
 	req, _ := http.NewRequest(method, url, rdr)
-	req.Header.Set("X-API-Key", "k")
+	req.AddCookie(testSessionCookie())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)

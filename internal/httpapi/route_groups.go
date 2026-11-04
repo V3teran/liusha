@@ -180,7 +180,7 @@ func registerChatRoutes(r gin.IRouter, d Deps) {
 	if d.Chat == nil {
 		return
 	}
-	r.POST("/chat", chatHandler(d.Chat, d.StreamCookieSecret, d.CookieSecure))
+	r.POST("/chat", chatHandler(d.Chat))
 }
 
 // registerConversationRoutes 注册会话管理路由
@@ -210,10 +210,6 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 
 	if d.EventStream != nil {
 		r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
-		// 流鉴权解耦
-		if len(d.StreamCookieSecret) > 0 {
-			r.POST("/conversations/:id/stream-auth", streamAuthHandler(d.StreamCookieSecret, d.CookieSecure))
-		}
 	}
 }
 
@@ -225,17 +221,16 @@ func registerUsageRoutes(r gin.IRouter, d Deps) {
 	r.GET("/conversations/:id/usage", conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
 }
 
-// registerDevRoutes 注册开发辅助路由
-func registerDevRoutes(r gin.IRouter, d Deps) {
-	if !d.EnableDevAutofill || d.APIKey == "" {
+// registerAuthRoutes 注册登录认证路由（/auth 系列）。
+// Auth 为 nil 时整组不注册；RequireAuth 同时 fail-closed，除白名单外全部 401。
+// 限流器随路由组创建，进程生命周期内共享（内存态，见 login_limiter.go）。
+func registerAuthRoutes(r gin.IRouter, d Deps) {
+	if d.Auth == nil {
 		return
 	}
-
-	// dev-only：liusha-ui 启动时拉这个端点自动填充 API key
-	// 未鉴权可访问，故仅 dev 开启、production 严禁
-	key := d.APIKey
-	r.GET("/dev-config.json", func(c *gin.Context) {
-		c.Header("Cache-Control", "no-store")
-		c.JSON(200, gin.H{"api_key": key})
-	})
+	limiter := newLoginLimiter()
+	r.POST("/auth/login", loginHandler(d.Auth, d.AuthAudit, limiter, d.CookieSecure))
+	r.POST("/auth/logout", logoutHandler(d.Auth, d.AuthAudit, d.CookieSecure))
+	r.GET("/auth/me", meHandler())
+	r.POST("/auth/password", changePasswordHandler(d.Auth, d.AuthAudit, d.CookieSecure))
 }

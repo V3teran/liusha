@@ -20,13 +20,10 @@ fi
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
-export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
-# 阶段D：SSE stream cookie 签名密钥（api 缺失会 fail-fast）。dev 用固定值即可（cookie 跨重启有效）；
-# prod 必须用 openssl rand -hex 32 生成的真随机值，且配 LIUSHA_COOKIE_SECURE=true。
-export LIUSHA_STREAM_COOKIE_SECRET="${LIUSHA_STREAM_COOKIE_SECRET:-dev-stream-cookie-secret-not-for-prod}"
-# dev 便利：liusha-ui 启动时拉 /dev-config.json 自动填 X-API-Key，不用手贴。
-# production 环境严禁设此变量（会把 API key 通过未鉴权端点暴露）。
-export LIUSHA_DEV_AUTOFILL="${LIUSHA_DEV_AUTOFILL:-1}"
+# 初始管理员：账号表为空时 api 启动期用此密码建 admin（仅首启生效，之后改密走前端）。
+# dev 用固定值方便记忆；e2e 同款凭据。会话 Cookie HttpOnly + SameSite=Lax；
+# prod HTTPS 反代配 LIUSHA_COOKIE_SECURE=true。
+export LIUSHA_ADMIN_INITIAL_PASSWORD="${LIUSHA_ADMIN_INITIAL_PASSWORD:-changeme-admin-pass}"
 export LIUSHA_ENV="${LIUSHA_ENV:-development}"
 export LIUSHA_LOG_LEVEL="${LIUSHA_LOG_LEVEL:-info}"
 export LIUSHA_LOG_DIR="${LIUSHA_LOG_DIR:-logs}"
@@ -128,7 +125,7 @@ echo ""
 echo "✓ 三服务在跑（pids: proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
 echo ""
 echo "📊 前端：web/（本仓）→ make run-web（/api 已代理到本 api）"
-echo "  (X-API-Key=${LIUSHA_API_KEY}，task_id 跑完 e2e 后从 finding 表查)"
+echo "  (登录凭据经前端首启初始化；task_id 跑完 e2e 后从 finding 表查)"
 echo ""
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""

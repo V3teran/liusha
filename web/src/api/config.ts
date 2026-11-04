@@ -1,7 +1,7 @@
 /**
  * 配置管理 API 客户端（agent 配置读取/编辑 + 只读工具目录）
  *
- * 复用 client.ts 的 get/put fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 get/put fetch 封装（同源携带会话 Cookie）。
  * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除。
  */
 

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   ChevronLeft,
   ChevronRight,
@@ -22,6 +22,8 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
+import { useAuthStore } from '@/stores/auth'
+import { UserMenu } from '@/features/auth/UserMenu'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -51,11 +53,13 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 /**
- * AppShell - 应用主框架
+ * AppShell - 应用主框架（登录后壳体，未登录由路由守卫转入 /login）
  */
 export function AppShell() {
   const { theme, toggle } = useTheme()
   const location = useLocation()
+  const authStatus = useAuthStore((s) => s.status)
+  const bootstrap = useAuthStore((s) => s.bootstrap)
   // 侧栏收缩态持久化（图标栏 ↔ 完整）；默认展开。
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('liusha-sidebar-collapsed') === '1')
   const toggleCollapsed = () =>
@@ -63,6 +67,25 @@ export function AppShell() {
       localStorage.setItem('liusha-sidebar-collapsed', v ? '0' : '1')
       return !v
     })
+
+  // 登录态探测（GET /auth/me）：首帧一次。checking 期间渲染品牌 splash 防内容闪现。
+  useEffect(() => {
+    void bootstrap()
+  }, [bootstrap])
+  if (authStatus === 'checking') {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <img
+          src={theme === 'dark' ? '/brand/mark-white.svg' : '/brand/mark-black.svg'}
+          alt="liusha"
+          className="h-8 w-8 animate-pulse"
+        />
+      </div>
+    )
+  }
+  if (authStatus === 'anonymous') {
+    return <Navigate to="/login" replace />
+  }
 
   return (
     <div className="flex h-screen bg-background text-text">
@@ -133,8 +156,14 @@ export function AppShell() {
           })}
         </nav>
 
-        {/* 底部控制栏：主题切换 */}
-        <div className={cn('flex flex-shrink-0 items-center border-t border-border px-3 py-3.5', collapsed ? 'justify-center' : 'justify-end')}>
+        {/* 底部控制栏：账号头像菜单（左） + 主题切换（右）；收起态并排居中 */}
+        <div
+          className={cn(
+            'flex flex-shrink-0 items-center gap-2 border-t border-border px-3 py-3.5',
+            collapsed ? 'justify-center' : 'justify-between',
+          )}
+        >
+          <UserMenu collapsed={collapsed} />
           <button
             type="button"
             onClick={toggle}

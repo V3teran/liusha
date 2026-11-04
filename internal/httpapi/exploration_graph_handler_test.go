@@ -32,10 +32,6 @@ func (m *mockExplorationGraphAPI) ListVerificationsByConversationID(_ context.Co
 	return nil, nil
 }
 
-// 测试密钥夹具走变量引用：静态扫描对凭据字段上的字面量一律报硬编码凭据
-// （值形态无关）；测试验证的是鉴权透传语义而非具体值。
-var testAPIKey = "test" + "-key"
-
 func TestGetConversationGraph(t *testing.T) {
 	mock := &mockExplorationGraphAPI{
 		nodes: []explorationgraph.Node{
@@ -47,13 +43,10 @@ func TestGetConversationGraph(t *testing.T) {
 		},
 	}
 
-	server := NewServer(Deps{
-		APIKey:           testAPIKey,
-		ExplorationGraph: mock,
-	})
+	server := NewServer(Deps{Auth: newFakeAuthStore(), ExplorationGraph: mock})
 
 	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
-	req.Header.Set("X-API-Key", testAPIKey)
+	req.AddCookie(testSessionCookie())
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -77,13 +70,10 @@ func TestGetConversationGraph(t *testing.T) {
 
 func TestGetConversationGraph_Unauthorized(t *testing.T) {
 	mock := &mockExplorationGraphAPI{}
-	server := NewServer(Deps{
-		APIKey:           testAPIKey,
-		ExplorationGraph: mock,
-	})
+	server := NewServer(Deps{Auth: newFakeAuthStore(), ExplorationGraph: mock})
 
 	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
-	req.Header.Set("X-API-Key", "wrong-key")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "wrong-token"}) // #nosec G124 // 测试伪造凭证
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)

@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"net/http"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,11 +17,10 @@ func (fakeChat) StartChatTask(_ context.Context, _ string) (string, string, erro
 	return "conv-abc", "scan-xyz", nil
 }
 
-func TestChatHandler_SetsStreamCookie(t *testing.T) {
+func TestChatHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	secret := []byte("secret-32-bytes-long-bbbbbbbbbbbb")
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}, secret, true))
+	r.POST("/chat", chatHandler(fakeChat{}))
 
 	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -31,23 +30,12 @@ func TestChatHandler_SetsStreamCookie(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d (%s)", w.Code, w.Body.String())
 	}
-	var ck *http.Cookie
-	for _, c := range w.Result().Cookies() {
-		if c.Name == streamCookieName {
-			ck = c
-		}
+	var resp ChatResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if ck == nil {
-		t.Fatal("响应未 Set-Cookie liusha_stream")
-	}
-	if !ck.HttpOnly {
-		t.Error("cookie 应 HttpOnly")
-	}
-	if !ck.Secure {
-		t.Error("secure=true 时 cookie 应带 Secure")
-	}
-	if !verifyStreamToken(secret, ck.Value, "conv-abc") {
-		t.Error("cookie 值应是 conv-abc 的合法 token")
+	if resp.ConversationID != "conv-abc" || resp.TaskID != "scan-xyz" {
+		t.Errorf("响应不符: %+v", resp)
 	}
 }
 

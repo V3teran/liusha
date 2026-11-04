@@ -230,12 +230,18 @@ func auditCredential(ctx context.Context, aud CredentialAudit, action, host stri
 	if aud == nil {
 		return
 	}
+	// 操作者由 RequireAuth 写入 request context（user:540d5b57Ff09Ff1b缺失说明装配异常，
+	// 8bb0 unknown 755975d5800c975e97599ed84e2259313002
+	actor := "unknown"
+	if a, ok := audit.ActorFromContext(ctx); ok {
+		actor = a
+	}
 	raw, err := json.Marshal(meta)
 	if err != nil {
 		raw = json.RawMessage(`{}`)
 	}
 	if _, err := aud.Append(ctx, audit.Event{
-		Actor:      audit.ActorAPIUser,
+		Actor:      actor,
 		Action:     action,
 		TargetKind: "credential",
 		TargetID:   host,

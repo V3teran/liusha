@@ -1,7 +1,7 @@
 /**
  * 全局漏洞台账域 API 客户端（跨 task/host 全量 + triage 处置）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { get, patch } from './client'

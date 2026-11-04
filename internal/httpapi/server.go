@@ -14,8 +14,15 @@ import (
 // Deps 是 NewServer 的注入参数集合。
 // Credentials 为 nil 时对应路由不注册（部分场景测试用）。
 type Deps struct {
-	APIKey      string
 	Credentials CredentialsAPI
+	// Auth 是登录认证依赖（*auth.Store 满足窄接口）；nil 时 /auth 路由组不注册且
+	// RequireAuth fail-closed（除白名单外全部 401）——生产必配。
+	Auth AuthStore
+	// AuthAudit 是登录事件审计出口（*audit.Store 满足）；nil 时不落审计（单测），生产必配。
+	AuthAudit AuthAudit
+	// CookieSecure 控制会话 Cookie 的 Secure 属性。prod HTTPS 反代应 true；
+	// dev http 同源开发设 false（否则浏览器不种）。由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入。
+	CookieSecure bool
 	// CredentialAudit 是凭证库审计出口（*audit.Store 满足）；nil 时变更/明文读取
 	// 不落审计（单测），生产必配——凭证库是敏感操作面。
 	CredentialAudit CredentialAudit
@@ -82,16 +89,6 @@ type Deps struct {
 	UsageTasks UsageTaskResolver
 	UsageLLM   LLMUsageAggregator
 	UsageTools ToolUsageAggregator
-	// EnableDevAutofill 仅 dev 用：true 时挂 GET /dev-config.json，把 APIKey 明文
-	// 暴露给 liusha-ui 自动填充——**production 严禁开启**。
-	// 由 cmd/api 读 LIUSHA_DEV_AUTOFILL 环境变量决定。
-	EnableDevAutofill bool
-	// StreamCookieSecret 给 SSE stream cookie 签名/校验；空则 stream 仅接受 X-API-Key header。
-	// 由 cmd/api 读 LIUSHA_STREAM_COOKIE_SECRET 注入。
-	StreamCookieSecret []byte
-	// CookieSecure 控制 SSE 鉴权 cookie 的 Secure 属性。prod HTTPS 反代应 true；
-	// dev http 同源开发设 false（否则浏览器不种）。由 cmd/api 读 LIUSHA_COOKIE_SECURE 注入。
-	CookieSecure bool
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
 	// 由 cmd/api 注入 *cache.Store（cfgstore：L1/L2/DB 多级缓存 + 写失效广播，
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
@@ -114,11 +111,22 @@ type Deps struct {
 	Logs LogsAPI
 }
 
-// NewServer 组装 gin 路由：Recovery + 全局 X-API-Key 中间件 + 业务路由。
+// NewServer 组装 gin 路由：访问日志 + panic 恢复 + 全局会话认证中间件 + 业务路由。
 // 返回 http.Handler，便于 httptest.NewServer / 真实 http.Server 复用。
 func NewServer(d Deps) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+
+	// 代理信任收敛到私网段：部署模型里反代（nginx）与 api 同宿主/同 compose 网络，
+	// 其追加的 X-Forwarded-For 可信；直连来源伪造的 XFF 一律忽略。gin 默认信任
+	// 0.0.0.0/0——不显式收窄，ClientIP（访问日志与登录限流键）可被任意伪造。
+	if err := r.SetTrustedProxies([]string{
+		"127.0.0.0/8", "::1/128",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"fc00::/7",
+	}); err != nil {
+		apiLog.Error().Err(err).Msg("SetTrustedProxies 失败（静态 CIDR 不应失败）")
+	}
 
 	// 请求访问日志：API 可观测性的底座（此前请求级踪迹只有错误响应与 SSE
 	// 诊断，成功请求完全无痕）。/healthz 是探活高频路径，跳过防刷屏。
@@ -159,22 +167,9 @@ func NewServer(d Deps) http.Handler {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}))
 
-	// CORS middleware for development
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
-
-	r.Use(RequireAPIKey(d.APIKey, d.StreamCookieSecret))
+	// 认证：会话 Cookie 统一校验（白名单端点见 auth.go）。前后端同源部署
+	// （nginx /api 反代 / vite dev 代理），无跨域消费方，故不需要 CORS。
+	r.Use(RequireAuth(d.Auth, d.CookieSecure))
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
@@ -187,7 +182,8 @@ func NewServer(d Deps) http.Handler {
 // registerRouteGroups 按依赖可选性注册各路由组：
 // 每个 nil 依赖对应的能力域整组跳过（增量部署/最小暴露面）。
 func registerRouteGroups(r gin.IRouter, d Deps) {
-	// 按业务模块注册路由
+	// 按业务模块注册路由（auth 最先：登录是其余路由的入口前提）
+	registerAuthRoutes(r, d)
 	registerCredentialsRoutes(r, d)
 	registerFindingsRoutes(r, d)
 	registerLLMInvocationRoutes(r, d)
@@ -203,5 +199,4 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerChatRoutes(r, d)
 	registerConversationRoutes(r, d)
 	registerUsageRoutes(r, d)
-	registerDevRoutes(r, d)
 }

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
+import { LoginPage } from '@/pages/LoginPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
@@ -32,6 +33,9 @@ function withSuspense(el: React.ReactNode) {
 // 与代理模式（source=proxy，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
 export const router = createBrowserRouter([
+  // 登录页独立于 AppShell（登录前没有侧栏壳体）；直接导入不 lazy——
+  // 它是未登录访问者的第一屏，懒加载只多一次 chunk 往返。
+  { path: '/login', element: <LoginPage /> },
   {
     path: '/',
     element: <AppShell />,

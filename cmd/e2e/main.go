@@ -41,7 +41,6 @@ func main() {
 	ctx := context.Background()
 
 	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8090")
-	apiKey := envx.OrDefault("LIUSHA_API_KEY", "changeme-dev-key")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
 
 	activeSel, err := selectProfiles(os.Args[1:])
@@ -52,6 +51,12 @@ func main() {
 		logger.Fatal().Msg("无 profile 可跑（用法：active:<name>）")
 	}
 
+	// 登录引导：拿会话 Cookie（全新库自动走首启建号），后续所有请求复用。
+	session, err := bootstrapSession(apiBase)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("登录引导失败（api 不可达 / 凭据失效且库已初始化）")
+	}
+
 	// 共享 PG pool（passive / active 均用）
 	pool, err := db.NewPgPool(ctx, pgDSN, zerolog.Nop(), 5, 1, 0, 0)
 	if err != nil {
@@ -60,7 +65,7 @@ func main() {
 
 	// ---- Active 流水线 ----
 	if len(activeSel) > 0 {
-		if err := runActiveProfiles(ctx, activeSel, apiBase, apiKey, pool, logger); err != nil {
+		if err := runActiveProfiles(ctx, activeSel, apiBase, session, pool, logger); err != nil {
 			logger.Error().Err(err).Msg("e2e active FAIL")
 			fmt.Printf("✗ e2e active FAIL: %v\n", err)
 			os.Exit(1)

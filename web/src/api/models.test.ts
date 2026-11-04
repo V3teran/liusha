@@ -7,7 +7,6 @@ import {
   saveRoleRoute,
   deleteRoleRoute,
 } from './models'
-import { setApiKey } from './client'
 import type { ProviderConfig } from './types'
 
 // 假 fetch：断言 models.ts 打的 URL/method/body 与后端 /models 契约一致。
@@ -43,7 +42,6 @@ const PROV: ProviderConfig = {
 
 describe('models API 客户端', () => {
   beforeEach(() => {
-    setApiKey('k')
     vi.unstubAllGlobals()
   })
 
@@ -127,9 +125,9 @@ describe('models API 客户端', () => {
     expect(init.method).toBe('DELETE')
   })
 
-  it('所有请求都带 X-API-Key header', async () => {
+  it('请求不带任何凭证头（会话 Cookie 由浏览器同源自动携带）', async () => {
     const fn = mockFetch(200, { providers: [] })
     await listProviders()
-    expect(fn.mock.calls[0][1].headers['X-API-Key']).toBe('k')
+    expect(fn.mock.calls[0][1]).toBeUndefined()
   })
 })

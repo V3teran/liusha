@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getApiKey, setApiKey } from './client'
 import {
   listConversations,
   listMessages,
@@ -8,7 +7,6 @@ import {
   abortTask,
   deleteConversation,
   renameConversation,
-  authStream,
 } from './conversations'
 
 // fetch 污染治理：每个用例后强制还原原生 fetch（对齐 client.test.ts 的口径）。
@@ -19,7 +17,6 @@ afterEach(() => {
 
 describe('会话域 API', () => {
   beforeEach(() => {
-    sessionStorage.clear()
     ;(global as any).fetch = vi.fn()
   })
 
@@ -43,7 +40,6 @@ describe('会话域 API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/conversations?limit=30&offset=30'),
-        expect.anything(),
       )
       expect(result.conversations).toHaveLength(1)
     })
@@ -57,7 +53,7 @@ describe('会话域 API', () => {
 
       await listConversations(30, 0, 'auto')
 
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=auto'), expect.anything())
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=auto'))
     })
 
     it('listConversations 把后端 null（Go nil slice）归一为空数组，不透传 null', async () => {
@@ -84,13 +80,10 @@ describe('会话域 API', () => {
 
       await listMessages('c1', 100)
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages?after_seq=100', {
-        headers: { 'X-API-Key': '' },
-      })
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages?after_seq=100')
     })
 
     it('startChat 发送 POST 并返回 conversation_id', async () => {
-      setApiKey('my-key')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', task_id: 't-456' }),
@@ -103,10 +96,7 @@ describe('会话域 API', () => {
       expect(result.task_id).toBe('t-456')
       expect(mockFetch).toHaveBeenCalledWith('/api/chat', {
         method: 'POST',
-        headers: {
-          'X-API-Key': 'my-key',
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief: 'scan target' }),
       })
     })
@@ -114,18 +104,17 @@ describe('会话域 API', () => {
     it('请求失败时抛出错误（含后端 error body）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 401,
-        json: async () => ({ error: '未授权' }),
+        status: 500,
+        json: async () => ({ error: '内部错误' }),
       })
       ;(global as any).fetch = mockFetch
 
-      await expect(listConversations()).rejects.toThrow('GET 401: 未授权')
+      await expect(listConversations()).rejects.toThrow('GET 500: 内部错误')
     })
   })
 
   describe('多轮方法', () => {
     it('followUp POST 到 /conversations/:id/messages 带 content', async () => {
-      setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -135,12 +124,11 @@ describe('会话域 API', () => {
 
       const result = await followUp('c1', '深挖')
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages', expect.objectContaining({ method: 'POST' }))
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages', expect.objectContaining({ method: 'POST', body: JSON.stringify({ content: '深挖' }) }))
       expect(result.intent).toBe('action')
     })
 
     it('followUp 409 抛带 busy 标记的错', async () => {
-      setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 409,
@@ -152,7 +140,6 @@ describe('会话域 API', () => {
     })
 
     it('abortTask POST 到 /conversations/:id/abort', async () => {
-      setApiKey('k')
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -192,28 +179,6 @@ describe('会话域 API', () => {
         '/api/conversations/c1',
         expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: '新标题' }) }),
       )
-    })
-
-    it('authStream POST 到 stream-auth 且带 credentials:include', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 })
-      ;(global as any).fetch = mockFetch
-
-      await authStream('c1')
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/conversations/c1/stream-auth',
-        expect.objectContaining({ method: 'POST', credentials: 'include' }),
-      )
-    })
-
-    it('authStream 失败抛错', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 })
-
-      await expect(authStream('c1')).rejects.toThrow()
-    })
-
-    it('getApiKey 已导出（SSE/特例 fetch 组装 header 用）', () => {
-      expect(getApiKey()).toBe('')
     })
   })
 })

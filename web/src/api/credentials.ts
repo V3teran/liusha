@@ -3,7 +3,7 @@
  *
  * 凭证值全量明文（操作台要看/要复制原文）；无任何 TTL 语义——
  * 生命周期由任务终态清理/清扫器/人工删除驱动。
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { del, get, put } from './client'

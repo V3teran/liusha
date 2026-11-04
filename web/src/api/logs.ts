@@ -1,7 +1,7 @@
 /**
  * 日志查看域 API 客户端（GET /logs 系列：进程枚举 + 尾读）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { get } from './client'

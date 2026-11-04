@@ -1,6 +1,5 @@
 import type { Message } from '@/api/types'
 import { API_BASE } from '@/api/client'
-import { authStream } from '@/api/conversations'
 import type { useConversationStore } from '@/stores/conversation'
 
 type Store = ReturnType<typeof useConversationStore.getState>
@@ -23,14 +22,13 @@ export interface StreamHandlers {
 }
 
 /**
- * connectEventStream 是订阅任意会话 SSE 流的底层原语：鉴权换 cookie → 开 EventSource →
+ * connectEventStream 是订阅任意会话 SSE 流的底层原语：开 EventSource →
  * 断线自管重连（指数退避，上限 15s）。回调交给上层决定帧落地方式——聊天页灌进 zustand
  * store 渲染消息列表；执行图页只需要「有新帧到达」这个信号去触发 react-query 重拉，
  * 不需要真的持有消息内容。两者共享这份连接/重连逻辑，不必各自实现一套退避。
  *
- * EventSource 不能带 X-API-Key header，鉴权靠 HttpOnly stream cookie——故每次（重）连前
- * 先 `authStream` 用 X-API-Key 换取/刷新该会话的 cookie，再开 EventSource。这样打开任意
- * 会话（新/旧）、长扫描、断线重连都能维持实时。
+ * 鉴权与普通端点同源同路径：登录会话 Cookie（liusha_session）随同源 EventSource
+ * 自动携带，无需换取专用 token。
  *
  * @param convID 会话 ID
  * @param handlers 帧回调
@@ -49,17 +47,8 @@ function connectEventStream(
 
   const setStatus = (s: StreamStatus) => onStatusChange?.(s)
 
-  const connect = async () => {
+  const connect = () => {
     if (closed) return
-    try {
-      await authStream(convID) // 换取/刷新 stream cookie
-    } catch {
-      // 鉴权失败（如 key 失效）→ 退避后重试，不放弃
-      scheduleReconnect()
-      return
-    }
-    if (closed) return
-
     const src = new EventSource(`${API_BASE}/conversations/${convID}/stream`, { withCredentials: true })
     es = src
 
@@ -90,7 +79,7 @@ function connectEventStream(
       }
     })
     src.onerror = () => {
-      // 接管重连：关掉本连接，退避后重新 authStream+连（cookie 可能已过期，必须重签）。
+      // 接管重连：关掉本连接，退避后重连（会话失效时由页面级 401 拦截接管跳登录）。
       src.close()
       if (es === src) es = null
       scheduleReconnect()

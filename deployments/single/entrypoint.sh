@@ -50,11 +50,12 @@ secret_or_gen() { # $1=env名 $2=文件名 $3=生成命令
     echo "$val"
   fi
 }
-export LIUSHA_API_KEY="$(secret_or_gen LIUSHA_API_KEY api.key "head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
-export LIUSHA_STREAM_COOKIE_SECRET="$(secret_or_gen LIUSHA_STREAM_COOKIE_SECRET stream_cookie.secret "head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
+# 初始管理员：账号表为空时 api 启动期建 admin，密码取 env；无 env 则首启生成随机值
+# 持久化到 secrets 目录（env LIUSHA_ADMIN_INITIAL_PASSWORD 可覆盖）。仅首启生效。
+export LIUSHA_ADMIN_INITIAL_PASSWORD="$(secret_or_gen LIUSHA_ADMIN_INITIAL_PASSWORD admin.initial_password "head -c 18 /dev/urandom | base64 | tr -d '+/='")"
+log "初始管理员：admin / $LIUSHA_ADMIN_INITIAL_PASSWORD（已存 $SECRETS_DIR/admin.initial_password，仅首启生效，登录后请改密）"
 # LLM 密钥加密要求 32 字节 hex（cryptx fail-fast 口径）
 export LIUSHA_LLM_KEY_SECRET="$(secret_or_gen LIUSHA_LLM_KEY_SECRET llm_key.secret "head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
-log "API key: $LIUSHA_API_KEY（已存 $SECRETS_DIR/api.key，env LIUSHA_API_KEY 可覆盖）"
 
 # ── 进程托管 ──────────────────────────────────────────────────────────────
 children=()

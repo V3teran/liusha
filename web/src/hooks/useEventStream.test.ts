@@ -25,22 +25,17 @@ class MockES {
   }
 }
 
-// openEventStream 先 await authStream（fetch 换 cookie）再开 EventSource，故连接是异步的。
-// flush 等一个微任务轮，让 connect() 跑到创建 EventSource。
+// connectEventStream 同步开 EventSource（鉴权由浏览器同源自动带会话 Cookie），
+// flush 等一个宏任务轮，保险起见让断言落在渲染之后。
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
 describe('useEventStream', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
     vi.stubGlobal('EventSource', MockES as unknown as typeof EventSource)
-    // mock fetch：authStream 调 POST /stream-auth，返回 ok 即可。
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200 }) as Response),
-    )
   })
 
-  it('鉴权后用 withCredentials 订阅正确 URL，帧灌进 store', async () => {
+  it('用 withCredentials 订阅正确 URL，帧灌进 store', async () => {
     const store = useConversationStore.getState()
     const handle = openEventStream('conv-1', store)
     await flush()
@@ -157,12 +152,12 @@ describe('useEventStream', () => {
     handle.close()
   })
 
-  it('onerror 触发后自管重连：关闭旧连接、状态变 reconnecting，退避后重新 authStream + 开新连接', async () => {
+  it('onerror 触发后自管重连：关闭旧连接、状态变 reconnecting，退避后开新连接', async () => {
     vi.useFakeTimers()
     const store = useConversationStore.getState()
     const onStatusChange = vi.fn()
     const handle = openEventStream('conv-6', store, onStatusChange)
-    await vi.advanceTimersByTimeAsync(0) // flush 首次 connect 的 authStream microtask
+    await vi.advanceTimersByTimeAsync(0)
 
     const firstES = MockES.last
     firstES.onerror!()
@@ -173,31 +168,6 @@ describe('useEventStream', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(MockES.last).not.toBe(firstES) // 新开了一个连接
     expect(MockES.last.url).toContain('/api/conversations/conv-6/stream')
-
-    handle.close()
-    vi.useRealTimers()
-  })
-
-  it('鉴权失败（authStream 抛错）时退避后重试，不放弃', async () => {
-    vi.useFakeTimers()
-    let callCount = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        callCount += 1
-        if (callCount === 1) throw new Error('unauthorized')
-        return { ok: true, status: 200 } as Response
-      }),
-    )
-    const store = useConversationStore.getState()
-    const onStatusChange = vi.fn()
-    const handle = openEventStream('conv-7', store, onStatusChange)
-
-    await vi.advanceTimersByTimeAsync(0) // 首次 authStream 失败
-    expect(onStatusChange).toHaveBeenCalledWith('reconnecting')
-
-    await vi.advanceTimersByTimeAsync(1000) // 退避后重试，第二次 authStream 成功
-    expect(callCount).toBeGreaterThanOrEqual(2)
 
     handle.close()
     vi.useRealTimers()

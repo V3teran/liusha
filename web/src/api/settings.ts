@@ -1,7 +1,7 @@
 /**
  * 系统配置 API 客户端（compaction / runtime / proxy_filter 三组业务旋钮）
  *
- * 复用 client.ts 的 get/put fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 get/put fetch 封装（同源携带会话 Cookie）。
  * 各组全量读写：GET 拉当前快照，PUT 覆写整组。
  *
  * 事实源是 DB；写经后端 settingstore 失效广播——compaction/runtime 令 runner 进程下次现读即生效，

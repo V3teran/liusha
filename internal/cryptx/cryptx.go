@@ -3,8 +3,8 @@
 // AES-256-GCM：nonce 随机生成、随密文一起存（GCM 标准做法，nonce 不是秘密），
 // 输出格式为 nonce || ciphertext（ciphertext 含 GCM tag）单一 []byte，落 bytea 列。
 //
-// 密钥来自 LIUSHA_LLM_KEY_SECRET 环境变量（32 字节，hex 编码，同 LIUSHA_STREAM_COOKIE_SECRET
-// 的 fail-fast 模式——启动期由 cmd/api 校验非空且长度合法，缺失直接拒启动，不静默退化）。
+// 密钥来自 LIUSHA_LLM_KEY_SECRET 环境变量（32 字节，hex 编码）——启动期由
+// cmd/api 校验非空且长度合法，缺失直接拒启动，不静默退化。
 package cryptx
 
 import (

@@ -118,8 +118,8 @@ func (f fakeTaskStatus) TaskStatus(_ context.Context, taskID string) (string, bo
 
 func newTestServer(t *testing.T, d Deps) *httptest.Server {
 	t.Helper()
-	if d.APIKey == "" {
-		d.APIKey = "k"
+	if d.Auth == nil {
+		d.Auth = newFakeAuthStore()
 	}
 	return httptest.NewServer(NewServer(d))
 }
@@ -160,12 +160,12 @@ func TestAuth_RejectsMissingHeader(t *testing.T) {
 	}
 }
 
-func TestAuth_RejectsWrongKey(t *testing.T) {
+func TestAuth_RejectsWrongSession(t *testing.T) {
 	srv := newTestServer(t, Deps{Credentials: &fakeCred{}})
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL+"/api/credentials/h", nil)
-	req.Header.Set("X-API-Key", "wrong")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "forged-token"}) // #nosec G124 // 测试伪造凭证，非真实会话
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)

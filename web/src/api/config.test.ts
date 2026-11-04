@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { saveAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
-import { setApiKey } from './client'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -15,7 +14,6 @@ function mockFetch(status: number, json: unknown) {
 
 describe('config API 客户端', () => {
   beforeEach(() => {
-    setApiKey('k')
     vi.unstubAllGlobals()
   })
 

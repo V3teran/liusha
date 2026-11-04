@@ -39,7 +39,6 @@ fi
 
 # host 侧地址
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_API_KEY="${LIUSHA_API_KEY:-changeme-dev-key}"
 export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
@@ -158,7 +157,7 @@ while [ $SECONDS -lt $deadline ]; do
   if [ "$((api_ok + runner_ok + proxy_ok))" -eq 3 ]; then
     echo "  ✓ 3 service 全部 healthy"
     echo ""
-    echo "  📊 前端：web/（本仓）→ make run-web（/api 代理到本 api，X-API-Key=${LIUSHA_API_KEY}）"
+    echo "  📊 前端：web/（本仓）→ make run-web（/api 代理到本 api；登录 admin / $LIUSHA_ADMIN_INITIAL_PASSWORD，dev 默认 changeme-admin-pass）"
     echo "     task_id 跑完 e2e 后从 finding 表查："
     echo "       docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
     echo "         \"SELECT DISTINCT task_id FROM finding ORDER BY task_id;\""

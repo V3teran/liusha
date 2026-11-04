@@ -1,11 +1,11 @@
 /**
- * 会话域 API 客户端（会话列表 / 消息回看 / 多轮续接 / SSE 鉴权）
+ * 会话域 API 客户端（会话列表 / 消息回看 / 多轮续接）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源自动携带登录会话 Cookie）。
  * 特例语义（cookie / 409 哨兵）在各自函数上就地注明。
  */
 
-import { API_BASE, get, getApiKey, patch, post } from './client'
+import { API_BASE, get, patch, post } from './client'
 import type { Conversation, ConversationUsage, Message } from './types'
 
 /**
@@ -69,24 +69,7 @@ export async function getConversationUsage(convID: string): Promise<Conversation
 }
 
 /**
- * 为某会话签发/刷新 SSE 鉴权 cookie（HttpOnly）。
- *
- * EventSource 不能带 X-API-Key header，只能靠 cookie 鉴权。打开任意会话前、SSE 断线
- * 重连前调本端点（用 X-API-Key 换取 stream cookie），再开 EventSource——根治"打开旧
- * 会话 / 长扫描 / 重连"实时推送失效。credentials:'include' 让浏览器收下 Set-Cookie。
- */
-export async function authStream(convID: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/conversations/${convID}/stream-auth`, {
-    method: 'POST',
-    headers: { 'X-API-Key': getApiKey() },
-    credentials: 'include',
-  })
-  if (!res.ok) throw new Error(`stream-auth ${convID} → ${res.status}`)
-}
-
-/**
  * 从会话发起任务
- * 成功后后端 Set-Cookie liusha_stream（SSE 鉴权用，浏览器同域默认收下）
  * @param brief 任务目标描述
  * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
  */
@@ -109,10 +92,7 @@ export async function followUp(
 ): Promise<{ intent: string }> {
   const res = await fetch(`${API_BASE}/conversations/${convID}/messages`, {
     method: 'POST',
-    headers: {
-      'X-API-Key': getApiKey(),
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   })
   if (res.status === 409) {
@@ -137,7 +117,6 @@ export async function abortTask(convID: string): Promise<void> {
 export async function deleteConversation(convID: string): Promise<void> {
   const res = await fetch(`${API_BASE}/conversations/${convID}`, {
     method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
   })
   if (res.status === 409) throw new Error('TASK_ACTIVE')
   if (!res.ok) throw new Error(`DELETE /conversations/${convID} → ${res.status}`)
