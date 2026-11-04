@@ -25,16 +25,6 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 
 数据库迁移随 `up` 自动执行（幂等）。打开 http://localhost，`admin` / `.env` 里的初始密码登录；HTTPS 反代后设 `LIUSHA_COOKIE_SECURE=true`。
 
-单镜像（比赛/受限环境）：`make single-build && make single-run`。
-
-### 开发
-
-```bash
-cp .env.example .env && make up   # 起 pg+redis 并应用迁移
-./scripts/dev/run-svc.sh          # host 跑 proxy/api/runner
-make run-web                      # 前端 dev server
-```
-
 ### 发布镜像（维护者）
 
 ```bash
