@@ -16,9 +16,9 @@
 
 ```bash
 git clone https://github.com/V3teran/liusha.git && cd liusha
-cp .env.example .env   # 必填三项：POSTGRES_PASSWORD、LIUSHA_LLM_KEY_SECRET、
-                       # LIUSHA_ADMIN_INITIAL_PASSWORD（登录初始密码，仅首启建号生效）
-                       # 可选：GLM_API_KEY（默认厂商；不填则启动后在「LLM 配置」页加任意厂商）
+cp .env.example .env   # 必填：POSTGRES_PASSWORD、REDIS_PASSWORD、LLM key（默认预设
+                       # GLM_API_KEY，换/加厂商改 config.yaml providers 块与对应 key）、
+                       # LIUSHA_LLM_KEY_SECRET、LIUSHA_ADMIN_INITIAL_PASSWORD（登录初始密码）
 docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
 docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```

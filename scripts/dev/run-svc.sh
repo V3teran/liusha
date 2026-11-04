@@ -19,6 +19,8 @@ fi
 # host 侧地址（pg/redis 在 docker 暴露 5432/6379）
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
+# redis 必带密码（compose 起的 redis 已 requirepass；.env 的 REDIS_PASSWORD 必填）
+export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env 必填）}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
 # 初始管理员：账号表为空时 api 启动期用此密码建 admin（仅首启生效，之后改密走前端）。
 # dev 用固定值方便记忆；e2e 同款凭据。会话 Cookie HttpOnly + SameSite=Lax；
@@ -39,11 +41,9 @@ export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
 
 # api key 校验（必填）：校验当前激活 provider 的密钥。
-# config.yaml 种子源当前仅 glm；DB 唯一 provider 行走 api_key_env=GLM_API_KEY 回退，
 # 按实际激活 provider 校验。
-if [ -z "${GLM_API_KEY:-}" ]; then
-  echo "⚠ GLM_API_KEY 未设：跳过 glm provider 种子（空库时），启动后在前端「LLM 配置」页添加任意厂商"
-fi
+# LLM 密钥由 config.yaml 各 provider 的 api_key_env 决定（可多家多把），
+# 缺失由 api/runner 启动期校验报精确变量名——此处不做专项检查。
 
 echo "===== 启动 4 个 host 服务 ====="
 echo "  config:        $LIUSHA_CONFIG"

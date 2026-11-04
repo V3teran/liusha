@@ -94,7 +94,9 @@ su postgres -c "psql -q -p 5432 -tc \"SELECT 1 FROM pg_database WHERE datname='l
 log "postgres ready (127.0.0.1:5432)"
 
 # ── 2. Redis（AOF 落 /data：队列态与凭证库在此，容器重启不丢）──────────
-spawn redis redis-server --port 6379 --bind 127.0.0.1 --dir "$REDIS_DIR" --appendonly yes
+export REDIS_PASSWORD="$(secret_or_gen REDIS_PASSWORD redis.password "head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
+export LIUSHA_REDIS_PASSWORD="$REDIS_PASSWORD"
+spawn redis redis-server --port 6379 --bind 127.0.0.1 --dir "$REDIS_DIR" --appendonly yes --requirepass "$REDIS_PASSWORD"
 
 # ── 3. 迁移（同一 CLI/版本口径；空库首启建全量表结构）───────────────────
 /app/migrate -path /app/migrations -database "$DSN" up
