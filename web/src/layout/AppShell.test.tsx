@@ -64,11 +64,14 @@ describe('AppShell', () => {
     expect(screen.queryByText('对话')).toBeNull()
   })
 
-  it('侧栏底部渲染账号头像菜单（用户名首字母）', () => {
+  it('侧栏底部渲染账号头像按钮（中性账号图标，非用户名首字母）', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/conversations/direct')
 
-    expect(screen.getByLabelText('账号 tester')).toHaveTextContent('T')
+    const btn = screen.getByLabelText('账号 tester')
+    expect(btn).toBeTruthy()
+    expect(btn.querySelector('svg')).toBeTruthy()
+    expect(btn).not.toHaveTextContent('T')
   })
 
   it('渲染全部导航项', () => {
