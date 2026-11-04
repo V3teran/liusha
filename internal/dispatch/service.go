@@ -261,8 +261,14 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 			briefPreview = briefPreview[:200]
 		}
 		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_run_id": tid})
+		// 操作者由认证层写入 request context（HTTP 下发 → user:名）；cron 等系统
+		// 路径无操作者 → system。如实区分"谁"发起，而非统一静态标签。
+		actor := audit.ActorSystem
+		if a, ok := audit.ActorFromContext(ctx); ok {
+			actor = a
+		}
 		if _, err := a.Audit.Append(ctx, audit.Event{
-			Actor:      audit.ActorAPIUser,
+			Actor:      actor,
 			Action:     audit.ActionTaskCreate,
 			TargetKind: "task",
 			TargetID:   tk.ID,

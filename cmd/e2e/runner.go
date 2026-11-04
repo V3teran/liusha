@@ -3,18 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
 // runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询探索图。
-func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase, apiKey string, pool *pgxpool.Pool, logger zerolog.Logger) error {
+func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase string, session *http.Cookie, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	kgClient := NewExplorationGraphClient(pool)
 
 	for _, ap := range profs {
 		// 走会话入口（POST /chat）
-		conversationID, taskID, err := createChatTask(apiBase, apiKey, ap.brief)
+		conversationID, taskID, err := createChatTask(apiBase, session, ap.brief)
 		if err != nil {
 			return fmt.Errorf("active profile %s: createChatTask: %w", ap.name, err)
 		}

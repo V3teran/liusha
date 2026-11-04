@@ -42,7 +42,7 @@ func doReq(t *testing.T, method, url, body string) *http.Response {
 		reader = strings.NewReader(body)
 	}
 	req, _ := http.NewRequest(method, url, reader)
-	req.Header.Set("X-API-Key", "k")
+	req.AddCookie(testSessionCookie())
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}

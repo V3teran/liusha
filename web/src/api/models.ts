@@ -1,8 +1,8 @@
 /**
  * 模型模块 API 客户端（provider 部署 / 角色指派 两资源）
  *
- * 复用 client.ts 的 get/post/put fetch 封装（单一 X-API-Key 鉴权口径）。
- * 复用 client.ts 的 get/post/put/del 封装（单一 X-API-Key 鉴权口径；错误响应体含
+ * 复用 client.ts 的 get/post/put fetch 封装（同源携带会话 Cookie）。
+ * 复用 client.ts 的 get/post/put/del 封装（同源携带会话 Cookie；错误响应体含
  * 409 的中文 FK 原因，经 raise 统一读取透出给调用方）。
  *
  * 别名中间层已废弃（0099）：角色一跳直连 provider。

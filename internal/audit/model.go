@@ -16,7 +16,7 @@ import (
 
 // Event 是 audit_log 表行的 Go 表示。
 //
-// Executor 示例: 'system' / 'api_user:abcd1234' / 'runner'
+// Executor 示例: 'system' / 'user:admin' / 'runner'（HTTP 操作者经 audit.WithActor 传播）
 // Action 示例: 'task.abort' / 'task.create' / 'credential.set' / 'credential.delete'
 // TargetKind 示例: 'task' / 'credential'
 // TargetID 是 target 主键（uuid 字符串 / host key 等）
@@ -32,9 +32,8 @@ type Event struct {
 
 // 常量化常用 executor / action 字符串，避免散落字面量拼写错。
 const (
-	ActorSystem  = "system"
-	ActorAPIUser = "api_user"
-	ActorRunner  = "runner"
+	ActorSystem = "system"
+	ActorRunner = "runner"
 
 	ActionTaskAbort        = "task.abort"
 	ActionTaskCreate       = "task.create"

@@ -75,12 +75,9 @@ services:
     environment:
       <<: *app-env
       LIUSHA_API_ADDR: 0.0.0.0:8090  # 与本地 dev（run-svc.sh）同端口；8080 易被 Burp 占用
-      LIUSHA_API_KEY: "${LIUSHA_API_KEY:?LIUSHA_API_KEY 未设置（root .env 或 --env-file .env.prod）}"
-      # dev 自动发 key 端点（/api/dev-config.json）开关：本地测试开（root .env 置 true），
-      # 生产留空关闭——开启后该未鉴权端点会返回 API key，不得暴露到不可信网络
-      LIUSHA_DEV_AUTOFILL: "${LIUSHA_DEV_AUTOFILL:-}"
-      # SSE stream cookie 签名密钥：cmd/api fail-fast 必需（空则启动崩溃）
-      LIUSHA_STREAM_COOKIE_SECRET: "${LIUSHA_STREAM_COOKIE_SECRET:?LIUSHA_STREAM_COOKIE_SECRET 未设置}"
+      # 初始管理员密码：仅账号表为空的首次启动生效（建 admin 账号），之后改密走前端、
+      # 本变量被忽略。不存在"服务已起、账号未建"的公网抢占窗口（api 无建号端点）。
+      LIUSHA_ADMIN_INITIAL_PASSWORD: "${LIUSHA_ADMIN_INITIAL_PASSWORD:?LIUSHA_ADMIN_INITIAL_PASSWORD 未设置}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
       # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
@@ -94,7 +91,7 @@ services:
       - "8090:8090"
     profiles: *full-profile
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "--header=X-API-Key: ${LIUSHA_API_KEY}", "http://localhost:8090/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/healthz"]
       interval: 10s
       timeout: 3s
       retries: 3

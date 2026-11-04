@@ -35,7 +35,7 @@ describe('凭证库 API', () => {
     const hosts = await listCredentialHosts()
 
     expect(hosts[0].host).toBe('a.com')
-    expect(mockFetch).toHaveBeenCalledWith('/api/credentials', { headers: { 'X-API-Key': '' } })
+    expect(mockFetch).toHaveBeenCalledWith('/api/credentials')
   })
 
   it('getCredentialDetail GET 单 host 明文详情', async () => {
@@ -47,7 +47,7 @@ describe('凭证库 API', () => {
 
     await getCredentialDetail('a.com')
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com', { headers: { 'X-API-Key': '' } })
+    expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com')
   })
 
   it('saveCredentialIdentity PUT 单登录身份', async () => {

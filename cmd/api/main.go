@@ -17,6 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/audit"
+	"github.com/V3teran/liusha/internal/auth"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/seed"
@@ -266,10 +267,27 @@ func main() {
 	}
 	go scheduler.Run(cronCtx)
 
-	// SSE stream cookie 密钥：会话功能开启时必填（EventSource 鉴权用），缺失 fail-fast。
-	streamSecret := []byte(os.Getenv("LIUSHA_STREAM_COOKIE_SECRET"))
-	if len(streamSecret) == 0 {
-		logger.Fatal().Msg("LIUSHA_STREAM_COOKIE_SECRET 未配置——SSE stream cookie 鉴权需要它（fail-fast）")
+	// 登录认证：账号/会话 store（account / account_session 表）+ 审计出口。
+	authStore := auth.NewStore(pool)
+
+	// 初始管理员：账号表为空时用 env 密码建 admin，之后永久跳过（env 只在首启生效，
+	// 后续改密走前端）。凭据随进程启动即存在——不存在"服务已起、账号未建"的公网
+	// 抢占窗口，api 全程没有任何未认证的建号端点。口径与全仓 fail-fast 密钥一致。
+	if n, err := authStore.CountAccounts(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("读取账号数失败")
+	} else if n == 0 {
+		pw := os.Getenv("LIUSHA_ADMIN_INITIAL_PASSWORD")
+		if len(pw) < 8 || len(pw) > 72 {
+			logger.Fatal().Msg("首次启动需要 LIUSHA_ADMIN_INITIAL_PASSWORD（8-72 字节）初始化 admin 账号；仅首启生效，之后改密走前端")
+		}
+		hash, err := auth.HashPassword(pw)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("初始密码哈希失败")
+		}
+		if _, err := authStore.CreateAccountIfAbsent(ctx, "admin", hash); err != nil {
+			logger.Fatal().Err(err).Msg("建立初始管理员失败")
+		}
+		logger.Info().Msg("初始管理员已建立（admin），建议登录后立即修改密码")
 	}
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
@@ -292,39 +310,38 @@ func main() {
 	logger.Info().Str("root", workspaceRoot).Msg("沙盒工作区已就绪")
 	srv := &http.Server{
 		Addr: listenAddr, Handler: httpapi.NewServer(httpapi.Deps{
-			APIKey:             os.Getenv("LIUSHA_API_KEY"),
-			StreamCookieSecret: streamSecret,
-			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
-			Workspaces:         workspaceStore,
-			Credentials:        credAPI,
-			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
-			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
-			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
-			Invocations:        invocationStore,
-			Chat:               adapter,                               // POST /chat 会话发起扫描
-			FollowUp:           adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:              adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:            adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:            conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
-			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
-			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
-			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
-			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
-			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
-			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
-			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
-			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:        conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:      conversationStore,                     // 会话列表 / 消息回看
-			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:         conversationStore,                     // 会话用量：会话→task 解析
-			UsageLLM:           invocationStore,                       // 会话用量：LLM token/耗时合计
-			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
-			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
-			Tasks:              taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
-			TaskDispatch:       adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
-			Logs:               logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
-			EnableDevAutofill:  envx.OrDefault("LIUSHA_DEV_AUTOFILL", "") != "",
+			Auth:             authStore,  // 登录认证（/auth 系列 + RequireAuth 会话校验）
+			AuthAudit:        auditStore, // 登录/登出/改密事件审计
+			CookieSecure:     os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
+			Workspaces:       workspaceStore,
+			Credentials:      credAPI,
+			CredentialAudit:  auditStore, // 凭证库变更/明文读取审计（敏感操作面）
+			TaskStatus:       dispatch.TaskStatusAdapter{Tasks: taskStore},
+			Findings:         findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
+			Invocations:      invocationStore,
+			Chat:             adapter,                               // POST /chat 会话发起扫描
+			FollowUp:         adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:            adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:          adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Renamer:          conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
+			ConfigStore:      cfgStore,                              // agent 配置 CRUD（配置管理页）
+			SkillStore:       cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
+			ToolCatalog:      cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			Models:           llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
+			KeyEncrypter:     llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
+			ProviderTester:   providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
+			Settings:         settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
+			Traffic:          proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
+			TrafficConv:      conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:    conversationStore,                     // 会话列表 / 消息回看
+			EventStream:      dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
+			UsageTasks:       conversationStore,                     // 会话用量：会话→task 解析
+			UsageLLM:         invocationStore,                       // 会话用量：LLM token/耗时合计
+			UsageTools:       toolStore,                             // 会话用量：工具耗时合计
+			ExplorationGraph: explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
+			Tasks:            taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
+			TaskDispatch:     adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
+			Logs:             logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,

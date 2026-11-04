@@ -1,7 +1,7 @@
 /**
  * 流量模块域 API 客户端（GET /traffic 系列：代理捕获流量只读浏览）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { get } from './client'

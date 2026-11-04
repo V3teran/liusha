@@ -1,47 +1,14 @@
 /**
- * API 客户端内核：fetch 封装 + API key 管理。
+ * API 客户端内核：fetch 封装 + 会话过期全局拦截。
  *
  * 与 liusha Go 后端通信的统一底座——各业务域端点按域拆分在同级文件
  * （conversations/findings/traffic/credentials/tasks/logs/llmaudit/config/
- * models/settings/explorationgraph），全部复用本文件的 get/post/put/patch/del
- * （单一 X-API-Key 鉴权与错误解析口径）。
- * API key 存储于 sessionStorage，所有非 SSE 请求都带 X-API-Key header。
- */
-
-const KEY_STORAGE = 'liusha_api_key'
-
-/**
- * 设置 API key（存于 sessionStorage）
- */
-export function setApiKey(k: string) {
-  sessionStorage.setItem(KEY_STORAGE, k)
-}
-
-/**
- * 获取 API key；未设置时返回空字符串
- */
-export function getApiKey(): string {
-  return sessionStorage.getItem(KEY_STORAGE) ?? ''
-}
-
-/**
- * 启动引导：本地无 key 时，尝试从后端 dev 端点 /dev-config.json 自动拉 X-API-Key 存入。
+ * models/settings/explorationgraph/auth），全部复用本文件的 get/post/put/patch/del
+ * （单一错误解析口径）。
  *
- * 后端 dev（设了 LIUSHA_DEV_AUTOFILL）会在该未鉴权端点返回 {api_key}，免去手输登录。
- * 失败静默——后端没开 dev autofill / 不可达时不阻塞应用启动（后续调用可能 401）。
+ * 鉴权：登录会话 Cookie（liusha_session，HttpOnly）由浏览器随同源请求自动携带，
+ * 前端不持有任何凭证。业务请求收到 401 = 会话失效，统一跳转登录页。
  */
-export async function bootstrapApiKey(): Promise<void> {
-  if (getApiKey()) return
-  try {
-    // 特例：显式写 /api（不走 API_BASE）——这是鉴权前的启动引导端点，语义独立。
-    const res = await fetch('/api/dev-config.json')
-    if (!res.ok) return
-    const { api_key } = (await res.json()) as { api_key?: string }
-    if (api_key) setApiKey(api_key)
-  } catch {
-    // 静默：dev autofill 未开或后端不可达
-  }
-}
 
 /**
  * API_BASE 是后端前缀的唯一权威定义：所有请求路径一律写相对路径（/findings），
@@ -51,11 +18,27 @@ export async function bootstrapApiKey(): Promise<void> {
 export const API_BASE = '/api'
 
 /**
+ * 登录页路由。client 层 401 拦截跳转用，与 router.tsx 的路由定义保持一致。
+ */
+const LOGIN_PATH = '/login'
+
+/**
+ * 会话失效跳登录页。仅对业务请求触发（/auth/* 自身与登录页内不跳，
+ * 否则登录失败会被重定向打断）。
+ */
+function redirectOnSessionExpired(path: string) {
+  if (path.startsWith('/auth/') || window.location.pathname.startsWith('/login')) return
+  window.location.assign(LOGIN_PATH)
+}
+
+/**
  * 错误响应的统一出口：后端错误体形如 {"error": "<中文消息>"}（respondErr 单出口），
  * 读取后随异常抛出——调用方 catch 到的 message 直接可展示，不再丢成 "GET /x → 500"。
  * 响应体非 JSON / 读取失败时回退状态码文本。
+ * 401（会话失效）在抛错前先全局跳转登录页。
  */
-async function raise(res: Response, method: string): Promise<never> {
+async function raise(res: Response, method: string, path: string): Promise<never> {
+  if (res.status === 401) redirectOnSessionExpired(path)
   let detail = ''
   try {
     const body = (await res.json()) as { error?: string }
@@ -67,66 +50,61 @@ async function raise(res: Response, method: string): Promise<never> {
 }
 
 /**
- * 发起 GET 请求，自动添加 X-API-Key header。
- * 导出供 config.ts 等同源模块复用（单一鉴权/错误口径，不各自再拼 header）。
+ * 发起 GET 请求。
+ * 导出供 config.ts 等同源模块复用（单一错误口径，不各自再拼请求）。
  */
 export async function get<T>(path: string): Promise<T> {
-  const res = await fetch(API_BASE + path, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (!res.ok) await raise(res, 'GET')
+  const res = await fetch(API_BASE + path)
+  if (!res.ok) await raise(res, 'GET', path)
   return res.json()
 }
 
 /**
- * 发起 POST 请求（JSON body 可选），自动带 X-API-Key。
+ * 发起 POST 请求（JSON body 可选）。
  * 注意：/conversations/:id/messages 有 409 busy 特例语义，单独在 conversations.ts 实现。
  */
 export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(API_BASE + path, {
     method: 'POST',
-    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) await raise(res, 'POST')
+  if (!res.ok) await raise(res, 'POST', path)
   return res.json()
 }
 
 /**
- * 发起 PUT 请求（JSON body），自动带 X-API-Key。配置管理页 upsert-by-code 用。
+ * 发起 PUT 请求（JSON body），配置管理页 upsert-by-code 用。
  */
 export async function put<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(API_BASE + path, {
     method: 'PUT',
-    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) await raise(res, 'PUT')
+  if (!res.ok) await raise(res, 'PUT', path)
   return res.json()
 }
 
 /**
- * 发起 PATCH 请求（单字段/局部更新，如 agent 改能力档），自动带 X-API-Key。
+ * 发起 PATCH 请求（单字段/局部更新，如 agent 改能力档）。
  */
 export async function patch<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(API_BASE + path, {
     method: 'PATCH',
-    headers: { 'X-API-Key': getApiKey(), 'Content-Type': 'application/json' },
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  if (!res.ok) await raise(res, 'PATCH')
+  if (!res.ok) await raise(res, 'PATCH', path)
   return res.json()
 }
 
 /**
- * 发起 DELETE 请求，自动带 X-API-Key。
+ * 发起 DELETE 请求。
  * 注意：DELETE /conversations/:id 有 409 哨兵特例语义，单独在 conversations.ts 实现。
  */
 export async function del<T>(path: string): Promise<T> {
-  const res = await fetch(API_BASE + path, {
-    method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
-  })
-  if (!res.ok) await raise(res, 'DELETE')
+  const res = await fetch(API_BASE + path, { method: 'DELETE' })
+  if (!res.ok) await raise(res, 'DELETE', path)
   return res.json()
 }

@@ -1,7 +1,7 @@
 /**
  * 任务模块域 API 客户端（GET/POST /tasks：列表筛选分页 + 单任务详情 + 批量/定时下发）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { get, post } from './client'

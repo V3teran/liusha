@@ -1,7 +1,7 @@
 /**
  * LLM 调用审计域 API 客户端（全局搜索 / 用量合计 / 单条详情）
  *
- * 复用 client.ts 的 fetch 封装（单一 X-API-Key 鉴权口径）。
+ * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
 import { get } from './client'

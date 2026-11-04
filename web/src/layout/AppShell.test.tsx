@@ -1,18 +1,31 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AppShell } from './AppShell'
 import { useTheme } from '@/hooks/useTheme'
+import { useAuthStore } from '@/stores/auth'
 
 vi.mock('@/hooks/useTheme')
 
+// 壳体测试默认已登录：mock me 探测成功，防止 AppShell 内真实 bootstrap 把
+// beforeEach 设好的 authenticated 态翻成 anonymous（jsdom 无 fetch，真实调用必失败）。
+vi.mock('@/api/auth', () => ({
+  me: vi.fn(async () => ({ username: 'tester' })),
+  getSetupStatus: vi.fn(),
+  setup: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
+  changePassword: vi.fn(),
+}))
+
 const mockedUseTheme = useTheme as unknown as ReturnType<typeof vi.fn>
 
-function renderShell(initialPath: string) {
+function renderShell(initialPath: string, withLoginRoute = false) {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
+        {withLoginRoute && <Route path="/login" element={<div>LOGIN-PAGE</div>} />}
         <Route path="/conversations/direct" element={<AppShell />}>
           <Route index element={<div>child-active</div>} />
         </Route>
@@ -28,6 +41,36 @@ function renderShell(initialPath: string) {
 }
 
 describe('AppShell', () => {
+  beforeEach(() => {
+    // 壳体测试默认已登录（守卫行为有专门用例）。
+    useAuthStore.setState({ status: 'authenticated', username: 'tester' })
+  })
+
+  it('未登录（anonymous）时守卫转入 /login，不渲染壳体', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    useAuthStore.setState({ status: 'anonymous', username: '' })
+    renderShell('/conversations/direct', true)
+
+    expect(screen.getByText('LOGIN-PAGE')).toBeTruthy()
+    expect(screen.queryByText('对话')).toBeNull()
+  })
+
+  it('登录态探测中（checking）渲染品牌 splash 而非壳体', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    useAuthStore.setState({ status: 'checking', username: '' })
+    const { container } = renderShell('/conversations/direct')
+
+    expect(container.querySelector('img[alt="liusha"]')).toBeTruthy()
+    expect(screen.queryByText('对话')).toBeNull()
+  })
+
+  it('侧栏底部渲染账号头像菜单（用户名首字母）', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    renderShell('/conversations/direct')
+
+    expect(screen.getByLabelText('账号 tester')).toHaveTextContent('T')
+  })
+
   it('渲染全部导航项', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/conversations/direct')

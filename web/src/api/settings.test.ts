@@ -7,7 +7,6 @@ import {
   getProxyFilterSettings,
   saveProxyFilterSettings,
 } from './settings'
-import { setApiKey } from './client'
 import type { ProxyFilterSettings } from './types'
 
 // 假 fetch：断言 settings.ts 打的 URL/method/body 与后端 /settings 契约一致。
@@ -23,7 +22,6 @@ function mockFetch(status: number, json: unknown) {
 
 describe('settings API 客户端', () => {
   beforeEach(() => {
-    setApiKey('k')
     vi.unstubAllGlobals()
   })
 

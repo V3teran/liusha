@@ -3,10 +3,10 @@
  *
  * 工作区 = 沙盒任务工件的宿主持久层（顶层目录即任务）。路径全部相对
  * 工作区根；二进制文件以 base64 传输（binary 标记，前端禁用编辑）；
- * 下载走 raw 通道（文件原样 / 目录 zip），经 fetch+blob 以携带 API Key。
+ * 下载走 raw 通道（文件原样 / 目录 zip），同源 fetch 自动携带会话 Cookie。
  */
 
-import { del, get, getApiKey } from './client'
+import { del, get } from './client'
 
 export interface WorkspaceEntry {
   path: string
@@ -37,7 +37,6 @@ export async function getWorkspaceFile(path: string): Promise<WorkspaceFile> {
 export async function putWorkspaceFile(path: string, data: Uint8Array): Promise<void> {
   const res = await fetch(`/api/workspaces/content?path=${encodeURIComponent(path)}`, {
     method: 'PUT',
-    headers: { 'X-API-Key': getApiKey() },
     body: data as BodyInit,
   })
   if (!res.ok) throw new Error(`PUT ${path}: ${res.status}`)
@@ -47,7 +46,6 @@ export async function putWorkspaceFile(path: string, data: Uint8Array): Promise<
 export async function mkdirWorkspace(path: string): Promise<void> {
   const res = await fetch(`/api/workspaces/content?path=${encodeURIComponent(path)}&dir=1`, {
     method: 'PUT',
-    headers: { 'X-API-Key': getApiKey() },
   })
   if (!res.ok) throw new Error(`mkdir ${path}: ${res.status}`)
 }
@@ -56,11 +54,9 @@ export async function deleteWorkspacePath(path: string): Promise<void> {
   await del(`/workspaces?path=${encodeURIComponent(path)}`)
 }
 
-/** 下载（文件原样；目录 zip）。经 fetch+blob 携带 API Key。 */
+/** 下载（文件原样；目录 zip）。同源 fetch 自动携带会话 Cookie。 */
 export async function downloadWorkspacePath(path: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/raw?path=${encodeURIComponent(path)}`, {
-    headers: { 'X-API-Key': getApiKey() },
-  })
+  const res = await fetch(`/api/workspaces/raw?path=${encodeURIComponent(path)}`)
   if (!res.ok) throw new Error(`下载 ${path}: ${res.status}`)
   const blob = await res.blob()
   const base = path.split('/').pop() || path

@@ -55,7 +55,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/detail/5", nil)
-		req.Header.Set("X-API-Key", "k")
+		req.AddCookie(testSessionCookie())
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -83,7 +83,7 @@ func TestLLMInvocationsHandler_SearchStat(t *testing.T) {
 		defer srv.Close()
 
 		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/search/stat?only_err=1", nil)
-		req.Header.Set("X-API-Key", "k")
+		req.AddCookie(testSessionCookie())
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

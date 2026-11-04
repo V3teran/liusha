@@ -29,7 +29,7 @@ describe('全局漏洞台账 API', () => {
 
     expect(res.findings).toHaveLength(1)
     expect(res.total).toBe(1)
-    expect(mockFetch).toHaveBeenCalledWith('/api/findings', { headers: { 'X-API-Key': '' } })
+    expect(mockFetch).toHaveBeenCalledWith('/api/findings')
   })
 
   it('listFindings 只带真值筛选参数拼 query', async () => {

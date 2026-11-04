@@ -1,60 +1,102 @@
-// Package httpapi 提供 liusha 控制面 HTTP API：健康检查、凭证 CRUD、session 终止。
-// 所有非 /healthz 路由强制 X-API-Key 认证，由 RequireAPIKey gin middleware 统一拦截。
+// Package httpapi 提供 liusha 控制面 HTTP API：健康检查、登录认证、凭证 CRUD、任务与会话等。
+// 除白名单端点外所有路由凭 liusha_session 登录会话 Cookie 访问，由 RequireAuth
+// gin middleware 统一拦截（含 SSE stream——同源 EventSource 自动带 Cookie）。
 package httpapi
 
 import (
-	"crypto/subtle"
-	"os"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/V3teran/liusha/internal/audit"
+	"github.com/V3teran/liusha/internal/auth"
 )
 
-// RequireAPIKey 校验 X-API-Key 请求头。/healthz、/dev-config.json、/favicon.ico 放行。
-// 比较使用 crypto/subtle.ConstantTimeCompare 避免 timing 侧信道。
+// sessionCookieName 是登录会话 Cookie 名。
+const sessionCookieName = "liusha_session"
+
+// gin context 键：中间件写入、/auth 系 handler 读取。
+const (
+	ctxAccountID   = "auth.account_id"
+	ctxAccountName = "auth.username"
+)
+
+// RequireAuth 校验 liusha_session 会话 Cookie：命中有效会话（滑动未过期 + 绝对上限内）
+// 即放行，并把账号身份写进 gin context；剩余不足半程时顺带滑动续期并同步 Cookie 寿命。
 //
-// /dev-config.json（dev API key 自动填充端点）按设计先于鉴权——它正是用来发 key 的，
-// 且仅在 LIUSHA_DEV_AUTOFILL 开启时注册，production 不存在。真正敏感的数据接口仍受保护。
+// 白名单（无会话可达）：
+//   - /healthz       探活高频路径
+//   - /favicon.ico   浏览器自动拉取，未注册即 404，不进鉴权避免污染 401 日志
+//   - /api/auth/login    登录前当然没有会话
+//   - /api/auth/logout   清 HttpOnly Cookie 必须由服务端做，须容忍带着失效会话调用
 //
-// LIUSHA_AUTH_DISABLED 非空时整个中间件退化为直通：所有路由（含 SSE stream）不再校验
-// X-API-Key 与 stream cookie——测试期免认证开关，恢复认证 = 去掉该 env，无需改代码。
-func RequireAPIKey(expected string, streamSecret []byte) gin.HandlerFunc {
-	if os.Getenv("LIUSHA_AUTH_DISABLED") != "" {
-		return func(c *gin.Context) { c.Next() }
-	}
+// 初始建号不经 HTTP（cmd/api 启动期用 env 密码建 admin），api 全程没有
+// 未认证的建号端点。
+// store 为 nil 属装配错误，fail-closed：除白名单外全部 401。
+func RequireAuth(store AuthStore, secure bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// /healthz、/dev-config.json 直接放行；FullPath 是注册路由模板。
+		// FullPath 是 *已注册路由* 模板；未注册路径返回空串——白名单判断必须用
+		// URL.Path 兜底，否则白名单端点在未注册状态下会 401 而非 404/405，
+		// 混淆"路由不存在"与"鉴权失败"。
 		fp := c.FullPath()
-		// FullPath 是 *已注册路由* 模板；未注册路由（如 dev autofill 关闭时的
-		// /dev-config.json）会返回空串——必须用 URL.Path 兜底，否则会 401
-		// 而非 404，混淆"未配置 dev"与"鉴权失败"。
 		path := c.Request.URL.Path
 		if strings.HasSuffix(fp, "/healthz") ||
-			fp == "/dev-config.json" ||
-			path == "/dev-config.json" ||
-			path == "/api/dev-config.json" || // dev autofill 实际注册路径（/api 组）
-			path == "/favicon.ico" {
-			// favicon.ico 浏览器自动拉，没注册即 404；不走鉴权避免污染 401 日志。
+			path == "/favicon.ico" ||
+			path == "/api/auth/login" ||
+			path == "/api/auth/logout" {
 			c.Next()
 			return
 		}
-		// SSE stream：EventSource 不能带 header，改用 liusha_stream cookie 鉴权。
-		// 仅此路径接受 cookie；cookie 绑 conversationID，须与 URL param 一致。
-		// 用后缀匹配：路由挂在 /api 组下，FullPath 实为 /api/conversations/:id/stream——
-		// 精确比较漏掉组前缀，cookie 旁路成死代码，EventSource（无法带 header）永远 401。
-		if strings.HasSuffix(fp, "/conversations/:id/stream") && len(streamSecret) > 0 {
-			if ck, err := c.Cookie(streamCookieName); err == nil &&
-				verifyStreamToken(streamSecret, ck, c.Param("id")) {
-				c.Next()
-				return
-			}
-		}
-		got := c.GetHeader("X-API-Key")
-		// expected 为空属于配置错误，直接 401，避免空 key 等价于跳过认证。
-		if expected == "" || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
-			c.AbortWithStatusJSON(401, gin.H{"error": "invalid api key"})
+
+		const unauthorized = "未登录或会话已过期"
+		if store == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": unauthorized})
 			return
 		}
+		token, err := c.Cookie(sessionCookieName)
+		if err != nil || token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": unauthorized})
+			return
+		}
+		ss, err := store.SessionByToken(c.Request.Context(), token)
+		if err != nil {
+			// 无效/过期/绝对上限已过统一 401，不向未认证方区分细节。
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": unauthorized})
+			return
+		}
+		// 剩余不足半程则续期（写频至多每天一次每会话）；续期失败不阻断本次请求——
+		// 会话当前仍有效，只是不延长。
+		if time.Until(ss.ExpiresAt) < auth.SessionRenewAfter {
+			if exp, slideErr := store.SlideSession(c.Request.Context(), ss.TokenHash); slideErr == nil {
+				setSessionCookie(c, token, secondsUntil(exp), secure)
+			}
+		}
+		c.Set(ctxAccountID, ss.AccountID)
+		c.Set(ctxAccountName, ss.Username)
+		// 操作者随 request context 传播给服务层（dispatch 等），落审计时如实记录
+		// 是谁在操作，而非退化为静态标签。gin 的 c.Set 只在 handler 链可见，
+		// 跨层传递必须走 request context。
+		c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), authActorPrefix+ss.Username))
 		c.Next()
 	}
+}
+
+// setSessionCookie 下发会话 Cookie：HttpOnly（JS 不可读）+ SameSite=Lax（跨站 POST
+// 不携带，覆盖 CSRF 面）+ Path=/；secure 由 LIUSHA_COOKIE_SECURE 决定（dev http 须 false）。
+func setSessionCookie(c *gin.Context, token string, maxAgeSeconds int, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(sessionCookieName, token, maxAgeSeconds, "/", "", secure, true)
+}
+
+// clearSessionCookie 过期清除会话 Cookie（登出/改密后；HttpOnly 决定必须服务端清）。
+func clearSessionCookie(c *gin.Context, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(sessionCookieName, "", -1, "/", "", secure, true)
+}
+
+// secondsUntil 把过期时间换算为 Cookie MaxAge 秒数（向上取整，避免提前一秒失配）。
+func secondsUntil(exp time.Time) int {
+	return int(time.Until(exp).Seconds()) + 1
 }
