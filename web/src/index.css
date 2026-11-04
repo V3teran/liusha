@@ -47,11 +47,17 @@ pre {
 }
 
 /* ============================================================
-   旧类名兼容层（渐进迁移）
-   直接使用 CSS 属性，不依赖 @apply
+   历史类名（命名迁移中）——仍在服役、尚未改名的旧名。
+   等价新名（由 naming-overhaul 统一）：
+     .text-muted      → text-text-secondary
+     .text-faint      → text-text-tertiary
+     .tac-row-active  → row-selected
+     .tac-cursor      → terminal-cursor
+   其余历史类名（.bg-surface / .bg-surface-2 / .border-border / .text-accent /
+   .text-sev-* / .text-status-* 等）已由 @theme inline 桥接为 Tailwind 工具类，
+   与手写映射等价，故不再手写映射。
    ============================================================ */
 
-/* 文本颜色 */
 .text-muted {
   color: var(--text-secondary);
 }
@@ -60,101 +66,9 @@ pre {
   color: var(--text-tertiary);
 }
 
-/* 背景色 */
-.bg-background {
-  background-color: var(--background);
-}
-
-.bg-surface {
-  background-color: var(--surface);
-}
-
-.bg-surface-2 {
-  background-color: var(--surface-2);
-}
-
-/* 边框色 */
-.border-border {
-  border-color: var(--border);
-}
-
-.border-border-strong {
-  border-color: var(--border-strong);
-}
-
-/* 强调色 */
-.text-accent {
-  color: var(--accent);
-}
-
-.bg-accent {
-  background-color: var(--accent);
-}
-
-.bg-accent-soft {
-  background-color: var(--accent-soft);
-}
-
-.border-accent {
-  border-color: var(--accent);
-}
-
-/* 语义色 - 严重度 */
-.text-sev-critical {
-  color: var(--sev-critical);
-}
-
-.text-sev-high {
-  color: var(--sev-high);
-}
-
-.text-sev-medium {
-  color: var(--sev-medium);
-}
-
-.text-sev-low {
-  color: var(--sev-low);
-}
-
-.text-sev-info {
-  color: var(--sev-info);
-}
-
-/* 语义色 - 状态 */
-.text-status-success {
-  color: var(--status-success);
-}
-
-.text-status-error {
-  color: var(--status-error);
-}
-
-/* 旧的战术终端工具类映射 */
-.tac-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.tac-glow {
-  box-shadow: var(--glow-accent);
-}
-
-.tac-glow-strong {
-  box-shadow: var(--glow-accent-strong);
-}
-
 .tac-row-active {
   box-shadow: inset 3px 0 0 var(--accent), var(--glow-accent);
   border-color: var(--accent) !important;
-}
-
-.tac-prompt::before {
-  content: "▚ ";
-  color: var(--accent);
-  font-family: var(--font-mono);
 }
 
 .tac-cursor::after {

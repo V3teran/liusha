@@ -17,13 +17,10 @@ import (
 )
 
 // AnthropicConfig 描述 Anthropic 连接参数。
-//
-// APIKey 字段保留是为了配置层面的向后兼容；NewAnthropic 不再读它——
-// 底层 *anthropic.Client 已带 apikey，由调用方从 ClientPool 注入。
+// 密钥不在此结构——底层 *anthropic.Client 已带 apikey，由调用方从 ClientPool 注入。
 type AnthropicConfig struct {
 	BaseURL   string // 空 = 官方 https://api.anthropic.com
 	Model     string // 如 claude-sonnet-4-6
-	APIKey    string // 仅用于配置传递；client 已经从 ClientPool 注入
 	MaxTokens int    // Anthropic 这个字段必填，0 时本包默认填 4096
 	// ThinkingBudget 是扩展思考预算（thinking.budget_tokens）。>0 时请求开启
 	// 扩展思考：模型先流式产出 thinking block（内部 CoT），再产出正文/tool_use。

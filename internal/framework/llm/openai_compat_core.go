@@ -9,13 +9,10 @@ import (
 )
 
 // OpenAICompatConfig 描述一个 OpenAI 兼容 provider 的连接参数。
-//
-// APIKey 字段保留是为了配置层面的向后兼容；NewOpenAICompat 不再读它——
-// 底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
+// 密钥不在此结构——底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
 type OpenAICompatConfig struct {
 	BaseURL        string // 如 https://api.deepseek.com/v1 ；空 = OpenAI 官方
 	Model          string // 如 deepseek-chat、qwen3-max
-	APIKey         string // 仅用于配置传递；client 已经从 ClientPool 注入
 	MaxTokens      int    // 0 = 走 provider 默认
 	SupportsVision bool   // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
 }

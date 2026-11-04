@@ -80,7 +80,7 @@ describe('TrafficDetailPane', () => {
     expect(screen.getByText('消费任务')).toBeTruthy()
     expect(screen.getByText('api.example.com')).toBeTruthy()
     const link = screen.getByRole('link')
-    expect(link.getAttribute('href')).toContain('/conversations/auto?conv=c9')
+    expect(link.getAttribute('href')).toContain('/conversations/proxy?conv=c9')
   })
 
   it('响应无 body 时该块不提供美化切换（请求块仍可美化）', () => {
