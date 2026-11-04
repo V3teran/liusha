@@ -16,7 +16,8 @@
 # ── 共享定义（x- 扩展字段 + YAML 锚点）：app 服务公共 env / 依赖 / profile 只写一次 ──
 x-app-env: &app-env
   # 密钥一律显式注入（root .env / --env-file .env.prod），基座不兜底任何环境默认值
-  LIUSHA_POSTGRES_DSN: postgres://liusha:liusha@postgres:5432/liusha?sslmode=disable
+  # DSN 密码与 POSTGRES_PASSWORD 同源——改库密码不再需要手改两处
+  LIUSHA_POSTGRES_DSN: postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable
   LIUSHA_REDIS_ADDR: redis:6379
   LIUSHA_CONFIG: /app/config/config.yaml
   GLM_API_KEY: "${GLM_API_KEY:?GLM_API_KEY 未设置}"
@@ -26,6 +27,9 @@ x-app-deps: &app-deps
     condition: service_healthy
   redis:
     condition: service_healthy
+  # 迁移先行：migrate 一次性服务成功退出后业务才起（幂等，重复 up 为 no-op）
+  migrate:
+    condition: service_completed_successfully
 
 x-full-profile: &full-profile
   - full
@@ -65,8 +69,22 @@ services:
       timeout: 3s
       retries: 10
 
+  # 一次性数据库迁移：与 api 同镜像（内含 migrations + migrate CLI），
+  # entrypoint 覆盖为 migrate up；开发形态（make migrate 手动）不起本服务。
+  migrate:
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: cmd/api/Dockerfile
+    profiles: *full-profile
+    restart: "no"
+    entrypoint: ["/app/migrate", "-path", "/app/migrations", "-database", "postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
-    image: liusha/api:1.0
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: cmd/api/Dockerfile
@@ -100,7 +118,7 @@ services:
   # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8090。
   # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。
   nginx:
-    image: liusha/nginx:1.0
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-nginx:${LIUSHA_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deployments/nginx/Dockerfile
@@ -120,7 +138,7 @@ services:
 
   # cmd/proxy：内嵌 proxify SDK 的 MITM 代理 + filter/dedup/aggregator + Asynq 生产者
   proxy:
-    image: liusha/proxy:1.0
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-proxy:${LIUSHA_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: cmd/proxy/Dockerfile
@@ -149,7 +167,7 @@ services:
   # runner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
   # GLM_API_KEY 经根 .env 注入（compose 插值）。
   runner:
-    image: liusha/runner:1.0
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-runner:${LIUSHA_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: cmd/runner/Dockerfile

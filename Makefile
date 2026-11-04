@@ -1,7 +1,11 @@
-.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
+.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down publish single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
 
 COMPOSE = docker compose -f compose.yaml
 PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile full
+
+# 业务镜像仓库/标签（compose.yaml 同默认值——本地 build 即同名 tag，pull 不撞远端）
+IMAGE_REPO ?= ghcr.io/v3teran
+IMAGE_TAG ?= latest
 MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
 # migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
 # 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
@@ -21,6 +25,14 @@ dev-down:
 
 # ── 形态 B：生产全容器（6 核心服务 + prod overlay；schema 由 host 侧 make migrate 建）───
 prod-build: build-api build-proxy build-runner build-nginx
+
+# 发布：构建并推送四个业务镜像到仓库（需先 docker login ghcr.io）。
+# 用户侧 docker compose pull 拉到的即这些镜像；改代码后需 publish 才会更新。
+publish: prod-build
+	docker push $(IMAGE_REPO)/liusha-api:$(IMAGE_TAG)
+	docker push $(IMAGE_REPO)/liusha-proxy:$(IMAGE_TAG)
+	docker push $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG)
+	docker push $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG)
 
 prod-up:
 	$(PROD_COMPOSE) up -d --build
@@ -72,17 +84,17 @@ web-test:
 	cd web && pnpm test
 
 build-api:
-	docker build -f cmd/api/Dockerfile -t liusha/api:1.0 .
+	docker build -f cmd/api/Dockerfile -t $(IMAGE_REPO)/liusha-api:$(IMAGE_TAG) .
 
 # 前置 nginx 镜像：多阶段 build（node 编前端 dist + nginx 托管 + 反代 api）。
 build-nginx:
-	docker build -f deployments/nginx/Dockerfile -t liusha/nginx:1.0 .
+	docker build -f deployments/nginx/Dockerfile -t $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG) .
 
 build-proxy:
-	docker build -f cmd/proxy/Dockerfile -t liusha/proxy:1.0 .
+	docker build -f cmd/proxy/Dockerfile -t $(IMAGE_REPO)/liusha-proxy:$(IMAGE_TAG) .
 
 build-runner:
-	docker build -f cmd/runner/Dockerfile -t liusha/runner:1.0 .
+	docker build -f cmd/runner/Dockerfile -t $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG) .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
 # 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/liusha-sandbox-base，
