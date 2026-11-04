@@ -123,7 +123,7 @@ export type ToolKind = 'function' | 'cli'
 // Tool 是工具目录一项（GET /tools 列表、AgentsPage function_tools/cli_tools 多选器候选）。
 // 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
 // Skill 是知识库 skill 一项（GET /skills 列表，AgentsPage skills 多选器候选）。
-// code = 裸名寻址键（= 种子目录名，如 browser-use / dom-xss），agent.skills 声明与 read_skill 都用它。
+// code = 裸名寻址键（= 种子目录名，如 browser-use / bac），agent.skills 声明与 read_skill 都用它。
 export interface Skill {
   id: string
   code: string
