@@ -49,7 +49,7 @@ export function ConfigDrawer({
           <Tabs.Root value={active} onValueChange={setActive} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
-              <Dialog.Close className="text-muted hover:text-text" aria-label="关闭">
+              <Dialog.Close className="text-text-secondary hover:text-text" aria-label="关闭">
                 <X className="h-4 w-4" />
               </Dialog.Close>
             </div>
@@ -62,7 +62,7 @@ export function ConfigDrawer({
                 <Tabs.Trigger
                   key={t.value}
                   value={t.value}
-                  className="relative -mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:text-accent"
+                  className="relative -mb-px border-b-2 border-transparent px-3 py-2 text-sm text-text-secondary outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:text-accent"
                 >
                   {t.label}
                 </Tabs.Trigger>
@@ -122,9 +122,9 @@ export function Field({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-muted">
+      <span className="text-xs font-medium text-text-secondary">
         {label}
-        {hint && <span className="ml-2 font-normal text-faint">{hint}</span>}
+        {hint && <span className="ml-2 font-normal text-text-tertiary">{hint}</span>}
       </span>
       {children}
     </label>

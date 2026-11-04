@@ -228,7 +228,7 @@ export default function SkillsPage() {
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-4 text-sm text-text-secondary">
                         {draft.is_builtin && <Badge variant="outline">内置</Badge>}
                         <label className="flex items-center gap-2">
                           <input
@@ -241,7 +241,7 @@ export default function SkillsPage() {
                       </div>
                       {!isNew &&
                         (assignAgents === null ? (
-                          <p className="text-sm text-muted">装配状态加载中…</p>
+                          <p className="text-sm text-text-secondary">装配状态加载中…</p>
                         ) : (
                           <AgentAssignSection
                             agents={assignAgents.map((a) => ({

@@ -21,7 +21,7 @@ const CredentialsPage = lazy(() => import('@/pages/CredentialsPage'))
 const LogsPage = lazy(() => import('@/pages/LogsPage'))
 
 function Loading() {
-  return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
+  return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
 }
 
 function withSuspense(el: React.ReactNode) {

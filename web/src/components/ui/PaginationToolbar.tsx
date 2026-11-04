@@ -35,7 +35,7 @@ export function PaginationToolbar({
 }: PaginationToolbarProps) {
   return (
     <div className={`flex items-center gap-3 ${className}`}>
-      <span className="whitespace-nowrap text-sm text-muted">
+      <span className="whitespace-nowrap text-sm text-text-secondary">
         共 <strong className="font-semibold text-text">{total}</strong> 条
       </span>
 
@@ -51,7 +51,7 @@ export function PaginationToolbar({
         >
           <span aria-hidden>‹</span>
         </button>
-        <span className="min-w-[3.5rem] text-center text-sm text-muted">
+        <span className="min-w-[3.5rem] text-center text-sm text-text-secondary">
           {page} / {totalPages}
         </span>
         <button

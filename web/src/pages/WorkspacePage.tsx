@@ -204,9 +204,9 @@ export function WorkspacePage() {
           ariaLabel="搜索工作区路径"
         />
         {allEntries.length > 0 && (
-          <span className="text-xs text-muted opacity-75">{taskCount} 个任务工作区</span>
+          <span className="text-xs text-text-secondary opacity-75">{taskCount} 个任务工作区</span>
         )}
-        {notice && <span className="text-xs text-muted">{notice}</span>}
+        {notice && <span className="text-xs text-text-secondary">{notice}</span>}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -218,7 +218,7 @@ export function WorkspacePage() {
               onClick={() => { setCreating('file'); setNewName('') }}
               title="新建文件"
               aria-label="新建文件"
-              className={cn('text-muted hover:text-text', creating === 'file' && 'text-accent')}
+              className={cn('text-text-secondary hover:text-text', creating === 'file' && 'text-accent')}
             >
               <FilePlus2 className="h-4 w-4" />
             </button>
@@ -226,7 +226,7 @@ export function WorkspacePage() {
               onClick={() => { setCreating('dir'); setNewName('') }}
               title="新建目录"
               aria-label="新建目录"
-              className={cn('text-muted hover:text-text', creating === 'dir' && 'text-accent')}
+              className={cn('text-text-secondary hover:text-text', creating === 'dir' && 'text-accent')}
             >
               <FolderPlus className="h-4 w-4" />
             </button>
@@ -234,11 +234,11 @@ export function WorkspacePage() {
               onClick={collapseAll}
               title="折叠全部"
               aria-label="折叠全部"
-              className="text-muted hover:text-text"
+              className="text-text-secondary hover:text-text"
             >
               <ChevronsDownUp className="h-4 w-4" />
             </button>
-            <button onClick={() => refresh()} title="刷新" aria-label="刷新" className="text-muted hover:text-text">
+            <button onClick={() => refresh()} title="刷新" aria-label="刷新" className="text-text-secondary hover:text-text">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
@@ -260,7 +260,7 @@ export function WorkspacePage() {
               <button onClick={commitCreate} aria-label="确认新建" title="确认" className="text-accent hover:text-accent-hover">
                 ✓
               </button>
-              <button onClick={() => setCreating(null)} aria-label="取消新建" title="取消" className="text-muted hover:text-text">
+              <button onClick={() => setCreating(null)} aria-label="取消新建" title="取消" className="text-text-secondary hover:text-text">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -282,27 +282,27 @@ export function WorkspacePage() {
         {/* 查看 / 编辑 */}
         <div className="rounded-2xl border border-border bg-surface p-3">
           {!selected ? (
-            <p className="p-4 text-sm text-muted">从左侧选择文件（行悬停可下载 / 删除）</p>
+            <p className="p-4 text-sm text-text-secondary">从左侧选择文件（行悬停可下载 / 删除）</p>
           ) : fileQuery.isLoading ? (
-            <p className="p-4 text-sm text-muted">加载中…</p>
+            <p className="p-4 text-sm text-text-secondary">加载中…</p>
           ) : fileQuery.data?.binary ? (
             <div className="space-y-2 p-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Badge size="sm" color="neutral">二进制</Badge>
                   <span className="text-sm text-text">{selected}</span>
-                  <span className="text-xs text-muted">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
+                  <span className="text-xs text-text-secondary">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => void download(selected)}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Download className="h-3.5 w-3.5" /> 下载
                   </button>
                   <button
                     onClick={() => void remove(selected)}
-                    className="flex items-center gap-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> 删除
                   </button>
@@ -323,7 +323,7 @@ export function WorkspacePage() {
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
                     onClick={() => void download(selected)}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Download className="h-3.5 w-3.5" /> 下载
                   </button>
@@ -332,20 +332,20 @@ export function WorkspacePage() {
                     disabled={!editing}
                     className={cn(
                       'rounded-lg border border-border px-2.5 py-1 text-xs',
-                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-muted opacity-50',
+                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-text-secondary opacity-50',
                     )}
                   >
                     保存
                   </button>
                   <button
                     onClick={() => void remove(selected)}
-                    className="flex items-center gap-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> 删除
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-muted">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
+              <p className="text-xs text-text-secondary">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
               <textarea
                 aria-label="文件内容编辑器"
                 value={draft ?? fileQuery.data?.content ?? ''}
@@ -362,7 +362,7 @@ export function WorkspacePage() {
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
                     onClick={() => void download(selected)}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Download className="h-3.5 w-3.5" /> 下载
                   </button>
@@ -371,14 +371,14 @@ export function WorkspacePage() {
                     disabled={!editing}
                     className={cn(
                       'rounded-lg border border-border px-2.5 py-1 text-xs',
-                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-muted opacity-50',
+                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-text-secondary opacity-50',
                     )}
                   >
                     保存
                   </button>
                   <button
                     onClick={() => void remove(selected)}
-                    className="flex items-center gap-1 text-xs text-muted hover:text-text"
+                    className="flex items-center gap-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> 删除
                   </button>
@@ -443,7 +443,7 @@ function FileTree({
                 e.is_dir && 'cursor-pointer hover:bg-surface-2',
                 !e.is_dir && 'cursor-pointer hover:bg-surface-2',
                 !e.is_dir && selected === e.path && 'bg-surface-2 text-text',
-                e.is_dir && 'text-muted',
+                e.is_dir && 'text-text-secondary',
               )}
               onClick={() => (e.is_dir ? onToggleDir(e.path) : onSelect(e.path))}
             >
@@ -465,7 +465,7 @@ function FileTree({
                     ev.stopPropagation()
                     onDownload(e.path)
                   }}
-                  className="text-muted hover:text-text"
+                  className="text-text-secondary hover:text-text"
                 >
                   <Download className="h-3.5 w-3.5" />
                 </button>
@@ -476,7 +476,7 @@ function FileTree({
                     ev.stopPropagation()
                     onDelete(e.path)
                   }}
-                  className="text-muted hover:text-text"
+                  className="text-text-secondary hover:text-text"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -485,7 +485,7 @@ function FileTree({
           </li>
         )
       })}
-      {entries.length === 0 && <li className="p-2 text-xs text-muted">无匹配路径</li>}
+      {entries.length === 0 && <li className="p-2 text-xs text-text-secondary">无匹配路径</li>}
     </ul>
   )
 }

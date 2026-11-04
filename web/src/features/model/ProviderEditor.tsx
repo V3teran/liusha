@@ -109,7 +109,7 @@ export function ProviderEditor({
           <button
             type="button"
             onClick={onKeepEditing}
-            className="flex-shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+            className="flex-shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
           >
             继续编辑
           </button>
@@ -132,7 +132,7 @@ export function ProviderEditor({
             type="button"
             onClick={onDismissError}
             aria-label="关闭错误提示"
-            className="flex-shrink-0 text-faint transition-colors hover:text-text"
+            className="flex-shrink-0 text-text-tertiary transition-colors hover:text-text"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -152,7 +152,7 @@ export function ProviderEditor({
           onClick={() => void onTest()}
           disabled={test.kind === 'testing'}
           title="发一条最小请求验证连接（需 Base URL、默认模型与可用密钥）"
-          className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
         >
           {test.kind === 'testing' ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -167,7 +167,7 @@ export function ProviderEditor({
             onClick={onReset}
             disabled={saving}
             title="放弃草稿，恢复到打开时的值"
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             重置
@@ -190,7 +190,7 @@ export function ProviderEditor({
 function TestResultLine({ test }: { test: TestState }) {
   if (test.kind === 'testing') {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-muted">
+      <span className="flex items-center gap-1.5 text-xs text-text-secondary">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         正在验证连接…
       </span>

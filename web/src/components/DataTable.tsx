@@ -69,7 +69,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                 <th
                   key={h.id}
                   className={cn(
-                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70`,
+                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary opacity-70`,
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
@@ -92,7 +92,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-muted">
+              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-text-secondary">
                 {hasFilter ? `当前筛选无匹配（${emptyText}）` : `暂无${emptyText}`}
               </td>
             </tr>

@@ -5,7 +5,7 @@
        剪影取 mark-white.svg 同几何；沙粒保留渐隐透明度分层。
        容器底端 #0f0f11 = design-tokens.css 深色 surface
        oklch(17% 0.004 285) 的 sRGB 换算值。
-       对照版：app-icon-light.svg（黑剪影 + 白容器，浅主题）。
+       对照版：app-icon.svg（黑剪影 + 白容器，浅主题）。
        ============================================================ -->
   <defs>
     <linearGradient id="containerGrad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">

@@ -51,7 +51,7 @@ export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话
           <button
             type="button"
             onClick={handleClear}
-            className="text-muted hover:text-text"
+            className="text-text-secondary hover:text-text"
             aria-label="清空搜索"
           >
             <X className="h-4 w-4" />

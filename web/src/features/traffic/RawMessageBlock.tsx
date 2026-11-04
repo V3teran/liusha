@@ -27,7 +27,7 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
     return (
       <section className="min-w-0">
         <h3 className="mb-2 text-sm font-semibold text-text">{title}</h3>
-        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-sm text-muted opacity-70">{emptyHint}</div>
+        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-sm text-text-secondary opacity-70">{emptyHint}</div>
       </section>
     )
   }
@@ -42,14 +42,14 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
           <Tabs.List className="ml-2 flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5" aria-label={`${title}报文视图`}>
             <Tabs.Trigger
               value="raw"
-              className="rounded px-2 py-0.5 text-xs text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
+              className="rounded px-2 py-0.5 text-xs text-text-secondary transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
             >
               原文
             </Tabs.Trigger>
             {showPretty && (
               <Tabs.Trigger
                 value="pretty"
-                className="rounded px-2 py-0.5 text-xs text-muted transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
+                className="rounded px-2 py-0.5 text-xs text-text-secondary transition-colors data-[state=active]:bg-surface data-[state=active]:text-text data-[state=active]:shadow-sm"
               >
                 美化
               </Tabs.Trigger>

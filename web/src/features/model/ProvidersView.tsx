@@ -157,7 +157,7 @@ export function ProvidersView() {
         <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-text">模型提供商</h2>
-            <p className="mt-0.5 text-xs text-muted">接入哪些 provider，连接参数与能力标志</p>
+            <p className="mt-0.5 text-xs text-text-secondary">接入哪些 provider，连接参数与能力标志</p>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
             <SearchInput
@@ -178,20 +178,20 @@ export function ProvidersView() {
           </div>
         </div>
         {isLoading ? (
-          <div className="tac-cursor py-10 text-center font-mono text-sm text-muted">加载中</div>
+          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
         ) : isError ? (
           <div className="flex flex-col items-center gap-2 py-10 text-sm text-sev-critical">
             <span>⚠ {error instanceof Error ? error.message : '加载失败'}</span>
             <button
               type="button"
               onClick={() => void refetch()}
-              className="rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+              className="rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
             >
               重试
             </button>
           </div>
         ) : filtered.length === 0 && !isNew ? (
-          <div className="py-10 text-center text-sm text-muted">
+          <div className="py-10 text-center text-sm text-text-secondary">
             {query.trim() ? '无匹配部署' : '暂无部署——点「新建」接入第一个 provider'}
           </div>
         ) : (

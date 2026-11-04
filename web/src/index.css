@@ -46,43 +46,6 @@ pre {
   color: var(--accent);
 }
 
-/* ============================================================
-   历史类名（命名迁移中）——仍在服役、尚未改名的旧名。
-   等价新名（由 naming-overhaul 统一）：
-     .text-muted      → text-text-secondary
-     .text-faint      → text-text-tertiary
-     .tac-row-active  → row-selected
-     .tac-cursor      → terminal-cursor
-   其余历史类名（.bg-surface / .bg-surface-2 / .border-border / .text-accent /
-   .text-sev-* / .text-status-* 等）已由 @theme inline 桥接为 Tailwind 工具类，
-   与手写映射等价，故不再手写映射。
-   ============================================================ */
-
-.text-muted {
-  color: var(--text-secondary);
-}
-
-.text-faint {
-  color: var(--text-tertiary);
-}
-
-.tac-row-active {
-  box-shadow: inset 3px 0 0 var(--accent), var(--glow-accent);
-  border-color: var(--accent) !important;
-}
-
-.tac-cursor::after {
-  content: "▋";
-  margin-left: 2px;
-  color: var(--accent);
-  animation: cursor-blink 1.1s step-end infinite;
-}
-
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
 .app-overlay {
   /* 全站弹层遮罩唯一规格：纯压暗 50%、零背景模糊（scrim 职责是聚焦前景，
    * 模糊破坏后文可读且耗 GPU——Material 3 / shadcn 等主流规范均不用）。

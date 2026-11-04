@@ -18,7 +18,7 @@ export function CopySection({ title, hint, copyText, copied, onCopy, children }:
     <section>
       <h3 className="mb-2.5 flex items-baseline gap-2 text-sm font-semibold text-text">
         {title}
-        {hint && <span className="text-xs font-normal text-muted">{hint}</span>}
+        {hint && <span className="text-xs font-normal text-text-secondary">{hint}</span>}
         {copyText && <CopyButton copied={copied} onClick={onCopy} className="ml-auto" />}
       </h3>
       {children}

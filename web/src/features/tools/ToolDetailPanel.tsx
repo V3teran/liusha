@@ -22,7 +22,7 @@ export function ToolDetailPanel({
   if (loading && !detail) {
     return (
       <PanelFrame>
-        <div className="tac-cursor py-16 text-center font-mono text-sm text-muted">加载中</div>
+        <div className="terminal-cursor py-16 text-center font-mono text-sm text-text-secondary">加载中</div>
       </PanelFrame>
     )
   }
@@ -31,8 +31,8 @@ export function ToolDetailPanel({
     return (
       <PanelFrame>
         <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="font-mono text-sm text-muted">从左侧选择一个工具</p>
-          <p className="text-xs text-faint">查看完整描述并装配到智能体</p>
+          <p className="font-mono text-sm text-text-secondary">从左侧选择一个工具</p>
+          <p className="text-xs text-text-tertiary">查看完整描述并装配到智能体</p>
         </div>
       </PanelFrame>
     )
@@ -46,11 +46,11 @@ export function ToolDetailPanel({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-muted">分类</span>
+          <span className="text-text-secondary">分类</span>
           <span className="text-text">{categoryLabel(tool.category)}</span>
         </div>
         <section>
-          <p className="mb-1.5 text-xs font-medium text-muted">描述</p>
+          <p className="mb-1.5 text-xs font-medium text-text-secondary">描述</p>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
             {tool.description || '暂无描述'}
           </p>

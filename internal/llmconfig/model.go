@@ -73,7 +73,7 @@ type ProviderParams struct {
 	Type                 string
 	BaseURL              string
 	DefaultModel         string
-	LegacyAPIKeyEnv      string // 旧模式：ENV 变量名，仅 seed（yaml 首填）路径使用
+	APIKeyEnv            string // 旧模式：ENV 变量名，仅 seed（yaml 首填）路径使用
 	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）

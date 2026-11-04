@@ -20,7 +20,7 @@ function buildTaskColumns(offset: number) {
       size: 44,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
+        <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">
           {offset + ctx.row.index + 1}
         </span>
       ),
@@ -75,7 +75,7 @@ function buildTaskColumns(offset: number) {
         const short = ctx.getValue().slice(0, 8)
         return (
           <span
-            className="block truncate font-mono text-xs text-muted"
+            className="block truncate font-mono text-xs text-text-secondary"
             title={`批次 ${ctx.getValue()}`}
           >
             {short} · {t.assignment_index}/{t.assignment_total}
@@ -89,7 +89,7 @@ function buildTaskColumns(offset: number) {
       size: 76,
       cell: (ctx) => {
         const t = ctx.row.original
-        if (!t.conversation_id) return <span className="text-xs text-muted">—</span>
+        if (!t.conversation_id) return <span className="text-xs text-text-secondary">—</span>
         const tab = t.source === 'self' ? 'direct' : 'proxy'
         return (
           <Link
@@ -109,7 +109,7 @@ function buildTaskColumns(offset: number) {
       cell: (ctx) => {
         const n = ctx.getValue()
         return (
-          <span className={`block text-right font-mono text-sm tabular-nums ${n > 0 ? 'font-semibold text-sev-high' : 'text-muted'}`}>
+          <span className={`block text-right font-mono text-sm tabular-nums ${n > 0 ? 'font-semibold text-sev-high' : 'text-text-secondary'}`}>
             {n > 0 ? n : '—'}
           </span>
         )
@@ -124,7 +124,7 @@ function buildTaskColumns(offset: number) {
         const n = ctx.getValue()
         return (
           <span
-            className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-muted"
+            className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-text-secondary"
             title={ctx.row.original.status === 'active' ? `已执行 ${n} 步` : `共 ${n} 步`}
           >
             {n} 步
@@ -139,7 +139,7 @@ function buildTaskColumns(offset: number) {
       cell: (ctx) => (
         <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(ctx.getValue())}>
           <span>{dateOnly(ctx.getValue()) || '—'}</span>
-          <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(ctx.getValue())}</em>
+          <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(ctx.getValue())}</em>
         </span>
       ),
     }),
@@ -149,11 +149,11 @@ function buildTaskColumns(offset: number) {
       meta: { align: 'right' },
       cell: (ctx) => {
         const iso = ctx.getValue()
-        if (!iso) return <span className="block text-right font-mono text-xs text-muted opacity-60">—</span>
+        if (!iso) return <span className="block text-right font-mono text-xs text-text-secondary opacity-60">—</span>
         return (
           <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
-            <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+            <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
           </span>
         )
       },

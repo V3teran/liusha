@@ -74,7 +74,7 @@ export function SystemConfig() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
           {filteredSections.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted">
+            <div className="py-12 text-center text-sm text-text-secondary">
               未找到匹配的配置项
             </div>
           ) : (

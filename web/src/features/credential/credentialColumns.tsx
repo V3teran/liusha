@@ -128,7 +128,7 @@ const usernameCol = columnHelper.accessor('identity.username', {
             会话快照 · {short}
           </span>
           {row.identity.task_status && (
-            <span className="text-xs text-muted opacity-75">
+            <span className="text-xs text-text-secondary opacity-75">
               会话 · {TASK_STATUS_SHORT[row.identity.task_status] ?? row.identity.task_status}
             </span>
           )}
@@ -170,7 +170,7 @@ const roleCol = columnHelper.accessor('identity.role', {
         title="点击编辑角色"
         onClick={() => meta.onBeginEdit(row.rowId, 'role')}
         onKeyDown={(e) => e.key === 'Enter' && meta.onBeginEdit(row.rowId, 'role')}
-        className="block min-w-0 cursor-text truncate rounded px-1 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
+        className="block min-w-0 cursor-text truncate rounded px-1 py-0.5 text-xs text-text-secondary hover:bg-surface-2 hover:text-text"
       >
         {ctx.getValue() || <span className="opacity-50">—</span>}
       </span>
@@ -212,7 +212,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
             }
             const line = credentialRawLine(c)
             return (
-              <div key={i} className="truncate font-mono text-xs leading-[1.6] text-muted opacity-60" title={line}>
+              <div key={i} className="truncate font-mono text-xs leading-[1.6] text-text-secondary opacity-60" title={line}>
                 {line}
               </div>
             )
@@ -232,7 +232,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
     return (
       <div className="group/cell flex min-w-0 items-start gap-1">
         <div className="min-w-0 flex-1">
-          {creds.length === 0 && <span className="text-xs text-muted">—</span>}
+          {creds.length === 0 && <span className="text-xs text-text-secondary">—</span>}
           {creds.map((c, i) => {
             const line = credentialRawLine(c)
             return (
@@ -254,7 +254,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
                     e.stopPropagation()
                     meta.onDeleteCred(row, i)
                   }}
-                  className="flex-shrink-0 rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-status-error group-hover/cell:opacity-100"
+                  className="flex-shrink-0 rounded p-0.5 text-text-secondary opacity-0 transition-opacity hover:text-status-error group-hover/cell:opacity-100"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -289,11 +289,11 @@ const createdCol = columnHelper.accessor('identity.created_at', {
   size: 96,
   cell: (ctx) => {
     const iso = ctx.getValue()
-    if (!iso) return <span className="text-xs text-muted">—</span>
+    if (!iso) return <span className="text-xs text-text-secondary">—</span>
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
       </span>
     )
   },
@@ -305,11 +305,11 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
   size: 96,
   cell: (ctx) => {
     const iso = ctx.getValue()
-    if (!iso) return <span className="text-xs text-muted">—</span>
+    if (!iso) return <span className="text-xs text-text-secondary">—</span>
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
       </span>
     )
   },
@@ -333,7 +333,7 @@ const actionCol = columnHelper.display({
           e.stopPropagation()
           ;(ctx.table.options.meta as CredentialTableMeta).onDeleteIdentity(row.host, row.identity.username)
         }}
-        className="rounded p-1.5 text-muted transition-colors hover:bg-surface-hover hover:text-status-error"
+        className="rounded p-1.5 text-text-secondary transition-colors hover:bg-surface-hover hover:text-status-error"
       >
         <Trash2 className="h-4 w-4" />
       </button>
@@ -349,7 +349,7 @@ const seqCol = columnHelper.display({
   size: 44,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
+    <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">
       {(ctx.table.options.meta as CredentialTableMeta).startIndex + ctx.row.index + 1}
     </span>
   ),

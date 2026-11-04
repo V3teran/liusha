@@ -84,23 +84,23 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                   {status.label}
                 </span>
               ) : detail ? (
-                <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{detail.finish_reason || '完成'}</span>
+                <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-semibold text-text-secondary">{detail.finish_reason || '完成'}</span>
               ) : null}
-              <Dialog.Close className="ml-auto text-muted hover:text-text" aria-label="关闭">
+              <Dialog.Close className="ml-auto text-text-secondary hover:text-text" aria-label="关闭">
                 <X className="h-4 w-4" aria-hidden="true" />
               </Dialog.Close>
             </div>
             {detail && (
               <div className="mt-2 font-mono text-sm text-text">
                 {detail.model}
-                <span className="text-muted"> · {detail.provider}</span>
+                <span className="text-text-secondary"> · {detail.provider}</span>
               </div>
             )}
           </div>
 
           <div className="flex flex-1 min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
             {loading ? (
-              <div className="py-10 text-center text-sm text-muted">加载中…</div>
+              <div className="py-10 text-center text-sm text-text-secondary">加载中…</div>
             ) : error ? (
               <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
             ) : detail ? (
@@ -109,14 +109,14 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 <section>
                   <h3 className="mb-2.5 text-sm font-semibold text-text">元信息</h3>
                   <dl className="grid grid-cols-[84px_1fr] items-baseline gap-x-3 gap-y-1.5">
-                    <dt className="text-xs text-muted">request_id</dt>
+                    <dt className="text-xs text-text-secondary">request_id</dt>
                     <dd className="flex items-center gap-2 break-all font-mono text-sm text-text">
                       {detail.request_id}
                       <CopyButton copied={copiedKey === 'rid'} onClick={() => void copy('rid', detail.request_id)} />
                     </dd>
-                    <dt className="text-xs text-muted">时间</dt>
+                    <dt className="text-xs text-text-secondary">时间</dt>
                     <dd className="font-mono text-sm text-text">{fullTime(detail.created_at)}</dd>
-                    <dt className="text-xs text-muted">Tokens</dt>
+                    <dt className="text-xs text-text-secondary">Tokens</dt>
                     <dd className="font-mono text-sm text-text">
                       输入 {humanTokens(detail.in_tokens)} · 输出 {humanTokens(detail.out_tokens)}
                       {detail.cached_tokens > 0 && (
@@ -133,7 +133,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                         </>
                       )}
                     </dd>
-                    <dt className="text-xs text-muted">响应耗时</dt>
+                    <dt className="text-xs text-text-secondary">响应耗时</dt>
                     <dd className="font-mono text-sm text-text">
                       总时长 {humanDuration(detail.latency_ms)}
                       {isTimeout(detail, llmTimeoutMs) ? (
@@ -144,7 +144,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </dd>
                     {detail.agent_run_id && (
                       <>
-                        <dt className="text-xs text-muted">agent</dt>
+                        <dt className="text-xs text-text-secondary">agent</dt>
                         <dd className="font-mono text-sm text-text">{detail.agent_run_id}</dd>
                       </>
                     )}
@@ -153,7 +153,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                         ——纯聊天/轻量路由调用必归 self，代理分析行后端恒带 source。 */}
                     {detail.task_id && (
                       <>
-                        <dt className="text-xs text-muted">任务</dt>
+                        <dt className="text-xs text-text-secondary">任务</dt>
                         <dd>
                           <Link
                             to={`/tasks?task=${detail.task_id}`}
@@ -168,7 +168,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     )}
                     {detail.conversation_id && (
                       <>
-                        <dt className="text-xs text-muted">对话</dt>
+                        <dt className="text-xs text-text-secondary">对话</dt>
                         <dd>
                           <Link
                             to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'direct'}?conv=${detail.conversation_id}`}
@@ -217,7 +217,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       {inputDelta.calls.map((tc) => (
                         <ToolCallCard key={tc.id} call={tc} />
                       ))}
-                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-sm text-muted opacity-70">(空)</div>}
+                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-sm text-text-secondary opacity-70">(空)</div>}
                     </div>
                   )}
                   {messagesRaw && (
@@ -225,7 +225,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       {messagesRaw}
                     </pre>
                   )}
-                  {!inputDelta && !messagesRaw && <div className="text-sm text-muted opacity-70">无输入消息</div>}
+                  {!inputDelta && !messagesRaw && <div className="text-sm text-text-secondary opacity-70">无输入消息</div>}
                 </CopySection>
 
                 {/* 模型思考过程 */}
@@ -238,7 +238,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     onCopy={() => void copy('rsn', reasoning)}
                   >
                     <pre
-                      className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border-l-[3px] bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-muted"
+                      className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border-l-[3px] bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text-secondary"
                       style={{ borderLeftColor: 'color-mix(in srgb, var(--accent) 30%, var(--border))' }}
                     >
                       {reasoning}
@@ -260,7 +260,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                   )}
                   {resultCalls.length > 0 && (
                     <>
-                      <p className="my-2 text-xs text-muted">工具调用 · {resultCalls.length}</p>
+                      <p className="my-2 text-xs text-text-secondary">工具调用 · {resultCalls.length}</p>
                       {resultCalls.map((tc) => (
                         <ToolCallCard key={tc.id} call={tc} />
                       ))}
@@ -272,7 +272,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </pre>
                   )}
                   {!resultText && resultCalls.length === 0 && !resultRaw && (
-                    <div className="text-sm text-muted opacity-70">无返回内容</div>
+                    <div className="text-sm text-text-secondary opacity-70">无返回内容</div>
                   )}
 
                   {/* 原始响应：取证用，含思考过程/extra/response_meta 等完整字段。

@@ -66,7 +66,7 @@ export function TaskStatusCard({ md }: TaskStatusCardProps) {
           {shape.label}
         </span>
         {fields.length > 0 && (
-          <span className="text-muted">
+          <span className="text-text-secondary">
             {fields.map((p, i) => (
               <span key={i}>
                 {i > 0 && ' · '}

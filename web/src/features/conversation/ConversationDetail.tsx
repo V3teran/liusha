@@ -183,7 +183,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {hasConv && (
         <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
           <div className="inline-flex items-center gap-3">
-            <span className="inline-flex items-center gap-2 text-sm text-muted">
+            <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
               <span
                 className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
                 style={{ background: topStatus.color }}
@@ -197,7 +197,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               </span>
             )}
             {startedAt && (
-              <span className="font-mono text-xs text-muted" title={`发起于 ${fullTime(startedAt)}`}>
+              <span className="font-mono text-xs text-text-secondary" title={`发起于 ${fullTime(startedAt)}`}>
                 发起 {fullTime(startedAt)}
               </span>
             )}
@@ -206,7 +206,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             {usage && usage.tokens.total > 0 && (
               <span className="inline-flex items-center gap-3.5">
                 <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
-                  <span className="text-muted">tokens</span>
+                  <span className="text-text-secondary">tokens</span>
                   <span className="font-mono text-text">
                     <span className="text-sev-info" title="输入">
                       ↑{compactNumber(usage.tokens.in)}
@@ -217,7 +217,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </span>
                 </span>
                 <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
-                  <span className="text-muted">耗时</span>
+                  <span className="text-text-secondary">耗时</span>
                   <span className="font-mono text-text">{humanDuration(usage.duration_ms)}</span>
                 </span>
               </span>
@@ -238,7 +238,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
       {loadError ? (
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
-          <div className="max-w-[420px] text-center text-muted">
+          <div className="max-w-[420px] text-center text-text-secondary">
             <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
             <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
             <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
@@ -265,7 +265,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         <TimelineThread active={scanning} elapsedMs={usage?.duration_ms} />
       ) : (
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
-          <div className="max-w-[420px] text-center text-muted">
+          <div className="max-w-[420px] text-center text-text-secondary">
             <div className="mb-3.5 text-4xl leading-none text-accent">{copy.mark}</div>
             <h2 className="mb-2 text-[17px] text-text">{copy.title}</h2>
             <p className="text-sm leading-relaxed">{copy.desc}</p>

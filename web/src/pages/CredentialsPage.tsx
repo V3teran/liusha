@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
  */
 
 const INLINE_INPUT =
-  'h-8 rounded-md border border-border bg-surface px-2 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent focus:glow-accent'
+  'h-8 rounded-md border border-border bg-surface px-2 text-sm text-text outline-none transition-all placeholder:text-text-secondary focus:border-accent focus:glow-accent'
 
 /** 行内编辑草稿（单元格级：一个单元格一个草稿，提交即 PUT 整个身份）。 */
 interface CellEdit {
@@ -197,7 +197,7 @@ export default function CredentialsPage() {
           className={cn(
             'inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold transition-all',
             creating
-              ? 'border border-border bg-surface text-muted hover:text-text'
+              ? 'border border-border bg-surface text-text-secondary hover:text-text'
               : 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover',
           )}
         >
@@ -255,7 +255,7 @@ export default function CredentialsPage() {
                   <button
                     type="button"
                     onClick={() => setCreating(false)}
-                    className="h-8 rounded-md border border-border px-3 text-xs text-muted hover:text-text"
+                    className="h-8 rounded-md border border-border px-3 text-xs text-text-secondary hover:text-text"
                   >
                     取消
                   </button>

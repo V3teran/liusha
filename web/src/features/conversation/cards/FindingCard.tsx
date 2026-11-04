@@ -46,7 +46,7 @@ export function FindingCard({ summary, severity, host, target }: FindingCardProp
       </div>
       {(host || target) && (
         <div className="mt-2 flex items-baseline gap-1.5 text-xs">
-          <span className="flex-shrink-0 text-muted">目标</span>
+          <span className="flex-shrink-0 text-text-secondary">目标</span>
           <span className="break-all font-mono text-text-secondary">{target || host}</span>
         </div>
       )}

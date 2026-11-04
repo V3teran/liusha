@@ -30,7 +30,7 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
 
   const inputClass = cn(
     'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all placeholder:text-muted',
+    'outline-none transition-all placeholder:text-text-secondary',
     'focus:border-accent focus:ring-1 focus:ring-accent/20',
     '[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:hover:opacity-100'
   )
@@ -75,7 +75,7 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         className={cn(inputClass, 'w-48')}
       />
 
-      <span className="text-muted">→</span>
+      <span className="text-text-secondary">→</span>
 
       <input
         id="filter-end"
@@ -99,7 +99,7 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         <button
           type="button"
           onClick={onReset}
-          className="text-sm text-muted transition-colors hover:text-accent"
+          className="text-sm text-text-secondary transition-colors hover:text-accent"
         >
           清空
         </button>

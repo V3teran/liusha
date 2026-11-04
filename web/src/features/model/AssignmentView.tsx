@@ -84,10 +84,10 @@ export function AssignmentView() {
       <div className="overflow-hidden rounded-lg border border-border bg-surface">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-text">能力路由</h2>
-          <p className="mt-0.5 text-xs text-muted">为每个复杂度档位分配模型，并把智能体归入对应档</p>
+          <p className="mt-0.5 text-xs text-text-secondary">为每个复杂度档位分配模型，并把智能体归入对应档</p>
         </div>
         {loading ? (
-          <div className="tac-cursor py-10 text-center font-mono text-sm text-muted">加载中</div>
+          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
         ) : loadError ? (
           <div className="py-10 text-center font-mono text-sm text-sev-critical">
             ⚠ {loadError instanceof Error ? loadError.message : '加载失败'}
@@ -120,7 +120,7 @@ export function AssignmentView() {
             type="button"
             onClick={() => setActionError('')}
             aria-label="关闭错误提示"
-            className="flex-shrink-0 text-faint transition-colors hover:text-text"
+            className="flex-shrink-0 text-text-tertiary transition-colors hover:text-text"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -165,7 +165,7 @@ function ComplexityRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-text">{meta.label}</span>
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-faint">
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text-tertiary">
               {meta.key}
             </code>
             {missing && (
@@ -181,11 +181,11 @@ function ComplexityRow({
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-xs text-muted">{meta.desc}</p>
+          <p className="mt-0.5 truncate text-xs text-text-secondary">{meta.desc}</p>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
-          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" aria-label="保存中" />}
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-secondary" aria-label="保存中" />}
           <select
             aria-label={`${meta.label} 绑定部署`}
             className="w-40 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
@@ -241,7 +241,7 @@ function AgentPicker({
       aria-label={`${groupLabel} 归属`}
       className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2"
     >
-      <span className="mr-1 text-[11px] text-faint">
+      <span className="mr-1 text-[11px] text-text-tertiary">
         智能体 · 已归入 {inCount}/{agents.length}
       </span>
       {agents.map((h) => {
@@ -258,7 +258,7 @@ function AgentPicker({
               'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:cursor-default ' +
               (inGroup
                 ? 'border-accent bg-accent/15 text-text'
-                : 'border-border bg-background text-muted hover:border-accent/50 hover:text-text')
+                : 'border-border bg-background text-text-secondary hover:border-accent/50 hover:text-text')
             }
           >
             {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}

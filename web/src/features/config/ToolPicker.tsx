@@ -37,7 +37,7 @@ export function ToolPicker({
   }, [catalog])
 
   if (byCategory.length === 0) {
-    return <p className="text-sm text-muted">{emptyHint}</p>
+    return <p className="text-sm text-text-secondary">{emptyHint}</p>
   }
 
   const allSelected = catalog.every((t) => selected.includes(t.name))
@@ -49,12 +49,12 @@ export function ToolPicker({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background">
       {/* 头部定高 h-8：全选按钮出现/消失不改变行高，列表区不跳动。 */}
       <div className="flex h-8 flex-shrink-0 items-center justify-between border-b border-border px-3">
-        <span className="text-xs text-faint">共 {catalog.length} 项</span>
+        <span className="text-xs text-text-tertiary">共 {catalog.length} 项</span>
         {onSelectAll && !allSelected && (
           <button
             type="button"
             onClick={onSelectAll}
-            className="rounded-md border border-border px-2 py-0.5 text-xs text-muted transition-colors hover:border-accent/60 hover:text-accent"
+            className="rounded-md border border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent/60 hover:text-accent"
           >
             全选
           </button>
@@ -63,7 +63,7 @@ export function ToolPicker({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {byCategory.map(([cat, tools]) => (
         <div key={cat}>
-          <p className="mb-1 font-mono text-xs uppercase tracking-wide text-muted">{cat}</p>
+          <p className="mb-1 font-mono text-xs uppercase tracking-wide text-text-secondary">{cat}</p>
           <div className="flex flex-wrap gap-2">
             {tools.map((t) => {
               const active = selected.includes(t.name)

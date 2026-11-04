@@ -60,7 +60,7 @@ export function CredentialTable({
                 <th
                   key={h.id}
                   className={cn(
-                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted opacity-70',
+                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary opacity-70',
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
@@ -83,7 +83,7 @@ export function CredentialTable({
             ))
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-muted">
+              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-text-secondary">
                 {hasFilter ? '当前筛选无匹配凭证' : '暂无凭证 · 点击右上角录入，或由扫描任务自动写入'}
               </td>
             </tr>
