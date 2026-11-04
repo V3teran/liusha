@@ -43,8 +43,9 @@ services:
       POSTGRES_USER: liusha
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}"
       POSTGRES_DB: liusha
+    # 仅绑回环：库不对外；host 开发进程（run-svc.sh）连 localhost 照常可达
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # 持久化统一 ~/data/liusha 前缀（HOST_DATA_DIR 可覆盖；macOS 上 pg 走
       # virtiofs 有 IO 折损，介意者改回 named volume）
@@ -59,8 +60,9 @@ services:
     image: redis:8
     container_name: liusha-redis
     restart: unless-stopped
+    # 仅绑回环：队列/缓存不对外
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
@@ -98,6 +100,8 @@ services:
       LIUSHA_ADMIN_INITIAL_PASSWORD: "${LIUSHA_ADMIN_INITIAL_PASSWORD:?LIUSHA_ADMIN_INITIAL_PASSWORD 未设置}"
       # LLM provider 密钥加密密钥：用于加密存储在数据库中的 API keys
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
+      # 会话 Cookie Secure 属性：HTTPS 反代后设 true（http 部署保持 false，否则浏览器不种）
+      LIUSHA_COOKIE_SECURE: "${LIUSHA_COOKIE_SECURE:-false}"
       # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
       LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
       LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
@@ -105,8 +109,10 @@ services:
       - ./logs:/app/logs
       - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
     depends_on: *app-deps
+    # 仅绑回环：nginx 反代走 compose 网络不经宿主端口；对外入口只有 80/8888，
+    # 控制面不直接暴露（本机调试 curl 127.0.0.1:8090 仍可达）。
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     profiles: *full-profile
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8090/healthz"]
@@ -180,6 +186,11 @@ services:
       # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
       LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
       LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
+      # embedding 密钥：缺失则 corpus 降级纯 sparse 检索（不 fail-fast）
+      JINA_API_KEY: "${JINA_API_KEY:-}"
+      # 沙盒流量回灌端点（9090 对外发布）的 Bearer：设值后 runner 与沙盒自动共享同一
+      # token（launcher 透传）；空 = 开发模式不验——公网宿主必须设。
+      LIUSHA_INGEST_TOKEN: "${LIUSHA_INGEST_TOKEN:-}"
     volumes:
       - ./logs:/app/logs
       - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
@@ -191,6 +202,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps
+    # 9090 必须绑 0.0.0.0：沙盒容器经 host-gateway（宿主网桥 IP，非 127.0.0.1）
+    # 回灌流量，绑回环会断沙盒链路。公网宿主务必设 LIUSHA_INGEST_TOKEN。
     ports:
       - "9090:9090"
     profiles: *full-profile

@@ -1,12 +1,12 @@
 # 生产形态 overlay：与 compose.yaml 叠加使用
 #
-# 用法（推荐 make prod-up，自动先跑 host 侧 make migrate）：
-#   make prod-up
-# 或手动：
-#   docker compose -f compose.yaml \
-#                  -f compose.prod.yaml \
-#                  --env-file .env.prod up -d
-# （迁移：host 侧 make migrate——postgres 容器把 5432 映射到宿主）
+# 用法：
+#   make prod-up                                    # 维护者（本地构建）
+#   docker compose -f compose.yaml -f compose.prod.yaml \
+#       --profile full pull && \
+#   docker compose -f compose.yaml -f compose.prod.yaml \
+#       --profile full up -d                        # 用户（拉取镜像）
+# （数据库迁移由 migrate 一次性服务随 up 自动执行，无需本地 Go 工具链）
 #
 # 与默认（dev）的差异：
 #   - LIUSHA_ENV=production  → stdout 走 JSON 单行（不再彩色 console）
