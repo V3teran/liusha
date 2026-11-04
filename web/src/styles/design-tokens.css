@@ -187,9 +187,6 @@
   --color-sev-low: var(--sev-low);
   --color-sev-info: var(--sev-info);
 
-  --color-source-manual: var(--source-manual);
-  --color-source-auto: var(--source-auto);
-
   --color-status-success: var(--status-success);
   --color-status-error: var(--status-error);
   --color-status-warning: var(--status-warning);

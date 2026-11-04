@@ -89,6 +89,10 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen bg-background text-text">
+      {/* 键盘跳转主内容（WCAG 2.4.1）：聚焦时才可见，绝对定位不占 flex 流。 */}
+      <a href="#main-content" className="skip-to-content">
+        跳到主内容
+      </a>
       {/* 侧边栏：完整 256px ↔ 图标栏 80px（收起后悬停原生 tooltip 显示页面名） */}
       <aside
         className={cn(
@@ -183,7 +187,7 @@ export function AppShell() {
       </aside>
 
       {/* 主内容区 */}
-      <main className="min-w-0 flex-1 overflow-hidden">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>
