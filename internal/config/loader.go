@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -48,7 +47,9 @@ func load(path string, requireLLMKeys bool) (AppConfig, error) {
 // 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
 // insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
 // 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
-// providers 一旦非空则按老规矩校验（medium 档必填 + 各档 api_key_env 在 ENV 非空），保证种子可用。
+// providers 非空时只做形状校验（路由引用的 provider 存在且声明了 api_key_env）；
+// 密钥 env 缺失不再 fatal——种子会跳过无密钥的 provider（seed.ImportLLM 同语义），
+// 系统以零 provider 启动，用户在前端「LLM 配置」页添加任意厂商并设路由。
 func validateLLMKeys(c AppConfig) error {
 	if len(c.Providers) == 0 {
 		return nil
@@ -60,9 +61,6 @@ func validateLLMKeys(c AppConfig) error {
 		}
 		if p.APIKeyEnv == "" {
 			return fmt.Errorf("%s %q: api_key_env not configured", role, name)
-		}
-		if os.Getenv(p.APIKeyEnv) == "" {
-			return fmt.Errorf("env %s empty (required for %s=%s)", p.APIKeyEnv, role, name)
 		}
 		return nil
 	}

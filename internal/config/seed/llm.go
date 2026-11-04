@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/google/uuid"
 
@@ -53,6 +54,13 @@ func ImportLLM(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) er
 func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) (map[string]string, error) {
 	codeByYamlKey := make(map[string]string, len(cfg.Providers))
 	for key, p := range cfg.Providers {
+		// 密钥拿不到的 provider 不种子（如部署未配 GLM_API_KEY 而用户要用其他厂商）：
+		// 无密钥的 provider 行不可用，种下去是死行；跳过后引用它的角色路由由
+		// importRoleRoutes 自行跳过（避免撞 FK）。启动后在「LLM 配置」页添加任意
+		// provider（openai_compat / anthropic）并设路由即可。
+		if p.APIKeyEnv != "" && os.Getenv(p.APIKeyEnv) == "" {
+			continue
+		}
 		typ := p.Type
 		if typ == "" {
 			typ = llmconfig.ProviderTypeOpenAICompat // 空 type 视为 openai_compat（与运行期一致）

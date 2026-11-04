@@ -12,11 +12,12 @@ import (
 
 // NewRedis 构造 redis client 并 Ping 验证。
 //
-// addr 来自 ENV LIUSHA_REDIS_ADDR；cfg 来自 yaml redis: 节，任一字段为 0 时
-// 透传到 go-redis 让其用 SDK 内部默认（PoolSize=10×GOMAXPROCS / DialTimeout=5s /
-// ReadTimeout=3s / WriteTimeout=3s）。
+// addr 来自 ENV LIUSHA_REDIS_ADDR；cfg 来自 yaml redis: 节（Password 可经
+// LIUSHA_REDIS_PASSWORD 覆盖，与 redis-server 的 requirepass 配对），任一数值
+// 字段为 0 时透传到 go-redis 让其用 SDK 内部默认（PoolSize=10×GOMAXPROCS /
+// DialTimeout=5s / ReadTimeout=3s / WriteTimeout=3s）。
 func NewRedis(ctx context.Context, addr string, cfg config.RedisConfig) (*redis.Client, error) {
-	opts := &redis.Options{Addr: addr}
+	opts := &redis.Options{Addr: addr, Password: cfg.Password}
 	if cfg.PoolSize > 0 {
 		opts.PoolSize = cfg.PoolSize
 	}
