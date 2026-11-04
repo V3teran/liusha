@@ -70,8 +70,6 @@ export function WorkspacePage() {
     placeholderData: keepPreviousData,
   })
   const allEntries = treeQuery.data ?? []
-  // eslint-disable-next-line no-console
-  console.log('WS_RENDER:', JSON.stringify({ status: treeQuery.status, fetch: treeQuery.fetchStatus, n: allEntries.length, el: !!document.querySelector('ul') }))
 
   // 树的可见节点 = 搜索过滤 ∩ 折叠过滤。搜索时无视折叠（命中即展开，
   // 否则搜到的文件被藏进折叠目录里等于搜索失效）；浏览时应用折叠。
@@ -128,8 +126,6 @@ export function WorkspacePage() {
   }
 
   async function save() {
-    // eslint-disable-next-line no-console
-    console.log('SAVE_DRAFT:', JSON.stringify({ selected, draft }))
     if (!selected || draft === null) return
     await putWorkspaceFile(selected, new TextEncoder().encode(draft))
     setDraft(null)
