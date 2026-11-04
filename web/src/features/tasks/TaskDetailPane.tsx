@@ -15,7 +15,7 @@ interface TaskDetailPaneProps {
 function Kv({ k, children }: { k: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[84px_1fr] gap-x-3 gap-y-1.5 py-0.5 text-sm">
-      <dt className="text-muted">{k}</dt>
+      <dt className="text-text-secondary">{k}</dt>
       <dd className="min-w-0 break-all text-text">{children}</dd>
     </div>
   )
@@ -51,7 +51,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
         ) : task ? (
           <div className="flex flex-col gap-5">
             <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">任务信息</h4>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>
                 <Kv k="状态">
                   <Badge dot color={taskStatusMeta(task.status).color}>
@@ -106,14 +106,14 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
             </section>
 
             <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">目标</h4>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">目标</h4>
               <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
                 {task.brief}
               </div>
             </section>
 
             <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">跳转</h4>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
               <div className="flex flex-wrap gap-2">
                 {task.conversation_id && (
                   <Link

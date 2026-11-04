@@ -17,7 +17,7 @@ interface ReasoningCardProps {
 const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)) : '')
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
 
-const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-muted'
+const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-secondary'
 
 function looksLikeJson(text: string): boolean {
   const t = text.trim()
@@ -35,12 +35,12 @@ function prettyJson(text: string): string {
 function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; text: string }) {
   return (
     <details className="group mb-2 rounded-lg border border-border/60 bg-background/40">
-      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
+      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary">
         <Icon className="h-3 w-3" />
         <span>{label}</span>
         <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-xs leading-relaxed text-muted/90 whitespace-pre-wrap">
+      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap">
         {text}
       </div>
     </details>
@@ -65,7 +65,7 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
           <>
             {!!step && (
               <span
-                className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-muted"
+                className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-text-secondary"
                 title="本次指令的第几步推理"
               >
                 第 {step} 步
@@ -92,7 +92,7 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
       {jsonBody ? (
         <Fold icon={Braces} label="结构化输出" text={prettyJson(text)} />
       ) : !text.trim() && !streaming ? (
-        <div className="text-sm italic text-faint">（本轮未产出正文，仅有内部思考）</div>
+        <div className="text-sm italic text-text-tertiary">（本轮未产出正文，仅有内部思考）</div>
       ) : (
         <div className="text-sm leading-relaxed text-text">
           <Markdown content={text} className="inline" />

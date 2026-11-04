@@ -40,7 +40,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       size: 48,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right font-mono text-xs tabular-nums text-muted opacity-70">
+        <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">
           {(ctx.table.options.meta as LlmAuditTableMeta).startIndex + ctx.row.index + 1}
         </span>
       ),
@@ -53,7 +53,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
         return (
           <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
-            <em className="block text-xs font-normal not-italic text-muted opacity-75">{clockTime(iso)}</em>
+            <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
           </span>
         )
       },
@@ -75,7 +75,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
         return (
           <span className="overflow-hidden" title={`${v.model} · ${v.provider}`}>
             <span className="block truncate font-mono text-sm" title={v.model || undefined}>{v.model || '—'}</span>
-            {showProvider && <em className="block truncate text-xs font-normal not-italic text-muted opacity-75">{v.provider}</em>}
+            {showProvider && <em className="block truncate text-xs font-normal not-italic text-text-secondary opacity-75">{v.provider}</em>}
           </span>
         )
       },
@@ -92,7 +92,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
               {humanTokens(v.in_tokens)} / {humanTokens(v.out_tokens)}
             </span>
             {v.cached_tokens > 0 && (
-              <em className="block text-xs font-normal not-italic text-muted opacity-75">缓存↓ {humanTokens(v.cached_tokens)}</em>
+              <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">缓存↓ {humanTokens(v.cached_tokens)}</em>
             )}
           </span>
         )
@@ -119,7 +119,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
                 {humanDuration(v.latency_ms)}
               </span>
               {!timeout && status?.level !== 'critical' && throughputLabel(v, llmTimeoutMs) && (
-                <em className="text-xs font-normal not-italic text-muted opacity-75">{throughputLabel(v, llmTimeoutMs)}</em>
+                <em className="text-xs font-normal not-italic text-text-secondary opacity-75">{throughputLabel(v, llmTimeoutMs)}</em>
               )}
             </span>
             {status && (

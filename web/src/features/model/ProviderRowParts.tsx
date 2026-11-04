@@ -52,10 +52,10 @@ export function RowHeader({
       <Badge variant="outline" className="flex-shrink-0">
         {TYPE_LABEL[p.type]}
       </Badge>
-      <span className="max-w-36 flex-shrink truncate font-mono text-xs text-muted">
+      <span className="max-w-36 flex-shrink truncate font-mono text-xs text-text-secondary">
         {p.default_model}
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-faint">{p.base_url}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-tertiary">{p.base_url}</span>
       {!p.enabled && (
         <Badge variant="outline" className="flex-shrink-0">
           已停用
@@ -63,7 +63,7 @@ export function RowHeader({
       )}
       <ChevronRight
         className={cn(
-          'h-3.5 w-3.5 flex-shrink-0 text-faint transition-transform',
+          'h-3.5 w-3.5 flex-shrink-0 text-text-tertiary transition-transform',
           expanded && 'rotate-90',
         )}
       />
@@ -93,7 +93,7 @@ export function RowDeleteButton({
       aria-label={confirming ? `确认删除 ${code}` : `删除 provider ${code}`}
       title={confirming ? '再点一次确认删除' : `删除 ${code}`}
       className={cn(
-        'flex flex-shrink-0 items-center justify-center border-l border-border px-3 text-faint transition-colors hover:bg-sev-critical/10 hover:text-sev-critical',
+        'flex flex-shrink-0 items-center justify-center border-l border-border px-3 text-text-tertiary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical',
         confirming ? 'bg-sev-critical/10 text-sev-critical' : 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100',
         disabled && 'cursor-default opacity-40',
       )}

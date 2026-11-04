@@ -16,15 +16,15 @@ export function AgentAssignSection({
 
   return (
     <section>
-      <p className="mb-2 flex items-baseline gap-1.5 text-xs font-medium text-muted">
+      <p className="mb-2 flex items-baseline gap-1.5 text-xs font-medium text-text-secondary">
         装配到智能体
-        <span className="font-normal text-faint">
+        <span className="font-normal text-text-tertiary">
           已装配 {involvedCount}/{agents.length}
         </span>
-        <span className="font-normal text-faint">· 点击胶囊装/卸</span>
+        <span className="font-normal text-text-tertiary">· 点击胶囊装/卸</span>
       </p>
       {agents.length === 0 ? (
-        <p className="text-sm text-muted">暂无智能体</p>
+        <p className="text-sm text-text-secondary">暂无智能体</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {agents.map((a) => {
@@ -40,7 +40,7 @@ export function AgentAssignSection({
                   'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:opacity-50 ' +
                   (a.involved
                     ? 'border-accent bg-accent/15 text-accent'
-                    : 'border-border bg-background text-muted hover:border-accent/50 hover:text-text')
+                    : 'border-border bg-background text-text-secondary hover:border-accent/50 hover:text-text')
                 }
               >
                 {a.name}

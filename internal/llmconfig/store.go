@@ -45,7 +45,7 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING `+provColsSelect,
-		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
+		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.APIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
 		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
@@ -56,7 +56,7 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 
 // UpdateProvider 按 code 全量更新一行 provider（code 是稳定引用标识，不可改）。
 // KeepExistingKey=true 时 SET 子句用 COALESCE 跳过 encrypted_api_key 列——前端编辑表单
-// 不重新填密钥即保留原密文，不会被本次更新误清空。LegacyAPIKeyEnv 仅 seed 路径会填非空，
+// 不重新填密钥即保留原密文，不会被本次更新误清空。APIKeyEnv 仅 seed 路径会填非空，
 // 前端 CRUD 路径始终传空串（置空该列，事实源已转到 encrypted_api_key）。
 func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider, error) {
 	if err := validateProviderType(p.Type); err != nil {
@@ -77,7 +77,7 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 		    supports_tools=$9, supports_vision=$10, context_window=$11, display_name=$12, description=$13, sort_order=$14, enabled=$15, thinking_budget_tokens=$16, updated_at=now()
 		WHERE code=$1
 		RETURNING `+provColsSelect,
-		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.LegacyAPIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
+		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.APIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
 		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {

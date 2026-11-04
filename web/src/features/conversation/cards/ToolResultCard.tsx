@@ -45,10 +45,10 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
           err && 'border-sev-critical',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-muted transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
+        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-text-secondary transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
         <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-sev-critical' : 'bg-emerald-500')} />
-        <code className="font-mono text-muted">{tool}</code>
-        <span className="text-xs text-muted">{durationMs}ms</span>
+        <code className="font-mono text-text-secondary">{tool}</code>
+        <span className="text-xs text-text-secondary">{durationMs}ms</span>
         {agentName && (
           <span
             className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-xs"
@@ -57,7 +57,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
             {agentLabel(agentName)}
           </span>
         )}
-        {!open && <span className="overflow-hidden truncate font-mono text-muted">{previewText}</span>}
+        {!open && <span className="overflow-hidden truncate font-mono text-text-secondary">{previewText}</span>}
       </button>
       {open && (
         <pre

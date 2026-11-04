@@ -66,7 +66,7 @@ export function ConvMenu({
           type="button"
           disabled
           title="扫描进行中，先在对话页「停止扫描」，停止后再删除"
-          className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted opacity-50"
+          className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text-secondary opacity-50"
         >
           <Clock3 className="h-3.5 w-3.5" />
           扫描中 · 先停止再删

@@ -19,7 +19,7 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
           {call.args}
         </pre>
       ) : (
-        <span className="block px-2.5 py-1.5 text-xs text-muted opacity-70">无参数</span>
+        <span className="block px-2.5 py-1.5 text-xs text-text-secondary opacity-70">无参数</span>
       )}
     </div>
   )

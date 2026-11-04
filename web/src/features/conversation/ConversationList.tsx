@@ -248,7 +248,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             to="/conversations/direct"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-text-secondary transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }
@@ -259,7 +259,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             to="/conversations/proxy"
             className={({ isActive }) =>
               cn(
-                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-muted transition-colors hover:text-text',
+                'flex-1 rounded-md py-1.5 text-center text-sm font-semibold text-text-secondary transition-colors hover:text-text',
                 isActive && 'bg-surface text-accent shadow-sm',
               )
             }
@@ -276,7 +276,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           ) : (
             <span
               aria-disabled="true"
-              className={cn(HEADER_CONTROL, 'cursor-default border border-border bg-surface-2 text-muted')}
+              className={cn(HEADER_CONTROL, 'cursor-default border border-border bg-surface-2 text-text-secondary')}
             >
               {heading || '对话'}
             </span>
@@ -286,7 +286,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             title="刷新列表"
             aria-label="刷新列表"
             onClick={() => void load(offset)}
-            className="flex w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-colors hover:border-border-strong hover:text-text"
+            className="flex w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-secondary transition-colors hover:border-border-strong hover:text-text"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
@@ -303,7 +303,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           />
         </div>
         {items.length > 0 && (
-          <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-muted">
+          <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
             {/* 区间+总数（Gmail/Sentry 惯例）：一行同时表达「看到哪了」与「总量」；
                 搜索是页内过滤，匹配行如实标注「仅本页」 */}
             {query.trim()
@@ -359,7 +359,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                         {displayTitle(c)}
                       </span>
                       <span
-                        className="flex-shrink-0 whitespace-nowrap font-mono text-xs text-faint"
+                        className="flex-shrink-0 whitespace-nowrap font-mono text-xs text-text-tertiary"
                         title={fullTime(c.created_at)}
                       >
                         {relativeTime(c.created_at)}
@@ -393,7 +393,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   title="更多"
                   aria-label="更多"
                   onClick={(ev) => toggleMenu(c, ev)}
-                  className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted opacity-0 hover:bg-surface group-hover:opacity-100 focus:opacity-100"
+                  className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-text-secondary opacity-0 hover:bg-surface group-hover:opacity-100 focus:opacity-100"
                 >
                   <span className="text-base leading-none">⋯</span>
                 </button>
@@ -417,14 +417,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
              不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
              还会让无数据 tab（代理模式）与有数据 tab（自主下发）的左栏观感不一致。 */
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-muted">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
               {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
             <p className="text-sm font-medium text-text">
               {query.trim() ? '本页无匹配对话' : emptyState?.title ?? '暂无对话'}
             </p>
             {!query.trim() && emptyState?.desc && (
-              <p className="max-w-[220px] text-xs leading-5 text-muted">{emptyState.desc}</p>
+              <p className="max-w-[220px] text-xs leading-5 text-text-secondary">{emptyState.desc}</p>
             )}
           </div>
         )}
@@ -437,11 +437,11 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               aria-label="上一页"
               disabled={offset <= 0 || loading}
               onClick={prevPage}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2 text-muted transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2 text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="whitespace-nowrap font-mono text-xs text-muted">
+            <span className="whitespace-nowrap font-mono text-xs text-text-secondary">
               第 {pageNo}/{totalPages} 页
             </span>
             <button
@@ -449,7 +449,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               aria-label="下一页"
               disabled={!hasMore || loading}
               onClick={nextPage}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2 text-muted transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface-2 text-text-secondary transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>

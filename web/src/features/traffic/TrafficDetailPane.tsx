@@ -17,8 +17,8 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
   const inner = (
     <>
       <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
-      <span className="truncate text-muted">{c.host}</span>
-      {c.status && <span className="text-muted opacity-70">({c.status})</span>}
+      <span className="truncate text-text-secondary">{c.host}</span>
+      {c.status && <span className="text-text-secondary opacity-70">({c.status})</span>}
     </>
   )
   const cls =
@@ -43,7 +43,7 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
 // 其下为消费任务 chip 列表（M:N，空则隐藏）；再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。
 export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDetailPaneProps) {
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted">加载中…</div>
+    return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
   }
   if (error) {
     return <div className="flex h-full items-center justify-center px-6 text-center text-sm text-sev-critical">⚠ {error}</div>
@@ -57,7 +57,7 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
     <div className="flex h-full min-h-0 flex-col">
       {/* 元信息行：详情区自明条目身份（孤儿报文场景下仍可辨认）；关闭按钮同行右对齐，Esc 亦可关闭。 */}
       <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-4 py-2">
-        <span className="flex-shrink-0 font-mono text-xs tabular-nums text-muted opacity-70">#{detail.id}</span>
+        <span className="flex-shrink-0 font-mono text-xs tabular-nums text-text-secondary opacity-70">#{detail.id}</span>
         <Badge dot={false} color={methodColor(detail.method)}>
           {detail.method}
         </Badge>
@@ -70,14 +70,14 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-text" title={detail.url || detail.path}>
           {detail.url || detail.path || '—'}
         </span>
-        <span className="flex-shrink-0 font-mono text-xs text-muted" title={fullTime(detail.captured_at)}>
+        <span className="flex-shrink-0 font-mono text-xs text-text-secondary" title={fullTime(detail.captured_at)}>
           {fullTime(detail.captured_at)}
         </span>
         <button
           type="button"
           onClick={onClose}
           aria-label="关闭详情"
-          className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
         >
           <span aria-hidden>✕</span>
         </button>
@@ -86,7 +86,7 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-4 pt-1">
         {consumers.length > 0 && (
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted opacity-70">消费任务</h3>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary opacity-70">消费任务</h3>
             <div className="flex flex-wrap gap-1.5">
               {consumers.map((c) => (
                 <ConsumerChip key={c.task_id} c={c} />

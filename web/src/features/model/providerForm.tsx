@@ -54,11 +54,11 @@ function ApiKeyField({
             <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
             已配置
             {fromEnv ? (
-              <span className="min-w-0 truncate text-xs text-faint">
+              <span className="min-w-0 truncate text-xs text-text-tertiary">
                 来自环境变量{draft.api_key_env ? `（${draft.api_key_env}）` : ''}
               </span>
             ) : (
-              <code className="font-mono text-muted">···· {draft.key_last4}</code>
+              <code className="font-mono text-text-secondary">···· {draft.key_last4}</code>
             )}
           </span>
           <div className="flex flex-shrink-0 items-center gap-1.5">
@@ -78,7 +78,7 @@ function ApiKeyField({
                 className={
                   confirmingRestore
                     ? 'rounded-md bg-sev-critical/10 px-2.5 py-1 text-xs text-sev-critical'
-                    : 'rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent'
+                    : 'rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent'
                 }
               >
                 {confirmingRestore ? '确认恢复？' : '恢复使用环境变量'}
@@ -90,7 +90,7 @@ function ApiKeyField({
                 setRotating(true)
                 setReveal(false)
               }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
             >
               <RefreshCw className="h-3 w-3" />
               更换密钥
@@ -122,7 +122,7 @@ function ApiKeyField({
           type="button"
           onClick={() => setReveal((v) => !v)}
           aria-label={reveal ? '隐藏密钥' : '显示密钥'}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint transition-colors hover:text-muted"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text-secondary"
         >
           {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
@@ -135,7 +135,7 @@ function ApiKeyField({
             setReveal(false)
             patch({ api_key: '' })
           }}
-          className="mt-1.5 text-xs text-faint transition-colors hover:text-muted"
+          className="mt-1.5 text-xs text-text-tertiary transition-colors hover:text-text-secondary"
         >
           取消更换（保留原密钥）
         </button>
@@ -204,13 +204,13 @@ function ModelField({
           type="button"
           onClick={() => void probe()}
           disabled={probing}
-          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
         >
           {probing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           探测
         </button>
       </div>
-      {probeMsg && <p className="mt-1 text-xs text-faint">{probeMsg}</p>}
+      {probeMsg && <p className="mt-1 text-xs text-text-tertiary">{probeMsg}</p>}
     </Field>
   )
 }
@@ -257,7 +257,7 @@ export function providerInvalid(d: ProviderConfig | null, _isNew: boolean): bool
 // provider 字段总量不大，一屏滚动比「点 tab 找字段」更快，也避免 tab 内部态与重挂载的耦合。
 function GroupLabel({ children }: { children: ReactNode }) {
   return (
-    <h3 className="mt-1 text-xs font-semibold uppercase tracking-wider text-faint">
+    <h3 className="mt-1 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
       {children}
     </h3>
   )
@@ -280,7 +280,7 @@ function ToggleField({
     <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-4 py-2.5">
       <span className="min-w-0">
         <span className="block text-sm text-text">{label}</span>
-        {hint && <span className="mt-0.5 block text-xs leading-snug text-faint">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-xs leading-snug text-text-tertiary">{hint}</span>}
       </span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
     </div>

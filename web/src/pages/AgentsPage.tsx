@@ -130,7 +130,7 @@ export function AgentsPage() {
                 <>
                   {h.name}
                   {/* 英文标识跟在中文名后：mono 弱化展示，卡片即见寻址键 */}
-                  <span className="ml-2 font-mono text-xs font-normal text-muted">{h.code}</span>
+                  <span className="ml-2 font-mono text-xs font-normal text-text-secondary">{h.code}</span>
                 </>
               }
               description={h.description}

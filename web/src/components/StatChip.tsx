@@ -20,7 +20,7 @@ export function StatChip({ color, label, value, title }: StatChipProps) {
       style={{ borderLeftWidth: '3px', borderLeftColor: color }}
       title={title}
     >
-      <span className="text-muted">{label}</span>
+      <span className="text-text-secondary">{label}</span>
       <b className="font-mono text-sm font-semibold tabular-nums text-text">{value}</b>
     </span>
   )

@@ -45,7 +45,7 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
   return (
     <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-muted">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-text-secondary">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         <span>agent 工作中</span>
         <span className="font-mono text-xs">{label}</span>
@@ -136,7 +136,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         {rows.map((r) => {
           if (r.kind === 'divider') {
             return (
-              <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-xs text-muted">
+              <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-xs text-text-secondary">
                 <span className="h-px flex-1 bg-border" />
                 <span className="flex-shrink-0 font-mono tracking-wide">{r.label}</span>
                 <span className="h-px flex-1 bg-border" />
@@ -210,7 +210,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:160ms]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:320ms]" />
                 </span>
-                <span className="text-sm text-muted">正在思考…</span>
+                <span className="text-sm text-text-secondary">正在思考…</span>
               </div>
             </div>
           </div>
@@ -292,11 +292,11 @@ function ThinkingStream({ text }: { text: string | unknown }) {
   const typed = useTypewriter(hasText ? (text as string) : '')
   return (
     <div className="mb-2 rounded-lg border border-border/60 bg-background/40">
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary">
         <Brain className="h-3 w-3" />
         <span>深度思考中…</span>
       </div>
-      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-muted/90 whitespace-pre-wrap">
+      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap">
         {typed}
       </div>
     </div>
@@ -309,12 +309,12 @@ function ThinkingFold({ text }: { text?: string | unknown }) {
   if (!text || typeof text !== 'string' || text.trim() === '') return null
   return (
     <details className="group mb-2 self-start rounded-lg border border-border/60 bg-background/40">
-      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted">
+      <summary className="flex cursor-pointer select-none items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary">
         <Brain className="h-3 w-3" />
         <span>内部思考</span>
         <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-xs leading-relaxed text-muted/90 whitespace-pre-wrap">
+      <div className="max-h-56 overflow-y-auto px-3 pb-2.5 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap">
         {text}
       </div>
     </details>

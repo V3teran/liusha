@@ -27,10 +27,10 @@ export function CardHeader({ agent, agentColor, action, target, extras }: CardHe
           {agent}
         </span>
       )}
-      <span className="text-xs font-medium text-muted">{action}</span>
+      <span className="text-xs font-medium text-text-secondary">{action}</span>
       {target && (
         <>
-          <span className="text-faint">→</span>
+          <span className="text-text-tertiary">→</span>
           <span className={TITLE_CLASS} style={{ color: target.color }}>
             {target.name}
           </span>

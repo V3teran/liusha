@@ -79,7 +79,7 @@ func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Sto
 			Type:                 typ,
 			BaseURL:              p.BaseURL,
 			DefaultModel:         p.DefaultModel,
-			LegacyAPIKeyEnv:      p.APIKeyEnv,
+			APIKeyEnv:            p.APIKeyEnv,
 			MaxTokens:            p.MaxTokens,
 			SupportsTools:        p.SupportsTools,
 			SupportsVision:       supportsVision,
