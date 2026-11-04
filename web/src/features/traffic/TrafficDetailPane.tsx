@@ -25,7 +25,7 @@ function ConsumerChip({ c }: { c: TrafficConsumer }) {
     'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs transition-colors'
   if (c.conv_id) {
     return (
-      <Link to={`/conversations/auto?conv=${encodeURIComponent(c.conv_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>
+      <Link to={`/conversations/proxy?conv=${encodeURIComponent(c.conv_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>
         {inner}
       </Link>
     )

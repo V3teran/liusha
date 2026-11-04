@@ -48,10 +48,6 @@ export const router = createBrowserRouter([
         path: 'conversations',
         children: [
           { index: true, element: <Navigate to="/conversations/direct" replace /> },
-          // 旧路径书签重定向链（manual/self 均为 direct 的历史名；auto 即 proxy）
-          { path: 'manual', element: <Navigate to="/conversations/direct" replace /> },
-          { path: 'self', element: <Navigate to="/conversations/direct" replace /> },
-          { path: 'auto', element: <Navigate to="/conversations/proxy" replace /> },
           { path: 'direct', element: withSuspense(<ConversationsPage source="self" />) },
           { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
         ],
@@ -70,8 +66,6 @@ export const router = createBrowserRouter([
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
-          // 旧「模型路由」独立路由已并入 /config/models（provider+路由单页双分区），重定向保链接可用。
-          { path: 'routing', element: <Navigate to="/config/models" replace /> },
           { path: 'system', element: withSuspense(<SystemConfig />) },
         ],
       },
