@@ -43,7 +43,8 @@ export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
-export GLM_API_KEY="${GLM_API_KEY}"
+# LLM key（多把）随 .env 透传；redis 密码必填
+export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD}"
 export LIUSHA_LLM_KEY_SECRET="${LIUSHA_LLM_KEY_SECRET}"
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
@@ -92,7 +93,7 @@ echo "  ✓ postgres 业务表已 truncate"
 rm -rf session-store/*/ 2>/dev/null || true
 
 # redis FLUSHDB → 立即重建 ingestor consumer group
-if docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1; then
+if docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" FLUSHDB >/dev/null 2>&1; then
   echo "  ✓ redis FLUSHDB"
   docker exec "$REDIS_CONTAINER" redis-cli XGROUP CREATE flow_events liusha-ingestor 0 MKSTREAM \
     >/dev/null 2>&1 || true

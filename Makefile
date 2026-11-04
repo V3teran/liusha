@@ -50,7 +50,7 @@ single-run:
 	  -p 80:80 -p 8888:8888 -p 9090:9090 \
 	  -v $(HOME)/data/liusha/single:/data \
 	  -v /var/run/docker.sock:/var/run/docker.sock \
-	  -e GLM_API_KEY="$${GLM_API_KEY:-placeholder-key}" \
+	  --env-file .env \
 	  liusha/single
 
 logs:

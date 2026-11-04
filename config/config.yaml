@@ -45,7 +45,9 @@ redis:
 #       未显式归档的 agent 一律落 medium（隐式默认档）
 #       inspector / compactor        → simple（旁路督查 / 历史压缩，轻任务省钱，代码映射）
 #   · 档 → provider 的绑定落 DB（前端「能力分档」页可配），此处仅首次种子。
-# 全路径统一智谱 GLM（provider key: glm），fallback 亦指向同一 provider。
+# 默认预设全路径 GLM；换/加厂商：复制一块 providers 注释模板改 3 个字段
+# （type/base_url/default_model），.env 放该块 api_key_env 对应的 key，
+# 再把需要的档位路由改指新块名。可多块并存、多把 key 分档使用。
 llm:
   complexity_routes:
     simple:  glm   # 快速响应，简单任务（信息提取、格式化）
@@ -76,7 +78,28 @@ llm:
 
 # 仅供空库首次种子导入（insert-only，见上方 llm: 段说明）；DB 是事实源，改模型走前端「LLM 配置」页。
 providers:
-  # —— 智谱 GLM（国产大模型，支持工具调用）
+  # —— 默认预设：智谱 GLM。换厂商改下面 3 个字段即可（type / base_url / default_model），
+  #    key 写 .env 的 GLM_API_KEY（= api_key_env 声明的名字，可随块一起改）。
+  #    另两家常用模板见下方注释（取消注释 + 配好 .env 对应 key + 改路由即生效）：
+  #  deepseek:                                # openai_compat 厂商模板
+  #    type: openai_compat
+  #    base_url: https://api.deepseek.com
+  #    default_model: deepseek-chat
+  #    api_key_env: DEEPSEEK_API_KEY
+  #    max_tokens: 8192
+  #    supports_tools: true
+  #    supports_vision: false
+  #    context_window: 64000
+  #  anthropic:                               # anthropic 原生协议模板
+  #    type: anthropic
+  #    base_url: https://api.anthropic.com
+  #    default_model: claude-sonnet-4-5
+  #    api_key_env: ANTHROPIC_API_KEY
+  #    max_tokens: 8192
+  #    thinking_budget_tokens: 4096
+  #    supports_tools: true
+  #    supports_vision: true
+  #    context_window: 200000
   glm:
     # anthropic 原生协议：thinking block 一等公民（扩展思考流式/签名/多轮 tool_use
     # 规范回传），openai_compat 的 reasoning_content 扩展无 SDK 支持。
