@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import * as authApi from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
-import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/lib/utils'
 
 /**
@@ -29,7 +28,6 @@ function displayError(err: Error): string {
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { theme } = useTheme()
   const setAccount = useAuthStore((s) => s.setAccount)
 
   const [username, setUsername] = useState('')
@@ -80,15 +78,14 @@ export function LoginPage() {
         style={{ background: 'radial-gradient(closest-side, var(--glow-accent), transparent)' }}
       />
       <div className="relative w-full max-w-[400px] rounded-2xl border border-border bg-surface p-8 shadow-lg">
-        {/* 品牌区：徽记正负形成对 + 等宽品牌字 */}
+        {/* 品牌区：应用图标（黑白形态，即浅色系形态——黑剪影必配浅底，容器为
+            #ffffff→#e7eaef 近白斜向渐变）+ 等宽品牌字。
+            深色主题（默认）下呈现为深卡面上的一枚浅色亮图标，浅色主题下融入卡面
+            ——资产自带 rx=28 圆角容器与 8% 发丝描边（专为浅底边缘分离而设），
+            外面不再加 ring/rounded，避免双边缘。侧栏维持按主题切换剪影：
+            那是功能尺度的 chrome，此处是品牌 hero。 */}
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20">
-            <img
-              src={theme === 'dark' ? '/brand/mark-white.svg' : '/brand/mark-black.svg'}
-              alt="liusha"
-              className="h-7 w-7"
-            />
-          </div>
+          <img src="/brand/app-icon.svg" alt="liusha" className="h-12 w-12" />
           <div className="text-center">
             <span className="brand-mark block font-mono text-xl font-bold leading-tight tracking-tight">liusha</span>
             <span className="mt-0.5 block text-xs text-text-tertiary">LLM 智能化渗透测试平台</span>
@@ -102,6 +99,7 @@ export function LoginPage() {
             </label>
             <input
               id="login-username"
+              name="username"
               className={INPUT_CLASS}
               autoComplete="username"
               value={username}
@@ -117,6 +115,7 @@ export function LoginPage() {
             <div className="relative">
               <input
                 id="login-password"
+                name="password"
                 type={reveal ? 'text' : 'password'}
                 className={cn(INPUT_CLASS, 'pr-9')}
                 autoComplete="current-password"
