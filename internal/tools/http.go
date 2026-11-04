@@ -33,7 +33,7 @@ var httpRequestSchema = json.RawMessage(`{
     "method":         {"type": "string", "enum": ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS"], "description": "HTTP 方法，默认 GET"},
     "headers":        {"type": "object", "description": "请求头 key→value（可选）"},
     "body":           {"type": "string", "description": "请求体（可选）"},
-    "identity":       {"type": ["string", "null"], "description": "使用指定身份的凭证（identity 名称），null 表示匿名请求（不注入任何凭证），省略则注入所有可用凭证"},
+    "identity":       {"type": ["string", "null"], "description": "身份选择（多身份对比/匿名测试必须显式传）：\"身份名\"=仅注入该身份凭证；\"\"（空串）=匿名（不注入任何凭证、不带会话 Cookie、响应不落会话）；省略或 null=注入该 host 全部可用凭证并自动带本任务会话 Cookie"},
     "timeout_seconds": {"type": "integer", "description": "超时秒数，默认 30，上限 120"}
   },
   "required": ["url"]
@@ -178,7 +178,9 @@ func (t *httpRequestTool) applyStoredCredentials(ctx context.Context, a *httpReq
 // host 级共享身份，其他 task 的会话身份不可见——共享库下的隔离边界）与显式身份挑选。
 func selectApplicableIdentities(ids []credential.Identity, taskID string, identity *string) []credential.Identity {
 	mine := sessionIdentityName(taskID)
-	filtered := ids[:0]
+	// 新建切片而非 ids[:0] 原地过滤——ids 来自存储层，原地改写会污染调用方
+	// 持有的底层数组（共享数组实现的存储会被改穿）。
+	filtered := make([]credential.Identity, 0, len(ids))
 	for _, id := range ids {
 		if credential.IsSessionIdentity(id.Username) && id.Username != mine {
 			continue
@@ -288,6 +290,66 @@ func (t *httpRequestTool) applyBodyCredential(a *httpRequestArgs, identityName s
 	}
 	appliedKeys["b|"+c.Key] = true
 	return appliedCredential{Identity: identityName, Position: "body", Key: c.Key}, true
+}
+
+// syncNamedIdentityCookies 把指定身份请求的响应 Set-Cookie 合并进该身份的
+// Cookie 凭证（store 事实源；jar 是任务会话缓存，与命名身份无关）。
+// 增量语义：解析该身份现有 Cookie 头 → 应用本次 Set-Cookie（MaxAge<0 删除）→
+// 重组写回，保留该身份其他凭证。身份不在库（仅靠显式头模拟）则无从归属，跳过。
+func (t *httpRequestTool) syncNamedIdentityCookies(ctx context.Context, host, name string, cookies []*http.Cookie) {
+	if t.deps.Creds == nil || host == "" {
+		return
+	}
+	ids, err := t.deps.Creds.GetIdentitiesByHost(ctx, host)
+	if err != nil {
+		return
+	}
+	var target *credential.Identity
+	for i := range ids {
+		if ids[i].Username == name {
+			target = &ids[i]
+			break
+		}
+	}
+	if target == nil {
+		return
+	}
+	jar := map[string]string{}
+	for _, c := range target.Credentials {
+		if c.Type == credential.TypeHeaders && strings.EqualFold(c.Key, "Cookie") {
+			for _, pair := range strings.Split(c.Value, ";") {
+				kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+				if len(kv) == 2 {
+					jar[kv[0]] = kv[1]
+				}
+			}
+			break
+		}
+	}
+	for _, c := range cookies {
+		if c.MaxAge < 0 {
+			delete(jar, c.Name)
+			continue
+		}
+		jar[c.Name] = c.Value
+	}
+	pairs := make([]string, 0, len(jar))
+	for k, v := range jar {
+		pairs = append(pairs, k+"="+v)
+	}
+	sort.Strings(pairs)
+	kept := target.Credentials[:0:0]
+	for _, c := range target.Credentials {
+		if c.Type == credential.TypeHeaders && strings.EqualFold(c.Key, "Cookie") {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if len(pairs) > 0 {
+		kept = append(kept, credential.Credential{Type: credential.TypeHeaders, Key: "Cookie", Value: strings.Join(pairs, "; ")})
+	}
+	target.Credentials = kept
+	_ = t.deps.Creds.SaveIdentities(ctx, host, []credential.Identity{*target})
 }
 
 // syncSessionToStore 把当前会话 Cookie 头合并写入本任务的会话身份（③B：
@@ -405,7 +467,7 @@ func (t *httpRequestTool) Execute(ctx context.Context, args json.RawMessage) (re
 	}
 
 	// 5. 处理响应 Cookie
-	t.handleResponseCookies(ctx, req, resp)
+	t.handleResponseCookies(ctx, req, resp, a.Identity)
 
 	// 6. 记录流量到弹药库
 	trafficID := t.recordTraffic(ctx, req, resp, &a, respBody, durMs)
