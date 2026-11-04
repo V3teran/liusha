@@ -405,7 +405,7 @@ complexity: medium
 }
 ```
 
-可用技能列表已在 frontmatter 的 `skills` 字段声明（如 bac, browser-use, dom-xss）。动手执行某类任务或使用特定工具之前，先读对应 skill——手册里的实战要点（超时预算、常见陷阱）不读必踩。
+可用技能列表已在 frontmatter 的 `skills` 字段声明（如 bac, browser-use）。动手执行某类任务或使用特定工具之前，先读对应 skill——手册里的实战要点（超时预算、常见陷阱）不读必踩。
 
 # 执行原则
 
