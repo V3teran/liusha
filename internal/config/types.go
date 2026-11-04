@@ -45,6 +45,7 @@ type PostgresConfig struct {
 // DialTimeout=5s, ReadTimeout=3s, WriteTimeout=3s）。本配置主要给共享 redis 多服务
 // 部署时调小 PoolSize / 调大超时用。
 type RedisConfig struct {
+	Password string `mapstructure:"password"`
 	PoolSize            int `mapstructure:"pool_size"`
 	MinIdleConns        int `mapstructure:"min_idle_conns"`
 	DialTimeoutSeconds  int `mapstructure:"dial_timeout_seconds"`

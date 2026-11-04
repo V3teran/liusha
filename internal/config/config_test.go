@@ -34,11 +34,14 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-func TestLoad_MissingMediumComplexityKey(t *testing.T) {
+// TestLoad_EmptyKeyEnvBoots：密钥 env 缺失不再 fatal（与 seed.ImportLLM 跳过无密钥
+// provider 同语义）——非默认厂商用户不配 GLM/DEEPSEEK key 也必须能启动，启动后
+// 在前端「LLM 配置」页添加任意厂商；本测试锁住这一部署契约。
+func TestLoad_EmptyKeyEnvBoots(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
-	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
-		t.Fatalf("expected error when DEEPSEEK_API_KEY empty")
+	if _, err := Load(writeConfig(t, minimalYAML)); err != nil {
+		t.Fatalf("密钥 env 缺失应可启动（种子跳过该 provider）: %v", err)
 	}
 }
 

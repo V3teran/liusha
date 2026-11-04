@@ -42,8 +42,7 @@ export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
 # config.yaml 种子源当前仅 glm；DB 唯一 provider 行走 api_key_env=GLM_API_KEY 回退，
 # 按实际激活 provider 校验。
 if [ -z "${GLM_API_KEY:-}" ]; then
-  echo "✗ GLM_API_KEY 未设（请在 .env 中填入；当前激活 provider=glm）"
-  exit 1
+  echo "⚠ GLM_API_KEY 未设：跳过 glm provider 种子（空库时），启动后在前端「LLM 配置」页添加任意厂商"
 fi
 
 echo "===== 启动 4 个 host 服务 ====="

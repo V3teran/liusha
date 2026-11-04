@@ -26,6 +26,9 @@ postgres:
 # 字段为 0 时透传 go-redis SDK 默认值（PoolSize=10×GOMAXPROCS / DialTimeout=5s /
 # ReadTimeout=3s / WriteTimeout=3s）；多服务共享 redis 时按需调小 PoolSize 防 fd 爆。
 redis:
+  # 鉴权密码（与 redis-server requirepass 配对；部署侧经 ENV LIUSHA_REDIS_PASSWORD /
+  # REDIS_PASSWORD 注入，此处保持空——空 = 无密码，开发形态零摩擦）
+  password: ""
   pool_size: 0                             # 0 = SDK 默认（10 × GOMAXPROCS）
   min_idle_conns: 0
   dial_timeout_seconds: 0                  # 0 = SDK 默认 5

@@ -19,8 +19,12 @@ x-app-env: &app-env
   # DSN 密码与 POSTGRES_PASSWORD 同源——改库密码不再需要手改两处
   LIUSHA_POSTGRES_DSN: postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable
   LIUSHA_REDIS_ADDR: redis:6379
+  # 与 redis 服务的 REDIS_PASSWORD 配对（空 = 无密码）
+  LIUSHA_REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
   LIUSHA_CONFIG: /app/config/config.yaml
-  GLM_API_KEY: "${GLM_API_KEY:?GLM_API_KEY 未设置}"
+  # 可选：仅空库首次种子导入 glm provider 用（拿不到密钥则跳过种子，不建死行）；
+  # 用其他厂商（openai_compat/anthropic）启动后在「LLM 配置」页添加并设置路由。
+  GLM_API_KEY: "${GLM_API_KEY:-}"
 
 x-app-deps: &app-deps
   postgres:
@@ -60,13 +64,20 @@ services:
     image: redis:8
     container_name: liusha-redis
     restart: unless-stopped
+    environment:
+      # 设 REDIS_PASSWORD 即启用 requirepass（空 = 无密码，开发零摩擦）；
+      # 各业务进程经 LIUSHA_REDIS_PASSWORD 同值接入。
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+    # 条件启用：有密码才带 --requirepass（空值传参会把服务端设成空密码）
+    command: ["sh", "-c", "exec redis-server ${REDIS_PASSWORD:+--requirepass \"$REDIS_PASSWORD\"}"]
     # 仅绑回环：队列/缓存不对外
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 有密码时带 -a（requirepass 下裸 ping 返回 NOAUTH 会被判不健康）
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
