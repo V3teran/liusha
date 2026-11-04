@@ -23,12 +23,3 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```
 
 数据库迁移随 `up` 自动执行（幂等）。打开 http://localhost，`admin` / `.env` 里的初始密码登录；HTTPS 反代后设 `LIUSHA_COOKIE_SECURE=true`。
-
-### 发布镜像（维护者）
-
-```bash
-docker login ghcr.io
-make publish   # 构建并推送 api/proxy/runner/nginx（IMAGE_REPO/IMAGE_TAG 可覆盖）
-```
-
-用户 `pull` 到的就是这些镜像——改代码后需 `make publish` 才会更新到用户侧。
