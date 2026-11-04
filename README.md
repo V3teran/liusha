@@ -1,13 +1,12 @@
 # liusha
 
-LLM 智能化渗透测试平台：多智能体协同（planner / executor / evaluator / monitor），被动代理流量逐批分析 + 自主下发主动扫描，产出漏洞台账与可复现证据。内测中。
-
 ## 形态
 
-- **nginx**（:80）托管 React 前端，同源反代 `/api` → **api**（:8090）控制面
-- **proxy**（:8888）MITM 流量入口，浏览器代理指过来即被动抓流
-- **runner** ReAct 执行引擎（LLM 调用、扫描编排），按需拉起 Kali 沙盒容器（`ghcr.io/v3teran/liusha-sandbox`）
-- **postgres**（pgvector）+ **redis**（队列 / 缓存 / 事件流）
+- **nginx**（:80）前端静态 + `/api` 反代
+- **api**（:8090）控制面
+- **proxy**（:8888）流量入口
+- **runner** 工作进程（按需拉起沙盒容器 `ghcr.io/v3teran/liusha-sandbox`）
+- **postgres** + **redis**
 
 ## 部署
 
