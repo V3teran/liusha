@@ -388,7 +388,11 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 		logger.Warn().Err(splitErr).Str("healthz_addr", runnerCfg.HealthzAddr).
 			Msg("解析 runner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
 	} else {
-		launcher.IngestURL = "http://host.docker.internal:" + port + "/internal/v1/flows/ingest"
+		// 沙盒经宿主网桥回连的是【宿主映射端口】，与本容器内监听端口不是一回事
+		// （compose 形态 39090:9090）——对外端口显式 env 声明，缺省回落监听端口
+		// （host 直跑形态二者同值）。
+		publicPort := envx.OrDefault("LIUSHA_INGEST_PUBLIC_PORT", port)
+		launcher.IngestURL = "http://host.docker.internal:" + publicPort + "/internal/v1/flows/ingest"
 		launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
 	}
 
