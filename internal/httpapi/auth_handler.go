@@ -48,10 +48,10 @@ const (
 	authActorPrefix = "user:"
 	authActorAnon   = "anonymous"
 
-	authActionLogin         = "auth.login"
-	authActionLoginFailed   = "auth.login_failed"
-	authActionLogout        = "auth.logout"
-	authActionPasswd        = "auth.password_change"
+	authActionLogin       = "auth.login"
+	authActionLoginFailed = "auth.login_failed"
+	authActionLogout      = "auth.logout"
+	authActionPasswd      = "auth.password_change"
 )
 
 // loginRequest 是 POST /auth/login 请求体。

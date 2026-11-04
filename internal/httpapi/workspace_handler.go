@@ -25,7 +25,7 @@ type WorkspaceFileAPI interface {
 const maxUploadBytes = 8 << 20 // 8 MiB：写入口的内容上限
 
 // getWorkspaceTreeHandler 处理 GET /workspaces/tree：整棵工作区文件树
-//（顶层任务目录按活动时间最新在前）。
+// （顶层任务目录按活动时间最新在前）。
 func getWorkspaceTreeHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		entries, err := api.Tree()
@@ -81,7 +81,7 @@ func getWorkspaceRawHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 			respondErr(c, http.StatusNotFound, err)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		c.Header("Content-Disposition", `attachment; filename="`+base+`"`)
 		c.DataFromReader(http.StatusOK, info.Size(), "application/octet-stream", f, nil)
 	}
@@ -118,7 +118,7 @@ func putWorkspaceFileHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 }
 
 // deleteWorkspacePathHandler 处理 DELETE /workspaces?path=：删文件/目录
-//（目录递归；工作区根目录受保护）。
+// （目录递归；工作区根目录受保护）。
 func deleteWorkspacePathHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.Delete(c.Query("path")); err != nil {

@@ -1,8 +1,9 @@
+package cognition
+
 // compaction.go 实现 runtime.Distiller：把 ReAct 压缩器裁掉的历史前缀经同角色
 // provider 蒸馏成结构化纪要。失败语义由压缩器兜底（降级纯截断），本实现只管
 // 尽力产出高质量纪要；经 Router 取 provider——审计埋点在 Router 装配层，蒸馏
 // 调用与其它 LLM 调用同一审计面。
-package cognition
 
 import (
 	"context"
@@ -12,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/textx"
 )
 
 // compactionDistiller 是纪要蒸馏器（四 agent 各一份，装配时构造；auditCtx
@@ -86,9 +88,9 @@ func renderDistillTranscript(evicted []llm.Message) string {
 	for i := len(evicted) - 1; i >= 0; i-- {
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "[%s] ", evicted[i].Role)
-		sb.WriteString(truncateRunes(evicted[i].Content, distillMaxRunesPerMessage))
+		sb.WriteString(textx.TruncateRunes(evicted[i].Content, distillMaxRunesPerMessage, "…（截断）"))
 		for _, tc := range evicted[i].ToolCalls {
-			fmt.Fprintf(&sb, "\n  → 调用工具 %s(%s)", tc.Name, truncateRunes(string(tc.Arguments), 300))
+			fmt.Fprintf(&sb, "\n  → 调用工具 %s(%s)", tc.Name, textx.TruncateRunes(string(tc.Arguments), 300, "…（截断）"))
 		}
 		line := sb.String()
 		if total+len(line) > distillMaxTranscriptRunes && len(lines) > 0 {
@@ -102,16 +104,4 @@ func renderDistillTranscript(evicted []llm.Message) string {
 		lines[i], lines[j] = lines[j], lines[i]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// truncateRunes 按 rune 截尾（截断历史/蒸馏输入等 LLM 文本的通用口径）。
-func truncateRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…（截断）"
 }

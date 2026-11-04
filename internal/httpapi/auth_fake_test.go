@@ -52,7 +52,6 @@ func newFakeAuthStore() *fakeAuthStore {
 	return f
 }
 
-
 // seedSession 预置一条满期会话（不过期、不触发续期）。
 func (f *fakeAuthStore) seedSession(token string) {
 	f.sessions[token] = auth.Session{

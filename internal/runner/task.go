@@ -117,6 +117,7 @@ func (h *Handler) executeTask(
 		// best-effort——教训写入失败不影响任务交付（与 reclaimSessionIdentity
 		// 同一惯例；capture brief/taskID 进 goroutine）。
 		if h.Distiller != nil {
+			// #nosec G118 -- 蒸馏有意脱离请求上下文：任务已终态，教训写入应超出 handler 生命周期（独立短超时）。
 			go func(taskID, brief string) {
 				dctx, cancel := context.WithTimeout(context.Background(), distillTimeout)
 				defer cancel()

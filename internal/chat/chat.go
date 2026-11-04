@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	llm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/textx"
 )
 
 // Deps 是纯聊天所需的最小依赖（cmd/api 注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。
@@ -43,18 +44,6 @@ const systemPrompt = `你是渗透测试助手，正在与用户闲聊或答疑�
 // 路径没有修改链，入口限量是唯一防线。落库保留原文，仅进上下文时钳制。
 const maxUserMessageRunes = 32000
 
-// clampRunes 按 rune 截尾（本包内消息钳制口径）。
-func clampRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…（截断）"
-}
-
 // Answer 取会话上文 → 用通用助手回答当前消息 → 落 assistant 消息 + publish SSE。
 // 不读 finding、不触发扫描。多轮对话：上文参与拼装（连续追问不失忆）。
 func (s *Service) Answer(ctx context.Context, conversationID, message string) error {
@@ -67,7 +56,7 @@ func (s *Service) Answer(ctx context.Context, conversationID, message string) er
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
 	msgs = append(msgs, history...)
-	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: clampRunes(message, maxUserMessageRunes)})
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: textx.TruncateRunes(message, maxUserMessageRunes, "…（截断）")})
 
 	// 流式生成：思考增量与正文增量分道广播（前端思考折叠区 + 打字机），
 	// 全文以落库的 assistant 消息为准。

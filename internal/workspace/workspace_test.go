@@ -56,7 +56,7 @@ func TestTreeNewestTaskFirst(t *testing.T) {
 	_ = s.Write("task-new/out/b.txt", []byte("b"))
 	stamp := filepath.Join(s.Root(), "task-old")
 	past := time.Now().AddDate(0, 0, -1)
-	os.Chtimes(stamp, past, past)
+	_ = os.Chtimes(stamp, past, past)
 
 	tree, err := s.Tree()
 	if err != nil {
@@ -108,7 +108,7 @@ func TestOpenFileRejectsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 }
 
 func TestUnicodeFileNamesAllowed(t *testing.T) {
@@ -168,7 +168,6 @@ func TestDeleteRootDenied(t *testing.T) {
 type zipWriterAdapter struct{ b *strings.Builder }
 
 func (a *zipWriterAdapter) Write(p []byte) (int, error) { return a.b.Write(p) }
-
 
 // 会话状态子树（state/）整体排除出文件面：树不显示、读写下载归档全拒绝
 // （chromium 登录态等 $HOME 落盘是沙盒内部状态，不是操作员工件；数据保留在盘）。

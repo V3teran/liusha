@@ -50,6 +50,7 @@ func jitterDuration(d time.Duration) time.Duration {
 		return 0
 	}
 	half := d / 2
+	// #nosec G404 -- 重试时序抖动非安全敏感：只把并发重试在时间窗内摊开，弱随机足够且免错误分支。
 	return half + time.Duration(rand.Int64N(int64(half)))
 }
 

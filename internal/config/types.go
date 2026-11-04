@@ -45,12 +45,12 @@ type PostgresConfig struct {
 // DialTimeout=5s, ReadTimeout=3s, WriteTimeout=3s）。本配置主要给共享 redis 多服务
 // 部署时调小 PoolSize / 调大超时用。
 type RedisConfig struct {
-	Password string `mapstructure:"password"`
-	PoolSize            int `mapstructure:"pool_size"`
-	MinIdleConns        int `mapstructure:"min_idle_conns"`
-	DialTimeoutSeconds  int `mapstructure:"dial_timeout_seconds"`
-	ReadTimeoutSeconds  int `mapstructure:"read_timeout_seconds"`
-	WriteTimeoutSeconds int `mapstructure:"write_timeout_seconds"`
+	Password            string `mapstructure:"password"`
+	PoolSize            int    `mapstructure:"pool_size"`
+	MinIdleConns        int    `mapstructure:"min_idle_conns"`
+	DialTimeoutSeconds  int    `mapstructure:"dial_timeout_seconds"`
+	ReadTimeoutSeconds  int    `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds int    `mapstructure:"write_timeout_seconds"`
 }
 
 // LLMConfig 是 LLM 复杂度路由 + retry 参数 + llm_invocation 异步 batch 写入参数。

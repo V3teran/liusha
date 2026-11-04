@@ -30,6 +30,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/qa"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/textx"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -738,7 +739,7 @@ func (a *Service) History(ctx context.Context, conversationID, excludeContent st
 	kept := make([]fwllm.Message, 0, len(msgs))
 	used := 0
 	for i := len(msgs) - 1; i >= 0; i-- {
-		content := clampRunes(msgs[i].Content, recentTurnMaxRunes)
+		content := textx.TruncateRunes(msgs[i].Content, recentTurnMaxRunes, "…（截断）")
 		t := fwllm.EstimateTokens(content)
 		if used+t > recentTurnTokens && len(kept) > 0 {
 			break
@@ -750,18 +751,6 @@ func (a *Service) History(ctx context.Context, conversationID, excludeContent st
 		kept[i], kept[j] = kept[j], kept[i]
 	}
 	return kept, nil
-}
-
-// clampRunes 按 rune 截尾（上文单条钳制）。
-func clampRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…（截断）"
 }
 
 // classifyIntent 用 light provider 判定消息意图。provider 不可用返回显式 error
@@ -815,7 +804,7 @@ func (a *Service) genTitle(conversationID, brief string) {
 	// 标题只需要大意：brief 钳长后进 prompt（标题生成是单发便宜档调用，
 	// 不该为病态长 brief 买单）。
 	prompt := "把下面的渗透测试任务描述总结成一个不超过 16 字的简短中文标题，" +
-		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + clampRunes(brief, 2000)
+		"突出目标和测试类型（如「DVWA SQL注入渗透」）。只输出标题本身，不要引号、不要解释。\n\n任务：" + textx.TruncateRunes(brief, 2000, "…（截断）")
 	res, err := g.Generate(ctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: prompt}}, nil)
 	if err != nil {
 		return

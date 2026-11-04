@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	llm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/textx"
 )
 
 // Kind 是消息类别。
@@ -34,19 +35,6 @@ const systemPrompt = `你是渗透测试会话的消息分类器。判断用户�
 // 足以判类，钳制防病态长文撑爆便宜档调用的输入。
 const classifyMaxRunes = 8000
 
-// clampRunes 按 rune 截尾（本包内消息钳制口径；分类保头，与上下文装配保尾
-// 的口径相反——意图信息在头部）。
-func clampRunes(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "…（后文截断）"
-}
-
 // Classify 调 light LLM 分类。recent 是最近对话轮次（时间正序、可空）——
 // 仅为消解「继续/再来一次」类指代；分类对象始终是最新一条。
 //
@@ -61,7 +49,7 @@ func Classify(ctx context.Context, g gen, userMessage string, recent []llm.Messa
 	msgs := make([]llm.Message, 0, len(recent)+2)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
 	msgs = append(msgs, recent...)
-	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: clampRunes(userMessage, classifyMaxRunes)})
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: textx.TruncateRunes(userMessage, classifyMaxRunes, "…（后文截断）")})
 	res, err := g.Generate(ctx, msgs, nil)
 	if err != nil {
 		return QA, fmt.Errorf("intent classify: %w", err)

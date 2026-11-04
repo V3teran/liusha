@@ -76,7 +76,7 @@ func (e *Engine) createObservationNode(
 	}
 
 	// 图级 Confidence 由 Category 决定：只有 hypothesis 进验证生命周期
-	//（unverified → 复现门裁决），其余六个信息域都是写入即终态的事实。
+	// （unverified → 复现门裁决），其余六个信息域都是写入即终态的事实。
 	switch obs.Category {
 	case CategoryHypothesis:
 		// hypothesis 必须有 repro
@@ -170,6 +170,7 @@ func (e *Engine) observationToAttempt(
 //     result
 type ObservationCategory string
 
+// CategoryEntity 等是七种观察类别的枚举值（语义见 ObservationCategory）。
 const (
 	CategoryEntity     ObservationCategory = "entity"
 	CategoryAccess     ObservationCategory = "access"

@@ -100,7 +100,7 @@ type ToolLimits struct {
 	StepToolTimeoutSeconds int // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
 	RunTailBytes           int // run_command stdout/stderr 保留尾部字节数
 	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
-	//（ReAct 运行时统一收口，个别工具内的领域化裁剪先行）。
+	// （ReAct 运行时统一收口，个别工具内的领域化裁剪先行）。
 	ToolOutputTailBytes int
 }
 
@@ -372,9 +372,9 @@ func (d *Deps) assembleStack(
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
 	// planner。执行经验经 gatherContext 注入：gatherContext 拉全图观察
-	//（含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
+	// （含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
 	// 跨任务经验面：corpus 经验简报（开局注入）+ 白名单 function 工具
-	//（search_corpus 按需检索）——战略层与执行层同等接通长期记忆。
+	// （search_corpus 按需检索）——战略层与执行层同等接通长期记忆。
 	// 白名单先与规划安全工具集求交：规划者不做执行面动作（run_command/
 	// drive_browser/http_request 是 executor/evaluator 的职责），白名单误配
 	// "*" 不得把执行工具武装给规划者——角色边界由代码守护而非运维自觉。
