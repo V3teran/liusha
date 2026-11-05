@@ -199,6 +199,11 @@ credential:
 # ---- cmd/runner 进程运行时参数 ----
 runner:
   agent_run_timeout_seconds: 0             # 单个 agent run（一次完整认知循环，含全部四 Agent）的整体秒数上限。
+  # 僵尸 run 回收（runner 硬杀后自动重投 planner，上限保护防崩溃循环）。
+  # 全部留 0 = 内置默认：30s 扫描 / 6m 停摆判定（≈2×单步 LLM 看门狗）/ 4 次重投上限。
+  run_recovery_interval_seconds: 0         # 扫描周期（秒）
+  run_recovery_timeout_seconds: 0          # 任务级 LLM/工具活动停摆判定窗口（秒）
+  run_recovery_max_attempts: 0             # 单任务自动重投上限（含首次；超限落 aborted）
                                            # 0 = 不限时——持续探索模式的正解：任务由完成检测器收敛，
                                            # 墙钟只是可选护栏；正数启用护栏，防失控任务烧 LLM 账单。
   max_steps_per_task: 0                    # 单任务步数上限（一次 agent 推理 = 一步）。

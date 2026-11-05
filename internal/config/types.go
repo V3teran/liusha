@@ -193,6 +193,14 @@ type RunnerConfig struct {
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
 
+	// 僵尸 run 回收（runner 硬杀后自动重投 planner；详见 internal/runner/run_recovery.go）。
+	// interval：扫描周期；timeout：任务级 LLM/工具活动停摆判定窗口（与探索图
+	// action 恢复同口径）；max_attempts：单任务自动重投上限（含首次，超限落
+	// aborted 防崩溃循环烧 LLM 账单）。<=0 用内置默认（30s / 6m / 4 次）。
+	RunRecoveryIntervalSeconds int `mapstructure:"run_recovery_interval_seconds"`
+	RunRecoveryTimeoutSeconds  int `mapstructure:"run_recovery_timeout_seconds"`
+	RunRecoveryMaxAttempts     int `mapstructure:"run_recovery_max_attempts"`
+
 	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
 	// 0/负 = 不限制：持续探索模式的正解——收敛由完成检测器判定，步数只是
 	// 可选护栏（防失控任务烧 LLM 账单）。
