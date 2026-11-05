@@ -3,7 +3,7 @@
 # build context = 仓库根（compose 里 context: ..），故 COPY 路径以 web/ 开头。
 
 # ── Stage 0: 构建前端（web/ 源码 → dist/）──
-FROM node:22-alpine AS web-build
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
 RUN corepack enable
 # CI=true：pnpm 在非交互式环境（无 TTY）下，COPY 覆盖文件后会做依赖状态检查并尝试确认清空
 # node_modules 重装，无 TTY 时直接报 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 失败。
