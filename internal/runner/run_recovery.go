@@ -48,9 +48,19 @@ type RunRecoveryMonitor struct {
 }
 
 // StartRunRecoveryMonitor 启动僵尸 run 回收循环（非阻塞）。
+// interval/timeout <=0 或 maxAttempts<=0 时用内置默认。
 func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker.Client,
 	agentRuns *agentrun.Store, tasks *task.Store, logger zerolog.Logger,
-	interval, timeout time.Duration) {
+	interval, timeout time.Duration, maxAttempts int) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if timeout <= 0 {
+		timeout = 6 * time.Minute
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = runRecoveryMaxAttempts
+	}
 	m := &RunRecoveryMonitor{
 		pool:        pool,
 		wc:          wc,
@@ -59,7 +69,7 @@ func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker
 		logger:      logger.With().Str("component", "run_recovery_monitor").Logger(),
 		interval:    interval,
 		timeout:     timeout,
-		maxAttempts: runRecoveryMaxAttempts,
+		maxAttempts: maxAttempts,
 	}
 	go func() {
 		ticker := time.NewTicker(m.interval)
