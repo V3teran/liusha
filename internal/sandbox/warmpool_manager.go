@@ -396,7 +396,9 @@ func (m *WarmPoolManager) reapIfCurrent(sb *Instance, idle time.Duration, msg st
 
 // createSandboxLocked 创建容器（需持有锁）。
 func (m *WarmPoolManager) createSandboxLocked(ctx context.Context) error {
-	client, err := m.launcher.Spawn(ctx, "warm-sandbox")
+	// 角色标识只表「角色」（暖池实例），容器名由 launcher 拼
+	// containerNamePrefix + 标识——不再重复带 sandbox 字样
+	client, err := m.launcher.Spawn(ctx, "warm")
 	if err != nil {
 		m.logger.Error().Err(err).Msg("failed to spawn warm pool sandbox")
 		return fmt.Errorf("spawn warm pool sandbox: %w", err)
@@ -404,7 +406,7 @@ func (m *WarmPoolManager) createSandboxLocked(ctx context.Context) error {
 
 	m.sandbox = &Instance{
 		Client:    client,
-		ID:        "warm-sandbox",
+		ID:        "warm",
 		CreatedAt: time.Now(),
 	}
 	m.createdAt = time.Now()
