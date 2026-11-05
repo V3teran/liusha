@@ -120,7 +120,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
                 role="menuitem"
                 onClick={handleLogout}
                 disabled={loggingOut}
-                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical"
+                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-status-error/10 hover:text-status-error"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 {loggingOut ? '退出中…' : '退出登录'}

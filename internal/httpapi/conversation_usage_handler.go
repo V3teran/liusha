@@ -22,6 +22,7 @@ import (
 type UsageTaskResolver interface {
 	ResolveTaskID(ctx context.Context, conversationID string) (string, error)
 	IsRunActive(ctx context.Context, conversationID string) (bool, error)
+	RunPaused(ctx context.Context, conversationID string) (bool, error)
 	RunStatus(ctx context.Context, conversationID string) (string, error)
 	WallclockMs(ctx context.Context, conversationID string) (int64, error)
 }
@@ -76,6 +77,12 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
+		// 暂停中（active 的子状态）：会话头部控制组据此切换「暂停/继续」按钮。
+		paused, err := conv.RunPaused(ctx, id)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
 		// 真实三态（active/completed/aborted）：顶部状态栏据此区分「已完成 vs 已中止」，
 		// 不再用二元 running（它把 aborted 错显示成已完成）。
 		runStatus, err := conv.RunStatus(ctx, id)
@@ -93,7 +100,7 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 
 		// 纯聊天（无关联 task）→ 零用量。
 		if taskID == "" {
-			c.JSON(http.StatusOK, zeroUsage(id, "", running, runStatus))
+			c.JSON(http.StatusOK, zeroUsage(id, "", running, paused, runStatus))
 			return
 		}
 
@@ -128,13 +135,14 @@ func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, to
 			"llm_calls":   la.Calls,
 			"tool_calls":  ta.Calls,
 			"running":     running,
+			"paused":      paused,    // active 的子状态（暂停中），控制组据此切换
 			"status":      runStatus, // 真实三态 active/completed/aborted（顶部状态栏三态显示用）
 		})
 	}
 }
 
 // zeroUsage 造零用量响应（纯聊天会话无 task 时）。
-func zeroUsage(conversationID, taskID string, running bool, status string) gin.H {
+func zeroUsage(conversationID, taskID string, running, paused bool, status string) gin.H {
 	return gin.H{
 		"conversation_id":  conversationID,
 		"task_id":          taskID,
@@ -146,6 +154,7 @@ func zeroUsage(conversationID, taskID string, running bool, status string) gin.H
 		"llm_calls":        0,
 		"tool_calls":       0,
 		"running":          running,
+		"paused":           paused,
 		"status":           status,
 	}
 }

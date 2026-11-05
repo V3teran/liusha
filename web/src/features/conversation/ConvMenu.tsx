@@ -76,7 +76,7 @@ export function ConvMenu({
           type="button"
           disabled={deleting === conv.id}
           onClick={(ev) => onDelete(conv, ev)}
-          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-red-500/15 hover:text-red-500 disabled:opacity-50"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-status-error/15 hover:text-status-error disabled:opacity-50"
         >
           <Trash2 className="h-3.5 w-3.5" />
           删除对话
