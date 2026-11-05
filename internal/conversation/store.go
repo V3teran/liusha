@@ -113,6 +113,21 @@ func (s *Store) IsRunActive(ctx context.Context, conversationID string) (bool, e
 	return running, nil
 }
 
+// RunPaused 判会话关联任务是否处于暂停中（active 的子状态）。会话头部控制组
+// 据此切换「暂停/继续」按钮与状态文案。
+func (s *Store) RunPaused(ctx context.Context, conversationID string) (bool, error) {
+	var paused bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+		         SELECT 1 FROM task t JOIN conversation c ON c.task_id = t.id
+		         WHERE c.id = $1 AND t.status = 'active' AND t.paused
+		       )`, conversationID).Scan(&paused)
+	if err != nil {
+		return false, fmt.Errorf("check run paused for conversation %s: %w", conversationID, err)
+	}
+	return paused, nil
+}
+
 // CountReasoningSinceDispatched 统计本会话最近一次任务下发（dispatched 状态节点）
 // 之后的 reasoning 终态数——与前端时间线卡片的步号同一口径（一次 agent 推理=一步），
 // 完成节点的「N 步」由此而来，不再与动作计数混用。无下发节点时统计全会话。

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ConversationDetail } from './ConversationDetail'
 import { useConversationStore } from '@/stores/conversation'
 import * as apiClient from '@/api/conversations'
+import * as tasksClient from '@/api/tasks'
 import * as sseHook from '@/hooks/useEventStream'
 
 vi.mock('@/api/conversations', () => ({
@@ -12,6 +13,10 @@ vi.mock('@/api/conversations', () => ({
   abortTask: vi.fn(),
   startChat: vi.fn(),
   followUp: vi.fn(),
+}))
+
+vi.mock('@/api/tasks', () => ({
+  controlTask: vi.fn(),
 }))
 
 vi.mock('@/hooks/useEventStream', () => ({
@@ -80,30 +85,43 @@ describe('ConversationDetail', () => {
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledTimes(2))
   })
 
-  it('扫描运行中（usage.running=true）显示"agent 工作中"与停止按钮', async () => {
+  it('扫描运行中显示"agent 工作中"与 暂停/停止 控制组', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('agent 工作中…')).toBeTruthy()
-    // 停止按钮同时出现在顶部状态栏 + Composer 区域（scanning 态下两处都渲染）。
-    await waitFor(() => expect(screen.getAllByText('停止扫描').length).toBeGreaterThan(0))
+    expect(screen.getByText('暂停扫描')).toBeTruthy()
+    expect(screen.getByText('停止扫描')).toBeTruthy()
   })
 
-  it('点击停止扫描调用 abortTask', async () => {
-    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
-    vi.mocked(apiClient.abortTask).mockResolvedValue(undefined)
+  it('暂停中显示"已暂停"与 继续/停止 控制组', async () => {
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active', paused: true }))
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    const stopBtns = await waitFor(() => {
-      const btns = screen.getAllByText('停止扫描')
-      expect(btns.length).toBeGreaterThan(0)
-      return btns
-    })
-    stopBtns[0].click()
-    await waitFor(() => expect(apiClient.abortTask).toHaveBeenCalledWith('c1'))
+    expect(await screen.findByText('已暂停（进度保留）')).toBeTruthy()
+    expect(screen.getByText('继续扫描')).toBeTruthy()
+    expect(screen.getByText('停止扫描')).toBeTruthy()
+    expect(screen.queryByText('agent 工作中…')).toBeNull()
+  })
+
+  it('点击暂停扫描调用任务控制端点（pause）', async () => {
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
+    vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByText('暂停扫描')).click()
+    await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'pause'))
+  })
+
+  it('点击停止扫描（确认后）调用任务控制端点（terminate）', async () => {
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
+    vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByText('停止扫描')).click()
+    await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'terminate'))
   })
 
   it('运行态翻转触发 onRunningChanged 回调', async () => {
     const onRunningChanged = vi.fn()
-    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: false }))
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: false, status: 'completed' }))
     const { rerender } = render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalled())
     onRunningChanged.mockClear()

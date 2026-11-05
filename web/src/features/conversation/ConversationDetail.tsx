@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Square } from 'lucide-react'
-import { abortTask, getConversationUsage, listMessages } from '@/api/conversations'
+import { Pause, Play, Square } from 'lucide-react'
+import { getConversationUsage, listMessages } from '@/api/conversations'
+import { controlTask } from '@/api/tasks'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
@@ -48,7 +49,11 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
   const hasConv = !!convId
   const startedAt = store.messages[0]?.created_at ?? ''
-  const scanning = hasConv && (usage?.running ?? false)
+  // 任务三档运行态：active（含暂停子态）/ 终态 / 无任务。控制组与状态文案据此派生。
+  const taskID = usage?.task_id || ''
+  const taskActive = hasConv && usage?.status === 'active' && !!taskID
+  const paused = taskActive && (usage?.paused ?? false)
+  const scanning = hasConv && (usage?.running ?? false) && !paused
   const topStatus = taskStatusMeta(usage?.status)
 
   const refreshUsage = useCallback(async () => {
@@ -124,13 +129,14 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.lastSeq])
 
-  // 运行中兜底轮询：进行时每 4s 拉权威用量，补「最后事件后终态翻转」；终态 running=false 自停。
+  // 运行中兜底轮询：任务仍在 active（含暂停——等待继续翻转）每 4s 拉权威用量，
+  // 补「最后事件后终态翻转」；终态 running=false 自停。
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (scanning) void refreshUsage()
+      if (taskActive) void refreshUsage()
     }, 4000)
     return () => clearInterval(timer)
-  }, [scanning, refreshUsage])
+  }, [taskActive, refreshUsage])
 
   // 运行态翻转→通知父刷新左列表状态点（无需手动点 ↻）。
   const prevScanningRef = useRef(scanning)
@@ -172,8 +178,19 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const retryLoad = () => {
     if (convId) void open(convId)
   }
-  const stop = async () => {
-    if (convId) await abortTask(convId)
+  // 任务控制（暂停/继续/停止）：与任务页操作列同一端点、同一语义。会话是
+  // 实时观战的驾驶舱，控制组与任务页 parity——只有停止没有暂停的驾驶舱是
+  // 不完整的控制面。失败就地告警（全站无 toast 的就近反馈惯例）。
+  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+    if (!taskID) return
+    if (action === 'terminate' && !window.confirm('停止扫描？任务将落终态（可重新下发）。')) return
+    try {
+      await controlTask(taskID, action)
+    } catch (e) {
+      window.alert(`操作失败：${(e as Error).message}`)
+      return
+    }
+    await refreshUsage()
   }
 
   const copy = emptyCopy(source)
@@ -188,7 +205,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
                 style={{ background: topStatus.color }}
               />
-              {scanning ? 'agent 工作中…' : topStatus.label}
+              {paused ? '已暂停（进度保留）' : scanning ? 'agent 工作中…' : topStatus.label}
             </span>
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-sev-medium" title="实时连接断开，正在自动重连…">
@@ -203,35 +220,48 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             )}
           </div>
           <div className="inline-flex items-center gap-3">
-            {usage && usage.tokens.total > 0 && (
-              <span className="inline-flex items-center gap-3.5">
-                <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
-                  <span className="text-text-secondary">tokens</span>
-                  <span className="font-mono text-text">
-                    <span className="text-sev-info" title="输入">
-                      ↑{compactNumber(usage.tokens.in)}
-                    </span>{' '}
-                    <span className="text-sev-high" title="输出">
-                      ↓{compactNumber(usage.tokens.out)}
+            <span className="inline-flex items-center gap-2.5">
+              {usage && usage.tokens.total > 0 && (
+                <span className="inline-flex items-center gap-3.5">
+                  <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
+                    <span className="text-text-secondary">tokens</span>
+                    <span className="font-mono text-text">
+                      <span className="text-sev-info" title="输入">
+                        ↑{compactNumber(usage.tokens.in)}
+                      </span>{' '}
+                      <span className="text-sev-high" title="输出">
+                        ↓{compactNumber(usage.tokens.out)}
+                      </span>
                     </span>
                   </span>
+                  <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
+                    <span className="text-text-secondary">耗时</span>
+                    <span className="font-mono text-text">{humanDuration(usage.duration_ms)}</span>
+                  </span>
                 </span>
-                <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
-                  <span className="text-text-secondary">耗时</span>
-                  <span className="font-mono text-text">{humanDuration(usage.duration_ms)}</span>
-                </span>
-              </span>
-            )}
-            {scanning && (
-              <button
-                type="button"
-                onClick={() => void stop()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500 bg-red-500/10 px-3 py-1 text-sm font-medium text-red-500 hover:bg-red-500/20"
-              >
-                <Square className="h-3 w-3 fill-current" />
-                停止扫描
-              </button>
-            )}
+              )}
+              {taskActive && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void control(paused ? 'resume' : 'pause')}
+                    title={paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
+                  >
+                    {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+                    {paused ? '继续扫描' : '暂停扫描'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void control('terminate')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-status-error bg-status-error/10 px-3 py-1 text-sm font-medium text-status-error transition-colors hover:bg-status-error/20"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    停止扫描
+                  </button>
+                </>
+              )}
+            </span>
           </div>
         </div>
       )}

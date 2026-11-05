@@ -135,7 +135,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-xs text-sev-critical" role="alert">
+            <div className="text-xs text-status-error" role="alert">
               ⚠ {error}
             </div>
           )}

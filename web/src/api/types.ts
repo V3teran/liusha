@@ -87,6 +87,7 @@ export interface ConversationUsage {
   llm_calls: number
   tool_calls: number
   running: boolean // 是否仍有运行中的扫描（权威：后端 task 终态）
+  paused?: boolean // 任务暂停中（active 的子状态）：头部控制组据此切换「暂停/继续」
   status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
 }
 

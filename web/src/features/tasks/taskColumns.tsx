@@ -176,10 +176,14 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         const t = ctx.row.original
         if (t.status !== 'active') return <span />
         const run = (action: 'pause' | 'resume' | 'terminate') => {
-          if (action === 'terminate' && !window.confirm(`\u505c\u6b62\u4efb\u52a1\u300c${t.brief.slice(0, 24)}\u2026\u300d\uff1f`)) return
+          if (action === 'terminate') {
+            // 省略号只在真截断时出现——短 brief 带「…」是误导
+            const head = t.brief.length > 24 ? `${t.brief.slice(0, 24)}…` : t.brief
+            if (!window.confirm(`停止任务「${head}」？`)) return
+          }
           controlTask(t.id, action)
             .then(() => onOperated?.())
-            .catch((e: Error) => window.alert(`\u64cd\u4f5c\u5931\u8d25\uff1a${e.message}`))
+            .catch((e: Error) => window.alert(`操作失败：${e.message}`))
         }
         return (
           <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
@@ -195,7 +199,7 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
               </button>
             )}
             <button type="button" aria-label="\u505c\u6b62\u4efb\u52a1" title="\u505c\u6b62\uff08\u7ec8\u6001\uff0c\u53ef\u91cd\u65b0\u4e0b\u53d1\uff09" onClick={() => run('terminate')}
-              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical">
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-status-error/10 hover:text-status-error">
               <Square className="h-3.5 w-3.5" />
             </button>
           </span>
