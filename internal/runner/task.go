@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/audit"
+	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
@@ -68,22 +69,39 @@ func (h *Handler) executeTask(
 	// 执行四Agent认知循环
 	report, err := h.runCognition(ctx, taskLogger, assignmentID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
 
-	// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
-	// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期
-	// 由事件驱动，这里是主通道；进程崩溃没跑到这里时由终态清扫器按任务状态
-	// 兜底。独立短超时 ctx（task ctx 可能已取消）；best-effort + 审计。
-	reclaimCtx, reclaimCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	h.reclaimSessionIdentity(reclaimCtx, taskLogger, taskID, virtualHost)
-	reclaimCancel()
+	// 暂停退出：run 以 user_paused 结束（控制消费者观察到 task.paused）。
+	// 任务不是终态——active+paused 原样保留，探索图目标保持 open、会话身份
+	// 不回收（继续的 run 复用同一登录态），由 dispatch 的继续操作重投。
+	paused := err == nil && report.StopReason == cognition.StopReasonPaused
+
+	if !paused {
+		// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
+		// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期
+		// 由事件驱动，这里是主通道；进程崩溃没跑到这里时由终态清扫器按任务状态
+		// 兜底。独立短超时 ctx（task ctx 可能已取消）；best-effort + 审计。
+		reclaimCtx, reclaimCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h.reclaimSessionIdentity(reclaimCtx, taskLogger, taskID, virtualHost)
+		reclaimCancel()
+	}
 
 	if err != nil {
 		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, err)
 	}
 
-	// agent_run 终态回写（成功路径）：认知报告随 result 落库，审计面不再残留
-	// running 脏态。独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
+	// agent_run 终态回写：认知报告随 result 落库，审计面不残留 running 脏态。
+	// 独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
 	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer doneCancel()
+
+	if paused {
+		// 暂停的 run 未抵达目标终点：落 aborted（区别于自然收敛的 done）；
+		// task 不迁移、时间线不落节点（「已暂停」节点由 api 的暂停操作落）。
+		if runErr := h.AgentRuns.SetAborted(doneCtx, p.AgentRunID); runErr != nil {
+			taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 暂停终态回写失败（审计面残留 running）")
+		}
+		return nil
+	}
+
 	// run 终态按停止原因分流：外部终止（控制平面 terminate / ctx 取消）落
 	// aborted——被杀的 run 标 done 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。

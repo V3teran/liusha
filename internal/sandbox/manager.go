@@ -35,19 +35,19 @@ type Manager interface {
 type AcquireRequest struct {
 	AssignmentID string        // 批次 ID（工作区一级分组，必填）
 	TaskID       string        // 任务 ID（必填）
-	UserID   string        // 用户 ID（可选，Per-User 池时使用）
-	Priority int           // 优先级（可选，全局调度器时使用，0=normal）
-	Timeout  time.Duration // 获取超时（可选，0=使用默认值）
-	WorkDir  string        // 工作目录（可选，为空则自动生成 /work/{taskID}）
+	UserID       string        // 用户 ID（可选，Per-User 池时使用）
+	Priority     int           // 优先级（可选，全局调度器时使用，0=normal）
+	Timeout      time.Duration // 获取超时（可选，0=使用默认值）
+	WorkDir      string        // 工作目录（可选，为空则自动生成 /work/{taskID}）
 }
 
 // Instance 是一个活的沙箱实例：对容器客户端的封装，增加任务隔离能力。
 type Instance struct {
-	Client       Client  // 底层容器客户端
-	ID           string  // 容器 ID
-	AssignmentID string  // 当前关联的批次 ID
-	TaskID       string  // 当前关联的任务 ID
-	WorkDir      string  // 任务工作目录（/liusha/<assignmentID>/<taskID>）
+	Client       Client // 底层容器客户端
+	ID           string // 容器 ID
+	AssignmentID string // 当前关联的批次 ID
+	TaskID       string // 当前关联的任务 ID
+	WorkDir      string // 任务工作目录（/liusha/<assignmentID>/<taskID>）
 	CreatedAt    time.Time
 }
 

@@ -12,6 +12,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -230,11 +231,11 @@ func isNoRows(err error) bool {
 	return err != nil && strings.Contains(err.Error(), pgx.ErrNoRows.Error())
 }
 
-
 // ── 任务控制面 ─────────────────────────────────────────────────────────────
 
-// TaskControlAPI 是任务行操作的后端依赖：pause/resume 走控制平面事件（运行中的
-// 认知循环消费，保留全部状态原地停/续）；terminate 复用会话停止链路
+// TaskControlAPI 是任务行操作的后端依赖：pause/resume 是 task.paused 标记的
+// CAS 迁移（暂停同步生效，循环在下一控制周期观察到并结束本 run；继续在 run
+// 已退出时重投全新 planner 从探索图续跑）；terminate 复用会话停止链路
 // （Abort 终态 + terminate 事件 + 会话时间线通知，与对话页「停止」同一语义）。
 // cmd/api 注入 dispatch 侧适配器。
 type TaskControlAPI interface {
@@ -267,6 +268,12 @@ func taskControlHandler(api TaskControlAPI) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
+			// 状态冲突（终态任务收到暂停/继续、已完成任务收到停止）是客户端
+			// 可预期的事实而非服务端故障——映射 409，前端按「任务已结束」提示。
+			if errors.Is(err, task.ErrNotActive) || errors.Is(err, task.ErrConflict) {
+				respondErr(c, http.StatusConflict, err)
+				return
+			}
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}

@@ -31,7 +31,7 @@ const (
 // TargetHost：派生列，runner 从 brief 抽取后回填，可空。
 // PausedMs：FollowUp 历次停顿累计 ms；WallclockMs 减去它 = 纯 agent 耗时。
 type Task struct {
-	Paused      bool
+	Paused       bool
 	ID           string
 	AssignmentID string // 所属 assignment（NOT NULL 强外键，一切 task 皆属某 assignment）
 	Brief        string

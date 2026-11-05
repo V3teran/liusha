@@ -67,25 +67,19 @@ func TestCompletionDetector_MaxSteps(t *testing.T) {
 	assert.Equal(t, "max_steps_reached", res.StopReason)
 }
 
-func TestCompletionDetector_PauseFreezesAutoCompletion(t *testing.T) {
+func TestCompletionDetector_AbortCarriesPauseReason(t *testing.T) {
 	d, _ := newDetector(t, 1)
 
 	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
 	_, done := d.checkNow()
-	assert.True(t, done, "未暂停时应触发步数完成")
+	assert.True(t, done, "步数满足应触发完成")
 
 	d2, _ := newDetector(t, 1)
 	d2.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d2.Pause()
-	_, done = d2.checkNow()
-	assert.False(t, done, "暂停期间自动完成判定必须冻结")
-
-	// terminate 仍然可以越过暂停
-	d2.Abort("terminate")
-	_, done = d2.checkNow()
-	assert.True(t, done, "人工中止应越过暂停生效")
-
-	d2.Resume()
+	d2.Abort(StopReasonPaused)
+	res, done := d2.checkNow()
+	require.True(t, done, "人工中止应立即生效（暂停退出复用此通道）")
+	assert.Equal(t, StopReasonPaused, res.StopReason, "停止原因必须原样透传给 runner 分流")
 }
 
 // checkNow 同步执行一次完成判定（测试的确定性驱动入口；生产走 Start 循环）。

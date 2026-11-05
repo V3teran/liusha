@@ -56,7 +56,7 @@ func validateLLMKeys(c AppConfig) error {
 		return nil
 	}
 	// 形状校验：三档路由必须引用已声明的 provider 块，且每块声明 api_key_env
-	//（medium 是隐式默认档——agent 未显式归档即落 medium，故必须显式路由）。
+	// （medium 是隐式默认档——agent 未显式归档即落 medium，故必须显式路由）。
 	shape := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {

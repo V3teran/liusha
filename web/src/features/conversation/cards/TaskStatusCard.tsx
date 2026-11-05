@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, Rocket, Square, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, XCircle, Rocket, Square, PauseCircle, PlayCircle, type LucideIcon } from 'lucide-react'
 import type { TimelineEventMeta } from '@/api/types'
 
 interface TaskStatusCardProps {
@@ -22,6 +22,10 @@ function statusShape(md: TimelineEventMeta): StatusShape {
       return { icon: Square, label: '扫描已停止', color: 'var(--color-muted)' }
     case 'failed':
       return { icon: XCircle, label: '扫描执行失败', color: 'var(--color-sev-critical)' }
+    case 'paused':
+      return { icon: PauseCircle, label: '扫描已暂停', color: 'var(--color-muted)' }
+    case 'resumed':
+      return { icon: PlayCircle, label: '扫描已继续', color: 'var(--color-accent)' }
     default:
       return { icon: Square, label: md.status, color: 'var(--color-muted)' }
   }

@@ -28,7 +28,7 @@ func mkAssignment(t *testing.T, s *assignment.Store, ctx context.Context, briefs
 	for _, b := range briefs {
 		items = append(items, assignment.Item{Brief: b})
 	}
-	a, err := s.Create(ctx, assignment.NewParams{Source: assignment.SourceManual, Items: items, Title: "t"})
+	a, err := s.Create(ctx, assignment.NewParams{Source: assignment.SourceSelf, Items: items, Title: "t"})
 	if err != nil {
 		t.Fatalf("create assignment: %v", err)
 	}
@@ -64,8 +64,8 @@ func TestCreateAndSummary(t *testing.T) {
 		if r.AssignmentIndex < 1 || r.AssignmentIndex > 2 {
 			t.Errorf("assignment_index 应在 1..2: %+v", r)
 		}
-		if r.Source != "manual" {
-			t.Errorf("source 派生应为 manual: %+v", r)
+		if r.Source != "self" {
+			t.Errorf("source 派生应为 self: %+v", r)
 		}
 	}
 }
@@ -113,13 +113,13 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 		t.Fatalf("search 应命中 1 条, got %d", len(rows))
 	}
 
-	// source 筛选（manual 批次）
-	rows, err = tasks.ListFiltered(ctx, ListFilter{Source: "manual", Limit: 10})
+	// source 筛选（self 批次）
+	rows, err = tasks.ListFiltered(ctx, ListFilter{Source: "self", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) == 0 {
-		t.Fatal("manual 筛选不应为空")
+		t.Fatal("self 筛选不应为空")
 	}
 
 	// CountFiltered 与列表同口径

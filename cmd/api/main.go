@@ -16,6 +16,8 @@ import (
 	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/auth"
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -281,26 +283,7 @@ func main() {
 
 	// 登录认证：账号/会话 store（account / account_session 表）+ 审计出口。
 	authStore := auth.NewStore(pool)
-
-	// 初始管理员：账号表为空时用 env 密码建 admin，之后永久跳过（env 只在首启生效，
-	// 后续改密走前端）。凭据随进程启动即存在——不存在"服务已起、账号未建"的公网
-	// 抢占窗口，api 全程没有任何未认证的建号端点。口径与全仓 fail-fast 密钥一致。
-	if n, err := authStore.CountAccounts(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("读取账号数失败")
-	} else if n == 0 {
-		pw := os.Getenv("LIUSHA_ADMIN_INITIAL_PASSWORD")
-		if len(pw) < 8 || len(pw) > 72 {
-			logger.Fatal().Msg("首次启动需要 LIUSHA_ADMIN_INITIAL_PASSWORD（8-72 字节）初始化 admin 账号；仅首启生效，之后改密走前端")
-		}
-		hash, err := auth.HashPassword(pw)
-		if err != nil {
-			logger.Fatal().Err(err).Msg("初始密码哈希失败")
-		}
-		if _, err := authStore.CreateAccountIfAbsent(ctx, "admin", hash); err != nil {
-			logger.Fatal().Err(err).Msg("建立初始管理员失败")
-		}
-		logger.Info().Msg("初始管理员已建立（admin），建议登录后立即修改密码")
-	}
+	ensureInitialAdmin(ctx, authStore, logger)
 
 	// 监听地址：优先 ENV（运维临时切换）→ yaml。
 	listenAddr := envx.OrDefault("LIUSHA_API_ADDR", cfg.API.ListenAddr)
@@ -379,6 +362,31 @@ func main() {
 		logger.Error().Err(err).Msg("api shutdown")
 	}
 	logger.Info().Msg("api stopped")
+}
+
+// ensureInitialAdmin 在账号表为空时用 env 密码建 admin（仅首启生效，之后永久
+// 跳过；后续改密走前端）。凭据随进程启动即存在——不存在"服务已起、账号未建"
+// 的公网抢占窗口，api 全程没有任何未认证的建号端点。口径与全仓 fail-fast 密钥一致。
+func ensureInitialAdmin(ctx context.Context, accounts *auth.Store, logger zerolog.Logger) {
+	n, err := accounts.CountAccounts(ctx)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("读取账号数失败")
+	}
+	if n > 0 {
+		return
+	}
+	pw := os.Getenv("LIUSHA_ADMIN_INITIAL_PASSWORD")
+	if len(pw) < 8 || len(pw) > 72 {
+		logger.Fatal().Msg("首次启动需要 LIUSHA_ADMIN_INITIAL_PASSWORD（8-72 字节）初始化 admin 账号；仅首启生效，之后改密走前端")
+	}
+	hash, err := auth.HashPassword(pw)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("初始密码哈希失败")
+	}
+	if _, err := accounts.CreateAccountIfAbsent(ctx, "admin", hash); err != nil {
+		logger.Fatal().Err(err).Msg("建立初始管理员失败")
+	}
+	logger.Info().Msg("初始管理员已建立（admin），建议登录后立即修改密码")
 }
 
 // retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。

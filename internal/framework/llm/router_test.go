@@ -9,7 +9,7 @@ import (
 // fakeRouterStore 是 RouterStore 的内存实现：routes 缺档/ spec 缺失均可构造，
 // 用于验证档位的就近降级解析。
 type fakeRouterStore struct {
-	routes    map[string]string      // role → provider key
+	routes    map[string]string       // role → provider key
 	providers map[string]ProviderSpec // key → spec（缺 key = provider 不可用）
 }
 

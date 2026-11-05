@@ -18,7 +18,7 @@ SET state = 'failed',
     metadata = COALESCE(e.metadata, '{}'::jsonb) || jsonb_build_object(
         'failure_reason', '重复目标（恢复重投双建）去重',
         'deduped_at', NOW(),
-        'kept_node', e2.keep_id
+        'kept_node', dup.keep_id
     )
 FROM (
     SELECT min(id::text) AS keep_id, task_id, content->>'target_host' AS host

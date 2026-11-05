@@ -165,8 +165,9 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         )
       },
     }),
-    // 操作列：active 行提供 暂停/继续 + 停止；终态行空占位。事件即发即忘
-    // （控制平面无查询面），按钮固定双键——暂停中的任务点「继续」即恢复。
+    // 操作列：active 行提供 暂停/继续（按 paused 单键切换）+ 停止；终态行空占位。
+    // 暂停在服务端是 task.paused 的同步 CAS——响应返回即已生效，onOperated 刷新
+    // 后按钮随之翻转，无需考虑事件延迟。
     columnHelper.display({
       id: 'actions',
       header: '\u64cd\u4f5c',
@@ -182,14 +183,17 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         }
         return (
           <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
-            <button type="button" aria-label="\u6682\u505c\u4efb\u52a1" title="\u6682\u505c\uff08\u4fdd\u7559\u72b6\u6001\u539f\u5730\u505c\uff0c\u53ef\u7ee7\u7eed\uff09" onClick={() => run('pause')}
-              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
-              <Pause className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" aria-label="\u7ee7\u7eed\u4efb\u52a1" title="\u7ee7\u7eed\uff08\u6062\u590d\u6682\u505c\u7684\u4efb\u52a1\uff09" onClick={() => run('resume')}
-              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
-              <Play className="h-3.5 w-3.5" />
-            </button>
+            {t.paused ? (
+              <button type="button" aria-label="\u7ee7\u7eed\u4efb\u52a1" title="\u7ee7\u7eed\uff08\u4ece\u63a2\u7d22\u56fe\u8fdb\u5ea6\u6062\u590d\u6267\u884c\uff09" onClick={() => run('resume')}
+                className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
+                <Play className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button type="button" aria-label="\u6682\u505c\u4efb\u52a1" title="\u6682\u505c\uff08\u4fdd\u7559\u8fdb\u5ea6\uff0c\u53ef\u7ee7\u7eed\uff09" onClick={() => run('pause')}
+                className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
+                <Pause className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button type="button" aria-label="\u505c\u6b62\u4efb\u52a1" title="\u505c\u6b62\uff08\u7ec8\u6001\uff0c\u53ef\u91cd\u65b0\u4e0b\u53d1\uff09" onClick={() => run('terminate')}
               className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical">
               <Square className="h-3.5 w-3.5" />
