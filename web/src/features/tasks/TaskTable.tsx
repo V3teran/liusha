@@ -9,15 +9,17 @@ interface TaskTableProps {
   offset: number // # 序号起点（(page-1)*size）
   selectedId: string | null
   onRowClick: (row: TaskSummary) => void
+  /** 操作列动作完成后的刷新回调（失效任务列表查询）。 */
+  onOperated?: () => void
 }
 
 // 任务表：列定义在 taskColumns 单点声明，表外壳（列宽/骨架/空态/行交互）走
 // DataTable 通用组件——四张 react-table 页面共用同一骨架。
-export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowClick }: TaskTableProps) {
+export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowClick, onOperated }: TaskTableProps) {
   return (
     <DataTable
       rows={rows}
-      columns={buildTaskColumns(offset) as never}
+      columns={buildTaskColumns(offset, onOperated) as never}
       cellPadding="px-3"
       loading={loading}
       hasFilter={hasFilter}

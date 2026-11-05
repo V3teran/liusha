@@ -1,6 +1,8 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import { Link } from 'react-router-dom'
 import { Clock } from 'lucide-react'
+import { Pause, Play, Square } from 'lucide-react'
+import { controlTask } from '@/api/tasks'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { clockTime, dateOnly, fullTime } from '@/lib/format'
@@ -12,7 +14,7 @@ const columnHelper = createColumnHelper<TaskSummary>()
 // # 是页内序号（offset+index+1）——task id 是 uuid 不可直显，序号仅定位用。
 // 目标列（brief）是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
 
-function buildTaskColumns(offset: number) {
+function buildTaskColumns(offset: number, onOperated?: () => void) {
   return [
     columnHelper.display({
       id: 'seq',
@@ -67,18 +69,21 @@ function buildTaskColumns(offset: number) {
         </span>
       ),
     }),
-    columnHelper.accessor('assignment_id', {
+    columnHelper.accessor('assignment_title', {
       header: '批次',
-      size: 116,
+      size: 150,
       cell: (ctx) => {
         const t = ctx.row.original
-        const short = ctx.getValue().slice(0, 8)
+        const title = t.assignment_title || t.assignment_id.slice(0, 8)
         return (
           <span
-            className="block truncate font-mono text-xs text-text-secondary"
-            title={`批次 ${ctx.getValue()}`}
+            className="block truncate text-xs text-text-secondary"
+            title={`${title} · 第 ${t.assignment_index}/${t.assignment_total} 个（${t.assignment_id}）`}
           >
-            {short} · {t.assignment_index}/{t.assignment_total}
+            {title}
+            <span className="ml-1 text-text-tertiary">
+              [{t.assignment_index}/{t.assignment_total}]
+            </span>
           </span>
         )
       },
@@ -154,6 +159,39 @@ function buildTaskColumns(offset: number) {
           <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
             <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
+          </span>
+        )
+      },
+    }),
+    // 操作列：active 行提供 暂停/继续 + 停止；终态行空占位。事件即发即忘
+    // （控制平面无查询面），按钮固定双键——暂停中的任务点「继续」即恢复。
+    columnHelper.display({
+      id: 'actions',
+      header: '\u64cd\u4f5c',
+      size: 84,
+      cell: (ctx) => {
+        const t = ctx.row.original
+        if (t.status !== 'active') return <span />
+        const run = (action: 'pause' | 'resume' | 'terminate') => {
+          if (action === 'terminate' && !window.confirm(`\u505c\u6b62\u4efb\u52a1\u300c${t.brief.slice(0, 24)}\u2026\u300d\uff1f`)) return
+          controlTask(t.id, action)
+            .then(() => onOperated?.())
+            .catch((e: Error) => window.alert(`\u64cd\u4f5c\u5931\u8d25\uff1a${e.message}`))
+        }
+        return (
+          <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+            <button type="button" aria-label="\u6682\u505c\u4efb\u52a1" title="\u6682\u505c\uff08\u4fdd\u7559\u72b6\u6001\u539f\u5730\u505c\uff0c\u53ef\u7ee7\u7eed\uff09" onClick={() => run('pause')}
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
+              <Pause className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" aria-label="\u7ee7\u7eed\u4efb\u52a1" title="\u7ee7\u7eed\uff08\u6062\u590d\u6682\u505c\u7684\u4efb\u52a1\uff09" onClick={() => run('resume')}
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
+              <Play className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" aria-label="\u505c\u6b62\u4efb\u52a1" title="\u505c\u6b62\uff08\u7ec8\u6001\uff0c\u53ef\u91cd\u65b0\u4e0b\u53d1\uff09" onClick={() => run('terminate')}
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical">
+              <Square className="h-3.5 w-3.5" />
+            </button>
           </span>
         )
       },

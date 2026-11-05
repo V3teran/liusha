@@ -534,6 +534,7 @@ export interface TaskSummary {
   target_host: string
   status: string // active | completed | aborted
   assignment_id: string
+  assignment_title: string // 批次标题（assignment.title；空回退首个任务 brief）
   assignment_index: number
   assignment_total: number
   source: string // manual | auto

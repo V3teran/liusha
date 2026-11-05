@@ -89,7 +89,7 @@ func main() {
 
 	// agent run store + asynq 入队器。
 	agentRunStore := agentrun.NewStore(pool)
-		// 密码 env 显式读取（LIUSHA_REDIS_PASSWORD）——redis 强制密码后 asynq 入队
+	// 密码 env 显式读取（LIUSHA_REDIS_PASSWORD）——redis 强制密码后 asynq 入队
 	// 若不带会 NOAUTH（SADD 幂等键写入即失败）。
 	enq := worker.NewClient(asynq.RedisClientOpt{
 		Addr:     os.Getenv("LIUSHA_REDIS_ADDR"),
@@ -353,6 +353,7 @@ func main() {
 			ExplorationGraph: explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
 			Tasks:            taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
 			TaskDispatch:     adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
+			TaskControl:      adapter,                               // POST /tasks/:id/control：任务行 暂停/继续/停止
 			Logs:             logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

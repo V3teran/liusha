@@ -345,6 +345,41 @@ func (a *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 	return tid, nil
 }
 
+// PauseTask 落 pause 控制事件（运行中的认知循环消费，保留状态原地暂停）。
+func (a *Service) PauseTask(ctx context.Context, taskID string) error {
+	if _, err := a.Control.Create(ctx, taskID, controlplane.CommandPause, json.RawMessage("{}")); err != nil {
+		return fmt.Errorf("dispatch: pause task: %w", err)
+	}
+	return nil
+}
+
+// ResumeTask 落 resume 控制事件。
+func (a *Service) ResumeTask(ctx context.Context, taskID string) error {
+	if _, err := a.Control.Create(ctx, taskID, controlplane.CommandResume, json.RawMessage("{}")); err != nil {
+		return fmt.Errorf("dispatch: resume task: %w", err)
+	}
+	return nil
+}
+
+// TerminateTask 按 taskID 停止：Abort 终态 + terminate 事件 + 会话时间线通知
+//（与 AbortConversationTask 同链路，入口从会话换成任务）。
+func (a *Service) TerminateTask(ctx context.Context, taskID string) error {
+	if err := a.Tasks.Abort(ctx, taskID, "用户停止（任务行）"); err != nil {
+		return err
+	}
+	if a.Control != nil {
+		payload, _ := json.Marshal(map[string]string{"reason": "用户停止（任务行）"})
+		if _, err := a.Control.Create(ctx, taskID, controlplane.CommandTerminate, payload); err != nil {
+			chatLog.Warn().Err(err).Str("task", taskID).Msg("terminate 控制事件写入失败（Abort 已终态，循环停摆由回收兜底）")
+		}
+	}
+	if convID, err := a.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
+		a.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted,
+			"扫描已停止", map[string]any{"reason": "用户停止（任务行）"})
+	}
+	return nil
+}
+
 // AbortConversationTask 满足 httpapi.AbortAPI：abort 会话关联的 task。
 //
 // 三件事一体（缺一则「停止」名不副实）：

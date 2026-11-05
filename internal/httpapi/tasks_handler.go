@@ -210,6 +210,7 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"target_host":      sm.TargetHost,
 		"status":           string(sm.Status),
 		"assignment_id":    sm.AssignmentID,
+		"assignment_title": sm.AssignmentTitle,
 		"assignment_index": sm.AssignmentIndex,
 		"assignment_total": sm.AssignmentTotal,
 		"source":           sm.Source,
@@ -226,4 +227,48 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 // isNoRows 判 pgx 无行（404 映射）。
 func isNoRows(err error) bool {
 	return err != nil && strings.Contains(err.Error(), pgx.ErrNoRows.Error())
+}
+
+
+// ── 任务控制面 ─────────────────────────────────────────────────────────────
+
+// TaskControlAPI 是任务行操作的后端依赖：pause/resume 走控制平面事件（运行中的
+// 认知循环消费，保留全部状态原地停/续）；terminate 复用会话停止链路
+// （Abort 终态 + terminate 事件 + 会话时间线通知，与对话页「停止」同一语义）。
+// cmd/api 注入 dispatch 侧适配器。
+type TaskControlAPI interface {
+	PauseTask(ctx context.Context, taskID string) error
+	ResumeTask(ctx context.Context, taskID string) error
+	TerminateTask(ctx context.Context, taskID string) error
+}
+
+// taskControlHandler 处理 POST /tasks/:id/control {"action":"pause|resume|terminate"}。
+func taskControlHandler(api TaskControlAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var req struct {
+			Action string `json:"action"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Action == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法（需 action: pause|resume|terminate）"})
+			return
+		}
+		var err error
+		switch req.Action {
+		case "pause":
+			err = api.PauseTask(c.Request.Context(), id)
+		case "resume":
+			err = api.ResumeTask(c.Request.Context(), id)
+		case "terminate":
+			err = api.TerminateTask(c.Request.Context(), id)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "未知 action: " + req.Action})
+			return
+		}
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "action": req.Action})
+	}
 }
