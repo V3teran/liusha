@@ -6,7 +6,7 @@
 #
 # 依赖（运行时，挂载进容器）：
 #   - /var/run/docker.sock：runner 经宿主 docker 拉起沙盒容器（sandbox 镜像须在宿主存在）
-#   - 沙盒回连：host.docker.internal:9090（launcher 已内置 DinD 兼容），容器须 -p 发布 9090
+#   - 沙盒回连：host.docker.internal:4090（launcher 已内置 DinD 兼容），容器须 -p 发布 4090
 #
 # 构建：make single-build（目标机 amd64 时用 docker buildx --platform linux/amd64）。
 # 数据持久化：VOLUME /data（PG/Redis/证书/密钥/日志都在其下）。
@@ -62,5 +62,5 @@ COPY deployments/single/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh /app/api /app/runner /app/proxy /app/migrate
 
 VOLUME ["/data"]
-EXPOSE 80 8888 9090
+EXPOSE 80 4088 4090
 ENTRYPOINT ["/app/entrypoint.sh"]

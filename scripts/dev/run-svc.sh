@@ -21,7 +21,7 @@ export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@loca
 export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
 # redis 必带密码（compose 起的 redis 已 requirepass；.env 的 REDIS_PASSWORD 必填）
 export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env 必填）}"
-export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8090}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8090
+export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:4080}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :4080
 # 初始管理员：账号表为空时 api 启动期用此密码建 admin（仅首启生效，之后改密走前端）。
 # dev 用固定值方便记忆；e2e 同款凭据。会话 Cookie HttpOnly + SameSite=Lax；
 # prod HTTPS 反代配 LIUSHA_COOKIE_SECURE=true。
@@ -37,8 +37,8 @@ export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 # 注：0099 拆别名层后，light/fallback/vision 槽位覆盖 env 已废弃（无代码读取）。
 # 路由事实源在 DB（llm_role_route），dev 靠 config.yaml 的 llm.* 种子首填。
 
-# proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8888）
-export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8888}"
+# proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 4088）
+export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:4088}"
 
 # api key 校验（必填）：校验当前激活 provider 的密钥。
 # 按实际激活 provider 校验。
@@ -59,14 +59,14 @@ echo ""
 # 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
 # /Users/.../go-build/<hash>-d/runner，没有 "cmd/" 或 "exe/" 字样，
 # 匹配模式不可靠；按 3 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
-for port in 8888 8090 9090; do
+for port in 4088 4080 4090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8888 8090 9090; do
+for port in 4088 4080 4090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
@@ -76,7 +76,7 @@ sleep 1
 
 # 端口预检：本脚本管理的 3 端口任一仍被占 → 立即报错退出。
 PORT_BUSY=()
-for p in 8888 8090 9090; do
+for p in 4088 4080 4090; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     PORT_BUSY+=("$p")
   fi
@@ -89,7 +89,7 @@ fi
 
 # 启动顺序：proxy → api → runner
 # 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
-echo "[1/3] proxy on :8888 (mitm)"
+echo "[1/3] proxy on :4088 (mitm)"
 go run -mod=mod ./cmd/proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
@@ -99,7 +99,7 @@ go run -mod=mod ./cmd/api 2>logs/api.stderr &
 API_PID=$!
 
 sleep 2
-echo "[3/3] runner on :9090"
+echo "[3/3] runner on :4090"
 go run -mod=mod ./cmd/runner 2>logs/runner.stderr &
 WORKER_PID=$!
 

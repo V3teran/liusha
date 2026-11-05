@@ -68,7 +68,7 @@ type DockerLauncher struct {
 	// 抓流架构：仅 browser-svc.py 的 CDP Network observer——浏览器流量 push 到本 URL
 	// TrafficSnapshot{Source:"internal"} → publisher.Publish → ingestor.handleInternalSnap。
 	//
-	// 典型值：http://host.docker.internal:9090/internal/v1/flows/ingest（cmd/runner healthz 端口）。
+	// 典型值：http://host.docker.internal:<对外端口>/internal/v1/flows/ingest（cmd/runner healthz；宿主端口经 LIUSHA_INGEST_PUBLIC_PORT）。
 	// 空字符串时不注入——沙箱读不到 LIUSHA_INGEST_URL 则 capture 整体不启用（单测 / 无 runner 部署）。
 	IngestURL string
 
