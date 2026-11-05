@@ -1,5 +1,5 @@
 #（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
-# liusha runner 镜像：go vendor 构建 + alpine runtime + 9090 healthz。
+# liusha runner 镜像：go vendor 构建 + alpine runtime + 4090 healthz。
 FROM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,5 +15,5 @@ COPY --from=build /out/runner /app/runner
 COPY config /app/config
 # skill 运行时事实源 = DB（经三级缓存），不再挂载 skills/ 目录——种子由 api 进程负责。
 COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
-EXPOSE 9090
+EXPOSE 4090
 ENTRYPOINT ["/app/runner"]

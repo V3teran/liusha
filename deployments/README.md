@@ -55,7 +55,7 @@ make single-run    # 或见下方完整 docker run
 
 ```bash
 docker run -d --name liusha-single \
-  -p 80:80 -p 8888:8888 -p 9090:9090 \
+  -p 80:80 -p 4088:4088 -p 4090:4090 \
   -v liusha-single-data:/data \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -e GLM_API_KEY=<key> \
@@ -67,9 +67,9 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 关停**（交给 `docker run --restart` 类编排重启，不做容器内自愈）。
 
 - **必须挂 docker.sock**：沙盒容器由 runner 经宿主 docker 拉起（sandbox 镜像
-  须在宿主存在）；沙盒回连 ingest 走 `host.docker.internal:9090`，故 **9090
+  须在宿主存在）；沙盒回连 ingest 走 `host.docker.internal:4090`，故 **4090
   必须发布**。
-- **必须发布 8888**：浏览器挂 MITM 代理走宿主 8888。
+- **必须发布 4088**：浏览器挂 MITM 代理走宿主 4088。
 - **数据全在 /data 卷**：PG、Redis（AOF）、CA 证书、首启生成的密钥
   （API key / SSE secret / LLM 加密密钥——env 未给时首启生成并持久化，重启
   不变；API key 启动日志会打印）。

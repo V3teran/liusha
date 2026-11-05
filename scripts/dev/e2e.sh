@@ -38,8 +38,8 @@ if [ -f .env ]; then
 fi
 
 # host 侧地址
-export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8090}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8888}"
+export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:4080}"  # 与 run-svc.sh 默认端口一致
+export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:4088}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:35432/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
@@ -104,20 +104,20 @@ fi
 
 echo ""
 echo "===== 3/6 关旧 service（按端口找 PID） ====="
-for port in 8888 8090 9090; do
+for port in 4088 4080 4090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
   fi
 done
 sleep 1
-for port in 8888 8090 9090; do
+for port in 4088 4080 4090; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null || true
   fi
 done
-# pkill 兜底：runner 启动若 healthz :9090 端口冲突会保留 exe 进程但不绑端口
+# pkill 兜底：runner 启动若 healthz :4090 端口冲突会保留 exe 进程但不绑端口
 # → lsof 找不到 → 老 binary 留下与 asynq 抢任务（曾踩坑：上次 commit 67f1c24
 # extractHostFromBrief 没生效就是因为老 runner 拿到了 task 用旧逻辑跑）。
 # -9 强杀所有 runner exe + go run 父进程兜底。
@@ -129,7 +129,7 @@ pkill -f 'dev/run-svc.sh' 2>/dev/null || true
 sleep 1
 pkill -9 -f 'dev/run-svc.sh' 2>/dev/null || true
 sleep 1
-echo "  ✓ 旧 service 已关停（端口 8888/8090/9090 释放 + runner 进程兜底 pkill）"
+echo "  ✓ 旧 service 已关停（端口 4088/4080/4090 释放 + runner 进程兜底 pkill）"
 
 echo ""
 echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="
@@ -152,9 +152,9 @@ deadline=$((SECONDS + HEALTHZ_WAIT_SECONDS))
 while [ $SECONDS -lt $deadline ]; do
   api_ok=0; runner_ok=0; proxy_ok=0
   curl -sf -m 2 "${LIUSHA_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
-  curl -sf -m 2 http://localhost:9090/healthz >/dev/null 2>&1 && runner_ok=1
-  # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8888 mitm 口是否在听。
-  nc -z localhost 8888 2>/dev/null && proxy_ok=1
+  curl -sf -m 2 http://localhost:4090/healthz >/dev/null 2>&1 && runner_ok=1
+  # proxy 无 healthz HTTP（纯 MITM）——探 TCP 4088 mitm 口是否在听。
+  nc -z localhost 4088 2>/dev/null && proxy_ok=1
   if [ "$((api_ok + runner_ok + proxy_ok))" -eq 3 ]; then
     echo "  ✓ 3 service 全部 healthy"
     echo ""

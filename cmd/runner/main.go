@@ -381,7 +381,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 	launcher.WorkspaceHostDir = cfg.Sandbox.WorkspaceHostDir
 
 	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
-	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :9090）。
+	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :4090）。
 	// token 与本进程 ingest handler 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
 	// 解析失败则不注入 → browser-svc.py/mitm-capture.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
 	if _, port, splitErr := net.SplitHostPort(runnerCfg.HealthzAddr); splitErr != nil {
@@ -389,7 +389,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 			Msg("解析 runner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
 	} else {
 		// 沙盒经宿主网桥回连的是【宿主映射端口】，与本容器内监听端口不是一回事
-		// （compose 形态 39090:9090）——对外端口显式 env 声明，缺省回落监听端口
+		// （compose 形态 34090:4090）——对外端口显式 env 声明，缺省回落监听端口
 		// （host 直跑形态二者同值）。
 		publicPort := envx.OrDefault("LIUSHA_INGEST_PUBLIC_PORT", port)
 		launcher.IngestURL = "http://host.docker.internal:" + publicPort + "/internal/v1/flows/ingest"

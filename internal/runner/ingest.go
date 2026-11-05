@@ -11,9 +11,9 @@
 //
 //	→ 进程内有界队列 → ingestor.drainInternal → handleInternalSnap 落库（不绕 Redis，自环 broker 冗余）。
 //
-// 路径：POST /internal/v1/flows/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :9090）
+// 路径：POST /internal/v1/flows/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :4090）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
-// 网络：runner healthz 监听 :9090，沙箱容器经 host.docker.internal:9090 访问
+// 网络：runner healthz 监听 :4090，沙箱容器经 host.docker.internal 访问（宿主映射端口见 LIUSHA_INGEST_PUBLIC_PORT）
 
 package runner
 

@@ -11,7 +11,7 @@ api:
   read_timeout_seconds: 15
   write_timeout_seconds: 30
   read_header_timeout_seconds: 5         # 也复用于 proxy/runner healthz HTTP server
-  listen_addr: 0.0.0.0:8090
+  listen_addr: 0.0.0.0:4080
   shutdown_timeout_seconds: 5
 
 # ---- pgxpool 连接参数 ----
@@ -162,8 +162,8 @@ proxy:
   max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
   max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
 
-  # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 8888，无独立 healthz HTTP）
-  listen_addr: 0.0.0.0:8888         # 容器内监听（宿主映射 38888，见 compose）
+  # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 4088，无独立 healthz HTTP）
+  listen_addr: 0.0.0.0:4088         # 容器内监听（宿主映射 34088，见 compose）
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
   cert_subdir: .liusha              # CA 证书子目录（默认 $HOME/.liusha）
   shutdown_timeout_seconds: 5       # graceful shutdown 超时
@@ -211,7 +211,7 @@ runner:
   workspace_retention_days: 0              # 任务工作区留存天数（0 = 永久；正数按目录 mtime 清扫）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
-  healthz_addr: ":9090"                    # 容器内监听（宿主映射 39090；沙盒回连端口经 LIUSHA_INGEST_PUBLIC_PORT 声明）
+  healthz_addr: ":4090"                    # 容器内监听（宿主映射 34090；沙盒回连端口经 LIUSHA_INGEST_PUBLIC_PORT 声明）
   traffic_max_request_body: 2097152        # 2 MiB；traffic.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
   traffic_max_response_body: 8388608       # 8 MiB；traffic.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
