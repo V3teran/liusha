@@ -29,6 +29,7 @@ import {
   putWorkspaceFile,
   type WorkspaceEntry,
 } from '@/api/workspaces'
+import { listTasks } from '@/api/tasks'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
@@ -81,6 +82,22 @@ export function WorkspacePage() {
     placeholderData: keepPreviousData,
   })
   const allEntries = treeQuery.data ?? []
+
+  // 友好命名映射：目录树里的批次/任务目录原本是 UUID（又长又不可读），
+  // 用任务列表把 ID 翻译成人类可读的 brief（截断展示，悬停 title 仍显原始路径）。
+  const tasksQuery = useQuery({
+    queryKey: ['tasks', 'for-workspace'],
+    queryFn: () => listTasks(1, 0), // 全量分页页（size=0 = 不限），建 UUID→brief 映射
+  })
+  const nameMaps = useMemo(() => {
+    const taskTitle: Record<string, string> = {}
+    const assignLabel: Record<string, string> = {}
+    for (const t of tasksQuery.data?.items ?? []) {
+      taskTitle[t.id] = t.brief
+      if (!(t.assignment_id in assignLabel)) assignLabel[t.assignment_id] = t.brief
+    }
+    return { taskTitle, assignLabel }
+  }, [tasksQuery.data])
 
   // 树的可见节点 = 搜索过滤 ∩ 折叠过滤。搜索时无视折叠（命中即展开，
   // 否则搜到的文件被藏进折叠目录里等于搜索失效）；浏览时应用折叠。
@@ -276,6 +293,7 @@ export function WorkspacePage() {
             entries={entries}
             selected={selected}
             collapsed={collapsed}
+            nameMaps={nameMaps}
             onToggleDir={toggleDir}
             onSelect={(p) => {
               setSelected(p)
@@ -422,6 +440,7 @@ function FileTree({
   entries,
   selected,
   collapsed,
+  nameMaps,
   onToggleDir,
   onSelect,
   onDownload,
@@ -430,16 +449,33 @@ function FileTree({
   entries: WorkspaceEntry[]
   selected: string | null
   collapsed: Set<string>
+  nameMaps: { taskTitle: Record<string, string>; assignLabel: Record<string, string> }
   onToggleDir: (dirPath: string) => void
   onSelect: (path: string) => void
   onDownload: (path: string) => void
   onDelete: (path: string) => void
 }) {
+  /** 目录条目展示名：批次/任务层用任务 brief 短名（截 36 字），更深层用末段名。 */
+  function dirDisplayName(e: WorkspaceEntry): string {
+    const segs = e.path.replace(/\/$/, '').split('/')
+    const trunc = (v: string) => (v.length > 36 ? v.slice(0, 36) + '…' : v)
+    if (segs.length === 1) {
+      const label = nameMaps.assignLabel[segs[0]]
+      return label ? '批次：' + trunc(label) : segs[0]
+    }
+    if (segs.length === 2) {
+      const title = nameMaps.taskTitle[segs[1]]
+      return title ? trunc(title) : segs[1]
+    }
+    return segs[segs.length - 1]
+  }
+
   return (
     <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto text-sm">
       {entries.map((e) => {
         const depth = e.path.split('/').length - (e.is_dir ? 1 : 0)
-        const base = e.path.split('/').pop() || e.path
+        // 目录路径带尾斜杠：pop() 会取到空串回退成整条父链——必须先剥尾斜杠再取末段
+        const base = e.path.replace(/\/$/, '').split('/').pop() || e.path
         const isCollapsedDir = e.is_dir && collapsed.has(e.path)
         return (
           <li key={e.path} className="group/row">
@@ -463,7 +499,11 @@ function FileTree({
               ) : (
                 <span className="w-3.5 flex-shrink-0" />
               )}
-              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={e.path}>{base}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={e.path}>
+                {e.is_dir && e.path.replace(/\/$/, '').split('/').length <= 2
+                  ? dirDisplayName(e)
+                  : base}
+              </span>
               <span className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
                 <button
                   aria-label={`下载 ${e.path}`}
