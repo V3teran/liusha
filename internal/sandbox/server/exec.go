@@ -16,7 +16,7 @@ import (
 // 挂到此路径）。
 //
 // 目录架构（task 一层隔离）：
-//   - 根目录：/root/liusha/workspace/<task_id>/
+//   - 两级分层：/root/liusha/workspace/<assignment_id>/<task_id>/
 //   - work:  …/<task_id>/work/   → 命令执行的 cwd（scratch）
 //   - out:   …/<task_id>/out/    → 附件输出（$OUTPUT_DIR）
 //   - state: …/<task_id>/state/  → 会话与环境状态（任务内共享；

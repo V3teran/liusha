@@ -48,6 +48,7 @@ func (t *driveBrowserTool) buildBrowserCommand(ctx context.Context, a *browserCm
 // executeBrowserCommand 执行浏览器命令
 func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command string, timeoutSeconds int) (sandbox.ExecResult, error) {
 	return t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
+		AssignmentID:   t.deps.AssignmentID,
 		TaskID:         t.deps.TaskID,
 		AgentID:        t.deps.AgentRunID,
 		Command:        command,

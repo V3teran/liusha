@@ -33,7 +33,8 @@ type Manager interface {
 
 // AcquireRequest 是获取沙箱实例的请求参数。
 type AcquireRequest struct {
-	TaskID   string        // 任务 ID（必填）
+	AssignmentID string        // 批次 ID（工作区一级分组，必填）
+	TaskID       string        // 任务 ID（必填）
 	UserID   string        // 用户 ID（可选，Per-User 池时使用）
 	Priority int           // 优先级（可选，全局调度器时使用，0=normal）
 	Timeout  time.Duration // 获取超时（可选，0=使用默认值）
@@ -42,11 +43,12 @@ type AcquireRequest struct {
 
 // Instance 是一个活的沙箱实例：对容器客户端的封装，增加任务隔离能力。
 type Instance struct {
-	Client    Client // 底层容器客户端
-	ID        string // 容器 ID
-	TaskID    string // 当前关联的任务 ID
-	WorkDir   string // 任务工作目录
-	CreatedAt time.Time
+	Client       Client  // 底层容器客户端
+	ID           string  // 容器 ID
+	AssignmentID string  // 当前关联的批次 ID
+	TaskID       string  // 当前关联的任务 ID
+	WorkDir      string  // 任务工作目录（/liusha/<assignmentID>/<taskID>）
+	CreatedAt    time.Time
 }
 
 // ManagerMetrics 是沙箱实例管理器的监控指标。
@@ -72,12 +74,12 @@ type ManagerMetrics struct {
 }
 
 // PrepareWorkDir 准备任务工作目录。
-// 注意：实际的工作目录由 sandbox-server 管理（/liusha/<task_id>/<agent_id>/workspace/）。
-// 这里不需要创建任何目录，sandbox-server 会自动创建。
+// 注意：实际的工作目录由 sandbox-server 管理（两级分层
+// /liusha/<assignment_id>/<task_id>/，exec 时自动创建）。
 func (sb *Instance) PrepareWorkDir(_ context.Context) error {
 	// 设置工作目录标识（用于日志）
 	if sb.WorkDir == "" {
-		sb.WorkDir = "/liusha/" + sb.TaskID
+		sb.WorkDir = "/liusha/" + sb.AssignmentID + "/" + sb.TaskID
 	}
 
 	// 不需要实际创建目录，sandbox-server 会在 exec 时自动创建
@@ -95,6 +97,7 @@ func (sb *Instance) CleanupWorkDir(ctx context.Context) error {
 
 	// 删除整个 Task 目录（/liusha/<task_id>/）
 	_, err := sb.Client.Exec(ctx, ExecRequest{
+		AssignmentID:   sb.AssignmentID,
 		TaskID:         sb.TaskID,
 		AgentID:        "cleanup",
 		Command:        "rm -rf " + sb.WorkDir,
@@ -134,6 +137,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 		done
 	`
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		AssignmentID:   "reset",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        cleanupScript,
@@ -143,6 +147,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 	// 3. 清理临时文件（保留重要的系统目录）
 	// 只清理用户可能创建的临时文件，不影响系统文件
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		AssignmentID:   "reset",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        "find /tmp -mindepth 1 -maxdepth 1 ! -name '.X*' ! -name '.ICE-unix' -exec rm -rf {} + 2>/dev/null || true",
@@ -151,6 +156,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 
 	// 4. 清理共享内存（防止内存泄漏）
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
+		AssignmentID:   "reset",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        "rm -rf /dev/shm/* 2>/dev/null || true",

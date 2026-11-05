@@ -56,7 +56,8 @@ function languageExtensions(path: string) {
 }
 /**
  * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
- * 直接展示整棵工作区文件结构（顶层即任务目录，最新在前），搜索框过滤路径；
+ * 直接展示整棵工作区文件结构（两级分层：顶层为批次 assignment 分组，其下
+ * 任务 task 子目录，最新在前），搜索框过滤路径；
  * 行悬停露下载/删除，工具栏新建文件/目录，文件点开可编辑保存与下载。
  * 二进制文件只读展示元信息；编辑保存以原始字节直传（二进制安全）。
  */
@@ -185,7 +186,7 @@ export function WorkspacePage() {
     }
   }
 
-  const taskCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
+  const assignmentCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -196,11 +197,11 @@ export function WorkspacePage() {
           className="w-72"
           value={taskQuery}
           onChange={setTaskQuery}
-          placeholder="搜索路径（任务目录 / 文件名）…"
+          placeholder="搜索路径（批次 / 任务 / 文件名）…"
           ariaLabel="搜索工作区路径"
         />
         {allEntries.length > 0 && (
-          <span className="text-xs text-text-secondary opacity-75">{taskCount} 个任务工作区</span>
+          <span className="text-xs text-text-secondary opacity-75">{assignmentCount} 个批次工作区</span>
         )}
         {notice && <span className="text-xs text-text-secondary">{notice}</span>}
       </div>
@@ -405,8 +406,8 @@ export function WorkspacePage() {
   )
 }
 
-/** 扁平文件树：服务端排序（顶层任务目录最新在前，组内目录前、路径序），
- * 深度即缩进。目录为弱化行，文件行可选中；行悬停露下载/删除。 */
+/** 扁平文件树：服务端排序（顶层批次目录最新在前，组内目录前、路径序），
+ * 深度即缩进（批次 → 任务 → work/out）。目录为弱化行，文件行可选中；行悬停露下载/删除。 */
 function FileTree({
   entries,
   selected,

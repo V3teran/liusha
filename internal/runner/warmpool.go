@@ -33,7 +33,8 @@ func (h *WarmPoolHandler) Handle(ctx context.Context, p worker.Payload) error {
 
 	// 1. Acquire sandbox
 	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
-		TaskID: p.TaskID,
+		AssignmentID: "default", // 冒烟任务无批次归属，归入 default 组
+		TaskID:       p.TaskID,
 	})
 	if err != nil {
 		return fmt.Errorf("acquire sandbox: %w", err)
@@ -71,6 +72,7 @@ func (h *WarmPoolHandler) Handle(ctx context.Context, p worker.Payload) error {
 
 	// 4. 执行命令
 	result, err := sb.Client.Exec(ctx, sandbox.ExecRequest{
+		AssignmentID:   "default",
 		TaskID:         p.TaskID,
 		AgentID:        p.AgentRunID,
 		Command:        command,

@@ -42,6 +42,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
+		AssignmentID:   "test-assignment",
 		AgentID:        "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
@@ -105,6 +106,7 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	// timeout 60s 远大于 sleep → cmdCtx 不触发，纯靠 WaitDelay 兜底。
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
+		AssignmentID:   "test-assignment",
 		AgentID:        "test-bg-orphan",
 		Command:        "sleep 30 &",
 		TimeoutSeconds: 60,
@@ -147,6 +149,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
+		AssignmentID:   "test-assignment",
 		AgentID:        "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
@@ -203,6 +206,7 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
 				TaskID:         "test-task",
+				AssignmentID:   "test-assignment",
 				AgentID:        c.agentID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
@@ -231,9 +235,10 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	ts := httptest.NewServer(srv.mux)
 	defer ts.Close()
 
-	post := func(t *testing.T, taskID, agentID, cmd string) sandbox.ExecResult {
+	post := func(t *testing.T, assignmentID, taskID, agentID, cmd string) sandbox.ExecResult {
 		t.Helper()
 		body, _ := json.Marshal(sandbox.ExecRequest{
+			AssignmentID:   assignmentID,
 			TaskID:         taskID,
 			AgentID:        agentID,
 			Command:        cmd,
@@ -256,11 +261,11 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// 任务间隔离：task-a 写 a.txt，task-b 看不到
-	resA1 := post(t, "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
+	resA1 := post(t, "batch-1", "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a.txt"`)
 	if len(resA1.Files) != 1 || resA1.Files[0].Name != "a.txt" {
 		t.Fatalf("task-a 应只看到 a.txt，got %+v", resA1.Files)
 	}
-	resB := post(t, "task-b", "agent-1", `printf 'B\n' > "$OUTPUT_DIR/b.txt" && ls "$OUTPUT_DIR"`)
+	resB := post(t, "batch-1", "task-b", "agent-1", `printf 'B\n' > "$OUTPUT_DIR/b.txt" && ls "$OUTPUT_DIR"`)
 	if len(resB.Files) != 1 || resB.Files[0].Name != "b.txt" {
 		t.Fatalf("task-b 应只看到 b.txt（不应捞到 task-a 的 a.txt），got %+v", resB.Files)
 	}
@@ -269,8 +274,8 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// 任务内共享：同 task 两个 agent 看到同一 work/out
-	resA2 := post(t, "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a2.txt" && printf 'shared\n' > shared-in-work.txt`)
-	resA3 := post(t, "task-a", "agent-2", `ls "$OUTPUT_DIR" && cat shared-in-work.txt`)
+	resA2 := post(t, "batch-1", "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a2.txt" && printf 'shared\n' > shared-in-work.txt`)
+	resA3 := post(t, "batch-1", "task-a", "agent-2", `ls "$OUTPUT_DIR" && cat shared-in-work.txt`)
 	if !bytes.Contains([]byte(resA3.Stdout), []byte("a2.txt")) {
 		t.Errorf("同任务 agent-2 看不到 agent-1 的产物（应共享），stdout=%q", resA3.Stdout)
 	}
@@ -278,4 +283,21 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 		t.Errorf("同任务 agent-2 看不到 agent-1 的 work 文件（应共享），stdout=%q", resA3.Stdout)
 	}
 	_ = resA2
+
+	// 批次间隔离：同 taskID 落在不同批次（assignment）→ 互不可见（两级分层契约）。
+	resBA := post(t, "batch-2", "task-a", "agent-1", `ls "$OUTPUT_DIR"`)
+	if bytes.Contains([]byte(resBA.Stdout), []byte("a.txt")) {
+		t.Errorf("batch-2 的 task-a 捞到了 batch-1 的产物，批次隔离失败，stdout=%q", resBA.Stdout)
+	}
+
+	// assignment_id 缺失 → 400（两级分层为必填契约）。
+	body, _ := json.Marshal(sandbox.ExecRequest{TaskID: "t", AgentID: "a", Command: "true", TimeoutSeconds: 5})
+	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("缺 assignment_id 应 400，got %d", resp.StatusCode)
+	}
 }

@@ -153,9 +153,6 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-[11.5px] leading-relaxed text-text-tertiary">
-          会话有效期 7 天，修改密码后全端重新登录
-        </p>
       </div>
     </div>
   )
