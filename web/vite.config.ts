@@ -5,9 +5,9 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // dev：/api/* 与 SSE 代理到 Go API，浏览器视角同源 → cookie 走 SameSite=Lax、无需 CORS。
-// 缺省 :4080 与 run-svc.sh 的 LIUSHA_API_ADDR 默认一致（:8080 易被 Burp Suite 占）。
+// 缺省 :8580 与 run-svc.sh 的 LIUSHA_API_ADDR 默认一致（:8080 易被 Burp Suite 占）。
 // api 换端口时启动传 VITE_API_TARGET=http://localhost:PORT pnpm dev 覆盖。
-const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:4080'
+const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:8580'
 
 export default defineConfig({
   plugins: [react()],

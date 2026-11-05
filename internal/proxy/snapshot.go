@@ -22,7 +22,7 @@ import (
 //
 //	AgentRunID             internal 入口填（sandbox 自产流量归属的 agent run；ingestor 反查 task_id）。
 //	                     external（passive）入口为空。
-//	Source               'external'（4088 passive 入口）/ 'internal'（sandbox 自产）。
+//	Source               'external'（8588 passive 入口）/ 'internal'（sandbox 自产）。
 //
 // URI 拆解：
 //

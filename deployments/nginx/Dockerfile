@@ -17,6 +17,9 @@ RUN pnpm build
 
 # ── Stage 1: nginx 托管 ──
 FROM nginx:1.27-alpine
-COPY deployments/nginx/nginx.conf /etc/nginx/nginx.conf
+# 官方镜像 templates 机制：.template 经 envsubst（仅替换已定义 env）渲染到
+# NGINX_ENVSUBST_OUTPUT_DIR；nginx 运行时变量（$host 等）非 env、原样保留
+ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx
+COPY deployments/nginx/nginx.conf.template /etc/nginx/templates/nginx.conf.template
 COPY --from=web-build /web/dist /usr/share/nginx/html
 EXPOSE 80

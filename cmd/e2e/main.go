@@ -40,7 +40,7 @@ func main() {
 	logger := logx.New("e2e")
 	ctx := context.Background()
 
-	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:4080")
+	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8580")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:35432/liusha?sslmode=disable")
 
 	activeSel, err := selectProfiles(os.Args[1:])

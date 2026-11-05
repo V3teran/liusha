@@ -30,7 +30,7 @@ func applyAPIDefaults(c APIConfig) APIConfig {
 		c.ReadHeaderTimeoutSeconds = 5
 	}
 	if c.ListenAddr == "" {
-		c.ListenAddr = "0.0.0.0:4080"
+		c.ListenAddr = "0.0.0.0:8580"
 	}
 	if c.ShutdownTimeoutSeconds == 0 {
 		c.ShutdownTimeoutSeconds = 5
@@ -147,7 +147,7 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 		c.MaxResponseBodySize = 8 << 20 // 8 MiB
 	}
 	if c.ListenAddr == "" {
-		c.ListenAddr = "0.0.0.0:4088"
+		c.ListenAddr = "0.0.0.0:8588"
 	}
 	if c.InternalAddr == "" {
 		c.InternalAddr = "127.0.0.1:18888"
@@ -230,7 +230,7 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 		c.ShutdownTimeoutSeconds = 5
 	}
 	if c.HealthzAddr == "" {
-		c.HealthzAddr = ":4090"
+		c.HealthzAddr = ":8590"
 	}
 	if c.TrafficMaxRequestBody == 0 {
 		c.TrafficMaxRequestBody = 2 << 20

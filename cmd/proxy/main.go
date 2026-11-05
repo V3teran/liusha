@@ -5,7 +5,7 @@
 //  1. config.Load + db.NewRedis + db.NewPgPool 启动依赖
 //  2. settingstore 读 proxy_filter 组（DB 为过滤规则唯一事实源）→ filter.NewTrafficFilter
 //  3. proxy.NewPublisher（XADD 到 Redis Stream `liusha:flow_events`，MAXLEN ~ 100k）
-//  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:4088）
+//  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8588）
 //  5. cachestore.Subscribe + OnInvalidate：proxy_filter 组热改经失效总线广播到本进程，
 //     重读 settingstore 重建过滤链并 Server.SwapFilter 原子换入（真热改，无需重启）
 //  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis + 关 pool）
@@ -13,7 +13,7 @@
 // 为何连 PG：过滤规则（流量过滤黑白名单 + body 上限）是系统业务旋钮，事实源在 system_setting，
 // 前端「系统配置」改后经多级缓存跨进程失效——proxy 必须能读 DB + 订阅失效，才能热换规则。
 //
-// 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 4088）；active 抓流量 ingest endpoint 已迁到 cmd/runner。
+// 纯 MITM passive 入口：无 healthz HTTP（存活探 TCP 8588）；active 抓流量 ingest endpoint 已迁到 cmd/runner。
 //
 // 业务逻辑（proxy_traffic 落库 by host / 聚合器建 passive task / Asynq 入队）
 // 全部在 cmd/runner 内的 ingestor 包，proxy 只生产事件不做存储。
@@ -76,7 +76,7 @@ func main() {
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
 	//
 	// 双 listener（0060+）物理隔离 source，避免 agent 自挖流量触发 passive 分析自激震荡：
-	//   external: publicAddr (4088) → sanitizer → internalAddr loopback (18888) → external proxify
+	//   external: publicAddr (8588) → sanitizer → internalAddr loopback (18888) → external proxify
 	//   internal: agentPublicAddr (8890) → sanitizer → agentInternalAddr loopback (18890) → internal proxify
 	// v34+：删除 agent (internal) listener — chromium 流量改走 CDP capture → ingest endpoint
 	// （见下方 newIngestHandler），CLI 工具直连不入字典。仅保留 external listener 给 passive 入口。
@@ -130,8 +130,8 @@ func main() {
 	}()
 
 	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
-	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :4090）。
-	//   - 存活检测改 TCP 探 4088（MITM listen 口），见 compose.yaml / run-svc。
+	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
+	//   - 存活检测改 TCP 探 8588（MITM listen 口），见 compose.yaml / run-svc。
 	// proxy 现在 = 纯 MITM passive 入口（external listener + sanitizer）。
 
 	// External proxify + sanitizer（passive 入口；唯一 listener）

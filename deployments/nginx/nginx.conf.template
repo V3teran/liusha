@@ -29,7 +29,9 @@ http {
     listen 80;
     server_name _;
 
-    set $liusha_api api:4080;
+    # 上游容器端口由启动 env 渲染（官方镜像 templates 机制）：改 api 容器端口 =
+# 改 compose 的 API_CONTAINER_PORT + up -d 重建 nginx，镜像无需重建
+set $liusha_api api:${API_CONTAINER_PORT};
 
     root  /usr/share/nginx/html;
     index index.html;

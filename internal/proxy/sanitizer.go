@@ -101,7 +101,7 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// RunPassiveSanitizer 监听 publicAddr（external 4088，passive 入口）。
+// RunPassiveSanitizer 监听 publicAddr（external 8588，passive 入口）。
 // 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
 // forward 给 upstreamAddr（proxify loopback 端口）。
 //
