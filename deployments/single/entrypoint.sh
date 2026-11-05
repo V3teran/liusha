@@ -112,7 +112,7 @@ spawn api /app/api
 spawn nginx nginx -c /etc/nginx/liusha-single.conf -g 'daemon off;'
 
 # ── 5. 等任一子进程退出 → 整体关停（共生共死）────────────────────────────
-log "all services up（宿主端口 web=30080 mitm=34088 ingest=34090）"
+log "all services up（宿主端口 web=30080 mitm=38588 ingest=38590）"
 set +e
 wait -n
 rc=$?

@@ -31,7 +31,7 @@ import (
 // 兜底常量：caller 未通过 ServerDeps 传入对应字段时使用。
 // 正常路径由 cmd/proxy 从 config.ProxyConfig 注入，因此这里仅作为调用方失误时的最后防线。
 const (
-	fallbackListenAddr = "0.0.0.0:4088"
+	fallbackListenAddr = "0.0.0.0:8588"
 	fallbackCertSubdir = ".liusha"
 )
 
@@ -197,7 +197,7 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// onResponse 仅处理 external (passive) 流量（4088 入口），无 agent 概念；容器内工具流量不经本代理
+	// onResponse 仅处理 external (passive) 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
 	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source

@@ -137,9 +137,9 @@ type ProxyConfig struct {
 	MaxRequestBodySize      int      `mapstructure:"max_request_body_size"`
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
-	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 4088，无独立 healthz HTTP。
-	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :4090）。
-	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:4088 公开端口（sanitizer 接 raw TCP）
+	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8588，无独立 healthz HTTP。
+	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
+	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8588 公开端口（sanitizer 接 raw TCP）
 	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
 	CertSubdir             string `mapstructure:"cert_subdir"`
 	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`

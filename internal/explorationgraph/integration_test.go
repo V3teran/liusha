@@ -295,7 +295,7 @@ func TestCreateNodeWithEdgesAtomicity(t *testing.T) {
 
 	// 失败路径：边引用幻影节点 → FK 拒绝 → 整体回滚
 	orphan := Node{
-		ID:         "40884088-4088-4888-4088-408840884088",
+		ID:         "85888588-8588-4888-8588-858885888588",
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
 		Content:    json.RawMessage(`{"statement":"x"}`),

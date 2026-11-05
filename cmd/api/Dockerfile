@@ -32,5 +32,5 @@ COPY skills /app/skills
 RUN addgroup -S app && adduser -S app -G app -h /app
 RUN chown -R app:app /app
 USER app
-EXPOSE 4080
+EXPOSE 8580
 ENTRYPOINT ["/app/api"]
