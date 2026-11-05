@@ -1,5 +1,10 @@
-// control.go 控制平面消费：轮询 task_control_event 与任务暂停标记，把人工干预
-// （terminate/adjust_goal/inject_action/pause）翻译成对循环的操作。
+// control.go 控制平面消费：认知循环对控制面的唯一接入点。
+//
+// 两条信息流，职责分明：
+//   - 生命周期（暂停/继续/停止）：只看 task 行——终态或 paused 即停 agents、
+//     携精确停止原因结束本 run。行状态与 API 响应同事务生效，无投递失败一说。
+//   - 内容干预（adjust_goal/inject_action）：走 task_control_event 队列，落到
+//     探索图上由后续规划消费。
 
 package cognition
 
@@ -15,16 +20,15 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/task"
 )
 
-// controlPollInterval 是控制平面事件与暂停标记的轮询周期。
+// controlPollInterval 是控制平面的轮询周期（任务行 + 内容事件同节奏）。
 // 与完成检测器的检查节奏（5s）对齐：人工干预的生效延迟上限 ≈ 一个周期。
 const controlPollInterval = 5 * time.Second
 
-// startControlConsumer 轮询消费控制平面事件并观察任务暂停标记，返回停止函数。
+// startControlConsumer 轮询观察任务生命周期并消费内容事件，返回停止函数。
 // 每个事件独立处理并回写 processed/failed 状态，单条失败不拖累后续事件。
-// 暂停不是事件：task.paused 行是唯一事实源，观察到即停 agents 并以
-// user_paused 停止原因结束本 run（任务行保持 active+paused，由继续操作重投）。
 func startControlConsumer(
 	ctx context.Context,
 	taskID string,
@@ -32,15 +36,15 @@ func startControlConsumer(
 	graph *explorationgraph.Store,
 	detector *CompletionDetector,
 	agents *agentLifecycle,
-	tasks PauseObserver,
+	tasks TaskStateReader,
 	logger zerolog.Logger,
 ) (stop func()) {
 	logger = logger.With().Str("component", "control_consumer").Logger()
 	done := make(chan struct{})
 	// stopCh 让 stop 函数能主动叫停消费循环。只有 ctx.Done() 一个退出条件
-	// 是不够的：认知循环被 terminate 中止后 ctx 依然存活（它归 asynq 任务，
-	// 不随 detector 中止取消），stop 函数若只等 goroutine 自然退出就会
-	// 永久阻塞——defer 链卡死在第一环，任务终态永远落不了库（e2e 实测）。
+	// 是不够的：认知循环被中止后 ctx 依然存活（它归 asynq 任务，不随 detector
+	// 中止取消），stop 函数若只等 goroutine 自然退出就会永久阻塞——defer 链
+	// 卡死在第一环，任务终态永远落不了库（e2e 实测）。
 	stopCh := make(chan struct{})
 
 	logx.Go(logger, "control-consumer", func() {
@@ -57,13 +61,34 @@ func startControlConsumer(
 			case <-ticker.C:
 			}
 
+			// 生命周期观察（先于内容事件——终态任务的干预无意义，且滞留的
+			// pending 事件随退出一并清理，不跨生命周期迟到消费）。
+			tk, gerr := tasks.GetByID(ctx, taskID)
+			if gerr != nil {
+				logger.Warn().Err(gerr).Msg("读取任务生命周期失败（下轮重试）")
+				continue
+			}
+			if tk.Status != task.StatusActive {
+				logger.Info().Str("status", string(tk.Status)).
+					Msg("观察到任务终态，停止 agents 并结束本 run")
+				if n, rerr := store.ResolvePending(ctx, taskID); rerr != nil {
+					logger.Warn().Err(rerr).Msg("清理滞留控制事件失败（续接侧 FollowUp 兜底）")
+				} else if n > 0 {
+					logger.Info().Int("resolved", n).Msg("任务终态，滞留控制事件已清理")
+				}
+				agents.Stop()
+				detector.Abort(StopReasonTerminated)
+				return
+			}
+
 			events, err := store.ListPending(ctx, taskID)
 			if err != nil {
 				logger.Warn().Err(err).Msg("拉取控制事件失败（下轮重试）")
+				continue
 			}
 
 			for _, ev := range events {
-				if err := handleControlEvent(ctx, taskID, graph, detector, ev, logger); err != nil {
+				if err := handleControlEvent(ctx, taskID, graph, ev, logger); err != nil {
 					logger.Error().Err(err).Str("event_id", ev.ID.String()).
 						Str("command", string(ev.Command)).Msg("控制事件处理失败")
 					if markErr := store.MarkFailed(ctx, ev.ID, err.Error()); markErr != nil {
@@ -76,12 +101,10 @@ func startControlConsumer(
 				}
 			}
 
-			// 暂停观察（事件之后，暂停与 terminate 同 tick 到达时 terminate 先生效）：
-			// 任务被置暂停 → 停 agents、以 user_paused 结束本 run。任务行保持
-			// active+paused，探索图与工作区原样保留，继续时全新 run 从图续跑。
-			if paused, perr := tasks.IsPaused(ctx, taskID); perr != nil {
-				logger.Warn().Err(perr).Msg("读取任务暂停标记失败（下轮重试）")
-			} else if paused {
+			// 暂停观察（事件之后——暂停期间注入的内容事件留给继续后的规划消费）：
+			// 停 agents、以 user_paused 结束本 run。任务行保持 active+paused，
+			// 探索图与工作区原样保留，继续时全新 run 从图续跑。
+			if tk.Paused {
 				logger.Info().Msg("观察到任务暂停，停止 agents 并结束本 run")
 				agents.Stop()
 				detector.Abort(StopReasonPaused)
@@ -96,9 +119,10 @@ func startControlConsumer(
 	}
 }
 
-// PauseObserver 是控制消费者需要的任务面（最小接口，*task.Store 天然满足）。
-type PauseObserver interface {
-	IsPaused(ctx context.Context, id string) (bool, error)
+// TaskStateReader 是控制消费者需要的任务面（最小接口，*task.Store 天然满足）：
+// 单次读回任务行，供生命周期（终态/暂停 → 干净退出）的统一判定。
+type TaskStateReader interface {
+	GetByID(ctx context.Context, id string) (task.Task, error)
 }
 
 // StopReasonPaused 是暂停退出的停止原因（导出供 runner 收尾分流）：
@@ -106,21 +130,19 @@ type PauseObserver interface {
 // 会话身份不回收（继续时复用）。
 const StopReasonPaused = "user_paused"
 
-// handleControlEvent 处理单条控制事件。
+// StopReasonTerminated 是任务终态退出的停止原因：任务行已被停止侧置为终态
+// （用户停止 / 判死），本 run 携此原因落 aborted，收尾不再写任务行。
+const StopReasonTerminated = "task_terminated"
+
+// handleControlEvent 处理单条内容干预事件。
 func handleControlEvent(
 	ctx context.Context,
 	taskID string,
 	graph *explorationgraph.Store,
-	detector *CompletionDetector,
 	ev controlplane.ControlEvent,
 	logger zerolog.Logger,
 ) error {
 	switch ev.Command {
-	case controlplane.CommandTerminate:
-		logger.Info().Msg("收到 terminate，中止任务")
-		detector.Abort("control-plane: terminate")
-		return nil
-
 	case controlplane.CommandAdjustGoal:
 		var p controlplane.AdjustGoalPayload
 		if err := json.Unmarshal(ev.Payload, &p); err != nil {

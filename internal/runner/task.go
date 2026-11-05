@@ -102,11 +102,11 @@ func (h *Handler) executeTask(
 		return nil
 	}
 
-	// run 终态按停止原因分流：外部终止（控制平面 terminate / ctx 取消）落
+	// run 终态按停止原因分流：外部终止（任务行终态 task_terminated / ctx 取消）落
 	// aborted——被杀的 run 标 done 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。
 	reportJSON, _ := json.Marshal(report)
-	terminated := strings.Contains(report.StopReason, "terminate") || strings.Contains(report.StopReason, "cancel")
+	terminated := report.StopReason == cognition.StopReasonTerminated || strings.Contains(report.StopReason, "cancel")
 	var runErr error
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
@@ -117,10 +117,10 @@ func (h *Handler) executeTask(
 		taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
 	}
 
-	// task 终态回写：按停止原因与 agent_run 同口径分流——被终止（控制平面
-	// terminate / ctx 取消）落 aborted，自然收敛才落 completed。此前无条件
-	// Complete：terminate 路径无人写 aborted（api abort 端点只是其中一条来
-	// 路），CAS 守卫形同虚设，被杀任务标 completed、时间线广播「扫描完成」。
+	// task 终态回写：按停止原因与 agent_run 同口径分流——外部终止（任务行已
+	// 终态 / ctx 取消）落 aborted，自然收敛才落 completed。此前无条件
+	// Complete：终止路径无人写 aborted，CAS 守卫形同虚设，被杀任务标
+	// completed、时间线广播「扫描完成」。
 	if terminated {
 		h.finishTerminatedTask(doneCtx, taskLogger, p, taskID, report)
 	} else if err := h.Tasks.Complete(doneCtx, taskID); err != nil {

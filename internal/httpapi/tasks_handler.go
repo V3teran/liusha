@@ -235,9 +235,9 @@ func isNoRows(err error) bool {
 
 // TaskControlAPI 是任务行操作的后端依赖：pause/resume 是 task.paused 标记的
 // CAS 迁移（暂停同步生效，循环在下一控制周期观察到并结束本 run；继续在 run
-// 已退出时重投全新 planner 从探索图续跑）；terminate 复用会话停止链路
-// （Abort 终态 + terminate 事件 + 会话时间线通知，与对话页「停止」同一语义）。
-// cmd/api 注入 dispatch 侧适配器。
+// 已退出时重投全新 planner 从探索图续跑）；terminate 是 task 行 Abort 终态
+// （运行中的循环按行观察退出，与对话页「停止」同一语义）。cmd/api 注入
+// dispatch 侧适配器。
 type TaskControlAPI interface {
 	PauseTask(ctx context.Context, taskID string) error
 	ResumeTask(ctx context.Context, taskID string) error
