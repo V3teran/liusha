@@ -126,31 +126,56 @@ func (r *Router) InvalidateAll() {
 	r.mu.Unlock()
 }
 
+// routeCandidates 返回档位的解析候选序：显式档 → 就近降级（能力相邻档优先）。
+// provider 少于三档时（用户只配 1-2 把 key），缺档自动落到相邻可用档：
+//   complex 缺 → medium → simple；medium 缺 → complex → simple；simple 缺 → medium → complex
+func routeCandidates(c Complexity) []Complexity {
+	switch c {
+	case ComplexityComplex:
+		return []Complexity{c, ComplexityMedium, ComplexitySimple}
+	case ComplexitySimple:
+		return []Complexity{c, ComplexityMedium, ComplexityComplex}
+	default:
+		return []Complexity{c, ComplexityComplex, ComplexitySimple}
+	}
+}
+
 func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, error) {
 	routing, err := r.store.GetRouting(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("provider/router: load routing: %w", err)
 	}
-	providerKey, ok := routing.Roles[string(complexity)]
-	if !ok {
-		return nil, fmt.Errorf("provider/router: no provider configured for complexity %q", complexity)
-	}
 
-	spec, err := r.store.GetProviderSpec(ctx, providerKey)
-	if err != nil {
-		return nil, fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
+	// 按候选序解析：显式档优先；其路由缺失或 provider 不可用（被删/密钥缺失）
+	// 时降级到相邻档——保证「配置 1 个 provider 也能服务全部档位」。
+	var lastErr error
+	for _, lvl := range routeCandidates(complexity) {
+		providerKey, ok := routing.Roles[string(lvl)]
+		if !ok {
+			continue
+		}
+		spec, err := r.store.GetProviderSpec(ctx, providerKey)
+		if err != nil {
+			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
+			continue
+		}
+		g, err := BuildGeneratorWithKey(ctx, spec, r.pool)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		prov := WithRetry(NewProvider(g), r.retryOpts)
+		if r.providerWrapper != nil {
+			prov = r.providerWrapper(prov)
+		}
+		return prov, nil
 	}
-
-	g, err := BuildGeneratorWithKey(ctx, spec, r.pool)
-	if err != nil {
-		return nil, err
+	if lastErr != nil {
+		return nil, lastErr
 	}
-
-	prov := WithRetry(NewProvider(g), r.retryOpts)
-	if r.providerWrapper != nil {
-		prov = r.providerWrapper(prov)
-	}
-	return prov, nil
+	return nil, fmt.Errorf(
+		"provider/router: no LLM provider configured for complexity %q —"+
+			"请在 config.yaml providers: 声明并在前端「能力分档」页设置路由", complexity)
 }
 
 // SetProviderWrapper 注入 Provider 装饰钩子（埋点/限流等），在首次 For() 之前调用。
@@ -167,22 +192,41 @@ func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 // 本方法让它承载真实语义。store 层已多级缓存，调用廉价；窗口未知（0）或
 // 读取失败时返回错误，由调用方回退内置兜底。
 func (r *Router) ContextWindow(ctx context.Context, complexity Complexity) (int, error) {
-	routing, err := r.store.GetRouting(ctx)
+	spec, err := r.resolveSpec(ctx, complexity)
 	if err != nil {
-		return 0, fmt.Errorf("provider/router: load routing: %w", err)
-	}
-	providerKey, ok := routing.Roles[string(complexity)]
-	if !ok {
-		return 0, fmt.Errorf("provider/router: no provider configured for complexity %q", complexity)
-	}
-	spec, err := r.store.GetProviderSpec(ctx, providerKey)
-	if err != nil {
-		return 0, fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
+		return 0, err
 	}
 	if spec.ContextWindow <= 0 {
-		return 0, fmt.Errorf("provider/router: provider %q context_window 未配置", providerKey)
+		return 0, fmt.Errorf("provider/router: provider %q context_window 未配置", spec.Code)
 	}
 	return spec.ContextWindow, nil
+}
+
+// resolveSpec 按候选序解析档位对应的 provider spec（显式档 → 就近降级）。
+func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (ProviderSpec, error) {
+	routing, err := r.store.GetRouting(ctx)
+	if err != nil {
+		return ProviderSpec{}, fmt.Errorf("provider/router: load routing: %w", err)
+	}
+	var lastErr error
+	for _, lvl := range routeCandidates(complexity) {
+		providerKey, ok := routing.Roles[string(lvl)]
+		if !ok {
+			continue
+		}
+		spec, err := r.store.GetProviderSpec(ctx, providerKey)
+		if err != nil {
+			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
+			continue
+		}
+		return spec, nil
+	}
+	if lastErr != nil {
+		return ProviderSpec{}, lastErr
+	}
+	return ProviderSpec{}, fmt.Errorf(
+		"provider/router: no LLM provider configured for complexity %q —"+
+			"请在 config.yaml providers: 声明并在前端「能力分档」页设置路由", complexity)
 }
 
 // BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。

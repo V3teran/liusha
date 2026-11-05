@@ -34,13 +34,23 @@ func writeConfig(t *testing.T, body string) string {
 	return p
 }
 
-// TestLoad_MissingProviderKeyEnv：多 provider 契约——config.yaml 声明的 provider
-// 密钥 env 必须就位，缺失即拒启（启动期给出精确缺失变量名）。
-func TestLoad_MissingProviderKeyEnv(t *testing.T) {
+// TestLoad_PartialKeyEnvBoots：部分 provider 密钥缺失不拒启——缺档由运行期
+// 就近降级接管（complex 缺→medium→simple 等）；仅保留形状校验 fatal。
+func TestLoad_PartialKeyEnvBoots(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
+	if _, err := Load(writeConfig(t, minimalYAML)); err != nil {
+		t.Fatalf("部分密钥缺失应可启动（就近降级）: %v", err)
+	}
+}
+
+// TestLoad_AllKeysMissingFatal：全部路由档位密钥缺失 → 拒启
+//（用户语义「完全不配置就无法使用」的启动期体现）。
+func TestLoad_AllKeysMissingFatal(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
-		t.Fatalf("路由引用的 provider 密钥缺失应拒启")
+		t.Fatalf("全部密钥缺失应拒启")
 	}
 }
 
