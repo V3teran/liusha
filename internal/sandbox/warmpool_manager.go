@@ -166,11 +166,12 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Ins
 
 	// 准备任务工作目录（默认对齐 sandbox-server 约定 /liusha/<taskID>）
 	sb := &Instance{
-		Client:    m.sandbox.Client,
-		ID:        m.sandbox.ID,
-		TaskID:    req.TaskID,
-		WorkDir:   req.WorkDir,
-		CreatedAt: m.sandbox.CreatedAt,
+		Client:       m.sandbox.Client,
+		ID:           m.sandbox.ID,
+		AssignmentID: req.AssignmentID,
+		TaskID:       req.TaskID,
+		WorkDir:      req.WorkDir,
+		CreatedAt:    m.sandbox.CreatedAt,
 	}
 
 	if err := sb.PrepareWorkDir(ctx); err != nil {
@@ -447,6 +448,7 @@ func (m *WarmPoolManager) destroySandboxLocked() {
 func (m *WarmPoolManager) checkHealth(ctx context.Context, sb *Instance) error {
 	// 执行简单命令测试容器是否响应
 	_, err := sb.Client.Exec(ctx, ExecRequest{
+		AssignmentID: "warm",
 		TaskID:         "healthcheck",
 		AgentID:        "warmpool-manager",
 		Command:        "echo healthy",

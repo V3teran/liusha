@@ -48,7 +48,8 @@ func (h *Handler) executeTask(
 
 	// 获取 Sandbox（单例模式：所有任务共享一个容器，通过工作目录隔离）
 	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
-		TaskID: taskID,
+		AssignmentID: assignmentID,
+		TaskID:       taskID,
 	})
 	if err != nil {
 		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
@@ -65,7 +66,7 @@ func (h *Handler) executeTask(
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, taskID, virtualHost, brief, p.ConversationID, sb.Client)
+	report, err := h.runCognition(ctx, taskLogger, assignmentID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
 
 	// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
 	// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期

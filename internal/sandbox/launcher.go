@@ -77,7 +77,7 @@ type DockerLauncher struct {
 	IngestToken string
 
 	// WorkspaceHostDir 是沙盒工作区的宿主根目录，bind mount 到容器
-	// /root/liusha/workspace（容器内按 taskID 分 work/out/state）。空 =
+	// /root/liusha/workspace（容器内按 assignmentID/taskID 两级分层）。空 =
 	// ~/data/liusha/workspace 默认。任务工件（脚本/PoC/扫描输出）因此跨容
 	// 器回收重建存活——warm 沙盒的文件系统是临时的，宿主目录才是工件的持
 	// 久层。

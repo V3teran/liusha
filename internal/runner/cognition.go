@@ -16,7 +16,7 @@ import (
 func (h *Handler) runCognition(
 	ctx context.Context,
 	taskLogger zerolog.Logger,
-	taskID, host, brief, conversationID string,
+	assignmentID, taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
@@ -31,6 +31,7 @@ func (h *Handler) runCognition(
 		taskLogger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
 	}
 	return cognition.Run(ctx, &cognition.Deps{
+		AssignmentID: assignmentID,
 		Graph:        h.Graph,
 		EventBus:     h.EventBus,
 		ControlPlane: h.ControlPlane,

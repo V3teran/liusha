@@ -47,6 +47,7 @@ import (
 // 显式依赖结构让循环装配可以脱离 asynq/handler 单测（白名单/视图/构造链
 // 是历史 bug 高发区）。
 type Deps struct {
+	AssignmentID string // 批次 ID（沙盒工作区一级分组）
 	Graph        *explorationgraph.Store
 	EventBus     bus.EventBus
 	ControlPlane *controlplane.Store
@@ -155,7 +156,7 @@ func (d *Deps) run(
 			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
-				TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
+				AssignmentID: d.AssignmentID, TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
 			}); err != nil {
 				d.Logger.Warn().Err(err).Msg("浏览器清理执行失败（best-effort）")
 			} else {
@@ -339,8 +340,9 @@ func (d *Deps) assembleStack(
 	reg.AddInterceptor(d.toolTimelineInterceptor(conversationID))
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
-			TaskID:     taskID,
-			AgentRunID: agentRunID,
+			TaskID:       taskID,
+			AssignmentID: d.AssignmentID,
+			AgentRunID:   agentRunID,
 			Host:       host,
 			Logger:     d.Logger,
 			Tasks:      d.Tasks,

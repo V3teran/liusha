@@ -7,13 +7,15 @@ package sandbox
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：
-//   - TaskID：任务 ID，用于 会话状态共享（/liusha/<TaskID>/state/ 存放浏览器登录态与 $HOME 工具落盘）
-//   - AgentID：Agent 运行实例 ID，用于工作目录隔离（/liusha/<TaskID>/<AgentID>/workspace/、
-//     /liusha/<TaskID>/<AgentID>/output/），防止并发 Agent 文件互串扰；必填，server 端校验空值 400
+//   - AssignmentID：批次 ID，工作区一级分组（/liusha/<AssignmentID>/<TaskID>/）；必填
+//   - TaskID：任务 ID，二级分组——会话状态（state/，浏览器登录态与 $HOME 落盘）、
+//     工作目录（work/）与产物（out/）都在其下
+//   - AgentID：Agent 运行实例 ID，随请求透传（进程树标注/审计），不参与目录分层；必填，server 端校验空值 400
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）
 //   - TimeoutSeconds：本次命令硬超时（秒），超时被 SIGKILL
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志/诊断，不影响执行
 type ExecRequest struct {
+	AssignmentID   string             `json:"assignment_id"`   // 批次 ID（工作区一级分组，必填）
 	TaskID         string `json:"task_id"`
 	AgentID        string `json:"agent_id"`
 	Command        string `json:"command"`

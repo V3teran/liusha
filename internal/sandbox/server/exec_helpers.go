@@ -16,6 +16,14 @@ import (
 
 // validateExecRequest 验证 Exec 请求
 func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
+	if req.AssignmentID == "" {
+		writeError(w, http.StatusBadRequest, "assignment_id required")
+		return false
+	}
+	if !isPathSafe(req.AssignmentID) {
+		writeError(w, http.StatusBadRequest, "assignment_id must be [A-Za-z0-9._-]{1,64}")
+		return false
+	}
 	if req.TaskID == "" {
 		writeError(w, http.StatusBadRequest, "task_id required")
 		return false
@@ -45,11 +53,11 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 
 // setupExecDirs 创建执行目录结构
 func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDir, outputDir, stateDir string, ok bool) {
-	// task 一层隔离：work = 命令 cwd，out = 产物（$OUTPUT_DIR），state =
-	// 会话与环境状态（HOME 指向它——chromium 登录态等 $HOME 工具落盘随
-	// 之归位）。AgentID 仍随请求透传（进程树标注/审计），不参与目录分层
-	// ——同任务多 agent 共容器共目标，agent 级目录是假隔离。
-	taskRoot := filepath.Join(liushaRoot, req.TaskID)
+	// 两级隔离：批次（assignment）→ 任务（task）。work = 命令 cwd，out = 产物
+	// （$OUTPUT_DIR），state = 会话与环境状态（HOME 指向它——chromium 登录态等
+	// $HOME 工具落盘随之归位）。AgentID 仍随请求透传（进程树标注/审计），不参与
+	// 目录分层——同任务多 agent 共容器共目标，agent 级目录是假隔离。
+	taskRoot := filepath.Join(liushaRoot, req.AssignmentID, req.TaskID)
 	workspaceDir = filepath.Join(taskRoot, "work")
 	outputDir = filepath.Join(taskRoot, "out")
 	stateDir = filepath.Join(taskRoot, "state")

@@ -67,7 +67,7 @@ describe('WorkspacePage', () => {
       expect(rows[1].textContent).toContain('work/')
       expect(rows[2].textContent).toContain('poc.py')
     })
-    expect(screen.getByText(/个任务工作区/)).toBeTruthy()
+    expect(screen.getByText(/个批次工作区/)).toBeTruthy()
   })
 
   it('点击文件打开编辑，保存直传字节（根相对路径）', async () => {

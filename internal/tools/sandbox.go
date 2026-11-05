@@ -70,6 +70,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	}
 
 	req := sandbox.ExecRequest{
+		AssignmentID:   t.deps.AssignmentID,
 		TaskID:         t.deps.TaskID,
 		AgentID:        t.deps.AgentRunID,
 		Command:        a.Command,
