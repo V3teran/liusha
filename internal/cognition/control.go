@@ -1,5 +1,5 @@
-// control.go 控制平面消费：轮询 task_control_event，把人工干预
-// （terminate/pause/resume/adjust_goal/inject_action）翻译成对循环的操作。
+// control.go 控制平面消费：轮询 task_control_event 与任务暂停标记，把人工干预
+// （terminate/adjust_goal/inject_action/pause）翻译成对循环的操作。
 
 package cognition
 
@@ -15,15 +15,16 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/task"
 )
 
-// controlPollInterval 是控制平面事件的轮询周期。
+// controlPollInterval 是控制平面事件与暂停标记的轮询周期。
 // 与完成检测器的检查节奏（5s）对齐：人工干预的生效延迟上限 ≈ 一个周期。
 const controlPollInterval = 5 * time.Second
 
-// startControlConsumer 轮询消费控制平面事件，返回停止函数。
+// startControlConsumer 轮询消费控制平面事件并观察任务暂停标记，返回停止函数。
 // 每个事件独立处理并回写 processed/failed 状态，单条失败不拖累后续事件。
+// 暂停不是事件：task.paused 行是唯一事实源，观察到即停 agents 并以
+// user_paused 停止原因结束本 run（任务行保持 active+paused，由继续操作重投）。
 func startControlConsumer(
 	ctx context.Context,
 	taskID string,
@@ -31,7 +32,7 @@ func startControlConsumer(
 	graph *explorationgraph.Store,
 	detector *CompletionDetector,
 	agents *agentLifecycle,
-	tasks *task.Store,
+	tasks PauseObserver,
 	logger zerolog.Logger,
 ) (stop func()) {
 	logger = logger.With().Str("component", "control_consumer").Logger()
@@ -59,11 +60,10 @@ func startControlConsumer(
 			events, err := store.ListPending(ctx, taskID)
 			if err != nil {
 				logger.Warn().Err(err).Msg("拉取控制事件失败（下轮重试）")
-				continue
 			}
 
 			for _, ev := range events {
-				if err := handleControlEvent(ctx, taskID, graph, detector, agents, tasks, ev, logger); err != nil {
+				if err := handleControlEvent(ctx, taskID, graph, detector, ev, logger); err != nil {
 					logger.Error().Err(err).Str("event_id", ev.ID.String()).
 						Str("command", string(ev.Command)).Msg("控制事件处理失败")
 					if markErr := store.MarkFailed(ctx, ev.ID, err.Error()); markErr != nil {
@@ -75,6 +75,18 @@ func startControlConsumer(
 					logger.Warn().Err(err).Str("event_id", ev.ID.String()).Msg("标记 processed 失败")
 				}
 			}
+
+			// 暂停观察（事件之后，暂停与 terminate 同 tick 到达时 terminate 先生效）：
+			// 任务被置暂停 → 停 agents、以 user_paused 结束本 run。任务行保持
+			// active+paused，探索图与工作区原样保留，继续时全新 run 从图续跑。
+			if paused, perr := tasks.IsPaused(ctx, taskID); perr != nil {
+				logger.Warn().Err(perr).Msg("读取任务暂停标记失败（下轮重试）")
+			} else if paused {
+				logger.Info().Msg("观察到任务暂停，停止 agents 并结束本 run")
+				agents.Stop()
+				detector.Abort(StopReasonPaused)
+				return
+			}
 		}
 	})
 
@@ -84,14 +96,22 @@ func startControlConsumer(
 	}
 }
 
+// PauseObserver 是控制消费者需要的任务面（最小接口，*task.Store 天然满足）。
+type PauseObserver interface {
+	IsPaused(ctx context.Context, id string) (bool, error)
+}
+
+// StopReasonPaused 是暂停退出的停止原因（导出供 runner 收尾分流）：
+// executeTask 据此识别——run 落 aborted、task 保持 active、目标保持 open、
+// 会话身份不回收（继续时复用）。
+const StopReasonPaused = "user_paused"
+
 // handleControlEvent 处理单条控制事件。
 func handleControlEvent(
 	ctx context.Context,
 	taskID string,
 	graph *explorationgraph.Store,
 	detector *CompletionDetector,
-	agents *agentLifecycle,
-	tasks *task.Store,
 	ev controlplane.ControlEvent,
 	logger zerolog.Logger,
 ) error {
@@ -99,20 +119,6 @@ func handleControlEvent(
 	case controlplane.CommandTerminate:
 		logger.Info().Msg("收到 terminate，中止任务")
 		detector.Abort("control-plane: terminate")
-		return nil
-
-	case controlplane.CommandPause:
-		logger.Info().Msg("收到 pause，停止 agents 并冻结完成判定")
-		agents.Stop()
-		detector.Pause()
-		markPaused(ctx, tasks, taskID, true, logger)
-		return nil
-
-	case controlplane.CommandResume:
-		logger.Info().Msg("收到 resume，恢复完成判定并重启 agents")
-		detector.Resume()
-		agents.Start()
-		markPaused(ctx, tasks, taskID, false, logger)
 		return nil
 
 	case controlplane.CommandAdjustGoal:
@@ -234,13 +240,3 @@ var mustJSON = explorationgraph.MustJSON
 type errInvalidPayload string
 
 func (e errInvalidPayload) Error() string { return string(e) }
-
-// markPaused 写任务「暂停中」标记（列表状态可见化；best-effort，失败仅告警）。
-func markPaused(ctx context.Context, tasks *task.Store, taskID string, paused bool, logger zerolog.Logger) {
-	if tasks == nil {
-		return
-	}
-	if err := tasks.SetPaused(ctx, taskID, paused); err != nil {
-		logger.Warn().Err(err).Bool("paused", paused).Msg("写任务暂停标记失败（状态列不刷新，不影响循环）")
-	}
-}

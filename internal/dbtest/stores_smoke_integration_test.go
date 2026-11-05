@@ -138,7 +138,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 
 	// task_control_event（ID 由 DB 生成，Create 返回）
 	cp2 := controlplane.NewStore(pool)
-	if _, err := cp2.Create(ctx, tk.ID, controlplane.CommandPause, []byte(`{}`)); err != nil {
+	if _, err := cp2.Create(ctx, tk.ID, controlplane.CommandAdjustGoal, []byte(`{"new_goal":"g"}`)); err != nil {
 		t.Fatalf("control event create: %v", err)
 	}
 	evs, err := cp2.ListPending(ctx, tk.ID)

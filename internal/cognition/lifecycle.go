@@ -11,10 +11,9 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// agentLifecycle 抽象四 agent 的启停，供 pause/resume 与主流程复用。
-// pause 必须 Stop（等待全部退出）后再返回，避免与 bus 的 task 级共享通道
-// 关闭时序竞争；Resume 重新 Start（各 agent Run 自带重新订阅）。
-// 控制平面消费者与主流程会并发调用 Start/Stop：互斥锁串行化，
+// agentLifecycle 抽象四 agent 的启停：主流程收尾与暂停退出（停 agents 后结束
+// 本 run）共用同一 Stop。Stop 必须（等待全部退出）后再返回，避免与 bus 的
+// task 级共享通道关闭时序竞争。控制平面消费者与主流程会并发调用：互斥锁串行化，
 // WaitGroup 的 Add/Wait 全部收在持锁区间内，规避 Add-after-Wait 误用。
 type agentLifecycle struct {
 	mu      sync.Mutex

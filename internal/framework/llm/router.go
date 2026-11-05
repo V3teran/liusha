@@ -128,7 +128,8 @@ func (r *Router) InvalidateAll() {
 
 // routeCandidates 返回档位的解析候选序：显式档 → 就近降级（能力相邻档优先）。
 // provider 少于三档时（用户只配 1-2 把 key），缺档自动落到相邻可用档：
-//   complex 缺 → medium → simple；medium 缺 → complex → simple；simple 缺 → medium → complex
+//
+//	complex 缺 → medium → simple；medium 缺 → complex → simple；simple 缺 → medium → complex
 func routeCandidates(c Complexity) []Complexity {
 	switch c {
 	case ComplexityComplex:

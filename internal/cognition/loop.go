@@ -165,7 +165,9 @@ func (d *Deps) run(
 		}
 	}()
 
-	// 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
+	// 控制平面消费者：轮询 task_control_event（terminate/adjust_goal/inject_action）
+	// 并观察 task.paused——暂停时停 agents、以 user_paused 结束本 run（任务行
+	// 保持 active+paused，继续时由 dispatch 重投全新 run 从图续跑）。
 	if d.ControlPlane != nil {
 		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Tasks, d.Logger)
 		defer stopConsumer()
@@ -198,10 +200,14 @@ func (d *Deps) run(
 
 // closeObjectives 把任务的全部 open 目标节点置终态（done；被终止的任务
 // aborted）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
-// 有始有终。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
+// 有始有终。暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批
+// 目标）。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
 func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	if d.Graph == nil {
 		return
+	}
+	if stopWhy == StopReasonPaused {
+		return // 暂停非终态：目标留给继续的 run
 	}
 	objectives, err := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil || len(objectives) == 0 {
@@ -343,17 +349,17 @@ func (d *Deps) assembleStack(
 			TaskID:       taskID,
 			AssignmentID: d.AssignmentID,
 			AgentRunID:   agentRunID,
-			Host:       host,
-			Logger:     d.Logger,
-			Tasks:      d.Tasks,
-			Corpus:     d.Corpus,
-			Embedder:   d.Embedder,
-			Reranker:   d.Reranker,
-			ProxyStore: d.ProxyStore,
-			AgentStore: d.AgentStore,
-			Creds:      d.Creds,
-			Sandbox:    sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
-			Skills:     skillsView, // read_skill 依赖；声明为空时不注册
+			Host:         host,
+			Logger:       d.Logger,
+			Tasks:        d.Tasks,
+			Corpus:       d.Corpus,
+			Embedder:     d.Embedder,
+			Reranker:     d.Reranker,
+			ProxyStore:   d.ProxyStore,
+			AgentStore:   d.AgentStore,
+			Creds:        d.Creds,
+			Sandbox:      sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
+			Skills:       skillsView, // read_skill 依赖；声明为空时不注册
 
 			// run_command 超时钳制与输出尾部保留（系统配置 runtime 组快照）
 			StepToolTimeoutSeconds: d.ToolLimits.StepToolTimeoutSeconds,

@@ -39,7 +39,6 @@ type CompletionDetector struct {
 	startTime     time.Time
 	manualAbort   atomic.Bool
 	abortReason   atomic.Value // string
-	paused        atomic.Bool  // 控制平面 pause：冻结完成判定（agent 由消费者启停）
 	converged     atomic.Bool  // 任务收敛标志（planner 无新 action 可生成）
 
 	completionCh chan Result
@@ -159,7 +158,7 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 
 // checkCompletion 检查是否满足完成条件
 func (d *CompletionDetector) checkCompletion() (Result, bool) {
-	// 1. 人工中止（terminate 优先级最高，越过暂停）
+	// 1. 人工中止（terminate / 暂停退出共用此通道，优先级最高）
 	if d.manualAbort.Load() {
 		reason := "manual_abort"
 		if v := d.abortReason.Load(); v != nil {
@@ -168,11 +167,6 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 			}
 		}
 		return d.makeResult(reason), true
-	}
-
-	// 暂停期间不触发任何自动完成判定
-	if d.paused.Load() {
-		return Result{}, false
 	}
 
 	// 2. 任务收敛（planner 无新 action 可生成）
@@ -214,17 +208,4 @@ func (d *CompletionDetector) Abort(reason string) {
 	d.manualAbort.Store(true)
 	d.abortReason.Store(reason)
 	d.logger.Info().Str("reason", reason).Msg("手动触发中止")
-}
-
-// Pause 暂停完成判定（控制平面 pause）。暂停期间 agent 停止运行、
-// 完成检测不触发；terminate 仍可越过暂停直接中止。
-func (d *CompletionDetector) Pause() {
-	d.paused.Store(true)
-	d.logger.Info().Msg("任务已暂停（控制平面）")
-}
-
-// Resume 解除暂停。
-func (d *CompletionDetector) Resume() {
-	d.paused.Store(false)
-	d.logger.Info().Msg("任务已恢复（控制平面）")
 }

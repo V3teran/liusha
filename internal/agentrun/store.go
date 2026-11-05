@@ -3,11 +3,16 @@ package agentrun
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrNoRun 表示查询条件下不存在 agent run 行（LatestByTask 无行时返回）。
+var ErrNoRun = errors.New("agent run 不存在")
 
 // Store 封装 agent_run 表的所有持久化操作。
 type Store struct {
@@ -110,6 +115,21 @@ func (s *Store) GetByID(ctx context.Context, id string) (Run, error) {
 		return Run{}, fmt.Errorf("get agent run %s: %w", id, err)
 	}
 	return r, nil
+}
+
+// LatestByTask 取任务最近一条 run（created_at 倒序第一条）。无 run 时返回
+// ErrNoRun——调用方以此区分「从未跑过」与「查询失败」。
+func (s *Store) LatestByTask(ctx context.Context, taskID string) (*Run, error) {
+	var r Run
+	if err := scanRun(s.pool.QueryRow(ctx,
+		`SELECT `+colsSelect+` FROM agent_run WHERE task_id=$1::uuid ORDER BY created_at DESC LIMIT 1`,
+		taskID), &r); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNoRun
+		}
+		return nil, fmt.Errorf("latest agent run by task: %w", err)
+	}
+	return &r, nil
 }
 
 // ListByTask 按 created_at 升序列出 task 下的 agent 运行，最多 limit 条。

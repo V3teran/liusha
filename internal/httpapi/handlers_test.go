@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/credential"
+	"github.com/V3teran/liusha/internal/task"
 )
 
 // fakeCred 是 CredentialsAPI 的内存实现，用于路由级单测。
@@ -179,3 +181,63 @@ func TestAuth_RejectsWrongSession(t *testing.T) {
 // 删除 TestPassiveScan_Created / _RequiresAuth / _LookupError 三个用例：
 // owner 多态坍缩为统一 task 后，TaskAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
 // （passive task 由 ingestor 按流量窗口聚合生成，不再走 API 预热路径）。
+
+// fakeTaskControl 是 TaskControlAPI 的表替身：按 action 记录调用并返回预设错误。
+type fakeTaskControl struct {
+	err    error
+	called []string
+}
+
+func (f *fakeTaskControl) PauseTask(_ context.Context, _ string) error {
+	f.called = append(f.called, "pause")
+	return f.err
+}
+
+func (f *fakeTaskControl) ResumeTask(_ context.Context, _ string) error {
+	f.called = append(f.called, "resume")
+	return f.err
+}
+
+func (f *fakeTaskControl) TerminateTask(_ context.Context, _ string) error {
+	f.called = append(f.called, "terminate")
+	return f.err
+}
+
+func TestTaskControl_StateConflictMaps409(t *testing.T) {
+	fake := &fakeTaskControl{err: task.ErrNotActive}
+	srv := newTestServer(t, Deps{TaskControl: fake})
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/api/tasks/00000000-0000-0000-0000-000000000000/control",
+		strings.NewReader(`{"action":"pause"}`))
+	req.AddCookie(testSessionCookie())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("终态任务的 pause 应映射 409，实得 %d", resp.StatusCode)
+	}
+}
+
+func TestTaskControl_OK(t *testing.T) {
+	fake := &fakeTaskControl{}
+	srv := newTestServer(t, Deps{TaskControl: fake})
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/api/tasks/00000000-0000-0000-0000-000000000000/control",
+		strings.NewReader(`{"action":"resume"}`))
+	req.AddCookie(testSessionCookie())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if len(fake.called) != 1 || fake.called[0] != "resume" {
+		t.Fatalf("called=%v", fake.called)
+	}
+}

@@ -45,7 +45,7 @@ func TestLoad_PartialKeyEnvBoots(t *testing.T) {
 }
 
 // TestLoad_AllKeysMissingFatal：全部路由档位密钥缺失 → 拒启
-//（用户语义「完全不配置就无法使用」的启动期体现）。
+// （用户语义「完全不配置就无法使用」的启动期体现）。
 func TestLoad_AllKeysMissingFatal(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")

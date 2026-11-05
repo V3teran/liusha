@@ -15,7 +15,7 @@ package sandbox
 //   - TimeoutSeconds：本次命令硬超时（秒），超时被 SIGKILL
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志/诊断，不影响执行
 type ExecRequest struct {
-	AssignmentID   string             `json:"assignment_id"`   // 批次 ID（工作区一级分组，必填）
+	AssignmentID   string `json:"assignment_id"` // 批次 ID（工作区一级分组，必填）
 	TaskID         string `json:"task_id"`
 	AgentID        string `json:"agent_id"`
 	Command        string `json:"command"`

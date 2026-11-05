@@ -4,10 +4,16 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
-// errConflict 复用于各迁移的冲突返回（调用方只关心「未迁移」，不区分类别）。
-var errConflict = fmt.Errorf("task 状态迁移冲突")
+// ErrConflict 是终态迁移被拒（另一终态已先落，不覆盖）的哨兵；API 层据此映射 409。
+var ErrConflict = fmt.Errorf("task 状态迁移冲突")
+
+// ErrNotActive 是「操作仅对进行中任务有效」的哨兵（暂停/继续打到终态任务）；
+// API 层据此映射 409。
+var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行该操作")
 
 // Abort 把 task 推进到 aborted 终态：写 status / ended_at / error_message。
 // 用户主动停 / ctx 取消 / 错误路径共用。
@@ -61,10 +67,12 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 	if t.Status == want {
 		return nil
 	}
-	return fmt.Errorf("%w: task %s 当前 %s，拒绝迁入 %s", errConflict, id, t.Status, want)
+	return fmt.Errorf("%w: task %s 当前 %s，拒绝迁入 %s", ErrConflict, id, t.Status, want)
 }
 
-// Reopen 把已终态的 task 置回 active，清 ended_at/error_message（仅 active 模式的 FollowUp 续接）。
+// Reopen 把已终态的 task 置回 active，清 ended_at/error_message/paused（仅 active
+// 模式的 FollowUp 续接）。paused 必须一并清：上轮生命周期结束时若停在暂停中，
+// 残留标记会让新跑的循环被误读为「已暂停」。
 //
 // 累计停顿：复活前把「上次 ended_at → 现在」的用户停顿累加进 paused_ms（PG UPDATE 表达式用行旧值），
 // WallclockMs 据此扣除停顿 = 纯 agent 工作耗时。ended_at 为空则不累加（COALESCE 兜底 0）。
@@ -74,8 +82,9 @@ func (s *Store) Reopen(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE task SET
 			status='active',
+			paused=false,
 			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
-			heartbeat_at = now(),
+			heartbeat_at=now(),
 			ended_at=NULL,
 			error_message=''
 		WHERE id=$1`, id)
@@ -106,6 +115,8 @@ func (s *Store) Heartbeat(ctx context.Context, id string) error {
 }
 
 // ReapStale 把心跳超时的 active task 判为 aborted（进程崩溃/卡死的孤儿）。
+// 暂停中的任务豁免：暂停即有意停摆（无 run 在跑、无心跳是常态），由继续操作
+// 复活，判死条件永不成立才对。
 //
 // 跨场景统一巡检：一次扫全部 active task，按 staleAfter 判死。返回回收的 task ID
 // 列表（调用方据此做后续可见性动作——时间线节点/告警）。
@@ -115,7 +126,7 @@ func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) ([]stri
 			status='aborted',
 			ended_at=now(),
 			error_message='心跳超时（runner 进程崩溃或任务卡死）'
-		WHERE status='active' AND heartbeat_at < now() - $1::interval
+		WHERE status='active' AND NOT paused AND heartbeat_at < now() - $1::interval
 		RETURNING id`,
 		fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
 	if err != nil {
@@ -133,16 +144,45 @@ func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) ([]stri
 	return ids, rows.Err()
 }
 
-
-// SetPaused 写「暂停中」标记（pause/resume 控制事件消费时由循环侧调用）。
-// 仅 active 任务生效——终态任务的暂停标记无意义，直接忽略。
-func (s *Store) SetPaused(ctx context.Context, id string, paused bool) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE task SET paused = $1, heartbeat_at = now()
-		WHERE id = $2 AND status = 'active'`,
-		paused, id)
+// MarkPaused 把 active 任务置为暂停中（CAS：已暂停的行不重复迁移）。返回是否
+// 发生了迁移——false 即已是暂停态，调用方据此跳过重复的时间线/通知动作。
+// heartbeat_at 顺带续命：暂停期无 run 在跑，心跳就此定格，由 ReapStale 的
+// 暂停豁免兜住；续命是为了拉平「暂停落库 → 循环退出（≤5s）」窗口内的判死风险。
+func (s *Store) MarkPaused(ctx context.Context, id string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE task SET paused = true, heartbeat_at = now()
+		WHERE id = $1 AND status = 'active' AND NOT paused`, id)
 	if err != nil {
-		return fmt.Errorf("set paused: %w", err)
+		return false, fmt.Errorf("mark paused: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
+}
+
+// MarkResumed 解除暂停（CAS：仅暂停中的行）。返回是否发生迁移——false 即
+// 未在暂停（或已终态），调用方视为幂等 no-op。心跳同步续命，拉平
+// 「解除暂停 → 恢复 run 领取」窗口。
+func (s *Store) MarkResumed(ctx context.Context, id string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE task SET paused = false, heartbeat_at = now()
+		WHERE id = $1 AND status = 'active' AND paused`, id)
+	if err != nil {
+		return false, fmt.Errorf("mark resumed: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// IsPaused 读任务是否处于「active 且暂停中」。终态/不存在一律 false——
+// 暂停只对进行中任务有意义，调用方（认知循环的暂停观察）无需再判状态。
+func (s *Store) IsPaused(ctx context.Context, id string) (bool, error) {
+	var paused bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT paused FROM task WHERE id = $1 AND status = 'active'`, id).
+		Scan(&paused)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("is paused: %w", err)
+	}
+	return paused, nil
 }

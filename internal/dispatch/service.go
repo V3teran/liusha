@@ -345,24 +345,76 @@ func (a *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 	return tid, nil
 }
 
-// PauseTask 落 pause 控制事件（运行中的认知循环消费，保留状态原地暂停）。
+// PauseTask 把进行中的任务置为暂停中（task.paused CAS，同步生效——列表即刻
+// 翻转）。运行中的认知循环在下一个控制轮询周期（≤5s）观察到标记：停 agents、
+// 以 user_paused 结束本 run。任务行保持 active，探索图/工作区/会话身份原样
+// 保留，worker 槽位即刻释放。已暂停的任务幂等返回（不重复落时间线）。
 func (a *Service) PauseTask(ctx context.Context, taskID string) error {
-	if _, err := a.Control.Create(ctx, taskID, controlplane.CommandPause, json.RawMessage("{}")); err != nil {
+	tk, err := a.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if tk.Status != task.StatusActive {
+		return task.ErrNotActive
+	}
+	changed, err := a.Tasks.MarkPaused(ctx, taskID)
+	if err != nil {
 		return fmt.Errorf("dispatch: pause task: %w", err)
+	}
+	if !changed {
+		return nil
+	}
+	if convID, rErr := a.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil && convID != "" {
+		a.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused,
+			"扫描已暂停（进度保留）", map[string]any{"reason": "用户暂停（任务行）"})
 	}
 	return nil
 }
 
-// ResumeTask 落 resume 控制事件。
+// ResumeTask 解除暂停并恢复执行：CAS 清除 task.paused 后，若上一 run 已因暂停
+// 退出（无 pending/running run）则重投全新 planner run——认知循环从探索图历史
+// 续跑（与断点恢复同一形态，不做原地解冻）。暂停尚未传导到循环（run 仍在跑）
+// 时不重投：循环下一轮看到标记已清除，原地继续，天然避免双 run 并发。
+// 未暂停的任务幂等返回。
 func (a *Service) ResumeTask(ctx context.Context, taskID string) error {
-	if _, err := a.Control.Create(ctx, taskID, controlplane.CommandResume, json.RawMessage("{}")); err != nil {
+	tk, err := a.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if tk.Status != task.StatusActive {
+		return task.ErrNotActive
+	}
+	if !tk.Paused {
+		return nil
+	}
+	if changed, err := a.Tasks.MarkResumed(ctx, taskID); err != nil {
 		return fmt.Errorf("dispatch: resume task: %w", err)
+	} else if !changed {
+		return nil // 并发的继续请求已处理
+	}
+	if latest, lErr := a.AgentRuns.LatestByTask(ctx, taskID); lErr == nil {
+		if latest.Status == agentrun.StatusPending || latest.Status == agentrun.StatusRunning {
+			return nil // 上一 run 还活着（暂停未传导）：它看到标记清除后原地继续
+		}
+	} else if !errors.Is(lErr, agentrun.ErrNoRun) {
+		return fmt.Errorf("dispatch: resume task: %w", lErr)
+	}
+	conversationID := ""
+	if id, rErr := a.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil {
+		conversationID = id
+	}
+	input, _ := json.Marshal(map[string]string{"brief": tk.Brief})
+	if _, err := a.enqueuePlannerRun(ctx, taskID, conversationID, input); err != nil {
+		return fmt.Errorf("dispatch: resume task: %w", err)
+	}
+	if conversationID != "" {
+		a.appendTaskStatus(ctx, conversationID, conversation.TaskStatusResumed, "扫描已继续", nil)
 	}
 	return nil
 }
 
 // TerminateTask 按 taskID 停止：Abort 终态 + terminate 事件 + 会话时间线通知
-//（与 AbortConversationTask 同链路，入口从会话换成任务）。
+// （与 AbortConversationTask 同链路，入口从会话换成任务）。
 func (a *Service) TerminateTask(ctx context.Context, taskID string) error {
 	if err := a.Tasks.Abort(ctx, taskID, "用户停止（任务行）"); err != nil {
 		return err

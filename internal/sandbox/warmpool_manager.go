@@ -448,7 +448,7 @@ func (m *WarmPoolManager) destroySandboxLocked() {
 func (m *WarmPoolManager) checkHealth(ctx context.Context, sb *Instance) error {
 	// 执行简单命令测试容器是否响应
 	_, err := sb.Client.Exec(ctx, ExecRequest{
-		AssignmentID: "_system",
+		AssignmentID:   "_system",
 		TaskID:         "healthcheck",
 		AgentID:        "warmpool-manager",
 		Command:        "echo healthy",

@@ -71,12 +71,15 @@ type Message struct {
 
 // TaskStatus 是任务生命周期节点在时间线上的状态值（metadata.status）。
 // 生命周期事实源是 task.status（active/completed/aborted）；时间线节点是
-// 各迁移写者随迁移落的可见事件（dispatched 是下发时刻的记录，无对应终态列）。
+// 各迁移写者随迁移落的可见事件（dispatched 是下发时刻的记录，paused/resumed
+// 是暂停/继续的操作回执，均无对应终态列）。
 const (
 	TaskStatusDispatched = "dispatched" // 已下发扫描（api 入队成功后）
 	TaskStatusCompleted  = "completed"  // 认知循环自然收敛（runner）
 	TaskStatusAborted    = "aborted"    // 用户停止 / 判死（api / reaper）
 	TaskStatusFailed     = "failed"     // 执行失败（runner failTask）
+	TaskStatusPaused     = "paused"     // 用户暂停（api，任务保持 active）
+	TaskStatusResumed    = "resumed"    // 用户继续（api，重投/原地续跑）
 )
 
 // TaskStatusMeta 构造时间线任务状态节点的 metadata（单一契约源，五处迁移写者共用）：

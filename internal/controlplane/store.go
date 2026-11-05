@@ -14,12 +14,12 @@ import (
 // Command 定义控制命令类型
 type Command string
 
-// 控制平面命令：人工干预动作。
+// 控制平面命令：人工干预动作。暂停/继续不在其列——它们是任务行上的 paused
+// 标记（dispatch 直接 CAS），不经事件队列：暂停要求同步生效（列表立即翻转），
+// 且暂停期间循环已退出、没有消费者。
 const (
 	CommandAdjustGoal   Command = "adjust_goal"   // 调整任务目标
 	CommandInjectAction Command = "inject_action" // 注入新的 Action
-	CommandPause        Command = "pause"         // 暂停任务
-	CommandResume       Command = "resume"        // 恢复任务
 	CommandTerminate    Command = "terminate"     // 终止任务
 )
 
