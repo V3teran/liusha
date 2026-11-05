@@ -85,6 +85,5 @@ __pycache__/
 /.zcode/
 # ZCode 工具配置（本地态不入库）与治理配置（易与代码漂移，维持本地）
 /.zcodeignore
-/.agents/
 $CLAUDE_JOB_DIR/
 .v2c/
