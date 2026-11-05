@@ -143,6 +143,28 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	for state, count := range stateCounts {
 		output += fmt.Sprintf("- %s: %d\n", state, count)
 	}
+	// retryable 中断动作逐条列出：这些是 runner 停摆导致的失败（非攻击路径被堵），
+	// 恢复重投后的新 planner 应优先重做——藏在计数里 planner 看不到个体。
+	var retryables []string
+	for _, action := range actions {
+		if action.State == nil || *action.State != explorationgraph.StateFailed || len(action.Metadata) == 0 {
+			continue
+		}
+		var meta map[string]any
+		if json.Unmarshal(action.Metadata, &meta) == nil && meta["retryable"] == true {
+			id := action.ID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			retryables = append(retryables, fmt.Sprintf("- %s %s", id, action.Content))
+		}
+	}
+	if len(retryables) > 0 {
+		output += fmt.Sprintf("\n**可重做的中断动作（%d，retryable——runner 停摆所致，优先重做而非换路）：**\n", len(retryables))
+		for _, r := range retryables {
+			output += r + "\n"
+		}
+	}
 	output += "\n"
 
 	// 已确认的世界状态（规划基底）
