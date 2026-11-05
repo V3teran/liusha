@@ -110,7 +110,37 @@ func (h *Handler) onboard(ctx context.Context, _, taskID, brief string, taskLogg
 	}
 
 	if h.Graph != nil && taskID != "" {
+		// 幂等前置：恢复重投（runner 硬杀后自动重投 planner）会第二次执行
+		// onboard——同 task 同 host 已有 open/running 目标则跳过建新，否则图里
+		// 出现双根，执行期 objectives[0] 顺序不定会读写错节点。DB 层另有
+		// exploration_objective_task_host_uniq 部分唯一索引兜底并发。
+		existingObjectives, listErr := h.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
+		if listErr != nil {
+			taskLogger.Warn().Err(listErr).Msg("列既有 objective 失败（按无既有处理）")
+			existingObjectives = nil
+		}
+		hasLiveObjectiveForHost := func(host string) bool {
+			for _, obj := range existingObjectives {
+				var c map[string]any
+				if json.Unmarshal(obj.Content, &c) != nil {
+					continue
+				}
+				if c["target_host"] == host &&
+					(obj.State != nil && (*obj.State == explorationgraph.StateOpen || *obj.State == explorationgraph.StateRunning)) {
+					return true
+				}
+			}
+			return false
+		}
+
 		for _, targetHost := range hosts {
+			if hasLiveObjectiveForHost(targetHost) {
+				taskLogger.Info().
+					Str("host", targetHost).
+					Msg("同批次同 host 已有 open/running 目标（恢复重投路径），跳过重复创建")
+				continue
+			}
+
 			content, _ := json.Marshal(map[string]interface{}{
 				"target_host": targetHost,
 				"description": brief, // 添加 description 供 Planner 读取
