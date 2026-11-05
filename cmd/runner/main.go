@@ -120,7 +120,11 @@ func main() {
 	embedder, reranker := newCorpusEmbedder(logger)
 
 	// Asynq Client
-	wc := worker.NewClient(asynq.RedisClientOpt{Addr: redisAddrFromEnv()})
+	// 密码与 api 入队侧同源（LIUSHA_REDIS_PASSWORD），缺了消费侧 NOAUTH
+	wc := worker.NewClient(asynq.RedisClientOpt{
+		Addr:     redisAddrFromEnv(),
+		Password: os.Getenv("LIUSHA_REDIS_PASSWORD"),
+	})
 	defer func() { _ = wc.Close() }()
 
 	skills := newRunnerSkills(logger)
@@ -224,7 +228,10 @@ func main() {
 	}
 
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: redisAddrFromEnv()},
+		asynq.RedisClientOpt{
+			Addr:     redisAddrFromEnv(),
+			Password: os.Getenv("LIUSHA_REDIS_PASSWORD"),
+		},
 		asynq.Config{
 			Concurrency: runnerCfg.AsynqConcurrency,
 			Queues: map[string]int{

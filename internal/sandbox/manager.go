@@ -97,7 +97,7 @@ func (sb *Instance) CleanupWorkDir(ctx context.Context) error {
 
 	// 删除整个 Task 目录（/liusha/<task_id>/）
 	_, err := sb.Client.Exec(ctx, ExecRequest{
-		AssignmentID:   sb.AssignmentID,
+		AssignmentID:   "_system",
 		TaskID:         sb.TaskID,
 		AgentID:        "cleanup",
 		Command:        "rm -rf " + sb.WorkDir,
@@ -137,7 +137,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 		done
 	`
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
-		AssignmentID:   "reset",
+		AssignmentID:   "_system",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        cleanupScript,
@@ -147,7 +147,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 	// 3. 清理临时文件（保留重要的系统目录）
 	// 只清理用户可能创建的临时文件，不影响系统文件
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
-		AssignmentID:   "reset",
+		AssignmentID:   "_system",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        "find /tmp -mindepth 1 -maxdepth 1 ! -name '.X*' ! -name '.ICE-unix' -exec rm -rf {} + 2>/dev/null || true",
@@ -156,7 +156,7 @@ func (sb *Instance) SoftReset(ctx context.Context) error {
 
 	// 4. 清理共享内存（防止内存泄漏）
 	_, _ = sb.Client.Exec(ctx, ExecRequest{
-		AssignmentID:   "reset",
+		AssignmentID:   "_system",
 		TaskID:         "reset",
 		AgentID:        "cleanup",
 		Command:        "rm -rf /dev/shm/* 2>/dev/null || true",
