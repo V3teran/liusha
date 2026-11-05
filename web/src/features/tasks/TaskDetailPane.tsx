@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { Bug, Clock, GitBranch, MessageSquare, X } from 'lucide-react'
+import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
+import { controlTask } from '@/api/tasks'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { fullTime, humanDuration } from '@/lib/format'
@@ -10,6 +11,8 @@ interface TaskDetailPaneProps {
   loading: boolean
   error: string
   onClose: () => void
+  /** 控制操作（暂停/继续/停止）完成后的刷新回调。 */
+  onOperated?: () => void
 }
 
 function Kv({ k, children }: { k: string; children: React.ReactNode }) {
@@ -21,8 +24,25 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
   )
 }
 
-/** 任务详情板（右侧常驻，点行选中驱动）：任务信息 KV + 目标全文 + 三跳转。 */
-export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPaneProps) {
+/** 任务详情板（右侧常驻，点行选中驱动）：任务信息 KV + 目标全文 + 控制组 + 三跳转。
+ * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
+ * 表格行内是快捷路径，两面并存。 */
+export function TaskDetailPane({ task, loading, error, onClose, onOperated }: TaskDetailPaneProps) {
+  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+    if (!task) return
+    if (action === 'terminate') {
+      const head = task.brief.length > 24 ? `${task.brief.slice(0, 24)}…` : task.brief
+      if (!window.confirm(`停止任务「${head}」？`)) return
+    }
+    try {
+      await controlTask(task.id, action)
+    } catch (e) {
+      window.alert(`操作失败：${(e as Error).message}`)
+      return
+    }
+    onOperated?.()
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
@@ -41,7 +61,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {error ? (
-          <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
+          <div className="py-10 text-center text-sm text-status-error">⚠ {error}</div>
         ) : loading && !task ? (
           <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -55,7 +75,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
               <dl>
                 <Kv k="状态">
                   <Badge dot color={taskStatusMeta(task.status).color}>
-                    {task.status === 'active' ? '运行中' : taskStatusMeta(task.status).label}
+                    {task.status === 'active' ? (task.paused ? '已暂停' : '运行中') : taskStatusMeta(task.status).label}
                   </Badge>
                 </Kv>
                 <Kv k="来源">
@@ -77,7 +97,7 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
                 </Kv>
                 <Kv k="进度">
                   <span className="font-mono text-xs">
-                    {task.step_count} 步{task.status === 'active' ? ' · 进行中' : ''}
+                    {task.step_count} 步{task.status === 'active' ? (task.paused ? ' · 已暂停' : ' · 进行中') : ''}
                   </span>
                 </Kv>
                 <Kv k="创建时间">
@@ -103,6 +123,28 @@ export function TaskDetailPane({ task, loading, error, onClose }: TaskDetailPane
                   </span>
                 </Kv>
               </dl>
+
+              {task.status === 'active' && (
+                <div className="mt-3.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void control(task.paused ? 'resume' : 'pause')}
+                    title={task.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
+                  >
+                    {task.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                    {task.paused ? '继续任务' : '暂停任务'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void control('terminate')}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-status-error bg-status-error/10 px-3 py-1.5 text-[12.5px] font-medium text-status-error transition-colors hover:bg-status-error/20"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                    停止任务
+                  </button>
+                </div>
+              )}
             </section>
 
             <section>

@@ -26,7 +26,7 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * showProvider：该筛选结果里是否出现过多个 provider，仅此时才在模型列附带展示 provider
  * （单一 provider 时每行重复同一个值是纯噪声）。
  *
- * 列顺序（参考 Datadog/Sentry 日志表）：
+ * 列顺序（日志审计表的通用读法：时间→主体→耗时/token→结论）：
  * # → 时间 → 角色 → 模型 → Tokens → 响应耗时。
  * 正文预览与工具徽章均已裁撤——失败行无正文、正文噪声大于信号、工具消费
  * 面不存在；完整请求与响应原文在详情抽屉按需读。

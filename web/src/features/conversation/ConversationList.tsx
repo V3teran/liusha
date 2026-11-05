@@ -304,7 +304,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
-            {/* 区间+总数（Gmail/Sentry 惯例）：一行同时表达「看到哪了」与「总量」；
+            {/* 区间+总数：一行同时表达「看到哪了」与「总量」；
                 搜索是页内过滤，匹配行如实标注「仅本页」 */}
             {query.trim()
               ? `匹配 ${filtered.length} 条（仅本页）`
@@ -327,7 +327,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                 <span
                   className={cn(
                     'mt-[7px] h-2 w-2 flex-shrink-0 rounded-full',
-                    meta.key === 'active' && 'animate-pulse',
+                    meta.key === 'active' && !c.run_paused && 'animate-pulse',
                   )}
                   style={{ background: meta.color }}
                   title={meta.label}
@@ -370,7 +370,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                     <span
                       className={cn(
                         'inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none',
-                        meta.key === 'active' && 'animate-pulse',
+                        meta.key === 'active' && !c.run_paused && 'animate-pulse',
                       )}
                       style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, transparent)` }}
                     >

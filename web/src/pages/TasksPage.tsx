@@ -62,7 +62,7 @@ export function TasksPage() {
       </PageHeader>
 
       {/* 左右分栏（master-detail）：任务详情是窄格式内容（KV + 短文本 + 按钮），
-          右侧常驻面板是业界主流（Sentry/Datadog/Linear——扫列表、右钻详情保持行上下文）。
+          右侧常驻面板是业界主流（扫列表、右钻详情保持行上下文，不丢选中态）。
           列表列宽有 min-width 兜底 + 容器横向滚动，窄屏时出横向滑轮而非挤压变形
           （「详情放下方」是流量页为承载整条 raw 报文这类宽格式内容的选择，任务详情不需要）。 */}
       <div className="flex min-h-0 flex-1">
@@ -112,6 +112,10 @@ export function TasksPage() {
               loading={detailQuery.isPending && !rowTask}
               error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
               onClose={closeDetail}
+              onOperated={() => {
+                void detailQuery.refetch()
+                void listQuery.refetch()
+              }}
             />
           </aside>
         )}

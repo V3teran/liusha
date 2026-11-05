@@ -43,13 +43,12 @@ type fakeFollowUp struct {
 	conversationID string
 	calledBrief    string
 	handleIntent   string
-	handleBusy     bool
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string) (string, bool, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string) (string, error) {
 	f.conversationID = conversationID
 	f.calledBrief = content
-	return f.handleIntent, f.handleBusy, nil
+	return f.handleIntent, nil
 }
 
 func TestFollowUpHandler_QA(t *testing.T) {
@@ -68,7 +67,7 @@ func TestFollowUpHandler_QA(t *testing.T) {
 
 func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "action", handleBusy: false}
+	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "action"}
 	r := gin.New()
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
@@ -77,20 +76,6 @@ func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Errorf("action 空闲应 200，得 %d", w.Code)
-	}
-}
-
-func TestFollowUpHandler_ActionBusy_409(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	fu := &fakeFollowUp{conversationID: "c1", handleIntent: "action", handleBusy: true}
-	r := gin.New()
-	r.POST("/conversations/:id/messages", followUpHandler(fu))
-	req := httptest.NewRequest("POST", "/conversations/c1/messages", strings.NewReader(`{"content":"再扫"}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 409 {
-		t.Errorf("action 忙应 409，得 %d", w.Code)
 	}
 }
 

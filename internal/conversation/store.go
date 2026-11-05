@@ -191,11 +191,14 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 	}
 	// run_status：派生「真实运行态」——取关联 task.status（active/completed/aborted）。
 	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
+	// run_paused：active 的暂停子态——侧栏呼吸点是「正在烧 token」的活性信号，
+	// 暂停中的会话显示静态点。
 	// source：两跳 JOIN 到 assignment.source；无 task 的纯聊天为空串，视图上归 manual 侧。
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
 			c.created_at, c.updated_at,
 			COALESCE(t.status, '') AS run_status,
+			COALESCE(t.paused AND t.status = 'active', false) AS run_paused,
 			COALESCE((SELECT count(*) FROM finding f WHERE f.task_id = c.task_id), 0) AS finding_count,
 			COALESCE(a.source, '') AS source
 		FROM conversation c
@@ -370,10 +373,11 @@ func scanConversation(r db.RowScanner, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt)
 }
 
-// scanConversationWithRun 多扫 run_status + finding_count + source
-// （派生态 + 漏洞数 + 下发来源，见 ListConversations）。
+// scanConversationWithRun 多扫 run_status + run_paused + finding_count + source
+// （派生态 + 暂停子态 + 漏洞数 + 下发来源，见 ListConversations）。
 func scanConversationWithRun(r db.RowScanner, c *Conversation) error {
-	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt, &c.RunStatus, &c.FindingCount, &c.Source)
+	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt,
+		&c.RunStatus, &c.RunPaused, &c.FindingCount, &c.Source)
 }
 
 // RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；

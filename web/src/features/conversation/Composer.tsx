@@ -41,9 +41,8 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
         beginThinking()
         onStarted(conversation_id)
       }
-    } catch (e) {
-      const err = e as Error & { busy?: boolean }
-      setBusyMsg(err.busy ? '扫描进行中，先点停止再发' : '发送失败')
+    } catch {
+      setBusyMsg('发送失败')
     } finally {
       setSending(false)
     }

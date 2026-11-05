@@ -490,19 +490,19 @@ func (a *Service) DeleteConversation(ctx context.Context, conversationID string)
 const dispatchAnswerTimeout = 5 * time.Minute
 
 // HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息后立即返回（请求路径零 LLM 调用），
-// 意图分类与分流全部异步（dispatchFollowUp）。busy 判定随之下沉到异步分支：扫描进行中
-// 收到 action 指令不再 409，而是往时间线落提示消息——前端拿到 200 即清空输入框、
-// 追加的消息立即出现在时间线，回答/扫描进展经 SSE 流出。
-func (a *Service) HandleMessage(ctx context.Context, conversationID, content string) (string, bool, error) {
+// 意图分类与分流全部异步（dispatchFollowUp）。扫描进行中/暂停中收到 action 指令的反馈
+// 由异步分支往时间线落提示消息——前端拿到 200 即清空输入框、追加的消息立即出现在
+// 时间线，回答/扫描进展经 SSE 流出。
+func (a *Service) HandleMessage(ctx context.Context, conversationID, content string) (string, error) {
 	fetched, err := a.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	if _, err := a.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, content, nil); err != nil {
-		return "", false, err
+		return "", err
 	}
 	go a.dispatchFollowUp(conversationID, fetched.TaskID, content) //nolint:gosec // G118：分发独立于请求生命周期
-	return "accepted", false, nil
+	return "accepted", nil
 }
 
 // dispatchFollowUp 追加消息的异步分发：意图闸 → 分流。detached ctx，

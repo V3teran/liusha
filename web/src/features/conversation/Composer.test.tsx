@@ -102,10 +102,8 @@ describe('Composer', () => {
     })
   })
 
-  it('followUp 返回 409 busy 时显示提示', async () => {
-    const err = new Error('扫描进行中') as Error & { busy?: boolean }
-    err.busy = true
-    vi.mocked(followUp).mockRejectedValue(err)
+  it('followUp 失败时显示发送失败提示（busy 裁决已异步化，无同步特例）', async () => {
+    vi.mocked(followUp).mockRejectedValue(new Error('network'))
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
@@ -113,7 +111,7 @@ describe('Composer', () => {
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
-      expect(screen.getByText('扫描进行中，先点停止再发')).toBeTruthy()
+      expect(screen.getByText('发送失败')).toBeTruthy()
     })
   })
 
@@ -132,10 +130,8 @@ describe('Composer', () => {
     })
   })
 
-  it('scanning=true 时后端仍以 409 busy 拒绝 action 类指令，前端展示提示', async () => {
-    const err = new Error('扫描进行中') as Error & { busy?: boolean }
-    err.busy = true
-    vi.mocked(followUp).mockRejectedValue(err)
+  it('scanning=true 时发送失败同样显示就近提示', async () => {
+    vi.mocked(followUp).mockRejectedValue(new Error('network'))
     render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
     const textarea = screen.getByPlaceholderText(/继续提问/)
@@ -143,7 +139,7 @@ describe('Composer', () => {
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
-      expect(screen.getByText('扫描进行中，先点停止再发')).toBeTruthy()
+      expect(screen.getByText('发送失败')).toBeTruthy()
     })
   })
 

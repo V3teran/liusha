@@ -90,10 +90,10 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 }
 
 // FollowUpAPI 处理会话追加消息：落 user 消息后立即返回，意图分类/分流在服务端异步完成。
-// intent 固定返回 "accepted"（busy 恒 false——扫描进行中收到 action 指令时服务端往
-// 时间线落提示消息，不再 409）。返回后前端拉增量补进时间线，回答/扫描进展经 SSE 流出。
+// intent 固定返回 "accepted"。扫描进行中/暂停中收到 action 指令的反馈由服务端异步
+// 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态裁决。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, conversationID, content string) (intent string, busy bool, err error)
+	HandleMessage(ctx context.Context, conversationID, content string) (intent string, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体。
@@ -109,13 +109,9 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
 			return
 		}
-		intent, busy, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content)
+		intent, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		if busy {
-			c.JSON(http.StatusConflict, gin.H{"error": "扫描进行中，停止后再发", "busy": true, "intent": intent})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"intent": intent})

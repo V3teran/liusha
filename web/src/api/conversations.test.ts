@@ -128,15 +128,15 @@ describe('会话域 API', () => {
       expect(result.intent).toBe('action')
     })
 
-    it('followUp 409 抛带 busy 标记的错', async () => {
+    it('followUp 非 2xx 抛错（busy 裁决已异步化，无 409 特例）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 409,
-        json: vi.fn().mockResolvedValue({ busy: true }),
+        status: 500,
+        json: vi.fn().mockResolvedValue({}),
       })
       ;(global as any).fetch = mockFetch
 
-      await expect(followUp('c1', 'x')).rejects.toMatchObject({ busy: true })
+      await expect(followUp('c1', 'x')).rejects.toThrow('500')
     })
 
     it('abortTask POST 到 /conversations/:id/abort', async () => {
