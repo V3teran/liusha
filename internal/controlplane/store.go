@@ -14,13 +14,13 @@ import (
 // Command 定义控制命令类型
 type Command string
 
-// 控制平面命令：人工干预动作。暂停/继续不在其列——它们是任务行上的 paused
-// 标记（dispatch 直接 CAS），不经事件队列：暂停要求同步生效（列表立即翻转），
-// 且暂停期间循环已退出、没有消费者。
+// 控制平面命令：内容干预（改写探索图、由后续规划消费）。生命周期操作
+// （暂停/继续/停止）不在其列——它们是任务行上的状态（paused 标记 / status
+// 终态），认知循环按行观察：行状态与 API 响应同事务生效，没有投递失败或
+// 跨生命周期迟到消费的问题。
 const (
 	CommandAdjustGoal   Command = "adjust_goal"   // 调整任务目标
 	CommandInjectAction Command = "inject_action" // 注入新的 Action
-	CommandTerminate    Command = "terminate"     // 终止任务
 )
 
 // Status 定义事件处理状态
@@ -91,19 +91,20 @@ func (s *Store) Create(ctx context.Context, taskID string, command Command, payl
 	return id, nil
 }
 
-// ResolvePendingTerminates 把该 task 全部未处理的 terminate 事件标记 processed。
-// 供续接（FollowUp/Reopen）前调用：上一轮运行期间用户停止产生的 terminate 若未被
-// 已停的消费者取走，会滞留 pending，被续接 run 的控制消费者迟到消费而误杀新 run。
-func (s *Store) ResolvePendingTerminates(ctx context.Context, taskID string) (int, error) {
+// ResolvePending 把该 task 全部未处理控制事件标记 processed。两个调用点：
+// 控制消费者观察到任务终态退出时（生命周期结束，内容事件随之作废），与续接
+// （FollowUp/Reopen）前（消费者已死的崩溃场景兜底）——控制事件只属于一个
+// 生命周期，不得跨生命周期迟到消费。
+func (s *Store) ResolvePending(ctx context.Context, taskID string) (int, error) {
 	if taskID == "" {
 		return 0, fmt.Errorf("controlplane: taskID 为空")
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE task_control_event
 		SET status='processed', processed_at=now(), error=''
-		WHERE task_id = $1 AND command = 'terminate' AND status = 'pending'`, taskID)
+		WHERE task_id = $1 AND status = 'pending'`, taskID)
 	if err != nil {
-		return 0, fmt.Errorf("controlplane: resolve pending terminates failed: %w", err)
+		return 0, fmt.Errorf("controlplane: resolve pending failed: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
 }

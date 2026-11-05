@@ -92,8 +92,7 @@ func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 }
 
 // 暂停标记的 CAS 语义：MarkPaused/MarkResumed 只做单向迁移并报告是否发生；
-// IsPaused 只对 active 任务报 true；Reopen 清残留标记；ReapStale 豁免暂停中
-// 的任务（有意停摆不是孤儿）。
+// Reopen 清残留标记；ReapStale 豁免暂停中的任务（有意停摆不是孤儿）。
 func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
@@ -105,9 +104,8 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	if changed, err := s.MarkPaused(ctx, id); err != nil || changed {
 		t.Fatalf("重复 pause 应幂等不迁移: changed=%v err=%v", changed, err)
 	}
-	paused, err := s.IsPaused(ctx, id)
-	if err != nil || !paused {
-		t.Fatalf("active 任务应报已暂停: paused=%v err=%v", paused, err)
+	if tk, err := s.GetByID(ctx, id); err != nil || tk.Status != StatusActive || !tk.Paused {
+		t.Fatalf("active 任务应读回 paused=true: status=%s paused=%v err=%v", tk.Status, tk.Paused, err)
 	}
 	if changed, err := s.MarkResumed(ctx, id); err != nil || !changed {
 		t.Fatalf("resume 应迁移: changed=%v err=%v", changed, err)
@@ -116,15 +114,12 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 		t.Fatalf("未暂停时 resume 应幂等不迁移: changed=%v err=%v", changed, err)
 	}
 
-	// 终态任务：标记不迁移、IsPaused 一律 false。
+	// 终态任务：标记不迁移（循环按行观察，终态即退出，不看 paused）。
 	if err := s.Abort(ctx, id, "用户停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
 	if changed, err := s.MarkPaused(ctx, id); err != nil || changed {
 		t.Fatalf("终态任务不得置暂停: changed=%v err=%v", changed, err)
-	}
-	if paused, err := s.IsPaused(ctx, id); err != nil || paused {
-		t.Fatalf("终态任务 IsPaused 应为 false: paused=%v err=%v", paused, err)
 	}
 
 	// 暂停中 Reopen（FollowUp 续接）：残留标记必须清除，否则新 run 被误读为已暂停。
@@ -138,8 +133,8 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	if err := s.Reopen(ctx, id2); err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	if paused, err := s.IsPaused(ctx, id2); err != nil || paused {
-		t.Fatalf("reopen 后残留暂停标记应被清除: paused=%v err=%v", paused, err)
+	if tk, err := s.GetByID(ctx, id2); err != nil || tk.Paused {
+		t.Fatalf("reopen 后残留暂停标记应被清除: paused=%v err=%v", tk.Paused, err)
 	}
 }
 

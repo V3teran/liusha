@@ -165,9 +165,9 @@ func (d *Deps) run(
 		}
 	}()
 
-	// 控制平面消费者：轮询 task_control_event（terminate/adjust_goal/inject_action）
-	// 并观察 task.paused——暂停时停 agents、以 user_paused 结束本 run（任务行
-	// 保持 active+paused，继续时由 dispatch 重投全新 run 从图续跑）。
+	// 控制平面消费者：任务行承载生命周期（终态/暂停 → 停 agents、携精确
+	// 停止原因结束本 run），task_control_event 承载内容干预（adjust_goal/
+	// inject_action，落图由后续规划消费）。
 	if d.ControlPlane != nil {
 		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Tasks, d.Logger)
 		defer stopConsumer()
@@ -214,7 +214,7 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 		return
 	}
 	terminal := explorationgraph.StateCompleted
-	if strings.Contains(stopWhy, "terminate") || strings.Contains(stopWhy, "cancel") {
+	if stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel") {
 		terminal = explorationgraph.StateAborted
 	}
 	for _, obj := range objectives {

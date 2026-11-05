@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // ErrConflict 是终态迁移被拒（另一终态已先落，不覆盖）的哨兵；API 层据此映射 409。
@@ -169,20 +167,4 @@ func (s *Store) MarkResumed(ctx context.Context, id string) (bool, error) {
 		return false, fmt.Errorf("mark resumed: %w", err)
 	}
 	return tag.RowsAffected() > 0, nil
-}
-
-// IsPaused 读任务是否处于「active 且暂停中」。终态/不存在一律 false——
-// 暂停只对进行中任务有意义，调用方（认知循环的暂停观察）无需再判状态。
-func (s *Store) IsPaused(ctx context.Context, id string) (bool, error) {
-	var paused bool
-	err := s.pool.QueryRow(ctx,
-		`SELECT paused FROM task WHERE id = $1 AND status = 'active'`, id).
-		Scan(&paused)
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("is paused: %w", err)
-	}
-	return paused, nil
 }

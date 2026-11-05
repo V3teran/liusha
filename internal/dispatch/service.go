@@ -293,12 +293,13 @@ func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 	if err := a.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
 	}
-	// 清滞留的 terminate：上轮停止的终止指令不得误杀本轮续接（best-effort）。
+	// 清上轮生命周期的滞留内容事件：控制消费者终态退出时已清，这里兜底
+	// 消费者已死的崩溃场景——内容事件只属于一个生命周期，不得被本轮迟到消费。
 	if a.Control != nil {
-		if n, err := a.Control.ResolvePendingTerminates(ctx, taskID); err != nil {
-			chatLog.Warn().Err(err).Str("task", taskID).Msg("清理滞留 terminate 失败（续接 run 有被迟到终止的风险）")
+		if n, err := a.Control.ResolvePending(ctx, taskID); err != nil {
+			chatLog.Warn().Err(err).Str("task", taskID).Msg("清理滞留控制事件失败（续接 run 有迟到消费的风险）")
 		} else if n > 0 {
-			chatLog.Info().Int("resolved", n).Str("task", taskID).Msg("已清理上轮滞留的 terminate 控制事件")
+			chatLog.Info().Int("resolved", n).Str("task", taskID).Msg("已清理上轮滞留的控制事件")
 		}
 	}
 	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
@@ -413,17 +414,12 @@ func (a *Service) ResumeTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-// TerminateTask 按 taskID 停止：Abort 终态 + terminate 事件 + 会话时间线通知
-// （与 AbortConversationTask 同链路，入口从会话换成任务）。
+// TerminateTask 按 taskID 停止：Abort 终态 + 会话时间线通知（与 AbortConversationTask
+// 同链路，入口从会话换成任务）。运行中的循环由任务行观察停摆（≤一个控制轮询
+// 周期）——行状态与 API 响应同事务生效，没有事件投递失败的停摆缺口。
 func (a *Service) TerminateTask(ctx context.Context, taskID string) error {
 	if err := a.Tasks.Abort(ctx, taskID, "用户停止（任务行）"); err != nil {
 		return err
-	}
-	if a.Control != nil {
-		payload, _ := json.Marshal(map[string]string{"reason": "用户停止（任务行）"})
-		if _, err := a.Control.Create(ctx, taskID, controlplane.CommandTerminate, payload); err != nil {
-			chatLog.Warn().Err(err).Str("task", taskID).Msg("terminate 控制事件写入失败（Abort 已终态，循环停摆由回收兜底）")
-		}
 	}
 	if convID, err := a.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
 		a.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted,
@@ -434,11 +430,12 @@ func (a *Service) TerminateTask(ctx context.Context, taskID string) error {
 
 // AbortConversationTask 满足 httpapi.AbortAPI：abort 会话关联的 task。
 //
-// 三件事一体（缺一则「停止」名不副实）：
+// 两件事一体（缺一则「停止」名不副实）：
 //  1. task 置 aborted（DB 终态，幂等/守卫见 task.Store.Abort）；
-//  2. 发 terminate 控制事件——runner 控制平面消费后停认知循环（此前缺失：
-//     只改 DB 的话 agent 继续烧 token 直到自然收敛）；
-//  3. 时间线落 aborted 节点（用户可见的停止边界）。
+//  2. 时间线落 aborted 节点（用户可见的停止边界）。
+//
+// 运行中的认知循环按任务行观察退出（控制消费者每周期读行，终态即停 agents
+// 结束 run）——生命周期信号走任务行而非事件队列。
 func (a *Service) AbortConversationTask(ctx context.Context, conversationID string) error {
 	fetched, err := a.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
@@ -449,14 +446,6 @@ func (a *Service) AbortConversationTask(ctx context.Context, conversationID stri
 	}
 	if err := a.Tasks.Abort(ctx, fetched.TaskID, "用户停止"); err != nil {
 		return err
-	}
-	if a.Control != nil {
-		payload, _ := json.Marshal(map[string]string{"reason": "用户停止"})
-		if _, err := a.Control.Create(ctx, fetched.TaskID, controlplane.CommandTerminate, payload); err != nil {
-			// best-effort：控制事件失败不回滚 abort（DB 终态已定，循环至迟被
-			// 心跳停摆回收），但必须留痕。
-			chatLog.Warn().Err(err).Str("task", fetched.TaskID).Msg("terminate 控制事件写入失败（循环停摆延迟到 reaper）")
-		}
 	}
 	a.appendTaskStatus(ctx, conversationID, conversation.TaskStatusAborted,
 		"扫描已停止", map[string]any{"reason": "用户停止"})

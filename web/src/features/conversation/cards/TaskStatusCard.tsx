@@ -35,7 +35,7 @@ function statusShape(md: TimelineEventMeta): StatusShape {
 // 用户终止与自然收敛在时间线上逐像素相同（实测 stop_reason='control-plane:
 // terminate' 的任务显示绿色「扫描完成」）。
 const STOP_REASON_LABELS: Record<string, string> = {
-  'control-plane: terminate': '手动终止',
+  task_terminated: '手动终止',
   context_cancelled: '执行被取消',
   task_converged: '目标收敛',
   max_steps_reached: '达到步数上限',
