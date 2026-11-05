@@ -284,7 +284,9 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 	_ = resA2
 
-	// 批次间隔离：同 taskID 落在不同批次（assignment）→ 互不可见（两级分层契约）。
+	// 路径拼接机制回归：taskRoot = liushaRoot/<assignment>/<task> 的 join 正确性。
+	// （真实数据中 taskID 全局唯一、归属永不改变，同 taskID 跨批次不可能出现——
+	// 此用例仅防御 join 拼接/转义回归，非现实隔离场景。）
 	resBA := post(t, "batch-2", "task-a", "agent-1", `ls "$OUTPUT_DIR"`)
 	if bytes.Contains([]byte(resBA.Stdout), []byte("a.txt")) {
 		t.Errorf("batch-2 的 task-a 捞到了 batch-1 的产物，批次隔离失败，stdout=%q", resBA.Stdout)
