@@ -138,6 +138,11 @@ func main() {
 	})
 
 	// 启动时预创建 sandbox 容器（可选，不调用也能正常工作）
+	// 僵尸 run 回收（硬杀后 MaxRetry(0) 任务进 archived 永不重投的另一半修复：
+	// 探索图 action 恢复之外，把僵尸 agent_run 标记失败并重投 planner）
+	runner.StartRunRecoveryMonitor(ctx, pool, wc, stores.agentRuns, stores.tasks, logger,
+		30*time.Second, 6*time.Minute)
+
 	if err := sandboxMgr.EnsureRunning(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("failed to start warm pool sandbox")
 	}

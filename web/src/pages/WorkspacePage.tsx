@@ -54,6 +54,16 @@ function languageExtensions(path: string) {
       return []
   }
 }
+/** UUID 段形态（批次/任务目录名不进展示名，避免每行都拖一长串前缀）。 */
+const uuidSeg = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 展示名：剥掉前导 UUID 段后的相对路径（编辑器标题/通知用；复制原始路径用 title）。 */
+function displayPath(p: string): string {
+  const segs = p.split('/')
+  while (segs.length > 1 && uuidSeg.test(segs[0])) segs.shift()
+  return segs.join('/')
+}
+
 /**
  * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
  * 直接展示整棵工作区文件结构（两级分层：顶层为批次 assignment 分组，其下
@@ -130,7 +140,7 @@ export function WorkspacePage() {
     if (!selected || draft === null) return
     await putWorkspaceFile(selected, new TextEncoder().encode(draft))
     setDraft(null)
-    setNotice(`已保存 ${selected}`)
+    setNotice(`已保存 ${displayPath(selected)}`)
     refresh()
   }
 
@@ -143,31 +153,31 @@ export function WorkspacePage() {
     if (creating === 'file') {
       putWorkspaceFile(p, new Uint8Array())
         .then(() => {
-          setNotice(`已创建 ${p}`)
+          setNotice(`已创建 ${displayPath(p)}`)
           setNewName('')
           setSelected(p)
           setCreating(null)
           refresh()
         })
-        .catch((e) => setNotice(`创建失败：${(e as Error).message}`))
+        .catch((e) => setNotice(`创建失败：${displayPath(p)}（${(e as Error).message}）`))
     } else {
       mkdirWorkspace(p)
         .then(() => {
-          setNotice(`已创建目录 ${p}`)
+          setNotice(`已创建目录 ${displayPath(p)}`)
           setNewName('')
           setCreating(null)
           refresh()
         })
-        .catch((e) => setNotice(`创建失败：${(e as Error).message}`))
+        .catch((e) => setNotice(`创建失败：${displayPath(p)}（${(e as Error).message}）`))
     }
   }
 
   async function download(path: string) {
     try {
       await downloadWorkspacePath(path)
-      setNotice(`已下载 ${path}`)
+      setNotice(`已下载 ${displayPath(path)}`)
     } catch (e) {
-      setNotice(`下载失败：${(e as Error).message}`)
+      setNotice(`下载失败：${displayPath(path)}（${(e as Error).message}）`)
     }
   }
 
@@ -179,10 +189,10 @@ export function WorkspacePage() {
         setSelected(null)
         setDraft(null)
       }
-      setNotice(`已删除 ${path}`)
+      setNotice(`已删除 ${displayPath(path)}`)
       refresh()
     } catch (e) {
-      setNotice(`删除失败：${(e as Error).message}`)
+      setNotice(`删除失败：${displayPath(path)}（${(e as Error).message}）`)
     }
   }
 
@@ -287,7 +297,7 @@ export function WorkspacePage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Badge size="sm" color="neutral">二进制</Badge>
-                  <span className="text-sm text-text">{selected}</span>
+                  <span className="text-sm text-text" title={selected}>{displayPath(selected)}</span>
                   <span className="text-xs text-text-secondary">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -315,7 +325,7 @@ export function WorkspacePage() {
           ) : fileQuery.data?.truncated ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm text-text">{selected}</span>
+                <span className="truncate text-sm text-text" title={selected}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
@@ -354,7 +364,7 @@ export function WorkspacePage() {
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm text-text">{selected}</span>
+                <span className="truncate text-sm text-text" title={selected}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
@@ -434,7 +444,7 @@ function FileTree({
         return (
           <li key={e.path} className="group/row">
             <div
-              style={{ paddingLeft: `${depth * 14 + 8}px` }}
+              style={{ paddingLeft: `${depth * 22 + 8}px` }}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg py-1 text-left',
                 e.is_dir && 'cursor-pointer hover:bg-surface-2',
