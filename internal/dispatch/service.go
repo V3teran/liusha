@@ -308,6 +308,16 @@ func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 	}
 	runID, err := a.enqueuePlannerRun(ctx, taskID, conversationID, payloadInput)
 	if err != nil {
+		if !errors.Is(err, agentrun.ErrLiveRunExists) {
+			return "", err
+		}
+		// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：先建者赢，复用存活
+		// run——任务已被重拉起，但用户的续接指令未进本轮 brief（原 brief 续跑）。
+		chatLog.Warn().Str("task", taskID).Str("conversation_id", conversationID).
+			Msg("续接与并发重投竞争，复用已存活 run（本轮指令未并入 brief）")
+		if latest, lErr := a.AgentRuns.LatestByTask(ctx, taskID); lErr == nil {
+			return latest.ID, nil
+		}
 		return "", err
 	}
 	// 续接同款下发边界：时间线标记新一轮 run 启动（与首发的 dispatched 同形）。
@@ -406,6 +416,12 @@ func (a *Service) ResumeTask(ctx context.Context, taskID string) error {
 	}
 	input, _ := json.Marshal(map[string]string{"brief": tk.Brief})
 	if _, err := a.enqueuePlannerRun(ctx, taskID, conversationID, input); err != nil {
+		if errors.Is(err, agentrun.ErrLiveRunExists) {
+			// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：任务已被并发生产者
+			// 拉起，「继续」的目的已达成，幂等返回。
+			dispatchLog.Info().Str("task", taskID).Msg("继续与并发重投竞争，复用已存活 run")
+			return nil
+		}
 		return fmt.Errorf("dispatch: resume task: %w", err)
 	}
 	if conversationID != "" {
@@ -536,7 +552,12 @@ func (a *Service) dispatchFollowUp(conversationID, taskID, content string) {
 	if isAction {
 		if tk.Status == task.StatusActive {
 			// 忙：agent 在跑。不排队不拒绝，时间线给可见反馈（原 409 busy 语义）。
-			a.publishNotice(ctx, conversationID, "（扫描进行中，本条指令未下发；停止扫描后可重发）")
+			// 暂停中的任务同闸拦截但给暂停专属指引——「扫描进行中」对暂停任务是误导。
+			if tk.Paused {
+				a.publishNotice(ctx, conversationID, "（扫描已暂停，本条指令未下发；在任务页点「继续」恢复后再下发）")
+			} else {
+				a.publishNotice(ctx, conversationID, "（扫描进行中，本条指令未下发；停止扫描后可重发）")
+			}
 			return
 		}
 		if _, err := a.FollowUp(ctx, taskID, conversationID, content); err != nil {

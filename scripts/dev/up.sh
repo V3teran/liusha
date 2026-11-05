@@ -23,7 +23,7 @@ done
 
 echo ""
 echo "===== 3. 跑 migrate ====="
-make migrate
+make migrate MIGRATE_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
 
 echo ""
 echo "===== 4. 当前状态 ====="

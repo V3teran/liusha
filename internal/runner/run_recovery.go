@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"time"
 
@@ -23,18 +24,19 @@ import (
 //
 // 本监控补另一半，两条规则：
 //
-//  1. 僵尸 run：running run + active task + LLM/工具活动停摆超过 timeout（与
-//     action 恢复同口径，6 分钟 ≈ 2 倍单步 LLM 看门狗）→ 旧 run 标记 failed →
-//     以全新 agent_run 重投 planner（认知循环从头跑，探索图历史保留）。
-//     暂停中的任务例外：只回收僵尸 run 行，不重投——暂停是有意停摆，恢复由
-//     用户的继续操作驱动。
+//  1. 僵尸 run：running run + LLM/工具活动停摆超过 timeout（与 action 恢复同
+//     口径，6 分钟 ≈ 2 倍单步 LLM 看门狗）→ 旧 run 标记 failed → 以全新
+//     agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
+//     已终态的任务例外：只回收僵尸 run 行（含进程死在终态落库之后的脏行），
+//     不重投——恢复分别由继续操作 / 终态裁决驱动。
 //  2. 搁浅任务：active 且未暂停，却没有任何 pending/running run（暂停退出后
 //     的继续竞态、enqueue 失败等泄漏）→ 重投 planner。活跃任务的不变式是
 //     「必有 run 在跑或排队」，此规则让不变式自愈。
 //
 // 重投带尝试上限（按 error run 计数——只数中断，不数用户主动的暂停/完成）：
 // 连续多次中断不再自动恢复（防崩溃循环烧 LLM 账单），超限时任务落 aborted
-// 由用户手动重新触发。
+// 由用户手动重新触发。重投与其它 run 生产者（继续/续接）的毫秒级竞态由
+// agent_run 的部分唯一索引裁决（每任务至多一个存活 run），先建者赢。
 
 const (
 	// runRecoveryMaxAttempts 是单任务自动重投上限（按 error run 计数）。
@@ -102,19 +104,19 @@ func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker
 
 // recoverOnce 扫描并回收僵尸 run、重投搁浅任务。
 //
-// 僵尸判定（与 action 恢复同口径）：run 在跑（running）+ 所属 task 还在
-// active + 该 task 的 LLM/工具活动停摆超过 timeout + run 行自身超过 timeout
-// 未被触碰（排除刚建行、首个 LLM 调用在途的新 run）。
+// 僵尸判定（与 action 恢复同口径）：run 在跑（running）+ 该 task 的 LLM/工具
+// 活动停摆超过 timeout + run 行自身超过 timeout 未被触碰（排除刚建行、首个
+// LLM 调用在途的新 run）。不限任务状态：进程死在任务终态之后（停止已落库、
+// handler 没跑到回写）同样留下 running 脏行——终态任务只收行，不重投。
 func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
-		SELECT ar.id::text, ar.task_id::text, t.brief, t.paused,
-		       (SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1),
+		SELECT ar.id::text, ar.task_id::text, t.brief, t.paused, t.status::text,
+		       COALESCE((SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1), ''),
 		       (SELECT count(*) FROM agent_run a2
 		         WHERE a2.task_id = ar.task_id AND a2.status = 'error')
 		FROM agent_run ar
 		JOIN task t ON t.id = ar.task_id
 		WHERE ar.status = 'running'
-		  AND t.status = 'active'
 		  AND ar.updated_at < NOW() - $1 * INTERVAL '1 second'
 		  AND NOT EXISTS (
 			SELECT 1 FROM llm_invocation li
@@ -131,14 +133,17 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	type zombie struct {
 		runID, taskID, brief, conversationID string
 		paused                               bool
+		terminal                             bool
 		attempts                             int
 	}
 	var zombies []zombie
 	for rows.Next() {
 		var z zombie
-		if err := rows.Scan(&z.runID, &z.taskID, &z.brief, &z.paused, &z.conversationID, &z.attempts); err != nil {
+		var status string
+		if err := rows.Scan(&z.runID, &z.taskID, &z.brief, &z.paused, &status, &z.conversationID, &z.attempts); err != nil {
 			return err
 		}
+		z.terminal = status != "active"
 		zombies = append(zombies, z)
 	}
 	if err := rows.Err(); err != nil {
@@ -146,15 +151,17 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	}
 
 	for _, z := range zombies {
-		// 暂停中的任务：只回收僵尸 run 行（审计面不留 running 脏态），不重投、
-		// 不计中断次数——恢复由用户的继续操作驱动。
-		if z.paused {
+		// 暂停中/已终态的任务：只回收僵尸 run 行（审计面不留 running 脏态），
+		// 不重投、不计中断次数——恢复分别由继续操作 / 任务终态裁决驱动。
+		if z.paused || z.terminal {
 			m.logger.Info().
 				Str("agent_run_id", z.runID).
 				Str("task_id", z.taskID).
-				Msg("暂停中的任务存在僵尸 run，仅回收 run 行（不重投）")
+				Bool("paused", z.paused).
+				Bool("terminal", z.terminal).
+				Msg("暂停/终态任务存在僵尸 run，仅回收 run 行（不重投）")
 			if err := m.agentRuns.SetAborted(ctx, z.runID); err != nil {
-				m.logger.Error().Err(err).Str("agent_run_id", z.runID).Msg("暂停任务僵尸 run 回收失败")
+				m.logger.Error().Err(err).Str("agent_run_id", z.runID).Msg("僵尸 run 行回收失败")
 			}
 			continue
 		}
@@ -196,7 +203,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
 		SELECT t.id::text, t.brief,
-		       (SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1),
+		       COALESCE((SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1), ''),
 		       (SELECT count(*) FROM agent_run a2
 		         WHERE a2.task_id = t.id AND a2.status = 'error')
 		FROM task t
@@ -250,7 +257,8 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 }
 
 // redispatchPlanner 以全新 agent_run 重投 planner（探索图历史保留，认知循环
-// 从头规划）；失败仅告警，下一轮巡检重试。
+// 从头规划）；失败仅告警，下一轮巡检重试。该 task 已有存活 run 时（与继续/
+// 续接的毫秒级竞态，部分唯一索引裁决）跳过——先建者赢。
 func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brief, conversationID string) {
 	input, _ := json.Marshal(map[string]string{"brief": brief})
 	newID, err := m.agentRuns.Create(ctx, agentrun.NewParams{
@@ -259,6 +267,11 @@ func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brie
 		Input:  input,
 	})
 	if err != nil {
+		if errors.Is(err, agentrun.ErrLiveRunExists) {
+			m.logger.Info().Str("task_id", taskID).
+				Msg("已有存活 run，跳过重投（并发生产者先建）")
+			return
+		}
 		m.logger.Error().Err(err).Str("task_id", taskID).Msg("创建恢复 run 失败")
 		return
 	}
