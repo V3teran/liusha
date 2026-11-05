@@ -8,11 +8,18 @@ import (
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrNoRun 表示查询条件下不存在 agent run 行（LatestByTask 无行时返回）。
 var ErrNoRun = errors.New("agent run 不存在")
+
+// ErrLiveRunExists 表示该 task 已有存活 run（pending/running）——部分唯一索引
+// agent_run_one_live_per_task 拒绝了第二个存活行的创建。agent run 有四个并发
+// 生产者（下发展开/会话续接/暂停后继续/恢复监控重投），此哨兵是竞争的裁决
+// 信号：先建者赢，后来者按各自语义处理（幂等成功 / 跳过重投 / 复用既有 run）。
+var ErrLiveRunExists = errors.New("该任务已有存活 run（pending/running），拒绝再建")
 
 // Store 封装 agent_run 表的所有持久化操作。
 type Store struct {
@@ -28,7 +35,7 @@ const colsSelect = `id, ` +
 	`role, input, result, status, created_at, updated_at`
 
 // Create 插入一行 pending agent 运行，返回新 id。Input 为 nil 时落空对象。
-// TaskID 必填（NOT NULL 外键）。
+// TaskID 必填（NOT NULL 外键）。该 task 已有存活 run 时返回 ErrLiveRunExists。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	if p.Input == nil {
 		p.Input = json.RawMessage("{}")
@@ -42,6 +49,10 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", ErrLiveRunExists
+		}
 		return "", fmt.Errorf("insert agent run: %w", err)
 	}
 	return id, nil

@@ -5,6 +5,7 @@ package agentrun
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/dbtest"
@@ -136,13 +137,19 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 }
 
 // TestStore_ListByTask 验证：ListByTask 取回 task 下所有 agent run（取代旧 ListByOwner）。
+// 同任务可有任意多个 run，但同时至多一个存活（部分唯一索引）——顺序创建、
+// 每个先落终态再建下一个。
 func TestStore_ListByTask(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
 	for i := 0; i < 3; i++ {
-		if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); err != nil {
+		id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+		if err != nil {
 			t.Fatalf("seed %d: %v", i, err)
+		}
+		if err := s.SetAborted(ctx, id); err != nil {
+			t.Fatalf("seed %d abort: %v", i, err)
 		}
 	}
 
@@ -157,5 +164,41 @@ func TestStore_ListByTask(t *testing.T) {
 		if r.TaskID != taskID {
 			t.Fatalf("run.TaskID=%q, want %q", r.TaskID, taskID)
 		}
+	}
+}
+
+// TestCreate_OneLiveRunPerTask 验证不变式（部分唯一索引 agent_run_one_live_
+// per_task）：同任务同时至多一个 pending/running run。agent run 有四个并发
+// 生产者（下发展开/会话续接/暂停后继续/恢复监控重投），「先查后建」的纪律
+// 挡不住跨进程竞态——双存活 run 即双认知循环并发（双倍 LLM 账单 + 探索图
+// 双写），违例写入由数据库直接拒绝、以哨兵 ErrLiveRunExists 上抛。
+func TestCreate_OneLiveRunPerTask(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+
+	runID, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// pending 存活期间：第二个存活 run 被拒。
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); !errors.Is(err, ErrLiveRunExists) {
+		t.Fatalf("pending 期间再建应返回 ErrLiveRunExists: %v", err)
+	}
+
+	// 推进到 running：仍是存活态，同样被拒。
+	if err := s.SetRunning(ctx, runID); err != nil {
+		t.Fatalf("set running: %v", err)
+	}
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); !errors.Is(err, ErrLiveRunExists) {
+		t.Fatalf("running 期间再建应返回 ErrLiveRunExists: %v", err)
+	}
+
+	// 终止后槽位释放：可再建（暂停继续/恢复重投依赖此语义）。
+	if err := s.SetAborted(ctx, runID); err != nil {
+		t.Fatalf("set aborted: %v", err)
+	}
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); err != nil {
+		t.Fatalf("终态后应可再建: %v", err)
 	}
 }
