@@ -7,7 +7,7 @@
 | nginx | 80 | **30080** | 前端静态 + `/api` 反代 |
 | api | 8580 | 38580（仅回环） | 控制面 |
 | proxy | 8588 | **38588** | 流量入口（浏览器代理指这里） |
-| runner | 8590 | **38590** | 工作进程（回灌端点；按需拉起沙盒容器 `ghcr.io/v3teran/liusha-sandbox`） |
+| runner | 8590 | **38590** | 工作进程（回灌端点；按需拉起沙盒容器 `ghcr.io/v3teran/liusha-sandbox`，该镜像 amd64-only） |
 | postgres | 5432 | **35432** | 主存储 |
 | redis | 6379 | **36379** | 队列 / 缓存 / 凭证库（强制密码） |
 
@@ -17,7 +17,7 @@
 
 ### 用户（全容器）
 
-前置：Docker。
+前置：Docker（含 compose 插件）。镜像提供 amd64 / arm64 双架构，`pull` 自动取本机架构。
 
 ```bash
 git clone https://github.com/V3teran/liusha.git && cd liusha
@@ -33,7 +33,7 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ### 维护者
 
 ```bash
-make prod-build   # 本地构建六镜像（单架构=本机架构，供本机栈用）
+make prod-build   # 本地构建业务四镜像（单架构=本机架构，供本机栈用）
 make publish      # 构建并推送业务四镜像（amd64+arm64 双架构）——用户 pull 自动取本机
                   # 架构；需 docker login ghcr.io，改代码后须 publish
 make migrate      # 手动迁移（host 直跑形态）
