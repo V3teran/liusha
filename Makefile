@@ -59,11 +59,11 @@ single-build:
 # 目标机 amd64（比赛机常见）：docker buildx build --platform linux/amd64 -t liusha/single -f deployments/single/Dockerfile . --load
 single-run:
 	docker run -d --restart unless-stopped --name liusha-single \
-	  -p 30080:80 -p 38588:8588 -p 38590:8590 \
+	  -p 50080:80 -p 58888:8588 -p 58590:8590 \
 	  -v $(HOME)/data/liusha/single:/data \
 	  -v /var/run/docker.sock:/var/run/docker.sock \
 	  --env-file .env \
-	  -e LIUSHA_INGEST_PUBLIC_PORT=38590 \
+	  -e LIUSHA_INGEST_PUBLIC_PORT=58590 \
 	  liusha/single
 
 logs:

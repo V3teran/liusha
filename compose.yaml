@@ -46,8 +46,8 @@ services:
       POSTGRES_DB: liusha
     # 仅绑回环：库不对外；host 开发进程（run-svc.sh）连 localhost 照常可达
     ports:
-      # 宿主端口一律「3+容器端口」前缀（不足五位补 0）
-      - "127.0.0.1:35432:5432"
+      # 宿主端口一律「5+容器端口」前缀（不足五位补 0）
+      - "127.0.0.1:55432:5432"
     volumes:
       # 持久化统一 ~/data/liusha 前缀（HOST_DATA_DIR 可覆盖；macOS 上 pg 走
       # virtiofs 有 IO 折损，介意者改回 named volume）
@@ -68,7 +68,7 @@ services:
     # 仅绑回环：队列/缓存不对外
     # 仅绑回环（有强制密码）
     ports:
-      - "127.0.0.1:36379:6379"
+      - "127.0.0.1:56379:6379"
     volumes:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
@@ -127,7 +127,7 @@ services:
     # 仅绑回环：nginx 反代走 compose 网络不经宿主端口；对外入口只有 80/8588，
     # 控制面不直接暴露（本机调试 curl 127.0.0.1:8580 仍可达）。
     ports:
-      - "127.0.0.1:38580:8580"
+      - "127.0.0.1:58580:8580"
     profiles: *full-profile
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8580/healthz"]
@@ -149,7 +149,7 @@ services:
       # 反代上游的 api 容器端口（渲染进 nginx.conf；与 api 的 LIUSHA_API_ADDR 端口一致）
       API_CONTAINER_PORT: "8580"
     ports:
-      - "30080:80"
+      - "50080:80"
     profiles: *full-profile
     depends_on:
       api:
@@ -177,8 +177,8 @@ services:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/proxy-certs:/app/certs
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
     ports:
-      # 浏览器代理配 宿主IP:38588（容器内 8588）
-      - "38588:8588"
+      # 浏览器代理配 宿主IP:58888（容器内 8588）
+      - "58888:8588"
     profiles: *full-profile
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -212,8 +212,8 @@ services:
       # 沙盒流量回灌端点（8590 对外发布）的 Bearer：设值后 runner 与沙盒自动共享同一
       # token（launcher 透传）；空 = 开发模式不验——公网宿主必须设。
       LIUSHA_INGEST_TOKEN: "${LIUSHA_INGEST_TOKEN:-}"
-      # 沙盒回连的宿主端口（38590 映射），与容器内监听 8590 区分
-      LIUSHA_INGEST_PUBLIC_PORT: "38590"
+      # 沙盒回连的宿主端口（58590 映射），与容器内监听 8590 区分
+      LIUSHA_INGEST_PUBLIC_PORT: "58590"
     volumes:
       - ./config:/app/config:ro
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
@@ -226,10 +226,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps
-    # 38590 必须绑 0.0.0.0：沙盒容器经 host-gateway（宿主网桥 IP，非 127.0.0.1）
+    # 58590 必须绑 0.0.0.0：沙盒容器经 host-gateway（宿主网桥 IP，非 127.0.0.1）
     # 回灌流量，绑回环会断沙盒链路。公网宿主务必设 LIUSHA_INGEST_TOKEN。
     ports:
-      - "38590:8590"
+      - "58590:8590"
     profiles: *full-profile
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8590/healthz"]
