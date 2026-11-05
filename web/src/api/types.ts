@@ -65,6 +65,7 @@ export interface Conversation {
   title: string
   task_id: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
   run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
+  run_paused?: boolean // active 的暂停子态——侧栏呼吸点据此停闪（暂停不在烧 token）
   finding_count?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
   source?: string // 派生的下发来源（self 自主下发 / proxy 代理模式；纯聊天归 self）——双 tab 分流
   created_at: string

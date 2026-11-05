@@ -48,6 +48,9 @@ type Conversation struct {
 	// 纯聊天为空）。仅 ListConversations 填充。
 	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
 	RunStatus string `json:"run_status,omitempty"`
+	// RunPaused 是 active 的暂停子态（关联 task.paused）。仅 ListConversations 填充——
+	// 侧栏呼吸点是「正在烧 token」的活性信号，暂停中的会话显示静态点。
+	RunPaused bool `json:"run_paused,omitempty"`
 	// FindingCount 是本会话关联 task 已挖到的漏洞数（派生自 finding 表）。仅 ListConversations 填充，
 	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
 	FindingCount int `json:"finding_count,omitempty"`

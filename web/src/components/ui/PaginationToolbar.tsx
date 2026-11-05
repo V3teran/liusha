@@ -17,7 +17,7 @@ const PAGER_BTN =
 /**
  * PaginationToolbar - 统一的翻页工具栏
  *
- * 业界最佳实践（参考 GitHub/Linear）：
+ * 分页条惯例（列表页通用形态）：
  * 1. 总数 + 每页条数 + 翻页按钮统一右对齐
  * 2. 页码显示格式：{page} / {totalPages}
  * 3. 统一的按钮样式和间距

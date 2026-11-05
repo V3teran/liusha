@@ -80,8 +80,8 @@ export async function startChat(
 }
 
 /**
- * 多轮：往已有会话追加动作消息。
- * 扫描进行中（409）时抛带 busy 标记的错，前端提示停止后再发。
+ * 多轮：往已有会话追加动作消息。落库即 200，意图分类与分流在服务端异步完成——
+ * 扫描进行中/暂停中收到 action 指令的反馈由时间线提示消息给出（无同步 busy 裁决）。
  * @param convID 会话 ID
  * @param content 消息内容
  * @returns intent
@@ -95,11 +95,6 @@ export async function followUp(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   })
-  if (res.status === 409) {
-    const err = new Error('扫描进行中') as Error & { busy?: boolean }
-    err.busy = true
-    throw err
-  }
   if (!res.ok) throw new Error(`POST /conversations/${convID}/messages → ${res.status}`)
   return res.json()
 }
