@@ -21,6 +21,10 @@ import {
   putWorkspaceFile,
 } from '@/api/workspaces'
 
+vi.mock('@/api/tasks', () => ({
+  listTasks: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, size: 0 }),
+}))
+
 vi.mock('@/api/workspaces', () => ({
   getWorkspaceTree: vi.fn(),
   getWorkspaceFile: vi.fn(),
@@ -63,8 +67,8 @@ describe('WorkspacePage', () => {
     await waitFor(() => {
       const rows = screen.getAllByRole('listitem')
       expect(rows.length).toBe(3)
-      expect(rows[0].textContent).toContain('task-abc/')
-      expect(rows[1].textContent).toContain('work/')
+      expect(rows[0].textContent).toContain('task-abc')
+      expect(rows[1].textContent).toContain('work')
       expect(rows[2].textContent).toContain('poc.py')
     })
     expect(screen.getByText(/个批次工作区/)).toBeTruthy()
@@ -103,7 +107,7 @@ describe('WorkspacePage', () => {
 
     await screen.findByText('poc.py')
     await user.type(screen.getByLabelText('搜索工作区路径'), 'xyz')
-    expect(screen.getByText('task-xyz/')).toBeTruthy()
+    expect(screen.getByText('task-xyz')).toBeTruthy()
     // 命中 + 祖先链之外整体滤掉（无匹配占位仅在结果为空时出现，此处有结果）
     await waitFor(() => expect(screen.queryByText('poc.py')).toBeNull())
   })
@@ -135,17 +139,17 @@ describe('WorkspacePage', () => {
 
     await screen.findByText('poc.py')
     // 点目录 → 折叠（子节点消失），再点 → 展开（子节点回来）
-    await user.click(screen.getByText('task-abc/'))
+    await user.click(screen.getByText('task-abc'))
     await waitFor(() => expect(screen.queryByText('poc.py')).toBeNull())
-    await user.click(screen.getByText('task-abc/'))
+    await user.click(screen.getByText('task-abc'))
     await waitFor(() => expect(screen.getByText('poc.py')).toBeTruthy())
     // 折叠全部 → 两组子节点都消失，目录行保留
     await user.click(screen.getByLabelText('折叠全部'))
     await waitFor(() => {
       expect(screen.queryByText('poc.py')).toBeNull()
-      expect(screen.queryByText('task-abc/work/')).toBeNull()
-      expect(screen.getByText('task-abc/')).toBeTruthy()
-      expect(screen.getByText('task-xyz/')).toBeTruthy()
+      expect(screen.queryByText('work')).toBeNull()
+      expect(screen.getByText('task-abc')).toBeTruthy()
+      expect(screen.getByText('task-xyz')).toBeTruthy()
     })
   })
 
