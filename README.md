@@ -18,9 +18,10 @@
 ```bash
 git clone https://github.com/V3teran/liusha.git && cd liusha
 cp .env.example .env   # 填必填项
+docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
 docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```
 
 必填项：`POSTGRES_PASSWORD`、`REDIS_PASSWORD`、`LIUSHA_LLM_KEY_SECRET`、`LIUSHA_ADMIN_INITIAL_PASSWORD`、LLM key（与 `config/config.yaml` 的 `providers:` 各块 `api_key_env` 一一对应，可多块多把 key，按档分工）。
 
-数据库迁移随 `up` 自动执行（幂等）。打开 http://localhost:50080，`admin` / 初始密码登录；HTTPS 反代后设 `LIUSHA_COOKIE_SECURE=true`。
+打开 http://localhost:50080，`admin` / 初始密码登录（密码在 `.env` 的 `LIUSHA_ADMIN_INITIAL_PASSWORD`）。
