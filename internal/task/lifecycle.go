@@ -132,3 +132,17 @@ func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) ([]stri
 	}
 	return ids, rows.Err()
 }
+
+
+// SetPaused 写「暂停中」标记（pause/resume 控制事件消费时由循环侧调用）。
+// 仅 active 任务生效——终态任务的暂停标记无意义，直接忽略。
+func (s *Store) SetPaused(ctx context.Context, id string, paused bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE task SET paused = $1, heartbeat_at = now()
+		WHERE id = $2 AND status = 'active'`,
+		paused, id)
+	if err != nil {
+		return fmt.Errorf("set paused: %w", err)
+	}
+	return nil
+}

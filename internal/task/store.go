@@ -18,7 +18,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, assignment_id, brief, target_host, status, heartbeat_at, paused_ms, " +
+const colsSelect = "id, assignment_id, brief, target_host, status, paused, heartbeat_at, paused_ms, " +
 	"created_at, ended_at, error_message"
 
 const (
@@ -58,7 +58,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, t *Task) error {
 	var status string
-	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Brief, &t.TargetHost, &status,
+	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Brief, &t.TargetHost, &status, &t.Paused,
 		&t.HeartbeatAt, &t.PausedMs,
 		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage); err != nil {
 		return err
@@ -87,6 +87,7 @@ type Summary struct {
 	ID              string
 	Brief           string
 	TargetHost      string
+	Paused          bool // 暂停中（仅 active 有意义）
 	Status          Status
 	AssignmentID    string
 	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务 brief）
@@ -107,7 +108,7 @@ type Summary struct {
 
 // summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。
 const summarySelect = `
-	t.id, t.brief, COALESCE(t.target_host,''), t.status::text,
+	t.id, t.brief, COALESCE(t.target_host,''), t.status::text, t.paused,
 	t.assignment_id::text,
 	COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
@@ -147,7 +148,7 @@ func timeArg(t time.Time) any {
 
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
-	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status,
+	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
 		&s.CreatedAt, &s.EndedAt); err != nil {

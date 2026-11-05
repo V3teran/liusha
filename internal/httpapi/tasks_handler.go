@@ -209,6 +209,7 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"brief":            sm.Brief,
 		"target_host":      sm.TargetHost,
 		"status":           string(sm.Status),
+		"paused":           sm.Paused,
 		"assignment_id":    sm.AssignmentID,
 		"assignment_title": sm.AssignmentTitle,
 		"assignment_index": sm.AssignmentIndex,
