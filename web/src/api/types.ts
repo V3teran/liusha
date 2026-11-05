@@ -533,6 +533,7 @@ export interface TaskSummary {
   brief: string
   target_host: string
   status: string // active | completed | aborted
+  paused: boolean // 暂停中（仅 active 有意义；pause 控制事件生效）
   assignment_id: string
   assignment_title: string // 批次标题（assignment.title；空回退首个任务 brief）
   assignment_index: number

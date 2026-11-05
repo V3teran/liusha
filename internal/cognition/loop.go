@@ -167,7 +167,7 @@ func (d *Deps) run(
 
 	// 控制平面消费者：轮询 task_control_event（pause/resume/terminate/adjust_goal/inject）
 	if d.ControlPlane != nil {
-		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Logger)
+		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Tasks, d.Logger)
 		defer stopConsumer()
 	}
 
