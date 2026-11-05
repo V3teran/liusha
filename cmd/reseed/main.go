@@ -78,7 +78,8 @@ func invalidateCache(ctx context.Context, logger zerolog.Logger, pool *pgxpool.P
 		logger.Warn().Msg("LIUSHA_REDIS_ADDR 未配置——跳过缓存失效广播；运行中的 api/runner 最多 10min（L2 TTL）后收敛，或重启进程立即生效")
 		return
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+	// 密码 env 与运行栈同源；缺失时广播 NOAUTH 失败走告警路径（L2 TTL 兜底）
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr, Password: os.Getenv("LIUSHA_REDIS_PASSWORD")})
 	defer func() { _ = rdb.Close() }()
 
 	cfgStore := configstore.New(pool, cachestore.New(rdb, 0))

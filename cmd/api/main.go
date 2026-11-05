@@ -89,7 +89,12 @@ func main() {
 
 	// agent run store + asynq 入队器。
 	agentRunStore := agentrun.NewStore(pool)
-	enq := worker.NewClient(asynq.RedisClientOpt{Addr: os.Getenv("LIUSHA_REDIS_ADDR")})
+		// 密码 env 显式读取（LIUSHA_REDIS_PASSWORD）——redis 强制密码后 asynq 入队
+	// 若不带会 NOAUTH（SADD 幂等键写入即失败）。
+	enq := worker.NewClient(asynq.RedisClientOpt{
+		Addr:     os.Getenv("LIUSHA_REDIS_ADDR"),
+		Password: os.Getenv("LIUSHA_REDIS_PASSWORD"),
+	})
 	defer func() { _ = enq.Close() }()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）。所有配置资源

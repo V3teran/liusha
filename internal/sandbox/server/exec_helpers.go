@@ -57,6 +57,12 @@ func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDi
 	// （$OUTPUT_DIR），state = 会话与环境状态（HOME 指向它——chromium 登录态等
 	// $HOME 工具落盘随之归位）。AgentID 仍随请求透传（进程树标注/审计），不参与
 	// 目录分层——同任务多 agent 共容器共目标，agent 级目录是假隔离。
+	//
+	// 系统操作（健康探测/重置/清理，标识以 "_" 前缀保留）：不落任何工作区目录
+	// ——否则探针会在工作区树里堆出假批次，污染前端展示。
+	if strings.HasPrefix(req.AssignmentID, "_") {
+		return "/tmp", "/tmp", "/tmp", true
+	}
 	taskRoot := filepath.Join(liushaRoot, req.AssignmentID, req.TaskID)
 	workspaceDir = filepath.Join(taskRoot, "work")
 	outputDir = filepath.Join(taskRoot, "out")
