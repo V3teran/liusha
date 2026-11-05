@@ -38,10 +38,20 @@ func NewPgPool(ctx context.Context, dsn string, logger zerolog.Logger, maxConns,
 	if maxConns > 0 && maxConns <= math.MaxInt32 {
 		cfg.MaxConns = int32(maxConns)
 	}
+	// 暖连接兜底（调用方未配时）：MinConns 默认 0 会在空闲时清空池，闲置后的
+	// 首个请求付一次全新拨号——macOS Docker 端口转发对新拨号会间歇性卡顿
+	// （实测 api 单日 38 次 dial error，用户登录直接撞上）。保底 2 条常驻
+	// 连接让请求路径复用暖连接，新拨号只发生在池自身的健康检查里。
+	if minConns == 0 {
+		minConns = 2
+	}
 	if minConns > 0 && minConns <= math.MaxInt32 {
 		cfg.MinConns = int32(minConns)
 	}
-	if connectTimeoutSec > 0 {
+	// 拨号超时兜底 5s：既防 vpnkit 半开连接无限挂起，也不至于长时间占住请求 ctx。
+	if connectTimeoutSec == 0 {
+		cfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	} else if connectTimeoutSec > 0 {
 		cfg.ConnConfig.ConnectTimeout = time.Duration(connectTimeoutSec) * time.Second
 	}
 	if maxConnLifetimeSec > 0 {
