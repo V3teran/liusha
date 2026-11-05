@@ -164,6 +164,13 @@ func main() {
 	if err := seed.ImportLLM(ctx, cfg, llmconfig.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可经模型模块 CRUD 手动补齐）")
 	}
+	// 零 provider 拒启（用户语义「不配置就无法使用」的启动期体现）——错误信息
+	// 直接给出补齐路径，不留到运行期第一次调 LLM 时才炸。
+	if provs, provErr := llmconfig.NewStore(pool).ListProviders(ctx, false); provErr != nil {
+		logger.Fatal().Err(provErr).Msg("读取 LLM provider 失败")
+	} else if len(provs) == 0 {
+		logger.Fatal().Msg("LLM 未配置：config.yaml providers: 块为空且数据库无 provider——至少声明一个 provider（含其 api_key_env 对应的密钥）才能使用")
+	}
 
 	// 系统业务旋钮种子（insert-only）：把 config.yaml 的 compaction/runtime/proxy_filter 三组
 	// 首填进 system_setting，空库时建默认旋钮。已存在的组整组跳过（DB 事实源）。

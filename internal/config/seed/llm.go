@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -112,23 +113,74 @@ func importRoleRoutes(ctx context.Context, cfg config.AppConfig, codeByYamlKey m
 		llmconfig.ComplexityMedium:  cfg.LLM.ComplexityRoutes[llmconfig.ComplexityMedium],
 		llmconfig.ComplexityComplex: cfg.LLM.ComplexityRoutes[llmconfig.ComplexityComplex],
 	}
+	roles := []string{
+		llmconfig.ComplexitySimple,
+		llmconfig.ComplexityMedium,
+		llmconfig.ComplexityComplex,
+	}
 
-	for role, providerKey := range merged {
+	// 1) 显式路由优先：目标 provider 已建（密钥就位）→ 直接落行。
+	for _, role := range roles {
 		if routeSet[role] {
 			continue // 已存在→跳过（insert-only）
 		}
-		if providerKey == "" {
-			continue // 目标 provider 未配置（槽位空）→ 跳过
-		}
-		// complexity_routes 按 yaml key 引用 provider，翻译成实际生成的标识符。
-		code, ok := codeByYamlKey[providerKey]
+		code, ok := codeByYamlKey[merged[role]]
 		if !ok {
-			continue // 目标 provider 未建 → 跳过，避免撞 FK RESTRICT
+			continue // 目标 provider 未建（密钥缺失被跳过）→ 走 2) 降级补齐
 		}
 		if _, err := s.UpsertRoleRoute(ctx, role, code); err != nil {
 			return fmt.Errorf("建角色路由 %q→%q: %w", role, code, err)
 		}
 		routeSet[role] = true
 	}
+
+	// 2) 就近降级补齐：provider 少于三档时（如只配 1-2 把 key），缺档取能力相邻
+	//    档的 provider——complex 缺→medium→simple，medium 缺→complex→simple，
+	//    simple 缺→medium→complex。DB 三档齐全，前端「能力分档」页所见即所得，
+	//    Router 无缺档分支。
+	for _, role := range roles {
+		if routeSet[role] {
+			continue
+		}
+		for _, alt := range roleDegradeOrder(role) {
+			if code, ok := codeByYamlKey[merged[alt]]; ok {
+				if _, err := s.UpsertRoleRoute(ctx, role, code); err != nil {
+					return fmt.Errorf("建角色路由 %q→%q（降级）: %w", role, code, err)
+				}
+				routeSet[role] = true
+				break
+			}
+		}
+	}
+
+	// 3) 兜底：路由完全没对上的极端情形（只配了一块而 routes 写的是别的名字）
+	//    → 三档全指唯一可用的 provider（确定性：yaml key 排序取首）。
+	if len(codeByYamlKey) > 0 {
+		keys := make([]string, 0, len(codeByYamlKey))
+		for k := range codeByYamlKey {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fallbackCode := codeByYamlKey[keys[0]]
+		for _, role := range roles {
+			if !routeSet[role] {
+				if _, err := s.UpsertRoleRoute(ctx, role, fallbackCode); err != nil {
+					return fmt.Errorf("建角色路由 %q→%q（兜底）: %w", role, fallbackCode, err)
+				}
+			}
+		}
+	}
 	return nil
+}
+
+// roleDegradeOrder 返回档位的就近降级序（能力相邻档优先，不含自身）。
+func roleDegradeOrder(role string) []string {
+	switch role {
+	case llmconfig.ComplexityComplex:
+		return []string{llmconfig.ComplexityMedium, llmconfig.ComplexitySimple}
+	case llmconfig.ComplexitySimple:
+		return []string{llmconfig.ComplexityMedium, llmconfig.ComplexityComplex}
+	default: // medium：默认档，向上（能力更强）优先于向下
+		return []string{llmconfig.ComplexityComplex, llmconfig.ComplexitySimple}
+	}
 }
