@@ -177,8 +177,8 @@ services:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/proxy-certs:/app/certs
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
     ports:
-      # 浏览器代理配 宿主IP:58888（容器内 8588）
-      - "58888:8588"
+      # 浏览器代理配 宿主IP:58588（容器内 8588）
+      - "58588:8588"
     profiles: *full-profile
     extra_hosts:
       - "host.docker.internal:host-gateway"
