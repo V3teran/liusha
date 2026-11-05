@@ -89,6 +89,7 @@ type Summary struct {
 	TargetHost      string
 	Status          Status
 	AssignmentID    string
+	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务 brief）
 	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
 	AssignmentTotal int    // 批内任务总数
 	Source          string // manual|auto（视图层口径：定时克隆归 manual）
@@ -108,6 +109,7 @@ type Summary struct {
 const summarySelect = `
 	t.id, t.brief, COALESCE(t.target_host,''), t.status::text,
 	t.assignment_id::text,
+	COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
 	CASE WHEN a.schedule_id IS NOT NULL THEN 'self' ELSE a.source END::text,
@@ -146,7 +148,7 @@ func timeArg(t time.Time) any {
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
 	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status,
-		&s.AssignmentID, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
+		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
 		&s.CreatedAt, &s.EndedAt); err != nil {
 		return err

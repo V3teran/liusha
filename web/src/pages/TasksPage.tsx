@@ -99,6 +99,7 @@ export function TasksPage() {
                 offset={(page - 1) * size}
                 selectedId={selectedId}
                 onRowClick={selectRow}
+                onOperated={() => void listQuery.refetch()}
               />
             </>
           )}

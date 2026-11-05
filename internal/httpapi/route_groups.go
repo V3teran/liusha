@@ -90,6 +90,9 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	if d.TaskDispatch != nil {
 		r.POST("/tasks", createTasksHandler(d.TaskDispatch))
 	}
+	if d.TaskControl != nil {
+		r.POST("/tasks/:id/control", taskControlHandler(d.TaskControl))
+	}
 }
 
 // registerLogsRoutes 注册日志查看路由（前端 /logs 页）。
