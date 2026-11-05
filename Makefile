@@ -28,11 +28,23 @@ prod-build: build-api build-proxy build-runner build-nginx
 
 # 发布：构建并推送四个业务镜像到仓库（需先 docker login ghcr.io）。
 # 用户侧 docker compose pull 拉到的即这些镜像；改代码后需 publish 才会更新。
-publish: prod-build
-	docker push $(IMAGE_REPO)/liusha-api:$(IMAGE_TAG)
-	docker push $(IMAGE_REPO)/liusha-proxy:$(IMAGE_TAG)
-	docker push $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG)
-	docker push $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG)
+# 多架构发布：双平台 manifest list（amd64+arm64），用户 pull 自动取本机架构。
+# Go/JS 构建阶段跑构建机原生架构（Dockerfile 内 $BUILDPLATFORM 交叉编译），无 QEMU。
+# 前置：docker login ghcr.io。多平台必须用 container-driver builder（docker driver
+# 不支持，除非开 containerd 镜像存储）——PUBLISH_BUILDER 缺省自建专用实例。
+# 多平台产物只能推 registry（无法 load 进本地 docker）；本地自用栈走 prod-build（单架构）。
+PUBLISH_BUILDER ?= liusha-multiarch
+publish:
+	docker buildx inspect $(PUBLISH_BUILDER) >/dev/null 2>&1 || \
+	  docker buildx create --name $(PUBLISH_BUILDER)
+	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
+	  -f cmd/api/Dockerfile -t $(IMAGE_REPO)/liusha-api:$(IMAGE_TAG) .
+	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
+	  -f cmd/proxy/Dockerfile -t $(IMAGE_REPO)/liusha-proxy:$(IMAGE_TAG) .
+	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
+	  -f cmd/runner/Dockerfile -t $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG) .
+	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
+	  -f deployments/nginx/Dockerfile -t $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG) .
 
 prod-up:
 	$(PROD_COMPOSE) up -d --build

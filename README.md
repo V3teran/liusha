@@ -33,7 +33,8 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ### 维护者
 
 ```bash
-make prod-build   # 本地构建六镜像（业务四镜像走 IMAGE_REPO/IMAGE_TAG，默认 ghcr.io/v3teran）
-make publish      # 推送业务四镜像——用户 pull 到的就是这些，改代码后须 publish
+make prod-build   # 本地构建六镜像（单架构=本机架构，供本机栈用）
+make publish      # 构建并推送业务四镜像（amd64+arm64 双架构）——用户 pull 自动取本机
+                  # 架构；需 docker login ghcr.io，改代码后须 publish
 make migrate      # 手动迁移（host 直跑形态）
 ```
