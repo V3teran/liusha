@@ -294,7 +294,7 @@ jobs:
           docker buildx imagetools create \
             --tag ${{ env.BASE_IMAGE }}:latest \
             --tag ${{ env.BASE_IMAGE }}:${{ github.sha }} \
-            ${{ env.BASE_IMAGE }}:test-${{ github.sha }} \
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-amd64 \
             ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-arm64
 
       - name: Verify pushed base image
