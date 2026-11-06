@@ -110,10 +110,11 @@ build-runner:
 	docker build -f cmd/runner/Dockerfile -t $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG) .
 
 # sandbox final 镜像（sandbox-server PID 1 + browser-use + 工具清单元数据）。
-# 分层构建：base（Kali + 90 工具安装）由 CI 构建推送 ghcr.io/v3teran/liusha-sandbox-base，
-# 本地只构建 final（ARG BASE_IMAGE 默认取 base:latest）。改 Dockerfile.base/tools.yaml 走 CI。
+# 分层构建：base（Kali + 90 工具安装）由 CI 双架构构建推送 ghcr.io/v3teran/liusha-sandbox-base，
+# 本地按宿主原生架构构建 final（ARG BASE_IMAGE 默认取 base:latest 双架构 tag）。
+# 改 Dockerfile.base/tools.yaml 走 CI。
 build-sandbox:
-	docker build --platform linux/amd64 -t ghcr.io/v3teran/liusha-sandbox:latest \
+	docker build -t ghcr.io/v3teran/liusha-sandbox:latest \
 		-f deployments/tool-images/sandbox/Dockerfile.final .
 
 test: test-unit test-integration

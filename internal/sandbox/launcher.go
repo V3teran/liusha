@@ -266,7 +266,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 	// 修复 Docker-in-Docker 场景：runner 容器内无法访问宿主机的 127.0.0.1，
 	// 需要替换为 host.docker.internal（已通过 --add-host 映射到宿主机）
 	// 检测方式：/.dockerenv 文件存在说明在容器内运行
-	inContainer := isRunningInContainer()
+	inContainer := IsRunningInContainer()
 
 	if inContainer {
 		hostAddr = strings.Replace(hostAddr, "127.0.0.1", "host.docker.internal", 1)
@@ -282,8 +282,9 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 	return client, nil
 }
 
-// isRunningInContainer 检测当前进程是否在 Docker 容器内运行
-func isRunningInContainer() bool {
+// IsRunningInContainer 检测当前进程是否在 Docker 容器内运行。
+// 导出供 cmd/runner 装配层使用（容器化形态的回连地址探测语义不同）。
+func IsRunningInContainer() bool {
 	_, err := os.Stat("/.dockerenv")
 	return err == nil
 }

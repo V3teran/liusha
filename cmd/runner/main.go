@@ -396,6 +396,11 @@ func resolveSandboxContract(cfg config.AppConfig, logger zerolog.Logger) cogniti
 		host = detectCallbackHost()
 		if host == "" {
 			logger.Warn().Msg("回连地址自动探测失败（无默认路由？），建议显式配置 sandbox.callback_host")
+		} else if sandbox.IsRunningInContainer() {
+			// 容器化 runner（compose 全容器形态）探测到的是容器网内地址，外部
+			// 目标不可达——不能静默注入一个看似可信的错地址。
+			logger.Warn().Str("detected", host).
+				Msg("runner 在容器内：自动探测的回连地址是内部网桥 IP，外部目标不可达——请显式配置 sandbox.callback_host（宿主公网 IP/域名）")
 		}
 	}
 	logger.Info().

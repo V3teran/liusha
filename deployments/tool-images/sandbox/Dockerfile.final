@@ -13,7 +13,11 @@
 ARG BASE_IMAGE=ghcr.io/v3teran/liusha-sandbox-base:latest
 
 # ── Stage 0: 编译 sandbox-server ─────────────────────────────────────────────
-FROM golang:1.25-alpine AS sandbox-builder
+# $BUILDPLATFORM：编译段永远跑构建机原生架构，GOOS/GOARCH 交叉产出目标架构——
+# 双平台构建（amd64+arm64）零 QEMU，与业务镜像（cmd/*/Dockerfile）同一模式。
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS sandbox-builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor ./vendor
@@ -21,7 +25,7 @@ COPY cmd/sandbox-server cmd/sandbox-server
 COPY internal/sandbox internal/sandbox
 COPY internal/logx internal/logx
 ENV CGO_ENABLED=0
-RUN go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -o /out/sandbox-server ./cmd/sandbox-server
 
 # ── Stage 1: 基于 base 镜像构建最终镜像 ──────────────────────────────────────
 # 在 stage 内部重新声明 ARG（multi-stage build 要求）
