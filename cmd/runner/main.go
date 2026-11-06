@@ -441,6 +441,8 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 	// 容器化 runner 的 HOME=/root 会指到宿主不存在的路径（dev 形态 runner 在
 	// host 上回落值碰巧正确，掩盖了这处漏接）。
 	launcher.WorkspaceHostDir = cfg.Sandbox.WorkspaceHostDir
+	// 工作区留存天数（0=永久）：CleanupOrphans 按目录 mtime 清扫超期任务目录。
+	launcher.WorkspaceRetentionDays = cfg.Sandbox.WorkspaceRetentionDays
 	// 对外监听段：与认知循环的工具契约共用同一解析（非法段告警后禁用）。
 	launcher.ListenerPortStart, launcher.ListenerPortCount, _ = sandbox.ParseListenerPorts(cfg.Sandbox.ListenerPorts)
 

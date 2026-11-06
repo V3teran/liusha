@@ -15,13 +15,9 @@ llm:
     simple: deepseek
     medium: deepseek
     complex: anthropic
-  max_steps: 30
-  max_tokens_per_call: 4096
 providers:
-  deepseek:  {base_url: https://api.deepseek.com,  default_model: deepseek-chat,    api_key_env: DEEPSEEK_API_KEY,  max_tokens: 4096, supports_tools: true,  supports_vision: false, context_window: 65536}
-  anthropic: {base_url: https://api.anthropic.com, default_model: claude-sonnet-4-6, vision_model: claude-haiku-4-5, api_key_env: ANTHROPIC_API_KEY, max_tokens: 8192, supports_tools: true, supports_vision: true,  context_window: 200000}
-prompt_limits: {findings_limit_in_prompt: 1000}
-skills: {root: ./skills}
+  deepseek:  {base_url: https://api.deepseek.com,  default_model: deepseek-chat,  api_key_env: DEEPSEEK_API_KEY,  max_tokens: 4096, supports_tools: true,  supports_vision: false, context_window: 65536}
+  anthropic: {base_url: https://api.anthropic.com, default_model: claude-sonnet-4-6, api_key_env: ANTHROPIC_API_KEY, max_tokens: 8192, supports_tools: true, supports_vision: true,  context_window: 200000}
 `
 
 func writeConfig(t *testing.T, body string) string {
@@ -72,9 +68,6 @@ func TestLoad_EmptyProvidersRelyOnDB(t *testing.T) {
 	const noProvidersYAML = `
 api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
 postgres: {max_conns: 20, min_conns: 2}
-llm: {max_steps: 30, max_tokens_per_call: 4096}
-prompt_limits: {findings_limit_in_prompt: 1000}
-skills: {root: ./skills}
 `
 	cfg, err := Load(writeConfig(t, noProvidersYAML))
 	if err != nil {

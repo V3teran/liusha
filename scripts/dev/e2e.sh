@@ -13,9 +13,6 @@
 #   ./scripts/dev/e2e.sh passive:upload,lfi    # passive 多选（passive: 前缀 + 逗号分隔，等价于 upload lfi）
 #   ./scripts/dev/e2e.sh active:full           # active 模式：开放性 brief 压测 LLM 自主 recon + swarm 决策
 #   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
-#   LIUSHA_E2E_BRIEF="..." \
-#     ./scripts/dev/e2e.sh active:adhoc        # active 一次性扫描——brief 从 env 注入（密码不入库）
-#                                              # 可选 LIUSHA_E2E_MIN_FINDINGS=N 覆盖 PASS 门槛（默认 1）
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：12 张业务表 TRUNCATE（schema 保留）
@@ -39,7 +36,6 @@ fi
 
 # host 侧地址
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_PROXY_ADDR="${LIUSHA_PROXY_ADDR:-http://localhost:8588}"
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:35432/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）

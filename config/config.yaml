@@ -53,7 +53,6 @@ llm:
     simple:  glm   # 快速响应，简单任务（信息提取、格式化）
     medium:  glm   # 标准推理，常规任务（漏洞检测、工具调用）- 默认档位
     complex: glm   # 深度推理，复杂决策（战略规划、多步分析、多模态）
-  fallback: glm   # 主 provider 重试耗尽后的全局备胎
 
   # 错误码退避表（429/529/5xx/网络超时），api/runner/corpus-import 三进程共用同一表。
   # 429 取长尾：账号级限流的恢复窗口以十秒计；每次退避施加等量抖动（[d/2, d)），
@@ -119,8 +118,6 @@ providers:
 
 # ---- proxy 内嵌 MITM + 责任链过滤 + 聚合参数 + 进程入口 ----
 proxy:
-  window_batch: 20              # TrafficWindow 批大小上限（满即关闭 → 立即触发 sniffer）
-  window_max_age_seconds: 30    # ager 兜底：超过此秒数仍 open 的窗口会被强制关闭并入队 sniffer（低流量场景）
   allow_hosts: []               # HostFilter 白名单（空=放行全部）。e2e/生产都用真实 host 直连，无需在此维护
   exclude_methods:              # HTTP 方法黑名单
     - OPTIONS
@@ -165,8 +162,6 @@ proxy:
   # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 8588，无独立 healthz HTTP）
   listen_addr: 0.0.0.0:8588         # 容器内监听（宿主映射 38588，见 compose）
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
-  cert_subdir: .liusha              # CA 证书子目录（默认 $HOME/.liusha）
-  shutdown_timeout_seconds: 5       # graceful shutdown 超时
 
   # Redis Stream（proxy → ingestor 之间）
   stream_name: flow_events          # XADD 目标 stream
@@ -210,15 +205,11 @@ runner:
                                            # 0 = 不限——与上方墙钟同理，收敛交给完成检测器；正数启用护栏。
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
-  workspace_dir: ""                        # 沙盒工作区宿主根目录（bind 进容器 /root/liusha/workspace，
                                            # 容器内按 taskID 分 work/out/profile）。空 = ~/data/liusha/workspace；
                                            # 容器化 runner 必须显式配宿主绝对路径
-  workspace_retention_days: 0              # 任务工作区留存天数（0 = 永久；正数按目录 mtime 清扫）
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
   healthz_addr: ":8590"                    # 容器内监听（宿主映射 38590；沙盒回连端口经 LIUSHA_INGEST_PUBLIC_PORT 声明）
-  traffic_max_request_body: 2097152        # 2 MiB；traffic.Store 入库截断阈值（与 proxy.max_request_body_size 对齐）
-  traffic_max_response_body: 8388608       # 8 MiB；traffic.Store 入库截断阈值（与 proxy.max_response_body_size 对齐）
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
   # （原 per_host_concurrency 已删：同 host 并发限制整体移除，任务并发只受 asynq_concurrency 约束。）
 
@@ -239,6 +230,7 @@ sandbox:
   # Sandbox.WorkspaceHostDir，容器内回落 $HOME=/root 指向宿主不存在的路径
   # （runner 沙盒 bind 失败、api 工作区根目录错位）。空 = ~/data/liusha/workspace。
   workspace_dir: ""
+  workspace_retention_days: 0    # 任务工作区留存天数（0 = 永久保留：持续探索的工件是证据；正数按目录 mtime 清扫）
   # （原 run_tail_bytes 已删：收归 DB system_setting runtime 组，前端「系统配置」页可热改。）
   # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280

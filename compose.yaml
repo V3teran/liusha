@@ -116,7 +116,6 @@ services:
       LIUSHA_COOKIE_SECURE: "${LIUSHA_COOKIE_SECURE:-false}"
       # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
       LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
-      LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
     volumes:
       # config 只读挂载：LLM provider 等部署配置由仓库 config.yaml 表达——烘焙在
       # 镜像里用户改了无效；改后需重启容器（无热加载）。
@@ -206,7 +205,6 @@ services:
       LIUSHA_LLM_KEY_SECRET: "${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}"
       # 工作区宿主路径（文件 CRUD 面与沙盒 bind 源同值；容器内同路径挂载）
       LIUSHA_SANDBOX_WORKSPACE_DIR: "${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}"
-      LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: "${WORKSPACE_RETENTION_DAYS:-0}"
       # embedding 密钥：缺失则 corpus 降级纯 sparse 检索（不 fail-fast）
       JINA_API_KEY: "${JINA_API_KEY:-}"
       # 沙盒流量回灌端点（8590 对外发布）的 Bearer：设值后 runner 与沙盒自动共享同一
@@ -221,8 +219,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # 沙盒工作区持久层：宿主目录以同路径挂进容器（bind 源 = 容器内路径，
       # LIUSHA_SANDBOX_WORKSPACE_DIR 指宿主路径供沙盒 bind 使用）
-      - ${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}:${HOST_WORKSPACE_DIR:-$HOME/data/liusha/workspace}
-      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on: *app-deps
