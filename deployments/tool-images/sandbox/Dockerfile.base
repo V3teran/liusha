@@ -14,7 +14,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # apt 重试配置（网络抖动不让整层 abort）
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
-      > /etc/apt/apt.conf.d/80-retries
+      > /etc/apt/apt.conf.d/80-retries && \
+    # 钉官方 CDN（kali.download）：http.kali.org 是重定向器，按地理位置导流到
+    # 第三方镜像——个别镜像 TLS 证书损坏/失修时构建随机挂（实测 arm64 构建被
+    # 导到证书校验失败的镜像源）。CDN 双架构全量分发，CI 与本地行为一致。
+    printf 'deb https://kali.download/kali kali-rolling main contrib non-free non-free-firmware\n' \
+      > /etc/apt/sources.list
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 1: 基础环境 + 构建依赖
