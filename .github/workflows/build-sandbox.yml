@@ -23,41 +23,52 @@ env:
 
 jobs:
   # ============================================================================
-  # Stage 1: 检查是否需要重建基础镜像
+  # Stage 1: 变更门控（base 门 / final 门分离）
   # ============================================================================
-  check-base-changed:
+  check-changed:
     runs-on: ubuntu-24.04
     outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
+      should_build_base: ${{ steps.check.outputs.should_build_base }}
+      should_build_final: ${{ steps.check.outputs.should_build_final }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: Check if base files changed
+      - name: Check what changed
         id: check
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.rebuild_base }}" = "true" ]; then
-            echo "手动触发重建基础镜像"
-            echo "should_build=true" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.inputs.rebuild_base }}" = "true" ]; then
+            echo "手动触发重建基础镜像（base 变更蕴含 final 变更）"
+            echo "should_build_base=true" >> $GITHUB_OUTPUT
+            echo "should_build_final=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # 检查 Dockerfile.base 或 tools.yaml 是否变更
-          if git diff --name-only HEAD^ HEAD | grep -E "Dockerfile\.base|tools\.yaml"; then
-            echo "基础镜像文件已变更，需要重建"
-            echo "should_build=true" >> $GITHUB_OUTPUT
+          CHANGED=$(git diff --name-only HEAD^ HEAD)
+
+          # base 门：Kali 工具底座（Dockerfile.base / tools.yaml）
+          if echo "$CHANGED" | grep -E "Dockerfile\.base|tools\.yaml"; then
+            echo "should_build_base=true" >> $GITHUB_OUTPUT
           else
-            echo "基础镜像文件未变更，跳过重建"
-            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_build_base=false" >> $GITHUB_OUTPUT
+          fi
+
+          # final 门：base 变更，或 final 自身内容（server/脚本/装配）变更。
+          # 此前 final 只随 base 走——只改 sandbox-server 或 browser-use 时
+          # 已发布镜像静默过期。
+          if echo "$CHANGED" | grep -E "Dockerfile\.base|tools\.yaml|Dockerfile\.final|browser-use|browser-svc\.py|cmd/sandbox-server|internal/sandbox"; then
+            echo "should_build_final=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_build_final=false" >> $GITHUB_OUTPUT
           fi
 
   # ============================================================================
   # Stage 2: 构建并推送基础镜像（直接推送，不保存 artifact）
   # ============================================================================
   build-base:
-    needs: check-base-changed
-    if: needs.check-base-changed.outputs.should_build == 'true'
+    needs: check-changed
+    if: needs.check-changed.outputs.should_build_base == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -311,8 +322,11 @@ jobs:
   #   可直接 pull；本地同名 tag 优先命中不影响 dev 流程）
   # ============================================================================
   build-final:
-    needs: push-base
-    if: needs.check-base-changed.outputs.should_build == 'true'
+    # 同时依赖 check（门）与 push-base（base 链）。always()：仅 final 内容变更
+    # 时 base 链整体跳过，final 仍要构建（基于已发布的 base:latest）；base
+    # 变更时 push-base 已完成，latest 是新鲜的——两种路径时序都正确。
+    needs: [check-changed, push-base]
+    if: always() && needs.check-changed.outputs.should_build_final == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # base 已是双架构 manifest list，final 是薄层（交叉编译的 Go 二进制 + 脚本
