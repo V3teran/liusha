@@ -431,7 +431,6 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 COPY deployments/tool-images/sandbox/tools.yaml /tools.yaml
 
-LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha"
 LABEL org.opencontainers.image.description="Sandbox base image with 90 security tools"
 LABEL liusha.tools.count="90"
 LABEL liusha.tools.manifest="/tools.yaml"
