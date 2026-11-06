@@ -190,10 +190,10 @@ func TestBrowserCleanupScript(t *testing.T) {
 }
 
 func TestRunCommandDesc_ListenerContract(t *testing.T) {
-	// 未发布监听段：描述保持基础形态（不多说一句——LLM 不需要知道不可用的面）。
+	// 未发布监听段：明示回连类操作不可达——LLM 不知道就会绑 4444 白跑一步。
 	plain := newRunCommandTool(Deps{}, time.Minute)
-	if got := plain.Desc(); strings.Contains(got, "监听") {
-		t.Fatalf("未发布段时描述不应提及监听: %q", got)
+	if got := plain.Desc(); !strings.Contains(got, "回连类操作不可达") {
+		t.Fatalf("未发布段时应明示回连不可达: %q", got)
 	}
 
 	// 已发布段 + 回连地址：必须把「绑哪个段、回连写什么」一次说清。

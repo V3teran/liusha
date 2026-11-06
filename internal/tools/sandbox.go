@@ -47,16 +47,19 @@ func (t *runCommandTool) Desc() string {
 	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。"
 	// 对外可达性契约：监听段未发布时 LLM 无从得知——它会把 nc -lvnp 4444 当
 	// 可回连的监听（实际仅容器内可达，反弹 shell 静默失败）。段发布时显式
-	// 告知可用端口段与回连地址，让 payload 一次写对。
+	// 告知可用端口段与回连地址，让 payload 一次写对；未发布时同样明示，
+	// 阻止注定失败的回连尝试。
 	if t.deps.ListenerPortCount > 0 && t.deps.ListenerPortStart > 0 {
 		end := t.deps.ListenerPortStart + t.deps.ListenerPortCount - 1
 		if t.deps.CallbackHost != "" {
-			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口：宿主同号直达，payload 回连地址 %s。其它端口的监听仅容器内可达。",
-				t.deps.ListenerPortStart, end, t.deps.CallbackHost)
+			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口：宿主同号直达，payload 回连地址 %s；其它端口的监听仅容器内可达。长驻监听后台运行并重定向输出（如 nc -lvnp %d > /tmp/listener.log 2>&1 &）以免阻塞本步；端口被并行任务占用时换段内下一个。",
+				t.deps.ListenerPortStart, end, t.deps.CallbackHost, end)
 		} else {
 			desc += fmt.Sprintf(" 需目标回连的监听只绑 %d-%d 端口（宿主同号直达）；回连地址未配置（sandbox.callback_host），向操作员确认后再构造回连 payload。",
 				t.deps.ListenerPortStart, end)
 		}
+	} else {
+		desc += " 沙盒未发布对外监听端口：反弹 shell 等回连类操作不可达，改用出站型验证（回连目标后再主动拉取结果等方式）。"
 	}
 	return desc
 }

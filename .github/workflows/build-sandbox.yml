@@ -58,7 +58,13 @@ jobs:
   build-base:
     needs: check-base-changed
     if: needs.check-base-changed.outputs.should_build == 'true'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    # arm64 用原生 arm runner（公开仓库免费）——8-10GB 的 apt 安装走 QEMU 不现实，
+    # 交叉装包也不可能；原生构建是双架构镜像唯一可行的产出路径。
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -102,10 +108,10 @@ jobs:
         with:
           context: .
           file: deployments/tool-images/sandbox/Dockerfile.base
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: true
           tags: |
-            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-${{ matrix.arch }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -114,7 +120,11 @@ jobs:
   # ============================================================================
   test-base:
     needs: build-base
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -152,13 +162,13 @@ jobs:
 
       - name: Pull base image
         run: |
-          docker pull ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
-          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }} liusha-sandbox-base:test
+          docker pull --platform linux/${{ matrix.arch }} ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-${{ matrix.arch }}
+          docker tag ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-${{ matrix.arch }} liusha-sandbox-base:test
           docker images
 
       - name: Install yq
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${{ matrix.arch }}
           sudo chmod +x /usr/local/bin/yq
 
       - name: Test L1 - Command Existence (90 tools)
@@ -267,13 +277,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Retag base image (registry-side, no pull)
+      - name: Merge arch manifests into latest (registry-side, no pull)
         run: |
-          # 使用 buildx imagetools 在 registry 层面操作，无需下载镜像
+          # 使用 buildx imagetools 在 registry 层面合并双架构 manifest list，无需下载镜像
           docker buildx imagetools create \
             --tag ${{ env.BASE_IMAGE }}:latest \
             --tag ${{ env.BASE_IMAGE }}:${{ github.sha }} \
-            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }} \
+            ${{ env.BASE_IMAGE }}:test-${{ github.sha }}-arm64
 
       - name: Verify pushed base image
         run: |
@@ -304,6 +315,8 @@ jobs:
     if: needs.check-base-changed.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # base 已是双架构 manifest list，final 是薄层（交叉编译的 Go 二进制 + 脚本
+    # COPY），buildx 双平台构建在 amd64 runner 上即可完成（无重编译面）。
     permissions:
       contents: read
       packages: write
@@ -323,19 +336,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push final image (sandbox-server + browser-use + uvx wrapper)
-        run: |
-          # push test tag——下游 imagetools create 是 registry 侧操作，源 manifest 必须先在 registry
-          docker build \
-            --platform linux/amd64 \
-            --build-arg BASE_IMAGE=${{ env.BASE_IMAGE }}:latest \
-            -f deployments/tool-images/sandbox/Dockerfile.final \
-            -t ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} \
-            . \
-          && docker push ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/tool-images/sandbox/Dockerfile.final
+          # Go 段在 Dockerfile 里按 $BUILDPLATFORM 交叉编译，final 的 RUN 层是
+          # 纯 shell 胶水——amd64 runner 双平台直推，无需 QEMU 重编译。
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}:latest
+          push: true
+          tags: |
+            ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
 
       - name: Smoke test final image
         run: |
-          docker run --rm --platform linux/amd64 \
+          docker pull --platform linux/amd64 ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
+          docker run --rm \
             ${{ env.FINAL_IMAGE }}:test-${{ github.sha }} \
             bash -c '
               set -e
@@ -353,8 +370,10 @@ jobs:
               echo "6/6 spot-check OK"
             '
 
-      - name: Push final image
+      - name: Push final image (merge arch manifests)
         run: |
+          # 双平台已由 build-push-action 直推为单一 multi-arch tag（test-<sha>-amd64
+          # 仅作 smoke 源）；这里直接以它为源落 latest/sha 标签。
           docker buildx imagetools create \
             --tag ${{ env.FINAL_IMAGE }}:latest \
             --tag ${{ env.FINAL_IMAGE }}:${{ github.sha }} \
