@@ -10,7 +10,7 @@
 | runner | 8590 | **58590** | 扫描主流程 |
 | postgres | 5432 | **55432** | 主存储 |
 | redis | 6379 | **56379** | 队列 / 缓存 |
-| sandbox | — | — | 扫描工具容器（Kali 工具集 + browser-use）。非 compose 服务：runner 挂宿主 `docker.sock`，按任务经 warm pool 拉起/回收，不发布端口；镜像 `ghcr.io/v3teran/liusha-sandbox`，缺失时 docker 自动拉取 |
+| sandbox | — | — | 扫描工具容器（自动拉取） |
 
 ## 部署
 
