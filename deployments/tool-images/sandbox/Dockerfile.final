@@ -58,6 +58,8 @@ RUN printf '%s\n' \
 COPY --from=sandbox-builder /out/sandbox-server /usr/local/bin/sandbox-server
 RUN chmod +x /usr/local/bin/sandbox-server && test -x /usr/local/bin/sandbox-server
 
+LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha"
+
 WORKDIR /work
 EXPOSE 8080
 CMD ["/usr/local/bin/sandbox-entrypoint.sh"]
