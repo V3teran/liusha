@@ -53,7 +53,11 @@ RUN set -eux \
 # Java 反序列化工具（ysomap/ysoserial）需要 JDK8，现代目标需要 JDK17
 # 默认 java 指向 JDK8（兼容性最广），显式 java17 命令切换
 RUN set -eux \
- && J_ARCH=x64 \
+ && case "${TARGETARCH}" in \
+      amd64) J_ARCH=x64 ;; \
+      arm64) J_ARCH=aarch64 ;; \
+      *) echo "不支持的架构: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u504-b01/OpenJDK8U-jdk_${J_ARCH}_linux_hotspot_8u504b01.tar.gz" \
       -O /tmp/jdk8.tar.gz \
@@ -73,7 +77,13 @@ RUN set -eux \
     done \
  && printf '#!/bin/sh\nexec /opt/jdk8/bin/java "$@"\n' > /usr/local/bin/java8 \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
- && chmod +x /usr/local/bin/java8 /usr/local/bin/java17
+ && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
+ && printf 'export JAVA_HOME=/opt/jdk17\n' > /etc/profile.d/java_home.sh \
+ && ln -sf /opt/jdk17 /usr/lib/jvm/jdk17
+
+# JAVA_HOME 显式声明：maven 的 mvn 启动脚本靠它定位 JVM（缺失时 mvn 直接
+# 不可执行，且不同架构的基础镜像默认值不一致——amd64 侥幸可用、arm64 失败）。
+ENV JAVA_HOME=/opt/jdk17
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 3: apt 工具（48 个）
@@ -161,7 +171,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/katana \
  && rm /tmp/katana.zip \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/shadow1ng/fscan/releases/download/v2.2.1/fscan_2.2.1_linux_x64" \
+      "https://github.com/shadow1ng/fscan/releases/download/v2.2.1/fscan_2.2.1_linux_$( [ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64 )" \
       -O /usr/local/bin/fscan \
  && chmod +x /usr/local/bin/fscan \
  && wget -q --tries=3 --waitretry=5 \
@@ -177,7 +187,7 @@ RUN set -eux \
  && chmod +x /usr/local/bin/interactsh-client \
  && rm /tmp/interactsh.zip \
  && wget -q --tries=3 --waitretry=5 \
-      "https://github.com/BishopFox/sliver/releases/download/v1.7.7/sliver-server_linux-amd64" \
+      "https://github.com/BishopFox/sliver/releases/download/v1.7.7/sliver-server_linux-${TARGETARCH}" \
       -O /usr/local/bin/sliver \
  && chmod +x /usr/local/bin/sliver
 
@@ -240,7 +250,7 @@ RUN set -eux \
 # Layer 15: dalfox（XSS 扫描器）
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
- && DALFOX_ARCH=x86_64 \
+ && DALFOX_ARCH=$( [ "$TARGETARCH" = arm64 ] && echo aarch64 || echo x86_64 ) \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/hahwul/dalfox/releases/download/v3.2.2/dalfox-v3.2.2-linux-${DALFOX_ARCH}-musl.tar.gz" \
       -O /tmp/dalfox.tar.gz \
@@ -331,7 +341,7 @@ RUN set -eux \
  && wget -q --tries=3 --waitretry=5 \
       "https://github.com/inguardians/peirates/releases/download/v1.1.31/peirates-linux-${TARGETARCH}.tar.xz" \
       -O /tmp/peirates.tar.xz \
- && tar -xJf /tmp/peirates.tar.xz --strip-components=1 -C /usr/local/bin peirates-linux-amd64/peirates \
+ && tar -xJf /tmp/peirates.tar.xz --strip-components=1 -C /usr/local/bin "peirates-linux-${TARGETARCH}/peirates" \
  && chmod +x /usr/local/bin/peirates \
  && rm /tmp/peirates.tar.xz
 
