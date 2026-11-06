@@ -38,7 +38,7 @@ jobs:
       - name: Check what changed
         id: check
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.inputs.rebuild_base }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.rebuild_base }}" = "true" ]; then
             echo "手动触发重建基础镜像（base 变更蕴含 final 变更）"
             echo "should_build_base=true" >> $GITHUB_OUTPUT
             echo "should_build_final=true" >> $GITHUB_OUTPUT
