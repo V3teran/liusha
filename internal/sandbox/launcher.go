@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,6 +29,12 @@ type Launcher interface {
 const (
 	// containerNamePrefix 是容器命名前缀，CleanupOrphans 模糊匹配用。
 	containerNamePrefix = "liusha-sandbox-"
+
+	// listenerRangeLabel 是监听段打在容器上的 label 键（值形如 "21000-21099"）。
+	// 运维元数据：docker ps --filter label=... 可直接定位容器携带的段。段变更的
+	// 收敛不靠它——重启后 Spawn 撞名重建（崩溃残留）或 Shutdown 销毁（优雅
+	// 重启），新容器必然带新段。
+	listenerRangeLabel = "liusha.listener-range"
 
 	// healthzMaxWait 是 spawn 后等待 sandbox-server ready 的最长时间。
 	// 容器启动 + sandbox-server bind 完成通常 < 5s，30s 安全冗余。
@@ -82,10 +89,54 @@ type DockerLauncher struct {
 	// 器回收重建存活——warm 沙盒的文件系统是临时的，宿主目录才是工件的持
 	// 久层。
 	WorkspaceHostDir string
-
 	// WorkspaceRetentionDays 是任务工作区留存天数（CleanupOrphans 周期清
 	// 扫超期任务目录）。0 = 永久保留。
 	WorkspaceRetentionDays int
+
+	// ListenerPortStart/ListenerPortCount 是沙盒对外监听段（1:1 宿主映射）：
+	// 容器创建时发布 start..start+count-1 到宿主同号端口，段内监听（反弹
+	// shell / 代理 / payload 托管）外部经 宿主IP:同号端口 直达。0 = 不发布。
+	// 段是创建期属性（docker 不支持给运行中容器加绑定）——改配置重启后新
+	// 容器自然带新段（优雅重启经 Shutdown 销毁；崩溃残留经 Spawn 撞名重建）。
+	ListenerPortStart int
+	ListenerPortCount int
+}
+
+// listenerRangeValue 返回监听段的 label 值（"21000-21099"）；未配置段返回空串。
+func (l *DockerLauncher) listenerRangeValue() string {
+	if l.ListenerPortCount <= 0 || l.ListenerPortStart <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d-%d", l.ListenerPortStart, l.ListenerPortStart+l.ListenerPortCount-1)
+}
+
+// ParseListenerPorts 解析监听段配置（"起-止"，含两端）。空串 = 不发布（0,0, nil）。
+// 段约束：端口 1-65535、起 ≤ 止、宽度 ≤ 1000（有界段是整个机制的前提——
+// 无界发布等于把宿主端口面全交给容器内进程）。
+func ParseListenerPorts(spec string) (start, count int, err error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return 0, 0, nil
+	}
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("监听段格式应为 \"起-止\"，实得 %q", spec)
+	}
+	lo, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+	hi, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err1 != nil || err2 != nil {
+		return 0, 0, fmt.Errorf("监听段端口须为整数: %q", spec)
+	}
+	if lo < 1 || hi < 1 || lo > 65535 || hi > 65535 {
+		return 0, 0, fmt.Errorf("监听段端口须在 1-65535: %q", spec)
+	}
+	if hi < lo {
+		return 0, 0, fmt.Errorf("监听段起点大于终点: %q", spec)
+	}
+	if hi-lo+1 > 1000 {
+		return 0, 0, fmt.Errorf("监听段过宽（%d 个，上限 1000）: %q", hi-lo+1, spec)
+	}
+	return lo, hi - lo + 1, nil
 }
 
 // DefaultWorkspaceHostDir 返回宿主工作区根目录默认值（~/data/liusha/workspace）。
@@ -148,6 +199,16 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 		// macOS / Windows desktop 内置该 DNS，加这个也兼容（重复绑定无害）。
 		// browser-svc.py CDP capture POST 到 host.docker.internal:<healthz端口> 必需。
 		"--add-host=host.docker.internal:host-gateway",
+	}
+	// 对外监听段（1:1 宿主映射）：反弹 shell / 代理 / payload 托管等需要目标
+	// 回连的监听，绑段内端口即 宿主IP:同号端口 可达。有界段而非 host 网络
+	// （后者破坏隔离、与服务端口冲突）——用户防火墙/安全组按段放行一次即可。
+	// label 记录段值：端口绑定是创建期属性，配置变更后暖池据此比对重建。
+	if rangeVal := l.listenerRangeValue(); rangeVal != "" {
+		args = append(args,
+			"-p", rangeVal+":"+rangeVal,
+			"--label", listenerRangeLabel+"="+rangeVal,
+		)
 	}
 	// 视口尺寸：注入到容器 env 给 browser-use wrapper 透传。
 	// 零值不注入——wrapper 自己有默认（1280×720）。

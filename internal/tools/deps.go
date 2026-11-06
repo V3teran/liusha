@@ -42,6 +42,12 @@ type Deps struct {
 	// 任务开始时快照；0=内置默认 120s）。注册表级超时与 LLM 自传 timeout_seconds
 	// 的钳制上界同源，杜绝「配置 1800 实际 120」的三重失效。
 	StepToolTimeoutSeconds int
+	// 沙盒对外可达性契约（cognition 装配层注入）：run_command 工具描述据此
+	// 告知 LLM 可绑的对外监听端口段与 payload 回连地址。
+	ListenerPortStart int
+	ListenerPortCount int
+	CallbackHost      string
+
 	// RunTailBytes 是 run_command 输出保留尾部的字节数（0=内置默认 8192）。
 	RunTailBytes int
 }

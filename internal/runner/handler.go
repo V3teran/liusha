@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"github.com/V3teran/liusha/internal/cognition"
 	"regexp"
 	"time"
 
@@ -49,7 +50,8 @@ type Handler struct {
 	Calls      *llminvocation.Store
 	Settings   *settingstore.Store
 	RunnerCfg  config.RunnerConfig
-	SandboxMgr sandbox.Manager // 改为接口类型（支持 SingletonManager 和未来的其他实现）
+	Sandbox    cognition.SandboxListener // 沙盒对外可达性契约（监听段+回连地址），注入认知循环的工具契约
+	SandboxMgr sandbox.Manager           // 改为接口类型（支持 SingletonManager 和未来的其他实现）
 	Logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）
