@@ -27,6 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/cachestore"
+	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/settingstore"
 	configstore "github.com/V3teran/liusha/internal/configstore"
@@ -129,6 +130,7 @@ func main() {
 
 	skills := newRunnerSkills(logger)
 	launcher := newSandboxLauncher(ctx, cfg, runnerCfg, logger)
+	sandboxContract := resolveSandboxContract(cfg, logger)
 
 	// Sandbox 管理器：热池模式（空闲 30 分钟后自动回收）
 	sandboxMgr := sandbox.NewWarmPoolManager(launcher, logger, sandbox.WarmPoolConfig{
@@ -191,6 +193,7 @@ func main() {
 		AgentRuns:  stores.agentRuns,
 		Tasks:      stores.tasks,
 		Findings:   stores.findings,
+		Sandbox:    sandboxContract,
 		Corpus:     stores.corpus,
 		Embedder:   embedder,
 		Reranker:   reranker,
@@ -379,6 +382,46 @@ func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 
 // newSandboxLauncher 构造容器化沙箱启动器并清理上次崩溃残留的孤儿容器。
 //
+// resolveSandboxContract 解析沙盒对外可达性契约（监听段 + 回连地址），供
+// launcher（端口发布）与认知循环（run_command 工具描述注入）共用一份解析。
+// 段格式非法不致命：告警后按未发布处理（沙盒仍可用，仅无外部回连）。
+func resolveSandboxContract(cfg config.AppConfig, logger zerolog.Logger) cognition.SandboxListener {
+	start, count, err := sandbox.ParseListenerPorts(cfg.Sandbox.ListenerPorts)
+	if err != nil {
+		logger.Warn().Err(err).Str("listener_ports", cfg.Sandbox.ListenerPorts).
+			Msg("监听段配置非法，沙盒对外监听不发布（反弹 shell/代理不可达）")
+	}
+	host := cfg.Sandbox.CallbackHost
+	if host == "" {
+		host = detectCallbackHost()
+		if host == "" {
+			logger.Warn().Msg("回连地址自动探测失败（无默认路由？），建议显式配置 sandbox.callback_host")
+		}
+	}
+	logger.Info().
+		Str("listener_ports", cfg.Sandbox.ListenerPorts).
+		Int("port_start", start).
+		Int("port_count", count).
+		Str("callback_host", host).
+		Msg("沙盒对外可达性契约已解析")
+	return cognition.SandboxListener{PortStart: start, PortCount: count, CallbackHost: host}
+}
+
+// detectCallbackHost 探测「目标回连宿主」的默认地址：取默认路由的源 IP。
+// UDP Dial 不发包（无外部依赖/无信息泄漏），仅让内核选路填源地址。
+// NAT / 多网卡 / 域名场景探测值不正确——这类部署必须显式配 callback_host。
+func detectCallbackHost() string {
+	conn, err := net.Dial("udp", "192.0.2.1:80") // TEST-NET-1：仅选路，不可达也无妨
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	if udp, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return udp.IP.String()
+	}
+	return ""
+}
+
 // active 容器内抓流量 → agent_traffic（source=internal）：
 //   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
 //   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
@@ -393,6 +436,8 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 	// 容器化 runner 的 HOME=/root 会指到宿主不存在的路径（dev 形态 runner 在
 	// host 上回落值碰巧正确，掩盖了这处漏接）。
 	launcher.WorkspaceHostDir = cfg.Sandbox.WorkspaceHostDir
+	// 对外监听段：与认知循环的工具契约共用同一解析（非法段告警后禁用）。
+	launcher.ListenerPortStart, launcher.ListenerPortCount, _ = sandbox.ParseListenerPorts(cfg.Sandbox.ListenerPorts)
 
 	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
 	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :8590）。

@@ -240,3 +240,47 @@ func TestDockerLauncher_CleanupOrphans(t *testing.T) {
 		t.Errorf("orphan still present: %s", remaining)
 	}
 }
+
+// TestParseListenerPorts：监听段配置解析的边界——空=禁用、合法段、格式/范围/宽度拒绝。
+func TestParseListenerPorts(t *testing.T) {
+	cases := []struct {
+		spec    string
+		start   int
+		count   int
+		wantErr bool
+	}{
+		{"", 0, 0, false},
+		{"   ", 0, 0, false},
+		{"21000-21099", 21000, 100, false},
+		{" 21000 - 21099 ", 21000, 100, false},
+		{"4444-4444", 4444, 1, false},
+		{"21000", 0, 0, true},
+		{"a-b", 0, 0, true},
+		{"0-100", 0, 0, true},
+		{"70000-70001", 0, 0, true},
+		{"21099-21000", 0, 0, true},
+		{"10000-20000", 0, 0, true}, // 宽度 10001 > 1000
+	}
+	for _, c := range cases {
+		start, count, err := ParseListenerPorts(c.spec)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("%q 应拒绝", c.spec)
+			}
+			continue
+		}
+		if err != nil || start != c.start || count != c.count {
+			t.Errorf("%q => (%d,%d,%v), want (%d,%d,nil)", c.spec, start, count, err, c.start, c.count)
+		}
+	}
+}
+
+// TestDockerLauncher_ListenerRangeValue：label 值形态——未配置段为空串。
+func TestDockerLauncher_ListenerRangeValue(t *testing.T) {
+	if got := (&DockerLauncher{}).listenerRangeValue(); got != "" {
+		t.Fatalf("未配置段应为空: %q", got)
+	}
+	if got := (&DockerLauncher{ListenerPortStart: 21000, ListenerPortCount: 100}).listenerRangeValue(); got != "21000-21099" {
+		t.Fatalf("label 值应含两端: %q", got)
+	}
+}

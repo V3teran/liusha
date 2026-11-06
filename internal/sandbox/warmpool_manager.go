@@ -41,6 +41,9 @@ type WarmPoolManager struct {
 	wg     sync.WaitGroup
 }
 
+// warmAgentID 是暖池单例容器的 agentID（容器名 liusha-sandbox-<warmAgentID>）。
+const warmAgentID = "warm"
+
 // WarmPoolConfig 是 WarmPoolManager 的配置。
 type WarmPoolConfig struct {
 	IdleTimeout       time.Duration // 空闲超时（默认 30 分钟）
@@ -407,7 +410,7 @@ func (m *WarmPoolManager) createSandboxLocked(ctx context.Context) error {
 
 	m.sandbox = &Instance{
 		Client:    client,
-		ID:        "warm",
+		ID:        warmAgentID,
 		CreatedAt: time.Now(),
 	}
 	m.createdAt = time.Now()

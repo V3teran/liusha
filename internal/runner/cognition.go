@@ -67,6 +67,7 @@ func (h *Handler) runCognition(
 			RunTailBytes:           rt.RunTailBytes,
 			ToolOutputTailBytes:    rt.ToolOutputTailBytes,
 		},
+		SandboxListener: h.Sandbox,
 
 		Conversations:  h.Conversations,
 		EventPublisher: h.EventPublisher,

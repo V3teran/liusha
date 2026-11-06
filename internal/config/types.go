@@ -236,6 +236,18 @@ type SandboxConfig struct {
 	ViewportWidth  int `mapstructure:"viewport_width"`
 	ViewportHeight int `mapstructure:"viewport_height"`
 
+	// ListenerPorts 是沙盒对外监听段（"起-止"，含两端，1:1 宿主映射）。反弹
+	// shell / 代理 / payload 托管等需要目标回连的监听，绑段内端口即
+	// 宿主IP:同号端口 可达。空 = 不发布（监听仅容器内可达）。段是容器创建期
+	// 属性：改配置重启后暖池按 label 比对自动重建容器。
+	// 段选择避开业务端口与内核临时端口段（Linux 32768+），默认 21000-21099。
+	ListenerPorts string `mapstructure:"listener_ports"`
+
+	// CallbackHost 是目标回连地址（payload 里写它：反弹 shell 回连、代理入口、
+	// payload 下载源）。空 = 自动探测默认路由源地址（目标与宿主同网段/公网
+	// 单网卡场景正确；NAT / 多网卡 / 域名场景须显式配置）。
+	CallbackHost string `mapstructure:"callback_host"`
+
 	// WorkspaceHostDir 是沙盒工作区的宿主根目录（bind mount 到容器
 	// /root/liusha/workspace，容器内按 taskID 分目录隔离：work/out/profile）。
 	// 空 = 默认 ~/data/liusha/workspace（runner 侧展开；容器化 runner 必须显式

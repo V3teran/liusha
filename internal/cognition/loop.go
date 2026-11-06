@@ -83,6 +83,10 @@ type Deps struct {
 	// 回退内置默认）。
 	ToolLimits ToolLimits
 
+	// SandboxListener 是沙盒对外可达性契约（config 启动期快照）：监听段 + 回连
+	// 地址，注入 run_command 工具描述（详见类型注释）。
+	SandboxListener SandboxListener
+
 	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
 	Conversations  *conversation.Store
 	EventPublisher *convstream.Publisher
@@ -103,6 +107,15 @@ type ToolLimits struct {
 	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
 	// （ReAct 运行时统一收口，个别工具内的领域化裁剪先行）。
 	ToolOutputTailBytes int
+}
+
+// SandboxListener 是沙盒对外可达性契约（config sandbox 组启动期快照）：监听段
+// 与回连地址。注入 run_command 工具描述——LLM 必须知道「绑哪个端口段、payload
+// 里回连地址写什么」，反弹 shell / 代理 / payload 托管才可达。PortCount 0 = 未发布。
+type SandboxListener struct {
+	PortStart    int
+	PortCount    int
+	CallbackHost string
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -364,6 +377,11 @@ func (d *Deps) assembleStack(
 			// run_command 超时钳制与输出尾部保留（系统配置 runtime 组快照）
 			StepToolTimeoutSeconds: d.ToolLimits.StepToolTimeoutSeconds,
 			RunTailBytes:           d.ToolLimits.RunTailBytes,
+
+			// 沙盒对外可达性契约（config 启动期快照）：run_command 描述注入
+			ListenerPortStart: d.SandboxListener.PortStart,
+			ListenerPortCount: d.SandboxListener.PortCount,
+			CallbackHost:      d.SandboxListener.CallbackHost,
 		}
 	}
 	tools.RegisterAll(reg, toolDeps(executorSkillView))
