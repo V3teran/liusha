@@ -102,7 +102,6 @@ type ProviderConfig struct {
 	Type          string `mapstructure:"type"`
 	BaseURL       string `mapstructure:"base_url"`
 	DefaultModel  string `mapstructure:"default_model"`
-	VisionModel   string `mapstructure:"vision_model"`
 	APIKeyEnv     string `mapstructure:"api_key_env"`
 	MaxTokens     int    `mapstructure:"max_tokens"`
 	SupportsTools bool   `mapstructure:"supports_tools"`
@@ -125,8 +124,6 @@ type ProviderConfig struct {
 
 // ProxyConfig 控制 in-process MITM 切片 + 责任链过滤 + 聚合参数 + 进程入口。
 type ProxyConfig struct {
-	WindowBatch             int      `mapstructure:"window_batch"`
-	WindowMaxAgeSeconds     int      `mapstructure:"window_max_age_seconds"`
 	AllowHosts              []string `mapstructure:"allow_hosts"`
 	ExcludeMethods          []string `mapstructure:"exclude_methods"`
 	ExcludeHosts            []string `mapstructure:"exclude_hosts"`
@@ -139,10 +136,8 @@ type ProxyConfig struct {
 
 	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8588，无独立 healthz HTTP。
 	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
-	ListenAddr             string `mapstructure:"listen_addr"`   // 0.0.0.0:8588 公开端口（sanitizer 接 raw TCP）
-	InternalAddr           string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
-	CertSubdir             string `mapstructure:"cert_subdir"`
-	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
+	ListenAddr   string `mapstructure:"listen_addr"`   // 0.0.0.0:8588 公开端口（sanitizer 接 raw TCP）
+	InternalAddr string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
 
 	// Redis Stream（proxy → ingestor 之间）
 	StreamName   string `mapstructure:"stream_name"`
@@ -187,8 +182,6 @@ type RunnerConfig struct {
 	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
 	ShutdownTimeoutSeconds      int    `mapstructure:"shutdown_timeout_seconds"`
 	HealthzAddr                 string `mapstructure:"healthz_addr"`
-	TrafficMaxRequestBody       int    `mapstructure:"traffic_max_request_body"`
-	TrafficMaxResponseBody      int    `mapstructure:"traffic_max_response_body"`
 
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
@@ -230,7 +223,7 @@ type SandboxConfig struct {
 	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
 	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
 	//
-	// 默认 1280×720——playwright 主流推荐 + vision encoder token 消耗甜点区：
+	// 默认 1280×800——playwright 主流推荐 + vision encoder token 消耗甜点区：
 	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
 	// 高分屏可调大，但会增加 token 消耗。
 	ViewportWidth  int `mapstructure:"viewport_width"`

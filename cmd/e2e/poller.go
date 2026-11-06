@@ -30,7 +30,7 @@ func activityIdle(ctx context.Context, taskID string) bool {
 	// 复用 api 的探索图统计通道不可行（那是图数据）；
 	// 直接查 api 暴露的会话用量接口过于间接——e2e 触发器与 DB 同机（dev 契约），
 	// 用 LIUSHA_E2E_PG_DSN 直查是最低耦合做法；DSN 未配时保守返回 false（不判死）。
-	dsn := envOrDefault("LIUSHA_E2E_PG_DSN", "postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable")
+	dsn := envOrDefault("LIUSHA_E2E_PG_DSN", "postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable")
 	pool, err := newPgxPoolForE2E(ctx, dsn)
 	if err != nil {
 		return false

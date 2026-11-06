@@ -118,7 +118,13 @@ class Service:
                 for _k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
                            "http_proxy", "https_proxy", "all_proxy"):
                     os.environ.pop(_k, None)
-                bs = BrowserSession(headless=True)
+                # 视口尺寸由容器 env 注入（runner 侧 config.yaml sandbox.viewport_*，
+                # 经 launcher 的 LIUSHA_VIEWPORT_* 透传）；缺省走 browser_use 内置。
+                vw, vh = os.environ.get("LIUSHA_VIEWPORT_WIDTH"), os.environ.get("LIUSHA_VIEWPORT_HEIGHT")
+                kwargs = {"headless": True}
+                if vw and vh:
+                    kwargs["window_size"] = {"width": int(vw), "height": int(vh)}
+                bs = BrowserSession(**kwargs)
                 await bs.start()
                 self.bs = bs
 

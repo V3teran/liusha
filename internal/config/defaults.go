@@ -32,9 +32,6 @@ func applyAPIDefaults(c APIConfig) APIConfig {
 	if c.ListenAddr == "" {
 		c.ListenAddr = "0.0.0.0:8580"
 	}
-	if c.ShutdownTimeoutSeconds == 0 {
-		c.ShutdownTimeoutSeconds = 5
-	}
 	return c
 }
 
@@ -131,12 +128,6 @@ func applyInvocationDefaults(c InvocationConfig) InvocationConfig {
 }
 
 func applyProxyDefaults(c ProxyConfig) ProxyConfig {
-	if c.WindowBatch == 0 {
-		c.WindowBatch = 20
-	}
-	if c.WindowMaxAgeSeconds == 0 {
-		c.WindowMaxAgeSeconds = 30
-	}
 	if len(c.ExcludeUpgradeProtocols) == 0 {
 		c.ExcludeUpgradeProtocols = []string{"websocket"}
 	}
@@ -151,12 +142,6 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 	}
 	if c.InternalAddr == "" {
 		c.InternalAddr = "127.0.0.1:18888"
-	}
-	if c.CertSubdir == "" {
-		c.CertSubdir = ".liusha"
-	}
-	if c.ShutdownTimeoutSeconds == 0 {
-		c.ShutdownTimeoutSeconds = 5
 	}
 	if c.StreamName == "" {
 		c.StreamName = "flow_events"
@@ -232,12 +217,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 	if c.HealthzAddr == "" {
 		c.HealthzAddr = ":8590"
 	}
-	if c.TrafficMaxRequestBody == 0 {
-		c.TrafficMaxRequestBody = 2 << 20
-	}
-	if c.TrafficMaxResponseBody == 0 {
-		c.TrafficMaxResponseBody = 8 << 20
-	}
 	if c.QueueAgentWeight == 0 {
 		c.QueueAgentWeight = 5
 	}
@@ -248,12 +227,12 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.DefaultImage == "" {
 		c.DefaultImage = "ghcr.io/v3teran/liusha-sandbox:latest"
 	}
-	// 视口 1280×720——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
+	// 视口 1280×800——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
 	if c.ViewportWidth == 0 {
 		c.ViewportWidth = 1280
 	}
 	if c.ViewportHeight == 0 {
-		c.ViewportHeight = 720
+		c.ViewportHeight = 800
 	}
 	return c
 }
