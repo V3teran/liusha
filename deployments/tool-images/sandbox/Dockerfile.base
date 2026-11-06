@@ -78,12 +78,13 @@ RUN set -eux \
  && printf '#!/bin/sh\nexec /opt/jdk8/bin/java "$@"\n' > /usr/local/bin/java8 \
  && printf '#!/bin/sh\nexec /opt/jdk17/bin/java "$@"\n' > /usr/local/bin/java17 \
  && chmod +x /usr/local/bin/java8 /usr/local/bin/java17 \
- && printf 'export JAVA_HOME=/opt/jdk17\n' > /etc/profile.d/java_home.sh \
- && ln -sf /opt/jdk17 /usr/lib/jvm/jdk17
+ && printf 'export JAVA_HOME=/opt/jdk8\n' > /etc/profile.d/java_home.sh
 
-# JAVA_HOME 显式声明：maven 的 mvn 启动脚本靠它定位 JVM（缺失时 mvn 直接
-# 不可执行，且不同架构的基础镜像默认值不一致——amd64 侥幸可用、arm64 失败）。
-ENV JAVA_HOME=/opt/jdk17
+# JAVA_HOME 显式声明：mvn 启动脚本靠它定位 JVM（缺失时不可执行，且各架构基础
+# 镜像默认值不一致——amd64 侥幸可用、arm64 失败）。指向 JDK8 与 java 命令的
+# 默认指向一致：工具链里依赖 JDK 内部类的构建（如反序列化 payload 生成器）
+# 只在 JDK8 下成立，JDK17 的模块封装会拒绝。
+ENV JAVA_HOME=/opt/jdk8
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 3: apt 工具（48 个）
