@@ -304,9 +304,12 @@ export interface FindingRow {
   owasp_category?: string
   remediation?: string
   target?: FindingTarget
-  // evaluation 是复现门裁决评估 jsonb（verdict/reasoning/replay 日志/assert 明细，
-  // 含 verification_id 回指），前端通用 KV 渲染。
+  // evaluation 是复现门证据链 jsonb：第一层 judge_reasoning/verification_tier/
+  // evidence{baseline/exploit 对照 + assert_reasons 断言明细}，前端证据链区渲染。
   evaluation?: Record<string, unknown>
+  // repro 是机器可验的复现配方 jsonb（{domain, recipe:{request,baseline?},
+  // assert}）——复现步骤区的数据源。
+  repro?: Record<string, unknown>
   source: string // self 自主下发 / proxy 代理模式（JOIN assignment 派生）
   task_id?: string // 产出本漏洞的任务（详情跳转用）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）

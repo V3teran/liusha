@@ -93,63 +93,62 @@ describe('FindingDrawer', () => {
     expect(saveBtn).not.toBeDisabled()
   })
 
-  it('evaluation: cmd/curl/repro 类 key 渲染为代码块并带复制按钮', () => {
-    const finding = makeFinding({
-      evaluation: {
-        repro_cmd: 'curl -X POST http://x',
-        observation: '响应异常',
-      },
-    })
+  // 证据链区（真库形态样本：active:full 实测 finding 的结构）
+  const chainEvaluation = {
+    verification_tier: 'full_gate',
+    judge_reasoning: 'exploit 带 cmd=id 返回 uid=33，基线无此特征，主张成立',
+    evidence: {
+      url: 'http://t:8080/shell.php?cmd=id',
+      method: 'GET',
+      assert_reasons: ['status_code=200 ✓', 'body 含 "uid=33(www-data)" ✓'],
+      exploit_status_code: 200,
+      baseline_status_code: 200,
+      response_body_snippet: 'uid=33(www-data)',
+    },
+  }
+  const chainRepro = {
+    domain: 'web',
+    recipe: {
+      request: { method: 'GET', url: 'http://t:8080/shell.php?cmd=id', headers: { Cookie: 's=a' } },
+      baseline: { url: 'http://t:8080/shell.php', method: 'GET' },
+    },
+  }
+
+  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 裁决理由齐备渲染', () => {
+    const finding = makeFinding({ evaluation: chainEvaluation, repro: chainRepro })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
-    // repro_cmd → 代码块 + 复制按钮（CopyButton 以 aria-label 区分复制/已复制态）
+    expect(screen.getByText('证据链')).toBeTruthy()
     expect(screen.getByText('复现命令')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: '复制' }).length).toBeGreaterThanOrEqual(1)
-
-    // observation → 纯文本，无复制按钮
-    expect(screen.getByText('观察')).toBeTruthy()
-    expect(screen.getByText('响应异常')).toBeTruthy()
+    expect(screen.getByText('机器证据')).toBeTruthy()
+    expect(screen.getByText('裁决理由')).toBeTruthy()
+    // curl 命令带配方 URL 与 header
+    expect(document.body.textContent).toContain("curl -X GET 'http://t:8080/shell.php?cmd=id'")
+    expect(document.body.textContent).toContain("-H 'Cookie: s=a'")
+    // 断言逐条
+    expect(screen.getByText(/status_code=200/)).toBeTruthy()
+    // exploit 响应片段（响应 pre 与断言行都含 uid——断言至少出现）
+    expect(screen.getAllByText(/uid=33/).length).toBeGreaterThanOrEqual(1)
+    // 基线对照说明
+    expect(screen.getByText(/对照基线/)).toBeTruthy()
+    // 档位徽章
+    expect(screen.getByText('机器复放 + 终裁')).toBeTruthy()
   })
 
-  it('evaluation: 对象/数组值渲染为 JSON 折行，同样带复制按钮', () => {
-    const finding = makeFinding({
-      evaluation: {
-        vulnerable_endpoints: ['/a', '/b'],
-      },
-    })
+  it('证据链：repro/evaluation 缺席时整区不渲染', () => {
+    const finding = makeFinding({ evaluation: undefined, repro: undefined })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
-    // Radix Dialog 内容 portal 到 document.body，不在 render() 的 container 内。
-    const pre = document.body.querySelector('pre')
-    expect(pre?.textContent).toBe(JSON.stringify(['/a', '/b'], null, 2))
-    // json 块和 code 块一样是代码展示，同样需要复制入口（此前实现漏掉了 json 分支）。
-    expect(screen.getAllByRole('button', { name: '复制' }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('证据链')).toBeNull()
   })
 
-  it('evaluation 为空/未提供时不渲染证据区块', () => {
-    const finding = makeFinding({ evaluation: undefined })
-    render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
-    expect(screen.queryByText(/评估详情/)).toBeNull()
-  })
-
-  it('evidence 中 null/空字符串值被跳过', () => {
-    const finding = makeFinding({
-      evaluation: { payload: '', analysis: null as unknown as string },
-    })
-    render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
-    expect(screen.queryByText(/评估详情/)).toBeNull()
-  })
-
-  it('点击复制按钮调用 clipboard.writeText 并短暂显示已复制', async () => {
-    // 注意：userEvent.setup() 会用自己的 clipboard 覆盖 navigator.clipboard，
-    // 这里用 fireEvent 保留 beforeEach 里注入的 mock。
+  it('复现命令可复制：点击调 clipboard 并短暂显示已复制', async () => {
     const writeText = navigator.clipboard.writeText
-    const finding = makeFinding({ evaluation: { payload: "' OR 1=1" } })
+    const finding = makeFinding({ evaluation: chainEvaluation, repro: chainRepro })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
     const copyBtn = screen.getAllByRole('button', { name: '复制' })[0]
     fireEvent.click(copyBtn)
-
-    expect(writeText).toHaveBeenCalledWith("' OR 1=1")
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('curl -X GET'))
     expect(await screen.findByRole('button', { name: '已复制' })).toBeTruthy()
   })
 

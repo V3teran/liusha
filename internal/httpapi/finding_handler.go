@@ -40,7 +40,7 @@ const (
 //
 //	{ "total": N, "page": P, "size": S, "findings": [{
 //	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
-//	    "target":{...},"evaluation":{...},"source":"self|proxy",
+//	    "target":{...},"evaluation":{...},"repro":{...},"source":"self|proxy",
 //	    "task_id","conversation_id",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"
@@ -130,6 +130,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"remediation":     r.Remediation,
 		"target":          json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evaluation":      json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
+		"repro":           json.RawMessage(rawOrEmpty(r.Repro, "{}")),
 		"source":          r.Source,
 		"task_id":         r.TaskID,
 		"conversation_id": r.ConversationID,

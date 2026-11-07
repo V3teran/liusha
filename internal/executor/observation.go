@@ -130,11 +130,23 @@ func (e *Engine) observationToAttempt(
 		confidence = "low"
 	}
 
-	// 构造 Content
-	content := map[string]string{
+	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——
+	// remediation/target/host 缺席会让 finding 台账永远拿不到这几个字段
+	// （remediation 列实测恒空）。executor 的执行轨迹随节点另存，不进
+	// 主张载荷（体积与职责：轨迹属图，主张属台账）。
+	content := map[string]interface{}{
 		"summary":    obs.Statement,
 		"severity":   severity,
 		"confidence": confidence,
+	}
+	if obs.Remediation != "" {
+		content["remediation"] = obs.Remediation
+	}
+	if len(obs.Target) > 0 {
+		content["target"] = obs.Target
+	}
+	if obs.Host != "" {
+		content["host"] = obs.Host
 	}
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
@@ -209,6 +221,15 @@ type Observation struct {
 
 	// TestPlan：验证计划说明
 	TestPlan string `json:"test_plan,omitempty"`
+
+	// Target：主张指向的精确定位（领域自定义载荷——web 域为
+	// {method,url,path,parameter}）。交付层据此定位坐实主张的对象；
+	// 缺省由域侧交付层从复现配方派生。
+	Target json.RawMessage `json:"target,omitempty"`
+
+	// Host：主张指向的主机/服务标识（host[:port] 或领域等价物）——多目标
+	// 任务里区分主张落在哪个对象上；缺省由交付层从配方/证据抽取。
+	Host string `json:"host,omitempty"`
 
 	// Remediation：修复建议（一段自然语言）——issue/hypothesis 必给，state 不带。
 	// 经裁决坐实后随 finding 落台账，是漏洞处置的核心输入（怎么修、为何这样修）。
