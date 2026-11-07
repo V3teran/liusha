@@ -134,6 +134,7 @@ const summarySelect = `
 	COALESCE(c.id::text, ''),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
 	` + summaryStepCount + `,
+	(SELECT COALESCE(SUM(li.in_tokens + li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
@@ -230,6 +231,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			COALESCE(c.id::text, ''),
 			(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
 			`+summaryStepCount+`,
+			(SELECT COALESCE(SUM(li.in_tokens + li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 			t.created_at, t.ended_at
 		FROM task t
 		JOIN assignment a ON a.id = t.assignment_id
