@@ -17,8 +17,11 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 
 ### 升级
 
-`git pull` 后重复上面 pull/up 即可——迁移由 `migrate` 一次性服务随 up 自动执行。跨大版本升级前先校准迁移版本号（数据库台账对不上时新迁移会拒跑）：
+`git pull` 后重复上面 pull/up 即可——迁移由 `migrate` 一次性服务随 up 自动执行。
+
+仅当升级报「版本对不上/拒跑」时才需要校准数据库台账（把版本号对齐到本仓库当前迁移顶号，即 `db/migrations/` 下最大编号；dirty=true 表示上次迁移中断，须先修复再校准）：
 
 ```bash
-docker exec liusha-postgres psql -U liusha -d liusha   -c "UPDATE schema_migrations SET version=196, dirty=false;"
+# 查本仓库当前顶号：ls db/migrations/ | sort | tail -1   （如 0196_baseline.up.sql → 196）
+docker exec liusha-postgres psql -U liusha -d liusha -c "UPDATE schema_migrations SET version=<顶号>, dirty=false;"
 ```
