@@ -160,7 +160,7 @@ func scanSummary(r db.RowScanner, s *Summary) error {
 	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
-		&s.CreatedAt, &s.EndedAt, &s.TokensTotal); err != nil {
+		&s.TokensTotal, &s.CreatedAt, &s.EndedAt); err != nil {
 		return err
 	}
 	s.Status = Status(status)
