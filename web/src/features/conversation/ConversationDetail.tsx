@@ -248,34 +248,35 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                     type="button"
                     disabled={!taskActive || paused}
                     onClick={() => void control('pause')}
+                    aria-label="暂停扫描"
                     title={!taskActive ? '任务已结束' : paused ? '已暂停' : '暂停（保留进度，可随时继续）'}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm transition-colors ${
+                    className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                       !taskActive || paused
                         ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
                         : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
                     }`}
                   >
                     <Pause className="h-3 w-3" />
-                    暂停扫描
                   </button>
                   <button
                     type="button"
                     disabled={!taskActive || !paused}
                     onClick={() => void control('resume')}
+                    aria-label="继续扫描"
                     title={!taskActive ? '任务已结束' : paused ? '继续（从探索图进度恢复执行）' : '运行中'}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm transition-colors ${
+                    className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                       !taskActive || !paused
                         ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
                         : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
                     }`}
                   >
                     <Play className="h-3 w-3" />
-                    继续扫描
                   </button>
                   <button
                     type="button"
                     disabled={!taskActive}
                     onClick={() => void control('terminate')}
+                    aria-label="停止扫描"
                     title={!taskActive ? '任务已结束' : '停止（终态，可重新下发）'}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm font-medium transition-colors ${
                       !taskActive
@@ -284,7 +285,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                     }`}
                   >
                     <Square className="h-3 w-3 fill-current" />
-                    停止扫描
                   </button>
                 </>
               )}

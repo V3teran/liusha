@@ -106,12 +106,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
       "category": "hypothesis",
       "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
       "reasoning": "你为什么得出这个结论",
-      "test_plan": "如何验证这个发现",
       "confidence": "low/medium/high",
       "severity": "low/medium/high/critical",
       "impact": "危害：主张成立后会造成什么后果、影响面多大（一段话）",
-      "host": "主张指向的主机/服务标识（如 host:port）",
-      "target": "主张指向的精确定位（领域自定义：web 域为 {method,url,path,parameter}）",
       "remediation": "处置建议：主张指出的问题如何解决（一段话，面向该领域处理者）",
       "repro": {
         "domain": "web",

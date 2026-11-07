@@ -89,16 +89,16 @@ describe('ConversationDetail', () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('agent 工作中…')).toBeTruthy()
-    expect(screen.getByText('暂停扫描')).toBeTruthy()
-    expect(screen.getByText('停止扫描')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '暂停扫描' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止扫描' })).toBeTruthy()
   })
 
   it('暂停中显示"已暂停"与 继续/停止 控制组', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active', paused: true }))
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('已暂停（进度保留）')).toBeTruthy()
-    expect(screen.getByText('继续扫描')).toBeTruthy()
-    expect(screen.getByText('停止扫描')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '继续扫描' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止扫描' })).toBeTruthy()
     expect(screen.queryByText('agent 工作中…')).toBeNull()
   })
 
@@ -106,7 +106,7 @@ describe('ConversationDetail', () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    ;(await screen.findByText('暂停扫描')).click()
+    ;(await screen.findByRole('button', { name: '暂停扫描' })).click()
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'pause'))
   })
 
@@ -115,7 +115,7 @@ describe('ConversationDetail', () => {
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    ;(await screen.findByText('停止扫描')).click()
+    ;(await screen.findByRole('button', { name: '停止扫描' })).click()
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'terminate'))
   })
 

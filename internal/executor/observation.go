@@ -31,7 +31,6 @@ func (e *Engine) createObservationNode(
 		"statement": obs.Statement,
 		"category":  obs.Category,
 		"reasoning": obs.Reasoning,
-		"test_plan": obs.TestPlan,
 	}
 
 	if obs.Severity != "" {
@@ -39,9 +38,6 @@ func (e *Engine) createObservationNode(
 	}
 	if obs.Impact != "" {
 		contentMap["impact"] = obs.Impact
-	}
-	if obs.Confidence != "" {
-		contentMap["executor_confidence"] = obs.Confidence // 改名区分图级 confidence
 	}
 	if obs.Remediation != "" {
 		contentMap["remediation"] = obs.Remediation
@@ -148,11 +144,8 @@ func (e *Engine) observationToAttempt(
 	if obs.Remediation != "" {
 		content["remediation"] = obs.Remediation
 	}
-	if len(obs.Target) > 0 {
-		content["target"] = obs.Target
-	}
-	if obs.Host != "" {
-		content["host"] = obs.Host
+	if obs.Impact != "" {
+		content["impact"] = obs.Impact
 	}
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
@@ -229,17 +222,6 @@ type Observation struct {
 	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
 	Confidence string `json:"confidence,omitempty"`
 
-	// TestPlan：验证计划说明
-	TestPlan string `json:"test_plan,omitempty"`
-
-	// Target：主张指向的精确定位（领域自定义载荷——web 域为
-	// {method,url,path,parameter}）。交付层据此定位坐实主张的对象；
-	// 缺省由域侧交付层从复现配方派生。
-	Target json.RawMessage `json:"target,omitempty"`
-
-	// Host：主张指向的主机/服务标识（host[:port] 或领域等价物）——多目标
-	// 任务里区分主张落在哪个对象上；缺省由交付层从配方/证据抽取。
-	Host string `json:"host,omitempty"`
 
 	// Remediation：修复建议（一段自然语言）——issue/hypothesis 必给，state 不带。
 	// 经裁决坐实后随 finding 落台账，是漏洞处置的核心输入（怎么修、为何这样修）。
