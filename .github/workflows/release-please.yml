@@ -11,7 +11,7 @@ permissions:
 jobs:
   release-please:
     # 从 Conventional Commits 维护 CHANGELOG + 版本 PR（merge 即出 GitHub Release + tag）。
-    # 内测期 0.y.z：MINOR 随 feat 推进，fix 进 PATCH——语义上不承诺稳定。
+    # 0.y.z 阶段：MINOR 随 feat 推进，fix 进 PATCH——语义上不承诺稳定。
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
