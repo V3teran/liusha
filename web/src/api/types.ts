@@ -562,6 +562,7 @@ export interface TaskSummary {
   conversation_id: string
   finding_count: number
   step_count: number
+  tokens_total: number // 累计 LLM tokens（输入+输出）
   created_at: string
   ended_at: string | null
 }
