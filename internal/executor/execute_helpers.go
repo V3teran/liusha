@@ -109,6 +109,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
       "test_plan": "如何验证这个发现",
       "confidence": "low/medium/high",
       "severity": "low/medium/high/critical",
+      "host": "主张指向的主机/服务标识（如 host:port）",
+      "target": "主张指向的精确定位（领域自定义：web 域为 {method,url,path,parameter}）",
+      "remediation": "处置建议：主张指出的问题如何解决（一段话，面向该领域处理者）",
       "repro": {
         "domain": "web",
         "recipe": {
@@ -153,7 +156,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
   * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
   * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
 - domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被裁决
-- 不要只写description，必须提供具体的断言条件`,
+- 不要只写description，必须提供具体的断言条件
+- hypothesis 坐实后会成为交付物给人看：host/target/remediation 都要写全——
+  remediation 要定位到根因给出可执行的处理，不写空话`,
 		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
 		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
 		EarlyStopCondition: func(string) bool { return killed.Load() },

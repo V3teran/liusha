@@ -76,15 +76,40 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		}
 	}
 
+	// evaluation 列的证据链形态：裁决结论/成色/理由提为第一层键（前端按
+	// 键直取渲染），复放证据与机器断言明细收进 evidence 子对象。嵌套倾倒
+	// 形态（evaluation.evaluation.*）让前端只能平铺出乱码 JSON 块——
+	// 台账是给人看的，结构为消费方设计。
+	evidence := map[string]interface{}{}
+	if len(c.Evidence) > 0 {
+		if err := json.Unmarshal(c.Evidence, &evidence); err != nil {
+			evidence = map[string]interface{}{"raw": string(c.Evidence)}
+		}
+	}
+	tier := c.Tier
+	if tier == "" {
+		tier = "unknown"
+	}
+	judgeReasoning := ""
+	if r, ok := evidence["reasoning"].(string); ok {
+		judgeReasoning = r
+	}
 	evaluation, err := json.Marshal(map[string]interface{}{
 		"node_id":           c.ResultNodeID,
 		"verification_id":   c.VerificationID,
-		"verification_tier": c.Tier,
-		"evaluation":        c.Evidence,
+		"verification_tier": tier,
+		"judge_reasoning":   judgeReasoning,
 		"duration_ms":       c.DurationMs,
+		"evidence":          evidence,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal evaluation: %w", err)
+	}
+
+	// target 缺席时从复现配方派生（method/url/path）——台账的定位列不该
+	// 依赖 LLM 是否记得写 target；配方是机器事实，派生永不失真。
+	if len(c.Target) == 0 || string(c.Target) == "{}" || string(c.Target) == "null" {
+		c.Target = deriveTarget(c.Repro)
 	}
 
 	agentRunID := s.agentRunID
@@ -106,6 +131,36 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		s.onSaved(ctx, saved)
 	}
 	return nil
+}
+
+// deriveTarget 从复现配方的 request 派生定位四元组 {method,url,path}。
+// 配方是坐实主张的机器事实——定位从它派生比信任 LLM 转述更可靠。
+func deriveTarget(repro json.RawMessage) json.RawMessage {
+	var recipe struct {
+		Recipe struct {
+			Request struct {
+				Method string `json:"method"`
+				URL    string `json:"url"`
+			} `json:"request"`
+		} `json:"recipe"`
+	}
+	if json.Unmarshal(repro, &recipe) != nil || recipe.Recipe.Request.URL == "" {
+		return nil
+	}
+	u, err := url.Parse(recipe.Recipe.Request.URL)
+	if err != nil {
+		return nil
+	}
+	method := recipe.Recipe.Request.Method
+	if method == "" {
+		method = "GET"
+	}
+	out, _ := json.Marshal(map[string]string{
+		"method": method,
+		"url":    recipe.Recipe.Request.URL,
+		"path":   u.Path,
+	})
+	return out
 }
 
 // deriveHost 从坐实材料的可用线索抽主机：证据 url → 复现配方首请求 url →

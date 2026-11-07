@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
-import { buildEvaluationItems, EVALUATION_LABELS } from '@/lib/findingEvaluation'
+import { buildEvidenceView } from '@/lib/findingEvidence'
 
 interface FindingDrawerProps {
   open: boolean
@@ -41,7 +41,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
 
   if (!finding) return null
 
-  const evItems = buildEvaluationItems(finding.evaluation)
+  const ev = buildEvidenceView(finding.evaluation, finding.repro)
   const sevColor = severityColor[finding.severity.toLowerCase()] || '#6e7681'
   const changed = status !== finding.status || severity !== finding.severity || note !== (finding.triage_note || '')
 
@@ -189,41 +189,86 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </section>
               )}
 
-              {/* Evaluation 评估信息 */}
-              {evItems.length > 0 && (
+              {/* 证据链三段式：复现步骤 / 机器证据 / 裁决——对齐漏洞报告
+                  标准结构（复现可执行、证据可核验、结论可追溯）。 */}
+              {(ev.reproCommand || ev.assertReasons.length > 0 || ev.exploit || ev.judgeReasoning) && (
                 <section>
-                  <h3 className="mb-3 text-sm font-semibold text-text">评估详情</h3>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-text">证据链</h3>
+                    {ev.tier && (
+                      <Badge
+                        size="sm"
+                        dot={false}
+                        color={ev.tier === 'full_gate' ? '#22c55e' : '#eab308'}
+                      >
+                        {ev.tier === 'full_gate' ? '机器复放 + 终裁' : ev.tier === 'judge_only' ? '仅终裁' : ev.tier}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="space-y-3">
-                    {evItems.map((item) => (
-                      <div key={item.key} className="rounded-lg border border-border bg-surface-2 p-4">
+                    {/* 复现步骤：curl 等价命令，可复制直接重放 */}
+                    {ev.reproCommand && (
+                      <div className="rounded-lg border border-border bg-surface-2 p-4">
                         <div className="mb-2 flex items-center justify-between">
-                          <span className="text-sm font-medium text-text">
-                            {EVALUATION_LABELS[item.key] || item.key}
-                          </span>
-                          {/* code/json 都是可复制原文的代码块（text 是叙述，不设复制） */}
-                          {item.kind !== 'text' && (
-                            <CopyButton
-                              copied={copiedKey === item.key}
-                              onClick={() => copy(item.key, item.value)}
-                              size="sm"
-                            />
-                          )}
+                          <span className="text-sm font-medium text-text">复现命令</span>
+                          <CopyButton
+                            copied={copiedKey === 'repro'}
+                            onClick={() => copy('repro', ev.reproCommand!)}
+                            size="sm"
+                          />
                         </div>
-                        {item.kind === 'code' ? (
-                          <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
-                            {item.value}
-                          </pre>
-                        ) : item.kind === 'json' ? (
-                          <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
-                            {item.value}
-                          </pre>
-                        ) : (
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
-                            {item.value}
+                        <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
+                          {ev.reproCommand}
+                        </pre>
+                        {ev.baseline && (
+                          <p className="mt-2 text-xs text-text-tertiary">
+                            对照基线：<span className="font-mono">{ev.baseline.url}</span>
+                            {ev.baseline.status != null && `（HTTP ${ev.baseline.status}）`}——基线不带利用参数，
+                            差分即漏洞特征
                           </p>
                         )}
                       </div>
-                    ))}
+                    )}
+
+                    {/* 机器证据：断言明细 + exploit 响应 */}
+                    {(ev.assertReasons.length > 0 || ev.exploit) && (
+                      <div className="rounded-lg border border-border bg-surface-2 p-4">
+                        <span className="mb-2 block text-sm font-medium text-text">机器证据</span>
+                        {ev.exploit && (
+                          <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs">
+                            <Badge size="sm" dot={false} color={ev.exploit.status === 200 ? '#22c55e' : '#eab308'}>
+                              {ev.exploit.method} {ev.exploit.status ?? '—'}
+                            </Badge>
+                            <span className="break-all text-text">{ev.exploit.url}</span>
+                          </div>
+                        )}
+                        {ev.exploit?.bodySnippet && (
+                          <pre className="mb-2 overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text-secondary">
+                            {ev.exploit.bodySnippet}
+                          </pre>
+                        )}
+                        {ev.assertReasons.length > 0 && (
+                          <ul className="space-y-1">
+                            {ev.assertReasons.map((r, i) => (
+                              <li key={i} className="flex items-start gap-1.5 text-xs leading-relaxed text-text-secondary">
+                                <span className="text-sev-info">▸</span>
+                                <span className="font-mono">{r}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 裁决：为什么判定成立（LLM 终裁理由，引用亲见差分） */}
+                    {ev.judgeReasoning && (
+                      <div className="rounded-lg border border-border bg-surface-2 p-4">
+                        <span className="mb-2 block text-sm font-medium text-text">裁决理由</span>
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
+                          {ev.judgeReasoning}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </section>
               )}
