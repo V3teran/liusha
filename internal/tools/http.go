@@ -431,7 +431,7 @@ func (t *httpRequestTool) ShortDesc() string {
 }
 func (t *httpRequestTool) Desc() string {
 	return "发送 HTTP 请求并返回完整的 request（method/url/headers/body）与 response——" +
-		"executor 据此构造自包含复现配方并随最终输出提交（HTTP 发现的漏洞从本工具返回的 request 拷贝改造；" +
+		"executor 据此构造自包含复现配方并随最终输出提交（HTTP 发现从本工具返回的 request 拷贝改造；" +
 		"浏览器/非 HTTP 发现走 generic steps）。凭证库中该 host 的已录入凭证（headers/query/body 位置，" +
 		"数量与位置不定）自动注入，显式传入的键优先；响应 Set-Cookie 自动入库（identity=session)。"
 }

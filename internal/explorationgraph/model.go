@@ -85,7 +85,7 @@ type Relation string
 // generates 是贯穿推导链的"产出"关系：
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
 // triggers 是"发现滋生动作/新方向"的因果溯源（result → objective/action）——
-// 攻击链（漏洞A 催生后续动作进而产出漏洞B）沿边可回溯。
+// 因果链（成果A 催生后续动作进而产出成果B）沿边可回溯。
 // 动作间执行依赖（DAG 调度）不走边——落在 action 节点的 metadata.depends_on，
 // 由 CanExecute 直接消费（依赖集随节点原子读写，无需二次 Join）。
 const (

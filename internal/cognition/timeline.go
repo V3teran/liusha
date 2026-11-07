@@ -103,7 +103,7 @@ func (e *toolTimelineEvents) emit(ctx context.Context, conversationID string, me
 	}
 }
 
-// Emit 对外发射一条过程事件（漏洞卡等非工具事件与工具事件共用同一出口、
+// Emit 对外发射一条过程事件（发现卡等非工具事件与工具事件共用同一出口、
 // 同一 best-effort 语义）。conversationID 为空或依赖缺位时 no-op。
 func (e *toolTimelineEvents) Emit(ctx context.Context, conversationID string, meta map[string]any) {
 	if conversationID == "" || e.writer == nil || e.pub == nil {

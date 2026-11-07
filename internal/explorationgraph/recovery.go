@@ -57,7 +57,7 @@ func (m *RecoveryMonitor) Start(ctx context.Context) error {
 // recover 检测并恢复卡住的 action。
 //
 // 中断的 action 标 retryable=true（区别于业务性失败）：恢复重投后的新 planner
-// 据此优先重做这些步骤——它们失败的原因是 runner 停摆而非攻击路径走不通，
+// 据此优先重做这些步骤——它们失败的原因是 runner 停摆而非探索路径走不通，
 // 换路反而会漏掉该步骤本可能产出的信息（planner 提示词的对应规则见 agents/planner.md）。
 //
 // 活性判定用 task 级真实工作信号（最近的 LLM 调用或工具调用），不用
