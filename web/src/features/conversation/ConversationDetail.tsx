@@ -5,7 +5,8 @@ import { controlTask } from '@/api/tasks'
 import type { ConversationUsage } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
-import { compactNumber, fullTime, humanDuration, humanTokens } from '@/lib/format'
+import { fullTime, humanDuration, humanTokens } from '@/lib/format'
+import { TokenPair } from '@/components/TokenPair'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
@@ -226,12 +227,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
                     <span className="text-text-secondary">tokens</span>
                     <span className="font-mono text-text">
-                      <span className="text-sev-info" title="输入">
-                        ↑{compactNumber(usage.tokens.in)}
-                      </span>{' '}
-                      <span className="text-sev-high" title="输出">
-                        ↓{compactNumber(usage.tokens.out)}
-                      </span>
+                      <TokenPair inTokens={usage.tokens.in} outTokens={usage.tokens.out} cachedTokens={usage.tokens.cached} />
                     </span>
                   </span>
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
