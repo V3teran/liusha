@@ -15,7 +15,7 @@
 #   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
 #
 # 清空范围（每次执行都做一次）：
-#   - postgres：12 张业务表 TRUNCATE（schema 保留）
+#   - postgres：运行时表动态 TRUNCATE（豁免 seed 配置/登录资产/迁移台账）
 #   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
 #   - logs：先关 service 再 rm —— 确保 lumberjack fd 释放，新 service 写干净 logs
 
@@ -24,7 +24,7 @@ cd "$(dirname "$0")/../.."
 
 PG_CONTAINER="${LIUSHA_PG_CONTAINER:-liusha-postgres}"
 REDIS_CONTAINER="${LIUSHA_REDIS_CONTAINER:-liusha-redis}"
-HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-60}"
+HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-120}"  # runner 冷启动含 warm-pool Docker 巡检，波动可超 60s
 
 # load .env
 if [ -f .env ]; then
@@ -36,7 +36,7 @@ fi
 
 # host 侧地址
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:35432/liusha?sslmode=disable}"
+export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
 # LLM key（多把）随 .env 透传；redis 密码必填
@@ -57,32 +57,31 @@ fi
 echo ""
 echo "===== 2/6 清空 db / redis ====="
 
-# postgres：业务表 TRUNCATE（schema 保留）。
-# 错误**不再静默**——TRUNCATE 任一表失败会立即 exit，避免旧 task / finding 残留。
-# 表名演化：0043 agent_run→agent_task，0054 agent_task→agent；0046 加 tool_invocation，0047 加 audit_log；
-# 0056 加 endpoint，0064 退役（攻击面改从流量派生 sitemap）；0059 删 finding_relation（→ finding.depends_on uuid[] 替代）；
-# 0073-0077：active_scan+passive_session 合并为 task；http_flow 拆 proxy_traffic+agent_traffic；conversation.scan_id→task_id；
-# 0078：assignment（下发容器）+ cron_schedule（定时模板）——assignment 是 task 的父表（task.assignment_id
-# REFERENCES assignment.id），不显式 truncate 会在多次 e2e 运行间无限堆积孤儿行。
-# 0079：lesson → corpus（跨目标知识库，hybrid RAG）——lesson 表已删，改 truncate corpus。
-# 0085：运行时表 agent → agent_run 改名。此后 agent 是 config 定义表（seed 首填的事实源，
-# 跨 run 持久），运行时行落 agent_run。**绝不能 truncate config 表**——
-# agent/scenario 是 seed insert-only 语义的前提；一旦 truncate agent，
-# CASCADE 会连带清空 scenario.solo_agent_id 引用（ON DELETE RESTRICT 反会阻断），
-# 且重启 seed 判定 agent「已存在」跳过 → swarm 领域池空 → planner「无 domain 子代理」→ task 失败。
-# 0089：playbook 层整体删除（playbook/playbook_agent 表已 drop）——swarm 池=全部 enabled 领域猎手，
-# solo 由 scenario.solo_agent_id 单点指定。故这里清运行时表 agent_run（旧脚本误清 config 表 agent，是 swarm 派发失败根因）。
-# task 放最后——CASCADE 会连带清 agent_run/finding/... 的 task_id 引用行，但显式全列更清晰。
-# 运行时表补遗（曾遗漏导致跨 run 残留）：insight（洞察，447 行跨 run 累积实锤）、
-# task_control_event（控制事件，无 FK 不随 task CASCADE，pending pause/adjust_goal 陈旧行
-# 会永久堆积）、traffic_task（流量认领映射）。config 表（agent/skill/tool/llm_*/system_setting）
-# 是 seed insert-only 语义，绝不能 truncate。
+# postgres：运行时表 TRUNCATE（schema 保留）。
+# 表清单从 information_schema 动态枚举——手写清单会随 schema 演化腐烂
+# （曾含早已退役的 insight/checkpoints，一跑就炸整个清库步骤）。
+# 豁免三类（schema 变更时人工复核这份清单）：
+#   - schema_migrations：golang-migrate 台账
+#   - 种子配置表（agent/skill/tool/llm_provider/llm_role_route/system_setting）：
+#     seed insert-only 语义的前提——truncate agent 会连带清空 swarm 领域池，
+#     重启 seed 判定「已存在」跳过 → planner「无 domain 子代理」→ task 必失败
+#   - 登录资产（account/account_session）：清了把操作者锁在门外
+# 其余（task/finding/conversation/llm_invocation/message/...）全部清空，
+# CASCADE 抹平 FK 顺序，RESTART IDENTITY 让 seq 从 1 重新计数。
+EXCLUDED="'schema_migrations','agent','skill','tool','llm_provider','llm_role_route','system_setting','account','account_session'"
+TABLES=$(docker exec "$PG_CONTAINER" psql -U liusha -d liusha -tAc \
+  "SELECT string_agg(table_name, ', ' ORDER BY table_name) FROM information_schema.tables \
+   WHERE table_schema = 'public' AND table_name NOT IN (${EXCLUDED})")
+if [ -z "$TABLES" ]; then
+  echo "  ✗ 动态枚举业务表为空——schema 异常，中止"
+  exit 1
+fi
 if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
-    "TRUNCATE TABLE finding, corpus, insight, task_control_event, traffic_task, llm_invocation, tool_invocation, audit_log, agent_run, proxy_traffic, agent_traffic, conversation, task, assignment, cron_schedule, checkpoints, exploration_node, exploration_edge, exploration_verification RESTART IDENTITY CASCADE;"; then
+    "TRUNCATE TABLE ${TABLES} RESTART IDENTITY CASCADE;"; then
   echo "  ✗ postgres TRUNCATE 失败 — 看上面 psql 错误（常见原因：容器不在 / schema 不一致 / migrate 未跑）"
   exit 1
 fi
-echo "  ✓ postgres 业务表已 truncate"
+echo "  ✓ postgres 业务表已 truncate（$(echo "$TABLES" | awk -F', ' '{print NF}') 张）"
 
 # session-store/<owner_id>/ 是 ResultCompress middleware 的落盘目录；
 # truncate 后 DB 中 session 已不存在，对应子目录变孤儿，清掉避免无限堆积。

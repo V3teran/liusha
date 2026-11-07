@@ -1,0 +1,87 @@
+name: release-images
+
+# Release 发布 → 自动构建业务镜像并推送（版本号 + latest 双标签）。
+# 发布链闭环：conventional commits → release-please（版本 PR）→ merge 出
+# Release → 本 workflow 构建镜像。ghcr.io 用 GITHUB_TOKEN（packages:write
+# 作用于本仓库自有包，无需 PAT）；sandbox 镜像走独立的 build-sandbox 门控。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tags
+        id: tags
+        run: |
+          OWNER="ghcr.io/${{ github.repository_owner }}"
+          # Release → v0.2.0 镜像标签 0.2.0 + latest（tag 带 v，镜像不带）；手动触发只推 latest
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAGS="$OWNER/liusha-api:$VERSION $OWNER/liusha-api:latest"
+          else
+            TAGS="$OWNER/liusha-api:latest"
+          fi
+          {
+            echo "api<<EOF"; echo "$TAGS"; echo "EOF"
+            echo "proxy<<EOF"; echo "${TAGS//liusha-api/liusha-proxy}"; echo "EOF"
+            echo "runner<<EOF"; echo "${TAGS//liusha-api/liusha-runner}"; echo "EOF"
+            echo "nginx<<EOF"; echo "${TAGS//liusha-api/liusha-nginx}"; echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.api }}
+          labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
+
+      - name: Build and push proxy
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/proxy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.proxy }}
+          labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
+
+      - name: Build and push runner
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: cmd/runner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.runner }}
+          labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
+
+      - name: Build and push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/nginx/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.nginx }}
+          labels: org.opencontainers.image.source=https://github.com/V3teran/liusha

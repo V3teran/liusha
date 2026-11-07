@@ -6,7 +6,8 @@ PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile ful
 # 业务镜像仓库/标签（compose.yaml 同默认值——本地 build 即同名 tag，pull 不撞远端）
 IMAGE_REPO ?= ghcr.io/v3teran
 IMAGE_TAG ?= latest
-MIGRATE_DSN ?= postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable
+# 默认对齐 compose 的 dev 宿主端口约定（POSTGRES_HOST_PORT:-55432）；prod 形态迁移在容器内跑，不经 host make
+MIGRATE_DSN ?= postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable
 # migrate 走 go run 拉取 golang-migrate；默认全局 GOPROXY（goproxy.io）偶发 EOF，
 # 这里用可覆盖的镜像 fallback 链兜底：官方 → 国内镜像 → direct。可 `make migrate MIGRATE_GOPROXY=...` 覆盖。
 MIGRATE_GOPROXY ?= https://goproxy.cn,direct
