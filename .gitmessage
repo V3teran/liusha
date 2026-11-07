@@ -1,0 +1,10 @@
+# <type>(<scope>): <做什么——最关键的一个为什么>
+# 主题 ≤72 显示列（中文按 2 列计），——后只留一个短语
+#
+# 第一段：根因/动机一句话——为什么非改不可
+#
+# <要点列表：行为变化 / 边界语义 / 与既有语义的关系>
+#
+# 类型：feat fix docs refactor test ci chore（扩展 build perf）
+# scope：task dispatch attachment workspace exploration httpapi
+#        conversation finding config ui ci deploy docs sandbox
