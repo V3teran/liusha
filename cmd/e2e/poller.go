@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -60,13 +61,11 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-// terminateAndAwait 经控制平面下发 terminate 并等待任务落终态，返回最终状态。
-// 下发走 task_control_event 表（runner 侧消费器 5s 轮询），等待走 task.status——
-// 事件消费 → detector 中止 → 四 agent 退出 → 终态落库的整条停机链路都在验收内。
-func terminateAndAwait(ctx context.Context, pool *pgxpool.Pool, taskID string, logger *zerolog.Logger) (string, error) {
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO task_control_event (task_id, command, payload) VALUES ($1, 'terminate', '{}'::jsonb)`,
-		taskID); err != nil {
+// terminateAndAwait 走公开 API 下发 terminate 并等待任务落终态，返回最终状态。
+// 下发与前端同一控制端点（验收路径 = 用户路径），等待走 task.status——
+// 控制下发 → 停机传播 → 四 agent 退出 → 终态落库的整条链路都在验收内。
+func terminateAndAwait(ctx context.Context, pool *pgxpool.Pool, apiBase string, session *http.Cookie, taskID string, logger *zerolog.Logger) (string, error) {
+	if err := controlTask(apiBase, session, taskID, "terminate"); err != nil {
 		return "", fmt.Errorf("下发 terminate 失败: %w", err)
 	}
 	logger.Info().Str("task_id", taskID).Msg("已下发 terminate，等待优雅停机")
@@ -95,6 +94,8 @@ func pollTaskWithGraphStats(
 	ctx context.Context,
 	client *ExplorationGraphClient,
 	pool *pgxpool.Pool,
+	apiBase string,
+	session *http.Cookie,
 	taskID string,
 	criteria AcceptanceCriteria,
 	logger *zerolog.Logger,
@@ -167,7 +168,7 @@ func pollTaskWithGraphStats(
 				// 验收通过 ≠ 万事大吉：认知循环仍在烧 LLM。经控制平面下发
 				// terminate（而不是直接改 task.status）——同时验证优雅停机
 				// 路径：事件消费 → 四 agent 中止 → 终态落库。
-				finalStatus, err := terminateAndAwait(ctx, pool, taskID, logger)
+				finalStatus, err := terminateAndAwait(ctx, pool, apiBase, session, taskID, logger)
 				if err != nil {
 					return fmt.Errorf("优雅终止失败: %w", err)
 				}
