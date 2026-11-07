@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -167,41 +168,57 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 	output += "\n"
 
-	// 已确认的世界状态（规划基底）：只渲染 statement——观察载荷里的
-	// repro/execution_trace 是验证与审计材料，对规划是噪音，整包倾倒
-	// 会把 observe_state 输出撑爆上下文。
+	// 已确认的世界状态（规划基底）：只渲染 statement（renderStatements——
+	// 观察载荷里的 repro/execution_trace 是验证与审计材料，对规划是噪音）
 	if len(facts) > 0 {
 		output += fmt.Sprintf("### 已确认事实 (%d)\n", len(facts))
-		for _, f := range facts {
-			var c struct {
-				Statement string `json:"statement"`
-			}
-			if json.Unmarshal(f.Content, &c) != nil || c.Statement == "" {
-				continue
-			}
-			output += fmt.Sprintf("- %s\n", c.Statement)
-		}
+		output += renderStatements(facts)
 		output += "\n"
 	}
 
-	// 发现：同事实——statement（severity 随行），其余载荷属台账
+	// 发现：statement（severity 随行），其余载荷属台账
 	output += fmt.Sprintf("### 发现 (%d)\n", len(findings))
-	for _, finding := range findings {
+	output += renderFindings(findings)
+
+	return registry.ToolResult{Output: output}, nil
+}
+
+// renderStatements 渲染节点列表的 statement 行——planner 需要的是世界状态
+// 陈述，不是观察的全部载荷（repro/trace 对规划是噪音，整包倾倒会撑爆
+// observe_state 输出）。缺 statement 的载荷行跳过（解析失败不渲染噪音）。
+func renderStatements(nodes []explorationgraph.Node) string {
+	var b strings.Builder
+	for _, n := range nodes {
+		var c struct {
+			Statement string `json:"statement"`
+		}
+		if json.Unmarshal(n.Content, &c) != nil || c.Statement == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s\n", c.Statement)
+	}
+	return b.String()
+}
+
+// renderFindings 渲染 result 节点行：statement（severity 随行）——评级是
+// planner 排优先级的输入，其余载荷（impact/repro/evidence）属台账。
+func renderFindings(nodes []explorationgraph.Node) string {
+	var b strings.Builder
+	for _, n := range nodes {
 		var c struct {
 			Statement string `json:"statement"`
 			Severity  string `json:"severity"`
 		}
-		if json.Unmarshal(finding.Content, &c) != nil || c.Statement == "" {
+		if json.Unmarshal(n.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
 		if c.Severity != "" {
-			output += fmt.Sprintf("- [%s] %s\n", c.Severity, c.Statement)
+			fmt.Fprintf(&b, "- [%s] %s\n", c.Severity, c.Statement)
 		} else {
-			output += fmt.Sprintf("- %s\n", c.Statement)
+			fmt.Fprintf(&b, "- %s\n", c.Statement)
 		}
 	}
-
-	return registry.ToolResult{Output: output}, nil
+	return b.String()
 }
 
 // EvaluateProgressTool 评估任务进展
