@@ -563,7 +563,7 @@ func (d *Deps) buildExecutorAgent(
 // buildEvaluatorAgent 组装裁决官（ReAct judge）→ 复现晋升门 → Evaluator Agent。
 // Replayer 零依赖（复现配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
 // 流量同样可复现）。凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以
-// 登录态重放，防真实漏洞因重放落到登录页而被机器护栏误证伪。
+// 登录态重放，防真实主张因重放落到登录页而被机器护栏误证伪。
 func (d *Deps) buildEvaluatorAgent(
 	ctx context.Context,
 	taskID, host, agentRunID, conversationID string,
@@ -599,7 +599,7 @@ func (d *Deps) buildEvaluatorAgent(
 
 	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
 	// 由领域包注入——通用门对领域零感知。坐实发现（晋升 result 的主张，中性
-	// 领域词——信息成果与漏洞同为发现）落库即发时间线事件（会话发现卡）。
+	// 领域词——信息成果与漏洞同为发现）落库即发时间线事件（会话发现卡）。漏洞一词在此为安全域注释语境。
 	claimSink := finding.NewClaimSink(d.Findings, agentRunID).
 		// 主机兜底：坐实材料抽不出主机时回任务锚定的目标主机（task.target_host）
 		WithTaskHostFallback(func(ctx context.Context, taskID string) (string, error) {

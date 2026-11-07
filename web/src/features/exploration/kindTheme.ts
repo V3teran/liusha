@@ -153,7 +153,7 @@ export interface NodeChips {
   state?: StateMeta
   /** 动作类型 / 观测分类 */
   category?: string
-  /** 威胁等级（observation/result 的 content.severity） */
+  /** 优先级（observation/result 的 content.priority） */
   severity?: string
   /** 置信度文字标签 */
   confidence?: string
@@ -177,7 +177,7 @@ export function nodeChips(node: GraphNode): NodeChips {
   }
 
   if (node.kind === 'observation' || node.kind === 'result') {
-    const sev = typeof c.severity === 'string' ? c.severity.toLowerCase() : ''
+    const sev = typeof c.priority === 'string' ? c.priority.toLowerCase() : ''
     if (sev) chips.severity = sev
     chips.confidence = confidenceMeta(node.confidence) ?? undefined
   }

@@ -48,7 +48,7 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
         kind: 'observation',
         confidence: 'verified',
         priority: 'medium',
-        content: { category: 'issue', severity: 'HIGH' },
+        content: { category: 'issue', priority: 'HIGH' },
       }),
     )
     expect(chips.category).toBe('问题')

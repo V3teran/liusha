@@ -37,10 +37,10 @@ func newReadSkillTool(skills skill.Reader, timeout time.Duration) *readSkillTool
 
 func (t *readSkillTool) Name() string { return "read_skill" }
 func (t *readSkillTool) ShortDesc() string {
-	return "拉取技能手册全文（漏洞指南/工具手册）"
+	return "拉取技能手册全文（领域指南/工具手册）"
 }
 func (t *readSkillTool) Desc() string {
-	return "拉取一个 skill 的完整手册正文。可用 skill 名以 system prompt 的「技能索引」段为准——动手挖某类漏洞（如 bac）或用某个工具（如 browser-use）之前先读对应 skill。"
+	return "拉取一个 skill 的完整手册正文。可用 skill 名以 system prompt 的「技能索引」段为准——动手处理某类任务（如 bac）或用某个工具（如 browser-use）之前先读对应 skill。"
 }
 func (t *readSkillTool) Schema() json.RawMessage { return readSkillSchema }
 

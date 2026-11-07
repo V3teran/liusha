@@ -74,7 +74,7 @@ func buildDecisionGuide() string {
 
 	// 1. 完成判断
 	sb.WriteString("### 1. 当前 Objective 是否已完成？\n")
-	sb.WriteString("- 目标已真正达成（发现目标漏洞 / 获得目标成果）\n")
+	sb.WriteString("- 目标已真正达成（拿到目标期望的成果 / 充分覆盖目标范围）\n")
 	sb.WriteString("- Results 提供了充分证据\n")
 	sb.WriteString("- 如果是 → 设置 `completed=true`，提供 `evidence_ids`\n\n")
 
