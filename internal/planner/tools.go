@@ -167,19 +167,38 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	}
 	output += "\n"
 
-	// 已确认的世界状态（规划基底）
+	// 已确认的世界状态（规划基底）：只渲染 statement——观察载荷里的
+	// repro/execution_trace 是验证与审计材料，对规划是噪音，整包倾倒
+	// 会把 observe_state 输出撑爆上下文。
 	if len(facts) > 0 {
 		output += fmt.Sprintf("### 已确认事实 (%d)\n", len(facts))
 		for _, f := range facts {
-			output += fmt.Sprintf("- %s\n", string(f.Content))
+			var c struct {
+				Statement string `json:"statement"`
+			}
+			if json.Unmarshal(f.Content, &c) != nil || c.Statement == "" {
+				continue
+			}
+			output += fmt.Sprintf("- %s\n", c.Statement)
 		}
 		output += "\n"
 	}
 
-	// 发现
+	// 发现：同事实——statement（severity 随行），其余载荷属台账
 	output += fmt.Sprintf("### 发现 (%d)\n", len(findings))
 	for _, finding := range findings {
-		output += fmt.Sprintf("- %s\n", string(finding.Content))
+		var c struct {
+			Statement string `json:"statement"`
+			Severity  string `json:"severity"`
+		}
+		if json.Unmarshal(finding.Content, &c) != nil || c.Statement == "" {
+			continue
+		}
+		if c.Severity != "" {
+			output += fmt.Sprintf("- [%s] %s\n", c.Severity, c.Statement)
+		} else {
+			output += fmt.Sprintf("- %s\n", c.Statement)
+		}
 	}
 
 	return registry.ToolResult{Output: output}, nil

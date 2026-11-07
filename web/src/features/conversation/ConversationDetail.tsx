@@ -240,18 +240,18 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </span>
                 </span>
               )}
-              {/* 控制组与任务页对齐：有关联任务即恒显、按状态禁用（操作位稳定，
-                  终态行不闪没）；纯聊天（无任务对象）不渲染——没有可操作物。 */}
-              {taskID && (
+              {/* 控制组与任务表格同一门控：任务 active 才出现（终态行不渲染，
+                  状态点已表达终态）；纯聊天（无任务对象）同样不渲染。 */}
+              {taskActive && (
                 <>
                   <button
                     type="button"
-                    disabled={!taskActive || paused}
+                    disabled={paused}
                     onClick={() => void control('pause')}
                     aria-label="暂停扫描"
-                    title={!taskActive ? '任务已结束' : paused ? '已暂停' : '暂停（保留进度，可随时继续）'}
+                    title="暂停（保留进度，可随时继续）"
                     className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                      !taskActive || paused
+                      paused
                         ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
                         : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
                     }`}
@@ -260,12 +260,12 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </button>
                   <button
                     type="button"
-                    disabled={!taskActive || !paused}
+                    disabled={!paused}
                     onClick={() => void control('resume')}
                     aria-label="继续扫描"
-                    title={!taskActive ? '任务已结束' : paused ? '继续（从探索图进度恢复执行）' : '运行中'}
+                    title="继续（从探索图进度恢复执行）"
                     className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                      !taskActive || !paused
+                      !paused
                         ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
                         : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
                     }`}
@@ -274,15 +274,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </button>
                   <button
                     type="button"
-                    disabled={!taskActive}
                     onClick={() => void control('terminate')}
                     aria-label="停止扫描"
-                    title={!taskActive ? '任务已结束' : '停止（终态，可重新下发）'}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm font-medium transition-colors ${
-                      !taskActive
-                        ? 'cursor-not-allowed border-status-error/40 bg-status-error/5 text-status-error/40'
-                        : 'border-status-error bg-status-error/10 text-status-error hover:bg-status-error/20'
-                    }`}
+                    title="停止（终态，可重新下发）"
+                    className="inline-flex items-center justify-center rounded-lg border border-status-error bg-status-error/10 p-1.5 text-status-error transition-colors hover:bg-status-error/20"
                   >
                     <Square className="h-3 w-3 fill-current" />
                   </button>

@@ -106,7 +106,8 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
     columnHelper.display({
       id: 'tokens',
       header: 'Tokens',
-      size: 104,
+      // 双向满宽形态「↑1.31M ↓183.33K」实测需 ~120px + 内边距；104 会折行
+      size: 128,
       meta: { align: 'right' },
       cell: (ctx) => {
         const t = ctx.row.original
