@@ -70,7 +70,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN 的 packages:write 只覆盖包首次创建——包与仓库关联
+          # 建立后增量推被拒（0.2.0 首推成功、0.3.0 write_package denied
+          # 实测），与 build-sandbox 同用 PAT。
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push api
         uses: docker/build-push-action@v6
