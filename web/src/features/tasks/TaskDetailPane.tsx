@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
 import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
+import { JumpLink } from '@/components/JumpLink'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { fullTime, humanDuration } from '@/lib/format'
@@ -90,9 +90,9 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
                     )}
                   </span>
                 </Kv>
-                <Kv k="批次ID">
-                  <span className="font-mono text-xs" title={task.assignment_id}>
-                    {task.assignment_id.slice(0, 8)}（第 {task.assignment_index} / {task.assignment_total} 个）
+                <Kv k="批次">
+                  <span className="text-xs">
+                    {task.assignment_title}（第 {task.assignment_index} / {task.assignment_total} 个）
                   </span>
                 </Kv>
                 <Kv k="进度">
@@ -158,27 +158,24 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
               <div className="flex flex-wrap gap-2">
                 {task.conversation_id && (
-                  <Link
+                  <JumpLink
                     to={`/conversations/${task.source === 'self' ? 'direct' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:border-accent hover:text-accent"
+                    icon={MessageSquare}
                   >
-                    <MessageSquare className="h-3.5 w-3.5" />对话
-                  </Link>
+                    对话
+                  </JumpLink>
                 )}
                 {task.conversation_id && (
-                  <Link
+                  <JumpLink
                     to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:border-accent hover:text-accent"
+                    icon={GitBranch}
                   >
-                    <GitBranch className="h-3.5 w-3.5" />探索图
-                  </Link>
+                    探索图
+                  </JumpLink>
                 )}
-                <Link
-                  to="/findings"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:border-accent hover:text-accent"
-                >
-                  <Bug className="h-3.5 w-3.5" />漏洞
-                </Link>
+                <JumpLink to="/findings" icon={Bug}>
+                  漏洞
+                </JumpLink>
               </div>
             </section>
           </div>

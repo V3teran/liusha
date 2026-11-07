@@ -124,11 +124,12 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Finding, error
 	return out, rows.Err()
 }
 
-// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment 派生的 Source。
-// 漏洞页跨 task/host 全量展示用，区别于 per-task 的 Finding 列表。
+// LedgerRow 是全局漏洞台账的一行：finding 主体 + JOIN task/assignment/conversation
+// 派生的跳转上下文。漏洞页跨 task/host 全量展示用，区别于 per-task 的 Finding 列表。
 type LedgerRow struct {
 	Finding
-	Source string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
+	Source         string // 关联 assignment 的 source（manual 主动下发 / auto 被动代理）
+	ConversationID string // 关联会话 id（详情跳对话用；无会话为空）
 }
 
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）+ 分页。
@@ -180,10 +181,11 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 // 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
 func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
 	where, args := ledgerWhere(f)
-	q := `SELECT ` + ledgerCols + `, a.source
+	q := `SELECT ` + ledgerCols + `, a.source, COALESCE(c.id::text, '')
 		FROM finding f
 		JOIN task t ON t.id = f.task_id
-		JOIN assignment a ON a.id = t.assignment_id` +
+		JOIN assignment a ON a.id = t.assignment_id
+		LEFT JOIN conversation c ON c.task_id = t.id` +
 		where + " ORDER BY f.seq DESC"
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", f.Limit, f.Offset)
@@ -301,7 +303,7 @@ const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
-// scanLedger 扫 ledgerCols 列序 + 末尾 _id, source（比 scan() 多两列）。
+// scanLedger 扫 ledgerCols 列序 + 末尾 source, conversation_id（比 scan() 多两列）。
 func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	var agentID *string
 	var sourceTrafficID *int64
@@ -313,7 +315,7 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt, &out.Seq, &out.Repro,
-		&out.Source,
+		&out.Source, &out.ConversationID,
 	); err != nil {
 		return err
 	}

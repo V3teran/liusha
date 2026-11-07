@@ -76,16 +76,17 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       size: 150,
       cell: (ctx) => {
         const t = ctx.row.original
+        // 进度前置（扫到第几个一目了然），悬停给批次全名——ID 对人无意义
         const title = t.assignment_title || t.assignment_id.slice(0, 8)
         return (
           <span
             className="block truncate text-xs text-text-secondary"
-            title={`${title} · 第 ${t.assignment_index}/${t.assignment_total} 个（${t.assignment_id}）`}
+            title={title}
           >
-            {title}
-            <span className="ml-1 text-text-tertiary">
+            <span className="font-mono text-text-tertiary">
               [{t.assignment_index}/{t.assignment_total}]
             </span>
+            <span className="ml-1">{title}</span>
           </span>
         )
       },

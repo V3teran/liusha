@@ -30,6 +30,7 @@ export interface TimelineEventMeta {
   duration_ms: number // tool_result：工具执行耗时(ms)
   err: string // tool_result：错误信息（空=成功）
   summary: string // finding：坐实发现的标题
+  attachments?: AttachmentRef[] // user 消息：随消息提交的附件（芯片渲染 + 下载）
   severity: string // finding：分级（critical/high/medium/low/info——info 档为非漏洞信息成果）
   host: string // finding：目标主机
   target: string // finding：目标定位（URL/路径等）
@@ -45,6 +46,16 @@ export interface TimelineEventMeta {
  * SSE 消息帧
  * 字段名与后端 json tag 一致（snake_case，见 httpapi 各响应构造点）
  */
+/**
+ * 附件引用（后端 internal/attachment.Ref 镜像）：path 是工作区相对斜杠路径，
+ * 下载走 /api/workspaces/raw，agent 侧路径由后端按挂载点拼装。
+ */
+export interface AttachmentRef {
+  name: string
+  size: number
+  path: string
+}
+
 export interface Message {
   seq: number
   id: string
@@ -297,6 +308,8 @@ export interface FindingRow {
   // 含 verification_id 回指），前端通用 KV 渲染。
   evaluation?: Record<string, unknown>
   source: string // self 自主下发 / proxy 代理模式（JOIN assignment 派生）
+  task_id?: string // 产出本漏洞的任务（详情跳转用）
+  conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null

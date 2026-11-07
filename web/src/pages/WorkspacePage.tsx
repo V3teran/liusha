@@ -315,7 +315,7 @@ export function WorkspacePage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Badge size="sm" color="neutral">二进制</Badge>
-                  <span className="text-sm text-text" title={selected}>{displayPath(selected)}</span>
+                  <span className="text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                   <span className="text-xs text-text-secondary">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -343,7 +343,7 @@ export function WorkspacePage() {
           ) : fileQuery.data?.truncated ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm text-text" title={selected}>{displayPath(selected)}</span>
+                <span className="truncate text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
@@ -382,7 +382,7 @@ export function WorkspacePage() {
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm text-text" title={selected}>{displayPath(selected)}</span>
+                <span className="truncate text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
                   {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
@@ -455,19 +455,23 @@ function FileTree({
   onDownload: (path: string) => void
   onDelete: (path: string) => void
 }) {
-  /** 目录条目展示名：批次/任务层用任务 brief 短名（截 36 字），更深层用末段名。 */
+  /** 目录条目展示名：批次/任务层用人类可读名（批次标题 / 任务 brief，截 36 字），
+   * 更深层用末段名——每个目录只展示自己的名字，不叠角色前缀。 */
   function dirDisplayName(e: WorkspaceEntry): string {
     const segs = e.path.replace(/\/$/, '').split('/')
     const trunc = (v: string) => (v.length > 36 ? v.slice(0, 36) + '…' : v)
-    if (segs.length === 1) {
-      const label = nameMaps.assignLabel[segs[0]]
-      return label ? '批次：' + trunc(label) : segs[0]
-    }
-    if (segs.length === 2) {
-      const title = nameMaps.taskTitle[segs[1]]
-      return title ? trunc(title) : segs[1]
-    }
+    if (segs.length === 1) return trunc(nameMaps.assignLabel[segs[0]] ?? segs[0])
+    if (segs.length === 2) return trunc(nameMaps.taskTitle[segs[1]] ?? segs[1])
     return segs[segs.length - 1]
+  }
+
+  /** 行悬停 title：与展示名同一套语义的全名（不截断、无 UUID 前缀）——
+   * 原始路径对人无意义，删除确认框里仍有完整原始路径兜底。 */
+  function rowTitle(e: WorkspaceEntry): string {
+    const segs = e.path.replace(/\/$/, '').split('/')
+    if (e.is_dir && segs.length === 1) return nameMaps.assignLabel[segs[0]] ?? segs[0]
+    if (e.is_dir && segs.length === 2) return nameMaps.taskTitle[segs[1]] ?? segs[1]
+    return displayPath(e.path)
   }
 
   return (
@@ -499,7 +503,7 @@ function FileTree({
               ) : (
                 <span className="w-3.5 flex-shrink-0" />
               )}
-              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={e.path}>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs" title={rowTitle(e)}>
                 {e.is_dir && e.path.replace(/\/$/, '').split('/').length <= 2
                   ? dirDisplayName(e)
                   : base}

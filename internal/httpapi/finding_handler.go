@@ -41,6 +41,7 @@ const (
 //	{ "total": N, "page": P, "size": S, "findings": [{
 //	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
 //	    "target":{...},"evaluation":{...},"source":"self|proxy",
+//	    "task_id","conversation_id",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"
 //	}] }
@@ -119,22 +120,24 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 // evidence/target 用 json.RawMessage 原样透传（LLM 自由 jsonb，前端通用 KV 渲染）。
 func findingJSON(r finding.LedgerRow) gin.H {
 	return gin.H{
-		"id":             r.ID,
-		"seq":            r.Seq,
-		"severity":       r.Severity,
-		"summary":        r.Summary,
-		"host":           r.Host,
-		"cwe_id":         r.CWEID,
-		"owasp_category": r.OWASPCategory,
-		"remediation":    r.Remediation,
-		"target":         json.RawMessage(rawOrEmpty(r.Target, "{}")),
-		"evaluation":     json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
-		"source":         r.Source,
-		"status":         r.Status,
-		"triage_note":    r.TriageNote,
-		"triaged_at":     r.TriagedAt, // *time.Time，未处置为 null
-		"first_seen_at":  r.FirstSeenAt,
-		"created_at":     r.CreatedAt,
+		"id":              r.ID,
+		"seq":             r.Seq,
+		"severity":        r.Severity,
+		"summary":         r.Summary,
+		"host":            r.Host,
+		"cwe_id":          r.CWEID,
+		"owasp_category":  r.OWASPCategory,
+		"remediation":     r.Remediation,
+		"target":          json.RawMessage(rawOrEmpty(r.Target, "{}")),
+		"evaluation":      json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
+		"source":          r.Source,
+		"task_id":         r.TaskID,
+		"conversation_id": r.ConversationID,
+		"status":          r.Status,
+		"triage_note":     r.TriageNote,
+		"triaged_at":      r.TriagedAt, // *time.Time，未处置为 null
+		"first_seen_at":   r.FirstSeenAt,
+		"created_at":      r.CreatedAt,
 	}
 }
 
