@@ -265,6 +265,15 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
+	// 建好即链会话：后续任一步（落位/入队）失败时任务已留存（既有语义：
+	// 用户手动处理），链上会话才能从任务详情跳回会话看到失败现场——
+	// 不链的话会话成孤儿（有消息无任务）、任务成哑巴（有详情无入口）。
+	// 下发成功路径的 LinkTask 不再重复（此前在 createTask 调用方做）。
+	if conversationID != "" {
+		if err := a.Conversations.LinkTask(ctx, conversationID, tk.ID); err != nil {
+			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Str("task", tk.ID).Msg("link task 失败")
+		}
+	}
 
 	payloadBrief := brief
 	if len(attachments) > 0 {
@@ -591,14 +600,10 @@ func (a *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 			}
 			return
 		}
-		newTaskID, _, err := a.createTask(ctx, content, conversationID, attachments, userMsgSeq)
-		if err != nil {
+		if _, _, err := a.createTask(ctx, content, conversationID, attachments, userMsgSeq); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("扫描下发失败")
 			a.publishNotice(ctx, conversationID, "（扫描下发失败："+err.Error()+"）")
 			return
-		}
-		if err := a.Conversations.LinkTask(ctx, conversationID, newTaskID); err != nil {
-			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("link task 失败")
 		}
 		go a.genTitle(conversationID, content) //nolint:gosec // G118：标题生成独立生命周期
 		return
@@ -944,9 +949,6 @@ func (a *Service) StartChatTask(ctx context.Context, brief string, attachments [
 	taskID, _, err := a.createTask(ctx, dispatchBrief, conversationID, attachments, msg.Seq)
 	if err != nil {
 		return conversationID, "", fmt.Errorf("dispatch task: %w", err)
-	}
-	if err := a.Conversations.LinkTask(ctx, conversationID, taskID); err != nil {
-		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("link task 失败")
 	}
 	go a.genTitle(conversationID, dispatchBrief) //nolint:gosec // G118：标题生成独立生命周期
 	return conversationID, taskID, nil
