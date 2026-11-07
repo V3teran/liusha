@@ -154,30 +154,35 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
               </div>
             </section>
 
-            <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
-              <div className="flex flex-wrap gap-2">
-                {task.conversation_id && (
-                  <JumpLink
-                    to={`/conversations/${task.source === 'self' ? 'direct' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
-                    icon={MessageSquare}
-                  >
-                    对话
-                  </JumpLink>
-                )}
-                {task.conversation_id && (
-                  <JumpLink
-                    to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
-                    icon={GitBranch}
-                  >
-                    探索图
-                  </JumpLink>
-                )}
-                <JumpLink to="/findings" icon={Bug}>
-                  漏洞
-                </JumpLink>
-              </div>
-            </section>
+            {Boolean(task.conversation_id || task.finding_count > 0) && (
+              <section>
+                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
+                <div className="flex flex-wrap gap-2">
+                  {task.conversation_id && (
+                    <JumpLink
+                      to={`/conversations/${task.source === 'self' ? 'direct' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
+                      icon={MessageSquare}
+                    >
+                      对话
+                    </JumpLink>
+                  )}
+                  {task.conversation_id && (
+                    <JumpLink
+                      to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
+                      icon={GitBranch}
+                    >
+                      探索图
+                    </JumpLink>
+                  )}
+                  {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
+                  {task.finding_count > 0 && (
+                    <JumpLink to="/findings" icon={Bug}>
+                      漏洞
+                    </JumpLink>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         ) : null}
       </div>

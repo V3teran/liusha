@@ -148,35 +148,34 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                         <dd className="font-mono text-sm text-text">{detail.agent_run_id}</dd>
                       </>
                     )}
-                    {/* 任务/对话跳转（列表不占列，钻取视角的落点在详情）：点击跳转并收起抽屉。
-                        对话 tab 按下发来源定（proxy 代理模式 / self 自主下发），detail 缺 source 时落 self
-                        ——纯聊天/轻量路由调用必归 self，代理分析行后端恒带 source。 */}
-                    {detail.task_id && (
-                      <>
-                        <dt className="text-xs text-text-secondary">任务</dt>
-                        <dd>
-                          <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
-                            打开任务
-                          </JumpLink>
-                        </dd>
-                      </>
-                    )}
-                    {detail.conversation_id && (
-                      <>
-                        <dt className="text-xs text-text-secondary">对话</dt>
-                        <dd>
-                          <JumpLink
-                            to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'direct'}?conv=${detail.conversation_id}`}
-                            icon={MessageSquare}
-                            onClick={() => onOpenChange(false)}
-                          >
-                            打开对话
-                          </JumpLink>
-                        </dd>
-                      </>
-                    )}
                   </dl>
                 </section>
+
+                {/* 跳转：与漏洞详情抽屉同一节式语法（JumpLink 盒）。对话 tab 按下发
+                    来源定（proxy 代理模式 / self 自主下发），缺 source 落 self——
+                    纯聊天/轻量路由调用必归 self，代理分析行后端恒带 source。
+                    链接缺失（未链会话的孤儿任务/任务级后台调用）不渲染占位。 */}
+                {(detail.task_id || detail.conversation_id) && (
+                  <section>
+                    <h3 className="mb-2.5 text-sm font-semibold text-text">跳转</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {detail.task_id && (
+                        <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
+                          任务
+                        </JumpLink>
+                      )}
+                      {detail.conversation_id && (
+                        <JumpLink
+                          to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'direct'}?conv=${detail.conversation_id}`}
+                          icon={MessageSquare}
+                          onClick={() => onOpenChange(false)}
+                        >
+                          对话
+                        </JumpLink>
+                      )}
+                    </div>
+                  </section>
+                )}
 
                 {/* 错误单独成节，最先看到 */}
                 {detail.error_message && (
