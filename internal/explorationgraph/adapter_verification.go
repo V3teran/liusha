@@ -74,5 +74,8 @@ func (s *Store) ListVerificationsByConversationID(ctx context.Context, conversat
 	if err != nil {
 		return nil, err
 	}
+	if taskID == "" {
+		return []Verification{}, nil
+	}
 	return s.ListVerificationsByTask(ctx, taskID, limit)
 }
