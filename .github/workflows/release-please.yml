@@ -1,0 +1,21 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    # 从 Conventional Commits 维护 CHANGELOG + 版本 PR（merge 即出 GitHub Release + tag）。
+    # 内测期 0.y.z：MINOR 随 feat 推进，fix 进 PATCH——语义上不承诺稳定。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
