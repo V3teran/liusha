@@ -291,6 +291,22 @@ func (s *Store) AppendMessage(ctx context.Context, conversationID string, role R
 	return m, nil
 }
 
+// SetMessageMetadata 覆写指定消息的 metadata（会话+seq 双重定位，防止并发消息
+// 串位）。下发收口点用：附件引用随落位从暂存路径改写为 inbox 路径——时间线
+// 芯片的下载通道必须指向文件现在的家，引用落库那一刻的位置只是中转态。
+func (s *Store) SetMessageMetadata(ctx context.Context, conversationID string, seq int64, metadata json.RawMessage) error {
+	tag, err := s.pool.Exec(ctx,
+		"UPDATE message SET metadata=$3 WHERE conversation_id=$1 AND seq=$2",
+		conversationID, seq, metadata)
+	if err != nil {
+		return fmt.Errorf("set message metadata %s#%d: %w", conversationID, seq, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set message metadata: 消息不存在 %s#%d", conversationID, seq)
+	}
+	return nil
+}
+
 // GetMessage 按 id 取单条消息，用于「点开节点看原文」按需拉取——调用方（如执行图详情面板）
 // 只需要 selected.ref 指向的这一条正文，不必像 ListMessages 那样翻页拉整段会话历史。
 // conversationID 一并校验：防止跨会话用别处泄漏的 message id 越权读取到其他会话的内容。

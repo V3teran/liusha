@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/logx"
 )
@@ -36,7 +37,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 conversationID）。
 type ChatAPI interface {
-	StartChatTask(ctx context.Context, brief string) (conversationID, taskID string, err error)
+	StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (conversationID, taskID string, err error)
 }
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
@@ -57,10 +58,17 @@ type EventStream interface {
 	Subscribe(ctx context.Context, conversationID string) EventSubscription
 }
 
-// ChatRequest 是 POST /chat 请求体。
+// ChatRequest 是 POST /chat 请求体。Attachments 是随首条消息提交的附件引用
+// （上传端点已落位，服务端按会话合法根逐条校验后随任务落 inbox）。
 type ChatRequest struct {
-	Brief string `json:"brief"`
+	Brief       string           `json:"brief"`
+	Attachments []attachment.Ref `json:"attachments"`
 }
+
+// maxAttachmentsPerMessage 是单条消息携带的附件数上界。扫描链路的 payload
+// 只对用户文本做 rune 钳制，附件清单在校验之后拼接、直进 planner prompt
+// ——条数在这里收口，有界是清单机制的前提。
+const maxAttachmentsPerMessage = 10
 
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
@@ -76,11 +84,15 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 			return
 		}
-		if req.Brief == "" {
+		if req.Brief == "" && len(req.Attachments) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
-		conversationID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief)
+		if len(req.Attachments) > maxAttachmentsPerMessage {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "单条消息最多携带 10 个附件"})
+			return
+		}
+		conversationID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief, req.Attachments)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -93,23 +105,28 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 // intent 固定返回 "accepted"。扫描进行中/暂停中收到 action 指令的反馈由服务端异步
 // 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态裁决。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, conversationID, content string) (intent string, err error)
+	HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (intent string, err error)
 }
 
-// FollowUpRequest 是 POST /conversations/:id/messages 请求体。
+// FollowUpRequest 是 POST /conversations/:id/messages 请求体（Attachments 语义同 ChatRequest）。
 type FollowUpRequest struct {
-	Content string `json:"content"`
+	Content     string           `json:"content"`
+	Attachments []attachment.Ref `json:"attachments"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		conversationID := c.Param("id")
 		var req FollowUpRequest
-		if err := c.ShouldBindJSON(&req); err != nil || req.Content == "" {
+		if err := c.ShouldBindJSON(&req); err != nil || (req.Content == "" && len(req.Attachments) == 0) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
 			return
 		}
-		intent, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content)
+		if len(req.Attachments) > maxAttachmentsPerMessage {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "单条消息最多携带 10 个附件"})
+			return
+		}
+		intent, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content, req.Attachments)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return

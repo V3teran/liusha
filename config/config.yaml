@@ -236,6 +236,12 @@ sandbox:
   viewport_width: 1280
   viewport_height: 800
 
+conversation:
+  # 单附件上传上限（字节）。会话页附件按钮：任务会话直落 <批次>/<任务>/inbox
+  # （沙盒直接可见），纯聊天/未建任务先暂存 .staging/，下发任务时自动搬进 inbox。
+  # 0 = 默认 100 MiB。env 覆盖：LIUSHA_CONVERSATION_ATTACHMENT_MAX_BYTES。
+  attachment_max_bytes: 0
+
 # （原 toolruntime 段已删：step_tool_timeout_seconds 收归 DB system_setting runtime 组——
 # 该 yaml 值历史上从未被工具执行路径消费（实际钳制点硬编码 120s），现钳制/注册表超时同源热配置。）
 

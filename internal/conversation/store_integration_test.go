@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -107,5 +108,74 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	}
 	if got.Title != "SQLi 扫描会话" {
 		t.Errorf("标题回填失败: %q", got.Title)
+	}
+}
+
+// SetMessageMetadata 是下发收口点的落位改写通道：附件引用随落位从暂存路径
+// 改写为 inbox 路径。会话+seq 双重定位——改错行 = 芯片指向别人的文件。
+func TestSetMessageMetadata(t *testing.T) {
+	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
+	if err != nil {
+		t.Fatalf("连库: %v", err)
+	}
+	defer pool.Close()
+	store := conversation.NewStore(pool)
+
+	c, err := store.CreateConversation(ctx, "meta-relink", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM conversation WHERE id=$1", c.ID) })
+
+	m1, err := store.AppendMessage(ctx, c.ID, conversation.RoleUser, conversation.KindMessage, "第一条", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := store.AppendMessage(ctx, c.ID, conversation.RoleUser, conversation.KindMessage, "第二条", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	relinked, _ := json.Marshal(map[string]any{"attachments": []map[string]any{
+		{"name": "a.txt", "size": 3, "path": "asg/task/inbox/a.txt"},
+	}})
+	if err := store.SetMessageMetadata(ctx, c.ID, m2.Seq, relinked); err != nil {
+		t.Fatalf("改写第二条: %v", err)
+	}
+
+	// 只动目标行：第一条 metadata 不受波及，第二条读回新值
+	got1, err := store.GetMessage(ctx, c.ID, m1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1.Metadata != nil {
+		t.Fatalf("第一条 metadata 不应被波及: %s", got1.Metadata)
+	}
+	got2, err := store.GetMessage(ctx, c.ID, m2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// jsonb 会规范化键序，按值比较而非字节串比较
+	var want, got any
+	if err := json.Unmarshal(relinked, &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got2.Metadata, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("第二条 metadata 应被改写: %s", got2.Metadata)
+	}
+
+	// 不存在的 seq：明确报错（静默成功会让改写丢失无从察觉）
+	if err := store.SetMessageMetadata(ctx, c.ID, 999999999, relinked); err == nil {
+		t.Fatal("改写不存在的消息应报错")
 	}
 }

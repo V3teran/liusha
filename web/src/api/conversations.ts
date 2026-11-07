@@ -6,7 +6,7 @@
  */
 
 import { API_BASE, get, patch, post } from './client'
-import type { Conversation, ConversationUsage, Message } from './types'
+import type { AttachmentRef, Conversation, ConversationUsage, Message } from './types'
 
 /**
  * 分页获取会话列表（offset 翻页——会话列表按 updated_at 排序，活跃会话会被顶到最前，
@@ -74,9 +74,10 @@ export async function getConversationUsage(convID: string): Promise<Conversation
  * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
  */
 export async function startChat(
-  brief: string
+  brief: string,
+  attachments: AttachmentRef[] = []
 ): Promise<{ conversation_id: string; task_id: string }> {
-  return post('/chat', { brief })
+  return post('/chat', { brief, attachments: attachments.length > 0 ? attachments : undefined })
 }
 
 /**
@@ -89,11 +90,12 @@ export async function startChat(
 export async function followUp(
   convID: string,
   content: string,
+  attachments: AttachmentRef[] = []
 ): Promise<{ intent: string }> {
   const res = await fetch(`${API_BASE}/conversations/${convID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, attachments: attachments.length > 0 ? attachments : undefined }),
   })
   if (!res.ok) throw new Error(`POST /conversations/${convID}/messages → ${res.status}`)
   return res.json()

@@ -199,6 +199,15 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 		r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))
 	}
 
+	// 附件上传：静态段先于 :id 族注册避免 gin 树冲突。会话存在走 :id 形态，
+	// 新会话尚未创建走 /attachments（conversation_id 留空落 pending 暂存）。
+	if d.Attachments != nil && d.AttachmentContext != nil && d.AttachmentMaxBytes > 0 {
+		r.POST("/attachments", uploadAttachmentHandler(d.Attachments, d.AttachmentContext, d.AttachmentMaxBytes,
+			func(c *gin.Context) string { return c.PostForm("conversation_id") }))
+		r.POST("/conversations/:id/attachments", uploadAttachmentHandler(d.Attachments, d.AttachmentContext, d.AttachmentMaxBytes,
+			func(c *gin.Context) string { return c.Param("id") }))
+	}
+
 	if d.Abort != nil {
 		r.POST("/conversations/:id/abort", abortConversationHandler(d.Abort))
 	}

@@ -16,6 +16,7 @@ import (
 	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/audit"
@@ -303,41 +304,49 @@ func main() {
 		logger.Fatal().Err(err).Str("root", workspaceRoot).Msg("打开沙盒工作区失败")
 	}
 	logger.Info().Str("root", workspaceRoot).Msg("沙盒工作区已就绪")
+
+	// 附件域：复用工作区 Store 的路径钳制与落盘（暂存/落位都在同一棵工作区树内，
+	// 下发搬家用 rename——同根不跨文件系统）。
+	attachmentStore := attachment.NewStore(workspaceStore)
+	adapter.Attachments = attachmentStore
 	srv := &http.Server{
 		Addr: listenAddr, Handler: httpapi.NewServer(httpapi.Deps{
-			Auth:             authStore,  // 登录认证（/auth 系列 + RequireAuth 会话校验）
-			AuthAudit:        auditStore, // 登录/登出/改密事件审计
-			CookieSecure:     os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
-			Workspaces:       workspaceStore,
-			Credentials:      credAPI,
-			CredentialAudit:  auditStore, // 凭证库变更/明文读取审计（敏感操作面）
-			TaskStatus:       dispatch.TaskStatusAdapter{Tasks: taskStore},
-			Findings:         findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
-			Invocations:      invocationStore,
-			Chat:             adapter,                               // POST /chat 会话发起扫描
-			FollowUp:         adapter,                               // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:            adapter,                               // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:          adapter,                               // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
-			Renamer:          conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
-			ConfigStore:      cfgStore,                              // agent 配置 CRUD（配置管理页）
-			SkillStore:       cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
-			ToolCatalog:      cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
-			Models:           llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
-			KeyEncrypter:     llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
-			ProviderTester:   providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
-			Settings:         settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
-			Traffic:          proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
-			TrafficConv:      conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
-			Conversations:    conversationStore,                     // 会话列表 / 消息回看
-			EventStream:      dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
-			UsageTasks:       conversationStore,                     // 会话用量：会话→task 解析
-			UsageLLM:         invocationStore,                       // 会话用量：LLM token/耗时合计
-			UsageTools:       toolStore,                             // 会话用量：工具耗时合计
-			ExplorationGraph: explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
-			Tasks:            taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
-			TaskDispatch:     adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
-			TaskControl:      adapter,                               // POST /tasks/:id/control：任务行 暂停/继续/停止
-			Logs:             logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
+			Auth:               authStore,  // 登录认证（/auth 系列 + RequireAuth 会话校验）
+			AuthAudit:          auditStore, // 登录/登出/改密事件审计
+			CookieSecure:       os.Getenv("LIUSHA_COOKIE_SECURE") == "true",
+			Workspaces:         workspaceStore,
+			Credentials:        credAPI,
+			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
+			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
+			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
+			Invocations:        invocationStore,
+			Chat:               adapter,         // POST /chat 会话发起扫描
+			FollowUp:           adapter,         // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:              adapter,         // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:            adapter,         // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Attachments:        attachmentStore, // 附件上传（POST /attachments、POST /conversations/:id/attachments）
+			AttachmentContext:  attachmentContext{conversationStore, taskStore},
+			AttachmentMaxBytes: cfg.Conversation.AttachmentMaxBytes,
+			Renamer:            conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
+			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
+			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
+			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
+			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
+			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
+			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
+			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
+			TrafficConv:        conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
+			Conversations:      conversationStore,                     // 会话列表 / 消息回看
+			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb}, // SSE 订阅 redis 事件
+			UsageTasks:         conversationStore,                     // 会话用量：会话→task 解析
+			UsageLLM:           invocationStore,                       // 会话用量：LLM token/耗时合计
+			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
+			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
+			Tasks:              taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
+			TaskDispatch:       adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
+			TaskControl:        adapter,                               // POST /tasks/:id/control：任务行 暂停/继续/停止
+			Logs:               logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -402,4 +411,19 @@ func retryOptionsFromConfig(c config.RetryConfig) fwllm.RetryOptions {
 		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
 		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
 	}
+}
+
+// attachmentContext 组合 conversation/task 两 store 满足 httpapi.AttachmentContext
+// （会话→任务→批次解析链，供附件落位定 inbox 目录）。
+type attachmentContext struct {
+	Conversations *conversation.Store
+	Tasks         *task.Store
+}
+
+func (a attachmentContext) ResolveTaskID(ctx context.Context, conversationID string) (string, error) {
+	return a.Conversations.ResolveTaskID(ctx, conversationID)
+}
+
+func (a attachmentContext) GetSummary(ctx context.Context, id string) (task.Summary, error) {
+	return a.Tasks.GetSummary(ctx, id)
 }
