@@ -30,7 +30,7 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	})
 
 	// finding.task_id → task → assignment 外键链：先建父行
-	_, err := pool.Exec(ctx, `INSERT INTO assignment (id, source, title) VALUES ($1, 'manual', 'itest')`, taskID)
+	_, err := pool.Exec(ctx, `INSERT INTO assignment (id, source, title) VALUES ($1, 'self', 'itest')`, taskID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO task (id, assignment_id, brief, target_host) VALUES ($1, $1, 'itest', 'target.local')`, taskID)
@@ -104,7 +104,7 @@ func TestListAll_CountAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, rows, 3)
 	for _, r := range rows {
-		assert.Equal(t, "manual", r.Source, "台账行应带 assignment.source")
+		assert.Equal(t, "self", r.Source, "台账行应带 assignment.source")
 	}
 
 	n, err := store.CountAll(ctx, finding.LedgerFilter{})

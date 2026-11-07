@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { ListChecks, MessageSquare, X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
+import { JumpLink } from '@/components/JumpLink'
 import { severityColor, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
@@ -152,6 +153,29 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   )}
                 </div>
               </section>
+
+              {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
+                  JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
+              {(finding.task_id || finding.conversation_id) && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {finding.task_id && (
+                      <JumpLink to={`/tasks?task=${encodeURIComponent(finding.task_id)}`} icon={ListChecks}>
+                        任务
+                      </JumpLink>
+                    )}
+                    {finding.conversation_id && (
+                      <JumpLink
+                        to={`/conversations/${finding.source === 'proxy' ? 'proxy' : 'direct'}?conv=${encodeURIComponent(finding.conversation_id)}`}
+                        icon={MessageSquare}
+                      >
+                        对话
+                      </JumpLink>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {/* 修复建议（坐实主张随 remediation 落台账；无值不渲染） */}
               {finding.remediation?.trim() && (

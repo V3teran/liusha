@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { ListChecks, MessageSquare, X } from 'lucide-react'
+import { JumpLink } from '@/components/JumpLink'
 import type { LLMInvocationDetail } from '@/api/types'
 import { CopyButton } from '@/components/CopyButton'
 import { CopySection } from '@/components/CopySection'
@@ -155,14 +155,9 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       <>
                         <dt className="text-xs text-text-secondary">任务</dt>
                         <dd>
-                          <Link
-                            to={`/tasks?task=${detail.task_id}`}
-                            onClick={() => onOpenChange(false)}
-                            className="inline-flex items-center rounded-md bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
-                            title={`打开任务 ${detail.task_id}`}
-                          >
-                            打开任务 →
-                          </Link>
+                          <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
+                            打开任务
+                          </JumpLink>
                         </dd>
                       </>
                     )}
@@ -170,14 +165,13 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       <>
                         <dt className="text-xs text-text-secondary">对话</dt>
                         <dd>
-                          <Link
+                          <JumpLink
                             to={`/conversations/${detail.source === 'proxy' ? 'proxy' : 'direct'}?conv=${detail.conversation_id}`}
+                            icon={MessageSquare}
                             onClick={() => onOpenChange(false)}
-                            className="inline-flex items-center rounded-md bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
-                            title={`打开对话 ${detail.conversation_id}`}
                           >
-                            打开对话 →
-                          </Link>
+                            打开对话
+                          </JumpLink>
                         </dd>
                       </>
                     )}

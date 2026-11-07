@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Compass, Zap, Scale, Eye, Bot } from 'lucide-react'
+import { Compass, Zap, Scale, Eye, Bot, Waypoints, FoldVertical } from 'lucide-react'
 
 export interface AgentAccent {
   accent: string
@@ -44,6 +44,20 @@ const FIXED: Record<string, AgentProfile> = {
     soft: 'rgba(140, 140, 140, 0.14)',
     icon: Bot,
     label: '助手'
+  },
+  // 轻量路由键（非认知循环 agent，无独立配置行）：api 侧意图分类/摘要与 runner 侧
+  // 历史压缩。审计页不再让它们以英文原样落进中文标签体系。
+  inspector: {
+    accent: '#22d3ee',
+    soft: 'rgba(34, 211, 238, 0.14)',
+    icon: Waypoints,
+    label: '路由'
+  },
+  compactor: {
+    accent: '#fb923c',
+    soft: 'rgba(251, 146, 60, 0.14)',
+    icon: FoldVertical,
+    label: '压缩'
   },
 }
 
