@@ -37,21 +37,28 @@ PUBLISH_BUILDER ?= liusha-multiarch
 # OCI source label：GHCR 据此把包关联到仓库（Packages 页可见、CI 首推自动带，
 # 手动 publish 不带——业务镜像此前因此游离在仓库 Packages 列表之外）。
 IMAGE_SOURCE ?= https://github.com/V3teran/liusha
+# IMAGE_TAGS 空格分隔多标签（如 `make publish IMAGE_TAGS="latest 0.1.0"`）：
+# 一次构建、版本与 latest 同推——发布惯例是版本 tag 与滚动 tag 并行。
+IMAGE_TAGS ?= latest
 publish:
 	docker buildx inspect $(PUBLISH_BUILDER) >/dev/null 2>&1 || \
 	  docker buildx create --name $(PUBLISH_BUILDER)
 	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
 	  --label org.opencontainers.image.source=$(IMAGE_SOURCE) \
-	  -f cmd/api/Dockerfile -t $(IMAGE_REPO)/liusha-api:$(IMAGE_TAG) .
+	  $(foreach t,$(IMAGE_TAGS),-t $(IMAGE_REPO)/liusha-api:$(t)) \
+	  -f cmd/api/Dockerfile .
 	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
 	  --label org.opencontainers.image.source=$(IMAGE_SOURCE) \
-	  -f cmd/proxy/Dockerfile -t $(IMAGE_REPO)/liusha-proxy:$(IMAGE_TAG) .
+	  $(foreach t,$(IMAGE_TAGS),-t $(IMAGE_REPO)/liusha-proxy:$(t)) \
+	  -f cmd/proxy/Dockerfile .
 	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
 	  --label org.opencontainers.image.source=$(IMAGE_SOURCE) \
-	  -f cmd/runner/Dockerfile -t $(IMAGE_REPO)/liusha-runner:$(IMAGE_TAG) .
+	  $(foreach t,$(IMAGE_TAGS),-t $(IMAGE_REPO)/liusha-runner:$(t)) \
+	  -f cmd/runner/Dockerfile .
 	docker buildx build --builder $(PUBLISH_BUILDER) --platform linux/amd64,linux/arm64 --push \
 	  --label org.opencontainers.image.source=$(IMAGE_SOURCE) \
-	  -f deployments/nginx/Dockerfile -t $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG) .
+	  $(foreach t,$(IMAGE_TAGS),-t $(IMAGE_REPO)/liusha-nginx:$(t)) \
+	  -f deployments/nginx/Dockerfile .
 
 prod-up:
 	$(PROD_COMPOSE) up -d --build
