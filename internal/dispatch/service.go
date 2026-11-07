@@ -432,7 +432,7 @@ func (a *Service) PauseTask(ctx context.Context, taskID string) error {
 	}
 	if convID, rErr := a.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil && convID != "" {
 		a.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused,
-			"扫描已暂停（进度保留）", map[string]any{"reason": "用户暂停（任务行）"})
+			"扫描已暂停（进度保留）", map[string]any{"reason": "在任务页手动暂停"})
 	}
 	return nil
 }
@@ -489,12 +489,12 @@ func (a *Service) ResumeTask(ctx context.Context, taskID string) error {
 // 同链路，入口从会话换成任务）。运行中的循环由任务行观察停摆（≤一个控制轮询
 // 周期）——行状态与 API 响应同事务生效，没有事件投递失败的停摆缺口。
 func (a *Service) TerminateTask(ctx context.Context, taskID string) error {
-	if err := a.Tasks.Abort(ctx, taskID, "用户停止（任务行）"); err != nil {
+	if err := a.Tasks.Abort(ctx, taskID, "用户在任务页手动停止"); err != nil {
 		return err
 	}
 	if convID, err := a.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
 		a.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted,
-			"扫描已停止", map[string]any{"reason": "用户停止（任务行）"})
+			"扫描已停止", map[string]any{"reason": "在任务页手动停止"})
 	}
 	return nil
 }
@@ -515,11 +515,11 @@ func (a *Service) AbortConversationTask(ctx context.Context, conversationID stri
 	if fetched.TaskID == "" {
 		return fmt.Errorf("conversation 无关联 task")
 	}
-	if err := a.Tasks.Abort(ctx, fetched.TaskID, "用户停止"); err != nil {
+	if err := a.Tasks.Abort(ctx, fetched.TaskID, "用户在对话页手动停止"); err != nil {
 		return err
 	}
 	a.appendTaskStatus(ctx, conversationID, conversation.TaskStatusAborted,
-		"扫描已停止", map[string]any{"reason": "用户停止"})
+		"扫描已停止", map[string]any{"reason": "在对话页手动停止"})
 	return nil
 }
 

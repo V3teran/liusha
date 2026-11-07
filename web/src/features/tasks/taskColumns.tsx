@@ -1,5 +1,4 @@
 import { createColumnHelper } from '@tanstack/react-table'
-import { Link } from 'react-router-dom'
 import { Clock } from 'lucide-react'
 import { Pause, Play, Square } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
@@ -91,34 +90,35 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         )
       },
     }),
-    columnHelper.display({
-      id: 'conversation',
-      header: '对话',
-      size: 76,
-      cell: (ctx) => {
-        const t = ctx.row.original
-        if (!t.conversation_id) return <span className="text-xs text-text-secondary">—</span>
-        const tab = t.source === 'self' ? 'direct' : 'proxy'
-        return (
-          <Link
-            to={`/conversations/${tab}?conv=${encodeURIComponent(t.conversation_id)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="text-sm whitespace-nowrap text-accent hover:underline"
-          >
-            打开 →
-          </Link>
-        )
-      },
-    }),
     columnHelper.accessor('finding_count', {
       header: '漏洞',
-      size: 48,
+      size: 64,
       meta: { align: 'right' },
       cell: (ctx) => {
         const n = ctx.getValue()
         return (
           <span className={`block text-right font-mono text-sm tabular-nums ${n > 0 ? 'font-semibold text-sev-high' : 'text-text-secondary'}`}>
             {n > 0 ? n : '—'}
+          </span>
+        )
+      },
+    }),
+    columnHelper.accessor('tokens_total', {
+      header: 'Tokens',
+      size: 84,
+      meta: { align: 'right' },
+      cell: (ctx) => {
+        const n = ctx.getValue()
+        if (!n) return <span className="block text-right font-mono text-xs text-text-secondary opacity-40">—</span>
+        // 紧凑 humanize：12.3k / 3.4M（tabular-nums 右对齐，同时间列字体体系）
+        const compact =
+          n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n)
+        return (
+          <span
+            className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-text-secondary"
+            title={`累计 LLM tokens（输入+输出）：${n.toLocaleString()}`}
+          >
+            {compact}
           </span>
         )
       },
@@ -175,7 +175,8 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       size: 84,
       cell: (ctx) => {
         const t = ctx.row.original
-        if (t.status !== 'active') return <span />
+        // 按钮恒显、按状态禁用（affordance 可见：操作位不随数据闪没，位置稳定）
+        const terminal = t.status !== 'active'
         const run = (action: 'pause' | 'resume' | 'terminate') => {
           if (action === 'terminate') {
             // 省略号只在真截断时出现——短 brief 带「…」是误导
@@ -186,21 +187,38 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
             .then(() => onOperated?.())
             .catch((e: Error) => window.alert(`操作失败：${e.message}`))
         }
+        const disabledCls = 'cursor-not-allowed opacity-30 hover:bg-transparent hover:text-text-secondary'
+        const idleCls = 'transition-colors hover:bg-surface-2 hover:text-text'
         return (
           <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
-            {t.paused ? (
-              <button type="button" aria-label="\u7ee7\u7eed\u4efb\u52a1" title="\u7ee7\u7eed\uff08\u4ece\u63a2\u7d22\u56fe\u8fdb\u5ea6\u6062\u590d\u6267\u884c\uff09" onClick={() => run('resume')}
-                className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
-                <Play className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <button type="button" aria-label="\u6682\u505c\u4efb\u52a1" title="\u6682\u505c\uff08\u4fdd\u7559\u8fdb\u5ea6\uff0c\u53ef\u7ee7\u7eed\uff09" onClick={() => run('pause')}
-                className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text">
-                <Pause className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <button type="button" aria-label="\u505c\u6b62\u4efb\u52a1" title="\u505c\u6b62\uff08\u7ec8\u6001\uff0c\u53ef\u91cd\u65b0\u4e0b\u53d1\uff09" onClick={() => run('terminate')}
-              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-status-error/10 hover:text-status-error">
+            <button
+              type="button"
+              aria-label="暂停任务"
+              title={terminal ? '任务已结束' : t.paused ? '已暂停' : '暂停（保留进度，可继续）'}
+              disabled={terminal || t.paused}
+              onClick={() => run('pause')}
+              className={`rounded-md p-1.5 text-text-secondary ${terminal || t.paused ? disabledCls : idleCls}`}
+            >
+              <Pause className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="继续任务"
+              title={terminal ? '任务已结束' : t.paused ? '继续（从探索图进度恢复执行）' : '运行中'}
+              disabled={terminal || !t.paused}
+              onClick={() => run('resume')}
+              className={`rounded-md p-1.5 text-text-secondary ${terminal || !t.paused ? disabledCls : idleCls}`}
+            >
+              <Play className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="停止任务"
+              title={terminal ? '任务已结束' : '停止（终态，可重新下发）'}
+              disabled={terminal}
+              onClick={() => run('terminate')}
+              className={`rounded-md p-1.5 text-text-secondary ${terminal ? disabledCls : 'hover:bg-status-error/10 hover:text-status-error'}`}
+            >
               <Square className="h-3.5 w-3.5" />
             </button>
           </span>
