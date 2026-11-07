@@ -93,7 +93,7 @@ func createChatTask(base string, session *http.Cookie, brief string) (conversati
 		if attempt > 0 {
 			time.Sleep(time.Duration(1<<uint(attempt-1)) * 5 * time.Second) // 5s/10s
 		}
-		req, _ := http.NewRequest(http.MethodPost, base+"/chat", bytes.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPost, base+"/api/chat", bytes.NewReader(body))
 		req.AddCookie(session) // #nosec G104 // e2e 会话凭证
 		req.Header.Set("Content-Type", "application/json")
 		resp, err = client.Do(req)
