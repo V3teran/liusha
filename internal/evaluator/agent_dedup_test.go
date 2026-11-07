@@ -34,7 +34,7 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 }
 
 // TestParseObservationToAttemptContentShape 锁定轮询路径与事件路径的载荷形状
-// 一致：summary/severity/confidence 三字段齐全，缺省 confidence=low。
+// 一致：summary/priority/confidence 三字段齐全，缺省 confidence=low。
 func TestParseObservationToAttemptContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
@@ -42,7 +42,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 		ID:      "obs-1",
 		TaskID:  "task-1",
 		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S 存在漏洞","severity":"high","executor_confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		Content: json.RawMessage(`{"statement":"S 存在漏洞","priority":"high","impact":"i","suggestion":"s","executor_confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
 	att, err := a.parseObservationToAttempt(obs)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 	if err := json.Unmarshal(att.Content, &c); err != nil {
 		t.Fatalf("unmarshal content: %v", err)
 	}
-	if c["summary"] != "S 存在漏洞" || c["severity"] != "high" || c["confidence"] != "high" {
+	if c["summary"] != "S 存在漏洞" || c["priority"] != "high" || c["confidence"] != "high" || c["impact"] != "i" || c["suggestion"] != "s" {
 		t.Fatalf("载荷字段缺失/错值: %+v", c)
 	}
 

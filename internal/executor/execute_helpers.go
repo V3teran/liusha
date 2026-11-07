@@ -107,9 +107,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
       "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
       "reasoning": "你为什么得出这个结论",
       "confidence": "low/medium/high",
-      "severity": "low/medium/high/critical",
-      "impact": "危害：主张成立后会造成什么后果、影响面多大（一段话）",
-      "remediation": "处置建议：主张指出的问题如何解决（一段话，面向该领域处理者）",
+      "priority": "优先级：这条主张值得多优先对待（low/medium/high/critical）",
+      "impact": "影响：主张为真时会发生什么、波及多大（一段话）",
+      "suggestion": "建议：若要改变这一局面可以怎么做（一段话）",
       "repro": {
         "domain": "web",
         "recipe": {
@@ -155,9 +155,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
   * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
 - domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被裁决
 - 不要只写description，必须提供具体的断言条件
-- hypothesis 坐实后会成为交付物给人看：impact/host/target/remediation 都要写全——
-  impact 说清后果与影响面（信息泄露/越权/执行任意代码等，落实到本主张的具体对象）；
-  remediation 要定位到根因给出可执行的处理，不写空话`,
+- hypothesis 坐实后会成为交付物给人看：priority/impact/suggestion 都要写全——
+  impact 陈述主张为真时的具体影响（落实到对象，中性因果）；
+  suggestion 定位到根因给出可执行的处理，不写空话`,
 		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
 		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
 		EarlyStopCondition: func(string) bool { return killed.Load() },
@@ -325,7 +325,7 @@ func (e *Engine) fallbackExtractHypothesis(
 2. 每个假设必须包含：
    - statement: 主张陈述（简洁明确：什么位置、什么条件、什么现象）
    - repro: 复现步骤（JSON 数组，每步一个字符串）
-   - severity: 影响等级（critical/high/medium/low）
+   - priority: 优先级（critical/high/medium/low）
 
 **输出格式**（严格 JSON）：
 {
@@ -336,7 +336,7 @@ func (e *Engine) fallbackExtractHypothesis(
       "category": "hypothesis",
       "statement": "X 输入在响应中原样出现，未经过任何处理",
       "repro": ["构造带唯一标记的输入访问目标", "检查响应中标记是否原样保留"],
-      "severity": "high"
+      "priority": "high"
     }
   ]
 }
