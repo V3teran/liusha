@@ -22,6 +22,9 @@ x-app-env: &app-env
   # 与 redis 服务的 REDIS_PASSWORD 配对（必填）
   LIUSHA_REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD 未设置}"
   LIUSHA_CONFIG: /app/config/config.yaml
+  # 环境默认 = dev 值；生产 overlay（compose.prod.yaml）按键覆盖为 production/json
+  LIUSHA_ENV: development
+  LIUSHA_LOG_LEVEL: info
 
 x-app-deps: &app-deps
   postgres:

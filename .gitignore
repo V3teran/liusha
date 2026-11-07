@@ -7,6 +7,8 @@ cmd/*/dist/
 
 # Local env（根 .env = host 脚本 source + compose 插值的唯一真值文件；模板见 .env.example）
 .env
+# compose 本地覆盖（docker compose 自动加载同名文件，常含真实端口/密钥插值）
+/compose.override.yaml
 # 生产密钥（make prod-up 经 --env-file .env.prod 注入，含真实凭据，绝不入 git）
 .env.prod
 # .env 备份（含密钥，绝不入 git）

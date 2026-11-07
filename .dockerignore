@@ -13,6 +13,14 @@
 .mimosa
 $CLAUDE_JOB_DIR
 
+# 本地密钥与环境文件（纵深防御：任何 COPY . . 都不得带出真实凭据）
+.env
+.env.prod
+.env*.bak*
+compose.override.yaml
+# sandbox 构建上下文的 CA 证书（运行时同步产物，gitignore 同源）
+deployments/tool-images/sandbox/liusha-ca.crt
+
 # 运行时产物（含渗透测试敏感日志，绝不进构建上下文）
 logs
 *.log
