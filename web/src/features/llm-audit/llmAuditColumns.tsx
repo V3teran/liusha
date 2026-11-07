@@ -1,8 +1,9 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import type { LLMInvocationSummary } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
+import { TokenPair } from '@/components/TokenPair'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
-import { clockTime, dateOnly, fullTime, humanDuration, humanTokens } from '@/lib/format'
+import { clockTime, dateOnly, fullTime, humanDuration } from '@/lib/format'
 import { invocationStatus } from '@/lib/llmInvocationStatus'
 import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from '@/lib/llmTiming'
 
@@ -86,14 +87,11 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       size: 120,
       cell: (ctx) => {
         const v = ctx.row.original
+        // TokenPair：与对话页/任务列同一呈现（↑入↓出 + 箭头；此前是
+        // "a / b" 无箭头形态，三面语义不统一）
         return (
-          <span className="flex flex-col gap-px whitespace-nowrap">
-            <span className="font-mono text-sm tabular-nums">
-              {humanTokens(v.in_tokens)} / {humanTokens(v.out_tokens)}
-            </span>
-            {v.cached_tokens > 0 && (
-              <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">缓存↓ {humanTokens(v.cached_tokens)}</em>
-            )}
+          <span className="flex flex-col items-start gap-px whitespace-nowrap">
+            <TokenPair inTokens={v.in_tokens} outTokens={v.out_tokens} cachedTokens={v.cached_tokens} className="text-sm" />
           </span>
         )
       },
