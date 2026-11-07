@@ -172,8 +172,10 @@ func pollTaskWithGraphStats(
 				if err != nil {
 					return fmt.Errorf("优雅终止失败: %w", err)
 				}
-				if finalStatus != "completed" {
-					return fmt.Errorf("任务终态为 %q，期望 completed", finalStatus)
+				// 验收达标即主动停（不再烧 token 等自然收敛），主动停的终态
+				// 就是 aborted——"收得住"验收的是能停，不是停成什么样。
+				if finalStatus != "aborted" {
+					return fmt.Errorf("任务终态为 %q，期望 aborted", finalStatus)
 				}
 				logger.Info().Str("final_status", finalStatus).Msg("✓ 任务已优雅终止")
 				return nil
