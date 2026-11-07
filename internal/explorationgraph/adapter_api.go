@@ -13,17 +13,22 @@ import (
 
 // taskIDByConversation 把 conversation_id 解析为关联扫描任务的 task_id
 // （探索图数据按 task_id 键控，会话经 conversation.task_id 一对一关联）。
-// 会话不存在时返回 not-found 语义错误。
+// 三态：会话不存在 → pgx.ErrNoRows（调用方按 404 透传）；纯聊天/未链任务
+// （task_id NULL：FK ON DELETE SET NULL、下发失败未 LinkTask）→ 空串 + nil，
+// 调用方按空图返回；正常 → task id。
 func (s *Store) taskIDByConversation(ctx context.Context, conversationID string) (string, error) {
 	if s.pool == nil {
 		return "", fmt.Errorf("conversation lookup requires direct DB access (pool is nil)")
 	}
-	var taskID string
+	var taskID *string
 	err := s.pool.QueryRow(ctx, `SELECT task_id FROM conversation WHERE id = $1::uuid`, conversationID).Scan(&taskID)
 	if err != nil {
 		return "", fmt.Errorf("conversation %q: %w", conversationID, err)
 	}
-	return taskID, nil
+	if taskID == nil {
+		return "", nil
+	}
+	return *taskID, nil
 }
 
 // ListNodesByConversationID 按 conversation_id 查询节点（经会话关联的 task）。
@@ -31,6 +36,9 @@ func (s *Store) ListNodesByConversationID(ctx context.Context, conversationID st
 	taskID, err := s.taskIDByConversation(ctx, conversationID)
 	if err != nil {
 		return nil, err
+	}
+	if taskID == "" {
+		return []Node{}, nil
 	}
 	return s.ListNodesForAPI(ctx, taskID, kind)
 }
@@ -40,6 +48,9 @@ func (s *Store) ListEdgesByConversationID(ctx context.Context, conversationID st
 	taskID, err := s.taskIDByConversation(ctx, conversationID)
 	if err != nil {
 		return nil, err
+	}
+	if taskID == "" {
+		return []Edge{}, nil
 	}
 	return s.ListEdgesForAPI(ctx, taskID)
 }

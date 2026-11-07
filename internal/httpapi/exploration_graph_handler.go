@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
@@ -42,6 +44,10 @@ func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
 		// 查询所有节点
 		nodes, err := api.ListNodesByConversationID(c.Request.Context(), conversationID, "")
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found", "conversation_id": conversationID})
+				return
+			}
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
