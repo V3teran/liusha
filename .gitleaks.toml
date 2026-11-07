@@ -1,0 +1,12 @@
+# 全历史密钥扫描白名单。首跑（1395 commits）8 命中全部为占位符误报，
+# 真实密钥零泄漏——白名单只锁三类既有模式，不放宽默认规则。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "全仓占位符约定（changeme-*）与技能/文档演示值"
+regexes = [
+  '''changeme-[a-z0-9-]+''',
+  '''scenario/hunter''',
+  '''a1b2c3d4e5f6a7b8''',
+]
