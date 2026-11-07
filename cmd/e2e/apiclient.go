@@ -69,6 +69,29 @@ func tryLogin(base, user, pass string) (*http.Cookie, int, error) {
 	return nil, resp.StatusCode, nil
 }
 
+// controlTask 走公开 API 下发任务控制指令（pause/resume/terminate）——
+// 与前端同一入口。 terminate 曾直插 task_control_event 表，生命周期重构后
+// 消费器只认任务行与内容干预，该事件永久无人消费，任务停不下来。
+func controlTask(base string, session *http.Cookie, taskID, action string) error {
+	body, _ := json.Marshal(map[string]string{"action": action})
+	req, err := http.NewRequest(http.MethodPost, base+"/api/tasks/"+taskID+"/control", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build control req: %w", err)
+	}
+	req.AddCookie(session) // #nosec G104 // e2e 会话凭证
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := authClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("post control: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("control %s: HTTP %d", action, resp.StatusCode)
+	}
+	return nil
+}
+
 // createChatTask 调 POST /chat 发起【会话式】扫描，返回 (conversationID, taskID)。
 // /chat 建 conversation + 发 SSE 过程事件，前端能实时看到会话——e2e 走此入口使扫描
 // 在前端可观察（区别于纯后台无会话的 POST /scan）。taskID 即响应的 task_id，
