@@ -222,7 +222,6 @@ type Observation struct {
 	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
 	Confidence string `json:"confidence,omitempty"`
 
-
 	// Remediation：修复建议（一段自然语言）——issue/hypothesis 必给，state 不带。
 	// 经裁决坐实后随 finding 落台账，是漏洞处置的核心输入（怎么修、为何这样修）。
 	Remediation string `json:"remediation,omitempty"`
