@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
+	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/chat"
 	"github.com/V3teran/liusha/internal/controlplane"
@@ -93,10 +95,23 @@ type Service struct {
 	Publisher *convstream.Publisher // 问答回答 publish SSE
 	Control   *controlplane.Store   // 用户停止 → terminate 控制事件（停掉 runner 执行）
 
+	// Attachments 是附件域窄接口（*attachment.Store 满足；nil = 附件能力关闭，
+	// 引用按空处理）。职责：下发收口点把暂存件搬进任务 inbox + 对话回答内联小文本。
+	Attachments AttachmentStore
+
 	// Run 整体超时上限。入队时设为 asynq.Timeout，
 	// 否则 asynq 默认 30min 任务 deadline 会架空 runner handler 里 4h 的 WithTimeout——
 	// run 跑到 30min 就被 ctx cancel（实测 30min 整 abort、planner 没机会收尾）。
 	MaxRunTimeout time.Duration
+}
+
+// AttachmentStore 是 dispatch 对附件域的最小依赖（internal/attachment.Store 满足）。
+// 接口化是为了测试替身与「附件能力可整体缺席」——store 未装配时消息引用按空处理。
+type AttachmentStore interface {
+	SaveUpload(dest attachment.Dest, r io.Reader, filename string, sizeCap int64) (attachment.Ref, error)
+	Materialize(dest attachment.Dest, refs []attachment.Ref) ([]attachment.Ref, error)
+	RemoveStaging(conversationID string) error
+	InlineTexts(dest attachment.Dest, refs []attachment.Ref) (string, error)
 }
 
 // noWallClockLimit 表达「run 不设墙钟上限」。asynq 无法直接表达无限时：
@@ -115,7 +130,7 @@ func wallClockOption(d time.Duration) time.Duration {
 // createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
 // conversationID）。CreateScan（无会话纯后台）与 StartChatTask（会话发起）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
-func (a *Service) createTask(ctx context.Context, brief, conversationID string) (string, string, error) {
+func (a *Service) createTask(ctx context.Context, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
 	if err := validateBrief(brief); err != nil {
 		return "", "", err
 	}
@@ -128,7 +143,7 @@ func (a *Service) createTask(ctx context.Context, brief, conversationID string) 
 	if err != nil {
 		return "", "", fmt.Errorf("create assignment: %w", err)
 	}
-	taskID, runID, err := a.expandItem(ctx, asg.ID, brief, conversationID)
+	taskID, runID, err := a.expandItem(ctx, asg.ID, brief, conversationID, attachments, userMsgSeq)
 	if err != nil {
 		return "", "", err
 	}
@@ -170,7 +185,7 @@ func (a *Service) DispatchBatch(ctx context.Context, title, description string, 
 		if _, err := a.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, b, nil); err != nil {
 			return asg.ID, out, fmt.Errorf("append user message: %w", err)
 		}
-		taskID, _, err := a.expandItem(ctx, asg.ID, b, created.ID)
+		taskID, _, err := a.expandItem(ctx, asg.ID, b, created.ID, nil, 0)
 		if err != nil {
 			return asg.ID, out, err
 		}
@@ -236,12 +251,13 @@ func (a *Service) appendTaskStatus(ctx context.Context, conversationID, status, 
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（单发 vs 批量/cron）。
 //
 // target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列）。
-func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string) (string, string, error) {
-	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
-	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
-	if err != nil {
-		return "", "", fmt.Errorf("marshal payload: %w", err)
-	}
+//
+// attachments 是随消息提交的附件引用（可空）：task 落位后整批搬进 inbox，清单
+// （沙盒绝对路径）拼进 payload brief——agent 从 prompt 直接拿到可读路径；task.brief
+// 保持原文（清单是路由信息，不是目标描述，进 brief 会污染标题/批次名）。
+// userMsgSeq 是携带这批附件的用户消息 seq（0 = 无会话消息）：落位后据它改写
+// 消息 metadata 的引用路径（暂存 → inbox），时间线芯片随之指向文件的新家。
+func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
 	tk, err := a.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Brief:        brief,
@@ -250,6 +266,21 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
+	payloadBrief := brief
+	if len(attachments) > 0 {
+		materialized, err := a.materialize(conversationID, assignmentID, tk.ID, attachments)
+		if err != nil {
+			return "", "", err
+		}
+		payloadBrief += attachment.Manifest(materialized)
+		a.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
+	}
+
+	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
+	payloadInput, err := json.Marshal(map[string]string{"brief": payloadBrief})
+	if err != nil {
+		return "", "", fmt.Errorf("marshal payload: %w", err)
+	}
 	tid, err := a.enqueuePlannerRun(ctx, tk.ID, conversationID, payloadInput)
 	if err != nil {
 		return "", "", err
@@ -286,9 +317,24 @@ func (a *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 // FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队
 // （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
 // 入队 Payload 与 createTask 同构，仅 TaskID 复用传入 taskID、不新建 task。
-func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string) (string, error) {
+// attachments（可空）经 Materialize 收口进该任务 inbox，清单拼进本轮 payload brief，
+// userMsgSeq 同 createTask（落位后改写消息引用路径）。
+func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string, attachments []attachment.Ref, userMsgSeq int64) (string, error) {
 	if err := validateBrief(brief); err != nil {
 		return "", err
+	}
+	tk, err := a.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return "", fmt.Errorf("read task: %w", err)
+	}
+	payloadBrief := brief
+	if len(attachments) > 0 {
+		materialized, err := a.materialize(conversationID, tk.AssignmentID, taskID, attachments)
+		if err != nil {
+			return "", err
+		}
+		payloadBrief += attachment.Manifest(materialized)
+		a.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
 	}
 	if err := a.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
@@ -302,7 +348,7 @@ func (a *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 			chatLog.Info().Int("resolved", n).Str("task", taskID).Msg("已清理上轮滞留的控制事件")
 		}
 	}
-	payloadInput, err := json.Marshal(map[string]string{"brief": brief})
+	payloadInput, err := json.Marshal(map[string]string{"brief": payloadBrief})
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
@@ -482,7 +528,17 @@ func (a *Service) DeleteConversation(ctx context.Context, conversationID string)
 			return httpapi.ErrConversationTaskActive
 		}
 	}
-	return a.Conversations.DeleteConversation(ctx, conversationID)
+	if err := a.Conversations.DeleteConversation(ctx, conversationID); err != nil {
+		return err
+	}
+	// 会话删除收口：暂存区附件随会话消失（从未随消息下发的中转件没有存在意义）。
+	// best-effort——删除失败不回滚会话删除，仅留 Warn 痕迹。
+	if a.Attachments != nil {
+		if err := a.Attachments.RemoveStaging(conversationID); err != nil {
+			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("清理会话暂存附件失败")
+		}
+	}
+	return nil
 }
 
 // dispatchAnswerTimeout 是异步分发的总预算：意图分类（秒级）+ 一次完整回答生成。
@@ -493,24 +549,30 @@ const dispatchAnswerTimeout = 5 * time.Minute
 // 意图分类与分流全部异步（dispatchFollowUp）。扫描进行中/暂停中收到 action 指令的反馈
 // 由异步分支往时间线落提示消息——前端拿到 200 即清空输入框、追加的消息立即出现在
 // 时间线，回答/扫描进展经 SSE 流出。
-func (a *Service) HandleMessage(ctx context.Context, conversationID, content string) (string, error) {
+func (a *Service) HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (string, error) {
 	fetched, err := a.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
 		return "", err
 	}
-	if _, err := a.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, content, nil); err != nil {
+	msg, err := a.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, content, attachmentMeta(attachments))
+	if err != nil {
 		return "", err
 	}
-	go a.dispatchFollowUp(conversationID, fetched.TaskID, content) //nolint:gosec // G118：分发独立于请求生命周期
+	go a.dispatchFollowUp(conversationID, fetched.TaskID, content, attachments, msg.Seq) //nolint:gosec // G118：分发独立于请求生命周期
 	return "accepted", nil
 }
 
 // dispatchFollowUp 追加消息的异步分发：意图闸 → 分流。detached ctx，
 // 独立于请求生命周期（请求 ctx 会随响应返回被取消，不能用于 LLM/落库）。
-func (a *Service) dispatchFollowUp(conversationID, taskID, content string) {
+// attachments 随消息元数据已落库；分流到这里只决定它们的去向——
+// qa/chat 内联小文本进回答 prompt，action 随下发/续接收口进任务 inbox。
+func (a *Service) dispatchFollowUp(conversationID, taskID, content string, attachments []attachment.Ref, userMsgSeq int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
 	defer cancel()
 
+	// 纯附件消息先折算再分类——空文本分类是噪音输入，且必须与 StartChatTask
+	// 同一口径（同一份折算规则喂给意图闸，两条入口不各判各的）。
+	content = effectiveBrief(content, attachments)
 	kind, err := a.classifyIntent(ctx, conversationID, content)
 	if err != nil {
 		// 会话内入口无 HTTP 响应可承载失败——发可见提示，不静默降级 qa
@@ -523,13 +585,13 @@ func (a *Service) dispatchFollowUp(conversationID, taskID, content string) {
 	// 纯聊天会话（无 task）：action 升级为扫描（建 task + 绑会话）；否则通用助手回答。
 	if taskID == "" {
 		if !isAction {
-			if err := chat.New(a).Answer(ctx, conversationID, content); err != nil {
+			if err := chat.New(a).Answer(ctx, conversationID, a.withInlineTexts(content, conversationID, "", "", attachments)); err != nil {
 				chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("纯聊天回答失败")
 				a.publishNotice(ctx, conversationID, "（回答生成失败，请重试）")
 			}
 			return
 		}
-		newTaskID, _, err := a.createTask(ctx, content, conversationID)
+		newTaskID, _, err := a.createTask(ctx, content, conversationID, attachments, userMsgSeq)
 		if err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("扫描下发失败")
 			a.publishNotice(ctx, conversationID, "（扫描下发失败："+err.Error()+"）")
@@ -560,15 +622,96 @@ func (a *Service) dispatchFollowUp(conversationID, taskID, content string) {
 			}
 			return
 		}
-		if _, err := a.FollowUp(ctx, taskID, conversationID, content); err != nil {
+		if _, err := a.FollowUp(ctx, taskID, conversationID, content, attachments, userMsgSeq); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("续接扫描失败")
 			a.publishNotice(ctx, conversationID, "（扫描下发失败："+err.Error()+"）")
 		}
 		return
 	}
-	if err := qa.New(a).Answer(ctx, conversationID, taskID, content); err != nil {
+	if err := qa.New(a).Answer(ctx, conversationID, taskID, a.withInlineTexts(content, conversationID, taskID, tk.AssignmentID, attachments)); err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("qa 回答失败")
 		a.publishNotice(ctx, conversationID, "（回答生成失败，请重试）")
+	}
+}
+
+// attachmentMeta 把附件引用序列化进用户消息 metadata（时间线渲染芯片 + 回看）。
+// 空引用/序列化失败返回 nil（metadata 列保持 NULL，与 thinking 同一纪律）。
+func attachmentMeta(refs []attachment.Ref) json.RawMessage {
+	if len(refs) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(map[string]any{"attachments": refs})
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// effectiveBrief 把「纯附件消息」折算成可校验的 brief：文本为空但带附件时，
+// 用附件名列表占位——标题/批次名/task.brief/意图分类都取它（planner payload
+// 在此之上再拼沙盒路径清单）。有文本或无附件时原样返回。
+func effectiveBrief(content string, refs []attachment.Ref) string {
+	if strings.TrimSpace(content) != "" || len(refs) == 0 {
+		return content
+	}
+	names := make([]string, 0, len(refs))
+	for _, r := range refs {
+		names = append(names, r.Name)
+	}
+	return "[附件] " + strings.Join(names, "、")
+}
+
+// withInlineTexts 把可内联的附件文本拼进对话 prompt 内容（qa/纯聊天的回答上下文；
+// inspector 无沙盒工具，读盘上的文件只能走内联这一条通道）。dest 界定引用的
+// 合法根（本会话暂存 / pending / 本任务 inbox），与落位同源校验。
+func (a *Service) withInlineTexts(content, conversationID, taskID, assignmentID string, refs []attachment.Ref) string {
+	if a.Attachments == nil || len(refs) == 0 {
+		return content
+	}
+	inline, err := a.Attachments.InlineTexts(attachment.Dest{
+		ConversationID: conversationID,
+		AssignmentID:   assignmentID,
+		TaskID:         taskID,
+	}, refs)
+	if err != nil {
+		chatLog.Warn().Err(err).Msg("附件内联渲染失败（回答退化为仅指令文本）")
+		return content
+	}
+	if inline == "" {
+		return content
+	}
+	return content + "\n\n" + inline
+}
+
+// materialize 是下发的附件收口点：把随消息提交的引用整批落位任务 inbox。
+// Attachments 未装配时是调用方的 bug（引用只会在装配了上传通道的部署里出现）——
+// 明确报错而非静默丢引用（丢引用 = agent 看不到承诺过的附件）。
+func (a *Service) materialize(conversationID, assignmentID, taskID string, refs []attachment.Ref) ([]attachment.Ref, error) {
+	if a.Attachments == nil {
+		return nil, fmt.Errorf("attachment: 附件能力未装配，无法处理随消息附件")
+	}
+	materialized, err := a.Attachments.Materialize(attachment.Dest{
+		ConversationID: conversationID,
+		AssignmentID:   assignmentID,
+		TaskID:         taskID,
+	}, refs)
+	if err != nil {
+		return nil, err // 错误文本已带 attachment: 域前缀，不再叠一层
+	}
+	return materialized, nil
+}
+
+// relinkMessageAttachments 把用户消息 metadata 里的附件引用改写为落位后路径
+// （暂存 → inbox）。引用落库先于落位（消息先行、下发异步），落库那一刻的路径
+// 只是中转态；时间线芯片的下载通道以改写后的为准。best-effort——改写失败仅
+// 芯片下载 404（属数据错，刷新无效），文件本体无损，故留 Warn 不阻断下发。
+func (a *Service) relinkMessageAttachments(ctx context.Context, conversationID string, userMsgSeq int64, refs []attachment.Ref) {
+	if conversationID == "" || userMsgSeq <= 0 || len(refs) == 0 {
+		return
+	}
+	if err := a.Conversations.SetMessageMetadata(ctx, conversationID, userMsgSeq, attachmentMeta(refs)); err != nil {
+		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Int64("seq", userMsgSeq).
+			Msg("附件引用落位改写失败（时间线芯片仍指暂存路径）")
 	}
 }
 
@@ -776,33 +919,36 @@ func (a *Service) Publish(ctx context.Context, conversationID string, payload []
 // 消费方无从发现任务）。分类是单 token 的 light LLM 调用（秒级），同步代价
 // 可忽略；真正慢的是 qa 回答生成与扫描执行——两者保持异步（原「GLM 慢时浏览器
 // 干等几十秒」的病灶在慢回答，不在分类）。
-func (a *Service) StartChatTask(ctx context.Context, brief string) (string, string, error) {
-	created, err := a.Conversations.CreateConversation(ctx, BriefTitle(brief), "")
+func (a *Service) StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (string, string, error) {
+	// 纯附件消息：时间线存原文（空文本 + 芯片），分类/标题/下发用附件名折算值。
+	dispatchBrief := effectiveBrief(brief, attachments)
+	created, err := a.Conversations.CreateConversation(ctx, BriefTitle(dispatchBrief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)
 	}
 	conversationID := created.ID
-	if _, err := a.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, brief, nil); err != nil {
+	msg, err := a.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, brief, attachmentMeta(attachments))
+	if err != nil {
 		return "", "", fmt.Errorf("append user message: %w", err)
 	}
 
-	kind, clsErr := a.classifyIntent(ctx, conversationID, brief)
+	kind, clsErr := a.classifyIntent(ctx, conversationID, dispatchBrief)
 	if clsErr != nil {
 		return conversationID, "", clsErr
 	}
 	if kind != intent.Action {
-		go a.answerChatAsync(conversationID, brief) //nolint:gosec // G118：回答独立于请求生命周期
+		go a.answerChatAsync(conversationID, a.withInlineTexts(dispatchBrief, conversationID, "", "", attachments)) //nolint:gosec // G118：回答独立于请求生命周期
 		return conversationID, "", nil
 	}
 
-	taskID, _, err := a.createTask(ctx, brief, conversationID)
+	taskID, _, err := a.createTask(ctx, dispatchBrief, conversationID, attachments, msg.Seq)
 	if err != nil {
 		return conversationID, "", fmt.Errorf("dispatch task: %w", err)
 	}
 	if err := a.Conversations.LinkTask(ctx, conversationID, taskID); err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("link task 失败")
 	}
-	go a.genTitle(conversationID, brief) //nolint:gosec // G118：标题生成独立生命周期
+	go a.genTitle(conversationID, dispatchBrief) //nolint:gosec // G118：标题生成独立生命周期
 	return conversationID, taskID, nil
 }
 

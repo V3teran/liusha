@@ -54,6 +54,11 @@ type Deps struct {
 	TaskControl TaskControlAPI
 	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删会话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
+	// Attachments/AttachmentContext 为 nil（或 AttachmentMaxBytes<=0）时附件上传路由不注册。
+	// cmd/api 注入 *attachment.Store + conversation/task 组合体 + conversation.attachment_max_bytes。
+	Attachments        AttachmentUploader
+	AttachmentContext  AttachmentContext
+	AttachmentMaxBytes int64
 	// Renamer 为 nil 时 PATCH /conversations/:id 不注册（重命名会话标题）。
 	Renamer ConversationRenamer
 	// ConfigStore 为 nil 时 agent 配置读取/编辑路由不注册。

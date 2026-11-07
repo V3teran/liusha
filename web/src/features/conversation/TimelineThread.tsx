@@ -149,6 +149,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                 key={r.key}
                 content={r.msg.content}
                 createdAt={r.msg.created_at}
+                attachments={r.msg.metadata?.attachments}
                 copied={copiedKey === r.msg.id}
                 onCopy={() => copy(r.msg.id, r.msg.content)}
               />

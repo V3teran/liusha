@@ -10,16 +10,23 @@ package config
 
 // AppConfig 是 liusha 顶层配置树。
 type AppConfig struct {
-	API        APIConfig                 `mapstructure:"api"`
-	Postgres   PostgresConfig            `mapstructure:"postgres"`
-	Redis      RedisConfig               `mapstructure:"redis"`
-	LLM        LLMConfig                 `mapstructure:"llm"`
-	Providers  map[string]ProviderConfig `mapstructure:"providers"`
-	Proxy      ProxyConfig               `mapstructure:"proxy"`
-	Ingestor   IngestorConfig            `mapstructure:"ingestor"`
-	Credential CredentialConfig          `mapstructure:"credential"`
-	Runner     RunnerConfig              `mapstructure:"runner"`
-	Sandbox    SandboxConfig             `mapstructure:"sandbox"`
+	API          APIConfig                 `mapstructure:"api"`
+	Postgres     PostgresConfig            `mapstructure:"postgres"`
+	Redis        RedisConfig               `mapstructure:"redis"`
+	LLM          LLMConfig                 `mapstructure:"llm"`
+	Providers    map[string]ProviderConfig `mapstructure:"providers"`
+	Proxy        ProxyConfig               `mapstructure:"proxy"`
+	Ingestor     IngestorConfig            `mapstructure:"ingestor"`
+	Credential   CredentialConfig          `mapstructure:"credential"`
+	Runner       RunnerConfig              `mapstructure:"runner"`
+	Sandbox      SandboxConfig             `mapstructure:"sandbox"`
+	Conversation ConversationConfig        `mapstructure:"conversation"`
+}
+
+// ConversationConfig 是会话域参数（cmd/api 消费；runner 不经会话收发附件）。
+type ConversationConfig struct {
+	// AttachmentMaxBytes 是单附件上传上限（multipart 流式拷贝按此截断）。
+	AttachmentMaxBytes int64 `mapstructure:"attachment_max_bytes"`
 }
 
 // APIConfig 是 cmd/api 的 HTTP 入口参数。

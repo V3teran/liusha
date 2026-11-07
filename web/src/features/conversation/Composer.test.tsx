@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Composer } from './Composer'
 import { followUp, startChat } from '@/api/conversations'
+import { uploadAttachment } from '@/api/attachments'
 import { useConversationStore } from '@/stores/conversation'
 
 vi.mock('@/api/conversations', () => ({
   followUp: vi.fn(),
   startChat: vi.fn(),
+}))
+
+vi.mock('@/api/attachments', () => ({
+  uploadAttachment: vi.fn(),
 }))
 
 describe('Composer', () => {
@@ -28,7 +33,7 @@ describe('Composer', () => {
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalledWith('扫一下 example.com')
+      expect(startChat).toHaveBeenCalledWith('扫一下 example.com', [])
       expect(onStarted).toHaveBeenCalledWith('new-conv')
     })
   })
@@ -54,7 +59,7 @@ describe('Composer', () => {
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '继续扫')
+      expect(followUp).toHaveBeenCalledWith('c1', '继续扫', [])
       expect(onAppended).toHaveBeenCalledWith(7)
     })
   })
@@ -126,7 +131,7 @@ describe('Composer', () => {
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的')
+      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的', [])
     })
   })
 
@@ -180,3 +185,92 @@ describe('Composer', () => {
     expect(startChat).not.toHaveBeenCalled()
   })
 })
+
+describe('Composer 附件流', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    vi.mocked(followUp).mockReset()
+    vi.mocked(startChat).mockReset()
+    vi.mocked(uploadAttachment).mockReset()
+  })
+
+  it('选择即上传落芯片，随消息发送；纯附件（无文本）也可发送', async () => {
+    vi.mocked(uploadAttachment).mockResolvedValue({
+      name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt',
+    })
+    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
+    const onStarted = vi.fn()
+    render(<Composer onStarted={onStarted} onAppended={vi.fn()} />)
+
+    const input = screen.getByLabelText('选择附件文件') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['192.168.1.1'], 'targets.txt')] } })
+
+    // 芯片出现（名称+尺寸），上传请求带文件
+    await waitFor(() => {
+      expect(uploadAttachment).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('targets.txt')).toBeTruthy()
+    })
+
+    // 空文本 + 有附件：发送按钮可用，引用随 startChat 提交后清空
+    const sendBtn = screen.getByRole('button', { name: '发送' })
+    expect(sendBtn).not.toBeDisabled()
+    await userEvent.click(sendBtn)
+    await waitFor(() => {
+      expect(startChat).toHaveBeenCalledWith('', [
+        { name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt' },
+      ])
+      expect(onStarted).toHaveBeenCalledWith('new-conv')
+    })
+    expect(screen.queryByText('targets.txt')).toBeNull()
+  })
+
+  it('上传失败就近提示，不中断输入', async () => {
+    vi.mocked(uploadAttachment).mockRejectedValue(new Error('上传失败 413: 附件超过上限 100 MiB'))
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} />)
+
+    const input = screen.getByLabelText('选择附件文件') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'big.bin')] } })
+
+    await waitFor(() => {
+      expect(screen.getByText(/附件超过上限/)).toBeTruthy()
+    })
+    // 失败后输入与发送不受影响
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled() // 无文本无附件
+  })
+
+  it('芯片可移除，移除后不随消息发送', async () => {
+    vi.mocked(uploadAttachment).mockResolvedValue({
+      name: 'a.txt', size: 1, path: '.staging/conv/c1/a.txt',
+    })
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} />)
+
+    const input = screen.getByLabelText('选择附件文件') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt')] } })
+    await waitFor(() => expect(screen.getByText('a.txt')).toBeTruthy())
+
+    await userEvent.click(screen.getByRole('button', { name: '移除附件 a.txt' }))
+    expect(screen.queryByText('a.txt')).toBeNull()
+  })
+})
+describe('Composer 跨会话', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    vi.mocked(followUp).mockReset()
+    vi.mocked(startChat).mockReset()
+    vi.mocked(uploadAttachment).mockReset()
+  })
+
+  it('切换会话清空附件芯片（引用是会话域资源，不跨会话提交）', async () => {
+    vi.mocked(uploadAttachment).mockResolvedValue({
+      name: 'a.txt', size: 1, path: '.staging/conv/c1/a.txt',
+    })
+    const { rerender } = render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} />)
+    const input = screen.getByLabelText('选择附件文件') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt')] } })
+    await waitFor(() => expect(screen.getByText('a.txt')).toBeTruthy())
+
+    rerender(<Composer convId="c2" onStarted={vi.fn()} onAppended={vi.fn()} />)
+    expect(screen.queryByText('a.txt')).toBeNull()
+  })
+})
+

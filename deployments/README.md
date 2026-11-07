@@ -71,8 +71,7 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
   必须发布**。
 - **必须发布 8588**：浏览器挂 MITM 代理走宿主 8588。
 - **数据全在 /data 卷**：PG、Redis（AOF）、CA 证书、首启生成的密钥
-  （API key / SSE secret / LLM 加密密钥——env 未给时首启生成并持久化，重启
-  不变；API key 启动日志会打印）。
+  （LLM 加密密钥——env 未给时首启生成并持久化，重启不变）。
 - **沙盒工作区在宿主侧**：runner（容器内）拉起的沙盒把宿主目录 bind 进
   `/root/liusha/workspace`。宿主根目录默认按 runner 进程的 HOME 解析
   （root 运行 = `/root/data/liusha/workspace`）；需固定位置时以

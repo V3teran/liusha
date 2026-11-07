@@ -1,19 +1,21 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/gin-gonic/gin"
 )
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatTask(_ context.Context, _ string) (string, string, error) {
+func (fakeChat) StartChatTask(_ context.Context, _ string, _ []attachment.Ref) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 
@@ -45,7 +47,7 @@ type fakeFollowUp struct {
 	handleIntent   string
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string) (string, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string, _ []attachment.Ref) (string, error) {
 	f.conversationID = conversationID
 	f.calledBrief = content
 	return f.handleIntent, nil
@@ -219,5 +221,19 @@ func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
 
 	if fc.gotSource != "auto" {
 		t.Errorf("source=auto 应透传给 store，得 %q", fc.gotSource)
+	}
+}
+func TestChatHandler_TooManyAttachments(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/chat", chatHandler(fakeChat{}))
+	refs := make([]attachment.Ref, 11)
+	body, _ := json.Marshal(ChatRequest{Brief: "x", Attachments: refs})
+	req := httptest.NewRequest("POST", "/chat", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("超界附件应 400，得 %d (%s)", w.Code, w.Body.String())
 	}
 }

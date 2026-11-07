@@ -111,6 +111,37 @@ func TestOpenFileRejectsDir(t *testing.T) {
 	_ = f.Close()
 }
 
+func TestHiddenTopLevelDirsExcludedFromFileSurface(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 控制面中转层（附件暂存 .staging/）：落盘真实存在，文件面整体不可见
+	if err := store.Write(".staging/pending/u1/a.txt", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write("task1/out/report.txt", []byte("y")); err != nil {
+		t.Fatal(err)
+	}
+
+	tree, err := store.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range tree {
+		if strings.HasPrefix(e.Path, ".staging") {
+			t.Fatalf("树不应包含顶层点前缀子树: %s", e.Path)
+		}
+	}
+	// resolve 不拒绝隐藏子树：下载与搬家通道仍可达
+	if _, err := store.Stat(".staging/pending/u1/a.txt"); err != nil {
+		t.Fatalf("隐藏子树应可经 resolve 读取: %v", err)
+	}
+	if err := store.MoveFile(".staging/pending/u1/a.txt", "task1/inbox/a.txt"); err != nil {
+		t.Fatalf("隐藏子树应可搬出: %v", err)
+	}
+}
+
 func TestUnicodeFileNamesAllowed(t *testing.T) {
 	s := newTestStore(t)
 	// 中文笔记名是真实需求（agent/用户都可能建），黑名单校验下必须合法

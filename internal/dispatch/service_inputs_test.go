@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"github.com/V3teran/liusha/internal/attachment"
 	"strings"
 	"testing"
 
@@ -61,4 +62,24 @@ func TestValidateBrief(t *testing.T) {
 	err := validateBrief(strings.Repeat("测", maxBriefRunes+1))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "任务描述过长")
+}
+func TestEffectiveBrief(t *testing.T) {
+	refs := []attachment.Ref{
+		{Name: "字典.txt", Size: 3},
+		{Name: "targets.txt", Size: 5},
+	}
+	// 有文本：原样返回，附件不参与折算
+	if got := effectiveBrief("扫这个", refs); got != "扫这个" {
+		t.Fatalf("有文本应原样: %q", got)
+	}
+	// 无附件：原样返回（含空串——折算只对纯附件消息生效）
+	if got := effectiveBrief("", nil); got != "" {
+		t.Fatalf("无附件应原样: %q", got)
+	}
+	// 纯附件：附件名清单占位（标题/分类/下发共用这份折算）
+	want := "[附件] 字典.txt、targets.txt"
+	if got := effectiveBrief("   ", refs); got != want {
+		t.Fatalf("纯附件折算不符: %q", got)
+	}
+	// 空白文本按纯附件对待（TrimSpace 口径与 validateBrief 一致）
 }

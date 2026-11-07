@@ -109,7 +109,7 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 		case item.Host != "":
 			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		default:
-			_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, "")
+			_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, "", nil, 0)
 		}
 		if expandErr != nil {
 			r.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).

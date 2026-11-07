@@ -17,6 +17,18 @@ func (c *AppConfig) ApplyDefaults() {
 	c.Credential = applyCredentialDefaults(c.Credential)
 	c.Runner = applyRunnerDefaults(c.Runner)
 	c.Sandbox = applySandboxDefaults(c.Sandbox)
+	c.Conversation = applyConversationDefaults(c.Conversation)
+}
+
+// DefaultAttachmentMaxBytes 是单附件上传上限默认值（100 MiB：大 pcap 与
+// 字典文件不设卡，误传大文件的代价仍可控）。
+const DefaultAttachmentMaxBytes = 100 << 20
+
+func applyConversationDefaults(c ConversationConfig) ConversationConfig {
+	if c.AttachmentMaxBytes <= 0 {
+		c.AttachmentMaxBytes = DefaultAttachmentMaxBytes
+	}
+	return c
 }
 
 func applyAPIDefaults(c APIConfig) APIConfig {

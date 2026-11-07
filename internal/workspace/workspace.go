@@ -10,6 +10,7 @@ package workspace
 import (
 	"archive/zip"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -65,6 +66,18 @@ func isStatePath(rel string) bool {
 	return len(segs) >= 2 && segs[1] == StateDirName
 }
 
+// isHiddenPath 报告相对路径是否落在顶层点前缀子树（附件暂存区 .staging/）。
+// 点前缀顶层目录是控制面中转层（会话消息附件的下发前落点），不是任务工件：
+// 与 state 同判——文件面（树/下载/归档）整体排除，resolve 不拒绝（下载与
+// 搬家通道仍需可达）。
+func isHiddenPath(rel string) bool {
+	first := rel
+	if i := strings.IndexAny(first, "/\\"); i >= 0 {
+		first = first[:i]
+	}
+	return strings.HasPrefix(first, ".")
+}
+
 // Entry 是文件树的一个节点（Path 为相对工作区根的斜杠路径，目录带尾
 // 斜杠便于前端区分；Depth 为缩进层级）。
 type Entry struct {
@@ -96,6 +109,13 @@ func (s *Store) Tree() ([]Entry, error) {
 		}
 		// 会话状态子树不属于文件面：整枝跳过（数据保留在盘）
 		if isStatePath(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		// 顶层点前缀子树（附件暂存 .staging/）同样不属文件面：整枝跳过
+		if isHiddenPath(rel) {
 			if d.IsDir() {
 				return fs.SkipDir
 			}
@@ -301,6 +321,108 @@ func (s *Store) Write(rel string, data []byte) error {
 	}
 	// #nosec G306 -- 工作区文件是共享工件（沙箱回连/交付下载），0640 组可读为刻意选择，非密钥。
 	return os.WriteFile(full, data, 0o640)
+}
+
+// ErrTooLarge 报告写入内容超出大小上限（半成品文件已清理）。
+var ErrTooLarge = errors.New("内容超过大小上限")
+
+// ErrExists 报告目标路径已存在（调用方决定改名重试还是报错）。
+var ErrExists = errors.New("目标已存在")
+
+// WriteFrom 流式写入一个文件（父目录自动创建），写入量超过 limit 即中止、
+// 清理半成品并返回 ErrTooLarge。附件上传通道用：http 层已把 multipart 解析成
+// 临时文件，此处直接拷贝落盘，不经全量内存缓冲。
+func (s *Store) WriteFrom(rel string, r io.Reader, limit int64) (int64, error) {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+		return 0, err
+	}
+	// #nosec G304,G302 -- 路径已经 resolve 钳制校验；0640 组可读为刻意选择（共享工件，沙箱回连/交付下载），非密钥。
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return 0, err
+	}
+	n, copyErr := io.Copy(f, io.LimitReader(r, limit+1))
+	closeErr := f.Close()
+	if copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr == nil && n > limit {
+		_ = os.Remove(full)
+		return n, ErrTooLarge
+	}
+	if copyErr != nil {
+		_ = os.Remove(full)
+	}
+	return n, copyErr
+}
+
+// RemoveIfEmptyDir 删除一个空目录（非空/不存在均为 no-op）——暂存中转层的
+// 失败清理用：目录里可能有并发上传的他人文件，只在真空时移除，绝不递归。
+func (s *Store) RemoveIfEmptyDir(rel string) error {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return err
+	}
+	_ = os.Remove(full)
+	return nil
+}
+
+// Stat 返回工作区内路径的文件信息（不存在返回 fs.ErrNotExist）。
+func (s *Store) Stat(rel string) (fs.FileInfo, error) {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return nil, err
+	}
+	return os.Stat(full) // #nosec G304 -- 路径已经 resolve 钳制校验
+}
+
+// ReadDir 列出工作区内一个目录的直接子项（含隐藏子树——附件暂存清扫是
+// 唯一需要枚举 .staging 的通道；目录不存在返回 fs.ErrNotExist）。
+func (s *Store) ReadDir(rel string) ([]fs.FileInfo, error) {
+	full, err := s.resolve(rel)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(full) // #nosec G304 -- 路径已经 resolve 钳制校验
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fs.FileInfo, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue // 并发删除的竞态子项跳过
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// MoveFile 把工作区内一个文件改移到新相对路径（同根内 rename，不跨文件系统）。
+// 目标已存在返回 ErrExists（不覆盖）——重名消解由调用方决定（附件落位要
+// 保住双方：inbox 里可能是早前上传的同名件，不能静默顶掉）。
+func (s *Store) MoveFile(oldRel, newRel string) error {
+	src, err := s.resolve(oldRel)
+	if err != nil {
+		return err
+	}
+	dst, err := s.resolve(newRel)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return ErrExists
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return err
+	}
+	return os.Rename(src, dst)
 }
 
 // Mkdir 创建工作区内的一级目录（父目录自动创建）。
