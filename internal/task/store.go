@@ -107,8 +107,8 @@ type Summary struct {
 	// 输出=生成成本，二者成本结构不同，合计会抹掉这个差异）。
 	TokensIn  int64
 	TokensOut int64
-	CreatedAt   time.Time
-	EndedAt     *time.Time
+	CreatedAt time.Time
+	EndedAt   *time.Time
 }
 
 // summaryStepCount 是 StepCount 的统一口径表达式：会话内最近一次 dispatched 之后的
