@@ -154,6 +154,20 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </div>
               </section>
 
+              {/* 危害：主张成立后的后果与影响面（evaluation.impact）——
+                  业界漏洞报告「描述→危害→复现→证据→修复」结构的第二环；
+                  LLM 未产出时不渲染占位。 */}
+              {typeof finding.evaluation?.impact === 'string' && finding.evaluation.impact && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">危害</h3>
+                  <div className="rounded-lg border border-sev-high/30 bg-sev-high/5 p-4">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
+                      {String(finding.evaluation.impact)}
+                    </p>
+                  </div>
+                </section>
+              )}
+
               {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
                   JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
               {(finding.task_id || finding.conversation_id) && (

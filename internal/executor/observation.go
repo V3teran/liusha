@@ -37,6 +37,9 @@ func (e *Engine) createObservationNode(
 	if obs.Severity != "" {
 		contentMap["severity"] = obs.Severity
 	}
+	if obs.Impact != "" {
+		contentMap["impact"] = obs.Impact
+	}
 	if obs.Confidence != "" {
 		contentMap["executor_confidence"] = obs.Confidence // 改名区分图级 confidence
 	}
@@ -139,6 +142,9 @@ func (e *Engine) observationToAttempt(
 		"severity":   severity,
 		"confidence": confidence,
 	}
+	if obs.Impact != "" {
+		content["impact"] = obs.Impact
+	}
 	if obs.Remediation != "" {
 		content["remediation"] = obs.Remediation
 	}
@@ -213,6 +219,10 @@ type Observation struct {
 	// Severity：严重性评估（仅对 issue/hypothesis 有意义）
 	// 取值：low / medium / high / critical
 	Severity string `json:"severity,omitempty"`
+
+	// Impact：危害说明（主张成立后的后果与影响面）——交付物给人看的
+	// 「这洞有多危险」维度，与 severity（分级）互补
+	Impact string `json:"impact,omitempty"`
 
 	// Confidence：executor 的置信度评估
 	// 取值：low / medium / high
