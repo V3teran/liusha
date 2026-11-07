@@ -106,7 +106,19 @@ type Summary struct {
 	EndedAt   *time.Time
 }
 
-// summaryFrom 是 ListFiltered 列序的统一反序列化点（与 summarySelect 一一对应）。
+// summaryStepCount 是 StepCount 的统一口径表达式：会话内最近一次 dispatched 之后的
+// reasoning 终态数，无推理步（后台任务/旧数据）回退探索图 action 节点数。
+// 列表与单查共用一份——内联副本漂移正是 GetSummary 500（15 列 vs 17 目标）的根因。
+const summaryStepCount = `COALESCE(NULLIF((SELECT count(*) FROM message m
+		WHERE m.conversation_id = c.id
+		  AND m.metadata->>'kind' = 'reasoning'
+		  AND m.seq > COALESCE((SELECT max(seq) FROM message
+		        WHERE conversation_id = c.id
+		          AND metadata->>'kind' = 'task_status'
+		          AND metadata->>'status' = 'dispatched'), 0)), 0),
+	(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action'))`
+
+// summarySelect 是任务列表行 SELECT 的唯一事实源，与 scanSummary 17 目标一一对应。
 const summarySelect = `
 	t.id, t.brief, COALESCE(t.target_host,''), t.status::text, t.paused,
 	t.assignment_id::text,
@@ -118,14 +130,7 @@ const summarySelect = `
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
-	COALESCE(NULLIF((SELECT count(*) FROM message m
-		WHERE m.conversation_id = c.id
-		  AND m.metadata->>'kind' = 'reasoning'
-		  AND m.seq > COALESCE((SELECT max(seq) FROM message
-		        WHERE conversation_id = c.id
-		          AND metadata->>'kind' = 'task_status'
-		          AND metadata->>'status' = 'dispatched'), 0)), 0),
-	(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action')),
+	` + summaryStepCount + `,
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
@@ -202,14 +207,16 @@ func (s *Store) CountFiltered(ctx context.Context, f ListFilter) (int, error) {
 	return n, nil
 }
 
-// GetSummary 取单个任务的列表形状（详情板）。pgx.ErrNoRows 由调用方映射 404。
+// GetSummary 取单个任务的列表形状（详情板），列序与 scanSummary 17 目标严格一致
+// （summarySelect 的单行变体）。pgx.ErrNoRows 由调用方映射 404。
 //
 // 批内序号/总数不能用 ListFiltered 的窗口函数——WHERE t.id=$1 先把同批兄弟行
 // 滤掉，COUNT OVER PARTITION 恒 1；此处用关联标量子查询对全批计数。
 func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.brief, COALESCE(t.target_host,''), t.status::text,
+		SELECT t.id, t.brief, COALESCE(t.target_host,''), t.status::text, t.paused,
 			t.assignment_id::text,
+			COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
 			(SELECT count(*) + 1 FROM task t2
 			 WHERE t2.assignment_id = t.assignment_id
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),
@@ -219,7 +226,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			COALESCE(cs.cron_expr, ''),
 			COALESCE(c.id::text, ''),
 			(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
-			(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action'),
+			`+summaryStepCount+`,
 			t.created_at, t.ended_at
 		FROM task t
 		JOIN assignment a ON a.id = t.assignment_id
