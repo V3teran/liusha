@@ -207,14 +207,15 @@ func TestStateDirExcludedFromFileSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Write("70bbf3bb/out/poc.py", []byte("print(1)")); err != nil {
+	if err := store.Write("asg-1/70bbf3bb/out/poc.py", []byte("print(1)")); err != nil {
 		t.Fatal(err)
 	}
-	// 直接写盘模拟沙盒 $HOME 落盘（不经过文件 API）
-	if err := os.MkdirAll(filepath.Join(store.Root(), "70bbf3bb/state/.cache/chromium"), 0o750); err != nil {
+	// 直接写盘模拟沙盒 $HOME 落盘（不经过文件 API）；state 在任务目录下
+	// （<assignment>/<task>/state 两级分层），曾因排除判定停在单层时代整棵漏出
+	if err := os.MkdirAll(filepath.Join(store.Root(), "asg-1", "70bbf3bb", "state", ".cache", "chromium"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(store.Root(), "70bbf3bb/state/.cache/chromium/x"), []byte("junk"), 0o640); err != nil {
+	if err := os.WriteFile(filepath.Join(store.Root(), "asg-1", "70bbf3bb", "state", ".cache", "chromium", "x"), []byte("junk"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 
@@ -223,21 +224,21 @@ func TestStateDirExcludedFromFileSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range tree {
-		if strings.HasPrefix(e.Path, "70bbf3bb/state") {
+		if strings.HasPrefix(e.Path, "asg-1/70bbf3bb/state") {
 			t.Fatalf("树不应包含 state 子树: %s", e.Path)
 		}
 	}
-	if _, err := store.Read("70bbf3bb/state/x"); err == nil {
+	if _, err := store.Read("asg-1/70bbf3bb/state/x"); err == nil {
 		t.Fatal("Read 应拒绝 state 路径")
 	}
-	if err := store.Write("70bbf3bb/state/x", []byte("x")); err == nil {
+	if err := store.Write("asg-1/70bbf3bb/state/x", []byte("x")); err == nil {
 		t.Fatal("Write 应拒绝 state 路径")
 	}
-	if err := store.Delete("70bbf3bb/state"); err == nil {
+	if err := store.Delete("asg-1/70bbf3bb/state"); err == nil {
 		t.Fatal("Delete 应拒绝 state 路径")
 	}
 	var zipBuf bytes.Buffer
-	if err := store.ZipTo("70bbf3bb", &zipBuf); err != nil {
+	if err := store.ZipTo("asg-1/70bbf3bb", &zipBuf); err != nil {
 		t.Fatal(err)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(zipBuf.Bytes()), int64(zipBuf.Len()))
@@ -249,7 +250,7 @@ func TestStateDirExcludedFromFileSurface(t *testing.T) {
 			t.Fatalf("归档不应包含 state 子树: %s", f.Name)
 		}
 	}
-	if _, err := store.Read("70bbf3bb/out/poc.py"); err != nil {
+	if _, err := store.Read("asg-1/70bbf3bb/out/poc.py"); err != nil {
 		t.Fatalf("state 之外的读写不受影响: %v", err)
 	}
 }

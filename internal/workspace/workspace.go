@@ -1,8 +1,8 @@
 // Package workspace 提供沙盒工作区的文件检索与 CRUD（宿主视角）。
 //
 // 工作区根目录即 launcher bind 进沙盒的宿主目录（sandbox.workspace_dir，
-// 默认 ~/data/liusha/workspace）：容器内 sandbox-server 按 taskID 分
-// work/out/state 子目录，任务目录就是工作区树的顶层。本包在同一路径树
+// 默认 ~/data/liusha/workspace）：树按 <assignment>/<task> 两级分层，沙盒
+// 在任务目录下分 work/out/state 子目录。本包在同一路径树
 // 上做安全的文件操作——路径解析被钳制在根目录内，穿越序列（.. / 绝对
 // 路径 / 符号链接逃逸）一律拒绝。
 package workspace
@@ -59,11 +59,13 @@ const MaxReadBytes = 4 << 20 // 4 MiB
 // （树/读写/下载/归档）整体排除，数据按留存策略保留在盘。
 const StateDirName = "state"
 
-// isStatePath 报告相对路径是否落在会话状态子树（任务目录下一档：
-// <task>/state）。
+// isStatePath 报告相对路径是否落在会话状态子树。工作区树是批次/任务两级
+// 分层（<assignment>/<task>/…），state 与 work/out 同挂在任务目录下——
+// 排除判定必须认第三段，按第二段判（<assignment>/state）永远落空，state
+// 子树会整棵漏进文件面。
 func isStatePath(rel string) bool {
-	segs := strings.SplitN(rel, "/", 3)
-	return len(segs) >= 2 && segs[1] == StateDirName
+	segs := strings.SplitN(rel, "/", 4)
+	return len(segs) >= 3 && segs[2] == StateDirName
 }
 
 // isHiddenPath 报告相对路径是否落在顶层点前缀子树（附件暂存区 .staging/）。
