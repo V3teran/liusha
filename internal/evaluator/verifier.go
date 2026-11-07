@@ -59,6 +59,7 @@ type ConfirmedClaim struct {
 	VerificationID string          // 审计链回指
 	Statement      string          // 主张陈述
 	Severity       string          // 载荷自带的影响评级（可空，域侧解释与兜底）
+	Impact         string          // 载荷自带的危害说明（可空；坐实后落 finding 台账）
 	Remediation    string          // 载荷自带的修复建议（可空；坐实后落 finding 台账）
 	HostHint       string          // 载荷自带的位置提示（可空，域侧可重抽）
 	Target         json.RawMessage // 载荷自带的目标引用（可空）
@@ -349,6 +350,7 @@ func (v *PromotionGate) deliverClaim(
 	var content struct {
 		Summary     string          `json:"summary"`
 		Severity    string          `json:"severity"`
+		Impact      string          `json:"impact"`
 		Remediation string          `json:"remediation"`
 		Host        string          `json:"host"`
 		Target      json.RawMessage `json:"target"`
@@ -366,6 +368,7 @@ func (v *PromotionGate) deliverClaim(
 		VerificationID: verID,
 		Statement:      content.Summary,
 		Severity:       content.Severity,
+		Impact:         content.Impact,
 		Remediation:    content.Remediation,
 		HostHint:       content.Host,
 		Target:         content.Target,

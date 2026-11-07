@@ -16,6 +16,8 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # 默认 GITHUB_TOKEN 受仓库设置限制不能创建 PR（实测 failure），PAT 以
+          # 所有者名义开 PR 绕开该限制；GHCR_PAT 具 repo 权限。
+          token: ${{ secrets.GHCR_PAT }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

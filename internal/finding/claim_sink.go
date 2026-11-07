@@ -99,6 +99,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		"verification_id":   c.VerificationID,
 		"verification_tier": tier,
 		"judge_reasoning":   judgeReasoning,
+		"impact":            c.Impact,
 		"duration_ms":       c.DurationMs,
 		"evidence":          evidence,
 	})
