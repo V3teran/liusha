@@ -68,6 +68,29 @@ func TestCreateAndSummary(t *testing.T) {
 			t.Errorf("source 派生应为 self: %+v", r)
 		}
 	}
+
+	// GetSummary 是详情板的数据源，列序与 scanSummary 17 目标一致——内联 SELECT
+	// 曾漂移缺列（15 vs 17）打挂整个详情板，此断言钉住两查询同形状。
+	first := rows[0]
+	if _, err := tasks.MarkPaused(ctx, first.ID); err != nil {
+		t.Fatalf("mark paused: %v", err)
+	}
+	got, err := tasks.GetSummary(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if !got.Paused {
+		t.Errorf("paused 派生列应为 true: %+v", got)
+	}
+	if got.AssignmentTitle != "t" {
+		t.Errorf("assignment_title 应取 assignment.title: %+v", got)
+	}
+	if got.AssignmentTotal != 2 || got.AssignmentIndex < 1 || got.AssignmentIndex > 2 {
+		t.Errorf("批内序号/总数派生不符: %+v", got)
+	}
+	if got.ID != first.ID || got.Brief != first.Brief || got.Status != first.Status {
+		t.Errorf("GetSummary 与 ListFiltered 本体字段不一致: %+v vs %+v", got, first)
+	}
 }
 
 func TestStatusTransitions(t *testing.T) {
