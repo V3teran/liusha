@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Compass, Zap, Scale, Eye, Bot, Waypoints, FoldVertical } from 'lucide-react'
+import { Compass, Zap, Scale, Eye, Bot, Waypoints, FoldVertical, FlaskConical } from 'lucide-react'
 
 export interface AgentAccent {
   accent: string
@@ -58,6 +58,13 @@ const FIXED: Record<string, AgentProfile> = {
     soft: 'rgba(251, 146, 60, 0.14)',
     icon: FoldVertical,
     label: '压缩'
+  },
+  // 任务终态经验蒸馏（runner 侧 memory 链路）：推理由 → 经验条目回写语料库。
+  distill: {
+    accent: '#a3e635',
+    soft: 'rgba(163, 230, 53, 0.14)',
+    icon: FlaskConical,
+    label: '提炼'
   },
 }
 

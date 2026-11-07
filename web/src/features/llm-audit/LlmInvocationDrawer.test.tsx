@@ -183,8 +183,8 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
   it('有 task_id/conversation_id 时渲染任务/对话按钮，tab 按 source 定', () => {
     const detail = makeDetail({ task_id: 't-1', conversation_id: 'c-1', source: 'proxy' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    const taskLink = screen.getByText('打开任务').closest('a')
-    const convLink = screen.getByText('打开对话').closest('a')
+    const taskLink = screen.getByText('任务').closest('a')
+    const convLink = screen.getByText('对话').closest('a')
     expect(taskLink?.getAttribute('href')).toBe('/tasks?task=t-1')
     expect(convLink?.getAttribute('href')).toBe('/conversations/proxy?conv=c-1')
   })
@@ -192,13 +192,13 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
   it('source 缺省落 self tab', () => {
     const detail = makeDetail({ task_id: 't-2', conversation_id: 'c-2' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('打开对话').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')
+    expect(screen.getByText('对话').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')
   })
 
   it('无 task/conversation 时不渲染按钮', () => {
     const detail = makeDetail({ task_id: null, conversation_id: null })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.queryByText('打开任务 →')).toBeNull()
+    expect(screen.queryByText('任务')).toBeNull()
     expect(screen.queryByText('打开对话 →')).toBeNull()
   })
 })
