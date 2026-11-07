@@ -38,6 +38,8 @@ jobs:
           OWNER=$(printf 'ghcr.io/%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           # Release → v0.2.0 镜像标签 0.2.0 + latest（tag 带 v，镜像不带）；
           # 手动触发带 version 参数 → 版本+latest；不带 → 只推 latest。
+          # tags 用逗号单行拼接（build-push-action 原生多 tag 语法）——
+          # 多行 output 经表达式插值会折叠变形（两次实测 invalid tag）。
           if [ "$EVENT" = "release" ]; then
             VERSION="${REF_NAME#v}"
           elif [ -n "$DISPATCH_VERSION" ]; then
@@ -46,15 +48,22 @@ jobs:
             VERSION=""
           fi
           if [ -n "$VERSION" ]; then
-            TAGS="$OWNER/liusha-api:$VERSION $OWNER/liusha-api:latest"
+            SUFFIX="$VERSION,latest"
           else
-            TAGS="$OWNER/liusha-api:latest"
+            SUFFIX="latest"
           fi
           {
-            echo "api<<EOF"; echo "$TAGS"; echo "EOF"
-            echo "proxy<<EOF"; echo "${TAGS//liusha-api/liusha-proxy}"; echo "EOF"
-            echo "runner<<EOF"; echo "${TAGS//liusha-api/liusha-runner}"; echo "EOF"
-            echo "nginx<<EOF"; echo "${TAGS//liusha-api/liusha-nginx}"; echo "EOF"
+            API=""; for t in ${SUFFIX//,/ }; do API="$API,$OWNER/liusha-api:$t"; done
+            PROXY=""; RUNNER=""; NGINX=""
+            for t in ${SUFFIX//,/ }; do
+              PROXY="$PROXY,$OWNER/liusha-proxy:$t"
+              RUNNER="$RUNNER,$OWNER/liusha-runner:$t"
+              NGINX="$NGINX,$OWNER/liusha-nginx:$t"
+            done
+            echo "api=${API#,}"
+            echo "proxy=${PROXY#,}"
+            echo "runner=${RUNNER#,}"
+            echo "nginx=${NGINX#,}"
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
@@ -70,8 +79,7 @@ jobs:
           file: cmd/api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.tags.outputs.api }}
+          tags: ${{ steps.tags.outputs.api }}
           labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
 
       - name: Build and push proxy
@@ -81,8 +89,7 @@ jobs:
           file: cmd/proxy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.tags.outputs.proxy }}
+          tags: ${{ steps.tags.outputs.proxy }}
           labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
 
       - name: Build and push runner
@@ -92,8 +99,7 @@ jobs:
           file: cmd/runner/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.tags.outputs.runner }}
+          tags: ${{ steps.tags.outputs.runner }}
           labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
 
       - name: Build and push nginx
@@ -103,6 +109,5 @@ jobs:
           file: deployments/nginx/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.tags.outputs.nginx }}
+          tags: ${{ steps.tags.outputs.nginx }}
           labels: org.opencontainers.image.source=https://github.com/V3teran/liusha
