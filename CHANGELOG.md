@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/V3teran/liusha/compare/v0.3.0...v0.3.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **release-images:** tags 改逗号单行——多行插值折叠的根治 ([b51eb39](https://github.com/V3teran/liusha/commit/b51eb39e23fc2c88e1736cb98f2abc6c347c7dc7))
+* **release-images:** 推送凭据换 GHCR_PAT——GITHUB_TOKEN 增量推已有包被拒 ([95fde52](https://github.com/V3teran/liusha/commit/95fde526d6725d368d27aca7c11a893beb087650))
+
 ## [0.3.0](https://github.com/V3teran/liusha/compare/v0.2.0...v0.3.0) (2026-11-07)
 
 
