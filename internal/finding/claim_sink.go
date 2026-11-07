@@ -61,7 +61,9 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	if summary == "" {
 		summary = fmt.Sprintf("Confirmed claim (node %s)", c.ResultNodeID)
 	}
-	severity := c.Severity
+	// 中立→安全域词汇翻译发生在交付边界：priority→severity（缺省
+	// medium 归域侧）、suggestion→remediation；impact 同名直传。
+	severity := c.Priority
 	if severity == "" {
 		severity = "medium"
 	}
@@ -120,7 +122,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		Host:        host,
 		Summary:     summary,
 		Severity:    severity,
-		Remediation: c.Remediation, // 修复建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
+		Remediation: c.Suggestion, // 处理建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
 		Evaluation:  evaluation,
 		Target:      c.Target,
 		Repro:       c.Repro,

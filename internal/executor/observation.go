@@ -33,14 +33,14 @@ func (e *Engine) createObservationNode(
 		"reasoning": obs.Reasoning,
 	}
 
-	if obs.Severity != "" {
-		contentMap["severity"] = obs.Severity
+	if obs.Priority != "" {
+		contentMap["priority"] = obs.Priority
 	}
 	if obs.Impact != "" {
 		contentMap["impact"] = obs.Impact
 	}
-	if obs.Remediation != "" {
-		contentMap["remediation"] = obs.Remediation
+	if obs.Suggestion != "" {
+		contentMap["suggestion"] = obs.Suggestion
 	}
 
 	// 保存执行轨迹
@@ -121,31 +121,28 @@ func (e *Engine) observationToAttempt(
 	node *explorationgraph.Node,
 	obs Observation,
 ) (evaluator.Attempt, error) {
-	// severity 缺省交领域交付层补（finding 映射处有默认）——通用执行层
-	// 不制造领域评级的默认值；confidence 是 executor 自评载荷，缺省 low。
-	severity := obs.Severity
+	// priority 缺省交领域交付层补（finding 映射处有默认）——通用执行层
+	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
+	priority := obs.Priority
 	confidence := obs.Confidence
 	if confidence == "" {
 		confidence = "low"
 	}
 
 	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——
-	// remediation/target/host 缺席会让 finding 台账永远拿不到这几个字段
-	// （remediation 列实测恒空）。executor 的执行轨迹随节点另存，不进
-	// 主张载荷（体积与职责：轨迹属图，主张属台账）。
+	// 中立层词汇 priority/impact/suggestion，安全域交付时译作
+	// severity/impact/remediation（域词归域）。executor 的执行轨迹随
+	// 观察节点另存，不进主张载荷（体积与职责：轨迹属图，主张属台账）。
 	content := map[string]interface{}{
 		"summary":    obs.Statement,
-		"severity":   severity,
+		"priority":   priority,
 		"confidence": confidence,
 	}
 	if obs.Impact != "" {
 		content["impact"] = obs.Impact
 	}
-	if obs.Remediation != "" {
-		content["remediation"] = obs.Remediation
-	}
-	if obs.Impact != "" {
-		content["impact"] = obs.Impact
+	if obs.Suggestion != "" {
+		content["suggestion"] = obs.Suggestion
 	}
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
@@ -209,12 +206,11 @@ type Observation struct {
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
 
-	// Severity：严重性评估（仅对 issue/hypothesis 有意义）
-	// 取值：low / medium / high / critical
-	Severity string `json:"severity,omitempty"`
+	// Priority：主张的优先级（low/medium/high/critical）——领域通用词，
+	// 与图级 Priority 同一概念（探索资源有限，轻重缓急任何领域都有）。
+	Priority string `json:"priority,omitempty"`
 
-	// Impact：危害说明（主张成立后的后果与影响面）——交付物给人看的
-	// 「这洞有多危险」维度，与 severity（分级）互补
+	// Impact：主张为真时的影响与波及面（中性因果陈述）。
 	Impact string `json:"impact,omitempty"`
 
 	// Confidence：executor 的置信度评估
@@ -222,9 +218,8 @@ type Observation struct {
 	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
 	Confidence string `json:"confidence,omitempty"`
 
-	// Remediation：修复建议（一段自然语言）——issue/hypothesis 必给，state 不带。
-	// 经裁决坐实后随 finding 落台账，是漏洞处置的核心输入（怎么修、为何这样修）。
-	Remediation string `json:"remediation,omitempty"`
+	// Suggestion：处理建议（若要改变这一局面可以怎么做）。
+	Suggestion string `json:"suggestion,omitempty"`
 
 	// Repro：复现配方
 	//   - hypothesis：必须（无配方的推测无从裁决）

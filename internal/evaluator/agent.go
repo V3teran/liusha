@@ -460,11 +460,12 @@ var mustJSON = explorationgraph.MustJSON
 // parseObservationToAttempt 从 observation 节点解析出 Attempt
 func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, error) {
 	var content struct {
-		Statement   string          `json:"statement"`
-		Severity    string          `json:"severity"`
-		Remediation string          `json:"remediation"`         // 修复建议——坐实后随 finding 落台账
-		Confidence  string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
-		Repro       json.RawMessage `json:"repro"`
+		Statement  string          `json:"statement"`
+		Priority   string          `json:"priority"`
+		Impact     string          `json:"impact"`
+		Suggestion string          `json:"suggestion"`
+		Confidence string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
+		Repro      json.RawMessage `json:"repro"`
 	}
 
 	if err := json.Unmarshal(obs.Content, &content); err != nil {
@@ -499,20 +500,21 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	// 则自动降级为generic domain，避免验证失败
 	normalized = a.downgradeWebAssertIfNeeded(obs.ID, normalized)
 
-	// severity 缺省交领域交付层补（finding 映射处有默认）——通用裁决层
-	// 不制造领域评级的默认值；confidence 是 executor 自评载荷，缺省 low。
-	severity := content.Severity
+	// priority 缺省交领域交付层补（finding 映射处有默认）——通用裁决层
+	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
 	confidence := content.Confidence
 	if confidence == "" {
 		confidence = "low"
 	}
 
-	// 构造 Content（用于晋升后的节点）
+	// 构造 Content（用于晋升后的节点）：中立层词汇（priority/impact/
+	// suggestion），安全域交付时由 deliverClaim 翻译成 severity/remediation。
 	attContent, err := json.Marshal(map[string]string{
-		"summary":     content.Statement,
-		"severity":    severity,
-		"confidence":  confidence,
-		"remediation": content.Remediation,
+		"summary":    content.Statement,
+		"priority":   content.Priority,
+		"impact":     content.Impact,
+		"suggestion": content.Suggestion,
+		"confidence": confidence,
 	})
 	if err != nil {
 		return Attempt{}, fmt.Errorf("构造 content 失败: %w", err)

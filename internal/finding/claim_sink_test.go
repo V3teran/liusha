@@ -32,8 +32,8 @@ func TestClaimSink_ObserverReceivesSavedFinding(t *testing.T) {
 	err := sink.Record(context.Background(), evaluator.ConfirmedClaim{
 		TaskID:       "t-1",
 		Statement:    "反射型 XSS：search 参数未过滤",
-		Severity:     "high",
-		Remediation:  "对 search 参数做 HTML 实体编码输出，并启用 CSP 限制内联脚本。",
+		Priority:     "high",
+		Suggestion:   "对 search 参数做 HTML 实体编码输出，并启用 CSP 限制内联脚本。",
 		HostHint:     "example.com",
 		Evidence:     json.RawMessage(`{}`),
 		ResultNodeID: "n-1",

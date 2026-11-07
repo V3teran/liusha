@@ -58,9 +58,9 @@ type ConfirmedClaim struct {
 	ResultNodeID   string          // 晋升产生的 result 节点
 	VerificationID string          // 审计链回指
 	Statement      string          // 主张陈述
-	Severity       string          // 载荷自带的影响评级（可空，域侧解释与兜底）
-	Impact         string          // 载荷自带的危害说明（可空；坐实后落 finding 台账）
-	Remediation    string          // 载荷自带的修复建议（可空；坐实后落 finding 台账）
+	Priority       string          // 优先级（领域通用词；安全域交付时译作 severity 并兜底）
+	Impact         string          // 影响与波及面（中性因果陈述；台账同名直传）
+	Suggestion     string          // 处理建议（译作 remediation）
 	HostHint       string          // 载荷自带的位置提示（可空，域侧可重抽）
 	Target         json.RawMessage // 载荷自带的目标引用（可空）
 	Evidence       json.RawMessage // 复现证据（基线/利用双对照 + 断言明细）
@@ -348,12 +348,12 @@ func (v *PromotionGate) deliverClaim(
 	}
 
 	var content struct {
-		Summary     string          `json:"summary"`
-		Severity    string          `json:"severity"`
-		Impact      string          `json:"impact"`
-		Remediation string          `json:"remediation"`
-		Host        string          `json:"host"`
-		Target      json.RawMessage `json:"target"`
+		Summary    string          `json:"summary"`
+		Priority   string          `json:"priority"`
+		Impact     string          `json:"impact"`
+		Suggestion string          `json:"suggestion"`
+		Host       string          `json:"host"`
+		Target     json.RawMessage `json:"target"`
 	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
 		if v.logger != nil {
@@ -367,9 +367,9 @@ func (v *PromotionGate) deliverClaim(
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
 		Statement:      content.Summary,
-		Severity:       content.Severity,
+		Priority:       content.Priority,
 		Impact:         content.Impact,
-		Remediation:    content.Remediation,
+		Suggestion:     content.Suggestion,
 		HostHint:       content.Host,
 		Target:         content.Target,
 		Evidence:       res.Evaluation,
