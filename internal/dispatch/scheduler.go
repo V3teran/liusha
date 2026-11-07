@@ -109,7 +109,17 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 		case item.Host != "":
 			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
 		default:
-			_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, "", nil, 0)
+			// 主动扫描条目：与批量下发同一会话语义——每任务建独立会话并落
+			// 用户 brief 消息（定时任务的执行现场是可观测资产，哑巴任务
+			// 只能看结果不能看过程）。expandItem 会链会话 + 落 dispatched 节点。
+			created, cerr := r.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
+			if cerr != nil {
+				expandErr = fmt.Errorf("create conversation: %w", cerr)
+			} else if _, aerr := r.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
+				expandErr = fmt.Errorf("append user message: %w", aerr)
+			} else {
+				_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
+			}
 		}
 		if expandErr != nil {
 			r.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
