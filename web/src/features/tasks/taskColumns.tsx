@@ -103,22 +103,26 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         )
       },
     }),
-    columnHelper.accessor('tokens_total', {
+    columnHelper.display({
+      id: 'tokens',
       header: 'Tokens',
-      size: 84,
+      size: 104,
       meta: { align: 'right' },
       cell: (ctx) => {
-        const n = ctx.getValue()
-        if (!n) return <span className="block text-right font-mono text-xs text-text-secondary opacity-40">—</span>
-        // 紧凑 humanize：12.3k / 3.4M（tabular-nums 右对齐，同时间列字体体系）
-        const compact =
+        const t = ctx.row.original
+        if (!t.tokens_in && !t.tokens_out)
+          return <span className="block text-right font-mono text-xs text-text-secondary opacity-40">—</span>
+        // 双向与对话页同形式（↑输入 ↓输出）：输入=上下文成本、输出=生成成本，
+        // 合计会抹掉成本结构差异
+        const compact = (n: number) =>
           n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n)
         return (
           <span
             className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-text-secondary"
-            title={`累计 LLM tokens（输入+输出）：${n.toLocaleString()}`}
+            title={`输入 ${t.tokens_in.toLocaleString()} · 输出 ${t.tokens_out.toLocaleString()}`}
           >
-            {compact}
+            <span className="text-sev-info">↑{compact(t.tokens_in)}</span>{' '}
+            <span className="text-sev-high">↓{compact(t.tokens_out)}</span>
           </span>
         )
       },

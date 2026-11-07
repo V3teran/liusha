@@ -240,21 +240,48 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </span>
                 </span>
               )}
-              {taskActive && (
+              {/* 控制组与任务页对齐：有关联任务即恒显、按状态禁用（操作位稳定，
+                  终态行不闪没）；纯聊天（无任务对象）不渲染——没有可操作物。 */}
+              {taskID && (
                 <>
                   <button
                     type="button"
-                    onClick={() => void control(paused ? 'resume' : 'pause')}
-                    title={paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
+                    disabled={!taskActive || paused}
+                    onClick={() => void control('pause')}
+                    title={!taskActive ? '任务已结束' : paused ? '已暂停' : '暂停（保留进度，可随时继续）'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm transition-colors ${
+                      !taskActive || paused
+                        ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
+                        : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
+                    }`}
                   >
-                    {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                    {paused ? '继续扫描' : '暂停扫描'}
+                    <Pause className="h-3 w-3" />
+                    暂停扫描
                   </button>
                   <button
                     type="button"
+                    disabled={!taskActive || !paused}
+                    onClick={() => void control('resume')}
+                    title={!taskActive ? '任务已结束' : paused ? '继续（从探索图进度恢复执行）' : '运行中'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm transition-colors ${
+                      !taskActive || !paused
+                        ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
+                        : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
+                    }`}
+                  >
+                    <Play className="h-3 w-3" />
+                    继续扫描
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!taskActive}
                     onClick={() => void control('terminate')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-status-error bg-status-error/10 px-3 py-1 text-sm font-medium text-status-error transition-colors hover:bg-status-error/20"
+                    title={!taskActive ? '任务已结束' : '停止（终态，可重新下发）'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm font-medium transition-colors ${
+                      !taskActive
+                        ? 'cursor-not-allowed border-status-error/40 bg-status-error/5 text-status-error/40'
+                        : 'border-status-error bg-status-error/10 text-status-error hover:bg-status-error/20'
+                    }`}
                   >
                     <Square className="h-3 w-3 fill-current" />
                     停止扫描

@@ -14,3 +14,11 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```
 
 必填项：`POSTGRES_PASSWORD`、`REDIS_PASSWORD`、`LIUSHA_LLM_KEY_SECRET`、`LIUSHA_ADMIN_INITIAL_PASSWORD`、`GLM_API_KEY`（key 的 env 名由 `config/config.yaml` 的 `providers:` 各块 `api_key_env` 钉定，出厂仅 glm 一块、三档全路由到它，至少一把否则 api 拒启；换/加厂商 = 改 yaml 块 + `.env` 放同名 key）。公网宿主另必填 `LIUSHA_INGEST_TOKEN`（沙盒回灌 runner 的 Bearer，与沙盒自动共享）；可选项见 `.env.example`。
+
+### 升级
+
+`git pull` 后重复上面 pull/up 即可——迁移由 `migrate` 一次性服务随 up 自动执行。跨大版本升级前先校准迁移版本号（数据库台账对不上时新迁移会拒跑）：
+
+```bash
+docker exec liusha-postgres psql -U liusha -d liusha   -c "UPDATE schema_migrations SET version=196, dirty=false;"
+```

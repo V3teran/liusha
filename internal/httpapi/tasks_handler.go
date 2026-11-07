@@ -221,7 +221,8 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"conversation_id":  sm.ConversationID,
 		"finding_count":    sm.FindingCount,
 		"step_count":       sm.StepCount,
-		"tokens_total":     sm.TokensTotal,
+		"tokens_in":        sm.TokensIn,
+		"tokens_out":       sm.TokensOut,
 		"created_at":       sm.CreatedAt,
 		"ended_at":         sm.EndedAt,
 	}

@@ -102,9 +102,11 @@ type Summary struct {
 	// 与对话时间线卡片的「第 N 步」同一口径。会话无推理步（后台任务/旧数据）时
 	// 回退探索图 action 节点数。
 	StepCount int
-	// TokensTotal 是本任务累计 LLM tokens（输入+输出，llm_invocation 全量 SUM）
-	// ——任务列表的消耗信号（与审计页按 task 维度同口径）。
-	TokensTotal int64
+	// TokensIn/TokensOut 是本任务累计 LLM 输入/输出 tokens（llm_invocation 全量
+	// SUM）——任务列表的消耗信号，拆双向与对话页同形式（输入=上下文成本、
+	// 输出=生成成本，二者成本结构不同，合计会抹掉这个差异）。
+	TokensIn  int64
+	TokensOut int64
 	CreatedAt   time.Time
 	EndedAt     *time.Time
 }
@@ -134,7 +136,8 @@ const summarySelect = `
 	COALESCE(c.id::text, ''),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
 	` + summaryStepCount + `,
-	(SELECT COALESCE(SUM(li.in_tokens + li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
+	(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
+	(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
@@ -160,7 +163,7 @@ func scanSummary(r db.RowScanner, s *Summary) error {
 	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
-		&s.TokensTotal, &s.CreatedAt, &s.EndedAt); err != nil {
+		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt); err != nil {
 		return err
 	}
 	s.Status = Status(status)
@@ -231,7 +234,8 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			COALESCE(c.id::text, ''),
 			(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
 			`+summaryStepCount+`,
-			(SELECT COALESCE(SUM(li.in_tokens + li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
+			(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
+			(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 			t.created_at, t.ended_at
 		FROM task t
 		JOIN assignment a ON a.id = t.assignment_id
