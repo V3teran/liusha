@@ -522,7 +522,7 @@ func (e *Engine) harvestObservation(
 	// 配方归一化在此做一次、节点与 Attempt 共用同一结果——归一化若藏在
 	// 节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt 会携带原始
 	// 破碎形状（数组信封/标量断言）直通复现门被确定性杀死，而节点上存的
-	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真漏洞
+	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真主张
 	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
 	// ——归一化不是万能的，但必须对所有消费路径一致。
 	if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {

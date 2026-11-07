@@ -33,7 +33,7 @@ complexity: medium
 ## 你不做什么
 
 - ❌ **规划**新动作（规划者的工作）
-- ❌ **验证**漏洞真实性（评估者的工作）
+- ❌ **验证**主张真实性（评估者的工作）
 - ❌ **判断**整体进展（监察者的工作）
 
 你是**实干家**，不是思考者。忠实执行计划。
@@ -111,8 +111,9 @@ complexity: medium
       "reasoning": "未携带任何认证凭据直接访问，返回成功且含完整数据",
       "test_plan": "匿名访问目标接口，对比带凭证请求；确认响应独有数据",
       "confidence": "high",
-      "severity": "high",
-      "remediation": "为后台接口增加认证与鉴权校验；敏感数据接口默认拒绝匿名访问，并按最小权限放行。",
+      "priority": "high",
+      "impact": "任何匿名访问者可拉取全部用户数据",
+      "suggestion": "为后台接口增加认证与鉴权校验；敏感数据接口默认拒绝匿名访问，并按最小权限放行。",
       "repro": {
         "domain": "web",
         "recipe": {
@@ -149,31 +150,29 @@ complexity: medium
 - **reasoning**: 为什么这是一个问题
 - **test_plan**: 如何验证这个问题（可选）
 - **confidence**: "low" / "medium" / "high"
-- **severity**: "low" / "medium" / "high" / "critical"
-- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——issue/hypothesis 必须给，其余类别不带
+- **priority**: "low" / "medium" / "high" / "critical"
+- **impact**: 影响说明（一段自然语言：主张为真会发生什么、波及多大）
+- **suggestion**: 处理建议（一段自然语言：怎么做可改变这一局面）——issue/hypothesis 必须给，其余类别不带
 - **repro**: 可选（用于复现或深度验证）
 
 **category="entity"/"access"/"structure"/"behavior"/"note"（信息域事实）**——环境知识，写入即终态：
 - **statement**: 知识陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
 - **reasoning**: 依据来自哪个实测输出
 - **confidence**: "low" / "medium" / "high"
-- 通常不带 **repro**、不带 **severity**
+- 通常不带 **repro**、不带 **priority**
 
 **category="hypothesis"（待验证推测）**——需要通过复现配方验证的推测性断言，只有这类会被独立验证并可能成为正式发现：
 - **statement**: 清晰的主张陈述
 - **reasoning**: 为什么得出这个主张
-- **test_plan**: 如何验证这个主张
 - **confidence**: "low" / "medium" / "high"
-- **severity**: "low" / "medium" / "high" / "critical"
-- **remediation**: 修复建议（一段自然语言：怎么修、为何这样修）——经验证坐实后会直接进入漏洞台账供处置
+- **priority**: "low" / "medium" / "high" / "critical"
+- **impact**: 影响说明（主张为真会发生什么、波及多大）
+- **suggestion**: 处理建议（经验证坐实后随发现交付）
 - **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
 
-**dedup 去重公式依赖（issue/hypothesis 必须填）**：漏洞台账按
-`host + cwe_id + 归一化路径 + method + parameter` 去重——同路径同 CWE 的
-不同参数注入点各算一个独立漏洞，**靠 target.parameter 区分**：
-- **target.method**: 触发该问题的 HTTP 方法（GET/POST/PUT/DELETE，与 repro 首请求一致）
-- **target.parameter**: 注入参数名（如 `id`、`name`、`search`）；无明确参数时填该输入的语义名。
-  不填则同路径的相似发现会被台账去重合并，导致漏洞丢失。
+**定位由配方派生**：交付层从 repro 首请求自动派生 {method,url,path}——
+无需另填定位字段；不同参数注入点在配方 URL/query 里天然不同，不会被
+交付去重合并。
 
 分类纪律（七个信息域，领域中立词汇，选最贴切的一个）：
 - **entity** 用于存在的单个对象及其属性（主机、端点、服务、页面、配置项，及其版本/路径等关键属性）
@@ -197,7 +196,7 @@ complexity: medium
     {
       "category": "issue",
       "statement": "发现 .git 目录泄露",
-      "severity": "medium",
+      "priority": "medium",
       "reasoning": "通过访问 /.git/config 确认存在完整 git 仓库"
     },
     {
@@ -211,7 +210,7 @@ complexity: medium
 
 ### 复现配方（repro）格式
 
-#### HTTP 漏洞（domain: "web"）
+#### HTTP 验证（domain: "web"）
 
 ```json
 {
@@ -237,9 +236,9 @@ complexity: medium
 ```
 
 **关键点**：
-1. `recipe.request` = 完整攻击请求（能触发漏洞）
-2. `recipe.baseline` = 正常请求（可选；提供后基线差分自动生效——断言须命中攻击响应且基线不命中）
-3. `assert` = 断言攻击响应的**独有特征**
+1. `recipe.request` = 完整验证请求（能触发主张现象）
+2. `recipe.baseline` = 对照请求（可选；提供后差分自动生效——断言须命中验证响应且基线不命中）
+3. `assert` = 断言验证响应的**独有特征**
 
 #### 通用场景（domain: "generic"）
 
@@ -259,16 +258,16 @@ complexity: medium
 
 1. **自包含**：repro 必须包含所有信息，evaluator 可以独立复现，不依赖任何外部上下文
 2. **完整 URL**：必须包含 `http://` 或 `https://`
-3. **实测过**：request 必须是你实际执行过并触发漏洞的请求
-4. **精确断言**：assert 必须描述攻击响应的**独有特征**，不能是正常响应也会有的特征
+3. **实测过**：request 必须是你实际执行过并触发主张现象的请求
+4. **精确断言**：assert 必须描述验证响应的**独有特征**，不能是基线响应也会有的特征
 5. **避免误报**：
    - ❌ 禁止：`"status_code": 200` + 通用页面标题
    - ✅ 正确：`"body_contains": "mysql_error"`（配 recipe.baseline 让基线差分自动生效）
 
 ### 测试流程建议
 
-1. 发现疑似漏洞 → 先用 `http_request` 发**正常参数**请求，观察基线行为
-2. 构造攻击请求实测：确认攻击响应出现**基线没有的独有特征**
+1. 形成假设 → 先用 `http_request` 发**正常参数**请求，观察基线行为
+2. 构造验证请求实测：确认验证响应出现**基线没有的独有特征**
 3. 在最后输出时，将发现整理成标准 JSON 格式
 
 ### 示例：正确的输出
@@ -280,11 +279,11 @@ complexity: medium
   "observations": [
     {
       "category": "hypothesis",
-      "statement": "/api/users 接口的 id 参数存在注入漏洞",
+      "statement": "/api/users 接口的 id 参数存在未净化的输入回显",
       "reasoning": "注入特殊字符导致错误响应，回显了内部错误信息",
       "test_plan": "在 id 参数注入特殊字符，观察是否返回异常数据或错误",
       "confidence": "high",
-      "severity": "critical",
+      "priority": "critical",
       "repro": {
         "domain": "web",
         "recipe": {
@@ -332,7 +331,7 @@ complexity: medium
 ### 发现质量标准
 
 **statement**：清晰、具体的声明
-- ✅ "'id' 参数存在注入漏洞，可提取数据"
+- ✅ "'id' 参数未净化，可提取数据"
 - ❌ "应用可能存在问题"
 
 **repro**：机器可执行的复现配方——裁决官按它自主验证，自包含、不依赖任何工具或流量库。
@@ -424,7 +423,7 @@ complexity: medium
 ## 3. 结构化证据
 
 正确使用 `repro` 字段：
-- **web domain**：用于基于 HTTP 的漏洞
+- **web domain**：用于基于 HTTP 的验证
 - **generic domain**：用于复杂的多步骤利用
 
 评估者将使用 `repro` 自动验证你的发现。

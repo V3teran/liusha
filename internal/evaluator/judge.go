@@ -216,12 +216,13 @@ func (j *RouterJudge) Judge(
   "verdict": "confirmed 或 refuted",
   "confidence": 0.9,
   "reasoning": "一句话裁决理由（引用你亲见的差分）",
-  "finding": {"class": "漏洞类别", "method": "请求方法", "host": "目标主机:端口", "path": "/URL/路径", "param": "注入点参数名"}
+  "finding": {"class": "类别", "method": "方法", "host": "主机", "path": "路径", "param": "触发点"}
 }
 ` + "```\n\n" + `说明：
 - verdict 只能是 confirmed 或 refuted 两个取值之一
 - confidence 是 0.0-1.0 的数字
-- finding 仅 verdict=confirmed 时必填（refuted 时省略）`,
+- finding 仅 verdict=confirmed 时必填（refuted 时省略）；class 词表与
+  各字段取法按你的角色章程执行`,
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
