@@ -126,8 +126,8 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 			Str("action_id", action.ID).
 			Msg("准备创建 Action")
 
-		// 边集：目标归属（generates）+ 发现滋生（triggers）——后者是攻击链
-		// 溯源（漏洞A 催生本动作）的图上事实，与节点原子落库。
+		// 边集：目标归属（generates）+ 发现滋生（triggers）——后者是因果链
+		// 溯源（成果A 催生本动作）的图上事实，与节点原子落库。
 		edges := make([]explorationgraph.Edge, 0, 1+len(c.TriggeredBy))
 		if primaryObjective.ID != "" {
 			edges = append(edges, explorationgraph.Edge{

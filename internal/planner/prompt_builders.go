@@ -350,7 +350,7 @@ func buildFactsSection(facts []Fact) string {
 }
 
 // refuteReasonHint 把反驳原因翻译成规划指令：配方类失败（证据没拿到）可换姿势
-// 重试，语义证伪（证据到了但不构成漏洞）才是方向作废——两者处置不同。
+// 重试，语义证伪（证据到了但不构成可交付主张）才是方向作废——两者处置不同。
 // 原因字面量与 evaluator 包的 refute_reason 常量保持一致（metadata JSON 契约）。
 func refuteReasonHint(reason string) string {
 	switch reason {

@@ -141,7 +141,7 @@ complexity: medium
 ```json
 {
   "type": "request_replan",
-  "reason": "26 小时内 150 个动作 → 2 个 Result（低严重性信息泄露）。目标高度加固、收益递减，建议转向未测攻击面或收口。"
+  "reason": "26 小时内 150 个动作 → 2 个 Result（低优先级成果）。目标高度强化、收益递减，建议转向未覆盖的对象面或收口。"
 }
 ```
 
@@ -183,7 +183,7 @@ Observation 晋升率 = Results / Observations
 唯一目标数 = 不同的 (host, port, endpoint) 组合
 目标：随时间增长
 
-如果停滞：探索过于狭窄，错过攻击面
+如果停滞：探索过于狭窄，错过对象面
 ```
 
 # 监察原则

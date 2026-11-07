@@ -144,7 +144,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	for state, count := range stateCounts {
 		output += fmt.Sprintf("- %s: %d\n", state, count)
 	}
-	// retryable 中断动作逐条列出：这些是 runner 停摆导致的失败（非攻击路径被堵），
+	// retryable 中断动作逐条列出：这些是 runner 停摆导致的失败（非探索路径被堵），
 	// 恢复重投后的新 planner 应优先重做——藏在计数里 planner 看不到个体。
 	var retryables []string
 	for _, action := range actions {
@@ -176,7 +176,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 		output += "\n"
 	}
 
-	// 发现：statement（severity 随行），其余载荷属台账
+	// 发现：statement（priority 随行），其余载荷属交付
 	output += fmt.Sprintf("### 发现 (%d)\n", len(findings))
 	output += renderFindings(findings)
 
@@ -200,20 +200,20 @@ func renderStatements(nodes []explorationgraph.Node) string {
 	return b.String()
 }
 
-// renderFindings 渲染 result 节点行：statement（severity 随行）——评级是
-// planner 排优先级的输入，其余载荷（impact/repro/evidence）属台账。
+// renderFindings 渲染 result 节点行：statement（priority 随行）——优先级是
+// planner 排后续动作的输入，其余载荷（impact/suggestion/repro）属交付。
 func renderFindings(nodes []explorationgraph.Node) string {
 	var b strings.Builder
 	for _, n := range nodes {
 		var c struct {
 			Statement string `json:"statement"`
-			Severity  string `json:"severity"`
+			Priority  string `json:"priority"`
 		}
 		if json.Unmarshal(n.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
-		if c.Severity != "" {
-			fmt.Fprintf(&b, "- [%s] %s\n", c.Severity, c.Statement)
+		if c.Priority != "" {
+			fmt.Fprintf(&b, "- [%s] %s\n", c.Priority, c.Statement)
 		} else {
 			fmt.Fprintf(&b, "- %s\n", c.Statement)
 		}

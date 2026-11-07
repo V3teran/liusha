@@ -126,7 +126,7 @@ func NewReplayer() *Replayer { return &Replayer{} }
 
 // WithCredentials 注入凭据提供方与目标 host：web 重放请求缺会话头
 // （Cookie/Authorization）时，用凭据池里该 host 的首个身份补全——
-// 配方自包含是理想，LLM 漏写会话上下文时重放会打到登录页导致真实漏洞
+// 配方自包含是理想，LLM 漏写会话上下文时重放会打到登录页导致真实主张
 // 被误证伪。best-effort：查询失败按无凭据处理。
 func (r *Replayer) WithCredentials(creds credential.Provider, host string) *Replayer {
 	if creds != nil && host != "" {
@@ -447,7 +447,7 @@ func replaceSessionHeaders(recipe json.RawMessage, headers map[string]string) js
 //
 // 守卫动因：配方是执行时刻的冻结快照，内嵌的会话材料（PHPSESSID 等）在
 // 裁决时刻可能已被服务端轮换失效——「配方显式头优先」的补缺策略会让过期
-// 凭据赢过池内新鲜会话，重放弹回登录页、真实漏洞被误证伪。首轮证据若呈
+// 凭据赢过池内新鲜会话，重放弹回登录页、真实主张被误证伪。首轮证据若呈
 // 认证弹跳形态，依次用池内身份替换会话头重放；任一轮断言通过即以该轮
 // 证据返回，全部尝试记入证据链（裁决官可分辨环境失效与主张不成立）。
 func (r *Replayer) replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result, error) {
