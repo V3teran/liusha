@@ -45,7 +45,7 @@ func TestGetConversationGraph(t *testing.T) {
 
 	server := NewServer(Deps{Auth: newFakeAuthStore(), ExplorationGraph: mock})
 
-	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
+	req := httptest.NewRequest("GET", "/api/conversations/5f0c6a8e-2d1b-4c3a-9e7f-8b6d4a2c1e90/exploration/graph", nil)
 	req.AddCookie(testSessionCookie())
 	w := httptest.NewRecorder()
 
@@ -72,7 +72,7 @@ func TestGetConversationGraph_Unauthorized(t *testing.T) {
 	mock := &mockExplorationGraphAPI{}
 	server := NewServer(Deps{Auth: newFakeAuthStore(), ExplorationGraph: mock})
 
-	req := httptest.NewRequest("GET", "/api/conversations/conv-123/exploration/graph", nil)
+	req := httptest.NewRequest("GET", "/api/conversations/5f0c6a8e-2d1b-4c3a-9e7f-8b6d4a2c1e90/exploration/graph", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "wrong-token"}) // #nosec G124 // 测试伪造凭证
 	w := httptest.NewRecorder()
 

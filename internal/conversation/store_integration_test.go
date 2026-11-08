@@ -5,6 +5,7 @@ package conversation_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/db"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 )
 
@@ -177,5 +179,47 @@ func TestSetMessageMetadata(t *testing.T) {
 	// 不存在的 seq：明确报错（静默成功会让改写丢失无从察觉）
 	if err := store.SetMessageMetadata(ctx, c.ID, 999999999, relinked); err == nil {
 		t.Fatal("改写不存在的消息应报错")
+	}
+}
+
+// 不存在的会话：写操作与读消息都必须报告「不存在」（pgx.ErrNoRows），而不是
+// 影响 0 行的静默成功或空列表——API 层据此返回 404，前端据此区分「已删除」与「暂无消息」。
+func TestConversationStore_MissingConversationIsNotFound(t *testing.T) {
+	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过 conversation store 集成测试")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
+	if err != nil {
+		t.Fatalf("连库: %v", err)
+	}
+	defer pool.Close()
+	store := conversation.NewStore(pool)
+
+	const missing = "9b2e4c1d-7a3f-4e8b-b6d5-0c1a2f3e4d5c"
+	if err := store.SetTitle(ctx, missing, "t"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("SetTitle 不存在的会话应返回 ErrNoRows，得 %v", err)
+	}
+	if err := store.DeleteConversation(ctx, missing); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("DeleteConversation 不存在的会话应返回 ErrNoRows，得 %v", err)
+	}
+	if _, err := store.ListMessages(ctx, missing, 0, 10); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("ListMessages 不存在的会话应返回 ErrNoRows，得 %v", err)
+	}
+
+	// 存在但零消息的会话：空列表、无错误（与「不存在」区分开）。
+	c, err := store.CreateConversation(ctx, "", "")
+	if err != nil {
+		t.Fatalf("建会话: %v", err)
+	}
+	defer func() { _ = store.DeleteConversation(context.Background(), c.ID) }()
+	msgs, err := store.ListMessages(ctx, c.ID, 0, 10)
+	if err != nil || len(msgs) != 0 {
+		t.Errorf("零消息会话应返回空列表无错误，得 len=%d err=%v", len(msgs), err)
+	}
+	if err := store.SetTitle(ctx, c.ID, "改名"); err != nil {
+		t.Errorf("存在的会话改名应成功，得 %v", err)
 	}
 }

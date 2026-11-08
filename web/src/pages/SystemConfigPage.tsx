@@ -1,5 +1,6 @@
 import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
+import { FilterBar } from '@/components/FilterBar'
 import {
   getCompactionSettings,
   saveCompactionSettings,
@@ -62,15 +63,18 @@ export function SystemConfigPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="系统配置" subtitle="系统常规配置，热加载">
+      <PageHeader title="系统配置" subtitle="系统常规配置，热加载" />
+
+      {/* 搜索归筛选栏（全站筛选控件唯一位置）：放进页头右槽会在窄屏把标题挤到零宽。 */}
+      <FilterBar label="系统配置筛选">
         <SearchInput
-          className="w-72"
+          className="w-full sm:w-72"
           value={query}
           onChange={setQuery}
           placeholder="搜索配置项"
           ariaLabel="搜索配置项"
         />
-      </PageHeader>
+      </FilterBar>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">

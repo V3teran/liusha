@@ -215,7 +215,10 @@ const maxConversationListLimit = 500
 
 func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		source := c.Query("source")
+		source, ok := sourceParam(c)
+		if !ok {
+			return
+		}
 		limit := parseLimit(c, 30)
 		if limit > maxConversationListLimit {
 			limit = maxConversationListLimit
@@ -229,6 +232,9 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
+		}
+		if convs == nil {
+			convs = []conversation.Conversation{} // 空集序列化为 []，与 messages 口径一致
 		}
 		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore, "total": total})
 	}

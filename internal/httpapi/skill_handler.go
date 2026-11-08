@@ -127,6 +127,10 @@ func createSkillHandler(api SkillAPI) gin.HandlerFunc {
 
 		created, err := api.CreateSkill(c.Request.Context(), skill)
 		if err != nil {
+			if isUniqueViolation(err) {
+				c.JSON(http.StatusConflict, gin.H{"error": "技能标识符「" + req.Code + "」已存在"})
+				return
+			}
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}

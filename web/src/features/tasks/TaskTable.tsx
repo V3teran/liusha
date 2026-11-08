@@ -18,6 +18,7 @@ interface TaskTableProps {
 export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowClick, onOperated }: TaskTableProps) {
   return (
     <DataTable
+      ariaLabel="任务列表"
       rows={rows}
       columns={buildTaskColumns(offset, onOperated) as never}
       cellPadding="px-3"

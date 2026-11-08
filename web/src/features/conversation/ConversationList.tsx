@@ -53,7 +53,7 @@ const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 r
 
 // 会话侧栏：按页拉会话（offset 翻页，见 api/client.ts listConversations 注释），点击向上抛选中 ID；
 // 顶部「+ 新会话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
-// （删除/重命名），当前选中高亮。source 过滤（manual/auto）下沉到服务端——分页边界建立在已过滤集合上。
+// （删除/重命名），当前选中高亮。source 过滤（direct/proxy）下沉到服务端——分页边界建立在已过滤集合上。
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList(
     { activeId, source, allowNew = true, emptyState, heading, autoSelect, onSelect, onNew, onDeleted },

@@ -55,14 +55,14 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 
 // DeleteConversation 删除会话及其消息（message FK ON DELETE CASCADE 自动连带删）。
 // 不动关联的 task / finding（task_id FK 是 SET NULL，渗透成果以 task 为根，不因删会话丢失）。
-// id 不存在返回 not found 错误。
+// id 不存在返回包装 pgx.ErrNoRows 的错误。
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, "DELETE FROM conversation WHERE id=$1", id)
 	if err != nil {
 		return fmt.Errorf("delete conversation %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete conversation %s: not found", id)
+		return fmt.Errorf("delete conversation %s: %w", id, pgx.ErrNoRows)
 	}
 	return nil
 }
@@ -248,10 +248,13 @@ func (s *Store) CountConversations(ctx context.Context, source string) (int, err
 
 // SetTitle 回填会话标题（首条消息摘要）。空 title 存 NULL。
 func (s *Store) SetTitle(ctx context.Context, id, title string) error {
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		"UPDATE conversation SET title=NULLIF($1,''), updated_at=now() WHERE id=$2", title, id)
 	if err != nil {
 		return fmt.Errorf("set conversation %s title: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set conversation %s title: %w", id, pgx.ErrNoRows)
 	}
 	return nil
 }
@@ -344,7 +347,21 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, afterSe
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list messages of %s: %w", conversationID, err)
+	}
+	if len(out) == 0 {
+		// 空结果才区分「会话不存在」与「暂无（更多）消息」：非空必然存在，省一次查询。
+		var exists bool
+		if err := s.pool.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM conversation WHERE id=$1)", conversationID).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("check conversation %s: %w", conversationID, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("list messages of %s: %w", conversationID, pgx.ErrNoRows)
+		}
+	}
+	return out, nil
 }
 
 // LatestMessages 取会话最近 n 条「真实对话消息」：kind=message 且 role ∈

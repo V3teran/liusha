@@ -9,6 +9,9 @@ import (
 )
 
 // Run 是 planner Agent 的事件循环：订阅 bus 事件 + 轮询图，规划新 action 并写图。
+// LLM 配置错误（鉴权/权限/模型不存在）是致命错误：Run 返回该错误，由认知循环
+// 终结任务——轮询重撞既不会自愈，失败调用又会被僵尸回收当作「仍有活动」，任务将
+// 永远停在 active。
 func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：规划调用归 task/本轮 run、角色 planner。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "planner"})
@@ -24,8 +27,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	// 启动时规划一次
-	if err := a.planActions(ctx); err != nil {
-		a.logger.Error().Err(err).Msg("初始规划失败")
+	if err := a.planFailure(a.planActions(ctx), "初始规划"); err != nil {
+		return err
 	}
 
 	for {
@@ -40,20 +43,31 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		case event := <-sub.Events():
 			// 处理验证结果事件
-			if err := a.handleEvent(ctx, event); err != nil {
-				a.logger.Error().
-					Err(err).
-					Str("event_type", string(event.Type)).
-					Msg("事件处理失败")
+			if err := a.planFailure(a.handleEvent(ctx, event), "事件触发规划（"+string(event.Type)+"）"); err != nil {
+				return err
 			}
 
 		case <-ticker.C:
 			// 定期兜底：检查是否需要新的规划
-			if err := a.planActions(ctx); err != nil {
-				a.logger.Error().Err(err).Msg("定期规划失败")
+			if err := a.planFailure(a.planActions(ctx), "定期规划"); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// planFailure 处置一次规划失败：配置错误原样返回（致命，Run 退出）；其余失败记录后
+// 返回 nil，等下一次事件或轮询再试（瞬时故障已在 generateNewActions 内退避重试过）。
+func (a *Agent) planFailure(err error, phase string) error {
+	if err == nil {
+		return nil
+	}
+	if llm.IsConfigError(err) {
+		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，规划无法继续")
+		return err
+	}
+	a.logger.Error().Err(err).Str("phase", phase).Msg("规划失败（下一轮重试）")
+	return nil
 }
 
 // handleEvent 处理事件

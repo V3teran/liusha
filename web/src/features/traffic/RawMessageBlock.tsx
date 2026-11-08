@@ -27,7 +27,7 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
     return (
       <section className="min-w-0">
         <h3 className="mb-2 text-sm font-semibold text-text">{title}</h3>
-        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-sm text-text-secondary opacity-70">{emptyHint}</div>
+        <div className="rounded-lg border border-border bg-surface-2 px-3 py-4 text-sm text-text-tertiary">{emptyHint}</div>
       </section>
     )
   }

@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // fakePlanner 实现 Planner 接口用于测试
@@ -213,5 +215,31 @@ func TestGenerateNewActions_RespectContextCancellation(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, actions)
 	// context 取消后应该立即返回，不会重试
+	assert.Equal(t, int32(1), fake.callCount)
+}
+
+// LLM 配置错误（鉴权失败等）是致命错误：规划失败处置必须让 Run 退出，而不是交给
+// 轮询无限重撞；其余规划失败（瞬时故障耗尽、输出解析失败）仍记录后等下一轮。
+func TestPlanFailure_ConfigErrorIsFatal(t *testing.T) {
+	a := &Agent{taskID: "t1", logger: zerolog.Nop()}
+	cfgErr := fmt.Errorf("plan: %w", &llm.HTTPError{Code: 401, Inner: errors.New("unauthorized")})
+	if err := a.planFailure(cfgErr, "定期规划"); !errors.Is(err, cfgErr) {
+		t.Fatalf("配置错误应作为致命错误返回，得 %v", err)
+	}
+	if err := a.planFailure(errors.New("plan: 重试 4 次后仍失败: 429"), "定期规划"); err != nil {
+		t.Fatalf("非配置错误不应终止循环，得 %v", err)
+	}
+	if err := a.planFailure(nil, "定期规划"); err != nil {
+		t.Fatalf("nil 应返回 nil，得 %v", err)
+	}
+}
+
+// 配置错误不进入 planner 内部重试（重试不会自愈）。
+func TestGenerateNewActions_ConfigErrorNotRetried(t *testing.T) {
+	fake := &fakePlanner{errors: []error{&llm.HTTPError{Code: 401}, &llm.HTTPError{Code: 401}}}
+	a := &Agent{taskID: "t1", planner: fake, eventBus: &fakeEventBus{}, logger: zerolog.Nop(), functionTools: []string{}}
+	if _, err := a.generateNewActions(context.Background()); err == nil {
+		t.Fatal("应返回错误")
+	}
 	assert.Equal(t, int32(1), fake.callCount)
 }

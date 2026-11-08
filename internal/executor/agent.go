@@ -15,6 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // Agent 是事件驱动的执行器 Agent
@@ -88,8 +89,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	var report Report
 
 	// 立即检查一次待执行的 Action
-	if err := a.processAvailableActions(ctx, &report); err != nil {
-		a.logger.Error().Err(err).Msg("初始 Action 处理失败")
+	if err := a.loopFailure(a.processAvailableActions(ctx, &report), "初始 Action 处理"); err != nil {
+		return err
 	}
 
 	// 事件循环
@@ -110,11 +111,8 @@ func (a *Agent) Run(ctx context.Context) error {
 				Msg("收到事件")
 
 			// 处理事件
-			if err := a.handleEvent(ctx, event, &report); err != nil {
-				a.logger.Error().
-					Err(err).
-					Str("event_type", string(event.Type)).
-					Msg("事件处理失败")
+			if err := a.loopFailure(a.handleEvent(ctx, event, &report), "事件处理（"+string(event.Type)+"）"); err != nil {
+				return err
 			}
 
 			// 检查停止条件
@@ -129,8 +127,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		case <-ticker.C:
 			// 定期兜底：检查是否有遗漏的 Action
-			if err := a.processAvailableActions(ctx, &report); err != nil {
-				a.logger.Error().Err(err).Msg("定期检查 Action 失败")
+			if err := a.loopFailure(a.processAvailableActions(ctx, &report), "定期检查 Action"); err != nil {
+				return err
 			}
 
 			// 检查停止条件
@@ -144,6 +142,20 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// loopFailure 处置一轮执行失败：LLM 配置错误（鉴权/权限/模型不存在）原样返回——
+// 致命，Run 退出由认知循环终结任务（重试不会自愈）；其余失败记录后继续下一轮。
+func (a *Agent) loopFailure(err error, phase string) error {
+	if err == nil {
+		return nil
+	}
+	if llm.IsConfigError(err) {
+		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，执行无法继续")
+		return err
+	}
+	a.logger.Error().Err(err).Str("phase", phase).Msg("执行失败（下一轮继续）")
+	return nil
 }
 
 // handleEvent 处理事件

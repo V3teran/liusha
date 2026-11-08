@@ -5,6 +5,8 @@
  * 序列化为大写首字母键。
  */
 
+import type { Source } from '@/lib/source'
+
 export type MessageKind = 'message' | 'event'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -310,7 +312,7 @@ export interface FindingRow {
   // repro 是机器可验的复现配方 jsonb（{domain, recipe:{request,baseline?},
   // assert}）——复现步骤区的数据源。
   repro?: Record<string, unknown>
-  source: string // direct 人工下发 / proxy 代理捕获（JOIN assignment 派生）
+  source: Source // JOIN assignment 派生
   task_id?: string // 产出本漏洞的任务（详情跳转用）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
@@ -364,11 +366,11 @@ export interface LLMInvocationSummary {
   created_at: string
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
-// source 是下发来源 manual|auto（详情 JOIN assignment 派生）——对话跳转按钮据此定 tab。
+// source 是下发来源 direct|proxy（详情 JOIN assignment 派生）——对话跳转按钮据此定 tab。
 export interface LLMInvocationDetail extends LLMInvocationSummary {
   messages: unknown
   result: unknown
-  source?: string
+  source?: Source | '' // 无关联批次（如独立调用）为空串
 }
 export interface LLMInvocationsResponse {
   total: number // 跨页总数（对齐流量/漏洞模块的 offset 分页口径）
@@ -556,7 +558,7 @@ export interface TaskSummary {
   assignment_title: string // 批次标题（assignment.title；空回退首个任务 brief）
   assignment_index: number
   assignment_total: number
-  source: string // manual | auto
+  source: Source
   scheduled: boolean
   cron: string
   conversation_id: string

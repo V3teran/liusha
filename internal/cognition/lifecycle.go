@@ -23,6 +23,8 @@ type agentLifecycle struct {
 	wg      sync.WaitGroup
 	cancel  context.CancelFunc
 	running bool
+	// onFatal 在 agent 非取消性退出时回调（agent 只在致命错误时主动返回）。
+	onFatal func(name string, err error)
 }
 
 // agentSpec 是单个受管 agent 的启动入口。
@@ -32,8 +34,9 @@ type agentSpec struct {
 }
 
 // newAgentLifecycle 构造生命周期管理器，管理给定的 agent 集。
-func newAgentLifecycle(parent context.Context, logger zerolog.Logger, agents []agentSpec) *agentLifecycle {
-	return &agentLifecycle{parent: parent, logger: logger, agents: agents}
+func newAgentLifecycle(parent context.Context, logger zerolog.Logger, agents []agentSpec,
+	onFatal func(name string, err error)) *agentLifecycle {
+	return &agentLifecycle{parent: parent, logger: logger, agents: agents, onFatal: onFatal}
 }
 
 // Start 幂等启动全部 agent（已在运行时为 no-op）。
@@ -59,6 +62,9 @@ func (l *agentLifecycle) runAgent(agentCtx context.Context, ag agentSpec) {
 		defer l.wg.Done()
 		if err := ag.start(WithAgent(agentCtx, ag.name)); err != nil && agentCtx.Err() == nil {
 			l.logger.Error().Err(err).Msg(ag.name + " agent 异常退出")
+			if l.onFatal != nil {
+				l.onFatal(ag.name, err)
+			}
 		}
 	})
 }

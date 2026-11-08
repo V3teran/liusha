@@ -63,4 +63,10 @@ describe('TaskStatusCard', () => {
     render(<TaskStatusCard md={md({ status: 'completed', steps: 3, findings: 0 })} />)
     expect(screen.queryByText(/0 个发现/)).toBeNull()
   })
+
+  it('agent 致命失败的停止原因（agent_failed）以人读文案呈现，不直出枚举', () => {
+    render(<TaskStatusCard md={md({ status: 'aborted', stop_reason: 'agent_failed' })} />)
+    expect(screen.getByText(/智能体故障/)).toBeTruthy()
+    expect(screen.queryByText(/agent_failed/)).toBeNull()
+  })
 })

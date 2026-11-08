@@ -161,7 +161,7 @@ describe('LlmAuditPage', () => {
     renderPage()
     await screen.findAllByText('gpt-5')
 
-    await userEvent.click(screen.getByRole('button', { name: '查看调用详情 req-1' }))
+    await userEvent.click(screen.getByRole('row', { name: '查看调用详情 req-1' }))
 
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
     // 抽屉渲染详情的 request_id。

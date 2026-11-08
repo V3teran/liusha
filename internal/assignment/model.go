@@ -22,6 +22,11 @@ const (
 	SourceProxy  Source = "proxy"  // 代理捕获：聚合器攒批的代理流量
 )
 
+// Valid 报告 s 是否为已定义的来源取值（与 DB assignment_source_check 同集合）。
+func (s Source) Valid() bool {
+	return s == SourceDirect || s == SourceProxy
+}
+
 // Status 是 assignment 的派生整体状态（不落存储，由子 task 聚合算出）。
 type Status string
 

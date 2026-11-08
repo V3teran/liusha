@@ -134,7 +134,7 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 	if err := validateBrief(brief); err != nil {
 		return "", "", err
 	}
-	// 一切下发皆走 assignment：单发 = 单元素 assignment(manual) → 1 task。
+	// 一切下发皆走 assignment：单发 = 单元素 assignment(direct) → 1 task。
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceDirect,
 		Items:  []assignment.Item{{Brief: brief}},

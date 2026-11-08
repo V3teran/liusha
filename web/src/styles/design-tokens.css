@@ -23,10 +23,12 @@
   --border-strong: oklch(85% 0 0);
   --border-subtle: oklch(95% 0 0);
 
-  /* 文本层次 */
+  /* 文本层次：secondary / tertiary 都承载可读信息（时间戳、表头、分组名），
+     对全部表面层（background…surface-3）须 ≥4.5:1（WCAG AA 正文）。
+     tertiary 52% 在 surface-3 上 4.62:1；disabled 不受此约束（WCAG 豁免禁用控件）。 */
   --text: oklch(20% 0 0);
   --text-secondary: oklch(45% 0 0);
-  --text-tertiary: oklch(60% 0 0);
+  --text-tertiary: oklch(52% 0 0);
   --text-disabled: oklch(70% 0 0);
 
   /* 强调色：浅色主题用深蓝灰（微量饱和度，保持克制）*/
@@ -133,9 +135,11 @@
   --border-strong: oklch(35% 0.008 285);
   --border-subtle: oklch(22% 0.005 285);
 
+  /* 同浅色主题约束：tertiary 62% 在 surface-3 上 4.64:1；secondary 随之上移到 72%，
+     与 tertiary 保持可辨的层级差。 */
   --text: oklch(94% 0.002 285);
-  --text-secondary: oklch(65% 0.005 285);
-  --text-tertiary: oklch(50% 0.005 285);
+  --text-secondary: oklch(72% 0.005 285);
+  --text-tertiary: oklch(62% 0.005 285);
   --text-disabled: oklch(40% 0.005 285);
 
   /* 强调色：深色主题用浅蓝灰（微量饱和度，保持克制）*/

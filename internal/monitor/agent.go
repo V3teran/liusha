@@ -179,8 +179,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// 的确定结论——烧一轮 LLM（含强制总结共 3 次调用）监察不存在的工作。
 	// 图上无 open/running 动作时跳过首评，等定时器（届时若任务真实必有在途）。
 	if a.hasSupervisableWork(ctx) {
-		if err := a.evaluate(ctx); err != nil {
-			a.logger.Error().Err(err).Msg("首次评估失败")
+		if err := a.evaluationFailure(a.evaluate(ctx), "首次评估"); err != nil {
+			return err
 		}
 	} else {
 		a.logger.Info().Msg("启动时图上无在途动作，跳过首评（无可监察对象）")
@@ -199,12 +199,25 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.logger.Debug().Msg("周期评估跳过：图上无在途动作")
 				continue
 			}
-			if err := a.evaluate(ctx); err != nil {
-				a.logger.Error().Err(err).Msg("evaluation failed")
-				// 继续运行，不中断
+			if err := a.evaluationFailure(a.evaluate(ctx), "周期评估"); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// evaluationFailure 处置一次评估失败：LLM 配置错误原样返回（致命，Run 退出）；
+// 其余失败记录后继续——监察是辅助面，单次评估失败不应拖垮任务。
+func (a *Agent) evaluationFailure(err error, phase string) error {
+	if err == nil {
+		return nil
+	}
+	if llm.IsConfigError(err) {
+		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，监察无法继续")
+		return err
+	}
+	a.logger.Error().Err(err).Str("phase", phase).Msg("评估失败（继续运行）")
+	return nil
 }
 
 // evaluate 执行一次全局评估（使用 ReActRuntime）

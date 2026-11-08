@@ -39,6 +39,7 @@ const STOP_REASON_LABELS: Record<string, string> = {
   context_cancelled: '执行被取消',
   task_converged: '目标收敛',
   max_steps_reached: '达到步数上限',
+  agent_failed: '智能体故障',
 }
 
 // 报告字段行：completed/aborted 携 steps/findings 与停止原因，failed 携 reason。

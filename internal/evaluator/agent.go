@@ -56,6 +56,8 @@ type Agent struct {
 	// inFlight 收口在途验证 goroutine：Run 退出前等它们落定（ctx 已取消时
 	// 会快速返回），避免停机后仍向 bus/图写事件的竞态。
 	inFlight sync.WaitGroup
+	// fatal 承接异步裁决中的致命错误（LLM 配置错误），由 Run 返回终结任务（容量 1：只需首个）。
+	fatal chan error
 
 	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
 	// 记录锁定时间，支持超时检测
@@ -106,6 +108,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 
 	return &Agent{
+		fatal:         make(chan error, 1),
 		taskID:        cfg.TaskID,
 		agentRunID:    cfg.AgentRunID,
 		gate:          cfg.Gate,
@@ -159,6 +162,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.logger.Info().Msg("Agent 停止（context done），等待在途验证落定")
 			a.inFlight.Wait()
 			return ctx.Err()
+
+		case err := <-a.fatal:
+			a.logger.Error().Err(err).Msg("LLM 配置错误，裁决无法继续")
+			return err
 
 		case event := <-sub.Events():
 			// 事件驱动：立即处理新 observation
@@ -361,6 +368,15 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast，只有
 //     瞬时错误才值得退避重试）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, attempt Attempt, cause error) {
+	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标裁决失败
+	// 出圈），上报为 evaluator 致命错误。
+	if llm.IsConfigError(cause) {
+		select {
+		case a.fatal <- cause:
+		default:
+		}
+		return
+	}
 	if isContextTimeoutError(cause) {
 		a.logger.Info().
 			Str("observation_id", observationID).

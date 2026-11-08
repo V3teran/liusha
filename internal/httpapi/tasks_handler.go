@@ -56,10 +56,10 @@ const (
 //	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
 //
 // 坏参数退化成不筛（对齐 parseTrafficFilter），page 缺省 1、size clamp 到上限。
-func parseTaskFilter(c *gin.Context) (task.ListFilter, int, int) {
+func parseTaskFilter(c *gin.Context, source string) (task.ListFilter, int, int) {
 	page, size := parsePagination(c.Query("page"), c.Query("size"), defaultTaskPageSize, maxTaskPageSize)
 	f := task.ListFilter{
-		Source: strings.TrimSpace(c.Query("source")),
+		Source: source,
 		Status: strings.TrimSpace(c.Query("status")),
 		Search: strings.TrimSpace(c.Query("search")),
 		Limit:  size,
@@ -86,7 +86,11 @@ func parseTaskFilter(c *gin.Context) (task.ListFilter, int, int) {
 func listTasksHandler(api TasksAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		f, page, size := parseTaskFilter(c)
+		source, ok := sourceParam(c)
+		if !ok {
+			return
+		}
+		f, page, size := parseTaskFilter(c, source)
 
 		rows, err := api.ListFiltered(ctx, f)
 		if err != nil {

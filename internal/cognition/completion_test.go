@@ -2,6 +2,8 @@ package cognition
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,4 +97,59 @@ func (d *CompletionDetector) feedEvent(event bus.Event) {
 // stats 获取当前统计快照（非阻塞，测试断言用）。
 func (d *CompletionDetector) stats() Result {
 	return d.makeResult("in_progress")
+}
+
+// agent 致命失败（如 LLM 配置错误）必须终结检测循环并携带错误——否则持续探索
+// 模式下任务永不收敛，停在 active。
+func TestCompletionDetector_FailStopsWithError(t *testing.T) {
+	d := NewCompletionDetector(Config{TaskID: "t1", Bus: bus.New(context.Background()), Logger: zerolog.Nop(),
+		CheckInterval: 10 * time.Millisecond})
+	cause := errors.New("planner agent: http 401")
+	go d.Fail(cause)
+
+	done := make(chan Result, 1)
+	go func() { done <- d.Start(context.Background()) }()
+	select {
+	case res := <-done:
+		if !errors.Is(res.Err, cause) {
+			t.Fatalf("Result.Err 应携带致命错误，得 %v", res.Err)
+		}
+		if res.StopReason != StopReasonAgentFailed {
+			t.Fatalf("StopReason 应为 %q，得 %q", StopReasonAgentFailed, res.StopReason)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Fail 后检测循环未退出")
+	}
+}
+
+// 生命周期：agent 非取消性退出时上报 onFatal；正常停止（ctx 取消）不上报。
+func TestAgentLifecycle_ReportsUnexpectedExit(t *testing.T) {
+	var got []string
+	var mu sync.Mutex
+	report := func(name string, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, name+":"+err.Error())
+	}
+	l := newAgentLifecycle(context.Background(), zerolog.Nop(), []agentSpec{
+		{name: "planner", start: func(context.Context) error { return errors.New("http 401") }},
+		{name: "executor", start: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }},
+	}, report)
+	l.Start()
+	deadline := time.Now().Add(time.Second)
+	for {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	l.Stop()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0] != "planner:http 401" {
+		t.Fatalf("应只上报 planner 的异常退出，得 %v", got)
+	}
 }

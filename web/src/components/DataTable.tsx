@@ -19,7 +19,7 @@ interface DataTableProps<T> {
   rowStyle?: (row: T) => React.CSSProperties | undefined
   /** 行 className 追加（如保存中降透明度） */
   rowClassName?: (row: T) => string | undefined
-  /** 选中态（aria-selected + inset 描边；不传则行无选中语义） */
+  /** 选中态（行 aria-selected + inset 描边；不传则行无选中语义） */
   selectedId?: string | number | null
   /** 行主键（默认 row.id；getRowId 同源） */
   getRowId?: (row: T) => string
@@ -31,6 +31,8 @@ interface DataTableProps<T> {
   meta?: TableMeta<T>
   /** 表头 sticky（长列表滚动时列头常驻） */
   stickyHeader?: boolean
+  /** 表格无障碍名（可点击行时表格以具名 grid 暴露） */
+  ariaLabel?: string
 }
 
 /**
@@ -39,7 +41,7 @@ interface DataTableProps<T> {
  * 骨架屏/空态/行点击与键盘可达/选中态描边。
  * 之前此骨架在 Task/Traffic/LlmAudit/Findings 四张表各复制一份（~80 行/份）。
  */
-export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader }: DataTableProps<T>) {
+export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader, ariaLabel }: DataTableProps<T>) {
   const table = useReactTable({
     data: rows,
     columns,
@@ -56,7 +58,14 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
-      <table className="w-full border-collapse table-fixed" style={{ minWidth }}>
+      {/* 可选行表格走 WAI-ARIA grid 模式：表格为 grid、行保持原生 row 语义——选中态
+          aria-selected 在 row 上合法，单元格内可放交互控件（复制按钮等）。 */}
+      <table
+        role={onRowClick ? 'grid' : undefined}
+        aria-label={ariaLabel}
+        className="w-full border-collapse table-fixed"
+        style={{ minWidth }}
+      >
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: colWidths[i] }} />
@@ -69,7 +78,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                 <th
                   key={h.id}
                   className={cn(
-                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary opacity-70`,
+                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary`,
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
@@ -104,7 +113,6 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
               return (
                 <tr
                   key={row.id}
-                  role={clickable ? 'button' : undefined}
                   tabIndex={clickable ? 0 : undefined}
                   aria-label={rowAriaLabel?.(v)}
                   aria-selected={clickable ? selected : undefined}

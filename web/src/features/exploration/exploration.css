@@ -108,3 +108,13 @@
     animation: none;
   }
 }
+
+/* 画布库署名：保留署名（库许可惯例），但默认浅灰字压在半透明底上对比度仅 1.3:1——
+   改用主题文本 token，与小地图同底，满足 AA。 */
+.react-flow__attribution {
+  background: var(--surface);
+  border-top-left-radius: 4px;
+}
+.react-flow__attribution a {
+  color: var(--text-tertiary);
+}

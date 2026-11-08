@@ -69,6 +69,12 @@ func isForeignKeyViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
+// isUniqueViolation 判定错误是否为 DB 唯一约束冲突（pg 23505）。
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
 // ── agent ────────────────────────────────────────────────────────────
 
 // listAgentsHandler 处理 GET /agents：page 缺省 = 全量（多选器依赖），有 page = 分页 + total。

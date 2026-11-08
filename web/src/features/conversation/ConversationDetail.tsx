@@ -3,6 +3,7 @@ import { Pause, Play, Square } from 'lucide-react'
 import { getConversationUsage, listMessages } from '@/api/conversations'
 import { controlTask } from '@/api/tasks'
 import type { ConversationUsage } from '@/api/types'
+import { ApiError } from '@/api/client'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
 import { fullTime, humanDuration, humanTokens } from '@/lib/format'
@@ -41,7 +42,8 @@ function emptyCopy(source: 'direct' | 'proxy') {
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState(false)
+  // 加载失败分两态：missing = 会话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
+  const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('open')
   const [usage, setUsage] = useState<ConversationUsage | null>(null)
   const handleRef = useRef<StreamHandle | null>(null)
@@ -89,7 +91,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     setUsage(null)
     setStreamStatus('open')
     setLoading(false)
-    setLoadError(false)
+    setLoadError(null)
   }, [store])
 
   const open = useCallback(
@@ -98,16 +100,16 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       handleRef.current?.close()
       store.reset()
       setUsage(null)
-      setLoadError(false)
+      setLoadError(null)
       setLoading(true)
       setStreamStatus('open')
       let history
       try {
         history = await listMessages(convID)
-      } catch {
+      } catch (e) {
         if (generationRef.current === gen) {
           setLoading(false)
-          setLoadError(true)
+          setLoadError(e instanceof ApiError && e.status === 404 ? 'missing' : 'failed')
         }
         return
       }
@@ -298,11 +300,20 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
           <div className="max-w-[420px] text-center text-text-secondary">
             <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
-            <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
-            <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
-            <Button className="mt-4" onClick={retryLoad}>
-              重试
-            </Button>
+            {loadError === 'missing' ? (
+              <>
+                <h2 className="mb-2 text-[17px] text-text">会话不存在</h2>
+                <p className="text-sm leading-relaxed">该会话可能已被删除，请从左侧列表重新选择。</p>
+              </>
+            ) : (
+              <>
+                <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
+                <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
+                <Button className="mt-4" onClick={retryLoad}>
+                  重试
+                </Button>
+              </>
+            )}
           </div>
         </div>
       ) : loading ? (
