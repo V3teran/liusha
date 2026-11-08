@@ -85,7 +85,20 @@ func (p *ClientPool) GetOrCreateAnthropic(baseURL, apiKey string) (*anthropic.Cl
 	if c, ok := p.anthropic[key]; ok {
 		return c, nil
 	}
-	opts := []option.RequestOption{option.WithAPIKey(apiKey), option.WithHTTPClient(llmHTTPClient())}
+	// scrubAuthHeader 擦除 Authorization 头。SDK 会自动读环境变量 ANTHROPIC_AUTH_TOKEN
+	// 并附加 Authorization: Bearer <值>（本进程之外的调用方工具链常设此变量做自己的
+	// LLM 路由）；而本系统的密钥统一走 x-api-key（DB/env 双路径解析），出站请求不允许
+	// 携带我们不控制的凭据——兼容网关普遍优先读 Authorization，外来占位值会让真实的
+	// key 被无视、报 401「令牌无效」。
+	scrubAuthHeader := func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		req.Header.Del("Authorization")
+		return next(req)
+	}
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithHTTPClient(llmHTTPClient()),
+		option.WithMiddleware(scrubAuthHeader),
+	}
 	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
 	}

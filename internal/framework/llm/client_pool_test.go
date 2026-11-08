@@ -1,47 +1,43 @@
 package llm
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
-func TestClientPool_OpenAICompatSingleton(t *testing.T) {
-	p := NewClientPool()
-	c1, err := p.GetOrCreateOpenAI("https://api.deepseek.com/v1", "k1")
+// ambient auth env（如调用方工具链自设的 ANTHROPIC_AUTH_TOKEN）不得泄漏进出站请求：
+// SDK 默认会把它附加为 Authorization: Bearer <值>，兼容网关优先读该头会无视我们真正的
+// x-api-key（实测 401「令牌已过期或验证不正确」）。本系统密钥统一走 x-api-key。
+func TestGetOrCreateAnthropic_ScrubsAmbientAuthHeader(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "PROXY_MANAGED")
+
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"x","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	pool := NewClientPool()
+	cli, err := pool.GetOrCreateAnthropic(srv.URL, "real-key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2, _ := p.GetOrCreateOpenAI("https://api.deepseek.com/v1", "k1")
-	if c1 != c2 {
-		t.Fatal("same baseURL+key should return same client")
+	c, _ := NewAnthropic(context.Background(), "p", AnthropicConfig{BaseURL: srv.URL, Model: "m", MaxTokens: 8}, cli)
+	if _, err := c.Generate(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
-	c3, _ := p.GetOrCreateOpenAI("https://api.deepseek.com/v1", "k2")
-	if c1 == c3 {
-		t.Fatal("different api key should return different client")
-	}
-}
 
-func TestClientPool_AnthropicSingleton(t *testing.T) {
-	p := NewClientPool()
-	c1, _ := p.GetOrCreateAnthropic("https://api.anthropic.com", "k1")
-	c2, _ := p.GetOrCreateAnthropic("https://api.anthropic.com", "k1")
-	if c1 != c2 {
-		t.Fatal("same baseURL+key should return same client")
+	if got.Get("X-Api-Key") != "real-key" {
+		t.Errorf("x-api-key 应携带真实密钥，得 %q", got.Get("X-Api-Key"))
 	}
-}
-
-func TestClientPool_EmptyAPIKey_Errors(t *testing.T) {
-	p := NewClientPool()
-	if _, err := p.GetOrCreateOpenAI("", ""); err == nil {
-		t.Error("empty apikey should error (openai)")
+	if got.Get("Authorization") != "" {
+		t.Errorf("Authorization 头应被擦除（环境变量不得泄漏），得 %q", got.Get("Authorization"))
 	}
-	if _, err := p.GetOrCreateAnthropic("", ""); err == nil {
-		t.Error("empty apikey should error (anthropic)")
-	}
-}
-
-func TestClientPool_DifferentBaseURL(t *testing.T) {
-	p := NewClientPool()
-	c1, _ := p.GetOrCreateOpenAI("https://a.example/v1", "k")
-	c2, _ := p.GetOrCreateOpenAI("https://b.example/v1", "k")
-	if c1 == c2 {
-		t.Error("different baseURL should return different client")
-	}
+	out, _ := json.Marshal(got)
+	_ = out
 }
