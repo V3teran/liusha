@@ -172,7 +172,7 @@ export function ToolsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="工具" subtitle="内部与外部工具的统一编目" />
+      <PageHeader title="工具" subtitle="agent 可调用的工具清单，按 agent 启停装配" />
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
       <FilterBar label="工具筛选">

@@ -65,7 +65,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       {/* 统一头部 */}
       <PageHeader
         title="对话"
-        subtitle={source === 'direct' ? '人工下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
+        subtitle={source === 'direct' ? '实时观看 agent 干活，可随时插话补充指令' : '选一批捕获的流量，看 AI 逐批分析，可插话追问'}
       />
 
       {/* 主从双栏 */}

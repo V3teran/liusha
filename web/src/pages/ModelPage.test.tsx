@@ -47,7 +47,7 @@ describe('ModelPage', () => {
     renderPage()
 
     expect(screen.getByText('LLM 配置')).toBeTruthy()
-    expect(screen.getByText('配置模型提供商和能力路由')).toBeTruthy()
+    expect(screen.getByText('接入 provider 部署；按推理档位（深度 / 标准 / 轻量）分配模型')).toBeTruthy()
   })
 
   it('渲染两个分区：模型提供商、能力路由', () => {

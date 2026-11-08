@@ -63,7 +63,7 @@ export function SystemConfigPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="系统配置" subtitle="系统常规配置，热加载" />
+      <PageHeader title="系统配置" subtitle="上下文压缩、代理过滤与工具运行时参数，保存即生效" />
 
       {/* 搜索归筛选栏（全站筛选控件唯一位置）：放进页头右槽会在窄屏把标题挤到零宽。 */}
       <FilterBar label="系统配置筛选">

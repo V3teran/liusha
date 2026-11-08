@@ -186,7 +186,7 @@ export function CredentialsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="凭证库" subtitle="按目标归属的登录态与会话材料">
+      <PageHeader title="凭证库" subtitle="任务捕获或手动录入的登录凭据，按目标归档、跨任务复用">
         {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
         <Button
           variant={creating ? 'secondary' : 'primary'}

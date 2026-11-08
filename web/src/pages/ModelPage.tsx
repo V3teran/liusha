@@ -10,7 +10,7 @@ import { AssignmentView } from '@/features/model/AssignmentView'
 export function ModelPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="LLM 配置" subtitle="配置模型提供商和能力路由" />
+      <PageHeader title="LLM 配置" subtitle="接入 provider 部署；按推理档位（深度 / 标准 / 轻量）分配模型" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
