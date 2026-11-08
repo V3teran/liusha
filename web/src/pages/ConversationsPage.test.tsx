@@ -44,7 +44,7 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
   },
 }))
 
-function renderPage(source: 'self' | 'proxy', initialPath = '/') {
+function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <ConversationsPage source={source} />
@@ -53,10 +53,10 @@ function renderPage(source: 'self' | 'proxy', initialPath = '/') {
 }
 
 describe('ConversationsPage', () => {
-  it('自主下发(self) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('自主下发(direct) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('self', '/?conv=conv-from-query')
+    renderPage('direct', '/?conv=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
@@ -75,7 +75,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('self')
+    renderPage('direct')
 
     await user.click(screen.getByText('start'))
 
@@ -87,7 +87,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('self')
+    renderPage('direct')
 
     // 先选中 conv-selected
     await user.click(screen.getByText('select'))
@@ -104,7 +104,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('self')
+    renderPage('direct')
 
     await user.click(screen.getByText('select'))
     await user.click(screen.getByText('delete-other'))
@@ -113,9 +113,9 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('自主下发(self)：allowNew=true，无自定义 heading，带结构化空态', () => {
+  it('自主下发(direct)：allowNew=true，无自定义 heading，带结构化空态', () => {
     listProps.mockClear()
-    renderPage('self')
+    renderPage('direct')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
     expect(lastListCall.heading).toBeUndefined()
@@ -135,7 +135,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('self')
+    renderPage('direct')
 
     await user.click(screen.getByText('select')) // 先有个选中
     await user.click(screen.getByText('new')) // 再新建 → 清空

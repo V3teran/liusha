@@ -71,11 +71,11 @@ type SkillsSeed struct {
 }
 
 // Touched 汇总全部被写动过的 code（insert/upsert/prune 并集）。
-func (r SkillsSeed) Touched() []string {
-	out := make([]string, 0, len(r.Inserted)+len(r.Upserted)+len(r.Pruned))
-	out = append(out, r.Inserted...)
-	out = append(out, r.Upserted...)
-	out = append(out, r.Pruned...)
+func (s SkillsSeed) Touched() []string {
+	out := make([]string, 0, len(s.Inserted)+len(s.Upserted)+len(s.Pruned))
+	out = append(out, s.Inserted...)
+	out = append(out, s.Upserted...)
+	out = append(out, s.Pruned...)
 	return out
 }
 

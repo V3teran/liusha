@@ -40,7 +40,7 @@ const (
 //
 //	{ "total": N, "page": P, "size": S, "findings": [{
 //	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
-//	    "target":{...},"evaluation":{...},"repro":{...},"source":"self|proxy",
+//	    "target":{...},"evaluation":{...},"repro":{...},"source":"direct|proxy",
 //	    "task_id","conversation_id",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
 //	    "created_at"

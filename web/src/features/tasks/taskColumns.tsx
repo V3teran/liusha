@@ -4,9 +4,10 @@ import { Pause, Play, Square } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
 import { TokenPair } from '@/components/TokenPair'
 import type { TaskSummary } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { clockTime, dateOnly, fullTime } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
+import { sourceColor, sourceLabel } from '@/lib/source'
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
@@ -45,9 +46,9 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
     }),
     columnHelper.accessor('brief', {
       header: '目标',
-      // 设计宽度 200：全表设计宽度合计 ≈1130px，1440 视口（侧栏展开）内容区可完整
+      // 设计宽度 180：全表设计宽度合计 ≈1130px，1440 视口（侧栏展开）内容区可完整
       // 放下全部列；宽屏下目标列按权重拉伸，超长目标截断 + title 悬停全文。
-      size: 200,
+      size: 180,
       cell: (ctx) => (
         <span className="block truncate text-sm text-text" title={ctx.getValue()}>
           {ctx.getValue()}
@@ -56,11 +57,12 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
     }),
     columnHelper.accessor('source', {
       header: '来源',
-      size: 88,
+      // 108：4 字来源徽章 + 定时触发时钟图标
+      size: 108,
       cell: (ctx) => (
         <span className="flex items-center gap-1">
-          <Badge dot={false} color={ctx.getValue() === 'self' ? 'var(--source-self)' : 'var(--source-proxy)'}>
-            {ctx.getValue() === 'self' ? '自主' : '代理'}
+          <Badge dot={false} color={sourceColor(ctx.getValue())}>
+            {sourceLabel(ctx.getValue())}
           </Badge>
           {ctx.row.original.scheduled && (
             <Clock

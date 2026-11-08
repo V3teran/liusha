@@ -413,7 +413,7 @@ func (e *Engine) processOutput(
 	}
 
 	// 图完整性不变式：动作完结必须给图留下可见输出。LLM 把事实写进黑板、
-	// 或观察列表为空时（实测 82% 的 done 动作无任何 observation 节点），
+	// 或观察列表为空时（实测 82% 的 completed 动作无任何 observation 节点），
 	// 以执行总结落一条 state 观察——「图 = 共享状态面」不因输出路由偏好破。
 	if !anyObserved {
 		e.ensureSummaryObservation(ctx, action, output)
@@ -469,7 +469,7 @@ func (e *Engine) collectTrace(ctx context.Context, action explorationgraph.Node)
 	}
 	e.logger.Info().
 		Str("action_id", action.ID).
-		Int("traffic_count", trace.Meta.TotalCount).
+		Int("traffic_count", trace.Meta.RequestCount).
 		Msg("成功收集 ExecutionTrace")
 	return trace
 }

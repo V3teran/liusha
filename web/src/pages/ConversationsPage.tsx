@@ -5,7 +5,7 @@ import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
 
 interface ConversationsPageProps {
-  source: 'self' | 'proxy'
+  source: 'direct' | 'proxy'
 }
 
 // 对话页：主从双栏——左 ConversationList + 右 ConversationDetail。source 由路由决定
@@ -55,7 +55,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       {/* 统一头部 */}
       <PageHeader
         title="对话"
-        subtitle={source === 'self' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
+        subtitle={source === 'direct' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
       />
 
       {/* 主从双栏 */}
@@ -65,7 +65,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
           ref={convListRef}
           activeId={currentConv || undefined}
           source={source}
-          allowNew={source === 'self'}
+          allowNew={source === 'direct'}
           heading={heading}
           emptyState={emptyState}
           autoSelect

@@ -13,13 +13,13 @@ package assignment
 
 import "time"
 
-// Source 标记谁发的：self 自主下发（用户经 api 下 brief）/ proxy 代理模式（聚合器按流量自动攒批）。
+// Source 标记谁发的：direct 自主下发（用户经 api 下 brief）/ proxy 代理模式（聚合器按流量自动攒批）。
 type Source string
 
 // assignment 来源，与 DB assignment_source_check 一致。定时模板克隆的批次也落其一（schedule_id 指回模板）。
 const (
-	SourceSelf  Source = "self"  // 自主下发：用户下 brief 主动发起
-	SourceProxy Source = "proxy" // 代理模式：聚合器攒批的代理流量
+	SourceDirect Source = "direct" // 自主下发：用户下 brief 主动发起
+	SourceProxy  Source = "proxy"  // 代理模式：聚合器攒批的代理流量
 )
 
 // Status 是 assignment 的派生整体状态（不落存储，由子 task 聚合算出）。
@@ -48,7 +48,7 @@ type Assignment struct {
 	CreatedAt   time.Time
 }
 
-// Item 是 payload 数组的单个条目。自主下发（self）用 Brief（+可选 Host）；代理模式（proxy）用 TrafficIDs。
+// Item 是 payload 数组的单个条目。自主下发（direct）用 Brief（+可选 Host）；代理模式（proxy）用 TrafficIDs。
 type Item struct {
 	Brief      string  `json:"brief,omitempty"`
 	Host       string  `json:"host,omitempty"`

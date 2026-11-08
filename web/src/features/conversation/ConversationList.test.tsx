@@ -19,7 +19,7 @@ function mkConv(over: Partial<Conversation>): Conversation {
     title: '我要扫描 example.com',
     task_id: '',
     
-    Source: 'self',
+    Source: 'direct',
     run_status: 'completed',
     finding_count: 0,
     created_at: new Date().toISOString(),
@@ -64,10 +64,10 @@ describe('ConversationList', () => {
   })
 
   it('source 过滤下沉到服务端：按 source 调用 listConversations', async () => {
-    mockPage([mkConv({ id: 'c1', title: '我要扫描 self-x.com', Source: 'self' })])
-    renderList({ source: 'self' })
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 self-x.com', Source: 'direct' })])
+    renderList({ source: 'direct' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith(30, 0, 'self')
+      expect(listConversations).toHaveBeenCalledWith(30, 0, 'direct')
       expect(screen.getByText(/self-x\.com/)).toBeTruthy()
     })
   })
@@ -160,13 +160,13 @@ describe('ConversationList', () => {
     expect(deleteConversation).not.toHaveBeenCalled()
   })
 
-  it('活跃扫描会话：菜单显示禁用态提示，不显示删除按钮', async () => {
+  it('任务进行中的会话：菜单显示禁用态提示，不显示删除按钮', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 active.com', run_status: 'active' })])
     renderList()
     await waitFor(() => expect(screen.getByText(/active\.com/)).toBeTruthy())
 
     await userEvent.click(screen.getByTitle('更多'))
-    expect(await screen.findByText('扫描中 · 先停止再删')).toBeTruthy()
+    expect(await screen.findByText('任务进行中 · 先停止再删')).toBeTruthy()
     expect(screen.queryByText('删除对话')).toBeFalsy()
   })
 

@@ -297,12 +297,12 @@ type SessionState struct {
 
 // TraceMeta 是 trace 的元数据
 type TraceMeta struct {
-	ActionID   string        `json:"action_id,omitempty"`
-	TaskID     string        `json:"task_id,omitempty"`
-	StartTime  time.Time     `json:"start_time,omitempty"`
-	EndTime    time.Time     `json:"end_time,omitempty"`
-	Duration   time.Duration `json:"duration,omitempty"`
-	TotalCount int           `json:"total_count"` // 总请求数
+	ActionID     string    `json:"action_id,omitempty"`
+	TaskID       string    `json:"task_id,omitempty"`
+	StartTime    time.Time `json:"start_time,omitempty"`
+	EndTime      time.Time `json:"end_time,omitempty"`
+	DurationMs   int64     `json:"duration_ms,omitempty"` // 轨迹墙钟耗时（毫秒）
+	RequestCount int       `json:"request_count"`         // 轨迹内 HTTP 请求条数
 }
 
 // TraceBuilder 用于构建 ExecutionTrace
@@ -356,7 +356,7 @@ func (b *TraceBuilder) AddTraffic(snapshot proxy.TrafficSnapshot, tool, comment 
 	}
 
 	b.trace.Traffic = append(b.trace.Traffic, record)
-	b.trace.Meta.TotalCount++
+	b.trace.Meta.RequestCount++
 
 	// 更新会话状态
 	b.updateSession(snapshot)
@@ -367,7 +367,7 @@ func (b *TraceBuilder) AddTraffic(snapshot proxy.TrafficSnapshot, tool, comment 
 // Build 完成构建并返回 trace
 func (b *TraceBuilder) Build() ExecutionTrace {
 	b.trace.Meta.EndTime = time.Now()
-	b.trace.Meta.Duration = b.trace.Meta.EndTime.Sub(b.trace.Meta.StartTime)
+	b.trace.Meta.DurationMs = b.trace.Meta.EndTime.Sub(b.trace.Meta.StartTime).Milliseconds()
 	return b.trace
 }
 

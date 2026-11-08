@@ -11,8 +11,8 @@ import (
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动
-func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
-	i.logger.Info().
+func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
+	e.logger.Info().
 		Int("result_count", len(results)).
 		Msg("开始分析 Results")
 
@@ -39,16 +39,16 @@ func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 	// 简化判断：统计所有 Actions（当前单 Objective；多 Objective 后需按边关系过滤）
 	actionCount := len(allActions)
 
-	i.logger.Info().
+	e.logger.Info().
 		Int("total_actions", actionCount).
 		Str("current_objective_id", currentObjective.ID).
 		Msg("当前探索状态统计")
 
 	// 2. 构建分析 prompt（传入 actionCount 作为上下文）
-	prompt := i.buildAnalysisPrompt(currentObjective, results, actionCount)
+	prompt := e.buildAnalysisPrompt(currentObjective, results, actionCount)
 
 	// 3. 调用 LLM
-	response, err := i.callAnalysisLLM(ctx, prompt)
+	response, err := e.callAnalysisLLM(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("LLM 分析失败: %w", err)
 	}
@@ -82,7 +82,7 @@ func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 		})
 	}
 
-	i.logger.Info().
+	e.logger.Info().
 		Bool("completed", analysis.Completed).
 		Int("new_objectives", len(analysis.NewObjectives)).
 		Int("continuation_actions", len(analysis.ContinuationActions)).
@@ -92,7 +92,7 @@ func (i *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 }
 
 // buildAnalysisPrompt 构建 Result 分析 prompt
-func (i *Engine) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
+func (e *Engine) buildAnalysisPrompt(currentObjective explorationgraph.Node, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
 
 	// 1. 头部
@@ -145,8 +145,8 @@ type AnalysisAction struct {
 }
 
 // callAnalysisLLM 调用 LLM 进行分析
-func (i *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisResponse, error) {
-	provider, err := i.router.For(ctx, i.complexity)
+func (e *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisResponse, error) {
+	provider, err := e.router.For(ctx, e.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -168,7 +168,7 @@ func (i *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisR
 
 	var analysis AnalysisResponse
 	if err := llm.ParseJSON(resp.Content, &analysis); err != nil {
-		i.logger.Error().
+		e.logger.Error().
 			Err(err).
 			Str("raw_response", resp.Content).
 			Msg("解析结果分析输出失败")

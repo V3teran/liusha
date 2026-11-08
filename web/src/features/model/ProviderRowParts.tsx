@@ -1,6 +1,6 @@
 import { ChevronRight, Trash2 } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import { TYPE_LABEL, providerDisplayName } from './providerForm'
 

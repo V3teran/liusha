@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
 import { testProvider } from '@/api/models'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { providerDisplayName, ProviderFormBody } from './providerForm'
 import { Button } from '@/components/ui/Button'
 

@@ -189,7 +189,7 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
     expect(convLink?.getAttribute('href')).toBe('/conversations/proxy?conv=c-1')
   })
 
-  it('source 缺省落 self tab', () => {
+  it('source 缺省落 direct tab', () => {
     const detail = makeDetail({ task_id: 't-2', conversation_id: 'c-2' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
     expect(screen.getByText('对话').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')

@@ -6,7 +6,7 @@ import { useTheme } from '@/hooks/useTheme'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
-import { BrandMark, SidebarContent } from './Sidebar'
+import { BrandMark, Sidebar } from './Sidebar'
 
 const RAIL_STORAGE_KEY = 'liusha-sidebar-collapsed'
 
@@ -102,7 +102,7 @@ export function AppShell() {
               className="app-drawer fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-surface shadow-xl outline-none"
             >
               <Dialog.Title className="sr-only">导航</Dialog.Title>
-              <SidebarContent rail={false} onNavigate={() => setDrawerOpen(false)} />
+              <Sidebar rail={false} onNavigate={() => setDrawerOpen(false)} />
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
@@ -113,7 +113,7 @@ export function AppShell() {
             rail ? 'w-20' : 'w-64',
           )}
         >
-          <SidebarContent rail={rail} onToggleRail={isDesktop ? toggleRail : undefined} />
+          <Sidebar rail={rail} onToggleRail={isDesktop ? toggleRail : undefined} />
         </aside>
       )}
 

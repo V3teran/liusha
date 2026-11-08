@@ -292,7 +292,7 @@ func (a *Agent) executeAction(
 		defer cancel()
 	}
 
-	// 终态标记用 CAS（running → done/failed）：执行期间外部裁决（恢复监控判死、
+	// 终态标记用 CAS（running → completed/failed）：执行期间外部裁决（恢复监控判死、
 	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
 	if execErr != nil {
 		errMsg := execErr.Error()

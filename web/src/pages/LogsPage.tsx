@@ -394,5 +394,3 @@ export function LogsPage() {
     </div>
   )
 }
-
-export default LogsPage

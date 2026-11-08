@@ -72,8 +72,8 @@ func (s *Store) SetRunning(ctx context.Context, id string) error {
 	return nil
 }
 
-// SetDone 把 pending|running 推进到 done，写入 result。
-func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) error {
+// SetCompleted 把 pending|running 推进到 completed，写入 result。
+func (s *Store) SetCompleted(ctx context.Context, id string, result json.RawMessage) error {
 	if result == nil {
 		result = json.RawMessage("{}")
 	}
@@ -81,7 +81,7 @@ func (s *Store) SetDone(ctx context.Context, id string, result json.RawMessage) 
 		UPDATE agent_run SET status='completed', result=$1, updated_at=now()
 		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
 	if err != nil {
-		return fmt.Errorf("set done %s: %w", id, err)
+		return fmt.Errorf("set completed %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("agent run %s not in pending|running state", id)

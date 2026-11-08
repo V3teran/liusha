@@ -2,9 +2,10 @@ import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lu
 import { controlTask } from '@/api/tasks'
 import { JumpLink } from '@/components/JumpLink'
 import type { TaskSummary } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
+import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -80,8 +81,8 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
                 </Kv>
                 <Kv k="来源">
                   <span className="inline-flex items-center gap-1.5">
-                    <Badge dot={false} color={task.source === 'self' ? 'var(--source-self)' : 'var(--source-proxy)'}>
-                      {task.source === 'self' ? '自主' : '代理'}
+                    <Badge dot={false} color={sourceColor(task.source)}>
+                      {sourceLabel(task.source)}
                     </Badge>
                     {task.scheduled && (
                       <span className="inline-flex items-center gap-1 text-xs text-text-tertiary" title={`定时触发 · ${task.cron}`}>
@@ -184,7 +185,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
                 <div className="flex flex-wrap gap-2">
                   {task.conversation_id && (
                     <JumpLink
-                      to={`/conversations/${task.source === 'self' ? 'direct' : 'proxy'}?conv=${encodeURIComponent(task.conversation_id)}`}
+                      to={conversationPath(task.source, task.conversation_id)}
                       icon={MessageSquare}
                     >
                       对话

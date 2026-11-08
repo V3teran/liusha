@@ -94,7 +94,7 @@ func SeedAssignment(t *testing.T, pool *pgxpool.Pool) string {
 	var id string
 	err := pool.QueryRow(context.Background(),
 		`INSERT INTO assignment (source, payload, title)
-		 VALUES ('self', '[]'::jsonb, 'test') RETURNING id`).Scan(&id)
+		 VALUES ('direct', '[]'::jsonb, 'test') RETURNING id`).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed assignment: %v", err)
 	}

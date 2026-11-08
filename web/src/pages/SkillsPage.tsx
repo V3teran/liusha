@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { createSkill, updateSkill, deleteSkill, getSkillDetail, assignSkill, type SkillChanges, type SkillAgent } from '@/api/config'
 import type { Skill } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { useSkillsPagedList } from '@/features/config/useConfigQueries'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
@@ -24,7 +24,7 @@ const EMPTY_DRAFT: Skill = {
 // 取数全权交给 useSkillsPagedList（React Query：queryKey 含 page/size/q，竞态丢弃
 // 由 RQ 接管）；页面不得再自行 reload——在 effect 里盯 query 逐键 reload 会绕过
 // 防抖、挂载时双请求（历史缺陷）。保存/删除后 list.reload() 失效该资源缓存。
-export default function SkillsPage() {
+export function SkillsPage() {
   const list = useSkillsPagedList()
   const rows = list.rows
 

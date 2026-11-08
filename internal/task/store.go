@@ -130,7 +130,7 @@ const summarySelect = `
 	COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
-	CASE WHEN a.schedule_id IS NOT NULL THEN 'self' ELSE a.source END::text,
+	CASE WHEN a.schedule_id IS NOT NULL THEN 'direct' ELSE a.source END::text,
 	(a.schedule_id IS NOT NULL),
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
@@ -144,7 +144,7 @@ const summarySelect = `
 // $4 since / $5 until）。source 口径：定时克隆（schedule_id 非空）按用户模型归自主下发，
 // 代理模式侧排除它。since/until 传 NULL 表示不筛该端。
 const summaryWhere = `
-	WHERE ($1 = '' OR a.source = $1 OR ($1 = 'self' AND a.schedule_id IS NOT NULL))
+	WHERE ($1 = '' OR a.source = $1 OR ($1 = 'direct' AND a.schedule_id IS NOT NULL))
 	  AND ($2 = '' OR t.status = $2)
 	  AND ($3 = '' OR t.brief ILIKE '%' || $3 || '%' OR t.assignment_id::text ILIKE '%' || $3 || '%')
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
@@ -228,7 +228,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			 WHERE t2.assignment_id = t.assignment_id
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),
 			(SELECT count(*) FROM task t3 WHERE t3.assignment_id = t.assignment_id),
-			CASE WHEN a.schedule_id IS NOT NULL THEN 'self' ELSE a.source END::text,
+			CASE WHEN a.schedule_id IS NOT NULL THEN 'direct' ELSE a.source END::text,
 			(a.schedule_id IS NOT NULL),
 			COALESCE(cs.cron_expr, ''),
 			COALESCE(c.id::text, ''),

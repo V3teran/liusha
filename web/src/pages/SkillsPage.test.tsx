@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import SkillsPage from './SkillsPage'
+import { SkillsPage } from './SkillsPage'
 import { createSkill, updateSkill, deleteSkill, getSkillDetail, listSkillsPaged } from '@/api/config'
 import type { Skill } from '@/api/types'
 

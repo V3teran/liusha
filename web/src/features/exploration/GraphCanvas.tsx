@@ -17,7 +17,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './exploration.css'
-import { ExplorationNodeCard } from './nodes/ExplorationNode'
+import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
 import { EDGE_COLORS, type ExplorationFlowNode } from './layout'
 

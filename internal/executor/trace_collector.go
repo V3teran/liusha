@@ -55,7 +55,7 @@ func (tc *TraceCollector) CollectTrace(ctx context.Context, taskID, actionID str
 		return ExecutionTrace{
 			Traffic: []TrafficRecord{},
 			Session: SessionState{Cookies: make(map[string]string)},
-			Meta:    TraceMeta{TotalCount: 0},
+			Meta:    TraceMeta{RequestCount: 0},
 		}, nil
 	}
 
@@ -98,8 +98,8 @@ func (tc *TraceCollector) CollectTrace(ctx context.Context, taskID, actionID str
 
 	tc.logger.Info().
 		Str("action_id", actionID).
-		Int("traffic_count", trace.Meta.TotalCount).
-		Dur("duration", trace.Meta.Duration).
+		Int("traffic_count", trace.Meta.RequestCount).
+		Int64("duration_ms", trace.Meta.DurationMs).
 		Msg("trace 构建完成（包含整个 task 的 traffic）")
 
 	return trace, nil

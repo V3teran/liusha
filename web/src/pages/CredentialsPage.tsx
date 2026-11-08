@@ -56,7 +56,7 @@ function newRowValid(n: NewRow): boolean {
   )
 }
 
-export default function CredentialsPage() {
+export function CredentialsPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(20)

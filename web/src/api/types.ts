@@ -78,7 +78,7 @@ export interface Conversation {
   run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
   run_paused?: boolean // active 的暂停子态——侧栏呼吸点据此停闪（暂停不在烧 token）
   finding_count?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
-  source?: string // 派生的下发来源（self 自主下发 / proxy 代理模式；纯聊天归 self）——双 tab 分流
+  source?: string // 派生的下发来源（direct 自主下发 / proxy 代理模式；纯聊天归 direct）——双 tab 分流
   created_at: string
   updated_at: string
 }
@@ -310,7 +310,7 @@ export interface FindingRow {
   // repro 是机器可验的复现配方 jsonb（{domain, recipe:{request,baseline?},
   // assert}）——复现步骤区的数据源。
   repro?: Record<string, unknown>
-  source: string // self 自主下发 / proxy 代理模式（JOIN assignment 派生）
+  source: string // direct 自主下发 / proxy 代理模式（JOIN assignment 派生）
   task_id?: string // 产出本漏洞的任务（详情跳转用）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
@@ -542,7 +542,7 @@ export interface ProxyFilterSettings {
 
 // TaskSummary 是任务列表/详情行：task 本体 + 派生列。
 //   - assignment_index/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
-//   - source：self 自主 / proxy 代理模式——定时克隆（scheduled=true）按业务口径归自主
+//   - source：direct 自主 / proxy 代理模式——定时克隆（scheduled=true）按业务口径归自主
 //   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
 //   - step_count：探索图 action 节点数 = 认知循环已执行步数
 //   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）

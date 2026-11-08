@@ -24,7 +24,7 @@ const colsSelect = "id, source, payload, title, description, schedule_id, create
 // 调用方随后据返回的 assignment.ID 展开子 task（task.assignment_id 强外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 	switch p.Source {
-	case SourceSelf, SourceProxy:
+	case SourceDirect, SourceProxy:
 	default:
 		return Assignment{}, fmt.Errorf("create assignment: 非法 source %q", p.Source)
 	}
@@ -63,7 +63,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 // 规则（见 spec §3.2 "整体状态由子 task 聚合派生"）：
 //   - 无子 task            → empty
 //   - 任一子 task status='active' → running
-//   - 全部终态、含 completed     → done
+//   - 全部终态、含 completed     → completed
 //   - 全部终态、无 completed     → aborted
 func (s *Store) DeriveStatus(ctx context.Context, assignmentID string) (Status, error) {
 	var total, active, completed int

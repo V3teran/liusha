@@ -30,7 +30,7 @@ describe('会话域 API', () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'self', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'direct', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })

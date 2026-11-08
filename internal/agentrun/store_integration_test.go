@@ -29,7 +29,7 @@ func setup(t *testing.T) (*Store, string) {
 	return NewStore(pool), tk.ID
 }
 
-// TestStore_CreateThenComplete 验证：pending → running → done 完整生命周期。
+// TestStore_CreateThenComplete 验证：pending → running → completed 完整生命周期。
 func TestStore_CreateThenComplete(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
@@ -58,7 +58,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 		t.Fatalf("set running: %v", err)
 	}
 	res, _ := json.Marshal(map[string]any{"terminate_by": "done", "total_steps": 7})
-	if err := s.SetDone(ctx, id, res); err != nil {
+	if err := s.SetCompleted(ctx, id, res); err != nil {
 		t.Fatalf("set done: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetDone(ctx, id, json.RawMessage(`{"ok":true}`)); err != nil {
+	if err := s.SetCompleted(ctx, id, json.RawMessage(`{"ok":true}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunning(ctx, id); err == nil {

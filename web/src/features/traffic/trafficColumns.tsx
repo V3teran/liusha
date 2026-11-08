@@ -1,6 +1,6 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import type { TrafficSummary } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { clockTime, dateOnly, fullTime, humanBytes } from '@/lib/format'

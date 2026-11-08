@@ -186,24 +186,24 @@ func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionGate {
 
 // WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把裁决官
 // 的原始指纹归一成规范键；不注入则同指纹主张不做折叠。
-func (v *PromotionGate) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionGate {
-	v.codec = codec
-	return v
+func (g *PromotionGate) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionGate {
+	g.codec = codec
+	return g
 }
 
 // WithJudge 注入 LLM 裁决器（链式）。裁决语义：机器重放只采集证据，LLM 终裁
 // 坐实/证伪——机器不持判定权，LLM 失败不回退机器断言（否则断言命中即坐实
 // 会放过"命中即常态输出"的假阳性）；本次未裁决，错误带
 // ErrAdjudicationUnavailable 交由调用方重试/止损分流。
-func (v *PromotionGate) WithJudge(j LLMJudge) *PromotionGate {
-	v.judge = j
-	return v
+func (g *PromotionGate) WithJudge(j LLMJudge) *PromotionGate {
+	g.judge = j
+	return g
 }
 
 // WithLogger 注入可选日志器：finding 写入失败等非致命错误经此告警。
-func (v *PromotionGate) WithLogger(l zerolog.Logger) *PromotionGate {
-	v.logger = &l
-	return v
+func (g *PromotionGate) WithLogger(l zerolog.Logger) *PromotionGate {
+	g.logger = &l
+	return g
 }
 
 // replayRecord 是裁决链上一次机器重放的审计记录（预跑 + 裁决官自主复放都落）。
@@ -222,22 +222,22 @@ type replayRecord struct {
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
 // 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
-func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
+func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
 	// 1. 验证输入
-	if err := v.validateAttempt(a); err != nil {
+	if err := g.validateAttempt(a); err != nil {
 		return nil, err
 	}
 
 	// 2. 创建重放闭包
 	var replays []replayRecord
-	replay := v.createReplayFunction(a, &replays)
+	replay := g.createReplayFunction(a, &replays)
 
 	// 3. 预跑阶段
-	res, err := v.executePrerun(ctx, replay)
+	res, err := g.executePrerun(ctx, replay)
 	if err != nil {
 		// 质量拒绝（断言无鉴别力）是对假设的证伪裁决：留审计链，不走重试
 		if errors.Is(err, ErrAssertNotDiscriminative) {
-			return v.refuteByQualityGate(ctx, a, err)
+			return g.refuteByQualityGate(ctx, a, err)
 		}
 		return nil, err
 	}
@@ -247,12 +247,12 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	tier := verificationTier(a.Primitives)
 
 	// 5. 机器护栏检查
-	if node, shouldContinue, err := v.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
+	if node, shouldContinue, err := g.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
 		return node, err
 	}
 
 	// 6. LLM 裁决
-	verdict, err := v.executeLLMJudge(ctx, a, hyp, res, replay)
+	verdict, err := g.executeLLMJudge(ctx, a, hyp, res, replay)
 	if err != nil {
 		return nil, err
 	}
@@ -263,14 +263,14 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	// 8. 坐实先查语义去重：同一主张（同指纹规范键）的再次确认折叠为既有
 	// 发现的佐证。指纹形状与归一归域适配层；无归一器或形状损坏则不折叠。
 	fingerprintKey := ""
-	if v.codec != nil && verdict.Verdict == VerdictConfirmed && len(verdict.Fingerprint) > 0 {
-		if key, ok := v.codec.CanonicalKey(verdict.Fingerprint); ok {
+	if g.codec != nil && verdict.Verdict == VerdictConfirmed && len(verdict.Fingerprint) > 0 {
+		if key, ok := g.codec.CanonicalKey(verdict.Fingerprint); ok {
 			fingerprintKey = key
 		}
 	}
 	var duplicate *explorationgraph.Node
 	if fingerprintKey != "" {
-		duplicate, err = v.findConfirmedDuplicate(ctx, a.TaskID, fingerprintKey)
+		duplicate, err = g.findConfirmedDuplicate(ctx, a.TaskID, fingerprintKey)
 		if err != nil {
 			return nil, err
 		}
@@ -284,7 +284,7 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	if verdict.Verdict == VerdictConfirmed {
 		outcome = explorationgraph.OutcomeConfirmed
 	}
-	verID, err := v.recordVerification(ctx, a, outcome, evaluation, final.DurationMs)
+	verID, err := g.recordVerification(ctx, a, outcome, evaluation, final.DurationMs)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +300,7 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	case duplicate != nil:
 		mark.duplicateOf = duplicate.ID
 	}
-	v.markHypothesisNode(ctx, a, mark)
+	g.markHypothesisNode(ctx, a, mark)
 
 	// 11. 证伪：不进图
 	if verdict.Verdict == VerdictRefuted {
@@ -310,8 +310,8 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	// 12. 语义重复：既有发现即归属——不新建节点、不重写 finding，
 	// 返回既有节点让上游事件指向它（新证据已在审计链 replays 里）。
 	if duplicate != nil {
-		if v.logger != nil {
-			v.logger.Info().
+		if g.logger != nil {
+			g.logger.Info().
 				Str("node_id", a.NodeID).
 				Str("duplicate_of", duplicate.ID).
 				Str("fingerprint", fingerprintKey).
@@ -322,20 +322,20 @@ func (v *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 
 	// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
 	nodeID := uuid.New().String()
-	node, err := v.createVerifiedNode(ctx, a, nodeID, verID, fingerprintKey)
+	node, err := g.createVerifiedNode(ctx, a, nodeID, verID, fingerprintKey)
 	if err != nil {
 		return nil, err
 	}
 
 	// 14. 交付：坐实主张交给域适配管道（安全域落 finding，他域各有交付物）
-	v.deliverClaim(ctx, a, *node, verID, final, tier)
+	g.deliverClaim(ctx, a, *node, verID, final, tier)
 
 	return node, nil
 }
 
 // deliverClaim 把坐实主张交给交付管道。交付失败不回滚晋升（图状态是
 // 事实源），只告警——与既有的非致命错误口径一致。
-func (v *PromotionGate) deliverClaim(
+func (g *PromotionGate) deliverClaim(
 	ctx context.Context,
 	a Attempt,
 	node explorationgraph.Node,
@@ -343,7 +343,7 @@ func (v *PromotionGate) deliverClaim(
 	res Result,
 	tier string,
 ) {
-	if v.sink == nil || node.Kind != core.KindResult {
+	if g.sink == nil || node.Kind != core.KindResult {
 		return
 	}
 
@@ -356,13 +356,13 @@ func (v *PromotionGate) deliverClaim(
 		Target     json.RawMessage `json:"target"`
 	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
-		if v.logger != nil {
-			v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("交付载荷解析失败（节点已晋升，不影响图状态）")
+		if g.logger != nil {
+			g.logger.Warn().Err(err).Str("node_id", node.ID).Msg("交付载荷解析失败（节点已晋升，不影响图状态）")
 		}
 		return
 	}
 
-	err := v.sink.Record(ctx, ConfirmedClaim{
+	err := g.sink.Record(ctx, ConfirmedClaim{
 		TaskID:         node.TaskID,
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
@@ -377,16 +377,16 @@ func (v *PromotionGate) deliverClaim(
 		Tier:           tier,
 		DurationMs:     res.DurationMs,
 	})
-	if err != nil && v.logger != nil {
-		v.logger.Warn().Err(err).Str("node_id", node.ID).Msg("坐实主张交付失败（节点已晋升，不影响图状态）")
+	if err != nil && g.logger != nil {
+		g.logger.Warn().Err(err).Str("node_id", node.ID).Msg("坐实主张交付失败（节点已晋升，不影响图状态）")
 	}
 }
 
 // findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。
 // 对照键是域归一后的指纹规范键；未带指纹的历史 result 不参与对照
 // （缺失指纹的发现保持原样，不影响其地位）。
-func (v *PromotionGate) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
-	results, err := v.graph.ListResults(ctx, taskID)
+func (g *PromotionGate) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
+	results, err := g.graph.ListResults(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 语义去重查询既有 result 失败: %w", err)
 	}
@@ -439,7 +439,7 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 // （带 quality_gate 标记与拒绝理由）、假设节点 confidence 流转为 refuted。
 // 语义区别于 invalid_recipe（门故障止损）：这是裁决结论——配方证明了
 // 命中不构成漏洞证据。
-func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
+func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
 		"quality_gate":      true,
 		"refute_reason":     RefuteAssertNotDiscriminative,
@@ -448,7 +448,7 @@ func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 		"phase":             "prerun",
 	})
 
-	_, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+	_, err := g.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
@@ -461,13 +461,13 @@ func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 		return nil, fmt.Errorf("verifier: 质量拒绝留档失败: %w", err)
 	}
 
-	v.markHypothesisNode(ctx, a, hypothesisMark{
+	g.markHypothesisNode(ctx, a, hypothesisMark{
 		outcome:      explorationgraph.OutcomeRefuted,
 		confirmed:    false,
 		refuteReason: RefuteAssertNotDiscriminative,
 	})
-	if v.logger != nil {
-		v.logger.Info().
+	if g.logger != nil {
+		g.logger.Info().
 			Str("node_id", a.NodeID).
 			Str("reason", cause.Error()).
 			Msg("质量门证伪（断言无鉴别力）")
@@ -477,7 +477,7 @@ func (v *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 
 // refuteEarly 断言未命中时的机器证伪路径：落 verification 审计（不打扰 judge）、
 // 给假设节点打 refuted 标记、发布 refuted 事件语义（node=nil）。
-func (v *PromotionGate) refuteEarly(
+func (g *PromotionGate) refuteEarly(
 	ctx context.Context,
 	a Attempt, hyp string, res Result, replays []replayRecord,
 ) (*explorationgraph.Node, error) {
@@ -486,7 +486,7 @@ func (v *PromotionGate) refuteEarly(
 	tier := verificationTier(a.Primitives)
 	evaluation := withReplayLog(res.Evaluation, tier, verdict, reasoning, replays)
 
-	_, err := v.graph.RecordVerification(ctx, explorationgraph.Verification{
+	_, err := g.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
@@ -508,8 +508,8 @@ func (v *PromotionGate) refuteEarly(
 			"confidence":           explorationgraph.ConfidenceRefuted,
 			"refuted_by":           "machine_guard",
 		})
-		if uErr := v.graph.UpdateNodeMetadata(ctx, a.NodeID, mark); uErr != nil && v.logger != nil {
-			v.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点 refuted 标记写入失败")
+		if uErr := g.graph.UpdateNodeMetadata(ctx, a.NodeID, mark); uErr != nil && g.logger != nil {
+			g.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点 refuted 标记写入失败")
 		}
 	}
 	return nil, nil
