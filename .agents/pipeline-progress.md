@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | 1 | structure-overhaul | done | df39ddfc | 删 2 死文件 + 13 条失效 ignore；settingstore/toolstore 出 config/ 平级；10 个单领域 lib 模块归入 features；验证门（CI 口径）全绿。报告：`.agents/reports/1-structure-overhaul.md` |
 | 2 | ui-ux-overhaul | done | 14ed31d2 | 设计体系收口：Token 对比度校准 + 语义色双事实源合一 + 分类色；FilterBar/Button/Select/DateTimeRange 统一 10 个列表页；响应式外壳 + 分组导航；修复聚焦辉光从未生效、漏洞来源筛选恒空、审计页控件遮挡、任务表截断。588 单测 + 102 张截图回归 + 11 项交互实测通过。报告：`.agents/reports/2-ui-ux-overhaul.md` |
-| 3 | legacy-purge | pending | | |
+| 3 | legacy-purge | done | 6c4d03e3 | passive/active 来源旧名全量收口 self/proxy（8 个标识符改名 + 落库文案 + LLM 工具描述 + SKILL.md）；清除退役角色/insight/flows/scanAdapter/mitmproxy 残留；ingest 路由更名；迁移 0197 修 schema 注释；修复集成测试编译失败与 e2e.sh 空参失效；术语门禁 +9 词。7 轮收敛（40→0→9→6→7→6→0），验证门全绿，集成测试 55/56 包（dispatch 基线缺陷）。报告：`.agents/reports/3-legacy-purge.md` |
 | 4 | naming-overhaul | pending | | |
 | 5 | quality-governance | pending | | |
 | 6 | e2e-verification | pending | | |
@@ -37,3 +37,7 @@
 | 2 | `WorkspacePage` 分包 688KB（CodeMirror 语言包全量打入），触发 Vite 500KB 警告（基线即有） | quality-governance |
 | 2 | 代理模式对话/代理流量本地无数据，仅验证了空态 | e2e-verification |
 | 2 | 探索图 React Flow 署名水印压在小地图边缘（库默认，保留署名） | 存疑 |
+| 3 | `executor/replayer.go` `body_absent` 别名兜 10-31 前落库的存量配方；彻底方案为数据迁移改写存量键后删别名，涉及生产数据不可逆改写 | 用户决策 |
+| 3 | `internal/dispatch` 集成测试搭建未注入 conversation store，nil panic（基线即有；panic 中断后续 HostItem 用例） | quality-governance |
+| 3 | `dispatch.Service` 方法接收者名 `a`（adapter 遗名） | naming-overhaul |
+| 3 | 升级注意：ingest 路由更名后旧 sandbox 容器任务结束前抓流 404；SKILL.md 改动需 `make reseed`；`make e2e-active` → `make e2e-xss` | 发布说明 |
