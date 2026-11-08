@@ -39,7 +39,7 @@ func (noOpSandbox) Exec(_ context.Context, _ sandbox.ExecRequest) (sandbox.ExecR
 func (noOpSandbox) Close() error { return nil }
 
 // TestFunctionToolCatalogSync 防漂移：registry.FunctionToolCatalog（前端工具目录
-// 事实源，经 config/tool.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。
+// 事实源，经 toolstore.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。
 // evaluator 包本地注册的 replay_for_verification 以白名单追加比对。
 func TestFunctionToolCatalogSync(t *testing.T) {
 	// 一个最小 skill 视图，让 read_skill 进入注册集（空视图不注册）。

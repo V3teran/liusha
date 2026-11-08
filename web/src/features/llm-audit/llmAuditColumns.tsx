@@ -4,8 +4,8 @@ import { Badge } from '@/components/ui/badge'
 import { TokenPair } from '@/components/TokenPair'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { clockTime, dateOnly, fullTime, humanDuration } from '@/lib/format'
-import { invocationStatus } from '@/lib/llmInvocationStatus'
-import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from '@/lib/llmTiming'
+import { invocationStatus } from './llmInvocationStatus'
+import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from './llmTiming'
 
 const columnHelper = createColumnHelper<LLMInvocationSummary>()
 

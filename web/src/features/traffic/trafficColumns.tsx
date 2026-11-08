@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { clockTime, dateOnly, fullTime, humanBytes } from '@/lib/format'
-import { methodColor, statusColor } from '@/lib/httpStatus'
+import { methodColor, statusColor } from './httpStatus'
 
 const columnHelper = createColumnHelper<TrafficSummary>()
 

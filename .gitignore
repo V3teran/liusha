@@ -36,22 +36,16 @@ coverage.html
 # cmd/* 二进制在仓库根目录的游离副本（`go build ./cmd/<x>` 默认输出于此）
 /api
 /cmd/api/api
-/agent-worker
+/corpus-import
 /e2e
 /proxy
+/reseed
 /runner
+/sandbox-server
 
 # 本地调试产物（截图、playwright MCP 转储）
 /llm-view-*.png
 /.playwright-mcp/
-
-# 第三方参考资料（设计已提炼到本地 docs/hks2.md / spec / plan，原始资料不入 git）
-/docs/Tsec-Hackathon-main/
-/docs/hks2.md
-/docs/无径之径*
-
-# session runtime store（result_compress middleware 落盘目录）
-/session-store/
 
 # Runtime logs / pids（host 进程 + proxify 流量 dump，每次 dev 启动覆盖）
 /logs/
@@ -69,19 +63,10 @@ deployments/tool-images/sandbox/liusha-ca.crt
 __pycache__/
 *.pyc
 
-# 本地运行日志（go run 的 stdout/stderr 重定向产物）
-/asynq.log
-/runner.log
-/e2e-test.log
-
 # 历史备份/一次性产物不入库
 *.bak
 *.backup
 *.old
-
-# go build 游离二进制（补充）
-/liusha-runner
-/corpus-import
 
 # ZCode 会话工作目录
 /.zcode/

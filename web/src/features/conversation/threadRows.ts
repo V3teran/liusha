@@ -1,4 +1,4 @@
-import type { Message } from '../api/types'
+import type { Message } from '@/api/types'
 import { classifyMessage, isCollapsibleTool } from './messageKind'
 
 // threadRows：把有序消息流分组成可渲染的「行」——TimelineThread（活动时间轴）消费这份分组，

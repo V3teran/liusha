@@ -7,10 +7,10 @@ import { CopySection } from '@/components/CopySection'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cacheRatePct, fullTime, humanDuration, humanTokens } from '@/lib/format'
-import { contentToText, extractReasoning, msgColor, pickField, toMsgView } from '@/lib/llmMessage'
-import { invocationStatus } from '@/lib/llmInvocationStatus'
-import { isTimeout, throughputLabel } from '@/lib/llmTiming'
-import { toToolCalls } from '@/lib/toolCalls'
+import { contentToText, extractReasoning, msgColor, pickField, toMsgView } from './llmMessage'
+import { invocationStatus } from './llmInvocationStatus'
+import { isTimeout, throughputLabel } from './llmTiming'
+import { toToolCalls } from './toolCalls'
 import { ToolCallCard } from './ToolCallCard'
 
 interface LlmInvocationDrawerProps {
@@ -24,7 +24,7 @@ interface LlmInvocationDrawerProps {
 
 // LLM 调用详情抽屉：点审计表某行 → 右侧滑出，展示元信息 KV + 输入消息 + 返回结果原文。
 // messages 是 OpenAI 风格消息数组，按条渲染（role 标签 + 正文）；结构不符时退化为 JSON 展示。
-// 解析逻辑（contentToText/toMsgView/reasoning 提取）已抽到 lib/llmMessage.ts 独立测试；
+// 解析逻辑（contentToText/toMsgView/reasoning 提取）已抽到同目录 llmMessage.ts 独立测试；
 // 复制状态机抽到 useCopyToClipboard；重复的「标题+复制按钮+内容」结构抽到 CopySection。
 export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs, onOpenChange }: LlmInvocationDrawerProps) {
   const { copiedKey, copy } = useCopyToClipboard()

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/settingstore"
+	"github.com/V3teran/liusha/internal/settingstore"
 )
 
 // system.go：把系统业务旋钮（compaction 会话压缩 / runtime 工具运行时 / proxy_filter

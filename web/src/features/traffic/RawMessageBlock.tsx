@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { canPretty, contentTypeFromRaw, prettyRaw } from '@/lib/rawMessage'
+import { canPretty, contentTypeFromRaw, prettyRaw } from './rawMessage'
 
 interface RawMessageBlockProps {
   title: string // 「请求」/「响应」

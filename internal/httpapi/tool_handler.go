@@ -13,14 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	agent "github.com/V3teran/liusha/internal/agent"
-	cfgtool "github.com/V3teran/liusha/internal/config/tool"
+	"github.com/V3teran/liusha/internal/toolstore"
 )
 
-// ToolCatalogAPI 是工具目录 handler 依赖的窄接口；*cfgtool.Store 自动满足。
+// ToolCatalogAPI 是工具目录 handler 依赖的窄接口；*toolstore.Store 自动满足。
 type ToolCatalogAPI interface {
-	List(ctx context.Context, p cfgtool.ListParams) ([]cfgtool.Definition, error)
-	Count(ctx context.Context, p cfgtool.ListParams) (int, error)
-	Get(ctx context.Context, name string) (cfgtool.Definition, error)
+	List(ctx context.Context, p toolstore.ListParams) ([]toolstore.Definition, error)
+	Count(ctx context.Context, p toolstore.ListParams) (int, error)
+	Get(ctx context.Context, name string) (toolstore.Definition, error)
 }
 
 // defaultToolPageSize / maxToolPageSize 约束分页 size，防超大扫描。
@@ -34,12 +34,12 @@ const (
 // 绝不能被默认 size 截断）；page 存在才分页，从 1 起，非法回退默认页。
 func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		kind := cfgtool.Kind(c.Query("kind"))
-		if kind != "" && kind != cfgtool.KindFunction && kind != cfgtool.KindCLI {
+		kind := toolstore.Kind(c.Query("kind"))
+		if kind != "" && kind != toolstore.KindFunction && kind != toolstore.KindCLI {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 kind（应为 function|cli 或留空）"})
 			return
 		}
-		params := cfgtool.ListParams{Q: c.Query("q"), Kind: kind}
+		params := toolstore.ListParams{Q: c.Query("q"), Kind: kind}
 		// page 显式传入才分页；缺省时 Limit 留 0 → store 返回全量（供选择器）。
 		if raw := c.Query("page"); raw != "" {
 			page, size := parsePagination(raw, c.Query("size"), defaultToolPageSize, maxToolPageSize)
@@ -68,9 +68,9 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 // toolArrayContains 判断某智能体是否已装配该工具：按工具 kind 选 function_tools / cli_tools 数组。
 // 是装配态判据的单一实现，读（involved）与写（增删）共用，避免两处逻辑漂移。
 // 数组含 "*"（全量哨兵，与运行时 BuildTools/registry.Allows 同语义）= 该 kind 全部装配。
-func toolArrayContains(h agent.Profile, kind cfgtool.Kind, name string) bool {
+func toolArrayContains(h agent.Profile, kind toolstore.Kind, name string) bool {
 	arr := h.FunctionTools
-	if kind == cfgtool.KindCLI {
+	if kind == toolstore.KindCLI {
 		arr = h.CliTools
 	}
 	for _, n := range arr {
@@ -132,7 +132,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 			return
 		}
 		// 该 kind 的目录全集：数组为 ["*"]（全量）时卸载单个工具需展开为「全量减一」。
-		catalog, err := tools.List(ctx, cfgtool.ListParams{Kind: t.Kind})
+		catalog, err := tools.List(ctx, toolstore.ListParams{Kind: t.Kind})
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -159,7 +159,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 // 按工具 kind 只动对应数组。显式白名单：involved=true 缺则追加、false 有则剔除，幂等。
 // 全量哨兵 "*"：装配任何工具都已是覆盖态（幂等 no-op，保留 "*"）；卸载则把 "*" 物化为
 // 「该 kind 目录全集减一」的显式白名单——语义等于"除了它全都要"。catalog 是该 kind 全集。
-func applyAssignment(h agent.Profile, kind cfgtool.Kind, name string, involved bool, catalog []cfgtool.Definition) (fn, cli []string) {
+func applyAssignment(h agent.Profile, kind toolstore.Kind, name string, involved bool, catalog []toolstore.Definition) (fn, cli []string) {
 	apply := func(arr []string) []string {
 		if containsWildcard(arr) {
 			if involved {
@@ -176,7 +176,7 @@ func applyAssignment(h agent.Profile, kind cfgtool.Kind, name string, involved b
 		return toggleName(arr, name, involved)
 	}
 	fn, cli = h.FunctionTools, h.CliTools
-	if kind == cfgtool.KindCLI {
+	if kind == toolstore.KindCLI {
 		cli = apply(cli)
 	} else {
 		fn = apply(fn)
@@ -215,7 +215,7 @@ func toggleName(arr []string, name string, want bool) []string {
 }
 
 // toolJSON 是 tool 响应的单一序列化点（防字段漂移）。
-func toolJSON(t cfgtool.Definition) gin.H {
+func toolJSON(t toolstore.Definition) gin.H {
 	return gin.H{
 		"name": t.Name, "kind": string(t.Kind), "category": t.Category,
 		"description": t.Description,

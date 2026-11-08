@@ -25,24 +25,22 @@ deployments/tool-images/sandbox/liusha-ca.crt
 logs
 *.log
 *.stderr
-session-store
 
 # 前端依赖与构建产物（容器内自装，宿主的是 darwin/arm64 二进制）
 node_modules
 web/node_modules
 web/dist
 
-# 本机构建产物
+# 本机构建产物（cmd/* 在仓库根的游离二进制 + go test -c 产物）
 bin
 api
-proxy
-runner
-e2e
-agent-worker
-liusha-runner
 corpus-import
-core.test
-executor.test
+e2e
+proxy
+reseed
+runner
+sandbox-server
+*.test
 coverage.out
 coverage.html
 

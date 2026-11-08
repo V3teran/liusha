@@ -1,4 +1,4 @@
-package tool
+package toolstore
 
 import (
 	"context"
