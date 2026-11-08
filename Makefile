@@ -1,4 +1,4 @@
-.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down publish single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-active e2e-full
+.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down publish single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
 
 COMPOSE = docker compose -f compose.yaml
 PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile full
@@ -162,14 +162,14 @@ fmt:
 tidy:
 	go mod tidy
 
-# e2e 触发器（passive profile 已随认知循环重构移除，cmd/e2e 仅支持 active:<name>）：
-#   make e2e-active       # active:xss（自然语言 brief 喂 agent LLM）
-#   make e2e-full         # active:full（全类型漏洞挖掘，验收 1 目标/10 动作/5 结果）
-#   ./scripts/dev/e2e.sh active:full   # 全套（清库→重启→触发→轮询）
-e2e: e2e-active
+# e2e 触发器（剧本见 cmd/e2e/profiles.go；需 dev 栈已起）：
+#   make e2e-xss          # XSS 专项（自然语言 brief 喂 agent LLM）
+#   make e2e-full         # 综合扫描（全类型漏洞挖掘，验收 1 目标/10 动作/3 结果）
+#   ./scripts/dev/e2e.sh full   # 全套（清库→重启→触发→轮询）
+e2e: e2e-xss
 
-e2e-active:
-	go run ./cmd/e2e active:xss
+e2e-xss:
+	go run ./cmd/e2e xss
 
 e2e-full:
-	go run ./cmd/e2e active:full
+	go run ./cmd/e2e full

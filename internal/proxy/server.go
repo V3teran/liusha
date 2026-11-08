@@ -66,8 +66,8 @@ type Server struct {
 }
 
 // ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
-// Source 必填——双 listener 部署时按 listener 区分 'external'（passive 入口）/
-// 'internal'（agent 工具入口）；ingestor 据此决定是否触发 passive 分析。
+// Source 必填——双 listener 部署时按 listener 区分 'external'（代理模式入口）/
+// 'internal'（agent 工具入口）；ingestor 据此决定是否触发代理模式分析。
 type ServerDeps struct {
 	Filter     *filter.TrafficFilter
 	Publisher  SnapshotPublisher
@@ -197,7 +197,7 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// onResponse 仅处理 external (passive) 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
+	// onResponse 仅处理 external（代理模式） 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
 	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
 	snap := buildSnapshot(req, resp, reqBody, respBody)
 	snap.Source = s.source

@@ -36,7 +36,7 @@ type DispatchedTask struct {
 	ConversationID string `json:"conversation_id"`
 }
 
-// TaskDispatchAPI 是「新建任务」的下发窄接口（cmd/api scanAdapter 实现）。
+// TaskDispatchAPI 是「新建任务」的下发窄接口（*dispatch.Service 实现）。
 type TaskDispatchAPI interface {
 	// DispatchBatch 立即下发：1 assignment(self, N items) → N task → N conversation。
 	DispatchBatch(ctx context.Context, title, description string, briefs []string) (assignmentID string, items []DispatchedTask, err error)

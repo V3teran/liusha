@@ -1,5 +1,7 @@
 # ============================================================================
-# Liusha 主配置（所有可调参数统一到本文件，避免散落代码 const）
+# Liusha 主配置：进程启动期参数（改后需重启进程）
+#   - 运行期可热改的旋钮（工具超时、输出尾部保留、上下文压缩占比、代理过滤规则等）
+#     存于 DB system_setting，经前端「系统配置」页修改，不在本文件
 #   - 仅放非敏感、可入库的开关与默认值
 #   - 所有 *_API_KEY 走 env，本文件不出现密钥
 #   - env 用 LIUSHA_ 前缀，支持二级覆盖
@@ -137,7 +139,6 @@ proxy:
     - .woff2
   exclude_content_types: []     # Content-Type 黑名单（支持 image/* 通配；大小写不敏感）
   exclude_status_codes:         # 状态码黑名单：原始流量为 4xx/5xx 表示业务异常，扫描无意义
-    # 注：v0024 重构后 agent 直接由 sandbox 工具（sqlmap/curl/nuclei…）直接打目标，不再走 internal/replay 重放
     - 400      # Bad Request
     - 401      # Unauthorized
     - 403      # Forbidden
@@ -159,7 +160,7 @@ proxy:
   max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
   max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
 
-  # cmd/proxy 进程入口（纯 MITM passive 入口，存活检测探 TCP 8588，无独立 healthz HTTP）
+  # cmd/proxy 进程入口（纯 MITM 代理模式入口，存活检测探 TCP 8588，无独立 healthz HTTP）
   listen_addr: 0.0.0.0:8588         # 容器内监听（宿主映射 38588，见 compose）
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
 
@@ -167,7 +168,7 @@ proxy:
   stream_name: flow_events          # XADD 目标 stream
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
-  # 容器内抓流量 → cmd/runner 的 /internal/v1/flows/ingest endpoint Bearer token。
+  # 容器内抓流量 → cmd/runner 的 /internal/v1/traffic/ingest endpoint Bearer token。
   # 空 = 不强制验证（开发模式，仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
   # 生产用 ENV LIUSHA_INGEST_TOKEN 注入，cmd/runner + sandbox 共享同一值（launcher 透传到 sandbox env）。
   ingest_token: ""
@@ -181,15 +182,9 @@ ingestor:
   retry_delay_ms: 500               # XREADGROUP 失败重试延迟
   recreate_group_delay_ms: 500      # NOGROUP 自愈重建后等待 ms
 
-# （原 prompt_limits 段已删：findings 注入 prompt 的特性被按需工具检索取代，字段无运行期消费者。
-#  findings 知识现经 corpus/insight 检索工具按需获取。）
-
 # ---- credential.RedisProvider redis 前缀 ----
 credential:
   redis_key_prefix: "credentials:"  # HSET <prefix><host> ...
-
-# （原 skills 段已删：skills.root 无运行期读取者——SKILL.md 种子目录由
-#  LIUSHA_SEED_DIR 决定（seed.Import 扫 <dir>/skills），本键自始未被消费。）
 
 # ---- cmd/runner 进程运行时参数 ----
 runner:
@@ -205,33 +200,23 @@ runner:
                                            # 0 = 不限——与上方墙钟同理，收敛交给完成检测器；正数启用护栏。
   step_llm_timeout_seconds: 300            # 单步 LLM Generate 看门狗（5 分钟）
   asynq_concurrency: 6                     # asynq 消费者并发数（同时跑的主 ReAct 数）
-                                           # 容器内按 taskID 分 work/out/profile）。空 = ~/data/liusha/workspace；
-                                           # 容器化 runner 必须显式配宿主绝对路径
   asynq_shutdown_timeout_seconds: 30       # asynq.Shutdown 等 in-flight 主 ReAct 落地超时（超时后 asynq 强制中断）
   shutdown_timeout_seconds: 5              # graceful shutdown 超时（healthz/db pool 等）
   healthz_addr: ":8590"                    # 容器内监听（宿主映射 38590；沙盒回连端口经 LIUSHA_INGEST_PUBLIC_PORT 声明）
   queue_agent_weight: 5                   # asynq 队列优先级权重（数字越大越优先）
-  # （原 per_host_concurrency 已删：同 host 并发限制整体移除，任务并发只受 asynq_concurrency 约束。）
 
-# （原 compaction/history_compact 段已删：token 比例触发 + light LLM 蒸馏的机制未落地，
-# 真实生效的是 ReAct 滚动窗口按消息条数截留——旋钮收归 DB system_setting compaction 组，
-# 前端「系统配置」页可热改，本文件不再承担该配置。）
-
-# ---- 容器化执行参数（sandbox.Launcher + external.RunCommand）----
-# 容器内存/CPU/并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
-# （per-agent-run 容器模型下这些参数没有按 session 调整的需求）。
-# 见 docs/superpowers/specs/2026-05-16-sandbox-server-design.md
+# ---- 容器化执行参数（sandbox.DockerLauncher + run_command 工具）----
+# 容器内存/CPU/并发数等由 sandbox.DockerLauncher 内部固定（per-agent-run 容器模型下无按任务调整的需求）。
 sandbox:
-  default_image: ghcr.io/v3teran/liusha-sandbox:latest
+  default_image: ghcr.io/v3teran/liusha-sandbox:latest  # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-sandbox` 同名 tag，docker run 直接命中本地不拉远端。
   listener_ports: "21000-21999"    # 对外监听段（1:1 宿主映射）：反弹 shell/代理/payload 托管绑段内端口即 宿主IP:同号 可达；改段后重启自动重建暖池容器；空 = 不发布。段须避开业务端口与临时端口段。
-  callback_host: ""                 # 目标回连地址（payload 里写它）。空 = 自动探测默认路由源地址；公网/NAT/多网卡场景填宿主公网 IP 或域名。    # 沙箱镜像（CI 构建推 GHCR；含 sandbox-server PID 1 + browser-use + Kali 全量工具）。本地 `make build-sandbox` 同名 tag，docker run 直接命中本地不拉远端。
+  callback_host: ""                 # 目标回连地址（payload 里写它）。空 = 自动探测默认路由源地址；公网/NAT/多网卡场景填宿主公网 IP 或域名。
   # 键必须存在（值可空）：viper AutomaticEnv 只对 yaml 里已有的键生效——
   # 没有这行，容器编排注入的 LIUSHA_SANDBOX_WORKSPACE_DIR 到不了
   # Sandbox.WorkspaceHostDir，容器内回落 $HOME=/root 指向宿主不存在的路径
   # （runner 沙盒 bind 失败、api 工作区根目录错位）。空 = ~/data/liusha/workspace。
   workspace_dir: ""
   workspace_retention_days: 0    # 任务工作区留存天数（0 = 永久保留：持续探索的工件是证据；正数按目录 mtime 清扫）
-  # （原 run_tail_bytes 已删：收归 DB system_setting runtime 组，前端「系统配置」页可热改。）
   # 视口 1280×800：主流桌面宽度，页面渲染贴近真实用户视角；chromium 启动时固定，截图喂 vision LLM。
   viewport_width: 1280
   viewport_height: 800
@@ -241,9 +226,3 @@ conversation:
   # （沙盒直接可见），纯聊天/未建任务先暂存 .staging/，下发任务时自动搬进 inbox。
   # 0 = 默认 100 MiB。env 覆盖：LIUSHA_CONVERSATION_ATTACHMENT_MAX_BYTES。
   attachment_max_bytes: 0
-
-# （原 toolruntime 段已删：step_tool_timeout_seconds 收归 DB system_setting runtime 组——
-# 该 yaml 值历史上从未被工具执行路径消费（实际钳制点硬编码 120s），现钳制/注册表超时同源热配置。）
-
-# ---- heuristic 关键词清单 ----
-# yaml 化便于按业务扩中文/小语种关键词，AllAuthError 运行时 lowercase 匹配

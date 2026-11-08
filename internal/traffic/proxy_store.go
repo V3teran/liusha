@@ -55,7 +55,7 @@ func (s *ProxyStore) Append(ctx context.Context, f ProxyTraffic) (int64, error) 
 	return id, nil
 }
 
-// GetByID 读单行（含 raw 报文），并 JOIN 装填消费本条的 passive task 列表（M:N，前端 chip 展示）。
+// GetByID 读单行（含 raw 报文），并 JOIN 装填消费本条的代理模式 task 列表（M:N，前端 chip 展示）。
 func (s *ProxyStore) GetByID(ctx context.Context, id int64) (ProxyTraffic, error) {
 	row := s.pool.QueryRow(ctx, "SELECT "+proxyCols+" FROM proxy_traffic WHERE id=$1", id)
 	var f ProxyTraffic
@@ -70,7 +70,7 @@ func (s *ProxyStore) GetByID(ctx context.Context, id int64) (ProxyTraffic, error
 	return f, nil
 }
 
-// listConsumers 查消费某条流量的全部 passive task（traffic_task JOIN task），供 chip 展示。
+// listConsumers 查消费某条流量的全部代理模式 task（traffic_task JOIN task），供 chip 展示。
 func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]ConsumerTask, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id::text, t.target_host, t.status
@@ -97,10 +97,9 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 // ClaimUnconsumedByHost 原子领取某 host 最早的至多 limit 条「尚未被本 task 消费」的流量：
 // 为它们在 traffic_task 建 (traffic_id, task_id) 关联，返回实际领到的条数（见 spec §13.2）。
 //
-// M:N 语义（v0100+）：一条流量可被多个 task 复用，故不再是「未消费才领」的排他更新，而是
-// 「本 task 尚未关联过就领」。用 NOT EXISTS 排掉本 task 已关联的，FOR UPDATE SKIP LOCKED
+// M:N 语义：一条流量可被多个 task 复用，领取条件是「本 task 尚未关联过」（非全局排他）。用 NOT EXISTS 排掉本 task 已关联的，FOR UPDATE SKIP LOCKED
 // 锁定候选行防跨实例重复领取；ON CONFLICT DO NOTHING 兜底并发下的主键冲突（幂等）。
-// ClaimUnconsumedByHost 为 passive task 领取某 host 的未消费流量。
+// ClaimUnconsumedByHost 为代理模式 task 领取某 host 的未消费流量。
 //
 // 「未消费」语义：未被任何 **活跃或已完成** 的 task 认领过——
 //   - 被活跃 task 认领 → 不可再领（防并发重复分析）；
@@ -168,7 +167,7 @@ type ProxySummary struct {
 	CapturedAt  time.Time
 }
 
-// ListByTaskFiltered 在某 passive task 消费的流量范围内按多维过滤查摘要（list_traffic 工具用）。
+// ListByTaskFiltered 在某代理模式 task 消费的流量范围内按多维过滤查摘要（list_traffic 工具用）。
 // 按 captured_at DESC 排（最新优先）。
 func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f ProxyListFilter) ([]ProxySummary, error) {
 	if f.Limit <= 0 {
@@ -184,7 +183,7 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 	if f.Host != "" {
 		// host 列存的是 host:port（与 task.target_host / credentials key 同格式），
 		// 这里不能再剥端口去比——剥了就和存储值对不上，过滤永远零命中（2026-07-14 e2e 实测：
-		// passive list_traffic 对已认领的 15 条流量返回空，根因就是这处误剥端口）。
+		// 代理模式 list_traffic 对已认领的 15 条流量返回空，根因就是这处误剥端口）。
 		add("host=$%d", f.Host)
 	}
 	if f.Method != "" {
@@ -331,7 +330,7 @@ func (s *ProxyStore) DistinctContentTypes(ctx context.Context) ([]string, error)
 	return out, rows.Err()
 }
 
-// ListByTask 按 captured_at 升序列出某 passive task 消费的流量（含 raw 报文），供认知循环的流量工具读这批。
+// ListByTask 按 captured_at 升序列出某代理模式 task 消费的流量（含 raw 报文），供认知循环的流量工具读这批。
 func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraffic, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT "+proxyColsP+" FROM proxy_traffic p JOIN traffic_task tt ON tt.traffic_id = p.id "+

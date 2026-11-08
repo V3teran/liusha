@@ -36,7 +36,7 @@ const (
 
 // 边关系枚举的权威定义在领域包 internal/explorationgraph（Relation，与 DB
 // 约束 ck_exploration_edge_rel 严格一致）；本层 GraphNode.Rel 以 string 承载，
-// 不重复定义枚举——此前在此的 RelationKind 副本与领域版漂移风险高，已删。
+// 不在本层重复定义枚举（两处定义有漂移风险）。
 
 // ActionState 是动作的执行状态
 type ActionState string

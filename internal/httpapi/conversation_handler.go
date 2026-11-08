@@ -35,7 +35,7 @@ var sseLog = logx.New("httpapi.sse")
 // 认证统一走 RequireAuth 的 liusha_session 会话 Cookie：SSE 的 EventSource 同源
 // 自动带 Cookie，与普通端点同一路径，无特例。
 
-// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 adapter：建 conversation + scan + 入队带 conversationID）。
+// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 *dispatch.Service：建 conversation + task + 入队带 conversationID）。
 type ChatAPI interface {
 	StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (conversationID, taskID string, err error)
 }

@@ -1,7 +1,7 @@
 // Package httpapi: 代理捕获流量（proxy_traffic）只读浏览 handler（前端流量模块）。
 //
 // proxy_traffic 是「先于 task、按 host 归属」的真实用户流量——被分析的输入。此处提供
-// 跨全部 host 的全局分页浏览 + 单条详情（含 body），不涉及写入/消费（那是 ingestor / passive 链路的职责）。
+// 跨全部 host 的全局分页浏览 + 单条详情（含 body），不涉及写入/消费（那是 ingestor / 代理模式链路的职责）。
 
 package httpapi
 
@@ -128,7 +128,7 @@ func trafficContentTypesHandler(api TrafficAPI) gin.HandlerFunc {
 }
 
 // trafficDetailHandler 处理 GET /traffic/:id：单条完整流量（Burp 式整条 raw 报文文本）+ 消费本条的
-// passive task 列表（M:N）。每个消费者附解析出的会话 id 供前端 chip 跳转（/conversations/auto?conv=）。
+// 代理模式 task 列表（M:N）。每个消费者附解析出的会话 id 供前端 chip 跳转（/conversations/proxy?conv=）。
 func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()

@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
 # 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
-# 用法：
-#   ./scripts/dev/e2e.sh                       # 不带参 = 跑全部 passive profile（按字典序：bac + brute + lfi + sqli + upload + xss + ...）
-#   ./scripts/dev/e2e.sh bac                   # passive 仅 bac（业务向访问控制）
-#   ./scripts/dev/e2e.sh sqli                  # passive 仅 sqli
-#   ./scripts/dev/e2e.sh xss                   # passive 仅 xss
-#   ./scripts/dev/e2e.sh brute                 # passive 仅 brute（暴力破解）
-#   ./scripts/dev/e2e.sh lfi                   # passive 仅 lfi（文件包含/路径遍历/任意文件读取/CWE-22）
-#   ./scripts/dev/e2e.sh upload                # passive 仅 upload（任意文件上传/CWE-434）
-#   ./scripts/dev/e2e.sh bac sqli xss          # passive 多选（空格分隔）
-#   ./scripts/dev/e2e.sh passive:upload,lfi    # passive 多选（passive: 前缀 + 逗号分隔，等价于 upload lfi）
-#   ./scripts/dev/e2e.sh active:full           # active 模式：开放性 brief 压测 LLM 自主 recon + swarm 决策
-#   ./scripts/dev/e2e.sh bac active:full       # passive + active 混合
+# 用法（剧本定义见 cmd/e2e/profiles.go）：
+#   ./scripts/dev/e2e.sh             # 不带参 = 按字典序跑全部剧本
+#   ./scripts/dev/e2e.sh xss         # XSS 专项扫描
+#   ./scripts/dev/e2e.sh full        # 综合开放性扫描：开放性 brief 压测 LLM 自主 recon
+#   ./scripts/dev/e2e.sh xss full    # 多选（空格分隔，按参数顺序串行）
 #
 # 清空范围（每次执行都做一次）：
 #   - postgres：运行时表动态 TRUNCATE（豁免 seed 配置/登录资产/迁移台账）
@@ -58,8 +51,7 @@ echo ""
 echo "===== 2/6 清空 db / redis ====="
 
 # postgres：运行时表 TRUNCATE（schema 保留）。
-# 表清单从 information_schema 动态枚举——手写清单会随 schema 演化腐烂
-# （曾含早已退役的 insight/checkpoints，一跑就炸整个清库步骤）。
+# 表清单从 information_schema 动态枚举——手写清单会随 schema 演化腐烂。
 # 豁免三类（schema 变更时人工复核这份清单）：
 #   - schema_migrations：golang-migrate 台账
 #   - 种子配置表（agent/skill/tool/llm_provider/llm_role_route/system_setting）：
@@ -82,10 +74,6 @@ if ! docker exec "$PG_CONTAINER" psql -U liusha -d liusha -c \
   exit 1
 fi
 echo "  ✓ postgres 业务表已 truncate（$(echo "$TABLES" | awk -F', ' '{print NF}') 张）"
-
-# session-store/<owner_id>/ 是 ResultCompress middleware 的落盘目录；
-# truncate 后 DB 中 session 已不存在，对应子目录变孤儿，清掉避免无限堆积。
-rm -rf session-store/*/ 2>/dev/null || true
 
 # redis FLUSHDB → 立即重建 ingestor consumer group
 if docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" FLUSHDB >/dev/null 2>&1; then

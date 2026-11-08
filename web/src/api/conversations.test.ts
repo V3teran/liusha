@@ -30,7 +30,7 @@ describe('会话域 API', () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
-          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'manual', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
+          conversations: [{ ID: 'c1', Title: 'scan1', TaskID: 's1', Source: 'self', CreatedAt: '2026-06-10T00:00:00Z', UpdatedAt: '2026-06-10T00:00:00Z' }],
           has_more: true,
         }),
       })
@@ -51,9 +51,9 @@ describe('会话域 API', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      await listConversations(30, 0, 'auto')
+      await listConversations(30, 0, 'proxy')
 
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=auto'))
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=proxy'))
     })
 
     it('listConversations 把后端 null（Go nil slice）归一为空数组，不透传 null', async () => {
@@ -63,7 +63,7 @@ describe('会话域 API', () => {
       })
       ;(global as any).fetch = mockFetch
 
-      const result = await listConversations(30, 0, 'auto')
+      const result = await listConversations(30, 0, 'proxy')
 
       expect(result.conversations).toEqual([])
       expect(result.conversations).toHaveLength(0)

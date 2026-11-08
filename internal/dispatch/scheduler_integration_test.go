@@ -63,9 +63,9 @@ func forceDue(t *testing.T, pool *pgxpool.Pool, scheduleID string) {
 	}
 }
 
-// TestFireDue_ActiveSchedule_ExpandsTaskAndAgent 验证定时下发核心场景：active 定时模板到点 →
+// TestFireDue_BriefItem_ExpandsTaskAndAgent 验证定时下发核心场景：brief 条目的定时模板到点 →
 // 克隆 assignment → 展开 task + agent run + enqueue，且 next_run_at 推进到未来。
-func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
+func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
@@ -125,9 +125,9 @@ func TestFireDue_ActiveSchedule_ExpandsTaskAndAgent(t *testing.T) {
 
 }
 
-// TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic 验证 api-pentest 定时模板：领取该 host
+// TestFireDue_HostItem_ClaimsUnconsumedTraffic 验证 host 条目（流量复检）定时模板：领取该 host
 // 未消费的 proxy_traffic 后展开 task + planner agent run。
-func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
+func TestFireDue_HostItem_ClaimsUnconsumedTraffic(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
@@ -158,7 +158,7 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatalf("应展开出 host=%q 的 passive task，got %+v", host, tasks)
+		t.Fatalf("应展开出 host=%q 的代理模式 task，got %+v", host, tasks)
 	}
 
 	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
@@ -169,11 +169,11 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
 
-	// cron 展开的 passive task 必须绑会话流（title=host + 首条说明），否则
+	// cron 展开的代理模式 task 必须绑会话流（title=host + 首条说明），否则
 	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
 	conversationID, err := r.Conversations.ResolveConversationByTask(ctx, found.ID)
 	if err != nil || conversationID == "" {
-		t.Fatalf("passive task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
+		t.Fatalf("代理模式 task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
 	}
 	conv, err := r.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
@@ -191,9 +191,9 @@ func TestFireDue_PassiveSchedule_ClaimsUnconsumedTraffic(t *testing.T) {
 	}
 }
 
-// TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError 验证：host 当前无未消费流量时，
+// TestFireDue_HostItem_NoTraffic_AbortsWithoutError 验证：host 当前无未消费流量时，
 // 展开产生的空转 task 被 abort，且不阻塞其余到点模板（fireOne 不报错）。
-func TestFireDue_PassiveSchedule_NoTraffic_AbortsWithoutError(t *testing.T) {
+func TestFireDue_HostItem_NoTraffic_AbortsWithoutError(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 

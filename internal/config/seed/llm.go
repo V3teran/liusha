@@ -64,7 +64,7 @@ func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Sto
 		}
 		typ := p.Type
 		if typ == "" {
-			typ = llmconfig.ProviderTypeOpenAICompat // 空 type 视为 openai_compat（与运行期一致）
+			typ = llmconfig.ProviderTypeOpenAICompat // yaml 缺省 type 视为 openai_compat（DB 约束不收空值）
 		}
 		// SupportsVision/ContextWindow 在 config.validate 已强制非 nil；仍防御性解引用。
 		supportsVision := p.SupportsVision != nil && *p.SupportsVision

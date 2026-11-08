@@ -178,10 +178,6 @@ func TestAuth_RejectsWrongSession(t *testing.T) {
 	}
 }
 
-// 删除 TestPassiveScan_Created / _RequiresAuth / _LookupError 三个用例：
-// owner 多态坍缩为统一 task 后，TaskAPI.EnsurePassiveSession 及 POST /scan/passive 路由已移除
-// （passive task 由 ingestor 按流量窗口聚合生成，不再走 API 预热路径）。
-
 // fakeTaskControl 是 TaskControlAPI 的表替身：按 action 记录调用并返回预设错误。
 type fakeTaskControl struct {
 	err    error

@@ -47,7 +47,7 @@ function fullTitle(c: Conversation): string {
 
 const TASK_ACTIVE_HINT = '任务进行中，无法删除。请先在对话页停止任务，删除前先等任务结束。'
 
-// 头部主控件共用尺寸：「+ 新会话」按钮 与 passive 下不可点的「流量批次」占位保持同一盒模型，
+// 头部主控件共用尺寸：「+ 新会话」按钮与代理模式 tab 下不可点的「流量批次」占位保持同一盒模型，
 // 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
 const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
 

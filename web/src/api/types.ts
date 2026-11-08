@@ -286,7 +286,7 @@ export function parseEventMeta(m: Message): TimelineEventMeta | null {
 }
 
 /* ============================================================
-   全局漏洞台账（GET /findings，跨 task/host，active+passive 全量 + triage）
+   全局漏洞台账（GET /findings，跨 task/host，自主下发 + 代理模式全量 + triage）
    ============================================================ */
 // FindingTarget 是 finding.target jsonb 的常见形态（LLM 自决，字段可缺）。
 export interface FindingTarget {
@@ -360,7 +360,7 @@ export interface LLMInvocationSummary {
   finish_reason: string
   error_message: string
   error_kind: string
-  role: string // 调用者角色：planner/exploitation/traffic-analysis 等
+  role: string // 调用者角色：planner / executor / evaluator / monitor，及路由键 inspector / compactor / distill
   created_at: string
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
@@ -428,7 +428,7 @@ export interface TrafficSummary {
   resp_len: number // 响应体字节数，列表「长度」列（humanBytes 格式化）
   captured_at: string
 }
-// TrafficConsumer 是消费本条流量的 passive task（M:N），附解析出的会话 id 供 chip 跳转。
+// TrafficConsumer 是消费本条流量的代理模式 task（M:N），附解析出的会话 id 供 chip 跳转。
 export interface TrafficConsumer {
   task_id: string
   
@@ -443,7 +443,7 @@ export interface TrafficDetail extends TrafficSummary {
   http_version: string
   request_raw: string // 整条请求报文原文（唯一存储，无冗余拆分字段）
   response_raw: string // 整条响应报文原文
-  consumed_by: TrafficConsumer[] // 消费本条的 passive task；空数组=未消费
+  consumed_by: TrafficConsumer[] // 消费本条的代理模式 task；空数组=未消费
 }
 export interface TrafficListResponse {
   items: TrafficSummary[]

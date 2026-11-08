@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store 封装 task 表的所有持久化操作（合并原 activescan.Store + passivesession.Store）。
+// Store 封装 task 表的所有持久化操作。
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -141,8 +141,8 @@ const summarySelect = `
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
-// $4 since / $5 until）。source 口径：定时克隆（schedule_id 非空）按用户模型归「主动」，
-// 被动侧排除它。since/until 传 NULL 表示不筛该端。
+// $4 since / $5 until）。source 口径：定时克隆（schedule_id 非空）按用户模型归自主下发，
+// 代理模式侧排除它。since/until 传 NULL 表示不筛该端。
 const summaryWhere = `
 	WHERE ($1 = '' OR a.source = $1 OR ($1 = 'self' AND a.schedule_id IS NOT NULL))
 	  AND ($2 = '' OR t.status = $2)

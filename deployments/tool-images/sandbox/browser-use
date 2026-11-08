@@ -7,7 +7,7 @@ sys.executable 拉起 browser-svc.py，二者同跑 venv python → import brows
 
 模型不变：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
-  AGENT_ID = 同身份下的 agent（planner/exploitation），各占一个 tab（页面/截图/并发隔离）。
+  AGENT_ID = 同身份下的并行执行单元（工具层注入 action id），各占一个 tab（页面/截图/并发隔离）。
 
 热路径不再有全局 active tab，也不再需要 flock 串行化 —— 服务用 actor.Page 按 target_id 寻址，
 同身份多 agent 并发各操作自己的 tab。本客户端只做：选身份 socket → 确保服务起（flock 守冷启）→

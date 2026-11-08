@@ -1,7 +1,7 @@
 // Package main 是 liusha runner 进程入口。
 //
 //	职责：
-//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建 passive task → 入 agent 队列
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建代理模式 task → 入 agent 队列
 //	  2. 启 asynq.Server：消费 agent 队列，每个 task 跑认知循环（planner/executor/evaluator/monitor 四 agent）
 //	  3. healthz HTTP；graceful shutdown
 //
@@ -343,7 +343,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.AppConfig) *runnerStores {
 		findings:      finding.NewStore(pool),
 		graph:         explorationgraph.NewStore(pool), // 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
-		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（passive，按 host）
+		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（代理模式，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
 		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
@@ -427,11 +427,9 @@ func detectCallbackHost() string {
 	return ""
 }
 
-// active 容器内抓流量 → agent_traffic（source=internal）：
-//   - 浏览器：browser-svc.py 内建 CDP Network observer 抓 chromium 真实流量
-//   - CLI：容器内本地 mitmproxy + mitm-capture.py，工具经 HTTP_PROXY 走它
-//
-// 两者都经 LIUSHA_INGEST_URL POST 到 runner 自己的 ingest endpoint。
+// sandbox 容器内抓流量 → agent_traffic（source=internal）：只抓浏览器——browser-svc.py 内建
+// CDP Network observer 抓 chromium 真实流量，经 LIUSHA_INGEST_URL POST 到 runner 自己的
+// ingest endpoint。CLI 工具直连目标，不经任何抓包代理。
 func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg config.RunnerConfig, logger zerolog.Logger) *sandbox.DockerLauncher {
 	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.DefaultImage)
 	// 注入视口尺寸到 launcher → docker run -e → 容器内 wrapper 透传 chromium。
@@ -449,7 +447,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 	// 拼 ingest URL/token 注入 launcher → docker run -e。runner 跑在 host，容器经
 	// host.docker.internal 回连 runner 自己的 healthz 端口（cfg.Runner.HealthzAddr，默认 :8590）。
 	// token 与本进程 ingest handler 共享同一值（ENV LIUSHA_INGEST_TOKEN 覆盖 yaml）。
-	// 解析失败则不注入 → browser-svc.py/mitm-capture.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
+	// 解析失败则不注入 → browser-svc.py 读不到 LIUSHA_INGEST_URL，capture 不启用。
 	if _, port, splitErr := net.SplitHostPort(runnerCfg.HealthzAddr); splitErr != nil {
 		logger.Warn().Err(splitErr).Str("healthz_addr", runnerCfg.HealthzAddr).
 			Msg("解析 runner healthz addr 失败，跳过 ingest 注入（capture 不启用）")
@@ -458,7 +456,7 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 		// （compose 形态 38590:8590）——对外端口显式 env 声明，缺省回落监听端口
 		// （host 直跑形态二者同值）。
 		publicPort := envx.OrDefault("LIUSHA_INGEST_PUBLIC_PORT", port)
-		launcher.IngestURL = "http://host.docker.internal:" + publicPort + "/internal/v1/flows/ingest"
+		launcher.IngestURL = "http://host.docker.internal:" + publicPort + "/internal/v1/traffic/ingest"
 		launcher.IngestToken = envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken)
 	}
 
@@ -509,7 +507,7 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.App
 		ProxyStore:    stores.proxyStore,
 		AgentStore:    stores.agentStore,
 		AgentRuns:     stores.agentRuns,
-		Conversations: stores.conversations, // passive 聚合建 task 后建会话流
+		Conversations: stores.conversations, // 代理模式聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
 	})
@@ -524,15 +522,15 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.App
 	return trafficIngestor
 }
 
-// newHealthGateway 构造 healthz HTTP + active 抓流量 ingest 端点（从 cmd/proxy 迁来）。
-// 沙箱内 CLI(本地 mitmproxy)/浏览器(CDP) 抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
+// newHealthGateway 构造 healthz HTTP + sandbox 抓流量 ingest 端点。
+// 沙箱内浏览器（CDP）抓的流量 POST 到这里 → trafficIngestor.SubmitInternal
 // 直接入进程内队列 → drain goroutine 落 agent_traffic。同进程直送，不再绕 redis（internal 自环冗余）。
 func newHealthGateway(cfg config.AppConfig, runnerCfg config.RunnerConfig, trafficIngestor *ingestor.Traffic, logger zerolog.Logger) *http.Server {
 	hsMux := http.NewServeMux()
 	hsMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	hsMux.HandleFunc("/internal/v1/flows/ingest",
+	hsMux.HandleFunc("/internal/v1/traffic/ingest",
 		runner.NewIngestHandler(trafficIngestor, envx.OrDefault("LIUSHA_INGEST_TOKEN", cfg.Proxy.IngestToken), logger))
 	return &http.Server{
 		Addr:              runnerCfg.HealthzAddr,

@@ -1,7 +1,7 @@
-// Package proxy 的 passive 入口 raw-bytes URI 改写 forwarder。
+// Package proxy 的代理模式入口（external listener）raw-bytes URI 改写 forwarder。
 //
-// v34+：删除 agent (internal) sanitizer 全部路径 — chromium 流量改走 CDP capture →
-// ingest endpoint；CLI 工具直连不入字典。本文件只剩 passive 入口的 URI patch。
+// 只处理 external 入口；sandbox 内 chromium 流量走 CDP capture → ingest endpoint，
+// CLI 工具直连不入字典，二者都不经本 forwarder。
 package proxy
 
 import (
@@ -101,13 +101,13 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// RunPassiveSanitizer 监听 publicAddr（external 8588，passive 入口）。
+// RunExternalSanitizer 监听 publicAddr（external 8588，代理模式入口）。
 // 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
 // forward 给 upstreamAddr（proxify loopback 端口）。
 //
-// v34+：本仓库当前唯一的 sanitizer — agent 路径已删除（chromium 走 CDP capture，
+// 这是本仓库唯一的 sanitizer：sandbox 自产流量不经代理（chromium 走 CDP capture，
 // CLI 工具直连不入字典）。
-func RunPassiveSanitizer(publicAddr, upstreamAddr string) error {
+func RunExternalSanitizer(publicAddr, upstreamAddr string) error {
 	ln, err := net.Listen("tcp", publicAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", publicAddr, err)

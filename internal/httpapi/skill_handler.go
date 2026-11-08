@@ -35,7 +35,7 @@ func listSkillsHandler(api SkillAPI) gin.HandlerFunc {
 			return
 		}
 
-		// 否则返回全量（兼容旧用法）
+		// 否则返回全量（智能体配置页技能多选器取全部候选）
 		skills, err := api.ListSkills(c.Request.Context(), skillstore.ListParams{})
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)

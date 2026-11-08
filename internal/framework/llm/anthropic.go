@@ -131,7 +131,7 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content})
 			}
 		case RoleUser:
-			// 含图走 multipart blocks；否则走原 text-only 路径（兼容旧测试 + 性能）。
+			// 含图走 multipart blocks；纯文本走 text-only 路径（单 string content，载荷更小）。
 			if len(m.ContentParts) > 0 {
 				blocks, err := contentPartsToAnthropicUserBlocks(m.ContentParts)
 				if err != nil {

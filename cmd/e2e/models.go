@@ -10,7 +10,7 @@ type GraphStats struct {
 	Results      int `json:"results"`
 }
 
-// AcceptanceCriteria 是新的验收标准（替代旧的 minFindings）
+// AcceptanceCriteria 是 e2e 剧本的验收门槛：探索图各类节点数的下限（验证完整认知循环）。
 type AcceptanceCriteria struct {
 	MinObjectives int // 至少产生多少个目标
 	MinActions    int // 至少执行多少个动作

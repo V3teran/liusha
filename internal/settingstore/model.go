@@ -69,8 +69,8 @@ func clampRatio(v, fallback float64) float64 {
 // DefaultCompaction 返回内置默认的压缩预算配置（种子首填用；与 normalized 的兜底一致）。
 func DefaultCompaction() CompactionSettings { return CompactionSettings{}.normalized() }
 
-// RuntimeSettings 是工具运行时的活旋钮集合（对应原 config.Toolruntime/Sandbox/Runner
-// 里的散装字段，收归 DB 热配置；yaml 值仅作种子首填源）。
+// RuntimeSettings 是工具运行时的活旋钮集合（DB system_setting runtime 组，前端「系统配置」可热改；
+// 首填时仅 LLM 看门狗取 yaml runner.step_llm_timeout_seconds，其余用内置默认）。
 type RuntimeSettings struct {
 	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界，注册表级超时同源）
 	StepLLMTimeoutSeconds  int `json:"step_llm_timeout_seconds"`  // 单步 LLM 看门狗超时秒（挂死的调用即失败；runner 每次调用现读，热改无需重启）

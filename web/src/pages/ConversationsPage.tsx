@@ -16,7 +16,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   const [currentConv, setCurrentConv] = useState('')
   const convListRef = useRef<ConversationListHandle>(null)
 
-  // 主动下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
+  // 自主下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
   const queryConv = searchParams.get('conv')
   useEffect(() => {
     // ?conv= 深链接对两个 tab 都生效（流量详情/任务模块等跨页跳转带 conv 打开对应会话）

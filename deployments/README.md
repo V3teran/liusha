@@ -28,8 +28,8 @@ make build-sandbox # 沙盒镜像（首次/工具变更后）
 环境文件：仓库根 `.env` 是唯一真值——docker compose（compose.yaml 在仓库根）
 插值自动加载，run-svc.sh / e2e.sh 亦 source 同一份；模板见 `.env.example`
 （复制为 `.env` 填真实 key）。compose 分层：`compose.yaml` 是中性基座（服务
-拓扑，不含任何环境语义），`compose.dev.yaml` / `compose.prod.yaml` 是环境
-overlay——**看叠加了哪个 overlay 就知道跑的哪个环境**；密钥缺失即报错
+拓扑，不含任何环境语义；业务服务挂 `full` profile，裸 `up` 只起 postgres/redis 供本地开发），
+`compose.prod.yaml` 是生产 overlay——**叠加了它就是生产形态**；密钥缺失即报错
 （基座不兜底任何默认值）。
 
 ## B 生产全容器

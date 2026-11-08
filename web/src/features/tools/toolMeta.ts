@@ -8,7 +8,7 @@ export const KIND_LABEL: Record<ToolKind, string> = {
   cli: '外部工具',
 }
 
-// 分类 code → 展示名。与 einotools 的 FunctionToolCategory 常量对齐；
+// 分类 code → 展示名。与 registry.FunctionToolCategory 常量（internal/registry/catalog.go）对齐；
 // CLI 工具的 category 源出 tools.yaml，可能不在此表内——未命中则原样展示。
 const CATEGORY_LABEL: Record<string, string> = {
   findings: '漏洞记录',

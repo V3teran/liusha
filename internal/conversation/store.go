@@ -79,7 +79,7 @@ func (s *Store) ResolveTaskID(ctx context.Context, conversationID string) (strin
 
 // ResolveConversationByTask 反向解析：task id → 绑定的会话 id（思维链来源）。
 // 一 task 常对应一会话；若有多条（follow-up 复活等）取最近更新的一条。
-// 无绑定会话（纯 passive 自动路径 / task 不存在）返回空串——调用方据此只出成果链，不报错。
+// 无绑定会话（纯代理模式自动路径 / task 不存在）返回空串——调用方据此只出成果链，不报错。
 func (s *Store) ResolveConversationByTask(ctx context.Context, taskID string) (string, error) {
 	if taskID == "" {
 		return "", nil
@@ -173,7 +173,7 @@ func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, 
 
 // ListConversations 按 updated_at DESC 分页列出会话（UI 列表）。offset<0 视为 0。
 //
-// source 非空时按下发来源过滤（前端「主动下发 / 被动代理」双 tab）：
+// source 非空时按下发来源过滤（前端「自主下发 / 代理模式」双 tab）：
 //   - 'self'：assignment.source='self' 的会话 + 纯聊天会话（无 task → 无 source，归自主侧）；
 //   - 'proxy'：assignment.source='proxy' 的会话（代理模式攒批的流量分析）。
 //

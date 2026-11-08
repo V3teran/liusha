@@ -9,32 +9,32 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// runActiveProfiles 顺序跑被选的 active profile：调 POST /chat → 轮询探索图。
-func runActiveProfiles(ctx context.Context, profs []activeProfile, apiBase string, session *http.Cookie, pool *pgxpool.Pool, logger zerolog.Logger) error {
+// runProfiles 顺序跑被选的剧本：调 POST /chat → 轮询探索图。
+func runProfiles(ctx context.Context, profs []profile, apiBase string, session *http.Cookie, pool *pgxpool.Pool, logger zerolog.Logger) error {
 	kgClient := NewExplorationGraphClient(pool)
 
-	for _, ap := range profs {
+	for _, p := range profs {
 		// 走会话入口（POST /chat）
-		conversationID, taskID, err := createChatTask(apiBase, session, ap.brief)
+		conversationID, taskID, err := createChatTask(apiBase, session, p.brief)
 		if err != nil {
-			return fmt.Errorf("active profile %s: createChatTask: %w", ap.name, err)
+			return fmt.Errorf("profile %s: createChatTask: %w", p.name, err)
 		}
 		logger.Info().
-			Str("profile", ap.name).
+			Str("profile", p.name).
 			Str("task_id", taskID).
 			Str("conversation_id", conversationID).
-			Int("min_objectives", ap.acceptance.MinObjectives).
-			Int("min_actions", ap.acceptance.MinActions).
-			Int("min_results", ap.acceptance.MinResults).
-			Msg("active chat scan dispatched")
+			Int("min_objectives", p.acceptance.MinObjectives).
+			Int("min_actions", p.acceptance.MinActions).
+			Int("min_results", p.acceptance.MinResults).
+			Msg("chat scan dispatched")
 
 		// 使用探索图轮询（直接查询数据库）
-		if err := pollTaskWithGraphStats(ctx, kgClient, pool, apiBase, session, taskID, ap.acceptance, &logger); err != nil {
-			return fmt.Errorf("active profile %s: %w", ap.name, err)
+		if err := pollTaskWithGraphStats(ctx, kgClient, pool, apiBase, session, taskID, p.acceptance, &logger); err != nil {
+			return fmt.Errorf("profile %s: %w", p.name, err)
 		}
 
-		logger.Info().Str("profile", ap.name).Msg("✓ active profile PASS")
-		fmt.Printf("✓ active profile=%s PASS\n", ap.name)
+		logger.Info().Str("profile", p.name).Msg("✓ profile PASS")
+		fmt.Printf("✓ profile=%s PASS\n", p.name)
 	}
 	return nil
 }

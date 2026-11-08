@@ -44,7 +44,7 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
   },
 }))
 
-function renderPage(source: 'manual' | 'auto', initialPath = '/') {
+function renderPage(source: 'self' | 'proxy', initialPath = '/') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <ConversationsPage source={source} />
@@ -75,7 +75,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('manual')
+    renderPage('self')
 
     await user.click(screen.getByText('start'))
 
@@ -87,7 +87,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('manual')
+    renderPage('self')
 
     // 先选中 conv-selected
     await user.click(screen.getByText('select'))
@@ -104,7 +104,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('manual')
+    renderPage('self')
 
     await user.click(screen.getByText('select'))
     await user.click(screen.getByText('delete-other'))
@@ -135,7 +135,7 @@ describe('ConversationsPage', () => {
     const user = userEvent.setup()
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('manual')
+    renderPage('self')
 
     await user.click(screen.getByText('select')) // 先有个选中
     await user.click(screen.getByText('new')) // 再新建 → 清空
@@ -147,8 +147,8 @@ describe('ConversationsPage', () => {
   it('source 透传给 ConversationList 与 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('auto')
-    expect(listProps.mock.calls[listProps.mock.calls.length - 1][0].source).toBe('auto')
-    expect(detailProps.mock.calls[detailProps.mock.calls.length - 1][0].source).toBe('auto')
+    renderPage('proxy')
+    expect(listProps.mock.calls[listProps.mock.calls.length - 1][0].source).toBe('proxy')
+    expect(detailProps.mock.calls[detailProps.mock.calls.length - 1][0].source).toBe('proxy')
   })
 })

@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// aggregator.go：passive 流量按 host 攒批的分布式窗口（见 spec §6.2 + §13.1）。
+// aggregator.go：代理模式流量按 host 攒批的分布式窗口（见 spec §6.2 + §13.1）。
 //
 // ingestor 跑在水平扩展的 runner 内，同 host 流量经 Redis 消费组分给不同实例——进程内内存
 // 窗口是分片非副本，会把一批拆成 N 个残批。故窗口状态放 Redis：任何实例消费到某 host 流量都

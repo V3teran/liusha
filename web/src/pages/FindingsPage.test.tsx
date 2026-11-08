@@ -36,7 +36,7 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'a.example.com',
-    source: 'manual',
+    source: 'self',
     status: 'open',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,

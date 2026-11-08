@@ -9,7 +9,7 @@ import type { FindingFilters, FindingListResponse, FindingRow } from './types'
 
 /**
  * 分页拉取全局漏洞台账。可选按 host/severity/status/source 筛选；
- * page/size 缺省时后端落 1 / 50。修复历史缺陷：旧漏洞页走 /sitemap 仅覆盖部分场景，其余漏洞不可见。
+ * page/size 缺省时后端落 1 / 50。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
   const params = new URLSearchParams()

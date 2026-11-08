@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// newPassiveTask 建一个 passive task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
-func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
+// newProxyTask 建一个代理模式 task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
+func newProxyTask(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
@@ -34,7 +34,7 @@ func newPassiveTask(t *testing.T) (*pgxpool.Pool, string) {
 // body 截断在 ingest 组装 raw 前完成，store 不再二次截断。
 func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	ctx := context.Background()
-	pool, _ := newPassiveTask(t)
+	pool, _ := newProxyTask(t)
 	s := NewProxyStore(pool)
 
 	reqRaw := []byte("POST /api/x HTTP/1.1\r\nHost: test.example.com\r\nContent-Type: application/json\r\n\r\n{\"a\":1}")
@@ -72,12 +72,12 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	}
 }
 
-// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某 passive
+// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某代理模式
 // task（M:N traffic_task），之后 ListByTask 按 captured_at 升序取回这批（含 raw）；GetByID 的
 // ConsumedBy 列出该消费者。取代旧 consumed_by_task_id 单列模型。
 func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	ctx := context.Background()
-	pool, taskID := newPassiveTask(t)
+	pool, taskID := newProxyTask(t)
 	s := NewProxyStore(pool)
 
 	var firstID int64
@@ -148,7 +148,7 @@ func consumedByTaskID(consumers []ConsumerTask, taskID string) bool {
 // TestProxyStore_ClaimByIDs 验证：显式 id 集合领取（manual TrafficIDs 路径）只关联点名的流量。
 func TestProxyStore_ClaimByIDs(t *testing.T) {
 	ctx := context.Background()
-	pool, taskID := newPassiveTask(t)
+	pool, taskID := newProxyTask(t)
 	s := NewProxyStore(pool)
 
 	var ids []int64
@@ -192,7 +192,7 @@ func TestProxyStore_ClaimByIDs(t *testing.T) {
 // （captured_at DESC，最新优先）。取代旧 ListByOwner 分页用例。
 func TestProxyStore_ListByTaskFiltered_Pagination(t *testing.T) {
 	ctx := context.Background()
-	pool, taskID := newPassiveTask(t)
+	pool, taskID := newProxyTask(t)
 	s := NewProxyStore(pool)
 
 	paths := []string{"/p1", "/p2", "/p3", "/p4", "/p5"}
@@ -230,7 +230,7 @@ func TestProxyStore_ListByTaskFiltered_Pagination(t *testing.T) {
 // TestAgentStore_Append_TruncatesLargeBody 验证：agent_traffic 大 body 同样截断到 32 KiB。
 func TestAgentStore_Append_TruncatesLargeBody(t *testing.T) {
 	ctx := context.Background()
-	pool, taskID := newPassiveTask(t)
+	pool, taskID := newProxyTask(t)
 	s := NewAgentStore(pool)
 
 	big := bytes.Repeat([]byte("y"), defaultMaxBody+3000)
@@ -264,7 +264,7 @@ func TestAgentStore_Append_TruncatesLargeBody(t *testing.T) {
 // created_at DESC（最新优先），并可按 host 过滤。
 func TestAgentStore_ListByTaskFiltered(t *testing.T) {
 	ctx := context.Background()
-	pool, taskID := newPassiveTask(t)
+	pool, taskID := newProxyTask(t)
 	s := NewAgentStore(pool)
 
 	seed := []struct {
