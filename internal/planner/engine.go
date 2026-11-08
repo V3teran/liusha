@@ -576,7 +576,7 @@ func (e *Engine) parsePlanningResponse(content string) (*PlanningResponse, error
 			Err(err).
 			Str("llm_response", content).
 			Msg("解析规划输出失败")
-		return nil, fmt.Errorf("%w: %v", ErrPlanOutputParse, err)
+		return nil, fmt.Errorf("%w: %w", ErrPlanOutputParse, err)
 	}
 
 	return &response, nil

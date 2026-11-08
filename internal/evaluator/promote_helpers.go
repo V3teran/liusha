@@ -55,18 +55,6 @@ func (g *PromotionGate) executePrerun(ctx context.Context, replay func(context.C
 	return res, nil
 }
 
-// extractHypothesis 从 Attempt 中提取假设陈述
-func extractHypothesis(a Attempt) string {
-	var hyp string
-	var c struct {
-		Statement string `json:"statement"`
-	}
-	if json.Unmarshal(a.Content, &c) == nil {
-		hyp = c.Statement
-	}
-	return hyp
-}
-
 // checkMachineGuard 机器护栏：检查断言是否通过
 func (g *PromotionGate) checkMachineGuard(
 	ctx context.Context,

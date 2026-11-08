@@ -74,28 +74,6 @@ type Assertion struct {
 	MinDurationMs   *int              `json:"min_duration_ms,omitempty"`   // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
-// UnmarshalJSON 额外接受 body_absent 键：2026-10-31 前 Go 侧以该键序列化配方（刷新配方时回写落库），
-// 存量配方复验需读回它。存量数据迁移为 body_not_contains 后本别名可删。
-func (a *Assertion) UnmarshalJSON(b []byte) error {
-	var raw struct {
-		StatusCode       *int              `json:"status_code,omitempty"`
-		BodyContains     []string          `json:"body_contains,omitempty"`
-		BodyNotContains  []string          `json:"body_not_contains,omitempty"`
-		LegacyBodyAbsent []string          `json:"body_absent,omitempty"`
-		HeaderContains   map[string]string `json:"header_contains,omitempty"`
-		MinDurationMs    *int              `json:"min_duration_ms,omitempty"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	a.StatusCode = raw.StatusCode
-	a.BodyContains = raw.BodyContains
-	a.BodyNotContains = append(append([]string{}, raw.BodyNotContains...), raw.LegacyBodyAbsent...)
-	a.HeaderContains = raw.HeaderContains
-	a.MinDurationMs = raw.MinDurationMs
-	return nil
-}
-
 func (a Assertion) empty() bool {
 	return a.StatusCode == nil && len(a.BodyContains) == 0 &&
 		len(a.BodyNotContains) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil

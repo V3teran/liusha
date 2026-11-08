@@ -1,10 +1,8 @@
 // scheduler.go 实现定时下发：轮询 cron_schedule.next_run_at 到点的模板 → 克隆一个新
-// assignment（source=proxy，schedule_id 指回模板）→ 展开子 task → 回写 last_run_at/next_run_at。
-// 单副本够用；api 多副本时需另抽 leader 选举。
-//
-// 展开只按 item 形态派发输入供给（不关心引擎——引擎由 runner 按 task._id 解析，数据驱动）：
-//   - item.Host 非空 → 流量复检：建 task（brief=host）+ 领取该 host 未消费 proxy_traffic + enqueue。
-//   - 否则 → brief 扫描：建 task（brief 原文）+ enqueue，target_host 由 runner 从 brief 抽取回填。
+// assignment（source=direct，schedule_id 指回模板）→ 每个 brief 条目展开一个 task（建会话 +
+// enqueue，target_host 由 runner 从 brief 抽取回填）→ 回写 last_run_at/next_run_at。
+// 模板条目恒为用户编写的 brief（唯一写入方 DispatchScheduled）。单副本够用；api 多副本时
+// 需另抽 leader 选举。
 
 package dispatch
 
@@ -20,25 +18,18 @@ import (
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/cronschedule"
-	"github.com/V3teran/liusha/internal/ingestor"
 	"github.com/V3teran/liusha/internal/task"
-	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
 // cronPollInterval 是 Scheduler 轮询 cron_schedule 到点模板的周期。
 const cronPollInterval = 30 * time.Second
 
-// proxyCronClaimLimit 是定时触发流量复检展开时一次性领取的未消费 proxy_traffic 上限——
-// 定时重触发是低频操作（非实时聚合窗口），给一个宽松固定值即可，无需接聚合器配置。
-const proxyCronClaimLimit = 200
-
 // Scheduler 持有定时下发轮询所需的全部依赖。
 type Scheduler struct {
 	Schedules     *cronschedule.Store
 	Assignments   *assignment.Store
 	Tasks         *task.Store
-	ProxyStore    *traffic.ProxyStore
 	AgentRuns     *agentrun.Store
 	Enq           *worker.Client
 	Dispatcher    *Service            // 复用 expandItem（与单发/StartChatTask 同展开逻辑）
@@ -103,25 +94,17 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	}
 
 	for _, item := range items {
+		// 与批量下发同一会话语义：每任务建独立会话并落用户 brief 消息（定时任务的执行
+		// 现场是可观测资产，哑巴任务只能看结果不能看过程）。expandItem 会链会话 + 落
+		// dispatched 节点。
 		var expandErr error
-		switch {
-		case len(item.TrafficIDs) > 0:
-			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
-			expandErr = s.expandTrafficItem(ctx, asg.ID, item)
-		case item.Host != "":
-			expandErr = s.expandTrafficItem(ctx, asg.ID, item)
-		default:
-			// 人工下发条目：与批量下发同一会话语义——每任务建独立会话并落
-			// 用户 brief 消息（定时任务的执行现场是可观测资产，哑巴任务
-			// 只能看结果不能看过程）。expandItem 会链会话 + 落 dispatched 节点。
-			created, cerr := s.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
-			if cerr != nil {
-				expandErr = fmt.Errorf("create conversation: %w", cerr)
-			} else if _, aerr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
-				expandErr = fmt.Errorf("append user message: %w", aerr)
-			} else {
-				_, _, expandErr = s.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
-			}
+		created, cerr := s.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
+		if cerr != nil {
+			expandErr = fmt.Errorf("create conversation: %w", cerr)
+		} else if _, aerr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
+			expandErr = fmt.Errorf("append user message: %w", aerr)
+		} else {
+			_, _, expandErr = s.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
 		}
 		if expandErr != nil {
 			s.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
@@ -141,84 +124,5 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	}
 	s.Logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
 		Msg("cron 定时模板已触发")
-	return nil
-}
-
-// expandTrafficItem 把 assignment 下的一个流量复检 item（host）展开成 task + 领取该 host
-// 未消费的 proxy_traffic + enqueue——与 ingestor.spawnProxyTask 同语义，区别仅在触发源是
-// 定时器而非实时流量窗口（故用固定 proxyCronClaimLimit，不接聚合器配置）。
-//
-// host 显式已知，创建时即写入 target_host（无需等 runner 从 brief 回填）。
-func (s *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
-	host := item.Host
-	tk, err := s.Tasks.Create(ctx, task.NewParams{
-		AssignmentID: assignmentID,
-		Brief:        host,
-		TargetHost:   host,
-	})
-	if err != nil {
-		return fmt.Errorf("create task: %w", err)
-	}
-
-	// 显式流量集（TrafficIDs 非空）走精确领取，否则按 host 领未被本 task 消费的流量。
-	var claimed int64
-	if len(item.TrafficIDs) > 0 {
-		claimed, err = s.ProxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
-	} else {
-		claimed, err = s.ProxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, proxyCronClaimLimit)
-	}
-	if err != nil {
-		_ = s.Tasks.Abort(ctx, tk.ID, "领取流量失败")
-		return fmt.Errorf("claim proxy_traffic for host %s: %w", host, err)
-	}
-	if claimed == 0 {
-		_ = s.Tasks.Abort(ctx, tk.ID, "无可分析流量")
-		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
-	}
-
-	// 任务作用域派生：cron 展开的任务日志自动携带 task_id/assignment_id
-	taskLogger := s.Logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
-
-	// 建代理捕获会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
-	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
-	// ProxyTaskBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
-	// 本次不绑会话，不影响分析主链路。
-	conversationID := ""
-	if s.Conversations != nil {
-		created, conversationErr := s.Conversations.CreateConversation(ctx, host, tk.ID)
-		if conversationErr != nil {
-			taskLogger.Warn().Err(conversationErr).Msg("cron 代理捕获 task 建会话流失败（降级：本次不绑会话）")
-		} else {
-			conversationID = created.ID
-			if traffic, listErr := s.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
-				scheme := "http"
-				if traffic[0].Scheme != "" {
-					scheme = traffic[0].Scheme
-				}
-				if _, msgErr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ingestor.ProxyTaskBrief(scheme, host, traffic), nil); msgErr != nil {
-					taskLogger.Warn().Err(msgErr).Str("conv", created.ID).Msg("写 cron 代理捕获任务说明首条消息失败（降级：会话缺首条气泡）")
-				}
-			}
-		}
-	}
-
-	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
-	hid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
-		TaskID: tk.ID,
-		Role:   "planner",
-		Input:  payloadInput,
-	})
-	if err != nil {
-		return fmt.Errorf("create planner run: %w", err)
-	}
-	if _, _, err := s.Enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
-		AgentRunID:     hid,
-		TaskID:         tk.ID,
-		ConversationID: conversationID,
-		Input:          payloadInput,
-		TaskRole:       worker.RoleAgent,
-	}); err != nil {
-		return fmt.Errorf("enqueue: %w", err)
-	}
 	return nil
 }

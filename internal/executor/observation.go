@@ -428,7 +428,7 @@ func flattenHeaders(headers map[string][]string) map[string]string {
 
 func parseCookieHeader(cookie string) map[string]string {
 	cookies := make(map[string]string)
-	// Cookie: name1=value1; name2=value2
+	// 请求头格式形如「name1=value1; name2=value2」，按分号切分后逐对取键值
 	pairs := splitBySemicolon(cookie)
 	for _, pair := range pairs {
 		if idx := indexOfByte(pair, '='); idx > 0 {

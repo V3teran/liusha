@@ -1,5 +1,5 @@
 import { PageHeader } from '@/components/PageHeader'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
@@ -12,17 +12,27 @@ interface ConversationsPageProps {
 // （/conversations/direct、/conversations/proxy 共用本组件），直连下发/代理捕获两个 tab
 // 差异仅在列表文案/是否可发起新对话，详情区的 SSE/用量/状态/插话全在 ConversationDetail 内。
 export function ConversationsPage({ source }: ConversationsPageProps) {
-  const [searchParams] = useSearchParams()
-  const [currentConv, setCurrentConv] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
   const convListRef = useRef<ConversationListHandle>(null)
 
-  // 人工下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
-  const queryConv = searchParams.get('conv')
-  useEffect(() => {
-    // ?conv= 深链接对两个 tab 都生效（流量详情/任务模块等跨页跳转带 conv 打开对应会话）
-    if (queryConv) setCurrentConv(queryConv)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, queryConv])
+  // 当前会话以 URL 的 ?conv= 为唯一状态：刷新、分享链接、浏览器前进后退都还原同一视图，
+  // 跨页深链接（流量详情 / 任务详情带 conv 跳转）也走同一入口。选择用 replace 写入，
+  // 列表的自动选中不会在历史栈里堆出一串条目。
+  const currentConv = searchParams.get('conv') ?? ''
+  const setCurrentConv = useCallback(
+    (id: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (id) next.set('conv', id)
+          else next.delete('conv')
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
 
   const newConversation = () => setCurrentConv('') // 空=新建态，ConversationDetail 露空状态 + 可发起 Composer（仅 manual）
 
@@ -42,7 +52,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       ? {
           mark: '⇄',
           title: '暂无代理批次',
-          desc: '把浏览器代理指向本机 8888 端口后浏览目标站，捕获的流量会自动成批进入分析队列。',
+          desc: '把浏览器代理指向 liusha 代理入口（本机直接运行为 8588 端口，容器部署默认宿主端口 58588）后浏览目标站，捕获的流量会自动成批进入分析队列。',
         }
       : {
           mark: '⌖',

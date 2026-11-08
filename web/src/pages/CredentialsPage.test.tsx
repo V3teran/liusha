@@ -16,8 +16,6 @@ vi.mock('@/api/credentials', () => ({
   getCredentialDetail: vi.fn(),
   saveCredentialIdentity: vi.fn(),
   deleteCredentialIdentity: vi.fn(),
-  purgeCredentialSessions: vi.fn(),
-  deleteCredentialHost: vi.fn(),
 }))
 
 const mockedHosts = listCredentialHosts as unknown as ReturnType<typeof vi.fn>
@@ -51,8 +49,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   // 双 host：主机列在跨 host 结果下显示（单 host 时按设计隐藏降噪）
   const hosts: CredentialHostSummary[] = [
-    { host: 'a.com', identities: 1, sessions: 1 },
-    { host: 'b.com', identities: 1, sessions: 0 },
+    { host: 'a.com', usernames: 1, sessions: 1 },
+    { host: 'b.com', usernames: 1, sessions: 0 },
   ]
   mockedHosts.mockResolvedValue(hosts)
   mockedDetail.mockImplementation(async (host: string) => {

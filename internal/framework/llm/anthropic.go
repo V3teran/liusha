@@ -87,9 +87,13 @@ func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, 
 		return Result{}, fmt.Errorf("convert tools: %w", err)
 	}
 
+	maxTokens := g.maxTokens
+	if opts.MaxTokens > 0 {
+		maxTokens = int64(opts.MaxTokens)
+	}
 	req := anthropic.MessageNewParams{
 		Model:     g.model,
-		MaxTokens: g.maxTokens,
+		MaxTokens: maxTokens,
 		Messages:  anthropicMsgs,
 	}
 	if len(systemBlocks) > 0 {
@@ -101,7 +105,7 @@ func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, 
 	// 扩展思考：协议约束开启时 temperature 只能为 1，干脆不设（协议默认即 1）——
 	// 调用方传入的温度在该模式下被忽略，避免上游 400。
 	if g.thinkingBudget > 0 {
-		req.Thinking = anthropic.ThinkingConfigParamOfEnabled(g.thinkingBudget)
+		req.Thinking = anthropic.ThinkingConfigParamOfEnabled(clampThinkingBudget(g.thinkingBudget, maxTokens))
 	} else if opts.Temperature != nil {
 		req.Temperature = anthropic.Float(*opts.Temperature)
 	}

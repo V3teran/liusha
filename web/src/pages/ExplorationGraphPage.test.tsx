@@ -26,11 +26,11 @@ class ResizeObserverStub {
   unobserve() {}
   disconnect() {}
 }
-if (!(global as any).ResizeObserver) {
-  ;(global as any).ResizeObserver = ResizeObserverStub
+if (!(globalThis as any).ResizeObserver) {
+  ;(globalThis as any).ResizeObserver = ResizeObserverStub
 }
-if (!(global as any).DOMMatrixReadOnly) {
-  ;(global as any).DOMMatrixReadOnly = class {
+if (!(globalThis as any).DOMMatrixReadOnly) {
+  ;(globalThis as any).DOMMatrixReadOnly = class {
     m22 = 1
     constructor(_?: string | number[]) {}
   }

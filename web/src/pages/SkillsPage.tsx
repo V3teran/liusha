@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { createSkill, updateSkill, deleteSkill, getSkillDetail, assignSkill, type SkillChanges, type SkillAgent } from '@/api/config'
 import type { Skill } from '@/api/types'
@@ -35,32 +35,49 @@ export function SkillsPage() {
   // 装配 tab 数据：抽屉打开时拉详情（全量智能体及各自装配态，后端权威）。
   const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
   const [assignSaving, setAssignSaving] = useState<string | null>(null)
+  const [assignError, setAssignError] = useState('')
+  // 抽屉当前展示的技能：详情与装配请求都是异步的，回调落地前必须确认抽屉仍是发起时那个
+  // 技能——快速连开 A、B 时，A 的迟到结果不得覆盖 B 的装配态（用户会据此改错对象）。
+  const openCodeRef = useRef<string | null>(null)
 
   const openDraft = (sk: Skill) => {
     openDraftState(sk)
     setIsNew(false)
     setAssignAgents(null)
+    setAssignError('')
+    openCodeRef.current = sk.code
     // 装配态随详情拉取（后端权威）；自建/内置都可装配。
     getSkillDetail(sk.code)
-      .then((d) => setAssignAgents(d.agents))
-      .catch(() => setAssignAgents([]))
+      .then((d) => {
+        if (openCodeRef.current === sk.code) setAssignAgents(d.agents)
+      })
+      .catch((e: unknown) => {
+        if (openCodeRef.current !== sk.code) return
+        setAssignError(`装配状态加载失败：${e instanceof Error ? e.message : '未知错误'}`)
+      })
   }
 
   // 装配胶囊点击：乐观翻转 → assignSkill 回存（失败回滚并提示）。后端单一权威。
   const toggleAssign = (agentCode: string, next: boolean) => {
     if (!draft) return
+    const skillCode = draft.code
     setAssignSaving(agentCode)
     setAssignAgents((prev) =>
       prev ? prev.map((a) => (a.code === agentCode ? { ...a, involved: next } : a)) : prev,
     )
-    assignSkill(draft.code, agentCode, next)
+    assignSkill(skillCode, agentCode, next)
       .catch(() => {
-        setAssignAgents((prev) =>
-          prev ? prev.map((a) => (a.code === agentCode ? { ...a, involved: !next } : a)) : prev,
-        )
+        // 回滚只作用于仍在展示的同一技能；已切走则该技能的列表会在下次打开时重新拉取。
+        if (openCodeRef.current === skillCode) {
+          setAssignAgents((prev) =>
+            prev ? prev.map((a) => (a.code === agentCode ? { ...a, involved: !next } : a)) : prev,
+          )
+        }
         window.alert('装配状态保存失败')
       })
-      .finally(() => setAssignSaving(null))
+      .finally(() => {
+        if (openCodeRef.current === skillCode) setAssignSaving(null)
+      })
   }
 
   const openNew = () => {
@@ -71,6 +88,7 @@ export function SkillsPage() {
   const closeDraft = () => {
     closeDraftState()
     setIsNew(false)
+    openCodeRef.current = null
   }
 
   const requestClose = () => {
@@ -241,7 +259,9 @@ export function SkillsPage() {
                         </label>
                       </div>
                       {!isNew &&
-                        (assignAgents === null ? (
+                        (assignError ? (
+                          <p role="alert" className="text-sm text-sev-critical">{assignError}</p>
+                        ) : assignAgents === null ? (
                           <p className="text-sm text-text-secondary">装配状态加载中…</p>
                         ) : (
                           <AgentAssignSection

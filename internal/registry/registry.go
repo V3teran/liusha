@@ -143,17 +143,6 @@ func (r *ToolRegistry) interceptorChain() []Interceptor {
 	return r.interceptors
 }
 
-// Interceptors 返回当前注册的所有拦截器的副本。
-// 用于创建 sub-registry 时复制拦截器链。
-func (r *ToolRegistry) Interceptors() []Interceptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	// 返回副本，避免外部修改
-	interceptors := make([]Interceptor, len(r.interceptors))
-	copy(interceptors, r.interceptors)
-	return interceptors
-}
-
 // Get 按名称查找工具。
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
@@ -198,7 +187,9 @@ func (w *wrappedTool) Desc() string            { return w.inner.Desc() }
 func (w *wrappedTool) Schema() json.RawMessage { return w.inner.Schema() }
 func (w *wrappedTool) Timeout() time.Duration  { return w.inner.Timeout() }
 func (w *wrappedTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
-	final := ExecuteFunc(func(_ context.Context, tool Tool, a []byte) (ToolResult, error) {
+	// final 必须使用链传下来的 ctx（TimeoutInterceptor 派生的截止期在这里生效），
+	// 不能闭包捕获外层 ctx。
+	final := ExecuteFunc(func(ctx context.Context, tool Tool, a []byte) (ToolResult, error) {
 		return tool.Execute(ctx, a)
 	})
 	return chain(w.reg.interceptorChain(), final)(ctx, w.inner, args)

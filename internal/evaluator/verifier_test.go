@@ -591,8 +591,10 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	if len(w.nodes) != 1 {
 		t.Fatalf("同指纹不得新建节点: nodes=%d", len(w.nodes))
 	}
-	if len(fw.claims) != 1 {
-		t.Fatalf("同指纹不得重写 finding: findings=%d", len(fw.claims))
+	// 重复确认重放交付且指向既有节点：补齐既有节点此前可能失败的交付；
+	// 台账按 dedup_key 幂等（同摘要合并到既有行），不会产生第二条 finding。
+	if len(fw.claims) != 2 || fw.claims[1].ResultNodeID != node1.ID || fw.claims[1].Statement != fw.claims[0].Statement {
+		t.Fatalf("重复确认的交付应指向既有节点且载荷同源: %+v", fw.claims)
 	}
 
 	// 假设节点标记：confirmed + duplicate_of 指向既有发现
@@ -761,4 +763,65 @@ func (shapeCodec) CanonicalKey(raw json.RawMessage) (string, bool) {
 	}
 	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 	return strings.Join([]string{norm(fp.Class), norm(fp.Method), norm(fp.Host), strings.TrimSuffix(norm(fp.Path), "/"), norm(fp.Param)}, "|"), true
+}
+
+// 裁决官必须收到 executor 提出的假设陈述（Attempt.Content.summary）：陈述为空时裁决官只能
+// 从配方自行推断裁决对象，同一请求可支撑多种主张时会确认并非被提交的那一个。
+func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
+	var got string
+	j := judgeFunc(func(_ context.Context, hyp string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+		got = hyp
+		return Verdict{Verdict: VerdictRefuted, Reasoning: "x"}, nil
+	})
+	v := New(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)
+	if _, err := v.Promote(context.Background(), baseAttempt()); err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	if got != "X 参数存在可复现注入" {
+		t.Fatalf("裁决官收到的陈述应为 summary 原文，得 %q", got)
+	}
+}
+
+// failingClaimSink 首次交付失败、之后成功：模拟台账瞬时故障。
+type failingClaimSink struct {
+	fails  int
+	claims []ConfirmedClaim
+}
+
+func (f *failingClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
+	if f.fails > 0 {
+		f.fails--
+		return errors.New("db unavailable")
+	}
+	f.claims = append(f.claims, c)
+	return nil
+}
+
+// 交付失败：晋升返回错误、假设不被标记（保持待裁决），重试时经语义去重命中既有
+// 结果节点并补齐交付——图里有 verified result 而台账缺失的状态不会固化。
+func TestPromote_DeliveryFailureLeavesHypothesisPendingAndRetryDelivers(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-f1"}
+	sink := &failingClaimSink{fails: 1}
+	fp := json.RawMessage(`{"class":"sqli","method":"GET","host":"t.local","path":"/q","param":"id"}`)
+	gate := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp}).
+		WithFingerprintCodec(shapeCodec{})
+
+	if _, err := gate.Promote(context.Background(), baseAttempt()); err == nil {
+		t.Fatal("交付失败应返回错误")
+	}
+	if _, marked := w.metadata[baseAttempt().NodeID]; marked {
+		t.Fatal("交付失败时不得标记假设（否则移出待裁决集合，永不重试）")
+	}
+
+	node, err := gate.Promote(context.Background(), baseAttempt())
+	if err != nil || node == nil {
+		t.Fatalf("重试应成功: node=%v err=%v", node, err)
+	}
+	if len(sink.claims) != 1 || sink.claims[0].ResultNodeID != node.ID {
+		t.Fatalf("重试应补齐交付: %+v", sink.claims)
+	}
+	if len(w.nodes) != 1 {
+		t.Fatalf("重试不应新建第二个结果节点: %d", len(w.nodes))
+	}
 }

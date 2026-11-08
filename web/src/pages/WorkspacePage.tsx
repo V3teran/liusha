@@ -1,14 +1,7 @@
 import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import CodeMirror from '@uiw/react-codemirror'
-import { python } from '@codemirror/lang-python'
-import { javascript } from '@codemirror/lang-javascript'
-import { json } from '@codemirror/lang-json'
-import { markdown } from '@codemirror/lang-markdown'
-import { StreamLanguage } from '@codemirror/language'
-import { shell } from '@codemirror/legacy-modes/mode/shell'
 import {
   ChevronDown,
   ChevronRight,
@@ -34,28 +27,11 @@ import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import { FilterBar } from '@/components/FilterBar'
 
-/** 按扩展名选语言高亮；无匹配返回空数组（纯文本）。 */
-function languageExtensions(path: string) {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
-  switch (ext) {
-    case 'py':
-      return [python()]
-    case 'js':
-    case 'ts':
-    case 'jsx':
-    case 'tsx':
-      return [javascript()]
-    case 'json':
-      return [json()]
-    case 'md':
-      return [markdown()]
-    case 'sh':
-    case 'bash':
-      return [StreamLanguage.define(shell)]
-    default:
-      return []
-  }
-}
+// 编辑器（CodeMirror 核心 + 语言包）独立分包：文件树与列表先渲染，选中文件后才下载编辑器。
+const FileEditor = lazy(() =>
+  import('@/features/workspace/FileEditor').then((m) => ({ default: m.FileEditor })),
+)
+
 /** UUID 段形态（批次/任务目录名不进展示名，避免每行都拖一长串前缀）。 */
 const uuidSeg = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -143,6 +119,10 @@ export function WorkspacePage() {
     enabled: !!selected,
   })
   const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  // 当前选中文件的同步镜像：保存是异步的，回调里要拿「此刻」选中的是谁，闭包里的是发起时的旧值。
+  const selectedRef = useRef<string | null>(null)
+  selectedRef.current = selected
   const [creating, setCreating] = useState<'file' | 'dir' | null>(null)
   const [newName, setNewName] = useState('')
   const [notice, setNotice] = useState('')
@@ -154,12 +134,25 @@ export function WorkspacePage() {
     void qc.invalidateQueries({ queryKey: ['workspace'] })
   }
 
+  // 保存：捕获发起时的文件与草稿快照。请求期间用户可能切到别的文件或继续输入——
+  // 成功后只在「仍是同一文件、草稿未再变动」时清草稿，否则保留新编辑；失败保留草稿供重试。
   async function save() {
-    if (!selected || draft === null) return
-    await putWorkspaceFile(selected, new TextEncoder().encode(draft))
-    setDraft(null)
-    setNotice(`已保存 ${displayPath(selected)}`)
-    refresh()
+    if (!selected || draft === null || saving) return
+    const path = selected
+    const snapshot = draft
+    setSaving(true)
+    try {
+      await putWorkspaceFile(path, new TextEncoder().encode(snapshot))
+      if (selectedRef.current === path) {
+        setDraft((cur) => (cur === snapshot ? null : cur))
+      }
+      setNotice(`已保存 ${displayPath(path)}`)
+      refresh()
+    } catch (e) {
+      setNotice(`保存失败：${displayPath(path)}（${(e as Error).message}），草稿已保留`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // 新建流：commitCreate 统一处理文件/目录两种提交。
@@ -356,22 +349,11 @@ export function WorkspacePage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
-                  {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
                   <button
                     onClick={() => void download(selected)}
                     className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-text-secondary hover:text-text"
                   >
                     <Download className="h-3.5 w-3.5" /> 下载
-                  </button>
-                  <button
-                    onClick={() => void save()}
-                    disabled={!editing}
-                    className={cn(
-                      'rounded-lg border border-border px-2.5 py-1 text-xs',
-                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-text-secondary opacity-50',
-                    )}
-                  >
-                    保存
                   </button>
                   <button
                     onClick={() => void remove(selected)}
@@ -381,11 +363,11 @@ export function WorkspacePage() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-text-secondary">文件超过 4MiB，仅载入前段；保存将覆盖全文，请谨慎</p>
+              <p className="text-xs text-text-secondary">文件超过 4MiB，仅载入前段作只读预览——在此保存会用前段覆盖全文、丢失尾部，如需修改请下载后编辑</p>
               <textarea
-                aria-label="文件内容编辑器"
-                value={draft ?? fileQuery.data?.content ?? ''}
-                onChange={(e) => setDraft(e.target.value)}
+                aria-label="文件内容预览（只读）"
+                value={fileQuery.data?.content ?? ''}
+                readOnly
                 spellCheck={false}
                 className="h-96 w-full rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs leading-5"
               />
@@ -404,13 +386,13 @@ export function WorkspacePage() {
                   </button>
                   <button
                     onClick={() => void save()}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     className={cn(
                       'rounded-lg border border-border px-2.5 py-1 text-xs',
-                      editing ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-text-secondary opacity-50',
+                      editing && !saving ? 'text-text hover:bg-surface-2' : 'cursor-not-allowed text-text-secondary opacity-50',
                     )}
                   >
-                    保存
+                    {saving ? '保存中…' : '保存'}
                   </button>
                   <button
                     onClick={() => void remove(selected)}
@@ -427,14 +409,13 @@ export function WorkspacePage() {
                   '[&_.cm-editor]:min-h-[384px] [&_.cm-editor]:bg-surface-2 [&_.cm-gutters]:bg-surface-2 [&_.cm-gutters]:border-r-border',
                 )}
               >
-                <CodeMirror
-                  value={draft ?? fileQuery.data?.content ?? ''}
-                  onChange={(v) => setDraft(v)}
-                  extensions={languageExtensions(selected)}
-                  theme="dark"
-                  height="384px"
-                  basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: true }}
-                />
+                <Suspense fallback={<p className="p-3 text-text-secondary">编辑器加载中…</p>}>
+                  <FileEditor
+                    path={selected}
+                    value={draft ?? fileQuery.data?.content ?? ''}
+                    onChange={setDraft}
+                  />
+                </Suspense>
               </div>
             </div>
           )}

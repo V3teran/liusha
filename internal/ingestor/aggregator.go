@@ -2,6 +2,7 @@ package ingestor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -104,7 +105,7 @@ func (a *aggregator) claimAndReset(ctx context.Context, host string) (bool, erro
 		Mode: "NX",
 		TTL:  10 * time.Second,
 	}).Result()
-	if err != nil && err != redis.Nil {
+	if err != nil && !errors.Is(err, redis.Nil) {
 		return false, fmt.Errorf("agg lock %s: %w", host, err)
 	}
 	if st != "OK" {

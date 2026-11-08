@@ -19,7 +19,7 @@ function mkConv(over: Partial<Conversation>): Conversation {
     title: '我要扫描 example.com',
     task_id: '',
     
-    Source: 'direct',
+    source: 'direct',
     run_status: 'completed',
     finding_count: 0,
     created_at: new Date().toISOString(),
@@ -64,11 +64,11 @@ describe('ConversationList', () => {
   })
 
   it('source 过滤下沉到服务端：按 source 调用 listConversations', async () => {
-    mockPage([mkConv({ id: 'c1', title: '我要扫描 self-x.com', Source: 'direct' })])
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 direct-x.com', source: 'direct' })])
     renderList({ source: 'direct' })
     await waitFor(() => {
       expect(listConversations).toHaveBeenCalledWith(30, 0, 'direct')
-      expect(screen.getByText(/self-x\.com/)).toBeTruthy()
+      expect(screen.getByText(/direct-x\.com/)).toBeTruthy()
     })
   })
 
@@ -247,8 +247,8 @@ describe('ConversationList', () => {
 
   it('forwardRef 暴露 refresh()，调用后回第 1 页重新拉取', async () => {
     vi.mocked(listConversations)
-      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 first.com' })], hasMore: false })
-      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 second.com' })], hasMore: false })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 first.com' })], hasMore: false, total: 1 })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 second.com' })], hasMore: false, total: 1 })
 
     const ref = createRef<ConversationListHandle>()
     render(
@@ -286,8 +286,8 @@ describe('ConversationList', () => {
 
   it('翻页：hasMore=true 时显示下一页按钮，点击后拉取 offset=PAGE_SIZE', async () => {
     vi.mocked(listConversations)
-      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true })
-      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 page2.com' })], hasMore: false })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true, total: 1 })
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c2', title: '我要扫描 page2.com' })], hasMore: false, total: 1 })
 
     renderList()
     await waitFor(() => expect(screen.getByText(/page1\.com/)).toBeTruthy())
@@ -316,5 +316,22 @@ describe('ConversationList', () => {
     renderList()
     await waitFor(() => expect(screen.getByText(/first-disabled\.com/)).toBeTruthy())
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled()
+  })
+})
+
+describe('ConversationList 请求竞态', () => {
+  it('切换来源后，迟到的旧来源响应不得覆盖新列表', async () => {
+    let resolveOld!: (v: { conversations: Conversation[]; hasMore: boolean; total: number }) => void
+    vi.mocked(listConversations)
+      .mockImplementationOnce(() => new Promise((r) => (resolveOld = r)))
+      .mockResolvedValueOnce({ conversations: [mkConv({ id: 'p1', title: '代理批次 new.com' })], hasMore: false, total: 1 })
+    const { rerender } = renderList({ source: 'direct' })
+    rerender(<MemoryRouter><ConversationList source="proxy" onSelect={vi.fn()} onNew={vi.fn()} onDeleted={vi.fn()} /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText(/new\.com/)).toBeTruthy())
+
+    resolveOld({ conversations: [mkConv({ id: 'd1', title: '旧来源 stale.com' })], hasMore: false, total: 1 })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText(/stale\.com/)).toBeNull()
+    expect(screen.getByText(/new\.com/)).toBeTruthy()
   })
 })

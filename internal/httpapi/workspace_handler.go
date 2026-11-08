@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -58,21 +60,25 @@ func getWorkspaceFileHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 func getWorkspaceRawHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rel := c.Query("path")
-		base := rel
-		if i := strings.LastIndex(base, "/"); i >= 0 {
-			base = base[i+1:]
-		}
-		if base == "" {
+		// 下载文件名取末段；目录路径以 / 结尾，先去尾斜杠再取（否则目录一律得到空名）。
+		base := path.Base(strings.TrimSuffix(rel, "/"))
+		if base == "." || base == "/" || base == "" {
 			base = "workspace"
 		}
-		// 目录 → zip 流（头发出后失败即客户端截断，无法回状态码）
+		// 目录 → zip 流。ZipTo 在写出任何字节前校验目录存在性：此时失败仍可回真实状态码；
+		// 已开始输出后的失败只能截断连接，必须留痕（客户端只会看到损坏的下载）。
 		if strings.HasSuffix(rel, "/") {
 			c.Header("Content-Type", "application/zip")
-			c.Header("Content-Disposition", `attachment; filename="`+base+`.zip"`)
+			c.Header("Content-Disposition", attachmentDisposition(base+".zip"))
 			if err := api.ZipTo(rel, c.Writer); err != nil {
-				return
+				if !c.Writer.Written() {
+					c.Writer.Header().Del("Content-Disposition")
+					respondErr(c, http.StatusNotFound, err)
+					return
+				}
+				apiLog.Warn().Err(err).Str("path", rel).Msg("目录打包中途失败，下载已截断")
+				_ = c.Error(err)
 			}
-			c.Status(http.StatusOK)
 			return
 		}
 		// 文件 → 原样字节流
@@ -82,7 +88,7 @@ func getWorkspaceRawHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 			return
 		}
 		defer func() { _ = f.Close() }()
-		c.Header("Content-Disposition", `attachment; filename="`+base+`"`)
+		c.Header("Content-Disposition", attachmentDisposition(base))
 		c.DataFromReader(http.StatusOK, info.Size(), "application/octet-stream", f, nil)
 	}
 }
@@ -127,4 +133,10 @@ func deleteWorkspacePathHandler(api WorkspaceFileAPI) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": c.Query("path")})
 	}
+}
+
+// attachmentDisposition 生成下载头：文件名经 RFC 2231 编码——工作区允许中文与带引号的名字，
+// 直接拼进 filename="…" 会产生非法头（引号截断、非 ASCII 字节）。
+func attachmentDisposition(filename string) string {
+	return mime.FormatMediaType("attachment", map[string]string{"filename": filename})
 }

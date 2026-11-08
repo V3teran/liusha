@@ -54,7 +54,6 @@ function renderPage() {
 describe('WorkspacePage', () => {
   it('直接展示整棵文件结构（目录弱化行 + 文件行），默认最新任务在前', async () => {
     mockedTree.mockImplementation(() => {
-      console.log('DBG tree called')
       return Promise.resolve([
         makeEntry('task-abc/', true),
         makeEntry('task-abc/work/', true),
@@ -93,6 +92,38 @@ describe('WorkspacePage', () => {
     const args = mockedPut.mock.calls[0]
     expect(args[0]).toBe('task-abc/work/poc.py')
     expect(new TextDecoder().decode(args[1] as Uint8Array)).toBe('new')
+  })
+
+  it('保存失败：提示失败原因并保留草稿供重试', async () => {
+    mockedTree.mockResolvedValue([makeEntry('task-abc/work/poc.py')])
+    mockedFile.mockResolvedValue({
+      path: 'task-abc/work/poc.py', binary: false, content: 'old', size: 3,
+      truncated: false, mod_time: '2026-11-01T10:00:01Z',
+    })
+    mockedPut.mockRejectedValue(new Error('403 forbidden'))
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByText('poc.py'))
+    fireEvent.change(await screen.findByDisplayValue('old'), { target: { value: 'edited' } })
+    fireEvent.click(screen.getByText('保存'))
+    expect(await screen.findByText(/保存失败.*403 forbidden/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('edited')).toBeInTheDocument()
+  })
+
+  it('超大文件只读预览：无保存入口，不能编辑（避免用前段覆盖全文）', async () => {
+    mockedTree.mockResolvedValue([makeEntry('task-abc/out/big.log')])
+    mockedFile.mockResolvedValue({
+      path: 'task-abc/out/big.log', binary: false, content: 'head-part', size: 9_000_000,
+      truncated: true, mod_time: '2026-11-01T10:00:01Z',
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByText('big.log'))
+    const box = await screen.findByLabelText('文件内容预览（只读）')
+    expect(box).toHaveAttribute('readonly')
+    expect(screen.queryByText('保存')).toBeNull()
   })
 
   it('搜索过滤树（命中 + 祖先链），无匹配显示占位', async () => {

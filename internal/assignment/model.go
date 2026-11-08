@@ -48,11 +48,10 @@ type Assignment struct {
 	CreatedAt   time.Time
 }
 
-// Item 是 payload 数组的单个条目。人工下发（direct）用 Brief（+可选 Host）；代理捕获（proxy）用 TrafficIDs。
+// Item 是 payload 数组的单个条目。人工下发（direct）用 Brief；代理捕获（proxy）用 Host（攒批的目标主机）。
 type Item struct {
-	Brief      string  `json:"brief,omitempty"`
-	Host       string  `json:"host,omitempty"`
-	TrafficIDs []int64 `json:"traffic_ids,omitempty"`
+	Brief string `json:"brief,omitempty"`
+	Host  string `json:"host,omitempty"`
 }
 
 // NewParams 是 Store.Create 的入参。

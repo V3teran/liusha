@@ -1,59 +1,68 @@
-# golangci-lint configuration
+# golangci-lint v2 配置。
 # https://golangci-lint.run/usage/configuration/
 
-version: 2
+version: "2"
 
 run:
   timeout: 5m
-  skip-dirs:
-    - vendor
-    - web
 
 linters:
-  exclusions:
-    rules:
-      # 测试文件里的不安全 fixture 是刻意的（靶机测试服务需要不安全 Cookie/反射输出）
-      - path: _test\.go
-        linters:
-          - gosec
-          - gocritic
-
+  default: standard # errcheck / govet / ineffassign / staticcheck / unused
   enable:
-    # 默认启用的
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    # 额外启用的
     - misspell
     - gocritic
     - revive
     - unconvert
     - gocyclo
     - gosec
+    - bodyclose # HTTP 响应体未关闭会泄漏连接（本项目大量出站 HTTP：LLM / 沙箱 / 重放 / 探测）
+    - errorlint # 包装错误必须用 errors.Is/As 判定，== / 类型断言在 %w 包装后失效
+    - nilerr # 拿到 err 却返回 nil，静默吞错
 
-linters-settings:
-  gocyclo:
-    min-complexity: 20
+  settings:
+    gocyclo:
+      # 30：圈复杂度把 || 链与顺序早返回逐一计数，21–30 区间多为错误分类、参数分派这类
+      # 线性结构，拆分收益低于回归风险。超过 30 才视为必须拆分的结构性复杂度。
+      min-complexity: 30
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        # 按值传递大结构体 / range 值拷贝：在本项目的调用频率下（每步一次 LLM/工具调用，
+        # 耗时以秒计）拷贝开销不可感知，逐处改指针只增加别名与可变性风险，不换取实际收益。
+        - hugeParam
+        - rangeValCopy
+    revive:
+      rules:
+        - name: var-naming
+          disabled: true
+        - name: exported
+          disabled: true
+    gosec:
+      excludes:
+        - G104 # 未检查错误由 errcheck 负责，避免双报
+        - G304 # 文件路径来自受控配置/工作区根校验（workspace 包自有越界防护）
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-
-  revive:
+  exclusions:
+    paths:
+      - vendor
+      - web
     rules:
-      - name: var-naming
-        disabled: true
-      - name: exported
-        disabled: true
-
-  gosec:
-    excludes:
-      - G104
-      - G304
+      # 测试文件里的不安全 fixture 是刻意的（靶机测试服务需要不安全 Cookie/反射输出）
+      - path: _test\.go
+        linters:
+          - gosec
+          - gocritic
+      # 测试里的响应来自 httptest.ResponseRecorder（内存缓冲，无连接可泄漏）
+      - path: _test\.go
+        linters:
+          - bodyclose
+      # 工具约定：执行失败作为 ToolResult.Error 回传给 LLM（让模型自我纠正），不向循环抛错
+      - linters:
+          - nilerr
+        source: 'return registry\.ToolResult\{Error:'
 
 issues:
-  max-issues-per-linter: 50
-  max-same-issues: 10
+  max-issues-per-linter: 0
+  max-same-issues: 0

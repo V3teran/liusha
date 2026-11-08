@@ -13,11 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/attachment"
-	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/auth"
@@ -85,7 +86,7 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)
 	cronStore := cronschedule.NewStore(pool) // 定时模板（§3.3/§4.2），Scheduler goroutine 轮询
 	findStore := finding.NewStore(pool)
-	proxyTrafficStore := traffic.NewProxyStore(pool) // cron 定时触发流量复检展开时领取该 host 未消费流量
+	proxyTrafficStore := traffic.NewProxyStore(pool) // 代理捕获流量只读浏览（流量模块）
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 	controlPlaneStore := controlplane.NewStore(pool) // 任务控制平面（人工干预）
@@ -273,7 +274,6 @@ func main() {
 		Schedules:     cronStore,
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
-		ProxyStore:    proxyTrafficStore,
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
 		Dispatcher:    dispatchService,

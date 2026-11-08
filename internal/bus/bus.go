@@ -182,7 +182,12 @@ func (b *MemoryBus) SubscribeTask(taskID string) *TaskSubscription {
 	op := taskSubOp{sub: sub, taskID: taskID, done: make(chan struct{})}
 	select {
 	case b.taskOps <- op:
-		<-op.done
+		// 入队后总线可能先于处理本操作而停止（ctx 取消，run 不再消费队列）：
+		// 确认等待必须同样监听总线 ctx，否则 done 永不关闭、调用方永久挂住。
+		select {
+		case <-op.done:
+		case <-b.ctx.Done():
+		}
 	case <-b.ctx.Done():
 	}
 	return sub

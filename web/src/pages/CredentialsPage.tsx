@@ -64,7 +64,7 @@ export function CredentialsPage() {
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
 
-  const { rows, isLoading, isError, error } = useAllCredentialRows()
+  const { rows, failedHosts, retryDetails, isLoading, isError, error } = useAllCredentialRows()
   const saveMutation = useSaveCredentialIdentity()
   const deleteIdentity = useDeleteCredentialIdentity()
 
@@ -231,6 +231,16 @@ export function CredentialsPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {failedHosts.length > 0 && (
+              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-sev-medium/40 bg-sev-medium/10 px-3 py-2 text-sm text-sev-medium">
+                <span>
+                  {failedHosts.length} 个目标的凭证加载失败，列表不完整：{failedHosts.join('、')}
+                </span>
+                <Button size="sm" variant="secondary" onClick={retryDetails}>
+                  重试
+                </Button>
+              </div>
+            )}
             {/* 录入新行（展开在表格上方；单凭证行起手，更多凭证保存后点凭证单元格追加） */}
             {creating && (
               <div className="grid grid-cols-[minmax(120px,1.2fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(240px,3fr)_auto] items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2">

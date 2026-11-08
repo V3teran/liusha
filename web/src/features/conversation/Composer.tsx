@@ -69,8 +69,12 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
     if (fileInputRef.current) fileInputRef.current.value = '' // 允许重选同一文件
   }
 
+  // 发送闸门的单一事实源：按钮与 Enter 都经 send()，上传中/禁用时一律不发——
+  // 否则 Enter 会提交不完整的附件集合，迟到的附件还会挂到下一条消息上。
+  const canSend = (brief.trim() !== '' || attachments.length > 0) && !sending && !disabled && uploadingCount === 0
+
   const send = async () => {
-    if ((!brief.trim() && attachments.length === 0) || sending) return
+    if (!canSend) return
     setBusyMsg('')
     setSending(true)
     try {
@@ -105,8 +109,6 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
   const effectivePlaceholder = placeholder ?? (convId
     ? '继续提问 / 追加指令…'
     : '描述要扫的目标 / 任务（URL、账号、测试方向）…')
-
-  const canSend = (brief.trim() || attachments.length > 0) && !sending && !disabled && uploadingCount === 0
 
   return (
     <div className="flex flex-shrink-0 flex-col gap-3 border-t border-border bg-surface px-5 py-4">

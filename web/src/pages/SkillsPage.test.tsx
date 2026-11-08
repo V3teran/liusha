@@ -143,3 +143,31 @@ describe('SkillsPage（技能 CRUD）', () => {
     await waitFor(() => expect(mList).toHaveBeenCalledWith(1, expect.any(Number), 'bac'))
   })
 })
+
+describe('SkillsPage 抽屉竞态', () => {
+  beforeEach(() => {
+    mList.mockReset()
+    mGetDetail.mockReset()
+    mList.mockResolvedValue(paged([sk({ id: 'a', code: 'aaa', name: '技能甲' }), sk({ id: 'b', code: 'bbb', name: '技能乙' })]))
+  })
+
+  it('先开 A 再开 B：A 的迟到详情不得覆盖 B 的装配态', async () => {
+    const user = userEvent.setup()
+    let resolveA!: (v: unknown) => void
+    mGetDetail.mockImplementation((code: string) =>
+      code === 'aaa'
+        ? new Promise((r) => (resolveA = r))
+        : Promise.resolve({ skill: sk({ code: 'bbb' }), agents: [{ code: 'planner', name: 'B-规划', involved: true }] }),
+    )
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /技能甲/ }))
+    await user.keyboard('{Escape}')
+    await user.click(await screen.findByRole('button', { name: /技能乙/ }))
+    expect(await screen.findByText('B-规划')).toBeTruthy()
+
+    resolveA({ skill: sk({ code: 'aaa' }), agents: [{ code: 'executor', name: 'A-执行', involved: false }] })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText('A-执行')).toBeNull()
+    expect(screen.getByText('B-规划')).toBeTruthy()
+  })
+})

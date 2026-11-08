@@ -222,3 +222,59 @@ func TestSanitizeName(t *testing.T) {
 		}
 	}
 }
+
+// 并发同名上传：每次上传都得到独立落点、内容互不覆盖。
+func TestSaveUploadConcurrentSameNameNoClobber(t *testing.T) {
+	s, ws := newStores(t)
+	const n = 8
+	type result struct {
+		ref Ref
+		err error
+	}
+	results := make(chan result, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			ref, err := s.SaveUpload(Dest{UploadID: "u"}, strings.NewReader(strings.Repeat(string(rune('a'+i)), 64)), "same.txt", 1<<20)
+			results <- result{ref, err}
+		}(i)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Fatalf("上传失败: %v", r.err)
+		}
+		if seen[r.ref.Path] {
+			t.Fatalf("两次上传落到同一路径: %s", r.ref.Path)
+		}
+		seen[r.ref.Path] = true
+		got, err := ws.Read(r.ref.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Content) != 64 || strings.Count(got.Content, got.Content[:1]) != 64 {
+			t.Fatalf("文件内容被交错写坏: %q", got.Content)
+		}
+	}
+}
+
+// 批内有一条已过期引用：整批拒绝，且有效引用原地不动（重试时仍可用）。
+func TestMaterializeAllOrNothing(t *testing.T) {
+	s, ws := newStores(t)
+	good, err := s.SaveUpload(Dest{ConversationID: "conv-1"}, strings.NewReader("ok"), "a.txt", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := Ref{Name: "gone.txt", Path: path.Join(path.Dir(good.Path), "gone.txt")}
+
+	_, err = s.Materialize(Dest{ConversationID: "conv-1", AssignmentID: "asg", TaskID: "t"}, []Ref{good, expired})
+	if !errors.Is(err, ErrRefExpired) {
+		t.Fatalf("应因过期引用整批拒绝，得 %v", err)
+	}
+	if _, err := ws.Stat(good.Path); err != nil {
+		t.Fatalf("有效引用不应被搬走: %v", err)
+	}
+	if _, err := ws.Stat(path.Join("asg", "t", "inbox", "a.txt")); err == nil {
+		t.Fatal("拒绝的批次不应在 inbox 留下文件")
+	}
+}

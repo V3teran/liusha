@@ -102,7 +102,7 @@ func (r *reactRuntime) runIteration(
 		}
 		r.consecutiveEmptyResponses = 0
 
-		// 没有工具调用 = 得出最终答案
+		// 没有工具调用，即模型已给出最终答案
 		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 

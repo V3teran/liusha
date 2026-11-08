@@ -10,8 +10,10 @@ const md = (over: Partial<TimelineEventMeta>): TimelineEventMeta => ({
   actions: 0,
   findings: 0,
   stop_reason: '',
+  summary: '',
   reason: '',
   tool_name: '',
+  call_id: '',
   args: '',
   result: '',
   duration_ms: 0,
@@ -22,6 +24,9 @@ const md = (over: Partial<TimelineEventMeta>): TimelineEventMeta => ({
   in_tokens: 0,
   out_tokens: 0,
   latency_ms: 0,
+  severity: '',
+  host: '',
+  target: '',
   ...over,
 })
 

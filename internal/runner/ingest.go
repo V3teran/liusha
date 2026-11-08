@@ -140,7 +140,7 @@ func NewIngestHandler(sink InternalSink, token string, logger zerolog.Logger) ht
 			Str("agent_id", req.AgentID).
 			Str("method", req.Method).
 			Str("host", req.Host).
-			Str("uri", req.URI).
+			Str("path", proxy.LogPath(req.URI)).
 			Int("status", req.StatusCode).
 			Msg("ingest accepted")
 

@@ -33,6 +33,7 @@ EXCLUDES=(
 # traffic-analysis：已退役的单 agent 角色名，现行角色见 agent_run_role_check。
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
+# body_absent：断言键已统一为 body_not_contains（迁移 0200 改写存量）。
 FORBIDDEN=(
   '知识图谱'
   '认知图'
@@ -64,6 +65,7 @@ FORBIDDEN=(
   'llmcall'
   'einotools'
   'flows/ingest'
+  'body_absent'
 )
 
 MODE="${1:-check}"

@@ -54,7 +54,7 @@ describe('settings API 客户端', () => {
   })
 
   it('saveRuntimeSettings PUT /settings/runtime', async () => {
-    const body = { step_tool_timeout_seconds: 90, step_llm_timeout_seconds: 240, run_tail_bytes: 8192 }
+    const body = { step_tool_timeout_seconds: 90, step_llm_timeout_seconds: 240, run_tail_bytes: 8192, tool_output_tail_bytes: 16384 }
     const fn = mockFetch(200, { runtime: body })
     await saveRuntimeSettings(body)
     expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime')

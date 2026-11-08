@@ -293,7 +293,7 @@ func main() {
 		recoveryStepLLM+time.Minute,
 	)
 	go func() {
-		if err := recoveryMonitor.Start(trafficCtx); err != nil && err != context.Canceled {
+		if err := recoveryMonitor.Start(trafficCtx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("action recovery monitor stopped")
 		}
 	}()

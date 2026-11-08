@@ -15,7 +15,10 @@ import (
 // analyzeNewResults 分析新出现的 Results
 func (a *Agent) analyzeNewResults(ctx context.Context) error {
 	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
-	if err != nil || len(results) == 0 {
+	if err != nil {
+		return fmt.Errorf("list results: %w", err)
+	}
+	if len(results) == 0 {
 		return nil
 	}
 
@@ -37,9 +40,8 @@ func (a *Agent) analyzeNewResults(ctx context.Context) error {
 		Msg("检测到新 Results，先进行分析")
 
 	if err := a.analyzeAndProcessResults(ctx, fresh); err != nil {
-		a.logger.Error().Err(err).Msg("分析 Results 失败")
-		// 不返回错误，继续生成 Actions
-		return nil
+		// 不推进已分析水位，下一轮重新分析；调用方记录后继续生成 Actions。
+		return fmt.Errorf("analyze results: %w", err)
 	}
 
 	// 标记已分析

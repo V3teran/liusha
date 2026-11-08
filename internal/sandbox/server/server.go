@@ -12,6 +12,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -82,7 +83,7 @@ func (s *HTTPServer) ListenAndServe(ctx context.Context, addr string) error {
 		}
 		return nil
 	case err := <-serveErr:
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return fmt.Errorf("http server: %w", err)

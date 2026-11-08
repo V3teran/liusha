@@ -92,21 +92,27 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     offsetRef.current = offset
 
     // load：拉某一页（o=offset）。翻页 / 轮询 / 手动刷新按钮共用，只是各自传入的 o 不同。
+    // 请求序号：只有最新一次 load 的结果可以落地——切来源/每页条数、轮询与翻页重叠时，
+    // 迟到的旧响应不得覆盖新列表（否则界面显示错来源或跳回旧页）。
+    const reqSeqRef = useRef(0)
     const load = useCallback(
       async (o: number) => {
+        const seq = ++reqSeqRef.current
         setLoading(true)
         try {
           const { conversations, hasMore: hm, total: tt } = await listConversations(size, o, source ?? '')
+          if (seq !== reqSeqRef.current) return
           setItems(conversations)
           setHasMore(hm)
           setTotal(tt)
           setOffset(o)
           setLoadError('')
         } catch (e) {
+          if (seq !== reqSeqRef.current) return
           // 拉取失败必须与「暂无对话」区分——否则网络抖动伪装成空列表
           setLoadError(e instanceof Error ? e.message : '加载失败')
         } finally {
-          setLoading(false)
+          if (seq === reqSeqRef.current) setLoading(false)
         }
       },
       [source, size],

@@ -237,3 +237,29 @@ func TestPublishDecision_MultipleReplanRequests(t *testing.T) {
 
 	t.Log("✅ 多次 replan 请求处理正确（保留最新）")
 }
+
+// kill_action 只能中止本任务的 action：其他任务的节点、本任务的非 action 节点都拒绝且不改状态。
+func TestPublishDecision_KillActionRejectsForeignOrNonAction(t *testing.T) {
+	ctx := context.Background()
+	graph := explorationgraph.NewMemoryStore()
+	stateOpen := explorationgraph.StateOpen
+	mk := func(task string, kind core.NodeKind) string {
+		id := "n-" + uuid.New().String()
+		_, err := graph.CreateNode(ctx, explorationgraph.Node{ID: id, TaskID: task, Kind: kind, State: &stateOpen, Content: []byte(`{}`)})
+		require.NoError(t, err)
+		return id
+	}
+	foreign := mk("other-task", core.KindAction)
+	objective := mk("my-task", core.KindObjective)
+	tool := NewPublishDecisionTool(graph, bus.New(ctx), "my-task")
+
+	for _, id := range []string{foreign, objective} {
+		args, _ := json.Marshal(Decision{Type: "kill_action", ActionID: id, Reason: "x"})
+		res, err := tool.Execute(ctx, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, res.Error, "应拒绝 %s", id)
+		node, err := graph.GetNode(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, explorationgraph.StateOpen, *node.State, "被拒节点状态不得改变")
+	}
+}

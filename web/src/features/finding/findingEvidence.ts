@@ -19,7 +19,20 @@ export interface EvidenceView {
   tier: string | null
 }
 
-/** 配方请求 → curl 命令（业界报告的标准复现形态：可复制、可重放）。 */
+/** POSIX shell 单引号转义：整体包进单引号，内部 ' 写作 '\''——任何字节都按字面传给 curl。 */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** HTTP 方法白名单形态（RFC 7230 token 子集）；不合法时落 GET，不让该字段进入命令。 */
+function safeMethod(method: unknown): string {
+  const m = String(method ?? 'GET').toUpperCase()
+  return /^[A-Z]+$/.test(m) ? m : 'GET'
+}
+
+/** 配方请求 → curl 命令（业界报告的标准复现形态：可复制、可重放）。
+ *  配方字段来自 LLM 与被测目标，可能含任意字符：所有参数经 shell 转义，复制执行
+ *  不会被单引号打断，也不会执行额外命令。 */
 export function buildEvidenceView(
   evaluation?: Record<string, unknown>,
   repro?: Record<string, unknown>,
@@ -33,11 +46,11 @@ export function buildEvidenceView(
   const recipe = rp.recipe as Record<string, any> | undefined
   if (recipe?.request) {
     const req = recipe.request
-    const parts = [`curl -X ${req.method ?? 'GET'} '${req.url ?? ''}'`]
+    const parts = [`curl -X ${safeMethod(req.method)} ${shellQuote(String(req.url ?? ''))}`]
     if (req.headers && Object.keys(req.headers).length > 0) {
-      for (const [k, v] of Object.entries(req.headers)) parts.push(`  -H '${k}: ${v}'`)
+      for (const [k, v] of Object.entries(req.headers)) parts.push(`  -H ${shellQuote(`${k}: ${String(v)}`)}`)
     }
-    if (req.body) parts.push(`  -d '${req.body}'`)
+    if (req.body) parts.push(`  -d ${shellQuote(String(req.body))}`)
     reproCommand = parts.join(' \\\n')
   } else if (recipe?.steps) {
     reproCommand = String(recipe.steps)

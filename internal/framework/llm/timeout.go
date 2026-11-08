@@ -26,7 +26,7 @@ type timeoutProvider struct {
 // 在前端改完即对本进程后续调用生效。
 func WithDynamicCallTimeout(p Provider, fallback time.Duration, getTimeout func(ctx context.Context) time.Duration) Provider {
 	if p == nil {
-		return p
+		return nil
 	}
 	return &timeoutProvider{inner: p, timeout: fallback, dynamic: getTimeout}
 }

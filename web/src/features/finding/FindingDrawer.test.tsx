@@ -7,11 +7,13 @@ import type { FindingRow } from '@/api/types'
 function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
   return {
     id: 'f-1',
+    seq: 1,
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'example.com',
     source: 'direct',
     status: 'open',
+    first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }

@@ -94,7 +94,7 @@ func promoteAssertFromRecipe(flex *reproEnvelope) (string, error) {
 	}
 	if len(flex.Assert) > 0 || len(flex.Recipe) == 0 ||
 		json.Unmarshal(flex.Recipe, &recipeProbe) != nil || len(recipeProbe.Assert) == 0 {
-		return "", nil
+		return "", nil //nolint:nilerr // 宽容探测：recipe 不是对象即无可提升的 assert，交由后续分域校验报错
 	}
 	flex.Assert = recipeProbe.Assert
 	// 从 recipe 中剔除已提升的 assert，避免双份。
@@ -375,7 +375,7 @@ func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
 		MinDurationMs *int              `json:"min_duration_ms"`
 	}
 	if err := json.Unmarshal(assert, &ac); err != nil {
-		return nil // 结构留给闸门裁决，写入侧不做硬失败
+		return nil //nolint:nilerr // 结构留给闸门裁决，写入侧不做硬失败
 	}
 	for _, want := range ac.BodyContains {
 		if len(strings.TrimSpace(want)) < 4 {

@@ -430,7 +430,7 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 // 反查 agent_run 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.AgentRunID == "" {
-		t.logger.Warn().Str("host", snap.Host).Str("uri", snap.URI).
+		t.logger.Warn().Str("host", snap.Host).Str("path", proxy.LogPath(snap.URI)).
 			Msg("internal 流量缺 agent_id，丢弃（browser-svc.py session→agent 归属异常？）")
 		return
 	}
@@ -465,7 +465,7 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	}
 	t.logger.Info().
 		Str("task_id", run.TaskID).Str("agent_run_id", snap.AgentRunID).Int64("traffic_id", trafficID).
-		Str("method", snap.Method).Str("url", snap.URI).
+		Str("method", snap.Method).Str("path", proxy.LogPath(snap.URI)).
 		Msg("internal 流量已入 agent_traffic（不触发代理流量分析）")
 }
 

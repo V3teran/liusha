@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  deleteCredentialHost,
   deleteCredentialIdentity,
   getCredentialDetail,
   listCredentialHosts,
-  purgeCredentialSessions,
   saveCredentialIdentity,
 } from '@/api/credentials'
 import type { CredentialEntry, CredentialIdentity } from '@/api/types'
@@ -33,15 +31,6 @@ export function useCredentialHosts() {
   })
 }
 
-/** 单 host 登录身份详情（全量明文）。 */
-export function useCredentialDetail(host: string | null) {
-  return useQuery({
-    queryKey: credentialKeys.detail(host ?? ''),
-    queryFn: () => getCredentialDetail(host!),
-    enabled: !!host,
-  })
-}
-
 /** 列表行：一个登录身份一行（凭证集在值列与详情面板看）。 */
 export interface CredentialRow {
   rowId: string
@@ -52,7 +41,8 @@ export interface CredentialRow {
 
 /**
  * 全量行：枚举 host → 并行拉详情 → 每个登录身份一行。
- * 任一 host 详情失败时保留其余 host（凭证库浏览不该被单 host 脏数据卡死）。
+ * 任一 host 详情失败时保留其余 host（凭证库浏览不该被单 host 脏数据卡死），
+ * 失败的 host 经 failedHosts 显式上报——不能把「加载失败」伪装成「没有凭证」。
  */
 export function useAllCredentialRows() {
   const hostsQuery = useCredentialHosts()
@@ -60,19 +50,16 @@ export function useAllCredentialRows() {
 
   const detailsQuery = useQuery({
     queryKey: ['credentials', 'all-details', ...hosts.map((h) => h.host)],
-    queryFn: async (): Promise<CredentialRow[]> => {
-      const results = await Promise.all(
-        hosts.map(async (h) => {
-          try {
-            const d = await getCredentialDetail(h.host)
-            return d
-          } catch {
-            return { host: h.host, identities: [] as CredentialIdentity[] }
-          }
-        }),
-      )
+    queryFn: async (): Promise<{ rows: CredentialRow[]; failedHosts: string[] }> => {
+      const settled = await Promise.allSettled(hosts.map((h) => getCredentialDetail(h.host)))
+      const failedHosts: string[] = []
       const rows: CredentialRow[] = []
-      for (const d of results) {
+      settled.forEach((r, i) => {
+        if (r.status === 'rejected') failedHosts.push(hosts[i].host)
+      })
+      for (const r of settled) {
+        if (r.status !== 'fulfilled') continue
+        const d = r.value
         for (const identity of d.identities) {
           // 空壳会话身份不进列表：会话快照的价值在它承载的 cookie；没承载
           // 凭据材料的空壳只是内部管道痕迹，展示出来就是一条废行
@@ -92,14 +79,16 @@ export function useAllCredentialRows() {
       // 倒序（新→旧）：凭证行无后端统一排序出口（host 枚举 + 逐 host 详情拼装），
       // 组装完成后按身份创建时间排——最新录入/会话身份排在最前，浏览以新为优先。
       rows.sort((a, b) => (b.identity.created_at ?? '').localeCompare(a.identity.created_at ?? ''))
-      return rows
+      return { rows, failedHosts }
     },
     enabled: hostsQuery.isSuccess && hosts.length > 0,
     placeholderData: (prev) => prev,
   })
 
   return {
-    rows: detailsQuery.data ?? [],
+    rows: detailsQuery.data?.rows ?? [],
+    failedHosts: detailsQuery.data?.failedHosts ?? [],
+    retryDetails: () => void detailsQuery.refetch(),
     hosts,
     isLoading: hostsQuery.isLoading || (detailsQuery.isPending && hosts.length > 0),
     isError: hostsQuery.isError,
@@ -141,20 +130,3 @@ export function useDeleteCredentialIdentity() {
   })
 }
 
-/** 清空 host 会话身份（持久身份不动）。 */
-export function usePurgeCredentialSessions() {
-  const invalidate = useInvalidateCredentials()
-  return useMutation({
-    mutationFn: (host: string) => purgeCredentialSessions(host),
-    onSuccess: invalidate,
-  })
-}
-
-/** 清空 host 全部身份。 */
-export function useDeleteCredentialHost() {
-  const invalidate = useInvalidateCredentials()
-  return useMutation({
-    mutationFn: (host: string) => deleteCredentialHost(host),
-    onSuccess: invalidate,
-  })
-}

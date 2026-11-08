@@ -120,6 +120,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 			// 由此而来（content/tool_calls/thinking 原文不再缺失）。
 			shadow      Response
 			failed      bool
+			done        bool // 收到 StreamDone 收尾事件
 			streamError string
 		)
 		for ev := range ch {
@@ -138,6 +139,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 					shadow.ToolCalls = append(shadow.ToolCalls, *ev.Tool)
 				}
 			case StreamDone:
+				done = true
 				if ev.Usage != nil {
 					usage = *ev.Usage
 				}
@@ -168,6 +170,12 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 				p.sink.RecordUsage(ctx, p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError))
 				return
 			}
+		}
+		// 未见收尾事件即关闭：部分正文不得审计为成功（与 CollectStream 同口径）。
+		if !failed && !done {
+			failed = true
+			streamError = ErrStreamTruncated.Error()
+			finish = "error: " + streamError
 		}
 		rec := p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError)
 		p.sink.RecordUsage(ctx, rec)
