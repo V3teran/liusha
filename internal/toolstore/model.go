@@ -1,4 +1,4 @@
-// Package tool 实现工具目录（tool 表）的持久化层。
+// Package toolstore 实现工具目录（tool 表）的持久化层。
 //
 // 两套工具体系统一入库为可查询目录：
 //   - kind=function：进程内原生函数工具，事实源 = registry.FunctionToolCatalog
@@ -6,7 +6,7 @@
 //
 // 代码为事实源，本表是启动期 Reconcile 幂等同步出的副本（见 reconcile.go）。
 // 前端工具模块据此检索/分页/展示，并供智能体配置页「选择工具」而非填空。
-package tool
+package toolstore
 
 import "time"
 

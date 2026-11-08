@@ -73,7 +73,7 @@ type Deps struct {
 	TrafficConv TaskConvResolver
 	// ToolCatalog 或 ConfigStore 为 nil 时工具目录路由（/tools 系列）不注册——
 	// 详情/装配需列举、改写智能体，故与 ConfigStore 同守卫。
-	// 由 cmd/api 注入 *cfgtool.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
+	// 由 cmd/api 注入 *toolstore.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
 	// （启动期由代码事实源 reconcile 同步），供前端工具模块检索/展示 + 智能体配置页选工具。
 	ToolCatalog ToolCatalogAPI
 	// Models 为 nil 时模型模块路由（/models 系列）不注册。

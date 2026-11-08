@@ -24,8 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/seed"
-	"github.com/V3teran/liusha/internal/config/settingstore"
-	cfgtool "github.com/V3teran/liusha/internal/config/tool"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
@@ -46,10 +44,12 @@ import (
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/settingstore"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
+	"github.com/V3teran/liusha/internal/toolstore"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/internal/workspace"
@@ -199,8 +199,8 @@ func main() {
 
 	// 工具目录同步：把两套工具体系（内置 function + 外置 cli）幂等同步进 tool 表，
 	// 供前端工具模块检索/展示、智能体配置页「选工具」。代码为事实源，启动期 reconcile 一次。
-	cfgToolStore := cfgtool.NewStore(pool)
-	if up, pr, rErr := cfgtool.Reconcile(ctx, cfgToolStore, toolManifest); rErr != nil {
+	toolCatalog := toolstore.NewStore(pool)
+	if up, pr, rErr := toolstore.Reconcile(ctx, toolCatalog, toolManifest); rErr != nil {
 		logger.Warn().Err(rErr).Msg("工具目录同步失败（工具模块可能展示陈旧目录）")
 	} else {
 		logger.Info().Int("upserted", up).Int("pruned", pr).Msg("工具目录已同步")
@@ -330,7 +330,7 @@ func main() {
 			Renamer:            conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
 			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
 			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
-			ToolCatalog:        cfgToolStore,                          // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
+			ToolCatalog:        toolCatalog,                           // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
 			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）

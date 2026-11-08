@@ -1,4 +1,4 @@
-import type { Message } from '../api/types'
+import type { Message } from '@/api/types'
 
 // 会话卡片分类——单一真相源，TimelineThread（agent 卡渲染分发）与 threadRows（按步分组折叠）共用，避免逻辑分叉。
 // 事件面（后端写者）：reasoning（agent 每轮终稿）、task_status（任务生命周期节点）、

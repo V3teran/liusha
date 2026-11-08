@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import type { TrafficConsumer, TrafficDetail } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { fullTime } from '@/lib/format'
-import { methodColor, statusColor } from '@/lib/httpStatus'
+import { methodColor, statusColor } from './httpStatus'
 import { RawMessageBlock } from './RawMessageBlock'
 
 interface TrafficDetailPaneProps {

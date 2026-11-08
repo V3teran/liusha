@@ -1,5 +1,5 @@
 import { Settings2 } from 'lucide-react'
-import type { ToolCallView } from '@/lib/toolCalls'
+import type { ToolCallView } from './toolCalls'
 
 interface ToolCallCardProps {
   call: ToolCallView

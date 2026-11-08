@@ -17,7 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/config/settingstore"
+	"github.com/V3teran/liusha/internal/settingstore"
 )
 
 // SettingsAPI 是系统配置 CRUD 依赖的窄接口；*settingstore.Store 自动满足。

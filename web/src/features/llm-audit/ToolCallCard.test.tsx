@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ToolCallCard } from './ToolCallCard'
-import type { ToolCallView } from '@/lib/toolCalls'
+import type { ToolCallView } from './toolCalls'
 
 function makeCall(overrides: Partial<ToolCallView> = {}): ToolCallView {
   return { id: 'call-1', name: 'run_command', args: '', ...overrides }

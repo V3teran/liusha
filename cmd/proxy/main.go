@@ -29,12 +29,12 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/filter"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/proxy"
+	"github.com/V3teran/liusha/internal/settingstore"
 	"github.com/rs/zerolog"
 )
 

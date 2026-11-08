@@ -6,9 +6,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/config/settingstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
+	"github.com/V3teran/liusha/internal/settingstore"
 )
 
 const (

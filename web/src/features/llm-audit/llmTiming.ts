@@ -4,7 +4,7 @@
 //   - 总时长优先按**吞吐**判（输出快就不算慢，长输出本该耗时久）；输出太少时吞吐没有统计意义，
 //     退化为按纯耗时判。
 //   - TTFT 按纯耗时判（首 token 与输出量无关）。
-import type { LLMInvocationSummary } from '../api/types'
+import type { LLMInvocationSummary } from '@/api/types'
 
 export type TimingLevel = 'good' | 'warn' | 'bad'
 

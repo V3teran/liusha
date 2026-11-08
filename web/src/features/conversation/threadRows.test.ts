@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { inFlightToolCalls } from './threadRows'
-import type { Message } from '../api/types'
+import type { Message } from '@/api/types'
 
 const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
 

@@ -4,13 +4,13 @@ import { ListChecks, MessageSquare, X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { JumpLink } from '@/components/JumpLink'
 import { severityColor, severityLabel } from '@/lib/severity'
-import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/lib/findingStatus'
+import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
-import { buildEvidenceView } from '@/lib/findingEvidence'
+import { buildEvidenceView } from './findingEvidence'
 
 interface FindingDrawerProps {
   open: boolean
