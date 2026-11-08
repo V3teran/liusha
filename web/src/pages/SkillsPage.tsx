@@ -5,8 +5,9 @@ import type { Skill } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { useSkillsPagedList } from '@/features/config/useConfigQueries'
-import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
+import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
 
 // 空白新建草稿（code 由用户填，建后固定；is_builtin 由后端定 = false）。
 const EMPTY_DRAFT: Skill = {
@@ -223,7 +224,7 @@ export default function SkillsPage() {
                         hint="进 agent 技能索引（Tier 1）的摘要——直接决定 LLM 何时选用本技能"
                       >
                         <textarea
-                          className={INPUT_CLASS + ' min-h-[4rem] resize-y'}
+                          className={TEXTAREA_CLASS + ' min-h-[4rem] resize-y'}
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
@@ -265,7 +266,7 @@ export default function SkillsPage() {
                       hint="read_skill 全文读取的方法论正文（Tier 2）；修改以数据库为准"
                     >
                       <textarea
-                        className={INPUT_CLASS + ' min-h-[26rem] resize-y font-mono text-sm'}
+                        className={TEXTAREA_CLASS + ' min-h-[26rem] resize-y font-mono'}
                         value={draft.body}
                         onChange={(e) => patch({ body: e.target.value })}
                       />

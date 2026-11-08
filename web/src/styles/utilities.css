@@ -16,8 +16,10 @@
 
 /* ========== 战术终端辉光效果 ========== */
 
-/* 选中/聚焦荧光环：描边 + 深色态发散晕 */
-.glow-accent {
+/* 选中/聚焦荧光环：描边 + 深色态发散晕。
+   必须经 @utility 注册：Tailwind v4 只为注册过的工具类生成变体，普通 CSS 类上的
+   focus:/hover:/focus-within: 前缀会被静默丢弃（全站输入框的聚焦辉光曾因此从未生效）。 */
+@utility glow-accent {
   box-shadow: var(--glow-accent);
 }
 

@@ -1,7 +1,10 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import { Search } from 'lucide-react'
 import type { TaskFilters } from '@/api/types'
-import { cn } from '@/lib/utils'
+import { FilterBar } from '@/components/FilterBar'
+import { SearchInput } from '@/components/SearchInput'
+import { Select } from '@/components/ui/Select'
+import { DateTimeRange } from '@/components/ui/DateTimeRange'
+import { isoToLocalInput, syncIsoWithLocalInput } from '@/lib/datetime'
 
 interface TaskFilterBarProps {
   filters: TaskFilters
@@ -21,20 +24,6 @@ const STATUSES: Array<{ value: string; label: string }> = [
   { value: 'aborted', label: '已中止' },
 ]
 
-function localToIso(local: string): string {
-  if (!local) return ''
-  const d = new Date(local)
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
-}
-
-function isoToLocal(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 /** 任务筛选栏（全站统一顺序）：来源/状态下拉 → 搜索（300ms 防抖）→ 创建时间范围 → 清空 →（右）分页。 */
 export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilterBarProps) {
   const [localSearch, setLocalSearch] = useState(filters.search)
@@ -52,22 +41,12 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
 
   const hasFilter = !!(filters.source || filters.status || filters.search || filters.since || filters.until)
 
-  const selectClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all focus:border-accent focus:glow-accent',
-  )
-  const inputClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all placeholder:text-text-tertiary',
-    'focus:border-accent focus:glow-accent',
-  )
-
   return (
-    <div className="-mx-6 mb-3 flex flex-wrap items-center gap-3 bg-surface/30 px-6 pb-3">
-      <select
+    <FilterBar label="任务筛选" canReset={hasFilter} onReset={onReset} trailing={trailing}>
+      <Select
         value={filters.source}
         onChange={(e) => onChange({ ...filters, source: e.target.value })}
-        className={cn(selectClass, 'w-36')}
+        className="w-32"
         aria-label="按来源筛选"
       >
         <option value="">全部来源</option>
@@ -76,12 +55,12 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
             {s.label}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <select
+      <Select
         value={filters.status}
         onChange={(e) => onChange({ ...filters, status: e.target.value })}
-        className={cn(selectClass, 'w-32')}
+        className="w-32"
         aria-label="按状态筛选"
       >
         <option value="">全部状态</option>
@@ -90,49 +69,23 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
             {s.label}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-        <input
-          type="text"
-          value={localSearch}
-          onChange={(e) => setLocalSearch(e.target.value)}
-          placeholder="搜索目标、批次ID"
-          className={cn(inputClass, 'w-72 pl-10')}
-          aria-label="搜索目标或批次ID"
-        />
-      </div>
+      <SearchInput
+        className="w-64"
+        value={localSearch}
+        onChange={setLocalSearch}
+        placeholder="搜索目标、批次 ID"
+        ariaLabel="搜索目标或批次 ID"
+      />
 
-      <div className="flex items-center gap-2">
-        <input
-          type="datetime-local"
-          value={isoToLocal(filters.since)}
-          onChange={(e) => onChange({ ...filters, since: localToIso(e.target.value) })}
-          className={cn(inputClass, 'w-48')}
-          aria-label="创建时间起"
-        />
-        <span className="text-sm text-text-tertiary">→</span>
-        <input
-          type="datetime-local"
-          value={isoToLocal(filters.until)}
-          onChange={(e) => onChange({ ...filters, until: localToIso(e.target.value) })}
-          className={cn(inputClass, 'w-48')}
-          aria-label="创建时间止"
-        />
-      </div>
-
-      {hasFilter && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="h-9 rounded-lg px-3 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
-        >
-          清空筛选
-        </button>
-      )}
-
-      {trailing && <div className="ml-auto flex items-center gap-3">{trailing}</div>}
-    </div>
+      <DateTimeRange
+        start={isoToLocalInput(filters.since)}
+        end={isoToLocalInput(filters.until)}
+        onChange={({ start, end }) => onChange({ ...filters, since: syncIsoWithLocalInput(filters.since, start), until: syncIsoWithLocalInput(filters.until, end) })}
+        startLabel="创建时间起"
+        endLabel="创建时间止"
+      />
+    </FilterBar>
   )
 }

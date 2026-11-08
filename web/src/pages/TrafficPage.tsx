@@ -55,44 +55,45 @@ export function TrafficPage() {
 
       {/* 上下分栏（对齐 Burp HTTP history）：默认列表占满全高、可浏览全部流量；
           点击某行后才在下方拆出详情面板（详情内部请求/响应再左右并排），关闭后恢复全高。
-          未选中时列表 flex-1 独占；选中后列表退为 46% 比例、详情占余下空间。 */}
+          筛选栏固定在顶部；未选中时列表 flex-1 独占，选中后列表退为 42%、详情占余下空间。 */}
       <div className="flex min-h-0 flex-1 flex-col">
+        <TrafficFilterBar
+          filters={filters}
+          contentTypes={contentTypesQuery.data ?? []}
+          onChange={setFilters}
+          onReset={resetFilters}
+          trailing={
+            <PaginationToolbar
+              page={page}
+              pageSize={size}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={setSize}
+              loading={listQuery.isFetching}
+            />
+          }
+        />
         <div
-          className={`flex min-h-0 flex-col overflow-y-auto px-6 py-4 ${
-            hasSelection ? 'shrink-0 basis-[46%] border-b border-border' : 'flex-1'
+          role="grid"
+          aria-label="流量列表"
+          tabIndex={0}
+          onKeyDown={onListKeyDown}
+          className={`min-h-0 overflow-y-auto px-6 py-4 outline-none ${
+            hasSelection ? 'shrink-0 basis-[42%] border-b border-border' : 'flex-1'
           }`}
         >
           {listError ? (
             <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
           ) : (
-            <div role="grid" tabIndex={0} onKeyDown={onListKeyDown} className="flex flex-col outline-none">
-              <TrafficFilterBar
-                filters={filters}
-                contentTypes={contentTypesQuery.data ?? []}
-                onChange={setFilters}
-                onReset={resetFilters}
-                trailing={
-                  <PaginationToolbar
-                    page={page}
-                    pageSize={size}
-                    total={total}
-                    totalPages={totalPages}
-                    onPageChange={setPage}
-                    onPageSizeChange={setSize}
-                    loading={listQuery.isFetching}
-                  />
-                }
-              />
-
-              <TrafficTable
-                rows={rows}
-                loading={listQuery.isPending}
-                hasFilter={hasFilter}
-                showHost={showHost}
-                selectedId={selectedId}
-                onRowClick={selectRow}
-              />
-            </div>
+            <TrafficTable
+              rows={rows}
+              loading={listQuery.isPending}
+              hasFilter={hasFilter}
+              showHost={showHost}
+              selectedId={selectedId}
+              onRowClick={selectRow}
+            />
           )}
         </div>
 

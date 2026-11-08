@@ -7,6 +7,10 @@ import { RefreshCw, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { KIND_ORDER, KIND_PROFILES, STATE_META } from './kindTheme'
 import type { GraphStats } from './layout'
+import { Select } from '@/components/ui/Select'
+import { FilterBar } from '@/components/FilterBar'
+import { Button } from '@/components/ui/Button'
+import { controlClass } from '@/components/ui/control'
 
 export function Toolbar({
   conversationInput,
@@ -36,7 +40,16 @@ export function Toolbar({
   stats: GraphStats
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-surface/50 px-6 py-3">
+    <FilterBar
+      label="探索图筛选"
+      trailing={
+        showFilters ? (
+          <span className="whitespace-nowrap font-mono text-xs text-text-tertiary">
+            {stats.total} 节点 · {stats.edgeCount} 边
+          </span>
+        ) : undefined
+      }
+    >
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
         <input
@@ -45,26 +58,23 @@ export function Toolbar({
           onChange={(e) => onConversationInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onConversationSubmit()}
           placeholder="输入对话 ID，回车加载"
-          className={cn(
-            'h-8 w-72 rounded-lg border border-border bg-surface pl-9 pr-3 text-xs text-text',
-            'outline-none transition-all placeholder:text-text-tertiary',
-            'focus:border-accent focus:glow-accent disabled:opacity-50',
-          )}
+          aria-label="对话 ID"
+          className={controlClass('sm', 'w-72 pl-9 font-mono')}
           disabled={disabled}
         />
       </div>
 
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={onRefresh}
         disabled={disabled || refreshing}
         title="刷新"
-        className={cn(
-          'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface',
-          'transition-all hover:bg-surface-2 disabled:opacity-50',
-        )}
+        aria-label="刷新"
+        className="w-8 px-0"
       >
-        <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
-      </button>
+        <RefreshCw className={cn(refreshing && 'animate-spin')} />
+      </Button>
 
       {showFilters && (
         <>
@@ -93,13 +103,11 @@ export function Toolbar({
             })}
           </div>
 
-          <select
+          <Select
             value={filterState}
             onChange={(e) => onFilterState(e.target.value)}
-            className={cn(
-              'h-8 rounded-lg border border-border bg-surface px-2.5 text-xs text-text',
-              'outline-none transition-all focus:border-accent focus:glow-accent',
-            )}
+            size="sm"
+            aria-label="按状态筛选节点"
           >
             <option value="all">全部状态</option>
             {Object.entries(STATE_META).map(([value, meta]) => (
@@ -107,13 +115,9 @@ export function Toolbar({
                 {meta.label}
               </option>
             ))}
-          </select>
-
-          <span className="ml-auto whitespace-nowrap font-mono text-xs text-text-tertiary">
-            {stats.total} 节点 · {stats.edgeCount} 边
-          </span>
+          </Select>
         </>
       )}
-    </div>
+    </FilterBar>
   )
 }

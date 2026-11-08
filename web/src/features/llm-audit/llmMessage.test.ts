@@ -85,11 +85,11 @@ describe('pickField', () => {
 
 describe('msgColor', () => {
   it('已知角色返回固定色', () => {
-    expect(msgColor('user')).toBe('#38bdf8')
-    expect(msgColor('assistant')).toBe('#34d399')
+    expect(msgColor('user')).toBe('var(--cat-sky)')
+    expect(msgColor('assistant')).toBe('var(--cat-emerald)')
   })
 
   it('未知角色兜底灰', () => {
-    expect(msgColor('weird')).toBe('#94a3b8')
+    expect(msgColor('weird')).toBe('var(--cat-neutral)')
   })
 })

@@ -8,6 +8,7 @@ import { ConvMenu } from './ConvMenu'
 import { fullTime, relativeTime } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
+import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 
 export interface ConversationListHandle {
   refresh: () => Promise<void>
@@ -453,18 +454,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
-            <select
-              value={size}
-              onChange={(e) => setSize(Number(e.target.value))}
-              aria-label="每页条数"
-              className="ml-auto h-7 rounded-md border border-border bg-surface-2 px-1.5 text-xs text-text outline-none transition-colors focus:border-accent"
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n} 条/页
-                </option>
-              ))}
-            </select>
+            <PageSizeSelect value={size} onChange={setSize} className="ml-auto" />
           </div>
         )}
         {/* ⋯ 菜单挂到 body：fixed 视口坐标定位，不被 ul overflow 裁剪（ConvMenu 子组件） */}

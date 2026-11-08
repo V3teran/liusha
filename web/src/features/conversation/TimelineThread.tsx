@@ -207,9 +207,9 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             <div className="flex w-full max-w-3xl flex-col items-start">
               <div className="flex items-center gap-2.5 rounded-2xl rounded-tl-md bg-surface-2 px-4 py-3">
                 <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:0ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:160ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:320ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-tertiary [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-tertiary [animation-delay:160ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-tertiary [animation-delay:320ms]" />
                 </span>
                 <span className="text-sm text-text-secondary">正在思考…</span>
               </div>

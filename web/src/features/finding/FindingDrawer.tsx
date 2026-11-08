@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { ListChecks, MessageSquare, X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { JumpLink } from '@/components/JumpLink'
-import { severityColor, severityLabel } from '@/lib/severity'
+import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,8 @@ import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
 import { buildEvidenceView } from './findingEvidence'
+import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 
 interface FindingDrawerProps {
   open: boolean
@@ -42,7 +44,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   if (!finding) return null
 
   const ev = buildEvidenceView(finding.evaluation, finding.repro)
-  const sevColor = severityColor[finding.severity.toLowerCase()] || '#6e7681'
+  const sevColor = severityColorOf(finding.severity)
   const changed = status !== finding.status || severity !== finding.severity || note !== (finding.triage_note || '')
 
   const handleSave = () => {
@@ -213,7 +215,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       <Badge
                         size="sm"
                         dot={false}
-                        color={ev.tier === 'full_gate' ? '#22c55e' : '#eab308'}
+                        color={ev.tier === 'full_gate' ? 'var(--status-success)' : 'var(--status-warning)'}
                       >
                         {ev.tier === 'full_gate' ? '机器复放 + 终裁' : ev.tier === 'judge_only' ? '仅终裁' : ev.tier}
                       </Badge>
@@ -250,7 +252,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         <span className="mb-2 block text-sm font-medium text-text">机器证据</span>
                         {ev.exploit && (
                           <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs">
-                            <Badge size="sm" dot={false} color={ev.exploit.status === 200 ? '#22c55e' : '#eab308'}>
+                            <Badge size="sm" dot={false} color={ev.exploit.status === 200 ? 'var(--status-success)' : 'var(--status-warning)'}>
                               {ev.exploit.method} {ev.exploit.status ?? '—'}
                             </Badge>
                             <span className="break-all text-text">{ev.exploit.url}</span>
@@ -295,40 +297,34 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     <label className="mb-2 block text-sm font-medium text-text">
                       状态
                     </label>
-                    <select
+                    <Select
                       value={status}
                       onChange={(e) => setStatus(e.target.value)}
-                      className={cn(
-                        'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text',
-                        'outline-none transition-all focus:border-accent focus:glow-accent'
-                      )}
+                      className="w-full"
                     >
                       {FINDING_STATUS_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
 
                   <div>
                     <label className="mb-2 block text-sm font-medium text-text">
                       严重度
                     </label>
-                    <select
+                    <Select
                       value={severity}
                       onChange={(e) => setSeverity(e.target.value)}
-                      className={cn(
-                        'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text',
-                        'outline-none transition-all focus:border-accent focus:glow-accent'
-                      )}
+                      className="w-full"
                     >
                       {SEVERITY_OPTIONS.map((sev) => (
                         <option key={sev} value={sev}>
                           {severityLabel[sev] || sev}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
 
                   <div>
@@ -354,28 +350,12 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
 
           {/* 底部操作栏 */}
           <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
-            <Dialog.Close
-              className={cn(
-                'rounded-lg border border-border px-4 py-2 text-sm font-medium text-text',
-                'transition-all hover:bg-surface-2'
-              )}
-            >
-              取消
+            <Dialog.Close asChild>
+              <Button variant="secondary">取消</Button>
             </Dialog.Close>
-            <button
-              type="button"
-              disabled={!changed}
-              onClick={handleSave}
-              className={cn(
-                'rounded-lg px-4 py-2 text-sm font-semibold',
-                'transition-all',
-                changed
-                  ? 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
-                  : 'cursor-not-allowed bg-surface-2 text-text-disabled'
-              )}
-            >
+            <Button disabled={!changed} onClick={handleSave}>
               保存处置
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

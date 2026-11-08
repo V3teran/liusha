@@ -32,6 +32,7 @@ import {
 import { listTasks } from '@/api/tasks'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { FilterBar } from '@/components/FilterBar'
 
 /** 按扩展名选语言高亮；无匹配返回空数组（纯文本）。 */
 function languageExtensions(path: string) {
@@ -216,10 +217,19 @@ export function WorkspacePage() {
   const assignmentCount = allEntries.filter((e) => e.depth === 0 && e.is_dir).length
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="工作空间" subtitle="沙盒任务工件的宿主持久层" />
 
-      <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
+      <FilterBar
+        label="工作区筛选"
+        trailing={
+          allEntries.length > 0 ? (
+            <span className="whitespace-nowrap text-sm text-text-secondary">
+              <strong className="font-semibold tabular-nums text-text">{assignmentCount}</strong> 个批次工作区
+            </span>
+          ) : undefined
+        }
+      >
         <SearchInput
           className="w-72"
           value={taskQuery}
@@ -227,11 +237,12 @@ export function WorkspacePage() {
           placeholder="搜索路径（批次 / 任务 / 文件名）…"
           ariaLabel="搜索工作区路径"
         />
-        {allEntries.length > 0 && (
-          <span className="text-xs text-text-secondary opacity-75">{assignmentCount} 个批次工作区</span>
+        {notice && (
+          <span role="status" className="text-xs text-text-secondary">
+            {notice}
+          </span>
         )}
-        {notice && <span className="text-xs text-text-secondary">{notice}</span>}
-      </div>
+      </FilterBar>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

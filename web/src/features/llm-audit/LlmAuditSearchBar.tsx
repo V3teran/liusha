@@ -6,6 +6,8 @@ interface LlmAuditSearchBarProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  /** 布局类（宽度），由所在筛选栏决定 */
+  className?: string
 }
 
 /**
@@ -17,7 +19,7 @@ interface LlmAuditSearchBarProps {
  *
  * 实时搜索，带 debounce 防抖
  */
-export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话、批次 ID...' }: LlmAuditSearchBarProps) {
+export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话、批次 ID…', className = 'w-64' }: LlmAuditSearchBarProps) {
   const [localValue, setLocalValue] = useState(value)
 
   // 同步外部变化
@@ -42,7 +44,7 @@ export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话
 
   return (
     <SearchInput
-      className="w-72"
+      className={className}
       value={localValue}
       onChange={setLocalValue}
       placeholder={placeholder}

@@ -3,7 +3,9 @@ import { Eye, EyeOff, KeyRound, Loader2, RefreshCw } from 'lucide-react'
 import type { ProviderConfig, ProviderType } from '@/api/types'
 import { listProviderModels } from '@/api/models'
 import { Switch } from '@/components/ui/switch'
-import { Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { Field } from '@/features/config/ConfigDrawer'
+import { INPUT_CLASS } from '@/components/ui/control'
+import { Select } from '@/components/ui/Select'
 
 // 协议类型展示标签（后端枚举值不变，仅前端呈现）。
 export const TYPE_LABEL: Record<ProviderType, string> = {
@@ -313,14 +315,14 @@ export function ProviderFormBody({
         />
       </Field>
       <Field label="协议">
-        <select
-          className={INPUT_CLASS}
+        <Select
+          className="w-full"
           value={draft.type}
           onChange={(e) => patch({ type: e.target.value as ProviderType })}
         >
           <option value="openai_compat">OpenAI 兼容</option>
           <option value="anthropic">Anthropic</option>
-        </select>
+        </Select>
       </Field>
       <Field label="Base URL" hint="API 端点根地址">
         <input

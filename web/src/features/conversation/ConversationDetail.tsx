@@ -11,6 +11,7 @@ import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
+import { Button } from '@/components/ui/Button'
 
 interface ConversationDetailProps {
   convId?: string
@@ -290,13 +291,9 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
             <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
             <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
-            <button
-              type="button"
-              onClick={retryLoad}
-              className="mt-4 rounded-lg bg-accent-soft px-5 py-2 text-sm text-accent hover:bg-accent/10 hover:text-accent-hover"
-            >
+            <Button className="mt-4" onClick={retryLoad}>
               重试
-            </button>
+            </Button>
           </div>
         </div>
       ) : loading ? (

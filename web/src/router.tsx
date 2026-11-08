@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
 import { LoginPage } from '@/pages/LoginPage'
-import { PlaceholderPage } from '@/pages/PlaceholderPage'
+import { NotFoundPage } from '@/pages/NotFoundPage'
 
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
@@ -41,7 +41,6 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <Navigate to="/conversations/direct" replace /> },
-      { path: 'dashboard', element: <PlaceholderPage title="总览" /> },
       // 任务：批次（assignment）→ 任务（task）列表与下发，位于对话上游。
       { path: 'tasks', element: withSuspense(<TasksPage />) },
       {
@@ -72,6 +71,8 @@ export const router = createBrowserRouter([
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
       // 日志：三进程运行日志（api 尾读 logs/ 共享目录），运维排障视图。
       { path: 'logs', element: withSuspense(<LogsPage />) },
+      // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ])

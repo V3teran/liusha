@@ -13,7 +13,7 @@ export function ModelPage() {
       <PageHeader title="LLM 配置" subtitle="配置模型提供商和能力路由" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-6">
+        <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
           <ProvidersView />
           <AssignmentView />
         </div>

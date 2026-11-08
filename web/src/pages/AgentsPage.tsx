@@ -8,8 +8,10 @@ import type { AgentConfig, Skill, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { useAgentsPagedList } from '@/features/config/useConfigQueries'
-import { ConfigDrawer, Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { agentProfile } from '@/lib/agentColor'
+import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { Select } from '@/components/ui/Select'
 
 // 智能体配置管理页（/config/agents）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
 // 角色身份（标识符/名称/启用）由种子固定，页面只读、接口不收；调度摘要是 planner 规划时
@@ -192,15 +194,15 @@ export function AgentsPage() {
                           </>
                         }
                       >
-                        <select
-                          className={INPUT_CLASS}
+                        <Select
+                          className="w-full"
                           value={draft.complexity}
                           onChange={(e) => patch({ complexity: e.target.value })}
                         >
                           <option value="simple">轻量快答（simple）</option>
                           <option value="medium">标准推理（medium）</option>
                           <option value="complex">深度推理（complex）</option>
-                        </select>
+                        </Select>
                       </Field>
                       <Field label="启用" hint="由种子与运维控制，接口不可改">
                         <label className="flex items-center gap-2 text-sm text-text">
@@ -217,7 +219,7 @@ export function AgentsPage() {
                   content: (
                     // tab 名即字段名，不再重复 Field 标题行；flex-1 铺满抽屉剩余高度。
                     <textarea
-                      className={INPUT_CLASS + ' min-h-[22rem] flex-1 resize-y font-mono text-sm'}
+                      className={TEXTAREA_CLASS + ' min-h-[22rem] flex-1 resize-y font-mono'}
                       value={draft.system_prompt}
                       placeholder="你是一个专业的安全扫描助手..."
                       onChange={(e) => patch({ system_prompt: e.target.value })}

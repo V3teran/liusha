@@ -24,6 +24,9 @@ import { EDGE_COLORS, type ExplorationFlowNode } from './layout'
 const nodeTypes = { exploration: ExplorationNodeCard }
 
 // useReactFlow 在 <ReactFlow> 之外取实例，必须显式包一层 Provider
+/** 静态全图适配的缩放下限：节点卡片正文在此缩放下仍可辨认。 */
+const LEGIBLE_MIN_ZOOM = 0.6
+
 export function GraphCanvas(props: {
   nodes: ExplorationFlowNode[]
   edges: Edge[]
@@ -71,12 +74,13 @@ function GraphCanvasInner({
       requestAnimationFrame(() => {
         fitPendingRef.current = false
         // 智能初始视口：图在跑（存在 running 节点）时定位到活动前沿，随新节点
-        // 到来持续跟进；图静止时保持全图总览
+        // 到来持续跟进；图静止时适配全图，但缩放不低于可读下限——大图全量装进视口时
+        // 节点字号会缩到不可辨认，全局鸟瞰交给右下角小地图，主画布保证卡片可读。
         const running = nodesRef.current.filter((n) => n.data.node.state === 'running').map((n) => n.id)
         if (running.length > 0) {
           void fitView({ nodes: running.map((id) => ({ id })), padding: 0.35, duration: 300, minZoom: 0.3, maxZoom: 1 })
         } else {
-          void fitView({ padding: 0.15, duration: 300, maxZoom: 1 })
+          void fitView({ padding: 0.15, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
         }
       })
     }

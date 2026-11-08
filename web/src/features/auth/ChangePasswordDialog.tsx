@@ -5,6 +5,8 @@ import { Eye, EyeOff, X } from 'lucide-react'
 import { changePassword } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { byteLength, cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
+import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 
 /**
  * 修改密码弹层。
@@ -13,8 +15,6 @@ import { byteLength, cn } from '@/lib/utils'
  * 用新密码重新认证。这是有意的强失效语义：凭证变更后旧会话一律不再可信。
  */
 
-const INPUT_CLASS =
-  'h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent'
 
 /**
  * 展示用错误文案：剥掉 client 层的状态码前缀；非 HTTP 错误给统一连接提示。
@@ -121,7 +121,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
               ] as const
             ).map(([id, label, value, setValue, autoComplete]) => (
               <div key={id}>
-                <label htmlFor={`pwd-${id}`} className="mb-1.5 block text-[12.5px] font-semibold text-text">
+                <label htmlFor={`pwd-${id}`} className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
                   {label}
                 </label>
                 <div className="relative">
@@ -157,24 +157,11 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
 
             <div className="mt-1 flex justify-end gap-2.5">
               <Dialog.Close asChild>
-                <button
-                  type="button"
-                  className="rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:text-text"
-                >
-                  取消
-                </button>
+                <Button variant="secondary">取消</Button>
               </Dialog.Close>
-              <button
-                type="submit"
-                disabled={busy || success}
-                className={cn(
-                  'rounded-lg bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent transition-all',
-                  'hover:bg-accent-softer hover:outline hover:outline-1 hover:outline-accent-soft',
-                  (busy || success) && 'cursor-default opacity-45 hover:bg-accent-soft hover:outline-none',
-                )}
-              >
+              <Button type="submit" disabled={busy || success}>
                 {busy ? '提交中…' : '确认修改'}
-              </button>
+              </Button>
             </div>
           </form>
         </Dialog.Content>

@@ -1,4 +1,6 @@
 import { SearchInput } from '@/components/SearchInput'
+import { FilterBar } from '@/components/FilterBar'
+import { Select } from '@/components/ui/Select'
 import { PageHeader } from '@/components/PageHeader'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -259,11 +261,7 @@ export function LogsPage() {
 
   const anyExists = processes.some((p) => p.exists)
   const hasFilter = !!(filters.process || filters.instance || filters.level || filters.search)
-  const controlClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all placeholder:text-text-tertiary',
-    'focus:border-accent focus:glow-accent',
-  )
+  const resetFilters = () => setFilters({ process: '', instance: '', level: '', search: '' })
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -284,12 +282,35 @@ export function LogsPage() {
         </button>
       </PageHeader>
 
-      {/* 筛选栏（全站统一顺序）：进程 → 实例 → 级别 → 搜索（防抖）→（右）计数 */}
-      <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
-        <select
+      {/* 筛选栏（全站统一顺序）：进程 → 实例 → 级别 → 搜索（防抖）→ 清空 →（右）计数 */}
+      <FilterBar
+        label="日志筛选"
+        canReset={hasFilter}
+        onReset={resetFilters}
+        trailing={
+          <div className="font-mono text-xs text-text-tertiary">
+            {stream.error ? (
+              <button
+                type="button"
+                onClick={stream.refresh}
+                className="inline-flex items-center gap-1 text-sev-critical hover:underline"
+              >
+                <RotateCw className="h-3 w-3" /> {stream.error} · 点击重试
+              </button>
+            ) : (
+              <span>
+                {stream.loading && entries.length === 0 ? '加载中…' : `共 ${entries.length} 条`}
+                {stream.truncated.size > 0 && ' · 窗口外更早未加载'}
+                {!live && ' · 已暂停'}
+              </span>
+            )}
+          </div>
+        }
+      >
+        <Select
           value={filters.process}
           onChange={(e) => setFilters({ ...filters, process: e.target.value, instance: '' })}
-          className={cn(controlClass, 'w-36')}
+          className="w-36"
           aria-label="按进程筛选"
         >
           <option value="">全部进程</option>
@@ -299,12 +320,12 @@ export function LogsPage() {
               {!p.exists && '（无日志文件）'}
             </option>
           ))}
-        </select>
+        </Select>
 
-        <select
+        <Select
           value={filters.instance}
           onChange={(e) => setFilters({ ...filters, instance: e.target.value })}
-          className={cn(controlClass, 'w-52')}
+          className="w-52"
           aria-label="按实例筛选"
           disabled={instanceOptions.length === 0}
         >
@@ -314,12 +335,12 @@ export function LogsPage() {
               {o.label}
             </option>
           ))}
-        </select>
+        </Select>
 
-        <select
+        <Select
           value={filters.level}
           onChange={(e) => setFilters({ ...filters, level: e.target.value })}
-          className={cn(controlClass, 'w-32')}
+          className="w-32"
           aria-label="按级别筛选"
         >
           <option value="">全部级别</option>
@@ -327,36 +348,16 @@ export function LogsPage() {
           <option value="warn">warn</option>
           <option value="info">info</option>
           <option value="debug">debug</option>
-        </select>
+        </Select>
 
         <SearchInput
-          className="w-72"
+          className="w-64"
           value={localSearch}
           onChange={setLocalSearch}
           placeholder="搜索消息、error、业务字段…"
           ariaLabel="搜索日志"
         />
-
-        <div className="ml-auto flex items-center gap-3 font-mono text-xs text-text-tertiary">
-          {stream.error ? (
-            <button
-              type="button"
-              onClick={stream.refresh}
-              className="inline-flex items-center gap-1 text-sev-critical hover:underline"
-            >
-              <RotateCw className="h-3 w-3" /> {stream.error} · 点击重试
-            </button>
-          ) : (
-            <span>
-              {stream.loading && entries.length === 0
-                ? '加载中…'
-                : `共 ${entries.length} 条`}
-              {stream.truncated.size > 0 && ' · 窗口外更早未加载'}
-              {!live && ' · 已暂停'}
-            </span>
-          )}
-        </div>
-      </div>
+      </FilterBar>
 
       <div className="relative min-h-0 flex-1">
         <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto py-1">

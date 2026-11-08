@@ -45,7 +45,9 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
     }),
     columnHelper.accessor('brief', {
       header: '目标',
-      size: 320,
+      // 设计宽度 200：全表设计宽度合计 ≈1130px，1440 视口（侧栏展开）内容区可完整
+      // 放下全部列；宽屏下目标列按权重拉伸，超长目标截断 + title 悬停全文。
+      size: 200,
       cell: (ctx) => (
         <span className="block truncate text-sm text-text" title={ctx.getValue()}>
           {ctx.getValue()}

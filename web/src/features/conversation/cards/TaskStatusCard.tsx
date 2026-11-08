@@ -17,17 +17,17 @@ function statusShape(md: TimelineEventMeta): StatusShape {
     case 'dispatched':
       return { icon: Rocket, label: '已下发扫描', color: 'var(--color-accent)' }
     case 'completed':
-      return { icon: CheckCircle2, label: '扫描完成', color: '#34d399' }
+      return { icon: CheckCircle2, label: '扫描完成', color: 'var(--status-success)' }
     case 'aborted':
-      return { icon: Square, label: '扫描已停止', color: 'var(--color-muted)' }
+      return { icon: Square, label: '扫描已停止', color: 'var(--status-neutral)' }
     case 'failed':
       return { icon: XCircle, label: '扫描执行失败', color: 'var(--color-sev-critical)' }
     case 'paused':
-      return { icon: PauseCircle, label: '扫描已暂停', color: 'var(--color-muted)' }
+      return { icon: PauseCircle, label: '扫描已暂停', color: 'var(--status-neutral)' }
     case 'resumed':
       return { icon: PlayCircle, label: '扫描已继续', color: 'var(--color-accent)' }
     default:
-      return { icon: Square, label: md.status, color: 'var(--color-muted)' }
+      return { icon: Square, label: md.status, color: 'var(--status-neutral)' }
   }
 }
 

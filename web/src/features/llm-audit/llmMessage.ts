@@ -8,6 +8,7 @@ export interface MsgView {
 }
 
 import { toToolCalls } from './toolCalls'
+import { catColor, type CategoricalHue } from '@/lib/categoricalColor'
 
 /** content 可能是纯字符串，也可能是多模态数组 [{type:'text',...}, {type:'image_url',...}]。取文本片段。 */
 export function contentToText(c: unknown): string {
@@ -71,14 +72,14 @@ export function extractReasoning(result: unknown): string {
   return typeof alt === 'string' ? alt : ''
 }
 
-// 消息 role 配色：区分 system/user/assistant/tool，让长对话可扫视。
-const MSG_ROLE_COLOR: Record<string, string> = {
-  system: '#94a3b8',
-  user: '#38bdf8',
-  assistant: '#34d399',
-  tool: '#a78bfa',
+// 消息 role 配色：区分 system/user/assistant/tool，让长对话可扫视（分类色 token，随主题）。
+const MSG_ROLE_HUE: Record<string, CategoricalHue> = {
+  system: 'neutral',
+  user: 'sky',
+  assistant: 'emerald',
+  tool: 'violet',
 }
 
 export function msgColor(role: string): string {
-  return MSG_ROLE_COLOR[role] ?? '#94a3b8'
+  return catColor(MSG_ROLE_HUE[role] ?? 'neutral')
 }
