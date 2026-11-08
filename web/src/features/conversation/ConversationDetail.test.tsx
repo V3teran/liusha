@@ -50,12 +50,12 @@ describe('ConversationDetail', () => {
     vi.clearAllMocks()
   })
 
-  it('无 convId（自主下发 direct）显示空状态引导文案', async () => {
+  it('无 convId（人工下发 direct）显示空状态引导文案', async () => {
     render(<MemoryRouter><ConversationDetail source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('发起一次渗透测试任务')).toBeTruthy()
   })
 
-  it('无 convId（代理模式 proxy）显示对应空状态文案', async () => {
+  it('无 convId（代理捕获 proxy）显示对应空状态文案', async () => {
     render(<MemoryRouter><ConversationDetail source="proxy" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('选择一批流量查看分析')).toBeTruthy()
   })

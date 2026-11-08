@@ -47,7 +47,7 @@ function fullTitle(c: Conversation): string {
 
 const TASK_ACTIVE_HINT = '任务进行中，无法删除。请先在对话页停止任务，删除前先等任务结束。'
 
-// 头部主控件共用尺寸：「+ 新会话」按钮与代理模式 tab 下不可点的「流量批次」占位保持同一盒模型，
+// 头部主控件共用尺寸：「+ 新会话」按钮与代理捕获 tab 下不可点的「流量批次」占位保持同一盒模型，
 // 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
 const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
 
@@ -243,7 +243,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
 
     return (
       <aside className="flex h-full min-h-0 flex-col gap-2">
-        {/* 自主下发/代理模式 tab：按来源（source=direct/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
+        {/* 人工下发/代理捕获 tab：按来源（source=direct/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
             to="/conversations/direct"
@@ -254,7 +254,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            自主下发
+            人工下发
           </NavLink>
           <NavLink
             to="/conversations/proxy"
@@ -265,7 +265,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               )
             }
           >
-            代理模式
+            代理捕获
           </NavLink>
         </div>
         <div className="flex flex-shrink-0 items-stretch gap-1.5">
@@ -416,7 +416,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         {!loadError && filtered.length === 0 && (
           /* 结构化空态：居中引导块占据列表区——空数据也是一等界面状态。
              不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
-             还会让无数据 tab（代理模式）与有数据 tab（自主下发）的左栏观感不一致。 */
+             还会让无数据 tab（代理捕获）与有数据 tab（人工下发）的左栏观感不一致。 */
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
               {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}

@@ -49,7 +49,7 @@ func parseTrafficRef(ref string) (source string, id int64, err error) {
 var listTrafficSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "source":      {"type": "string", "enum": ["agent", "proxy"], "description": "流量来源过滤（可选）：agent=sandbox 内工具自产流量，proxy=代理模式抓包流量。"},
+    "source":      {"type": "string", "enum": ["agent", "proxy"], "description": "流量来源过滤（可选）：agent=sandbox 内工具自产流量，proxy=代理捕获抓包流量。"},
     "method":      {"type": "string", "description": "过滤 HTTP 方法（可选）。"},
     "path_prefix": {"type": "string", "description": "路径前缀过滤（可选），支持 * 通配。"},
     "status_min":  {"type": "integer", "description": "响应状态码下界（可选）。"},

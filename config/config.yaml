@@ -160,7 +160,7 @@ proxy:
   max_request_body_size: 2097152   # 2 MiB（稳健激进：覆盖偶有大上传/批量提交）
   max_response_body_size: 8388608  # 8 MiB（稳健激进：大列表/报表导出/长 HTML）
 
-  # cmd/proxy 进程入口（纯 MITM 代理模式入口，存活检测探 TCP 8588，无独立 healthz HTTP）
+  # cmd/proxy 进程入口（纯 MITM 代理入口，存活检测探 TCP 8588，无独立 healthz HTTP）
   listen_addr: 0.0.0.0:8588         # 容器内监听（宿主映射 38588，见 compose）
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
 

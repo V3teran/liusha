@@ -34,6 +34,7 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 	assignments := assignment.NewStore(pool)
 	tasks := task.NewStore(pool)
 	agentRuns := agentrun.NewStore(pool)
+	conversations := conversation.NewStore(pool)
 	r := &Scheduler{
 		Schedules:     cronschedule.NewStore(pool),
 		Assignments:   assignments,
@@ -41,11 +42,14 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 		ProxyStore:    traffic.NewProxyStore(pool),
 		AgentRuns:     agentRuns,
 		Enq:           enq,
-		Conversations: conversation.NewStore(pool),
+		Conversations: conversations,
+		// Dispatcher 与 Scheduler 共用同一 conversation store：brief 条目展开时
+		// expandItem 要把任务链到会话（生产装配同源，见 cmd/api）。
 		Dispatcher: &Service{
 			Assignments:   assignments,
 			Tasks:         tasks,
 			AgentRuns:     agentRuns,
+			Conversations: conversations,
 			Enq:           enq,
 			MaxRunTimeout: time.Minute,
 		},
@@ -114,6 +118,14 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	if asg.ScheduleID == nil || *asg.ScheduleID != sched.ID {
 		t.Fatalf("克隆的 assignment 应回指模板 id，got %+v", asg.ScheduleID)
 	}
+	// 定时模板的条目是用户编写的目标描述：克隆批次的来源是人工下发（direct），
+	// 与任务表、对话列表、漏洞筛选读到的是同一个真实值。
+	if asg.Source != assignment.SourceDirect {
+		t.Fatalf("定时克隆的 assignment 来源应为 direct，got %q", asg.Source)
+	}
+	if found.Source != string(assignment.SourceDirect) {
+		t.Fatalf("任务列表应直接读出 direct 来源，got %q", found.Source)
+	}
 
 	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
 	if err != nil {
@@ -158,7 +170,7 @@ func TestFireDue_HostItem_ClaimsUnconsumedTraffic(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatalf("应展开出 host=%q 的代理模式 task，got %+v", host, tasks)
+		t.Fatalf("应展开出 host=%q 的代理捕获 task，got %+v", host, tasks)
 	}
 
 	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
@@ -169,11 +181,11 @@ func TestFireDue_HostItem_ClaimsUnconsumedTraffic(t *testing.T) {
 		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
 
-	// cron 展开的代理模式 task 必须绑会话流（title=host + 首条说明），否则
+	// cron 展开的代理捕获 task 必须绑会话流（title=host + 首条说明），否则
 	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
 	conversationID, err := r.Conversations.ResolveConversationByTask(ctx, found.ID)
 	if err != nil || conversationID == "" {
-		t.Fatalf("代理模式 task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
+		t.Fatalf("代理捕获 task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
 	}
 	conv, err := r.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {

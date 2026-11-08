@@ -2,8 +2,8 @@
 //
 //	proxy 责任链放行 → XADD → <stream_name>
 //	ingestor.Traffic XREADGROUP → 按 source 分流：
-//	  external（代理捕获真实流量）→ 落 proxy_traffic（按 host）→ 喂 Redis 聚合窗口
-//	                                → 攒批（20 条/10s）→ 建代理模式 task → 回填 consumed_by_task_id → enqueue
+//	  external（代理捕获的真实流量）→ 落 proxy_traffic（按 host）→ 喂 Redis 聚合窗口
+//	                                → 攒批（20 条/10s）→ 建代理捕获 task → 回填 consumed_by_task_id → enqueue
 //	  internal（agent sandbox 自产）→ 反查 agent 得 task_id → 落 agent_traffic（不 enqueue，防自激震荡）
 //
 // 这里不再做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定。
@@ -31,10 +31,10 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// ConversationCreator 建代理模式 task 的会话流。聚合器建 task 后建一条 conversation，
-// 代理模式 agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（单测按需部分装配；生产必注入）。
+// ConversationCreator 建代理捕获 task 的会话流。聚合器建 task 后建一条 conversation，
+// 代理捕获 agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（单测按需部分装配；生产必注入）。
 //
-// AppendMessage 用于写会话首条「任务说明」消息（role=user）——代理模式是流量驱动自动建 task、
+// AppendMessage 用于写会话首条「任务说明」消息（role=user）——代理捕获是流量驱动自动建 task、
 // 无用户手打 brief，但有确定的任务上下文（host + 认领流量条数）；合成一条说明作为首条右侧气泡，
 // 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
 type ConversationCreator interface {
@@ -67,13 +67,13 @@ type Traffic struct {
 	retryDelay    time.Duration
 	recreateDelay time.Duration
 
-	assignments   *assignment.Store   // 聚合建代理模式 assignment（一切 task 皆属某 assignment）
-	tasks         *task.Store         // 代理模式 task 建/查
+	assignments   *assignment.Store   // 聚合建代理捕获 assignment（一切 task 皆属某 assignment）
+	tasks         *task.Store         // 代理捕获 task 建/查
 	agg           *aggregator         // 按 host 攒批窗口（Redis）
 	proxyStore    *traffic.ProxyStore // 代理捕获流量落库 + 领取
 	agentStore    *traffic.AgentStore // agent 自产流量落库
 	agentRuns     *agentrun.Store     // internal 流量反查 run→task_id
-	conversations ConversationCreator // 建代理模式 task 会话流（nil 跳过）
+	conversations ConversationCreator // 建代理捕获 task 会话流（nil 跳过）
 	enq           *worker.Client
 	logger        zerolog.Logger
 }
@@ -193,7 +193,7 @@ func (t *Traffic) sweepOnce(ctx context.Context) {
 		if !won {
 			continue // 别的实例正在建 task
 		}
-		t.logger.Info().Str("host", host).Msg("窗口超时，超时补偿触发建代理模式 task")
+		t.logger.Info().Str("host", host).Msg("窗口超时，超时补偿触发建代理捕获 task")
 		t.spawnProxyTask(ctx, host)
 	}
 }
@@ -320,7 +320,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) error {
 	return t.handleExternalSnap(ctx, &snap)
 }
 
-// handleExternalSnap 处理代理捕获流量：落 proxy_traffic（按 host）+ 喂聚合窗口，达阈值则建代理模式 task。
+// handleExternalSnap 处理代理捕获流量：落 proxy_traffic（按 host）+ 喂聚合窗口，达阈值则建代理捕获 task。
 // 仅落库失败返回 error（瞬时，留 PEL 重投）；落库之后的下游失败只 warn——流量已安全在库，
 // 未消费部分由后续 task 的 ClaimUnconsumedByHost 或超时 sweep 兜底。
 func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) error {
@@ -361,7 +361,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	return nil
 }
 
-// spawnProxyTask 为某 host 攒够的一批流量建代理模式 task：
+// spawnProxyTask 为某 host 攒够的一批流量建代理捕获 task：
 // 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑会话 → enqueue。
 //
 // 领取用条件更新（consumed_by_task_id IS NULL），跨实例幂等（§13.2）。领到 0 条说明流量已被
@@ -374,7 +374,7 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 		Title:  host,
 	})
 	if err != nil {
-		t.logger.Warn().Err(err).Str("host", host).Msg("建代理模式 assignment 失败")
+		t.logger.Warn().Err(err).Str("host", host).Msg("建代理捕获 assignment 失败")
 		return
 	}
 	tk, err := t.tasks.Create(ctx, task.NewParams{
@@ -383,7 +383,7 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 		TargetHost:   host,
 	})
 	if err != nil {
-		t.logger.Warn().Err(err).Str("host", host).Msg("建代理模式 task 失败")
+		t.logger.Warn().Err(err).Str("host", host).Msg("建代理捕获 task 失败")
 		return
 	}
 	// 任务作用域派生：本任务后续日志自动携带 task_id/assignment_id，调用点不再手写
@@ -408,19 +408,19 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 	conversationID := t.ensureConversation(ctx, taskLogger, tk.ID, host, claimedTraffic)
 	// 下发 brief 用完整任务说明（scheme://host + 流量清单 + 工具指引），而非裸 host：
 	// runner onboard 靠 brief 里的 URL 抽取 host（hostRe 要求带协议头）建探索图 Objective，
-	// agent 的目标上下文也来自它——裸 host 曾让两者全空，代理模式分析失去方向。
+	// agent 的目标上下文也来自它——裸 host 曾让两者全空，代理流量分析失去方向。
 	scheme := "http"
 	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
 		scheme = claimedTraffic[0].Scheme
 	}
 	conversationLogger := taskLogger.With().Str("conversation_id", conversationID).Logger()
 	if err := t.enqueueProxyTask(ctx, tk.ID, conversationID, ProxyTaskBrief(scheme, host, claimedTraffic)); err != nil {
-		conversationLogger.Warn().Err(err).Msg("代理模式 task 入队失败")
+		conversationLogger.Warn().Err(err).Msg("代理捕获 task 入队失败")
 		return
 	}
 	conversationLogger.Info().
 		Str("host", host).Int64("traffic", claimed).
-		Msg("代理模式 task 已建并入 executor 队列")
+		Msg("代理捕获 task 已建并入 executor 队列")
 }
 
 // handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
@@ -466,11 +466,11 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	t.logger.Info().
 		Str("task_id", run.TaskID).Str("agent_run_id", snap.AgentRunID).Int64("traffic_id", trafficID).
 		Str("method", snap.Method).Str("url", snap.URI).
-		Msg("internal 流量已入 agent_traffic（不触发代理模式分析）")
+		Msg("internal 流量已入 agent_traffic（不触发代理流量分析）")
 }
 
-// ensureConversation 为代理模式 task 建会话流（title=host）并回填 conversation.task_id，
-// 再写一条「任务说明」首条消息（role=user）——代理模式无用户手打 brief，但有确定任务上下文
+// ensureConversation 为代理捕获 task 建会话流（title=host）并回填 conversation.task_id，
+// 再写一条「任务说明」首条消息（role=user）——代理捕获无用户手打 brief，但有确定任务上下文
 // （host + 本批捕获的请求清单），合成说明作为会话首条右侧气泡（对齐 active 的 brief）。
 // conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落会话，但流量分析照常）。
 func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Logger, taskID, host string, trafficList []traffic.ProxyTraffic) string {
@@ -479,7 +479,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 	}
 	created, err := t.conversations.CreateConversation(ctx, host, taskID)
 	if err != nil {
-		taskLogger.Warn().Err(err).Str("host", host).Msg("建代理模式 task 会话流失败（降级：本次不绑会话）")
+		taskLogger.Warn().Err(err).Str("host", host).Msg("建代理捕获 task 会话流失败（降级：本次不绑会话）")
 		return ""
 	}
 	// 首条任务说明（role=user）：与下发 brief 同源（scheme://host + 流量清单 + 工具指引），
@@ -489,7 +489,7 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 		briefScheme = trafficList[0].Scheme
 	}
 	if _, err := t.conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ProxyTaskBrief(briefScheme, host, trafficList), nil); err != nil {
-		taskLogger.Warn().Err(err).Str("conversation_id", created.ID).Msg("写代理模式任务说明首条消息失败（降级：会话缺首条气泡）")
+		taskLogger.Warn().Err(err).Str("conversation_id", created.ID).Msg("写代理捕获任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return created.ID
 }
@@ -497,8 +497,8 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 // proxyTaskBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
 const proxyTaskBriefMaxList = 20
 
-// ProxyTaskBrief 合成代理模式的任务说明（一份文本两用：会话首条气泡给用户看 +
-// 下发 brief 给 agent 当目标上下文）。实时聚合与 cron 定时展开两条代理模式触发路径共用，
+// ProxyTaskBrief 合成代理捕获的任务说明（一份文本两用：会话首条气泡给用户看 +
+// 下发 brief 给 agent 当目标上下文）。实时聚合与 cron 定时展开两条代理捕获触发路径共用，
 // 保证会话首条气泡与 agent 目标上下文同源。设计要点：
 //   - 首行必须含 scheme://host 形式的目标 URL——runner onboard 靠 hostRe（https?://…）
 //     从 brief 抽取 host；

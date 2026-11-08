@@ -30,7 +30,7 @@ type Deps struct {
 	// 不带任务状态。
 	TaskStatus TaskStatusResolver
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
-	// 全局漏洞台账（自主下发 + 代理模式全量 + triage 处置），漏洞页用。
+	// 全局漏洞台账（人工下发 + 代理捕获全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI
 	// Workspaces 为 nil 时 /workspaces 路由不注册。由 cmd/api 注入
 	// *workspace.Store——任务工作区的文件检索与 CRUD（沙盒工件）。

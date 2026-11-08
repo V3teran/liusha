@@ -5,7 +5,7 @@ import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 // URL state」）：刷新、前进/后退、分享链接都能还原筛选与翻页位置。
 //
 // 参数名：source / status / search / since / until / page / size。
-// source 口径对齐后端：定时克隆归 direct（自主），proxy 仅代理模式聚合。
+// source 口径对齐后端：定时克隆归 direct（自主），proxy 仅代理捕获聚合。
 const FIELDS = { source: 'source', status: 'status', search: 'search', since: 'since', until: 'until' } as const
 
 export interface TaskUrlState {

@@ -1,7 +1,7 @@
 // Package traffic 实现两张流量表的持久化层，按「流量的产生者」拆分（见 spec §5）：
 //
 //   - proxy_traffic（ProxyStore）：代理捕获的真实用户流量，被分析的输入，属于 host，
-//     先于任何 task 存在。ingestor external 链路写入；代理模式认知循环经 list/view_traffic 读它。
+//     先于任何 task 存在。ingestor external 链路写入；代理捕获任务的认知循环经 list/view_traffic 读它。
 //   - agent_traffic（AgentStore）：agent 在 sandbox 自产的流量，干活副产物/弹药，属于 task。
 //     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/view_traffic 工具读它。
 //
@@ -37,11 +37,11 @@ type ProxyTraffic struct {
 	HTTPVersion string // 协议版本 token（HTTP/1.1 等）
 	RespLen     int64  // 响应体字节数（已解压/截断后），前端「长度」列
 	CapturedAt  time.Time
-	// ConsumedBy 是消费本条流量的代理模式 task 列表（M:N）；仅 GetByID JOIN 装填，其余读为空。
+	// ConsumedBy 是消费本条流量的代理捕获 task 列表（M:N）；仅 GetByID JOIN 装填，其余读为空。
 	ConsumedBy []ConsumerTask
 }
 
-// ConsumerTask 是消费某条代理流量的代理模式 task 摘要（前端消费关系 chip 展示用）。
+// ConsumerTask 是消费某条代理流量的代理捕获 task 摘要（前端消费关系 chip 展示用）。
 type ConsumerTask struct {
 	TaskID string
 	Host   string

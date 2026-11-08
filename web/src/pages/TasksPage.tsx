@@ -13,8 +13,8 @@ import type { TaskSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { Button } from '@/components/ui/Button'
 
-// 任务模块：assignment（批次）→ task（执行实体）的列表视图。自主下发 1 assignment → N task，
-// 代理模式 1 assignment → 1 task；每 task 绑一个对话（详情板跳转）。
+// 任务模块：assignment（批次）→ task（执行实体）的列表视图。人工下发 1 assignment → N task，
+// 代理捕获 1 assignment → 1 task；每 task 绑一个对话（详情板跳转）。
 //
 // 布局：左列表（筛选 + 10 列表 + 分页）+ 右详情板（点行选中，Esc/✕ 关闭）。
 // 筛选/分页态进 URL（useTaskFilters），列表含 active 任务时 15s 轮询推进状态/进度。

@@ -209,7 +209,7 @@ func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
 }
 
 // TestListConversationsHandler_SourceFilterPassedToStore：source query 透传给 store，
-// 供前端「自主下发 / 代理模式」双 tab 按来源分流（direct/proxy）。
+// 供前端「人工下发 / 代理捕获」双 tab 按来源分流（direct/proxy）。
 func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fc := &fakeConversations{}

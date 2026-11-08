@@ -53,7 +53,7 @@ function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
 }
 
 describe('ConversationsPage', () => {
-  it('自主下发(direct) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('人工下发(direct) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
     renderPage('direct', '/?conv=conv-from-query')
@@ -62,7 +62,7 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('代理模式(proxy) 同样读取 ?conv=（深链双 tab 生效）', () => {
+  it('代理捕获(proxy) 同样读取 ?conv=（深链双 tab 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
     renderPage('proxy', '/?conv=conv-from-query')
@@ -113,16 +113,16 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('自主下发(direct)：allowNew=true，无自定义 heading，带结构化空态', () => {
+  it('人工下发(direct)：allowNew=true，无自定义 heading，带结构化空态', () => {
     listProps.mockClear()
     renderPage('direct')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
     expect(lastListCall.heading).toBeUndefined()
-    expect(lastListCall.emptyState.title).toBe('暂无自主下发的对话')
+    expect(lastListCall.emptyState.title).toBe('暂无人工下发的对话')
   })
 
-  it('代理模式(proxy)：allowNew=false，heading=代理批次，空态引导挂代理', () => {
+  it('代理捕获(proxy)：allowNew=false，heading=代理批次，空态引导挂代理', () => {
     listProps.mockClear()
     renderPage('proxy')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]

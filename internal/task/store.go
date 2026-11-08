@@ -73,7 +73,7 @@ func scan(r db.RowScanner, t *Task) error {
 // 坏参数退化成不筛，不打 400）。Since/Until 按 created_at 过滤，零值=不筛。
 type ListFilter struct {
 	Search string    // brief / 批次ID 子串（ILIKE）
-	Source string    // manual|auto——视图层口径：定时克隆（schedule_id 非空）归 manual
+	Source string    // direct|proxy（所属 assignment 的真实来源）
 	Status string    // active|completed|aborted
 	Since  time.Time // 创建时间下界（含）
 	Until  time.Time // 创建时间上界（含）
@@ -130,7 +130,7 @@ const summarySelect = `
 	COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
-	CASE WHEN a.schedule_id IS NOT NULL THEN 'direct' ELSE a.source END::text,
+	a.source,
 	(a.schedule_id IS NOT NULL),
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
@@ -141,10 +141,9 @@ const summarySelect = `
 	t.created_at, t.ended_at`
 
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
-// $4 since / $5 until）。source 口径：定时克隆（schedule_id 非空）按用户模型归自主下发，
-// 代理模式侧排除它。since/until 传 NULL 表示不筛该端。
+// $4 since / $5 until）。since/until 传 NULL 表示不筛该端。
 const summaryWhere = `
-	WHERE ($1 = '' OR a.source = $1 OR ($1 = 'direct' AND a.schedule_id IS NOT NULL))
+	WHERE ($1 = '' OR a.source = $1)
 	  AND ($2 = '' OR t.status = $2)
 	  AND ($3 = '' OR t.brief ILIKE '%' || $3 || '%' OR t.assignment_id::text ILIKE '%' || $3 || '%')
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
@@ -228,7 +227,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			 WHERE t2.assignment_id = t.assignment_id
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),
 			(SELECT count(*) FROM task t3 WHERE t3.assignment_id = t.assignment_id),
-			CASE WHEN a.schedule_id IS NOT NULL THEN 'direct' ELSE a.source END::text,
+			a.source,
 			(a.schedule_id IS NOT NULL),
 			COALESCE(cs.cron_expr, ''),
 			COALESCE(c.id::text, ''),

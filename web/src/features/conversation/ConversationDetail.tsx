@@ -36,7 +36,7 @@ function emptyCopy(source: 'direct' | 'proxy') {
 }
 
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
-// 自主下发(direct) 与 代理模式(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
+// 人工下发(direct) 与 代理捕获(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
@@ -318,7 +318,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         </div>
       )}
 
-      {/* 对话框恒渲染：聊天界面框架不随数据缺失消失。代理模式未选批次时
+      {/* 对话框恒渲染：聊天界面框架不随数据缺失消失。代理捕获未选批次时
           禁用（无可附着会话），placeholder 引导先选批次。 */}
       <Composer
         convId={convId}

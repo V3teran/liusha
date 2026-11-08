@@ -16,7 +16,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   const [currentConv, setCurrentConv] = useState('')
   const convListRef = useRef<ConversationListHandle>(null)
 
-  // 自主下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
+  // 人工下发 tab 下：从其他页跳来（?conv=xxx）时自动打开该会话（实时观察 + 插话）。
   const queryConv = searchParams.get('conv')
   useEffect(() => {
     // ?conv= 深链接对两个 tab 都生效（流量详情/任务模块等跨页跳转带 conv 打开对应会话）
@@ -46,7 +46,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
         }
       : {
           mark: '⌖',
-          title: '暂无自主下发的对话',
+          title: '暂无人工下发的对话',
           desc: '点击上方「新对话」，描述目标与测试方向即可发起一次渗透测试任务。',
         }
 
@@ -55,7 +55,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       {/* 统一头部 */}
       <PageHeader
         title="对话"
-        subtitle={source === 'direct' ? '自主下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
+        subtitle={source === 'direct' ? '人工下发的扫描任务与对话记录' : '代理捕获流量的自动分析对话'}
       />
 
       {/* 主从双栏 */}

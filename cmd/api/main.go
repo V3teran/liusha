@@ -85,7 +85,7 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)
 	cronStore := cronschedule.NewStore(pool) // 定时模板（§3.3/§4.2），Scheduler goroutine 轮询
 	findStore := finding.NewStore(pool)
-	proxyTrafficStore := traffic.NewProxyStore(pool) // cron 定时触发代理模式展开时领取该 host 未消费流量
+	proxyTrafficStore := traffic.NewProxyStore(pool) // cron 定时触发流量复检展开时领取该 host 未消费流量
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 	controlPlaneStore := controlplane.NewStore(pool) // 任务控制平面（人工干预）
@@ -277,7 +277,7 @@ func main() {
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
 		Dispatcher:    dispatchService,
-		Conversations: conversationStore, // cron 代理模式 task 建会话流（与实时聚合路径同语义）
+		Conversations: conversationStore, // cron 代理捕获 task 建会话流（与实时聚合路径同语义）
 		Logger:        logger,
 	}
 	go scheduler.Run(cronCtx)
@@ -318,7 +318,7 @@ func main() {
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
-			Findings:           findStore, // 全局漏洞台账（自主下发 + 代理模式全量 + triage 处置）
+			Findings:           findStore, // 全局漏洞台账（人工下发 + 代理捕获全量 + triage 处置）
 			Invocations:        invocationStore,
 			Chat:               dispatchService, // POST /chat 会话发起扫描
 			FollowUp:           dispatchService, // 多轮：POST /conversations/:id/messages 动作续接

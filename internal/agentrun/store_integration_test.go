@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/task"
 )
 
-// setup 启动一次性 Postgres，建一个代理模式 task 作为外键归属，返回 (Store, taskID)。
+// setup 启动一次性 Postgres，建一个代理捕获 task 作为外键归属，返回 (Store, taskID)。
 func setup(t *testing.T) (*Store, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)

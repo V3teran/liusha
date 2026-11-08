@@ -1,7 +1,7 @@
 // Package main 是 liusha runner 进程入口。
 //
 //	职责：
-//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建代理模式 task → 入 agent 队列
+//	  1. 启 ingestor.Traffic goroutine：消费 Redis Stream → 聚合攒批 → 建代理捕获 task → 入 agent 队列
 //	  2. 启 asynq.Server：消费 agent 队列，每个 task 跑认知循环（planner/executor/evaluator/monitor 四 agent）
 //	  3. healthz HTTP；graceful shutdown
 //
@@ -343,7 +343,7 @@ func newRunnerStores(pool *pgxpool.Pool, cfg config.AppConfig) *runnerStores {
 		findings:      finding.NewStore(pool),
 		graph:         explorationgraph.NewStore(pool), // 探索图持久层（onboard 落 KindObjective 节点）
 		toolCalls:     toolinvocation.NewStore(pool),
-		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（代理模式，按 host）
+		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（代理捕获，按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（active，按 task）
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
 		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
@@ -507,7 +507,7 @@ func startTrafficIngestor(ctx context.Context, rdb *redis.Client, cfg config.App
 		ProxyStore:    stores.proxyStore,
 		AgentStore:    stores.agentStore,
 		AgentRuns:     stores.agentRuns,
-		Conversations: stores.conversations, // 代理模式聚合建 task 后建会话流
+		Conversations: stores.conversations, // 代理捕获聚合建 task 后建会话流
 		Enqueuer:      wc,
 		Logger:        logger,
 	})

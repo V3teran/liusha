@@ -121,7 +121,7 @@ describe('Composer', () => {
   })
 
   it('scanning=true 且有 convId 时仍可发送（不再前端一刀切拦截，交给后端按意图判定）', async () => {
-    // 代理模式会话的 task 常年 active，若前端按 scanning 拦，QA 类追问会被永久锁死——
+    // 代理捕获会话的 task 常年 active，若前端按 scanning 拦，QA 类追问会被永久锁死——
     // 这里验证 scanning=true 时输入框/发送按钮仍可用，且真的调用了 followUp。
     vi.mocked(followUp).mockResolvedValue({ intent: 'qa' })
     render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)

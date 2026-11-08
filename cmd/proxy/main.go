@@ -13,9 +13,9 @@
 // 为何连 PG：过滤规则（流量过滤黑白名单 + body 上限）是系统业务旋钮，事实源在 system_setting，
 // 前端「系统配置」改后经多级缓存跨进程失效——proxy 必须能读 DB + 订阅失效，才能热换规则。
 //
-// 纯 MITM 代理模式流量入口：无 healthz HTTP（存活探 TCP 8588）；sandbox 内工具流量的 ingest endpoint 在 cmd/runner。
+// 纯 MITM 代理流量入口：无 healthz HTTP（存活探 TCP 8588）；sandbox 内工具流量的 ingest endpoint 在 cmd/runner。
 //
-// 业务逻辑（proxy_traffic 落库 by host / 聚合器建代理模式 task / Asynq 入队）
+// 业务逻辑（proxy_traffic 落库 by host / 聚合器建代理捕获 task / Asynq 入队）
 // 全部在 cmd/runner 内的 ingestor 包，proxy 只生产事件不做存储。
 package main
 
@@ -75,10 +75,10 @@ func main() {
 	// 内嵌 MITM 代理装配链：filter → publisher → proxy.Server
 	// ENV 仍可临时覆盖 yaml；空 ENV → 走 yaml；yaml 也空 → ApplyDefaults 兜底。
 	//
-	// 单 listener，只承载代理模式（外部）流量：
+	// 单 listener，只承载代理捕获（外部）流量：
 	//   publicAddr (8588) → sanitizer → internalAddr loopback (18888) → proxify
 	// sandbox 自产流量不经本进程（浏览器走 CDP capture → cmd/runner ingest endpoint，CLI 工具直连不抓），
-	// 从源头避免 agent 自挖流量回灌代理模式分析形成自激。
+	// 从源头避免 agent 自挖流量回灌代理流量分析形成自激。
 	publicAddr := envx.OrDefault("LIUSHA_PROXY_LISTEN_ADDR", proxyCfg.ListenAddr)
 	internalAddr := envx.OrDefault("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
 	certDir := envx.OrDefault("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
@@ -92,7 +92,7 @@ func main() {
 		logger.Fatal().Err(err).Msg("new publisher")
 	}
 
-	// External（代理模式入口）：proxify 监听 internal loopback，公开端口由 sanitizer 接管。
+	// External（代理入口）：proxify 监听 internal loopback，公开端口由 sanitizer 接管。
 	externalServer, err := proxy.NewServer(proxy.ServerDeps{
 		Filter:     trafficFilter,
 		Publisher:  publisher,
@@ -131,9 +131,9 @@ func main() {
 	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
 	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
 	//   - 存活检测改 TCP 探 8588（MITM listen 口），见 compose.yaml / run-svc。
-	// proxy = 纯 MITM 代理模式入口（external listener + sanitizer）。
+	// proxy = 纯 MITM 代理入口（external listener + sanitizer）。
 
-	// External proxify + sanitizer（代理模式入口；唯一 listener）
+	// External proxify + sanitizer（代理入口；唯一 listener）
 	go func() {
 		logger.Info().Str("loopback", internalAddr).Str("source", "external").Msg("mitm proxy starting")
 		if err := externalServer.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
@@ -142,8 +142,8 @@ func main() {
 	}()
 	go func() {
 		logger.Info().Str("public", publicAddr).Str("upstream", internalAddr).Str("source", "external").Msg("uri sanitizer listening")
-		// external listener：外部代理模式流量本就无凭证，仅做 URI patch。
-		// 流量按 host 落 proxy_traffic，代理模式 task 由 ingestor 聚合器按窗口生成。
+		// external listener：外部代理流量本就无凭证，仅做 URI patch。
+		// 流量按 host 落 proxy_traffic，代理捕获 task 由 ingestor 聚合器按窗口生成。
 		if err := proxy.RunExternalSanitizer(publicAddr, internalAddr); err != nil {
 			logger.Error().Err(err).Msg("external uri sanitizer exited")
 		}

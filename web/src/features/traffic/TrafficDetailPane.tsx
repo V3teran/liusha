@@ -12,7 +12,7 @@ interface TrafficDetailPaneProps {
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
-// 消费本条流量的代理模式 task chip：host + 状态色点；有 conv_id 则整块可点跳会话。
+// 消费本条流量的代理捕获 task chip：host + 状态色点；有 conv_id 则整块可点跳会话。
 function ConsumerChip({ c }: { c: TrafficConsumer }) {
   const inner = (
     <>

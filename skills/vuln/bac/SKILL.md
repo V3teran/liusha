@@ -1,6 +1,6 @@
 ---
 name: BAC 越权检测指南
-description: 访问控制失效（Broken Access Control）—— 未授权访问 / 水平越权 / 垂直越权。核心方法是多身份对比，两种执行模态：请求重放（http_request 的 identity 三态原语）/ 浏览器渲染（每身份独立浏览器读渲染后 DOM）。身份来源与下发来源（自主下发 / 代理模式）无关。给挖掘方向与判定原则，不框定具体步骤。
+description: 访问控制失效（Broken Access Control）—— 未授权访问 / 水平越权 / 垂直越权。核心方法是多身份对比，两种执行模态：请求重放（http_request 的 identity 三态原语）/ 浏览器渲染（每身份独立浏览器读渲染后 DOM）。身份来源与下发来源（人工下发 / 代理捕获）无关。给挖掘方向与判定原则，不框定具体步骤。
 category: vuln
 ---
 
@@ -63,15 +63,15 @@ BAC 的**主轴**是 **多身份对比**——同一功能换不同身份看差�
 
 "身份" = 一个你能认证进去的权限上下文，**不等于 `read_credentials` 的行**。来源有三类，能凑出几个算几个：
 
-1. **`read_credentials` 已录入的凭证**（代理模式常态：任务启动前已录入）
-2. **brief 直接给的登录凭据对**（自主下发常态：planner 把"某高权账号、某低权账号"两组账密透传到 brief）→ 你登录把它**变成**可用会话并**录入成命名身份**
+1. **`read_credentials` 已录入的凭证**（代理捕获常态：任务启动前已录入）
+2. **brief 直接给的登录凭据对**（人工下发常态：planner 把"某高权账号、某低权账号"两组账密透传到 brief）→ 你登录把它**变成**可用会话并**录入成命名身份**
 3. **recon / 探测中发现的登录入口**（任何模式：看到登录表单就能注册一个新身份）
 
-**身份数按"可获得数"算，不是按 `read_credentials` 行数算**——自主下发时 `read_credentials` 常返空 `[]`，但 brief 给了一个高权 + 一个低权两组账密 → **可获得身份数 = 2**，足以展开垂直越权。把空 `read_credentials` 误读成"0 身份不能测越权"是自主下发场景下 BAC 最大的假阴性。**反向也一样错**：brief 给的账号若登不进去（密码错 / 账号锁定——登录表单连试 2 次仍落回登录页就停手，别把账号锁死），该身份**不算**"可获得"——别拿登录失败的幻影身份凑对比式矩阵。"可获得"以**你真正拿到了会话**为准。
+**身份数按"可获得数"算，不是按 `read_credentials` 行数算**——人工下发时 `read_credentials` 常返空 `[]`，但 brief 给了一个高权 + 一个低权两组账密 → **可获得身份数 = 2**，足以展开垂直越权。把空 `read_credentials` 误读成"0 身份不能测越权"是人工下发场景下 BAC 最大的假阴性。**反向也一样错**：brief 给的账号若登不进去（密码错 / 账号锁定——登录表单连试 2 次仍落回登录页就停手，别把账号锁死），该身份**不算**"可获得"——别拿登录失败的幻影身份凑对比式矩阵。"可获得"以**你真正拿到了会话**为准。
 
 **怎么把登录凭据变成可对比的命名身份**（多身份矩阵的前提——每个身份要有独立、可复用的凭证集）：
 
-- **请求重放模态**：先 `list_traffic` / `view_traffic` 查该 host 是否已有现成登录流量（浏览器登过、或代理模式抓到的流量里可能直接带会话 Cookie，`view_traffic` 连 httpOnly cookie 头都看得到，抄 URL/method/headers/body 即可重建）。没有就自己登录：`http_request` `GET` 登录页抽 CSRF token（表单一次性隐藏字段，名字各框架不同，如 `csrf_token` / `authenticity_token` / `_token` / `__RequestVerificationToken`）→ `POST` 账密 + token → 从响应头抄 `Set-Cookie` → `write_credential` 把它**与 Authorization 等 token 一起**录入为命名身份（`{"type":"headers","key":"Cookie","value":"..."}`）。之后矩阵每行 `http_request` 传对应 `identity` 即可，凭证注入/续期全由工具管。
+- **请求重放模态**：先 `list_traffic` / `view_traffic` 查该 host 是否已有现成登录流量（浏览器登过、或代理捕获抓到的流量里可能直接带会话 Cookie，`view_traffic` 连 httpOnly cookie 头都看得到，抄 URL/method/headers/body 即可重建）。没有就自己登录：`http_request` `GET` 登录页抽 CSRF token（表单一次性隐藏字段，名字各框架不同，如 `csrf_token` / `authenticity_token` / `_token` / `__RequestVerificationToken`）→ `POST` 账密 + token → 从响应头抄 `Set-Cookie` → `write_credential` 把它**与 Authorization 等 token 一起**录入为命名身份（`{"type":"headers","key":"Cookie","value":"..."}`）。之后矩阵每行 `http_request` 传对应 `identity` 即可，凭证注入/续期全由工具管。
 - **浏览器渲染模态**：每个账号一个 `identity`（=账号名）开独立浏览器，登录页 `state` → `input` 账密 → `click` 提交。登录过程的真实认证请求会被浏览器服务 CDP 抓进流量字典（`tool=browser`、`identity=账号名`，`list_traffic` 可查）——**取舍：每身份首个导航 GET 会漏抓，登录 POST / 后续 XHR 不漏**，BAC 要的带凭证请求都在。
 - **模态互通**：浏览器登录后想走请求重放？`view_traffic` 读该身份被 CDP 抓下的真实请求（含 httpOnly Cookie 头）→ `write_credential` 录成命名身份 → `http_request identity` 直接用。浏览器不读 redis 凭证（反向注入不存在）。
 
