@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, Loader2, RefreshCw } from 'lucide-react'
 import type { ProviderConfig, ProviderType } from '@/api/types'
 import { listProviderModels } from '@/api/models'
@@ -247,11 +247,62 @@ export function blankProvider(): ProviderConfig {
 // 标识符不是用户职责：POST 由后端生成 UUID，编辑态 code 来自既有行。
 // api_key：新建必填（后端 400 拒绝空密钥新建）；编辑留空 = 不修改已存密钥，故不校验。
 export function providerInvalid(d: ProviderConfig | null, _isNew: boolean): boolean {
+  const cw = d?.context_window
   return (
     !d?.base_url ||
     !d?.default_model ||
     (_isNew && !d?.api_key) ||
-    !(d?.context_window && d.context_window > 0)
+    // 数字字段编辑期允许空串草稿（NumberField 契约），保存时视为未填（无效）
+    !(typeof cw === 'number' && cw > 0)
+  )
+}
+
+// NumberField 是数字字段的统一形态：编辑期间以本地字符串为显示事实源——
+// 清空保持空、前导 0 忠实保留（DOM 显示 = 用户键入），数值实时回写 draft。
+// 此前 onChange 直接 Number(e.target.value)：Number("")=0 把清空变成「填 0」，
+// 受控回写让字段卡着删不掉的 0、前导 0 被悄悄吞掉或累积——用户看到「输入异常」。
+// 外部 draft 变化（重置/保存后 commit）时本地串跟随外部值。
+function NumberField({
+  label,
+  hint,
+  value,
+  min,
+  error,
+  onValue,
+}: {
+  label: string
+  hint?: string
+  value: number | '' | undefined
+  min?: number
+  error?: string // 非空时以警示色就地显示（保存为何被禁，就近可读）
+  onValue: (v: number | '') => void
+}) {
+  const [text, setText] = useState(value === '' || value == null ? '' : String(value))
+  // 外部值变化（重置 / 保存后 commit 的行数据）→ 本地串跟随；用户正在编辑的
+  // 串若与外部数值一致则不打扰（避免每次按键后的回写把前导 0 抹掉）。
+  useEffect(() => {
+    const external = value === '' || value == null ? '' : String(value)
+    setText((cur) => (Number(cur) === Number(external) || cur === external ? cur : external))
+  }, [value])
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        type="number"
+        min={min}
+        className={INPUT_CLASS}
+        value={text}
+        onChange={(e) => {
+          const t = e.target.value
+          setText(t)
+          onValue(t === '' ? '' : Number(t))
+        }}
+      />
+      {error && (
+        <p role="alert" className="mt-1 text-xs text-sev-critical">
+          {error}
+        </p>
+      )}
+    </Field>
   )
 }
 
@@ -343,24 +394,25 @@ export function ProviderFormBody({
       />
 
       <GroupLabel>能力</GroupLabel>
-      <Field label="上下文窗口" hint="model 总上下文 tokens；ReAct 历史压缩按此算阈值，必填 > 0">
-        <input
-          type="number"
-          min={1}
-          className={INPUT_CLASS}
-          value={draft.context_window}
-          onChange={(e) => patch({ context_window: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="单次最大输出 tokens" hint="max_tokens，单次生成上限；一般随 provider 默认即可">
-        <input
-          type="number"
-          min={0}
-          className={INPUT_CLASS}
-          value={draft.max_tokens}
-          onChange={(e) => patch({ max_tokens: Number(e.target.value) })}
-        />
-      </Field>
+      <NumberField
+        label="上下文窗口"
+        hint="model 总上下文 tokens；ReAct 历史压缩按此算阈值，必填 > 0"
+        value={draft.context_window}
+        min={1}
+        error={
+          typeof draft.context_window !== 'number' || draft.context_window <= 0
+            ? '必填且需大于 0——为空或 0 时保存不可用'
+            : undefined
+        }
+        onValue={(v) => patch({ context_window: v })}
+      />
+      <NumberField
+        label="单次最大输出 tokens"
+        hint="max_tokens，单次生成上限；一般随 provider 默认即可"
+        value={draft.max_tokens}
+        min={0}
+        onValue={(v) => patch({ max_tokens: v })}
+      />
       {/* 工具/视觉手动声明：模型名看不出模态（如小米 MiMo 全模态但名字无 vl 标记），
           无法靠名字前缀可靠推断，故必须让用户按 provider 实际能力显式声明。
           视觉标志错配会导致含图消息路由到不支持读图的 model。 */}

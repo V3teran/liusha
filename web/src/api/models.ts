@@ -38,10 +38,11 @@ export async function saveProvider(
     base_url: p.base_url,
     default_model: p.default_model,
     api_key: p.api_key ?? '',
-    max_tokens: p.max_tokens,
+    // 数字草稿 '' 不可能走到这里（providerInvalid 已拦），归一为 0 兜底类型
+    max_tokens: p.max_tokens === '' ? 0 : p.max_tokens,
     supports_tools: p.supports_tools,
     supports_vision: p.supports_vision,
-    context_window: p.context_window,
+    context_window: p.context_window === '' ? 0 : p.context_window,
     description: p.description,
     sort_order: p.sort_order,
     enabled: p.enabled,
