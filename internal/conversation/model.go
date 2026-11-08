@@ -55,7 +55,7 @@ type Conversation struct {
 	// 供前端列表/流量分析 feed 卡展示「host · N findings」摘要。纯聊天/无 task = 0。
 	FindingCount int `json:"finding_count,omitempty"`
 	// Source 是派生的下发来源（关联 assignment 的 source：self 自主下发 / proxy 代理模式；
-	// 纯聊天/无 task 归 manual）。仅 ListConversations 填充，供前端「主动下发 / 被动代理」双 tab 分流。
+	// 纯聊天/无 task 为空串，列表归自主下发 tab）。仅 ListConversations 填充，供前端「自主下发 / 代理模式」双 tab 分流。
 	Source string `json:"source,omitempty"`
 }
 

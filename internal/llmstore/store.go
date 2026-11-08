@@ -118,7 +118,7 @@ func (s *Store) Routing(ctx context.Context) (llmconfig.Routing, error) {
 		})
 }
 
-// ── 运行期解析（热路径：两个 LLM 工厂共用，取代旧的双份 resolveProviderKey/lookupLLMField switch）──
+// ── 运行期解析（热路径：两个 LLM 工厂共用）──
 
 // ── 全量列表读（L1/L2 缓存，key 空间固定）───────────────────────────────
 

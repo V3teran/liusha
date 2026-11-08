@@ -209,18 +209,18 @@ func TestListConversationsHandler_DefaultOffsetZero(t *testing.T) {
 }
 
 // TestListConversationsHandler_SourceFilterPassedToStore：source query 透传给 store，
-// 供前端「主动下发 / 被动代理」双 tab 按来源分流（manual/auto）。
+// 供前端「自主下发 / 代理模式」双 tab 按来源分流（self/proxy）。
 func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fc := &fakeConversations{}
 	r := gin.New()
 	r.GET("/conversations", listConversationsHandler(fc))
-	req := httptest.NewRequest("GET", "/conversations?source=auto", nil)
+	req := httptest.NewRequest("GET", "/conversations?source=proxy", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if fc.gotSource != "auto" {
-		t.Errorf("source=auto 应透传给 store，得 %q", fc.gotSource)
+	if fc.gotSource != "proxy" {
+		t.Errorf("source=proxy 应透传给 store，得 %q", fc.gotSource)
 	}
 }
 func TestChatHandler_TooManyAttachments(t *testing.T) {

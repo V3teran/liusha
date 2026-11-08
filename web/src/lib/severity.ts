@@ -1,5 +1,5 @@
 // 漏洞分级 → 颜色 / 标签 / 排序。单一真相源：FindingsPage / FindingDrawer / FindingCard /
-// 执行图节点全部从此处取值，不再各自维护一份重复的 SEV_LABEL/severityColor。
+// 执行图节点全部从此处取值。
 // 颜色引用设计 token（design-tokens.css 的 --sev-*，深浅主题各自校准到 WCAG AA），
 // 返回 CSS 值字符串，可直接用于 style 与 color-mix()。
 // 色序对齐业界共识（critical 红、high 橙、medium 黄、low 绿、info 蓝）——

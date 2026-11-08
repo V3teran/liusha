@@ -10,7 +10,7 @@ category: tool
 
 每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持）：
 
-- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有 reconnaissance/exploitation **共用一个浏览器**，登录态/cookies 共享。身份经 unix socket 隔离（`/tmp/browser-svc-{taskID}-{identity}.sock`），任务结束统一清理。
+- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有执行单元（并行 action）**共用一个浏览器**，登录态/cookies 共享。身份经 unix socket 隔离（`/tmp/browser-svc-{taskID}-{identity}.sock`），任务结束统一清理。
 - **tab = agent**：服务按 `AGENT_ID`（工具层自动注入，无需你传）把命令路由到各自的 tab，页面/编号快照/并发互不干扰——同身份多 agent 并发各操作自己的 tab，无全局 active tab、无串行等待。
 - **多身份**：越权/BAC 要多账号对比时，给 `drive_browser` 传不同 `identity`（= 账号名，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar）。缺省走共享的 `default` 身份，无需传。
 - **交互流量自动入字典**：浏览器服务内建 CDP Network 抓流，Document/XHR/Fetch 请求自动回灌流量库（`list_traffic` 可查，`tool=browser`、`identity=身份名`）——登录 POST、带凭证的 XHR 都会被抓下，`view_traffic` 连 httpOnly cookie 头都看得到（取舍：每身份**首个导航 GET 可能漏抓**，后续请求不漏；BAC 要的带凭证请求都在）。
@@ -26,7 +26,7 @@ category: tool
 - `release-tab`：释放本 agent 的 tab
 - `python` / `install` / `doctor` 等管理类（透传底层 CLI）
 
-注意：**没有 `cookies`、`close` 子命令**（旧版有、当前服务已无）。要浏览器登录态给 curl 链路用？走流量字典：`view_traffic` 读该身份被 CDP 抓下的请求头（含 httpOnly Cookie）→ `write_credential` 录成命名身份 → `http_request` 传同值 `identity`（详见 vuln/bac skill「模态互通」）。
+注意：**没有 `cookies`、`close` 子命令**。要浏览器登录态给 curl 链路用？走流量字典：`view_traffic` 读该身份被 CDP 抓下的请求头（含 httpOnly Cookie）→ `write_credential` 录成命名身份 → `http_request` 传同值 `identity`（详见 vuln/bac skill「模态互通」）。
 
 ## action 补充（schema 没说清的差异）
 
@@ -49,14 +49,14 @@ category: tool
 
 chromium 的 cookie jar 按 identity 持久（服务生命周期内），与 curl 链路**独立**。浏览器登录走**登录页输账号密码**这一条路：
 
-- **同一身份只登一次**：同 identity 下所有 reconnaissance/exploitation 共用一个浏览器。**任一 agent 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 agent 直接 `drive_browser open` 受保护页即带登录态，无需各自重登。
+- **同一身份只登一次**：同 identity 下所有执行单元共用一个浏览器。**任一 agent 在登录页登录过后，整个身份的 jar 就有态**——后续同身份 agent 直接 `drive_browser open` 受保护页即带登录态，无需各自重登。
 - **没人登过 → 自己在登录页登录**：`state` 拿表单 numbered DOM → `input` 填账密 → `click` 提交。这对浏览器是**正确路径**，不是重复劳动。
 - **多账号对比（越权/BAC）**：brief 给几组账号就传几个不同 `identity` 各开一个独立浏览器，每个各自登录，cookie jar 互不污染。
 - **浏览器 → curl**：见上文「入口选择」——经流量字典 + `write_credential`，不存在反向（redis → 浏览器）注入。
 
 ### 反模式
 
-- ❌ **同身份每个 exploitation 各自重登**——第一个登过后 jar 全身份共享，后续直接 `open` 即可。
+- ❌ **同身份每个执行单元各自重登**——第一个登过后 jar 全身份共享，后续直接 `open` 即可。
 - ❌ **找 `cookies get` 导出登录态**——该子命令已不存在；CDP 抓流已经把带凭证请求（含 httpOnly cookie）落进字典，`view_traffic` 即得。
 - ❌ **把浏览器当默认 HTTP 客户端**——纯请求级操作用 `http_request`（快一个量级、可注入凭证、可精确重放）；浏览器只用于 JS 渲染 / 复杂登录链 / 需要真实交互的场景（何时用见 tool schema 使用时机段）。
 

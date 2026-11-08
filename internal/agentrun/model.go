@@ -2,7 +2,7 @@
 // 状态机 pending → running → done | error | aborted。
 //
 // 命名层级：
-//   - task = 业务"扫描任务"（用户视角的 task，mode 区分 active/passive）
+//   - task = 业务"扫描任务"（用户视角的 task；来源 self/proxy 记在所属 assignment 上）
 //   - agent_run 表 = 每次 Agent 运行实例的记录（planner/executor/evaluator/monitor），挂 task_id
 //   - agent 表 = Agent 配置定义（code/name/body/tools），存储 Agent 章程
 //   - role 列 = 发起该 run 的 Agent 角色。当前仅 planner 建 run（一次 run =

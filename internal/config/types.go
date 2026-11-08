@@ -104,7 +104,7 @@ type InvocationConfig struct {
 //	Type 取值:
 //	  "openai_compat" 走 OpenAI 协议族；
 //	  "anthropic"     走 Anthropic 原生 /v1/messages；
-//	  ""              视为 openai_compat（向后兼容）。
+//	  ""              缺省值，seed 首填时补为 openai_compat（DB 约束只收上述两种取值）。
 type ProviderConfig struct {
 	Type          string `mapstructure:"type"`
 	BaseURL       string `mapstructure:"base_url"`
@@ -141,7 +141,7 @@ type ProxyConfig struct {
 	MaxRequestBodySize      int      `mapstructure:"max_request_body_size"`
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
-	// 进程入口（cmd/proxy）：纯 MITM passive 入口。存活检测探 TCP 8588，无独立 healthz HTTP。
+	// 进程入口（cmd/proxy）：纯 MITM 代理模式入口。存活检测探 TCP 8588，无独立 healthz HTTP。
 	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
 	ListenAddr   string `mapstructure:"listen_addr"`   // 0.0.0.0:8588 公开端口（sanitizer 接 raw TCP）
 	InternalAddr string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
@@ -151,7 +151,7 @@ type ProxyConfig struct {
 	StreamMaxLen int    `mapstructure:"stream_max_len"`
 
 	// IngestToken：active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
-	// /internal/v1/flows/ingest endpoint 的 Bearer token。空 = 不强制验证（开发模式，
+	// /internal/v1/traffic/ingest endpoint 的 Bearer token。空 = 不强制验证（开发模式，
 	// 仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
 	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/runner + sandbox）共享同一值。
 	IngestToken string `mapstructure:"ingest_token"`
@@ -172,9 +172,6 @@ type IngestorConfig struct {
 	AggregateBatchSize     int `mapstructure:"aggregate_batch_size"`
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
-
-// （原 PromptLimitsConfig 已删：findings 注入 prompt 的特性在架构演进中被按需工具检索
-// 取代，该字段自始至终无运行期消费者；findings 知识现经 corpus/insight 检索工具按需获取。）
 
 // CredentialConfig 是 credential.RedisProvider 的 redis key 前缀。
 type CredentialConfig struct {
@@ -208,11 +205,7 @@ type RunnerConfig struct {
 	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
 }
 
-// （原 CompactionConfig/HistoryCompactConfig 已删：token 比例触发 + light LLM 蒸馏的
-// 压缩机制未落地，真实生效的是 ReAct 滚动窗口按消息条数截留——该旋钮收归 DB
-// system_setting compaction 组（settingstore.CompactionSettings，前端「系统配置」可热改）。）
-
-// SandboxConfig 容器化执行参数（sandbox.Launcher + external.RunCommand）。
+// SandboxConfig 容器化执行参数（sandbox.DockerLauncher + run_command 工具）。
 //
 // run_command 单次硬超时不再有 yaml 配置——LLM 通过 timeout_seconds 必传（schema required），
 // 上限由 DB runtime.step_tool_timeout_seconds 钳（settingstore，前端「系统配置」可热改）。
@@ -258,7 +251,3 @@ type SandboxConfig struct {
 	// 0 = 永久保留（持续探索模式的默认：工件是证据）；正数启用清扫。
 	WorkspaceRetentionDays int `mapstructure:"workspace_retention_days"`
 }
-
-// （原 ToolruntimeConfig 已删：step_tool_timeout_seconds 收归 DB runtime 组
-// （settingstore.RuntimeSettings.StepToolTimeoutSeconds），前端「系统配置」可热改；
-// 历史上 yaml 值从未被工具执行路径消费，仅 task reaper 间接引用——reaper 现读 DB。）

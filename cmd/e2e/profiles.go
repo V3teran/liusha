@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-// activeProfile 描述一个 active 模式 e2e 验收剧本：自然语言任务简报 + 验收门槛。
+// profile 描述一个 e2e 验收剧本：自然语言任务简报 + 验收门槛。
 //
 // brief 自然语言（含目标 URL/凭据/测试方向）整段 POST /chat 喂给 agent LLM，
 // 由 LLM 自行识别 + 自主扫描；验收以探索图为断言（objective → action → result）。
-type activeProfile struct {
+type profile struct {
 	name  string
 	brief string
 
@@ -18,12 +18,12 @@ type activeProfile struct {
 	acceptance AcceptanceCriteria
 }
 
-// activeProfiles 是 active 模式 e2e 验收剧本集，args 用前缀 active:<name> 选择。
+// profiles 是 e2e 验收剧本集，CLI 参数直接写剧本名选择（如 xss / full）。
 //
 // - xss: 单一漏洞类型专项扫描
 // - full: 综合开放性扫描
-var activeProfiles = map[string]activeProfile{
-	// active:full 综合扫描：开放性 brief，不剧透漏洞类型/路径。
+var profiles = map[string]profile{
+	// full 综合扫描：开放性 brief，不剧透漏洞类型/路径。
 	// 压测 LLM 自主 recon 能力 + 多攻击面 spawn 决策。
 	//
 	// - MinObjectives=1: 单根 objective（onboard 幂等去重后每任务 1 个根目标；
@@ -41,7 +41,7 @@ var activeProfiles = map[string]activeProfile{
 		},
 	},
 
-	// active:xss XSS 漏洞专项：登录 → 设 security=low → 扫 XSS（reflected/stored/DOM）。
+	// xss XSS 漏洞专项：登录 → 设 security=low → 扫 XSS（reflected/stored/DOM）。
 	//
 	// - MinObjectives=1: "扫描 XSS 漏洞"这个目标
 	// - MinActions=5: 至少执行 5 个动作（登录、设cookie、扫描表单、测试注入点、验证漏洞）
@@ -57,36 +57,44 @@ var activeProfiles = map[string]activeProfile{
 	},
 }
 
-// selectProfiles 解析 CLI args，选出 active profiles。
-//
-// args 前缀语义："active:<name>" → 选 activeProfiles[name]。
-// 未知 profile 立即报错，避免静默忽略。
-func selectProfiles(args []string) ([]activeProfile, error) {
-	active := make([]activeProfile, 0, len(args))
-	seenActive := map[string]struct{}{}
+// selectProfiles 解析 CLI args（剧本名，大小写不敏感），按参数顺序去重返回。
+// 无参数 = 按字典序选中全部剧本（scripts/dev/e2e.sh 不带参即跑全套）。
+// 未知剧本立即报错并列出可选项，避免静默忽略。
+func selectProfiles(args []string) ([]profile, error) {
+	if len(args) == 0 {
+		names := knownProfileNames()
+		all := make([]profile, len(names))
+		for i, n := range names {
+			all[i] = profiles[n]
+		}
+		return all, nil
+	}
 
+	selected := make([]profile, 0, len(args))
+	seen := map[string]struct{}{}
 	for _, a := range args {
-		raw := strings.ToLower(strings.TrimSpace(a))
-		if raw == "" {
+		key := strings.ToLower(strings.TrimSpace(a))
+		if key == "" {
 			continue
 		}
-		if !strings.HasPrefix(raw, "active:") {
-			return nil, fmt.Errorf("未知 profile %q（仅支持 active:<name>）", raw)
-		}
-		key := strings.TrimPrefix(raw, "active:")
-		ap, ok := activeProfiles[key]
+		p, ok := profiles[key]
 		if !ok {
-			known := make([]string, 0, len(activeProfiles))
-			for k := range activeProfiles {
-				known = append(known, k)
-			}
-			sort.Strings(known)
-			return nil, fmt.Errorf("未知 active profile %q（可选: %s）", key, strings.Join(known, ", "))
+			return nil, fmt.Errorf("未知 profile %q（可选: %s）", key, strings.Join(knownProfileNames(), ", "))
 		}
-		if _, dup := seenActive[key]; !dup {
-			seenActive[key] = struct{}{}
-			active = append(active, ap)
+		if _, dup := seen[key]; !dup {
+			seen[key] = struct{}{}
+			selected = append(selected, p)
 		}
 	}
-	return active, nil
+	return selected, nil
+}
+
+// knownProfileNames 返回全部剧本名（字典序）。
+func knownProfileNames() []string {
+	names := make([]string, 0, len(profiles))
+	for k := range profiles {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
 }

@@ -152,8 +152,8 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	// 模拟 runner 进程：cmd 入口 logger + 7 个包级 logger
 	services := []string{
 		"runner",
-		"traffic", "finding", "reactrun",
-		"llm.instrument", "llmcall.store", "tools.run_command",
+		"traffic", "finding", "cognition",
+		"llm.instrument", "llminvocation.store", "tools.run_command",
 	}
 	for _, s := range services {
 		l := New(s)

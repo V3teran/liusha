@@ -122,8 +122,8 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
 
-	asg := mkAssignment(t, assignments, ctx, "分析 10.0.0.1 的被动流量")
-	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "分析 10.0.0.1 的被动流量"}); err != nil {
+	asg := mkAssignment(t, assignments, ctx, "分析 10.0.0.1 的代理流量")
+	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "分析 10.0.0.1 的代理流量"}); err != nil {
 		t.Fatal(err)
 	}
 

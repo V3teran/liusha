@@ -20,7 +20,7 @@ import (
 // Agent 是事件驱动的执行器 Agent
 //
 // 职责：
-// - 订阅 ActionProposed 事件（由 PlannerAgent 发布）
+// - 订阅 ActionProposed 事件（由 planner.Agent 发布）
 // - 执行 Action 并生成 Observation（通过 Attempt）
 // - 发布 ActionCompleted 事件
 // - 完全异步，不阻塞任何调用方

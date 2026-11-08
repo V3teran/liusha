@@ -85,7 +85,7 @@ func main() {
 	assignmentStore := assignment.NewStore(pool)
 	cronStore := cronschedule.NewStore(pool) // 定时模板（§3.3/§4.2），Scheduler goroutine 轮询
 	findStore := finding.NewStore(pool)
-	proxyTrafficStore := traffic.NewProxyStore(pool) // cron 定时触发 passive 展开时领取该 host 未消费流量
+	proxyTrafficStore := traffic.NewProxyStore(pool) // cron 定时触发代理模式展开时领取该 host 未消费流量
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
 	controlPlaneStore := controlplane.NewStore(pool) // 任务控制平面（人工干预）
@@ -246,7 +246,7 @@ func main() {
 	})
 	router := &dispatch.RoleRouter{Router: apiLLMRouter}
 	publisher := convstream.NewPublisher(rdb)
-	adapter := &dispatch.Service{
+	dispatchService := &dispatch.Service{
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
 		AgentRuns:     agentRunStore,
@@ -276,8 +276,8 @@ func main() {
 		ProxyStore:    proxyTrafficStore,
 		AgentRuns:     agentRunStore,
 		Enq:           enq,
-		Dispatcher:    adapter,
-		Conversations: conversationStore, // cron passive task 建会话流（与实时聚合路径同语义）
+		Dispatcher:    dispatchService,
+		Conversations: conversationStore, // cron 代理模式 task 建会话流（与实时聚合路径同语义）
 		Logger:        logger,
 	}
 	go scheduler.Run(cronCtx)
@@ -308,7 +308,7 @@ func main() {
 	// 附件域：复用工作区 Store 的路径钳制与落盘（暂存/落位都在同一棵工作区树内，
 	// 下发搬家用 rename——同根不跨文件系统）。
 	attachmentStore := attachment.NewStore(workspaceStore)
-	adapter.Attachments = attachmentStore
+	dispatchService.Attachments = attachmentStore
 	srv := &http.Server{
 		Addr: listenAddr, Handler: httpapi.NewServer(httpapi.Deps{
 			Auth:               authStore,  // 登录认证（/auth 系列 + RequireAuth 会话校验）
@@ -318,12 +318,12 @@ func main() {
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore, // 凭证库变更/明文读取审计（敏感操作面）
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
-			Findings:           findStore, // 全局漏洞台账（active+passive 全量 + triage 处置）
+			Findings:           findStore, // 全局漏洞台账（自主下发 + 代理模式全量 + triage 处置）
 			Invocations:        invocationStore,
-			Chat:               adapter,         // POST /chat 会话发起扫描
-			FollowUp:           adapter,         // 多轮：POST /conversations/:id/messages 动作续接
-			Abort:              adapter,         // 多轮：POST /conversations/:id/abort 停止会话关联扫描
-			Deleter:            adapter,         // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
+			Chat:               dispatchService, // POST /chat 会话发起扫描
+			FollowUp:           dispatchService, // 多轮：POST /conversations/:id/messages 动作续接
+			Abort:              dispatchService, // 多轮：POST /conversations/:id/abort 停止会话关联扫描
+			Deleter:            dispatchService, // DELETE /conversations/:id 删会话+消息；关联扫描进行中拒删（409，先停后删）
 			Attachments:        attachmentStore, // 附件上传（POST /attachments、POST /conversations/:id/attachments）
 			AttachmentContext:  attachmentContext{conversationStore, taskStore},
 			AttachmentMaxBytes: cfg.Conversation.AttachmentMaxBytes,
@@ -344,8 +344,8 @@ func main() {
 			UsageTools:         toolStore,                             // 会话用量：工具耗时合计
 			ExplorationGraph:   explorationGraphAdapter,               // Phase 1: 探索图 API（e2e 测试迁移）
 			Tasks:              taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
-			TaskDispatch:       adapter,                               // POST /tasks：任务模块「新建任务」批量/定时下发
-			TaskControl:        adapter,                               // POST /tasks/:id/control：任务行 暂停/继续/停止
+			TaskDispatch:       dispatchService,                       // POST /tasks：任务模块「新建任务」批量/定时下发
+			TaskControl:        dispatchService,                       // POST /tasks/:id/control：任务行 暂停/继续/停止
 			Logs:               logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

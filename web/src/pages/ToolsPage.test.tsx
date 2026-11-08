@@ -23,7 +23,7 @@ function tool(name: string, kind: ToolKind, category: string): Tool {
   return { name, kind, category, description: `${name} 的描述`, sort_order: 0 }
 }
 
-const FN = tool('read_insights', 'function', 'findings')
+const FN = tool('read_credentials', 'function', 'credentials')
 const CLI = tool('nmap', 'cli', 'recon')
 
 function detailOf(t: Tool, agents: ToolAgent[] = []): ToolDetail {
@@ -43,7 +43,7 @@ describe('ToolsPage', () => {
   it('挂载加载工具目录并渲染分组列表行', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
     render(<ToolsPage />)
-    expect(await screen.findByText('read_insights')).toBeTruthy()
+    expect(await screen.findByText('read_credentials')).toBeTruthy()
     expect(screen.getByText('nmap')).toBeTruthy()
   })
 
@@ -54,7 +54,7 @@ describe('ToolsPage', () => {
     )
     render(<ToolsPage />)
     // 无需点击：主从视图恒有选中，首项自动加载。
-    await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_insights'))
+    await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_credentials'))
     expect(screen.getByText(/装配到智能体/)).toBeTruthy()
     // 全量智能体都在（含未装配者）；involved 由后端下发驱动高亮（aria-pressed）。
     const recon = await screen.findByRole('button', { name: '侦察智能体' })
@@ -72,7 +72,7 @@ describe('ToolsPage', () => {
     expect(web.getAttribute('aria-pressed')).toBe('false')
     await userEvent.click(web)
     // 调后端装配（工具名、code、involved=true）。
-    await waitFor(() => expect(mAssign).toHaveBeenCalledWith('read_insights', 'web', true))
+    await waitFor(() => expect(mAssign).toHaveBeenCalledWith('read_credentials', 'web', true))
     // 乐观翻转即时高亮。
     await waitFor(() =>
       expect(
@@ -84,8 +84,8 @@ describe('ToolsPage', () => {
   it('点选另一行切换详情', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
     render(<ToolsPage />)
-    await screen.findByText('read_insights')
-    await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_insights'))
+    await screen.findByText('read_credentials')
+    await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_credentials'))
     await userEvent.click(screen.getByText('nmap'))
     await waitFor(() => expect(mGet).toHaveBeenCalledWith('nmap'))
   })
@@ -93,7 +93,7 @@ describe('ToolsPage', () => {
   it('切换种类段触发按 kind 过滤取数', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
     render(<ToolsPage />)
-    await screen.findByText('read_insights')
+    await screen.findByText('read_credentials')
     mList.mockResolvedValue({ tools: [CLI], total: 1 })
     // 「外部工具」（KIND_LABEL.cli）既是种类段按钮也是分组头/徽章文案，取文本恰为该值的段按钮。
     const cliSegment = screen

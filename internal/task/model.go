@@ -1,12 +1,12 @@
-// Package task 实现统一扫描任务的 model + store（合并原 activescan + passivesession）。
+// Package task 实现扫描任务（task 表）的 model + store。
 //
 // 业务定位：一次扫描活动 = 一个会话。
 //   - 输入统一为一段 brief 文本（用户自然语言目标描述）；target_host 为派生列，
 //     由 runner 从 brief 抽取后 SetTargetHost 回填，非用户输入的第二形态。
 //
-// 相较旧双表的语义变化：
+// 粒度与归属：
 //   - 每批流量/每次下发产一个独立 task，同 host 可多个。「是否在监控」从 proxy_traffic 派生。
-//   - owner_type + owner_id 多态坍缩为 task_id：附属表（agent/finding/...）直接挂 task.id。
+//   - 附属表（agent_run/finding/...）直接以 task_id 外键挂 task.id。
 //
 // 状态机：active → completed（自然跑完）| aborted（用户停/取消/错误/心跳超时）。
 // FollowUp 可 Reopen 终态 task 续跑（累计停顿进 paused_ms）。
@@ -14,7 +14,7 @@ package task
 
 import "time"
 
-// Status 表示 task 的生命周期状态。archived 不再使用（旧 passive_session 遗留，已废弃）。
+// Status 表示 task 的生命周期状态。
 type Status string
 
 // Task 状态机：active（进行中）→ completed（planner run 自然跑完）

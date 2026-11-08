@@ -34,11 +34,11 @@ from browser_use.dom.serializer.serializer import DOMTreeSerializer
 IDENTITY = sys.argv[1] if len(sys.argv) > 1 else "default"
 SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 
-# ---- B1：CDP Network capture → cmd/proxy /internal/v1/flows/ingest ----
-# active 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
+# ---- B1：CDP Network capture → cmd/runner /internal/v1/traffic/ingest ----
+# sandbox 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
 # （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
-# owner=active_scan）→ planner/exploitation 经 list_flows/view_flow 看真实请求结构 + 凭证 → replay_flow
-# 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / passive-only / 无 cmd/proxy 部署）。
+# 落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放
+# 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / runner 未注入 ingest 地址）。
 INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
 INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
@@ -112,12 +112,6 @@ class Service:
             return
         async with self.start_lock:
             if self.bs is None:
-                # chromium 走直连、不经 mitmproxy：它的流量由本进程 CDP 抓（source=internal），
-                # 若再继承 HTTP_PROXY 走容器内 mitmproxy 会被二次捕获 → http_flow 重复。
-                # 清掉本进程（chromium 父进程）的代理 env；CLI 工具是独立 run_command 进程，不受影响。
-                for _k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-                           "http_proxy", "https_proxy", "all_proxy"):
-                    os.environ.pop(_k, None)
                 # 视口尺寸由容器 env 注入（runner 侧 config.yaml sandbox.viewport_*，
                 # 经 launcher 的 LIUSHA_VIEWPORT_* 透传）；缺省走 browser_use 内置。
                 vw, vh = os.environ.get("LIUSHA_VIEWPORT_WIDTH"), os.environ.get("LIUSHA_VIEWPORT_HEIGHT")
@@ -215,7 +209,7 @@ class Service:
         try:
             client.register.Network.requestWillBeSentExtraInfo(self._cap_on_request_extra)
         except Exception:
-            pass  # 降级：无 httpOnly Cookie 捕获，view_flow/replay_flow 仍带非 httpOnly 头
+            pass  # 降级：无 httpOnly Cookie 捕获，view_traffic/http_request 重放仍带非 httpOnly 头
         client.register.Network.responseReceived(self._cap_on_response)
         client.register.Network.loadingFinished(self._cap_on_finished)
         client.register.Network.loadingFailed(self._cap_on_failed)
@@ -329,7 +323,7 @@ class Service:
         resp_h = {k: [v] for k, v in (ent.get("resp_headers") or {}).items()}
         dur_ms = int(max(0.0, ent.get("finish", 0.0) - ent.get("start", 0.0)) * 1000)
         # 合入 ExtraInfo 抓到的真实 Cookie（含 httpOnly）：requestWillBeSent 的头里没有，
-        # view_flow / replay_flow 要靠它才带得上登录态。有 cookie 才覆盖，否则保留原头不动。
+        # view_traffic / http_request 重放要靠它才带得上登录态。有 cookie 才覆盖，否则保留原头不动。
         req_h = dict(ent.get("req_headers") or {})
         cookie = ent.get("cookie", "")
         if cookie:
@@ -338,7 +332,7 @@ class Service:
         payload = {
             "agent_id": agent_id,
             "identity": IDENTITY,  # 进程级身份（= browser_use identity），给 internal flow 盖身份戳
-            "tool": "browser",     # 发起工具固定 browser（CLI 工具走 mitmproxy 从 UA 解析）
+            "tool": "browser",     # 发起工具固定 browser（本服务只抓浏览器流量）
             "host": u.hostname or "",
             "host_port": u.netloc or "",
             "method": ent.get("method", ""),

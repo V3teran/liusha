@@ -108,7 +108,7 @@ func promoteAssertFromRecipe(flex *reproEnvelope) (string, error) {
 	return "\n\nℹ️ 注意：assert 应写在 repro 顶层（与 domain/recipe 平级），本次已自动从 recipe 中提升——下次请直接写对位置。", nil
 }
 
-// sniffReproDomain 对漏写 domain 的历史形状做嗅探：顶层/recipe 内 request → web，
+// sniffReproDomain 对漏写 domain 的输入做嗅探：顶层/recipe 内 request → web，
 // steps → generic（LLM 常见笔误）。
 func sniffReproDomain(flex reproEnvelope) string {
 	var probe struct {
@@ -126,13 +126,13 @@ func sniffReproDomain(flex reproEnvelope) string {
 	}
 }
 
-// normalizeWebRepro 归一化 web 域 repro：历史形状包装 + assert/request 校验。
+// normalizeWebRepro 归一化 web 域 repro：扁平形状包装 + assert/request 校验。
 func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err error) {
 	switch {
 	case len(flex.Recipe) > 0:
 		recipe = flex.Recipe
 	case len(flex.Request) > 0:
-		// 历史形状包装：request/baseline 提进 recipe。
+		// 扁平形状（LLM 常见笔误：request/baseline 写在顶层未嵌入 recipe）→ 提进 recipe。
 		wrapped := map[string]json.RawMessage{"request": flex.Request}
 		if len(flex.Baseline) > 0 {
 			wrapped["baseline"] = flex.Baseline

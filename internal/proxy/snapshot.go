@@ -3,9 +3,9 @@
 // 数据流（Stream-based 业界最佳实践）：
 //
 //	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:flow_events)
-//	cmd/runner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建 passive task + 入 agent 队列
+//	cmd/runner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建代理模式 task + 入 agent 队列
 //
-// proxy 进程无状态、可水平扩展；proxy_traffic 落库 + passive task 生成逻辑集中在 runner 端。
+// proxy 进程无状态、可水平扩展；proxy_traffic 落库 + 代理模式 task 生成逻辑集中在 runner 端。
 package proxy
 
 import (
@@ -21,8 +21,8 @@ import (
 // 身份关联：
 //
 //	AgentRunID             internal 入口填（sandbox 自产流量归属的 agent run；ingestor 反查 task_id）。
-//	                     external（passive）入口为空。
-//	Source               'external'（8588 passive 入口）/ 'internal'（sandbox 自产）。
+//	                     external（代理模式）入口为空。
+//	Source               'external'（8588 代理模式入口）/ 'internal'（sandbox 自产）。
 //
 // URI 拆解：
 //

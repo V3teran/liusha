@@ -66,8 +66,8 @@ const routing = (o: Partial<RoutingResponse> = {}): RoutingResponse => ({
 })
 
 const agents = () => [
-  agent('h-orch', 'planner', 'complex'),
-  agent('h-traffic', 'traffic-analysis', 'medium'),
+  agent('h-planner', 'planner', 'complex'),
+  agent('h-executor', 'executor', 'medium'),
 ]
 
 function renderView() {
@@ -126,17 +126,17 @@ describe('AssignmentView', () => {
 
   it('点未归属胶囊把智能体移入目标档，调 saveAgentComplexity(id, complexity)', async () => {
     mGetRouting.mockResolvedValue(routing())
-    mSaveTier.mockResolvedValue(agent('h-traffic', 'traffic-analysis', 'simple'))
+    mSaveTier.mockResolvedValue(agent('h-executor', 'executor', 'simple'))
     renderView()
-    // traffic-analysis 原在 medium，点 simple 行的幽灵胶囊 → 移入 simple。
+    // executor 原在 medium，点 simple 行的幽灵胶囊 → 移入 simple。
     await waitFor(() =>
-      expect(screen.getByTestId('complexity-row-simple').textContent).toContain('traffic-analysis'),
+      expect(screen.getByTestId('complexity-row-simple').textContent).toContain('executor'),
     ) // 等数据渲染出行内容
     const simpleRow = screen.getByTestId('complexity-row-simple')
     const simpleGroup = within(simpleRow)
-    const chip = simpleGroup.getByRole('button', { name: 'traffic-analysis' })
+    const chip = simpleGroup.getByRole('button', { name: 'executor' })
     await userEvent.click(chip)
-    await waitFor(() => expect(mSaveTier).toHaveBeenCalledWith('h-traffic', 'simple'))
+    await waitFor(() => expect(mSaveTier).toHaveBeenCalledWith('h-executor', 'simple'))
   })
 
   it('移档失败乐观回滚并在页面内回显原因（无 window.alert）', async () => {
@@ -144,17 +144,17 @@ describe('AssignmentView', () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveTier.mockRejectedValue(new Error('移档炸了'))
     renderView()
-    await screen.findByRole('button', { name: 'traffic-analysis', pressed: true }) // 等数据渲染（medium 实心）
+    await screen.findByRole('button', { name: 'executor', pressed: true }) // 等数据渲染（medium 实心）
     const simpleRow = screen.getByTestId('complexity-row-simple')
     const simpleGroup = within(simpleRow)
-    const chip = simpleGroup.getByRole('button', { name: 'traffic-analysis' })
+    const chip = simpleGroup.getByRole('button', { name: 'executor' })
     await userEvent.click(chip)
     expect(await screen.findByText(/移档炸了/)).toBeTruthy()
     expect(alertSpy).not.toHaveBeenCalled()
-    // 回滚：traffic-analysis 回到 medium 档（medium 行实心胶囊恢复），simple 行恢复幽灵。
+    // 回滚：executor 回到 medium 档（medium 行实心胶囊恢复），simple 行恢复幽灵。
     const mediumRow = screen.getByTestId('complexity-row-medium')
-    expect(within(mediumRow).getByRole('button', { name: 'traffic-analysis', pressed: true })).toBeTruthy()
-    expect(simpleGroup.getByRole('button', { name: 'traffic-analysis', pressed: false })).toBeTruthy()
+    expect(within(mediumRow).getByRole('button', { name: 'executor', pressed: true })).toBeTruthy()
+    expect(simpleGroup.getByRole('button', { name: 'executor', pressed: false })).toBeTruthy()
   })
 
   it('已指派档的 select 反映当前 provider', async () => {

@@ -1,7 +1,7 @@
 // Package llm 的重试装饰器：按错误码退避表自动重试 + 可选 fallback。
 //
 // 退避表（spec §8.5）与错误分类是框架能力，定义在本包；
-// fallback 链的编排是业务策略，由调用方（Router / internal/llm）装配。
+// fallback 链的编排是业务策略，由调用方（Router）装配。
 package llm
 
 import (

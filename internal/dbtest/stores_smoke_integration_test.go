@@ -86,8 +86,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("audit append: %v", err)
 	}
 
-	// insight 表已随 0188 退役（知识归一给探索图观察），冒烟改验图上
-	// observation 的七值类别落库。
+	// 冒烟验探索图 observation 的七值类别落库。
 	graph := explorationgraph.NewStore(pool)
 	obsNode := explorationgraph.Node{
 		ID:       uuid.NewString(),

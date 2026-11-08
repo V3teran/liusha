@@ -1,15 +1,16 @@
-// Package main 是 liusha 端到端验收触发器（active 模式）。
+// Package main 是 liusha 端到端验收触发器：以自主下发（POST /chat）跑验收剧本。
 //
 // CLI 用法：
 //
-//	go run ./cmd/e2e active:full   # 综合开放性扫描（压测 LLM 自主 recon + 多攻击面扩展）
-//	go run ./cmd/e2e active:xss    # XSS 专项扫描
+//	go run ./cmd/e2e            # 全部剧本（字典序）
+//	go run ./cmd/e2e full       # 综合开放性扫描（压测 LLM 自主 recon + 多攻击面扩展）
+//	go run ./cmd/e2e xss        # XSS 专项扫描
 //
-// Active 流程（按选中顺序串行跑）：
+// 流程（按选中顺序串行跑）：
 //  1. POST /chat body={"brief":"<自然语言任务简报>"} → 拿 (conversation_id, task_id)
 //  2. 按 task_id 轮询探索图 → 满足 AcceptanceCriteria（objective/action/result 节点数）为 PASS
 //
-// 想加新漏洞类型：activeProfiles map 加一行（带 brief 自然语言描述）。
+// 想加新漏洞类型：profiles map 加一行（带 brief 自然语言描述）。
 package main
 
 import (
@@ -43,12 +44,9 @@ func main() {
 	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8580")
 	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable")
 
-	activeSel, err := selectProfiles(os.Args[1:])
+	selected, err := selectProfiles(os.Args[1:])
 	if err != nil {
 		logger.Fatal().Err(err).Msg("select profiles")
-	}
-	if len(activeSel) == 0 {
-		logger.Fatal().Msg("无 profile 可跑（用法：active:<name>）")
 	}
 
 	// 登录引导：拿会话 Cookie（全新库自动走首启建号），后续所有请求复用。
@@ -57,23 +55,20 @@ func main() {
 		logger.Fatal().Err(err).Msg("登录引导失败（api 不可达 / 凭据失效且库已初始化）")
 	}
 
-	// 共享 PG pool（passive / active 均用）
+	// 共享 PG pool（探索图轮询直读）
 	pool, err := db.NewPgPool(ctx, pgDSN, zerolog.Nop(), 5, 1, 0, 0)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}
 
-	// ---- Active 流水线 ----
-	if len(activeSel) > 0 {
-		if err := runActiveProfiles(ctx, activeSel, apiBase, session, pool, logger); err != nil {
-			logger.Error().Err(err).Msg("e2e active FAIL")
-			fmt.Printf("✗ e2e active FAIL: %v\n", err)
-			os.Exit(1)
-		}
-		names := make([]string, len(activeSel))
-		for i, p := range activeSel {
-			names[i] = p.name
-		}
-		fmt.Printf("✓ e2e active PASS profile=[%s]\n", strings.Join(names, ","))
+	if err := runProfiles(ctx, selected, apiBase, session, pool, logger); err != nil {
+		logger.Error().Err(err).Msg("e2e FAIL")
+		fmt.Printf("✗ e2e FAIL: %v\n", err)
+		os.Exit(1)
 	}
+	names := make([]string, len(selected))
+	for i, p := range selected {
+		names[i] = p.name
+	}
+	fmt.Printf("✓ e2e PASS profile=[%s]\n", strings.Join(names, ","))
 }

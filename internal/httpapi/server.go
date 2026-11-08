@@ -30,7 +30,7 @@ type Deps struct {
 	// 不带任务状态。
 	TaskStatus TaskStatusResolver
 	// Findings 为 nil 时 /findings 路由不注册。由 cmd/api 注入 *finding.Store。
-	// 全局漏洞台账（active+passive 全量 + triage 处置），漏洞页用。
+	// 全局漏洞台账（自主下发 + 代理模式全量 + triage 处置），漏洞页用。
 	Findings FindingsAPI
 	// Workspaces 为 nil 时 /workspaces 路由不注册。由 cmd/api 注入
 	// *workspace.Store——任务工作区的文件检索与 CRUD（沙盒工件）。
@@ -111,7 +111,7 @@ type Deps struct {
 	// JOIN assignment（来源/批次）、conversation（对话链接）、finding/探索图步数派生列。
 	Tasks TasksAPI
 	// TaskDispatch 为 nil 时 POST /tasks 不注册（「新建任务」弹层的批量/定时下发）。
-	// 由 cmd/api 注入 *scanAdapter（cmd/api/adapters.go 的 DispatchBatch/DispatchScheduled）。
+	// 由 cmd/api 注入 *dispatch.Service（DispatchBatch / DispatchScheduled）。
 	TaskDispatch TaskDispatchAPI
 	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
 	// 由 cmd/api 注入 *logx.NewReader(logx.Dir())（自动满足 LogsAPI 窄接口）——

@@ -1,8 +1,8 @@
 # liusha 基座 compose：核心 6 服务全容器（生产形态直接用；本地开发见 scripts/dev/up.sh）。
 #
 # ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
-#  A 本地开发：docker compose -f compose.yaml -f compose.dev.yaml up -d
-#    （仅 pg+redis 两容器）+ ./scripts/dev/run-svc.sh 业务进程 host 二进制；
+#  A 本地开发：docker compose up -d（基座默认只起 pg+redis，业务服务挂 full profile 不起）
+#    + ./scripts/dev/run-svc.sh 业务进程 host 二进制；
 #    runner 经宿主 docker 拉起第三个容器（沙盒 sandbox，warm pool 自动管理）。
 #  B 生产全容器：make prod-up（= compose.yaml + compose.prod.yaml 叠加 --profile full 全起）。
 #    api/nginx/proxy/runner 挂 full profile（dev 不起）；postgres/redis 常驻无门控。

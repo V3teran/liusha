@@ -72,7 +72,7 @@ func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
 		ch:            make(chan Invocation, bufSize),
 		flushReq:      make(chan chan struct{}),
 		closed:        make(chan struct{}),
-		log:           logx.New("llmcall.store"),
+		log:           logx.New("llminvocation.store"),
 		batchSize:     batchSize,
 		flushInterval: flush,
 		insertTimeout: insertTO,

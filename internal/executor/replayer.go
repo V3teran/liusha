@@ -74,7 +74,8 @@ type Assertion struct {
 	MinDurationMs   *int              `json:"min_duration_ms,omitempty"`   // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
-// UnmarshalJSON 接受 body_absent 作为 body_not_contains 的历史别名（容错非规范输入）。
+// UnmarshalJSON 额外接受 body_absent 键：2026-10-31 前 Go 侧以该键序列化配方（刷新配方时回写落库），
+// 存量配方复验需读回它。存量数据迁移为 body_not_contains 后本别名可删。
 func (a *Assertion) UnmarshalJSON(b []byte) error {
 	var raw struct {
 		StatusCode       *int              `json:"status_code,omitempty"`
