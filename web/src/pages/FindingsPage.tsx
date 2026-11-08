@@ -179,7 +179,7 @@ export function FindingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="漏洞" subtitle="智能体发现的安全漏洞与配置缺陷" />
+      <PageHeader title="漏洞" subtitle="每条附复现证据链与配方；可处置：确认 / 已修复 / 误报 / 接受" />
 
       {/* 指标卡：台账总量 + 处置进度 + 严重度分布（分布条与图例可点击按等级筛选） */}
       <section aria-label="漏洞概况" className="flex-shrink-0 px-6 pt-4">

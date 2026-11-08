@@ -99,7 +99,7 @@ export function AgentsPage() {
     <>
       <ConfigListShell
         title="智能体"
-        subtitle="领域智能体的系统提示词、工具集与调度摘要"
+        subtitle="每个 agent 的系统提示词、工具清单与规划时可读的职责描述"
         loading={loading}
         error={error}
         empty={rows.length === 0}

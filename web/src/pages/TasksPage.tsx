@@ -51,7 +51,7 @@ export function TasksPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="任务" subtitle="批次与任务的下发、进度与运行控制">
+      <PageHeader title="任务" subtitle="一个批次是一次下发（可含多目标）；运行中的任务可暂停 / 继续 / 停止">
         <Button onClick={() => setDialogOpen(true)}>
           <Plus strokeWidth={2.4} />
           新建任务

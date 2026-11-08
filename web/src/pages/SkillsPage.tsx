@@ -159,7 +159,7 @@ export function SkillsPage() {
     <>
       <ConfigListShell
         title="技能知识库"
-        subtitle="领域知识与方法论"
+        subtitle="供 agent 检索的方法论文档：摘要进索引，全文按需读取"
         loading={list.loading}
         error={list.error}
         empty={rows.length === 0}

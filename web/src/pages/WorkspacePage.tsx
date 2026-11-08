@@ -43,7 +43,7 @@ function displayPath(p: string): string {
 }
 
 /**
- * 工作空间页：沙盒任务工件的宿主持久层（work/out/profile）的文件 CRUD。
+ * 工作空间页：各任务在沙箱内的文件（work/out/profile）CRUD。
  * 直接展示整棵工作区文件结构（两级分层：顶层为批次 assignment 分组，其下
  * 任务 task 子目录，最新在前），搜索框过滤路径；
  * 行悬停露下载/删除，工具栏新建文件/目录，文件点开可编辑保存与下载。
@@ -211,7 +211,7 @@ export function WorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="工作空间" subtitle="沙盒任务工件的宿主持久层" />
+      <PageHeader title="工作空间" subtitle="浏览、编辑各任务在沙箱内产生与使用的文件" />
 
       <FilterBar
         label="工作区筛选"

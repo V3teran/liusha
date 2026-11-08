@@ -64,7 +64,7 @@ export function LlmAuditPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="LLM 审计" subtitle="全局搜索和监控所有 LLM 调用" />
+      <PageHeader title="LLM 审计" subtitle="每次 LLM 调用的原始输入输出、tokens 与耗时明细" />
 
       {/* 指标区：整个筛选结果集的服务端合计。预留一行高度，数据到达前后布局不跳动。 */}
       <div className="flex min-h-[52px] flex-shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle px-6 py-3">
