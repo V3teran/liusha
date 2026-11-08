@@ -36,7 +36,7 @@
 | 1 | ~~CI `integration tests` 步骤缺 `-tags=integration`~~ → 阶段 5 已修（并补 lint/术语门禁/web job） | 已解决 |
 | 1 | ~~各包测试把日志落盘到包目录 `logs/`~~ → 阶段 5 已修（测试进程缺省关文件落盘） | 已解决 |
 | 1 | ~~`pages/SystemConfig.tsx` 未遵循 `*Page` 命名~~ → 阶段 4 已改 `SystemConfigPage.tsx` | 已解决 |
-| 1 | `web/public/brand/` 下 `favicon-small.svg`、`logo-horizontal.svg` 仍零引用、随 dist 公开发布（阶段 6 复核，余 2 个），是否移出 public 待品牌负责人决定 | 用户决策 |
+| 1 | ~~`web/public/brand/` 零引用 SVG~~ → 阶段 6 补测时删除（favicon-small、logo-horizontal，全库零引用） | 已解决 |
 | 2 | ~~`internal/finding/store.go` 注释来源旧名~~（阶段 3 已修；阶段 6 另清 7 处 `manual/auto` 残留并入术语门禁） | 已解决 |
 | 2 | ~~来源文案两种长度~~ → 阶段 4 收口为单一真相源 `lib/source.ts`（全站「人工下发 / 代理捕获」） | 已解决 |
 | 2 | ~~`WorkspacePage` 分包 688KB~~ → 阶段 5 编辑器与语言包懒加载，13.8KB | 已解决 |
@@ -51,7 +51,7 @@
 | 4 | ~~调度器 `expandTrafficItem` 无写入方~~ → 阶段 5 整条路径删除 | 已解决 |
 | 4 | 升级注意：迁移 0199 修正存量定时批次来源；`bac` SKILL.md 文案需 `make reseed` | 发布说明 |
 | 5 | 升级注意：执行迁移 0200（断言键 body_absent→body_not_contains，无兼容别名）；测试进程缺省不写日志文件 | 发布说明 |
-| 5 | `.agents/governance.md` 建议稿见阶段 5 报告第六节，待用户确认入库 | 用户决策 |
-| 6 | LLM provider（bigmodel）密钥返回 401「令牌已过期」：认知循环实时链路（规划 → 执行 → 复现裁决 → finding）、SSE 过程卡片、插话追问、运行中暂停 / 继续、模型连通性测试未能实测 | 用户（更换密钥后补测） |
-| 6 | 定时任务到点触发未构造模板实测（调度逻辑由集成测试覆盖） | 用户决策 |
+| 5 | ~~`.agents/governance.md` 建议稿~~ → 阶段 6 收尾时已入库（用户确认） | 已解决 |
+| 6 | ~~LLM 相关阻塞~~ → 阶段 6 补测全通过；401 根因是 ambient `ANTHROPIC_AUTH_TOKEN` 泄漏进出站请求（客户端已擦除 + 回归测试），key 本身有效 | 已解决 |
+| 6 | ~~定时任务到点触发未实测~~ → 阶段 6 补测：建模板到点克隆批次 source=direct、schedule_id 落库 | 已解决 |
 | 6 | 升级注意：API 契约收紧（非法 UUID 400 / 不存在 404 / source 非法 400 / 技能重复 409）；LLM 配置错误任务直接落 aborted | 发布说明 |

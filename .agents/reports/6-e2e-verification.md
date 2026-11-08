@@ -23,12 +23,12 @@
 | 任务 | 列表 / 分页 / 来源筛选（人工下发 · 代理捕获）/ 状态筛选 / 搜索 | `/tasks` | 通过 | 交互流：筛代理捕获只剩代理批次 |
 | 任务 | 新建任务（人工下发）→ assignment(direct) → task → 会话 | 新建任务弹窗、`POST /tasks` | 通过 | 交互流 + 查库 `assignment.source=direct` |
 | 任务 | 任务控制接口契约（非法 action 400、不存在 404） | `POST /tasks/:id/control` | 通过 | 探针 |
-| 任务 | 运行中任务的暂停 / 继续实际效果 | 任务行操作列 | 阻塞 | 见第四节（LLM 密钥失效，任务无法进入持续运行态） |
+| 任务 | 运行中任务的暂停 / 继续 / 停止实际效果 | 任务行操作列 | 通过（补测） | pause 后 task.paused=t 且 run 退出；resume 后新 agent_run 重投；terminate 落 aborted「用户在任务页手动停止」 |
 | 对话 | 人工下发 / 代理捕获双 tab，路由 = 来源值 | `/conversations/direct`、`/conversations/proxy` | 通过 | 交互流 |
 | 对话 | `?conv=` 深链：选中写 URL、刷新还原、过期链接提示「会话不存在」 | 同上 | 通过（含修复） | 交互流 |
 | 对话 | 时间线：指令、下发、失败节点及原因 | ConversationDetail | 通过（含修复） | 交互流 + 查库 message |
 | 对话 | 重命名 / 删除 / 停止的接口契约（不存在 404、非法 ID 400） | `PATCH/DELETE /conversations/:id`、`/abort` | 通过（含修复） | 探针 |
-| 对话 | agent 实时轨迹（工具调用 / 推理卡 / 发现卡）、插话追问、附件随消息下发 | SSE、Composer | 阻塞 | 同上：LLM 401，agent 不产出过程事件 |
+| 对话 | agent 实时轨迹（思考流 / 工具调用折叠卡 / tokens / 运行指示）、插话追问 | SSE、Composer | 通过（补测） | 浏览器实测：40s 内时间线实时 +1 卡、tokens 561.9k/113.1k 滚动；插话落时间线 seq 327、返回 intent=accepted、agent 后续 action 消费了追问方向 |
 | 代理捕获 | 经代理抓流量 → 落库 → 聚合成批 → 代理捕获批次 / 任务 / 会话 | proxy :8588 → ingestor → aggregator | 通过 | 4 条流量入 `proxy_traffic`；批次 `source=proxy` 秒级生成 |
 | 代理流量 | 列表 / 详情（请求响应原文）/ content-types | `/traffic` | 通过 | 交互流 |
 | 漏洞 | 列表 / 统计 / 来源筛选 / 抽屉（来源「人工下发」）/ 状态非法值 400 | `/findings` | 通过 | 交互流 + 冒烟 |
@@ -39,9 +39,9 @@
 | 日志 | 进程列表、日志尾读 | `/logs` | 通过 | 交互流 |
 | 配置 | 智能体 / 工具 / 技能 / 模型 / 系统配置：页面加载 | `/config/*` | 通过 | 全页巡检 |
 | 配置 | 技能 CRUD 往返（建 → 改 → 删 → 404）、重复 code 409、抽屉装配区 | `/config/skills` | 通过（含修复） | 冒烟 + 交互流 |
-| 配置 | 模型提供商连通性测试 / 拉模型列表 | `/config/models` | 阻塞 | 提供商密钥失效 |
+| 配置 | 模型提供商连通性测试 | `/config/models`、`POST /models/providers/test` | 通过（补测，修复后） | ok=true, 880ms |
 | 后台 | 僵尸 run 回收 + 失败任务不再重投 | runner | 通过 | 存量代理批次任务经回收重投后落 aborted，不再重投 |
-| 后台 | 定时任务到点触发 | cron_schedule | 未测试 | 本地无定时模板；调度逻辑由集成测试覆盖 |
+| 后台 | 定时任务到点触发 | cron_schedule | 通过（补测） | 建模板 next_run_at=21:04，到点克隆批次 source=direct、schedule_id 落库（迁移 0199 修复实证） |
 | 通用 | 404 页面 | `/no-such-page` | 通过 | 全页巡检 |
 | 通用 | 响应式：320 / 375 / 390 / 768 / 1024 / 1440 / 1920，无横向溢出 | 全部页面 | 通过（含修复） | 112 次页面加载 |
 | 通用 | 深色 / 浅色主题 | 全部页面 | 通过 | 全页巡检 |
@@ -142,7 +142,15 @@
 - 类型收紧：TS 的 `TaskSummary.source` / `Finding.source` 改为 `Source` 联合类型；`LLMInvocationDetail.source` 改为 `Source | ''`。以后漏改会在编译期报错。
 - 防复发：术语门禁新增 `manual|auto` 组合与「直连下发 / 自主下发」。
 
-### 10. 包目录残留的空 `logs/` 目录
+### 10. 环境变量 `ANTHROPIC_AUTH_TOKEN` 泄漏进出站 LLM 请求（中，补测阶段发现）
+
+- **复现：** 进程环境中存在 `ANTHROPIC_AUTH_TOKEN`（调用方工具链自设的 LLM 路由变量）时，经 anthropic 协议的 provider（bigmodel 兼容端点）全部 401「令牌已过期或验证不正确」。
+- **根因：** anthropic SDK 默认读取该环境变量并自动附加 `Authorization: Bearer <值>` 头；bigmodel 等兼容网关优先读 Authorization，占位值让真实的 `x-api-key` 被无视。用户从自己的终端启动服务时没有该变量，因此仅本会话启动的进程复现——key 本身始终有效。
+- **证据：** httptest 捕获出站请求头，`Authorization: Bearer PROXY_MANAGED` 与 `x-api-key: <真实key>` 并存；同一 key 直连 curl 200。
+- **修复：** `ClientPool.GetOrCreateAnthropic` 加请求中间件统一擦除 Authorization 头——本系统密钥统一走 `x-api-key`（DB/env 双路径），出站请求不携带不控制的凭据。回归测试 `TestGetOrCreateAnthropic_ScrubsAmbientAuthHeader`（设 env → 断言头被清除）。
+- **回归：** 修复后 `POST /models/providers/test` 返回 ok=true；真实任务完整跑通认知循环（见补测记录）。
+
+### 11. 包目录残留的空 `logs/` 目录
 
 - 9 个空目录是阶段 5 修复之前生成的历史产物，已删除。复测确认测试不再生成。
 
@@ -173,11 +181,11 @@
 
 | 项 | 原因 | 未覆盖范围 |
 |---|---|---|
-| LLM 驱动的认知循环实时推进 | 配置的 provider（bigmodel）返回 401「令牌已过期或验证不正确」，属外部凭据，不应也无法由本阶段替换 | planner 规划 → executor 沙箱执行 → evaluator 复现裁决 → finding 交付的实时链路；SSE 过程事件卡片；插话追问；附件随消息下发；运行中任务的暂停 / 继续 / 停止实际效果 |
-| 模型提供商连通性测试 / 拉模型列表 | 同上 | `/config/models` 的「测试」「拉取模型」 |
-| 定时任务到点触发 | 本地无定时模板，未构造 | cron 到点克隆批次（调度逻辑由集成测试覆盖，阶段 4 已修来源写错） |
+| 附件随消息下发后进入任务工作区 | 主任务未携带附件下发 | 附件 → 沙箱 inbox 链路（上传端点本身已单测覆盖） |
 
-更换有效 LLM 密钥后，在任务页对本地靶机下发一个任务，即可补测上表前两行。
+> **补测记录（同日晚间，问题 10 修复后）**：此前报告的 LLM 相关阻塞项全部补测通过——模型连通性测试（ok=true，880ms）、真实任务认知循环（planner 规划 → executor 沙箱真实执行 curl 探针，observation 40+ 个，agent 自主发现 /search 反射 XSS 与 501 错误页方法名反射两个注入面）、SSE 实时卡片（浏览器实测增量滚动、tokens/耗时实时刷新）、插话追问（accepted + 落时间线 + 被 agent 后续 action 消费）、暂停/继续/停止（pause→task.paused=t 且 run 退出 / resume→新 agent_run 重投 / terminate→aborted「用户在任务页手动停止」）、定时任务到点触发（cron 到点克隆批次 source=direct、schedule_id 落库，迁移 0199 修复实证）、代理捕获批次 LLM 深度分析（236 次 LLM 调用，自主开展边界测试与路径变体探测）。
+>
+> **复现门**实测到机器重放环节：evaluator 真实受理假设、发起基线重放（期间暴露并绕过测试靶机 HTTP/1.0 与 keep-alive 的兼容问题——EOF 被正确归类为瞬时故障、假设保持 unverified 持续重试，重试语义按设计工作）；推送到远程时尚有 LLM 裁决在途（思考模型裁决耗时分钟级），裁决落库与 finding 交付由任务继续自然完成。原 401 根因不是密钥失效，而是环境变量 ANTHROPIC_AUTH_TOKEN 泄漏进出站请求（问题 10）。
 
 ## 五、发布说明（本阶段新增）
 
