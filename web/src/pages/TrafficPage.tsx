@@ -74,10 +74,8 @@ export function TrafficPage() {
             />
           }
         />
+        {/* 方向键导航挂在滚动容器上：从聚焦行冒泡而来（grid 语义在表格本身）。 */}
         <div
-          role="grid"
-          aria-label="流量列表"
-          tabIndex={0}
           onKeyDown={onListKeyDown}
           className={`min-h-0 overflow-y-auto px-6 py-4 outline-none ${
             hasSelection ? 'shrink-0 basis-[42%] border-b border-border' : 'flex-1'

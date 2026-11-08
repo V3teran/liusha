@@ -16,6 +16,7 @@ interface LlmAuditTableProps {
 export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, meta, onRowClick }: LlmAuditTableProps) {
   return (
     <DataTable
+      ariaLabel="LLM 调用列表"
       rows={rows}
       columns={buildLlmAuditColumns(showProvider, llmTimeoutMs) as never}
       stickyHeader

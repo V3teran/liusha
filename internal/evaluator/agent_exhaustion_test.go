@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // TestParseObservationToAttempt_TolerantOfMalformedRepro 锁定双路径契约一致：
@@ -131,5 +132,28 @@ func TestErrAdjudicationUnavailableWrapping(t *testing.T) {
 	wrapped := fmt.Errorf("outer: %w", fmt.Errorf("%w: inner detail", ErrAdjudicationUnavailable))
 	if !errors.Is(wrapped, ErrAdjudicationUnavailable) {
 		t.Fatal("包装链必须保留哨兵可辨识性")
+	}
+}
+
+// LLM 配置错误：不计入单条假设的重试阶梯（否则每条假设都被误标 adjudication_failed
+// 出圈），而是上报为 evaluator 致命错误，由 Run 返回终结任务。
+func TestRecordVerifyFailure_ConfigErrorIsFatalNotPerHypothesis(t *testing.T) {
+	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
+	cfgErr := fmt.Errorf("%w: verifier: LLM 裁决失败: %w", ErrAdjudicationUnavailable, &llm.HTTPError{Code: 401})
+	a.recordVerifyFailure(context.Background(), "obs-1", Attempt{}, cfgErr)
+
+	a.verifyAttemptsMu.Lock()
+	n := a.verifyAttempts["obs-1"]
+	a.verifyAttemptsMu.Unlock()
+	if n != 0 {
+		t.Fatalf("配置错误不应计入假设失败次数，得 %d", n)
+	}
+	select {
+	case err := <-a.fatal:
+		if !errors.Is(err, cfgErr) {
+			t.Fatalf("致命通道应携带配置错误，得 %v", err)
+		}
+	default:
+		t.Fatal("配置错误应上报到致命通道")
 	}
 }

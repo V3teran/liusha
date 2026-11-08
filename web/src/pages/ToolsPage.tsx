@@ -236,7 +236,8 @@ function ToolMasterList({
     [groups],
   )
 
-  // 键盘 ↑↓ 在工具行间移动选中（listbox 惯例）：容器持有焦点，行本身不必逐个 Tab。
+  // 键盘 ↑↓ 在工具行间移动选中：容器持有焦点，行本身不必逐个 Tab。容器是具名
+  // region 而非 listbox——行是带 aria-pressed 的按钮，listbox 只允许 option 子项。
   const onListKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
     e.preventDefault()
@@ -282,7 +283,7 @@ function ToolMasterList({
       </div>
       <div
         ref={scrollRef}
-        role="listbox"
+        role="region"
         aria-label="工具列表"
         tabIndex={0}
         onKeyDown={onListKeyDown}

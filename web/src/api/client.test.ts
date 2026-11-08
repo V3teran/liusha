@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { get, post } from './client'
+import { ApiError, get, post } from './client'
 
 // fetch 污染治理：本文件多处替换 globalThis.fetch（甚至置 undefined）——泄漏会让
 // 同一次全量运行中排在本文件之后的页面测试全部打到残留 mock 上。每个用例后
@@ -118,5 +118,17 @@ describe('API 客户端内核', () => {
     } finally {
       if (originalDescriptor) Object.defineProperty(window, 'location', originalDescriptor)
     }
+  })
+
+  it('错误响应抛出携带状态码的 ApiError（调用方据 status 区分不存在与故障），消息口径不变', async () => {
+    ;(globalThis as any).fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: vi.fn().mockResolvedValue({ error: '资源不存在' }),
+    })
+    const err = await get('/conversations/x/messages').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(404)
+    expect((err as ApiError).message).toBe('GET 404: 资源不存在')
   })
 })

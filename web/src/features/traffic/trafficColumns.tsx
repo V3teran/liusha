@@ -16,7 +16,7 @@ const seqCol = columnHelper.accessor('id', {
   size: 68,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">{ctx.getValue()}</span>
+    <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
   ),
 })
 
@@ -49,7 +49,7 @@ const timeCol = columnHelper.accessor('captured_at', {
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
         <span>{dateOnly(iso) || '—'}</span>
-        <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(iso)}</em>
       </span>
     )
   },

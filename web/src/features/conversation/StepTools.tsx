@@ -56,7 +56,7 @@ export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) 
         <span className="font-semibold">{callCount} 次工具调用</span>
         {running && <span className="text-text-tertiary">执行中…</span>}
         {!expanded && preview && (
-          <span className="ml-0.5 max-w-[320px] overflow-hidden truncate font-mono opacity-70">
+          <span className="ml-0.5 max-w-[320px] overflow-hidden truncate font-mono text-text-tertiary">
             · {preview}
           </span>
         )}

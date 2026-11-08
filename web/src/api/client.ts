@@ -32,6 +32,20 @@ function redirectOnSessionExpired(path: string) {
 }
 
 /**
+ * API 错误：携带 HTTP 状态码，供调用方区分「资源不存在」(404) 与「服务故障」——
+ * 两者的处置不同（前者不该提供重试）。message 形如 `GET 404: 资源不存在`，可直接展示。
+ */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(method: string, status: number, detail = '') {
+    super(`${method} ${status}${detail ? `: ${detail}` : ''}`)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+/**
  * 错误响应的统一出口：后端错误体形如 {"error": "<中文消息>"}（respondErr 单出口），
  * 读取后随异常抛出——调用方 catch 到的 message 直接可展示，不再丢成 "GET /x → 500"。
  * 响应体非 JSON / 读取失败时回退状态码文本。
@@ -42,11 +56,11 @@ async function raise(res: Response, method: string, path: string): Promise<never
   let detail = ''
   try {
     const body = (await res.json()) as { error?: string }
-    if (body.error) detail = `: ${body.error}`
+    if (body.error) detail = body.error
   } catch {
     /* 错误体不是 JSON（网关层错误等），回退状态码 */
   }
-  throw new Error(`${method} ${res.status}${detail}`)
+  throw new ApiError(method, res.status, detail)
 }
 
 /**

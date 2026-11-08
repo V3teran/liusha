@@ -15,6 +15,7 @@ interface TrafficTableProps {
 export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, onRowClick }: TrafficTableProps) {
   return (
     <DataTable
+      ariaLabel="流量列表"
       rows={rows}
       columns={buildTrafficColumns(showHost) as never}
       loading={loading}

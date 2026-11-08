@@ -23,7 +23,7 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       size: 44,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">
+        <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">
           {offset + ctx.row.index + 1}
         </span>
       ),
@@ -117,7 +117,7 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       cell: (ctx) => {
         const t = ctx.row.original
         if (!t.tokens_in && !t.tokens_out)
-          return <span className="block text-right font-mono text-xs text-text-secondary opacity-40">—</span>
+          return <span className="block text-right font-mono text-xs text-text-tertiary">—</span>
         // TokenPair：与对话页/审计页同一呈现（↑入↓出，中性色——token 是
         // 度量数据不是风险信号，不借漏洞色板）
         return (
@@ -151,7 +151,7 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       cell: (ctx) => (
         <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(ctx.getValue())}>
           <span>{dateOnly(ctx.getValue()) || '—'}</span>
-          <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(ctx.getValue())}</em>
+          <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(ctx.getValue())}</em>
         </span>
       ),
     }),
@@ -161,11 +161,11 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
       meta: { align: 'right' },
       cell: (ctx) => {
         const iso = ctx.getValue()
-        if (!iso) return <span className="block text-right font-mono text-xs text-text-secondary opacity-60">—</span>
+        if (!iso) return <span className="block text-right font-mono text-xs text-text-tertiary">—</span>
         return (
           <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
-            <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
+            <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(iso)}</em>
           </span>
         )
       },

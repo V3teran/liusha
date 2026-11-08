@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation'
 import * as apiClient from '@/api/conversations'
 import * as tasksClient from '@/api/tasks'
 import * as sseHook from '@/hooks/useEventStream'
+import { ApiError } from '@/api/client'
 
 vi.mock('@/api/conversations', () => ({
   listMessages: vi.fn(),
@@ -157,5 +158,20 @@ describe('ConversationDetail', () => {
     render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('tokens')).toBeTruthy()
     expect(screen.getByText('耗时')).toBeTruthy()
+  })
+
+  it('会话不存在（404，如已删除会话的旧深链）：提示不存在且不提供必然失败的重试', async () => {
+    vi.mocked(apiClient.listMessages).mockRejectedValue(new ApiError('GET', 404, '资源不存在'))
+    render(<MemoryRouter><ConversationDetail convId="gone" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    expect(await screen.findByText('会话不存在')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+    expect(sseHook.openEventStream).not.toHaveBeenCalled()
+  })
+
+  it('其他加载失败（5xx / 网络）：保留重试入口', async () => {
+    vi.mocked(apiClient.listMessages).mockRejectedValue(new ApiError('GET', 503, '服务不可用'))
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    expect(await screen.findByText('加载对话失败')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
   })
 })

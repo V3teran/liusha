@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/V3teran/liusha/internal/logx"
@@ -14,7 +16,15 @@ var apiLog = logx.New("httpapi")
 // 把 err.Error() 作为中文错误消息回给客户端。本系统是带鉴权的单租户运维控制台，
 // 操作者依赖消息文本定位配置/依赖问题（store 层错误均为中文作者消息），故不脱敏；
 // 但必须落日志——否则客户端看到错误、服务端无痕迹。
+//
+// 「资源不存在」（store 以 %w 包装 pgx.ErrNoRows）不是服务端故障：无论调用方按
+// 意外失败传入何种 5xx，一律收敛为 404——客户端据此区分「对象已删除/不存在」与
+// 「服务出错可重试」，驱动原文（no rows in result set）也不再外透。
 func respondErr(c *gin.Context, status int, err error) {
+	if status >= http.StatusInternalServerError && isNoRows(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "资源不存在"})
+		return
+	}
 	apiLog.Error().
 		Err(err).
 		Str("method", c.Request.Method).

@@ -51,6 +51,7 @@ type Result struct {
 	Attempts   int    // 总尝试次数
 	StopReason string // 停止原因
 	Duration   time.Duration
+	Err        error // 致命失败（StopReasonAgentFailed）的原因；其余停止为 nil
 }
 
 // Config 配置 CompletionDetector
@@ -200,6 +201,20 @@ func (d *CompletionDetector) makeResult(stopWhy string) Result {
 		Attempts:   int(d.attemptCount.Load()),
 		StopReason: stopWhy,
 		Duration:   time.Since(d.startTime),
+	}
+}
+
+// StopReasonAgentFailed 是 agent 致命失败（如 LLM 配置错误）终结任务的停止原因。
+const StopReasonAgentFailed = "agent_failed"
+
+// Fail 以致命错误终结检测循环（只取第一个：多个 agent 同因失败时不阻塞）。
+func (d *CompletionDetector) Fail(err error) {
+	res := d.makeResult(StopReasonAgentFailed)
+	res.Err = err
+	select {
+	case d.completionCh <- res:
+		d.logger.Error().Err(err).Msg("agent 致命失败，终止任务")
+	default:
 	}
 }
 

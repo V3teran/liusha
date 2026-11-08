@@ -211,7 +211,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       {inputDelta.calls.map((tc) => (
                         <ToolCallCard key={tc.id} call={tc} />
                       ))}
-                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-sm text-text-secondary opacity-70">(空)</div>}
+                      {!inputDelta.text && inputDelta.calls.length === 0 && <div className="text-sm text-text-tertiary">(空)</div>}
                     </div>
                   )}
                   {messagesRaw && (
@@ -219,7 +219,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                       {messagesRaw}
                     </pre>
                   )}
-                  {!inputDelta && !messagesRaw && <div className="text-sm text-text-secondary opacity-70">无输入消息</div>}
+                  {!inputDelta && !messagesRaw && <div className="text-sm text-text-tertiary">无输入消息</div>}
                 </CopySection>
 
                 {/* 模型思考过程 */}
@@ -266,7 +266,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </pre>
                   )}
                   {!resultText && resultCalls.length === 0 && !resultRaw && (
-                    <div className="text-sm text-text-secondary opacity-70">无返回内容</div>
+                    <div className="text-sm text-text-tertiary">无返回内容</div>
                   )}
 
                   {/* 原始响应：取证用，含思考过程/extra/response_meta 等完整字段。

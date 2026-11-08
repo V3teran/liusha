@@ -47,13 +47,17 @@ const (
 //	}] }
 func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		source, ok := sourceParam(c)
+		if !ok {
+			return
+		}
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultFindingPageSize, maxFindingPageSize)
 
 		f := finding.LedgerFilter{
 			Host:     c.Query("host"),
 			Severity: c.Query("severity"),
 			Status:   c.Query("status"),
-			Source:   c.Query("source"),
+			Source:   source,
 			Limit:    size,
 			Offset:   (page - 1) * size,
 		}
@@ -146,11 +150,15 @@ func findingJSON(r finding.LedgerRow) gin.H {
 // 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
 func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		source, ok := sourceParam(c)
+		if !ok {
+			return
+		}
 		f := finding.LedgerFilter{
 			Host:     c.Query("host"),
 			Severity: c.Query("severity"),
 			Status:   c.Query("status"),
-			Source:   c.Query("source"),
+			Source:   source,
 		}
 		st, err := api.StatFiltered(c.Request.Context(), f)
 		if err != nil {

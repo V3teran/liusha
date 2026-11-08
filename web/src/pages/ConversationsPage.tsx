@@ -9,7 +9,7 @@ interface ConversationsPageProps {
 }
 
 // 对话页：主从双栏——左 ConversationList + 右 ConversationDetail。source 由路由决定
-// （/conversations/direct、/conversations/proxy 共用本组件），直连下发/代理捕获两个 tab
+// （/conversations/direct、/conversations/proxy 共用本组件），人工下发/代理捕获两个 tab
 // 差异仅在列表文案/是否可发起新对话，详情区的 SSE/用量/状态/插话全在 ConversationDetail 内。
 export function ConversationsPage({ source }: ConversationsPageProps) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -34,7 +34,7 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     [setSearchParams],
   )
 
-  const newConversation = () => setCurrentConv('') // 空=新建态，ConversationDetail 露空状态 + 可发起 Composer（仅 manual）
+  const newConversation = () => setCurrentConv('') // 空=新建态，ConversationDetail 露空状态 + 可发起 Composer（仅 direct）
 
   // 新会话建立：切到它 + 刷左列表（否则新会话不出现，要手动点 ↻）。
   const onStarted = (convID: string) => {

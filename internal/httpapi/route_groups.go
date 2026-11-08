@@ -2,6 +2,10 @@ package httpapi
 
 import "github.com/gin-gonic/gin"
 
+// uuidID 校验 UUID 主键族路由（tasks / conversations / findings / agents）的 :id 段。
+// traffic 与 llm 调用记录的 :id 是 bigint 自增键，由各自 handler 解析。
+var uuidID = requireUUIDParam("id")
+
 // registerCredentialsRoutes 注册凭证库路由（资源式；host 段经 CanonicalHost 归一）。
 // 静态子路由先于参数路由注册，避免 gin 树冲突。
 func registerCredentialsRoutes(r gin.IRouter, d Deps) {
@@ -29,7 +33,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	r.DELETE("/workspaces", deleteWorkspacePathHandler(d.Workspaces))
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
-	r.PATCH("/findings/:id/status", updateFindingStatusHandler(d.Findings))
+	r.PATCH("/findings/:id/status", uuidID, updateFindingStatusHandler(d.Findings))
 }
 
 // registerLLMInvocationRoutes 注册 LLM 调用记录路由
@@ -51,9 +55,9 @@ func registerAgentConfigRoutes(r gin.IRouter, d Deps) {
 	// agent 配置读取/编辑（前端配置管理页）。角色为固定种子：
 	// 无 POST（不可新建）、无 DELETE（不可删），只有部分更新。
 	r.GET("/agents", listAgentsHandler(d.ConfigStore))
-	r.GET("/agents/:id", getAgentHandler(d.ConfigStore))
-	r.PUT("/agents/:id", saveAgentHandler(d.ConfigStore))
-	r.PATCH("/agents/:id/complexity", updateAgentComplexityHandler(d.ConfigStore))
+	r.GET("/agents/:id", uuidID, getAgentHandler(d.ConfigStore))
+	r.PUT("/agents/:id", uuidID, saveAgentHandler(d.ConfigStore))
+	r.PATCH("/agents/:id/complexity", uuidID, updateAgentComplexityHandler(d.ConfigStore))
 }
 
 // registerSkillRoutes 注册技能/知识库路由
@@ -77,21 +81,21 @@ func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/conversations/:id/exploration/graph", getConversationGraph(d.ExplorationGraph))
-	r.GET("/conversations/:id/exploration/verifications", getConversationVerifications(d.ExplorationGraph))
+	r.GET("/conversations/:id/exploration/graph", uuidID, getConversationGraph(d.ExplorationGraph))
+	r.GET("/conversations/:id/exploration/verifications", uuidID, getConversationVerifications(d.ExplorationGraph))
 }
 
 // registerTasksRoutes 注册任务模块路由（前端 /tasks 页）。
 func registerTasksRoutes(r gin.IRouter, d Deps) {
 	if d.Tasks != nil {
 		r.GET("/tasks", listTasksHandler(d.Tasks))
-		r.GET("/tasks/:id", getTaskHandler(d.Tasks))
+		r.GET("/tasks/:id", uuidID, getTaskHandler(d.Tasks))
 	}
 	if d.TaskDispatch != nil {
 		r.POST("/tasks", createTasksHandler(d.TaskDispatch))
 	}
 	if d.TaskControl != nil {
-		r.POST("/tasks/:id/control", taskControlHandler(d.TaskControl))
+		r.POST("/tasks/:id/control", uuidID, taskControlHandler(d.TaskControl))
 	}
 }
 
@@ -193,10 +197,10 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	}
 
 	r.GET("/conversations", listConversationsHandler(d.Conversations))
-	r.GET("/conversations/:id/messages", messagesHandler(d.Conversations))
+	r.GET("/conversations/:id/messages", uuidID, messagesHandler(d.Conversations))
 
 	if d.FollowUp != nil {
-		r.POST("/conversations/:id/messages", followUpHandler(d.FollowUp))
+		r.POST("/conversations/:id/messages", uuidID, followUpHandler(d.FollowUp))
 	}
 
 	// 附件上传：静态段先于 :id 族注册避免 gin 树冲突。会话存在走 :id 形态，
@@ -204,24 +208,24 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	if d.Attachments != nil && d.AttachmentContext != nil && d.AttachmentMaxBytes > 0 {
 		r.POST("/attachments", uploadAttachmentHandler(d.Attachments, d.AttachmentContext, d.AttachmentMaxBytes,
 			func(c *gin.Context) string { return c.PostForm("conversation_id") }))
-		r.POST("/conversations/:id/attachments", uploadAttachmentHandler(d.Attachments, d.AttachmentContext, d.AttachmentMaxBytes,
+		r.POST("/conversations/:id/attachments", uuidID, uploadAttachmentHandler(d.Attachments, d.AttachmentContext, d.AttachmentMaxBytes,
 			func(c *gin.Context) string { return c.Param("id") }))
 	}
 
 	if d.Abort != nil {
-		r.POST("/conversations/:id/abort", abortConversationHandler(d.Abort))
+		r.POST("/conversations/:id/abort", uuidID, abortConversationHandler(d.Abort))
 	}
 
 	if d.Deleter != nil {
-		r.DELETE("/conversations/:id", deleteConversationHandler(d.Deleter))
+		r.DELETE("/conversations/:id", uuidID, deleteConversationHandler(d.Deleter))
 	}
 
 	if d.Renamer != nil {
-		r.PATCH("/conversations/:id", renameConversationHandler(d.Renamer))
+		r.PATCH("/conversations/:id", uuidID, renameConversationHandler(d.Renamer))
 	}
 
 	if d.EventStream != nil {
-		r.GET("/conversations/:id/stream", streamHandler(d.Conversations, d.EventStream))
+		r.GET("/conversations/:id/stream", uuidID, streamHandler(d.Conversations, d.EventStream))
 	}
 }
 
@@ -230,7 +234,7 @@ func registerUsageRoutes(r gin.IRouter, d Deps) {
 	if d.UsageTasks == nil || d.UsageLLM == nil || d.UsageTools == nil {
 		return
 	}
-	r.GET("/conversations/:id/usage", conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
+	r.GET("/conversations/:id/usage", uuidID, conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
 }
 
 // registerAuthRoutes 注册登录认证路由（/auth 系列）。

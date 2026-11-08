@@ -156,6 +156,9 @@ func (d *Deps) run(
 		{name: "executor", start: stack.executorAgent.Run},
 		{name: "evaluator", start: stack.evaluatorAgent.Run},
 		{name: "monitor", start: stack.monitorAgent.Run},
+	}, func(name string, err error) {
+		// agent 主动返回 = 致命失败（各 agent 的瞬时故障在内部自愈）：终结任务并上报原因。
+		stack.detector.Fail(fmt.Errorf("%s agent: %w", name, err))
 	})
 
 	lifecycle.Start()
@@ -203,16 +206,18 @@ func (d *Deps) run(
 		Str("stop_reason", result.StopReason).
 		Msg("认知循环完成")
 
-	return executor.Report{
+	report := executor.Report{
 		Steps:      result.Steps,
 		Promoted:   result.Promoted,
 		Attempts:   result.Attempts,
 		StopReason: result.StopReason,
-	}, nil
+	}
+	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「扫描执行失败」带原因）。
+	return report, result.Err
 }
 
 // closeObjectives 把任务的全部 open 目标节点置终态（completed；被终止的任务
-// aborted）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
+// aborted；agent 致命失败 failed）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
 // 有始有终。暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批
 // 目标）。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
 func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
@@ -227,8 +232,11 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 		return
 	}
 	terminal := explorationgraph.StateCompleted
-	if stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel") {
+	switch {
+	case stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel"):
 		terminal = explorationgraph.StateAborted
+	case stopWhy == StopReasonAgentFailed:
+		terminal = explorationgraph.StateFailed // 未达成目标且非用户终止：失败，不得记作完成
 	}
 	for _, obj := range objectives {
 		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {

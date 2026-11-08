@@ -28,7 +28,8 @@ EXCLUDES=(
 
 # 禁用术语（旧架构残留，全称匹配大小写不敏感）。
 # engagement：0001 顶层会话概念，0041/0153 已删表、代码零引用——assignment 取代，防回流。
-# passive / activescan / passivesession / SourceManual / SourceAuto / SourceSelf / source-self：
+# passive / activescan / passivesession / SourceManual / SourceAuto / SourceSelf / source-self /
+# manual|auto 组合（更早一代来源取值的注释写法）/ 直连下发、自主下发（已弃用的中文来源名）：
 #   下发来源已收口为 direct（人工下发）/ proxy（代理捕获），见 assignment.Source（迁移 0198）。
 # traffic-analysis：已退役的单 agent 角色名，现行角色见 agent_run_role_check。
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
@@ -61,6 +62,10 @@ FORBIDDEN=(
   'SourceAuto'
   'SourceSelf'
   'source-self'
+  'manual ?[|/] ?auto'
+  'auto ?[|/] ?manual'
+  '直连下发'
+  '自主下发'
   'traffic-analysis'
   'llmcall'
   'einotools'

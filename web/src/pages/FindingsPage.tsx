@@ -309,6 +309,7 @@ export function FindingsPage() {
           /* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
              严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */
           <DataTable
+            ariaLabel="漏洞列表"
             rows={visible}
             columns={columns as never}
             loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}

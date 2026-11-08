@@ -93,7 +93,7 @@ type Summary struct {
 	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务 brief）
 	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
 	AssignmentTotal int    // 批内任务总数
-	Source          string // manual|auto（视图层口径：定时克隆归 manual）
+	Source          string // direct|proxy（assignment.source 原值；定时克隆批次落 direct）
 	Scheduled       bool   // 定时模板触发（assignment.schedule_id 非空）
 	CronExpr        string // 来源模板的 cron 表达式（非定时为空）
 	ConversationID  string

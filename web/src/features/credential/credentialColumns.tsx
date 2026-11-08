@@ -128,7 +128,7 @@ const usernameCol = columnHelper.accessor('identity.username', {
             会话快照 · {short}
           </span>
           {row.identity.task_status && (
-            <span className="text-xs text-text-secondary opacity-75">
+            <span className="text-xs text-text-tertiary">
               会话 · {TASK_STATUS_SHORT[row.identity.task_status] ?? row.identity.task_status}
             </span>
           )}
@@ -212,7 +212,7 @@ const valuesCol = columnHelper.accessor('identity.credentials', {
             }
             const line = credentialRawLine(c)
             return (
-              <div key={i} className="truncate font-mono text-xs leading-[1.6] text-text-secondary opacity-60" title={line}>
+              <div key={i} className="truncate font-mono text-xs leading-[1.6] text-text-tertiary" title={line}>
                 {line}
               </div>
             )
@@ -293,7 +293,7 @@ const createdCol = columnHelper.accessor('identity.created_at', {
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(iso)}</em>
       </span>
     )
   },
@@ -309,7 +309,7 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
     return (
       <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={iso}>
         <span>{dateOnly(iso)}</span>
-        <em className="block text-xs font-normal not-italic text-text-secondary opacity-75">{clockTime(iso)}</em>
+        <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(iso)}</em>
       </span>
     )
   },
@@ -349,7 +349,7 @@ const seqCol = columnHelper.display({
   size: 44,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-xs tabular-nums text-text-secondary opacity-70">
+    <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">
       {(ctx.table.options.meta as CredentialTableMeta).startIndex + ctx.row.index + 1}
     </span>
   ),

@@ -47,7 +47,7 @@ export function CredentialTable({
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
       {/* min-width 兜底：窄屏出横向滚动条，列不压缩（全站表格统一约定） */}
-      <table className="w-full border-collapse table-fixed" style={{ minWidth }}>
+      <table role="grid" aria-label="凭证列表" className="w-full border-collapse table-fixed" style={{ minWidth }}>
         <colgroup>
           {leafColumns.map((col, i) => (
             <col key={col.id} style={{ width: colWidths[i] }} />
@@ -60,7 +60,7 @@ export function CredentialTable({
                 <th
                   key={h.id}
                   className={cn(
-                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary opacity-70',
+                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary',
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
@@ -94,7 +94,6 @@ export function CredentialTable({
               return (
                 <tr
                   key={row.id}
-                  role="button"
                   tabIndex={0}
                   aria-label={`查看用户名 ${v.identity.username} 的凭证`}
                   aria-selected={selected}
