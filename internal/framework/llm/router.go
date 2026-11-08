@@ -11,6 +11,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -157,6 +158,10 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		}
 		spec, err := r.store.GetProviderSpec(ctx, providerKey)
 		if err != nil {
+			// 未配置类错误无降级意义（相邻档同样没有 provider 时才会走到这），直接上抛
+			if errors.Is(err, ErrNotConfigured) {
+				return nil, err
+			}
 			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
 			continue
 		}
@@ -176,7 +181,7 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 	}
 	return nil, fmt.Errorf(
 		"provider/router: no LLM provider configured for complexity %q —"+
-			"请在 config.yaml providers: 声明并在前端「能力分档」页设置路由", complexity)
+			"请在「LLM 配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
 }
 
 // SetProviderWrapper 注入 Provider 装饰钩子（埋点/限流等），在首次 For() 之前调用。
@@ -217,6 +222,10 @@ func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (Provid
 		}
 		spec, err := r.store.GetProviderSpec(ctx, providerKey)
 		if err != nil {
+			// 密钥未配置类错误原样透传哨兵（errors.Is 链保持），其余加载失败只记录最后一条
+			if errors.Is(err, ErrNotConfigured) {
+				return ProviderSpec{}, err
+			}
 			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
 			continue
 		}
@@ -227,7 +236,7 @@ func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (Provid
 	}
 	return ProviderSpec{}, fmt.Errorf(
 		"provider/router: no LLM provider configured for complexity %q —"+
-			"请在 config.yaml providers: 声明并在前端「能力分档」页设置路由", complexity)
+			"请在「LLM 配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
 }
 
 // BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。

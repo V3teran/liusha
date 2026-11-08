@@ -103,6 +103,29 @@ type Service struct {
 	// 否则 asynq 默认 30min 任务 deadline 会架空 runner handler 里 4h 的 WithTimeout——
 	// run 跑到 30min 就被 ctx cancel（实测 30min 整 abort、planner 没机会收尾）。
 	MaxRunTimeout time.Duration
+
+	// LLM 是下发边界的就绪校验（nil = 跳过，测试替身/纯存储用法）。任务创建前
+	// 必须确认 LLM 可服务——否则任务入队后 planner 拿到「未配置」错误无限重试、
+	// 永挂 active。cmd/api 以 Router.For(simple) 适配（simple 是全部档位的降级
+	// 兜底：它可解析 ⟺ 任意档位可解析）。
+	LLM LLMReadiness
+}
+
+// LLMReadiness 报告当前部署能否解析出可用的 LLM provider（消费者定义的窄接口）。
+type LLMReadiness interface {
+	Ready(ctx context.Context) error
+}
+
+// requireLLMReady 是任务创建类入口的公共前置：未就绪错误透传
+// framework/llm.ErrNotConfigured 哨兵链，HTTP 层据此映射 400 与配置指引。
+func (s *Service) requireLLMReady(ctx context.Context) error {
+	if s.LLM == nil {
+		return nil
+	}
+	if err := s.LLM.Ready(ctx); err != nil {
+		return fmt.Errorf("LLM 尚未就绪，任务无法下发: %w", err)
+	}
+	return nil
 }
 
 // AttachmentStore 是 dispatch 对附件域的最小依赖（internal/attachment.Store 满足）。
@@ -208,6 +231,10 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 // （含批次名/描述与目标清单），不立即执行；到点由 Scheduler 克隆 assignment 展开
 // （见 Scheduler.fireOne）。cron 表达式当场校验（cronschedule.NextRun）。
 func (s *Service) DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string) (string, time.Time, error) {
+	// 模板创建时就校验：不许创建到点必败的模板（LLM 未配置时每次触发都失败）。
+	if err := s.requireLLMReady(ctx); err != nil {
+		return "", time.Time{}, err
+	}
 	items := make([]assignment.Item, 0, len(briefs))
 	for _, b := range briefs {
 		items = append(items, assignment.Item{Brief: b})
@@ -258,6 +285,11 @@ func (s *Service) appendTaskStatus(ctx context.Context, conversationID, status, 
 // userMsgSeq 是携带这批附件的用户消息 seq（0 = 无会话消息）：落位后据它改写
 // 消息 metadata 的引用路径（暂存 → inbox），时间线芯片随之指向文件的新家。
 func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
+	// expandItem 是全部任务展开的统一收口点（单发批次 / 定时克隆 / 会话发起都经此），
+	// 就绪校验挂这里才能覆盖全部入口。
+	if err := s.requireLLMReady(ctx); err != nil {
+		return "", "", err
+	}
 	tk, err := s.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Brief:        brief,
@@ -564,6 +596,11 @@ const dispatchAnswerTimeout = 5 * time.Minute
 // 由异步分支往时间线落提示消息——前端拿到 200 即清空输入框、追加的消息立即出现在
 // 时间线，回答/扫描进展经 SSE 流出。
 func (s *Service) HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (string, error) {
+	// 意图分类与问答生成同样依赖 LLM：未配置时在此拒绝（400 指引），不落到
+	// 分类器 provider 错误的 500。
+	if err := s.requireLLMReady(ctx); err != nil {
+		return "", err
+	}
 	fetched, err := s.Conversations.GetConversation(ctx, conversationID)
 	if err != nil {
 		return "", err

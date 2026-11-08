@@ -21,6 +21,7 @@ package llmstore
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -92,6 +93,13 @@ func providerKeys(key string) []string {
 // routeKeys 是一次角色路由写/删要清的全部缓存键：路由快照哨兵 + 列表键。
 func routeKeys() []string {
 	return []string{keyRouting, keyRoleRoutesList}
+}
+
+// InvalidateAll 清空 LLM 配置的全部读缓存（列表键 + 路由快照 + 路由列表）。
+// 供绕过本 store 写路径的批量导入（启动期 seed 直连 DB）之后调用——不经失效
+// 广播的外部写入会让缓存里的旧值存活到 TTL，重启后读到「已重建却像未配置」。
+func (s *Store) InvalidateAll(ctx context.Context) error {
+	return s.cache.Invalidate(ctx, append(routeKeys(), keyProvidersList(true), keyProvidersList(false))...)
 }
 
 // isNotFound 判定底层 store 的「不存在」——GetProvider/UpdateProvider 用 %w 包 pgx.ErrNoRows，
@@ -231,7 +239,9 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 	}
 	apiKey, err := llmconfig.ResolveAPIKey(p, a.cipher)
 	if err != nil {
-		return fwllm.ProviderSpec{}, err
+		// 密钥来源缺失（密文与 env 皆空）是「未配置」而非故障：带框架哨兵上抛，
+		// 任务据此致命终结并给出配置指引，不进重试。
+		return fwllm.ProviderSpec{}, fmt.Errorf("%w: %w", fwllm.ErrNotConfigured, err)
 	}
 	return fwllm.ProviderSpec{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
