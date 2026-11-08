@@ -52,6 +52,7 @@ func TestIsConfigError(t *testing.T) {
 		{"403 无权限", &HTTPError{Code: 403}, true},
 		{"404 模型不存在", &HTTPError{Code: 404}, true},
 		{"流式包装的 401", fmt.Errorf("stream error: %w", &HTTPError{Code: 401}), true},
+		{"provider 未配置（哨兵）", fmt.Errorf("wrap: %w", ErrNotConfigured), true},
 		{"400 单次请求非法（如上下文超长）", &HTTPError{Code: 400}, false},
 		{"429 限流", &HTTPError{Code: 429}, false},
 		{"503 过载", &HTTPError{Code: 503}, false},

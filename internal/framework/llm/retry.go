@@ -142,11 +142,20 @@ func IsTransient(err error) bool {
 	return Classify(err) != ClassOther
 }
 
+// ErrNotConfigured 标记「provider / 密钥 / 路由未配置」类错误：与部署使用无关、
+// 用户提供配置即可消除——重试不会自愈，调用方应把任务干净终结并给出配置指引，
+// 而不是轮询重撞（实测：零 provider 下发后任务永挂 active）。Router 与 llmstore
+// 的密钥解析统一包此哨兵，IsConfigError 据此判定。
+var ErrNotConfigured = errors.New("LLM 未配置")
+
 // IsConfigError 报告错误是否为 provider 配置性错误：鉴权失败（401）、无权限（403）、
 // 模型或端点不存在（404）。这类错误与具体请求无关、重试不会自愈，调用方应止损并把
 // 原因上报给操作者——与 400（单次请求非法，如上下文超长，换个请求可能成功）区分开。
 // 只认结构化 *HTTPError：provider 适配层对非 2xx 统一构造它，不做文本启发式。
 func IsConfigError(err error) bool {
+	if errors.Is(err, ErrNotConfigured) {
+		return true
+	}
 	var he *HTTPError
 	if !errors.As(err, &he) {
 		return false

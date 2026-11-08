@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -23,6 +25,12 @@ var apiLog = logx.New("httpapi")
 func respondErr(c *gin.Context, status int, err error) {
 	if status >= http.StatusInternalServerError && isNoRows(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "资源不存在"})
+		return
+	}
+	// LLM 未配置是客户端可修复的配置问题（错误文本已带配置指引），不是服务端
+	// 故障：统一收敛为 400，调用方（前端/脚本）按 4xx 提示而非重试。
+	if status >= http.StatusInternalServerError && errors.Is(err, fwllm.ErrNotConfigured) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	apiLog.Error().

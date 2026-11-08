@@ -173,12 +173,19 @@ func main() {
 	if err := seed.ImportLLM(ctx, cfg, llmconfig.NewStore(pool)); err != nil {
 		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可经模型模块 CRUD 手动补齐）")
 	}
-	// 零 provider 拒启（用户语义「不配置就无法使用」的启动期体现）——错误信息
-	// 直接给出补齐路径，不留到运行期第一次调 LLM 时才炸。
+	// seed 直连 DB 写，绕过 llmstore 缓存层：导入后清空 LLM 配置读缓存，
+	// 否则 redis 里的旧值（如导入前缓存过的空路由）会盖过刚重建的配置。
+	if err := llmStore.InvalidateAll(ctx); err != nil {
+		logger.Warn().Err(err).Msg("LLM 配置缓存清空失败（运行期首读可能短暂滞后）")
+	}
+	// 零 provider 不拒启：模型配置允许「先部署、后在前端配置」。自洽由三层保证——
+	// 下发/定时模板创建时边界拒绝（dispatch.requireLLMReady，400 带配置指引）、
+	// 运行期未配置错误致命化（llm.ErrNotConfigured → 任务干净终结不再永挂）、
+	// cron 到点触发跳过待下轮。这里只做可见性告警。
 	if provs, provErr := llmconfig.NewStore(pool).ListProviders(ctx, false); provErr != nil {
-		logger.Fatal().Err(provErr).Msg("读取 LLM provider 失败")
+		logger.Warn().Err(provErr).Msg("读取 LLM provider 失败（任务下发前请检查 LLM 配置）")
 	} else if len(provs) == 0 {
-		logger.Fatal().Msg("LLM 未配置：config.yaml providers: 块为空且数据库无 provider——至少声明一个 provider（含其 api_key_env 对应的密钥）才能使用")
+		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「LLM 配置」页接入 provider")
 	}
 
 	// 系统业务旋钮种子（insert-only）：把 config.yaml 的 compaction/runtime/proxy_filter 三组
@@ -248,6 +255,7 @@ func main() {
 	router := &dispatch.RoleRouter{Router: apiLLMRouter}
 	publisher := convstream.NewPublisher(rdb)
 	dispatchService := &dispatch.Service{
+		LLM:           llmReadiness{apiLLMRouter},
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
 		AgentRuns:     agentRunStore,
@@ -426,4 +434,13 @@ func (a attachmentContext) ResolveTaskID(ctx context.Context, conversationID str
 
 func (a attachmentContext) GetSummary(ctx context.Context, id string) (task.Summary, error) {
 	return a.Tasks.GetSummary(ctx, id)
+}
+
+// llmReadiness 把 LLM Router 适配为下发边界的就绪校验：For(simple) 是全部档位的
+// 降级兜底——simple 可解析 ⟺ 任意档位可解析，一次调用即完备校验（含密钥来源存在性）。
+type llmReadiness struct{ r *fwllm.Router }
+
+func (a llmReadiness) Ready(ctx context.Context) error {
+	_, err := a.r.For(ctx, fwllm.ComplexitySimple)
+	return err
 }

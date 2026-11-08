@@ -73,6 +73,11 @@ func (s *Scheduler) fireDue(ctx context.Context) {
 // 不留中间状态"不同——这里是批量+定时场景，部分失败不该拖累整批，失败的 item 记 Warn 跳过，
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
 func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) error {
+	// 到点触发前校验 LLM 就绪：未就绪返回错误走「模板保留待下轮重试」的现成路径——
+	// 配置恢复后定时任务自动续上；不得在未就绪时先克隆出 assignment（部分状态）。
+	if err := s.Dispatcher.requireLLMReady(ctx); err != nil {
+		return err
+	}
 	var items []assignment.Item
 	var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {

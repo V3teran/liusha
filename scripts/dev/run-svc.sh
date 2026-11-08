@@ -40,8 +40,8 @@ export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 # proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8588）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8588}"
 
-# api key 校验（必填）：校验当前激活 provider 的密钥。
-# 按实际激活 provider 校验。
+# LLM 配置不再要求启动前就绪：provider 可在部署后于前端「LLM 配置」页接入。
+# 未接入时服务照常启动，任务下发会被边界校验拒绝并给出指引。
 # LLM 密钥由 config.yaml 各 provider 的 api_key_env 决定（可多家多把），
 # 缺失由 api/runner 启动期校验报精确变量名——此处不做专项检查。
 
