@@ -15,17 +15,17 @@ interface StatusShape {
 function statusShape(md: TimelineEventMeta): StatusShape {
   switch (md.status) {
     case 'dispatched':
-      return { icon: Rocket, label: '已下发扫描', color: 'var(--color-accent)' }
+      return { icon: Rocket, label: '任务已下发', color: 'var(--color-accent)' }
     case 'completed':
-      return { icon: CheckCircle2, label: '扫描完成', color: 'var(--status-success)' }
+      return { icon: CheckCircle2, label: '任务完成', color: 'var(--status-success)' }
     case 'aborted':
-      return { icon: Square, label: '扫描已停止', color: 'var(--status-neutral)' }
+      return { icon: Square, label: '任务已停止', color: 'var(--status-neutral)' }
     case 'failed':
-      return { icon: XCircle, label: '扫描执行失败', color: 'var(--color-sev-critical)' }
+      return { icon: XCircle, label: '任务执行失败', color: 'var(--color-sev-critical)' }
     case 'paused':
-      return { icon: PauseCircle, label: '扫描已暂停', color: 'var(--status-neutral)' }
+      return { icon: PauseCircle, label: '任务已暂停', color: 'var(--status-neutral)' }
     case 'resumed':
-      return { icon: PlayCircle, label: '扫描已继续', color: 'var(--color-accent)' }
+      return { icon: PlayCircle, label: '任务已继续', color: 'var(--color-accent)' }
     default:
       return { icon: Square, label: md.status, color: 'var(--status-neutral)' }
   }
@@ -33,7 +33,7 @@ function statusShape(md: TimelineEventMeta): StatusShape {
 
 // 停止原因的人读映射：stop_reason 是终态的唯一「怎么停的」事实源——不渲染时
 // 用户终止与自然收敛在时间线上逐像素相同（实测 stop_reason='control-plane:
-// terminate' 的任务显示绿色「扫描完成」）。
+// terminate' 的任务显示绿色「任务完成」）。
 const STOP_REASON_LABELS: Record<string, string> = {
   task_terminated: '手动终止',
   context_cancelled: '执行被取消',

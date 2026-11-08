@@ -47,8 +47,8 @@ type Scheduler struct {
 }
 
 // Run 阻塞轮询直到 ctx 取消；ctx 取消前再兜最后一轮，避免关停瞬间刚好错过一次到点模板。
-func (r *Scheduler) Run(ctx context.Context) {
-	r.Logger.Info().Dur("interval", cronPollInterval).Msg("cron scheduler started")
+func (s *Scheduler) Run(ctx context.Context) {
+	s.Logger.Info().Dur("interval", cronPollInterval).Msg("cron scheduler started")
 	ticker := time.NewTicker(cronPollInterval)
 	defer ticker.Stop()
 	for {
@@ -56,21 +56,21 @@ func (r *Scheduler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.fireDue(ctx)
+			s.fireDue(ctx)
 		}
 	}
 }
 
 // fireDue 找出全部到点模板并逐个触发；单个模板失败不影响其余模板（记 Warn 继续）。
-func (r *Scheduler) fireDue(ctx context.Context) {
-	due, err := r.Schedules.ListDue(ctx, time.Now())
+func (s *Scheduler) fireDue(ctx context.Context) {
+	due, err := s.Schedules.ListDue(ctx, time.Now())
 	if err != nil {
-		r.Logger.Warn().Err(err).Msg("cron ListDue 失败（下轮重试）")
+		s.Logger.Warn().Err(err).Msg("cron ListDue 失败（下轮重试）")
 		return
 	}
 	for _, sched := range due {
-		if err = r.fireOne(ctx, sched); err != nil {
-			r.Logger.Warn().Err(err).Str("schedule_id", sched.ID).Msg("cron 触发失败（模板保留待下轮重试）")
+		if err = s.fireOne(ctx, sched); err != nil {
+			s.Logger.Warn().Err(err).Str("schedule_id", sched.ID).Msg("cron 触发失败（模板保留待下轮重试）")
 			continue
 		}
 	}
@@ -81,7 +81,7 @@ func (r *Scheduler) fireDue(ctx context.Context) {
 // 展开失败的单个 item 不回滚已建的 assignment/其余 item（与 API 单发路径"前面失败直接返错，
 // 不留中间状态"不同——这里是批量+定时场景，部分失败不该拖累整批，失败的 item 记 Warn 跳过，
 // 模板 next_run_at 仍照常推进，下次到点重新尝试）。
-func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) error {
+func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) error {
 	var items []assignment.Item
 	var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
@@ -89,7 +89,7 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	}
 
 	scheduleID := sched.ID
-	asg, err := r.Assignments.Create(ctx, assignment.NewParams{
+	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
 		Source:      assignment.SourceProxy,
 		Items:       items,
 		Title:       sched.Title,
@@ -105,39 +105,39 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 		switch {
 		case len(item.TrafficIDs) > 0:
 			// 显式流量集：下发时点名的 proxy_traffic id 集合（M:N 精确复检），host 从流量派生。
-			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
+			expandErr = s.expandTrafficItem(ctx, asg.ID, item)
 		case item.Host != "":
-			expandErr = r.expandTrafficItem(ctx, asg.ID, item)
+			expandErr = s.expandTrafficItem(ctx, asg.ID, item)
 		default:
 			// 自主下发条目：与批量下发同一会话语义——每任务建独立会话并落
 			// 用户 brief 消息（定时任务的执行现场是可观测资产，哑巴任务
 			// 只能看结果不能看过程）。expandItem 会链会话 + 落 dispatched 节点。
-			created, cerr := r.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
+			created, cerr := s.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
 			if cerr != nil {
 				expandErr = fmt.Errorf("create conversation: %w", cerr)
-			} else if _, aerr := r.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
+			} else if _, aerr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
 				expandErr = fmt.Errorf("append user message: %w", aerr)
 			} else {
-				_, _, expandErr = r.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
+				_, _, expandErr = s.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
 			}
 		}
 		if expandErr != nil {
-			r.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
+			s.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).
 				Msg("cron 展开单个 item 失败（跳过，不影响本批其余 item）")
 		}
 	}
 
 	firedAt := time.Now()
-	ok, err := r.Schedules.MarkFired(ctx, sched.ID, firedAt, *sched.NextRunAt)
+	ok, err := s.Schedules.MarkFired(ctx, sched.ID, firedAt, *sched.NextRunAt)
 	if err != nil {
 		return fmt.Errorf("mark schedule %s fired: %w", sched.ID, err)
 	}
 	if !ok {
 		// next_run_at 已被其他副本改写：模板被抢先触发，本副本放弃
-		r.Logger.Info().Str("schedule_id", sched.ID).Msg("定时模板已被其他副本触发，跳过")
+		s.Logger.Info().Str("schedule_id", sched.ID).Msg("定时模板已被其他副本触发，跳过")
 		return nil
 	}
-	r.Logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
+	s.Logger.Info().Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).Int("items", len(items)).
 		Msg("cron 定时模板已触发")
 	return nil
 }
@@ -147,9 +147,9 @@ func (r *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 // 定时器而非实时流量窗口（故用固定 proxyCronClaimLimit，不接聚合器配置）。
 //
 // host 显式已知，创建时即写入 target_host（无需等 runner 从 brief 回填）。
-func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
+func (s *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, item assignment.Item) error {
 	host := item.Host
-	tk, err := r.Tasks.Create(ctx, task.NewParams{
+	tk, err := s.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Brief:        host,
 		TargetHost:   host,
@@ -161,39 +161,39 @@ func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	// 显式流量集（TrafficIDs 非空）走精确领取，否则按 host 领未被本 task 消费的流量。
 	var claimed int64
 	if len(item.TrafficIDs) > 0 {
-		claimed, err = r.ProxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
+		claimed, err = s.ProxyStore.ClaimByIDs(ctx, tk.ID, item.TrafficIDs)
 	} else {
-		claimed, err = r.ProxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, proxyCronClaimLimit)
+		claimed, err = s.ProxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, proxyCronClaimLimit)
 	}
 	if err != nil {
-		_ = r.Tasks.Abort(ctx, tk.ID, "领取流量失败")
+		_ = s.Tasks.Abort(ctx, tk.ID, "领取流量失败")
 		return fmt.Errorf("claim proxy_traffic for host %s: %w", host, err)
 	}
 	if claimed == 0 {
-		_ = r.Tasks.Abort(ctx, tk.ID, "无可分析流量")
+		_ = s.Tasks.Abort(ctx, tk.ID, "无可分析流量")
 		return nil // 不算错误：到点但无流量可领（host 无未消费 / 显式集已被消费），正常空转
 	}
 
 	// 任务作用域派生：cron 展开的任务日志自动携带 task_id/assignment_id
-	taskLogger := r.Logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
+	taskLogger := s.Logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
 
 	// 建代理模式会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
 	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
 	// ProxyTaskBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
 	// 本次不绑会话，不影响分析主链路。
 	conversationID := ""
-	if r.Conversations != nil {
-		created, conversationErr := r.Conversations.CreateConversation(ctx, host, tk.ID)
+	if s.Conversations != nil {
+		created, conversationErr := s.Conversations.CreateConversation(ctx, host, tk.ID)
 		if conversationErr != nil {
 			taskLogger.Warn().Err(conversationErr).Msg("cron 代理模式 task 建会话流失败（降级：本次不绑会话）")
 		} else {
 			conversationID = created.ID
-			if traffic, listErr := r.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
+			if traffic, listErr := s.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
 				scheme := "http"
 				if traffic[0].Scheme != "" {
 					scheme = traffic[0].Scheme
 				}
-				if _, msgErr := r.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ingestor.ProxyTaskBrief(scheme, host, traffic), nil); msgErr != nil {
+				if _, msgErr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ingestor.ProxyTaskBrief(scheme, host, traffic), nil); msgErr != nil {
 					taskLogger.Warn().Err(msgErr).Str("conv", created.ID).Msg("写 cron 代理模式任务说明首条消息失败（降级：会话缺首条气泡）")
 				}
 			}
@@ -201,7 +201,7 @@ func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	}
 
 	payloadInput, _ := json.Marshal(map[string]string{"brief": host})
-	hid, err := r.AgentRuns.Create(ctx, agentrun.NewParams{
+	hid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: tk.ID,
 		Role:   "planner",
 		Input:  payloadInput,
@@ -209,7 +209,7 @@ func (r *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	if err != nil {
 		return fmt.Errorf("create planner run: %w", err)
 	}
-	if _, _, err := r.Enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
+	if _, _, err := s.Enq.Enqueue(ctx, worker.RoleAgent, worker.Payload{
 		AgentRunID:     hid,
 		TaskID:         tk.ID,
 		ConversationID: conversationID,

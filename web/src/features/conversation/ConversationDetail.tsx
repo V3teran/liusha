@@ -15,13 +15,13 @@ import { Button } from '@/components/ui/Button'
 
 interface ConversationDetailProps {
   convId?: string
-  source: 'self' | 'proxy'
+  source: 'direct' | 'proxy'
   onStarted: (convID: string) => void
   onRunningChanged: () => void
 }
 
-// 空状态文案按来源区分（self 可发起、proxy 等流量）。
-function emptyCopy(source: 'self' | 'proxy') {
+// 空状态文案按来源区分（direct 可发起、proxy 等流量）。
+function emptyCopy(source: 'direct' | 'proxy') {
   return source === 'proxy'
     ? {
         mark: '⇄',
@@ -36,7 +36,7 @@ function emptyCopy(source: 'self' | 'proxy') {
 }
 
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
-// 自主下发(self) 与 代理模式(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
+// 自主下发(direct) 与 代理模式(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
@@ -185,7 +185,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   // 不完整的控制面。失败就地告警（全站无 toast 的就近反馈惯例）。
   const control = async (action: 'pause' | 'resume' | 'terminate') => {
     if (!taskID) return
-    if (action === 'terminate' && !window.confirm('停止扫描？任务将落终态（可重新下发）。')) return
+    if (action === 'terminate' && !window.confirm('停止任务？任务将落终态（可重新下发）。')) return
     try {
       await controlTask(taskID, action)
     } catch (e) {
@@ -245,7 +245,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                     type="button"
                     disabled={paused}
                     onClick={() => void control('pause')}
-                    aria-label="暂停扫描"
+                    aria-label="暂停任务"
                     title="暂停（保留进度，可随时继续）"
                     className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                       paused
@@ -259,7 +259,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                     type="button"
                     disabled={!paused}
                     onClick={() => void control('resume')}
-                    aria-label="继续扫描"
+                    aria-label="继续任务"
                     title="继续（从探索图进度恢复执行）"
                     className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
                       !paused
@@ -272,7 +272,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   <button
                     type="button"
                     onClick={() => void control('terminate')}
-                    aria-label="停止扫描"
+                    aria-label="停止任务"
                     title="停止（终态，可重新下发）"
                     className="inline-flex items-center justify-center rounded-lg border border-status-error bg-status-error/10 p-1.5 text-status-error transition-colors hover:bg-status-error/20"
                   >

@@ -28,8 +28,8 @@ EXCLUDES=(
 
 # 禁用术语（旧架构残留，全称匹配大小写不敏感）。
 # engagement：0001 顶层会话概念，0041/0153 已删表、代码零引用——assignment 取代，防回流。
-# passive / activescan / passivesession / SourceManual / SourceAuto：下发来源已收口为
-#   self（自主下发）/ proxy（代理模式），见 assignment.Source。
+# passive / activescan / passivesession / SourceManual / SourceAuto / SourceSelf / source-self：
+#   下发来源已收口为 direct（自主下发）/ proxy（代理模式），见 assignment.Source（迁移 0198）。
 # traffic-analysis：已退役的单 agent 角色名，现行角色见 agent_run_role_check。
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
@@ -58,6 +58,8 @@ FORBIDDEN=(
   'passivesession'
   'SourceManual'
   'SourceAuto'
+  'SourceSelf'
+  'source-self'
   'traffic-analysis'
   'llmcall'
   'einotools'

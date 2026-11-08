@@ -17,7 +17,7 @@ import type { AttachmentRef, Conversation, ConversationUsage, Message } from './
  *
  * @param limit 每页条数（后端默认 30）
  * @param offset 跳过条数（默认 0 = 首页）
- * @param source 可选，按下发来源过滤（self 自主下发 / proxy 代理模式；纯聊天归 self）
+ * @param source 可选，按下发来源过滤（direct 自主下发 / proxy 代理模式；纯聊天归 direct）
  */
 export async function listConversations(
   limit = 30,

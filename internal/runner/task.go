@@ -103,7 +103,7 @@ func (h *Handler) executeTask(
 	}
 
 	// run 终态按停止原因分流：外部终止（任务行终态 task_terminated / ctx 取消）落
-	// aborted——被杀的 run 标 done 会让审计面误读为自然收敛；认知报告仍随
+	// aborted——被杀的 run 标 completed 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。
 	reportJSON, _ := json.Marshal(report)
 	terminated := report.StopReason == cognition.StopReasonTerminated || strings.Contains(report.StopReason, "cancel")
@@ -111,7 +111,7 @@ func (h *Handler) executeTask(
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
 	} else {
-		runErr = h.AgentRuns.SetDone(doneCtx, p.AgentRunID, reportJSON)
+		runErr = h.AgentRuns.SetCompleted(doneCtx, p.AgentRunID, reportJSON)
 	}
 	if runErr != nil {
 		taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")

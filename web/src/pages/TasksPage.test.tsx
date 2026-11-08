@@ -25,7 +25,7 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     assignment_id: 'a-1',
     assignment_index: 1,
     assignment_total: 1,
-    source: 'self',
+    source: 'direct',
     scheduled: false,
     cron: '',
     conversation_id: 'c-1',

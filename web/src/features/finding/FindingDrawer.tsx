@@ -6,13 +6,14 @@ import { JumpLink } from '@/components/JumpLink'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
 import { buildEvidenceView } from './findingEvidence'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
+import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
 
 interface FindingDrawerProps {
   open: boolean
@@ -118,12 +119,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   )}
                   <div className="flex items-start gap-3">
                     <span className="w-24 flex-shrink-0 text-text-secondary">来源</span>
-                    <Badge
-                      color={finding.source === 'proxy' ? 'var(--source-proxy)' : 'var(--source-self)'}
-                      size="sm"
-                      dot={false}
-                    >
-                      {finding.source === 'proxy' ? '代理模式' : '自主下发'}
+                    <Badge color={sourceColor(finding.source)} size="sm" dot={false}>
+                      {sourceLabel(finding.source)}
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">
@@ -183,7 +180,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     )}
                     {finding.conversation_id && (
                       <JumpLink
-                        to={`/conversations/${finding.source === 'proxy' ? 'proxy' : 'direct'}?conv=${encodeURIComponent(finding.conversation_id)}`}
+                        to={conversationPath(finding.source, finding.conversation_id)}
                         icon={MessageSquare}
                       >
                         对话

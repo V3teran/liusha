@@ -82,7 +82,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 正常执行：open → running → done
+	// 正常执行：open → running → completed
 	err = graph.TransitionState(ctx, action, explorationgraph.StateRunning, nil)
 	require.NoError(t, err)
 

@@ -10,7 +10,7 @@ func TestSource_String(t *testing.T) {
 		source Source
 		want   string
 	}{
-		{SourceSelf, "self"},
+		{SourceDirect, "direct"},
 		{SourceProxy, "proxy"},
 	}
 	for _, tt := range tests {
@@ -48,9 +48,9 @@ func TestNewParams_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "合法的 self assignment",
+			name: "合法的 direct assignment",
 			params: NewParams{
-				Source: SourceSelf,
+				Source: SourceDirect,
 				Items: []Item{
 					{Brief: "测试目标1", Host: "example.com"},
 				},
@@ -79,7 +79,7 @@ func TestNewParams_Validate(t *testing.T) {
 		{
 			name: "Items 可以为空",
 			params: NewParams{
-				Source: SourceSelf,
+				Source: SourceDirect,
 				Items:  nil,
 			},
 			wantErr: false,
@@ -89,7 +89,7 @@ func TestNewParams_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 验证 source
-			validSource := tt.params.Source == SourceSelf || tt.params.Source == SourceProxy
+			validSource := tt.params.Source == SourceDirect || tt.params.Source == SourceProxy
 			if !validSource && !tt.wantErr {
 				t.Error("应该拒绝非法 source")
 			}
@@ -199,7 +199,7 @@ func TestAssignment_GetItems(t *testing.T) {
 
 	a := Assignment{
 		ID:      "a1",
-		Source:  SourceSelf,
+		Source:  SourceDirect,
 		Payload: payload,
 	}
 

@@ -36,7 +36,7 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'a.example.com',
-    source: 'self',
+    source: 'direct',
     status: 'open',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -173,7 +173,7 @@ describe('FindingsPage', () => {
     )
   })
 
-  it('source 下拉筛选按 assignment.source 取值（self / proxy）触发重新加载', async () => {
+  it('source 下拉筛选按 assignment.source 取值（direct / proxy）触发重新加载', async () => {
     const user = userEvent.setup()
     mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
     renderPage()

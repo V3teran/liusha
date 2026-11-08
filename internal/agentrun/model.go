@@ -1,8 +1,8 @@
 // Package agentrun 实现 agent_run 表持久化层：每次 Agent 运行实例对应一行。
-// 状态机 pending → running → done | error | aborted。
+// 状态机 pending → running → completed | error | aborted。
 //
 // 命名层级：
-//   - task = 业务"扫描任务"（用户视角的 task；来源 self/proxy 记在所属 assignment 上）
+//   - task = 业务"扫描任务"（用户视角的 task；来源 direct/proxy 记在所属 assignment 上）
 //   - agent_run 表 = 每次 Agent 运行实例的记录（planner/executor/evaluator/monitor），挂 task_id
 //   - agent 表 = Agent 配置定义（code/name/body/tools），存储 Agent 章程
 //   - role 列 = 发起该 run 的 Agent 角色。当前仅 planner 建 run（一次 run =
@@ -18,7 +18,7 @@ import (
 // Status 是 agent.status 的取值。
 type Status string
 
-// agent_run 状态机：pending → running → done/aborted/error。
+// agent_run 状态机：pending → running → completed/aborted/error。
 const (
 	StatusPending   Status = "pending"
 	StatusRunning   Status = "running"

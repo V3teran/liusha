@@ -25,7 +25,7 @@ func mkAssignment(t *testing.T, s *Store, ctx context.Context, briefs ...string)
 	for _, b := range briefs {
 		items = append(items, Item{Brief: b})
 	}
-	a, err := s.Create(ctx, NewParams{Source: SourceSelf, Items: items, Title: "批次", Description: "d"})
+	a, err := s.Create(ctx, NewParams{Source: SourceDirect, Items: items, Title: "批次", Description: "d"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestCreateAndGetByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.ID != a.ID || got.Source != SourceSelf || got.Title != "批次" || got.Description != "d" {
+	if got.ID != a.ID || got.Source != SourceDirect || got.Title != "批次" || got.Description != "d" {
 		t.Fatalf("字段回读不符: %+v", got)
 	}
 	if got.ScheduleID != nil {
@@ -67,7 +67,7 @@ func TestDeriveStatus(t *testing.T) {
 		t.Fatalf("有 active 子 task 应 running, got %s", st)
 	}
 
-	// 全 completed → done
+	// 全 completed → completed
 	if err := tasks.Complete(ctx, t1.ID); err != nil {
 		t.Fatal(err)
 	}

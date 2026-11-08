@@ -12,13 +12,13 @@ const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ de
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
-const SkillsPage = lazy(() => import('@/pages/SkillsPage'))
+const SkillsPage = lazy(() => import('@/pages/SkillsPage').then((m) => ({ default: m.SkillsPage })))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
 const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
-const SystemConfig = lazy(() => import('@/pages/SystemConfig').then((m) => ({ default: m.SystemConfig })))
+const SystemConfigPage = lazy(() => import('@/pages/SystemConfigPage').then((m) => ({ default: m.SystemConfigPage })))
 const ExplorationGraphPage = lazy(() => import('@/pages/ExplorationGraphPage').then((m) => ({ default: m.ExplorationGraphPage })))
-const CredentialsPage = lazy(() => import('@/pages/CredentialsPage'))
-const LogsPage = lazy(() => import('@/pages/LogsPage'))
+const CredentialsPage = lazy(() => import('@/pages/CredentialsPage').then((m) => ({ default: m.CredentialsPage })))
+const LogsPage = lazy(() => import('@/pages/LogsPage').then((m) => ({ default: m.LogsPage })))
 
 function Loading() {
   return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
@@ -29,7 +29,7 @@ function withSuspense(el: React.ReactNode) {
 }
 
 // 路由表：根用 AppShell 外壳，子路由为各业务页。
-// 对话：按来源分两个 tab——自主下发（source=self，用户下 brief → AI planner 自主派子代理作战）
+// 对话：按来源分两个 tab——自主下发（source=direct，用户下 brief → AI planner 自主派子代理作战）
 // 与代理模式（source=proxy，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
 export const router = createBrowserRouter([
@@ -47,7 +47,7 @@ export const router = createBrowserRouter([
         path: 'conversations',
         children: [
           { index: true, element: <Navigate to="/conversations/direct" replace /> },
-          { path: 'direct', element: withSuspense(<ConversationsPage source="self" />) },
+          { path: 'direct', element: withSuspense(<ConversationsPage source="direct" />) },
           { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
         ],
       },
@@ -65,7 +65,7 @@ export const router = createBrowserRouter([
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },
-          { path: 'system', element: withSuspense(<SystemConfig />) },
+          { path: 'system', element: withSuspense(<SystemConfigPage />) },
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },

@@ -69,9 +69,9 @@ type AgentBrief struct {
 }
 
 // WithAgentRoster 注入四 Agent 名册（cognition 装配时从 DB 配置取；空=不渲染该节）。
-func (i *Engine) WithAgentRoster(roster []AgentBrief) *Engine {
-	i.roster = roster
-	return i
+func (e *Engine) WithAgentRoster(roster []AgentBrief) *Engine {
+	e.roster = roster
+	return e
 }
 
 // maxBudgetFactor 是自适应预算的放大上限（基准的倍数）——无界放大等于取消保护。
@@ -88,107 +88,107 @@ func NewEngine(router *llm.Router, logger zerolog.Logger) *Engine {
 }
 
 // WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
-func (i *Engine) WithSystemPrompt(charter string) *Engine {
-	i.charter = charter
-	return i
+func (e *Engine) WithSystemPrompt(charter string) *Engine {
+	e.charter = charter
+	return e
 }
 
 // WithMaxIterations 注入 ReAct 迭代上限（agent.max_iterations；0=不设限）。
-func (i *Engine) WithMaxIterations(n int) *Engine {
-	i.maxIt = n
-	return i
+func (e *Engine) WithMaxIterations(n int) *Engine {
+	e.maxIt = n
+	return e
 }
 
 // WithContextRatio 注入上下文历史预算占比（系统配置 compaction 组；0=压缩器内置兜底）。
-func (i *Engine) WithContextRatio(ratio float64) *Engine {
-	i.contextRatio = ratio
-	return i
+func (e *Engine) WithContextRatio(ratio float64) *Engine {
+	e.contextRatio = ratio
+	return e
 }
 
 // WithDistiller 注入上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
-func (i *Engine) WithDistiller(d runtime.Distiller) *Engine {
-	i.distiller = d
-	return i
+func (e *Engine) WithDistiller(d runtime.Distiller) *Engine {
+	e.distiller = d
+	return e
 }
 
 // WithToolOutputTailBytes 注入工具输出全局尾部钳制字节（0=不钳）。
-func (i *Engine) WithToolOutputTailBytes(n int) *Engine {
-	i.toolOutputTailBytes = n
-	return i
+func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
+	e.toolOutputTailBytes = n
+	return e
 }
 
 // WithCorpus 注入跨任务知识库（经验简报检索；nil=关闭该能力）。
-func (i *Engine) WithCorpus(store *corpus.Store, emb corpus.Embedder) *Engine {
-	i.corpus = store
-	i.embedder = emb
-	return i
+func (e *Engine) WithCorpus(store *corpus.Store, emb corpus.Embedder) *Engine {
+	e.corpus = store
+	e.embedder = emb
+	return e
 }
 
 // WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
 // 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
-func (i *Engine) WithExtraTools(ts []registry.Tool) *Engine {
-	i.extraTools = ts
-	return i
+func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
+	e.extraTools = ts
+	return e
 }
 
 // WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
 // 空回退 medium）。
-func (i *Engine) WithComplexity(complexity string) *Engine {
-	i.complexity = llm.ParseComplexity(complexity)
-	return i
+func (e *Engine) WithComplexity(complexity string) *Engine {
+	e.complexity = llm.ParseComplexity(complexity)
+	return e
 }
 
 // contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
 // 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断规划）。
-func (i *Engine) contextBudget(ctx context.Context) int {
-	if i.contextRatio <= 0 {
+func (e *Engine) contextBudget(ctx context.Context) int {
+	if e.contextRatio <= 0 {
 		return 0
 	}
-	cw, err := i.router.ContextWindow(ctx, i.complexity)
+	cw, err := e.router.ContextWindow(ctx, e.complexity)
 	if err != nil {
-		i.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
+		e.logger.Warn().Err(err).Msg("读取 context_window 失败，压缩预算用内置兜底")
 		return 0
 	}
-	return int(float64(cw) * i.contextRatio)
+	return int(float64(cw) * e.contextRatio)
 }
 
 // experienceBriefing 检索与本任务目标相关的历史教训（agent 蒸馏与 expert 导入
 // 同源）。embedding 可用时走 hybrid 检索，否则退纯 sparse；失败返回 nil——
 // 检索不可用不能弄死规划。
-func (i *Engine) experienceBriefing(ctx context.Context, objective string) []corpus.Entry {
-	if i.corpus == nil || strings.TrimSpace(objective) == "" {
+func (e *Engine) experienceBriefing(ctx context.Context, objective string) []corpus.Entry {
+	if e.corpus == nil || strings.TrimSpace(objective) == "" {
 		return nil
 	}
 	var queryVec []float32
-	if i.embedder != nil {
-		if v, err := i.embedder.EmbedQuery(ctx, objective); err == nil {
+	if e.embedder != nil {
+		if v, err := e.embedder.EmbedQuery(ctx, objective); err == nil {
 			queryVec = v
 		}
 	}
-	entries, err := i.corpus.SearchHybrid(ctx, objective, queryVec, nil, 20, 5, nil)
+	entries, err := e.corpus.SearchHybrid(ctx, objective, queryVec, nil, 20, 5, nil)
 	if err != nil {
-		i.logger.Warn().Err(err).Msg("经验简报检索失败（本轮规划不带历史经验）")
+		e.logger.Warn().Err(err).Msg("经验简报检索失败（本轮规划不带历史经验）")
 		return nil
 	}
 	return entries
 }
 
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
-func (i *Engine) WithThoughts(tap reasoning.Tap) *Engine {
-	i.thoughts = tap
-	return i
+func (e *Engine) WithThoughts(tap reasoning.Tap) *Engine {
+	e.thoughts = tap
+	return e
 }
 
 // WithToolWrapper 注入共享拦截链包装器（cognition 传 reg.WrapTool；nil=不包装）。
-func (i *Engine) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Engine {
-	i.toolWrap = fn
-	return i
+func (e *Engine) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Engine {
+	e.toolWrap = fn
+	return e
 }
 
 // WithTimeout 注入单次规划超时（0=不设限；默认 3 分钟）。
-func (i *Engine) WithTimeout(timeout time.Duration) *Engine {
-	i.timeout = timeout
-	return i
+func (e *Engine) WithTimeout(timeout time.Duration) *Engine {
+	e.timeout = timeout
+	return e
 }
 
 // RefutedHypothesis 是被复现门证伪的假设：反驳原因区分"证据没拿到"
@@ -242,38 +242,38 @@ type PlanningResponse struct {
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
-	i.logger.Info().Msg("开始智能规划")
+func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
+	e.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
 	// 预算耗尽）用同一预算重试是确定性失败——预算随连续超时翻倍、封顶基准
 	// maxBudgetFactor 倍，任一次成功即回落。调用方的重试阶梯只退避间隔，
 	// 退避不了预算本身。
-	if i.budget > 0 {
+	if e.budget > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, i.budget)
+		ctx, cancel = context.WithTimeout(ctx, e.budget)
 		defer cancel()
-		i.logger.Debug().
-			Str("timeout", i.budget.String()).
+		e.logger.Debug().
+			Str("timeout", e.budget.String()).
 			Msg("规划超时保护已启用")
 	}
 
 	// 1. 收集规划上下文（作为首条输入的紧凑摘要；细节靠工具按需深挖）
-	planCtx, err := i.gatherContext(ctx, graph, taskID)
+	planCtx, err := e.gatherContext(ctx, graph, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
 	// 历史经验简报：以任务目标检索跨任务知识库（top5，检索失败静默跳过——
 	// 经验是增益不是依赖），开局即把历史教训带进规划视野；任务内检索一次。
-	if !i.experienceLoaded {
-		i.experience = i.experienceBriefing(ctx, planCtx.Objective)
-		i.experienceLoaded = true
+	if !e.experienceLoaded {
+		e.experience = e.experienceBriefing(ctx, planCtx.Objective)
+		e.experienceLoaded = true
 	}
-	planCtx.Experience = i.experience
-	prompt := i.buildPlanningPrompt(planCtx)
+	planCtx.Experience = e.experience
+	prompt := e.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
-	provider, err := i.router.For(ctx, i.complexity)
+	provider, err := e.router.For(ctx, e.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
@@ -281,8 +281,8 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
 	react := runtime.NewReActRuntime()
 	registerGraphTool := func(tool registry.Tool) error {
-		if i.toolWrap != nil {
-			tool = i.toolWrap(tool)
+		if e.toolWrap != nil {
+			tool = e.toolWrap(tool)
 		}
 		return react.RegisterTool(tool)
 	}
@@ -296,7 +296,7 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 			return nil, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
 		}
 	}
-	for _, t := range i.extraTools {
+	for _, t := range e.extraTools {
 		if !registry.Allows(functionTools, t.Name()) {
 			continue
 		}
@@ -318,21 +318,21 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	// 3. 跑 ReAct：SystemPrompt 定角色与输出契约，Objective 带状态摘要。
 	// 思考流出口（nil=不流式）：方法值不能从 nil 接口取，先守卫。
 	var onThoughtDelta, onThinkingDelta func(string)
-	if i.thoughts != nil {
-		onThoughtDelta = i.thoughts.Delta
-		onThinkingDelta = i.thoughts.ThinkingDelta
+	if e.thoughts != nil {
+		onThoughtDelta = e.thoughts.Delta
+		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:                  prompt,
-		SystemPrompt:               i.buildPlannerSystemPrompt(),
+		SystemPrompt:               e.buildPlannerSystemPrompt(),
 		LLMProvider:                provider,
-		MaxIterations:              i.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
+		MaxIterations:              e.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxConsecutiveToolFailures: 8,       // 连续工具失败止损阈值（单机制：runtime 内置，随装配按角色调参）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MaxTokens:                  4000,
-		MessageModifierChain:       runtime.NewCompactionChain(i.contextBudget(ctx), "planner", i.distiller),
-		ToolOutputTailBytes:        i.toolOutputTailBytes,
+		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller),
+		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
@@ -362,21 +362,21 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 - triggered_by: 滋生本动作的已确认发现（Result）的 ID——动作若源于某个已坐实发现（它启发了方向，或它产出的会话/凭据/入口使本动作可行），填其 ID；因果不成立就不填，宁缺勿假`,
 	})
 	if err != nil {
-		i.adaptBudget(err)
+		e.adaptBudget(err)
 		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
-	i.budget = i.timeout // 成功即回落基准预算
+	e.budget = e.timeout // 成功即回落基准预算
 
 	// 4. 解析最终答案为 PlanningResponse。终态叙述在解析边界完成：协议转人读
 	//    摘要作正文（谁解析谁叙述，前端不解释协议；协议原文由审计面保存）；
 	//    解析失败时正文回退原文——终态帧始终落库，清空气泡语义不受解析成败影响。
-	response, perr := i.parsePlanningResponse(result.FinalAnswer)
+	response, perr := e.parsePlanningResponse(result.FinalAnswer)
 	round := reasoning.RoundOf(result)
 	if perr == nil && response != nil {
 		round.Summary = planningNarrative(*response)
 	}
-	if i.thoughts != nil {
-		i.thoughts.Done(round)
+	if e.thoughts != nil {
+		e.thoughts.Done(round)
 	}
 	if perr != nil {
 		return nil, fmt.Errorf("解析规划输出失败: %w", perr)
@@ -384,16 +384,16 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 
 	// 5. 如果 LLM 判断不应该继续，返回空
 	if !response.ShouldContinue {
-		i.logger.Info().
+		e.logger.Info().
 			Str("reasoning", response.Reasoning).
 			Msg("LLM 判断任务应该停止")
 		return []explorationgraph.Node{}, nil
 	}
 
 	// 6. 转换 LLM 提案为探索图节点
-	nodes := i.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
+	nodes := e.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
 
-	i.logger.Info().
+	e.logger.Info().
 		Int("action_count", len(nodes)).
 		Msg("智能规划完成")
 
@@ -401,7 +401,7 @@ func (i *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 }
 
 // gatherContext 收集规划所需的上下文信息
-func (i *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
+func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
 	// 全部目标（根目标 + 派生方向）都进规划视野
@@ -501,14 +501,14 @@ func (i *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 }
 
 // buildPlanningPrompt 构建规划 prompt
-func (i *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
+func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	var sb strings.Builder
 
 	// 1. 头部和核心原则
 	sb.WriteString(buildPlanningPromptHeader())
 
 	// 1.5 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
-	sb.WriteString(buildTeamRosterSection(i.roster))
+	sb.WriteString(buildTeamRosterSection(e.roster))
 
 	// 2. 停止条件
 	sb.WriteString(buildStopCriteria())
@@ -556,8 +556,8 @@ func (i *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 // 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）。
 // 输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
 // charter 为空时返回空串，让 ReAct.Run 报错，强制运维配置。
-func (i *Engine) buildPlannerSystemPrompt() string {
-	charter := strings.TrimSpace(i.charter)
+func (e *Engine) buildPlannerSystemPrompt() string {
+	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
 		return "" // 让 ReAct.Run 报错，强制运维配置
 	}
@@ -565,14 +565,14 @@ func (i *Engine) buildPlannerSystemPrompt() string {
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
-func (i *Engine) parsePlanningResponse(content string) (*PlanningResponse, error) {
+func (e *Engine) parsePlanningResponse(content string) (*PlanningResponse, error) {
 	if content == "" {
 		return nil, fmt.Errorf("规划输出为空")
 	}
 
 	var response PlanningResponse
 	if err := llm.ParseJSON(content, &response); err != nil {
-		i.logger.Error().
+		e.logger.Error().
 			Err(err).
 			Str("llm_response", content).
 			Msg("解析规划输出失败")
@@ -585,19 +585,19 @@ func (i *Engine) parsePlanningResponse(content string) (*PlanningResponse, error
 // adaptBudget 在 deadline 型失败后放大下一轮规划预算（翻倍，封顶基准
 // maxBudgetFactor 倍）；非 deadline 失败不动预算。Engine 由单个
 // planner goroutine 串行使用，无并发竞争。
-func (i *Engine) adaptBudget(err error) {
-	if !errors.Is(err, context.DeadlineExceeded) || i.timeout <= 0 {
+func (e *Engine) adaptBudget(err error) {
+	if !errors.Is(err, context.DeadlineExceeded) || e.timeout <= 0 {
 		return
 	}
-	ceiling := i.timeout * maxBudgetFactor
-	if i.budget < ceiling {
-		i.budget *= 2
-		if i.budget > ceiling {
-			i.budget = ceiling
+	ceiling := e.timeout * maxBudgetFactor
+	if e.budget < ceiling {
+		e.budget *= 2
+		if e.budget > ceiling {
+			e.budget = ceiling
 		}
 	}
-	i.logger.Warn().
-		Str("budget", i.budget.String()).
+	e.logger.Warn().
+		Str("budget", e.budget.String()).
 		Msg("规划预算耗尽（LLM 慢速期），下一轮预算已放大")
 }
 
@@ -619,13 +619,13 @@ func filterValidDependencies(deps []string, existingIDs map[string]bool) []strin
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
-func (i *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
+func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
 	// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
 	// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
 	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。
 	existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if exErr != nil {
-		i.logger.Warn().Err(exErr).
+		e.logger.Warn().Err(exErr).
 			Msg("查询已有 Action 失败，本轮跳过依赖存在性过滤（仅格式校验）")
 		existing = nil
 	}
@@ -643,7 +643,7 @@ func (i *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			resultIDs[r.ID] = true
 		}
 	} else {
-		i.logger.Warn().Err(rErr).
+		e.logger.Warn().Err(rErr).
 			Msg("查询 Result 失败，本轮跳过 triggered_by 存在性过滤（仅格式校验）")
 	}
 
@@ -659,17 +659,17 @@ func (i *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 		if len(validDependsOn) < len(proposal.DependsOn) {
 			for _, depID := range proposal.DependsOn {
 				if _, pErr := uuid.Parse(depID); pErr != nil {
-					i.logger.Warn().Str("invalid_dep_id", depID).Str("action_id", actionID).
+					e.logger.Warn().Str("invalid_dep_id", depID).Str("action_id", actionID).
 						Msg("过滤掉无效的依赖 ID（格式非法）")
 				} else if !existingIDs[depID] {
-					i.logger.Warn().Str("phantom_dep_id", depID).Str("action_id", actionID).
+					e.logger.Warn().Str("phantom_dep_id", depID).Str("action_id", actionID).
 						Msg("过滤掉幻影依赖 ID（图中不存在——多为 LLM 照抄 prompt 示例）")
 				}
 			}
 		}
 		validTriggeredBy := filterValidDependencies(proposal.TriggeredBy, resultIDs)
 		if len(validTriggeredBy) < len(proposal.TriggeredBy) {
-			i.logger.Warn().Int("dropped", len(proposal.TriggeredBy)-len(validTriggeredBy)).
+			e.logger.Warn().Int("dropped", len(proposal.TriggeredBy)-len(validTriggeredBy)).
 				Str("action_id", actionID).
 				Msg("过滤掉无效/幻影的 triggered_by（图中不存在该 result——因果溯源只认真实节点）")
 		}
@@ -705,7 +705,7 @@ func (i *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 
 		nodes = append(nodes, node)
 
-		i.logger.Debug().
+		e.logger.Debug().
 			Str("action_id", actionID).
 			Str("type", proposal.Type).
 			Str("priority", string(priority)).

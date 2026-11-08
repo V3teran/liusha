@@ -1,6 +1,6 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import type { LLMInvocationSummary } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { TokenPair } from '@/components/TokenPair'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { clockTime, dateOnly, fullTime, humanDuration } from '@/lib/format'

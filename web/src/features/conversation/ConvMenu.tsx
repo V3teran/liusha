@@ -4,7 +4,7 @@ import { Bug, Clock3, ListChecks, Network, Pencil, Trash2 } from 'lucide-react'
 import type { Conversation } from '@/api/types'
 
 /** ⋯ 菜单（挂 body 的 portal）：跳转（任务/探索图/漏洞）+ 重命名 + 删除
- * （扫描中禁删）。由 ConversationList 持有状态，本组件纯展示分发。 */
+ * （任务进行中禁删）。由 ConversationList 持有状态，本组件纯展示分发。 */
 export function ConvMenu({
   conv,
   style,
@@ -46,7 +46,7 @@ export function ConvMenu({
         探索图
       </Link>
       <Link
-        to={`/findings?source=${conv.source || 'self'}`}
+        to={`/findings?source=${conv.source || 'direct'}`}
         className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
         onClick={onClose}
       >
@@ -65,11 +65,11 @@ export function ConvMenu({
         <button
           type="button"
           disabled
-          title="扫描进行中，先在对话页「停止扫描」，停止后再删除"
+          title="任务进行中，先在对话页「停止任务」，停止后再删除"
           className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text-secondary opacity-50"
         >
           <Clock3 className="h-3.5 w-3.5" />
-          扫描中 · 先停止再删
+          任务进行中 · 先停止再删
         </button>
       ) : (
         <button

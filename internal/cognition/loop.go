@@ -193,7 +193,7 @@ func (d *Deps) run(
 	lifecycle.Stop()
 
 	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
-	// 周期缺终态语义）。被终止的任务标 aborted，其余标 done。best-effort。
+	// 周期缺终态语义）。被终止的任务标 aborted，其余标 completed。best-effort。
 	d.closeObjectives(ctx, taskID, result.StopReason)
 
 	d.Logger.Info().
@@ -211,7 +211,7 @@ func (d *Deps) run(
 	}, nil
 }
 
-// closeObjectives 把任务的全部 open 目标节点置终态（done；被终止的任务
+// closeObjectives 把任务的全部 open 目标节点置终态（completed；被终止的任务
 // aborted）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
 // 有始有终。暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批
 // 目标）。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
@@ -232,7 +232,7 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	}
 	for _, obj := range objectives {
 		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {
-			continue // 已终态（done/failed/aborted）不重复迁移
+			continue // 已终态（completed/failed/exhausted/aborted）不重复迁移
 		}
 		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
 			d.Logger.Warn().Err(err).Str("objective_id", obj.ID).

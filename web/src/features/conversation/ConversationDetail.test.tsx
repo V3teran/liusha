@@ -50,8 +50,8 @@ describe('ConversationDetail', () => {
     vi.clearAllMocks()
   })
 
-  it('无 convId（自主下发 self）显示空状态引导文案', async () => {
-    render(<MemoryRouter><ConversationDetail source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+  it('无 convId（自主下发 direct）显示空状态引导文案', async () => {
+    render(<MemoryRouter><ConversationDetail source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('发起一次渗透测试任务')).toBeTruthy()
   })
 
@@ -64,21 +64,21 @@ describe('ConversationDetail', () => {
     vi.mocked(apiClient.listMessages).mockResolvedValue([
       { seq: 1, id: 'm1', conversation_id: 'c1', role: 'user', kind: 'message', content: 'hi', metadata: null, created_at: '' },
     ])
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
     expect(sseHook.openEventStream).toHaveBeenCalled()
   })
 
   it('历史加载失败显示错误重试卡', async () => {
     vi.mocked(apiClient.listMessages).mockRejectedValue(new Error('network'))
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('加载对话失败')).toBeTruthy()
     expect(screen.getByText('重试')).toBeTruthy()
   })
 
   it('点击重试重新加载历史', async () => {
     vi.mocked(apiClient.listMessages).mockRejectedValueOnce(new Error('network'))
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     const retryBtn = await screen.findByText('重试')
     vi.mocked(apiClient.listMessages).mockResolvedValueOnce([])
     retryBtn.click()
@@ -87,54 +87,54 @@ describe('ConversationDetail', () => {
 
   it('扫描运行中显示"agent 工作中"与 暂停/停止 控制组', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('agent 工作中…')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '暂停扫描' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '停止扫描' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '暂停任务' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
   })
 
   it('暂停中显示"已暂停"与 继续/停止 控制组', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active', paused: true }))
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('已暂停（进度保留）')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '继续扫描' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '停止扫描' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '继续任务' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
     expect(screen.queryByText('agent 工作中…')).toBeNull()
   })
 
-  it('点击暂停扫描调用任务控制端点（pause）', async () => {
+  it('点击暂停任务调用任务控制端点（pause）', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    ;(await screen.findByRole('button', { name: '暂停扫描' })).click()
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByRole('button', { name: '暂停任务' })).click()
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'pause'))
   })
 
-  it('点击停止扫描（确认后）调用任务控制端点（terminate）', async () => {
+  it('点击停止任务（确认后）调用任务控制端点（terminate）', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    ;(await screen.findByRole('button', { name: '停止扫描' })).click()
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByRole('button', { name: '停止任务' })).click()
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'terminate'))
   })
 
   it('运行态翻转触发 onRunningChanged 回调', async () => {
     const onRunningChanged = vi.fn()
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: false, status: 'completed' }))
-    const { rerender } = render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
+    const { rerender } = render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalled())
     onRunningChanged.mockClear()
 
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
-    rerender(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
+    rerender(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
     await waitFor(() => expect(screen.queryByText('agent 工作中…')).toBeTruthy())
   })
 
   it('切换 convId 时重置 store 并重新拉取', async () => {
-    const { rerender } = render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    const { rerender } = render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
-    rerender(<MemoryRouter><ConversationDetail convId="c2" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    rerender(<MemoryRouter><ConversationDetail convId="c2" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c2'))
   })
 
@@ -142,7 +142,7 @@ describe('ConversationDetail', () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(
       mkUsage({ tokens: { in: 100, out: 50, cached: 0, total: 150 }, duration_ms: 5000 }),
     )
-    render(<MemoryRouter><ConversationDetail convId="c1" source="self" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     expect(await screen.findByText('tokens')).toBeTruthy()
     expect(screen.getByText('耗时')).toBeTruthy()
   })

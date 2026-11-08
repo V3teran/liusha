@@ -5,7 +5,7 @@ import { saveAgent, listToolCandidates, listSkillCandidates } from '@/api/config
 import { diffChanges, isWildcard, wildcardView } from '@/features/config/agentsEditor'
 import { ToolPicker } from '@/features/config/ToolPicker'
 import type { AgentConfig, Skill, Tool } from '@/api/types'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { useAgentsPagedList } from '@/features/config/useConfigQueries'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'

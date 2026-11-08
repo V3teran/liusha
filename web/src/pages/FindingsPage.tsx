@@ -10,13 +10,14 @@ import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
 import { DataTable } from '@/components/DataTable'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/features/finding/findingStatus'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
+import { SOURCE_OPTIONS, sourceColor, sourceLabel } from '@/lib/source'
 
 const columnHelper = createColumnHelper<FindingRow>()
 
@@ -143,12 +144,8 @@ export function FindingsPage() {
         cell: (ctx) => {
           const source = ctx.getValue()
           return (
-            <Badge
-              dot={false}
-              size="sm"
-              color={source === 'proxy' ? 'var(--source-proxy)' : 'var(--source-self)'}
-            >
-              {source === 'proxy' ? '代理模式' : '自主下发'}
+            <Badge dot={false} size="sm" color={sourceColor(source)}>
+              {sourceLabel(source)}
             </Badge>
           )
         },
@@ -250,7 +247,7 @@ export function FindingsPage() {
       </section>
 
       {/* 筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 → 清空 →（右端）分页）。
-          来源取值对齐 assignment.source（self / proxy）。 */}
+          来源取值对齐 assignment.source（direct / proxy）。 */}
       <FilterBar
         label="漏洞筛选"
         canReset={hasFilter}
@@ -275,8 +272,11 @@ export function FindingsPage() {
           aria-label="按来源筛选"
         >
           <option value="">全部来源</option>
-          <option value="self">自主下发</option>
-          <option value="proxy">代理模式</option>
+          {SOURCE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </Select>
 
         <Select

@@ -26,7 +26,7 @@ const CODE_TEXTAREA_CLASS = TEXTAREA_CLASS + ' min-h-[76px] font-mono'
 // 系统配置页：三组业务旋钮（会话压缩 / 工具运行时 / 代理流量过滤）分区独立保存。
 // 事实源在 DB，写经后端失效广播即热改——compaction/runtime 令 runner 现读即生效，
 // proxy_filter 触发 proxy 进程热换过滤链（无需重启）。故非「列表」而是「表单」形态。
-export function SystemConfig() {
+export function SystemConfigPage() {
   const [query, setQuery] = useState('')
 
   // 定义各分区的元数据，用于搜索匹配

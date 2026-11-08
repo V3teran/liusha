@@ -111,9 +111,9 @@ func TestTransitionState_NormalTransitions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StateRunning, *node.State)
 
-	// 正常转换：running → done
+	// 正常转换：running → completed
 	err = graph.TransitionState(ctx, action, StateCompleted, nil)
-	assert.NoError(t, err, "running → done 应成功")
+	assert.NoError(t, err, "running → completed 应成功")
 
 	node, err = graph.GetNode(ctx, action)
 	require.NoError(t, err)

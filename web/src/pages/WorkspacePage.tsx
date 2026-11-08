@@ -30,7 +30,7 @@ import {
   type WorkspaceEntry,
 } from '@/api/workspaces'
 import { listTasks } from '@/api/tasks'
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 import { FilterBar } from '@/components/FilterBar'
 

@@ -5,7 +5,7 @@ import { UserMenu } from '@/features/auth/UserMenu'
 import { cn } from '@/lib/utils'
 import { NAV_GROUPS, type NavItem } from './navigation'
 
-interface SidebarContentProps {
+interface SidebarProps {
   /** 图标栏形态（80px，仅图标 + 悬停原生 tooltip） */
   rail: boolean
   /** 收起/展开开关；不传则不渲染（视口强制形态下用户不可切换） */
@@ -33,7 +33,7 @@ export function BrandMark({ className }: { className?: string }) {
  * 侧栏内容（品牌行 + 分组导航 + 账号/主题控制）。桌面常驻侧栏与手机抽屉共用同一份内容，
  * 两种外壳只决定它放在哪里、以何种宽度出现。
  */
-export function SidebarContent({ rail, onToggleRail, onNavigate }: SidebarContentProps) {
+export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
   const { theme, toggle } = useTheme()
   const location = useLocation()
 

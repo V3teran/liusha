@@ -5,6 +5,7 @@ import { SearchInput } from '@/components/SearchInput'
 import { Select } from '@/components/ui/Select'
 import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { isoToLocalInput, syncIsoWithLocalInput } from '@/lib/datetime'
+import { SOURCE_OPTIONS } from '@/lib/source'
 
 interface TaskFilterBarProps {
   filters: TaskFilters
@@ -12,11 +13,6 @@ interface TaskFilterBarProps {
   onReset: () => void
   trailing?: ReactNode
 }
-
-const SOURCES: Array<{ value: string; label: string }> = [
-  { value: 'self', label: '自主下发' },
-  { value: 'proxy', label: '代理模式' },
-]
 
 const STATUSES: Array<{ value: string; label: string }> = [
   { value: 'active', label: '运行中' },
@@ -50,7 +46,7 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
         aria-label="按来源筛选"
       >
         <option value="">全部来源</option>
-        {SOURCES.map((s) => (
+        {SOURCE_OPTIONS.map((s) => (
           <option key={s.value} value={s.value}>
             {s.label}
           </option>
