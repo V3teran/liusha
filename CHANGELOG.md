@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/V3teran/liusha/compare/v0.3.0...v0.4.0) (2026-11-08)
+
+
+### Features
+
+* LLM 配置不再强制启动前就绪——三层防线保证「先部署、后配置」全链路自洽 ([ea70e78](https://github.com/V3teran/liusha/commit/ea70e787e8f3752370ef70249906b0241fc84884))
+
+
+### Bug Fixes
+
+* generic 域文本配方的交付抽取 target——同漏洞跨配方域不再分裂多条台账 ([80dc3ac](https://github.com/V3teran/liusha/commit/80dc3acd3c5d6ffba82a860c950dd09eea3664ec))
+* **llm配置:** 数字字段受控输入缺陷——清空回写 0、前导 0 吞吐致「输入 0 开头异常」 ([cea220b](https://github.com/V3teran/liusha/commit/cea220b441642938c12e6353e84f464b58cff500))
+* **release-images:** tags 改逗号单行——多行插值折叠的根治 ([b51eb39](https://github.com/V3teran/liusha/commit/b51eb39e23fc2c88e1736cb98f2abc6c347c7dc7))
+* **release-images:** 推送凭据换 GHCR_PAT——GITHUB_TOKEN 增量推已有包被拒 ([95fde52](https://github.com/V3teran/liusha/commit/95fde526d6725d368d27aca7c11a893beb087650))
+
 ## [0.3.0](https://github.com/V3teran/liusha/compare/v0.2.0...v0.3.0) (2026-11-07)
 
 
