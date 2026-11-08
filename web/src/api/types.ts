@@ -205,10 +205,12 @@ export interface ProviderConfig {
   key_present: boolean // 该 provider 当前是否已有可用密钥来源（加密落库或遗留 ENV）
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；无已存密钥或来自 ENV 时为空
   api_key_env?: string // 密钥的 env 变量名引用（seed 引入）；非空且无密文时密钥走 env 路径
-  max_tokens: number
+  // 两个数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
+  // providerInvalid 拦截，落库/网络载荷永远是 number。
+  max_tokens: number | ''
   supports_tools: boolean
   supports_vision: boolean
-  context_window: number // model 总上下文窗口 tokens（react 历史压缩按此算阈值）
+  context_window: number | '' // model 总上下文窗口 tokens（react 历史压缩按此算阈值）
   description: string
   sort_order: number
   enabled: boolean
