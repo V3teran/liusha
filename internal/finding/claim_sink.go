@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/V3teran/liusha/internal/evaluator"
 )
@@ -145,9 +146,24 @@ func deriveTarget(repro json.RawMessage) json.RawMessage {
 				Method string `json:"method"`
 				URL    string `json:"url"`
 			} `json:"request"`
+			// Steps 是 generic 域的自由文本步骤；首条「METHOD /path」行足以
+			// 定位端点——dedup 需要与 web 域交付同构的 target，否则同一漏洞
+			// 因配方域不同分裂成多条台账记录。
+			Steps string `json:"steps"`
 		} `json:"recipe"`
 	}
-	if json.Unmarshal(repro, &recipe) != nil || recipe.Recipe.Request.URL == "" {
+	if json.Unmarshal(repro, &recipe) != nil {
+		return nil
+	}
+	if recipe.Recipe.Request.URL == "" && recipe.Recipe.Steps != "" {
+		method, path, ok := firstRequestLine(recipe.Recipe.Steps)
+		if !ok {
+			return nil
+		}
+		out, _ := json.Marshal(map[string]string{"method": method, "path": path})
+		return out
+	}
+	if recipe.Recipe.Request.URL == "" {
 		return nil
 	}
 	u, err := url.Parse(recipe.Recipe.Request.URL)
@@ -164,6 +180,31 @@ func deriveTarget(repro json.RawMessage) json.RawMessage {
 		"path":   u.Path,
 	})
 	return out
+}
+
+// firstRequestLine 从文本步骤中找首条「METHOD /path」请求行。method 限已知
+// HTTP 动词（防止普通散文里碰巧出现的全大写词误配）；path 截去查询串前的
+// 空白边界（dedup 生成列本就会丢弃查询串）。
+func firstRequestLine(steps string) (method, path string, ok bool) {
+	for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"} {
+		for _, line := range strings.Split(steps, "\n") {
+			fields := strings.Fields(line)
+			for i, f := range fields {
+				if f != m || i+1 >= len(fields) {
+					continue
+				}
+				p := fields[i+1]
+				if q := strings.IndexByte(p, '?'); q >= 0 {
+					p = p[:q]
+				}
+				if p == "" || !strings.HasPrefix(p, "/") {
+					continue
+				}
+				return m, p, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 // deriveHost 从坐实材料的可用线索抽主机：证据 url → 复现配方首请求 url →

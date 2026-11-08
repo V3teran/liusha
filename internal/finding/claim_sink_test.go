@@ -102,3 +102,28 @@ func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
 		t.Fatalf("Host 应保持空: %+v", store.saved)
 	}
 }
+
+// deriveTarget 对 generic 域文本配方（recipe.steps 自由文本）也要抽出 method/path——
+// 台账去重键由 host|path|method|param 构成，抽不出 target 时 dedup 回退 summary
+// 前缀，同一漏洞会因配方域不同分裂成多条台账记录（实测 full_gate 与 judge_only
+// 双交付未折叠）。
+func TestDeriveTarget_GenericTextRecipe(t *testing.T) {
+	generic := json.RawMessage(`{"domain":"generic","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 view_traffic 抓取响应确认标记\n浏览器访问同一 URL"}}`)
+	out := deriveTarget(generic)
+	if out == nil {
+		t.Fatal("generic 文本配方应抽出 target")
+	}
+	var tgt map[string]string
+	if err := json.Unmarshal(out, &tgt); err != nil {
+		t.Fatal(err)
+	}
+	if tgt["method"] != "GET" || tgt["path"] != "/search" {
+		t.Fatalf("method/path 抽取不符: %v", tgt)
+	}
+
+	// 无 HTTP 请求行 → 诚实降级为 nil（不伪造）
+	noReq := json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`)
+	if out := deriveTarget(noReq); out != nil {
+		t.Fatalf("无可识别请求行的配方应返回 nil，得 %s", out)
+	}
+}
