@@ -15,9 +15,9 @@ describe('findingStatusMeta', () => {
     expect(findingStatusMeta(undefined).key).toBe('open')
   })
 
-  it('每态都有非空配色', () => {
+  it('每态都引用状态语义 token（随主题）', () => {
     for (const o of FINDING_STATUS_OPTIONS) {
-      expect(findingStatusMeta(o.value).color).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(findingStatusMeta(o.value).color).toMatch(/^var\(--status-[a-z]+\)$/)
     }
   })
 

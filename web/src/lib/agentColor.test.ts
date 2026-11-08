@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { agentAccent, agentLabel } from './agentColor'
 
 describe('agentAccent', () => {
-  it('已知 agent 返回固定配色', () => {
-    expect(agentAccent('planner').accent).toBe('#a78bfa')
-    expect(agentAccent('executor').accent).toBe('#34d399')
-    expect(agentAccent('evaluator').accent).toBe('#38bdf8')
-    expect(agentAccent('monitor').accent).toBe('#f472b6')
-    expect(agentAccent('assistant').accent).toBe('#8c8c8c')
+  it('已知 agent 返回固定分类色 token', () => {
+    expect(agentAccent('planner').accent).toBe('var(--cat-violet)')
+    expect(agentAccent('executor').accent).toBe('var(--cat-emerald)')
+    expect(agentAccent('evaluator').accent).toBe('var(--cat-sky)')
+    expect(agentAccent('monitor').accent).toBe('var(--cat-pink)')
+    expect(agentAccent('assistant').accent).toBe('var(--cat-neutral)')
   })
 
   it('空名返回中性灰', () => {
-    expect(agentAccent().accent).toBe('#8c8c8c')
-    expect(agentAccent('').accent).toBe('#8c8c8c')
-    expect(agentAccent('   ').accent).toBe('#8c8c8c')
+    expect(agentAccent().accent).toBe('var(--cat-neutral)')
+    expect(agentAccent('').accent).toBe('var(--cat-neutral)')
+    expect(agentAccent('   ').accent).toBe('var(--cat-neutral)')
   })
 
   it('未知 agent 用稳定哈希取色（同名总是同色）', () => {
@@ -24,7 +24,7 @@ describe('agentAccent', () => {
   })
 
   it('不同未知 agent 可能取到不同颜色（分布在备选色盘内）', () => {
-    const palette = ['#f472b6', '#22d3ee', '#a3e635', '#fb923c', '#c084fc']
+    const palette = ['pink', 'cyan', 'lime', 'orange', 'violet'].map((h) => `var(--cat-${h})`)
     const c = agentAccent('unknown-xyz').accent
     expect(palette).toContain(c)
   })

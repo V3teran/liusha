@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react'
 import type { LLMInvocationFilters } from '@/api/types'
-import { cn } from '@/lib/utils'
+import { FilterBar } from '@/components/FilterBar'
+import { Select } from '@/components/ui/Select'
+import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { LlmAuditSearchBar } from './LlmAuditSearchBar'
 
 interface LlmAuditFilterBarProps {
@@ -10,37 +13,27 @@ interface LlmAuditFilterBarProps {
   onSearchChange: (value: string) => void
   onChange: (next: LLMInvocationFilters) => void
   onReset: () => void
-  trailing?: React.ReactNode
+  trailing?: ReactNode
 }
 
 /**
  * LlmAuditFilterBar - LLM 审计筛选栏
  *
- * 全站统一筛选顺序（业界最佳实践，对齐 TrafficFilterBar/TaskFilterBar/漏洞页）：
+ * 全站统一筛选顺序（对齐 TrafficFilterBar/TaskFilterBar/漏洞页）：
  * 枚举下拉（粗→细：角色→模型）→ 关键词搜索 → 时间范围 → 布尔开关 → 清空 →（最右）分页。
- * 搜索框自带 300ms 防抖（LlmAuditSearchBar 内置）。
+ * 搜索框自带 300ms 防抖（LlmAuditSearchBar 内置）。时间范围在 URL 中保存
+ * datetime-local 原值，由 API 层（api/llmaudit.ts）发送前换算为 ISO。
  */
 export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
-  const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end)
-
-  const selectClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all focus:border-accent focus:ring-1 focus:ring-accent/20'
-  )
-
-  const inputClass = cn(
-    'h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text',
-    'outline-none transition-all placeholder:text-text-secondary',
-    'focus:border-accent focus:ring-1 focus:ring-accent/20',
-    '[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 [&::-webkit-calendar-picker-indicator]:hover:opacity-100'
-  )
+  const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end || search)
 
   return (
-    <div className="flex flex-wrap items-center gap-3 bg-surface/50 px-6 py-3">
-      <select
+    <FilterBar label="LLM 调用筛选" canReset={hasFilter} onReset={onReset} trailing={trailing}>
+      <Select
         value={filters.role}
         onChange={(e) => onChange({ ...filters, role: e.target.value })}
-        className={cn(selectClass, 'w-32')}
+        className="w-32"
+        aria-label="按角色筛选"
       >
         <option value="">全部角色</option>
         {roles.map((r) => (
@@ -48,12 +41,13 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
             {r}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <select
+      <Select
         value={filters.model}
         onChange={(e) => onChange({ ...filters, model: e.target.value })}
-        className={cn(selectClass, 'w-40')}
+        className="w-44"
+        aria-label="按模型筛选"
       >
         <option value="">全部模型</option>
         {models.map((m) => (
@@ -61,51 +55,27 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
             {m}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <div className="w-64">
-        <LlmAuditSearchBar value={search} onChange={onSearchChange} />
-      </div>
+      <LlmAuditSearchBar value={search} onChange={onSearchChange} />
 
-      <input
-        id="filter-start"
-        type="datetime-local"
-        value={filters.start}
-        onChange={(e) => onChange({ ...filters, start: e.target.value })}
-        className={cn(inputClass, 'w-48')}
+      <DateTimeRange
+        start={filters.start}
+        end={filters.end}
+        onChange={({ start, end }) => onChange({ ...filters, start, end })}
+        startLabel="调用时间起"
+        endLabel="调用时间止"
       />
 
-      <span className="text-text-secondary">→</span>
-
-      <input
-        id="filter-end"
-        type="datetime-local"
-        value={filters.end}
-        onChange={(e) => onChange({ ...filters, end: e.target.value })}
-        className={cn(inputClass, 'w-48')}
-      />
-
-      <label className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
+      <label className="inline-flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-1 text-sm text-text-secondary transition-colors hover:text-text">
         <input
           type="checkbox"
           checked={filters.onlyErr}
           onChange={(e) => onChange({ ...filters, onlyErr: e.target.checked })}
-          className="h-4 w-4 cursor-pointer rounded border-border text-accent transition-colors focus:ring-1 focus:ring-accent/20"
+          className="h-4 w-4 cursor-pointer rounded border-border accent-[var(--accent)]"
         />
         仅错误
       </label>
-
-      {hasFilter && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="text-sm text-text-secondary transition-colors hover:text-accent"
-        >
-          清空
-        </button>
-      )}
-
-      {trailing && <div className="ml-auto flex items-center gap-3">{trailing}</div>}
-    </div>
+    </FilterBar>
   )
 }

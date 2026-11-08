@@ -10,15 +10,16 @@ export interface TaskStatusMeta {
   color: string
 }
 
+// 色引用设计 token（随主题、已按 WCAG AA 校准），返回 CSS 值字符串。
 export function taskStatusMeta(status: string | undefined): TaskStatusMeta {
   switch (status) {
     case 'active':
-      return { label: '进行中', key: 'active', color: '#22c55e' }
+      return { label: '进行中', key: 'active', color: 'var(--status-success)' }
     case 'completed':
-      return { label: '已完成', key: 'completed', color: '#3b82f6' }
+      return { label: '已完成', key: 'completed', color: 'var(--status-info)' }
     case 'aborted':
-      return { label: '已中止', key: 'aborted', color: '#94a3b8' }
+      return { label: '已中止', key: 'aborted', color: 'var(--status-neutral)' }
     default:
-      return { label: '对话', key: 'idle', color: '#64748b' } // 空/纯聊天
+      return { label: '对话', key: 'idle', color: 'var(--text-tertiary)' } // 空/纯聊天
   }
 }

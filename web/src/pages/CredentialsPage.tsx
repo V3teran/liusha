@@ -13,7 +13,9 @@ import {
   useSaveCredentialIdentity,
 } from '@/features/credential/useCredentialQueries'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
-import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
+import { controlClass } from '@/components/ui/control'
+import { FilterBar } from '@/components/FilterBar'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -25,8 +27,7 @@ import { cn } from '@/lib/utils'
  * 用户名删、清会话、整目标删（host 筛选选定后出现在筛选栏右侧）。
  */
 
-const INLINE_INPUT =
-  'h-8 rounded-md border border-border bg-surface px-2 text-sm text-text outline-none transition-all placeholder:text-text-secondary focus:border-accent focus:glow-accent'
+const INLINE_INPUT = controlClass('sm')
 
 /** 行内编辑草稿（单元格级：一个单元格一个草稿，提交即 PUT 整个身份）。 */
 interface CellEdit {
@@ -186,26 +187,42 @@ export default function CredentialsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="凭证库" subtitle="按目标归属的登录态与会话材料">
-        <div>
         {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
-        <button
-          type="button"
+        <Button
+          variant={creating ? 'secondary' : 'primary'}
           onClick={() => {
             setCreating((c) => !c)
             setNewRow(EMPTY_NEW_ROW)
           }}
-          className={cn(
-            'inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold transition-all',
-            creating
-              ? 'border border-border bg-surface text-text-secondary hover:text-text'
-              : 'bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover',
-          )}
         >
-          <Plus className="h-4 w-4" />
+          <Plus strokeWidth={2.4} />
           {creating ? '取消录入' : '录入'}
-        </button>
-        </div>
+        </Button>
       </PageHeader>
+
+      <FilterBar
+        label="凭证筛选"
+        canReset={hasFilter}
+        onReset={() => setSearch('')}
+        trailing={
+          <PaginationToolbar
+            page={page}
+            pageSize={size}
+            total={filtered.length}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onPageSizeChange={setSize}
+          />
+        }
+      >
+        <SearchInput
+          className="w-64"
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索主机 / 用户名 / 键 / 值…"
+          ariaLabel="搜索凭证"
+        />
+      </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
         {isError ? (
@@ -214,7 +231,7 @@ export default function CredentialsPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {/* 录入新行（展开在筛选栏与表之间；单凭证行起手，更多凭证保存后点凭证单元格追加） */}
+            {/* 录入新行（展开在表格上方；单凭证行起手，更多凭证保存后点凭证单元格追加） */}
             {creating && (
               <div className="grid grid-cols-[minmax(120px,1.2fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(240px,3fr)_auto] items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2">
                 <input
@@ -244,44 +261,15 @@ export default function CredentialsPage() {
                   onChange={(e) => setNewRow({ ...newRow, raw: e.target.value })}
                 />
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={!newRowValid(newRow) || saveMutation.isPending}
-                    onClick={commitCreate}
-                    className="inline-flex h-8 items-center gap-1 rounded-md bg-accent-soft px-3 text-xs font-semibold text-accent hover:bg-accent/10 hover:text-accent-hover disabled:opacity-40"
-                  >
+                  <Button size="sm" disabled={!newRowValid(newRow) || saveMutation.isPending} onClick={commitCreate}>
                     保存
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCreating(false)}
-                    className="h-8 rounded-md border border-border px-3 text-xs text-text-secondary hover:text-text"
-                  >
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setCreating(false)}>
                     取消
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
-
-            {/* 筛选栏 + 分页（录入与搜索框平行；border-b 与下方表格分隔） */}
-            <div className="-mx-6 flex flex-wrap items-center gap-2 bg-surface/30 px-6 pb-3">
-              <SearchInput
-                className="w-72"
-                value={search}
-                onChange={setSearch}
-                placeholder="搜索主机 / 用户名 / 键 / 值…"
-              />
-              <span className="ml-auto">
-                <PaginationToolbar
-                  page={page}
-                  pageSize={size}
-                  total={filtered.length}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                  onPageSizeChange={setSize}
-                />
-              </span>
-            </div>
 
             <CredentialTable
               rows={pageRows}

@@ -1,11 +1,13 @@
 import { SearchInput } from '@/components/SearchInput'
+import { FilterBar } from '@/components/FilterBar'
+import { Select } from '@/components/ui/Select'
 import { PageHeader } from '@/components/PageHeader'
 import { useMemo, useState } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight, StickyNote } from 'lucide-react'
 import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
-import { SEVERITIES, severityColor, severityLabel } from '@/lib/severity'
+import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
 import { DataTable } from '@/components/DataTable'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/features/finding/findingStatus'
 import { Badge } from '@/components/ui/badge'
@@ -16,17 +18,13 @@ import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
 
-function sevVar(sev: string): string {
-  return severityColor[sev.toLowerCase()] ?? '#6e7681'
-}
-
 const columnHelper = createColumnHelper<FindingRow>()
 
 /**
  * FindingsPage - 漏洞管理页面（平铺台账）
  */
 export function FindingsPage() {
-  const { filters, page, size, setFilters, setPage, setSize } = useFindingFilters()
+  const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
   const queryClient = useQueryClient()
 
   const listQuery = useFindingList(filters, page, size)
@@ -103,7 +101,7 @@ export function FindingsPage() {
         size: 90,
         cell: (ctx) => {
           const sev = ctx.getValue()
-          return <Badge color={sevVar(sev)} size="sm">{severityLabel[sev.toLowerCase()] || sev}</Badge>
+          return <Badge color={severityColorOf(sev)} size="sm">{severityLabel[sev.toLowerCase()] || sev}</Badge>
         },
       }),
       columnHelper.accessor('summary', {
@@ -173,154 +171,155 @@ export function FindingsPage() {
     [],
   )
 
-
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
     : ''
 
+  const resetAll = () => {
+    resetFilters()
+    setQuery('')
+  }
+
   return (
-    <div className="flex h-full flex-col bg-background">
-      {/* 统一头部 */}
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="漏洞" subtitle="智能体发现的安全漏洞与配置缺陷" />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        {listQuery.isPending ? (
-          <div className="py-16 text-center text-sm text-text-secondary">
-            <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-            <p className="mt-3">加载中…</p>
+      {/* 指标卡：台账总量 + 处置进度 + 严重度分布（分布条与图例可点击按等级筛选） */}
+      <section aria-label="漏洞概况" className="flex-shrink-0 px-6 pt-4">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-6 py-3 shadow-sm">
+          <div className="text-2xl font-bold tabular-nums text-text" aria-label={`共 ${total} 个漏洞`}>
+            {total}
           </div>
-        ) : listError ? (
-          <div className="py-16 text-center text-sm text-status-error">⚠ {listError}</div>
-        ) : (
-          <>
-            {/* 紧凑统计卡片（瘦身版）*/}
-            <div className="mb-5 flex items-center gap-6 rounded-xl border border-border bg-surface px-6 py-3 shadow-sm">
-              {/* 总数指示（删除大图标）*/}
-              <div className="flex items-center gap-4">
-                <div>
-                  <div className="text-2xl font-bold tabular-nums text-text">{total}</div>
-                </div>
-              </div>
 
-              {/* 分隔线 */}
-              <div className="h-10 w-px bg-border" />
+          <div className="h-10 w-px bg-border" aria-hidden />
 
-              {/* 快速统计 */}
-              <div className="flex flex-1 items-center gap-4 text-xs">
-                <div>
-                  <span className="text-text-tertiary">待处理</span>
-                  <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
-                    {stat?.by_status?.open ?? 0}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-text-tertiary">已确认</span>
-                  <span className="ml-2 font-mono text-lg font-semibold tabular-nums text-text">
-                    {stat?.by_status?.confirmed ?? 0}
-                  </span>
-                </div>
-              </div>
-
-              {/* 严重度分布条（加粗到 h-4）*/}
-              <div className="flex-1">
-                <div className="mb-2 flex h-4 gap-0.5 overflow-hidden rounded-full bg-surface-2">
-                  {sevCounts
-                    .filter((c) => c.n)
-                    .map((x) => (
-                      <button
-                        key={x.sev}
-                        type="button"
-                        onClick={() => toggleSevFilter(x.sev)}
-                        title={`${severityLabel[x.sev]} ${x.n}`}
-                        style={{ flex: x.n, background: sevVar(x.sev) }}
-                        className={cn(
-                          'rounded-sm transition-all hover:opacity-80',
-                          filters.severity === x.sev && 'ring-2 ring-inset ring-white',
-                        )}
-                      />
-                    ))}
-                </div>
-                <div className="flex flex-wrap gap-3 text-xs">
-                  {sevCounts.map((x) => (
-                    <button
-                      key={x.sev}
-                      type="button"
-                      disabled={!x.n}
-                      onClick={() => toggleSevFilter(x.sev)}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors',
-                        x.n ? 'hover:bg-surface-2' : 'cursor-default opacity-40',
-                        filters.severity === x.sev && 'bg-surface-2 ring-1 ring-inset ring-border-strong',
-                      )}
-                    >
-                      <span className="h-2 w-2 rounded-sm" style={{ background: sevVar(x.sev) }} />
-                      <span className="text-text-secondary">{severityLabel[x.sev]}</span>
-                      <span className="font-mono font-semibold tabular-nums text-text">{x.n}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <dl className="flex flex-1 items-center gap-4 whitespace-nowrap text-xs">
+            <div className="flex items-baseline gap-2">
+              <dt className="text-text-tertiary">待处理</dt>
+              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.open ?? 0}</dd>
             </div>
+            <div className="flex items-baseline gap-2">
+              <dt className="text-text-tertiary">已确认</dt>
+              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.confirmed ?? 0}</dd>
+            </div>
+          </dl>
 
-            {/* 搜索筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 →（右端）分页） */}
-            <div className="-mx-6 mb-3 flex items-center gap-3 bg-surface/30 px-6 pb-3">
-              <select
-                value={filters.source}
-                onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                className="h-9 w-32 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
-              >
-                <option value="">全部来源</option>
-                <option value="manual">主动下发</option>
-                <option value="auto">被动代理</option>
-              </select>
-
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                className="h-9 w-32 rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-colors focus:border-accent focus:glow-accent"
-              >
-                <option value="">全部状态</option>
-                {FINDING_STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
+          {/* 窄屏（< md）分布条独占一行，避免与计数挤在同一行被压扁 */}
+          <div className="min-w-0 flex-1 basis-full md:basis-0">
+            <div className="mb-2 flex h-4 gap-0.5 overflow-hidden rounded-full bg-surface-2">
+              {sevCounts
+                .filter((c) => c.n)
+                .map((x) => (
+                  <button
+                    key={x.sev}
+                    type="button"
+                    onClick={() => toggleSevFilter(x.sev)}
+                    title={`${severityLabel[x.sev]} ${x.n}`}
+                    aria-label={`按${severityLabel[x.sev]}筛选（${x.n}）`}
+                    aria-pressed={filters.severity === x.sev}
+                    style={{ flex: x.n, background: severityColorOf(x.sev) }}
+                    className={cn(
+                      'rounded-sm transition-opacity hover:opacity-80',
+                      filters.severity === x.sev && 'ring-2 ring-inset ring-surface',
+                    )}
+                  />
                 ))}
-              </select>
-
-              <SearchInput
-                className="w-72"
-                value={query}
-                onChange={setQuery}
-                placeholder="搜索漏洞标题 / host / 路径…"
-                ariaLabel="搜索漏洞标题、host 或路径"
-              />
-
-              <PaginationToolbar
-                page={page}
-                pageSize={size}
-                total={total}
-                totalPages={totalPages}
-                onPageChange={setPage}
-                onPageSizeChange={setSize}
-                loading={listQuery.isFetching}
-              />
             </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              {sevCounts.map((x) => (
+                <button
+                  key={x.sev}
+                  type="button"
+                  disabled={!x.n}
+                  onClick={() => toggleSevFilter(x.sev)}
+                  aria-pressed={filters.severity === x.sev}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors',
+                    x.n ? 'hover:bg-surface-2' : 'cursor-default opacity-40',
+                    filters.severity === x.sev && 'bg-surface-2 ring-1 ring-inset ring-border-strong',
+                  )}
+                >
+                  <span className="h-2 w-2 rounded-sm" style={{ background: severityColorOf(x.sev) }} />
+                  <span className="text-text-secondary">{severityLabel[x.sev]}</span>
+                  <span className="font-mono font-semibold tabular-nums text-text">{x.n}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
 
-            {/* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
-                严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */}
-            <DataTable
-              rows={visible}
-              columns={columns as never}
-              loading={listQuery.isFetching && rows.length === 0}
-              hasFilter={hasFilter}
-              emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
-              getRowId={(row) => row.id}
-              onRowClick={openDrawer}
-              rowAriaLabel={(f) => `查看漏洞详情：${f.summary}`}
-              rowStyle={(f) => ({ '--sev': sevVar(f.severity) }) as React.CSSProperties}
-              rowClassName={(f) => (savingId === f.id ? 'opacity-50' : undefined)}
-            />
-          </>
+      {/* 筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 → 清空 →（右端）分页）。
+          来源取值对齐 assignment.source（self / proxy）。 */}
+      <FilterBar
+        label="漏洞筛选"
+        canReset={hasFilter}
+        onReset={resetAll}
+        className="mt-4"
+        trailing={
+          <PaginationToolbar
+            page={page}
+            pageSize={size}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onPageSizeChange={setSize}
+            loading={listQuery.isFetching}
+          />
+        }
+      >
+        <Select
+          value={filters.source}
+          onChange={(e) => setFilters({ ...filters, source: e.target.value })}
+          className="w-32"
+          aria-label="按来源筛选"
+        >
+          <option value="">全部来源</option>
+          <option value="self">自主下发</option>
+          <option value="proxy">代理模式</option>
+        </Select>
+
+        <Select
+          value={filters.status}
+          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          className="w-32"
+          aria-label="按处置状态筛选"
+        >
+          <option value="">全部状态</option>
+          {FINDING_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+
+        <SearchInput
+          className="w-64"
+          value={query}
+          onChange={setQuery}
+          placeholder="搜索漏洞标题 / host / 路径…"
+          ariaLabel="搜索漏洞标题、host 或路径"
+        />
+      </FilterBar>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        {listError ? (
+          <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+        ) : (
+          /* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
+             严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */
+          <DataTable
+            rows={visible}
+            columns={columns as never}
+            loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}
+            hasFilter={hasFilter}
+            emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
+            getRowId={(row) => row.id}
+            onRowClick={openDrawer}
+            rowAriaLabel={(f) => `查看漏洞详情：${f.summary}`}
+            rowStyle={(f) => ({ '--sev': severityColorOf(f.severity) }) as React.CSSProperties}
+            rowClassName={(f) => (savingId === f.id ? 'opacity-50' : undefined)}
+          />
         )}
       </div>
 

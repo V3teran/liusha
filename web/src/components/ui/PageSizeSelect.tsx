@@ -1,25 +1,28 @@
 import { PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
+import { Select } from './Select'
 
 interface PageSizeSelectProps {
   value: number
   onChange: (size: number) => void
+  className?: string
 }
 
-// 每页条数选择器：流量表、漏洞台账共用。紧凑下拉，与分页按钮同行（trailing 槽）。
-export function PageSizeSelect({ value, onChange }: PageSizeSelectProps) {
+// 每页条数选择器：分页条内的紧凑下拉（sm 档，与翻页按钮同高）。
+export function PageSizeSelect({ value, onChange, className }: PageSizeSelectProps) {
   return (
-    <select
+    <Select
+      size="sm"
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
       aria-label="每页条数"
       title="每页条数"
-      className="h-7 rounded-md border border-border bg-surface px-1.5 text-xs text-text-secondary outline-none transition-colors hover:border-border-strong hover:text-text focus:border-accent"
+      className={className}
     >
       {PAGE_SIZE_OPTIONS.map((n) => (
         <option key={n} value={n}>
           {n} 条/页
         </option>
       ))}
-    </select>
+    </Select>
   )
 }

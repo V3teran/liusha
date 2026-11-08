@@ -117,7 +117,7 @@ describe('LlmAuditPage', () => {
     renderPage()
     await screen.findAllByText('gpt-5')
 
-    const box = screen.getByPlaceholderText('搜索对话、批次 ID...')
+    const box = screen.getByPlaceholderText('搜索对话、批次 ID…')
     await userEvent.type(box, 'conv-1')
     await waitFor(() => expect(mockedSearch).toHaveBeenCalledWith('conv-1', 1, 50, expect.anything()))
   })

@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
 import { X } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { FIELD_LABEL_CLASS } from '@/components/ui/control'
 
 // 抽屉内的一个分页：value 作 Radix Tabs 的稳定键，label 为顶部按钮文案，content 为该页表单。
 export interface DrawerTab {
@@ -85,23 +87,13 @@ export function ConfigDrawer({
 
             <div className="flex items-center gap-2.5 border-t border-border px-5 py-4">
               {onDelete && (
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  disabled={saving}
-                  className="rounded-lg border border-sev-critical/40 px-4 py-1.5 text-sm text-sev-critical transition-colors hover:bg-sev-critical/10 disabled:cursor-default disabled:opacity-40"
-                >
+                <Button variant="danger" onClick={onDelete} disabled={saving}>
                   删除
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={saving || saveDisabled}
-                className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-sm text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
-              >
+              <Button className="ml-auto" onClick={onSave} disabled={saving || saveDisabled}>
                 {saving ? '保存中…' : '保存'}
-              </button>
+              </Button>
             </div>
           </Tabs.Root>
         </Dialog.Content>
@@ -122,7 +114,7 @@ export function Field({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-text-secondary">
+      <span className={FIELD_LABEL_CLASS}>
         {label}
         {hint && <span className="ml-2 font-normal text-text-tertiary">{hint}</span>}
       </span>
@@ -130,7 +122,3 @@ export function Field({
     </label>
   )
 }
-
-// 统一输入框样式（与漏洞抽屉一致）。聚焦态：emerald 描边 + 深色发散荧光晕（战术终端）。
-export const INPUT_CLASS =
-  'w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-text outline-none transition-shadow focus:border-accent focus:shadow-[var(--glow-accent)] disabled:cursor-not-allowed disabled:opacity-60'

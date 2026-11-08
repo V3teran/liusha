@@ -10,6 +10,7 @@ import {
   useSaveRoleRoute,
   useSaveAgentComplexity,
 } from './useModelQueries'
+import { Select } from '@/components/ui/Select'
 
 // 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。无任何兜底机制。
 // 同时读写两处：
@@ -186,9 +187,9 @@ function ComplexityRow({
 
         <div className="flex flex-shrink-0 items-center gap-2">
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-secondary" aria-label="保存中" />}
-          <select
+          <Select
             aria-label={`${meta.label} 绑定部署`}
-            className="w-40 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-text outline-none transition-colors focus:border-accent disabled:opacity-60"
+            className="w-40"
             value={value}
             disabled={saving}
             onChange={(e) => onPick(meta.key, e.target.value)}
@@ -200,7 +201,7 @@ function ComplexityRow({
                 {p.enabled ? '' : '（已停用）'}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 

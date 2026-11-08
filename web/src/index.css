@@ -73,6 +73,27 @@ pre {
   animation: modal-pop-out 140ms ease-in;
 }
 
+/* 侧边抽屉（手机端导航）：自左滑入。只动 translate（独立 transform 属性）+ opacity，走合成层。 */
+.app-drawer[data-state='open'] {
+  animation: drawer-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-drawer[data-state='closed'] {
+  animation: drawer-out 160ms ease-in;
+}
+
+@keyframes drawer-in {
+  from {
+    translate: -100% 0;
+  }
+}
+
+@keyframes drawer-out {
+  to {
+    translate: -100% 0;
+  }
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -109,6 +130,8 @@ pre {
 
   .tac-modal[data-state='open'],
   .tac-modal[data-state='closed'],
+  .app-drawer[data-state='open'],
+  .app-drawer[data-state='closed'],
   .app-overlay[data-state='open'],
   .app-overlay[data-state='closed'] {
     animation: none;

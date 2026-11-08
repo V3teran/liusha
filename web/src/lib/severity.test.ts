@@ -18,19 +18,19 @@ describe('severityRank', () => {
 })
 
 describe('severityTagColor', () => {
-  it('已知等级返回三件套配色', () => {
+  it('已知等级返回三件套配色（字色为等级 token，底/边由同色 color-mix 派生）', () => {
     const tag = severityTagColor('critical')
-    expect(tag.textColor).toBe('#ef4444')
-    expect(tag.color).toBe('#ef444422')
-    expect(tag.borderColor).toBe('#ef444455')
+    expect(tag.textColor).toBe('var(--sev-critical)')
+    expect(tag.color).toBe('color-mix(in srgb, var(--sev-critical) 13%, transparent)')
+    expect(tag.borderColor).toBe('color-mix(in srgb, var(--sev-critical) 33%, transparent)')
   })
 
-  it('未知等级回退默认色', () => {
+  it('未知等级回退中性色 token', () => {
     const tag = severityTagColor('nope')
-    expect(tag.textColor).toBe('#6e7681')
+    expect(tag.textColor).toBe('var(--status-neutral)')
   })
 
   it('大小写不敏感', () => {
-    expect(severityTagColor('HIGH').textColor).toBe('#f97316')
+    expect(severityTagColor('HIGH').textColor).toBe('var(--sev-high)')
   })
 })

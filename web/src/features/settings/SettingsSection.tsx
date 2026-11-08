@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/Button'
 
 // SettingsSection 是系统配置页每组旋钮的分区卡：标题 + 说明 + 表单体 + 底部保存条。
 // 每组独立加载/保存/错误态，互不影响（一组保存失败不阻塞其他组）。
@@ -53,23 +54,13 @@ export function SettingsSection({
               <span className="mr-auto text-xs text-status-warning">● 有未保存改动</span>
             )}
             {onReset && isDirty && (
-              <button
-                type="button"
-                onClick={onReset}
-                disabled={saving}
-                className="rounded-lg border border-border px-4 py-1.5 text-sm text-text-secondary transition-colors hover:border-status-error/50 hover:text-status-error disabled:opacity-50"
-              >
+              <Button variant="secondary" onClick={onReset} disabled={saving}>
                 放弃
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={saving || saveDisabled || !isDirty}
-              className="rounded-lg bg-accent-soft px-4 py-1.5 text-sm text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-            >
+            <Button onClick={onSave} disabled={saving || saveDisabled || !isDirty}>
               {saving ? '保存中…' : '保存'}
-            </button>
+            </Button>
           </div>
         </>
       )}

@@ -11,6 +11,7 @@ import { useTaskFilters } from '@/features/tasks/useTaskFilters'
 import { useTaskDetail, useTaskList } from '@/features/tasks/useTaskQueries'
 import type { TaskSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
+import { Button } from '@/components/ui/Button'
 
 // 任务模块：assignment（批次）→ task（执行实体）的列表视图。主动下发 1 assignment → N task，
 // 被动代理 1 assignment → 1 task；每 task 绑一个对话（详情板跳转）。
@@ -50,48 +51,45 @@ export function TasksPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="任务">
-        <button
-          type="button"
-          onClick={() => setDialogOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-accent-soft px-3.5 py-2 text-[13px] font-semibold text-accent transition-all hover:bg-accent-softer hover:outline hover:outline-1 hover:outline-accent-soft"
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
+      <PageHeader title="任务" subtitle="批次与任务的下发、进度与运行控制">
+        <Button onClick={() => setDialogOpen(true)}>
+          <Plus strokeWidth={2.4} />
           新建任务
-        </button>
+        </Button>
       </PageHeader>
 
       {/* 左右分栏（master-detail）：任务详情是窄格式内容（KV + 短文本 + 按钮），
           右侧常驻面板是业界主流（扫列表、右钻详情保持行上下文，不丢选中态）。
-          列表列宽有 min-width 兜底 + 容器横向滚动，窄屏时出横向滑轮而非挤压变形
-          （「详情放下方」是流量页为承载整条 raw 报文这类宽格式内容的选择，任务详情不需要）。 */}
+          左列 = 筛选栏（固定）+ 表格滚动区；列宽有设计像素下限 + 容器横向滚动，
+          窄屏时出横向滑轮而非挤压变形。 */}
       <div className="flex min-h-0 flex-1">
-        <div
-          role="grid"
-          tabIndex={0}
-          onKeyDown={onListKeyDown}
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-4 outline-none"
-        >
-          {listError ? (
-            <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
-          ) : (
-            <>
-              <TaskFilterBar
-                filters={filters}
-                onChange={setFilters}
-                onReset={resetFilters}
-                trailing={
-                  <PaginationToolbar
-                    page={page}
-                    pageSize={size}
-                    total={total}
-                    totalPages={totalPages}
-                    onPageChange={setPage}
-                    onPageSizeChange={setSize}
-                    loading={listQuery.isFetching}
-                  />
-                }
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <TaskFilterBar
+            filters={filters}
+            onChange={setFilters}
+            onReset={resetFilters}
+            trailing={
+              <PaginationToolbar
+                page={page}
+                pageSize={size}
+                total={total}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                onPageSizeChange={setSize}
+                loading={listQuery.isFetching}
               />
+            }
+          />
+          <div
+            role="grid"
+            aria-label="任务列表"
+            tabIndex={0}
+            onKeyDown={onListKeyDown}
+            className="min-h-0 flex-1 overflow-y-auto px-6 py-4 outline-none"
+          >
+            {listError ? (
+              <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+            ) : (
               <TaskTable
                 rows={rows}
                 loading={listQuery.isPending}
@@ -101,8 +99,8 @@ export function TasksPage() {
                 onRowClick={selectRow}
                 onOperated={() => void listQuery.refetch()}
               />
-            </>
-          )}
+            )}
+          </div>
         </div>
 
         {selectedId && (

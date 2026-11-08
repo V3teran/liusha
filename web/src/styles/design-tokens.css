@@ -36,23 +36,38 @@
   --accent-soft: oklch(35% 0.02 250 / 0.12);
   --accent-softer: oklch(35% 0.02 250 / 0.06);
 
+  /* 语义色同时承担「填充」与「文字」两种用法（色点/色条 + 徽章字/彩字），
+     取值以文字用法为约束：对 --surface ≥4.5:1，且对自身 16% 软徽章底 ≥4.5:1（WCAG AA）。
+     浅色主题因此整体压到 L≈48–52；深色主题天然满足（L≥65 对 L17 底）。 */
+
   /* 语义色：威胁等级 */
-  --sev-critical: oklch(58% 0.24 25);
-  --sev-high: oklch(64% 0.19 40);
-  --sev-medium: oklch(75% 0.15 85);
-  --sev-low: oklch(58% 0.15 150);
-  --sev-info: oklch(60% 0.15 240);
+  --sev-critical: oklch(52% 0.21 25);
+  --sev-high: oklch(51% 0.16 42);
+  --sev-medium: oklch(50% 0.115 75);
+  --sev-low: oklch(48% 0.13 150);
+  --sev-info: oklch(49% 0.15 245);
 
   /* 语义色：来源类型 */
-  --source-self: oklch(65% 0.15 220);
-  --source-proxy: oklch(65% 0.15 300);
+  --source-self: oklch(48% 0.12 225);
+  --source-proxy: oklch(51% 0.17 300);
 
   /* 语义色：状态 */
-  --status-success: oklch(65% 0.17 162);
-  --status-error: oklch(58% 0.24 25);
-  --status-warning: oklch(75% 0.15 85);
-  --status-info: oklch(60% 0.15 240);
-  --status-neutral: oklch(60% 0.02 260);
+  --status-success: oklch(48% 0.12 162);
+  --status-error: oklch(52% 0.21 25);
+  --status-warning: oklch(50% 0.115 75);
+  --status-info: oklch(49% 0.15 245);
+  --status-neutral: oklch(50% 0.02 260);
+
+  /* 分类色：无语义的「身份区分」色板（智能体身份、消息角色、指标类别）。
+     与语义色正交——不表达好坏/严重度，只表达「这是哪一类」。对比度约束同上。 */
+  --cat-violet: oklch(52% 0.2 293);
+  --cat-emerald: oklch(48% 0.12 163);
+  --cat-sky: oklch(50% 0.13 235);
+  --cat-pink: oklch(52% 0.2 350);
+  --cat-cyan: oklch(48% 0.1 211);
+  --cat-orange: oklch(51% 0.16 50);
+  --cat-lime: oklch(50% 0.14 131);
+  --cat-neutral: oklch(50% 0 0);
 
   /* ========== 空间系统 ========== */
   --space-0: 0;
@@ -143,7 +158,16 @@
   --status-error: oklch(65% 0.22 25);
   --status-warning: oklch(80% 0.15 90);
   --status-info: oklch(65% 0.15 240);
-  --status-neutral: oklch(55% 0.02 260);
+  --status-neutral: oklch(66% 0.02 260);
+
+  --cat-violet: oklch(70.9% 0.159 293.5);
+  --cat-emerald: oklch(77.3% 0.153 163);
+  --cat-sky: oklch(75.4% 0.139 232.7);
+  --cat-pink: oklch(72.5% 0.175 349.8);
+  --cat-cyan: oklch(79.7% 0.134 211.5);
+  --cat-orange: oklch(75.8% 0.159 55.9);
+  --cat-lime: oklch(84.1% 0.203 130.9);
+  --cat-neutral: oklch(64.5% 0 0);
 
   --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.3);
   --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.4), 0 1px 2px oklch(0% 0 0 / 0.3);

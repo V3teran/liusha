@@ -4,6 +4,8 @@ import { Eye, EyeOff } from 'lucide-react'
 import * as authApi from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
+import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 
 /**
  * 登录页（AppShell 之外的独立路由）。
@@ -14,8 +16,6 @@ import { cn } from '@/lib/utils'
  * 输入框 / 按钮 / 错误内联反馈均用全站既有 token 与类名，不另造样式。
  */
 
-const INPUT_CLASS =
-  'h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent'
 
 /**
  * 展示用错误文案：剥掉 client 层的状态码前缀；非 HTTP 错误（网络不可达/
@@ -94,7 +94,7 @@ export function LoginPage() {
 
         <form className="mt-7 flex flex-col gap-4" onSubmit={submit}>
           <div>
-            <label htmlFor="login-username" className="mb-1.5 block text-[12.5px] font-semibold text-text">
+            <label htmlFor="login-username" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
               用户名
             </label>
             <input
@@ -109,7 +109,7 @@ export function LoginPage() {
             />
           </div>
           <div>
-            <label htmlFor="login-password" className="mb-1.5 block text-[12.5px] font-semibold text-text">
+            <label htmlFor="login-password" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
               密码
             </label>
             <div className="relative">
@@ -140,17 +140,9 @@ export function LoginPage() {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={busy}
-            className={cn(
-              'mt-1 h-9.5 rounded-lg bg-accent-soft text-sm font-semibold text-accent transition-all',
-              'hover:bg-accent-softer hover:outline hover:outline-1 hover:outline-accent-soft',
-              busy && 'cursor-default opacity-45 hover:bg-accent-soft hover:outline-none',
-            )}
-          >
+          <Button type="submit" disabled={busy} className="mt-1 w-full">
             {busy ? '登录中…' : '登录'}
-          </button>
+          </Button>
         </form>
 
       </div>

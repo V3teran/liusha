@@ -12,6 +12,7 @@ import type { ProviderConfig } from '@/api/types'
 import { testProvider } from '@/api/models'
 import { Badge } from '@/components/ui/badge'
 import { providerDisplayName, ProviderFormBody } from './providerForm'
+import { Button } from '@/components/ui/Button'
 
 interface ProviderEditorProps {
   draft: ProviderConfig
@@ -162,25 +163,14 @@ export function ProviderEditor({
           测试连接
         </button>
         {dirty && (
-          <button
-            type="button"
-            onClick={onReset}
-            disabled={saving}
-            title="放弃草稿，恢复到打开时的值"
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
+          <Button variant="secondary" size="sm" onClick={onReset} disabled={saving} title="放弃草稿，恢复到打开时的值">
+            <RotateCcw />
             重置
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving || saveDisabled || !dirty}
-          className="ml-auto rounded-lg bg-accent-soft px-5 py-1.5 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover disabled:cursor-default disabled:opacity-40"
-        >
+        <Button className="ml-auto" onClick={onSave} disabled={saving || saveDisabled || !dirty}>
           {saving ? '保存中…' : '保存'}
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -9,6 +9,7 @@ import type { LLMInvocationSummary } from '@/api/types'
 import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { StatChip } from '@/components/StatChip'
+import { catColor } from '@/lib/categoricalColor'
 
 export function LlmAuditPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -65,65 +66,60 @@ export function LlmAuditPage() {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="LLM 审计" subtitle="全局搜索和监控所有 LLM 调用" />
 
-      <div className="flex flex-wrap items-center gap-4 bg-surface/50 px-6 py-3">
+      {/* 指标区：整个筛选结果集的服务端合计。预留一行高度，数据到达前后布局不跳动。 */}
+      <div className="flex min-h-[52px] flex-shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle px-6 py-3">
         {stats && (
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <StatChip color="var(--accent)" label="调用" value={humanTokens(stats.calls)} />
-            <StatChip color="#38bdf8" label="输入" value={compactNumber(stats.in_tokens)} title={humanTokens(stats.in_tokens)} />
-            <StatChip color="#34d399" label="输出" value={compactNumber(stats.out_tokens)} title={humanTokens(stats.out_tokens)} />
-            <StatChip color="#a78bfa" label="缓存" value={compactNumber(stats.cached_tokens)} title={humanTokens(stats.cached_tokens)} />
+            <StatChip color={catColor('sky')} label="输入" value={compactNumber(stats.in_tokens)} title={humanTokens(stats.in_tokens)} />
+            <StatChip color={catColor('emerald')} label="输出" value={compactNumber(stats.out_tokens)} title={humanTokens(stats.out_tokens)} />
+            <StatChip color={catColor('violet')} label="缓存" value={compactNumber(stats.cached_tokens)} title={humanTokens(stats.cached_tokens)} />
             <StatChip
-              color="#f59e0b"
+              color={catColor('orange')}
               label="缓存率"
               value={`${cacheRatePct(stats.in_tokens, stats.cached_tokens).toFixed(1)}%`}
               title={`${humanTokens(stats.cached_tokens)} / ${humanTokens(stats.in_tokens + stats.cached_tokens)}`}
             />
-          </div>
+          </>
         )}
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+      <LlmAuditFilterBar
+        filters={filters}
+        roles={roles}
+        models={models}
+        search={query}
+        onSearchChange={setQuery}
+        onChange={setFilters}
+        onReset={resetFilters}
+        trailing={
+          <PaginationToolbar
+            page={page}
+            pageSize={size}
+            total={total}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onPageSizeChange={setSize}
+            loading={searchQueryResult.isPending}
+          />
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
         {searchQueryResult.isError ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-sev-critical">
-              加载失败：{searchQueryResult.error instanceof Error ? searchQueryResult.error.message : '未知错误'}
-            </p>
+          <div className="py-16 text-center text-sm text-sev-critical">
+            ⚠ 加载失败：{searchQueryResult.error instanceof Error ? searchQueryResult.error.message : '未知错误'}
           </div>
         ) : (
-          <>
-            <LlmAuditFilterBar
-              filters={filters}
-              roles={roles}
-              models={models}
-              search={query}
-              onSearchChange={setQuery}
-              onChange={setFilters}
-              onReset={resetFilters}
-              trailing={
-                <PaginationToolbar
-                  page={page}
-                  pageSize={size}
-                  total={total}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                  onPageSizeChange={setSize}
-                  loading={searchQueryResult.isPending}
-                />
-              }
-            />
-
-            <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
-              <LlmAuditTable
-                rows={rows}
-                loading={searchQueryResult.isPending}
-                hasFilter={hasFilter || !!query}
-                showProvider={showProvider}
-                llmTimeoutMs={llmTimeoutMs}
-                meta={{ startIndex: (page - 1) * size }}
-                onRowClick={openDetail}
-              />
-            </div>
-          </>
+          <LlmAuditTable
+            rows={rows}
+            loading={searchQueryResult.isPending}
+            hasFilter={hasFilter || !!query}
+            showProvider={showProvider}
+            llmTimeoutMs={llmTimeoutMs}
+            meta={{ startIndex: (page - 1) * size }}
+            onRowClick={openDetail}
+          />
         )}
       </div>
 

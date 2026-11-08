@@ -21,8 +21,6 @@ export interface LlmAuditUrlState {
   resetFilters: () => void
 }
 
-const EMPTY_FILTERS: LLMInvocationFilters = { role: '', model: '', onlyErr: false, start: '', end: '' }
-
 export function useLlmAuditFilters(): LlmAuditUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -67,7 +65,14 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
     })
   }
 
-  const resetFilters = () => setFilters(EMPTY_FILTERS)
+  // 清空 = 筛选 + 搜索词一并复位（与任务/流量页「清空筛选」同义）。必须在单次
+  // setSearchParams 内完成：react-router 的函数式更新不排队，同 tick 连调两次后者覆盖前者。
+  const resetFilters = () =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      for (const key of ['q', 'role', 'model', 'only_err', 'start', 'end', 'page']) next.delete(key)
+      return next
+    })
 
   return { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters }
 }

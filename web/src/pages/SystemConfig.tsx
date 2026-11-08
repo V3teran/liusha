@@ -13,14 +13,15 @@ import type {
   RuntimeSettings,
   ProxyFilterSettings,
 } from '@/api/types'
-import { Field, INPUT_CLASS } from '@/features/config/ConfigDrawer'
+import { Field } from '@/features/config/ConfigDrawer'
 import { SettingsSection } from '@/features/settings/SettingsSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSettingSection } from '@/features/settings/useSettingSection'
 import { linesToList, listToLines, codesToText, textToCodes } from '@/features/settings/listText'
 import { useState, useMemo } from 'react'
+import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
 
-const TEXTAREA_CLASS = INPUT_CLASS + ' min-h-[76px] font-mono leading-relaxed'
+const CODE_TEXTAREA_CLASS = TEXTAREA_CLASS + ' min-h-[76px] font-mono'
 
 // 系统配置页：三组业务旋钮（会话压缩 / 工具运行时 / 代理流量过滤）分区独立保存。
 // 事实源在 DB，写经后端失效广播即热改——compaction/runtime 令 runner 现读即生效，
@@ -72,7 +73,7 @@ export function SystemConfig() {
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+        <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
           {filteredSections.length === 0 ? (
             <div className="py-12 text-center text-sm text-text-secondary">
               未找到匹配的配置项
@@ -277,7 +278,7 @@ function ProxyFilterSection() {
         <>
           <Field label="放行 host 白名单" hint="每行一项；非空则仅捕获这些 host（留空 = 不限）">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               placeholder="*.target.com"
               value={listToLines(d.allow_hosts)}
@@ -286,7 +287,7 @@ function ProxyFilterSection() {
           </Field>
           <Field label="排除 host 黑名单" hint="每行一项">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               value={listToLines(d.exclude_hosts)}
               onChange={(e) => s.patch({ exclude_hosts: linesToList(e.target.value) })}
@@ -294,7 +295,7 @@ function ProxyFilterSection() {
           </Field>
           <Field label="排除 HTTP 方法" hint="每行一项，如 OPTIONS / HEAD / CONNECT">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               value={listToLines(d.exclude_methods)}
               onChange={(e) => s.patch({ exclude_methods: linesToList(e.target.value) })}
@@ -302,7 +303,7 @@ function ProxyFilterSection() {
           </Field>
           <Field label="排除 Upgrade 协议" hint="每行一项，如 websocket">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               value={listToLines(d.exclude_upgrade_protocols)}
               onChange={(e) =>
@@ -312,7 +313,7 @@ function ProxyFilterSection() {
           </Field>
           <Field label="排除 URL 后缀" hint="每行一项，如 .css / .js / .png">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               value={listToLines(d.exclude_suffixes)}
               onChange={(e) => s.patch({ exclude_suffixes: linesToList(e.target.value) })}
@@ -320,7 +321,7 @@ function ProxyFilterSection() {
           </Field>
           <Field label="排除 Content-Type" hint="每行一项，如 image/png">
             <textarea
-              className={TEXTAREA_CLASS}
+              className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               value={listToLines(d.exclude_content_types)}
               onChange={(e) => s.patch({ exclude_content_types: linesToList(e.target.value) })}

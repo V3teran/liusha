@@ -15,13 +15,13 @@ export interface FindingStatusMeta {
 }
 
 // 五态元信息。open 琥珀（待办感）、confirmed 红（真漏洞待修）、fixed 绿（闭环）、
-// false_positive 灰（作废）、accepted 蓝（知悉不修）。
+// false_positive 灰（作废）、accepted 蓝（知悉不修）。色引用设计 token（随主题）。
 const META: Record<FindingStatus, FindingStatusMeta> = {
-  open: { label: '待处理', key: 'open', color: '#f59e0b' },
-  confirmed: { label: '已确认', key: 'confirmed', color: '#ef4444' },
-  fixed: { label: '已修复', key: 'fixed', color: '#22c55e' },
-  false_positive: { label: '误报', key: 'fp', color: '#94a3b8' },
-  accepted: { label: '接受风险', key: 'accepted', color: '#3b82f6' },
+  open: { label: '待处理', key: 'open', color: 'var(--status-warning)' },
+  confirmed: { label: '已确认', key: 'confirmed', color: 'var(--status-error)' },
+  fixed: { label: '已修复', key: 'fixed', color: 'var(--status-success)' },
+  false_positive: { label: '误报', key: 'fp', color: 'var(--status-neutral)' },
+  accepted: { label: '接受风险', key: 'accepted', color: 'var(--status-info)' },
 }
 
 export function findingStatusMeta(status: string | undefined): FindingStatusMeta {

@@ -173,18 +173,18 @@ describe('FindingsPage', () => {
     )
   })
 
-  it('source 下拉筛选触发重新加载', async () => {
+  it('source 下拉筛选按 assignment.source 取值（self / proxy）触发重新加载', async () => {
     const user = userEvent.setup()
     mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
     renderPage()
     await screen.findByText('SQL 注入漏洞')
     mockedListFindings.mockClear()
 
-    const sourceSelect = screen.getByDisplayValue('全部来源')
-    await user.selectOptions(sourceSelect, 'auto')
+    const sourceSelect = screen.getByRole('combobox', { name: '按来源筛选' })
+    await user.selectOptions(sourceSelect, 'proxy')
 
     await waitFor(() =>
-      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ source: 'auto' })),
+      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ source: 'proxy' })),
     )
   })
 

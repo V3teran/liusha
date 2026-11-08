@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AppShell } from './AppShell'
@@ -138,5 +138,79 @@ describe('AppShell', () => {
     renderShell('/conversations/direct')
 
     expect(screen.getByLabelText('切换到深色模式')).toBeTruthy()
+  })
+
+  it('导航按「作业 / 观测 / 配置」分组，组名可被读屏识别', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    renderShell('/conversations/direct')
+
+    const work = screen.getByRole('group', { name: '作业' })
+    const observe = screen.getByRole('group', { name: '观测' })
+    const config = screen.getByRole('group', { name: '配置' })
+    expect(within(work).getByText('任务')).toBeTruthy()
+    expect(within(observe).getByText('日志')).toBeTruthy()
+    expect(within(config).getByText('系统配置')).toBeTruthy()
+  })
+
+  it('当前页导航项带 aria-current="page"', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    renderShell('/findings')
+    expect(screen.getByText('漏洞').closest('a')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByText('对话').closest('a')).not.toHaveAttribute('aria-current')
+  })
+})
+
+describe('AppShell 响应式', () => {
+  beforeEach(() => {
+    useAuthStore.setState({ status: 'authenticated', username: 'tester' })
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // 按视口宽度模拟 matchMedia（只解析 min-width 断点）。
+  function stubViewport(width: number) {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((q: string) => ({
+        matches: Number(/min-width:\s*(\d+)px/.exec(q)?.[1] ?? 0) <= width,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    )
+  }
+
+  it('平板宽度（768–1023）强制图标栏：导航项文字收起、靠 aria-label 命名', () => {
+    stubViewport(900)
+    renderShell('/conversations/direct')
+    expect(screen.queryByText('漏洞')).toBeNull()
+    expect(screen.getByRole('link', { name: '漏洞' })).toBeTruthy()
+    expect(screen.queryByLabelText('收起侧边栏')).toBeNull()
+  })
+
+  it('手机宽度（< 768）侧栏收入抽屉：菜单按钮打开，Esc 关闭', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderShell('/conversations/direct')
+
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '打开导航' }))
+    const drawer = screen.getByRole('dialog', { name: '导航' })
+    expect(within(drawer).getByText('漏洞')).toBeTruthy()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '导航' })).toBeNull()
+  })
+
+  it('手机抽屉内点击导航项后自动关闭', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderShell('/conversations/direct')
+
+    await user.click(screen.getByRole('button', { name: '打开导航' }))
+    await user.click(within(screen.getByRole('dialog', { name: '导航' })).getByText('漏洞'))
+    expect(screen.queryByRole('dialog', { name: '导航' })).toBeNull()
+    expect(screen.getByText('child-findings')).toBeTruthy()
   })
 })

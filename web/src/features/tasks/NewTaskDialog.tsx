@@ -6,14 +6,14 @@ import { createTasks } from '@/api/tasks'
 import type { TaskCreateResponse } from '@/api/types'
 import { cn } from '@/lib/utils'
 import { TASK_LIST_KEY } from './useTaskQueries'
+import { Button } from '@/components/ui/Button'
+import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 
 interface NewTaskDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-const INPUT_CLASS =
-  'h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none transition-all placeholder:text-text-tertiary focus:border-accent focus:glow-accent'
 
 /** cron 五段式人话预览（常见形态；其余原样展示）。 */
 function cronHuman(v: string): string {
@@ -147,14 +147,14 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
           <div className="flex flex-col gap-4 px-5 py-4">
             <div>
-              <label htmlFor="nt-title" className="mb-1.5 block text-[12.5px] font-semibold text-text">
+              <label htmlFor="nt-title" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
                 名称
               </label>
               <input id="nt-title" className={INPUT_CLASS} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="如：DVWA 专项测试" />
             </div>
 
             <div>
-              <label htmlFor="nt-desc" className="mb-1.5 block text-[12.5px] font-semibold text-text">
+              <label htmlFor="nt-desc" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
                 描述
               </label>
               <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
@@ -162,7 +162,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
             <div>
               <div className="mb-1.5 flex items-baseline justify-between">
-                <label htmlFor="nt-briefs" className="text-[12.5px] font-semibold text-text">
+                <label htmlFor="nt-briefs" className={FIELD_LABEL_CLASS}>
                   任务目标
                 </label>
                 <span className="text-[11.5px] text-text-tertiary">每行一个任务</span>
@@ -180,7 +180,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-3.5">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-text">
+              <label className={cn(FIELD_LABEL_CLASS, 'inline-flex cursor-pointer items-center gap-2')}>
                 <input
                   type="checkbox"
                   checked={cronOn}
@@ -213,22 +213,11 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
               <span className="ml-2 opacity-75">⌘/Ctrl+Enter 创建</span>
             </span>
             <Dialog.Close asChild>
-              <button type="button" className="rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:text-text">
-                取消
-              </button>
+              <Button variant="secondary">取消</Button>
             </Dialog.Close>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={briefs.length === 0 || mutation.isPending}
-              className={cn(
-                'rounded-lg bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent transition-all',
-                'hover:bg-accent-softer hover:outline hover:outline-1 hover:outline-accent-soft',
-                (briefs.length === 0 || mutation.isPending) && 'cursor-default opacity-45 hover:bg-accent-soft hover:outline-none',
-              )}
-            >
+            <Button onClick={submit} disabled={briefs.length === 0 || mutation.isPending}>
               {mutation.isPending ? '创建中…' : '创建'}
-            </button>
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
