@@ -406,6 +406,11 @@ func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 		Input:    payloadInput,
 		TaskRole: worker.RoleAgent,
 	}, asynq.MaxRetry(0), asynq.Timeout(wallClockOption(s.MaxRunTimeout))); err != nil {
+		// 未入队的 pending 行会让 runner 恢复巡检误判「有存活 run」，任务永久卡在 active。
+		// 标 aborted（从未执行）后，巡检把它识别为搁浅任务并自动重投。
+		if aerr := s.AgentRuns.SetAborted(context.WithoutCancel(ctx), tid); aerr != nil {
+			return "", fmt.Errorf("enqueue: %w（撤销未入队 run %s 失败: %w）", err, tid, aerr)
+		}
 		return "", fmt.Errorf("enqueue: %w", err)
 	}
 	return tid, nil

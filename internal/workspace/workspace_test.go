@@ -254,3 +254,52 @@ func TestStateDirExcludedFromFileSurface(t *testing.T) {
 		t.Fatalf("state 之外的读写不受影响: %v", err)
 	}
 }
+
+// 沙箱可在工作区内创建任意符号链接：指向宿主文件的链接、以及「逃逸链接/尚不存在的子目录/文件」
+// 都不得被读、写、下载或删除穿透。
+func TestSymlinkEscapeRejected(t *testing.T) {
+	s := newTestStore(t)
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("host-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(s.Root(), "task-1"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(s.Root(), "task-1", "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(s.Root(), "task-1", "outdir")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Read("task-1/leak.txt"); err == nil {
+		t.Error("Read 不应跟随指向工作区外的文件链接")
+	}
+	if f, _, err := s.OpenFile("task-1/leak.txt"); err == nil {
+		_ = f.Close()
+		t.Error("OpenFile 不应跟随指向工作区外的文件链接")
+	}
+	if err := s.Write("task-1/leak.txt", []byte("overwrite")); err == nil {
+		t.Error("Write 不应经文件链接覆盖宿主文件")
+	}
+	if got, _ := os.ReadFile(secret); string(got) != "host-secret" {
+		t.Fatalf("宿主文件被改写: %q", got)
+	}
+	if err := s.Write("task-1/outdir/new/x.txt", []byte("x")); err == nil {
+		t.Error("Write 不应经目录链接在工作区外建目录/文件")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new")); err == nil {
+		t.Fatal("工作区外被创建了目录")
+	}
+	if _, err := s.Read("task-1/outdir/secret.txt"); err == nil {
+		t.Error("Read 不应经目录链接读到工作区外文件")
+	}
+	if err := s.Delete("task-1/outdir/secret.txt"); err == nil {
+		t.Error("Delete 不应经目录链接删除工作区外文件")
+	}
+	if _, err := os.Stat(secret); err != nil {
+		t.Fatalf("宿主文件被删除: %v", err)
+	}
+}

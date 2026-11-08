@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -112,24 +111,25 @@ type Dest struct {
 	UploadID       string
 }
 
-// uniqueRel 在 dir 下为 name 找一个不冲突的相对路径：直名优先，冲突时
-// 「名-1.ext」「名-2.ext」递增。
-func (s *Store) uniqueRel(dir, name string) (string, error) {
-	rel := path.Join(dir, name)
-	if _, err := s.ws.Stat(rel); errors.Is(err, os.ErrNotExist) {
-		return rel, nil
-	} else if err != nil {
-		return "", err
+// candidateRel 返回 dir 下 name 的第 i 个候选落点：i=0 直名，之后「名-i.ext」。
+func candidateRel(dir, name string, i int) string {
+	if i == 0 {
+		return path.Join(dir, name)
 	}
 	ext := path.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	for i := 1; ; i++ {
-		rel = path.Join(dir, fmt.Sprintf("%s-%d%s", stem, i, ext))
-		if _, err := s.ws.Stat(rel); errors.Is(err, os.ErrNotExist) {
-			return rel, nil
-		} else if err != nil {
-			return "", err
+	return path.Join(dir, fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, ext), i, ext))
+}
+
+// placeUnique 依次尝试 dir 下 name 的候选落点，直到 place 不再报 workspace.ErrExists。
+// 占名与创建/搬入是同一个原子操作（O_EXCL / 存在即拒），并发同名不会互相覆盖。
+func placeUnique(dir, name string, place func(rel string) error) (string, error) {
+	for i := 0; ; i++ {
+		rel := candidateRel(dir, name, i)
+		err := place(rel)
+		if errors.Is(err, workspace.ErrExists) {
+			continue
 		}
+		return rel, err
 	}
 }
 
@@ -146,11 +146,12 @@ func (s *Store) SaveUpload(dest Dest, r io.Reader, filename string, sizeCap int6
 	default:
 		dir = pendingStagingRel(dest.UploadID)
 	}
-	rel, err := s.uniqueRel(dir, name)
-	if err != nil {
-		return Ref{}, fmt.Errorf("attachment: 定位落点: %w", err)
-	}
-	n, err := s.ws.WriteFrom(rel, r, sizeCap)
+	var n int64
+	rel, err := placeUnique(dir, name, func(rel string) error {
+		var werr error
+		n, werr = s.ws.WriteFrom(rel, r, sizeCap)
+		return werr
+	})
 	if err != nil {
 		// 暂存是中转层：失败不留垃圾（空目录一并移走；非空说明有并发上传，no-op）。
 		if dest.TaskID == "" {
@@ -168,7 +169,13 @@ func (s *Store) SaveUpload(dest Dest, r io.Reader, filename string, sizeCap int6
 // （Name/Size 以盘上实况重取，Path 更新为 inbox 路径）。
 func (s *Store) Materialize(dest Dest, refs []Ref) ([]Ref, error) {
 	inbox := inboxRel(dest.AssignmentID, dest.TaskID)
-	out := make([]Ref, 0, len(refs))
+
+	// 阶段一：整批校验，任何一条非法 / 已过期都在动盘之前拒绝整批。
+	type planned struct {
+		src  string
+		size int64
+	}
+	plan := make([]planned, 0, len(refs))
 	for _, ref := range refs {
 		src, err := s.validateRef(ref.Path, dest.ConversationID, inbox)
 		if err != nil {
@@ -181,18 +188,33 @@ func (s *Store) Materialize(dest Dest, refs []Ref) ([]Ref, error) {
 		if info.IsDir() {
 			return nil, fmt.Errorf("attachment: %w: %s 是目录", ErrInvalidRef, ref.Path)
 		}
-		dstRel := path.Join(inbox, path.Base(src))
-		if src != dstRel {
-			rel, err := s.uniqueRel(inbox, path.Base(src))
+		plan = append(plan, planned{src: src, size: info.Size()})
+	}
+
+	// 阶段二：搬入 inbox。中途失败把已搬的件搬回原处，保持「要么全落位、要么全不动」，
+	// 用户重试时引用仍然有效。
+	type moved struct{ from, to string }
+	var done []moved
+	rollback := func() {
+		for i := len(done) - 1; i >= 0; i-- {
+			_ = s.ws.MoveFile(done[i].to, done[i].from)
+		}
+	}
+	out := make([]Ref, 0, len(plan))
+	for _, p := range plan {
+		dstRel := path.Join(inbox, path.Base(p.src))
+		if p.src != dstRel {
+			rel, err := placeUnique(inbox, path.Base(p.src), func(rel string) error {
+				return s.ws.MoveFile(p.src, rel)
+			})
 			if err != nil {
-				return nil, err
+				rollback()
+				return nil, fmt.Errorf("attachment: 搬家 %s → %s: %w", p.src, rel, err)
 			}
-			if err := s.ws.MoveFile(src, rel); err != nil {
-				return nil, fmt.Errorf("attachment: 搬家 %s → %s: %w", src, rel, err)
-			}
+			done = append(done, moved{from: p.src, to: rel})
 			dstRel = rel
 		}
-		out = append(out, Ref{Name: path.Base(dstRel), Size: info.Size(), Path: dstRel})
+		out = append(out, Ref{Name: path.Base(dstRel), Size: p.size, Path: dstRel})
 	}
 	return out, nil
 }

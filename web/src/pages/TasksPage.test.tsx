@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TasksPage } from './TasksPage'
-import { createTasks, getTaskDetail, listTasks } from '@/api/tasks'
+import { getTaskDetail, listTasks } from '@/api/tasks'
 import type { TaskSummary } from '@/api/types'
 
 vi.mock('@/api/tasks', () => ({
@@ -22,7 +22,9 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     brief: 'DVWA 渗透测试',
     target_host: 'dvwa.local',
     status: 'active',
+    paused: false,
     assignment_id: 'a-1',
+    assignment_title: '批次 A',
     assignment_index: 1,
     assignment_total: 1,
     source: 'direct',
@@ -31,6 +33,8 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     conversation_id: 'c-1',
     finding_count: 2,
     step_count: 5,
+    tokens_in: 0,
+    tokens_out: 0,
     created_at: '2026-06-10T00:00:00Z',
     ended_at: null,
     ...o,

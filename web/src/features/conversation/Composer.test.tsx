@@ -49,7 +49,7 @@ describe('Composer', () => {
       metadata: null,
       created_at: '',
     })
-    vi.mocked(followUp).mockResolvedValue({ intent: 'action', task_id: 't-new' })
+    vi.mocked(followUp).mockResolvedValue({ intent: 'action' })
     const onAppended = vi.fn()
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={onAppended}  />)
 
@@ -120,34 +120,24 @@ describe('Composer', () => {
     })
   })
 
-  it('scanning=true 且有 convId 时仍可发送（不再前端一刀切拦截，交给后端按意图判定）', async () => {
-    // 代理捕获会话的 task 常年 active，若前端按 scanning 拦，QA 类追问会被永久锁死——
-    // 这里验证 scanning=true 时输入框/发送按钮仍可用，且真的调用了 followUp。
+  it('附件上传中按 Enter 不发送（与发送按钮同一闸门），上传完成后才可发送', async () => {
+    let finish!: (v: { name: string; size: number; path: string }) => void
+    vi.mocked(uploadAttachment).mockReturnValue(new Promise((r) => (finish = r)))
     vi.mocked(followUp).mockResolvedValue({ intent: 'qa' })
-    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)
+    render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()} />)
 
+    fireEvent.change(screen.getByLabelText('选择附件文件'), { target: { files: [new File(['x'], 'a.txt')] } })
     const textarea = screen.getByPlaceholderText(/继续提问/)
-    await userEvent.type(textarea, '这批流量里有没有可疑的')
-    await userEvent.click(screen.getByRole('button', { name: '发送' }))
+    await userEvent.type(textarea, '看看这个{Enter}')
+    expect(followUp).not.toHaveBeenCalled()
 
-    await waitFor(() => {
-      expect(followUp).toHaveBeenCalledWith('c1', '这批流量里有没有可疑的', [])
-    })
+    finish({ name: 'a.txt', size: 1, path: '.staging/c/a.txt' })
+    await waitFor(() => expect(screen.getByText('a.txt')).toBeTruthy())
+    await userEvent.type(textarea, '{Enter}')
+    await waitFor(() =>
+      expect(followUp).toHaveBeenCalledWith('c1', '看看这个', [{ name: 'a.txt', size: 1, path: '.staging/c/a.txt' }]),
+    )
   })
-
-  it('scanning=true 时发送失败同样显示就近提示', async () => {
-    vi.mocked(followUp).mockRejectedValue(new Error('network'))
-    render(<Composer convId="c1" scanning onStarted={vi.fn()} onAppended={vi.fn()}  />)
-
-    const textarea = screen.getByPlaceholderText(/继续提问/)
-    await userEvent.type(textarea, '继续扫')
-    await userEvent.click(screen.getByRole('button', { name: '发送' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('发送失败')).toBeTruthy()
-    })
-  })
-
 
   it('Enter 触发发送', async () => {
     vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })

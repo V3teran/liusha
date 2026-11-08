@@ -106,11 +106,10 @@ func TestItem_MarshalJSON(t *testing.T) {
 		{
 			name: "完整的 item",
 			item: Item{
-				Brief:      "测试目标",
-				Host:       "example.com",
-				TrafficIDs: []int64{1, 2, 3},
+				Brief: "测试目标",
+				Host:  "example.com",
 			},
-			want: `{"brief":"测试目标","host":"example.com","traffic_ids":[1,2,3]}`,
+			want: `{"brief":"测试目标","host":"example.com"}`,
 		},
 		{
 			name: "只有 brief",

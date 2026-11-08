@@ -83,15 +83,18 @@ export function useLogStream(filters: LogFilters, live: boolean): LogStream {
       }
     }
 
-    void poll()
-    if (!live) return () => { cancelled = true }
-    const timer = setInterval(() => {
-      if (document.hidden) return
-      void poll()
-    }, POLL_MS)
+    // 串行轮询：上一次请求落定后才调度下一次。固定间隔 setInterval 在请求慢于周期时会
+    // 让两个请求携带同一游标并发，返回后重复追加日志、乱序响应还会让游标倒退。
+    // 首拍无条件拉取（冷读）；后续页面隐藏时跳过本拍、保持调度。
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const loop = async (first: boolean) => {
+      if (first || !document.hidden) await poll()
+      if (!cancelled && live) timer = setTimeout(() => void loop(false), POLL_MS)
+    }
+    void loop(true)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      if (timer !== undefined) clearTimeout(timer)
     }
   }, [filters, live, tick])
 

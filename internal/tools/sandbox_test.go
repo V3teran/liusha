@@ -15,10 +15,12 @@ type fakeSandboxClient struct {
 	responses []sandbox.ExecResult
 	calls     int
 	commands  []string // 记录每次执行的命令（env 前缀断言用）
+	reqs      []sandbox.ExecRequest
 }
 
 func (f *fakeSandboxClient) Exec(_ context.Context, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 	f.commands = append(f.commands, req.Command)
+	f.reqs = append(f.reqs, req)
 	if f.calls < len(f.responses) {
 		r := f.responses[f.calls]
 		f.calls++
@@ -213,5 +215,28 @@ func TestRunCommandDesc_ListenerContract(t *testing.T) {
 	noHost := newRunCommandTool(Deps{ListenerPortStart: 21000, ListenerPortCount: 100}, time.Minute)
 	if got := noHost.Desc(); !strings.Contains(got, "callback_host") {
 		t.Fatalf("回连地址缺失时应指向 sandbox.callback_host: %q", got)
+	}
+}
+
+// 自愈的修复与重试请求必须带齐批次/任务参数：sandbox-server 拒绝空 assignment_id，
+// 漏传会让整条恢复链必然失败。修复后仍退化时本次调用记为结果性失败。
+func TestDriveBrowser_HealRequestsCarryAssignmentAndFailWhenUnrecovered(t *testing.T) {
+	degraded := sandbox.ExecResult{Stdout: "watchdog timeout"}
+	client := &fakeSandboxClient{responses: []sandbox.ExecResult{degraded, {}, degraded, {}, degraded}}
+	tool := newDriveBrowserTool(Deps{Sandbox: client, AssignmentID: "asg-1", TaskID: "task-1"}, 5*time.Second)
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.reqs) != 5 {
+		t.Fatalf("应执行 原命令 + 2×(修复+重试) = 5 次，得 %d", len(client.reqs))
+	}
+	for i, r := range client.reqs {
+		if r.AssignmentID != "asg-1" || r.TaskID != "task-1" {
+			t.Fatalf("第 %d 次请求缺批次/任务参数: %+v", i, r)
+		}
+	}
+	if res.Error == "" {
+		t.Fatal("自愈耗尽应记为结果性失败（ToolResult.Error 非空）")
 	}
 }

@@ -218,3 +218,16 @@ func newWith(w io.Writer, env string) zerolog.Logger {
 	}
 	return zerolog.New(w).With().Timestamp().Logger()
 }
+
+// 测试二进制里文件落盘缺省关闭：包级 logger 在测试启动即初始化，缺省相对目录 logs
+// 会在每个被测包目录下生成 logs/*.test.log 产物。显式 LIUSHA_LOG_TO_FILE 仍然生效。
+func TestLoadConfig_FileSinkOffByDefaultUnderTest(t *testing.T) {
+	t.Setenv("LIUSHA_LOG_TO_FILE", "")
+	if loadConfig().toFile {
+		t.Fatal("go test 下文件落盘缺省应关闭")
+	}
+	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
+	if !loadConfig().toFile {
+		t.Fatal("显式 LIUSHA_LOG_TO_FILE=true 应开启文件落盘")
+	}
+}

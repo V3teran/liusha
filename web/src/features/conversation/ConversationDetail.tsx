@@ -48,6 +48,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const usageDebounceRef = useRef<number | undefined>(undefined)
   const convIdRef = useRef(convId)
   convIdRef.current = convId
+  // 会话代际：每次打开会话与卸载都 +1。异步请求返回时代际已变 = 用户已切走或页面已离开，
+  // 结果必须丢弃——否则迟到的历史会在卸载后重建 SSE、迟到的补拉会混进新会话。
+  // （只比 convId 不够：卸载不改变 convId，同一会话重进也不改变。）
+  const generationRef = useRef(0)
 
   const hasConv = !!convId
   const startedAt = store.messages[0]?.created_at ?? ''
@@ -90,6 +94,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
   const open = useCallback(
     async (convID: string) => {
+      const gen = ++generationRef.current
       handleRef.current?.close()
       store.reset()
       setUsage(null)
@@ -100,13 +105,13 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       try {
         history = await listMessages(convID)
       } catch {
-        if (convIdRef.current === convID) {
+        if (generationRef.current === gen) {
           setLoading(false)
           setLoadError(true)
         }
         return
       }
-      if (convIdRef.current !== convID) return // 期间又切了会话→丢弃这批历史
+      if (generationRef.current !== gen) return // 期间切了会话或已卸载→丢弃这批历史，不建连接
       setLoading(false)
       for (const m of history) store.ingest(m)
       handleRef.current = openEventStream(convID, store, setStreamStatus)
@@ -120,6 +125,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     if (convId) void open(convId)
     else resetToEmpty()
     return () => {
+      generationRef.current++
       handleRef.current?.close()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,7 +181,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   // 多轮追加（如"继续"）：api 落的 user 消息不经 SSE，主动拉增量补进 store（游标=发送前 seq 快照）。
   const handleAppended = async (afterSeq: number) => {
     if (!convId) return
-    for (const m of await listMessages(convId, afterSeq)) store.ingest(m)
+    const gen = generationRef.current
+    const msgs = await listMessages(convId, afterSeq)
+    if (generationRef.current !== gen) return // 补拉期间已切走：结果属于旧会话，丢弃
+    for (const m of msgs) store.ingest(m)
   }
   const retryLoad = () => {
     if (convId) void open(convId)

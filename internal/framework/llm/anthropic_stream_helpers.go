@@ -41,13 +41,19 @@ func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic
 		params.Tools = anthropicTools
 	}
 	if thinkingBudget > 0 {
-		if ceiling := maxTokens * 3 / 4; thinkingBudget > ceiling {
-			thinkingBudget = ceiling
-		}
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(clampThinkingBudget(thinkingBudget, maxTokens))
 	}
 
 	return params, nil
+}
+
+// clampThinkingBudget 把思考预算钳到 maxTokens 的 3/4：协议硬约束 budget < max_tokens，
+// 请求级上限收窄时（如裁决 1500）思考有上限、正文恒留 1/4 余量。流式与非流式共用。
+func clampThinkingBudget(thinkingBudget, maxTokens int64) int64 {
+	if ceiling := maxTokens * 3 / 4; thinkingBudget > ceiling {
+		return ceiling
+	}
+	return thinkingBudget
 }
 
 // processAnthropicStream 处理 Anthropic 流式响应

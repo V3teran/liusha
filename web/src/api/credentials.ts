@@ -33,14 +33,3 @@ export async function saveCredentialIdentity(
 export async function deleteCredentialIdentity(host: string, username: string): Promise<void> {
   await del(`/credentials/${encodeURIComponent(host)}/usernames/${encodeURIComponent(username)}`)
 }
-
-/** 清空该 host 会话身份（持久身份不动），返回删除数。 */
-export async function purgeCredentialSessions(host: string): Promise<number> {
-  const r = await del<{ deleted: number }>(`/credentials/${encodeURIComponent(host)}/sessions`)
-  return r.deleted
-}
-
-/** 清空该 host 全部身份。 */
-export async function deleteCredentialHost(host: string): Promise<void> {
-  await del(`/credentials/${encodeURIComponent(host)}`)
-}

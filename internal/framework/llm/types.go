@@ -123,6 +123,7 @@ type Generator interface {
 // GenerateOptions 是单次生成的可选参数（零值 = provider 默认）。
 type GenerateOptions struct {
 	Temperature *float64 // 采样温度；nil = 默认
+	MaxTokens   int      // 本次调用的输出 token 上限；<= 0 = 走构造时的配置默认（与流式同口径）
 }
 
 // OptionsGenerator 是按调用传可选参数的能力接口。

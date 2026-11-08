@@ -175,3 +175,12 @@ func writeHeaderLines(b *strings.Builder, headers map[string][]string, bodyLen i
 		fmt.Fprintf(b, "Content-Length: %d\r\n", bodyLen)
 	}
 }
+
+// LogPath 把请求 URI 裁成仅含路径的日志安全形式：查询串常携带 access_token / api_key /
+// 重置 token 等秘密，进入常规日志存储与日志查看面即构成泄露。完整报文已在流量表留存。
+func LogPath(uri string) string {
+	if i := strings.IndexAny(uri, "?#"); i >= 0 {
+		return uri[:i]
+	}
+	return uri
+}

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -225,6 +226,79 @@ func TestServer_OnResponse_BodyTruncated(t *testing.T) {
 	}
 	if got := len(snaps[0].ResponseBody); got != 10 {
 		t.Fatalf("body 应被截断到 10 字节, 实际 %d", got)
+	}
+}
+
+// 快照截断只作用于采集副本：转发给客户端的响应体必须完整（chunked/未知长度的大响应
+// 不被过滤器拦下时，截断转发等于代理改坏业务响应）。
+func TestServer_OnResponse_TruncationDoesNotAlterForwardedBody(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.MaxResponseBodySize = 10
+	srv, pub := newTestServer(t, "127.0.0.1:0", t.TempDir(), cfg)
+
+	full := bytes.Repeat([]byte("A"), 20)
+	resp := makeResponse(t, "GET", "http://x.example.com/", nil, 200, full)
+	if err := srv.onResponse(resp, nil); err != nil {
+		t.Fatalf("onResponse: %v", err)
+	}
+	forwarded, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("读转发体: %v", err)
+	}
+	if !bytes.Equal(forwarded, full) {
+		t.Fatalf("转发体应完整 %d 字节，实际 %d", len(full), len(forwarded))
+	}
+	if got := len(pub.Snapshots()[0].ResponseBody); got != 10 {
+		t.Fatalf("快照应截断到 10 字节，实际 %d", got)
+	}
+}
+
+// 解压只作用于快照：转发响应保持原压缩字节与 Content-Encoding 头，否则客户端收到
+// 无编码声明的 gzip 字节而无法解析。
+func TestServer_OnResponse_DecompressOnlyForSnapshot(t *testing.T) {
+	srv, pub := newTestServer(t, "127.0.0.1:0", t.TempDir(), defaultCfg())
+
+	plain := []byte(`{"ok":true}`)
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	_, _ = zw.Write(plain)
+	_ = zw.Close()
+	compressed := gz.Bytes()
+
+	resp := makeResponse(t, "GET", "http://x.example.com/", nil, 200, compressed)
+	resp.Header.Set("Content-Encoding", "gzip")
+	if err := srv.onResponse(resp, nil); err != nil {
+		t.Fatalf("onResponse: %v", err)
+	}
+	forwarded, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(forwarded, compressed) {
+		t.Fatal("转发体应保持原 gzip 字节")
+	}
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatal("转发响应的 Content-Encoding 头不应被删除")
+	}
+	snap := pub.Snapshots()[0]
+	if !bytes.Equal(snap.ResponseBody, plain) {
+		t.Fatalf("快照应为解压后明文，实际 %q", snap.ResponseBody)
+	}
+	if _, has := snap.ResponseHeaders["content-encoding"]; has {
+		t.Fatal("快照头不应再声明 Content-Encoding（正文已是明文）")
+	}
+}
+
+// 解压炸弹：小体积高膨胀率的压缩体，解压结果不得超过采集上限。
+func TestDecompressIfEncoded_BoundedOutput(t *testing.T) {
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	_, _ = zw.Write(bytes.Repeat([]byte{0}, 8<<20)) // 8 MiB 零字节压缩后仅数 KB
+	_ = zw.Close()
+
+	out, err := decompressIfEncoded(gz.Bytes(), "gzip", 1024)
+	if err != nil {
+		t.Fatalf("decompress: %v", err)
+	}
+	if len(out) != 1024 {
+		t.Fatalf("解压输出应被钳到 1024 字节，实际 %d", len(out))
 	}
 }
 

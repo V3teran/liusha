@@ -36,6 +36,7 @@ function baseUsage() {
     llm_calls: 0,
     tool_calls: 0,
     running: false,
+    paused: false,
     status: 'completed',
   }
 }
@@ -67,6 +68,17 @@ describe('ConversationDetail', () => {
     render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
     expect(sseHook.openEventStream).toHaveBeenCalled()
+  })
+
+  it('历史请求返回前组件已卸载：不得再建立 SSE 连接', async () => {
+    let resolve!: (v: never[]) => void
+    vi.mocked(apiClient.listMessages).mockReturnValue(new Promise((r) => (resolve = r)))
+    const { unmount } = render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
+    unmount()
+    resolve([])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(sseHook.openEventStream).not.toHaveBeenCalled()
   })
 
   it('历史加载失败显示错误重试卡', async () => {

@@ -121,3 +121,24 @@ func TestSubscribeTask_Broadcast(t *testing.T) {
 		t.Fatal("订阅者 0 退出后，订阅者 1 仍应收到事件")
 	}
 }
+
+// 总线已停止（ctx 取消、run 退出）后订阅不得永久阻塞：操作可能已入队却永不被处理。
+func TestSubscribeTask_DoesNotBlockAfterBusStopped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	b := New(ctx)
+	cancel()
+	time.Sleep(20 * time.Millisecond) // 让 run 观察到取消并退出
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 50; i++ { // 多次订阅以覆盖「操作入队成功」的分支
+			b.SubscribeTask("t")
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("总线停止后 SubscribeTask 永久阻塞")
+	}
+}

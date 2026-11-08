@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -69,7 +70,11 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 
 // createNewObjectives 创建新的 Objective 节点，连同 Result → Objective 的
 // TRIGGERS 溯源边原子落图。
+//
+// 单个节点失败不中断其余节点，但全部失败原因汇总返回：调用方据此不推进已分析水位，
+// 下一轮重新分析——静默跳过会让这些结果永久标为已分析、派生方向就此丢失。
 func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjective) error {
+	var errs []error
 	for _, obj := range objectives {
 		objID := uuid.New().String()
 
@@ -79,7 +84,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 		}
 		contentJSON, err := json.Marshal(content)
 		if err != nil {
-			a.logger.Error().Err(err).Msg("序列化 Objective 内容失败")
+			errs = append(errs, fmt.Errorf("序列化 objective 内容: %w", err))
 			continue
 		}
 
@@ -111,10 +116,7 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 		}
 
 		if err := a.graph.CreateNodeWithEdges(ctx, node, edges); err != nil {
-			a.logger.Error().
-				Err(err).
-				Str("objective_id", objID).
-				Msg("创建 Objective 节点失败")
+			errs = append(errs, fmt.Errorf("创建 objective %s: %w", objID, err))
 			continue
 		}
 
@@ -124,17 +126,19 @@ func (a *Agent) createNewObjectives(ctx context.Context, objectives []NewObjecti
 			Msg("新 Objective 已创建")
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // createContinuationActions 在根 Objective 下创建延续 Action 节点，
 // 目标归属边（objective → action）与触发溯源边（result → action）一并原子落图。
+// 失败汇总口径同 createNewObjectives。
 func (a *Agent) createContinuationActions(ctx context.Context, actions []ContinuationAction) error {
 	currentObjective, err := a.rootObjective(ctx)
 	if err != nil {
 		return err
 	}
 
+	var errs []error
 	for _, action := range actions {
 		actionID := uuid.New().String()
 
@@ -144,7 +148,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 		}
 		contentJSON, err := json.Marshal(content)
 		if err != nil {
-			a.logger.Error().Err(err).Msg("序列化 Action 内容失败")
+			errs = append(errs, fmt.Errorf("序列化 action 内容: %w", err))
 			continue
 		}
 
@@ -180,10 +184,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 		}
 
 		if err := a.graph.CreateNodeWithEdges(ctx, node, edges); err != nil {
-			a.logger.Error().
-				Err(err).
-				Str("action_id", actionID).
-				Msg("创建 Action 节点失败")
+			errs = append(errs, fmt.Errorf("创建 action %s: %w", actionID, err))
 			continue
 		}
 
@@ -196,7 +197,7 @@ func (a *Agent) createContinuationActions(ctx context.Context, actions []Continu
 		a.eventBus.PublishActionProposed(a.taskID, actionID)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // GraphPlanner 规划接口（由 planner.New 提供）

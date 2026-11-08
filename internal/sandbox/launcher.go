@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // Launcher 管理 sandbox 容器生命周期。
@@ -237,8 +240,7 @@ func (l *DockerLauncher) Spawn(ctx context.Context, agentID string) (Client, err
 	if mkErr := os.MkdirAll(hostDir, 0o750); mkErr != nil {
 		return nil, fmt.Errorf("创建工作区宿主目录 %s: %w", hostDir, mkErr)
 	}
-	args = append(args, "-v", hostDir+":"+sandboxWorkspaceMountTarget)
-	args = append(args, l.Image)
+	args = append(args, "-v", hostDir+":"+sandboxWorkspaceMountTarget, l.Image)
 	runOut, err := exec.CommandContext(ctx, bin, args...).CombinedOutput() // #nosec G204 // docker CLI 固定二进制，参数为内部生成的容器名
 	if err != nil && strings.Contains(string(runOut), "already in use") {
 		// 同名容器冲突（典型：runner 重启后 warm pool 固定名容器残留，新进程内存态为空
@@ -354,36 +356,83 @@ func (l *DockerLauncher) cleanupOrphanContainers(ctx context.Context) error {
 
 // sweepExpiredWorkspaces 按留存天数清扫超期任务工作区（宿主根目录的直接
 // 文件系统操作——bind mount 让 runner 侧与容器内看到同一棵树）。0 = 永久
-// 保留，不扫。目录 mtime 在整个任务生命周期内持续被写入刷新，超期即代表
-// 该任务确实久无活动。失败仅记日志（清扫是维护动作，不阻塞启动）。
+// 保留，不扫。失败仅记日志（清扫是维护动作，不阻塞启动）。
 func (l *DockerLauncher) sweepExpiredWorkspaces() {
 	if l.WorkspaceRetentionDays <= 0 {
 		return
 	}
 	root, err := l.ResolveWorkspaceHostDir()
 	if err != nil {
-		return
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
+		sweepLog.Warn().Err(err).Msg("解析工作区根目录失败，跳过留存清扫")
 		return
 	}
 	cutoff := time.Now().AddDate(0, 0, -l.WorkspaceRetentionDays)
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, removed := range sweepExpiredTaskDirs(root, cutoff) {
+		sweepLog.Info().Str("dir", removed).Msg("任务工作区超出留存期，已清扫")
+	}
+}
+
+var sweepLog = logx.New("sandbox.sweep")
+
+// sweepExpiredTaskDirs 清扫 root 下 <assignment>/<task> 布局中久无活动的任务目录，
+// 返回被删目录（相对 root）。
+//
+// 粒度是任务而不是批次：同一批次的任务可能相隔很久续跑，按批次目录 mtime 判断会把
+// 刚写入证据的任务连带删掉（子孙写入不刷新祖先目录的 mtime）。任务的「最近活动」
+// 取其子树内最新的 mtime；批次目录在其下任务清空后才删。点前缀目录（附件暂存）
+// 有独立的清扫器，不在此处理。
+func sweepExpiredTaskDirs(root string, cutoff time.Time) []string {
+	var removed []string
+	assignments, err := os.ReadDir(root)
+	if err != nil {
+		sweepLog.Warn().Err(err).Str("root", root).Msg("读取工作区根目录失败")
+		return nil
+	}
+	for _, a := range assignments {
+		if !a.IsDir() || strings.HasPrefix(a.Name(), ".") {
 			continue
 		}
-		info, err := e.Info()
+		asgDir := filepath.Join(root, a.Name())
+		tasks, err := os.ReadDir(asgDir)
 		if err != nil {
+			sweepLog.Warn().Err(err).Str("dir", asgDir).Msg("读取批次工作区失败")
 			continue
 		}
-		if info.ModTime().After(cutoff) {
-			continue
+		for _, t := range tasks {
+			if !t.IsDir() {
+				continue
+			}
+			taskDir := filepath.Join(asgDir, t.Name())
+			if newestModTime(taskDir).After(cutoff) {
+				continue
+			}
+			if err := os.RemoveAll(taskDir); err != nil {
+				sweepLog.Warn().Err(err).Str("dir", taskDir).Msg("清扫任务工作区失败")
+				continue
+			}
+			removed = append(removed, filepath.Join(a.Name(), t.Name()))
 		}
-		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
-			continue
+		// 批次目录只在已空时删除（os.Remove 对非空目录失败，即保留）。
+		if err := os.Remove(asgDir); err == nil {
+			removed = append(removed, a.Name())
 		}
 	}
+	return removed
+}
+
+// newestModTime 返回目录子树内最新的修改时间（含目录自身）。不跟随符号链接。
+func newestModTime(dir string) time.Time {
+	var newest time.Time
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // 并发删除等竞态：跳过该项继续，不中断整棵子树的活动判断
+		}
+		if info, ierr := d.Info(); ierr == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
 }
 
 // waitHealthz 轮询 GET <baseURL>/healthz 直到 200 或 ctx/timeout 超时。

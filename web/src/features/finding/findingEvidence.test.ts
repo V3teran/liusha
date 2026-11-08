@@ -70,3 +70,20 @@ describe('buildEvidenceView', () => {
     expect(v.exploit).toBeNull()
   })
 })
+
+describe('复现命令的 shell 安全', () => {
+  it('参数含单引号时按 POSIX 规则转义，复制执行不破坏命令', () => {
+    const v = buildEvidenceView({}, {
+      recipe: { request: { method: 'POST', url: "http://t/q?id=1' OR '1'='1", headers: { 'X-A': "it's" }, body: "name=O'Brien" } },
+    })
+    expect(v.reproCommand).toContain(`'http://t/q?id=1'\\'' OR '\\''1'\\''='\\''1'`)
+    expect(v.reproCommand).toContain(`-H 'X-A: it'\\''s'`)
+    expect(v.reproCommand).toContain(`-d 'name=O'\\''Brien'`)
+  })
+
+  it('非法 HTTP 方法不进入命令（防止借 method 字段注入）', () => {
+    const v = buildEvidenceView({}, { recipe: { request: { method: 'GET; rm -rf ~', url: 'http://t/' } } })
+    expect(v.reproCommand).not.toContain('rm -rf')
+    expect(v.reproCommand).toContain('curl -X GET')
+  })
+})

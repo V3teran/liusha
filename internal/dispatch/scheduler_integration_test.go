@@ -18,7 +18,6 @@ import (
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
-	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -39,7 +38,6 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 		Schedules:     cronschedule.NewStore(pool),
 		Assignments:   assignments,
 		Tasks:         tasks,
-		ProxyStore:    traffic.NewProxyStore(pool),
 		AgentRuns:     agentRuns,
 		Enq:           enq,
 		Conversations: conversations,
@@ -135,109 +133,6 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
 	}
 
-}
-
-// TestFireDue_HostItem_ClaimsUnconsumedTraffic 验证 host 条目（流量复检）定时模板：领取该 host
-// 未消费的 proxy_traffic 后展开 task + planner agent run。
-func TestFireDue_HostItem_ClaimsUnconsumedTraffic(t *testing.T) {
-	r, pool := newTestScheduler(t)
-	ctx := context.Background()
-
-	host := "target.com"
-	if _, err := r.ProxyStore.Append(ctx, traffic.ProxyTraffic{Host: host, Method: "GET", URL: "http://" + host + "/"}); err != nil {
-		t.Fatalf("append proxy_traffic: %v", err)
-	}
-
-	items := []assignment.Item{{Host: host}}
-	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
-		CronExpr: "* * * * *", Items: items, Title: "recheck-" + host,
-	})
-	if err != nil {
-		t.Fatalf("create schedule: %v", err)
-	}
-	forceDue(t, pool, sched.ID)
-
-	r.fireDue(ctx)
-
-	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
-	if err != nil {
-		t.Fatalf("list tasks: %v", err)
-	}
-	var found *task.Summary
-	for i := range tasks {
-		if tasks[i].TargetHost == host {
-			found = &tasks[i]
-		}
-	}
-	if found == nil {
-		t.Fatalf("应展开出 host=%q 的代理捕获 task，got %+v", host, tasks)
-	}
-
-	runs, err := r.AgentRuns.ListByTask(ctx, found.ID, 10)
-	if err != nil {
-		t.Fatalf("list executor runs: %v", err)
-	}
-	if len(runs) != 1 || runs[0].Role != "planner" {
-		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
-	}
-
-	// cron 展开的代理捕获 task 必须绑会话流（title=host + 首条说明），否则
-	// 对话页/LLM 审计对话列都没有锚点（与实时聚合路径 ensureConversation 同语义）。
-	conversationID, err := r.Conversations.ResolveConversationByTask(ctx, found.ID)
-	if err != nil || conversationID == "" {
-		t.Fatalf("代理捕获 task 应绑 1 个会话，got conversationID=%q err=%v", conversationID, err)
-	}
-	conv, err := r.Conversations.GetConversation(ctx, conversationID)
-	if err != nil {
-		t.Fatalf("get conversation: %v", err)
-	}
-	if conv.Title != host {
-		t.Errorf("会话 title 应为 host %q，got %q", host, conv.Title)
-	}
-	msgs, err := r.Conversations.ListMessages(ctx, conversationID, 0, 10)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
-	if len(msgs) == 0 {
-		t.Fatalf("会话应带首条任务说明消息")
-	}
-}
-
-// TestFireDue_HostItem_NoTraffic_AbortsWithoutError 验证：host 当前无未消费流量时，
-// 展开产生的空转 task 被 abort，且不阻塞其余到点模板（fireOne 不报错）。
-func TestFireDue_HostItem_NoTraffic_AbortsWithoutError(t *testing.T) {
-	r, pool := newTestScheduler(t)
-	ctx := context.Background()
-
-	items := []assignment.Item{{Host: "never-captured.com"}}
-	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
-		CronExpr: "* * * * *", Items: items,
-	})
-	if err != nil {
-		t.Fatalf("create schedule: %v", err)
-	}
-	forceDue(t, pool, sched.ID)
-
-	if err := r.fireOne(ctx, sched); err != nil {
-		t.Fatalf("无流量不应算 fireOne 失败: %v", err)
-	}
-
-	tasks, err := r.Tasks.ListFiltered(ctx, task.ListFilter{Limit: 10})
-	if err != nil {
-		t.Fatalf("list tasks: %v", err)
-	}
-	var found *task.Summary
-	for i := range tasks {
-		if tasks[i].TargetHost == items[0].Host {
-			found = &tasks[i]
-		}
-	}
-	if found == nil {
-		t.Fatal("应仍建出 task（随后 abort）")
-	}
-	if found.Status != task.StatusAborted {
-		t.Fatalf("无未消费流量的 task 应 aborted，got %s", found.Status)
-	}
 }
 
 // TestFireDue_DisabledSchedule_NotFired 验证：停用的模板即使到点也不触发。

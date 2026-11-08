@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync/atomic"
 
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -50,6 +49,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	action explorationgraph.Node,
 	actionData *ActionData,
 	tools []registry.Tool,
+	kill *killSwitch,
 ) (*runtime.ReActConfig, error) {
 	// 构建执行目标
 	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
@@ -73,8 +73,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 
-	// 构建配置，包含 monitor kill 检查
-	var killed atomic.Bool
+	// 构建配置，包含 monitor kill 检查（kill 由 watchKill 后台侦测置位）
 	// 思考流（nil=不流式）：方法值不能从 nil 接口取，先守卫。
 	var onThoughtDelta, onThinkingDelta func(string)
 	if e.thoughts != nil {
@@ -158,34 +157,16 @@ func (e *Engine) buildReActConfigWithMonitoring(
 - hypothesis 坐实后会成为交付物给人看：priority/impact/suggestion 都要写全——
   impact 陈述主张为真时的具体影响（落实到对象，中性因果）；
   suggestion 定位到根因给出可执行的处理，不写空话`,
-		// kill 止血：迭代回调发现 action 已被 monitor kill（aborted）→ 置位，
-		// 提前终止条件在下一轮立即结束 ReAct——不再空跑剩余迭代。
-		EarlyStopCondition: func(string) bool { return killed.Load() },
-		// AbortCheck 把止血粒度从迭代边界压到当前步骤：callLLM 与每个
-		// 工具执行前即检查（长生成/长工具期间的 kill 即刻生效）。
-		AbortCheck: killed.Load,
+		// kill 止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
+		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
+		EarlyStopCondition: func(string) bool { return kill.Killed() },
+		AbortCheck:         kill.Killed,
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			e.logger.Debug().
 				Str("action_id", action.ID).
 				Int("iteration", iteration).
 				Str("status", string(status)).
 				Msg("ReAct 迭代")
-
-			// 每轮迭代检查 action 状态（Monitor kill_action 中断机制）
-			if e.graph != nil {
-				node, err := e.graph.GetNode(ctx, action.ID)
-				if err == nil && node.State != nil && *node.State == explorationgraph.StateAborted {
-					reason := "unknown"
-					if node.BlockedReason != nil {
-						reason = *node.BlockedReason
-					}
-					e.logger.Warn().
-						Str("action_id", action.ID).
-						Str("reason", reason).
-						Msg("检测到 action 已被 monitor kill，中断执行")
-					killed.Store(true)
-				}
-			}
 		},
 	}
 
@@ -200,7 +181,10 @@ func (e *Engine) checkActionAborted(ctx context.Context, actionID string) error 
 
 	node, err := e.graph.GetNode(ctx, actionID)
 	if err != nil {
-		return nil // 忽略查询错误
+		// 中止检查是尽力而为：读图失败不阻断执行，但必须留痕——否则被中止的动作
+		// 继续跑下去时无从排查。
+		e.logger.Warn().Err(err).Str("action_id", actionID).Msg("读取动作状态失败，跳过本次中止检查")
+		return nil
 	}
 
 	if node.State != nil && *node.State == explorationgraph.StateAborted {

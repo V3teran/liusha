@@ -9,7 +9,6 @@ import {
   humanDuration,
   humanTokens,
   relativeTime,
-  shortDateTime,
 } from './format'
 
 describe('format', () => {

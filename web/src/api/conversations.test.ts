@@ -10,19 +10,19 @@ import {
 } from './conversations'
 
 // fetch 污染治理：每个用例后强制还原原生 fetch（对齐 client.test.ts 的口径）。
-const nativeFetch = global.fetch
+const nativeFetch = globalThis.fetch
 afterEach(() => {
-  ;(global as any).fetch = nativeFetch
+  ;(globalThis as any).fetch = nativeFetch
 })
 
 describe('会话域 API', () => {
   beforeEach(() => {
-    ;(global as any).fetch = vi.fn()
+    ;(globalThis as any).fetch = vi.fn()
   })
 
   afterEach(() => {
     vi.clearAllMocks()
-    ;(global as any).fetch = undefined
+    ;(globalThis as any).fetch = undefined
   })
 
   describe('HTTP 请求', () => {
@@ -34,7 +34,7 @@ describe('会话域 API', () => {
           has_more: true,
         }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       const result = await listConversations(30, 30)
 
@@ -49,7 +49,7 @@ describe('会话域 API', () => {
         ok: true,
         json: vi.fn().mockResolvedValue({ conversations: [], has_more: false }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await listConversations(30, 0, 'proxy')
 
@@ -61,7 +61,7 @@ describe('会话域 API', () => {
         ok: true,
         json: vi.fn().mockResolvedValue({ conversations: null, has_more: false }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       const result = await listConversations(30, 0, 'proxy')
 
@@ -76,7 +76,7 @@ describe('会话域 API', () => {
           messages: [{ Seq: 1, ID: 'm1', ConversationID: 'c1', Role: 'user', Kind: 'message', Content: 'hi', Metadata: null, CreatedAt: '2026-06-10T00:00:00Z' }],
         }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await listMessages('c1', 100)
 
@@ -88,7 +88,7 @@ describe('会话域 API', () => {
         ok: true,
         json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', task_id: 't-456' }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       const result = await startChat('scan target')
 
@@ -107,7 +107,7 @@ describe('会话域 API', () => {
         status: 500,
         json: async () => ({ error: '内部错误' }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await expect(listConversations()).rejects.toThrow('GET 500: 内部错误')
     })
@@ -120,7 +120,7 @@ describe('会话域 API', () => {
         status: 200,
         json: vi.fn().mockResolvedValue({ intent: 'action', task_id: 't-new' }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       const result = await followUp('c1', '深挖')
 
@@ -134,7 +134,7 @@ describe('会话域 API', () => {
         status: 500,
         json: vi.fn().mockResolvedValue({}),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await expect(followUp('c1', 'x')).rejects.toThrow('500')
     })
@@ -145,7 +145,7 @@ describe('会话域 API', () => {
         status: 200,
         json: vi.fn().mockResolvedValue({ aborted: true }),
       })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await abortTask('c1')
 
@@ -156,7 +156,7 @@ describe('会话域 API', () => {
   describe('会话管理', () => {
     it('deleteConversation DELETE 到 /conversations/:id', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await deleteConversation('c1')
 
@@ -164,14 +164,14 @@ describe('会话域 API', () => {
     })
 
     it('deleteConversation 409 抛 TASK_ACTIVE 哨兵', async () => {
-      ;(global as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 409 })
+      ;(globalThis as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 409 })
 
       await expect(deleteConversation('c1')).rejects.toThrow('TASK_ACTIVE')
     })
 
     it('renameConversation PATCH title', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ title: '新标题' }) })
-      ;(global as any).fetch = mockFetch
+      ;(globalThis as any).fetch = mockFetch
 
       await renameConversation('c1', '新标题')
 

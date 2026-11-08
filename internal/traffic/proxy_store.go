@@ -134,24 +134,6 @@ func (s *ProxyStore) ClaimUnconsumedByHost(ctx context.Context, taskID, host str
 	return tag.RowsAffected(), nil
 }
 
-// ClaimByIDs 为某 task 显式领取指定 id 集合的流量（manual 下发带 TrafficIDs 的 M:N 路径）：
-// 仅领确实存在的行，为每条建 traffic_task 关联，返回实际领到的条数。ids 为空返回 0。
-// ON CONFLICT DO NOTHING 使重复下发幂等（已关联的不重复计入）。
-func (s *ProxyStore) ClaimByIDs(ctx context.Context, taskID string, ids []int64) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO traffic_task (traffic_id, task_id)
-		SELECT id, $1::uuid FROM proxy_traffic
-		WHERE id = ANY($2::bigint[])
-		ON CONFLICT DO NOTHING`, taskID, ids)
-	if err != nil {
-		return 0, fmt.Errorf("claim proxy_traffic by ids for task %s: %w", taskID, err)
-	}
-	return tag.RowsAffected(), nil
-}
-
 // ProxySummary 是 proxy_traffic 的瘦行（list_traffic 用）：不含 body / headers。
 // URL 是完整请求 URL（前端列表 url 列直显，比裸 path 更可读）；
 // ContentType 是响应主类型（列表 content-type 列 + 前端筛选 facet 命中值）。

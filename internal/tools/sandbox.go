@@ -292,13 +292,13 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	}
 
 	// 4. 尝试修复退化的浏览器 daemon
-	res = t.tryHealBrowserDaemon(ctx, command, res)
+	res, unrecovered := t.tryHealBrowserDaemon(ctx, command, res)
 
 	// 5. 格式化输出
 	output := formatBrowserOutput(res, a.TimeoutSeconds)
 
 	// 6. 构建并返回结果
-	return buildBrowserResult(output), nil
+	return buildBrowserResult(output, res.TimedOut || unrecovered), nil
 }
 
 // buildArgParts 按子命令拼接 argv 参数段；参数缺失返回 errMsg（非空即拒绝执行）。

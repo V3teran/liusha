@@ -140,3 +140,24 @@ func TestRegistry_TimeoutInterceptor(t *testing.T) {
 		t.Fatalf("超时应上抛 context.DeadlineExceeded, got %v", err)
 	}
 }
+
+// timeoutTool 声明 30ms 超时：拦截器派生的截止期必须真正传到工具执行，
+// 否则外层未设截止期时慢工具会一直跑下去。
+type timeoutTool struct{ fakeTool }
+
+func (t *timeoutTool) Timeout() time.Duration { return 30 * time.Millisecond }
+
+func TestRegistry_TimeoutInterceptorContextReachesTool(t *testing.T) {
+	r := New()
+	slow := &timeoutTool{fakeTool{name: "slow-declared", output: "late", sleep: 2 * time.Second}}
+	r.Register(slow)
+
+	start := time.Now()
+	_, err := r.WrapTool(slow).Execute(context.Background(), nil) // 外层无截止期
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("工具声明的超时应生效并上抛 DeadlineExceeded，得 %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("工具未被拦截器的截止期取消")
+	}
+}

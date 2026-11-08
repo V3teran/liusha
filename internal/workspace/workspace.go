@@ -3,8 +3,9 @@
 // 工作区根目录即 launcher bind 进沙盒的宿主目录（sandbox.workspace_dir，
 // 默认 ~/data/liusha/workspace）：树按 <assignment>/<task> 两级分层，沙盒
 // 在任务目录下分 work/out/state 子目录。本包在同一路径树
-// 上做安全的文件操作——路径解析被钳制在根目录内，穿越序列（.. / 绝对
-// 路径 / 符号链接逃逸）一律拒绝。
+// 上做安全的文件操作。工作区内容来自不受信沙箱（可创建任意符号链接），所有
+// 文件操作经 os.Root 执行：路径解析由目录句柄在内核侧钳制，任何跟随符号链接
+// 逃出根目录的访问都会失败——不依赖可被 TOCTOU 绕过的字符串前缀比对。
 package workspace
 
 import (
@@ -27,7 +28,8 @@ import (
 // （顶层段即任务目录；容器内外同一棵树的语义由调用方保证：compose 以
 // 同路径挂载）。
 type Store struct {
-	root string
+	root string   // 根目录真实路径（展示与测试用）
+	r    *os.Root // 全部文件操作的唯一入口
 }
 
 // NewStore 校验并定位工作区根目录（不存在则创建）。
@@ -45,8 +47,15 @@ func NewStore(root string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace root %s: %w", abs, err)
 	}
-	return &Store{root: resolved}, nil
+	r, err := os.OpenRoot(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("open workspace root %s: %w", resolved, err)
+	}
+	return &Store{root: resolved, r: r}, nil
 }
+
+// Close 释放根目录句柄。
+func (s *Store) Close() error { return s.r.Close() }
 
 // Root 返回工作区根目录绝对路径。
 func (s *Store) Root() string { return s.root }
@@ -94,18 +103,14 @@ type Entry struct {
 // （新任务的工件一眼可见），组内目录在前、路径字典序。
 func (s *Store) Tree() ([]Entry, error) {
 	var out []Entry
-	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(s.r.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if p == s.root {
+		if rel == "." {
 			return nil
 		}
 		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(s.root, p)
 		if err != nil {
 			return err
 		}
@@ -123,7 +128,7 @@ func (s *Store) Tree() ([]Entry, error) {
 			}
 			return nil
 		}
-		name := filepath.ToSlash(rel)
+		name := rel
 		depth := strings.Count(name, "/")
 		if d.IsDir() {
 			name += "/"
@@ -190,22 +195,22 @@ type FileContent struct {
 
 // Read 读取工作区内的一个文件。
 func (s *Store) Read(rel string) (FileContent, error) {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return FileContent{}, err
 	}
-	info, err := os.Stat(full)
+	f, err := s.r.Open(clean)
+	if err != nil {
+		return FileContent{}, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
 	if err != nil {
 		return FileContent{}, err
 	}
 	if info.IsDir() {
 		return FileContent{}, fmt.Errorf("%s 是目录", rel)
 	}
-	f, err := os.Open(full) // #nosec G304 // 路径已经 resolve 钳制校验
-	if err != nil {
-		return FileContent{}, err
-	}
-	defer func() { _ = f.Close() }()
 
 	data := make([]byte, MaxReadBytes)
 	n, err := f.Read(data)
@@ -230,46 +235,58 @@ func (s *Store) Read(rel string) (FileContent, error) {
 
 // OpenFile 打开工作区内的一个文件供流式读取（下载通道）。
 func (s *Store) OpenFile(rel string) (*os.File, os.FileInfo, error) {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return nil, nil, err
 	}
-	info, err := os.Stat(full)
+	f, err := s.r.Open(clean)
 	if err != nil {
+		return nil, nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
 		return nil, nil, err
 	}
 	if info.IsDir() {
+		_ = f.Close()
 		return nil, nil, fmt.Errorf("%s 是目录（目录下载走 ZipTo）", rel)
-	}
-	f, err := os.Open(full) // #nosec G304 // 路径已经 resolve 钳制校验
-	if err != nil {
-		return nil, nil, err
 	}
 	return f, info, nil
 }
 
-// ZipTo 把工作区内的一个目录打包写入 w（下载通道，流式不落临时文件）。
-func (s *Store) ZipTo(rel string, w io.Writer) error {
-	full, err := s.resolve(rel)
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(full)
+// checkDir 校验 clean 是根内已存在的目录——打包前置校验，保证尚未写出任何字节时
+// 就能把「不存在 / 不是目录」报给调用方（否则 HTTP 层已发出 200 头）。
+func (s *Store) checkDir(clean, rel string) error {
+	info, err := s.r.Stat(clean)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s 不是目录", rel)
 	}
-	base := filepath.Base(full)
+	return nil
+}
+
+// ZipTo 把工作区内的一个目录打包写入 w（下载通道，流式不落临时文件）。
+func (s *Store) ZipTo(rel string, w io.Writer) error {
+	clean, err := s.resolve(rel)
+	if err != nil {
+		return err
+	}
+	if err := s.checkDir(clean, rel); err != nil {
+		return err
+	}
+	base := path.Base(clean)
 	zw := zip.NewWriter(w)
-	err = filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
+	fsys := s.r.FS()
+	err = fs.WalkDir(fsys, clean, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		arc, err := filepath.Rel(full, p)
-		if err != nil {
-			return err
+		arc := "."
+		if p != clean {
+			arc = strings.TrimPrefix(p, clean+"/")
 		}
 		// 目录归档同样排除会话状态子树（数据保留在盘，不进交付包）
 		if arc != "." && (arc == StateDirName || strings.HasPrefix(arc, StateDirName+"/")) {
@@ -279,11 +296,10 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 			return nil
 		}
 		if d.IsDir() {
-			_, err = zw.Create(path.Join(base, filepath.ToSlash(arc)) + "/")
+			_, err = zw.Create(path.Join(base, arc) + "/")
 			return err
 		}
-		// 不归档符号链接：工作区内容来自不受信沙箱，symlink 可指向宿主任意
-		// 路径（TOCTOU 逃逸），交付包只收真实文件。
+		// 不归档符号链接：交付包只收真实文件（指向根内的链接也不展开，避免重复与环）。
 		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
@@ -291,13 +307,13 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		hdr := &zip.FileHeader{Name: path.Join(base, filepath.ToSlash(arc)), Modified: dInfo.ModTime()}
+		hdr := &zip.FileHeader{Name: path.Join(base, arc), Modified: dInfo.ModTime()}
 		hdr.SetMode(dInfo.Mode())
 		zwEntry, err := zw.CreateHeader(hdr)
 		if err != nil {
 			return err
 		}
-		f, err := os.Open(p) // #nosec G304,G122 // WalkDir 根来自 resolve 校验，symlink 已在上方跳过（归档仅收真实文件）
+		f, err := fsys.Open(p)
 		if err != nil {
 			return err
 		}
@@ -314,15 +330,15 @@ func (s *Store) ZipTo(rel string, w io.Writer) error {
 
 // Write 创建或覆盖工作区内的一个文件（父目录自动创建；空数据合法）。
 func (s *Store) Write(rel string, data []byte) error {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+	if err := s.r.MkdirAll(path.Dir(clean), 0o750); err != nil {
 		return err
 	}
-	// #nosec G306 -- 工作区文件是共享工件（沙箱回连/交付下载），0640 组可读为刻意选择，非密钥。
-	return os.WriteFile(full, data, 0o640)
+	// 工作区文件是共享工件（沙箱回连/交付下载），0640 组可读为刻意选择，非密钥。
+	return s.r.WriteFile(clean, data, 0o640)
 }
 
 // ErrTooLarge 报告写入内容超出大小上限（半成品文件已清理）。
@@ -335,15 +351,19 @@ var ErrExists = errors.New("目标已存在")
 // 清理半成品并返回 ErrTooLarge。附件上传通道用：http 层已把 multipart 解析成
 // 临时文件，此处直接拷贝落盘，不经全量内存缓冲。
 func (s *Store) WriteFrom(rel string, r io.Reader, limit int64) (int64, error) {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+	if err := s.r.MkdirAll(path.Dir(clean), 0o750); err != nil {
 		return 0, err
 	}
-	// #nosec G304,G302 -- 路径已经 resolve 钳制校验；0640 组可读为刻意选择（共享工件，沙箱回连/交付下载），非密钥。
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	// O_EXCL：目标已存在即返回 ErrExists，由调用方改名重试——并发同名上传
+	// 不会互相截断覆盖（名字的占用与创建是同一个原子操作）。
+	f, err := s.r.OpenFile(clean, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+	if errors.Is(err, fs.ErrExist) {
+		return 0, ErrExists
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -353,11 +373,11 @@ func (s *Store) WriteFrom(rel string, r io.Reader, limit int64) (int64, error) {
 		copyErr = closeErr
 	}
 	if copyErr == nil && n > limit {
-		_ = os.Remove(full)
+		_ = s.r.Remove(clean)
 		return n, ErrTooLarge
 	}
 	if copyErr != nil {
-		_ = os.Remove(full)
+		_ = s.r.Remove(clean)
 	}
 	return n, copyErr
 }
@@ -365,31 +385,31 @@ func (s *Store) WriteFrom(rel string, r io.Reader, limit int64) (int64, error) {
 // RemoveIfEmptyDir 删除一个空目录（非空/不存在均为 no-op）——暂存中转层的
 // 失败清理用：目录里可能有并发上传的他人文件，只在真空时移除，绝不递归。
 func (s *Store) RemoveIfEmptyDir(rel string) error {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
-	_ = os.Remove(full)
+	_ = s.r.Remove(clean) // 非空 / 不存在都会失败，按约定视为 no-op
 	return nil
 }
 
 // Stat 返回工作区内路径的文件信息（不存在返回 fs.ErrNotExist）。
 func (s *Store) Stat(rel string) (fs.FileInfo, error) {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return nil, err
 	}
-	return os.Stat(full) // #nosec G304 -- 路径已经 resolve 钳制校验
+	return s.r.Stat(clean)
 }
 
 // ReadDir 列出工作区内一个目录的直接子项（含隐藏子树——附件暂存清扫是
 // 唯一需要枚举 .staging 的通道；目录不存在返回 fs.ErrNotExist）。
 func (s *Store) ReadDir(rel string) ([]fs.FileInfo, error) {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(full) // #nosec G304 -- 路径已经 resolve 钳制校验
+	entries, err := fs.ReadDir(s.r.FS(), clean)
 	if err != nil {
 		return nil, err
 	}
@@ -416,24 +436,24 @@ func (s *Store) MoveFile(oldRel, newRel string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(dst); err == nil {
+	if _, err := s.r.Lstat(dst); err == nil {
 		return ErrExists
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	if err := s.r.MkdirAll(path.Dir(dst), 0o750); err != nil {
 		return err
 	}
-	return os.Rename(src, dst)
+	return s.r.Rename(src, dst)
 }
 
 // Mkdir 创建工作区内的一级目录（父目录自动创建）。
 func (s *Store) Mkdir(rel string) error {
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
-	return os.MkdirAll(full, 0o750)
+	return s.r.MkdirAll(clean, 0o750)
 }
 
 // Delete 删除工作区内的文件或目录（目录递归；根目录受保护）。
@@ -443,15 +463,16 @@ func (s *Store) Delete(rel string) error {
 	if clean == "" || clean == "." {
 		return fmt.Errorf("拒绝删除工作区根目录")
 	}
-	full, err := s.resolve(rel)
+	clean, err := s.resolve(rel)
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(full)
+	return s.r.RemoveAll(clean)
 }
 
-// resolve 把相对路径钳制为根目录内的绝对路径：穿越序列、绝对路径、
-// 转义符号链接（解析后逃出根目录）一律拒绝。
+// resolve 对相对路径做词法校验并规范化为根内斜杠路径：穿越序列、绝对路径、
+// 非法段与会话状态子树一律拒绝。符号链接逃逸不在此判断——由 os.Root 在每次
+// 实际访问时于内核侧拒绝（词法校验 + 句柄钳制，两层互不依赖）。
 func (s *Store) resolve(rel string) (string, error) {
 	// 绝对路径与穿越序列看原始形式即拒绝——规范化吞掉前导斜杠/抵消的
 	// ".." 是猜测性放行，显式意图不值得猜。
@@ -476,13 +497,7 @@ func (s *Store) resolve(rel string) (string, error) {
 	if isStatePath(clean) {
 		return "", fmt.Errorf("%s 为沙盒会话状态，不在文件面", StateDirName)
 	}
-	full := filepath.Join(s.root, filepath.FromSlash(clean))
-	if resolved, err := filepath.EvalSymlinks(filepath.Dir(full)); err == nil {
-		if resolved != s.root && !strings.HasPrefix(resolved, s.root+string(filepath.Separator)) {
-			return "", fmt.Errorf("符号链接逃逸工作区: %q", rel)
-		}
-	}
-	return full, nil
+	return clean, nil
 }
 
 // isSafeSegment 对单段路径做黑名单校验：拒绝空段、相对引用（./..）与控制

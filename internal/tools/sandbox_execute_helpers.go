@@ -57,10 +57,12 @@ func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command st
 	})
 }
 
-// tryHealBrowserDaemon 尝试修复退化的浏览器 daemon
-func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command string, res sandbox.ExecResult) sandbox.ExecResult {
+// tryHealBrowserDaemon 尝试修复退化的浏览器 daemon。返回修复后的结果与 unrecovered：
+// 检测到退化且两级修复后仍退化时为 true（调用方据此把本次调用记为失败）。
+// 修复与重试请求复用正常执行的批次/任务/身份参数（executeBrowserCommand）。
+func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command string, res sandbox.ExecResult) (sandbox.ExecResult, bool) {
 	if !browserDegraded(res) {
-		return res
+		return res, false
 	}
 
 	var log strings.Builder
@@ -77,24 +79,19 @@ func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command str
 
 	recovered := false
 	for _, heal := range healSteps {
-		// 执行修复命令
-		h, _ := t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
-			TaskID:         t.deps.TaskID,
-			AgentID:        t.deps.AgentRunID,
-			Command:        heal.cmd,
-			TimeoutSeconds: defaultCommandTimeout,
-			Tag:            "drive_browser",
-		})
-		fmt.Fprintf(&log, "--- %s ---\n%s\n", heal.name, orDash(h.Stdout))
+		// 执行修复命令（失败原因进日志，供 LLM 与审计判断）
+		h, hErr := t.executeBrowserCommand(ctx, heal.cmd, defaultCommandTimeout)
+		if hErr != nil {
+			fmt.Fprintf(&log, "--- %s 执行失败: %v ---\n", heal.name, hErr)
+		} else {
+			fmt.Fprintf(&log, "--- %s ---\n%s\n", heal.name, orDash(h.Stdout))
+		}
 
 		// 重试原命令
-		retry, rErr := t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
-			TaskID:         t.deps.TaskID,
-			AgentID:        t.deps.AgentRunID,
-			Command:        command,
-			TimeoutSeconds: defaultCommandTimeout,
-			Tag:            "drive_browser",
-		})
+		retry, rErr := t.executeBrowserCommand(ctx, command, defaultCommandTimeout)
+		if rErr != nil {
+			fmt.Fprintf(&log, "--- %s 后重试执行失败: %v ---\n", heal.name, rErr)
+		}
 
 		if rErr == nil && !browserDegraded(retry) {
 			res = retry
@@ -113,7 +110,7 @@ func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command str
 		res.Stdout = log.String() + res.Stdout
 	}
 
-	return res
+	return res, !recovered
 }
 
 // formatBrowserOutput 格式化浏览器输出
@@ -141,9 +138,12 @@ func formatBrowserOutput(res sandbox.ExecResult, timeoutSeconds int) string {
 	return output
 }
 
-// buildBrowserResult 构建浏览器工具结果
-func buildBrowserResult(output string) registry.ToolResult {
-	return registry.ToolResult{
+// buildBrowserResult 构建浏览器工具结果。failed（超时 / 自愈耗尽）时输出同时作为
+// ToolResult.Error：运行时据 Error 识别结果性失败、累计连续失败止损——只填 Output
+// 会让持续超时被计为成功。非零退出码不单独算失败（与 run_command 同口径：退出码
+// 的含义由输出内容说明）。
+func buildBrowserResult(output string, failed bool) registry.ToolResult {
+	res := registry.ToolResult{
 		Output: output,
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCmdOutput,
@@ -152,4 +152,8 @@ func buildBrowserResult(output string) registry.ToolResult {
 			Detail:   output,
 		},
 	}
+	if failed {
+		res.Error = output
+	}
+	return res
 }

@@ -7,9 +7,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // newProxyTask 建一个代理捕获 task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
@@ -143,49 +144,6 @@ func consumedByTaskID(consumers []ConsumerTask, taskID string) bool {
 		}
 	}
 	return false
-}
-
-// TestProxyStore_ClaimByIDs 验证：显式 id 集合领取（manual TrafficIDs 路径）只关联点名的流量。
-func TestProxyStore_ClaimByIDs(t *testing.T) {
-	ctx := context.Background()
-	pool, taskID := newProxyTask(t)
-	s := NewProxyStore(pool)
-
-	var ids []int64
-	for _, p := range []string{"/x", "/y", "/z"} {
-		id, err := s.Append(ctx, ProxyTraffic{
-			Host: "test.example.com", Method: "GET",
-			URL: "http://test.example.com" + p, Path: p, StatusCode: 200,
-		})
-		if err != nil {
-			t.Fatalf("seed %s: %v", p, err)
-		}
-		ids = append(ids, id)
-	}
-
-	// 只领前两条。
-	claimed, err := s.ClaimByIDs(ctx, taskID, ids[:2])
-	if err != nil {
-		t.Fatalf("claim by ids: %v", err)
-	}
-	if claimed != 2 {
-		t.Fatalf("应领取 2 条，得 %d", claimed)
-	}
-	list, err := s.ListByTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("list by task: %v", err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("expect 2 rows, got %d", len(list))
-	}
-	// 重复领取幂等。
-	again, err := s.ClaimByIDs(ctx, taskID, ids[:2])
-	if err != nil {
-		t.Fatalf("re-claim by ids: %v", err)
-	}
-	if again != 0 {
-		t.Fatalf("重复 ClaimByIDs 应幂等得 0，得 %d", again)
-	}
 }
 
 // TestProxyStore_ListByTaskFiltered_Pagination 验证：limit/offset 在 task 消费范围内起作用

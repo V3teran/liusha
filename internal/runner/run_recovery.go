@@ -284,6 +284,11 @@ func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brie
 	}); err != nil {
 		m.logger.Error().Err(err).Str("task_id", taskID).Str("new_agent_run_id", newID).
 			Msg("恢复 run 入队失败")
+		// 未入队的 pending 行永远不会被消费，却会让本巡检把任务视为「有存活 run」而
+		// 不再重投。标 aborted（从未执行，不计入中断次数），下一轮巡检自然重试。
+		if aerr := m.agentRuns.SetAborted(context.WithoutCancel(ctx), newID); aerr != nil {
+			m.logger.Error().Err(aerr).Str("new_agent_run_id", newID).Msg("撤销未入队的恢复 run 失败")
+		}
 		return
 	}
 	m.logger.Info().

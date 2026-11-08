@@ -85,6 +85,9 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 	if g.maxTokens > 0 {
 		req.MaxTokens = g.maxTokens
 	}
+	if opts.MaxTokens > 0 {
+		req.MaxTokens = opts.MaxTokens
+	}
 	if len(openaiTools) > 0 {
 		req.Tools = openaiTools
 	}

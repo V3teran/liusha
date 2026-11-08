@@ -129,30 +129,34 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	// 4. 准备工具列表
 	reactTools := e.prepareReActTools()
 
-	// 5. 构建 ReAct 配置
-	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionData, reactTools)
+	// 5. kill 传导：action 级 context 在 monitor kill 时取消（在途 LLM/工具即刻退出）
+	ctx, kill, stopKillWatch := watchKill(ctx, e.graphReader(), action.ID, killPollInterval, e.logger)
+	defer stopKillWatch()
+
+	// 6. 构建 ReAct 配置
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionData, reactTools, kill)
 	if err != nil {
 		return nil, OutcomeDone, err
 	}
 
-	// 6. 创建 ReAct Runtime 并注册工具
+	// 7. 创建 ReAct Runtime 并注册工具
 	reactRuntime := runtime.NewReActRuntime()
 	if err := e.registerReActTools(reactRuntime, reactTools, action.ID); err != nil {
 		return nil, OutcomeDone, err
 	}
 
-	// 7. 执行 ReAct 循环
+	// 8. 执行 ReAct 循环
 	result, err := e.executeReActRuntime(ctx, reactRuntime, reactConfig, action.ID)
 	if err != nil {
 		return nil, OutcomeDone, err
 	}
 
-	// 8. 检查是否被 monitor kill（早期退出优化）
+	// 9. 检查是否被 monitor kill（早期退出优化）
 	if err := e.checkActionAborted(ctx, action.ID); err != nil {
 		return nil, OutcomeDone, err
 	}
 
-	// 9. 处理输出并生成 Attempts；迭代预算耗尽（max_iterations）如实上抛为
+	// 10. 处理输出并生成 Attempts；迭代预算耗尽（max_iterations）如实上抛为
 	// exhausted——强制总结路径仍有结构化产出，attempts 照常发布。
 	attempts, perr := e.processOutput(ctx, action, result)
 	if perr != nil {

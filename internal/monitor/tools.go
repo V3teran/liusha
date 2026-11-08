@@ -222,12 +222,20 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 
 	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
 	// 状态校验先行：open（阻止认领）与 running（中止在途）可 kill，已终态
-	// （done/failed/exhausted/aborted）拒绝——幻觉 action_id 或改写终态都会
+	// （completed/failed/exhausted/aborted）拒绝——幻觉 action_id 或改写终态都会
 	// 污染图终态与统计。
 	if decision.Type == "kill_action" && t.graph != nil {
 		node, gErr := t.graph.GetNode(ctx, decision.ActionID)
 		if gErr != nil {
 			return registry.ToolResult{Error: fmt.Sprintf("kill_action 查询动作失败: %v", gErr)}, nil
+		}
+		// 归属与类型校验：只能中止本任务的 action 节点——模型给出其他任务的节点 id
+		// 或 objective/observation 的 id 时，CAS 会按节点自身归属照常写入，造成跨任务改写。
+		if node.TaskID != t.taskID {
+			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：节点 %s 不属于当前任务", decision.ActionID)}, nil
+		}
+		if node.Kind != core.KindAction {
+			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：节点 %s 不是 action（%s）", decision.ActionID, node.Kind)}, nil
 		}
 		if state := node.State; state == nil ||
 			(*state != explorationgraph.StateOpen && *state != explorationgraph.StateRunning) {

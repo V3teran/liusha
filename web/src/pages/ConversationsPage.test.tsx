@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { ConversationsPage } from './ConversationsPage'
 
 // ConversationsPage 只做主从双栏编排（当前选中会话 + 列表刷新 ref + 删除态清理），
@@ -44,10 +44,15 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
   },
 }))
 
+function LocationProbe() {
+  return <output data-testid="location">{useLocation().search}</output>
+}
+
 function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <ConversationsPage source={source} />
+      <LocationProbe />
     </MemoryRouter>,
   )
 }
@@ -128,7 +133,7 @@ describe('ConversationsPage', () => {
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(false)
     expect(lastListCall.heading).toBe('代理批次')
-    expect(lastListCall.emptyState.desc).toMatch(/8888/)
+    expect(lastListCall.emptyState.desc).toMatch(/8588/)
   })
 
   it('onNew：新建会话时清空 currentConv（新建态）', async () => {
@@ -150,5 +155,23 @@ describe('ConversationsPage', () => {
     renderPage('proxy')
     expect(listProps.mock.calls[listProps.mock.calls.length - 1][0].source).toBe('proxy')
     expect(detailProps.mock.calls[detailProps.mock.calls.length - 1][0].source).toBe('proxy')
+  })
+})
+
+describe('ConversationsPage URL 状态', () => {
+  it('从深链打开 A 后选择 B：URL 随之变为 ?conv=B（刷新/分享还原 B）', async () => {
+    const user = userEvent.setup()
+    renderPage('direct', '/?conv=conv-a')
+    await user.click(screen.getByText('select'))
+    expect(screen.getByTestId('location').textContent).toBe('?conv=conv-selected')
+    expect(detailProps.mock.calls.at(-1)?.[0].convId).toBe('conv-selected')
+  })
+
+  it('新建：清除 URL 中的会话，详情回到新建态', async () => {
+    const user = userEvent.setup()
+    renderPage('direct', '/?conv=conv-a')
+    await user.click(screen.getByText('new'))
+    expect(screen.getByTestId('location').textContent).toBe('')
+    expect(detailProps.mock.calls.at(-1)?.[0].convId).toBeUndefined()
   })
 })

@@ -9,7 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
+
+var log = logx.New("corpus.store")
 
 // Store 封装 corpus 表的持久化 + hybrid 检索。
 type Store struct{ pool *pgxpool.Pool }
@@ -151,8 +155,12 @@ func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float
 		docs[i] = e.Content
 	}
 	order, err := rr.Rerank(ctx, query, docs, topK)
-	if err != nil || len(order) == 0 {
-		// rerank 失败降级：不阻塞检索，走效用兜底。
+	if err != nil {
+		// rerank 失败降级：不阻塞检索，走效用兜底；留痕，否则外部服务故障在线上不可见。
+		log.Warn().Err(err).Int("candidates", len(merged)).Msg("rerank 失败，降级为效用排序")
+		return s.consume(ctx, sortByUtility(merged), topK), nil
+	}
+	if len(order) == 0 {
 		return s.consume(ctx, sortByUtility(merged), topK), nil
 	}
 	ranked := make([]Entry, 0, len(order))

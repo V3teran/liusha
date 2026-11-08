@@ -243,7 +243,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	}
 
 	// 4. 提取假设
-	hyp := extractHypothesis(a)
+	hyp := attemptStatement(a)
 	tier := verificationTier(a.Primitives)
 
 	// 5. 机器护栏检查
@@ -289,27 +289,23 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 		return nil, err
 	}
 
-	// 10. 在假设节点上回写审判标记
+	// 10. 落图与交付先于假设标记：标记会把假设移出待裁决集合，必须等结果节点
+	// 与交付物都已落地——任一步失败都返回错误、假设保持 unverified，下一轮轮询
+	// 重新裁决（重试路径上已存在的结果节点经语义去重命中，交付按 dedup_key 幂等）。
 	mark := hypothesisMark{
 		outcome:   outcome,
 		confirmed: verdict.Verdict == VerdictConfirmed,
 	}
+	var promoted *explorationgraph.Node
 	switch {
 	case verdict.Verdict == VerdictRefuted:
+		// 11. 证伪：不进图
 		mark.refuteReason = RefuteClaimInvalid
 	case duplicate != nil:
+		// 12. 语义重复：既有发现即归属——不新建节点，返回既有节点让上游事件指向它
+		// （新证据已在审计链 replays 里）。重放交付：补齐既有节点此前可能失败的交付，
+		// finding 按 dedup_key 幂等，不会重复或改写已有记录。
 		mark.duplicateOf = duplicate.ID
-	}
-	g.markHypothesisNode(ctx, a, mark)
-
-	// 11. 证伪：不进图
-	if verdict.Verdict == VerdictRefuted {
-		return nil, nil
-	}
-
-	// 12. 语义重复：既有发现即归属——不新建节点、不重写 finding，
-	// 返回既有节点让上游事件指向它（新证据已在审计链 replays 里）。
-	if duplicate != nil {
 		if g.logger != nil {
 			g.logger.Info().
 				Str("node_id", a.NodeID).
@@ -317,24 +313,30 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 				Str("fingerprint", fingerprintKey).
 				Msg("同指纹发现已存在，本次确认折叠为佐证")
 		}
-		return duplicate, nil
+		if err := g.deliverClaim(ctx, a, *duplicate, verID, final, tier); err != nil {
+			return nil, err
+		}
+		promoted = duplicate
+	default:
+		// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
+		node, err := g.createVerifiedNode(ctx, a, uuid.New().String(), verID, fingerprintKey)
+		if err != nil {
+			return nil, err
+		}
+		// 14. 交付：坐实主张交给域适配管道（安全域落 finding，他域各有交付物）
+		if err := g.deliverClaim(ctx, a, *node, verID, final, tier); err != nil {
+			return nil, err
+		}
+		promoted = node
 	}
 
-	// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
-	nodeID := uuid.New().String()
-	node, err := g.createVerifiedNode(ctx, a, nodeID, verID, fingerprintKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// 14. 交付：坐实主张交给域适配管道（安全域落 finding，他域各有交付物）
-	g.deliverClaim(ctx, a, *node, verID, final, tier)
-
-	return node, nil
+	// 15. 在假设节点上回写审判标记
+	g.markHypothesisNode(ctx, a, mark)
+	return promoted, nil
 }
 
-// deliverClaim 把坐实主张交给交付管道。交付失败不回滚晋升（图状态是
-// 事实源），只告警——与既有的非致命错误口径一致。
+// deliverClaim 把坐实主张交给交付管道。交付失败返回错误：调用方据此不标记假设，
+// 交给下一轮裁决重试——静默告警会让图里已有 verified result、台账却永久缺失。
 func (g *PromotionGate) deliverClaim(
 	ctx context.Context,
 	a Attempt,
@@ -342,9 +344,9 @@ func (g *PromotionGate) deliverClaim(
 	verID string,
 	res Result,
 	tier string,
-) {
+) error {
 	if g.sink == nil || node.Kind != core.KindResult {
-		return
+		return nil
 	}
 
 	var content struct {
@@ -356,10 +358,7 @@ func (g *PromotionGate) deliverClaim(
 		Target     json.RawMessage `json:"target"`
 	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
-		if g.logger != nil {
-			g.logger.Warn().Err(err).Str("node_id", node.ID).Msg("交付载荷解析失败（节点已晋升，不影响图状态）")
-		}
-		return
+		return fmt.Errorf("交付载荷解析失败 (node %s): %w", node.ID, err)
 	}
 
 	err := g.sink.Record(ctx, ConfirmedClaim{
@@ -377,9 +376,10 @@ func (g *PromotionGate) deliverClaim(
 		Tier:           tier,
 		DurationMs:     res.DurationMs,
 	})
-	if err != nil && g.logger != nil {
-		g.logger.Warn().Err(err).Str("node_id", node.ID).Msg("坐实主张交付失败（节点已晋升，不影响图状态）")
+	if err != nil {
+		return fmt.Errorf("坐实主张交付失败 (node %s): %w", node.ID, err)
 	}
+	return nil
 }
 
 // findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。

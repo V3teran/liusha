@@ -23,15 +23,44 @@ jobs:
           if [ -n "$diff" ]; then
             echo "gofmt diff:" && echo "$diff" && exit 1
           fi
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - name: terminology gate
+        run: scripts/lint-terminology.sh
       - name: unit tests
         run: go test -race -short ./...
       - name: integration tests
-        run: go test -race -run Integration ./...
+        # 集成测试文件带 //go:build integration 约束：不加 tag 时根本不参与编译（此前
+        # `-run Integration` 按名字过滤，实际一个集成用例都没跑过）。dbtest 经 testcontainers
+        # 在 runner 上拉起真实 pgvector/pg17。
+        run: go test -race -tags=integration ./...
+
+  web:
+    # 前端：类型检查（含测试文件）+ 生产构建 + 单测。与 nginx/single 镜像同一 node 22 + corepack pnpm。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: build (tsc -b + vite build)
+        run: pnpm build
+      - name: unit tests
+        run: pnpm test
 
   build:
     # 通过测试后再构建镜像，避免在失败的源码上浪费构建时间。
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, web]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

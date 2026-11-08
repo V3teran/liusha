@@ -171,45 +171,47 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		return nil
 	}
 
-	// 2) 读+重建 body（请求 / 响应都要）
-	reqBody, err := readAndRebuildBody(&req.Body, fs.maxRequestBodySize)
+	// 2) 采集 body 副本（请求 / 响应都要）。采集只取前 N 字节供快照，
+	//    转发流保持完整原始字节——代理不得改动客户端看到的任何内容。
+	reqBody, err := captureBody(&req.Body, fs.maxRequestBodySize)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取请求体失败，跳过该流量")
 		return nil
 	}
-	respBody, err := readAndRebuildBody(&resp.Body, fs.maxResponseBodySize)
+	respBody, err := captureBody(&resp.Body, fs.maxResponseBodySize)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取响应体失败，跳过该流量")
 		return nil
 	}
 
-	// 2.5) 按 Content-Encoding 解压响应——避免 gzip 二进制流（含 ）
-	//      被原样塞进 user prompt 后写 jsonb 时被 PG 拒收。
+	// 2.5) 快照侧按 Content-Encoding 解压——避免 gzip 二进制流（含 \x00）被原样塞进
+	//      user prompt 后写 jsonb 时被 PG 拒收。只改快照的头部副本，转发响应原样不动。
+	snapHeader := resp.Header.Clone()
 	if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
-		if decoded, derr := decompressIfEncoded(respBody, encoding); derr != nil {
+		if decoded, derr := decompressIfEncoded(respBody, encoding, decompressLimit(fs.maxResponseBodySize)); derr != nil {
 			s.logger.Warn().Err(derr).Str("encoding", encoding).
-				Msg("解压响应失败，保留原始字节（下游可能含二进制乱码）")
+				Msg("解压响应失败，快照保留原始字节（下游可能含二进制乱码）")
 		} else {
 			respBody = decoded
-			resp.Header.Del("Content-Encoding") // 解压后内容明文
-			resp.Header.Del("Content-Length")   // 长度已变
+			snapHeader.Del("Content-Encoding") // 快照正文已是明文
+			snapHeader.Del("Content-Length")   // 长度已变
 		}
 	}
 
 	// 3) 构造 snapshot 并注入 source。
 	// onResponse 仅处理 external（代理） 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
 	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
-	snap := buildSnapshot(req, resp, reqBody, respBody)
+	snap := buildSnapshot(req, resp.StatusCode, snapHeader, reqBody, respBody)
 	snap.Source = s.source
 
 	if err := s.publisher.Publish(req.Context(), snap); err != nil {
 		s.logger.Warn().Err(err).
-			Str("method", snap.Method).Str("host", snap.Host).Str("uri", snap.URI).
+			Str("method", snap.Method).Str("host", snap.Host).Str("path", LogPath(snap.URI)).
 			Msg("Publisher.Publish 失败（流量已丢弃）")
 		return nil
 	}
 	s.logger.Debug().
-		Str("method", snap.Method).Str("host", snap.Host).Str("uri", snap.URI).
+		Str("method", snap.Method).Str("host", snap.Host).Str("path", LogPath(snap.URI)).
 		Int("status", snap.StatusCode).Msg("traffic 已投递到 stream")
 	return nil
 }
@@ -285,7 +287,9 @@ func resolveCertDir(dir string) (string, error) {
 // 下游 traffic / runner / LLM 都用解压后的明文。
 //
 // 失败时返回原 body + error（让 caller 决定降级策略）。
-func decompressIfEncoded(body []byte, encoding string) ([]byte, error) {
+// limit 是解压输出的硬上限（字节）：压缩体的采集上限挡不住高膨胀率的解压炸弹，
+// 解压侧必须独立钳制，超出部分截断丢弃。
+func decompressIfEncoded(body []byte, encoding string, limit int64) ([]byte, error) {
 	encoding = strings.ToLower(strings.TrimSpace(encoding))
 	if encoding == "" || encoding == "identity" {
 		return body, nil
@@ -307,39 +311,50 @@ func decompressIfEncoded(body []byte, encoding string) ([]byte, error) {
 		// br / zstd 等暂不支持——保留原始字节，下游若含二进制需自处理。
 		return body, nil
 	}
-	decoded, err := io.ReadAll(reader)
+	decoded, err := io.ReadAll(io.LimitReader(reader, limit))
 	if err != nil {
 		return body, fmt.Errorf("read decompressed (%s): %w", encoding, err)
 	}
 	return decoded, nil
 }
 
-// readAndRebuildBody 读完 body 并重建 io.NopCloser，保证下游可继续读取。
-//
-//	maxSize > 0 时使用 LimitReader 截断，超过部分丢弃；
-//	maxSize <= 0 表示不限。
-//	返回的 []byte 是新切片，安全独立持有。
-func readAndRebuildBody(bodyPtr *io.ReadCloser, maxSize int) ([]byte, error) {
+// defaultDecompressLimit 是未配置响应采集上限时的解压输出兜底上限。
+const defaultDecompressLimit = 32 << 20
+
+// decompressLimit 让解压输出上限与响应采集上限同口径：快照正文无论压缩与否都不超过它。
+func decompressLimit(maxResponseBodySize int) int64 {
+	if maxResponseBodySize > 0 {
+		return int64(maxResponseBodySize)
+	}
+	return defaultDecompressLimit
+}
+
+// captureBody 读取 body 的前 maxSize 字节作为快照副本，并把转发流重建为
+// 「已读前缀 + 未读剩余」的完整原始字节流（maxSize <= 0 表示整体读取）。
+// 返回的 []byte 是独立副本，转发方后续读取不受影响。
+func captureBody(bodyPtr *io.ReadCloser, maxSize int) ([]byte, error) {
 	if bodyPtr == nil || *bodyPtr == nil {
 		return nil, nil
 	}
 	src := *bodyPtr
-	defer func() { _ = src.Close() }()
-
 	var reader io.Reader = src
 	if maxSize > 0 {
 		reader = io.LimitReader(src, int64(maxSize))
 	}
-	data, err := io.ReadAll(reader)
+	head, err := io.ReadAll(reader)
 	if err != nil {
+		_ = src.Close()
 		return nil, err
 	}
-	*bodyPtr = io.NopCloser(bytes.NewReader(data))
-	return data, nil
+	*bodyPtr = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(head), src), src}
+	return append([]byte(nil), head...), nil
 }
 
-// buildSnapshot 把 net/http 请求 + 响应 + 已读 body 拼成 TrafficSnapshot。
-func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []byte) *TrafficSnapshot {
+// buildSnapshot 把 net/http 请求 + 响应状态/头（快照侧副本）+ 已采集 body 拼成 TrafficSnapshot。
+func buildSnapshot(req *http.Request, statusCode int, respHeader http.Header, reqBody, respBody []byte) *TrafficSnapshot {
 	hostPort := req.URL.Host
 	if hostPort == "" {
 		hostPort = req.Host
@@ -382,9 +397,9 @@ func buildSnapshot(req *http.Request, resp *http.Response, reqBody, respBody []b
 		URI:             uri,
 		Path:            req.URL.Path,
 		Query:           query,
-		StatusCode:      resp.StatusCode,
+		StatusCode:      statusCode,
 		RequestHeaders:  flattenRequestHeaders(req.Header),
-		ResponseHeaders: flattenResponseHeaders(resp.Header),
+		ResponseHeaders: flattenResponseHeaders(respHeader),
 		RequestBody:     reqBody,
 		ResponseBody:    respBody,
 		Timestamp:       time.Now().UTC(),

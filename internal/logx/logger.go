@@ -5,6 +5,8 @@
 // 全部行为由环境变量驱动，零配置即可运行。
 //
 // 文件聚合：同一进程内所有 New() 共写一个 logs/{processName}.log。
+// 测试二进制（testing.Testing()）里文件落盘缺省关闭——包级 logger 在测试启动即初始化，
+// 否则会在每个被测包目录下留下 logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
 // processName 取自 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] basename
 // （cmd 二进制名）。多 logger 实例共享同一个 *lumberjack.Logger，
 // 由 lumberjack 内部 mutex 保证并发安全。
@@ -18,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -121,7 +124,7 @@ func loadConfig() config {
 		level:       parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
 		format:      format,
 		toStdout:    boolEnv("LIUSHA_LOG_TO_STDOUT", true),
-		toFile:      boolEnv("LIUSHA_LOG_TO_FILE", true),
+		toFile:      boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
 		dir:         dir,
 		instance:    resolveInstance(),
 		processName: resolveProcessName(),
@@ -142,10 +145,7 @@ func resolveProcessName() string {
 	if len(os.Args) == 0 || os.Args[0] == "" {
 		return "app"
 	}
-	name := filepath.Base(os.Args[0])
-	// go test 时 os.Args[0] 是 *.test 形式（如 logx.test）；保留 basename，
-	// 让单测产物落到 ${pkg}.test.log，不污染 logs/{cmd}.log 的命名。
-	return name
+	return filepath.Base(os.Args[0])
 }
 
 func resolveInstance() string {
