@@ -20,6 +20,7 @@
 ## 操作记录
 
 - 阶段 4 期间用户追加要求：自主下发的 `self` 取值不符合业界惯例，重起名并全量替换 → 选定 `direct`（与既有路由同名），含 DB 迁移 0198。
+- 阶段 4 期间用户要求重评来源中文名：多轮讨论后由用户定为「人工下发 / 代理捕获」；评估中发现并修复定时任务来源写错的缺陷（迁移 0199）。
 
 - 阶段 1 续跑时工作区混有一处报告外改动（README.md 免责声明改写），经用户确认丢弃后才提交。
 
@@ -40,8 +41,10 @@
 | 2 | 代理模式对话/代理流量本地无数据，仅验证了空态 | e2e-verification |
 | 2 | 探索图 React Flow 署名水印压在小地图边缘（库默认，保留署名） | 存疑 |
 | 3 | `executor/replayer.go` `body_absent` 别名兜 10-31 前落库的存量配方；彻底方案为数据迁移改写存量键后删别名，涉及生产数据不可逆改写 | 用户决策 |
-| 3 | `internal/dispatch` 集成测试搭建未注入 conversation store，nil panic（基线即有；panic 中断后续 HostItem 用例） | quality-governance |
-| 3 | `dispatch.Service` 方法接收者名 `a`（adapter 遗名） | naming-overhaul |
+| 3 | ~~`internal/dispatch` 集成测试搭建未注入 conversation store，nil panic~~ → 阶段 4 追加 2 中已修复 | 已解决 |
+| 3 | ~~`dispatch.Service` 方法接收者名 `a`~~ → 阶段 4 已改 `s` | 已解决 |
 | 3 | 升级注意：ingest 路由更名后旧 sandbox 容器任务结束前抓流 404；SKILL.md 改动需 `make reseed`；`make e2e-active` → `make e2e-xss` | 发布说明 |
 | 4 | 升级注意：API `source=self` → `source=direct`（无兼容别名，旧书签筛选为空）；需执行迁移 0198 | 发布说明 |
-| 4 | 用户追加的 self→direct 改名未经浏览器实测，功能回归由阶段 6 覆盖 | e2e-verification |
+| 4 | 用户追加的 self→direct 改名与「人工下发 / 代理捕获」文案未经浏览器实测，功能回归由阶段 6 覆盖 | e2e-verification |
+| 4 | 调度器 `expandTrafficItem`（host/流量 id 条目）全库无模板写入方，仅测试可达 | quality-governance |
+| 4 | 升级注意：迁移 0199 修正存量定时批次来源；`bac` SKILL.md 文案需 `make reseed` | 发布说明 |

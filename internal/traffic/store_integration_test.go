@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// newProxyTask 建一个代理模式 task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
+// newProxyTask 建一个代理捕获 task（proxy_traffic 消费方 / agent_traffic 归属方），返回 (pool, taskID)。
 func newProxyTask(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
@@ -72,7 +72,7 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	}
 }
 
-// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某代理模式
+// TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某代理捕获
 // task（M:N traffic_task），之后 ListByTask 按 captured_at 升序取回这批（含 raw）；GetByID 的
 // ConsumedBy 列出该消费者。取代旧 consumed_by_task_id 单列模型。
 func TestProxyStore_ClaimThenListByTask(t *testing.T) {

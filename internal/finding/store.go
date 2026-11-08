@@ -128,7 +128,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string) ([]Finding, error
 // 派生的跳转上下文。漏洞页跨 task/host 全量展示用，区别于 per-task 的 Finding 列表。
 type LedgerRow struct {
 	Finding
-	Source         string // 关联 assignment 的 source（direct 自主下发 / proxy 代理模式）
+	Source         string // 关联 assignment 的 source（direct 人工下发 / proxy 代理捕获）
 	ConversationID string // 关联会话 id（详情跳对话用；无会话为空）
 }
 

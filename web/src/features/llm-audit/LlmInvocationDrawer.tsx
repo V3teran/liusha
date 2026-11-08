@@ -153,8 +153,8 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 </section>
 
                 {/* 跳转：与漏洞详情抽屉同一节式语法（JumpLink 盒）。对话 tab 按下发
-                    来源定（见 conversationPath：缺 source 落自主下发 tab——
-                    纯聊天/轻量路由调用必归自主侧，代理分析行后端恒带 source）。
+                    来源定（见 conversationPath：缺 source 落人工下发 tab——
+                    纯聊天/轻量路由调用必归人工下发侧，代理分析行后端恒带 source）。
                     链接缺失（未链会话的孤儿任务/任务级后台调用）不渲染占位。 */}
                 {(detail.task_id || detail.conversation_id) && (
                   <section>

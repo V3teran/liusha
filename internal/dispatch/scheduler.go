@@ -29,7 +29,7 @@ import (
 // cronPollInterval 是 Scheduler 轮询 cron_schedule 到点模板的周期。
 const cronPollInterval = 30 * time.Second
 
-// proxyCronClaimLimit 是定时触发代理模式展开时一次性领取的未消费 proxy_traffic 上限——
+// proxyCronClaimLimit 是定时触发流量复检展开时一次性领取的未消费 proxy_traffic 上限——
 // 定时重触发是低频操作（非实时聚合窗口），给一个宽松固定值即可，无需接聚合器配置。
 const proxyCronClaimLimit = 200
 
@@ -42,7 +42,7 @@ type Scheduler struct {
 	AgentRuns     *agentrun.Store
 	Enq           *worker.Client
 	Dispatcher    *Service            // 复用 expandItem（与单发/StartChatTask 同展开逻辑）
-	Conversations *conversation.Store // 代理模式会话流（nil 时 cron 展开 task 不绑会话）
+	Conversations *conversation.Store // 代理捕获会话流（nil 时 cron 展开 task 不绑会话）
 	Logger        zerolog.Logger
 }
 
@@ -89,8 +89,10 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	}
 
 	scheduleID := sched.ID
+	// 模板条目是用户编写的目标描述（DispatchScheduled 是模板的唯一写入方），
+	// 克隆批次的来源即人工下发。
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceProxy,
+		Source:      assignment.SourceDirect,
 		Items:       items,
 		Title:       sched.Title,
 		Description: sched.Description,
@@ -109,7 +111,7 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 		case item.Host != "":
 			expandErr = s.expandTrafficItem(ctx, asg.ID, item)
 		default:
-			// 自主下发条目：与批量下发同一会话语义——每任务建独立会话并落
+			// 人工下发条目：与批量下发同一会话语义——每任务建独立会话并落
 			// 用户 brief 消息（定时任务的执行现场是可观测资产，哑巴任务
 			// 只能看结果不能看过程）。expandItem 会链会话 + 落 dispatched 节点。
 			created, cerr := s.Conversations.CreateConversation(ctx, BriefTitle(item.Brief), "")
@@ -177,7 +179,7 @@ func (s *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	// 任务作用域派生：cron 展开的任务日志自动携带 task_id/assignment_id
 	taskLogger := s.Logger.With().Str("task_id", tk.ID).Str("assignment_id", assignmentID).Logger()
 
-	// 建代理模式会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
+	// 建代理捕获会话流（title=host，与实时聚合路径 ensureConversation 同语义）：
 	// 不绑会话的任务在对话页 / LLM 审计对话列都没有锚点。首条说明复用同一段
 	// ProxyTaskBrief（会话气泡与 agent 目标上下文同源）；best-effort——失败降级为
 	// 本次不绑会话，不影响分析主链路。
@@ -185,7 +187,7 @@ func (s *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 	if s.Conversations != nil {
 		created, conversationErr := s.Conversations.CreateConversation(ctx, host, tk.ID)
 		if conversationErr != nil {
-			taskLogger.Warn().Err(conversationErr).Msg("cron 代理模式 task 建会话流失败（降级：本次不绑会话）")
+			taskLogger.Warn().Err(conversationErr).Msg("cron 代理捕获 task 建会话流失败（降级：本次不绑会话）")
 		} else {
 			conversationID = created.ID
 			if traffic, listErr := s.ProxyStore.ListByTask(ctx, tk.ID); listErr == nil && len(traffic) > 0 {
@@ -194,7 +196,7 @@ func (s *Scheduler) expandTrafficItem(ctx context.Context, assignmentID string, 
 					scheme = traffic[0].Scheme
 				}
 				if _, msgErr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ingestor.ProxyTaskBrief(scheme, host, traffic), nil); msgErr != nil {
-					taskLogger.Warn().Err(msgErr).Str("conv", created.ID).Msg("写 cron 代理模式任务说明首条消息失败（降级：会话缺首条气泡）")
+					taskLogger.Warn().Err(msgErr).Str("conv", created.ID).Msg("写 cron 代理捕获任务说明首条消息失败（降级：会话缺首条气泡）")
 				}
 			}
 		}

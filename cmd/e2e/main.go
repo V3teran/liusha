@@ -1,4 +1,4 @@
-// Package main 是 liusha 端到端验收触发器：以自主下发（POST /chat）跑验收剧本。
+// Package main 是 liusha 端到端验收触发器：以人工下发（POST /chat）跑验收剧本。
 //
 // CLI 用法：
 //

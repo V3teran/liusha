@@ -1,4 +1,4 @@
-// Package proxy 的代理模式入口（external listener）raw-bytes URI 改写 forwarder。
+// Package proxy 的代理入口（external listener）raw-bytes URI 改写 forwarder。
 //
 // 只处理 external 入口；sandbox 内 chromium 流量走 CDP capture → ingest endpoint，
 // CLI 工具直连不入字典，二者都不经本 forwarder。
@@ -101,7 +101,7 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// RunExternalSanitizer 监听 publicAddr（external 8588，代理模式入口）。
+// RunExternalSanitizer 监听 publicAddr（external 8588，代理入口）。
 // 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
 // forward 给 upstreamAddr（proxify loopback 端口）。
 //
