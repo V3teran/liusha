@@ -9,7 +9,7 @@
 | 1 | structure-overhaul | done | df39ddfc | 删 2 死文件 + 13 条失效 ignore；settingstore/toolstore 出 config/ 平级；10 个单领域 lib 模块归入 features；验证门（CI 口径）全绿。报告：`.agents/reports/1-structure-overhaul.md` |
 | 2 | ui-ux-overhaul | done | 14ed31d2 | 设计体系收口：Token 对比度校准 + 语义色双事实源合一 + 分类色；FilterBar/Button/Select/DateTimeRange 统一 10 个列表页；响应式外壳 + 分组导航；修复聚焦辉光从未生效、漏洞来源筛选恒空、审计页控件遮挡、任务表截断。588 单测 + 102 张截图回归 + 11 项交互实测通过。报告：`.agents/reports/2-ui-ux-overhaul.md` |
 | 3 | legacy-purge | done | 6c4d03e3 | passive/active 来源旧名全量收口 self/proxy（8 个标识符改名 + 落库文案 + LLM 工具描述 + SKILL.md）；清除退役角色/insight/flows/scanAdapter/mitmproxy 残留；ingest 路由更名；迁移 0197 修 schema 注释；修复集成测试编译失败与 e2e.sh 空参失效；术语门禁 +9 词。7 轮收敛（40→0→9→6→7→6→0），验证门全绿，集成测试 55/56 包（dispatch 基线缺陷）。报告：`.agents/reports/3-legacy-purge.md` |
-| 4 | naming-overhaul | pending | | |
+| 4 | naming-overhaul | done | ad8cc8bc | 应用户追加要求下发来源 self→direct 全量替换（迁移 0198 + API + 前端，路由与取值同名）；SetDone→SetCompleted 等误导名；来源与任务控制文案单一真相源；接收者遗名、组件文件名/默认导出对齐惯例。7 轮收敛零发现，验证门全绿。报告：`.agents/reports/4-naming-overhaul.md` |
 | 5 | quality-governance | pending | | |
 | 6 | e2e-verification | pending | | |
 
@@ -18,6 +18,8 @@
 （无）
 
 ## 操作记录
+
+- 阶段 4 期间用户追加要求：自主下发的 `self` 取值不符合业界惯例，重起名并全量替换 → 选定 `direct`（与既有路由同名），含 DB 迁移 0198。
 
 - 阶段 1 续跑时工作区混有一处报告外改动（README.md 免责声明改写），经用户确认丢弃后才提交。
 
@@ -41,3 +43,5 @@
 | 3 | `internal/dispatch` 集成测试搭建未注入 conversation store，nil panic（基线即有；panic 中断后续 HostItem 用例） | quality-governance |
 | 3 | `dispatch.Service` 方法接收者名 `a`（adapter 遗名） | naming-overhaul |
 | 3 | 升级注意：ingest 路由更名后旧 sandbox 容器任务结束前抓流 404；SKILL.md 改动需 `make reseed`；`make e2e-active` → `make e2e-xss` | 发布说明 |
+| 4 | 升级注意：API `source=self` → `source=direct`（无兼容别名，旧书签筛选为空）；需执行迁移 0198 | 发布说明 |
+| 4 | 用户追加的 self→direct 改名未经浏览器实测，功能回归由阶段 6 覆盖 | e2e-verification |
