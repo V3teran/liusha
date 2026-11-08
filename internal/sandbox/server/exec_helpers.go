@@ -131,7 +131,7 @@ func executeCommand(cmdCtx context.Context, cmd *exec.Cmd) (stdout, stderr strin
 }
 
 // buildExecResult 构建执行结果
-func buildExecResult(stdout, stderr string, exitCode int, timedOut bool, outputDir string, execStart time.Time) sandbox.ExecResult {
+func buildExecResult(stdout, stderr string, exitCode int, timedOut bool, outputDir string, before map[string]time.Time) sandbox.ExecResult {
 	res := sandbox.ExecResult{
 		Stdout:   stdout,
 		Stderr:   stderr,
@@ -139,7 +139,7 @@ func buildExecResult(stdout, stderr string, exitCode int, timedOut bool, outputD
 		TimedOut: timedOut,
 	}
 
-	files, warnings := collectAttachments(outputDir, execStart)
+	files, warnings := collectAttachments(outputDir, before)
 	res.Files = files
 	res.Warnings = warnings
 
