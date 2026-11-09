@@ -42,9 +42,9 @@ func main() {
 	logger := logx.New("proxy")
 	ctx := context.Background()
 
-	// proxy 是纯 MITM ingress（filter + XADD），从不调 LLM → 跳过 LLM provider key 校验，
-	// 不再强塞一堆用不到的 key 才能启动。
-	cfg, err := config.LoadWithoutLLMKeys(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
+	// proxy 是纯 MITM ingress（filter + XADD），从不调 LLM → 跳过 LLM 种子校验，
+	// LLM 配置与它无关，写错也不该挡它启动。
+	cfg, err := config.LoadWithoutLLM(envx.OrDefault("LIUSHA_CONFIG", "./config/config.yaml"))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("load config")
 	}
