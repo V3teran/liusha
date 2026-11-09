@@ -180,14 +180,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// isVerifying 报告假设是否正在验证（锁存在且未超时）。只读快照：真正的占用仍以
+// tryAcquire 的原子判断为准，这里只用来让轮询跳过在途假设、省掉无谓的解析。
+func (a *Agent) isVerifying(observationID string) bool {
+	a.verifyingMu.Lock()
+	defer a.verifyingMu.Unlock()
+	lockTime, exists := a.verifying[observationID]
+	return exists && time.Since(lockTime) < a.lockTimeout
+}
+
 // tryAcquire 尝试把假设标记为"验证中"。返回 false 表示已在途，跳过。
-// 添加锁超时检测，如果锁已超时则强制释放并重新获取
+// 锁超时（验证 goroutine 疑似卡死）则强制释放并重新获取。
 func (a *Agent) tryAcquire(observationID string) bool {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
 
 	if lockTime, exists := a.verifying[observationID]; exists {
-		// 检查锁是否超时
 		if time.Since(lockTime) < a.lockTimeout {
 			return false // 锁还在有效期内，拒绝重复获取
 		}
@@ -287,6 +295,11 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 
 	dispatched := 0
 	for _, obs := range observations {
+		// 在途假设先跳过：验证进行中时每轮重新解析只会重复告警（归一化失败的配方
+		// 曾每 5s 告警一次）。
+		if a.isVerifying(obs.ID) {
+			continue
+		}
 		// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；content
 		// 解析失败才是真损坏（executor 写入侧 content 必为合法 JSON），持续
 		// 告警。repro 形状问题已在 parse 内宽容化（保留原始配方继续派发）。
@@ -295,8 +308,9 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
 			continue
 		}
-		a.dispatchVerification(ctx, obs.ID, attempt, sem)
-		dispatched++
+		if a.dispatchVerification(ctx, obs.ID, attempt, sem) {
+			dispatched++
+		}
 	}
 
 	if dispatched > 0 {
@@ -307,13 +321,13 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 }
 
 // dispatchVerification 异步验证单个假设（信号量控制并发，先到先得防重入）。
-func (a *Agent) dispatchVerification(ctx context.Context, observationID string, attempt Attempt, sem chan struct{}) {
-	// 先尝试获取 verifying 锁
+// 返回是否启动了验证（false = 已在途，本次跳过）。
+func (a *Agent) dispatchVerification(ctx context.Context, observationID string, attempt Attempt, sem chan struct{}) bool {
 	if !a.tryAcquire(observationID) {
 		a.logger.Debug().
 			Str("observation_id", observationID).
 			Msg("observation 验证中，跳过并发触发")
-		return
+		return false
 	}
 
 	// 启动 goroutine，在其中获取信号量
@@ -356,6 +370,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			a.recordVerifyFailure(ctx, observationID, attempt, err)
 		}
 	}()
+	return true
 }
 
 // recordVerifyFailure 记一次验证失败；达上限后把假设标记为裁决失败并出圈
