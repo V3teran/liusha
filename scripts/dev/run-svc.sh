@@ -16,9 +16,9 @@ if [ -f .env ]; then
   set +a
 fi
 
-# host 侧地址（pg/redis 在 docker 暴露 5432/6379）
+# host 侧地址（与 compose.yaml 的宿主端口映射一致：pg 55432、redis 56379）
 export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
-export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:6379}"
+export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:56379}"
 # redis 必带密码（compose 起的 redis 已 requirepass；.env 的 REDIS_PASSWORD 必填）
 export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env 必填）}"
 export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8580}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8580
@@ -34,18 +34,16 @@ export LIUSHA_LOG_TO_STDOUT="${LIUSHA_LOG_TO_STDOUT:-false}"
 export LIUSHA_LOG_TO_FILE="${LIUSHA_LOG_TO_FILE:-true}"
 export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 
-# 注：0099 拆别名层后，light/fallback/vision 槽位覆盖 env 已废弃（无代码读取）。
-# 路由事实源在 DB（llm_role_route），dev 靠 config.yaml 的 llm.* 种子首填。
+# LLM 接入与路由的事实源在 DB（llm_provider / llm_role_route）：首装时由 config.yaml 的
+# providers 块引导一次，之后在前端「LLM 配置」页维护。
 
 # proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8588）
 export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8588}"
 
-# LLM 配置不再要求启动前就绪：provider 可在部署后于前端「LLM 配置」页接入。
-# 未接入时服务照常启动，任务下发会被边界校验拒绝并给出指引。
-# LLM 密钥由 config.yaml 各 provider 的 api_key_env 决定（可多家多把），
-# 缺失由 api/runner 启动期校验报精确变量名——此处不做专项检查。
+# LLM 配置不要求启动前就绪：未接入时服务照常启动，任务下发会被拒绝并提示到前端配置。
+# 密钥两条路径：前端直填（加密落库），或 config.yaml 各 provider 的 api_key_env 指定的环境变量。
 
-echo "===== 启动 4 个 host 服务 ====="
+echo "===== 启动 3 个 host 服务 ====="
 echo "  config:        $LIUSHA_CONFIG"
 echo "  postgres:      $LIUSHA_POSTGRES_DSN"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
@@ -124,7 +122,7 @@ echo ""
 echo "✓ 三服务在跑（pids: proxy=${PROXY_PID} api=${API_PID} runner=${WORKER_PID}）"
 echo ""
 echo "📊 前端：web/（本仓）→ make run-web（/api 已代理到本 api）"
-echo "  (登录凭据经前端首启初始化；task_id 跑完 e2e 后从 finding 表查)"
+echo "  （登录：admin / LIUSHA_ADMIN_INITIAL_PASSWORD，仅账号表为空时初始化）"
 echo ""
 echo "  日志合并 tail（Ctrl-C 关闭服务+退出 tail）："
 echo ""
@@ -137,7 +135,7 @@ for f in logs/proxy.log logs/api.log logs/runner.log; do
   done
 done
 
-# 交互 TTY：tail -F 四个日志（Ctrl-C 触发上方 cleanup 优雅关停）。
+# 交互 TTY：tail -F 三个日志（Ctrl-C 触发上方 cleanup 优雅关停）。
 # 非交互（nohup/CI，如 e2e.sh 拉起）：tail 会把脚本钉死成僵尸包装进程，
 # 且多轮累积的 tail 向同一 stdout 文件灌重复流——直接退出，服务已后台运行。
 if [ -t 1 ]; then

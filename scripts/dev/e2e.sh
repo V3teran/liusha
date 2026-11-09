@@ -8,7 +8,7 @@
 #   ./scripts/dev/e2e.sh xss full    # 多选（空格分隔，按参数顺序串行）
 #
 # 清空范围（每次执行都做一次）：
-#   - postgres：运行时表动态 TRUNCATE（豁免 seed 配置/登录资产/迁移台账）
+#   - postgres：运行时表动态 TRUNCATE（豁免用户配置/登录资产/迁移台账）
 #   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
 #   - logs：先关 service 再 rm —— 确保 lumberjack fd 释放，新 service 写干净 logs
 
