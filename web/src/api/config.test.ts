@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { saveAgent, listTools, listToolCandidates, getTool, assignTool } from './config'
+import { patchAgent, resetAgent, deleteSkill, listTools, listToolCandidates, getTool, assignTool } from './config'
 
 // 用假 fetch 断言 config.ts 打的 URL/method/body 与后端契约一致。
 function mockFetch(status: number, json: unknown) {
@@ -17,33 +17,33 @@ describe('config API 客户端', () => {
     vi.unstubAllGlobals()
   })
 
-  it('saveAgent PUT 部分更新：URL id 定位、body 即纯变更集', async () => {
-    const fn = mockFetch(200, { agent: { id: 'h1' } })
-    await saveAgent('h1', {
-      system_prompt: 'SP',
-      description: '侦察排头兵，负责目标测绘',
-      function_tools: ['http_request'],
-      max_iterations: 12,
-      complexity: 'medium',
-      skills: ['dom-xss', 'bac'],
+  it('patchAgent PATCH /agents/:code：只含改动字段，名单为 {on, off}', async () => {
+    const fn = mockFetch(200, { agent: { code: 'planner' } })
+    await patchAgent('planner', {
+      charter: '我的章程',
+      complexity: 'simple',
+      skills: { on: ['bac'], off: [] },
     })
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/agents/h1')
-    expect(init.method).toBe('PUT')
+    expect(url).toBe('/api/agents/planner')
+    expect(init.method).toBe('PATCH')
     const body = JSON.parse(init.body)
-    // 键名与后端 agentUpdate 契约严格一致（system_prompt/complexity/skills；kind 已删除）。
-    expect(body.kind).toBeUndefined()
-    // 目标行由 URL id 权威定位：body 即纯变更集，无任何寻址字段。
-    expect(body.code).toBeUndefined()
-    expect(body.system_prompt).toBe('SP')
-    expect(body.description).toBe('侦察排头兵，负责目标测绘')
-    expect(body.complexity).toBe('medium')
-    expect(body.skills).toEqual(['dom-xss', 'bac'])
-    expect(body.function_tools).toEqual(['http_request'])
-    expect(body.max_iterations).toBe(12)
-    // 未提及字段不出现在 body——后端部分更新语义下不被零值覆盖。
-    expect(body.cli_tools).toBeUndefined()
-    expect(body.name).toBeUndefined()
+    expect(body).toEqual({ charter: '我的章程', complexity: 'simple', skills: { on: ['bac'], off: [] } })
+  })
+
+  it('resetAgent DELETE …/overrides[/:field]', async () => {
+    const fn = mockFetch(200, { agent: { code: 'planner' } })
+    await resetAgent('planner', 'charter')
+    expect(fn.mock.calls[0][0]).toBe('/api/agents/planner/overrides/charter')
+    expect(fn.mock.calls[0][1].method).toBe('DELETE')
+    await resetAgent('planner')
+    expect(fn.mock.calls[1][0]).toBe('/api/agents/planner/overrides')
+  })
+
+  it('deleteSkill 处理 204 无响应体（不把成功的删除误报为失败）', async () => {
+    const fn = vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.reject(new Error('empty body')) })
+    vi.stubGlobal('fetch', fn)
+    await expect(deleteSkill('mine')).resolves.toBeUndefined()
   })
 
   it('listTools 分页透传 page/size/q/kind 到 query', async () => {

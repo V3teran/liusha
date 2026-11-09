@@ -40,7 +40,7 @@ export function AssignmentView() {
   )
   // 归属表由 agents 数据派生；乐观移档经 mutation onMutate 已写入缓存，此处即时反映。
   const complexityBy = useMemo(
-    () => new Map(agents.map((h) => [h.id, h.complexity || 'medium'])),
+    () => new Map(agents.map((h) => [h.code, h.complexity || 'medium'])),
     [agents],
   )
 
@@ -59,11 +59,11 @@ export function AssignmentView() {
   }
 
   // 移档：点未归属 chip 把 agent 归入目标档（单值归属——移出原档由派生自动落空）。
-  const onMove = (agentId: string, group: string) => {
-    if (complexityBy.get(agentId) === group) return
+  const onMove = (agentCode: string, group: string) => {
+    if (complexityBy.get(agentCode) === group) return
     setActionError('')
     moveMutation.mutate(
-      { agentId, complexity: group },
+      { agentCode, complexity: group },
       { onError: onError('移档失败') },
     )
   }
@@ -75,7 +75,7 @@ export function AssignmentView() {
     .filter((g) => !knownSet.has(g) && g !== '__fallback__')
     .map(groupMeta)
 
-  const moving = useMemo(() => new Set(moveMutation.isPending ? [moveMutation.variables?.agentId ?? ''] : []), [moveMutation.isPending, moveMutation.variables])
+  const moving = useMemo(() => new Set(moveMutation.isPending ? [moveMutation.variables?.agentCode ?? ''] : []), [moveMutation.isPending, moveMutation.variables])
 
   const rows: ComplexityGroupMeta[] = [...COMPLEXITY_GROUPS, ...extraGroups]
 
@@ -152,7 +152,7 @@ function ComplexityRow({
   agents: AgentConfig[]
   complexityBy: Map<string, string>
   moving: Set<string>
-  onMove: (agentId: string, group: string) => void
+  onMove: (agentCode: string, group: string) => void
 }) {
   const provState = new Map(providers.map((p) => [p.code, p.enabled] as const))
   const enabled = value ? provState.get(value) : undefined
@@ -233,9 +233,9 @@ function AgentPicker({
   agents: AgentConfig[]
   complexityBy: Map<string, string>
   moving: Set<string>
-  onMove: (agentId: string, group: string) => void
+  onMove: (agentCode: string, group: string) => void
 }) {
-  const inCount = agents.filter((h) => (complexityBy.get(h.id) ?? 'medium') === group).length
+  const inCount = agents.filter((h) => (complexityBy.get(h.code) ?? 'medium') === group).length
   return (
     <div
       role="group"
@@ -246,15 +246,15 @@ function AgentPicker({
         智能体 · 已归入 {inCount}/{agents.length}
       </span>
       {agents.map((h) => {
-        const inGroup = (complexityBy.get(h.id) ?? 'medium') === group
-        const busy = moving.has(h.id)
+        const inGroup = (complexityBy.get(h.code) ?? 'medium') === group
+        const busy = moving.has(h.code)
         return (
           <button
-            key={h.id}
+            key={h.code}
             type="button"
             aria-pressed={inGroup}
             disabled={busy || inGroup}
-            onClick={() => onMove(h.id, group)}
+            onClick={() => onMove(h.code, group)}
             className={
               'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:cursor-default ' +
               (inGroup

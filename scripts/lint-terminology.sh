@@ -23,6 +23,7 @@ EXCLUDES=(
   ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
   ':!deployments'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
   ':!scripts/lint-terminology.sh'
+  ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
   ':!web/dist' ':!**/node_modules'
 )
 
@@ -35,6 +36,8 @@ EXCLUDES=(
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
 # body_absent：断言键已统一为 body_not_contains（迁移 0200 改写存量）。
+# reseed / system_prompt / system_setting：出厂内容编译进程序、数据库只存用户自定义后退役
+#   （迁移 0201）——提示词改称章程（charter），系统设置用户层为 setting_override。
 FORBIDDEN=(
   '知识图谱'
   '认知图'
@@ -71,6 +74,9 @@ FORBIDDEN=(
   'einotools'
   'flows/ingest'
   'body_absent'
+  'reseed'
+  'system_prompt'
+  'system_setting'
 )
 
 MODE="${1:-check}"

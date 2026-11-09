@@ -120,5 +120,7 @@ export async function patch<T>(path: string, body?: unknown): Promise<T> {
 export async function del<T>(path: string): Promise<T> {
   const res = await fetch(API_BASE + path, { method: 'DELETE' })
   if (!res.ok) await raise(res, 'DELETE', path)
+  // 204 无响应体：解析空体会抛异常，把已成功的删除误报成失败。
+  if (res.status === 204) return undefined as T
   return res.json()
 }

@@ -1,161 +1,144 @@
 /**
- * 配置管理 API 客户端（agent 配置读取/编辑 + 只读工具目录）
+ * 配置 API 客户端：智能体、技能与工具目录。
  *
- * 复用 client.ts 的 get/put fetch 封装（同源携带会话 Cookie）。
- * 角色为固定种子（四角色以 code 寻址）：只有编辑、没有新建/删除。
+ * 智能体与内置技能的出厂值随程序发布，接口只读写用户自定义：PATCH 只提交改动的字段
+ * （名单字段为 SetChange），DELETE …/overrides[/:field] 恢复出厂。四个智能体以 code 寻址、
+ * 不可增删；自建技能可增删改。
  */
 
 import { get, post, put, patch, del } from './client'
 import type {
-  AgentConfig,
+  AgentDetail,
+  AgentListItem,
+  SetChange,
   Skill,
+  SkillDetail,
+  SkillListItem,
   Tool,
   ToolKind,
   ToolDetail,
   ToolListResponse,
 } from './types'
 
-// ── agent 配置 ────────────────────────────────────────────────────────
+const enc = encodeURIComponent
 
-/** 拉全量 agent 配置（四角色、含 disabled；分档页消费面）。 */
-export async function listAgentConfigs(): Promise<AgentConfig[]> {
-  const res = await get<{ agents: AgentConfig[] }>('/agents')
-  return res.agents
+// ── 智能体 ──────────────────────────────────────────────────────────
+
+/** 拉全部智能体（不分页；模型分档页消费）。 */
+export async function listAgentConfigs(): Promise<AgentListItem[]> {
+  return (await get<{ agents: AgentListItem[] }>('/agents')).agents
 }
 
-/**
- * 分页 + 搜索获取智能体（配置管理页用）。
- * 不带 page 的 listAgentConfigs 仍是全量。
- */
+/** 分页 + 搜索获取智能体（智能体页）。 */
 export async function listAgentsPaged(
   page: number,
   size: number,
   q = '',
-): Promise<{ agents: AgentConfig[]; total: number }> {
+): Promise<{ agents: AgentListItem[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (q) params.set('q', q)
-  return get<{ agents: AgentConfig[]; total: number }>(`/agents?${params}`)
+  return get<{ agents: AgentListItem[]; total: number }>(`/agents?${params}`)
+}
+
+/** 智能体详情：生效配置、出厂值、自定义状态、提示词归档与只读输出契约。 */
+export async function getAgent(code: string): Promise<AgentDetail> {
+  return get<AgentDetail>(`/agents/${enc(code)}`)
 }
 
 /**
- * 分页 + 搜索获取技能（技能管理页用）。
+ * 智能体的一次修改：只含改动的字段。整值字段提交新值（与出厂相同即不算自定义），
+ * 名单字段提交 SetChange。名称、标识是固定身份，不可改。
  */
+export interface AgentPatch {
+  charter?: string
+  description?: string
+  max_iterations?: number
+  complexity?: string
+  function_tools?: SetChange
+  cli_tools?: SetChange
+  skills?: SetChange
+}
+
+export async function patchAgent(code: string, changes: AgentPatch): Promise<AgentDetail> {
+  return patch<AgentDetail>(`/agents/${enc(code)}`, changes)
+}
+
+/** 把智能体的某字段（不传则全部字段）恢复为出厂值。 */
+export async function resetAgent(code: string, field?: string): Promise<AgentDetail> {
+  const suffix = field ? `/${enc(field)}` : ''
+  return del<AgentDetail>(`/agents/${enc(code)}/overrides${suffix}`)
+}
+
+/** 删除升级前的提示词归档（用户已对照处理）。 */
+export async function deletePromptArchive(code: string): Promise<void> {
+  await del(`/agents/${enc(code)}/prompt-archive`)
+}
+
+// ── 技能 ────────────────────────────────────────────────────────────
+
+/** 拉全部技能（智能体页技能多选器的候选）。 */
+export async function listSkillCandidates(): Promise<SkillListItem[]> {
+  return (await get<{ skills: SkillListItem[] }>('/skills')).skills
+}
+
+/** 分页 + 搜索获取技能（技能页）。 */
 export async function listSkillsPaged(
   page: number,
   size: number,
   q = '',
-): Promise<{ skills: Skill[]; total: number }> {
+): Promise<{ skills: SkillListItem[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (q) params.set('q', q)
-  return get<{ skills: Skill[]; total: number }>(`/skills?${params}`)
+  return get<{ skills: SkillListItem[]; total: number }>(`/skills?${params}`)
 }
 
-/**
- * 智能体可变字段集合：后端 agentUpdate/UpdateParams 白名单。
- * 名称/标识符是固定种子身份，不在其中；description（调度摘要）是 LLM 可读面、可编辑——
- * 接口层直接收窄，防止调用方把改不了的字段发上去。
- */
-export interface AgentChanges {
-  system_prompt?: string
-  description?: string
-  function_tools?: string[]
-  cli_tools?: string[]
-  skills?: string[]
-  max_iterations?: number
-  complexity?: string
+/** 技能详情：生效内容、出厂内容（内置）、自定义状态与各智能体的装配态。 */
+export async function getSkill(code: string): Promise<SkillDetail> {
+  return get<SkillDetail>(`/skills/${enc(code)}`)
 }
 
-/**
- * 保存智能体：PUT 部分更新——只提交 changes 里出现的字段，未提及字段后端不动，
- * 与工具页「单工具装配」（PUT /tools/:name/agents/:code）并发写互不覆盖快照。
- * 目标行由 URL id 权威定位（与 GET 同律），body 即纯变更集，无寻址字段。
- */
-export async function saveAgent(id: string, changes: AgentChanges): Promise<void> {
-  await put(`/agents/${encodeURIComponent(id)}`, changes)
-}
-
-/**
- * 改操作员复杂度档（分档页移档用）：只 PATCH complexity 单字段，
- * 不整体 upsert——避免用列表快照覆盖别处刚改的配置。返回回读的完整 agent。
- */
-export async function saveAgentComplexity(id: string, complexity: string): Promise<AgentConfig> {
-  const res = await patch<{ agent: AgentConfig }>(`/agents/${id}/complexity`, { complexity })
-  return res.agent
-}
-
-/** 拉 skill 目录全量（GET /skills），供 AgentsPage skills 多选器候选。 */
-export async function listSkillCandidates(): Promise<Skill[]> {
-  return get<Skill[]>('/skills')
-}
-
-// ── skill CRUD（技能页）──────────────────────────────────────────────
-
-/** 新建/编辑技能的可写字段。code 建后固定；is_builtin 由后端定（新建恒 false）。 */
-export interface SkillPayload {
+/** 新建自建技能的字段（code 建后固定；与内置或已有技能同名时后端返回 409）。 */
+export interface NewSkill {
   code: string
   name: string
   description: string
   category: string
   body: string
-  enabled: boolean
 }
 
-/** 编辑已有技能的可变字段（PUT 部分更新；内置技能仅 enabled 有意义）。 */
-export interface SkillChanges {
+export async function createSkill(payload: NewSkill): Promise<Skill> {
+  return post<Skill>('/skills', payload)
+}
+
+/** 技能的一次修改：只含改动的字段（内置技能写入自定义层，自建技能直接修改）。 */
+export interface SkillPatch {
   name?: string
   description?: string
-  category?: string
   body?: string
   enabled?: boolean
 }
 
-/** 新建自建技能（is_builtin=false，不受 reseed 覆盖）。code 冲突由后端报错。 */
-export async function createSkill(payload: SkillPayload): Promise<Skill> {
-  return post<Skill>('/skills', payload)
+export async function patchSkill(code: string, changes: SkillPatch): Promise<SkillDetail> {
+  return patch<SkillDetail>(`/skills/${enc(code)}`, changes)
 }
 
-/** 更新技能（按 code 寻址，部分更新——未提及字段不动）。 */
-export async function updateSkill(code: string, changes: SkillChanges): Promise<Skill> {
-  return put<Skill>(`/skills/${encodeURIComponent(code)}`, changes)
+/** 把内置技能的某字段（不传则全部字段）恢复为出厂内容。 */
+export async function resetSkill(code: string, field?: string): Promise<SkillDetail> {
+  const suffix = field ? `/${enc(field)}` : ''
+  return del<SkillDetail>(`/skills/${enc(code)}/overrides${suffix}`)
 }
 
-/** 删除技能（后端拒绝内置技能：409）。 */
+/** 删除自建技能（同时清除各智能体对它的引用；内置技能返回 409）。 */
 export async function deleteSkill(code: string): Promise<void> {
-  await del(`/skills/${encodeURIComponent(code)}`)
+  await del(`/skills/${enc(code)}`)
 }
 
-// ── 装配到智能体（对称工具模块）──────────────────────────────────────
-
-/** 技能详情里的一个智能体条目：involved 由后端权威计算（白名单含 code 或 "*"）。 */
-export interface SkillAgent {
-  code: string
-  name: string
-  involved: boolean
+/** 从技能侧装配/卸载某智能体的该技能（记为该智能体技能名单的勾选或取消）。 */
+export async function assignSkill(code: string, agentCode: string, involved: boolean): Promise<void> {
+  await put(`/skills/${enc(code)}/agents/${enc(agentCode)}`, { involved })
 }
 
-/** 技能详情：技能本体 + 全量智能体及各自装配态。 */
-export interface SkillDetail {
-  skill: Skill
-  agents: SkillAgent[]
-}
-
-/** 技能详情（装配 tab 数据源）：GET /skills/:code/detail。 */
-export async function getSkillDetail(code: string): Promise<SkillDetail> {
-  return get<SkillDetail>(`/skills/${encodeURIComponent(code)}/detail`)
-}
-
-/** 从技能侧装/卸某智能体的该技能（后端按 agent.skills 白名单回存；哨兵物化对称工具）。 */
-export async function assignSkill(
-  code: string,
-  agentCode: string,
-  involved: boolean,
-): Promise<void> {
-  await put(`/skills/${encodeURIComponent(code)}/agents/${encodeURIComponent(agentCode)}`, {
-    involved,
-  })
-}
-
-// ── tool（只读目录）────────────────────────────────────────────────────
+// ── 工具目录（只读）────────────────────────────────────────────────────
 
 // listTools 的查询参数：kind 过滤、q 关键词、分页（page/size 缺省 = 全量不分页）。
 export interface ToolQuery {
@@ -168,7 +151,7 @@ export interface ToolQuery {
 /**
  * 拉工具目录。
  *   - 传 page → 分页（响应带 total），工具模块列表用。
- *   - 不传 page → 全量（total = 列表长度），AgentsPage 多选器候选用。
+ *   - 不传 page → 全量（total = 列表长度），智能体页多选器候选用。
  */
 export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse> {
   const qs = new URLSearchParams()
@@ -180,28 +163,17 @@ export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse
   return get<ToolListResponse>(`/tools${suffix}`)
 }
 
-/** 拉某工具全量候选（不分页），供 AgentsPage function_tools/cli_tools 多选器。 */
+/** 拉某类工具全量候选（不分页），供智能体页 function_tools/cli_tools 多选器。 */
 export async function listToolCandidates(kind: ToolKind): Promise<Tool[]> {
   return (await listTools({ kind })).tools
 }
 
-/** 拉工具详情（含全量智能体及各自装配态 involved），工具模块详情面板用。 */
+/** 拉工具详情（含全部智能体及各自装配态 involved），工具模块详情面板用。 */
 export async function getTool(name: string): Promise<ToolDetail> {
-  return get<ToolDetail>(`/tools/${encodeURIComponent(name)}`)
+  return get<ToolDetail>(`/tools/${enc(name)}`)
 }
 
-/**
- * 从工具侧装配（involved=true）/卸载（false）某智能体的该工具。
- * 后端按工具 kind 改该智能体的 function_tools / cli_tools 并回存，幂等。
- * 装配读写都在后端（单一权威），前端不再搬运智能体全量 body。
- */
-export async function assignTool(
-  name: string,
-  code: string,
-  involved: boolean,
-): Promise<void> {
-  await put<{ code: string; involved: boolean }>(
-    `/tools/${encodeURIComponent(name)}/agents/${encodeURIComponent(code)}`,
-    { involved },
-  )
+/** 从工具侧装配/卸载某智能体的该工具（记为该智能体对应名单的勾选或取消）。 */
+export async function assignTool(name: string, code: string, involved: boolean): Promise<void> {
+  await put<{ code: string; involved: boolean }>(`/tools/${enc(name)}/agents/${enc(code)}`, { involved })
 }

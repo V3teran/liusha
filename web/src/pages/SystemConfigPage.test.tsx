@@ -3,35 +3,24 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { SystemConfigPage } from './SystemConfigPage'
-import {
-  getCompactionSettings,
-  saveCompactionSettings,
-  getRuntimeSettings,
-  saveRuntimeSettings,
-  getProxyFilterSettings,
-  saveProxyFilterSettings,
-} from '@/api/settings'
+import { getSettings, patchSettings, resetSettings } from '@/api/settings'
 import type {
   CompactionSettings,
   RuntimeSettings,
   ProxyFilterSettings,
+  SettingsDetail,
+  SettingsGroup,
 } from '@/api/types'
 
 vi.mock('@/api/settings', () => ({
-  getCompactionSettings: vi.fn(),
-  saveCompactionSettings: vi.fn(),
-  getRuntimeSettings: vi.fn(),
-  saveRuntimeSettings: vi.fn(),
-  getProxyFilterSettings: vi.fn(),
-  saveProxyFilterSettings: vi.fn(),
+  getSettings: vi.fn(),
+  patchSettings: vi.fn(),
+  resetSettings: vi.fn(),
 }))
 
-const mGetCompaction = getCompactionSettings as unknown as ReturnType<typeof vi.fn>
-const mSaveCompaction = saveCompactionSettings as unknown as ReturnType<typeof vi.fn>
-const mGetRuntime = getRuntimeSettings as unknown as ReturnType<typeof vi.fn>
-const mSaveRuntime = saveRuntimeSettings as unknown as ReturnType<typeof vi.fn>
-const mGetProxy = getProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
-const mSaveProxy = saveProxyFilterSettings as unknown as ReturnType<typeof vi.fn>
+const mGet = getSettings as unknown as ReturnType<typeof vi.fn>
+const mPatch = patchSettings as unknown as ReturnType<typeof vi.fn>
+const mReset = resetSettings as unknown as ReturnType<typeof vi.fn>
 
 const compaction: CompactionSettings = {
   planner_context_ratio: 0.6,
@@ -57,6 +46,12 @@ const proxy: ProxyFilterSettings = {
   max_response_body_size: 2097152,
 }
 
+const plain = <T,>(values: T): SettingsDetail<T> => ({ values, defaults: values, overrides: {} })
+const byGroup: Record<SettingsGroup, SettingsDetail<unknown>> = {
+  compaction: plain(compaction),
+  runtime: plain(runtime),
+  proxy_filter: plain(proxy),
+}
 
 // RuntimeSection 保存后失效 React Query 缓存（useQueryClient）——测试壳须提供 Provider。
 function renderWithQueryClient(ui: React.ReactElement) {
@@ -66,12 +61,10 @@ function renderWithQueryClient(ui: React.ReactElement) {
 
 describe('SystemConfigPage', () => {
   beforeEach(() => {
-    mGetCompaction.mockReset().mockResolvedValue(compaction)
-    mSaveCompaction.mockReset().mockImplementation((v: CompactionSettings) => Promise.resolve(v))
-    mGetRuntime.mockReset().mockResolvedValue(runtime)
-    mSaveRuntime.mockReset().mockImplementation((v: RuntimeSettings) => Promise.resolve(v))
-    mGetProxy.mockReset().mockResolvedValue(proxy)
-    mSaveProxy.mockReset().mockImplementation((v: ProxyFilterSettings) => Promise.resolve(v))
+    mGet.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
+    mPatch.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
+    mReset.mockReset()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('三组旋钮各自加载并渲染当前值', async () => {
@@ -86,7 +79,7 @@ describe('SystemConfigPage', () => {
     expect(screen.getByDisplayValue('*.target.com')).toBeInTheDocument()
   })
 
-  it('编辑 compaction 触发阈值后保存 → 调 saveCompactionSettings 透传新值', async () => {
+  it('编辑 compaction 后保存：只提交改动字段', async () => {
     const user = userEvent.setup()
     renderWithQueryClient(<SystemConfigPage />)
     const input = await screen.findByDisplayValue('0.6') // planner_context_ratio
@@ -96,9 +89,38 @@ describe('SystemConfigPage', () => {
     const saveButtons = screen.getAllByRole('button', { name: '保存' })
     await user.click(saveButtons[0]) // 第一区 = compaction
 
-    await waitFor(() => expect(mSaveCompaction).toHaveBeenCalledTimes(1))
-    expect(mSaveCompaction.mock.calls[0][0].planner_context_ratio).toBe(0.7)
-    expect(await screen.findByText('已保存并热生效')).toBeInTheDocument()
+    await waitFor(() => expect(mPatch).toHaveBeenCalledTimes(1))
+    expect(mPatch.mock.calls[0]).toEqual(['compaction', { planner_context_ratio: 0.7 }])
+    expect(await screen.findByText('已保存并生效')).toBeInTheDocument()
+  })
+
+  it('名单字段保存为 {on, off} 操作', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<SystemConfigPage />)
+    const allow = await screen.findByDisplayValue('*.target.com')
+    await user.clear(allow)
+    await user.type(allow, 'app.example')
+    await user.click(screen.getAllByRole('button', { name: '保存' })[2])
+    await waitFor(() => expect(mPatch).toHaveBeenCalledTimes(1))
+    expect(mPatch.mock.calls[0]).toEqual(['proxy_filter', { allow_hosts: { on: ['app.example'], off: ['*.target.com'] } }])
+  })
+
+  it('已自定义字段显示状态条，可单项恢复出厂与整组恢复', async () => {
+    const user = userEvent.setup()
+    const customized: SettingsDetail<RuntimeSettings> = {
+      values: { ...runtime, step_llm_timeout_seconds: 120 },
+      defaults: runtime,
+      overrides: {
+        step_llm_timeout_seconds: { kind: 'replace', default: 300, baseline: 300, default_changed: false, matches_default: false },
+      },
+    }
+    mGet.mockImplementation((g: SettingsGroup) => Promise.resolve(g === 'runtime' ? customized : byGroup[g]))
+    mReset.mockResolvedValue(byGroup.runtime)
+    renderWithQueryClient(<SystemConfigPage />)
+    await user.click(await screen.findByText('恢复默认'))
+    await waitFor(() => expect(mReset).toHaveBeenCalledWith('runtime', 'step_llm_timeout_seconds'))
+    await waitFor(() => expect(screen.queryByText('已自定义')).toBeNull())
+    expect(screen.getByDisplayValue('300')).toBeInTheDocument()
   })
 
   it('proxy body 上限清零 → 该区保存按钮禁用', async () => {

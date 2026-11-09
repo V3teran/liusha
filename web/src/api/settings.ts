@@ -1,51 +1,40 @@
 /**
- * 系统配置 API 客户端（compaction / runtime / proxy_filter 三组业务旋钮）
+ * 系统设置 API 客户端（compaction / runtime / proxy_filter 三组，路由段即分组取值）。
  *
- * 复用 client.ts 的 get/put fetch 封装（同源携带会话 Cookie）。
- * 各组全量读写：GET 拉当前快照，PUT 覆写整组。
- *
- * 事实源是 DB；写经后端 settingstore 失效广播——compaction/runtime 令 runner 进程下次现读即生效，
- * proxy_filter 触发 proxy 进程热换流量过滤链（真热改，无需重启）。
+ * 生效值 = 出厂默认（代码 + config.yaml 部署值）叠加用户自定义。PATCH 只提交改动的字段
+ * （名单字段为 SetChange），DELETE …/overrides[/:field] 恢复出厂。写后后端广播失效：
+ * runner 下次现读即新值，proxy 收到 proxy_filter 失效后热换过滤链。
  */
 
-import { get, put } from './client'
-import type {
-  CompactionSettings,
-  RuntimeSettings,
-  ProxyFilterSettings,
-} from './types'
+import { get, patch, del } from './client'
+import type { RuntimeSettings, SettingsByGroup, SettingsDetail, SettingsGroup, SetChange } from './types'
 
-// ── compaction（会话历史压缩）────────────────────────────────────────
-
-export async function getCompactionSettings(): Promise<CompactionSettings> {
-  return (await get<{ compaction: CompactionSettings }>('/settings/compaction')).compaction
+/** 一组设置的修改：数值字段为新值，名单字段为 SetChange。 */
+export type SettingsPatch<T> = {
+  [K in keyof T]?: T[K] extends Array<infer E> ? SetChange<E> : T[K]
 }
 
-export async function saveCompactionSettings(v: CompactionSettings): Promise<CompactionSettings> {
-  return (await put<{ compaction: CompactionSettings }>('/settings/compaction', v)).compaction
+export async function getSettings<G extends SettingsGroup>(group: G): Promise<SettingsDetail<SettingsByGroup[G]>> {
+  return get<SettingsDetail<SettingsByGroup[G]>>(`/settings/${group}`)
 }
 
-// ── runtime（工具运行时）─────────────────────────────────────────────
+export async function patchSettings<G extends SettingsGroup>(
+  group: G,
+  changes: SettingsPatch<SettingsByGroup[G]>,
+): Promise<SettingsDetail<SettingsByGroup[G]>> {
+  return patch<SettingsDetail<SettingsByGroup[G]>>(`/settings/${group}`, changes)
+}
 
+/** 把某组设置的某字段（不传则整组）恢复为出厂默认。 */
+export async function resetSettings<G extends SettingsGroup>(
+  group: G,
+  field?: string,
+): Promise<SettingsDetail<SettingsByGroup[G]>> {
+  const suffix = field ? `/${encodeURIComponent(field)}` : ''
+  return del<SettingsDetail<SettingsByGroup[G]>>(`/settings/${group}/overrides${suffix}`)
+}
+
+/** 工具运行时设置的生效值（LLM 审计页的超时判定与之同源）。 */
 export async function getRuntimeSettings(): Promise<RuntimeSettings> {
-  return (await get<{ runtime: RuntimeSettings }>('/settings/runtime')).runtime
-}
-
-export async function saveRuntimeSettings(v: RuntimeSettings): Promise<RuntimeSettings> {
-  return (await put<{ runtime: RuntimeSettings }>('/settings/runtime', v)).runtime
-}
-
-// ── proxy_filter（代理流量过滤规则）──────────────────────────────────
-
-export async function getProxyFilterSettings(): Promise<ProxyFilterSettings> {
-  return (await get<{ proxy_filter: ProxyFilterSettings }>('/settings/proxy-filter'))
-    .proxy_filter
-}
-
-export async function saveProxyFilterSettings(
-  v: ProxyFilterSettings,
-): Promise<ProxyFilterSettings> {
-  return (
-    await put<{ proxy_filter: ProxyFilterSettings }>('/settings/proxy-filter', v)
-  ).proxy_filter
+  return (await getSettings('runtime')).values
 }

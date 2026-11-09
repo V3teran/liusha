@@ -1,92 +1,111 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useDirtyDraft } from '@/hooks/useDirtyDraft'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { saveAgent, listToolCandidates, listSkillCandidates } from '@/api/config'
-import { diffChanges, isWildcard, wildcardView } from '@/features/config/agentsEditor'
-import { ToolPicker } from '@/features/config/ToolPicker'
-import type { AgentConfig, Skill, Tool } from '@/api/types'
+import {
+  deletePromptArchive,
+  getAgent,
+  listSkillCandidates,
+  listToolCandidates,
+  patchAgent,
+  resetAgent,
+} from '@/api/config'
+import type { AgentDetail, SkillListItem, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
-import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
-import { useAgentsPagedList } from '@/features/config/useConfigQueries'
-import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
-import { agentProfile } from '@/lib/agentColor'
 import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
 import { Select } from '@/components/ui/Select'
+import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
+import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
+import { OverrideStatus } from '@/features/config/OverrideStatus'
+import { ToolPicker, type PickerCandidate } from '@/features/config/ToolPicker'
+import {
+  draftOf,
+  patchOf,
+  rebaseDraft,
+  type AgentDraft,
+  type AgentSetField,
+  type Catalogs,
+} from '@/features/config/agentsEditor'
+import { useAgentsPagedList } from '@/features/config/useConfigQueries'
+import { useDirtyDraft } from '@/hooks/useDirtyDraft'
+import { agentProfile } from '@/lib/agentColor'
+import { toggleAll, toggleChecked } from '@/lib/override'
 
-// 智能体配置管理页（/config/agents）：四个固定种子角色，编辑系统提示词 + 调度摘要 + 工具集 + 技能白名单。
-// 角色身份（标识符/名称/启用）由种子固定，页面只读、接口不收；调度摘要是 planner 规划时
-// 读取的角色分工摘要（LLM 可读面），可编辑。
-// 保存只提交脏字段（PUT 部分更新），与工具页的并发装配写互不覆盖快照。
-// 工具/技能候选从目录（DB）读取，勾选而非填空——function_tools / cli_tools / skills 三区多选。
+// 智能体页（/config/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
+// 章程、调度摘要、迭代上限、档位与三份白名单。保存只提交改动的字段；与出厂相同的值不算
+// 自定义；每个已自定义字段可对比出厂、单独恢复默认。输出契约随程序固定，只读展示。
 export function AgentsPage() {
   const list = useAgentsPagedList()
   const { rows, loading, error, reload } = list
-  // 工具候选：函数工具 / CLI 工具两套全量目录，一次性拉取供勾选。
+
   const [functionTools, setFunctionTools] = useState<Tool[]>([])
   const [cliTools, setCliTools] = useState<Tool[]>([])
-  const [skills, setSkills] = useState<Skill[]>([])
-  // 草稿状态机（useDirtyDraft 单一实现）：baseline 快照 + JSON 深比对 dirty；
-  // baseline 同时供 diffChanges 算字段级脏集合（保存只提交脏字段）。
-  const { draft, setDraft, patch, open: openDraftState, close: closeDraftState, isDirty: dirty, baseline } =
-    useDirtyDraft<AgentConfig>()
+  const [skills, setSkills] = useState<SkillListItem[]>([])
+  const [catalogsReady, setCatalogsReady] = useState(false)
+
+  const [detail, setDetail] = useState<AgentDetail | null>(null)
+  const { draft, setDraft, patch, open, close, isDirty: dirty, baseline } = useDirtyDraft<AgentDraft>()
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState<string | null>(null)
+  // 抽屉当前展示的 agent：详情请求是异步的，迟到的响应不得覆盖后打开的另一个 agent。
+  const openCodeRef = useRef<string | null>(null)
 
   useEffect(() => {
-    void listToolCandidates('function')
-      .then(setFunctionTools)
-      .catch(() => setFunctionTools([]))
-    void listToolCandidates('cli')
-      .then(setCliTools)
-      .catch(() => setCliTools([]))
-    void listSkillCandidates()
-      .then(setSkills)
-      .catch(() => setSkills([]))
+    void Promise.all([
+      listToolCandidates('function').catch(() => []),
+      listToolCandidates('cli').catch(() => []),
+      listSkillCandidates().catch(() => []),
+    ]).then(([fn, cli, sk]) => {
+      setFunctionTools(fn)
+      setCliTools(cli)
+      setSkills(sk)
+      setCatalogsReady(true)
+    })
   }, [])
 
-  // 本轮编辑的脏字段（空对象 = 无变更）：驱动保存按钮禁用与关闭确认。
-  const changes = useMemo(
-    () => (draft && baseline ? diffChanges(baseline, draft) : {}),
-    [draft, baseline],
+  const catalogs = useMemo<Catalogs>(
+    () => ({
+      function_tools: functionTools.map((t) => t.name),
+      cli_tools: cliTools.map((t) => t.name),
+      skills: skills.map((s) => s.code),
+    }),
+    [functionTools, cliTools, skills],
   )
 
-  // 切换 function_tools / cli_tools / skills 里某项的选中态（不可变：返回新数组）。
-  // 全量哨兵 ["*"] 期间目录以全集勾选展示（与其他形式一致）；取消勾选即物化为
-  // 「全集减一」的显式白名单——与后端 applyAssignment 的卸载语义对称。
-  const toggleTool = (
-    field: 'function_tools' | 'cli_tools' | 'skills',
-    name: string,
-    catalog: string[],
-  ) =>
-    setDraft((d) => {
-      if (!d) return d
-      const next = isWildcard(d[field])
-        ? catalog.filter((n) => n !== name)
-        : d[field].includes(name)
-          ? d[field].filter((n) => n !== name)
-          : [...d[field], name]
-      return { ...d, [field]: next }
-    })
+  const changes = useMemo(
+    () => (draft && baseline ? patchOf(baseline, draft, catalogs) : {}),
+    [draft, baseline, catalogs],
+  )
 
-  // 全选：收拢为哨兵 ["*"]（展示层永远是"目录全集勾选"，与逐个勾满语义等价，
-  // 且未来新增的工具自动装配）。
-  const selectAll = (field: 'function_tools' | 'cli_tools' | 'skills') =>
-    setDraft((d) => (d ? { ...d, [field]: ['*'] } : d))
+  const openAgent = (code: string) => {
+    openCodeRef.current = code
+    getAgent(code)
+      .then((d) => {
+        if (openCodeRef.current === code) setDetail(d)
+      })
+      .catch((e: unknown) => window.alert(e instanceof Error ? e.message : '加载失败'))
+  }
 
-  const openDraft = openDraftState
-  const closeDraft = closeDraftState
+  // 详情与候选目录都就绪后才生成草稿：「全部」模式要按目录全集展开勾选项。
+  useEffect(() => {
+    if (detail && catalogsReady && !draft) open(draftOf(detail, catalogs))
+  }, [detail, catalogsReady, catalogs, draft, open])
 
-  // 用户交互关闭（Esc/遮罩/关闭钮）：有未保存更改时先确认，防误触丢大段提示词。
+  const closeDrawer = () => {
+    openCodeRef.current = null
+    setDetail(null)
+    close()
+  }
+
   const requestClose = () => {
     if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
-    closeDraft()
+    closeDrawer()
   }
 
   const onSave = async () => {
-    if (!draft || !baseline || !dirty) return
+    if (!detail || !dirty || Object.keys(changes).length === 0) return
     setSaving(true)
     try {
-      await saveAgent(draft.id, changes)
-      closeDraft()
+      await patchAgent(detail.agent.code, changes)
+      closeDrawer()
       reload()
     } catch (e) {
       window.alert(e instanceof Error ? e.message : '保存失败')
@@ -95,11 +114,71 @@ export function AgentsPage() {
     }
   }
 
+  // 恢复默认是即时的服务端操作；其它字段上未保存的编辑保留。
+  const onReset = async (field?: keyof AgentDraft) => {
+    if (!detail || !draft || !baseline) return
+    const what = field ? '该项' : '全部字段'
+    if (!window.confirm(`把${what}恢复为出厂值？`)) return
+    setResetting(field ?? 'all')
+    try {
+      const fresh = await resetAgent(detail.agent.code, field)
+      const newBaseline = draftOf(fresh, catalogs)
+      const merged = field ? rebaseDraft(baseline, draft, newBaseline, field) : newBaseline
+      setDetail(fresh)
+      open(newBaseline)
+      setDraft(merged)
+      reload()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : '恢复失败')
+    } finally {
+      setResetting(null)
+    }
+  }
+
+  const onDismissArchive = async () => {
+    if (!detail) return
+    if (!window.confirm('确认已对照处理升级前的提示词？删除后无法找回。')) return
+    try {
+      await deletePromptArchive(detail.agent.code)
+      setDetail({ ...detail, prompt_archive: null })
+      reload()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  const status = (field: keyof AgentDraft, long = false) =>
+    detail && (
+      <OverrideStatus
+        state={detail.overrides[field]}
+        current={detail.agent[field]}
+        long={long}
+        busy={resetting === field}
+        onReset={() => void onReset(field)}
+      />
+    )
+
+  const picker = (field: AgentSetField, candidates: PickerCandidate[], emptyHint: string) =>
+    draft && (
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        {status(field)}
+        <ToolPicker
+          catalog={candidates}
+          draft={draft[field]}
+          onToggle={(name) => setDraft((d) => (d ? { ...d, [field]: toggleChecked(d[field], name) } : d))}
+          onToggleAll={() => setDraft((d) => (d ? { ...d, [field]: toggleAll(d[field], catalogs[field]) } : d))}
+          emptyHint={emptyHint}
+        />
+      </div>
+    )
+
+  const customizedCount = detail ? Object.keys(detail.overrides).length : 0
+
   return (
     <>
       <ConfigListShell
         title="智能体"
-        subtitle="每个 agent 的系统提示词、工具清单与规划时可读的职责描述"
+        subtitle="出厂配置随版本更新；在此自定义章程、工具与技能，改过的项可随时恢复默认"
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -119,7 +198,7 @@ export function AgentsPage() {
           const Icon = profile.icon
           return (
             <ConfigRow
-              key={h.id}
+              key={h.code}
               leading={
                 <span
                   className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
@@ -131,28 +210,31 @@ export function AgentsPage() {
               name={
                 <>
                   {h.name}
-                  {/* 英文标识跟在中文名后：mono 弱化展示，卡片即见寻址键 */}
                   <span className="ml-2 font-mono text-xs font-normal text-text-secondary">{h.code}</span>
                 </>
               }
               description={h.description}
-              dimmed={!h.enabled}
-              onClick={() => openDraft(h)}
-              right={!h.enabled ? <Badge variant="outline">已停用</Badge> : undefined}
+              onClick={() => openAgent(h.code)}
+              right={
+                <div className="flex items-center gap-2">
+                  {h.has_prompt_archive && <Badge variant="outline">待处理的旧提示词</Badge>}
+                  {h.customized.length > 0 && <Badge variant="outline">已自定义 {h.customized.length} 项</Badge>}
+                </div>
+              }
             />
           )
         })}
       </ConfigListShell>
 
       <ConfigDrawer
-        open={!!draft}
-        title={draft?.name || '智能体'}
+        open={!!detail}
+        title={detail?.agent.name || '智能体'}
         onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
         saving={saving}
-        saveDisabled={!dirty}
+        saveDisabled={!dirty || Object.keys(changes).length === 0}
         tabs={
-          draft
+          detail && draft
             ? [
                 {
                   value: 'basic',
@@ -161,7 +243,8 @@ export function AgentsPage() {
                     <>
                       <Field
                         label="调度摘要"
-                        hint="面向编排者的角色分工摘要：planner 规划时读取（LLM 可读，非面向用户的描述）"
+                        hint="面向编排者的角色分工摘要：planner 规划时读取"
+                        aside={status('description')}
                       >
                         <input
                           className={INPUT_CLASS}
@@ -169,14 +252,14 @@ export function AgentsPage() {
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
-                      <Field label="最大迭代轮数" hint="ReAct 推理循环上限">
+                      <Field label="最大迭代轮数" hint="ReAct 推理循环上限（1–1000）" aside={status('max_iterations')}>
                         <input
                           type="number"
                           min={1}
+                          max={1000}
                           className={INPUT_CLASS}
                           value={draft.max_iterations}
                           onChange={(e) => {
-                            // 逐键钳到 ≥1 的整数：Number('')=0，负数/小数/非法输入都不落 draft。
                             const n = Math.floor(Number(e.target.value))
                             patch({ max_iterations: Number.isFinite(n) && n >= 1 ? n : 1 })
                           }}
@@ -186,13 +269,14 @@ export function AgentsPage() {
                         label="复杂度档"
                         hint={
                           <>
-                            决定该智能体的 LLM 路由档位：轻量快答 / 标准推理 / 深度推理。在
+                            决定该智能体的 LLM 路由档位。在
                             <Link className="text-accent hover:underline" to="/config/models?tab=assignment">
                               「模型」页
                             </Link>
                             把每档指到某个部署。
                           </>
                         }
+                        aside={status('complexity')}
                       >
                         <Select
                           className="w-full"
@@ -204,70 +288,88 @@ export function AgentsPage() {
                           <option value="complex">深度推理（complex）</option>
                         </Select>
                       </Field>
-                      <Field label="启用" hint="由种子与运维控制，接口不可改">
-                        <label className="flex items-center gap-2 text-sm text-text">
-                          <input type="checkbox" checked={draft.enabled} disabled />
-                          {draft.enabled ? '已启用' : '已停用'}
-                        </label>
-                      </Field>
+                      {customizedCount > 0 && (
+                        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs text-text-secondary">
+                          <span>已自定义 {customizedCount} 项</span>
+                          <button
+                            type="button"
+                            disabled={resetting !== null}
+                            className="underline-offset-2 hover:text-accent hover:underline disabled:opacity-50"
+                            onClick={() => void onReset()}
+                          >
+                            全部恢复出厂
+                          </button>
+                        </div>
+                      )}
                     </>
                   ),
                 },
                 {
-                  value: 'prompt',
-                  label: '系统提示词',
+                  value: 'charter',
+                  label: '章程',
                   content: (
-                    // tab 名即字段名，不再重复 Field 标题行；flex-1 铺满抽屉剩余高度。
-                    <textarea
-                      className={TEXTAREA_CLASS + ' min-h-[22rem] flex-1 resize-y font-mono'}
-                      value={draft.system_prompt}
-                      placeholder="你是一个专业的安全扫描助手..."
-                      onChange={(e) => patch({ system_prompt: e.target.value })}
-                    />
+                    <div className="flex min-h-0 flex-1 flex-col gap-3">
+                      {detail.prompt_archive && (
+                        <section
+                          aria-label="升级前的自定义提示词"
+                          className="rounded-md border border-status-warning/50 bg-status-warning/5 px-3 py-2 text-xs"
+                        >
+                          <p className="text-text">
+                            升级前你自定义过这个智能体的提示词。新版把提示词拆成了可自定义的「章程」与随程序固定的
+                            「输出契约」，旧的整份提示词无法自动拆分，原文已归档。请对照后决定是否把其中的修改重新写进章程。
+                          </p>
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-text-secondary">查看归档原文</summary>
+                            <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono">
+                              {detail.prompt_archive.prompt}
+                            </pre>
+                          </details>
+                          <button
+                            type="button"
+                            className="mt-2 text-text-secondary underline-offset-2 hover:text-accent hover:underline"
+                            onClick={() => void onDismissArchive()}
+                          >
+                            我已处理，删除归档
+                          </button>
+                        </section>
+                      )}
+                      {status('charter', true)}
+                      <textarea
+                        aria-label="章程"
+                        className={TEXTAREA_CLASS + ' min-h-[20rem] flex-1 resize-y font-mono'}
+                        value={draft.charter}
+                        onChange={(e) => patch({ charter: e.target.value })}
+                      />
+                      {detail.contract && (
+                        <details className="rounded-md border border-border px-3 py-2 text-xs">
+                          <summary className="cursor-pointer text-text-secondary">
+                            输出契约（随程序版本，不可修改；附在章程之后发给模型）
+                          </summary>
+                          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-text-secondary">
+                            {detail.contract}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
                   ),
                 },
                 {
                   value: 'function_tools',
                   label: '内部工具',
-                  content: (
-                    <ToolPicker
-                      catalog={functionTools}
-                      selected={wildcardView(draft.function_tools, functionTools.map((t) => t.name))}
-                      onToggle={(name) => toggleTool('function_tools', name, functionTools.map((t) => t.name))}
-                      onSelectAll={() => selectAll('function_tools')}
-                      emptyHint={isWildcard(draft.function_tools) ? '目录为空（全量模式下自动装配未来新增）' : '无可用内部工具'}
-                    />
-                  ),
+                  content: picker('function_tools', functionTools, '无可用内部工具'),
                 },
                 {
                   value: 'cli_tools',
                   label: '外部工具',
-                  content: (
-                    <ToolPicker
-                      catalog={cliTools}
-                      selected={wildcardView(draft.cli_tools, cliTools.map((t) => t.name))}
-                      onToggle={(name) => toggleTool('cli_tools', name, cliTools.map((t) => t.name))}
-                      onSelectAll={() => selectAll('cli_tools')}
-                      emptyHint={isWildcard(draft.cli_tools) ? '目录为空（全量模式下自动装配未来新增）' : '无可用外部工具'}
-                    />
-                  ),
+                  content: picker('cli_tools', cliTools, '无可用外部工具'),
                 },
                 {
                   value: 'skills',
                   label: '技能',
-                  content: (
-                    <ToolPicker
-                      // 技能以 code 裸名寻址：多选器候选映射到最小结构，不再伪造 Tool 全字段。
-                      catalog={skills.map((sk) => ({
-                        name: sk.code,
-                        category: sk.category,
-                        description: sk.description,
-                      }))}
-                      selected={wildcardView(draft.skills, skills.map((sk) => sk.code))}
-                      onToggle={(name) => toggleTool('skills', name, skills.map((sk) => sk.code))}
-                      onSelectAll={() => selectAll('skills')}
-                      emptyHint={isWildcard(draft.skills) ? '目录为空（全量模式下自动装配未来新增）' : '无可用技能知识库（可在「知识库」页创建）'}
-                    />
+                  content: picker(
+                    'skills',
+                    skills.map((sk) => ({ name: sk.code, category: sk.category, description: sk.description })),
+                    '无可用技能（可在「技能」页创建）',
                   ),
                 },
               ]

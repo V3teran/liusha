@@ -8,7 +8,7 @@ import {
   saveRoleRoute,
   deleteRoleRoute,
 } from '@/api/models'
-import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
+import { listAgentConfigs, patchAgent } from '@/api/config'
 import type { ProviderConfig } from '@/api/types'
 
 // 模型模块数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
@@ -117,23 +117,22 @@ export function useSaveRoleRoute() {
 }
 
 /**
- * 智能体移档（写 agent.complexity，与「智能体」页下拉同源）。
+ * 智能体移档（自定义 agent 的 complexity，与「智能体」页下拉同源；移回出厂档即不算自定义）。
  * 乐观更新 agents 缓存中该行的 complexity，失败回滚。
  */
-type MoveVars = { agentId: string; complexity: string }
+type MoveVars = { agentCode: string; complexity: string }
 
 export function useSaveAgentComplexity() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ agentId, complexity }: MoveVars) =>
-      saveAgentComplexity(agentId, complexity),
-    onMutate: async ({ agentId, complexity }) => {
+    mutationFn: ({ agentCode, complexity }: MoveVars) => patchAgent(agentCode, { complexity }),
+    onMutate: async ({ agentCode, complexity }) => {
       await qc.cancelQueries({ queryKey: modelKeys.agents })
       const prev = qc.getQueryData(modelKeys.agents)
       qc.setQueryData(modelKeys.agents, (old: unknown) => {
-        const cur = old as { id: string; complexity?: string }[] | undefined
+        const cur = old as { code: string; complexity?: string }[] | undefined
         if (!cur) return old
-        return cur.map((h) => (h.id === agentId ? { ...h, complexity } : h))
+        return cur.map((h) => (h.code === agentCode ? { ...h, complexity } : h))
       })
       return { prev }
     },
