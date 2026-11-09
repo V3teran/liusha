@@ -31,8 +31,10 @@ type Provider interface {
 }
 
 // TaskStatusLookup 是清扫器对任务终态的判定依赖：返回任务当前状态与
-// 任务是否存在。实现方（runner）闭包 task store；测试用 fake。
-type TaskStatusLookup func(ctx context.Context, taskID string) (status string, exists bool)
+// 任务是否存在。exists=false 只表示确认不存在（如 ErrNoRows）；查询本身
+// 失败必须返回 err，清扫器据此保留会话而不是误判为已删除。
+// 实现方（runner）闭包 task store；测试用 fake。
+type TaskStatusLookup func(ctx context.Context, taskID string) (status string, exists bool, err error)
 
 // 任务状态字面值（与 task 表 CHECK 约束一致；清扫只关心是否终态）。
 const (
@@ -69,7 +71,10 @@ func SweepTerminalSessions(ctx context.Context, p Provider, lookup TaskStatusLoo
 			if !ok || taskID == "" {
 				continue // 全局会话无归属任务，交由人工管理
 			}
-			status, exists := lookup(ctx, taskID)
+			status, exists, lErr := lookup(ctx, taskID)
+			if lErr != nil {
+				continue // 无法确认终态：保留，下轮重试
+			}
 			if exists && status == statusActive {
 				continue
 			}

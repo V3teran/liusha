@@ -58,6 +58,7 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -265,12 +266,15 @@ func main() {
 
 	// 会话身份终态清扫：任务终态清理（handler 内）的崩溃兜底——按任务状态
 	// 这个事实回收，不依赖任何过期时间。runner 单实例部署，天然单例。
-	credential.StartSweepLoop(trafficCtx, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), func(ctx context.Context, taskID string) (string, bool) {
+	credential.StartSweepLoop(trafficCtx, credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix), func(ctx context.Context, taskID string) (string, bool, error) {
 		t, err := stores.tasks.GetByID(ctx, taskID)
-		if err != nil {
-			return "", false
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
 		}
-		return string(t.Status), true
+		if err != nil {
+			return "", false, err
+		}
+		return string(t.Status), true, nil
 	}, logger)
 
 	// llm_invocation 留存清理：记录含完整 prompt/response 敏感载荷，
