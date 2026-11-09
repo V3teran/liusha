@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/V3teran/liusha/compare/v0.5.1...v0.6.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** 需执行迁移 0201（Docker 部署随 up 自动执行，升级前改过的整份提示词归档待处理）； 接口契约变更——/agents/:id → /agents/:code、PUT → PATCH（名单字段为 {on, off}）、 /skills/:code/detail 并入 /skills/:code、/settings/proxy-filter → /settings/proxy_filter； `make reseed` 已移除。
+
+### Features
+
+* **config:** 内置内容分层——出厂值编译进程序，数据库只存用户自定义 ([51785a1](https://github.com/V3teran/liusha/commit/51785a1ddfbff5eee901dbcf0ed3bec73dab9aad))
+* **ui:** 智能体、技能与系统设置页改为编辑用户自定义——已自定义标记、对比出厂与恢复默认 ([e609f33](https://github.com/V3teran/liusha/commit/e609f33d16cb75e285209343e55669591150069c))
+
 ## [0.5.1](https://github.com/V3teran/liusha/compare/v0.5.0...v0.5.1) (2026-11-09)
 
 
