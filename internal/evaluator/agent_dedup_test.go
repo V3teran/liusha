@@ -147,3 +147,30 @@ func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 		t.Fatalf("只有 unverified 应进裁决管道: %d", w.VerificationCount())
 	}
 }
+
+// TestParseObservationToAttemptKeepsReproDomain 锁定轮询入口不私改配方：
+// 断言只有 description 的 web 配方（机器无从判定）必须原样交复现门终局，
+// 与事件入口同口径——不得在轮询侧私自降级成 generic 绕过「空断言不可坐实」。
+func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
+	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
+	obs := explorationgraph.Node{
+		ID:      "obs-web-desc",
+		TaskID:  "task-1",
+		Kind:    core.KindObservation,
+		Content: json.RawMessage(`{"statement":"S","repro":{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/a","headers":{},"body":""},"baseline":{"method":"GET","url":"http://t/b","headers":{},"body":""}},"assert":{"description":"页面出现管理员数据"}}}`),
+	}
+	att, err := a.parseObservationToAttempt(obs)
+	if err != nil {
+		t.Fatalf("parseObservationToAttempt: %v", err)
+	}
+	var env struct {
+		Domain string          `json:"domain"`
+		Recipe json.RawMessage `json:"recipe"`
+	}
+	if err := json.Unmarshal(att.Primitives, &env); err != nil {
+		t.Fatalf("unmarshal primitives: %v", err)
+	}
+	if env.Domain != "web" {
+		t.Fatalf("轮询入口改写了配方域: domain=%q primitives=%s", env.Domain, att.Primitives)
+	}
+}
