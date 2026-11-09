@@ -40,13 +40,17 @@ func TestLoad_PartialKeyEnvBoots(t *testing.T) {
 	}
 }
 
-// TestLoad_AllKeysMissingFatal：全部路由档位密钥缺失 → 拒启
-// （用户语义「完全不配置就无法使用」的启动期体现）。
-func TestLoad_AllKeysMissingFatal(t *testing.T) {
+// TestLoad_AllKeysMissingBoots：全部路由档位密钥缺失不拒启——「先部署、后在前端
+// 配置」的启动期体现；就绪由下发边界拒绝与运行期致命化接管。
+func TestLoad_AllKeysMissingBoots(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	if _, err := Load(writeConfig(t, minimalYAML)); err == nil {
-		t.Fatalf("全部密钥缺失应拒启")
+	c, err := Load(writeConfig(t, minimalYAML))
+	if err != nil {
+		t.Fatalf("全部密钥缺失应可启动: %v", err)
+	}
+	if len(c.Providers) == 0 {
+		t.Fatal("providers 应照常加载（就绪判定在运行期）")
 	}
 }
 
@@ -63,7 +67,7 @@ func TestLoad_OK(t *testing.T) {
 }
 
 // TestLoad_EmptyProvidersRelyOnDB：providers 留空时事实源在 DB，Load 不应 fail-fast
-// 强制 default_provider——空 yaml + 满 DB 的正常部署必须能启动（见 validateLLMKeys）。
+// 强制 default_provider——空 yaml + 满 DB 的正常部署必须能启动（见 validateLLMSeed）。
 func TestLoad_EmptyProvidersRelyOnDB(t *testing.T) {
 	const noProvidersYAML = `
 api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
