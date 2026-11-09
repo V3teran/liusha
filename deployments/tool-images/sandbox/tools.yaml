@@ -1,4 +1,4 @@
-# liusha 沙箱预装工具清单（六域能力轴）
+# liusha 沙箱预装工具清单（按能力轴分类，分类定义见下方 categories）
 #
 # 架构原则：
 #   - tools.yaml：纯声明（name/category/description），供 Go 代码渲染进 agent SystemPrompt
@@ -142,9 +142,6 @@ tools:
   - name: nuclei
     category: vulnscan
     description: 模板化漏扫引擎——业界事实标准。10k+ 模板覆盖 CVE/misconfig/exposure/dast。（模板由 Dockerfile git clone nuclei-templates 预拉）
-  - name: trufflehog
-    category: vulnscan
-    description: 密钥泄露扫描——Git 历史 + 文件系统 + S3/Docker 镜像扫密钥/token，供应链审计必跑。600+ 密钥规则（AWS/GitHub/Slack/DB 等）。
   - name: nikto
     category: vulnscan
     description: 经典 Web 服务器配置审计——6700+ 测试项：HTTP 响应头安全检查 + Apache/Nginx 配置弱点 + 老旧 CGI 漏洞 + SSL/TLS 测试。与 nuclei 互补（nuclei 侧重 CVE 检测，nikto 侧重配置审计）。
@@ -208,7 +205,7 @@ tools:
     description: 静态代码分析——找代码逻辑漏洞（SQLi/XSS sink、不安全反序列化）。目标暴露源码时秒杀黑盒。
   - name: trufflehog
     category: sast
-    description: Secrets 扫描——源码 / git 历史 / 文件系统 / S3 bucket 找硬编码 API key / token / 凭证。
+    description: 密钥泄露扫描——源码 / Git 历史 / 文件系统 / S3 bucket / Docker 镜像找硬编码 API key / token / 凭证，供应链审计必跑。600+ 密钥规则（AWS/GitHub/Slack/DB 等）。
 
   # ===== reverse（二进制静态逆向 — 反汇编/反编译/结构修补）=====
   - name: ghidra

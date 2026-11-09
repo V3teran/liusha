@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -43,7 +44,7 @@ type ToolManifest struct {
 // Load 从 yaml 文件加载 ToolManifest；返回 error 时调用方应 fail-fast——
 // 工具清单缺失会让 LLM 看不到沙箱有什么工具，agent 无法 ReAct 决策。
 func Load(path string) (*ToolManifest, error) {
-	data, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
+	data, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置，非用户输入
 	if err != nil {
 		return nil, fmt.Errorf("读取 tools manifest %q: %w", path, err)
 	}
@@ -53,6 +54,17 @@ func Load(path string) (*ToolManifest, error) {
 	}
 	if len(m.Tools) == 0 {
 		return nil, fmt.Errorf("tools manifest %q 不含任何工具（tools 列表为空）", path)
+	}
+	// 工具名是 cli_tools 名单与 run_command 的寻址键：缺名或重名都是清单错误。
+	seen := make(map[string]bool, len(m.Tools))
+	for i, t := range m.Tools {
+		if strings.TrimSpace(t.Name) == "" {
+			return nil, fmt.Errorf("tools manifest %q 第 %d 个工具缺少 name", path, i+1)
+		}
+		if seen[t.Name] {
+			return nil, fmt.Errorf("tools manifest %q 工具 %q 重复登记", path, t.Name)
+		}
+		seen[t.Name] = true
 	}
 	return &m, nil
 }
