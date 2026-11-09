@@ -90,7 +90,7 @@ services:
   # 一次性数据库迁移：与 api 同镜像（内含 migrations + migrate CLI），
   # entrypoint 覆盖为 migrate up；开发形态（make migrate 手动）不起本服务。
   migrate:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     build:
       context: .
       dockerfile: cmd/api/Dockerfile
@@ -102,7 +102,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-api:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     build:
       context: .
       dockerfile: cmd/api/Dockerfile
@@ -147,7 +147,7 @@ services:
   # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8580。
   # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。
   nginx:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-nginx:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-nginx:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     build:
       context: .
       dockerfile: deployments/nginx/Dockerfile
@@ -170,7 +170,7 @@ services:
 
   # cmd/proxy：内嵌 proxify SDK 的 MITM 代理 + filter/dedup/aggregator + Asynq 生产者
   proxy:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-proxy:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-proxy:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     build:
       context: .
       dockerfile: cmd/proxy/Dockerfile
@@ -200,7 +200,7 @@ services:
 
   # runner：Asynq 消费者 + ReAct 引擎（不再装 mitm，已拆到 cmd/proxy）。
   runner:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-runner:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-runner:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     build:
       context: .
       dockerfile: cmd/runner/Dockerfile
@@ -222,7 +222,7 @@ services:
       # 沙盒回连的宿主端口（58590 映射），与容器内监听 8590 区分
       LIUSHA_INGEST_PUBLIC_PORT: "58590"
       # 沙盒镜像与业务镜像同版本（与下方 sandbox 条目同一 tag，pull 时一并预拉/升级）
-      LIUSHA_SANDBOX_DEFAULT_IMAGE: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+      LIUSHA_SANDBOX_DEFAULT_IMAGE: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     volumes:
       - ./config:/app/config:ro
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
@@ -248,6 +248,6 @@ services:
   # `compose pull` 预拉 / 升级沙盒镜像（约 6 GB）：否则首个任务现场下载卡很久，且
   # docker run 不会刷新本地已有 tag，升级后沙盒永远停在旧版。scale: 0 → up 不建容器。
   sandbox:
-    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-0.5.0} # x-release-please-version
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-0.5.1} # x-release-please-version
     scale: 0
     profiles: *full-profile
