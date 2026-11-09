@@ -66,15 +66,18 @@ func Schema(c Catalog) override.Schema {
 			return override.Strings(f())
 		}
 	}
-	return override.Schema{
-		FieldCharter:       {Kind: override.Replace},
-		FieldDescription:   {Kind: override.Replace},
-		FieldMaxIterations: {Kind: override.Replace},
-		FieldComplexity:    {Kind: override.Replace},
-		FieldFunctionTools: {Kind: override.Set, Universe: universe(c.FunctionTools)},
-		FieldCliTools:      {Kind: override.Set, Universe: universe(c.CliTools)},
-		FieldSkills:        {Kind: override.Set, Universe: universe(c.Skills)},
+	// 字段表由 Config 推导（名单字段为集合，其余为整值替换），再给名单字段挂上全集。
+	schema := override.SchemaOf(Config{})
+	for name, list := range map[string]func() []string{
+		FieldFunctionTools: c.FunctionTools,
+		FieldCliTools:      c.CliTools,
+		FieldSkills:        c.Skills,
+	} {
+		f := schema[name]
+		f.Universe = universe(list)
+		schema[name] = f
 	}
+	return schema
 }
 
 // Defaults 返回出厂 agent 的可自定义部分。
