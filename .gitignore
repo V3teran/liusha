@@ -74,3 +74,6 @@ __pycache__/
 /.zcodeignore
 $CLAUDE_JOB_DIR/
 .v2c/
+
+# 会话级工作日志（过程状态不入库；结论已沉淀 .agents/reports/）
+.agents/pipeline-progress.md
