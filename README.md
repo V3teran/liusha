@@ -24,3 +24,9 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 ```
 
 回滚同理：检出旧 tag 再 pull / up（数据库迁移只进不退，跨含迁移的版本回滚前先备份）。
+
+## 许可证
+
+Copyright 2026 V3teran
+
+本项目以 [Apache License 2.0](LICENSE) 授权：可以自由使用、修改、分发与商用；再分发时须保留许可证与 [NOTICE](NOTICE) 中的署名，并标明所做的修改。v0.6.2 及之前发布的版本仍按当时的 MIT 许可证授权。
