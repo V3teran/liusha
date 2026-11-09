@@ -3,7 +3,8 @@
 liusha 有三种运行形态，各自面向不同环境。**沙盒说明先行**：runner 永远经
 **宿主 docker** 拉起沙盒容器（sandbox 镜像，warm pool 自动管理、单例复用），
 因此任何形态下 runner 所在位置（host 或容器）都必须能访问 docker daemon，
-且宿主上要有 sandbox 镜像（`make build-sandbox`）。
+且宿主上要有 sandbox 镜像：B 形态由 `compose pull` 随业务镜像同版本一并拉取
+（compose.yaml 的 `sandbox` 条目，scale 0 只拉不起）；A 形态本地 `make build-sandbox`。
 
 | | A 本地开发 | B 生产全容器 | C 单镜像 |
 |---|---|---|---|
@@ -89,7 +90,7 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 | liusha/proxy | cmd/proxy/Dockerfile | 纯 MITM |
 | liusha/nginx | deployments/nginx/Dockerfile | 多阶段：node 构建前端 + nginx 托管 |
 | liusha/single | deployments/single/Dockerfile | 全家桶（pg+redis+3进程+nginx） |
-| sandbox | deployments/tool-images/sandbox/ | 沙盒（base 由 CI 推 GHCR，final 本地构建） |
+| sandbox | deployments/tool-images/sandbox/ | 沙盒：CI（build-sandbox）变更即构建推 `:main`，发版晋升为 `X.Y.Z` / `X.Y` / `latest`，与业务镜像同版本；本地 `make build-sandbox` |
 
 直接拉取的上游镜像（非本仓构建）：`pgvector/pgvector:pg17`（postgres）、
 `redis:8`——由 compose.yaml 引用，不在本地构建清单内。
