@@ -155,7 +155,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。类型只能用模板列出的：release-please 不识别的类型（如 `pipeline`）不会进 CHANGELOG 和发布说明。
 - 改 API 契约、需要迁移的变更是破坏性变更：主题的类型后加 `!`，正文末尾用 `BREAKING CHANGE: <升级注意>` 脚注写明升级步骤。release-please 只收录主题行与该脚注，写在正文其它位置的升级说明不会进 CHANGELOG。1.0 之前破坏性变更只升次版本（`bump-minor-pre-major`）。
 - 发布由 release-please 驱动：合并 Release PR 即发版。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 克隆 tag）由它改写，不要手改。
-- 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像，并把 sandbox 的 `:main` 晋升为同版本 tag。sandbox 镜像在 main 上相关路径变更时由 `build-sandbox` 构建为 `:main`。
+- 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像；sandbox 不重建，而是找出与本版本沙盒源码一致的已构建镜像晋升为同版本 tag（找不到即失败，不发过期沙盒）。sandbox 在 main 上沙盒源码变更时由 `build-sandbox` 构建，以提交 sha 打标签。沙盒源码由 Dockerfile 的 COPY 推导（`scripts/ci/sandbox-inputs.sh`），构建判定与发版查找同源，改 Dockerfile 不需要同步任何路径清单。合并发版 PR 不用等沙盒构建完成：发版会等它。
 
 ## 全仓体检分波
 

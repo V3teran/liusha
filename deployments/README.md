@@ -91,7 +91,7 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 | liusha/proxy | cmd/proxy/Dockerfile | 纯 MITM |
 | liusha/nginx | deployments/nginx/Dockerfile | 多阶段：node 构建前端 + nginx 托管 |
 | liusha/single | deployments/single/Dockerfile | 全家桶（pg+redis+3进程+nginx） |
-| sandbox | deployments/tool-images/sandbox/ | 沙盒：CI（build-sandbox）变更即构建推 `:main`，发版晋升为 `X.Y.Z` / `X.Y` / `latest`，与业务镜像同版本；本地 `make build-sandbox` |
+| sandbox | deployments/tool-images/sandbox/ | 沙盒：CI（build-sandbox）在沙盒源码变更时构建（标签为提交 sha 与 `:main`），发版把与该版本源码一致的镜像晋升为 `X.Y.Z` / `X.Y` / `latest`，与业务镜像同版本；本地 `make build-sandbox` |
 
 直接拉取的上游镜像（非本仓构建）：`pgvector/pgvector:pg17`（postgres）、
 `redis:8`——由 compose.yaml 引用，不在本地构建清单内。
