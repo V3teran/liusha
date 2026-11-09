@@ -435,27 +435,3 @@ func buildExperienceSection(entries []corpus.Entry) string {
 	sb.WriteString("\n**注意**：经验来自其它任务的沉淀，仅供参考——与本任务的事实/目标冲突时以本任务为准。\n\n")
 	return sb.String()
 }
-
-// buildJSONSchema 构建 JSON 格式示例
-func buildJSONSchema() string {
-	var sb strings.Builder
-	sb.WriteString("请以 JSON 格式返回你的规划：\n")
-	sb.WriteString("```json\n")
-	sb.WriteString("{\n")
-	sb.WriteString("  \"should_continue\": true/false,\n")
-	sb.WriteString("  \"reasoning\": \"你的推理过程\",\n")
-	sb.WriteString("  \"actions\": [\n")
-	sb.WriteString("    {\n")
-	sb.WriteString("      \"type\": \"action类型\",\n")
-	sb.WriteString("      \"instruction\": \"具体执行指令\",\n")
-	sb.WriteString("      \"complexity\": \"simple/moderate/complex\",\n")
-	sb.WriteString("      \"priority\": \"critical/high/medium/low\",\n")
-	sb.WriteString("      \"reason\": \"为什么需要这个操作\",\n")
-	sb.WriteString("      \"depends_on\": [\"可引用上面列出的真实 Action ID；列表里没有可依赖的就填 []，绝不要编造或照抄示例\"],\n")
-	sb.WriteString("      \"metadata\": {}\n")
-	sb.WriteString("    }\n")
-	sb.WriteString("  ]\n")
-	sb.WriteString("}\n")
-	sb.WriteString("```\n")
-	return sb.String()
-}

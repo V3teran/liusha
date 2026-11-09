@@ -49,7 +49,7 @@ type EngineConfig struct {
 	FunctionTools []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
 	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
-	SystemPrompt  string        // 角色章程（agent.system_prompt 正文；渲染进 prompt 开头，空=跳过）
+	Charter       string        // 角色章程（出厂值叠加用户自定义后的生效值）
 	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	// ContextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
@@ -77,7 +77,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		functionTools:       cfg.FunctionTools,
 		toolsManifest:       cfg.ToolsManifest,
 		skills:              cfg.Skills,
-		charter:             cfg.SystemPrompt,
+		charter:             cfg.Charter,
 		complexity:          llm.ParseComplexity(cfg.Complexity),
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
@@ -171,12 +171,10 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 
 // buildSystemPrompt 组装 executor system prompt：
 //
-//	角色章程（agent.system_prompt——DB 事实源，种子 = agents/executor.md 正文，前端可调）
+//	章程（可自定义）+ 输出契约（随 ParseOutput 放在本包，不可自定义）
 //	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
 //
-// 章程是机制契约（observations 输出契约 / 域信封 repro/assert 规则）的唯一载体：
-// 改契约 = 改 agents/executor.md + make reseed，代码不内置第二份静态模板。
-// DB 正文为空（新建 agent 未填）时单句兜底，防完全空 prompt 失能。
+// 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
 func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []registry.Tool) string {
 	var toolSB strings.Builder
 	for _, t := range registered {
@@ -188,14 +186,15 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
-		// 强制运维配置：charter 为空时返回空串，让 ReAct.Run 报错
-		// （与 monitor/evaluator 对齐，避免硬编码兜底文案与 agents/executor.md 不同步）
-		e.logger.Error().Msg("executor system_prompt 为空，请运行 make reseed")
+		// 自定义层在写入时已拒绝空章程，此处只是兜底：返回空串让 ReAct.Run 报错。
+		e.logger.Error().Msg("executor 章程为空")
 		return ""
 	}
 
 	var promptSB strings.Builder
 	promptSB.WriteString(charter)
+	promptSB.WriteString("\n\n")
+	promptSB.WriteString(contract)
 	promptSB.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
 	promptSB.WriteString(toolSB.String())
 	basePrompt := promptSB.String()

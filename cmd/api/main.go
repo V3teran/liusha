@@ -145,10 +145,9 @@ func main() {
 	// 同时清理文件里已删除的内置 skill 死行（目录改名/删除残留）。
 	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
 	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
-	seedDir := envx.OrDefault("LIUSHA_SEED_DIR", ".")
-	seedRes, err := seed.Import(ctx, seedDir, cfgAgentStore, cfgSkillStoreRaw)
+	seedRes, err := seed.Import(ctx, cfgAgentStore, cfgSkillStoreRaw)
 	if err != nil {
-		logger.Warn().Err(err).Str("dir", seedDir).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
+		logger.Warn().Err(err).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
 	} else if len(seedRes.Agents) > 0 || len(seedRes.Skills.Touched()) > 0 {
 		// 种子写动了 DB（新行/死行清理）→ 失效多级缓存并广播（本进程缓存虽冷，
 		// 但 runner/其他 api 实例的 L1/L2 可能已有旧值）。

@@ -417,7 +417,7 @@ func (d *Deps) assembleStack(
 		plannerTools[i] = reg.WrapTool(plannerTools[i]) // function 工具入共享审计链（遥测/时间线）
 	}
 	engine := planner.NewEngine(d.Router, d.Logger).
-		WithSystemPrompt(cfgs.planner.SystemPrompt).
+		WithCharter(cfgs.planner.SystemPrompt).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
 		WithAgentRoster([]planner.AgentBrief{
@@ -454,7 +454,7 @@ func (d *Deps) assembleStack(
 		TaskID:              taskID,
 		AgentRunID:          agentRunID,
 		FunctionTools:       cfgs.monitor.FunctionTools,
-		SystemPrompt:        cfgs.monitor.SystemPrompt,
+		Charter:             cfgs.monitor.SystemPrompt,
 		MaxIterations:       cfgs.monitor.MaxIterations,
 		Graph:               d.Graph,
 		EventBus:            d.EventBus,
@@ -545,7 +545,7 @@ func (d *Deps) buildExecutorAgent(
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
 		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
-		SystemPrompt:        cfg.SystemPrompt,                                  // 角色章程（agent.system_prompt，前端可调）
+		Charter:             cfg.SystemPrompt,                                  // 角色章程（生效值）
 		Complexity:          cfg.Complexity,                                    // LLM 档位（agent.complexity，文档 complexity 种子）
 		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
@@ -595,7 +595,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithFunctionTools(cfg.FunctionTools).
 		WithCLIManifest(evaluatorCLImanifest).
 		WithSkills(skillCards(ctx, skillsView, d.Logger, "evaluator")).
-		WithSystemPrompt(cfg.SystemPrompt).
+		WithCharter(cfg.SystemPrompt).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
 		WithContextRatio(d.ContextRatios.Evaluator).

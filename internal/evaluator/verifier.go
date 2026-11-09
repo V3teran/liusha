@@ -126,7 +126,7 @@ const claimFingerprintMetadataKey = "claim_fingerprint"
 // 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
 const (
 	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终裁（web 域）
-	TierJudgeOnly = "judge_only" // 无机器重放通道，裁决官自主取证自主终裁（generic 域，含 web assert 不完整的降级配方）
+	TierJudgeOnly = "judge_only" // 无机器重放通道，裁决官自主取证自主终裁（generic 域）
 )
 
 // 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但不构成漏洞"——

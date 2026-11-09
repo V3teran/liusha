@@ -76,8 +76,8 @@ func (j *RouterJudge) WithSkills(cards []*skill.Card) *RouterJudge {
 	return j
 }
 
-// WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
-func (j *RouterJudge) WithSystemPrompt(charter string) *RouterJudge {
+// WithCharter 注入角色章程（出厂值叠加用户自定义后的生效值）。
+func (j *RouterJudge) WithCharter(charter string) *RouterJudge {
 	j.charter = charter
 	return j
 }
@@ -279,20 +279,21 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 
 // systemPrompt 组装裁决官 system prompt：
 //
-//	角色章程（agent.system_prompt——DB 事实源，种子 = agents/evaluator.md 正文，前端可调）
+//	章程（可自定义：裁决准则、验证流程、域指引）
+//	+ 契约（随 parseVerdict 放在本包，不可自定义：重放通道语义、裁决 JSON）
 //	+ skill 索引（有声明且 read_skill 在白名单时渲染）
 //	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
 //
-// 机制契约（replay 工作方式、裁决 JSON 格式、因果硬规则）由章程承载——
-// 改契约 = 改 agents/evaluator.md + make reseed。charter 为空时报错，强制运维填写。
+// 章程为空时返回空串让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
 func (j *RouterJudge) systemPrompt() string {
 	charter := strings.TrimSpace(j.charter)
 	if charter == "" {
-		// 返回空字符串，让调用方的 ReAct.Run 抛出更明确的错误
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString(charter)
+	sb.WriteString("\n\n")
+	sb.WriteString(contract)
 	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
 	if len(j.skills) > 0 && registry.Allows(j.functionTools, "read_skill") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {

@@ -34,8 +34,8 @@ type Agent struct {
 	interval     time.Duration
 	logger       zerolog.Logger
 
-	systemPrompt string // 角色章程（agent.system_prompt；空=不渲染）
-	maxIt        int    // ReAct 迭代上限（0=不设限）
+	charter string // 角色章程（生效值；空=ReAct.Run 报错）
+	maxIt   int    // ReAct 迭代上限（0=不设限）
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）。
 	contextRatio        float64
 	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
@@ -78,7 +78,7 @@ type Config struct {
 	// nil=不包装（独立部署/测试）。
 	WrapTool func(registry.Tool) registry.Tool
 
-	SystemPrompt  string        // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
+	Charter       string        // 角色章程（出厂值叠加用户自定义后的生效值）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Thoughts      reasoning.Tap // 思考流出口（认知循环注入；nil=不流式）
 }
@@ -125,7 +125,7 @@ func New(cfg Config) *Agent {
 		reactRuntime:        reactRuntime,
 		interval:            interval,
 		logger:              cfg.Logger,
-		systemPrompt:        cfg.SystemPrompt,
+		charter:             cfg.Charter,
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
@@ -310,14 +310,14 @@ func (a *Agent) buildEvaluationObjective() string {
 请开始评估。`, a.taskID)
 }
 
-// buildSystemPrompt 组装监察 system prompt：
-// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/monitor.md 正文，前端可调）。
-// 机制契约（kill_action/request_replan 决策 schema）由章程承载，
-// 改契约 = 改 agents/monitor.md + make reseed。charter 为空时返回空，由 ReAct.Run 报错。
+// buildSystemPrompt 组装监察 system prompt：即章程本身。监察的决策经
+// publish_decision 工具调用发布，形状由工具 schema 约束，最终文本不被解析，
+// 因此没有需要随代码固定的输出契约。章程为空时返回空串让 ReAct.Run 报错
+// （自定义层在写入时已拒绝空章程，此处只是兜底）。
 func (a *Agent) buildSystemPrompt() string {
-	charter := strings.TrimSpace(a.systemPrompt)
+	charter := strings.TrimSpace(a.charter)
 	if charter == "" {
-		return "" // 让 ReAct.Run 报错，强制运维配置
+		return ""
 	}
 	return charter
 }
