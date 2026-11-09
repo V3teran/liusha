@@ -2,13 +2,14 @@ package tools
 
 import (
 	"github.com/V3teran/liusha/internal/constants"
+	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
 // RegisterAll 向 reg 注入全部域工具（按 deps 中可用的存储按需注册）。
 // sandbox / skill 工具在对应依赖为 nil 时跳过，不影响其余工具。
 func RegisterAll(reg *registry.ToolRegistry, deps Deps) {
-	for _, t := range BuildTools(deps, []string{"*"}) {
+	for _, t := range BuildTools(deps, []string{override.Wildcard}) {
 		reg.Register(t)
 	}
 }

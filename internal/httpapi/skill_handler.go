@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
@@ -173,7 +174,7 @@ func respondSkillDetail(c *gin.Context, api SkillAPI, code string) {
 	}
 	views := make([]gin.H, 0, len(agents))
 	for _, a := range agents {
-		views = append(views, gin.H{"code": a.Code, "name": a.Name, "involved": membership(a.Skills, d.Skill.Code)})
+		views = append(views, gin.H{"code": a.Code, "name": a.Name, "involved": registry.Allows(a.Skills, d.Skill.Code)})
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"skill":           skillJSON(d.Skill),

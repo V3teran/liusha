@@ -7,7 +7,10 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
+
+	"github.com/V3teran/liusha/internal/override"
 )
 
 // ─────────────────────────────────────────────
@@ -98,24 +101,14 @@ func (b *BaseTool) SetTimeout(d time.Duration) {
 	b.timeout = d
 }
 
-// Allows 报告 name 是否在白名单内。白名单语义全项目统一：
-// nil = 默认拒绝（符合业界最佳实践：默认拒绝原则）；
-// 空切片 = 空集（严格白名单，明确表示不需要任何工具）；
-// ["*"] = 全量放行（显式声明需要所有工具）；
-// [...] = 严格白名单（只允许列表中的工具）。
-// function_tools/cli_tools/skills 四处 agent 装配共用本判定，避免各写一份闭包。
+// Allows 报告 name 是否在白名单内——function_tools、cli_tools、skills 三类 agent 名单的唯一判定：
+//   - nil = 默认拒绝；
+//   - 空切片 = 空集（明确不装配任何项）；
+//   - 含通配 "*" = 全部（含以后新增）；
+//   - 其余 = 严格白名单。
 func Allows(allowlist []string, name string) bool {
-	if allowlist == nil {
-		return false // nil = 默认拒绝
+	if slices.Contains(allowlist, override.Wildcard) {
+		return true
 	}
-	// 特殊标记：显式全量
-	if len(allowlist) == 1 && allowlist[0] == "*" {
-		return true // "*" = 全量放行
-	}
-	for _, n := range allowlist {
-		if n == name {
-			return true
-		}
-	}
-	return false // 不在白名单 = 拒绝
+	return slices.Contains(allowlist, name)
 }

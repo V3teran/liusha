@@ -487,23 +487,15 @@ func (d *Deps) assembleStack(
 
 // plannerSafeTools 是规划者可持有的 function 工具上界（只读/检索面）。
 // 新增规划安全工具必须在此显式登记——这是角色边界的代码化。
-var plannerSafeTools = map[string]struct{}{
-	"observe_state":     {},
-	"evaluate_progress": {},
-	"search_corpus":     {},
-}
+var plannerSafeTools = []string{"evaluate_progress", "observe_state", "search_corpus"}
 
-// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交）。
-// nil 透传（保持「nil=拒绝」语义）；"*" 求交后为空集（规划安全集之外的
-// 一律不放行）。图读工具（observe_state/evaluate_progress）不走 BuildTools、
-// 由 planner.Plan 按原白名单自注册，不在求交影响面内。
+// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交，判定同 registry.Allows）：
+// 「全部」= 安全集全部，执行面工具无论怎么配都进不来。图读工具（observe_state /
+// evaluate_progress）不走 BuildTools、由 planner.Plan 按原白名单自注册，不在求交影响面内。
 func intersectPlannerSafeTools(whitelist []string) []string {
-	if whitelist == nil {
-		return nil
-	}
-	out := make([]string, 0, len(whitelist))
-	for _, n := range whitelist {
-		if _, ok := plannerSafeTools[n]; ok {
+	out := make([]string, 0, len(plannerSafeTools))
+	for _, n := range plannerSafeTools {
+		if registry.Allows(whitelist, n) {
 			out = append(out, n)
 		}
 	}

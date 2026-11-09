@@ -56,3 +56,33 @@ func TestAllow_WildcardMixed(t *testing.T) {
 		t.Errorf("混写哨兵应全量放行, got %d 张卡", len(got))
 	}
 }
+
+// nil 名单 = 默认拒绝（与 function_tools / cli_tools 同一判定 registry.Allows）。
+func TestAllow_NilDenies(t *testing.T) {
+	v := Allow(NewStoreReader(testSource()), nil)
+	got, err := v.Metas(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("nil 名单应默认拒绝, got %d 张卡", len(got))
+	}
+	if _, err := v.Load(t.Context(), "bac"); err == nil {
+		t.Error("nil 名单下 Load 应拒绝")
+	}
+}
+
+// 显式名单只暴露名单内的技能：索引与正文读取同口径。
+func TestAllow_ExplicitList(t *testing.T) {
+	v := Allow(NewStoreReader(testSource()), []string{"bac"})
+	got, err := v.Metas(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != "bac" {
+		t.Errorf("显式名单应只含 bac, got %v", got)
+	}
+	if _, err := v.Load(t.Context(), "dom-xss"); err == nil {
+		t.Error("名单外的技能 Load 应拒绝")
+	}
+}

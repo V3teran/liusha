@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // Reader 是 skill 渐进式加载的消费接口（StoreReader 实现，测试可替换）：
@@ -18,31 +20,16 @@ type Reader interface {
 }
 
 // View 是 Reader 的白名单视图：agent.skills 声明哪些 skill，本视图就只暴露哪些。
-// 语义与 function_tools/cli_tools 白名单一致：nil=全部（未配置视图），空=空集。
+// 名单判定与 function_tools / cli_tools 共用 registry.Allows（nil=拒绝，空=空集，含 "*"=全部）。
 // 装配层（cognition）按各 agent 配置分别建视图——executor 与 evaluator 可各自独立。
 type View struct {
 	src   Reader
-	allow map[string]struct{} // nil=全部
+	names []string
 }
 
-// Allow 给 src 建白名单视图。names=nil 表示拒绝（默认拒绝）；空 slice=空集；
-// 含 "*"（全部）= 全量放行（allow 集合置 nil）。
-// 声明里不存在的名字在 Metas 过滤时自然消失（配置漂移不致命，索引里看不到）。
+// Allow 给 src 建白名单视图。声明里不存在的名字在 Metas 过滤时自然消失（配置漂移不致命）。
 func Allow(src Reader, names []string) *View {
-	v := &View{src: src}
-	if names == nil {
-		return v
-	}
-	for _, n := range names {
-		if n == "*" {
-			return v // 全量：不做白名单过滤
-		}
-	}
-	v.allow = make(map[string]struct{}, len(names))
-	for _, n := range names {
-		v.allow[n] = struct{}{}
-	}
-	return v
+	return &View{src: src, names: names}
 }
 
 // Metas 返回白名单内的索引卡（Tier 1；源序，停用/不存在的声明项自然缺席）。
@@ -51,12 +38,9 @@ func (v *View) Metas(ctx context.Context) ([]*Card, error) {
 	if err != nil {
 		return nil, err
 	}
-	if v.allow == nil {
-		return all, nil
-	}
 	out := make([]*Card, 0, len(all))
 	for _, c := range all {
-		if _, ok := v.allow[c.Key]; ok {
+		if registry.Allows(v.names, c.Key) {
 			out = append(out, c)
 		}
 	}
@@ -65,10 +49,8 @@ func (v *View) Metas(ctx context.Context) ([]*Card, error) {
 
 // Load 仅放行白名单内的名字（Tier 2 正文）。
 func (v *View) Load(ctx context.Context, name string) (*Card, error) {
-	if v.allow != nil {
-		if _, ok := v.allow[name]; !ok {
-			return nil, fmt.Errorf("skill %q 不在本 agent 的 skills 白名单内", name)
-		}
+	if !registry.Allows(v.names, name) {
+		return nil, fmt.Errorf("skill %q 不在本 agent 的 skills 白名单内", name)
 	}
 	return v.src.Load(ctx, name)
 }
