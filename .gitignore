@@ -75,5 +75,6 @@ __pycache__/
 $CLAUDE_JOB_DIR/
 .v2c/
 
-# 会话级工作日志（过程状态不入库；结论已沉淀 .agents/reports/）
-.agents/pipeline-progress.md
+# AI agent 工作区（治理配置、运行报告、进度日志）：本地过程产物不入库；
+# 结论已沉淀在对应提交说明与 CHANGELOG
+.agents/
