@@ -1,31 +1,21 @@
 name: release-images
 
-# 业务镜像（api / proxy / runner / nginx）双通道发布，标签由 docker/metadata-action 生成：
-#
-#   通道     触发                         标签                      给谁
-#   stable   Release 发布（tag vX.Y.Z）   X.Y.Z、X.Y、latest        正式用户（compose 缺省拉 latest）
-#   edge     push main                    edge、sha-<短哈希>        尝鲜 / 测试环境，未发版代码
-#
-# latest 只随 Release 移动——它是「最新正式版」，绝不指向未发版 commit。
-# 发版链：conventional commits → release-please 维护版本 PR → merge 出 Release → stable 通道。
-# 手动重建：gh workflow run release-images.yml --ref vX.Y.Z（重推该版本 + latest）；
-#           --ref main 等同 edge 通道。sandbox 镜像走独立的 build-sandbox 门控。
+# Release 发布 → 构建业务镜像（api / proxy / runner / nginx）并推送，标签由
+# docker/metadata-action 生成：X.Y.Z、X.Y、latest。latest 即「最新正式版」，
+# 只随 Release 移动；平时提交不构建镜像。
+# 发版链：conventional commits → release-please 维护版本 PR → merge 出 Release → 本 workflow。
+# 手动重建某版本：gh workflow run release-images.yml --ref vX.Y.Z（只接受 tag ref）。
+# sandbox 镜像走独立的 build-sandbox 门控。
 
 on:
   release:
     types: [published]
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.agents/**'
-      - 'LICENSE'
   workflow_dispatch:
 
-# 同一 ref 只保留最新一次构建：main 上连续提交时旧 edge 构建作废；Release 不取消。
+# 同一版本的构建串行，不互相取消（重建不会被打断成半推送状态）。
 concurrency:
   group: release-images-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -33,6 +23,8 @@ permissions:
 
 jobs:
   images:
+    # 只从版本 tag 构建：误在分支上手动触发直接跳过，杜绝未发版代码占用 latest。
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -61,9 +53,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=edge,branch=main
-            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest
 
       - uses: docker/login-action@v3
         with:
