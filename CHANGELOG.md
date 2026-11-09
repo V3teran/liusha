@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/V3teran/liusha/compare/v0.4.1...v0.5.0) (2026-11-09)
+
+
+### Features
+
+* **deploy:** sandbox 镜像随业务镜像同版本发布，compose pull 一并预拉/升级 ([31c9ad0](https://github.com/V3teran/liusha/commit/31c9ad034a2a0fbed54f02c6ca7a89e677180ed8))
+* **deploy:** 部署版本绑定到检出的发布 tag——代码与镜像永远同版本 ([ce3c077](https://github.com/V3teran/liusha/commit/ce3c0773376f9d70c737992703e8875f79de1853))
+
+
+### Bug Fixes
+
+* **bus:** Cancel 改为同步生效，修注销与发布竞态导致已取消订阅仍收到事件 ([df94b2d](https://github.com/V3teran/liusha/commit/df94b2d64b6f56637598e032cbdd41af6bad43f7))
+* **ci:** build-sandbox 变更门比较整次推送范围，修多 commit 推送漏构建 ([65ef362](https://github.com/V3teran/liusha/commit/65ef362de5dae68933494467f1b3810447bf46a8))
+* **cognition:** 修 Abort 与兜底检查竞态吞掉中止原因 ([2080753](https://github.com/V3teran/liusha/commit/2080753d8d9d6ebe1b951eda8e96b4b1ae50af04))
+
 ## [0.4.1](https://github.com/V3teran/liusha/compare/v0.4.0...v0.4.1) (2026-11-09)
 
 
