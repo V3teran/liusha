@@ -34,28 +34,33 @@ type EventBus interface {
 
 // TaskSubscription 是 Task 级订阅句柄：持有独立的广播 channel。
 type TaskSubscription struct {
+	bus    *MemoryBus
 	id     uint64
 	taskID string
 	events chan Event
-	cancel func()
 }
 
 // Events 返回该订阅者的事件通道
 func (s *TaskSubscription) Events() <-chan Event { return s.events }
 
-// Cancel 注销本订阅（幂等；不影响同 task 其他订阅者）
+// Cancel 注销本订阅并关闭其事件通道（幂等；不影响同 task 其他订阅者）。
+// 同步生效：返回后不会再有新事件投递到本订阅，已缓冲的事件仍可读出。
 func (s *TaskSubscription) Cancel() {
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.bus.submit(taskSubOp{kind: opUnsubscribe, sub: s})
 }
+
+type taskSubOpKind int
+
+const (
+	opSubscribe taskSubOpKind = iota
+	opUnsubscribe
+)
 
 // taskSubOp 是 run() 内订阅表的操作请求（订阅表只在 run() 单 goroutine 变更，无竞争）。
 type taskSubOp struct {
-	sub      *TaskSubscription // register 时携带
-	cancelID uint64            // cancel 单个订阅
-	taskID   string
-	done     chan struct{} // 操作完成信号
+	kind taskSubOpKind
+	sub  *TaskSubscription
+	done chan struct{} // 操作完成信号
 }
 
 // MemoryBus 内存实现的事件总线。
@@ -107,8 +112,9 @@ func (b *MemoryBus) run() {
 	}
 }
 
-// safeHandleTaskOp 单次订阅表操作的 panic 隔离。
+// safeHandleTaskOp 单次订阅表操作的 panic 隔离；无论成败都关闭 done，调用方不会挂住。
 func (b *MemoryBus) safeHandleTaskOp(op taskSubOp) {
+	defer close(op.done)
 	defer logx.Recover("bus", "订阅表操作 panic")
 	b.handleTaskOp(op)
 }
@@ -135,39 +141,44 @@ func (b *MemoryBus) safeDispatch(event Event) {
 	}
 }
 
-// handleTaskOp 在 run() 内执行订阅表操作。
+// handleTaskOp 在 run() 内执行订阅表操作。done 由 safeHandleTaskOp 负责关闭。
 func (b *MemoryBus) handleTaskOp(op taskSubOp) {
-	if op.sub != nil { // register
-		subs, ok := b.taskSubs[op.taskID]
+	sub := op.sub
+	switch op.kind {
+	case opSubscribe:
+		subs, ok := b.taskSubs[sub.taskID]
 		if !ok {
 			subs = make(map[uint64]chan Event)
-			b.taskSubs[op.taskID] = subs
+			b.taskSubs[sub.taskID] = subs
 		}
-		subs[op.sub.id] = op.sub.events
-		op.sub.cancel = func() {
-			cancelOp := taskSubOp{cancelID: op.sub.id, taskID: op.taskID, done: make(chan struct{})}
-			select {
-			case b.taskOps <- cancelOp:
-			case <-b.ctx.Done():
-			}
+		subs[sub.id] = sub.events
+	case opUnsubscribe:
+		subs, ok := b.taskSubs[sub.taskID]
+		if !ok {
+			return
 		}
-		if op.done != nil {
-			close(op.done)
-		}
-		return
-	}
-	// cancel 单个订阅
-	if subs, ok := b.taskSubs[op.taskID]; ok {
-		if ch, ok := subs[op.cancelID]; ok {
+		if ch, ok := subs[sub.id]; ok {
 			close(ch)
-			delete(subs, op.cancelID)
+			delete(subs, sub.id)
 		}
 		if len(subs) == 0 {
-			delete(b.taskSubs, op.taskID)
+			delete(b.taskSubs, sub.taskID)
 		}
 	}
-	if op.done != nil {
-		close(op.done)
+}
+
+// submit 把订阅表操作交给 run() 并等待其完成，使注册 / 注销对调用方同步生效。
+// 入队后总线可能先于处理本操作而停止（ctx 取消，run 不再消费队列）：
+// 确认等待必须同样监听总线 ctx，否则 done 永不关闭、调用方永久挂住。
+func (b *MemoryBus) submit(op taskSubOp) {
+	op.done = make(chan struct{})
+	select {
+	case b.taskOps <- op:
+		select {
+		case <-op.done:
+		case <-b.ctx.Done():
+		}
+	case <-b.ctx.Done():
 	}
 }
 
@@ -175,21 +186,12 @@ func (b *MemoryBus) handleTaskOp(op taskSubOp) {
 // 注册同步完成：返回后立即开始接收事件。
 func (b *MemoryBus) SubscribeTask(taskID string) *TaskSubscription {
 	sub := &TaskSubscription{
+		bus:    b,
 		id:     b.nextTaskSub.Add(1),
 		taskID: taskID,
 		events: make(chan Event, constants.ChannelBufferLarge),
 	}
-	op := taskSubOp{sub: sub, taskID: taskID, done: make(chan struct{})}
-	select {
-	case b.taskOps <- op:
-		// 入队后总线可能先于处理本操作而停止（ctx 取消，run 不再消费队列）：
-		// 确认等待必须同样监听总线 ctx，否则 done 永不关闭、调用方永久挂住。
-		select {
-		case <-op.done:
-		case <-b.ctx.Done():
-		}
-	case <-b.ctx.Done():
-	}
+	b.submit(taskSubOp{kind: opSubscribe, sub: sub})
 	return sub
 }
 
