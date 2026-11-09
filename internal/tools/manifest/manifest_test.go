@@ -1,6 +1,11 @@
 package manifest
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // fixture 覆盖多个 category，供 ByCategory / Names / FilterByNames 断言。
 func fixture() *ToolManifest {
@@ -50,3 +55,24 @@ func equal(a, b []string) bool {
 	return true
 }
 
+// TestLoad_RejectsInvalidNames 验证：工具名是 cli_tools 名单与 run_command 的寻址键，
+// 重名或缺名都让清单加载失败（重名会在提示词的工具目录里重复出现，且名单只能指代其一）。
+func TestLoad_RejectsInvalidNames(t *testing.T) {
+	cases := map[string]string{
+		"重名": "tools:\n  - name: trufflehog\n    category: vulnscan\n  - name: trufflehog\n    category: sast\n",
+		"缺名": "tools:\n  - name: \"\"\n    category: recon\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "tools.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("期望加载失败")
+			} else if name == "重名" && !strings.Contains(err.Error(), "trufflehog") {
+				t.Fatalf("错误信息应指出重名工具，得 %v", err)
+			}
+		})
+	}
+}
