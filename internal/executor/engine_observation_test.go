@@ -222,3 +222,26 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		t.Fatalf("推测应降级为 state 落图: %d", len(all))
 	}
 }
+
+// 事实类观察不带配方，不该走配方归一化：此前对空配方也归一化，每条事实观察都报一次
+// 「repro 归一化失败」（本地 e2e 一轮 37 条，全是事实观察），淹没真正缺判据的假设。
+func TestHarvestObservation_FactWithoutReproIsNotNormalized(t *testing.T) {
+	var logs bytes.Buffer
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.New(&logs)})
+	action := explorationgraph.Node{
+		ID: "act-fact", TaskID: "t-fact", Kind: core.KindAction,
+		Content: json.RawMessage(`{"type":"testing","instruction":"i"}`),
+	}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatalf("建 action 失败: %v", err)
+	}
+
+	fact := Observation{Category: CategoryBehavior, Statement: "登录接口对错误密码返回 200 与提示文案"}
+	if _, observed := e.harvestObservation(context.Background(), action, fact, ExecutionTrace{}); !observed {
+		t.Fatal("事实观察应落图")
+	}
+	if bytes.Contains(logs.Bytes(), []byte("repro 归一化失败")) {
+		t.Fatalf("无配方的事实观察不应报归一化失败:\n%s", logs.String())
+	}
+}
