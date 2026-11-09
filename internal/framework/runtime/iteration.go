@@ -142,8 +142,18 @@ func (r *reactRuntime) runIteration(
 			config.OnAction(action)
 		}
 
-		// 执行工具
-		observation, failed, err := r.executeTool(ctx, config, toolCall)
+		// 执行工具（参数无法解析的调用不执行，把错误回给模型重新调用）
+		var (
+			observation string
+			failed      bool
+			err         error
+		)
+		if argErr, bad := response.MalformedArgs[toolCall.ID]; bad {
+			observation = fmt.Sprintf("工具 %s 未执行：参数不是合法 JSON（%v）。请重新调用并给出完整的 JSON 参数。", toolCall.Name, argErr)
+			failed = true
+		} else {
+			observation, failed, err = r.executeTool(ctx, config, toolCall)
+		}
 		if err != nil {
 			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
 			failed = true

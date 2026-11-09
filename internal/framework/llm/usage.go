@@ -82,7 +82,7 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
 	// messages 无论成败都留存：失败现场（哪些消息触发 4xx）是排障第一证据，
 	// 只记成功等于审计在最需要的地方失明。
-	rec.Messages, _ = json.Marshal(req.Messages)
+	rec.Messages = auditMessages(req.Messages)
 	if err != nil {
 		rec.Err = err.Error()
 	} else {
@@ -90,7 +90,7 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 		rec.OutTokens = resp.Usage.OutTokens
 		rec.CachedTokens = resp.Usage.CachedTokens
 		rec.FinishReason = resp.FinishReason
-		rec.Result, _ = json.Marshal(resp)
+		rec.Result = auditResponse(resp)
 	}
 	p.sink.RecordUsage(ctx, rec)
 	return resp, err
@@ -105,7 +105,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		rec := p.baseRecord(meta)
 		rec.LatencyMs = int(time.Since(start).Milliseconds())
 		rec.Err = err.Error()
-		rec.Messages, _ = json.Marshal(req.Messages)
+		rec.Messages = auditMessages(req.Messages)
 		p.sink.RecordUsage(ctx, rec)
 		return ch, err
 	}
@@ -207,11 +207,11 @@ func (p *instrumentedProvider) finishStreamRecord(
 		rec.Err = streamError
 	}
 	rec.FinishReason = finish
-	rec.Messages, _ = json.Marshal(req.Messages)
+	rec.Messages = auditMessages(req.Messages)
 	if !failed {
 		shadow.Usage = usage
 		shadow.FinishReason = finish
-		rec.Result, _ = json.Marshal(shadow)
+		rec.Result = auditResponse(shadow)
 	}
 	return rec
 }
@@ -227,4 +227,46 @@ func (p *instrumentedProvider) baseRecord(meta CallMeta) UsageRecord {
 		TaskID:     meta.TaskID,
 		AgentRunID: meta.AgentRunID,
 	}
+}
+
+// auditMessages / auditResponse 序列化审计载荷。模型可能吐出残缺的工具参数（流式截断等），
+// 原样序列化会因非法 json.RawMessage 失败、审计落成空值——偏偏是最需要现场的时候。
+// 这里把非法参数改存为 JSON 字符串：原文保留，序列化必成功。
+func auditMessages(msgs []Message) []byte {
+	out := make([]Message, len(msgs))
+	for i, m := range msgs {
+		m.ToolCalls = auditToolCalls(m.ToolCalls)
+		out[i] = m
+	}
+	return auditJSON(out)
+}
+
+func auditResponse(resp Response) []byte {
+	resp.ToolCalls = auditToolCalls(resp.ToolCalls)
+	return auditJSON(resp)
+}
+
+func auditToolCalls(tcs []ToolCall) []ToolCall {
+	if len(tcs) == 0 {
+		return tcs
+	}
+	out := make([]ToolCall, len(tcs))
+	for i, tc := range tcs {
+		if len(tc.Arguments) > 0 && !json.Valid(tc.Arguments) {
+			quoted, _ := json.Marshal(string(tc.Arguments)) // 字符串序列化不会失败
+			tc.Arguments = quoted
+		}
+		out[i] = tc
+	}
+	return out
+}
+
+// auditJSON 序列化审计载荷；工具参数已规整后仍失败属于类型层面的编程错误，
+// 落一条可见的占位而不是静默空值。
+func auditJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		b, _ = json.Marshal(map[string]string{"audit_marshal_error": err.Error()})
+	}
+	return b
 }

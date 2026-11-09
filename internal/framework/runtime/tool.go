@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -9,14 +10,44 @@ import (
 )
 
 func (r *reactRuntime) parseLLMResponse(response llm.Response) (*llmResponse, error) {
-	result := &llmResponse{
-		Content:   response.Content,
-		ToolCalls: response.ToolCalls,
-		Thinking:  response.Thinking,
-		Usage:     response.Usage,
-	}
+	toolCalls, malformed := normalizeToolCalls(response.ToolCalls)
+	return &llmResponse{
+		Content:       response.Content,
+		ToolCalls:     toolCalls,
+		MalformedArgs: malformed,
+		Thinking:      response.Thinking,
+		Usage:         response.Usage,
+	}, nil
+}
 
-	return result, nil
+// normalizeToolCalls 规整模型生成的工具参数，返回新切片（不改入参）。参数既要交给工具
+// 执行，也要随 assistant 消息进历史、下一轮原样回传给 provider——非法 JSON 回传会让
+// 整个请求体非法，provider 以 400 拒绝，整段 ReAct 失败。因此：
+//   - 能确定性修复的（转义噪声、尾逗号）修复后执行，历史里存修复后的参数；
+//   - 修不好的（如流式截断）不执行，历史里以 {} 占位，错误经工具结果回给模型重试。
+func normalizeToolCalls(calls []llm.ToolCall) ([]llm.ToolCall, map[string]error) {
+	if len(calls) == 0 {
+		return calls, nil
+	}
+	out := make([]llm.ToolCall, len(calls))
+	var malformed map[string]error
+	for i, tc := range calls {
+		args := tc.Arguments
+		if len(args) == 0 {
+			args = json.RawMessage(`{}`)
+		}
+		args = llm.SanitizeJSON(args)
+		var probe any
+		if err := json.Unmarshal(args, &probe); err != nil {
+			if malformed == nil {
+				malformed = make(map[string]error)
+			}
+			malformed[tc.ID] = err
+			args = json.RawMessage(`{}`)
+		}
+		out[i] = llm.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: args}
+	}
+	return out, malformed
 }
 
 // thinkingText nil-safe 取思考原文。
@@ -55,9 +86,7 @@ func (r *reactRuntime) executeTool(ctx context.Context, config *ReActConfig, too
 	errCh := make(chan error, 1)
 
 	go func() {
-		// 工具参数是模型生成的 JSON：转义噪声在漏斗处归一，工具实现拿到的
-		// 永远是合法字节（合法输入零改动直通）
-		result, err := tool.Execute(ctx, llm.SanitizeJSON(toolCall.Arguments))
+		result, err := tool.Execute(ctx, toolCall.Arguments) // 已在 parseLLMResponse 规整为合法 JSON
 		if err != nil {
 			errCh <- err
 			return
