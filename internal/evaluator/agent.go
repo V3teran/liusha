@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/repro"
 	"github.com/google/uuid"
 )
@@ -174,7 +175,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ticker.C:
 			// 轮询兜底：检查遗漏的 observation
 			if err := a.pollAndVerify(ctx, sem); err != nil {
-				a.logger.Error().Err(err).Msg("轮询验证失败")
+				logx.ErrorUnlessCanceled(a.logger, err).Err(err).Msg("轮询验证失败")
 			}
 		}
 	}
@@ -363,7 +364,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			Msg("开始验证 observation")
 
 		if err := a.verifyObservation(ctx, observationID, attempt); err != nil {
-			a.logger.Error().
+			logx.ErrorUnlessCanceled(a.logger, err).
 				Err(err).
 				Str("observation_id", observationID).
 				Msg("验证失败（保持 unverified，下轮轮询重试）")

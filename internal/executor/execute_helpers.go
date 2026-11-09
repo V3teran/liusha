@@ -10,6 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/repro"
@@ -508,7 +509,7 @@ func (e *Engine) harvestObservation(
 
 	node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)
 	if err != nil {
-		e.logger.Error().
+		logx.ErrorUnlessCanceled(e.logger, err).
 			Err(err).
 			Str("action_id", action.ID).
 			Msg("创建 observation 节点失败")

@@ -6,6 +6,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // Run 是 planner Agent 的事件循环：订阅 bus 事件 + 轮询图，规划新 action 并写图。
@@ -66,7 +67,7 @@ func (a *Agent) planFailure(err error, phase string) error {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，规划无法继续")
 		return err
 	}
-	a.logger.Error().Err(err).Str("phase", phase).Msg("规划失败（下一轮重试）")
+	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("规划失败（下一轮重试）")
 	return nil
 }
 
