@@ -82,6 +82,20 @@ postgres: {max_conns: 20, min_conns: 2}
 	}
 }
 
+// TestLoad_EnvOverridesSandboxImage：compose 经 LIUSHA_SANDBOX_DEFAULT_IMAGE 把沙盒镜像
+// 钉到与业务镜像同一 tag——yaml 里已落名的键必须能被该 env 覆盖。
+func TestLoad_EnvOverridesSandboxImage(t *testing.T) {
+	const want = "ghcr.io/v3teran/liusha-sandbox:0.4.1"
+	t.Setenv("LIUSHA_SANDBOX_DEFAULT_IMAGE", want)
+	cfg, err := Load(writeConfig(t, minimalYAML+"sandbox: {default_image: ghcr.io/v3teran/liusha-sandbox:latest}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sandbox.DefaultImage != want {
+		t.Fatalf("DefaultImage = %q, want %q", cfg.Sandbox.DefaultImage, want)
+	}
+}
+
 func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
 	// consumer_name 留空时应派生每实例唯一名，绝不能退回写死的 ingestor-1
 	// （多副本用同名进同组会静默 pending 混乱）。

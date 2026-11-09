@@ -387,17 +387,19 @@ jobs:
       - name: Push final image (merge arch manifests)
         run: |
           # 双平台已由 build-push-action 直推为单一 multi-arch tag（test-<sha>-amd64
-          # 仅作 smoke 源）；这里直接以它为源落 latest/sha 标签。
+          # 仅作 smoke 源）；这里直接以它为源落 main/sha 标签。
+          # 不动 latest：latest 是「最新正式版」，由 release-images 发版时从 main 晋升，
+          # 与业务镜像同版本号（X.Y.Z / X.Y / latest）。
           docker buildx imagetools create \
-            --tag ${{ env.FINAL_IMAGE }}:latest \
+            --tag ${{ env.FINAL_IMAGE }}:main \
             --tag ${{ env.FINAL_IMAGE }}:${{ github.sha }} \
             ${{ env.FINAL_IMAGE }}:test-${{ github.sha }}
 
       - name: Verify pushed final image
         run: |
           sleep 5
-          docker buildx imagetools inspect ${{ env.FINAL_IMAGE }}:latest
-          echo "✅ final 镜像已发布: ${{ env.FINAL_IMAGE }}:latest"
+          docker buildx imagetools inspect ${{ env.FINAL_IMAGE }}:main
+          echo "✅ final 镜像已发布: ${{ env.FINAL_IMAGE }}:main（发版时晋升 latest）"
 
 
   # 

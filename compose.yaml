@@ -215,6 +215,8 @@ services:
       LIUSHA_INGEST_TOKEN: "${LIUSHA_INGEST_TOKEN:-}"
       # 沙盒回连的宿主端口（58590 映射），与容器内监听 8590 区分
       LIUSHA_INGEST_PUBLIC_PORT: "58590"
+      # 沙盒镜像与业务镜像同版本（与下方 sandbox 条目同一 tag，pull 时一并预拉/升级）
+      LIUSHA_SANDBOX_DEFAULT_IMAGE: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-latest}
     volumes:
       - ./config:/app/config:ro
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/app/logs
@@ -236,3 +238,10 @@ services:
       timeout: 3s
       retries: 3
 
+  # sandbox：不是常驻服务——runner 经 docker.sock 按需拉起（暖池管理）。本条目只为让
+  # `compose pull` 预拉 / 升级沙盒镜像（约 6 GB）：否则首个任务现场下载卡很久，且
+  # docker run 不会刷新本地已有 tag，升级后沙盒永远停在旧版。scale: 0 → up 不建容器。
+  sandbox:
+    image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha-sandbox:${LIUSHA_IMAGE_TAG:-latest}
+    scale: 0
+    profiles: *full-profile
