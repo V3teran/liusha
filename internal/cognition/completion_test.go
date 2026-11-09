@@ -153,3 +153,23 @@ func TestAgentLifecycle_ReportsUnexpectedExit(t *testing.T) {
 		t.Fatalf("应只上报 planner 的异常退出，得 %v", got)
 	}
 }
+
+// TestCompletionDetector_AbortReasonNeverLostToConcurrentCheck：Abort 与后台兜底检查并发时，
+// 检查一旦观察到「已中止」就必须同时拿到调用方传入的原因，绝不能回落到兜底值——
+// 否则用户的中止原因被吞（CI 实测 TestCompletionDetector_AbortStillWorksE2E 偶发得到
+// "manual_abort"）。紧循环轮询放大竞态窗口。
+func TestCompletionDetector_AbortReasonNeverLostToConcurrentCheck(t *testing.T) {
+	const reason = "user requested termination"
+	for i := 0; i < 20000; i++ {
+		d := NewCompletionDetector(Config{TaskID: "t", Logger: zerolog.Nop()})
+		go d.Abort(reason)
+		for {
+			if res, done := d.checkCompletion(); done {
+				if res.StopReason != reason {
+					t.Fatalf("第 %d 轮：中止原因丢失，got %q want %q", i, res.StopReason, reason)
+				}
+				break
+			}
+		}
+	}
+}
