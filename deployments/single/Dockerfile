@@ -52,9 +52,7 @@ COPY --from=gobuild /out/api /out/runner /out/proxy /app/
 COPY --from=migratebuild /go/bin/migrate /app/migrate
 COPY config /app/config
 COPY db/migrations /app/migrations
-# api 启动期种子（agents/skills）与工具清单（tools.yaml）——漏拷则配置表空、cli_tools 候选空
-COPY agents /app/agents
-COPY skills /app/skills
+# 工具清单（tools.yaml）——漏拷则 cli_tools 候选空（agent/技能出厂内容已编译进程序）
 COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
 COPY --from=webbuild /web/dist /usr/share/nginx/html
 COPY deployments/single/nginx.conf /etc/nginx/liusha-single.conf

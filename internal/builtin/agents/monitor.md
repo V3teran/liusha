@@ -1,5 +1,5 @@
 ---
-id: monitor
+code: monitor
 name: 监察者
 description: 监督全局探索进度并在需要时干预
 function_tools:
@@ -228,7 +228,7 @@ Observation 晋升率 = Results / Observations
 4. **决策** - 是否需要干预？
 5. **行动** - 如果是，publish_decision。如果否，等待下一个周期。
 
-# 输出格式
+# 态势读数与分析示例
 
 ### get_global_state 响应（实际形状）
 

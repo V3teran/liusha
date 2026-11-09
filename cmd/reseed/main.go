@@ -15,7 +15,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/V3teran/liusha/internal/config/seed"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/skillstore"
 )
@@ -36,9 +34,6 @@ import (
 func main() {
 	logger := logx.New("reseed")
 	ctx := context.Background()
-
-	dir := flag.String("dir", envx.OrDefault("LIUSHA_SEED_DIR", "."), "种子根目录（含 agents/ 与 skills/）")
-	flag.Parse()
 
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), zerolog.Nop(), 2, 1, 5, 0)
 	if err != nil {
@@ -49,13 +44,13 @@ func main() {
 	agents := agent.NewStore(pool)
 	skills := skillstore.NewStore(pool)
 
-	codes, err := seed.ImportAgentsForce(ctx, *dir, agents)
+	codes, err := seed.ImportAgentsForce(ctx, agents)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("强制重导 agents 失败")
 	}
 	logger.Info().Strs("agents", codes).Msg("agents 已按种子覆盖写入")
 
-	skillRes, err := seed.ImportSkillsForce(ctx, *dir, skills)
+	skillRes, err := seed.ImportSkillsForce(ctx, skills)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("强制重导 skills 失败")
 	}

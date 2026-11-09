@@ -1,5 +1,5 @@
 ---
-id: planner
+code: planner
 name: 规划者
 description: 分析探索图状态并生成下一批行动
 function_tools:
@@ -47,31 +47,6 @@ Objective (新的子目标) → 循环
 每轮规划开始时，系统会自动把**状态摘要**注入你的上下文（未完成目标、近期 Action、已有 Observation/Result、可用凭证、相关历史经验）——摘要够用就别调工具；需要深挖某个依赖链或统计分布时才调。
 
 **search_corpus 的使用时机**：开局注入的经验简报与本任务目标不匹配、或进入陌生技术面（新框架/新中间件/非常规认证）时，以当前方向为查询词检索；命中历史教训的，优先复用已验证的打法、避开已证死的路径。经验来自其它任务，仅供参考——与本任务的事实冲突时以本任务为准。
-
-## 输出格式
-
-规划完成后，**只输出一个 JSON 对象**（不要包裹 markdown）：
-
-```json
-{
-  "should_continue": true,
-  "reasoning": "决策理由（引用具体 Observation/Result ID）",
-  "actions": [
-    {
-      "type": "reconnaissance|analysis|testing|verification|expansion",
-      "instruction": "具体做什么（执行者只看这段话干活，必须自包含）",
-      "complexity": "simple|moderate|complex",
-      "priority": "critical|high|medium|low",
-      "reason": "为什么做（基于哪条观察）",
-      "depends_on": ["<前置action的ID，只引用图中真实存在的UUID>"],
-      "triggered_by": ["<滋生本动作的Result的ID，因果不成立就不填>"],
-      "metadata": {}
-    }
-  ]
-}
-```
-
-停止探索时输出 `{"should_continue": false, "reasoning": "..."}`，actions 为空。
 
 # 核心原则
 

@@ -33,10 +33,6 @@ COPY config /app/config
 # tools.yaml：供 GET /tooling/tools 给 AgentAdmin cli_tools 白名单候选。cmd/api 默认从
 # ./deployments/tool-images/sandbox/tools.yaml 读，漏拷则该端点不注册、配置页候选为空。
 COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
-# 种子目录（agents/*.md + skills/**/SKILL.md）：api 启动期 seed.Import 的数据源——
-# DB 空库首填 agent/skill 配置。漏拷则种子静默跳过，配置表为空、runner 装配出空 agent。
-COPY agents /app/agents
-COPY skills /app/skills
 # non-root 运行（密码文件无 shell 登录；app 目录属主移交）
 RUN addgroup -S app && adduser -S app -G app -h /app
 RUN chown -R app:app /app

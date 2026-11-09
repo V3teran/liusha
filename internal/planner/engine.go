@@ -87,8 +87,8 @@ func NewEngine(router *llm.Router, logger zerolog.Logger) *Engine {
 	}
 }
 
-// WithSystemPrompt 注入角色章程（agent.system_prompt 正文，前端可编辑）。
-func (e *Engine) WithSystemPrompt(charter string) *Engine {
+// WithCharter 注入角色章程（出厂值叠加用户自定义后的生效值）。
+func (e *Engine) WithCharter(charter string) *Engine {
 	e.charter = charter
 	return e
 }
@@ -546,22 +546,21 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 10. 规划要求
 	sb.WriteString(buildPlanningRequirements())
 
-	// 11. JSON 格式示例
-	sb.WriteString(buildJSONSchema())
+	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）
+	sb.WriteString("按系统提示中的「输出契约」只输出一个 JSON 对象。\n")
 
 	return sb.String()
 }
 
-// buildPlannerSystemPrompt 组装规划 system prompt：
-// 角色章程（agent.system_prompt——DB 事实源，种子 = agents/planner.md 正文，前端可调）。
-// 输出 JSON 契约由章程承载，改契约 = 改 agents/planner.md + make reseed。
-// charter 为空时返回空串，让 ReAct.Run 报错，强制运维配置。
+// buildPlannerSystemPrompt 组装规划 system prompt：章程（可自定义）+ 输出契约
+// （随 parsePlanningResponse 放在本包，不可自定义）。章程为空时返回空串，
+// 让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
 func (e *Engine) buildPlannerSystemPrompt() string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
-		return "" // 让 ReAct.Run 报错，强制运维配置
+		return ""
 	}
-	return charter
+	return charter + "\n\n" + contract
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
