@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.1](https://github.com/V3teran/liusha/compare/v0.6.0...v0.6.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **agent:** evaluator 轮询跳过在途假设，验证计数只算真正启动的 ([2c4c0ff](https://github.com/V3teran/liusha/commit/2c4c0ff5ac2147a15cf4a0f7e63a0b8a99a994e5))
+* **agent:** 模型吐出残缺的工具参数不再拖垮整段 ReAct ([e4559da](https://github.com/V3teran/liusha/commit/e4559da8926db4beb3246321284447247b9f3e62))
+* **config:** agent 名单统一经 registry.Allows 判定——修 CLI 工具目录恒为空 ([a5b670e](https://github.com/V3teran/liusha/commit/a5b670e5c304e09b2f2c4c17c0198e729887cdaa))
+* **deploy:** 开发脚本的 redis 默认地址对齐 compose，过时注释与代码对齐 ([838c11c](https://github.com/V3teran/liusha/commit/838c11c3697f20214eae6a21516e1cb488edad6f))
+* **sandbox:** tools.yaml 去掉重复登记的 trufflehog；清单加载校验工具名 ([a739149](https://github.com/V3teran/liusha/commit/a7391499bf597b87d6fadd64bc18f48968939a82))
+
 ## [0.6.0](https://github.com/V3teran/liusha/compare/v0.5.1...v0.6.0) (2026-11-09)
 
 
