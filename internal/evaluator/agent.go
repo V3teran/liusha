@@ -511,11 +511,6 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 			Msg("repro 归一化提示")
 	}
 
-	// web domain的assert降级处理
-	// 如果web domain的assert只有description，缺少机器可验证字段（body_contains/status_code等），
-	// 则自动降级为generic domain，避免验证失败
-	normalized = a.downgradeWebAssertIfNeeded(obs.ID, normalized)
-
 	// priority 缺省交领域交付层补（finding 映射处有默认）——通用裁决层
 	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
 	confidence := content.Confidence
@@ -544,79 +539,6 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		Content:    attContent,
 		Priority:   "medium",
 	}, nil
-}
-
-// downgradeWebAssertIfNeeded 检查web domain的assert是否完整，如果不完整则降级为generic。
-//
-// web 域 assert 只有 description（人类可读）而缺机器可验证字段时，复放门
-// 无从判定——降级为 generic 域由裁决官语义取证兜底，而不是必然证伪。
-func (a *Agent) downgradeWebAssertIfNeeded(obsID string, repro json.RawMessage) json.RawMessage {
-	var env struct {
-		Domain string          `json:"domain"`
-		Recipe json.RawMessage `json:"recipe"`
-		Assert json.RawMessage `json:"assert"`
-	}
-
-	if err := json.Unmarshal(repro, &env); err != nil {
-		return repro // 解析失败，保持原样
-	}
-
-	// 只处理web domain
-	if env.Domain != "web" {
-		return repro
-	}
-
-	// 检查assert是否有机器可验证的字段
-	var assert struct {
-		StatusCode      *int     `json:"status_code"`
-		BodyContains    []string `json:"body_contains"`
-		BodyNotContains []string `json:"body_not_contains"`
-		HeaderContains  []string `json:"header_contains"`
-		MinDurationMs   *int     `json:"min_duration_ms"`
-		Description     string   `json:"description"` // 只有description不够
-	}
-
-	if err := json.Unmarshal(env.Assert, &assert); err != nil {
-		return repro // 解析失败，保持原样
-	}
-
-	// 判断是否只有description，缺少机器可验证字段
-	hasVerifiableField := assert.StatusCode != nil ||
-		len(assert.BodyContains) > 0 ||
-		len(assert.BodyNotContains) > 0 ||
-		len(assert.HeaderContains) > 0 ||
-		assert.MinDurationMs != nil
-
-	if hasVerifiableField {
-		return repro // assert完整，保持原样
-	}
-
-	// assert不完整，降级为generic
-	a.logger.Warn().
-		Str("observation_id", obsID).
-		Msg("web domain observation的assert只有description，缺少机器可验证字段，自动降级为generic domain")
-
-	// 构造generic domain的repro
-	// generic domain不需要assert，由judge LLM直接裁决
-	genericEnv := map[string]interface{}{
-		"domain": "generic",
-		"recipe": map[string]interface{}{
-			"original_domain": "web",
-			"reason":          "assert字段不完整，缺少body_contains/status_code等机器可验证字段",
-			"description":     assert.Description,
-		},
-		"assert": map[string]interface{}{
-			"description": assert.Description,
-		},
-	}
-
-	downgraded, err := json.Marshal(genericEnv)
-	if err != nil {
-		a.logger.Error().Err(err).Msg("降级为generic失败，保持原样")
-		return repro
-	}
-
-	return downgraded
 }
 
 // verifyObservation 验证单个 observation。
