@@ -33,35 +33,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0 # 需要整次推送的基线 commit（github.event.before）
 
       - name: Check what changed
         id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          REBUILD_BASE: ${{ inputs.rebuild_base }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.rebuild_base }}" = "true" ]; then
-            echo "手动触发重建基础镜像（base 变更蕴含 final 变更）"
-            echo "should_build_base=true" >> $GITHUB_OUTPUT
-            echo "should_build_final=true" >> $GITHUB_OUTPUT
+          emit() { echo "should_build_base=$1" >> "$GITHUB_OUTPUT"; echo "should_build_final=$2" >> "$GITHUB_OUTPUT"; }
+
+          # 手动触发：意图即重建 final；勾选 rebuild_base 时连 base 一起（base 变更蕴含 final）。
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "手动触发：final 重建，base=${REBUILD_BASE:-false}"
+            emit "${REBUILD_BASE:-false}" true
             exit 0
           fi
 
-          CHANGED=$(git diff --name-only HEAD^ HEAD)
+          # push：比较整次推送范围 before..sha。只看 HEAD^..HEAD 会漏——一次推多个
+          # commit 而沙盒改动不在最后一个时，:main 静默停在旧版，发版晋升过期沙盒。
+          # before 全零（新建分支）或不在历史中（force push 改写）→ 无可靠基线，全量构建。
+          if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "无可靠基线（before=$BEFORE），全量构建"
+            emit true true
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          echo "=== 本次推送变更（$BEFORE..$GITHUB_SHA）==="
+          echo "$CHANGED"
 
           # base 门：Kali 工具底座（Dockerfile.base / tools.yaml）
-          if echo "$CHANGED" | grep -E "Dockerfile\.base|tools\.yaml"; then
-            echo "should_build_base=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build_base=false" >> $GITHUB_OUTPUT
-          fi
-
-          # final 门：base 变更，或 final 自身内容（server/脚本/装配）变更。
-          # 此前 final 只随 base 走——只改 sandbox-server 或 browser-use 时
-          # 已发布镜像静默过期。
-          if echo "$CHANGED" | grep -E "Dockerfile\.base|tools\.yaml|Dockerfile\.final|browser-use|browser-svc\.py|cmd/sandbox-server|internal/sandbox"; then
-            echo "should_build_final=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build_final=false" >> $GITHUB_OUTPUT
-          fi
+          BASE_RE='Dockerfile\.base|tools\.yaml'
+          # final 门：base 变更，或 final 自身内容（server/脚本/装配）变更——只改
+          # sandbox-server 或 browser-use 时也必须重建，否则已发布镜像静默过期。
+          FINAL_RE="$BASE_RE"'|Dockerfile\.final|browser-use|browser-svc\.py|cmd/sandbox-server|internal/sandbox'
+          base=false; final=false
+          grep -qE "$BASE_RE" <<<"$CHANGED" && base=true
+          grep -qE "$FINAL_RE" <<<"$CHANGED" && final=true
+          echo "base=$base final=$final"
+          emit "$base" "$final"
 
   # ============================================================================
   # Stage 2: 构建并推送基础镜像（直接推送，不保存 artifact）
