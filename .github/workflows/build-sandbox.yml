@@ -1,13 +1,11 @@
 name: Build and Test Sandbox Images
 
+# 每次推送 main 都运行，是否构建由 check-changed 按沙盒源码判定（十几秒的空跑）。
+# 不用 on.paths 过滤：那是一份手写路径清单，曾漏掉 internal/logx、go.mod、vendor 等
+# 编进 sandbox-server 的输入，相关改动不触发重建，发版晋升过期镜像。
 on:
   push:
     branches: [main]
-    paths:
-      - 'deployments/tool-images/sandbox/**'
-      - 'cmd/sandbox-server/**'
-      - 'internal/sandbox/**'
-      - '.github/workflows/build-sandbox.yml'
   workflow_dispatch:
     inputs:
       rebuild_base:
@@ -52,25 +50,22 @@ jobs:
           fi
 
           # push：比较整次推送范围 before..sha。只看 HEAD^..HEAD 会漏——一次推多个
-          # commit 而沙盒改动不在最后一个时，:main 静默停在旧版，发版晋升过期沙盒。
+          # commit 而沙盒改动不在最后一个时，沙盒不重建，发版找不到对应镜像。
           # before 全零（新建分支）或不在历史中（force push 改写）→ 无可靠基线，全量构建。
           if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             echo "无可靠基线（before=$BEFORE），全量构建"
             emit true true
             exit 0
           fi
-          CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-          echo "=== 本次推送变更（$BEFORE..$GITHUB_SHA）==="
-          echo "$CHANGED"
-
-          # base 门：Kali 工具底座（Dockerfile.base / tools.yaml）
-          BASE_RE='Dockerfile\.base|tools\.yaml'
-          # final 门：base 变更，或 final 自身内容（server/脚本/装配）变更——只改
-          # sandbox-server 或 browser-use 时也必须重建，否则已发布镜像静默过期。
-          FINAL_RE="$BASE_RE"'|Dockerfile\.final|browser-use|browser-svc\.py|cmd/sandbox-server|internal/sandbox'
+          # 沙盒源码由 Dockerfile 推导（scripts/ci/sandbox-inputs.sh），与发版查找对应镜像同源。
+          # base 门：base 的输入；final 门：final 的输入（含 base 的输入）。
+          mapfile -t BASE_INPUTS < <(scripts/ci/sandbox-inputs.sh base)
+          mapfile -t FINAL_INPUTS < <(scripts/ci/sandbox-inputs.sh final)
+          echo "=== 本次推送改动的沙盒源码（$BEFORE..$GITHUB_SHA）==="
+          git diff --name-only "$BEFORE" "$GITHUB_SHA" -- "${FINAL_INPUTS[@]}"
           base=false; final=false
-          grep -qE "$BASE_RE" <<<"$CHANGED" && base=true
-          grep -qE "$FINAL_RE" <<<"$CHANGED" && final=true
+          git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "${BASE_INPUTS[@]}" || base=true
+          git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "${FINAL_INPUTS[@]}" || final=true
           echo "base=$base final=$final"
           emit "$base" "$final"
 
@@ -397,10 +392,10 @@ jobs:
 
       - name: Push final image (merge arch manifests)
         run: |
-          # 双平台已由 build-push-action 直推为单一 multi-arch tag（test-<sha>-amd64
-          # 仅作 smoke 源）；这里直接以它为源落 main/sha 标签。
-          # 不动 latest：latest 是「最新正式版」，由 release-images 发版时从 main 晋升，
-          # 与业务镜像同版本号（X.Y.Z / X.Y / latest）。
+          # 双平台已由 build-push-action 直推为单一 multi-arch tag；这里以它为源落 sha 与
+          # main 标签。sha 标签是发版的依据：release-images 按沙盒源码找出对应提交的镜像
+          # 晋升为 X.Y.Z / X.Y / latest（与业务镜像同版本号）；main 只是「main 上最新一次
+          # 构建」的便捷标签，发版不读它。不动 latest：latest 只随正式版移动。
           docker buildx imagetools create \
             --tag ${{ env.FINAL_IMAGE }}:main \
             --tag ${{ env.FINAL_IMAGE }}:${{ github.sha }} \
@@ -409,8 +404,8 @@ jobs:
       - name: Verify pushed final image
         run: |
           sleep 5
-          docker buildx imagetools inspect ${{ env.FINAL_IMAGE }}:main
-          echo "✅ final 镜像已发布: ${{ env.FINAL_IMAGE }}:main（发版时晋升 latest）"
+          docker buildx imagetools inspect ${{ env.FINAL_IMAGE }}:${{ github.sha }}
+          echo "✅ final 镜像已发布: ${{ env.FINAL_IMAGE }}:${{ github.sha }}（及 :main）"
 
 
   # 

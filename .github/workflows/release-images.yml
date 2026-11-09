@@ -5,9 +5,10 @@ name: release-images
 # 只随 Release 移动；平时提交不构建镜像。
 # 发版链：conventional commits → release-please 维护版本 PR → merge 出 Release → 本 workflow。
 # 手动重建某版本：gh workflow run release-images.yml --ref vX.Y.Z（只接受 tag ref）。
-# sandbox 镜像（约 6 GB）由 build-sandbox 在相关代码变更时构建并推 :main；发版时
-# 本 workflow 的 sandbox job 只做 registry 层重打标签（main → X.Y.Z / X.Y / latest），
-# 不重建——与业务镜像同版本号，compose 用同一 LIUSHA_IMAGE_TAG 拉齐两者。
+# sandbox 镜像（约 6 GB）由 build-sandbox 在沙盒源码变更时构建，以推送头提交的 sha 打标签；
+# 发版时本 workflow 的 sandbox job 找出与本版本沙盒源码一致的那个镜像，在 registry 层
+# 重打标签（→ X.Y.Z / X.Y / latest），不重建——与业务镜像同版本号，compose 用同一
+# LIUSHA_IMAGE_TAG 拉齐两者。
 
 on:
   release:
@@ -87,10 +88,19 @@ jobs:
       SANDBOX_IMAGE: ghcr.io/v3teran/liusha-sandbox
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 查找沙盒源码最后一次改动需要完整历史
+
       - uses: docker/setup-buildx-action@v3
 
-      # 发版前刚推的 sandbox 改动可能还在构建：等它跑完再晋升，否则版本标签会指向旧沙盒。
-      # 构建失败则本 job 失败（红灯提示），不把过期沙盒标成本版本。
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      # 发版前刚推的沙盒改动可能还在构建：先等它跑完（失败则本 job 失败）。
       - name: Wait for in-flight sandbox builds
         run: |
           for id in $(gh run list -R "$GITHUB_REPOSITORY" --workflow build-sandbox.yml --branch main \
@@ -99,19 +109,13 @@ jobs:
             gh run watch "$id" -R "$GITHUB_REPOSITORY" --exit-status
           done
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
-
+      # 晋升与本版本沙盒源码一致的镜像，而不是当时恰好叫 :main 的镜像——后者在构建失败
+      # 或漏触发时会悄悄指向旧版本。找不到对应镜像即失败，不发过期沙盒。
       - name: Promote sandbox to release tags
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           MINOR="${VERSION%.*}"
-          # :main 由 build-sandbox 推送；尚无 :main（沙盒自上线以来未再变更）时以现 latest 为源。
-          SRC="$SANDBOX_IMAGE:main"
-          docker buildx imagetools inspect "$SRC" >/dev/null 2>&1 || SRC="$SANDBOX_IMAGE:latest"
+          SRC=$(scripts/ci/sandbox-image-for.sh "$SANDBOX_IMAGE" "$GITHUB_SHA")
           echo "晋升 $SRC → $VERSION, $MINOR, latest"
           docker buildx imagetools create \
             --tag "$SANDBOX_IMAGE:$VERSION" \
