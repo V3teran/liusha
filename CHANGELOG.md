@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/V3teran/liusha/compare/v0.4.0...v0.4.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **config:** 启动期不再校验 LLM 密钥就位；校验函数按实际职责更名 ([2b2d2fe](https://github.com/V3teran/liusha/commit/2b2d2fe40afbaa457e66d31bb9e16718bd5707ba))
+* **sandbox:** 产物归属判定弃用 mtime 时钟过滤，改目录快照 diff——修 CI flaky ([e52be6c](https://github.com/V3teran/liusha/commit/e52be6cc658defb3fc777ae6cda050f96634db27))
+
 ## [0.4.0](https://github.com/V3teran/liusha/compare/v0.3.0...v0.4.0) (2026-11-08)
 
 
