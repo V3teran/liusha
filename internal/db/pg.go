@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/tracelog"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // NewPgPool 构造 pgxpool.Pool 并 Ping 验证。
@@ -86,7 +88,9 @@ type pgxLogger struct{ log zerolog.Logger }
 func (l pgxLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
 	ev := l.log.Warn()
 	if level == tracelog.LogLevelError {
-		ev = l.log.Error()
+		// 调用方上下文取消（任务终止、进程停止）导致的查询失败是正常收尾，不是数据库故障。
+		cause, _ := data["err"].(error)
+		ev = logx.ErrorUnlessCanceled(l.log, cause)
 	}
 	fields := make(map[string]any, len(data))
 	for k, v := range data {

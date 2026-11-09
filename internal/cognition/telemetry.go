@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 )
@@ -54,7 +55,7 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 				ErrorMessage:  errMsg,
 			})
 			if appendErr != nil {
-				d.Logger.Error().Err(appendErr).
+				logx.ErrorUnlessCanceled(d.Logger, appendErr).Err(appendErr).
 					Str("tool_name", t.Name()).
 					Msg("failed to record tool invocation")
 			} else {

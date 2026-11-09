@@ -16,6 +16,7 @@ import (
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/logx"
 )
 
 // Agent 是事件驱动的执行器 Agent
@@ -154,7 +155,7 @@ func (a *Agent) loopFailure(err error, phase string) error {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，执行无法继续")
 		return err
 	}
-	a.logger.Error().Err(err).Str("phase", phase).Msg("执行失败（下一轮继续）")
+	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("执行失败（下一轮继续）")
 	return nil
 }
 
@@ -243,7 +244,7 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 			defer func() { <-sem }()
 
 			if err := a.executeAction(ctx, act, report); err != nil {
-				a.logger.Error().
+				logx.ErrorUnlessCanceled(a.logger, err).
 					Err(err).
 					Str("action_id", act.ID).
 					Msg("执行 Action 失败")

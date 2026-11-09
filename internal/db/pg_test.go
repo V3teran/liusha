@@ -68,3 +68,20 @@ func TestPgxLoggerWarnLevelKeepsMessage(t *testing.T) {
 		t.Errorf("pid = %v, want 7", entry["pid"])
 	}
 }
+
+// 调用方上下文取消导致的查询失败（任务终止时在途查询）是正常收尾：降为 debug，
+// 不与真实的数据库故障混在 error 里。
+func TestPgxLoggerCanceledIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	bridge := pgxLogger{log: zerolog.New(&buf).Level(zerolog.DebugLevel)}
+
+	bridge.Log(context.Background(), tracelog.LogLevelError, "Acquire", map[string]any{"err": context.Canceled})
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("解析日志行: %v", err)
+	}
+	if entry["level"] != "debug" {
+		t.Errorf("level = %v, want debug", entry["level"])
+	}
+}
