@@ -4,34 +4,71 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AgentsPage } from './AgentsPage'
-import { saveAgent, listToolCandidates, listSkillCandidates, listAgentsPaged } from '@/api/config'
-import type { AgentConfig, Tool, ToolKind } from '@/api/types'
+import {
+  deletePromptArchive,
+  getAgent,
+  listAgentsPaged,
+  listSkillCandidates,
+  listToolCandidates,
+  patchAgent,
+  resetAgent,
+} from '@/api/config'
+import type { AgentConfig, AgentDetail, AgentListItem, Tool, ToolKind } from '@/api/types'
 
 vi.mock('@/api/config', () => ({
-  saveAgent: vi.fn(),
+  listAgentsPaged: vi.fn(),
   listToolCandidates: vi.fn(),
   listSkillCandidates: vi.fn(),
-  listAgentsPaged: vi.fn(),
+  getAgent: vi.fn(),
+  patchAgent: vi.fn(),
+  resetAgent: vi.fn(),
+  deletePromptArchive: vi.fn(),
 }))
 
 const mList = listAgentsPaged as unknown as ReturnType<typeof vi.fn>
-const mSave = saveAgent as unknown as ReturnType<typeof vi.fn>
+const mGet = getAgent as unknown as ReturnType<typeof vi.fn>
+const mPatch = patchAgent as unknown as ReturnType<typeof vi.fn>
+const mReset = resetAgent as unknown as ReturnType<typeof vi.fn>
+const mDeleteArchive = deletePromptArchive as unknown as ReturnType<typeof vi.fn>
 const mListCandidates = listToolCandidates as unknown as ReturnType<typeof vi.fn>
 const mListSkills = listSkillCandidates as unknown as ReturnType<typeof vi.fn>
-
-// listAgentsPaged 返回 {agents,total} 信封。
-const paged = (rows: AgentConfig[]) => ({ agents: rows, total: rows.length })
 
 function tool(name: string, kind: ToolKind, category: string): Tool {
   return { name, kind, category, description: `${name} 描述`, sort_order: 0 }
 }
 
-// 两套工具候选：function（内部函数）/ cli（外部 CLI）。按 kind 分派返回。
 const FUNCTION_TOOLS = [tool('read_credentials', 'function', 'credentials'), tool('write_credential', 'function', 'credentials')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
-// 列表走 React Query（需 Provider）；复杂度档 hint 内嵌跨页 Link（→ 模型页），
-// 组件须在路由上下文中渲染。
+function agent(o: Partial<AgentConfig> = {}): AgentConfig {
+  return {
+    code: 'recon',
+    name: '侦察智能体',
+    charter: '出厂章程',
+    description: '侦察排头兵',
+    function_tools: ['read_credentials'],
+    cli_tools: [],
+    skills: [],
+    max_iterations: 20,
+    complexity: 'medium',
+    ...o,
+  }
+}
+
+// 详情：未给 defaults 时出厂值即生效值（无自定义）。
+function detail(o: Partial<AgentConfig> = {}, extra: Partial<AgentDetail> = {}): AgentDetail {
+  const a = agent(o)
+  const { code: _c, name: _n, ...editable } = a
+  return { agent: a, defaults: editable, overrides: {}, prompt_archive: null, contract: '输出契约原文', ...extra }
+}
+
+const listItem = (a: AgentConfig, o: Partial<AgentListItem> = {}): AgentListItem => ({
+  ...a,
+  customized: [],
+  has_prompt_archive: false,
+  ...o,
+})
+
 const renderPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -43,217 +80,186 @@ const renderPage = () => {
   )
 }
 
-function h(o: Partial<AgentConfig> = {}): AgentConfig {
-  return {
-    id: 'h1',
-    code: 'recon',
-    name: '侦察智能体',
-    description: '侦察排头兵',
-    system_prompt: 'charter',
-    function_tools: ['read_credentials'],
-    cli_tools: [],
-    skills: [],
-    max_iterations: 20,
-    complexity: 'medium',
-    enabled: true,
-    ...o,
-  }
+function setup(d: AgentDetail, item: Partial<AgentListItem> = {}) {
+  mList.mockResolvedValue({ agents: [listItem(d.agent, item)], total: 1 })
+  mGet.mockResolvedValue(d)
+  renderPage()
 }
 
-// 打开首行的编辑抽屉并停在「基本信息」分页（抽屉标题 = 智能体中文名，
-// 但卡片文本节点与之同名，故以 dialog 角色等待抽屉出现）。
 async function openEditor() {
   await userEvent.click(await screen.findByRole('button', { name: /侦察智能体/ }))
   await screen.findByRole('dialog')
+  await screen.findByLabelText('调度摘要', { exact: false })
 }
+
+const saveBtn = () => screen.getByText('保存').closest('button') as HTMLButtonElement
 
 describe('AgentsPage', () => {
   beforeEach(() => {
-    mList.mockReset()
-    mSave.mockReset()
-    mListCandidates.mockReset()
-    mListCandidates.mockImplementation((kind: ToolKind) =>
-      Promise.resolve(kind === 'function' ? FUNCTION_TOOLS : CLI_TOOLS),
-    )
-    mListSkills.mockReset()
+    for (const m of [mList, mGet, mPatch, mReset, mDeleteArchive, mListCandidates, mListSkills]) m.mockReset()
+    mListCandidates.mockImplementation((kind: ToolKind) => Promise.resolve(kind === 'function' ? FUNCTION_TOOLS : CLI_TOOLS))
     mListSkills.mockResolvedValue([])
+    mPatch.mockResolvedValue(detail())
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
-  it('挂载加载智能体列表：卡片展示中文名 + 英文标识后缀', async () => {
-    mList.mockResolvedValue(paged([h()]))
-    renderPage()
+  it('列表卡片展示中文名、英文标识与自定义标记', async () => {
+    setup(detail(), { customized: ['charter', 'skills'], has_prompt_archive: true })
     const card = await screen.findByRole('button', { name: /侦察智能体/ })
     expect(card.textContent).toContain('recon')
+    expect(card.textContent).toContain('已自定义 2 项')
+    expect(card.textContent).toContain('待处理的旧提示词')
   })
 
-  it('抽屉标题为中文名；标识符/名称不渲染（身份上卡片与标题），调度摘要可编辑', async () => {
-    mList.mockResolvedValue(paged([h()]))
-    renderPage()
+  it('编辑调度摘要后保存：只提交改动字段，按 code 寻址', async () => {
+    setup(detail())
     await openEditor()
-    // 标题 = 智能体中文名（在 dialog 内断言，避开卡片同名文本节点）。
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('侦察智能体')).toBeTruthy()
-    expect(within(dialog).queryByLabelText('标识符', { exact: false })).toBeNull()
-    expect(within(dialog).queryByLabelText('名称', { exact: false })).toBeNull()
-    // 调度摘要是 LLM 可读面，可编辑（不再只读）。
-    const summary = within(dialog)
-      .getByLabelText('调度摘要', { exact: false })
-      .closest('input') as HTMLInputElement
-    expect(summary.disabled).toBe(false)
-    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
-  })
-
-  it('编辑调度摘要后保存：只提交脏字段 description', async () => {
-    mList.mockResolvedValue(paged([h({ description: '旧摘要' })]))
-    mSave.mockResolvedValue(undefined)
-    renderPage()
-    await openEditor()
-
-    const summary = screen
-      .getByLabelText('调度摘要', { exact: false })
-      .closest('input') as HTMLInputElement
+    const summary = screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement
+    expect(saveBtn().disabled).toBe(true)
     await userEvent.clear(summary)
     await userEvent.type(summary, '新分工摘要')
-    await userEvent.click(screen.getByText('保存'))
-
-    await waitFor(() => expect(mSave).toHaveBeenCalled())
-    expect(mSave.mock.calls[0][1]).toEqual({ description: '新分工摘要' })
+    await userEvent.click(saveBtn())
+    await waitFor(() => expect(mPatch).toHaveBeenCalled())
+    expect(mPatch.mock.calls[0]).toEqual(['recon', { description: '新分工摘要' }])
   })
 
-  it('内部工具集从目录读取候选并回填选中态', async () => {
-    mList.mockResolvedValue(paged([h()])) // function_tools=['read_credentials']
-    renderPage()
+  it('挑选模式勾选工具：提交 {on, off} 操作', async () => {
+    setup(detail())
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    // 两个函数工具候选都渲染为可勾选标签；已选项 aria-pressed=true。
     const selected = (await screen.findByText('read_credentials')).closest('button') as HTMLButtonElement
     expect(selected.getAttribute('aria-pressed')).toBe('true')
-    const unselected = screen.getByText('write_credential').closest('button') as HTMLButtonElement
-    expect(unselected.getAttribute('aria-pressed')).toBe('false')
+    await userEvent.click(screen.getByText('write_credential'))
+    await userEvent.click(saveBtn())
+    await waitFor(() => expect(mPatch).toHaveBeenCalled())
+    expect(mPatch.mock.calls[0][1]).toEqual({ function_tools: { on: ['write_credential'], off: [] } })
   })
 
-  it('无变更时保存禁用，产生变更后解锁', async () => {
-    mList.mockResolvedValue(paged([h()]))
-    renderPage()
-    await openEditor()
-    const saveBtn = () => screen.getByText('保存').closest('button') as HTMLButtonElement
-    expect(saveBtn().disabled).toBe(true)
-    await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_credential'))
-    expect(saveBtn().disabled).toBe(false)
-  })
-
-  it('勾选内部函数工具后保存：只提交脏字段 function_tools', async () => {
-    mList.mockResolvedValue(paged([h()])) // 初值 function_tools=['read_credentials']
-    mSave.mockResolvedValue(undefined)
-    renderPage()
-    await openEditor()
-    await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_credential'))
-    await userEvent.click(screen.getByText('保存'))
-    await waitFor(() => expect(mSave).toHaveBeenCalled())
-    expect(mSave.mock.calls[0][0]).toBe('h1')
-    // 只提交脏字段：未动过的 system_prompt/complexity/… 不出现在载荷（后端部分更新语义下不被零值覆盖）。
-    expect(Object.keys(mSave.mock.calls[0][1])).toEqual(['function_tools'])
-    expect(mSave.mock.calls[0][1].function_tools).toEqual(['read_credentials', 'write_credential'])
-  })
-
-  it('存储 ["*"]：展示层即目录全集全勾选，无「全选」按钮、无变更', async () => {
-    mList.mockResolvedValue(paged([h({ cli_tools: ['*'] })]))
-    renderPage()
+  it('出厂为「全部」：全部勾选且开关打开、无改动', async () => {
+    setup(detail({ cli_tools: ['*'] }))
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '外部工具' }))
-    // 全部 CLI 候选（nmap/nuclei）呈选中态——与显式全选形式一致。
     for (const name of ['nmap', 'nuclei']) {
-      const btn = (await screen.findByText(name)).closest('button') as HTMLButtonElement
-      expect(btn.getAttribute('aria-pressed')).toBe('true')
+      expect(((await screen.findByText(name)).closest('button') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
     }
-    // 已全选：不出现「全选」按钮；哨兵未变，保存禁用。
-    expect(screen.queryByText('全选')).toBeNull()
-    expect((screen.getByText('保存').closest('button') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByLabelText('全部（含以后新增）') as HTMLInputElement).checked).toBe(true)
+    expect(saveBtn().disabled).toBe(true)
   })
 
-  it('全量态取消一个工具：物化为「全集减一」显式白名单提交', async () => {
-    mList.mockResolvedValue(paged([h({ cli_tools: ['*'] })]))
-    mSave.mockResolvedValue(undefined)
-    renderPage()
+  it('「全部」中取消一项：只提交 off 该项（以后新增的工具仍自动装配）', async () => {
+    setup(detail({ cli_tools: ['*'] }))
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '外部工具' }))
-    // 取消 nuclei → 物化为全集 [nmap, nuclei] 减一 = [nmap]。
     await userEvent.click(await screen.findByText('nuclei'))
-
-    await userEvent.click(screen.getByText('保存'))
-    await waitFor(() => expect(mSave).toHaveBeenCalled())
-    expect(Object.keys(mSave.mock.calls[0][1])).toEqual(['cli_tools'])
-    expect(mSave.mock.calls[0][1].cli_tools).toEqual(['nmap'])
+    await userEvent.click(saveBtn())
+    await waitFor(() => expect(mPatch).toHaveBeenCalled())
+    expect(mPatch.mock.calls[0][1]).toEqual({ cli_tools: { on: [], off: ['nuclei'] } })
   })
 
-  it('未全选时出现「全选」按钮：点击收拢为哨兵 ["*"] 提交', async () => {
-    mList.mockResolvedValue(paged([h()])) // 初值 cli_tools=[]
-    mSave.mockResolvedValue(undefined)
-    renderPage()
+  it('关闭「全部」：取消 "*" 并显式勾选界面上仍勾着的项', async () => {
+    setup(detail({ cli_tools: ['*'] }))
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '外部工具' }))
-    await userEvent.click(screen.getByText('全选'))
-
-    await userEvent.click(screen.getByText('保存'))
-    await waitFor(() => expect(mSave).toHaveBeenCalled())
-    expect(mSave.mock.calls[0][1].cli_tools).toEqual(['*'])
+    await userEvent.click(await screen.findByLabelText('全部（含以后新增）'))
+    await userEvent.click(screen.getByText('nuclei'))
+    await userEvent.click(saveBtn())
+    await waitFor(() => expect(mPatch).toHaveBeenCalled())
+    expect(mPatch.mock.calls[0][1]).toEqual({ cli_tools: { on: ['nmap'], off: ['*'] } })
   })
 
-  it('勾选外部工具白名单后保存进 cli_tools', async () => {
-    mList.mockResolvedValue(paged([h()])) // 初值 cli_tools=[]
-    mSave.mockResolvedValue(undefined)
-    renderPage()
+  it('打开「全部」：勾选 "*" 与全部项', async () => {
+    setup(detail())
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '外部工具' }))
-    // 候选来自 listToolCandidates('cli')，点 nmap 加入白名单。
-    await userEvent.click(await screen.findByText('nmap'))
-    await userEvent.click(screen.getByText('保存'))
-    await waitFor(() => expect(mSave).toHaveBeenCalled())
-    expect(Object.keys(mSave.mock.calls[0][1])).toEqual(['cli_tools'])
-    expect(mSave.mock.calls[0][1].cli_tools).toEqual(['nmap'])
+    await userEvent.click(await screen.findByLabelText('全部（含以后新增）'))
+    await userEvent.click(saveBtn())
+    await waitFor(() => expect(mPatch).toHaveBeenCalled())
+    expect(mPatch.mock.calls[0][1]).toEqual({ cli_tools: { on: ['*', 'nmap', 'nuclei'], off: [] } })
+  })
+
+  it('已自定义字段显示状态条；恢复默认后保留其它字段未保存的编辑', async () => {
+    const customized = detail(
+      { complexity: 'simple' },
+      {
+        defaults: { ...detail().defaults, complexity: 'medium' },
+        overrides: {
+          complexity: { kind: 'replace', default: 'medium', baseline: 'medium', default_changed: false, matches_default: false },
+        },
+      },
+    )
+    setup(customized)
+    mReset.mockResolvedValue(detail({ complexity: 'medium' }))
+    await openEditor()
+    expect(screen.getByText('已自定义')).toBeTruthy()
+
+    const summary = screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement
+    await userEvent.clear(summary)
+    await userEvent.type(summary, '未保存的摘要')
+    await userEvent.click(screen.getByText('恢复默认'))
+    await waitFor(() => expect(mReset).toHaveBeenCalledWith('recon', 'complexity'))
+    await waitFor(() => expect(screen.queryByText('已自定义')).toBeNull())
+    expect((screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement).value).toBe('未保存的摘要')
+  })
+
+  it('出厂已更新：提示并可对比出厂', async () => {
+    setup(
+      detail(
+        { charter: '我的章程' },
+        {
+          overrides: {
+            charter: { kind: 'replace', default: '新出厂章程', baseline: '旧出厂章程', default_changed: true, matches_default: false },
+          },
+        },
+      ),
+    )
+    await openEditor()
+    await userEvent.click(screen.getByRole('tab', { name: '章程' }))
+    expect(screen.getByText('出厂已更新')).toBeTruthy()
+    await userEvent.click(screen.getByText('对比出厂'))
+    expect(screen.getByText('+ 新出厂章程')).toBeTruthy()
+    expect(screen.getAllByText('− 旧出厂章程').length).toBeGreaterThan(0)
+  })
+
+  it('章程页：只读展示输出契约；提示词归档可查看并删除', async () => {
+    setup(detail({}, { prompt_archive: { prompt: '升级前我写的提示词', archived_at: '2026-11-09T00:00:00Z' } }))
+    mDeleteArchive.mockResolvedValue(undefined)
+    await openEditor()
+    await userEvent.click(screen.getByRole('tab', { name: '章程' }))
+    expect(screen.getByText('输出契约原文')).toBeTruthy()
+    const archive = screen.getByRole('region', { name: '升级前的自定义提示词' })
+    expect(within(archive).getByText('升级前我写的提示词')).toBeTruthy()
+    await userEvent.click(within(archive).getByText('我已处理，删除归档'))
+    await waitFor(() => expect(mDeleteArchive).toHaveBeenCalledWith('recon'))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '升级前的自定义提示词' })).toBeNull())
   })
 
   it('有未保存更改时关闭需确认：拒绝则留、确认则弃', async () => {
-    mList.mockResolvedValue(paged([h()]))
-    renderPage()
+    setup(detail())
     await openEditor()
-    await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    await userEvent.click(await screen.findByText('write_credential'))
-
+    await userEvent.type(screen.getByLabelText('调度摘要', { exact: false }), 'x')
     vi.mocked(window.confirm).mockReturnValueOnce(false)
     await userEvent.click(screen.getByRole('button', { name: '关闭' }))
-    expect(screen.getByRole('dialog')).toBeTruthy() // 抽屉仍开
-
+    expect(screen.getByRole('dialog')).toBeTruthy()
     vi.mocked(window.confirm).mockReturnValueOnce(true)
     await userEvent.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
   it('最大迭代轮数逐键钳到 ≥1 整数', async () => {
-    mList.mockResolvedValue(paged([h()]))
-    renderPage()
+    setup(detail())
     await openEditor()
     const input = screen.getByLabelText('最大迭代轮数', { exact: false }) as HTMLInputElement
     fireEvent.change(input, { target: { value: '-5' } })
     expect(input.value).toBe('1')
     fireEvent.change(input, { target: { value: '3.7' } })
     expect(input.value).toBe('3')
-    fireEvent.change(input, { target: { value: '' } })
-    expect(input.value).toBe('1')
   })
 
-  it('工具候选拉取失败时降级为空、不拖垮智能体列表', async () => {
-    mList.mockResolvedValue(paged([h()]))
+  it('工具候选拉取失败时降级为空、不拖垮页面', async () => {
     mListCandidates.mockRejectedValue(new Error('500'))
-    renderPage()
-    // 主体列表仍渲染，不进整页错误态。
-    expect(await screen.findByRole('button', { name: /侦察智能体/ })).toBeTruthy()
+    setup(detail())
     await openEditor()
-    // 候选降级为空：白名单区显示空态占位而非工具按钮。
     expect(screen.queryByText('nmap')).toBeNull()
   })
 })

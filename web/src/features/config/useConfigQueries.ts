@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listAgentsPaged, listSkillsPaged } from '@/api/config'
-import type { AgentConfig, Skill } from '@/api/types'
+import type { AgentListItem, SkillListItem } from '@/api/types'
 import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
 
 // 搜索防抖时延（毫秒）：输入停顿后再打服务端，避免逐字请求。
@@ -97,17 +97,17 @@ function useResourcePagedList<T>(
   }
 }
 
-/** 智能体分页列表（配置管理页）：React Query 取数（对齐 traffic/finding 等域的统一模式）。 */
-export function useAgentsPagedList(): PagedListHandle<AgentConfig> {
-  return useResourcePagedList<AgentConfig>('agents', async (page, size, q) => {
+/** 智能体分页列表（智能体页）：React Query 取数（对齐 traffic/finding 等域的统一模式）。 */
+export function useAgentsPagedList(): PagedListHandle<AgentListItem> {
+  return useResourcePagedList<AgentListItem>('agents', async (page, size, q) => {
     const res = await listAgentsPaged(page, size, q)
     return { items: res.agents, total: res.total }
   })
 }
 
-/** 技能分页列表（知识库管理页）：React Query 取数（对齐 traffic/finding 等域的统一模式）。 */
-export function useSkillsPagedList(): PagedListHandle<Skill> {
-  return useResourcePagedList<Skill>('skills', async (page, size, q) => {
+/** 技能分页列表（技能页）：React Query 取数（对齐 traffic/finding 等域的统一模式）。 */
+export function useSkillsPagedList(): PagedListHandle<SkillListItem> {
+  return useResourcePagedList<SkillListItem>('skills', async (page, size, q) => {
     const res = await listSkillsPaged(page, size, q)
     return { items: res.skills, total: res.total }
   })

@@ -106,19 +106,26 @@ export function ConfigDrawer({
 export function Field({
   label,
   hint,
+  aside,
   children,
 }: {
   label: string
   hint?: ReactNode
+  // aside 渲染在 <label> 之外（控件下方），用于放可交互的状态条（如「恢复默认」）——
+  // 按钮嵌在 label 里会把点击转发给控件，也破坏无障碍语义。
+  aside?: ReactNode
   children: ReactNode
 }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className={FIELD_LABEL_CLASS}>
-        {label}
-        {hint && <span className="ml-2 font-normal text-text-tertiary">{hint}</span>}
-      </span>
-      {children}
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <label className="flex flex-col gap-1.5">
+        <span className={FIELD_LABEL_CLASS}>
+          {label}
+          {hint && <span className="ml-2 font-normal text-text-tertiary">{hint}</span>}
+        </span>
+        {children}
+      </label>
+      {aside}
+    </div>
   )
 }

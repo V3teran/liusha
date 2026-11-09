@@ -1,28 +1,26 @@
 import { useMemo } from 'react'
+import type { SetDraft } from '@/lib/override'
 
-// 工具多选器：按 category 分组（桶内按 name 字典序）渲染可勾选的工具标签。
-// 候选只要求「白名单键 + 分组 + 说明」最小结构——Tool 与 Skill 派生对象都天然满足，
-// 不为复用伪造 Tool 全字段。
+// 名单多选器：按 category 分组（桶内按 name 字典序）渲染可勾选的标签。
+// 候选只要求「白名单键 + 分组 + 说明」最小结构——工具与技能都天然满足。
+//
+// 「全部（含以后新增）」是独立开关而非全选按钮：全部模式下取消某项 = 全部减此项，
+// 以后新增的项仍自动生效；关闭开关则保留当前勾选，成为只含这些项的显式名单。
 export interface PickerCandidate {
   name: string
   category: string
   description: string
 }
 
-export function ToolPicker({
-  catalog,
-  selected,
-  onToggle,
-  onSelectAll,
-  emptyHint,
-}: {
+interface ToolPickerProps {
   catalog: PickerCandidate[]
-  selected: string[]
+  draft: SetDraft
   onToggle: (name: string) => void
-  // 全选动作（收拢为 ["*"]，展示层等价于目录全集勾选）；未提供或已全选时不渲染按钮。
-  onSelectAll?: () => void
+  onToggleAll?: () => void // 未提供则不渲染「全部」开关
   emptyHint: string
-}) {
+}
+
+export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }: ToolPickerProps) {
   const byCategory = useMemo(() => {
     const byCat = new Map<string, PickerCandidate[]>()
     for (const t of catalog) {
@@ -36,58 +34,78 @@ export function ToolPicker({
       .map(([cat, tools]) => [cat, [...tools].sort((a, b) => a.name.localeCompare(b.name))] as const)
   }, [catalog])
 
-  if (byCategory.length === 0) {
+  // 勾选了、但已不在目录中的项（引用的工具或技能已下线）：运行期不生效，单独列出供移除。
+  const stale = useMemo(
+    () => draft.checked.filter((n) => !catalog.some((t) => t.name === n)),
+    [draft.checked, catalog],
+  )
+
+  if (byCategory.length === 0 && stale.length === 0) {
     return <p className="text-sm text-text-secondary">{emptyHint}</p>
   }
 
-  const allSelected = catalog.every((t) => selected.includes(t.name))
+  const checkedCount = draft.checked.filter((n) => catalog.some((t) => t.name === n)).length
 
-  // 结构：固定头部（计数 + 全选，不随列表滚动）+ 内部滚动区。
-  // picker 以 flex-1 铺满 tab 内容区剩余高度——单一滚动上下文（列表内部），
-  // 外层抽屉体不再出现第二根滚轮。
+  // 结构：固定头部（计数 + 全部开关，不随列表滚动）+ 内部滚动区（单一滚动上下文）。
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-background">
-      {/* 头部定高 h-8：全选按钮出现/消失不改变行高，列表区不跳动。 */}
-      <div className="flex h-8 flex-shrink-0 items-center justify-between border-b border-border px-3">
-        <span className="text-xs text-text-tertiary">共 {catalog.length} 项</span>
-        {onSelectAll && !allSelected && (
-          <button
-            type="button"
-            onClick={onSelectAll}
-            className="rounded-md border border-border px-2 py-0.5 text-xs text-text-secondary transition-colors hover:border-accent/60 hover:text-accent"
-          >
-            全选
-          </button>
+      <div className="flex h-9 flex-shrink-0 items-center justify-between border-b border-border px-3">
+        <span className="text-xs text-text-tertiary">
+          已选 {checkedCount} / {catalog.length}
+        </span>
+        {onToggleAll && (
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
+            <input type="checkbox" checked={draft.all} onChange={onToggleAll} />
+            全部（含以后新增）
+          </label>
         )}
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        {byCategory.map(([cat, tools]) => (
-        <div key={cat}>
-          <p className="mb-1 font-mono text-xs uppercase tracking-wide text-text-secondary">{cat}</p>
-          <div className="flex flex-wrap gap-2">
-            {tools.map((t) => {
-              const active = selected.includes(t.name)
-              return (
+        {stale.length > 0 && (
+          <div>
+            <p className="mb-1 text-xs text-status-warning">已失效（已下线，运行时不生效，点击移除）</p>
+            <div className="flex flex-wrap gap-2">
+              {stale.map((name) => (
                 <button
-                  key={t.name}
+                  key={name}
                   type="button"
-                  title={t.description}
-                  aria-pressed={active}
-                  onClick={() => onToggle(t.name)}
-                  className={
-                    'rounded-md border px-2 py-1 font-mono text-xs transition-colors ' +
-                    (active
-                      ? 'border-accent bg-accent/15 text-accent'
-                      : 'border-border text-text hover:border-accent/60')
-                  }
+                  aria-pressed
+                  onClick={() => onToggle(name)}
+                  className="rounded-md border border-status-warning/60 px-2 py-1 font-mono text-xs text-status-warning line-through"
                 >
-                  {t.name}
+                  {name}
                 </button>
-              )
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        )}
+        {byCategory.map(([cat, tools]) => (
+          <div key={cat}>
+            <p className="mb-1 font-mono text-xs uppercase tracking-wide text-text-secondary">{cat}</p>
+            <div className="flex flex-wrap gap-2">
+              {tools.map((t) => {
+                const active = draft.checked.includes(t.name)
+                return (
+                  <button
+                    key={t.name}
+                    type="button"
+                    title={t.description}
+                    aria-pressed={active}
+                    onClick={() => onToggle(t.name)}
+                    className={
+                      'rounded-md border px-2 py-1 font-mono text-xs transition-colors ' +
+                      (active
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border text-text hover:border-accent/60')
+                    }
+                  >
+                    {t.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

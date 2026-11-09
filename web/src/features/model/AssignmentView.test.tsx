@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AssignmentView } from './AssignmentView'
 import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
-import { listAgentConfigs, saveAgentComplexity } from '@/api/config'
-import type { ProviderConfig, RoutingResponse, AgentConfig } from '@/api/types'
+import { listAgentConfigs, patchAgent } from '@/api/config'
+import type { ProviderConfig, RoutingResponse, AgentListItem } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
@@ -16,7 +16,7 @@ vi.mock('@/api/models', () => ({
 
 vi.mock('@/api/config', () => ({
   listAgentConfigs: vi.fn(),
-  saveAgentComplexity: vi.fn(),
+  patchAgent: vi.fn(),
 }))
 
 const mListProv = listProviders as unknown as ReturnType<typeof vi.fn>
@@ -24,7 +24,7 @@ const mGetRouting = getRouting as unknown as ReturnType<typeof vi.fn>
 const mSaveRole = saveRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mDeleteRole = deleteRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mListAgents = listAgentConfigs as unknown as ReturnType<typeof vi.fn>
-const mSaveTier = saveAgentComplexity as unknown as ReturnType<typeof vi.fn>
+const mSaveTier = patchAgent as unknown as ReturnType<typeof vi.fn>
 
 function prov(key: string, enabled = true): ProviderConfig {
   return {
@@ -43,20 +43,20 @@ function prov(key: string, enabled = true): ProviderConfig {
   }
 }
 
-function agent(id: string, name: string, complexity: string): AgentConfig {
+function agent(code: string, name: string, complexity: string): AgentListItem {
   return {
-    id,
-    code: id,
+    code,
     name,
+    charter: '',
     description: '',
-    system_prompt: '',
     function_tools: [],
     cli_tools: [],
     skills: [],
     max_iterations: 10,
-    enabled: true,
     complexity,
-  } as AgentConfig
+    customized: [],
+    has_prompt_archive: false,
+  }
 }
 
 // 路由按复杂度档（complexity）键存：complex/medium/simple/__fallback__。
@@ -124,9 +124,9 @@ describe('AssignmentView', () => {
     expect(ghost).toBeEnabled()
   })
 
-  it('点未归属胶囊把智能体移入目标档，调 saveAgentComplexity(id, complexity)', async () => {
+  it('点未归属胶囊把智能体移入目标档，调 patchAgent(code, { complexity })', async () => {
     mGetRouting.mockResolvedValue(routing())
-    mSaveTier.mockResolvedValue(agent('h-executor', 'executor', 'simple'))
+    mSaveTier.mockResolvedValue({ agent: agent('h-executor', 'executor', 'simple') })
     renderView()
     // executor 原在 medium，点 simple 行的幽灵胶囊 → 移入 simple。
     await waitFor(() =>
@@ -136,7 +136,7 @@ describe('AssignmentView', () => {
     const simpleGroup = within(simpleRow)
     const chip = simpleGroup.getByRole('button', { name: 'executor' })
     await userEvent.click(chip)
-    await waitFor(() => expect(mSaveTier).toHaveBeenCalledWith('h-executor', 'simple'))
+    await waitFor(() => expect(mSaveTier).toHaveBeenCalledWith('h-executor', { complexity: 'simple' }))
   })
 
   it('移档失败乐观回滚并在页面内回显原因（无 window.alert）', async () => {

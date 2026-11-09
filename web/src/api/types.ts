@@ -110,48 +110,113 @@ export interface ConversationUsage {
    小写键（Go gin.H DTO：agentJSON 单点序列化）。
    ============================================================ */
 
-// AgentConfig 是智能体全字段形态。function_tools/cli_tools/skills 后端保证非 nil。
-// 角色以 code 寻址（planner/executor/evaluator/monitor 四个固定 code），无独立种类字段。
-//   - function_tools：内置函数工具集（进程内原生函数 code 列表）
-//   - cli_tools     ：外置 CLI 工具集（tools.yaml 名字，严格白名单），空 = 不装配任何外置工具
-//   - skills        ：可访问 skill 裸名白名单（渐进式加载：声明的进 system prompt 技能索引并可 read_skill）
+// ── 出厂默认 + 用户自定义 ─────────────────────────────────────────────
+// 产品定义的内容（agent、内置技能、系统设置）出厂值随程序发布，用户只能逐字段自定义：
+//   - 整值字段（文本/数值/枚举/布尔）记录用户的值与基线（修改时依据的出厂值）；
+//   - 名单字段记录相对出厂的新增与删除，提交时以 SetChange（勾选 on / 取消 off）表达意图。
+
+// FieldOverride 是一个已自定义字段的状态（后端 override.State）。
+export interface FieldOverride {
+  kind: 'replace' | 'set'
+  default: unknown // 当前出厂值
+  // replace：
+  baseline: unknown | null // 修改时依据的出厂值；null = 升级前的修改，基线未知
+  default_changed: boolean // 基线已知且与当前出厂值不同（出厂已更新）
+  matches_default: boolean // 用户的值恰与当前出厂值相同
+  // set：
+  added?: unknown[]
+  removed?: unknown[]
+  stale?: unknown[] // 新增项里已不存在的（已下线）
+}
+
+export type Overrides = Record<string, FieldOverride>
+
+// SetChange 是名单字段的一次提交：勾选与取消（可含 "*" = 全部，含以后新增）。
+// 以操作而非最终清单提交，才能区分「全部中取消几项」与「只要这几项」。
+export interface SetChange<T = string> {
+  on: T[]
+  off: T[]
+}
+
+// AgentConfig 是智能体的生效配置（出厂值叠加用户自定义）。角色以 code 寻址，固定四个。
+//   - charter       ：章程（角色定位、原则、策略；程序解析依赖的输出契约不在其中，不可改）
+//   - function_tools：内置函数工具白名单；cli_tools：沙箱 CLI 工具白名单；skills：技能白名单
+//     （三者中 "*" = 全部，含以后新增）
+//   - complexity    ：simple | medium | complex，决定该智能体 LLM 路由的第一跳档位
 export interface AgentConfig {
-  id: string
   code: string
   name: string
+  charter: string
   description: string
-  system_prompt: string
   function_tools: string[]
   cli_tools: string[]
   skills: string[]
   max_iterations: number
-  // complexity 复杂度档：simple | medium | complex。决定该智能体 LLM 路由的第一跳档位。
   complexity: string
-  enabled: boolean
-  created_at?: string
-  updated_at?: string
 }
 
-// 工具种类：function（进程内函数工具）/ cli（外置 CLI 工具白名单项）。
-export type ToolKind = 'function' | 'cli'
+// AgentEditable 是可自定义的字段（出厂值 defaults 与之同形）。
+export type AgentEditable = Omit<AgentConfig, 'code' | 'name'>
 
-// Tool 是工具目录一项（GET /tools 列表、AgentsPage function_tools/cli_tools 多选器候选）。
-// 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
-// Skill 是知识库 skill 一项（GET /skills 列表，AgentsPage skills 多选器候选）。
-// code = 裸名寻址键（= 种子目录名，如 browser-use / bac），agent.skills 声明与 read_skill 都用它。
+// AgentListItem 是列表项：生效配置 + 已自定义字段名 + 是否有待处理的提示词归档。
+export interface AgentListItem extends AgentConfig {
+  customized: string[]
+  has_prompt_archive: boolean
+}
+
+// PromptArchive 是升级前用户自定义过的整份提示词（提示词拆分为章程与契约后无法自动拆分）。
+export interface PromptArchive {
+  prompt: string
+  archived_at: string
+}
+
+export interface AgentDetail {
+  agent: AgentConfig
+  defaults: AgentEditable
+  overrides: Overrides
+  prompt_archive: PromptArchive | null
+  contract: string // 输出契约原文（只读；随程序版本）
+}
+
+// Skill 是生效技能：内置技能叠加用户自定义，或用户自建技能（同 code 时自建优先）。
 export interface Skill {
-  id: string
   code: string
   category: string
   name: string
   description: string
   body: string
-  is_builtin: boolean
   enabled: boolean
-  created_at?: string
-  updated_at?: string
+  is_builtin: boolean
 }
 
+// SkillContent 是技能可修改的字段（内置技能的出厂内容与之同形）。
+export type SkillContent = Pick<Skill, 'name' | 'description' | 'body' | 'enabled'>
+
+export interface SkillListItem extends Skill {
+  customized: string[]
+  shadows_builtin: boolean // 自建技能与某内置技能同名，内置版本被遮蔽
+}
+
+// SkillAgent 是技能详情里的一个智能体条目：involved 由后端按生效名单计算（含 "*" = 全部）。
+export interface SkillAgent {
+  code: string
+  name: string
+  involved: boolean
+}
+
+export interface SkillDetail {
+  skill: Skill
+  defaults: SkillContent | null // 内置技能的出厂内容；自建技能为 null
+  overrides: Overrides
+  shadows_builtin: boolean
+  agents: SkillAgent[]
+}
+
+// 工具种类：function（进程内函数工具）/ cli（外置 CLI 工具白名单项）。
+export type ToolKind = 'function' | 'cli'
+
+// Tool 是工具目录一项（GET /tools 列表、智能体页 function_tools/cli_tools 多选器候选）。
+// 源出代码（函数注册表 + tools.yaml），DB 为启动期同步的只读目录。
 export interface Tool {
   name: string
   kind: ToolKind
@@ -503,11 +568,14 @@ export interface CredentialHostSummary {
 }
 
 /* ============================================================
-   系统配置（GET/PUT /settings/compaction|runtime|proxy-filter）
+   系统配置（GET/PATCH /settings/:group，group = compaction | runtime | proxy_filter）
    三组业务旋钮，各字段与后端 settingstore 的 json tag 一一对应。
    写经后端失效广播：compaction/runtime 令 runner 现读即生效，
    proxy_filter 触发 proxy 进程热换流量过滤链（无需重启）。
    ============================================================ */
+
+// SettingsGroup 是系统设置分组，取值即接口路由段与数据库分组键。
+export type SettingsGroup = 'compaction' | 'runtime' | 'proxy_filter'
 
 // CompactionSettings 上下文压缩旋钮：ReAct 循环按「历史 token 预算」压上下文——
 // 预算 = 比例 × 本角色路由 provider 的 context_window，超预算的前缀被裁并蒸馏成纪要。
@@ -537,6 +605,19 @@ export interface ProxyFilterSettings {
   exclude_status_codes: number[] // 排除的响应状态码
   max_request_body_size: number // 请求体切片上限字节，>0
   max_response_body_size: number // 响应体切片上限字节，>0
+}
+
+export interface SettingsByGroup {
+  compaction: CompactionSettings
+  runtime: RuntimeSettings
+  proxy_filter: ProxyFilterSettings
+}
+
+// SettingsDetail 是一组设置的生效值、出厂默认与各已自定义字段状态。
+export interface SettingsDetail<T> {
+  values: T
+  defaults: T
+  overrides: Overrides
 }
 
 

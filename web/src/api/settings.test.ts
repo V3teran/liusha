@@ -1,15 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import {
-  getCompactionSettings,
-  saveCompactionSettings,
-  getRuntimeSettings,
-  saveRuntimeSettings,
-  getProxyFilterSettings,
-  saveProxyFilterSettings,
-} from './settings'
-import type { ProxyFilterSettings } from './types'
+import { getRuntimeSettings, getSettings, patchSettings, resetSettings } from './settings'
 
-// 假 fetch：断言 settings.ts 打的 URL/method/body 与后端 /settings 契约一致。
+// 假 fetch：断言 settings.ts 打的 URL/method/body 与后端 /settings/:group 契约一致。
 function mockFetch(status: number, json: unknown) {
   const fn = vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
@@ -20,82 +12,42 @@ function mockFetch(status: number, json: unknown) {
   return fn
 }
 
+const detail = {
+  values: { run_tail_bytes: 8192 },
+  defaults: { run_tail_bytes: 8192 },
+  overrides: {},
+}
+
 describe('settings API 客户端', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('getCompactionSettings 拆出 compaction 快照', async () => {
-    const fn = mockFetch(200, {
-      compaction: { planner_context_ratio: 0.6, executor_context_ratio: 0.5, evaluator_context_ratio: 0.5, monitor_context_ratio: 0.5 },
-    })
-    const v = await getCompactionSettings()
-    expect(v.planner_context_ratio).toBe(0.6)
-    expect(fn.mock.calls[0][0]).toBe('/api/settings/compaction')
+  it('getSettings 打 /settings/:group（路由段即分组取值）', async () => {
+    const fn = mockFetch(200, detail)
+    const d = await getSettings('proxy_filter')
+    expect(fn.mock.calls[0][0]).toBe('/api/settings/proxy_filter')
+    expect(d.overrides).toEqual({})
   })
 
-  it('saveCompactionSettings PUT 整组并回传', async () => {
-    const body = { planner_context_ratio: 0.65, executor_context_ratio: 0.5, evaluator_context_ratio: 0.5, monitor_context_ratio: 0.55 }
-    const fn = mockFetch(200, { compaction: body })
-    const v = await saveCompactionSettings(body)
-    expect(v.monitor_context_ratio).toBe(0.55)
+  it('patchSettings PATCH 只含改动字段，名单为 {on, off}', async () => {
+    const fn = mockFetch(200, detail)
+    await patchSettings('proxy_filter', { exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_size: 1024 })
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/settings/compaction')
-    expect(init.method).toBe('PUT')
-    expect(JSON.parse(init.body)).toEqual(body)
+    expect(url).toBe('/api/settings/proxy_filter')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_size: 1024 })
   })
 
-  it('getRuntimeSettings 拆出 runtime 快照', async () => {
-    mockFetch(200, {
-      runtime: { step_tool_timeout_seconds: 60, step_llm_timeout_seconds: 300, run_tail_bytes: 4096 },
-    })
-    const v = await getRuntimeSettings()
-    expect(v.run_tail_bytes).toBe(4096)
+  it('resetSettings DELETE …/overrides[/:field]', async () => {
+    const fn = mockFetch(200, detail)
+    await resetSettings('runtime', 'run_tail_bytes')
+    expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime/overrides/run_tail_bytes')
+    expect(fn.mock.calls[0][1].method).toBe('DELETE')
   })
 
-  it('saveRuntimeSettings PUT /settings/runtime', async () => {
-    const body = { step_tool_timeout_seconds: 90, step_llm_timeout_seconds: 240, run_tail_bytes: 8192, tool_output_tail_bytes: 16384 }
-    const fn = mockFetch(200, { runtime: body })
-    await saveRuntimeSettings(body)
-    expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime')
-    expect(fn.mock.calls[0][1].method).toBe('PUT')
-  })
-
-  it('getProxyFilterSettings 拆出 proxy_filter 快照', async () => {
-    const pf: ProxyFilterSettings = {
-      allow_hosts: ['*.x.com'],
-      exclude_methods: ['CONNECT'],
-      exclude_hosts: [],
-      exclude_upgrade_protocols: [],
-      exclude_suffixes: [],
-      exclude_content_types: [],
-      exclude_status_codes: [304],
-      max_request_body_size: 1048576,
-      max_response_body_size: 1048576,
-    }
-    mockFetch(200, { proxy_filter: pf })
-    const v = await getProxyFilterSettings()
-    expect(v.allow_hosts).toEqual(['*.x.com'])
-    expect(v.exclude_status_codes).toEqual([304])
-  })
-
-  it('saveProxyFilterSettings PUT /settings/proxy-filter 透传过滤规则', async () => {
-    const pf: ProxyFilterSettings = {
-      allow_hosts: ['*.target.com'],
-      exclude_methods: ['OPTIONS'],
-      exclude_hosts: [],
-      exclude_upgrade_protocols: [],
-      exclude_suffixes: ['.css'],
-      exclude_content_types: [],
-      exclude_status_codes: [204, 304],
-      max_request_body_size: 2097152,
-      max_response_body_size: 4194304,
-    }
-    const fn = mockFetch(200, { proxy_filter: pf })
-    await saveProxyFilterSettings(pf)
-    const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/settings/proxy-filter')
-    expect(init.method).toBe('PUT')
-    expect(JSON.parse(init.body)).toEqual(pf)
+  it('getRuntimeSettings 返回生效值（审计页超时判定同源）', async () => {
+    mockFetch(200, detail)
+    expect(await getRuntimeSettings()).toEqual({ run_tail_bytes: 8192 })
   })
 })
