@@ -145,7 +145,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 ## 提交与发布
 
-- 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。
+- 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。类型只能用模板列出的：release-please 不识别的类型（如 `pipeline`）不会进 CHANGELOG 和发布说明。
 - 改 API 契约、需要迁移、需要 `make reseed` 的变更，在提交正文写明升级注意，会进入 CHANGELOG。
 - 发布由 release-please 驱动：合并 Release PR 即发版。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 克隆 tag）由它改写，不要手改。
 - 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像，并把 sandbox 的 `:main` 晋升为同版本 tag。sandbox 镜像在 main 上相关路径变更时由 `build-sandbox` 构建为 `:main`。
