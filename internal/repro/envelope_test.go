@@ -95,30 +95,29 @@ func TestNormalizeReproEnvelope_Guards(t *testing.T) {
 	}
 }
 
-// 鉴别力教学：短子串与裸常规状态码（无 baseline）拒绝——曾有 ["1","2","3"] 合规过审进 finding 的假阳性。
-func TestNormalizeReproEnvelope_DiscriminativeTeaching(t *testing.T) {
+// 鉴别力：写入侧与复现门同一口径，只拒短子串（曾有 ["1","2","3"] 合规过审进 finding 的假阳性）；
+// 常规状态码等弱断言放行并完成形状矫正，鉴别力交 LLM 裁决官终判。
+func TestNormalizeReproEnvelope_Discriminative(t *testing.T) {
 	short := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api?id=1'+UNION+SELECT+1,2,3--","headers":{},"body":""}},"assert":{"body_contains":["1","2","3"]}}`
 	if _, _, err := NormalizeReproEnvelope(mustJSON(t, short)); err == nil ||
 		!strings.Contains(err.Error(), "无鉴别力") {
 		t.Fatalf("短子串断言应被拒: err=%v", err)
 	}
 
-	bare := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""}},"assert":{"status_code":200}}`
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, bare)); err == nil ||
-		!strings.Contains(err.Error(), "无鉴别力") {
-		t.Fatalf("裸 200 断言（无 baseline）应被拒: err=%v", err)
+	// 无 baseline 的常规状态码：放行且矫正形状——若在此报错，收割侧会保留未矫正的
+	// 原始配方（"200" 字符串），复现门解析失败直接判死，裁决官根本看不到。
+	bare := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""}},"assert":{"status_code":"200"}}`
+	out, _, err := NormalizeReproEnvelope(mustJSON(t, bare))
+	if err != nil {
+		t.Fatalf("无 baseline 的常规状态码应放行（交裁决官终判）: %v", err)
 	}
-
-	// 有 baseline：鉴别力交运行时差分，写入侧放行
-	withBase := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""},"baseline":{"method":"GET","url":"http://h/api?id=1","headers":{},"body":""}},"assert":{"status_code":200}}`
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, withBase)); err != nil {
-		t.Fatalf("有 baseline 的常规状态码应放行（运行时差分裁决）: %v", err)
+	var env struct {
+		Assert struct {
+			StatusCode int `json:"status_code"`
+		} `json:"assert"`
 	}
-
-	// 非常态状态码本身可为信号
-	teapot := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""}},"assert":{"status_code":500}}`
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, teapot)); err != nil {
-		t.Fatalf("非常态状态码应放行: %v", err)
+	if err := json.Unmarshal(out, &env); err != nil || env.Assert.StatusCode != 200 {
+		t.Fatalf("status_code 应矫正为数字 200: err=%v out=%s", err, out)
 	}
 }
 

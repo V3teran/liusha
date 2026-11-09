@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// MinBodyContainsLen 是 body_contains 子串的最小鉴别长度：过短的子串（如 "1"/"2"/"3"）
+// 几乎必然命中任意页面。写入侧与复现门共用此阈值。
+const MinBodyContainsLen = 4
+
 // NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
 // 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封；
 // assert 误放进 recipe 时自动提升（返回的教学提示随工具输出回给 LLM）。
@@ -155,7 +159,7 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 	if err := validateWebRequestRecipe(recipe); err != nil {
 		return nil, nil, err
 	}
-	if err := teachWebAssertDiscriminative(recipe, assert); err != nil {
+	if err := teachWebAssertDiscriminative(assert); err != nil {
 		return nil, nil, err
 	}
 	return recipe, assert, nil
@@ -359,40 +363,22 @@ func validateWebRequestRecipe(recipe json.RawMessage) error {
 	return nil
 }
 
-// teachWebAssertDiscriminative 断言鉴别力的早期教学（与复现门 assertDiscriminative
-// 同一策略口径；门是权威防线，这里只求 LLM 早一步拿到可行动反馈省迭代）。
-func teachWebAssertDiscriminative(recipe, assert json.RawMessage) error {
-	var rc struct {
-		Baseline json.RawMessage `json:"baseline"`
-	}
-	_ = json.Unmarshal(recipe, &rc)
-	hasBaseline := len(rc.Baseline) > 0
-
+// teachWebAssertDiscriminative 断言鉴别力的早期反馈，与复现门 assertDiscriminative
+// 同一口径：只拒 body_contains 短子串（几乎必命中任意页面）。常规状态码等弱断言
+// 不在此拦——鉴别力由 LLM 裁决官结合 baseline 差分与完整响应终判；在此报错只会让
+// 收割侧保留未矫正的原始配方，复现门因形状错误直接判死，裁决官反而看不到。
+func teachWebAssertDiscriminative(assert json.RawMessage) error {
 	var ac struct {
-		StatusCode    *int              `json:"status_code"`
-		BodyContains  []string          `json:"body_contains"`
-		HeaderContain map[string]string `json:"header_contains"`
-		MinDurationMs *int              `json:"min_duration_ms"`
+		BodyContains []string `json:"body_contains"`
 	}
 	if err := json.Unmarshal(assert, &ac); err != nil {
 		return nil //nolint:nilerr // 结构留给闸门裁决，写入侧不做硬失败
 	}
 	for _, want := range ac.BodyContains {
-		if len(strings.TrimSpace(want)) < 4 {
+		if len(strings.TrimSpace(want)) < MinBodyContainsLen {
 			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 过短（几乎必命中任意页面）。\n\n"+
 				"断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
 		}
-	}
-	if hasBaseline {
-		return nil
-	}
-	strong := len(ac.BodyContains) > 0 || len(ac.HeaderContain) > 0 || ac.MinDurationMs != nil
-	if !strong && ac.StatusCode != nil && *ac.StatusCode != 200 && *ac.StatusCode != 301 && *ac.StatusCode != 302 && *ac.StatusCode != 304 {
-		strong = true
-	}
-	if !strong {
-		return fmt.Errorf("无鉴别力断言——无 baseline 时至少一个强谓词（body_contains/header_contains/min_duration_ms 或非 200/301/302/304 状态码）。\n\n" +
-			"裸 status_code=200 类页面常态断言会被复现门拒绝坐实；建议附 recipe.baseline 良性对照")
 	}
 	return nil
 }
