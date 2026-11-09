@@ -1,315 +1,548 @@
-// Package configstore 是配置的多级缓存读写层，构建在资源无关的
-// cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）→ DB（事实源）。
+// Package configstore 编排 agent 与技能配置的读写：出厂值（internal/builtin，编译进程序）
+// 叠加用户层（数据库），经三级缓存（进程内存 L1 → redis L2 → 数据库）供 api 与 runner 读取。
 //
-// 为何分层（见 D7）：api 与 runner 是**多进程**。前端在 api 改配置后，runner 的本地
-// L1 必须被动失效，否则 runner 用旧配置装配。故写路径写 DB 后经 cachestore 广播失效键，
-// 各进程共享的 cachestore.Subscribe goroutine 收到即清本地 L1 + L2，下次读回填最新值。
-//
-// 本包只贡献 agent 专有的缓存键与读写方法，缓存机制（L1/L2/总线）全在 cachestore。
-//
-// 缓存粒度：单条读 + **key 空间固定**的读均走 L1/L2 缓存——单条读（id/code）、
-// 全量列表读（ListAgents 按 onlyEnabled 分 2 键）、两个哨兵（planner/
-// enabled_domain）。任一成员写即失效对应固定键。唯**分页/搜索列表**（ListAgentsPaged
-// + Count）不缓存：其键含搜索词 × limit × offset，key 空间随查询无限
-// 增长，L1 无 TTL 会堆积孤儿键（内存泄漏），且配置管理页低频，缓存收益近零，故直穿 DB。
+// 只缓存用户层（体量小、键空间固定）：agent 用户层、内置技能用户层、自建技能各一个键。
+// 出厂值本就在进程内存里，生效值在读取时合成。写路径写库后经 cachestore 广播失效，
+// 其它进程被动清本地缓存，下次读即最新。
 package configstore
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/builtin"
 	"github.com/V3teran/liusha/internal/cachestore"
+	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/skillstore"
+	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// agentStore 是 configstore 依赖的 agent 底层能力（*agent.Store 满足）。
-type agentStore interface {
-	GetByID(ctx context.Context, id string) (agent.Profile, error)
-	GetByCode(ctx context.Context, code string) (agent.Profile, error)
-	Update(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
-	UpdateComplexity(ctx context.Context, id, complexity string) (agent.Profile, error)
-	List(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
-	ListPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error)
-	CountList(ctx context.Context, p agent.ListParams) (int, error)
+// ErrNotFound 标记 agent 或技能不存在（包装 pgx.ErrNoRows，接口层统一映射为 404）。
+var ErrNotFound = fmt.Errorf("不存在: %w", pgx.ErrNoRows)
+
+// ErrBuiltinSkill 标记对内置技能做了只适用于自建技能的操作（删除），接口层映射为 409。
+var ErrBuiltinSkill = errors.New("内置技能不可删除，可停用或自定义内容")
+
+// ErrCustomSkill 标记对自建技能做了只适用于内置技能的操作（恢复出厂），接口层映射为 409。
+var ErrCustomSkill = errors.New("自建技能没有出厂内容可恢复")
+
+// ToolCatalog 是工具全集：展开 agent 工具白名单的「全部」、校验工具引用。
+type ToolCatalog struct {
+	FunctionTools []string // 内置函数工具（registry.FunctionToolCatalog）
+	CliTools      []string // 沙箱 CLI 工具（tools.yaml；加载失败时为空）
 }
 
-// skillStore 是 configstore 依赖的 skill 底层能力（*skillstore.Store 满足）。
-type skillStore interface {
-	GetByID(ctx context.Context, id string) (skillstore.Skill, error)
-	GetByCode(ctx context.Context, code string) (skillstore.Skill, error)
-	List(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
-	Count(ctx context.Context, p skillstore.ListParams) (int, error)
-	ListEnabled(ctx context.Context) ([]skillstore.Skill, error)
-	Create(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
-	Update(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
-	Delete(ctx context.Context, id string) error
-}
-
-// Store 编排 agent 和 skill 的多级读写：底层 DB store + 共享 cachestore 内核。
-type Store struct {
-	agents agentStore
-	skills skillStore
-	cache  *cachestore.Cache
-}
-
-// New 用 pgxpool + 共享 cachestore 构造 Store（生产装配用）。
-// cache 由进程唯一构造并已 go cache.Subscribe(ctx)，可被多个资源仓储共享。
-func New(pool *pgxpool.Pool, cache *cachestore.Cache) *Store {
-	return newWithStores(
-		agent.NewStore(pool),
-		skillstore.NewStore(pool),
-		cache,
-	)
-}
-
-// newWithStores 用已构造的底层 store 装配（测试注入 mock 用）。
-func newWithStores(hn agentStore, sk skillStore, cache *cachestore.Cache) *Store {
-	return &Store{agents: hn, skills: sk, cache: cache}
-}
-
-// ── 缓存键（L1/L2 同键，统一前缀 configstore:）───────────────────────────
-
-func keyAgentID(id string) string     { return "configstore:agent:id:" + id }
-func keyAgentCode(code string) string { return "configstore:agent:code:" + code }
-
-// keyAgentsList 是全量列表读的缓存键，按 onlyEnabled 分两键（有界）。
-// 任一 agent 写即失效其资源的两个 list 键（enabled 变动会跨 true/false 两表）。
-func keyAgentsList(onlyEnabled bool) string {
-	return "configstore:agents:list:" + boolKey(onlyEnabled)
-}
-
-// boolKey 把 onlyEnabled 稳定映射为键后缀。
-func boolKey(b bool) string {
-	if b {
-		return "enabled"
+// ToolCatalogFrom 由函数工具目录与 CLI 工具清单（可为 nil：tools.yaml 加载失败）组装工具全集。
+func ToolCatalogFrom(m *manifest.ToolManifest) ToolCatalog {
+	var tc ToolCatalog
+	for _, meta := range registry.FunctionToolCatalog {
+		tc.FunctionTools = append(tc.FunctionTools, meta.Name)
 	}
-	return "all"
-}
-
-// ── 小工具 ────────────────────────────────────────────────────────────
-
-// ── 单条读（L1/L2 缓存）───────────────────────────────────────────────
-
-// AgentByID 按 uuid 读 agent（CRUD :id）。
-func (s *Store) AgentByID(ctx context.Context, id string) (agent.Profile, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyAgentID(id),
-		func(h agent.Profile) []string { return []string{keyAgentID(h.ID)} },
-		func(ctx context.Context) (agent.Profile, error) {
-			return s.agents.GetByID(ctx, id)
-		})
-}
-
-// AgentByCode 按 code 读任意 agent（planner/executor/evaluator/monitor），走
-// keyAgentCode 的 L1/L2/DB 多级缓存。回填 code+id 双键（载荷同型 agent.Profile；
-// 一致性：所有 agent 写路径（UpdateAgent/UpdateAgentComplexity）
-// 经 agentKeys 失效 code 键，前端改配置 → 总线广播 → runner 清 L1 → 下次读到新值。
-// runner 的认知循环每任务经此读四 agent 配置（热路径，L1 命中为主）。
-func (s *Store) AgentByCode(ctx context.Context, code string) (agent.Profile, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyAgentCode(code),
-		func(h agent.Profile) []string {
-			return []string{keyAgentCode(h.Code), keyAgentID(h.ID)}
-		},
-		func(ctx context.Context) (agent.Profile, error) {
-			return s.agents.GetByCode(ctx, code)
-		})
-}
-
-// ── 全量列表读（L1/L2 缓存，按 onlyEnabled 分键）─────────────────────────
-
-// ListAgents 全量列表读，走多级缓存（按 onlyEnabled 分键）。任一 agent 写即失效两键。
-func (s *Store) ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyAgentsList(onlyEnabled),
-		func([]agent.Profile) []string { return []string{keyAgentsList(onlyEnabled)} },
-		func(ctx context.Context) ([]agent.Profile, error) {
-			return s.agents.List(ctx, onlyEnabled)
-		})
-}
-
-// ── 分页/搜索列表读（不缓存，直穿 DB）─────────────────────────────────
-//
-// 键含搜索词 × limit × offset，key 空间随查询无限增长；L1 无 TTL 会堆积孤儿键（内存泄漏）。
-// 配置管理页低频，缓存收益近零，故直穿 DB。
-
-// ListAgentsPaged 直穿底层 store：搜索 + 分页（配置管理页）。
-func (s *Store) ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error) {
-	return s.agents.ListPaged(ctx, p)
-}
-
-// CountAgents 直穿底层 store：与 ListAgentsPaged 同过滤的总数。
-func (s *Store) CountAgents(ctx context.Context, p agent.ListParams) (int, error) {
-	return s.agents.CountList(ctx, p)
-}
-
-// ── 写（前端 CRUD 走这里，保证跨进程一致）─────────────────────────────
-//
-// 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
-// 失效的键由写方直接列出（与 ReadThrough 的 fillKeys 对应），无 per-resource 语义 switch。
-
-// agentKeys 是一次 agent 写/删要清的全部缓存键：id 键 + code 键 + 两个全量列表键。失效集是各 ReadThrough 回填键的超集
-// （decode 失败即硬错，回填键载荷类型必须一致；失效键不受此限）。
-// complexity/code 键随此一并失效——全部写入口都经此，保证移档/改配即时生效。
-func agentKeys(id, code string) []string {
-	return []string{
-		keyAgentID(id), keyAgentCode(code),
-		keyAgentsList(true), keyAgentsList(false),
-	}
-}
-
-// UpdateAgent 更新 agent 配置（只能更新 SystemPrompt、Skills 和工具）。
-func (s *Store) UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error) {
-	h, err := s.agents.Update(ctx, code, p)
-	if err != nil {
-		return agent.Profile{}, err
-	}
-	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
-		return h, err
-	}
-	return h, nil
-}
-
-// UpdateAgentComplexity 只改单个 agent 的复杂度档位（分档页移档用），失效其缓存键——
-// runner 被动清 L1，下次 For(role) 经 ComplexityByCode 读到新档。不碰 agent 其余字段。
-func (s *Store) UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Profile, error) {
-	h, err := s.agents.UpdateComplexity(ctx, id, complexity)
-	if err != nil {
-		return agent.Profile{}, err
-	}
-	if err := s.cache.Invalidate(ctx, agentKeys(h.ID, h.Code)...); err != nil {
-		return h, err
-	}
-	return h, nil
-}
-
-// ── Skill 缓存方法 ────────────────────────────────────────────────────
-
-func keySkillID(id string) string     { return "configstore:skill:id:" + id }
-func keySkillCode(code string) string { return "configstore:skill:code:" + code }
-
-// keySkillsEnabledList 是「全部启用 skill」哨兵键（key 空间有界：仅此一键）。
-// runner 的 Tier 1 技能索引按它读；任何 skill 增/改/删都失效它。
-const keySkillsEnabledList = "configstore:skills:list:enabled"
-
-// skillFillKeys 是单条 skill 读的回填键（载荷类型 skillstore.Skill，code/id 双键交叉回填）。
-func skillFillKeys(id, code string) []string {
-	return []string{keySkillID(id), keySkillCode(code)}
-}
-
-// skillKeys 是一次 skill 写要失效的键集：回填键超集 + 启用列表哨兵键
-// （列表载荷是 []skillstore.Skill，不可被单条读回填——类型不同会 decode 硬错）。
-func skillKeys(id, code string) []string {
-	return []string{keySkillID(id), keySkillCode(code), keySkillsEnabledList}
-}
-
-// SkillByID 按 uuid 读 Skill（L1/L2 缓存）
-func (s *Store) SkillByID(ctx context.Context, id string) (skillstore.Skill, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keySkillID(id),
-		func(sk skillstore.Skill) []string { return skillFillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (skillstore.Skill, error) {
-			return s.skills.GetByID(ctx, id)
-		})
-}
-
-// SkillByCode 按 code 读 Skill（L1/L2 缓存）——read_skill 工具（Tier 2）的后端。
-func (s *Store) SkillByCode(ctx context.Context, code string) (skillstore.Skill, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keySkillCode(code),
-		func(sk skillstore.Skill) []string { return skillFillKeys(sk.ID, sk.Code) },
-		func(ctx context.Context) (skillstore.Skill, error) {
-			return s.skills.GetByCode(ctx, code)
-		})
-}
-
-// EnabledSkills 返回全部启用的 skill（无分页截断——skill 总量本身有界），
-// 缓存于哨兵键。runner 每任务构建 Tier 1 技能索引的数据源；前端改 skill
-// （正文/启停）经 UpdateSkill/CreateSkill/DeleteSkill 失效此键并广播，runner 下次即新。
-func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keySkillsEnabledList,
-		func([]skillstore.Skill) []string { return []string{keySkillsEnabledList} },
-		func(ctx context.Context) ([]skillstore.Skill, error) {
-			return s.skills.ListEnabled(ctx)
-		})
-}
-
-// ListSkills 列出 Skill（直穿 DB，不缓存）
-// 原因：支持搜索和分页，key 空间无限，缓存收益低
-func (s *Store) ListSkills(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error) {
-	return s.skills.List(ctx, p)
-}
-
-// CountSkills 统计 Skill 数量（直穿 DB，不缓存）
-func (s *Store) CountSkills(ctx context.Context, p skillstore.ListParams) (int, error) {
-	return s.skills.Count(ctx, p)
-}
-
-// UpdateSkill 更新 Skill，失效缓存（单条键 + 启用列表键）
-func (s *Store) UpdateSkill(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error) {
-	sk, err := s.skills.Update(ctx, id, p)
-	if err != nil {
-		return skillstore.Skill{}, err
-	}
-	if err := s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...); err != nil {
-		return sk, err
-	}
-	return sk, nil
-}
-
-// CreateSkill 创建 Skill（写穿 DB 后失效启用列表键——新 skill 会出现在列表里；
-// 其 code/id 键尚无旧缓存，无需失效）
-func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error) {
-	created, err := s.skills.Create(ctx, sk)
-	if err != nil {
-		return skillstore.Skill{}, err
-	}
-	_ = s.cache.Invalidate(ctx, keySkillsEnabledList) // best-effort：失败由 10min L2 TTL 兜底
-	return created, nil
-}
-
-// DeleteSkill 删除 Skill，失效缓存
-func (s *Store) DeleteSkill(ctx context.Context, id string) error {
-	// 先查询获取 code，用于失效缓存
-	sk, err := s.skills.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	if err := s.skills.Delete(ctx, id); err != nil {
-		return err
-	}
-	// 删除成功后失效缓存（best-effort，失败不影响删除结果）
-	_ = s.cache.Invalidate(ctx, skillKeys(sk.ID, sk.Code)...)
-	return nil
-}
-
-// InvalidateSkills 供绕过本 Store 的写路径（api 启动期种子 import、reseed 工具）
-// 事后统一失效：启用列表键 + 受影响 code 的单条键。ids 无从得知（行已删/未建），
-// code 键失效已足够——id 键只服务前端 :id 路由，种子路径不触碰。
-func (s *Store) InvalidateSkills(ctx context.Context, codes ...string) error {
-	keys := make([]string, 0, len(codes)+1)
-	keys = append(keys, keySkillsEnabledList)
-	for _, c := range codes {
-		if c != "" {
-			keys = append(keys, keySkillCode(c))
+	if m != nil {
+		for _, t := range m.Tools {
+			tc.CliTools = append(tc.CliTools, t.Name)
 		}
 	}
-	return s.cache.Invalidate(ctx, keys...)
+	return tc
 }
 
-// InvalidateAgents 供 reseed 强制覆盖 agents 后按 code 失效全部相关键
-// （经 DB 回读拿 id，重建 agentKeys 全集）。低频工具路径，直读可接受。
-func (s *Store) InvalidateAgents(ctx context.Context, codes ...string) error {
-	var keys []string
-	for _, code := range codes {
-		if code == "" {
+// Store 是 agent 与技能配置的读写入口。
+type Store struct {
+	agents *agent.Store
+	skills *skillstore.Store
+	cache  *cachestore.Cache
+	tools  ToolCatalog
+}
+
+// New 构造 Store。cache 由进程唯一构造并已在后台 Subscribe。
+func New(pool *pgxpool.Pool, cache *cachestore.Cache, tools ToolCatalog) *Store {
+	return &Store{agents: agent.NewStore(pool), skills: skillstore.NewStore(pool), cache: cache, tools: tools}
+}
+
+// ── 缓存（只缓存用户层）─────────────────────────────────────────────
+
+const (
+	keyAgentOverrides = "configstore:agent_overrides"
+	keySkillOverrides = "configstore:skill_overrides"
+	keyCustomSkills   = "configstore:custom_skills"
+)
+
+func (s *Store) agentOverrides(ctx context.Context) (map[string]override.Overrides, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyAgentOverrides,
+		func(map[string]override.Overrides) []string { return []string{keyAgentOverrides} },
+		s.agents.Overrides)
+}
+
+func (s *Store) skillOverrides(ctx context.Context) (map[string]override.Overrides, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keySkillOverrides,
+		func(map[string]override.Overrides) []string { return []string{keySkillOverrides} },
+		s.skills.Overrides)
+}
+
+func (s *Store) customSkills(ctx context.Context) ([]skillstore.Skill, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyCustomSkills,
+		func([]skillstore.Skill) []string { return []string{keyCustomSkills} },
+		s.skills.Customs)
+}
+
+// ── agent ───────────────────────────────────────────────────────────
+
+// AgentDetail 是 agent 配置页需要的全部信息。
+type AgentDetail struct {
+	Profile       agent.Profile             `json:"agent"`
+	Defaults      agent.Config              `json:"defaults"`
+	Overrides     map[string]override.State `json:"overrides"`
+	PromptArchive *agent.PromptArchive      `json:"prompt_archive"`
+}
+
+// Agent 返回一个 agent 的生效配置（runner 每个任务经此装配四个 agent，热路径）。
+func (s *Store) Agent(ctx context.Context, code string) (agent.Profile, error) {
+	b, ok := builtin.AgentByCode(code)
+	if !ok {
+		return agent.Profile{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
+	}
+	ovs, err := s.agentOverrides(ctx)
+	if err != nil {
+		return agent.Profile{}, err
+	}
+	catalog, err := s.agentCatalog(ctx)
+	if err != nil {
+		return agent.Profile{}, err
+	}
+	return agent.Resolve(b, ovs[code], catalog)
+}
+
+// Agents 返回全部 agent 的生效配置（按 code 升序）。
+func (s *Store) Agents(ctx context.Context) ([]agent.Profile, error) {
+	ovs, err := s.agentOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := s.agentCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []agent.Profile
+	for _, b := range builtin.Agents() {
+		p, err := agent.Resolve(b, ovs[b.Code], catalog)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// AgentDetails 返回全部 agent 的生效配置、出厂值、各已自定义字段状态与提示词归档
+// （按 code 升序）。
+func (s *Store) AgentDetails(ctx context.Context) ([]AgentDetail, error) {
+	ovs, err := s.agentOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := s.agentCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	archives, err := s.agents.PromptArchives(ctx)
+	if err != nil {
+		return nil, err
+	}
+	schema := agent.Schema(catalog)
+	var out []AgentDetail
+	for _, b := range builtin.Agents() {
+		p, err := agent.Resolve(b, ovs[b.Code], catalog)
+		if err != nil {
+			return nil, err
+		}
+		d := AgentDetail{
+			Profile:   p,
+			Defaults:  agent.Defaults(b),
+			Overrides: override.Describe(schema, agent.DefaultsDocument(b), ovs[b.Code]),
+		}
+		if a, ok := archives[b.Code]; ok {
+			d.PromptArchive = &a
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// AgentDetail 返回单个 agent 的详情（见 AgentDetails）。
+func (s *Store) AgentDetail(ctx context.Context, code string) (AgentDetail, error) {
+	all, err := s.AgentDetails(ctx)
+	if err != nil {
+		return AgentDetail{}, err
+	}
+	for _, d := range all {
+		if d.Profile.Code == code {
+			return d, nil
+		}
+	}
+	return AgentDetail{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
+}
+
+// PatchAgent 写入用户提交的字段（Replace 字段为新值，集合字段为 {on, off}），
+// 校验应用后的生效配置，返回新的生效配置。
+func (s *Store) PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Profile, error) {
+	return s.updateAgent(ctx, code, func(schema override.Schema, def override.Document, cur override.Overrides) (override.Overrides, error) {
+		return override.Patch(schema, def, cur, changes)
+	})
+}
+
+// ToggleAgent 对 agent 的集合字段（function_tools / cli_tools / skills）勾选或取消单个元素。
+func (s *Store) ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error) {
+	return s.updateAgent(ctx, code, func(schema override.Schema, def override.Document, cur override.Overrides) (override.Overrides, error) {
+		return override.Toggle(schema, def, cur, field, mustJSON(elem), on)
+	})
+}
+
+// ResetAgent 把指定字段恢复为出厂值（不传字段则全部恢复）。
+func (s *Store) ResetAgent(ctx context.Context, code string, fields ...string) (agent.Profile, error) {
+	return s.updateAgent(ctx, code, func(schema override.Schema, _ override.Document, cur override.Overrides) (override.Overrides, error) {
+		for _, f := range fields {
+			if _, ok := schema[f]; !ok {
+				return nil, fmt.Errorf("%w：字段 %q 不可自定义", override.ErrInvalid, f)
+			}
+		}
+		return override.Reset(cur, fields...), nil
+	})
+}
+
+// DeletePromptArchive 删除 agent 的提示词归档（用户已对照处理）。
+func (s *Store) DeletePromptArchive(ctx context.Context, code string) error {
+	if _, ok := builtin.AgentByCode(code); !ok {
+		return fmt.Errorf("agent %q %w", code, ErrNotFound)
+	}
+	return s.agents.DeletePromptArchive(ctx, code)
+}
+
+type agentEdit func(schema override.Schema, defaults override.Document, cur override.Overrides) (override.Overrides, error)
+
+func (s *Store) updateAgent(ctx context.Context, code string, edit agentEdit) (agent.Profile, error) {
+	b, ok := builtin.AgentByCode(code)
+	if !ok {
+		return agent.Profile{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
+	}
+	catalog, err := s.agentCatalog(ctx)
+	if err != nil {
+		return agent.Profile{}, err
+	}
+	schema, def := agent.Schema(catalog), agent.DefaultsDocument(b)
+	var result agent.Profile
+	if _, err := s.agents.UpdateOverrides(ctx, code, func(cur override.Overrides) (override.Overrides, error) {
+		next, err := edit(schema, def, cur)
+		if err != nil {
+			return nil, err
+		}
+		if result, err = agent.Resolve(b, next, catalog); err != nil {
+			return nil, err
+		}
+		return next, agent.Validate(result.Config)
+	}); err != nil {
+		return agent.Profile{}, err
+	}
+	return result, s.cache.Invalidate(ctx, keyAgentOverrides)
+}
+
+// agentCatalog 组装集合字段的全集；技能全集含内置与自建技能。
+func (s *Store) agentCatalog(ctx context.Context) (agent.Catalog, error) {
+	skills, err := s.Skills(ctx)
+	if err != nil {
+		return agent.Catalog{}, err
+	}
+	codes := make([]string, 0, len(skills))
+	for _, sk := range skills {
+		codes = append(codes, sk.Code)
+	}
+	return agent.Catalog{
+		FunctionTools: func() []string { return s.tools.FunctionTools },
+		CliTools:      func() []string { return s.tools.CliTools },
+		Skills:        func() []string { return codes },
+	}, nil
+}
+
+// ── 技能 ────────────────────────────────────────────────────────────
+
+// SkillDetail 是技能页需要的全部信息。内置技能附出厂值与已自定义字段状态。
+type SkillDetail struct {
+	Skill     skillstore.Skill          `json:"skill"`
+	Defaults  *skillstore.Content       `json:"defaults"`
+	Overrides map[string]override.State `json:"overrides"`
+	// Shadows 为真表示这个自建技能与某内置技能同名，内置版本被遮蔽。
+	Shadows bool `json:"shadows_builtin"`
+}
+
+// Skills 返回全部生效技能（内置技能叠加用户层 + 自建技能；同名时自建优先），
+// 按 category、code 升序。
+func (s *Store) Skills(ctx context.Context) ([]skillstore.Skill, error) {
+	customs, err := s.customSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ovs, err := s.skillOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := slices.Clone(customs)
+	for _, b := range builtin.Skills() {
+		if hasCode(customs, b.Code) {
+			continue // 被同名自建技能遮蔽
+		}
+		sk, err := skillstore.Resolve(b, ovs[b.Code])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sk)
+	}
+	slices.SortFunc(out, func(a, b skillstore.Skill) int {
+		if c := strings.Compare(a.Category, b.Category); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Code, b.Code)
+	})
+	return out, nil
+}
+
+// EnabledSkills 返回全部启用的生效技能（runner 构建技能索引的数据源）。
+func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
+	all, err := s.Skills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(sk skillstore.Skill) bool { return !sk.Enabled }), nil
+}
+
+// Skill 按 code 返回生效技能（read_skill 的后端）。
+func (s *Store) Skill(ctx context.Context, code string) (skillstore.Skill, error) {
+	all, err := s.Skills(ctx)
+	if err != nil {
+		return skillstore.Skill{}, err
+	}
+	for _, sk := range all {
+		if sk.Code == code {
+			return sk, nil
+		}
+	}
+	return skillstore.Skill{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
+}
+
+// SkillDetails 返回全部生效技能及其详情（顺序同 Skills）：内置技能附出厂内容与
+// 已自定义字段状态，自建技能标明是否遮蔽了同名内置技能。
+func (s *Store) SkillDetails(ctx context.Context) ([]SkillDetail, error) {
+	skills, err := s.Skills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ovs, err := s.skillOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SkillDetail, 0, len(skills))
+	for _, sk := range skills {
+		d := SkillDetail{Skill: sk, Overrides: map[string]override.State{}}
+		b, isBuiltinCode := builtin.SkillByCode(sk.Code)
+		if sk.IsBuiltin {
+			def := skillstore.Defaults(b)
+			d.Defaults = &def
+			d.Overrides = override.Describe(skillstore.Schema(), skillstore.DefaultsDocument(b), ovs[sk.Code])
+		} else {
+			d.Shadows = isBuiltinCode
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// SkillDetail 返回单个技能的详情（见 SkillDetails）。
+func (s *Store) SkillDetail(ctx context.Context, code string) (SkillDetail, error) {
+	all, err := s.SkillDetails(ctx)
+	if err != nil {
+		return SkillDetail{}, err
+	}
+	for _, d := range all {
+		if d.Skill.Code == code {
+			return d, nil
+		}
+	}
+	return SkillDetail{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
+}
+
+// CreateSkill 新建自建技能。与内置技能或已有自建技能同名返回 skillstore.ErrConflict。
+func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error) {
+	sk.IsBuiltin = false
+	if err := skillstore.ValidateNew(sk); err != nil {
+		return skillstore.Skill{}, err
+	}
+	if _, ok := builtin.SkillByCode(sk.Code); ok {
+		return skillstore.Skill{}, fmt.Errorf("%w：%s 是内置技能", skillstore.ErrConflict, sk.Code)
+	}
+	created, err := s.skills.CreateCustom(ctx, sk)
+	if err != nil {
+		return skillstore.Skill{}, err
+	}
+	return created, s.cache.Invalidate(ctx, keyCustomSkills)
+}
+
+// PatchSkill 修改技能：内置技能写入用户层（与出厂相同即不算自定义），自建技能直接修改。
+func (s *Store) PatchSkill(ctx context.Context, code string, changes override.Document) (skillstore.Skill, error) {
+	sk, err := s.Skill(ctx, code)
+	if err != nil {
+		return skillstore.Skill{}, err
+	}
+	if !sk.IsBuiltin {
+		updated, err := s.skills.UpdateCustom(ctx, code, func(cur skillstore.Skill) (skillstore.Content, error) {
+			return mergeContent(skillstore.ContentOf(cur), changes)
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return skillstore.Skill{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
+			}
+			return skillstore.Skill{}, err
+		}
+		return updated, s.cache.Invalidate(ctx, keyCustomSkills)
+	}
+	return s.updateBuiltinSkill(ctx, code, func(def override.Document, cur override.Overrides) (override.Overrides, error) {
+		return override.Patch(skillstore.Schema(), def, cur, changes)
+	})
+}
+
+// ResetSkill 把内置技能的指定字段恢复为出厂内容（不传字段则全部恢复）。
+func (s *Store) ResetSkill(ctx context.Context, code string, fields ...string) (skillstore.Skill, error) {
+	sk, err := s.Skill(ctx, code)
+	if err != nil {
+		return skillstore.Skill{}, err
+	}
+	if !sk.IsBuiltin {
+		return skillstore.Skill{}, ErrCustomSkill
+	}
+	return s.updateBuiltinSkill(ctx, code, func(_ override.Document, cur override.Overrides) (override.Overrides, error) {
+		for _, f := range fields {
+			if _, ok := skillstore.Schema()[f]; !ok {
+				return nil, fmt.Errorf("%w：字段 %q 不可自定义", override.ErrInvalid, f)
+			}
+		}
+		return override.Reset(cur, fields...), nil
+	})
+}
+
+// DeleteSkill 删除自建技能，并从各 agent 的技能自定义里抹去对它的引用。
+func (s *Store) DeleteSkill(ctx context.Context, code string) error {
+	sk, err := s.Skill(ctx, code)
+	if err != nil {
+		return err
+	}
+	if sk.IsBuiltin {
+		return ErrBuiltinSkill
+	}
+	if err := s.skills.DeleteCustom(ctx, code); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("技能 %q %w", code, ErrNotFound)
+		}
+		return err
+	}
+	if err := s.cache.Invalidate(ctx, keyCustomSkills); err != nil {
+		return err
+	}
+	return s.removeSkillReferences(ctx, code)
+}
+
+// AdoptRetiredSkills 把已下线、但用户自定义过的内置技能转为同 code 的自建技能
+// （api 启动时执行，幂等）。返回转换的 code。
+func (s *Store) AdoptRetiredSkills(ctx context.Context) ([]string, error) {
+	var codes []string
+	for _, b := range builtin.Skills() {
+		codes = append(codes, b.Code)
+	}
+	adopted, err := s.skills.AdoptRetired(ctx, codes)
+	if err != nil || len(adopted) == 0 {
+		return adopted, err
+	}
+	return adopted, s.cache.Invalidate(ctx, keySkillOverrides, keyCustomSkills)
+}
+
+func (s *Store) updateBuiltinSkill(ctx context.Context, code string, edit func(override.Document, override.Overrides) (override.Overrides, error)) (skillstore.Skill, error) {
+	b, _ := builtin.SkillByCode(code)
+	def := skillstore.DefaultsDocument(b)
+	var result skillstore.Skill
+	if _, err := s.skills.UpdateOverrides(ctx, code, func(cur override.Overrides) (override.Overrides, skillstore.Skill, error) {
+		next, err := edit(def, cur)
+		if err != nil {
+			return nil, skillstore.Skill{}, err
+		}
+		if result, err = skillstore.Resolve(b, next); err != nil {
+			return nil, skillstore.Skill{}, err
+		}
+		return next, result, skillstore.Validate(skillstore.ContentOf(result))
+	}); err != nil {
+		return skillstore.Skill{}, err
+	}
+	return result, s.cache.Invalidate(ctx, keySkillOverrides)
+}
+
+// removeSkillReferences 从各 agent 技能字段的新增、删除记录里抹去被删技能。
+func (s *Store) removeSkillReferences(ctx context.Context, code string) error {
+	ovs, err := s.agents.Overrides(ctx)
+	if err != nil {
+		return err
+	}
+	elem := mustJSON(code)
+	touched := false
+	for agentCode, ov := range ovs {
+		if _, changed := override.RemoveMember(ov, agent.FieldSkills, elem); !changed {
 			continue
 		}
-		h, err := s.agents.GetByCode(ctx, code)
-		if err != nil {
-			continue // 行不存在：无旧缓存可失效，跳过
+		if _, err := s.agents.UpdateOverrides(ctx, agentCode, func(cur override.Overrides) (override.Overrides, error) {
+			next, _ := override.RemoveMember(cur, agent.FieldSkills, elem)
+			return next, nil
+		}); err != nil {
+			return fmt.Errorf("清理 %s 对技能 %s 的引用: %w", agentCode, code, err)
 		}
-		keys = append(keys, agentKeys(h.ID, h.Code)...)
+		touched = true
 	}
-	if len(keys) == 0 {
+	if !touched {
 		return nil
 	}
-	return s.cache.Invalidate(ctx, keys...)
+	return s.cache.Invalidate(ctx, keyAgentOverrides)
+}
+
+// mergeContent 把提交的字段合入自建技能内容（只接受可修改字段）并校验。
+func mergeContent(cur skillstore.Content, changes override.Document) (skillstore.Content, error) {
+	schema := skillstore.Schema()
+	doc, err := override.ToDocument(cur)
+	if err != nil {
+		return skillstore.Content{}, err
+	}
+	for name, v := range changes {
+		if _, ok := schema[name]; !ok {
+			return skillstore.Content{}, fmt.Errorf("%w：字段 %q 不可修改", override.ErrInvalid, name)
+		}
+		doc[name] = v
+	}
+	var next skillstore.Content
+	if err := override.FromDocument(doc, &next); err != nil {
+		return skillstore.Content{}, fmt.Errorf("%w：%w", override.ErrInvalid, err)
+	}
+	return next, skillstore.Validate(next)
+}
+
+func hasCode(list []skillstore.Skill, code string) bool {
+	return slices.ContainsFunc(list, func(sk skillstore.Skill) bool { return sk.Code == code })
+}
+
+func mustJSON(s string) json.RawMessage {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

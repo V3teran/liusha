@@ -10,8 +10,9 @@
 //     重读 settingstore 重建过滤链并 Server.SwapFilter 原子换入（真热改，无需重启）
 //  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis + 关 pool）
 //
-// 为何连 PG：过滤规则（流量过滤黑白名单 + body 上限）是系统业务旋钮，事实源在 system_setting，
-// 前端「系统配置」改后经多级缓存跨进程失效——proxy 必须能读 DB + 订阅失效，才能热换规则。
+// 为何连 PG：过滤规则（流量过滤黑白名单 + body 上限）的生效值 = config.yaml 出厂默认叠加前端
+// 「系统配置」的自定义（setting_override），改后经多级缓存跨进程失效——proxy 必须能读 DB + 订阅失效，
+// 才能热换规则。
 //
 // 纯 MITM 代理流量入口：无 healthz HTTP（存活探 TCP 8588）；sandbox 内工具流量的 ingest endpoint 在 cmd/runner。
 //
@@ -56,7 +57,7 @@ func main() {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	// PG 连接：过滤规则（proxy_filter 组）事实源在 system_setting，proxy 需读 DB + 订阅失效热换规则。
+	// PG 连接：过滤规则（proxy_filter 组）的用户自定义在 setting_override，proxy 需读 DB + 订阅失效热换规则。
 	pool, err := db.NewPgPool(ctx, os.Getenv("LIUSHA_POSTGRES_DSN"), logger,
 		cfg.Postgres.MaxConns, cfg.Postgres.MinConns,
 		cfg.Postgres.ConnectTimeoutSeconds, cfg.Postgres.MaxConnLifetimeSeconds)
@@ -68,7 +69,7 @@ func main() {
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）+ 业务旋钮事实源。
 	// Subscribe 后台起（阻塞循环），OnInvalidate 回调在收到 proxy_filter 失效时热换过滤链。
 	cache := cachestore.New(rdb, 0)
-	settingStore := settingstore.New(pool, cache)
+	settingStore := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
 	proxyCfg := cfg.Proxy
 
@@ -83,8 +84,8 @@ func main() {
 	internalAddr := envx.OrDefault("LIUSHA_PROXY_INTERNAL_ADDR", proxyCfg.InternalAddr)
 	certDir := envx.OrDefault("LIUSHA_PROXY_CERT_DIR", "") // 空则 proxy.Server 用 $HOME/<cert_subdir>
 
-	// 过滤规则从 DB（proxy_filter 组）读取为唯一事实源；读失败（如种子未导入）降级用 yaml，
-	// 保证 proxy 能启动（首次导入种子后经失效总线热换到 DB 值）。
+	// 过滤规则取 proxy_filter 组的生效值（yaml 出厂默认叠加前端自定义）；读失败（DB 抖动）
+	// 降级用 yaml，保证 proxy 能启动，之后任一次失效广播都会热换到生效值。
 	filterCfg := proxyFilterConfig(ctx, settingStore, proxyCfg, logger)
 	trafficFilter := filter.NewTrafficFilter(filterCfg)
 	publisher, err := proxy.NewPublisher(rdb, proxyCfg.StreamName, int64(proxyCfg.StreamMaxLen))
@@ -96,7 +97,7 @@ func main() {
 	externalServer, err := proxy.NewServer(proxy.ServerDeps{
 		Filter:     trafficFilter,
 		Publisher:  publisher,
-		Cfg:        filterCfg, // body 上限属 proxy_filter 组，与过滤链同源（DB 优先）
+		Cfg:        filterCfg, // body 上限属 proxy_filter 组，与过滤链同源
 		ListenAddr: internalAddr,
 		CertDir:    certDir,
 		Source:     "external",
@@ -109,7 +110,7 @@ func main() {
 	proxyCtx, proxyCancel := context.WithCancel(context.Background())
 	defer proxyCancel()
 
-	// 热换过滤链：proxy_filter 组失效（前端改「系统配置」后广播）→ 重读 DB 重建链原子换入。
+	// 热换过滤链：proxy_filter 组失效（前端改「系统配置」后广播）→ 重读生效值、重建链原子换入。
 	// 无脑触发、回调侧按键前缀过滤；重读走独立超时 ctx，失败仅 warn 保留旧链（不炸进程）。
 	cache.OnInvalidate(func(_ context.Context, keys []string) {
 		if !containsKey(keys, settingstore.KeyProxyFilter) {
@@ -159,9 +160,8 @@ func main() {
 	logger.Info().Msg("proxy stopped")
 }
 
-// proxyFilterConfig 把 proxy_filter 组（DB 事实源）叠加到 yaml ProxyConfig 的过滤字段上，
-// 产出用于构建过滤链的 config.ProxyConfig。DB 为唯一事实源；读失败（种子未导入 / DB 抖动）
-// 降级保留 yaml 值，保证 proxy 能启动，首次导入种子后经失效总线热换到 DB 值。
+// proxyFilterConfig 把 proxy_filter 组的生效值写入 yaml ProxyConfig 的过滤字段，产出用于构建
+// 过滤链的 config.ProxyConfig。读失败（DB 抖动）降级保留 yaml 值，保证 proxy 能启动。
 //
 // 只覆盖过滤相关字段（黑白名单 + body 上限）；listen/stream 等基础设施字段仍取 yaml（不入 DB）。
 func proxyFilterConfig(ctx context.Context, store *settingstore.Store, base config.ProxyConfig, logger zerolog.Logger) config.ProxyConfig {

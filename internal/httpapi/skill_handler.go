@@ -1,356 +1,194 @@
+// Package httpapi: 技能 handler（前端「技能」页）。
+//
+// 内置技能出厂内容编译在程序里，用户只能自定义（名称、描述、正文、启用）或恢复出厂，
+// 不可删除；自建技能是用户数据，可增删改。同 code 时自建技能优先。
 package httpapi
 
 import (
 	"context"
 	"net/http"
-	"strconv"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/skillstore"
-	"github.com/gin-gonic/gin"
 )
 
-// SkillAPI 是 Skill Handler 依赖的 store 接口
+// SkillAPI 是技能 handler 依赖的窄接口；*configstore.Store 自动满足。
 type SkillAPI interface {
-	ListSkills(ctx context.Context, p skillstore.ListParams) ([]skillstore.Skill, error)
-	CountSkills(ctx context.Context, p skillstore.ListParams) (int, error)
-	SkillByCode(ctx context.Context, code string) (skillstore.Skill, error)
+	SkillDetails(ctx context.Context) ([]configstore.SkillDetail, error)
+	SkillDetail(ctx context.Context, code string) (configstore.SkillDetail, error)
 	CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error)
-	UpdateSkill(ctx context.Context, id string, p skillstore.UpdateParams) (skillstore.Skill, error)
-	DeleteSkill(ctx context.Context, id string) error
+	PatchSkill(ctx context.Context, code string, changes override.Document) (skillstore.Skill, error)
+	ResetSkill(ctx context.Context, code string, fields ...string) (skillstore.Skill, error)
+	DeleteSkill(ctx context.Context, code string) error
 
-	// 装配到智能体（对称工具模块）：读全量 agent 算 involved、按 agent.skills
-	// 白名单写回（后端单一权威，同 tool assignToolHandler）。
-	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
-	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
-	AgentByCode(ctx context.Context, code string) (agent.Profile, error)
+	// 装配到智能体：读全部 agent 算装配态，按 agent 技能名单单项装卸。
+	Agents(ctx context.Context) ([]agent.Profile, error)
+	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error)
 }
 
-// listSkillsHandler 获取 Skill 列表（智能判断分页或全量）
+// listSkillsHandler 处理 GET /skills?q=&page=&size= → {skills, total}。
+// 每项为生效技能，附已自定义字段名与是否遮蔽同名内置技能；未带 page 返回全部。
 func listSkillsHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 如果有分页参数，使用分页模式
-		if c.Query("page") != "" || c.Query("size") != "" {
-			listSkillsPagedHandler(api)(c)
-			return
-		}
-
-		// 否则返回全量（智能体配置页技能多选器取全部候选）
-		skills, err := api.ListSkills(c.Request.Context(), skillstore.ListParams{})
+		all, err := api.SkillDetails(c.Request.Context())
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, skills)
-	}
-}
-
-// listSkillsPagedHandler 分页获取 Skill 列表
-func listSkillsPagedHandler(api SkillAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		page, _ := strconv.Atoi(c.Query("page"))
-		size, _ := strconv.Atoi(c.Query("size"))
 		q := c.Query("q")
-
-		if page < 1 {
-			page = 1
+		items := make([]gin.H, 0, len(all))
+		for _, d := range all {
+			sk := d.Skill
+			if !matchesQuery(q, sk.Code, sk.Name, sk.Description) {
+				continue
+			}
+			item := skillJSON(sk)
+			item["customized"] = customizedFields(d.Overrides)
+			item["shadows_builtin"] = d.Shadows
+			items = append(items, item)
 		}
-		if size < 1 {
-			size = 50
-		}
-
-		params := skillstore.ListParams{
-			Limit:  size,
-			Offset: (page - 1) * size,
-			Search: q,
-		}
-
-		skills, err := api.ListSkills(c.Request.Context(), params)
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-
-		total, err := api.CountSkills(c.Request.Context(), params)
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"skills": skills,
-			"total":  total,
-		})
+		page, total := pageOf(c, items, defaultConfigPageSize, maxConfigPageSize)
+		c.JSON(http.StatusOK, gin.H{"skills": page, "total": total})
 	}
 }
 
-// getSkillHandler 获取单个 Skill
+// getSkillHandler 处理 GET /skills/:code → 生效技能、出厂内容（内置）、自定义状态与各 agent 的装配态。
 func getSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-		skill, err := api.SkillByCode(c.Request.Context(), code)
-		if err != nil {
-			respondErr(c, http.StatusNotFound, err)
-			return
-		}
-		c.JSON(http.StatusOK, skill)
+		respondSkillDetail(c, api, c.Param("code"))
 	}
 }
 
-// createSkillRequest 创建请求
-type createSkillRequest struct {
-	Code        string `json:"code" binding:"required"`
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	Category    string `json:"category" binding:"required"`
-	Body        string `json:"body" binding:"required"`
-}
-
-// createSkillHandler 创建 Skill
+// createSkillHandler 处理 POST /skills：新建自建技能。与内置或已有技能同名 → 409。
 func createSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req createSkillRequest
+		var req struct {
+			Code        string `json:"code"`
+			Category    string `json:"category"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Body        string `json:"body"`
+		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			respondErr(c, http.StatusBadRequest, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-
-		skill := skillstore.Skill{
-			Code:        req.Code,
-			Name:        req.Name,
-			Description: req.Description,
-			Category:    req.Category,
-			Body:        req.Body,
-			Enabled:     true,
-			IsBuiltin:   false,
-		}
-
-		created, err := api.CreateSkill(c.Request.Context(), skill)
+		created, err := api.CreateSkill(c.Request.Context(), skillstore.Skill{
+			Code: req.Code, Category: req.Category, Name: req.Name,
+			Description: req.Description, Body: req.Body, Enabled: true,
+		})
 		if err != nil {
-			if isUniqueViolation(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": "技能标识符「" + req.Code + "」已存在"})
-				return
-			}
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-
-		c.JSON(http.StatusCreated, created)
+		c.JSON(http.StatusCreated, skillJSON(created))
 	}
 }
 
-// updateSkillRequest 更新请求
-type updateSkillRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Body        *string `json:"body,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-}
-
-// updateSkillHandler 更新 Skill
-func updateSkillHandler(api SkillAPI) gin.HandlerFunc {
+// patchSkillHandler 处理 PATCH /skills/:code。请求体只含改动的字段（name/description/body/enabled）：
+// 内置技能写入自定义层（与出厂相同即不算自定义），自建技能直接修改。
+func patchSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-
-		// 先查询获取 ID
-		existing, err := api.SkillByCode(c.Request.Context(), code)
-		if err != nil {
-			respondErr(c, http.StatusNotFound, err)
+		var changes override.Document
+		if err := c.ShouldBindJSON(&changes); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-
-		var req updateSkillRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			respondErr(c, http.StatusBadRequest, err)
+		if len(changes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要修改的字段"})
 			return
 		}
-
-		params := skillstore.UpdateParams{
-			Name:        req.Name,
-			Description: req.Description,
-			Body:        req.Body,
-			Enabled:     req.Enabled,
-		}
-
-		updated, err := api.UpdateSkill(c.Request.Context(), existing.ID, params)
-		if err != nil {
+		if _, err := api.PatchSkill(c.Request.Context(), c.Param("code"), changes); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-
-		c.JSON(http.StatusOK, updated)
+		respondSkillDetail(c, api, c.Param("code"))
 	}
 }
 
-// deleteSkillHandler 删除 Skill
+// resetSkillHandler 处理 DELETE /skills/:code/overrides[/:field]：内置技能恢复出厂内容。
+func resetSkillHandler(api SkillAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var fields []string
+		if f := c.Param("field"); f != "" {
+			fields = append(fields, f)
+		}
+		if _, err := api.ResetSkill(c.Request.Context(), c.Param("code"), fields...); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		respondSkillDetail(c, api, c.Param("code"))
+	}
+}
+
+// deleteSkillHandler 处理 DELETE /skills/:code：删除自建技能（同时清除各 agent 对它的引用）；
+// 内置技能不可删除 → 409。
 func deleteSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-
-		// 先查询获取 ID
-		existing, err := api.SkillByCode(c.Request.Context(), code)
-		if err != nil {
-			respondErr(c, http.StatusNotFound, err)
-			return
-		}
-
-		// 内置技能是 skills/*.md 种子的镜像（reseed 覆盖复位），删除无意义且
-		// 会被复活——store 层同规则拒绝，这里给出更准确的 409 语义。
-		if existing.IsBuiltin {
-			c.JSON(http.StatusConflict, gin.H{"error": "内置技能不可删除（由 skills/ 目录种子管理）"})
-			return
-		}
-
-		if err := api.DeleteSkill(c.Request.Context(), existing.ID); err != nil {
+		if err := api.DeleteSkill(c.Request.Context(), c.Param("code")); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-
 		c.Status(http.StatusNoContent)
 	}
 }
 
-// ── 装配到智能体（对称工具模块）──────────────────────────────────────
-
-// skillAgentsView 是详情里的一个智能体条目：轻量标识 + 是否已装配该技能
-// （involved 由后端权威计算：agent.skills 白名单含 code，或含 "*" 全量哨兵）。
-type skillAgentsView struct {
-	Code     string `json:"code"`
-	Name     string `json:"name"`
-	Involved bool   `json:"involved"`
-}
-
-// agentHasSkill 判据的单一实现：白名单含 "*"（executor 种子语义 = 全量装配）或含 code。
-func agentHasSkill(a agent.Profile, code string) bool {
-	for _, s := range a.Skills {
-		if s == code || s == "*" {
-			return true
-		}
-	}
-	return false
-}
-
-// getSkillDetailHandler 处理 GET /skills/:code/detail → {skill, agents}。
-// agents 为全量智能体及各自装配态（对称 GET /tools/:name 的 involved）。
-func getSkillDetailHandler(api SkillAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		code := c.Param("code")
-		sk, err := api.SkillByCode(c.Request.Context(), code)
-		if err != nil {
-			respondErr(c, http.StatusNotFound, err)
-			return
-		}
-		agents, err := api.ListAgents(c.Request.Context(), false)
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		views := make([]skillAgentsView, 0, len(agents))
-		for _, a := range agents {
-			views = append(views, skillAgentsView{
-				Code:     a.Code,
-				Name:     a.Name,
-				Involved: agentHasSkill(a, sk.Code),
-			})
-		}
-		c.JSON(http.StatusOK, gin.H{"skill": skillJSON(sk), "agents": views})
-	}
-}
-
-// skillJSON 是 skill 响应的单一序列化点（与列表 handler 共用形状）。
-func skillJSON(sk skillstore.Skill) gin.H {
-	return gin.H{
-		"id": sk.ID, "code": sk.Code, "category": sk.Category, "name": sk.Name,
-		"description": sk.Description, "body": sk.Body,
-		"is_builtin": sk.IsBuiltin, "enabled": sk.Enabled,
-		"created_at": sk.CreatedAt, "updated_at": sk.UpdatedAt,
-	}
-}
-
-// assignSkillRequest 是 PUT /skills/:code/agents/:agentCode 的请求体：装配（true）/卸载（false）。
-type assignSkillRequest struct {
-	Involved bool `json:"involved"`
-}
-
-// assignSkillHandler 处理 PUT /skills/:code/agents/:agentCode → {agentCode, involved}。
-// 从技能侧装/卸某智能体的该技能：校验技能存在 → 按 code 取智能体 → 改 agent.skills
-// 白名单 → UpdateAgent 回存（后端单一权威）。全量哨兵 "*"：装配=幂等保留；
-// 卸载=物化为「技能全集减一」。技能/智能体不存在均 404。
+// assignSkillHandler 处理 PUT /skills/:code/agents/:agentCode {involved}：把技能装配到
+// 某 agent 或从其卸载（记录为该 agent 技能名单的单项勾选或取消）。
 func assignSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-		agentCode := c.Param("agentCode")
-		var b assignSkillRequest
-		if err := c.ShouldBindJSON(&b); err != nil {
-			respondErr(c, http.StatusBadRequest, err)
+		involved, ok := bindInvolved(c)
+		if !ok {
 			return
 		}
 		ctx := c.Request.Context()
-		sk, err := api.SkillByCode(ctx, code)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": code})
+		code, agentCode := c.Param("code"), c.Param("agentCode")
+		if _, err := api.SkillDetail(ctx, code); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		catalog, err := api.ListSkills(ctx, skillstore.ListParams{})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if _, err := api.ToggleAgent(ctx, agentCode, agent.FieldSkills, code, involved); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		a, err := api.AgentByCode(ctx, agentCode)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "agentCode": agentCode})
-			return
-		}
-
-		skills := applySkillAssignment(a, sk.Code, b.Involved, catalog)
-		if _, err := api.UpdateAgent(ctx, a.Code, agent.UpdateParams{Skills: &skills}); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"agentCode": agentCode, "involved": b.Involved})
+		c.JSON(http.StatusOK, gin.H{"agent_code": agentCode, "involved": involved})
 	}
 }
 
-// applySkillAssignment 返回该智能体装/卸某技能后的 skills 白名单（不改原切片）。
-// 全量哨兵 "*"：装配=幂等保留；卸载=物化为「技能全集减一」（对称 tool 的
-// applyAssignment 物化语义）。显式白名单：装=追加、卸=剔除，幂等。
-func applySkillAssignment(a agent.Profile, code string, involved bool, catalog []skillstore.Skill) []string {
-	if containsWildcardSkill(a.Skills) {
-		if involved {
-			return a.Skills
-		}
-		out := make([]string, 0, len(catalog))
-		for _, t := range catalog {
-			if t.Code != code {
-				out = append(out, t.Code)
-			}
-		}
-		return out
+func respondSkillDetail(c *gin.Context, api SkillAPI, code string) {
+	ctx := c.Request.Context()
+	d, err := api.SkillDetail(ctx, code)
+	if err != nil {
+		respondErr(c, http.StatusInternalServerError, err)
+		return
 	}
-	found := false
-	out := make([]string, 0, len(a.Skills)+1)
-	for _, s := range a.Skills {
-		if s == code {
-			found = true
-			if involved {
-				out = append(out, s)
-			}
-			continue
-		}
-		out = append(out, s)
+	agents, err := api.Agents(ctx)
+	if err != nil {
+		respondErr(c, http.StatusInternalServerError, err)
+		return
 	}
-	if involved && !found {
-		out = append(out, code)
+	views := make([]gin.H, 0, len(agents))
+	for _, a := range agents {
+		views = append(views, gin.H{"code": a.Code, "name": a.Name, "involved": membership(a.Skills, d.Skill.Code)})
 	}
-	return out
+	c.JSON(http.StatusOK, gin.H{
+		"skill":           skillJSON(d.Skill),
+		"defaults":        d.Defaults,
+		"overrides":       d.Overrides,
+		"shadows_builtin": d.Shadows,
+		"agents":          views,
+	})
 }
 
-// containsWildcardSkill 报告白名单数组是否含全量哨兵 "*"。
-func containsWildcardSkill(arr []string) bool {
-	for _, s := range arr {
-		if s == "*" {
-			return true
-		}
+// skillJSON 是技能的单一序列化点。
+func skillJSON(sk skillstore.Skill) gin.H {
+	return gin.H{
+		"code": sk.Code, "category": sk.Category, "name": sk.Name,
+		"description": sk.Description, "body": sk.Body,
+		"enabled": sk.Enabled, "is_builtin": sk.IsBuiltin,
 	}
-	return false
 }

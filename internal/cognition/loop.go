@@ -288,7 +288,7 @@ func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) er
 	return nil
 }
 
-// agentConfigs 是四 Agent 的 DB 配置（function_tools/cli_tools/skills 白名单的事实源）。
+// agentConfigs 是四个 agent 的生效配置（出厂值叠加用户自定义）。
 type agentConfigs struct {
 	executor  agent.Profile
 	planner   agent.Profile
@@ -296,11 +296,11 @@ type agentConfigs struct {
 	monitor   agent.Profile
 }
 
-// loadAgentConfigs 经 cfgStore 三级缓存读四 Agent 配置；读失败降级为空配置。
-// 前端改配置 → UpdateAgent 失效广播 → 本进程 L1 清 → 本任务即读新值。
+// loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存）；读失败降级为
+// 空配置（章程为空，ReAct 启动即报错）。前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
 func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 	getCfg := func(code string) agent.Profile {
-		cfg, err := d.CfgStore.AgentByCode(ctx, code)
+		cfg, err := d.CfgStore.Agent(ctx, code)
 		if err != nil {
 			d.Logger.Warn().Err(err).Str("code", code).Msg("加载 agent 配置失败，使用空配置")
 			return agent.Profile{Code: code}
@@ -417,7 +417,7 @@ func (d *Deps) assembleStack(
 		plannerTools[i] = reg.WrapTool(plannerTools[i]) // function 工具入共享审计链（遥测/时间线）
 	}
 	engine := planner.NewEngine(d.Router, d.Logger).
-		WithCharter(cfgs.planner.SystemPrompt).
+		WithCharter(cfgs.planner.Charter).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
 		WithAgentRoster([]planner.AgentBrief{
@@ -454,7 +454,7 @@ func (d *Deps) assembleStack(
 		TaskID:              taskID,
 		AgentRunID:          agentRunID,
 		FunctionTools:       cfgs.monitor.FunctionTools,
-		Charter:             cfgs.monitor.SystemPrompt,
+		Charter:             cfgs.monitor.Charter,
 		MaxIterations:       cfgs.monitor.MaxIterations,
 		Graph:               d.Graph,
 		EventBus:            d.EventBus,
@@ -545,8 +545,8 @@ func (d *Deps) buildExecutorAgent(
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
 		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
-		Charter:             cfg.SystemPrompt,                                  // 角色章程（生效值）
-		Complexity:          cfg.Complexity,                                    // LLM 档位（agent.complexity，文档 complexity 种子）
+		Charter:             cfg.Charter,                                       // 角色章程（生效值）
+		Complexity:          cfg.Complexity,                                    // LLM 档位（agent 生效配置）
 		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
@@ -595,7 +595,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithFunctionTools(cfg.FunctionTools).
 		WithCLIManifest(evaluatorCLImanifest).
 		WithSkills(skillCards(ctx, skillsView, d.Logger, "evaluator")).
-		WithCharter(cfg.SystemPrompt).
+		WithCharter(cfg.Charter).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
 		WithContextRatio(d.ContextRatios.Evaluator).

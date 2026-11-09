@@ -29,7 +29,7 @@ func (f *fakeSource) EnabledSkills(context.Context) ([]skillstore.Skill, error) 
 	return out, nil
 }
 
-func (f *fakeSource) SkillByCode(_ context.Context, code string) (skillstore.Skill, error) {
+func (f *fakeSource) Skill(_ context.Context, code string) (skillstore.Skill, error) {
 	if f.err != nil {
 		return skillstore.Skill{}, f.err
 	}
@@ -43,13 +43,13 @@ func (f *fakeSource) SkillByCode(_ context.Context, code string) (skillstore.Ski
 
 func testSource() *fakeSource {
 	return &fakeSource{skills: []skillstore.Skill{
-		{ID: "1", Code: "dom-xss", Category: "vuln", Name: "DOM XSS 指南", Description: "d1", Body: "xss正文", Enabled: true},
-		{ID: "2", Code: "bac", Category: "vuln", Name: "BAC 指南", Description: "d2", Body: "bac正文", Enabled: true},
-		{ID: "3", Code: "dead", Category: "tool", Name: "下线手册", Description: "d3", Body: "dead正文", Enabled: false},
+		{Code: "dom-xss", Category: "vuln", Name: "DOM XSS 指南", Description: "d1", Body: "xss正文", Enabled: true},
+		{Code: "bac", Category: "vuln", Name: "BAC 指南", Description: "d2", Body: "bac正文", Enabled: true},
+		{Code: "dead", Category: "tool", Name: "下线手册", Description: "d3", Body: "dead正文", Enabled: false},
 	}}
 }
 
-// TestStoreReader_Metas：只返回启用项，Key=code，frontmatter 字段齐全。
+// TestStoreReader_Metas：只返回启用项，Key=code，索引字段齐全。
 func TestStoreReader_Metas(t *testing.T) {
 	r := NewStoreReader(testSource())
 	metas, err := r.Metas(context.Background())
@@ -65,7 +65,7 @@ func TestStoreReader_Metas(t *testing.T) {
 	}
 	c := byKey["dom-xss"]
 	if c == nil || c.Name != "DOM XSS 指南" || c.Description != "d1" || c.Category != "vuln" {
-		t.Fatalf("frontmatter 转换缺失: %+v", c)
+		t.Fatalf("索引字段缺失: %+v", c)
 	}
 	if c.Body != "" {
 		t.Errorf("Metas 不应携带正文（省 token）: %q", c.Body)
@@ -82,8 +82,8 @@ func TestStoreReader_Load(t *testing.T) {
 		t.Fatalf("Load bac: card=%+v err=%v", c, err)
 	}
 
-	if _, err := r.Load(ctx, "dead"); err == nil || !strings.Contains(err.Error(), "禁用") {
-		t.Errorf("禁用项应拒载并说明: %v", err)
+	if _, err := r.Load(ctx, "dead"); err == nil || !strings.Contains(err.Error(), "停用") {
+		t.Errorf("停用项应拒载并说明: %v", err)
 	}
 	if _, err := r.Load(ctx, "nope"); err == nil {
 		t.Error("不存在的 skill 应报错")

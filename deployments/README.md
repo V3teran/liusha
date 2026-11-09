@@ -86,7 +86,7 @@ nginx。入口脚本进程托管：initdb → migrate → 依次拉起；**任�
 
 | 镜像 | Dockerfile | 说明 |
 |---|---|---|
-| liusha/api | cmd/api/Dockerfile | Go vendor 构建 + 种子目录 |
+| liusha/api | cmd/api/Dockerfile | Go vendor 构建（agent 与技能出厂内容编译在程序里） |
 | liusha/runner | cmd/runner/Dockerfile | + docker-cli（沙盒拉起） |
 | liusha/proxy | cmd/proxy/Dockerfile | 纯 MITM |
 | liusha/nginx | deployments/nginx/Dockerfile | 多阶段：node 构建前端 + nginx 托管 |

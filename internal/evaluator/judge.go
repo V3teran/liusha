@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	evaluatorcontract "github.com/V3teran/liusha/internal/evaluator/contract"
+
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -39,8 +41,8 @@ type RouterJudge struct {
 	extraTools    []registry.Tool                   // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
 	cliManifest   *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
 	skills        []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
-	charter       string                            // 角色章程（agent.system_prompt，运维可调；空=不渲染）
-	complexity    llm.Complexity                    // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
+	charter       string                            // 角色章程（生效值：出厂叠加用户自定义）
+	complexity    llm.Complexity                    // LLM 档位（agent 生效配置的 complexity）
 	maxIt         int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	contextRatio  float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
 	distiller     runtime.Distiller                 // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
@@ -120,7 +122,7 @@ func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Rou
 	return j
 }
 
-// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
+// WithComplexity 注入 LLM 档位（agent 生效配置的 complexity；
 // 空回退 medium）。
 func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
 	j.complexity = llm.ParseComplexity(complexity)
@@ -280,7 +282,7 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 // systemPrompt 组装裁决官 system prompt：
 //
 //	章程（可自定义：裁决准则、验证流程、域指引）
-//	+ 契约（随 parseVerdict 放在本包，不可自定义：重放通道语义、裁决 JSON）
+//	+ 契约（evaluator/contract，与 parseVerdict 同改同测，不可自定义：重放通道语义、裁决 JSON）
 //	+ skill 索引（有声明且 read_skill 在白名单时渲染）
 //	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
 //
@@ -293,7 +295,7 @@ func (j *RouterJudge) systemPrompt() string {
 	var sb strings.Builder
 	sb.WriteString(charter)
 	sb.WriteString("\n\n")
-	sb.WriteString(contract)
+	sb.WriteString(evaluatorcontract.Text)
 	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
 	if len(j.skills) > 0 && registry.Allows(j.functionTools, "read_skill") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {

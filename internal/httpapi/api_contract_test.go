@@ -11,8 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 )
@@ -123,7 +124,7 @@ func TestListConversations_EmptyIsArrayNotNull(t *testing.T) {
 type dupSkillAPI struct{ SkillAPI }
 
 func (dupSkillAPI) CreateSkill(context.Context, skillstore.Skill) (skillstore.Skill, error) {
-	return skillstore.Skill{}, fmt.Errorf("create skill: %w", &pgconn.PgError{Code: "23505", ConstraintName: "skill_code_key"})
+	return skillstore.Skill{}, fmt.Errorf("%w：sqli", skillstore.ErrConflict)
 }
 
 func TestCreateSkill_DuplicateCodeIs409(t *testing.T) {
@@ -135,7 +136,25 @@ func TestCreateSkill_DuplicateCodeIs409(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("重复 code 应 409，得 %d (%s)", w.Code, w.Body.String())
 	}
-	if strings.Contains(w.Body.String(), "SQLSTATE") {
-		t.Fatalf("冲突消息应为业务语言，不透出驱动原文：%s", w.Body.String())
+}
+
+// 配置类客户端错误收敛：提交不合法 → 400；对象类型不适用的操作 → 409。
+func TestRespondErr_ConfigClientErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cases := []struct {
+		err  error
+		want int
+	}{
+		{fmt.Errorf("%w：章程不能为空", override.ErrInvalid), http.StatusBadRequest},
+		{configstore.ErrBuiltinSkill, http.StatusConflict},
+		{configstore.ErrCustomSkill, http.StatusConflict},
+		{fmt.Errorf("agent %q %w", "x", configstore.ErrNotFound), http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		r := gin.New()
+		r.GET("/x", func(c *gin.Context) { respondErr(c, http.StatusInternalServerError, tc.err) })
+		if w := serve(r, http.MethodGet, "/x", ""); w.Code != tc.want {
+			t.Errorf("%v → %d，应为 %d", tc.err, w.Code, tc.want)
+		}
 	}
 }

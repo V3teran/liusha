@@ -1,160 +1,100 @@
-// Package httpapi: 系统配置 handler（前端「系统配置」页）。
+// Package httpapi: 系统设置 handler（前端「系统配置」页）。
 //
-// 三组业务旋钮对应 migration 0098 的 system_setting 分组 KV：
-//   - compaction   ：会话历史压缩（各角色 ReAct 滚动窗口消息条数）
-//   - runtime      ：工具运行时（run_command 超时钳制 / 单步 LLM 看门狗 / 输出尾部保留）
-//   - proxy_filter ：代理流量过滤规则（黑白名单 + body 上限）
-//
-// 写路径一律走 settingstore（落 DB + redis 广播失效）：runner 下次现读即拿到最新
-// compaction/runtime 旋钮；proxy 进程订阅 proxy_filter 失效后热换过滤链（真热改，无需重启）。
-// handler 只做 HTTP 编解码 + 校验，绝不直穿底层 store。
-
+// 三组设置（compaction 会话压缩 / runtime 工具运行时 / proxy_filter 代理流量过滤），
+// 路由段即分组取值。生效值 = 出厂默认（代码 + config.yaml 部署值）叠加用户自定义；
+// 写入只记录用户改动的字段。读写一律经 settingstore（读走三级缓存，写后广播失效：
+// runner 下次现读即新值，proxy 收到 proxy_filter 失效后热换过滤链）。
 package httpapi
 
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/settingstore"
 )
 
-// SettingsAPI 是系统配置 CRUD 依赖的窄接口；*settingstore.Store 自动满足。
-// 读经多级缓存、写经失效广播的语义全在 settingstore 内。
+// SettingsAPI 是系统设置 handler 依赖的窄接口；*settingstore.Store 自动满足。
 type SettingsAPI interface {
-	Compaction(ctx context.Context) (settingstore.CompactionSettings, error)
-	SaveCompaction(ctx context.Context, v settingstore.CompactionSettings) error
-	Runtime(ctx context.Context) (settingstore.RuntimeSettings, error)
-	SaveRuntime(ctx context.Context, v settingstore.RuntimeSettings) error
-	ProxyFilter(ctx context.Context) (settingstore.ProxyFilterSettings, error)
-	SaveProxyFilter(ctx context.Context, v settingstore.ProxyFilterSettings) error
+	Detail(ctx context.Context, g settingstore.Group) (settingstore.GroupDetail, error)
+	Patch(ctx context.Context, g settingstore.Group, changes override.Document) error
+	Reset(ctx context.Context, g settingstore.Group, fields ...string) error
 }
 
-// ── compaction（会话历史压缩旋钮）────────────────────────────────────
+// settingGroup 解析路由里的分组；未知分组写 404 并返回 ok=false。
+func settingGroup(c *gin.Context) (settingstore.Group, bool) {
+	g := settingstore.Group(c.Param("group"))
+	if !slices.Contains(settingstore.Groups, g) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "设置分组不存在（可选 compaction / runtime / proxy_filter）"})
+		return "", false
+	}
+	return g, true
+}
 
-// getCompactionSettingsHandler 处理 GET /settings/compaction。
-func getCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
+// getSettingsHandler 处理 GET /settings/:group → {values, defaults, overrides}。
+func getSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		v, err := api.Compaction(c.Request.Context())
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
+		g, ok := settingGroup(c)
+		if !ok {
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"compaction": v})
+		respondSettings(c, api, g)
 	}
 }
 
-// putCompactionSettingsHandler 处理 PUT /settings/compaction（全量覆写 + 校验）。
-func putCompactionSettingsHandler(api SettingsAPI) gin.HandlerFunc {
+// patchSettingsHandler 处理 PATCH /settings/:group。请求体只含改动的字段：数值提交新值，
+// 名单提交 {on, off}。与出厂默认相同的字段不算自定义；整组校验通过才写入。
+func patchSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var b settingstore.CompactionSettings
-		if err := c.ShouldBindJSON(&b); err != nil {
+		g, ok := settingGroup(c)
+		if !ok {
+			return
+		}
+		var changes override.Document
+		if err := c.ShouldBindJSON(&changes); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		// 各角色历史预算占比须为正且不超过封顶（占比语义：预算 = 比例 ×
-		// 该角色路由 provider 的 context_window；封顶由 settingstore 归一层兜底）。
-		for _, f := range []struct {
-			name  string
-			value float64
-		}{
-			{"planner_context_ratio", b.PlannerContextRatio},
-			{"executor_context_ratio", b.ExecutorContextRatio},
-			{"evaluator_context_ratio", b.EvaluatorContextRatio},
-			{"monitor_context_ratio", b.MonitorContextRatio},
-		} {
-			if f.value <= 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": f.name + " 必须 > 0（该角色历史预算占模型上下文窗口的比例）"})
-				return
-			}
+		if len(changes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要修改的字段"})
+			return
 		}
-		if err := api.SaveCompaction(c.Request.Context(), b); err != nil {
+		if err := api.Patch(c.Request.Context(), g, changes); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"compaction": b})
+		respondSettings(c, api, g)
 	}
 }
 
-// ── runtime（工具运行时旋钮）─────────────────────────────────────────
-
-// getRuntimeSettingsHandler 处理 GET /settings/runtime。
-func getRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
+// resetSettingsHandler 处理 DELETE /settings/:group/overrides[/:field]：恢复出厂默认
+// （不带字段 = 整组）。
+func resetSettingsHandler(api SettingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		v, err := api.Runtime(c.Request.Context())
-		if err != nil {
+		g, ok := settingGroup(c)
+		if !ok {
+			return
+		}
+		var fields []string
+		if f := c.Param("field"); f != "" {
+			fields = append(fields, f)
+		}
+		if err := api.Reset(c.Request.Context(), g, fields...); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"runtime": v})
+		respondSettings(c, api, g)
 	}
 }
 
-// putRuntimeSettingsHandler 处理 PUT /settings/runtime（全量覆写 + 校验）。
-func putRuntimeSettingsHandler(api SettingsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var b settingstore.RuntimeSettings
-		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
-			return
-		}
-		if b.StepToolTimeoutSeconds <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "step_tool_timeout_seconds 必须 > 0（run_command 超时钳制上限秒数）"})
-			return
-		}
-		if b.StepLLMTimeoutSeconds <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "step_llm_timeout_seconds 必须 > 0（单步 LLM 看门狗超时秒数）"})
-			return
-		}
-		if b.RunTailBytes <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "run_tail_bytes 必须 > 0（stdout/stderr 保留尾部字节数）"})
-			return
-		}
-		if err := api.SaveRuntime(c.Request.Context(), b); err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"runtime": b})
+func respondSettings(c *gin.Context, api SettingsAPI, g settingstore.Group) {
+	d, err := api.Detail(c.Request.Context(), g)
+	if err != nil {
+		respondErr(c, http.StatusInternalServerError, err)
+		return
 	}
-}
-
-// ── proxy_filter(代理流量过滤规则)────────────────────────────────────
-
-// getProxyFilterSettingsHandler 处理 GET /settings/proxy-filter。
-func getProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		v, err := api.ProxyFilter(c.Request.Context())
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"proxy_filter": v})
-	}
-}
-
-// putProxyFilterSettingsHandler 处理 PUT /settings/proxy-filter（全量覆写 + 校验）。
-// 保存后经失效总线广播，proxy 进程热换过滤链（下一条流量即走新规则）。
-func putProxyFilterSettingsHandler(api SettingsAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var b settingstore.ProxyFilterSettings
-		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
-			return
-		}
-		// body 上限须为正（LimitReader 语义：0 会截成空 body，几乎必是误填）。
-		if b.MaxRequestBodySize <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "max_request_body_size 必须 > 0（请求体切片上限字节）"})
-			return
-		}
-		if b.MaxResponseBodySize <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "max_response_body_size 必须 > 0（响应体切片上限字节）"})
-			return
-		}
-		if err := api.SaveProxyFilter(c.Request.Context(), b); err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"proxy_filter": b})
-	}
+	c.JSON(http.StatusOK, d)
 }

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
+
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -28,8 +30,8 @@ type Engine struct {
 	functionTools       []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
 	toolsManifest       ToolsManifest           // 过滤后的 CLI 工具清单
 	skills              []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter             string                  // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	complexity          llm.Complexity          // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读；唯一来源）
+	charter             string                  // 角色章程（生效值：出厂叠加用户自定义）
+	complexity          llm.Complexity          // LLM 档位（agent 生效配置的 complexity；唯一来源）
 	maxIt               int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
 	distiller           runtime.Distiller       // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
@@ -171,7 +173,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 
 // buildSystemPrompt 组装 executor system prompt：
 //
-//	章程（可自定义）+ 输出契约（随 ParseOutput 放在本包，不可自定义）
+//	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
 //	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
 //
 // 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
@@ -194,7 +196,7 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	var promptSB strings.Builder
 	promptSB.WriteString(charter)
 	promptSB.WriteString("\n\n")
-	promptSB.WriteString(contract)
+	promptSB.WriteString(executorcontract.Text)
 	promptSB.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
 	promptSB.WriteString(toolSB.String())
 	basePrompt := promptSB.String()

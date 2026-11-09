@@ -17,7 +17,7 @@ RUN apk add --no-cache ca-certificates wget docker-cli
 WORKDIR /app
 COPY --from=build /out/runner /app/runner
 COPY config /app/config
-# skill 运行时事实源 = DB（经三级缓存），不再挂载 skills/ 目录——种子由 api 进程负责。
+# agent 与技能的出厂内容编译在程序里，用户自定义经三级缓存读取——无需挂载任何内容目录。
 COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
 EXPOSE 8590
 ENTRYPOINT ["/app/runner"]

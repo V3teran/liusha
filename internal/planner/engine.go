@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
@@ -30,8 +32,8 @@ var ErrPlanOutputParse = errors.New("规划输出不可解析")
 type Engine struct {
 	router     *llm.Router
 	logger     zerolog.Logger
-	charter    string         // 角色章程（agent.system_prompt，运维经前端可调；空=不渲染）
-	complexity llm.Complexity // LLM 档位（agent.complexity，文档 complexity 种子 → 三级缓存读）
+	charter    string         // 角色章程（生效值：出厂叠加用户自定义）
+	complexity llm.Complexity // LLM 档位（agent 生效配置的 complexity）
 	thoughts   reasoning.Tap  // 思考流出口（认知循环注入；nil=不流式）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
@@ -131,7 +133,7 @@ func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
 	return e
 }
 
-// WithComplexity 注入 LLM 档位（agent.complexity，文档 complexity 种子经三级缓存读；
+// WithComplexity 注入 LLM 档位（agent 生效配置的 complexity；
 // 空回退 medium）。
 func (e *Engine) WithComplexity(complexity string) *Engine {
 	e.complexity = llm.ParseComplexity(complexity)
@@ -553,14 +555,14 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 }
 
 // buildPlannerSystemPrompt 组装规划 system prompt：章程（可自定义）+ 输出契约
-// （随 parsePlanningResponse 放在本包，不可自定义）。章程为空时返回空串，
+// （planner/contract，与 parsePlanningResponse 同改同测，不可自定义）。章程为空时返回空串，
 // 让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
 func (e *Engine) buildPlannerSystemPrompt() string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
 		return ""
 	}
-	return charter + "\n\n" + contract
+	return charter + "\n\n" + plannercontract.Text
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。

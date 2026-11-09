@@ -142,7 +142,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-      start_period: 30s  # 空库首启：种子导入期间放行，避免被过早判 unhealthy
+      start_period: 30s  # 首启：LLM 种子导入期间放行，避免被过早判 unhealthy
 
   # nginx：前置反代 + 前端 SPA 托管。/ → web/dist（多阶段构建内嵌），/api/* → api:8580。
   # 前端源码在仓库根 web/，与后端同仓（monorepo）。SSE 端点在 nginx.conf 里单独关缓冲。

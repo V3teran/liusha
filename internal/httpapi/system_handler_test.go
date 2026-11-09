@@ -2,224 +2,117 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/settingstore"
 )
 
-// fakeSettings 是 SettingsAPI 的内存实现，记录写入以断言 handler 编排。
 type fakeSettings struct {
-	compaction  settingstore.CompactionSettings
-	runtime     settingstore.RuntimeSettings
-	proxyFilter settingstore.ProxyFilterSettings
-
-	savedCompaction  *settingstore.CompactionSettings
-	savedRuntime     *settingstore.RuntimeSettings
-	savedProxyFilter *settingstore.ProxyFilterSettings
+	patchedGroup settingstore.Group
+	patched      override.Document
+	resetGroup   settingstore.Group
+	resetFields  []string
+	patchErr     error
 }
 
-func (f *fakeSettings) Compaction(_ context.Context) (settingstore.CompactionSettings, error) {
-	return f.compaction, nil
+func (f *fakeSettings) Detail(_ context.Context, g settingstore.Group) (settingstore.GroupDetail, error) {
+	return settingstore.GroupDetail{
+		Values:    override.Document{"run_tail_bytes": json.RawMessage(`8192`)},
+		Defaults:  override.Document{"run_tail_bytes": json.RawMessage(`8192`)},
+		Overrides: map[string]override.State{},
+	}, nil
 }
-func (f *fakeSettings) SaveCompaction(_ context.Context, v settingstore.CompactionSettings) error {
-	f.savedCompaction = &v
-	return nil
+
+func (f *fakeSettings) Patch(_ context.Context, g settingstore.Group, changes override.Document) error {
+	f.patchedGroup, f.patched = g, changes
+	return f.patchErr
 }
-func (f *fakeSettings) Runtime(_ context.Context) (settingstore.RuntimeSettings, error) {
-	return f.runtime, nil
-}
-func (f *fakeSettings) SaveRuntime(_ context.Context, v settingstore.RuntimeSettings) error {
-	f.savedRuntime = &v
-	return nil
-}
-func (f *fakeSettings) ProxyFilter(_ context.Context) (settingstore.ProxyFilterSettings, error) {
-	return f.proxyFilter, nil
-}
-func (f *fakeSettings) SaveProxyFilter(_ context.Context, v settingstore.ProxyFilterSettings) error {
-	f.savedProxyFilter = &v
+
+func (f *fakeSettings) Reset(_ context.Context, g settingstore.Group, fields ...string) error {
+	f.resetGroup, f.resetFields = g, fields
 	return nil
 }
 
-// TestGetCompactionSettings_ReturnsGroup：GET /settings/compaction 回 compaction 组当前旋钮。
-func TestGetCompactionSettings_ReturnsGroup(t *testing.T) {
-	fs := &fakeSettings{compaction: settingstore.CompactionSettings{
-		PlannerContextRatio: 0.6, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5,
-	}}
-	srv := newTestServer(t, Deps{Settings: fs})
-	defer srv.Close()
+func settingsRouter(api SettingsAPI) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	registerSettingsRoutes(r, Deps{Settings: api})
+	return r
+}
 
-	code, body := doJSON(t, "GET", srv.URL+"/api/settings/compaction", nil)
-	if code != 200 {
-		t.Fatalf("status=%d", code)
-	}
-	r, _ := body["compaction"].(map[string]any)
-	if r["planner_context_ratio"] != float64(0.6) || r["monitor_context_ratio"] != float64(0.5) {
-		t.Fatalf("compaction 组未回传: %v", body["compaction"])
+func TestSettings_UnknownGroupIs404(t *testing.T) {
+	r := settingsRouter(&fakeSettings{})
+	// 旧路由段 proxy-filter 不再存在：路由段即分组取值 proxy_filter。
+	for _, path := range []string{"/settings/proxy-filter", "/settings/nope"} {
+		if w := serve(r, http.MethodGet, path, ""); w.Code != http.StatusNotFound {
+			t.Errorf("GET %s 应 404，得 %d", path, w.Code)
+		}
 	}
 }
 
-// TestPutCompactionSettings_ValidationRejects：窗口条数非正 → 400 中文。
-func TestPutCompactionSettings_ValidationRejects(t *testing.T) {
-	srv := newTestServer(t, Deps{Settings: &fakeSettings{}})
-	defer srv.Close()
-
-	cases := []struct {
-		name string
-		body map[string]any
-	}{
-		{"planner 占比<=0", map[string]any{"planner_context_ratio": 0, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5}},
-		{"executor 占比<=0", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": -1, "evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5}},
-		{"evaluator 占比<=0", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0, "monitor_context_ratio": 0.5}},
-		{"monitor 占比缺失", map[string]any{"planner_context_ratio": 0.6, "executor_context_ratio": 0.5, "evaluator_context_ratio": 0.5}},
+func TestSettings_GetReturnsDetail(t *testing.T) {
+	r := settingsRouter(&fakeSettings{})
+	w := serve(r, http.MethodGet, "/settings/runtime", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("得 %d", w.Code)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", tc.body)
-			if code != 400 {
-				t.Fatalf("want 400, got %d (%v)", code, body)
-			}
-			if _, ok := body["error"].(string); !ok {
-				t.Fatalf("缺中文 error 字段: %v", body)
-			}
-		})
+	var body map[string]json.RawMessage
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	for _, k := range []string{"values", "defaults", "overrides"} {
+		if _, ok := body[k]; !ok {
+			t.Errorf("响应缺 %s: %s", k, w.Body.String())
+		}
 	}
 }
 
-// TestPutCompactionSettings_Wires：合法 PUT → SaveCompaction 收到全字段透传。
-func TestPutCompactionSettings_Wires(t *testing.T) {
+func TestSettings_PatchWiresGroupAndChanges(t *testing.T) {
 	fs := &fakeSettings{}
-	srv := newTestServer(t, Deps{Settings: fs})
-	defer srv.Close()
-
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/compaction", map[string]any{
-		"planner_context_ratio": 0.65, "executor_context_ratio": 0.55,
-		"evaluator_context_ratio": 0.5, "monitor_context_ratio": 0.5,
-	})
-	if code != 200 {
-		t.Fatalf("status=%d", code)
+	r := settingsRouter(fs)
+	w := serve(r, http.MethodPatch, "/settings/proxy_filter", `{"exclude_hosts":{"on":["cdn.example"]}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("得 %d (%s)", w.Code, w.Body.String())
 	}
-	if fs.savedCompaction == nil || fs.savedCompaction.PlannerContextRatio != 0.65 ||
-		fs.savedCompaction.ExecutorContextRatio != 0.55 || fs.savedCompaction.EvaluatorContextRatio != 0.5 ||
-		fs.savedCompaction.MonitorContextRatio != 0.5 {
-		t.Fatalf("compaction 未透传: %+v", fs.savedCompaction)
+	if fs.patchedGroup != settingstore.GroupProxyFilter || string(fs.patched["exclude_hosts"]) != `{"on":["cdn.example"]}` {
+		t.Fatalf("接线错误: group=%s changes=%v", fs.patchedGroup, fs.patched)
 	}
 }
 
-// TestPutRuntimeSettings_ValidationRejects：任一旋钮非正 → 400。
-func TestPutRuntimeSettings_ValidationRejects(t *testing.T) {
-	srv := newTestServer(t, Deps{Settings: &fakeSettings{}})
-	defer srv.Close()
-
-	cases := []struct {
-		name string
-		body map[string]any
-	}{
-		{"step_tool<=0", map[string]any{"step_tool_timeout_seconds": 0, "step_llm_timeout_seconds": 300, "run_tail_bytes": 4096}},
-		{"step_llm<=0", map[string]any{"step_tool_timeout_seconds": 60, "step_llm_timeout_seconds": 0, "run_tail_bytes": 4096}},
-		{"tail_bytes<=0", map[string]any{"step_tool_timeout_seconds": 60, "step_llm_timeout_seconds": 300, "run_tail_bytes": 0}},
+func TestSettings_PatchRejectsEmptyAndInvalid(t *testing.T) {
+	r := settingsRouter(&fakeSettings{})
+	if w := serve(r, http.MethodPatch, "/settings/runtime", `{}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("空提交应 400，得 %d", w.Code)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/runtime", tc.body)
-			if code != 400 {
-				t.Fatalf("want 400, got %d (%v)", code, body)
-			}
-		})
+	r = settingsRouter(&fakeSettings{patchErr: fmt.Errorf("%w：run_tail_bytes 必须 > 0", override.ErrInvalid)})
+	if w := serve(r, http.MethodPatch, "/settings/runtime", `{"run_tail_bytes":0}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("校验失败应 400，得 %d", w.Code)
 	}
 }
 
-// TestPutRuntimeSettings_Wires：合法 PUT → SaveRuntime 收到全字段透传。
-func TestPutRuntimeSettings_Wires(t *testing.T) {
+func TestSettings_ResetFieldAndGroup(t *testing.T) {
 	fs := &fakeSettings{}
-	srv := newTestServer(t, Deps{Settings: fs})
-	defer srv.Close()
-
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/runtime", map[string]any{
-		"step_tool_timeout_seconds": 90, "step_llm_timeout_seconds": 240, "run_tail_bytes": 8192,
-	})
-	if code != 200 {
-		t.Fatalf("status=%d", code)
+	r := settingsRouter(fs)
+	if w := serve(r, http.MethodDelete, "/settings/runtime/overrides/run_tail_bytes", ""); w.Code != http.StatusOK {
+		t.Fatalf("得 %d", w.Code)
 	}
-	if fs.savedRuntime == nil || fs.savedRuntime.StepToolTimeoutSeconds != 90 ||
-		fs.savedRuntime.StepLLMTimeoutSeconds != 240 || fs.savedRuntime.RunTailBytes != 8192 {
-		t.Fatalf("runtime 未透传: %+v", fs.savedRuntime)
+	if fs.resetGroup != settingstore.GroupRuntime || len(fs.resetFields) != 1 || fs.resetFields[0] != "run_tail_bytes" {
+		t.Fatalf("单字段恢复接线错误: %s %v", fs.resetGroup, fs.resetFields)
+	}
+	if w := serve(r, http.MethodDelete, "/settings/compaction/overrides", ""); w.Code != http.StatusOK || len(fs.resetFields) != 0 {
+		t.Fatalf("整组恢复应不带字段: %d %v", w.Code, fs.resetFields)
 	}
 }
 
-// TestGetProxyFilterSettings_ReturnsGroup：GET /settings/proxy-filter 回 proxy_filter 组。
-func TestGetProxyFilterSettings_ReturnsGroup(t *testing.T) {
-	fs := &fakeSettings{proxyFilter: settingstore.ProxyFilterSettings{
-		AllowHosts:          []string{"*.example.com"},
-		ExcludeMethods:      []string{"CONNECT"},
-		MaxRequestBodySize:  1 << 20,
-		MaxResponseBodySize: 1 << 20,
-	}}
-	srv := newTestServer(t, Deps{Settings: fs})
-	defer srv.Close()
-
-	code, body := doJSON(t, "GET", srv.URL+"/api/settings/proxy-filter", nil)
-	if code != 200 {
-		t.Fatalf("status=%d", code)
-	}
-	pf, _ := body["proxy_filter"].(map[string]any)
-	if hosts, _ := pf["allow_hosts"].([]any); len(hosts) != 1 {
-		t.Fatalf("allow_hosts 未回传: %v", body["proxy_filter"])
-	}
-}
-
-// TestPutProxyFilterSettings_ValidationRejects：body 上限非正 → 400。
-func TestPutProxyFilterSettings_ValidationRejects(t *testing.T) {
-	srv := newTestServer(t, Deps{Settings: &fakeSettings{}})
-	defer srv.Close()
-
-	cases := []struct {
-		name string
-		body map[string]any
-	}{
-		{"req_body<=0", map[string]any{"max_request_body_size": 0, "max_response_body_size": 1024}},
-		{"resp_body<=0", map[string]any{"max_request_body_size": 1024, "max_response_body_size": 0}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			code, body := doJSON(t, "PUT", srv.URL+"/api/settings/proxy-filter", tc.body)
-			if code != 400 {
-				t.Fatalf("want 400, got %d (%v)", code, body)
-			}
-		})
-	}
-}
-
-// TestPutProxyFilterSettings_Wires：合法 PUT → SaveProxyFilter 收到过滤规则透传。
-func TestPutProxyFilterSettings_Wires(t *testing.T) {
-	fs := &fakeSettings{}
-	srv := newTestServer(t, Deps{Settings: fs})
-	defer srv.Close()
-
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/settings/proxy-filter", map[string]any{
-		"allow_hosts":            []string{"*.target.com"},
-		"exclude_methods":        []string{"OPTIONS", "CONNECT"},
-		"exclude_status_codes":   []int{304},
-		"max_request_body_size":  2 << 20,
-		"max_response_body_size": 4 << 20,
-	})
-	if code != 200 {
-		t.Fatalf("status=%d", code)
-	}
-	if fs.savedProxyFilter == nil ||
-		len(fs.savedProxyFilter.AllowHosts) != 1 || fs.savedProxyFilter.AllowHosts[0] != "*.target.com" ||
-		len(fs.savedProxyFilter.ExcludeMethods) != 2 ||
-		fs.savedProxyFilter.MaxRequestBodySize != 2<<20 || fs.savedProxyFilter.MaxResponseBodySize != 4<<20 {
-		t.Fatalf("proxy_filter 未透传: %+v", fs.savedProxyFilter)
-	}
-}
-
-// TestSettingsRoutes_NotRegisteredWhenNil：Settings 为 nil 时 /settings 路由不挂（404）。
 func TestSettingsRoutes_NotRegisteredWhenNil(t *testing.T) {
-	srv := newTestServer(t, Deps{})
-	defer srv.Close()
-
-	code, _ := doJSON(t, "GET", srv.URL+"/api/settings/compaction", nil)
-	if code != 404 {
-		t.Fatalf("Settings=nil 应 404，got %d", code)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	registerSettingsRoutes(r, Deps{})
+	if w := serve(r, http.MethodGet, "/settings/runtime", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("未注入时路由不应注册，得 %d", w.Code)
 	}
 }

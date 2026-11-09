@@ -54,13 +54,13 @@ echo "===== 2/6 清空 db / redis ====="
 # 表清单从 information_schema 动态枚举——手写清单会随 schema 演化腐烂。
 # 豁免三类（schema 变更时人工复核这份清单）：
 #   - schema_migrations：golang-migrate 台账
-#   - 种子配置表（agent/skill/tool/llm_provider/llm_role_route/system_setting）：
-#     seed insert-only 语义的前提——truncate agent 会连带清空 swarm 领域池，
-#     重启 seed 判定「已存在」跳过 → planner「无 domain 子代理」→ task 必失败
+#   - 配置：用户对 agent/技能/系统设置的自定义（agent_override、agent_prompt_archive、
+#     skill_override、custom_skill、setting_override）、LLM 接入（llm_provider、
+#     llm_role_route）与工具目录（tool）——清掉等于让操作者重新配置一遍
 #   - 登录资产（account/account_session）：清了把操作者锁在门外
 # 其余（task/finding/conversation/llm_invocation/message/...）全部清空，
 # CASCADE 抹平 FK 顺序，RESTART IDENTITY 让 seq 从 1 重新计数。
-EXCLUDED="'schema_migrations','agent','skill','tool','llm_provider','llm_role_route','system_setting','account','account_session'"
+EXCLUDED="'schema_migrations','agent_override','agent_prompt_archive','skill_override','custom_skill','setting_override','tool','llm_provider','llm_role_route','account','account_session'"
 TABLES=$(docker exec "$PG_CONTAINER" psql -U liusha -d liusha -tAc \
   "SELECT string_agg(table_name, ', ' ORDER BY table_name) FROM information_schema.tables \
    WHERE table_schema = 'public' AND table_name NOT IN (${EXCLUDED})")

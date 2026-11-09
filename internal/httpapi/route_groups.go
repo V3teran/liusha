@@ -2,7 +2,7 @@ package httpapi
 
 import "github.com/gin-gonic/gin"
 
-// uuidID 校验 UUID 主键族路由（tasks / conversations / findings / agents）的 :id 段。
+// uuidID 校验 UUID 主键族路由（tasks / conversations / findings）的 :id 段。
 // traffic 与 llm 调用记录的 :id 是 bigint 自增键，由各自 handler 解析。
 var uuidID = requireUUIDParam("id")
 
@@ -52,12 +52,13 @@ func registerAgentConfigRoutes(r gin.IRouter, d Deps) {
 	if d.ConfigStore == nil {
 		return
 	}
-	// agent 配置读取/编辑（前端配置管理页）。角色为固定种子：
-	// 无 POST（不可新建）、无 DELETE（不可删），只有部分更新。
+	// 四个固定角色以 code 寻址：只读、自定义与恢复出厂，不增删。
 	r.GET("/agents", listAgentsHandler(d.ConfigStore))
-	r.GET("/agents/:id", uuidID, getAgentHandler(d.ConfigStore))
-	r.PUT("/agents/:id", uuidID, saveAgentHandler(d.ConfigStore))
-	r.PATCH("/agents/:id/complexity", uuidID, updateAgentComplexityHandler(d.ConfigStore))
+	r.GET("/agents/:code", getAgentHandler(d.ConfigStore))
+	r.PATCH("/agents/:code", patchAgentHandler(d.ConfigStore))
+	r.DELETE("/agents/:code/overrides", resetAgentHandler(d.ConfigStore))
+	r.DELETE("/agents/:code/overrides/:field", resetAgentHandler(d.ConfigStore))
+	r.DELETE("/agents/:code/prompt-archive", deletePromptArchiveHandler(d.ConfigStore))
 }
 
 // registerSkillRoutes 注册技能/知识库路由
@@ -65,14 +66,15 @@ func registerSkillRoutes(r gin.IRouter, d Deps) {
 	if d.SkillStore == nil {
 		return
 	}
-	// Skill 配置 CRUD（前端知识库管理页）
+	// 内置技能：自定义与恢复出厂；自建技能：增删改。
 	r.GET("/skills", listSkillsHandler(d.SkillStore))
-	r.GET("/skills/:code", getSkillHandler(d.SkillStore))
-	r.GET("/skills/:code/detail", getSkillDetailHandler(d.SkillStore))
-	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))
 	r.POST("/skills", createSkillHandler(d.SkillStore))
-	r.PUT("/skills/:code", updateSkillHandler(d.SkillStore))
+	r.GET("/skills/:code", getSkillHandler(d.SkillStore))
+	r.PATCH("/skills/:code", patchSkillHandler(d.SkillStore))
 	r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
+	r.DELETE("/skills/:code/overrides", resetSkillHandler(d.SkillStore))
+	r.DELETE("/skills/:code/overrides/:field", resetSkillHandler(d.SkillStore))
+	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))
 }
 
 // registerExplorationGraphRoutes 注册探索图路由
@@ -168,18 +170,11 @@ func registerSettingsRoutes(r gin.IRouter, d Deps) {
 	if d.Settings == nil {
 		return
 	}
-
-	// 压缩配置
-	r.GET("/settings/compaction", getCompactionSettingsHandler(d.Settings))
-	r.PUT("/settings/compaction", putCompactionSettingsHandler(d.Settings))
-
-	// 运行时配置
-	r.GET("/settings/runtime", getRuntimeSettingsHandler(d.Settings))
-	r.PUT("/settings/runtime", putRuntimeSettingsHandler(d.Settings))
-
-	// 代理过滤配置
-	r.GET("/settings/proxy-filter", getProxyFilterSettingsHandler(d.Settings))
-	r.PUT("/settings/proxy-filter", putProxyFilterSettingsHandler(d.Settings))
+	// 路由段即分组取值：compaction / runtime / proxy_filter。
+	r.GET("/settings/:group", getSettingsHandler(d.Settings))
+	r.PATCH("/settings/:group", patchSettingsHandler(d.Settings))
+	r.DELETE("/settings/:group/overrides", resetSettingsHandler(d.Settings))
+	r.DELETE("/settings/:group/overrides/:field", resetSettingsHandler(d.Settings))
 }
 
 // registerChatRoutes 注册聊天路由

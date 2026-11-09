@@ -1,7 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // atoiOr 解析十进制整数，失败回退 def。
@@ -36,4 +41,40 @@ func parsePagination(pageStr, sizeStr string, defaultSize, maxSize int) (page, s
 		size = maxSize
 	}
 	return page, size
+}
+
+// pageOf 对内存列表做可选分页：请求未带 page 时返回全部（选择器一次拉全），
+// 带 page 时按 page/size 切片。total 恒为分页前的条数。
+func pageOf[T any](c *gin.Context, items []T, defaultSize, maxSize int) (page []T, total int) {
+	total = len(items)
+	raw := c.Query("page")
+	if raw == "" {
+		return items, total
+	}
+	p, size := parsePagination(raw, c.Query("size"), defaultSize, maxSize)
+	start := (p - 1) * size
+	if start >= total {
+		return []T{}, total
+	}
+	return items[start:min(start+size, total)], total
+}
+
+// matchesQuery 报告任一字段是否包含查询词（不区分大小写；空查询词恒为真）。
+func matchesQuery(q string, fields ...string) bool {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return true
+	}
+	for _, f := range fields {
+		if strings.Contains(strings.ToLower(f), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// isForeignKeyViolation 判定错误是否为 DB 外键约束冲突（pg 23503）。
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }

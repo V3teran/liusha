@@ -2,256 +2,199 @@ package skillstore
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/overridestore"
 )
 
-// Store 封装 skill 配置表的持久化操作。
+// ErrConflict 标记技能标识已被占用（接口层映射为 409）。
+var ErrConflict = errors.New("技能标识已存在")
+
+// Store 持久化自建技能（custom_skill）与内置技能的用户层（skill_override）。
 type Store struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	overrides overridestore.Table
 }
 
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{
+		pool:      pool,
+		overrides: overridestore.Table{Pool: pool, Name: "skill_override", Key: "skill_code"},
+	}
 }
 
-const colsSelect = "id, code, category, name, description, body, is_builtin, enabled, created_at, updated_at"
+// ── 自建技能 ───────────────────────────────────────────────────────────
 
-// GetByID 按 uuid 读 Skill。
-func (s *Store) GetByID(ctx context.Context, id string) (Skill, error) {
-	q := "SELECT " + colsSelect + " FROM skill WHERE id=$1"
-	return s.scanOne(s.pool.QueryRow(ctx, q, id))
-}
+const customCols = "code, category, name, description, body, enabled"
 
-// GetByCode 按 code 读 Skill。
-func (s *Store) GetByCode(ctx context.Context, code string) (Skill, error) {
-	q := "SELECT " + colsSelect + " FROM skill WHERE code=$1"
-	return s.scanOne(s.pool.QueryRow(ctx, q, code))
-}
-
-// buildWhere 构建 List/Count 共用的 WHERE 与参数（单一口径：分页 total 与列表
-// 必须一致）。Search 覆盖 code/name/description——code 是技能寻址键（agent.skills
-// 白名单、前端多选器均展示 code），搜 code 搜不到与模块概念矛盾。
-func (s *Store) buildWhere(p ListParams) (string, []any) {
-	var whereParts []string
-	var args []any
-	argIdx := 1
-
-	if p.Category != "" {
-		whereParts = append(whereParts, fmt.Sprintf("category=$%d", argIdx))
-		args = append(args, p.Category)
-		argIdx++
-	}
-	if p.OnlyEnabled {
-		whereParts = append(whereParts, "enabled=true")
-	}
-	if p.Search != "" {
-		whereParts = append(whereParts, fmt.Sprintf("(code ILIKE $%d OR name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx, argIdx))
-		args = append(args, "%"+p.Search+"%")
-	}
-	where := ""
-	if len(whereParts) > 0 {
-		where = " WHERE " + strings.Join(whereParts, " AND ")
-	}
-	return where, args
-}
-
-// List 列出 Skill，支持分页和过滤（WHERE 与 Count 共用 buildWhere 单一口径）。
-func (s *Store) List(ctx context.Context, p ListParams) ([]Skill, error) {
-	where, args := s.buildWhere(p)
-
-	limit := p.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	offset := p.Offset
-	if offset < 0 {
-		offset = 0
-	}
-
-	q := fmt.Sprintf("SELECT %s FROM skill%s ORDER BY category, code LIMIT %d OFFSET %d",
-		colsSelect, where, limit, offset)
-
-	rows, err := s.pool.Query(ctx, q, args...)
+// Customs 返回全部自建技能（按 category、code 升序）。
+func (s *Store) Customs(ctx context.Context) ([]Skill, error) {
+	rows, err := s.pool.Query(ctx, "SELECT "+customCols+" FROM custom_skill ORDER BY category, code")
 	if err != nil {
-		return nil, fmt.Errorf("query skills: %w", err)
+		return nil, fmt.Errorf("读自建技能: %w", err)
 	}
 	defer rows.Close()
-
 	var out []Skill
 	for rows.Next() {
-		sk, err := s.scan(rows)
+		sk, err := scanCustom(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("读自建技能: %w", err)
 		}
 		out = append(out, sk)
 	}
 	return out, rows.Err()
 }
 
-// Count 统计符合条件的 Skill 数量
-func (s *Store) Count(ctx context.Context, p ListParams) (int, error) {
-	where, args := s.buildWhere(p)
-	q := "SELECT COUNT(*) FROM skill" + where
-	var count int
-	if err := s.pool.QueryRow(ctx, q, args...).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count skills: %w", err)
-	}
-	return count, nil
-}
-
-// Create 创建新 Skill。
-func (s *Store) Create(ctx context.Context, sk Skill) (Skill, error) {
-	q := `
-		INSERT INTO skill (code, category, name, description, body, is_builtin, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING ` + colsSelect
-
-	return s.scanOne(s.pool.QueryRow(ctx, q,
-		sk.Code, sk.Category, sk.Name, sk.Description, sk.Body, sk.IsBuiltin, sk.Enabled))
-}
-
-// Update 更新 Skill（按 ID）。
-func (s *Store) Update(ctx context.Context, id string, p UpdateParams) (Skill, error) {
-	var setParts []string
-	var args []any
-	argIdx := 1
-
-	if p.Name != nil {
-		setParts = append(setParts, fmt.Sprintf("name=$%d", argIdx))
-		args = append(args, *p.Name)
-		argIdx++
-	}
-	if p.Description != nil {
-		setParts = append(setParts, fmt.Sprintf("description=$%d", argIdx))
-		args = append(args, *p.Description)
-		argIdx++
-	}
-	if p.Body != nil {
-		setParts = append(setParts, fmt.Sprintf("body=$%d", argIdx))
-		args = append(args, *p.Body)
-		argIdx++
-	}
-	if p.Enabled != nil {
-		setParts = append(setParts, fmt.Sprintf("enabled=$%d", argIdx))
-		args = append(args, *p.Enabled)
-		argIdx++
-	}
-
-	if len(setParts) == 0 {
-		return Skill{}, fmt.Errorf("没有要更新的字段")
-	}
-
-	setParts = append(setParts, "updated_at=now()")
-	args = append(args, id)
-
-	q := fmt.Sprintf("UPDATE skill SET %s WHERE id=$%d RETURNING %s",
-		strings.Join(setParts, ", "), argIdx, colsSelect)
-
-	return s.scanOne(s.pool.QueryRow(ctx, q, args...))
-}
-
-// Delete 删除 Skill（仅非内置）。
-func (s *Store) Delete(ctx context.Context, id string) error {
-	q := "DELETE FROM skill WHERE id=$1 AND is_builtin=false"
-	tag, err := s.pool.Exec(ctx, q, id)
+// CreateCustom 新建自建技能。标识已存在返回 ErrConflict。
+func (s *Store) CreateCustom(ctx context.Context, sk Skill) (Skill, error) {
+	row := s.pool.QueryRow(ctx,
+		"INSERT INTO custom_skill ("+customCols+") VALUES ($1, $2, $3, $4, $5, $6) RETURNING "+customCols,
+		sk.Code, sk.Category, sk.Name, sk.Description, sk.Body, sk.Enabled)
+	created, err := scanCustom(row)
 	if err != nil {
-		return fmt.Errorf("delete skill: %w", err)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return Skill{}, fmt.Errorf("%w：%s", ErrConflict, sk.Code)
+		}
+		return Skill{}, fmt.Errorf("新建自建技能 %s: %w", sk.Code, err)
+	}
+	return created, nil
+}
+
+// UpdateCustom 在锁行事务内用 fn 计算自建技能的新内容并写回。不存在返回 pgx.ErrNoRows。
+func (s *Store) UpdateCustom(ctx context.Context, code string, fn func(Skill) (Content, error)) (Skill, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Skill{}, fmt.Errorf("修改自建技能 %s: %w", code, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	cur, err := scanCustom(tx.QueryRow(ctx, "SELECT "+customCols+" FROM custom_skill WHERE code=$1 FOR UPDATE", code))
+	if err != nil {
+		return Skill{}, fmt.Errorf("自建技能 %s: %w", code, err)
+	}
+	c, err := fn(cur)
+	if err != nil {
+		return Skill{}, err
+	}
+	updated, err := scanCustom(tx.QueryRow(ctx,
+		`UPDATE custom_skill SET name=$2, description=$3, body=$4, enabled=$5, updated_at=now()
+		 WHERE code=$1 RETURNING `+customCols,
+		code, c.Name, c.Description, c.Body, c.Enabled))
+	if err != nil {
+		return Skill{}, fmt.Errorf("修改自建技能 %s: %w", code, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Skill{}, fmt.Errorf("修改自建技能 %s: %w", code, err)
+	}
+	return updated, nil
+}
+
+// DeleteCustom 删除自建技能。不存在返回 pgx.ErrNoRows。
+func (s *Store) DeleteCustom(ctx context.Context, code string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM custom_skill WHERE code=$1", code)
+	if err != nil {
+		return fmt.Errorf("删除自建技能 %s: %w", code, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("skill 不存在或为内置 skill（不可删除）")
+		return fmt.Errorf("自建技能 %s: %w", code, pgx.ErrNoRows)
 	}
 	return nil
 }
 
-// ListEnabled 返回全部启用 skill（无分页/无 limit——List 的 limit 缺省 50 会
-// 静默截断，运行时 Tier 1 索引不能容忍截断；skill 总量本身有界，全量返回可接受）。
-func (s *Store) ListEnabled(ctx context.Context) ([]Skill, error) {
-	rows, err := s.pool.Query(ctx,
-		"SELECT "+colsSelect+" FROM skill WHERE enabled=true ORDER BY category, code")
-	if err != nil {
-		return nil, fmt.Errorf("list enabled skills: %w", err)
-	}
-	defer rows.Close()
+func scanCustom(r pgx.Row) (Skill, error) {
+	sk := Skill{IsBuiltin: false}
+	err := r.Scan(&sk.Code, &sk.Category, &sk.Name, &sk.Description, &sk.Body, &sk.Enabled)
+	return sk, err
+}
 
-	var out []Skill
-	for rows.Next() {
-		sk, err := s.scanOne(rows)
+// ── 内置技能的用户层 ───────────────────────────────────────────────────
+
+// Overrides 读出全部内置技能的用户层（code → 用户层）。
+func (s *Store) Overrides(ctx context.Context) (map[string]override.Overrides, error) {
+	return s.overrides.All(ctx)
+}
+
+// UpdateOverrides 在锁行事务内用 fn 计算某内置技能的新用户层与生效值，写回两者。
+// 生效值存为 last_saved：内置技能下线后，用户自定义过的据此转为自建技能。
+func (s *Store) UpdateOverrides(ctx context.Context, code string, fn func(override.Overrides) (override.Overrides, Skill, error)) (override.Overrides, error) {
+	return s.overrides.Update(ctx, code, func(ctx context.Context, tx pgx.Tx, cur override.Overrides) (override.Overrides, error) {
+		next, effective, err := fn(cur)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, sk)
-	}
-	return out, rows.Err()
-}
-
-// PruneBuiltinNotIn 删除 keepCodes 之外的内置 skill 行，返回被删 code 列表。
-// 供种子导入清理死行：skill 目录改名/删除后（如 drive-browser → browser-use），
-// DB 残留的旧内置行经此回收。用户自建（is_builtin=false）永不被此触碰。
-func (s *Store) PruneBuiltinNotIn(ctx context.Context, keepCodes []string) ([]string, error) {
-	rows, err := s.pool.Query(ctx,
-		"DELETE FROM skill WHERE is_builtin=true AND NOT (code = ANY($1)) RETURNING code",
-		keepCodes)
-	if err != nil {
-		return nil, fmt.Errorf("prune builtin skills: %w", err)
-	}
-	defer rows.Close()
-
-	var pruned []string
-	for rows.Next() {
-		var code string
-		if err := rows.Scan(&code); err != nil {
-			return nil, fmt.Errorf("scan pruned code: %w", err)
+		if len(next) == 0 {
+			return next, nil
 		}
-		pruned = append(pruned, code)
-	}
-	return pruned, rows.Err()
+		saved, err := json.Marshal(effective)
+		if err != nil {
+			return nil, fmt.Errorf("序列化技能 %s: %w", code, err)
+		}
+		if _, err := tx.Exec(ctx, "UPDATE skill_override SET last_saved=$2 WHERE skill_code=$1", code, saved); err != nil {
+			return nil, fmt.Errorf("写技能 %s 的 last_saved: %w", code, err)
+		}
+		return next, nil
+	})
 }
 
-// UpsertBuiltin 按强制覆盖语义写入内置 skill（reseed 重置通道）：code 冲突时
-// 覆盖 category/name/description/body 并复位 enabled=true；不冲突则插入。
-// 常规运行路径不走此（前端对内置 skill 的修改要跨重启保留，见 seed insert-only 语义）。
-func (s *Store) UpsertBuiltin(ctx context.Context, sk Skill) (Skill, error) {
-	q := `
-		INSERT INTO skill (code, category, name, description, body, is_builtin, enabled)
-		VALUES ($1, $2, $3, $4, $5, true, true)
-		ON CONFLICT (code) DO UPDATE SET
-			category    = EXCLUDED.category,
-			name        = EXCLUDED.name,
-			description = EXCLUDED.description,
-			body        = EXCLUDED.body,
-			is_builtin  = true,
-			enabled     = true,
-			updated_at  = now()
-		RETURNING ` + colsSelect
-
-	return s.scanOne(s.pool.QueryRow(ctx, q,
-		sk.Code, sk.Category, sk.Name, sk.Description, sk.Body))
-}
-
-// scanOne 扫描单行（ErrNoRows 原样上抛，与 agent/finding 口径一致由调用方 %w 包装）。
-func (s *Store) scanOne(row pgx.Row) (Skill, error) {
-	var sk Skill
-	err := row.Scan(
-		&sk.ID, &sk.Code, &sk.Category, &sk.Name, &sk.Description,
-		&sk.Body, &sk.IsBuiltin, &sk.Enabled, &sk.CreatedAt, &sk.UpdatedAt,
-	)
+// AdoptRetired 把出厂内容里已不存在、但用户自定义过的内置技能转为同 code 的自建技能
+// （内容取 last_saved），并删除其用户层。各 agent 对它的绑定按 code 继续有效。
+// 已有同 code 的自建技能时不覆盖。幂等。返回转换的 code。
+func (s *Store) AdoptRetired(ctx context.Context, builtinCodes []string) ([]string, error) {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return Skill{}, err
+		return nil, fmt.Errorf("转换已下线内置技能: %w", err)
 	}
-	return sk, nil
-}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-// scan 扫描多行。
-func (s *Store) scan(rows pgx.Rows) (Skill, error) {
-	var sk Skill
-	err := rows.Scan(
-		&sk.ID, &sk.Code, &sk.Category, &sk.Name, &sk.Description,
-		&sk.Body, &sk.IsBuiltin, &sk.Enabled, &sk.CreatedAt, &sk.UpdatedAt,
-	)
-	return sk, err
+	rows, err := tx.Query(ctx,
+		`DELETE FROM skill_override WHERE NOT (skill_code = ANY($1)) RETURNING skill_code, last_saved`,
+		builtinCodes)
+	if err != nil {
+		return nil, fmt.Errorf("转换已下线内置技能: %w", err)
+	}
+	type retired struct {
+		code  string
+		saved Skill
+	}
+	var list []retired
+	for rows.Next() {
+		var r retired
+		var raw []byte
+		if err := rows.Scan(&r.code, &raw); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("转换已下线内置技能: %w", err)
+		}
+		if err := json.Unmarshal(raw, &r.saved); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("技能 %s 的 last_saved 损坏: %w", r.code, err)
+		}
+		list = append(list, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("转换已下线内置技能: %w", err)
+	}
+
+	adopted := make([]string, 0, len(list))
+	for _, r := range list {
+		sk := r.saved
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO custom_skill ("+customCols+") VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (code) DO NOTHING",
+			r.code, sk.Category, sk.Name, sk.Description, sk.Body, sk.Enabled); err != nil {
+			return nil, fmt.Errorf("转换技能 %s: %w", r.code, err)
+		}
+		adopted = append(adopted, r.code)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("转换已下线内置技能: %w", err)
+	}
+	return adopted, nil
 }

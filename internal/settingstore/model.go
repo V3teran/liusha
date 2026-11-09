@@ -1,37 +1,22 @@
-// Package settingstore 是系统业务旋钮（会话压缩 / 运行时 / 代理流量过滤三组）的多级缓存读写层，
-// 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
-// → DB（事实源，system_setting 分组 KV 表）。
-//
-// 为何分层：api / runner / proxy 是**多进程**。前端在 api 改系统配置后，runner 的会话历史压缩、
-// 工具超时等消费点，及 proxy 的流量过滤链必须在运行期读到最新值并热改，否则仍按旧参数跑。
-// 故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe goroutine 收到即清本地
-// L1 + L2，下次读回填最新值（proxy 侧再据此原子换过滤链）。
-//
-// 缓存粒度：三组各一份类型化快照，各走一个哨兵键（镜像 llmstore 的 keyRouting 模式）。
 package settingstore
 
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
+// Group 是设置分组，取值与 setting_override.group_key 的 CHECK 约束一一对应。
+type Group string
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-)
-
-// 分组键——与 migration 0098 的 CHECK(group_key IN ...) 一一对应。
 const (
-	groupCompaction  = "compaction"
-	groupRuntime     = "runtime"
-	groupProxyFilter = "proxy_filter"
+	GroupCompaction  Group = "compaction"   // 会话历史压缩
+	GroupRuntime     Group = "runtime"      // 工具运行时
+	GroupProxyFilter Group = "proxy_filter" // 代理流量过滤规则
 )
+
+// Groups 是全部分组（固定顺序）。
+var Groups = []Group{GroupCompaction, GroupRuntime, GroupProxyFilter}
 
 // CompactionSettings 是 agent 上下文压缩旋钮：ReAct 循环按「历史 token 预算」压
 // 上下文——预算 = 比例 × 本角色路由 provider 的 context_window，超预算的历史前缀
 // 被裁并蒸馏成纪要。比例越大上下文越完整、token 越贵；按链路特点分角色配置
-// （长推理链预算大、短裁决链预算小）。历史的窗口条数旋钮（*_window_messages）
-// 已废：条数是 token 的粗糙代理，模型窗口差异下无法表达真实预算。
+// （长推理链预算大、短裁决链预算小）。按 token 预算而非消息条数：条数是 token 的
+// 粗糙代理，模型窗口差异下无法表达真实预算。
 type CompactionSettings struct {
 	PlannerContextRatio   float64 `json:"planner_context_ratio"`   // 规划链路历史预算占比
 	ExecutorContextRatio  float64 `json:"executor_context_ratio"`  // 执行链路历史预算占比
@@ -45,9 +30,8 @@ const (
 	maxContextRatio = 0.9
 )
 
-// normalized 把非法比例回退到内置默认（DB 旧行是旧字段结构的 JSON，新字段缺失
-// 反序列化即零值——读路径归一保证旧行无需迁移即可用）；超封顶按 maxContextRatio
-// 钳制。
+// normalized 把缺省（零值）比例补为内置默认、超封顶钳到 maxContextRatio——
+// 只用于构造出厂默认值；用户提交的值在写入时校验，不做静默修正。
 func (c CompactionSettings) normalized() CompactionSettings {
 	c.PlannerContextRatio = clampRatio(c.PlannerContextRatio, 0.6)
 	c.ExecutorContextRatio = clampRatio(c.ExecutorContextRatio, 0.5)
@@ -66,11 +50,11 @@ func clampRatio(v, fallback float64) float64 {
 	return v
 }
 
-// DefaultCompaction 返回内置默认的压缩预算配置（种子首填用；与 normalized 的兜底一致）。
+// DefaultCompaction 返回内置默认的压缩预算配置。
 func DefaultCompaction() CompactionSettings { return CompactionSettings{}.normalized() }
 
-// RuntimeSettings 是工具运行时的活旋钮集合（DB system_setting runtime 组，前端「系统配置」可热改；
-// 首填时仅 LLM 看门狗取 yaml runner.step_llm_timeout_seconds，其余用内置默认）。
+// RuntimeSettings 是工具运行时的活旋钮集合（前端「系统配置」可自定义、热生效；
+// 出厂默认中仅 LLM 看门狗取 yaml runner.step_llm_timeout_seconds，其余用内置默认）。
 type RuntimeSettings struct {
 	StepToolTimeoutSeconds int `json:"step_tool_timeout_seconds"` // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界，注册表级超时同源）
 	StepLLMTimeoutSeconds  int `json:"step_llm_timeout_seconds"`  // 单步 LLM 看门狗超时秒（挂死的调用即失败；runner 每次调用现读，热改无需重启）
@@ -85,7 +69,7 @@ type RuntimeSettings struct {
 // 工具结果宽裕（run_command 等已有更紧的领域裁剪先行），又远小于长度校验哨兵。
 const defaultToolOutputTailBytes = 32768
 
-// normalized 把 0/负值回退到内置默认（旧行新字段缺失同上，读路径归一免迁移）。
+// normalized 把缺省（零值）字段补为内置默认——只用于构造出厂默认值。
 func (r RuntimeSettings) normalized() RuntimeSettings {
 	if r.StepToolTimeoutSeconds <= 0 {
 		r.StepToolTimeoutSeconds = 1800
@@ -102,8 +86,8 @@ func (r RuntimeSettings) normalized() RuntimeSettings {
 	return r
 }
 
-// DefaultRuntime 返回内置默认的工具运行时配置（stepLLMTimeoutSeconds 由调用方传入
-// yaml/启动值作 LLM 看门狗默认，其余字段用内置默认；种子首填用）。
+// DefaultRuntime 返回工具运行时的出厂默认（LLM 看门狗取部署值 stepLLMTimeoutSeconds，
+// 其余字段用内置默认）。
 func DefaultRuntime(stepLLMTimeoutSeconds int) RuntimeSettings {
 	return RuntimeSettings{StepLLMTimeoutSeconds: stepLLMTimeoutSeconds}.normalized()
 }
@@ -122,8 +106,8 @@ type ProxyFilterSettings struct {
 	MaxResponseBodySize     int      `json:"max_response_body_size"`    // 响应体切片上限字节
 }
 
-// normalized 把 nil 切片归一为空切片：DB 存的 JSON null 反序列化回 nil，
-// 但过滤链构建与前端编辑都期望空数组语义（无规则 ≠ 缺字段）。
+// normalized 把 nil 切片归一为空切片：yaml 缺省时为 nil，而过滤链构建、集合
+// 自定义与前端编辑都期望空数组语义（无规则 ≠ 缺字段）。
 func (p ProxyFilterSettings) normalized() ProxyFilterSettings {
 	if p.AllowHosts == nil {
 		p.AllowHosts = []string{}
@@ -148,80 +132,3 @@ func (p ProxyFilterSettings) normalized() ProxyFilterSettings {
 	}
 	return p
 }
-
-// dbStore 封装 system_setting 分组 KV 表的 JSONB 持久化。
-// 运行期消费不直连本类型，走 Store（多级缓存 + 跨进程失效）。
-type dbStore struct {
-	pool *pgxpool.Pool
-}
-
-// newDBStore 用 pgxpool 构造 dbStore。
-func newDBStore(pool *pgxpool.Pool) *dbStore { return &dbStore{pool: pool} }
-
-// getGroup 读一个分组的 JSONB 并反序列化为 T。缺行时 %w 包 pgx.ErrNoRows（供上层判缺省兜底）。
-func getGroup[T any](ctx context.Context, pool *pgxpool.Pool, group string) (T, error) {
-	var zero T
-	var raw []byte
-	row := pool.QueryRow(ctx, "SELECT value FROM system_setting WHERE group_key=$1", group)
-	if err := row.Scan(&raw); err != nil {
-		return zero, fmt.Errorf("get setting %q: %w", group, err)
-	}
-	var v T
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return zero, fmt.Errorf("get setting %q: unmarshal: %w", group, err)
-	}
-	return v, nil
-}
-
-// saveGroup upsert 一个分组的 JSONB 快照（存在则覆盖）。
-func saveGroup[T any](ctx context.Context, pool *pgxpool.Pool, group string, v T) error {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("save setting %q: marshal: %w", group, err)
-	}
-	_, err = pool.Exec(ctx, `
-		INSERT INTO system_setting (group_key, value)
-		VALUES ($1, $2)
-		ON CONFLICT (group_key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`,
-		group, raw)
-	if err != nil {
-		return fmt.Errorf("save setting %q: %w", group, err)
-	}
-	return nil
-}
-
-func (s *dbStore) GetCompaction(ctx context.Context) (CompactionSettings, error) {
-	v, err := getGroup[CompactionSettings](ctx, s.pool, groupCompaction)
-	if err != nil {
-		return CompactionSettings{}, err
-	}
-	return v.normalized(), nil
-}
-func (s *dbStore) SaveCompaction(ctx context.Context, v CompactionSettings) error {
-	return saveGroup(ctx, s.pool, groupCompaction, v.normalized())
-}
-
-func (s *dbStore) GetRuntime(ctx context.Context) (RuntimeSettings, error) {
-	v, err := getGroup[RuntimeSettings](ctx, s.pool, groupRuntime)
-	if err != nil {
-		return RuntimeSettings{}, err
-	}
-	return v.normalized(), nil
-}
-func (s *dbStore) SaveRuntime(ctx context.Context, v RuntimeSettings) error {
-	return saveGroup(ctx, s.pool, groupRuntime, v.normalized())
-}
-
-func (s *dbStore) GetProxyFilter(ctx context.Context) (ProxyFilterSettings, error) {
-	v, err := getGroup[ProxyFilterSettings](ctx, s.pool, groupProxyFilter)
-	if err != nil {
-		return ProxyFilterSettings{}, err
-	}
-	return v.normalized(), nil
-}
-func (s *dbStore) SaveProxyFilter(ctx context.Context, v ProxyFilterSettings) error {
-	return saveGroup(ctx, s.pool, groupProxyFilter, v.normalized())
-}
-
-// isNotFound 判定底层「不存在」——getGroup 用 %w 包 pgx.ErrNoRows。
-func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoRows) }
