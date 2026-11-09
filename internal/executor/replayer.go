@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/httpreplay"
+	"github.com/V3teran/liusha/internal/repro"
 )
 
 // SelfContainedRequest 是自包含的完整 HTTP 请求（repro.request 的形状）。
@@ -522,21 +523,17 @@ func orEmptyRaw(b json.RawMessage) json.RawMessage {
 	return b
 }
 
-// minBodyContainsLen 是 body_contains 子串的最小鉴别长度：过短的子串（如 "1"/"2"/"3"）
-// 几乎必然命中任意页面——断言无鉴别力，坐实即假阳性。
-const minBodyContainsLen = 4
-
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
-//   - body_contains 每个子串须 ≥ minBodyContainsLen 个字符（修剪后按字节计）
-//     注意：已移除自指检查和无 baseline 的强谓词检查，让 LLM Judge 做最终判断
-func assertDiscriminative(a Assertion, _ httpreplay.Source, _ bool) error {
+//   - body_contains 每个子串须 ≥ repro.MinBodyContainsLen 个字符（修剪后按字节计）
+//
+// 自指与「无 baseline 须有强谓词」不在机器侧判定，交 LLM 裁决官终判；写入侧
+// （repro.NormalizeReproEnvelope）与本守卫同一口径。
+func assertDiscriminative(a Assertion) error {
 	for _, want := range a.BodyContains {
-		if len(strings.TrimSpace(want)) < minBodyContainsLen {
-			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, minBodyContainsLen)
+		if len(strings.TrimSpace(want)) < repro.MinBodyContainsLen {
+			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, repro.MinBodyContainsLen)
 		}
-		// 自指检查已移除（payload 回显等合理场景会被误伤），由 LLM Judge 终判。
 	}
-	// 无 baseline 的强谓词检查已移除（常态 200 类断言的鉴别力由 LLM Judge 终判）。
 	return nil
 }
 
@@ -554,7 +551,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	if err != nil {
 		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: request 非法——%w", err)
 	}
-	if dErr := assertDiscriminative(recipe.Assert, exploitSrc, recipe.Baseline != nil); dErr != nil {
+	if dErr := assertDiscriminative(recipe.Assert); dErr != nil {
 		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: %w", dErr)
 	}
 
