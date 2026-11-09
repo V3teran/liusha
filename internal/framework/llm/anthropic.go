@@ -128,7 +128,7 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 	var systemBlocks []anthropic.TextBlockParam
 	out := make([]anthropic.MessageParam, 0, len(in))
 
-	for _, m := range in {
+	for i, m := range in {
 		switch m.Role {
 		case RoleSystem:
 			if m.Content != "" {
@@ -157,10 +157,14 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
-			for _, tc := range m.ToolCalls {
+			for j, tc := range m.ToolCalls {
 				input := tc.Arguments
 				if len(input) == 0 {
 					input = json.RawMessage("{}")
+				}
+				// 参数原样嵌进请求体：非法 JSON 会让整个请求体非法（与 openai 协议同一边界校验）。
+				if !json.Valid(input) {
+					return nil, nil, fmt.Errorf("message[%d].tool_calls[%d]: arguments 不是合法 JSON", i, j)
 				}
 				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
 			}

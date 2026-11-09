@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -152,5 +153,29 @@ func TestInstrumentProvider_StreamErrorOmitsResult(t *testing.T) {
 	}
 	if rec.FinishReason != "error: boom" {
 		t.Errorf("FinishReason = %q", rec.FinishReason)
+	}
+}
+
+// 审计在最需要的地方不能失明：模型返回残缺的工具参数时，回复与回传历史都含非法 JSON，
+// 审计仍须落下原文（非法参数改存为 JSON 字符串），而不是序列化失败落成空值。
+func TestInstrumentProvider_AuditsMalformedToolArgs(t *testing.T) {
+	const broken = `{"expression": "2+`
+	sink := &captureSink{}
+	p := InstrumentProvider(&metaStubProvider{Response: Response{
+		ToolCalls: []ToolCall{{ID: "call_2", Name: "calculator", Arguments: json.RawMessage(broken)}},
+	}}, sink)
+
+	req := Request{Messages: []Message{
+		{Role: RoleUser, Content: "计算"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call_1", Name: "calculator", Arguments: json.RawMessage(broken)}}},
+	}}
+	if _, err := p.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	rec := sink.recs[0]
+	for name, raw := range map[string][]byte{"messages": rec.Messages, "result": rec.Result} {
+		if !json.Valid(raw) || !bytes.Contains(raw, []byte(`2+`)) {
+			t.Errorf("%s 应保留残缺参数原文，得 %s", name, raw)
+		}
 	}
 }

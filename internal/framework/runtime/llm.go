@@ -72,7 +72,10 @@ func (r *reactRuntime) callLLM(
 // llmResponse 是 LLM 响应的内部表示
 type llmResponse struct {
 	Content   string
-	ToolCalls []llm.ToolCall
+	ToolCalls []llm.ToolCall // 参数已规整：一律是合法 JSON，可原样进历史回传
+	// MalformedArgs 是参数无法修复成合法 JSON 的工具调用（ID → 解析错误）：不执行，
+	// 把错误作为工具结果回给模型重试。
+	MalformedArgs map[string]error
 	// Thinking 是该轮扩展思考块（含回传签名；无思考为 nil）。
 	Thinking *llm.ThinkingBlock
 	// Usage 是该次调用的 token 用量（供 ReActResult.Usage 逐迭代累计）。
