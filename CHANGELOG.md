@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/V3teran/liusha/compare/v0.5.0...v0.5.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **credential:** 清扫器状态查询失败不再当作任务不存在而误删会话 ([119fe61](https://github.com/V3teran/liusha/commit/119fe6141530bc14d23648c1b0b7b469908db5b4))
+* **evaluator:** 删除轮询入口私有的 web→generic 降级，两条裁决入口同口径 ([46728fd](https://github.com/V3teran/liusha/commit/46728fd08169b2ae12bb02bc7402e21bd4d221a2))
+* **repro:** 写入侧断言鉴别力与复现门同口径，弱断言交 LLM 裁决官终判 ([5284445](https://github.com/V3teran/liusha/commit/528444561c417b20cce1c10bc806d595d300ff39))
+
 ## [0.5.0](https://github.com/V3teran/liusha/compare/v0.4.1...v0.5.0) (2026-11-09)
 
 
