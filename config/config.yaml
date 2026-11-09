@@ -83,7 +83,7 @@ llm:
 # 每块字段：
 #   type          协议：openai_compat（OpenAI 兼容接口）或 anthropic
 #   base_url      服务地址；default_model  模型名——都向服务方照抄
-#   api_key_env   密钥的环境变量名；.env 里必须有同名条目，缺了启动直接报错
+#   api_key_env   密钥的环境变量名（名字自取）；.env 放同名条目。值为空的块不导入（可启动，后到前端补）
 # 示例：两块并存，simple 档用便宜的那家（取消注释并填好 .env 即生效）：
 #   budget:
 #     type: openai_compat
