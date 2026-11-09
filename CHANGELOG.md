@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.2](https://github.com/V3teran/liusha/compare/v0.6.1...v0.6.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **agent:** executor 只归一化带配方的观察；降级推导携带章程与输出契约 ([04eb60b](https://github.com/V3teran/liusha/commit/04eb60b8254994ba863ac27024adcecb007aea25))
+* **agent:** 上下文取消引起的错误记 debug，不再在任务结束时刷 error ([2c55b14](https://github.com/V3teran/liusha/commit/2c55b142abd06f27555ddd79a01f6116bef966f0))
+
 ## [0.6.1](https://github.com/V3teran/liusha/compare/v0.6.0...v0.6.1) (2026-11-09)
 
 
