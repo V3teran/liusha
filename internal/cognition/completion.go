@@ -37,9 +37,11 @@ type CompletionDetector struct {
 	promotedCount atomic.Int64
 	attemptCount  atomic.Int64
 	startTime     time.Time
-	manualAbort   atomic.Bool
-	abortReason   atomic.Value // string
-	converged     atomic.Bool  // 任务收敛标志（planner 无新 action 可生成）
+	// abortReason 非 nil 即已人工中止，指向中止原因。标志与原因必须是同一个原子值：
+	// 拆成「先置标志、后存原因」两步时，并发的兜底检查会落在两步之间，看到已中止却
+	// 读不到原因，回落兜底值把调用方原因吞掉。
+	abortReason atomic.Pointer[string]
+	converged   atomic.Bool // 任务收敛标志（planner 无新 action 可生成）
 
 	completionCh chan Result
 }
@@ -160,12 +162,10 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 // checkCompletion 检查是否满足完成条件
 func (d *CompletionDetector) checkCompletion() (Result, bool) {
 	// 1. 人工中止（terminate / 暂停退出共用此通道，优先级最高）
-	if d.manualAbort.Load() {
-		reason := "manual_abort"
-		if v := d.abortReason.Load(); v != nil {
-			if s, ok := v.(string); ok && s != "" {
-				reason = s
-			}
+	if r := d.abortReason.Load(); r != nil {
+		reason := *r
+		if reason == "" {
+			reason = "manual_abort"
 		}
 		return d.makeResult(reason), true
 	}
@@ -220,7 +220,6 @@ func (d *CompletionDetector) Fail(err error) {
 
 // Abort 手动中止任务
 func (d *CompletionDetector) Abort(reason string) {
-	d.manualAbort.Store(true)
-	d.abortReason.Store(reason)
+	d.abortReason.Store(&reason)
 	d.logger.Info().Str("reason", reason).Msg("手动触发中止")
 }
