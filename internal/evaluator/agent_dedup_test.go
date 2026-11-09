@@ -1,10 +1,12 @@
 package evaluator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +174,35 @@ func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
 	}
 	if env.Domain != "web" {
 		t.Fatalf("轮询入口改写了配方域: domain=%q primitives=%s", env.Domain, att.Primitives)
+	}
+}
+
+// TestPollAndVerify_SkipsInFlightBeforeParsing 锁定轮询对在途假设的处理：验证进行中的
+// 假设直接跳过——不重复解析配方（归一化失败的配方曾每 5s 告警一次），也不计入
+// 「启动验证任务」（计数只统计真正启动的验证）。
+func TestPollAndVerify_SkipsInFlightBeforeParsing(t *testing.T) {
+	var logs bytes.Buffer
+	memGraph := explorationgraph.NewMemoryStore()
+	a := NewAgent(AgentConfig{TaskID: "t-inflight", EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.New(&logs)})
+
+	c := explorationgraph.ConfidenceUnverified
+	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+		ID: "obs-inflight", TaskID: "t-inflight", Kind: core.KindObservation,
+		Content:    json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
+		Confidence: &c,
+	}); err != nil {
+		t.Fatalf("建观察失败: %v", err)
+	}
+	if !a.tryAcquire("obs-inflight") {
+		t.Fatal("预置在途锁失败")
+	}
+
+	if err := a.pollAndVerify(context.Background(), make(chan struct{}, 1)); err != nil {
+		t.Fatalf("pollAndVerify: %v", err)
+	}
+	for _, unwanted := range []string{"repro 归一化失败", "启动验证任务"} {
+		if strings.Contains(logs.String(), unwanted) {
+			t.Errorf("在途假设不应产生 %q 日志:\n%s", unwanted, logs.String())
+		}
 	}
 }
