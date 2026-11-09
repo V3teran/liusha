@@ -13,8 +13,8 @@ type KeyDecrypter interface {
 }
 
 // ResolveAPIKey 取一个 provider 可用的 API Key 明文。
-// 双路径（migration 0103）：EncryptedAPIKey 非空 → 解密返回（当前事实源）；
-// 为空 → 回退 os.Getenv(APIKeyEnv)（旧数据兼容，未通过前端重新保存密钥的 provider 仍可用）。
+// 双路径，前端优先：EncryptedAPIKey 非空（前端直填，AES-GCM 加密落库）→ 解密返回；
+// 为空 → 读 os.Getenv(APIKeyEnv)（部署期路径：config.yaml providers 块钉定变量名，.env 放同名 key）。
 // 两者皆空 → 明确报错，不静默返回空字符串（避免下游拿空 key 打出请求后才报 401）。
 func ResolveAPIKey(p Provider, dec KeyDecrypter) (string, error) {
 	if len(p.EncryptedAPIKey) > 0 {
