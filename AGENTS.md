@@ -15,7 +15,7 @@ liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的�
 | 组件 | 入口 | 职责 |
 |---|---|---|
 | web | `web/`（React + Vite，生产由 nginx 托管） | 运维控制台；`/api/*` 反代到 api |
-| api | `cmd/api`（gin，:8580） | HTTP API、种子导入、鉴权 |
+| api | `cmd/api`（gin，:8580） | HTTP API、LLM 接入首装引导、鉴权 |
 | proxy | `cmd/proxy`（:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
 | runner | `cmd/runner`（:8590） | Asynq 消费者；跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量 |
 | sandbox | `cmd/sandbox-server` + `deployments/tool-images/sandbox` | Kali 工具容器；runner 经**宿主 docker** 拉起，warm pool 复用 |
@@ -25,8 +25,9 @@ liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的�
 
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`。
 - `db/migrations`：golang-migrate 迁移；`0196_baseline` 是压缩后的基线。
-- `agents/*.md`：四个 agent 的提示词种子；`skills/**/SKILL.md`：内置技能种子。
-- `config/config.yaml`：出厂配置（LLM provider 与能力路由、运行参数）；密钥一律走环境变量。
+- `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
+- `internal/override`：「出厂默认 + 用户自定义」的字段级引擎；`internal/overridestore` 是自定义表的读写协议。
+- `config/config.yaml`：部署配置（LLM provider 首装引导、系统设置的部署默认、运行参数）；密钥一律走环境变量。
 - `web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token。
 - `deployments/`：三种部署形态（本地开发 / 生产全容器 / 单镜像），说明见 `deployments/README.md`。
 - `vendor/`：Go 依赖入库，镜像以 `-mod=vendor` 构建。改依赖必须用 `make tidy`（tidy 后同步 vendor）。
@@ -40,7 +41,6 @@ make build-sandbox                 # 本地构建沙盒镜像（首次 / 工具�
 ./scripts/dev/run-svc.sh           # host 侧起 proxy + api + runner（日志 logs/*.log）
 make run-web                       # 前端 dev server
 make migrate                       # 对本地库执行迁移
-make reseed                        # agents/、skills/ 种子强制覆盖进 DB（见「种子」）
 make e2e-xss / make e2e-full       # 端到端剧本（需 dev 栈已起）
 ```
 
@@ -110,12 +110,18 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 - 错误体统一为 `{"error": "<消息>"}`。面向操作者的消息用中文，可附额外字段（如 `task_active`）。
 - 路径 UUID 格式非法返回 400（路由组挂 `requireUUIDParam`）；资源不存在返回 404；唯一约束冲突返回 409。
-- handler 透传 error 值时必须经 `respondErr`：它记结构化日志，把 `pgx.ErrNoRows` 收敛为 404，把 LLM 未配置收敛为 400。store 层必须用 `%w` 包装 `pgx.ErrNoRows`，否则 404 收敛失效。
+- handler 透传 error 值时必须经 `respondErr`：它记结构化日志，并把客户端错误收敛为 4xx——`pgx.ErrNoRows` → 404，LLM 未配置 → 400，`override.ErrInvalid`（提交的配置不合法）→ 400，技能标识冲突与对象类型不适用的操作（删除内置技能、恢复自建技能）→ 409。store 层必须用 `%w` 包装 `pgx.ErrNoRows`，否则 404 收敛失效。
 
-### 种子与配置事实源
+### 出厂默认与用户自定义
 
-- `agents/*.md`、`skills/**/SKILL.md` 在 api 启动时只插入不存在的条目（insert-only），前端修改过的配置以 DB 为准，启动不覆盖。
-- 改了种子文件后，已初始化的库需要 `make reseed` 才会生效。agent 整行覆盖；skill 只覆盖内置行。
+按「这条记录是谁让它存在的」分两类：
+
+- **产品定义的**（agent、内置技能、系统设置）：出厂值属于代码——agent 与内置技能编译在 `internal/builtin`，系统设置默认值 = 代码 + `config.yaml` 部署值。数据库只存用户改过的字段（`agent_override` / `skill_override` / `setting_override`），生效值在读取时合成（`internal/override`），三级缓存只缓存用户层。改出厂内容即随版本生效，不需要任何同步命令。
+- **用户定义的**（LLM 接入、自建技能 `custom_skill`、管理员账号、知识库）：用户数据；`config.yaml` / `.env` 只在首装时引导一次。
+- 自定义规则：整值字段记录值与基线（写入时依据的出厂原文）；名单字段以 `{on, off}` 提交、记录增删，生效值 = 出厂 ∪ 新增 − 删除，「全部」(`*`) 中取消某项按全集展开。**保存时与出厂相同的值不算自定义**。各资源的写入一律经锁行事务（`overridestore`），并发写不丢更新。
+- agent 系统提示词 = 章程（可自定义）+ 输出契约（程序解析依赖的格式，随解析代码放在各 agent 的 `contract` 子包，不可自定义）。改输出格式只改契约与解析代码；**不要把程序依赖的约定写进章程**（`internal/builtin` 的测试会拦下章程里的契约章节）。
+- 内置技能同 code 时自建技能优先；内置技能下线时，用户自定义过的按 `last_saved` 转为同 code 自建技能（api 启动执行）；删除自建技能同时清理各 agent 对它的引用。
+- 新增可自定义字段：在资源的配置结构体（`agent.Config` / `skillstore.Content` / 各组设置结构体）加 json 字段即可，字段表由结构体推导（切片为名单、其余为整值）；删除字段后残留的自定义自动失效，不需要迁移。
 
 ### 事件总线（`internal/bus`）
 
@@ -146,7 +152,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 ## 提交与发布
 
 - 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。类型只能用模板列出的：release-please 不识别的类型（如 `pipeline`）不会进 CHANGELOG 和发布说明。
-- 改 API 契约、需要迁移、需要 `make reseed` 的变更，在提交正文写明升级注意，会进入 CHANGELOG。
+- 改 API 契约、需要迁移的变更，在提交正文写明升级注意，会进入 CHANGELOG。
 - 发布由 release-please 驱动：合并 Release PR 即发版。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 克隆 tag）由它改写，不要手改。
 - 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像，并把 sandbox 的 `:main` 晋升为同版本 tag。sandbox 镜像在 main 上相关路径变更时由 `build-sandbox` 构建为 `:main`。
 
@@ -154,6 +160,6 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 全仓质量治理按以下三波划分，每波结束都跑一遍验证门：
 
-1. agent 核心（认知循环、复现与裁决、会话 LLM 路径）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,corpus,embedding,explorationgraph,repro,httpreplay,distill,reasoning,intent,chat,qa}`
+1. agent 核心（认知循环、复现与裁决、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,httpreplay,distill,reasoning,intent,chat,qa}`
 2. 平台服务：`internal/` 下其余全部包（持久化、调度、接入、配置、基础设施），以及 `cmd/`。
 3. 前端：`web/src`（pages 编排 / features 领域 / api 客户端 / styles Token）。
