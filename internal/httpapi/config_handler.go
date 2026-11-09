@@ -1,248 +1,201 @@
-// Package httpapi 是 agent 配置读取/编辑 handler（前端配置管理页）。
+// Package httpapi: agent 配置 handler（前端「智能体」页）。
 //
-// 角色是固定种子身份（四角色以 code 寻址）：只提供读与部分更新，
-// 不提供新建/删除——写路径一律走 configstore（自动落 DB + redis 广播失效），
-// 绝不直穿底层 store——否则 api 进程改配置后 runner 进程的本地 L1 不失效，
-// 会用旧配置装配（见 D7）。读路径也走 configstore：单条读命中 L1/L2 缓存，
-// 列表读直穿 DB（低频）。
+// 四个 agent 是固定角色，以 code 寻址，只读与自定义、不增删。生效配置 = 出厂值叠加
+// 用户自定义；写入只记录用户改动的字段（见 internal/override），读写一律经 configstore
+// （读走三级缓存，写后广播失效，runner 下个任务即用新配置）。
 package httpapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgconn"
 
-	agent "github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/configstore"
+	"github.com/V3teran/liusha/internal/constants"
+	evaluatorcontract "github.com/V3teran/liusha/internal/evaluator/contract"
+	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
+	"github.com/V3teran/liusha/internal/override"
+	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// ConfigAPI 是 agent 配置读取/编辑 handler 依赖的窄接口；*configstore.Store 自动满足。
-// 读经缓存、写经失效广播的语义全在 configstore 内，handler 只做 HTTP 编解码 + 应用层校验。
+// ConfigAPI 是 agent 配置 handler 依赖的窄接口；*configstore.Store 自动满足。
 type ConfigAPI interface {
-	// agent
-	ListAgents(ctx context.Context, onlyEnabled bool) ([]agent.Profile, error)
-	ListAgentsPaged(ctx context.Context, p agent.ListParams) ([]agent.Profile, error)
-	CountAgents(ctx context.Context, p agent.ListParams) (int, error)
-	AgentByID(ctx context.Context, id string) (agent.Profile, error)
-	AgentByCode(ctx context.Context, code string) (agent.Profile, error)
-	UpdateAgent(ctx context.Context, code string, p agent.UpdateParams) (agent.Profile, error)
-	UpdateAgentComplexity(ctx context.Context, id, complexity string) (agent.Profile, error)
+	Agents(ctx context.Context) ([]agent.Profile, error)
+	AgentDetails(ctx context.Context) ([]configstore.AgentDetail, error)
+	AgentDetail(ctx context.Context, code string) (configstore.AgentDetail, error)
+	PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Profile, error)
+	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error)
+	ResetAgent(ctx context.Context, code string, fields ...string) (agent.Profile, error)
+	DeletePromptArchive(ctx context.Context, code string) error
 }
 
-// configPageSize 约束 agent 分页 size 上限，防超大扫描。
 const (
 	defaultConfigPageSize = 12
 	maxConfigPageSize     = 100
 )
 
-// parsePaging 解析 page/size：page 缺省/非法 = 0（表示不分页，返回全量，供 picker/selector 复用）。
-// page>=1 时分页；size 缺省 defaultConfigPageSize，clamp 到 [1,maxConfigPageSize]。
-// parsePaging 解析 page/size，语义与 parsePagination 同为 **1 基**：
-//   - 无 page 参数或 page < 1 → paged=false（调用方走全量分支；前端多选器依赖此契约）
-//   - 有 page → 分页（offset = (page-1)*size），响应附 total
-//
-// 与 parsePagination 的差异是"支持全量模式"，不是页码基制。
-func parsePaging(c *gin.Context) (page, size int, paged bool) {
-	pageStr := c.Query("page")
-	if pageStr == "" {
-		return 0, 0, false
-	}
-	page = atoiOr(pageStr, 0)
-	if page < 1 {
-		return 0, 0, false
-	}
-	size = atoiOr(c.Query("size"), defaultConfigPageSize)
-	if size < 1 {
-		size = defaultConfigPageSize
-	}
-	if size > maxConfigPageSize {
-		size = maxConfigPageSize
-	}
-	return page, size, true
+// contracts 是各 agent 的输出契约原文（只读展示；monitor 的决策经工具调用发布，无契约）。
+var contracts = map[string]string{
+	constants.AgentCodePlanner:   plannercontract.Text,
+	constants.AgentCodeExecutor:  executorcontract.Text,
+	constants.AgentCodeEvaluator: evaluatorcontract.Text,
 }
 
-// isForeignKeyViolation 判定错误是否为 DB 外键约束冲突（pg 23503）。
-func isForeignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
-}
-
-// isUniqueViolation 判定错误是否为 DB 唯一约束冲突（pg 23505）。
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
-// ── agent ────────────────────────────────────────────────────────────
-
-// listAgentsHandler 处理 GET /agents：page 缺省 = 全量（多选器依赖），有 page = 分页 + total。
+// listAgentsHandler 处理 GET /agents?q=&page=&size= → {agents, total}。
+// 每项为生效配置，附已自定义字段名与是否有待处理的提示词归档；未带 page 返回全部。
 func listAgentsHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx := c.Request.Context()
-		page, size, paged := parsePaging(c)
-		// 无 page 参数：全量（含全部 kind），保前端多选器一次拉全。
-		if !paged {
-			rows, err := api.ListAgents(ctx, false)
-			if err != nil {
-				respondErr(c, http.StatusInternalServerError, err)
-				return
-			}
-			out := make([]gin.H, 0, len(rows))
-			for _, r := range rows {
-				out = append(out, agentJSON(r))
-			}
-			c.JSON(http.StatusOK, gin.H{"agents": out})
-			return
-		}
-		// 分页：配置管理页搜索 + 翻页，附 total。
-		params := agent.ListParams{Q: c.Query("q"), Limit: size, Offset: (page - 1) * size}
-		total, err := api.CountAgents(ctx, params)
+		all, err := api.AgentDetails(c.Request.Context())
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		rows, err := api.ListAgentsPaged(ctx, params)
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
+		q := c.Query("q")
+		items := make([]gin.H, 0, len(all))
+		for _, d := range all {
+			p := d.Profile
+			if !matchesQuery(q, p.Code, p.Name, p.Description) {
+				continue
+			}
+			items = append(items, agentListItem(d))
 		}
-		out := make([]gin.H, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, agentJSON(r))
-		}
-		c.JSON(http.StatusOK, gin.H{"agents": out, "total": total})
+		page, total := pageOf(c, items, defaultConfigPageSize, maxConfigPageSize)
+		c.JSON(http.StatusOK, gin.H{"agents": page, "total": total})
 	}
 }
 
-// getAgentHandler 处理 GET /agents/:id。
+// getAgentHandler 处理 GET /agents/:code → 生效配置、出厂值、自定义状态、提示词归档与只读契约。
 func getAgentHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.Param("id")
-		h, err := api.AgentByID(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
-	}
-}
-
-// agentUpdate 是 PUT /agents/:id 的请求体，部分更新语义：指针字段非 nil 才更新，nil 不动。
-// 目标行由 URL 里的 id 权威定位（与 GET 同律）；code/name 是固定种子身份（agent.Store.Update 拒改），
-// enabled 由种子与运维控制，均不在此接受。Description（调度摘要）是 LLM 可读面、前端可编辑。
-// 未提及字段不被零值覆盖，与工具页「单工具装配」写路径并发时互不覆盖（都只动各自字段）。
-//   - SystemPrompt ：角色章程
-//   - Description  ：调度摘要（planner 规划时读取的角色分工摘要）
-//   - FunctionTools：内置函数工具集（进程内原生函数 code 列表）
-//   - CliTools     ：外置 CLI 工具集（tools.yaml 名字），严格白名单，空 = 不装配任何外部工具
-//   - Skills       ：可访问 skill 裸名白名单（渐进式加载声明）
-type agentUpdate struct {
-	SystemPrompt  *string   `json:"system_prompt"`
-	Description   *string   `json:"description"`
-	FunctionTools *[]string `json:"function_tools"`
-	CliTools      *[]string `json:"cli_tools"`
-	Skills        *[]string `json:"skills"`
-	MaxIterations *int      `json:"max_iterations"`
-	Complexity    *string   `json:"complexity"`
-}
-
-// saveAgentHandler 处理 PUT /agents/:id：URL id 权威定位目标行（先读后写），
-// 只更新 body 里非 nil 的字段。store 层按 code 更新，此处负责 id → code 的换算。
-func saveAgentHandler(api ConfigAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var b agentUpdate
-		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
-			return
-		}
-		p := agent.UpdateParams{
-			SystemPrompt:  b.SystemPrompt,
-			Description:   b.Description,
-			FunctionTools: b.FunctionTools,
-			CliTools:      b.CliTools,
-			Skills:        b.Skills,
-			MaxIterations: b.MaxIterations,
-			Complexity:    b.Complexity,
-		}
-		if p.Empty() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要更新的字段"})
-			return
-		}
-		// complexity 在 HTTP 层先校验（与 PATCH /agents/:id/complexity 同口径），
-		// 不落到 store 层报错变 500。
-		if b.Complexity != nil {
-			switch *b.Complexity {
-			case "simple", "medium", "complex":
-			default:
-				c.JSON(http.StatusBadRequest, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
-				return
-			}
-		}
-		// 先按 id 读行换出稳定 code，再按 code 更新（读经 configstore 缓存，代价低）。
-		// 行不存在 → 404；行读取后到更新前被删在并发下不可能（固定种子无删除路径）。
-		cur, err := api.AgentByID(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "id": id})
-			return
-		}
-		h, err := api.UpdateAgent(c.Request.Context(), cur.Code, p)
+		d, err := api.AgentDetail(c.Request.Context(), c.Param("code"))
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
+		c.JSON(http.StatusOK, agentDetailJSON(d))
 	}
 }
 
-// updateAgentComplexityHandler 处理 PATCH /agents/:id/complexity：只改 LLM 档位单字段（分档页移档用）。
-// 不碰 agent 其余字段——避免整体 upsert 覆盖别处刚改的 body/工具。
-func updateAgentComplexityHandler(api ConfigAPI) gin.HandlerFunc {
+// patchAgentHandler 处理 PATCH /agents/:code。请求体只含改动的字段：章程、调度摘要、
+// 迭代上限、档位提交新值；工具与技能白名单提交 {on, off}（可含 "*" = 全部）。
+// 与出厂值相同的字段不算自定义；整体校验通过才写入。
+func patchAgentHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.Param("id")
-		var b struct {
-			Complexity string `json:"complexity"`
-		}
-		if err := c.ShouldBindJSON(&b); err != nil {
+		var changes override.Document
+		if err := c.ShouldBindJSON(&changes); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		switch b.Complexity {
-		case "simple", "medium", "complex":
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 complexity（应为 simple|medium|complex）"})
+		if len(changes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "没有要修改的字段"})
 			return
 		}
-		h, err := api.UpdateAgentComplexity(c.Request.Context(), id, b.Complexity)
-		if err != nil {
+		ctx := c.Request.Context()
+		if _, err := api.PatchAgent(ctx, c.Param("code"), changes); err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"agent": agentJSON(h)})
+		respondAgentDetail(c, api, c.Param("code"))
 	}
 }
 
-// executorJSON 是 executor 响应的单一序列化点。function_tools/cli_tools 保证非 nil（前端按数组渲染）。
-func agentJSON(h agent.Profile) gin.H {
-	fnTools := h.FunctionTools
-	if fnTools == nil {
-		fnTools = []string{}
+// resetAgentHandler 处理 DELETE /agents/:code/overrides[/:field]：恢复出厂值（不带字段 = 全部字段）。
+func resetAgentHandler(api ConfigAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var fields []string
+		if f := c.Param("field"); f != "" {
+			fields = append(fields, f)
+		}
+		if _, err := api.ResetAgent(c.Request.Context(), c.Param("code"), fields...); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		respondAgentDetail(c, api, c.Param("code"))
 	}
-	cliTools := h.CliTools
-	if cliTools == nil {
-		cliTools = []string{}
+}
+
+// deletePromptArchiveHandler 处理 DELETE /agents/:code/prompt-archive：用户对照处理完升级前的
+// 自定义提示词后清除归档。
+func deletePromptArchiveHandler(api ConfigAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := api.DeletePromptArchive(c.Request.Context(), c.Param("code")); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.Status(http.StatusNoContent)
 	}
-	skills := h.Skills
-	if skills == nil {
-		skills = []string{}
+}
+
+func respondAgentDetail(c *gin.Context, api ConfigAPI, code string) {
+	d, err := api.AgentDetail(c.Request.Context(), code)
+	if err != nil {
+		respondErr(c, http.StatusInternalServerError, err)
+		return
 	}
+	c.JSON(http.StatusOK, agentDetailJSON(d))
+}
+
+func agentListItem(d configstore.AgentDetail) gin.H {
+	item := agentJSON(d.Profile)
+	item["customized"] = customizedFields(d.Overrides)
+	item["has_prompt_archive"] = d.PromptArchive != nil
+	return item
+}
+
+func agentDetailJSON(d configstore.AgentDetail) gin.H {
 	return gin.H{
-		"id": h.ID, "code": h.Code, "name": h.Name,
-		"description": h.Description, "system_prompt": h.SystemPrompt,
-		"function_tools": fnTools, "cli_tools": cliTools, "skills": skills,
-		"max_iterations": h.MaxIterations, "complexity": h.Complexity, "enabled": h.Enabled,
-		"created_at": h.CreatedAt, "updated_at": h.UpdatedAt,
+		"agent":          agentJSON(d.Profile),
+		"defaults":       d.Defaults,
+		"overrides":      d.Overrides,
+		"prompt_archive": d.PromptArchive,
+		"contract":       contracts[d.Profile.Code],
 	}
+}
+
+// agentJSON 是 agent 生效配置的单一序列化点（名单字段保证为数组，前端按数组渲染）。
+func agentJSON(p agent.Profile) gin.H {
+	return gin.H{
+		"code": p.Code, "name": p.Name,
+		"charter": p.Charter, "description": p.Description,
+		"function_tools": nonNil(p.FunctionTools), "cli_tools": nonNil(p.CliTools), "skills": nonNil(p.Skills),
+		"max_iterations": p.MaxIterations, "complexity": p.Complexity,
+	}
+}
+
+// customizedFields 返回已自定义的字段名（排序，供列表徽标）。
+func customizedFields(states map[string]override.State) []string {
+	out := make([]string, 0, len(states))
+	for name := range states {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// membership 报告生效名单是否包含 name（"*" = 全部）。
+func membership(list []string, name string) bool {
+	return slices.Contains(list, override.Wildcard) || slices.Contains(list, name)
+}
+
+// bindInvolved 解析名单单项装卸请求体 {"involved": true|false}。字段必填——
+// 缺省若按 false 处理，会把格式错误的请求静默执行成「卸载」。
+func bindInvolved(c *gin.Context) (involved, ok bool) {
+	var b struct {
+		Involved *bool `json:"involved"`
+	}
+	if err := c.ShouldBindJSON(&b); err != nil || b.Involved == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求体应为 {\"involved\": true|false}"})
+		return false, false
+	}
+	return *b.Involved, true
 }

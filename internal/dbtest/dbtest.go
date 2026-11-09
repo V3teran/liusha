@@ -20,9 +20,31 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// NewPgPool 启动一次性 Postgres 容器、应用迁移并返回 *pgxpool.Pool。
+// NewPgPool 启动一次性 Postgres 容器、应用全部迁移并返回 *pgxpool.Pool。
 // 容器和连接池都通过 t.Cleanup 自动回收。
 func NewPgPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool := newEmptyPool(t)
+	applyMigrations(t, pool, func(string) bool { return true })
+	return pool
+}
+
+// NewPgPoolBefore 建库并只应用文件名在 migration 之前的迁移（迁移测试用：先按旧结构
+// 写入老数据，再用 ApplyMigrationsFrom 执行被测迁移）。
+func NewPgPoolBefore(t *testing.T, migration string) *pgxpool.Pool {
+	t.Helper()
+	pool := newEmptyPool(t)
+	applyMigrations(t, pool, func(name string) bool { return name < migration })
+	return pool
+}
+
+// ApplyMigrationsFrom 应用文件名不早于 migration 的全部迁移。
+func ApplyMigrationsFrom(t *testing.T, pool *pgxpool.Pool, migration string) {
+	t.Helper()
+	applyMigrations(t, pool, func(name string) bool { return name >= migration })
+}
+
+func newEmptyPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
@@ -56,21 +78,22 @@ func NewPgPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("创建 pgxpool 失败: %v", err)
 	}
 	t.Cleanup(pool.Close)
-
-	applyAllMigrations(ctx, t, pool)
 	return pool
 }
 
-// applyAllMigrations 按字典序依次执行 db/migrations/*.up.sql，
-// 保证 integration test 跟最新 schema 同步。
-func applyAllMigrations(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+// applyMigrations 按字典序依次执行 db/migrations/*.up.sql 中被 include 选中的文件。
+func applyMigrations(t *testing.T, pool *pgxpool.Pool, include func(name string) bool) {
 	t.Helper()
+	ctx := context.Background()
 	files, err := filepath.Glob(filepath.Join(repoPath("db/migrations"), "*.up.sql"))
 	if err != nil {
 		t.Fatalf("glob 迁移文件失败: %v", err)
 	}
 	sort.Strings(files)
 	for _, f := range files {
+		if !include(filepath.Base(f)) {
+			continue
+		}
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatalf("读取 %s 失败: %v", f, err)

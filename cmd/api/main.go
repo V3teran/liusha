@@ -15,7 +15,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	agent "github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/attachment"
@@ -46,7 +45,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
-	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -102,7 +100,7 @@ func main() {
 	defer func() { _ = enq.Close() }()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）。所有配置资源
-	// （agent，后续 llm/system）复用同一实例；一条 Subscribe 循环覆盖全部资源。
+	// （agent 与技能、LLM、系统设置）复用同一实例；一条 Subscribe 循环覆盖全部资源。
 	// Subscribe 阻塞运行（内部 for-select 直到 ctx 取消），必须后台起——
 	// 同步调用会把 main goroutine 卡死在订阅循环。
 	cache := cachestore.New(rdb, 0)
@@ -112,60 +110,34 @@ func main() {
 		}
 	}()
 
-	// 配置多级缓存 Store（agent CRUD 后端）。写路径经 cachestore 广播失效，
-	// runner 进程被动失效其 L1。
-	cfgStore := configstore.New(pool, cache)
+	// Tools manifest（tools.yaml）：CLI 工具全集。供工具目录同步、agent 工具白名单展开与校验；
+	// 与 runner 同源加载。缺失非致命：CLI 工具全集为空，工具目录只同步内置函数工具。
+	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/sandbox/tools.yaml")
+	var toolManifest *manifest.ToolManifest
+	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
+		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（CLI 工具全集为空）")
+	} else {
+		toolManifest = m
+	}
 
-	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
-	// （在 seed.Import 之后验证，确保种子已导入）
-	// 注意：这里延迟到 seed.Import 之后再验证
-	validateAgentConfigs := func() {
-		validateCtx, validateCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer validateCancel()
-		if err := cfgStore.ValidateAgentConfigs(validateCtx); err != nil {
-			logger.Fatal().Err(err).Msg("Agent 配置验证失败")
-		}
-		logger.Info().Msg("Agent 配置验证通过（executor/planner/evaluator/monitor）")
+	// agent 与技能配置：出厂值编译在程序里，用户层经三级缓存读写；写后广播失效，
+	// runner 被动清缓存，下个任务即用新配置。
+	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(toolManifest))
+
+	// 已下线、但用户自定义过的内置技能转为同 code 的自建技能（幂等），用户的修改不随下线丢失。
+	if adopted, err := cfgStore.AdoptRetiredSkills(ctx); err != nil {
+		logger.Warn().Err(err).Msg("转换已下线内置技能失败（下次启动重试）")
+	} else if len(adopted) > 0 {
+		logger.Info().Strs("skills", adopted).Msg("已下线的内置技能已转为自建技能（保留用户自定义）")
 	}
 
 	// LLM 配置多级缓存 Store（provider 部署 / 别名 / 角色路由）。既是「模型模块」CRUD 后端，
 	// 又是两个 LLM 工厂运行期 role→provider 解析的事实源（复用同一 cache 实例）。
-	cfgAgentStore := agent.NewStore(pool)
-	cfgSkillStoreRaw := skillstore.NewStore(pool) // 种子加载用（裸 DB 写）
-	// agent.complexity 的消费在 runner cognition（AgentByCode 三级缓存直读直传 router.For），
-	// 不经 llmstore role 路由，故此处无需 complexity override 装配。
 	llmStore := llmstore.New(pool, cache)
 
-	// 系统业务旋钮 Store（compaction/runtime/proxy_filter 三组）。既是「系统配置」CRUD 后端，
-	// 又是 runner 现读 / proxy 热换过滤链的事实源（复用同一 cache 实例——写后失效广播即时可见）。
-	settingStore := settingstore.New(pool, cache)
-
-	// 种子首填（insert-only）：空库时从磁盘 agents/ 和 skills/ 导入默认配置，
-	// 已存在的行按 code 整行跳过（DB 是事实源，不覆盖运维/前端改动）；
-	// 同时清理文件里已删除的内置 skill 死行（目录改名/删除残留）。
-	// 目录缺失时静默跳过（walkFiles 容忍不存在），非致命——失败仅告警不 fail-fast，
-	// 让 api 仍能起（配置可事后经 CRUD 补齐）。
-	seedRes, err := seed.Import(ctx, cfgAgentStore, cfgSkillStoreRaw)
-	if err != nil {
-		logger.Warn().Err(err).Msg("配置种子导入失败（跳过，可经 CRUD 手动补齐）")
-	} else if len(seedRes.Agents) > 0 || len(seedRes.Skills.Touched()) > 0 {
-		// 种子写动了 DB（新行/死行清理）→ 失效多级缓存并广播（本进程缓存虽冷，
-		// 但 runner/其他 api 实例的 L1/L2 可能已有旧值）。
-		if invErr := cfgStore.InvalidateSkills(ctx, seedRes.Skills.Touched()...); invErr != nil {
-			logger.Warn().Err(invErr).Msg("种子写入后 skill 缓存失效失败（10min L2 TTL 兜底）")
-		}
-		if invErr := cfgStore.InvalidateAgents(ctx, seedRes.Agents...); invErr != nil {
-			logger.Warn().Err(invErr).Msg("种子写入后 agent 缓存失效失败（10min L2 TTL 兜底）")
-		}
-		logger.Info().
-			Strs("agents_seeded", seedRes.Agents).
-			Strs("skills_inserted", seedRes.Skills.Inserted).
-			Strs("skills_pruned", seedRes.Skills.Pruned).
-			Msg("配置种子首填完成")
-	}
-
-	// 种子导入完成后，验证 agent 配置
-	validateAgentConfigs()
+	// 系统设置：出厂默认 = 代码 + config.yaml 部署值，用户层经三级缓存读写；写后广播失效，
+	// runner 现读即新值，proxy 热换过滤链。
+	settingStore := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
 	// LLM 配置种子（仅首次启动）：llm_provider 空表时才把 config.yaml 的 providers:/llm.*
 	// 导入建默认路由；非空库整段跳过（DB 是运行期事实源，UI 删除不被 yaml 复活）。
@@ -185,23 +157,6 @@ func main() {
 		logger.Warn().Err(provErr).Msg("读取 LLM provider 失败（任务下发前请检查 LLM 配置）")
 	} else if len(provs) == 0 {
 		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「LLM 配置」页接入 provider")
-	}
-
-	// 系统业务旋钮种子（insert-only）：把 config.yaml 的 compaction/runtime/proxy_filter 三组
-	// 首填进 system_setting，空库时建默认旋钮。已存在的组整组跳过（DB 事实源）。
-	// 复用同一 cache 实例——写后经失效总线广播，runner/proxy 立即读到最新旋钮。
-	if err := seed.ImportSystem(ctx, cfg, settingStore); err != nil {
-		logger.Warn().Err(err).Msg("系统配置种子导入失败（跳过，可经系统配置 CRUD 手动补齐）")
-	}
-
-	// Tools manifest（tools.yaml）：供 GET /tooling/tools 给 AgentAdmin cli_tools 白名单多选器
-	// 拉取候选。与 runner 同源加载；缺失非致命（仅该只读端点不注册，配置页 cli_tools 候选为空）。
-	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/sandbox/tools.yaml")
-	var toolManifest *manifest.ToolManifest // cli 工具事实源；nil = tools.yaml 缺失（降级：仅同步 function 工具）
-	if m, mErr := manifest.Load(toolsManifestPath); mErr != nil {
-		logger.Warn().Err(mErr).Str("path", toolsManifestPath).Msg("tools.yaml 加载失败（工具目录仅同步内置 function 工具）")
-	} else {
-		toolManifest = m
 	}
 
 	// 工具目录同步：把两套工具体系（内置 function + 外置 cli）幂等同步进 tool 表，
@@ -335,13 +290,13 @@ func main() {
 			AttachmentContext:  attachmentContext{conversationStore, taskStore},
 			AttachmentMaxBytes: cfg.Conversation.AttachmentMaxBytes,
 			Renamer:            conversationStore,                     // PATCH /conversations/:id 重命名标题（conversationStore.SetTitle 直接满足）
-			ConfigStore:        cfgStore,                              // agent 配置 CRUD（配置管理页）
-			SkillStore:         cfgStore,                              // skill 配置 CRUD（知识库管理页），走多级缓存
+			ConfigStore:        cfgStore,                              // agent 配置：读取、自定义、恢复出厂（智能体页）
+			SkillStore:         cfgStore,                              // 技能：内置自定义 + 自建增删改（技能页）
 			ToolCatalog:        toolCatalog,                           // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
 			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
-			Settings:           settingStore,                          // GET/PUT /settings 系列：compaction/runtime/proxy_filter 三组业务旋钮
+			Settings:           settingStore,                          // /settings/:group：compaction/runtime/proxy_filter 三组设置的读取、自定义、恢复出厂
 			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
 			TrafficConv:        conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转
 			Conversations:      conversationStore,                     // 会话列表 / 消息回看

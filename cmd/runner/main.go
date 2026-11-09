@@ -79,9 +79,8 @@ type runnerStores struct {
 	calls         *llminvocation.Store
 }
 
-// runnerSkills 聚合 Progressive Disclosure 资源。
-// skill 不在此列：运行时 skill 事实源是 DB（经 cfgstore 三级缓存读，见 handler.skills），
-// 文件目录只作 api 启动期种子。
+// runnerSkills 聚合 Progressive Disclosure 资源。技能不在此列：运行时经
+// handler.Skills（configstore）读生效技能。
 type runnerSkills struct {
 	toolsManifest *manifest.ToolManifest // tools.yaml：与 Dockerfile 装的 binary 严格对应
 }
@@ -163,14 +162,14 @@ func main() {
 		}
 	}()
 
-	llmStack := newLLMStack(pool, cache, logger)
+	llmStack := newLLMStack(pool, cache, configstore.ToolCatalogFrom(skills.toolsManifest), logger)
 
 	// EventBus：统一事件总线（进程单例，跨 Task 共享）
 	eventBus := bus.New(ctx)
 
 	controlPlaneStore := controlplane.NewStore(pool)
 
-	sysSettings := settingstore.New(pool, cache)
+	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
 	router := llm.NewRouterWithOpts(llmStack.llmStore.AsRouterStore(llmStack.keyCipher), retryOptionsFromConfig(cfg.LLM.Retry))
 	// LLM 调用装配：单步看门狗（step_llm_timeout_seconds——挂死的调用会阻塞
@@ -209,8 +208,8 @@ func main() {
 		Creds:      credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix),
 		Audit:      audit.NewStore(pool), // 会话身份回收等 runner 侧敏感操作审计
 		ToolCalls:  stores.toolCalls,
-		// skill 渐进式加载后端 = DB 事实源（经 cfgstore 的 L1/L2/DB 三级缓存；
-		// 前端改 skill → 失效总线广播 → 本进程 L1 清 → 下次读即新值，无需重启）。
+		// skill 渐进式加载后端 = 生效技能（内置叠加用户自定义 + 自建；用户层走三级缓存，
+		// 前端改动 → 失效总线广播 → 本进程缓存清 → 下次读即新值，无需重启）。
 		Skills:         skill.NewStoreReader(llmStack.cfgStore),
 		ToolsManifest:  skills.toolsManifest,
 		CfgStore:       llmStack.cfgStore,
@@ -368,12 +367,10 @@ func newCorpusEmbedder(logger zerolog.Logger) (corpus.Embedder, corpus.Reranker)
 
 // newRunnerSkills 构造 Progressive Disclosure 资源。
 //
-// skill 不在此装配：运行时 skill 事实源 = DB（skill 表），经 handler.skills 的
-// StoreReader（cfgstore 三级缓存）读；skills/ 文件目录只作 api 启动期种子。
+// skill 不在此装配：运行时技能经 handler.Skills 的 StoreReader（configstore）读。
 func newRunnerSkills(logger zerolog.Logger) *runnerSkills {
 	// Tools manifest（tools.yaml）：与 Dockerfile 装的 binary 严格对应——
 	// agent 用它渲染 SystemPrompt 的 tooling_catalog 段（Tier 1 索引）。
-	// 与 SKILL.md frontmatter 解耦：删 SKILL ≠ 工具消失。
 	toolsManifestPath := envx.OrDefault("LIUSHA_TOOLS_MANIFEST_PATH", "deployments/tool-images/sandbox/tools.yaml")
 	toolsManifest, err := manifest.Load(toolsManifestPath)
 	if err != nil {
@@ -471,23 +468,14 @@ func newSandboxLauncher(ctx context.Context, cfg config.AppConfig, runnerCfg con
 }
 
 // newLLMStack 构造 LLM 配置事实源栈。
-func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, logger zerolog.Logger) *llmStack {
-	// 配置事实源（DB + 内存/redis 缓存）：运行期按需读 agent 装配引擎。
-	// 文件仅是首次导入的种子（seed 导入在别处），进程运行期一律走 DB/缓存（见 D6/D7）。
-	cfgStore := configstore.New(pool, cache)
-
-	// 启动自检：验证所有 agent 的 system_prompt 已正确加载
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := cfgStore.ValidateAgentConfigs(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("Agent 配置验证失败")
-	}
-	logger.Info().Msg("Agent 配置验证通过（planner/executor/evaluator/monitor）")
+func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, tools configstore.ToolCatalog, logger zerolog.Logger) *llmStack {
+	// agent 与技能配置：出厂值编译在程序里（与本进程代码同版本），用户层经三级缓存读取；
+	// api 改配置后广播失效，下个任务即用新配置。
+	cfgStore := configstore.New(pool, cache, tools)
 
 	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
 	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
-	// agent.tier 覆盖 agent→tier 第一跳（0107）：agent 在「智能体」页改档后，api 经 cachestore
-	// 广播失效 tier 键，runner 被动清 L1，下次 For(tier) 即读到新档（TierByCode 走多级缓存）。
+	// agent 档位不经这里：认知循环从 agent 生效配置取 complexity 直传 router.For。
 	llmStore := llmstore.New(pool, cache)
 
 	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——

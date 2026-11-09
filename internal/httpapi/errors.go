@@ -6,8 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/V3teran/liusha/internal/configstore"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/skillstore"
 )
 
 // apiLog 是 httpapi 包级结构化日志器（logx 同进程共享底层 writer）。
@@ -32,6 +35,20 @@ func respondErr(c *gin.Context, status int, err error) {
 	if status >= http.StatusInternalServerError && errors.Is(err, fwllm.ErrNotConfigured) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// 配置类的客户端错误同样不是服务端故障：提交不合法 → 400；标识冲突、
+	// 操作不适用于该类对象（删除内置技能、恢复自建技能的出厂内容）→ 409。
+	if status >= http.StatusInternalServerError {
+		switch {
+		case errors.Is(err, override.ErrInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		case errors.Is(err, skillstore.ErrConflict),
+			errors.Is(err, configstore.ErrBuiltinSkill),
+			errors.Is(err, configstore.ErrCustomSkill):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	apiLog.Error().
 		Err(err).

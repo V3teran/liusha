@@ -6,13 +6,12 @@ import (
 	"strings"
 )
 
-// Reader 是 skill 渐进式加载的消费接口（文件 Set 与 DB StoreReader 均实现）：
+// Reader 是 skill 渐进式加载的消费接口（StoreReader 实现，测试可替换）：
 //
-//	Metas(ctx) 拉本视图可见的 frontmatter 列表（Tier 1 索引，不读正文）
+//	Metas(ctx) 拉本视图可见的索引卡（Tier 1，不读正文）
 //	Load(ctx)  懒加载单个 skill 完整正文（Tier 2，后端缓存命中时 0 文件 IO / 0 DB 查询）
 //
-// ctx 贯穿：DB 后端的每次读写都要带超时/取消。运行时事实源是 DB（cfgstore
-// 多级缓存），文件 Set 只服务种子导入与测试。
+// ctx 贯穿：后端读取要带超时/取消。
 type Reader interface {
 	Metas(ctx context.Context) ([]*Card, error)
 	Load(ctx context.Context, name string) (*Card, error)
@@ -27,7 +26,7 @@ type View struct {
 }
 
 // Allow 给 src 建白名单视图。names=nil 表示拒绝（默认拒绝）；空 slice=空集；
-// 含 "*"（全量哨兵，executor 种子语义）= 全量放行（allow 集合置 nil）。
+// 含 "*"（全部）= 全量放行（allow 集合置 nil）。
 // 声明里不存在的名字在 Metas 过滤时自然消失（配置漂移不致命，索引里看不到）。
 func Allow(src Reader, names []string) *View {
 	v := &View{src: src}
@@ -46,7 +45,7 @@ func Allow(src Reader, names []string) *View {
 	return v
 }
 
-// Metas 返回白名单内的 frontmatter（Tier 1 索引；源序，禁用/不存在的声明项自然缺席）。
+// Metas 返回白名单内的索引卡（Tier 1；源序，停用/不存在的声明项自然缺席）。
 func (v *View) Metas(ctx context.Context) ([]*Card, error) {
 	all, err := v.src.Metas(ctx)
 	if err != nil {

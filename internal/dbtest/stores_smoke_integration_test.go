@@ -16,16 +16,17 @@ import (
 
 	"github.com/V3teran/liusha/internal/cachestore"
 
-	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/llminvocation"
+	"github.com/V3teran/liusha/internal/override"
 	settingstore "github.com/V3teran/liusha/internal/settingstore"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
@@ -36,14 +37,13 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	pool := NewPgPool(t)
 	ctx := context.Background()
 
-	// agent（实体表）
-	agents := agent.NewStore(pool)
-	cx := "medium"
-	if _, err := agents.Upsert(ctx, "planner", "planner", "smoke", "p", agent.UpdateParams{Complexity: &cx}); err != nil {
-		t.Fatalf("agent upsert: %v", err)
+	// agent 自定义层（agent_override）：写入一个字段并回读生效值
+	cfgStore := configstore.New(pool, smokeCache(t), configstore.ToolCatalogFrom(nil))
+	if _, err := cfgStore.PatchAgent(ctx, "planner", override.Document{"complexity": json.RawMessage(`"simple"`)}); err != nil {
+		t.Fatalf("agent patch: %v", err)
 	}
-	if got, err := agents.GetByCode(ctx, "planner"); err != nil || got.Complexity != "medium" {
-		t.Fatalf("agent GetByCode: %v %+v", err, got)
+	if got, err := cfgStore.Agent(ctx, "planner"); err != nil || got.Complexity != "simple" {
+		t.Fatalf("agent 生效值: %v %+v", err, got)
 	}
 
 	// assignment/task/agent_run 链
@@ -99,10 +99,9 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("observation create: %v", err)
 	}
 
-	// skillstore
-	sk := skillstore.NewStore(pool)
-	if _, err := sk.Create(ctx, skillstore.Skill{
-		Code: "smoke", Category: "tool", Name: "smoke", Description: "d", Body: "b",
+	// 自建技能（custom_skill）
+	if _, err := cfgStore.CreateSkill(ctx, skillstore.Skill{
+		Code: "smoke", Category: "tool", Name: "smoke", Description: "d", Body: "b", Enabled: true,
 	}); err != nil {
 		t.Fatalf("skill create: %v", err)
 	}
@@ -126,13 +125,13 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("corpus add: %v", err)
 	}
 
-	// system_setting（group_key CHECK: compaction/runtime/proxy_filter）
-	set := settingstore.New(pool, smokeCache(t))
-	if err := set.SaveRuntime(ctx, settingstore.RuntimeSettings{StepLLMTimeoutSeconds: 240}); err != nil {
-		t.Fatalf("setting save runtime: %v", err)
+	// 系统设置自定义层（setting_override，group_key CHECK: compaction/runtime/proxy_filter）
+	set := settingstore.New(pool, smokeCache(t), settingstore.DefaultsFrom(config.AppConfig{}))
+	if err := set.Patch(ctx, settingstore.GroupRuntime, override.Document{"step_llm_timeout_seconds": json.RawMessage(`240`)}); err != nil {
+		t.Fatalf("setting patch runtime: %v", err)
 	}
-	if got, err := set.GetRuntimeRaw(ctx); err != nil || got.StepLLMTimeoutSeconds != 240 {
-		t.Fatalf("setting get runtime: %v %+v", err, got)
+	if got, err := set.Runtime(ctx); err != nil || got.StepLLMTimeoutSeconds != 240 {
+		t.Fatalf("setting runtime 生效值: %v %+v", err, got)
 	}
 
 	// task_control_event（ID 由 DB 生成，Create 返回）

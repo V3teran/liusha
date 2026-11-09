@@ -31,7 +31,7 @@ func TestRenderIndex_Empty(t *testing.T) {
 	}
 }
 
-// ["*"] 全量哨兵（executor 种子语义）：全部放行。此前无哨兵处理导致
+// ["*"]（全部）：全部放行。此前无哨兵处理导致
 // executor 的技能索引恒为空（allow 集合只含字面量 "*"）。
 func TestAllow_WildcardAllowsAll(t *testing.T) {
 	v := Allow(NewStoreReader(testSource()), []string{"*"})

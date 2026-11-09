@@ -152,10 +152,6 @@ lint-terminology:
 vet:
 	go vet ./...
 
-# 种子强制重导：agents/*.md 覆盖写入 DB（术语/提示词升级后同步已初始化的库用）
-reseed:
-	LIUSHA_POSTGRES_DSN=$$LIUSHA_POSTGRES_DSN LIUSHA_REDIS_PASSWORD=$${REDIS_PASSWORD:-$$LIUSHA_REDIS_PASSWORD} go run ./cmd/reseed -dir $(or $(SEED_DIR),.)
-
 fmt:
 	gofmt -w .
 
