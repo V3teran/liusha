@@ -7,7 +7,7 @@
 ### 全容器
 
 ```bash
-git clone https://github.com/V3teran/liusha.git && cd liusha
+git clone --branch v0.4.1 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 cp .env.example .env   # 填必填项
 docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
 docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
@@ -15,4 +15,12 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
 
 ### 升级
 
-`git pull` 后重复上面 pull/up 即可。
+代码与镜像同版本：检出哪个发布 tag 就部署哪个版本（版本列表见 [Releases](https://github.com/V3teran/liusha/releases)），数据库迁移随 `up` 自动执行。
+
+```bash
+git fetch --tags && git checkout vX.Y.Z   # 改过 config/config.yaml 的先 git stash，切换后 git stash pop
+docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
+docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d
+```
+
+回滚同理：检出旧 tag 再 pull / up（数据库迁移只进不退，跨含迁移的版本回滚前先备份）。
