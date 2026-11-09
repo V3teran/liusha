@@ -46,14 +46,9 @@ const (
 
 var codePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
-// Schema 返回技能的可自定义字段表（全部为整值替换）。
+// Schema 返回技能的可自定义字段表：由 Content 的字段推导（全部为整值替换）。
 func Schema() override.Schema {
-	return override.Schema{
-		FieldName:        {Kind: override.Replace},
-		FieldDescription: {Kind: override.Replace},
-		FieldBody:        {Kind: override.Replace},
-		FieldEnabled:     {Kind: override.Replace},
-	}
+	return override.SchemaOf(Content{})
 }
 
 // Defaults 返回内置技能的出厂内容（出厂即启用）。
