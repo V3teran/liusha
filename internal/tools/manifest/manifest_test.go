@@ -28,6 +28,16 @@ func TestFilterByNames_KeepsWhitelisted(t *testing.T) {
 	}
 }
 
+// TestFilterByNames_WildcardKeepsAll 验证：通配 "*"（全部，含以后新增）= 保留目录全集。
+// executor / evaluator 的出厂名单就是 ["*"]，生效值未取消任何项时原样下发到这里。
+func TestFilterByNames_WildcardKeepsAll(t *testing.T) {
+	got := fixture().FilterByNames([]string{"*"}).Names()
+	want := []string{"curl", "nuclei", "trivy"}
+	if !equal(got, want) {
+		t.Fatalf("通配期望全集 %v，得 %v", want, got)
+	}
+}
+
 func equal(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -39,3 +49,4 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+

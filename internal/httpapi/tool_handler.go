@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	agent "github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/toolstore"
 )
 
@@ -101,7 +102,7 @@ func getToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 		for _, a := range agents {
 			views = append(views, gin.H{
 				"code": a.Code, "name": a.Name,
-				"involved": membership(agentToolList(a, t.Kind), t.Name),
+				"involved": registry.Allows(agentToolList(a, t.Kind), t.Name),
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{"tool": toolJSON(t), "agents": views})

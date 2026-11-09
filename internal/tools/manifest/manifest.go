@@ -2,10 +2,10 @@
 //
 // 设计哲学：**工具是否存在于沙箱**与**工具是否有详细手册**独立。
 //   - 本 ToolManifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
-//   - skills/tool/<name>/SKILL.md 是"是否有详细手册"——独立可选
+//   - 内置技能 internal/builtin/skills/tool/<name>/SKILL.md 是"是否有详细手册"——独立可选
 //
-// agent 在每个 turn 把本 ToolManifest 渲染成 tooling_catalog 段塞进 SystemPrompt（Tier 1 索引），
-// LLM 看到全集就知道"沙箱有哪些工具"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
+// agent 把按 cli_tools 白名单过滤后的 ToolManifest 渲染成 CLI 工具目录塞进系统提示词（Tier 1 索引），
+// LLM 据此知道"沙箱里有哪些工具可用"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
 package manifest
 
 import (
@@ -14,6 +14,8 @@ import (
 	"sort"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/V3teran/liusha/internal/registry"
 )
 
 // Tool 是单个沙箱预装工具的清单条目。
@@ -97,23 +99,13 @@ func (m *ToolManifest) Names() []string {
 	return out
 }
 
-// FilterByNames 按 agent cli_tools 严格白名单过滤工具目录，返回新 ToolManifest（不改原实例——不可变）。
-//   - names 为空 = 空集，该 agent 不装配任何外部 CLI 工具（严格白名单，所选即所得）；
-//   - names 非空 = 只保留名字在白名单里的工具（agent 专精：只给它这几把刀）。
-//
-// 白名单里不存在的名字静默忽略（配置漂移不致命）。
-// Categories 元数据保持不变（过滤不影响分类定义）。
+// FilterByNames 按 agent cli_tools 白名单过滤工具目录，返回新 ToolManifest（不改原实例——不可变）。
+// 名单语义见 registry.Allows（nil / 空 = 空集，含 "*" = 全部，其余为严格白名单）；
+// 白名单里不存在的名字静默忽略（配置漂移不致命）。Categories 元数据保持不变。
 func (m *ToolManifest) FilterByNames(names []string) *ToolManifest {
-	if len(names) == 0 {
-		return &ToolManifest{Categories: m.Categories, Tools: []Tool{}}
-	}
-	allow := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		allow[n] = struct{}{}
-	}
-	out := make([]Tool, 0, len(names))
+	out := make([]Tool, 0, len(m.Tools))
 	for _, t := range m.Tools {
-		if _, ok := allow[t.Name]; ok {
+		if registry.Allows(names, t.Name) {
 			out = append(out, t)
 		}
 	}

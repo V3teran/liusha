@@ -182,11 +182,6 @@ func nonNil(s []string) []string {
 	return s
 }
 
-// membership 报告生效名单是否包含 name（"*" = 全部）。
-func membership(list []string, name string) bool {
-	return slices.Contains(list, override.Wildcard) || slices.Contains(list, name)
-}
-
 // bindInvolved 解析名单单项装卸请求体 {"involved": true|false}。字段必填——
 // 缺省若按 false 处理，会把格式错误的请求静默执行成「卸载」。
 func bindInvolved(c *gin.Context) (involved, ok bool) {
