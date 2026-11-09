@@ -2,6 +2,7 @@ package credential
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -110,9 +111,9 @@ func TestSweepTerminalSessions(t *testing.T) {
 		"t-reopened": statusActive,
 		"t-aborted":  statusAborted,
 	}
-	lookup := func(_ context.Context, taskID string) (string, bool) {
+	lookup := func(_ context.Context, taskID string) (string, bool, error) {
 		st, ok := statuses[taskID]
-		return st, ok
+		return st, ok, nil
 	}
 
 	removed, err := SweepTerminalSessions(ctx, vault, lookup)
@@ -135,5 +136,36 @@ func TestSweepTerminalSessions(t *testing.T) {
 	restB, _ := vault.GetIdentitiesByHost(ctx, "b.com")
 	if len(restB) != 1 || restB[0].Username != "guest" {
 		t.Fatalf("b.com 应只剩持久身份: %+v", restB)
+	}
+}
+
+// 任务状态查询失败（DB 抖动/超时）不等于任务不存在：无法确认终态的会话必须保留，
+// 否则一次瞬时故障就会清掉运行中任务的登录态。
+func TestSweepTerminalSessions_KeepsSessionWhenLookupFails(t *testing.T) {
+	ctx := context.Background()
+	vault := newFakeVault()
+	if err := vault.SaveIdentities(ctx, "a.com", []Identity{
+		{Username: SessionIdentityName("t-unknown")},
+		{Username: SessionIdentityName("t-done")},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	lookup := func(_ context.Context, taskID string) (string, bool, error) {
+		if taskID == "t-unknown" {
+			return "", false, errors.New("connection refused")
+		}
+		return statusCompleted, true, nil
+	}
+
+	removed, err := SweepTerminalSessions(ctx, vault, lookup)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("只应回收确认终态的 1 个会话，实际 %d", removed)
+	}
+	rest, _ := vault.GetIdentitiesByHost(ctx, "a.com")
+	if len(rest) != 1 || rest[0].Username != SessionIdentityName("t-unknown") {
+		t.Fatalf("查询失败的任务会话应保留: %+v", rest)
 	}
 }

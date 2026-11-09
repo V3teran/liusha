@@ -13,7 +13,7 @@ import (
 // 10 分钟一轮）。判定依据是任务状态（active 保留、终态/已删除回收），
 // 不依赖时间——凭证库无过期机制，生命周期由事实驱动。lookup 由装配方
 // 提供（taskID → 当前状态），本包不反向依赖 task store。
-func StartSweepLoop(ctx context.Context, creds *RedisProvider, lookup func(context.Context, string) (string, bool), logger zerolog.Logger) {
+func StartSweepLoop(ctx context.Context, creds *RedisProvider, lookup TaskStatusLookup, logger zerolog.Logger) {
 	sweep := func() {
 		removed, err := SweepTerminalSessions(ctx, creds, lookup)
 		if err != nil {
