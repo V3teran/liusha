@@ -289,46 +289,27 @@ func (e *Engine) executeReActRuntime(
 
 // fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
 // 通过单轮 LLM 调用，基于任务目标推导仍值得独立验证的假设——执行失败
-// 不等于一无所获，能给出复现步骤的推测交给裁决门去实测。角色与领域
-// 语义由章程承载（SystemPrompt 已含），这里只教降级任务本身。
+// 不等于一无所获，能给出复现步骤的推测交给裁决门去实测。请求携带完整系统
+// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与裁决管道，输出格式
+// 与配方形状只有输出契约一个权威，这里只交代降级任务本身。
 func (e *Engine) fallbackExtractHypothesis(
 	ctx context.Context,
 	config *runtime.ReActConfig,
 	_ string,
 ) (*runtime.ReActResult, error) {
-	// 1. 构建降级 prompt：以任务目标为据推导假设（不是 SystemPrompt——
-	// 角色章程已在 provider 侧生效，这里喂任务本体）
-	fallbackPrompt := fmt.Sprintf(`
-以下 Action 执行失败，但任务目标仍可能推导出值得独立验证的假设。
+	fallbackPrompt := fmt.Sprintf(`以下 Action 执行失败，没有可用的工具结果，但任务目标仍可能推导出值得独立验证的假设。
 
 **任务目标**：
 %s
 
 **要求**：
-1. 分析任务目标，推导 2-3 个最可能成立的待验证假设（必须能给出复现步骤，纯猜测不要）
-2. 每个假设必须包含：
-   - statement: 主张陈述（简洁明确：什么位置、什么条件、什么现象）
-   - repro: 复现步骤（JSON 数组，每步一个字符串）
-   - priority: 优先级（critical/high/medium/low）
+1. 推导 1-3 个最可能成立、且能写出可复现配方的假设；给不出配方的纯猜测不要写
+2. 按系统提示中的输出契约输出终稿 JSON：每个假设 category 为 hypothesis，repro 使用契约规定的复现配方格式（含 domain、recipe、assert）
+3. 推导不出任何可复现的假设时，observations 留空`, config.Objective)
 
-**输出格式**（严格 JSON）：
-{
-  "status": "completed_with_hypothesis",
-  "summary": "执行失败但推导出以下假设",
-  "observations": [
-    {
-      "category": "hypothesis",
-      "statement": "X 输入在响应中原样出现，未经过任何处理",
-      "repro": ["构造带唯一标记的输入访问目标", "检查响应中标记是否原样保留"],
-      "priority": "high"
-    }
-  ]
-}
-`, config.Objective)
-
-	// 2. 调用 LLM（使用 config 的 LLMProvider）
 	req := llm.Request{
 		Messages: []llm.Message{
+			{Role: llm.RoleSystem, Content: config.SystemPrompt},
 			{Role: llm.RoleUser, Content: fallbackPrompt},
 		},
 	}
@@ -338,7 +319,7 @@ func (e *Engine) fallbackExtractHypothesis(
 		return nil, fmt.Errorf("降级 LLM 调用失败: %w", err)
 	}
 
-	// 3. 构造伪 ReActResult（模拟成功完成）
+	// 构造伪 ReActResult（模拟成功完成）
 	return &runtime.ReActResult{
 		Status:      runtime.ReActStatusSuccess,
 		Iterations:  1, // 降级只有一轮
@@ -508,19 +489,21 @@ func (e *Engine) harvestObservation(
 	// 破碎形状（数组信封/标量断言）直通复现门被确定性杀死，而节点上存的
 	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真主张
 	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
-	// ——归一化不是万能的，但必须对所有消费路径一致。
-	if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
-		obs.Repro = normalized
-		if note != "" {
-			e.logger.Info().
+	// ——归一化不是万能的，但必须对所有消费路径一致。事实类观察不带配方，不归一化。
+	if len(obs.Repro) > 0 {
+		if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+			obs.Repro = normalized
+			if note != "" {
+				e.logger.Info().
+					Str("action_id", action.ID).
+					Msg("repro 形状已矫正：" + note)
+			}
+		} else {
+			e.logger.Warn().
 				Str("action_id", action.ID).
-				Msg("repro 形状已矫正：" + note)
+				Err(nErr).
+				Msg("repro 归一化失败，保留原始配方（门侧将以 invalid_recipe 终局）")
 		}
-	} else {
-		e.logger.Warn().
-			Str("action_id", action.ID).
-			Err(nErr).
-			Msg("repro 归一化失败，保留原始配方（门侧将以 invalid_recipe 终局）")
 	}
 
 	node, err := e.createObservationNode(ctx, action.TaskID, action.ID, obs)
