@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -45,23 +46,49 @@ func TestSubscribeTask_Isolation(t *testing.T) {
 	}
 }
 
-func TestSubscriptionCancel_StopsDelivery(t *testing.T) {
+// Cancel 返回即注销生效：run 在订阅表操作与发布两路就绪时随机择一，
+// 若 Cancel 只入队不等确认，紧随其后的事件可能先于注销被分发给已取消的订阅。
+func TestSubscriptionCancel_TakesEffectBeforeReturn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New(ctx)
 
-	sub := b.SubscribeTask("t1")
-	sub.Cancel()
-	b.Publish(Event{Type: EventActionCompleted, TaskID: "t1", ActionID: "a1"})
+	for round := range 500 {
+		// 每轮独立 task：上一轮发布的事件可能尚在发布队列，不能串到本轮订阅
+		taskID := fmt.Sprintf("t%d", round)
+		sub := b.SubscribeTask(taskID)
+		sub.Cancel()
+		b.Publish(Event{Type: EventActionCompleted, TaskID: taskID, ActionID: "a1"})
 
-	// 取消订阅后通道已关闭或不再投递
-	select {
-	case ev, ok := <-sub.Events():
+		ev, ok := <-sub.Events() // Cancel 已生效则通道已关闭且为空，立即返回
 		if ok {
-			t.Fatalf("取消订阅后不应再收到事件，got %+v", ev)
+			t.Fatalf("第 %d 轮：Cancel 返回后仍收到事件 %+v", round, ev)
 		}
-	case <-time.After(200 * time.Millisecond):
-		// 未收到即通过（通道可能被关闭也可能静默）
+	}
+}
+
+// 总线停止后 Cancel 不得永久阻塞（与 SubscribeTask 同一约束）。
+func TestSubscriptionCancel_DoesNotBlockAfterBusStopped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	b := New(ctx)
+	subs := make([]*TaskSubscription, 50)
+	for i := range subs {
+		subs[i] = b.SubscribeTask("t")
+	}
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		for _, s := range subs {
+			s.Cancel()
+			s.Cancel() // 幂等
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("总线停止后 Cancel 永久阻塞")
 	}
 }
 
