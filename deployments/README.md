@@ -10,9 +10,9 @@ liusha 有三种运行形态，各自面向不同环境。**沙盒说明先行**
 |---|---|---|---|
 | 面向 | 日常开发调试 | 正式部署 | 比赛/受限环境 |
 
-| 容器 | pg、redis、沙盒（3 个） | pg/redis/api/nginx/proxy/runner/沙盒 | liusha/single（1 个）+ 沙盒（宿主侧） |
+| 容器 | pg、redis、沙盒（3 个） | pg/redis/migrate（一次性）/api/nginx/proxy/runner/沙盒 | liusha/single（1 个）+ 沙盒（宿主侧） |
 | 业务进程 | host 二进制（run-svc.sh） | 容器 | 容器内多进程 |
-| 迁移 | `make migrate`（host） | `make migrate`（host，对映射到宿主的 5432 执行） | 入口脚本自动跑 |
+| 迁移 | `make migrate`（host，`make dev-up` 已含） | compose `migrate` 一次性服务随 `up` 自动跑 | 入口脚本自动跑 |
 
 ## A 本地开发
 
@@ -36,16 +36,17 @@ make build-sandbox # 沙盒镜像（首次/工具变更后）
 ## B 生产全容器
 
 ```bash
-make migrate       # schema 先建（host 侧 go run golang-migrate，对映射到宿主的 5432）
-make prod-up       # 6 核心服务 up（含 prod overlay）
+make prod-up       # 本地构建镜像并 up（compose.yaml + compose.prod.yaml，--profile full）
 make prod-down
 ```
 
-- 核心 6 服务（postgres/redis/api/nginx/proxy/runner）默认全起，无 profile 门控。
+用户侧拉取发布镜像部署的步骤见仓库根 README（检出发布 tag → `pull` → `up`）。
+
+- `full` profile 起全部业务服务：api/nginx/proxy/runner，以及 `migrate` 一次性
+  迁移服务（成功退出后业务服务才起，幂等）；`sandbox` 条目 scale 0，只随 `pull` 预拉不运行。
 - prod overlay 差异：`LIUSHA_ENV=production`（stdout JSON）、日志格式锁 json；
   文件日志保持开启（logs/ 共享卷是「日志」页的数据面）。
-- 密钥经仓库根 `.env.prod` 注入（`--env-file .env.prod`；与 dev 真值根
-  `.env` 隔离，绝不入 git）。
+- 密钥与 A 形态同源：仓库根 `.env`（模板 `.env.example`，绝不入 git）。
 
 ## C 单镜像
 

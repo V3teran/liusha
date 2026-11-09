@@ -24,7 +24,7 @@ dev-up:
 dev-down:
 	bash scripts/dev/down.sh
 
-# ── 形态 B：生产全容器（6 核心服务 + prod overlay；schema 由 host 侧 make migrate 建）───
+# ── 形态 B：生产全容器（full profile + prod overlay；迁移由 compose 的 migrate 一次性服务随 up 执行）───
 prod-build: build-api build-proxy build-runner build-nginx
 
 # 发布：构建并推送四个业务镜像到仓库（需先 docker login ghcr.io）。
@@ -159,8 +159,10 @@ reseed:
 fmt:
 	gofmt -w .
 
+# 依赖 vendor 入库（镜像以 -mod=vendor 构建）：tidy 后必须同步 vendor/，否则构建报 inconsistent vendoring
 tidy:
 	go mod tidy
+	go mod vendor
 
 # e2e 触发器（剧本见 cmd/e2e/profiles.go；需 dev 栈已起）：
 #   make e2e-xss          # XSS 专项（自然语言 brief 喂 agent LLM）

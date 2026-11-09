@@ -1,11 +1,12 @@
-# liusha 基座 compose：核心 6 服务全容器（生产形态直接用；本地开发见 scripts/dev/up.sh）。
+# liusha 基座 compose：服务拓扑（生产形态叠加 compose.prod.yaml；本地开发见 scripts/dev/up.sh）。
 #
 # ── 三种部署形态（详见 deployments/README.md）─────────────────────────────
 #  A 本地开发：docker compose up -d（基座默认只起 pg+redis，业务服务挂 full profile 不起）
 #    + ./scripts/dev/run-svc.sh 业务进程 host 二进制；
 #    runner 经宿主 docker 拉起第三个容器（沙盒 sandbox，warm pool 自动管理）。
 #  B 生产全容器：make prod-up（= compose.yaml + compose.prod.yaml 叠加 --profile full 全起）。
-#    api/nginx/proxy/runner 挂 full profile（dev 不起）；postgres/redis 常驻无门控。
+#    migrate/api/nginx/proxy/runner/sandbox 挂 full profile（dev 不起；sandbox scale 0 只拉不起）；
+#    postgres/redis 常驻无门控。
 #  C 单镜像：make single-build（deployments/single/，比赛/受限环境用）。
 #
 # nginx 前置：/ → 前端 SPA，/api/* → api:8580（前端源码在仓库根 web/，同仓 monorepo）。
@@ -20,7 +21,7 @@
 
 # ── 共享定义（x- 扩展字段 + YAML 锚点）：app 服务公共 env / 依赖 / profile 只写一次 ──
 x-app-env: &app-env
-  # 密钥一律显式注入（root .env / --env-file .env.prod），基座不兜底任何环境默认值
+  # 密钥一律显式注入（仓库根 .env），基座不兜底任何环境默认值
   # DSN 密码与 POSTGRES_PASSWORD 同源——改库密码不再需要手改两处
   LIUSHA_POSTGRES_DSN: postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable
   LIUSHA_REDIS_ADDR: redis:6379
