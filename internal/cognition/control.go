@@ -11,6 +11,7 @@ package cognition
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -215,8 +216,18 @@ func adjustObjective(ctx context.Context, taskID string, graph *explorationgraph
 
 // injectAction 把人工注入的意图落成 open 的 action 节点——
 // planner 轮询发现后纳入规划（或直接由 executor 认领执行）。
-// 注入节点标记 SourceUser/SourceID=control-plane，审计可溯源。
+// 注入节点标记 SourceUser/SourceID=control-plane，审计可溯源；与规划产出的
+// 动作同样以根目标为归属（generates 边与节点原子落图）。
 func injectAction(ctx context.Context, taskID string, graph *explorationgraph.Store, p controlplane.InjectActionPayload, logger zerolog.Logger) error {
+	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
+	if err != nil {
+		return fmt.Errorf("读取目标: %w", err)
+	}
+	root, ok := explorationgraph.RootObjective(objectives)
+	if !ok {
+		return fmt.Errorf("任务 %s 没有根目标，注入的动作无处归属", taskID)
+	}
+
 	node := explorationgraph.Node{
 		ID:     uuid.New().String(),
 		TaskID: taskID,
@@ -234,7 +245,10 @@ func injectAction(ctx context.Context, taskID string, graph *explorationgraph.St
 		UpdatedAt:  time.Now(),
 	}
 
-	if _, err := graph.CreateNode(ctx, node); err != nil {
+	edges := []explorationgraph.Edge{{
+		TaskID: taskID, SrcID: root.ID, Rel: explorationgraph.RelGenerates, DstID: node.ID, CreatedAt: time.Now(),
+	}}
+	if err := graph.CreateNodeWithEdges(ctx, node, edges); err != nil {
 		return err
 	}
 	logger.Info().Str("kind", p.Kind).Str("reason", p.Reason).Msg("已注入 action")

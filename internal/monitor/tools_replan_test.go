@@ -26,6 +26,7 @@ func TestPublishDecision_RequestReplanPublishesEvent(t *testing.T) {
 
 	// 创建 objective
 	_, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "tools_replan-1",
 		TaskID:  taskID,
 		Kind:    core.KindObjective,
 		Content: []byte(`{"description":"test objective"}`),
@@ -80,6 +81,7 @@ func TestPublishDecision_RequestReplanWritesToGraph(t *testing.T) {
 
 	// 创建 objective
 	objID, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "tools_replan-2",
 		TaskID:  taskID,
 		Kind:    core.KindObjective,
 		Content: []byte(`{"description":"test objective"}`),
@@ -196,6 +198,7 @@ func TestPublishDecision_MultipleReplanRequests(t *testing.T) {
 
 	// 创建 objective
 	objID, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "tools_replan-3",
 		TaskID:  taskID,
 		Kind:    core.KindObjective,
 		Content: []byte(`{"description":"test"}`),

@@ -216,10 +216,16 @@ func (d *Deps) run(
 	return report, result.Err
 }
 
-// closeObjectives 把任务的全部 open 目标节点置终态（completed；被终止的任务
-// aborted；agent 致命失败 failed）——含根目标与 result 派生的次级目标，图生命周期对全部 objective
-// 有始有终。暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批
-// 目标）。已终态的目标不动（aborted 护栏另在状态迁移层兜底）。best-effort。
+// closeObjectives 在任务终态时收口全部仍 open 的目标，图生命周期对全部
+// objective 有始有终：
+//   - 根目标代表任务本身，随任务结局落定：正常结束 completed、被终止 aborted、
+//     agent 致命失败 failed；
+//   - 派生目标的 completed 专指「有结果证据的达成」（规划修订宣告），任务正常
+//     结束时仍 open 的派生目标是未达成的方向，落 exhausted（方向已穷尽）；随任务
+//     终止/失败时与根目标同为 aborted/failed。
+//
+// 暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批目标）。已终态
+// 的目标（含已达成、已吸收）不动。best-effort。
 func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	if d.Graph == nil {
 		return
@@ -231,16 +237,20 @@ func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
 	if err != nil || len(objectives) == 0 {
 		return
 	}
-	terminal := explorationgraph.StateCompleted
+	outcome := explorationgraph.StateCompleted
 	switch {
 	case stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel"):
-		terminal = explorationgraph.StateAborted
+		outcome = explorationgraph.StateAborted
 	case stopWhy == StopReasonAgentFailed:
-		terminal = explorationgraph.StateFailed // 未达成目标且非用户终止：失败，不得记作完成
+		outcome = explorationgraph.StateFailed // 未达成目标且非用户终止：失败，不得记作完成
 	}
 	for _, obj := range objectives {
 		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {
-			continue // 已终态（completed/failed/exhausted/aborted）不重复迁移
+			continue // 已终态（completed/failed/exhausted/aborted/superseded）不重复迁移
+		}
+		terminal := outcome
+		if obj.IsDerivedObjective() && outcome == explorationgraph.StateCompleted {
+			terminal = explorationgraph.StateExhausted
 		}
 		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
 			d.Logger.Warn().Err(err).Str("objective_id", obj.ID).

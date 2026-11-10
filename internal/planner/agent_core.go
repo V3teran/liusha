@@ -25,10 +25,6 @@ type Agent struct {
 	functionTools []string      // function_tools 白名单
 	pollInterval  time.Duration // 轮询间隔（作为兜底）
 
-	// analyzedResultIDs 是 AnalyzeResults 的水位：已分析过的 Result 节点不再
-	// 重复送 LLM（否则任务后半程每轮轮询都全量重分析，烧 token 且灌重复结论）。
-	analyzedResultIDs map[string]bool
-
 	// 收敛去重：上轮规划结论为「无新方向」后记录图终态指纹；后续唤醒（验证
 	// 事件成串到达/定时器）若指纹无变化则跳过 LLM 重新审议——实测任务尾段
 	// planner 对同一结论重复审议 5 次（~18% LLM 浪费）。任何终态变迁（新
@@ -58,15 +54,14 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 
 	return &Agent{
-		taskID:            cfg.TaskID,
-		agentRunID:        cfg.AgentRunID,
-		graph:             cfg.Graph,
-		planner:           cfg.Planner,
-		eventBus:          cfg.EventBus,
-		logger:            cfg.Logger.With().Str("agent", "planner").Logger(),
-		functionTools:     cfg.FunctionTools,
-		pollInterval:      cfg.PollInterval,
-		analyzedResultIDs: make(map[string]bool),
-		stopCh:            make(chan struct{}),
+		taskID:        cfg.TaskID,
+		agentRunID:    cfg.AgentRunID,
+		graph:         cfg.Graph,
+		planner:       cfg.Planner,
+		eventBus:      cfg.EventBus,
+		logger:        cfg.Logger.With().Str("agent", "planner").Logger(),
+		functionTools: cfg.FunctionTools,
+		pollInterval:  cfg.PollInterval,
+		stopCh:        make(chan struct{}),
 	}
 }

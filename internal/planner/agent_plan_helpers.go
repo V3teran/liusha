@@ -18,18 +18,15 @@ func (a *Agent) analyzeNewResults(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list results: %w", err)
 	}
-	if len(results) == 0 {
-		return nil
-	}
 
-	// 水位过滤，只分析新结果
+	// 分析水位落在图上（Node.IsAnalyzed，随规划修订同事务写入）：已分析的结果
+	// 不再送 LLM——跨 run 同样成立，暂停后继续不会把全部结果重新分析一遍。
 	fresh := make([]explorationgraph.Node, 0, len(results))
 	for _, r := range results {
-		if !a.analyzedResultIDs[r.ID] {
+		if !r.IsAnalyzed() {
 			fresh = append(fresh, r)
 		}
 	}
-
 	if len(fresh) == 0 {
 		return nil
 	}
@@ -40,15 +37,9 @@ func (a *Agent) analyzeNewResults(ctx context.Context) error {
 		Msg("检测到新 Results，先进行分析")
 
 	if err := a.analyzeAndProcessResults(ctx, fresh); err != nil {
-		// 不推进已分析水位，下一轮重新分析；调用方记录后继续生成 Actions。
+		// 修订未落图，水位随之未推进：下一轮重新分析
 		return fmt.Errorf("analyze results: %w", err)
 	}
-
-	// 标记已分析
-	for _, r := range fresh {
-		a.analyzedResultIDs[r.ID] = true
-	}
-
 	return nil
 }
 
@@ -189,28 +180,60 @@ func isRetriableError(err error) bool {
 	return llm.IsTransient(err) || errors.Is(err, ErrPlanOutputParse)
 }
 
-// handleNoActions 处理 planner 未生成新 Action 的情况。
+// handleNoActions 处理 planner 未生成新 Action 的情况（常规规划与 monitor
+// 强制重规划共用，trigger 标明来源）。
 //
-// "本轮无新计划" ≠ "任务收敛"：图上还有非终态 action（running/open/blocked）
-// 或**未裁决观察**时，planner 返回空只是对在途工作的等待——发布收敛会终止
-// 整个认知循环、掐断在途执行与裁决。只有图上再无任何未完结工作且 planner
-// 也没有新方向，才是真正的收敛。
-func (a *Agent) handleNoActions(ctx context.Context) {
-	if a.hasUnsettledWork(ctx) {
-		a.logger.Info().Msg("Planner 暂无新 Action，但仍有在途/待执行动作——等待其产出，不收敛")
-		return
-	}
-	if a.hasPendingVerdicts(ctx) {
-		a.logger.Info().Msg("Planner 暂无新 Action，但有观察待裁决（unverified）——等裁决落定，不收敛")
+// "本轮无新计划" ≠ "任务收敛"：图上还有未完结工作（见 pendingWork）时，
+// planner 返回空只是对在途工作的等待——发布收敛会终止整个认知循环、掐断在途
+// 执行、裁决与分析。只有图上再无任何未完结工作且 planner 也没有新方向，才是
+// 真正的收敛。
+func (a *Agent) handleNoActions(ctx context.Context, trigger string) {
+	if pending := a.pendingWork(ctx); pending != "" {
+		a.logger.Info().Str("trigger", trigger).Str("pending", pending).
+			Msg("Planner 暂无新 Action，但图上仍有未完结工作——等其落定，不收敛")
 		return
 	}
 
-	a.logger.Info().Msg("Planner 未生成新 Action 且图上无未完结工作（任务收敛）")
+	a.logger.Info().Str("trigger", trigger).Msg("Planner 未生成新 Action 且图上无未完结工作（任务收敛）")
 	// 收敛去重：记录结论与图指纹——之后无终态变迁的唤醒不再重复审议。
 	if fp, err := a.graphFingerprint(ctx); err == nil {
 		a.convergedAt, a.convergedPending = fp, true
 	}
-	a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions and no unsettled work in graph")
+	a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions and no unsettled work in graph ("+trigger+")")
+}
+
+// pendingWork 返回阻止任务收敛的未完结工作（空串 = 可以收敛）：
+//   - 非终态动作：在途执行会产出新观察；
+//   - 未裁决观察：带着积压收敛会留下永久悬空的假设；
+//   - 未分析结果：坐实的发现还没进结果分析，它可能催生新方向、宣告方向达成。
+//
+// 各项判定失败都保守视为未完结（宁可多等一轮，不误终止任务）。
+func (a *Agent) pendingWork(ctx context.Context) string {
+	switch {
+	case a.hasUnsettledWork(ctx):
+		return "在途/待执行动作"
+	case a.hasPendingVerdicts(ctx):
+		return "待裁决观察"
+	case a.hasUnanalyzedResults(ctx):
+		return "待分析结果"
+	}
+	return ""
+}
+
+// hasUnanalyzedResults 判断图上是否还有未经结果分析的 result（见
+// explorationgraph.Node.IsAnalyzed）。判定失败保守返回 true。
+func (a *Agent) hasUnanalyzedResults(ctx context.Context) bool {
+	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取 Result 失败，保守视为有待分析结果")
+		return true
+	}
+	for _, r := range results {
+		if !r.IsAnalyzed() {
+			return true
+		}
+	}
+	return false
 }
 
 // hasPendingVerdicts 判断图上是否还有未裁决的假设观察（confidence=unverified）。

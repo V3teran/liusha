@@ -18,6 +18,8 @@
 //   - GENERATES: objective → action、action → observation（动作生成观察/假设/证据）、
 //     observation → result（复现门晋升溯源）
 //   - TRIGGERS: result → objective/action（planner：结果触发新目标/后续动作）
+//   - SUPERSEDES: objective → objective（planner：新派生目标吸收旧派生目标的范围，
+//     src=新、dst=旧；与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
 //   - DEPENDS_ON: action → action（动作依赖动作）
 //   - ENABLES / BELONGS_TO: 预留语义，当前无生产者
 package explorationgraph
@@ -36,12 +38,13 @@ type State = core.ActionState
 
 // 状态常量：实体定义在 core，经别名提升为领域 API（下游 115 处引用）
 const (
-	StateOpen      = core.ActionStateOpen
-	StateRunning   = core.ActionStateRunning
-	StateCompleted = core.ActionStateCompleted
-	StateFailed    = core.ActionStateFailed
-	StateExhausted = core.ActionStateExhausted
-	StateAborted   = core.ActionStateAborted
+	StateOpen       = core.ActionStateOpen
+	StateRunning    = core.ActionStateRunning
+	StateCompleted  = core.ActionStateCompleted
+	StateFailed     = core.ActionStateFailed
+	StateExhausted  = core.ActionStateExhausted
+	StateAborted    = core.ActionStateAborted
+	StateSuperseded = core.ActionStateSuperseded
 )
 
 // Complexity 是 action 的复杂度（planner 提案 → executor 提示词的可读分档；
@@ -89,8 +92,9 @@ type Relation string
 // 动作间执行依赖（DAG 调度）不走边——落在 action 节点的 metadata.depends_on，
 // 由 CanExecute 直接消费（依赖集随节点原子读写，无需二次 Join）。
 const (
-	RelGenerates Relation = "generates" // 上游产出下游（推导链）
-	RelTriggers  Relation = "triggers"  // result → objective/action（发现滋生动作/新方向）
+	RelGenerates  Relation = "generates"  // 上游产出下游（推导链）
+	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
+	RelSupersedes Relation = "supersedes" // objective → objective（吸收：新目标接管旧目标范围）
 )
 
 // SourceType 是节点的来源类型
@@ -158,6 +162,42 @@ type Verification struct {
 	Evaluation json.RawMessage `json:"evaluation"`
 	DurationMs int64           `json:"duration_ms"`
 	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// IsDerivedObjective 判断节点是否是派生目标：planner 在探索中提出的方向。
+// 其余 objective 都是根目标（任务入口 / 控制面按用户意图创建），代表任务
+// 本身，只随任务终态收敛，不接受规划层的修订。
+func (n *Node) IsDerivedObjective() bool {
+	return n.Kind == core.KindObjective && n.SourceType == SourcePlanner
+}
+
+// RootObjective 从按创建序升序的目标列表中取根目标：最早创建的非派生目标
+// （多 host 任务每个 host 一个根目标，取最早的那个作为动作的统一归属）。
+func RootObjective(objectives []Node) (Node, bool) {
+	for _, n := range objectives {
+		if !n.IsDerivedObjective() {
+			return n, true
+		}
+	}
+	return Node{}, false
+}
+
+// metaAnalyzed 是 result 上的分析水位键：规划层已把该结果纳入一次结果分析。
+// 与那次分析产出的规划修订同事务写入（RevisePlan），因此「已分析」与「分析
+// 结论已落图」恒同真同假——跨 run（暂停后继续、崩溃重投）也不会重复分析。
+const metaAnalyzed = "analyzed"
+
+// IsAnalyzed 判断 result 是否已被规划层分析过（见 metaAnalyzed）。
+func (n *Node) IsAnalyzed() bool {
+	if len(n.Metadata) == 0 {
+		return false
+	}
+	var m map[string]interface{}
+	if json.Unmarshal(n.Metadata, &m) != nil {
+		return false
+	}
+	analyzed, _ := m[metaAnalyzed].(bool)
+	return analyzed
 }
 
 // IsAction 判断节点是否是 action

@@ -9,7 +9,6 @@ import (
 )
 
 // CanExecute 是并发认领的核心守卫：只有依赖全部完成的 open action 才可执行。
-// 上一轮审查发现 water 水位 bug（重复全量分析）就在 planActions 附近。
 
 func testActionNode(id string, deps []string, state string) explorationgraph.Node {
 	st := explorationgraph.State(state)
@@ -33,16 +32,6 @@ func TestCanExecute(t *testing.T) {
 func TestCanExecute_NoDeps(t *testing.T) {
 	n := testActionNode("a1", nil, "open")
 	assert.True(t, n.CanExecute(map[string]bool{}), "无依赖的 action 恒可执行")
-}
-
-func TestAnalyzedResultIDs_Watermark(t *testing.T) {
-	// 回归测试：planActions 曾每 10s 全量重分析 Results（烧 LLM 调用）。
-	// 水位 map 保证只分析增量。直接验证 agent 结构的水位行为。
-	a := &Agent{analyzedResultIDs: make(map[string]bool)}
-
-	a.analyzedResultIDs["r1"] = true
-	assert.True(t, a.analyzedResultIDs["r1"])
-	assert.False(t, a.analyzedResultIDs["r2"], "未分析的 Result 不在水位居")
 }
 
 func TestAgentConfig_PollInterval(t *testing.T) {

@@ -75,15 +75,18 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 | 角色 | 可做的写操作 |
 |---|---|
-| planner | 建 objective 与 action；清理 objective 上的 `monitor_request` |
+| planner | 建 action；清理 objective 上的 `monitor_request`；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`）、追加延续动作，并在被分析的 result 上记分析水位（`analyzed`） |
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的裁决元数据 |
 | monitor | 中止 action；在 objective 上写 `monitor_request` |
-| 控制面（runner / cognition 控制） | 建根 objective、用户追加的 objective / action；目标终态流转 |
+| 控制面（runner / cognition 控制） | 建根 objective、用户追加的 objective / action（挂根目标）；任务终态时收口仍 open 的目标：根目标随任务结局（completed/aborted/failed），未达成的派生目标在正常结束时落 `exhausted`、随终止/失败同为 aborted/failed |
 
 - Store 不校验调用方角色，这张表是约定，靠评审守住。
 - 新增坐实结果只能经过复现门晋升，禁止绕过 `PromotionGate` 直接建 result。
 - 复放明细写 `exploration_verification` 审计链，不为复放新建 observation 节点。
+- 目标分两类：根目标（来源 user，代表任务本身，只随任务终态收敛；`RootObjective` 取最早创建的那个）与派生目标（来源 planner，`IsDerivedObjective`）。规划层只修订派生目标；根目标的达成由整体探索收敛决定，不由单次分析宣告。派生目标的 `completed` 专指有结果证据的达成。动作统一挂在根目标下（规划、结果分析、人工注入三个入口同一口径），派生目标是规划视野里的方向，不拥有动作。
+- 节点 metadata 承载 task_id / source_type / priority 等身份字段：任何更新都是浅合并（`GraphStore.UpdateNode`、变更集批注），不得整体替换。
+- 一次结果分析的结论（新目标、达成、吸收、延续动作）连同分析水位是一个规划决策，经 `RevisePlan` 在一个事务内落图（`GraphStore.ApplyChangeSet`）：要么全落、要么全不落。水位在图上而不在进程内存里，且是一次性批注（并发消费同一结果只有一次修订能提交）：暂停后继续、崩溃重投、新旧 run 短暂重叠都不会重复分析，重做也不会重复写入；未分析的结果与非终态动作、未裁决观察一样阻止任务收敛（planner `pendingWork`，常规规划与强制重规划同一口径）。LLM 给出的失效引用只剔除并记日志，不拖垮修订。`superseded` 状态与指向它的 `supersedes` 边是同一事实：只能由修订一同写入，`TransitionState` 不进不出。吸收是范围转交而非放弃，不动任何动作。
 
 ### 复现配方与坐实交付
 

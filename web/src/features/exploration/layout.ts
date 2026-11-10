@@ -40,10 +40,13 @@ export interface GraphStats {
 //    且让次要的依赖边反而比主干推导边更显眼（层级倒置）；
 //    两者靠线型（实线/点线）区分，色相保持克制
 //  - 滋生用 amber-600：它是全图唯一的彩色关系边，amber-500 浅色下仅 2:1
+//  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
+//    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
 export const EDGE_COLORS = {
   generates: '#64748b',
   depends: '#64748b',
   triggers: '#d97706',
+  supersedes: '#8b5cf6',
 } as const
 
 export function buildFlowGraph(
@@ -100,7 +103,9 @@ export function buildFlowGraph(
       animated: stateById.get(e.src_id) === 'running',
       ...(e.rel === 'triggers'
         ? styled(EDGE_COLORS.triggers, 1.6, '6 4')
-        : styled(EDGE_COLORS.generates, 1.6)),
+        : e.rel === 'supersedes'
+          ? styled(EDGE_COLORS.supersedes, 1.4, '10 6')
+          : styled(EDGE_COLORS.generates, 1.6)),
     }))
 
   // 派生依赖边：前置动作 → 依赖它的动作（去重；引用缺失/自指静默跳过）

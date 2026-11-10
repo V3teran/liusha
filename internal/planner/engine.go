@@ -211,7 +211,7 @@ type Fact struct {
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务目标）
-	Objectives        []explorationgraph.Node // 全部目标（含派生方向）——规划面向全图
+	Objectives        []explorationgraph.Node // 全部目标（根目标 + 派生目标，含已收敛的；呈现时只列进行中的派生目标）
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果（经裁决坐实的主张）
@@ -406,7 +406,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
 	planCtx := &PlanningContext{}
 
-	// 全部目标（根目标 + 派生方向）都进规划视野
+	// 全部目标（根目标 + 派生目标）读入规划上下文
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Objective 失败: %w", err)

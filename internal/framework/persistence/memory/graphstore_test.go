@@ -3,9 +3,11 @@ package memory
 import (
 	"context"
 	"encoding/json"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -395,4 +397,95 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 	allEdges, err := store.ListEdges(ctx, core.GraphEdgeQuery{TaskID: "task-1"})
 	require.NoError(t, err)
 	assert.Len(t, allEdges, 1)
+}
+
+// ApplyChangeSet 与 Postgres 事务同语义：新节点先生效，迁移与批注可作用于它们；
+// 任务不符或前置不成立即整体不生效。
+func TestGraphStore_ApplyChangeSet(t *testing.T) {
+	ctx := context.Background()
+	newNode := func(id, task string) *core.GraphNode {
+		return &core.GraphNode{ID: id, Kind: "action", State: "open", Metadata: map[string]interface{}{"task_id": task}}
+	}
+
+	t.Run("作用于本批新节点", func(t *testing.T) {
+		store := NewGraphStore()
+		err := store.ApplyChangeSet(ctx, core.GraphChangeSet{
+			Nodes:       []*core.GraphNode{newNode("n1", "t1")},
+			Transitions: []core.GraphStateTransition{{TaskID: "t1", NodeID: "n1", From: "open", To: "running"}},
+			Annotations: []core.GraphNodeAnnotation{{TaskID: "t1", NodeID: "n1", Metadata: map[string]interface{}{"k": "v"}}},
+		})
+		if err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+		n, _ := store.GetNode(ctx, "n1")
+		if n.State != "running" || n.Metadata["k"] != "v" || n.Metadata["task_id"] != "t1" {
+			t.Fatalf("新节点迁移/批注未生效或身份丢失: %+v", n)
+		}
+	})
+
+	t.Run("任务不符整体不生效", func(t *testing.T) {
+		store := NewGraphStore()
+		err := store.ApplyChangeSet(ctx, core.GraphChangeSet{
+			Nodes:       []*core.GraphNode{newNode("n1", "t1")},
+			Annotations: []core.GraphNodeAnnotation{{TaskID: "t2", NodeID: "n1", Metadata: map[string]interface{}{"k": "v"}}},
+		})
+		if !errors.Is(err, core.ErrGraphNodeNotFound) {
+			t.Fatalf("want ErrGraphNodeNotFound, got %v", err)
+		}
+		if _, getErr := store.GetNode(ctx, "n1"); getErr == nil {
+			t.Fatal("校验失败时新节点不应落下")
+		}
+	})
+
+	t.Run("前置不成立整体不生效", func(t *testing.T) {
+		store := NewGraphStore()
+		if err := store.CreateNode(ctx, newNode("old", "t1")); err != nil {
+			t.Fatal(err)
+		}
+		err := store.ApplyChangeSet(ctx, core.GraphChangeSet{
+			Nodes:       []*core.GraphNode{newNode("n1", "t1")},
+			Transitions: []core.GraphStateTransition{{TaskID: "t1", NodeID: "old", From: "running", To: "completed"}},
+			Edges:       []*core.GraphEdge{{TaskID: "t1", From: "n1", To: "old", Relation: "generates"}},
+		})
+		if !errors.Is(err, core.ErrGraphStateConflict) {
+			t.Fatalf("want ErrGraphStateConflict, got %v", err)
+		}
+		if _, getErr := store.GetNode(ctx, "n1"); getErr == nil {
+			t.Fatal("冲突时新节点不应落下")
+		}
+	})
+}
+
+// 一次性批注：键已存在（节点上或本批更早写入）即冲突；连续迁移逐条递增版本。
+func TestGraphStore_ApplyChangeSet_OnceAndVersion(t *testing.T) {
+	ctx := context.Background()
+	store := NewGraphStore()
+	node := &core.GraphNode{ID: "n1", Kind: "action", State: "open", Metadata: map[string]interface{}{"task_id": "t1"}}
+	if err := store.CreateNode(ctx, node); err != nil {
+		t.Fatal(err)
+	}
+	once := core.GraphNodeAnnotation{TaskID: "t1", NodeID: "n1", Metadata: map[string]interface{}{"mark": true}, Once: true}
+
+	if err := store.ApplyChangeSet(ctx, core.GraphChangeSet{Annotations: []core.GraphNodeAnnotation{once, once}}); !errors.Is(err, core.ErrGraphStateConflict) {
+		t.Fatalf("本批重复的一次性批注应冲突，got %v", err)
+	}
+	if err := store.ApplyChangeSet(ctx, core.GraphChangeSet{Annotations: []core.GraphNodeAnnotation{once}}); err != nil {
+		t.Fatalf("首次一次性批注: %v", err)
+	}
+	if err := store.ApplyChangeSet(ctx, core.GraphChangeSet{Annotations: []core.GraphNodeAnnotation{once}}); !errors.Is(err, core.ErrGraphStateConflict) {
+		t.Fatalf("键已存在应冲突，got %v", err)
+	}
+
+	before, _ := store.GetNode(ctx, "n1")
+	err := store.ApplyChangeSet(ctx, core.GraphChangeSet{Transitions: []core.GraphStateTransition{
+		{TaskID: "t1", NodeID: "n1", From: "open", To: "running"},
+		{TaskID: "t1", NodeID: "n1", From: "running", To: "completed"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := store.GetNode(ctx, "n1")
+	if after.State != "completed" || after.Version != before.Version+2 {
+		t.Fatalf("连续迁移应逐条递增版本: state=%s version %d→%d", after.State, before.Version, after.Version)
+	}
 }
