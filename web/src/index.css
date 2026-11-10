@@ -38,6 +38,16 @@ pre {
   font-family: var(--font-mono);
 }
 
+/* 可点击控件统一手型光标：Tailwind v4 的 preflight 把按钮光标重置为 default，
+ * 手写按钮各自补 cursor-pointer 容易遗漏。放在 base 层，工具类（cursor-default /
+ * cursor-not-allowed 等）仍可按需覆盖。 */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+}
+
 /* ============================================================
    品牌标识
    ============================================================ */
