@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProvidersView } from './ProvidersView'
-import { listProviders, saveProvider, deleteProvider, restoreProviderEnvKey } from '@/api/models'
+import { listProviders, saveProvider, deleteProvider, restoreProviderEnvKey, diagnoseProvider } from '@/api/models'
 import type { ProviderConfig } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
@@ -11,25 +11,29 @@ vi.mock('@/api/models', () => ({
   saveProvider: vi.fn(),
   deleteProvider: vi.fn(),
   restoreProviderEnvKey: vi.fn(),
-  // 编辑面板挂载即引用 testProvider / listProviderModels（探测/测试连接），mock 掉避免真发请求。
-  testProvider: vi.fn(),
-  listProviderModels: vi.fn(),
+  // 编辑面板挂载即引用 diagnoseProvider（连接诊断），mock 掉避免真发请求。
+  diagnoseProvider: vi.fn(),
 }))
 
 const mList = listProviders as unknown as ReturnType<typeof vi.fn>
 const mSave = saveProvider as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteProvider as unknown as ReturnType<typeof vi.fn>
 const mRestore = restoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
+const mDiagnose = diagnoseProvider as unknown as ReturnType<typeof vi.fn>
 
 function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
     code: 'deepseek',
+    display_name: o.code ?? 'deepseek', // 列表按显示名称展示；测试里与 code 同名便于定位
     type: 'openai_compat',
     base_url: 'https://api.deepseek.com',
     default_model: 'deepseek-chat',
     key_present: true,
     key_last4: '1234',
     max_tokens: 4096,
+    thinking_budget_tokens: 0,
+    auth_scheme: 'bearer',
+    output_limit_param: 'max_tokens',
     supports_tools: true,
     supports_vision: false,
     context_window: 65536,
@@ -152,7 +156,7 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     expect(screen.getByRole('button', { name: /^qwen/ }).getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('保存成功后面板保持展开，用返回值刷新（key_present 等服务端字段）', async () => {
+  it('保存成功后收起面板回到列表，行头用重拉结果刷新（key_present 等服务端字段）', async () => {
     // 首拉 key_present=false（行头密钥告警点），保存 invalidate 重拉后变 true。
     mList.mockResolvedValueOnce([prov({ key_present: false })]).mockResolvedValueOnce([prov({ key_present: true })])
     mSave.mockResolvedValue(prov({ key_present: true }))
@@ -162,10 +166,61 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     await userEvent.type(screen.getByLabelText('描述'), 'x')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(mSave).toHaveBeenCalled())
-    // 面板保持展开；baseline 对齐后徽章与密钥告警消失
-    await waitFor(() => expect(screen.queryByText('未保存')).toBeNull())
+    // 面板收起；行头密钥告警随重拉消失
+    await waitFor(() => expect(screen.queryByLabelText('描述')).toBeNull())
+    expect(screen.getByRole('button', { name: /^deepseek/ }).getAttribute('aria-expanded')).toBe('false')
     await waitFor(() => expect(screen.queryByLabelText('密钥未注入')).toBeNull())
-    expect(screen.getByLabelText('描述')).toBeTruthy()
+  })
+
+  it('点别处收起编辑面板：页面空白、面板空白处都算，面板内容与其他控件不算；有未保存更改时先确认', async () => {
+    mList.mockResolvedValue([prov()])
+    renderView()
+    await screen.findByText('deepseek')
+    const outside = document.createElement('div')
+    document.body.appendChild(outside)
+    const open = async () => {
+      await userEvent.click(screen.getByRole('button', { name: '新建' }))
+      expect(await screen.findByText('新建 provider')).toBeTruthy()
+    }
+    const closed = () => waitFor(() => expect(screen.queryByText('新建 provider')).toBeNull())
+
+    await open()
+    await userEvent.click(outside)
+    await closed()
+
+    // 面板内容（标题文字、表单说明）不算别处
+    await open()
+    await userEvent.click(screen.getByText('新建 provider'))
+    await userEvent.click(screen.getByText('连接'))
+    expect(screen.getByText('新建 provider')).toBeTruthy()
+    // 面板自身的空白布局层算别处
+    const surface = screen.getByText('新建 provider').closest('[data-editor-surface]')!.parentElement!
+    expect(surface.hasAttribute('data-editor-surface')).toBe(true)
+    await userEvent.click(surface)
+    await closed()
+
+    // 有改动：点别处先出确认条
+    await open()
+    await userEvent.click(await screen.findByRole('radio', { name: /OpenAI 兼容/ }))
+    await userEvent.click(outside)
+    expect(await screen.findByText(/有未保存更改——收起将丢弃这些更改/)).toBeTruthy()
+    expect(screen.getByText('新建 provider')).toBeTruthy()
+    outside.remove()
+  })
+
+  it('取消按钮与 Esc 都回到列表', async () => {
+    mList.mockResolvedValue([prov()])
+    renderView()
+    await screen.findByText('deepseek')
+    await userEvent.click(screen.getByRole('button', { name: '新建' }))
+    await userEvent.click(await screen.findByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByText('新建 provider')).toBeNull())
+
+    // 焦点不在面板里（刚点完行头）也生效
+    await userEvent.click(screen.getByRole('button', { name: /^deepseek/ }))
+    expect(await screen.findByLabelText('描述')).toBeTruthy()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByLabelText('描述')).toBeNull())
   })
 
   it('保存失败在面板内回显错误（无 window.alert）', async () => {
@@ -200,14 +255,37 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('deepseek'))
   })
 
-  it('测试连接缺前置时点击即给原因（不再禁用态静默拦截）', async () => {
+  it('连接诊断缺前置时点击即给原因（不禁用按钮静默拦截）', async () => {
     mList.mockResolvedValue([prov()])
     renderView()
     await screen.findByText('deepseek')
     await userEvent.click(screen.getByRole('button', { name: '新建' }))
-    await userEvent.click(await screen.findByRole('button', { name: '测试连接' }))
-    expect(await screen.findByText('需先填 Base URL、默认模型，并有可用密钥')).toBeTruthy()
+    await userEvent.click(await screen.findByRole('radio', { name: /OpenAI 兼容/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /运行诊断/ }))
+    expect(await screen.findByText('请先填写完整的 Base URL')).toBeTruthy()
     expect(mSave).not.toHaveBeenCalled()
+  })
+
+  it('诊断后保存：面板收起，再展开时诊断从头开始（不带旧结果）', async () => {
+    mDiagnose.mockResolvedValue({
+      ok: true, base_url: 'https://api.deepseek.com', models: [], models_supported: false,
+      profile: { auth_scheme: 'bearer' },
+      steps: [{ key: 'endpoint', status: 'ok', detail: '' }],
+    })
+    await openEdit({ updated_at: 't1' })
+    await userEvent.click(await screen.findByRole('button', { name: /更换密钥/ }))
+    await userEvent.type(screen.getByPlaceholderText('粘贴新密钥…'), 'sk-new')
+    await userEvent.click(screen.getByRole('button', { name: /运行诊断/ }))
+    expect(await screen.findByText('配置可用')).toBeTruthy()
+
+    mSave.mockResolvedValue(prov({ updated_at: 't2', key_last4: '-new' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(mSave).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText('配置可用')).toBeNull())
+    await userEvent.click(screen.getByRole('button', { name: /^deepseek/ }))
+    expect(await screen.findByRole('button', { name: /运行诊断/ })).toBeTruthy()
+    expect(screen.queryByText('配置可用')).toBeNull()
+    expect(screen.queryByText(/配置已改动/)).toBeNull()
   })
 
   it('加载失败显示错误并提供重试', async () => {

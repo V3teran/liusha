@@ -1,9 +1,10 @@
 import { SearchInput } from '@/components/SearchInput'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { errorText } from '@/api/client'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { Plus } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
-import { blankProvider, providerDisplayName, providerInvalid } from './providerForm'
+import { blankProvider, providerInvalid } from './providerRules'
 import { ProviderEditor } from './ProviderEditor'
 import { RowHeader, RowDeleteButton } from './ProviderRowParts'
 import {
@@ -13,10 +14,22 @@ import {
   useRestoreProviderEnvKey,
 } from './useModelQueries'
 
+/** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
+const INTERACTIVE =
+  'a, button, input, select, textarea, label, summary, [contenteditable="true"], ' +
+  '[role="button"], [role="option"], [role="combobox"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"]'
+
+/** 按下点落在元素自身的滚动条上（拖动滚动，不是「点别处」）：越出内容区（clientWidth/Height
+ *  不含滚动条）。内联元素的 client 尺寸为 0，不参与判定。 */
+function onScrollbar(e: PointerEvent, el: Element): boolean {
+  return (el.clientWidth > 0 && e.offsetX > el.clientWidth) || (el.clientHeight > 0 && e.offsetY > el.clientHeight)
+}
+
 // 模型提供商分区：设置页内的实体管理。列表 = 表格行；点击行在行下方**下拉展开**编辑表单
 // （手风琴式，无弹窗），再点行收起。同一时刻至多展开一行。
 // 数据经 useModelQueries；保存/删除 invalidate 后列表自动刷新，与能力路由共享 providers 缓存。
-// 草稿模型：展开即拍 baseline，dirty 驱动保存可用/重置/收起与切换确认（不静默丢弃草稿）。
+// 草稿模型：展开即拍 baseline，dirty 驱动保存可用/重置/收起与切换确认（不静默丢弃草稿）；
+// 保存成功即收起回到列表。
 export function ProvidersView() {
   const { data: providers = [], isLoading, isError, error, refetch } = useProviders()
   const saveMutation = useSaveProvider()
@@ -73,6 +86,35 @@ export function ProvidersView() {
 
   useEffect(() => () => window.clearTimeout(deleteTimer.current), [])
 
+  // 点别处收起展开中的编辑面板——与点行头、取消同一口径：有未保存更改时先出确认条，
+  // 不静默丢弃草稿。「别处」= 编辑面板的内容之外、且不是自带行为的控件：页面空白、卡片
+  // 标题区、面板自身的空白布局层（data-editor-surface）都算。只认主键按下；按在滚动条上
+  // （拖动滚动）不算。
+  const panelRef = useRef<HTMLLIElement>(null)
+  const onOutsidePointer = useEffectEvent((e: PointerEvent) => {
+    const target = e.target
+    if (e.button !== 0 || !(target instanceof Element) || onScrollbar(e, target)) return
+    if (!target.hasAttribute('data-editor-surface')) {
+      if (panelRef.current?.contains(target)) return // 面板内容
+      if (target.closest(INTERACTIVE)) return
+    }
+    requestCollapse()
+  })
+  // Esc 同取消（焦点在哪都生效）；控件自己消费了 Esc（如收起下拉）时不处理。
+  const onEscape = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === 'Escape' && !e.defaultPrevented) requestCollapse()
+  })
+  const editing = draft !== null
+  useEffect(() => {
+    if (!editing) return
+    document.addEventListener('pointerdown', onOutsidePointer)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('pointerdown', onOutsidePointer)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [editing])
+
   const armRowDelete = (code: string) => {
     setConfirmingDeleteCode(code)
     window.clearTimeout(deleteTimer.current)
@@ -91,7 +133,7 @@ export function ProvidersView() {
       onError: (e) => {
         const target = providers.find((p) => p.code === code)
         if (target && draft?.code !== code) startEdit(target)
-        setActionError(e instanceof Error ? e.message : '删除失败')
+        setActionError(errorText(e, '删除失败'))
       },
     })
   }
@@ -113,7 +155,7 @@ export function ProvidersView() {
         setDraft(restore)
         commit((restore(draft) as ProviderConfig) ?? draft!)
       },
-      onError: (e) => setActionError(e instanceof Error ? e.message : '恢复失败'),
+      onError: (e) => setActionError(errorText(e, '恢复失败')),
     })
   }
 
@@ -125,15 +167,14 @@ export function ProvidersView() {
     saveMutation.mutate(
       { provider: draft, isNew },
       {
-        // 行内编辑保存后保持展开（用户常接着测试连接）；baseline 对齐后未保存徽章消失。
-        // 新建保存后清空搜索过滤：新行不可能匹配既有过滤词，不清会让刚保存的行
-        // 连同编辑面板一起被过滤掉，看起来像「保存了但什么都没发生」。
-        onSuccess: (saved) => {
-          commit(saved)
-          setIsNew(false)
+        // 保存即完成编辑：收起面板回到列表，行头由 invalidate 后的重拉刷新。
+        // 新建保存后清空搜索过滤：新行不可能匹配既有过滤词，不清会让刚保存的行被过滤掉，
+        // 看起来像「保存了但什么都没发生」。
+        onSuccess: () => {
+          collapse()
           if (isNew) setQuery('')
         },
-        onError: (e) => setActionError(e instanceof Error ? e.message : '保存失败'),
+        onError: (e) => setActionError(errorText(e, '保存失败')),
       },
     )
   }
@@ -142,10 +183,7 @@ export function ProvidersView() {
     const q = query.trim().toLowerCase()
     if (!q) return providers
     return providers.filter(
-      (p) =>
-        providerDisplayName(p).toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
-        p.default_model.toLowerCase().includes(q),
+      (p) => p.display_name.toLowerCase().includes(q) || p.default_model.toLowerCase().includes(q),
     )
   }, [providers, query])
 
@@ -197,7 +235,7 @@ export function ProvidersView() {
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {isNew && draft && (
-              <li>
+              <li ref={panelRef}>
                 <ProviderEditor
                   draft={draft}
                   isNew
@@ -213,6 +251,7 @@ export function ProvidersView() {
                     setActionError('')
                   }}
                   onRestoreEnvKey={onRestoreEnvKey}
+                  onCancel={requestCollapse}
                   onDiscard={discardPending}
                   onKeepEditing={() => setPending(null)}
                   onDismissError={() => setActionError('')}
@@ -222,7 +261,7 @@ export function ProvidersView() {
             {filtered.map((p) =>
               // 展开中的行：行头保留（收起入口），编辑面板在行头下方下拉展开。
               draft && !isNew && draft.code === p.code ? (
-                <li key={p.code} className="group/row">
+                <li key={p.code} ref={panelRef} className="group/row">
                   <div className="flex items-stretch">
                     <RowHeader
                       p={p}
@@ -254,6 +293,7 @@ export function ProvidersView() {
                       setActionError('')
                     }}
                     onRestoreEnvKey={onRestoreEnvKey}
+                    onCancel={requestCollapse}
                     onDiscard={discardPending}
                     onKeepEditing={() => setPending(null)}
                     onDismissError={() => setActionError('')}

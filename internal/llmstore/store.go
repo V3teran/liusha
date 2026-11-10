@@ -20,10 +20,8 @@ package llmstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/cachestore"
@@ -102,10 +100,6 @@ func (s *Store) InvalidateAll(ctx context.Context) error {
 	return s.cache.Invalidate(ctx, append(routeKeys(), keyProvidersList(true), keyProvidersList(false))...)
 }
 
-// isNotFound 判定底层 store 的「不存在」——GetProvider/UpdateProvider 用 %w 包 pgx.ErrNoRows，
-// upsert 路径据此在 Update 落空时回退 Create。
-func isNotFound(err error) bool { return err != nil && errors.Is(err, pgx.ErrNoRows) }
-
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
 
 // ProviderByCode 按 code 读 provider 部署（For(role) 解析出 code 后取连接参数 + 能力标志）。
@@ -152,20 +146,22 @@ func (s *Store) ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, erro
 //
 // 每个写方法：写 DB → cachestore.Invalidate（本进程即时清 L1+L2 + 广播失效键给其它进程）。
 
-// SaveProvider upsert 一个 provider（按 key：存在则更新、不存在则新建），失效其 provider 键 + 列表键。
-// provider 的能力（vision/context_window）参与 role 解析后的取值，但不入 routing 快照，故不失效 routing。
-func (s *Store) SaveProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
-	pr, err := s.db.UpdateProvider(ctx, p)
-	if isNotFound(err) {
-		pr, err = s.db.CreateProvider(ctx, p)
-	}
+// CreateProvider 新建 provider（code 已存在 → llmconfig.ErrConflict），失效其 provider 键 + 列表键。
+func (s *Store) CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	pr, err := s.db.CreateProvider(ctx, p)
 	if err != nil {
 		return llmconfig.Provider{}, err
 	}
-	if err := s.cache.Invalidate(ctx, providerKeys(pr.Code)...); err != nil {
-		return pr, err
+	return pr, s.cache.Invalidate(ctx, providerKeys(pr.Code)...)
+}
+
+// UpdateProvider 更新既有 provider（不存在 → 包装 pgx.ErrNoRows），失效其 provider 键 + 列表键。
+func (s *Store) UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	pr, err := s.db.UpdateProvider(ctx, p)
+	if err != nil {
+		return llmconfig.Provider{}, err
 	}
-	return pr, nil
+	return pr, s.cache.Invalidate(ctx, providerKeys(pr.Code)...)
 }
 
 // DeleteProvider 按 key 删 provider，失效其 provider 键 + 列表键。
@@ -237,6 +233,10 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 	if err != nil {
 		return fwllm.ProviderSpec{}, err
 	}
+	if !p.Enabled {
+		// 停用 = 运维显式下线：与密钥缺失同属「未配置」，路由据此降级到相邻档。
+		return fwllm.ProviderSpec{}, fmt.Errorf("%w: provider %q 已停用", fwllm.ErrNotConfigured, p.Code)
+	}
 	apiKey, err := llmconfig.ResolveAPIKey(p, a.cipher)
 	if err != nil {
 		// 密钥来源缺失（密文与 env 皆空）是「未配置」而非故障：带框架哨兵上抛，
@@ -245,7 +245,9 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (f
 	}
 	return fwllm.ProviderSpec{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, Model: p.DefaultModel,
-		APIKey: apiKey, MaxTokens: p.MaxTokens, SupportsVision: p.SupportsVision,
+		APIKey: apiKey, AuthScheme: fwllm.AuthScheme(p.AuthScheme),
+		OutputLimitParam: fwllm.OutputLimitParam(p.OutputLimitParam),
+		MaxTokens:        p.MaxTokens, SupportsVision: p.SupportsVision,
 		ThinkingBudget: p.ThinkingBudgetTokens, ContextWindow: p.ContextWindow,
 	}, nil
 }

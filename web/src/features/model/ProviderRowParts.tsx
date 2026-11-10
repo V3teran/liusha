@@ -2,9 +2,9 @@ import { ChevronRight, Trash2 } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
-import { TYPE_LABEL, providerDisplayName } from './providerForm'
+import { TYPE_LABEL } from './providerForm'
 
-// 行头：标识键 + 协议 + 默认模型 + 状态；展开态 chevron 转下（下拉展开的隐喻）。
+// 行头：显示名称 + 协议 + 默认模型 + 状态；展开态 chevron 转下（下拉展开的隐喻）。
 export function RowHeader({
   p,
   expanded,
@@ -39,7 +39,7 @@ export function RowHeader({
           />
         )}
         <span className="min-w-0 truncate text-sm font-medium text-text">
-          {providerDisplayName(p)}
+          {p.display_name}
         </span>
         {expanded && dirtySelected && (
           <span
@@ -50,7 +50,7 @@ export function RowHeader({
         )}
       </span>
       <Badge variant="outline" className="flex-shrink-0">
-        {TYPE_LABEL[p.type]}
+        {p.type && TYPE_LABEL[p.type]}
       </Badge>
       <span className="max-w-36 flex-shrink truncate font-mono text-xs text-text-secondary">
         {p.default_model}

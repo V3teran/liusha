@@ -17,6 +17,11 @@
 package llmconfig
 
 import (
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/constants"
@@ -28,6 +33,28 @@ const (
 	ProviderTypeAnthropic    = "anthropic"
 )
 
+// 鉴权方式（与 llm_provider.auth_scheme CHECK、framework/llm.AuthScheme 一致）：
+// 密钥的携带方式，与协议正交，由连接诊断实测后记录。
+const (
+	AuthBearer  = "bearer"    // Authorization: Bearer <key>（OpenAI 兼容协议的标准方式）
+	AuthXAPIKey = "x-api-key" // x-api-key: <key>（Anthropic 协议的标准方式）
+)
+
+// DefaultAuthScheme 返回协议的标准鉴权方式。
+func DefaultAuthScheme(protocol string) string {
+	if protocol == ProviderTypeAnthropic {
+		return AuthXAPIKey
+	}
+	return AuthBearer
+}
+
+// 输出上限字段（与 llm_provider.output_limit_param CHECK、framework/llm.OutputLimitParam 一致）：
+// OpenAI 兼容协议下多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
+const (
+	OutputLimitMaxTokens           = "max_tokens"
+	OutputLimitMaxCompletionTokens = "max_completion_tokens"
+)
+
 // Provider 是一个 LLM provider 部署（连接参数 + 能力标志）。
 // 对应旧 config.ProviderConfig，但 SupportsVision/ContextWindow 落 DB 为 NOT NULL 非指针
 // （建表 CHECK + NOT NULL 已在 schema 层强制，无需 *bool/*int 区分「未填」）。
@@ -35,21 +62,23 @@ const (
 // API Key 双路径（migration 0103）：EncryptedAPIKey 非空时是当前事实源（前端直填 → 后端
 // AES-256-GCM 加密落库）；为空时回退 APIKeyEnv 指向的环境变量（旧数据兼容，见 ResolveAPIKey）。
 type Provider struct {
-	Code            string // 稳定引用标识（角色路由 FK 指向；列名 code）
-	Type            string
-	BaseURL         string
-	DefaultModel    string
-	APIKeyEnv       string // 旧模式：ENV 变量名；仅当 EncryptedAPIKey 为空时生效
-	EncryptedAPIKey []byte // AES-256-GCM 密文（nonce||ciphertext）；当前事实源
-	APIKeyLast4     string // 明文末 4 位（脱敏辨识用，非密钥值）；旧行或仅 ENV 回退时为空
-	MaxTokens       int
-	SupportsTools   bool
-	SupportsVision  bool
-	ContextWindow   int
-	DisplayName     string // 显示名称（昵称）：仅展示用、可随时改；空串回退 code
-	Description     string
-	SortOrder       int
-	Enabled         bool
+	Code             string // 稳定引用标识（角色路由 FK 指向；列名 code）
+	Type             string
+	BaseURL          string
+	DefaultModel     string
+	APIKeyEnv        string // 旧模式：ENV 变量名；仅当 EncryptedAPIKey 为空时生效
+	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；当前事实源
+	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）；旧行或仅 ENV 回退时为空
+	AuthScheme       string // 鉴权方式（AuthBearer / AuthXAPIKey）
+	OutputLimitParam string // 输出上限字段（OutputLimitMaxTokens / OutputLimitMaxCompletionTokens）
+	MaxTokens        int
+	SupportsTools    bool
+	SupportsVision   bool
+	ContextWindow    int
+	DisplayName      string // 显示名称：界面上唯一可读的标识（code 是 UUID）；必填、不区分大小写唯一，可随时改
+	Description      string
+	SortOrder        int
+	Enabled          bool
 	// ThinkingBudgetTokens 是扩展思考预算（anthropic thinking.budget_tokens）。
 	// >0 = 开启扩展思考；0 = 不开启。仅 anthropic 协议消费。
 	ThinkingBudgetTokens int64
@@ -57,10 +86,153 @@ type Provider struct {
 	UpdatedAt            time.Time
 }
 
-// HasStoredKey 报告该 provider 是否已有可用密钥来源（加密落库或 ENV 变量名），
-// 供前端「是否已设置」提示——绝不透出密钥值本身。
-func (p Provider) HasStoredKey() bool {
-	return len(p.EncryptedAPIKey) > 0 || p.APIKeyEnv != ""
+// HasKey 报告该 provider 当前能否解析出密钥：已加密落库，或 api_key_env 指向的
+// 环境变量在本进程有值（与 ResolveAPIKey 的判定同口径，只是不解密）。供前端
+// 「密钥是否就绪」提示——只填了变量名而变量为空时同样视为缺失，绝不透出密钥值本身。
+func (p Provider) HasKey() bool {
+	return len(p.EncryptedAPIKey) > 0 || (p.APIKeyEnv != "" && os.Getenv(p.APIKeyEnv) != "")
+}
+
+// ErrInvalid 标记不合法的 provider 配置；HTTP 层收敛为 400。
+var ErrInvalid = errors.New("llm 配置不合法")
+
+// classifiedError 是带分类哨兵的错误：Error() 只给作者写的中文原文（直接面向
+// 操作者），哨兵经 Unwrap 供 errors.Is 分类——分类信息不混进文案。
+type classifiedError struct {
+	msg  string
+	kind error
+}
+
+func (e *classifiedError) Error() string { return e.msg }
+func (e *classifiedError) Unwrap() error { return e.kind }
+
+// invalidf 构造归类为 ErrInvalid 的错误。
+func invalidf(format string, args ...any) error {
+	return &classifiedError{msg: fmt.Sprintf(format, args...), kind: ErrInvalid}
+}
+
+// conflictf 构造归类为 ErrConflict 的错误。
+func conflictf(format string, args ...any) error {
+	return &classifiedError{msg: fmt.Sprintf(format, args...), kind: ErrConflict}
+}
+
+// Normalize 把配置归一为规范形态（HTTP 写入、启动种子、落库共用，幂等）：Base URL 按
+// 协议规则归一（见 NormalizeBaseURL），鉴权方式缺省取协议标准方式，输出上限字段缺省
+// max_tokens（anthropic 协议恒为 max_tokens——该协议只有这一个字段）。
+func (p *ProviderParams) Normalize() {
+	p.BaseURL = NormalizeBaseURL(p.Type, p.BaseURL)
+	p.DefaultModel = strings.TrimSpace(p.DefaultModel)
+	p.DisplayName = strings.TrimSpace(p.DisplayName)
+	if p.AuthScheme == "" {
+		p.AuthScheme = DefaultAuthScheme(p.Type)
+	}
+	if p.OutputLimitParam == "" || p.Type == ProviderTypeAnthropic {
+		p.OutputLimitParam = OutputLimitMaxTokens
+	}
+}
+
+// operationSuffixes 是用户常把完整端点粘进 Base URL 时带上的操作路径——它们由 SDK
+// 自行拼接，任何协议下都不属于 Base URL。
+var operationSuffixes = []string{"/chat/completions", "/completions", "/messages", "/models"}
+
+// NormalizeBaseURL 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；
+// Anthropic 协议再去掉末尾的 /v1（SDK 自行拼 /v1/messages）。规则只由协议规范推出，
+// 与具体服务无关；无法解析的地址原样返回，交给 Validate 报错。
+func NormalizeBaseURL(protocol, raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return trimmed
+	}
+	path := strings.TrimRight(u.Path, "/")
+	for _, suffix := range operationSuffixes {
+		if strings.HasSuffix(strings.ToLower(path), suffix) {
+			path = path[:len(path)-len(suffix)]
+			break
+		}
+	}
+	if protocol == ProviderTypeAnthropic && strings.HasSuffix(strings.ToLower(path), "/v1") {
+		path = path[:len(path)-len("/v1")]
+	}
+	u.Path = strings.TrimRight(path, "/")
+	u.RawPath = ""
+	return u.String()
+}
+
+// Validate 校验 provider 配置——HTTP 写入与 store 落库共用的唯一口径：
+// 协议类型、绝对 http(s) Base URL、显示名称、默认模型、上下文窗口、输出上限，以及扩展思考
+// 预算的协议约束（仅 anthropic；开启时 ≥ MinThinkingBudgetTokens 且小于实际 max_tokens——
+// 运行期构造 client 时同样校验，不合法的部署会让整档不可用）。
+func (p ProviderParams) Validate() error {
+	switch p.Type {
+	case ProviderTypeOpenAICompat, ProviderTypeAnthropic:
+	default:
+		return invalidf("非法 provider 协议 %q（应为 openai_compat 或 anthropic）", p.Type)
+	}
+	if err := ValidateBaseURL(p.BaseURL); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.DisplayName) == "" {
+		return invalidf("显示名称不能为空")
+	}
+	if strings.TrimSpace(p.DefaultModel) == "" {
+		return invalidf("默认模型不能为空")
+	}
+	if p.ContextWindow <= 0 {
+		return invalidf("上下文窗口必须大于 0")
+	}
+	if p.AuthScheme != AuthBearer && p.AuthScheme != AuthXAPIKey {
+		return invalidf("非法鉴权方式 %q（应为 bearer 或 x-api-key）", p.AuthScheme)
+	}
+	if p.OutputLimitParam != OutputLimitMaxTokens && p.OutputLimitParam != OutputLimitMaxCompletionTokens {
+		return invalidf("非法输出上限字段 %q（应为 max_tokens 或 max_completion_tokens）", p.OutputLimitParam)
+	}
+	if p.MaxTokens < 0 {
+		return invalidf("单次最大输出 tokens 不能为负")
+	}
+	if p.ThinkingBudgetTokens < 0 {
+		return invalidf("扩展思考预算不能为负")
+	}
+	if p.ThinkingBudgetTokens > 0 {
+		if p.Type != ProviderTypeAnthropic {
+			return invalidf("扩展思考预算仅适用于 Anthropic 协议")
+		}
+		if p.ThinkingBudgetTokens < MinThinkingBudgetTokens {
+			return invalidf("扩展思考预算开启时至少 %d tokens", MinThinkingBudgetTokens)
+		}
+		if p.ThinkingBudgetTokens >= int64(p.EffectiveMaxTokens()) {
+			return invalidf("扩展思考预算（%d）必须小于单次最大输出 tokens（%d）", p.ThinkingBudgetTokens, p.EffectiveMaxTokens())
+		}
+	}
+	return nil
+}
+
+// ValidateBaseURL 校验 Base URL 是带主机名的绝对 http(s) 地址。
+func ValidateBaseURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return invalidf("Base URL 必须是 http(s) 开头的完整地址（如 https://api.example.com/v1）")
+	}
+	return nil
+}
+
+// ErrConflict 标记与既有状态冲突的写操作（code 已存在、无环境变量可回落时清除
+// 已存密钥等）；HTTP 层收敛为 409。
+var ErrConflict = errors.New("llm 配置冲突")
+
+// 扩展思考预算的协议约束（anthropic thinking.budget_tokens）：开启时至少 1024，
+// 且必须小于单次最大输出 tokens（max_tokens 为 0 时运行期按 4096 发送）。
+const (
+	MinThinkingBudgetTokens = 1024
+	DefaultMaxTokens        = 4096
+)
+
+// EffectiveMaxTokens 是运行期实际发送的单次最大输出 tokens（0 = 协议默认值）。
+func (p ProviderParams) EffectiveMaxTokens() int {
+	if p.MaxTokens > 0 {
+		return p.MaxTokens
+	}
+	return DefaultMaxTokens
 }
 
 // ProviderParams 是 Provider 的 upsert 入参（Key 是稳定引用键，Update 按 Key 定位）。
@@ -77,7 +249,9 @@ type ProviderParams struct {
 	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
-	DisplayName          string // 显示名称（昵称）：仅展示用；空串回退 code
+	AuthScheme           string // 鉴权方式；空 = 协议标准方式（Normalize 填充）
+	OutputLimitParam     string // 输出上限字段；空 = max_tokens（Normalize 填充；anthropic 恒为 max_tokens）
+	DisplayName          string // 显示名称：必填、不区分大小写唯一（见 Provider.DisplayName）
 	MaxTokens            int
 	SupportsTools        bool
 	SupportsVision       bool
@@ -114,6 +288,15 @@ const (
 	ComplexityMedium  = "medium"
 	ComplexityComplex = "complex"
 )
+
+// IsComplexity 判断 tier 是否是三档之一（路由只能绑定到这三档）。
+func IsComplexity(tier string) bool {
+	switch tier {
+	case ComplexitySimple, ComplexityMedium, ComplexityComplex:
+		return true
+	}
+	return false
+}
 
 // agentComplexityTable 是 role → complexity 的**代码内置兜底表**（DB 未配 complexity 的 role 落此）。
 // 未在表中的 role 落 ComplexityMedium（隐式默认档，见 AgentComplexity）。

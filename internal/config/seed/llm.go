@@ -81,6 +81,8 @@ func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Sto
 			BaseURL:              p.BaseURL,
 			DefaultModel:         p.DefaultModel,
 			APIKeyEnv:            p.APIKeyEnv,
+			AuthScheme:           p.AuthScheme,
+			OutputLimitParam:     p.OutputLimitParam,
 			MaxTokens:            p.MaxTokens,
 			SupportsTools:        p.SupportsTools,
 			SupportsVision:       supportsVision,

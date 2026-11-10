@@ -81,10 +81,17 @@ llm:
 # 仅供空库首次种子导入（insert-only，见上方 llm: 段说明）；DB 是事实源，改模型走前端「LLM 配置」页。
 # providers: 接入哪些大模型服务、用什么 key、哪个模型——在这里声明。
 # 可声明多个块；llm.complexity_routes 把任务档位（simple/medium/complex）指到块名。
-# 每块字段：
-#   type          协议：openai_compat（OpenAI 兼容接口）或 anthropic
-#   base_url      服务地址；default_model  模型名——都向服务方照抄
+# 每块字段（只认协议，官方、各家兼容端点、中转网关都按所用协议接入）：
+#   type          协议：openai_compat（Chat Completions）或 anthropic（Messages）
+#   base_url      服务地址：openai_compat 含版本段（…/v1），anthropic 不含 /v1；
+#                 误粘完整端点（…/chat/completions、…/v1/messages）会按协议自动归一
+#   default_model 模型名，向服务方照抄
 #   api_key_env   密钥的环境变量名（名字自取）；.env 放同名条目。值为空的块不导入（可启动，后到前端补）
+#   auth_scheme   可选，密钥携带方式：bearer 或 x-api-key；缺省取协议标准方式
+#                 （openai_compat → bearer，anthropic → x-api-key），网关只认另一种时显式填写
+#   output_limit_param 可选，openai_compat 声明输出上限的字段：max_tokens（缺省）或
+#                 max_completion_tokens；运行期遇上游明确拒绝也会自动切换
+# 启动后可在前端「LLM 配置」页对任一 provider 运行连接诊断，自动识别以上细节。
 # 示例：两块并存，simple 档用便宜的那家（取消注释并填好 .env 即生效）：
 #   budget:
 #     type: openai_compat

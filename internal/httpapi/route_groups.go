@@ -146,22 +146,21 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 
 	// 保存路径必须能加密明文 API Key 才开
 	if d.KeyEncrypter != nil {
-		r.POST("/models/providers", saveProviderHandler(d.Models, d.KeyEncrypter))
-		r.PUT("/models/providers/:code", saveProviderHandler(d.Models, d.KeyEncrypter))
+		r.POST("/models/providers", createProviderHandler(d.Models, d.KeyEncrypter))
+		r.PUT("/models/providers/:code", updateProviderHandler(d.Models, d.KeyEncrypter))
 	}
 
 	r.DELETE("/models/providers/:code", deleteProviderHandler(d.Models))
 	r.DELETE("/models/providers/:code/key", clearProviderKeyHandler(d.Models))
 
-	// 角色路由
+	// 档位路由
 	r.GET("/models/routing", listRoutingHandler(d.Models))
 	r.PUT("/models/routes/:role", saveRoleRouteHandler(d.Models))
 	r.DELETE("/models/routes/:role", deleteRoleRouteHandler(d.Models))
 
-	// 实连探测
-	if d.ProviderTester != nil {
-		r.POST("/models/providers/test", testProviderHandler(d.ProviderTester))
-		r.POST("/models/providers/list-models", listProviderModelsHandler(d.ProviderTester))
+	// 连接诊断（实测，不落库）
+	if d.ProviderDiagnoser != nil {
+		r.POST("/models/providers/diagnose", diagnoseProviderHandler(d.ProviderDiagnoser))
 	}
 }
 

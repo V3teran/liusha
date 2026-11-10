@@ -11,10 +11,12 @@ import (
 // OpenAICompatConfig 描述一个 OpenAI 兼容 provider 的连接参数。
 // 密钥不在此结构——底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
 type OpenAICompatConfig struct {
-	BaseURL        string // 如 https://api.deepseek.com/v1 ；空 = OpenAI 官方
-	Model          string // 如 deepseek-chat、qwen3-max
-	MaxTokens      int    // 0 = 走 provider 默认
-	SupportsVision bool   // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
+	BaseURL        string // 如 https://api.example.com/v1 ；空 = OpenAI 官方
+	Model          string
+	MaxTokens      int  // 0 = 走 provider 默认
+	SupportsVision bool // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
+	// OutputLimitParam 是输出上限字段的初值（空 = max_tokens）；上游明确拒绝时自适应切换。
+	OutputLimitParam OutputLimitParam
 }
 
 // openAICompatGen 实现 Generator，跨 OpenAI 协议族复用同一份逻辑。
@@ -26,8 +28,12 @@ type openAICompatGen struct {
 	model          string
 	maxTokens      int
 	provider       string
-	supportsVision bool // 透传自 OpenAICompatConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
+	supportsVision bool           // 透传自 OpenAICompatConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
+	compat         *requestCompat // 可选请求字段的兼容结论（运行期自适应）
 }
+
+// maxCompatRetries 是同一请求因字段被拒而改写重发的上限（输出上限字段、温度各一次）。
+const maxCompatRetries = 2
 
 // NewOpenAICompat 构造无状态 Generator。
 //
@@ -46,8 +52,12 @@ func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig
 		maxTokens:      c.MaxTokens,
 		provider:       providerKey,
 		supportsVision: c.SupportsVision,
+		compat:         newRequestCompat(c.OutputLimitParam),
 	}, nil
 }
+
+// OutputLimitParam 返回生成器当前生效的输出上限字段（运行期自适应后的结论）。
+func (g *openAICompatGen) OutputLimitParam() OutputLimitParam { return g.compat.outputLimitParam() }
 
 // Provider / Model 满足 Generator。
 func (g *openAICompatGen) Provider() string { return g.provider }
@@ -82,27 +92,30 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 		Model:    g.model,
 		Messages: openaiMsgs,
 	}
-	if g.maxTokens > 0 {
-		req.MaxTokens = g.maxTokens
-	}
+	limit := g.maxTokens
 	if opts.MaxTokens > 0 {
-		req.MaxTokens = opts.MaxTokens
+		limit = opts.MaxTokens
 	}
 	if len(openaiTools) > 0 {
 		req.Tools = openaiTools
 	}
-	if opts.Temperature != nil {
-		req.Temperature = float32(*opts.Temperature)
-	}
 
-	resp, err := g.client.CreateChatCompletion(ctx, req)
+	var resp openai.ChatCompletionResponse
+	for attempt := 0; ; attempt++ {
+		g.compat.apply(&req, limit, opts.Temperature)
+		resp, err = g.client.CreateChatCompletion(ctx, req)
+		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err) {
+			continue // 上游明确拒绝了某个可选字段：按新结论改写后重发
+		}
+		break
+	}
 	if err != nil {
 		// 增强错误信息：消息数量 + roles 形状摘要，便于远程排障（4xx 多为序列形状问题）
 		return Result{}, fmt.Errorf("openai-compat generate (provider=%s, model=%s, msg_count=%d, tool_count=%d, shape=%s): %w",
 			g.provider, g.model, len(openaiMsgs), len(openaiTools), messageShape(openaiMsgs), wrapOpenAICompatErr(err))
 	}
 	if len(resp.Choices) == 0 {
-		return Result{}, fmt.Errorf("openai-compat generate: 0 choices returned")
+		return Result{}, fmt.Errorf("openai-compat generate（provider=%s, model=%s）: 0 choices: %w", g.provider, g.model, ErrUnexpectedResponse)
 	}
 	return fromOpenAIResponse(resp, g.provider, g.model), nil
 }

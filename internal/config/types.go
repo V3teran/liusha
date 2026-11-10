@@ -106,12 +106,18 @@ type InvocationConfig struct {
 //	  "anthropic"     走 Anthropic 原生 /v1/messages；
 //	  ""              缺省值，seed 首填时补为 openai_compat（DB 约束只收上述两种取值）。
 type ProviderConfig struct {
-	Type          string `mapstructure:"type"`
-	BaseURL       string `mapstructure:"base_url"`
-	DefaultModel  string `mapstructure:"default_model"`
-	APIKeyEnv     string `mapstructure:"api_key_env"`
-	MaxTokens     int    `mapstructure:"max_tokens"`
-	SupportsTools bool   `mapstructure:"supports_tools"`
+	Type         string `mapstructure:"type"`
+	BaseURL      string `mapstructure:"base_url"`
+	DefaultModel string `mapstructure:"default_model"`
+	APIKeyEnv    string `mapstructure:"api_key_env"`
+	// AuthScheme 是密钥的携带方式（bearer / x-api-key）；缺省取协议标准方式
+	// （openai_compat → bearer，anthropic → x-api-key）。中转网关只认另一种时显式填写。
+	AuthScheme string `mapstructure:"auth_scheme"`
+	// OutputLimitParam 是 OpenAI 兼容协议声明输出上限的字段（max_tokens /
+	// max_completion_tokens）；缺省 max_tokens，运行期遇上游明确拒绝会自适应切换。
+	OutputLimitParam string `mapstructure:"output_limit_param"`
+	MaxTokens        int    `mapstructure:"max_tokens"`
+	SupportsTools    bool   `mapstructure:"supports_tools"`
 	// SupportsVision 用 *bool 区分"未填"（nil）与"显式 false"——validate 强制 yaml 必填，
 	// 避免 caller 不知道 provider 能不能 vision 时拿默认值踩坑（例如 deepseek 不支持 vision
 	// 却收到含图 message → 服务端 400）。yaml `supports_vision: true/false` 都合法，留空启动报错。

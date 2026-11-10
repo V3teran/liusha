@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -27,8 +28,12 @@ type fakeModel struct {
 	savedRoute    *llmconfig.RoleRoute
 	deleted       []string // 记录被删的 key/role
 
-	fkOn   map[string]bool // 方法名 → 是否返回 FK 违反
-	getErr error
+	fkOn          map[string]bool // 方法名 → 是否返回 FK 违反
+	getErr        error
+	updateMissing bool  // UpdateProvider 模拟目标不存在
+	deleteMissing bool  // DeleteProvider 模拟目标不存在
+	clearErr      error // ClearProviderKey 的返回错误
+	routeErr      error // UpsertRoleRoute 的返回错误
 }
 
 func fkErr() error { return &pgconn.PgError{Code: "23503", Message: "FK violation"} }
@@ -56,26 +61,44 @@ func (f *fakeModel) ProviderByCode(_ context.Context, key string) (llmconfig.Pro
 	}
 	return llmconfig.Provider{}, pgxErrNoRows()
 }
-func (f *fakeModel) SaveProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+func (f *fakeModel) CreateProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	for _, existing := range f.providers {
+		if existing.Code == p.Code {
+			return llmconfig.Provider{}, fmt.Errorf("provider %q 已存在: %w", p.Code, llmconfig.ErrConflict)
+		}
+	}
 	f.savedProvider = &p
+	return providerFromParams(p), nil
+}
+func (f *fakeModel) UpdateProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
+	if f.updateMissing {
+		return llmconfig.Provider{}, fmt.Errorf("update provider %q: %w", p.Code, pgxErrNoRows())
+	}
+	f.savedProvider = &p
+	return providerFromParams(p), nil
+}
+func providerFromParams(p llmconfig.ProviderParams) llmconfig.Provider {
 	return llmconfig.Provider{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
-		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, SupportsTools: p.SupportsTools,
-		SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
+		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, ThinkingBudgetTokens: p.ThinkingBudgetTokens,
+		SupportsTools: p.SupportsTools, SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
 		Description: p.Description, SortOrder: p.SortOrder, Enabled: p.Enabled,
-	}, nil
+	}
 }
 func (f *fakeModel) DeleteProvider(_ context.Context, key string) error {
 	if f.fkOn["delete_provider"] {
 		return fkErr()
+	}
+	if f.deleteMissing {
+		return fmt.Errorf("delete provider %q: %w", key, pgxErrNoRows())
 	}
 	f.deleted = append(f.deleted, key)
 	return nil
 }
 
 func (f *fakeModel) ClearProviderKey(_ context.Context, code string) (llmconfig.Provider, error) {
-	if f.fkOn["clear_provider_key"] {
-		return llmconfig.Provider{}, fmt.Errorf("clear encrypted key %q: 不存在", code)
+	if f.clearErr != nil {
+		return llmconfig.Provider{}, f.clearErr
 	}
 	f.deleted = append(f.deleted, "key:"+code)
 	return llmconfig.Provider{Code: code, APIKeyEnv: "GLM_API_KEY"}, nil
@@ -86,6 +109,9 @@ func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmconfig.RoleRoute, er
 func (f *fakeModel) UpsertRoleRoute(_ context.Context, role, providerCode string) (llmconfig.RoleRoute, error) {
 	if f.fkOn["upsert_route"] {
 		return llmconfig.RoleRoute{}, fkErr()
+	}
+	if f.routeErr != nil {
+		return llmconfig.RoleRoute{}, f.routeErr
 	}
 	rr := llmconfig.RoleRoute{Role: role, ProviderCode: providerCode}
 	f.savedRoute = &rr
@@ -152,10 +178,16 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"type 非法", map[string]any{"code": "k", "type": "foo", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"缺 base_url", map[string]any{"code": "k", "type": "openai_compat", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"新建缺 api_key", map[string]any{"code": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "context_window": 1}},
-		{"context_window<=0", map[string]any{"code": "k", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 0}},
+		{"缺显示名称", map[string]any{"type": "openai_compat", "base_url": "https://x", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"type 非法", map[string]any{"type": "foo", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"缺 base_url", map[string]any{"type": "openai_compat", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"base_url 非完整地址", map[string]any{"type": "openai_compat", "base_url": "u", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"新建缺 api_key", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}},
+		{"context_window<=0", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 0}},
+		{"思考预算用于非 anthropic", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
+		{"思考预算过小", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
+		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
+		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 4096}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -170,7 +202,7 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 	}
 }
 
-// TestSaveProvider_WiresParams：合法 POST → SaveProvider 收到加密后的密文（非明文）。
+// TestSaveProvider_WiresParams：合法 POST → CreateProvider 收到加密后的密文（非明文）与思考预算。
 func TestSaveProvider_WiresParams(t *testing.T) {
 	fm := &fakeModel{}
 	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
@@ -178,16 +210,16 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
 		"code": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
-		"default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
-		"supports_vision": true, "enabled": true,
+		"display_name": "n", "default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
+		"supports_vision": true, "enabled": true, "max_tokens": 8192, "thinking_budget_tokens": 4096,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
 	if fm.savedProvider == nil {
-		t.Fatal("SaveProvider 未被调用")
+		t.Fatal("CreateProvider 未被调用")
 	}
-	if fm.savedProvider.Code != "anthropic" || !fm.savedProvider.SupportsVision {
+	if fm.savedProvider.Code != "anthropic" || !fm.savedProvider.SupportsVision || fm.savedProvider.ThinkingBudgetTokens != 4096 {
 		t.Fatalf("参数未透传: %+v", fm.savedProvider)
 	}
 	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
@@ -202,14 +234,14 @@ func TestSaveProvider_GeneratesCode(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"type": "openai_compat", "base_url": "https://x", "default_model": "m",
+		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m",
 		"api_key": "k", "context_window": 1,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
 	if fm.savedProvider == nil {
-		t.Fatal("SaveProvider 未被调用")
+		t.Fatal("CreateProvider 未被调用")
 	}
 	if len(fm.savedProvider.Code) < 32 {
 		t.Fatalf("code 应为服务端生成的 UUID: %q", fm.savedProvider.Code)
@@ -223,13 +255,13 @@ func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/providers/deepseek", map[string]any{
-		"code": "deepseek", "type": "openai_compat", "base_url": "https://api.deepseek.com",
-		"default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
+		"type": "openai_compat", "base_url": "https://api.deepseek.com",
+		"display_name": "n", "default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fm.savedProvider == nil || !fm.savedProvider.KeepExistingKey {
+	if fm.savedProvider == nil || !fm.savedProvider.KeepExistingKey || fm.savedProvider.Code != "deepseek" {
 		t.Fatalf("未重填 api_key 应设 KeepExistingKey: %+v", fm.savedProvider)
 	}
 }
@@ -241,7 +273,7 @@ func TestSaveProvider_NoEncrypterMeansRouteNotRegistered(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"code": "x", "type": "openai_compat", "base_url": "u", "default_model": "m", "api_key": "k", "context_window": 1,
+		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1,
 	})
 	if code != 404 {
 		t.Fatalf("缺加密器时写路径应不注册（404），got %d", code)
@@ -292,7 +324,7 @@ func TestSaveRoleRoute_FKConflict(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{"provider_code": "ghost"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/complex", map[string]any{"provider_code": "ghost"})
 	if code != 409 {
 		t.Fatalf("want 409, got %d", code)
 	}
@@ -304,11 +336,11 @@ func TestSaveRoleRoute_Wires(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{"provider_code": "deepseek"})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/complex", map[string]any{"provider_code": "deepseek"})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if fm.savedRoute == nil || fm.savedRoute.Role != "planner" || fm.savedRoute.ProviderCode != "deepseek" {
+	if fm.savedRoute == nil || fm.savedRoute.Role != "complex" || fm.savedRoute.ProviderCode != "deepseek" {
 		t.Fatalf("路由未透传: %+v", fm.savedRoute)
 	}
 }
@@ -318,7 +350,7 @@ func TestSaveRoleRoute_MissingProviderKey(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/planner", map[string]any{})
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/complex", map[string]any{})
 	if code != 400 {
 		t.Fatalf("want 400, got %d", code)
 	}
@@ -330,12 +362,108 @@ func TestDeleteRoleRoute_OK(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/routes/planner", nil)
+	code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/routes/complex", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if len(fm.deleted) != 1 || fm.deleted[0] != "planner" {
+	if len(fm.deleted) != 1 || fm.deleted[0] != "complex" {
 		t.Fatalf("未记录删除: %v", fm.deleted)
+	}
+}
+
+// TestProviderWriteSemantics：POST 只新建（重复 code → 409）；PUT 只改路径指向的
+// provider（不存在 → 404、请求体 code 与路径不一致 → 400）。
+func TestProviderWriteSemantics(t *testing.T) {
+	valid := map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range valid {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	cases := []struct {
+		name   string
+		fm     *fakeModel
+		method string
+		path   string
+		body   map[string]any
+		want   int
+	}{
+		{"POST 重复 code", &fakeModel{providers: []llmconfig.Provider{{Code: "dup"}}}, "POST", "/api/models/providers", with(map[string]any{"code": "dup", "api_key": "k"}), 409},
+		{"PUT 不存在", &fakeModel{updateMissing: true}, "PUT", "/api/models/providers/ghost", valid, 404},
+		{"PUT 体内 code 与路径不一致", &fakeModel{}, "PUT", "/api/models/providers/a", with(map[string]any{"code": "b"}), 400},
+		{"PUT 只带路径 code", &fakeModel{}, "PUT", "/api/models/providers/a", valid, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer(t, Deps{Models: tc.fm, KeyEncrypter: fakeEncrypter{}})
+			defer srv.Close()
+			code, body := doJSON(t, tc.method, srv.URL+tc.path, tc.body)
+			if code != tc.want {
+				t.Fatalf("want %d, got %d (%v)", tc.want, code, body)
+			}
+		})
+	}
+}
+
+// TestProviderNotFoundAndConflict：读/删/清密钥的「不存在」统一 404 中文；无环境变量
+// 可回落时清除密钥 → 409。
+func TestProviderNotFoundAndConflict(t *testing.T) {
+	cases := []struct {
+		name   string
+		fm     *fakeModel
+		method string
+		path   string
+		want   int
+	}{
+		{"GET 不存在", &fakeModel{}, "GET", "/api/models/providers/ghost", 404},
+		{"DELETE 不存在", &fakeModel{deleteMissing: true}, "DELETE", "/api/models/providers/ghost", 404},
+		{"清密钥 不存在", &fakeModel{clearErr: fmt.Errorf("get provider: %w", pgxErrNoRows())}, "DELETE", "/api/models/providers/ghost/key", 404},
+		{"清密钥 无环境变量", &fakeModel{clearErr: fmt.Errorf("无可回落的来源: %w", llmconfig.ErrConflict)}, "DELETE", "/api/models/providers/a/key", 409},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer(t, Deps{Models: tc.fm})
+			defer srv.Close()
+			code, body := doJSON(t, tc.method, srv.URL+tc.path, nil)
+			if code != tc.want {
+				t.Fatalf("want %d, got %d (%v)", tc.want, code, body)
+			}
+			if msg, _ := body["error"].(string); msg == "" || strings.Contains(msg, "no rows") {
+				t.Fatalf("错误消息应为中文且不外透驱动原文: %v", body)
+			}
+		})
+	}
+}
+
+// TestSaveRoleRoute_InvalidTier：档名不是三档之一 → 400（store 校验经 respondErr 收敛）。
+func TestSaveRoleRoute_InvalidTier(t *testing.T) {
+	fm := &fakeModel{routeErr: fmt.Errorf("非法档位: %w", llmconfig.ErrInvalid)}
+	srv := newTestServer(t, Deps{Models: fm})
+	defer srv.Close()
+
+	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/routes/whatever", map[string]any{"provider_code": "deepseek"})
+	if code != 400 {
+		t.Fatalf("want 400, got %d", code)
+	}
+}
+
+// TestProviderJSON_KeyPresentFollowsResolvability：key_present 反映能否真正解析出密钥——
+// 只填了环境变量名而变量为空时为 false；思考预算随响应返回。
+func TestProviderJSON_KeyPresentFollowsResolvability(t *testing.T) {
+	t.Setenv("LIUSHA_TEST_EMPTY_KEY", "")
+	t.Setenv("LIUSHA_TEST_SET_KEY", "sk-x")
+	got := providerJSON(llmconfig.Provider{APIKeyEnv: "LIUSHA_TEST_EMPTY_KEY"})
+	if got["key_present"] != false {
+		t.Fatalf("环境变量为空应 key_present=false: %v", got)
+	}
+	got = providerJSON(llmconfig.Provider{APIKeyEnv: "LIUSHA_TEST_SET_KEY", ThinkingBudgetTokens: 2048})
+	if got["key_present"] != true || got["thinking_budget_tokens"] != int64(2048) {
+		t.Fatalf("环境变量有值应 key_present=true 且带思考预算: %v", got)
 	}
 }
 

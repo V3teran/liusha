@@ -9,8 +9,9 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// prepareOpenAICompatRequest 准备 OpenAI 兼容请求参数
-func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string, maxTokens, defaultMaxTokens int, supportsVision bool) (openai.ChatCompletionRequest, error) {
+// prepareOpenAICompatRequest 准备 OpenAI 兼容流式请求的消息与工具（输出上限与温度
+// 由调用方经 requestCompat 写入——字段名随兼容结论而定）。
+func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string, supportsVision bool) (openai.ChatCompletionRequest, error) {
 	openaiMsgs, err := toOpenAIMessages(msgs, supportsVision)
 	if err != nil {
 		return openai.ChatCompletionRequest{}, fmt.Errorf("convert messages: %w", err)
@@ -28,15 +29,6 @@ func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string
 	if len(openaiTools) > 0 {
 		creq.Tools = openaiTools
 	}
-
-	mt := defaultMaxTokens
-	if maxTokens > 0 {
-		mt = maxTokens
-	}
-	if mt > 0 {
-		creq.MaxTokens = mt
-	}
-
 	return creq, nil
 }
 

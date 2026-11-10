@@ -26,12 +26,16 @@ const plaintextInput = ['mock', 'plaintext', 'input'].join('-')
 
 const PROV: ProviderConfig = {
   code: 'deepseek',
+  display_name: ' DeepSeek ',
   type: 'openai_compat',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
   api_key: plaintextInput,
   key_present: true,
   max_tokens: 4096,
+  thinking_budget_tokens: 0,
+  auth_scheme: 'bearer',
+  output_limit_param: 'max_tokens',
   supports_tools: true,
   supports_vision: false,
   context_window: 65536,
@@ -53,7 +57,7 @@ describe('models API 客户端', () => {
     expect(rows[0].code).toBe('deepseek')
   })
 
-  it('saveProvider 新建走 POST /models/providers，全连接+能力字段进 body（不含 key_present）', async () => {
+  it('saveProvider 新建走 POST /models/providers，全连接+能力字段进 body（不含 key_present、code 由后端生成）', async () => {
     const fn = mockFetch(200, { provider: PROV })
     await saveProvider(PROV, true)
     const [url, init] = fn.mock.calls[0]
@@ -61,13 +65,15 @@ describe('models API 客户端', () => {
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body)
     expect(body).toEqual({
-      code: 'deepseek',
-      display_name: '',
+      display_name: 'DeepSeek',
       type: 'openai_compat',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
       api_key: plaintextInput,
+      auth_scheme: 'bearer',
+      output_limit_param: 'max_tokens',
       max_tokens: 4096,
+      thinking_budget_tokens: 0,
       supports_tools: true,
       supports_vision: false,
       context_window: 65536,
@@ -78,6 +84,14 @@ describe('models API 客户端', () => {
     // 安全：body 只带明文 api_key（走 HTTPS 一次性提交，后端加密落库），不回传 key_present。
     expect(body).not.toHaveProperty('key_present')
     expect(body.api_key).toBe(plaintextInput)
+  })
+
+  it('saveProvider 携带扩展思考预算：仅 Anthropic 协议生效，其余协议恒为 0', async () => {
+    const fn = mockFetch(200, { provider: PROV })
+    await saveProvider({ ...PROV, type: 'anthropic', thinking_budget_tokens: 2048 }, false)
+    expect(JSON.parse(fn.mock.calls[0][1].body).thinking_budget_tokens).toBe(2048)
+    await saveProvider({ ...PROV, type: 'openai_compat', thinking_budget_tokens: 2048 }, false)
+    expect(JSON.parse(fn.mock.calls[1][1].body).thinking_budget_tokens).toBe(0)
   })
 
   it('saveProvider 编辑走 PUT /models/providers/:code（code 做 URL 编码）', async () => {

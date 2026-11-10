@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { ApiError, get, post } from './client'
+import { ApiError, errorText, get, post } from './client'
 
 // fetch 污染治理：本文件多处替换 globalThis.fetch（甚至置 undefined）——泄漏会让
 // 同一次全量运行中排在本文件之后的页面测试全部打到残留 mock 上。每个用例后
@@ -130,5 +130,16 @@ describe('API 客户端内核', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(404)
     expect((err as ApiError).message).toBe('GET 404: 资源不存在')
+  })
+})
+
+describe('errorText', () => {
+  it('后端给了中文原因时只展示原因，不带方法与状态码', () => {
+    expect(errorText(new ApiError('POST', 502, '鉴权失败'), '兜底')).toBe('鉴权失败')
+  })
+  it('无原因时回退完整 message；非 Error 回退兜底文案', () => {
+    expect(errorText(new ApiError('GET', 500), '兜底')).toBe('GET 500')
+    expect(errorText(new Error('网络断开'), '兜底')).toBe('网络断开')
+    expect(errorText('x', '兜底')).toBe('兜底')
   })
 })

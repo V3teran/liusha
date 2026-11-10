@@ -21,12 +21,12 @@ func TestProviderCodeRoundtrip(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	s := New(pool, cachestore.New(rdb, 0))
 
-	if _, err := s.SaveProvider(context.Background(), llmconfig.ProviderParams{
-		Code: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com",
+	if _, err := s.CreateProvider(context.Background(), llmconfig.ProviderParams{
+		Code: "deepseek", DisplayName: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com",
 		DefaultModel: "deepseek-chat", MaxTokens: 4096, SupportsTools: true,
 		ContextWindow: 64000,
 	}); err != nil {
-		t.Fatalf("save provider: %v", err)
+		t.Fatalf("create provider: %v", err)
 	}
 
 	got, err := s.ProviderByCode(context.Background(), "deepseek")
@@ -37,7 +37,7 @@ func TestProviderCodeRoundtrip(t *testing.T) {
 		t.Fatalf("provider = %+v", got)
 	}
 
-	if _, err := s.UpsertRoleRoute(context.Background(), "planner", "deepseek"); err != nil {
+	if _, err := s.UpsertRoleRoute(context.Background(), llmconfig.ComplexityComplex, "deepseek"); err != nil {
 		t.Fatalf("upsert role route: %v", err)
 	}
 	routes, err := s.ListRoleRoutes(context.Background())
