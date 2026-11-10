@@ -115,7 +115,7 @@ describe('ConversationDetail', () => {
     expect(screen.queryByText('agent 工作中…')).toBeNull()
   })
 
-  it('点击暂停任务调用任务控制端点（pause）', async () => {
+  it('点击暂停任务直接调用任务控制端点（可逆，无确认弹层）', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
     render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
@@ -123,13 +123,32 @@ describe('ConversationDetail', () => {
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'pause'))
   })
 
-  it('点击停止任务（确认后）调用任务控制端点（terminate）', async () => {
+  it('暂停中点切换钮直接调用任务控制端点（resume）', async () => {
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active', paused: true }))
+    vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByRole('button', { name: '继续任务' })).click()
+    await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'resume'))
+  })
+
+  it('点击停止任务经确认弹层后调用任务控制端点（terminate）', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
     ;(await screen.findByRole('button', { name: '停止任务' })).click()
+    expect(tasksClient.controlTask).not.toHaveBeenCalled()
+    ;(await screen.findByRole('button', { name: '确认停止' })).click()
     await waitFor(() => expect(tasksClient.controlTask).toHaveBeenCalledWith('o1', 'terminate'))
+  })
+
+  it('停止任务在确认弹层取消时不调用端点', async () => {
+    vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
+    vi.mocked(tasksClient.controlTask).mockResolvedValue(undefined)
+    render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
+    ;(await screen.findByRole('button', { name: '停止任务' })).click()
+    ;(await screen.findByRole('button', { name: '取消' })).click()
+    await waitFor(() => expect(screen.queryByRole('button', { name: '确认停止' })).toBeNull())
+    expect(tasksClient.controlTask).not.toHaveBeenCalled()
   })
 
   it('运行态翻转触发 onRunningChanged 回调', async () => {

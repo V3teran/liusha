@@ -468,8 +468,7 @@ func (s *Service) PauseTask(ctx context.Context, taskID string) error {
 		return nil
 	}
 	if convID, rErr := s.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil && convID != "" {
-		s.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused,
-			"扫描已暂停（进度保留）", map[string]any{"reason": "在任务页手动暂停"})
+		s.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused, "扫描已暂停（进度保留）", nil)
 	}
 	return nil
 }
@@ -530,8 +529,7 @@ func (s *Service) TerminateTask(ctx context.Context, taskID string) error {
 		return err
 	}
 	if convID, err := s.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
-		s.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted,
-			"扫描已停止", map[string]any{"reason": "在任务页手动停止"})
+		s.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted, "扫描已停止", nil)
 	}
 	return nil
 }
@@ -555,8 +553,7 @@ func (s *Service) AbortConversationTask(ctx context.Context, conversationID stri
 	if err := s.Tasks.Abort(ctx, fetched.TaskID, "用户在对话页手动停止"); err != nil {
 		return err
 	}
-	s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusAborted,
-		"扫描已停止", map[string]any{"reason": "在对话页手动停止"})
+	s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusAborted, "扫描已停止", nil)
 	return nil
 }
 
