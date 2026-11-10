@@ -53,6 +53,12 @@ type GraphStore interface {
 	// edges 中的边引用该节点或图中已存在的节点。
 	CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error
 
+	// ApplyChangeSet 在单个事务内应用变更集：先建节点，再逐条执行条件状态迁移，
+	// 然后合并元数据批注，最后建边。任一迁移的前置状态不成立、或一次性批注的
+	// 键已存在，返回 ErrGraphStateConflict；批注的节点不存在返回 ErrGraphNodeNotFound；任一写入
+	// 失败返回对应错误——各种情况都整体回滚，图上不留部分生效的变更。
+	ApplyChangeSet(ctx context.Context, changes GraphChangeSet) error
+
 	// ========================================
 	// 边操作
 	// ========================================
@@ -115,12 +121,62 @@ type GraphEdge struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// GraphChangeSet 是一组必须整体生效的图写入：同一个决策产生的新节点、
+// 节点的状态迁移与元数据批注，以及连接它们的边。迁移、批注与边都可以作用于
+// 本变更集的新节点（新节点最先生效）。
+type GraphChangeSet struct {
+	// Nodes 是要新建的节点
+	Nodes []*GraphNode
+
+	// Transitions 是条件状态迁移（CAS 语义）
+	Transitions []GraphStateTransition
+
+	// Annotations 是元数据批注（浅合并：给出的键覆盖，其余键保留）
+	Annotations []GraphNodeAnnotation
+
+	// Edges 是要新建的边（可引用本变更集的新节点或图中既有节点）
+	Edges []*GraphEdge
+}
+
+// GraphStateTransition 是一条条件状态迁移：节点当前状态为 From 时迁到 To。
+type GraphStateTransition struct {
+	// TaskID 是节点所属任务（迁移按任务隔离，必填）
+	TaskID string
+
+	// NodeID 是被迁移的节点
+	NodeID string
+
+	// From 是前置状态
+	From string
+
+	// To 是目标状态
+	To string
+}
+
+// GraphNodeAnnotation 是对节点元数据的一次浅合并写入。
+type GraphNodeAnnotation struct {
+	// TaskID 是节点所属任务（批注按任务隔离，必填）
+	TaskID string
+
+	// NodeID 是被批注的节点
+	NodeID string
+
+	// Metadata 是要合并的键值（覆盖同名键，不触碰其余键）
+	Metadata map[string]interface{}
+
+	// Once 为真时批注是一次性的：Metadata 中任一键在节点上已存在，即视为前置
+	// 不成立（ErrGraphStateConflict）。用于「消费即标记」的水位——并发的两个
+	// 消费者只有一个能提交，另一个整体回滚。
+	Once bool
+}
+
 // GraphNodeUpdate 是节点的部分更新。
 type GraphNodeUpdate struct {
 	// Content 更新业务数据（nil 表示不更新）
 	Content json.RawMessage `json:"content,omitempty"`
 
-	// Metadata 更新元数据（nil 表示不更新，空 map 表示清空）
+	// Metadata 浅合并进元数据（nil 表示不更新；给出的键覆盖，其余键保留——
+	// 元数据承载 task_id/source_type 等身份字段，整体替换会抹掉它们）
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 
 	// State 更新状态（空字符串表示不更新）
@@ -184,4 +240,7 @@ var (
 
 	// ErrGraphInvalidQuery 查询条件无效
 	ErrGraphInvalidQuery = errors.New("invalid graph query")
+
+	// ErrGraphStateConflict 状态迁移的前置状态不成立（节点已被并发流转或不存在）
+	ErrGraphStateConflict = errors.New("graph state conflict")
 )

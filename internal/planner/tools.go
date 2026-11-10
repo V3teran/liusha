@@ -129,7 +129,11 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	// 目标
 	output += fmt.Sprintf("### 目标 (%d)\n", len(objectives))
 	for _, obj := range objectives {
-		output += fmt.Sprintf("- %s\n", string(obj.Content))
+		state := "无状态"
+		if obj.State != nil {
+			state = string(*obj.State)
+		}
+		output += fmt.Sprintf("- [%s] %s\n", state, string(obj.Content))
 	}
 	output += "\n"
 

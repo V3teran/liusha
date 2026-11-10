@@ -124,6 +124,12 @@ function GraphCanvasInner({
           </span>
           <span className="flex items-center gap-1.5">
             <svg width="18" height="4" aria-hidden>
+              <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.supersedes} strokeWidth="2" strokeDasharray="10 6" />
+            </svg>
+            吸收
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="18" height="4" aria-hidden>
               <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.depends} strokeWidth="2" strokeDasharray="2 4" />
             </svg>
             依赖

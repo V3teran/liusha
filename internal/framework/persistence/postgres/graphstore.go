@@ -206,7 +206,7 @@ func (s *GraphStore) UpdateNode(ctx context.Context, id string, update core.Grap
 		if err != nil {
 			return fmt.Errorf("marshal metadata: %w", err)
 		}
-		setParts = append(setParts, fmt.Sprintf("metadata = $%d", argIndex))
+		setParts = append(setParts, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", argIndex))
 		args = append(args, metadataJSON)
 		argIndex++
 	}
@@ -350,7 +350,102 @@ func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNo
 	return nil
 }
 
-// CreateEdge 创建边（幂等）。
+// ApplyChangeSet 在单个事务内应用变更集：建节点 → 条件状态迁移 → 元数据批注 → 建边。
+// 迁移沿用 CompareAndSwapState 的单语句 CAS（WHERE state = From），零行受影响
+// 即前置不成立，回滚并返回 core.ErrGraphStateConflict。
+func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChangeSet) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, node := range changes.Nodes {
+		if err := s.insertNode(ctx, tx, node); err != nil {
+			return err
+		}
+	}
+
+	query := `
+		UPDATE ` + s.nodeTable + `
+		SET state = $1, updated_at = $2
+		WHERE id = $3 AND task_id = $4 AND state = $5
+	`
+	for _, t := range changes.Transitions {
+		if t.TaskID == "" || t.NodeID == "" || t.From == "" || t.To == "" {
+			return errors.New("state transition requires task_id, node_id, from and to")
+		}
+		tag, err := tx.Exec(ctx, query, t.To, time.Now(), t.NodeID, t.TaskID, t.From)
+		if err != nil {
+			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, core.ErrGraphStateConflict)
+		}
+	}
+
+	for _, a := range changes.Annotations {
+		if err := s.annotate(ctx, tx, a); err != nil {
+			return err
+		}
+	}
+
+	for _, edge := range changes.Edges {
+		if err := s.insertEdge(ctx, tx, edge); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// annotate 在事务内浅合并一条元数据批注。一次性批注（Once）以「键均不存在」
+// 为条件，与 UPDATE 同语句判定：零行受影响时再区分节点不存在与键已存在。
+func (s *GraphStore) annotate(ctx context.Context, tx pgx.Tx, a core.GraphNodeAnnotation) error {
+	if a.TaskID == "" || a.NodeID == "" || len(a.Metadata) == 0 {
+		return errors.New("annotation requires task_id, node_id and metadata")
+	}
+	patch, err := json.Marshal(a.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal annotation %s: %w", a.NodeID, err)
+	}
+	query := `
+		UPDATE ` + s.nodeTable + `
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = $2
+		WHERE id = $3 AND task_id = $4`
+	args := []interface{}{patch, time.Now(), a.NodeID, a.TaskID}
+	if a.Once {
+		keys := make([]string, 0, len(a.Metadata))
+		for k := range a.Metadata {
+			keys = append(keys, k)
+		}
+		query += ` AND NOT (COALESCE(metadata, '{}'::jsonb) ?| $5::text[])`
+		args = append(args, keys)
+	}
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("annotate %s: %w", a.NodeID, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	if a.Once {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM `+s.nodeTable+` WHERE id = $1 AND task_id = $2)`,
+			a.NodeID, a.TaskID).Scan(&exists); err != nil {
+			return fmt.Errorf("annotate %s: %w", a.NodeID, err)
+		}
+		if exists {
+			return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphStateConflict)
+		}
+	}
+	return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphNodeNotFound)
+}
+
+// extractString 从 map 中读取字符串值（缺失或非字符串时返回 defaultValue）。
 func (s *GraphStore) extractString(m map[string]interface{}, key, defaultValue string) string {
 	if m == nil {
 		return defaultValue

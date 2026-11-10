@@ -20,6 +20,7 @@ func TestTransitionState_CannotOverwriteAborted(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
+		ID:      "cas-node-1",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -61,6 +62,7 @@ func TestTransitionState_CannotOverwriteAbortedWithFailed(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
+		ID:      "cas-node-2",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -96,6 +98,7 @@ func TestTransitionState_NormalTransitions(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
+		ID:      "cas-node-3",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -130,6 +133,7 @@ func TestTransitionState_AbortedToAborted(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := StateOpen
 	action, err := graph.CreateNode(ctx, Node{
+		ID:      "cas-node-4",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -164,6 +168,7 @@ func TestTransitionState_ConcurrentKill(t *testing.T) {
 	taskID := "test-task"
 	stateRunning := StateRunning
 	action, err := graph.CreateNode(ctx, Node{
+		ID:      "cas-node-5",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateRunning,

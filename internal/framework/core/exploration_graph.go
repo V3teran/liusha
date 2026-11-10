@@ -54,11 +54,16 @@ const (
 	// ActionStateFailed 执行失败
 	ActionStateFailed ActionState = "failed"
 
-	// ActionStateExhausted 已耗尽（重试次数用完）
+	// ActionStateExhausted 已穷尽：action 是执行预算耗尽、经强制总结收尾；
+	// 派生 objective 是任务结束时方向仍未达成
 	ActionStateExhausted ActionState = "exhausted"
 
 	// ActionStateAborted 被中止
 	ActionStateAborted ActionState = "aborted"
+
+	// ActionStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
+	// 接管，本目标不再作为独立方向推进；与 supersedes 边同时落定，永不迁出）
+	ActionStateSuperseded ActionState = "superseded"
 )
 
 // ObservationConfidence 是观察的图级状态。探索图是领域中立的认知架构：
@@ -106,7 +111,8 @@ func (s ActionState) IsTerminal() bool {
 	return s == ActionStateCompleted ||
 		s == ActionStateFailed ||
 		s == ActionStateExhausted ||
-		s == ActionStateAborted
+		s == ActionStateAborted ||
+		s == ActionStateSuperseded
 }
 
 // String 返回节点类型的字符串表示

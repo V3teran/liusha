@@ -69,7 +69,9 @@ func buildTeamRosterSection(roster []AgentBrief) string {
 	return sb.String()
 }
 
-// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体，全部目标（含派生方向）逐条列出。
+// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体，进行中的派生
+// 目标逐条列出。已收敛的派生目标不再列出——已达成的无需再投入，已吸收的范围
+// 由吸收它的新目标承接（新目标本身在列）。
 func buildObjectiveSection(objective string, objectives []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 任务目标\n")
@@ -80,24 +82,10 @@ func buildObjectiveSection(objective string, objectives []explorationgraph.Node)
 	}
 	sb.WriteString("\n\n")
 
-	if len(objectives) > 1 {
-		sb.WriteString("### 全部目标（含派生方向）\n")
-		for i, obj := range objectives {
-			desc := ""
-			var c struct {
-				Description string `json:"description"`
-			}
-			if json.Unmarshal(obj.Content, &c) == nil {
-				desc = c.Description
-			}
-			if desc == "" {
-				continue
-			}
-			if i == 0 {
-				fmt.Fprintf(&sb, "- [根目标] %s\n", desc)
-			} else {
-				fmt.Fprintf(&sb, "- [派生目标] %s\n", desc)
-			}
+	if live := newObjectiveView(objectives).live; len(live) > 0 {
+		sb.WriteString("### 进行中的派生目标\n")
+		for _, obj := range live {
+			fmt.Fprintf(&sb, "- %s\n", objectiveDescription(obj))
 		}
 		sb.WriteString("\n")
 	}

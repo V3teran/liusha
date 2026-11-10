@@ -138,14 +138,16 @@ func (s *Store) ListResults(ctx context.Context, taskID string) ([]Node, error) 
 	return s.ListNodesByKind(ctx, taskID, core.KindResult)
 }
 
-// GetObjective 获取任务的 objective 节点
+// GetObjective 获取任务的根 objective 节点（创建序最早——根目标由任务入口
+// 创建，planner 派生的目标晚于它；不排序会随机读到派生目标）。
 func (s *Store) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(core.KindObjective),
 		Filters: map[string]interface{}{
 			"task_id": taskID,
 		},
-		Limit: 1,
+		OrderBy: "created_at",
+		Limit:   1,
 	}
 
 	nodes, err := s.graphStore.ListNodes(ctx, query)

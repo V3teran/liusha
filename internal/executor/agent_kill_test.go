@@ -22,6 +22,7 @@ func TestExecutor_AbortedStateNotOverwritten(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "agent_kill-1",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -75,6 +76,7 @@ func TestExecutor_NormalFlowNotAffected(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "agent_kill-2",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,
@@ -113,6 +115,7 @@ func TestExecutor_AbortedDetectionTiming(t *testing.T) {
 	taskID := "test-task"
 	stateOpen := explorationgraph.StateOpen
 	action, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID:      "agent_kill-3",
 		TaskID:  taskID,
 		Kind:    core.KindAction,
 		State:   &stateOpen,

@@ -3,6 +3,7 @@ package explorationgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -43,7 +44,7 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 		metadata["source_id"] = node.SourceID
 	}
 	if node.Priority != "" {
-		metadata["priority"] = node.Priority
+		metadata["priority"] = string(node.Priority)
 	}
 
 	graphNode := &core.GraphNode{
@@ -111,44 +112,46 @@ func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.R
 }
 
 // TransitionState 迁移节点状态（action/objective 通用）并可选附带原因。
-// 单条 UPDATE 原子生效；aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。
-// reason 落 metadata.blocked_reason（依赖阻塞 / kill 与判死理由等）。
+// 状态以读到的当前状态为 CAS 前置，与原因（metadata.blocked_reason，依赖阻塞 /
+// kill 与判死理由等）在同一事务内落定——读-判-写窗口内若被并发迁移，CAS 前置
+// 不匹配即整体失败，不会覆盖并发写入的终态，也不会留下「原因已写、状态未变」。
+// aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。superseded 不经此
+// 入口进出：它与 supersedes 边是同一事实，只能由 RevisePlan 连边一起原子写入，
+// 且一经写入永不迁出。
 func (s *Store) TransitionState(ctx context.Context, id string, state State, reason *string) error {
-	// 先读当前状态做决策（aborted 终态护栏），再以该状态为 CAS 前置原子兑现——
-	// 读-判-写窗口内若被并发迁移，CAS 前置不匹配即失败，不会覆盖并发写入的
-	// 终态（此前两步 UpdateNode 存在 TOCTOU：guard 通过后 aborted 可被覆盖）。
+	if state == StateSuperseded {
+		return fmt.Errorf("superseded 只能经 RevisePlan 与 supersedes 边一同写入（node %s）", id)
+	}
+
 	current, err := s.GetNode(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get current state before update: %w", err)
 	}
-
-	// aborted 是终态，不允许覆盖（除非目标状态也是 aborted）
-	if current.State != nil && *current.State == StateAborted && state != StateAborted {
+	if current.State == nil {
+		return fmt.Errorf("节点 %s（%s）没有状态机，不能迁移状态", id, current.Kind)
+	}
+	if *current.State == StateAborted && state != StateAborted {
 		return fmt.Errorf("cannot overwrite aborted state (current: aborted, target: %s)", state)
 	}
-
-	if current.State != nil {
-		ok, err := s.graphStore.CompareAndSwapState(ctx, current.TaskID, id, string(*current.State), string(state))
-		if err != nil {
-			return fmt.Errorf("cas state transition: %w", err)
-		}
-		if !ok {
-			return fmt.Errorf("state changed concurrently (node %s expected state %s)", id, *current.State)
-		}
-	} else {
-		// 无状态节点无从 CAS，直接置状态（与旧行为一致）
-		if err := s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{State: string(state)}); err != nil {
-			return err
-		}
+	if *current.State == StateSuperseded {
+		return fmt.Errorf("cannot overwrite superseded state (current: superseded, target: %s)", state)
 	}
 
-	// reason 是说明性 metadata（不参与状态机），在状态原子落定后单独补写
+	changes := core.GraphChangeSet{
+		Transitions: []core.GraphStateTransition{{
+			TaskID: current.TaskID, NodeID: id, From: string(*current.State), To: string(state),
+		}},
+	}
 	if reason != nil {
-		return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{
-			Metadata: map[string]interface{}{
-				"blocked_reason": *reason,
-			},
-		})
+		changes.Annotations = []core.GraphNodeAnnotation{{
+			TaskID: current.TaskID, NodeID: id, Metadata: map[string]interface{}{"blocked_reason": *reason},
+		}}
+	}
+	if err := s.graphStore.ApplyChangeSet(ctx, changes); err != nil {
+		if errors.Is(err, core.ErrGraphStateConflict) {
+			return fmt.Errorf("state changed concurrently (node %s expected state %s): %w", id, *current.State, err)
+		}
+		return fmt.Errorf("transition node %s: %w", id, err)
 	}
 	return nil
 }
