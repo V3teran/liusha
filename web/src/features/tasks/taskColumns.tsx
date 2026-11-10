@@ -1,7 +1,6 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import { Clock } from 'lucide-react'
 import { Pause, Play, Square } from 'lucide-react'
-import { controlTask } from '@/api/tasks'
 import { TokenPair } from '@/components/TokenPair'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
@@ -11,11 +10,20 @@ import { sourceColor, sourceLabel } from '@/lib/source'
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
+// 确认弹层里的任务指称：省略号只在真截断时出现——短 brief 带「…」是误导。
+export function briefHead(brief: string): string {
+  return brief.length > 24 ? `${brief.slice(0, 24)}…` : brief
+}
+
 // 任务表列定义（对齐 trafficColumns 的对齐体系：数值/时间列表头与值同靠右，文本/徽章列靠左）。
 // # 是页内序号（offset+index+1）——task id 是 uuid 不可直显，序号仅定位用。
 // 目标列（brief）是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
 
-function buildTaskColumns(offset: number, onOperated?: () => void) {
+function buildTaskColumns(
+  offset: number,
+  /** 控制动作统一上交宿主（TaskTable）：暂停/停止由宿主过确认弹层后执行。 */
+  requestControl?: (task: TaskSummary, action: 'pause' | 'resume' | 'terminate') => void,
+) {
   return [
     columnHelper.display({
       id: 'seq',
@@ -182,38 +190,22 @@ function buildTaskColumns(offset: number, onOperated?: () => void) {
         // 按钮恒显、按状态禁用（affordance 可见：操作位不随数据闪没，位置稳定）
         const terminal = t.status !== 'active'
         const run = (action: 'pause' | 'resume' | 'terminate') => {
-          if (action === 'terminate') {
-            // 省略号只在真截断时出现——短 brief 带「…」是误导
-            const head = t.brief.length > 24 ? `${t.brief.slice(0, 24)}…` : t.brief
-            if (!window.confirm(`停止任务「${head}」？`)) return
-          }
-          controlTask(t.id, action)
-            .then(() => onOperated?.())
-            .catch((e: Error) => window.alert(`操作失败：${e.message}`))
+          requestControl?.(t, action)
         }
         const disabledCls = 'cursor-not-allowed opacity-30 hover:bg-transparent hover:text-text-secondary'
         const idleCls = 'transition-colors hover:bg-surface-2 hover:text-text'
         return (
           <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+            {/* 暂停/继续合并为随 paused 翻转的单切换钮；停止独立（终态，走确认） */}
             <button
               type="button"
-              aria-label="暂停任务"
-              title={terminal ? '任务已结束' : t.paused ? '已暂停' : '暂停（保留进度，可继续）'}
-              disabled={terminal || t.paused}
-              onClick={() => run('pause')}
-              className={`rounded-md p-1.5 text-text-secondary ${terminal || t.paused ? disabledCls : idleCls}`}
+              aria-label={terminal ? '任务已结束' : t.paused ? '继续任务' : '暂停任务'}
+              title={terminal ? '任务已结束' : t.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可继续）'}
+              disabled={terminal}
+              onClick={() => run(t.paused ? 'resume' : 'pause')}
+              className={`rounded-md p-1.5 text-text-secondary ${terminal ? disabledCls : idleCls}`}
             >
-              <Pause className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              aria-label="继续任务"
-              title={terminal ? '任务已结束' : t.paused ? '继续（从探索图进度恢复执行）' : '运行中'}
-              disabled={terminal || !t.paused}
-              onClick={() => run('resume')}
-              className={`rounded-md p-1.5 text-text-secondary ${terminal || !t.paused ? disabledCls : idleCls}`}
-            >
-              <Play className="h-3.5 w-3.5" />
+              {t.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
             </button>
             <button
               type="button"

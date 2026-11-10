@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
 import { Button } from '@/components/ui/Button'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 interface ConversationDetailProps {
   convId?: string
@@ -194,9 +195,11 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   // 任务控制（暂停/继续/停止）：与任务页操作列同一端点、同一语义。会话是
   // 实时观战的驾驶舱，控制组与任务页 parity——只有停止没有暂停的驾驶舱是
   // 不完整的控制面。失败就地告警（全站无 toast 的就近反馈惯例）。
-  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+  // 暂停/继续是同一可逆状态转换的两个方向，合并为随状态翻转的单切换钮；
+  // 只有不可逆的停止过确认弹层（原生 confirm 无法套 Token）。
+  const [confirmTerminate, setConfirmTerminate] = useState(false)
+  const doControl = async (action: 'pause' | 'resume' | 'terminate') => {
     if (!taskID) return
-    if (action === 'terminate' && !window.confirm('停止任务？任务将落终态（可重新下发）。')) return
     try {
       await controlTask(taskID, action)
     } catch (e) {
@@ -204,6 +207,13 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       return
     }
     await refreshUsage()
+  }
+  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+    if (action === 'terminate') {
+      setConfirmTerminate(true)
+      return
+    }
+    await doControl(action)
   }
 
   const copy = emptyCopy(source)
@@ -249,36 +259,18 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 </span>
               )}
               {/* 控制组与任务表格同一门控：任务 active 才出现（终态行不渲染，
-                  状态点已表达终态）；纯聊天（无任务对象）同样不渲染。 */}
+                  状态点已表达终态）；纯聊天（无任务对象）同样不渲染。
+                  暂停/继续合并为单切换钮（同一可逆转换的两个方向），停止独立。 */}
               {taskActive && (
                 <>
                   <button
                     type="button"
-                    disabled={paused}
-                    onClick={() => void control('pause')}
-                    aria-label="暂停任务"
-                    title="暂停（保留进度，可随时继续）"
-                    className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                      paused
-                        ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
-                        : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
-                    }`}
+                    onClick={() => void control(paused ? 'resume' : 'pause')}
+                    aria-label={paused ? '继续任务' : '暂停任务'}
+                    title={paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
+                    className="inline-flex items-center justify-center rounded-lg border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
                   >
-                    <Pause className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!paused}
-                    onClick={() => void control('resume')}
-                    aria-label="继续任务"
-                    title="继续（从探索图进度恢复执行）"
-                    className={`inline-flex items-center justify-center rounded-lg border p-1.5 transition-colors ${
-                      !paused
-                        ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
-                        : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
-                    }`}
-                  >
-                    <Play className="h-3 w-3" />
+                    {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
                   </button>
                   <button
                     type="button"
@@ -348,6 +340,17 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         }
         onStarted={handleStarted}
         onAppended={handleAppended}
+      />
+
+      {/* 停止确认：不可逆操作走 danger 形态；暂停/继续可逆不设确认。 */}
+      <ConfirmDialog
+        open={confirmTerminate}
+        onOpenChange={setConfirmTerminate}
+        title="停止任务"
+        danger
+        confirmLabel="确认停止"
+        message="任务将落终态，进行中的 agent 立即退出（可重新下发）。"
+        onConfirm={() => void doControl('terminate')}
       />
     </section>
   )

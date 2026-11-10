@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
 import { JumpLink } from '@/components/JumpLink'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
+import { briefHead } from './taskColumns'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -29,12 +32,11 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
  * 表格行内是快捷路径，两面并存。 */
 export function TaskDetailPane({ task, loading, error, onClose, onOperated }: TaskDetailPaneProps) {
-  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+  // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
+  // 只有不可逆的停止过确认弹层（danger 形态）。
+  const [confirmTerminate, setConfirmTerminate] = useState(false)
+  const doControl = async (action: 'pause' | 'resume' | 'terminate') => {
     if (!task) return
-    if (action === 'terminate') {
-      const head = task.brief.length > 24 ? `${task.brief.slice(0, 24)}…` : task.brief
-      if (!window.confirm(`停止任务「${head}」？`)) return
-    }
     try {
       await controlTask(task.id, action)
     } catch (e) {
@@ -42,6 +44,14 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
       return
     }
     onOperated?.()
+  }
+  const control = async (action: 'pause' | 'resume' | 'terminate') => {
+    if (!task) return
+    if (action === 'terminate') {
+      setConfirmTerminate(true)
+      return
+    }
+    await doControl(action)
   }
 
   return (
@@ -125,35 +135,22 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
                 </Kv>
               </dl>
 
-              {/* 控制组恒显按状态禁用（与表格操作列同一行为）：终态行三键灰置 */}
+              {/* 控制组恒显按状态禁用（与表格操作列同一行为）：终态行灰置。
+                  暂停/继续合并为随 paused 翻转的单切换钮，停止独立。 */}
               <div className="mt-3.5 flex gap-2">
                 <button
                   type="button"
-                  disabled={task.status !== 'active' || task.paused}
-                  onClick={() => void control('pause')}
-                  title={task.status !== 'active' ? '任务已结束' : task.paused ? '已暂停' : '暂停（保留进度，可随时继续）'}
+                  disabled={task.status !== 'active'}
+                  onClick={() => void control(task.paused ? 'resume' : 'pause')}
+                  title={task.status !== 'active' ? '任务已结束' : task.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
                   className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
-                    task.status !== 'active' || task.paused
+                    task.status !== 'active'
                       ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
                       : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
                   }`}
                 >
-                  <Pause className="h-3.5 w-3.5" />
-                  暂停任务
-                </button>
-                <button
-                  type="button"
-                  disabled={task.status !== 'active' || !task.paused}
-                  onClick={() => void control('resume')}
-                  title={task.status !== 'active' ? '任务已结束' : task.paused ? '继续（从探索图进度恢复执行）' : '运行中'}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
-                    task.status !== 'active' || !task.paused
-                      ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
-                      : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
-                  }`}
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  继续任务
+                  {task.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                  {task.paused ? '继续任务' : '暂停任务'}
                 </button>
                 <button
                   type="button"
@@ -211,6 +208,21 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
           </div>
         ) : null}
       </div>
+
+      {/* 停止确认：与对话页头部/表格操作列同一文案与语义。 */}
+      <ConfirmDialog
+        open={confirmTerminate}
+        onOpenChange={setConfirmTerminate}
+        title="停止任务"
+        danger
+        confirmLabel="确认停止"
+        message={
+          task
+            ? `任务「${briefHead(task.brief)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
+            : ''
+        }
+        onConfirm={() => void doControl('terminate')}
+      />
     </div>
   )
 }
