@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/V3teran/liusha/compare/v0.6.2...v0.7.0) (2026-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** 移除 POST /models/providers/test 与 /models/providers/list-models，改用 POST /models/providers/diagnose；provider 新增 auth_scheme、output_limit_param 字段（迁移 0203 按协议回填），display_name 改为必填且不区分大小写唯一（迁移 0204 把空名称回填为 Base URL 主机名，同名追加序号）；API 提交空名称返回 400、重名返回 409。迁移随 up 自动执行。
+* **exploration:** 新增迁移 0202（exploration_node.state 增加 superseded，exploration_edge.rel 增加 supersedes），升级随 up 自动执行；回滚（down）会删除吸收边、把 superseded 目标改为 aborted。
+
+### Features
+
+* **config:** provider 只认协议不认服务——请求画像、连接诊断与名称必填 ([48810dc](https://github.com/V3teran/liusha/commit/48810dc95d9e5c2219f72b1d8590099a1e8e5910))
+* **exploration:** 目标吸收收敛——结果分析经 RevisePlan 原子落图 ([be78de5](https://github.com/V3teran/liusha/commit/be78de5ee2bc37bfb70a86cd6d2d7199690472cd))
+* **ui:** 任务控制——暂停/继续合为切换钮，停止改用站内确认弹层 ([20f8b46](https://github.com/V3teran/liusha/commit/20f8b467f11f44bcd83ac4fa82217a2229f24bfe))
+
+
+### Bug Fixes
+
+* **ui:** 可点击控件统一手型光标 ([7e69b32](https://github.com/V3teran/liusha/commit/7e69b32db7d7d12621f8585029f9187e5d9b4107))
+
 ## [0.6.2](https://github.com/V3teran/liusha/compare/v0.6.1...v0.6.2) (2026-11-09)
 
 
