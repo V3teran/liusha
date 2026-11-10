@@ -11,7 +11,6 @@ package llm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -143,13 +142,36 @@ func routeCandidates(c Complexity) []Complexity {
 }
 
 func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, error) {
+	var g Generator
+	_, err := r.resolve(ctx, complexity, func(spec ProviderSpec) error {
+		built, err := BuildGeneratorWithKey(ctx, spec, r.pool)
+		if err == nil {
+			g = built
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	prov := WithRetry(NewProvider(g), r.retryOpts)
+	if r.providerWrapper != nil {
+		prov = r.providerWrapper(prov)
+	}
+	return prov, nil
+}
+
+// resolve 按候选序（显式档 → 就近降级）找第一个可用的 provider spec。accept 为 nil 时
+// 只要求 spec 可解析；非 nil 时还要求 accept(spec) 无错（如能构造出 client）。
+//
+// 任一候选不可用（被删、停用、密钥缺失、构造失败）都继续尝试相邻档——「配置 1 个
+// provider 也能服务全部档位」，停用/缺钥的档位由相邻档承接。全部候选不可用时返回
+// 最后一个候选的错误：若它属于「未配置」（停用、缺钥），哨兵链保留，任务据此干净终结；
+// 无任何路由时返回带配置指引的 ErrNotConfigured。
+func (r *Router) resolve(ctx context.Context, complexity Complexity, accept func(ProviderSpec) error) (ProviderSpec, error) {
 	routing, err := r.store.GetRouting(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("provider/router: load routing: %w", err)
+		return ProviderSpec{}, fmt.Errorf("provider/router: load routing: %w", err)
 	}
-
-	// 按候选序解析：显式档优先；其路由缺失或 provider 不可用（被删/密钥缺失）
-	// 时降级到相邻档——保证「配置 1 个 provider 也能服务全部档位」。
 	var lastErr error
 	for _, lvl := range routeCandidates(complexity) {
 		providerKey, ok := routing.Roles[string(lvl)]
@@ -158,28 +180,21 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 		}
 		spec, err := r.store.GetProviderSpec(ctx, providerKey)
 		if err != nil {
-			// 未配置类错误无降级意义（相邻档同样没有 provider 时才会走到这），直接上抛
-			if errors.Is(err, ErrNotConfigured) {
-				return nil, err
+			lastErr = fmt.Errorf("provider/router: %s 档 provider %q 不可用: %w", lvl, providerKey, err)
+			continue
+		}
+		if accept != nil {
+			if err := accept(spec); err != nil {
+				lastErr = fmt.Errorf("provider/router: %s 档 provider %q 无法构造 client: %w", lvl, providerKey, err)
+				continue
 			}
-			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
-			continue
 		}
-		g, err := BuildGeneratorWithKey(ctx, spec, r.pool)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		prov := WithRetry(NewProvider(g), r.retryOpts)
-		if r.providerWrapper != nil {
-			prov = r.providerWrapper(prov)
-		}
-		return prov, nil
+		return spec, nil
 	}
 	if lastErr != nil {
-		return nil, lastErr
+		return ProviderSpec{}, lastErr
 	}
-	return nil, fmt.Errorf(
+	return ProviderSpec{}, fmt.Errorf(
 		"provider/router: no LLM provider configured for complexity %q —"+
 			"请在「LLM 配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
 }
@@ -208,35 +223,9 @@ func (r *Router) ContextWindow(ctx context.Context, complexity Complexity) (int,
 	return spec.ContextWindow, nil
 }
 
-// resolveSpec 按候选序解析档位对应的 provider spec（显式档 → 就近降级）。
+// resolveSpec 按候选序解析档位对应的 provider spec（显式档 → 就近降级，见 resolve）。
 func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (ProviderSpec, error) {
-	routing, err := r.store.GetRouting(ctx)
-	if err != nil {
-		return ProviderSpec{}, fmt.Errorf("provider/router: load routing: %w", err)
-	}
-	var lastErr error
-	for _, lvl := range routeCandidates(complexity) {
-		providerKey, ok := routing.Roles[string(lvl)]
-		if !ok {
-			continue
-		}
-		spec, err := r.store.GetProviderSpec(ctx, providerKey)
-		if err != nil {
-			// 密钥未配置类错误原样透传哨兵（errors.Is 链保持），其余加载失败只记录最后一条
-			if errors.Is(err, ErrNotConfigured) {
-				return ProviderSpec{}, err
-			}
-			lastErr = fmt.Errorf("provider/router: load provider %q: %w", providerKey, err)
-			continue
-		}
-		return spec, nil
-	}
-	if lastErr != nil {
-		return ProviderSpec{}, lastErr
-	}
-	return ProviderSpec{}, fmt.Errorf(
-		"provider/router: no LLM provider configured for complexity %q —"+
-			"请在「LLM 配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
+	return r.resolve(ctx, complexity, nil)
 }
 
 // BuildGeneratorWithKey 用 ClientPool 共享 HTTP client 构造 Generator（按 provider 类型分派）。
@@ -244,7 +233,7 @@ func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (Provid
 func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool) (Generator, error) {
 	switch p.Type {
 	case ProviderTypeAnthropic:
-		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, p.APIKey)
+		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, p.APIKey, p.AuthScheme)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
@@ -253,13 +242,13 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 			ThinkingBudget: p.ThinkingBudget,
 		}, cli)
 	case ProviderTypeOpenAICompat, "":
-		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey)
+		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey, p.AuthScheme)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
 		return NewOpenAICompat(ctx, p.Code, OpenAICompatConfig{
 			BaseURL: p.BaseURL, Model: p.Model, MaxTokens: p.MaxTokens,
-			SupportsVision: p.SupportsVision,
+			SupportsVision: p.SupportsVision, OutputLimitParam: p.OutputLimitParam,
 		}, cli)
 	}
 	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Code, p.Type)

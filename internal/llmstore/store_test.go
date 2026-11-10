@@ -77,8 +77,8 @@ func TestListProviders_CachedAndInvalidated(t *testing.T) {
 	if !s.cache.L1Has(keyProvidersList(false)) {
 		t.Fatal("首读后 providers 列表键应回填 L1")
 	}
-	// SaveProvider → providerCodes 含两个列表键，应失效。
-	if _, err := s.SaveProvider(ctx, llmconfig.ProviderParams{Code: "glm"}); err != nil {
+	// UpdateProvider → providerKeys 含两个列表键，应失效。
+	if _, err := s.UpdateProvider(ctx, llmconfig.ProviderParams{Code: "glm"}); err != nil {
 		t.Fatalf("save provider: %v", err)
 	}
 	if s.cache.L1Has(keyProvidersList(false)) {

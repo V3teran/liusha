@@ -148,6 +148,11 @@ func IsTransient(err error) bool {
 // 的密钥解析统一包此哨兵，IsConfigError 据此判定。
 var ErrNotConfigured = errors.New("LLM 未配置")
 
+// ErrUnexpectedResponse 标记上游返回了 2xx 但响应不符合所选协议（OpenAI 兼容没有
+// choices、Anthropic 没有消息 id）：多为地址指向了别的协议，或网关把错误包成 200 返回。
+// 与 404 同属「这个地址不讲这个协议」，连接诊断据此换候选地址与协议实测。
+var ErrUnexpectedResponse = errors.New("响应不符合所选协议")
+
 // IsConfigError 报告错误是否为 provider 配置性错误：鉴权失败（401）、无权限（403）、
 // 模型或端点不存在（404）。这类错误与具体请求无关、重试不会自愈，调用方应止损并把
 // 原因上报给操作者——与 400（单次请求非法，如上下文超长，换个请求可能成功）区分开。

@@ -17,11 +17,12 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
-
-	"github.com/google/uuid"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/llmconfig"
 )
@@ -37,11 +38,12 @@ type ModelAPI interface {
 	// provider 部署
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
 	ProviderByCode(ctx context.Context, code string) (llmconfig.Provider, error)
-	SaveProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
+	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
+	UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	DeleteProvider(ctx context.Context, code string) error
 	// ClearProviderKey 清除 UI 设置的加密密钥（密文+尾号），保留 api_key_env 引用——「恢复使用环境变量」。
 	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
-	// 角色路由（role → provider 直连）
+	// 档位路由（档 → provider 直连）
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
@@ -70,85 +72,122 @@ func getProviderHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := api.ProviderByCode(c.Request.Context(), c.Param("code"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": c.Param("code")})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
 	}
 }
 
-// providerBody 是 POST/PUT provider 的请求体。type 应用层白名单校验；
-// api_key 是前端直填的明文，仅本次请求内存活，handler 加密后即弃（见 saveProviderHandler）；
-// 编辑时留空 = 不改动已存密钥。
+// providerBody 是 POST/PUT provider 的请求体。api_key 是前端直填的明文，仅本次请求
+// 内存活，handler 加密后即弃；编辑时留空 = 不改动已存密钥。
+// code 只在 POST 时可选携带（脚本/导入场景指定标识，缺省由系统生成 UUID）；PUT 的
+// 标识只认路径，请求体携带且与路径不一致时拒绝，避免改错对象。
 type providerBody struct {
-	Code           string `json:"code"`
-	Type           string `json:"type"`
-	BaseURL        string `json:"base_url"`
-	DefaultModel   string `json:"default_model"`
-	APIKey         string `json:"api_key"`
-	MaxTokens      int    `json:"max_tokens"`
-	SupportsTools  bool   `json:"supports_tools"`
-	SupportsVision bool   `json:"supports_vision"`
-	ContextWindow  int    `json:"context_window"`
-	DisplayName    string `json:"display_name"`
-	Description    string `json:"description"`
-	SortOrder      int    `json:"sort_order"`
-	Enabled        bool   `json:"enabled"`
+	Code                 string `json:"code"`
+	Type                 string `json:"type"`
+	BaseURL              string `json:"base_url"`
+	DefaultModel         string `json:"default_model"`
+	APIKey               string `json:"api_key"`
+	AuthScheme           string `json:"auth_scheme"`        // 空 = 协议标准方式
+	OutputLimitParam     string `json:"output_limit_param"` // 空 = max_tokens
+	MaxTokens            int    `json:"max_tokens"`
+	ThinkingBudgetTokens int64  `json:"thinking_budget_tokens"`
+	SupportsTools        bool   `json:"supports_tools"`
+	SupportsVision       bool   `json:"supports_vision"`
+	ContextWindow        int    `json:"context_window"`
+	DisplayName          string `json:"display_name"`
+	Description          string `json:"description"`
+	SortOrder            int    `json:"sort_order"`
+	Enabled              bool   `json:"enabled"`
 }
 
-// saveProviderHandler 处理 POST /models/providers 与 PUT /models/providers/:code（均走 upsert-by-key）。
-// enc 加密请求体里的明文 api_key；新建（POST）必须带 key，编辑（PUT）留空则 KeepExistingKey。
-func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
+// params 把请求体组装为落库入参：明文密钥在此加密（留空 = 沿用已存密钥）。
+func (b providerBody) params(code string, enc KeyEncrypter) (llmconfig.ProviderParams, error) {
+	p := llmconfig.ProviderParams{
+		Code: code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
+		AuthScheme: b.AuthScheme, OutputLimitParam: b.OutputLimitParam,
+		MaxTokens: b.MaxTokens, ThinkingBudgetTokens: b.ThinkingBudgetTokens,
+		SupportsTools: b.SupportsTools, SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
+		DisplayName: strings.TrimSpace(b.DisplayName), Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
+	}
+	if b.APIKey == "" {
+		p.KeepExistingKey = true // 编辑未重填密钥：沿用已存密文
+		return p, nil
+	}
+	sealed, err := enc.Encrypt(b.APIKey)
+	if err != nil {
+		return p, fmt.Errorf("加密密钥失败: %w", err)
+	}
+	p.EncryptedAPIKey = sealed
+	p.APIKeyLast4 = keyLast4(b.APIKey) // 与密文成对写入（脱敏辨识用）
+	return p, nil
+}
+
+// validated 归一并校验入参（与落库同一口径：Normalize → Validate）。
+func validated(p llmconfig.ProviderParams) (llmconfig.ProviderParams, error) {
+	p.Normalize()
+	return p, p.Validate()
+}
+
+// createProviderHandler 处理 POST /models/providers：新建必须带密钥；code 已存在 → 409。
+func createProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b providerBody
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
 			return
 		}
-		if c.Request.Method != "POST" && b.Code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "code 不能为空"})
-			return
-		}
-		if b.Type != llmconfig.ProviderTypeOpenAICompat && b.Type != llmconfig.ProviderTypeAnthropic {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 type（应为 openai_compat|anthropic）"})
-			return
-		}
-		if b.BaseURL == "" || b.DefaultModel == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "base_url / default_model 不能为空"})
-			return
-		}
-		isNew := c.Request.Method == "POST"
-		if isNew && b.APIKey == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "api_key 不能为空（新建 provider 必须提供密钥）"})
-			return
-		}
-		// 标识符由系统生成（UUID）：display_name 承担人读角色后，code 不再要求用户语义。
-		// 客户端显式携带 code（脚本/导入场景）仍然尊重。
-		if b.Code == "" {
-			b.Code = uuid.NewString()
-		}
-		if b.ContextWindow <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "context_window 必须 > 0（model 总上下文窗口 tokens）"})
-			return
-		}
-		params := llmconfig.ProviderParams{
-			Code: b.Code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
-			MaxTokens: b.MaxTokens, SupportsTools: b.SupportsTools,
-			SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
-			DisplayName: b.DisplayName, Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
-		}
 		if b.APIKey == "" {
-			params.KeepExistingKey = true // 编辑未重填密钥：沿用已存密文
-		} else {
-			sealed, err := enc.Encrypt(b.APIKey)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "加密密钥失败: " + err.Error()})
-				return
-			}
-			params.EncryptedAPIKey = sealed
-			params.APIKeyLast4 = keyLast4(b.APIKey) // 与密文成对写入（脱敏辨识用）
+			c.JSON(http.StatusBadRequest, gin.H{"error": "新建 provider 必须提供 API Key"})
+			return
 		}
-		p, err := api.SaveProvider(c.Request.Context(), params)
+		code := strings.TrimSpace(b.Code)
+		if code == "" {
+			code = uuid.NewString()
+		}
+		params, err := b.params(code, enc)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		if params, err = validated(params); err != nil {
+			respondErr(c, http.StatusBadRequest, err)
+			return
+		}
+		p, err := api.CreateProvider(c.Request.Context(), params)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
+	}
+}
+
+// updateProviderHandler 处理 PUT /models/providers/:code：只改路径指向的既有 provider
+// （不存在 → 404，不借 PUT 新建）；api_key 留空 = 沿用已存密钥。
+func updateProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		code := c.Param("code")
+		var b providerBody
+		if err := c.ShouldBindJSON(&b); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
+			return
+		}
+		if b.Code != "" && b.Code != code {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体 code 与路径不一致"})
+			return
+		}
+		params, err := b.params(code, enc)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		if params, err = validated(params); err != nil {
+			respondErr(c, http.StatusBadRequest, err)
+			return
+		}
+		p, err := api.UpdateProvider(c.Request.Context(), params)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -158,16 +197,15 @@ func saveProviderHandler(api ModelAPI, enc KeyEncrypter) gin.HandlerFunc {
 }
 
 // deleteProviderHandler 处理 DELETE /models/providers/:code。
-// 被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束（23503）→ 409 中文提示。
+// 被档位路由 FK 引用（ON DELETE RESTRICT）时撞约束（23503）→ 409 中文提示；不存在 → 404。
 func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-		if err := api.DeleteProvider(c.Request.Context(), code); err != nil {
+		if err := api.DeleteProvider(c.Request.Context(), c.Param("code")); err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": "该 provider 仍被角色路由引用，请先改绑角色再删除"})
+				c.JSON(http.StatusConflict, gin.H{"error": "该 provider 仍被档位路由引用，请先改绑档位再删除"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": code})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -175,13 +213,12 @@ func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 }
 
 // clearProviderKeyHandler 处理 DELETE /models/providers/:code/key：「恢复使用环境变量」。
-// 清除 UI 设置的加密密钥后，解析回落到 api_key_env 指向的环境变量（引用保留，值从未进 DB）。
+// 清除 UI 设置的加密密钥后，解析回落到 api_key_env 指向的环境变量；无 env 引用 → 409。
 func clearProviderKeyHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		code := c.Param("code")
-		p, err := api.ClearProviderKey(c.Request.Context(), code)
+		p, err := api.ClearProviderKey(c.Request.Context(), c.Param("code"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": code})
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
@@ -189,15 +226,16 @@ func clearProviderKeyHandler(api ModelAPI) gin.HandlerFunc {
 }
 
 // providerJSON 是 provider 响应的单一序列化点。
-// key_present：该 provider 是否已有可用密钥来源（加密落库或旧 ENV 变量名），不含密钥值本身。
-// key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；旧行或仅 ENV 回退时为空串。
+// key_present：当前能否解析出密钥（已加密落库，或 api_key_env 指向的变量有值），不含密钥值本身。
+// key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；仅 ENV 来源时为空串。
 func providerJSON(p llmconfig.Provider) gin.H {
 	return gin.H{
 		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
 		"api_key_env": p.APIKeyEnv, // env 变量名引用（非密钥值）；UI 密文存在时被覆盖
-		"key_present": p.HasStoredKey(), "key_last4": p.APIKeyLast4,
-		"max_tokens": p.MaxTokens, "supports_tools": p.SupportsTools,
-		"supports_vision": p.SupportsVision, "context_window": p.ContextWindow,
+		"key_present": p.HasKey(), "key_last4": p.APIKeyLast4,
+		"auth_scheme": p.AuthScheme, "output_limit_param": p.OutputLimitParam,
+		"max_tokens": p.MaxTokens, "thinking_budget_tokens": p.ThinkingBudgetTokens,
+		"supports_tools": p.SupportsTools, "supports_vision": p.SupportsVision, "context_window": p.ContextWindow,
 		"display_name": p.DisplayName, "description": p.Description, "sort_order": p.SortOrder, "enabled": p.Enabled,
 		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt,
 	}
@@ -235,15 +273,11 @@ type roleRouteBody struct {
 	ProviderCode string `json:"provider_code"`
 }
 
-// saveRoleRouteHandler 处理 PUT /models/routes/:role（upsert 角色 → provider 直连映射）。
-// provider_code 不存在时撞 FK（23503）→ 409。
+// saveRoleRouteHandler 处理 PUT /models/routes/:role（upsert 档 → provider 映射）。
+// 档名须为 simple/medium/complex（store 校验 → 400）；provider_code 不存在时撞 FK（23503）→ 409。
 func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.Param("role")
-		if role == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role 不能为空"})
-			return
-		}
 		var b roleRouteBody
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法: " + err.Error()})
@@ -256,7 +290,7 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 		rr, err := api.UpsertRoleRoute(c.Request.Context(), role, b.ProviderCode)
 		if err != nil {
 			if isForeignKeyViolation(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": "provider_code 不存在，请先创建对应 provider"})
+				c.JSON(http.StatusConflict, gin.H{"error": "provider 不存在，请先创建对应 provider"})
 				return
 			}
 			respondErr(c, http.StatusInternalServerError, err)
@@ -266,12 +300,12 @@ func saveRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	}
 }
 
-// deleteRoleRouteHandler 处理 DELETE /models/routes/:role（删后该档回落标准推理档 medium；幂等）。
+// deleteRoleRouteHandler 处理 DELETE /models/routes/:role（删后该档按就近降级解析；幂等，
+// 不限档名——历史遗留的非法档位行也可借此清理）。
 func deleteRoleRouteHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.Param("role")
-		if err := api.DeleteRoleRoute(c.Request.Context(), role); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "role": role})
+		if err := api.DeleteRoleRoute(c.Request.Context(), c.Param("role")); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})

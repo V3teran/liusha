@@ -226,7 +226,7 @@ func main() {
 
 	// provider 实连探测（前端「LLM 配置」页「测试连接」+ 模型下拉探测）：闭合 llmStore（取已存密钥走
 	// 多级缓存）+ llmKeyCipher（解密）+ 独立 ClientPool（不与 router 内部池耦合，探测是低频交互路径）。
-	providerTester := llmprobe.New(llmStore, llmKeyCipher, fwllm.NewClientPool())
+	providerDiagnoser := llmprobe.New(llmStore, llmKeyCipher)
 
 	// cron Scheduler：轮询 cron_schedule 到点模板 → 克隆 assignment → 展开 task。
 	// 单副本够用；ctx 随进程关停取消（无需独立 shutdown 时限——轮询循环立即退出，无 in-flight 状态要收尾）。
@@ -295,7 +295,7 @@ func main() {
 			ToolCatalog:        toolCatalog,                           // GET /tools、/tools/:name：工具目录检索/详情 + 智能体选工具
 			Models:             llmStore,                              // GET/POST/PUT/DELETE /models：provider 部署 CRUD + 角色路由面板
 			KeyEncrypter:       llmKeyCipher,                          // POST/PUT /models/providers：加密前端直填的明文 API Key
-			ProviderTester:     providerTester,                        // POST /models/providers/test|list-models：实连探测（不落库）
+			ProviderDiagnoser:  providerDiagnoser,                     // POST /models/providers/diagnose：连接诊断（实测，不落库）
 			Settings:           settingStore,                          // /settings/:group：compaction/runtime/proxy_filter 三组设置的读取、自定义、恢复出厂
 			Traffic:            proxyTrafficStore,                     // GET /traffic 系列：代理捕获流量只读浏览（流量模块）
 			TrafficConv:        conversationStore,                     // 流量详情消费关系 chip → task 反解会话 id 跳转

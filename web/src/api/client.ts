@@ -37,12 +37,24 @@ function redirectOnSessionExpired(path: string) {
  */
 export class ApiError extends Error {
   readonly status: number
+  /** 后端错误体里的中文原因（respondErr 单出口）；非 JSON 错误体时为空串。 */
+  readonly detail: string
 
   constructor(method: string, status: number, detail = '') {
     super(`${method} ${status}${detail ? `: ${detail}` : ''}`)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
   }
+}
+
+/**
+ * 面向操作者的错误文案：后端给了中文原因就只展示原因，否则回退完整 message
+ * （含方法与状态码，供排障）。
+ */
+export function errorText(e: unknown, fallback: string): string {
+  if (e instanceof ApiError && e.detail) return e.detail
+  return e instanceof Error ? e.message : fallback
 }
 
 /**

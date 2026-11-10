@@ -29,11 +29,15 @@ const mSaveTier = patchAgent as unknown as ReturnType<typeof vi.fn>
 function prov(key: string, enabled = true): ProviderConfig {
   return {
     code: key,
+    display_name: key,
     type: 'openai_compat',
     base_url: 'https://x',
     default_model: 'm',
     key_present: true,
     max_tokens: 4096,
+    thinking_budget_tokens: 0,
+    auth_scheme: 'bearer',
+    output_limit_param: 'max_tokens',
     supports_tools: true,
     supports_vision: false,
     context_window: 65536,
@@ -173,7 +177,7 @@ describe('AssignmentView', () => {
     await waitFor(() => expect(mSaveRole).toHaveBeenCalledWith('complex', 'qwen'))
   })
 
-  it('能力档选空 → 删除路由（回落标准推理档）', async () => {
+  it('能力档选空 → 删除路由（由相邻档承接）', async () => {
     mGetRouting.mockResolvedValue(routing())
     mDeleteRole.mockResolvedValue(undefined)
     renderView()
@@ -193,6 +197,29 @@ describe('AssignmentView', () => {
     mGetRouting.mockResolvedValue(routing())
     renderView()
     expect(await screen.findByText('部署停用')).toBeTruthy()
+  })
+
+  it('指派部署密钥未就绪时告警「密钥未就绪」', async () => {
+    mListProv.mockResolvedValue([{ ...prov('deepseek'), key_present: false }])
+    mGetRouting.mockResolvedValue(routing())
+    renderView()
+    expect(await screen.findByText('密钥未就绪')).toBeTruthy()
+  })
+
+  it('档内有智能体而部署未声明工具调用时告警；档内无智能体不告警', async () => {
+    mListProv.mockResolvedValue([{ ...prov('deepseek'), supports_tools: false }])
+    mGetRouting.mockResolvedValue(
+      routing({
+        routes: [
+          { role: 'medium', provider_code: 'deepseek' }, // executor 在此档
+          { role: 'simple', provider_code: 'deepseek' }, // 无智能体
+        ],
+      }),
+    )
+    renderView()
+    await screen.findByTestId('complexity-row-medium')
+    expect(within(screen.getByTestId('complexity-row-medium')).getByText('未声明工具调用')).toBeTruthy()
+    expect(within(screen.getByTestId('complexity-row-simple')).queryByText('未声明工具调用')).toBeNull()
   })
 
   it('保存失败乐观回滚并页面内回显原因（无 window.alert）', async () => {

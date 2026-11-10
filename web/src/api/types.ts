@@ -255,24 +255,35 @@ export interface ToolDetail {
    任何 GET 响应都不回传密钥值；key_present 仅提示该 provider 是否已有可用密钥来源。
    ============================================================ */
 
-// provider 协议类型：openai_compat（OpenAI 兼容族，deepseek/qwen/…）/ anthropic（Claude 原生）。
+// provider 协议类型：openai_compat（OpenAI Chat Completions 协议）/ anthropic（Anthropic Messages 协议）。
+// 只认协议、不认服务：官方、各家兼容端点、中转网关都按所用协议接入。
 export type ProviderType = 'openai_compat' | 'anthropic'
+
+// 鉴权方式：密钥的携带方式，与协议正交（同一协议的不同服务可能只认其一），由连接诊断识别。
+export type AuthScheme = 'bearer' | 'x-api-key'
+
+// 输出上限字段（OpenAI 兼容协议）：多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
+export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens'
 
 // ProviderConfig 是一个 LLM provider 部署（连接参数 + 能力标志）。
 // code 是稳定引用键（角色路由 FK 指向它），创建后不可改；后端 JSON 字段即 code。
 export interface ProviderConfig {
   code: string
-  type: ProviderType
+  type: ProviderType | '' // 新建草稿未选协议时为空串；落库与响应恒为合法协议
   base_url: string
   default_model: string
   api_key?: string // 仅保存时携带的明文输入；编辑态留空 = 不修改已存密钥。GET 响应不含此字段。
-  display_name?: string // 显示名称（昵称）：仅展示用、可随时改；空回退 code 展示
-  key_present: boolean // 该 provider 当前是否已有可用密钥来源（加密落库或遗留 ENV）
+  display_name: string // 显示名称：界面上唯一可读的标识（code 是 UUID）；必填、不区分大小写唯一，可随时改
+  key_present: boolean // 当前能否解析出密钥：已加密落库，或 api_key_env 指向的变量有值
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；无已存密钥或来自 ENV 时为空
   api_key_env?: string // 密钥的 env 变量名引用（seed 引入）；非空且无密文时密钥走 env 路径
-  // 两个数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
+  auth_scheme: AuthScheme // 鉴权方式（运行诊断识别后回填）
+  output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI 兼容协议生效；运行诊断识别后回填）
+  // 数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
   // providerInvalid 拦截，落库/网络载荷永远是 number。
   max_tokens: number | ''
+  // 扩展思考预算（anthropic thinking.budget_tokens）：0 = 关闭；开启时 ≥ 1024 且 < max_tokens
+  thinking_budget_tokens: number | ''
   supports_tools: boolean
   supports_vision: boolean
   context_window: number | '' // model 总上下文窗口 tokens（react 历史压缩按此算阈值）
@@ -283,13 +294,13 @@ export interface ProviderConfig {
   updated_at?: string
 }
 
-// RoleRouteConfig 是「复杂度档/保留槽 → provider」的一行绑定。
-// role 列存复杂度档名（simple/medium/complex）或保留槽 __fallback__；agent → 档 的绑定在
-// agent.complexity（前端「智能体」页可改），路由解析链：agent.complexity → 档 → provider。
-//   complex 深度推理（规划、裁决等长链路；默认档为 medium，未显式归档的 agent 落 medium）
-//   medium  标准推理（漏洞检测、工具调用）——隐式默认档
-//   simple  轻量快答（督查 / 压缩）
-//   __fallback__ 主 provider 重试耗尽后的备份 provider
+// RoleRouteConfig 是「复杂度档 → provider」的一行绑定。
+// role 列存复杂度档名（simple/medium/complex）；agent → 档 的绑定在 agent.complexity
+// （前端「智能体」页可改），路由解析链：agent.complexity → 档 → provider。
+//   complex 深度推理（规划、裁决等长链路）
+//   medium  标准推理（漏洞检测、工具调用）——未显式归档的 agent 落此档
+//   simple  轻量快答（意图分类 / 历史压缩）
+// 某档未绑定、或其 provider 停用/缺钥时，运行期按就近降级由相邻档承接。
 export interface RoleRouteConfig {
   role: string
   provider_code: string
@@ -304,38 +315,64 @@ export interface RoutingResponse {
 
 // 三个复杂度档的字面常量（与后端 llmconfig.ComplexitySimple/Medium/Complex 对齐）：
 // 同时是 llm_role_route.role 的路由键——「能力路由」页按它分组建 provider。
-// 无保留 role：各档重试耗尽后由后端回落标准推理档（medium）部署。
+// 某档未绑定、或其部署停用/缺钥时，运行期按就近降级由相邻档承接。
 export const COMPLEXITY_SIMPLE = 'simple'
 export const COMPLEXITY_MEDIUM = 'medium'
 export const COMPLEXITY_COMPLEX = 'complex'
 
 /* ============================================================
-   provider 实连探测（POST /models/providers/test|list-models）：即时反馈，不落库。
-   密钥来源：api_key 明文优先（新建/更换密钥）；留空则据 key 用后端已存密钥。
+   provider 连接诊断（POST /models/providers/diagnose）：实测并协商请求画像，不落库。
+   密钥来源：api_key 明文优先（新建/更换密钥）；留空则据 code 用后端已存密钥。
    ============================================================ */
 
-// ProviderProbeRequest 是测试连接 / 模型探测的公共请求体。
-export interface ProviderProbeRequest {
+// ProviderDiagnoseRequest 是 POST /models/providers/diagnose 的请求体（表单当前值）。
+export interface ProviderDiagnoseRequest {
   code?: string // 已存 provider code；api_key 留空时后端据此取已存密钥
-  type?: ProviderType
+  type: ProviderType
   base_url: string
-  default_model?: string // 测试连接必填（指定用哪个 model 验证）；模型探测可空
+  default_model?: string // 留空时以模型列表验证端点与鉴权，模型项跳过
   api_key?: string // 前端直填明文（优先于已存密钥）
+  auth_scheme?: AuthScheme // 当前记录值，协商时优先尝试
+  output_limit_param?: OutputLimitParam
 }
 
-// ProviderTestResult 是 POST /models/providers/test 的响应。
-// ok=false 时 err_msg 给中文原因（鉴权/找不到/超时/网络），前端原地回显。
-export interface ProviderTestResult {
-  ok: boolean
-  latency_ms: number
-  model: string
-  err_msg: string
+// 诊断检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型列表 → 模型 → 工具调用），前端按返回顺序渲染。
+export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools'
+export type DiagnosisStepStatus = 'ok' | 'fail' | 'warn' | 'skip'
+
+export interface DiagnosisStep {
+  key: DiagnosisStepKey
+  status: DiagnosisStepStatus
+  detail: string
+  request?: string // 实际请求，如 "POST https://…/chat/completions"
+  latency_ms?: number
 }
 
-// ProviderModelsResult 是 POST /models/providers/list-models 的响应。
-// models 为空表示 provider 不支持 /models 或临时失败，前端回退纯手填。
-export interface ProviderModelsResult {
+// DiagnosisProfile 是实测得到的请求画像（回填表单，保存后运行期按此发请求）。
+export interface DiagnosisProfile {
+  auth_scheme: AuthScheme
+  output_limit_param?: OutputLimitParam // 未发对话请求时缺省（无从判断）
+  supports_tools?: boolean // 未测出结论时缺省
+}
+
+// DiagnosisSuggestion 是「换个写法能通」的建议（与表单当前值不同的协议或 Base URL）。
+export interface DiagnosisSuggestion {
+  type: ProviderType
+  base_url: string
+  auth_scheme: AuthScheme // 按建议写法实测通过的鉴权方式，采纳时一并回填
+  reason: string
+}
+
+// Diagnosis 是一次连接诊断的完整结果。
+export interface Diagnosis {
+  ok: boolean // 对话请求成功（配置可用）
+  steps: DiagnosisStep[]
+  profile: DiagnosisProfile | null // 打通后的请求画像；未打通为 null
+  suggestion?: DiagnosisSuggestion
+  base_url: string // 归一后的 Base URL
   models: string[]
+  models_supported: boolean
+  auto_model?: string // 未填模型时诊断自动选用的模型（列表第一个）；配置可用时回填为默认模型
 }
 
 /**

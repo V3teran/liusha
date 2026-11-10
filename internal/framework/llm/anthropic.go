@@ -114,7 +114,17 @@ func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, 
 	if err != nil {
 		return Result{}, fmt.Errorf("anthropic generate: %w", wrapAnthropicErr(err))
 	}
+	if !isAnthropicMessage(resp) {
+		return Result{}, fmt.Errorf("anthropic generate（provider=%s, model=%s）: 2xx 响应体不是消息: %w", g.provider, g.model, ErrUnexpectedResponse)
+	}
 	return fromAnthropicResponse(resp, g.provider, g.model), nil
+}
+
+// isAnthropicMessage 判定 2xx 响应体是否是一条消息：content / role / type 三个定义消息
+// 的字段至少出现一个。全部缺失说明响应体是别的东西（别的协议的响应、网关包成 200 的
+// 错误页）。只在三者全缺时才判定，个别字段缺失的宽松网关不受影响。
+func isAnthropicMessage(resp *anthropic.Message) bool {
+	return resp.JSON.Content.Valid() || resp.JSON.Role.Valid() || resp.JSON.Type.Valid()
 }
 
 // toAnthropicMessages 把内部 Message 转成 Anthropic 原生类型。

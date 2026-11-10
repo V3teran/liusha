@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -110,4 +111,50 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// notConfiguredStore 在 fakeRouterStore 之上把指定 key 报为「未配置」（停用/缺钥）。
+type notConfiguredStore struct {
+	fakeRouterStore
+	unavailable map[string]bool
+}
+
+func (s *notConfiguredStore) GetProviderSpec(ctx context.Context, key string) (ProviderSpec, error) {
+	if s.unavailable[key] {
+		return ProviderSpec{}, fmt.Errorf("%w: provider %q 已停用", ErrNotConfigured, key)
+	}
+	return s.fakeRouterStore.GetProviderSpec(ctx, key)
+}
+
+// 显式档的 provider 被停用（或缺钥）时降级到相邻档，而不是直接让该档报错。
+func TestRouter_UnavailableProviderDegradesToAdjacentLevel(t *testing.T) {
+	r := NewRouter(&notConfiguredStore{
+		fakeRouterStore: fakeRouterStore{
+			routes:    map[string]string{"complex": "off", "medium": "glm"},
+			providers: map[string]ProviderSpec{"glm": goodSpec("glm")},
+		},
+		unavailable: map[string]bool{"off": true},
+	})
+	spec, err := r.resolveSpec(context.Background(), ComplexityComplex)
+	if err != nil {
+		t.Fatalf("complex 档 provider 停用应降级到 medium: %v", err)
+	}
+	if spec.Code != "glm" {
+		t.Fatalf("应解析到 medium 的 glm，got %q", spec.Code)
+	}
+	if _, err := r.For(context.Background(), ComplexityComplex); err != nil {
+		t.Fatalf("For(complex) 应降级成功: %v", err)
+	}
+}
+
+// 全部候选都「未配置」时保留哨兵链：任务据此干净终结，而非当作瞬时故障无限重试。
+func TestRouter_AllUnavailableIsNotConfigured(t *testing.T) {
+	r := NewRouter(&notConfiguredStore{
+		fakeRouterStore: fakeRouterStore{routes: map[string]string{"medium": "off"}},
+		unavailable:     map[string]bool{"off": true},
+	})
+	_, err := r.For(context.Background(), ComplexityMedium)
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("全部停用应是 ErrNotConfigured，got %v", err)
+	}
 }

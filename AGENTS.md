@@ -107,7 +107,10 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 - 两条路径，前端优先：`llm_provider.encrypted_api_key`（前端直填，AES-GCM 落库）；为空时读 `api_key_env` 指定的环境变量（部署期路径：`config.yaml` providers 块加 `.env` 同名变量）。事实源：`internal/llmconfig/apikey.go`。
 - 缺少 LLM 配置不阻止启动：任务下发会被拒绝，并提示到前端配置。
-- anthropic 协议出站统一用 `x-api-key`；SDK 自动读取的 ambient `ANTHROPIC_AUTH_TOKEN` 必须擦除（`framework/llm/client_pool.go`）。
+- 档位解析（`framework/llm/router.go`）：显式档 → 就近降级到相邻档。provider 停用、缺钥都按「未配置」处理并继续降级；全部候选不可用时保留 `ErrNotConfigured`，任务据此干净终结。
+- provider 只认协议、不认服务：官方、各家兼容端点、中转网关都按 `openai_compat` / `anthropic` 接入，代码里不出现任何服务名单。服务间的差异由「请求画像」承载——`auth_scheme`（`bearer` / `x-api-key`，与协议正交）与 `output_limit_param`（`max_tokens` / `max_completion_tokens`）——由连接诊断实测后记录；运行期 OpenAI 兼容生成器遇上游明确拒绝某个可选字段时也会自适应改写重发（`framework/llm/openai_compat_adapt.go`）。
+- 出站凭据只有一个出口：`ClientPool` 的传输层清掉全部凭据头（含 SDK 从环境变量注入的外来值）后按 `auth_scheme` 只写一个。
+- provider 配置只有一处口径：`llmconfig.ProviderParams.Normalize` + `Validate`（HTTP 写入、启动种子、落库共用）；前端 `providerRules.ts` 与之一一对应。provider 的 code 是 UUID，界面一律按显示名称展示：显示名称必填、不区分大小写唯一（DB 约束兜底，冲突 409）。Base URL 按协议归一：去误粘的操作路径，Anthropic 再去末尾 `/v1`。连接诊断（`internal/llmprobe`）经运行期同一套 ClientPool + Generator 发请求，请求地址展示用 `framework/llm.OperationURL`，不手拼路径；可用性只以对话实测为准，模型列表是辅助——Anthropic 兼容端点（地址末段含 anthropic）不提供列表时，从同主机上一级路径的 OpenAI 兼容端点取可选模型；未填模型而拿到列表时，自动选用列表第一个按它完整实测（`auto_model`），可用才回填为默认模型。
 
 ### HTTP API 错误契约（`internal/httpapi`）
 

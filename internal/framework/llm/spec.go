@@ -11,13 +11,18 @@ import "context"
 
 // ProviderSpec 是构造一个 Generator 所需的全部连接参数（密钥已解析）。
 type ProviderSpec struct {
-	Code           string // provider 标识（日志/审计用；列名 llm_provider.code）
-	Type           string // 协议类型：openai_compat | anthropic
-	BaseURL        string
-	Model          string
-	APIKey         string // 明文密钥（业务侧解析后传入；框架不落盘不记录）
-	MaxTokens      int
-	SupportsVision bool
+	Code    string // provider 标识（日志/审计用；列名 llm_provider.code）
+	Type    string // 协议类型：openai_compat | anthropic
+	BaseURL string
+	Model   string
+	APIKey  string // 明文密钥（业务侧解析后传入；框架不落盘不记录）
+	// AuthScheme 是密钥的携带方式；空 = 协议标准方式（见 DefaultAuthScheme）。
+	AuthScheme AuthScheme
+	// OutputLimitParam 是 OpenAI 兼容协议声明输出上限的字段；空 = max_tokens。
+	// 上游明确拒绝时生成器会自适应切换（见 requestCompat）。anthropic 协议不消费。
+	OutputLimitParam OutputLimitParam
+	MaxTokens        int
+	SupportsVision   bool
 	// ThinkingBudget 是扩展思考预算（anthropic thinking.budget_tokens）。
 	// >0 = 开启扩展思考（模型先流式产出内部 CoT 再产正文）；0 = 不开启。
 	// openai_compat 协议当前不消费此参数。
@@ -31,6 +36,35 @@ type ProviderSpec struct {
 const (
 	ProviderTypeOpenAICompat = "openai_compat"
 	ProviderTypeAnthropic    = "anthropic"
+)
+
+// AuthScheme 是出站请求携带密钥的方式。它与协议正交：协议决定报文格式与端点路径，
+// 鉴权方式只决定凭据头——同一协议的不同服务（官方、各家兼容端点、中转网关）可能
+// 只认其中一种，由连接诊断实测后记录在 provider 上。
+type AuthScheme string
+
+// 鉴权方式（与业务侧 llmconfig 的字符串值一致——wire 契约）。
+const (
+	AuthBearer  AuthScheme = "bearer"    // Authorization: Bearer <key>（OpenAI 兼容协议的标准方式）
+	AuthXAPIKey AuthScheme = "x-api-key" // x-api-key: <key>（Anthropic 协议的标准方式）
+)
+
+// DefaultAuthScheme 返回协议的标准鉴权方式。
+func DefaultAuthScheme(protocol string) AuthScheme {
+	if protocol == ProviderTypeAnthropic {
+		return AuthXAPIKey
+	}
+	return AuthBearer
+}
+
+// OutputLimitParam 是 OpenAI 兼容协议声明单次输出上限所用的请求字段：多数服务认
+// max_tokens，部分推理模型只认 max_completion_tokens。
+type OutputLimitParam string
+
+// 输出上限字段（与业务侧 llmconfig 的字符串值一致——wire 契约）。
+const (
+	OutputLimitMaxTokens           OutputLimitParam = "max_tokens"
+	OutputLimitMaxCompletionTokens OutputLimitParam = "max_completion_tokens"
 )
 
 // RoutingSpec 是复杂度档位 → provider key 的路由表。

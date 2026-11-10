@@ -8,6 +8,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/configstore"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/skillstore"
@@ -40,10 +41,10 @@ func respondErr(c *gin.Context, status int, err error) {
 	// 操作不适用于该类对象（删除内置技能、恢复自建技能的出厂内容）→ 409。
 	if status >= http.StatusInternalServerError {
 		switch {
-		case errors.Is(err, override.ErrInvalid):
+		case errors.Is(err, override.ErrInvalid), errors.Is(err, llmconfig.ErrInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
-		case errors.Is(err, skillstore.ErrConflict),
+		case errors.Is(err, skillstore.ErrConflict), errors.Is(err, llmconfig.ErrConflict),
 			errors.Is(err, configstore.ErrBuiltinSkill),
 			errors.Is(err, configstore.ErrCustomSkill):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

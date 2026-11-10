@@ -84,10 +84,8 @@ type Deps struct {
 	// 前端直填的明文 API Key 必须先加密才能落库，缺加密器就不该开这条写路径（fail-closed）。
 	// 由 cmd/api 注入 *cryptx.Cipher（自动满足），密钥来自 LIUSHA_LLM_KEY_SECRET（fail-fast）。
 	KeyEncrypter KeyEncrypter
-	// ProviderTester 为 nil 时实连探测路由（POST /models/providers/test|list-models）不注册。
-	// 由 cmd/api 注入闭合 llmstore（取已存密钥走多级缓存）+ cryptx（解密）+ framework/llm（建 client 发请求）的适配器。
-	// 测试连接发一条最小 chat completion；模型探测 GET {base_url}/models——都是即时反馈，不落库。
-	ProviderTester ProviderTester
+	// ProviderDiagnoser 为 nil 时连接诊断路由（POST /models/providers/diagnose）不注册。
+	ProviderDiagnoser ProviderDiagnoser
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
 	// 由 cmd/api 注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链（见 D7）。

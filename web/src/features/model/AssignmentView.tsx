@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
+import { errorText } from '@/api/client'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import type { ProviderConfig, AgentConfig } from '@/api/types'
 import { COMPLEXITY_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
-import { providerDisplayName } from './providerForm'
 import {
   useProviders,
   useRouting,
@@ -12,7 +12,8 @@ import {
 } from './useModelQueries'
 import { Select } from '@/components/ui/Select'
 
-// 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。无任何兜底机制。
+// 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。
+// 某档未绑定、或其部署停用/缺钥时，运行期按就近降级由相邻档承接。
 // 同时读写两处：
 //   1. complexity → provider：行内 select 直选部署（useSaveRoleRoute，空值=删路由）。
 //   2. agent → 档：每档一排归属 chip，点未归属 chip 即把智能体归入本档
@@ -47,9 +48,9 @@ export function AssignmentView() {
   // 路由/移档失败的分区脚注回显（乐观更新已自动回滚视觉，这里补失败原因），下次操作即清。
   const [actionError, setActionError] = useState('')
   const onError = (prefix: string) => (e: unknown) =>
-    setActionError(`${prefix}：${e instanceof Error ? e.message : '操作失败'}`)
+    setActionError(`${prefix}：${errorText(e, '操作失败')}`)
 
-  // 选空 → 删除该档路由（该档回落标准推理档解析）；选具体 provider → upsert。
+  // 选空 → 删除该档路由（运行期按就近降级由相邻档承接）；选具体 provider → upsert。
   const onPick = (group: string, providerKey: string) => {
     setActionError('')
     routeMutation.mutate(
@@ -132,7 +133,8 @@ export function AssignmentView() {
 }
 
 // 单档行：档位标签 + 职责说明 + provider 选择器；下方一行 agent 归属 chip。
-// 选空 = 删除该档绑定（回落标准推理档解析）。
+// 选空 = 删除该档绑定（就近降级由相邻档承接）。绑定的部署停用、密钥未就绪、
+// 或未声明工具调用而本档有智能体时，就地告警。
 function ComplexityRow({
   meta,
   value,
@@ -154,10 +156,13 @@ function ComplexityRow({
   moving: Set<string>
   onMove: (agentCode: string, group: string) => void
 }) {
-  const provState = new Map(providers.map((p) => [p.code, p.enabled] as const))
-  const enabled = value ? provState.get(value) : undefined
-  const missing = value !== '' && enabled === undefined
-  const disabledProv = value !== '' && enabled === false
+  const bound = value ? providers.find((p) => p.code === value) : undefined
+  const missing = value !== '' && !bound
+  const disabledProv = bound?.enabled === false
+  const noKey = bound?.enabled === true && !bound.key_present
+  // 四个智能体都依赖工具调用：本档有智能体、而绑定的部署未声明工具调用时告警。
+  const hasAgents = agents.some((a) => (complexityBy.get(a.code) ?? 'medium') === meta.key)
+  const noTools = bound?.enabled === true && !bound.supports_tools && hasAgents
   const saving = routeSavingRole === meta.key
 
   return (
@@ -176,9 +181,21 @@ function ComplexityRow({
               </span>
             )}
             {disabledProv && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high">
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该部署，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 部署停用
+              </span>
+            )}
+            {noKey && (
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该部署，由相邻档承接">
+                <AlertTriangle className="h-3 w-3" />
+                密钥未就绪
+              </span>
+            )}
+            {noTools && (
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="智能体依赖工具调用，该部署未声明支持">
+                <AlertTriangle className="h-3 w-3" />
+                未声明工具调用
               </span>
             )}
           </div>
@@ -194,10 +211,10 @@ function ComplexityRow({
             disabled={saving}
             onChange={(e) => onPick(meta.key, e.target.value)}
           >
-            <option value="">（未配置 · 回落标准推理档）</option>
+            <option value="">（未配置 · 由相邻档承接）</option>
             {providers.map((p) => (
               <option key={p.code} value={p.code}>
-                {providerDisplayName(p)}
+                {p.display_name}
                 {p.enabled ? '' : '（已停用）'}
               </option>
             ))}
