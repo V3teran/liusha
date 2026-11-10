@@ -18,8 +18,6 @@ $CLAUDE_JOB_DIR
 .env.prod
 .env*.bak*
 compose.override.yaml
-# sandbox 构建上下文的 CA 证书（运行时同步产物，gitignore 同源）
-deployments/tool-images/sandbox/liusha-ca.crt
 
 # 运行时产物（含渗透测试敏感日志，绝不进构建上下文）
 logs
@@ -37,7 +35,6 @@ api
 corpus-import
 e2e
 proxy
-reseed
 runner
 sandbox-server
 *.test
@@ -51,5 +48,4 @@ __pycache__
 *.bak
 *.backup
 *.old
-llm-view-*.png
 .playwright-mcp

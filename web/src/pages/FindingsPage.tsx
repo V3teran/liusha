@@ -3,23 +3,19 @@ import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
 import { PageHeader } from '@/components/PageHeader'
 import { useMemo, useState } from 'react'
-import { createColumnHelper } from '@tanstack/react-table'
-import { ChevronRight, StickyNote } from 'lucide-react'
 import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
 import { DataTable } from '@/components/DataTable'
-import { FINDING_STATUS_OPTIONS, findingStatusMeta } from '@/features/finding/findingStatus'
-import { Badge } from '@/components/ui/Badge'
+import { FINDING_STATUS_OPTIONS } from '@/features/finding/findingStatus'
+import { findingColumns } from '@/features/finding/findingColumns'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
-import { SOURCE_OPTIONS, sourceColor, sourceLabel } from '@/lib/source'
-
-const columnHelper = createColumnHelper<FindingRow>()
+import { SOURCE_OPTIONS } from '@/lib/source'
 
 /**
  * FindingsPage - 漏洞管理页面（平铺台账）
@@ -86,87 +82,6 @@ export function FindingsPage() {
   }
 
   const hasFilter = !!(query || filters.host || filters.severity || filters.status || filters.source)
-
-  const columns = useMemo(
-    () => [
-      columnHelper.accessor('seq', {
-        header: '#',
-        size: 64,
-        meta: { align: 'right' },
-        cell: (ctx) => (
-          <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
-        ),
-      }),
-      columnHelper.accessor('severity', {
-        header: '严重度',
-        size: 90,
-        cell: (ctx) => {
-          const sev = ctx.getValue()
-          return <Badge color={severityColorOf(sev)} size="sm">{severityLabel[sev.toLowerCase()] || sev}</Badge>
-        },
-      }),
-      columnHelper.accessor('summary', {
-        header: '漏洞',
-        size: 400,
-        cell: (ctx) => {
-          const f = ctx.row.original
-          return (
-            <span className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate" title={f.summary}>{f.summary}</span>
-              {f.triage_note && (
-                <StickyNote className="h-3.5 w-3.5 flex-shrink-0 text-text-tertiary" aria-label="有处置备注" />
-              )}
-            </span>
-          )
-        },
-      }),
-      columnHelper.display({
-        id: 'location',
-        header: '地址',
-        size: 240,
-        cell: (ctx) => {
-          const f = ctx.row.original
-          return (
-            <span
-              className="overflow-hidden truncate font-mono text-xs text-text-secondary"
-              title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}${f.cwe_id ? ` · ${f.cwe_id}` : ''}`}
-            >
-              {f.target?.method} {f.host}
-              {f.target?.path}
-              {f.cwe_id && ` · ${f.cwe_id}`}
-            </span>
-          )
-        },
-      }),
-      columnHelper.accessor('source', {
-        header: '来源',
-        size: 90,
-        cell: (ctx) => {
-          const source = ctx.getValue()
-          return (
-            <Badge dot={false} size="sm" color={sourceColor(source)}>
-              {sourceLabel(source)}
-            </Badge>
-          )
-        },
-      }),
-      columnHelper.accessor('status', {
-        header: '状态',
-        size: 96,
-        cell: (ctx) => {
-          const meta = findingStatusMeta(ctx.getValue())
-          return <Badge color={meta.color} size="sm">{meta.label}</Badge>
-        },
-      }),
-      columnHelper.display({
-        id: 'expand',
-        header: '',
-        size: 48,
-        cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
-      }),
-    ],
-    [],
-  )
 
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
@@ -311,7 +226,7 @@ export function FindingsPage() {
           <DataTable
             ariaLabel="漏洞列表"
             rows={visible}
-            columns={columns as never}
+            columns={findingColumns as never}
             loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}
             hasFilter={hasFilter}
             emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"

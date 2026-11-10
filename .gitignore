@@ -1,6 +1,5 @@
 # Binaries
 /bin/
-cmd/*/dist/
 *.exe
 *.test
 *.out
@@ -39,12 +38,10 @@ coverage.html
 /corpus-import
 /e2e
 /proxy
-/reseed
 /runner
 /sandbox-server
 
-# 本地调试产物（截图、playwright MCP 转储）
-/llm-view-*.png
+# 本地调试产物（playwright MCP 转储）
 /.playwright-mcp/
 
 # Runtime logs / pids（host 进程 + proxify 流量 dump，每次 dev 启动覆盖）
@@ -55,9 +52,6 @@ coverage.html
 
 # Claude Code 本地会话状态
 /.claude/
-
-# sandbox build context 的 CA cert（运行时从 $HOME/.liusha/cacert.pem 同步进来，不入 git）
-deployments/tool-images/sandbox/liusha-ca.crt
 
 # Python 字节码缓存（browser-svc.py 等运行时生成）
 __pycache__/
