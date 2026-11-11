@@ -94,7 +94,7 @@ type Summary struct {
 	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
 	AssignmentTotal int    // 批内任务总数
 	Source          string // direct|proxy（assignment.source 原值；定时克隆批次落 direct）
-	Scheduled       bool   // 定时模板触发（assignment.schedule_id 非空）
+	ScheduleID      string // 来源定时模板 id（assignment.schedule_id；非定时、或模板已删除为空）
 	CronExpr        string // 来源模板的 cron 表达式（非定时为空）
 	ConversationID  string
 	FindingCount    int
@@ -131,7 +131,7 @@ const summarySelect = `
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
 	a.source,
-	(a.schedule_id IS NOT NULL),
+	COALESCE(a.schedule_id::text, ''),
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
@@ -160,7 +160,7 @@ func timeArg(t time.Time) any {
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
 	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status, &s.Paused,
-		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.Scheduled,
+		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.ScheduleID,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
 		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt); err != nil {
 		return err
@@ -228,7 +228,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),
 			(SELECT count(*) FROM task t3 WHERE t3.assignment_id = t.assignment_id),
 			a.source,
-			(a.schedule_id IS NOT NULL),
+			COALESCE(a.schedule_id::text, ''),
 			COALESCE(cs.cron_expr, ''),
 			COALESCE(c.id::text, ''),
 			(SELECT count(*) FROM finding f WHERE f.task_id = t.id),

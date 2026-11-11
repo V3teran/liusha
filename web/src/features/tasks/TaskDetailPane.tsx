@@ -18,6 +18,8 @@ interface TaskDetailPaneProps {
   onClose: () => void
   /** 控制操作（暂停/继续/停止）完成后的刷新回调。 */
   onOperated?: () => void
+  /** 打开来源定时模板（「定时」标记点击）；不传时标记仅展示。 */
+  onOpenSchedule?: (scheduleId: string) => void
 }
 
 function Kv({ k, children }: { k: string; children: React.ReactNode }) {
@@ -32,7 +34,7 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
 /** 任务详情板（右侧常驻，点行选中驱动）：任务信息 KV + 目标全文 + 控制组 + 三跳转。
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
  * 表格行内是快捷路径，两面并存。 */
-export function TaskDetailPane({ task, loading, error, onClose, onOperated }: TaskDetailPaneProps) {
+export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
   // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
   // 只有不可逆的停止过确认弹层（danger 形态）。
   const [confirmTerminate, setConfirmTerminate] = useState(false)
@@ -95,11 +97,21 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
                     <Badge dot={false} color={sourceColor(task.source)}>
                       {sourceLabel(task.source)}
                     </Badge>
-                    {task.scheduled && (
-                      <span className="inline-flex items-center gap-1 text-xs text-text-tertiary" title={`定时触发 · ${task.cron}`}>
-                        <Clock className="h-3 w-3" />定时
-                      </span>
-                    )}
+                    {task.scheduled &&
+                      (onOpenSchedule ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSchedule(task.schedule_id)}
+                          title={`定时触发 · ${task.cron}`}
+                          className="inline-flex cursor-pointer items-center gap-1 rounded text-xs text-text-tertiary underline-offset-2 transition-colors hover:text-accent hover:underline"
+                        >
+                          <Clock className="h-3 w-3" aria-hidden />定时 · 查看模板
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-text-tertiary" title={`定时触发 · ${task.cron}`}>
+                          <Clock className="h-3 w-3" aria-hidden />定时
+                        </span>
+                      ))}
                   </span>
                 </Kv>
                 <Kv k="批次">

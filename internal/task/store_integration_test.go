@@ -174,3 +174,56 @@ func TestHeartbeatAndReaperView(t *testing.T) {
 		t.Fatalf("heartbeat_at 应为刚写入的时刻: %+v", got.HeartbeatAt)
 	}
 }
+
+// TestSummaryScheduleLink 验证：定时模板克隆的批次，任务摘要带回来源模板 id 与 cron
+// （任务详情据此跳到模板管理）；列表与详情两条查询同口径。普通批次两列为空。
+func TestSummaryScheduleLink(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	tasks, assignments := NewStore(pool), assignment.NewStore(pool)
+	ctx := context.Background()
+
+	var scheduleID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO cron_schedule (cron_expr, payload, title) VALUES ('0 4 * * *', '[]', 's') RETURNING id::text`,
+	).Scan(&scheduleID); err != nil {
+		t.Fatalf("建模板: %v", err)
+	}
+	asg, err := assignments.Create(ctx, assignment.NewParams{
+		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, ScheduleID: &scheduleID,
+	})
+	if err != nil {
+		t.Fatalf("建定时批次: %v", err)
+	}
+	scheduled, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Brief: "b"})
+	if err != nil {
+		t.Fatalf("建任务: %v", err)
+	}
+	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Brief: "p"})
+	if err != nil {
+		t.Fatalf("建普通任务: %v", err)
+	}
+
+	got, err := tasks.GetSummary(ctx, scheduled.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if got.ScheduleID != scheduleID || got.CronExpr != "0 4 * * *" {
+		t.Fatalf("详情应带回模板 id 与 cron: %+v", got)
+	}
+	rows, err := tasks.ListFiltered(ctx, ListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, r := range rows {
+		switch r.ID {
+		case scheduled.ID:
+			if r.ScheduleID != scheduleID {
+				t.Errorf("列表应带回模板 id: %+v", r)
+			}
+		case plain.ID:
+			if r.ScheduleID != "" || r.CronExpr != "" {
+				t.Errorf("普通任务不应带模板信息: %+v", r)
+			}
+		}
+	}
+}

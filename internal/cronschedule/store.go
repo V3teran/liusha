@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/robfig/cron/v3"
 
@@ -72,14 +73,63 @@ func (s *Store) GetByID(ctx context.Context, id string) (Schedule, error) {
 	return c, nil
 }
 
-// SetEnabled 切换定时模板的启用/停用（定时模板本身无终态，只有这一个开关）。
-func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
-	tag, err := s.pool.Exec(ctx, "UPDATE cron_schedule SET enabled=$1 WHERE id=$2", enabled, id)
+// List 列出全部定时模板（含已停用），新建的在前——管理视图用，模板数量由人工创建，无需分页。
+func (s *Store) List(ctx context.Context) ([]Schedule, error) {
+	rows, err := s.pool.Query(ctx, "SELECT "+colsSelect+" FROM cron_schedule ORDER BY created_at DESC, id")
 	if err != nil {
-		return fmt.Errorf("set cron_schedule %s enabled=%v: %w", id, enabled, err)
+		return nil, fmt.Errorf("list cron_schedules: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Schedule{}
+	for rows.Next() {
+		var c Schedule
+		if err := scan(rows, &c); err != nil {
+			return nil, fmt.Errorf("scan cron_schedule: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// SetEnabled 切换定时模板的启用/停用（定时模板本身无终态，只有这一个开关），返回写后的行。
+//
+// 启用时 next_run_at 从当前时刻按 cron 重算：停用期间错过的触发点不补跑——沿用停用前
+// 留下的过去时间会让下一轮巡检立即触发一整批，违背「从现在起恢复」的直觉。停用不动
+// next_run_at（ListDue 只取 enabled）。不存在的 id 包装 pgx.ErrNoRows（HTTP 层收敛 404）。
+func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) (Schedule, error) {
+	var row pgx.Row
+	if enabled {
+		c, err := s.GetByID(ctx, id)
+		if err != nil {
+			return Schedule{}, err
+		}
+		next, err := NextRun(c.CronExpr, time.Now())
+		if err != nil {
+			return Schedule{}, err
+		}
+		row = s.pool.QueryRow(ctx,
+			"UPDATE cron_schedule SET enabled=true, next_run_at=$1 WHERE id=$2 RETURNING "+colsSelect, next, id)
+	} else {
+		row = s.pool.QueryRow(ctx,
+			"UPDATE cron_schedule SET enabled=false WHERE id=$1 RETURNING "+colsSelect, id)
+	}
+	var c Schedule
+	if err := scan(row, &c); err != nil {
+		return Schedule{}, fmt.Errorf("set cron_schedule %s enabled=%v: %w", id, enabled, err)
+	}
+	return c, nil
+}
+
+// Delete 删除定时模板。已触发的批次与其任务保留（assignment.schedule_id 外键 ON DELETE
+// SET NULL），只是不再标为定时触发。不存在的 id 包装 pgx.ErrNoRows。
+func (s *Store) Delete(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM cron_schedule WHERE id=$1", id)
+	if err != nil {
+		return fmt.Errorf("delete cron_schedule %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("cron_schedule %s not found", id)
+		return fmt.Errorf("delete cron_schedule %s: %w", id, pgx.ErrNoRows)
 	}
 	return nil
 }

@@ -147,7 +147,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
 	}
-	if err := r.Schedules.SetEnabled(ctx, sched.ID, false); err != nil {
+	if _, err := r.Schedules.SetEnabled(ctx, sched.ID, false); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	forceDue(t, pool, sched.ID)

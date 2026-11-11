@@ -666,7 +666,7 @@ export interface SettingsDetail<T> {
 // TaskSummary 是任务列表/详情行：task 本体 + 派生列。
 //   - assignment_index/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
 //   - source：direct 人工下发 / proxy 代理捕获——定时克隆（scheduled=true）同归人工下发
-//   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
+//   - scheduled/schedule_id/cron：定时模板触发标记 + 来源模板 id + cron 表达式（模板删除后三者回落为非定时）
 //   - step_count：认知循环推理步数（与对话时间线「第 N 步」同口径；无推理步时回退探索图 action 节点数）
 //   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）
 export interface TaskSummary {
@@ -681,6 +681,7 @@ export interface TaskSummary {
   assignment_total: number
   source: Source
   scheduled: boolean
+  schedule_id: string // 来源定时模板 id（非定时为空）
   cron: string
   conversation_id: string
   finding_count: number
@@ -706,6 +707,20 @@ export interface TaskFilters {
   search: string
   since: string
   until: string
+}
+
+// ScheduleRow 是定时模板（GET /schedules）：到点按 briefs 每条展开一个任务。
+// enabled=false 时不触发；重新启用后 next_run_at 从当时起按 cron 重算（停用期间错过的不补跑）。
+export interface ScheduleRow {
+  id: string
+  title: string
+  description: string
+  cron: string // 5 段 cron
+  enabled: boolean
+  briefs: string[]
+  next_run_at: string | null
+  last_run_at: string | null
+  created_at: string
 }
 
 // TaskCreateRequest 是「新建任务」弹层提交体：每行一个任务目标。
