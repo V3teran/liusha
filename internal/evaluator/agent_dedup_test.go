@@ -89,7 +89,7 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 		}
 	}
 	transient := []string{
-		`web.Replayer: 基线重放失败: replay 请求失败: Get "http://t": dial tcp: lookup t: no such host`,
+		`web.Replayer: 基线重放失败: replay 请求未拿到目标响应: Get "http://t": dial tcp: lookup t: no such host`,
 		"verification timeout (will retry): context deadline exceeded",
 		"http 429: Too Many Requests",
 	}

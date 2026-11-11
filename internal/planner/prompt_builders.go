@@ -350,6 +350,8 @@ func refuteReasonHint(reason string) string {
 		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
 	case evaluator.RefuteClaimInvalid:
 		return "（复现成立但主张不成立：此方向作废，除非有实质新证据）"
+	case evaluator.RefuteAdjudicationFailed:
+		return "（裁决环节未完成，主张未被否定：可按原方向重提验证）"
 	default:
 		return "（经真实复现验证被否定：不要原样重提）"
 	}
@@ -372,7 +374,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 		seen[st] = true
 		fmt.Fprintf(&sb, "- %s %s\n", st, refuteReasonHint(h.Reason))
 	}
-	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提。\n\n")
+	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提；裁决未完成（adjudication_failed）可按原方向重提。\n\n")
 	return sb.String()
 }
 
