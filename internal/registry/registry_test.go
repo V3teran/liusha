@@ -185,3 +185,12 @@ func TestAllows(t *testing.T) {
 		})
 	}
 }
+
+// 工具目录里出现的每个函数工具分类都有中文显示名（未命名会让工具页显示原始分类码）。
+func TestFunctionToolCategoriesHaveNames(t *testing.T) {
+	for _, meta := range FunctionToolCatalog {
+		if meta.Category.Name() == string(meta.Category) {
+			t.Errorf("分类 %q 缺中文显示名（工具 %s）", meta.Category, meta.Name)
+		}
+	}
+}

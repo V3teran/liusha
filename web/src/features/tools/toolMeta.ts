@@ -8,20 +8,7 @@ export const KIND_LABEL: Record<ToolKind, string> = {
   cli: '外部工具',
 }
 
-// 分类 code → 展示名。与 registry.FunctionToolCategory 常量（internal/registry/catalog.go）对齐；
-// CLI 工具的 category 源出 tools.yaml，可能不在此表内——未命中则原样展示。
-const CATEGORY_LABEL: Record<string, string> = {
-  credentials: '凭证共享',
-  corpus: '知识库',
-  traffic: '流量分析',
-  sandbox: '沙箱执行',
-  skill: '技能手册',
-  explore: '探索图',
-  control: '流程控制',
-}
-
-// 分类展示名：命中映射表则用中文名，否则原样返回（空值给占位符）。
-export function categoryLabel(category: string): string {
-  if (!category) return '未分类'
-  return CATEGORY_LABEL[category] ?? category
+// 分类展示名：后端下发的分类显示名，缺省回落分类码（空值给占位符）。
+export function categoryLabel(t: { category: string; category_name?: string }): string {
+  return t.category_name || t.category || '未分类'
 }

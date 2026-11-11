@@ -14,6 +14,27 @@ const (
 	CatControl     FunctionToolCategory = "control"
 )
 
+// Name 返回分类的中文显示名（工具目录同步入库，工具页 / 智能体页据此展示）。
+func (c FunctionToolCategory) Name() string {
+	switch c {
+	case CatCredentials:
+		return "凭证共享"
+	case CatCorpus:
+		return "知识库"
+	case CatTraffic:
+		return "流量分析"
+	case CatSandbox:
+		return "沙箱执行"
+	case CatSkill:
+		return "技能手册"
+	case CatExplore:
+		return "探索图"
+	case CatControl:
+		return "流程控制"
+	}
+	return string(c)
+}
+
 // FunctionToolMeta 是一个内置函数工具的展示元数据。
 type FunctionToolMeta struct {
 	Name        string

@@ -20,11 +20,12 @@ func Reconcile(ctx context.Context, store *Store, m *manifest.ToolManifest) (ups
 	var keepFn []string
 	for i, meta := range registry.FunctionToolCatalog {
 		t := Definition{
-			Name:        meta.Name,
-			Kind:        KindFunction,
-			Category:    string(meta.Category),
-			Description: meta.Description,
-			SortOrder:   i,
+			Name:         meta.Name,
+			Kind:         KindFunction,
+			Category:     string(meta.Category),
+			CategoryName: meta.Category.Name(),
+			Description:  meta.Description,
+			SortOrder:    i,
 		}
 		if e := store.Upsert(ctx, t); e != nil {
 			return upserted, pruned, fmt.Errorf("reconcile function tools: %w", e)
@@ -43,13 +44,19 @@ func Reconcile(ctx context.Context, store *Store, m *manifest.ToolManifest) (ups
 		return upserted, pruned, nil
 	}
 	var keepCLI []string
+	categories := m.CategoryByCode()
 	for i, mt := range m.Tools {
+		name := categories[mt.Category].Name
+		if name == "" {
+			name = mt.Category
+		}
 		t := Definition{
-			Name:        mt.Name,
-			Kind:        KindCLI,
-			Category:    mt.Category,
-			Description: mt.Description,
-			SortOrder:   i,
+			Name:         mt.Name,
+			Kind:         KindCLI,
+			Category:     mt.Category,
+			CategoryName: name,
+			Description:  mt.Description,
+			SortOrder:    i,
 		}
 		if e := store.Upsert(ctx, t); e != nil {
 			return upserted, pruned, fmt.Errorf("reconcile cli tools: %w", e)

@@ -21,12 +21,13 @@ const (
 
 // Definition 是 tool 表行的 Go 表示。
 type Definition struct {
-	Name        string
-	Kind        Kind
-	Category    string
-	Description string
-	SortOrder   int
-	SyncedAt    time.Time
+	Name         string
+	Kind         Kind
+	Category     string
+	CategoryName string // 分类显示名（cli 取 tools.yaml，function 取 registry）
+	Description  string
+	SortOrder    int
+	SyncedAt     time.Time
 }
 
 // ListParams 是 Store.List 的查询入参（可选过滤 + 分页）。

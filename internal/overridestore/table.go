@@ -3,7 +3,7 @@
 // 共用同一读写协议：
 //
 //   - 只在被自定义时有行；用户层清空即删行；
-//   - 写入在事务内锁行后「读 → 计算 → 写」，同一资源的并发写串行化，
+//   - 写入在事务内取资源级锁后「读 → 计算 → 写」，同一资源的并发写（含删行）串行化，
 //     章程编辑与工具装配并发也不会互相覆盖。
 package overridestore
 
@@ -69,7 +69,7 @@ func (t Table) Get(ctx context.Context, key string) (override.Overrides, error) 
 // UpdateFunc 在锁行事务内计算新的用户层。tx 供同事务写附属列（如技能的 last_saved）。
 type UpdateFunc func(ctx context.Context, tx pgx.Tx, current override.Overrides) (override.Overrides, error)
 
-// Update 在事务内锁定资源行，交由 fn 计算新的用户层并写回；结果为空即删行。
+// Update 在事务内取资源级锁，交由 fn 计算新的用户层并写回；结果为空即删行。
 // 返回写入后的用户层。fn 返回错误时事务回滚，原值不变。
 func (t Table) Update(ctx context.Context, key string, fn UpdateFunc) (override.Overrides, error) {
 	tx, err := t.Pool.Begin(ctx)
@@ -78,8 +78,27 @@ func (t Table) Update(ctx context.Context, key string, fn UpdateFunc) (override.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 先确保行存在再锁：首次写入时两个并发事务也会在同一行上排队，而不是都查不到行、
-	// 同时插入撞主键冲突。结果为空时在同一事务内删除，外部看不到空行。
+	next, err := t.UpdateTx(ctx, tx, key, fn)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("提交 %s[%s]: %w", t.Name, key, err)
+	}
+	return next, nil
+}
+
+// UpdateTx 在调用方事务内执行与 Update 相同的协议（资源级锁 → 读 → fn → 写），提交归
+// 调用方——用于必须与其它写入原子落定的修改（如删技能时清理各 agent 的引用）。
+func (t Table) UpdateTx(ctx context.Context, tx pgx.Tx, key string, fn UpdateFunc) (override.Overrides, error) {
+	// 资源级事务锁（表 + 资源键）：同一资源的写入完全串行，不依赖行是否存在——行锁
+	// 挡不住「用户层清空即删行」：已有行时 INSERT … ON CONFLICT 不加锁，另一事务可在
+	// 其后、FOR UPDATE 之前删掉该行，本事务随即查不到行，把固定资源误报成不存在。
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", t.Name+"/"+key); err != nil {
+		return nil, fmt.Errorf("锁 %s[%s]: %w", t.Name, key, err)
+	}
+	// 再确保行存在：fn 可能在同事务写附属列（如技能的 last_saved），需要行在。结果为空时
+	// 在同一事务内删除，外部看不到空行。
 	if _, err := tx.Exec(ctx, fmt.Sprintf("INSERT INTO %s (%s) VALUES ($1) ON CONFLICT DO NOTHING", t.Name, t.Key), key); err != nil { // #nosec G201 -- 表名与列名为代码常量
 		return nil, fmt.Errorf("写 %s[%s]: %w", t.Name, key, err)
 	}
@@ -104,9 +123,6 @@ func (t Table) Update(ctx context.Context, key string, fn UpdateFunc) (override.
 	}
 	if err != nil {
 		return nil, fmt.Errorf("写 %s[%s]: %w", t.Name, key, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("提交 %s[%s]: %w", t.Name, key, err)
 	}
 	return next, nil
 }

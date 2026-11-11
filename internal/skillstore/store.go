@@ -97,9 +97,9 @@ func (s *Store) UpdateCustom(ctx context.Context, code string, fn func(Skill) (C
 	return updated, nil
 }
 
-// DeleteCustom 删除自建技能。不存在返回 pgx.ErrNoRows。
-func (s *Store) DeleteCustom(ctx context.Context, code string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM custom_skill WHERE code=$1", code)
+// DeleteCustom 在调用方事务内删除自建技能（与清理各 agent 的引用原子落定）。不存在返回 pgx.ErrNoRows。
+func (s *Store) DeleteCustom(ctx context.Context, tx pgx.Tx, code string) error {
+	tag, err := tx.Exec(ctx, "DELETE FROM custom_skill WHERE code=$1", code)
 	if err != nil {
 		return fmt.Errorf("删除自建技能 %s: %w", code, err)
 	}

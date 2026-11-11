@@ -45,6 +45,16 @@ func (s *Store) UpdateOverrides(ctx context.Context, code string, fn func(overri
 	})
 }
 
+// UpdateOverridesTx 在调用方事务内修改某 agent 的用户层（与其它写入原子落定）。
+func (s *Store) UpdateOverridesTx(ctx context.Context, tx pgx.Tx, code string, fn func(override.Overrides) (override.Overrides, error)) (override.Overrides, error) {
+	return s.overrides.UpdateTx(ctx, tx, code, func(_ context.Context, _ pgx.Tx, cur override.Overrides) (override.Overrides, error) {
+		return fn(cur)
+	})
+}
+
+// Begin 开启事务（跨 agent 用户层与其它表的原子修改用）。
+func (s *Store) Begin(ctx context.Context) (pgx.Tx, error) { return s.pool.Begin(ctx) }
+
 // PromptArchives 读出全部提示词归档（code → 归档）。
 func (s *Store) PromptArchives(ctx context.Context) (map[string]PromptArchive, error) {
 	rows, err := s.pool.Query(ctx, "SELECT agent_code, prompt, archived_at FROM agent_prompt_archive")

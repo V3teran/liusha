@@ -244,8 +244,10 @@ func (s *Store) updateAgent(ctx context.Context, code string, edit agentEdit) (a
 		if err != nil {
 			return nil, err
 		}
+		// 写入路径：合成失败只可能来自本次提交（已存用户层合成成功才落过库），按配置
+		// 不合法收敛为 400，而不是当作服务端故障。
 		if result, err = agent.Resolve(b, next, catalog); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w：%w", override.ErrInvalid, err)
 		}
 		return next, agent.Validate(result.Config)
 	}); err != nil {
@@ -444,16 +446,26 @@ func (s *Store) DeleteSkill(ctx context.Context, code string) error {
 	if sk.IsBuiltin {
 		return ErrBuiltinSkill
 	}
-	if err := s.skills.DeleteCustom(ctx, code); err != nil {
+	// 删除与清理各 agent 的引用在一个事务内落定：任一步失败整体回滚、可原样重试，
+	// 不会留下「技能已删、引用残留」（残留绑定会在日后同名重建时自动生效）。
+	tx, err := s.agents.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("删除技能 %s: %w", code, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.skills.DeleteCustom(ctx, tx, code); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("技能 %q %w", code, ErrNotFound)
 		}
 		return err
 	}
-	if err := s.cache.Invalidate(ctx, keyCustomSkills); err != nil {
+	if err := s.removeSkillReferences(ctx, tx, code); err != nil {
 		return err
 	}
-	return s.removeSkillReferences(ctx, code)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("删除技能 %s: %w", code, err)
+	}
+	return s.cache.Invalidate(ctx, keyCustomSkills, keyAgentOverrides)
 }
 
 // AdoptRetiredSkills 把已下线、但用户自定义过的内置技能转为同 code 的自建技能
@@ -479,8 +491,8 @@ func (s *Store) updateBuiltinSkill(ctx context.Context, code string, edit func(o
 		if err != nil {
 			return nil, skillstore.Skill{}, err
 		}
-		if result, err = skillstore.Resolve(b, next); err != nil {
-			return nil, skillstore.Skill{}, err
+		if result, err = skillstore.Resolve(b, next); err != nil { // 同 updateAgent：按提交不合法收敛
+			return nil, skillstore.Skill{}, fmt.Errorf("%w：%w", override.ErrInvalid, err)
 		}
 		return next, result, skillstore.Validate(skillstore.ContentOf(result))
 	}); err != nil {
@@ -489,30 +501,19 @@ func (s *Store) updateBuiltinSkill(ctx context.Context, code string, edit func(o
 	return result, s.cache.Invalidate(ctx, keySkillOverrides)
 }
 
-// removeSkillReferences 从各 agent 技能字段的新增、删除记录里抹去被删技能。
-func (s *Store) removeSkillReferences(ctx context.Context, code string) error {
-	ovs, err := s.agents.Overrides(ctx)
-	if err != nil {
-		return err
-	}
+// removeSkillReferences 在调用方事务内从各 agent 技能字段的新增、删除记录里抹去被删技能。
+// 按 agent code 固定顺序逐个取资源级锁，在锁内重读用户层（不依赖事务外的快照）。
+func (s *Store) removeSkillReferences(ctx context.Context, tx pgx.Tx, code string) error {
 	elem := mustJSON(code)
-	touched := false
-	for agentCode, ov := range ovs {
-		if _, changed := override.RemoveMember(ov, agent.FieldSkills, elem); !changed {
-			continue
-		}
-		if _, err := s.agents.UpdateOverrides(ctx, agentCode, func(cur override.Overrides) (override.Overrides, error) {
+	for _, b := range builtin.Agents() {
+		if _, err := s.agents.UpdateOverridesTx(ctx, tx, b.Code, func(cur override.Overrides) (override.Overrides, error) {
 			next, _ := override.RemoveMember(cur, agent.FieldSkills, elem)
 			return next, nil
 		}); err != nil {
-			return fmt.Errorf("清理 %s 对技能 %s 的引用: %w", agentCode, code, err)
+			return fmt.Errorf("清理 %s 对技能 %s 的引用: %w", b.Code, code, err)
 		}
-		touched = true
 	}
-	if !touched {
-		return nil
-	}
-	return s.cache.Invalidate(ctx, keyAgentOverrides)
+	return nil
 }
 
 // mergeContent 把提交的字段合入自建技能内容（只接受可修改字段）并校验。
