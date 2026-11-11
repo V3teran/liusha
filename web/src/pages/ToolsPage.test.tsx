@@ -19,12 +19,12 @@ function agent(code: string, name: string, involved: boolean): ToolAgent {
   return { code, name, involved }
 }
 
-function tool(name: string, kind: ToolKind, category: string): Tool {
-  return { name, kind, category, description: `${name} 的描述`, sort_order: 0 }
+function tool(name: string, kind: ToolKind, category: string, categoryName = category): Tool {
+  return { name, kind, category, category_name: categoryName, description: `${name} 的描述`, sort_order: 0 }
 }
 
 const FN = tool('read_credentials', 'function', 'credentials')
-const CLI = tool('nmap', 'cli', 'recon')
+const CLI = tool('nmap', 'cli', 'recon', '信息收集')
 
 function detailOf(t: Tool, agents: ToolAgent[] = []): ToolDetail {
   return { tool: t, agents }
@@ -45,6 +45,9 @@ describe('ToolsPage', () => {
     render(<ToolsPage />)
     expect(await screen.findByText('read_credentials')).toBeTruthy()
     expect(screen.getByText('nmap')).toBeTruthy()
+    // 分组头用后端下发的分类显示名，不显示分类码。
+    expect(screen.getAllByText('信息收集').length).toBeGreaterThan(0)
+    expect(screen.queryByText('recon')).toBeNull()
   })
 
   it('自动选中首项并在右栏常驻面板展示全量智能体（已装配者高亮）', async () => {

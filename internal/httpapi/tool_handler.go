@@ -136,7 +136,7 @@ func assignToolHandler(tools ToolCatalogAPI, cfg ConfigAPI) gin.HandlerFunc {
 // toolJSON 是 tool 响应的单一序列化点（防字段漂移）。
 func toolJSON(t toolstore.Definition) gin.H {
 	return gin.H{
-		"name": t.Name, "kind": string(t.Kind), "category": t.Category,
+		"name": t.Name, "kind": string(t.Kind), "category": t.Category, "category_name": t.CategoryName,
 		"description": t.Description,
 		"sort_order":  t.SortOrder, "synced_at": t.SyncedAt,
 	}

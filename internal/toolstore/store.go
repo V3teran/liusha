@@ -18,7 +18,7 @@ type Store struct {
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "name, kind, category, description, sort_order, synced_at"
+const colsSelect = "name, kind, category, category_name, description, sort_order, synced_at"
 
 // buildFilter 拼装 List/Count 共用的 WHERE 子句与参数（DRY，防两处漂移）。
 // 返回的 SQL 以 " WHERE ..." 开头或为空串；参数按占位符顺序排列。
@@ -90,12 +90,12 @@ func (s *Store) Get(ctx context.Context, name string) (Definition, error) {
 // Upsert 幂等写入一条工具目录（reconcile 用）；按 name 冲突则覆盖全部字段并刷新 synced_at。
 func (s *Store) Upsert(ctx context.Context, t Definition) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO tool (name, kind, category, description, sort_order, synced_at)
-		VALUES ($1, $2, $3, $4, $5, now())
+		INSERT INTO tool (name, kind, category, category_name, description, sort_order, synced_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now())
 		ON CONFLICT (name) DO UPDATE SET
-			kind=EXCLUDED.kind, category=EXCLUDED.category, description=EXCLUDED.description,
-			sort_order=EXCLUDED.sort_order, synced_at=now()`,
-		t.Name, string(t.Kind), t.Category, t.Description, t.SortOrder)
+			kind=EXCLUDED.kind, category=EXCLUDED.category, category_name=EXCLUDED.category_name,
+			description=EXCLUDED.description, sort_order=EXCLUDED.sort_order, synced_at=now()`,
+		t.Name, string(t.Kind), t.Category, t.CategoryName, t.Description, t.SortOrder)
 	if err != nil {
 		return fmt.Errorf("upsert tool %q: %w", t.Name, err)
 	}
@@ -119,7 +119,7 @@ func (s *Store) PruneExceptKind(ctx context.Context, kind Kind, keep []string) (
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, t *Definition) error {
 	var kind string
-	if err := r.Scan(&t.Name, &kind, &t.Category, &t.Description,
+	if err := r.Scan(&t.Name, &kind, &t.Category, &t.CategoryName, &t.Description,
 		&t.SortOrder, &t.SyncedAt); err != nil {
 		return err
 	}

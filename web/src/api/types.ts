@@ -221,6 +221,7 @@ export interface Tool {
   name: string
   kind: ToolKind
   category: string
+  category_name: string // 分类显示名（后端目录同步写入：cli 取 tools.yaml，function 取 registry）
   description: string
   sort_order: number
   synced_at?: string

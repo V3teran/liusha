@@ -151,7 +151,7 @@ export function ToolMasterList({
               {g.categories.map((c) => (
                 <div key={c.category}>
                   <p className="sticky top-0 z-10 border-b border-border bg-surface-2/95 px-4 pb-1 pt-3 text-xs uppercase tracking-wide text-text-tertiary backdrop-blur">
-                    {categoryLabel(c.category)}
+                    {categoryLabel(c.tools[0])}
                   </p>
                   {c.tools.map((t) => (
                     <ToolListRow

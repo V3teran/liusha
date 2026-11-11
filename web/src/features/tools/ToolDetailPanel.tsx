@@ -47,7 +47,7 @@ export function ToolDetailPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
         <div className="flex items-center gap-3 text-sm">
           <span className="text-text-secondary">分类</span>
-          <span className="text-text">{categoryLabel(tool.category)}</span>
+          <span className="text-text">{categoryLabel(tool)}</span>
         </div>
         <section>
           <p className="mb-1.5 text-xs font-medium text-text-secondary">描述</p>

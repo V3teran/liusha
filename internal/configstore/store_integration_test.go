@@ -73,6 +73,33 @@ func TestToggleAgent_ConcurrentWritesAllLand(t *testing.T) {
 	}
 }
 
+// 用户层清空即删行：并发的「恢复出厂」与修改交错时，删行窗口不得让另一方查不到行而
+// 报资源不存在（固定角色 planner 永远存在）。
+func TestResetAgent_ConcurrentWithRowDeletionNeverReportsMissing(t *testing.T) {
+	s, ctx := newTestStore(t)
+	for round := 0; round < 20; round++ {
+		if _, err := s.PatchAgent(ctx, "planner", override.Document{"description": json.RawMessage(`"我的规划者"`)}); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		errs := make(chan error, 4)
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := s.ResetAgent(ctx, "planner"); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("第 %d 轮并发恢复出厂失败: %v", round, err)
+		}
+	}
+}
+
 func TestPatchAgent_ValidatesBeforeWriting(t *testing.T) {
 	s, ctx := newTestStore(t)
 	cases := []override.Document{
@@ -81,6 +108,8 @@ func TestPatchAgent_ValidatesBeforeWriting(t *testing.T) {
 		{"max_iterations": json.RawMessage(`0`)},
 		{"skills": onOff([]string{"no-such-skill"}, nil)},
 		{"name": json.RawMessage(`"改名"`)},
+		{"max_iterations": json.RawMessage(`"wrong"`)}, // 合法 JSON、类型错误
+		{"charter": json.RawMessage(`42`)},
 	}
 	for _, c := range cases {
 		if _, err := s.PatchAgent(ctx, "planner", c); !errors.Is(err, override.ErrInvalid) {
@@ -155,9 +184,44 @@ func TestSkills_CustomLifecycleAndReferenceCleanup(t *testing.T) {
 	}
 }
 
+// 删除自建技能与清理各 agent 对它的引用是一个原子操作：提交后的缓存失效失败不得留下
+// 「技能已删、引用残留」——那样重删时技能已不存在、清理再无入口，日后同名重建的技能会
+// 被残留绑定自动装配回去。
+func TestDeleteSkill_ReferencesCleanedEvenIfCacheInvalidationFails(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	mr := miniredis.RunT(t)
+	s := New(pool, cachestore.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 0), ToolCatalogFrom(nil))
+	ctx := context.Background()
+	if _, err := s.CreateSkill(ctx, skillstore.Skill{Code: "mine", Category: "vuln", Name: "我的", Body: "正文", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PatchAgent(ctx, "planner", override.Document{"skills": onOff([]string{"mine"}, nil)}); err != nil {
+		t.Fatal(err)
+	}
+
+	mr.Close() // 缓存失效广播失败
+	if err := s.DeleteSkill(ctx, "mine"); err == nil {
+		t.Fatal("缓存失效失败应上报")
+	}
+
+	ovs, err := s.agents.Overrides(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ovs["planner"]) != 0 {
+		t.Fatalf("技能已删，planner 不应残留对它的引用: %v", ovs["planner"])
+	}
+	if _, err := s.skills.ListCustom(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuiltinSkill_OverrideResetAndShadow(t *testing.T) {
 	s, ctx := newTestStore(t)
 	bac, _ := builtin.SkillByCode("bac")
+	if _, err := s.PatchSkill(ctx, "bac", override.Document{"enabled": json.RawMessage(`"yes"`)}); !errors.Is(err, override.ErrInvalid) {
+		t.Fatalf("字段类型错误应按配置不合法拒绝（ErrInvalid），得 %v", err)
+	}
 	if _, err := s.PatchSkill(ctx, "bac", override.Document{"enabled": json.RawMessage(`false`)}); err != nil {
 		t.Fatal(err)
 	}

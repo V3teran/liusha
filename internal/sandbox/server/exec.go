@@ -1,12 +1,9 @@
 package server
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -41,10 +38,10 @@ var execWaitDelay = 10 * time.Second
 //
 // 流程：
 //  1. 解析 ExecRequest，校验必填
-//  2. ensure 共享目录 /tmp/sandbox-output 存在（容器内跨 exec 共享，注入为 $OUTPUT_DIR）
+//  2. 建任务工作区目录（work / out / state，按 批次 / 任务 两级）
 //  3. exec.CommandContext 跑 sh -c（带 timeout）
-//  4. 扫描 output 目录 b64 编码 + 仅返本次 exec 前不存在/后被修改的文件（目录快照
-//     diff），命令崩溃也扫
+//  4. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/
+//     并作为附件返回，命令崩溃也收
 //
 // 并发：暖池容器由并发任务共享，net/http 每请求一个 goroutine 并发处理 /exec；处理流程
 // 无进程内共享可变状态，工作区目录按 批次 / 任务 两级隔离。
@@ -65,19 +62,29 @@ func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 构建执行命令
-	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	before := snapshotDir(outputDir)
-	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, outputDir, stateDir, timeout)
-	defer cancel()
+	// 3. 本次执行专属的产物暂存目录（系统操作不收集产物）
+	var out *execOutput
+	cmdOutputDir := outputDir
+	if !isSystemExec(&req) {
+		staged, err := stageOutput(outputDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "%v", err)
+			return
+		}
+		out, cmdOutputDir = staged, staged.dir
+	}
 
 	// 4. 执行命令
+	timeout := time.Duration(req.TimeoutSeconds) * time.Second
+	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, cmdOutputDir, stateDir, timeout)
+	defer cancel()
 	stdout, stderr, exitCode, timedOut := executeCommand(cmdCtx, cmd)
 
-	// 5. 构建结果
-	res := buildExecResult(stdout, stderr, exitCode, timedOut, outputDir, before)
-
-	// 6. 返回结果
+	// 5. 产物移入 out/，构建结果
+	res := sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, TimedOut: timedOut}
+	if out != nil {
+		res.Files, res.Warnings = out.publish()
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -98,72 +105,6 @@ func snapshotDir(dir string) map[string]time.Time {
 		}
 	}
 	return snap
-}
-
-// collectAttachments 扫描 outputDir 顶层（不递归），返回 b64 编码的附件列表。
-//
-// before 过滤：仅返「执行前不存在，或存在但 mtime 已变化」的文件（本次 exec
-// 新增/改写），跳过历史文件。共享目录方案下不加过滤会让每次 /exec 都重复返
-// 之前所有图，撑爆 HTTP。
-//
-// 弃用旧版 mtime ≥ execStart 过滤的原因：它拿命令开始时刻与文件系统 mtime 比
-// 墙钟——毫秒内完成的命令在 mtime 精度粗于时钟差的文件系统上，刚写的文件会被
-// 判成「历史文件」而丢失（CI 实测 Files=[]）。快照 diff 无时钟依赖，语义更严：
-// 旧实现连「mtime 恰好相等的同秒旧文件」也会误收。
-//
-// 应用上限：
-//   - 总大小 > maxTotalSize（10MB）：剩余文件全 warning
-//   - 数量 > maxFileCount（5）：剩余文件全 warning
-//   - 子目录：返回 warning（不递归扫描，避免 chrome cache 等噪音）
-//
-// LLM 想保留产物的命令把文件写到 $OUTPUT_DIR 顶层即可。
-func collectAttachments(outputDir string, before map[string]time.Time) ([]sandbox.Attachment, []string) {
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		return nil, []string{fmt.Sprintf("scan output dir: %v", err)}
-	}
-
-	var (
-		files    []sandbox.Attachment
-		warnings []string
-		total    int64
-	)
-	for _, e := range entries {
-		if e.IsDir() {
-			warnings = append(warnings, fmt.Sprintf("subdirectory '%s' skipped (not recursive)", e.Name()))
-			continue
-		}
-		if len(files) >= maxFileCount {
-			warnings = append(warnings, fmt.Sprintf("file '%s' skipped (count limit %d reached)", e.Name(), maxFileCount))
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("stat '%s': %v", e.Name(), err))
-			continue
-		}
-		// 快照 diff：执行前已存在且 mtime 未变的文件是历史文件，跳过。
-		// 共享目录下其它 exec 写过的文件（不在本次命令的改动面）由此排除。
-		if mt, existed := before[e.Name()]; existed && mt.Equal(info.ModTime()) {
-			continue
-		}
-		size := info.Size()
-		if total+size > maxTotalSize {
-			warnings = append(warnings, fmt.Sprintf("file '%s' skipped (would exceed total limit %dKB)", e.Name(), maxTotalSize/1024))
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(outputDir, e.Name())) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("read '%s': %v", e.Name(), err))
-			continue
-		}
-		files = append(files, sandbox.Attachment{
-			Name: e.Name(),
-			B64:  base64.StdEncoding.EncodeToString(data),
-		})
-		total += size
-	}
-	return files, warnings
 }
 
 // isPathSafe 校验 ID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。

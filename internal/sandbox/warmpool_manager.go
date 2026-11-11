@@ -115,17 +115,25 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Ins
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 如果容器不存在或不健康，创建新的
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if m.sandbox == nil {
 		if err := m.createSandboxLocked(ctx); err != nil {
 			return nil, err
 		}
-	} else {
-		// 快速健康检查
-		if err := m.checkHealth(ctx, m.sandbox); err != nil {
-			m.logger.Warn().
-				Err(err).
-				Str("container_id", m.sandbox.ID).
+	} else if err := m.checkHealth(ctx, m.sandbox); err != nil {
+		switch {
+		case ctx.Err() != nil:
+			// 借用请求自身取消 / 超时：不是容器故障。
+			return nil, ctx.Err()
+		case m.active > 0:
+			// 共享容器仍有持有者：探测失败在负载下可能是误判，销毁会打断它们正在跑的
+			// 命令与浏览器。照常借出；真坏了由维护循环在空闲时回收。
+			m.logger.Warn().Err(err).Str("container_id", m.sandbox.ID).Int("holders", m.active).
+				Msg("借出前探测失败，但仍有任务在用该容器：不销毁，照常借出")
+		default:
+			m.logger.Warn().Err(err).Str("container_id", m.sandbox.ID).
 				Msg("sandbox unhealthy during acquire, recreating")
 			m.destroySandboxLocked()
 			if err := m.createSandboxLocked(ctx); err != nil {

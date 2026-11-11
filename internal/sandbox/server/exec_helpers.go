@@ -60,7 +60,7 @@ func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDi
 	//
 	// 系统操作（健康探测/重置/清理，标识以 "_" 前缀保留）：不落任何工作区目录
 	// ——否则探针会在工作区树里堆出假批次，污染前端展示。
-	if strings.HasPrefix(req.AssignmentID, "_") {
+	if isSystemExec(req) {
 		return "/tmp", "/tmp", "/tmp", true
 	}
 	taskRoot := filepath.Join(liushaRoot, req.AssignmentID, req.TaskID)
@@ -78,6 +78,9 @@ func setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workspaceDi
 
 	return workspaceDir, outputDir, stateDir, true
 }
+
+// isSystemExec 判断是否为系统操作（健康探测 / 重置 / 清理，批次标识以 "_" 前缀保留）。
+func isSystemExec(req *sandbox.ExecRequest) bool { return strings.HasPrefix(req.AssignmentID, "_") }
 
 // buildExecCommand 构建执行命令。返回的 cancel 必须由调用方在命令结束后
 // 调用（通常是 defer），否则定时器句柄泄漏到请求生命周期之外。
@@ -128,20 +131,4 @@ func executeCommand(cmdCtx context.Context, cmd *exec.Cmd) (stdout, stderr strin
 	timedOut = errors.Is(cmdCtx.Err(), context.DeadlineExceeded)
 
 	return
-}
-
-// buildExecResult 构建执行结果
-func buildExecResult(stdout, stderr string, exitCode int, timedOut bool, outputDir string, before map[string]time.Time) sandbox.ExecResult {
-	res := sandbox.ExecResult{
-		Stdout:   stdout,
-		Stderr:   stderr,
-		ExitCode: exitCode,
-		TimedOut: timedOut,
-	}
-
-	files, warnings := collectAttachments(outputDir, before)
-	res.Files = files
-	res.Warnings = warnings
-
-	return res
 }

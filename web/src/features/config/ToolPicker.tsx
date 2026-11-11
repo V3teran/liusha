@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { categoryLabel } from '@/features/tools/toolMeta'
 import type { SetDraft } from '@/lib/override'
 import { ToggleChip } from '@/components/ui/ToggleChip'
 
@@ -10,6 +11,7 @@ import { ToggleChip } from '@/components/ui/ToggleChip'
 export interface PickerCandidate {
   name: string
   category: string
+  category_name?: string // 分类显示名（工具有；技能没有，展示分类码）
   description: string
 }
 
@@ -82,7 +84,7 @@ export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }:
         )}
         {byCategory.map(([cat, tools]) => (
           <div key={cat}>
-            <p className="mb-1 font-mono text-xs uppercase tracking-wide text-text-secondary">{cat}</p>
+            <p className="mb-1 font-mono text-xs uppercase tracking-wide text-text-secondary">{categoryLabel(tools[0])}</p>
             <div className="flex flex-wrap gap-2">
               {tools.map((t) => {
                 const active = draft.checked.includes(t.name)
