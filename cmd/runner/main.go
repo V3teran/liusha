@@ -551,15 +551,12 @@ func awaitShutdownSignal(logger zerolog.Logger) os.Signal {
 	return sig
 }
 
-// runShutdownSequence 优雅关停：沙箱容器 → ingestor → asynq（带超时）→ healthz。
+// runShutdownSequence 优雅关停：停止流量入口 → asynq（带超时）→ 沙箱容器 → healthz。
+//
+// 先排空任务再拆沙盒：在途任务在 asynq 的宽限期内仍在沙盒里执行工具，先拆沙盒会让
+// 这些调用以「沙盒不可用」失败并作为动作结果写进探索图，续跑时 planner 看到的是假失败。
+// asynq 宽限期满后把消息推回队列并取消 handler ctx，handler 按中断收尾（任务保持进行中）。
 func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr sandbox.Manager, srv *asynq.Server, hs *http.Server, trafficCancel context.CancelFunc) {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := sandboxMgr.Shutdown(shutdownCtx); err != nil {
-		logger.Warn().Err(err).Msg("sandboxMgr.Shutdown 失败（best-effort）")
-	}
-
 	trafficCancel()
 	asynqDone := make(chan struct{})
 	go func() {
@@ -571,8 +568,15 @@ func runShutdownSequence(logger zerolog.Logger, runnerCfg config.RunnerConfig, s
 		logger.Info().Msg("asynq shutdown clean")
 	case <-time.After(time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second):
 		logger.Warn().Int("timeout_seconds", runnerCfg.AsynqShutdownTimeoutSeconds).
-			Msg("asynq shutdown timeout — in-flight tasks may be aborted")
+			Msg("asynq 停机超时：在途任务按中断收尾，由下次启动的恢复监控续跑")
 	}
+
+	sbCtx, sbCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer sbCancel()
+	if err := sandboxMgr.Shutdown(sbCtx); err != nil {
+		logger.Warn().Err(err).Msg("sandboxMgr.Shutdown 失败（best-effort）")
+	}
+
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer hsCancel()
 	if err := hs.Shutdown(hsCtx); err != nil {

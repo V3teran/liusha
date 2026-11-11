@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -68,12 +69,23 @@ func (h *Handler) executeTask(
 	// 执行四Agent认知循环
 	report, err := h.runCognition(ctx, taskLogger, assignmentID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
 
-	// 暂停退出：run 以 user_paused 结束（控制消费者观察到 task.paused）。
-	// 任务不是终态——active+paused 原样保留，探索图目标保持 open、会话身份
-	// 不回收（继续的 run 复用同一登录态），由 dispatch 的继续操作重投。
-	paused := err == nil && report.StopReason == cognition.StopReasonPaused
+	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 
-	if !paused {
+	// 中断（进程停机 / asynq 租约丢失）：任务没有结束，只是本进程不再跑它。run 落
+	// aborted（不计入恢复监控的中断上限——那只数 error run），task 保持 active、
+	// 探索图目标保持 open、会话身份不回收；恢复监控的「搁浅任务」规则发现活跃任务
+	// 无存活 run 即以新 run 续跑。asynq 推回队列的原消息会被幂等闸跳过（run 已非 pending）。
+	if exit == runExitInterrupted {
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		if runErr := h.AgentRuns.SetAborted(writeCtx, p.AgentRunID); runErr != nil {
+			taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("中断 run 终态回写失败（由僵尸 run 回收兜底）")
+		}
+		taskLogger.Info().Str("agent_run_id", p.AgentRunID).Msg("runner 停机中断：任务保持进行中，由恢复监控续跑")
+		return nil
+	}
+
+	if exit != runExitPaused {
 		// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
 		// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期
 		// 由事件驱动，这里是主通道；进程崩溃没跑到这里时由终态清扫器按任务状态
@@ -83,7 +95,7 @@ func (h *Handler) executeTask(
 		reclaimCancel()
 	}
 
-	if err != nil {
+	if exit == runExitFailed {
 		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, err)
 	}
 
@@ -92,7 +104,7 @@ func (h *Handler) executeTask(
 	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer doneCancel()
 
-	if paused {
+	if exit == runExitPaused {
 		// 暂停的 run 未抵达目标终点：落 aborted（区别于自然收敛的 done）；
 		// task 不迁移、时间线不落节点（「已暂停」节点由 api 的暂停操作落）。
 		if runErr := h.AgentRuns.SetAborted(doneCtx, p.AgentRunID); runErr != nil {
@@ -101,11 +113,11 @@ func (h *Handler) executeTask(
 		return nil
 	}
 
-	// run 终态按停止原因分流：外部终止（任务行终态 task_terminated / ctx 取消）落
+	// run 终态按停止原因分流：外部终止（任务行终态 task_terminated / run 超时）落
 	// aborted——被杀的 run 标 completed 会让审计面误读为自然收敛；认知报告仍随
 	// result 落库（终止时也有 steps/attempts 可读）。
 	reportJSON, _ := json.Marshal(report)
-	terminated := report.StopReason == cognition.StopReasonTerminated || strings.Contains(report.StopReason, "cancel")
+	terminated := exit == runExitTerminated
 	var runErr error
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
@@ -117,7 +129,7 @@ func (h *Handler) executeTask(
 	}
 
 	// task 终态回写：按停止原因与 agent_run 同口径分流——外部终止（任务行已
-	// 终态 / ctx 取消）落 aborted，自然收敛才落 completed。此前无条件
+	// 终态 / run 超时）落 aborted，自然收敛才落 completed。此前无条件
 	// Complete：终止路径无人写 aborted，CAS 守卫形同虚设，被杀任务标
 	// completed、时间线广播「任务完成」。
 	if terminated {
@@ -252,4 +264,36 @@ func (h *Handler) reclaimSessionIdentity(ctx context.Context, taskLogger zerolog
 			taskLogger.Warn().Err(aErr).Msg("会话身份回收审计写入失败")
 		}
 	}
+}
+
+// runExit 是一次 run 结束后的收尾分类，决定 agent_run 与 task 各落什么状态。
+type runExit int
+
+const (
+	runExitCompleted   runExit = iota // 自然收敛：run completed，task completed
+	runExitTerminated                 // 外部终止（任务行已终态 / run 超时）：run 与 task 都 aborted
+	runExitPaused                     // 用户暂停：run aborted，task 保持 active+paused
+	runExitInterrupted                // 进程停机 / 租约丢失：run aborted，task 保持 active，由恢复监控续跑
+	runExitFailed                     // 执行出错：failTask（run error，task aborted）
+)
+
+// classifyRunExit 按 handler ctx 的结束原因、认知循环错误与停止原因分类。
+//
+// handler ctx 被取消（context.Canceled）只来自 asynq：停机超时后推回队列、或租约丢失——
+// 两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
+// 暂停优先于中断：两者都不动任务，暂停还要保留 paused 标记交给继续操作。
+func classifyRunExit(ctxErr, err error, stopReason string) runExit {
+	if err == nil && stopReason == cognition.StopReasonPaused {
+		return runExitPaused
+	}
+	if errors.Is(ctxErr, context.Canceled) {
+		return runExitInterrupted
+	}
+	if err != nil {
+		return runExitFailed
+	}
+	if stopReason == cognition.StopReasonTerminated || strings.Contains(stopReason, "cancel") {
+		return runExitTerminated
+	}
+	return runExitCompleted
 }
