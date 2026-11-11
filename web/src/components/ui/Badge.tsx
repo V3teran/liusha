@@ -31,11 +31,12 @@ const badgeVariants = cva(
 interface BadgeProps extends VariantProps<typeof badgeVariants> {
   color?: string // 主色：点 + 文字色/背景色
   dot?: boolean // 是否渲染色点
+  pulse?: boolean // 进行中：只让色点呼吸（文字恒定不透明，保对比度）；受减弱动效偏好约束
   className?: string
   children: ReactNode
 }
 
-export function Badge({ variant, size, color, dot = true, className, children }: BadgeProps) {
+export function Badge({ variant, size, color, dot = true, pulse = false, className, children }: BadgeProps) {
   const style =
     variant === 'outline' || !color
       ? undefined
@@ -63,7 +64,7 @@ export function Badge({ variant, size, color, dot = true, className, children }:
     <span className={cn(badgeVariants({ variant, size }), className)} style={style}>
       {dot && color && (
         <span
-          className={cn('flex-shrink-0 rounded-full', dotSize)}
+          className={cn('flex-shrink-0 rounded-full', dotSize, pulse && 'motion-safe:animate-pulse')}
           style={{ background: variant === 'solid' ? '#ffffff' : color }}
         />
       )}

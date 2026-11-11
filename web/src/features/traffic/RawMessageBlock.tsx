@@ -32,11 +32,12 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
     )
   }
 
-  const shown = mode === 'pretty' && showPretty ? prettyRaw(raw, contentType) : raw
+  const active = showPretty ? mode : 'raw'
+  const shown = active === 'pretty' ? prettyRaw(raw, contentType) : raw
 
   return (
     <section className="min-w-0">
-      <Tabs.Root value={showPretty ? mode : 'raw'} onValueChange={(v) => setMode(v === 'pretty' ? 'pretty' : 'raw')}>
+      <Tabs.Root value={active} onValueChange={(v) => setMode(v === 'pretty' ? 'pretty' : 'raw')}>
         <div className="flex items-center gap-2 rounded-t-lg border border-border bg-surface px-2.5 py-1.5">
           <h3 className="text-sm font-semibold text-text">{title}</h3>
           <Tabs.List className="ml-2 flex items-center gap-0.5 rounded-md bg-surface-2 p-0.5" aria-label={`${title}报文视图`}>
@@ -61,7 +62,11 @@ export function RawMessageBlock({ title, raw, emptyHint }: RawMessageBlockProps)
             className="ml-auto"
           />
         </div>
-        <pre className={PRE_CLASS}>{shown}</pre>
+        {/* 报文即当前 tab 的面板：触发器的 aria-controls 须指向真实存在的 tabpanel；
+            面板可聚焦（Radix 默认 tabIndex=0），超长报文可用键盘滚动。 */}
+        <Tabs.Content value={active} asChild>
+          <pre className={PRE_CLASS}>{shown}</pre>
+        </Tabs.Content>
       </Tabs.Root>
     </section>
   )

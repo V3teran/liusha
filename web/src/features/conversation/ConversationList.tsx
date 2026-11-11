@@ -329,7 +329,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                 <span
                   className={cn(
                     'mt-[7px] h-2 w-2 flex-shrink-0 rounded-full',
-                    meta.key === 'active' && !c.run_paused && 'animate-pulse',
+                    // 进行中只让状态点呼吸；文字胶囊恒定不透明（脉冲会把文字对比度拉到 AA 以下）
+                    meta.key === 'active' && !c.run_paused && 'motion-safe:animate-pulse',
                   )}
                   style={{ background: meta.color }}
                   title={meta.label}
@@ -370,10 +371,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <span
-                      className={cn(
-                        'inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none',
-                        meta.key === 'active' && !c.run_paused && 'animate-pulse',
-                      )}
+                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none"
                       style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, var(--surface))` }}
                     >
                       {meta.label}

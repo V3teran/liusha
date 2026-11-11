@@ -23,7 +23,7 @@ export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
+        <Dialog.Overlay className="app-overlay" />
         <Dialog.Content
           role="alertdialog"
           aria-modal

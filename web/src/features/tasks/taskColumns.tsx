@@ -43,10 +43,10 @@ function buildTaskColumns(
         const s = ctx.getValue()
         const paused = ctx.row.original.paused
         const meta = taskStatusMeta(s)
-        // 运行中整枚徽章呼吸（点+文字）——与对话列表的状态胶囊同一视觉语法；
+        // 运行中色点呼吸（文字恒定，保对比度）——与对话列表的状态点同一视觉语法；
         // 暂停中是 active 的子状态：静态徽章，不呼吸。
         return (
-          <Badge dot color={meta.color} className={s === 'active' && !paused ? 'animate-pulse' : undefined}>
+          <Badge dot pulse={s === 'active' && !paused} color={meta.color}>
             {s === 'active' ? (paused ? '已暂停' : '运行中') : meta.label}
           </Badge>
         )

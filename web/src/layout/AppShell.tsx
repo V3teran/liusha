@@ -96,10 +96,10 @@ export function AppShell() {
             <span className="brand-mark font-mono text-sm font-bold tracking-tight">liusha</span>
           </header>
           <Dialog.Portal>
-            <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
+            <Dialog.Overlay className="app-overlay" />
             <Dialog.Content
               aria-describedby={undefined}
-              className="app-drawer fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-surface shadow-xl outline-none"
+              className="app-drawer fixed inset-y-0 left-0 w-72 max-w-[85vw] border-r border-border bg-surface shadow-xl outline-none"
             >
               <Dialog.Title className="sr-only">导航</Dialog.Title>
               <Sidebar rail={false} onNavigate={() => setDrawerOpen(false)} />

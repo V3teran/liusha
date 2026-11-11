@@ -58,8 +58,14 @@ pre {
 
 .app-overlay {
   /* 全站弹层遮罩唯一规格：纯压暗 50%、零背景模糊（scrim 职责是聚焦前景，
-   * 模糊破坏后文可读且耗 GPU——Material 3 / shadcn 等主流规范均不用）。
-   * 定位与层级由使用方补：className="app-overlay fixed inset-0 z-50" */
+   * 模糊破坏后文可读且耗 GPU）。定位与层级也在这里定死，使用点只写 className="app-overlay"：
+   * 各处自补层级曾漂移成遮罩压住弹层内容（按钮点不到）或遮罩无定位（背景不压暗）。
+   * 遮罩与内容同处 --z-modal、按 DOM 先后定序：同一弹层内遮罩先于内容，后打开的
+   * 弹层整组（遮罩 + 内容）盖住先打开的——嵌套模态（导航抽屉里打开改密）时外层被
+   * 一并压暗。遮罩若单设更低一级，嵌套弹层的遮罩会落到外层内容之下。 */
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
   background: rgb(0 0 0 / 0.5);
 }
 
@@ -71,8 +77,11 @@ pre {
   animation: fade-out 140ms ease-in;
 }
 
-.tac-modal {
-  /* 由 Radix UI 控制 */
+/* 弹层内容（居中对话框 / 侧边抽屉）的层级唯一出处：与 .app-overlay 同级，渲染在其后。
+ * 定位（居中、贴边）随形态由使用点写，层级不写。 */
+.tac-modal,
+.app-drawer {
+  z-index: var(--z-modal);
 }
 
 .tac-modal[data-state='open'] {
@@ -92,16 +101,28 @@ pre {
   animation: drawer-out 160ms ease-in;
 }
 
-/* 锚定弹层（时间范围等 Popover）：自锚点方向轻微放大淡入。 */
+/* 锚定弹层（时间范围 Popover、账号 DropdownMenu）：自锚点方向轻微放大淡入。
+ * 层级恒高于对话框 / 抽屉——它们可能从弹层内部打开（窄屏导航抽屉里的账号菜单）。 */
+.app-popover,
+.app-menu {
+  z-index: var(--z-popover);
+}
+
 .app-popover {
   transform-origin: var(--radix-popover-content-transform-origin);
 }
 
-.app-popover[data-state='open'] {
+.app-menu {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+
+.app-popover[data-state='open'],
+.app-menu[data-state='open'] {
   animation: modal-pop 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.app-popover[data-state='closed'] {
+.app-popover[data-state='closed'],
+.app-menu[data-state='closed'] {
   animation: fade-out 100ms ease-in;
 }
 
@@ -158,7 +179,9 @@ pre {
   .app-overlay[data-state='open'],
   .app-overlay[data-state='closed'],
   .app-popover[data-state='open'],
-  .app-popover[data-state='closed'] {
+  .app-popover[data-state='closed'],
+  .app-menu[data-state='open'],
+  .app-menu[data-state='closed'] {
     animation: none;
   }
 }

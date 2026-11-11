@@ -58,8 +58,8 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]">
+        <Dialog.Overlay className="app-overlay" />
+        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]">
           <Dialog.Title className="sr-only">LLM 调用详情</Dialog.Title>
           <div
             className="border-b border-border border-l-4 px-5 pb-3.5 pt-4"
