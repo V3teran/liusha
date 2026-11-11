@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -22,13 +21,6 @@ type WarmPoolManager struct {
 	lastUsed  time.Time // 最后使用时间（Release 时更新）
 	createdAt time.Time // 创建时间
 	active    int       // 并发持有计数（asynq 并发任务共享同一容器）
-
-	// 监控指标
-	acquireTotal   atomic.Int64
-	acquireErrors  atomic.Int64
-	acquireLatency atomic.Int64 // 累计延迟（微秒）
-	createdTotal   atomic.Int64 // 累计创建容器数
-	destroyedTotal atomic.Int64 // 累计销毁容器数
 
 	// 配置
 	idleTimeout       time.Duration // 空闲超时（默认 30 分钟）
@@ -120,19 +112,12 @@ func (m *WarmPoolManager) EnsureRunning(ctx context.Context) error {
 // Acquire 获取 Instance。
 // 如果池中有容器，立即返回（0 延迟）；否则创建新容器（~1.5s）。
 func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Instance, error) {
-	start := time.Now()
-	defer func() {
-		m.acquireTotal.Add(1)
-		m.acquireLatency.Add(time.Since(start).Microseconds())
-	}()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// 如果容器不存在或不健康，创建新的
 	if m.sandbox == nil {
 		if err := m.createSandboxLocked(ctx); err != nil {
-			m.acquireErrors.Add(1)
 			return nil, err
 		}
 	} else {
@@ -144,7 +129,6 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Ins
 				Msg("sandbox unhealthy during acquire, recreating")
 			m.destroySandboxLocked()
 			if err := m.createSandboxLocked(ctx); err != nil {
-				m.acquireErrors.Add(1)
 				return nil, err
 			}
 		}
@@ -158,57 +142,34 @@ func (m *WarmPoolManager) Acquire(ctx context.Context, req AcquireRequest) (*Ins
 	wasIdle := m.active == 0
 	m.active++
 	if wasIdle {
-		if err := m.sandbox.SoftReset(ctx); err != nil {
-			m.logger.Warn().Err(err).Str("container_id", m.sandbox.ID).
-				Msg("借出前 SoftReset 失败（best-effort，残留风险留给自愈）")
-		} else {
-			m.logger.Info().Str("container_id", m.sandbox.ID).
-				Msg("空闲容器借出前已清理（浏览器/进程/临时文件残留）")
-		}
+		m.sandbox.SoftReset(ctx) // best-effort：清理命令失败的残留由下次空闲借出与自愈兜底
+		m.logger.Info().Str("container_id", m.sandbox.ID).
+			Msg("空闲容器借出前已清理（浏览器/进程/临时文件残留）")
 	}
 
-	// 准备任务工作目录（默认对齐 sandbox-server 约定 /liusha/<taskID>）
+	// 工作区目录由 sandbox-server 在 exec 时按 批次 / 任务 两级创建。
 	sb := &Instance{
 		Client:       m.sandbox.Client,
 		ID:           m.sandbox.ID,
 		AssignmentID: req.AssignmentID,
 		TaskID:       req.TaskID,
-		WorkDir:      req.WorkDir,
 		CreatedAt:    m.sandbox.CreatedAt,
-	}
-
-	if err := sb.PrepareWorkDir(ctx); err != nil {
-		m.acquireErrors.Add(1)
-		m.active--
-		m.logger.Error().
-			Err(err).
-			Str("task_id", req.TaskID).
-			Str("work_dir", sb.WorkDir).
-			Msg("failed to prepare work dir")
-		return nil, fmt.Errorf("prepare work dir: %w", err)
 	}
 
 	m.logger.Debug().
 		Str("task_id", req.TaskID).
-		Str("work_dir", sb.WorkDir).
 		Str("container_id", sb.ID).
 		Msg("warm pool sandbox acquired")
 
 	return sb, nil
 }
 
-// Release 释放 Instance：SoftReset（清任务目录 + 杀残留进程，防跨任务数据泄漏）
-// 后递减持有计数；计数归零才开始计算空闲超时。
-func (m *WarmPoolManager) Release(ctx context.Context, sb *Instance) error {
+// Release 归还 Instance：只递减持有计数，计数归零才开始计算空闲超时。容器由并发任务
+// 共享，归还时其他任务可能仍在容器内运行，故不做任何容器级清理——残留进程与临时
+// 文件在容器空闲后的下一次借出前清理（Acquire，持锁执行，此时无其他持有者）。
+func (m *WarmPoolManager) Release(_ context.Context, sb *Instance) error {
 	if sb == nil {
 		return nil
-	}
-
-	if err := sb.SoftReset(ctx); err != nil {
-		m.logger.Warn().
-			Err(err).
-			Str("task_id", sb.TaskID).
-			Msg("soft reset 失败（跨任务残留风险，best-effort 继续）")
 	}
 
 	m.mu.Lock()
@@ -235,54 +196,6 @@ func (m *WarmPoolManager) Healthz(ctx context.Context) error {
 	}
 
 	return m.checkHealth(ctx, m.sandbox)
-}
-
-// Metrics 返回监控指标。
-// 健康探测在锁外执行：exec 最多阻塞 5s，持锁探测会卡住 Acquire/Release。
-func (m *WarmPoolManager) Metrics() ManagerMetrics {
-	m.mu.RLock()
-	total := m.acquireTotal.Load()
-	latency := m.acquireLatency.Load()
-	sandbox := m.sandbox
-	active := m.active
-	m.mu.RUnlock()
-
-	avgLatencyMs := float64(0)
-	if total > 0 {
-		avgLatencyMs = float64(latency) / float64(total) / 1000.0 // 微秒 → 毫秒
-	}
-
-	healthyCount := 0
-	totalSandboxes := 0
-	if sandbox != nil {
-		totalSandboxes = 1
-		hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer hcancel()
-		if err := m.checkHealth(hctx, sandbox); err == nil {
-			healthyCount = 1
-		}
-	}
-
-	busyCount := active
-	idleCount := 0
-	if sandbox != nil && active == 0 {
-		idleCount = 1
-	}
-
-	return ManagerMetrics{
-		TotalSandboxes:   totalSandboxes,
-		HealthyCount:     healthyCount,
-		AcquireLatencyMs: avgLatencyMs,
-		AcquireTotal:     total,
-		AcquireErrors:    m.acquireErrors.Load(),
-		BusyPoolSize:     busyCount,
-		WarmPoolSize:     0, // 热池模式无预热池
-		IdlePoolSize:     idleCount,
-		QueueLength:      0,
-		UtilizationRatio: float64(busyCount) / float64(max(totalSandboxes, 1)),
-		CreatedTotal:     m.createdTotal.Load(),
-		DestroyedTotal:   m.destroyedTotal.Load(),
-	}
 }
 
 // Shutdown 优雅关闭。
@@ -337,7 +250,7 @@ func (m *WarmPoolManager) maintenanceLoop() {
 }
 
 // performMaintenance 执行维护任务。
-// 健康探测在锁外执行（同 Metrics 口径）：exec 最多阻塞 10s，持锁探测会卡住
+// 健康探测在锁外执行：exec 最多阻塞 10s，持锁探测会卡住
 // Acquire/Release。探测结果回写前先校验容器指针身份——快照期间容器被并发
 // 重建（Acquire 发现不健康换新）则以新容器为准，本轮不动。
 func (m *WarmPoolManager) performMaintenance() {
@@ -415,7 +328,6 @@ func (m *WarmPoolManager) createSandboxLocked(ctx context.Context) error {
 	}
 	m.createdAt = time.Now()
 	m.lastUsed = time.Now()
-	m.createdTotal.Add(1)
 
 	m.logger.Info().
 		Str("container_id", m.sandbox.ID).
@@ -443,7 +355,6 @@ func (m *WarmPoolManager) destroySandboxLocked() {
 			Msg("sandbox destroyed")
 	}
 
-	m.destroyedTotal.Add(1)
 	m.sandbox = nil
 }
 

@@ -51,7 +51,7 @@ type Handler struct {
 	Settings   *settingstore.Store
 	RunnerCfg  config.RunnerConfig
 	Sandbox    cognition.SandboxListener // 沙盒对外可达性契约（监听段+回连地址），注入认知循环的工具契约
-	SandboxMgr sandbox.Manager           // 改为接口类型（支持 SingletonManager 和未来的其他实现）
+	SandboxMgr sandbox.Manager           // 沙盒借还（暖池共享容器）
 	Logger     zerolog.Logger
 
 	// LLM 路由（tier → provider）

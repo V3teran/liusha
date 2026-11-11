@@ -63,7 +63,6 @@ func (h *Handler) executeTask(
 
 	taskLogger.Info().
 		Str("sandbox_id", sb.ID).
-		Str("work_dir", sb.WorkDir).
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
@@ -218,7 +217,7 @@ func (h *Handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logge
 	_ = h.EventPublisher.PublishMessage(ctx, conversationID, msg)
 }
 
-// findingsCount 数 task 黑板 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。
+// findingsCount 数 task 的 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。
 func (h *Handler) findingsCount(ctx context.Context, taskID string) int {
 	if h.Findings == nil {
 		return -1
