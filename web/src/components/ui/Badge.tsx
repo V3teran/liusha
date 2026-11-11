@@ -46,9 +46,11 @@ export function Badge({ variant, size, color, dot = true, className, children }:
             borderColor: color,
           }
         : {
+            // 软底与 --surface 混成不透明色：文字对比度按「色字 / 自身底」校准，
+            // 透明底会叠上容器的底色（错误行红底、选中行灰底）把对比度拉到 AA 以下。
             color,
-            background: `color-mix(in srgb, ${color} 16%, transparent)`,
-            borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+            background: `color-mix(in srgb, ${color} 16%, var(--surface))`,
+            borderColor: `color-mix(in srgb, ${color} 30%, var(--surface))`,
           }
 
   const dotSize = {

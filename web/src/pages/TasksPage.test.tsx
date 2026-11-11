@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -90,5 +90,47 @@ describe('TasksPage（任务模块）', () => {
     renderPage()
 
     expect(await screen.findByText(/GET 500: 数据库不可用/)).toBeTruthy()
+  })
+})
+
+// 按视口宽度模拟 matchMedia（只解析 min-width 断点）。
+function stubViewport(width: number) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((q: string) => ({
+      matches: Number(/min-width:\s*(\d+)px/.exec(q)?.[1] ?? 0) <= width,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  )
+}
+
+describe('TasksPage 窄屏（< 768）详情独占', () => {
+  beforeEach(() => {
+    mList.mockReset()
+    mDetail.mockReset()
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    mDetail.mockResolvedValue(task())
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('打开详情时列表让位（面板 440px 盖不住窄屏），关闭后列表回来', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByText('DVWA 渗透测试'))
+    await screen.findByLabelText('关闭详情')
+    expect(screen.queryByRole('search', { name: '任务筛选' })).toBeNull()
+    await user.click(screen.getByLabelText('关闭详情'))
+    expect(await screen.findByRole('search', { name: '任务筛选' })).toBeInTheDocument()
+  })
+
+  it('宽屏列表与详情并排', async () => {
+    stubViewport(1440)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByText('DVWA 渗透测试'))
+    await screen.findByLabelText('关闭详情')
+    expect(screen.getByRole('search', { name: '任务筛选' })).toBeInTheDocument()
   })
 })

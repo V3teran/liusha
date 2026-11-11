@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Field } from '@/features/config/ConfigDrawer'
-import { INPUT_CLASS } from '@/components/ui/control'
+import { NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { SettingsSection } from './SettingsSection'
 import { useSettingSection } from './useSettingSection'
 import { SettingStatus, sectionProps } from './sectionBindings'
@@ -33,7 +33,7 @@ export function RuntimeSection() {
             <input
               type="number"
               min={1}
-              className={INPUT_CLASS}
+              className={NUMBER_INPUT_CLASS}
               value={d.step_tool_timeout_seconds}
               onChange={(e) => s.patch({ step_tool_timeout_seconds: Number(e.target.value) })}
             />
@@ -42,7 +42,7 @@ export function RuntimeSection() {
             <input
               type="number"
               min={1}
-              className={INPUT_CLASS}
+              className={NUMBER_INPUT_CLASS}
               value={d.step_llm_timeout_seconds}
               onChange={(e) => s.patch({ step_llm_timeout_seconds: Number(e.target.value) })}
             />
@@ -51,7 +51,7 @@ export function RuntimeSection() {
             <input
               type="number"
               min={1}
-              className={INPUT_CLASS}
+              className={NUMBER_INPUT_CLASS}
               value={d.run_tail_bytes}
               onChange={(e) => s.patch({ run_tail_bytes: Number(e.target.value) })}
             />
@@ -60,7 +60,7 @@ export function RuntimeSection() {
             <input
               type="number"
               min={1}
-              className={INPUT_CLASS}
+              className={NUMBER_INPUT_CLASS}
               value={d.tool_output_tail_bytes}
               onChange={(e) => s.patch({ tool_output_tail_bytes: Number(e.target.value) })}
             />

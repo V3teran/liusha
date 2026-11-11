@@ -8,9 +8,9 @@ import {
   patchAgent,
   resetAgent,
 } from '@/api/config'
-import type { AgentDetail, SkillListItem, Tool } from '@/api/types'
+import type { AgentDetail, AgentListItem, SkillListItem, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { INPUT_CLASS, TEXTAREA_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { Select } from '@/components/ui/Select'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
@@ -27,6 +27,7 @@ import {
 import { useAgentsPagedList } from '@/features/config/useConfigQueries'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { agentProfile } from '@/lib/agentColor'
+import { COMPLEXITY_GROUPS, groupMeta } from '@/features/model/roles'
 import { toggleAll, toggleChecked } from '@/lib/override'
 
 // 智能体页（/config/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
@@ -214,6 +215,7 @@ export function AgentsPage() {
                 </>
               }
               description={h.description}
+              meta={<AgentMeta agent={h} />}
               onClick={() => openAgent(h.code)}
               right={
                 <div className="flex items-center gap-2">
@@ -257,7 +259,7 @@ export function AgentsPage() {
                           type="number"
                           min={1}
                           max={1000}
-                          className={INPUT_CLASS}
+                          className={NUMBER_INPUT_CLASS}
                           value={draft.max_iterations}
                           onChange={(e) => {
                             const n = Math.floor(Number(e.target.value))
@@ -283,9 +285,11 @@ export function AgentsPage() {
                           value={draft.complexity}
                           onChange={(e) => patch({ complexity: e.target.value })}
                         >
-                          <option value="simple">轻量快答（simple）</option>
-                          <option value="medium">标准推理（medium）</option>
-                          <option value="complex">深度推理（complex）</option>
+                          {COMPLEXITY_GROUPS.map((g) => (
+                            <option key={g.key} value={g.key}>
+                              {g.label}（{g.key}）
+                            </option>
+                          ))}
                         </Select>
                       </Field>
                       {customizedCount > 0 && (
@@ -377,5 +381,32 @@ export function AgentsPage() {
         }
       />
     </>
+  )
+}
+
+// 名单字段的规模：含「*」即全部（含以后新增），否则为成员数。
+function listSize(list: string[]): string {
+  return list.includes('*') ? '全部' : String(list.length)
+}
+
+// AgentMeta 是智能体卡片底部的配置概要：推理档位、可用工具与技能规模、迭代上限——
+// 不打开抽屉就能横向比较四个智能体的装配差异。
+function AgentMeta({ agent }: { agent: AgentListItem }) {
+  const items: [string, string][] = [
+    ['档位', groupMeta(agent.complexity || 'medium').label],
+    ['内部工具', listSize(agent.function_tools)],
+    ['外部工具', listSize(agent.cli_tools)],
+    ['技能', listSize(agent.skills)],
+    ['迭代上限', String(agent.max_iterations)],
+  ]
+  return (
+    <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      {items.map(([k, v]) => (
+        <div key={k} className="flex items-baseline gap-1.5">
+          <dt className="text-text-tertiary">{k}</dt>
+          <dd className="font-medium tabular-nums text-text">{v}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }

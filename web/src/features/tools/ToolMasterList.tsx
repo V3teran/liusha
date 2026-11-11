@@ -108,7 +108,7 @@ export function ToolMasterList({
   }, [selected, loading])
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
       {/* 顶部种类 tab：整宽等分，切换即过滤，无需滚动到下方分组 */}
       <div className="flex flex-shrink-0 border-b border-border">
         {segments.map((seg) => {

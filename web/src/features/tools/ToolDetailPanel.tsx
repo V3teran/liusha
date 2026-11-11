@@ -68,7 +68,7 @@ export function ToolDetailPanel({
 // 面板外框：与卡片同质感的圆角描边容器，撑满右栏高度。
 function PanelFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
       {children}
     </div>
   )

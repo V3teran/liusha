@@ -11,13 +11,12 @@ export const KIND_LABEL: Record<ToolKind, string> = {
 // 分类 code → 展示名。与 registry.FunctionToolCategory 常量（internal/registry/catalog.go）对齐；
 // CLI 工具的 category 源出 tools.yaml，可能不在此表内——未命中则原样展示。
 const CATEGORY_LABEL: Record<string, string> = {
-  findings: '漏洞记录',
   credentials: '凭证共享',
   corpus: '知识库',
-  lead: '情报黑板',
   traffic: '流量分析',
   sandbox: '沙箱执行',
   skill: '技能手册',
+  explore: '探索图',
   control: '流程控制',
 }
 

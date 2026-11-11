@@ -63,8 +63,7 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         start={filters.start}
         end={filters.end}
         onChange={({ start, end }) => onChange({ ...filters, start, end })}
-        startLabel="调用时间起"
-        endLabel="调用时间止"
+        label="调用时间"
       />
 
       <label className="inline-flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-1 text-sm text-text-secondary transition-colors hover:text-text">

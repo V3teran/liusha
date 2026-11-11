@@ -127,6 +127,7 @@ export function ConfigRow({
   onClick,
   right,
   leading,
+  meta,
   dimmed = false,
   active = false,
 }: {
@@ -135,6 +136,8 @@ export function ConfigRow({
   description?: string
   onClick: () => void
   right?: ReactNode
+  // 卡片底部的配置概要（如档位 / 工具数 / 技能数），描述之下、分隔线之上对齐到卡底。
+  meta?: ReactNode
   // 标题左侧的身份位（如图标/色环），可选——用于展示资源自身的视觉身份。
   leading?: ReactNode
   dimmed?: boolean
@@ -165,6 +168,7 @@ export function ConfigRow({
       <p className="truncate-2 min-w-0 text-xs leading-relaxed text-text-secondary">
         {description || '暂无描述'}
       </p>
+      {meta && <div className="mt-auto border-t border-border-subtle pt-3">{meta}</div>}
     </button>
   )
 }

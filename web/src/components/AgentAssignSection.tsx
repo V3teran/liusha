@@ -1,7 +1,8 @@
 // AgentAssignSection - 「装配到智能体」胶囊区块（工具/技能详情共用）：
-// 列出全量智能体，已装配（involved）者 accent 高亮，点击即装/卸；saving 集合中的
-// 胶囊禁用防重复点。装配态由调用方随详情下发（后端单一权威），本组件不自算。
+// 列出全量智能体，已装配（involved）者为选中态，点击即装/卸；写入中的胶囊转圈
+// 并禁用防重复点。装配态由调用方随详情下发（后端单一权威），本组件不自算。
 import type { ToolAgent } from '@/api/types'
+import { ToggleChip } from '@/components/ui/ToggleChip'
 
 export function AgentAssignSection({
   agents,
@@ -30,21 +31,9 @@ export function AgentAssignSection({
           {agents.map((a) => {
             const saving = savingCode === a.code
             return (
-              <button
-                key={a.code}
-                type="button"
-                disabled={saving}
-                aria-pressed={a.involved}
-                onClick={() => onToggle(a.code, !a.involved)}
-                className={
-                  'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:opacity-50 ' +
-                  (a.involved
-                    ? 'border-accent bg-accent/15 text-accent'
-                    : 'border-border bg-background text-text-secondary hover:border-accent/50 hover:text-text')
-                }
-              >
+              <ToggleChip key={a.code} pressed={a.involved} busy={saving} onClick={() => onToggle(a.code, !a.involved)}>
                 {a.name}
-              </button>
+              </ToggleChip>
             )
           })}
         </div>

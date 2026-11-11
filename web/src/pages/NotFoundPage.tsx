@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Compass } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { buttonVariants } from '@/components/ui/Button'
 
 /** 未匹配任何路由时的兜底页：保留应用外壳（侧栏可继续导航），给出明确的返回入口。 */
 export function NotFoundPage() {
@@ -18,7 +19,7 @@ export function NotFoundPage() {
         </div>
         <Link
           to="/tasks"
-          className="inline-flex h-9 items-center rounded-lg bg-accent-soft px-4 text-sm font-semibold text-accent transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_22%,transparent)]"
+          className={buttonVariants()}
         >
           返回任务列表
         </Link>

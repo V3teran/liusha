@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from '@/components/ui/Button'
 import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
 import { JumpLink } from '@/components/JumpLink'
@@ -138,34 +139,28 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated }: Ta
               {/* 控制组恒显按状态禁用（与表格操作列同一行为）：终态行灰置。
                   暂停/继续合并为随 paused 翻转的单切换钮，停止独立。 */}
               <div className="mt-3.5 flex gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
                   disabled={task.status !== 'active'}
                   onClick={() => void control(task.paused ? 'resume' : 'pause')}
                   title={task.status !== 'active' ? '任务已结束' : task.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
-                    task.status !== 'active'
-                      ? 'cursor-not-allowed border-border text-text-tertiary opacity-40'
-                      : 'border-border text-text-secondary hover:bg-surface-2 hover:text-text'
-                  }`}
                 >
-                  {task.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                  {task.paused ? <Play /> : <Pause />}
                   {task.paused ? '继续任务' : '暂停任务'}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  className="flex-1"
                   disabled={task.status !== 'active'}
                   onClick={() => void control('terminate')}
                   title={task.status !== 'active' ? '任务已结束' : '停止（终态，可重新下发）'}
-                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
-                    task.status !== 'active'
-                      ? 'cursor-not-allowed border-status-error/40 bg-status-error/5 text-status-error/40'
-                      : 'border-status-error bg-status-error/10 text-status-error hover:bg-status-error/20'
-                  }`}
                 >
-                  <Square className="h-3.5 w-3.5 fill-current" />
+                  <Square className="fill-current" />
                   停止任务
-                </button>
+                </Button>
               </div>
             </section>
 

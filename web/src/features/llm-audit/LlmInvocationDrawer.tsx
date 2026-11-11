@@ -78,7 +78,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                   className="rounded px-2 py-0.5 text-xs font-semibold"
                   style={{
                     color: `var(--sev-${status.level === 'critical' ? 'critical' : 'medium'})`,
-                    background: `color-mix(in srgb, var(--sev-${status.level === 'critical' ? 'critical' : 'medium'}) 14%, transparent)`,
+                    background: `color-mix(in srgb, var(--sev-${status.level === 'critical' ? 'critical' : 'medium'}) 14%, var(--surface))`,
                   }}
                   title={status.detail}
                 >

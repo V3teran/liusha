@@ -1,5 +1,5 @@
 import { Field } from '@/features/config/ConfigDrawer'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { INPUT_CLASS, TEXTAREA_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { SettingsSection } from './SettingsSection'
 import { useSettingSection } from './useSettingSection'
 import { SettingStatus, sectionProps } from './sectionBindings'
@@ -86,7 +86,7 @@ export function ProxyFilterSection() {
               <input
                 type="number"
                 min={1}
-                className={INPUT_CLASS}
+                className={NUMBER_INPUT_CLASS}
                 value={d.max_request_body_size}
                 onChange={(e) => s.patch({ max_request_body_size: Number(e.target.value) })}
               />
@@ -95,7 +95,7 @@ export function ProxyFilterSection() {
               <input
                 type="number"
                 min={1}
-                className={INPUT_CLASS}
+                className={NUMBER_INPUT_CLASS}
                 value={d.max_response_body_size}
                 onChange={(e) => s.patch({ max_response_body_size: Number(e.target.value) })}
               />

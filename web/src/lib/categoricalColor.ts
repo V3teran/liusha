@@ -14,5 +14,5 @@ export function catColor(hue: CategoricalHue): string {
 
 /** 分类色淡底（14%，用于身份徽章/头像底）。 */
 export function catSoft(hue: CategoricalHue): string {
-  return `color-mix(in srgb, var(--cat-${hue}) 14%, transparent)`
+  return `color-mix(in srgb, var(--cat-${hue}) 14%, var(--surface))`
 }

@@ -107,8 +107,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
         start={isoToLocalInput(filters.since)}
         end={isoToLocalInput(filters.until)}
         onChange={({ start, end }) => onChange({ ...filters, since: syncIsoWithLocalInput(filters.since, start), until: syncIsoWithLocalInput(filters.until, end) })}
-        startLabel="起始时间"
-        endLabel="结束时间"
+        label="捕获时间"
       />
     </FilterBar>
   )

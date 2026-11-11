@@ -4,7 +4,7 @@ import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType } from 
 import { Combobox } from '@/components/ui/Combobox'
 import { Switch } from '@/components/ui/Switch'
 import { Field } from '@/features/config/ConfigDrawer'
-import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
+import { FIELD_LABEL_CLASS, INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { Select } from '@/components/ui/Select'
 import { cn } from '@/lib/utils'
 import {
@@ -14,6 +14,7 @@ import {
   normalizeBaseUrl,
   thinkingBudgetError,
 } from './providerRules'
+import { Button } from '@/components/ui/Button'
 
 // 协议类型展示标签（后端枚举值不变，仅前端呈现）。
 export const TYPE_LABEL: Record<ProviderType, string> = {
@@ -70,14 +71,26 @@ function ProtocolPicker({
               aria-checked={checked}
               onClick={() => onChange(p.value)}
               className={cn(
-                'rounded-lg border px-3 py-2.5 text-left transition-colors',
+                'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
                 checked
-                  ? 'border-accent bg-accent/10'
-                  : 'border-border bg-surface-2/40 hover:border-accent/50',
+                  ? 'border-accent bg-accent-soft ring-1 ring-accent'
+                  : 'border-border bg-surface hover:border-border-strong',
               )}
             >
-              <span className={cn('block text-sm font-medium', checked ? 'text-accent' : 'text-text')}>{p.title}</span>
-              <span className="mt-0.5 block text-xs leading-snug text-text-tertiary">{p.desc}</span>
+              {/* 单选指示器：选中态不只靠底色（与 ToggleChip 同一原则） */}
+              <span
+                aria-hidden
+                className={cn(
+                  'mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border',
+                  checked ? 'border-accent' : 'border-border-strong',
+                )}
+              >
+                {checked && <span className="h-2 w-2 rounded-full bg-accent" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text">{p.title}</span>
+                <span className={cn('mt-0.5 block text-xs leading-snug', checked ? 'text-text-secondary' : 'text-text-tertiary')}>{p.desc}</span>
+              </span>
             </button>
           )
         })}
@@ -252,17 +265,17 @@ function ApiKeyField({
                 {confirmingRestore ? '确认恢复？' : '恢复使用环境变量'}
               </button>
             )}
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="xs"
               onClick={() => {
                 setRotating(true)
                 setReveal(false)
               }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw />
               更换密钥
-            </button>
+            </Button>
           </div>
         </div>
       </Field>
@@ -345,7 +358,7 @@ function NumberField({
       <input
         type="number"
         min={min}
-        className={INPUT_CLASS}
+        className={NUMBER_INPUT_CLASS}
         value={text}
         onChange={(e) => {
           const t = e.target.value

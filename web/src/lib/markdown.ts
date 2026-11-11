@@ -81,7 +81,13 @@ const strictAutolink = {
   },
 }
 
-marked.use({ extensions: [strictAutolink] })
+// 原始 HTML 一律按文本输出：agent 的推理与回复里大量出现 payload（`<img src=x onerror=…>`、
+// `'></select><script>`），渲染成元素既丢了信息（用户看到裂图而不是 payload），又让浏览器
+// 对 src 发出真实请求。块级与行内 html token 都走这里；DOMPurify 仍作纵深防御。
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+marked.use({ extensions: [strictAutolink], renderer: { html: ({ text }) => escapeHtml(text) } })
 marked.setOptions({ breaks: true, gfm: true })
 
 // renderMarkdown 把 markdown 文本转成安全 HTML 字符串（供 v-html）。
@@ -121,6 +127,8 @@ function wrapCodeBlocks(html: string): string {
     btn.setAttribute('title', '复制代码')
     btn.innerHTML = CODE_COPY_ICON + CODE_CHECK_ICON
 
+    // 长行横向溢出时 pre 是滚动区：可聚焦才能用键盘滚动（WCAG 2.1.1）。
+    pre.setAttribute('tabindex', '0')
     pre.replaceWith(wrapper)
     wrapper.appendChild(pre)
     wrapper.appendChild(btn)

@@ -36,9 +36,9 @@ export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
 export function severityTagColor(sev: string) {
   const c = severityColorOf(sev)
   return {
-    color: `color-mix(in srgb, ${c} 13%, transparent)`,
+    color: `color-mix(in srgb, ${c} 13%, var(--surface))`,
     textColor: c,
-    borderColor: `color-mix(in srgb, ${c} 33%, transparent)`,
+    borderColor: `color-mix(in srgb, ${c} 33%, var(--surface))`,
   }
 }
 
