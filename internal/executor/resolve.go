@@ -35,7 +35,7 @@ func runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
 	return step.Extract.Name, val, nil
 }
 
-// Extractor 从准备请求响应里抽一个值，命名后供主请求 modifications 以 {{name}} 引用。
+// Extractor 从准备请求响应里抽一个值，命名后供主请求（自包含 request）以 {{name}} 占位引用。
 // Source 选值域：body / header:<名> / set-cookie:<名>；Regex 单捕获组或 JSON 点路径二选一。
 type Extractor struct {
 	Name   string `json:"name"`

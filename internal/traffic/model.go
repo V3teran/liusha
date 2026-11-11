@@ -1,4 +1,4 @@
-// Package traffic 实现两张流量表的持久化层，按「流量的产生者」拆分（见 spec §5）：
+// Package traffic 实现两张流量表的持久化层，按「流量的产生者」拆分：
 //
 //   - proxy_traffic（ProxyStore）：代理捕获的真实用户流量，被分析的输入，属于 host，
 //     先于任何 task 存在。ingestor external 链路写入；代理捕获任务的认知循环经 list/view_traffic 读它。

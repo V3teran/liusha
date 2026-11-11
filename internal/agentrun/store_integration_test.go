@@ -136,7 +136,7 @@ func TestStore_TerminalIsSticky(t *testing.T) {
 	}
 }
 
-// TestStore_ListByTask 验证：ListByTask 取回 task 下所有 agent run（取代旧 ListByOwner）。
+// TestStore_ListByTask 验证：ListByTask 取回 task 下所有 agent run。
 // 同任务可有任意多个 run，但同时至多一个存活（部分唯一索引）——顺序创建、
 // 每个先落终态再建下一个。
 func TestStore_ListByTask(t *testing.T) {

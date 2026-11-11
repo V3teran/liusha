@@ -34,12 +34,12 @@ func TestNormalizeReproEnvelope_WebEnvelope(t *testing.T) {
 	}
 }
 
-// 历史 web 形状（顶层 request/assert，无 domain）包装成信封。
-func TestNormalizeReproEnvelope_LegacyWebWrapped(t *testing.T) {
+// 扁平 web 形状（LLM 笔误：request/assert 写在顶层且漏写 domain）包装成信封。
+func TestNormalizeReproEnvelope_FlatWebWrapped(t *testing.T) {
 	in := mustJSON(t, `{"request":{"method":"POST","url":"http://h/login","headers":{"Content-Type":"application/x-www-form-urlencoded"},"body":"u=a"},"baseline":{"method":"POST","url":"http://h/login","headers":{},"body":"u=b"},"assert":{"status_code":302}}`)
 	out, _, err := NormalizeReproEnvelope(in)
 	if err != nil {
-		t.Fatalf("历史 web 形状应包装通过: %v", err)
+		t.Fatalf("扁平 web 形状应包装通过: %v", err)
 	}
 	var env struct {
 		Domain string `json:"domain"`
@@ -75,11 +75,12 @@ func TestNormalizeReproEnvelope_Generic(t *testing.T) {
 	}
 }
 
-// 旧引用格式（traffic_id/modifications）与未知域拒绝；web 缺字段给出可行动错误。
+// 引用流量而不自带请求的配方、未知域拒绝；web 缺字段给出可行动错误。
 func TestNormalizeReproEnvelope_Guards(t *testing.T) {
+	// 配方必须自包含：只给流量 id 而不给请求，按缺信封拒绝并回示正确格式。
 	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"traffic_id":42,"modifications":{},"assert":{"status_code":200}}`)); err == nil ||
-		!strings.Contains(err.Error(), "废弃") {
-		t.Fatalf("旧引用格式应被拒: err=%v", err)
+		!strings.Contains(err.Error(), "缺少 domain") || !strings.Contains(err.Error(), "recipe") {
+		t.Fatalf("引用流量的配方应按缺信封被拒: err=%v", err)
 	}
 	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"binary","recipe":{},"assert":{}}`)); err == nil ||
 		!strings.Contains(err.Error(), "未知复现域") {

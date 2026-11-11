@@ -73,7 +73,7 @@ func applyLLMDefaults(c LLMConfig) LLMConfig {
 	return c
 }
 
-// DefaultLLMRetry 是 spec §8.5 官方退避表，用作 RetryConfig 兜底。
+// DefaultLLMRetry 是内置退避表，用作 RetryConfig 兜底。
 func DefaultLLMRetry() RetryConfig {
 	return RetryConfig{
 		Max429:             3,

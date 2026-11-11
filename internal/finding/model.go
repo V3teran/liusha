@@ -30,16 +30,16 @@ type Finding struct {
 	Summary    string
 	Target     json.RawMessage
 	Evaluation json.RawMessage
-	// Repro 是机器可验的复现配方（域信封 {domain,recipe,assert}），喂复现门
-	// 复现门自动晋升成探索图节点。形状 domain-specific，本层只作 jsonb 透传；nil=未产配方。
+	// Repro 是通过复现门的配方（域信封 {domain,recipe,assert}），交付时随主张落库，供复验
+	// 与人读。形状 domain-specific，本层只作 jsonb 透传。
 	Repro json.RawMessage
-	// 元数据字段（0045 加入）
+	// 分类元数据
 	CWEID         string    // 例 "CWE-89"
 	OWASPCategory string    // 例 "A03:2021"
 	FirstSeenAt   time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
 	Remediation   string    // 修复建议自然语言；evidence 仍存 PoC
 
-	// —— triage 处置字段（0081 加入）——
+	// —— triage 处置字段 ——
 	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。
 	// 落库默认 open（DB 列默认值）；人工在漏洞页 triage 流转。
 	Status string

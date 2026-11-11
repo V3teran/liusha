@@ -52,7 +52,7 @@ func (p *Publisher) Publish(ctx context.Context, conversationID string, payload 
 //	"thinking" — 扩展思考增量（模型内部 CoT，先流）
 //	"text"     — 正文增量（ReAct thought / 最终回答，后流）
 //
-// channel 缺省按 "text" 解读（旧帧兼容）。
+// channel 由 PublishDelta 填写（入参为空按 "text"）。
 type DeltaFrame struct {
 	Delta     bool   `json:"delta"`
 	AgentName string `json:"agent_name,omitempty"` // 产生增量的 agent（chat 助手为 assistant）

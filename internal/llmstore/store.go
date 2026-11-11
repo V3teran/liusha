@@ -7,8 +7,9 @@
 // 否则仍按旧部署装配。故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
-// 路由模型：role → (代码档位映射) → provider（agent.complexity 的消费在 cognition 直读直传，不经此处）。
-// 两跳解析全在 llmconfig.Routing.ProviderCodeForRole 内完成，本层只管缓存路由快照 + provider 行。
+// 路由模型：档位（simple/medium/complex）→ provider。调用方先定档位（agent 取生效配置的
+// complexity，api 侧调用者经 llmconfig.RoleComplexity），档位 → provider 的解析与就近降级在
+// framework/llm.Router；本层只管缓存路由快照 + provider 行。
 //
 // 缓存粒度（key 空间固定的读全走 L1/L2 缓存）：
 //   - 单条 provider 读（热路径：每次 For(role) 解析后按 key 取部署）。

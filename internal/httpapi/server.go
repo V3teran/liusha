@@ -39,7 +39,7 @@ type Deps struct {
 	// 由 cmd/api 注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
 	// 会话式平台（任一为 nil 时对应路由不注册）：
-	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 chatAdapter）
+	//   Chat          POST /chat 发起会话扫描（cmd/api 注入 *dispatch.Service）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
 	//   EventStream   GET /conversations/:id/stream SSE（cmd/api 注入 redis 适配器）
 	Chat          ChatAPI
@@ -47,8 +47,6 @@ type Deps struct {
 	EventStream   EventStream
 	// FollowUp 为 nil 时 POST /conversations/:id/messages 不注册（多轮动作续接）。
 	FollowUp FollowUpAPI
-	// Abort 为 nil 时 POST /conversations/:id/abort 不注册（停止会话关联扫描）。
-	Abort AbortAPI
 	// TaskControl 为 nil 时 POST /tasks/:id/control 不注册（任务行「暂停/继续/停止」）。
 	// cmd/api 注入 dispatch 侧适配器（pause/resume=控制平面事件，terminate=会话停止链路）。
 	TaskControl TaskControlAPI
@@ -63,7 +61,7 @@ type Deps struct {
 	Renamer ConversationRenamer
 	// ConfigStore 为 nil 时 agent 配置读取/编辑路由不注册。
 	// 由 cmd/api 注入 *configstore.Store（自动满足 ConfigAPI 窄接口）。
-	// 写路径经其失效广播，保证 runner 进程 L1 被动失效（见 D7）。
+	// 写路径经其失效广播，保证 runner 进程 L1 被动失效。
 	ConfigStore ConfigAPI
 	// Traffic 为 nil 时代理捕获流量浏览路由（/traffic 系列）不注册。
 	// 由 cmd/api 注入 *traffic.ProxyStore（自动满足 TrafficAPI 窄接口）。只读浏览，无写入。
@@ -76,9 +74,9 @@ type Deps struct {
 	// 由 cmd/api 注入 *toolstore.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
 	// （启动期由代码事实源 reconcile 同步），供前端工具模块检索/展示 + 智能体配置页选工具。
 	ToolCatalog ToolCatalogAPI
-	// Models 为 nil 时模型模块路由（/models 系列）不注册。
+	// Models 为 nil 时 LLM 配置路由（/models 系列）不注册。
 	// 由 cmd/api 注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
-	// provider 部署 CRUD + 角色路由面板；写经其失效广播，runner 进程下次 For(role) 读到最新（见 D7）。
+	// provider CRUD + 能力路由；写经其失效广播，各进程下次 For(complexity) 读到最新。
 	Models ModelAPI
 	// KeyEncrypter 为 nil 时 provider 保存路由（POST/PUT /models/providers*）不注册——
 	// 前端直填的明文 API Key 必须先加密才能落库，缺加密器就不该开这条写路径（fail-closed）。
@@ -88,7 +86,7 @@ type Deps struct {
 	ProviderDiagnoser ProviderDiagnoser
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
 	// 由 cmd/api 注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
-	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链（见 D7）。
+	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链。
 	Settings SettingsAPI
 	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
 	// cmd/api 注入 conversationStore / invocationStore / toolStore（各满足对应窄接口）。

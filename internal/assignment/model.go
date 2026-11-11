@@ -1,4 +1,4 @@
-// Package assignment 实现下发容器 model + store（见 spec §3）。
+// Package assignment 实现下发容器 model + store。
 //
 // 业务定位：一切下发皆走 assignment——api 单发/批量、聚合器自动攒批，后端统一
 // "建 assignment → 展开 task"。task.assignment_id NOT NULL 强外键，无孤儿 task。
@@ -42,7 +42,7 @@ const (
 // Assignment 是 assignment 表行的 Go 表示。
 //
 // Payload：下发清单的 jsonb 原文（[]Item 的序列化）。
-// ScheduleID：由哪个定时模板克隆而来（手动下发为 nil）。
+// ScheduleID：由哪个定时模板克隆而来（单次人工下发为 nil）。
 type Assignment struct {
 	ID          string
 	Source      Source
@@ -65,5 +65,5 @@ type NewParams struct {
 	Items       []Item
 	Title       string
 	Description string  // 批次描述；可空
-	ScheduleID  *string // 定时克隆来源；手动下发传 nil
+	ScheduleID  *string // 定时克隆来源；单次人工下发传 nil
 }

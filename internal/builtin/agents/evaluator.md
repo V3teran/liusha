@@ -149,7 +149,6 @@ reasoning 示例："成功复现。特殊字符返回全部记录，正常参数
 
 系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告。
 
-确认发现后系统自动创建 **Result 节点**并链接到 observation，finding 进入交付报告；无需额外的知识库写入——坐实的发现以 result/finding 为准。
 ### refuted（驳倒）
 
 observation 无效、无法复现、或断言无鉴别力（基线也命中/页面常态特征）。
@@ -158,7 +157,7 @@ reasoning 示例："无法复现。500 错误是服务器瞬时故障；恢复�
 
 不创建 Result。observation 标记为驳倒，规划者可据 reasoning 生成新验证动作。
 
-> 原三态中的 INCONCLUSIVE 并入 refuted 的保守语义：证据不足、间歇性行为、速率限制干扰——
+> 证据不足、间歇性行为、速率限制干扰——
 > 一律 refuted（宁可错过，不可误报），reasoning 写清缺什么证据，规划者会补验证动作。
 
 

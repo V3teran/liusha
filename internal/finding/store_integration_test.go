@@ -80,8 +80,8 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	assert.Equal(t, "critical", trianed.Severity)
 }
 
-// TestListAll_CountAll 回归：全局台账 SQL 曾引用幽灵列 t._id（0157 审计发现），
-// GET /findings 因此 100% 运行时报错且无测试覆盖——本测试锁死列表/计数/过滤路径。
+// TestListAll_CountAll 锁定全局台账的列表 / 计数 / 过滤路径（SQL 引用不存在的列时
+// GET /findings 会 100% 运行时报错）。
 func TestListAll_CountAll(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
@@ -120,7 +120,7 @@ func TestListAll_CountAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, bySeverity)
 
-	// distinct host 集合：从全量行派生（DistinctHosts 专用端点已删，语义由台账行覆盖）
+	// distinct host 集合：从全量台账行派生
 	rows, err = store.ListAll(ctx, finding.LedgerFilter{})
 	require.NoError(t, err)
 	hosts := make(map[string]bool)

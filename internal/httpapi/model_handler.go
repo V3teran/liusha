@@ -1,14 +1,13 @@
-// Package httpapi: 模型模块 CRUD handler（前端「LLM 配置」页）。
+// Package httpapi: LLM 配置 CRUD handler（前端「LLM 配置」页，/models 系列）。
 //
-// 两资源对应 migration 0097+0099+0103+0105：llm_provider（部署注册表）/ llm_role_route（能力档
-// → provider 路由，0105 引入 tier 中间层）。写路径一律走 llmstore（落 DB + redis 广播失效），
-// runner 进程的两个 LLM 工厂下次 For(role) 即读到最新路由（见 D7），绝不直穿底层 store。
+// 两资源：llm_provider（provider 注册表）/ llm_role_route（档位 → provider 路由）。写路径一律
+// 走 llmstore（落 DB + redis 广播失效），各进程的 llm.Router 下次 For(complexity) 即读到最新
+// 路由，绝不直穿底层 store。
 //
-// 路由模型：agent → tier → provider 两跳。agent→tier 固定在代码（llmconfig.AgentTier），
-// tier→provider 落 llm_role_route（role 列存档名 simple/medium/complex）。
-// 无别名层、无兜底备胎：未绑定的档回落标准推理档（medium，隐式默认）；重试耗尽即失败。
+// 路由模型：档位 → provider（llm_role_route 的 role 列存档名 simple/medium/complex）；agent 的
+// 档位在其生效配置的 complexity。缺档由 llm.Router 就近降级到相邻档；重试耗尽即失败。
 //
-// API Key（migration 0103）：前端直填明文，handler 用 cryptx.Cipher 加密成
+// API Key：前端直填明文，handler 用 cryptx.Cipher 加密成
 // EncryptedAPIKey 才交给 llmstore 落库——本包是唯一见到明文的 Go 层（仅在这次请求处理
 // 期间持有，不落任何字段/日志）。请求体 api_key 留空 = 不改动已存密钥（编辑时的默认行为）。
 // 响应用 key_present 提示「是否已设置」，绝不回显明文或密文。
@@ -32,7 +31,7 @@ type KeyEncrypter interface {
 	Encrypt(plaintext string) ([]byte, error)
 }
 
-// ModelAPI 是模型模块 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
+// ModelAPI 是 LLM 配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
 // 读经多级缓存 / 直穿 DB、写经失效广播的语义全在 llmstore 内，handler 只做 HTTP 编解码 + 校验。
 type ModelAPI interface {
 	// provider 部署
@@ -250,9 +249,9 @@ func keyLast4(plaintext string) string {
 	return string(r[len(r)-4:])
 }
 
-// ── role route（role → provider 直连；0099 拆别名层后无别名端点）──────────
+// ── role route（档位 → provider）──────────────────────────────────────
 
-// listRoutingHandler 处理 GET /models/routing：返回全部角色路由（含保留 role），前端「角色指派」全景。
+// listRoutingHandler 处理 GET /models/routing：返回全部路由行，前端「能力路由」全景。
 func listRoutingHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		routes, err := api.ListRoleRoutes(c.Request.Context())

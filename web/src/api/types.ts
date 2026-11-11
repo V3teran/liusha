@@ -76,10 +76,10 @@ export interface Message {
 export interface Conversation {
   id: string
   title: string
-  task_id: string // 关联扫描 task.id——执行图/攻击面按此匹配会话拿思维链
+  task_id: string // 关联 task.id（纯聊天为空）——会话菜单据此跳转任务详情
   run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
   run_paused?: boolean // active 的暂停子态——侧栏呼吸点据此停闪（暂停不在烧 token）
-  finding_count?: number // 本会话关联 task 已挖到的漏洞数——流量分析 feed 卡「host · N findings」摘要
+  finding_count?: number // 本会话关联 task 已挖到的漏洞数——会话列表行尾的漏洞数徽标
   source?: string // 派生的下发来源（direct 人工下发 / proxy 代理捕获；纯聊天归 direct）——双 tab 分流
   created_at: string
   updated_at: string
@@ -247,10 +247,10 @@ export interface ToolDetail {
 }
 
 /* ============================================================
-   模型模块（GET/POST/PUT/DELETE /models）
-   三资源对应后端 llm_provider / llm_alias / llm_role_route（事实源在 DB）。
-   解析链：role → 别名（alias）→ provider 部署 code。
-   小写键（Go gin.H DTO：providerJSON/aliasJSON/roleRouteJSON 单点序列化）。
+   LLM 配置（GET/POST/PUT/DELETE /models）
+   两资源对应后端 llm_provider / llm_role_route（事实源在 DB）。
+   解析链：档位（simple/medium/complex）→ provider code。
+   小写键（Go gin.H DTO：providerJSON/roleRouteJSON 单点序列化）。
    安全铁律：密钥值前端仅在保存时明文提交一次（走 HTTPS），后端 AES-256-GCM 加密落库，
    任何 GET 响应都不回传密钥值；key_present 仅提示该 provider 是否已有可用密钥来源。
    ============================================================ */
@@ -664,9 +664,9 @@ export interface SettingsDetail<T> {
 
 // TaskSummary 是任务列表/详情行：task 本体 + 派生列。
 //   - assignment_index/total：批内序号/总数（1 assignment → N task 的 fan-out 关系）
-//   - source：direct 自主 / proxy 代理捕获——定时克隆（scheduled=true）按业务口径归人工下发
+//   - source：direct 人工下发 / proxy 代理捕获——定时克隆（scheduled=true）同归人工下发
 //   - scheduled/cron：定时模板触发标记 + 来源模板 cron 表达式
-//   - step_count：探索图 action 节点数 = 认知循环已执行步数
+//   - step_count：认知循环推理步数（与对话时间线「第 N 步」同口径；无推理步时回退探索图 action 节点数）
 //   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）
 export interface TaskSummary {
   id: string

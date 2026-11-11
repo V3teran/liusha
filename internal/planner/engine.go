@@ -307,7 +307,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		}
 	}
 
-	// 图工具经 ctx 取 task_id（类型化 key；工具侧用 TaskIDFromContext 读取）
+	// 图工具经 ctx 取 task_id（类型化 key；工具侧用 taskIDFromContext 读取）
 	ctx = WithTaskID(ctx, taskID)
 
 	// 构建中间件链：防止重复规划、无进展、目标偏离

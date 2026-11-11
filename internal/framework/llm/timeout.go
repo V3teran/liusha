@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// WithCallTimeout 返回给 Provider 的每次调用施加独立截止期的装饰器：
-// Complete/Stream 各自获得 timeout 的 ctx 预算，超时即失败（Stream 的
-// 事件通道随后关闭）。timeout<=0 时不装饰。
+// timeoutProvider 给 Provider 的每次调用施加独立截止期：Complete/Stream 各自获得
+// timeout 的 ctx 预算，超时即失败（Stream 的事件通道随后关闭）。
 //
 // 传输层的 http.Client 超时是兜底安全网；本装饰器把预算交给业务侧
 // 配置（如单步看门狗），让"一次 LLM 调用永不无限挂死"成为可调的

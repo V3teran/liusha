@@ -44,7 +44,7 @@ func load(path string, withLLM bool) (AppConfig, error) {
 // validateLLMSeed 校验 yaml 内 LLM 种子的形状自洽性。仅调 LLM 的进程（runner / api）
 // 需要——proxy 用 LoadWithoutLLM 跳过。
 //
-// 事实源是 DB（前端「模型/能力分档」模块 CRUD 改 llm_provider/llm_role_route），yaml 仅首次
+// 事实源是 DB（前端「LLM 配置」页改 llm_provider/llm_role_route），yaml 仅首次
 // insert-only 种子（见 seed.ImportLLM）。故 providers 留空 = 完全依赖 DB，此时跳过全部校验，
 // 不再强制 complexity_routes.medium——否则空 yaml + 满 DB 的正常部署会被误判 fail-fast。
 // providers 非空时按声明校验：形状必须完整（路由引用存在 + api_key_env 声明），
@@ -58,7 +58,7 @@ func validateLLMSeed(c AppConfig) error {
 		return nil
 	}
 	// 形状校验：三档路由必须引用已声明的 provider 块，且每块声明 api_key_env
-	// （medium 是隐式默认档——agent 未显式归档即落 medium，故必须显式路由）。
+	// （medium 是隐式默认档——未归档的调用者与上下文压缩都走它，故必须显式路由）。
 	shape := func(name, role string) error {
 		p, ok := c.Providers[name]
 		if !ok {

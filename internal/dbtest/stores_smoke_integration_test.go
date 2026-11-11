@@ -1,7 +1,7 @@
 //go:build integration
 
-// Schema 契约冒烟：覆盖此前无集成测试的 store，对真实迁移后的库做最小读写往返。
-// 目的：列改名/类型统一（0157-0159）后，任何列序/列名错位在此立刻爆炸，而非运行期。
+// Schema 契约冒烟：覆盖没有专属集成测试的 store，对真实迁移后的库做最小读写往返。
+// 目的：store 的列序 / 列名与 schema 错位时在此立刻爆炸，而非运行期。
 package dbtest
 
 import (
@@ -70,7 +70,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 
 	// llm_invocation（LLM 审计；Append 满即丢缓冲，GetByID 前先 Flush）
 	inv := llminvocation.NewStoreWithConfig(pool, config.InvocationConfig{})
-	if _, err := inv.Append(ctx, llminvocation.Invocation{
+	if err := inv.Append(ctx, llminvocation.Invocation{
 		AgentRunID: &runID, TaskID: &tk.ID, Provider: "deepseek", Model: "deepseek-chat",
 		Role: "executor", Messages: []byte("[]"), Result: []byte("{}"),
 	}); err != nil {

@@ -148,7 +148,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 // onResponse 是 proxify 的响应回调：
 //  1. 走 TrafficFilter；不通过即丢弃（return nil 不影响转发）。
 //  2. 读取 req/resp body 并重建（必须，否则代理会断），构造 TrafficSnapshot。
-//  3. XADD 到 Redis Stream（FlowStream）；publish 失败仅 warn 不阻断转发。
+//  3. XADD 到 Redis Stream（proxy.stream_name）；publish 失败仅 warn 不阻断转发。
 func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	if resp == nil || resp.Request == nil {
 		return nil
@@ -363,7 +363,7 @@ func buildSnapshot(req *http.Request, statusCode int, respHeader http.Header, re
 		hostPort = req.Header.Get("Host")
 	}
 	// snapshot.Host 全链路含端口：credentials key / finding.dedup_key 据此区分多端口部署。
-	// 过滤链白名单匹配由 HostFilter 内部 stripPort 处理（chain.go:114）。
+	// 过滤链的主机匹配由 HostFilter.ShouldProcess 自行去端口。
 	host := hostPort
 
 	scheme := strings.ToLower(req.URL.Scheme)

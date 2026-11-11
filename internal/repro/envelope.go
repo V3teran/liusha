@@ -15,7 +15,7 @@ import (
 const MinBodyContainsLen = 4
 
 // NormalizeReproEnvelope 把 LLM 提交的 repro 归一化成域信封 {domain, recipe, assert} 并做分域校验。
-// 兼容历史形状：顶层 request/baseline/assert（无 domain）自动包装成 web 域信封；
+// 容忍 LLM 的常见笔误：request/baseline 写在顶层、漏写 domain 时嗅探并包装成对应域信封；
 // assert 误放进 recipe 时自动提升（返回的教学提示随工具输出回给 LLM）。
 // 归一化后存储——收割层与复现门只认信封，不感知任何域内形状。
 // 返回 (信封, 教学提示（可空）, 错误)。
@@ -63,29 +63,22 @@ func NormalizeReproEnvelope(repro json.RawMessage) (json.RawMessage, string, err
 	return out, note, nil
 }
 
-// reproEnvelope 是 repro 信封的自由形状（兼容历史字段，归一化前嗅探）。
+// reproEnvelope 是 repro 信封的自由形状：除信封三字段外，也接住 LLM 笔误写在顶层的
+// 域内字段，供归一化前嗅探与包装。
 type reproEnvelope struct {
-	Domain        string          `json:"domain"`
-	Recipe        json.RawMessage `json:"recipe"`
-	Request       json.RawMessage `json:"request"`  // 历史 web 形状
-	Baseline      json.RawMessage `json:"baseline"` // 历史 web 形状
-	Assert        json.RawMessage `json:"assert"`
-	TrafficID     *int64          `json:"traffic_id"`    // 旧引用格式（已废弃）
-	Modifications json.RawMessage `json:"modifications"` // 旧引用格式（已废弃）
-	Steps         string          `json:"steps"`         // 历史 generic 形状
+	Domain   string          `json:"domain"`
+	Recipe   json.RawMessage `json:"recipe"`
+	Request  json.RawMessage `json:"request"`  // web 域笔误：应在 recipe 内
+	Baseline json.RawMessage `json:"baseline"` // web 域笔误：应在 recipe 内
+	Assert   json.RawMessage `json:"assert"`
+	Steps    string          `json:"steps"` // generic 域笔误：应在 recipe 内
 }
 
-// parseReproEnvelope 解析信封并拒绝已废弃的旧引用格式。
+// parseReproEnvelope 把 repro 解析为自由形状信封。
 func parseReproEnvelope(repro json.RawMessage) (reproEnvelope, error) {
 	var flex reproEnvelope
 	if err := json.Unmarshal(repro, &flex); err != nil {
 		return flex, fmt.Errorf("repro 解析失败: %w", err)
-	}
-	if flex.TrafficID != nil || len(flex.Modifications) > 0 {
-		return flex, fmt.Errorf("旧格式 repro（traffic_id + modifications）已废弃。\n\n" +
-			"请提供域信封：\n" +
-			"{\"domain\": \"web\", \"recipe\": {\"request\": {\"method\",\"url\",\"headers\",\"body\"}}, \"assert\": {...}}\n" +
-			"或 generic 域：{\"domain\": \"generic\", \"recipe\": {\"steps\": \"...\"}, \"assert\": {\"description\": \"...\"}}")
 	}
 	return flex, nil
 }

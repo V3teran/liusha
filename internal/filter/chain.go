@@ -1,5 +1,5 @@
 // Package filter 提供 HTTP 流量责任链过滤器。
-// 静态构造：所有参数构造时传入，运行时不变（无 RuntimeConfig 热更新）。
+// 静态构造：所有参数构造时传入，链本身不可变；热改由 proxy.Server.SwapFilter 整体换入新链。
 package filter
 
 import (

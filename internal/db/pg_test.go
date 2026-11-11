@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// pgxLoggerBridge 桥接归一：err 抬到顶层 error 字段、耗时键 time 改名
+// pgxLogger 桥接归一：err 抬到顶层 error 字段、耗时键 time 改名
 // elapsed_ms（避免与时间戳键重复导致 JSON 解析吞字段）、其余键原样透传。
 func TestPgxLoggerNormalizesReservedKeys(t *testing.T) {
 	var buf bytes.Buffer

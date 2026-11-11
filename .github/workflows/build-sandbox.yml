@@ -323,9 +323,8 @@ jobs:
 
 
   # ============================================================================
-  # build-final: 基于 freshly-built base 构建 final 镜像并推 GHCR
-  # （2026-10-03 恢复：官方 liusha-sandbox:latest 与 base 同步发布，服务器部署
-  #   可直接 pull；本地同名 tag 优先命中不影响 dev 流程）
+  # build-final: 基于 freshly-built base 构建 final 镜像并推 GHCR，标签为提交 sha 与 :main；
+  # 版本号与 latest 由发版（release-images）把源码一致的 sha 镜像晋升而来。
   # ============================================================================
   build-final:
     # 同时依赖 check（门）与 push-base（base 链）。always()：仅 final 内容变更

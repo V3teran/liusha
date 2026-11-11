@@ -20,7 +20,7 @@ const FIXED: Record<string, AgentProfile> = {
   planner: {
     accent: catColor('violet'),
     soft: catSoft('violet'),
-    // 罗盘=方向/战略，规划者的经典隐喻（原 LayoutGrid 语义偏仪表盘，易误读为总览）。
+    // 罗盘=方向/战略，规划者的经典隐喻。
     icon: Compass,
     label: '规划'
   },

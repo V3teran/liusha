@@ -5,6 +5,7 @@ package dbtest
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"slices"
 	"testing"
 
@@ -16,16 +17,51 @@ import (
 
 const migration0201 = "0201_builtin_defaults_layering.up.sql"
 
+// migration0201Snapshot 是 0201 历史对照表生成时（提交 51785a1d）的出厂内容快照。老库的
+// 「当年出厂值」必须取自它而非当前出厂内容：出厂内容随版本演进，与迁移内冻结的对照表无关。
+const migration0201Snapshot = "testdata/migration0201"
+
+// snapshotAgent / snapshotSkill 从快照取出厂内容。
+func snapshotAgent(t *testing.T, code string) builtin.Agent {
+	t.Helper()
+	agents, err := builtin.ParseAgents(os.DirFS(migration0201Snapshot))
+	if err != nil {
+		t.Fatalf("解析 0201 出厂快照: %v", err)
+	}
+	for _, a := range agents {
+		if a.Code == code {
+			return a
+		}
+	}
+	t.Fatalf("0201 出厂快照缺 agent %s", code)
+	return builtin.Agent{}
+}
+
+func snapshotSkill(t *testing.T, code string) builtin.Skill {
+	t.Helper()
+	skills, err := builtin.ParseSkills(os.DirFS(migration0201Snapshot))
+	if err != nil {
+		t.Fatalf("解析 0201 出厂快照: %v", err)
+	}
+	for _, s := range skills {
+		if s.Code == code {
+			return s
+		}
+	}
+	t.Fatalf("0201 出厂快照缺技能 %s", code)
+	return builtin.Skill{}
+}
+
 // 迁移 0201：老库按旧结构（agent / skill / system_setting 存整份配置）写入「当年出厂值」与
-// 「用户改过的值」的混合，迁移后只有改过的字段进入用户层，其余跟随新版出厂值。
+// 「用户改过的值」的混合，迁移后只有改过的字段进入用户层，其余跟随当前出厂值。
 func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 	ctx := context.Background()
 	pool := NewPgPoolBefore(t, migration0201)
 
-	planner, _ := builtin.AgentByCode("planner")
-	executor, _ := builtin.AgentByCode("executor")
-	evaluator, _ := builtin.AgentByCode("evaluator")
-	monitor, _ := builtin.AgentByCode("monitor")
+	planner := snapshotAgent(t, "planner")
+	executor := snapshotAgent(t, "executor")
+	evaluator := snapshotAgent(t, "evaluator")
+	monitor := snapshotAgent(t, "monitor")
 	withoutBrowser := slices.DeleteFunc(slices.Clone(executor.FunctionTools), func(s string) bool { return s == "drive_browser" })
 
 	insertAgent := func(code, desc, prompt string, fn, cli, skills []string, maxIt int, cx string) {
@@ -46,8 +82,8 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 	// monitor：提示词被用户改过
 	insertAgent("monitor", monitor.Description, "我自己写的监察提示词", monitor.FunctionTools, monitor.CliTools, monitor.Skills, monitor.MaxIterations, monitor.Complexity)
 
-	bac, _ := builtin.SkillByCode("bac")
-	browser, _ := builtin.SkillByCode("browser-use")
+	bac := snapshotSkill(t, "bac")
+	browser := snapshotSkill(t, "browser-use")
 	insertSkill := func(code, category, name, desc, body string, builtinRow, enabled bool) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, `INSERT INTO skill (code, category, name, description, body, is_builtin, enabled)
@@ -148,18 +184,20 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 		}
 	}
 
-	// ── 经新的读写入口验证生效值 ──────────────────────────────────────
+	// ── 经新的读写入口验证生效值：未自定义的字段跟随当前出厂值 ──────────────
+	curExecutor, _ := builtin.AgentByCode("executor")
+	curMonitor, _ := builtin.AgentByCode("monitor")
 	cfg := configstore.New(pool, smokeCache(t), configstore.ToolCatalogFrom(nil))
 	ex, err := cfg.Agent(ctx, "executor")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Description != "我的执行者" || slices.Contains(ex.FunctionTools, "drive_browser") || ex.Charter != executor.Charter {
-		t.Errorf("executor 生效值: desc=%q tools=%v 章程跟随出厂=%v", ex.Description, ex.FunctionTools, ex.Charter == executor.Charter)
+	if ex.Description != "我的执行者" || slices.Contains(ex.FunctionTools, "drive_browser") || ex.Charter != curExecutor.Charter {
+		t.Errorf("executor 生效值: desc=%q tools=%v 章程跟随出厂=%v", ex.Description, ex.FunctionTools, ex.Charter == curExecutor.Charter)
 	}
 	mon, _ := cfg.Agent(ctx, "monitor")
-	if mon.Charter != monitor.Charter {
-		t.Error("monitor 生效章程应为新版出厂章程（旧提示词已归档）")
+	if mon.Charter != curMonitor.Charter {
+		t.Error("monitor 生效章程应为当前出厂章程（旧提示词已归档）")
 	}
 	detail, _ := cfg.AgentDetail(ctx, "monitor")
 	if detail.PromptArchive == nil {

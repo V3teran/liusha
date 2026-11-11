@@ -1,27 +1,23 @@
-// Package explorationgraph 实现统一的探索图。
+// Package explorationgraph 实现统一的探索图：目标 → 动作 → 观察 → 结果（观察经复现门坐实为结果）。
 //
-// 设计决策（2026-08-28 重构 + 2026-10-04 复现门对齐）：
-//  1. 4 种节点类型在生产流转：objective/action/observation/result
-//     （evaluation 已废弃——executor 侧证据归入 observation，坐实裁决归 exploration_verification）
-//  2. 写权限不变式：planner 写 objective/action；executor 写 observation（假设与事实）；
-//     evaluator 只写 result——observation(假设) 经复现门晋升为 result 的唯一状态转换在 evaluator
-//  3. 对标 ReAct 模式：目标 → 动作 → 观察 → 结果（观察经复现门坐实为结果）
-//  4. 对标 PDDL 标准：action 是 AI Planning 标准术语
+// 节点（与 DB 约束 ck_exploration_node_kind 一致）：
+//   - objective: 根目标（来源 user，代表任务本身，随任务终态收敛）与派生目标（来源 planner，
+//     结果分析提出的方向）
+//   - action: planner 生成的执行动作（有 state/complexity/depends_on），统一挂在根目标下
+//   - observation: executor 产出的观察（hypothesis 带 repro 待裁决 / fact 写入即终态）
+//   - result: 坐实的最终结果（confidence=verified，仅复现门产出）
 //
-// 节点边界：
-// - objective: 用户设定的任务目标（根目标 + result 派生的次级目标）
-// - action: planner 生成的执行动作（有 state/complexity/depends_on）
-// - observation: executor 产出的观察（hypothesis 带 repro / fact 写入即终态）
-// - result: 坐实的最终结果（有 confidence=verified，仅复现门产出）
+// 写权限不变式：planner 写 objective/action；executor 写 observation；evaluator 只经复现门
+// 建 result——observation(假设) 晋升为 result 的唯一入口在 evaluator。复放明细写
+// exploration_verification 审计链，不建节点。
 //
-// 关系边界：
-//   - GENERATES: objective → action、action → observation（动作生成观察/假设/证据）、
-//     observation → result（复现门晋升溯源）
-//   - TRIGGERS: result → objective/action（planner：结果触发新目标/后续动作）
-//   - SUPERSEDES: objective → objective（planner：新派生目标吸收旧派生目标的范围，
-//     src=新、dst=旧；与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
-//   - DEPENDS_ON: action → action（动作依赖动作）
-//   - ENABLES / BELONGS_TO: 预留语义，当前无生产者
+// 关系（与 DB 约束 ck_exploration_edge_rel 一致，见 Relation）：
+//   - generates: objective → action、action → observation、observation → result（推导链）
+//   - triggers: result → objective/action（结果催生新目标 / 延续动作）
+//   - supersedes: objective → objective（新派生目标吸收旧派生目标的范围，src=新、dst=旧；
+//     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
+//
+// 动作间执行依赖不走边，落在 action 的 metadata.depends_on，由 CanExecute 直接消费。
 package explorationgraph
 
 import (
@@ -33,10 +29,10 @@ import (
 	"strings"
 )
 
-// State 是 action 的执行状态（类型别名，指向 core.ActionState）
+// State 是 action 与 objective 的状态（类型别名，指向 core.ActionState）
 type State = core.ActionState
 
-// 状态常量：实体定义在 core，经别名提升为领域 API（下游 115 处引用）
+// 状态常量：实体定义在 core，经类型别名提升为领域 API
 const (
 	StateOpen       = core.ActionStateOpen
 	StateRunning    = core.ActionStateRunning

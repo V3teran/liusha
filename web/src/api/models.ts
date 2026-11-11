@@ -1,12 +1,11 @@
 /**
- * 模型模块 API 客户端（provider 部署 / 角色指派 两资源）
+ * LLM 配置 API 客户端（provider / 档位路由 两资源）
  *
- * 复用 client.ts 的 get/post/put fetch 封装（同源携带会话 Cookie）。
  * 复用 client.ts 的 get/post/put/del 封装（同源携带会话 Cookie；错误响应体含
  * 409 的中文 FK 原因，经 raise 统一读取透出给调用方）。
  *
- * 别名中间层已废弃（0099）：角色一跳直连 provider。
- * 事实源是 DB；写经后端 llmstore 失效广播，runner 进程下次 For(role) 即读到最新路由。
+ * 档位（simple/medium/complex）一跳直连 provider。
+ * 事实源是 DB；写经后端 llmstore 失效广播，各进程下次按档位解析即读到最新路由。
  */
 
 import { get, post, put, del } from './client'
@@ -77,9 +76,9 @@ export async function diagnoseProvider(req: ProviderDiagnoseRequest): Promise<Di
   return post<Diagnosis>('/models/providers/diagnose', req)
 }
 
-// ── 角色指派（角色 → provider 直连） ──────────────────────────────────────
+// ── 档位路由（档位 → provider 直连） ──────────────────────────────────────
 
-/** 拉路由全景：角色 → provider 路由表（无别名层）。 */
+/** 拉路由全景：档位 → provider 路由表。 */
 export async function getRouting(): Promise<RoutingResponse> {
   return get<RoutingResponse>('/models/routing')
 }

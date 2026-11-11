@@ -38,7 +38,7 @@ func TestRenderFindingsSummary_SeverityOrderAndCap(t *testing.T) {
 	require.Equal(t, qaFindingsTopN+1, len(lines), "top-20 + 溢出行")
 }
 
-// TestRenderFindingsSummary_EmptyAndSmall 空黑板与小量成果不截断。
+// TestRenderFindingsSummary_EmptyAndSmall 无 finding 与少量 finding 不截断。
 func TestRenderFindingsSummary_EmptyAndSmall(t *testing.T) {
 	assert.Equal(t, "（暂无 finding）", renderFindingsSummary(nil))
 	got := renderFindingsSummary([]finding.Finding{{Severity: "HIGH", Summary: "大写等级"}})

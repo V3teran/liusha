@@ -10,11 +10,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// aggregator.go：代理流量按 host 攒批的分布式窗口（见 spec §6.2 + §13.1）。
+// aggregator.go：代理流量按 host 攒批的分布式窗口。
 //
 // ingestor 跑在水平扩展的 runner 内，同 host 流量经 Redis 消费组分给不同实例——进程内内存
 // 窗口是分片非副本，会把一批拆成 N 个残批。故窗口状态放 Redis：任何实例消费到某 host 流量都
-// INCR 同一个计数键，达阈值/超时的实例抢锁（SET NX）建 task，跨实例只有一个赢家（§13.2 幂等）。
+// INCR 同一个计数键，达阈值/超时的实例抢锁（SET NX）建 task，跨实例只有一个赢家（幂等）。
 //
 // 触发有两条路径，共用 claimAndReset 抢锁（跨实例幂等，只一个赢家建 task）：
 //   ① 阈值触发：observe 时 count 达 batchSize → 立即触发（流量密集场景）。

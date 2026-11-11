@@ -45,7 +45,7 @@ type Task struct {
 }
 
 // NewParams 是 Store.Create 的入参。
-//   - AssignmentID 必填（一切 task 皆属某 assignment，§3 "一切皆 assignment"）。
+//   - AssignmentID 必填（一切 task 皆属某 assignment）。
 //   - Brief 必填（统一输入）；TargetHost 可空（runner 从 brief 抽到后 SetTargetHost 回填）。
 type NewParams struct {
 	AssignmentID string

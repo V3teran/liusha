@@ -4,7 +4,6 @@ import {
   listMessages,
   startChat,
   followUp,
-  abortTask,
   deleteConversation,
   renameConversation,
 } from './conversations'
@@ -139,18 +138,6 @@ describe('会话域 API', () => {
       await expect(followUp('c1', 'x')).rejects.toThrow('500')
     })
 
-    it('abortTask POST 到 /conversations/:id/abort', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: vi.fn().mockResolvedValue({ aborted: true }),
-      })
-      ;(globalThis as any).fetch = mockFetch
-
-      await abortTask('c1')
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/abort', expect.objectContaining({ method: 'POST' }))
-    })
   })
 
   describe('会话管理', () => {

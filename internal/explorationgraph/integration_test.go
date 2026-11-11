@@ -89,10 +89,10 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	taskID := "ccccccc3-cccc-4ccc-8ccc-cccccccccccc"
 
-	// 1. 创建 move
+	// 1. 创建 action
 	complexity := ComplexityModerate
 	stateOpen := StateOpen
-	move := Node{
+	act := Node{
 		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
@@ -103,11 +103,11 @@ func TestCompleteDataFlow(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err := store.CreateNode(ctx, move)
+	_, err := store.CreateNode(ctx, act)
 	require.NoError(t, err)
 
-	// 2. 执行 move → 产出 observation（节点与 move→observation 溯源边原子落库）
-	err = store.TransitionState(ctx, move.ID, StateRunning, nil)
+	// 2. 执行 action → 产出 observation（节点与 action→observation 溯源边原子落库）
+	err = store.TransitionState(ctx, act.ID, StateRunning, nil)
 	require.NoError(t, err)
 
 	confidence := ConfidenceUnverified
@@ -124,7 +124,7 @@ func TestCompleteDataFlow(t *testing.T) {
 		UpdatedAt:  time.Now(),
 	}
 	err = store.CreateNodeWithEdges(ctx, observation, []Edge{{
-		SrcID:     move.ID,
+		SrcID:     act.ID,
 		DstID:     observation.ID,
 		Rel:       RelGenerates,
 		TaskID:    taskID,
@@ -156,8 +156,8 @@ func TestCompleteDataFlow(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	// 4. Move 完成
-	err = store.TransitionState(ctx, move.ID, StateCompleted, nil)
+	// 4. Action 完成
+	err = store.TransitionState(ctx, act.ID, StateCompleted, nil)
 	require.NoError(t, err)
 
 	// 验证已晋升的 result
@@ -184,8 +184,8 @@ func TestActionDependency(t *testing.T) {
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
 
-	// move-1：无依赖
-	move1 := Node{
+	// action-1：无依赖
+	act1 := Node{
 		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
@@ -196,11 +196,11 @@ func TestActionDependency(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err := store.CreateNode(ctx, move1)
+	_, err := store.CreateNode(ctx, act1)
 	require.NoError(t, err)
 
-	// move-2：依赖 move-1
-	move2 := Node{
+	// action-2：依赖 action-1
+	act2 := Node{
 		ID:         "44444444-4444-4444-8444-444444444444",
 		TaskID:     taskID,
 		Kind:       core.KindAction,
@@ -212,19 +212,19 @@ func TestActionDependency(t *testing.T) {
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
-	_, err = store.CreateNode(ctx, move2)
+	_, err = store.CreateNode(ctx, act2)
 	require.NoError(t, err)
 
-	// 查询 open moves（应该有 2 个）
+	// 查询 open actions（应该有 2 个）
 	actions, err := store.ListOpenActions(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, actions, 2)
 
-	// move-1 完成
+	// action-1 完成
 	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateCompleted, nil)
 	require.NoError(t, err)
 
-	// 再次查询，只有 move-2 (move-1 已 done)
+	// 再次查询，只有 action-2 (action-1 已 completed)
 	actions, err = store.ListOpenActions(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, actions, 1)

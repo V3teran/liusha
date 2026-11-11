@@ -11,7 +11,6 @@ import { ApiError } from '@/api/client'
 vi.mock('@/api/conversations', () => ({
   listMessages: vi.fn(),
   getConversationUsage: vi.fn(),
-  abortTask: vi.fn(),
   startChat: vi.fn(),
   followUp: vi.fn(),
 }))

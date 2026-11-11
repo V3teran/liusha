@@ -65,7 +65,7 @@ func TestRecordVerifyFailure_SplitsAdjudicationFromRecipe(t *testing.T) {
 			wantReason: RefuteInvalidRecipe,
 		},
 		{
-			name:       "普通门错误（非配方非裁决） → invalid_recipe 维持旧语义",
+			name:       "普通门错误（非配方非裁决） → invalid_recipe",
 			cause:      errors.New("promote: 复现执行失败: 网络分区"),
 			wantReason: RefuteInvalidRecipe,
 		},

@@ -3,9 +3,9 @@
 // 设计原则：
 //   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
 //   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
-//   - 仅 LLM provider key（complexity_routes.medium 等）做强制 validate（密钥读取必须有 provider 信息）
+//   - 只校验 LLM 种子的形状（声明了 providers 时路由须引用已声明的块，见 validateLLMSeed）
 //   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔；注意 llm.complexity_routes 是 map，
-//     AutomaticEnv 不覆盖单个 map key，改档位 provider 走 yaml 或前端「能力分档」页
+//     AutomaticEnv 不覆盖单个 map key，改档位 provider 走前端「LLM 配置」页
 package config
 
 // AppConfig 是 liusha 顶层配置树。
@@ -33,7 +33,7 @@ type ConversationConfig struct {
 type APIConfig struct {
 	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
 	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
-	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // 也用于 proxy/runner healthz HTTP server
+	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // runner HTTP（healthz + ingest）的请求头读取超时
 	ListenAddr               string `mapstructure:"listen_addr"`
 	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
 }
@@ -63,8 +63,8 @@ type RedisConfig struct {
 // LLMConfig 是 LLM 复杂度路由 + retry 参数 + llm_invocation 异步 batch 写入参数。
 //
 // 复杂度三档（complex 深度推理 / medium 标准推理 / simple 快速响应）：
-// agent → 档的绑定在 agent.complexity（前端「智能体」页可改，DB 事实源经三级缓存读）；
-// 档 → provider 的绑定落 DB（前端「能力分档」页可配），此处 yaml 仅首次 insert-only 种子。
+// agent → 档的绑定在 agent 生效配置的 complexity（出厂值 + 前端「智能体」页自定义）；
+// 档 → provider 的绑定落 DB（前端「LLM 配置」页），此处 yaml 仅首次 insert-only 种子。
 type LLMConfig struct {
 	ComplexityRoutes map[string]string `mapstructure:"complexity_routes"` // 档(simple/medium/complex) → provider key
 
@@ -72,7 +72,7 @@ type LLMConfig struct {
 	Invocation InvocationConfig `mapstructure:"invocation"`
 }
 
-// RetryConfig 控制 4 类错误的重试次数和 backoff schedule（spec §8.5）。
+// RetryConfig 控制 4 类错误的重试次数和 backoff schedule。
 //
 // 默认（DefaultLLMRetry）：
 //   - 429 重试 3 次 1s/4s/16s 指数退避，耗尽切 fallback

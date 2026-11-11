@@ -200,7 +200,7 @@ func (r *Router) resolve(ctx context.Context, complexity Complexity, accept func
 }
 
 // SetProviderWrapper 注入 Provider 装饰钩子（埋点/限流等），在首次 For() 之前调用。
-// 包裹点在 retry/fallback 之外——记录"调用方视角"的调用。
+// 包裹点在 retry 之外——记录"调用方视角"的调用。
 func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.mu.Lock()
 	r.providerWrapper = fn

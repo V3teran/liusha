@@ -14,7 +14,7 @@ import (
 	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 )
 
-// TestProviderCodeRoundtrip 一次性验证 0159（llm_provider.key→code）后存储/缓存/路由链路。
+// TestProviderCodeRoundtrip 验证 provider code 在存储 / 缓存 / 路由链路上的往返一致。
 func TestProviderCodeRoundtrip(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	mr := miniredis.RunT(t)

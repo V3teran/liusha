@@ -13,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/db"
 )
 
-// Store 封装 llm_provider / llm_role_route 两表的持久化操作（0099 拆别名层后无 llm_alias）。
+// Store 封装 llm_provider / llm_role_route 两表的持久化操作。
 // 运行期消费不直连本包，走 internal/llmstore（多级缓存 + 跨进程失效）。
 type Store struct {
 	pool *pgxpool.Pool
@@ -181,7 +181,7 @@ func (s *Store) ListProviders(ctx context.Context, onlyEnabled bool) ([]Provider
 	return out, rows.Err()
 }
 
-// ── role route（0099 起 role → provider code 直连，无别名层）──────────────
+// ── role route（档位 → provider code）──────────────────────────────────
 
 // UpsertRoleRoute 按档 upsert 一条档 → provider code 映射；只接受三档之一
 // （删除不设限，供清理历史遗留行）。
@@ -246,7 +246,7 @@ func (s *Store) GetRouting(ctx context.Context) (Routing, error) {
 // ── scan ──────────────────────────────────────────────────────────────
 
 // scanProvider 是 provColsSelect 列序的统一反序列化点。
-// api_key_env 列（migration 0103 起可空）经 sql.NullString 中转，NULL 时 Provider.APIKeyEnv 留空串。
+// api_key_env 列可空，经 sql.NullString 中转，NULL 时 Provider.APIKeyEnv 留空串。
 func scanProvider(r db.RowScanner, p *Provider) error {
 	var apiKeyEnv, apiKeyLast4 sql.NullString
 	var displayName sql.NullString

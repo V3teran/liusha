@@ -1,4 +1,4 @@
-// Package qa 实现多轮会话的问答路径：读 owner 黑板 finding，用便宜 LLM 就已挖结果回答，
+// Package qa 实现多轮会话的问答路径：读关联 task 的漏洞台账，用便宜 LLM 就已挖结果回答，
 // 不触发扫描。回答落 assistant 消息并 publish SSE（前端实时显示）。
 package qa
 
@@ -12,7 +12,7 @@ import (
 
 // Deps 是问答所需的最小依赖（cmd/api 注入实现）。
 type Deps interface {
-	// FindingsSummary 返回该 (conversationID, taskID) 关联 owner 的 finding 文本摘要。
+	// FindingsSummary 返回该 (conversationID, taskID) 关联 task 的 finding 文本摘要。
 	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
 	// History 取本会话的对话上文（user/assistant，排除当前这条与 agent 过程
 	// 事件，时间正序、已钳制）——多轮会话记忆的来源。读取失败返回 error。
@@ -44,7 +44,7 @@ const systemPrompt = `你是渗透测试助手。**只依据下面已挖到的 f
 // 路径没有修改链，入口限量是唯一防线。落库保留原文，仅进上下文时钳制。
 const maxUserMessageRunes = 32000
 
-// Answer 读黑板与会话上文 → LLM 生成回答 → 落 assistant 消息 + publish SSE。
+// Answer 读漏洞台账与会话上文 → LLM 生成回答 → 落 assistant 消息 + publish SSE。
 // 多轮问答：上文参与拼装（连续追问不失忆），finding 快照仍附在末条 user 上。
 func (s *Service) Answer(ctx context.Context, conversationID, taskID, question string) error {
 	findings, err := s.deps.FindingsSummary(ctx, conversationID, taskID)

@@ -1,5 +1,5 @@
 // Package envx 是环境变量读取的小工具集——cmd/* 各 main 共用，避免在每个
-// 可执行入口复制 envOr 实现。
+// 可执行入口各写一份。
 package envx
 
 import "os"

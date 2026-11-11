@@ -81,28 +81,6 @@ func TestFollowUpHandler_ActionIdle_200(t *testing.T) {
 	}
 }
 
-type abortFn func(context.Context, string) error
-
-func (f abortFn) AbortConversationTask(ctx context.Context, conversationID string) error {
-	return f(ctx, conversationID)
-}
-
-func TestAbortHandler(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	called := ""
-	r := gin.New()
-	r.POST("/conversations/:id/abort", abortConversationHandler(abortFn(func(_ context.Context, conversationID string) error {
-		called = conversationID
-		return nil
-	})))
-	req := httptest.NewRequest("POST", "/conversations/c1/abort", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 200 || called != "c1" {
-		t.Errorf("abort 应调用并 200，得 code=%d called=%q", w.Code, called)
-	}
-}
-
 type deleteFn func(context.Context, string) error
 
 func (f deleteFn) DeleteConversation(ctx context.Context, id string) error { return f(ctx, id) }

@@ -94,18 +94,13 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 	return out, rows.Err()
 }
 
-// ClaimUnconsumedByHost 原子领取某 host 最早的至多 limit 条「尚未被本 task 消费」的流量：
-// 为它们在 traffic_task 建 (traffic_id, task_id) 关联，返回实际领到的条数（见 spec §13.2）。
-//
-// M:N 语义：一条流量可被多个 task 复用，领取条件是「本 task 尚未关联过」（非全局排他）。用 NOT EXISTS 排掉本 task 已关联的，FOR UPDATE SKIP LOCKED
-// 锁定候选行防跨实例重复领取；ON CONFLICT DO NOTHING 兜底并发下的主键冲突（幂等）。
-// ClaimUnconsumedByHost 为代理捕获 task 领取某 host 的未消费流量。
+// ClaimUnconsumedByHost 为代理捕获 task 领取某 host 最早的至多 limit 条未消费流量：在
+// traffic_task 建 (traffic_id, task_id) 关联，返回实际领到的条数。
 //
 // 「未消费」语义：未被任何 **活跃或已完成** 的 task 认领过——
 //   - 被活跃 task 认领 → 不可再领（防并发重复分析）；
-//   - 被已完成 task 认领 → 视为已分析，不再重领（防旧流量反复重分析 + 新流量饿死：
-//     旧实现的 NOT EXISTS 只查同 task，每批都把 host 历史流量整批重领，
-//     ASC LIMIT 之下新流量永远排不进分析批次）；
+//   - 被已完成 task 认领 → 视为已分析，不再重领（只排同 task 会让每批都把 host 历史
+//     流量整批重领，ASC LIMIT 之下新流量永远排不进分析批次）；
 //   - 仅被 aborted/failed task 认领 → 可回收重分析（失败批的流量不丢）。
 //
 // ORDER BY captured_at ASC：最旧的未消费流量优先。FOR UPDATE SKIP LOCKED + ON CONFLICT

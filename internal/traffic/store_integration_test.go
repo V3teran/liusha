@@ -75,7 +75,7 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 
 // TestProxyStore_ClaimThenListByTask 验证：ClaimUnconsumedByHost 把 host 的流量关联给某代理捕获
 // task（M:N traffic_task），之后 ListByTask 按 captured_at 升序取回这批（含 raw）；GetByID 的
-// ConsumedBy 列出该消费者。取代旧 consumed_by_task_id 单列模型。
+// ConsumedBy 列出该消费者。
 func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	ctx := context.Background()
 	pool, taskID := newProxyTask(t)
@@ -147,7 +147,7 @@ func consumedByTaskID(consumers []ConsumerTask, taskID string) bool {
 }
 
 // TestProxyStore_ListByTaskFiltered_Pagination 验证：limit/offset 在 task 消费范围内起作用
-// （captured_at DESC，最新优先）。取代旧 ListByOwner 分页用例。
+// （captured_at DESC，最新优先）。
 func TestProxyStore_ListByTaskFiltered_Pagination(t *testing.T) {
 	ctx := context.Background()
 	pool, taskID := newProxyTask(t)

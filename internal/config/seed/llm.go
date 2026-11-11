@@ -13,15 +13,15 @@ import (
 )
 
 // llm.go：把 config.yaml 的 providers:/llm.* 静态配置 insert-only 首填进 llm_provider /
-// llm_role_route 两表（migration 0097 + 0099）。
+// llm_role_route 两表。
 //
 // 首装引导语义：LLM 接入是用户数据，DB 是事实源，种子只填**缺失行**——
 // provider 按 key、role_route 按 role 判存在，已存在一律跳过，
-// 绝不覆盖前端「模型」模块或运维在 DB 里的改动。
+// 绝不覆盖前端「LLM 配置」页或运维在 DB 里的改动。
 //
 // 路由种子（agent → complexity 档 → provider；agent 档位在 agent.complexity，前端可改）：
 //   - llm.complexity_routes.{simple,medium,complex} → 各档路由行（role 列存档名）
-// 种子只写这 3 档 + 1 备胎，不再 per-agent 摊平（agent 档位在 agent.complexity，无需入库）。
+// 种子只写这 3 档（agent 档位在 agent 生效配置的 complexity，不入路由表）。
 //
 // 安全：provider.api_key_env 只搬**环境变量名**，密钥值不经手（本就不在 yaml 里）。
 
@@ -138,8 +138,8 @@ func importRoleRoutes(ctx context.Context, cfg config.AppConfig, codeByYamlKey m
 
 	// 2) 就近降级补齐：provider 少于三档时（如只配 1-2 把 key），缺档取能力相邻
 	//    档的 provider——complex 缺→medium→simple，medium 缺→complex→simple，
-	//    simple 缺→medium→complex。DB 三档齐全，前端「能力分档」页所见即所得，
-	//    Router 无缺档分支。
+	//    simple 缺→medium→complex（与 llm.Router 运行期就近降级同序）。DB 三档齐全，
+	//    前端「能力路由」所见即所得。
 	for _, role := range roles {
 		if routeSet[role] {
 			continue

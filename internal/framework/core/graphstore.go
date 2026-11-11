@@ -7,21 +7,10 @@ import (
 	"time"
 )
 
-// GraphStore 是通用的图数据库接口（探索图存储）。
+// GraphStore 是探索图的持久化接口：只含通用图操作（节点、边、查询、变更集），
+// 不含业务语义——目标收敛、复现门晋升等由上层 explorationgraph 组合实现。
 //
-// 注意：这与 Graph 接口（执行图 DAG）不同：
-// - Graph: 任务的执行依赖图（有向无环图 DAG）
-// - GraphStore: 探索图的持久化存储（通用图数据库）
-//
-// 设计原则：
-// - 只包含通用图操作（节点、边、查询）
-// - 不包含业务特定逻辑（如 Action/Roadmap/Verification）
-// - 业务逻辑由上层（explorationgraph）组合实现
-//
-// 适用场景：
-// - PostgreSQL + JSON（当前实现）
-// - Neo4j / ArangoDB（未来可能）
-// - 内存图数据库（测试）
+// 实现：framework/persistence/postgres（生产唯一后端）、framework/persistence/memory（单测替身）。
 type GraphStore interface {
 	// ========================================
 	// 节点操作

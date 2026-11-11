@@ -41,7 +41,7 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	conversationID := conv.ID
 
 	// 3. 写入 llm_invocation
-	_, err = invStore.Append(ctx, Invocation{
+	err = invStore.Append(ctx, Invocation{
 		TaskID:    &taskID,
 		Provider:  "test",
 		Model:     "test-model",
