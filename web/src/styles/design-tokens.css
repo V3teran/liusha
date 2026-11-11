@@ -37,6 +37,8 @@
   --accent-active: oklch(25% 0.02 250);
   --accent-soft: oklch(35% 0.02 250 / 0.12);
   --accent-softer: oklch(35% 0.02 250 / 0.06);
+  /* 实心强调底上的前景（主按钮、选中态胶囊）：与 --accent 对比 ≥10:1 */
+  --on-accent: oklch(100% 0 0);
 
   /* 语义色同时承担「填充」与「文字」两种用法（色点/色条 + 徽章字/彩字），
      取值以文字用法为约束：对 --surface ≥4.5:1，且对自身 16% 软徽章底 ≥4.5:1（WCAG AA）。
@@ -148,6 +150,7 @@
   --accent-active: oklch(92% 0.02 250);
   --accent-soft: oklch(85% 0.02 250 / 0.15);
   --accent-softer: oklch(85% 0.02 250 / 0.08);
+  --on-accent: oklch(17% 0.004 285);
 
   --sev-critical: oklch(65% 0.22 25);
   --sev-high: oklch(70% 0.18 45);
@@ -208,6 +211,7 @@
   --color-accent-active: var(--accent-active);
   --color-accent-soft: var(--accent-soft);
   --color-accent-softer: var(--accent-softer);
+  --color-on-accent: var(--on-accent);
 
   --color-sev-critical: var(--sev-critical);
   --color-sev-high: var(--sev-high);

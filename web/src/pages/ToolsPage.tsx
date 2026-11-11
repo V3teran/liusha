@@ -6,6 +6,9 @@ import { ToolDetailPanel } from '@/features/tools/ToolDetailPanel'
 import { KIND_SEGMENTS, ToolMasterList, groupTools, type KindFilter } from '@/features/tools/ToolMasterList'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
+import { ChevronLeft } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // 工具目录（主从双栏）：左栏按种类/分类分组、可搜索、点选；右栏常驻详情面板。
 // 有界目录（代码来源），左栏加载全量并分组滚动，故无翻页（分组与分页天然冲突）。
@@ -22,6 +25,12 @@ export function ToolsPage() {
 
   // savingCode 标记装配回存中的智能体，禁用其胶囊防重复点。装配态源出 detail.agents（后端权威）。
   const [savingCode, setSavingCode] = useState<string | null>(null)
+
+  // 窄屏（< 768）主从单栏：列表与详情二选一，点选进入详情、返回回到列表。
+  const isWide = useMediaQuery('(min-width: 768px)', true)
+  const [narrowDetail, setNarrowDetail] = useState(false)
+  const showList = isWide || !narrowDetail
+  const showDetail = isWide || narrowDetail
 
   const listSeq = useRef(0)
   const detailSeq = useRef(0)
@@ -128,25 +137,40 @@ export function ToolsPage() {
         <SearchInput className="w-64" value={query} onChange={setQuery} placeholder="搜索工具名 / 描述" ariaLabel="搜索工具" />
       </FilterBar>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_1fr] gap-4 overflow-hidden px-6 py-4">
-        <ToolMasterList
-          groups={groups}
-          segments={KIND_SEGMENTS}
-          kind={kind}
-          onKind={setKind}
-          loading={loading}
-          error={error}
-          empty={tools.length === 0}
-          emptyHint={query ? '无匹配工具' : '工具目录为空——检查后端同步是否成功'}
-          selected={selected}
-          onSelect={setSelected}
-        />
-        <ToolDetailPanel
-          detail={detail}
-          loading={detailLoading}
-          savingCode={savingCode}
-          onToggle={onToggle}
-        />
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-6 py-4 md:grid-cols-[minmax(240px,320px)_1fr]">
+        {showList && (
+          <ToolMasterList
+            groups={groups}
+            segments={KIND_SEGMENTS}
+            kind={kind}
+            onKind={setKind}
+            loading={loading}
+            error={error}
+            empty={tools.length === 0}
+            emptyHint={query ? '无匹配工具' : '工具目录为空——检查后端同步是否成功'}
+            selected={selected}
+            onSelect={(name) => {
+              setSelected(name)
+              setNarrowDetail(true)
+            }}
+          />
+        )}
+        {showDetail && (
+          <div className="flex min-h-0 flex-col gap-2">
+            {!isWide && (
+              <Button variant="ghost" size="sm" className="self-start" onClick={() => setNarrowDetail(false)}>
+                <ChevronLeft />
+                返回工具列表
+              </Button>
+            )}
+            <ToolDetailPanel
+              detail={detail}
+              loading={detailLoading}
+              savingCode={savingCode}
+              onToggle={onToggle}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

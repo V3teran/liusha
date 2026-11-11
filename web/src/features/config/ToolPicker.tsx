@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { SetDraft } from '@/lib/override'
+import { ToggleChip } from '@/components/ui/ToggleChip'
 
 // 名单多选器：按 category 分组（桶内按 name 字典序）渲染可勾选的标签。
 // 候选只要求「白名单键 + 分组 + 说明」最小结构——工具与技能都天然满足。
@@ -86,21 +87,9 @@ export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }:
               {tools.map((t) => {
                 const active = draft.checked.includes(t.name)
                 return (
-                  <button
-                    key={t.name}
-                    type="button"
-                    title={t.description}
-                    aria-pressed={active}
-                    onClick={() => onToggle(t.name)}
-                    className={
-                      'rounded-md border px-2 py-1 font-mono text-xs transition-colors ' +
-                      (active
-                        ? 'border-accent bg-accent/15 text-accent'
-                        : 'border-border text-text hover:border-accent/60')
-                    }
-                  >
+                  <ToggleChip key={t.name} mono pressed={active} title={t.description} onClick={() => onToggle(t.name)}>
                     {t.name}
-                  </button>
+                  </ToggleChip>
                 )
               })}
             </div>

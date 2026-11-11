@@ -49,7 +49,7 @@ export const findingColumns = [
       const f = ctx.row.original
       return (
         <span
-          className="overflow-hidden truncate font-mono text-xs text-text-secondary"
+          className="block truncate font-mono text-xs text-text-secondary"
           title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}${f.cwe_id ? ` · ${f.cwe_id}` : ''}`}
         >
           {f.target?.method} {f.host}

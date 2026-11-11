@@ -92,6 +92,19 @@ pre {
   animation: drawer-out 160ms ease-in;
 }
 
+/* 锚定弹层（时间范围等 Popover）：自锚点方向轻微放大淡入。 */
+.app-popover {
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.app-popover[data-state='open'] {
+  animation: modal-pop 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-popover[data-state='closed'] {
+  animation: fade-out 100ms ease-in;
+}
+
 @keyframes drawer-in {
   from {
     translate: -100% 0;
@@ -143,7 +156,9 @@ pre {
   .app-drawer[data-state='open'],
   .app-drawer[data-state='closed'],
   .app-overlay[data-state='open'],
-  .app-overlay[data-state='closed'] {
+  .app-overlay[data-state='closed'],
+  .app-popover[data-state='open'],
+  .app-popover[data-state='closed'] {
     animation: none;
   }
 }

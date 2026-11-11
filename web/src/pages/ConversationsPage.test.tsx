@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -173,5 +173,67 @@ describe('ConversationsPage URL 状态', () => {
     await user.click(screen.getByText('new'))
     expect(screen.getByTestId('location').textContent).toBe('')
     expect(detailProps.mock.calls.at(-1)?.[0].convId).toBeUndefined()
+  })
+})
+
+// 按视口宽度模拟 matchMedia（只解析 min-width 断点）。
+function stubViewport(width: number) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((q: string) => ({
+      matches: Number(/min-width:\s*(\d+)px/.exec(q)?.[1] ?? 0) <= width,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  )
+}
+
+describe('ConversationsPage 窄屏（< 768）主从单栏', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('无选中会话时只显示列表，且不自动选中（否则一进页面就被推进详情）', () => {
+    stubViewport(390)
+    listProps.mockClear()
+    renderPage('direct')
+    expect(screen.getByTestId('conv-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('conv-detail')).toBeNull()
+    expect(listProps.mock.calls.at(-1)?.[0].autoSelect).toBe(false)
+  })
+
+  it('点选会话进入详情，「返回对话列表」回到列表', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderPage('direct')
+    await user.click(screen.getByText('select'))
+    expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
+    expect(screen.queryByTestId('conv-list')).toBeNull()
+    await user.click(screen.getByRole('button', { name: '返回对话列表' }))
+    expect(screen.getByTestId('conv-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('conv-detail')).toBeNull()
+  })
+
+  it('深链带 ?conv= 直接落在详情', () => {
+    stubViewport(390)
+    renderPage('direct', '/?conv=conv-a')
+    expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
+    expect(screen.queryByTestId('conv-list')).toBeNull()
+  })
+
+  it('新对话进入详情（新建态）', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderPage('direct')
+    await user.click(screen.getByText('new'))
+    expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
+  })
+
+  it('宽屏双栏并存，列表自动选中首项', () => {
+    stubViewport(1440)
+    listProps.mockClear()
+    renderPage('direct')
+    expect(screen.getByTestId('conv-list')).toBeInTheDocument()
+    expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
+    expect(listProps.mock.calls.at(-1)?.[0].autoSelect).toBe(true)
+    expect(screen.queryByRole('button', { name: '返回对话列表' })).toBeNull()
   })
 })

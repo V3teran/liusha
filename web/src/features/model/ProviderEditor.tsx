@@ -78,20 +78,12 @@ export function ProviderEditor({
           <p className="min-w-0 flex-1 text-xs text-text">
             有未保存更改——{pendingIntent === 'switch' ? '切换到其他行' : '收起'}将丢弃这些更改
           </p>
-          <button
-            type="button"
-            onClick={onKeepEditing}
-            className="flex-shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
-          >
+          <Button variant="secondary" size="xs" onClick={onKeepEditing}>
             继续编辑
-          </button>
-          <button
-            type="button"
-            onClick={onDiscard}
-            className="flex-shrink-0 rounded-md border border-sev-high/50 px-2.5 py-1 text-xs text-sev-high transition-colors hover:bg-sev-high/10"
-          >
+          </Button>
+          <Button variant="danger" size="xs" onClick={onDiscard}>
             {pendingIntent === 'switch' ? '丢弃并切换' : '丢弃并收起'}
-          </button>
+          </Button>
         </div>
       )}
 

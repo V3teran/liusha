@@ -28,6 +28,9 @@ export function controlClass(size: ControlSize = 'md', extra?: string): string {
 /** 表单字段输入框（md 档、撑满字段宽度）：弹窗/抽屉/配置页表单共用。 */
 export const INPUT_CLASS = controlClass('md', 'w-full')
 
+/** 数值输入框（md 档）：数量值不需要整行宽——窄屏撑满，sm 起固定 12rem，右侧留白让标签与说明成为视觉主体。 */
+export const NUMBER_INPUT_CLASS = controlClass('md', 'w-full tabular-nums sm:w-48')
+
 /** 表单字段标签：控件上方的小号说明文字（配置抽屉 Field 与各弹窗表单共用）。 */
 export const FIELD_LABEL_CLASS = 'text-xs font-medium text-text-secondary'
 

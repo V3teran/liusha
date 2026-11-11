@@ -221,8 +221,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col">
       {hasConv && (
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
-          <div className="inline-flex items-center gap-3">
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 whitespace-nowrap border-b border-border px-4 py-2.5">
+          <div className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
               <span
                 className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
@@ -245,7 +245,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           <div className="inline-flex items-center gap-3">
             <span className="inline-flex items-center gap-2.5">
               {usage && usage.tokens.total > 0 && (
-                <span className="inline-flex items-center gap-3.5">
+                <span className="inline-flex flex-wrap items-center gap-x-3.5 gap-y-1">
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
                     <span className="text-text-secondary">tokens</span>
                     <span className="font-mono text-text">
@@ -263,24 +263,26 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   暂停/继续合并为单切换钮（同一可逆转换的两个方向），停止独立。 */}
               {taskActive && (
                 <>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    className="w-7 px-0"
                     onClick={() => void control(paused ? 'resume' : 'pause')}
                     aria-label={paused ? '继续任务' : '暂停任务'}
                     title={paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可随时继续）'}
-                    className="inline-flex items-center justify-center rounded-lg border border-border p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
                   >
-                    {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                  </button>
-                  <button
-                    type="button"
+                    {paused ? <Play /> : <Pause />}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="xs"
+                    className="w-7 px-0"
                     onClick={() => void control('terminate')}
                     aria-label="停止任务"
                     title="停止（终态，可重新下发）"
-                    className="inline-flex items-center justify-center rounded-lg border border-status-error bg-status-error/10 p-1.5 text-status-error transition-colors hover:bg-status-error/20"
                   >
-                    <Square className="h-3 w-3 fill-current" />
-                  </button>
+                    <Square className="fill-current" />
+                  </Button>
                 </>
               )}
             </span>

@@ -34,12 +34,14 @@ export function shortInstance(instance: string): string {
   return `${instance.slice(0, at)}@${instance.slice(at + 1).split('.')[0]}`
 }
 
-/** 行详情内容：消息全文 + error 值 + 业务扩展字段。 */
+/** 行详情内容：消息全文 + error 值 + 进程实例与调用位置（窄屏行内不显示）+ 业务扩展字段。 */
 function rowDetail(e: LogEntry): Array<{ label: string; value: string; tone?: 'error' }> {
   const out: Array<{ label: string; value: string; tone?: 'error' }> = [
     { label: 'message', value: e.message },
   ]
   if (e.error) out.push({ label: 'error', value: e.error, tone: 'error' })
+  out.push({ label: 'instance', value: e.instance })
+  if (e.caller) out.push({ label: 'caller', value: e.caller })
   for (const [k, v] of Object.entries(e.fields ?? {})) {
     out.push({ label: k, value: typeof v === 'string' ? v : JSON.stringify(v) })
   }
@@ -112,7 +114,8 @@ export const LogRow = memo(function LogRow({
           }
         }}
         className={cn(
-          'flex cursor-pointer items-baseline gap-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-[12.5px] leading-relaxed',
+          // 窄屏（< 640）摘要换到第二行：时间 + 级别 + 进程已占满一行宽，同行只剩零宽。
+          'flex cursor-pointer flex-wrap items-baseline gap-x-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-[12.5px] leading-relaxed sm:flex-nowrap',
           e.level === 'error' ? 'bg-sev-critical/6 hover:bg-sev-critical/10' : 'hover:bg-surface-2',
         )}
       >
@@ -129,13 +132,17 @@ export const LogRow = memo(function LogRow({
         </span>
         <span className="shrink-0 text-text-secondary" title={e.instance}>
           [<span className="font-semibold text-accent">{e.service}</span>
-          {' · '}
-          <span className="text-text-tertiary">{shortInstance(e.instance)}</span>]
+          {/* 窄屏让位给消息摘要：实例与调用位置收进展开详情（详情始终含全量字段）。 */}
+          <span className="hidden sm:inline">
+            {' · '}
+            <span className="text-text-tertiary">{shortInstance(e.instance)}</span>
+          </span>
+          ]
         </span>
-        <span className="min-w-0 flex-1 truncate text-text" title={summary}>
+        <span className="min-w-0 flex-1 basis-full truncate text-text sm:basis-auto" title={summary}>
           {summary}
         </span>
-        {e.caller && <span className="shrink-0 text-[11px] text-text-tertiary">{e.caller}</span>}
+        {e.caller && <span className="hidden shrink-0 text-[11px] text-text-tertiary sm:inline">{e.caller}</span>}
       </div>
       {open && (
         <div

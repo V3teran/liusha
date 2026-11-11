@@ -79,8 +79,7 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
         start={isoToLocalInput(filters.since)}
         end={isoToLocalInput(filters.until)}
         onChange={({ start, end }) => onChange({ ...filters, since: syncIsoWithLocalInput(filters.since, start), until: syncIsoWithLocalInput(filters.until, end) })}
-        startLabel="创建时间起"
-        endLabel="创建时间止"
+        label="创建时间"
       />
     </FilterBar>
   )

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Field } from '@/features/config/ConfigDrawer'
-import { INPUT_CLASS } from '@/components/ui/control'
+import { NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { SettingsSection } from './SettingsSection'
 import { useSettingSection } from './useSettingSection'
 import { SettingStatus, sectionProps } from './sectionBindings'
@@ -83,7 +83,7 @@ function RatioField({
         min={0.05}
         max={0.9}
         step={0.05}
-        className={INPUT_CLASS}
+        className={NUMBER_INPUT_CLASS}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />

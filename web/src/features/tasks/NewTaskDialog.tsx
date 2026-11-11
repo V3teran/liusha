@@ -131,7 +131,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[620px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[620px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <Dialog.Title className="text-sm font-semibold text-text">新建任务</Dialog.Title>
             <Dialog.Close asChild>

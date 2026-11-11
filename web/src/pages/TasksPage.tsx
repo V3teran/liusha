@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { TaskFilterBar } from '@/features/tasks/TaskFilterBar'
@@ -28,6 +29,7 @@ export function TasksPage() {
   const hasFilter = !!(filters.source || filters.status || filters.search)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const isWide = useMediaQuery('(min-width: 768px)', true)
   const detailQuery = useTaskDetail(selectedId)
   // ?task=<id>（对话列表 ⋯ 菜单「任务」跳转）：进页即选中该任务打开详情板
   const [searchParams] = useSearchParams()
@@ -63,46 +65,49 @@ export function TasksPage() {
           左列 = 筛选栏（固定）+ 表格滚动区；列宽有设计像素下限 + 容器横向滚动，
           窄屏时出横向滑轮而非挤压变形。 */}
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <TaskFilterBar
-            filters={filters}
-            onChange={setFilters}
-            onReset={resetFilters}
-            trailing={
-              <PaginationToolbar
-                page={page}
-                pageSize={size}
-                total={total}
-                totalPages={totalPages}
-                onPageChange={setPage}
-                onPageSizeChange={setSize}
-                loading={listQuery.isFetching}
-              />
-            }
-          />
-          {/* 方向键导航挂在滚动容器上：从聚焦行冒泡而来（grid 语义在表格本身）。 */}
-          <div
-            onKeyDown={onListKeyDown}
-            className="min-h-0 flex-1 overflow-y-auto px-6 py-4 outline-none"
-          >
-            {listError ? (
-              <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
-            ) : (
-              <TaskTable
-                rows={rows}
-                loading={listQuery.isPending}
-                hasFilter={hasFilter}
-                offset={(page - 1) * size}
-                selectedId={selectedId}
-                onRowClick={selectRow}
-                onOperated={() => void listQuery.refetch()}
-              />
-            )}
+        {/* 窄屏（< 768）放不下 440px 详情 + 列表：选中时详情独占，关闭回到列表。 */}
+        {(isWide || !selectedId) && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <TaskFilterBar
+              filters={filters}
+              onChange={setFilters}
+              onReset={resetFilters}
+              trailing={
+                <PaginationToolbar
+                  page={page}
+                  pageSize={size}
+                  total={total}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  onPageSizeChange={setSize}
+                  loading={listQuery.isFetching}
+                />
+              }
+            />
+            {/* 方向键导航挂在滚动容器上：从聚焦行冒泡而来（grid 语义在表格本身）。 */}
+            <div
+              onKeyDown={onListKeyDown}
+              className="min-h-0 flex-1 overflow-y-auto px-6 py-4 outline-none"
+            >
+              {listError ? (
+                <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+              ) : (
+                <TaskTable
+                  rows={rows}
+                  loading={listQuery.isPending}
+                  hasFilter={hasFilter}
+                  offset={(page - 1) * size}
+                  selectedId={selectedId}
+                  onRowClick={selectRow}
+                  onOperated={() => void listQuery.refetch()}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {selectedId && (
-          <aside className="w-[440px] shrink-0">
+          <aside className="w-full md:w-[440px] md:shrink-0">
             <TaskDetailPane
               task={detail}
               loading={detailQuery.isPending && !rowTask}

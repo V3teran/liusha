@@ -101,7 +101,9 @@ function GraphCanvasInner({
     >
       <Background gap={24} size={1.4} />
       <Controls showInteractive={false} />
+      {/* 窄屏（< 768）不显示小地图：固定 200px 方块会盖住画布近半，手机上用双指缩放鸟瞰。 */}
       <MiniMap
+        className="hidden md:block"
         nodeColor={(n) => kindProfile((n.data as { node?: { kind?: string } })?.node?.kind ?? '').accent}
         pannable
         zoomable

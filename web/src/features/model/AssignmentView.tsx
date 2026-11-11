@@ -11,6 +11,7 @@ import {
   useSaveAgentComplexity,
 } from './useModelQueries'
 import { Select } from '@/components/ui/Select'
+import { ToggleChip } from '@/components/ui/ToggleChip'
 
 // 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。
 // 某档未绑定、或其部署停用/缺钥时，运行期按就近降级由相邻档承接。
@@ -83,7 +84,7 @@ export function AssignmentView() {
   return (
     <section aria-label="能力路由">
       {/* 卡内头部与行同内边距节奏（与模型提供商卡同构）；回落细节在标准推理行说明中 */}
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-text">能力路由</h2>
           <p className="mt-0.5 text-xs text-text-secondary">为每个复杂度档位分配模型，并把智能体归入对应档</p>
@@ -266,22 +267,16 @@ function AgentPicker({
         const inGroup = (complexityBy.get(h.code) ?? 'medium') === group
         const busy = moving.has(h.code)
         return (
-          <button
+          <ToggleChip
             key={h.code}
-            type="button"
-            aria-pressed={inGroup}
-            disabled={busy || inGroup}
+            pressed={inGroup}
+            busy={busy}
+            disabled={inGroup}
+            title={inGroup ? `${h.name} 已在此档` : `把 ${h.name} 归入此档`}
             onClick={() => onMove(h.code, group)}
-            className={
-              'rounded-md border px-2.5 py-1 text-sm transition-colors disabled:cursor-default ' +
-              (inGroup
-                ? 'border-accent bg-accent/15 text-text'
-                : 'border-border bg-background text-text-secondary hover:border-accent/50 hover:text-text')
-            }
           >
-            {busy && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />}
             {h.name}
-          </button>
+          </ToggleChip>
         )
       })}
     </div>

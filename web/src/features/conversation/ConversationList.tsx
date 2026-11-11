@@ -8,6 +8,7 @@ import { ConvMenu } from './ConvMenu'
 import { fullTime, relativeTime } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
 import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 
 export interface ConversationListHandle {
@@ -49,7 +50,7 @@ const TASK_ACTIVE_HINT = '任务进行中，无法删除。请先在对话页停
 
 // 头部主控件共用尺寸：「+ 新会话」按钮与代理捕获 tab 下不可点的「流量批次」占位保持同一盒模型，
 // 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
-const HEADER_CONTROL = 'flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors'
+const HEADER_CONTROL = 'flex-1 inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold'
 
 // 会话侧栏：按页拉会话（offset 翻页，见 api/client.ts listConversations 注释），点击向上抛选中 ID；
 // 顶部「+ 新会话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
@@ -274,12 +275,12 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             代理捕获
           </NavLink>
         </div>
-        <div className="flex flex-shrink-0 items-stretch gap-1.5">
+        <div className="flex flex-shrink-0 items-center gap-1.5">
           {allowNew ? (
-            <button type="button" onClick={onNew} className={cn(HEADER_CONTROL, 'bg-accent-soft hover:bg-accent/10 text-accent hover:text-accent-hover')}>
-              <Plus className="h-4 w-4" />
+            <Button className="flex-1" onClick={onNew}>
+              <Plus />
               新对话
-            </button>
+            </Button>
           ) : (
             <span
               aria-disabled="true"
@@ -288,15 +289,9 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               {heading || '对话'}
             </span>
           )}
-          <button
-            type="button"
-            title="刷新列表"
-            aria-label="刷新列表"
-            onClick={() => void load(offset)}
-            className="flex w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-text-secondary transition-colors hover:border-border-strong hover:text-text"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <Button variant="secondary" className="w-9 px-0" title="刷新列表" aria-label="刷新列表" onClick={() => void load(offset)}>
+            <RefreshCw />
+          </Button>
         </div>
         <div className="flex-shrink-0 border-b border-border pb-2.5">
           {/* 图标/输入框独立成 relative 内层：外层的分隔线 padding 不参与图标垂直居中
@@ -379,14 +374,14 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                         'inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none',
                         meta.key === 'active' && !c.run_paused && 'animate-pulse',
                       )}
-                      style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, transparent)` }}
+                      style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 16%, var(--surface))` }}
                     >
                       {meta.label}
                     </span>
                     {!!c.finding_count && (
                       <span
                         className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none text-sev-high"
-                        style={{ background: 'color-mix(in srgb, var(--sev-high) 16%, transparent)' }}
+                        style={{ background: 'color-mix(in srgb, var(--sev-high) 16%, var(--surface))' }}
                         title={`${c.finding_count} 个漏洞`}
                       >
                         <Bug className="h-3 w-3" />

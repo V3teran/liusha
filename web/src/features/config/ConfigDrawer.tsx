@@ -58,13 +58,13 @@ export function ConfigDrawer({
 
             <Tabs.List
               aria-label="表单分页"
-              className="flex flex-shrink-0 gap-1 border-b border-border px-5 pt-2"
+              className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border px-5 pt-2"
             >
               {tabs.map((t) => (
                 <Tabs.Trigger
                   key={t.value}
                   value={t.value}
-                  className="relative -mb-px border-b-2 border-transparent px-3 py-2 text-sm text-text-secondary outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:text-accent"
+                  className="relative -mb-px flex-shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-text-secondary outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-text"
                 >
                   {t.label}
                 </Tabs.Trigger>

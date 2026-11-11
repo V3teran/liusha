@@ -29,10 +29,27 @@ describe('renderMarkdown', () => {
     expect(html).toContain('hljs')
   })
 
-  it('消毒 XSS（script 标签被移除）', () => {
+  it('原始 HTML 作为文本显示，不执行也不渲染（payload 原样可读）', () => {
     const html = renderMarkdown('<script>alert(1)</script>正常文本')
     expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
     expect(html).toContain('正常文本')
+  })
+
+  it('行内 payload（img onerror / 闭合 select）显示为文本，不产生元素', () => {
+    const doc = new DOMParser().parseFromString(
+      renderMarkdown("参数可用 <img src=x onerror=alert(1)> 或 '></select><script> 闭合"),
+      'text/html',
+    )
+    expect(doc.querySelector('img')).toBeNull()
+    expect(doc.querySelector('select, option, script')).toBeNull()
+    expect(doc.body.textContent).toContain('<img src=x onerror=alert(1)>')
+    expect(doc.body.textContent).toContain("'></select><script>")
+  })
+
+  it('代码块的 pre 可聚焦（键盘可滚动横向溢出的长行）', () => {
+    const doc = new DOMParser().parseFromString(renderMarkdown('```\nlong line\n```'), 'text/html')
+    expect(doc.querySelector('pre')?.getAttribute('tabindex')).toBe('0')
   })
 
   it('行内代码不被包 code-block（只包围栏代码块）', () => {

@@ -6,6 +6,7 @@ import type { AttachmentRef } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { humanBytes } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
 
 interface ComposerProps {
   convId?: string
@@ -212,18 +213,7 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
           </div>
 
           {/* 发送按钮 */}
-          <button
-            type="button"
-            disabled={disabled || !canSend}
-            onClick={() => void send()}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-lg px-4 py-2',
-              'text-sm font-semibold transition-all',
-              canSend
-                ? 'cursor-pointer bg-accent-soft text-accent hover:bg-accent/10 hover:text-accent-hover'
-                : 'cursor-not-allowed bg-surface-2 text-text-disabled'
-            )}
-          >
+          <Button disabled={disabled || !canSend} onClick={() => void send()}>
             {sending ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -235,7 +225,7 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
                 发送
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

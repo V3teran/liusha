@@ -77,7 +77,7 @@ export function LoginPage() {
         className="pointer-events-none absolute left-1/2 top-1/3 h-[420px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-60"
         style={{ background: 'radial-gradient(closest-side, var(--glow-accent), transparent)' }}
       />
-      <div className="relative w-full max-w-[400px] rounded-2xl border border-border bg-surface p-8 shadow-lg">
+      <div className="relative w-full max-w-[400px] rounded-xl border border-border bg-surface p-8 shadow-lg">
         {/* 品牌区：应用图标（黑白形态，即浅色系形态——黑剪影必配浅底，容器为
             #ffffff→#e7eaef 近白斜向渐变）+ 等宽品牌字。
             深色主题（默认）下呈现为深卡面上的一枚浅色亮图标，浅色主题下融入卡面

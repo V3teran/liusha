@@ -27,16 +27,20 @@ describe('Button', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
-  it('尺寸档位与控件体系同高（md h-9 / sm h-8）', () => {
+  it('尺寸档位与控件体系同高（md h-9 / sm h-8），xs h-7 供行内紧凑操作', () => {
     const { rerender } = render(<Button>a</Button>)
     expect(screen.getByRole('button').className).toContain('h-9')
     rerender(<Button size="sm">a</Button>)
     expect(screen.getByRole('button').className).toContain('h-8')
+    rerender(<Button size="xs">a</Button>)
+    expect(screen.getByRole('button').className).toContain('h-7')
   })
 
-  it('variant 决定视觉层级：primary 用强调色，secondary 为描边', () => {
+  it('variant 决定视觉层级：primary 实心强调色，secondary 为描边', () => {
     const { rerender } = render(<Button variant="primary">a</Button>)
-    expect(screen.getByRole('button').className).toContain('text-accent')
+    const primary = screen.getByRole('button').className.split(/\s+/)
+    expect(primary).toContain('bg-accent')
+    expect(primary).toContain('text-on-accent')
     rerender(<Button variant="secondary">a</Button>)
     expect(screen.getByRole('button').className).toContain('border-border')
   })

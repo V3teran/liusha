@@ -96,6 +96,9 @@ describe('LogsPage', () => {
     await user.click(row)
     expect(await screen.findByText('error: connect refused')).toBeTruthy()
     expect(screen.getByText('task_id: t-1')).toBeTruthy()
+    // 实例与调用位置在窄屏行内隐藏，展开详情必须带上
+    expect(screen.getByText('instance: 72661@hohehoe.local')).toBeTruthy()
+    expect(screen.getByText('caller: httpapi/a.go:1')).toBeTruthy()
     // 再点收起
     await user.click(row)
     await waitFor(() => expect(screen.queryByText('error: connect refused')).toBeNull())

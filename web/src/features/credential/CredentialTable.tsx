@@ -45,7 +45,7 @@ export function CredentialTable({
   const colCount = leafColumns.length
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
       {/* min-width 兜底：窄屏出横向滚动条，列不压缩（全站表格统一约定） */}
       <table role="grid" aria-label="凭证列表" className="w-full border-collapse table-fixed" style={{ minWidth }}>
         <colgroup>

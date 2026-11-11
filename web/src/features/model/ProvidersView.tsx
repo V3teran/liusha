@@ -13,6 +13,7 @@ import {
   useDeleteProvider,
   useRestoreProviderEnvKey,
 } from './useModelQueries'
+import { Button } from '@/components/ui/Button'
 
 /** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
 const INTERACTIVE =
@@ -191,28 +192,24 @@ export function ProvidersView() {
     <section aria-label="模型提供商">
       {/* 列表卡：卡内头部（标题+说明 | 搜索+新建）与行同内边距节奏，border-b 分隔；
           点击行在下拉展开编辑面板（手风琴，同刻至多一行） */}
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
-        <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+      <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-text">模型提供商</h2>
             <p className="mt-0.5 text-xs text-text-secondary">接入哪些 provider，连接参数与能力标志</p>
           </div>
-          <div className="flex flex-shrink-0 items-center gap-2">
+          <div className="flex items-center gap-2 sm:flex-shrink-0">
             <SearchInput
-              className="w-72"
+              className="min-w-0 flex-1 sm:w-72 sm:flex-none"
               value={query}
               onChange={setQuery}
               placeholder="搜索 provider 或模型名"
               ariaLabel="搜索 provider"
             />
-            <button
-              type="button"
-              onClick={() => (isNew && draft ? requestCollapse() : startEdit(null))}
-              className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/10 hover:text-accent-hover"
-            >
-              <Plus className="h-3.5 w-3.5" />
+            <Button size="sm" onClick={() => (isNew && draft ? requestCollapse() : startEdit(null))}>
+              <Plus />
               新建
-            </button>
+            </Button>
           </div>
         </div>
         {isLoading ? (
@@ -220,13 +217,9 @@ export function ProvidersView() {
         ) : isError ? (
           <div className="flex flex-col items-center gap-2 py-10 text-sm text-sev-critical">
             <span>⚠ {error instanceof Error ? error.message : '加载失败'}</span>
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              className="rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent"
-            >
+            <Button variant="secondary" size="xs" onClick={() => void refetch()}>
               重试
-            </button>
+            </Button>
           </div>
         ) : filtered.length === 0 && !isNew ? (
           <div className="py-10 text-center text-sm text-text-secondary">

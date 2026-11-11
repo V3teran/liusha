@@ -13,6 +13,7 @@ import type {
 import { cn } from '@/lib/utils'
 import { TYPE_LABEL } from './providerForm'
 import { baseUrlError, normalizeBaseUrl } from './providerRules'
+import { Button } from '@/components/ui/Button'
 
 // 检查项标签是中性名词：结论由状态图标与详情表达（断言式标签配上失败结果会自相矛盾）。
 const STEP_LABEL: Record<DiagnosisStepKey, string> = {
@@ -119,15 +120,10 @@ export function DiagnosisPanel({
           <h4 className="text-sm font-medium text-text">连接诊断</h4>
           <p className="mt-0.5 text-xs text-text-tertiary">实测端点、鉴权、模型列表、模型与工具调用，自动识别鉴权方式等细节</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void run()}
-          disabled={running}
-          className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-border px-3.5 py-1.5 text-[13px] text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40"
-        >
-          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5" />}
+        <Button variant="secondary" size="sm" onClick={() => void run()} disabled={running}>
+          {running ? <Loader2 className="animate-spin" /> : <Stethoscope />}
           {running ? '诊断中…' : '运行诊断'}
-        </button>
+        </Button>
       </div>
 
       {error && (
@@ -156,13 +152,9 @@ export function DiagnosisPanel({
                   <code className="font-mono">{result.suggestion.base_url}</code>
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={adopt}
-                className="flex-shrink-0 rounded-md border border-accent/60 px-2.5 py-1 text-xs text-accent transition-colors hover:bg-accent/10"
-              >
+              <Button size="xs" onClick={adopt}>
                 采纳
-              </button>
+              </Button>
             </div>
           )}
         </div>

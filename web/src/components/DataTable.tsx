@@ -57,7 +57,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
   const cellCls = `overflow-hidden ${cellPadding} py-2`
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface shadow">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
       {/* 可选行表格走 WAI-ARIA grid 模式：表格为 grid、行保持原生 row 语义——选中态
           aria-selected 在 row 上合法，单元格内可放交互控件（复制按钮等）。 */}
       <table

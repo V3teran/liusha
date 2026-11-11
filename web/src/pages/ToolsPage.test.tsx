@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToolsPage } from './ToolsPage'
@@ -108,5 +108,45 @@ describe('ToolsPage', () => {
     mList.mockResolvedValue({ tools: [], total: 0 })
     render(<ToolsPage />)
     expect(await screen.findByText(/工具目录为空/)).toBeTruthy()
+  })
+})
+
+// 按视口宽度模拟 matchMedia（只解析 min-width 断点）。
+function stubViewport(width: number) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((q: string) => ({
+      matches: Number(/min-width:\s*(\d+)px/.exec(q)?.[1] ?? 0) <= width,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  )
+}
+
+describe('ToolsPage 窄屏（< 768）主从单栏', () => {
+  beforeEach(() => {
+    mList.mockReset()
+    mGet.mockReset()
+    mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
+    mGet.mockImplementation((name: string) => Promise.resolve(detailOf(name === 'nmap' ? CLI : FN)))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('先只显示列表；点选工具进入详情，「返回工具列表」回到列表', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    render(<ToolsPage />)
+    await user.click(await screen.findByText('nmap'))
+    expect(screen.queryByRole('region', { name: '工具列表' })).toBeNull()
+    await waitFor(() => expect(mGet).toHaveBeenLastCalledWith('nmap'))
+    await user.click(screen.getByRole('button', { name: '返回工具列表' }))
+    expect(screen.getByRole('region', { name: '工具列表' })).toBeInTheDocument()
+  })
+
+  it('宽屏双栏并存，无返回按钮', async () => {
+    stubViewport(1440)
+    render(<ToolsPage />)
+    expect(await screen.findByRole('region', { name: '工具列表' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '返回工具列表' })).toBeNull()
   })
 })

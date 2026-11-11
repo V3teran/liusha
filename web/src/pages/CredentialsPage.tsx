@@ -188,15 +188,16 @@ export function CredentialsPage() {
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="凭证库" subtitle="任务捕获或手动录入的登录凭据，按目标归档、跨任务复用">
         {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
+        {/* 录入中由行内「保存 / 取消」收尾：页头不再兼任取消（加号配「取消」语义自相矛盾）。 */}
         <Button
-          variant={creating ? 'secondary' : 'primary'}
+          disabled={creating}
           onClick={() => {
-            setCreating((c) => !c)
+            setCreating(true)
             setNewRow(EMPTY_NEW_ROW)
           }}
         >
           <Plus strokeWidth={2.4} />
-          {creating ? '取消录入' : '录入'}
+          录入
         </Button>
       </PageHeader>
 
@@ -243,34 +244,42 @@ export function CredentialsPage() {
             )}
             {/* 录入新行（展开在表格上方；单凭证行起手，更多凭证保存后点凭证单元格追加） */}
             {creating && (
-              <div className="grid grid-cols-[minmax(120px,1.2fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(240px,3fr)_auto] items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2">
+              <div
+                role="group"
+                aria-label="录入凭证"
+                className="grid grid-cols-1 items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 sm:grid-cols-3 lg:grid-cols-[minmax(120px,1.2fr)_minmax(90px,0.8fr)_minmax(70px,0.6fr)_minmax(240px,3fr)_auto]"
+              >
                 <input
                   autoFocus
                   className={INLINE_INPUT + ' font-mono'}
                   placeholder="目标 host:port"
+                  aria-label="目标主机"
                   value={newRow.host}
                   onChange={(e) => setNewRow({ ...newRow, host: e.target.value })}
                 />
                 <input
                   className={INLINE_INPUT + ' font-mono'}
                   placeholder="用户名"
+                  aria-label="用户名"
                   value={newRow.username}
                   onChange={(e) => setNewRow({ ...newRow, username: e.target.value })}
                 />
                 <input
                   className={INLINE_INPUT}
                   placeholder="角色"
+                  aria-label="角色"
                   value={newRow.role}
                   onChange={(e) => setNewRow({ ...newRow, role: e.target.value })}
                 />
                 <input
-                  className={INLINE_INPUT + ' font-mono'}
+                  className={INLINE_INPUT + ' font-mono sm:col-span-3 lg:col-span-1'}
                   placeholder='Cookie: PHPSESSID=…（或 [query] token: xxx）'
+                  aria-label="凭证"
                   value={newRow.raw}
                   onKeyDown={(e) => e.key === 'Enter' && commitCreate()}
                   onChange={(e) => setNewRow({ ...newRow, raw: e.target.value })}
                 />
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 sm:col-span-3 lg:col-span-1">
                   <Button size="sm" disabled={!newRowValid(newRow) || saveMutation.isPending} onClick={commitCreate}>
                     保存
                   </Button>
