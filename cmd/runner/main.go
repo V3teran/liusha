@@ -473,8 +473,8 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, tools configstore.
 	// api 改配置后广播失效，下个任务即用新配置。
 	cfgStore := configstore.New(pool, cache, tools)
 
-	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider 部署即读它（多级缓存）。
-	// api 进程改「LLM 配置」模块后经 cachestore 广播失效，runner 下次 For(tier) 即读到最新部署。
+	// LLM 配置事实源：llm.Router 运行期按 tier 解析 provider即读它（多级缓存）。
+	// api 进程改「LLM 配置」页后经 cachestore 广播失效，runner 下次 For(complexity) 即读到最新配置。
 	// agent 档位不经这里：认知循环从 agent 生效配置取 complexity 直传 router.For。
 	llmStore := llmstore.New(pool, cache)
 

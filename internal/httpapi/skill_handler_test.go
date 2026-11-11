@@ -74,7 +74,7 @@ func skillRouter(f *fakeSkills) *gin.Engine {
 
 func newFakeSkills() *fakeSkills {
 	return &fakeSkills{
-		fakeConfig: &fakeConfig{agents: []agent.Profile{
+		fakeConfig: &fakeConfig{agents: []agent.Agent{
 			{Code: "executor", Name: "执行者", Config: agent.Config{Skills: []string{"*"}}},
 			{Code: "planner", Name: "规划者", Config: agent.Config{Skills: []string{}}},
 		}},

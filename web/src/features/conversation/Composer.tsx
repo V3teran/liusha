@@ -185,7 +185,7 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
               title={
                 attachments.length >= MAX_ATTACHMENTS
                   ? `单条消息最多 ${MAX_ATTACHMENTS} 个附件`
-                  : '添加附件（随消息发给 agent，扫描任务可直接读取）'
+                  : '添加附件（随消息发给智能体，扫描任务可直接读取）'
               }
               className={cn(
                 'flex-shrink-0 rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-text',

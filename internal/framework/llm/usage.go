@@ -51,8 +51,8 @@ func WithCallMeta(ctx context.Context, meta CallMeta) context.Context {
 	return context.WithValue(ctx, ctxKeyCallMeta{}, meta)
 }
 
-// CallMetaFromCtx 取审计标签（未设置返回零值）。
-func CallMetaFromCtx(ctx context.Context) CallMeta {
+// CallMetaFromContext 取审计标签（未设置返回零值）。
+func CallMetaFromContext(ctx context.Context) CallMeta {
 	if m, ok := ctx.Value(ctxKeyCallMeta{}).(CallMeta); ok {
 		return m
 	}
@@ -73,7 +73,7 @@ type instrumentedProvider struct {
 }
 
 func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Response, error) {
-	meta := CallMetaFromCtx(ctx)
+	meta := CallMetaFromContext(ctx)
 	start := time.Now()
 
 	resp, err := p.inner.Complete(ctx, req)
@@ -97,7 +97,7 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 }
 
 func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	meta := CallMetaFromCtx(ctx)
+	meta := CallMetaFromContext(ctx)
 	start := time.Now()
 
 	ch, err := p.inner.Stream(ctx, req)

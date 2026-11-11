@@ -23,12 +23,12 @@ import (
 
 // ConfigAPI 是 agent 配置 handler 依赖的窄接口；*configstore.Store 自动满足。
 type ConfigAPI interface {
-	Agents(ctx context.Context) ([]agent.Profile, error)
+	Agents(ctx context.Context) ([]agent.Agent, error)
 	AgentDetails(ctx context.Context) ([]configstore.AgentDetail, error)
 	AgentDetail(ctx context.Context, code string) (configstore.AgentDetail, error)
-	PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Profile, error)
-	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error)
-	ResetAgent(ctx context.Context, code string, fields ...string) (agent.Profile, error)
+	PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Agent, error)
+	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Agent, error)
+	ResetAgent(ctx context.Context, code string, fields ...string) (agent.Agent, error)
 	DeletePromptArchive(ctx context.Context, code string) error
 }
 
@@ -56,7 +56,7 @@ func listAgentsHandler(api ConfigAPI) gin.HandlerFunc {
 		q := c.Query("q")
 		items := make([]gin.H, 0, len(all))
 		for _, d := range all {
-			p := d.Profile
+			p := d.Agent
 			if !matchesQuery(q, p.Code, p.Name, p.Description) {
 				continue
 			}
@@ -139,7 +139,7 @@ func respondAgentDetail(c *gin.Context, api ConfigAPI, code string) {
 }
 
 func agentListItem(d configstore.AgentDetail) gin.H {
-	item := agentJSON(d.Profile)
+	item := agentJSON(d.Agent)
 	item["customized"] = customizedFields(d.Overrides)
 	item["has_prompt_archive"] = d.PromptArchive != nil
 	return item
@@ -147,16 +147,16 @@ func agentListItem(d configstore.AgentDetail) gin.H {
 
 func agentDetailJSON(d configstore.AgentDetail) gin.H {
 	return gin.H{
-		"agent":          agentJSON(d.Profile),
+		"agent":          agentJSON(d.Agent),
 		"defaults":       d.Defaults,
 		"overrides":      d.Overrides,
 		"prompt_archive": d.PromptArchive,
-		"contract":       contracts[d.Profile.Code],
+		"contract":       contracts[d.Agent.Code],
 	}
 }
 
 // agentJSON 是 agent 生效配置的单一序列化点（名单字段保证为数组，前端按数组渲染）。
-func agentJSON(p agent.Profile) gin.H {
+func agentJSON(p agent.Agent) gin.H {
 	return gin.H{
 		"code": p.Code, "name": p.Name,
 		"charter": p.Charter, "description": p.Description,

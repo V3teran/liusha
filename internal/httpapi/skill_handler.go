@@ -27,8 +27,8 @@ type SkillAPI interface {
 	DeleteSkill(ctx context.Context, code string) error
 
 	// 装配到智能体：读全部 agent 算装配态，按 agent 技能名单单项装卸。
-	Agents(ctx context.Context) ([]agent.Profile, error)
-	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error)
+	Agents(ctx context.Context) ([]agent.Agent, error)
+	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Agent, error)
 }
 
 // listSkillsHandler 处理 GET /skills?q=&page=&size= → {skills, total}。

@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { errorText } from '@/api/client'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
-import type { ProviderConfig, AgentConfig } from '@/api/types'
+import type { ProviderConfig, Agent } from '@/api/types'
 import { COMPLEXITY_GROUPS, groupMeta, type ComplexityGroupMeta } from './roles'
 import {
   useProviders,
   useRouting,
-  useAgentConfigs,
+  useAgents,
   useSaveRoleRoute,
   useSaveAgentComplexity,
 } from './useModelQueries'
@@ -14,9 +14,9 @@ import { Select } from '@/components/ui/Select'
 import { ToggleChip } from '@/components/ui/ToggleChip'
 
 // 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。
-// 某档未绑定、或其部署停用/缺钥时，运行期按就近降级由相邻档承接。
+// 某档未绑定、或其provider 停用/缺钥时，运行期按就近降级由相邻档承接。
 // 同时读写两处：
-//   1. complexity → provider：行内 select 直选部署（useSaveRoleRoute，空值=删路由）。
+//   1. complexity → provider：行内 select 直选 provider（useSaveRoleRoute，空值=删路由）。
 //   2. agent → 档：每档一排归属 chip，点未归属 chip 即把智能体归入本档
 //      （useSaveAgentComplexity 移档，与「智能体」页复杂度下拉读写同一份数据）。
 // inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
@@ -26,7 +26,7 @@ import { ToggleChip } from '@/components/ui/ToggleChip'
 export function AssignmentView() {
   const providersQuery = useProviders()
   const routingQuery = useRouting()
-  const agentsQuery = useAgentConfigs()
+  const agentsQuery = useAgents()
   const routeMutation = useSaveRoleRoute()
   const moveMutation = useSaveAgentComplexity()
 
@@ -52,10 +52,10 @@ export function AssignmentView() {
     setActionError(`${prefix}：${errorText(e, '操作失败')}`)
 
   // 选空 → 删除该档路由（运行期按就近降级由相邻档承接）；选具体 provider → upsert。
-  const onPick = (group: string, providerKey: string) => {
+  const onPick = (group: string, providerCode: string) => {
     setActionError('')
     routeMutation.mutate(
-      { role: group, providerKey },
+      { role: group, providerCode },
       { onError: onError('保存绑定失败') },
     )
   }
@@ -133,7 +133,7 @@ export function AssignmentView() {
 }
 
 // 单档行：档位标签 + 职责说明 + provider 选择器；下方一行 agent 归属 chip。
-// 选空 = 删除该档绑定（就近降级由相邻档承接）。绑定的部署停用、密钥未就绪、
+// 选空 = 删除该档绑定（就近降级由相邻档承接）。绑定的provider 停用、密钥未就绪、
 // 或未声明工具调用而本档有智能体时，就地告警。
 function ComplexityRow({
   meta,
@@ -150,8 +150,8 @@ function ComplexityRow({
   value: string
   providers: ProviderConfig[]
   routeSavingRole: string | null
-  onPick: (group: string, providerKey: string) => void
-  agents: AgentConfig[]
+  onPick: (group: string, providerCode: string) => void
+  agents: Agent[]
   complexityBy: Map<string, string>
   moving: Set<string>
   onMove: (agentCode: string, group: string) => void
@@ -160,7 +160,7 @@ function ComplexityRow({
   const missing = value !== '' && !bound
   const disabledProv = bound?.enabled === false
   const noKey = bound?.enabled === true && !bound.key_present
-  // 四个智能体都依赖工具调用：本档有智能体、而绑定的部署未声明工具调用时告警。
+  // 四个智能体都依赖工具调用：本档有智能体、而绑定的 provider未声明工具调用时告警。
   const hasAgents = agents.some((a) => (complexityBy.get(a.code) ?? 'medium') === meta.key)
   const noTools = bound?.enabled === true && !bound.supports_tools && hasAgents
   const saving = routeSavingRole === meta.key
@@ -177,23 +177,23 @@ function ComplexityRow({
             {missing && (
               <span className="flex items-center gap-1 text-[11.5px] text-sev-critical">
                 <AlertTriangle className="h-3 w-3" />
-                部署缺失
+                provider 缺失
               </span>
             )}
             {disabledProv && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该部署，由相邻档承接">
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
-                部署停用
+                provider 停用
               </span>
             )}
             {noKey && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该部署，由相邻档承接">
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 密钥未就绪
               </span>
             )}
             {noTools && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="智能体依赖工具调用，该部署未声明支持">
+              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="智能体依赖工具调用，该 provider未声明支持">
                 <AlertTriangle className="h-3 w-3" />
                 未声明工具调用
               </span>
@@ -205,7 +205,7 @@ function ComplexityRow({
         <div className="flex flex-shrink-0 items-center gap-2">
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-secondary" aria-label="保存中" />}
           <Select
-            aria-label={`${meta.label} 绑定部署`}
+            aria-label={`${meta.label} 绑定 provider`}
             className="w-40"
             value={value}
             disabled={saving}
@@ -247,7 +247,7 @@ function AgentPicker({
 }: {
   group: string
   groupLabel: string
-  agents: AgentConfig[]
+  agents: Agent[]
   complexityBy: Map<string, string>
   moving: Set<string>
   onMove: (agentCode: string, group: string) => void

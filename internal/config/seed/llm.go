@@ -50,7 +50,7 @@ func ImportLLM(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) er
 	return nil
 }
 
-// importProviders 建 provider 部署行：标识符一律系统生成 UUID（yaml key 降级为显示名称默认值）。
+// importProviders 建 provider 行：标识符一律系统生成 UUID（yaml key 降级为显示名称默认值）。
 // 返回 yaml key → 生成标识符 的映射，供路由导入翻译 complexity_routes 的引用。
 func importProviders(ctx context.Context, cfg config.AppConfig, s *llmconfig.Store) (map[string]string, error) {
 	codeByYamlKey := make(map[string]string, len(cfg.Providers))

@@ -109,7 +109,7 @@ func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 	assert.True(t, added.IsDerivedObjective())
 	assert.Equal(t, explorationgraph.StateOpen, *added.State)
 
-	edges, err := store.ListEdgesForAPI(ctx, revisionTask)
+	edges, err := store.ListEdgesByTask(ctx, revisionTask)
 	require.NoError(t, err)
 	var supersedes, triggers int
 	for _, e := range edges {
@@ -334,7 +334,7 @@ func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
 	assert.Equal(t, "p1", actions[0].ID)
-	edges, err := store.ListEdgesForAPI(ctx, revisionTask)
+	edges, err := store.ListEdgesByTask(ctx, revisionTask)
 	require.NoError(t, err)
 	require.Len(t, edges, 1)
 	assert.Equal(t, [3]string{"root", string(explorationgraph.RelGenerates), "p1"},

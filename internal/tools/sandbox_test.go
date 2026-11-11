@@ -136,7 +136,7 @@ func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 		{Stdout: "url: http://t/\n[exit_code: 0]"},
 	}}
 	tool := newDriveBrowserTool(Deps{Sandbox: fake}, 5*time.Second)
-	ctx := WithActionContext(context.Background(), "act-123")
+	ctx := WithActionID(context.Background(), "act-123")
 	res, err := tool.Execute(ctx, json.RawMessage(`{"action":"open","url":"http://t/"}`))
 	if err != nil || res.Error != "" {
 		t.Fatalf("执行失败: %v %s", err, res.Error)

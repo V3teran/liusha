@@ -174,18 +174,18 @@ func (r *Router) resolve(ctx context.Context, complexity Complexity, accept func
 	}
 	var lastErr error
 	for _, lvl := range routeCandidates(complexity) {
-		providerKey, ok := routing.Roles[string(lvl)]
+		providerCode, ok := routing.Roles[string(lvl)]
 		if !ok {
 			continue
 		}
-		spec, err := r.store.GetProviderSpec(ctx, providerKey)
+		spec, err := r.store.GetProviderSpec(ctx, providerCode)
 		if err != nil {
-			lastErr = fmt.Errorf("provider/router: %s 档 provider %q 不可用: %w", lvl, providerKey, err)
+			lastErr = fmt.Errorf("provider/router: %s 档 provider %q 不可用: %w", lvl, providerCode, err)
 			continue
 		}
 		if accept != nil {
 			if err := accept(spec); err != nil {
-				lastErr = fmt.Errorf("provider/router: %s 档 provider %q 无法构造 client: %w", lvl, providerKey, err)
+				lastErr = fmt.Errorf("provider/router: %s 档 provider %q 无法构造 client: %w", lvl, providerCode, err)
 				continue
 			}
 		}

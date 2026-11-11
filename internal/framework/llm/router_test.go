@@ -10,8 +10,8 @@ import (
 // fakeRouterStore 是 RouterStore 的内存实现：routes 缺档/ spec 缺失均可构造，
 // 用于验证档位的就近降级解析。
 type fakeRouterStore struct {
-	routes    map[string]string       // role → provider key
-	providers map[string]ProviderSpec // key → spec（缺 key = provider 不可用）
+	routes    map[string]string       // 档位 → provider code
+	providers map[string]ProviderSpec // code → spec（缺 code = provider 不可用）
 }
 
 func (f *fakeRouterStore) GetRouting(_ context.Context) (RoutingSpec, error) {
@@ -22,11 +22,11 @@ func (f *fakeRouterStore) GetRouting(_ context.Context) (RoutingSpec, error) {
 	return r, nil
 }
 
-func (f *fakeRouterStore) GetProviderSpec(_ context.Context, key string) (ProviderSpec, error) {
-	if p, ok := f.providers[key]; ok {
+func (f *fakeRouterStore) GetProviderSpec(_ context.Context, code string) (ProviderSpec, error) {
+	if p, ok := f.providers[code]; ok {
 		return p, nil
 	}
-	return ProviderSpec{}, fmt.Errorf("provider %q not found", key)
+	return ProviderSpec{}, fmt.Errorf("provider %q not found", code)
 }
 
 func goodSpec(code string) ProviderSpec {
@@ -119,11 +119,11 @@ type notConfiguredStore struct {
 	unavailable map[string]bool
 }
 
-func (s *notConfiguredStore) GetProviderSpec(ctx context.Context, key string) (ProviderSpec, error) {
-	if s.unavailable[key] {
-		return ProviderSpec{}, fmt.Errorf("%w: provider %q 已停用", ErrNotConfigured, key)
+func (s *notConfiguredStore) GetProviderSpec(ctx context.Context, code string) (ProviderSpec, error) {
+	if s.unavailable[code] {
+		return ProviderSpec{}, fmt.Errorf("%w: provider %q 已停用", ErrNotConfigured, code)
 	}
-	return s.fakeRouterStore.GetProviderSpec(ctx, key)
+	return s.fakeRouterStore.GetProviderSpec(ctx, code)
 }
 
 // 显式档的 provider 被停用（或缺钥）时降级到相邻档，而不是直接让该档报错。

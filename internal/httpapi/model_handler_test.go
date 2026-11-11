@@ -345,8 +345,8 @@ func TestSaveRoleRoute_Wires(t *testing.T) {
 	}
 }
 
-// TestSaveRoleRoute_MissingProviderKey：缺 provider_key → 400。
-func TestSaveRoleRoute_MissingProviderKey(t *testing.T) {
+// TestSaveRoleRoute_MissingProviderCode：缺 provider_code → 400。
+func TestSaveRoleRoute_MissingProviderCode(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: &fakeModel{}})
 	defer srv.Close()
 

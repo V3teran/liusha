@@ -109,7 +109,7 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 // Execute 执行一个 Action，返回生成的 Attempt 列表
 func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
 	// 1. 解析 action 内容
-	actionData, err := e.parseActionContent(action)
+	actionContent, err := e.parseActionContent(action)
 	if err != nil {
 		return nil, OutcomeDone, err
 	}
@@ -122,7 +122,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	})
 
 	// 3. 设置 action 上下文（供工具使用）
-	ctx = tools.WithActionContext(ctx, action.ID)
+	ctx = tools.WithActionID(ctx, action.ID)
 
 	e.logger.Info().
 		Str("action_id", action.ID).
@@ -136,7 +136,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	defer stopKillWatch()
 
 	// 6. 构建 ReAct 配置
-	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionData, reactTools, kill)
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, reactTools, kill)
 	if err != nil {
 		return nil, OutcomeDone, err
 	}

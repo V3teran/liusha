@@ -140,7 +140,7 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 
-	// Provider 部署 CRUD
+	// Provider CRUD
 	r.GET("/models/providers", listProvidersHandler(d.Models))
 	r.GET("/models/providers/:code", getProviderHandler(d.Models))
 

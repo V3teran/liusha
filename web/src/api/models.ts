@@ -17,9 +17,9 @@ import type {
   RoutingResponse,
 } from './types'
 
-// ── provider 部署 ───────────────────────────────────────────────────────
+// ── provider ───────────────────────────────────────────────────────
 
-/** 拉全量 provider 部署（含 disabled，供路由绑定选择器一次拉全）。 */
+/** 拉全量 provider（含 disabled，供路由绑定选择器一次拉全）。 */
 export async function listProviders(): Promise<ProviderConfig[]> {
   return (await get<{ providers: ProviderConfig[] }>('/models/providers')).providers
 }
@@ -60,8 +60,8 @@ export async function saveProvider(
 }
 
 /** 删除 provider；被角色路由 FK 引用时后端 409 → 抛带中文原因的错。 */
-export async function deleteProvider(key: string): Promise<void> {
-  await del(`/models/providers/${encodeURIComponent(key)}`)
+export async function deleteProvider(code: string): Promise<void> {
+  await del(`/models/providers/${encodeURIComponent(code)}`)
 }
 
 // ── 连接诊断 ─────────────────────────────────────────────────────────────
@@ -86,11 +86,11 @@ export async function getRouting(): Promise<RoutingResponse> {
 /** upsert 档 → provider 映射。档名非三档之一 → 400；provider 不存在 → 409，抛中文原因。 */
 export async function saveRoleRoute(
   role: string,
-  providerKey: string,
+  providerCode: string,
 ): Promise<RoleRouteConfig> {
   const res = await put<{ route: RoleRouteConfig }>(
     `/models/routes/${encodeURIComponent(role)}`,
-    { provider_code: providerKey },
+    { provider_code: providerCode },
   )
   return res.route
 }

@@ -104,7 +104,7 @@ func TestPatchAndResetAgent_RoundTrip(t *testing.T) {
 	}
 	d, _ := s.AgentDetail(ctx, "planner")
 	st, ok := d.Overrides["charter"]
-	if !ok || d.Profile.Charter != "我的章程" {
+	if !ok || d.Agent.Charter != "我的章程" {
 		t.Fatalf("应记录章程自定义: %+v", d.Overrides)
 	}
 	var baseline string

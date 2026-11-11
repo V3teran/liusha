@@ -21,7 +21,7 @@ export const COMPLEXITY_GROUPS: ComplexityGroupMeta[] = [
   {
     key: COMPLEXITY_MEDIUM,
     label: '标准推理',
-    desc: '常规漏洞检测与工具调用；未显式归档的 agent 也落此档（隐式默认）',
+    desc: '常规漏洞检测与工具调用；未显式归档的调用也落此档（隐式默认）',
   },
   {
     key: COMPLEXITY_SIMPLE,

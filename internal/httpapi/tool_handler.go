@@ -67,7 +67,7 @@ func listToolsHandler(api ToolCatalogAPI) gin.HandlerFunc {
 }
 
 // agentToolList 取 agent 生效配置里与工具种类对应的名单。
-func agentToolList(p agent.Profile, kind toolstore.Kind) []string {
+func agentToolList(p agent.Agent, kind toolstore.Kind) []string {
 	if kind == toolstore.KindCLI {
 		return p.CliTools
 	}

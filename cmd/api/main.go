@@ -161,7 +161,7 @@ func main() {
 
 	// 工具目录同步：把两套工具体系（内置 function + 外置 cli）幂等同步进 tool 表，
 	// 供前端工具模块检索/展示、智能体配置页「选工具」。代码为事实源，启动期 reconcile 一次。
-	toolCatalog := toolstore.NewStore(pool)
+	toolCatalog := toolstore.New(pool)
 	if up, pr, rErr := toolstore.Reconcile(ctx, toolCatalog, toolManifest); rErr != nil {
 		logger.Warn().Err(rErr).Msg("工具目录同步失败（工具模块可能展示陈旧目录）")
 	} else {

@@ -34,7 +34,7 @@ type KeyEncrypter interface {
 // ModelAPI 是 LLM 配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
 // 读经多级缓存 / 直穿 DB、写经失效广播的语义全在 llmstore 内，handler 只做 HTTP 编解码 + 校验。
 type ModelAPI interface {
-	// provider 部署
+	// provider
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
 	ProviderByCode(ctx context.Context, code string) (llmconfig.Provider, error)
 	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
@@ -44,7 +44,7 @@ type ModelAPI interface {
 	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
 	// 档位路由（档 → provider 直连）
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
-	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error)
+	UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
 }
 

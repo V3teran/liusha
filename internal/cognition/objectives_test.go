@@ -84,7 +84,7 @@ func TestInjectAction_HangsOnRootObjective(t *testing.T) {
 	actions, err := store.ListNodesByKind(ctx, objTask, core.KindAction)
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
-	edges, err := store.ListEdgesForAPI(ctx, objTask)
+	edges, err := store.ListEdgesByTask(ctx, objTask)
 	require.NoError(t, err)
 	require.Len(t, edges, 1)
 	assert.Equal(t, explorationgraph.Edge{

@@ -212,7 +212,7 @@ func (d *Deps) run(
 		Attempts:   result.Attempts,
 		StopReason: result.StopReason,
 	}
-	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「扫描执行失败」带原因）。
+	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
 	return report, result.Err
 }
 
@@ -300,20 +300,20 @@ func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) er
 
 // agentConfigs 是四个 agent 的生效配置（出厂值叠加用户自定义）。
 type agentConfigs struct {
-	executor  agent.Profile
-	planner   agent.Profile
-	evaluator agent.Profile
-	monitor   agent.Profile
+	executor  agent.Agent
+	planner   agent.Agent
+	evaluator agent.Agent
+	monitor   agent.Agent
 }
 
 // loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存）；读失败降级为
 // 空配置（章程为空，ReAct 启动即报错）。前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
 func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
-	getCfg := func(code string) agent.Profile {
+	getCfg := func(code string) agent.Agent {
 		cfg, err := d.CfgStore.Agent(ctx, code)
 		if err != nil {
 			d.Logger.Warn().Err(err).Str("code", code).Msg("加载 agent 配置失败，使用空配置")
-			return agent.Profile{Code: code}
+			return agent.Agent{Code: code}
 		}
 		return cfg
 	}
@@ -532,7 +532,7 @@ func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
 	taskID, host, brief, agentRunID string,
-	cfg agent.Profile,
+	cfg agent.Agent,
 	filteredManifest *manifest.ToolManifest,
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
@@ -577,7 +577,7 @@ func (d *Deps) buildExecutorAgent(
 func (d *Deps) buildEvaluatorAgent(
 	ctx context.Context,
 	taskID, host, agentRunID, conversationID string,
-	cfg agent.Profile,
+	cfg agent.Agent,
 	skillsView skill.Reader,
 	toolDeps func(skill.Reader) tools.Deps,
 	reg *registry.ToolRegistry,

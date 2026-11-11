@@ -67,7 +67,7 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     mDelete.mockReset()
   })
 
-  it('挂载拉取全量部署，表格行渲染 code/协议/模型', async () => {
+  it('挂载拉取全量 provider，表格行渲染 code/协议/模型', async () => {
     mList.mockResolvedValue([prov(), prov({ code: 'qwen', default_model: 'qwen-plus' })])
     renderView()
     expect(await screen.findByText('deepseek')).toBeTruthy()
@@ -117,7 +117,7 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     await openEdit()
     const save = screen.getByRole('button', { name: '保存' })
     expect(save).toBeDisabled()
-    await userEvent.type(screen.getByLabelText('描述'), '主力部署')
+    await userEvent.type(screen.getByLabelText('描述'), '主力模型')
     expect(await screen.findByText('未保存')).toBeTruthy()
     expect(screen.getByRole('button', { name: '重置' })).toBeTruthy()
     expect(save).toBeEnabled()

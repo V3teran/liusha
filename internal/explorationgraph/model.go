@@ -29,18 +29,18 @@ import (
 	"strings"
 )
 
-// State 是 action 与 objective 的状态（类型别名，指向 core.ActionState）
-type State = core.ActionState
+// State 是 action 与 objective 的状态（类型别名，指向 core.NodeState）
+type State = core.NodeState
 
 // 状态常量：实体定义在 core，经类型别名提升为领域 API
 const (
-	StateOpen       = core.ActionStateOpen
-	StateRunning    = core.ActionStateRunning
-	StateCompleted  = core.ActionStateCompleted
-	StateFailed     = core.ActionStateFailed
-	StateExhausted  = core.ActionStateExhausted
-	StateAborted    = core.ActionStateAborted
-	StateSuperseded = core.ActionStateSuperseded
+	StateOpen       = core.NodeStateOpen
+	StateRunning    = core.NodeStateRunning
+	StateCompleted  = core.NodeStateCompleted
+	StateFailed     = core.NodeStateFailed
+	StateExhausted  = core.NodeStateExhausted
+	StateAborted    = core.NodeStateAborted
+	StateSuperseded = core.NodeStateSuperseded
 )
 
 // Complexity 是 action 的复杂度（planner 提案 → executor 提示词的可读分档；

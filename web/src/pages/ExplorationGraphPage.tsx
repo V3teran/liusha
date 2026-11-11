@@ -87,7 +87,7 @@ export function ExplorationGraphPage() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <PageHeader title="探索图" subtitle="每个任务一张图：agent 的目标、行动与结论如何达成" />
+      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
 
       <Toolbar
         conversationInput={convInput}

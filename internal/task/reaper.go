@@ -72,7 +72,7 @@ func StartReaper(
 					}
 					msg, aerr := convs.AppendMessage(ctx, conversationID,
 						conversation.RoleAssistant, conversation.KindEvent,
-						"扫描已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
+						"任务已停止", conversation.TaskStatusMeta(conversation.TaskStatusAborted,
 							map[string]any{"reason": "心跳超时（runner 崩溃或任务卡死）"}))
 					if aerr != nil {
 						logger.Warn().Err(aerr).Str("task_id", id).Msg("回收通知写会话失败")

@@ -49,7 +49,7 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 		if conversationID == "" || e.writer == nil || e.pub == nil {
 			return next(ctx, t, args)
 		}
-		agent := AgentFromCtx(ctx)
+		agent := AgentFromContext(ctx)
 		// call_id 贯穿本次调用的两个事件：并发执行同名工具时（多 action 并行）
 		// result 完成序与 call 发起序可能交错，仅凭 (agent, tool) 的 FIFO 配对
 		// 会把 A 的结果配到 B 的卡上。事件内联身份后消费端按 ID 精确配对。

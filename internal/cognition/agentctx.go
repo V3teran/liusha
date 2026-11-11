@@ -12,8 +12,8 @@ func WithAgent(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, agentCtxKey{}, name)
 }
 
-// AgentFromCtx 取 agent 名（未注入返回空串，事件按 assistant 归档兜底）。
-func AgentFromCtx(ctx context.Context) string {
+// AgentFromContext 取 agent 名（未注入返回空串，事件按 assistant 归档兜底）。
+func AgentFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(agentCtxKey{}).(string); ok {
 		return v
 	}

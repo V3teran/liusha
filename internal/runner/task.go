@@ -119,7 +119,7 @@ func (h *Handler) executeTask(
 	// task 终态回写：按停止原因与 agent_run 同口径分流——外部终止（任务行已
 	// 终态 / ctx 取消）落 aborted，自然收敛才落 completed。此前无条件
 	// Complete：终止路径无人写 aborted，CAS 守卫形同虚设，被杀任务标
-	// completed、时间线广播「扫描完成」。
+	// completed、时间线广播「任务完成」。
 	if terminated {
 		h.finishTerminatedTask(doneCtx, taskLogger, p, taskID, report)
 	} else if err := h.Tasks.Complete(doneCtx, taskID); err != nil {
@@ -128,7 +128,7 @@ func (h *Handler) executeTask(
 		// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
 		// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
 		h.appendTaskStatus(doneCtx, taskLogger, p.ConversationID,
-			conversation.TaskStatusCompleted, "扫描完成", h.completionFields(doneCtx, taskLogger, p.ConversationID, taskID, report))
+			conversation.TaskStatusCompleted, "任务完成", h.completionFields(doneCtx, taskLogger, p.ConversationID, taskID, report))
 
 		// 经验蒸馏（仅自然收敛触发；被终止任务的过程性结论可能误导后续任务）：
 		// 把复现门验证过的结论蒸馏成跨任务教训写回 corpus。独立短超时 ctx 异步
@@ -155,7 +155,7 @@ const distillTimeout = 2 * time.Minute
 
 // finishTerminatedTask 处理被终止任务的 task 终态与时间线：task 落 aborted
 // （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的
-// abort 端点可能已先行写 aborted + 「扫描已停止」节点（CAS 先到者赢）——此时
+// 停止入口（TerminateTask）或 reaper 可能已先行写 aborted + 「任务已停止」节点（CAS 先到者赢）——此时
 // 不重复落节点；runner 侧节点只在本次真正完成迁移时写。
 func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report executor.Report) {
 	tk, gErr := h.Tasks.GetByID(ctx, taskID)
@@ -166,12 +166,12 @@ func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.L
 	if tk.Status != task.StatusActive {
 		return // api abort / reaper 已落终态及其时间线节点
 	}
-	if err := h.Tasks.Abort(ctx, taskID, "扫描被终止（"+report.StopReason+"）"); err != nil {
+	if err := h.Tasks.Abort(ctx, taskID, "任务被终止（"+report.StopReason+"）"); err != nil {
 		taskLogger.Warn().Err(err).Msg("task 终止迁移被拒（保持既有终态）")
 		return
 	}
 	h.appendTaskStatus(ctx, taskLogger, p.ConversationID,
-		conversation.TaskStatusAborted, "扫描已终止",
+		conversation.TaskStatusAborted, "任务已终止",
 		h.completionFields(ctx, taskLogger, p.ConversationID, taskID, report))
 }
 

@@ -156,7 +156,7 @@ func applyProxyDefaults(c ProxyConfig) ProxyConfig {
 		c.InternalAddr = "127.0.0.1:18888"
 	}
 	if c.StreamName == "" {
-		c.StreamName = "flow_events"
+		c.StreamName = "liusha:traffic_snapshots"
 	}
 	if c.StreamMaxLen == 0 {
 		c.StreamMaxLen = 100_000
