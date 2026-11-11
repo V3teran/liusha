@@ -51,7 +51,7 @@ type ToolUsageAggregator interface {
 //	  "tool_duration_ms": N,             // 所有工具执行耗时合计
 //	  "duration_ms": N,                  // = llm_latency_ms + tool_duration_ms（总耗时）
 //	  "llm_calls": N, "tool_calls": N,
-//	  "running": bool                    // 是否仍有运行中的扫描（权威：owner 终态）
+//	  "running": bool                    // 是否仍有运行中的扫描（权威：关联 task 终态）
 //	}
 func conversationUsageHandler(conv UsageTaskResolver, llm LLMUsageAggregator, tool ToolUsageAggregator) gin.HandlerFunc {
 	return func(c *gin.Context) {

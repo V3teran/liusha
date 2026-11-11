@@ -102,8 +102,8 @@ type ToolRegistry struct {
 }
 
 // New 返回带默认 Interceptor 链的 ToolRegistry。
-// 链顺序：EvidenceCapture → Timeout → ErrorMask → Tool.Execute。
-// 按需拦截器（工具调用录制/遥测/心跳）经 AddInterceptor 注入，插在 ErrorMask 之前。
+// 链顺序：EvidenceCaptureInterceptor → TimeoutInterceptor → ErrorMaskInterceptor → Tool.Execute。
+// 按需拦截器（工具调用录制/遥测/心跳）经 AddInterceptor 注入，插在 ErrorMaskInterceptor 之前。
 func New() *ToolRegistry {
 	return &ToolRegistry{
 		tools: make(map[string]Tool),
@@ -169,8 +169,7 @@ func (r *ToolRegistry) Schemas() []llm.ToolSchema {
 // WrapTool 返回一个 Execute 走完整 Interceptor 链的装饰工具。
 //
 // 背景：ReAct runtime 直调 tool.Execute（不经 ToolRegistry.execute），拦截器链
-// （PreExecute/Logging/EvidenceCapture/Timeout/ErrorMask + AddInterceptor 注入的
-// 遥测/心跳）会被整体绕过。调用方在把工具装进 runtime 前先用本方法包一层，
+// （EvidenceCapture/Timeout/ErrorMask + AddInterceptor 注入的遥测/心跳）会被整体绕过。调用方在把工具装进 runtime 前先用本方法包一层，
 // 即可让框架外的执行路径也走统一链。
 func (r *ToolRegistry) WrapTool(t Tool) Tool {
 	return &wrappedTool{inner: t, reg: r}

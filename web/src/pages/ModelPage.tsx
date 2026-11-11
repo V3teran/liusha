@@ -6,7 +6,7 @@ import { AssignmentView } from '@/features/model/AssignmentView'
 // 两个功能是同一件事的两步——先接入 provider（实体 CRUD），再把各档位路由到 provider（表单配置）。
 // 排版统一约束：两个分区共用同一内容列宽与分区头解剖（标题+说明居左、动作居右），
 // 内容全部文档流排布、页面级滚动——不存在内部滚动容器/视口高度的工作台面板，
-// 上下两段宽度、密度、留白完全一致。编辑类交互（provider 表单）走居中弹窗，对齐配置页族。
+// 上下两段宽度、密度、留白完全一致。provider 编辑在列表行下方手风琴展开（同刻至多一行）。
 export function ModelPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">

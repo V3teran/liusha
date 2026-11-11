@@ -23,9 +23,8 @@ export interface StreamHandlers {
 
 /**
  * connectEventStream 是订阅任意会话 SSE 流的底层原语：开 EventSource →
- * 断线自管重连（指数退避，上限 15s）。回调交给上层决定帧落地方式——聊天页灌进 zustand
- * store 渲染消息列表；执行图页只需要「有新帧到达」这个信号去触发 react-query 重拉，
- * 不需要真的持有消息内容。两者共享这份连接/重连逻辑，不必各自实现一套退避。
+ * 断线自管重连（指数退避，上限 15s）。帧落地方式由回调决定——openEventStream 把它绑到
+ * 对话 store（灌进 zustand 渲染消息列表）。
  *
  * 鉴权与普通端点同源同路径：登录会话 Cookie（liusha_session）随同源 EventSource
  * 自动携带，无需换取专用 token。

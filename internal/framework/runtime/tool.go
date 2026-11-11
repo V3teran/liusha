@@ -58,7 +58,7 @@ func thinkingText(t *llm.ThinkingBlock) string {
 	return t.Text
 }
 
-// executeTool 执行工具。failed 区分「结果性失败」（ErrorMask 语义：错误经
+// executeTool 执行工具。failed 区分「结果性失败」（ErrorMaskInterceptor 语义：错误经
 // ToolResult.Error 传递、err 为 nil——连续失败止损的计数依据，此前只看 err
 // 导致生产链路永不计数、止损恒死）与成功。
 //

@@ -10,7 +10,7 @@ import (
 func NewStore(pool *pgxpool.Pool) *Store {
 	graphStore := postgres.NewGraphStore(pool)
 	store := newStore(graphStore)
-	// 设置 pool 字段用于 Roadmap 功能
+	// pool 供需要直接 SQL 下推的读写（会话 → 任务解析、复放审计链、统计投影、元数据合并）
 	store.pool = pool
 	return store
 }

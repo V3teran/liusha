@@ -11,7 +11,7 @@ import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 
 // 流量模块：代理捕获流量（proxy_traffic）全局只读浏览。按 host 归属、先于 task，是被分析的输入。
 // 布局：Burp 式常驻左右分栏——左列表（筛选 + 密集表 + 分页）+ 右详情面板（整条请求/响应报文）。
-// 选中行 id 驱动右栏查询；↑↓ 键在当前页内移动选择。取代旧的 Radix Dialog 抽屉（一次只能看一条、遮挡列表）。
+// 选中行 id 驱动右栏查询；↑↓ 键在当前页内移动选择（主从并排，详情不遮挡列表）。
 //
 // 数据层走 React Query（见 useTrafficQueries）：query key 含 filters/page，任一变化即视为新查询，
 // 过期请求自动被丢弃；keepPreviousData 让筛选/翻页时旧数据先留屏。筛选/分页态持久化进 URL。

@@ -14,7 +14,7 @@ func TestListAll_EmptySearch(t *testing.T) {
 	s, taskID := setup(t)
 
 	// 插入测试数据
-	_, err := s.Append(ctx, Invocation{
+	err := s.Append(ctx, Invocation{
 		TaskID:    &taskID,
 		Provider:  "test",
 		Model:     "test-model",

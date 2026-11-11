@@ -11,9 +11,8 @@ import {
 import { listAgentConfigs, patchAgent } from '@/api/config'
 import type { ProviderConfig } from '@/api/types'
 
-// 模型模块数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
-// providers 缓存在「部署」「能力分档」两个 tab 间共享——切 tab 不重拉，
-// 任一写操作 invalidate 后两边同步刷新，替代此前每视图手写 useState + reload。
+// LLM 配置数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
+// providers 缓存由「模型提供商」「能力路由」两个分区共享，任一写操作 invalidate 后两边同步刷新。
 
 export const modelKeys = {
   providers: ['models', 'providers'] as const,
@@ -45,7 +44,7 @@ export function useAgentConfigs() {
   })
 }
 
-/** 写后失效模型模块全部缓存（providers 变更会连带影响路由绑定展示）。 */
+/** 写后失效 LLM 配置全部缓存（providers 变更会连带影响路由绑定展示）。 */
 function useInvalidateModels() {
   const qc = useQueryClient()
   return () => {

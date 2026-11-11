@@ -1,6 +1,6 @@
 // types.go：LLM 抽象的类型事实源（框架层自包含，不 import 任何业务包）。
 // Package llm 是框架层 LLM 抽象：Provider 契约 + 类型事实源 + 协议适配器。
-// 业务策略（role 路由 / 审计 / fallback 编排）在 llmstore 与各业务包之上装配。
+// 业务策略（档位路由的配置源 / 审计落库）在 llmstore 与各业务包之上装配。
 
 package llm
 
@@ -25,7 +25,7 @@ const (
 // Message 是一次会话中的一条消息。
 //
 // Content 与 ContentParts 互斥：纯文本走 Content（默认路径）；含图/多模态走 ContentParts。
-// ContentParts 非空时 provider 必须支持 vision；否则返 ErrVisionUnsupported。
+// ContentParts 含图而 provider 不支持 vision 时，图片降级为占位文本（模型知道有图但看不到）。
 // Thinking 是 assistant 消息携带的扩展思考块（anthropic 多轮 tool_use 规范回传用；
 // 其余角色恒为 nil）。
 type Message struct {

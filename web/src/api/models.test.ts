@@ -107,35 +107,35 @@ describe('models API 客户端', () => {
     await expect(deleteProvider('deepseek')).rejects.toThrow('该 provider 仍被角色路由引用')
   })
 
-  it('getRouting 打 /models/routing 返回 routes（无别名层）', async () => {
+  it('getRouting 打 /models/routing 返回 routes', async () => {
     const fn = mockFetch(200, {
-      routes: [{ role: 'planner', provider_code: 'deepseek' }],
+      routes: [{ role: 'medium', provider_code: 'deepseek' }],
     })
     const r = await getRouting()
     expect(fn.mock.calls[0][0]).toBe('/api/models/routing')
-    expect(r.routes[0].role).toBe('planner')
+    expect(r.routes[0].role).toBe('medium')
     expect(r.routes[0].provider_code).toBe('deepseek')
   })
 
   it('saveRoleRoute 打 PUT /models/routes/:role 带 provider_code', async () => {
     const fn = mockFetch(200, { route: { role: 'planner', provider_code: 'deepseek' } })
-    await saveRoleRoute('planner', 'deepseek')
+    await saveRoleRoute('complex', 'deepseek')
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/models/routes/planner')
+    expect(url).toBe('/api/models/routes/complex')
     expect(init.method).toBe('PUT')
     expect(JSON.parse(init.body)).toEqual({ provider_code: 'deepseek' })
   })
 
   it('saveRoleRoute 遇 409 抛后端中文 error（provider 不存在）', async () => {
     mockFetch(409, { error: 'provider_code 不存在，请先创建对应 provider' })
-    await expect(saveRoleRoute('planner', 'ghost')).rejects.toThrow('provider_code 不存在')
+    await expect(saveRoleRoute('complex', 'ghost')).rejects.toThrow('provider_code 不存在')
   })
 
   it('deleteRoleRoute 打 DELETE /models/routes/:role', async () => {
     const fn = mockFetch(200, {})
-    await deleteRoleRoute('vision')
+    await deleteRoleRoute('simple')
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/models/routes/vision')
+    expect(url).toBe('/api/models/routes/simple')
     expect(init.method).toBe('DELETE')
   })
 

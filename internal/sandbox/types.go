@@ -7,7 +7,7 @@ package sandbox
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：
-//   - AssignmentID：批次 ID，工作区一级分组（/liusha/<AssignmentID>/<TaskID>/）；必填
+//   - AssignmentID：批次 ID，工作区一级分组（/root/liusha/workspace/<AssignmentID>/<TaskID>/）；必填
 //   - TaskID：任务 ID，二级分组——会话状态（state/，浏览器登录态与 $HOME 落盘）、
 //     工作目录（work/）与产物（out/）都在其下
 //   - AgentID：Agent 运行实例 ID，随请求透传（进程树标注/审计），不参与目录分层；必填，server 端校验空值 400
@@ -25,8 +25,8 @@ type ExecRequest struct {
 
 // ExecResult 是 POST /exec 的响应体。
 //
-// stdout/stderr 由 sandbox-server 完整返回不截尾——截尾在主进程 RunCommand 层做
-// （沿用现有 tailString 逻辑，LLM context 管理贴近主进程更直接）。
+// stdout/stderr 由 sandbox-server 完整返回不截尾——截尾在主进程 run_command 工具层做
+// （tools.tailRunOutput，LLM context 管理贴近主进程更直接）。
 type ExecResult struct {
 	ExitCode int          `json:"exit_code"`
 	Stdout   string       `json:"stdout"`

@@ -6,36 +6,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/V3teran/liusha/internal/conversation"
-	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/dbtest"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/rs/zerolog"
 )
 
-// 用 dev DB（已跑过 0066 migration）测 store 往返：验证 scan 字段顺序、COALESCE/NULLIF、
-// bigserial seq 递增、增量拉取。需 LIUSHA_POSTGRES_DSN；未设则 skip。
-//
-//	LIUSHA_POSTGRES_DSN='postgres://liusha:liusha@localhost:5432/liusha?sslmode=disable' \
-//	  go test -tags integration ./internal/conversation/
+// store 往返：验证 scan 字段顺序、COALESCE/NULLIF、bigserial seq 递增、增量拉取。
 func TestConversationStore_RoundTrip(t *testing.T) {
-	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过 conversation store 集成测试")
-	}
+	pool := dbtest.NewPgPool(t) // 先起库：容器启动耗时不计入下方用例超时
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
-	if err != nil {
-		t.Fatalf("连库: %v", err)
-	}
-	defer pool.Close()
 	store := conversation.NewStore(pool)
 
 	// 1. 建会话（空 title/taskID → 应存 NULL，读回空串）
@@ -49,7 +34,6 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	if c.Title != "" || c.TaskID != "" {
 		t.Errorf("空字段应读回空串: title=%q task=%q", c.Title, c.TaskID)
 	}
-	// conversation.status 僵尸字段已退役（不读入 Conversation）——运行态派生自关联任务，见 RunStatus。
 	t.Cleanup(func() {
 		// message 经 FK CASCADE 随会话删。
 		fctx, fc := context.WithTimeout(context.Background(), 10*time.Second)
@@ -116,18 +100,9 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 // SetMessageMetadata 是下发收口点的落位改写通道：附件引用随落位从暂存路径
 // 改写为 inbox 路径。会话+seq 双重定位——改错行 = 芯片指向别人的文件。
 func TestSetMessageMetadata(t *testing.T) {
-	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过")
-	}
+	pool := dbtest.NewPgPool(t) // 先起库：容器启动耗时不计入下方用例超时
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
-	if err != nil {
-		t.Fatalf("连库: %v", err)
-	}
-	defer pool.Close()
 	store := conversation.NewStore(pool)
 
 	c, err := store.CreateConversation(ctx, "meta-relink", "")
@@ -153,16 +128,16 @@ func TestSetMessageMetadata(t *testing.T) {
 	}
 
 	// 只动目标行：第一条 metadata 不受波及，第二条读回新值
-	got1, err := store.GetMessage(ctx, c.ID, m1.ID)
+	msgs, err := store.ListMessages(ctx, c.ID, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(msgs) != 2 || msgs[0].ID != m1.ID || msgs[1].ID != m2.ID {
+		t.Fatalf("应按 seq 读回两条消息，得到 %d 条", len(msgs))
+	}
+	got1, got2 := msgs[0], msgs[1]
 	if got1.Metadata != nil {
 		t.Fatalf("第一条 metadata 不应被波及: %s", got1.Metadata)
-	}
-	got2, err := store.GetMessage(ctx, c.ID, m2.ID)
-	if err != nil {
-		t.Fatal(err)
 	}
 	// jsonb 会规范化键序，按值比较而非字节串比较
 	var want, got any
@@ -185,17 +160,9 @@ func TestSetMessageMetadata(t *testing.T) {
 // 不存在的会话：写操作与读消息都必须报告「不存在」（pgx.ErrNoRows），而不是
 // 影响 0 行的静默成功或空列表——API 层据此返回 404，前端据此区分「已删除」与「暂无消息」。
 func TestConversationStore_MissingConversationIsNotFound(t *testing.T) {
-	dsn := os.Getenv("LIUSHA_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("LIUSHA_POSTGRES_DSN 未设，跳过 conversation store 集成测试")
-	}
+	pool := dbtest.NewPgPool(t) // 先起库：容器启动耗时不计入下方用例超时
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool, err := db.NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
-	if err != nil {
-		t.Fatalf("连库: %v", err)
-	}
-	defer pool.Close()
 	store := conversation.NewStore(pool)
 
 	const missing = "9b2e4c1d-7a3f-4e8b-b6d5-0c1a2f3e4d5c"

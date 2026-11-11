@@ -31,7 +31,6 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-// 0081 加 status / triage_note / triaged_at（triage 处置态）。
 const colsSelect = "id, task_id::text AS task_id, " +
 	"agent_run_id, source_traffic_id, host, severity, summary, target, evaluation, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
@@ -62,8 +61,8 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
-	// 0074 UNIQUE(task_id, dedup_key) — dedup_key 是 PG generated column（host + summary 前 60 字，
-	// 宁可误判不漏判），单次扫描（task）内去重。
+	// UNIQUE(task_id, dedup_key)：dedup_key 是 PG 生成列（host + cwe + 规范化路径 + method +
+	// parameter；target 缺 path 时取 summary 前 40 字），单个 task 内去重。
 	// 多 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
@@ -285,7 +284,7 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 	return updated, nil
 }
 
-// validStatus 校验 triage 五态（与 DB CHECK 约束、迁移 0081 保持一致）。
+// validStatus 校验 triage 五态（与 DB CHECK 约束 finding_status_check 一致）。
 func validStatus(s string) bool {
 	switch s {
 	case "open", "confirmed", "fixed", "false_positive", "accepted":

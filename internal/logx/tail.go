@@ -146,7 +146,7 @@ func (r *Reader) ReadLogs(q ReadQuery) (ReadResult, error) {
 //
 // 性能关键：先只做行边界字节扫描（GB/s 级），再从尾部倒序解析、凑满 limit
 // 即停——大文件的窗口内可能有几十万行，全量 json 解析只为了取最新几百条
-// 是数量级浪费；只有罕见的「筛选极少命中」才退化为整窗解析（与旧实现同界）。
+// 是数量级浪费；只有罕见的「筛选极少命中」才退化为整窗解析。
 func (r *Reader) readProcess(name string, q ReadQuery) (entries []Entry, next int64, reset, truncated bool, err error) {
 	f, err := os.Open(r.filePath(name))
 	if err != nil {

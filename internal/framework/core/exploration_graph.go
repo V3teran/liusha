@@ -1,3 +1,5 @@
+// Package core 定义探索图的通用模型（节点 / 边的类型与状态）与图存储接口 GraphStore。
+// 存储后端在 framework/persistence，业务语义在 internal/explorationgraph。
 package core
 
 // ExplorationGraph 标准定义

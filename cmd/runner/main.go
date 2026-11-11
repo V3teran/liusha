@@ -478,7 +478,7 @@ func newLLMStack(pool *pgxpool.Pool, cache *cachestore.Cache, tools configstore.
 	// agent 档位不经这里：认知循环从 agent 生效配置取 complexity 直传 router.For。
 	llmStore := llmstore.New(pool, cache)
 
-	// LLM provider API Key 加密密钥（migration 0103）：同 cmd/api 的 fail-fast 校验——
+	// LLM provider API Key 加密密钥：同 cmd/api 的 fail-fast 校验——
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
 	keyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
 	if err != nil {

@@ -7,11 +7,12 @@
  * 卡片尺寸固定（与 ExplorationNodeCard 严格一致），dagre 估算即精确，
  * 连线不会错位。
  *
- * 边的三种关系：
- *  - generates 推导：中性实线（颜色留给节点，避免满屏彩虹）
- *  - triggers  滋生：琥珀虚线，发现坐实后派生新目标/动作的回边一眼可辨
+ * 边的四种关系：
+ *  - generates  推导：中性实线（颜色留给节点，避免满屏彩虹）
+ *  - triggers   滋生：琥珀虚线，发现坐实后派生新目标/动作的回边一眼可辨
+ *  - supersedes 吸收：紫色长虚线，新派生目标接管旧目标的范围
  *  - depends_on 依赖：点线，从 action 节点的 metadata.depends_on 派生
- *    （后端 0184 后调度依赖不走边表，本模块在展示层还原为边）
+ *    （调度依赖不走边表，本模块在展示层还原为边）
  */
 
 import dagre from '@dagrejs/dagre'

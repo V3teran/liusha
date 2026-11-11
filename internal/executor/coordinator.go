@@ -20,8 +20,6 @@ type Coordinator struct {
 }
 
 // NewCoordinatorWithEngine 创建 Coordinator。
-// （历史参数 findings FindingLister 已删：prompt 注入既有 finding 的特性在架构演进中
-// 被按需工具检索取代，该字段自始至终无消费者。）
 func NewCoordinatorWithEngine(taskID, host string, engine *Engine, logger zerolog.Logger) *Coordinator {
 	return &Coordinator{
 		taskID: taskID,
@@ -31,7 +29,7 @@ func NewCoordinatorWithEngine(taskID, host string, engine *Engine, logger zerolo
 	}
 }
 
-// Execute 实现 ExecutorInterface
+// Execute 实现 ActionExecutor
 func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
 	if !action.IsAction() {
 		return nil, OutcomeDone, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)

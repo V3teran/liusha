@@ -80,11 +80,11 @@ type catalog struct {
 // load 解析全部出厂内容。内容随编译固定，解析失败是构建产物缺陷——
 // 单元测试保证其不发生，运行期遇到即 panic（同模板 Must 语义）。
 var load = sync.OnceValue(func() catalog {
-	agents, err := parseAgents(agentFS)
+	agents, err := ParseAgents(agentFS)
 	if err != nil {
 		panic(fmt.Sprintf("builtin: 解析出厂 agent 失败: %v", err))
 	}
-	skills, err := parseSkills(skillFS)
+	skills, err := ParseSkills(skillFS)
 	if err != nil {
 		panic(fmt.Sprintf("builtin: 解析内置技能失败: %v", err))
 	}
@@ -133,7 +133,9 @@ func (a Agent) clone() Agent {
 	return a
 }
 
-func parseAgents(fsys fs.FS) ([]Agent, error) {
+// ParseAgents 解析 fsys 下 agents/*.md 的出厂 agent（按 code 升序）。程序内的出厂内容经它
+// 从编译进来的文件系统加载；迁移测试用它读取冻结的历史快照。
+func ParseAgents(fsys fs.FS) ([]Agent, error) {
 	paths, err := fs.Glob(fsys, "agents/*.md")
 	if err != nil {
 		return nil, err
@@ -171,7 +173,8 @@ func parseAgents(fsys fs.FS) ([]Agent, error) {
 	return out, nil
 }
 
-func parseSkills(fsys fs.FS) ([]Skill, error) {
+// ParseSkills 解析 fsys 下 skills/<分类>/<code>/SKILL.md 的内置技能（按分类、code 升序）。
+func ParseSkills(fsys fs.FS) ([]Skill, error) {
 	paths, err := fs.Glob(fsys, "skills/*/*/SKILL.md")
 	if err != nil {
 		return nil, err

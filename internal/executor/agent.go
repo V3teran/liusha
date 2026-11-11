@@ -358,7 +358,7 @@ func (a *Agent) executeAction(
 	report.Attempts += len(attempts)
 	a.reportMu.Unlock()
 
-	// 发布所有 AttemptsGenerated 事件（通知 EvaluatorAgent）
+	// 发布所有 attempt.generated 事件（通知 evaluator）
 	for _, attempt := range attempts {
 		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
 	}

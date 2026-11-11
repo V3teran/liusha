@@ -35,7 +35,7 @@ const systemPrompt = `你是渗透测试会话的消息分类器。判断用户�
 // 足以判类，钳制防病态长文撑爆便宜档调用的输入。
 const classifyMaxRunes = 8000
 
-// Classify 调 light LLM 分类。recent 是最近对话轮次（时间正序、可空）——
+// Classify 调 simple 档模型分类。recent 是最近对话轮次（时间正序、可空）——
 // 仅为消解「继续/再来一次」类指代；分类对象始终是最新一条。
 //
 // 两类失败语义不同，调用方的处置也不同：

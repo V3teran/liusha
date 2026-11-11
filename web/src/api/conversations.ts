@@ -101,14 +101,6 @@ export async function followUp(
   return res.json()
 }
 
-/**
- * 停止会话关联的扫描。
- * @param convID 会话 ID
- */
-export async function abortTask(convID: string): Promise<void> {
-  await post(`/conversations/${convID}/abort`)
-}
-
 // 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。
 // 关联任务仍在跑时后端返回 409 → 抛 'TASK_ACTIVE' 哨兵，调用方提示「先停后删」。
 export async function deleteConversation(convID: string): Promise<void> {

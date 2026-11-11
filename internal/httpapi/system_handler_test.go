@@ -48,7 +48,7 @@ func settingsRouter(api SettingsAPI) *gin.Engine {
 
 func TestSettings_UnknownGroupIs404(t *testing.T) {
 	r := settingsRouter(&fakeSettings{})
-	// 旧路由段 proxy-filter 不再存在：路由段即分组取值 proxy_filter。
+	// 路由段即分组取值，逐字匹配：proxy_filter 合法，连字符变体 proxy-filter 不是。
 	for _, path := range []string{"/settings/proxy-filter", "/settings/nope"} {
 		if w := serve(r, http.MethodGet, path, ""); w.Code != http.StatusNotFound {
 			t.Errorf("GET %s 应 404，得 %d", path, w.Code)

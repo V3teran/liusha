@@ -164,7 +164,7 @@ func TestHTTPTool_CookieExpiry(t *testing.T) {
 type fakeCredsProvider struct {
 	mu     sync.Mutex
 	byHost map[string][]credential.Identity
-	saves  []credential.Identity // 记录每次 BatchSave 的身份
+	saves  []credential.Identity // 记录每次 SaveIdentities 的身份
 	getErr error
 }
 

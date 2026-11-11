@@ -1,4 +1,4 @@
-// Package monitor 实现独立的监察 Agent（MonitorAgent）
+// Package monitor 实现独立的监察 Agent
 //
 // 使用 ReActRuntime 进行 LLM 评估
 package monitor

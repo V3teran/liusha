@@ -25,7 +25,7 @@ const (
 )
 
 // EstimateTokens 估算一段文本的 token 数：非 ASCII 按 1.5 token/字（向上
-// 取整，见 wideTokensPerRune 常量注释），ASCII 按 asciiTokensPerRune 摊销。
+// 取整，见 wideTokensPerRuneNum/Den 常量注释），ASCII 按 asciiTokensPerRune 摊销。
 func EstimateTokens(text string) int {
 	if text == "" {
 		return 0

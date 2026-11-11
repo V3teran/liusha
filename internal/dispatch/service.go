@@ -74,24 +74,23 @@ func (e EventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 }
 
 // Service 是下发域的一站式服务：建 scan → 建 agent run → 入 asynq 队列；
-// 并实现 httpapi 的会话面窄接口（Chat/FollowUp/Abort/Deleter/TaskDispatch）
+// 并实现 httpapi 的会话面窄接口（Chat/FollowUp/Deleter/TaskDispatch/TaskControl）
 // 与 chat/qa 的 Deps（意图分流后的回答与问答）。
 //
 // 任一步失败都不留中间状态（前面失败直接返错；task 已建但 enqueue 失败会留
-// scan，由用户手动 abort 或后续 sweeper——保持简单不上事务，与
-// ingestor.enqueueMain 一致语义）。
-// 合表后：task.Store 管扫描生命周期，agentrun.Store 建 run。
+// task，由用户手动停止或僵尸 run 回收兜底——保持简单不上事务，与
+// ingestor.enqueueProxyTask 一致语义）。task.Store 管任务生命周期，agentrun.Store 建 run。
 type Service struct {
 	Assignments   *assignment.Store
 	Tasks         *task.Store
 	AgentRuns     *agentrun.Store
 	Enq           *worker.Client
-	Audit         *audit.Store        // 0047：create 写审计事件；nil 跳过
-	Conversations *conversation.Store // 阶段B：StartChatTask 建会话；nil 时仅 CreateScan 可用
+	Audit         *audit.Store        // 建任务写 task.create 审计事件；nil 跳过
+	Conversations *conversation.Store // 每个任务绑定一个会话：下发入口建会话并落用户 brief
 	Schedules     *cronschedule.Store // 任务模块「定时执行」：DispatchScheduled 建模板
 
-	Router    *RoleRouter           // 多轮：意图分类 + 问答（light provider，role→档→framework Router）
-	Findings  *finding.Store        // 问答读 task 黑板 finding
+	Router    *RoleRouter           // 多轮：意图分类 + 问答（inspector → simple 档，role→档→framework Router）
+	Findings  *finding.Store        // 问答读 task 的漏洞台账
 	Publisher *convstream.Publisher // 问答回答 publish SSE
 	Control   *controlplane.Store   // 用户停止 → terminate 控制事件（停掉 runner 执行）
 
@@ -151,7 +150,7 @@ func wallClockOption(d time.Duration) time.Duration {
 }
 
 // createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
-// conversationID）。CreateScan（无会话纯后台）与 StartChatTask（会话发起）共用。
+// conversationID）。会话发起（StartChatTask）与会话内追加下发（HandleMessage）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
 func (s *Service) createTask(ctx context.Context, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
 	if err := validateBrief(brief); err != nil {
@@ -179,7 +178,7 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 
 // DispatchBatch 满足 httpapi.TaskDispatchAPI：任务模块「新建任务」弹层的立即下发。
 //
-// 1 assignment(manual, N items) → N task → N conversation（1:1）：对每个 brief
+// 1 assignment(direct, N items) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatTask 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
 func (s *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
@@ -327,7 +326,7 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 		return "", "", err
 	}
 
-	// 0047：task 创建成功 → 审计事件。metadata 记 brief 前 200 字便于事后查（完整 brief 在 task.brief 列）。
+	// task 创建成功 → 审计事件。metadata 记 brief 前 200 字便于事后查（完整 brief 在 task.brief 列）。
 	if s.Audit != nil {
 		briefPreview := brief
 		if len(briefPreview) > 200 {
@@ -356,7 +355,7 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 }
 
 // FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队
-// （brief=追加消息）。复用 task 作用域黑板——新 run 经 BuildUserPrompt 看到先前 finding。
+// （brief=追加消息）。复用 task 作用域的探索图——新 run 接着既有的目标、动作与坐实结果推进。
 // 入队 Payload 与 createTask 同构，仅 TaskID 复用传入 taskID、不新建 task。
 // attachments（可空）经 Materialize 收口进该任务 inbox，清单拼进本轮 payload brief，
 // userMsgSeq 同 createTask（落位后改写消息引用路径）。
@@ -521,39 +520,19 @@ func (s *Service) ResumeTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-// TerminateTask 按 taskID 停止：Abort 终态 + 会话时间线通知（与 AbortConversationTask
-// 同链路，入口从会话换成任务）。运行中的循环由任务行观察停摆（≤一个控制轮询
-// 周期）——行状态与 API 响应同事务生效，没有事件投递失败的停摆缺口。
+// TerminateTask 按 taskID 停止（任务页与对话页的「停止」同此入口），两件事一体：
+//  1. task 置 aborted（DB 终态，幂等/守卫见 task.Store.Abort）；
+//  2. 关联会话时间线落 aborted 节点（用户可见的停止边界）。
+//
+// 运行中的循环由任务行观察停摆（≤一个控制轮询周期）——行状态与 API 响应同事务生效，
+// 没有事件投递失败的停摆缺口。
 func (s *Service) TerminateTask(ctx context.Context, taskID string) error {
-	if err := s.Tasks.Abort(ctx, taskID, "用户在任务页手动停止"); err != nil {
+	if err := s.Tasks.Abort(ctx, taskID, "用户手动停止"); err != nil {
 		return err
 	}
 	if convID, err := s.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
 		s.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted, "扫描已停止", nil)
 	}
-	return nil
-}
-
-// AbortConversationTask 满足 httpapi.AbortAPI：abort 会话关联的 task。
-//
-// 两件事一体（缺一则「停止」名不副实）：
-//  1. task 置 aborted（DB 终态，幂等/守卫见 task.Store.Abort）；
-//  2. 时间线落 aborted 节点（用户可见的停止边界）。
-//
-// 运行中的认知循环按任务行观察退出（控制消费者每周期读行，终态即停 agents
-// 结束 run）——生命周期信号走任务行而非事件队列。
-func (s *Service) AbortConversationTask(ctx context.Context, conversationID string) error {
-	fetched, err := s.Conversations.GetConversation(ctx, conversationID)
-	if err != nil {
-		return err
-	}
-	if fetched.TaskID == "" {
-		return fmt.Errorf("conversation 无关联 task")
-	}
-	if err := s.Tasks.Abort(ctx, fetched.TaskID, "用户在对话页手动停止"); err != nil {
-		return err
-	}
-	s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusAborted, "扫描已停止", nil)
 	return nil
 }
 
@@ -761,7 +740,7 @@ func (s *Service) relinkMessageAttachments(ctx context.Context, conversationID s
 
 // ---- qa.Deps 实现 ----
 
-// FindingsSummary 满足 qa.Deps：把 task 黑板 finding 渲染成文本摘要。
+// FindingsSummary 满足 qa.Deps：把 task 的 finding 渲染成文本摘要。
 func (s *Service) FindingsSummary(ctx context.Context, _, taskID string) (string, error) {
 	fs, err := s.Findings.ListByTask(ctx, taskID)
 	if err != nil {
@@ -836,17 +815,16 @@ func validateBrief(brief string) error {
 	return nil
 }
 
-// RoleRouter 按业务 role 路由：role → llmconfig.AgentComplexity 归档（inspector 等
-// 轻量路由 key 落 simple）→ framework Router（complexity 档 → provider，带
-// retry/fallback/审计包装）。唯一职责是把 role 语义接到 complexity 栈上。
+// RoleRouter 按业务 role 路由：role → llmconfig.RoleComplexity 归档（inspector
+// 落 simple）→ framework Router（complexity 档 → provider，带
+// retry/审计包装）。唯一职责是把 role 语义接到 complexity 栈上。
 type RoleRouter struct {
 	Router *fwllm.Router
 }
 
-// providerGen 把已带 retry/fallback 的 Provider 适配成 Generator 形状
-// （chat/qa/intent 的最小依赖接口）。
-// providerGen 是 RoleRouter 解析出的生成器：Provider 已在 Router 侧包好
-// retry/fallback，audit 归属（Role）随生成器携带——ctx 在调用时注入。
+// providerGen 是 RoleRouter 解析出的生成器：把 Router 侧已包好 retry 的 Provider
+// 适配成 Generator 形状（chat/qa/intent 的最小依赖接口），audit 归属（Role）随生成器
+// 携带——ctx 在调用时注入。
 type providerGen struct {
 	p         fwllm.Provider
 	auditRole string // llm_invocation.role 标签（inspector 等；api 侧调用无 task/run 归属）
@@ -875,7 +853,7 @@ func (g providerGen) resultOf(resp fwllm.Response) fwllm.Result {
 // generateStream 流式生成：正文与扩展思考增量分别回调（可空；provider 不支持
 // 流式时退化为无增量的一次性返回）。返回值与 generate 同构。
 func (r *RoleRouter) generateStream(ctx context.Context, role string, msgs []fwllm.Message, tools []fwllm.ToolSchema, onText, onThinking func(chunk string)) (fwllm.Result, error) {
-	p, err := r.Router.For(ctx, fwllm.ParseComplexity(llmconfig.AgentComplexity(role)))
+	p, err := r.Router.For(ctx, fwllm.ParseComplexity(llmconfig.RoleComplexity(role)))
 	if err != nil {
 		return fwllm.Result{}, err
 	}
@@ -899,9 +877,9 @@ func (r *RoleRouter) generateStream(ctx context.Context, role string, msgs []fwl
 	return providerGen{p: p}.resultOf(resp), nil
 }
 
-// generator 解析 role 对应的 Generator（Provider 已在 Router 侧包好 retry/fallback）。
+// generator 解析 role 对应的 Generator（Provider 已在 Router 侧包好 retry）。
 func (r *RoleRouter) generator(ctx context.Context, role string) (providerGen, error) {
-	p, err := r.Router.For(ctx, fwllm.ParseComplexity(llmconfig.AgentComplexity(role)))
+	p, err := r.Router.For(ctx, fwllm.ParseComplexity(llmconfig.RoleComplexity(role)))
 	if err != nil {
 		return providerGen{}, err
 	}
@@ -960,7 +938,7 @@ func (s *Service) Publish(ctx context.Context, conversationID string, payload []
 //
 // 分类必须留在请求路径：ChatResponse 的 task_id 是程序化调用方（e2e 触发器、
 // API 集成）拿任务句柄的唯一通道，异步分发会让该字段结构性恒空（契约破裂，
-// 消费方无从发现任务）。分类是单 token 的 light LLM 调用（秒级），同步代价
+// 消费方无从发现任务）。分类是单 token 的 simple 档调用（秒级），同步代价
 // 可忽略；真正慢的是 qa 回答生成与扫描执行——两者保持异步（原「GLM 慢时浏览器
 // 干等几十秒」的病灶在慢回答，不在分类）。
 func (s *Service) StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (string, string, error) {
@@ -1037,11 +1015,11 @@ func (s *Service) History(ctx context.Context, conversationID, excludeContent st
 	return kept, nil
 }
 
-// classifyIntent 用 light provider 判定消息意图。provider 不可用返回显式 error
+// classifyIntent 用 simple 档模型判定消息意图。provider 不可用返回显式 error
 // （入口方自行决定报错还是提示），不静默降级 qa。会话上文读取失败仅告警并
 // 去上文分类——分类闸失明才是主功能失效，上文只是指代消解的增强。
 func (s *Service) classifyIntent(ctx context.Context, conversationID, content string) (intent.Kind, error) {
-	g, err := s.Router.generator(ctx, "inspector") // light provider
+	g, err := s.Router.generator(ctx, "inspector")
 	if err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("意图分类 provider 失败")
 		return intent.QA, fmt.Errorf("intent classify provider: %w", err)
@@ -1076,12 +1054,12 @@ func (s *Service) publishNotice(ctx context.Context, conversationID, text string
 	_ = s.Publish(ctx, conversationID, payload)
 }
 
-// genTitle 用 light LLM 把 brief 总结成 ≤16 字的简短标题，回填 conversation.title。
+// genTitle 用 simple 档模型把 brief 总结成 ≤16 字的简短标题，回填 conversation.title。
 // 异步调用（独立 context，不随请求结束被 cancel）；失败静默（保留 BriefTitle 兜底）。
 func (s *Service) genTitle(conversationID, brief string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	g, err := s.Router.generator(ctx, "inspector") // light provider，便宜
+	g, err := s.Router.generator(ctx, "inspector") // simple 档，便宜
 	if err != nil {
 		return
 	}

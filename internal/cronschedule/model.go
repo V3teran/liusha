@@ -1,4 +1,4 @@
-// Package cronschedule 实现定时模板（见 spec §3.3）：不带终态的"闹钟"，到点由 cmd/api 的
+// Package cronschedule 实现定时模板：不带终态的"闹钟"，到点由 cmd/api 的
 // Scheduler goroutine克隆出一次性 assignment 去执行——定时模板本身只有启用/停用两态。
 //
 // payload 复用 assignment.Item（触发时原样克隆进新 assignment 的清单）。

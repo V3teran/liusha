@@ -135,23 +135,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	}
 }
 
-// AbortAPI 停止会话关联扫描（cmd/api 注入）。
-type AbortAPI interface {
-	AbortConversationTask(ctx context.Context, conversationID string) error
-}
-
-// abortConversationHandler 处理 POST /conversations/:id/abort：停掉会话关联的运行中 task。
-func abortConversationHandler(api AbortAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if err := api.AbortConversationTask(c.Request.Context(), c.Param("id")); err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"aborted": true})
-	}
-}
-
-// ConversationDeleter 删除会话及其消息（*conversation.Store 满足）。小接口、可选注册（同 Abort）。
+// ConversationDeleter 删除会话及其消息（*conversation.Store 满足）。小接口、可选注册。
 type ConversationDeleter interface {
 	DeleteConversation(ctx context.Context, id string) error
 }
@@ -173,7 +157,7 @@ func deleteConversationHandler(api ConversationDeleter) gin.HandlerFunc {
 	}
 }
 
-// maxConversationTitleRunes 手动重命名标题上限（rune 计）。与 briefTitle 自动摘要的 40 留同量级余量。
+// maxConversationTitleRunes 手动重命名标题上限（rune 计）。与 dispatch.BriefTitle 自动摘要的 40 留同量级余量。
 const maxConversationTitleRunes = 80
 
 // ConversationRenamer 重命名会话标题（*conversation.Store 满足）。小接口、可选注册（同 Deleter）。

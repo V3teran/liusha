@@ -41,7 +41,7 @@ func (s UsageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 	}
 	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
-	_, _ = s.Store.Append(ctx, Invocation{
+	_ = s.Store.Append(ctx, Invocation{
 		ErrorKind:    errorKind,
 		TaskID:       taskID,
 		AgentRunID:   agentRunID,

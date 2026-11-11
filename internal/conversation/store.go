@@ -26,7 +26,7 @@ const (
 )
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
-// 不含 status 列：conversation.status 是僵尸字段（已退役），运行态一律派生（见 RunStatus）。
+// 会话没有状态列：运行态一律派生自关联任务（见 RunStatus）。
 const conversationCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
 	"created_at, updated_at"
 
@@ -193,7 +193,7 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
 	// run_paused：active 的暂停子态——侧栏呼吸点是「正在烧 token」的活性信号，
 	// 暂停中的会话显示静态点。
-	// source：两跳 JOIN 到 assignment.source；无 task 的纯聊天为空串，视图上归 manual 侧。
+	// source：两跳 JOIN 到 assignment.source；无 task 的纯聊天为空串，视图上归人工下发（direct）侧。
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, COALESCE(c.title,''), COALESCE(c.task_id::text,''),
 			c.created_at, c.updated_at,
@@ -231,7 +231,7 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 	return out, hasMore, nil
 }
 
-// CountConversations 与 ListConversations 同口径计数（同 source 过滤，含纯聊天归 manual），
+// CountConversations 与 ListConversations 同口径计数（同 source 过滤，纯聊天归 direct），
 // 供前端「第 X / Y 页」总页数。
 func (s *Store) CountConversations(ctx context.Context, source string) (int, error) {
 	var n int
@@ -308,23 +308,6 @@ func (s *Store) SetMessageMetadata(ctx context.Context, conversationID string, s
 		return fmt.Errorf("set message metadata: 消息不存在 %s#%d", conversationID, seq)
 	}
 	return nil
-}
-
-// GetMessage 按 id 取单条消息，用于「点开节点看原文」按需拉取——调用方（如执行图详情面板）
-// 只需要 selected.ref 指向的这一条正文，不必像 ListMessages 那样翻页拉整段会话历史。
-// conversationID 一并校验：防止跨会话用别处泄漏的 message id 越权读取到其他会话的内容。
-// 未找到（id 不存在 / 不属于该会话）返回 pgx.ErrNoRows，调用方按需转 404。
-func (s *Store) GetMessage(ctx context.Context, conversationID, msgID string) (Message, error) {
-	row := s.pool.QueryRow(ctx,
-		"SELECT "+msgCols+" FROM message WHERE conversation_id=$1 AND id=$2", conversationID, msgID)
-	var m Message
-	if err := scanMessage(row, &m); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Message{}, err
-		}
-		return Message{}, fmt.Errorf("get message %s of %s: %w", msgID, conversationID, err)
-	}
-	return m, nil
 }
 
 // ListMessages 取会话内 seq>afterSeq 的消息（按 seq 升序）。afterSeq=0 取全部（回看）；

@@ -8,8 +8,8 @@ import (
 
 // TrafficFilter 责任链门面：构造时一次性根据 ProxyConfig 装好链；运行时不可变。
 //
-// 无 RuntimeConfig 热更新；所有配置静态，链构建一次即复用，
-// 避免每条流量重建链造成的开销与不一致风险。
+// 链本身不可变，构建一次即复用（热改时整条换入新链），避免每条流量重建链造成的
+// 开销与不一致风险。
 type TrafficFilter struct {
 	chain *Chain
 }

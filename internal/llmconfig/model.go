@@ -1,14 +1,13 @@
 // Package llmconfig 是 LLM 配置（provider 部署 / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
-// 事实源是 DB（前端「模型」模块 CRUD 改这里）；yaml 仅首次 insert-only 种子。
+// 事实源是 DB（前端「LLM 配置」页改这里）；config.yaml 只在空库时引导一次（internal/config/seed）。
 // 运行期消费方经 internal/llmstore（多级缓存）读，不直连本包 Store（跨进程一致性）。
 //
-// 路由模型：agent-role → complexity → provider 两跳。
-//   - agent → complexity 的绑定可配置在 DB（agent.complexity），代码内有兜底映射（AgentComplexity）；
-//   - complexity → provider 的绑定落 DB（llm_role_route 的 role 列存 complexity 名 simple/medium/complex）。
-//
-// 未显式归档的 role 落 ComplexityMedium（隐式默认档）。无任何兜底机制：请求重试耗尽即失败。
+// 路由模型：调用方 → 档位 → provider 两跳。
+//   - agent 的档位取其生效配置的 complexity；api 侧非 agent 调用者经 RoleComplexity 归档；
+//   - 档位 → provider 的绑定落 DB（llm_role_route 的 role 列存档名 simple/medium/complex），
+//     缺档或档位 provider 不可用时由 framework/llm.Router 就近降级到相邻档。
 //
 // 为何需要中间层：complexity 是**语义分档**（快速/标准/深度），多个 agent 天然共享同一档，
 // 「换一个复杂档位的模型」只改该档配置一处即全量跟随。agent→complexity 可配置实现精细成本控制。
@@ -23,8 +22,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/V3teran/liusha/internal/constants"
 )
 
 // Provider type 常量（与 llm_provider.type CHECK 一致）。
@@ -55,20 +52,20 @@ const (
 	OutputLimitMaxCompletionTokens = "max_completion_tokens"
 )
 
-// Provider 是一个 LLM provider 部署（连接参数 + 能力标志）。
-// 对应旧 config.ProviderConfig，但 SupportsVision/ContextWindow 落 DB 为 NOT NULL 非指针
-// （建表 CHECK + NOT NULL 已在 schema 层强制，无需 *bool/*int 区分「未填」）。
+// Provider 是一个 LLM provider 部署（连接参数 + 能力标志）。SupportsVision/ContextWindow
+// 在 DB 为 NOT NULL（schema 层强制），故用非指针类型，无需区分「未填」。
 //
-// API Key 双路径（migration 0103）：EncryptedAPIKey 非空时是当前事实源（前端直填 → 后端
-// AES-256-GCM 加密落库）；为空时回退 APIKeyEnv 指向的环境变量（旧数据兼容，见 ResolveAPIKey）。
+// API Key 两条路径，前端优先（见 ResolveAPIKey）：EncryptedAPIKey 非空时用它（前端直填 →
+// AES-256-GCM 加密落库）；为空时读 APIKeyEnv 指定的环境变量（部署期路径：config.yaml
+// providers 块 + .env 同名变量）。
 type Provider struct {
 	Code             string // 稳定引用标识（角色路由 FK 指向；列名 code）
 	Type             string
 	BaseURL          string
 	DefaultModel     string
-	APIKeyEnv        string // 旧模式：ENV 变量名；仅当 EncryptedAPIKey 为空时生效
-	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；当前事实源
-	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）；旧行或仅 ENV 回退时为空
+	APIKeyEnv        string // 部署期路径：环境变量名；仅当 EncryptedAPIKey 为空时生效
+	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；非空时优先于 APIKeyEnv
+	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）；密钥走环境变量时为空
 	AuthScheme       string // 鉴权方式（AuthBearer / AuthXAPIKey）
 	OutputLimitParam string // 输出上限字段（OutputLimitMaxTokens / OutputLimitMaxCompletionTokens）
 	MaxTokens        int
@@ -245,7 +242,7 @@ type ProviderParams struct {
 	Type                 string
 	BaseURL              string
 	DefaultModel         string
-	APIKeyEnv            string // 旧模式：ENV 变量名，仅 seed（yaml 首填）路径使用
+	APIKeyEnv            string // 部署期路径：环境变量名，仅首装种子（config.yaml providers）写入
 	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
@@ -298,42 +295,17 @@ func IsComplexity(tier string) bool {
 	return false
 }
 
-// agentComplexityTable 是 role → complexity 的**代码内置兜底表**（DB 未配 complexity 的 role 落此）。
-// 未在表中的 role 落 ComplexityMedium（隐式默认档，见 AgentComplexity）。
-//
-// 两类 key 混在此表：
-//   - agent（DB 有配置行，用户可在「智能体」页改 complexity，DB 优先于本表）：
-//     planner：认知循环规划链路需深度规划 → complex
-//   - 轻量路由 key（非 agent，无 DB 行、无 UI，仅借名路由到 simple 档）：
-//     inspector：意图分类 + 探索图摘要复用（cmd/api）
-//     compactor：ReAct 会话历史压缩（cmd/runner）
-var agentComplexityTable = map[string]string{
-	constants.AgentCodePlanner: ComplexityComplex,
-	"inspector":                ComplexitySimple,
-	"compactor":                ComplexitySimple,
+// roleComplexityTable 是非 agent 的 LLM 调用者 → 档位。agent 的档位取自其生效配置的
+// complexity，由认知循环直传 Router，不经此表。
+//   - inspector：api 进程的意图分类、会话标题、闲聊与问答（dispatch.RoleRouter）
+var roleComplexityTable = map[string]string{
+	"inspector": ComplexitySimple,
 }
 
-// AgentComplexity 把 agent-role 映射到复杂度档位；未归档的 role 一律落 ComplexityMedium（隐式默认档）。
-func AgentComplexity(role string) string {
-	if complexity, ok := agentComplexityTable[role]; ok {
+// RoleComplexity 把非 agent 的调用者映射到档位；未列出的调用者落 ComplexityMedium（隐式默认档）。
+func RoleComplexity(role string) string {
+	if complexity, ok := roleComplexityTable[role]; ok {
 		return complexity
 	}
 	return ComplexityMedium
-}
-
-// ProviderCodeForRole 把 agent-role 两跳解析到 provider code：role → complexity → provider。
-// complexity 未在 DB 配置（该档无绑定）时进一步回落 ComplexityMedium 档；medium 亦缺失 → 空
-// （调用方据此报错，不静默兜底到任意 provider）。
-func (r Routing) ProviderCodeForRole(role string) string {
-	return r.ProviderCodeForComplexity(AgentComplexity(role))
-}
-
-// ProviderCodeForComplexity 完成第二跳 complexity → provider code（供调用方已自行确定 complexity 时用，
-// 如 agent.complexity 覆盖了代码内置 AgentComplexity 的场景）。complexity 未配置回落 ComplexityMedium；
-// medium 亦缺失 → 空（调用方据此报错，不静默兜底）。
-func (r Routing) ProviderCodeForComplexity(complexity string) string {
-	if key, ok := r.Roles[complexity]; ok && key != "" {
-		return key
-	}
-	return r.Roles[ComplexityMedium]
 }

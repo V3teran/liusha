@@ -99,7 +99,7 @@ type AgentConfig struct {
 	PollInterval  time.Duration // 轮询间隔，默认 5 秒
 }
 
-// NewAgent NewEvaluatorAgent 创建 Agent。
+// NewAgent 创建 evaluator Agent。
 func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 1
@@ -508,7 +508,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
-	// 归一化 repro：处理数组格式、缺失 domain 等历史兼容问题。
+	// 归一化 repro：容忍数组格式、缺失 domain 等 LLM 笔误形状（与写入侧同一归一化器）。
 	// 归一化失败不整条丢弃——与事件路径（handleEvent）同口径：保留原始配方
 	// 继续派发，由复现门/裁决官终局（确定性配方缺陷 fail-fast 出圈；generic
 	// 域 judge_only 无机器断言也可裁决）。此前整条丢弃会让该假设永远
@@ -704,7 +704,7 @@ func attemptHash(a Attempt) string {
 }
 
 // attemptStatement 从 Attempt.Content 提取假设陈述（缺失返回空串——
-// 此时退化为纯配方哈希，与旧行为等价）。
+// 此时裁决键退化为纯配方哈希）。
 func attemptStatement(a Attempt) string {
 	var c struct {
 		Summary string `json:"summary"`
@@ -769,7 +769,6 @@ func isDeterministicRecipeError(err error) bool {
 		"缺少 recipe.request", // web 域缺请求
 		"缺少 domain",         // 缺域信封
 		"缺少 repro",          // observation 无配方
-		"已废弃",               // 旧引用格式
 		"未知复现域",             // 未知 domain
 		"未知域",               // replayer 未知域
 		"url 必须是完整 url",     // request.url 形状

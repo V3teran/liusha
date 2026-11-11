@@ -8,7 +8,7 @@
 //  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8588）
 //  5. cachestore.Subscribe + OnInvalidate：proxy_filter 组热改经失效总线广播到本进程，
 //     重读 settingstore 重建过滤链并 Server.SwapFilter 原子换入（真热改，无需重启）
-//  6. graceful shutdown（SIGINT/SIGTERM → proxyServer.Stop + 关 redis + 关 pool）
+//  6. graceful shutdown（SIGINT/SIGTERM → externalServer.Stop + 关 redis + 关 pool）
 //
 // 为何连 PG：过滤规则（流量过滤黑白名单 + body 上限）的生效值 = config.yaml 出厂默认叠加前端
 // 「系统配置」的自定义（setting_override），改后经多级缓存跨进程失效——proxy 必须能读 DB + 订阅失效，
@@ -129,9 +129,9 @@ func main() {
 		}
 	}()
 
-	// 注：proxy 不再起 healthz HTTP server / ingest endpoint。
-	//   - active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
-	//   - 存活检测改 TCP 探 8588（MITM listen 口），见 compose.yaml / run-svc。
+	// proxy 不起 HTTP 服务：
+	//   - 沙盒抓流的 ingest 端点在 cmd/runner（沙盒回连 runner :8590）。
+	//   - 存活检测走 TCP 探 8588（MITM 监听口），见 compose.yaml / run-svc。
 	// proxy = 纯 MITM 代理入口（external listener + sanitizer）。
 
 	// External proxify + sanitizer（代理入口；唯一 listener）

@@ -54,9 +54,8 @@ export interface PagedListHandle<T> {
   reload: () => void // 保存/删除后重取当前页（失效广播，命中缓存的页立即回填）
 }
 
-// useResourcePagedList 把「分页状态机 + React Query」拼成与原 usePagedList 同形的
-// 列表句柄：queryKey 含 (page, size, q)，任一变化即新查询、过期响应由 RQ 丢弃
-// （取代手写 seq 竞态丢弃）；keepPreviousData 让筛选/翻页时旧数据先留屏。
+// useResourcePagedList 把「分页状态机 + React Query」拼成列表句柄：queryKey 含
+// (page, size, q)，任一变化即新查询、过期响应由 RQ 丢弃；keepPreviousData 让筛选/翻页时旧数据先留屏。
 // reload 走 invalidateQueries——写路径（保存/删除）后失效该资源全部页缓存。
 function useResourcePagedList<T>(
   resource: 'agents' | 'skills',

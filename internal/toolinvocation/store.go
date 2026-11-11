@@ -64,7 +64,7 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	return id, nil
 }
 
-// Aggregate 是某 owner 下所有工具调用的合计（会话工具耗时总览）。
+// Aggregate 是某 task 下所有工具调用的合计（会话工具耗时总览）。
 type Aggregate struct {
 	Calls      int   // 工具调用次数
 	DurationMs int64 // 工具执行耗时合计（ms）

@@ -206,10 +206,6 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 			func(c *gin.Context) string { return c.Param("id") }))
 	}
 
-	if d.Abort != nil {
-		r.POST("/conversations/:id/abort", uuidID, abortConversationHandler(d.Abort))
-	}
-
 	if d.Deleter != nil {
 		r.DELETE("/conversations/:id", uuidID, deleteConversationHandler(d.Deleter))
 	}

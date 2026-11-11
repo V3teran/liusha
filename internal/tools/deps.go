@@ -21,7 +21,7 @@ import (
 // 每次任务执行（runner.executeTask）时从 handler 字段 + 运行时参数组装。
 type Deps struct {
 	TaskID       string
-	AssignmentID string // 批次 ID（沙盒工作区一级分组 /liusha/<assignmentID>/<taskID>）
+	AssignmentID string // 批次 ID（沙盒工作区一级分组 /root/liusha/workspace/<assignmentID>/<taskID>）
 	AgentRunID   string // 本轮认知循环的 agent_run.id（工具调用/证据归属）
 	Host         string
 	// Logger 是任务作用域 logger（cognition 注入，自动带 task_id）；工具内部的

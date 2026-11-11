@@ -79,12 +79,6 @@ func ContentOf(s Skill) Content {
 	return Content{Name: s.Name, Description: s.Description, Body: s.Body, Enabled: s.Enabled}
 }
 
-// ApplyContent 把内容写回技能（不修改入参）。
-func ApplyContent(s Skill, c Content) Skill {
-	s.Name, s.Description, s.Body, s.Enabled = c.Name, c.Description, c.Body, c.Enabled
-	return s
-}
-
 // Validate 校验技能内容。
 func Validate(c Content) error {
 	var problems []string

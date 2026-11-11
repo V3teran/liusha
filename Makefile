@@ -1,4 +1,4 @@
-.PHONY: up down dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down publish single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
+.PHONY: dev-up dev-down logs migrate migrate-down prod-build prod-up prod-down publish single-build single-run run-api run-runner run-web build-api build-nginx build-proxy build-runner build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
 
 COMPOSE = docker compose -f compose.yaml
 PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile full
@@ -14,10 +14,7 @@ MIGRATE_GOPROXY ?= https://goproxy.cn,direct
 MIGRATE = GOPROXY='$(MIGRATE_GOPROXY)' go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
 
 # ── 形态 A：本地开发（pg+redis 容器 + 业务进程 host 二进制）────────────
-# up/down 是 dev 流程的别名（历史肌肉记忆兼容）；完整流程见 scripts/dev/up.sh。
-up: dev-up
-down: dev-down
-
+# 完整流程见 scripts/dev/up.sh。
 dev-up:
 	bash scripts/dev/up.sh
 

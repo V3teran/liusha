@@ -60,7 +60,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Assignment, error) {
 
 // DeriveStatus 读时从子 task 聚合派生 assignment 整体状态（不落存储）。
 //
-// 规则（见 spec §3.2 "整体状态由子 task 聚合派生"）：
+// 规则（整体状态由子 task 聚合派生）：
 //   - 无子 task            → empty
 //   - 任一子 task status='active' → running
 //   - 全部终态、含 completed     → completed

@@ -295,12 +295,12 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 	}
 }
 
-// TestListRouting_ReturnsRoutes：GET /models/routing 返回角色→provider 路由全景（无别名层）。
+// TestListRouting_ReturnsRoutes：GET /models/routing 返回档位 → provider 路由全景。
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
 		routes: []llmconfig.RoleRoute{
-			{Role: "vision", ProviderCode: "deepseek"},
-			{Role: "heavy", ProviderCode: "deepseek"},
+			{Role: "complex", ProviderCode: "deepseek"},
+			{Role: "medium", ProviderCode: "deepseek"},
 		},
 	}
 	srv := newTestServer(t, Deps{Models: fm})
@@ -310,8 +310,8 @@ func TestListRouting_ReturnsRoutes(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
-	if _, hasAliases := body["aliases"]; hasAliases {
-		t.Fatalf("别名层已废弃，响应不应含 aliases: %v", body)
+	if len(body) != 1 {
+		t.Fatalf("响应只含 routes 一个字段: %v", body)
 	}
 	if r, _ := body["routes"].([]any); len(r) != 2 {
 		t.Fatalf("want 2 routes, got %v", body["routes"])

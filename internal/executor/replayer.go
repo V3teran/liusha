@@ -252,8 +252,8 @@ const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
 // Replay 实现 evaluator.Replayer：按域信封分发。
 // web=机器确定性重放采证；generic=配方回显（裁决官自主执行）。
-// 配方在收割路径已统一归一化为信封（tools.NormalizeReproEnvelope），
-// 复现门只认信封、不再嗅探历史裸格式。
+// 配方在写入侧已统一归一化为信封（repro.NormalizeReproEnvelope），
+// 复现门只认信封、不嗅探裸格式。
 func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
 	var env ReproEnvelope
 	if err := json.Unmarshal(primitives, &env); err != nil {

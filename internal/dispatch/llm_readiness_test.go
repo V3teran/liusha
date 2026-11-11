@@ -32,7 +32,7 @@ func TestRequireLLMReady(t *testing.T) {
 		t.Fatalf("就绪时应放行，得 %v", err)
 	}
 
-	s.LLM = nil // 未装配（旧测试替身/纯存储用法）→ 不拦截
+	s.LLM = nil // 未装配（不经 LLM 的装配，如纯存储测试）→ 不拦截
 	if err := s.requireLLMReady(context.Background()); err != nil {
 		t.Fatalf("nil LLM 应跳过校验，得 %v", err)
 	}

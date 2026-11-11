@@ -10,8 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// 连续工具失败止损：达到装配阈值即终止本轮 ReAct（单机制——中间件的重复
-// 分支已删除，此处锁定唯一实现的行为）。
+// 连续工具失败止损：达到装配阈值即终止本轮 ReAct（runtime 内置的唯一实现）。
 func TestRun_ConsecutiveToolFailureStopLoss(t *testing.T) {
 	provider := &mockLLMProvider{responses: []llm.Response{
 		{Content: "试一下", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "boom", Arguments: json.RawMessage(`{}`)}}},

@@ -1,12 +1,12 @@
-// Package ingestor 是 Stream 流量摄入器，双来源分流（见 spec §5.4）：
+// Package ingestor 是 Stream 流量摄入器，双来源分流：
 //
 //	proxy 责任链放行 → XADD → <stream_name>
 //	ingestor.Traffic XREADGROUP → 按 source 分流：
 //	  external（代理捕获的真实流量）→ 落 proxy_traffic（按 host）→ 喂 Redis 聚合窗口
-//	                                → 攒批（20 条/10s）→ 建代理捕获 task → 回填 consumed_by_task_id → enqueue
+//	                                → 攒批（20 条/10s）→ 建代理捕获 task → 领取流量（traffic_task 关联）→ enqueue
 //	  internal（agent sandbox 自产）→ 反查 agent 得 task_id → 落 agent_traffic（不 enqueue，防自激震荡）
 //
-// 这里不再做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定。
+// 这里不做二次过滤：是否丢弃流量完全由 proxy 端 filter chain 决定。
 package ingestor
 
 import (
@@ -308,11 +308,7 @@ func (t *Traffic) handleMessage(ctx context.Context, msg redis.XMessage) error {
 		return nil
 	}
 
-	source := snap.Source
-	if source == "" {
-		source = "external" // 兼容老 snap 无 source 字段
-	}
-	if source == "internal" {
+	if snap.Source == "internal" {
 		// internal 流量是 best-effort 副产物：缺 AgentRunID/反查失败直接丢弃（见 handleInternalSnap）
 		t.handleInternalSnap(ctx, &snap)
 		return nil
@@ -362,12 +358,12 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 }
 
 // spawnProxyTask 为某 host 攒够的一批流量建代理捕获 task：
-// 建 task → 领取该 host 未消费流量回填 consumed_by_task_id → 绑会话 → enqueue。
+// 建 task → 领取该 host 未消费流量（traffic_task 关联）→ 绑会话 → enqueue。
 //
-// 领取用条件更新（consumed_by_task_id IS NULL），跨实例幂等（§13.2）。领到 0 条说明流量已被
+// 领取跨实例幂等（见 traffic.ProxyStore.ClaimUnconsumedByHost）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
 func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
-	// 一切下发皆走 assignment（§3.1）：聚合器建 assignment(source=proxy, [host]) → 1 task（fan-in）。
+	// 一切下发皆走 assignment：聚合器建 assignment(source=proxy, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceProxy,
 		Items:  []assignment.Item{{Host: host}},
@@ -519,7 +515,7 @@ func ProxyTaskBrief(scheme, host string, trafficList []traffic.ProxyTraffic) str
 }
 
 func (t *Traffic) enqueueProxyTask(ctx context.Context, taskID, conversationID, brief string) error {
-	// payload 只带一段 brief 文本（见 D5）：流量驱动无用户手打 brief，由 spawnProxyTask
+	// payload 只带一段 brief 文本：流量驱动无用户手打 brief，由 spawnProxyTask
 	// 合成完整任务说明（scheme://host + 流量清单 + 工具指引）——runner onboard 据此抽
 	// host 建探索图 Objective，agent 目标上下文同源。
 	payloadInput, _ := json.Marshal(map[string]any{"brief": brief})

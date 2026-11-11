@@ -22,7 +22,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// tailKeepRatio 以整数分数表达（1/2）：压缩触发时分配给尾部窗口的预算占比。
+// tailKeepNum/Den 以整数分数表达（1/2）：压缩触发时分配给尾部窗口的预算占比。
 // 历史越近价值越高（工具现场、当前指令都在尾部），截断只从最旧的一端发生。
 const (
 	tailKeepNum = 1
@@ -65,7 +65,7 @@ type Distiller interface {
 }
 
 // ContextCompactor 按 token 预算压缩消息历史：超预算才触发；尾部保留
-// tailKeep 比例的预算，被裁前缀蒸馏成纪要顶替占位声明。
+// tailKeepNum/Den 比例的预算，被裁前缀蒸馏成纪要顶替占位声明。
 //
 // 无状态可并发：每次 ReAct Run 重建一份（链随 Run 重建），纪要缓存在包级
 // summaryCache——同一前缀的重试直接命中，不重复烧蒸馏调用。

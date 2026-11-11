@@ -24,8 +24,7 @@ import (
 //   - Close() 优雅关闭：停 worker + 清空剩余 buffer + 最后一次 flush
 //
 // 设计取舍：
-//   - Append 返回的 id 现为 0（异步路径不再有 RETURNING id）；调用方 instrument.go
-//     已忽略 id（仅记日志），故签名保留兼容。
+//   - Append 只回报入队结果，不回传 id（异步路径无 RETURNING）。
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
 //   - 一致性场景（如 AggregateByTask / ListByTask）调用方需先调 Flush() 同步等待。
 type Store struct {
@@ -83,8 +82,8 @@ func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
 }
 
 // Append 把 Invocation 推到内部 channel；channel 满则丢一行并 warn（不阻塞 Generate）。
-// 返回 id 永远为 0（异步路径无 RETURNING id），与同步版本保持签名兼容。
-func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
+// 异步落库，不回传 id。
+func (s *Store) Append(ctx context.Context, c Invocation) error {
 	if len(c.Messages) == 0 {
 		c.Messages = []byte("[]")
 	}
@@ -93,26 +92,23 @@ func (s *Store) Append(ctx context.Context, c Invocation) (int64, error) {
 	}
 	select {
 	case s.ch <- c:
-		return 0, nil
+		return nil
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return ctx.Err()
 	default:
 		// channel 满（>1024 条）→ 丢这条，说明 LLM 调用速率超 worker batch 写盘吞吐。
 		s.log.Warn().
 			Str("provider", c.Provider).Str("model", c.Model).Str("role", c.Role).
 			Msg("llm_invocation buffer 满，丢弃一条审计记录")
-		return 0, nil
+		return nil
 	}
 }
 
 // Flush 请求 worker 立即落库当前 batch 并等其确认；测试与 AggregateByTask/ListByTask 前用。
 //
-// 曾经的实现是「channel 空了就 sleep(flushInterval+100ms)」——盲等固定时长，
-// 不管有没有数据要落库都要付这个代价：GET 请求场景 channel 几乎总是空的，
-// 结果每次查询前都白等 1.1s（flushInterval 默认 1000ms）。
-// 现在改成请求-确认：向 worker 发一个「立即 flush」信号 + 回传 chan，
-// worker 处理到这条信号时立即落库当前 batch 再关闭回传 chan，Flush 一收到就返回，
-// 没有待落库数据时几乎零延迟（一次 channel round-trip）。
+// 请求-确认语义：向 worker 发一个「立即 flush」信号 + 回传 chan，worker 处理到这条信号
+// 时立即落库当前 batch 再关闭回传 chan，Flush 一收到就返回。不盲等 flushInterval：查询
+// 前调用时 channel 通常为空，几乎零延迟（一次 channel round-trip）。
 func (s *Store) Flush(ctx context.Context) error {
 	done := make(chan struct{})
 	select {
@@ -331,7 +327,7 @@ func (f ListFilter) limitOrDefault() int {
 	return f.Limit
 }
 
-// listSelect / listJoin 是列表查询共享的列序与 JOIN（ListByTask / ListAll
+// listSelect 是列表查询共享的列序与 JOIN（ListByTask / ListAll
 // 单一口径）：业务键
 // （conversation/assignment）经 JOIN 派生。新增列时两处同步改 scanListRow。
 const listSelect = `
@@ -447,7 +443,8 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 }
 
 // Aggregate 是某 task 下所有 LLM 调用的合计（会话用量总览）。
-// 权威口径：UsageRecorder 对每次 ChatModel 调用（含纯 tool_call、含失败）都落一行，
+// 权威口径：框架层埋点（framework/llm.InstrumentProvider）对每次 Provider 调用（含纯
+// tool_call、含失败）都落一行，
 // 故此合计覆盖全部调用，不受"无文字推理不发 SSE 事件"影响。
 type Aggregate struct {
 	Calls        int   // 调用次数

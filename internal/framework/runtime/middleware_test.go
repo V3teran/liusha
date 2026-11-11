@@ -64,7 +64,7 @@ func TestProgressTrackingMiddleware_OutputStagnationOnly(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if signal != nil && signal.ShouldStop {
-		t.Error("连续失败分支已移除（runtime 内置单机制），中间件不应因失败计数停止")
+		t.Error("连续失败止损由 runtime 内置机制承担，进展中间件不应因失败计数停止")
 	}
 }
 

@@ -5,9 +5,8 @@
 // 必须被动失效，否则读到旧值。写路径写完事实源后经 redis PUBLISH 广播「要清哪些键」，
 // 各进程的 Subscribe goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
-// 与旧 configstore 内嵌实现的区别：失效消息只携带**缓存键列表**（写方本就要算 fillKeys），
-// 订阅方无脑清这批键，不再按资源 kind 做 switch。于是一个进程共享**一个 Cache + 一条订阅
-// 循环**，configstore / llmstore / settingstore 等所有资源复用同一实例（键各带全局前缀，不撞）。
+// 失效消息只携带**缓存键列表**（写方本就要算 fillKeys），订阅方直接清这批键，无需按资源
+// 类型分派。于是一个进程共享**一个 Cache + 一条订阅循环**，configstore / llmstore / settingstore 等所有资源复用同一实例（键各带全局前缀，不撞）。
 //
 // 缓存粒度由调用方决定：单条热读走 ReadThrough；列表读等低频、失效成本高的读直穿事实源不缓存。
 package cachestore

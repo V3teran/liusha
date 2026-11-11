@@ -1,7 +1,6 @@
-// Package llm 的重试装饰器：按错误码退避表自动重试 + 可选 fallback。
+// Package llm 的重试装饰器：按错误码退避表自动重试，重试耗尽即失败。
 //
-// 退避表（spec §8.5）与错误分类是框架能力，定义在本包；
-// fallback 链的编排是业务策略，由调用方（Router）装配。
+// 退避表与错误分类是框架能力，定义在本包；Router 装配 Provider 时包上本装饰器。
 package llm
 
 import (
@@ -14,7 +13,7 @@ import (
 	"time"
 )
 
-// RetryOptions 控制 4 类错误的重试次数和 backoff schedule（spec §8.5）。
+// RetryOptions 控制 4 类错误的重试次数和 backoff schedule。
 type RetryOptions struct {
 	MaxRetries429 int
 	MaxRetries529 int
@@ -27,7 +26,7 @@ type RetryOptions struct {
 	Backoff529 time.Duration   // 单值（529 只重试 1 次）
 }
 
-// DefaultRetryOptions 返回 spec §8.5 的官方退避表。429 档取长尾：账号级限流
+// DefaultRetryOptions 返回内置退避表。429 档取长尾：账号级限流
 // （并发/配额型）的恢复窗口以十秒计，短退避只会连撞三次后放弃；四个 Agent
 // 并发调用的场景下，长尾 + 抖动让重试天然错峰。
 func DefaultRetryOptions() RetryOptions {
@@ -204,24 +203,24 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // WithRetry 返回带退避重试的 Provider。
-func WithRetry(primary Provider, opts RetryOptions) Provider {
-	return &retryProvider{primary: primary, opts: opts}
+func WithRetry(inner Provider, opts RetryOptions) Provider {
+	return &retryProvider{inner: inner, opts: opts}
 }
 
 type retryProvider struct {
-	primary Provider
-	opts    RetryOptions
+	inner Provider
+	opts  RetryOptions
 }
 
-func (r *retryProvider) ModelID() string    { return r.primary.ModelID() }
-func (r *retryProvider) ProviderID() string { return r.primary.ProviderID() }
+func (r *retryProvider) ModelID() string    { return r.inner.ModelID() }
+func (r *retryProvider) ProviderID() string { return r.inner.ProviderID() }
 
-// Complete 重试主循环：按错误类别决定退避重试 / 切 fallback。
+// Complete 重试主循环：按错误类别决定退避重试或放弃。
 func (r *retryProvider) Complete(ctx context.Context, req Request) (Response, error) {
 	if err := ctx.Err(); err != nil {
 		return Response{}, err
 	}
-	resp, err := r.primary.Complete(ctx, req)
+	resp, err := r.inner.Complete(ctx, req)
 	if err == nil {
 		return resp, nil
 	}
@@ -249,7 +248,7 @@ func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr erro
 		if err := SleepCtx(ctx, d); err != nil {
 			return Response{}, err
 		}
-		resp, err := r.primary.Complete(ctx, req)
+		resp, err := r.inner.Complete(ctx, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -268,7 +267,7 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 		if err := SleepCtx(ctx, r.opts.Backoff529); err != nil {
 			return Response{}, err
 		}
-		resp, err := r.primary.Complete(ctx, req)
+		resp, err := r.inner.Complete(ctx, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -285,7 +284,7 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 // 与 Complete 一样安全。流建立成功（返回了 channel）之后的中途失败不做重试
 // ——已产出的事件无法收回，整体重跑的决策权在调用方。
 func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
-	ch, err := r.primary.Stream(ctx, req)
+	ch, err := r.inner.Stream(ctx, req)
 	if err == nil {
 		return ch, nil
 	}
@@ -313,7 +312,7 @@ func (r *retryProvider) retryStream(ctx context.Context, req Request, lastErr er
 		if err := SleepCtx(ctx, d); err != nil {
 			return nil, err
 		}
-		ch, err := r.primary.Stream(ctx, req)
+		ch, err := r.inner.Stream(ctx, req)
 		if err == nil {
 			return ch, nil
 		}

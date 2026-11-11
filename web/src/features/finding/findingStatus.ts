@@ -1,5 +1,5 @@
 // 漏洞处置态（triage）→ 中文标签 + 色。单一真相源：漏洞页列表项 + 状态下拉共用。
-// 对齐后端 finding.status 五态（DB CHECK 约束，见迁移 0081）与 DefectDojo/GitHub Security 通用生命周期。
+// 对齐后端 finding.status 五态（DB CHECK 约束 finding_status_check）。
 //
 //   open           待处理（新漏洞默认，落库即此态）
 //   confirmed      已确认（人工核实为真实漏洞，待修）

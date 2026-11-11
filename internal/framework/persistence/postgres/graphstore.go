@@ -21,7 +21,7 @@ import (
 // - core.GraphNode → exploration_node 表
 // - core.GraphEdge → exploration_edge 表
 //
-// 字段映射（0157 定稿后仅保留 9 列，唯一事实源 = content + metadata）：
+// 字段映射（9 列，唯一事实源 = content + metadata）：
 // - core.GraphNode.ID → exploration_node.id (uuid)
 // - core.GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
 // - core.GraphNode.Kind → exploration_node.kind（查询维度）
@@ -215,7 +215,7 @@ func (s *GraphStore) UpdateNode(ctx context.Context, id string, update core.Grap
 		return errors.New("no fields to update")
 	}
 
-	// 始终更新 updated_at（由触发器自动更新，但这里保持兼容性）
+	// updated_at 随每次更新刷新（BEFORE UPDATE 触发器 trg_expl_node_updated_at 以 now() 落定）
 	setParts = append(setParts, fmt.Sprintf("updated_at = $%d", argIndex))
 	args = append(args, time.Now())
 	argIndex++
