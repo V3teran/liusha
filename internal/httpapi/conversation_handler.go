@@ -70,6 +70,12 @@ type ChatRequest struct {
 // ——条数在这里收口，有界是清单机制的前提。
 const maxAttachmentsPerMessage = 10
 
+// isEmptyMessage 判定一条消息是否为空：文本只有空白且不带附件。纯空白文本放进来
+// 会建出空会话、落空白消息并白付一次意图分类调用，必须在边界拦下。
+func isEmptyMessage(text string, refs []attachment.Ref) bool {
+	return strings.TrimSpace(text) == "" && len(refs) == 0
+}
+
 // ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
 	ConversationID string `json:"conversation_id"`
@@ -84,7 +90,7 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 			return
 		}
-		if req.Brief == "" && len(req.Attachments) == 0 {
+		if isEmptyMessage(req.Brief, req.Attachments) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "brief 不能为空"})
 			return
 		}
@@ -118,7 +124,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		conversationID := c.Param("id")
 		var req FollowUpRequest
-		if err := c.ShouldBindJSON(&req); err != nil || (req.Content == "" && len(req.Attachments) == 0) {
+		if err := c.ShouldBindJSON(&req); err != nil || isEmptyMessage(req.Content, req.Attachments) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
 			return
 		}
