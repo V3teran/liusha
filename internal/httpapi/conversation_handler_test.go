@@ -215,3 +215,45 @@ func TestChatHandler_TooManyAttachments(t *testing.T) {
 		t.Fatalf("超界附件应 400，得 %d (%s)", w.Code, w.Body.String())
 	}
 }
+
+// TestMessageHandlers_BlankTextRejected：纯空白文本且无附件等同空消息——必须在边界 400，
+// 否则会建出空会话、落空白消息，并白白发起一次意图分类调用。
+func TestMessageHandlers_BlankTextRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fu := &fakeFollowUp{handleIntent: "accepted"}
+	r := gin.New()
+	r.POST("/chat", chatHandler(fakeChat{}))
+	r.POST("/conversations/:id/messages", followUpHandler(fu))
+	cases := []struct{ path, body string }{
+		{"/chat", `{"brief":"   "}`},
+		{"/chat", `{"brief":"\n\t "}`},
+		{"/conversations/c1/messages", `{"content":"  \n "}`},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != 400 {
+			t.Errorf("%s %s 应 400，得 %d (%s)", tc.path, tc.body, w.Code, w.Body.String())
+		}
+	}
+	if fu.calledBrief != "" || fu.conversationID != "" {
+		t.Errorf("空白追问不应进入业务层，得 conv=%q content=%q", fu.conversationID, fu.calledBrief)
+	}
+}
+
+// TestMessageHandlers_BlankTextWithAttachmentAccepted：纯附件消息（文本空白）仍合法。
+func TestMessageHandlers_BlankTextWithAttachmentAccepted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/chat", chatHandler(fakeChat{}))
+	body, _ := json.Marshal(ChatRequest{Brief: "  ", Attachments: []attachment.Ref{{Name: "a.txt"}}})
+	req := httptest.NewRequest("POST", "/chat", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("纯附件消息应 200，得 %d (%s)", w.Code, w.Body.String())
+	}
+}
