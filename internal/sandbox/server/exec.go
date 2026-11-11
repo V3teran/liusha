@@ -46,7 +46,8 @@ var execWaitDelay = 10 * time.Second
 //  4. 扫描 output 目录 b64 编码 + 仅返本次 exec 前不存在/后被修改的文件（目录快照
 //     diff），命令崩溃也扫
 //
-// 并发安全：sandbox-server 是 per-agent-run 容器进程，本来就是单线程串行处理 /exec。
+// 并发：暖池容器由并发任务共享，net/http 每请求一个 goroutine 并发处理 /exec；处理流程
+// 无进程内共享可变状态，工作区目录按 批次 / 任务 两级隔离。
 func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 	// 1. 解析并验证请求
 	var req sandbox.ExecRequest
