@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // ApplyDefaults 把零值配置项填为默认值（进程启动装配前调用一次）。
@@ -73,18 +75,42 @@ func applyLLMDefaults(c LLMConfig) LLMConfig {
 	return c
 }
 
-// DefaultLLMRetry 是内置退避表，用作 RetryConfig 兜底。
+// DefaultLLMRetry 是缺省退避策略：由框架内置表（llm.DefaultRetryOptions）换算为配置
+// 单位——默认值只有一处来源，配置层不另持一份。
 func DefaultLLMRetry() RetryConfig {
+	d := llm.DefaultRetryOptions()
 	return RetryConfig{
-		Max429:             3,
-		Max529:             1,
-		Max5xx:             2,
-		MaxNet:             2,
-		Backoff429Seconds:  []int{1, 4, 16},
-		Backoff5xxSeconds:  []int{1, 4},
-		BackoffNetSeconds:  []int{1, 3},
-		Backoff529Millisec: 0,
+		Max429:             d.MaxRetries429,
+		Max529:             d.MaxRetries529,
+		Max5xx:             d.MaxRetries5xx,
+		MaxNet:             d.MaxRetriesNet,
+		Backoff429Seconds:  asSeconds(d.Backoff429),
+		Backoff5xxSeconds:  asSeconds(d.Backoff5xx),
+		BackoffNetSeconds:  asSeconds(d.BackoffNet),
+		Backoff529Millisec: int(d.Backoff529 / time.Millisecond),
 	}
+}
+
+// Options 把配置换算为框架的重试参数（api / runner / corpus-import 装配 Router 共用）。
+func (c RetryConfig) Options() llm.RetryOptions {
+	return llm.RetryOptions{
+		MaxRetries429: c.Max429,
+		MaxRetries529: c.Max529,
+		MaxRetries5xx: c.Max5xx,
+		MaxRetriesNet: c.MaxNet,
+		Backoff429:    AsDurations(c.Backoff429Seconds),
+		Backoff5xx:    AsDurations(c.Backoff5xxSeconds),
+		BackoffNet:    AsDurations(c.BackoffNetSeconds),
+		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
+	}
+}
+
+func asSeconds(ds []time.Duration) []int {
+	out := make([]int, len(ds))
+	for i, d := range ds {
+		out[i] = int(d / time.Second)
+	}
+	return out
 }
 
 func applyRetryDefaults(c RetryConfig) RetryConfig {

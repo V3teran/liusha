@@ -49,17 +49,29 @@ func (c *requestCompat) apply(req *openai.ChatCompletionRequest, limit int, temp
 	}
 }
 
-// adapt 按上游对请求字段的明确拒绝调整结论；返回 true 表示结论已变、值得重发。
-// 只认参数级拒绝（400 且错误文本点名了该字段，或 SDK 的本地同类校验），其余错误
-// 原样交给重试/降级层。
-func (c *requestCompat) adapt(err error) bool {
+// adapt 按上游对请求字段的明确拒绝调整结论；返回 true 表示本请求发出的正是被拒字段、
+// 按当前结论改写后值得重发。只认参数级拒绝（400 且错误文本点名了该字段，或 SDK 的本地
+// 同类校验），其余错误原样交给重试/降级层。
+//
+// 是否重发只看 sent（本请求实际发出的字段），不看本 goroutine 是否率先改了共享结论：
+// 并发请求同带旧字段被拒时，后到的一方发现结论已被别人改好，同样应按新结论重发。
+func (c *requestCompat) adapt(err error, sent *openai.ChatCompletionRequest) bool {
 	switch rejectedParam(err) {
 	case "max_tokens":
-		return c.completionTokens.CompareAndSwap(false, true)
+		if sent.MaxTokens > 0 {
+			c.completionTokens.Store(true)
+			return true
+		}
 	case "max_completion_tokens":
-		return c.completionTokens.CompareAndSwap(true, false)
+		if sent.MaxCompletionTokens > 0 {
+			c.completionTokens.Store(false)
+			return true
+		}
 	case "temperature":
-		return c.omitTemperature.CompareAndSwap(false, true)
+		if sent.Temperature != 0 {
+			c.omitTemperature.Store(true)
+			return true
+		}
 	}
 	return false
 }

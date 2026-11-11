@@ -171,7 +171,7 @@ reasoning 示例："无法复现。500 错误是服务器瞬时故障；恢复�
 {
   "url": "https://target.com/api?id=1'",
   "method": "GET",
-  "identity": null  // 匿名 - 不使用缓存凭证
+  "identity": ""  // 空串 = 匿名：不注入凭证、不带会话 Cookie
 }
 ```
 

@@ -138,6 +138,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	// LLM 审计维度：裁决调用归 task/本轮 run、角色 evaluator。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
+	// 在途验证跑在派生 ctx 上：任一退出路径（ctx 取消 / 致命错误）都先取消、再等它们
+	// 落定后返回——生命周期只等待 Run，提前返回会让任务收尾与仍在跑的裁决交错。
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+		a.inFlight.Wait()
+	}()
+
 	a.logger.Info().
 		Dur("poll_interval", a.pollInterval).
 		Msg("Evaluator Agent 启动（混合模式：事件驱动 + 轮询兜底）")
@@ -161,11 +169,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			a.logger.Info().Msg("Agent 停止（context done），等待在途验证落定")
-			a.inFlight.Wait()
 			return ctx.Err()
 
 		case err := <-a.fatal:
-			a.logger.Error().Err(err).Msg("LLM 配置错误，裁决无法继续")
+			a.logger.Error().Err(err).Msg("LLM 配置错误，裁决无法继续；取消在途验证")
 			return err
 
 		case event := <-sub.Events():

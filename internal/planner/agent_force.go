@@ -21,11 +21,5 @@ func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) erro
 		Str("monitor_reason", monitorReason).
 		Msg("强制重规划完成")
 
-	if len(actions) == 0 {
-		a.handleNoActions(ctx, "forced replan")
-		return nil
-	}
-
-	// 写入探索图（复用现有逻辑）
-	return a.writeActionsFromPlan(ctx, actions)
+	return a.applyPlan(ctx, actions, "forced replan")
 }

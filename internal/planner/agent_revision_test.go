@@ -324,11 +324,13 @@ func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	require.NoError(t, a.writeActionsFromPlan(ctx, []explorationgraph.Node{
+	written, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),
-	}))
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, written)
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
@@ -346,7 +348,8 @@ func TestWriteActionsFromPlan_RequiresRootObjective(t *testing.T) {
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
 	ctx := context.Background()
 
-	require.Error(t, a.writeActionsFromPlan(ctx, []explorationgraph.Node{planAction("p1", "x")}))
+	_, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{planAction("p1", "x")})
+	require.Error(t, err)
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
 	assert.Empty(t, actions, "无根目标不落孤立动作")

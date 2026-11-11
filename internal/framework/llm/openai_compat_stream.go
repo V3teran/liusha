@@ -24,7 +24,7 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 	for attempt := 0; ; attempt++ {
 		g.compat.apply(&creq, limit, nil)
 		stream, err = g.client.CreateChatCompletionStream(ctx, creq)
-		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err) {
+		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err, &creq) {
 			continue
 		}
 		break

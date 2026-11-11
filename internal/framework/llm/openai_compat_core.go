@@ -104,7 +104,7 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 	for attempt := 0; ; attempt++ {
 		g.compat.apply(&req, limit, opts.Temperature)
 		resp, err = g.client.CreateChatCompletion(ctx, req)
-		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err) {
+		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err, &req) {
 			continue // 上游明确拒绝了某个可选字段：按新结论改写后重发
 		}
 		break

@@ -194,7 +194,7 @@ func main() {
 	stepLLMTimeout := time.Duration(cfg.Runner.StepLLMTimeoutSeconds) * time.Second
 	apiLLMRouter := fwllm.NewRouterWithOpts(
 		llmStore.AsRouterStore(llmKeyCipher),
-		retryOptionsFromConfig(cfg.LLM.Retry))
+		cfg.LLM.Retry.Options())
 	apiLLMRouter.SetProviderWrapper(func(p fwllm.Provider) fwllm.Provider {
 		return fwllm.InstrumentProvider(fwllm.WithDynamicCallTimeout(p,
 			stepLLMTimeout,
@@ -357,21 +357,6 @@ func ensureInitialAdmin(ctx context.Context, accounts *auth.Store, logger zerolo
 		logger.Fatal().Err(err).Msg("建立初始管理员失败")
 	}
 	logger.Info().Msg("初始管理员已建立（admin），建议登录后立即修改密码")
-}
-
-// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
-// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
-func retryOptionsFromConfig(c config.RetryConfig) fwllm.RetryOptions {
-	return fwllm.RetryOptions{
-		MaxRetries429: c.Max429,
-		MaxRetries529: c.Max529,
-		MaxRetries5xx: c.Max5xx,
-		MaxRetriesNet: c.MaxNet,
-		Backoff429:    config.AsDurations(c.Backoff429Seconds),
-		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
-		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
-		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
-	}
 }
 
 // attachmentContext 组合 conversation/task 两 store 满足 httpapi.AttachmentContext
