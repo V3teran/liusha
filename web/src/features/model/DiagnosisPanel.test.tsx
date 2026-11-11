@@ -40,7 +40,9 @@ const base = (): ProviderConfig => ({
 })
 
 describe('DiagnosisPanel', () => {
-  beforeEach(() => mDiagnose.mockReset())
+  beforeEach(() => {
+    mDiagnose.mockReset()
+  })
 
   it('打通且无建议：自动回填请求画像与归一后的地址，并展示检查项与实际请求', async () => {
     mDiagnose.mockResolvedValue({
@@ -58,6 +60,25 @@ describe('DiagnosisPanel', () => {
     expect(current.supports_tools).toBe(true)
     expect(current.base_url).toBe('https://relay.example.com/v1')
     expect(screen.queryByText(/配置已改动/)).toBeNull()
+  })
+
+  // 诊断在途时用户又改了配置：迟到的结果只能作为过期结果展示，不得回填覆盖新输入。
+  it('迟到的诊断结果不覆盖期间改过的配置', async () => {
+    let resolve!: (d: Diagnosis) => void
+    mDiagnose.mockImplementation(() => new Promise((r) => (resolve = r)))
+    let current = base()
+    render(<Harness initial={base()} onDraft={(d) => (current = d)} />)
+    await userEvent.click(screen.getByRole('button', { name: /运行诊断/ }))
+    const model = screen.getByLabelText('模型')
+    await userEvent.clear(model)
+    await userEvent.type(model, 'm2')
+    resolve({
+      ok: true, steps: steps('ok'), base_url: 'https://relay.example.com/v1', models: ['m'], models_supported: true,
+      auto_model: 'm', profile: { auth_scheme: 'x-api-key', output_limit_param: 'max_completion_tokens', supports_tools: true },
+    })
+    expect(await screen.findByText(/配置已改动/)).toBeTruthy()
+    expect(current.default_model).toBe('m2')
+    expect(current.auth_scheme).not.toBe('x-api-key')
   })
 
   it('有建议：不擅自改写协议/地址，采纳后才回填建议与画像', async () => {

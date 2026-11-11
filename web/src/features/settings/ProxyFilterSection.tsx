@@ -3,7 +3,7 @@ import { INPUT_CLASS, TEXTAREA_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui
 import { SettingsSection } from './SettingsSection'
 import { useSettingSection } from './useSettingSection'
 import { SettingStatus, sectionProps } from './sectionBindings'
-import { linesToList, listToLines, codesToText, textToCodes } from './listText'
+import { ListTextarea, CodesInput } from './ListInputs'
 
 const CODE_TEXTAREA_CLASS = TEXTAREA_CLASS + ' min-h-[76px] font-mono'
 
@@ -22,63 +22,61 @@ export function ProxyFilterSection() {
       {d && (
         <>
           <Field label="放行 host 白名单" hint="每行一项；非空则仅捕获这些 host（留空 = 不限）" aside={<SettingStatus s={s} field="allow_hosts" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
               placeholder="*.target.com"
-              value={listToLines(d.allow_hosts)}
-              onChange={(e) => s.patch({ allow_hosts: linesToList(e.target.value) })}
+              value={d.allow_hosts}
+              onChange={(v) => s.patch({ allow_hosts: v })}
             />
           </Field>
           <Field label="排除 host 黑名单" hint="每行一项" aside={<SettingStatus s={s} field="exclude_hosts" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
-              value={listToLines(d.exclude_hosts)}
-              onChange={(e) => s.patch({ exclude_hosts: linesToList(e.target.value) })}
+              value={d.exclude_hosts}
+              onChange={(v) => s.patch({ exclude_hosts: v })}
             />
           </Field>
           <Field label="排除 HTTP 方法" hint="每行一项，如 OPTIONS / HEAD / CONNECT" aside={<SettingStatus s={s} field="exclude_methods" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
-              value={listToLines(d.exclude_methods)}
-              onChange={(e) => s.patch({ exclude_methods: linesToList(e.target.value) })}
+              value={d.exclude_methods}
+              onChange={(v) => s.patch({ exclude_methods: v })}
             />
           </Field>
           <Field label="排除 Upgrade 协议" hint="每行一项，如 websocket" aside={<SettingStatus s={s} field="exclude_upgrade_protocols" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
-              value={listToLines(d.exclude_upgrade_protocols)}
-              onChange={(e) =>
-                s.patch({ exclude_upgrade_protocols: linesToList(e.target.value) })
-              }
+              value={d.exclude_upgrade_protocols}
+              onChange={(v) => s.patch({ exclude_upgrade_protocols: v })}
             />
           </Field>
           <Field label="排除 URL 后缀" hint="每行一项，如 .css / .js / .png" aside={<SettingStatus s={s} field="exclude_suffixes" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
-              value={listToLines(d.exclude_suffixes)}
-              onChange={(e) => s.patch({ exclude_suffixes: linesToList(e.target.value) })}
+              value={d.exclude_suffixes}
+              onChange={(v) => s.patch({ exclude_suffixes: v })}
             />
           </Field>
           <Field label="排除 Content-Type" hint="每行一项，如 image/png" aside={<SettingStatus s={s} field="exclude_content_types" />}>
-            <textarea
+            <ListTextarea
               className={CODE_TEXTAREA_CLASS}
               spellCheck={false}
-              value={listToLines(d.exclude_content_types)}
-              onChange={(e) => s.patch({ exclude_content_types: linesToList(e.target.value) })}
+              value={d.exclude_content_types}
+              onChange={(v) => s.patch({ exclude_content_types: v })}
             />
           </Field>
           <Field label="排除响应状态码" hint="逗号/空格分隔，如 204, 304" aside={<SettingStatus s={s} field="exclude_status_codes" />}>
-            <input
+            <CodesInput
               className={INPUT_CLASS}
               spellCheck={false}
               placeholder="204, 304"
-              value={codesToText(d.exclude_status_codes)}
-              onChange={(e) => s.patch({ exclude_status_codes: textToCodes(e.target.value) })}
+              value={d.exclude_status_codes}
+              onChange={(v) => s.patch({ exclude_status_codes: v })}
             />
           </Field>
           <div className="flex gap-3">

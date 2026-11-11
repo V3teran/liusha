@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contentToText, extractReasoning, msgColor, pickField, toMsgView } from './llmMessage'
+import { contentToText, extractReasoning, msgColor, toMsgView } from './llmMessage'
 
 describe('contentToText', () => {
   it('字符串原样返回', () => {
@@ -23,7 +23,7 @@ describe('contentToText', () => {
 
 describe('toMsgView', () => {
   it('提取 role/content/tool_calls', () => {
-    const v = toMsgView({ role: 'user', content: '你好', tool_calls: [{ id: 'c1', function: { name: 'run', arguments: '{}' } }] })
+    const v = toMsgView({ role: 'user', content: '你好', tool_calls: [{ id: 'c1', name: 'run', arguments: {} }] })
     expect(v.role).toBe('user')
     expect(v.text).toBe('你好')
     expect(v.calls).toHaveLength(1)
@@ -36,50 +36,17 @@ describe('toMsgView', () => {
 })
 
 describe('extractReasoning', () => {
-  it('result.thinking.text（审计契约新行，小写 json tag 键）', () => {
+  it('取 result.thinking.text', () => {
     expect(extractReasoning({ content: 'x', thinking: { text: '想一下', signature: 'sig' } })).toBe('想一下')
   })
 
-  it('result.Thinking.Text（历史行，Go 结构体大写键）', () => {
-    expect(extractReasoning({ Content: 'x', Thinking: { Text: '旧数据思考' } })).toBe('旧数据思考')
-  })
-
-  it('thinking 优先于 reasoning_content', () => {
-    expect(extractReasoning({ thinking: { text: '新的' }, reasoning_content: '旧的' })).toBe('新的')
-  })
-
-  it('result.reasoning_content 字段', () => {
-    expect(extractReasoning({ content: 'x', reasoning_content: '先想再说' })).toBe('先想再说')
-  })
-
-  it('result.extra["reasoning-content"] 备用字段', () => {
-    expect(extractReasoning({ content: 'x', extra: { 'reasoning-content': '备用思考' } })).toBe('备用思考')
-  })
-
-  it('两者都无返回空串', () => {
+  it('无 thinking 返回空串', () => {
     expect(extractReasoning({ content: 'x' })).toBe('')
   })
 
   it('result 非对象返回空串', () => {
     expect(extractReasoning('纯文本')).toBe('')
     expect(extractReasoning(null)).toBe('')
-  })
-})
-
-describe('pickField', () => {
-  it('按顺序取第一个存在且非 null 的键（新行小写优先，旧行大写兜底）', () => {
-    expect(pickField({ content: '新', Content: '旧' }, ['content', 'Content'])).toBe('新')
-    expect(pickField({ Content: '旧' }, ['content', 'Content'])).toBe('旧')
-  })
-
-  it('跳过 null/undefined 值', () => {
-    expect(pickField({ ToolCalls: null, tool_calls: [] }, ['tool_calls', 'ToolCalls'])).toEqual([])
-    expect(pickField({ ToolCalls: null }, ['tool_calls', 'ToolCalls'])).toBeUndefined()
-  })
-
-  it('非对象输入返回 undefined', () => {
-    expect(pickField('文本', ['content'])).toBeUndefined()
-    expect(pickField(null, ['content'])).toBeUndefined()
   })
 })
 

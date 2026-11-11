@@ -47,7 +47,7 @@ export function SkillsPage() {
   const list = useSkillsPagedList()
   const rows = list.rows
 
-  const { draft, setDraft, patch, open, close, baseline } = useDirtyDraft<SkillDraft>()
+  const { draft, patch, open, close, rebase, baseline } = useDirtyDraft<SkillDraft>()
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [isNew, setIsNew] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -152,20 +152,23 @@ export function SkillsPage() {
   const onReset = async (field?: ContentField) => {
     if (!draft || !baseline) return
     if (!window.confirm(`把${field ? '该项' : '全部字段'}恢复为出厂内容？`)) return
+    const code = draft.code
     setResetting(field ?? 'all')
     try {
-      const fresh = await resetSkill(draft.code, field)
-      const newBaseline = draftOf(fresh)
-      const merged = { ...newBaseline }
-      if (field) {
-        for (const k of ['name', 'description', 'body', 'enabled'] as ContentField[]) {
-          if (k !== field && draft[k] !== baseline[k]) Object.assign(merged, { [k]: draft[k] })
-        }
-      }
-      applyDetail(fresh)
-      open(newBaseline)
-      setDraft(merged)
+      const fresh = await resetSkill(code, field)
       list.reload()
+      // 请求在途时抽屉已关闭或切到别的技能：不重开旧对象、不碰当前草稿。
+      if (openCodeRef.current !== code) return
+      const newBaseline = draftOf(fresh)
+      applyDetail(fresh)
+      rebase(newBaseline, (cur) => {
+        if (!field) return newBaseline
+        const merged = { ...newBaseline }
+        for (const k of ['name', 'description', 'body', 'enabled'] as ContentField[]) {
+          if (k !== field && cur[k] !== baseline[k]) Object.assign(merged, { [k]: cur[k] })
+        }
+        return merged
+      })
     } catch (e) {
       window.alert(e instanceof Error ? e.message : '恢复失败')
     } finally {
@@ -252,7 +255,7 @@ export function SkillsPage() {
         onSave={() => void onSave()}
         onDelete={isNew || isBuiltin ? undefined : () => void onDelete()}
         saving={saving}
-        saveDisabled={saving || !!createInvalid || !dirty}
+        saveDisabled={saving || !!createInvalid || !dirty || resetting !== null}
         tabs={
           draft
             ? [

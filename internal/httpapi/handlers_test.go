@@ -15,10 +15,8 @@ import (
 
 // fakeCred 是 CredentialsAPI 的内存实现，用于路由级单测。
 type fakeCred struct {
-	byHost         map[string][]credential.Identity
-	deletedIDs     []string
-	deletedHosts   []string
-	purgedSessions int
+	byHost     map[string][]credential.Identity
+	deletedIDs []string
 }
 
 func (f *fakeCred) SaveIdentities(_ context.Context, host string, ids []credential.Identity) error {
@@ -63,24 +61,6 @@ func (f *fakeCred) DeleteIdentity(_ context.Context, host, name string) error {
 		}
 	}
 	f.byHost[host] = kept
-	return nil
-}
-
-func (f *fakeCred) DeleteSessions(_ context.Context, host string) (int, error) {
-	n := 0
-	for _, id := range append([]credential.Identity{}, f.byHost[host]...) {
-		if credential.IsSessionIdentity(id.Username) {
-			_ = f.DeleteIdentity(context.Background(), host, id.Username)
-			n++
-		}
-	}
-	f.purgedSessions = n
-	return n, nil
-}
-
-func (f *fakeCred) DeleteHost(_ context.Context, host string) error {
-	f.deletedHosts = append(f.deletedHosts, credential.CanonicalHost(host))
-	delete(f.byHost, host)
 	return nil
 }
 

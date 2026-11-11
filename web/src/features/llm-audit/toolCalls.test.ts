@@ -27,21 +27,17 @@ describe('prettyArgs', () => {
 })
 
 describe('toToolCalls', () => {
-  test('解析 OpenAI 风格 tool_calls 数组', () => {
-    const calls = toToolCalls([
-      { id: 'call_1', type: 'function', function: { name: 'run_command', arguments: '{"cmd":"id"}' } },
-    ])
+  test('解析审计里的 tool_calls 数组（llm.ToolCall：arguments 为 JSON 值）', () => {
+    const calls = toToolCalls([{ id: 'call_1', name: 'run_command', arguments: { cmd: 'id' } }])
     expect(calls).toHaveLength(1)
     expect(calls[0].id).toBe('call_1')
     expect(calls[0].name).toBe('run_command')
     expect(calls[0].args).toBe('{\n  "cmd": "id"\n}')
   })
 
-  test('单个 function_call（非数组）也归一成数组', () => {
-    const calls = toToolCalls({ name: 'read_credentials', arguments: '{}' })
-    expect(calls).toHaveLength(1)
-    expect(calls[0].name).toBe('read_credentials')
-    expect(calls[0].args).toBe('')
+  test('缺字段兜底占位', () => {
+    const calls = toToolCalls([{}])
+    expect(calls[0]).toEqual({ id: 'call-0', name: '(未命名工具)', args: '' })
   })
 
   test('null 返回空数组', () => {
@@ -50,16 +46,16 @@ describe('toToolCalls', () => {
   })
 
   test('缺 id/name 时兜底占位，不抛错', () => {
-    const calls = toToolCalls([{ function: { arguments: '{}' } }])
+    const calls = toToolCalls([{ arguments: {} }])
     expect(calls[0].id).toBe('call-0')
     expect(calls[0].name).toBe('(未命名工具)')
   })
 
   test('多个工具调用保序', () => {
     const calls = toToolCalls([
-      { id: 'a', function: { name: 'run_command', arguments: '{}' } },
-      { id: 'b', function: { name: 'run_command', arguments: '{}' } },
-      { id: 'c', function: { name: 'write_credential', arguments: '{}' } },
+      { id: 'a', name: 'run_command', arguments: {} },
+      { id: 'b', name: 'run_command', arguments: {} },
+      { id: 'c', name: 'write_credential', arguments: {} },
     ])
     expect(calls.map((c) => c.name)).toEqual(['run_command', 'run_command', 'write_credential'])
   })

@@ -101,20 +101,6 @@ describe('LlmInvocationDrawer', () => {
     expect(screen.queryByText(/增量/)).toBeNull()
   })
 
-  it('reasoning_content 字段变体：result.reasoning_content 渲染思考过程区块', () => {
-    const detail = makeDetail({ result: { content: '答案', reasoning_content: '先分析再回答' } })
-    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('思考过程')).toBeTruthy()
-    expect(screen.getByText('先分析再回答')).toBeTruthy()
-  })
-
-  it('reasoning_content 字段变体：result.extra["reasoning-content"] 渲染思考过程区块', () => {
-    const detail = makeDetail({ result: { content: '答案', extra: { 'reasoning-content': '备用字段思考' } } })
-    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('思考过程')).toBeTruthy()
-    expect(screen.getByText('备用字段思考')).toBeTruthy()
-  })
-
   it('result 无 reasoning 字段时不渲染思考过程区块', () => {
     const detail = makeDetail({ result: { content: '仅正文' } })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
@@ -130,7 +116,7 @@ describe('LlmInvocationDrawer', () => {
   it('result.tool_calls 存在时渲染工具调用卡片', () => {
     const detail = makeDetail({
       result: {
-        tool_calls: [{ id: 'c1', function: { name: 'run_command', arguments: '{"cmd":"ls"}' } }],
+        tool_calls: [{ id: 'c1', name: 'run_command', arguments: { cmd: 'ls' } }],
       },
     })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
@@ -158,7 +144,7 @@ describe('LlmInvocationDrawer', () => {
 
   it('复制按钮：思考过程区块复制 reasoning 内容', async () => {
     const writeText = navigator.clipboard.writeText
-    const detail = makeDetail({ result: { content: '答案', reasoning_content: '思考内容 A' } })
+    const detail = makeDetail({ result: { content: '答案', thinking: { text: '思考内容 A' } } })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
     const section = screen.getByText('思考过程').closest('h3')
     const copyBtn = section?.querySelector('button')

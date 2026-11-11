@@ -16,8 +16,6 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
-	r.DELETE("/credentials/:host/sessions", purgeCredentialSessionsHandler(d.Credentials, d.CredentialAudit))
-	r.DELETE("/credentials/:host", deleteCredentialHostHandler(d.Credentials, d.CredentialAudit))
 }
 
 // registerFindingsRoutes 注册漏洞管理路由

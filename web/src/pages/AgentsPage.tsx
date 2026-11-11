@@ -43,7 +43,7 @@ export function AgentsPage() {
   const [catalogsReady, setCatalogsReady] = useState(false)
 
   const [detail, setDetail] = useState<AgentDetail | null>(null)
-  const { draft, setDraft, patch, open, close, isDirty: dirty, baseline } = useDirtyDraft<AgentDraft>()
+  const { draft, setDraft, patch, open, close, isDirty: dirty, rebase, baseline } = useDirtyDraft<AgentDraft>()
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState<string | null>(null)
   // 抽屉当前展示的 agent：详情请求是异步的，迟到的响应不得覆盖后打开的另一个 agent。
@@ -120,15 +120,16 @@ export function AgentsPage() {
     if (!detail || !draft || !baseline) return
     const what = field ? '该项' : '全部字段'
     if (!window.confirm(`把${what}恢复为出厂值？`)) return
+    const code = detail.agent.code
     setResetting(field ?? 'all')
     try {
-      const fresh = await resetAgent(detail.agent.code, field)
-      const newBaseline = draftOf(fresh, catalogs)
-      const merged = field ? rebaseDraft(baseline, draft, newBaseline, field) : newBaseline
-      setDetail(fresh)
-      open(newBaseline)
-      setDraft(merged)
+      const fresh = await resetAgent(code, field)
       reload()
+      // 请求在途时抽屉已关闭或切到别的 agent：不重开旧对象、不碰当前草稿。
+      if (openCodeRef.current !== code) return
+      const newBaseline = draftOf(fresh, catalogs)
+      setDetail(fresh)
+      rebase(newBaseline, (cur) => (field ? rebaseDraft(baseline, cur, newBaseline, field) : newBaseline))
     } catch (e) {
       window.alert(e instanceof Error ? e.message : '恢复失败')
     } finally {
@@ -234,7 +235,7 @@ export function AgentsPage() {
         onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
         saving={saving}
-        saveDisabled={!dirty || Object.keys(changes).length === 0}
+        saveDisabled={!dirty || Object.keys(changes).length === 0 || resetting !== null}
         tabs={
           detail && draft
             ? [

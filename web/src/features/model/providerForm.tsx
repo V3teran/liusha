@@ -330,7 +330,7 @@ function ApiKeyField({
 // 清空保持空、前导 0 忠实保留（DOM 显示 = 用户键入），数值实时回写 draft。
 // 此前 onChange 直接 Number(e.target.value)：Number("")=0 把清空变成「填 0」，
 // 受控回写让字段卡着删不掉的 0、前导 0 被悄悄吞掉或累积——用户看到「输入异常」。
-// 外部 draft 变化（重置/保存后 commit）时本地串跟随外部值。
+// 外部 draft 变化（重置、服务端回填）时本地串跟随外部值。
 function NumberField({
   label,
   hint,
@@ -347,7 +347,7 @@ function NumberField({
   onValue: (v: number | '') => void
 }) {
   const [text, setText] = useState(value === '' || value == null ? '' : String(value))
-  // 外部值变化（重置 / 保存后 commit 的行数据）→ 本地串跟随；用户正在编辑的
+  // 外部值变化（重置 / 服务端回填的行数据）→ 本地串跟随；用户正在编辑的
   // 串若与外部数值一致则不打扰（避免每次按键后的回写把前导 0 抹掉）。
   useEffect(() => {
     const external = value === '' || value == null ? '' : String(value)

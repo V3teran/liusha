@@ -35,12 +35,13 @@ export function SystemConfigPage() {
     },
   ], [])
 
-  const filteredSections = useMemo(() => {
+  // 搜索只控制显示、不卸载分区：草稿保存在各分区组件内，卸载即静默丢弃未保存的编辑。
+  const visibleIds = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return sections
-    return sections.filter(s =>
-      s.title.toLowerCase().includes(q) ||
-      s.keywords.toLowerCase().includes(q)
+    return new Set(
+      sections
+        .filter((s) => !q || s.title.toLowerCase().includes(q) || s.keywords.toLowerCase().includes(q))
+        .map((s) => s.id),
     )
   }, [sections, query])
 
@@ -61,15 +62,16 @@ export function SystemConfigPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
-          {filteredSections.length === 0 ? (
+          {visibleIds.size === 0 && (
             <div className="py-12 text-center text-sm text-text-secondary">
               未找到匹配的配置项
             </div>
-          ) : (
-            filteredSections.map(section => (
-              <div key={section.id}>{section.component}</div>
-            ))
           )}
+          {sections.map((section) => (
+            <div key={section.id} hidden={!visibleIds.has(section.id)}>
+              {section.component}
+            </div>
+          ))}
         </div>
       </div>
     </div>

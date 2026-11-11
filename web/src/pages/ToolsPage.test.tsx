@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { ToolsPage } from './ToolsPage'
 import { listTools, getTool, assignTool } from '@/api/config'
@@ -26,6 +27,15 @@ function tool(name: string, kind: ToolKind, category: string, categoryName = cat
 const FN = tool('read_credentials', 'function', 'credentials')
 const CLI = tool('nmap', 'cli', 'recon', '信息收集')
 
+function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <ToolsPage />
+    </QueryClientProvider>,
+  )
+}
+
 function detailOf(t: Tool, agents: ToolAgent[] = []): ToolDetail {
   return { tool: t, agents }
 }
@@ -42,7 +52,7 @@ describe('ToolsPage', () => {
 
   it('挂载加载工具目录并渲染分组列表行', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
-    render(<ToolsPage />)
+    renderPage()
     expect(await screen.findByText('read_credentials')).toBeTruthy()
     expect(screen.getByText('nmap')).toBeTruthy()
     // 分组头用后端下发的分类显示名，不显示分类码。
@@ -55,7 +65,7 @@ describe('ToolsPage', () => {
     mGet.mockResolvedValue(
       detailOf(FN, [agent('recon', '侦察智能体', true), agent('web', 'Web 智能体', false)]),
     )
-    render(<ToolsPage />)
+    renderPage()
     // 无需点击：主从视图恒有选中，首项自动加载。
     await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_credentials'))
     expect(screen.getByText(/装配到智能体/)).toBeTruthy()
@@ -68,9 +78,14 @@ describe('ToolsPage', () => {
 
   it('点击未装配智能体，回存追加该工具后高亮', async () => {
     mList.mockResolvedValue({ tools: [FN], total: 1 })
-    mGet.mockResolvedValue(detailOf(FN, [agent('web', 'Web 智能体', false)]))
-    mAssign.mockResolvedValue(undefined)
-    render(<ToolsPage />)
+    // 假后端：装配写入后，再取详情即反映新的装配态（成功后会重拉权威值）。
+    let involved = false
+    mGet.mockImplementation(() => Promise.resolve(detailOf(FN, [agent('web', 'Web 智能体', involved)])))
+    mAssign.mockImplementation(() => {
+      involved = true
+      return Promise.resolve(undefined)
+    })
+    renderPage()
     const web = await screen.findByRole('button', { name: 'Web 智能体' })
     expect(web.getAttribute('aria-pressed')).toBe('false')
     await userEvent.click(web)
@@ -86,7 +101,7 @@ describe('ToolsPage', () => {
 
   it('点选另一行切换详情', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
-    render(<ToolsPage />)
+    renderPage()
     await screen.findByText('read_credentials')
     await waitFor(() => expect(mGet).toHaveBeenCalledWith('read_credentials'))
     await userEvent.click(screen.getByText('nmap'))
@@ -95,7 +110,7 @@ describe('ToolsPage', () => {
 
   it('切换种类段触发按 kind 过滤取数', async () => {
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
-    render(<ToolsPage />)
+    renderPage()
     await screen.findByText('read_credentials')
     mList.mockResolvedValue({ tools: [CLI], total: 1 })
     // 「外部工具」（KIND_LABEL.cli）既是种类段按钮也是分组头/徽章文案，取文本恰为该值的段按钮。
@@ -107,9 +122,40 @@ describe('ToolsPage', () => {
     await waitFor(() => expect(mList.mock.calls.some((c) => c[0]?.kind === 'cli')).toBe(true))
   })
 
+  // 详情取数失败要说出来并可重试，不能伪装成「未选择」。
+  it('详情加载失败显示错误与重试', async () => {
+    mList.mockResolvedValue({ tools: [FN], total: 1 })
+    mGet.mockRejectedValueOnce(new Error('后端不可用'))
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('后端不可用')
+    expect(screen.queryByText('从左侧选择一个工具')).toBeNull()
+    mGet.mockResolvedValue(detailOf(FN))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  // 在 A 上装配，未落定前切到 B；A 的写入失败只回滚 A，不把 B 显示成已装配。
+  it('装配失败只回滚发起写入的工具', async () => {
+    vi.stubGlobal('alert', vi.fn())
+    mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
+    mGet.mockImplementation((name: string) =>
+      Promise.resolve(name === 'nmap' ? detailOf(CLI, [agent('web', 'Web 智能体', false)]) : detailOf(FN, [agent('web', 'Web 智能体', false)])),
+    )
+    let reject!: (e: Error) => void
+    mAssign.mockImplementation(() => new Promise((_r, rj) => (reject = rj)))
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Web 智能体' }))
+    await userEvent.click(screen.getByText('nmap'))
+    await waitFor(() => expect(mGet).toHaveBeenCalledWith('nmap'))
+    reject(new Error('保存失败'))
+    await waitFor(() => expect(window.alert).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Web 智能体' }).getAttribute('aria-pressed')).toBe('false')
+    vi.unstubAllGlobals()
+  })
+
   it('空态提示', async () => {
     mList.mockResolvedValue({ tools: [], total: 0 })
-    render(<ToolsPage />)
+    renderPage()
     expect(await screen.findByText(/工具目录为空/)).toBeTruthy()
   })
 })
@@ -138,7 +184,7 @@ describe('ToolsPage 窄屏（< 768）主从单栏', () => {
   it('先只显示列表；点选工具进入详情，「返回工具列表」回到列表', async () => {
     stubViewport(390)
     const user = userEvent.setup()
-    render(<ToolsPage />)
+    renderPage()
     await user.click(await screen.findByText('nmap'))
     expect(screen.queryByRole('region', { name: '工具列表' })).toBeNull()
     await waitFor(() => expect(mGet).toHaveBeenLastCalledWith('nmap'))
@@ -148,7 +194,7 @@ describe('ToolsPage 窄屏（< 768）主从单栏', () => {
 
   it('宽屏双栏并存，无返回按钮', async () => {
     stubViewport(1440)
-    render(<ToolsPage />)
+    renderPage()
     expect(await screen.findByRole('region', { name: '工具列表' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '返回工具列表' })).toBeNull()
   })

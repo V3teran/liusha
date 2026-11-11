@@ -319,6 +319,30 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     expect(await screen.findByText(/来自环境变量（GLM_API_KEY）/)).toBeTruthy()
   })
 
+  // 恢复密钥只提交密钥字段：其余未保存的修改仍是未保存，保存按钮可用。
+  it('恢复使用环境变量不把其它未保存修改记成已保存', async () => {
+    mRestore.mockResolvedValue(prov({ key_present: true, key_last4: undefined, api_key_env: 'GLM_API_KEY' }))
+    await openEdit({ key_present: true, key_last4: '9f2c', api_key_env: 'GLM_API_KEY' })
+    await screen.findByText('编辑 deepseek')
+    await userEvent.type(screen.getByLabelText('描述'), '改动')
+    await userEvent.click(await screen.findByText('恢复使用环境变量'))
+    await userEvent.click(await screen.findByText('确认恢复？'))
+    await waitFor(() => expect(mRestore).toHaveBeenCalledWith('deepseek'))
+    await waitFor(() => expect(screen.queryByText(/9f2c/)).toBeNull())
+    expect((screen.getByLabelText('描述') as HTMLInputElement).value).toBe('改动')
+    expect(screen.getByText('未保存')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+  })
+
+  // 「新建」与切换到其它行同一口径：有未保存更改时先确认，不静默丢弃。
+  it('dirty 时点新建被拦截：确认后才打开空白表单', async () => {
+    await openEdit()
+    await userEvent.type(screen.getByLabelText('描述'), '改动')
+    await userEvent.click(screen.getByRole('button', { name: '新建' }))
+    expect(await screen.findByText(/切换到其他行将丢弃这些更改/)).toBeTruthy()
+    expect((screen.getByLabelText('描述') as HTMLInputElement).value).toBe('改动')
+  })
+
   it('能力标志为开关控件（Switch role=switch），切换即改草稿', async () => {
     await openEdit()
     const vision = screen.getByRole('switch', { name: '支持视觉' })

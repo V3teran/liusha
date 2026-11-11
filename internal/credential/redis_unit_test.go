@@ -123,21 +123,6 @@ func TestDeletePaths(t *testing.T) {
 		t.Fatalf("删除不存在身份应幂等: %v", err)
 	}
 
-	n, err := p.DeleteSessions(ctx, "t.com")
-	if err != nil || n != 2 {
-		t.Fatalf("清理会话: n=%d err=%v", n, err)
-	}
-	ids, _ := p.GetIdentitiesByHost(ctx, "t.com")
-	if len(ids) != 1 || ids[0].Username != "admin" {
-		t.Fatalf("会话清理不得动持久身份: %+v", ids)
-	}
-
-	if err := p.DeleteHost(ctx, "t.com"); err != nil {
-		t.Fatalf("delete host: %v", err)
-	}
-	if ids, _ := p.GetIdentitiesByHost(ctx, "t.com"); len(ids) != 0 {
-		t.Fatalf("整 host 清空后应为空: %+v", ids)
-	}
 }
 
 // TestListHostsClassification 锁定枚举口径：只认本前缀下的 hash 键、

@@ -46,23 +46,6 @@ func (f *fakeVault) DeleteIdentity(_ context.Context, host, name string) error {
 	return nil
 }
 
-func (f *fakeVault) DeleteSessions(ctx context.Context, host string) (int, error) {
-	n := 0
-	for _, id := range f.byHost[host] {
-		if IsSessionIdentity(id.Username) {
-			if err := f.DeleteIdentity(ctx, host, id.Username); err == nil {
-				n++
-			}
-		}
-	}
-	return n, nil
-}
-
-func (f *fakeVault) DeleteHost(_ context.Context, host string) error {
-	delete(f.byHost, host)
-	return nil
-}
-
 func (f *fakeVault) ListHosts(_ context.Context) ([]HostSummary, error) {
 	var out []HostSummary
 	for host, ids := range f.byHost {

@@ -130,31 +130,6 @@ func TestRedis_NoExpiryKey(t *testing.T) {
 	}
 }
 
-// TestRedis_Delete 验证：删 host 后取空。
-func TestRedis_Delete(t *testing.T) {
-	ctx := context.Background()
-	p := newProvider(t)
-
-	if err := p.SaveIdentities(ctx, "target", []Identity{
-		{Username: "a", Role: "admin"},
-		{Username: "b", Role: "user"},
-	}); err != nil {
-		t.Fatalf("batch save: %v", err)
-	}
-
-	if err := p.DeleteHost(ctx, "target"); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-
-	got, err := p.GetIdentitiesByHost(ctx, "target")
-	if err != nil {
-		t.Fatalf("get after delete: %v", err)
-	}
-	if !equalSlices(names(got), []string{}) {
-		t.Fatalf("删除后应为空, got=%v", names(got))
-	}
-}
-
 // TestRedis_SaveIdentities_OverwriteExisting 验证：重复保存同 host 同 name 覆盖旧值。
 func TestRedis_SaveIdentities_OverwriteExisting(t *testing.T) {
 	ctx := context.Background()

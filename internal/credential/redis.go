@@ -214,36 +214,6 @@ func (r *RedisProvider) DeleteIdentity(ctx context.Context, host, name string) e
 	return nil
 }
 
-// DeleteSessions 删除 host 下全部会话用户名，返回删除数（录入身份不动）。
-func (r *RedisProvider) DeleteSessions(ctx context.Context, host string) (int, error) {
-	key := r.hashKey(host)
-	names, err := r.client.HKeys(ctx, key).Result()
-	if err != nil {
-		return 0, fmt.Errorf("hkeys credentials for host %s: %w", host, err)
-	}
-	var sessionFields []string
-	for _, n := range names {
-		if IsSessionIdentity(n) {
-			sessionFields = append(sessionFields, n)
-		}
-	}
-	if len(sessionFields) == 0 {
-		return 0, nil
-	}
-	if err := r.client.HDel(ctx, key, sessionFields...).Err(); err != nil {
-		return 0, fmt.Errorf("hdel sessions for host %s: %w", host, err)
-	}
-	return len(sessionFields), nil
-}
-
-// DeleteHost 清空 host 下所有登录身份（含会话）。幂等。
-func (r *RedisProvider) DeleteHost(ctx context.Context, host string) error {
-	if err := r.client.Del(ctx, r.hashKey(host)).Err(); err != nil {
-		return fmt.Errorf("del credentials for host %s: %w", host, err)
-	}
-	return nil
-}
-
 // ListHosts 枚举有凭证的 host：SCAN 前缀匹配 + 逐键类型校验（只认 hash——
 // 命名空间纯净是常态，类型过滤是防御），每 host 一次 HKEYS 分类计数。
 // 全程不读任何 field 值——枚举层不接触秘密材料。
