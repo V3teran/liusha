@@ -79,7 +79,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 	assert.Equal(t, StateCompleted, state(doneID))
 	assert.Equal(t, StateOpen, state(rootID))
 
-	edges, err := store.ListEdgesForAPI(ctx, taskID)
+	edges, err := store.ListEdgesByTask(ctx, taskID)
 	require.NoError(t, err)
 	absorbers := map[string]bool{}
 	for _, e := range edges {

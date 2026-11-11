@@ -145,7 +145,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </dd>
                     {detail.agent_run_id && (
                       <>
-                        <dt className="text-xs text-text-secondary">agent</dt>
+                        <dt className="text-xs text-text-secondary">agent_run_id</dt>
                         <dd className="font-mono text-sm text-text">{detail.agent_run_id}</dd>
                       </>
                     )}

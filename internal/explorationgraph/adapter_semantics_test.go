@@ -167,7 +167,7 @@ func TestStore_CreateNodeWithEdges(t *testing.T) {
 	edge := Edge{TaskID: "task-1", SrcID: "a-1", Rel: RelGenerates, DstID: "obs-cwe"}
 	require.NoError(t, store.CreateNodeWithEdges(ctx, obs, []Edge{edge}))
 
-	edges, err := store.ListEdgesForAPI(ctx, "task-1")
+	edges, err := store.ListEdgesByTask(ctx, "task-1")
 	require.NoError(t, err)
 	require.Len(t, edges, 1)
 	assert.Equal(t, "a-1", edges[0].SrcID)
@@ -199,12 +199,12 @@ func TestStore_ListEdgesTaskScoped(t *testing.T) {
 		}}))
 	}
 
-	t1, err := store.ListEdgesForAPI(ctx, "task-1")
+	t1, err := store.ListEdgesByTask(ctx, "task-1")
 	require.NoError(t, err)
 	require.Len(t, t1, 1)
 	assert.Equal(t, "a-task-1", t1[0].SrcID)
 
-	t2, err := store.ListEdgesForAPI(ctx, "task-2")
+	t2, err := store.ListEdgesByTask(ctx, "task-2")
 	require.NoError(t, err)
 	require.Len(t, t2, 1)
 	assert.Equal(t, "a-task-2", t2[0].SrcID)

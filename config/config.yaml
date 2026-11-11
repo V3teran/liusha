@@ -172,7 +172,7 @@ proxy:
   internal_addr: 127.0.0.1:18888    # proxify 内部 loopback
 
   # Redis Stream（proxy → ingestor 之间）
-  stream_name: flow_events          # XADD 目标 stream
+  stream_name: liusha:traffic_snapshots  # XADD 目标 stream（代理捕获的流量快照）
   stream_max_len: 100000            # XADD MAXLEN ~ 上限（约 5KiB×1e5 ≈ 500 MiB）
 
   # 容器内抓流量 → cmd/runner 的 /internal/v1/traffic/ingest endpoint Bearer token。

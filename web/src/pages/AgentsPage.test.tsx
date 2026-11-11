@@ -13,7 +13,7 @@ import {
   patchAgent,
   resetAgent,
 } from '@/api/config'
-import type { AgentConfig, AgentDetail, AgentListItem, Tool, ToolKind } from '@/api/types'
+import type { Agent, AgentDetail, AgentListItem, Tool, ToolKind } from '@/api/types'
 
 vi.mock('@/api/config', () => ({
   listAgentsPaged: vi.fn(),
@@ -40,7 +40,7 @@ function tool(name: string, kind: ToolKind, category: string): Tool {
 const FUNCTION_TOOLS = [tool('read_credentials', 'function', 'credentials'), tool('write_credential', 'function', 'credentials')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
-function agent(o: Partial<AgentConfig> = {}): AgentConfig {
+function agent(o: Partial<Agent> = {}): Agent {
   return {
     code: 'recon',
     name: '侦察智能体',
@@ -56,13 +56,13 @@ function agent(o: Partial<AgentConfig> = {}): AgentConfig {
 }
 
 // 详情：未给 defaults 时出厂值即生效值（无自定义）。
-function detail(o: Partial<AgentConfig> = {}, extra: Partial<AgentDetail> = {}): AgentDetail {
+function detail(o: Partial<Agent> = {}, extra: Partial<AgentDetail> = {}): AgentDetail {
   const a = agent(o)
   const { code: _c, name: _n, ...editable } = a
   return { agent: a, defaults: editable, overrides: {}, prompt_archive: null, contract: '输出契约原文', ...extra }
 }
 
-const listItem = (a: AgentConfig, o: Partial<AgentListItem> = {}): AgentListItem => ({
+const listItem = (a: Agent, o: Partial<AgentListItem> = {}): AgentListItem => ({
   ...a,
   customized: [],
   has_prompt_archive: false,

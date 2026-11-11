@@ -55,7 +55,7 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 	}
 
 	// 归属精确性：act-A 的 generates 边只指向自己的观察，act-B 同理
-	edges, err := graph.ListEdgesForAPI(ctx, taskID)
+	edges, err := graph.ListEdgesByTask(ctx, taskID)
 	if err != nil {
 		t.Fatalf("查询边失败: %v", err)
 	}

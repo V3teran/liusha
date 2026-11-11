@@ -71,7 +71,7 @@ func nodeState(t *testing.T, store *Store, id string) State {
 
 func edgesOf(t *testing.T, store *Store, rel Relation) map[[2]string]bool {
 	t.Helper()
-	edges, err := store.ListEdgesForAPI(context.Background(), revTask)
+	edges, err := store.ListEdgesByTask(context.Background(), revTask)
 	require.NoError(t, err)
 	set := map[[2]string]bool{}
 	for _, e := range edges {

@@ -97,10 +97,10 @@ describe('ConversationDetail', () => {
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledTimes(2))
   })
 
-  it('扫描运行中显示"agent 工作中"与 暂停/停止 控制组', async () => {
+  it('扫描运行中显示"智能体工作中"与 暂停/停止 控制组', async () => {
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     render(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} /></MemoryRouter>)
-    expect(await screen.findByText('agent 工作中…')).toBeTruthy()
+    expect(await screen.findByText('智能体工作中…')).toBeTruthy()
     expect(screen.getByRole('button', { name: '暂停任务' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
   })
@@ -111,7 +111,7 @@ describe('ConversationDetail', () => {
     expect(await screen.findByText('已暂停（进度保留）')).toBeTruthy()
     expect(screen.getByRole('button', { name: '继续任务' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
-    expect(screen.queryByText('agent 工作中…')).toBeNull()
+    expect(screen.queryByText('智能体工作中…')).toBeNull()
   })
 
   it('点击暂停任务直接调用任务控制端点（可逆，无确认弹层）', async () => {
@@ -159,7 +159,7 @@ describe('ConversationDetail', () => {
 
     vi.mocked(apiClient.getConversationUsage).mockResolvedValue(mkUsage({ running: true, status: 'active' }))
     rerender(<MemoryRouter><ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={onRunningChanged} /></MemoryRouter>)
-    await waitFor(() => expect(screen.queryByText('agent 工作中…')).toBeTruthy())
+    await waitFor(() => expect(screen.queryByText('智能体工作中…')).toBeTruthy())
   })
 
   it('切换 convId 时重置 store 并重新拉取', async () => {

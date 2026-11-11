@@ -34,7 +34,7 @@ func TestSubmitInternal_Backpressure(t *testing.T) {
 // TestIsNoGroupErr 锁住 NOGROUP 自愈分支的入口判定。
 // XREADGROUP 在 stream/group 不存在时返回类似：
 //
-//	"NOGROUP No such key 'liusha:flow_events' or consumer group 'liusha-ingestor' in XREADGROUP with GROUP option"
+//	"NOGROUP No such key 'liusha:traffic_snapshots' or consumer group 'liusha-ingestor' in XREADGROUP with GROUP option"
 func TestIsNoGroupErr(t *testing.T) {
 	cases := []struct {
 		name string
@@ -43,7 +43,7 @@ func TestIsNoGroupErr(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"NOGROUP from XREADGROUP", errors.New(
-			"NOGROUP No such key 'liusha:flow_events' or consumer group 'liusha-ingestor' in XREADGROUP with GROUP option",
+			"NOGROUP No such key 'liusha:traffic_snapshots' or consumer group 'liusha-ingestor' in XREADGROUP with GROUP option",
 		), true},
 		{"connection refused", errors.New("dial tcp 127.0.0.1:6379: connect: connection refused"), false},
 		// BUSYGROUP 是自愈分支后续 XGROUP CREATE 可能命中的——不应被误判进入自愈循环

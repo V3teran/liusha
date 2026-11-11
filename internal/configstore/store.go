@@ -65,7 +65,7 @@ type Store struct {
 
 // New 构造 Store。cache 由进程唯一构造并已在后台 Subscribe。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache, tools ToolCatalog) *Store {
-	return &Store{agents: agent.NewStore(pool), skills: skillstore.NewStore(pool), cache: cache, tools: tools}
+	return &Store{agents: agent.NewStore(pool), skills: skillstore.New(pool), cache: cache, tools: tools}
 }
 
 // ── 缓存（只缓存用户层）─────────────────────────────────────────────
@@ -91,38 +91,38 @@ func (s *Store) skillOverrides(ctx context.Context) (map[string]override.Overrid
 func (s *Store) customSkills(ctx context.Context) ([]skillstore.Skill, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyCustomSkills,
 		func([]skillstore.Skill) []string { return []string{keyCustomSkills} },
-		s.skills.Customs)
+		s.skills.ListCustom)
 }
 
 // ── agent ───────────────────────────────────────────────────────────
 
 // AgentDetail 是 agent 配置页需要的全部信息。
 type AgentDetail struct {
-	Profile       agent.Profile             `json:"agent"`
+	Agent         agent.Agent               `json:"agent"`
 	Defaults      agent.Config              `json:"defaults"`
 	Overrides     map[string]override.State `json:"overrides"`
 	PromptArchive *agent.PromptArchive      `json:"prompt_archive"`
 }
 
 // Agent 返回一个 agent 的生效配置（runner 每个任务经此装配四个 agent，热路径）。
-func (s *Store) Agent(ctx context.Context, code string) (agent.Profile, error) {
+func (s *Store) Agent(ctx context.Context, code string) (agent.Agent, error) {
 	b, ok := builtin.AgentByCode(code)
 	if !ok {
-		return agent.Profile{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
+		return agent.Agent{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
 	}
 	ovs, err := s.agentOverrides(ctx)
 	if err != nil {
-		return agent.Profile{}, err
+		return agent.Agent{}, err
 	}
 	catalog, err := s.agentCatalog(ctx)
 	if err != nil {
-		return agent.Profile{}, err
+		return agent.Agent{}, err
 	}
 	return agent.Resolve(b, ovs[code], catalog)
 }
 
 // Agents 返回全部 agent 的生效配置（按 code 升序）。
-func (s *Store) Agents(ctx context.Context) ([]agent.Profile, error) {
+func (s *Store) Agents(ctx context.Context) ([]agent.Agent, error) {
 	ovs, err := s.agentOverrides(ctx)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (s *Store) Agents(ctx context.Context) ([]agent.Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []agent.Profile
+	var out []agent.Agent
 	for _, b := range builtin.Agents() {
 		p, err := agent.Resolve(b, ovs[b.Code], catalog)
 		if err != nil {
@@ -165,7 +165,7 @@ func (s *Store) AgentDetails(ctx context.Context) ([]AgentDetail, error) {
 			return nil, err
 		}
 		d := AgentDetail{
-			Profile:   p,
+			Agent:     p,
 			Defaults:  agent.Defaults(b),
 			Overrides: override.Describe(schema, agent.DefaultsDocument(b), ovs[b.Code]),
 		}
@@ -184,7 +184,7 @@ func (s *Store) AgentDetail(ctx context.Context, code string) (AgentDetail, erro
 		return AgentDetail{}, err
 	}
 	for _, d := range all {
-		if d.Profile.Code == code {
+		if d.Agent.Code == code {
 			return d, nil
 		}
 	}
@@ -193,21 +193,21 @@ func (s *Store) AgentDetail(ctx context.Context, code string) (AgentDetail, erro
 
 // PatchAgent 写入用户提交的字段（Replace 字段为新值，集合字段为 {on, off}），
 // 校验应用后的生效配置，返回新的生效配置。
-func (s *Store) PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Profile, error) {
+func (s *Store) PatchAgent(ctx context.Context, code string, changes override.Document) (agent.Agent, error) {
 	return s.updateAgent(ctx, code, func(schema override.Schema, def override.Document, cur override.Overrides) (override.Overrides, error) {
 		return override.Patch(schema, def, cur, changes)
 	})
 }
 
 // ToggleAgent 对 agent 的集合字段（function_tools / cli_tools / skills）勾选或取消单个元素。
-func (s *Store) ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Profile, error) {
+func (s *Store) ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Agent, error) {
 	return s.updateAgent(ctx, code, func(schema override.Schema, def override.Document, cur override.Overrides) (override.Overrides, error) {
 		return override.Toggle(schema, def, cur, field, mustJSON(elem), on)
 	})
 }
 
 // ResetAgent 把指定字段恢复为出厂值（不传字段则全部恢复）。
-func (s *Store) ResetAgent(ctx context.Context, code string, fields ...string) (agent.Profile, error) {
+func (s *Store) ResetAgent(ctx context.Context, code string, fields ...string) (agent.Agent, error) {
 	return s.updateAgent(ctx, code, func(schema override.Schema, _ override.Document, cur override.Overrides) (override.Overrides, error) {
 		for _, f := range fields {
 			if _, ok := schema[f]; !ok {
@@ -228,17 +228,17 @@ func (s *Store) DeletePromptArchive(ctx context.Context, code string) error {
 
 type agentEdit func(schema override.Schema, defaults override.Document, cur override.Overrides) (override.Overrides, error)
 
-func (s *Store) updateAgent(ctx context.Context, code string, edit agentEdit) (agent.Profile, error) {
+func (s *Store) updateAgent(ctx context.Context, code string, edit agentEdit) (agent.Agent, error) {
 	b, ok := builtin.AgentByCode(code)
 	if !ok {
-		return agent.Profile{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
+		return agent.Agent{}, fmt.Errorf("agent %q %w", code, ErrNotFound)
 	}
 	catalog, err := s.agentCatalog(ctx)
 	if err != nil {
-		return agent.Profile{}, err
+		return agent.Agent{}, err
 	}
 	schema, def := agent.Schema(catalog), agent.DefaultsDocument(b)
-	var result agent.Profile
+	var result agent.Agent
 	if _, err := s.agents.UpdateOverrides(ctx, code, func(cur override.Overrides) (override.Overrides, error) {
 		next, err := edit(schema, def, cur)
 		if err != nil {
@@ -249,7 +249,7 @@ func (s *Store) updateAgent(ctx context.Context, code string, edit agentEdit) (a
 		}
 		return next, agent.Validate(result.Config)
 	}); err != nil {
-		return agent.Profile{}, err
+		return agent.Agent{}, err
 	}
 	return result, s.cache.Invalidate(ctx, keyAgentOverrides)
 }

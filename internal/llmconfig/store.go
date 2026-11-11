@@ -136,7 +136,7 @@ func (s *Store) ClearProviderKey(ctx context.Context, code string) (Provider, er
 	return Provider{}, conflictf("该 provider 未配置环境变量密钥，清除后将无密钥可用，不能恢复使用环境变量")
 }
 
-// DeleteProvider 按 key 删 provider。被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束，错误透传。
+// DeleteProvider 按 code 删 provider。被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束，错误透传。
 func (s *Store) DeleteProvider(ctx context.Context, code string) error {
 	tag, err := s.pool.Exec(ctx, "DELETE FROM llm_provider WHERE code=$1", code)
 	if err != nil {

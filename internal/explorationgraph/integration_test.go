@@ -288,7 +288,7 @@ func TestCreateNodeWithEdgesAtomicity(t *testing.T) {
 	edge := Edge{TaskID: taskID, SrcID: objID, Rel: RelGenerates, DstID: action.ID}
 	require.NoError(t, store.CreateNodeWithEdges(ctx, action, []Edge{edge}))
 
-	edges, err := store.ListEdgesForAPI(ctx, taskID)
+	edges, err := store.ListEdgesByTask(ctx, taskID)
 	require.NoError(t, err)
 	require.Len(t, edges, 1)
 	assert.Equal(t, objID, edges[0].SrcID)

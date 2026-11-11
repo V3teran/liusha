@@ -445,7 +445,7 @@ export function ProviderFormBody({
               className={INPUT_CLASS}
               value={draft.display_name}
               spellCheck={false}
-              placeholder="主力部署"
+              placeholder="主力模型"
               onChange={(e) => patch({ display_name: e.target.value })}
             />
           </Field>
@@ -461,7 +461,7 @@ export function ProviderFormBody({
           {diagnosis}
           <ToggleField
             label="启用"
-            hint="停用后运行期跳过该部署，它所在的档位由相邻档承接；配置保留"
+            hint="停用后运行期跳过该 provider，它所在的档位由相邻档承接；配置保留"
             checked={draft.enabled}
             onCheckedChange={(v) => patch({ enabled: v })}
           />
@@ -511,7 +511,7 @@ export function ProviderFormBody({
           {/* 工具/视觉能力：工具调用由运行诊断实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
           <ToggleField
             label="支持工具调用"
-            hint="运行诊断会实测并自动设置；四个智能体都依赖工具调用，未支持的部署承接智能体所在档位时能力路由会告警"
+            hint="运行诊断会实测并自动设置；四个智能体都依赖工具调用，未支持的 provider承接智能体所在档位时能力路由会告警"
             checked={draft.supports_tools}
             onCheckedChange={(v) => patch({ supports_tools: v })}
           />

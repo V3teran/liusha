@@ -45,7 +45,7 @@ type anthropicGen struct {
 // NewAnthropic 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
-func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
+func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
 	if client == nil {
 		return nil, errors.New("anthropic: client 必填（从 ClientPool 取）")
 	}
@@ -64,7 +64,7 @@ func NewAnthropic(_ context.Context, providerKey string, c AnthropicConfig, clie
 		model:          c.Model,
 		maxTokens:      int64(maxTokens),
 		thinkingBudget: c.ThinkingBudget,
-		provider:       providerKey,
+		provider:       providerCode,
 	}, nil
 }
 

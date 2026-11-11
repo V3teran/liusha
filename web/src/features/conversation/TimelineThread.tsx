@@ -47,7 +47,7 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
     <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
       <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-text-secondary">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        <span>agent 工作中</span>
+        <span>智能体工作中</span>
         <span className="font-mono text-xs">{label}</span>
       </div>
     </div>

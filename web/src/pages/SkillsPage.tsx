@@ -209,7 +209,7 @@ export function SkillsPage() {
     <>
       <ConfigListShell
         title="技能"
-        subtitle="供 agent 检索的方法论文档：摘要进索引，全文按需读取。内置技能随版本更新，可自定义"
+        subtitle="供智能体检索的方法论文档：摘要进索引，全文按需读取。内置技能随版本更新，可自定义"
         loading={list.loading}
         error={list.error}
         empty={rows.length === 0}
@@ -288,7 +288,7 @@ export function SkillsPage() {
                       </Field>
                       <Field
                         label="描述"
-                        hint="进 agent 技能索引的摘要——直接决定 LLM 何时选用本技能"
+                        hint="进智能体技能索引的摘要——直接决定 LLM 何时选用本技能"
                         aside={status('description', true)}
                       >
                         <textarea
@@ -298,7 +298,7 @@ export function SkillsPage() {
                         />
                       </Field>
                       {!isNew && (
-                        <Field label="启用" hint="停用后不进任何 agent 的技能索引" aside={status('enabled')}>
+                        <Field label="启用" hint="停用后不进任何智能体的技能索引" aside={status('enabled')}>
                           <span className="flex items-center gap-2 text-sm text-text">
                             <input
                               type="checkbox"

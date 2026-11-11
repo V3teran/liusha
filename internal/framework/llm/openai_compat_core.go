@@ -38,8 +38,8 @@ const maxCompatRetries = 2
 // NewOpenAICompat 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
-// providerKey 用作 Provider() / instrument 标记（如 "deepseek"）。
-func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig, client *openai.Client) (Generator, error) {
+// providerCode 用作 Provider() / instrument 标记（如 "deepseek"）。
+func NewOpenAICompat(_ context.Context, providerCode string, c OpenAICompatConfig, client *openai.Client) (Generator, error) {
 	if client == nil {
 		return nil, errors.New("OpenAICompat: client 必填（从 ClientPool 取）")
 	}
@@ -50,7 +50,7 @@ func NewOpenAICompat(_ context.Context, providerKey string, c OpenAICompatConfig
 		client:         client,
 		model:          c.Model,
 		maxTokens:      c.MaxTokens,
-		provider:       providerKey,
+		provider:       providerCode,
 		supportsVision: c.SupportsVision,
 		compat:         newRequestCompat(c.OutputLimitParam),
 	}, nil

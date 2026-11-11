@@ -23,8 +23,8 @@ type Store struct {
 	overrides overridestore.Table
 }
 
-// NewStore 用 pgxpool 构造 Store。
-func NewStore(pool *pgxpool.Pool) *Store {
+// New 用 pgxpool 构造 Store。
+func New(pool *pgxpool.Pool) *Store {
 	return &Store{
 		pool:      pool,
 		overrides: overridestore.Table{Pool: pool, Name: "skill_override", Key: "skill_code"},
@@ -35,8 +35,8 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 const customCols = "code, category, name, description, body, enabled"
 
-// Customs 返回全部自建技能（按 category、code 升序）。
-func (s *Store) Customs(ctx context.Context) ([]Skill, error) {
+// ListCustom 返回全部自建技能（按 category、code 升序）。
+func (s *Store) ListCustom(ctx context.Context) ([]Skill, error) {
 	rows, err := s.pool.Query(ctx, "SELECT "+customCols+" FROM custom_skill ORDER BY category, code")
 	if err != nil {
 		return nil, fmt.Errorf("读自建技能: %w", err)

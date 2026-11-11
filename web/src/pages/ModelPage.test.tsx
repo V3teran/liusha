@@ -12,7 +12,7 @@ const mockedUseSaveProvider = queries.useSaveProvider as unknown as ReturnType<t
 const mockedUseDeleteProvider = queries.useDeleteProvider as unknown as ReturnType<typeof vi.fn>
 const mockedUseRestoreProviderEnvKey = queries.useRestoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
 const mockedUseRouting = queries.useRouting as unknown as ReturnType<typeof vi.fn>
-const mockedUseAgentConfigs = queries.useAgentConfigs as unknown as ReturnType<typeof vi.fn>
+const mockedUseAgents = queries.useAgents as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveRoleRoute = queries.useSaveRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveAgentComplexity = queries.useSaveAgentComplexity as unknown as ReturnType<typeof vi.fn>
 
@@ -36,7 +36,7 @@ describe('ModelPage', () => {
 
     // Mock AssignmentView 需要的 hooks
     mockedUseRouting.mockReturnValue({ data: { routes: [] }, isLoading: false })
-    mockedUseAgentConfigs.mockReturnValue({ data: [], isLoading: false })
+    mockedUseAgents.mockReturnValue({ data: [], isLoading: false })
     mockedUseSaveRoleRoute.mockReturnValue({ mutate: vi.fn() })
     mockedUseSaveAgentComplexity.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
@@ -47,7 +47,7 @@ describe('ModelPage', () => {
     renderPage()
 
     expect(screen.getByText('LLM 配置')).toBeTruthy()
-    expect(screen.getByText('接入 provider 部署；按推理档位（深度 / 标准 / 轻量）分配模型')).toBeTruthy()
+    expect(screen.getByText('接入 provider；按推理档位（深度 / 标准 / 轻量）分配模型')).toBeTruthy()
   })
 
   it('渲染两个分区：模型提供商、能力路由', () => {

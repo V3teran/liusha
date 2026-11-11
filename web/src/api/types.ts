@@ -138,12 +138,12 @@ export interface SetChange<T = string> {
   off: T[]
 }
 
-// AgentConfig 是智能体的生效配置（出厂值叠加用户自定义）。角色以 code 寻址，固定四个。
+// Agent 是智能体的生效配置（出厂值叠加用户自定义）。角色以 code 寻址，固定四个。
 //   - charter       ：章程（角色定位、原则、策略；程序解析依赖的输出契约不在其中，不可改）
 //   - function_tools：内置函数工具白名单；cli_tools：沙箱 CLI 工具白名单；skills：技能白名单
 //     （三者中 "*" = 全部，含以后新增）
 //   - complexity    ：simple | medium | complex，决定该智能体 LLM 路由的第一跳档位
-export interface AgentConfig {
+export interface Agent {
   code: string
   name: string
   charter: string
@@ -155,11 +155,11 @@ export interface AgentConfig {
   complexity: string
 }
 
-// AgentEditable 是可自定义的字段（出厂值 defaults 与之同形）。
-export type AgentEditable = Omit<AgentConfig, 'code' | 'name'>
+// AgentConfig 是可自定义的字段（出厂值 defaults 与之同形）。
+export type AgentConfig = Omit<Agent, 'code' | 'name'>
 
 // AgentListItem 是列表项：生效配置 + 已自定义字段名 + 是否有待处理的提示词归档。
-export interface AgentListItem extends AgentConfig {
+export interface AgentListItem extends Agent {
   customized: string[]
   has_prompt_archive: boolean
 }
@@ -171,8 +171,8 @@ export interface PromptArchive {
 }
 
 export interface AgentDetail {
-  agent: AgentConfig
-  defaults: AgentEditable
+  agent: Agent
+  defaults: AgentConfig
   overrides: Overrides
   prompt_archive: PromptArchive | null
   contract: string // 输出契约原文（只读；随程序版本）
@@ -265,7 +265,7 @@ export type AuthScheme = 'bearer' | 'x-api-key'
 // 输出上限字段（OpenAI 兼容协议）：多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
 export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens'
 
-// ProviderConfig 是一个 LLM provider 部署（连接参数 + 能力标志）。
+// ProviderConfig 是一个 LLM provider（连接参数 + 能力标志）。
 // code 是稳定引用键（角色路由 FK 指向它），创建后不可改；后端 JSON 字段即 code。
 export interface ProviderConfig {
   code: string
@@ -315,7 +315,7 @@ export interface RoutingResponse {
 
 // 三个复杂度档的字面常量（与后端 llmconfig.ComplexitySimple/Medium/Complex 对齐）：
 // 同时是 llm_role_route.role 的路由键——「能力路由」页按它分组建 provider。
-// 某档未绑定、或其部署停用/缺钥时，运行期按就近降级由相邻档承接。
+// 某档未绑定、或其provider 停用/缺钥时，运行期按就近降级由相邻档承接。
 export const COMPLEXITY_SIMPLE = 'simple'
 export const COMPLEXITY_MEDIUM = 'medium'
 export const COMPLEXITY_COMPLEX = 'complex'

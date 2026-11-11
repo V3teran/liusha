@@ -4,7 +4,7 @@
 // 进程职责（业界最佳实践，Stream-based 解耦）：
 //  1. config.Load + db.NewRedis + db.NewPgPool 启动依赖
 //  2. settingstore 读 proxy_filter 组（DB 为过滤规则唯一事实源）→ filter.NewTrafficFilter
-//  3. proxy.NewPublisher（XADD 到 Redis Stream `liusha:flow_events`，MAXLEN ~ 100k）
+//  3. proxy.NewPublisher（XADD 到 Redis Stream `liusha:traffic_snapshots`，MAXLEN ~ 100k）
 //  4. proxy.NewServer + Run（监听 LIUSHA_PROXY_LISTEN_ADDR，默认 0.0.0.0:8588）
 //  5. cachestore.Subscribe + OnInvalidate：proxy_filter 组热改经失效总线广播到本进程，
 //     重读 settingstore 重建过滤链并 Server.SwapFilter 原子换入（真热改，无需重启）

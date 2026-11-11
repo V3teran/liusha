@@ -171,7 +171,7 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 	}
 	if conversationID != "" {
 		s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusDispatched,
-			"已下发扫描，agent 启动中…", nil)
+			"任务已下发，智能体启动中…", nil)
 	}
 	return taskID, runID, nil
 }
@@ -214,7 +214,7 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 		if err := s.Conversations.LinkTask(ctx, created.ID, taskID); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", created.ID).Msg("link task 失败")
 		}
-		s.appendTaskStatus(ctx, created.ID, conversation.TaskStatusDispatched, "已下发扫描，agent 启动中…", nil)
+		s.appendTaskStatus(ctx, created.ID, conversation.TaskStatusDispatched, "任务已下发，智能体启动中…", nil)
 		go s.genTitle(created.ID, b) //nolint:gosec // G118：标题生成独立生命周期
 		out = append(out, httpapi.DispatchedTask{TaskID: taskID, ConversationID: created.ID})
 		dispatchLog.Info().
@@ -409,7 +409,7 @@ func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 	// 续接同款下发边界：时间线标记新一轮 run 启动（与首发的 dispatched 同形）。
 	if conversationID != "" {
 		s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusDispatched,
-			"已续接扫描，agent 启动中…", nil)
+			"任务已续接，智能体启动中…", nil)
 	}
 	return runID, nil
 }
@@ -467,7 +467,7 @@ func (s *Service) PauseTask(ctx context.Context, taskID string) error {
 		return nil
 	}
 	if convID, rErr := s.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil && convID != "" {
-		s.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused, "扫描已暂停（进度保留）", nil)
+		s.appendTaskStatus(ctx, convID, conversation.TaskStatusPaused, "任务已暂停（进度保留）", nil)
 	}
 	return nil
 }
@@ -515,7 +515,7 @@ func (s *Service) ResumeTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("dispatch: resume task: %w", err)
 	}
 	if conversationID != "" {
-		s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusResumed, "扫描已继续", nil)
+		s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusResumed, "任务已继续", nil)
 	}
 	return nil
 }
@@ -531,7 +531,7 @@ func (s *Service) TerminateTask(ctx context.Context, taskID string) error {
 		return err
 	}
 	if convID, err := s.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
-		s.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted, "扫描已停止", nil)
+		s.appendTaskStatus(ctx, convID, conversation.TaskStatusAborted, "任务已停止", nil)
 	}
 	return nil
 }
@@ -620,7 +620,7 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 		}
 		if _, _, err := s.createTask(ctx, content, conversationID, attachments, userMsgSeq); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("扫描下发失败")
-			s.publishNotice(ctx, conversationID, "（扫描下发失败："+err.Error()+"）")
+			s.publishNotice(ctx, conversationID, "（任务下发失败："+err.Error()+"）")
 			return
 		}
 		go s.genTitle(conversationID, content) //nolint:gosec // G118：标题生成独立生命周期
@@ -637,17 +637,17 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 	if isAction {
 		if tk.Status == task.StatusActive {
 			// 忙：agent 在跑。不排队不拒绝，时间线给可见反馈（原 409 busy 语义）。
-			// 暂停中的任务同闸拦截但给暂停专属指引——「扫描进行中」对暂停任务是误导。
+			// 暂停中的任务同闸拦截但给暂停专属指引——「任务进行中」对暂停任务是误导。
 			if tk.Paused {
-				s.publishNotice(ctx, conversationID, "（扫描已暂停，本条指令未下发；在任务页点「继续」恢复后再下发）")
+				s.publishNotice(ctx, conversationID, "（任务已暂停，本条指令未下发；点「继续」恢复后再下发）")
 			} else {
-				s.publishNotice(ctx, conversationID, "（扫描进行中，本条指令未下发；停止扫描后可重发）")
+				s.publishNotice(ctx, conversationID, "（任务进行中，本条指令未下发；停止任务后可重发）")
 			}
 			return
 		}
 		if _, err := s.FollowUp(ctx, taskID, conversationID, content, attachments, userMsgSeq); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("续接扫描失败")
-			s.publishNotice(ctx, conversationID, "（扫描下发失败："+err.Error()+"）")
+			s.publishNotice(ctx, conversationID, "（任务下发失败："+err.Error()+"）")
 		}
 		return
 	}

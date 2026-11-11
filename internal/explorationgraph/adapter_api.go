@@ -40,7 +40,7 @@ func (s *Store) ListNodesByConversationID(ctx context.Context, conversationID st
 	if taskID == "" {
 		return []Node{}, nil
 	}
-	return s.ListNodesForAPI(ctx, taskID, kind)
+	return s.ListNodesByTask(ctx, taskID, kind)
 }
 
 // ListEdgesByConversationID 按 conversation_id 查询边（经会话关联的 task）。
@@ -52,11 +52,11 @@ func (s *Store) ListEdgesByConversationID(ctx context.Context, conversationID st
 	if taskID == "" {
 		return []Edge{}, nil
 	}
-	return s.ListEdgesForAPI(ctx, taskID)
+	return s.ListEdgesByTask(ctx, taskID)
 }
 
-// ListNodesForAPI 按 task_id 和可选 kind 查询节点（会话解析后的内部查询路径）
-func (s *Store) ListNodesForAPI(ctx context.Context, taskID string, kind string) ([]Node, error) {
+// ListNodesByTask 按 task_id 查询节点，kind 非空时只取该类型（按创建时间升序）。
+func (s *Store) ListNodesByTask(ctx context.Context, taskID string, kind string) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Filters: map[string]interface{}{
 			"task_id": taskID,
@@ -77,9 +77,9 @@ func (s *Store) ListNodesForAPI(ctx context.Context, taskID string, kind string)
 	return s.convertGraphNodesToNodes(nodes), nil
 }
 
-// ListEdgesForAPI 按 task_id 查询边（HTTP API 专用）。
+// ListEdgesByTask 按 task_id 查询边。
 // 边查询按 task_id 列过滤（有索引），不做全表拉取后内存过滤。
-func (s *Store) ListEdgesForAPI(ctx context.Context, taskID string) ([]Edge, error) {
+func (s *Store) ListEdgesByTask(ctx context.Context, taskID string) ([]Edge, error) {
 	graphEdges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{TaskID: taskID})
 	if err != nil {
 		return nil, fmt.Errorf("list edges: %w", err)

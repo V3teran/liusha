@@ -223,7 +223,7 @@ export function ProvidersView() {
           </div>
         ) : filtered.length === 0 && !isNew ? (
           <div className="py-10 text-center text-sm text-text-secondary">
-            {query.trim() ? '无匹配部署' : '暂无部署——点「新建」接入第一个 provider'}
+            {query.trim() ? '无匹配 provider' : '暂无 provider——点「新建」接入第一个 provider'}
           </div>
         ) : (
           <ul className="flex flex-col divide-y divide-border">

@@ -24,7 +24,7 @@ func TestMemoryGraphStore_CreateAndGetNode(t *testing.T) {
 		Kind:      string(core.KindAction),
 		Content:   json.RawMessage(`{"title":"test action"}`),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
-		State:     string(core.ActionStateOpen),
+		State:     string(core.NodeStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -39,7 +39,7 @@ func TestMemoryGraphStore_CreateAndGetNode(t *testing.T) {
 	require.NoError(t, err, "获取节点应该成功")
 	assert.Equal(t, "node-1", retrieved.ID)
 	assert.Equal(t, string(core.KindAction), retrieved.Kind)
-	assert.Equal(t, string(core.ActionStateOpen), retrieved.State)
+	assert.Equal(t, string(core.NodeStateOpen), retrieved.State)
 	assert.JSONEq(t, `{"title":"test action"}`, string(retrieved.Content))
 }
 
@@ -63,7 +63,7 @@ func TestMemoryGraphStore_UpdateNode(t *testing.T) {
 		ID:        "node-1",
 		Kind:      string(core.KindAction),
 		Content:   json.RawMessage(`{"title":"initial"}`),
-		State:     string(core.ActionStateOpen),
+		State:     string(core.NodeStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -72,7 +72,7 @@ func TestMemoryGraphStore_UpdateNode(t *testing.T) {
 
 	// 更新节点
 	update := core.GraphNodeUpdate{
-		State:   string(core.ActionStateRunning),
+		State:   string(core.NodeStateRunning),
 		Content: json.RawMessage(`{"title":"updated"}`),
 	}
 	err := store.UpdateNode(ctx, "node-1", update)
@@ -81,7 +81,7 @@ func TestMemoryGraphStore_UpdateNode(t *testing.T) {
 	// 验证更新
 	updated, err := store.GetNode(ctx, "node-1")
 	require.NoError(t, err)
-	assert.Equal(t, string(core.ActionStateRunning), updated.State)
+	assert.Equal(t, string(core.NodeStateRunning), updated.State)
 	assert.JSONEq(t, `{"title":"updated"}`, string(updated.Content))
 	assert.Equal(t, int64(2), updated.Version, "版本号应该递增")
 }
@@ -95,7 +95,7 @@ func TestMemoryGraphStore_CompareAndSwapState(t *testing.T) {
 	node := &core.GraphNode{
 		ID:        "node-1",
 		Kind:      string(core.KindAction),
-		State:     string(core.ActionStateOpen),
+		State:     string(core.NodeStateOpen),
 		Metadata:  map[string]interface{}{"task_id": "task-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -106,29 +106,29 @@ func TestMemoryGraphStore_CompareAndSwapState(t *testing.T) {
 	t.Run("CAS成功 - 状态匹配", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "task-1", "node-1",
-			string(core.ActionStateOpen),
-			string(core.ActionStateRunning),
+			string(core.NodeStateOpen),
+			string(core.NodeStateRunning),
 		)
 		require.NoError(t, err)
 		assert.True(t, swapped, "状态匹配时CAS应该成功")
 
 		// 验证状态已更新
 		updated, _ := store.GetNode(ctx, "node-1")
-		assert.Equal(t, string(core.ActionStateRunning), updated.State)
+		assert.Equal(t, string(core.NodeStateRunning), updated.State)
 	})
 
 	t.Run("CAS失败 - 状态不匹配", func(t *testing.T) {
 		swapped, err := store.CompareAndSwapState(
 			ctx, "task-1", "node-1",
-			string(core.ActionStateOpen), // 期望是 open，但实际是 running
-			string(core.ActionStateCompleted),
+			string(core.NodeStateOpen), // 期望是 open，但实际是 running
+			string(core.NodeStateCompleted),
 		)
 		require.NoError(t, err)
 		assert.False(t, swapped, "状态不匹配时CAS应该失败")
 
 		// 验证状态未改变
 		node, _ := store.GetNode(ctx, "node-1")
-		assert.Equal(t, string(core.ActionStateRunning), node.State)
+		assert.Equal(t, string(core.NodeStateRunning), node.State)
 	})
 }
 
@@ -141,7 +141,7 @@ func TestMemoryGraphStore_DeleteNode(t *testing.T) {
 	node := &core.GraphNode{
 		ID:        "node-1",
 		Kind:      string(core.KindAction),
-		State:     string(core.ActionStateOpen),
+		State:     string(core.NodeStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -167,7 +167,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		{
 			ID:        "node-1",
 			Kind:      string(core.KindAction),
-			State:     string(core.ActionStateOpen),
+			State:     string(core.NodeStateOpen),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -176,7 +176,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		{
 			ID:        "node-2",
 			Kind:      string(core.KindObjective),
-			State:     string(core.ActionStateRunning),
+			State:     string(core.NodeStateRunning),
 			Metadata:  map[string]interface{}{"task_id": "task-1"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -185,7 +185,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 		{
 			ID:        "node-3",
 			Kind:      string(core.KindAction),
-			State:     string(core.ActionStateCompleted),
+			State:     string(core.NodeStateCompleted),
 			Metadata:  map[string]interface{}{"task_id": "task-2"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -217,7 +217,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 
 	t.Run("按State查询", func(t *testing.T) {
 		query := core.GraphNodeQuery{
-			State: string(core.ActionStateOpen),
+			State: string(core.NodeStateOpen),
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)

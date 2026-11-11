@@ -1,4 +1,4 @@
-// Package llmconfig 是 LLM 配置（provider 部署 / 复杂度路由）的持久化层。
+// Package llmconfig 是 LLM 配置（provider / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
 // 事实源是 DB（前端「LLM 配置」页改这里）；config.yaml 只在空库时引导一次（internal/config/seed）。
@@ -52,7 +52,7 @@ const (
 	OutputLimitMaxCompletionTokens = "max_completion_tokens"
 )
 
-// Provider 是一个 LLM provider 部署（连接参数 + 能力标志）。SupportsVision/ContextWindow
+// Provider 是一个 LLM provider（连接参数 + 能力标志）。SupportsVision/ContextWindow
 // 在 DB 为 NOT NULL（schema 层强制），故用非指针类型，无需区分「未填」。
 //
 // API Key 两条路径，前端优先（见 ResolveAPIKey）：EncryptedAPIKey 非空时用它（前端直填 →
@@ -159,7 +159,7 @@ func NormalizeBaseURL(protocol, raw string) string {
 // Validate 校验 provider 配置——HTTP 写入与 store 落库共用的唯一口径：
 // 协议类型、绝对 http(s) Base URL、显示名称、默认模型、上下文窗口、输出上限，以及扩展思考
 // 预算的协议约束（仅 anthropic；开启时 ≥ MinThinkingBudgetTokens 且小于实际 max_tokens——
-// 运行期构造 client 时同样校验，不合法的部署会让整档不可用）。
+// 运行期构造 client 时同样校验，不合法的 provider会让整档不可用）。
 func (p ProviderParams) Validate() error {
 	switch p.Type {
 	case ProviderTypeOpenAICompat, ProviderTypeAnthropic:

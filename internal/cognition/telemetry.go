@@ -46,7 +46,7 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 			invID, appendErr := d.ToolCalls.Append(ctx, toolinvocation.Invocation{
 				AgentRunID:    agentRunID,
 				TaskID:        taskID,
-				Role:          AgentFromCtx(ctx),
+				Role:          AgentFromContext(ctx),
 				ToolName:      t.Name(),
 				Args:          json.RawMessage(args),
 				OutputSize:    len(res.Output),

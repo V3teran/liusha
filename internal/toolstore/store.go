@@ -14,8 +14,8 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// NewStore 用 pgxpool 构造 Store。
-func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+// New 用 pgxpool 构造 Store。
+func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "name, kind, category, description, sort_order, synced_at"

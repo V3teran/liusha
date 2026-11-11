@@ -17,7 +17,7 @@ import (
 
 // fakeConfig 是 ConfigAPI 的可编程桩：记录最近一次写入的参数。
 type fakeConfig struct {
-	agents []agent.Profile
+	agents []agent.Agent
 
 	toggled struct {
 		code, field, elem string
@@ -29,12 +29,12 @@ type fakeConfig struct {
 	patchErr    error
 }
 
-func (f *fakeConfig) Agents(context.Context) ([]agent.Profile, error) { return f.agents, nil }
+func (f *fakeConfig) Agents(context.Context) ([]agent.Agent, error) { return f.agents, nil }
 
 func (f *fakeConfig) AgentDetails(context.Context) ([]configstore.AgentDetail, error) {
 	out := make([]configstore.AgentDetail, 0, len(f.agents))
 	for _, a := range f.agents {
-		out = append(out, configstore.AgentDetail{Profile: a, Overrides: map[string]override.State{}})
+		out = append(out, configstore.AgentDetail{Agent: a, Overrides: map[string]override.State{}})
 	}
 	return out, nil
 }
@@ -42,26 +42,26 @@ func (f *fakeConfig) AgentDetails(context.Context) ([]configstore.AgentDetail, e
 func (f *fakeConfig) AgentDetail(ctx context.Context, code string) (configstore.AgentDetail, error) {
 	all, _ := f.AgentDetails(ctx)
 	for _, d := range all {
-		if d.Profile.Code == code {
+		if d.Agent.Code == code {
 			return d, nil
 		}
 	}
 	return configstore.AgentDetail{}, fmt.Errorf("agent %q %w", code, configstore.ErrNotFound)
 }
 
-func (f *fakeConfig) PatchAgent(_ context.Context, code string, changes override.Document) (agent.Profile, error) {
+func (f *fakeConfig) PatchAgent(_ context.Context, code string, changes override.Document) (agent.Agent, error) {
 	f.patched = changes
-	return agent.Profile{Code: code}, f.patchErr
+	return agent.Agent{Code: code}, f.patchErr
 }
 
-func (f *fakeConfig) ToggleAgent(_ context.Context, code, field, elem string, on bool) (agent.Profile, error) {
+func (f *fakeConfig) ToggleAgent(_ context.Context, code, field, elem string, on bool) (agent.Agent, error) {
 	f.toggled.code, f.toggled.field, f.toggled.elem, f.toggled.on = code, field, elem, on
-	return agent.Profile{Code: code}, nil
+	return agent.Agent{Code: code}, nil
 }
 
-func (f *fakeConfig) ResetAgent(_ context.Context, code string, fields ...string) (agent.Profile, error) {
+func (f *fakeConfig) ResetAgent(_ context.Context, code string, fields ...string) (agent.Agent, error) {
 	f.resetFields = fields
-	return agent.Profile{Code: code}, nil
+	return agent.Agent{Code: code}, nil
 }
 
 func (f *fakeConfig) DeletePromptArchive(_ context.Context, code string) error {
@@ -86,8 +86,8 @@ func (f fakeToolCatalog) Get(_ context.Context, name string) (toolstore.Definiti
 	return toolstore.Definition{}, fmt.Errorf("tool %s 不存在", name)
 }
 
-func twoAgents() []agent.Profile {
-	return []agent.Profile{
+func twoAgents() []agent.Agent {
+	return []agent.Agent{
 		{Code: "executor", Name: "执行者", Config: agent.Config{CliTools: []string{"*"}, FunctionTools: []string{"http_request"}}},
 		{Code: "planner", Name: "规划者", Config: agent.Config{CliTools: []string{}, FunctionTools: []string{"observe_state"}}},
 	}

@@ -8,7 +8,7 @@ import {
   saveRoleRoute,
   deleteRoleRoute,
 } from '@/api/models'
-import { listAgentConfigs, patchAgent } from '@/api/config'
+import { listAgents, patchAgent } from '@/api/config'
 import type { ProviderConfig } from '@/api/types'
 
 // LLM 配置数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
@@ -20,7 +20,7 @@ export const modelKeys = {
   agents: ['agents', 'configs'] as const,
 }
 
-/** 全量 provider 部署（含 disabled，路由绑定选择器一次拉全）。 */
+/** 全量 provider（含 disabled，路由绑定选择器一次拉全）。 */
 export function useProviders() {
   return useQuery({
     queryKey: modelKeys.providers,
@@ -37,10 +37,10 @@ export function useRouting() {
 }
 
 /** 全量智能体配置（complexity 归档的消费面）。 */
-export function useAgentConfigs() {
+export function useAgents() {
   return useQuery({
     queryKey: modelKeys.agents,
-    queryFn: listAgentConfigs,
+    queryFn: listAgents,
   })
 }
 
@@ -84,16 +84,16 @@ export function useRestoreProviderEnvKey() {
  * 绑定档位 → provider。乐观更新：onMutate 先写缓存让 select 即时反映，
  * 失败回滚快照（组件无需自管回滚态），成功后 invalidate 拉权威值。
  */
-type RouteVars = { role: string; providerKey: string }
+type RouteVars = { role: string; providerCode: string }
 
 export function useSaveRoleRoute() {
   const qc = useQueryClient()
   return useMutation<void, Error, RouteVars, { prev: unknown }>({
-    mutationFn: async ({ role, providerKey }: RouteVars) => {
-      if (providerKey === '') await deleteRoleRoute(role)
-      else await saveRoleRoute(role, providerKey)
+    mutationFn: async ({ role, providerCode }: RouteVars) => {
+      if (providerCode === '') await deleteRoleRoute(role)
+      else await saveRoleRoute(role, providerCode)
     },
-    onMutate: async ({ role, providerKey }) => {
+    onMutate: async ({ role, providerCode }) => {
       await qc.cancelQueries({ queryKey: modelKeys.routing })
       const prev = qc.getQueryData(modelKeys.routing)
       qc.setQueryData(modelKeys.routing, (old: unknown) => {
@@ -101,7 +101,7 @@ export function useSaveRoleRoute() {
         const cur = old as { routes?: { role: string; provider_code: string }[] } | undefined
         if (!cur?.routes) return old
         const routes = cur.routes.filter((r) => r.role !== role)
-        if (providerKey !== '') routes.push({ role, provider_code: providerKey })
+        if (providerCode !== '') routes.push({ role, provider_code: providerCode })
         return { ...cur, routes }
       })
       return { prev }

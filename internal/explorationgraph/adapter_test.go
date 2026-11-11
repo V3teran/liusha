@@ -46,7 +46,7 @@ func TestStore_CreateNode(t *testing.T) {
 	node, err := store.GetNode(ctx, "action-1")
 	require.NoError(t, err)
 	assert.Equal(t, core.KindAction, node.Kind)
-	assert.Equal(t, core.ActionStateOpen, *node.State)
+	assert.Equal(t, core.NodeStateOpen, *node.State)
 }
 
 // TestStore_ActionStateManagement 验证状态机：列表、带理由状态迁移、CAS。
@@ -73,7 +73,7 @@ func TestStore_ActionStateManagement(t *testing.T) {
 
 		node, err := store.GetNode(ctx, "action-open-1")
 		require.NoError(t, err)
-		assert.Equal(t, core.ActionStateRunning, *node.State)
+		assert.Equal(t, core.NodeStateRunning, *node.State)
 		assert.Equal(t, reason, *node.BlockedReason, "迁移原因落 metadata.blocked_reason")
 	})
 

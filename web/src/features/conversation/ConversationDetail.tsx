@@ -228,7 +228,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
                 style={{ background: topStatus.color }}
               />
-              {paused ? '已暂停（进度保留）' : scanning ? 'agent 工作中…' : topStatus.label}
+              {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
             </span>
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-sev-medium" title="实时连接断开，正在自动重连…">

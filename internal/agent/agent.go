@@ -26,8 +26,8 @@ type Config struct {
 	Complexity    string   `json:"complexity"`     // LLM 档位：simple | medium | complex
 }
 
-// Profile 是一个 agent 的生效配置。
-type Profile struct {
+// Agent 是一个 agent 的生效配置。
+type Agent struct {
 	Code string `json:"code"`
 	Name string `json:"name"`
 	Config
@@ -103,12 +103,12 @@ func DefaultsDocument(b builtin.Agent) override.Document {
 }
 
 // Resolve 合成生效配置：出厂值叠加用户层。
-func Resolve(b builtin.Agent, ov override.Overrides, c Catalog) (Profile, error) {
+func Resolve(b builtin.Agent, ov override.Overrides, c Catalog) (Agent, error) {
 	var cfg Config
 	if err := override.FromDocument(override.Apply(Schema(c), DefaultsDocument(b), ov), &cfg); err != nil {
-		return Profile{}, fmt.Errorf("agent %s: 合成生效配置: %w", b.Code, err)
+		return Agent{}, fmt.Errorf("agent %s: 合成生效配置: %w", b.Code, err)
 	}
-	return Profile{Code: b.Code, Name: b.Name, Config: cfg}, nil
+	return Agent{Code: b.Code, Name: b.Name, Config: cfg}, nil
 }
 
 // Validate 校验生效配置（写入前对「应用本次修改后的结果」整体校验）。

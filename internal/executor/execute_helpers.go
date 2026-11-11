@@ -16,8 +16,8 @@ import (
 	"github.com/V3teran/liusha/internal/repro"
 )
 
-// ActionData 是从 action.Content 解析出的数据
-type ActionData struct {
+// ActionContent 是从 action.Content 解析出的数据
+type ActionContent struct {
 	Type        string `json:"type"`
 	Instruction string `json:"instruction"`
 	Complexity  string `json:"complexity"`
@@ -25,8 +25,8 @@ type ActionData struct {
 }
 
 // parseActionContent 从 action 节点中解析内容
-func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionData, error) {
-	var data ActionData
+func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionContent, error) {
+	var data ActionContent
 	if err := json.Unmarshal(action.Content, &data); err != nil {
 		return nil, fmt.Errorf("解析 Action 失败: %w", err)
 	}
@@ -48,18 +48,18 @@ func (e *Engine) prepareReActTools() []registry.Tool {
 func (e *Engine) buildReActConfigWithMonitoring(
 	ctx context.Context,
 	action explorationgraph.Node,
-	actionData *ActionData,
+	actionContent *ActionContent,
 	tools []registry.Tool,
 	kill *killSwitch,
 ) (*runtime.ReActConfig, error) {
 	// 构建执行目标
 	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
-		actionData.Instruction,
-		actionData.Type,
-		actionData.Host)
+		actionContent.Instruction,
+		actionContent.Type,
+		actionContent.Host)
 
 	// 构建系统提示
-	systemPrompt := e.buildSystemPrompt(actionData.Type, actionData.Complexity, tools)
+	systemPrompt := e.buildSystemPrompt(actionContent.Type, actionContent.Complexity, tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)

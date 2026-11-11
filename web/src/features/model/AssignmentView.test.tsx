@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AssignmentView } from './AssignmentView'
 import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
-import { listAgentConfigs, patchAgent } from '@/api/config'
+import { listAgents, patchAgent } from '@/api/config'
 import type { ProviderConfig, RoutingResponse, AgentListItem } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
@@ -15,7 +15,7 @@ vi.mock('@/api/models', () => ({
 }))
 
 vi.mock('@/api/config', () => ({
-  listAgentConfigs: vi.fn(),
+  listAgents: vi.fn(),
   patchAgent: vi.fn(),
 }))
 
@@ -23,7 +23,7 @@ const mListProv = listProviders as unknown as ReturnType<typeof vi.fn>
 const mGetRouting = getRouting as unknown as ReturnType<typeof vi.fn>
 const mSaveRole = saveRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mDeleteRole = deleteRoleRoute as unknown as ReturnType<typeof vi.fn>
-const mListAgents = listAgentConfigs as unknown as ReturnType<typeof vi.fn>
+const mListAgents = listAgents as unknown as ReturnType<typeof vi.fn>
 const mSaveTier = patchAgent as unknown as ReturnType<typeof vi.fn>
 
 function prov(key: string, enabled = true): ProviderConfig {
@@ -158,15 +158,15 @@ describe('AssignmentView', () => {
   it('已指派档的 select 反映当前 provider', async () => {
     mGetRouting.mockResolvedValue(routing())
     renderView()
-    const sel = (await screen.findByLabelText('标准推理 绑定部署')) as HTMLSelectElement
+    const sel = (await screen.findByLabelText('标准推理 绑定 provider')) as HTMLSelectElement
     expect(sel.value).toBe('deepseek')
   })
 
-  it('改选 provider 调 saveRoleRoute(group, providerKey)', async () => {
+  it('改选 provider 调 saveRoleRoute(group, providerCode)', async () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveRole.mockResolvedValue({ role: 'complex', provider_code: 'qwen' })
     renderView()
-    const sel = await screen.findByLabelText('深度推理 绑定部署')
+    const sel = await screen.findByLabelText('深度推理 绑定 provider')
     await userEvent.selectOptions(sel, 'qwen')
     await waitFor(() => expect(mSaveRole).toHaveBeenCalledWith('complex', 'qwen'))
   })
@@ -175,32 +175,32 @@ describe('AssignmentView', () => {
     mGetRouting.mockResolvedValue(routing())
     mDeleteRole.mockResolvedValue(undefined)
     renderView()
-    const sel = await screen.findByLabelText('深度推理 绑定部署')
+    const sel = await screen.findByLabelText('深度推理 绑定 provider')
     await userEvent.selectOptions(sel, '')
     await waitFor(() => expect(mDeleteRole).toHaveBeenCalledWith('complex'))
   })
 
-  it('指派指向缺失部署时告警「部署缺失」', async () => {
+  it('指派指向缺失 provider时告警「provider 缺失」', async () => {
     mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'complex', provider_code: 'ghost' }] }))
     renderView()
-    expect(await screen.findByText('部署缺失')).toBeTruthy()
+    expect(await screen.findByText('provider 缺失')).toBeTruthy()
   })
 
-  it('指派指向停用部署时告警「部署停用」', async () => {
+  it('指派指向停用 provider时告警「provider 停用」', async () => {
     mListProv.mockResolvedValue([prov('deepseek', false)])
     mGetRouting.mockResolvedValue(routing())
     renderView()
-    expect(await screen.findByText('部署停用')).toBeTruthy()
+    expect(await screen.findByText('provider 停用')).toBeTruthy()
   })
 
-  it('指派部署密钥未就绪时告警「密钥未就绪」', async () => {
+  it('指派 provider 密钥未就绪时告警「密钥未就绪」', async () => {
     mListProv.mockResolvedValue([{ ...prov('deepseek'), key_present: false }])
     mGetRouting.mockResolvedValue(routing())
     renderView()
     expect(await screen.findByText('密钥未就绪')).toBeTruthy()
   })
 
-  it('档内有智能体而部署未声明工具调用时告警；档内无智能体不告警', async () => {
+  it('档内有智能体而 provider 未声明工具调用时告警；档内无智能体不告警', async () => {
     mListProv.mockResolvedValue([{ ...prov('deepseek'), supports_tools: false }])
     mGetRouting.mockResolvedValue(
       routing({
@@ -221,7 +221,7 @@ describe('AssignmentView', () => {
     mGetRouting.mockResolvedValue(routing())
     mSaveRole.mockRejectedValue(new Error('provider_code 不存在，请先创建对应 provider'))
     renderView()
-    const sel = await screen.findByLabelText('标准推理 绑定部署')
+    const sel = await screen.findByLabelText('标准推理 绑定 provider')
     await userEvent.selectOptions(sel, 'qwen')
     expect(await screen.findByText(/provider_code 不存在/)).toBeTruthy()
     expect(alertSpy).not.toHaveBeenCalled()

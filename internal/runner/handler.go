@@ -217,7 +217,7 @@ func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agent
 			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
 		} else {
 			h.appendTaskStatus(writeCtx, taskLogger, conversationID,
-				conversation.TaskStatusFailed, "扫描执行失败",
+				conversation.TaskStatusFailed, "任务执行失败",
 				map[string]any{"reason": err.Error()})
 		}
 	}

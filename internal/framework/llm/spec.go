@@ -75,5 +75,5 @@ type RoutingSpec struct {
 // RouterStore 是 Router 依赖的配置查询子集（业务侧适配实现）。
 type RouterStore interface {
 	GetRouting(ctx context.Context) (RoutingSpec, error)
-	GetProviderSpec(ctx context.Context, key string) (ProviderSpec, error)
+	GetProviderSpec(ctx context.Context, code string) (ProviderSpec, error)
 }

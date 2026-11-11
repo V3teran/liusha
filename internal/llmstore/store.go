@@ -1,10 +1,10 @@
-// Package llmstore 是 LLM 配置（provider 部署 / 复杂度路由）的多级缓存读写层，
+// Package llmstore 是 LLM 配置（provider / 复杂度路由）的多级缓存读写层，
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
 // → DB（事实源，由 internal/llmconfig.Store 打）。
 //
 // 为何分层：api 与 runner 是**多进程**。前端在 api 改模型配置后，runner 的
 // llm.Router 必须在下次 For(complexity) 时读到最新 provider/路由，
-// 否则仍按旧部署装配。故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe
+// 否则仍按旧配置装配。故写路径写 DB 后经 cachestore 广播失效键，各进程共享的 Subscribe
 // goroutine 收到即清本地 L1 + L2，下次读回填最新值。
 //
 // 路由模型：档位（simple/medium/complex）→ provider。调用方先定档位（agent 取生效配置的
@@ -12,7 +12,7 @@
 // framework/llm.Router；本层只管缓存路由快照 + provider 行。
 //
 // 缓存粒度（key 空间固定的读全走 L1/L2 缓存）：
-//   - 单条 provider 读（热路径：每次 For(role) 解析后按 key 取部署）。
+//   - 单条 provider 读（热路径：每次 For(role) 解析后按 code 取 provider）。
 //   - 路由快照（全部角色路由，一次读齐），单哨兵键。
 //   - 全量列表读：ListProviders（按 onlyEnabled 分 2 键）、ListRoleRoutes（单键）。
 //
@@ -34,12 +34,12 @@ import (
 type llmStore interface {
 	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
-	DeleteProvider(ctx context.Context, key string) error
+	DeleteProvider(ctx context.Context, code string) error
 	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
-	GetProvider(ctx context.Context, key string) (llmconfig.Provider, error)
+	GetProvider(ctx context.Context, code string) (llmconfig.Provider, error)
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
 
-	UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error)
+	UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 
@@ -83,10 +83,10 @@ func keyProvidersList(onlyEnabled bool) string {
 // keyRoleRoutesList 是全量角色路由列表读的缓存键（单键）。任一路由写即失效。
 const keyRoleRoutesList = "llmstore:routes:list"
 
-// providerKeys 是一次 provider 写/删要清的全部缓存键：其单条 key 键 + 两个列表键
+// providerKeys 是一次 provider 写/删要清的全部缓存键：其单条缓存键 + 两个列表键
 // （enabled 变动跨 true/false 两表，一律清最省心且正确）。
-func providerKeys(key string) []string {
-	return []string{keyProvider(key), keyProvidersList(true), keyProvidersList(false)}
+func providerKeys(code string) []string {
+	return []string{keyProvider(code), keyProvidersList(true), keyProvidersList(false)}
 }
 
 // routeKeys 是一次角色路由写/删要清的全部缓存键：路由快照哨兵 + 列表键。
@@ -103,12 +103,12 @@ func (s *Store) InvalidateAll(ctx context.Context) error {
 
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
 
-// ProviderByCode 按 code 读 provider 部署（For(role) 解析出 code 后取连接参数 + 能力标志）。
-func (s *Store) ProviderByCode(ctx context.Context, key string) (llmconfig.Provider, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyProvider(key),
+// ProviderByCode 按 code 读 provider（For(role) 解析出 code 后取连接参数 + 能力标志）。
+func (s *Store) ProviderByCode(ctx context.Context, code string) (llmconfig.Provider, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyProvider(code),
 		func(p llmconfig.Provider) []string { return []string{keyProvider(p.Code)} },
 		func(ctx context.Context) (llmconfig.Provider, error) {
-			return s.db.GetProvider(ctx, key)
+			return s.db.GetProvider(ctx, code)
 		})
 }
 
@@ -165,13 +165,13 @@ func (s *Store) UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) 
 	return pr, s.cache.Invalidate(ctx, providerKeys(pr.Code)...)
 }
 
-// DeleteProvider 按 key 删 provider，失效其 provider 键 + 列表键。
+// DeleteProvider 按 code 删 provider，失效其 provider 键 + 列表键。
 // 被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束，错误透传给 handler 转 409。
-func (s *Store) DeleteProvider(ctx context.Context, key string) error {
-	if err := s.db.DeleteProvider(ctx, key); err != nil {
+func (s *Store) DeleteProvider(ctx context.Context, code string) error {
+	if err := s.db.DeleteProvider(ctx, code); err != nil {
 		return err
 	}
-	return s.cache.Invalidate(ctx, providerKeys(key)...)
+	return s.cache.Invalidate(ctx, providerKeys(code)...)
 }
 
 // ClearProviderKey 清除 provider 的加密密钥（密文+尾号置空），api_key_env 引用原样保留——
@@ -188,8 +188,8 @@ func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmconfig.Pr
 }
 
 // UpsertRoleRoute upsert 一个角色 → provider code 直连映射，失效路由快照 + 路由列表键。
-func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerKey string) (llmconfig.RoleRoute, error) {
-	rr, err := s.db.UpsertRoleRoute(ctx, role, providerKey)
+func (s *Store) UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error) {
+	rr, err := s.db.UpsertRoleRoute(ctx, role, providerCode)
 	if err != nil {
 		return llmconfig.RoleRoute{}, err
 	}
@@ -228,9 +228,9 @@ func (a *RouterStoreAdapter) GetRouting(ctx context.Context) (fwllm.RoutingSpec,
 	return fwllm.RoutingSpec{Roles: r.Roles}, nil
 }
 
-// GetProviderSpec 实现 llm.RouterStore：按 provider code 读部署行 → 解析密钥 → 框架 spec。
-func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, key string) (fwllm.ProviderSpec, error) {
-	p, err := a.s.ProviderByCode(ctx, key)
+// GetProviderSpec 实现 llm.RouterStore：按 provider code 读 provider 行 → 解析密钥 → 框架 spec。
+func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, code string) (fwllm.ProviderSpec, error) {
+	p, err := a.s.ProviderByCode(ctx, code)
 	if err != nil {
 		return fwllm.ProviderSpec{}, err
 	}

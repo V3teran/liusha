@@ -78,7 +78,7 @@ echo "  ✓ postgres 业务表已 truncate（$(echo "$TABLES" | awk -F', ' '{pri
 # redis FLUSHDB → 立即重建 ingestor consumer group
 if docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" FLUSHDB >/dev/null 2>&1; then
   echo "  ✓ redis FLUSHDB"
-  docker exec "$REDIS_CONTAINER" redis-cli XGROUP CREATE flow_events liusha-ingestor 0 MKSTREAM \
+  docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" --no-auth-warning XGROUP CREATE liusha:traffic_snapshots liusha-ingestor 0 MKSTREAM \
     >/dev/null 2>&1 || true
   echo "  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）"
 else

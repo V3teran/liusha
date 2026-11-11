@@ -77,7 +77,7 @@ type Message struct {
 // 各迁移写者随迁移落的可见事件（dispatched 是下发时刻的记录，paused/resumed
 // 是暂停/继续的操作回执，均无对应终态列）。
 const (
-	TaskStatusDispatched = "dispatched" // 已下发扫描（api 入队成功后）
+	TaskStatusDispatched = "dispatched" // 任务已下发（api 入队成功后）
 	TaskStatusCompleted  = "completed"  // 认知循环自然收敛（runner）
 	TaskStatusAborted    = "aborted"    // 用户停止 / 判死（api / reaper）
 	TaskStatusFailed     = "failed"     // 执行失败（runner failTask）

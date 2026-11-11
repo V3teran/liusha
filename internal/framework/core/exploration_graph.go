@@ -40,32 +40,33 @@ const (
 // 约束 ck_exploration_edge_rel 严格一致）；本层 GraphNode.Rel 以 string 承载，
 // 不在本层重复定义枚举（两处定义有漂移风险）。
 
-// ActionState 是动作的执行状态
-type ActionState string
+// NodeState 是节点状态（GraphNode.State）：只有 action 与 objective 有状态，
+// observation / result 为空（DB 约束 ck_state_by_kind）。
+type NodeState string
 
 const (
-	// ActionStateOpen 待执行
-	ActionStateOpen ActionState = "open"
+	// NodeStateOpen 待执行
+	NodeStateOpen NodeState = "open"
 
-	// ActionStateRunning 执行中
-	ActionStateRunning ActionState = "running"
+	// NodeStateRunning 执行中
+	NodeStateRunning NodeState = "running"
 
-	// ActionStateCompleted 已完成
-	ActionStateCompleted ActionState = "completed"
+	// NodeStateCompleted 已完成
+	NodeStateCompleted NodeState = "completed"
 
-	// ActionStateFailed 执行失败
-	ActionStateFailed ActionState = "failed"
+	// NodeStateFailed 执行失败
+	NodeStateFailed NodeState = "failed"
 
-	// ActionStateExhausted 已穷尽：action 是执行预算耗尽、经强制总结收尾；
+	// NodeStateExhausted 已穷尽：action 是执行预算耗尽、经强制总结收尾；
 	// 派生 objective 是任务结束时方向仍未达成
-	ActionStateExhausted ActionState = "exhausted"
+	NodeStateExhausted NodeState = "exhausted"
 
-	// ActionStateAborted 被中止
-	ActionStateAborted ActionState = "aborted"
+	// NodeStateAborted 被中止
+	NodeStateAborted NodeState = "aborted"
 
-	// ActionStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
+	// NodeStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
 	// 接管，本目标不再作为独立方向推进；与 supersedes 边同时落定，永不迁出）
-	ActionStateSuperseded ActionState = "superseded"
+	NodeStateSuperseded NodeState = "superseded"
 )
 
 // ObservationConfidence 是观察的图级状态。探索图是领域中立的认知架构：
@@ -109,12 +110,12 @@ const (
 )
 
 // IsTerminal 判断动作状态是否为终态
-func (s ActionState) IsTerminal() bool {
-	return s == ActionStateCompleted ||
-		s == ActionStateFailed ||
-		s == ActionStateExhausted ||
-		s == ActionStateAborted ||
-		s == ActionStateSuperseded
+func (s NodeState) IsTerminal() bool {
+	return s == NodeStateCompleted ||
+		s == NodeStateFailed ||
+		s == NodeStateExhausted ||
+		s == NodeStateAborted ||
+		s == NodeStateSuperseded
 }
 
 // String 返回节点类型的字符串表示
@@ -123,6 +124,6 @@ func (k NodeKind) String() string {
 }
 
 // String 返回动作状态的字符串表示
-func (s ActionState) String() string {
+func (s NodeState) String() string {
 	return string(s)
 }
