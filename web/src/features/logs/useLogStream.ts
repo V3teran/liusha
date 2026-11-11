@@ -61,17 +61,7 @@ export function useLogStream(filters: LogFilters, live: boolean): LogStream {
         const res = await readLogs(filters, cursorsRef.current, limit)
         if (cancelled || myReq !== reqIdRef.current) return
         cursorsRef.current = res.cursors
-        setByService((prev) => {
-          const next = new Map(prev)
-          for (const name of res.reset) next.delete(name) // 轮转：该进程整段重取
-          for (const e of res.entries) {
-            const bucket = next.get(e.service) ?? []
-            bucket.push(e)
-            if (bucket.length > MAX_ENTRIES) bucket.splice(0, bucket.length - MAX_ENTRIES)
-            next.set(e.service, bucket)
-          }
-          return next
-        })
+        setByService((prev) => mergeEntries(prev, res.reset, res.entries))
         setTruncated(new Set(res.truncated))
         setError(null)
       } catch (err) {
@@ -107,4 +97,27 @@ export function useLogStream(filters: LogFilters, live: boolean): LogStream {
   }
 
   return { byService, truncated, error, loading, refresh }
+}
+
+// mergeEntries 把一批增量并入按进程分桶的累积（纯函数：不改 prev 及其数组——React 可能对同一
+// prev 重放更新函数，原地 push 会把同一批日志追加两次）。reset 中的进程先整段丢弃（日志轮转后
+// 整段重取）；每桶超 MAX_ENTRIES 丢最旧。
+function mergeEntries(
+  prev: ReadonlyMap<string, LogEntry[]>,
+  reset: readonly string[],
+  entries: readonly LogEntry[],
+): Map<string, LogEntry[]> {
+  const next = new Map(prev)
+  for (const name of reset) next.delete(name)
+  const incoming = new Map<string, LogEntry[]>()
+  for (const e of entries) {
+    const bucket = incoming.get(e.service) // 本函数新建的局部数组，可就地追加
+    if (bucket) bucket.push(e)
+    else incoming.set(e.service, [e])
+  }
+  for (const [service, added] of incoming) {
+    const merged = [...(next.get(service) ?? []), ...added]
+    next.set(service, merged.length > MAX_ENTRIES ? merged.slice(merged.length - MAX_ENTRIES) : merged)
+  }
+  return next
 }

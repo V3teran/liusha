@@ -178,3 +178,25 @@ describe('FindingDrawer', () => {
     expect(screen.getByPlaceholderText(/处置思路/)).toHaveValue('note2')
   })
 })
+
+describe('FindingDrawer 可访问性', () => {
+  // axe 实测：关闭钮无可访问名称、处置表单的 label 未关联控件、可横向滚动的 pre 键盘不可达。
+  it('关闭钮有名称，处置控件可按标签定位', () => {
+    const finding = makeFinding({ status: 'confirmed', severity: 'medium' })
+    render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
+    expect(screen.getByRole('button', { name: '关闭' })).toBeTruthy()
+    expect(screen.getByLabelText('状态')).toHaveValue('confirmed')
+    expect(screen.getByLabelText('严重度')).toHaveValue('medium')
+    expect(screen.getByLabelText('备注').tagName).toBe('TEXTAREA')
+  })
+
+  it('复现命令块可被键盘聚焦（可滚动区域）', () => {
+    const finding = makeFinding({
+      repro: { domain: 'web', recipe: { request: { method: 'GET', url: 'http://t/a?q=1' } }, assert: {} },
+    } as Partial<FindingRow>)
+    const { container } = render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
+    const pres = [...(container.ownerDocument.querySelectorAll('pre') as NodeListOf<HTMLPreElement>)]
+    expect(pres.length).toBeGreaterThan(0)
+    for (const pre of pres) expect(pre.tabIndex).toBe(0)
+  })
+})

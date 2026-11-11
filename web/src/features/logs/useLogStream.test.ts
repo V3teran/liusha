@@ -1,3 +1,4 @@
+import { StrictMode, createElement, type ReactNode } from 'react'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLogStream } from './useLogStream'
@@ -34,5 +35,21 @@ describe('useLogStream 轮询', () => {
       await vi.advanceTimersByTimeAsync(3_000)
     })
     expect(mockedRead).toHaveBeenCalledTimes(2)
+  })
+
+  // 状态更新函数必须是纯函数：React（开发态 StrictMode、并发渲染重放）可能对同一 prev 调用
+  // 两次。曾在更新函数里 push 进上一份 state 的数组，导致同一批日志被追加两次（key 重复告警）。
+  it('StrictMode 下增量合并不重复追加', async () => {
+    const entry = (offset: number) => ({ service: 'api', offset, level: 'info', time: '', message: `m${offset}` })
+    mockedRead.mockResolvedValueOnce({ entries: [entry(1), entry(2)], cursors: { api: 2 }, reset: [], truncated: [] } as never)
+    mockedRead.mockResolvedValueOnce({ entries: [entry(3)], cursors: { api: 3 }, reset: [], truncated: [] } as never)
+    mockedRead.mockResolvedValue(page() as never)
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(StrictMode, null, children)
+    const { result } = renderHook(() => useLogStream(FILTERS, true), { wrapper })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_500)
+    })
+    expect(result.current.byService.get('api')?.map((e) => e.offset)).toEqual([1, 2, 3])
   })
 })

@@ -213,4 +213,16 @@ describe('AppShell 响应式', () => {
     expect(screen.queryByRole('dialog', { name: '导航' })).toBeNull()
     expect(screen.getByText('child-findings')).toBeTruthy()
   })
+
+  it('手机抽屉内账号菜单可用：修改密码弹窗能从模态抽屉里打开', async () => {
+    // 模态抽屉打开期间 body 为 pointer-events:none；菜单若不在 Radix 分层栈里就点不到。
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderShell('/conversations/direct')
+
+    await user.click(screen.getByRole('button', { name: '打开导航' }))
+    await user.click(within(screen.getByRole('dialog', { name: '导航' })).getByLabelText('账号 tester'))
+    await user.click(await screen.findByRole('menuitem', { name: '修改密码' }))
+    expect(await screen.findByRole('dialog', { name: '修改密码' })).toBeTruthy()
+  })
 })

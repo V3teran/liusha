@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { ListChecks, MessageSquare, X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
@@ -32,6 +32,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   const [status, setStatus] = useState('')
   const [severity, setSeverity] = useState('')
   const [note, setNote] = useState('')
+  const fieldId = useId()
   const { copiedKey, copy } = useCopyToClipboard()
 
   useEffect(() => {
@@ -55,10 +56,10 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="app-overlay fixed inset-0 z-50" />
+        <Dialog.Overlay className="app-overlay" />
         <Dialog.Content
           className={cn(
-            'tac-modal fixed right-0 top-0 z-50 flex h-full w-[720px] flex-col',
+            'tac-modal fixed right-0 top-0 flex h-full w-[720px] flex-col',
             'rounded-l-2xl border-l border-border bg-surface shadow-2xl'
           )}
         >
@@ -82,6 +83,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
               </Dialog.Title>
             </div>
             <Dialog.Close
+              aria-label="关闭"
               className={cn(
                 'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
                 'text-text-secondary transition-all hover:bg-surface-2 hover:text-text'
@@ -230,7 +232,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                             size="sm"
                           />
                         </div>
-                        <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
+                        <pre tabIndex={0} className="overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text">
                           {ev.reproCommand}
                         </pre>
                         {ev.baseline && (
@@ -256,7 +258,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                           </div>
                         )}
                         {ev.exploit?.bodySnippet && (
-                          <pre className="mb-2 overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text-secondary">
+                          <pre tabIndex={0} className="mb-2 overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text-secondary">
                             {ev.exploit.bodySnippet}
                           </pre>
                         )}
@@ -291,10 +293,11 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 <h3 className="mb-3 text-sm font-semibold text-text">漏洞处置</h3>
                 <div className="space-y-4 rounded-lg border border-border bg-surface-2 p-4">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-text">
+                    <label htmlFor={`${fieldId}-status`} className="mb-2 block text-sm font-medium text-text">
                       状态
                     </label>
                     <Select
+                      id={`${fieldId}-status`}
                       value={status}
                       onChange={(e) => setStatus(e.target.value)}
                       className="w-full"
@@ -308,10 +311,11 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-text">
+                    <label htmlFor={`${fieldId}-severity`} className="mb-2 block text-sm font-medium text-text">
                       严重度
                     </label>
                     <Select
+                      id={`${fieldId}-severity`}
                       value={severity}
                       onChange={(e) => setSeverity(e.target.value)}
                       className="w-full"
@@ -325,10 +329,11 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-text">
+                    <label htmlFor={`${fieldId}-note`} className="mb-2 block text-sm font-medium text-text">
                       备注
                     </label>
                     <textarea
+                      id={`${fieldId}-note`}
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={4}

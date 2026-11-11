@@ -225,7 +225,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           <div className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
               <span
-                className={cn('h-2 w-2 rounded-full', scanning && 'animate-pulse')}
+                className={cn('h-2 w-2 rounded-full', scanning && 'motion-safe:animate-pulse')}
                 style={{ background: topStatus.color }}
               />
               {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}

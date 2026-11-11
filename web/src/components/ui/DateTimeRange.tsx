@@ -82,7 +82,7 @@ export function DateTimeRange({ start, end, onChange, label, className }: DateTi
           sideOffset={6}
           collisionPadding={16}
           aria-label={label}
-          className="app-popover z-[var(--z-popover)] flex w-[min(300px,calc(100vw-32px))] flex-col gap-3 rounded-xl border border-border bg-surface p-3 shadow-lg outline-none"
+          className="app-popover flex w-[min(300px,calc(100vw-32px))] flex-col gap-3 rounded-xl border border-border bg-surface p-3 shadow-lg outline-none"
         >
           <div className="flex flex-col gap-1.5">
             <span className={FIELD_LABEL_CLASS}>快捷区间</span>
