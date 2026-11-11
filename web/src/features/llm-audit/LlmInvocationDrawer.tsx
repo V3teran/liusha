@@ -7,7 +7,7 @@ import { CopySection } from '@/components/CopySection'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cacheRatePct, fullTime, humanDuration, humanTokens } from '@/lib/format'
-import { contentToText, extractReasoning, msgColor, pickField, toMsgView } from './llmMessage'
+import { contentToText, extractReasoning, msgColor, toMsgView } from './llmMessage'
 import { invocationStatus } from './llmInvocationStatus'
 import { isTimeout, throughputLabel } from './llmTiming'
 import { toToolCalls } from './toolCalls'
@@ -36,15 +36,11 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
   const inputDelta = Array.isArray(rawMessages) && rawMessages.length > 0 ? toMsgView(rawMessages[rawMessages.length - 1]) : null
   const historyCount = Array.isArray(rawMessages) ? rawMessages.length : 0
 
-  // result 解析带键兼容（pickField）：新行是小写 json tag 键，历史行是 Go 大写键，
-  // 两代数据在抽屉里同等结构化渲染，不再整体退化为原始 JSON。
-  // result 为纯字符串（jsonb 兜底形态）时原样展示。
+  // result 是 llm.Response 的 JSON（小写 json tag 键）；纯字符串（jsonb 兜底形态）原样展示。
   const rawResult = detail?.result
-  const resultText =
-    typeof rawResult === 'string' ? rawResult : contentToText(pickField(rawResult, ['content', 'Content']))
-  const resultCalls = toToolCalls(
-    pickField(rawResult, ['tool_calls', 'ToolCalls']) ?? pickField(rawResult, ['function_call', 'FunctionCall']),
-  )
+  const result = rawResult && typeof rawResult === 'object' ? (rawResult as Record<string, unknown>) : undefined
+  const resultText = typeof rawResult === 'string' ? rawResult : contentToText(result?.content)
+  const resultCalls = toToolCalls(result?.tool_calls)
   // 「返回结果」节的复制：只复制本节展示的东西（正文 + 工具调用）。
   const resultCopyText = [resultText, ...resultCalls.map((tc) => (tc.args ? `${tc.name}(${tc.args})` : `${tc.name}()`))]
     .filter(Boolean)

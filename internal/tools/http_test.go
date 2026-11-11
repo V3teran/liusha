@@ -209,10 +209,6 @@ func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) 
 	return out, f.getErr
 }
 func (f *fakeCredsProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
-func (f *fakeCredsProvider) DeleteSessions(_ context.Context, _ string) (int, error) {
-	return 0, nil
-}
-func (f *fakeCredsProvider) DeleteHost(_ context.Context, _ string) error { return nil }
 func (f *fakeCredsProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
 	return nil, nil
 }

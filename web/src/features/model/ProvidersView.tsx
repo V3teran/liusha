@@ -38,7 +38,7 @@ export function ProvidersView() {
   const restoreMutation = useRestoreProviderEnvKey()
 
   const [query, setQuery] = useState('')
-  const { draft, setDraft, open: openDraftState, close: closeDraftState, isDirty: dirty, commit, reset: resetDraft } =
+  const { draft, setDraft, open: openDraftState, close: closeDraftState, isDirty: dirty, commitFields, reset: resetDraft } =
     useDirtyDraft<ProviderConfig>()
   const [isNew, setIsNew] = useState(false)
   // dirty 时被拦截的收起/切换意图：确认条上「丢弃」按钮据此执行。
@@ -70,8 +70,8 @@ export function ProvidersView() {
     setPending(null)
     setActionError('')
   }
-  // 点另一行：dirty 先拦截（确认条「丢弃并切换」完成被拦动作）。
-  const requestSwitch = (p: ProviderConfig) => {
+  // 点另一行或「新建」（p=null）：dirty 先拦截（确认条「丢弃并切换」完成被拦动作）。
+  const requestSwitch = (p: ProviderConfig | null) => {
     if (dirty) {
       setPending({ type: 'switch', p })
       return
@@ -139,22 +139,18 @@ export function ProvidersView() {
     })
   }
 
-  // 恢复使用环境变量：服务端清密文后，把返回的密钥字段写回 draft+baseline
-  // （其余字段的未保存草稿原样保留，dirty 状态不丢）。
+  // 恢复使用环境变量：服务端只清了密文——只把密钥字段同时写入草稿与基线，其余字段的
+  // 未保存修改保持未保存；响应到达时已切到别的 provider 则不动当前草稿。
   const onRestoreEnvKey = () => {
     if (!draft) return
+    const code = draft.code
     setActionError('')
-    restoreMutation.mutate(draft.code, {
+    restoreMutation.mutate(code, {
       onSuccess: (p) => {
-        const keyPatch = {
-          api_key: '',
-          key_present: p.key_present,
-          key_last4: p.key_last4,
-          api_key_env: p.api_key_env,
-        }
-        const restore = (cur: ProviderConfig | null) => (cur ? { ...cur, ...keyPatch } : cur)
-        setDraft(restore)
-        commit((restore(draft) as ProviderConfig) ?? draft!)
+        commitFields(
+          { api_key: '', key_present: p.key_present, key_last4: p.key_last4, api_key_env: p.api_key_env },
+          (d) => d.code === code,
+        )
       },
       onError: (e) => setActionError(errorText(e, '恢复失败')),
     })
@@ -206,7 +202,7 @@ export function ProvidersView() {
               placeholder="搜索 provider 或模型名"
               ariaLabel="搜索 provider"
             />
-            <Button size="sm" onClick={() => (isNew && draft ? requestCollapse() : startEdit(null))}>
+            <Button size="sm" onClick={() => (isNew && draft ? requestCollapse() : requestSwitch(null))}>
               <Plus />
               新建
             </Button>

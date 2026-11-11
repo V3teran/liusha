@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, Stethoscope, XCircle } from 'lucide-react'
 import { errorText } from '@/api/client'
 import { diagnoseProvider } from '@/api/models'
@@ -37,6 +37,11 @@ function inputFingerprint(d: ProviderConfig): string {
   return [d.type, normalizeBaseUrl(type, d.base_url), d.default_model.trim(), d.api_key ?? ''].join('\u0000')
 }
 
+/** 诊断请求所依据的全部输入：任一项在请求在途期间变化，结果就不能回填。 */
+function requestFingerprint(d: ProviderConfig): string {
+  return [inputFingerprint(d), d.code, d.auth_scheme ?? '', d.output_limit_param ?? '', String(d.key_present)].join('\u0000')
+}
+
 /** 诊断得出的、可直接回填表单的请求画像（不含需用户确认的建议），连同实测可用的自动选用模型。 */
 export function profilePatch(diag: Diagnosis): Partial<ProviderConfig> {
   const patch: Partial<ProviderConfig> = {}
@@ -64,6 +69,12 @@ export function DiagnosisPanel({
   const [result, setResult] = useState<Diagnosis | null>(null)
   const [error, setError] = useState('')
   const [ranFor, setRanFor] = useState('')
+  // 最新草稿与本次诊断的代际：响应到达时据此判断它是否仍对应当前配置。
+  const latest = useRef(draft)
+  useEffect(() => {
+    latest.current = draft
+  }, [draft])
+  const runSeq = useRef(0)
 
   const precondition = (): string | undefined => {
     if (!draft.type) return '请先选择协议'
@@ -78,6 +89,8 @@ export function DiagnosisPanel({
     setError(missing ?? '')
     if (missing) return
     setRunning(true)
+    const seq = ++runSeq.current
+    const sent = requestFingerprint(draft)
     try {
       const diag = await diagnoseProvider({
         code: draft.code || undefined,
@@ -88,7 +101,13 @@ export function DiagnosisPanel({
         auth_scheme: draft.auth_scheme,
         output_limit_param: draft.output_limit_param,
       })
+      if (seq !== runSeq.current) return // 已有更新的诊断
       setResult(diag)
+      if (requestFingerprint(latest.current) !== sent) {
+        // 在途期间配置被改过：只作为过期结果展示，不回填、不替换模型候选。
+        setRanFor(inputFingerprint(draft))
+        return
+      }
       onModels(diag.models)
       // 无建议时画像对应的就是当前配置：直接回填（连同归一后的地址与自动选用的模型，所见即所存）。
       const patch: Partial<ProviderConfig> =
@@ -98,7 +117,7 @@ export function DiagnosisPanel({
     } catch (e) {
       setError(errorText(e, '诊断请求失败'))
     } finally {
-      setRunning(false)
+      if (seq === runSeq.current) setRunning(false)
     }
   }
 
@@ -152,7 +171,7 @@ export function DiagnosisPanel({
                   <code className="font-mono">{result.suggestion.base_url}</code>
                 </p>
               </div>
-              <Button size="xs" onClick={adopt}>
+              <Button size="xs" onClick={adopt} disabled={stale}>
                 采纳
               </Button>
             </div>

@@ -1,5 +1,5 @@
 // LLM 消息/结果解析：从 LlmInvocationDrawer 抽出的纯函数，脱离 JSX 可独立单测。
-// messages 是 OpenAI 风格消息数组；result 是模型返回，结构不定（provider 差异 + 是否含 reasoning/tool_calls）。
+// messages 与 result 是框架层 llm.Message / llm.Response 的 JSON（审计直出契约，小写 json tag 键）。
 
 export interface MsgView {
   role: string
@@ -34,42 +34,15 @@ export function toMsgView(m: unknown): MsgView {
   return {
     role: typeof o.role === 'string' ? o.role : 'unknown',
     text: contentToText(o.content),
-    calls: toToolCalls(o.tool_calls ?? o.function_call),
+    calls: toToolCalls(o.tool_calls),
   }
 }
 
-/**
- * result 键兼容取值：返回第一个「存在且非 null」的键值。
- * 审计 result 有两代键风格——加 json tag 后的新行是小写键（content/tool_calls/thinking），
- * 历史行是 Go 结构体直出的大写键（Content/ToolCalls/Thinking），两套都要能读。
- */
-export function pickField<T = unknown>(obj: unknown, keys: string[]): T | undefined {
-  if (!obj || typeof obj !== 'object') return undefined
-  const o = obj as Record<string, unknown>
-  for (const k of keys) {
-    const v = o[k]
-    if (v !== undefined && v !== null) return v as T
-  }
-  return undefined
-}
-
-/**
- * 模型思考过程，按优先级认三种变体：
- * 1. result.thinking.text（审计 Result/Response 契约键；thinking 内部 text 同样兼容大写 Text 的历史行）
- * 2. result.reasoning_content（OpenAI 兼容风格直出）
- * 3. result.extra['reasoning-content']（GLM 风格 extra）
- * 都没有则返回空串。
- */
+/** 模型思考过程：审计契约键 result.thinking.text（未开启扩展思考时为空串）。 */
 export function extractReasoning(result: unknown): string {
-  const thinking = pickField<Record<string, unknown>>(result, ['thinking', 'Thinking'])
-  const text = pickField<string>(thinking, ['text', 'Text'])
-  if (typeof text === 'string') return text
   if (!result || typeof result !== 'object') return ''
-  const o = result as Record<string, unknown>
-  if (typeof o.reasoning_content === 'string') return o.reasoning_content
-  const extra = o.extra as Record<string, unknown> | undefined
-  const alt = extra?.['reasoning-content']
-  return typeof alt === 'string' ? alt : ''
+  const thinking = (result as { thinking?: { text?: unknown } }).thinking
+  return typeof thinking?.text === 'string' ? thinking.text : ''
 }
 
 // 消息 role 配色：区分 system/user/assistant/tool，让长对话可扫视（分类色 token，随主题）。

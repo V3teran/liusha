@@ -134,6 +134,37 @@ describe('SystemConfigPage', () => {
     expect(saveButtons[2]).toBeDisabled()
   })
 
+  // 搜索只是筛选显示：被筛掉的分区不得卸载，否则其中未保存的编辑静默丢失。
+  it('搜索筛掉分区再清空，未保存的编辑仍在', async () => {
+    const user = userEvent.setup()
+    renderWithQueryClient(<SystemConfigPage />)
+    const timeout = await screen.findByDisplayValue('60')
+    await user.clear(timeout)
+    await user.type(timeout, '120')
+    const search = screen.getByPlaceholderText('搜索配置项')
+    await user.type(search, '代理')
+    await user.clear(search)
+    expect(screen.getByDisplayValue('120')).toBeInTheDocument()
+  })
+
+  // 保存请求在途时继续编辑另一字段：响应只更新已提交的字段，新输入不被覆盖。
+  it('保存在途时的新编辑不被响应覆盖', async () => {
+    const user = userEvent.setup()
+    let resolve!: (v: SettingsDetail<unknown>) => void
+    mPatch.mockImplementation(() => new Promise((r) => (resolve = r)))
+    renderWithQueryClient(<SystemConfigPage />)
+    const planner = await screen.findByDisplayValue('0.6')
+    await user.clear(planner)
+    await user.type(planner, '0.7')
+    await user.click(screen.getAllByRole('button', { name: '保存' })[0])
+    const executor = screen.getAllByDisplayValue('0.5')[0]
+    await user.clear(executor)
+    await user.type(executor, '0.8')
+    resolve(plain({ ...compaction, planner_context_ratio: 0.7 }))
+    await waitFor(() => expect(screen.getByDisplayValue('0.7')).toBeInTheDocument())
+    expect(screen.getByDisplayValue('0.8')).toBeInTheDocument()
+  })
+
   it('搜索"压缩"仅显示上下文压缩分区', async () => {
     const user = userEvent.setup()
     renderWithQueryClient(<SystemConfigPage />)
@@ -149,8 +180,8 @@ describe('SystemConfigPage', () => {
 
     // 只显示匹配的分区
     expect(screen.getByText('上下文压缩')).toBeInTheDocument()
-    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
-    expect(screen.queryByText('代理流量过滤规则')).not.toBeInTheDocument()
+    expect(screen.getByText('工具运行时')).not.toBeVisible()
+    expect(screen.getByText('代理流量过滤规则')).not.toBeVisible()
   })
 
   it('搜索"流量"仅显示代理流量过滤规则分区', async () => {
@@ -162,9 +193,9 @@ describe('SystemConfigPage', () => {
     const searchInput = screen.getByPlaceholderText('搜索配置项')
     await user.type(searchInput, '流量')
 
-    expect(screen.queryByText('上下文压缩')).not.toBeInTheDocument()
-    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
-    expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
+    expect(screen.getByText('上下文压缩')).not.toBeVisible()
+    expect(screen.getByText('工具运行时')).not.toBeVisible()
+    expect(screen.getByText('代理流量过滤规则')).toBeVisible()
   })
 
   it('搜索不存在的关键词显示空状态', async () => {
@@ -176,10 +207,10 @@ describe('SystemConfigPage', () => {
     const searchInput = screen.getByPlaceholderText('搜索配置项')
     await user.type(searchInput, '不存在的配置项xyz')
 
-    expect(screen.queryByText('上下文压缩')).not.toBeInTheDocument()
-    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
-    expect(screen.queryByText('代理流量过滤规则')).not.toBeInTheDocument()
-    expect(screen.getByText('未找到匹配的配置项')).toBeInTheDocument()
+    expect(screen.getByText('上下文压缩')).not.toBeVisible()
+    expect(screen.getByText('工具运行时')).not.toBeVisible()
+    expect(screen.getByText('代理流量过滤规则')).not.toBeVisible()
+    expect(screen.getByText('未找到匹配的配置项')).toBeVisible()
   })
 
   it('清空搜索框恢复显示所有分区', async () => {
@@ -192,15 +223,15 @@ describe('SystemConfigPage', () => {
     await user.type(searchInput, '压缩')
 
     // 只显示一个分区
-    expect(screen.getByText('上下文压缩')).toBeInTheDocument()
-    expect(screen.queryByText('工具运行时')).not.toBeInTheDocument()
+    expect(screen.getByText('上下文压缩')).toBeVisible()
+    expect(screen.getByText('工具运行时')).not.toBeVisible()
 
     // 清空搜索
     await user.clear(searchInput)
 
     // 恢复显示所有分区
-    expect(screen.getByText('上下文压缩')).toBeInTheDocument()
-    expect(screen.getByText('工具运行时')).toBeInTheDocument()
-    expect(screen.getByText('代理流量过滤规则')).toBeInTheDocument()
+    expect(screen.getByText('上下文压缩')).toBeVisible()
+    expect(screen.getByText('工具运行时')).toBeVisible()
+    expect(screen.getByText('代理流量过滤规则')).toBeVisible()
   })
 })

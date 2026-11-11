@@ -2,18 +2,23 @@ import type { ToolDetail } from '@/api/types'
 import { categoryLabel } from './toolMeta'
 import { KindBadge } from './KindBadge'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
+import { Button } from '@/components/ui/Button'
 
-// 工具详情面板（主从视图右栏常驻，非 modal）。三态：未选 / 加载中 / 已选。
+// 工具详情面板（主从视图右栏常驻，非 modal）。四态：未选 / 加载中 / 加载失败 / 已选。
 // 已选态展示：种类徽章 + 分类 + 完整描述 + 全量智能体（已装配者高亮，点击装/卸）。
 // 装配态 involved 由后端权威计算并随 detail 下发，本组件只渲染与回调，不自算成员关系。
 export function ToolDetailPanel({
   detail,
   loading,
+  error,
+  onRetry,
   savingCode,
   onToggle,
 }: {
   detail: ToolDetail | null
   loading: boolean
+  error: string
+  onRetry: () => void
   savingCode: string | null
   onToggle: (code: string, next: boolean) => void
 }) {
@@ -23,6 +28,19 @@ export function ToolDetailPanel({
     return (
       <PanelFrame>
         <div className="terminal-cursor py-16 text-center font-mono text-sm text-text-secondary">加载中</div>
+      </PanelFrame>
+    )
+  }
+
+  if (error && !detail) {
+    return (
+      <PanelFrame>
+        <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
+          <p className="font-mono text-sm text-sev-critical">⚠ {error}</p>
+          <Button variant="secondary" size="sm" onClick={onRetry}>
+            重试
+          </Button>
+        </div>
       </PanelFrame>
     )
   }

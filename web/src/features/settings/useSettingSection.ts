@@ -19,6 +19,15 @@ export function settingsPatchOf<T extends object>(saved: T, draft: T): SettingsP
   return p as SettingsPatch<T>
 }
 
+/** 以 next 为底合并草稿：cur 中与 base 不同的字段（用户在 base 之后的编辑）保留。 */
+function keepEditedSince<T extends object>(cur: T, base: T, next: T): T {
+  const merged = { ...next }
+  for (const k of Object.keys(cur) as Array<keyof T>) {
+    if (JSON.stringify(cur[k]) !== JSON.stringify(base[k])) merged[k] = cur[k]
+  }
+  return merged
+}
+
 /** 一组设置的编辑句柄。 */
 export interface SettingSection<T> {
   detail: SettingsDetail<T> | null
@@ -79,12 +88,14 @@ export function useSettingSection<G extends SettingsGroup>(
     if (!draft || !detail) return
     const changes = settingsPatchOf(detail.values, draft)
     if (Object.keys(changes).length === 0) return
+    const submitted = draft
     setSaving(true)
     setError('')
     try {
       const fresh = await patchSettings(group, changes)
       setDetail(fresh)
-      setDraft(fresh.values)
+      // 请求在途时用户可能继续编辑：只把仍等于提交快照的字段换成新的已保存值，其余保留。
+      setDraft((cur) => (cur ? keepEditedSince(cur, submitted, fresh.values) : fresh.values))
       setSaved(true)
       onSaved?.()
     } catch (e) {
@@ -106,15 +117,14 @@ export function useSettingSection<G extends SettingsGroup>(
       setError('')
       try {
         const fresh = await resetSettings(group, field)
-        // 以新的已保存值为底，保留其它字段上未保存的编辑。
-        const merged = { ...fresh.values }
-        if (field) {
-          for (const k of Object.keys(draft) as Array<keyof T>) {
-            if (k !== field && JSON.stringify(draft[k]) !== JSON.stringify(detail.values[k])) merged[k] = draft[k]
-          }
-        }
         setDetail(fresh)
-        setDraft(merged)
+        // 以新的已保存值为底，保留其它字段上未保存的编辑（按响应到达时的最新草稿判断）。
+        setDraft((cur) => {
+          if (!cur || !field) return fresh.values
+          const merged = keepEditedSince(cur, detail.values, fresh.values)
+          merged[field] = fresh.values[field]
+          return merged
+        })
         onSaved?.()
       } catch (e) {
         setError(e instanceof Error ? e.message : '恢复失败')

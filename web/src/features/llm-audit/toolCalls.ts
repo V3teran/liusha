@@ -1,4 +1,4 @@
-// LLM 工具调用（tool_calls / function_call）的规范化：把 OpenAI 风格的原始结构
+// LLM 工具调用（tool_calls）的规范化：把审计里的 llm.ToolCall（{id, name, arguments}）
 // 拆成「工具名 + 美化参数」，供审计详情抽屉结构化渲染（取代裸 JSON.stringify）。
 
 /** 单次工具调用的结构化视图。 */
@@ -24,19 +24,17 @@ export function prettyArgs(raw: unknown): string {
 }
 
 /**
- * 把 tool_calls（数组）或 function_call（单个）归一成结构化卡片数组。
- * 输入消息与返回结果共用。字段缺失时兜底占位，不抛错。
+ * 把 tool_calls 数组归一成结构化卡片数组（输入消息与返回结果共用）。
+ * 字段缺失时兜底占位，不抛错；非数组返回空数组。
  */
 export function toToolCalls(src: unknown): ToolCallView[] {
-  if (src == null) return []
-  const arr = Array.isArray(src) ? src : [src]
-  return arr.map((c, i) => {
+  if (!Array.isArray(src)) return []
+  return src.map((c, i) => {
     const o = (c ?? {}) as Record<string, unknown>
-    const fn = (o.function ?? o) as Record<string, unknown>
     return {
       id: typeof o.id === 'string' ? o.id : `call-${i}`,
-      name: typeof fn.name === 'string' ? fn.name : '(未命名工具)',
-      args: prettyArgs(fn.arguments),
+      name: typeof o.name === 'string' ? o.name : '(未命名工具)',
+      args: prettyArgs(o.arguments),
     }
   })
 }

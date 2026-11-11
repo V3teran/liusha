@@ -20,12 +20,6 @@ type Provider interface {
 	// DeleteIdentity 删除单个身份（field 级）。
 	DeleteIdentity(ctx context.Context, host, name string) error
 
-	// DeleteSessions 删除 host 下全部会话用户名，返回删除数（录入身份不动）。
-	DeleteSessions(ctx context.Context, host string) (int, error)
-
-	// DeleteHost 清空 host 下的全部身份。
-	DeleteHost(ctx context.Context, host string) error
-
 	// ListHosts 枚举有凭证的 host 及其用户名计数（只读 field 名，不读凭证值）。
 	ListHosts(ctx context.Context) ([]HostSummary, error)
 }

@@ -202,6 +202,30 @@ describe('AgentsPage', () => {
     expect((screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement).value).toBe('未保存的摘要')
   })
 
+  // 恢复请求在途时继续编辑：响应只替换被恢复的字段，期间的新编辑保留。
+  it('恢复默认在途时的新编辑不被响应覆盖', async () => {
+    const customized = detail(
+      { complexity: 'simple' },
+      {
+        defaults: { ...detail().defaults, complexity: 'medium' },
+        overrides: {
+          complexity: { kind: 'replace', default: 'medium', baseline: 'medium', default_changed: false, matches_default: false },
+        },
+      },
+    )
+    setup(customized)
+    let resolve!: (d: AgentDetail) => void
+    mReset.mockImplementation(() => new Promise((r) => (resolve = r)))
+    await openEditor()
+    await userEvent.click(screen.getByText('恢复默认'))
+    const summary = screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement
+    await userEvent.clear(summary)
+    await userEvent.type(summary, '在途时的编辑')
+    resolve(detail({ complexity: 'medium' }))
+    await waitFor(() => expect(screen.queryByText('已自定义')).toBeNull())
+    expect((screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement).value).toBe('在途时的编辑')
+  })
+
   it('出厂已更新：提示并可对比出厂', async () => {
     setup(
       detail(

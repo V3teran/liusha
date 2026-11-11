@@ -90,14 +90,6 @@ func (p *stubCredProvider) DeleteIdentity(_ context.Context, _, _ string) error 
 	return nil
 }
 
-func (p *stubCredProvider) DeleteSessions(_ context.Context, _ string) (int, error) {
-	return 0, nil
-}
-
 func (p *stubCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
 	return nil, nil
-}
-
-func (p *stubCredProvider) DeleteHost(_ context.Context, _ string) error {
-	return nil
 }

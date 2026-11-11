@@ -13,8 +13,6 @@
 //	GET    /credentials/:host                  → 身份详情（全量明文 + 会话任务状态）
 //	PUT    /credentials/:host/usernames          → upsert 单个登录身份
 //	DELETE /credentials/:host/usernames/:username → 删除单个登录身份
-//	DELETE /credentials/:host                  → 清空该 host 全部身份
-//	DELETE /credentials/:host/sessions         → 仅清会话身份
 
 package httpapi
 
@@ -40,8 +38,6 @@ type CredentialsAPI interface {
 	SaveIdentities(ctx context.Context, host string, ids []credential.Identity) error
 	GetIdentitiesByHost(ctx context.Context, host string) ([]credential.Identity, error)
 	DeleteIdentity(ctx context.Context, host, name string) error
-	DeleteSessions(ctx context.Context, host string) (int, error)
-	DeleteHost(ctx context.Context, host string) error
 	ListHosts(ctx context.Context) ([]credential.HostSummary, error)
 }
 
@@ -186,41 +182,6 @@ func deleteCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"username": username})
 		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// deleteCredentialHostHandler 处理 DELETE /credentials/:host。
-func deleteCredentialHostHandler(api CredentialsAPI, aud CredentialAudit) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		host := credential.CanonicalHost(c.Param("host"))
-		if host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
-			return
-		}
-		if err := api.DeleteHost(c.Request.Context(), host); err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"scope": "host"})
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// purgeCredentialSessionsHandler 处理 DELETE /credentials/:host/sessions。
-func purgeCredentialSessionsHandler(api CredentialsAPI, aud CredentialAudit) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		host := credential.CanonicalHost(c.Param("host"))
-		if host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
-			return
-		}
-		deleted, err := api.DeleteSessions(c.Request.Context(), host)
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"scope": "sessions", "deleted": deleted})
-		c.JSON(http.StatusOK, gin.H{"ok": true, "deleted": deleted})
 	}
 }
 

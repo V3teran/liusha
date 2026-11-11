@@ -182,8 +182,8 @@ func TestCredentialUpsert_ValidationAndHostNormalization(t *testing.T) {
 	}
 }
 
-// TestCredentialDelete_Kinds 锁定三条删除通道各自的作用域。
-func TestCredentialDelete_Kinds(t *testing.T) {
+// TestCredentialDelete_Identity 锁定单身份删除：只删指定身份并落审计。
+func TestCredentialDelete_Identity(t *testing.T) {
 	env := newCredentialTestServer(t, map[string][]credential.Identity{
 		"a.com": {{Username: "admin"}, {Username: credential.SessionIdentityName("t1")}},
 	}, nil, true)
@@ -193,18 +193,7 @@ func TestCredentialDelete_Kinds(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("单删 status=%d", resp.StatusCode)
 	}
-	resp = doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com/sessions", "")
-	var purged struct{ Deleted int }
-	decode(t, resp, &purged)
-	if purged.Deleted != 0 {
-		t.Fatalf("已单删后无会话可清: %+v", purged)
-	}
-	resp = doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com", "")
-	_ = resp.Body.Close()
-	if resp.StatusCode != 200 || len(env.fake.deletedHosts) != 1 || env.fake.deletedHosts[0] != "a.com" {
-		t.Fatalf("整删: status=%d hosts=%v", resp.StatusCode, env.fake.deletedHosts)
-	}
-	if len(env.auditEv.events) != 3 {
-		t.Fatalf("全部删除操作应落审计: %+v", env.auditEv.events)
+	if len(env.auditEv.events) != 1 {
+		t.Fatalf("删除操作应落审计: %+v", env.auditEv.events)
 	}
 }
