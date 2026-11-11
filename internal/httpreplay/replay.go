@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,11 @@ const (
 	respLimit   = 256 * 1024 // 截断响应上限（256 KiB）
 	dialTimeout = 30 * time.Second
 )
+
+// ErrTransport 标记「请求发出但没拿到目标响应」（连接被拒 / 对端断开 / 超时 / DNS 失败）：
+// 与请求构造失败（确定性缺陷）区分。复现门据此把目标不可达计入单条假设的失败上限，
+// 不与 LLM 侧瞬时故障混为一谈——后者不计上限，混同会让目标宕机时验证无限重试。
+var ErrTransport = errors.New("replay 请求未拿到目标响应")
 
 // Source 是被重放的历史请求（工具层的 TrafficRecord / finding 锚定的源流量投影到此）。
 type Source struct {
@@ -122,7 +128,7 @@ func Replay(ctx context.Context, src Source, overrides Overrides) (Result, error
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Result{}, fmt.Errorf("replay 请求失败: %w", err)
+		return Result{}, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

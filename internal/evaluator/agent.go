@@ -18,6 +18,7 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/repro"
 	"github.com/google/uuid"
@@ -385,11 +386,12 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 // （confidence=refuted + verification_outcome=invalid_recipe），轮询不再圈定，
 // 审计链留档失败原因。
 //
-// 两类错误不计入重试阶梯：
-//   - 瞬时故障（网络/限流/超时）——重试有意义；
+// 分流规则：
+//   - LLM 侧瞬时故障（provider 网络/限流/超时）不计入重试阶梯——与具体假设无关，重试有意义；
+//   - 目标侧不可达（重放没拿到响应，httpreplay.ErrTransport）计入阶梯，耗尽按复放失败
+//     （not_reproducible）出圈：目标可能长期宕机，无限重试会让任务永不收敛并持续打目标；
 //   - 确定性配方缺陷（JSON 形状/缺字段）——重放同样配方必然同样失败，
-//     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast，只有
-//     瞬时错误才值得退避重试）。
+//     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, attempt Attempt, cause error) {
 	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标裁决失败
 	// 出圈），上报为 evaluator 致命错误。
@@ -400,14 +402,20 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		}
 		return
 	}
-	if isContextTimeoutError(cause) {
+	// 目标侧判定必须先于下面两项豁免：它们按文本识别网络 / 超时，会把目标宕机、挂起
+	// 误当作 LLM provider 抖动无限豁免。任务停止导致的在途重放取消不算目标故障。
+	targetUnreachable := errors.Is(cause, httpreplay.ErrTransport)
+	if targetUnreachable && errors.Is(cause, context.Canceled) {
+		return
+	}
+	if !targetUnreachable && isContextTimeoutError(cause) {
 		a.logger.Info().
 			Str("observation_id", observationID).
 			Msg("验证因超时失败（不计入失败上限，将重试）")
 		return
 	}
 
-	if isTransientProviderError(cause) {
+	if !targetUnreachable && isTransientProviderError(cause) {
 		a.logger.Info().
 			Str("observation_id", observationID).
 			Msg("验证因 provider 瞬时故障失败（不计入失败上限）")
@@ -432,11 +440,14 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 	// 视为换配方才有意义的方向）；裁决官侧基础设施失败（LLM 调用/输出解析
 	// 反复失败）→ adjudication_failed——机器重放可能全过、主张可能为真，
 	// 只是裁决环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把
-	// 可重试方向误判成配方作废（实测真漏洞因此出圈）。
+	// 可重试方向误判成配方作废（实测真漏洞因此出圈）；目标反复不可达 →
+	// not_reproducible（复放失败，可换配方 / 换时机重试）。
 	refuteReason := RefuteInvalidRecipe
-	adjudicationFailed := errors.Is(cause, ErrAdjudicationUnavailable)
-	if adjudicationFailed {
+	switch {
+	case errors.Is(cause, ErrAdjudicationUnavailable):
 		refuteReason = RefuteAdjudicationFailed
+	case targetUnreachable:
+		refuteReason = RefuteNotReproducible
 	}
 
 	a.logger.Warn().
