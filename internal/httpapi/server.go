@@ -109,6 +109,9 @@ type Deps struct {
 	// TaskDispatch 为 nil 时 POST /tasks 不注册（「新建任务」弹层的批量/定时下发）。
 	// 由 cmd/api 注入 *dispatch.Service（DispatchBatch / DispatchScheduled）。
 	TaskDispatch TaskDispatchAPI
+	// Schedules 为 nil 时定时模板管理路由（/schedules 系列：查看 / 启停 / 删除）不注册。
+	// 由 cmd/api 注入 *cronschedule.Store。
+	Schedules SchedulesAPI
 	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
 	// 由 cmd/api 注入 *logx.NewReader(logx.Dir())（自动满足 LogsAPI 窄接口）——
 	// 尾读共享日志卷上各进程的 JSON lines 文件，冷读 + 游标增量轮询。

@@ -3,11 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useSearchParams } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { CalendarClock, Plus } from 'lucide-react'
 import { TaskFilterBar } from '@/features/tasks/TaskFilterBar'
 import { TaskTable } from '@/features/tasks/TaskTable'
 import { TaskDetailPane } from '@/features/tasks/TaskDetailPane'
 import { NewTaskDialog } from '@/features/tasks/NewTaskDialog'
+import { SchedulesDrawer } from '@/features/tasks/SchedulesDrawer'
 import { useTaskFilters } from '@/features/tasks/useTaskFilters'
 import { useTaskDetail, useTaskList } from '@/features/tasks/useTaskQueries'
 import type { TaskSummary } from '@/api/types'
@@ -42,6 +43,13 @@ export function TasksPage() {
   const detail = detailQuery.data ?? rowTask
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  // 定时模板抽屉：页头入口打开全部模板；任务详情「定时」标记打开并定位到来源模板。
+  const [schedulesOpen, setSchedulesOpen] = useState(false)
+  const [scheduleFocus, setScheduleFocus] = useState<string | null>(null)
+  const openSchedules = useCallback((focus: string | null) => {
+    setScheduleFocus(focus)
+    setSchedulesOpen(true)
+  }, [])
 
   const selectRow = useCallback((row: TaskSummary) => setSelectedId(row.id), [])
   const closeDetail = useCallback(() => setSelectedId(null), [])
@@ -54,6 +62,10 @@ export function TasksPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="任务" subtitle="一个批次是一次下发（可含多目标）；运行中的任务可暂停 / 继续 / 停止">
+        <Button variant="secondary" onClick={() => openSchedules(null)}>
+          <CalendarClock />
+          定时模板
+        </Button>
         <Button onClick={() => setDialogOpen(true)}>
           <Plus strokeWidth={2.4} />
           新建任务
@@ -117,12 +129,14 @@ export function TasksPage() {
                 void detailQuery.refetch()
                 void listQuery.refetch()
               }}
+              onOpenSchedule={openSchedules}
             />
           </aside>
         )}
       </div>
 
       <NewTaskDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <SchedulesDrawer open={schedulesOpen} onOpenChange={setSchedulesOpen} focusId={scheduleFocus} />
     </div>
   )
 }

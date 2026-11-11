@@ -4,8 +4,11 @@ package cronschedule
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/dbtest"
@@ -58,7 +61,7 @@ func TestStore_Create_RejectsMissingBriefOrInvalidCron(t *testing.T) {
 	}
 }
 
-// TestStore_SetEnabled 验证启用/停用开关。
+// TestStore_SetEnabled 验证启用/停用开关：返回写后的行；不存在的 id 包装 pgx.ErrNoRows（HTTP 层收敛 404）。
 func TestStore_SetEnabled(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	s := NewStore(pool)
@@ -68,19 +71,128 @@ func TestStore_SetEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := s.SetEnabled(ctx, c.ID, false); err != nil {
+	got, err := s.SetEnabled(ctx, c.ID, false)
+	if err != nil {
 		t.Fatalf("set disabled: %v", err)
 	}
-	got, err := s.GetByID(ctx, c.ID)
+	if got.Enabled || got.ID != c.ID {
+		t.Fatalf("应返回已停用的同一模板: %+v", got)
+	}
+	reread, err := s.GetByID(ctx, c.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Enabled {
+	if reread.Enabled {
 		t.Fatal("应已停用")
 	}
 
-	if err := s.SetEnabled(ctx, "00000000-0000-0000-0000-000000000000", true); err == nil {
-		t.Fatal("不存在的 id 应报错")
+	if _, err := s.SetEnabled(ctx, "00000000-0000-0000-0000-000000000000", true); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("不存在的 id 应包装 pgx.ErrNoRows，得 %v", err)
+	}
+}
+
+// TestStore_SetEnabled_ReenableDoesNotCatchUp 验证：停用期间错过的触发点不补跑——重新启用时
+// next_run_at 从当前时刻按 cron 重算，而不是沿用停用前留下的过去时间（那会在下一轮巡检立即触发）。
+func TestStore_SetEnabled_ReenableDoesNotCatchUp(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.SetEnabled(ctx, c.ID, false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE cron_schedule SET next_run_at=$1 WHERE id=$2", time.Now().Add(-48*time.Hour), c.ID); err != nil {
+		t.Fatalf("回拨 next_run_at: %v", err)
+	}
+	before := time.Now()
+	got, err := s.SetEnabled(ctx, c.ID, true)
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if !got.Enabled || got.NextRunAt == nil || !got.NextRunAt.After(before) {
+		t.Fatalf("重新启用后 next_run_at 应在当前之后，得 %+v", got)
+	}
+	due, err := s.ListDue(ctx, time.Now())
+	if err != nil {
+		t.Fatalf("list due: %v", err)
+	}
+	for _, d := range due {
+		if d.ID == c.ID {
+			t.Fatal("重新启用不应立即到点")
+		}
+	}
+}
+
+// TestStore_List 验证：列出全部模板（含已停用），新建的在前。
+func TestStore_List(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+
+	older, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "a"}}, Title: "older"})
+	if err != nil {
+		t.Fatalf("create older: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE cron_schedule SET created_at = created_at - interval '1 hour' WHERE id=$1", older.ID); err != nil {
+		t.Fatalf("回拨 created_at: %v", err)
+	}
+	if _, err := s.SetEnabled(ctx, older.ID, false); err != nil {
+		t.Fatalf("disable older: %v", err)
+	}
+	newer, err := s.Create(ctx, NewParams{CronExpr: "0 5 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "newer"})
+	if err != nil {
+		t.Fatalf("create newer: %v", err)
+	}
+
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 2 || list[0].ID != newer.ID || list[1].ID != older.ID {
+		t.Fatalf("应按新建时间倒序列出全部模板（含停用），得 %+v", list)
+	}
+	if list[1].Enabled {
+		t.Fatal("停用状态应如实返回")
+	}
+}
+
+// TestStore_Delete 验证：删除模板后不可再读；已触发的批次保留（schedule_id 置空）；
+// 不存在的 id 包装 pgx.ErrNoRows。
+func TestStore_Delete(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	asg, err := assignment.NewStore(pool).Create(ctx, assignment.NewParams{
+		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, ScheduleID: &c.ID,
+	})
+	if err != nil {
+		t.Fatalf("create cloned assignment: %v", err)
+	}
+
+	if err := s.Delete(ctx, c.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := s.GetByID(ctx, c.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("删除后读应为 ErrNoRows，得 %v", err)
+	}
+	var scheduleID *string
+	if err := pool.QueryRow(ctx, "SELECT schedule_id::text FROM assignment WHERE id=$1", asg.ID).Scan(&scheduleID); err != nil {
+		t.Fatalf("已触发批次应保留: %v", err)
+	}
+	if scheduleID != nil {
+		t.Fatalf("已触发批次的 schedule_id 应置空，得 %v", *scheduleID)
+	}
+	if err := s.Delete(ctx, c.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("重复删除应包装 pgx.ErrNoRows，得 %v", err)
 	}
 }
 

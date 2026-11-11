@@ -2,7 +2,7 @@ package httpapi
 
 import "github.com/gin-gonic/gin"
 
-// uuidID 校验 UUID 主键族路由（tasks / conversations / findings）的 :id 段。
+// uuidID 校验 UUID 主键族路由（tasks / schedules / conversations / findings）的 :id 段。
 // traffic 与 llm 调用记录的 :id 是 bigint 自增键，由各自 handler 解析。
 var uuidID = requireUUIDParam("id")
 
@@ -96,6 +96,11 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	}
 	if d.TaskControl != nil {
 		r.POST("/tasks/:id/control", uuidID, taskControlHandler(d.TaskControl))
+	}
+	if d.Schedules != nil {
+		r.GET("/schedules", listSchedulesHandler(d.Schedules))
+		r.PATCH("/schedules/:id", uuidID, patchScheduleHandler(d.Schedules))
+		r.DELETE("/schedules/:id", uuidID, deleteScheduleHandler(d.Schedules))
 	}
 }
 

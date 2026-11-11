@@ -6,27 +6,14 @@ import { createTasks } from '@/api/tasks'
 import type { TaskCreateResponse } from '@/api/types'
 import { cn } from '@/lib/utils'
 import { TASK_LIST_KEY } from './useTaskQueries'
+import { SCHEDULES_KEY } from './useScheduleQueries'
+import { cronHuman } from './cron'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 
 interface NewTaskDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-}
-
-
-/** cron 五段式人话预览（常见形态；其余原样展示）。 */
-function cronHuman(v: string): string {
-  const p = v.trim().split(/\s+/)
-  if (p.length !== 5) return '无效表达式'
-  const [mi, h, dom, mon, dow] = p
-  if (!/^\d+$/.test(mi) || !/^\d+$/.test(h)) return v
-  const hm = `${h.padStart(2, '0')}:${mi.padStart(2, '0')}`
-  const D = ['日', '一', '二', '三', '四', '五', '六']
-  if (dom === '*' && mon === '*' && dow === '*') return `每天 ${hm}`
-  if (dom === '*' && mon === '*' && /^\d+$/.test(dow)) return `每周${D[+dow % 7]} ${hm}`
-  if (dow === '*' && mon === '*' && /^\d+$/.test(dom)) return `每月 ${dom} 日 ${hm}`
-  return v
 }
 
 /**
@@ -111,9 +98,10 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
     onSuccess: (resp: TaskCreateResponse) => {
       qc.invalidateQueries({ queryKey: TASK_LIST_KEY })
       qc.invalidateQueries({ queryKey: ['conversations'] })
+      if (resp.scheduled) qc.invalidateQueries({ queryKey: SCHEDULES_KEY })
       setSuccess(
         resp.scheduled
-          ? `已创建定时批次，首次触发：${resp.next_run_at ? new Date(resp.next_run_at).toLocaleString() : '—'}`
+          ? `已创建定时模板，首次触发：${resp.next_run_at ? new Date(resp.next_run_at).toLocaleString() : '—'}`
           : `已创建批次，${resp.task_count} 个任务各自绑定独立对话`,
       )
       setTimeout(() => onOpenChange(false), 1200)

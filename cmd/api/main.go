@@ -306,6 +306,7 @@ func main() {
 			ExplorationGraph:   explorationGraphAdapter,               // 探索图读取 API
 			Tasks:              taskStore,                             // GET /tasks 系列：任务模块列表/详情（派生列 JOIN）
 			TaskDispatch:       dispatchService,                       // POST /tasks：任务模块「新建任务」批量/定时下发
+			Schedules:          cronStore,                             // /schedules：定时模板查看 / 启停 / 删除
 			TaskControl:        dispatchService,                       // POST /tasks/:id/control：任务行 暂停/继续/停止
 			Logs:               logReader,                             // GET /logs 系列：日志页（尾读 logs/{process}.log）
 		}),
