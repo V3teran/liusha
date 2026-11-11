@@ -121,3 +121,48 @@ func TestRequestCompat_IgnoresUnrelatedBadRequest(t *testing.T) {
 		t.Fatalf("无关 400 不应重发，实际 %d 次", len(g.requests))
 	}
 }
+
+// 两个并发请求都带着旧字段被拒：先学到新结论的请求不应让另一个直接失败——是否重发只看
+// 本请求发出的字段是否正是被拒的那个，与谁先更新共享结论无关。
+func TestRequestCompat_ConcurrentRejectionsBothRecover(t *testing.T) {
+	const msg = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+	var arrived sync.WaitGroup
+	arrived.Add(2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if _, ok := body["max_tokens"]; ok {
+			arrived.Done()
+			arrived.Wait() // 两个请求都以旧字段到达后才一起拒绝
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":` + jsonString(msg) + `,"type":"invalid_request_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(openAIOK))
+	}))
+	t.Cleanup(srv.Close)
+	gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
+		Code: "p", Type: ProviderTypeOpenAICompat, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 64,
+	}, NewClientPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = gen.Generate(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+		}()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("请求 %d 应按新结论重发成功，得 %v", i, err)
+		}
+	}
+}

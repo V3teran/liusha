@@ -18,9 +18,9 @@ package main
 
 import (
 	"context"
-	"github.com/rs/zerolog"
 	"os"
-	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
@@ -73,7 +73,7 @@ func main() {
 	}
 
 	store := corpus.NewStore(pool)
-	tagger := llm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), retryOptionsFromConfig(cfg.LLM.Retry))
+	tagger := llm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), cfg.LLM.Retry.Options())
 	var embedder *embedding.Client
 	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
 		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")
@@ -91,19 +91,4 @@ func main() {
 		total += n
 	}
 	logger.Info().Int("imported", total).Int("files", len(files)).Msg("corpus 专家知识导入完成")
-}
-
-// retryOptionsFromConfig 把 yaml 配置（秒数列表 + 毫秒）翻译成框架退避表。
-// 任一字段为 0 由框架构造器逐项兜底为 DefaultRetryOptions。
-func retryOptionsFromConfig(c config.RetryConfig) llm.RetryOptions {
-	return llm.RetryOptions{
-		MaxRetries429: c.Max429,
-		MaxRetries529: c.Max529,
-		MaxRetries5xx: c.Max5xx,
-		MaxRetriesNet: c.MaxNet,
-		Backoff429:    config.AsDurations(c.Backoff429Seconds),
-		Backoff5xx:    config.AsDurations(c.Backoff5xxSeconds),
-		BackoffNet:    config.AsDurations(c.BackoffNetSeconds),
-		Backoff529:    time.Duration(c.Backoff529Millisec) * time.Millisecond,
-	}
 }

@@ -122,3 +122,16 @@ func TestSplitFrontmatter(t *testing.T) {
 		t.Fatal("frontmatter 未闭合应报错")
 	}
 }
+
+// http_request 的 identity 语义以工具为准：空串 = 匿名，省略或 null = 注入该 host 全部
+// 凭证。出厂章程若把 null 说成匿名，agent 照做的「匿名」验证会带上已登录身份的凭证，
+// 把认证后的访问当成未授权访问的证据。
+func TestChartersDescribeAnonymousIdentityAsEmptyString(t *testing.T) {
+	for _, a := range builtin.Agents() {
+		for i, line := range strings.Split(a.Charter, "\n") {
+			if strings.Contains(line, "null") && strings.Contains(line, "匿名") {
+				t.Errorf("%s 章程第 %d 行把 null 与匿名关联（匿名应为 identity: \"\"）: %s", a.Code, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}

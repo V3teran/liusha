@@ -98,3 +98,52 @@ func TestClientPool_CloseReleasesClients(t *testing.T) {
 		t.Fatal("Close 后应重新创建 client")
 	}
 }
+
+// 凭据只发给配置的端点：跨源重定向（另一主机 / 端口 / 协议）必须被拒绝，否则 transport
+// 会在跟随后的请求上重新写入 provider 密钥，把它交给重定向目标。
+func TestCredentialedClient_RefusesCrossOriginRedirect(t *testing.T) {
+	for _, scheme := range []AuthScheme{AuthBearer, AuthXAPIKey} {
+		t.Run(string(scheme), func(t *testing.T) {
+			var leaked http.Header
+			target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				leaked = r.Header.Clone()
+			}))
+			t.Cleanup(target.Close)
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+"/v1/chat", http.StatusTemporaryRedirect)
+			}))
+			t.Cleanup(origin.Close)
+
+			resp, err := credentialedHTTPClient("SECRET", scheme).Post(origin.URL+"/v1/chat", "application/json", nil)
+			if err == nil {
+				_ = resp.Body.Close()
+				t.Fatal("跨源重定向应被拒绝")
+			}
+			if leaked != nil {
+				t.Fatalf("重定向目标不应收到任何请求，实际收到头: %v", leaked)
+			}
+		})
+	}
+}
+
+// 同源重定向（路径变化）照常跟随并携带凭据。
+func TestCredentialedClient_FollowsSameOriginRedirect(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/old" {
+			http.Redirect(w, r, "/new", http.StatusTemporaryRedirect)
+			return
+		}
+		got = r.Header.Get("Authorization")
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, err := credentialedHTTPClient("SECRET", AuthBearer).Post(srv.URL+"/old", "application/json", nil)
+	if err != nil {
+		t.Fatalf("同源重定向应跟随: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got != "Bearer SECRET" {
+		t.Fatalf("同源跟随后的请求应携带凭据，得 %q", got)
+	}
+}

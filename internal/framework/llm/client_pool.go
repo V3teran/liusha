@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,10 +64,35 @@ func (t *credentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.next.RoundTrip(r)
 }
 
-// credentialedHTTPClient 返回按鉴权方式改写凭据头的共享 HTTP client。
+// maxRedirects 与 net/http 默认上限一致。
+const maxRedirects = 10
+
+// sameOriginRedirect 只允许同源（协议 + 主机 + 端口）重定向。credentialTransport 在每次
+// 往返都写入凭据（包括跟随重定向后的请求），net/http 跨主机时去掉敏感头的保护对它无效；
+// 跨源重定向因此一律拒绝——否则 provider 密钥会交给重定向目标，HTTPS→HTTP 降级同理。
+func sameOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("重定向超过 %d 次", maxRedirects)
+	}
+	from := via[0].URL
+	if !sameOrigin(from, req.URL) {
+		return fmt.Errorf("拒绝跨源重定向 %s → %s（请求携带 provider 密钥）；请把 Base URL 改为最终地址",
+			originOf(from), originOf(req.URL))
+	}
+	return nil
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
+}
+
+func originOf(u *url.URL) string { return u.Scheme + "://" + u.Host }
+
+// credentialedHTTPClient 返回按鉴权方式改写凭据头、只跟随同源重定向的 HTTP client。
 func credentialedHTTPClient(key string, scheme AuthScheme) *http.Client {
 	c := llmHTTPClient()
 	c.Transport = &credentialTransport{next: c.Transport, key: key, scheme: scheme}
+	c.CheckRedirect = sameOriginRedirect
 	return c
 }
 

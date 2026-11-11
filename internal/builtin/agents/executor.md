@@ -61,8 +61,8 @@ complexity: medium
 - 会话 cookie 自动保留
 - `identity` 参数控制使用哪些凭证：
   - `"admin"` - 只使用 admin 身份的凭证
-  - `null` - 匿名请求（不使用凭证）
-  - 省略 - 注入所有可用凭证
+  - `""`（空串）- 匿名请求（不注入凭证、不带会话 Cookie）
+  - 省略或 `null` - 注入该 host 全部可用凭证
 
 ### run_command
 ```json

@@ -59,17 +59,28 @@ func (a *Agent) planActions(ctx context.Context) error {
 		return err
 	}
 
-	// 4. 如果没有生成新 Action，发布收敛事件
-	if len(actions) == 0 {
-		a.handleNoActions(ctx, "planning")
+	// 4. 落图；没有实际新增动作即走收敛判定
+	return a.applyPlan(ctx, actions, "planning")
+}
+
+// applyPlan 把规划提案落图。实际新增为零——没有提案，或提案全被过滤（空指令 / 与
+// 既有动作重复）——与「planner 无新方向」是同一局面，走无动作处理（收敛判定）；
+// 否则图静止而每次唤醒都再付费规划一遍。有新增才解除收敛挂起。
+func (a *Agent) applyPlan(ctx context.Context, actions []explorationgraph.Node, trigger string) error {
+	written := 0
+	if len(actions) > 0 {
+		n, err := a.writeActionsFromPlan(ctx, actions)
+		if err != nil {
+			return err
+		}
+		written = n
+	}
+	if written == 0 {
+		a.handleNoActions(ctx, trigger)
 		return nil
 	}
-
-	// 产生新方向即解除收敛挂起（下轮空手而归时重新走收敛判定）。
 	a.convergedPending = false
-
-	// 5. 将新 Action 写入探索图
-	return a.writeActionsFromPlan(ctx, actions)
+	return nil
 }
 
 // rootObjective 返回任务的根目标节点（见 explorationgraph.RootObjective）。
@@ -86,12 +97,12 @@ func (a *Agent) rootObjective(ctx context.Context) (explorationgraph.Node, error
 	return root, nil
 }
 
-// writeActionsFromPlan 将 planner 返回的 action 节点连同目标归属边
+// writeActionsFromPlan 返回实际新增的动作数。它将 planner 返回的 action 节点连同目标归属边
 // （根 objective → action）与发现滋生边（result → action，TRIGGERS）原子写入图。
 // 指令级去重（与结果分析的延续动作同一口径，见 admit）：空指令不可执行，与图上
 // 既有动作 instruction 字面一致的提案是复读，两者都跳过（语义去重仍靠 LLM 的
 // refuted 视野）。
-func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) error {
+func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) (int, error) {
 	a.logger.Info().
 		Int("action_count", len(actions)).
 		Msg("准备写入 Actions 到探索图")
@@ -107,10 +118,10 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 	// 整批不写，不落孤立动作。
 	root, err := a.rootObjective(ctx)
 	if err != nil {
-		return fmt.Errorf("写入 Action: %w", err)
+		return 0, fmt.Errorf("写入 Action: %w", err)
 	}
 
-	failed, skipped := 0, 0
+	written, failed, skipped := 0, 0, 0
 	for i, action := range actions {
 		var c struct {
 			Instruction string   `json:"instruction"`
@@ -157,6 +168,7 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 			continue
 		}
 
+		written++
 		a.logger.Info().
 			Str("action_id", action.ID).
 			Str("priority", string(action.Priority)).
@@ -170,9 +182,9 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 		a.logger.Info().Int("skipped", skipped).Msg("已拦断空指令与重复指令提案")
 	}
 	if failed > 0 {
-		return fmt.Errorf("写入 Action 失败 %d/%d 条（详见日志）", failed, len(actions))
+		return written, fmt.Errorf("写入 Action 失败 %d/%d 条（详见日志）", failed, len(actions))
 	}
-	return nil
+	return written, nil
 }
 
 // knownInstructions 汇总图上全部动作的 instruction（去首尾空白后的字面去重集）。
