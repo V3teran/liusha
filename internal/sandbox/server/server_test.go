@@ -120,7 +120,14 @@ func TestAuth_EmptyTokenRejectsAll(t *testing.T) {
 	}
 }
 
+// processAlive 报告进程是否仍在运行。已结束但未被回收的僵尸进程算作已结束：没有 init 回收
+// 孤儿的环境（如无 --init 的容器）里，被结束的后台进程会以僵尸形态残留。
 func processAlive(pid int) bool {
+	if stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
+		// 格式：pid (comm) state ...；comm 可含空格与括号，取最后一个 ')' 之后的状态位。
+		rest := stat[bytes.LastIndexByte(stat, ')')+1:]
+		return len(bytes.TrimSpace(rest)) > 0 && bytes.TrimSpace(rest)[0] != 'Z'
+	}
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
@@ -209,14 +216,18 @@ func TestTools_ProbesPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "not-executable"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// PATH 里有同名文件也不算：browser-use 命令由沙盒提供，可用与否取决于浏览器能力。
+	if err := os.WriteFile(filepath.Join(bin, "browser-use"), []byte("#!/bin/sh\n"), 0o700); err != nil { // #nosec G306 // 测试用可执行脚本
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin)
 	h := newHarness(t, func(c *Config) {
-		c.Tools = []string{"fake-tool", "not-executable", "missing-tool"}
+		c.Tools = []string{"fake-tool", "not-executable", "missing-tool", "browser-use"}
 		c.BrowserPython = "no-such-python"
 	})
 	var inv sandbox.Inventory
 	h.decode(t, http.MethodGet, "/tools", nil, &inv)
-	want := map[string]bool{"fake-tool": true, "not-executable": false, "missing-tool": false}
+	want := map[string]bool{"fake-tool": true, "not-executable": false, "missing-tool": false, "browser-use": false}
 	for name, installed := range want {
 		if got, ok := inv.Tools[name]; !ok || got != installed {
 			t.Errorf("%s: installed=%v(存在=%v), 期望 %v", name, got, ok, installed)

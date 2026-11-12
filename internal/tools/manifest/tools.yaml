@@ -411,7 +411,7 @@ tools:
   - name: browser-use
     category: browser
     description: 无头 Chromium 浏览器自动化，typed `drive_browser` 工具是首选入口。
-    # install 省略：Dockerfile 专属 Python 3.12 venv 层。
+    # 命令由 liusha sandbox 提供（以 sandbox.browser_python 运行内置客户端），可用性即浏览器能力。
 
   # ===== utility（通用胶水：HTTP/JSON/脚本）=====
   - name: curl

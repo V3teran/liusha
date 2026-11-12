@@ -58,6 +58,7 @@ type BrowserStatus struct {
 
 // ReleaseResult 是 POST /tasks/{id}/release 的响应：本次释放清理掉的资源数。
 type ReleaseResult struct {
-	ProcessGroups int `json:"process_groups"` // 结束的进程组数
+	ProcessGroups int `json:"process_groups"` // 结束的命令进程组数
+	Escaped       int `json:"escaped"`        // 结束的脱离命令进程组的任务进程组数（浏览器服务、chromium 等）
 	Browsers      int `json:"browsers"`       // 关闭的浏览器会话数
 }

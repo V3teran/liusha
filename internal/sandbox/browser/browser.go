@@ -23,6 +23,17 @@ import (
 //go:embed client.py service.py
 var scripts embed.FS
 
+// Command 是浏览器能力的命令入口（Install 生成的包装脚本名，也是工具清单里的 CLI 工具名）。
+const Command = "browser-use"
+
+// probeImports 是浏览器服务（service.py）依赖的全部第三方导入：能力探测原样导入它们，
+// 库升级移除了任一名称都会如实判为不可用（单测守住它与 service.py 一致）。
+const probeImports = `import httpx
+from browser_use import BrowserSession
+from browser_use.actor.page import Page
+from browser_use.browser.events import NavigateToUrlEvent
+from browser_use.dom.serializer.serializer import DOMTreeSerializer`
+
 // socketDir 是浏览器服务套接字所在目录（与 client.py 的 SOCK 约定一致；测试可替换）。
 var socketDir = "/tmp"
 
@@ -43,7 +54,7 @@ func Install(dir, python string) (string, error) {
 		}
 	}
 	wrapper := fmt.Sprintf("#!/bin/sh\nexec %s %s \"$@\"\n", shellQuote(python), shellQuote(filepath.Join(dir, "client.py")))
-	if err := os.WriteFile(filepath.Join(binDir, "browser-use"), []byte(wrapper), 0o750); err != nil { // #nosec G306 // 包装脚本须可执行
+	if err := os.WriteFile(filepath.Join(binDir, Command), []byte(wrapper), 0o750); err != nil { // #nosec G306 // 包装脚本须可执行
 		return "", fmt.Errorf("生成 browser-use 包装脚本: %w", err)
 	}
 	return binDir, nil
@@ -58,17 +69,17 @@ type Status struct {
 // probeTimeout 是一次能力探测的上限（导入 browser_use 依赖较多，冷启动要几秒）。
 const probeTimeout = 30 * time.Second
 
-// Probe 探测浏览器能力：python 能导入浏览器服务依赖的库即视为可用（chromium 由 browser_use
-// 自行定位或安装，无法在不启动浏览器的前提下可靠探测）。
+// Probe 探测浏览器能力：python 能导入浏览器服务用到的全部名称即视为可用（chromium 由
+// browser_use 自行定位或安装，无法在不启动浏览器的前提下可靠探测）。
 func Probe(ctx context.Context, python string) Status {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	if _, err := exec.LookPath(python); err != nil {
 		return Status{Detail: fmt.Sprintf("找不到 Python 解释器 %q（配置 sandbox.browser_python）", python)}
 	}
-	out, err := exec.CommandContext(ctx, python, "-c", "import browser_use, httpx").CombinedOutput() // #nosec G204 // 解释器来自部署配置
+	out, err := exec.CommandContext(ctx, python, "-c", probeImports).CombinedOutput() // #nosec G204 // 解释器来自部署配置
 	if err != nil {
-		return Status{Detail: fmt.Sprintf("%s 无法导入 browser_use: %s", python, lastLine(out, err))}
+		return Status{Detail: fmt.Sprintf("%s 缺少浏览器服务依赖（需 browser-use 0.13.x）: %s", python, lastLine(out, err))}
 	}
 	return Status{Installed: true}
 }
