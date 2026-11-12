@@ -110,6 +110,11 @@ func (s *Store) Append(ctx context.Context, c Invocation) error {
 // 时立即落库当前 batch 再关闭回传 chan，Flush 一收到就返回。不盲等 flushInterval：查询
 // 前调用时 channel 通常为空，几乎零延迟（一次 channel round-trip）。
 func (s *Store) Flush(ctx context.Context) error {
+	// 先判 ctx：已取消时「发出请求」与「ctx.Done」两个 select 分支可能同时就绪，
+	// Go 随机选择，会时而照常 flush 返回 nil，违背「取消即返回 ctx.Err()」的契约。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	done := make(chan struct{})
 	select {
 	case s.flushReq <- done:

@@ -2,6 +2,7 @@ package llminvocation
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,14 +60,22 @@ func TestFlush_MultipleCallsAllFast(t *testing.T) {
 }
 
 // ctx 取消时 Flush 应立即以 ctx.Err() 返回，不阻塞到超时。
+//
+// 先做一次正常 Flush 确保 worker 已在等待接收：此时「发出 flush 请求」与「ctx 已取消」
+// 两个分支同时就绪，select 随机选择——曾在 CI 上偶发返回 nil。循环多次让竞态必现。
 func TestFlush_ContextCanceled(t *testing.T) {
 	s := newTestStore(t)
+	if err := s.Flush(context.Background()); err != nil {
+		t.Fatalf("预热 Flush 失败: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := s.Flush(ctx); err == nil {
-		t.Error("ctx 已取消，Flush 应返回错误，却返回 nil")
+	for i := 0; i < 200; i++ {
+		if err := s.Flush(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("第 %d 次：ctx 已取消，Flush 应返回 context.Canceled，得 %v", i+1, err)
+		}
 	}
 }
 
