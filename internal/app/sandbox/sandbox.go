@@ -45,6 +45,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		BrowserBin:     browserBin,
 		BrowserPython:  sc.BrowserPython,
 		IngestURL:      sc.IngestURL,
+		IngestSocket:   filepath.Join(scriptDir, "ingest.sock"),
 		ViewportWidth:  sc.ViewportWidth,
 		ViewportHeight: sc.ViewportHeight,
 		SecretEnv:      secretEnv(cfg),

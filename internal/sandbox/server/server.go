@@ -6,15 +6,19 @@
 //	POST /tasks/{id}/release   结束任务遗留的全部进程组与浏览器会话
 //
 // 除 /healthz 外都要求 Authorization: Bearer <令牌>。
+//
+// 另有一个本地 unix 套接字（Config.IngestSocket）供沙盒内的浏览器服务回灌流量：沙盒带令牌
+// 转发给 runner，令牌只在沙盒进程内，不进入任何命令的环境。
 package server
 
 import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -28,7 +32,7 @@ const (
 
 // Config 是沙盒服务参数。
 type Config struct {
-	// Token 是共享密钥：调用方须携带它；也作为浏览器流量回灌 runner 的凭据注入命令环境。
+	// Token 是共享密钥：调用方须携带它；沙盒转发浏览器流量给 runner 时也用它。
 	Token string
 	// WorkspaceDir 是任务工作区根目录（<根>/<批次>/<任务>/{work,out,state}）。
 	WorkspaceDir string
@@ -39,6 +43,8 @@ type Config struct {
 	BrowserPython string
 	// IngestURL 是浏览器抓到的流量回灌 runner 的地址；空 = 不回灌。
 	IngestURL string
+	// IngestSocket 是浏览器服务投递流量的本地 unix 套接字路径（IngestURL 非空时必填）。
+	IngestSocket string
 	// ViewportWidth/Height 是浏览器视口尺寸。
 	ViewportWidth  int
 	ViewportHeight int
@@ -72,32 +78,49 @@ func New(cfg Config) *Server {
 // Handler 返回 HTTP 处理器（测试与自定义 http.Server 用）。
 func (s *Server) Handler() http.Handler { return s.mux }
 
-// ListenAndServe 监听 addr 直到 ctx 取消，然后优雅关闭（10s 超时）。
+// ListenAndServe 监听 addr（与配置了回灌时的本地回灌套接字）直到 ctx 取消，然后优雅关闭（10s 超时）。
 //
 // 不设 ReadTimeout/WriteTimeout：命令可长达数十分钟，HTTP 同步长连接由调用方按命令超时兜底。
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           s.mux,
-		ReadHeaderTimeout: 10 * time.Second,
+	servers := []*http.Server{{Addr: addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}}
+	listeners := []net.Listener{nil}
+	if s.cfg.IngestURL != "" {
+		ln, err := listenIngestSocket(s.cfg.IngestSocket)
+		if err != nil {
+			return err
+		}
+		servers = append(servers, &http.Server{Handler: s.ingestRelay(), ReadHeaderTimeout: 10 * time.Second})
+		listeners = append(listeners, ln)
 	}
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.ListenAndServe() }()
 
+	serveErr := make(chan error, len(servers))
+	for i, srv := range servers {
+		go func() {
+			if listeners[i] == nil {
+				serveErr <- srv.ListenAndServe()
+				return
+			}
+			serveErr <- srv.Serve(listeners[i])
+		}()
+	}
+
+	var runErr error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("graceful shutdown: %w", err)
-		}
-		return nil
 	case err := <-serveErr:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return fmt.Errorf("http server: %w", err)
+		runErr = fmt.Errorf("http server: %w", err)
 	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+			runErr = fmt.Errorf("graceful shutdown: %w", err)
+		}
+	}
+	if s.cfg.IngestSocket != "" {
+		_ = os.Remove(s.cfg.IngestSocket)
+	}
+	return runErr
 }
 
 // requireToken 校验 Bearer 令牌（常量时间比较，不泄露前缀匹配长度）。
