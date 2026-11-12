@@ -206,12 +206,18 @@ func resolveInstance() string {
 	return fmt.Sprintf("%d@%s", os.Getpid(), host)
 }
 
-func applyGlobals(cfg config) {
-	zerolog.SetGlobalLevel(cfg.level)
+// zerolog 的字段名、时间格式、caller 格式是普通包级变量，每条日志都会读：只能在任何日志写出
+// 之前设定一次。它们不随环境变化，放在包初始化里。
+func init() {
 	zerolog.MessageFieldName = "message"
 	zerolog.ErrorFieldName = "error"
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	zerolog.CallerMarshalFunc = shortCaller
+}
+
+// applyGlobals 应用随环境变化的全局设置（级别；zerolog 以原子操作读写，可随时调用）。
+func applyGlobals(cfg config) {
+	zerolog.SetGlobalLevel(cfg.level)
 }
 
 // shortCaller 把 /abs/path/to/pkg/file.go 缩成 pkg/file.go:line。

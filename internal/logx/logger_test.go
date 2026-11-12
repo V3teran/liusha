@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -256,4 +257,21 @@ func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), "after env") {
 		t.Fatalf("先建的 logger 应写入后设定的日志目录: %v %q", err, raw)
 	}
+}
+
+// 输出端构建（首条日志、SetProcess 之后）与其它 goroutine 的写日志、建 logger 并发安全。
+func TestOutput_ConcurrentBuildIsRaceFree(t *testing.T) {
+	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
+	SetProcess("race")
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l := New("race")
+			l.Info().Int("i", i).Msg("x")
+			l.Error().Err(errors.New("e")).Msg("y")
+		}()
+	}
+	wg.Wait()
 }
