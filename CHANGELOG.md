@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/V3teran/liusha/compare/v0.8.0...v0.9.0) (2026-11-12)
+
+
+### Features
+
+* **ui:** 主题首次访问跟随系统深浅偏好 ([e05a808](https://github.com/V3teran/liusha/commit/e05a808c32c125cf85b8d2e7e30cb4437df345f2))
+
+
+### Bug Fixes
+
+* **ui:** 浅色主题品牌徽记与登录页一致，切换主题即时跟随 ([76a63db](https://github.com/V3teran/liusha/commit/76a63dbc0a8c910439734cb8d295364f6af54293))
+
 ## [0.8.0](https://github.com/V3teran/liusha/compare/v0.7.0...v0.8.0) (2026-11-12)
 
 
