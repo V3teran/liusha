@@ -54,4 +54,20 @@ describe('useTheme', () => {
       expect(document.documentElement.classList.contains('theme-switching')).toBe(false),
     )
   })
+
+  // 主题是全局状态：各调用点（侧栏切换钮、品牌徽记、启动 splash）必须看到同一个值。
+  // 曾经每个调用点各持一份 useState，侧栏里切换主题后品牌徽记仍停在旧主题。
+  it('一处切换，其它调用点同步更新', () => {
+    const a = renderHook(() => useTheme())
+    const b = renderHook(() => useTheme())
+    expect(b.result.current.theme).toBe('dark')
+
+    act(() => a.result.current.toggle())
+    expect(b.result.current.theme).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+
+    act(() => b.result.current.toggle())
+    expect(a.result.current.theme).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
 })

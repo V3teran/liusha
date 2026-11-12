@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 
 export type Theme = 'dark' | 'light'
 
 const STORAGE_KEY = 'liusha-theme'
 
-function readInitialTheme(): Theme {
+// 主题是全局状态，localStorage 是唯一事实源：各调用点经 useSyncExternalStore 读它、
+// 切换时写它并通知全部订阅者。曾经每个调用点各持一份 useState，侧栏里切换主题后
+// 品牌徽记等其它调用点仍停在旧主题。
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function readTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'dark' || stored === 'light') return stored
   return 'dark'
@@ -26,15 +36,15 @@ function applyTheme(theme: Theme) {
  * 首次渲染前由 index.html 的内联脚本同步写 class，避免闪烁；这里只接管后续切换。
  */
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(readInitialTheme)
+  const theme = useSyncExternalStore(subscribe, readTheme)
 
   useEffect(() => {
     applyTheme(theme)
-    localStorage.setItem(STORAGE_KEY, theme)
   }, [theme])
 
   const toggle = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+    localStorage.setItem(STORAGE_KEY, readTheme() === 'dark' ? 'light' : 'dark')
+    listeners.forEach((notify) => notify())
   }, [])
 
   return { theme, toggle }
