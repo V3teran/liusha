@@ -90,3 +90,28 @@ func TestHTTPClient_ExecCanceled(t *testing.T) {
 		t.Fatalf("应因 ctx 超时中断, got %v", err)
 	}
 }
+
+// 暂不可达（连不上、5xx）与拒绝请求（4xx）分开：前者随沙盒恢复而消失，后者是配置错误。
+func TestUnavailable(t *testing.T) {
+	srv := fakeSandbox(t, "s3cret")
+	_, err := NewClient(srv.URL, "wrong").Inventory(context.Background())
+	if err == nil || Unavailable(err) {
+		t.Fatalf("令牌错误不是暂不可达: %v", err)
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "busy", http.StatusBadGateway)
+	}))
+	t.Cleanup(down.Close)
+	if _, err := NewClient(down.URL, "t").Inventory(context.Background()); !Unavailable(err) {
+		t.Fatalf("5xx 应视为暂不可达: %v", err)
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	url := gone.URL
+	gone.Close()
+	if _, err := NewClient(url, "t").Inventory(context.Background()); !Unavailable(err) {
+		t.Fatalf("连不上应视为暂不可达: %v", err)
+	}
+	if Unavailable(nil) {
+		t.Fatal("nil 不是错误")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,29 @@ type Client interface {
 	Inventory(ctx context.Context) (Inventory, error)
 	// Release 结束任务在沙盒里遗留的全部进程与浏览器会话（只动该任务，不影响并发任务）。
 	Release(ctx context.Context, taskID string) (ReleaseResult, error)
+}
+
+// StatusError 是沙盒以非 200 状态拒绝请求。
+type StatusError struct {
+	Code int
+	Body string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("状态 %d: %s", e.Code, e.Body)
+}
+
+// Unavailable 报告错误是否表示沙盒暂时不可达：连接不上、请求未得到响应，或沙盒自身故障（5xx）。
+// 这类故障会随沙盒恢复而消失；4xx（令牌错误、请求非法）是配置或调用错误，不会自愈。
+func Unavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Code >= http.StatusInternalServerError
+	}
+	return true
 }
 
 // execTimeoutMargin 是 HTTP 层超时相对命令超时的余量：命令超时由沙盒执行，客户端只为
@@ -102,7 +126,7 @@ func (c *HTTPClient) do(ctx context.Context, method, path string, body, out any)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("沙盒 %s %s: 状态 %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
+		return fmt.Errorf("沙盒 %s %s: %w", method, path, &StatusError{Code: resp.StatusCode, Body: strings.TrimSpace(string(msg))})
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("沙盒 %s %s: 解码响应: %w", method, path, err)
