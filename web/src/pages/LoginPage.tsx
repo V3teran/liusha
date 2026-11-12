@@ -82,8 +82,8 @@ export function LoginPage() {
             #ffffff→#e7eaef 近白斜向渐变）+ 等宽品牌字。
             深色主题（默认）下呈现为深卡面上的一枚浅色亮图标，浅色主题下融入卡面
             ——资产自带 rx=28 圆角容器与 8% 发丝描边（专为浅底边缘分离而设），
-            外面不再加 ring/rounded，避免双边缘。侧栏维持按主题切换剪影：
-            那是功能尺度的 chrome，此处是品牌 hero。 */}
+            外面不再加 ring/rounded，避免双边缘。浅色主题下侧栏徽记（BrandMark）用的是
+            同一枚图标；深色主题的侧栏是反白剪影，那是功能尺度的 chrome，此处是品牌 hero。 */}
         <div className="flex flex-col items-center gap-3">
           <img src="/brand/app-icon.svg" alt="liusha" className="h-12 w-12" />
           <div className="text-center">

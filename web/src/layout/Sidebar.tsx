@@ -14,9 +14,17 @@ interface SidebarProps {
   onNavigate?: () => void
 }
 
-/** 品牌徽记：按主题取正负形（深色主题反白剪影，浅色主题黑剪影）。 */
+/**
+ * 品牌徽记，按主题取形态：
+ * - 浅色：与登录页同一枚应用图标（黑剪影 + 近白渐变容器）。资产自带圆角与发丝描边，
+ *   外面不再套容器——套 accent 着色容器会成灰底小剪影，与登录页对不上。
+ * - 深色：反白剪影 + accent 着色容器（深底上的功能尺度徽记）。
+ */
 export function BrandMark({ className }: { className?: string }) {
   const { theme } = useTheme()
+  if (theme === 'light') {
+    return <img src="/brand/app-icon.svg" alt="liusha" className={cn('flex-shrink-0', className ?? 'h-9 w-9')} />
+  }
   return (
     <span
       className={cn(
@@ -24,7 +32,7 @@ export function BrandMark({ className }: { className?: string }) {
         className ?? 'h-9 w-9',
       )}
     >
-      <img src={theme === 'dark' ? '/brand/mark-white.svg' : '/brand/mark-black.svg'} alt="liusha" className="h-2/3 w-2/3" />
+      <img src="/brand/mark-white.svg" alt="liusha" className="h-2/3 w-2/3" />
     </span>
   )
 }
