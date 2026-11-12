@@ -11,49 +11,55 @@ liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的�
 ```
 人工下发 brief ──┐
 定时模板到点 ────┼→ assignment → task → agent_run → Asynq 队列 → runner：四 agent 认知循环
-代理捕获流量 ────┘                                    （工具在 sandbox 容器里执行）
+代理捕获流量 ────┘                                    （工具经沙盒服务执行）
                                                       → 探索图 → 复现门坐实 → finding（漏洞台账）
 ```
 
-| 组件 | 入口 | 职责 |
+只有一个程序 `liusha`（`cmd/liusha`），组件是它的子命令，`serve` 在同一进程运行全部组件：
+
+| 组件 | 子命令（实现） | 职责 |
 |---|---|---|
-| web | `web/`（React + Vite，生产由 nginx 托管） | 运维控制台；`/api/*` 反代到 api |
-| api | `cmd/api`（gin，:8580） | HTTP API、鉴权、LLM 接入首装引导、定时调度器 |
-| proxy | `cmd/proxy`（:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
-| runner | `cmd/runner`（:8590） | Asynq 消费者：跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量；恢复监控与清扫器 |
-| sandbox | `cmd/sandbox-server` + `deployments/tool-images/sandbox` | Kali 工具容器；runner 经**宿主 docker** 拉起，warm pool 多任务共享 |
-| 存储 | PostgreSQL 17（pgvector）+ Redis | PG 存业务数据；Redis 承载队列、事件流、凭证库 |
+| api | `api`（`internal/app/api`，gin，:8580） | HTTP API、控制台前端（`web/dist` 编入程序）、鉴权、LLM 接入首装引导、定时调度器 |
+| proxy | `proxy`（`internal/app/proxy`，:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
+| runner | `runner`（`internal/app/runner`，:8590） | Asynq 消费者：跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量；恢复监控与清扫器 |
+| sandbox | `sandbox`（`internal/app/sandbox`，:8591） | 执行工具命令的常驻服务（令牌鉴权）；compose 时跑在本地构建的 Kali 镜像里，二进制部署时工具即本机所装 |
+| 存储 | PostgreSQL 17+（pgvector）+ Redis | PG 存业务数据；Redis 承载队列、事件流、凭证库 |
 
 实体层级：assignment（一次下发的批次）→ task（一个目标，绑定一个会话）→ agent_run（一次执行；同一任务可有多个：暂停后继续、停机续跑、恢复重投）。
 
 ## 安全边界
 
 - 只对授权目标测试。测试与实测用本地靶机，绑定回环或内网地址，用完即停；不要把真实第三方站点写进测试、剧本或示例。
-- 密钥一律走环境变量（仓库根 `.env`），不进代码、配置文件、日志与提交；CI 跑 gitleaks。LLM 密钥的出站规则见「LLM 密钥」。
+- 密钥一律走环境变量（compose 与本地开发用仓库根 `.env`，二进制部署用 `liusha setup` 生成的环境变量文件），不进代码、配置文件、日志与提交；CI 跑 gitleaks。LLM 密钥的出站规则见「LLM 密钥」。
+- 沙盒执行 LLM 编写的任意命令：命令环境去掉 liusha 的全部密钥（`LIUSHA_*` 与配置声明的密钥变量，见 `internal/sandbox/server` 的 `scrubEnv`）；新增密钥类环境变量时同步该名单。沙盒端口与令牌不得对外暴露。
 - `scripts/dev/e2e.sh` 每次执行都会 TRUNCATE 运行时表、FLUSHDB 并清日志——在有需要保留数据的库上不要跑；只想跑剧本用 `make e2e-xss` / `make e2e-full`（不清库）。
 - 本地实测创建的任务、定时模板、临时 provider 用完清理（停止 / 删除），不留下会持续触发或消耗 LLM 额度的东西。
 
 ## 仓库地图
 
+- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`agentrun`、`cronschedule`、`dispatch`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`；runner 的任务收尾、恢复监控在 `internal/runner`。
-- `db/migrations`：golang-migrate 迁移；`0196_baseline` 是压缩后的基线。
+- `db/migrations`：迁移 SQL，经 `migrations.FS` 编进程序，由 `internal/db.Migrator`（golang-migrate 库，`schema_migrations` 表）执行；`0196_baseline` 是压缩后的基线。
 - `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
 - `internal/override`：「出厂默认 + 用户自定义」的字段级引擎；`internal/overridestore` 是自定义表的读写协议。
-- `config/config.yaml`：部署配置（LLM provider 首装引导、系统设置的部署默认、运行参数）；密钥一律走环境变量。
-- `web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
-- `deployments/`：三种部署形态（本地开发 / 生产全容器 / 单镜像），说明见 `deployments/README.md`。
+- `internal/config/config.yaml`：编进程序的内置默认配置（列出全部键）；部署时用覆盖文件只写改动的键，或用 `LIUSHA_<键>` 环境变量。密钥一律走环境变量。
+- `internal/tools/manifest/tools.yaml`：沙盒 CLI 工具清单（编进程序）；沙盒镜像按它安装，沙盒按它探测已安装工具。
+- `internal/sandbox`：沙盒协议与客户端；`server` 是沙盒服务端，`browser` 是编进程序的浏览器服务脚本。
+- `web`：Go 包 `web` 在带 `webdist` 构建标签时嵌入 `web/dist`（不带时嵌入占位页，`go build` / `go test` 不依赖前端构建）。`web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
+- 部署：仓库根 `Dockerfile` 构建 `liusha` 镜像；`compose.yaml`；`deployments/sandbox`（沙盒镜像）、`deployments/single`（单镜像）、`deployments/nginx`（compose 用的反向代理配置）。说明见 `deployments/README.md`。`scripts/release` 是发布打包与第三方声明生成。
 - `vendor/`：Go 依赖入库，镜像以 `-mod=vendor` 构建。改依赖必须用 `make tidy`（tidy 后同步 vendor）。
 
 ## 常用命令
 
 ```bash
-cp .env.example .env               # 仓库根 .env 是唯一环境文件（compose 与脚本共用）
-make dev-up                        # 起 pg + redis 并执行迁移
-make build-sandbox                 # 本地构建沙盒镜像（首次 / 沙盒源码变更后；依赖已有 base 镜像）
-./scripts/dev/run-svc.sh           # host 侧起 proxy + api + runner（日志 logs/*.log）
+cp .env.example .env               # 仓库根 .env：compose 与开发脚本共用
+make dev-up                        # 起 pg + redis + 沙盒容器并迁移（首次构建沙盒镜像较久）
+./scripts/dev/run-svc.sh           # 宿主上起 proxy + api + runner（日志 logs/*.log）
 make run-web                       # 前端 dev server（:5173，/api 代理到 :8580）
 make migrate                       # 对本地库执行迁移
 make e2e-xss / make e2e-full       # 端到端剧本（需 dev 栈已起；不清库）
+make build                         # 本机构建带前端的 liusha（webdist 标签）
+make up / make single-build        # compose 全量部署 / 构建单镜像
 
 go test -race -short -run TestName ./internal/<包>/                  # 单个单测
 go test -race -tags=integration -run TestName ./internal/<包>/        # 单个集成测试（需 Docker）
@@ -100,7 +106,8 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 ### 恢复、停机与清扫
 
 - 恢复监控（`runner/run_recovery.go`，30 秒巡检）两条规则：僵尸 run（running 且 LLM / 工具活动停摆超 6 分钟）→ 标 error 并重投；搁浅任务（active、未暂停、无存活 run）→ 重投。重投上限按 error run 计数（默认 4），超限任务落 aborted。暂停中的任务不重投。
-- runner 停机顺序（`cmd/runner/main.go`）：停流量入口 → 排空 asynq（宽限期）→ 拆沙盒 → healthz。不要把拆沙盒挪到排空之前：在途工具会以「沙盒不可用」失败并作为动作结果写进探索图，续跑时 planner 看到的是假失败。
+- runner 停机顺序（`internal/app/runner` 的 `shutdown`）：停流量入口与后台循环 → 排空 asynq（宽限期）→ healthz。沙盒是独立组件，不随 runner 停；`serve` 中沙盒在底层（`app.Serve` 逆序停层），runner 排空后才停沙盒——在途工具若以「沙盒不可用」失败会作为动作结果写进探索图，续跑时 planner 看到的是假失败。
+- 沙盒资源按任务释放：一次 run 无论因何结束（收敛、终止、暂停、停机中断、出错），runner 都调用沙盒 `POST /tasks/{id}/release`，结束该任务遗留的进程组与浏览器会话；续跑的 run 从探索图恢复，不依赖上一 run 的进程。任务开始时向沙盒查询安装状态，工具可用 = agent 允许 ∩ 沙盒已安装（`cognition.restrictToInstalled`）；沙盒不可达则任务以错误结束。
 - 任务级会话身份的回收见「凭证库」。
 
 ### 定时下发
@@ -218,7 +225,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 并发代码一律带 `-race` 跑。偶发失败按真实竞态处理：找到根因修掉，不加 sleep，也不靠重跑放行。
 - 前端用 vitest + Testing Library，按角色与可访问名称查询元素（`getByRole('button', { name })`、`getByLabelText`），这同时校验了可访问性。
 - 浏览器实测：用 `/tmp` 下的一次性 Playwright 脚本（不入库）驱动 dev 栈，每步同时核对页面与库内数据。全量巡检覆盖 320 / 375 / 390 / 768 / 1024 / 1440 / 1920 视口、深浅两套主题，采集 pageerror / console.error / 4xx·5xx / 横向溢出，并跑 axe-core（WCAG 2 AA）要求 0 违规；弹层逐个验证遮罩、层级、控件可点与 Esc 关闭。跨浏览器至少覆盖 Chrome，条件允许补 Firefox / Safari，跑不了的如实记为阻塞。
-- 涉及控制面、恢复、停机、定时的改动要实机验证跨进程行为（如重启 runner 看续跑、等真实 cron 到点），单测覆盖不到进程边界。
+- 涉及控制面、恢复、停机、定时、沙盒的改动要实机验证跨进程行为（如重启 runner 看续跑、等真实 cron 到点、释放后沙盒内无该任务残留进程），单测覆盖不到进程边界。
 
 ## 数据库迁移
 
@@ -233,9 +240,9 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 一个提交一个主题：修复与新功能分开提交，便于回滚与生成发布说明。
 - 版本号遵循 SemVer，0.x 内测期整体右移一位（SemVer §4 与 Cargo / npm 的 0.x 惯例）：次版本位 = 破坏性变更，补丁位 = 新功能与修复；配置为 `release-please-config.json` 的 `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`。1.0 起自动回到标准语义（主版本 = 破坏性、次版本 = 新功能、补丁 = 修复），这两项随之失效。已发布的标签不改写。git 标签带 `v`（`v0.9.1`，Go 生态要求），镜像标签不带（`0.9.1`、浮动的 `0.9`、`latest`）。
 - 破坏性变更 = 部署方或调用方必须采取行动、否则会出错的变更：删除或改名 API 端点与字段、改名配置项 / 环境变量 / Redis 键、需要人工操作或会改写、丢失存量数据的迁移。自动执行且无需任何操作的迁移（加列、加表、改注释）、纯新增的端点或字段不算。破坏性变更在主题的类型后加 `!`，正文末尾用 `BREAKING CHANGE: <升级注意>` 脚注写明升级步骤；release-please 只收录主题行与该脚注，写在正文其它位置的升级说明不会进 CHANGELOG。不要为了「醒目」把非破坏性变更标成 `!`：它会升次版本、让浮动标签失去意义。
-- 发布由 release-please 驱动：提交推到 main 后它维护 Release PR（标签 `autorelease: pending`），合并 Release PR（merge commit）即发版。Release PR 会累积后续提交，攒到一个有意义的批次（如一个功能收口、或按周）再合并，紧急修复随时合并；不必推一次发一次。只有 `ci` / `docs` / `chore` 等不进版本的改动时不会产生 Release PR。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 克隆 tag）由它改写，不要手改。
-- 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像（amd64 + arm64）；sandbox 不重建，而是找出与本版本沙盒源码一致的已构建镜像晋升为同版本 tag（找不到即失败，不发过期沙盒）。sandbox 在 main 上沙盒源码变更时由 `build-sandbox` 构建，以提交 sha 打标签。沙盒源码由 Dockerfile 的 COPY 推导（`scripts/ci/sandbox-inputs.sh`），构建判定与发版查找同源（`scripts/ci/sandbox-image-for.sh`），改 Dockerfile 不需要同步任何路径清单。合并发版 PR 不用等沙盒构建完成：发版会等它。
-- 发版后核对：五个镜像（api / proxy / runner / nginx / sandbox）的版本标签存在、双平台齐全，sandbox 版本标签指向与版本源码一致的镜像。
+- 发布由 release-please 驱动：提交推到 main 后它维护 Release PR（标签 `autorelease: pending`），合并 Release PR（merge commit）即发版。Release PR 会累积后续提交，攒到一个有意义的批次（如一个功能收口、或按周）再合并，紧急修复随时合并；不必推一次发一次。只有 `ci` / `docs` / `chore` 等不进版本的改动时不会产生 Release PR。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 中的版本号）由它改写，不要手改。
+- 发版触发 `release`：构建 `ghcr.io/v3teran/liusha` 镜像（amd64 + arm64，标签 X.Y.Z / X.Y / latest），并把两个架构的二进制压缩包（`liusha` + LICENSE + NOTICE + THIRD_PARTY_NOTICES）与 `checksums.txt` 上传到 Release（`scripts/release/package.sh`）。沙盒镜像与单镜像不发布，由部署方本地构建；沙盒 Dockerfile 或工具清单变更时 `sandbox` workflow 双架构构建并用沙盒自己的 `/tools` 验证工具齐全，不推送。
+- 发版后核对：`liusha` 镜像的版本标签存在、双平台齐全；Release 附件含两个压缩包与 `checksums.txt`，校验和匹配。
 
 ## 全仓体检分波
 
