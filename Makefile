@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down logs migrate prod-build prod-up prod-down publish single-build single-run build image run-api run-runner run-web build-nginx build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
+.PHONY: dev-up dev-down logs migrate prod-build prod-up prod-down publish single-build single-run build image run-api run-runner run-web build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
 
 COMPOSE = docker compose -f compose.yaml
 PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile full
@@ -19,11 +19,11 @@ dev-down:
 	bash scripts/dev/down.sh
 
 # ── 形态 B：生产全容器（full profile + prod overlay；迁移由 compose 的 migrate 一次性服务随 up 执行）───
-prod-build: image build-nginx
+prod-build: image
 
-# 本机构建 liusha（版本号取自 git describe）
-build:
-	go build -trimpath -ldflags "-X main.version=$(VERSION)" -o liusha ./cmd/liusha
+# 本机构建 liusha：先构建前端，再带 webdist 标签编入（版本号取自 git describe）
+build: web-build
+	go build -trimpath -tags webdist -ldflags "-X main.version=$(VERSION)" -o liusha ./cmd/liusha
 
 image:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)/liusha:$(IMAGE_TAG) .
@@ -76,7 +76,7 @@ run-api:
 run-runner:
 	go run ./cmd/liusha runner
 
-# 前端（web/）：源码与后端同仓。dev 用 vite（/api 代理到 Go）；prod 由 nginx 镜像多阶段构建托管。
+# 前端（web/）：源码与后端同仓。开发用 vite（/api 代理到 api）；发布时编入 liusha（webdist 标签）。
 run-web:
 	cd web && pnpm dev
 
@@ -88,10 +88,6 @@ web-build:
 
 web-test:
 	cd web && pnpm test
-
-# 前置 nginx 镜像：多阶段 build（node 编前端 dist + nginx 托管 + 反代 api）。
-build-nginx:
-	docker build -f deployments/nginx/Dockerfile -t $(IMAGE_REPO)/liusha-nginx:$(IMAGE_TAG) .
 
 # sandbox final 镜像（liusha sandbox + browser-use）。
 # 分层构建：base（Kali + 90 工具安装）由 CI 双架构构建推送 ghcr.io/v3teran/liusha-sandbox-base，

@@ -1,4 +1,4 @@
-// Package api 是 api 组件：HTTP API、鉴权、LLM 接入首装引导、定时调度器。
+// Package api 是 api 组件：HTTP API 与控制台前端、鉴权、LLM 接入首装引导、定时调度器。
 //
 // 启动顺序：pg + redis → stores → 首装引导（技能转换、LLM 种子、工具目录、初始管理员）→
 // 调度器 → http server。ctx 取消后在 shutdown_timeout 内优雅关闭 http server。
@@ -50,6 +50,7 @@ import (
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/V3teran/liusha/internal/workspace"
+	"github.com/V3teran/liusha/web"
 )
 
 // Run 运行 api 组件直到 ctx 取消。启动失败返回错误。
@@ -212,9 +213,14 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			Schedules:          cronStore,
 			TaskControl:        dispatchService,
 			Logs:               logx.NewReader(logx.Dir()),
+			WebUI:              web.Assets(),
 		}),
 		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
+	}
+
+	if !web.Embedded {
+		logger.Warn().Msg("本程序未编入控制台前端（构建时未带 webdist 标签），访问首页只有占位说明；开发时前端走 vite dev server")
 	}
 
 	serveErr := make(chan error, 1)
