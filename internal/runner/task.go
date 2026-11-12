@@ -49,22 +49,32 @@ func (h *Handler) executeTask(
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief, taskLogger)
 
 	// 沙盒实际安装了什么决定本轮可用的工具（可用 = agent 允许 ∩ 沙盒已安装）。
-	installed, err := h.Sandbox.Inventory(ctx)
+	installed, err := awaitInventory(ctx, h.Sandbox, sandboxWait, time.Second)
 	if err != nil {
-		if ctx.Err() == nil && !sandbox.Unavailable(err) {
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		switch {
+		case ctx.Err() != nil:
+			// 等沙盒期间停机：与停机中断同样收尾。
+			if runErr := h.AgentRuns.SetAborted(writeCtx, p.AgentRunID); runErr != nil {
+				taskLogger.Warn().Err(runErr).Msg("中断 run 终态回写失败（由僵尸 run 回收兜底）")
+			}
+			taskLogger.Info().Msg("等待沙盒期间停机：任务保持进行中，由恢复监控续跑")
+			return nil
+		case sandbox.Unavailable(err):
+			// 等满上限仍不可达：run 落 error、任务保持 active。恢复监控按出错续跑并计入重投
+			// 上限——沙盒恢复则续跑，持续不可用则任务在上限后落 aborted，不会无限重投。
+			msg := fmt.Sprintf("沙盒 %v 内不可达: %v", sandboxWait, err)
+			if runErr := h.AgentRuns.SetError(writeCtx, p.AgentRunID, msg); runErr != nil {
+				taskLogger.Warn().Err(runErr).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
+			}
+			taskLogger.Warn().Err(err).Msg("沙盒不可达：本次 run 出错，任务保持进行中，由恢复监控重试")
+			return nil
+		default:
 			// 沙盒拒绝请求（令牌错误等）：配置问题不会自愈，任务以错误结束并说明原因。
 			return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID,
 				fmt.Errorf("沙盒拒绝请求，请检查 sandbox.url / sandbox.token 配置: %w", err))
 		}
-		// 沙盒暂不可达（启动中、重启中）或本进程停机：与停机中断同样收尾——run 落 aborted、
-		// task 保持 active，恢复监控的「搁浅任务」规则在沙盒恢复后以新 run 续跑。
-		writeCtx, cancel := terminalCtx(ctx)
-		defer cancel()
-		if runErr := h.AgentRuns.SetAborted(writeCtx, p.AgentRunID); runErr != nil {
-			taskLogger.Warn().Err(runErr).Msg("中断 run 终态回写失败（由僵尸 run 回收兜底）")
-		}
-		taskLogger.Warn().Err(err).Msg("沙盒暂不可达：任务保持进行中，由恢复监控续跑")
-		return nil
 	}
 	// run 无论以何种原因结束（收敛、终止、暂停、停机中断、出错），都结束本任务在沙盒里遗留
 	// 的进程与浏览器会话：续跑的 run 从探索图恢复，不依赖上一 run 的进程。独立 ctx——任务
