@@ -18,11 +18,13 @@ import "time"
 type Status string
 
 // Task 状态机：active（进行中）→ completed（planner run 自然跑完）
-// 或 aborted（用户主动停 / ctx 取消 / 错误 / 心跳超时）。
+// 或 aborted（用户停止 / run 超时 / 执行出错 / 恢复监控重投达上限 / 代理任务无流量可领）。
+// runner 停机中断不是终态：任务保持 active，由恢复监控以新 run 续跑。暂停是 active 的
+// 子状态（paused 标记），不改 status。
 const (
 	StatusActive    Status = "active"
 	StatusCompleted Status = "completed" // planner run 自然跑完的终态
-	StatusAborted   Status = "aborted"   // 用户主动停 / ctx 取消 / 错误 / 心跳超时
+	StatusAborted   Status = "aborted"   // 外部终止或无法继续的终态（见上）
 )
 
 // Task 是 task 表行的 Go 表示。
