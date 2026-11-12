@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io/fs"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -20,6 +21,9 @@ type Deps struct {
 	Auth AuthStore
 	// AuthAudit 是登录事件审计出口（*audit.Store 满足）；nil 时不落审计（单测），生产必配。
 	AuthAudit AuthAudit
+	// WebUI 是控制台前端的静态资源（web.Assets()）；nil 时不提供前端。
+	WebUI fs.FS
+
 	// CookieSecure 控制会话 Cookie 的 Secure 属性（配置 api.cookie_secure）：经 HTTPS
 	// 访问时 true；纯 http 访问须 false（否则浏览器不种）。
 	CookieSecure bool
@@ -145,10 +149,11 @@ func NewServer(d Deps) http.Handler {
 		}
 		start := time.Now()
 		c.Next()
-		// 日志查看端点被日志页自身 3s 增量轮询，info 级会在日志页里自我回灌成
-		// 噪音墙——降为 debug：默认视图消失，排查轮询时仍可按级别开启。
+		// 降为 debug 的两类高频请求：前端静态资源（每次打开页面几十个）；日志查看
+		// 端点被日志页自身 3s 增量轮询，info 级会在日志页里自我回灌成噪音墙。
+		// 默认视图不出现，排查时仍可按级别开启。
 		ev := accessLog.Info()
-		if strings.HasPrefix(c.Request.URL.Path, "/logs") {
+		if !isAPIPath(c.Request.URL.Path) || strings.HasPrefix(c.Request.URL.Path, "/api/logs") {
 			ev = accessLog.Debug()
 		}
 		if c.Writer.Status() >= http.StatusInternalServerError {
@@ -174,8 +179,8 @@ func NewServer(d Deps) http.Handler {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}))
 
-	// 认证：会话 Cookie 统一校验（白名单端点见 auth.go）。前后端同源部署
-	// （nginx /api 反代 / vite dev 代理），无跨域消费方，故不需要 CORS。
+	// 认证：/api 下的接口统一校验会话 Cookie（例外见 auth.go）。前端由本服务同源
+	// 提供（开发时经 vite dev 代理），无跨域消费方，故不需要 CORS。
 	r.Use(RequireAuth(d.Auth, d.CookieSecure))
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
@@ -183,6 +188,19 @@ func NewServer(d Deps) http.Handler {
 	// 创建 /api 路由组（前端所有请求都带 /api 前缀）
 	api := r.Group("/api")
 	registerRouteGroups(api, d)
+
+	// 已注册路由之外：/api 下返回 JSON 404，其余交给控制台前端（WebUI 为 nil 时一律 404）。
+	if d.WebUI != nil {
+		r.NoRoute(newStaticSite(d.WebUI).handle)
+	} else {
+		r.NoRoute(func(c *gin.Context) {
+			if isAPIPath(c.Request.URL.Path) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "接口不存在"})
+				return
+			}
+			c.Status(http.StatusNotFound)
+		})
+	}
 	return r
 }
 
