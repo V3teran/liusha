@@ -99,10 +99,12 @@ func Dir() string { return logDir() }
 func (r *Reader) LogProcesses() []ProcessInfo {
 	out := make([]ProcessInfo, 0, len(ViewProcesses))
 	for _, name := range ViewProcesses {
-		info := ProcessInfo{Name: name}
+		info := ProcessInfo{Name: name, Instances: []string{}} // 无文件也是空数组：前端按数组迭代
 		if fi, err := os.Stat(r.filePath(name)); err == nil && fi.Mode().IsRegular() {
 			info.Exists, info.SizeBytes, info.ModTime = true, fi.Size(), fi.ModTime()
-			info.Instances = r.recentInstances(name)
+			if inst := r.recentInstances(name); inst != nil {
+				info.Instances = inst
+			}
 		}
 		out = append(out, info)
 	}
