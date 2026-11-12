@@ -84,8 +84,9 @@ func (s *Server) baseEnv() []string {
 	if s.cfg.BrowserBin != "" {
 		env = prependPath(env, s.cfg.BrowserBin)
 	}
-	if s.cfg.IngestURL != "" {
-		env = append(env, "LIUSHA_INGEST_URL="+s.cfg.IngestURL, "LIUSHA_INGEST_TOKEN="+s.cfg.Token)
+	if s.cfg.IngestSocket != "" {
+		// 浏览器服务经本地套接字回灌，由沙盒带令牌转发：令牌不进入任何命令的环境。
+		env = append(env, "LIUSHA_INGEST_SOCKET="+s.cfg.IngestSocket)
 	}
 	if s.cfg.ViewportWidth > 0 && s.cfg.ViewportHeight > 0 {
 		env = append(env,
@@ -123,7 +124,8 @@ func prependPath(env []string, dir string) []string {
 	return append(env, "PATH="+dir)
 }
 
-// executeCommand 运行命令并捕获输出；进程组在启动后登记到任务名下，供任务释放时结束。
+// executeCommand 运行命令并捕获输出。命令的进程组交给 taskProcesses（任务释放时据以结束，
+// 归属识别方式按平台而定，见其定义）。
 func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec.Cmd) (stdout, stderr string, exitCode int, timedOut bool) {
 	var stdoutBuf, stderrBuf strings.Builder
 	cmd.Stdout = &stdoutBuf
@@ -134,7 +136,6 @@ func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec
 		pgid := cmd.Process.Pid // Setpgid：进程组号即组长 pid
 		s.procs.add(taskID, pgid)
 		runErr = cmd.Wait()
-		// 组内已无进程（没有留后台进程）即注销，免得组号被系统复用后误杀无关进程。
 		s.procs.forgetIfGone(taskID, pgid)
 	}
 

@@ -239,21 +239,23 @@ func TestTools_ProbesPath(t *testing.T) {
 }
 
 // 命令环境：去掉 liusha 的密钥（LIUSHA_ 前缀与配置列出的变量），保留用户给工具的凭据，
-// 注入任务变量、回灌地址与令牌、浏览器脚本目录。
+// 注入任务变量、本地回灌套接字与浏览器脚本目录。沙盒令牌不得以任何形式出现。
 func TestExec_CommandEnvironment(t *testing.T) {
 	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:pw@db/liusha")
 	t.Setenv("LIUSHA_LLM_KEY_SECRET", "deadbeef")
+	t.Setenv("LIUSHA_SANDBOX_TOKEN", testToken)
 	t.Setenv("MAIN_API_KEY", "llm-key")
 	t.Setenv("SHODAN_API_KEY", "tool-key")
 	browserBin := t.TempDir()
 	h := newHarness(t, func(c *Config) {
 		c.SecretEnv = []string{"MAIN_API_KEY"}
 		c.IngestURL = "http://runner:8590/internal/v1/traffic/ingest"
+		c.IngestSocket = "/tmp/liusha-test-ingest.sock"
 		c.BrowserBin = browserBin
 		c.ViewportWidth, c.ViewportHeight = 1280, 800
 	})
 	out := h.exec(t, "env").Stdout
-	for _, leaked := range []string{"postgres://u:pw@db", "deadbeef", "llm-key"} {
+	for _, leaked := range []string{"postgres://u:pw@db", "deadbeef", "llm-key", testToken, "runner:8590"} {
 		if strings.Contains(out, leaked) {
 			t.Errorf("命令环境泄露了 %q", leaked)
 		}
@@ -261,8 +263,7 @@ func TestExec_CommandEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"SHODAN_API_KEY=tool-key",
 		"LIUSHA_TASK_ID=task",
-		"LIUSHA_INGEST_URL=http://runner:8590/internal/v1/traffic/ingest",
-		"LIUSHA_INGEST_TOKEN=" + testToken,
+		"LIUSHA_INGEST_SOCKET=/tmp/liusha-test-ingest.sock",
 		"LIUSHA_VIEWPORT_WIDTH=1280",
 		"PATH=" + browserBin + string(os.PathListSeparator),
 	} {

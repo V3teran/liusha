@@ -35,11 +35,11 @@ SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
-# POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，落 agent_traffic）→
+# POST 到沙盒的本地回灌套接字（LIUSHA_INGEST_SOCKET）→ 沙盒带令牌转发给 runner →
+# ingestor.handleInternalSnap（source=internal，落 agent_traffic）→
 # agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放做水平/垂直越权
-# （BAC）测试。LIUSHA_INGEST_URL / LIUSHA_INGEST_TOKEN 由沙盒随每条命令注入；URL 空 → 不启用。
-INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
-INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
+# （BAC）测试。套接字路径由沙盒随每条命令注入；本进程不持有任何凭据。空 → 不启用。
+INGEST_SOCKET = os.getenv("LIUSHA_INGEST_SOCKET", "").strip()
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
 CAPTURE_TYPES = {"Document", "XHR", "Fetch"}
 
@@ -216,7 +216,7 @@ class Service:
 
     async def _ensure_capture(self, agent_id: str, page: Page):
         """把 page 的 session 登记到 agent + 在该 session 上幂等开 Network domain。"""
-        if not INGEST_URL:
+        if not INGEST_SOCKET:
             return
         self._ensure_handlers()
         sid = await page.session_id
@@ -352,11 +352,9 @@ class Service:
 
     async def _cap_post(self, payload: dict):
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=5.0)
-        headers = {"Content-Type": "application/json"}
-        if INGEST_TOKEN:
-            headers["Authorization"] = "Bearer " + INGEST_TOKEN
-        await self._http.post(INGEST_URL, json=payload, headers=headers)
+            self._http = httpx.AsyncClient(
+                timeout=5.0, transport=httpx.AsyncHTTPTransport(uds=INGEST_SOCKET))
+        await self._http.post("http://sandbox/ingest", json=payload)
 
     # ---- action 路由 ----
     async def dispatch(self, req: dict):
@@ -373,14 +371,14 @@ class Service:
 
         await self.ensure_started()
         # B1：已建 tab 的 agent，确保其 session 已挂 Network capture（幂等；重连后下条命令自动重武装）。
-        if INGEST_URL and agent_id in self.tabs:
+        if INGEST_SOCKET and agent_id in self.tabs:
             await self._ensure_capture(agent_id, self.page(agent_id))
 
         if sub == "open":
             url = args[0]
             await self.ensure_tab(agent_id, url)
             # 新 tab 刚建好就武装 capture——尽早覆盖登录交互（首帧 Document GET 仍可能漏，见 _ensure_handlers 取舍）。
-            if INGEST_URL:
+            if INGEST_SOCKET:
                 await self._ensure_capture(agent_id, self.page(agent_id))
             data = {"url": url}
 

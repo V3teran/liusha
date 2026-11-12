@@ -42,14 +42,17 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 
 - **工具**：工具页标出沙盒未安装的工具，智能体的工具名单里「已允许 · 未安装」的工具运行时
   不可用，装上后自动生效。二进制部署时工具就是本机安装的那些。
-- **浏览器**：`drive_browser` 需要装了 browser-use 的 Python（`sandbox.browser_python`，沙盒
-  镜像里已配好）。不可用时工具页会说明缺什么。
+- **浏览器**：`drive_browser` 需要装了 browser-use 0.13.x（1.0 起接口不兼容）的 Python
+  （`sandbox.browser_python`，沙盒镜像里已配好）。不可用时工具页会说明缺什么。
 - **工作区**：api（文件页、附件）与沙盒必须看到同一目录、同一绝对路径（`sandbox.workspace_dir`，
   缺省 `~/data/liusha/workspace`）。compose 以同一路径挂进两个容器。
 - **回连**：反弹 shell / 代理 / payload 托管只绑对外监听段（`sandbox.listener_ports`，缺省
   `21000-21099`）中的端口；`sandbox.callback_host` 是目标用来回连的地址。容器部署探测不到宿主
   地址，需要回连时必须填写，并放行该端口段。
-- 沙盒执行 agent 编写的任意命令：令牌不可泄露，沙盒端口不要对外暴露（compose 只绑回环）。
+- 沙盒执行 agent 编写的任意命令（root 运行）：命令环境里没有 liusha 的密钥，沙盒令牌也不会
+  交给命令；但命令能访问沙盒所在机器上的一切。compose 部署时沙盒是独立容器，只挂载任务工作区；
+  二进制与单镜像部署时沙盒与平台同机（同容器），命令可以读到平台的数据目录与本机数据库——
+  需要隔离时选 compose。沙盒端口不要对外暴露（compose 只绑回环）。
 
 ## 二进制
 
