@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -29,6 +30,9 @@ func TestRuntimeDir_PerListenAddressAndPrivate(t *testing.T) {
 	}
 	if a != again {
 		t.Fatalf("同一地址重启应沿用原目录：%s != %s", a, again)
+	}
+	if runtime.GOOS == "windows" {
+		return // 目录在用户自己的配置文件夹下，权限由其访问控制列表决定，没有模式位可查
 	}
 	for _, dir := range []string{a, b} {
 		info, err := os.Stat(dir)

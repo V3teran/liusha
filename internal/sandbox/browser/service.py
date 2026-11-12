@@ -32,18 +32,19 @@ from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 
-# 用法：service.py <身份> <端点目录>。服务监听回环地址的随机端口，把 {port, key, pid} 原子写入
-# <端点目录>/<身份>.json（客户端与沙盒据此连接，约定见 client.py / browser.go）；每个请求须带 key。
+# 用法：service.py <身份> <端点目录>，由沙盒按需启动（归属任务，见 browsers.go）。服务监听回环
+# 地址的随机端口，把 {port, key, pid} 原子写入 <端点目录>/<身份>.json（客户端与沙盒据此连接，
+# 约定见 client.py / browser.go）；每个请求须带 key。
 IDENTITY = sys.argv[1]
 ENDPOINT = os.path.join(sys.argv[2], IDENTITY + ".json")
 KEY = secrets.token_urlsafe(32)
 
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
-# POST 到沙盒的回环中继 → 沙盒带令牌转发给 runner → ingestor.handleInternalSnap（source=internal，
-# 落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带
-# 身份重放做水平/垂直越权（BAC）测试。中继地址与口令随每个请求由客户端带来（沙盒重启后会变），
-# 本进程不持有沙盒令牌。未带 → 不抓。
+# POST 到沙盒本机接口的 /ingest → 沙盒带令牌转发给 runner → ingestor.handleInternalSnap
+# （source=internal，落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 →
+# http_request 带身份重放做水平/垂直越权（BAC）测试。本机接口的地址与口令随每个请求由客户端带来
+# （沙盒重启后会变），本进程不持有沙盒令牌。未带 → 不抓。
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
 CAPTURE_TYPES = {"Document", "XHR", "Fetch"}
 
@@ -105,7 +106,7 @@ class Service:
         self.server: asyncio.AbstractServer | None = None
         # ---- B1 CDP Network capture 状态 ----
         self._http: httpx.AsyncClient | None = None   # 懒构造 POST 客户端
-        self.ingest: dict = {}                        # 最近一个请求带来的回灌中继 {url, key}
+        self.local: dict = {}                         # 最近一个请求带来的沙盒本机接口 {url, key}
         self._cap_client = None                       # 已注册 handler 的 cdp_client 身份（重连换实例时重注册）
         self._cap_sids: set[str] = set()              # 已 Network.enable 的 session_id（幂等）
         self._sess2agent: dict[str, str] = {}        # session_id -> agent_id（逐请求归属）
@@ -121,7 +122,7 @@ class Service:
             if self.bs is None:
                 # 视口尺寸由沙盒随命令注入（配置 sandbox.viewport_*）；缺省走 browser_use 内置。
                 vw, vh = os.environ.get("LIUSHA_VIEWPORT_WIDTH"), os.environ.get("LIUSHA_VIEWPORT_HEIGHT")
-                kwargs = {"headless": True}
+                kwargs = {"headless": True, "user_data_dir": profile_dir()}
                 if vw and vh:
                     kwargs["window_size"] = {"width": int(vw), "height": int(vh)}
                 bs = BrowserSession(**kwargs)
@@ -224,7 +225,7 @@ class Service:
 
     async def _ensure_capture(self, agent_id: str, page: Page):
         """把 page 的 session 登记到 agent + 在该 session 上幂等开 Network domain。"""
-        if not self.ingest.get("url"):
+        if not self.local.get("url"):
             return
         self._ensure_handlers()
         sid = await page.session_id
@@ -360,13 +361,13 @@ class Service:
         return payload
 
     async def _cap_post(self, payload: dict):
-        relay = self.ingest
-        if not relay.get("url"):
+        local = self.local
+        if not local.get("url"):
             return
         if self._http is None:
             self._http = httpx.AsyncClient(timeout=5.0)
-        await self._http.post(relay["url"], json=payload,
-                              headers={"Authorization": f"Bearer {relay.get('key', '')}"})
+        await self._http.post(local["url"] + "/ingest", json=payload,
+                              headers={"Authorization": f"Bearer {local.get('key', '')}"})
 
     # ---- action 路由 ----
     async def dispatch(self, req: dict):
@@ -376,8 +377,8 @@ class Service:
         output_dir = req.get("output_dir", "")
         if req.get("agent_run_id"):
             self.tab_runs[agent_id] = req["agent_run_id"]
-        if isinstance(req.get("ingest"), dict):
-            self.ingest = req["ingest"]
+        if isinstance(req.get("local"), dict):
+            self.local = req["local"]
 
         if sub == "release-tab":
             await self._release_tab(agent_id)
@@ -640,6 +641,17 @@ class Service:
         write_endpoint(self.server.sockets[0].getsockname()[1])
         async with self.server:
             await self.server.serve_forever()
+
+
+def profile_dir() -> str:
+    """浏览器配置目录（cookie、登录态的边界）：任务状态目录下每个身份一份。显式指定，而不是
+    依赖浏览器库按用户主目录推算的缺省位置——缺省位置在同一用户的所有任务、所有身份间共用。"""
+    state = os.environ.get("LIUSHA_STATE", "")
+    if not state:
+        raise RuntimeError("缺少 LIUSHA_STATE（浏览器服务应由沙盒启动）")
+    path = os.path.join(state, "browser-profiles", IDENTITY)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def write_endpoint(port: int):

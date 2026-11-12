@@ -1,40 +1,44 @@
 """browser-use 薄客户端：把子命令转发给每身份常驻的浏览器服务（service.py）。
 
 由沙盒编进程序、启动时释放到本地目录，经同目录的 browser-use 包装脚本以 sandbox.browser_python
-运行。本客户端用 sys.executable 拉起 service.py，二者同一解释器 → import browser_use 命中同一环境
-（沙盒镜像里是独立 venv，与随发行版滚动的系统 Python 隔离）。
+运行。
 
 模型：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
   AGENT_ID = 同身份下的并行执行单元（工具层注入 action id），各占一个 tab（页面/截图/并发隔离）。
   LIUSHA_AGENT_RUN_ID = 本条命令所属的 run（沙盒注入命令环境），浏览器抓到的流量据此归属。
 
-连接：服务监听回环地址的随机端口，把 {port, key} 写进端点目录（沙盒注入的 LIUSHA_BROWSER_DIR，
-只对本用户开放）下的 <身份>.json；客户端读端点文件、连接、每个请求带上口令。连不上或口令被拒
-即视为残留端点，抢冷启动锁后拉起新服务。约定与沙盒的 browser.go 一致。
+连接：服务监听回环地址的随机端口，把 {port, key, pid} 写进端点目录（沙盒注入的
+LIUSHA_BROWSER_DIR，只对本用户开放）下的 <身份>.json；客户端读端点文件、连接、每个请求带上
+口令。连不上或口令被拒即视为服务不在，请沙盒经本机接口（LIUSHA_SANDBOX_LOCAL_URL）启动它——
+服务由沙盒启动、归属任务，活过单条命令（命令超时被结束时登录态不丢），并发的启动请求由沙盒
+去重。约定与沙盒的 browser.go / browsers.go 一致。
 
 管理类子命令（install/doctor/setup/...）不需浏览器，直接透传 browser_use 自带的命令行。
-kill 不经服务：服务已无响应时强制结束它及其浏览器（自愈的最后一级）。
+kill 不经服务：服务已无响应时请沙盒强制结束它及其浏览器（自愈的最后一级）。
 """
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 IDENTITY = os.environ.get("IDENTITY", "default")
 AGENT_ID = os.environ.get("AGENT_ID", "default")
 AGENT_RUN_ID = os.environ.get("LIUSHA_AGENT_RUN_ID", "")
+ASSIGNMENT_ID = os.environ.get("LIUSHA_ASSIGNMENT_ID", "")
+TASK_ID = os.environ.get("LIUSHA_TASK_ID", "")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "")
 BROWSER_DIR = os.environ.get("LIUSHA_BROWSER_DIR", "")
-# 回灌中继随每个请求下发：服务可能比拉起它的沙盒活得久（沙盒重启后中继地址与口令都会变）。
-INGEST = {
-    "url": os.environ.get("LIUSHA_INGEST_RELAY_URL", ""),
-    "key": os.environ.get("LIUSHA_INGEST_RELAY_KEY", ""),
+# 本机接口随每个请求交给服务（服务经它回灌流量）：服务可能比启动它的沙盒活得久，沙盒重启后
+# 地址与口令都会变。
+LOCAL = {
+    "url": os.environ.get("LIUSHA_SANDBOX_LOCAL_URL", ""),
+    "key": os.environ.get("LIUSHA_SANDBOX_LOCAL_KEY", ""),
 }
-SVC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "service.py")
 
 # 不需浏览器的管理类子命令 → 透传 browser_use 自带的命令行（install 等连 chrome 都不用）。
 PASSTHROUGH = {"", "--help", "-h", "install", "init", "setup", "doctor",
@@ -43,19 +47,24 @@ PASSTHROUGH = {"", "--help", "-h", "install", "init", "setup", "doctor",
 CONNECT_TIMEOUT = 2.0
 # 单个请求的上限须长于服务端最长的动作上限（open 150s、wait 按参数），这里只防服务失联。
 REQUEST_TIMEOUT = 900.0
+# 冷启动最多等 60s（首启含 chromium 起动）。
+START_TIMEOUT = 60.0
+
+
+def emit(stream, text: str):
+    """按 UTF-8 字节原样写出：文本模式在 Windows 上会把 \\n 改成 \\r\\n、按控制台代码页编码
+    （中文等字符直接报错），而服务回放的输出要逐字节交给沙盒。"""
+    stream.buffer.write(text.encode("utf-8"))
+    stream.flush()
 
 
 class Stale(Exception):
     """端点指向的服务不在（连不上 / 口令被拒）。"""
 
 
-def endpoint_path() -> str:
-    return os.path.join(BROWSER_DIR, IDENTITY + ".json")
-
-
 def read_endpoint():
     try:
-        with open(endpoint_path(), encoding="utf-8") as f:
+        with open(os.path.join(BROWSER_DIR, IDENTITY + ".json"), encoding="utf-8") as f:
             ep = json.load(f)
         return int(ep["port"]), str(ep["key"])
     except (OSError, ValueError, KeyError, TypeError):
@@ -89,107 +98,34 @@ def request(ep, payload: dict) -> dict:
     return resp
 
 
-class StartLock:
-    """冷启动锁：同一身份同时只有一个客户端拉起服务。POSIX 用 flock，Windows 用 msvcrt。"""
-
-    def __init__(self, path: str):
-        self.f = open(path, "a+b")
-
-    def __enter__(self):
-        if os.name == "nt":
-            import msvcrt
-            self.f.seek(0)
-            while True:
-                try:
-                    msvcrt.locking(self.f.fileno(), msvcrt.LK_LOCK, 1)
-                    return self
-                except OSError:
-                    continue  # LK_LOCK 约 10 秒仍拿不到即报错，继续等
-        import fcntl
-        fcntl.flock(self.f, fcntl.LOCK_EX)
-        return self
-
-    def __exit__(self, *exc):
-        if os.name == "nt":
-            import msvcrt
-            self.f.seek(0)
-            msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
-        self.f.close()
-
-
-def spawn_service():
-    """拉起服务：脱离本条命令的进程集合（命令超时被结束时服务不受牵连），仍归属任务——
-    POSIX 以新会话启动；Windows 脱离命令的作业、留在任务的作业（沙盒为命令设的作业允许脱离，
-    为任务设的不允许）。"""
-    log = open(os.path.join(BROWSER_DIR, IDENTITY + ".log"), "ab")
-    args = [sys.executable, SVC, IDENTITY, BROWSER_DIR]
-    with log:
-        if os.name != "nt":
-            subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             start_new_session=True)
-            return
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        try:
-            subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB)
-        except OSError:
-            # 不在沙盒管理的作业里（手工运行）且所在作业不允许脱离：留在当前作业即可。
-            subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             creationflags=flags)
-
-
-def kill_service():
-    """强制结束本身份的服务及其浏览器（服务已无响应、reset 无效时），并删除端点。
-    POSIX 上服务以新会话启动、浏览器与它同组，结束整组；Windows 上结束以它为根的进程树。"""
-    try:
-        with open(endpoint_path(), encoding="utf-8") as f:
-            pid = int(json.load(f)["pid"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    else:
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except OSError:
-            pass
-    try:
-        os.remove(endpoint_path())
-    except OSError:
+def local(method: str, path: str, body=None):
+    """调用沙盒的本机接口。"""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(LOCAL["url"] + path, data=data, method=method, headers={
+        "Authorization": "Bearer " + LOCAL["key"], "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30):
         pass
 
 
 def call(payload: dict) -> dict:
-    """把请求交给服务；服务不在则抢锁冷启后再交。"""
+    """把请求交给服务；服务不在则请沙盒启动它，等它就绪后再交。"""
     ep = read_endpoint()
     if ep is not None:
         try:
             return request(ep, payload)
         except Stale:
             pass
-    with StartLock(os.path.join(BROWSER_DIR, IDENTITY + ".lock")):
-        ep = read_endpoint()  # 等锁期间可能已有别的客户端拉起了服务
+    local("POST", "/browsers", {"assignment_id": ASSIGNMENT_ID, "task_id": TASK_ID, "identity": IDENTITY})
+    deadline = time.monotonic() + START_TIMEOUT
+    while time.monotonic() < deadline:
+        ep = read_endpoint()
         if ep is not None:
             try:
                 return request(ep, payload)
             except Stale:
-                pass
-        try:
-            os.remove(endpoint_path())
-        except OSError:
-            pass
-        spawn_service()
-        deadline = time.monotonic() + 60  # 冷启最多等 60s（首启含 chromium 起动）
-        while time.monotonic() < deadline:
-            ep = read_endpoint()
-            if ep is not None:
-                try:
-                    return request(ep, payload)
-                except Stale:
-                    pass
-            time.sleep(0.1)
-    sys.stderr.write("browser-use: 服务启动超时\n")
+                pass  # 残留端点：新服务就绪时会覆盖它
+        time.sleep(0.1)
+    emit(sys.stderr, "browser-use: 服务启动超时（日志见 $LIUSHA_STATE/browser-%s.log）\n" % IDENTITY)
     sys.exit(1)
 
 
@@ -201,17 +137,17 @@ def main() -> int:
         # 子进程而不是 exec：Windows 上的 exec 会让本进程先行退出，调用方拿不到退出码。
         return subprocess.call([sys.executable, "-m", "browser_use", sub, *args])
 
-    if not BROWSER_DIR:
-        sys.stderr.write("browser-use: 未设置 LIUSHA_BROWSER_DIR（应在沙盒命令中运行）\n")
+    if not (BROWSER_DIR and LOCAL["url"] and TASK_ID):
+        emit(sys.stderr, "browser-use: 缺少沙盒注入的环境变量（应在沙盒命令中运行）\n")
         return 1
 
     if sub == "kill":
-        kill_service()
-        sys.stdout.write("ok\n")
+        local("DELETE", "/browsers/" + urllib.parse.quote(IDENTITY) + "?task_id=" + urllib.parse.quote(TASK_ID))
+        emit(sys.stdout, "ok\n")
         return 0
 
     payload = {"sub": sub, "args": args, "agent_id": AGENT_ID,
-               "agent_run_id": AGENT_RUN_ID, "output_dir": OUTPUT_DIR, "ingest": INGEST}
+               "agent_run_id": AGENT_RUN_ID, "output_dir": OUTPUT_DIR, "local": LOCAL}
     if sub in ("reset", "release-tab"):
         # 没有运行中的服务 → 无可重置/释放，直接成功返回（不白白冷启一个再杀）。
         ep = read_endpoint()
@@ -221,15 +157,15 @@ def main() -> int:
             resp = None
         if resp is None:
             if sub == "reset":
-                sys.stdout.write("ok\n")
+                emit(sys.stdout, "ok\n")
             return 0
     else:
         resp = call(payload)
 
     if resp.get("stdout"):
-        sys.stdout.write(resp["stdout"])
+        emit(sys.stdout, resp["stdout"])
     if resp.get("stderr"):
-        sys.stderr.write(resp["stderr"])
+        emit(sys.stderr, resp["stderr"])
     return resp.get("code", 0)
 
 

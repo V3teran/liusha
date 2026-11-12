@@ -45,7 +45,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if err != nil {
 		return err
 	}
-	browserBin, err := browser.Install(runDir, sc.BrowserPython)
+	browserScripts, err := browser.Install(runDir, sc.BrowserPython)
 	if err != nil {
 		return fmt.Errorf("释放浏览器脚本: %w", err)
 	}
@@ -59,7 +59,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		WorkspaceDir:   sc.WorkspaceDir,
 		Shell:          shell,
 		Tools:          manifest.Default().Names(),
-		BrowserBin:     browserBin,
+		BrowserBin:     browserScripts.Bin,
+		BrowserService: browserScripts.Service,
 		BrowserPython:  sc.BrowserPython,
 		BrowserDir:     browserDir,
 		IngestURL:      sc.IngestURL,

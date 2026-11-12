@@ -11,9 +11,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// taskProcesses 记录各任务的命令进程组（macOS 没有 /proc，无法按任务标识识别进程）。
-// 命令结束后组内仍有进程（后台监听器等）则继续保留记录，任务释放时整组结束；组空即注销。
-// macOS 只作开发机：脱离命令进程组的进程（浏览器服务、chromium）在这里只能靠浏览器 reset 收尾。
+// taskProcesses 登记各任务的进程组（macOS 没有 /proc，无法按任务标识识别进程）。组长退出后
+// 组内仍有进程（后台监听器等）则继续保留登记，任务释放时整组结束；组空即注销。macOS 只作
+// 开发机：沙盒重启后上一实例的进程不再被认领。
 type taskProcesses struct {
 	mu     sync.Mutex
 	byTask map[string]map[int]struct{}
@@ -23,20 +23,11 @@ func newTaskProcesses() *taskProcesses {
 	return &taskProcesses{byTask: map[string]map[int]struct{}{}}
 }
 
-// run 在独立进程组中运行命令直到结束，期间把进程组登记到任务；结束后组空即注销。
-func (p *taskProcesses) run(taskID string, cmd *exec.Cmd) error {
-	setProcessGroup(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
+func (p *taskProcesses) start(taskID string, cmd *exec.Cmd) (*procGroup, error) {
+	g, err := startGroup(cmd)
+	if err != nil {
+		return nil, err
 	}
-	pgid := cmd.Process.Pid // Setpgid：进程组号即组长 pid
-	p.add(taskID, pgid)
-	err := cmd.Wait()
-	p.forgetIfGone(taskID, pgid)
-	return err
-}
-
-func (p *taskProcesses) add(taskID string, pgid int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	groups := p.byTask[taskID]
@@ -44,18 +35,19 @@ func (p *taskProcesses) add(taskID string, pgid int) {
 		groups = map[int]struct{}{}
 		p.byTask[taskID] = groups
 	}
-	groups[pgid] = struct{}{}
+	groups[g.pgid] = struct{}{}
+	return g, nil
 }
 
-// forgetIfGone 在进程组已无进程时注销它。检查与注销在同一把锁内：组号被复用、又被同一任务
-// 新的执行登记时，不会误删新记录。
-func (p *taskProcesses) forgetIfGone(taskID string, pgid int) {
+// finish 在组长退出后调用：组空即注销。检查与注销在同一把锁内：组号被复用、又被同一任务新的
+// 进程组登记时，不会误删新记录。
+func (p *taskProcesses) finish(taskID string, g *procGroup) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if groupAlive(pgid) {
+	if groupAlive(g.pgid) {
 		return
 	}
-	delete(p.byTask[taskID], pgid)
+	delete(p.byTask[taskID], g.pgid)
 	if len(p.byTask[taskID]) == 0 {
 		delete(p.byTask, taskID)
 	}
@@ -77,6 +69,9 @@ func (p *taskProcesses) killTask(taskID string) int {
 	}
 	return ended
 }
+
+// killLeftover：macOS 上不认领上一沙盒实例的进程（无法核验归属）。
+func (*taskProcesses) killLeftover(string, int) bool { return false }
 
 // groupAlive 报告进程组内是否还有进程（信号 0 只做存在性检查）。
 func groupAlive(pgid int) bool {

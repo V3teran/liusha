@@ -40,19 +40,25 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 	return true
 }
 
-// setupExecDirs 建任务工作区的 work / out / state 目录。
-func (s *Server) setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) (workDir, outDir, stateDir string, ok bool) {
-	taskRoot := filepath.Join(s.cfg.WorkspaceDir, req.AssignmentID, req.TaskID)
-	workDir = filepath.Join(taskRoot, "work")
-	outDir = filepath.Join(taskRoot, "out")
-	stateDir = filepath.Join(taskRoot, "state")
-	for _, dir := range []string{workDir, outDir, stateDir} {
+// taskDirs 是一个任务的工作区目录（见 exec.go 开头的布局说明）。
+type taskDirs struct {
+	assignmentID, taskID string
+	work, out, state     string
+}
+
+// ensureTaskDirs 建任务工作区的 work / out / state 目录。ID 须已校验为路径安全。
+func (s *Server) ensureTaskDirs(assignmentID, taskID string) (taskDirs, error) {
+	root := filepath.Join(s.cfg.WorkspaceDir, assignmentID, taskID)
+	d := taskDirs{
+		assignmentID: assignmentID, taskID: taskID,
+		work: filepath.Join(root, "work"), out: filepath.Join(root, "out"), state: filepath.Join(root, "state"),
+	}
+	for _, dir := range []string{d.work, d.out, d.state} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
-			writeError(w, http.StatusInternalServerError, "mkdir %s: %v", dir, err)
-			return "", "", "", false
+			return taskDirs{}, fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
-	return workDir, outDir, stateDir, true
+	return d, nil
 }
 
 // buildExecCommand 构建命令：命令文本写入脚本文件交给 shell 执行、任务工作区与环境。
@@ -60,7 +66,7 @@ func (s *Server) setupExecDirs(req *sandbox.ExecRequest, w http.ResponseWriter) 
 // 命令文本不经命令行传递：Windows 的命令行由目标程序自行切分，引号、反斜杠与通配的处理
 // 因运行时而异，同一条命令到 shell 手里可能已被改写；脚本文件按字节原样交给 shell，全平台
 // 同一语义。返回的 cleanup 须在命令结束后调用（停定时器、删脚本）。
-func (s *Server) buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, workDir, outputDir, stateDir string, timeout time.Duration) (*exec.Cmd, context.Context, func(), error) {
+func (s *Server) buildExecCommand(ctx context.Context, req *sandbox.ExecRequest, dirs taskDirs, outputDir string, timeout time.Duration) (*exec.Cmd, context.Context, func(), error) {
 	script, err := writeScript(s.cfg.WorkspaceDir, req.Command)
 	if err != nil {
 		return nil, nil, nil, err
@@ -72,8 +78,9 @@ func (s *Server) buildExecCommand(ctx context.Context, req *sandbox.ExecRequest,
 	}
 
 	cmd := exec.CommandContext(cmdCtx, s.cfg.Shell, sandbox.AgentPath(script)) // #nosec G204 // 沙盒的职责就是执行 agent 下发的命令
-	cmd.Dir = workDir
-	cmd.Env = append(s.baseEnv(), taskEnv(req, workDir, outputDir, stateDir)...)
+	cmd.Dir = dirs.work
+	cmd.Env = append(s.baseEnv(), dirs.env(outputDir)...)
+	cmd.Env = append(cmd.Env, "LIUSHA_AGENT_RUN_ID="+req.AgentRunID)
 	cmd.WaitDelay = execWaitDelay
 	return cmd, cmdCtx, cleanup, nil
 }
@@ -100,21 +107,25 @@ func writeScript(root, command string) (string, error) {
 	return f.Name(), nil
 }
 
-// taskEnv 是一条命令的任务变量。目录以交给 agent 的形式给出（sandbox.AgentPath）；HOME 指向
-// 任务状态目录，工具按 $HOME 落盘的会话与配置随之归位到任务。Windows 原生程序按
-// USERPROFILE 而不是 HOME 定位用户目录，同样指向它。
-func taskEnv(req *sandbox.ExecRequest, workDir, outputDir, stateDir string) []string {
+// env 是任务进程（命令与浏览器服务）的任务变量，outputDir 是本次的产物目录。任务标识也是
+// 进程归属任务的依据（Linux 上按它识别任务进程）。目录以交给 agent 的形式给出
+// （sandbox.AgentPath）；HOME 指向任务状态目录，工具按 $HOME 落盘的会话与配置随之归位到
+// 任务。Windows 上不改写 USERPROFILE：系统组件与原生程序靠它定位真实的用户目录，改写会让
+// 它们工作异常（实测浏览器因此无法启动）；需要按任务隔离的状态由各自显式指定（如浏览器
+// 配置目录）。Windows 上 Python 写管道时缺省按 ANSI 代码页编码（非拉丁字符直接报错或乱码），
+// 而输出按 UTF-8 回到 agent，故开启 UTF-8 模式——安全工具相当一部分是 Python 写的。
+func (d taskDirs) env(outputDir string) []string {
 	env := []string{
-		"LIUSHA_TASK_ID=" + req.TaskID,
-		"LIUSHA_AGENT_RUN_ID=" + req.AgentRunID,
-		"LIUSHA_WORKSPACE=" + sandbox.AgentPath(workDir),
+		"LIUSHA_ASSIGNMENT_ID=" + d.assignmentID,
+		"LIUSHA_TASK_ID=" + d.taskID,
+		"LIUSHA_WORKSPACE=" + sandbox.AgentPath(d.work),
 		"LIUSHA_OUTPUT=" + sandbox.AgentPath(outputDir),
-		"LIUSHA_STATE=" + sandbox.AgentPath(stateDir),
-		"HOME=" + sandbox.AgentPath(stateDir),
+		"LIUSHA_STATE=" + sandbox.AgentPath(d.state),
+		"HOME=" + sandbox.AgentPath(d.state),
 		"OUTPUT_DIR=" + sandbox.AgentPath(outputDir),
 	}
 	if runtime.GOOS == "windows" {
-		env = append(env, "USERPROFILE="+stateDir)
+		env = append(env, "PYTHONUTF8=1")
 	}
 	return env
 }
@@ -128,9 +139,10 @@ func (s *Server) baseEnv() []string {
 	if s.cfg.BrowserDir != "" {
 		env = append(env, "LIUSHA_BROWSER_DIR="+sandbox.AgentPath(s.cfg.BrowserDir))
 	}
-	if s.relay.url != "" {
-		// 浏览器服务经回环中继回灌，由沙盒带令牌转发：沙盒令牌不进入任何命令的环境。
-		env = append(env, "LIUSHA_INGEST_RELAY_URL="+s.relay.url, "LIUSHA_INGEST_RELAY_KEY="+s.relay.key)
+	if s.local.url != "" {
+		// 本机接口：浏览器客户端经它启停浏览器服务，浏览器服务经它回灌流量。沙盒令牌不进入
+		// 任何进程的环境。
+		env = append(env, "LIUSHA_SANDBOX_LOCAL_URL="+s.local.url, "LIUSHA_SANDBOX_LOCAL_KEY="+s.local.key)
 	}
 	if s.browsersPath != "" {
 		env = append(env, "PLAYWRIGHT_BROWSERS_PATH="+s.browsersPath)
@@ -150,8 +162,8 @@ func (s *Server) baseEnv() []string {
 func scrubEnv(env, secret []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "LIUSHA_") || slices.Contains(secret, name) {
+		name := envName(kv)
+		if hasEnvPrefix(name, "LIUSHA_") || slices.ContainsFunc(secret, func(s string) bool { return sameEnvName(s, name) }) {
 			continue
 		}
 		out = append(out, kv)
@@ -159,16 +171,37 @@ func scrubEnv(env, secret []string) []string {
 	return out
 }
 
-// prependPath 把 dir 加到 PATH 最前（无 PATH 时新建）。
+// prependPath 把 dir 加到 PATH 最前（无 PATH 时新建）。保留原变量名的写法（Windows 上通常是 Path）。
 func prependPath(env []string, dir string) []string {
 	for i, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+		if name := envName(kv); sameEnvName(name, "PATH") {
 			out := append([]string(nil), env...)
-			out[i] = "PATH=" + dir + string(os.PathListSeparator) + v
+			out[i] = name + "=" + dir + string(os.PathListSeparator) + kv[len(name)+1:]
 			return out
 		}
 	}
 	return append(env, "PATH="+dir)
+}
+
+// envName 取 KEY=VALUE 中的变量名。Windows 环境块里有以 = 开头的驱动器当前目录项（=C:=C:\x），
+// 名字从第二个 = 之前截取。
+func envName(kv string) string {
+	if i := strings.IndexByte(kv[min(1, len(kv)):], '='); i >= 0 {
+		return kv[:i+min(1, len(kv))]
+	}
+	return kv
+}
+
+// sameEnvName 按平台规则比较变量名：Windows 不区分大小写。
+func sameEnvName(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func hasEnvPrefix(name, prefix string) bool {
+	return len(name) >= len(prefix) && sameEnvName(name[:len(prefix)], prefix)
 }
 
 // executeCommand 运行命令并捕获输出。命令的进程归属到任务（taskProcesses：取消时结束这条
@@ -178,7 +211,7 @@ func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
-	runErr := s.procs.run(taskID, cmd)
+	runErr := s.procs.runGroup(taskID, cmd)
 
 	stdout, stderr = stdoutBuf.String(), stderrBuf.String()
 	if runErr != nil {

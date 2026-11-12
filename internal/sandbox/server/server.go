@@ -7,8 +7,8 @@
 //
 // 除 /healthz 外都要求 Authorization: Bearer <令牌>。
 //
-// 配置了回灌地址时另有一个回环中继（见 ingestRelay）供浏览器服务回灌流量：沙盒带令牌转发给
-// runner，令牌只在沙盒进程内，不进入任何命令的环境。
+// 另有一个只供本机任务进程使用的回环接口（见 localAPI）：浏览器客户端经它启停浏览器服务，
+// 浏览器服务经它回灌流量，沙盒带令牌转发给 runner。令牌只在沙盒进程内，不进入任何进程的环境。
 package server
 
 import (
@@ -44,6 +44,8 @@ type Config struct {
 	// BrowserBin 是浏览器包装脚本所在目录，加到命令 PATH 最前；BrowserPython 是其解释器（能力探测用）。
 	BrowserBin    string
 	BrowserPython string
+	// BrowserService 是浏览器服务脚本：沙盒按需以 BrowserPython 启动它（见 browserServices）。
+	BrowserService string
 	// BrowserDir 是浏览器服务的端点文件目录（每个身份一个，见 browser 包），须只对本用户开放。
 	BrowserDir string
 	// IngestURL 是浏览器抓到的流量回灌 runner 的地址；空 = 不回灌。
@@ -61,8 +63,9 @@ type Server struct {
 	mux       *http.ServeMux
 	procs     *taskProcesses
 	inventory *inventoryCache
-	// relay 是回灌中继（ListenAndServe 启动它之后才有地址）。
-	relay ingestRelay
+	// local 是本机接口（ListenAndServe 启动它之后才有地址）。
+	local    localAPI
+	browsers *browserServices
 	// browsersPath 是本机已装浏览器内核的位置：命令的 HOME 指向任务状态目录，按 HOME 推算
 	// 的缺省位置会漂到每个任务各一份（每个任务重新下载内核）。沙盒按自身环境解析后显式注入。
 	browsersPath string
@@ -75,7 +78,8 @@ func New(cfg Config) *Server {
 		mux:          http.NewServeMux(),
 		procs:        newTaskProcesses(),
 		browsersPath: browsersPath(),
-		relay:        ingestRelay{key: newRelayKey()},
+		local:        localAPI{key: newLocalKey()},
+		browsers:     newBrowserServices(),
 	}
 	s.inventory = newInventoryCache(s.probeInventory)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -88,22 +92,20 @@ func New(cfg Config) *Server {
 // Handler 返回 HTTP 处理器（测试与自定义 http.Server 用）。
 func (s *Server) Handler() http.Handler { return s.mux }
 
-// ListenAndServe 监听 addr（与配置了回灌时的回灌中继）直到 ctx 取消，然后优雅关闭（10s 超时）。
+// ListenAndServe 监听 addr 与本机接口直到 ctx 取消，然后优雅关闭（10s 超时）。
 //
 // 不设 ReadTimeout/WriteTimeout：命令可长达数十分钟，HTTP 同步长连接由调用方按命令超时兜底。
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	servers := []*http.Server{{Addr: addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}}
 	listeners := []net.Listener{nil}
-	if s.cfg.IngestURL != "" {
-		// 先于主服务就绪：命令环境里要带上中继地址。
-		ln, err := listenRelay()
-		if err != nil {
-			return err
-		}
-		s.relay.url = "http://" + ln.Addr().String() + "/ingest"
-		servers = append(servers, &http.Server{Handler: s.relayHandler(), ReadHeaderTimeout: 10 * time.Second})
-		listeners = append(listeners, ln)
+	// 本机接口先于主服务就绪：命令环境里要带上它的地址。
+	ln, err := listenLocal()
+	if err != nil {
+		return err
 	}
+	s.local.url = "http://" + ln.Addr().String()
+	servers = append(servers, &http.Server{Handler: s.localHandler(), ReadHeaderTimeout: 10 * time.Second})
+	listeners = append(listeners, ln)
 
 	serveErr := make(chan error, len(servers))
 	for i, srv := range servers {
