@@ -17,6 +17,9 @@ log() { echo "[liusha-single] $*"; }
 mkdir -p "$PGDATA" "$DATA_DIR/redis" "$DATA_DIR/workspace" "$DATA_DIR/logs" "$DATA_DIR/certs" "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 chown -R postgres:postgres "$PGDATA"
+# PostgreSQL 以 postgres 用户写日志；日志目录本身仍归 root（liusha 写在其中）。
+touch "$DATA_DIR/logs/postgres.log"
+chown postgres:postgres "$DATA_DIR/logs/postgres.log"
 
 # secret <环境变量> <文件> <生成命令>：环境变量优先，其次持久化文件，否则生成并持久化。
 secret() {
@@ -77,6 +80,12 @@ trap 'shutdown; exit 0' TERM INT
 
 redis-server --port 6379 --bind 127.0.0.1 --dir "$DATA_DIR/redis" --appendonly yes --requirepass "$REDIS_PASSWORD" &
 children+=("$!")
+# 等 Redis 可用（载入 AOF 期间拒绝命令）：liusha serve 启动即连 Redis，连不上整体退出。
+until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; do
+  kill -0 "${children[0]}" 2>/dev/null || { log "Redis 启动失败"; shutdown; exit 1; }
+  sleep 0.2
+done
+log "Redis 就绪"
 liusha serve &
 children+=("$!")
 log "已启动：控制台与 API :8580，MITM 代理 :8588"
