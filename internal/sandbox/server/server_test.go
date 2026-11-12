@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -127,18 +125,6 @@ func TestAuth_EmptyTokenRejectsAll(t *testing.T) {
 	}
 }
 
-// processAlive 报告进程是否仍在运行。已结束但未被回收的僵尸进程算作已结束：没有 init 回收
-// 孤儿的环境（如无 --init 的容器）里，被结束的后台进程会以僵尸形态残留。
-func processAlive(pid int) bool {
-	if stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
-		// 格式：pid (comm) state ...；comm 可含空格与括号，取最后一个 ')' 之后的状态位。
-		rest := stat[bytes.LastIndexByte(stat, ')')+1:]
-		return len(bytes.TrimSpace(rest)) > 0 && bytes.TrimSpace(rest)[0] != 'Z'
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
 func waitGone(t *testing.T, pid int) bool {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -155,7 +141,7 @@ func waitGone(t *testing.T, pid int) bool {
 func TestRelease_KillsOnlyOwnTaskProcesses(t *testing.T) {
 	h := newHarness(t)
 	spawn := func(taskID string) int {
-		res := h.execTask(t, taskID, `sleep 300 >/dev/null 2>&1 & echo $!`)
+		res := h.execTask(t, taskID, backgroundSleepPID)
 		pid, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
 		if err != nil {
 			t.Fatalf("解析后台进程 pid: %q", res.Stdout)
@@ -163,15 +149,15 @@ func TestRelease_KillsOnlyOwnTaskProcesses(t *testing.T) {
 		return pid
 	}
 	pidA, pidB := spawn("task-a"), spawn("task-b")
-	t.Cleanup(func() { _ = syscall.Kill(pidA, syscall.SIGKILL); _ = syscall.Kill(pidB, syscall.SIGKILL) })
+	t.Cleanup(func() { killProcess(pidA); killProcess(pidB) })
 	if !processAlive(pidA) || !processAlive(pidB) {
 		t.Fatal("命令结束后后台进程应保留到任务释放")
 	}
 
 	var res sandbox.ReleaseResult
 	h.decode(t, http.MethodPost, "/tasks/task-a/release", nil, &res)
-	if res.Processes != 1 {
-		t.Fatalf("应结束 task-a 的 1 个进程, got %+v", res)
+	if res.Processes < 1 { // Windows 上 sh 运行时派生的进程可能不止一个
+		t.Fatalf("应结束 task-a 的进程, got %+v", res)
 	}
 	if !waitGone(t, pidA) {
 		t.Fatal("task-a 的后台进程应被结束")
@@ -251,8 +237,8 @@ func TestExec_CommandEnvironment(t *testing.T) {
 	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:pw@db/liusha")
 	t.Setenv("LIUSHA_LLM_KEY_SECRET", "deadbeef")
 	t.Setenv("LIUSHA_SANDBOX_TOKEN", testToken)
-	t.Setenv("MAIN_API_KEY", "llm-key")
-	t.Setenv("SHODAN_API_KEY", "tool-key")
+	t.Setenv("MAIN_API_KEY", "changeme-llm-key")
+	t.Setenv("SHODAN_API_KEY", "changeme-tool-key")
 	browserBin, browserDir := t.TempDir(), t.TempDir()
 	h := newHarness(t, func(c *Config) {
 		c.SecretEnv = []string{"MAIN_API_KEY"}
@@ -262,24 +248,35 @@ func TestExec_CommandEnvironment(t *testing.T) {
 		c.ViewportWidth, c.ViewportHeight = 1280, 800
 	})
 	out := h.exec(t, "env").Stdout
-	for _, leaked := range []string{"postgres://u:pw@db", "deadbeef", "llm-key", testToken, "runner:8590"} {
+	for _, leaked := range []string{"postgres://u:pw@db", "deadbeef", "changeme-llm-key", testToken, "runner:8590"} {
 		if strings.Contains(out, leaked) {
 			t.Errorf("命令环境泄露了 %q", leaked)
 		}
 	}
 	for _, want := range []string{
-		"SHODAN_API_KEY=tool-key",
+		"SHODAN_API_KEY=changeme-tool-key",
+		"LIUSHA_ASSIGNMENT_ID=asg",
 		"LIUSHA_TASK_ID=task",
 		"LIUSHA_AGENT_RUN_ID=a",
 		"LIUSHA_BROWSER_DIR=" + filepath.ToSlash(browserDir),
-		"HOME=" + filepath.ToSlash(filepath.Join(h.root, "asg", "task", "state")),
+		"LIUSHA_STATE=" + filepath.ToSlash(filepath.Join(h.root, "asg", "task", "state")),
 		"PLAYWRIGHT_BROWSERS_PATH=",
 		"LIUSHA_VIEWPORT_WIDTH=1280",
-		"PATH=" + browserBin + string(os.PathListSeparator),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("命令环境缺少 %q", want)
 		}
+	}
+
+	// HOME 与 PATH 按 shell 里的语义核对（Windows 上的 sh 会把它们改写成自己的路径形式）：
+	// HOME 就是任务状态目录，浏览器脚本目录排在 PATH 最前。
+	if err := os.WriteFile(filepath.Join(browserBin, "liusha-probe"), []byte("#!/bin/sh\n"), 0o700); err != nil { // #nosec G306 // 测试用可执行脚本
+		t.Fatal(err)
+	}
+	check := h.exec(t, `[ "$(cd "$HOME" && pwd -P)" = "$(cd "$LIUSHA_STATE" && pwd -P)" ] && echo home-ok; `+
+		`[ "$(cd "$(dirname "$(command -v liusha-probe)")" && pwd -P)" = "$(cd "${PATH%%:*}" && pwd -P)" ] && echo path-ok`)
+	if check.Stdout != "home-ok\npath-ok\n" {
+		t.Errorf("HOME 应指向任务状态目录、浏览器脚本目录应在 PATH 最前: %q %q", check.Stdout, check.Stderr)
 	}
 }
 

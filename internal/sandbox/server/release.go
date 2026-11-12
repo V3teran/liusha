@@ -21,6 +21,7 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		releaseLog.Warn().Err(err).Str("task_id", taskID).Msg("部分浏览器会话关闭失败")
 	}
 	res := sandbox.ReleaseResult{Browsers: browsers, Processes: s.procs.killTask(taskID)}
+	s.browsers.forgetTask(s, taskID)
 	releaseLog.Info().Str("task_id", taskID).Int("browsers", res.Browsers).
 		Int("processes", res.Processes).Msg("任务资源已释放")
 	writeJSON(w, http.StatusOK, res)

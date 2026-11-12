@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,7 +34,7 @@ func TestInstall_WritesScriptsAndWrapper(t *testing.T) {
 	if err != nil {
 		t.Skip("本机没有 sh")
 	}
-	out, err := exec.Command(sh, filepath.Join(bin, "browser-use"), "open", "https://a b").Output() // #nosec G204 // 测试内生成的脚本
+	out, err := exec.Command(sh, filepath.Join(bin.Bin, "browser-use"), "open", "https://a b").Output() // #nosec G204 // 测试内生成的脚本
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,28 +151,59 @@ func testPython(t *testing.T) string {
 	return ""
 }
 
-// 客户端与服务的协议：读端点、带口令发请求，请求里带 tab 归属、run 归属、产物目录与回灌中继；
-// 回放服务给出的输出与退出码。
-func TestClient_SpeaksServiceProtocol(t *testing.T) {
+// localAPI 模拟沙盒的本机接口：POST /browsers 时调用 start（模拟沙盒启动服务），记录收到的请求。
+func localAPI(t *testing.T, start func()) (*httptest.Server, <-chan string) {
+	t.Helper()
+	got := make(chan string, 4)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got <- r.Method + " " + r.URL.RequestURI() + " " + r.Header.Get("Authorization") + " " + string(body)
+		if r.Method == http.MethodPost && r.URL.Path == "/browsers" && start != nil {
+			start()
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(ts.Close)
+	return ts, got
+}
+
+func runClient(t *testing.T, python, dir string, env []string, args ...string) ([]byte, error) {
+	t.Helper()
+	cmd := exec.Command(python, append([]string{filepath.Join(dir, "client.py")}, args...)...) // #nosec G204 // 测试内释放的脚本
+	cmd.Env = append(os.Environ(), env...)
+	return cmd.Output()
+}
+
+// 客户端与服务的协议：服务不在时请沙盒经本机接口启动它（带任务归属），等端点出现后带口令发
+// 请求；请求里带 tab 归属、run 归属、产物目录与本机接口；回放服务给出的输出与退出码。
+func TestClient_StartsServiceViaSandboxAndSpeaksProtocol(t *testing.T) {
 	python := testPython(t)
 	dir := t.TempDir()
 	if _, err := Install(dir, python); err != nil {
 		t.Fatal(err)
 	}
 	endpoints := t.TempDir()
-	got := fakeService(t, endpoints, "task1-default", `{"stdout":"hello\n","stderr":"","code":3}`)
+	var svc <-chan map[string]any
+	ready := make(chan struct{})
+	local, localReqs := localAPI(t, func() {
+		svc = fakeService(t, endpoints, "task1-default", `{"stdout":"hello\n","stderr":"","code":3}`)
+		close(ready)
+	})
 
-	cmd := exec.Command(python, filepath.Join(dir, "client.py"), "state") // #nosec G204 // 测试内释放的脚本
-	cmd.Env = append(os.Environ(),
+	out, err := runClient(t, python, dir, []string{
 		"IDENTITY=task1-default", "AGENT_ID=act-1", "LIUSHA_AGENT_RUN_ID=run-1", "OUTPUT_DIR=/out",
-		"LIUSHA_BROWSER_DIR="+endpoints,
-		"LIUSHA_INGEST_RELAY_URL=http://127.0.0.1:1/ingest", "LIUSHA_INGEST_RELAY_KEY=rk")
-	out, err := cmd.Output()
+		"LIUSHA_ASSIGNMENT_ID=asg1", "LIUSHA_TASK_ID=task1", "LIUSHA_BROWSER_DIR=" + endpoints,
+		"LIUSHA_SANDBOX_LOCAL_URL=" + local.URL, "LIUSHA_SANDBOX_LOCAL_KEY=lk",
+	}, "state")
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 3 || string(out) != "hello\n" {
 		t.Fatalf("应回放服务的输出与退出码: out=%q err=%v", out, err)
 	}
-	req := <-got
+	if want := `POST /browsers Bearer lk {"assignment_id": "asg1", "task_id": "task1", "identity": "task1-default"}`; <-localReqs != want {
+		t.Fatal("应请沙盒启动本身份的服务，带任务归属与本机口令")
+	}
+	<-ready
+	req := <-svc
 	want := map[string]any{"sub": "state", "key": "task1-default-key", "agent_id": "act-1",
 		"agent_run_id": "run-1", "output_dir": "/out"}
 	for k, v := range want {
@@ -177,8 +211,28 @@ func TestClient_SpeaksServiceProtocol(t *testing.T) {
 			t.Errorf("请求字段 %s = %v，期望 %v", k, req[k], v)
 		}
 	}
-	if ingest, _ := req["ingest"].(map[string]any); ingest["url"] != "http://127.0.0.1:1/ingest" || ingest["key"] != "rk" {
-		t.Errorf("请求应带上回灌中继, got %v", req["ingest"])
+	if l, _ := req["local"].(map[string]any); l["url"] != local.URL || l["key"] != "lk" {
+		t.Errorf("请求应带上本机接口, got %v", req["local"])
+	}
+}
+
+// kill 请沙盒强制结束本身份的服务，不自己动进程。
+func TestClient_KillAsksSandbox(t *testing.T) {
+	python := testPython(t)
+	dir := t.TempDir()
+	if _, err := Install(dir, python); err != nil {
+		t.Fatal(err)
+	}
+	local, localReqs := localAPI(t, nil)
+	out, err := runClient(t, python, dir, []string{
+		"IDENTITY=task1-admin", "LIUSHA_TASK_ID=task1", "LIUSHA_BROWSER_DIR=" + t.TempDir(),
+		"LIUSHA_SANDBOX_LOCAL_URL=" + local.URL, "LIUSHA_SANDBOX_LOCAL_KEY=lk",
+	}, "kill")
+	if err != nil || string(out) != "ok\n" {
+		t.Fatalf("kill: %q %v", out, err)
+	}
+	if got := <-localReqs; got != "DELETE /browsers/task1-admin?task_id=task1 Bearer lk " {
+		t.Fatalf("应请沙盒结束本身份的服务, got %q", got)
 	}
 }
 

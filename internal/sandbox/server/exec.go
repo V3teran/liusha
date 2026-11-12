@@ -40,18 +40,19 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workDir, outDir, stateDir, ok := s.setupExecDirs(&req, w)
-	if !ok {
+	dirs, err := s.ensureTaskDirs(req.AssignmentID, req.TaskID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "%v", err)
 		return
 	}
-	staged, err := stageOutput(s.cfg.WorkspaceDir, outDir)
+	staged, err := stageOutput(s.cfg.WorkspaceDir, dirs.out)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "%v", err)
 		return
 	}
 
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	cmd, cmdCtx, cleanup, err := s.buildExecCommand(r.Context(), &req, workDir, staged.dir, stateDir, timeout)
+	cmd, cmdCtx, cleanup, err := s.buildExecCommand(r.Context(), &req, dirs, staged.dir, timeout)
 	if err != nil {
 		staged.discard()
 		writeError(w, http.StatusInternalServerError, "%v", err)

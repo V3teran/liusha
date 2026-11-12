@@ -1,3 +1,7 @@
+//go:build !windows
+
+// 进程探测用 POSIX 信号；Windows 上按任务结束进程的语义由沙盒服务端的测试覆盖。
+
 package runner
 
 import (

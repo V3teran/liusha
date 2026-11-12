@@ -7,11 +7,23 @@ import (
 	"syscall"
 )
 
-// setProcessGroup 让命令在自己的进程组中运行：终端信号不波及它，取消（超时 / 请求断开）时
-// 结束整组——命令派生的子孙进程一并结束，脱离进程组的（以新会话启动的浏览器服务）不受影响。
-func setProcessGroup(cmd *exec.Cmd) {
+// procGroup 是一个 POSIX 进程组（组号即组长 pid）。
+type procGroup struct{ pgid int }
+
+// kill 结束整组。
+func (g *procGroup) kill() error { return syscall.Kill(-g.pgid, syscall.SIGKILL) }
+
+// startGroup 在新进程组中启动 cmd：终端信号不波及它，结束时整组结束。
+func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
+	return &procGroup{pgid: cmd.Process.Pid}, nil
+}
+
+// cancelUnpublished 结束组对象发布之前的进程组：组号即组长 pid，组长此时可能已派生子进程，
+// 按组结束。
+func cancelUnpublished(cmd *exec.Cmd) error {
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }

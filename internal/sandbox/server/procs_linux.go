@@ -6,31 +6,21 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"syscall"
 )
 
-// taskProcesses 识别并结束任务的进程。进程的任务归属以命令环境注入、子孙进程继承的
-// LIUSHA_TASK_ID 为准，在发信号那一刻从 /proc 读取核验——不登记进程组号，因此不受组号
-// 被系统复用的影响；脱离命令进程组的进程（浏览器服务以独立会话启动，chromium 在其下派生）
-// 同样识别得到。
-//
-// 这是资源回收，不是隔离：同一沙盒里的命令以同一用户运行，一个任务的命令可以改写自己的
-// LIUSHA_TASK_ID、也可以直接向别的任务的进程发信号。任务之间互不隔离是沙盒的既定边界
-// （隔离的单位是沙盒本身），这里只保证正常运行的任务结束时不留残余进程。
+// taskProcesses 识别并结束任务的进程。进程的任务归属以环境变量 LIUSHA_TASK_ID（沙盒为每个
+// 进程组注入，子孙继承）为准，在发信号那一刻从 /proc 读取核验——不登记组号，因此不受组号被
+// 系统复用的影响，沙盒重启后上一实例启动的进程同样识别得到。
 type taskProcesses struct{}
 
 func newTaskProcesses() *taskProcesses { return &taskProcesses{} }
 
-// run 在独立进程组中运行命令直到结束。任务归属随环境继承，无需登记。
-func (*taskProcesses) run(_ string, cmd *exec.Cmd) error {
-	setProcessGroup(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	return cmd.Wait()
-}
+func (*taskProcesses) start(_ string, cmd *exec.Cmd) (*procGroup, error) { return startGroup(cmd) }
+
+// finish 在组长退出后调用：Linux 上任务归属不靠登记，无事可做。
+func (*taskProcesses) finish(string, *procGroup) {}
 
 // killTask 结束带有该任务标识的进程所在的全部进程组，返回结束的进程数。chromium 的子进程会
 // 清理环境变量，但与主进程同组，结束整组即一并带走（计入结束数）。沙盒自身所在的进程组永不触碰。
@@ -54,8 +44,7 @@ func (*taskProcesses) killTask(taskID string) int {
 			continue // 进程已退出，或属于沙盒自身
 		}
 		members[pgid] = append(members[pgid], pid)
-		env, err := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
-		if err == nil && hasEntry(env, marker) {
+		if ownedBy(pid, marker) {
 			groups[pgid] = true
 		}
 	}
@@ -66,6 +55,21 @@ func (*taskProcesses) killTask(taskID string) int {
 		}
 	}
 	return ended
+}
+
+// killLeftover 结束上一沙盒实例为该任务启动、仍在运行的进程组（组长 pid 记在浏览器端点里）。
+// 先核验任务标识，组号已被复用时不动它。
+func (*taskProcesses) killLeftover(taskID string, pid int) bool {
+	if pid <= 0 || !ownedBy(pid, []byte("LIUSHA_TASK_ID="+taskID)) {
+		return false
+	}
+	return syscall.Kill(-pid, syscall.SIGKILL) == nil
+}
+
+// ownedBy 报告进程的环境里是否有 marker 这一项（进程已退出或无权读取时为否）。
+func ownedBy(pid int, marker []byte) bool {
+	env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ") // #nosec G304 G703 // 路径由数字进程号拼成
+	return err == nil && hasEntry(env, marker)
 }
 
 // hasEntry 报告 \0 分隔的环境块中是否有与 entry 完全相同的一项。

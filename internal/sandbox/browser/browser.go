@@ -39,28 +39,33 @@ from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.dom.serializer.serializer import DOMTreeSerializer`
 
+// Scripts 是释放到本地的浏览器脚本。
+type Scripts struct {
+	Bin     string // browser-use 包装脚本所在目录，加到命令 PATH 最前
+	Service string // 浏览器服务脚本（沙盒以 sandbox.browser_python 运行它）
+}
+
 // Install 把浏览器脚本释放到 dir，并在 dir/bin 生成以 python 运行客户端的 browser-use 包装脚本
-// （sh 脚本：命令由沙盒的 POSIX shell 执行）。返回应加到命令 PATH 最前面的目录。每次启动覆盖
-// 写入，脚本随程序版本更新。
-func Install(dir, python string) (string, error) {
+// （sh 脚本：命令由沙盒的 POSIX shell 执行）。每次启动覆盖写入，脚本随程序版本更新。
+func Install(dir, python string) (Scripts, error) {
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o750); err != nil {
-		return "", fmt.Errorf("创建浏览器脚本目录: %w", err)
+		return Scripts{}, fmt.Errorf("创建浏览器脚本目录: %w", err)
 	}
 	for _, name := range []string{"client.py", "service.py"} {
 		b, err := scripts.ReadFile(name)
 		if err != nil {
-			return "", fmt.Errorf("读取内置脚本 %s: %w", name, err)
+			return Scripts{}, fmt.Errorf("读取内置脚本 %s: %w", name, err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o640); err != nil { // #nosec G306 // 只读脚本，解释器读取即可
-			return "", fmt.Errorf("释放 %s: %w", name, err)
+			return Scripts{}, fmt.Errorf("释放 %s: %w", name, err)
 		}
 	}
 	wrapper := wrapperScript(python, filepath.Join(dir, "client.py"))
 	if err := os.WriteFile(filepath.Join(binDir, Command), []byte(wrapper), 0o750); err != nil { // #nosec G306 // 包装脚本须可执行
-		return "", fmt.Errorf("生成 browser-use 包装脚本: %w", err)
+		return Scripts{}, fmt.Errorf("生成 browser-use 包装脚本: %w", err)
 	}
-	return binDir, nil
+	return Scripts{Bin: binDir, Service: filepath.Join(dir, "service.py")}, nil
 }
 
 // Status 是浏览器能力的探测结果。
@@ -107,6 +112,25 @@ func wrapperScript(python, client string) string {
 type endpoint struct {
 	Port int    `json:"port"`
 	Key  string `json:"key"`
+	PID  int    `json:"pid"`
+}
+
+// EndpointPID 返回端点文件里记录的服务进程号。
+func EndpointPID(dir, identity string) (int, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, identity+".json")) // #nosec G304 // 身份由调用方校验为路径安全
+	if err != nil {
+		return 0, false
+	}
+	var ep endpoint
+	if json.Unmarshal(raw, &ep) != nil || ep.PID <= 0 {
+		return 0, false
+	}
+	return ep.PID, true
+}
+
+// RemoveEndpoint 删除身份的端点文件。
+func RemoveEndpoint(dir, identity string) {
+	_ = os.Remove(filepath.Join(dir, identity+".json"))
 }
 
 // ReleaseTask 关闭任务的全部浏览器会话（服务进程收到 reset 后关闭 chromium 并退出），

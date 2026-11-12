@@ -16,9 +16,28 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// 浏览器服务经回环中继投递流量：中继地址与口令随命令环境下发；凭口令接收、带沙盒令牌转发给
-// runner、回传 runner 的状态码；口令不对一律拒绝。沙盒令牌不出现在命令环境里。
-func TestIngestRelay_ForwardsWithToken(t *testing.T) {
+// liveServer 在真实端口上运行沙盒服务（含本机接口），返回它与停止函数。
+func liveServer(t *testing.T, opts ...func(*Config)) (*harness, func() error) {
+	t.Helper()
+	cfg := Config{Token: testToken, WorkspaceDir: t.TempDir(), Shell: testShell}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	addr := freeAddr(t)
+	srv := New(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.ListenAndServe(ctx, addr) }()
+	stop := sync.OnceValue(func() error { cancel(); return <-done })
+	t.Cleanup(func() { _ = stop() })
+	h := &harness{srv: srv, ts: &httptest.Server{URL: "http://" + addr}, root: cfg.WorkspaceDir}
+	waitHealthy(t, h)
+	return h, stop
+}
+
+// 本机接口的地址与口令随命令环境下发；凭口令访问；/ingest 带沙盒令牌转发给 runner、回传
+// runner 的状态码。沙盒令牌不出现在命令环境里。
+func TestLocalAPI_IngestForwardsWithToken(t *testing.T) {
 	got := make(chan string, 1)
 	runner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -26,29 +45,20 @@ func TestIngestRelay_ForwardsWithToken(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	t.Cleanup(runner.Close)
+	h, stop := liveServer(t, func(c *Config) { c.IngestURL = runner.URL })
 
-	addr := freeAddr(t)
-	srv := New(Config{Token: testToken, WorkspaceDir: t.TempDir(), Shell: testShell, IngestURL: runner.URL})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- srv.ListenAndServe(ctx, addr) }()
-	stop := sync.OnceValue(func() error { cancel(); return <-done })
-	t.Cleanup(func() { _ = stop() })
-
-	h := &harness{ts: &httptest.Server{URL: "http://" + addr}}
-	waitHealthy(t, h)
-	env := execEnv(t, h, `printf '%s\n%s\n' "$LIUSHA_INGEST_RELAY_URL" "$LIUSHA_INGEST_RELAY_KEY"; env`)
+	env := execEnv(t, h, `printf '%s\n%s\n' "$LIUSHA_SANDBOX_LOCAL_URL" "$LIUSHA_SANDBOX_LOCAL_KEY"; env`)
 	lines := strings.SplitN(env, "\n", 3)
-	relayURL, relayKey := lines[0], lines[1]
-	if !strings.HasPrefix(relayURL, "http://127.0.0.1:") || relayKey == "" {
-		t.Fatalf("命令环境应带回环中继地址与口令: %q", env)
+	localURL, localKey := lines[0], lines[1]
+	if !strings.HasPrefix(localURL, "http://127.0.0.1:") || localKey == "" {
+		t.Fatalf("命令环境应带本机接口地址与口令: %q", env)
 	}
 	if strings.Contains(env, testToken) {
 		t.Fatal("沙盒令牌不得出现在命令环境里")
 	}
 
 	post := func(key string) int {
-		req, _ := http.NewRequest(http.MethodPost, relayURL, strings.NewReader(`{"agent_run_id":"run-1"}`))
+		req, _ := http.NewRequest(http.MethodPost, localURL+"/ingest", strings.NewReader(`{"agent_run_id":"run-1"}`))
 		req.Header.Set("Authorization", "Bearer "+key)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -60,7 +70,7 @@ func TestIngestRelay_ForwardsWithToken(t *testing.T) {
 	if code := post("wrong"); code != http.StatusUnauthorized {
 		t.Fatalf("口令不对应 401, got %d", code)
 	}
-	if code := post(relayKey); code != http.StatusAccepted {
+	if code := post(localKey); code != http.StatusAccepted {
 		t.Fatalf("应回传 runner 的状态码, got %d", code)
 	}
 	if want := "Bearer " + testToken + ` {"agent_run_id":"run-1"}`; <-got != want {
@@ -70,9 +80,9 @@ func TestIngestRelay_ForwardsWithToken(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatalf("停止应干净: %v", err)
 	}
-	if code, err := http.Post(relayURL, "application/json", nil); err == nil {
-		_ = code.Body.Close()
-		t.Fatal("停止后中继不应再接收")
+	if resp, err := http.Post(localURL+"/ingest", "application/json", nil); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("停止后本机接口不应再接收")
 	}
 }
 
