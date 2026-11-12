@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useTheme } from './useTheme'
 
@@ -69,5 +69,79 @@ describe('useTheme', () => {
     act(() => b.result.current.toggle())
     expect(a.result.current.theme).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+})
+
+// 首次访问（未主动选过）跟随系统深浅偏好；主动切换后记住选择、不再跟随系统。
+describe('useTheme 跟随系统偏好', () => {
+  let systemLight = false
+  const changeListeners = new Set<() => void>()
+  beforeEach(() => {
+    localStorage.clear()
+    changeListeners.clear()
+    document.documentElement.classList.remove('dark', 'theme-switching')
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      get matches() {
+        return query === '(prefers-color-scheme: light)' && systemLight
+      },
+      media: query,
+      addEventListener: (_: string, fn: () => void) => changeListeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => changeListeners.delete(fn),
+    }))
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    localStorage.clear()
+    document.documentElement.classList.remove('dark', 'theme-switching')
+  })
+
+  it('未选过：系统浅色 → 浅色', () => {
+    systemLight = true
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+  })
+
+  it('未选过：系统深色 → 深色', () => {
+    systemLight = false
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+  })
+
+  it('已选过的主题优先于系统偏好', () => {
+    systemLight = true
+    localStorage.setItem('liusha-theme', 'dark')
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+  })
+
+  it('未选过时随系统切换实时更新；主动切换后不再跟随', () => {
+    systemLight = false
+    const { result } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe('dark')
+
+    systemLight = true
+    act(() => changeListeners.forEach((fn) => fn()))
+    expect(result.current.theme).toBe('light')
+    expect(localStorage.getItem('liusha-theme')).toBeNull()
+
+    act(() => result.current.toggle())
+    expect(result.current.theme).toBe('dark')
+    systemLight = false
+    act(() => changeListeners.forEach((fn) => fn()))
+    systemLight = true
+    act(() => changeListeners.forEach((fn) => fn()))
+    expect(result.current.theme).toBe('dark')
+  })
+})
+
+// 首屏内联脚本（index.html）须与 useTheme 同口径：已选优先，否则跟随系统，读不到按深色。
+describe('index.html 首屏主题脚本', () => {
+  const html = Object.values(
+    import.meta.glob('/index.html', { query: '?raw', import: 'default', eager: true }) as Record<string, string>,
+  )[0]
+  it('未选过时读系统偏好', () => {
+    expect(html).toContain("localStorage.getItem('liusha-theme')")
+    expect(html).toContain("matchMedia('(prefers-color-scheme: light)')")
   })
 })

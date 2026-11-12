@@ -16,10 +16,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>liusha LLM 智能化渗透测试平台</title>
     <script>
-      // 在 React 渲染前同步应用主题，避免深/浅色切换时的闪屏（FOUC）。
+      // 在 React 渲染前同步应用主题，避免闪屏（FOUC）。与 src/hooks/useTheme.ts 同口径：
+      // 用户选过的优先，否则跟随系统深浅偏好，读不到按深色。
       (function () {
         var stored = localStorage.getItem('liusha-theme')
-        var theme = stored === 'light' ? 'light' : 'dark'
+        var systemLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+        var theme = stored === 'light' || stored === 'dark' ? stored : systemLight ? 'light' : 'dark'
         if (theme === 'dark') document.documentElement.classList.add('dark')
       })()
     </script>
