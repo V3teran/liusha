@@ -15,7 +15,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
-	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/bus"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
@@ -48,6 +47,11 @@ import (
 // 是历史 bug 高发区）。
 type Deps struct {
 	AssignmentID string // 批次 ID（沙盒工作区一级分组）
+	// AgentRunID 是本次认知循环所属的 agent_run.id：LLM 审计、工具调用、agent 流量与
+	// 坐实漏洞都归属到它。由 runner 按投递消息注入——一个任务可有多个 run（暂停后继续、
+	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
+	// 产出全部错记到早已结束的首个 run）。
+	AgentRunID   string
 	Graph        *explorationgraph.Store
 	EventBus     bus.EventBus
 	ControlPlane *controlplane.Store
@@ -64,7 +68,6 @@ type Deps struct {
 	Tasks     *task.Store
 
 	// 工具域存储
-	AgentRuns  *agentrun.Store
 	Findings   *finding.Store
 	Corpus     *corpus.Store
 	Embedder   corpus.Embedder
@@ -359,14 +362,7 @@ func (d *Deps) assembleStack(
 	executorSkillView := skillView(d.Skills, cfgs.executor.Skills)
 	evaluatorSkillView := skillView(d.Skills, cfgs.evaluator.Skills)
 
-	// LLM 审计归属：tool_invocation.agent_run_id 外键指向 agent_run.id，
-	// 取本 task 的 run 行（api expandItem 建的那条）；查不到留空 → NULL。
-	agentRunID := ""
-	if runs, rErr := d.AgentRuns.ListByTask(ctx, taskID, 1); rErr == nil && len(runs) > 0 {
-		agentRunID = runs[0].ID
-	} else if rErr != nil {
-		d.Logger.Warn().Err(rErr).Msg("查询 agent_run 失败，tool_invocation 将不关联 run")
-	}
+	agentRunID := d.AgentRunID
 
 	// 工具注册表 + 拦截器链：遥测（tool_invocation 落库 + 节流续命）与时间线
 	// （工具过程事件进会话）各一个拦截器，单一职责。跨包工具依赖（executor 注册
