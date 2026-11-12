@@ -16,11 +16,15 @@ if [ -f .env ]; then
   set +a
 fi
 
-# host 侧地址（与 compose.yaml 的宿主端口映射一致：pg 55432、redis 56379）
-export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
-export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:56379}"
+# host 侧地址（与 compose.yaml 的宿主端口映射一致：pg 55432、redis 56379、沙盒 58591）
+export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置（.env 必填）}@localhost:${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"
+export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:${REDIS_HOST_PORT:-56379}}"
 # redis 必带密码（compose 起的 redis 已 requirepass；.env 的 REDIS_PASSWORD 必填）
 export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env 必填）}"
+# 沙盒在容器里（up.sh 起）：runner 经宿主端口调用它；工作区与容器内同一绝对路径（compose 同路径挂载）。
+export LIUSHA_SANDBOX_URL="${LIUSHA_SANDBOX_URL:-http://127.0.0.1:${SANDBOX_HOST_PORT:-58591}}"
+export LIUSHA_SANDBOX_TOKEN="${LIUSHA_SANDBOX_TOKEN:?LIUSHA_SANDBOX_TOKEN 未设置（.env 必填）}"
+export LIUSHA_SANDBOX_WORKSPACE_DIR="${LIUSHA_SANDBOX_WORKSPACE_DIR:-${HOST_DATA_DIR:-$HOME/data/liusha}/workspace}"
 # 初始管理员：账号表为空时 api 启动期用此密码建 admin（仅首启生效，之后改密走前端）。
 # dev 用固定值方便记忆；e2e 同款凭据。
 export LIUSHA_ADMIN_INITIAL_PASSWORD="${LIUSHA_ADMIN_INITIAL_PASSWORD:-changeme-admin-pass}"
@@ -39,8 +43,9 @@ echo "===== 编译 liusha ====="
 go build -o bin/liusha ./cmd/liusha
 
 echo "===== 启动 3 个 host 服务 ====="
-echo "  postgres:      $LIUSHA_POSTGRES_DSN"
+echo "  postgres:      ${LIUSHA_POSTGRES_DSN%%@*}@…"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
+echo "  sandbox:       $LIUSHA_SANDBOX_URL"
 echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address

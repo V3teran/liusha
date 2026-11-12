@@ -1,36 +1,32 @@
 #!/usr/bin/env bash
-# scripts/dev/up.sh — 起基础设施（postgres + redis），然后 migrate
-# host 侧 proxy/api/runner 不在本脚本启动（用 run-svc.sh）
+# scripts/dev/up.sh — 起本地开发依赖（postgres + redis + 沙盒容器）并迁移数据库。
+# 组件（proxy / api / runner）在宿主上直接运行，见 run-svc.sh。
+# 首次起沙盒会本地构建沙盒镜像（Kali + 工具，较久），之后命中缓存。
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-echo "===== 1. 起 docker 基础设施（postgres + redis） ====="
-# dev 模式只起 pg + redis；proxy/api/runner 由 run-svc.sh 在 host 跑
-# （host proxy 与 docker proxy 都绑 :8588，起 docker proxy 会端口冲突）。
-docker compose up -d
+echo "===== 1. 起依赖容器（postgres + redis + sandbox）====="
+# 沙盒的浏览器流量回灌到宿主上运行的 runner（compose 缺省指向容器内的 runner 服务）。
+export LIUSHA_SANDBOX_INGEST_URL="http://host.docker.internal:8590/internal/v1/traffic/ingest"
+docker compose up -d --build postgres redis sandbox
 
 echo ""
-echo "===== 2. 等 healthcheck（最多 30s） ====="
-for i in {1..15}; do
-  s=$(docker compose ps --format "{{.Status}}" 2>/dev/null | grep -c "healthy" || true)
-  if [ "$s" -ge 2 ]; then
-    echo "  ✓ pg + redis healthy"
-    break
-  fi
-  sleep 2
+echo "===== 2. 等健康检查 ====="
+for svc in liusha-postgres liusha-redis liusha-sandbox; do
+  for _ in $(seq 1 60); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' "$svc" 2>/dev/null)" = "healthy" ] && break
+    sleep 2
+  done
+  echo "  $svc: $(docker inspect -f '{{.State.Health.Status}}' "$svc" 2>/dev/null || echo 未运行)"
 done
 
 echo ""
-echo "===== 3. 跑 migrate ====="
-make migrate MIGRATE_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
+echo "===== 3. 迁移数据库 ====="
+make migrate
 
 echo ""
-echo "===== 4. 当前状态 ====="
-docker compose ps --format "table {{.Name}}\t{{.Status}}"
-
-echo ""
-echo "✓ 基础设施就绪。下一步："
-echo "    ./scripts/dev/run-svc.sh        # 起 proxy + api + runner（host 侧）"
-echo "    ./scripts/dev/e2e.sh [xss|full]  # 跑 e2e 触发器（不带参跑全部剧本，另一个终端）"
-echo "    ./scripts/dev/down.sh           # 关基础设施"
+echo "✓ 依赖就绪。下一步："
+echo "    ./scripts/dev/run-svc.sh        # 宿主上起 proxy + api + runner"
+echo "    ./scripts/dev/e2e.sh [xss|full]  # 跑端到端剧本（另一个终端）"
+echo "    ./scripts/dev/down.sh           # 关依赖容器"

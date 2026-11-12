@@ -1,10 +1,28 @@
-# syntax=docker/dockerfile:1.4
-# Sandbox 基础镜像：Kali Linux + 90 个安全工具
-# 架构：按安装方式分层，每层末尾强制验证，失败立即退出
+#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够）
+# liusha 沙盒镜像：Kali + 工具清单（internal/tools/manifest/tools.yaml）中的工具 + liusha（以 sandbox
+# 子命令运行）。由部署方本地构建（compose 的 sandbox 服务 build 即指向本文件）；单镜像
+# （deployments/single）以它为底。
+#
+# 层次：liusha 编译 → Kali 工具层（耗时长，按安装方式分层，每层末尾强制验证）→ 拷入 liusha。
+# liusha 放在最后：改代码只重建最后一层，工具层全部命中缓存。
+#
+# 以 root 运行：渗透工具大量依赖原始套接字、低位端口与系统级安装路径；隔离边界是容器本身。
 
+# ── liusha 编译：构建机原生架构交叉编译，零 QEMU ──
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS liusha
+ARG TARGETOS TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY . .
+ENV CGO_ENABLED=0
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath \
+      -ldflags "-s -w -X main.version=${VERSION}" -o /out/liusha ./cmd/liusha
+
+# ── Kali + 工具 ──
 FROM kalilinux/kali-rolling:latest
 
-# 环境变量
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -18,8 +36,11 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https
     # 钉官方 CDN（kali.download）：http.kali.org 是重定向器，按地理位置导流到
     # 第三方镜像——个别镜像 TLS 证书损坏/失修时构建随机挂（实测 arm64 构建被
     # 导到证书校验失败的镜像源）。CDN 双架构全量分发，CI 与本地行为一致。
-    printf 'deb https://kali.download/kali kali-rolling main contrib non-free non-free-firmware\n' \
-      > /etc/apt/sources.list
+    # 镜像自带的源是 deb822 格式的 kali.sources，必须改写它本身——另写
+    # sources.list 只会多出一个源，重定向器照旧生效。用 http：裸镜像没有 CA 证书，
+    # https 源无法使用；包的完整性由 apt 的 GPG 签名校验保证，不依赖传输层。
+    printf 'Types: deb\nURIs: http://kali.download/kali\nSuites: kali-rolling\nComponents: main contrib non-free non-free-firmware\nSigned-By: /usr/share/keyrings/kali-archive-keyring.gpg\n' \
+      > /etc/apt/sources.list.d/kali.sources
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 1: 基础环境 + 构建依赖
@@ -310,14 +331,18 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 20: browser-use（浏览器自动化）
 #
+# 版本钉死：浏览器服务（internal/sandbox/browser/service.py）用 0.x 的 BrowserSession /
+# actor.Page 接口，1.0 移除了它们——升级须先移植服务脚本，并同步沙盒的能力探测。
+# 命令里的 browser-use 由 liusha sandbox 启动时生成（以本 venv 运行内置客户端），这里不另装入口。
 # chromium 预装：browser_use 启动浏览器经 `uvx playwright install chromium` 拉取
-# （~114MB + 系统依赖）。预装进 base——离线/弱网沙箱下运行时下载会直接挂掉浏览器栈。
-# uvx 真实语义 = `uv tool run`（uv 按 argv[0] 分发）。失败不阻断构建（运行时仍可按需下载）。
+# （~114MB + 系统依赖）。预装进镜像——离线/弱网沙箱下运行时下载会直接挂掉浏览器栈。
+# PLAYWRIGHT_BROWSERS_PATH 钉在固定目录：缺省位置随 $HOME 走，而沙盒执行命令时 HOME 指向
+# 任务目录，浏览器会找不到预装的 chromium、在每个任务目录里各下载一份（近 1GB）。
+# uvx 真实语义 = `uv tool run`（uv 按 argv[0] 分发）。
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN set -eux \
  && python3 -m venv /opt/browser-use-venv \
- && /opt/browser-use-venv/bin/pip install --no-cache-dir browser-use \
- && printf '#!/bin/sh\nexec /opt/browser-use-venv/bin/python -m browser_use "$@"\n' > /usr/local/bin/browser-use \
- && chmod +x /usr/local/bin/browser-use \
+ && /opt/browser-use-venv/bin/pip install --no-cache-dir 'browser-use==0.13.14' \
  && printf '#!/bin/sh\nexec /usr/local/bin/uv tool run "$@"\n' > /usr/local/bin/uvx \
  && chmod +x /usr/local/bin/uvx \
  && uvx playwright install chromium --with-deps
@@ -427,13 +452,17 @@ RUN set -eux \
  && nuclei -ut
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 元数据：嵌入工具清单
+# liusha 沙盒服务
 # ══════════════════════════════════════════════════════════════════════════════
-COPY internal/tools/manifest/tools.yaml /tools.yaml
+COPY --from=liusha /out/liusha /usr/local/bin/liusha
 
-LABEL org.opencontainers.image.description="Sandbox base image with 90 security tools"
-LABEL liusha.tools.count="90"
-LABEL liusha.tools.manifest="/tools.yaml"
+LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha" \
+      org.opencontainers.image.description="liusha 沙盒：Kali 工具集 + liusha sandbox"
 
-# 设置工作目录
-WORKDIR /opt/sandbox
+# 浏览器服务用 browser-use 专属 venv（Layer 20）：与随发行版滚动的系统 Python 隔离。
+ENV LIUSHA_SANDBOX_LISTEN_ADDR=0.0.0.0:8591 \
+    LIUSHA_SANDBOX_BROWSER_PYTHON=/opt/browser-use-venv/bin/python
+WORKDIR /root
+EXPOSE 8591
+ENTRYPOINT ["/usr/local/bin/liusha"]
+CMD ["sandbox"]

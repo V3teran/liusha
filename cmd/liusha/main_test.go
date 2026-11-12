@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,5 +58,44 @@ func TestRun_PositionalArgs(t *testing.T) {
 	}
 	if code, _, stderr := runCLI(t, "corpus-import"); code != 1 || !strings.Contains(stderr, "缺少要导入的文件") {
 		t.Fatalf("corpus-import: code=%d stderr=%q", code, stderr)
+	}
+}
+
+// -env-file 先于配置加载生效：文件里指定的覆盖文件路径被采用。
+func TestRun_EnvFileAppliedBeforeConfig(t *testing.T) {
+	t.Setenv("LIUSHA_CONFIG", "")
+	_ = os.Unsetenv("LIUSHA_CONFIG")
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "from-env-file.yaml")
+	envPath := filepath.Join(dir, "liusha.env")
+	if err := os.WriteFile(envPath, []byte("LIUSHA_CONFIG="+missing+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "migrate", "-env-file", envPath)
+	if code != 1 || !strings.Contains(stderr, "from-env-file.yaml") {
+		t.Fatalf("应按环境变量文件里的 LIUSHA_CONFIG 加载配置: code=%d stderr=%q", code, stderr)
+	}
+	if code, _, stderr := runCLI(t, "migrate", "-env-file", filepath.Join(dir, "nope.env")); code != 1 || !strings.Contains(stderr, "环境变量文件") {
+		t.Fatalf("环境变量文件不存在应报错: code=%d stderr=%q", code, stderr)
+	}
+}
+
+// setup 列在用法里；缺连接串、文件已存在都在连接任何依赖之前拒绝。
+func TestRun_Setup(t *testing.T) {
+	if _, stdout, _ := runCLI(t, "help"); !strings.Contains(stdout, "setup") {
+		t.Fatalf("用法应列出 setup: %s", stdout)
+	}
+	t.Setenv("LIUSHA_POSTGRES_DSN", "")
+	dir := t.TempDir()
+	if code, _, stderr := runCLI(t, "setup", "-env-file", filepath.Join(dir, "a.env")); code != 1 || !strings.Contains(stderr, "-postgres-dsn") {
+		t.Fatalf("缺连接串应报错: code=%d stderr=%q", code, stderr)
+	}
+	existing := filepath.Join(dir, "b.env")
+	if err := os.WriteFile(existing, []byte("X=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "setup", "-env-file", existing, "-postgres-dsn", "postgres://unused")
+	if code != 1 || !strings.Contains(stderr, "已存在") {
+		t.Fatalf("文件已存在应拒绝: code=%d stderr=%q", code, stderr)
 	}
 }

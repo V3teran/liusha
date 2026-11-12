@@ -1,27 +1,28 @@
-.PHONY: dev-up dev-down logs migrate prod-build prod-up prod-down publish single-build single-run build image run-api run-runner run-web build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
+.PHONY: dev-up dev-down logs migrate up down publish single-build single-run build image run-api run-runner run-web build-sandbox web-install web-build web-test test test-unit test-integration lint fmt tidy vet e2e e2e-xss e2e-full
 
-COMPOSE = docker compose -f compose.yaml
-PROD_COMPOSE = docker compose -f compose.yaml -f compose.prod.yaml --profile full
+COMPOSE = docker compose
 
 # 镜像仓库/标签（compose.yaml 同默认值——本地 build 即同名 tag，pull 不撞远端）
 IMAGE_REPO ?= ghcr.io/v3teran
 IMAGE_TAG ?= latest
-# 默认对齐 compose 的 dev 宿主端口约定（POSTGRES_HOST_PORT:-55432）
-MIGRATE_DSN ?= postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-# ── 形态 A：本地开发（pg+redis 容器 + 业务进程 host 二进制）────────────
-# 完整流程见 scripts/dev/up.sh。
+# ── 本地开发：依赖（pg / redis / 沙盒）跑在容器里，组件在宿主上直接运行 ──
+# 完整流程见 scripts/dev/up.sh 与 scripts/dev/run-svc.sh。
 dev-up:
 	bash scripts/dev/up.sh
 
 dev-down:
 	bash scripts/dev/down.sh
 
-# ── 形态 B：生产全容器（full profile + prod overlay；迁移由 compose 的 migrate 一次性服务随 up 执行）───
-prod-build: image
+# ── compose 部署：全部服务；数据库迁移由一次性的 migrate 服务随 up 执行 ──
+up:
+	$(COMPOSE) up -d --build
 
-# 本机构建 liusha：先构建前端，再带 webdist 标签编入（版本号取自 git describe）
+down:
+	$(COMPOSE) down
+
+# ── 二进制：本机构建 liusha（先构建前端，再带 webdist 标签编入；版本号取自 git describe）──
 build: web-build
 	go build -trimpath -tags webdist -ldflags "-X main.version=$(VERSION)" -o liusha ./cmd/liusha
 
@@ -44,31 +45,29 @@ publish:
 	  --label org.opencontainers.image.source=$(IMAGE_SOURCE) \
 	  $(foreach t,$(IMAGE_TAGS),-t $(IMAGE_REPO)/liusha:$(t)) .
 
-prod-up:
-	$(PROD_COMPOSE) up -d --build
+# ── 单镜像：以沙盒镜像为底，一个容器运行全部 ──
+# 目标机架构不同时加 --platform（如 linux/amd64）。
+single-build: build-sandbox
+	docker build -t liusha-single:local -f deployments/single/Dockerfile .
 
-prod-down:
-	$(PROD_COMPOSE) down
-
-# ── 形态 C：单镜像（比赛/受限环境；沙盒依赖宿主 docker.sock + sandbox 镜像）──
-single-build:
-	docker build -f deployments/single/Dockerfile -t liusha/single .
-
-# 目标机 amd64（比赛机常见）：docker buildx build --platform linux/amd64 -t liusha/single -f deployments/single/Dockerfile . --load
+# 回连地址：目标访问「它:监听段端口」反连沙盒，按需改 CALLBACK_HOST 与监听段
+CALLBACK_HOST ?=
+LISTENER_PORTS ?= 21000-21099
 single-run:
 	docker run -d --restart unless-stopped --name liusha-single \
-	  -p 50080:80 -p 58588:8588 -p 58590:8590 \
+	  -p 50080:8580 -p 58588:8588 -p $(LISTENER_PORTS):$(LISTENER_PORTS) \
+	  -e LIUSHA_SANDBOX_CALLBACK_HOST=$(CALLBACK_HOST) -e LIUSHA_SANDBOX_LISTENER_PORTS=$(LISTENER_PORTS) \
 	  -v $(HOME)/data/liusha/single:/data \
-	  -v /var/run/docker.sock:/var/run/docker.sock \
-	  --env-file .env \
-	  -e LIUSHA_INGEST_PUBLIC_PORT=58590 \
-	  liusha/single
+	  liusha-single:local
 
 logs:
 	$(COMPOSE) logs -f --tail=100
 
+# 对本地开发库执行迁移（连接串取 LIUSHA_POSTGRES_DSN，缺省按 .env 的 POSTGRES_PASSWORD 拼出）
 migrate:
-	LIUSHA_POSTGRES_DSN='$(MIGRATE_DSN)' go run ./cmd/liusha migrate
+	bash -c 'set -a; [ -f .env ] && . ./.env; set +a; \
+	  export LIUSHA_POSTGRES_DSN="$${LIUSHA_POSTGRES_DSN:-postgres://liusha:$${POSTGRES_PASSWORD}@localhost:$${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"; \
+	  go run ./cmd/liusha migrate'
 
 run-api:
 	go run ./cmd/liusha api
@@ -89,13 +88,9 @@ web-build:
 web-test:
 	cd web && pnpm test
 
-# sandbox final 镜像（liusha sandbox + browser-use）。
-# 分层构建：base（Kali + 90 工具安装）由 CI 双架构构建推送 ghcr.io/v3teran/liusha-sandbox-base，
-# 本地按宿主原生架构构建 final（ARG BASE_IMAGE 默认取 base:latest 双架构 tag）。
-# 改 Dockerfile.base / 工具清单走 CI。
+# 沙盒镜像：Kali + 工具清单中的工具 + liusha sandbox。首次构建较久，工具层之后命中缓存。
 build-sandbox:
-	docker build -t ghcr.io/v3teran/liusha-sandbox:latest \
-		-f deployments/tool-images/sandbox/Dockerfile.final .
+	docker build --build-arg VERSION=$(VERSION) -t liusha-sandbox:local -f deployments/sandbox/Dockerfile .
 
 test: test-unit test-integration
 
