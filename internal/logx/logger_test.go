@@ -238,3 +238,22 @@ func TestLoadConfig_FileSinkOffByDefaultUnderTest(t *testing.T) {
 		t.Fatal("显式 LIUSHA_LOG_TO_FILE=true 应开启文件落盘")
 	}
 }
+
+// 包级 logger 在入口补齐环境（liusha 的 -env-file）之前就已建好：输出端须按 SetProcess 时的
+// 环境构建，而不是 logger 创建时的环境。
+func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
+	early := New("pkg-level")
+
+	dir := t.TempDir()
+	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
+	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
+	SetProcess("late-env")
+	t.Cleanup(func() { SetProcess("") })
+
+	early.Info().Msg("after env")
+	raw, err := os.ReadFile(filepath.Join(dir, "late-env.log")) // #nosec G304 // 测试临时目录
+	if err != nil || !strings.Contains(string(raw), "after env") {
+		t.Fatalf("先建的 logger 应写入后设定的日志目录: %v %q", err, raw)
+	}
+}
