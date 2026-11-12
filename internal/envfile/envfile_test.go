@@ -11,10 +11,23 @@ import (
 )
 
 var tricky = []Var{
-	{Key: "LIUSHA_POSTGRES_DSN", Value: `postgres://u:p'a"s$s\w@h:5432/db?sslmode=disable&x=1`},
+	{Key: "LIUSHA_POSTGRES_DSN", Value: `postgres://u:p%24ss@h:5432/db?sslmode=disable&x=1 #notcomment`},
 	{Key: "PLAIN", Value: "abc123"},
 	{Key: "EMPTY", Value: ""},
-	{Key: "BACKTICK", Value: "a`b"},
+	{Key: "TOKEN", Value: "Zm9v-YmFy_YmF6"},
+}
+
+// 三方解析可能不一致的字符一律拒绝写入，且不创建文件。
+func TestCreate_RejectsAmbiguousValues(t *testing.T) {
+	for _, v := range []string{`a"b`, `a'b`, `a\b`, "a$b", "a`b", "a\nb", "a\rb"} {
+		path := filepath.Join(t.TempDir(), "x.env")
+		if err := Create(path, []Section{{Vars: []Var{{Key: "K", Value: v}}}}); err == nil {
+			t.Errorf("%q 应被拒绝", v)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%q 被拒绝时不应创建文件", v)
+		}
+	}
 }
 
 // 写出的文件能被本包读回同样的值，且权限为 0600；已存在时拒绝覆盖。

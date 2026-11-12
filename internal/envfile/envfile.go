@@ -1,8 +1,10 @@
 // Package envfile 读写环境变量文件（KEY=VALUE 每行一条）：liusha setup 生成，各子命令经
-// -env-file 读入；格式同时兼容 systemd 的 EnvironmentFile= 与 sh 的 source。
+// -env-file 读入，同一文件也直接用作 systemd 的 EnvironmentFile= 或被 sh source。
 //
-// 语法：空行与 # 开头的行忽略；可带 export 前缀；值可不加引号（去两端空白）、加单引号
-// （原样）或加双引号（支持 \\ \" \$ \` \n 转义）。
+// 写出端只写三方解析结果必然一致的值：值不含引号、反斜杠、$、反引号与换行，写作 KEY="值"，
+// 不需要任何转义（各方对转义的处理并不一致）。
+// 读取端兼容手工编辑：空行与 # 开头的行忽略；可带 export 前缀；值可不加引号（去两端空白）、
+// 加单引号（原样）或加双引号（与 sh 相同：反斜杠只转义 \\ \" \$ \`）。
 package envfile
 
 import (
@@ -70,9 +72,27 @@ func Read(path string) ([]Var, error) {
 	return vars, nil
 }
 
+// CheckValue 校验值能否写入环境变量文件（见包说明）。
+func CheckValue(v string) error {
+	if i := strings.IndexAny(v, "\"'\\$`\n\r"); i >= 0 {
+		return fmt.Errorf("值含字符 %q，环境变量文件不支持（连接串里的特殊字符请用百分号编码，如 $ 写作 %%24）", v[i])
+	}
+	return nil
+}
+
 // Create 新建 path（权限 0600）并写入 vars，每组前可带注释行。文件已存在时返回 fs.ErrExist，
-// 不覆盖——其中的密钥一旦替换，用旧密钥加密的数据就无法解密。
+// 不覆盖——其中的密钥一旦替换，用旧密钥加密的数据就无法解密。变量名或值不合规时不创建文件。
 func Create(path string, sections []Section) error {
+	for _, sec := range sections {
+		for _, v := range sec.Vars {
+			if !validKey(v.Key) {
+				return fmt.Errorf("非法变量名 %q", v.Key)
+			}
+			if err := CheckValue(v.Value); err != nil {
+				return fmt.Errorf("%s: %w", v.Key, err)
+			}
+		}
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 // 路径来自操作者的命令行参数
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
@@ -89,11 +109,7 @@ func Create(path string, sections []Section) error {
 			_, _ = w.WriteString("# " + c + "\n")
 		}
 		for _, v := range s.Vars {
-			if !validKey(v.Key) {
-				_ = f.Close()
-				return fmt.Errorf("非法变量名 %q", v.Key)
-			}
-			_, _ = w.WriteString(v.Key + "=" + quote(v.Value) + "\n")
+			_, _ = w.WriteString(v.Key + "=\"" + v.Value + "\"\n")
 		}
 	}
 	if err := w.Flush(); err != nil {
@@ -150,8 +166,6 @@ func unescape(s string) (string, error) {
 		}
 		i++
 		switch s[i] {
-		case 'n':
-			b.WriteByte('\n')
 		case '\\', '"', '$', '`':
 			b.WriteByte(s[i])
 		default:
@@ -160,10 +174,4 @@ func unescape(s string) (string, error) {
 		}
 	}
 	return b.String(), nil
-}
-
-// quote 以双引号写出值，转义 sh 与 systemd 在双引号内会解释的字符。
-func quote(v string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`", "\n", `\n`)
-	return `"` + r.Replace(v) + `"`
 }
