@@ -38,7 +38,7 @@ docker compose up -d --build
 git clone --branch v0.9.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 make single-build
 docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
-docker logs liusha      # 初始管理员密码在启动日志里
+docker exec liusha cat /data/secrets/admin.initial_password   # 初始管理员 admin 的密码
 ```
 
 ## 升级
