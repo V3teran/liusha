@@ -11,7 +11,7 @@ import (
 
 // 下发边界的 LLM 就绪校验：任务在创建前必须可被服务——否则任务入队后 planner
 // 拿到「未配置」错误无限重试、永挂 active（零 provider/无路由/密钥缺失同属此类）。
-// 校验语义由 cmd/api 的适配器实现（Router.For(simple)——simple 是全部档位的降级
+// 校验语义由 api 组件的适配器实现（Router.For(simple)——simple 是全部档位的降级
 // 兜底，它可解析 ⟺ 任意档位可解析）；这里锁定 guard 的判定与错误链。
 
 type fakeReadiness struct{ err error }

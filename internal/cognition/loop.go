@@ -508,10 +508,10 @@ func intersectPlannerSafeTools(whitelist []string) []string {
 	return out
 }
 
-// filterManifest 按 cli_tools 白名单过滤工具清单（nil/空清单 → 空集并告警）。
+// filterManifest 按 cli_tools 白名单过滤工具清单（未注入清单或名单为空 → 空集并告警）。
 func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	if d.ToolsManifest == nil || len(cliTools) == 0 {
-		d.Logger.Warn().Msg("未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
+		d.Logger.Warn().Msg("未配置 cli_tools，外部工具不可用")
 		return &manifest.ToolManifest{Tools: []manifest.Tool{}}
 	}
 	filtered := d.ToolsManifest.FilterByNames(cliTools)

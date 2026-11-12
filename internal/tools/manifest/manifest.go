@@ -1,18 +1,20 @@
-// Package manifest 解析 deployments/tool-images/sandbox/tools.yaml。
+// Package manifest 是沙盒 CLI 工具清单（tools.yaml，编进程序）。
 //
-// 设计哲学：**工具是否存在于沙箱**与**工具是否有详细手册**独立。
-//   - 本 ToolManifest 是"工具是否存在"的真实来源——和 Dockerfile 装的 binary 严格对应
-//   - 内置技能 internal/builtin/skills/tool/<name>/SKILL.md 是"是否有详细手册"——独立可选
+// 三件事彼此独立：
+//   - 本清单声明产品支持哪些 CLI 工具（名称、分类、用途），沙盒镜像按它安装
+//   - 某台沙盒实际装了哪些，由沙盒按清单探测上报（二进制部署时取决于本机）
+//   - 内置技能 internal/builtin/skills/tool/<name>/SKILL.md 是可选的详细手册
 //
 // agent 把按 cli_tools 白名单过滤后的 ToolManifest 渲染成 CLI 工具目录塞进系统提示词（Tier 1 索引），
 // LLM 据此知道"沙箱里有哪些工具可用"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
 package manifest
 
 import (
+	_ "embed"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -41,28 +43,36 @@ type ToolManifest struct {
 	Tools      []Tool     `yaml:"tools"`
 }
 
-// Load 从 yaml 文件加载 ToolManifest；返回 error 时调用方应 fail-fast——
-// 工具清单缺失会让 LLM 看不到沙箱有什么工具，agent 无法 ReAct 决策。
-func Load(path string) (*ToolManifest, error) {
-	data, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置，非用户输入
+//go:embed tools.yaml
+var defaultYAML []byte
+
+// Default 返回内置工具清单（进程内只解析一次，调用方不得修改返回值）。
+// 清单随程序发布、由单测守住合法性，解析失败属于构建缺陷，直接 panic。
+var Default = sync.OnceValue(func() *ToolManifest {
+	m, err := Parse(defaultYAML)
 	if err != nil {
-		return nil, fmt.Errorf("读取 tools manifest %q: %w", path, err)
+		panic(fmt.Sprintf("内置工具清单不合法: %v", err))
 	}
+	return m
+})
+
+// Parse 解析并校验工具清单。
+func Parse(data []byte) (*ToolManifest, error) {
 	var m ToolManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("解析 tools manifest %q: %w", path, err)
+		return nil, fmt.Errorf("解析工具清单: %w", err)
 	}
 	if len(m.Tools) == 0 {
-		return nil, fmt.Errorf("tools manifest %q 不含任何工具（tools 列表为空）", path)
+		return nil, fmt.Errorf("工具清单不含任何工具（tools 列表为空）")
 	}
 	// 工具名是 cli_tools 名单与 run_command 的寻址键：缺名或重名都是清单错误。
 	seen := make(map[string]bool, len(m.Tools))
 	for i, t := range m.Tools {
 		if strings.TrimSpace(t.Name) == "" {
-			return nil, fmt.Errorf("tools manifest %q 第 %d 个工具缺少 name", path, i+1)
+			return nil, fmt.Errorf("工具清单第 %d 个工具缺少 name", i+1)
 		}
 		if seen[t.Name] {
-			return nil, fmt.Errorf("tools manifest %q 工具 %q 重复登记", path, t.Name)
+			return nil, fmt.Errorf("工具清单中工具 %q 重复登记", t.Name)
 		}
 		seen[t.Name] = true
 	}

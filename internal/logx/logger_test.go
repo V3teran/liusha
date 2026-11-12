@@ -42,7 +42,8 @@ func TestNew_DevelopmentIsConsole(t *testing.T) {
 func TestNew_FileWriteAndFields(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "proc-A")
+	SetProcess("proc-A")
+	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
@@ -51,7 +52,7 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 	l := New("svcA")
 	l.Info().Str("k", "v").Msg("first")
 
-	// 文件名取自 LIUSHA_LOG_PROCESS（不再是 service 名）。
+	// 文件名取自 SetProcess 设定的进程名（不是 service 名）。
 	path := filepath.Join(dir, "proc-A.log")
 	raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
@@ -86,7 +87,8 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 func TestNew_ErrorFieldAttached(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "proc-err")
+	SetProcess("proc-err")
+	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
@@ -137,27 +139,32 @@ func TestParseLevelDefaults(t *testing.T) {
 	}
 }
 
-// TestE2E_ProcessAggregation 模拟一个 cmd 进程内多个 logger（cmd 入口 + 多个包级 logger）
-// 各自调用 logx.New("name") 后，日志聚合到 logs/{processName}.log 单文件，
-// 通过 service JSON 字段区分上下文。这是对"包级 logger 不再碎片化"诉求的端到端校验。
+// TestE2E_ProcessAggregation 模拟一个进程内多个 logger（入口 + 多个包级 logger）
+// 各自调用 logx.New("name") 后，日志聚合到 logs/{进程名}.log 单文件，
+// 通过 service JSON 字段区分上下文。包级 logger 在入口 SetProcess 之前就已建好
+// （包初始化期），仍须落到入口设定的文件——文件在首次写入时才确定。
 func TestE2E_ProcessAggregation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "runner-proc")
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
 	t.Setenv("LIUSHA_INSTANCE", "pid-x@host-y")
+	t.Cleanup(func() { SetProcess("") })
 
-	// 模拟 runner 进程：cmd 入口 logger + 7 个包级 logger
+	// 模拟 runner 进程：入口 logger + 6 个包级 logger，包级 logger 先于 SetProcess 构造
 	services := []string{
 		"runner",
 		"traffic", "finding", "cognition",
 		"llm.instrument", "llminvocation.store", "tools.run_command",
 	}
-	for _, s := range services {
-		l := New(s)
-		l.Info().Str("k", s+"-marker").Msg("启动")
+	loggers := make([]zerolog.Logger, len(services))
+	for i, s := range services {
+		loggers[i] = New(s)
+	}
+	SetProcess("runner-proc")
+	for i, s := range services {
+		loggers[i].Info().Str("k", s+"-marker").Msg("启动")
 	}
 
 	// 应只产生 1 个文件

@@ -31,7 +31,7 @@ func newProvider(t *testing.T) *RedisProvider {
 	if err != nil {
 		t.Fatalf("获取 redis 连接串失败: %v", err)
 	}
-	client, err := db.NewRedis(ctx, strings.TrimPrefix(connStr, "redis://"), config.RedisConfig{})
+	client, err := db.NewRedis(ctx, config.RedisConfig{Addr: strings.TrimPrefix(connStr, "redis://")})
 	if err != nil {
 		t.Fatalf("连接 redis 失败: %v", err)
 	}

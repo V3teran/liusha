@@ -16,9 +16,11 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 )
 
-func TestNewPgPool_Ping(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+// startPostgres 启动一次性 pgvector 容器，返回 DSN。
+func startPostgres(t *testing.T) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	t.Cleanup(cancel)
 	c, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
 		tcpostgres.WithDatabase("liusha"),
 		tcpostgres.WithUsername("liusha"),
@@ -27,12 +29,19 @@ func TestNewPgPool_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
+	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
 	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
+	return dsn
+}
+
+func TestNewPgPool_Ping(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	dsn := startPostgres(t)
+	pool, err := NewPgPool(ctx, config.PostgresConfig{DSN: dsn, MaxConns: 5, MinConns: 1, ConnectTimeoutSeconds: 5}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +63,7 @@ func TestNewRedis_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewRedis(ctx, strings.TrimPrefix(addr, "redis://"), config.RedisConfig{})
+	r, err := NewRedis(ctx, config.RedisConfig{Addr: strings.TrimPrefix(addr, "redis://")})
 	if err != nil {
 		t.Fatal(err)
 	}

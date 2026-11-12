@@ -103,8 +103,7 @@ func (s *Store) Upsert(ctx context.Context, t Definition) error {
 }
 
 // PruneExceptKind 删除某一体系(kind)下 name 不在 keep 集合内的工具（reconcile 清理下线工具）。
-// 按 kind 限定作用域：tools.yaml 加载失败(manifest nil)时只同步 function，绝不误删既有 cli 目录。
-// keep 为空视为「本体系无有效目录」，为防误删该体系全部行，直接返回不删。
+// 按 kind 限定作用域，两套体系互不影响。keep 为空视为「本体系无有效目录」，为防误删该体系全部行，直接返回不删。
 func (s *Store) PruneExceptKind(ctx context.Context, kind Kind, keep []string) (int, error) {
 	if len(keep) == 0 {
 		return 0, nil

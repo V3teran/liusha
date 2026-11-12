@@ -16,12 +16,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/rs/zerolog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/logx"
@@ -56,7 +58,7 @@ func main() {
 	}
 
 	// 共享 PG pool（探索图轮询直读）
-	pool, err := db.NewPgPool(ctx, pgDSN, zerolog.Nop(), 5, 1, 0, 0)
+	pool, err := db.NewPgPool(ctx, config.PostgresConfig{DSN: pgDSN, MaxConns: 5, MinConns: 1}, zerolog.Nop())
 	if err != nil {
 		logger.Fatal().Err(err).Msg("pg")
 	}

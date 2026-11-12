@@ -1,11 +1,24 @@
 package manifest
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestDefault_IsValid 守住内置清单的合法性：Default() 解析失败会在启动时 panic。
+// 每个工具都须归入已声明的分类（工具页与提示词按分类分组渲染）。
+func TestDefault_IsValid(t *testing.T) {
+	m, err := Parse(defaultYAML)
+	if err != nil {
+		t.Fatalf("内置工具清单不合法: %v", err)
+	}
+	cats := m.CategoryByCode()
+	for _, tool := range m.Tools {
+		if _, ok := cats[tool.Category]; !ok {
+			t.Errorf("工具 %s 的分类 %q 未在 categories 中声明", tool.Name, tool.Category)
+		}
+	}
+}
 
 // fixture 覆盖多个 category，供 ByCategory / Names / FilterByNames 断言。
 func fixture() *ToolManifest {
@@ -64,11 +77,7 @@ func TestLoad_RejectsInvalidNames(t *testing.T) {
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "tools.yaml")
-			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Load(path); err == nil {
+			if _, err := Parse([]byte(body)); err == nil {
 				t.Fatal("期望加载失败")
 			} else if name == "重名" && !strings.Contains(err.Error(), "trufflehog") {
 				t.Fatalf("错误信息应指出重名工具，得 %v", err)

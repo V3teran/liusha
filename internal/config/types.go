@@ -1,11 +1,12 @@
-// Package config 用 viper 加载 YAML 配置 + ENV 覆盖 + 启动校验。
+// Package config 加载部署配置：内置默认 → 覆盖文件 → LIUSHA_ 环境变量，再补默认值并校验。
 //
 // 设计原则：
-//   - 所有可调参数统一收敛到本文件，避免散落各包的硬编码常量
-//   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，避免 yaml 缺字段时进程拒启动
+//   - 所有启动期参数收敛到配置树，避免散落各包的硬编码常量
+//   - 内置默认（config.yaml，编进程序）列出全部键，环境变量因此对每个键都生效；
+//     键名 a.b_c 对应环境变量 LIUSHA_A_B_C
+//   - 每个 sub-struct 字段缺省值由 ApplyDefaults() 兜底，覆盖文件写成零值也不拒启动
 //   - 只校验 LLM 种子的形状（声明了 providers 时路由须引用已声明的块，见 validateLLMSeed）
-//   - ENV 覆盖前缀 LIUSHA_，二级用 _ 分隔；注意 llm.complexity_routes 是 map，
-//     AutomaticEnv 不覆盖单个 map key，改档位 provider 走前端「LLM 配置」页
+//   - llm.complexity_routes 与 providers 是 map，环境变量不覆盖单个 map key，改档位走前端「LLM 配置」页
 package config
 
 // AppConfig 是 liusha 顶层配置树。
@@ -23,35 +24,43 @@ type AppConfig struct {
 	Conversation ConversationConfig        `mapstructure:"conversation"`
 }
 
-// ConversationConfig 是会话域参数（cmd/api 消费；runner 不经会话收发附件）。
+// ConversationConfig 是会话域参数（api 消费；runner 不经会话收发附件）。
 type ConversationConfig struct {
 	// AttachmentMaxBytes 是单附件上传上限（multipart 流式拷贝按此截断）。
 	AttachmentMaxBytes int64 `mapstructure:"attachment_max_bytes"`
 }
 
-// APIConfig 是 cmd/api 的 HTTP 入口参数。
+// APIConfig 是 api 组件的 HTTP 入口参数。
 type APIConfig struct {
 	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
 	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
 	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"` // runner HTTP（healthz + ingest）的请求头读取超时
 	ListenAddr               string `mapstructure:"listen_addr"`
 	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
+	// CookieSecure 给会话 Cookie 加 Secure 属性：经 HTTPS 访问时设 true；
+	// 纯 http 访问必须 false，否则浏览器不保存会话。
+	CookieSecure bool `mapstructure:"cookie_secure"`
 }
 
-// PostgresConfig 是 pgx pool 参数。
+// PostgresConfig 是 PostgreSQL 连接与连接池参数。
 type PostgresConfig struct {
-	MaxConns               int `mapstructure:"max_conns"`
-	MinConns               int `mapstructure:"min_conns"`
-	ConnectTimeoutSeconds  int `mapstructure:"connect_timeout_seconds"`
-	MaxConnLifetimeSeconds int `mapstructure:"max_conn_lifetime_seconds"`
+	// DSN 是连接串（postgres://user:pass@host:port/db?sslmode=...），含密码，经
+	// LIUSHA_POSTGRES_DSN 注入，不写进配置文件。
+	DSN                    string `mapstructure:"dsn"`
+	MaxConns               int    `mapstructure:"max_conns"`
+	MinConns               int    `mapstructure:"min_conns"`
+	ConnectTimeoutSeconds  int    `mapstructure:"connect_timeout_seconds"`
+	MaxConnLifetimeSeconds int    `mapstructure:"max_conn_lifetime_seconds"`
 }
 
-// RedisConfig 是 go-redis client pool 参数（addr 仍由 ENV LIUSHA_REDIS_ADDR 提供）。
+// RedisConfig 是 Redis 连接与连接池参数。
 //
-// 字段为 0 时透传到 go-redis 让其内部默认生效（SDK 默认：PoolSize=10×GOMAXPROCS,
+// 数值字段为 0 时透传到 go-redis 让其内部默认生效（SDK 默认：PoolSize=10×GOMAXPROCS,
 // DialTimeout=5s, ReadTimeout=3s, WriteTimeout=3s）。本配置主要给共享 redis 多服务
 // 部署时调小 PoolSize / 调大超时用。
 type RedisConfig struct {
+	Addr string `mapstructure:"addr"` // host:port
+	// Password 经 LIUSHA_REDIS_PASSWORD 注入，不写进配置文件；空 = 无密码。
 	Password            string `mapstructure:"password"`
 	PoolSize            int    `mapstructure:"pool_size"`
 	MinIdleConns        int    `mapstructure:"min_idle_conns"`
@@ -147,23 +156,18 @@ type ProxyConfig struct {
 	MaxRequestBodySize      int      `mapstructure:"max_request_body_size"`
 	MaxResponseBodySize     int      `mapstructure:"max_response_body_size"`
 
-	// 进程入口（cmd/proxy）：纯 MITM 代理入口。存活检测探 TCP 8588，无独立 healthz HTTP。
-	// active 抓流量 ingest endpoint 已迁到 cmd/runner（沙箱回连 runner :8590）。
-	ListenAddr   string `mapstructure:"listen_addr"`   // 0.0.0.0:8588 公开端口（sanitizer 接 raw TCP）
-	InternalAddr string `mapstructure:"internal_addr"` // 127.0.0.1:18888 proxify loopback（sanitizer 转发到这）
+	// 组件入口：纯 MITM 代理入口。存活检测探 TCP 监听口，无独立 healthz HTTP。
+	ListenAddr   string `mapstructure:"listen_addr"`   // 公开端口（sanitizer 接 raw TCP）
+	InternalAddr string `mapstructure:"internal_addr"` // proxify 回环监听（sanitizer 转发到这）
+	// CertDir 是 MITM 根证书目录（首次启动生成，客户端需信任其中的 CA）。空 = $HOME 下默认子目录。
+	CertDir string `mapstructure:"cert_dir"`
 
 	// Redis Stream（proxy → ingestor 之间）
 	StreamName   string `mapstructure:"stream_name"`
 	StreamMaxLen int    `mapstructure:"stream_max_len"`
-
-	// IngestToken：active 容器内 browser-svc.py CDP Network 抓 chromium 流量 →
-	// /internal/v1/traffic/ingest endpoint 的 Bearer token。空 = 不强制验证（开发模式，
-	// 仅靠 bind 127.0.0.1 + docker bridge 网络隔离）。
-	// 生产建议通过 ENV LIUSHA_INGEST_TOKEN 注入，三个进程（cmd/proxy + cmd/runner + sandbox）共享同一值。
-	IngestToken string `mapstructure:"ingest_token"`
 }
 
-// IngestorConfig 是 Stream 流量摄入器（cmd/runner 内 goroutine）参数。
+// IngestorConfig 是 Stream 流量摄入器（runner 组件内 goroutine）参数。
 type IngestorConfig struct {
 	ConsumerGroup        string `mapstructure:"consumer_group"`
 	ConsumerName         string `mapstructure:"consumer_name"`
@@ -184,14 +188,14 @@ type CredentialConfig struct {
 	RedisKeyPrefix string `mapstructure:"redis_key_prefix"`
 }
 
-// RunnerConfig 是 cmd/runner 进程的运行时参数。
+// RunnerConfig 是 runner 组件的运行时参数。
 type RunnerConfig struct {
 	AgentRunTimeoutSeconds      int    `mapstructure:"agent_run_timeout_seconds"` // 单个 agent run 整体秒数上限（handler 入口 WithTimeout）；<=0 不限时
 	StepLLMTimeoutSeconds       int    `mapstructure:"step_llm_timeout_seconds"`
 	AsynqConcurrency            int    `mapstructure:"asynq_concurrency"`
 	AsynqShutdownTimeoutSeconds int    `mapstructure:"asynq_shutdown_timeout_seconds"` // asynq.Shutdown 等 in-flight task 完成的超时
 	ShutdownTimeoutSeconds      int    `mapstructure:"shutdown_timeout_seconds"`
-	HealthzAddr                 string `mapstructure:"healthz_addr"`
+	HealthzAddr                 string `mapstructure:"healthz_addr"` // healthz + 沙盒流量回灌端点的监听地址
 
 	// asynq queue 优先级权重（数字越大优先级越高）
 	QueueAgentWeight int `mapstructure:"queue_agent_weight"`
@@ -204,56 +208,62 @@ type RunnerConfig struct {
 	RunRecoveryTimeoutSeconds  int `mapstructure:"run_recovery_timeout_seconds"`
 	RunRecoveryMaxAttempts     int `mapstructure:"run_recovery_max_attempts"`
 
-	// MaxStepsPerTask 是单个 task 的最大执行步数（Action 完成次数）。
-	// 0/负 = 不限制：持续探索模式的正解——收敛由完成检测器判定，步数只是
-	// 可选护栏（防失控任务烧 LLM 账单）。
-	// 达到此上限时任务自动终止，防止无限循环。≤ 0 视为无限制。默认 1000。
+	// MaxStepsPerTask 是单个 task 的最大执行步数（一次 agent 推理 = 一步）。
+	// ≤ 0 = 不限制（默认）：持续探索模式的正解——收敛由完成检测器判定，步数只是
+	// 可选护栏（防失控任务烧 LLM 账单），达到上限时任务自动终止。
 	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
 }
 
-// SandboxConfig 容器化执行参数（sandbox.DockerLauncher + run_command 工具）。
+// SandboxConfig 是沙盒服务参数：沙盒自身的监听与鉴权、runner 的访问地址、浏览器与
+// 工作区、对外回连契约。
 //
-// run_command 单次硬超时不再有 yaml 配置——LLM 通过 timeout_seconds 必传（schema required），
-// 上限由 DB runtime.step_tool_timeout_seconds 钳（settingstore，前端「系统配置」可热改）。
-//
-// 容器内存 / CPU / 并发数等运行时参数下放到 sandbox.DockerLauncher 内部硬编码
-// （per-task 共享容器模型下这些参数没有按任务调整的需求）。
-
-// SandboxConfig 是沙箱容器执行配置（镜像、资源、抓流回传地址等）。
-// per-task 共享容器模型下这些参数没有按任务调整的需求。
+// run_command 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
+// runtime.step_tool_timeout_seconds 钳制（前端「系统配置」可热改）。
 type SandboxConfig struct {
-	// DefaultImage 是 sandbox 镜像 tag（由 sandbox.NewDockerLauncher 用）。
-	DefaultImage string `mapstructure:"default_image"`
+	// Image 是 runner 经宿主 docker 拉起的沙盒镜像。
+	// TODO(single-binary 第 3 批)：沙盒服务化后删除。
+	Image string `mapstructure:"image"`
 
-	// ViewportWidth/Height 是沙箱 chromium 视口固定尺寸（像素）。
-	// 由 sandbox-server 通过 env 透传给 browser-use wrapper：每次 browser-use-cli 调用都带
-	// --window-width/--window-height 全局 flag，确保 chromium daemon 用一致尺寸启动。
-	//
-	// 默认 1280×800——playwright 主流推荐 + vision encoder token 消耗甜点区：
-	//   ~1100-1300 tokens/图（Doubao/GPT-4o），翻倍到 1920×1080 仅边际精度收益但 token x2。
-	// 高分屏可调大，但会增加 token 消耗。
+	// ListenAddr 是沙盒服务（liusha sandbox）的监听地址。
+	ListenAddr string `mapstructure:"listen_addr"`
+
+	// URL 是 runner 与 api 访问沙盒服务的地址。
+	URL string `mapstructure:"url"`
+
+	// Token 是 runner 与沙盒之间的共享密钥，两个方向都用它鉴权：runner 调沙盒的
+	// /exec 等接口、沙盒内浏览器回灌流量到 runner 的 ingest 接口。必填，
+	// 经环境变量 LIUSHA_SANDBOX_TOKEN 注入，不写进配置文件。
+	Token string `mapstructure:"token"`
+
+	// IngestURL 是沙盒内浏览器抓到的流量回灌到 runner 的地址
+	// （runner 的 /internal/v1/traffic/ingest）。
+	IngestURL string `mapstructure:"ingest_url"`
+
+	// BrowserPython 是运行浏览器服务（browser-use）的 Python 解释器。沙盒镜像里是
+	// 独立 venv；二进制模式用本机装了 browser-use 的 Python。
+	BrowserPython string `mapstructure:"browser_python"`
+
+	// ViewportWidth/Height 是浏览器视口固定尺寸（像素），每次启动 chromium 都带上，
+	// 截图尺寸稳定。默认 1280×800：主流桌面宽度，也是视觉模型 token 消耗的甜点区。
 	ViewportWidth  int `mapstructure:"viewport_width"`
 	ViewportHeight int `mapstructure:"viewport_height"`
 
-	// ListenerPorts 是沙盒对外监听段（"起-止"，含两端，1:1 宿主映射）。反弹
-	// shell / 代理 / payload 托管等需要目标回连的监听，绑段内端口即
-	// 宿主IP:同号端口 可达。空 = 不发布（监听仅容器内可达）。段是容器创建期
-	// 属性：改配置重启后暖池按 label 比对自动重建容器。
-	// 段选择避开业务端口与内核临时端口段（Linux 32768+），默认 21000-21099。
+	// ListenerPorts 是沙盒对外监听段（"起-止"，含两端）：反弹 shell / 代理 /
+	// payload 托管绑段内端口，目标经「回连地址:同号端口」可达。端口如何暴露由部署
+	// 方式负责（compose 在 sandbox 服务上发布同号端口）；这里只告诉 agent 可用哪些端口。
+	// 空 = 不提供对外监听。段须避开业务端口与内核临时端口段（Linux 32768+）。
 	ListenerPorts string `mapstructure:"listener_ports"`
 
-	// CallbackHost 是目标回连地址（payload 里写它：反弹 shell 回连、代理入口、
-	// payload 下载源）。空 = 自动探测默认路由源地址（目标与宿主同网段/公网
-	// 单网卡场景正确；NAT / 多网卡 / 域名场景须显式配置）。
+	// CallbackHost 是目标回连地址（payload 里写它）。空 = 自动探测默认路由源地址
+	// （单网卡 / 同网段正确；NAT、多网卡、域名、容器化部署须显式配置）。
 	CallbackHost string `mapstructure:"callback_host"`
 
-	// WorkspaceHostDir 是沙盒工作区的宿主根目录（bind mount 到容器
-	// /root/liusha/workspace，容器内按 taskID 分目录隔离：work/out/profile）。
-	// 空 = 默认 ~/data/liusha/workspace（runner 侧展开；容器化 runner 必须显式
-	// 配宿主绝对路径——bind 源由宿主 docker daemon 解析）。
-	WorkspaceHostDir string `mapstructure:"workspace_dir"`
+	// WorkspaceDir 是任务工作区根目录（按 批次 / 任务 两级分目录）。沙盒在其中执行
+	// 命令、写产物，api 在其中读写文件与附件——两者必须看到同一个目录。
+	// 空 = ~/data/liusha/workspace。
+	WorkspaceDir string `mapstructure:"workspace_dir"`
 
 	// WorkspaceRetentionDays 是任务工作区的留存天数（按目录 mtime）。
-	// 0 = 永久保留（持续探索模式的默认：工件是证据）；正数启用清扫。
+	// 0 = 永久保留（持续探索模式的默认：工件是证据）；正数由沙盒定期清扫。
 	WorkspaceRetentionDays int `mapstructure:"workspace_retention_days"`
 }

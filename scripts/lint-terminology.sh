@@ -15,13 +15,14 @@ cd "$REPO_ROOT"
 SCAN_ARGS=(
   --include='*.go' --include='*.ts' --include='*.tsx' --include='*.md'
   --include='*.yaml' --include='*.yml' --include='*.json'
-  internal/ cmd/ web/src db/ config/ deployments/ Makefile
+  internal/ cmd/ web/src db/ deployments/ Makefile
 )
 
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
 EXCLUDES=(
   ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
   ':!deployments'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
+  ':!internal/tools/manifest/tools.yaml'  # 工具清单转述第三方工具的业界用语（如 passive DNS），不是本项目概念
   ':!scripts/lint-terminology.sh'
   ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
   ':!web/dist' ':!**/node_modules'

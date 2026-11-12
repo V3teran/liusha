@@ -4,12 +4,12 @@
 // 输出形态：stdout（dev=console 彩色；prod=json）+ file（永远 json，lumberjack 轮转）
 // 全部行为由环境变量驱动，零配置即可运行。
 //
-// 文件聚合：同一进程内所有 New() 共写一个 logs/{processName}.log。
-// 测试二进制（testing.Testing()）里文件落盘缺省关闭——包级 logger 在测试启动即初始化，
-// 否则会在每个被测包目录下留下 logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
-// processName 取自 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] basename
-// （cmd 二进制名）。多 logger 实例共享同一个 *lumberjack.Logger，
-// 由 lumberjack 内部 mutex 保证并发安全。
+// 文件聚合：同一进程内所有 New() 共写一个 logs/{进程名}.log。进程名由入口经 SetProcess
+// 设定（liusha 的子命令名），未设定时取 os.Args[0] 的 basename。文件在首条日志写出时才打开，
+// 因此包初始化期间建的包级 logger 也落到入口设定的文件里。
+// 测试二进制（testing.Testing()）里文件落盘缺省关闭——否则会在每个被测包目录下留下
+// logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
+// 多 logger 实例共享同一个 *lumberjack.Logger，由 lumberjack 内部 mutex 保证并发安全。
 package logx
 
 import (
@@ -83,17 +83,16 @@ func newConsoleWriter(out io.Writer, noColor bool) zerolog.ConsoleWriter {
 }
 
 type config struct {
-	level       zerolog.Level
-	format      string // "json" | "console"
-	toStdout    bool
-	toFile      bool
-	dir         string
-	instance    string
-	processName string
-	maxSizeMB   int
-	maxBackups  int
-	maxAgeDays  int
-	compress    bool
+	level      zerolog.Level
+	format     string // "json" | "console"
+	toStdout   bool
+	toFile     bool
+	dir        string
+	instance   string
+	maxSizeMB  int
+	maxBackups int
+	maxAgeDays int
+	compress   bool
 }
 
 // logDir 解析日志文件目录（LIUSHA_LOG_DIR，缺省 logs 相对进程工作目录）。
@@ -121,26 +120,38 @@ func loadConfig() config {
 	dir := logDir()
 
 	return config{
-		level:       parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
-		format:      format,
-		toStdout:    boolEnv("LIUSHA_LOG_TO_STDOUT", true),
-		toFile:      boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
-		dir:         dir,
-		instance:    resolveInstance(),
-		processName: resolveProcessName(),
-		maxSizeMB:   intEnv("LIUSHA_LOG_MAX_SIZE_MB", 100),
-		maxBackups:  intEnv("LIUSHA_LOG_MAX_BACKUPS", 7),
-		maxAgeDays:  intEnv("LIUSHA_LOG_MAX_AGE_DAYS", 14),
-		compress:    boolEnv("LIUSHA_LOG_COMPRESS", true),
+		level:      parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
+		format:     format,
+		toStdout:   boolEnv("LIUSHA_LOG_TO_STDOUT", true),
+		toFile:     boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
+		dir:        dir,
+		instance:   resolveInstance(),
+		maxSizeMB:  intEnv("LIUSHA_LOG_MAX_SIZE_MB", 100),
+		maxBackups: intEnv("LIUSHA_LOG_MAX_BACKUPS", 7),
+		maxAgeDays: intEnv("LIUSHA_LOG_MAX_AGE_DAYS", 14),
+		compress:   boolEnv("LIUSHA_LOG_COMPRESS", true),
 	}
 }
 
-// resolveProcessName 决定文件名（同进程所有 logger 共写此文件）。
-// 优先 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] 的 basename
-// （即 cmd 二进制名，如 ./bin/runner → "runner"）。
-func resolveProcessName() string {
-	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_PROCESS")); v != "" {
-		return v
+var (
+	processMu   sync.Mutex
+	processName string
+)
+
+// SetProcess 设定本进程的日志文件名（logs/<name>.log）。入口在写出任何日志之前调用一次；
+// 已打开的文件不会因之后的调用而切换。
+func SetProcess(name string) {
+	processMu.Lock()
+	defer processMu.Unlock()
+	processName = name
+}
+
+// currentProcess 返回日志文件名：SetProcess 设定的值，未设定时取 os.Args[0] 的 basename。
+func currentProcess() string {
+	processMu.Lock()
+	defer processMu.Unlock()
+	if processName != "" {
+		return processName
 	}
 	if len(os.Args) == 0 || os.Args[0] == "" {
 		return "app"
@@ -208,6 +219,25 @@ func sharedFileWriter(path string, cfg config) *lumberjack.Logger {
 	return w
 }
 
+// processFile 在首次写入时才确定文件路径（dir/<进程名>.log）并打开共享 writer。
+type processFile struct {
+	cfg  config
+	once sync.Once
+	w    io.Writer
+}
+
+func (f *processFile) Write(p []byte) (int, error) {
+	f.once.Do(func() {
+		if err := os.MkdirAll(f.cfg.dir, 0o750); err != nil {
+			fmt.Fprintf(os.Stderr, "logx: 创建日志目录 %s 失败: %v\n", f.cfg.dir, err)
+			f.w = io.Discard
+			return
+		}
+		f.w = sharedFileWriter(filepath.Join(f.cfg.dir, currentProcess()+".log"), f.cfg)
+	})
+	return f.w.Write(p)
+}
+
 func buildWriter(cfg config) io.Writer {
 	var ws []io.Writer
 	if cfg.toStdout {
@@ -218,12 +248,7 @@ func buildWriter(cfg config) io.Writer {
 		}
 	}
 	if cfg.toFile {
-		if err := os.MkdirAll(cfg.dir, 0o750); err == nil {
-			path := filepath.Join(cfg.dir, cfg.processName+".log")
-			ws = append(ws, sharedFileWriter(path, cfg))
-		} else {
-			fmt.Fprintf(os.Stderr, "logx: 创建日志目录 %s 失败: %v\n", cfg.dir, err)
-		}
+		ws = append(ws, &processFile{cfg: cfg})
 	}
 	switch len(ws) {
 	case 0:

@@ -69,7 +69,7 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
-      // 日志：三进程运行日志（api 尾读 logs/ 共享目录），运维排障视图。
+      // 日志：各组件运行日志（api 尾读 logs/ 目录），运维排障视图。
       { path: 'logs', element: withSuspense(<LogsPage />) },
       // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。
       { path: '*', element: <NotFoundPage /> },

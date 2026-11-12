@@ -199,7 +199,7 @@ jobs:
           FAILED_TOOLS=""
 
           # 读取 tools.yaml 中的所有工具
-          TOOLS=$(yq eval '.tools[].name' deployments/tool-images/sandbox/tools.yaml)
+          TOOLS=$(yq eval '.tools[].name' internal/tools/manifest/tools.yaml)
 
           for tool in $TOOLS; do
             TOTAL=$((TOTAL + 1))
@@ -238,7 +238,7 @@ jobs:
           FAILED_TOOLS=""
 
           # 读取 tools.yaml 中的所有工具
-          TOOLS=$(yq eval '.tools[].name' deployments/tool-images/sandbox/tools.yaml)
+          TOOLS=$(yq eval '.tools[].name' internal/tools/manifest/tools.yaml)
 
           for tool in $TOOLS; do
             TOTAL=$((TOTAL + 1))

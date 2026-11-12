@@ -2,7 +2,7 @@
 # 目标：上下文里不进 .git/历史日志/依赖目录（此前每次 build 上传 ~1.4GB，
 # 且 logs/ 是渗透测试敏感数据、web/node_modules 是宿主平台二进制——
 # nginx 构建的 COPY web/ 会用宿主 node_modules 覆盖容器内安装结果）。
-# 注意：vendor/、web/ 源码、internal/（含编译进程序的出厂内容）、config/、db/、deployments/
+# 注意：vendor/、web/ 源码、internal/（含编译进程序的出厂内容与默认配置）、db/、deployments/
 # 是各 Dockerfile 的 COPY 对象，一律不可排除。
 
 # 版本控制与会话状态
@@ -29,14 +29,11 @@ node_modules
 web/node_modules
 web/dist
 
-# 本机构建产物（cmd/* 在仓库根的游离二进制 + go test -c 产物）
+# 本机构建产物（仓库根的游离二进制 + go test -c 产物）
 bin
-api
-corpus-import
-e2e
-proxy
-runner
-sandbox-server
+dist
+/liusha
+/e2e
 *.test
 coverage.out
 coverage.html

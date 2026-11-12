@@ -15,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/settingstore"
 )
 
-const migration0201 = "0201_builtin_defaults_layering.up.sql"
+const migration0201 uint = 201
 
 // migration0201Snapshot 是 0201 历史对照表生成时（提交 51785a1d）的出厂内容快照。老库的
 // 「当年出厂值」必须取自它而非当前出厂内容：出厂内容随版本演进，与迁移内冻结的对照表无关。
@@ -109,7 +109,7 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 		"exclude_content_types":[],"exclude_status_codes":[400,401,403,404,405,408,409,410,413,414,415,422,429,500,501,502,503,504],
 		"max_request_body_size":2097152,"max_response_body_size":8388608}`)
 
-	ApplyMigrationsFrom(t, pool, migration0201)
+	MigrateUp(t, pool)
 
 	// ── 用户层只含改过的字段 ──────────────────────────────────────────
 	fields := func(table, keyCol, key string) map[string]json.RawMessage {

@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/textx"
 )
 
-// Deps 是问答所需的最小依赖（cmd/api 注入实现）。
+// Deps 是问答所需的最小依赖（api 组件注入实现）。
 type Deps interface {
 	// FindingsSummary 返回该 (conversationID, taskID) 关联 task 的 finding 文本摘要。
 	FindingsSummary(ctx context.Context, conversationID, taskID string) (string, error)
