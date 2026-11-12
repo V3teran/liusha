@@ -70,8 +70,8 @@ func groupAlive(pgid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// handleRelease 处理 POST /tasks/{id}/release：关闭任务的浏览器会话，结束其全部进程组。
-// 只动该任务，并发任务不受影响；任务没有遗留资源时是空操作。
+// handleRelease 处理 POST /tasks/{id}/release：关闭任务的浏览器会话，结束其全部进程组与
+// 脱离进程组的任务进程。只动该任务，并发任务不受影响；任务没有遗留资源时是空操作。
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("id")
 	if !isPathSafe(taskID) {
@@ -83,7 +83,12 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		releaseLog.Warn().Err(err).Str("task_id", taskID).Msg("部分浏览器会话关闭失败")
 	}
-	res := sandbox.ReleaseResult{Browsers: browsers, ProcessGroups: s.procs.killTask(taskID)}
-	releaseLog.Info().Str("task_id", taskID).Int("browsers", res.Browsers).Int("process_groups", res.ProcessGroups).Msg("任务资源已释放")
+	res := sandbox.ReleaseResult{
+		Browsers:      browsers,
+		ProcessGroups: s.procs.killTask(taskID),
+		Escaped:       killEscaped(taskID),
+	}
+	releaseLog.Info().Str("task_id", taskID).Int("browsers", res.Browsers).
+		Int("process_groups", res.ProcessGroups).Int("escaped", res.Escaped).Msg("任务资源已释放")
 	writeJSON(w, http.StatusOK, res)
 }

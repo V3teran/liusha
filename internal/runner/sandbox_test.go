@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,10 +44,19 @@ func TestReleaseSandbox_EndsTaskProcesses(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if gone(pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("run 结束释放任务后，后台进程应被结束")
+}
+
+// gone 报告进程已结束：不存在，或已结束但未被回收（无 init 回收孤儿的环境里残留为僵尸）。
+func gone(pid int) bool {
+	if stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
+		rest := bytes.TrimSpace(stat[bytes.LastIndexByte(stat, ')')+1:])
+		return len(rest) > 0 && rest[0] == 'Z'
+	}
+	return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }

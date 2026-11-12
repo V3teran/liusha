@@ -39,18 +39,23 @@ func (c *inventoryCache) get(ctx context.Context) sandbox.Inventory {
 	return c.value
 }
 
-// probe 探测工具清单中每个 CLI 工具是否在 PATH 中可执行，以及浏览器能力。
+// probe 探测工具清单中每个 CLI 工具是否在 PATH 中可执行，以及浏览器能力。browser-use 命令
+// 由沙盒自己提供（见 browser.Install），它可用与否就是浏览器能力。
 func probe(ctx context.Context, tools []string, python string) sandbox.Inventory {
 	inv := sandbox.Inventory{Tools: make(map[string]bool, len(tools))}
+	if python == "" {
+		inv.Browser = sandbox.BrowserStatus{Detail: "未配置 sandbox.browser_python"}
+	} else {
+		st := browser.Probe(ctx, python)
+		inv.Browser = sandbox.BrowserStatus{Installed: st.Installed, Detail: st.Detail}
+	}
 	for _, name := range tools {
+		if name == browser.Command {
+			inv.Tools[name] = inv.Browser.Installed
+			continue
+		}
 		_, err := exec.LookPath(name)
 		inv.Tools[name] = err == nil
 	}
-	if python == "" {
-		inv.Browser = sandbox.BrowserStatus{Detail: "未配置 sandbox.browser_python"}
-		return inv
-	}
-	st := browser.Probe(ctx, python)
-	inv.Browser = sandbox.BrowserStatus{Installed: st.Installed, Detail: st.Detail}
 	return inv
 }

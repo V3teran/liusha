@@ -91,6 +91,25 @@ func TestReleaseTask_OnlyOwnTask(t *testing.T) {
 	}
 }
 
+// 能力探测导入的名称与浏览器服务实际导入的第三方名称一致：服务脚本改了导入而探测没跟上，
+// 探测就会把跑不起来的环境报成可用。
+func TestProbeImports_MatchService(t *testing.T) {
+	src, err := scripts.ReadFile("service.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, line := range strings.Split(string(src), "\n") {
+		if strings.HasPrefix(line, "from browser_use") || line == "import httpx" {
+			want = append(want, line)
+		}
+	}
+	got := strings.Split(probeImports, "\n")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("探测导入与 service.py 不一致：\n探测 %q\n服务 %q", got, want)
+	}
+}
+
 func TestProbe_MissingInterpreter(t *testing.T) {
 	st := Probe(context.Background(), "no-such-python")
 	if st.Installed || !strings.Contains(st.Detail, "no-such-python") {
