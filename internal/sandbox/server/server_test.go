@@ -68,7 +68,7 @@ func (h *harness) decode(t *testing.T, method, path string, body io.Reader, out 
 // execTask 在指定任务下执行命令。
 func (h *harness) execTask(t *testing.T, taskID, command string) sandbox.ExecResult {
 	t.Helper()
-	body, _ := json.Marshal(sandbox.ExecRequest{AssignmentID: "asg", TaskID: taskID, AgentID: "a", Command: command, TimeoutSeconds: 10})
+	body, _ := json.Marshal(sandbox.ExecRequest{AssignmentID: "asg", TaskID: taskID, AgentRunID: "a", Command: command, TimeoutSeconds: 10})
 	var res sandbox.ExecResult
 	h.decode(t, http.MethodPost, "/exec", bytes.NewReader(body), &res)
 	return res

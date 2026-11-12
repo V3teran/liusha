@@ -28,7 +28,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-kill-pg",
+		AgentRunID:     "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
 		Tag:            "kill-pg",
@@ -88,7 +88,7 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-bg-orphan",
+		AgentRunID:     "test-bg-orphan",
 		Command:        "sleep 30 &",
 		TimeoutSeconds: 60,
 		Tag:            "bg-orphan",
@@ -128,7 +128,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-baseline",
+		AgentRunID:     "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
 		Tag:            "baseline",
@@ -162,8 +162,8 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	}
 }
 
-// TestHandleExec_AgentIDValidation 验证 AgentID 必填 + path-safe 字符集（防 path traversal）。
-func TestHandleExec_AgentIDValidation(t *testing.T) {
+// TestHandleExec_AgentRunIDValidation 验证 AgentRunID 必填 + path-safe 字符集（防 path traversal）。
+func TestHandleExec_AgentRunIDValidation(t *testing.T) {
 	h := newHarness(t)
 
 	cases := []struct {
@@ -183,7 +183,7 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
 				TaskID:         "test-task",
 				AssignmentID:   "test-assignment",
-				AgentID:        c.agentID,
+				AgentRunID:     c.agentID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
 				Tag:            "validate",
@@ -194,7 +194,7 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 			}
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
-				t.Errorf("AgentID=%q expect 400 got %d", c.agentID, resp.StatusCode)
+				t.Errorf("AgentRunID=%q expect 400 got %d", c.agentID, resp.StatusCode)
 			}
 		})
 	}
@@ -213,7 +213,7 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 		body, _ := json.Marshal(sandbox.ExecRequest{
 			AssignmentID:   assignmentID,
 			TaskID:         taskID,
-			AgentID:        agentID,
+			AgentRunID:     agentID,
 			Command:        cmd,
 			TimeoutSeconds: 5,
 			Tag:            "isolation",
@@ -266,7 +266,7 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// assignment_id 缺失 → 400（两级分层为必填契约）。
-	body, _ := json.Marshal(sandbox.ExecRequest{TaskID: "t", AgentID: "a", Command: "true", TimeoutSeconds: 5})
+	body, _ := json.Marshal(sandbox.ExecRequest{TaskID: "t", AgentRunID: "a", Command: "true", TimeoutSeconds: 5})
 	resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)

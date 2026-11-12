@@ -427,13 +427,13 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.AgentRunID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("path", proxy.LogPath(snap.URI)).
-			Msg("internal 流量缺 agent_id，丢弃（browser-svc.py session→agent 归属异常？）")
+			Msg("internal 流量缺 agent_run_id，丢弃")
 		return
 	}
 	run, err := t.agentRuns.GetByID(ctx, snap.AgentRunID)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("agent_run_id", snap.AgentRunID).
-			Msg("internal 流量反查 executor 失败，丢弃（executor 已被清理 / 跨进程脏数据？）")
+			Msg("internal 流量反查 run 失败，丢弃")
 		return
 	}
 
