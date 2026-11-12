@@ -292,7 +292,7 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	}
 
 	// 4. 尝试修复退化的浏览器 daemon
-	res, unrecovered := t.tryHealBrowserDaemon(ctx, command, res)
+	res, unrecovered := t.tryHealBrowserDaemon(ctx, &a, command, res)
 
 	// 5. 格式化输出
 	output := formatBrowserOutput(res, a.TimeoutSeconds)

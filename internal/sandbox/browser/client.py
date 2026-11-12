@@ -14,9 +14,11 @@
 即视为残留端点，抢冷启动锁后拉起新服务。约定与沙盒的 browser.go 一致。
 
 管理类子命令（install/doctor/setup/...）不需浏览器，直接透传 browser_use 自带的命令行。
+kill 不经服务：服务已无响应时强制结束它及其浏览器（自愈的最后一级）。
 """
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -136,6 +138,28 @@ def spawn_service():
                              creationflags=flags)
 
 
+def kill_service():
+    """强制结束本身份的服务及其浏览器（服务已无响应、reset 无效时），并删除端点。
+    POSIX 上服务以新会话启动、浏览器与它同组，结束整组；Windows 上结束以它为根的进程树。"""
+    try:
+        with open(endpoint_path(), encoding="utf-8") as f:
+            pid = int(json.load(f)["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        os.remove(endpoint_path())
+    except OSError:
+        pass
+
+
 def call(payload: dict) -> dict:
     """把请求交给服务；服务不在则抢锁冷启后再交。"""
     ep = read_endpoint()
@@ -180,6 +204,11 @@ def main() -> int:
     if not BROWSER_DIR:
         sys.stderr.write("browser-use: 未设置 LIUSHA_BROWSER_DIR（应在沙盒命令中运行）\n")
         return 1
+
+    if sub == "kill":
+        kill_service()
+        sys.stdout.write("ok\n")
+        return 0
 
     payload = {"sub": sub, "args": args, "agent_id": AGENT_ID,
                "agent_run_id": AGENT_RUN_ID, "output_dir": OUTPUT_DIR, "ingest": INGEST}
