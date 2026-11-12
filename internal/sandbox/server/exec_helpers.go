@@ -21,7 +21,7 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 	for _, f := range []struct{ name, value string }{
 		{"assignment_id", req.AssignmentID},
 		{"task_id", req.TaskID},
-		{"agent_id", req.AgentID},
+		{"agent_run_id", req.AgentRunID},
 	} {
 		if !isPathSafe(f.value) {
 			writeError(w, http.StatusBadRequest, "%s must be [A-Za-z0-9._-]{1,64}", f.name)
@@ -63,7 +63,7 @@ func (s *Server) buildExecCommand(ctx context.Context, req *sandbox.ExecRequest,
 	cmd.Dir = workDir
 	cmd.Env = append(s.baseEnv(),
 		"LIUSHA_TASK_ID="+req.TaskID,
-		"LIUSHA_AGENT_ID="+req.AgentID,
+		"LIUSHA_AGENT_RUN_ID="+req.AgentRunID,
 		"LIUSHA_WORKSPACE="+workDir,
 		"LIUSHA_OUTPUT="+outputDir,
 		"LIUSHA_STATE="+stateDir,

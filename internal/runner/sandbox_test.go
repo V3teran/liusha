@@ -28,7 +28,7 @@ func TestReleaseSandbox_EndsTaskProcesses(t *testing.T) {
 	h := &Handler{Sandbox: client}
 
 	res, err := client.Exec(context.Background(), sandbox.ExecRequest{
-		AssignmentID: "asg", TaskID: "task-1", AgentID: "act-1",
+		AssignmentID: "asg", TaskID: "task-1", AgentRunID: "act-1",
 		Command: `sleep 300 >/dev/null 2>&1 & echo $!`, TimeoutSeconds: 10,
 	})
 	if err != nil {

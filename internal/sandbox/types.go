@@ -9,14 +9,15 @@ package sandbox
 // 字段语义：
 //   - AssignmentID：批次 ID，工作区一级目录（<workspace>/<AssignmentID>/<TaskID>/）；必填
 //   - TaskID：任务 ID，工作区二级目录，也是进程归属与按任务释放的单位；必填
-//   - AgentID：agent 运行实例 ID，随请求透传（进程环境标注 / 审计），不参与目录分层；必填
+//   - AgentRunID：本次 run 的 ID，注入命令环境（LIUSHA_AGENT_RUN_ID）：命令产生的回灌流量据此
+//     归属到 run；不参与目录分层；必填
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）
 //   - TimeoutSeconds：本次命令硬超时（秒），超时连同进程组一起被杀
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志 / 诊断，不影响执行
 type ExecRequest struct {
 	AssignmentID   string `json:"assignment_id"`
 	TaskID         string `json:"task_id"`
-	AgentID        string `json:"agent_id"`
+	AgentRunID     string `json:"agent_run_id"`
 	Command        string `json:"command"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Tag            string `json:"tag,omitempty"`

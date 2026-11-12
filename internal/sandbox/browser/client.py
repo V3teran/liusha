@@ -7,10 +7,11 @@
 模型不变：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
   AGENT_ID = 同身份下的并行执行单元（工具层注入 action id），各占一个 tab（页面/截图/并发隔离）。
+  LIUSHA_AGENT_RUN_ID = 本条命令所属的 run（沙盒注入命令环境），浏览器抓到的流量据此归属。
 
 热路径不再有全局 active tab，也不再需要 flock 串行化 —— 服务用 actor.Page 按 target_id 寻址，
 同身份多 agent 并发各操作自己的 tab。本客户端只做：选身份 socket → 确保服务起（flock 守冷启）→
-转发 {sub,args,agent_id,output_dir} → 回放 stdout/stderr + exit code。
+转发 {sub,args,agent_id,agent_run_id,output_dir} → 回放 stdout/stderr + exit code。
 
 管理类子命令（install/doctor/setup/...）不需浏览器，直接透传 browser_use 自带的命令行。
 """
@@ -24,6 +25,7 @@ import time
 
 IDENTITY = os.environ.get("IDENTITY", "default")
 AGENT_ID = os.environ.get("AGENT_ID", "default")
+AGENT_RUN_ID = os.environ.get("LIUSHA_AGENT_RUN_ID", "")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "")
 # 套接字路径约定（/tmp/browser-svc-<身份>.sock）由沙盒按任务释放时共用，改动须同步 browser.go。
 SOCK = f"/tmp/browser-svc-{IDENTITY}.sock"
@@ -93,7 +95,8 @@ def main() -> int:
     else:
         s = ensure_service()
 
-    req = json.dumps({"sub": sub, "args": args, "agent_id": AGENT_ID, "output_dir": OUTPUT_DIR})
+    req = json.dumps({"sub": sub, "args": args, "agent_id": AGENT_ID,
+                      "agent_run_id": AGENT_RUN_ID, "output_dir": OUTPUT_DIR})
     s.sendall(req.encode() + b"\n")
     buf = b""
     while True:

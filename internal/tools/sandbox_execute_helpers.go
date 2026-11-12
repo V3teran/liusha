@@ -50,7 +50,7 @@ func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command st
 	return t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
 		AssignmentID:   t.deps.AssignmentID,
 		TaskID:         t.deps.TaskID,
-		AgentID:        t.deps.AgentRunID,
+		AgentRunID:     t.deps.AgentRunID,
 		Command:        command,
 		TimeoutSeconds: timeoutSeconds,
 		Tag:            "drive_browser",

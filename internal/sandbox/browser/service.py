@@ -93,6 +93,9 @@ class Service:
         self.bs: BrowserSession | None = None
         self.tabs: dict[str, str] = {}       # agent_id -> target_id
         self.smaps: dict[str, dict] = {}     # agent_id -> selector_map(index->node)
+        # agent_id -> 最近驱动该 tab 的命令所属的 run：抓到的流量归属给它。逐请求更新，
+        # 不依赖服务是由哪条命令拉起的。
+        self.tab_runs: dict[str, str] = {}
         self.tab_lock = asyncio.Lock()       # 仅守 tab 创建
         self.start_lock = asyncio.Lock()     # 仅守首次冷启
         self.server: asyncio.AbstractServer | None = None
@@ -293,7 +296,8 @@ class Service:
     async def _cap_flush(self, request_id: str, ent: dict):
         """取 response body → 组 payload → POST。任何异常吞掉，绝不影响浏览。"""
         agent_id = self._sess2agent.get(ent["sid"], "")
-        if not agent_id:
+        run_id = self.tab_runs.get(agent_id, "")
+        if not run_id:
             return
         body_b64 = ""
         try:
@@ -307,12 +311,12 @@ class Service:
         except Exception:
             pass  # body 取不到（已 evict / redirect / 无 body）→ 仅上报元数据
         try:
-            await self._cap_post(self._cap_build(agent_id, ent, body_b64))
+            await self._cap_post(self._cap_build(run_id, ent, body_b64))
         except Exception:
             pass
 
     @staticmethod
-    def _cap_build(agent_id: str, ent: dict, body_b64: str) -> dict:
+    def _cap_build(run_id: str, ent: dict, body_b64: str) -> dict:
         u = urlsplit(ent.get("url", ""))
         # Go []byte 字段 JSON 走 base64 字符串：request_body / response_body 都要 b64。
         req_body = ent.get("req_body", "") or ""
@@ -328,7 +332,7 @@ class Service:
             req_h = {k: v for k, v in req_h.items() if k.lower() != "cookie"}
             req_h["Cookie"] = cookie
         payload = {
-            "agent_id": agent_id,
+            "agent_run_id": run_id,
             "identity": IDENTITY,  # 进程级身份（= browser_use identity），给 internal flow 盖身份戳
             "tool": "browser",     # 发起工具固定 browser（本服务只抓浏览器流量）
             "host": u.hostname or "",
@@ -362,6 +366,8 @@ class Service:
         args = req.get("args", [])
         agent_id = req.get("agent_id", "default")
         output_dir = req.get("output_dir", "")
+        if req.get("agent_run_id"):
+            self.tab_runs[agent_id] = req["agent_run_id"]
 
         if sub == "release-tab":
             await self._release_tab(agent_id)
@@ -563,6 +569,7 @@ class Service:
     async def _release_tab(self, agent_id: str):
         tid = self.tabs.pop(agent_id, None)
         self.smaps.pop(agent_id, None)
+        self.tab_runs.pop(agent_id, None)
         # 清 capture 反查表里属于该 agent 的 session，避免后续 session 复用 id 时脏归属。
         for sid in [s for s, h in self._sess2agent.items() if h == agent_id]:
             self._sess2agent.pop(sid, None)
