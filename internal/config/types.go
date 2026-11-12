@@ -235,8 +235,12 @@ type SandboxConfig struct {
 	// （runner 的 /internal/v1/traffic/ingest）。
 	IngestURL string `mapstructure:"ingest_url"`
 
+	// Shell 是执行 agent 命令的 POSIX shell（命令按 sh 语法编写，全平台同一种命令语言）。
+	// 按 PATH 查找或写绝对路径；Windows 上没有自带的 sh，须指向提供它的环境。
+	Shell string `mapstructure:"shell"`
+
 	// BrowserPython 是运行浏览器服务（browser-use）的 Python 解释器。沙盒镜像里是
-	// 独立 venv；二进制模式用本机装了 browser-use 的 Python。
+	// 独立 venv；二进制模式用本机装了 browser-use 的 Python。空 = 平台惯用名（见 defaults）。
 	BrowserPython string `mapstructure:"browser_python"`
 
 	// ViewportWidth/Height 是浏览器视口固定尺寸（像素），每次启动 chromium 都带上，

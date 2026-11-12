@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	sweepLog   = logx.New("sandbox.sweep")
-	releaseLog = logx.New("sandbox.release")
+	sweepLog     = logx.New("sandbox.sweep")
+	releaseLog   = logx.New("sandbox.release")
+	inventoryLog = logx.New("sandbox.inventory")
 )
 
 // sweepInterval 是工作区留存清扫的周期。留存期以天计，6 小时的粒度足够；每次清扫要遍历

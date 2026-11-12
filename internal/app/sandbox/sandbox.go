@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -31,6 +32,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if err := os.MkdirAll(sc.WorkspaceDir, 0o750); err != nil {
 		return fmt.Errorf("创建任务工作区 %s: %w", sc.WorkspaceDir, err)
 	}
+	shell, err := exec.LookPath(sc.Shell)
+	if err != nil {
+		return fmt.Errorf("找不到执行命令的 POSIX shell %q（sandbox.shell）: %w；Windows 上需安装提供 sh 的环境（如 Git for Windows），并把 sandbox.shell 指向其 sh.exe", sc.Shell, err)
+	}
 	secrets, err := secretEnv(ctx, cfg)
 	if err != nil {
 		return err
@@ -44,15 +49,20 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if err != nil {
 		return fmt.Errorf("释放浏览器脚本: %w", err)
 	}
+	browserDir := filepath.Join(runDir, "browser")
+	if err := os.MkdirAll(browserDir, 0o700); err != nil {
+		return fmt.Errorf("创建浏览器端点目录: %w", err)
+	}
 
 	srv := server.New(server.Config{
 		Token:          sc.Token,
 		WorkspaceDir:   sc.WorkspaceDir,
+		Shell:          shell,
 		Tools:          manifest.Default().Names(),
 		BrowserBin:     browserBin,
 		BrowserPython:  sc.BrowserPython,
+		BrowserDir:     browserDir,
 		IngestURL:      sc.IngestURL,
-		IngestSocket:   filepath.Join(runDir, "ingest.sock"),
 		ViewportWidth:  sc.ViewportWidth,
 		ViewportHeight: sc.ViewportHeight,
 		SecretEnv:      secrets,
@@ -67,7 +77,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	return nil
 }
 
-// runtimeDir 是本实例的运行目录（浏览器脚本、回灌套接字），权限 0700，按监听地址区分：
+// runtimeDir 是本实例的运行目录（浏览器脚本、浏览器服务端点），权限 0700，按监听地址区分：
 // 同一用户可在同一台机器上运行多个沙盒，同时监听的实例地址必然不同，互不覆盖；同一地址
 // 重启沿用原目录，上一实例拉起、仍在运行的浏览器服务继续可用。
 func runtimeDir(listenAddr string) (string, error) {

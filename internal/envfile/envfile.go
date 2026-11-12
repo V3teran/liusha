@@ -75,7 +75,7 @@ func Read(path string) ([]Var, error) {
 // CheckValue 校验值能否写入环境变量文件（见包说明）。
 func CheckValue(v string) error {
 	if i := strings.IndexAny(v, "\"'\\$`\n\r"); i >= 0 {
-		return fmt.Errorf("值含字符 %q，环境变量文件不支持（连接串里的特殊字符请用百分号编码，如 $ 写作 %%24）", v[i])
+		return fmt.Errorf("值含字符 %q，环境变量文件不支持（连接串里的特殊字符请用百分号编码，如 $ 写作 %%24；Windows 路径请用正斜杠，如 C:/liusha/workspace）", v[i])
 	}
 	return nil
 }

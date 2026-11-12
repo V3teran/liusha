@@ -10,7 +10,7 @@ category: tool
 
 每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持）：
 
-- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有执行单元（并行 action）**共用一个浏览器**，登录态/cookies 共享。身份经 unix socket 隔离（`/tmp/browser-svc-{taskID}-{identity}.sock`），任务结束统一清理。
+- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有执行单元（并行 action）**共用一个浏览器**，登录态/cookies 共享。每个身份一个独立的浏览器服务，任务结束统一清理。
 - **tab = agent**：服务按 `AGENT_ID`（工具层自动注入，无需你传）把命令路由到各自的 tab，页面/编号快照/并发互不干扰——同身份多 agent 并发各操作自己的 tab，无全局 active tab、无串行等待。
 - **多身份**：越权/BAC 要多账号对比时，给 `drive_browser` 传不同 `identity`（= 账号名，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar）。缺省走共享的 `default` 身份，无需传。
 - **交互流量自动入字典**：浏览器服务内建 CDP Network 抓流，Document/XHR/Fetch 请求自动回灌流量库（`list_traffic` 可查，`tool=browser`、`identity=身份名`）——登录 POST、带凭证的 XHR 都会被抓下，`view_traffic` 连 httpOnly cookie 头都看得到（取舍：每身份**首个导航 GET 可能漏抓**，后续请求不漏；BAC 要的带凭证请求都在）。

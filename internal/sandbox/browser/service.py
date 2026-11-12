@@ -17,8 +17,10 @@ eval 0 串台、cdp_client 并发 send 安全）。唯一的 asyncio.Lock 只守
 """
 import asyncio
 import base64
+import hmac
 import json
 import os
+import secrets
 import sys
 import time
 from datetime import datetime, timezone
@@ -30,16 +32,18 @@ from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 
-IDENTITY = sys.argv[1] if len(sys.argv) > 1 else "default"
-SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
+# 用法：service.py <身份> <端点目录>。服务监听回环地址的随机端口，把 {port, key, pid} 原子写入
+# <端点目录>/<身份>.json（客户端与沙盒据此连接，约定见 client.py / browser.go）；每个请求须带 key。
+IDENTITY = sys.argv[1]
+ENDPOINT = os.path.join(sys.argv[2], IDENTITY + ".json")
+KEY = secrets.token_urlsafe(32)
 
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
-# POST 到沙盒的本地回灌套接字（LIUSHA_INGEST_SOCKET）→ 沙盒带令牌转发给 runner →
-# ingestor.handleInternalSnap（source=internal，落 agent_traffic）→
-# agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放做水平/垂直越权
-# （BAC）测试。套接字路径由沙盒随每条命令注入；本进程不持有任何凭据。空 → 不启用。
-INGEST_SOCKET = os.getenv("LIUSHA_INGEST_SOCKET", "").strip()
+# POST 到沙盒的回环中继 → 沙盒带令牌转发给 runner → ingestor.handleInternalSnap（source=internal，
+# 落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带
+# 身份重放做水平/垂直越权（BAC）测试。中继地址与口令随每个请求由客户端带来（沙盒重启后会变），
+# 本进程不持有沙盒令牌。未带 → 不抓。
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
 CAPTURE_TYPES = {"Document", "XHR", "Fetch"}
 
@@ -101,6 +105,7 @@ class Service:
         self.server: asyncio.AbstractServer | None = None
         # ---- B1 CDP Network capture 状态 ----
         self._http: httpx.AsyncClient | None = None   # 懒构造 POST 客户端
+        self.ingest: dict = {}                        # 最近一个请求带来的回灌中继 {url, key}
         self._cap_client = None                       # 已注册 handler 的 cdp_client 身份（重连换实例时重注册）
         self._cap_sids: set[str] = set()              # 已 Network.enable 的 session_id（幂等）
         self._sess2agent: dict[str, str] = {}        # session_id -> agent_id（逐请求归属）
@@ -219,7 +224,7 @@ class Service:
 
     async def _ensure_capture(self, agent_id: str, page: Page):
         """把 page 的 session 登记到 agent + 在该 session 上幂等开 Network domain。"""
-        if not INGEST_SOCKET:
+        if not self.ingest.get("url"):
             return
         self._ensure_handlers()
         sid = await page.session_id
@@ -355,10 +360,13 @@ class Service:
         return payload
 
     async def _cap_post(self, payload: dict):
+        relay = self.ingest
+        if not relay.get("url"):
+            return
         if self._http is None:
-            self._http = httpx.AsyncClient(
-                timeout=5.0, transport=httpx.AsyncHTTPTransport(uds=INGEST_SOCKET))
-        await self._http.post("http://sandbox/ingest", json=payload)
+            self._http = httpx.AsyncClient(timeout=5.0)
+        await self._http.post(relay["url"], json=payload,
+                              headers={"Authorization": f"Bearer {relay.get('key', '')}"})
 
     # ---- action 路由 ----
     async def dispatch(self, req: dict):
@@ -368,6 +376,8 @@ class Service:
         output_dir = req.get("output_dir", "")
         if req.get("agent_run_id"):
             self.tab_runs[agent_id] = req["agent_run_id"]
+        if isinstance(req.get("ingest"), dict):
+            self.ingest = req["ingest"]
 
         if sub == "release-tab":
             await self._release_tab(agent_id)
@@ -377,15 +387,14 @@ class Service:
 
         await self.ensure_started()
         # B1：已建 tab 的 agent，确保其 session 已挂 Network capture（幂等；重连后下条命令自动重武装）。
-        if INGEST_SOCKET and agent_id in self.tabs:
+        if agent_id in self.tabs:
             await self._ensure_capture(agent_id, self.page(agent_id))
 
         if sub == "open":
             url = args[0]
             await self.ensure_tab(agent_id, url)
             # 新 tab 刚建好就武装 capture——尽早覆盖登录交互（首帧 Document GET 仍可能漏，见 _ensure_handlers 取舍）。
-            if INGEST_SOCKET:
-                await self._ensure_capture(agent_id, self.page(agent_id))
+            await self._ensure_capture(agent_id, self.page(agent_id))
             data = {"url": url}
 
         elif sub == "state":
@@ -589,10 +598,7 @@ class Service:
             if self.bs is not None:
                 await self.bs.kill()
         finally:
-            try:
-                os.remove(SOCK)
-            except OSError:
-                pass
+            remove_own_endpoint()
             os._exit(0)
 
     # ---- 连接处理（每连接独立 task → 天然并发）----
@@ -604,6 +610,11 @@ class Service:
                 writer.close()
                 return
             req = json.loads(line.decode())
+            if not hmac.compare_digest(str(req.get("key", "")).encode(), KEY.encode()):
+                # 端点残留、端口被本服务复用时，旧端点的持有者会连到这里：明确拒绝，对方据此判定残留。
+                writer.write(b'{"unauthorized": true}')
+                await writer.drain()
+                return
             sub = req.get("sub", "")
             cap = parse_timeout_ms(req.get("args", [])) / 1000.0 + 15 if sub == "wait" \
                 else (150 if sub == "open" else 90)
@@ -625,11 +636,30 @@ class Service:
             await self.shutdown()
 
     async def serve(self):
-        if os.path.exists(SOCK):
-            os.remove(SOCK)
-        self.server = await asyncio.start_unix_server(self.handle_conn, path=SOCK)
+        self.server = await asyncio.start_server(self.handle_conn, host="127.0.0.1", port=0)
+        write_endpoint(self.server.sockets[0].getsockname()[1])
         async with self.server:
             await self.server.serve_forever()
+
+
+def write_endpoint(port: int):
+    """原子写入端点文件（先写临时文件再改名），仅属主可读。"""
+    tmp = f"{ENDPOINT}.{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump({"port": port, "key": KEY, "pid": os.getpid()}, f)
+    os.replace(tmp, ENDPOINT)
+
+
+def remove_own_endpoint():
+    """删除端点文件——仅当它仍是本服务写的（新服务可能已覆盖它）。"""
+    try:
+        with open(ENDPOINT, encoding="utf-8") as f:
+            if json.load(f).get("key") != KEY:
+                return
+        os.remove(ENDPOINT)
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 if __name__ == "__main__":

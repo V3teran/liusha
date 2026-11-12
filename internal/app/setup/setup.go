@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
@@ -36,6 +37,15 @@ func Run(ctx context.Context, opts Options, out io.Writer) error {
 	}
 	if opts.PostgresDSN == "" {
 		return errors.New("缺少 -postgres-dsn（PostgreSQL 连接串，库需已安装 pgvector 扩展）")
+	}
+	// 工作区写成绝对路径（以服务方式运行时的工作目录与执行 setup 时不同），且用正斜杠：环境变量
+	// 文件不接受反斜杠（sh 与 systemd 对它的转义不一致），Windows 同样认正斜杠路径。
+	if opts.WorkspaceDir != "" {
+		abs, err := filepath.Abs(opts.WorkspaceDir)
+		if err != nil {
+			return fmt.Errorf("-workspace-dir: %w", err)
+		}
+		opts.WorkspaceDir = filepath.ToSlash(abs)
 	}
 	for name, v := range map[string]string{"-postgres-dsn": opts.PostgresDSN, "-redis-addr": opts.RedisAddr,
 		"-redis-password": opts.RedisPassword, "-workspace-dir": opts.WorkspaceDir} {

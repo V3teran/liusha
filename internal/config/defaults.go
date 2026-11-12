@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -275,8 +276,15 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.IngestURL == "" {
 		c.IngestURL = "http://127.0.0.1:8590/internal/v1/traffic/ingest"
 	}
+	if c.Shell == "" {
+		c.Shell = "sh"
+	}
 	if c.BrowserPython == "" {
+		// Windows 的官方安装包只提供 python.exe；python3 在那里是应用商店的跳转桩。
 		c.BrowserPython = "python3"
+		if runtime.GOOS == "windows" {
+			c.BrowserPython = "python"
+		}
 	}
 	// 视口 1280×800——主流桌面宽度 + 视觉模型 token 消耗甜点区；高分屏可覆盖。
 	if c.ViewportWidth == 0 {
@@ -288,6 +296,13 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.WorkspaceDir == "" {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
 			c.WorkspaceDir = filepath.Join(home, "data", "liusha", "workspace")
+		}
+	}
+	// 相对路径按进程工作目录解析为绝对路径：沙盒在任务目录里执行命令，交给命令的路径必须是
+	// 绝对的；api 与沙盒也须指向同一目录。
+	if c.WorkspaceDir != "" && !filepath.IsAbs(c.WorkspaceDir) {
+		if abs, err := filepath.Abs(c.WorkspaceDir); err == nil {
+			c.WorkspaceDir = abs
 		}
 	}
 	return c

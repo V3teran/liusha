@@ -48,7 +48,7 @@ import (
 //	RequestBody     请求体（已截断到 MaxRequestBodySize）
 //	ResponseBody    响应体（已截断到 MaxResponseBodySize）
 //	Duration        请求-响应耗时——proxify 回调不提供，external 路径恒 0（仅 internal
-//	                  路径由 browser-svc.py 填）
+//	                  路径由沙盒浏览器服务填）
 //	Timestamp       捕获时间（host 本地时钟，UTC）
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`

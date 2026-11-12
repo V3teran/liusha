@@ -323,5 +323,5 @@ func (h *Handler) releaseSandbox(taskLogger zerolog.Logger, taskID string) {
 		taskLogger.Warn().Err(err).Msg("释放沙盒任务资源失败")
 		return
 	}
-	taskLogger.Info().Int("process_groups", res.ProcessGroups).Int("browsers", res.Browsers).Msg("沙盒任务资源已释放")
+	taskLogger.Info().Int("processes", res.Processes).Int("browsers", res.Browsers).Msg("沙盒任务资源已释放")
 }

@@ -29,8 +29,8 @@ func TestRelease_KillsEscapedTaskProcesses(t *testing.T) {
 
 	var res sandbox.ReleaseResult
 	h.decode(t, http.MethodPost, "/tasks/task-a/release", nil, &res)
-	if res.ProcessGroups != 1 {
-		t.Fatalf("应结束 1 个脱离的进程组, got %+v", res)
+	if res.Processes != 1 {
+		t.Fatalf("应结束 1 个脱离进程组的进程, got %+v", res)
 	}
 	if !waitGone(t, pidA) {
 		t.Fatal("task-a 脱离进程组的进程应被结束")

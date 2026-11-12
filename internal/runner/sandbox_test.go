@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,7 +22,11 @@ import (
 
 // runner 经 HTTP 对接真实沙盒服务：工具留下的后台进程在 run 结束时随任务释放被结束。
 func TestReleaseSandbox_EndsTaskProcesses(t *testing.T) {
-	srv := server.New(server.Config{Token: "tok", WorkspaceDir: t.TempDir()})
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := server.New(server.Config{Token: "tok", WorkspaceDir: t.TempDir(), Shell: shell})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	client := sandbox.NewClient(ts.URL, "tok")

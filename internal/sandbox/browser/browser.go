@@ -1,21 +1,26 @@
 // Package browser 是沙盒的浏览器能力：浏览器服务脚本（client.py / service.py）编进程序，
 // 沙盒启动时释放到本地目录；按任务关闭浏览器会话；探测浏览器能力是否可用。
 //
-// 每个浏览器身份（{任务ID}-{身份名}）一个常驻服务进程，经 unix 套接字
-// /tmp/browser-svc-<身份>.sock 接收命令（约定与 client.py 一致）。drive_browser 工具在沙盒里执行
-// `browser-use <子命令>`，由本包生成的包装脚本以 sandbox.browser_python 运行 client.py。
+// 每个浏览器身份（{任务ID}-{身份名}）一个常驻服务进程，监听回环地址的随机端口，凭随机口令
+// 接收命令；端口与口令写在端点目录（沙盒运行目录下，只对本用户开放）的 <身份>.json 里，约定与
+// client.py / service.py 一致。回环 TCP 而不是 unix 套接字：全平台同一机制（Windows 上的 Python
+// 没有 unix 套接字）。drive_browser 工具在沙盒里执行 `browser-use <子命令>`，由本包生成的包装
+// 脚本以 sandbox.browser_python 运行 client.py。
 package browser
 
 import (
-	"bufio"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,11 +39,9 @@ from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.dom.serializer.serializer import DOMTreeSerializer`
 
-// socketDir 是浏览器服务套接字所在目录（与 client.py 的 SOCK 约定一致；测试可替换）。
-var socketDir = "/tmp"
-
-// Install 把浏览器脚本释放到 dir，并在 dir/bin 生成以 python 运行客户端的 browser-use 包装脚本。
-// 返回应加到命令 PATH 最前面的目录。每次启动覆盖写入，脚本随程序版本更新。
+// Install 把浏览器脚本释放到 dir，并在 dir/bin 生成以 python 运行客户端的 browser-use 包装脚本
+// （sh 脚本：命令由沙盒的 POSIX shell 执行）。返回应加到命令 PATH 最前面的目录。每次启动覆盖
+// 写入，脚本随程序版本更新。
 func Install(dir, python string) (string, error) {
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o750); err != nil {
@@ -53,7 +56,7 @@ func Install(dir, python string) (string, error) {
 			return "", fmt.Errorf("释放 %s: %w", name, err)
 		}
 	}
-	wrapper := fmt.Sprintf("#!/bin/sh\nexec %s %s \"$@\"\n", shellQuote(python), shellQuote(filepath.Join(dir, "client.py")))
+	wrapper := wrapperScript(python, filepath.Join(dir, "client.py"))
 	if err := os.WriteFile(filepath.Join(binDir, Command), []byte(wrapper), 0o750); err != nil { // #nosec G306 // 包装脚本须可执行
 		return "", fmt.Errorf("生成 browser-use 包装脚本: %w", err)
 	}
@@ -87,19 +90,41 @@ func Probe(ctx context.Context, python string) Status {
 // resetTimeout 是关闭单个浏览器会话的等待上限（关闭 chromium 通常在秒级）。
 const resetTimeout = 15 * time.Second
 
+// wrapperScript 生成 browser-use 包装脚本。路径写成正斜杠形式（sh 里反斜杠是转义符）。
+// Windows 上的 sh 在调用原生程序时会把形似路径的参数改写成 Windows 路径，浏览器参数（URL、
+// 选择器、脚本）不是路径，须原样交给客户端，故关掉这一改写。
+func wrapperScript(python, client string) string {
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	if runtime.GOOS == "windows" {
+		b.WriteString("export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'\n")
+	}
+	fmt.Fprintf(&b, "exec %s %s \"$@\"\n", shellQuote(filepath.ToSlash(python)), shellQuote(filepath.ToSlash(client)))
+	return b.String()
+}
+
+// endpoint 是一个浏览器服务的端点文件内容（service.py 写入）。
+type endpoint struct {
+	Port int    `json:"port"`
+	Key  string `json:"key"`
+}
+
 // ReleaseTask 关闭任务的全部浏览器会话（服务进程收到 reset 后关闭 chromium 并退出），
-// 返回成功关闭的会话数。只匹配本任务的身份前缀，并发任务不受影响。
-func ReleaseTask(ctx context.Context, taskID string) (int, error) {
-	socks, err := filepath.Glob(filepath.Join(socketDir, "browser-svc-"+taskID+"-*.sock"))
+// 返回成功关闭的会话数。dir 是端点目录；只匹配本任务的身份前缀，并发任务不受影响。
+func ReleaseTask(ctx context.Context, dir, taskID string) (int, error) {
+	if dir == "" {
+		return 0, nil
+	}
+	files, err := filepath.Glob(filepath.Join(dir, taskID+"-*.json"))
 	if err != nil {
 		return 0, fmt.Errorf("列出浏览器会话: %w", err)
 	}
 	closed := 0
 	var errs []error
-	for _, sock := range socks {
-		live, err := reset(ctx, sock)
+	for _, file := range files {
+		live, err := reset(ctx, file)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(sock), err))
+			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(file), err))
 			continue
 		}
 		if live {
@@ -109,26 +134,44 @@ func ReleaseTask(ctx context.Context, taskID string) (int, error) {
 	return closed, errors.Join(errs...)
 }
 
-// reset 向一个浏览器服务发送 reset 并等它回包，返回服务是否在运行。服务已不在（残留
-// 套接字）时删掉套接字文件。
-func reset(ctx context.Context, sock string) (bool, error) {
+// reset 向端点文件指向的浏览器服务发送 reset 并等它回包，返回服务是否在运行。服务已不在
+// （连不上，或端口已被别的进程占用、口令不符）时删掉残留的端点文件。
+func reset(ctx context.Context, file string) (bool, error) {
+	raw, err := os.ReadFile(file) // #nosec G304 // 端点目录由沙盒管理
+	if err != nil {
+		return false, nil //nolint:nilerr // 服务退出时自行删除了端点文件
+	}
+	var ep endpoint
+	if err := json.Unmarshal(raw, &ep); err != nil || ep.Port <= 0 {
+		_ = os.Remove(file)
+		return false, nil //nolint:nilerr // 写了一半的端点文件：服务未就绪即退出，清掉即可
+	}
 	ctx, cancel := context.WithTimeout(ctx, resetTimeout)
 	defer cancel()
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", sock)
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ep.Port)))
 	if err != nil {
-		_ = os.Remove(sock)
-		return false, nil //nolint:nilerr // 连不上 = 服务已退出，只剩残留套接字，清掉即完成释放
+		_ = os.Remove(file)
+		return false, nil //nolint:nilerr // 连不上 = 服务已退出，只剩残留端点，清掉即完成释放
 	}
 	defer func() { _ = conn.Close() }()
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	if _, err := conn.Write([]byte(`{"sub":"reset"}` + "\n")); err != nil {
+	req, _ := json.Marshal(map[string]string{"sub": "reset", "key": ep.Key})
+	if _, err := conn.Write(append(req, '\n')); err != nil {
 		return true, fmt.Errorf("发送 reset: %w", err)
 	}
-	if _, err := bufio.NewReader(conn).ReadString('}'); err != nil {
+	body, err := io.ReadAll(conn)
+	if err != nil {
 		return true, fmt.Errorf("等待回包: %w", err)
+	}
+	var resp struct {
+		Unauthorized bool `json:"unauthorized"`
+	}
+	if json.Unmarshal(body, &resp) == nil && resp.Unauthorized {
+		_ = os.Remove(file)
+		return false, nil
 	}
 	return true, nil
 }

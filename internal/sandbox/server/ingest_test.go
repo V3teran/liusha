@@ -1,20 +1,23 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// 浏览器服务经本地套接字投递流量：沙盒带令牌转发给 runner，回传 runner 的状态码；套接字仅属主可连。
+// 浏览器服务经回环中继投递流量：中继地址与口令随命令环境下发；凭口令接收、带沙盒令牌转发给
+// runner、回传 runner 的状态码；口令不对一律拒绝。沙盒令牌不出现在命令环境里。
 func TestIngestRelay_ForwardsWithToken(t *testing.T) {
 	got := make(chan string, 1)
 	runner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,52 +27,83 @@ func TestIngestRelay_ForwardsWithToken(t *testing.T) {
 	}))
 	t.Cleanup(runner.Close)
 
-	dir, err := os.MkdirTemp("/tmp", "lsi") // unix 套接字路径有长度上限
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sock := filepath.Join(dir, "ingest.sock")
-
-	srv := New(Config{Token: testToken, WorkspaceDir: t.TempDir(), IngestURL: runner.URL, IngestSocket: sock})
+	addr := freeAddr(t)
+	srv := New(Config{Token: testToken, WorkspaceDir: t.TempDir(), Shell: testShell, IngestURL: runner.URL})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- srv.ListenAndServe(ctx, "127.0.0.1:0") }()
+	go func() { done <- srv.ListenAndServe(ctx, addr) }()
 	stop := sync.OnceValue(func() error { cancel(); return <-done })
 	t.Cleanup(func() { _ = stop() })
 
-	var info os.FileInfo
-	for i := 0; i < 50; i++ {
-		if info, err = os.Stat(sock); err == nil && info.Mode().Perm() == 0o600 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	h := &harness{ts: &httptest.Server{URL: "http://" + addr}}
+	waitHealthy(t, h)
+	env := execEnv(t, h, `printf '%s\n%s\n' "$LIUSHA_INGEST_RELAY_URL" "$LIUSHA_INGEST_RELAY_KEY"; env`)
+	lines := strings.SplitN(env, "\n", 3)
+	relayURL, relayKey := lines[0], lines[1]
+	if !strings.HasPrefix(relayURL, "http://127.0.0.1:") || relayKey == "" {
+		t.Fatalf("命令环境应带回环中继地址与口令: %q", env)
 	}
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("回灌套接字应以 0600 就绪: %v %v", info, err)
+	if strings.Contains(env, testToken) {
+		t.Fatal("沙盒令牌不得出现在命令环境里")
 	}
 
-	client := &http.Client{Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
-		},
-	}}
-	resp, err := client.Post("http://sandbox/ingest", "application/json", strings.NewReader(`{"agent_id":"act-1"}`))
-	if err != nil {
-		t.Fatal(err)
+	post := func(key string) int {
+		req, _ := http.NewRequest(http.MethodPost, relayURL, strings.NewReader(`{"agent_run_id":"run-1"}`))
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("应回传 runner 的状态码, got %d", resp.StatusCode)
+	if code := post("wrong"); code != http.StatusUnauthorized {
+		t.Fatalf("口令不对应 401, got %d", code)
 	}
-	if want := "Bearer " + testToken + ` {"agent_id":"act-1"}`; <-got != want {
-		t.Fatal("转发请求应带令牌与原样的请求体")
+	if code := post(relayKey); code != http.StatusAccepted {
+		t.Fatalf("应回传 runner 的状态码, got %d", code)
+	}
+	if want := "Bearer " + testToken + ` {"agent_run_id":"run-1"}`; <-got != want {
+		t.Fatal("转发请求应带沙盒令牌与原样的请求体")
 	}
 
 	if err := stop(); err != nil {
 		t.Fatalf("停止应干净: %v", err)
 	}
-	if _, err := os.Stat(sock); !os.IsNotExist(err) {
-		t.Fatalf("停止后应删除套接字: %v", err)
+	if code, err := http.Post(relayURL, "application/json", nil); err == nil {
+		_ = code.Body.Close()
+		t.Fatal("停止后中继不应再接收")
 	}
+}
+
+// freeAddr 返回一个当前无人监听的回环地址。
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return addr
+}
+
+func waitHealthy(t *testing.T, h *harness) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if resp, err := http.Get(h.ts.URL + "/healthz"); err == nil {
+			_ = resp.Body.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("沙盒服务未就绪")
+}
+
+func execEnv(t *testing.T, h *harness, command string) string {
+	t.Helper()
+	body, _ := json.Marshal(sandbox.ExecRequest{AssignmentID: "asg", TaskID: "task", AgentRunID: "run-1", Command: command, TimeoutSeconds: 10})
+	var res sandbox.ExecResult
+	h.decode(t, http.MethodPost, "/exec", bytes.NewReader(body), &res)
+	return res.Stdout
 }

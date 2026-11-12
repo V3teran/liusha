@@ -15,12 +15,15 @@ import (
 // 区分不了「并发执行期间别人写的文件」，会把别人的产物报成自己的；暂存目录里新落的
 // 文件则只可能来自本次命令。
 //
-// 契约兼容：暂存目录预置指向 out/ 既有文件的符号链接，`cat "$OUTPUT_DIR/旧产物"` 照常
-// 可读，`>>` 原地追加经链接写回 out/ 的同一文件。命令结束后 publish 把新文件移入 out/。
+// 契约兼容：暂存目录预置 out/ 既有文件的硬链接，`cat "$OUTPUT_DIR/旧产物"` 照常可读，
+// `>>` 原地追加经链接写回 out/ 的同一文件。命令结束后 publish 把新文件移入 out/。用硬链接而
+// 不是符号链接：Windows 上建符号链接需要管理员权限或开发者模式，硬链接各平台都无需特权
+// （暂存目录与 out/ 同在工作区根下，必在同一卷上）。
 type execOutput struct {
 	dir    string               // 本次执行的 $OUTPUT_DIR
 	shared string               // 任务共享产物目录 out/
 	before map[string]time.Time // 执行前 out/ 顶层文件 → mtime（原地改写的归属判断）
+	links  map[string]fileID    // 预置链接自身的身份：发布时据此认出「仍是预置的那个文件」
 }
 
 // stageOutput 在工作区根 root 下的顶层点目录 .exec/ 建本次执行的暂存产物目录：与 out/ 同一
@@ -34,12 +37,19 @@ func stageOutput(root, shared string) (*execOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("建执行产物暂存目录: %w", err)
 	}
-	o := &execOutput{dir: dir, shared: shared, before: snapshotDir(shared)}
+	o := &execOutput{dir: dir, shared: shared, before: snapshotDir(shared), links: map[string]fileID{}}
 	for name := range o.before {
-		if err := os.Symlink(filepath.Join(shared, name), filepath.Join(dir, name)); err != nil {
+		link := filepath.Join(dir, name)
+		if err := os.Link(filepath.Join(shared, name), link); err != nil {
 			_ = os.RemoveAll(dir)
 			return nil, fmt.Errorf("预置既有产物链接 %s: %w", name, err)
 		}
+		id, err := identify(link)
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, fmt.Errorf("预置既有产物链接 %s: %w", name, err)
+		}
+		o.links[name] = id
 	}
 	return o, nil
 }
@@ -86,10 +96,18 @@ func (o *execOutput) publish() ([]sandbox.Attachment, []string) {
 		name := e.Name()
 		staged := filepath.Join(o.dir, name)
 		target := filepath.Join(o.shared, name)
-		if o.isPrelinked(name, staged) {
-			// 预置链接：只有经它原地改写过的既有产物归属本次。
-			if info, err := os.Stat(target); err == nil && !info.ModTime().Equal(o.before[name]) {
+		if info, ok := o.prelinked(name, staged); ok {
+			// 预置链接：只有经它原地改写过的既有产物归属本次。改写经硬链接已落到 out/ 的同一
+			// 文件；但若 out/ 里的同名文件期间已被并发执行替换，本次改写的是被替换掉的旧版——
+			// 作为本次附件返回，不覆盖别人的新版。
+			if info.ModTime().Equal(o.before[name]) {
+				continue
+			}
+			if cur, err := identify(target); err == nil && cur == o.links[name] {
 				attach(name, target)
+			} else {
+				attach(name, staged)
+				warnings = append(warnings, fmt.Sprintf("'%s' was replaced in out/ by a concurrent execution; this change is returned as an attachment only", name))
 			}
 			continue
 		}
@@ -110,14 +128,26 @@ func (o *execOutput) publish() ([]sandbox.Attachment, []string) {
 	return files, warnings
 }
 
-// isPrelinked 判断暂存目录里的 name 是否仍是 stageOutput 预置的那条链接。
-func (o *execOutput) isPrelinked(name, staged string) bool {
-	if _, existed := o.before[name]; !existed {
-		return false
+// prelinked 判断暂存目录里的 name 是否仍是 stageOutput 预置的那个文件（与预置时记下的身份
+// 相同），是则返回它此刻的状态。比对的是预置时的身份而不是此刻 out/ 里的文件：out/ 里的同名
+// 文件可能已被并发执行替换。命令以替换方式改写它（写新文件再改名）后就不再是，按新产物处理。
+func (o *execOutput) prelinked(name, staged string) (os.FileInfo, bool) {
+	link, ok := o.links[name]
+	if !ok {
+		return nil, false
 	}
-	dest, err := os.Readlink(staged)
-	return err == nil && dest == filepath.Join(o.shared, name)
+	if id, err := identify(staged); err != nil || id != link {
+		return nil, false
+	}
+	info, err := os.Stat(staged)
+	if err != nil {
+		return nil, false
+	}
+	return info, true
 }
+
+// discard 放弃本次执行的暂存目录（命令未能运行时）。
+func (o *execOutput) discard() { _ = os.RemoveAll(o.dir) }
 
 // moveInto 把暂存目录下的子目录并入 out/：目标不存在时整体改名，已存在时逐项合并。
 func moveInto(src, dst string) error {
