@@ -56,15 +56,41 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 
 ## 二进制
 
+Release 提供 Linux（tar.gz）与 Windows（zip）的 amd64 / arm64 程序。
+
 ```bash
 ./liusha setup -postgres-dsn 'postgres://liusha:<密码>@127.0.0.1:5432/liusha' -redis-addr 127.0.0.1:6379
 ./liusha serve -env-file liusha.env
 ```
 
 - 数据库需已安装 pgvector（`CREATE EXTENSION vector` 由迁移执行，账号需相应权限）。
-- `liusha.env` 是 `KEY=VALUE` 文件（权限 0600），也可直接作为 systemd 的 `EnvironmentFile=`。
-  其他配置追加 `LIUSHA_<键>` 即可；`setup` 不覆盖已存在的文件。
-- 升级：替换 `liusha` 后重启，`serve` 启动时自动迁移。
+- `liusha.env` 是 `KEY=VALUE` 文件，只对当前用户开放（POSIX 0600，Windows 上是只含当前用户、
+  SYSTEM、Administrators 的访问控制列表），也可直接作为 systemd 的 `EnvironmentFile=`。其他配置
+  追加 `LIUSHA_<键>` 即可；`setup` 不覆盖已存在的文件。
+- 数据缺省在 `~/data/liusha` 下：`workspace`（任务工作区）、`logs`（日志）。
+- 升级：替换程序后重启，`serve` 启动时自动迁移。
+
+### Windows
+
+- 智能体的命令按 POSIX sh 语法编写，沙盒用 `sandbox.shell` 执行（缺省在 PATH 中找 `sh`）。
+  Windows 没有自带的 sh：安装 Git for Windows 后把 `LIUSHA_SANDBOX_SHELL` 设为其 `bin\sh.exe`
+  （如 `C:\Program Files\Git\bin\sh.exe`），或用 MSYS2 等提供 sh 的环境。找不到 sh 时沙盒拒绝启动。
+- 渗透工具装原生 Windows 版并加入 PATH；也可以装在 sh 环境里。工具页按命令实际看到的 PATH
+  标出未安装的工具。
+- 浏览器能力：安装 Python（`sandbox.browser_python` 在 Windows 上缺省为 `python`）、
+  `pip install browser-use==0.13.14`，再执行一次 `python -m playwright install chromium`。
+- 作为 Windows 服务运行（以管理员身份执行；服务名任取）：
+
+  ```powershell
+  sc.exe create liusha binPath= "\"C:\liusha\liusha.exe\" serve -env-file C:\liusha\liusha.env" start= auto obj= ".\liusha-svc" password= "<密码>"
+  sc.exe failure liusha reset= 86400 actions= restart/5000
+  sc.exe start liusha
+  ```
+
+  `liusha` 由服务控制管理器启动时按服务运行：停止与关机时中断在途任务、收尾后退出（任务由
+  下次启动续跑）。沙盒执行智能体编写的任意命令，**用专门的低权限账户运行服务**，不要用
+  LocalSystem；工具与 Python 须对该账户可用（装在系统范围，或装在该账户下），`liusha.env`
+  也要用该账户执行 `setup` 生成（只有它与管理员可读）。
 
 ## compose
 
