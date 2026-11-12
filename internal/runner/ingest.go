@@ -1,4 +1,4 @@
-// ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口（从 cmd/proxy 迁来）。
+// ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口。
 //
 // 背景：active 模式下 executor 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
 // 真实认证请求（Document/XHR/Fetch）必须进 agent_traffic 字典，LLM 才能看到真实请求结构 + 凭证位置
@@ -11,7 +11,7 @@
 //
 //	→ 进程内有界队列 → ingestor.drainInternal → handleInternalSnap 落库（不绕 Redis，自环 broker 冗余）。
 //
-// 路径：POST /internal/v1/traffic/ingest（挂在 cmd/runner healthz HTTP mux 上，默认 :8590）
+// 路径：POST /internal/v1/traffic/ingest（挂在 runner 组件的 healthz HTTP mux 上，默认 :8590）
 // 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
 // 网络：runner healthz 监听 :8590，沙箱容器经 host.docker.internal 访问（宿主映射端口见 LIUSHA_INGEST_PUBLIC_PORT）
 

@@ -13,7 +13,7 @@ import (
 //
 // 调用方：proxy.Server.onResponse 在过滤通过后调 Publish。
 //
-// Stream 名 / MaxLen 由 config.ProxyConfig 注入（cmd/proxy 装配时传入），
+// Stream 名 / MaxLen 由 config.ProxyConfig 注入（proxy 组件装配时传入），
 // 不再硬编码——多项目共享 redis 时通过 yaml 改名即可隔离。
 type Publisher struct {
 	rdb    *redis.Client

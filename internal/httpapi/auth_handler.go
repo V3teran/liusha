@@ -22,11 +22,11 @@ import (
 //   - POST /auth/password  改密：吊销全部会话（含当前），全员重新登录
 //
 // login/logout 两端点在 RequireAuth 白名单内（见 auth.go）；me/password
-// 走正常会话校验。初始建号不经 HTTP（cmd/api 启动期用 env 密码直接建 admin）。
+// 走正常会话校验。初始建号不经 HTTP（api 组件启动期用 env 密码直接建 admin）。
 
 // AuthStore 是登录认证依赖的窄接口；*auth.Store 自动满足。
 // RequireAuth 中间件只消费 SessionByToken/SlideSession，其余为各 handler 所需。
-// 初始建号（CountAccounts/CreateAccountIfAbsent）不经 HTTP——cmd/api 启动期
+// 初始建号（CountAccounts/CreateAccountIfAbsent）不经 HTTP——api 组件启动期
 // 直接对具体 store 调用，api 全程没有任何未认证的建号端点。
 type AuthStore interface {
 	AccountByUsername(ctx context.Context, username string) (auth.Account, error)

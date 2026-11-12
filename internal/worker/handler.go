@@ -10,7 +10,7 @@ import (
 // Payload 是所有 agent 任务的统一载荷。
 //
 // Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
-// 全部生产者（cmd/api 人工下发 / ingestor 代理捕获攒批）都填 AgentRunID + TaskID。
+// 全部生产者（api 组件人工下发 / ingestor 代理捕获攒批）都填 AgentRunID + TaskID。
 type Payload struct {
 	AgentRunID string `json:"agent_run_id"` // 所属 agent_run.id（幂等键，见 client.go）
 	TaskID     string `json:"task_id"`      // 所属 task.id

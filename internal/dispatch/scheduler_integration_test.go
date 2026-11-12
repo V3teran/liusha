@@ -42,7 +42,7 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 		Enq:           enq,
 		Conversations: conversations,
 		// Dispatcher 与 Scheduler 共用同一 conversation store：brief 条目展开时
-		// expandItem 要把任务链到会话（生产装配同源，见 cmd/api）。
+		// expandItem 要把任务链到会话（生产装配同源，见 api 组件）。
 		Dispatcher: &Service{
 			Assignments:   assignments,
 			Tasks:         tasks,

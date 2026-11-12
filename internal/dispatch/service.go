@@ -105,7 +105,7 @@ type Service struct {
 
 	// LLM 是下发边界的就绪校验（nil = 跳过，测试替身/纯存储用法）。任务创建前
 	// 必须确认 LLM 可服务——否则任务入队后 planner 拿到「未配置」错误无限重试、
-	// 永挂 active。cmd/api 以 Router.For(simple) 适配（simple 是全部档位的降级
+	// 永挂 active。api 组件以 Router.For(simple) 适配（simple 是全部档位的降级
 	// 兜底：它可解析 ⟺ 任意档位可解析）。
 	LLM LLMReadiness
 }

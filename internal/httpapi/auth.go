@@ -32,7 +32,7 @@ const (
 //   - /api/auth/login    登录前当然没有会话
 //   - /api/auth/logout   清 HttpOnly Cookie 必须由服务端做，须容忍带着失效会话调用
 //
-// 初始建号不经 HTTP（cmd/api 启动期用 env 密码建 admin），api 全程没有
+// 初始建号不经 HTTP（api 组件启动期用 env 密码建 admin），api 全程没有
 // 未认证的建号端点。
 // store 为 nil 属装配错误，fail-closed：除白名单外全部 401。
 func RequireAuth(store AuthStore, secure bool) gin.HandlerFunc {
@@ -84,7 +84,7 @@ func RequireAuth(store AuthStore, secure bool) gin.HandlerFunc {
 }
 
 // setSessionCookie 下发会话 Cookie：HttpOnly（JS 不可读）+ SameSite=Lax（跨站 POST
-// 不携带，覆盖 CSRF 面）+ Path=/；secure 由 LIUSHA_COOKIE_SECURE 决定（dev http 须 false）。
+// 不携带，覆盖 CSRF 面）+ Path=/；secure 由配置 api.cookie_secure 决定（纯 http 访问须 false）。
 func setSessionCookie(c *gin.Context, token string, maxAgeSeconds int, secure bool) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(sessionCookieName, token, maxAgeSeconds, "/", "", secure, true)

@@ -2,7 +2,7 @@
 //
 // 权威口径（llminvocation 表约定）：每次 Complete 调用（含失败）落一行，
 // 供 token 用量 / 路由 / 延迟审计。装饰器只依赖本包类型 + 最小 Sink 接口，
-// 业务侧（cmd/runner）用适配器接到 llminvocation.Store——框架不 import 业务包。
+// 业务侧（runner 组件）用适配器接到 llminvocation.Store——框架不 import 业务包。
 //
 // 装饰点：Router 装配 Provider 时包在最外层（retry 之外），
 // 记录"调用方视角"的一次调用；逐次重试的中间态不落库。

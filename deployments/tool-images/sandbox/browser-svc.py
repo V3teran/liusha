@@ -34,7 +34,7 @@ from browser_use.dom.serializer.serializer import DOMTreeSerializer
 IDENTITY = sys.argv[1] if len(sys.argv) > 1 else "default"
 SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 
-# ---- B1：CDP Network capture → cmd/runner /internal/v1/traffic/ingest ----
+# ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # sandbox 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
 # （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
 # 落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放

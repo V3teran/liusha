@@ -100,12 +100,9 @@ for port in 8588 8580 8590; do
     kill -9 "$pid" 2>/dev/null || true
   fi
 done
-# pkill 兜底：runner 启动若 healthz :8590 端口冲突会保留 exe 进程但不绑端口
-# → lsof 找不到 → 老 binary 留下与 asynq 抢任务（曾踩坑：上次 commit 67f1c24
-# extractHostFromBrief 没生效就是因为老 runner 拿到了 task 用旧逻辑跑）。
-# -9 强杀所有 runner exe + go run 父进程兜底。
-pkill -9 -f 'exe/runner' 2>/dev/null || true
-pkill -9 -f 'go run.*cmd/runner' 2>/dev/null || true
+# pkill 兜底：runner 启动若 healthz :8590 端口冲突会保留进程但不绑端口
+# → lsof 找不到 → 老进程留下与 asynq 抢任务。-9 强杀全部 runner 进程。
+pkill -9 -f 'liusha runner' 2>/dev/null || true
 # run-svc.sh 包装进程残留回收：其结尾 tail -F 会让脚本在端口清理后仍存活，
 # 跨轮累积（其 cleanup trap 会按 PID 清理各自子进程，先 SIGTERM 再 -9）
 pkill -f 'dev/run-svc.sh' 2>/dev/null || true
@@ -161,10 +158,7 @@ if [ $# -eq 0 ]; then
 else
   echo "===== 6/6 跑 e2e 触发器 profile=[$*]（约 1-6 分钟/个）====="
 fi
-# -mod=mod：步骤 1 的 `make migrate`（golang-migrate 经 go run）会把 migrate 提为 go.mod 显式
-# require，但它是工具依赖未进 vendor/。若此处走默认 -mod=vendor 会因「required but not vendored」
-# 失败。与 run-svc.sh 统一用 -mod=mod 跑 dev 命令，绕开 vendor 一致性校验。
-go run -mod=mod ./cmd/e2e "$@"
+go run ./cmd/e2e "$@"
 RC=$?
 
 echo ""

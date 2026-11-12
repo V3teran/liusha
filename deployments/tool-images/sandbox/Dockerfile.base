@@ -429,7 +429,7 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 # 元数据：嵌入工具清单
 # ══════════════════════════════════════════════════════════════════════════════
-COPY deployments/tool-images/sandbox/tools.yaml /tools.yaml
+COPY internal/tools/manifest/tools.yaml /tools.yaml
 
 LABEL org.opencontainers.image.description="Sandbox base image with 90 security tools"
 LABEL liusha.tools.count="90"

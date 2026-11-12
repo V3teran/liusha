@@ -33,7 +33,7 @@ type AttachmentUploader interface {
 }
 
 // AttachmentContext 解析 会话→任务→批次 链（供附件落位定 inbox）。
-// *conversation.Store + *task.Store 的组合满足（cmd/api 注入组合体）。
+// *conversation.Store + *task.Store 的组合满足（api 组件注入组合体）。
 type AttachmentContext interface {
 	ResolveTaskID(ctx context.Context, conversationID string) (string, error)
 	GetSummary(ctx context.Context, id string) (task.Summary, error)

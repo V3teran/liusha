@@ -2,8 +2,8 @@
 //
 // 数据流（Stream-based 业界最佳实践）：
 //
-//	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:traffic_snapshots)
-//	cmd/runner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建代理捕获 task + 入 agent 队列
+//	proxy 组件 onResponse → filter → publisher.Publish (XADD liusha:traffic_snapshots)
+//	runner 组件 ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建代理捕获 task + 入 agent 队列
 //
 // proxy 进程无状态、可水平扩展；proxy_traffic 落库 + 代理捕获 task 生成逻辑集中在 runner 端。
 package proxy
