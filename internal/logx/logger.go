@@ -4,12 +4,14 @@
 // 输出形态：stdout（dev=console 彩色；prod=json）+ file（永远 json，lumberjack 轮转）
 // 全部行为由环境变量驱动，零配置即可运行。
 //
-// 文件聚合：同一进程内所有 New() 共写一个 logs/{进程名}.log。进程名由入口经 SetProcess
-// 设定（liusha 的子命令名），未设定时取 os.Args[0] 的 basename。文件在首条日志写出时才打开，
-// 因此包初始化期间建的包级 logger 也落到入口设定的文件里。
+// 输出端进程内唯一：所有 New() 写同一个输出端，它在首条日志写出时才按当时的环境变量构建
+// （级别、格式、是否写 stdout / 文件、目录）。包级 logger 在包初始化时就已建好，而入口可能
+// 之后才补齐环境（liusha 的 -env-file）——惰性构建让它们与入口建的 logger 同一口径。
+//
+// 文件聚合：同一进程写一个 logs/{进程名}.log。进程名由入口经 SetProcess 设定（liusha 的
+// 子命令名），未设定时取 os.Args[0] 的 basename。
 // 测试二进制（testing.Testing()）里文件落盘缺省关闭——否则会在每个被测包目录下留下
 // logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
-// 多 logger 实例共享同一个 *lumberjack.Logger，由 lumberjack 内部 mutex 保证并发安全。
 package logx
 
 import (
@@ -20,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,17 +31,49 @@ import (
 )
 
 // New 返回带 service / instance / caller / timestamp 的 logger。
-// 同进程多次调用安全；每次返回新副本，但共享底层 writer。
+// 同进程多次调用安全；所有 logger 共写进程内唯一的输出端。
 func New(service string) zerolog.Logger {
 	cfg := loadConfig()
 	applyGlobals(cfg)
-	w := buildWriter(cfg)
-	return zerolog.New(w).With().
+	return zerolog.New(output).With().
 		Timestamp().
 		Caller().
 		Str("service", service).
 		Str("instance", cfg.instance).
 		Logger()
+}
+
+// output 是进程内全部 logger 共用的输出端。
+var output = &lazyOutput{}
+
+// lazyOutput 在首次写入时按当时的环境构建真正的输出端。
+type lazyOutput struct {
+	mu sync.Mutex
+	w  atomic.Pointer[io.Writer]
+}
+
+func (o *lazyOutput) Write(p []byte) (int, error) {
+	if w := o.w.Load(); w != nil {
+		return (*w).Write(p)
+	}
+	o.mu.Lock()
+	w := o.w.Load()
+	if w == nil {
+		cfg := loadConfig()
+		applyGlobals(cfg)
+		built := buildWriter(cfg)
+		w = &built
+		o.w.Store(w)
+	}
+	o.mu.Unlock()
+	return (*w).Write(p)
+}
+
+// reset 让下一次写入重新构建输出端。
+func (o *lazyOutput) reset() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.w.Store(nil)
 }
 
 const (
@@ -138,12 +173,13 @@ var (
 	processName string
 )
 
-// SetProcess 设定本进程的日志文件名（logs/<name>.log）。入口在写出任何日志之前调用一次；
-// 已打开的文件不会因之后的调用而切换。
+// SetProcess 设定本进程的日志文件名（logs/<name>.log）。入口在补齐环境之后、写出任何日志
+// 之前调用一次：之后的首条日志按此时的环境构建输出端。
 func SetProcess(name string) {
 	processMu.Lock()
-	defer processMu.Unlock()
 	processName = name
+	processMu.Unlock()
+	output.reset()
 }
 
 // currentProcess 返回日志文件名：SetProcess 设定的值，未设定时取 os.Args[0] 的 basename。
@@ -219,25 +255,6 @@ func sharedFileWriter(path string, cfg config) *lumberjack.Logger {
 	return w
 }
 
-// processFile 在首次写入时才确定文件路径（dir/<进程名>.log）并打开共享 writer。
-type processFile struct {
-	cfg  config
-	once sync.Once
-	w    io.Writer
-}
-
-func (f *processFile) Write(p []byte) (int, error) {
-	f.once.Do(func() {
-		if err := os.MkdirAll(f.cfg.dir, 0o750); err != nil {
-			fmt.Fprintf(os.Stderr, "logx: 创建日志目录 %s 失败: %v\n", f.cfg.dir, err)
-			f.w = io.Discard
-			return
-		}
-		f.w = sharedFileWriter(filepath.Join(f.cfg.dir, currentProcess()+".log"), f.cfg)
-	})
-	return f.w.Write(p)
-}
-
 func buildWriter(cfg config) io.Writer {
 	var ws []io.Writer
 	if cfg.toStdout {
@@ -248,7 +265,11 @@ func buildWriter(cfg config) io.Writer {
 		}
 	}
 	if cfg.toFile {
-		ws = append(ws, &processFile{cfg: cfg})
+		if err := os.MkdirAll(cfg.dir, 0o750); err == nil {
+			ws = append(ws, sharedFileWriter(filepath.Join(cfg.dir, currentProcess()+".log"), cfg))
+		} else {
+			fmt.Fprintf(os.Stderr, "logx: 创建日志目录 %s 失败: %v\n", cfg.dir, err)
+		}
 	}
 	switch len(ws) {
 	case 0:

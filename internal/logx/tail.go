@@ -278,7 +278,7 @@ func (r *Reader) recentInstances(name string) []string {
 	return out
 }
 
-// filePath 是文件布局的唯一权威：dir/{process}.log，与写入端 processFile 一致。
+// filePath 是文件布局的唯一权威：dir/{process}.log，与写入端 buildWriter 一致。
 func (r *Reader) filePath(name string) string {
 	return filepath.Join(r.dir, name+".log")
 }
