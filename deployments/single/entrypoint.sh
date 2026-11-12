@@ -42,7 +42,10 @@ secret LIUSHA_ADMIN_INITIAL_PASSWORD admin.initial_password "head -c 18 /dev/ura
 secret LIUSHA_LLM_KEY_SECRET llm_key.secret "hex 32"
 secret REDIS_PASSWORD redis.password "hex 24"
 secret LIUSHA_SANDBOX_TOKEN sandbox.token "hex 32"
-log "初始管理员 admin / $LIUSHA_ADMIN_INITIAL_PASSWORD（存于 $SECRETS_DIR/admin.initial_password，仅首次启动生效，登录后请改密）"
+# 密码不进日志（容器日志长期留存、随日志采集外传）：只给出位置。
+if [ -s "$SECRETS_DIR/admin.initial_password" ]; then
+  log "初始管理员 admin 的密码在 $SECRETS_DIR/admin.initial_password（仅首次启动生效，登录后请改密）"
+fi
 
 export LIUSHA_POSTGRES_DSN="postgres://liusha@127.0.0.1:5432/liusha?sslmode=disable"
 export LIUSHA_REDIS_ADDR=127.0.0.1:6379
