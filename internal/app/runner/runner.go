@@ -221,13 +221,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	startBackgroundLoops(bgCtx, cfg, pool, wc, st, sysSettings, creds, rdb, logger)
 
-	srv := asynq.NewServer(redisOpt, asynq.Config{
-		Concurrency: runnerCfg.AsynqConcurrency,
-		Queues:      map[string]int{worker.QueueAgent: runnerCfg.QueueAgentWeight},
-		// asynq 内部日志（投递重试 / 处理错误）事关任务是否丢失，接进 logx。
-		Logger: asynqLogAdapter{logger},
-	})
-	if err := srv.Start(mux.AsynqMux()); err != nil {
+	ts := newTaskServer(redisOpt, runnerCfg, logger)
+	if err := ts.Start(mux.AsynqMux()); err != nil {
 		return fmt.Errorf("启动任务消费者: %w", err)
 	}
 
@@ -245,7 +240,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	case <-ctx.Done():
 	case runErr = <-gatewayErr:
 	}
-	shutdown(logger, runnerCfg, srv, hs, stopBackground)
+	shutdown(logger, runnerCfg, ts, hs, stopBackground)
 	return runErr
 }
 
@@ -365,25 +360,61 @@ func newHealthGateway(cfg config.AppConfig, trafficIngestor *ingestor.Traffic, l
 	}
 }
 
-// shutdown 优雅关停：停止流量入口与后台循环 → 排空任务（宽限期）→ healthz。
+// taskServer 是任务消费者：asynq.Server 加上停机时中断在途 run 的能力。
 //
-// 宽限期满后 asynq 把消息推回队列并取消 handler ctx，handler 按中断收尾（任务保持进行中，
-// 释放其沙盒资源）。沙盒是独立组件，不随 runner 停止；同进程运行（serve）时由编排保证
-// 沙盒在 runner 排空后才停，在途工具不会以「沙盒不可用」失败写进探索图。
-func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, srv *asynq.Server, hs *http.Server, stopBackground context.CancelFunc) {
-	stopBackground()
-	drained := make(chan struct{})
-	go func() {
-		srv.Shutdown()
-		close(drained)
-	}()
-	select {
-	case <-drained:
-		logger.Info().Msg("asynq shutdown clean")
-	case <-time.After(time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second):
-		logger.Warn().Int("timeout_seconds", runnerCfg.AsynqShutdownTimeoutSeconds).
-			Msg("asynq 停机超时：在途任务按中断收尾，由下次启动的恢复监控续跑")
+// asynq 停机不通知在途 handler：它等宽限期耗尽，再把消息推回队列、取消 handler ctx 并立即
+// 返回——进程随即退出，handler 来不及收尾，run 残留 running，只能等僵尸回收并被计作一次出错。
+// 若改为取消 asynq 交给 handler 的 ctx，asynq 同样立即放弃 handler、不等它返回。
+//
+// 一次 run 动辄几十分钟，等它自然结束没有意义；停机中断的语义是「run 落 aborted、任务保持
+// 进行中、由恢复监控以新 run 续跑」。所以中断信号走 asynq 之外的 ctx：handler 看到取消、按
+// 中断收尾（终态回写、释放沙盒）后返回，asynq 的 Shutdown 等到它返回为止，至多宽限期。
+type taskServer struct {
+	srv       *asynq.Server
+	runs      context.Context
+	interrupt context.CancelFunc
+}
+
+func newTaskServer(redisOpt asynq.RedisConnOpt, runnerCfg config.RunnerConfig, logger zerolog.Logger) *taskServer {
+	runs, interrupt := context.WithCancel(context.Background())
+	return &taskServer{
+		srv: asynq.NewServer(redisOpt, asynq.Config{
+			Concurrency:     runnerCfg.AsynqConcurrency,
+			Queues:          map[string]int{worker.QueueAgent: runnerCfg.QueueAgentWeight},
+			ShutdownTimeout: time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second,
+			// asynq 内部日志（投递重试 / 处理错误）事关任务是否丢失，接进 logx。
+			Logger: asynqLogAdapter{logger},
+		}),
+		runs:      runs,
+		interrupt: interrupt,
 	}
+}
+
+// Start 开始消费；每个 handler 的 ctx 在停机时取消（context.Canceled，即停机中断）。
+func (s *taskServer) Start(h asynq.Handler) error {
+	return s.srv.Start(asynq.HandlerFunc(func(ctx context.Context, t *asynq.Task) error {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer context.AfterFunc(s.runs, cancel)()
+		return h.ProcessTask(ctx, t)
+	}))
+}
+
+// Shutdown 停止取新任务 → 中断在途 run → 等它们收尾（至多宽限期）。
+func (s *taskServer) Shutdown() {
+	s.srv.Stop()
+	s.interrupt()
+	s.srv.Shutdown()
+}
+
+// shutdown 优雅关停：停止流量入口与后台循环 → 中断在途 run 并等其收尾 → healthz。
+//
+// 沙盒是独立组件，不随 runner 停止；同进程运行（serve）时由编排保证沙盒在 runner 之后才停，
+// 收尾中的释放请求仍能送达。
+func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, ts *taskServer, hs *http.Server, stopBackground context.CancelFunc) {
+	stopBackground()
+	ts.Shutdown()
+	logger.Info().Msg("在途 run 已按停机中断收尾，任务由恢复监控续跑")
 
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer hsCancel()

@@ -54,7 +54,7 @@ single-build: build-sandbox
 CALLBACK_HOST ?=
 LISTENER_PORTS ?= 21000-21099
 single-run:
-	docker run -d --restart unless-stopped --name liusha-single \
+	docker run -d --restart unless-stopped --stop-timeout 60 --name liusha-single \
 	  -p 50080:8580 -p 58588:8588 -p $(LISTENER_PORTS):$(LISTENER_PORTS) \
 	  -e LIUSHA_SANDBOX_CALLBACK_HOST=$(CALLBACK_HOST) -e LIUSHA_SANDBOX_LISTENER_PORTS=$(LISTENER_PORTS) \
 	  -v $(HOME)/data/liusha/single:/data \
