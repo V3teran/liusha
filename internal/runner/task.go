@@ -79,7 +79,7 @@ func (h *Handler) executeTask(
 	// 中断（进程停机 / asynq 租约丢失）：任务没有结束，只是本进程不再跑它。run 落
 	// aborted（不计入恢复监控的中断上限——那只数 error run），task 保持 active、
 	// 探索图目标保持 open、会话身份不回收；恢复监控的「搁浅任务」规则发现活跃任务
-	// 无存活 run 即以新 run 续跑。asynq 推回队列的原消息会被幂等闸跳过（run 已非 pending）。
+	// 无存活 run 即以新 run 续跑。返回 nil：消息就此了结，不由 asynq 重投。
 	if exit == runExitInterrupted {
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
@@ -284,8 +284,8 @@ const (
 
 // classifyRunExit 按 handler ctx 的结束原因、认知循环错误与停止原因分类。
 //
-// handler ctx 被取消（context.Canceled）只来自 asynq：停机超时后推回队列、或租约丢失——
-// 两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
+// handler ctx 被取消（context.Canceled）只有两个来源：runner 停机中断在途 run、asynq 租约
+// 丢失——两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
 // 暂停优先于中断：两者都不动任务，暂停还要保留 paused 标记交给继续操作。
 func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 	if err == nil && stopReason == cognition.StopReasonPaused {

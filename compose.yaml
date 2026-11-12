@@ -148,6 +148,9 @@ services:
     <<: *liusha-image
     command: ["runner"]
     restart: unless-stopped
+    # 停机时在途任务按中断收尾（至多 runner.asynq_shutdown_timeout_seconds，缺省 30 秒），
+    # Docker 缺省的 10 秒宽限会在收尾中途强杀，run 残留 running。
+    stop_grace_period: 45s
     env_file: [.env]
     environment:
       <<: [*liusha-env, *sandbox-env]

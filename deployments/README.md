@@ -81,12 +81,14 @@ docker compose up -d --build
 
 ```bash
 make single-build       # 先构建沙盒镜像，再以它为底构建 liusha-single:local
-docker run -d --name liusha -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
+docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
 ```
 
 一个容器运行 PostgreSQL 18（pgvector）、Redis 与 `liusha serve`，任一进程退出即整体停止，交给
 `--restart` 等编排重启。数据都在 `/data`；首次启动生成的密钥存于 `/data/secrets`（同名环境
-变量优先），初始管理员密码打印在启动日志里。需要回连时加
+变量优先），初始管理员密码打印在启动日志里。`--stop-timeout 60` 留出停机
+收尾时间：在途任务按中断收尾（至多 `runner.asynq_shutdown_timeout_seconds`，缺省 30 秒）后
+数据库才关闭，Docker 缺省的 10 秒会在收尾中途强杀。需要回连时加
 `-e LIUSHA_SANDBOX_CALLBACK_HOST=<宿主地址> -p 21000-21099:21000-21099`（`make single-run` 已含）。
 目标机架构不同时构建加 `--platform`；离线分发用 `docker save liusha-single:local | gzip`。
 
@@ -128,7 +130,7 @@ docker exec liusha-single su postgres -c 'pg_dump -p 5432 -Fc liusha' > liusha.d
 docker rm -f liusha-single $(docker ps -aq --filter name=liusha-sandbox-)           # 连同旧版拉起的沙盒容器
 mv ~/data/liusha/single/pg ~/data/liusha/single/pg17.bak                            # 其余数据与密钥保留
 make single-build
-docker run -d --name liusha -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
+docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
 docker exec -i liusha su postgres -c 'pg_restore -p 5432 --clean --if-exists -d liusha' < liusha.dump
 docker restart liusha                                                                 # 启动时迁移到新版本
 ```
