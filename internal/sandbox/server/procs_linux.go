@@ -14,6 +14,10 @@ import (
 // LIUSHA_TASK_ID 为准，在发信号那一刻从 /proc 读取核验——不登记进程组号，因此不受组号
 // 被系统复用的影响；脱离命令进程组的进程（浏览器服务以独立会话启动，chromium 在其下派生）
 // 同样识别得到。
+//
+// 这是资源回收，不是隔离：同一沙盒里的命令以同一用户运行，一个任务的命令可以改写自己的
+// LIUSHA_TASK_ID、也可以直接向别的任务的进程发信号。任务之间互不隔离是沙盒的既定边界
+// （隔离的单位是沙盒本身），这里只保证正常运行的任务结束时不留残余进程。
 type taskProcesses struct{}
 
 func newTaskProcesses() *taskProcesses { return &taskProcesses{} }
