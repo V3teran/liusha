@@ -2,8 +2,8 @@ name: release
 
 # 正式版 Release 发布后构建发布产物：
 #   - ghcr.io/v3teran/liusha 镜像（amd64 + arm64），标签 X.Y.Z、X.Y、latest
-#   - 二进制压缩包（linux amd64 / arm64，含 LICENSE、NOTICE、THIRD_PARTY_NOTICES）与
-#     checksums.txt，上传到该 Release
+#   - 二进制压缩包（linux amd64 / arm64 的 tar.gz、windows amd64 / arm64 的 zip，含 LICENSE、
+#     NOTICE、THIRD_PARTY_NOTICES）与 checksums.txt，上传到该 Release
 # 沙盒镜像与单镜像不发布，由部署方本地构建。
 # 发版链：conventional commits → release-please 维护版本 PR → 合并出 Release → 本 workflow。
 # 手动重建某版本：gh workflow run release.yml --ref vX.Y.Z（只接受 tag ref）。
