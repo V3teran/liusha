@@ -249,7 +249,7 @@ func shellJoin(parts ...string) string {
 	return strings.Join(quoted, " ")
 }
 
-// browserCmdArgs 是 drive_browser 的参数（字段与 browser-svc.py 子命令约定对应）。
+// browserCmdArgs 是 drive_browser 的参数（字段与沙盒浏览器服务的子命令约定对应）。
 type browserCmdArgs struct {
 	Action    string `json:"action"`
 	URL       string `json:"url"`
@@ -390,8 +390,8 @@ func orDash(s string) string {
 }
 
 // browserIdentity 拼接浏览器身份隔离键：{taskID}-{身份名}。
-// 身份名清洗为 [a-zA-Z0-9_-]（它将进入 unix socket 文件名 /tmp/browser-svc-{IDENTITY}.sock，
-// 非法字符会被文件系统拒绝）。taskID 为 UUID 天然安全。
+// 身份名清洗为 [a-zA-Z0-9_-]：它是浏览器服务端点文件名（<身份>.json），也是沙盒按任务释放时
+// 匹配的前缀（<taskID>-*），不能含路径分隔符与通配符。taskID 为 UUID 天然安全。
 func browserIdentity(taskID, identity string) string {
 	if identity == "" {
 		identity = "default"

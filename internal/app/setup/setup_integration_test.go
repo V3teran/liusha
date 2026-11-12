@@ -44,7 +44,8 @@ func TestRun_FreshInstall(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "liusha.env")
-	opts := Options{EnvFile: path, PostgresDSN: dsn, RedisAddr: strings.TrimPrefix(redisURL, "redis://")}
+	opts := Options{EnvFile: path, PostgresDSN: dsn, RedisAddr: strings.TrimPrefix(redisURL, "redis://"),
+		WorkspaceDir: filepath.Join("rel", "ws")}
 	var out bytes.Buffer
 	if err := Run(ctx, opts, &out); err != nil {
 		t.Fatal(err)
@@ -64,6 +65,10 @@ func TestRun_FreshInstall(t *testing.T) {
 	}
 	if got["LIUSHA_POSTGRES_DSN"] != dsn || len(got["LIUSHA_LLM_KEY_SECRET"]) != 64 || len(got["LIUSHA_SANDBOX_TOKEN"]) != 64 {
 		t.Fatalf("环境变量文件内容不完整: %v", got)
+	}
+	// 相对工作区写成绝对路径（以服务方式运行时工作目录不同）。
+	if wd, _ := os.Getwd(); got["LIUSHA_SANDBOX_WORKSPACE_DIR"] != filepath.ToSlash(filepath.Join(wd, "rel", "ws")) {
+		t.Fatalf("工作区应写成绝对路径, got %q", got["LIUSHA_SANDBOX_WORKSPACE_DIR"])
 	}
 	if pw := got["LIUSHA_ADMIN_INITIAL_PASSWORD"]; len(pw) < 8 || !strings.Contains(out.String(), pw) {
 		t.Fatalf("应生成并提示初始管理员密码: %q / %s", pw, out.String())

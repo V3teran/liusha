@@ -1,14 +1,14 @@
 // Package server 实现沙盒服务（liusha sandbox）的 HTTP 端点。
 //
 //	GET  /healthz              健康检查（无需令牌）
-//	POST /exec                 执行一条 sh -c 命令（$OUTPUT_DIR 产物作为附件返回）
+//	POST /exec                 以配置的 POSIX shell 执行一条命令（$OUTPUT_DIR 产物作为附件返回）
 //	GET  /tools                工具清单中各 CLI 工具与浏览器能力的安装状态
 //	POST /tasks/{id}/release   结束任务遗留的全部进程组与浏览器会话
 //
 // 除 /healthz 外都要求 Authorization: Bearer <令牌>。
 //
-// 另有一个本地 unix 套接字（Config.IngestSocket）供沙盒内的浏览器服务回灌流量：沙盒带令牌
-// 转发给 runner，令牌只在沙盒进程内，不进入任何命令的环境。
+// 配置了回灌地址时另有一个回环中继（见 ingestRelay）供浏览器服务回灌流量：沙盒带令牌转发给
+// runner，令牌只在沙盒进程内，不进入任何命令的环境。
 package server
 
 import (
@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -36,15 +37,17 @@ type Config struct {
 	Token string
 	// WorkspaceDir 是任务工作区根目录（<根>/<批次>/<任务>/{work,out,state}）。
 	WorkspaceDir string
+	// Shell 是执行命令的 POSIX shell（可执行文件路径）。
+	Shell string
 	// Tools 是工具清单中的 CLI 工具名（GET /tools 的探测范围）。
 	Tools []string
 	// BrowserBin 是浏览器包装脚本所在目录，加到命令 PATH 最前；BrowserPython 是其解释器（能力探测用）。
 	BrowserBin    string
 	BrowserPython string
+	// BrowserDir 是浏览器服务的端点文件目录（每个身份一个，见 browser 包），须只对本用户开放。
+	BrowserDir string
 	// IngestURL 是浏览器抓到的流量回灌 runner 的地址；空 = 不回灌。
 	IngestURL string
-	// IngestSocket 是浏览器服务投递流量的本地 unix 套接字路径（IngestURL 非空时必填）。
-	IngestSocket string
 	// ViewportWidth/Height 是浏览器视口尺寸。
 	ViewportWidth  int
 	ViewportHeight int
@@ -58,16 +61,23 @@ type Server struct {
 	mux       *http.ServeMux
 	procs     *taskProcesses
 	inventory *inventoryCache
+	// relay 是回灌中继（ListenAndServe 启动它之后才有地址）。
+	relay ingestRelay
+	// browsersPath 是本机已装浏览器内核的位置：命令的 HOME 指向任务状态目录，按 HOME 推算
+	// 的缺省位置会漂到每个任务各一份（每个任务重新下载内核）。沙盒按自身环境解析后显式注入。
+	browsersPath string
 }
 
 // New 构造沙盒服务。
 func New(cfg Config) *Server {
 	s := &Server{
-		cfg:       cfg,
-		mux:       http.NewServeMux(),
-		procs:     newTaskProcesses(),
-		inventory: newInventoryCache(cfg.Tools, cfg.BrowserPython),
+		cfg:          cfg,
+		mux:          http.NewServeMux(),
+		procs:        newTaskProcesses(),
+		browsersPath: browsersPath(),
+		relay:        ingestRelay{key: newRelayKey()},
 	}
+	s.inventory = newInventoryCache(s.probeInventory)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.Handle("POST /exec", s.requireToken(http.HandlerFunc(s.handleExec)))
 	s.mux.Handle("GET /tools", s.requireToken(http.HandlerFunc(s.handleTools)))
@@ -78,18 +88,20 @@ func New(cfg Config) *Server {
 // Handler 返回 HTTP 处理器（测试与自定义 http.Server 用）。
 func (s *Server) Handler() http.Handler { return s.mux }
 
-// ListenAndServe 监听 addr（与配置了回灌时的本地回灌套接字）直到 ctx 取消，然后优雅关闭（10s 超时）。
+// ListenAndServe 监听 addr（与配置了回灌时的回灌中继）直到 ctx 取消，然后优雅关闭（10s 超时）。
 //
 // 不设 ReadTimeout/WriteTimeout：命令可长达数十分钟，HTTP 同步长连接由调用方按命令超时兜底。
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	servers := []*http.Server{{Addr: addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}}
 	listeners := []net.Listener{nil}
 	if s.cfg.IngestURL != "" {
-		ln, err := listenIngestSocket(s.cfg.IngestSocket)
+		// 先于主服务就绪：命令环境里要带上中继地址。
+		ln, err := listenRelay()
 		if err != nil {
 			return err
 		}
-		servers = append(servers, &http.Server{Handler: s.ingestRelay(), ReadHeaderTimeout: 10 * time.Second})
+		s.relay.url = "http://" + ln.Addr().String() + "/ingest"
+		servers = append(servers, &http.Server{Handler: s.relayHandler(), ReadHeaderTimeout: 10 * time.Second})
 		listeners = append(listeners, ln)
 	}
 
@@ -117,10 +129,20 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			runErr = fmt.Errorf("graceful shutdown: %w", err)
 		}
 	}
-	if s.cfg.IngestSocket != "" {
-		_ = os.Remove(s.cfg.IngestSocket)
-	}
 	return runErr
+}
+
+// browsersPath 解析浏览器内核位置：已显式设置的照用，否则取本机用户缓存目录下的缺省位置
+// （与浏览器库按沙盒自身环境推算的结果一致）。
+func browsersPath() string {
+	if v := os.Getenv("PLAYWRIGHT_BROWSERS_PATH"); v != "" {
+		return v
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "ms-playwright")
 }
 
 // requireToken 校验 Bearer 令牌（常量时间比较，不泄露前缀匹配长度）。

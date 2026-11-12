@@ -31,7 +31,7 @@ func fakeSandbox(t *testing.T, token string) *httptest.Server {
 			http.Error(w, "wrong task", http.StatusBadRequest)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(ReleaseResult{ProcessGroups: 2, Browsers: 1})
+		_ = json.NewEncoder(w).Encode(ReleaseResult{Processes: 2, Browsers: 1})
 	})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
@@ -58,7 +58,7 @@ func TestHTTPClient_CallsWithToken(t *testing.T) {
 		t.Fatalf("Inventory: inv=%+v err=%v", inv, err)
 	}
 	rel, err := c.Release(ctx, "task-1")
-	if err != nil || rel.ProcessGroups != 2 || rel.Browsers != 1 {
+	if err != nil || rel.Processes != 2 || rel.Browsers != 1 {
 		t.Fatalf("Release: res=%+v err=%v", rel, err)
 	}
 }

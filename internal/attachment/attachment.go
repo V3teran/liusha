@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/workspace"
 )
 
@@ -310,7 +312,7 @@ func hasControlRune(s string) bool {
 
 // Manifest 渲染注入扫描指令 prompt 的附件清单（绝对路径，agent 经工具直接读取）。
 // 沙盒与 api 共用同一工作区目录（sandbox.workspace_dir；compose 以同一路径挂进两个容器），
-// 因此 agent 可读路径 = 工作区根 + 相对路径。refs 为空返回空串。
+// 因此 agent 可读路径 = 工作区根 + 相对路径（交给 agent 的形式，见 sandbox.AgentPath）。refs 为空返回空串。
 func (s *Store) Manifest(refs []Ref) string {
 	if len(refs) == 0 {
 		return ""
@@ -318,7 +320,7 @@ func (s *Store) Manifest(refs []Ref) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n\n[附件 %d 个，已存入沙盒工作区，可直接读取]\n", len(refs))
 	for _, ref := range refs {
-		fmt.Fprintf(&b, "- %s（%s）→ %s\n", ref.Name, humanSize(ref.Size), path.Join(s.ws.Root(), ref.Path))
+		fmt.Fprintf(&b, "- %s（%s）→ %s\n", ref.Name, humanSize(ref.Size), sandbox.AgentPath(filepath.Join(s.ws.Root(), filepath.FromSlash(ref.Path))))
 	}
 	return b.String()
 }

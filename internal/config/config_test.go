@@ -138,3 +138,17 @@ func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
 		t.Fatalf("显式 consumer_name 被覆盖: %q", explicit)
 	}
 }
+
+// 工作区配成相对路径时按进程工作目录解析为绝对路径：沙盒在任务目录里执行命令，api 与沙盒
+// 也可能在不同目录启动，相对路径在两处、在命令里各指一处。
+func TestLoad_WorkspaceDirIsAbsolute(t *testing.T) {
+	t.Setenv("LIUSHA_SANDBOX_WORKSPACE_DIR", filepath.Join("rel", "workspace"))
+	cfg, err := LoadWithoutLLM("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	if want := filepath.Join(wd, "rel", "workspace"); cfg.Sandbox.WorkspaceDir != want {
+		t.Fatalf("WorkspaceDir = %q，期望 %q", cfg.Sandbox.WorkspaceDir, want)
+	}
+}

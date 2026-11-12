@@ -1,17 +1,19 @@
-//go:build !linux
+//go:build darwin
 
 package server
 
 import (
 	"errors"
+	"os/exec"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
-// taskProcesses 记录各任务的命令进程组（非 Linux 平台没有 /proc，无法按任务标识识别进程）。
+// taskProcesses 记录各任务的命令进程组（macOS 没有 /proc，无法按任务标识识别进程）。
 // 命令结束后组内仍有进程（后台监听器等）则继续保留记录，任务释放时整组结束；组空即注销。
-// 只为开发机能跑通：沙盒的部署目标是 Linux，脱离命令进程组的进程（浏览器服务、chromium）
-// 在这里只能靠浏览器 reset 收尾。
+// macOS 只作开发机：脱离命令进程组的进程（浏览器服务、chromium）在这里只能靠浏览器 reset 收尾。
 type taskProcesses struct {
 	mu     sync.Mutex
 	byTask map[string]map[int]struct{}
@@ -19,6 +21,19 @@ type taskProcesses struct {
 
 func newTaskProcesses() *taskProcesses {
 	return &taskProcesses{byTask: map[string]map[int]struct{}{}}
+}
+
+// run 在独立进程组中运行命令直到结束，期间把进程组登记到任务；结束后组空即注销。
+func (p *taskProcesses) run(taskID string, cmd *exec.Cmd) error {
+	setProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	pgid := cmd.Process.Pid // Setpgid：进程组号即组长 pid
+	p.add(taskID, pgid)
+	err := cmd.Wait()
+	p.forgetIfGone(taskID, pgid)
+	return err
 }
 
 func (p *taskProcesses) add(taskID string, pgid int) {
@@ -46,20 +61,21 @@ func (p *taskProcesses) forgetIfGone(taskID string, pgid int) {
 	}
 }
 
-// killTask 结束任务的全部登记进程组，返回实际结束的组数。
+// killTask 结束任务的全部登记进程组，返回结束的进程数。
 func (p *taskProcesses) killTask(taskID string) int {
 	p.mu.Lock()
 	groups := p.byTask[taskID]
 	delete(p.byTask, taskID)
 	p.mu.Unlock()
 
-	killed := 0
+	ended := 0
 	for pgid := range groups {
+		procs, _ := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
 		if err := syscall.Kill(-pgid, syscall.SIGKILL); err == nil {
-			killed++
+			ended += len(procs)
 		}
 	}
-	return killed
+	return ended
 }
 
 // groupAlive 报告进程组内是否还有进程（信号 0 只做存在性检查）。

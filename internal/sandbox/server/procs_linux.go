@@ -5,6 +5,7 @@ package server
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -22,12 +23,17 @@ type taskProcesses struct{}
 
 func newTaskProcesses() *taskProcesses { return &taskProcesses{} }
 
-// add / forgetIfGone：Linux 上任务归属不靠登记。
-func (*taskProcesses) add(string, int)          {}
-func (*taskProcesses) forgetIfGone(string, int) {}
+// run 在独立进程组中运行命令直到结束。任务归属随环境继承，无需登记。
+func (*taskProcesses) run(_ string, cmd *exec.Cmd) error {
+	setProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
 
-// killTask 结束带有该任务标识的全部进程所在的进程组，返回结束的组数。chromium 的子进程会
-// 清理环境变量，但与主进程同组，结束整组即一并带走。沙盒自身所在的进程组永不触碰。
+// killTask 结束带有该任务标识的进程所在的全部进程组，返回结束的进程数。chromium 的子进程会
+// 清理环境变量，但与主进程同组，结束整组即一并带走（计入结束数）。沙盒自身所在的进程组永不触碰。
 func (*taskProcesses) killTask(taskID string) int {
 	marker := []byte("LIUSHA_TASK_ID=" + taskID)
 	self := syscall.Getpgrp()
@@ -36,29 +42,30 @@ func (*taskProcesses) killTask(taskID string) int {
 		releaseLog.Warn().Err(err).Msg("读取 /proc 失败，无法结束任务进程")
 		return 0
 	}
-	groups := map[int]bool{}
+	members := map[int][]int{} // 进程组 → 组内进程
+	groups := map[int]bool{}   // 含任务进程的组
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid == os.Getpid() {
 			continue
 		}
-		env, err := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
-		if err != nil || !hasEntry(env, marker) {
-			continue // 进程已退出或无权读取：都不是要清理的对象
-		}
 		pgid, err := syscall.Getpgid(pid)
 		if err != nil || pgid == self {
-			continue
+			continue // 进程已退出，或属于沙盒自身
 		}
-		groups[pgid] = true
+		members[pgid] = append(members[pgid], pid)
+		env, err := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
+		if err == nil && hasEntry(env, marker) {
+			groups[pgid] = true
+		}
 	}
-	killed := 0
+	ended := 0
 	for pgid := range groups {
 		if err := syscall.Kill(-pgid, syscall.SIGKILL); err == nil {
-			killed++
+			ended += len(members[pgid])
 		}
 	}
-	return killed
+	return ended
 }
 
 // hasEntry 报告 \0 分隔的环境块中是否有与 entry 完全相同的一项。

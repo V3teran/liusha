@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +21,9 @@ import (
 
 const testToken = "test-token"
 
+// testShell 在包初始化时解析：个别用例会改写 PATH。
+var testShell, _ = exec.LookPath("sh")
+
 // harness 是一个跑在 httptest 上的沙盒服务，工作区在临时目录。
 type harness struct {
 	srv  *Server
@@ -29,7 +33,10 @@ type harness struct {
 
 func newHarness(t *testing.T, opts ...func(*Config)) *harness {
 	t.Helper()
-	cfg := Config{Token: testToken, WorkspaceDir: t.TempDir()}
+	if testShell == "" {
+		t.Fatal("测试需要 POSIX shell（PATH 中的 sh）")
+	}
+	cfg := Config{Token: testToken, WorkspaceDir: t.TempDir(), Shell: testShell}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -163,8 +170,8 @@ func TestRelease_KillsOnlyOwnTaskProcesses(t *testing.T) {
 
 	var res sandbox.ReleaseResult
 	h.decode(t, http.MethodPost, "/tasks/task-a/release", nil, &res)
-	if res.ProcessGroups != 1 {
-		t.Fatalf("应结束 task-a 的 1 个进程组, got %+v", res)
+	if res.Processes != 1 {
+		t.Fatalf("应结束 task-a 的 1 个进程, got %+v", res)
 	}
 	if !waitGone(t, pidA) {
 		t.Fatal("task-a 的后台进程应被结束")
@@ -175,7 +182,7 @@ func TestRelease_KillsOnlyOwnTaskProcesses(t *testing.T) {
 
 	// 再次释放是空操作。
 	h.decode(t, http.MethodPost, "/tasks/task-a/release", nil, &res)
-	if res.ProcessGroups != 0 {
+	if res.Processes != 0 {
 		t.Fatalf("重复释放应为空操作, got %+v", res)
 	}
 	h.decode(t, http.MethodPost, "/tasks/task-b/release", nil, &res)
@@ -190,8 +197,8 @@ func TestRelease_ForgetsFinishedGroups(t *testing.T) {
 	h.execTask(t, "task-a", "true")
 	var res sandbox.ReleaseResult
 	h.decode(t, http.MethodPost, "/tasks/task-a/release", nil, &res)
-	if res.ProcessGroups != 0 {
-		t.Fatalf("已结束的进程组不应再被记录, got %+v", res)
+	if res.Processes != 0 {
+		t.Fatalf("已结束的命令不应留下可结束的进程, got %+v", res)
 	}
 }
 
@@ -239,19 +246,19 @@ func TestTools_ProbesPath(t *testing.T) {
 }
 
 // 命令环境：去掉 liusha 的密钥（LIUSHA_ 前缀与配置列出的变量），保留用户给工具的凭据，
-// 注入任务变量、本地回灌套接字与浏览器脚本目录。沙盒令牌不得以任何形式出现。
+// 注入任务变量、浏览器端点目录与浏览器脚本目录。沙盒令牌不得以任何形式出现。
 func TestExec_CommandEnvironment(t *testing.T) {
 	t.Setenv("LIUSHA_POSTGRES_DSN", "postgres://u:pw@db/liusha")
 	t.Setenv("LIUSHA_LLM_KEY_SECRET", "deadbeef")
 	t.Setenv("LIUSHA_SANDBOX_TOKEN", testToken)
 	t.Setenv("MAIN_API_KEY", "llm-key")
 	t.Setenv("SHODAN_API_KEY", "tool-key")
-	browserBin := t.TempDir()
+	browserBin, browserDir := t.TempDir(), t.TempDir()
 	h := newHarness(t, func(c *Config) {
 		c.SecretEnv = []string{"MAIN_API_KEY"}
 		c.IngestURL = "http://runner:8590/internal/v1/traffic/ingest"
-		c.IngestSocket = "/tmp/liusha-test-ingest.sock"
 		c.BrowserBin = browserBin
+		c.BrowserDir = browserDir
 		c.ViewportWidth, c.ViewportHeight = 1280, 800
 	})
 	out := h.exec(t, "env").Stdout
@@ -263,12 +270,24 @@ func TestExec_CommandEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"SHODAN_API_KEY=tool-key",
 		"LIUSHA_TASK_ID=task",
-		"LIUSHA_INGEST_SOCKET=/tmp/liusha-test-ingest.sock",
+		"LIUSHA_AGENT_RUN_ID=a",
+		"LIUSHA_BROWSER_DIR=" + filepath.ToSlash(browserDir),
+		"HOME=" + filepath.ToSlash(filepath.Join(h.root, "asg", "task", "state")),
+		"PLAYWRIGHT_BROWSERS_PATH=",
 		"LIUSHA_VIEWPORT_WIDTH=1280",
 		"PATH=" + browserBin + string(os.PathListSeparator),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("命令环境缺少 %q", want)
 		}
+	}
+}
+
+// 命令文本按字节原样到达 shell：引号、反斜杠、通配符、非 ASCII 都不被命令行切分改写。
+func TestExec_CommandTextReachesShellVerbatim(t *testing.T) {
+	h := newHarness(t)
+	res := h.exec(t, `printf '%s|' "a\\b" '*' "q\"x" 'é' "$((1+2))"`)
+	if want := `a\b|*|q"x|é|3|`; res.Stdout != want {
+		t.Fatalf("stdout = %q，期望 %q（stderr %q）", res.Stdout, want, res.Stderr)
 	}
 }

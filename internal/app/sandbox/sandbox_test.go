@@ -6,7 +6,7 @@ import (
 )
 
 // 同一用户的多个沙盒实例（监听地址不同）各用各的运行目录，且目录只对本用户可访问：
-// 回灌套接字在其中，共用目录会让后启动的实例删掉前一个实例的套接字。
+// 浏览器服务的端点（端口与口令）在其中。
 func TestRuntimeDir_PerListenAddressAndPrivate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

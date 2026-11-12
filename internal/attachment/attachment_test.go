@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/workspace"
 )
 
@@ -17,6 +18,7 @@ func newStores(t *testing.T) (*Store, *workspace.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ws.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	return NewStore(ws), ws
 }
 
@@ -196,7 +198,7 @@ func TestInlineTexts(t *testing.T) {
 func TestManifest(t *testing.T) {
 	s, ws := newStores(t)
 	m := s.Manifest([]Ref{{Name: "targets.txt", Size: 2048, Path: "asg-1/task-1/inbox/targets.txt"}})
-	if !strings.Contains(m, ws.Root()+"/asg-1/task-1/inbox/targets.txt") {
+	if !strings.Contains(m, sandbox.AgentPath(ws.Root())+"/asg-1/task-1/inbox/targets.txt") {
 		t.Fatalf("清单应含工作区内绝对路径: %s", m)
 	}
 	if !strings.Contains(m, "2.0 KB") {

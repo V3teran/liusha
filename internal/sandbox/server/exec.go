@@ -26,7 +26,7 @@ var execWaitDelay = 10 * time.Second
 //  1. 解析并校验请求
 //  2. 建任务工作区目录（work / out / state）
 //  3. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/ 并作为附件返回
-//  4. 命令在独立进程组中运行并归属于任务：超时 / 请求断开杀整个进程组；正常结束后留在
+//  4. 命令的进程归属于任务：超时 / 请求断开结束这条命令的全部进程；正常结束后留在
 //     后台的进程（监听器等）保留到任务释放
 //
 // 并发：并发任务的请求各占一个 goroutine；工作区按 批次 / 任务 两级隔离。
@@ -51,8 +51,13 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	cmd, cmdCtx, cancel := s.buildExecCommand(r.Context(), &req, workDir, staged.dir, stateDir, timeout)
-	defer cancel()
+	cmd, cmdCtx, cleanup, err := s.buildExecCommand(r.Context(), &req, workDir, staged.dir, stateDir, timeout)
+	if err != nil {
+		staged.discard()
+		writeError(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+	defer cleanup()
 	stdout, stderr, exitCode, timedOut := s.executeCommand(cmdCtx, req.TaskID, cmd)
 
 	res := sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, TimedOut: timedOut}
