@@ -34,7 +34,6 @@ type noOpSandbox struct{}
 func (noOpSandbox) Exec(_ context.Context, _ sandbox.ExecRequest) (sandbox.ExecResult, error) {
 	return sandbox.ExecResult{}, nil
 }
-func (noOpSandbox) Close() error { return nil }
 
 // TestFunctionToolCatalogSync 防漂移：registry.FunctionToolCatalog（前端工具目录
 // 事实源，经 toolstore.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。

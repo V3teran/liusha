@@ -1,9 +1,8 @@
-#!/opt/browser-use-venv/bin/python
-"""browser-use 薄客户端：把子命令经 unix socket 转发给每身份常驻 browser-svc.py。
+"""browser-use 薄客户端：把子命令经 unix socket 转发给每身份常驻的浏览器服务（service.py）。
 
-注：shebang 指向 browser-use 专属 Python 3.12 venv（Dockerfile Layer 4 建）。本客户端用
-sys.executable 拉起 browser-svc.py，二者同跑 venv python → import browser_use 命中 venv，
-与 Kali 系统 Python（随 Debian sid 滚动，曾因 3.14 破坏 browser-use）隔离。改 venv 路径需同步此行。
+由沙盒编进程序、启动时释放到本地目录，经同目录的 browser-use 包装脚本以 sandbox.browser_python
+运行。本客户端用 sys.executable 拉起 service.py，二者同一解释器 → import browser_use 命中同一环境
+（沙盒镜像里是独立 venv，与随发行版滚动的系统 Python 隔离）。
 
 模型不变：
   IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
@@ -13,7 +12,7 @@ sys.executable 拉起 browser-svc.py，二者同跑 venv python → import brows
 同身份多 agent 并发各操作自己的 tab。本客户端只做：选身份 socket → 确保服务起（flock 守冷启）→
 转发 {sub,args,agent_id,output_dir} → 回放 stdout/stderr + exit code。
 
-管理类子命令（install/doctor/setup/...）不需浏览器，直接透传底层 browser-use-cli。
+管理类子命令（install/doctor/setup/...）不需浏览器，直接透传 browser_use 自带的命令行。
 """
 import fcntl
 import json
@@ -26,12 +25,13 @@ import time
 IDENTITY = os.environ.get("IDENTITY", "default")
 AGENT_ID = os.environ.get("AGENT_ID", "default")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "")
+# 套接字路径约定（/tmp/browser-svc-<身份>.sock）由沙盒按任务释放时共用，改动须同步 browser.go。
 SOCK = f"/tmp/browser-svc-{IDENTITY}.sock"
 START_LOCK = f"/tmp/browser-svc-{IDENTITY}.start.lock"
 LOG = f"/tmp/browser-svc-{IDENTITY}.log"
-SVC = "/usr/local/bin/browser-svc.py"
+SVC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "service.py")
 
-# 不需浏览器的管理类子命令 → 透传底层 CLI（install 等连 chrome 都不用）。
+# 不需浏览器的管理类子命令 → 透传 browser_use 自带的命令行（install 等连 chrome 都不用）。
 PASSTHROUGH = {"", "--help", "-h", "install", "init", "setup", "doctor",
                "python", "tunnel", "sessions", "cloud", "profile"}
 
@@ -47,7 +47,7 @@ def connect():
 
 
 def ensure_service():
-    """连服务；连不上则抢锁冷启 browser-svc.py 再连。"""
+    """连服务；连不上则抢锁冷启 service.py 再连。"""
     s = connect()
     if s is not None:
         return s
@@ -81,7 +81,7 @@ def main() -> int:
     args = sys.argv[2:]
 
     if sub in PASSTHROUGH:
-        os.execvp("browser-use-cli", ["browser-use-cli", sub, *args])
+        os.execv(sys.executable, [sys.executable, "-m", "browser_use", sub, *args])
 
     if sub in ("reset", "release-tab"):
         # 没有运行中的服务 → 无可重置/释放，直接成功返回（不白白冷启一个再杀）。

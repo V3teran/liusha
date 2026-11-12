@@ -35,13 +35,3 @@ func TestParseListenerPorts(t *testing.T) {
 		}
 	}
 }
-
-// TestDockerLauncher_ListenerRangeValue：label 值形态——未配置段为空串。
-func TestDockerLauncher_ListenerRangeValue(t *testing.T) {
-	if got := (&DockerLauncher{}).listenerRangeValue(); got != "" {
-		t.Fatalf("未配置段应为空: %q", got)
-	}
-	if got := (&DockerLauncher{ListenerPortStart: 21000, ListenerPortCount: 100}).listenerRangeValue(); got != "21000-21099" {
-		t.Fatalf("label 值应含两端: %q", got)
-	}
-}

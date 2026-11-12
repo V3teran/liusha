@@ -25,7 +25,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/db"
-	"github.com/V3teran/liusha/internal/envx"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -39,12 +38,20 @@ func pollDeadline() time.Duration {
 	return 0 // 默认无超时限制
 }
 
+// envOr 读环境变量 key；未设或为空时返回 fallback。
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
 	logger := logx.New("e2e")
 	ctx := context.Background()
 
-	apiBase := envx.OrDefault("LIUSHA_API_BASE", "http://localhost:8580")
-	pgDSN := envx.OrDefault("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable")
+	apiBase := envOr("LIUSHA_API_BASE", "http://localhost:8580")
+	pgDSN := envOr("LIUSHA_POSTGRES_DSN", "postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable")
 
 	selected, err := selectProfiles(os.Args[1:])
 	if err != nil {

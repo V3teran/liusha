@@ -78,6 +78,8 @@ type Deps struct {
 	// 由 api 组件注入 *toolstore.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表
 	// （启动期由代码事实源 reconcile 同步），供前端工具模块检索/展示 + 智能体配置页选工具。
 	ToolCatalog ToolCatalogAPI
+	// SandboxInventory 为工具目录附沙盒安装状态；nil 时安装状态一律未知（null）。
+	SandboxInventory SandboxInventoryAPI
 	// Models 为 nil 时 LLM 配置路由（/models 系列）不注册。
 	// 由 api 组件注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
 	// provider CRUD + 能力路由；写经其失效广播，各进程下次 For(complexity) 读到最新。

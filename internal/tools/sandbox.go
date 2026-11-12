@@ -45,17 +45,17 @@ func (t *runCommandTool) Name() string      { return "run_command" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
 func (t *runCommandTool) Desc() string {
 	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。"
-	// 对外可达性契约：监听段未发布时 LLM 无从得知——它会把 nc -lvnp 4444 当
-	// 可回连的监听（实际仅容器内可达，反弹 shell 静默失败）。段发布时显式
-	// 告知可用端口段与回连地址，让 payload 一次写对；未发布时同样明示，
-	// 阻止注定失败的回连尝试。
+	// 对外可达性契约：不告知时 LLM 会把 nc -lvnp 4444 当可回连的监听（端口
+	// 未对外发布时目标连不进来，反弹 shell 静默失败）。提供监听段时显式告知
+	// 可用端口段与回连地址，让 payload 一次写对；未提供时同样明示，阻止注定
+	// 失败的回连尝试。
 	if t.deps.ListenerPortCount > 0 && t.deps.ListenerPortStart > 0 {
 		end := t.deps.ListenerPortStart + t.deps.ListenerPortCount - 1
 		if t.deps.CallbackHost != "" {
-			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口：宿主同号直达，payload 回连地址 %s；其它端口的监听仅容器内可达。长驻监听后台运行并重定向输出（如 nc -lvnp %d > /tmp/listener.log 2>&1 &）以免阻塞本步；端口被并行任务占用时换段内下一个。",
+			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口（目标经回连地址的同号端口直达），payload 回连地址 %s；其它端口不保证目标可达。长驻监听后台运行并重定向输出（如 nc -lvnp %d > /tmp/listener.log 2>&1 &）以免阻塞本步；端口被并行任务占用时换段内下一个。",
 				t.deps.ListenerPortStart, end, t.deps.CallbackHost, end)
 		} else {
-			desc += fmt.Sprintf(" 需目标回连的监听只绑 %d-%d 端口（宿主同号直达）；回连地址未配置（sandbox.callback_host），向操作员确认后再构造回连 payload。",
+			desc += fmt.Sprintf(" 需目标回连的监听只绑 %d-%d 端口（目标经回连地址的同号端口直达）；回连地址未配置（sandbox.callback_host），向操作员确认后再构造回连 payload。",
 				t.deps.ListenerPortStart, end)
 		}
 	} else {
@@ -224,7 +224,7 @@ func newDriveBrowserTool(deps Deps, timeout time.Duration) *driveBrowserTool {
 	return t
 }
 
-func (t *driveBrowserTool) Name() string { return "drive_browser" }
+func (t *driveBrowserTool) Name() string { return DriveBrowser }
 func (t *driveBrowserTool) ShortDesc() string {
 	return "用真实浏览器操作目标页面（原子操作）"
 }
@@ -409,16 +409,6 @@ func browserIdentity(taskID, identity string) string {
 		return b.String()
 	}
 	return taskID + "-" + b.String()
-}
-
-// BrowserCleanupScript 生成本任务浏览器身份的清理脚本（任务结束时经沙箱 exec）：
-// 逐个优雅 reset 本 taskID 前缀的所有身份 daemon（reset 会连带关闭其 chromium）。
-// 只匹配本任务前缀，并发任务的其他身份不受影响。
-func BrowserCleanupScript(taskID string) string {
-	if taskID == "" {
-		return ""
-	}
-	return fmt.Sprintf(`sh -c 'for s in /tmp/browser-svc-%s-*.sock; do [ -e "$s" ] || continue; i="${s#/tmp/browser-svc-}"; i="${i%%.sock}"; IDENTITY="$i" browser-use reset; done'`, taskID)
 }
 
 // browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），

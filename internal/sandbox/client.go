@@ -7,75 +7,105 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
-// Client 是主进程到 sandbox 容器的 HTTP RPC client。
-//
-// 一个 Client 实例对应一个 sandbox 容器（一次 agent run）；
-// Launcher.Spawn 返回 Client，run 结束 Launcher.Destroy 销毁容器。
+// Client 是沙盒服务的调用接口。
 type Client interface {
+	// Exec 执行一条命令并同步等待结果。ctx 取消即中断请求，沙盒随之杀掉该命令的进程组。
 	Exec(ctx context.Context, req ExecRequest) (ExecResult, error)
-	Close() error
+	// Inventory 返回沙盒实际安装的工具与浏览器能力。
+	Inventory(ctx context.Context) (Inventory, error)
+	// Release 结束任务在沙盒里遗留的全部进程与浏览器会话（只动该任务，不影响并发任务）。
+	Release(ctx context.Context, taskID string) (ReleaseResult, error)
 }
 
-// httpClientTimeout 比 sandbox-server 端单工具最大 timeout（1800s = 30min）
-// 稍大，给 HTTP 协议本身留余量（防止 client 比 server 先 timeout）。
-const httpClientTimeout = 31 * time.Minute
+// execTimeoutMargin 是 HTTP 层超时相对命令超时的余量：命令超时由沙盒执行，客户端只为
+// 沙盒失联兜底，不能先于沙盒放弃。
+const execTimeoutMargin = time.Minute
 
-// httpClient 是 Client 接口的 HTTP/JSON 实现。
-type httpClient struct {
+// controlTimeout 是 Inventory / Release 等控制类请求的超时。
+const controlTimeout = 30 * time.Second
+
+// HTTPClient 是 Client 的 HTTP/JSON 实现。
+type HTTPClient struct {
 	baseURL string
+	token   string
 	httpc   *http.Client
 }
 
-// newHTTPClient 构造绑定到指定 baseURL 的 HTTP client。
-// baseURL 形如 "http://127.0.0.1:54321"（由 Launcher 通过 docker port 拿到）。
-func newHTTPClient(baseURL string) *httpClient {
-	return &httpClient{
-		baseURL: baseURL,
-		httpc: &http.Client{
-			Timeout: httpClientTimeout,
-		},
+// NewClient 构造访问 baseURL（如 http://127.0.0.1:8591）的客户端，token 为共享密钥。
+func NewClient(baseURL, token string) *HTTPClient {
+	return &HTTPClient{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		token:   token,
+		httpc:   &http.Client{}, // 超时按请求设定（命令时长差异很大）
 	}
 }
 
-// Exec POST /exec，同步等待响应。
-//
-// ctx 被取消时 HTTP request 立即中断；sandbox-server 端收到 r.Context().Done()
-// 也会 SIGKILL 子进程——传播链是完整的。
-func (c *httpClient) Exec(ctx context.Context, req ExecRequest) (ExecResult, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return ExecResult{}, fmt.Errorf("marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/exec", bytes.NewReader(body))
-	if err != nil {
-		return ExecResult{}, fmt.Errorf("build request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpc.Do(httpReq)
-	if err != nil {
-		return ExecResult{}, fmt.Errorf("send request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return ExecResult{}, fmt.Errorf("sandbox /exec: status %d: %s", resp.StatusCode, string(b))
-	}
-
+// Exec 实现 Client。
+func (c *HTTPClient) Exec(ctx context.Context, req ExecRequest) (ExecResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second+execTimeoutMargin)
+	defer cancel()
 	var res ExecResult
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return ExecResult{}, fmt.Errorf("decode response: %w", err)
+	if err := c.do(ctx, http.MethodPost, "/exec", req, &res); err != nil {
+		return ExecResult{}, err
 	}
 	return res, nil
 }
 
-// Close 当前是 no-op（HTTP client 不需要显式关闭）。
-// 保留接口为未来扩展（连接池清理 / 取消挂起请求等）留口子。
-func (c *httpClient) Close() error {
+// Inventory 实现 Client。
+func (c *HTTPClient) Inventory(ctx context.Context) (Inventory, error) {
+	ctx, cancel := context.WithTimeout(ctx, controlTimeout)
+	defer cancel()
+	var inv Inventory
+	if err := c.do(ctx, http.MethodGet, "/tools", nil, &inv); err != nil {
+		return Inventory{}, err
+	}
+	return inv, nil
+}
+
+// Release 实现 Client。
+func (c *HTTPClient) Release(ctx context.Context, taskID string) (ReleaseResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, controlTimeout)
+	defer cancel()
+	var res ReleaseResult
+	if err := c.do(ctx, http.MethodPost, "/tasks/"+url.PathEscape(taskID)+"/release", nil, &res); err != nil {
+		return ReleaseResult{}, err
+	}
+	return res, nil
+}
+
+func (c *HTTPClient) do(ctx context.Context, method, path string, body, out any) error {
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("编码请求: %w", err)
+		}
+		rd = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rd)
+	if err != nil {
+		return fmt.Errorf("构造请求: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.httpc.Do(req)
+	if err != nil {
+		return fmt.Errorf("沙盒 %s %s: %w", method, path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("沙盒 %s %s: 状态 %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("沙盒 %s %s: 解码响应: %w", method, path, err)
+	}
 	return nil
 }

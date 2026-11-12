@@ -135,10 +135,9 @@ runner:
 
 # ---- sandbox：工具执行沙盒 ----
 sandbox:
-  image: ghcr.io/v3teran/liusha-sandbox:latest
   listen_addr: 127.0.0.1:8591        # 沙盒服务监听地址
   url: http://127.0.0.1:8591         # runner / api 访问沙盒的地址
-  token: ""                          # runner 与沙盒的共享密钥（LIUSHA_SANDBOX_TOKEN）
+  token: ""                          # 沙盒与 runner / api 的共享密钥（LIUSHA_SANDBOX_TOKEN）
   ingest_url: http://127.0.0.1:8590/internal/v1/traffic/ingest  # 沙盒浏览器流量回灌到 runner 的地址
   browser_python: python3            # 运行浏览器服务的 Python（需装 browser-use）
   viewport_width: 1280               # 浏览器视口：主流桌面宽度，截图喂视觉模型的 token 甜点区

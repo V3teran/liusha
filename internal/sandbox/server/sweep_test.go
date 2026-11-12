@@ -1,4 +1,4 @@
-package sandbox
+package server
 
 import (
 	"os"

@@ -20,8 +20,8 @@ function agent(code: string, name: string, involved: boolean): ToolAgent {
   return { code, name, involved }
 }
 
-function tool(name: string, kind: ToolKind, category: string, categoryName = category): Tool {
-  return { name, kind, category, category_name: categoryName, description: `${name} 的描述`, sort_order: 0 }
+function tool(name: string, kind: ToolKind, category: string, categoryName = category, installed: boolean | null = true): Tool {
+  return { name, kind, category, category_name: categoryName, description: `${name} 的描述`, sort_order: 0, installed }
 }
 
 const FN = tool('read_credentials', 'function', 'credentials')
@@ -58,6 +58,25 @@ describe('ToolsPage', () => {
     // 分组头用后端下发的分类显示名，不显示分类码。
     expect(screen.getAllByText('信息收集').length).toBeGreaterThan(0)
     expect(screen.queryByText('recon')).toBeNull()
+  })
+
+  it('沙盒未安装的工具：列表行标「未安装」，详情提示已允许的智能体运行时不可用', async () => {
+    const missing = tool('sqlmap', 'cli', 'injection', '注入', false)
+    mList.mockResolvedValue({ tools: [missing], total: 1 })
+    mGet.mockResolvedValue(detailOf(missing, [agent('executor', '执行者', true), agent('planner', '规划者', false)]))
+    renderPage()
+    expect(await screen.findByRole('note')).toHaveTextContent('已允许 · 未安装：已装配它的 1 个智能体运行时无法调用')
+    expect(screen.getAllByText('未安装').length).toBeGreaterThan(0)
+  })
+
+  it('沙盒不可达时详情显示状态未知，不误报未安装', async () => {
+    const unknown = tool('nuclei', 'cli', 'vulnscan', '漏洞扫描', null)
+    mList.mockResolvedValue({ tools: [unknown], total: 1 })
+    mGet.mockResolvedValue(detailOf(unknown, [agent('executor', '执行者', true)]))
+    renderPage()
+    expect(await screen.findByText('状态未知（沙盒不可达）')).toBeTruthy()
+    expect(screen.queryByText('未安装')).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
   })
 
   it('自动选中首项并在右栏常驻面板展示全量智能体（已装配者高亮）', async () => {

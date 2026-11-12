@@ -1,9 +1,8 @@
-// Package workspace 提供沙盒工作区的文件检索与 CRUD（宿主视角）。
+// Package workspace 提供任务工作区的文件检索与 CRUD（api 的文件面）。
 //
-// 工作区根目录即 launcher bind 进沙盒的宿主目录（sandbox.workspace_dir，
-// 默认 ~/data/liusha/workspace）：树按 <assignment>/<task> 两级分层，沙盒
-// 在任务目录下分 work/out/state 子目录。本包在同一路径树
-// 上做安全的文件操作。工作区内容来自不受信沙箱（可创建任意符号链接），所有
+// 工作区根目录即沙盒执行命令的同一目录（sandbox.workspace_dir，默认
+// ~/data/liusha/workspace）：树按 <assignment>/<task> 两级分层，沙盒在任务目录下
+// 分 work/out/state 子目录。本包在同一路径树上做安全的文件操作。工作区内容来自不受信沙箱（可创建任意符号链接），所有
 // 文件操作经 os.Root 执行：路径解析由目录句柄在内核侧钳制，任何跟随符号链接
 // 逃出根目录的访问都会失败——不依赖可被 TOCTOU 绕过的字符串前缀比对。
 package workspace
@@ -25,8 +24,8 @@ import (
 )
 
 // Store 是工作区文件操作的入口。所有路径参数都是相对工作区根的斜杠路径
-// （顶层段即任务目录；容器内外同一棵树的语义由调用方保证：compose 以
-// 同路径挂载）。
+// （顶层段即批次目录）。api 与沙盒看到同一棵树由部署保证：compose 以同一路径
+// 把工作区挂进两个容器。
 type Store struct {
 	root string   // 根目录真实路径（展示与测试用）
 	r    *os.Root // 全部文件操作的唯一入口
