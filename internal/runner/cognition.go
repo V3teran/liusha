@@ -16,7 +16,7 @@ import (
 func (h *Handler) runCognition(
 	ctx context.Context,
 	taskLogger zerolog.Logger,
-	assignmentID, taskID, host, brief, conversationID string,
+	assignmentID, agentRunID, taskID, host, brief, conversationID string,
 	sb sandbox.Client,
 ) (executor.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
@@ -32,6 +32,7 @@ func (h *Handler) runCognition(
 	}
 	return cognition.Run(ctx, &cognition.Deps{
 		AssignmentID: assignmentID,
+		AgentRunID:   agentRunID,
 		Graph:        h.Graph,
 		EventBus:     h.EventBus,
 		ControlPlane: h.ControlPlane,
@@ -46,7 +47,6 @@ func (h *Handler) runCognition(
 		ToolCalls: h.ToolCalls,
 		Tasks:     h.Tasks,
 
-		AgentRuns:  h.AgentRuns,
 		Findings:   h.Findings,
 		Corpus:     h.Corpus,
 		Embedder:   h.Embedder,

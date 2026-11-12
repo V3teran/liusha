@@ -67,7 +67,7 @@ func (h *Handler) executeTask(
 		Msg("sandbox acquired for task")
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, assignmentID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
+	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 
