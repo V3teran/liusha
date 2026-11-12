@@ -76,7 +76,7 @@ func Run(ctx context.Context, opts Options, out io.Writer) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(out, `首装完成，配置与密钥已写入 %[1]s（权限 0600，妥善保管，勿提交到代码仓库）。
+	_, _ = fmt.Fprintf(out, `首装完成，配置与密钥已写入 %[1]s（仅当前用户可读写，妥善保管，勿提交到代码仓库）。
 
 初始管理员：admin / %[2]s（仅首次启动时创建，登录后请立即修改密码）
 

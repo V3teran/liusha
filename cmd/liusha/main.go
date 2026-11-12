@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/V3teran/liusha/internal/app"
 	"github.com/V3teran/liusha/internal/app/api"
@@ -119,9 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := cmd.run(ctx, cfg, fs.Args()); err != nil {
+	if err := runUntilStopped(name, func(ctx context.Context) error { return cmd.run(ctx, cfg, fs.Args()) }); err != nil {
 		_, _ = fmt.Fprintf(stderr, "liusha %s: %v\n", name, err)
 		return 1
 	}
@@ -167,9 +163,7 @@ func runSetup(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	logx.SetProcess("setup")
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := setup.Run(ctx, opts, stdout); err != nil {
+	if err := runUntilStopped("setup", func(ctx context.Context) error { return setup.Run(ctx, opts, stdout) }); err != nil {
 		_, _ = fmt.Fprintf(stderr, "liusha setup: %v\n", err)
 		return 1
 	}
