@@ -37,6 +37,12 @@ func Run(ctx context.Context, opts Options, out io.Writer) error {
 	if opts.PostgresDSN == "" {
 		return errors.New("缺少 -postgres-dsn（PostgreSQL 连接串，库需已安装 pgvector 扩展）")
 	}
+	for name, v := range map[string]string{"-postgres-dsn": opts.PostgresDSN, "-redis-addr": opts.RedisAddr,
+		"-redis-password": opts.RedisPassword, "-workspace-dir": opts.WorkspaceDir} {
+		if err := envfile.CheckValue(v); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
 	if _, err := os.Stat(opts.EnvFile); err == nil {
 		return fmt.Errorf("%s 已存在：首装已完成。修改连接参数请直接编辑该文件；不要重新生成密钥（已保存的 LLM 密钥会无法解密）", opts.EnvFile)
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -68,7 +74,7 @@ func Run(ctx context.Context, opts Options, out io.Writer) error {
   liusha serve -env-file %[1]s
 
 控制台 http://<本机地址>:8580，MITM 代理 <本机地址>:8588。
-工具在本机执行：工具页会标出未安装的工具；浏览器能力需要装了 browser-use 的 Python
+工具在本机执行：工具页会标出未安装的工具；浏览器能力需要装了 browser-use 0.13.x 的 Python
 （LIUSHA_SANDBOX_BROWSER_PYTHON 指定解释器）。LLM 在控制台「LLM 配置」页接入。
 `, opts.EnvFile, secrets.adminPassword)
 	return nil
