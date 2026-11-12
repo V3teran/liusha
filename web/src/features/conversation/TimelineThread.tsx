@@ -217,8 +217,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           </div>
         )}
 
+        {/* 流式思考道是用户可见的正文（Markdown 里的 URL 是可聚焦链接），不对读屏隐藏；
+            它不是 live region，逐字增量不会被播报，读屏按需浏览即可。 */}
         {liveOrder.map((lane) => (
-          <div key={lane} data-live-node aria-hidden="true">
+          <div key={lane} data-live-node>
             <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} />
           </div>
         ))}

@@ -139,6 +139,17 @@ describe('TimelineThread', () => {
     expect(liveRow?.querySelector('.pl-6')).toBeFalsy()
   })
 
+  // axe 实测（aria-hidden-focus）：流式正文按 Markdown 渲染，其中的 URL 是可聚焦链接；
+  // 整条思考道曾被 aria-hidden，键盘能 Tab 进读屏「不存在」的内容。
+  it('流式思考道不对读屏隐藏，内含链接可正常访问', () => {
+    const s = useConversationStore.getState()
+    s.appendReasoningDelta('访问 http://192.168.71.25:38080/search 观察回显', 'executor')
+    const { container } = render(<TimelineThread />)
+    const live = container.querySelector('[data-live-node]')!
+    expect(live.closest('[aria-hidden="true"]')).toBeNull()
+    expect(live.querySelector('[aria-hidden="true"] a, [aria-hidden="true"] button')).toBeNull()
+  })
+
   it('无思考道时不渲染活动节点', () => {
     const { container } = render(<TimelineThread />)
     expect(container.querySelector('[data-live-node]')).toBeFalsy()
