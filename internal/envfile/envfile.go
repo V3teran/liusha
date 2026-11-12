@@ -80,7 +80,7 @@ func CheckValue(v string) error {
 	return nil
 }
 
-// Create 新建 path（权限 0600）并写入 vars，每组前可带注释行。文件已存在时返回 fs.ErrExist，
+// Create 新建 path（只对当前用户开放：POSIX 0600，Windows 见 restrictToOwner）并写入 vars，每组前可带注释行。文件已存在时返回 fs.ErrExist，
 // 不覆盖——其中的密钥一旦替换，用旧密钥加密的数据就无法解密。变量名或值不合规时不创建文件。
 func Create(path string, sections []Section) error {
 	for _, sec := range sections {
@@ -99,6 +99,11 @@ func Create(path string, sections []Section) error {
 			return fmt.Errorf("%s 已存在，不覆盖: %w", path, fs.ErrExist)
 		}
 		return fmt.Errorf("创建环境变量文件: %w", err)
+	}
+	if err := restrictToOwner(path); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
 	}
 	w := bufio.NewWriter(f)
 	for i, s := range sections {
