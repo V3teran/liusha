@@ -90,7 +90,7 @@ func NewReader(dir string) *Reader {
 	return &Reader{dir: dir, scanWindow: 16 << 20, instanceWindow: 512 << 10}
 }
 
-// Dir 返回日志文件目录：LIUSHA_LOG_DIR，缺省 logs（相对进程工作目录）。
+// Dir 返回日志文件目录（解析规则见 logDir）。
 // 分进程部署时各组件共用一个日志目录（compose 共享日志卷），api 经它读全体进程文件。
 func Dir() string { return logDir() }
 

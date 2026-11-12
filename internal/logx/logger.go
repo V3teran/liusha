@@ -130,11 +130,15 @@ type config struct {
 	compress   bool
 }
 
-// logDir 解析日志文件目录（LIUSHA_LOG_DIR，缺省 logs 相对进程工作目录）。
-// 写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
+// logDir 解析日志文件目录：LIUSHA_LOG_DIR，缺省 ~/data/liusha/logs（与任务工作区同一数据根）。
+// 缺省不用相对路径：以服务方式运行时工作目录不可依赖（systemd 为 /，Windows 服务为
+// System32）。写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
 func logDir() string {
 	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_DIR")); v != "" {
 		return v
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, "data", "liusha", "logs")
 	}
 	return "logs"
 }
