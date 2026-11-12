@@ -220,18 +220,14 @@ type RunnerConfig struct {
 // run_command 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
 // runtime.step_tool_timeout_seconds 钳制（前端「系统配置」可热改）。
 type SandboxConfig struct {
-	// Image 是 runner 经宿主 docker 拉起的沙盒镜像。
-	// TODO(single-binary 第 3 批)：沙盒服务化后删除。
-	Image string `mapstructure:"image"`
-
 	// ListenAddr 是沙盒服务（liusha sandbox）的监听地址。
 	ListenAddr string `mapstructure:"listen_addr"`
 
 	// URL 是 runner 与 api 访问沙盒服务的地址。
 	URL string `mapstructure:"url"`
 
-	// Token 是 runner 与沙盒之间的共享密钥，两个方向都用它鉴权：runner 调沙盒的
-	// /exec 等接口、沙盒内浏览器回灌流量到 runner 的 ingest 接口。必填，
+	// Token 是沙盒与 runner / api 之间的共享密钥，两个方向都用它鉴权：调用沙盒的 /exec 等接口、
+	// 沙盒内浏览器回灌流量到 runner 的 ingest 接口。sandbox / runner / api 组件必填，
 	// 经环境变量 LIUSHA_SANDBOX_TOKEN 注入，不写进配置文件。
 	Token string `mapstructure:"token"`
 

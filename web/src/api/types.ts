@@ -225,6 +225,9 @@ export interface Tool {
   description: string
   sort_order: number
   synced_at?: string
+  // 沙盒是否已安装（CLI 工具看沙盒的 PATH，drive_browser 看浏览器能力，其余函数工具恒为 true）；
+  // null = 沙盒不可达、状态未知。工具可用 = 已装配到智能体 ∩ 已安装。
+  installed: boolean | null
 }
 
 // ToolListResponse 是 GET /tools 的响应信封（分页时带 total）。

@@ -192,16 +192,17 @@ func TestInlineTexts(t *testing.T) {
 	}
 }
 
-// TestManifest：清单携带沙盒绝对路径与尺寸。
+// TestManifest：清单携带 agent 可读的绝对路径（工作区根 + 相对路径）与尺寸。
 func TestManifest(t *testing.T) {
-	m := Manifest([]Ref{{Name: "targets.txt", Size: 2048, Path: "asg-1/task-1/inbox/targets.txt"}})
-	if !strings.Contains(m, SandboxMount+"/asg-1/task-1/inbox/targets.txt") {
-		t.Fatalf("清单应含沙盒绝对路径: %s", m)
+	s, ws := newStores(t)
+	m := s.Manifest([]Ref{{Name: "targets.txt", Size: 2048, Path: "asg-1/task-1/inbox/targets.txt"}})
+	if !strings.Contains(m, ws.Root()+"/asg-1/task-1/inbox/targets.txt") {
+		t.Fatalf("清单应含工作区内绝对路径: %s", m)
 	}
 	if !strings.Contains(m, "2.0 KB") {
 		t.Fatalf("清单应含人类可读尺寸: %s", m)
 	}
-	if Manifest(nil) != "" {
+	if s.Manifest(nil) != "" {
 		t.Fatal("空引用清单应为空串")
 	}
 }

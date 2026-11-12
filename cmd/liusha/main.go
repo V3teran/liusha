@@ -156,7 +156,9 @@ func serve(ctx context.Context, cfg config.AppConfig, args []string) error {
 	bind := func(name string, run func(context.Context, config.AppConfig) error) app.Component {
 		return app.Component{Name: name, Run: func(ctx context.Context) error { return run(ctx, cfg) }}
 	}
+	// 沙盒在底层：runner 停机排空在途任务期间，沙盒仍在服务。
 	return app.Serve(ctx,
+		[]app.Component{bind("sandbox", sandbox.Run)},
 		[]app.Component{bind("api", api.Run), bind("proxy", proxy.Run), bind("runner", runner.Run)},
 	)
 }

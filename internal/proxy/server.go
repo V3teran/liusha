@@ -199,8 +199,8 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// onResponse 仅处理 external（代理） 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
-	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
+	// onResponse 仅处理 external（代理）流量，无 agent 概念；沙盒工具流量不经本代理
+	// （CLI 直连目标；chromium 经浏览器服务 CDP capture → ingest 单独入字典，source=internal）。
 	snap := buildSnapshot(req, resp.StatusCode, snapHeader, reqBody, respBody)
 	snap.Source = s.source
 

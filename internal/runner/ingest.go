@@ -1,19 +1,16 @@
-// ingest_handler.go — active 沙箱抓流量 → 流量字典的 HTTP 入口。
+// 沙盒浏览器流量 → 流量字典的 HTTP 入口。
 //
-// 背景：active 模式下 executor 在沙箱里用 chromium 登录目标 + 跑 CLI 工具，
-// 真实认证请求（Document/XHR/Fetch）必须进 agent_traffic 字典，LLM 才能看到真实请求结构 + 凭证位置
-// → 供 http_request / evaluator 复现门做水平/垂直越权（BAC）测试。
-//
-// 两条抓取前端（都在沙箱内，都 POST 到这里）：
-//   - 浏览器：browser-svc.py 内建 CDP Network observer（per-request 按 session→tab→agent 归属）
+// 背景：executor 在沙盒里用 chromium 登录目标，真实认证请求（Document/XHR/Fetch）必须进
+// agent_traffic 字典，LLM 才能看到真实请求结构 + 凭证位置 → 供 http_request / evaluator 复现门做
+// 水平/垂直越权（BAC）测试。抓取前端是沙盒浏览器服务内建的 CDP Network observer（逐请求按
+// session→tab→agent 归属），CLI 工具直连目标不抓。
 //
 // 本 handler 收到后构造 proxy.TrafficSnapshot{Source:"internal"} → Traffic.SubmitInternal
 //
 //	→ 进程内有界队列 → ingestor.drainInternal → handleInternalSnap 落库（不绕 Redis，自环 broker 冗余）。
 //
-// 路径：POST /internal/v1/traffic/ingest（挂在 runner 组件的 healthz HTTP mux 上，默认 :8590）
-// 认证：Bearer <token>（token 空 = 开发模式不强制；prod 由 ENV LIUSHA_INGEST_TOKEN 注入）
-// 网络：runner healthz 监听 :8590，沙箱容器经 host.docker.internal 访问（宿主映射端口见 LIUSHA_INGEST_PUBLIC_PORT）
+// 路径：POST /internal/v1/traffic/ingest（挂在 runner 的 healthz HTTP mux 上）
+// 认证：Bearer <sandbox.token>（与 runner 调沙盒同一共享密钥；沙盒经 sandbox.ingest_url 访问）
 
 package runner
 
@@ -63,21 +60,17 @@ type InternalSink interface {
 	SubmitInternal(*proxy.TrafficSnapshot) bool
 }
 
-// NewIngestHandler 返回 沙箱抓流量 → 进程内 ingestor 队列的 HTTP handler。
-//
-// token 空时跳过认证（开发模式）；非空时强制 `Authorization: Bearer <token>`。
+// NewIngestHandler 返回 沙盒抓流量 → 进程内 ingestor 队列的 HTTP handler。
+// 强制 `Authorization: Bearer <token>`；token 为空时拒绝一切请求（fail-closed）。
 //
 // 错误响应：
 //   - 405 method 非 POST
-//   - 401 token 不匹配（仅 token 非空时）
+//   - 401 token 不匹配
 //   - 400 JSON 解析失败 / agent_id 缺失
 //   - 503 ingestor 队列已满（背压——沙箱应退避重试）
 //   - 200 成功（不返 body，节省带宽）
 func NewIngestHandler(sink InternalSink, token string, logger zerolog.Logger) http.HandlerFunc {
-	tokenRequired := strings.TrimSpace(token) != ""
-	if !tokenRequired {
-		logger.Warn().Msg("ingest_token 未配置，ingest endpoint 不强制验证（开发模式；prod 必须设 ENV LIUSHA_INGEST_TOKEN）")
-	}
+	configured := strings.TrimSpace(token) != ""
 	expected := "Bearer " + token
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +79,7 @@ func NewIngestHandler(sink InternalSink, token string, logger zerolog.Logger) ht
 			return
 		}
 
-		if tokenRequired && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+		if !configured || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
 			logger.Warn().Str("remote", r.RemoteAddr).Msg("ingest 鉴权失败")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

@@ -1,5 +1,5 @@
-// Package runner 是 runner 组件：消费任务队列跑四 agent 认知循环、摄入代理流量、接收沙盒
-// 回灌流量，并运行恢复监控与各类清扫器。
+// Package runner 是 runner 组件：消费任务队列跑四 agent 认知循环（工具经 sandbox.url 在沙盒
+// 执行）、摄入代理流量、接收沙盒浏览器回灌的流量，并运行恢复监控与各类清扫器。
 //
 // 部署约束：runner 是单实例。认知循环的进程内状态（事件总线、浏览器会话）只在本进程内；
 // 任务入队时已设 asynq.MaxRetry(0)，崩溃后不重投到别的实例，由恢复监控在本实例续跑。
@@ -103,6 +103,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	defer func() { _ = rdb.Close() }()
 
+	if cfg.Sandbox.Token == "" {
+		return errors.New("sandbox.token 未配置（环境变量 LIUSHA_SANDBOX_TOKEN）：runner 调用沙盒与接收其流量回灌都需要它")
+	}
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
 	keyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
 	if err != nil {
@@ -125,11 +128,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	redisOpt := asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password}
 	wc := worker.NewClient(redisOpt)
 	defer func() { _ = wc.Close() }()
-
-	sandboxMgr, err := newSandboxManager(ctx, cfg, logger)
-	if err != nil {
-		return err
-	}
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环覆盖全部配置资源。
 	cache := cachestore.New(rdb, 0)
@@ -162,43 +160,38 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
 	h := &runner.Handler{
-		AgentRuns:      st.agentRuns,
-		Tasks:          st.tasks,
-		Findings:       st.findings,
-		Sandbox:        resolveSandboxContract(cfg, logger),
-		Corpus:         st.corpus,
-		Embedder:       embedder,
-		Reranker:       reranker,
-		ProxyStore:     st.proxyStore,
-		AgentStore:     st.agentStore,
-		Calls:          st.calls,
-		Settings:       sysSettings,
-		RunnerCfg:      runnerCfg,
-		SandboxMgr:     sandboxMgr,
-		Logger:         logger,
-		Router:         router,
-		Creds:          creds,
-		Audit:          audit.NewStore(pool),
-		ToolCalls:      st.toolCalls,
-		Skills:         skill.NewStoreReader(cfgStore),
-		ToolsManifest:  tools,
-		CfgStore:       cfgStore,
-		Conversations:  st.conversations,
-		EventPublisher: convstream.NewPublisher(rdb),
-		Graph:          st.graph,
-		EventBus:       bus.New(ctx),
-		ControlPlane:   controlplane.NewStore(pool),
+		AgentRuns:       st.agentRuns,
+		Tasks:           st.tasks,
+		Findings:        st.findings,
+		Sandbox:         sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
+		SandboxListener: resolveSandboxContract(cfg, logger),
+		Corpus:          st.corpus,
+		Embedder:        embedder,
+		Reranker:        reranker,
+		ProxyStore:      st.proxyStore,
+		AgentStore:      st.agentStore,
+		Calls:           st.calls,
+		Settings:        sysSettings,
+		RunnerCfg:       runnerCfg,
+		Logger:          logger,
+		Router:          router,
+		Creds:           creds,
+		Audit:           audit.NewStore(pool),
+		ToolCalls:       st.toolCalls,
+		Skills:          skill.NewStoreReader(cfgStore),
+		ToolsManifest:   tools,
+		CfgStore:        cfgStore,
+		Conversations:   st.conversations,
+		EventPublisher:  convstream.NewPublisher(rdb),
+		Graph:           st.graph,
+		EventBus:        bus.New(ctx),
+		ControlPlane:    controlplane.NewStore(pool),
 		// 任务终态经验蒸馏：embedder 缺席时教训降级纯 sparse 检索，不阻塞写入。
 		Distiller: distill.New(router, st.graph, st.corpus, embedder, logger),
 	}
 
 	mux := worker.NewMux()
-	if os.Getenv("SANDBOX_SMOKE") == "true" {
-		mux.Register(worker.RoleAgent, runner.NewWarmPoolHandler(sandboxMgr, logger).Handle)
-		logger.Warn().Msg("using sandbox smoke handler (echo stub, no cognition, no DB writes)")
-	} else {
-		mux.Register(worker.RoleAgent, h.Handle)
-	}
+	mux.Register(worker.RoleAgent, h.Handle)
 
 	// 后台循环共用一个 ctx：停机第一步取消它，停止接收新流量与各类巡检。
 	bgCtx, stopBackground := context.WithCancel(ctx)
@@ -252,7 +245,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	case <-ctx.Done():
 	case runErr = <-gatewayErr:
 	}
-	shutdown(logger, runnerCfg, sandboxMgr, srv, hs, stopBackground)
+	shutdown(logger, runnerCfg, srv, hs, stopBackground)
 	return runErr
 }
 
@@ -372,12 +365,12 @@ func newHealthGateway(cfg config.AppConfig, trafficIngestor *ingestor.Traffic, l
 	}
 }
 
-// shutdown 优雅关停：停止流量入口与后台循环 → 排空任务（宽限期）→ 沙盒 → healthz。
+// shutdown 优雅关停：停止流量入口与后台循环 → 排空任务（宽限期）→ healthz。
 //
-// 先排空任务再拆沙盒：在途任务在宽限期内仍在沙盒里执行工具，先拆沙盒会让这些调用以
-// 「沙盒不可用」失败并作为动作结果写进探索图，续跑时 planner 看到的是假失败。
-// 宽限期满后 asynq 把消息推回队列并取消 handler ctx，handler 按中断收尾（任务保持进行中）。
-func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr sandbox.Manager, srv *asynq.Server, hs *http.Server, stopBackground context.CancelFunc) {
+// 宽限期满后 asynq 把消息推回队列并取消 handler ctx，handler 按中断收尾（任务保持进行中，
+// 释放其沙盒资源）。沙盒是独立组件，不随 runner 停止；同进程运行（serve）时由编排保证
+// 沙盒在 runner 排空后才停，在途工具不会以「沙盒不可用」失败写进探索图。
+func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, srv *asynq.Server, hs *http.Server, stopBackground context.CancelFunc) {
 	stopBackground()
 	drained := make(chan struct{})
 	go func() {
@@ -390,12 +383,6 @@ func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, sandboxMgr s
 	case <-time.After(time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second):
 		logger.Warn().Int("timeout_seconds", runnerCfg.AsynqShutdownTimeoutSeconds).
 			Msg("asynq 停机超时：在途任务按中断收尾，由下次启动的恢复监控续跑")
-	}
-
-	sbCtx, sbCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer sbCancel()
-	if err := sandboxMgr.Shutdown(sbCtx); err != nil {
-		logger.Warn().Err(err).Msg("sandboxMgr.Shutdown 失败（best-effort）")
 	}
 
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
@@ -414,34 +401,3 @@ func (a asynqLogAdapter) Info(args ...any)  { a.log.Info().Msg(fmt.Sprint(args..
 func (a asynqLogAdapter) Warn(args ...any)  { a.log.Warn().Msg(fmt.Sprint(args...)) }
 func (a asynqLogAdapter) Error(args ...any) { a.log.Error().Msg(fmt.Sprint(args...)) }
 func (a asynqLogAdapter) Fatal(args ...any) { a.log.Fatal().Msg(fmt.Sprint(args...)) }
-
-// newSandboxManager 构造经宿主 docker 拉起的暖池沙盒并预热。
-// TODO(single-binary 第 3 批)：沙盒服务化后改为按 sandbox.url 调用常驻沙盒服务。
-func newSandboxManager(ctx context.Context, cfg config.AppConfig, logger zerolog.Logger) (*sandbox.WarmPoolManager, error) {
-	launcher := sandbox.NewDockerLauncher(cfg.Sandbox.Image)
-	launcher.ViewportWidth = cfg.Sandbox.ViewportWidth
-	launcher.ViewportHeight = cfg.Sandbox.ViewportHeight
-	launcher.WorkspaceHostDir = cfg.Sandbox.WorkspaceDir
-	launcher.WorkspaceRetentionDays = cfg.Sandbox.WorkspaceRetentionDays
-	launcher.ListenerPortStart, launcher.ListenerPortCount, _ = sandbox.ParseListenerPorts(cfg.Sandbox.ListenerPorts)
-	if _, port, err := net.SplitHostPort(cfg.Runner.HealthzAddr); err == nil {
-		publicPort := port
-		if v := os.Getenv("LIUSHA_INGEST_PUBLIC_PORT"); v != "" {
-			publicPort = v
-		}
-		launcher.IngestURL = "http://host.docker.internal:" + publicPort + "/internal/v1/traffic/ingest"
-		launcher.IngestToken = cfg.Sandbox.Token
-	}
-	if err := launcher.CleanupOrphans(ctx); err != nil {
-		logger.Warn().Err(err).Msg("CleanupOrphans 失败（非致命）")
-	}
-	mgr := sandbox.NewWarmPoolManager(launcher, logger, sandbox.WarmPoolConfig{
-		IdleTimeout:       30 * time.Minute,
-		HealthCheckPeriod: 30 * time.Second,
-		ShutdownTimeout:   30 * time.Second,
-	})
-	if err := mgr.EnsureRunning(ctx); err != nil {
-		return nil, fmt.Errorf("启动暖池沙盒: %w", err)
-	}
-	return mgr, nil
-}

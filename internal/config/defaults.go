@@ -266,9 +266,6 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 }
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
-	if c.Image == "" {
-		c.Image = "ghcr.io/v3teran/liusha-sandbox:latest"
-	}
 	if c.ListenAddr == "" {
 		c.ListenAddr = "127.0.0.1:8591"
 	}

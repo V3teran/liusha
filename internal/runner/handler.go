@@ -50,9 +50,11 @@ type Handler struct {
 	Calls      *llminvocation.Store
 	Settings   *settingstore.Store
 	RunnerCfg  config.RunnerConfig
-	Sandbox    cognition.SandboxListener // 沙盒对外可达性契约（监听段+回连地址），注入认知循环的工具契约
-	SandboxMgr sandbox.Manager           // 沙盒借还（暖池共享容器）
-	Logger     zerolog.Logger
+	// Sandbox 是沙盒服务客户端：任务开始时查询安装状态，工具经它执行命令，run 结束时释放任务资源。
+	Sandbox sandbox.Client
+	// SandboxListener 是沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
+	SandboxListener cognition.SandboxListener
+	Logger          zerolog.Logger
 
 	// LLM 路由（tier → provider）
 	Router *llm.Router

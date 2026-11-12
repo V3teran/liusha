@@ -42,6 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
@@ -196,6 +197,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ConfigStore:        cfgStore,
 			SkillStore:         cfgStore,
 			ToolCatalog:        toolCatalog,
+			SandboxInventory:   sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 			Models:             llmStore,
 			KeyEncrypter:       llmKeyCipher,
 			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
@@ -219,6 +221,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
 	}
 
+	if cfg.Sandbox.Token == "" {
+		logger.Warn().Msg("sandbox.token 未配置（LIUSHA_SANDBOX_TOKEN）：工具页无法查询沙盒安装状态")
+	}
 	if !web.Embedded {
 		logger.Warn().Msg("本程序未编入控制台前端（构建时未带 webdist 标签），访问首页只有占位说明；开发时前端走 vite dev server")
 	}

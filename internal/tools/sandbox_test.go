@@ -28,9 +28,8 @@ func (f *fakeSandboxClient) Exec(_ context.Context, req sandbox.ExecRequest) (sa
 	}
 	return sandbox.ExecResult{}, nil
 }
-func (f *fakeSandboxClient) Close() error { return nil }
 
-func runBrowserTool(t *testing.T, client sandbox.Client, args string) string {
+func runBrowserTool(t *testing.T, client CommandRunner, args string) string {
 	t.Helper()
 	tool := newDriveBrowserTool(Deps{Sandbox: client}, 5*time.Second)
 	res, err := tool.Execute(context.Background(), json.RawMessage(args))
@@ -181,15 +180,6 @@ func TestDriveBrowser_TaskScopedIdentity(t *testing.T) {
 }
 
 // P3：清理脚本只匹配本任务前缀的身份 socket。
-func TestBrowserCleanupScript(t *testing.T) {
-	script := BrowserCleanupScript("t-42")
-	if !strings.Contains(script, "/tmp/browser-svc-t-42-*.sock") {
-		t.Fatalf("清理脚本应按任务前缀匹配, got %s", script)
-	}
-	if BrowserCleanupScript("") != "" {
-		t.Fatal("空 taskID 应返回空脚本（不清理）")
-	}
-}
 
 func TestRunCommandDesc_ListenerContract(t *testing.T) {
 	// 未发布监听段：明示回连类操作不可达——LLM 不知道就会绑 4444 白跑一步。

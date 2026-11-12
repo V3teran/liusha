@@ -23,10 +23,10 @@ type execOutput struct {
 	before map[string]time.Time // 执行前 out/ 顶层文件 → mtime（原地改写的归属判断）
 }
 
-// stageOutput 在工作区根下的顶层点目录 .exec/ 建本次执行的暂存产物目录：与 out/ 同一
-// 挂载（移入是原子改名），顶层点目录不进工作区文件面、不受留存清扫。
-func stageOutput(shared string) (*execOutput, error) {
-	parent := filepath.Join(liushaRoot, ".exec")
+// stageOutput 在工作区根 root 下的顶层点目录 .exec/ 建本次执行的暂存产物目录：与 out/ 同一
+// 文件系统（移入是原子改名），顶层点目录不进工作区文件面、不受留存清扫。
+func stageOutput(root, shared string) (*execOutput, error) {
+	parent := filepath.Join(root, ".exec")
 	if err := os.MkdirAll(parent, 0o750); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", parent, err)
 	}

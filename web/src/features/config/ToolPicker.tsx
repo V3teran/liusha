@@ -13,6 +13,7 @@ export interface PickerCandidate {
   category: string
   category_name?: string // 分类显示名（工具有；技能没有，展示分类码）
   description: string
+  installed?: boolean | null // 沙盒安装状态（工具有；false = 未安装，运行时不可用）
 }
 
 interface ToolPickerProps {
@@ -48,6 +49,8 @@ export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }:
   }
 
   const checkedCount = draft.checked.filter((n) => catalog.some((t) => t.name === n)).length
+  // 已允许但沙盒未安装：名单照常保存，运行时不可用，在沙盒装上后自动生效。
+  const allowedMissing = catalog.filter((t) => t.installed === false && draft.checked.includes(t.name)).length
 
   // 结构：固定头部（计数 + 全部开关，不随列表滚动）+ 内部滚动区（单一滚动上下文）。
   return (
@@ -64,6 +67,11 @@ export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }:
         )}
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {allowedMissing > 0 && (
+          <p className="text-xs text-status-warning">
+            已允许 · 未安装 {allowedMissing} 个：沙盒未安装，运行时不可用，装上后自动生效
+          </p>
+        )}
         {stale.length > 0 && (
           <div>
             <p className="mb-1 text-xs text-status-warning">已失效（已下线，运行时不生效，点击移除）</p>
@@ -88,9 +96,18 @@ export function ToolPicker({ catalog, draft, onToggle, onToggleAll, emptyHint }:
             <div className="flex flex-wrap gap-2">
               {tools.map((t) => {
                 const active = draft.checked.includes(t.name)
+                const missing = t.installed === false
                 return (
-                  <ToggleChip key={t.name} mono pressed={active} title={t.description} onClick={() => onToggle(t.name)}>
+                  <ToggleChip
+                    key={t.name}
+                    mono
+                    pressed={active}
+                    title={missing ? `${t.description}（沙盒未安装，运行时不可用）` : t.description}
+                    aria-label={missing ? `${t.name} · 未安装` : undefined}
+                    onClick={() => onToggle(t.name)}
+                  >
                     {t.name}
+                    {missing && <span className="ml-1 font-sans text-status-warning">· 未安装</span>}
                   </ToggleChip>
                 )
               })}

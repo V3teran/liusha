@@ -15,7 +15,6 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/task"
 
 	"github.com/V3teran/liusha/internal/worker"
@@ -48,26 +47,19 @@ func (h *Handler) executeTask(
 
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief, taskLogger)
 
-	// 获取 Sandbox（单例模式：所有任务共享一个容器，通过工作目录隔离）
-	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
-		AssignmentID: assignmentID,
-		TaskID:       taskID,
-	})
+	// 沙盒实际安装了什么决定本轮可用的工具（可用 = agent 允许 ∩ 沙盒已安装）。
+	// 沙盒不可达时任务无法执行任何工具，直接以错误结束。
+	installed, err := h.Sandbox.Inventory(ctx)
 	if err != nil {
-		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
+		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, fmt.Errorf("沙盒不可用: %w", err))
 	}
-	defer func() {
-		if err := h.SandboxMgr.Release(context.Background(), sb); err != nil {
-			taskLogger.Warn().Err(err).Msg("sandboxMgr.Release 失败")
-		}
-	}()
-
-	taskLogger.Info().
-		Str("sandbox_id", sb.ID).
-		Msg("sandbox acquired for task")
+	// run 无论以何种原因结束（收敛、终止、暂停、停机中断、出错），都结束本任务在沙盒里遗留
+	// 的进程与浏览器会话：续跑的 run 从探索图恢复，不依赖上一 run 的进程。独立 ctx——任务
+	// ctx 此时可能已取消。
+	defer h.releaseSandbox(taskLogger, taskID)
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
+	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, installed)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 
@@ -296,4 +288,17 @@ func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 		return runExitTerminated
 	}
 	return runExitCompleted
+}
+
+// releaseSandbox 结束任务在沙盒里遗留的进程与浏览器会话（best-effort，失败只告警：
+// 遗留进程不影响任务结局，下次释放同一任务时一并清理）。
+func (h *Handler) releaseSandbox(taskLogger zerolog.Logger, taskID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := h.Sandbox.Release(ctx, taskID)
+	if err != nil {
+		taskLogger.Warn().Err(err).Msg("释放沙盒任务资源失败")
+		return
+	}
+	taskLogger.Info().Int("process_groups", res.ProcessGroups).Int("browsers", res.Browsers).Msg("沙盒任务资源已释放")
 }

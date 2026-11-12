@@ -134,6 +134,7 @@ type AttachmentStore interface {
 	Materialize(dest attachment.Dest, refs []attachment.Ref) ([]attachment.Ref, error)
 	RemoveStaging(conversationID string) error
 	InlineTexts(dest attachment.Dest, refs []attachment.Ref) (string, error)
+	Manifest(refs []attachment.Ref) string
 }
 
 // noWallClockLimit 表达「run 不设墙钟上限」。asynq 无法直接表达无限时：
@@ -312,7 +313,7 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 		if err != nil {
 			return "", "", err
 		}
-		payloadBrief += attachment.Manifest(materialized)
+		payloadBrief += s.Attachments.Manifest(materialized)
 		s.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
 	}
 
@@ -373,7 +374,7 @@ func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 		if err != nil {
 			return "", err
 		}
-		payloadBrief += attachment.Manifest(materialized)
+		payloadBrief += s.Attachments.Manifest(materialized)
 		s.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
 	}
 	if err := s.Tasks.Reopen(ctx, taskID); err != nil {

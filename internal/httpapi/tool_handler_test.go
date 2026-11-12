@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/toolstore"
 )
 
@@ -93,16 +96,60 @@ func twoAgents() []agent.Agent {
 	}
 }
 
-func toolRouter(cfg *fakeConfig) *gin.Engine {
+// fakeInventory 是 SandboxInventoryAPI 的桩；err 非 nil 模拟沙盒不可达。
+type fakeInventory struct {
+	inv sandbox.Inventory
+	err error
+}
+
+func (f fakeInventory) Inventory(context.Context) (sandbox.Inventory, error) { return f.inv, f.err }
+
+func toolRouterWith(cfg *fakeConfig, inv SandboxInventoryAPI) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	tools := fakeToolCatalog{tools: []toolstore.Definition{
 		{Name: "nmap", Kind: toolstore.KindCLI},
+		{Name: "sqlmap", Kind: toolstore.KindCLI},
 		{Name: "http_request", Kind: toolstore.KindFunction},
+		{Name: "drive_browser", Kind: toolstore.KindFunction},
 	}}
-	r.GET("/tools/:name", getToolHandler(tools, cfg))
+	r.GET("/tools", listToolsHandler(tools, inv))
+	r.GET("/tools/:name", getToolHandler(tools, cfg, inv))
 	r.PUT("/tools/:name/agents/:code", assignToolHandler(tools, cfg))
 	return r
+}
+
+func toolRouter(cfg *fakeConfig) *gin.Engine { return toolRouterWith(cfg, nil) }
+
+// 安装状态：CLI 工具按沙盒上报，drive_browser 按浏览器能力，其余函数工具恒已安装；
+// 沙盒不可达时一律 null（未知），不误报「未安装」。
+func TestListTools_InstalledState(t *testing.T) {
+	inv := fakeInventory{inv: sandbox.Inventory{Tools: map[string]bool{"nmap": true, "sqlmap": false}}}
+	body := serve(toolRouterWith(&fakeConfig{}, inv), http.MethodGet, "/tools", "").Body.String()
+	var resp struct {
+		Tools []struct {
+			Name      string `json:"name"`
+			Installed *bool  `json:"installed"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"nmap": true, "sqlmap": false, "http_request": true, "drive_browser": false}
+	if len(resp.Tools) != len(want) {
+		t.Fatalf("应返回全部工具: %s", body)
+	}
+	for _, tool := range resp.Tools {
+		if tool.Installed == nil || *tool.Installed != want[tool.Name] {
+			t.Fatalf("%s installed=%v, 期望 %v", tool.Name, tool.Installed, want[tool.Name])
+		}
+	}
+
+	down := fakeInventory{err: errors.New("connection refused")}
+	w := serve(toolRouterWith(&fakeConfig{agents: twoAgents()}, down), http.MethodGet, "/tools/nmap", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"installed":null`) {
+		t.Fatalf("沙盒不可达时安装状态应为 null: %d %s", w.Code, w.Body.String())
+	}
 }
 
 // 装配态按生效名单判断，"*" 即全部。

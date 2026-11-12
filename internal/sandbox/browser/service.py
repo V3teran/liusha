@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """每身份常驻 Page 路由服务：持有 1 个 BrowserSession，按 AGENT_ID 把命令路由到各自 tab。
 
 替代 browser-use-cli 的全局焦点 daemon —— CLI 的 handle() 只认一个全局 active tab，强制每次
@@ -35,10 +34,10 @@ IDENTITY = sys.argv[1] if len(sys.argv) > 1 else "default"
 SOCK = sys.argv[2] if len(sys.argv) > 2 else f"/tmp/browser-svc-{IDENTITY}.sock"
 
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
-# sandbox 容器内 browser-svc.py 持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求
-# （含凭证位置）抓出 → POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，
-# 落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放
-# 做水平/垂直越权（BAC）测试。LIUSHA_INGEST_URL 空 → 整体不启用（单测 / runner 未注入 ingest 地址）。
+# 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
+# POST 到 LIUSHA_INGEST_URL → ingestor.handleInternalSnap（source=internal，落 agent_traffic）→
+# agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 → http_request 带身份重放做水平/垂直越权
+# （BAC）测试。LIUSHA_INGEST_URL / LIUSHA_INGEST_TOKEN 由沙盒随每条命令注入；URL 空 → 不启用。
 INGEST_URL = os.getenv("LIUSHA_INGEST_URL", "").strip()
 INGEST_TOKEN = os.getenv("LIUSHA_INGEST_TOKEN", "").strip()
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
@@ -112,8 +111,7 @@ class Service:
             return
         async with self.start_lock:
             if self.bs is None:
-                # 视口尺寸由容器 env 注入（runner 侧 config.yaml sandbox.viewport_*，
-                # 经 launcher 的 LIUSHA_VIEWPORT_* 透传）；缺省走 browser_use 内置。
+                # 视口尺寸由沙盒随命令注入（配置 sandbox.viewport_*）；缺省走 browser_use 内置。
                 vw, vh = os.environ.get("LIUSHA_VIEWPORT_WIDTH"), os.environ.get("LIUSHA_VIEWPORT_HEIGHT")
                 kwargs = {"headless": True}
                 if vw and vh:
@@ -193,7 +191,7 @@ class Service:
     # ---- B1 CDP Network capture ----
     # 设计取自 browser_use HarRecordingWatchdog（已验证）：handler 是 SYNC def，签名 (params, session_id)；
     # register 只挂回调不发命令，Network.enable 按 session 幂等开。v33 sidecar 抢 attach 的 race 在这里
-    # 根除——browser-svc.py 本就是唯一 CDP owner，handler 直接挂在它的 cdp_client 上；重连换 client 实例时
+    # 根除——本服务就是唯一 CDP owner，handler 直接挂在它的 cdp_client 上；重连换 client 实例时
     # _ensure_handlers 检测身份变化重注册 + 清 enable 缓存，下条命令自动重新武装。
     # 取舍：首个 open 的初始 Document GET 在 enable 之前发出 → 会漏；但登录 POST/XHR 等带凭证的请求都发生在
     # 后续交互（此时 Network 已 enable）→ BAC 要的真实认证请求不漏。宁可漏首帧也不重蹈 v33 的脆弱完整性。
