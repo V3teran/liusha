@@ -7,7 +7,7 @@
 ### 全容器
 
 ```bash
-git clone --branch v0.7.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+git clone --branch v0.8.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 cp .env.example .env   # 填必填项
 docker compose -f compose.yaml -f compose.prod.yaml --profile full pull
 docker compose -f compose.yaml -f compose.prod.yaml --profile full up -d

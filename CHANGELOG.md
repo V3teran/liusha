@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.8.0](https://github.com/V3teran/liusha/compare/v0.7.0...v0.8.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ui:** 移除 DELETE /credentials/:host 与 DELETE /credentials/:host/sessions（逐个删除身份仍走 DELETE /credentials/:host/usernames/:username）；LLM 审计详情不再解析旧格式历史行（大写键、reasoning_content 等），此类行的正文与思考过程不再结构化展示。
+* **sandbox:** 新增迁移 0206（tool 表增加 category_name 列），随 up 自动执行；工具目录在 api 启动同步时回填。GET /tools、GET /tools/:name 响应的工具对象新增 category_name 字段。
+* **exploration:** 代理流量 Redis stream 默认键由 flow_events 改为 liusha:traffic_snapshots；升级瞬间旧键中尚未消费的流量不再读取，消费组在新键上自动重建。自定义过 proxy.stream_name 的部署不受影响。
+* **httpapi:** 移除 POST /conversations/:id/abort，停止任务改用 POST /tasks/:id/control（{"action":"terminate"}）；新增迁移 0205（仅改 schema 注释），随 up 自动执行。
+
+### Features
+
+* **task:** 定时模板可查看、启停与删除——新建后不再无法停止 ([ff0ab27](https://github.com/V3teran/liusha/commit/ff0ab27e1d1b54293f8e5eb4b812810c1d1cd271))
+* **ui:** 主次操作可辨、窄屏主从单栏、时间筛选收为单入口 ([6f2b9d3](https://github.com/V3teran/liusha/commit/6f2b9d3e11188781aadd17c31411c467d834a50c))
+
+
+### Bug Fixes
+
+* **conversation:** 纯空白消息在边界拒绝，不再建空会话 ([e013b18](https://github.com/V3teran/liusha/commit/e013b18dc960f0d92070517d7b3370e322bcbc97))
+* **exploration:** 密钥不随跨源重定向外发、匿名验证真匿名、裁决退出等在途 ([2acd01f](https://github.com/V3teran/liusha/commit/2acd01f62de36a56536243cd741f9306de3eb000))
+* **exploration:** 目标不可达计入验证上限，裁决未完成可按原方向重提 ([9798cef](https://github.com/V3teran/liusha/commit/9798cef23f48e6fbcc29a8351b82b4a4e141c578))
+* **httpapi:** LLM 审计 Flush 在 ctx 已取消时必定返回错误 ([9820c30](https://github.com/V3teran/liusha/commit/9820c3055ec6cef2217b1724d2ea54889165052e))
+* **sandbox:** 任务结束不再误杀共享容器内其他任务的进程 ([0920827](https://github.com/V3teran/liusha/commit/09208274907415a27759d8889ef5f6eb8d319886))
+* **sandbox:** 共享容器不被误销毁、并发执行产物各归各位、配置写入串行 ([6646fea](https://github.com/V3teran/liusha/commit/6646fea5370fdf2c5cd1c8a1e22320198405888b))
+* **task:** 优雅停机不再终结运行中任务——先排空任务再拆沙盒 ([23716f1](https://github.com/V3teran/liusha/commit/23716f130875108f713b130f74177099a87796fa))
+* **task:** 续跑的 run 产出归属自身，不再错记到首个 run ([2c0637a](https://github.com/V3teran/liusha/commit/2c0637a9ea0b7ac19832f17806e9e37b4904c01c))
+* **ui:** 对话流式思考道不再对读屏隐藏可聚焦链接 ([5a62bea](https://github.com/V3teran/liusha/commit/5a62bea18e33ed44259767ed6db26e0db1a1f661))
+* **ui:** 弹层按钮可点、窄屏账号菜单可用、日志不重复，补齐可访问性 ([964bd04](https://github.com/V3teran/liusha/commit/964bd04daacc413b78c31363e81ed65f378c2840))
+* **ui:** 编辑不再被迟到响应覆盖或静默丢弃；删除零调用方的凭证端点与审计旧格式兼容 ([45e3a44](https://github.com/V3teran/liusha/commit/45e3a44d3049bb14e1c9ec0f5eccb8ade7d402e1))
+
+
+### Code Refactoring
+
+* **exploration:** 命名收敛——一个概念一个名字，跨层同名同义 ([d5f2497](https://github.com/V3teran/liusha/commit/d5f24975fcd0d7d43b49d711da48421b5aa71721))
+* **httpapi:** 清除旧架构残留——停止任务只留 control 入口 ([97ce973](https://github.com/V3teran/liusha/commit/97ce973a773a45059948c5104e5ef17c01dfbe70))
+
 ## [0.7.0](https://github.com/V3teran/liusha/compare/v0.6.2...v0.7.0) (2026-11-10)
 
 
