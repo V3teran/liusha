@@ -95,14 +95,14 @@ func TestDriveBrowser_WatchdogSelfHealL2(t *testing.T) {
 		{Stdout: "Error: Event handler drive_browser.browser.watchdog_base timed out", ExitCode: 1}, // 原命令退化
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "Error: ...watchdog_base timed out", ExitCode: 1}, // L1 后仍退化
-		{Stdout: ""}, // L2 pkill
+		{Stdout: "ok"}, // L2 kill
 		{Stdout: "url: http://target/\n[exit_code: 0]"}, // L2 后重试成功
 	}}
 	out := runBrowserTool(t, fake, `{"action":"open","url":"http://target/"}`)
 	if !strings.Contains(out, "url: http://target/") {
 		t.Fatalf("L2 自愈后应返回重试成功结果, got:\n%s", out)
 	}
-	if !strings.Contains(out, "L2 杀 daemon+chromium 冷启动") {
+	if !strings.Contains(out, "L2 强制结束本身份的浏览器服务") {
 		t.Fatal("L2 升级应留痕")
 	}
 	if fake.calls != 5 {
@@ -116,7 +116,7 @@ func TestDriveBrowser_WatchdogSelfHealExhausted(t *testing.T) {
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // 原命令
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L1 后
-		{Stdout: ""}, // L2 pkill
+		{Stdout: "ok"}, // L2 kill
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L2 后仍坏
 	}}
 	out := runBrowserTool(t, fake, `{"action":"state"}`)
@@ -228,5 +228,26 @@ func TestDriveBrowser_HealRequestsCarryAssignmentAndFailWhenUnrecovered(t *testi
 	}
 	if res.Error == "" {
 		t.Fatal("自愈耗尽应记为结果性失败（ToolResult.Error 非空）")
+	}
+}
+
+// 自愈只作用于出问题的身份：修复命令带上同一身份，不波及同任务的其他身份、更不波及其他
+// 任务的浏览器（不按进程名在全机范围内结束进程）。
+func TestDriveBrowser_SelfHealScopedToIdentity(t *testing.T) {
+	degraded := sandbox.ExecResult{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}
+	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{degraded, {Stdout: "ok"}, degraded, {Stdout: "ok"}, degraded}}
+	tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
+	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
+	if len(fake.commands) != 5 {
+		t.Fatalf("应执行 原命令+L1两步+L2两步, got %v", fake.commands)
+	}
+	for _, i := range []int{1, 3} {
+		cmd := fake.commands[i]
+		if !strings.Contains(cmd, `IDENTITY="t-42-admin"`) || !strings.Contains(cmd, "browser-use ") {
+			t.Errorf("修复命令应经 browser-use 作用于本身份, got %q", cmd)
+		}
+		if strings.Contains(cmd, "pkill") || strings.Contains(cmd, "killall") {
+			t.Errorf("修复命令不得按进程名全机结束进程, got %q", cmd)
+		}
 	}
 }
