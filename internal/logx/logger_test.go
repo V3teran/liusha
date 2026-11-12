@@ -275,3 +275,14 @@ func TestOutput_ConcurrentBuildIsRaceFree(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// 缺省日志目录在数据根下，不依赖进程工作目录（服务方式运行时工作目录是 / 或 System32）。
+func TestLogDir_DefaultsUnderDataRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LIUSHA_LOG_DIR", "")
+	if got, want := Dir(), filepath.Join(home, "data", "liusha", "logs"); got != want {
+		t.Fatalf("Dir() = %q，期望 %q", got, want)
+	}
+}
