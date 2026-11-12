@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../.."
 
 PG_CONTAINER="${LIUSHA_PG_CONTAINER:-liusha-postgres}"
 REDIS_CONTAINER="${LIUSHA_REDIS_CONTAINER:-liusha-redis}"
-HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-120}"  # runner 冷启动含 warm-pool Docker 巡检，波动可超 60s
+HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-120}"  # 含编译 liusha 的时间
 
 # load .env
 if [ -f .env ]; then
@@ -29,7 +29,7 @@ fi
 
 # host 侧地址
 export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
+export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:${POSTGRES_PASSWORD}@localhost:${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"
 
 # LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
 # LLM key（多把）随 .env 透传；redis 密码必填

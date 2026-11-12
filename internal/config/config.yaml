@@ -144,7 +144,7 @@ sandbox:
   viewport_height: 800
   workspace_dir: ""                  # 任务工作区根目录（沙盒与 api 必须看到同一目录）；空 = ~/data/liusha/workspace
   workspace_retention_days: 0        # 任务工作区留存天数；0 = 永久保留（工件是证据）
-  listener_ports: "21000-21999"      # 对外监听段：反弹 shell / 代理 / payload 托管绑段内端口；空 = 不提供。须避开业务端口与临时端口段
+  listener_ports: "21000-21099"      # 对外监听段：反弹 shell / 代理 / payload 托管绑段内端口；空 = 不提供。须避开业务端口与临时端口段（Linux 32768+）
   callback_host: ""                  # 目标回连地址（payload 里写它）；空 = 自动探测默认路由源地址，NAT / 多网卡 / 容器部署须显式配置
 
 # ---- 会话 ----

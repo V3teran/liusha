@@ -1,120 +1,89 @@
 #!/bin/bash
-# liusha 单镜像入口：进程托管（initdb → migrate → proxy/runner/api/nginx）。
+# liusha 单镜像进程托管：PostgreSQL → Redis → liusha serve（serve 启动前自动迁移数据库）。
 #
-# 设计取舍（单容器全家桶的约定）：
-#   - 任一子进程退出 → 整体关停退出（exit code 1），交给容器编排器重启；
-#     不做容器内自愈——半瘫的平台（如 runner 死了）比显式宕机更难排查。
-#   - 首次启动生成的密钥（API key / SSE cookie / LLM 加密密钥）持久化在
-#     /data/secrets 下，重启不变；env 显式给值则优先生效。
-#   - PG 仅监听 127.0.0.1（不对外发布，容器外不可达）；liusha 角色为超级用户
-#     ——与 dev compose 的 POSTGRES_USER=liusha 引导形态一致（迁移里 CREATE
-#     EXTENSION 需要超管权限）。
+#   - 任一进程退出 → 整体停止（退出码非 0），交给容器编排器重启；不做容器内自愈。
+#   - 首次启动生成的密钥持久化在 /data/secrets，重启不变；同名环境变量显式给值时优先。
+#   - PostgreSQL / Redis 只监听 127.0.0.1，容器外不可达。
 set -euo pipefail
 
-# ── 布局与环境 ────────────────────────────────────────────────────────────
-DATA_DIR="${LIUSHA_DATA_DIR:-/data}"
+DATA_DIR=/data
 PGDATA="$DATA_DIR/pg"
-REDIS_DIR="$DATA_DIR/redis"
-CERT_DIR="$DATA_DIR/certs"
-LOG_DIR="$DATA_DIR/logs"
+PG_MAJOR=18
+PG_BIN="/usr/lib/postgresql/$PG_MAJOR/bin"
 SECRETS_DIR="$DATA_DIR/secrets"
-DSN="postgres://liusha:liusha@127.0.0.1:5432/liusha?sslmode=disable"
 
-export LIUSHA_POSTGRES_DSN="$DSN"
-export LIUSHA_REDIS_ADDR="127.0.0.1:6379"
-export LIUSHA_LOG_DIR="$LOG_DIR"
-export LIUSHA_PROXY_CERT_DIR="$CERT_DIR"
-export LIUSHA_CONFIG="/app/config/config.yaml"
+log() { echo "[liusha-single] $*"; }
 
-mkdir -p "$PGDATA" "$REDIS_DIR" "$CERT_DIR" "$LOG_DIR" "$SECRETS_DIR"
-# pg_ctl 以 postgres 用户身份起库/写日志，PGDATA 与日志目录须归 postgres
-chown -R postgres:postgres "$PGDATA" "$LOG_DIR"
-
-log() { echo "[entrypoint] $*"; }
-
-# ── 首启密钥（env 优先，否则生成并持久化）──────────────────────────────
-secret_or_gen() { # $1=env名 $2=文件名 $3=生成命令
-  local env_val file="$SECRETS_DIR/$2"
-  eval "env_val=\${$1:-}"
-  if [ -n "$env_val" ]; then
-    echo "$env_val"
-  elif [ -s "$file" ]; then
-    cat "$file"
-  else
-    local val
-    # 生成器是完整 shell 片段（含管道），必须 eval 整串执行——$($3) 会按词拆分
-    val="$(eval "$3")"
-    [ -n "$val" ] || { echo "[entrypoint] 密钥生成失败：$2" >&2; exit 1; }
-    echo -n "$val" > "$file"
-    chmod 600 "$file"
-    echo "$val"
-  fi
-}
-# 初始管理员：账号表为空时 api 启动期建 admin，密码取 env；无 env 则首启生成随机值
-# 持久化到 secrets 目录（env LIUSHA_ADMIN_INITIAL_PASSWORD 可覆盖）。仅首启生效。
-export LIUSHA_ADMIN_INITIAL_PASSWORD="$(secret_or_gen LIUSHA_ADMIN_INITIAL_PASSWORD admin.initial_password "head -c 18 /dev/urandom | base64 | tr -d '+/='")"
-log "初始管理员：admin / $LIUSHA_ADMIN_INITIAL_PASSWORD（已存 $SECRETS_DIR/admin.initial_password，仅首启生效，登录后请改密）"
-# LLM 密钥加密要求 32 字节 hex（cryptx fail-fast 口径）
-export LIUSHA_LLM_KEY_SECRET="$(secret_or_gen LIUSHA_LLM_KEY_SECRET llm_key.secret "head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
-
-# ── 进程托管 ──────────────────────────────────────────────────────────────
-children=()
-spawn() { # $1=显示名 其余=命令
-  local name="$1"; shift
-  "$@" &
-  children+=("$!")
-  log "started $name (pid $!)"
-}
-shutdown() {
-  log "shutting down (${children[*]:-无子进程})"
-  for pid in "${children[@]:-}"; do
-    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
-  done
-  # PG 不走 children（postgres 用户身份），单独优雅停
-  su postgres -c "pg_ctl -D '$PGDATA' -m fast stop" 2>/dev/null || true
-  wait 2>/dev/null || true
-  exit 0
-}
-trap 'shutdown' TERM INT
-
-# ── 1. PostgreSQL：首启 initdb，角色/库幂等建 ─────────────────────────────
-if [ ! -s "$PGDATA/PG_VERSION" ]; then
-  log "initdb（首启）…"
-  chown -R postgres:postgres "$PGDATA"
-  su postgres -c "initdb -D '$PGDATA' -E UTF8 --auth=trust" >/dev/null
-fi
+mkdir -p "$PGDATA" "$DATA_DIR/redis" "$DATA_DIR/workspace" "$DATA_DIR/logs" "$DATA_DIR/certs" "$SECRETS_DIR"
+chmod 700 "$SECRETS_DIR"
 chown -R postgres:postgres "$PGDATA"
-su postgres -c "pg_ctl -D '$PGDATA' -l '$LOG_DIR/pg.log' -o '-p 5432 -c listen_addresses=127.0.0.1' -w start" >/dev/null
-until su postgres -c "pg_isready -q -p 5432"; do sleep 0.3; done
-# liusha 超级用户 + 库（幂等；与 dev compose 的 POSTGRES_USER=liusha 同构）
+
+# secret <环境变量> <文件> <生成命令>：环境变量优先，其次持久化文件，否则生成并持久化。
+secret() {
+  local name="$1" file="$SECRETS_DIR/$2" gen="$3" val="${!1:-}"
+  if [ -z "$val" ]; then
+    if [ -s "$file" ]; then
+      val="$(cat "$file")"
+    else
+      val="$(eval "$gen")"
+      [ -n "$val" ] || { log "生成密钥失败：$2"; exit 1; }
+      printf '%s' "$val" > "$file"
+      chmod 600 "$file"
+    fi
+  fi
+  export "$name=$val"
+}
+hex() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+
+secret LIUSHA_ADMIN_INITIAL_PASSWORD admin.initial_password "head -c 18 /dev/urandom | base64 | tr -d '+/='"
+secret LIUSHA_LLM_KEY_SECRET llm_key.secret "hex 32"
+secret REDIS_PASSWORD redis.password "hex 24"
+secret LIUSHA_SANDBOX_TOKEN sandbox.token "hex 32"
+log "初始管理员 admin / $LIUSHA_ADMIN_INITIAL_PASSWORD（存于 $SECRETS_DIR/admin.initial_password，仅首次启动生效，登录后请改密）"
+
+export LIUSHA_POSTGRES_DSN="postgres://liusha@127.0.0.1:5432/liusha?sslmode=disable"
+export LIUSHA_REDIS_ADDR=127.0.0.1:6379
+export LIUSHA_REDIS_PASSWORD="$REDIS_PASSWORD"
+export LIUSHA_SANDBOX_WORKSPACE_DIR="$DATA_DIR/workspace"
+export LIUSHA_LOG_DIR="$DATA_DIR/logs"
+export LIUSHA_PROXY_CERT_DIR="$DATA_DIR/certs"
+
+# ── PostgreSQL ──
+if [ -s "$PGDATA/PG_VERSION" ] && [ "$(cat "$PGDATA/PG_VERSION")" != "$PG_MAJOR" ]; then
+  log "数据目录是 PostgreSQL $(cat "$PGDATA/PG_VERSION") 格式，本镜像使用 PostgreSQL $PG_MAJOR，无法直接打开。"
+  log "请先用旧镜像导出数据再导入新镜像，步骤见 deployments/README.md「单镜像升级」。"
+  exit 1
+fi
+if [ ! -s "$PGDATA/PG_VERSION" ]; then
+  log "初始化数据库…"
+  su postgres -c "$PG_BIN/initdb -D '$PGDATA' -E UTF8 --auth=trust" >/dev/null
+fi
+su postgres -c "$PG_BIN/pg_ctl -D '$PGDATA' -l '$DATA_DIR/logs/postgres.log' -o '-p 5432 -c listen_addresses=127.0.0.1' -w start" >/dev/null
+# liusha 角色为超级用户：迁移中 CREATE EXTENSION vector 需要
 su postgres -c "psql -q -p 5432 -tc \"SELECT 1 FROM pg_roles WHERE rolname='liusha'\" | grep -q 1" \
   || su postgres -c "psql -q -p 5432 -c 'CREATE ROLE liusha LOGIN SUPERUSER'"
 su postgres -c "psql -q -p 5432 -tc \"SELECT 1 FROM pg_database WHERE datname='liusha'\" | grep -q 1" \
   || su postgres -c "createdb -p 5432 -O liusha liusha"
-log "postgres ready (127.0.0.1:5432)"
+log "PostgreSQL 就绪"
 
-# ── 2. Redis（AOF 落 /data：队列态与凭证库在此，容器重启不丢）──────────
-export REDIS_PASSWORD="$(secret_or_gen REDIS_PASSWORD redis.password "head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'")"
-export LIUSHA_REDIS_PASSWORD="$REDIS_PASSWORD"
-spawn redis redis-server --port 6379 --bind 127.0.0.1 --dir "$REDIS_DIR" --appendonly yes --requirepass "$REDIS_PASSWORD"
+# ── 进程托管 ──
+children=()
+shutdown() {
+  for pid in "${children[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+  wait 2>/dev/null || true
+  su postgres -c "$PG_BIN/pg_ctl -D '$PGDATA' -m fast stop" >/dev/null 2>&1 || true
+}
+trap 'shutdown; exit 0' TERM INT
 
-# ── 3. 迁移（同一 CLI/版本口径；空库首启建全量表结构）───────────────────
-/app/migrate -path /app/migrations -database "$DSN" up
-log "migrations up to date"
+redis-server --port 6379 --bind 127.0.0.1 --dir "$DATA_DIR/redis" --appendonly yes --requirepass "$REDIS_PASSWORD" &
+children+=("$!")
+liusha serve &
+children+=("$!")
+log "已启动：控制台与 API :8580，MITM 代理 :8588"
 
-# ── 4. 业务进程 ───────────────────────────────────────────────────────────
-if [ ! -S /var/run/docker.sock ]; then
-  log "警告：未挂载 /var/run/docker.sock——runner 无法拉起沙盒容器，启动后将 Fatal 退出"
-fi
-spawn proxy /app/proxy
-spawn runner /app/runner
-spawn api /app/api
-spawn nginx nginx -c /etc/nginx/liusha-single.conf -g 'daemon off;'
-
-# ── 5. 等任一子进程退出 → 整体关停（共生共死）────────────────────────────
-log "all services up（宿主端口 web=50080 mitm=58588 ingest=58590）"
 set +e
 wait -n
 rc=$?
-log "子进程退出（rc=$rc），整体关停"
+log "进程退出（rc=$rc），整体停止"
 shutdown
+exit $(( rc == 0 ? 1 : rc ))
