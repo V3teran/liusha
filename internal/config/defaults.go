@@ -276,9 +276,6 @@ func applySandboxDefaults(c SandboxConfig) SandboxConfig {
 	if c.IngestURL == "" {
 		c.IngestURL = "http://127.0.0.1:8590/internal/v1/traffic/ingest"
 	}
-	if c.Shell == "" {
-		c.Shell = "sh"
-	}
 	if c.BrowserPython == "" {
 		// Windows 的官方安装包只提供 python.exe；python3 在那里是应用商店的跳转桩。
 		c.BrowserPython = "python3"
