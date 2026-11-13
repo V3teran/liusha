@@ -20,7 +20,10 @@ tar -xzf liusha_${VERSION}_linux_amd64.tar.gz && cd liusha_${VERSION}_linux_amd6
 ./liusha serve -env-file liusha.env
 ```
 
-Windows（PowerShell；另需提供 `sh` 的环境，如 Git for Windows——智能体的命令按 sh 语法执行）：
+macOS 用 `liusha_${VERSION}_darwin_arm64.tar.gz`（Intel 机型为 `darwin_amd64`），步骤相同。
+
+Windows（PowerShell；智能体的命令按 sh 语法执行，需安装 Git for Windows——沙盒自动找到它的 sh；
+要完整工具集可在 WSL2 的 Kali 里用 Linux 版）：
 
 ```powershell
 $VERSION = "0.9.0"  # x-release-please-version
@@ -31,7 +34,7 @@ Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
 ```
 
 `setup` 迁移数据库、生成密钥与初始管理员密码，写入 `liusha.env`。控制台在 `http://<主机>:8580`。
-作为后台服务运行（systemd / Windows 服务）见 [deployments/README.md](deployments/README.md#二进制)。
+作为后台服务运行（systemd / launchd / Windows 服务）见 [deployments/README.md](deployments/README.md#二进制)。
 
 ### compose
 
