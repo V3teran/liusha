@@ -43,6 +43,7 @@ func TestNew_DevelopmentIsConsole(t *testing.T) {
 func TestNew_FileWriteAndFields(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Cleanup(closeFiles)
 	SetProcess("proc-A")
 	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
@@ -88,6 +89,7 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 func TestNew_ErrorFieldAttached(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Cleanup(closeFiles)
 	SetProcess("proc-err")
 	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
@@ -147,6 +149,7 @@ func TestParseLevelDefaults(t *testing.T) {
 func TestE2E_ProcessAggregation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Cleanup(closeFiles)
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
@@ -247,6 +250,7 @@ func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Cleanup(closeFiles)
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	SetProcess("late-env")
