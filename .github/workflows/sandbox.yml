@@ -55,9 +55,10 @@ jobs:
 
       - name: Verify installed tools
         run: |
-          docker run -d --name sandbox --init -e LIUSHA_SANDBOX_TOKEN=ci-token -p 127.0.0.1:8591:8591 liusha-sandbox:ci
+          token=$(openssl rand -hex 32)
+          docker run -d --name sandbox --init -e LIUSHA_SANDBOX_TOKEN="$token" -p 127.0.0.1:8591:8591 liusha-sandbox:ci
           for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8591/healthz >/dev/null && break; sleep 2; done
-          curl -sf -H "Authorization: Bearer ci-token" http://127.0.0.1:8591/tools > tools.json || { docker logs sandbox; exit 1; }
+          curl -sf --oauth2-bearer "$token" http://127.0.0.1:8591/tools > tools.json || { docker logs sandbox; exit 1; }
           missing=$(jq -r '.tools | to_entries[] | select(.value | not) | .key' tools.json)
           browser=$(jq -r '.browser.installed' tools.json)
           echo "已安装 $(jq '[.tools[] | select(.)] | length' tools.json) / $(jq '.tools | length' tools.json) 个工具"
