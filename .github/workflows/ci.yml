@@ -81,6 +81,29 @@ jobs:
       - name: unit tests
         shell: bash
         run: go test -race -short ./...
+      - name: binary smoke prerequisites (PostgreSQL + pgvector, Redis)
+        # 二进制部署在 Windows 上的依赖：runner 镜像自带的 PostgreSQL，pgvector 按其官方步骤用
+        # MSVC 编译安装；Redis 用 Windows 原生构建。
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          git clone --depth 1 --branch v0.8.7 https://github.com/pgvector/pgvector.git "%RUNNER_TEMP%\pgvector"
+          cd /d "%RUNNER_TEMP%\pgvector"
+          nmake /NOLOGO /F Makefile.win || exit /b 1
+          nmake /NOLOGO /F Makefile.win install || exit /b 1
+          curl -fsSL -o "%RUNNER_TEMP%\redis.zip" https://github.com/redis-windows/redis-windows/releases/download/8.10.3/Redis-8.10.3-Windows-x64-msys2.zip || exit /b 1
+          powershell -NoProfile -Command "Expand-Archive '%RUNNER_TEMP%\redis.zip' '%RUNNER_TEMP%\redis'"
+          for /d %%d in ("%RUNNER_TEMP%\redis\*") do echo REDIS_DIR=%%d>>"%GITHUB_ENV%"
+          echo PG_BIN=%PGBIN%>>"%GITHUB_ENV%"
+      - name: binary smoke (shell, jobs, browser, service, serve)
+        # 编译出的 liusha.exe 在真实 Windows 上冒烟，各阶段独立判定、最后汇总（见脚本开头）。
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          go build -o "$env:RUNNER_TEMP\liusha.exe" ./cmd/liusha
+          python -m venv "$env:RUNNER_TEMP\bu"
+          & "$env:RUNNER_TEMP\bu\Scripts\python.exe" -m pip install -q browser-use==0.13.14
+          ./scripts/ci/windows-smoke.ps1 -Exe "$env:RUNNER_TEMP\liusha.exe" -Python "$env:RUNNER_TEMP\bu\Scripts\python.exe" -PgBin "$env:PG_BIN" -RedisDir "$env:REDIS_DIR"
 
   web:
     # 前端：类型检查（含测试文件）+ 生产构建 + 单测。与 nginx/single 镜像同一 node 22 + corepack pnpm。
