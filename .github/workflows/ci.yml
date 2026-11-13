@@ -17,9 +17,9 @@ jobs:
           cache: true
       - name: vet
         run: go vet ./...
-      - name: vet (windows)
-        # Windows 专有实现（作业对象、Windows 服务、文件权限）只在 GOOS=windows 时参与编译。
-        run: GOOS=windows go vet ./...
+      - name: vet (windows / darwin)
+        # 平台专有实现（Windows 的作业对象、服务、文件权限；macOS 的进程枚举）只在对应 GOOS 下参与编译。
+        run: GOOS=windows go vet ./... && GOOS=darwin go vet ./...
       - name: gofmt
         run: |
           diff=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
@@ -45,6 +45,22 @@ jobs:
         # `-run Integration` 按名字过滤，实际一个集成用例都没跑过）。dbtest 经 testcontainers
         # 在 runner 上拉起真实 pgvector/pg17。
         run: go test -race -tags=integration ./...
+
+  macos:
+    # macOS 原生运行：全部单测在真实 macOS 上跑（进程归属经 sysctl 读取进程环境、launchd 下的
+    # 运行方式与 Linux 不同）。集成测试依赖 Linux 容器，只在 test 作业跑。
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: unit tests
+        run: go test -race -short ./...
 
   windows:
     # Windows 原生运行：全部单测在真实 Windows 上跑（作业对象、Windows 服务、文件权限等平台实现，
@@ -89,7 +105,7 @@ jobs:
   build:
     # 通过测试后再构建镜像，避免在失败的源码上浪费构建时间。
     runs-on: ubuntu-latest
-    needs: [test, windows, web]
+    needs: [test, macos, windows, web]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
