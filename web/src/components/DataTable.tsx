@@ -132,7 +132,9 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                     'border-b border-border text-sm transition-colors last:border-b-0',
                     clickable && 'cursor-pointer hover:bg-surface-2',
                     clickable && selected && 'bg-accent/12 shadow-[inset_2px_0_0_var(--accent)]',
-                    rowError?.(v) && 'bg-sev-critical/[0.08] hover:bg-sev-critical/[0.14]',
+                    // 错误行带红底：三级文字色只对 --surface 保证 4.5:1，在红底上提升为二级文字色。
+                    rowError?.(v) &&
+                      'bg-sev-critical/[0.08] hover:bg-sev-critical/[0.14] [&_.text-text-tertiary]:text-text-secondary',
                     rowClassName?.(v),
                   )}
                 >

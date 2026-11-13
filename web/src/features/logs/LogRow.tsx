@@ -4,11 +4,14 @@ import { cn } from '@/lib/utils'
 
 // ── 展示辅助 ─────────────────────────────────────────────────────────────
 
+// 级别徽标的底是语义色按 15% 混到 --surface 上的不透明色，而不是半透明叠色：行本身带底色
+// （error 行的红底、悬停的 surface-2），半透明徽标会叠出更深的底，文字对比度跌破 4.5:1。
+// 不透明底让徽标在任何行上都与它在 --surface 上一样（语义色 token 的对比度约束即以此为前提）。
 const LEVEL_BADGE: Record<string, string> = {
-  error: 'bg-sev-critical/15 text-sev-critical',
-  warn: 'bg-sev-high/15 text-sev-high',
-  warning: 'bg-sev-high/15 text-sev-high',
-  info: 'bg-status-info/15 text-status-info',
+  error: 'bg-[color-mix(in_oklab,var(--sev-critical)_15%,var(--surface))] text-sev-critical',
+  warn: 'bg-[color-mix(in_oklab,var(--sev-high)_15%,var(--surface))] text-sev-high',
+  warning: 'bg-[color-mix(in_oklab,var(--sev-high)_15%,var(--surface))] text-sev-high',
+  info: 'bg-[color-mix(in_oklab,var(--status-info)_15%,var(--surface))] text-status-info',
   debug: 'bg-surface-3 text-text-tertiary',
 }
 
