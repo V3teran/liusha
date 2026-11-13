@@ -265,6 +265,17 @@ func sharedFileWriter(path string, cfg config) *lumberjack.Logger {
 	return w
 }
 
+// closeFiles 关闭并忘掉全部日志文件，下一条日志重新打开（测试用：Windows 上打开着的文件删不掉）。
+func closeFiles() {
+	fileWritersMu.Lock()
+	defer fileWritersMu.Unlock()
+	for path, w := range fileWriters {
+		_ = w.Close()
+		delete(fileWriters, path)
+	}
+	output.reset()
+}
+
 func buildWriter(cfg config) io.Writer {
 	var ws []io.Writer
 	if cfg.toStdout {

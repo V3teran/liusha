@@ -140,6 +140,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if err != nil {
 		return fmt.Errorf("打开任务工作区 %s: %w", cfg.Sandbox.WorkspaceDir, err)
 	}
+	defer func() { _ = workspaceStore.Close() }()
 	logger.Info().Str("root", cfg.Sandbox.WorkspaceDir).Msg("任务工作区已就绪")
 	// 附件复用工作区的路径钳制与落盘（暂存与落位同一棵树，下发搬家用 rename）。
 	attachmentStore := attachment.NewStore(workspaceStore)

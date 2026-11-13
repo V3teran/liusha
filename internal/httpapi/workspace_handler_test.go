@@ -22,6 +22,7 @@ func newWorkspaceRawServer(t *testing.T) (*gin.Engine, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ws.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	r := gin.New()
 	r.GET("/workspaces/raw", getWorkspaceRawHandler(ws))
 	return r, ws.Root()
