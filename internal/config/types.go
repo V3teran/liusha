@@ -235,8 +235,9 @@ type SandboxConfig struct {
 	// （runner 的 /internal/v1/traffic/ingest）。
 	IngestURL string `mapstructure:"ingest_url"`
 
-	// Shell 是执行 agent 命令的 POSIX shell（命令按 sh 语法编写，全平台同一种命令语言）。
-	// 按 PATH 查找或写绝对路径；Windows 上没有自带的 sh，须指向提供它的环境。
+	// Shell 是执行 agent 命令的 POSIX shell（命令按 sh 语法编写，全平台同一种命令语言），名字
+	// 或绝对路径。空 = 自动查找：PATH 中的 sh；Windows 没有自带的 sh，再找 Git for Windows 的
+	// sh.exe（见 internal/app/sandbox 的 resolveShell）。
 	Shell string `mapstructure:"shell"`
 
 	// BrowserPython 是运行浏览器服务（browser-use）的 Python 解释器。沙盒镜像里是

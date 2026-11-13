@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -32,10 +31,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if err := os.MkdirAll(sc.WorkspaceDir, 0o750); err != nil {
 		return fmt.Errorf("创建任务工作区 %s: %w", sc.WorkspaceDir, err)
 	}
-	shell, err := exec.LookPath(sc.Shell)
+	shell, err := resolveShell(sc.Shell, systemShellLookup())
 	if err != nil {
-		return fmt.Errorf("找不到执行命令的 POSIX shell %q（sandbox.shell）: %w；Windows 上需安装提供 sh 的环境（如 Git for Windows），并把 sandbox.shell 指向其 sh.exe", sc.Shell, err)
+		return err
 	}
+	logger.Info().Str("shell", shell).Msg("命令 shell 已就绪")
 	secrets, err := secretEnv(ctx, cfg)
 	if err != nil {
 		return err
