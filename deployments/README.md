@@ -8,7 +8,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 |---|---|---|---|
 | 组件 | `liusha serve` 一个进程 | api / proxy / runner / sandbox 各一个容器 | 一个容器内 `liusha serve` |
 | PostgreSQL / Redis | 自备 | compose 内置（pg17） | 镜像内置（pg18） |
-| 渗透工具 | 本机安装 | 沙盒镜像（本地构建） | 沙盒镜像（本地构建） |
+| 渗透工具 | 本机安装（Linux / macOS / Windows） | 沙盒镜像（本地构建） | 沙盒镜像（本地构建） |
 | 对外入口 | :8580 | nginx :50080 | :8580（映射到宿主自定） |
 | 数据库迁移 | `setup` 首装；`serve` 启动时 | 一次性的 `migrate` 服务 | `serve` 启动时 |
 
@@ -56,7 +56,7 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 
 ## 二进制
 
-Release 提供 Linux（tar.gz）与 Windows（zip）的 amd64 / arm64 程序。
+Release 提供 Linux、macOS（tar.gz）与 Windows（zip）的 amd64 / arm64 程序，三者功能一致。
 
 ```bash
 ./liusha setup -postgres-dsn 'postgres://liusha:<密码>@127.0.0.1:5432/liusha' -redis-addr 127.0.0.1:6379
@@ -65,32 +65,86 @@ Release 提供 Linux（tar.gz）与 Windows（zip）的 amd64 / arm64 程序。
 
 - 数据库需已安装 pgvector（`CREATE EXTENSION vector` 由迁移执行，账号需相应权限）。
 - `liusha.env` 是 `KEY=VALUE` 文件，只对当前用户开放（POSIX 0600，Windows 上是只含当前用户、
-  SYSTEM、Administrators 的访问控制列表），也可直接作为 systemd 的 `EnvironmentFile=`。其他配置
-  追加 `LIUSHA_<键>` 即可；`setup` 不覆盖已存在的文件。
+  SYSTEM、Administrators 的访问控制列表）。其他配置追加 `LIUSHA_<键>` 即可；`setup` 不覆盖已存在的文件。
 - 数据缺省在 `~/data/liusha` 下：`workspace`（任务工作区）、`logs`（日志）。
+- 智能体的命令按 POSIX sh 语法编写，沙盒用 `sandbox.shell` 执行，缺省自动查找（PATH 中的 `sh`；
+  Windows 上再找 Git for Windows）。渗透工具装在本机并加入 PATH，工具页按命令实际看到的 PATH
+  标出未安装的工具。
+- 浏览器能力：装了 `browser-use==0.13.14` 的 Python（`sandbox.browser_python`，缺省 `python3`，
+  Windows 为 `python`；建议用独立 venv）。浏览器内核优先用本机已装的 Chrome / Chromium / Edge
+  （Windows 自带 Edge）；都没有时执行一次 `uvx playwright install chromium`（需要 uv），或在首次
+  打开浏览器时由它自动拉取。
+- 停止时在途任务按中断收尾（至多 `runner.asynq_shutdown_timeout_seconds`，缺省 30 秒），由下次
+  启动续跑；托管方的停止等待须长于它。
 - 升级：替换程序后重启，`serve` 启动时自动迁移。
+- 沙盒执行智能体编写的任意命令：**用专门的低权限账户运行**，不要用 root / LocalSystem。
+
+### Linux
+
+systemd 托管（`/etc/systemd/system/liusha.service`）：
+
+```ini
+[Unit]
+Description=liusha
+After=network-online.target postgresql.service redis.service
+
+[Service]
+User=liusha
+ExecStart=/opt/liusha/liusha serve
+EnvironmentFile=/opt/liusha/liusha.env
+TimeoutStopSec=60
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### macOS
+
+- 依赖可用 Homebrew 安装：`brew install postgresql@17 pgvector redis`，工具同样（`brew install nmap …`）。
+- 程序未经 Apple 公证：用浏览器下载的压缩包带隔离属性，解压后执行一次
+  `xattr -d com.apple.quarantine liusha`（用 curl 下载则没有）。
+- launchd 托管（`~/Library/LaunchAgents/liusha.plist`，`launchctl load` 后随登录启动）：
+
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0"><dict>
+    <key>Label</key><string>liusha</string>
+    <key>ProgramArguments</key><array>
+      <string>/opt/liusha/liusha</string><string>serve</string>
+      <string>-env-file</string><string>/opt/liusha/liusha.env</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+    <key>ExitTimeOut</key><integer>60</integer>
+  </dict></plist>
+  ```
+
+  launchd 不继承登录 shell 的 PATH：Homebrew 装的工具需在 `liusha.env` 里写
+  `PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"`。
 
 ### Windows
 
-- 智能体的命令按 POSIX sh 语法编写，沙盒用 `sandbox.shell` 执行（缺省在 PATH 中找 `sh`）。
-  Windows 没有自带的 sh：安装 Git for Windows 后把 `LIUSHA_SANDBOX_SHELL` 设为其 `bin\sh.exe`
-  （如 `C:\Program Files\Git\bin\sh.exe`），或用 MSYS2 等提供 sh 的环境。找不到 sh 时沙盒拒绝启动。
-- 渗透工具装原生 Windows 版并加入 PATH；也可以装在 sh 环境里。工具页按命令实际看到的 PATH
-  标出未安装的工具。
-- 浏览器能力：安装 Python（`sandbox.browser_python` 在 Windows 上缺省为 `python`）、
-  `pip install browser-use==0.13.14`，再执行一次 `python -m playwright install chromium`。
-- 作为 Windows 服务运行（以管理员身份执行；服务名任取）：
+两条路线：
 
-  ```powershell
-  sc.exe create liusha binPath= "\"C:\liusha\liusha.exe\" serve -env-file C:\liusha\liusha.env" start= auto obj= ".\liusha-svc" password= "<密码>"
-  sc.exe failure liusha reset= 86400 actions= restart/5000
-  sc.exe start liusha
-  ```
+- **完整工具集：WSL2。** 在 WSL2 的 Linux 发行版（如 Kali）里运行 Linux 版 `liusha`，工具、
+  命令语义与 Linux 完全一致。控制台与代理端口在 Windows 上经 `localhost` 可达。
+- **原生：`liusha.exe`。** 需要提供 sh 的环境：安装 Git for Windows 即可（沙盒自动找到它的
+  `bin\sh.exe`，装在别处或用 MSYS2 时用 `LIUSHA_SANDBOX_SHELL` 指定）。渗透工具装 Windows 版
+  （nmap、sqlmap、nuclei、ffuf 等都有）。
 
-  `liusha` 由服务控制管理器启动时按服务运行：停止与关机时中断在途任务、收尾后退出（任务由
-  下次启动续跑）。沙盒执行智能体编写的任意命令，**用专门的低权限账户运行服务**，不要用
-  LocalSystem；工具与 Python 须对该账户可用（装在系统范围，或装在该账户下），`liusha.env`
-  也要用该账户执行 `setup` 生成（只有它与管理员可读）。
+原生运行时可作为 Windows 服务（以管理员身份执行；服务名任取）：
+
+```powershell
+sc.exe create liusha binPath= "\"C:\liusha\liusha.exe\" serve -env-file C:\liusha\liusha.env" start= auto obj= ".\liusha-svc" password= "<密码>"
+sc.exe failure liusha reset= 86400 actions= restart/5000
+sc.exe start liusha
+```
+
+`liusha` 由服务控制管理器启动时按服务运行，停止与关机时中断在途任务、收尾后退出。服务账户
+用专门的低权限账户；工具与 Python 须对该账户可用（装在系统范围，或装在该账户下），`liusha.env`
+也要用该账户执行 `setup` 生成（只有它与管理员可读）。
 
 ## compose
 

@@ -2,8 +2,8 @@
 # scripts/release/package.sh <版本> [输出目录] — 构建发布用的二进制压缩包。
 #
 # 产物（输出目录缺省 dist/）：
-#   liusha_<版本>_linux_{amd64,arm64}.tar.gz
-#     └─ liusha_<版本>_linux_<架构>/{liusha, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
+#   liusha_<版本>_{linux,darwin}_{amd64,arm64}.tar.gz
+#     └─ liusha_<版本>_<系统>_<架构>/{liusha, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
 #   liusha_<版本>_windows_{amd64,arm64}.zip
 #     └─ liusha_<版本>_windows_<架构>/{liusha.exe, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
 #   checksums.txt（sha256，覆盖全部压缩包）
@@ -14,7 +14,7 @@ cd "$(dirname "$0")/../.."
 
 VERSION="${1:?用法: package.sh <版本> [输出目录]}"
 OUT="${2:-dist}"
-TARGETS=(linux/amd64 linux/arm64 windows/amd64 windows/arm64)
+TARGETS=(linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64)
 
 case "$OUT" in ''|/|.|..) echo "输出目录不合法: $OUT" >&2; exit 2 ;; esac
 command -v zip >/dev/null || { echo "需要 zip" >&2; exit 2; }
