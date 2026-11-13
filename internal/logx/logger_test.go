@@ -290,3 +290,20 @@ func TestLogDir_DefaultsUnderDataRoot(t *testing.T) {
 		t.Fatalf("Dir() = %q，期望 %q", got, want)
 	}
 }
+
+// 控制台只在终端里着色：输出被 systemd / launchd / Windows 服务接管或重定向到文件时，颜色
+// 控制码会成为日志里的乱码；NO_COLOR（https://no-color.org）显式关闭着色。
+func TestColorful_OnlyOnTerminalAndWithoutNoColor(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	if colorful(w) {
+		t.Fatal("输出到管道时不应着色")
+	}
+	t.Setenv("NO_COLOR", "1")
+	if colorful(os.Stdout) {
+		t.Fatal("设置了 NO_COLOR 时不应着色")
+	}
+}

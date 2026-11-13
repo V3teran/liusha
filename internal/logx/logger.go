@@ -276,11 +276,21 @@ func closeFiles() {
 	output.reset()
 }
 
+// colorful 报告控制台输出是否着色：只在输出是终端时着色（被 systemd / launchd / Windows 服务
+// 接管或重定向到文件时，颜色控制码会成为日志里的乱码），并遵守 NO_COLOR 约定。
+func colorful(f *os.File) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func buildWriter(cfg config) io.Writer {
 	var ws []io.Writer
 	if cfg.toStdout {
 		if cfg.format == "console" {
-			ws = append(ws, newConsoleWriter(os.Stdout, false))
+			ws = append(ws, newConsoleWriter(os.Stdout, !colorful(os.Stdout)))
 		} else {
 			ws = append(ws, os.Stdout)
 		}
