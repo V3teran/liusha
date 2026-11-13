@@ -104,7 +104,12 @@ export function NodeDetailPanel({
                   <dt className="text-xs text-text-tertiary">{k}</dt>
                   <dd className="text-xs text-text">
                     {typeof v === 'object' ? (
-                      <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed">
+                      // 可滚动区域须能用键盘聚焦滚动（WCAG 2.1.1）
+                      <pre
+                        tabIndex={0}
+                        aria-label={k}
+                        className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed"
+                      >
                         {JSON.stringify(v, null, 2)}
                       </pre>
                     ) : (

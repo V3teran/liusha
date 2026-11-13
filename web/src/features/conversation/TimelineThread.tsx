@@ -299,7 +299,13 @@ function ThinkingStream({ text }: { text: string | unknown }) {
         <Brain className="h-3 w-3" />
         <span>深度思考中…</span>
       </div>
-      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap">
+      {/* 可滚动区域须能用键盘聚焦滚动（WCAG 2.1.1） */}
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="深度思考内容"
+        className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap"
+      >
         {typed}
       </div>
     </div>
