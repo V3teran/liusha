@@ -171,7 +171,7 @@ export function ToolMasterList({
   )
 }
 
-// 单个工具行：名称（等宽）+ 描述单行省略。选中态左侧荧光竖条（row-selected）。
+// 单个工具行：名称（等宽，沙盒未安装时附标记）+ 描述单行省略。选中态左侧荧光竖条（row-selected）。
 function ToolListRow({
   tool,
   active,
@@ -193,7 +193,10 @@ function ToolListRow({
           : 'border-l-transparent hover:bg-surface-2/60')
       }
     >
-      <span className="truncate font-mono text-sm font-semibold text-text">{tool.name}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-sm font-semibold text-text">{tool.name}</span>
+        {tool.installed === false && <span className="flex-shrink-0 text-xs text-status-warning">未安装</span>}
+      </span>
       <span className="truncate text-xs text-text-secondary">{tool.description || '暂无描述'}</span>
     </button>
   )

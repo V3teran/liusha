@@ -9,44 +9,28 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// liushaRoot 是任务工作区的容器内根目录（宿主持久层经 launcher bind mount
-// 挂到此路径）。
+// 任务工作区目录（任务一层隔离）：
 //
-// 目录架构（task 一层隔离）：
-//   - 两级分层：/root/liusha/workspace/<assignment_id>/<task_id>/
-//   - work:  …/<task_id>/work/   → 命令执行的 cwd（scratch）
-//   - out:   …/<task_id>/out/    → 附件输出（$OUTPUT_DIR）
-//   - state: …/<task_id>/state/  → 会话与环境状态（任务内共享；
-//     HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
+//	<工作区根>/<批次>/<任务>/work   命令执行的 cwd
+//	<工作区根>/<批次>/<任务>/out    产物（$OUTPUT_DIR 的落点）
+//	<工作区根>/<批次>/<任务>/state  会话与环境状态（HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
 //
-// 隔离设计：
-//   - 任务间：目录即隔离边界（同 warm 容器多任务共存互不干扰）
-//   - 任务内：多 agent 共享 work/out/state——共容器共目标，agent 级
-//     目录是假隔离
-//
-// 真实持久化由 launcher 的 bind mount 提供（宿主 workspace 根目录挂到
-// liushaRoot）：容器回收重建后任务工件仍在原宿主路径可恢复。
-// var（非 const）便于 server 包内单测用 t.TempDir() override。
-var liushaRoot = "/root/liusha/workspace"
+// 任务间以目录为隔离边界；任务内多 agent 共享目录——同任务共目标，agent 级目录是假隔离。
+// 工作区根与 api 的文件面是同一目录，工件因此在沙盒重建后仍在。
 
-// execWaitDelay 是 cmd.WaitDelay 的取值：进程退出 / ctx 取消起算，最多再等这么久就强制关
-// I/O pipe 并让 cmd.Wait() 返回，兜底「子进程已退出但孤儿后台子进程仍持有 stdout pipe」类悬挂
-// （详见 handleExec 内 cmd.WaitDelay 处注释）。var（非 const）便于单测注入小值。
+// execWaitDelay 是 cmd.WaitDelay：进程退出 / ctx 取消起算，最多再等这么久就强制关 I/O 管道并让
+// cmd.Wait() 返回，兜底「命令已退出但后台子进程仍持有 stdout 管道」的悬挂。var 便于单测注入小值。
 var execWaitDelay = 10 * time.Second
 
-// handleExec 处理 POST /exec：sh -c 命令 + OUTPUT_DIR 附件机制。
+// handleExec 处理 POST /exec：
+//  1. 解析并校验请求
+//  2. 建任务工作区目录（work / out / state）
+//  3. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/ 并作为附件返回
+//  4. 命令的进程归属于任务：超时 / 请求断开结束这条命令的全部进程；正常结束后留在
+//     后台的进程（监听器等）保留到任务释放
 //
-// 流程：
-//  1. 解析 ExecRequest，校验必填
-//  2. 建任务工作区目录（work / out / state，按 批次 / 任务 两级）
-//  3. exec.CommandContext 跑 sh -c（带 timeout）
-//  4. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/
-//     并作为附件返回，命令崩溃也收
-//
-// 并发：暖池容器由并发任务共享，net/http 每请求一个 goroutine 并发处理 /exec；处理流程
-// 无进程内共享可变状态，工作区目录按 批次 / 任务 两级隔离。
-func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
-	// 1. 解析并验证请求
+// 并发：并发任务的请求各占一个 goroutine；工作区按 批次 / 任务 两级隔离。
+func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	var req sandbox.ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
@@ -56,40 +40,34 @@ func (s *HTTPServer) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 创建执行目录
-	workspaceDir, outputDir, stateDir, ok := setupExecDirs(&req, w)
-	if !ok {
+	dirs, err := s.ensureTaskDirs(req.AssignmentID, req.TaskID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+	staged, err := stageOutput(s.cfg.WorkspaceDir, dirs.out)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "%v", err)
 		return
 	}
 
-	// 3. 本次执行专属的产物暂存目录（系统操作不收集产物）
-	var out *execOutput
-	cmdOutputDir := outputDir
-	if !isSystemExec(&req) {
-		staged, err := stageOutput(outputDir)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "%v", err)
-			return
-		}
-		out, cmdOutputDir = staged, staged.dir
-	}
-
-	// 4. 执行命令
 	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	cmd, cmdCtx, cancel := buildExecCommand(r.Context(), &req, workspaceDir, cmdOutputDir, stateDir, timeout)
-	defer cancel()
-	stdout, stderr, exitCode, timedOut := executeCommand(cmdCtx, cmd)
-
-	// 5. 产物移入 out/，构建结果
-	res := sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, TimedOut: timedOut}
-	if out != nil {
-		res.Files, res.Warnings = out.publish()
+	cmd, cmdCtx, cleanup, err := s.buildExecCommand(r.Context(), &req, dirs, staged.dir, timeout)
+	if err != nil {
+		staged.discard()
+		writeError(w, http.StatusInternalServerError, "%v", err)
+		return
 	}
+	defer cleanup()
+	stdout, stderr, exitCode, timedOut := s.executeCommand(cmdCtx, req.TaskID, cmd)
+
+	res := sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, TimedOut: timedOut}
+	res.Files, res.Warnings = staged.publish()
 	writeJSON(w, http.StatusOK, res)
 }
 
-// snapshotDir 记录目录顶层的文件集合（name → modtime，名字是本次关心的全部——
-// modtime 仅用于「命令改写了执行前已有的同名文件」这一情形的归属判断）。
+// snapshotDir 记录目录顶层的文件集合（name → modtime；modtime 仅用于「命令改写了执行前
+// 已有的同名文件」这一情形的归属判断）。
 func snapshotDir(dir string) map[string]time.Time {
 	snap := map[string]time.Time{}
 	entries, err := os.ReadDir(dir)
@@ -107,13 +85,10 @@ func snapshotDir(dir string) map[string]time.Time {
 	return snap
 }
 
-// isPathSafe 校验 ID 是否仅含 path-safe 字符（[A-Za-z0-9._-]{1,64}）。
-//
-// 防 path traversal：assignment_id / agent_id 由调用方注入 → server 端直接 filepath.Join
-// 拼路径，若不校验可被 `../../etc/passwd` 类输入逃逸到 /liusha 根之外。
-// 合法 UUID 是 36 字符含连字符，天然匹配本字符集。
+// isPathSafe 校验 ID 只含路径安全字符（[A-Za-z0-9._-]{1,64}，且不是 . / ..）：ID 直接拼进
+// 工作区路径与浏览器套接字名，不校验可被 `../../etc` 类输入逃逸。UUID 天然满足。
 func isPathSafe(s string) bool {
-	if len(s) == 0 || len(s) > 64 {
+	if len(s) == 0 || len(s) > 64 || s == "." || s == ".." {
 		return false
 	}
 	for i := 0; i < len(s); i++ {

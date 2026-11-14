@@ -96,6 +96,29 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
           {/* 内容区域 */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
+              {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
+                  JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
+              {(finding.task_id || finding.conversation_id) && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {finding.task_id && (
+                      <JumpLink to={`/tasks?task=${encodeURIComponent(finding.task_id)}`} icon={ListChecks}>
+                        任务
+                      </JumpLink>
+                    )}
+                    {finding.conversation_id && (
+                      <JumpLink
+                        to={conversationPath(finding.source, finding.conversation_id)}
+                        icon={MessageSquare}
+                      >
+                        对话
+                      </JumpLink>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {/* 基本信息 */}
               <section>
                 <h3 className="mb-3 text-sm font-semibold text-text">基本信息</h3>
@@ -165,29 +188,6 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">
                       {String(finding.evaluation.impact)}
                     </p>
-                  </div>
-                </section>
-              )}
-
-              {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
-                  JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
-              {(finding.task_id || finding.conversation_id) && (
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {finding.task_id && (
-                      <JumpLink to={`/tasks?task=${encodeURIComponent(finding.task_id)}`} icon={ListChecks}>
-                        任务
-                      </JumpLink>
-                    )}
-                    {finding.conversation_id && (
-                      <JumpLink
-                        to={conversationPath(finding.source, finding.conversation_id)}
-                        icon={MessageSquare}
-                      >
-                        对话
-                      </JumpLink>
-                    )}
                   </div>
                 </section>
               )}

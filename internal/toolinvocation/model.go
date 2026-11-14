@@ -5,7 +5,7 @@
 // 平均耗时 / 成功率"这类聚合查询直接 SQL 可达，不必扫 jsonb。
 //
 // 写路径：handler_run.go toolRecordInterceptor 在每次工具调用前后埋点 + Append。
-// 读路径：cmd/api 按 task_id 拉本次扫描的所有 tool 调用，供前端展示。
+// 读路径：api 组件按 task_id 拉本次扫描的所有 tool 调用，供前端展示。
 package toolinvocation
 
 import (

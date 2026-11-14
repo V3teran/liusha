@@ -13,7 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/textx"
 )
 
-// Deps 是纯聊天所需的最小依赖（cmd/api 注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。
+// Deps 是纯聊天所需的最小依赖（api 组件注入实现；是 qa.Deps 去掉 FindingsSummary 的子集）。
 type Deps interface {
 	// History 取本会话的对话上文（user/assistant，排除当前这条与 agent 过程
 	// 事件，时间正序、已钳制）——多轮会话记忆的来源。读取失败返回 error。

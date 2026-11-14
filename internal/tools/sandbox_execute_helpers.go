@@ -30,19 +30,20 @@ func (t *driveBrowserTool) buildBrowserCommand(ctx context.Context, a *browserCm
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
-	// 构建基础命令
 	command := "browser-use " + a.Action
 	if argParts != "" {
 		command += " " + argParts
 	}
+	return t.browserEnv(ctx, a.Identity) + command, nil
+}
 
-	// 注入身份和动作 ID
-	command = fmt.Sprintf("IDENTITY=%q %s", browserIdentity(t.deps.TaskID, a.Identity), command)
+// browserEnv 是浏览器命令的环境前缀：身份（选哪个浏览器服务）与动作 ID（选哪个 tab）。
+func (t *driveBrowserTool) browserEnv(ctx context.Context, identity string) string {
+	env := fmt.Sprintf("IDENTITY=%q ", browserIdentity(identity))
 	if actionID := ActionIDFromContext(ctx); actionID != "" {
-		command = fmt.Sprintf("AGENT_ID=%q %s", actionID, command)
+		env = fmt.Sprintf("AGENT_ID=%q %s", actionID, env)
 	}
-
-	return command, nil
+	return env
 }
 
 // executeBrowserCommand 执行浏览器命令
@@ -50,7 +51,7 @@ func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command st
 	return t.deps.Sandbox.Exec(ctx, sandbox.ExecRequest{
 		AssignmentID:   t.deps.AssignmentID,
 		TaskID:         t.deps.TaskID,
-		AgentID:        t.deps.AgentRunID,
+		AgentRunID:     t.deps.AgentRunID,
 		Command:        command,
 		TimeoutSeconds: timeoutSeconds,
 		Tag:            "drive_browser",
@@ -59,8 +60,9 @@ func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command st
 
 // tryHealBrowserDaemon 尝试修复退化的浏览器 daemon。返回修复后的结果与 unrecovered：
 // 检测到退化且两级修复后仍退化时为 true（调用方据此把本次调用记为失败）。
-// 修复与重试请求复用正常执行的批次/任务/身份参数（executeBrowserCommand）。
-func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command string, res sandbox.ExecResult) (sandbox.ExecResult, bool) {
+// 修复只作用于出问题的身份（同一环境前缀）：L1 请服务自行关闭浏览器并退出，L2 在服务已无
+// 响应时强制结束它及其浏览器；下一条命令冷启动新服务。
+func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, a *browserCmdArgs, command string, res sandbox.ExecResult) (sandbox.ExecResult, bool) {
 	if !browserDegraded(res) {
 		return res, false
 	}
@@ -73,8 +75,8 @@ func (t *driveBrowserTool) tryHealBrowserDaemon(ctx context.Context, command str
 		name string
 		cmd  string
 	}{
-		{"L1 reset", "browser-use reset"},
-		{"L2 杀 daemon+chromium 冷启动", "pkill -f browser-svc.py; pkill -f chromium; true"},
+		{"L1 reset", t.browserEnv(ctx, a.Identity) + "browser-use reset"},
+		{"L2 强制结束本身份的浏览器服务", t.browserEnv(ctx, a.Identity) + "browser-use kill"},
 	}
 
 	recovered := false

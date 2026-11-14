@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>liusha</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 15px/1.7 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+      main { max-width: 36rem; padding: 0 16px; }
+      code { font: 13px ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>liusha</h1>
+      <p>本程序编译时未编入控制台前端，API 照常可用。</p>
+      <p>开发时在 <code>web/</code> 下执行 <code>pnpm dev</code>，经 vite 访问控制台；发布构建先执行 <code>pnpm build</code>，再以 <code>go build -tags webdist</code> 编译。</p>
+    </main>
+  </body>
+</html>

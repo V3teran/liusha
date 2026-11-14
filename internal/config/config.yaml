@@ -1,0 +1,153 @@
+# ============================================================================
+# liusha 内置默认配置（编进程序）。
+#
+# 生效顺序：本文件 → 覆盖文件（--config 或 LIUSHA_CONFIG 指定，只写要改的键）→ 环境变量。
+#   - 环境变量：键 a.b_c 对应 LIUSHA_A_B_C（如 sandbox.workspace_dir → LIUSHA_SANDBOX_WORKSPACE_DIR）。
+#     本文件列出全部键，因此每个键都能被环境变量覆盖。
+#   - 密钥与连接串（postgres.dsn、redis.password、sandbox.token）只经环境变量注入，这里留空。
+#   - 启动期参数，改后重启生效。运行期可热改的旋钮（工具超时、上下文压缩、代理过滤规则等）
+#     在这里给出部署默认，前端「系统配置」页的自定义叠加其上。
+# ============================================================================
+
+# ---- api：HTTP 入口 ----
+api:
+  listen_addr: 0.0.0.0:8580
+  read_timeout_seconds: 15
+  write_timeout_seconds: 30
+  read_header_timeout_seconds: 5     # runner HTTP（healthz + 沙盒流量回灌）的请求头读取超时
+  shutdown_timeout_seconds: 5
+  cookie_secure: false               # 经 HTTPS 访问时设 true（会话 Cookie 加 Secure）；纯 http 必须 false
+
+# ---- PostgreSQL ----
+postgres:
+  dsn: ""                            # postgres://user:pass@host:port/db?sslmode=disable（LIUSHA_POSTGRES_DSN）
+  max_conns: 20
+  min_conns: 2
+  connect_timeout_seconds: 5
+  max_conn_lifetime_seconds: 3600
+
+# ---- Redis ----
+# 数值字段为 0 时用 SDK 默认（PoolSize=10×GOMAXPROCS / DialTimeout=5s / ReadTimeout=3s / WriteTimeout=3s）；
+# 多服务共享一个 Redis 时按需调小 pool_size。
+redis:
+  addr: 127.0.0.1:6379
+  password: ""                       # LIUSHA_REDIS_PASSWORD；空 = 无密码
+  pool_size: 0
+  min_idle_conns: 0
+  dial_timeout_seconds: 0
+  read_timeout_seconds: 0
+  write_timeout_seconds: 0
+
+# ---- LLM ----
+# LLM 接入（provider）与档位路由的事实源是数据库，在前端「LLM 配置」页维护。
+# 这里不预置任何 provider；如需首装时自动导入，可在覆盖文件里声明 providers 与
+# complexity_routes（仅空库时导入一次，之后以数据库为准）：
+#
+#   llm:
+#     complexity_routes: {simple: main, medium: main, complex: main}
+#   providers:
+#     main:
+#       type: openai_compat          # 协议：openai_compat（Chat Completions）或 anthropic（Messages）
+#       base_url: https://api.example.com/v1
+#       default_model: model-name
+#       api_key_env: MAIN_API_KEY    # 密钥所在的环境变量名
+#       max_tokens: 8192
+#       supports_tools: true
+#       supports_vision: false       # 必填
+#       context_window: 128000       # 必填
+#       # 可选：auth_scheme（bearer / x-api-key）、output_limit_param（max_tokens /
+#       # max_completion_tokens）、thinking_budget_tokens（anthropic 扩展思考预算）
+llm:
+  complexity_routes: {}
+
+  # 错误码退避表（429/529/5xx/网络超时），所有调 LLM 的组件共用。
+  # 429 取长尾：账号级限流的恢复窗口以十秒计；每次退避施加等量抖动（[d/2, d)），
+  # 并发 agent 的重试在时间窗内错峰。零值字段由代码默认表逐项兜底。
+  retry:
+    max_429: 4
+    max_529: 1
+    max_5xx: 2
+    max_net: 2
+    backoff_429_seconds: [2, 8, 30, 60]
+    backoff_5xx_seconds: [1, 4]
+    backoff_net_seconds: [1, 3]
+    backoff_529_ms: 0                # 529 立即重试
+
+  # LLM 调用审计（llm_invocation）异步批量写入：调用路径不阻塞
+  invocation:
+    buffer_size: 1024                # 缓冲；满则丢一行并告警
+    batch_size: 100                  # 累积此行数即写入
+    flush_interval_ms: 1000          # 兜底写入周期
+    insert_timeout_sec: 5
+    retention_days: 0                # 留存天数（记录含完整 prompt/response）；0 = 永久留存
+
+providers: {}
+
+# ---- proxy：MITM 代理入口 + 过滤规则部署默认 ----
+proxy:
+  listen_addr: 0.0.0.0:8588          # 浏览器 / 客户端把代理指到这里
+  internal_addr: 127.0.0.1:18888     # 内部回环监听
+  cert_dir: ""                       # MITM 根证书目录；空 = $HOME 下默认子目录
+  stream_name: liusha:traffic_snapshots  # 流量快照写入的 Redis Stream
+  stream_max_len: 100000             # Stream 近似上限（约 5KiB × 1e5 ≈ 500 MiB）
+
+  # 过滤规则（前端「系统配置 · 代理过滤」可自定义）
+  allow_hosts: []                    # 主机白名单（空 = 放行全部）
+  exclude_hosts: []                  # 主机黑名单（支持 *.example.com；黑名单优先）
+  exclude_methods: [OPTIONS, HEAD, CONNECT]
+  exclude_upgrade_protocols: [websocket]
+  exclude_suffixes: [.css, .js, .png, .jpg, .gif, .ico, .woff, .woff2]   # 静态资源（大小写不敏感）
+  exclude_content_types: []          # 支持 image/* 通配
+  # 原始流量为 4xx/5xx 表示业务异常，测试无意义
+  exclude_status_codes: [400, 401, 403, 404, 405, 408, 409, 410, 413, 414, 415, 422, 429, 500, 501, 502, 503, 504]
+  max_request_body_size: 2097152     # 2 MiB
+  max_response_body_size: 8388608    # 8 MiB
+
+# ---- ingestor：代理流量摄入（runner 内） ----
+ingestor:
+  consumer_group: liusha-ingestor    # Stream 消费组（多副本共享）
+  consumer_name: ""                  # 空 = 自动派生 ingestor-<hostname>-<pid>（同组内唯一）；多副本务必留空
+  read_batch: 16
+  read_block_timeout_ms: 1000
+  retry_delay_ms: 500
+  recreate_group_delay_ms: 500
+  aggregate_batch_size: 20           # 同主机攒够这么多条即建一个代理捕获任务
+  aggregate_window_seconds: 10       # 或距首条超过这么多秒
+
+# ---- 凭证库 ----
+credential:
+  redis_key_prefix: "credentials:"
+
+# ---- runner：任务执行 ----
+runner:
+  healthz_addr: 0.0.0.0:8590         # healthz + 沙盒流量回灌端点
+  agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
+  max_steps_per_task: 0              # 单任务步数上限（一次 agent 推理 = 一步）；0 = 不限
+  step_llm_timeout_seconds: 300      # 单步 LLM 调用看门狗
+  asynq_concurrency: 6               # 同时执行的任务数
+  asynq_shutdown_timeout_seconds: 30 # 停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限
+  shutdown_timeout_seconds: 5
+  queue_agent_weight: 5
+  # 僵尸 run 回收：0 = 内置默认（30s 巡检 / 6m 停摆判定 / 4 次重投上限）
+  run_recovery_interval_seconds: 0
+  run_recovery_timeout_seconds: 0
+  run_recovery_max_attempts: 0
+
+# ---- sandbox：工具执行沙盒 ----
+sandbox:
+  listen_addr: 127.0.0.1:8591        # 沙盒服务监听地址
+  url: http://127.0.0.1:8591         # runner / api 访问沙盒的地址
+  token: ""                          # 沙盒与 runner / api 的共享密钥（LIUSHA_SANDBOX_TOKEN）
+  ingest_url: http://127.0.0.1:8590/internal/v1/traffic/ingest  # 沙盒浏览器流量回灌到 runner 的地址
+  shell: ""                          # 执行 agent 命令的 POSIX shell（名字或绝对路径）；空 = 自动：PATH 中的 sh，Windows 上再找 Git for Windows 的 sh.exe
+  browser_python: ""                 # 运行浏览器服务的 Python（需装 browser-use）；空 = python3（Windows 为 python）
+  viewport_width: 1280               # 浏览器视口：主流桌面宽度，截图喂视觉模型的 token 甜点区
+  viewport_height: 800
+  workspace_dir: ""                  # 任务工作区根目录（沙盒与 api 必须看到同一目录）；空 = ~/data/liusha/workspace
+  workspace_retention_days: 0        # 任务工作区留存天数；0 = 永久保留（工件是证据）
+  listener_ports: "21000-21099"      # 对外监听段：反弹 shell / 代理 / payload 托管绑段内端口；空 = 不提供。须避开业务端口与临时端口段（Linux 32768+）
+  callback_host: ""                  # 目标回连地址（payload 里写它）；空 = 自动探测默认路由源地址，NAT / 多网卡 / 容器部署须显式配置
+
+# ---- 会话 ----
+conversation:
+  attachment_max_bytes: 0            # 单附件上传上限（字节）；0 = 100 MiB

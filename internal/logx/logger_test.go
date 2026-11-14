@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -42,7 +43,9 @@ func TestNew_DevelopmentIsConsole(t *testing.T) {
 func TestNew_FileWriteAndFields(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "proc-A")
+	t.Cleanup(closeFiles)
+	SetProcess("proc-A")
+	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
@@ -51,7 +54,7 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 	l := New("svcA")
 	l.Info().Str("k", "v").Msg("first")
 
-	// 文件名取自 LIUSHA_LOG_PROCESS（不再是 service 名）。
+	// 文件名取自 SetProcess 设定的进程名（不是 service 名）。
 	path := filepath.Join(dir, "proc-A.log")
 	raw, err := os.ReadFile(path) // #nosec G304 // 路径来自进程配置/种子目录，非用户输入
 	if err != nil {
@@ -86,7 +89,9 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 func TestNew_ErrorFieldAttached(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "proc-err")
+	t.Cleanup(closeFiles)
+	SetProcess("proc-err")
+	t.Cleanup(func() { SetProcess("") })
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
@@ -137,27 +142,33 @@ func TestParseLevelDefaults(t *testing.T) {
 	}
 }
 
-// TestE2E_ProcessAggregation 模拟一个 cmd 进程内多个 logger（cmd 入口 + 多个包级 logger）
-// 各自调用 logx.New("name") 后，日志聚合到 logs/{processName}.log 单文件，
-// 通过 service JSON 字段区分上下文。这是对"包级 logger 不再碎片化"诉求的端到端校验。
+// TestE2E_ProcessAggregation 模拟一个进程内多个 logger（入口 + 多个包级 logger）
+// 各自调用 logx.New("name") 后，日志聚合到 logs/{进程名}.log 单文件，
+// 通过 service JSON 字段区分上下文。包级 logger 在入口 SetProcess 之前就已建好
+// （包初始化期），仍须落到入口设定的文件——文件在首次写入时才确定。
 func TestE2E_ProcessAggregation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Setenv("LIUSHA_LOG_PROCESS", "runner-proc")
+	t.Cleanup(closeFiles)
 	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	t.Setenv("LIUSHA_LOG_FORMAT", "json")
 	t.Setenv("LIUSHA_INSTANCE", "pid-x@host-y")
+	t.Cleanup(func() { SetProcess("") })
 
-	// 模拟 runner 进程：cmd 入口 logger + 7 个包级 logger
+	// 模拟 runner 进程：入口 logger + 6 个包级 logger，包级 logger 先于 SetProcess 构造
 	services := []string{
 		"runner",
 		"traffic", "finding", "cognition",
 		"llm.instrument", "llminvocation.store", "tools.run_command",
 	}
-	for _, s := range services {
-		l := New(s)
-		l.Info().Str("k", s+"-marker").Msg("启动")
+	loggers := make([]zerolog.Logger, len(services))
+	for i, s := range services {
+		loggers[i] = New(s)
+	}
+	SetProcess("runner-proc")
+	for i, s := range services {
+		loggers[i].Info().Str("k", s+"-marker").Msg("启动")
 	}
 
 	// 应只产生 1 个文件
@@ -229,5 +240,70 @@ func TestLoadConfig_FileSinkOffByDefaultUnderTest(t *testing.T) {
 	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
 	if !loadConfig().toFile {
 		t.Fatal("显式 LIUSHA_LOG_TO_FILE=true 应开启文件落盘")
+	}
+}
+
+// 包级 logger 在入口补齐环境（liusha 的 -env-file）之前就已建好：输出端须按 SetProcess 时的
+// 环境构建，而不是 logger 创建时的环境。
+func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
+	early := New("pkg-level")
+
+	dir := t.TempDir()
+	t.Setenv("LIUSHA_LOG_DIR", dir)
+	t.Cleanup(closeFiles)
+	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
+	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
+	SetProcess("late-env")
+	t.Cleanup(func() { SetProcess("") })
+
+	early.Info().Msg("after env")
+	raw, err := os.ReadFile(filepath.Join(dir, "late-env.log")) // #nosec G304 // 测试临时目录
+	if err != nil || !strings.Contains(string(raw), "after env") {
+		t.Fatalf("先建的 logger 应写入后设定的日志目录: %v %q", err, raw)
+	}
+}
+
+// 输出端构建（首条日志、SetProcess 之后）与其它 goroutine 的写日志、建 logger 并发安全。
+func TestOutput_ConcurrentBuildIsRaceFree(t *testing.T) {
+	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
+	SetProcess("race")
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l := New("race")
+			l.Info().Int("i", i).Msg("x")
+			l.Error().Err(errors.New("e")).Msg("y")
+		}()
+	}
+	wg.Wait()
+}
+
+// 缺省日志目录在数据根下，不依赖进程工作目录（服务方式运行时工作目录是 / 或 System32）。
+func TestLogDir_DefaultsUnderDataRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LIUSHA_LOG_DIR", "")
+	if got, want := Dir(), filepath.Join(home, "data", "liusha", "logs"); got != want {
+		t.Fatalf("Dir() = %q，期望 %q", got, want)
+	}
+}
+
+// 控制台只在终端里着色：输出被 systemd / launchd / Windows 服务接管或重定向到文件时，颜色
+// 控制码会成为日志里的乱码；NO_COLOR（https://no-color.org）显式关闭着色。
+func TestColorful_OnlyOnTerminalAndWithoutNoColor(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	if colorful(w) {
+		t.Fatal("输出到管道时不应着色")
+	}
+	t.Setenv("NO_COLOR", "1")
+	if colorful(os.Stdout) {
+		t.Fatal("设置了 NO_COLOR 时不应着色")
 	}
 }

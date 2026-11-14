@@ -419,21 +419,21 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 		Msg("代理捕获 task 已建并入 executor 队列")
 }
 
-// handleInternalSnap 处理 agent sandbox 自产流量：反查 agent 得 task_id，落 agent_traffic，不 enqueue。
+// handleInternalSnap 处理沙盒自产流量：按 run 反查 task_id，落 agent_traffic，不 enqueue。
 //
-// source=internal 唯一来源：browser-svc.py 持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
+// source=internal 唯一来源：沙盒浏览器服务（internal/sandbox/browser/service.py）持 CDP 连接，把 chromium 的 Document/XHR/Fetch（含真实
 // 认证凭证位置）→ POST /internal/v1/traffic/ingest → snap.Source="internal" + snap.AgentRunID。
 // 反查 agent_run 表得 task_id 写 agent_traffic。不 enqueue：agent 自己挖的流量回头触发分析会自激震荡。
 func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSnapshot) {
 	if snap.AgentRunID == "" {
 		t.logger.Warn().Str("host", snap.Host).Str("path", proxy.LogPath(snap.URI)).
-			Msg("internal 流量缺 agent_id，丢弃（browser-svc.py session→agent 归属异常？）")
+			Msg("internal 流量缺 agent_run_id，丢弃")
 		return
 	}
 	run, err := t.agentRuns.GetByID(ctx, snap.AgentRunID)
 	if err != nil {
 		t.logger.Warn().Err(err).Str("agent_run_id", snap.AgentRunID).
-			Msg("internal 流量反查 executor 失败，丢弃（executor 已被清理 / 跨进程脏数据？）")
+			Msg("internal 流量反查 run 失败，丢弃")
 		return
 	}
 

@@ -1,8 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -63,9 +66,11 @@ func applyPostgresDefaults(c PostgresConfig) PostgresConfig {
 	return c
 }
 
-// applyRedisDefaults：所有字段保持 0 不补默认——0 让 go-redis SDK 用其内部默认值。
-// caller 通过 yaml 显式覆盖时才生效。
+// applyRedisDefaults 只补地址；数值字段保持 0，让 go-redis SDK 用其内部默认值。
 func applyRedisDefaults(c RedisConfig) RedisConfig {
+	if c.Addr == "" {
+		c.Addr = "127.0.0.1:6379"
+	}
 	return c
 }
 
@@ -253,7 +258,7 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 		c.ShutdownTimeoutSeconds = 5
 	}
 	if c.HealthzAddr == "" {
-		c.HealthzAddr = ":8590"
+		c.HealthzAddr = "0.0.0.0:8590"
 	}
 	if c.QueueAgentWeight == 0 {
 		c.QueueAgentWeight = 5
@@ -262,22 +267,55 @@ func applyRunnerDefaults(c RunnerConfig) RunnerConfig {
 }
 
 func applySandboxDefaults(c SandboxConfig) SandboxConfig {
-	if c.DefaultImage == "" {
-		c.DefaultImage = "ghcr.io/v3teran/liusha-sandbox:latest"
+	if c.ListenAddr == "" {
+		c.ListenAddr = "127.0.0.1:8591"
 	}
-	// 视口 1280×800——playwright 主流推荐 + vision encoder sweet spot；高分屏可 yaml 覆盖。
+	if c.URL == "" {
+		c.URL = "http://127.0.0.1:8591"
+	}
+	if c.IngestURL == "" {
+		c.IngestURL = "http://127.0.0.1:8590/internal/v1/traffic/ingest"
+	}
+	if c.BrowserPython == "" {
+		// Windows 的官方安装包只提供 python.exe；python3 在那里是应用商店的跳转桩。
+		c.BrowserPython = "python3"
+		if runtime.GOOS == "windows" {
+			c.BrowserPython = "python"
+		}
+	}
+	// 视口 1280×800——主流桌面宽度 + 视觉模型 token 消耗甜点区；高分屏可覆盖。
 	if c.ViewportWidth == 0 {
 		c.ViewportWidth = 1280
 	}
 	if c.ViewportHeight == 0 {
 		c.ViewportHeight = 800
 	}
+	if c.WorkspaceDir == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			c.WorkspaceDir = filepath.Join(home, "data", "liusha", "workspace")
+		}
+	}
+	// 相对路径按进程工作目录解析为绝对路径：沙盒在任务目录里执行命令，交给命令的路径必须是
+	// 绝对的；api 与沙盒也须指向同一目录。
+	if c.WorkspaceDir != "" && !filepath.IsAbs(c.WorkspaceDir) {
+		if abs, err := filepath.Abs(c.WorkspaceDir); err == nil {
+			c.WorkspaceDir = abs
+		}
+	}
 	return c
 }
 
-// validate 校验 provider schema 完整性（supports_vision / context_window 必填）——
-// 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
+// validate 校验部署配置的完整性（不碰密钥是否就位）。
 func validate(c AppConfig) error {
+	if c.Sandbox.WorkspaceDir == "" {
+		return errors.New("sandbox.workspace_dir 未配置，且无法确定用户主目录作为默认值")
+	}
+	return validateProviders(c)
+}
+
+// validateProviders 校验 provider schema 完整性（supports_vision / context_window 必填）——
+// 不碰 LLM key，所有进程（含纯 ingress 的 proxy）都跑。
+func validateProviders(c AppConfig) error {
 	// 所有 provider 必须显式声明 supports_vision——nil 视为未填，启动 fail-fast。
 	// 设计原则：caller（runtime / openai_compat）路由含图 message 时依赖此 flag，
 	// 默认零值（false）会让 deepseek 等 OpenAI 协议族在 yaml 漏填时被当成不支持 vision，

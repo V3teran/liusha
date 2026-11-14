@@ -61,7 +61,10 @@ type Deps struct {
 
 	Skills        *skill.StoreReader
 	ToolsManifest *manifest.ToolManifest
-	Creds         credential.Provider
+	// Installed 是沙盒实际安装的工具与浏览器能力（任务开始时查询）。各 agent 的工具名单与它
+	// 求交：可用 = 允许 ∩ 已安装，未安装的工具既不注册也不出现在提示词里。
+	Installed sandbox.Inventory
+	Creds     credential.Provider
 
 	// 遥测后端（toolRecordInterceptor 用）
 	ToolCalls *toolinvocation.Store
@@ -123,8 +126,8 @@ type SandboxListener struct {
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
-// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
-func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb sandbox.Client) (executor.Report, error) {
+// sb 是沙盒命令执行入口；nil 表示无沙盒（run_command/drive_browser 不注册）。
+func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb tools.CommandRunner) (executor.Report, error) {
 	return d.run(ctx, taskID, host, brief, conversationID, sb)
 }
 
@@ -132,7 +135,7 @@ func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID strin
 func (d *Deps) run(
 	ctx context.Context,
 	taskID, host, brief, conversationID string,
-	sb sandbox.Client,
+	sb tools.CommandRunner,
 ) (executor.Report, error) {
 	d.Logger.Info().
 		Str("brief", brief).
@@ -167,23 +170,6 @@ func (d *Deps) run(
 	lifecycle.Start()
 	defer lifecycle.Stop()
 
-	// 任务结束浏览器清理：本任务身份前缀的 daemon/chromium 逐个优雅
-	// reset——共享容器下立即释放内存（不等容器空闲回收），且只动本任务的身份
-	// （并发任务的其他身份不受影响）。best-effort，失败仅告警。
-	defer func() {
-		if script := tools.BrowserCleanupScript(taskID); script != "" && sb != nil {
-			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
-				AssignmentID: d.AssignmentID, TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
-			}); err != nil {
-				d.Logger.Warn().Err(err).Msg("浏览器清理执行失败（best-effort）")
-			} else {
-				d.Logger.Info().Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
-			}
-		}
-	}()
-
 	// 控制平面消费者：任务行承载生命周期（终态/暂停 → 停 agents、携精确
 	// 停止原因结束本 run），task_control_event 承载内容干预（adjust_goal/
 	// inject_action，落图由后续规划消费）。
@@ -194,7 +180,7 @@ func (d *Deps) run(
 
 	d.Logger.Info().Msg("四个 Agent 已启动，等待任务完成")
 
-	// 阻塞等待完成检测，随后停止所有 Agent（浏览器清理 defer 依赖 agents 已停）
+	// 阻塞等待完成检测，随后停止所有 Agent
 	result := stack.detector.Start(ctx)
 	lifecycle.Stop()
 
@@ -309,8 +295,9 @@ type agentConfigs struct {
 	monitor   agent.Agent
 }
 
-// loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存）；读失败降级为
-// 空配置（章程为空，ReAct 启动即报错）。前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
+// loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存），工具名单收窄到
+// 沙盒已安装的部分；读失败降级为空配置（章程为空，ReAct 启动即报错）。
+// 前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
 func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 	getCfg := func(code string) agent.Agent {
 		cfg, err := d.CfgStore.Agent(ctx, code)
@@ -318,7 +305,7 @@ func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 			d.Logger.Warn().Err(err).Str("code", code).Msg("加载 agent 配置失败，使用空配置")
 			return agent.Agent{Code: code}
 		}
-		return cfg
+		return d.restrictToInstalled(cfg)
 	}
 	return agentConfigs{
 		executor:  getCfg(constants.AgentCodeExecutor),
@@ -343,7 +330,7 @@ type cognitionStack struct {
 func (d *Deps) assembleStack(
 	ctx context.Context,
 	taskID, host, brief, conversationID string,
-	sb sandbox.Client,
+	sb tools.CommandRunner,
 ) (*cognitionStack, error) {
 	cfgs := d.loadAgentConfigs(ctx)
 
@@ -508,10 +495,10 @@ func intersectPlannerSafeTools(whitelist []string) []string {
 	return out
 }
 
-// filterManifest 按 cli_tools 白名单过滤工具清单（nil/空清单 → 空集并告警）。
+// filterManifest 按 cli_tools 白名单过滤工具清单（未注入清单或名单为空 → 空集并告警）。
 func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	if d.ToolsManifest == nil || len(cliTools) == 0 {
-		d.Logger.Warn().Msg("未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
+		d.Logger.Warn().Msg("未配置 cli_tools，外部工具不可用")
 		return &manifest.ToolManifest{Tools: []manifest.Tool{}}
 	}
 	filtered := d.ToolsManifest.FilterByNames(cliTools)

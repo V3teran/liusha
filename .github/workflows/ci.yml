@@ -17,6 +17,9 @@ jobs:
           cache: true
       - name: vet
         run: go vet ./...
+      - name: vet (windows / darwin)
+        # 平台专有实现（Windows 的作业对象、服务、文件权限；macOS 的进程枚举）只在对应 GOOS 下参与编译。
+        run: GOOS=windows go vet ./... && GOOS=darwin go vet ./...
       - name: gofmt
         run: |
           diff=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
@@ -25,6 +28,12 @@ jobs:
           fi
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - name: golangci-lint (windows)
+        uses: golangci/golangci-lint-action@v8
+        env:
+          GOOS: windows
         with:
           version: v2.15.0
       - name: terminology gate
@@ -36,6 +45,65 @@ jobs:
         # `-run Integration` 按名字过滤，实际一个集成用例都没跑过）。dbtest 经 testcontainers
         # 在 runner 上拉起真实 pgvector/pg17。
         run: go test -race -tags=integration ./...
+
+  macos:
+    # macOS 原生运行：全部单测在真实 macOS 上跑（进程归属经 sysctl 读取进程环境、launchd 下的
+    # 运行方式与 Linux 不同）。集成测试依赖 Linux 容器，只在 test 作业跑。
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: unit tests
+        run: go test -race -short ./...
+
+  windows:
+    # Windows 原生运行：全部单测在真实 Windows 上跑（作业对象、Windows 服务、文件权限等平台实现，
+    # 以及路径、换行、编码等跨平台假设）。沙盒命令经 Git Bash 的 sh 执行；浏览器客户端协议测试
+    # 需要 Python。集成测试依赖 Linux 容器，只在 test 作业跑。
+    runs-on: windows-latest
+    steps:
+      - name: 保持仓库换行原样（测试按字节比对脚本与输出）
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: unit tests
+        shell: bash
+        run: go test -race -short ./...
+      - name: binary smoke prerequisites (PostgreSQL + pgvector, Redis)
+        # 二进制部署在 Windows 上的依赖：runner 镜像自带的 PostgreSQL，pgvector 按其官方步骤用
+        # MSVC 编译安装；Redis 用 Windows 原生构建。
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          git clone --depth 1 --branch v0.8.7 https://github.com/pgvector/pgvector.git "%RUNNER_TEMP%\pgvector"
+          cd /d "%RUNNER_TEMP%\pgvector"
+          nmake /NOLOGO /F Makefile.win || exit /b 1
+          nmake /NOLOGO /F Makefile.win install || exit /b 1
+          curl -fsSL -o "%RUNNER_TEMP%\redis.zip" https://github.com/redis-windows/redis-windows/releases/download/8.10.3/Redis-8.10.3-Windows-x64-msys2.zip || exit /b 1
+          powershell -NoProfile -Command "Expand-Archive '%RUNNER_TEMP%\redis.zip' '%RUNNER_TEMP%\redis'"
+          for /d %%d in ("%RUNNER_TEMP%\redis\*") do echo REDIS_DIR=%%d>>"%GITHUB_ENV%"
+          echo PG_BIN=%PGBIN%>>"%GITHUB_ENV%"
+      - name: binary smoke (shell, jobs, browser, service, serve)
+        # 编译出的 liusha.exe 在真实 Windows 上冒烟，各阶段独立判定、最后汇总（见脚本开头）。
+        shell: pwsh
+        timeout-minutes: 25
+        run: |
+          go build -o "$env:RUNNER_TEMP\liusha.exe" ./cmd/liusha
+          python -m venv "$env:RUNNER_TEMP\bu"
+          & "$env:RUNNER_TEMP\bu\Scripts\python.exe" -m pip install -q browser-use==0.13.14
+          ./scripts/ci/windows-smoke.ps1 -Exe "$env:RUNNER_TEMP\liusha.exe" -Python "$env:RUNNER_TEMP\bu\Scripts\python.exe" -PgBin "$env:PG_BIN" -RedisDir "$env:REDIS_DIR"
 
   web:
     # 前端：类型检查（含测试文件）+ 生产构建 + 单测。与 nginx/single 镜像同一 node 22 + corepack pnpm。
@@ -60,11 +128,9 @@ jobs:
   build:
     # 通过测试后再构建镜像，避免在失败的源码上浪费构建时间。
     runs-on: ubuntu-latest
-    needs: [test, web]
+    needs: [test, macos, windows, web]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: build api image
-        run: docker build -f cmd/api/Dockerfile -t liusha/api:ci .
-      - name: build runner image
-        run: docker build -f cmd/runner/Dockerfile -t liusha/runner:ci .
+      - name: build liusha image
+        run: docker build -t liusha:ci .

@@ -4,23 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
 )
-
-// setupTestRoots 把 liushaRoot 临时换成 t.TempDir()，
-// 让 handleExec mkdir 不撞 host /liusha 权限。Cleanup 自动还原。
-func setupTestRoots(t *testing.T) {
-	t.Helper()
-	old := liushaRoot
-	liushaRoot = t.TempDir()
-	t.Cleanup(func() {
-		liushaRoot = old
-	})
-}
 
 // TestHandleExec_Timeout_KillsProcessGroup 是 e2e 实测踩过的 bug 的回归测试：
 //
@@ -35,15 +23,12 @@ func setupTestRoots(t *testing.T) {
 //
 // 验证：1s timeout 后 HTTP wall time < 3s（容忍 HTTP 往返 + defer 清理）+ TimedOut=true。
 func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
-	setupTestRoots(t)
-	srv := New()
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+	h := newHarness(t)
 
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-kill-pg",
+		AgentRunID:     "test-kill-pg",
 		Command:        "sleep 100 | tail",
 		TimeoutSeconds: 1,
 		Tag:            "kill-pg",
@@ -53,7 +38,7 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 	}
 
 	start := time.Now()
-	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
@@ -93,21 +78,17 @@ func TestHandleExec_Timeout_KillsProcessGroup(t *testing.T) {
 //
 // 验证：子进程 sleep 30s，但 timeout 给 60s（不触发 cmdCtx），handleExec 必须在 WaitDelay 量级返回。
 func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
-	setupTestRoots(t)
 	oldDelay := execWaitDelay
 	execWaitDelay = 500 * time.Millisecond
 	t.Cleanup(func() { execWaitDelay = oldDelay })
-
-	srv := New()
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+	h := newHarness(t)
 
 	// `sleep 30 &`：sh 后台启子进程后立即退出，但 sleep 持有 stdout pipe 30s。
 	// timeout 60s 远大于 sleep → cmdCtx 不触发，纯靠 WaitDelay 兜底。
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-bg-orphan",
+		AgentRunID:     "test-bg-orphan",
 		Command:        "sleep 30 &",
 		TimeoutSeconds: 60,
 		Tag:            "bg-orphan",
@@ -117,7 +98,7 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 	}
 
 	start := time.Now()
-	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
@@ -142,15 +123,12 @@ func TestHandleExec_BackgroundOrphan_DoesNotHangPastWaitDelay(t *testing.T) {
 // TestHandleExec_Normal_Succeeds 是基线 sanity check：
 // 简单命令正常返回 stdout/stderr，不被 timeout 错误干掉。
 func TestHandleExec_Normal_Succeeds(t *testing.T) {
-	setupTestRoots(t)
-	srv := New()
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+	h := newHarness(t)
 
 	body, err := json.Marshal(sandbox.ExecRequest{
 		TaskID:         "test-task",
 		AssignmentID:   "test-assignment",
-		AgentID:        "test-baseline",
+		AgentRunID:     "test-baseline",
 		Command:        "echo hello && echo err >&2",
 		TimeoutSeconds: 5,
 		Tag:            "baseline",
@@ -159,7 +137,7 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /exec: %v", err)
 	}
@@ -184,18 +162,16 @@ func TestHandleExec_Normal_Succeeds(t *testing.T) {
 	}
 }
 
-// TestHandleExec_AgentIDValidation 验证 AgentID 必填 + path-safe 字符集（防 path traversal）。
-func TestHandleExec_AgentIDValidation(t *testing.T) {
-	setupTestRoots(t)
-	srv := New()
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+// TestHandleExec_AgentRunIDValidation 验证 AgentRunID 必填 + path-safe 字符集（防 path traversal）。
+func TestHandleExec_AgentRunIDValidation(t *testing.T) {
+	h := newHarness(t)
 
 	cases := []struct {
 		name    string
 		agentID string
 	}{
 		{"empty", ""},
+		{"dot-dot", ".."},
 		{"path traversal", "../etc"},
 		{"slash", "a/b"},
 		{"space", "task one"},
@@ -207,18 +183,18 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 			body, _ := json.Marshal(sandbox.ExecRequest{
 				TaskID:         "test-task",
 				AssignmentID:   "test-assignment",
-				AgentID:        c.agentID,
+				AgentRunID:     c.agentID,
 				Command:        "echo x",
 				TimeoutSeconds: 5,
 				Tag:            "validate",
 			})
-			resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+			resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 			if err != nil {
 				t.Fatalf("POST: %v", err)
 			}
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
-				t.Errorf("AgentID=%q expect 400 got %d", c.agentID, resp.StatusCode)
+				t.Errorf("AgentRunID=%q expect 400 got %d", c.agentID, resp.StatusCode)
 			}
 		})
 	}
@@ -230,22 +206,19 @@ func TestHandleExec_AgentIDValidation(t *testing.T) {
 // 任务内：不同 agent 共享同一 work/out——同任务多 agent 共容器共目标，
 // agent 级目录是假隔离（设计裁定）。
 func TestHandleExec_PerTaskIsolation(t *testing.T) {
-	setupTestRoots(t)
-	srv := New()
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+	h := newHarness(t)
 
 	post := func(t *testing.T, assignmentID, taskID, agentID, cmd string) sandbox.ExecResult {
 		t.Helper()
 		body, _ := json.Marshal(sandbox.ExecRequest{
 			AssignmentID:   assignmentID,
 			TaskID:         taskID,
-			AgentID:        agentID,
+			AgentRunID:     agentID,
 			Command:        cmd,
 			TimeoutSeconds: 5,
 			Tag:            "isolation",
 		})
-		resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+		resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 		if err != nil {
 			t.Fatalf("POST: %v", err)
 		}
@@ -284,7 +257,7 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 	_ = resA2
 
-	// 路径拼接机制回归：taskRoot = liushaRoot/<assignment>/<task> 的 join 正确性。
+	// 路径拼接机制回归：taskRoot = <工作区根>/<assignment>/<task> 的 join 正确性。
 	// （真实数据中 taskID 全局唯一、归属永不改变，同 taskID 跨批次不可能出现——
 	// 此用例仅防御 join 拼接/转义回归，非现实隔离场景。）
 	resBA := post(t, "batch-2", "task-a", "agent-1", `ls "$OUTPUT_DIR"`)
@@ -293,8 +266,8 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	}
 
 	// assignment_id 缺失 → 400（两级分层为必填契约）。
-	body, _ := json.Marshal(sandbox.ExecRequest{TaskID: "t", AgentID: "a", Command: "true", TimeoutSeconds: 5})
-	resp, err := http.Post(ts.URL+"/exec", "application/json", bytes.NewReader(body))
+	body, _ := json.Marshal(sandbox.ExecRequest{TaskID: "t", AgentRunID: "a", Command: "true", TimeoutSeconds: 5})
+	resp, err := h.do(http.MethodPost, "/exec", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}

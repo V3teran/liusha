@@ -36,6 +36,7 @@ func newAttachmentTestServer(t *testing.T, sizeCap int64, ctx *fakeAttachmentCon
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ws.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	store := attachment.NewStore(ws)
 	r := gin.New()
 	h := uploadAttachmentHandler(store, ctx, sizeCap,

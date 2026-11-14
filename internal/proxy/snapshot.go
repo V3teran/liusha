@@ -2,8 +2,8 @@
 //
 // 数据流（Stream-based 业界最佳实践）：
 //
-//	cmd/proxy onResponse → filter → publisher.Publish (XADD liusha:traffic_snapshots)
-//	cmd/runner ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建代理捕获 task + 入 agent 队列
+//	proxy 组件 onResponse → filter → publisher.Publish (XADD liusha:traffic_snapshots)
+//	runner 组件 ingestor → XREADGROUP → proxy_traffic 落库(按 host) + 聚合器攒批建代理捕获 task + 入 agent 队列
 //
 // proxy 进程无状态、可水平扩展；proxy_traffic 落库 + 代理捕获 task 生成逻辑集中在 runner 端。
 package proxy
@@ -48,7 +48,7 @@ import (
 //	RequestBody     请求体（已截断到 MaxRequestBodySize）
 //	ResponseBody    响应体（已截断到 MaxResponseBodySize）
 //	Duration        请求-响应耗时——proxify 回调不提供，external 路径恒 0（仅 internal
-//	                  路径由 browser-svc.py 填）
+//	                  路径由沙盒浏览器服务填）
 //	Timestamp       捕获时间（host 本地时钟，UTC）
 type TrafficSnapshot struct {
 	ID              string              `json:"id"`

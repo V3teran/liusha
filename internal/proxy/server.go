@@ -29,7 +29,7 @@ import (
 )
 
 // 兜底常量：caller 未通过 ServerDeps 传入对应字段时使用。
-// 正常路径由 cmd/proxy 从 config.ProxyConfig 注入，因此这里仅作为调用方失误时的最后防线。
+// 正常路径由 proxy 组件从 config.ProxyConfig 注入，因此这里仅作为调用方失误时的最后防线。
 const (
 	fallbackListenAddr = "0.0.0.0:8588"
 	fallbackCertSubdir = ".liusha"
@@ -57,7 +57,7 @@ type filterState struct {
 // Server 是进程内 MITM 代理：过滤链 + 快照发布 + 双端口监听。
 type Server struct {
 	proxy       *proxify.Proxy
-	filterState atomic.Pointer[filterState] // proxy_filter 组热改：cmd/proxy 订阅失效后 SwapFilter 原子换入
+	filterState atomic.Pointer[filterState] // proxy_filter 组热改：proxy 组件订阅失效后 SwapFilter 原子换入
 	publisher   SnapshotPublisher
 	listenAddr  string
 	certDir     string
@@ -199,8 +199,8 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	}
 
 	// 3) 构造 snapshot 并注入 source。
-	// onResponse 仅处理 external（代理） 流量（8588 入口），无 agent 概念；容器内工具流量不经本代理
-	// （CLI 直连目标；chromium 经 browser-svc CDP capture → ingest 单独入字典，source=internal）。
+	// onResponse 仅处理 external（代理）流量，无 agent 概念；沙盒工具流量不经本代理
+	// （CLI 直连目标；chromium 经浏览器服务 CDP capture → ingest 单独入字典，source=internal）。
 	snap := buildSnapshot(req, resp.StatusCode, snapHeader, reqBody, respBody)
 	snap.Source = s.source
 
@@ -246,7 +246,7 @@ func (s *Server) Stop() {
 }
 
 // SwapFilter 原子换入新的过滤链 + body 上限（proxy_filter 组热改）。
-// cmd/proxy 订阅 settingstore proxy_filter 失效后，用最新 ProxyFilterSettings 重建 filter 调用本方法；
+// proxy 组件订阅 settingstore proxy_filter 失效后，用最新 ProxyFilterSettings 重建 filter 调用本方法；
 // 换入后下一条流量即走新规则，进行中的流量仍用其加载时的快照，无锁无撕裂。
 func (s *Server) SwapFilter(f *filter.TrafficFilter, maxReqBody, maxRespBody int) {
 	s.filterState.Store(&filterState{

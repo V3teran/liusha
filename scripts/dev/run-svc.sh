@@ -16,15 +16,17 @@ if [ -f .env ]; then
   set +a
 fi
 
-# host 侧地址（与 compose.yaml 的宿主端口映射一致：pg 55432、redis 56379）
-export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable}"
-export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:56379}"
+# host 侧地址（与 compose.yaml 的宿主端口映射一致：pg 55432、redis 56379、沙盒 58591）
+export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置（.env 必填）}@localhost:${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"
+export LIUSHA_REDIS_ADDR="${LIUSHA_REDIS_ADDR:-localhost:${REDIS_HOST_PORT:-56379}}"
 # redis 必带密码（compose 起的 redis 已 requirepass；.env 的 REDIS_PASSWORD 必填）
 export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env 必填）}"
-export LIUSHA_API_ADDR="${LIUSHA_API_ADDR:-0.0.0.0:8580}"  # 8080 易被 Burp Suite Pro 占用，dev 默认 :8580
+# 沙盒在容器里（up.sh 起）：runner 经宿主端口调用它；工作区与容器内同一绝对路径（compose 同路径挂载）。
+export LIUSHA_SANDBOX_URL="${LIUSHA_SANDBOX_URL:-http://127.0.0.1:${SANDBOX_HOST_PORT:-58591}}"
+export LIUSHA_SANDBOX_TOKEN="${LIUSHA_SANDBOX_TOKEN:?LIUSHA_SANDBOX_TOKEN 未设置（.env 必填）}"
+export LIUSHA_SANDBOX_WORKSPACE_DIR="${LIUSHA_SANDBOX_WORKSPACE_DIR:-${HOST_DATA_DIR:-$HOME/data/liusha}/workspace}"
 # 初始管理员：账号表为空时 api 启动期用此密码建 admin（仅首启生效，之后改密走前端）。
-# dev 用固定值方便记忆；e2e 同款凭据。会话 Cookie HttpOnly + SameSite=Lax；
-# prod HTTPS 反代配 LIUSHA_COOKIE_SECURE=true。
+# dev 用固定值方便记忆；e2e 同款凭据。
 export LIUSHA_ADMIN_INITIAL_PASSWORD="${LIUSHA_ADMIN_INITIAL_PASSWORD:-changeme-admin-pass}"
 export LIUSHA_ENV="${LIUSHA_ENV:-development}"
 export LIUSHA_LOG_LEVEL="${LIUSHA_LOG_LEVEL:-info}"
@@ -32,31 +34,26 @@ export LIUSHA_LOG_DIR="${LIUSHA_LOG_DIR:-logs}"
 # 多进程并行跑：stdout 易刷屏，dev 默认只走 file，需要时 tail -F logs/*.log
 export LIUSHA_LOG_TO_STDOUT="${LIUSHA_LOG_TO_STDOUT:-false}"
 export LIUSHA_LOG_TO_FILE="${LIUSHA_LOG_TO_FILE:-true}"
-export LIUSHA_CONFIG="${LIUSHA_CONFIG:-./config/config.yaml}"
 
-# LLM 接入与路由的事实源在 DB（llm_provider / llm_role_route）：首装时由 config.yaml 的
-# providers 块引导一次，之后在前端「LLM 配置」页维护。
+# 其余参数取内置默认配置（api :8580、proxy :8588、runner :8590）；要改用 LIUSHA_<键> 环境变量
+# 或 LIUSHA_CONFIG 指向的覆盖文件。LLM 接入在前端「LLM 配置」页维护：未接入时服务照常启动，
+# 任务下发会被拒绝并提示到前端配置。
 
-# proxy 进程参数（纯 MITM，无独立 healthz；存活探 TCP 8588）
-export LIUSHA_PROXY_LISTEN_ADDR="${LIUSHA_PROXY_LISTEN_ADDR:-0.0.0.0:8588}"
-
-# LLM 配置不要求启动前就绪：未接入时服务照常启动，任务下发会被拒绝并提示到前端配置。
-# 密钥两条路径：前端直填（加密落库），或 config.yaml 各 provider 的 api_key_env 指定的环境变量。
+echo "===== 编译 liusha ====="
+go build -o bin/liusha ./cmd/liusha
 
 echo "===== 启动 3 个 host 服务 ====="
-echo "  config:        $LIUSHA_CONFIG"
-echo "  postgres:      $LIUSHA_POSTGRES_DSN"
+echo "  postgres:      ${LIUSHA_POSTGRES_DSN%%@*}@…"
 echo "  redis:         $LIUSHA_REDIS_ADDR"
-echo "  proxy:         $LIUSHA_PROXY_LISTEN_ADDR (mitm, 无 healthz)"
+echo "  sandbox:       $LIUSHA_SANDBOX_URL"
 echo ""
 
 # 预清旧 dev 进程：避免端口被旧 nohup/run-svc 进程占着导致新启动 fatal "address
 # already in use"，进而出现"半新半旧"的混跑栈（曾踩坑：proxy/api 留旧版，
 # runner 用新版，调试极难）。
 #
-# 按端口杀（不靠 cmdline 模式）：go run 的 build cache 路径形如
-# /Users/.../go-build/<hash>-d/runner，没有 "cmd/" 或 "exe/" 字样，
-# 匹配模式不可靠；按 3 个目标端口找 PID 精确 kill 才稳。先 SIGTERM 再 SIGKILL。
+# 按端口找 PID 精确 kill（三个组件是同一个程序的不同子命令，按命令行匹配会误伤）。
+# 先 SIGTERM 再 SIGKILL。
 for port in 8588 8580 8590; do
   pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) || true
   if [ -n "$pid" ]; then
@@ -88,17 +85,15 @@ fi
 # 启动顺序：proxy → api → runner
 # 应用层 logx 直接写 logs/{service}.log；shell 这里 stderr 兜底捕获 panic 前的早期输出
 echo "[1/3] proxy on :8588 (mitm)"
-go run -mod=mod ./cmd/proxy 2>logs/proxy.stderr &
+bin/liusha proxy 2>logs/proxy.stderr &
 PROXY_PID=$!
 
-sleep 2
-echo "[2/3] api on $LIUSHA_API_ADDR"
-go run -mod=mod ./cmd/api 2>logs/api.stderr &
+echo "[2/3] api on :8580"
+bin/liusha api 2>logs/api.stderr &
 API_PID=$!
 
-sleep 2
 echo "[3/3] runner on :8590"
-go run -mod=mod ./cmd/runner 2>logs/runner.stderr &
+bin/liusha runner 2>logs/runner.stderr &
 WORKER_PID=$!
 
 # 等服务起来

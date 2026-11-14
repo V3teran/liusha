@@ -132,8 +132,8 @@ func registerToolCatalogRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 工具目录（只读检索）+ 工具↔智能体装配（读写下沉后端，单一权威）
-	r.GET("/tools", listToolsHandler(d.ToolCatalog))
-	r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore))
+	r.GET("/tools", listToolsHandler(d.ToolCatalog, d.SandboxInventory))
+	r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore, d.SandboxInventory))
 	r.PUT("/tools/:name/agents/:code", assignToolHandler(d.ToolCatalog, d.ConfigStore))
 }
 

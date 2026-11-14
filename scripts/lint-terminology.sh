@@ -15,13 +15,13 @@ cd "$REPO_ROOT"
 SCAN_ARGS=(
   --include='*.go' --include='*.ts' --include='*.tsx' --include='*.md'
   --include='*.yaml' --include='*.yml' --include='*.json'
-  internal/ cmd/ web/src db/ config/ deployments/ Makefile
+  internal/ cmd/ web/src db/ deployments/ Makefile
 )
 
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
 EXCLUDES=(
   ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
-  ':!deployments'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
+  ':!internal/tools/manifest/tools.yaml'  # 工具清单转述第三方工具的业界用语（如 passive DNS），不是本项目概念
   ':!scripts/lint-terminology.sh'
   ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
   ':!web/dist' ':!**/node_modules'
@@ -36,6 +36,7 @@ EXCLUDES=(
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
 # body_absent：断言键已统一为 body_not_contains（迁移 0200 改写存量）。
+# LIUSHA_AGENT_ID：命令环境里的 run 标识已更名 LIUSHA_AGENT_RUN_ID（它是 run 的 ID，不是 agent 的）。
 # reseed / system_prompt / system_setting：出厂内容编译进程序、数据库只存用户自定义后退役
 #   （迁移 0201）——提示词改称章程（charter），系统设置用户层为 setting_override。
 FORBIDDEN=(
@@ -77,6 +78,7 @@ FORBIDDEN=(
   'reseed'
   'system_prompt'
   'system_setting'
+  'LIUSHA_AGENT_ID'
 )
 
 MODE="${1:-check}"

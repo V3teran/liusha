@@ -16,6 +16,7 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	return s
 }
 
@@ -116,6 +117,7 @@ func TestHiddenTopLevelDirsExcludedFromFileSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	// 控制面中转层（附件暂存 .staging/）：落盘真实存在，文件面整体不可见
 	if err := store.Write(".staging/pending/u1/a.txt", []byte("x")); err != nil {
 		t.Fatal(err)
@@ -207,6 +209,7 @@ func TestStateDirExcludedFromFileSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() }) // Windows 上打开着的目录句柄会让临时目录删不掉
 	if err := store.Write("asg-1/70bbf3bb/out/poc.py", []byte("print(1)")); err != nil {
 		t.Fatal(err)
 	}

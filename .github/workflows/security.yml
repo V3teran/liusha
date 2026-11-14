@@ -16,3 +16,6 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 钉住版本：.gitleaks.toml 用的多组白名单（[[allowlists]]）需要 8.25 起的版本，
+          # action 缺省装的版本更旧，会忽略它。
+          GITLEAKS_VERSION: 8.30.1

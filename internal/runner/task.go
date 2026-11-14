@@ -15,9 +15,9 @@ import (
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/executor"
-	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/task"
 
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -48,33 +48,48 @@ func (h *Handler) executeTask(
 
 	virtualHost := h.onboard(ctx, assignmentID, taskID, brief, taskLogger)
 
-	// 获取 Sandbox（单例模式：所有任务共享一个容器，通过工作目录隔离）
-	sb, err := h.SandboxMgr.Acquire(ctx, sandbox.AcquireRequest{
-		AssignmentID: assignmentID,
-		TaskID:       taskID,
-	})
+	// 沙盒实际安装了什么决定本轮可用的工具（可用 = agent 允许 ∩ 沙盒已安装）。
+	installed, err := awaitInventory(ctx, h.Sandbox, sandboxWait, time.Second)
 	if err != nil {
-		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, fmt.Errorf("sandboxMgr.Acquire(task=%s): %w", taskID, err))
-	}
-	defer func() {
-		if err := h.SandboxMgr.Release(context.Background(), sb); err != nil {
-			taskLogger.Warn().Err(err).Msg("sandboxMgr.Release 失败")
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		switch {
+		case ctx.Err() != nil:
+			// 等沙盒期间停机：与停机中断同样收尾。
+			if runErr := h.AgentRuns.SetAborted(writeCtx, p.AgentRunID); runErr != nil {
+				taskLogger.Warn().Err(runErr).Msg("中断 run 终态回写失败（由僵尸 run 回收兜底）")
+			}
+			taskLogger.Info().Msg("等待沙盒期间停机：任务保持进行中，由恢复监控续跑")
+			return nil
+		case sandbox.Unavailable(err):
+			// 等满上限仍不可达：run 落 error、任务保持 active。恢复监控按出错续跑并计入重投
+			// 上限——沙盒恢复则续跑，持续不可用则任务在上限后落 aborted，不会无限重投。
+			msg := fmt.Sprintf("沙盒 %v 内不可达: %v", sandboxWait, err)
+			if runErr := h.AgentRuns.SetError(writeCtx, p.AgentRunID, msg); runErr != nil {
+				taskLogger.Warn().Err(runErr).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
+			}
+			taskLogger.Warn().Err(err).Msg("沙盒不可达：本次 run 出错，任务保持进行中，由恢复监控重试")
+			return nil
+		default:
+			// 沙盒拒绝请求（令牌错误等）：配置问题不会自愈，任务以错误结束并说明原因。
+			return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID,
+				fmt.Errorf("沙盒拒绝请求，请检查 sandbox.url / sandbox.token 配置: %w", err))
 		}
-	}()
-
-	taskLogger.Info().
-		Str("sandbox_id", sb.ID).
-		Msg("sandbox acquired for task")
+	}
+	// run 无论以何种原因结束（收敛、终止、暂停、停机中断、出错），都结束本任务在沙盒里遗留
+	// 的进程与浏览器会话：续跑的 run 从探索图恢复，不依赖上一 run 的进程。独立 ctx——任务
+	// ctx 此时可能已取消。
+	defer h.releaseSandbox(taskLogger, taskID)
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, sb.Client)
+	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, installed)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 
 	// 中断（进程停机 / asynq 租约丢失）：任务没有结束，只是本进程不再跑它。run 落
 	// aborted（不计入恢复监控的中断上限——那只数 error run），task 保持 active、
 	// 探索图目标保持 open、会话身份不回收；恢复监控的「搁浅任务」规则发现活跃任务
-	// 无存活 run 即以新 run 续跑。asynq 推回队列的原消息会被幂等闸跳过（run 已非 pending）。
+	// 无存活 run 即以新 run 续跑。返回 nil：消息就此了结，不由 asynq 重投。
 	if exit == runExitInterrupted {
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
@@ -279,8 +294,8 @@ const (
 
 // classifyRunExit 按 handler ctx 的结束原因、认知循环错误与停止原因分类。
 //
-// handler ctx 被取消（context.Canceled）只来自 asynq：停机超时后推回队列、或租约丢失——
-// 两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
+// handler ctx 被取消（context.Canceled）只有两个来源：runner 停机中断在途 run、asynq 租约
+// 丢失——两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
 // 暂停优先于中断：两者都不动任务，暂停还要保留 paused 标记交给继续操作。
 func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 	if err == nil && stopReason == cognition.StopReasonPaused {
@@ -296,4 +311,17 @@ func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 		return runExitTerminated
 	}
 	return runExitCompleted
+}
+
+// releaseSandbox 结束任务在沙盒里遗留的进程与浏览器会话（best-effort，失败只告警：
+// 遗留进程不影响任务结局，下次释放同一任务时一并清理）。
+func (h *Handler) releaseSandbox(taskLogger zerolog.Logger, taskID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := h.Sandbox.Release(ctx, taskID)
+	if err != nil {
+		taskLogger.Warn().Err(err).Msg("释放沙盒任务资源失败")
+		return
+	}
+	taskLogger.Info().Int("processes", res.Processes).Int("browsers", res.Browsers).Msg("沙盒任务资源已释放")
 }

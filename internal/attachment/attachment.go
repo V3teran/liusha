@@ -2,7 +2,7 @@
 //
 // 附件生命周期与渗透主流程对齐（先传字典/目标清单 → 再一句话下发扫描）：
 //   - 会话已绑任务 → 文件直落 <assignment>/<task>/inbox/（与 work/out 同层，
-//     随工作区 bind mount 直接进沙盒，agent 经 prompt 里的绝对路径可读）；
+//     沙盒与 api 共用同一工作区目录，agent 经 prompt 里的绝对路径可读）；
 //   - 会话未绑任务（含会话尚未创建的 pending 态）→ 暂存 .staging/ 下（文件面
 //     不展示、不进沙盒），任务创建的那一刻整批搬进 inbox；
 //   - 从未随消息下发的暂存件随会话删除清理（pending 态另有超期清扫兜底）。
@@ -17,19 +17,17 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/workspace"
 )
 
 // StagingTop 是工作区根下的暂存顶层目录（点前缀：workspace.Tree 把它排除在
 // 文件面外，不与任务工件混排）。
 const StagingTop = ".staging"
-
-// SandboxMount 是工作区 bind 进沙盒容器的绝对路径（launcher 契约）：
-// prompt 清单里的 agent 可读路径 = 挂载点 + 工作区相对路径。
-const SandboxMount = "/root/liusha/workspace"
 
 // MaxInlineBytes 是单附件可内联进对话 prompt 的内容上限（qa/纯聊天回答里
 // 直接引用小文本）。qa/chat 对整条用户消息另有 32000 rune 的上下文钳制：
@@ -312,16 +310,17 @@ func hasControlRune(s string) bool {
 	})
 }
 
-// Manifest 渲染注入扫描指令 prompt 的附件清单（沙盒内绝对路径，agent 经
-// 工具直接读取）。refs 为空返回空串。
-func Manifest(refs []Ref) string {
+// Manifest 渲染注入扫描指令 prompt 的附件清单（绝对路径，agent 经工具直接读取）。
+// 沙盒与 api 共用同一工作区目录（sandbox.workspace_dir；compose 以同一路径挂进两个容器），
+// 因此 agent 可读路径 = 工作区根 + 相对路径（交给 agent 的形式，见 sandbox.AgentPath）。refs 为空返回空串。
+func (s *Store) Manifest(refs []Ref) string {
 	if len(refs) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n\n[附件 %d 个，已存入沙盒工作区，可直接读取]\n", len(refs))
 	for _, ref := range refs {
-		fmt.Fprintf(&b, "- %s（%s）→ %s/%s\n", ref.Name, humanSize(ref.Size), SandboxMount, ref.Path)
+		fmt.Fprintf(&b, "- %s（%s）→ %s\n", ref.Name, humanSize(ref.Size), sandbox.AgentPath(filepath.Join(s.ws.Root(), filepath.FromSlash(ref.Path))))
 	}
 	return b.String()
 }

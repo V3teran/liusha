@@ -11,7 +11,7 @@ import { useLogFilters } from '@/features/logs/useLogFilters'
 import { useLogStream } from '@/features/logs/useLogStream'
 import { LogRow, shortInstance } from '@/features/logs/LogRow'
 
-// 日志页：api/proxy/runner 三进程日志的统一视图（logs/{process}.log 尾读）。
+// 日志页：各进程日志的统一视图（logs/{process}.log 尾读；进程名即 liusha 子命令名）。
 //
 // 交互（Live Tail 范式）：实时跟随默认开（3s 增量轮询，脉冲圆点）；向上滚动即
 // 暂停自动滚底并浮出「有新日志」回底条，滚回底部/点击恢复跟随。所有行可展开
@@ -109,7 +109,7 @@ export function LogsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="日志" subtitle="api / runner / proxy 三进程运行日志，实时尾读">
+      <PageHeader title="日志" subtitle="各组件运行日志，实时尾读">
         <button
           type="button"
           onClick={() => setLive((v) => !v)}

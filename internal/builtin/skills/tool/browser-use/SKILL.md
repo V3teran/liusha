@@ -10,7 +10,7 @@ category: tool
 
 每身份一个常驻浏览器服务托管 chrome（自启自管，跨调用状态保持）：
 
-- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有执行单元（并行 action）**共用一个浏览器**，登录态/cookies 共享。身份经 unix socket 隔离（`/tmp/browser-svc-{taskID}-{identity}.sock`），任务结束统一清理。
+- **identity = 身份（cookie jar 边界 = 独立 chromium）**：同一身份下所有执行单元（并行 action）**共用一个浏览器**，登录态/cookies 共享。每个身份一个独立的浏览器服务，任务结束统一清理。
 - **tab = agent**：服务按 `AGENT_ID`（工具层自动注入，无需你传）把命令路由到各自的 tab，页面/编号快照/并发互不干扰——同身份多 agent 并发各操作自己的 tab，无全局 active tab、无串行等待。
 - **多身份**：越权/BAC 要多账号对比时，给 `drive_browser` 传不同 `identity`（= 账号名，如 `admin`/`lowpriv`）→ 各开一个**独立浏览器**（独立 cookie jar）。缺省走共享的 `default` 身份，无需传。
 - **交互流量自动入字典**：浏览器服务内建 CDP Network 抓流，Document/XHR/Fetch 请求自动回灌流量库（`list_traffic` 可查，`tool=browser`、`identity=身份名`）——登录 POST、带凭证的 XHR 都会被抓下，`view_traffic` 连 httpOnly cookie 头都看得到（取舍：每身份**首个导航 GET 可能漏抓**，后续请求不漏；BAC 要的带凭证请求都在）。
@@ -19,7 +19,7 @@ category: tool
 
 **一律用 typed `drive_browser` 工具**（16 个 action 全集：open / state / click / input / type / select / hover / dblclick / rightclick / scroll / back / keys / wait / eval / get / screenshot），不要 `run_command "browser-use ..."` 拼 shell。
 
-仅以下子命令 typed 工具未覆盖、才走 `run_command`（`IDENTITY=... browser-use <sub>` 形态）：
+仅以下子命令 typed 工具未覆盖、才走 `run_command`（`IDENTITY=<身份名> browser-use <sub>` 形态；身份名与 `drive_browser` 的 `identity` 相同，缺省 `default`，只含字母、数字、`-`、`_`）：
 
 - `extract`：结构化文本抽取
 - `reset`：重启本身份浏览器会话（见失败排查；正常由 wrapper 自动自愈，别日常调）
@@ -43,7 +43,7 @@ category: tool
 
 ## 自动自愈（wrapper 内建，先于你感知）
 
-`drive_browser` 的 Go wrapper 会检测浏览器 daemon 的退化态签名（watchdog 超时类错误）并自动两级恢复：L1 `reset` → 仍退化则 L2 杀 daemon + chromium 冷启 → 重试原命令，恢复过程随结果回放日志。**你通常不需要手动 reset**——只有结果里带自愈日志且仍持续失败时才手动 `run_command "IDENTITY=... browser-use reset"`。
+`drive_browser` 的 Go wrapper 会检测浏览器 daemon 的退化态签名（watchdog 超时类错误）并自动两级恢复：L1 `reset` → 仍退化则 L2 杀 daemon + chromium 冷启 → 重试原命令，恢复过程随结果回放日志。**你通常不需要手动 reset**——只有结果里带自愈日志且仍持续失败时才手动 `run_command "IDENTITY=<身份名> browser-use reset"`。
 
 ## 浏览器登录（独立有状态会话，不从 redis 注入 cookie）
 
@@ -66,6 +66,6 @@ chromium 的 cookie jar 按 identity 持久（服务生命周期内），与 cur
 |---|---|---|
 | `click x,y` timeout | LLM 猜的坐标错位，chromium 等不到事件 | 换 `state` + `click index=N` |
 | `Element index N not found` | state 后页面变了，编号失效 | 重新 `state` 拿新 index（别复用旧 N）；反复失效改 `eval` 走 CSS selector |
-| 反复 click / open 都 timeout，结果含 `[自愈]` 日志 | daemon 退化，自动恢复也没救 | 手动 `run_command "IDENTITY=<身份> browser-use reset"` 重启该身份会话 |
+| 反复 click / open 都 timeout，结果含 `[自愈]` 日志 | daemon 退化，自动恢复也没救 | 手动 `run_command "IDENTITY=<身份名> browser-use reset"` 重启该身份会话 |
 | 首次 `open` 等待很久 | chromium cold start（20-30s） | 正常，120s 超时内会完成；无需任何参数 |
 | 需要 cookie 值但 `eval document.cookie` 拿不到 | HttpOnly cookie 对 JS 不可见 | 用流量字典：`list_traffic`（tool=browser）→ `view_traffic` 看请求头 |

@@ -17,7 +17,7 @@ func (h *Handler) runCognition(
 	ctx context.Context,
 	taskLogger zerolog.Logger,
 	assignmentID, agentRunID, taskID, host, brief, conversationID string,
-	sb sandbox.Client,
+	installed sandbox.Inventory,
 ) (executor.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
 	// 尾部保留，热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，
@@ -42,6 +42,7 @@ func (h *Handler) runCognition(
 
 		Skills:        h.Skills,
 		ToolsManifest: h.ToolsManifest,
+		Installed:     installed,
 		Creds:         h.Creds,
 
 		ToolCalls: h.ToolCalls,
@@ -67,9 +68,9 @@ func (h *Handler) runCognition(
 			RunTailBytes:           rt.RunTailBytes,
 			ToolOutputTailBytes:    rt.ToolOutputTailBytes,
 		},
-		SandboxListener: h.Sandbox,
+		SandboxListener: h.SandboxListener,
 
 		Conversations:  h.Conversations,
 		EventPublisher: h.EventPublisher,
-	}, taskID, host, brief, conversationID, sb)
+	}, taskID, host, brief, conversationID, h.Sandbox)
 }

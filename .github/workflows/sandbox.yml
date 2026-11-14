@@ -1,0 +1,66 @@
+name: sandbox
+
+# 沙盒镜像（deployments/sandbox/Dockerfile）由部署方本地构建，不发布。本 workflow 在镜像定义或
+# 工具清单变更时双架构构建一遍并验证，只验证不推送：起沙盒服务，用它自己的 GET /tools
+# 探测确认工具清单中的工具全部安装、浏览器能力可用——与运行时判定工具可用性是同一套逻辑。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deployments/sandbox/**
+      - internal/tools/manifest/tools.yaml
+      - .github/workflows/sandbox.yml
+  pull_request:
+    paths:
+      - deployments/sandbox/**
+      - internal/tools/manifest/tools.yaml
+      - .github/workflows/sandbox.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    # arm64 用原生 runner：数 GB 的 apt 安装走 QEMU 不现实。
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/local/graalvm /usr/local/.ghcup /usr/share/swift
+          sudo docker image prune --all --force
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/sandbox/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: liusha-sandbox:ci
+          cache-from: type=gha,scope=sandbox-${{ matrix.arch }}
+          cache-to: type=gha,scope=sandbox-${{ matrix.arch }},mode=max
+
+      - name: Verify installed tools
+        run: |
+          token=$(openssl rand -hex 32)
+          docker run -d --name sandbox --init -e LIUSHA_SANDBOX_TOKEN="$token" -p 127.0.0.1:8591:8591 liusha-sandbox:ci
+          for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8591/healthz >/dev/null && break; sleep 2; done
+          curl -sf --oauth2-bearer "$token" http://127.0.0.1:8591/tools > tools.json || { docker logs sandbox; exit 1; }
+          missing=$(jq -r '.tools | to_entries[] | select(.value | not) | .key' tools.json)
+          browser=$(jq -r '.browser.installed' tools.json)
+          echo "已安装 $(jq '[.tools[] | select(.)] | length' tools.json) / $(jq '.tools | length' tools.json) 个工具"
+          if [ -n "$missing" ]; then echo "未安装：" $missing; exit 1; fi
+          if [ "$browser" != "true" ]; then echo "浏览器能力不可用：$(jq -r '.browser.detail' tools.json)"; exit 1; fi
