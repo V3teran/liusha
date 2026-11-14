@@ -84,19 +84,6 @@ export function verificationMeta(status?: VerificationStatus): string | null {
   return VERIFICATION_META[status] ?? status
 }
 
-/**
- * 威胁等级色点（600 系中间调，双主题 ≥2.8:1）。独立于 lib/severity.ts：
- * 那套 400/500 系为深底标签调校，黄/绿在浅色卡片上不足 2.2:1；
- * 色点仅作强化，语义始终由旁边的文字标签承载。
- */
-export const SEVERITY_DOTS: Record<string, string> = {
-  critical: '#dc2626',
-  high: '#ea580c',
-  medium: '#ca8a04',
-  low: '#16a34a',
-  info: '#2563eb',
-}
-
 export const COMPLEXITY_META: Record<string, string> = {
   simple: '简单',
   moderate: '中等',
@@ -154,11 +141,9 @@ export interface NodeChips {
   state?: StateMeta
   /** 动作类型 / 观测分类 */
   category?: string
-  /** 优先级（observation/result 的 content.priority） */
-  severity?: string
   /** 验证状态文字标签（仅假设观察） */
   verification?: string
-  /** 高优先级（仅 P0/P1 上卡，避免噪音） */
+  /** 高优先级（节点优先级；仅 P0/P1 上卡，避免噪音） */
   priority?: { code: string; className: string }
 }
 
@@ -178,8 +163,6 @@ export function nodeChips(node: GraphNode): NodeChips {
   }
 
   if (node.kind === 'observation' || node.kind === 'result') {
-    const sev = typeof c.priority === 'string' ? c.priority.toLowerCase() : ''
-    if (sev) chips.severity = sev
     chips.verification = verificationMeta(node.verification_status) ?? undefined
   }
   if (node.priority === 'critical' || node.priority === 'high') {

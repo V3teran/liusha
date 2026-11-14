@@ -244,3 +244,44 @@ func TestHarvestObservation_FactWithoutReproIsNotNormalized(t *testing.T) {
 		t.Fatalf("无配方的事实观察不应报归一化失败:\n%s", logs.String())
 	}
 }
+
+// 优先级只在节点层存一份：观察给出的优先级归一后写进节点（图与界面据此展示），
+// 内容里不再另存；转交评估者的主张沿用节点优先级。
+func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+	action := explorationgraph.Node{
+		ID: "act-pri", TaskID: "t-pri", Kind: core.KindAction,
+		Content: json.RawMessage(`{"type":"testing","instruction":"i"}`),
+	}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatalf("建 action 失败: %v", err)
+	}
+
+	attempt, _ := e.harvestObservation(context.Background(), action, Observation{
+		Category:  explorationgraph.CategoryHypothesis,
+		Statement: "管理接口未鉴权",
+		Priority:  " Critical ",
+		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 访问"},"assert":{"description":"返回管理数据"}}`),
+	}, ExecutionTrace{})
+	if attempt == nil {
+		t.Fatal("假设应产出 Attempt")
+	}
+	node, err := graph.GetNode(context.Background(), attempt.NodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.Priority != explorationgraph.PriorityCritical {
+		t.Fatalf("节点优先级应为 critical，得 %q", node.Priority)
+	}
+	var content map[string]any
+	if err := json.Unmarshal(node.Content, &content); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := content["priority"]; ok {
+		t.Fatalf("内容里不应再存优先级: %v", content)
+	}
+	if attempt.Priority != string(explorationgraph.PriorityCritical) {
+		t.Fatalf("Attempt 应沿用节点优先级，得 %q", attempt.Priority)
+	}
+}

@@ -348,7 +348,6 @@ func (g *PromotionGate) deliverClaim(
 
 	var content struct {
 		Summary    string          `json:"summary"`
-		Priority   string          `json:"priority"`
 		Impact     string          `json:"impact"`
 		Suggestion string          `json:"suggestion"`
 		Host       string          `json:"host"`
@@ -363,7 +362,7 @@ func (g *PromotionGate) deliverClaim(
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
 		Statement:      content.Summary,
-		Priority:       content.Priority,
+		Priority:       string(node.Priority),
 		Impact:         content.Impact,
 		Suggestion:     content.Suggestion,
 		HostHint:       content.Host,

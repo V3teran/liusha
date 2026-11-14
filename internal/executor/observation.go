@@ -33,9 +33,6 @@ func (e *Engine) createObservationNode(
 		"reasoning": obs.Reasoning,
 	}
 
-	if obs.Priority != "" {
-		contentMap["priority"] = obs.Priority
-	}
 	if obs.Impact != "" {
 		contentMap["impact"] = obs.Impact
 	}
@@ -67,7 +64,7 @@ func (e *Engine) createObservationNode(
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
 		Content:    content,
-		Priority:   explorationgraph.PriorityMedium,
+		Priority:   explorationgraph.NormalizePriority(obs.Priority), // 优先级只在节点层一份
 		SourceType: explorationgraph.SourceExecutor,
 		SourceID:   e.agentRunID,
 		CreatedAt:  time.Now(),
@@ -118,17 +115,11 @@ func (e *Engine) observationToAttempt(
 	node *explorationgraph.Node,
 	obs Observation,
 ) (evaluator.Attempt, error) {
-	// priority 缺省交领域交付层补（finding 映射处有默认）——通用执行层
-	// 不制造领域默认值。
-	priority := obs.Priority
-
-	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——
-	// 中立层词汇 priority/impact/suggestion，安全域交付时译作
-	// severity/impact/remediation（域词归域）。executor 的执行轨迹随
-	// 观察节点另存，不进主张载荷（体积与职责：轨迹属图，主张属台账）。
+	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——中立层词汇
+	// impact/suggestion，安全域交付时译作 impact/remediation（域词归域）。优先级
+	// 在节点层（node.Priority），不进载荷。
 	content := map[string]interface{}{
-		"summary":  obs.Statement,
-		"priority": priority,
+		"summary": obs.Statement,
 	}
 	if obs.Impact != "" {
 		content["impact"] = obs.Impact
@@ -147,7 +138,7 @@ func (e *Engine) observationToAttempt(
 		Kind:       "result", // 晋升为 result 节点
 		Primitives: obs.Repro,
 		Content:    contentJSON,
-		Priority:   "medium",
+		Priority:   string(node.Priority),
 	}, nil
 }
 

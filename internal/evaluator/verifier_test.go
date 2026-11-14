@@ -112,7 +112,7 @@ func baseAttempt() Attempt {
 		NodeID:     "node-source",
 		Kind:       core.KindResult,
 		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
-		Content:    json.RawMessage(`{"summary":"X 参数存在可复现注入","severity":"high"}`),
+		Content:    json.RawMessage(`{"summary":"X 参数存在可复现注入"}`),
 		Priority:   "high",
 	}
 }
@@ -231,6 +231,9 @@ func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 	}
 	if c.Statement == "" || len(c.Evidence) == 0 || len(c.Repro) == 0 {
 		t.Fatalf("交付载荷应透传陈述/证据/配方: %+v", c)
+	}
+	if c.Priority != "high" || node.Priority != explorationgraph.PriorityHigh {
+		t.Fatalf("优先级只在节点层一份，交付取结果节点的优先级: claim=%q node=%q", c.Priority, node.Priority)
 	}
 }
 
