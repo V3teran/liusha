@@ -45,3 +45,24 @@ func TestAgentConfig_PollInterval(t *testing.T) {
 	_ = NewAgent(cfg)
 	assert.NotNil(t, NewAgent(cfg))
 }
+
+// 重规划请求在被消费前合并：多次请求只触发一次强制重规划，原因取最新——请求不会
+// 丢，也不会堆积成多轮重复规划。
+func TestRequestReplan_CoalescesToLatestReason(t *testing.T) {
+	a := NewAgent(AgentConfig{TaskID: "t1"})
+
+	a.RequestReplan("探索停滞")
+	a.RequestReplan("ROI 过低")
+
+	select {
+	case <-a.replanCh:
+	default:
+		t.Fatal("请求后应有一个待处理的重规划信号")
+	}
+	select {
+	case <-a.replanCh:
+		t.Fatal("多次请求应合并为一个信号")
+	default:
+	}
+	assert.Equal(t, "ROI 过低", a.takeReplanReason())
+}

@@ -243,14 +243,6 @@ func TestAnalyzeAndProcessResults_ContinuationActionsAreDeduplicated(t *testing.
 	assert.JSONEq(t, `{"instruction":"新测试","reasoning":""}`, string(actions[1].Content))
 }
 
-// convergeRecorder 记录收敛事件的事件总线替身。
-type convergeRecorder struct {
-	fakeEventBus
-	converged int
-}
-
-func (c *convergeRecorder) PublishTaskConverged(_, _ string) { c.converged++ }
-
 // 收敛判定的唯一口径：未分析的结果、待验证的假设与非终态动作一样阻止收敛，
 // 常规规划与 monitor 强制重规划两条路径一致。
 func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
@@ -274,13 +266,13 @@ func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
 		for _, trigger := range []string{"planning", "forced replan"} {
 			t.Run(tc.name+"/"+trigger, func(t *testing.T) {
 				a, store := revisionAgent(t, &ResultAnalysis{})
-				bus := &convergeRecorder{}
-				a.eventBus = bus
+				converged := 0
+				a.onConverged = func(string) { converged++ }
 				tc.seed(t, store)
 
 				a.handleNoActions(context.Background(), trigger)
 
-				assert.Equal(t, !tc.blocked, bus.converged == 1)
+				assert.Equal(t, !tc.blocked, converged == 1)
 			})
 		}
 	}

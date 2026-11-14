@@ -13,7 +13,7 @@ import (
 )
 
 // TestCompletionDetector_TaskConvergedE2E 端到端测试：
-// 模拟 Planner 发布 EventTaskConverged，验证 CompletionDetector 立即停止
+// 模拟 Planner 宣告收敛，验证 CompletionDetector 立即停止
 func TestCompletionDetector_TaskConvergedE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -50,15 +50,15 @@ func TestCompletionDetector_TaskConvergedE2E(t *testing.T) {
 	// 等待事件处理
 	time.Sleep(150 * time.Millisecond)
 
-	// 模拟 Planner 发布 EventTaskConverged
-	eventBus.PublishTaskConverged(taskID, "planner: no more actions to generate")
+	// 模拟 Planner 宣告收敛
+	detector.Converge("planner: no more actions to generate")
 
 	// 验证 detector 立即停止（不等待 max_steps）
 	select {
 	case result := <-resultChan:
 		assert.Equal(t, "task_converged", result.StopReason, "应该以 task_converged 停止")
 		assert.Equal(t, 3, result.Steps, "应该记录 3 步")
-		t.Log("✅ CompletionDetector 收到 EventTaskConverged 后立即停止")
+		t.Log("✅ CompletionDetector 收到收敛通知后立即停止")
 	case <-time.After(2 * time.Second):
 		t.Fatal("超时：CompletionDetector 未在 2 秒内停止")
 	}
@@ -146,8 +146,8 @@ func TestCompletionDetector_ConvergedBeforeMaxStepsE2E(t *testing.T) {
 	// 等待处理
 	time.Sleep(150 * time.Millisecond)
 
-	// 发布收敛事件（远未达到 max_steps=100）
-	eventBus.PublishTaskConverged(taskID, "planner: no more actions")
+	// 宣告收敛（远未达到 max_steps=100）
+	detector.Converge("planner: no more actions")
 
 	// 验证以 task_converged 停止（不是 max_steps）
 	select {
@@ -160,7 +160,7 @@ func TestCompletionDetector_ConvergedBeforeMaxStepsE2E(t *testing.T) {
 	}
 }
 
-// TestCompletionDetector_MultipleConvergedEventsE2E 验证多次收敛事件（幂等性）
+// TestCompletionDetector_MultipleConvergedEventsE2E 验证多次收敛通知（幂等性）
 func TestCompletionDetector_MultipleConvergedEventsE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -188,61 +188,20 @@ func TestCompletionDetector_MultipleConvergedEventsE2E(t *testing.T) {
 	// 等待启动
 	time.Sleep(100 * time.Millisecond)
 
-	// 发布多次收敛事件（模拟 Planner 多次返回空列表）
-	eventBus.PublishTaskConverged(taskID, "reason 1")
+	// 发布多次收敛通知（模拟 Planner 多次返回空列表）
+	detector.Converge("reason 1")
 	time.Sleep(50 * time.Millisecond)
-	eventBus.PublishTaskConverged(taskID, "reason 2")
+	detector.Converge("reason 2")
 	time.Sleep(50 * time.Millisecond)
-	eventBus.PublishTaskConverged(taskID, "reason 3")
+	detector.Converge("reason 3")
 
 	// 验证只停止一次
 	select {
 	case result := <-resultChan:
 		assert.Equal(t, "task_converged", result.StopReason)
-		t.Log("✅ 多次收敛事件不会重复处理（幂等）")
+		t.Log("✅ 多次收敛通知不会重复处理（幂等）")
 	case <-time.After(2 * time.Second):
 		t.Fatal("超时")
-	}
-}
-
-// TestCompletionDetector_OtherTaskEventIgnoredE2E 验证其他任务的事件被忽略
-func TestCompletionDetector_OtherTaskEventIgnoredE2E(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	eventBus := bus.New(ctx)
-	graph := explorationgraph.NewMemoryStore()
-	taskID := "test-task"
-
-	detector := NewCompletionDetector(Config{
-		TaskID:        taskID,
-		Graph:         graph,
-		Bus:           eventBus,
-		Logger:        zerolog.New(zerolog.NewTestWriter(t)),
-		MaxSteps:      0, // 无限制
-		CheckInterval: 100 * time.Millisecond,
-	})
-
-	// 在后台启动
-	resultChan := make(chan Result)
-	go func() {
-		result := detector.Start(ctx)
-		resultChan <- result
-	}()
-
-	// 等待启动
-	time.Sleep(100 * time.Millisecond)
-
-	// 发布其他任务的收敛事件
-	eventBus.PublishTaskConverged("other-task", "other task converged")
-
-	// 等待一段时间，验证未停止
-	select {
-	case result := <-resultChan:
-		t.Fatalf("不应该停止，但收到结果: %+v", result)
-	case <-time.After(500 * time.Millisecond):
-		t.Log("✅ 其他任务的收敛事件被正确忽略")
-		cancel() // 手动停止 detector
 	}
 }
 
