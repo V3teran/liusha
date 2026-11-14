@@ -39,6 +39,12 @@ IDENTITY = sys.argv[1]
 ENDPOINT = os.path.join(sys.argv[2], IDENTITY + ".json")
 KEY = secrets.token_urlsafe(32)
 
+# 浏览器冷启动的时限。browser_use 缺省 30 秒，按热环境估算：全新配置目录上首次启动浏览器
+# （Windows 上还要过一遍杀毒扫描）实测接近乃至超过 30 秒，超时即本次打开失败。放宽到 90 秒，
+# 仍在 open 请求的上限（handle_conn 的 cap）之内；部署方可用同名环境变量另行指定。
+os.environ.setdefault("TIMEOUT_BrowserStartEvent", "90")
+os.environ.setdefault("TIMEOUT_BrowserLaunchEvent", "90")
+
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
 # POST 到沙盒本机接口的 /ingest → 沙盒带令牌转发给 runner → ingestor.handleInternalSnap
@@ -122,7 +128,10 @@ class Service:
             if self.bs is None:
                 # 视口尺寸由沙盒随命令注入（配置 sandbox.viewport_*）；缺省走 browser_use 内置。
                 vw, vh = os.environ.get("LIUSHA_VIEWPORT_WIDTH"), os.environ.get("LIUSHA_VIEWPORT_HEIGHT")
-                kwargs = {"headless": True, "user_data_dir": profile_dir()}
+                # 不加载 browser_use 缺省的扩展（广告拦截、Cookie 弹窗处理等）：它们拦截目标的
+                # 请求、改写目标站点的状态，测到的页面与抓到的流量就不是目标的本来面目；且首次
+                # 启动要从网上下载，离线或弱网部署下浏览器起不来。
+                kwargs = {"headless": True, "user_data_dir": profile_dir(), "enable_default_extensions": False}
                 if vw and vh:
                     kwargs["window_size"] = {"width": int(vw), "height": int(vh)}
                 bs = BrowserSession(**kwargs)
