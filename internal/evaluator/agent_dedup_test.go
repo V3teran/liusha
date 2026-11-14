@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -66,30 +67,43 @@ func TestClaimFromHypothesisContentShape(t *testing.T) {
 	}
 }
 
-// TestIsDeterministicRecipeError 锁定 fail-fast 语义：确定性配方缺陷（形状/
-// 缺字段）重试无意义，应直接终局出圈；网络类错误不在其列。
-func TestIsDeterministicRecipeError(t *testing.T) {
-	deterministic := []string{
-		"verifier: 复现执行失败: Replayer: 解析域信封失败: json: cannot unmarshal array into Go value of type executor.ReproEnvelope",
-		"web.Replayer: 解析 assert 失败: json: cannot unmarshal array into Go struct field .header_contains",
-		"observation 缺少 repro 字段",
-		"Replayer: 未知域 \"xss\"（已支持: web, generic）",
-		"web.Replayer: request 非法——url 必须是完整 URL（含 http:// 或 https://），当前 \"x\"",
+// TestRecordVerifyFailure_InvalidRecipeFailsFast 锁定 fail-fast 语义：复现通道认定的
+// 配方缺陷（ErrInvalidRecipe）重放必然同样失败，一次即终局出圈；未认定为配方缺陷的
+// 失败按重试阶梯计数。分类只认哨兵错误，不按错误文本猜。
+func TestRecordVerifyFailure_InvalidRecipeFailsFast(t *testing.T) {
+	cases := []struct {
+		name        string
+		cause       error
+		wantRefuted bool
+	}{
+		{"配方缺陷一次出圈", fmt.Errorf("verifier: 复现执行失败: %w: 未知 source", ErrInvalidRecipe), true},
+		// 文本里有「解析失败」「unmarshal」也不算——不是复现通道认定的配方缺陷
+		{"文本相似但非哨兵不出圈", errors.New("judge: 解析失败: json: cannot unmarshal array"), false},
+		{"目标不可达计一次不出圈", fmt.Errorf("%w: EOF", ErrTargetUnreachable), false},
 	}
-	for _, s := range deterministic {
-		if !isDeterministicRecipeError(fmt.Errorf("%s", s)) {
-			t.Errorf("应判为确定性缺陷: %s", s)
-		}
-	}
-	transient := []string{
-		`web.Replayer: 基线重放失败: replay 请求未拿到目标响应: Get "http://t": dial tcp: lookup t: no such host`,
-		"verification timeout (will retry): context deadline exceeded",
-		"http 429: Too Many Requests",
-	}
-	for _, s := range transient {
-		if isDeterministicRecipeError(fmt.Errorf("%s", s)) {
-			t.Errorf("不应判为确定性缺陷: %s", s)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memGraph := explorationgraph.NewMemoryStore()
+			a := NewAgent(AgentConfig{TaskID: "t1", EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.Nop()})
+			pending := explorationgraph.VerificationPending
+			if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+				ID: "obs-f", TaskID: "t1", Kind: core.KindObservation,
+				Content: json.RawMessage(`{"statement":"S"}`), VerificationStatus: &pending,
+			}); err != nil {
+				t.Fatalf("建观察失败: %v", err)
+			}
+			a.recordVerifyFailure(context.Background(), "obs-f", Claim{TaskID: "t1", NodeID: "obs-f"}, tc.cause)
+			node, err := memGraph.GetNode(context.Background(), "obs-f")
+			if err != nil {
+				t.Fatalf("读回节点失败: %v", err)
+			}
+			if got := node.HasVerificationStatus(explorationgraph.VerificationRefuted); got != tc.wantRefuted {
+				t.Fatalf("一次失败后 refuted=%v，期望 %v（refute_reason=%q）", got, tc.wantRefuted, node.RefuteReason())
+			}
+			if tc.wantRefuted && node.RefuteReason() != RefuteInvalidRecipe {
+				t.Fatalf("refute_reason=%q，期望 invalid_recipe", node.RefuteReason())
+			}
+		})
 	}
 }
 
@@ -98,7 +112,7 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 // （result 只承载经判定坐实的主张）。
 func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-boundary"}
-	promoter := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+	promoter := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	memGraph := explorationgraph.NewMemoryStore()

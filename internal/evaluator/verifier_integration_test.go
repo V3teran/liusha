@@ -14,6 +14,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// gateWith 构造带 stub 域复现通道的晋升门。
+func gateWith(graph *explorationgraph.Store, r evaluator.Replayer, sink evaluator.ClaimSink) *evaluator.PromotionGate {
+	return evaluator.New(graph, sink).WithReplayer("stub", r)
+}
+
 // stubReplayer 按预设结论回应复现——集成测试只评估"门 + 真 store"咬合，不测真实复现。
 type stubReplayer struct{ res evaluator.Result }
 
@@ -57,14 +62,14 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		return evaluator.Claim{
 			TaskID:   taskID,
 			NodeID:   hypID,
-			Repro:    json.RawMessage(`{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""},"assert":{"body_contains":["leaked"]}}`),
+			Repro:    json.RawMessage(`{"domain":"stub","recipe":{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""}},"assert":{"body_contains":["leaked"]}}`),
 			Content:  json.RawMessage(`{"severity":"high","host":"` + loc + `","statement":"SQLi at ` + loc + `"}`),
 			Priority: "high",
 		}
 	}
 
 	// 坐实：应晋升 result 节点。
-	confirmed := evaluator.New(store, stubReplayer{res: evaluator.Result{
+	confirmed := gateWith(store, stubReplayer{res: evaluator.Result{
 		Evidence: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
 	}}, nil).WithJudge(verdictJudge{verdict: evaluator.VerdictConfirmed})
 	node, err := confirmed.Promote(ctx, mkClaim("t.local"))
@@ -76,7 +81,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}
 
 	// 证伪：不进图，但 exploration_verification 留 refuted 档。
-	refuted := evaluator.New(store, stubReplayer{res: evaluator.Result{
+	refuted := gateWith(store, stubReplayer{res: evaluator.Result{
 		Evidence: json.RawMessage(`{"reason":"no repro"}`),
 	}}, nil).WithJudge(verdictJudge{verdict: evaluator.VerdictRefuted})
 	rNode, err := refuted.Promote(ctx, mkClaim("safe.local"))
@@ -129,7 +134,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 	}()
 
 	promote := func(verdict string) (*explorationgraph.Node, error) {
-		v := evaluator.New(store, stubReplayer{res: evaluator.Result{
+		v := gateWith(store, stubReplayer{res: evaluator.Result{
 			Evidence: json.RawMessage(`{"url":"http://t.local/x"}`), DurationMs: 5,
 		}}, nil).WithJudge(replayJudgeITest{verdict: verdict})
 
@@ -146,7 +151,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 
 		return v.Promote(ctx, evaluator.Claim{
 			TaskID: taskID, NodeID: hypID,
-			Repro:   json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
+			Repro:   json.RawMessage(`{"domain":"stub","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
 			Content: json.RawMessage(`{"statement":"s","severity":"high"}`),
 		})
 	}

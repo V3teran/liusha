@@ -1,4 +1,4 @@
-package executor
+package webrepro
 
 import (
 	"context"
@@ -22,15 +22,15 @@ type ResolveStep struct {
 func runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
 	src, err := step.Request.toSource()
 	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: resolve.request 非法——%w", err)
+		return "", "", fmt.Errorf("web 复现: resolve.request 非法——%w", err)
 	}
 	res, err := httpreplay.Replay(ctx, src, httpreplay.Overrides{})
 	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: 准备请求重发失败: %w", err)
+		return "", "", fmt.Errorf("web 复现: 准备请求重发失败: %w", err)
 	}
 	val, err := step.Extract.extract(res)
 	if err != nil {
-		return "", "", fmt.Errorf("web.Replayer: %w", err)
+		return "", "", fmt.Errorf("web 复现: %w", err)
 	}
 	return step.Extract.Name, val, nil
 }
@@ -47,10 +47,10 @@ type Extractor struct {
 // extract 从重发结果里抽值。抽不到返回 error——绝不返回空串静默放过（护栏2）。
 func (e Extractor) extract(res httpreplay.Result) (string, error) {
 	if e.Name == "" {
-		return "", fmt.Errorf("extractor.name 必填")
+		return "", invalidRecipe("extractor.name 必填")
 	}
 	if e.Regex != "" && e.JSON != "" {
-		return "", fmt.Errorf("extractor %q: regex 与 json 互斥，只能给一个", e.Name)
+		return "", invalidRecipe("extractor %q: regex 与 json 互斥，只能给一个", e.Name)
 	}
 	raw, err := e.rawSource(res)
 	if err != nil {
@@ -60,7 +60,7 @@ func (e Extractor) extract(res httpreplay.Result) (string, error) {
 	case e.Regex != "":
 		re, err := regexp.Compile(e.Regex)
 		if err != nil {
-			return "", fmt.Errorf("extractor %q: 正则编译失败: %w", e.Name, err)
+			return "", invalidRecipe("extractor %q: 正则编译失败: %v", e.Name, err)
 		}
 		m := re.FindStringSubmatch(raw)
 		if len(m) < 2 {
@@ -98,7 +98,7 @@ func (e Extractor) rawSource(res httpreplay.Result) (string, error) {
 		}
 		return v, nil
 	default:
-		return "", fmt.Errorf("extractor %q: 未知 source %q（body / header:<名> / set-cookie:<名>）", e.Name, e.Source)
+		return "", invalidRecipe("extractor %q: 未知 source %q（body / header:<名> / set-cookie:<名>）", e.Name, e.Source)
 	}
 }
 

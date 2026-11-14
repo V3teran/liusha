@@ -151,10 +151,10 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 ### 复现配方与坐实交付
 
-- 配方是域信封 `{domain, recipe, assert}`，`internal/repro.NormalizeReproEnvelope` 是形状契约的唯一权威。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
-- 复现门（`executor/replayer.go`）是终局：web 域断言没有任何机器谓词即为空断言，不可坐实。
-- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `repro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
-- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（重放没拿到响应，`httpreplay.ErrTransport`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷立即出圈。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
+- 配方是域信封 `{domain, recipe, assert}`。核心领域中立：`internal/repro` 只定义信封与领域注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `generic` 领域），recipe / assert 的形状、矫正与机器复现通道归各领域包（Web 是 `internal/webrepro`），在 `cognition` 装配时注册。复现门按信封的 domain 选复现通道；没有通道的领域回显配方、由评估者自主取证（验证档位 `judge_only`）。新增领域实现 `repro.Domain`（与可选的 `evaluator.Replayer`）并在装配处注册，核心不出现领域字面量。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
+- 复现门是终局：web 域（`webrepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
+- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `webrepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
+- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
 - 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 pending，下轮重试。
 - finding 以 `(task_id, dedup_key)` 幂等，`dedup_key` 是 DB 生成列（host + cwe + 规范化路径 + method + parameter）。重试与重放交付不会重复或改写已有记录。
 
@@ -253,6 +253,6 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 全仓质量治理按以下三波划分，每波结束都跑一遍验证门：
 
-1. agent 核心（认知循环、复现与验证、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,httpreplay,distill,reasoning,intent,chat,qa}`
+1. agent 核心（认知循环、复现与验证、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,webrepro,httpreplay,distill,reasoning,intent,chat,qa}`
 2. 平台服务：`internal/` 下其余全部包（持久化、调度、接入、配置、基础设施），以及 `cmd/`。
 3. 前端：`web/src`（pages 编排 / features 领域 / api 客户端 / styles Token）。

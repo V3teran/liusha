@@ -20,9 +20,6 @@ func (g *PromotionGate) validateClaim(a Claim) error {
 	if a.NodeID == "" {
 		return fmt.Errorf("verifier: Claim.NodeID 必填（审计链与验证标记都要指向被验证的假设节点）")
 	}
-	if g.replayer == nil {
-		return fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
-	}
 	if g.judge == nil {
 		return fmt.Errorf("verifier: 无 LLM 判定器，无法晋升（机器不持判定权）")
 	}
@@ -32,7 +29,7 @@ func (g *PromotionGate) validateClaim(a Claim) error {
 // createReplayFunction 创建重放闭包，记录完整证据链
 func (g *PromotionGate) createReplayFunction(a Claim, replays *[]replayRecord) func(context.Context, string) (Result, error) {
 	return func(rctx context.Context, phase string) (Result, error) {
-		res, err := g.replayer.Replay(rctx, a.Repro)
+		res, err := g.replay(rctx, a.Repro)
 		rec := replayRecord{Phase: phase, DurationMs: res.DurationMs}
 		if err != nil {
 			rec.Error = err.Error()
