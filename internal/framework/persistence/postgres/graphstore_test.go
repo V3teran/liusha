@@ -27,11 +27,11 @@ func TestGraphStore_CreateAndGetNode(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "11111111-1111-4111-8111-111111111111",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{"title":"test action"}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
-		State:    string(core.NodeStateOpen),
+		ID:      "11111111-1111-4111-8111-111111111111",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{"title":"test action"}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
+		State: string(core.NodeStateOpen),
 	}
 
 	err := store.CreateNode(ctx, node)
@@ -61,11 +61,11 @@ func TestGraphStore_UpdateNode(t *testing.T) {
 
 	// 创建初始节点
 	node := &core.GraphNode{
-		ID:       "22222222-2222-4222-8222-222222222222",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{"title":"initial"}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "22222222-2222-4222-8222-222222222222",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{"title":"initial"}`),
+		State:   string(core.NodeStateOpen),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -99,11 +99,11 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "33333333-3333-4333-8333-333333333333",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "33333333-3333-4333-8333-333333333333",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{}`),
+		State:   string(core.NodeStateOpen),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -145,11 +145,11 @@ func TestGraphStore_GuardedTransition(t *testing.T) {
 	const taskID, nodeID = "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444"
 
 	node := &core.GraphNode{
-		ID:       nodeID,
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{}`),
-		State:    string(core.NodeStateRunning),
-		Metadata: map[string]interface{}{"task_id": taskID, "claimed_by": "run-1"},
+		ID:      nodeID,
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{}`),
+		State:   string(core.NodeStateRunning),
+		TaskID:  taskID, Metadata: map[string]interface{}{"claimed_by": "run-1"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -184,25 +184,25 @@ func TestGraphStore_ListNodes(t *testing.T) {
 	// 创建多个节点
 	nodes := []*core.GraphNode{
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000001",
-			Kind:     string(core.KindAction),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateOpen),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "high"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000001",
+			Kind:    string(core.KindAction),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateOpen),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "high"},
 		},
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000002",
-			Kind:     string(core.KindObjective),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateRunning),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "medium"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000002",
+			Kind:    string(core.KindObjective),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateRunning),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "medium"},
 		},
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000003",
-			Kind:     string(core.KindAction),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateCompleted),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000002", "priority": "high"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000003",
+			Kind:    string(core.KindAction),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateCompleted),
+			TaskID:  "cccccccc-0000-4000-8000-000000000002", Metadata: map[string]interface{}{"priority": "high"},
 		},
 	}
 
@@ -230,7 +230,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 
 	t.Run("按Metadata过滤", func(t *testing.T) {
 		query := core.GraphNodeQuery{
-			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
+			Filters: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 		query := core.GraphNodeQuery{
 			Kind:    string(core.KindAction),
 			State:   string(core.NodeStateOpen),
-			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
+			Filters: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -273,17 +273,17 @@ func TestGraphStore_CreateAndListEdges(t *testing.T) {
 	// 创建节点
 	nodes := []*core.GraphNode{
 		{
-			ID:       "bbbbbbbb-0000-4000-8000-000000000001",
-			Kind:     string(core.KindAction),
-			State:    string(core.NodeStateOpen),
-			Content:  json.RawMessage(`{}`),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+			ID:      "bbbbbbbb-0000-4000-8000-000000000001",
+			Kind:    string(core.KindAction),
+			State:   string(core.NodeStateOpen),
+			Content: json.RawMessage(`{}`),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 		},
 		{
-			ID:       "bbbbbbbb-0000-4000-8000-000000000002",
-			Kind:     string(core.KindObservation),
-			Content:  json.RawMessage(`{}`),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+			ID:      "bbbbbbbb-0000-4000-8000-000000000002",
+			Kind:    string(core.KindObservation),
+			Content: json.RawMessage(`{}`),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 		},
 	}
 	for _, n := range nodes {
@@ -329,20 +329,20 @@ func TestGraphStore_CreateNodeWithEdges(t *testing.T) {
 
 	// 创建一个已存在的节点
 	existingNode := &core.GraphNode{
-		ID:       "ffffffff-0000-4000-8000-000000000001",
-		Kind:     string(core.KindAction),
-		State:    string(core.NodeStateOpen),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "ffffffff-0000-4000-8000-000000000001",
+		Kind:    string(core.KindAction),
+		State:   string(core.NodeStateOpen),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, existingNode))
 
 	// 事务性创建新节点及其边
 	newNode := &core.GraphNode{
-		ID:       "ffffffff-0000-4000-8000-000000000002",
-		Kind:     string(core.KindObservation),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "ffffffff-0000-4000-8000-000000000002",
+		Kind:    string(core.KindObservation),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 
 	edges := []*core.GraphEdge{
@@ -382,11 +382,11 @@ func TestGraphStore_DeleteNode(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "dddddddd-0000-4000-8000-000000000001",
-		Kind:     string(core.KindAction),
-		State:    string(core.NodeStateOpen),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "dddddddd-0000-4000-8000-000000000001",
+		Kind:    string(core.KindAction),
+		State:   string(core.NodeStateOpen),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -413,8 +413,8 @@ func TestGraphStore_DeleteEdge(t *testing.T) {
 
 	// 创建节点和边
 	nodes := []*core.GraphNode{
-		{ID: "eeeeeeee-0000-4000-8000-000000000001", Kind: string(core.KindAction), State: string(core.NodeStateOpen), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
-		{ID: "eeeeeeee-0000-4000-8000-000000000002", Kind: string(core.KindObservation), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000001", Kind: string(core.KindAction), State: string(core.NodeStateOpen), Content: json.RawMessage(`{}`), TaskID: "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000002", Kind: string(core.KindObservation), Content: json.RawMessage(`{}`), TaskID: "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{}},
 	}
 	for _, n := range nodes {
 		require.NoError(t, store.CreateNode(ctx, n))

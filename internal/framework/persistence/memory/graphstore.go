@@ -32,6 +32,7 @@ func NewGraphStore() core.GraphStore {
 func copyGraphNode(node *core.GraphNode) *core.GraphNode {
 	nodeCopy := &core.GraphNode{
 		ID:        node.ID,
+		TaskID:    node.TaskID,
 		Kind:      node.Kind,
 		Content:   append([]byte(nil), node.Content...),
 		State:     node.State,
@@ -175,6 +176,13 @@ func (s *GraphStore) ListNodes(_ context.Context, query core.GraphNodeQuery) ([]
 		// 过滤 Metadata
 		match := true
 		for k, v := range query.Filters {
+			if k == "task_id" {
+				if node.TaskID != v {
+					match = false
+					break
+				}
+				continue
+			}
 			// 支持 "metadata.xxx" 嵌套访问
 			if len(k) > 9 && k[:9] == "metadata." {
 				metaKey := k[9:]
@@ -321,7 +329,7 @@ func checkTransitions(transitions []core.GraphStateTransition, lookup func(strin
 		if !seen && exists {
 			current = node.State
 		}
-		if !exists || taskOf(node) != t.TaskID || current != t.From || !guardHolds(node, t.Guard) {
+		if !exists || node.TaskID != t.TaskID || current != t.From || !guardHolds(node, t.Guard) {
 			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, core.ErrGraphStateConflict)
 		}
 		states[t.NodeID] = t.To
@@ -338,7 +346,7 @@ func checkAnnotations(annotations []core.GraphNodeAnnotation, lookup func(string
 			return fmt.Errorf("annotation requires task_id, node_id and metadata")
 		}
 		node, exists := lookup(a.NodeID)
-		if !exists || taskOf(node) != a.TaskID {
+		if !exists || node.TaskID != a.TaskID {
 			return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphNodeNotFound)
 		}
 		if written[a.NodeID] == nil {
@@ -422,7 +430,6 @@ func (s *GraphStore) applyChangeSet(changes core.GraphChangeSet) {
 	}
 }
 
-// taskOf 读取节点的任务归属（metadata.task_id）。
 // guardHolds 判断节点元数据满足迁移的 Guard（逐键字符串相等）。
 func guardHolds(node *core.GraphNode, guard map[string]string) bool {
 	for k, want := range guard {
@@ -431,11 +438,6 @@ func guardHolds(node *core.GraphNode, guard map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func taskOf(node *core.GraphNode) string {
-	tid, _ := node.Metadata["task_id"].(string)
-	return tid
 }
 
 // hasEdge 判断同 (task_id, from, relation, to) 的边是否已存在（调用方持锁）。

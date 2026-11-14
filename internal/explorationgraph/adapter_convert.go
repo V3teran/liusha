@@ -31,9 +31,7 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 	}
 
 	// 从 Metadata 恢复类型化字段
-	if taskID, ok := graphNode.Metadata["task_id"].(string); ok {
-		node.TaskID = taskID
-	}
+	node.TaskID = graphNode.TaskID
 	if sourceType, ok := graphNode.Metadata["source_type"].(string); ok {
 		node.SourceType = SourceType(sourceType)
 	}

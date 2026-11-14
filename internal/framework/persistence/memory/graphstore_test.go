@@ -20,10 +20,10 @@ func TestMemoryGraphStore_CreateAndGetNode(t *testing.T) {
 
 	// 准备测试数据
 	node := &core.GraphNode{
-		ID:        "node-1",
-		Kind:      string(core.KindAction),
-		Content:   json.RawMessage(`{"title":"test action"}`),
-		Metadata:  map[string]interface{}{"task_id": "task-1"},
+		ID:      "node-1",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{"title":"test action"}`),
+		TaskID:  "task-1", Metadata: map[string]interface{}{},
 		State:     string(core.NodeStateOpen),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -92,10 +92,10 @@ func TestMemoryGraphStore_GuardedTransition(t *testing.T) {
 	ctx := context.Background()
 
 	node := &core.GraphNode{
-		ID:        "node-1",
-		Kind:      string(core.KindAction),
-		State:     string(core.NodeStateRunning),
-		Metadata:  map[string]interface{}{"task_id": "task-1", "claimed_by": "run-1"},
+		ID:     "node-1",
+		Kind:   string(core.KindAction),
+		State:  string(core.NodeStateRunning),
+		TaskID: "task-1", Metadata: map[string]interface{}{"claimed_by": "run-1"},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -150,28 +150,28 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	// 创建多个节点
 	nodes := []*core.GraphNode{
 		{
-			ID:        "node-1",
-			Kind:      string(core.KindAction),
-			State:     string(core.NodeStateOpen),
-			Metadata:  map[string]interface{}{"task_id": "task-1"},
+			ID:     "node-1",
+			Kind:   string(core.KindAction),
+			State:  string(core.NodeStateOpen),
+			TaskID: "task-1", Metadata: map[string]interface{}{},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Version:   1,
 		},
 		{
-			ID:        "node-2",
-			Kind:      string(core.KindObjective),
-			State:     string(core.NodeStateRunning),
-			Metadata:  map[string]interface{}{"task_id": "task-1"},
+			ID:     "node-2",
+			Kind:   string(core.KindObjective),
+			State:  string(core.NodeStateRunning),
+			TaskID: "task-1", Metadata: map[string]interface{}{},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Version:   1,
 		},
 		{
-			ID:        "node-3",
-			Kind:      string(core.KindAction),
-			State:     string(core.NodeStateCompleted),
-			Metadata:  map[string]interface{}{"task_id": "task-2"},
+			ID:     "node-3",
+			Kind:   string(core.KindAction),
+			State:  string(core.NodeStateCompleted),
+			TaskID: "task-2", Metadata: map[string]interface{}{},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Version:   1,
@@ -184,7 +184,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 
 	t.Run("按任务ID查询", func(t *testing.T) {
 		query := core.GraphNodeQuery{
-			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
+			Filters: map[string]interface{}{"task_id": "task-1"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestMemoryGraphStore_ListNodes(t *testing.T) {
 	t.Run("组合查询", func(t *testing.T) {
 		query := core.GraphNodeQuery{
 			Kind:    string(core.KindAction),
-			Filters: map[string]interface{}{"metadata.task_id": "task-1"},
+			Filters: map[string]interface{}{"task_id": "task-1"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -227,17 +227,17 @@ func TestMemoryGraphStore_CreateEdge(t *testing.T) {
 
 	// 创建两个节点
 	node1 := &core.GraphNode{
-		ID:        "node-1",
-		Kind:      string(core.KindAction),
-		Metadata:  map[string]interface{}{"task_id": "task-1"},
+		ID:     "node-1",
+		Kind:   string(core.KindAction),
+		TaskID: "task-1", Metadata: map[string]interface{}{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
 	}
 	node2 := &core.GraphNode{
-		ID:        "node-2",
-		Kind:      string(core.KindObservation),
-		Metadata:  map[string]interface{}{"task_id": "task-1"},
+		ID:     "node-2",
+		Kind:   string(core.KindObservation),
+		TaskID: "task-1", Metadata: map[string]interface{}{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -272,9 +272,9 @@ func TestMemoryGraphStore_CreateEdge_Idempotent(t *testing.T) {
 	// 创建节点
 	for _, id := range []string{"node-1", "node-2"} {
 		node := &core.GraphNode{
-			ID:        id,
-			Kind:      string(core.KindAction),
-			Metadata:  map[string]interface{}{"task_id": "task-1"},
+			ID:     id,
+			Kind:   string(core.KindAction),
+			TaskID: "task-1", Metadata: map[string]interface{}{},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Version:   1,
@@ -309,9 +309,9 @@ func TestMemoryGraphStore_DeleteEdge(t *testing.T) {
 	// 创建节点和边
 	for _, id := range []string{"node-1", "node-2"} {
 		node := &core.GraphNode{
-			ID:        id,
-			Kind:      string(core.KindAction),
-			Metadata:  map[string]interface{}{"task_id": "task-1"},
+			ID:     id,
+			Kind:   string(core.KindAction),
+			TaskID: "task-1", Metadata: map[string]interface{}{},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 			Version:   1,
@@ -343,9 +343,9 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 
 	// 创建一个已存在的节点
 	existingNode := &core.GraphNode{
-		ID:        "existing-node",
-		Kind:      string(core.KindAction),
-		Metadata:  map[string]interface{}{"task_id": "task-1"},
+		ID:     "existing-node",
+		Kind:   string(core.KindAction),
+		TaskID: "task-1", Metadata: map[string]interface{}{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -354,9 +354,9 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 
 	// 创建新节点及其边
 	newNode := &core.GraphNode{
-		ID:        "new-node",
-		Kind:      string(core.KindObservation),
-		Metadata:  map[string]interface{}{"task_id": "task-1"},
+		ID:     "new-node",
+		Kind:   string(core.KindObservation),
+		TaskID: "task-1", Metadata: map[string]interface{}{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Version:   1,
@@ -389,7 +389,7 @@ func TestMemoryGraphStore_CreateNodeWithEdges(t *testing.T) {
 func TestGraphStore_ApplyChangeSet(t *testing.T) {
 	ctx := context.Background()
 	newNode := func(id, task string) *core.GraphNode {
-		return &core.GraphNode{ID: id, Kind: "action", State: "open", Metadata: map[string]interface{}{"task_id": task}}
+		return &core.GraphNode{ID: id, Kind: "action", State: "open", TaskID: task, Metadata: map[string]interface{}{}}
 	}
 
 	t.Run("作用于本批新节点", func(t *testing.T) {
@@ -403,7 +403,7 @@ func TestGraphStore_ApplyChangeSet(t *testing.T) {
 			t.Fatalf("apply: %v", err)
 		}
 		n, _ := store.GetNode(ctx, "n1")
-		if n.State != "running" || n.Metadata["k"] != "v" || n.Metadata["task_id"] != "t1" {
+		if n.State != "running" || n.Metadata["k"] != "v" || n.TaskID != "t1" {
 			t.Fatalf("新节点迁移/批注未生效或身份丢失: %+v", n)
 		}
 	})
@@ -445,7 +445,7 @@ func TestGraphStore_ApplyChangeSet(t *testing.T) {
 func TestGraphStore_ApplyChangeSet_OnceAndVersion(t *testing.T) {
 	ctx := context.Background()
 	store := NewGraphStore()
-	node := &core.GraphNode{ID: "n1", Kind: "action", State: "open", Metadata: map[string]interface{}{"task_id": "t1"}}
+	node := &core.GraphNode{ID: "n1", Kind: "action", State: "open", TaskID: "t1", Metadata: map[string]interface{}{}}
 	if err := store.CreateNode(ctx, node); err != nil {
 		t.Fatal(err)
 	}
