@@ -15,6 +15,7 @@ import { ToolCallCard } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
 import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
+import { SteeringCard } from './cards/SteeringCard'
 
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.metadata?.agent_name || ''
@@ -174,6 +175,10 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
           // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统判定无归属）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
             return <TaskStatusCard key={r.key} md={r.msg.metadata!} />
+          }
+          // 运行中引导的回执 → 同为居中系统窄条（人的操作，不归属任何 agent）。
+          if (r.kind === 'msg' && classifyMessage(r.msg) === 'steering') {
+            return <SteeringCard key={r.key} msg={r.msg} />
           }
           if (r.kind === 'tools') {
             return (

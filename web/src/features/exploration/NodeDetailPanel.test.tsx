@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { rejectTaskAction } from '@/api/tasks'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import type { GraphNode } from '@/api/explorationgraph'
+
+vi.mock('@/api/tasks', () => ({ rejectTaskAction: vi.fn(async () => undefined) }))
 
 const node: GraphNode = {
   id: 'n1',
@@ -45,5 +49,29 @@ describe('NodeDetailPanel 已否决动作', () => {
     )
     expect(screen.getByText('已否决')).toBeTruthy()
     expect(screen.getByText('否决（用户）：超出授权范围')).toBeTruthy()
+  })
+})
+
+describe('NodeDetailPanel 否决动作', () => {
+  const renderWithQuery = (n: GraphNode) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NodeDetailPanel node={n} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    )
+
+  it('待执行或执行中的动作可否决，原因必填', async () => {
+    renderWithQuery(node)
+    fireEvent.click(screen.getByRole('button', { name: '否决动作' }))
+    const confirm = screen.getByRole('button', { name: '确认否决' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('否决原因'), { target: { value: ' 超出授权范围 ' } })
+    fireEvent.click(confirm)
+    await waitFor(() => expect(rejectTaskAction).toHaveBeenCalledWith('t1', 'n1', '超出授权范围'))
+  })
+
+  it('已结束的动作与非动作节点没有否决入口', () => {
+    renderWithQuery({ ...node, state: 'completed' })
+    expect(screen.queryByRole('button', { name: '否决动作' })).toBeNull()
   })
 })
