@@ -242,12 +242,12 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 		if a.isVerifying(obs.ID) {
 			continue
 		}
-		// 待验证的假设必有 repro（写入侧不变式）；content
-		// 解析失败才是真损坏（executor 写入侧 content 必为合法 JSON），持续
-		// 告警。repro 形状问题已在 parse 内宽容化（保留原始配方继续派发）。
+		// 损坏的假设（content 非法、没有配方）永远无法验证：按配方缺陷一次出圈，
+		// 不能只告警跳过——待验证的假设阻止任务收敛。
 		claim, err := a.claimFromHypothesis(obs)
 		if err != nil {
-			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
+			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("假设无法解析出复现配方，按配方缺陷出圈")
+			a.recordVerifyFailure(ctx, obs.ID, Claim{TaskID: a.taskID, NodeID: obs.ID}, err)
 			continue
 		}
 		if a.dispatchVerification(ctx, obs.ID, claim, sem) {
