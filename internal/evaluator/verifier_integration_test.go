@@ -42,7 +42,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_verification WHERE task_id=$1`, taskID)
 	}()
 
-	mkAttempt := func(loc string) evaluator.Attempt {
+	mkClaim := func(loc string) evaluator.Claim {
 		// 晋升门落 observation → result 溯源边 + 审计链 node_id：假设节点必须真实在图，
 		// 且 ID 是合法 uuid（exploration_verification.node_id 为 uuid 列）。
 		hypID := uuid.New().String()
@@ -54,20 +54,20 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("预建假设节点失败: %v", err)
 		}
-		return evaluator.Attempt{
-			TaskID:     taskID,
-			NodeID:     hypID,
-			Primitives: json.RawMessage(`{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""},"assert":{"body_contains":["leaked"]}}`),
-			Content:    json.RawMessage(`{"severity":"high","host":"` + loc + `","statement":"SQLi at ` + loc + `"}`),
-			Priority:   "high",
+		return evaluator.Claim{
+			TaskID:   taskID,
+			NodeID:   hypID,
+			Repro:    json.RawMessage(`{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""},"assert":{"body_contains":["leaked"]}}`),
+			Content:  json.RawMessage(`{"severity":"high","host":"` + loc + `","statement":"SQLi at ` + loc + `"}`),
+			Priority: "high",
 		}
 	}
 
 	// 坐实：应晋升 result 节点。
 	confirmed := evaluator.New(store, stubReplayer{res: evaluator.Result{
-		Evaluation: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
+		Evidence: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
 	}}, nil).WithJudge(verdictJudge{verdict: evaluator.VerdictConfirmed})
-	node, err := confirmed.Promote(ctx, mkAttempt("t.local"))
+	node, err := confirmed.Promote(ctx, mkClaim("t.local"))
 	if err != nil {
 		t.Fatalf("坐实 Promote: %v", err)
 	}
@@ -77,9 +77,9 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 
 	// 证伪：不进图，但 exploration_verification 留 refuted 档。
 	refuted := evaluator.New(store, stubReplayer{res: evaluator.Result{
-		Evaluation: json.RawMessage(`{"reason":"no repro"}`),
+		Evidence: json.RawMessage(`{"reason":"no repro"}`),
 	}}, nil).WithJudge(verdictJudge{verdict: evaluator.VerdictRefuted})
-	rNode, err := refuted.Promote(ctx, mkAttempt("safe.local"))
+	rNode, err := refuted.Promote(ctx, mkClaim("safe.local"))
 	if err != nil {
 		t.Fatalf("证伪 Promote 不应报错: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 
 	promote := func(verdict string) (*explorationgraph.Node, error) {
 		v := evaluator.New(store, stubReplayer{res: evaluator.Result{
-			Evaluation: json.RawMessage(`{"url":"http://t.local/x"}`), DurationMs: 5,
+			Evidence: json.RawMessage(`{"url":"http://t.local/x"}`), DurationMs: 5,
 		}}, nil).WithJudge(replayJudgeITest{verdict: verdict})
 
 		// 晋升门会落 observation → result 溯源边：被验证的假设节点必须真实在图
@@ -144,10 +144,10 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 			return nil, err
 		}
 
-		return v.Promote(ctx, evaluator.Attempt{
+		return v.Promote(ctx, evaluator.Claim{
 			TaskID: taskID, NodeID: hypID,
-			Primitives: json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
-			Content:    json.RawMessage(`{"statement":"s","severity":"high"}`),
+			Repro:   json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
+			Content: json.RawMessage(`{"statement":"s","severity":"high"}`),
 		})
 	}
 

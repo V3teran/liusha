@@ -12,13 +12,13 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// validateAttempt 验证 Attempt 的必填字段
-func (g *PromotionGate) validateAttempt(a Attempt) error {
+// validateClaim 验证 Claim 的必填字段
+func (g *PromotionGate) validateClaim(a Claim) error {
 	if a.TaskID == "" {
-		return fmt.Errorf("verifier: Attempt.TaskID 必填")
+		return fmt.Errorf("verifier: Claim.TaskID 必填")
 	}
 	if a.NodeID == "" {
-		return fmt.Errorf("verifier: Attempt.NodeID 必填（审计链与验证标记都要指向被验证的假设节点）")
+		return fmt.Errorf("verifier: Claim.NodeID 必填（审计链与验证标记都要指向被验证的假设节点）")
 	}
 	if g.replayer == nil {
 		return fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
@@ -30,14 +30,14 @@ func (g *PromotionGate) validateAttempt(a Attempt) error {
 }
 
 // createReplayFunction 创建重放闭包，记录完整证据链
-func (g *PromotionGate) createReplayFunction(a Attempt, replays *[]replayRecord) func(context.Context, string) (Result, error) {
+func (g *PromotionGate) createReplayFunction(a Claim, replays *[]replayRecord) func(context.Context, string) (Result, error) {
 	return func(rctx context.Context, phase string) (Result, error) {
-		res, err := g.replayer.Replay(rctx, a.Primitives)
+		res, err := g.replayer.Replay(rctx, a.Repro)
 		rec := replayRecord{Phase: phase, DurationMs: res.DurationMs}
 		if err != nil {
 			rec.Error = err.Error()
 		} else {
-			rec.Evidence = res.Evaluation
+			rec.Evidence = res.Evidence
 		}
 		*replays = append(*replays, rec)
 		return res, err
@@ -56,14 +56,14 @@ func (g *PromotionGate) executePrerun(ctx context.Context, replay func(context.C
 // checkMachineGuard 机器护栏：检查断言是否通过
 func (g *PromotionGate) checkMachineGuard(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	hyp string,
 	res Result,
 	replays []replayRecord,
 ) (*explorationgraph.Node, bool, error) {
 	// 机器护栏：executor 声明的断言全部未命中 = 配方声称的特征根本没出现
 	// 不存在任何支持坐实的机器证据，直接 refuted、不进 judge
-	if !assertPassedInEvidence(res.Evaluation) {
+	if !assertPassedInEvidence(res.Evidence) {
 		node, err := g.refuteEarly(ctx, a, hyp, res, replays)
 		return node, false, err
 	}
@@ -73,12 +73,12 @@ func (g *PromotionGate) checkMachineGuard(
 // executeLLMJudge 执行 LLM 判定
 func (g *PromotionGate) executeLLMJudge(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	hyp string,
 	res Result,
 	replay func(context.Context, string) (Result, error),
 ) (Verdict, error) {
-	verdict, err := g.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
+	verdict, err := g.judge.Judge(ctx, hyp, a.Repro, res.Evidence,
 		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if err != nil {
 		return Verdict{}, fmt.Errorf("%w: verifier: LLM 判定失败（本次未出结论，不回退机器）: %w",
@@ -93,10 +93,10 @@ func aggregateEvidence(res Result, tier, verdict string, reasoning string, repla
 	final := res
 	for _, rec := range replays {
 		if rec.Error == "" && len(rec.Evidence) > 0 {
-			final = Result{Evaluation: rec.Evidence, DurationMs: rec.DurationMs}
+			final = Result{Evidence: rec.Evidence, DurationMs: rec.DurationMs}
 		}
 	}
-	evaluation := withReplayLog(final.Evaluation, tier, verdict, reasoning, replays)
+	evaluation := withReplayLog(final.Evidence, tier, verdict, reasoning, replays)
 	return final, evaluation
 }
 
@@ -104,7 +104,7 @@ func aggregateEvidence(res Result, tier, verdict string, reasoning string, repla
 // node_id 指向被验证的假设节点——审计链回答"谁被验证了"。
 func (g *PromotionGate) recordVerification(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	outcome explorationgraph.VerificationStatus,
 	evaluation []byte,
 	durationMs int64,
@@ -113,9 +113,9 @@ func (g *PromotionGate) recordVerification(
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
-		Primitives: a.Primitives,
+		Repro:      a.Repro,
 		Outcome:    outcome,
-		Evaluation: evaluation,
+		Evidence:   evaluation,
 		DurationMs: durationMs,
 		CreatedAt:  time.Now(),
 	})
@@ -138,7 +138,7 @@ type hypothesisMark struct {
 // refuted，轮询方以 pending 圈定待验证集合），证伪时附证伪原因。
 func (g *PromotionGate) markHypothesisNode(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	m hypothesisMark,
 ) {
 	if a.NodeID == "" {
@@ -171,7 +171,7 @@ func (g *PromotionGate) markHypothesisNode(
 // fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键。
 func (g *PromotionGate) createVerifiedNode(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	nodeID string,
 	fingerprintKey string,
 ) (*explorationgraph.Node, error) {

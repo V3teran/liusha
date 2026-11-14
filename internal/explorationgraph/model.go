@@ -167,9 +167,9 @@ type Verification struct {
 	ID         string             `json:"id"`
 	TaskID     string             `json:"task_id"`
 	NodeID     string             `json:"node_id"` // 被验证的 observation 节点 ID
-	Primitives json.RawMessage    `json:"primitives"`
+	Repro      json.RawMessage    `json:"repro"`
 	Outcome    VerificationStatus `json:"outcome"` // confirmed / refuted
-	Evaluation json.RawMessage    `json:"evaluation"`
+	Evidence   json.RawMessage    `json:"evidence"`
 	DurationMs int64              `json:"duration_ms"`
 	CreatedAt  time.Time          `json:"created_at"`
 }

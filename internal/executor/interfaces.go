@@ -7,7 +7,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// ActionExecutor 执行单个 Action 并产出 Attempt 列表（domain-agnostic）。
+// ActionExecutor 执行单个 Action：观察落图，返回产出档（domain-agnostic）。
 // executor.Agent 事件循环经它把图上的 open 动作交给具体引擎（ReAct Engine）执行。
 // 返回的 Outcome 是执行产出档（预算内完成 / 迭代预算耗尽），终态 CAS 由此分叉。
 type ActionExecutor interface {

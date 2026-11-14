@@ -54,7 +54,7 @@ func (r SelfContainedRequest) toSource() (httpreplay.Source, error) {
 	}, nil
 }
 
-// ReplayRecipe 是 web 域的 L1 复现原语（evaluator.Attempt.Primitives 的形状）。
+// ReplayRecipe 是 web 域复现配方的 recipe 段（evaluator.Claim.Repro 信封里的形状）。
 // 机器可判的坐实配方：完整利用请求 + 断言，可选良性基线做差分对照。
 // Resolve 非空时，主请求前先发一个准备请求抽新鲜值注入——专治 replay 时无法
 // 复用的服务器现造值（opaque-id / nonce / 过期 token）。
@@ -258,9 +258,9 @@ const evidenceBodySnip = 2048 // 证据里响应体截断长度
 // web=机器确定性重放采证；generic=配方回显（评估者自主执行）。
 // 配方在写入侧已统一归一化为信封（repro.NormalizeReproEnvelope），
 // 复现门只认信封、不嗅探裸格式。
-func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
+func (r *Replayer) Replay(ctx context.Context, repro json.RawMessage) (evaluator.Result, error) {
 	var env ReproEnvelope
-	if err := json.Unmarshal(primitives, &env); err != nil {
+	if err := json.Unmarshal(repro, &env); err != nil {
 		return evaluator.Result{}, fmt.Errorf("Replayer: 解析域信封失败: %w", err)
 	}
 	switch env.Domain {
@@ -499,7 +499,7 @@ func marshalEvidence(ev replayEvidence, durMs int64) (evaluator.Result, error) {
 	if mErr != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 序列化证据失败: %w", mErr)
 	}
-	return evaluator.Result{Evaluation: evJSON, DurationMs: durMs}, nil
+	return evaluator.Result{Evidence: evJSON, DurationMs: durMs}, nil
 }
 
 // replayGeneric 无机器重放通道：配方原样回显给评估者（其经 run_command 按 recipe 步骤
@@ -517,7 +517,7 @@ func replayGeneric(env ReproEnvelope) (evaluator.Result, error) {
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("generic.Replayer: 序列化证据失败: %w", err)
 	}
-	return evaluator.Result{Evaluation: out}, nil
+	return evaluator.Result{Evidence: out}, nil
 }
 
 func orEmptyRaw(b json.RawMessage) json.RawMessage {

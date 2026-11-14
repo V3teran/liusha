@@ -141,11 +141,11 @@ export function NodeDetailPanel({
               </div>
               {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
             </div>
-            {verification.evaluation != null && (
+            {verification.evidence != null && (
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
-                {typeof verification.evaluation === 'string'
-                  ? verification.evaluation
-                  : JSON.stringify(verification.evaluation, null, 2)}
+                {typeof verification.evidence === 'string'
+                  ? verification.evidence
+                  : JSON.stringify(verification.evidence, null, 2)}
               </pre>
             )}
           </section>
