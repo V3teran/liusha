@@ -29,3 +29,21 @@ describe('NodeDetailPanel', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
+
+describe('NodeDetailPanel 已否决动作', () => {
+  it('显示已否决状态、否决方与理由', () => {
+    render(
+      <NodeDetailPanel
+        node={{
+          ...node,
+          state: 'rejected',
+          state_reason: '超出授权范围',
+          metadata: { rejected_by: 'user' },
+        }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('已否决')).toBeTruthy()
+    expect(screen.getByText('否决（用户）：超出授权范围')).toBeTruthy()
+  })
+})

@@ -84,7 +84,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: "任务还没有根目标"}, nil
 	}
 
-	// 构建状态快照（running 动作的时长视图是 monitor kill 判断的决策变量）
+	// 构建状态快照（在途动作的指令供判断重复与偏离；卡死由执行者看门狗处理）
 	state := GlobalState{
 		Objective:      ObjectiveView{ID: root.ID, Goal: root.Goal()},
 		Actions:        allActions,
@@ -139,8 +139,16 @@ type Replanner interface {
 	RequestReplan(reason string)
 }
 
-// PublishDecisionTool 是 monitor 的决策出口：kill_action 落探索图状态，request_replan
-// 直接交给规划者（控制信号不走可丢的事件总线，也不是图上的事实）。
+// 监察决策类型：工具 schema 是决策名的唯一出处，章程只用文字描述何时干预。
+const (
+	// DecisionRejectAction 否决一个待执行或执行中的动作（落图 → rejected）。
+	DecisionRejectAction = "reject_action"
+	// DecisionRequestReplan 请求规划者带着理由重新规划（进程内直达，不落图）。
+	DecisionRequestReplan = "request_replan"
+)
+
+// PublishDecisionTool 是 monitor 的决策出口：否决落探索图状态，重规划请求直接交给
+// 规划者（控制信号不走可丢的事件总线，也不是图上的事实）。
 type PublishDecisionTool struct {
 	registry.BaseTool
 	graph     *explorationgraph.Store
@@ -171,7 +179,7 @@ func (t *PublishDecisionTool) ShortDesc() string {
 
 // Desc 实现工具接口。
 func (t *PublishDecisionTool) Desc() string {
-	return "发布监察决策事件（kill_action 或 request_replan）"
+	return "发布监察决策：否决一个动作（reject_action），或请求规划者重新规划（request_replan）"
 }
 
 // Schema 实现工具接口。
@@ -181,82 +189,71 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 		"properties": {
 			"type": {
 				"type": "string",
-				"description": "决策类型：kill_action 或 request_replan",
-				"enum": ["kill_action", "request_replan"]
+				"description": "reject_action：否决一个待执行或执行中的动作（执行中的立即中断，规划者不再提出等效动作；用户指派的动作不可否决）。request_replan：请求规划者按 reason 重新规划。",
+				"enum": ["reject_action", "request_replan"]
 			},
 			"action_id": {
 				"type": "string",
-				"description": "Action ID（kill_action 时必需）"
+				"description": "被否决动作的 ID（reject_action 必填）"
 			},
 			"reason": {
 				"type": "string",
-				"description": "决策理由"
+				"description": "决策理由：否决时写明为何这一步不该做（规划者据此避开等效方向），重规划时写明要修正什么"
 			}
 		},
 		"required": ["type", "reason"]
 	}`)
 }
 
-// Execute 实现工具接口：kill_action 落探索图状态变更。
+// Execute 实现工具接口：否决落探索图状态，重规划请求直达规划者。
 func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
-	// 解析参数
 	var decision Decision
 	if err := json.Unmarshal(args, &decision); err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
 
-	// 验证参数
-	if decision.Type != "kill_action" && decision.Type != "request_replan" {
-		return registry.ToolResult{Error: "type must be kill_action or request_replan"}, nil
-	}
-
-	if decision.Type == "kill_action" && decision.ActionID == "" {
-		return registry.ToolResult{Error: "action_id is required for kill_action"}, nil
-	}
-
-	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（只认领 open 动作）。
-	// 状态校验先行：open（阻止认领）与 running（中止在途）可 kill，已终态
-	// （completed/failed/exhausted/aborted）拒绝——幻觉 action_id 或改写终态都会
-	// 污染图终态与统计。
-	if decision.Type == "kill_action" && t.graph != nil {
-		node, gErr := t.graph.GetNode(ctx, decision.ActionID)
-		if gErr != nil {
-			return registry.ToolResult{Error: fmt.Sprintf("kill_action 查询动作失败: %v", gErr)}, nil
+	switch decision.Type {
+	case DecisionRejectAction:
+		if decision.ActionID == "" {
+			return registry.ToolResult{Error: "action_id is required for reject_action"}, nil
 		}
-		// 归属与类型校验：只能中止本任务的 action 节点——模型给出其他任务的节点 id
-		// 或 objective/observation 的 id 时，CAS 会按节点自身归属照常写入，造成跨任务改写。
-		if node.TaskID != t.taskID {
-			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：节点 %s 不属于当前任务", decision.ActionID)}, nil
+		if msg := t.rejectAction(ctx, decision); msg != "" {
+			return registry.ToolResult{Error: msg}, nil
 		}
-		if node.Kind != core.KindAction {
-			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：节点 %s 不是 action（%s）", decision.ActionID, node.Kind)}, nil
-		}
-		if state := node.State; state == nil ||
-			(*state != explorationgraph.StateOpen && *state != explorationgraph.StateRunning) {
-			shown := "unknown"
-			if state != nil {
-				shown = string(*state)
-			}
-			return registry.ToolResult{Error: fmt.Sprintf("kill_action 拒绝：动作 %s 已终态（%s），仅 open/running 可 kill", decision.ActionID, shown)}, nil
-		}
-		reason := decision.Reason
-		if err := t.graph.TransitionState(ctx, decision.ActionID, explorationgraph.StateAborted, &reason); err != nil {
-			return registry.ToolResult{Error: fmt.Sprintf("kill_action 状态变更失败: %v", err)}, nil
-		}
-	}
-
-	if decision.Type == "request_replan" {
+	case DecisionRequestReplan:
 		t.replanner.RequestReplan(decision.Reason)
+	default:
+		return registry.ToolResult{Error: "type must be reject_action or request_replan"}, nil
 	}
 
 	result := map[string]interface{}{
 		"type":    decision.Type,
 		"reason":  decision.Reason,
-		"applied": decision.Type == "kill_action" || decision.Type == "request_replan",
+		"applied": true,
 	}
 	if decision.ActionID != "" {
 		result["action_id"] = decision.ActionID
 	}
 	resultJSON, _ := json.Marshal(result)
 	return registry.ToolResult{Output: string(resultJSON)}, nil
+}
+
+// rejectAction 落一次否决，返回给模型的拒绝说明（空 = 已生效）。用户指派的动作是人的
+// 明确意图，监察者无权否决——只有用户自己能否决它。
+func (t *PublishDecisionTool) rejectAction(ctx context.Context, decision Decision) string {
+	node, err := t.graph.GetNode(ctx, decision.ActionID)
+	if err != nil || node.TaskID != t.taskID || node.Kind != core.KindAction {
+		return fmt.Sprintf("reject_action 拒绝：%s 不是本任务的动作", decision.ActionID)
+	}
+	if node.SourceType == explorationgraph.SourceUser {
+		return fmt.Sprintf("reject_action 拒绝：动作 %s 是用户指派的，只有用户能否决", decision.ActionID)
+	}
+	ok, err := t.graph.RejectAction(ctx, t.taskID, decision.ActionID, explorationgraph.SourceMonitor, decision.Reason)
+	if err != nil {
+		return fmt.Sprintf("reject_action 失败: %v", err)
+	}
+	if !ok {
+		return fmt.Sprintf("reject_action 拒绝：动作 %s 已结束，只有待执行或执行中的动作可否决", decision.ActionID)
+	}
+	return ""
 }

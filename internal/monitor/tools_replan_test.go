@@ -51,48 +51,6 @@ func TestPublishDecision_RequestReplanReachesPlanner(t *testing.T) {
 	assert.JSONEq(t, `{"description":"test objective"}`, string(node.Content), "重规划请求不写进图")
 }
 
-// TestPublishDecision_KillActionStillWorks 验证 kill_action 不受影响
-func TestPublishDecision_KillActionStillWorks(t *testing.T) {
-	ctx := context.Background()
-	graph := explorationgraph.NewMemoryStore()
-
-	taskID := "test-task"
-
-	// 创建 action（必须显式设置 ID）
-	actionID := "action-" + uuid.New().String()
-	stateOpen := explorationgraph.StateOpen
-	_, err := graph.CreateNode(ctx, explorationgraph.Node{
-		ID:      actionID,
-		TaskID:  taskID,
-		Kind:    core.KindAction,
-		State:   &stateOpen,
-		Content: []byte(`{"instruction":"test"}`),
-	})
-	require.NoError(t, err)
-
-	// 创建工具
-	tool := NewPublishDecisionTool(graph, &replanRecorder{}, taskID)
-
-	// 调用 kill_action
-	decision := Decision{
-		Type:     "kill_action",
-		ActionID: actionID,
-		Reason:   "卡住 30 分钟",
-	}
-	args, _ := json.Marshal(decision)
-
-	result, err := tool.Execute(ctx, args)
-	require.NoError(t, err)
-	assert.Empty(t, result.Error)
-
-	// 验证状态为 aborted
-	node, err := graph.GetNode(ctx, actionID)
-	require.NoError(t, err)
-	assert.Equal(t, explorationgraph.StateAborted, *node.State)
-
-	t.Log("✅ kill_action 功能不受 P2 修复影响")
-}
-
 // TestPublishDecision_InvalidDecisionType 验证参数验证
 func TestPublishDecision_InvalidDecisionType(t *testing.T) {
 	ctx := context.Background()
@@ -115,8 +73,8 @@ func TestPublishDecision_InvalidDecisionType(t *testing.T) {
 	t.Log("✅ 参数验证正常")
 }
 
-// kill_action 只能中止本任务的 action：其他任务的节点、本任务的非 action 节点都拒绝且不改状态。
-func TestPublishDecision_KillActionRejectsForeignOrNonAction(t *testing.T) {
+// reject_action 只能否决本任务的 action：其他任务的节点、本任务的非 action 节点都拒绝且不改状态。
+func TestPublishDecision_RejectActionRefusesForeignOrNonAction(t *testing.T) {
 	ctx := context.Background()
 	graph := explorationgraph.NewMemoryStore()
 	stateOpen := explorationgraph.StateOpen
@@ -131,7 +89,7 @@ func TestPublishDecision_KillActionRejectsForeignOrNonAction(t *testing.T) {
 	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "my-task")
 
 	for _, id := range []string{foreign, objective} {
-		args, _ := json.Marshal(Decision{Type: "kill_action", ActionID: id, Reason: "x"})
+		args, _ := json.Marshal(Decision{Type: DecisionRejectAction, ActionID: id, Reason: "x"})
 		res, err := tool.Execute(ctx, args)
 		require.NoError(t, err)
 		assert.NotEmpty(t, res.Error, "应拒绝 %s", id)

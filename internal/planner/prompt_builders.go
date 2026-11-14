@@ -230,42 +230,67 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	shown, folded, total := foldTerminalActions(actions)
 	sb.WriteString(foldLine("失败动作", folded, total))
 	for _, action := range shown {
-		reason := "未知原因"
-		if action.StateReason != nil && *action.StateReason != "" {
-			reason = *action.StateReason
-		}
-		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), reason)
+		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), stateReason(action, "未知原因"))
 	}
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// buildAbortedActionsSection 构建外部纠偏中止部分——被 monitor kill 的动作
-// 连同 state_reason 呈现，规划者据此不再派等效方向（否则 kill 反馈回路断一半）。
-// 尾部逐条 + 更早折叠。
+// buildRejectedActionsSection 构建已否决部分：监察者或用户判定不该做的动作，连同否决方
+// 与原因呈现，规划者据此不再派等效方向（否则否决的反馈回路断一半）。尾部逐条 + 更早折叠。
+func buildRejectedActionsSection(actions []explorationgraph.Node) string {
+	if len(actions) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 已否决的动作（禁止等效重提）\n")
+	shown, folded, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已否决动作", folded, total))
+	for _, action := range shown {
+		fmt.Fprintf(&sb, "- [已否决·%s] [ID: %s] %s（理由：%s）\n",
+			rejecterLabel(action.RejectedBy()), action.ID, actionInstruction(action), stateReason(action, "未注明"))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildAbortedActionsSection 构建已中止部分：任务收口或目标调整时没做完就被收回的动作。
+// 中止不含对错判断——与当前目标相关的可以重新提出。尾部逐条 + 更早折叠。
 func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	if len(actions) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 被外部纠偏中止的动作（禁止等效重提）\n")
+	sb.WriteString("## 已中止的动作（未执行完即被收回；与当前目标相关的可以重新提出）\n")
 	shown, folded, total := foldTerminalActions(actions)
 	sb.WriteString(foldLine("已中止动作", folded, total))
 	for _, action := range shown {
-		reason := "未注明"
-		if action.Metadata != nil {
-			var m struct {
-				StateReason string `json:"state_reason"`
-			}
-			if json.Unmarshal(action.Metadata, &m) == nil && m.StateReason != "" {
-				reason = m.StateReason
-			}
-		}
-		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（纠偏原因：%s）\n", action.ID, actionInstruction(action), reason)
+		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), stateReason(action, "未注明"))
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// rejecterLabel 是否决方的中文称谓（用户的否决是权威决定，规划者需要分辨）。
+func rejecterLabel(by explorationgraph.SourceType) string {
+	switch by {
+	case explorationgraph.SourceUser:
+		return "用户"
+	case explorationgraph.SourceMonitor:
+		return "监察者"
+	default:
+		return "未知"
+	}
+}
+
+// stateReason 返回动作的状态原因（缺失时用 fallback）。
+func stateReason(action explorationgraph.Node, fallback string) string {
+	if action.StateReason != nil && *action.StateReason != "" {
+		return *action.StateReason
+	}
+	return fallback
 }
 
 // buildResultsSection 构建已确认发现部分：按陈述去重（同义重复的判定

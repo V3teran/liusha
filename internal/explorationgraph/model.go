@@ -41,6 +41,7 @@ const (
 	StateFailed     = core.NodeStateFailed
 	StateExhausted  = core.NodeStateExhausted
 	StateAborted    = core.NodeStateAborted
+	StateRejected   = core.NodeStateRejected
 	StateSuperseded = core.NodeStateSuperseded
 )
 
@@ -127,6 +128,7 @@ const (
 	SourcePlanner   SourceType = "planner"   // planner agent 创建
 	SourceExecutor  SourceType = "executor"  // executor 创建
 	SourceEvaluator SourceType = "evaluator" // evaluator 创建
+	SourceMonitor   SourceType = "monitor"   // monitor（只作为否决方出现：它不建节点）
 )
 
 // Node 是探索图的节点（5 种类型统一表）

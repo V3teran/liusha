@@ -66,16 +66,6 @@ func TestStore_ActionStateManagement(t *testing.T) {
 		assert.Len(t, openActions, 2)
 	})
 
-	t.Run("TransitionState 迁移并留痕", func(t *testing.T) {
-		reason := "missing credentials"
-		require.NoError(t, store.TransitionState(ctx, "action-open-1", StateRunning, &reason))
-
-		node, err := store.GetNode(ctx, "action-open-1")
-		require.NoError(t, err)
-		assert.Equal(t, core.NodeStateRunning, *node.State)
-		assert.Equal(t, reason, *node.StateReason, "迁移原因落 metadata.state_reason")
-	})
-
 	t.Run("ClaimAction 并发抢占", func(t *testing.T) {
 		ok, err := store.ClaimAction(ctx, "task-001", "action-open-2", "run-1")
 		require.NoError(t, err)

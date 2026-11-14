@@ -29,8 +29,7 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 
 	// T1: 执行 A1 并完成
-	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateRunning))
-	updateActionState(ctx, t, store, a1ID, string(explorationgraph.StateCompleted))
+	executeAction(ctx, t, store, taskID, a1ID)
 
 	// T2: Planner 看到 A1 的观察结果后，下一轮再提出后续动作 A3
 	createTestAction(ctx, t, store, taskID)
@@ -142,9 +141,12 @@ func listOpenActions(ctx context.Context, t *testing.T, store *explorationgraph.
 	return nodes
 }
 
-func updateActionState(ctx context.Context, t *testing.T, store *explorationgraph.Store, actionID string, newState string) {
+func executeAction(ctx context.Context, t *testing.T, store *explorationgraph.Store, taskID, actionID string) {
 	t.Helper()
-	if err := store.TransitionState(ctx, actionID, explorationgraph.State(newState), nil); err != nil {
-		t.Fatalf("更新 action %s 状态: %v", actionID, err)
+	if ok, err := store.ClaimAction(ctx, taskID, actionID, "run-1"); err != nil || !ok {
+		t.Fatalf("认领 action %s: ok=%v err=%v", actionID, ok, err)
+	}
+	if ok, err := store.FinishAction(ctx, taskID, actionID, "run-1", explorationgraph.StateCompleted, ""); err != nil || !ok {
+		t.Fatalf("结束 action %s: ok=%v err=%v", actionID, ok, err)
 	}
 }

@@ -99,12 +99,60 @@ func TestFinishAction_RespectsExternalAbort(t *testing.T) {
 	seedOpenAction(t, store, "a1", "t1")
 	_, err := store.ClaimAction(ctx, "t1", "a1", "run-1")
 	require.NoError(t, err)
-	reason := "偏离目标"
-	require.NoError(t, store.TransitionState(ctx, "a1", StateAborted, &reason))
+	ok, err := store.RejectAction(ctx, "t1", "a1", SourceMonitor, "偏离目标")
+	require.NoError(t, err)
+	require.True(t, ok)
 
-	ok, err := store.FinishAction(ctx, "t1", "a1", "run-1", StateCompleted, "")
+	ok, err = store.FinishAction(ctx, "t1", "a1", "run-1", StateCompleted, "")
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// 否决：待执行与执行中的动作都可否决，记下否决方与原因；已结束的动作不受影响。
+func TestRejectAction_OpenOrRunningOnly(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	seedOpenAction(t, store, "open", "t1")
+	seedOpenAction(t, store, "running", "t1")
+	seedOpenAction(t, store, "done", "t1")
+	_, err := store.ClaimAction(ctx, "t1", "running", "run-1")
+	require.NoError(t, err)
+	_, err = store.ClaimAction(ctx, "t1", "done", "run-1")
+	require.NoError(t, err)
+	_, err = store.FinishAction(ctx, "t1", "done", "run-1", StateCompleted, "")
+	require.NoError(t, err)
+
+	for _, id := range []string{"open", "running"} {
+		ok, err := store.RejectAction(ctx, "t1", id, SourceUser, "不在授权范围")
+		require.NoError(t, err)
+		assert.True(t, ok, id)
+		n, err := store.GetNode(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, StateRejected, *n.State)
+		assert.Equal(t, SourceUser, n.RejectedBy())
+		require.NotNil(t, n.StateReason)
+		assert.Equal(t, "不在授权范围", *n.StateReason)
+	}
+
+	ok, err := store.RejectAction(ctx, "t1", "done", SourceUser, "迟到")
+	require.NoError(t, err)
+	assert.False(t, ok, "已结束的动作不能否决")
+}
+
+// 否决只作用于本任务的动作节点：别的任务的节点、非动作节点一律拒绝。
+func TestRejectAction_ScopedToTaskActions(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	seedOpenAction(t, store, "a1", "t1")
+	open := StateOpen
+	_, err := store.CreateNode(ctx, Node{ID: "o1", TaskID: "t1", Kind: core.KindObjective, State: &open,
+		Content: []byte(`{"description":"g"}`), SourceType: SourceUser})
+	require.NoError(t, err)
+
+	_, err = store.RejectAction(ctx, "t2", "a1", SourceUser, "r")
+	assert.ErrorIs(t, err, ErrActionNotFound)
+	_, err = store.RejectAction(ctx, "t1", "o1", SourceUser, "r")
+	assert.ErrorIs(t, err, ErrActionNotFound)
 }
 
 // 回收只作用于本任务的 running 动作。

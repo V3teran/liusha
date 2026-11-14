@@ -107,8 +107,9 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. 执行 action → 产出 observation（节点与 action→observation 溯源边原子落库）
-	err = store.TransitionState(ctx, act.ID, StateRunning, nil)
+	claimed, err := store.ClaimAction(ctx, taskID, act.ID, "run-1")
 	require.NoError(t, err)
+	require.True(t, claimed)
 
 	pending := VerificationPending
 	observation := Node{
@@ -153,8 +154,9 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Action 完成
-	err = store.TransitionState(ctx, act.ID, StateCompleted, nil)
+	finished, err := store.FinishAction(ctx, taskID, act.ID, "run-1", StateCompleted, "")
 	require.NoError(t, err)
+	require.True(t, finished)
 
 	// 验证已晋升的 result
 	results, err := store.ListResults(ctx, taskID)
@@ -213,9 +215,19 @@ func TestListOpenActions_ExcludesSettled(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, actions, 2)
 
-	// action-1 完成
-	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateCompleted, nil)
-	require.NoError(t, err)
+	// action-1 执行完成
+	for _, step := range []func() (bool, error){
+		func() (bool, error) {
+			return store.ClaimAction(ctx, taskID, "33333333-3333-4333-8333-333333333333", "run-1")
+		},
+		func() (bool, error) {
+			return store.FinishAction(ctx, taskID, "33333333-3333-4333-8333-333333333333", "run-1", StateCompleted, "")
+		},
+	} {
+		ok, err := step()
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
 
 	// 再次查询，只剩 action-2（action-1 已 completed）
 	actions, err = store.ListOpenActions(ctx, taskID)

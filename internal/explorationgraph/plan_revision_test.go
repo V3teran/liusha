@@ -225,23 +225,6 @@ func TestApplyChangeSet_ConflictRollsBackEverything(t *testing.T) {
 	assert.Empty(t, edgesOf(t, store, RelSupersedes))
 }
 
-func TestTransitionState_SupersededOnlyThroughRevision(t *testing.T) {
-	store := revisionFixture(t)
-	ctx := context.Background()
-
-	assert.Error(t, store.TransitionState(ctx, "d1", StateSuperseded, nil), "不能绕过修订直接置 superseded")
-	assert.Equal(t, StateOpen, nodeState(t, store, "d1"))
-
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
-		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
-	})
-	require.NoError(t, err)
-	for _, target := range []State{StateOpen, StateCompleted, StateAborted} {
-		assert.Error(t, store.TransitionState(ctx, "d1", target, nil), "superseded 不可迁出到 %s", target)
-	}
-	assert.Equal(t, StateSuperseded, nodeState(t, store, "d1"))
-}
-
 func TestIsDerivedObjective(t *testing.T) {
 	root, derived, action := rootObjective("a"), derivedObjective("b", StateOpen), Node{Kind: core.KindAction, SourceType: SourcePlanner}
 	assert.False(t, root.IsDerivedObjective())
@@ -315,19 +298,21 @@ func TestRevisePlan_AnalyzedWatermarkCommitsWithTheRevision(t *testing.T) {
 	assert.Error(t, err, "水位只能落在本任务的结果上")
 }
 
-// 带原因的状态迁移只合并 state_reason，节点身份字段（来源/优先级）不丢。
-func TestTransitionState_ReasonKeepsNodeIdentity(t *testing.T) {
+// 否决只合并 state_reason / rejected_by，节点身份字段（来源/优先级）不丢。
+func TestRejectAction_KeepsNodeIdentity(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen),
 		SourceType: SourcePlanner, Priority: PriorityHigh})
 
-	reason := "monitor killed"
-	require.NoError(t, store.TransitionState(ctx, "a1", StateAborted, &reason))
+	reason := "偏离目标"
+	ok, err := store.RejectAction(ctx, revTask, "a1", SourceMonitor, reason)
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	a1, err := store.GetNode(ctx, "a1")
 	require.NoError(t, err)
-	assert.Equal(t, StateAborted, *a1.State)
+	assert.Equal(t, StateRejected, *a1.State)
 	assert.Equal(t, reason, *a1.StateReason)
 	assert.Equal(t, SourcePlanner, a1.SourceType)
 	assert.Equal(t, PriorityHigh, a1.Priority)

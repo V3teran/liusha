@@ -134,11 +134,14 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 		SourceType: SourceEvaluator, Content: []byte(`{"statement":"s"}`)})
 	require.NoError(t, err)
 
-	reason := "monitor killed"
-	require.NoError(t, store.TransitionState(ctx, actionID, StateAborted, &reason))
+	reason := "偏离目标"
+	ok, err := store.RejectAction(ctx, taskID, actionID, SourceMonitor, reason)
+	require.NoError(t, err)
+	require.True(t, ok)
 	action, err := store.GetNode(ctx, actionID)
 	require.NoError(t, err)
-	assert.Equal(t, StateAborted, *action.State)
+	assert.Equal(t, StateRejected, *action.State)
+	assert.Equal(t, SourceMonitor, action.RejectedBy())
 	assert.Equal(t, reason, *action.StateReason)
 	assert.Equal(t, SourcePlanner, action.SourceType)
 	assert.Equal(t, PriorityHigh, action.Priority)

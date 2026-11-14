@@ -67,7 +67,7 @@ type Config struct {
 	ToolOutputTailBytes int
 
 	// WrapTool 把监察工具包进共享拦截链（遥测/心跳/时间线）——系统里
-	// 破坏性最大的决策（kill）不应是审计盲区（实测 tool_invocation 0 行）。
+	// 破坏性最大的决策（否决动作）不应是审计盲区（实测 tool_invocation 0 行）。
 	// nil=不包装（独立部署/测试）。
 	WrapTool func(registry.Tool) registry.Tool
 
@@ -286,14 +286,14 @@ func (a *Agent) buildEvaluationObjective() string {
 你的职责：
 1. 检查任务的全局状态
 2. 识别重复、偏离或方向已作废的 Actions，以及整体停滞
-3. 做出监察决策（kill_action 或 request_replan）
+3. 需要时发布监察决策（否决动作或请求重规划）
 
 请使用以下工具：
 - get_global_state：获取任务的全局状态
 - publish_decision：发布监察决策
 
 评估标准：
-- kill_action 只针对策略上已无价值的动作：重复已完成或已证伪的工作、所在方向已作废、偏离任务目标；卡死的动作由系统看门狗自动结束，不按运行时长判断
+- 否决只针对策略上已无价值的动作：重复已完成或已证伪的工作、所在方向已作废、偏离任务目标；卡死的动作由系统看门狗自动结束，不按运行时长判断；用户指派的动作不可否决
 - 大量 failed Actions → 考虑 replan
 - 缺乏进展 → 考虑 replan
 
@@ -348,7 +348,7 @@ type RunningActionView struct {
 
 // Decision 是监察决策。
 type Decision struct {
-	Type     string `json:"type"`                // "kill_action" | "request_replan"
-	ActionID string `json:"action_id,omitempty"` // kill_action 需要
+	Type     string `json:"type"`                // DecisionRejectAction | DecisionRequestReplan
+	ActionID string `json:"action_id,omitempty"` // 否决时必填
 	Reason   string `json:"reason"`              // 决策理由
 }

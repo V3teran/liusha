@@ -144,12 +144,12 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 	// 4. 准备工具列表
 	reactTools := e.prepareReActTools()
 
-	// 5. kill 传导：action 级 context 在 monitor kill 时取消（在途 LLM/工具即刻退出）
-	ctx, kill, stopKillWatch := watchKill(ctx, e.graphReader(), action.ID, killPollInterval, e.logger)
-	defer stopKillWatch()
+	// 5. 收回传导：动作被否决、收口或回收时取消 action 级 context（在途 LLM/工具即刻退出）
+	ctx, own, stopOwnershipWatch := watchOwnership(ctx, e.graphReader(), action.ID, e.agentRunID, ownershipPollInterval, e.logger)
+	defer stopOwnershipWatch()
 
 	// 6. 构建 ReAct 配置
-	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, root.Goal(), reactTools, kill)
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, root.Goal(), reactTools, own)
 	if err != nil {
 		return OutcomeDone, err
 	}
@@ -160,14 +160,17 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 		return OutcomeDone, err
 	}
 
-	// 8. 执行 ReAct 循环
+	// 8. 执行 ReAct 循环（被收回导致的退出如实报告为收回，不报成执行错误）
 	result, err := e.executeReActRuntime(ctx, reactRuntime, reactConfig, action.ID)
+	if own.Lost() {
+		return OutcomeDone, e.confirmHeld(context.WithoutCancel(ctx), action.ID)
+	}
 	if err != nil {
 		return OutcomeDone, err
 	}
 
-	// 9. 检查是否被 monitor kill（早期退出优化）
-	if err := e.checkActionAborted(ctx, action.ID); err != nil {
+	// 9. 落图前再核一次持有：轮询间隔内被收回的动作不再写观察
+	if err := e.confirmHeld(ctx, action.ID); err != nil {
 		return OutcomeDone, err
 	}
 

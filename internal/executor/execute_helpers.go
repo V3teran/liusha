@@ -48,7 +48,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	actionContent *ActionContent,
 	goal string,
 	tools []registry.Tool,
-	kill *killSwitch,
+	own *ownership,
 ) (*runtime.ReActConfig, error) {
 	// 构建执行目标
 	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s", actionContent.Instruction, actionContent.Type)
@@ -73,7 +73,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 
-	// 构建配置，包含 monitor kill 检查（kill 由 watchKill 后台侦测置位）
+	// 构建配置，包含收回检查（由 watchOwnership 后台侦测置位）
 	// 思考流（nil=不流式）：方法值不能从 nil 接口取，先守卫。
 	var onThoughtDelta, onThinkingDelta func(string)
 	if e.thoughts != nil {
@@ -96,10 +96,10 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
 		OutputFormatSchema: executorcontract.Text, // 强制总结时重申输出契约（唯一一份）
-		// kill 止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
+		// 收回止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
 		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
-		EarlyStopCondition: func(string) bool { return kill.Killed() },
-		AbortCheck:         kill.Killed,
+		EarlyStopCondition: func(string) bool { return own.Lost() },
+		AbortCheck:         own.Lost,
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
 			e.activity.Touch(action.ID) // 一步推理完成即一次进展
 			e.logger.Debug().
@@ -113,33 +113,18 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	return config, nil
 }
 
-// checkActionAborted 检查 action 是否被 monitor kill
-func (e *Engine) checkActionAborted(ctx context.Context, actionID string) error {
+// confirmHeld 核对本 run 仍持有该动作；已被收回返回 ErrActionRevoked。读图失败不阻断
+// 执行（侦测尽力而为），但必须留痕。
+func (e *Engine) confirmHeld(ctx context.Context, actionID string) error {
 	if e.graph == nil {
 		return nil
 	}
-
 	node, err := e.graph.GetNode(ctx, actionID)
 	if err != nil {
-		// 中止检查是尽力而为：读图失败不阻断执行，但必须留痕——否则被中止的动作
-		// 继续跑下去时无从排查。
-		e.logger.Warn().Err(err).Str("action_id", actionID).Msg("读取动作状态失败，跳过本次中止检查")
+		e.logger.Warn().Err(err).Str("action_id", actionID).Msg("读取动作状态失败，跳过本次持有核对")
 		return nil
 	}
-
-	if node.State != nil && *node.State == explorationgraph.StateAborted {
-		reason := "unknown"
-		if node.StateReason != nil {
-			reason = *node.StateReason
-		}
-		e.logger.Warn().
-			Str("action_id", actionID).
-			Str("reason", reason).
-			Msg("action 已被 monitor kill，提前返回（图层 CAS 已保护状态）")
-		return fmt.Errorf("action killed by monitor: %s", reason)
-	}
-
-	return nil
+	return revocation(node, e.agentRunID)
 }
 
 // registerReActTools 注册工具到 ReAct runtime

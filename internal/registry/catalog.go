@@ -59,5 +59,5 @@ var FunctionToolCatalog = []FunctionToolMeta{
 	{"observe_state", CatExplore, "深挖探索图当前状态（节点/边/依赖细节，planner 规划用）。"},
 	{"evaluate_progress", CatExplore, "探索图全局进展评估：完成率/失败分布/停滞检测（planner 规划用）。"},
 	{"get_global_state", CatExplore, "获取任务全局状态快照（monitor 监察用）。"},
-	{"publish_decision", CatExplore, "发布监察决策：kill_action（带 action_id）或 request_replan（monitor 专用）。"},
+	{"publish_decision", CatExplore, "发布监察决策：否决动作 reject_action（带 action_id；用户指派的动作不可否决）或请求重规划 request_replan（monitor 专用）。"},
 }

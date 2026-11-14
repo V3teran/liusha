@@ -1,5 +1,5 @@
 // telemetry.go 工具调用遥测：每次工具调用落 tool_invocation、节流续命
-// task.heartbeat_at（reaper 判活依据）、活动打点（monitor kill 判据）。
+// task.heartbeat_at（reaper 判活依据）、活动打点（执行者看门狗判停摆的依据）。
 
 package cognition
 

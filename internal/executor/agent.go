@@ -5,6 +5,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -230,6 +231,13 @@ func (a *Agent) executeAction(
 	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 
+	// 动作在执行途中被收回（否决、任务收口、被新 run 回收）：外部决定已落图，放弃本次
+	// 结果，不改写动作状态，也不算执行失败。
+	if errors.Is(execErr, ErrActionRevoked) {
+		a.logger.Info().Str("action_id", action.ID).Err(execErr).Msg("动作已被收回，放弃本次执行结果")
+		return nil
+	}
+
 	// run 被中断（暂停、停机、run 超时）而动作没做完：交还 open，由下一个 run 重新
 	// 执行。中断不是失败——记成失败会让规划者以为此路不通。
 	if execErr != nil && ctx.Err() != nil {
@@ -239,7 +247,7 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
-	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（monitor 中止）或新 run
+	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（否决、任务收口）或新 run
 	// 的回收已改写状态时，迟到的结果不覆盖它们。看门狗判停摆的动作在这里按失败结束。
 	to, reason := explorationgraph.StateCompleted, ""
 	switch {

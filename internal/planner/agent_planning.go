@@ -170,7 +170,7 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 	return written, nil
 }
 
-// knownInstructions 汇总图上全部动作的 instruction（去首尾空白后的字面去重集）。
+// knownInstructions 汇总图上动作的 instruction（去首尾空白后的字面去重集），已中止的除外。
 func (a *Agent) knownInstructions(ctx context.Context) (map[string]bool, error) {
 	all, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindAction)
 	if err != nil {
@@ -178,6 +178,10 @@ func (a *Agent) knownInstructions(ctx context.Context) (map[string]bool, error) 
 	}
 	set := make(map[string]bool, len(all))
 	for _, action := range all {
+		// 已中止的动作没做完、也不含对错判断：按当前目标重提同一指令是正当的。
+		if action.State != nil && *action.State == explorationgraph.StateAborted {
+			continue
+		}
 		var c struct {
 			Instruction string `json:"instruction"`
 		}
