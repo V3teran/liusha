@@ -107,6 +107,32 @@ func TestRecordVerifyFailure_InvalidRecipeFailsFast(t *testing.T) {
 	}
 }
 
+// TestPollAndVerify_CorruptHypothesisRefutedNotStuck 锁定损坏的假设（无配方）直接以
+// invalid_recipe 出圈：此前轮询只告警跳过，它永远待验证、阻塞任务收敛。
+func TestPollAndVerify_CorruptHypothesisRefutedNotStuck(t *testing.T) {
+	memGraph := explorationgraph.NewMemoryStore()
+	gate := gateWith(&fakeGraphStore{verID: "v"}, fakeReplayer{}, &fakeClaimSink{}).WithJudge(stubJudge{verdict: VerdictConfirmed})
+	a := NewAgent(AgentConfig{TaskID: "t-corrupt", Gate: gate, EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.Nop()})
+	pending := explorationgraph.VerificationPending
+	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+		ID: "obs-norepro", TaskID: "t-corrupt", Kind: core.KindObservation,
+		Content: json.RawMessage(`{"statement":"S"}`), VerificationStatus: &pending,
+	}); err != nil {
+		t.Fatalf("建观察失败: %v", err)
+	}
+	sem := make(chan struct{}, 1)
+	if err := a.pollAndVerify(context.Background(), sem); err != nil {
+		t.Fatalf("轮询失败: %v", err)
+	}
+	node, err := memGraph.GetNode(context.Background(), "obs-norepro")
+	if err != nil {
+		t.Fatalf("读回节点失败: %v", err)
+	}
+	if !node.HasVerificationStatus(explorationgraph.VerificationRefuted) || node.RefuteReason() != RefuteInvalidRecipe {
+		t.Fatalf("status=%v refute_reason=%q，期望 refuted / invalid_recipe", node.VerificationStatus, node.RefuteReason())
+	}
+}
+
 // evaluator 管辖边界不变式：轮询只圈待验证的假设——事实
 // 是 executor 写入即终态的观察，出处即信任，不消耗验证预算、永不晋升
 // （result 只承载经判定坐实的主张）。
