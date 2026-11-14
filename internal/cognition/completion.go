@@ -33,12 +33,18 @@ type CompletionDetector struct {
 	// 拆成「先置标志、后存原因」两步时，并发的兜底检查会落在两步之间，看到已中止却
 	// 读不到原因，回落兜底值把调用方原因吞掉。
 	abortReason atomic.Pointer[string]
-	// convergedReason 非 nil 即规划者已宣告收敛（无新方向且图上无未完结工作）。
-	convergedReason atomic.Pointer[string]
+	// converged 非 nil 即规划者已宣告收敛（无新方向且图上无未完结工作）。
+	converged atomic.Pointer[convergence]
 	// wake 让控制信号（收敛）立即触发完成判定，不等定时兜底检查。
 	wake chan struct{}
 
 	completionCh chan Result
+}
+
+// convergence 是规划者的一次收敛宣告：原因与所依据的目标。
+type convergence struct {
+	reason string
+	basis  explorationgraph.GoalBasis
 }
 
 // Result 是一次 run 的结局与图统计。
@@ -49,6 +55,8 @@ type Result struct {
 	StopReason string // 停止原因
 	Duration   time.Duration
 	Err        error // 致命失败（StopReasonAgentFailed）的原因；其余停止为 nil
+	// GoalBasis 是收敛所依据的目标（仅 StopReasonConverged 时有值）。
+	GoalBasis explorationgraph.GoalBasis
 }
 
 // Config 配置 CompletionDetector
@@ -120,9 +128,11 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 	}
 
 	// 2. 任务收敛（规划者宣告）
-	if r := d.convergedReason.Load(); r != nil {
-		d.logger.Info().Str("reason", *r).Msg("任务收敛，停止探索")
-		return d.makeResult(StopReasonConverged), true
+	if c := d.converged.Load(); c != nil {
+		d.logger.Info().Str("reason", c.reason).Msg("任务收敛，停止探索")
+		res := d.makeResult(StopReasonConverged)
+		res.GoalBasis = c.basis
+		return res, true
 	}
 
 	// 3. 动作预算
@@ -170,10 +180,10 @@ const StopReasonActionBudget = "action_budget_reached"
 // StopReasonConverged 是规划者宣告收敛（无新方向且图上无未完结工作）的停止原因。
 const StopReasonConverged = "task_converged"
 
-// Converge 由规划者在「无新方向且图上无未完结工作」时直接调用。收敛决定任务结束，
-// 是控制信号：直接调用不会丢失，事件总线满即丢弃的语义不适合它。
-func (d *CompletionDetector) Converge(reason string) {
-	d.convergedReason.Store(&reason)
+// Converge 由规划者在「无新方向且图上无未完结工作」时直接调用，带上收敛所依据的目标。
+// 收敛决定任务结束，是控制信号：直接调用不会丢失，事件总线满即丢弃的语义不适合它。
+func (d *CompletionDetector) Converge(reason string, basis explorationgraph.GoalBasis) {
+	d.converged.Store(&convergence{reason: reason, basis: basis})
 	select {
 	case d.wake <- struct{}{}:
 	default:

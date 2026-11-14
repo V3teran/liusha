@@ -132,6 +132,9 @@ type Report struct {
 	Results    int    `json:"results"`     // 坐实的结果数
 	Hypotheses int    `json:"hypotheses"`  // 提出的假设数
 	StopReason string `json:"stop_reason"` // 停止原因
+	// GoalBasis 是收敛所依据的目标（仅自然收敛时有值）：任务以它为前置落 completed，
+	// 收敛之后目标被调整或又有了待执行动作则不结束（见 task.Store.CompleteConverged）。
+	GoalBasis explorationgraph.GoalBasis `json:"-"`
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -218,6 +221,7 @@ func (d *Deps) run(
 		Results:    result.Results,
 		Hypotheses: result.Hypotheses,
 		StopReason: result.StopReason,
+		GoalBasis:  result.GoalBasis,
 	}
 	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
 	return report, result.Err

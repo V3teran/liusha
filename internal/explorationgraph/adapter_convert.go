@@ -28,6 +28,7 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		Content:   graphNode.Content,
 		CreatedAt: graphNode.CreatedAt,
 		UpdatedAt: graphNode.UpdatedAt,
+		Version:   graphNode.Version,
 	}
 
 	// 从 Metadata 恢复类型化字段

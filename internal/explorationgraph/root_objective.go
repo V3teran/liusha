@@ -3,6 +3,7 @@ package explorationgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,30 @@ func (n *Node) Goal() string {
 		return ""
 	}
 	return c.Description
+}
+
+// GoalBasis 是一次规划决策所依据的任务目标：根目标及读取它时的版本。根目标的版本
+// 随目标改写与任务状态迁移递增，动作挂到它下面不改变它——版本未变即规划时看到的
+// 目标仍然成立。规划结论（新动作、结果分析的修订、收敛）都以它为前置落定。
+type GoalBasis struct {
+	ObjectiveID string
+	Version     int64
+}
+
+// ErrGoalChanged 表示规划所依据的目标在规划期间已被改写（或任务状态已迁移）：
+// 结论按旧目标得出，整批作废，按新目标重新规划。
+var ErrGoalChanged = errors.New("规划依据的任务目标已变化")
+
+// GoalBasis 读取任务当前的目标依据（没有根目标即无从规划，返回错误）。
+func (s *Store) GoalBasis(ctx context.Context, taskID string) (GoalBasis, error) {
+	root, ok, err := s.RootObjectiveOf(ctx, taskID)
+	if err != nil {
+		return GoalBasis{}, err
+	}
+	if !ok {
+		return GoalBasis{}, fmt.Errorf("任务 %s 没有根目标", taskID)
+	}
+	return GoalBasis{ObjectiveID: root.ID, Version: root.Version}, nil
 }
 
 // RootObjectiveOf 读取任务的根目标（不存在返回 false）。

@@ -27,8 +27,9 @@ type Agent struct {
 	functionTools []string      // function_tools 白名单
 	pollInterval  time.Duration // 轮询间隔（作为兜底）
 
-	// onConverged 把收敛直接通知完成检测器（控制信号，不走可丢的事件总线）。
-	onConverged func(reason string)
+	// onConverged 把收敛直接通知完成检测器（控制信号，不走可丢的事件总线），带上
+	// 收敛所依据的目标：任务落 completed 时以它为前置，期间目标被改写则不结束任务。
+	onConverged func(reason string, basis explorationgraph.GoalBasis)
 
 	// 重规划请求（经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次请求合并为
 	// 一次，理由逐条保留（去重）。
@@ -47,9 +48,9 @@ type AgentConfig struct {
 	Planner       GraphPlanner
 	EventBus      bus.EventBus
 	Logger        zerolog.Logger
-	PollInterval  time.Duration       // 默认 10s
-	FunctionTools []string            // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
-	OnConverged   func(reason string) // 收敛通知（必填：任务结束靠它）
+	PollInterval  time.Duration                                         // 默认 10s
+	FunctionTools []string                                              // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
+	OnConverged   func(reason string, basis explorationgraph.GoalBasis) // 收敛通知（必填：任务结束靠它）
 }
 
 // NewAgent 创建 planner Agent。

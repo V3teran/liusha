@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/stretchr/testify/assert"
@@ -444,4 +445,70 @@ func TestGraphStore_DeleteEdge(t *testing.T) {
 		}
 	}
 	assert.False(t, found, "边应该已被删除")
+}
+
+// TestGraphStore_VersionPrecondition 锁定版本前置在 PG 上的语义：版本过期整批回滚；
+// 前置节点在事务内被共享锁定——并发改写它的事务要等变更集提交后才能落定，因此
+// 改写之后的语句总能看到变更集的写入（目标调整撤回规划依赖这一点）。
+func TestGraphStore_VersionPrecondition(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewGraphStore(pool)
+
+	const (
+		taskID = "cccccccc-0000-4000-8000-0000000000a1"
+		rootID = "21111111-1111-4111-8111-111111111111"
+	)
+	require.NoError(t, store.CreateNode(ctx, &core.GraphNode{ID: rootID, Kind: string(core.KindObjective),
+		Content: json.RawMessage(`{"description":"旧目标"}`), TaskID: taskID,
+		Metadata: map[string]interface{}{"source_type": "user"}, State: string(core.NodeStateOpen)}))
+	action := func(id string) []*core.GraphNode {
+		return []*core.GraphNode{{ID: id, Kind: string(core.KindAction), Content: json.RawMessage(`{"instruction":"x"}`),
+			TaskID: taskID, Metadata: map[string]interface{}{"source_type": "planner"}, State: string(core.NodeStateOpen)}}
+	}
+	basis, err := store.GetNode(ctx, rootID)
+	require.NoError(t, err)
+
+	require.NoError(t, store.UpdateNode(ctx, rootID, core.GraphNodeUpdate{Content: json.RawMessage(`{"description":"新目标"}`)}))
+	err = store.ApplyChangeSet(ctx, core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: taskID, NodeID: rootID, Version: basis.Version}},
+		Nodes:         action("31111111-1111-4111-8111-111111111111"),
+	})
+	require.ErrorIs(t, err, core.ErrVersionMismatch)
+	_, err = store.GetNode(ctx, "31111111-1111-4111-8111-111111111111")
+	require.ErrorIs(t, err, core.ErrGraphNodeNotFound, "前置不成立时整批回滚")
+
+	err = store.ApplyChangeSet(ctx, core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: "cccccccc-0000-4000-8000-0000000000a2", NodeID: rootID, Version: basis.Version + 1}},
+	})
+	require.ErrorIs(t, err, core.ErrGraphNodeNotFound, "前置节点不属于声明的任务视为不存在")
+
+	// 并发：改写前置节点的事务未提交时，变更集等它落定，再按最新版本判定——不会
+	// 基于旧快照放行。
+	current, err := store.GetNode(ctx, rootID)
+	require.NoError(t, err)
+	writer, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = writer.Rollback(ctx) }()
+	_, err = writer.Exec(ctx, `UPDATE exploration_node SET content = '{"description":"再改"}' WHERE id = $1`, rootID)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- store.ApplyChangeSet(ctx, core.GraphChangeSet{
+			Preconditions: []core.GraphNodeVersion{{TaskID: taskID, NodeID: rootID, Version: current.Version}},
+			Nodes:         action("41111111-1111-4111-8111-111111111111"),
+		})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("改写未提交时变更集应等待，却已返回: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.NoError(t, writer.Commit(ctx))
+	require.ErrorIs(t, <-done, core.ErrVersionMismatch, "等到改写提交后按最新版本判定")
 }

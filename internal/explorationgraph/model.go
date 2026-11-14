@@ -153,6 +153,9 @@ type Node struct {
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version 随节点的每次改写递增（存储层维护，写入时忽略）。
+	Version int64 `json:"version"`
 }
 
 // Edge 是探索图的关系边（5 种关系）

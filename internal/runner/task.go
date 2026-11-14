@@ -148,7 +148,11 @@ func (h *Handler) executeTask(
 	// completed、时间线广播「任务完成」。
 	if terminated {
 		h.finishTerminatedTask(doneCtx, taskLogger, p, taskID, report)
-	} else if err := h.Tasks.Complete(doneCtx, taskID); err != nil {
+	} else if err := h.completeTask(doneCtx, taskID, report); errors.Is(err, task.ErrStaleConvergence) {
+		// 收敛之后目标被调整或又有了待执行动作：本 run 按它的依据收敛了，任务却还有事
+		// 要做——保持 active，由恢复监控的「搁浅任务」规则以新 run 续跑。
+		taskLogger.Info().Msg("收敛之后任务目标已调整或有了新的待执行动作：任务保持进行中，由恢复监控续跑")
+	} else if err != nil {
 		taskLogger.Warn().Err(err).Msg("task 完成迁移被拒（保持既有终态）")
 	} else {
 		// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
@@ -174,6 +178,15 @@ func (h *Handler) executeTask(
 		}
 	}
 	return nil
+}
+
+// completeTask 按停止原因落 completed：规划收敛以收敛依据为前置（依据失效返回
+// task.ErrStaleConvergence）；动作预算用尽则无条件完成——预算是硬上限。
+func (h *Handler) completeTask(ctx context.Context, taskID string, report cognition.Report) error {
+	if report.StopReason == cognition.StopReasonConverged {
+		return h.Tasks.CompleteConverged(ctx, taskID, report.GoalBasis)
+	}
+	return h.Tasks.Complete(ctx, taskID)
 }
 
 // distillTimeout 是任务经验蒸馏的总预算（LLM 生成 + embedding + 写库）。

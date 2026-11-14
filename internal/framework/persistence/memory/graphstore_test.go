@@ -474,3 +474,52 @@ func TestGraphStore_ApplyChangeSet_OnceAndVersion(t *testing.T) {
 		t.Fatalf("连续迁移应逐条递增版本: state=%s version %d→%d", after.State, before.Version, after.Version)
 	}
 }
+
+// 版本前置：节点版本与依据一致才整批生效；不一致或节点不属于声明的任务时整批不落。
+func TestGraphStore_ApplyChangeSet_VersionPrecondition(t *testing.T) {
+	ctx := context.Background()
+	store := NewGraphStore()
+	root := &core.GraphNode{ID: "root", Kind: "objective", State: "open", TaskID: "t1", Metadata: map[string]interface{}{}}
+	if err := store.CreateNode(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	basis, _ := store.GetNode(ctx, "root")
+	newNode := func(id string) []*core.GraphNode {
+		return []*core.GraphNode{{ID: id, Kind: "action", State: "open", TaskID: "t1", Metadata: map[string]interface{}{}}}
+	}
+
+	if err := store.UpdateNode(ctx, "root", core.GraphNodeUpdate{Content: json.RawMessage(`{"description":"新目标"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	stale := core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: "t1", NodeID: "root", Version: basis.Version}},
+		Nodes:         newNode("a-stale"),
+	}
+	if err := store.ApplyChangeSet(ctx, stale); !errors.Is(err, core.ErrVersionMismatch) {
+		t.Fatalf("依据版本已过期应整批拒绝，got %v", err)
+	}
+	if _, err := store.GetNode(ctx, "a-stale"); !errors.Is(err, core.ErrGraphNodeNotFound) {
+		t.Fatalf("前置不成立时不应落任何节点，got %v", err)
+	}
+
+	current, _ := store.GetNode(ctx, "root")
+	foreign := core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: "t2", NodeID: "root", Version: current.Version}},
+		Nodes:         newNode("a-foreign"),
+	}
+	if err := store.ApplyChangeSet(ctx, foreign); !errors.Is(err, core.ErrGraphNodeNotFound) {
+		t.Fatalf("前置节点不属于声明的任务应视为不存在，got %v", err)
+	}
+
+	fresh := core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: "t1", NodeID: "root", Version: current.Version}},
+		Nodes:         newNode("a-fresh"),
+	}
+	if err := store.ApplyChangeSet(ctx, fresh); err != nil {
+		t.Fatalf("依据版本一致应生效: %v", err)
+	}
+	after, _ := store.GetNode(ctx, "root")
+	if after.Version != current.Version {
+		t.Fatalf("版本前置只读不写，不应改变前置节点版本: %d→%d", current.Version, after.Version)
+	}
+}

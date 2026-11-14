@@ -140,15 +140,29 @@ func isRetriableError(err error) bool {
 // planner 返回空只是对在途工作的等待——发布收敛会终止整个认知循环、掐断在途
 // 执行、判定与分析。只有图上再无任何未完结工作且 planner 也没有新方向，才是
 // 真正的收敛。
-func (a *Agent) handleNoActions(ctx context.Context, trigger string) {
+//
+// 「没有新方向」是针对 basis 那个目标得出的：目标在规划期间被改写时返回
+// ErrGoalChanged，由调用方按新目标重新规划，不能据此收敛（会把新目标直接结束）。
+// 收敛带上 basis，任务落 completed 时以它为前置再核一次（见 task.Store.CompleteConverged）。
+func (a *Agent) handleNoActions(ctx context.Context, basis explorationgraph.GoalBasis, trigger string) error {
 	if pending := a.pendingWork(ctx); pending != "" {
 		a.logger.Info().Str("trigger", trigger).Str("pending", pending).
 			Msg("Planner 暂无新 Action，但图上仍有未完结工作——等其落定，不收敛")
-		return
+		return nil
+	}
+	current, err := a.graph.GoalBasis(ctx, a.taskID)
+	if err != nil {
+		// 判定失败保守不收敛（与 pendingWork 同一取向），下一轮再判
+		a.logger.Warn().Err(err).Msg("读取目标依据失败，本轮不收敛")
+		return nil
+	}
+	if current != basis {
+		return explorationgraph.ErrGoalChanged
 	}
 
 	a.logger.Info().Str("trigger", trigger).Msg("Planner 未生成新 Action 且图上无未完结工作（任务收敛）")
-	a.onConverged("规划者无新方向且图上无未完结工作（" + trigger + "）")
+	a.onConverged("规划者无新方向且图上无未完结工作（"+trigger+"）", basis)
+	return nil
 }
 
 // pendingWork 返回阻止任务收敛的未完结工作（空串 = 可以收敛）：

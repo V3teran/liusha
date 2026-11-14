@@ -13,6 +13,10 @@ import (
 // ErrConflict 是终态迁移被拒（另一终态已先落，不覆盖）的哨兵；API 层据此映射 409。
 var ErrConflict = fmt.Errorf("task 状态迁移冲突")
 
+// ErrStaleConvergence 是收敛依据已失效的哨兵：规划者宣告收敛之后目标被改写、或图上
+// 又有了待执行的动作，任务不能按那次收敛结束。
+var ErrStaleConvergence = fmt.Errorf("收敛依据已失效：目标已调整或有了新的待执行动作")
+
 // ErrNotActive 是「操作仅对进行中任务有效」的哨兵（暂停/继续打到终态任务）；
 // API 层据此映射 409。
 var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行该操作")
@@ -24,7 +28,7 @@ var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行�
 // 用户停止 vs reaper 判死——先到者赢）；已 completed 是冲突（迟到的 abort 不得
 // 把成功终态改写成 aborted），返回错误但不覆盖。
 func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
-	return s.finish(ctx, id, StatusAborted, `
+	return s.finish(ctx, id, StatusAborted, nil, `
 		UPDATE task SET
 			status='aborted',
 			ended_at=now(),
@@ -38,19 +42,51 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 // 是冲突（迟到的成功收尾不得覆盖用户停止/判死判定），返回错误但不覆盖——
 // 典型时序：用户点停止（api 先 abort）→ runner 循环随后自然收敛，此处被拒。
 func (s *Store) Complete(ctx context.Context, id string) error {
-	return s.finish(ctx, id, StatusCompleted, `
+	return s.finish(ctx, id, StatusCompleted, nil, completeSQL)
+}
+
+// CompleteConverged 把因规划收敛而结束的 task 置为 completed，前置是收敛依据仍成立
+// （见 explorationgraph.ConvergenceHolds）：判定在锁住任务行之后进行，与目标调整、指派
+// 动作这些先锁任务行的写入串行。依据失效返回 ErrStaleConvergence，任务保持 active、
+// 图不收口；其余守卫与 Complete 相同。
+func (s *Store) CompleteConverged(ctx context.Context, id string, basis explorationgraph.GoalBasis) error {
+	return s.finish(ctx, id, StatusCompleted, func(tx pgx.Tx) error {
+		holds, err := explorationgraph.ConvergenceHolds(ctx, tx, id, basis)
+		if err != nil {
+			return err
+		}
+		if !holds {
+			return ErrStaleConvergence
+		}
+		return nil
+	}, completeSQL)
+}
+
+const completeSQL = `
 		UPDATE task SET
 			status='completed',
 			ended_at=now()
-		WHERE id=$1 AND status='active'`)
-}
+		WHERE id=$1 AND status='active'`
 
 // finish 执行一次 active → 终态的 CAS 迁移，并在同一事务内让任务图收口（见
-// explorationgraph.SyncWithTask）：任务结局与图上的收口同时成立。CAS 未命中时不改
-// 动任何东西，交 terminalOrConflict 判定幂等或冲突。
-func (s *Store) finish(ctx context.Context, id string, to Status, update string, args ...any) error {
+// explorationgraph.SyncWithTask）：任务结局与图上的收口同时成立。guard 非空时先锁住
+// 任务行（仍 active 才判定），guard 返回错误即整体放弃。CAS 未命中时不改动任何东西，
+// 交 terminalOrConflict 判定幂等或冲突。
+func (s *Store) finish(ctx context.Context, id string, to Status, guard func(pgx.Tx) error, update string, args ...any) error {
 	applied := false
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if guard != nil {
+			var active bool
+			if err := tx.QueryRow(ctx, `SELECT status = 'active' FROM task WHERE id = $1 FOR UPDATE`, id).Scan(&active); err != nil {
+				return fmt.Errorf("锁定任务: %w", err)
+			}
+			if !active {
+				return nil
+			}
+			if err := guard(tx); err != nil {
+				return err
+			}
+		}
 		tag, err := tx.Exec(ctx, update, append([]any{id}, args...)...)
 		if err != nil {
 			return err

@@ -267,10 +267,10 @@ func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
 			t.Run(tc.name+"/"+trigger, func(t *testing.T) {
 				a, store := revisionAgent(t, &ResultAnalysis{})
 				converged := 0
-				a.onConverged = func(string) { converged++ }
+				a.onConverged = func(string, explorationgraph.GoalBasis) { converged++ }
 				tc.seed(t, store)
 
-				a.handleNoActions(context.Background(), trigger)
+				require.NoError(t, a.handleNoActions(context.Background(), basisOf(t, store), trigger))
 
 				assert.Equal(t, !tc.blocked, converged == 1)
 			})
@@ -280,7 +280,9 @@ func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
 
 func markAllAnalyzed(t *testing.T, store *explorationgraph.Store) {
 	t.Helper()
-	_, err := store.RevisePlan(context.Background(), revisionTask, explorationgraph.PlanRevision{Analyzed: []string{"r1"}})
+	basis, err := store.GoalBasis(context.Background(), revisionTask)
+	require.NoError(t, err)
+	_, err = store.RevisePlan(context.Background(), revisionTask, explorationgraph.PlanRevision{Basis: basis, Analyzed: []string{"r1"}})
 	require.NoError(t, err)
 }
 
@@ -312,17 +314,15 @@ func planAction(id, instruction string) explorationgraph.ActionDraft {
 }
 
 // 规划入口与结果分析、人工注入同一口径：动作挂根目标；空指令与重复指令不落图。
-func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
+func TestApplyPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	written, err := a.writeActionsFromPlan(ctx, []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyPlan(ctx, basisOf(t, store), []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, written)
+	}, "planning"))
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
@@ -335,13 +335,15 @@ func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 		[3]string{edges[0].SrcID, string(edges[0].Rel), edges[0].DstID})
 }
 
-func TestWriteActionsFromPlan_RequiresRootObjective(t *testing.T) {
+// 没有根目标就没有规划依据：不调用规划器，也不落孤立动作。
+func TestPlanActions_RequiresRootObjective(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
-	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
+	planner := &goalShiftingPlanner{store: store, plans: [][]explorationgraph.ActionDraft{{planAction("p1", "x")}}}
+	a := &Agent{taskID: revisionTask, graph: store, planner: planner, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
 	ctx := context.Background()
 
-	_, err := a.writeActionsFromPlan(ctx, []explorationgraph.ActionDraft{planAction("p1", "x")})
-	require.Error(t, err)
+	require.Error(t, a.planActions(ctx))
+	assert.Zero(t, planner.planCalls)
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
 	assert.Empty(t, actions, "无根目标不落孤立动作")

@@ -138,11 +138,13 @@ func TestCompletionDetector_ConvergeStopsImmediately(t *testing.T) {
 	done := make(chan Result, 1)
 	go func() { done <- d.Start(context.Background()) }()
 
-	d.Converge("planner: 无新方向且图上无未完结工作")
+	basis := explorationgraph.GoalBasis{ObjectiveID: "root", Version: 3}
+	d.Converge("planner: 无新方向且图上无未完结工作", basis)
 
 	select {
 	case r := <-done:
 		assert.Equal(t, StopReasonConverged, r.StopReason)
+		assert.Equal(t, basis, r.GoalBasis, "收敛带出它所依据的目标，任务落 completed 时以它为前置")
 	case <-time.After(2 * time.Second):
 		t.Fatal("收敛后检测器未结束")
 	}
