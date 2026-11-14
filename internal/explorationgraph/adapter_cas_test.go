@@ -49,7 +49,7 @@ func TestTransitionState_CannotOverwriteAborted(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, node.State)
 	assert.Equal(t, StateAborted, *node.State, "状态应保持 aborted")
-	assert.Equal(t, reason, *node.BlockedReason, "kill reason 应保留")
+	assert.Equal(t, reason, *node.StateReason, "kill reason 应保留")
 
 	t.Log("✅ aborted 状态不可被覆盖为 done")
 }
@@ -85,7 +85,7 @@ func TestTransitionState_CannotOverwriteAbortedWithFailed(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, node.State)
 	assert.Equal(t, StateAborted, *node.State)
-	assert.Equal(t, killReason, *node.BlockedReason, "应保留原始 kill reason")
+	assert.Equal(t, killReason, *node.StateReason, "应保留原始 kill reason")
 
 	t.Log("✅ aborted 状态不可被覆盖为 failed")
 }
@@ -155,7 +155,7 @@ func TestTransitionState_AbortedToAborted(t *testing.T) {
 	node, err := graph.GetNode(ctx, action)
 	require.NoError(t, err)
 	assert.Equal(t, StateAborted, *node.State)
-	assert.Equal(t, reason2, *node.BlockedReason, "reason 应更新为最新的")
+	assert.Equal(t, reason2, *node.StateReason, "reason 应更新为最新的")
 
 	t.Log("✅ aborted → aborted 允许（幂等操作）")
 }
@@ -193,7 +193,7 @@ func TestTransitionState_ConcurrentKill(t *testing.T) {
 	node, err := graph.GetNode(ctx, action)
 	require.NoError(t, err)
 	assert.Equal(t, StateAborted, *node.State)
-	assert.Equal(t, killReason, *node.BlockedReason)
+	assert.Equal(t, killReason, *node.StateReason)
 
 	t.Log("✅ 并发场景下 Monitor 的 kill 决策获胜")
 }

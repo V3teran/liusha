@@ -74,7 +74,7 @@ func SyncWithTask(ctx context.Context, db Execer, taskIDs []string, status TaskS
 			[]any{taskIDs, derived}},
 		{"动作", `
 			UPDATE exploration_node
-			   SET state = 'aborted', metadata = metadata || jsonb_build_object('blocked_reason', $2::text)
+			   SET state = 'aborted', metadata = metadata || jsonb_build_object('state_reason', $2::text)
 			 WHERE task_id = ANY($1::uuid[]) AND kind = 'action' AND state IN ('open', 'running')`,
 			[]any{taskIDs, reason}},
 	}

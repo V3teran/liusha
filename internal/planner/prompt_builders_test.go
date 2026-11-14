@@ -37,7 +37,7 @@ func TestBuildFailedActionsSection_ShowsFailureNotRationale(t *testing.T) {
 	failed := explorationgraph.StateFailed
 	reason := "工具超时：sqlmap 运行超过 120 秒"
 	section := buildFailedActionsSection([]explorationgraph.Node{{
-		ID: "a1", Kind: core.KindAction, State: &failed, BlockedReason: &reason,
+		ID: "a1", Kind: core.KindAction, State: &failed, StateReason: &reason,
 		Content: []byte(`{"instruction":"跑 sqlmap","reasoning":"登录表单疑似注入"}`),
 	}})
 	if !strings.Contains(section, reason) {

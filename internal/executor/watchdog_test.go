@@ -80,8 +80,8 @@ func TestWatchdog_StalledActionFailsWithReason(t *testing.T) {
 
 	n := mustNode(t, store, "a1")
 	assert.Equal(t, explorationgraph.StateFailed, *n.State)
-	require.NotNil(t, n.BlockedReason)
-	assert.True(t, strings.Contains(*n.BlockedReason, "停摆"), "原因应说明停摆：%s", *n.BlockedReason)
+	require.NotNil(t, n.StateReason)
+	assert.True(t, strings.Contains(*n.StateReason, "停摆"), "原因应说明停摆：%s", *n.StateReason)
 }
 
 // 持续有进展的长动作不会被误杀。

@@ -51,9 +51,9 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.Complexity = &c
 	}
 
-	// BlockedReason
-	if blockedReason, ok := graphNode.Metadata["blocked_reason"].(string); ok {
-		node.BlockedReason = &blockedReason
+	// StateReason
+	if stateReason, ok := graphNode.Metadata["state_reason"].(string); ok {
+		node.StateReason = &stateReason
 	}
 
 	// 验证状态（仅假设观察）

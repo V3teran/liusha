@@ -130,8 +130,8 @@ func (e *Engine) checkActionAborted(ctx context.Context, actionID string) error 
 
 	if node.State != nil && *node.State == explorationgraph.StateAborted {
 		reason := "unknown"
-		if node.BlockedReason != nil {
-			reason = *node.BlockedReason
+		if node.StateReason != nil {
+			reason = *node.StateReason
 		}
 		e.logger.Warn().
 			Str("action_id", actionID).

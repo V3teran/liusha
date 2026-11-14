@@ -64,7 +64,7 @@ func TestExecutor_AbortedStateNotOverwritten(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, finalNode.State)
 	assert.Equal(t, explorationgraph.StateAborted, *finalNode.State, "状态应保持 aborted")
-	assert.Equal(t, reason, *finalNode.BlockedReason, "kill reason 应保留")
+	assert.Equal(t, reason, *finalNode.StateReason, "kill reason 应保留")
 	t.Log("✅ 状态保持 aborted，未被覆盖")
 }
 

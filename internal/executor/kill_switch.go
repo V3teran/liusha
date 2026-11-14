@@ -49,8 +49,8 @@ func watchKill(parent context.Context, graph actionStateReader, actionID string,
 					continue // 读失败按未中止处理：中止检查尽力而为，下一拍重试
 				}
 				reason := "unknown"
-				if node.BlockedReason != nil {
-					reason = *node.BlockedReason
+				if node.StateReason != nil {
+					reason = *node.StateReason
 				}
 				logger.Warn().Str("action_id", actionID).Str("reason", reason).
 					Msg("检测到 action 已被 monitor kill，取消在途执行")

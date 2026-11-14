@@ -28,7 +28,7 @@ var typedMetadataKeys = map[string]bool{
 	"source_type":    true,
 	"priority":       true,
 	"complexity":     true,
-	"blocked_reason": true,
+	"state_reason":   true,
 	metaVerification: true,
 }
 

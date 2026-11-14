@@ -54,7 +54,7 @@ func TestExecuteAction_RunInterruptionReturnsActionToOpen(t *testing.T) {
 
 	n := mustNode(t, store, "a1")
 	assert.Equal(t, explorationgraph.StateOpen, *n.State, "中断的动作应退回 open")
-	assert.Nil(t, n.BlockedReason, "中断不是失败，不记失败原因")
+	assert.Nil(t, n.StateReason, "中断不是失败，不记失败原因")
 }
 
 func mustNode(t *testing.T, store *explorationgraph.Store, id string) explorationgraph.Node {
