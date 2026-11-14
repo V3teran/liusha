@@ -128,7 +128,7 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	open := StateOpen
 	_, err := store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
 		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh,
-		DependsOn: []string{"2b2f6a9e-1111-4111-8111-0000000000ff"}, Content: []byte(`{"instruction":"x"}`)})
+		Content: []byte(`{"instruction":"x"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,
 		SourceType: SourceEvaluator, Content: []byte(`{"summary":"s"}`)})
@@ -142,7 +142,6 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	assert.Equal(t, reason, *action.BlockedReason)
 	assert.Equal(t, SourcePlanner, action.SourceType)
 	assert.Equal(t, PriorityHigh, action.Priority)
-	assert.Equal(t, []string{"2b2f6a9e-1111-4111-8111-0000000000ff"}, action.DependsOn)
 	assert.Equal(t, taskID, action.TaskID)
 
 	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}})

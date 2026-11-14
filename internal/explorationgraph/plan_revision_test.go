@@ -315,12 +315,12 @@ func TestRevisePlan_AnalyzedWatermarkCommitsWithTheRevision(t *testing.T) {
 	assert.Error(t, err, "水位只能落在本任务的结果上")
 }
 
-// 带原因的状态迁移只合并 blocked_reason，节点身份字段（来源/优先级/依赖）不丢。
+// 带原因的状态迁移只合并 blocked_reason，节点身份字段（来源/优先级）不丢。
 func TestTransitionState_ReasonKeepsNodeIdentity(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen),
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh, DependsOn: []string{"a0"}})
+		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh})
 
 	reason := "monitor killed"
 	require.NoError(t, store.TransitionState(ctx, "a1", StateAborted, &reason))
@@ -331,7 +331,6 @@ func TestTransitionState_ReasonKeepsNodeIdentity(t *testing.T) {
 	assert.Equal(t, reason, *a1.BlockedReason)
 	assert.Equal(t, SourcePlanner, a1.SourceType)
 	assert.Equal(t, PriorityHigh, a1.Priority)
-	assert.Equal(t, []string{"a0"}, a1.DependsOn)
 	assert.Equal(t, revTask, a1.TaskID)
 }
 

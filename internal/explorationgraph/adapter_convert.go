@@ -56,20 +56,6 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.Complexity = &c
 	}
 
-	// DependsOn（内存后端存 []string，JSON 往返后是 []interface{}，两者都接受）
-	switch dependsOn := graphNode.Metadata["depends_on"].(type) {
-	case []interface{}:
-		deps := make([]string, 0, len(dependsOn))
-		for _, dep := range dependsOn {
-			if str, ok := dep.(string); ok {
-				deps = append(deps, str)
-			}
-		}
-		node.DependsOn = deps
-	case []string:
-		node.DependsOn = dependsOn
-	}
-
 	// BlockedReason
 	if blockedReason, ok := graphNode.Metadata["blocked_reason"].(string); ok {
 		node.BlockedReason = &blockedReason

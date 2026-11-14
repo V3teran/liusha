@@ -24,8 +24,6 @@ export interface GraphNode {
   priority?: string
   source_type: string
   source_id: string
-  /** action 专属：依赖的其他 action 节点 ID（调度 DAG 不走边） */
-  depends_on?: string[]
   /** action 专属：阻塞原因 */
   blocked_reason?: string
   /** 领域扩展字段（refute_reason 等） */

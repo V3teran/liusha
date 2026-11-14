@@ -43,63 +43,17 @@ func (a *Agent) analyzeNewResults(ctx context.Context) error {
 	return nil
 }
 
-// getCompletedActionMap 获取已完成的 Action ID 集合（状态投影，不拉载荷）
-func (a *Agent) getCompletedActionMap(ctx context.Context) (map[string]bool, error) {
-	states, err := a.graph.ListActionStates(ctx, a.taskID)
-	if err != nil {
-		return nil, fmt.Errorf("list action states: %w", err)
-	}
-
-	completed := make(map[string]bool, len(states))
-	for id, state := range states {
-		if state == explorationgraph.StateCompleted {
-			completed[id] = true
-		}
-	}
-
-	return completed, nil
-}
-
-// getExecutableActions 获取可执行的 Actions（依赖已满足）
-func getExecutableActions(openActions []explorationgraph.Node, completed map[string]bool) []explorationgraph.Node {
-	var executableActions []explorationgraph.Node
-	for _, action := range openActions {
-		if action.CanExecute(completed) {
-			executableActions = append(executableActions, action)
-		}
-	}
-	return executableActions
-}
-
-// checkExecutableActions 检查是否已有可执行的 Action
-func (a *Agent) checkExecutableActions(ctx context.Context) (bool, error) {
-	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
+// hasOpenActions 判断图上是否还有待执行的动作：有则本轮不规划，等执行者消化。
+// 动作之间没有执行依赖，open 即可执行。
+func (a *Agent) hasOpenActions(ctx context.Context) (bool, error) {
+	open, err := a.graph.ListOpenActions(ctx, a.taskID)
 	if err != nil {
 		return false, fmt.Errorf("list open actions: %w", err)
 	}
-
-	completed, err := a.getCompletedActionMap(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	executableActions := getExecutableActions(openActions, completed)
-
-	if len(executableActions) > 0 {
-		a.logger.Debug().
-			Int("open_count", len(openActions)).
-			Int("executable_count", len(executableActions)).
-			Msg("已有可执行 Action，跳过规划")
+	if len(open) > 0 {
+		a.logger.Debug().Int("open_count", len(open)).Msg("已有待执行动作，跳过规划")
 		return true, nil
 	}
-
-	// 如果有 open actions 但都不可执行（全部 blocked），记录警告
-	if len(openActions) > 0 {
-		a.logger.Warn().
-			Int("blocked_count", len(openActions)).
-			Msg("所有 open actions 都被依赖阻塞，尝试生成新规划")
-	}
-
 	return false, nil
 }
 

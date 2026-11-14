@@ -232,7 +232,6 @@ type ActionProposal struct {
 	Complexity  string                 `json:"complexity"`   // 复杂度: simple/moderate/complex
 	Priority    string                 `json:"priority"`     // 优先级: critical/high/medium/low
 	Reason      string                 `json:"reason"`       // 规划理由
-	DependsOn   []string               `json:"depends_on"`   // 依赖的 Action ID
 	TriggeredBy []string               `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 	Metadata    map[string]interface{} `json:"metadata"`     // 额外元数据
 }
@@ -353,7 +352,6 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
       "complexity": "simple/moderate/complex",
       "priority": "low/medium/high/critical",
       "reason": "为什么做（基于哪条观察）",
-      "depends_on": [],
       "triggered_by": [],
       "metadata": {}
     }
@@ -363,7 +361,6 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 - should_continue: 如果任务还未完成，设为true；如果已完成目标或无法继续，设为false
 - actions: 要执行的action列表，如果should_continue=false则为空数组[]
 - 每个action必须包含type、instruction和complexity
-- depends_on: 本动作须等待完成的其它 action 的 ID（来自上文动作清单）
 - triggered_by: 滋生本动作的已确认发现（Result）的 ID——动作若源于某个已坐实发现（它启发了方向，或它产出的会话/凭据/入口使本动作可行），填其 ID；因果不成立就不填，宁缺勿假`,
 	})
 	if err != nil {
@@ -589,39 +586,25 @@ func (e *Engine) adaptBudget(err error) {
 		Msg("规划预算耗尽（LLM 慢速期），下一轮预算已放大")
 }
 
-// filterValidDependencies 过滤依赖 ID 中的非法值——LLM 可能编造非 UUID 的依赖
-// （如 "0"），或照抄 prompt 里的示例 UUID（格式合法但图中不存在）；两者都会把
-// Action 永久卡在 blocked。existingIDs 为图中已知 action ID 集（nil 跳过存在性校验）。
-func filterValidDependencies(deps []string, existingIDs map[string]bool) []string {
-	valid := make([]string, 0, len(deps))
-	for _, depID := range deps {
-		if _, err := uuid.Parse(depID); err != nil {
+// filterKnownIDs 过滤 LLM 引用的节点 ID：非 UUID（如 "0"）与图中不存在的 ID（多为
+// 照抄 prompt 示例）都剔除——指向不存在节点的溯源边是假溯源。known 为 nil 时只做
+// 格式校验。
+func filterKnownIDs(ids []string, known map[string]bool) []string {
+	valid := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, err := uuid.Parse(id); err != nil {
 			continue
 		}
-		if existingIDs != nil && !existingIDs[depID] {
+		if known != nil && !known[id] {
 			continue
 		}
-		valid = append(valid, depID)
+		valid = append(valid, id)
 	}
 	return valid
 }
 
 // convertProposalsToNodes 将 LLM 提案转换为探索图节点
 func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
-	// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
-	// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
-	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。
-	existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
-	if exErr != nil {
-		e.logger.Warn().Err(exErr).
-			Msg("查询已有 Action 失败，本轮跳过依赖存在性过滤（仅格式校验）")
-		existing = nil
-	}
-	existingIDs := make(map[string]bool, len(existing))
-	for _, a := range existing {
-		existingIDs[a.ID] = true
-	}
-
 	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
 	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
 	resultIDs := map[string]bool(nil)
@@ -643,19 +626,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 		complexity := explorationgraph.NormalizeComplexity(proposal.Complexity)
 		priority := explorationgraph.NormalizePriority(proposal.Priority)
 
-		validDependsOn := filterValidDependencies(proposal.DependsOn, existingIDs)
-		if len(validDependsOn) < len(proposal.DependsOn) {
-			for _, depID := range proposal.DependsOn {
-				if _, pErr := uuid.Parse(depID); pErr != nil {
-					e.logger.Warn().Str("invalid_dep_id", depID).Str("action_id", actionID).
-						Msg("过滤掉无效的依赖 ID（格式非法）")
-				} else if !existingIDs[depID] {
-					e.logger.Warn().Str("phantom_dep_id", depID).Str("action_id", actionID).
-						Msg("过滤掉幻影依赖 ID（图中不存在——多为 LLM 照抄 prompt 示例）")
-				}
-			}
-		}
-		validTriggeredBy := filterValidDependencies(proposal.TriggeredBy, resultIDs)
+		validTriggeredBy := filterKnownIDs(proposal.TriggeredBy, resultIDs)
 		if len(validTriggeredBy) < len(proposal.TriggeredBy) {
 			e.logger.Warn().Int("dropped", len(proposal.TriggeredBy)-len(validTriggeredBy)).
 				Str("action_id", actionID).
@@ -669,7 +640,6 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			"complexity":   complexity,
 			"priority":     priority,
 			"reason":       proposal.Reason,
-			"depends_on":   validDependsOn,
 			"triggered_by": validTriggeredBy,
 			"metadata":     proposal.Metadata,
 		}
@@ -685,7 +655,6 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			State:      &openState,
 			Priority:   priority,
 			Complexity: &complexity,
-			DependsOn:  validDependsOn,
 			SourceType: explorationgraph.SourcePlanner,
 			SourceID:   "planner",
 			CreatedAt:  time.Now(),

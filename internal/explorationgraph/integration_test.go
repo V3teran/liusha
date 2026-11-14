@@ -165,8 +165,8 @@ func TestCompleteDataFlow(t *testing.T) {
 	assert.Equal(t, "66666666-6666-4666-8666-666666666666", results[0].ID)
 }
 
-// TestActionDependency 测试 action 依赖关系（depends_on 满足才可执行）
-func TestActionDependency(t *testing.T) {
+// TestListOpenActions_ExcludesSettled 已结束的动作不再出现在待执行列表里。
+func TestListOpenActions_ExcludesSettled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -182,7 +182,6 @@ func TestActionDependency(t *testing.T) {
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
 
-	// action-1：无依赖
 	act1 := Node{
 		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
@@ -197,7 +196,6 @@ func TestActionDependency(t *testing.T) {
 	_, err := store.CreateNode(ctx, act1)
 	require.NoError(t, err)
 
-	// action-2：依赖 action-1
 	act2 := Node{
 		ID:         "44444444-4444-4444-8444-444444444444",
 		TaskID:     taskID,
@@ -205,7 +203,6 @@ func TestActionDependency(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		DependsOn:  []string{"33333333-3333-4333-8333-333333333333"},
 		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -222,7 +219,7 @@ func TestActionDependency(t *testing.T) {
 	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateCompleted, nil)
 	require.NoError(t, err)
 
-	// 再次查询，只有 action-2 (action-1 已 completed)
+	// 再次查询，只剩 action-2（action-1 已 completed）
 	actions, err = store.ListOpenActions(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, actions, 1)

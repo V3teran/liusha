@@ -220,7 +220,7 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 		return registry.ToolResult{Error: "action_id is required for kill_action"}, nil
 	}
 
-	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（CanExecute 只认 open）。
+	// kill_action 直接落探索图状态：aborted 后 executor 不再认领（只认领 open 动作）。
 	// 状态校验先行：open（阻止认领）与 running（中止在途）可 kill，已终态
 	// （completed/failed/exhausted/aborted）拒绝——幻觉 action_id 或改写终态都会
 	// 污染图终态与统计。

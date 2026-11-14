@@ -1,37 +1,42 @@
 package planner
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// CanExecute 是并发认领的核心守卫：只有依赖全部完成的 open action 才可执行。
+// 动作之间没有执行依赖：先后关系由增量规划表达（前一动作的观察落图后再提出后续
+// 动作）。任何 open 动作都可执行——图上残留的依赖声明不得让动作永久停在 open：
+// 被依赖的动作一旦失败或被中止，依赖方从此不可执行，又因非终态阻止任务收敛。
+func TestHasOpenActions_IgnoresOtherActionStates(t *testing.T) {
+	ctx := context.Background()
+	store := explorationgraph.NewMemoryStore()
+	a := &Agent{taskID: "t1", graph: store, logger: zerolog.Nop()}
 
-func testActionNode(id string, deps []string, state string) explorationgraph.Node {
-	st := explorationgraph.State(state)
-	return explorationgraph.Node{
-		ID:        id,
-		TaskID:    "t1",
-		Kind:      "action",
-		DependsOn: deps,
-		State:     &st,
-	}
-}
+	failed, open := explorationgraph.StateFailed, explorationgraph.StateOpen
+	_, err := store.CreateNode(ctx, explorationgraph.Node{
+		ID: "a1", TaskID: "t1", Kind: core.KindAction, State: &failed,
+		SourceType: explorationgraph.SourcePlanner, Content: json.RawMessage(`{"instruction":"登录"}`),
+	})
+	require.NoError(t, err)
+	_, err = store.CreateNode(ctx, explorationgraph.Node{
+		ID: "a2", TaskID: "t1", Kind: core.KindAction, State: &open,
+		SourceType: explorationgraph.SourcePlanner, Content: json.RawMessage(`{"instruction":"登录后访问后台"}`),
+		Metadata: json.RawMessage(`{"depends_on":["a1"]}`),
+	})
+	require.NoError(t, err)
 
-func TestCanExecute(t *testing.T) {
-	n := testActionNode("a2", []string{"a1"}, "open")
-
-	assert.True(t, n.CanExecute(map[string]bool{"a1": true}), "依赖已完成应可执行")
-	assert.False(t, n.CanExecute(map[string]bool{"a1": false}), "依赖未完成不可执行")
-	assert.False(t, n.CanExecute(map[string]bool{}), "依赖缺失（未出现在完成集）不可执行")
-}
-
-func TestCanExecute_NoDeps(t *testing.T) {
-	n := testActionNode("a1", nil, "open")
-	assert.True(t, n.CanExecute(map[string]bool{}), "无依赖的 action 恒可执行")
+	hasOpen, err := a.hasOpenActions(ctx)
+	require.NoError(t, err)
+	assert.True(t, hasOpen, "open 动作应可执行，不受其它动作状态影响")
 }
 
 func TestAgentConfig_PollInterval(t *testing.T) {

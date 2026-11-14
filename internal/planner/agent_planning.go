@@ -12,7 +12,7 @@ import (
 )
 
 // planActions 规划主流程：消费 monitor 纠偏标记 → 分析新 Result →
-// 有可执行动作则跳过 → 收敛去重 → 生成新 Action → 写图。
+// 有待执行动作则跳过 → 收敛去重 → 生成新 Action → 写图。
 func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().
 		Str("caller", "planActions").
@@ -35,12 +35,12 @@ func (a *Agent) planActions(ctx context.Context) error {
 		a.logger.Warn().Err(err).Msg("分析新 Results 失败（继续规划）")
 	}
 
-	// 2. 检查是否已有可执行的 Action
-	hasExecutable, err := a.checkExecutableActions(ctx)
+	// 2. 还有待执行动作则本轮不规划
+	hasOpen, err := a.hasOpenActions(ctx)
 	if err != nil {
 		return err
 	}
-	if hasExecutable {
+	if hasOpen {
 		return nil
 	}
 

@@ -66,9 +66,6 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	if node.Complexity != nil {
 		graphNode.Metadata["complexity"] = string(*node.Complexity)
 	}
-	if len(node.DependsOn) > 0 {
-		graphNode.Metadata["depends_on"] = node.DependsOn
-	}
 	if node.BlockedReason != nil {
 		graphNode.Metadata["blocked_reason"] = *node.BlockedReason
 	}

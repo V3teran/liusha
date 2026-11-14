@@ -10,7 +10,7 @@ func (a *Agent) forcePlanActions(ctx context.Context, monitorReason string) erro
 		Str("monitor_reason", monitorReason).
 		Msg("强制重规划（Monitor 触发）")
 
-	// 直接调用 Plan，不检查 executable actions
+	// 直接调用 Plan，不看是否还有待执行动作
 	actions, err := a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
 	if err != nil {
 		return fmt.Errorf("forced plan: %w", err)

@@ -53,8 +53,8 @@ func TestObjectiveCreation(t *testing.T) {
 	}
 }
 
-// TestDependencyFiltering 测试依赖过滤（调用 intelligence.go 的真实实现）
-func TestDependencyFiltering(t *testing.T) {
+// TestFilterKnownIDs_Format LLM 引用的 ID 先过格式关：非 UUID 一律剔除。
+func TestFilterKnownIDs_Format(t *testing.T) {
 	validUUID := "12345678-1234-1234-1234-123456789012"
 	anotherUUID := "aabbccdd-1234-1234-1234-123456789012"
 
@@ -64,12 +64,12 @@ func TestDependencyFiltering(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:     "过滤非 UUID 的编造依赖",
+			name:     "过滤非 UUID 的编造 ID",
 			input:    []string{"0", validUUID},
 			expected: []string{validUUID},
 		},
 		{
-			name:     "过滤短依赖",
+			name:     "过滤短 ID",
 			input:    []string{"short", validUUID},
 			expected: []string{validUUID},
 		},
@@ -87,29 +87,29 @@ func TestDependencyFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := filterValidDependencies(tt.input, nil)
+			result := filterKnownIDs(tt.input, nil)
 			if len(result) != len(tt.expected) {
-				t.Errorf("期望 %d 个依赖，实际 %d 个: %v", len(tt.expected), len(result), result)
+				t.Errorf("期望 %d 个 ID，实际 %d 个: %v", len(tt.expected), len(result), result)
 			}
 			for i := range result {
 				if result[i] != tt.expected[i] {
-					t.Errorf("第 %d 个依赖不一致：期望 %s，实际 %s", i, tt.expected[i], result[i])
+					t.Errorf("第 %d 个 ID 不一致：期望 %s，实际 %s", i, tt.expected[i], result[i])
 				}
 			}
 		})
 	}
 }
 
-// 幻影依赖（e2e 实测死锁根因）：格式合法的 UUID 但图中不存在——LLM 照抄 prompt
-// 示例所致。存在性校验必须把它滤掉，否则 Action 永久 blocked、全图死锁。
-func TestDependencyFiltering_PhantomIDs(t *testing.T) {
+// 幻影 ID：格式合法的 UUID 但图中不存在——LLM 照抄 prompt 示例所致。存在性校验
+// 必须把它滤掉，否则会落下指向不存在节点的假溯源边。
+func TestFilterKnownIDs_PhantomIDs(t *testing.T) {
 	realID := "11111111-2222-3333-4444-555555555555"
 	phantom := "0aa429b8-1803-42b1-afcb-4300304857d6" // 曾是 prompt 示例 UUID
 
 	existing := map[string]bool{realID: true}
-	got := filterValidDependencies([]string{phantom, realID}, existing)
+	got := filterKnownIDs([]string{phantom, realID}, existing)
 	if len(got) != 1 || got[0] != realID {
-		t.Fatalf("幻影依赖应被滤掉，仅留图中存在的 ID: got %v", got)
+		t.Fatalf("幻影 ID 应被滤掉，仅留图中存在的 ID: got %v", got)
 	}
 }
 

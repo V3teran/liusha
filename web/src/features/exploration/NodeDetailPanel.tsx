@@ -45,7 +45,6 @@ export function NodeDetailPanel({
     ([, v]) => v != null && v !== '' && String(v) !== title,
   )
   const outcomeLabel = verification?.outcome === 'confirmed' ? '已坐实' : '已证伪'
-  const dependsCount = node.depends_on?.length ?? 0
 
   return (
     <div className="absolute right-4 top-4 z-10 flex max-h-[calc(100%-2rem)] w-96 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
@@ -86,10 +85,9 @@ export function NodeDetailPanel({
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
 
-        {node.kind === 'action' && (dependsCount > 0 || node.blocked_reason) && (
+        {node.kind === 'action' && node.blocked_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
-            {dependsCount > 0 && <div>依赖 {dependsCount} 个前置动作</div>}
-            {node.blocked_reason && <div className="text-status-warning">阻塞：{node.blocked_reason}</div>}
+            <div className="text-status-warning">阻塞：{node.blocked_reason}</div>
           </section>
         )}
 
