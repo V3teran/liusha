@@ -16,7 +16,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/config"
 	configstore "github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -70,9 +69,8 @@ type Handler struct {
 	Conversations  *conversation.Store
 	EventPublisher *convstream.Publisher
 
-	Graph        *explorationgraph.Store
-	EventBus     bus.EventBus // 统一事件总线
-	ControlPlane *controlplane.Store
+	Graph    *explorationgraph.Store
+	EventBus bus.EventBus // 统一事件总线
 
 	// Distiller 是任务终态经验蒸馏（corpus source=agent 写入闭环）；
 	// nil=关闭该能力（如 corpus 未装配）。

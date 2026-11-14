@@ -25,7 +25,6 @@ import (
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/credential"
@@ -85,7 +84,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	proxyTrafficStore := traffic.NewProxyStore(pool)
 	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
 	defer func() { _ = invocationStore.Close() }()
-	controlPlaneStore := controlplane.NewStore(pool)
 	agentRunStore := agentrun.NewStore(pool)
 	auditStore := audit.NewStore(pool)
 	conversationStore := conversation.NewStore(pool)
@@ -158,7 +156,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Router:        &dispatch.RoleRouter{Router: llmRouter},
 		Findings:      findStore,
 		Publisher:     publisher,
-		Control:       controlPlaneStore,
 		Attachments:   attachmentStore,
 		MaxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second,
 	}

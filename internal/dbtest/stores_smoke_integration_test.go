@@ -20,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -132,16 +131,6 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	}
 	if got, err := set.Runtime(ctx); err != nil || got.StepLLMTimeoutSeconds != 240 {
 		t.Fatalf("setting runtime 生效值: %v %+v", err, got)
-	}
-
-	// task_control_event（ID 由 DB 生成，Create 返回）
-	cp2 := controlplane.NewStore(pool)
-	if _, err := cp2.Create(ctx, tk.ID, controlplane.CommandAdjustGoal, []byte(`{"new_goal":"g"}`)); err != nil {
-		t.Fatalf("control event create: %v", err)
-	}
-	evs, err := cp2.ListPending(ctx, tk.ID)
-	if err != nil || len(evs) != 1 {
-		t.Fatalf("control list pending: %v len=%d", err, len(evs))
 	}
 }
 

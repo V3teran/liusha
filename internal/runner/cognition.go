@@ -11,7 +11,7 @@ import (
 )
 
 // runCognition 把 handler 依赖组装成 cognition.Deps 并驱动认知循环。
-// 循环本体（四 Agent 装配/控制平面/完成检测）在 internal/cognition——
+// 循环本体（四 Agent 装配/任务行监视/完成检测）在 internal/cognition——
 // 装配链是历史 bug 高发区，独立成包后可脱离 asynq/handler 单测。
 func (h *Handler) runCognition(
 	ctx context.Context,
@@ -35,7 +35,6 @@ func (h *Handler) runCognition(
 		AgentRunID:   agentRunID,
 		Graph:        h.Graph,
 		EventBus:     h.EventBus,
-		ControlPlane: h.ControlPlane,
 		CfgStore:     h.CfgStore,
 		Router:       h.Router,
 		Logger:       taskLogger,

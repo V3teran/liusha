@@ -260,7 +260,7 @@ func (n *Node) RefuteReason() string {
 }
 
 // NormalizePriority 把 LLM 输出的优先级词归一到 Priority（未知值归 medium）。
-// planner 提案、result 分析、控制平面注入共用本判定。
+// 规划提案与结果分析共用本判定。
 func NormalizePriority(s string) Priority {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "critical":

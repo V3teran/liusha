@@ -20,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/chat"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/cronschedule"
@@ -92,7 +91,6 @@ type Service struct {
 	Router    *RoleRouter           // 多轮：意图分类 + 问答（inspector → simple 档，role→档→framework Router）
 	Findings  *finding.Store        // 问答读 task 的漏洞台账
 	Publisher *convstream.Publisher // 问答回答 publish SSE
-	Control   *controlplane.Store   // 用户停止 → terminate 控制事件（停掉 runner 执行）
 
 	// Attachments 是附件域窄接口（*attachment.Store 满足；nil = 附件能力关闭，
 	// 引用按空处理）。职责：下发收口点把暂存件搬进任务 inbox + 对话回答内联小文本。
@@ -379,15 +377,6 @@ func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 	}
 	if err := s.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
-	}
-	// 清上轮生命周期的滞留内容事件：控制消费者终态退出时已清，这里兜底
-	// 消费者已死的崩溃场景——内容事件只属于一个生命周期，不得被本轮迟到消费。
-	if s.Control != nil {
-		if n, err := s.Control.ResolvePending(ctx, taskID); err != nil {
-			chatLog.Warn().Err(err).Str("task", taskID).Msg("清理滞留控制事件失败（续接 run 有迟到消费的风险）")
-		} else if n > 0 {
-			chatLog.Info().Int("resolved", n).Str("task", taskID).Msg("已清理上轮滞留的控制事件")
-		}
 	}
 	payloadInput, err := json.Marshal(map[string]string{"brief": payloadBrief})
 	if err != nil {

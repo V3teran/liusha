@@ -28,7 +28,6 @@ import (
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -178,7 +177,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		EventPublisher:  convstream.NewPublisher(rdb),
 		Graph:           st.graph,
 		EventBus:        bus.New(ctx),
-		ControlPlane:    controlplane.NewStore(pool),
 		// 任务终态经验蒸馏：embedder 缺席时教训降级纯 sparse 检索，不阻塞写入。
 		Distiller: distill.New(router, st.graph, st.corpus, embedder, logger),
 	}

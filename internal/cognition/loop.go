@@ -1,6 +1,6 @@
-// loop.go 认知循环的装配与驱动：四 Agent 组装、控制平面消费、完成检测。
-// （CompletionDetector 在 completion.go；生命周期/控制平面/活动打点/工具遥测
-// 分别见 lifecycle.go / control.go / activity.go / telemetry.go。）
+// loop.go 认知循环的装配与驱动：四 Agent 组装、任务行监视、完成检测。
+// （CompletionDetector 在 completion.go；agent 启停 / 任务行监视 / 工具遥测
+// 分别见 lifecycle.go / task_watch.go / telemetry.go。）
 
 package cognition
 
@@ -15,7 +15,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -49,13 +48,12 @@ type Deps struct {
 	// 坐实漏洞都归属到它。由 runner 按投递消息注入——一个任务可有多个 run（暂停后继续、
 	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
 	// 产出全部错记到早已结束的首个 run）。
-	AgentRunID   string
-	Graph        *explorationgraph.Store
-	EventBus     bus.EventBus
-	ControlPlane *controlplane.Store
-	CfgStore     *configstore.Store
-	Router       *fwllm.Router
-	Logger       zerolog.Logger
+	AgentRunID string
+	Graph      *explorationgraph.Store
+	EventBus   bus.EventBus
+	CfgStore   *configstore.Store
+	Router     *fwllm.Router
+	Logger     zerolog.Logger
 
 	Skills        *skill.StoreReader
 	ToolsManifest *manifest.ToolManifest
@@ -181,7 +179,7 @@ func (d *Deps) run(
 	// 思考流随循环关闭：冲刷未发增量（终态消息由各 agent 的 Done 落）。
 	defer stack.thoughts.Close()
 
-	// 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
+	// 启动四个 Agent（异步；启停封装成 agentLifecycle，主流程收尾与任务行监视共用 Stop）
 	lifecycle := newAgentLifecycle(ctx, d.Logger, []agentSpec{
 		{name: "planner", start: stack.plannerAgent.Run},
 		{name: "executor", start: stack.executorAgent.Run},
@@ -195,13 +193,17 @@ func (d *Deps) run(
 	lifecycle.Start()
 	defer lifecycle.Stop()
 
-	// 控制平面消费者：任务行承载生命周期（终态/暂停 → 停 agents、携精确
-	// 停止原因结束本 run），task_control_event 承载内容干预（adjust_goal/
-	// inject_action，落图由后续规划消费）。
-	if d.ControlPlane != nil {
-		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Tasks, d.Logger)
-		defer stopConsumer()
-	}
+	// 任务行监视：终态 / 暂停 → 停 agents、携精确停止原因结束本 run。
+	stopWatch := (&taskWatcher{
+		taskID: taskID,
+		tasks:  d.Tasks,
+		stopRun: func(reason string) {
+			lifecycle.Stop()
+			stack.detector.Abort(reason)
+		},
+		logger: d.Logger.With().Str("component", "task_watch").Logger(),
+	}).start(ctx)
+	defer stopWatch()
 
 	d.Logger.Info().Msg("四个 Agent 已启动，等待任务完成")
 

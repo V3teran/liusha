@@ -96,7 +96,7 @@ func (s *Store) edgeToGraphEdge(edge *Edge) *core.GraphEdge {
 	return graphEdge
 }
 
-// UpdateNodeContent 更新节点内容（控制平面 adjust_goal 等操作使用）。
+// UpdateNodeContent 整体替换节点内容（content），元数据不动。
 func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.RawMessage) error {
 	return s.graphStore.UpdateNode(ctx, id, core.GraphNodeUpdate{Content: content})
 }
