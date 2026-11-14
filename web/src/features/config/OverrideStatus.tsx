@@ -117,7 +117,7 @@ function DiffBlock({ title, before, after }: { title: string; before: string; af
       {lines.length === 0 ? (
         <p className="text-text-tertiary">无差异</p>
       ) : (
-        <pre className="max-h-72 overflow-auto rounded border border-border bg-background p-2 font-mono text-xs leading-5">
+        <pre tabIndex={0} className="max-h-72 overflow-auto rounded border border-border bg-background p-2 font-mono text-xs leading-5">
           {lines.map((l, i) =>
             l === null ? (
               <div key={i} className="text-text-tertiary">

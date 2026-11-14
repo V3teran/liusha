@@ -60,13 +60,14 @@ export function NodeDetailPanel({
         <button
           onClick={onClose}
           className="ml-auto rounded p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
+          aria-label="关闭详情"
           title="关闭"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+      <div role="region" aria-label="节点详情" tabIndex={0} className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
         {title && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">{title}</p>}
 
         <div className="flex flex-wrap gap-1.5">
@@ -142,7 +143,7 @@ export function NodeDetailPanel({
               {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
             </div>
             {verification.evidence != null && (
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
+              <pre tabIndex={0} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
                 {typeof verification.evidence === 'string'
                   ? verification.evidence
                   : JSON.stringify(verification.evidence, null, 2)}

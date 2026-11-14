@@ -178,7 +178,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 {detail.error_message && (
                   <section>
                     <h3 className="mb-2.5 text-sm font-semibold text-text">错误</h3>
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-xs leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
+                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-xs leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
                       {detail.error_message}
                     </pre>
                   </section>
@@ -200,7 +200,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                         </span>
                       </div>
                       {inputDelta.text && (
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
+                        <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                           {inputDelta.text}
                         </pre>
                       )}
@@ -211,7 +211,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </div>
                   )}
                   {messagesRaw && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
+                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {messagesRaw}
                     </pre>
                   )}
@@ -228,6 +228,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     onCopy={() => void copy('rsn', reasoning)}
                   >
                     <pre
+                      tabIndex={0}
                       className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border-l-[3px] bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text-secondary"
                       style={{ borderLeftColor: 'color-mix(in srgb, var(--accent) 30%, var(--border))' }}
                     >
@@ -244,7 +245,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                   onCopy={() => void copy('res', resultCopyText)}
                 >
                   {resultText && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
+                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {resultText}
                     </pre>
                   )}
@@ -257,7 +258,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     </>
                   )}
                   {resultRaw && (
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
+                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
                       {resultRaw}
                     </pre>
                   )}
