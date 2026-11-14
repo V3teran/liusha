@@ -13,7 +13,7 @@ import (
 )
 
 // TestCompletionDetector_TaskConverged 验证 P0 修复：
-// Planner 返回空列表 → 发布 EventTaskConverged → CompletionDetector 停止任务
+// Planner 返回空列表 → 直接通知收敛 → CompletionDetector 停止任务
 func TestCompletionDetector_TaskConverged(t *testing.T) {
 	ctx := context.Background()
 	eventBus := bus.New(ctx)
@@ -37,8 +37,8 @@ func TestCompletionDetector_TaskConverged(t *testing.T) {
 	// 等待检测器启动
 	time.Sleep(50 * time.Millisecond)
 
-	// 模拟 Planner 发布收敛事件
-	eventBus.PublishTaskConverged("test-task", "planner: no more actions to generate")
+	// 模拟 Planner 宣告收敛
+	detector.Converge("planner: no more actions to generate")
 
 	// 等待检测器响应
 	select {
@@ -46,7 +46,7 @@ func TestCompletionDetector_TaskConverged(t *testing.T) {
 		assert.Equal(t, "task_converged", result.StopReason, "应该因任务收敛而停止")
 		t.Logf("✅ 任务收敛测试通过：%+v", result)
 	case <-time.After(2 * time.Second):
-		t.Fatal("超时：检测器未响应收敛事件")
+		t.Fatal("超时：检测器未响应收敛通知")
 	}
 }
 
@@ -78,8 +78,9 @@ func TestCompletionDetector_ConvergedBeforeMaxSteps(t *testing.T) {
 		eventBus.PublishActionCompleted("test-task", "action-"+string(rune(i)))
 	}
 
-	// 发布收敛事件（远未达到 100 步）
-	eventBus.PublishTaskConverged("test-task", "planner: no more actions")
+	// 步数统计经事件总线异步到达，收敛是直接调用：等统计到位再宣告收敛（远未达到 100 步）
+	assert.Eventually(t, func() bool { return detector.totalSteps.Load() == 5 }, time.Second, 10*time.Millisecond)
+	detector.Converge("planner: no more actions")
 
 	select {
 	case result := <-resultCh:
@@ -125,7 +126,7 @@ func TestCompletionDetector_NormalFlowWithoutConvergence(t *testing.T) {
 			actionCount++
 		case result := <-resultCh:
 			// 应该是 context 超时，而非收敛
-			assert.Equal(t, "context_cancelled", result.StopReason, "无收敛事件时应持续运行直到 context 取消")
+			assert.Equal(t, "context_cancelled", result.StopReason, "无收敛通知时应持续运行直到 context 取消")
 			assert.Greater(t, result.Steps, 3, "应该执行了多步")
 			t.Logf("✅ 持续运行测试通过：steps=%d, stop_reason=%s", result.Steps, result.StopReason)
 			return

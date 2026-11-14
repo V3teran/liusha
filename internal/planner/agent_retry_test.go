@@ -54,10 +54,6 @@ func (f *fakeEventBus) PublishVerificationPassed(_, _ string) {}
 
 func (f *fakeEventBus) PublishVerificationRefuted(_, _ string) {}
 
-func (f *fakeEventBus) PublishTaskConverged(_, _ string) {}
-
-func (f *fakeEventBus) PublishReplanRequested(_, _ string) {}
-
 func TestGenerateNewActions_RetryOn429(t *testing.T) {
 	fake := &fakePlanner{
 		errors: []error{

@@ -173,3 +173,22 @@ func TestCompletionDetector_AbortReasonNeverLostToConcurrentCheck(t *testing.T) 
 		}
 	}
 }
+
+// 收敛由规划者直接通知，检测器立即结束（不等定时兜底检查，也不经可丢的事件总线）。
+func TestCompletionDetector_ConvergeStopsImmediately(t *testing.T) {
+	d := NewCompletionDetector(Config{
+		TaskID: "t1", Graph: explorationgraph.NewMemoryStore(), Bus: bus.New(context.Background()),
+		Logger: zerolog.Nop(), CheckInterval: time.Hour,
+	})
+	done := make(chan Result, 1)
+	go func() { done <- d.Start(context.Background()) }()
+
+	d.Converge("planner: 无新方向且图上无未完结工作")
+
+	select {
+	case r := <-done:
+		assert.Equal(t, StopReasonConverged, r.StopReason)
+	case <-time.After(2 * time.Second):
+		t.Fatal("收敛后检测器未结束")
+	}
+}

@@ -11,8 +11,8 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// planActions 规划主流程：消费 monitor 纠偏标记 → 分析新 Result →
-// 有待执行动作则跳过 → 收敛去重 → 生成新 Action → 写图。
+// planActions 规划主流程：分析新 Result → 有待执行动作则跳过 → 生成新 Action →
+// 写图（零新增则走收敛判定）。
 func (a *Agent) planActions(ctx context.Context) error {
 	a.logger.Debug().
 		Str("caller", "planActions").
@@ -23,12 +23,6 @@ func (a *Agent) planActions(ctx context.Context) error {
 		Msg("◀ planActions 出口")
 
 	a.logger.Debug().Msg("开始规划 Action")
-
-	// 0. 外部纠偏的持久化恢复：monitor 的重规划请求双写在 objective 上，
-	//    事件丢失（bus fire-and-forget）时由这里兜底——at-least-once。
-	if forced, reason := a.consumeMonitorRequest(ctx); forced {
-		return a.forcePlanActions(ctx, reason)
-	}
 
 	// 1. 分析新出现的 Results（失败仅记录：分析不是规划的前置硬依赖）
 	if err := a.analyzeNewResults(ctx); err != nil {
@@ -44,15 +38,6 @@ func (a *Agent) planActions(ctx context.Context) error {
 		return nil
 	}
 
-	// 2.5 收敛去重：上轮已判定「无新方向」且图终态指纹无变化——验证事件
-	//     成串到达的尾段不再重复审议（实测 5 次同结论、~18% LLM 浪费）。
-	if a.convergedPending {
-		if fp, fpErr := a.graphFingerprint(ctx); fpErr == nil && fp.equal(a.convergedAt) {
-			a.logger.Info().Msg("图终态无新变化，跳过重复规划（上轮已收敛）")
-			return nil
-		}
-	}
-
 	// 3. 生成新的 Actions
 	actions, err := a.generateNewActions(ctx)
 	if err != nil {
@@ -65,7 +50,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 
 // applyPlan 把规划提案落图。实际新增为零——没有提案，或提案全被过滤（空指令 / 与
 // 既有动作重复）——与「planner 无新方向」是同一局面，走无动作处理（收敛判定）；
-// 否则图静止而每次唤醒都再付费规划一遍。有新增才解除收敛挂起。
+// 否则图静止而每次唤醒都再付费规划一遍。
 func (a *Agent) applyPlan(ctx context.Context, actions []explorationgraph.Node, trigger string) error {
 	written := 0
 	if len(actions) > 0 {
@@ -77,9 +62,7 @@ func (a *Agent) applyPlan(ctx context.Context, actions []explorationgraph.Node, 
 	}
 	if written == 0 {
 		a.handleNoActions(ctx, trigger)
-		return nil
 	}
-	a.convergedPending = false
 	return nil
 }
 

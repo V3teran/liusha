@@ -391,6 +391,16 @@ func (d *Deps) assembleStack(
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）
+	// 完成检测器先于规划者构造：规划者宣告收敛时直接通知它。
+	detector := NewCompletionDetector(Config{
+		TaskID:        taskID,
+		Graph:         d.Graph,
+		Bus:           d.EventBus,
+		Logger:        d.Logger,
+		MaxSteps:      d.MaxStepsPerTask, // 0 表示无限制
+		CheckInterval: 5 * time.Second,
+	})
+
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
@@ -399,6 +409,7 @@ func (d *Deps) assembleStack(
 		EventBus:      d.EventBus,
 		Logger:        d.Logger.With().Str("component", "planner_agent").Logger(),
 		FunctionTools: cfgs.planner.FunctionTools,
+		OnConverged:   detector.Converge,
 	})
 
 	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）
@@ -413,22 +424,13 @@ func (d *Deps) assembleStack(
 		Charter:             cfgs.monitor.Charter,
 		MaxIterations:       cfgs.monitor.MaxIterations,
 		Graph:               d.Graph,
-		EventBus:            d.EventBus,
+		Replanner:           plannerAgent, // 重规划请求直达规划者
 		Router:              d.Router,
 		Complexity:          cfgs.monitor.Complexity,
 		Interval:            constants.MonitorInterval,
 		Activity:            activities.idleFor,
 		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
-	})
-
-	detector := NewCompletionDetector(Config{
-		TaskID:        taskID,
-		Graph:         d.Graph,
-		Bus:           d.EventBus,
-		Logger:        d.Logger,
-		MaxSteps:      d.MaxStepsPerTask, // 0 表示无限制
-		CheckInterval: 5 * time.Second,
 	})
 
 	return &cognitionStack{

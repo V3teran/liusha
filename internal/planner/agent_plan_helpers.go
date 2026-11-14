@@ -2,7 +2,6 @@ package planner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -149,11 +148,7 @@ func (a *Agent) handleNoActions(ctx context.Context, trigger string) {
 	}
 
 	a.logger.Info().Str("trigger", trigger).Msg("Planner 未生成新 Action 且图上无未完结工作（任务收敛）")
-	// 收敛去重：记录结论与图指纹——之后无终态变迁的唤醒不再重复审议。
-	if fp, err := a.graphFingerprint(ctx); err == nil {
-		a.convergedAt, a.convergedPending = fp, true
-	}
-	a.eventBus.PublishTaskConverged(a.taskID, "planner: no actions and no unsettled work in graph ("+trigger+")")
+	a.onConverged("规划者无新方向且图上无未完结工作（" + trigger + "）")
 }
 
 // pendingWork 返回阻止任务收敛的未完结工作（空串 = 可以收敛）：
@@ -205,99 +200,6 @@ func (a *Agent) hasPendingHypotheses(ctx context.Context) bool {
 		}
 	}
 	return false
-}
-
-// graphFingerprint 是图的终态指纹：终态动作计数 + result/验证落定计数 + 事实计数。
-// 指纹不变 = 自上轮审议以来图上没有任何新信息，重新审议必然得出同一结论。
-type graphFingerprint struct {
-	done, failed, aborted, exhausted int
-	results                          int
-	confirmed, refuted, facts        int
-}
-
-func (f graphFingerprint) equal(o graphFingerprint) bool {
-	return f == o
-}
-
-// graphFingerprint 计算当前图终态指纹。任一计数失败返回错误（调用方据此
-// 放弃去重、宁可多审议一次也不跳过）。
-func (a *Agent) graphFingerprint(ctx context.Context) (graphFingerprint, error) {
-	var fp graphFingerprint
-	states, err := a.graph.ListActionStates(ctx, a.taskID)
-	if err != nil {
-		return fp, err
-	}
-	for _, st := range states {
-		switch st {
-		case explorationgraph.StateCompleted:
-			fp.done++
-		case explorationgraph.StateFailed:
-			fp.failed++
-		case explorationgraph.StateAborted:
-			fp.aborted++
-		case explorationgraph.StateExhausted:
-			fp.exhausted++
-		}
-	}
-	results, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindResult)
-	if err != nil {
-		return fp, err
-	}
-	fp.results = len(results)
-
-	observations, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
-	if err != nil {
-		return fp, err
-	}
-	for _, obs := range observations {
-		switch {
-		case obs.IsFact():
-			fp.facts++
-		case obs.HasVerificationStatus(explorationgraph.VerificationConfirmed):
-			fp.confirmed++
-		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
-			fp.refuted++
-		}
-	}
-	return fp, nil
-}
-
-// consumeMonitorRequest 恢复持久化的外部纠偏请求：monitor 发 replan 事件时
-// 双写 objective.content.monitor_request（事件是 fire-and-forget，bus 缓冲满
-// 即丢）。planner 每次规划前检查该标记，有则消费（清标记 + 强制重规划），
-// 与事件路径构成 at-least-once：事件丢了大不了下一个轮询周期补上。
-func (a *Agent) consumeMonitorRequest(ctx context.Context) (forced bool, reason string) {
-	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
-	if err != nil || len(objectives) == 0 {
-		return false, ""
-	}
-	var content map[string]json.RawMessage
-	if json.Unmarshal(objectives[0].Content, &content) != nil {
-		return false, ""
-	}
-	raw, ok := content["monitor_request"]
-	if !ok {
-		return false, ""
-	}
-	var req struct {
-		MonitorReplanRequest struct {
-			Reason string `json:"reason"`
-		} `json:"monitor_replan_request"`
-	}
-	_ = json.Unmarshal(raw, &req)
-	if req.MonitorReplanRequest.Reason == "" {
-		return false, ""
-	}
-
-	// 消费即清标记（防重复触发；清失败仍强制本轮——宁可多规划一次）。
-	delete(content, "monitor_request")
-	if updated, err := json.Marshal(content); err == nil {
-		if uErr := a.graph.UpdateNodeContent(ctx, objectives[0].ID, updated); uErr != nil {
-			a.logger.Warn().Err(uErr).Str("objective_id", objectives[0].ID).
-				Msg("清除 monitor 请求标记失败（可能重复触发一轮重规划）")
-		}
-	}
-	return true, req.MonitorReplanRequest.Reason
 }
 
 // hasUnsettledWork 判断图上是否还有非终态 action（running/open/blocked）。

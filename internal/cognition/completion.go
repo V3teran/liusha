@@ -41,7 +41,10 @@ type CompletionDetector struct {
 	// 拆成「先置标志、后存原因」两步时，并发的兜底检查会落在两步之间，看到已中止却
 	// 读不到原因，回落兜底值把调用方原因吞掉。
 	abortReason atomic.Pointer[string]
-	converged   atomic.Bool // 任务收敛标志（planner 无新 action 可生成）
+	// convergedReason 非 nil 即规划者已宣告收敛（无新方向且图上无未完结工作）。
+	convergedReason atomic.Pointer[string]
+	// wake 让控制信号（收敛）立即触发完成判定，不等定时兜底检查。
+	wake chan struct{}
 
 	completionCh chan Result
 }
@@ -84,6 +87,7 @@ func NewCompletionDetector(cfg Config) *CompletionDetector {
 		maxSteps:      cfg.MaxSteps,
 		checkInterval: cfg.CheckInterval,
 		startTime:     time.Now(),
+		wake:          make(chan struct{}, 1),
 		completionCh:  make(chan Result, 1),
 	}
 }
@@ -110,6 +114,11 @@ func (d *CompletionDetector) Start(ctx context.Context) Result {
 		case result := <-d.completionCh:
 			// 其他 goroutine 触发完成
 			return result
+
+		case <-d.wake:
+			if result, done := d.checkCompletion(); done {
+				return result
+			}
 
 		case event := <-sub.Events():
 			d.handleEvent(event)
@@ -145,17 +154,6 @@ func (d *CompletionDetector) handleEvent(event bus.Event) {
 		d.logger.Debug().
 			Int64("promoted", d.promotedCount.Load()).
 			Msg("结果晋升")
-
-	case bus.EventTaskConverged:
-		// Planner 无新 action 可生成，标记任务收敛
-		reason := "unknown"
-		if r, ok := event.Payload["reason"].(string); ok {
-			reason = r
-		}
-		d.converged.Store(true)
-		d.logger.Info().
-			Str("reason", reason).
-			Msg("任务收敛（planner 无新 action）")
 	}
 }
 
@@ -170,10 +168,10 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 		return d.makeResult(reason), true
 	}
 
-	// 2. 任务收敛（planner 无新 action 可生成）
-	if d.converged.Load() {
-		d.logger.Info().Msg("任务收敛，停止探索")
-		return d.makeResult("task_converged"), true
+	// 2. 任务收敛（规划者宣告）
+	if r := d.convergedReason.Load(); r != nil {
+		d.logger.Info().Str("reason", *r).Msg("任务收敛，停止探索")
+		return d.makeResult(StopReasonConverged), true
 	}
 
 	// 3. 达到最大步数（如果设置了）
@@ -201,6 +199,19 @@ func (d *CompletionDetector) makeResult(stopWhy string) Result {
 		Attempts:   int(d.attemptCount.Load()),
 		StopReason: stopWhy,
 		Duration:   time.Since(d.startTime),
+	}
+}
+
+// StopReasonConverged 是规划者宣告收敛（无新方向且图上无未完结工作）的停止原因。
+const StopReasonConverged = "task_converged"
+
+// Converge 由规划者在「无新方向且图上无未完结工作」时直接调用。收敛决定任务结束，
+// 是控制信号：直接调用不会丢失，事件总线满即丢弃的语义不适合它。
+func (d *CompletionDetector) Converge(reason string) {
+	d.convergedReason.Store(&reason)
+	select {
+	case d.wake <- struct{}{}:
+	default:
 	}
 }
 

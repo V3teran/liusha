@@ -7,7 +7,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -145,21 +144,26 @@ func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node,
 // PublishDecisionTool - 发布监察决策
 // ============================================
 
-// PublishDecisionTool 是 monitor 的决策出口（kill_action 落探索图状态变更）。
+// Replanner 接收监察者的重规划请求（规划者实现）。
+type Replanner interface {
+	RequestReplan(reason string)
+}
+
+// PublishDecisionTool 是 monitor 的决策出口：kill_action 落探索图状态，request_replan
+// 直接交给规划者（控制信号不走可丢的事件总线，也不是图上的事实）。
 type PublishDecisionTool struct {
 	registry.BaseTool
-	graph    *explorationgraph.Store
-	eventBus bus.EventBus // P2：需要 eventBus 发布 replan 事件
-	taskID   string
+	graph     *explorationgraph.Store
+	replanner Replanner
+	taskID    string
 }
 
 // NewPublishDecisionTool 构造决策发布工具。
-// P2：添加 eventBus 参数以支持 request_replan 事件发布
-func NewPublishDecisionTool(graph *explorationgraph.Store, eventBus bus.EventBus, taskID string) *PublishDecisionTool {
+func NewPublishDecisionTool(graph *explorationgraph.Store, replanner Replanner, taskID string) *PublishDecisionTool {
 	t := &PublishDecisionTool{
-		graph:    graph,
-		eventBus: eventBus,
-		taskID:   taskID,
+		graph:     graph,
+		replanner: replanner,
+		taskID:    taskID,
 	}
 	t.SetTimeout(constants.ToolTimeoutMedium)
 	return t
@@ -251,15 +255,8 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 		}
 	}
 
-	// P2：request_replan 落地
 	if decision.Type == "request_replan" {
-		// 1. 写入图的 metadata（供审计和后续查询）
-		if err := t.writeReplanRequest(ctx, decision.Reason); err != nil {
-			return registry.ToolResult{Error: fmt.Sprintf("write replan request: %v", err)}, nil
-		}
-
-		// 2. 发布事件（强制 Planner 立即重规划）
-		t.eventBus.PublishReplanRequested(t.taskID, decision.Reason)
+		t.replanner.RequestReplan(decision.Reason)
 	}
 
 	result := map[string]interface{}{
@@ -272,40 +269,4 @@ func (t *PublishDecisionTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 	resultJSON, _ := json.Marshal(result)
 	return registry.ToolResult{Output: string(resultJSON)}, nil
-}
-
-// writeReplanRequest 将 monitor 的重规划请求写入 objective 的 metadata
-func (t *PublishDecisionTool) writeReplanRequest(ctx context.Context, reason string) error {
-	// 获取 objective
-	objectives, err := t.graph.ListNodesByKind(ctx, t.taskID, core.KindObjective)
-	if err != nil {
-		return fmt.Errorf("list objectives: %w", err)
-	}
-	if len(objectives) == 0 {
-		return fmt.Errorf("no objective found for task %s", t.taskID)
-	}
-
-	// 构造 metadata
-	metadata := map[string]interface{}{
-		"monitor_replan_request": map[string]interface{}{
-			"reason":       reason,
-			"requested_at": time.Now().Format(time.RFC3339),
-		},
-	}
-
-	// 合并到现有 content
-	var content map[string]interface{}
-	if err := json.Unmarshal(objectives[0].Content, &content); err != nil {
-		// 如果解析失败，创建新的
-		content = make(map[string]interface{})
-	}
-	content["monitor_request"] = metadata
-
-	newContent, err := json.Marshal(content)
-	if err != nil {
-		return fmt.Errorf("marshal content: %w", err)
-	}
-
-	// 更新图
-	return t.graph.UpdateNodeContent(ctx, objectives[0].ID, newContent)
 }

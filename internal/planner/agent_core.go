@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -25,12 +26,14 @@ type Agent struct {
 	functionTools []string      // function_tools 白名单
 	pollInterval  time.Duration // 轮询间隔（作为兜底）
 
-	// 收敛去重：上轮规划结论为「无新方向」后记录图终态指纹；后续唤醒（验证
-	// 事件成串到达/定时器）若指纹无变化则跳过 LLM 重新审议——实测任务尾段
-	// planner 对同一结论重复审议 5 次（~18% LLM 浪费）。任何终态变迁（新
-	// result/判定落定/新动作写入）都会改变指纹、恢复审议。
-	convergedPending bool
-	convergedAt      graphFingerprint
+	// onConverged 把收敛直接通知完成检测器（控制信号，不走可丢的事件总线）。
+	onConverged func(reason string)
+
+	// 重规划请求（监察者经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次
+	// 请求合并为一次，原因取最新。
+	replanCh     chan struct{}
+	replanMu     sync.Mutex
+	replanReason string
 
 	stopCh chan struct{}
 }
@@ -43,8 +46,9 @@ type AgentConfig struct {
 	Planner       GraphPlanner
 	EventBus      bus.EventBus
 	Logger        zerolog.Logger
-	PollInterval  time.Duration // 默认 10s
-	FunctionTools []string      // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
+	PollInterval  time.Duration       // 默认 10s
+	FunctionTools []string            // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
+	OnConverged   func(reason string) // 收敛通知（必填：任务结束靠它）
 }
 
 // NewAgent 创建 planner Agent。
@@ -62,6 +66,29 @@ func NewAgent(cfg AgentConfig) *Agent {
 		logger:        cfg.Logger.With().Str("agent", "planner").Logger(),
 		functionTools: cfg.FunctionTools,
 		pollInterval:  cfg.PollInterval,
+		onConverged:   cfg.OnConverged,
+		replanCh:      make(chan struct{}, 1),
 		stopCh:        make(chan struct{}),
 	}
+}
+
+// RequestReplan 请求一次强制重规划（监察者调用）：不看是否还有待执行动作，立即
+// 再规划一轮。未消费前的多次请求合并为一次，原因取最新。
+func (a *Agent) RequestReplan(reason string) {
+	a.replanMu.Lock()
+	a.replanReason = reason
+	a.replanMu.Unlock()
+	select {
+	case a.replanCh <- struct{}{}:
+	default:
+	}
+}
+
+// takeReplanReason 取走待处理重规划请求的原因。
+func (a *Agent) takeReplanReason() string {
+	a.replanMu.Lock()
+	defer a.replanMu.Unlock()
+	reason := a.replanReason
+	a.replanReason = ""
+	return reason
 }

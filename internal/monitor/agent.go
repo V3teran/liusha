@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -27,7 +26,6 @@ type Agent struct {
 	taskID       string
 	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
-	eventBus     bus.EventBus
 	router       *llm.Router // 每次评估现取 provider——配置/密钥变更经 30s TTL 对本任务生效
 	complexity   llm.Complexity
 	reactRuntime runtime.ReActRuntime
@@ -50,7 +48,7 @@ type Config struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph      *explorationgraph.Store
-	EventBus   bus.EventBus
+	Replanner  Replanner     // 重规划请求直达规划者
 	Router     *llm.Router   // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
 	Complexity string        // LLM 档位（agent.complexity，simple|medium|complex）
 	Interval   time.Duration // 评估间隔，默认 6 分钟
@@ -104,7 +102,7 @@ func New(cfg Config) *Agent {
 		registryTools = append(registryTools, tool)
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
-		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
+		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.Replanner, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
 		if cfg.WrapTool != nil {
@@ -119,7 +117,6 @@ func New(cfg Config) *Agent {
 		taskID:              cfg.TaskID,
 		agentRunID:          cfg.AgentRunID,
 		graph:               cfg.Graph,
-		eventBus:            cfg.EventBus,
 		router:              cfg.Router,
 		complexity:          llm.ParseComplexity(cfg.Complexity),
 		reactRuntime:        reactRuntime,
