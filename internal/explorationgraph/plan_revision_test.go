@@ -345,6 +345,12 @@ func TestRevisePlan_ConcurrentConsumersCommitOnce(t *testing.T) {
 	assert.Error(t, getErr, "后到的修订整体回滚")
 }
 
+// rewriteGoal 改写 fixture 根目标的描述（生产路径经 task.Store.SetGoal 与任务行同事务写入）。
+func rewriteGoal(t *testing.T, store *Store, goal string) {
+	t.Helper()
+	require.NoError(t, store.UpdateNodeContent(context.Background(), "root", MustJSON(map[string]string{"description": goal})))
+}
+
 // basisOf 读取任务当前的目标依据。
 func basisOf(t *testing.T, store *Store) GoalBasis {
 	t.Helper()
@@ -359,7 +365,7 @@ func TestRevisePlan_DiscardedWhenGoalChangedSinceBasis(t *testing.T) {
 	ctx := context.Background()
 	basis := basisOf(t, store)
 
-	require.NoError(t, store.SetGoal(ctx, revTask, "新目标"))
+	rewriteGoal(t, store, "新目标")
 	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
 		Basis:        basis,
 		Analyzed:     []string{"r1"},
@@ -400,10 +406,8 @@ func TestGoalBasis_TracksGoalOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before, basisOf(t, store), "动作挂到根目标下不改变依据")
 
-	require.NoError(t, store.SetGoal(ctx, revTask, "根"), "内容不变即无改写")
-	assert.Equal(t, before, basisOf(t, store))
-	require.NoError(t, store.SetGoal(ctx, revTask, "新目标"))
-	assert.NotEqual(t, before, basisOf(t, store))
+	rewriteGoal(t, store, "新目标")
+	assert.NotEqual(t, before, basisOf(t, store), "目标改写后依据随之变化")
 
 	_, err = NewMemoryStore().GoalBasis(ctx, revTask)
 	assert.Error(t, err, "没有根目标就没有依据")

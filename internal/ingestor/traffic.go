@@ -35,8 +35,8 @@ import (
 // 代理捕获 agent 过程事件落进去，前端可打开实时观察 + 插话。nil 时跳过（单测按需部分装配；生产必注入）。
 //
 // AppendMessage 用于写会话首条「任务说明」消息（role=user）——代理捕获是流量驱动自动建 task、
-// 无用户手打 brief，但有确定的任务上下文（host + 认领流量条数）；合成一条说明作为首条右侧气泡，
-// 让前端会话有"发起了什么"的锚点（对齐 active 的 brief 首条消息）。
+// 没有用户输入，但有确定的任务目标（host + 认领的流量清单）；它作为首条右侧气泡，让前端会话
+// 有「发起了什么」的锚点（对齐人工下发的首条用户消息）。
 type ConversationCreator interface {
 	CreateConversation(ctx context.Context, title, taskID string) (conversation.Conversation, error)
 	AppendMessage(ctx context.Context, conversationID string, role conversation.Role, kind conversation.Kind, content string, metadata json.RawMessage) (conversation.Message, error)
@@ -358,7 +358,7 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 }
 
 // spawnProxyTask 为某 host 攒够的一批流量建代理捕获 task：
-// 建 task → 领取该 host 未消费流量（traffic_task 关联）→ 绑会话 → enqueue。
+// 建 task → 领取该 host 未消费流量（traffic_task 关联）→ 按领到的流量定稿任务目标 → 绑会话 → enqueue。
 //
 // 领取跨实例幂等（见 traffic.ProxyStore.ClaimUnconsumedByHost）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
@@ -373,10 +373,10 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建代理捕获 assignment 失败")
 		return
 	}
+	// 目标要列出领到的流量，领取又以任务为归属：先以概括目标建任务，领取后定稿。
 	tk, err := t.tasks.Create(ctx, task.NewParams{
 		AssignmentID: asg.ID,
-		Brief:        fmt.Sprintf("分析 %s 的代理流量", host),
-		TargetHost:   host,
+		Goal:         fmt.Sprintf("分析 %s 的代理流量", host),
 	})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建代理捕获 task 失败")
@@ -399,18 +399,17 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 	// （首条说明仍显示条数，只是列不出明细），不阻塞分析。
 	claimedTraffic, err := t.proxyStore.ListByTask(ctx, tk.ID)
 	if err != nil {
-		taskLogger.Warn().Err(err).Msg("取已认领流量清单失败（首条说明降级为无明细）")
+		taskLogger.Warn().Err(err).Msg("取已认领流量清单失败（任务目标降级为无明细）")
 	}
-	conversationID := t.ensureConversation(ctx, taskLogger, tk.ID, host, claimedTraffic)
-	// 下发 brief 用完整任务说明（scheme://host + 流量清单 + 工具指引），而非裸 host：
-	// runner onboard 靠 brief 里的 URL 抽取 host（hostRe 要求带协议头）建探索图 Objective，
-	// agent 的目标上下文也来自它——裸 host 曾让两者全空，代理流量分析失去方向。
-	scheme := "http"
-	if len(claimedTraffic) > 0 && claimedTraffic[0].Scheme != "" {
-		scheme = claimedTraffic[0].Scheme
+	goal := ProxyTaskGoal(host, claimedTraffic)
+	if err := t.tasks.SetGoal(ctx, tk.ID, goal); err != nil {
+		taskLogger.Warn().Err(err).Msg("定稿任务目标失败，abort 本 task")
+		_ = t.tasks.Abort(ctx, tk.ID, "定稿任务目标失败")
+		return
 	}
+	conversationID := t.ensureConversation(ctx, taskLogger, tk.ID, host, goal)
 	conversationLogger := taskLogger.With().Str("conversation_id", conversationID).Logger()
-	if err := t.enqueueProxyTask(ctx, tk.ID, conversationID, ProxyTaskBrief(scheme, host, claimedTraffic)); err != nil {
+	if err := t.enqueueProxyTask(ctx, tk.ID, conversationID); err != nil {
 		conversationLogger.Warn().Err(err).Msg("代理捕获 task 入队失败")
 		return
 	}
@@ -466,10 +465,9 @@ func (t *Traffic) handleInternalSnap(ctx context.Context, snap *proxy.TrafficSna
 }
 
 // ensureConversation 为代理捕获 task 建会话流（title=host）并回填 conversation.task_id，
-// 再写一条「任务说明」首条消息（role=user）——代理捕获无用户手打 brief，但有确定任务上下文
-// （host + 本批捕获的请求清单），合成说明作为会话首条右侧气泡（对齐 active 的 brief）。
+// 再把任务目标写成会话首条消息（role=user）——用户一眼看清在分析哪些流量。
 // conversations nil / 建会话失败 → 返空串（降级：本次不绑，事件不落会话，但流量分析照常）。
-func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Logger, taskID, host string, trafficList []traffic.ProxyTraffic) string {
+func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Logger, taskID, host, goal string) string {
 	if t.conversations == nil {
 		return ""
 	}
@@ -478,34 +476,32 @@ func (t *Traffic) ensureConversation(ctx context.Context, taskLogger zerolog.Log
 		taskLogger.Warn().Err(err).Str("host", host).Msg("建代理捕获 task 会话流失败（降级：本次不绑会话）")
 		return ""
 	}
-	// 首条任务说明（role=user）：与下发 brief 同源（scheme://host + 流量清单 + 工具指引），
-	// 用户一眼看清在分析哪些流量。best-effort——写失败仅缺首条气泡，不影响分析与事件落会话。
-	briefScheme := "http"
-	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
-		briefScheme = trafficList[0].Scheme
-	}
-	if _, err := t.conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, ProxyTaskBrief(briefScheme, host, trafficList), nil); err != nil {
+	// best-effort——写失败仅缺首条气泡，不影响分析与事件落会话。
+	if _, err := t.conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, goal, nil); err != nil {
 		taskLogger.Warn().Err(err).Str("conversation_id", created.ID).Msg("写代理捕获任务说明首条消息失败（降级：会话缺首条气泡）")
 	}
 	return created.ID
 }
 
-// proxyTaskBriefMaxList 是首条说明里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
-const proxyTaskBriefMaxList = 20
+// proxyTaskGoalMaxList 是目标里最多逐条列出的请求数；超出只显示"等 N 条"，避免超长批刷屏。
+const proxyTaskGoalMaxList = 20
 
-// ProxyTaskBrief 合成代理捕获的任务说明（一份文本两用：会话首条气泡给用户看 +
-// 下发 brief 给 agent 当目标上下文）。实时聚合与 cron 定时展开两条代理捕获触发路径共用，
-// 保证会话首条气泡与 agent 目标上下文同源。设计要点：
-//   - 首行必须含 scheme://host 形式的目标 URL——runner onboard 靠 hostRe（https?://…）
-//     从 brief 抽取 host；
+// ProxyTaskGoal 合成代理捕获任务的目标（一份文本两用：智能体的任务目标 + 会话首条气泡）。
+// 设计要点：
+//   - 首行必须含 scheme://host 形式的目标 URL——目标主机（task.target_host）由它派生；
+//     scheme 取领到的第一条流量，没有则按 http；
 //   - 每条流量带 view_traffic 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
 //     list_traffic 就能按 id 拉取任意一条的完整报文；
 //   - 同 host 同 path 的重复请求在目录里无法互辨，id 是唯一可靠的对应键。
-func ProxyTaskBrief(scheme, host string, trafficList []traffic.ProxyTraffic) string {
+func ProxyTaskGoal(host string, trafficList []traffic.ProxyTraffic) string {
+	scheme := "http"
+	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
+		scheme = trafficList[0].Scheme
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "代理流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 view_traffic（id=…）可拉取完整请求与响应原文，也可用 list_traffic（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))
 	for i, f := range trafficList {
-		if i >= proxyTaskBriefMaxList {
+		if i >= proxyTaskGoalMaxList {
 			fmt.Fprintf(&b, "\n… 等共 %d 条", len(trafficList))
 			break
 		}
@@ -514,15 +510,10 @@ func ProxyTaskBrief(scheme, host string, trafficList []traffic.ProxyTraffic) str
 	return b.String()
 }
 
-func (t *Traffic) enqueueProxyTask(ctx context.Context, taskID, conversationID, brief string) error {
-	// payload 只带一段 brief 文本：流量驱动无用户手打 brief，由 spawnProxyTask
-	// 合成完整任务说明（scheme://host + 流量清单 + 工具指引）——runner onboard 据此抽
-	// host 建探索图 Objective，agent 目标上下文同源。
-	payloadInput, _ := json.Marshal(map[string]any{"brief": brief})
+func (t *Traffic) enqueueProxyTask(ctx context.Context, taskID, conversationID string) error {
 	hid, err := t.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   constants.AgentCodePlanner,
-		Input:  payloadInput,
 	})
 	if err != nil {
 		return fmt.Errorf("agentRuns.Create: %w", err)
@@ -531,7 +522,6 @@ func (t *Traffic) enqueueProxyTask(ctx context.Context, taskID, conversationID, 
 		AgentRunID:     hid,
 		TaskID:         taskID,
 		ConversationID: conversationID,
-		Input:          payloadInput,
 		TaskRole:       worker.RoleAgent,
 	}); err != nil {
 		return fmt.Errorf("enq.Enqueue: %w", err)

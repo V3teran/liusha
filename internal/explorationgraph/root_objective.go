@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// 根目标代表任务本身：每个任务恰好一个（DB 部分唯一索引兜底），只由
-// EnsureRootObjective 创建，内容只有目标描述（description）。目标所指的对象范围
+// 根目标代表任务本身：每个任务恰好一个（DB 部分唯一索引兜底），内容只有目标描述
+// （description），与任务行的 goal 是同一个目标——两者只经 task.Store 在同一事务内写入
+// （任务创建时 CreateRootObjective，改写目标时 WriteRootGoal）。目标所指的对象范围
 // （如 Web 域的主机）属于任务与领域，不进根目标。
 
 // Goal 返回目标节点的目标描述（非目标节点或内容缺失时为空）。
@@ -64,40 +62,33 @@ func (s *Store) RootObjectiveOf(ctx context.Context, taskID string) (Node, bool,
 	return root, ok, nil
 }
 
-// EnsureRootObjective 返回任务的根目标，不存在时以 goal 创建。并发创建由唯一索引兜底：
-// 后到者写入失败后重读到先到者创建的那个。
-func (s *Store) EnsureRootObjective(ctx context.Context, taskID, goal string) (Node, error) {
-	if root, ok, err := s.RootObjectiveOf(ctx, taskID); err != nil || ok {
-		return root, err
+// rootMetadata 是根目标的身份元数据：来源 user（代表任务本身）、优先级 high。
+var rootMetadata = MustJSON(map[string]string{"source_type": string(SourceUser), "priority": string(PriorityHigh)})
+
+// CreateRootObjective 在调用方事务内为新任务建根目标（task.Store.Create 的一部分）。
+func CreateRootObjective(ctx context.Context, db Execer, taskID, goal string) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO exploration_node (id, task_id, kind, state, content, metadata)
+		VALUES (gen_random_uuid(), $1::uuid, 'objective', 'open', jsonb_build_object('description', $2::text), $3::jsonb)`,
+		taskID, goal, []byte(rootMetadata))
+	if err != nil {
+		return fmt.Errorf("创建根目标: %w", err)
 	}
-	open := StateOpen
-	node := Node{
-		ID:         uuid.New().String(),
-		TaskID:     taskID,
-		Kind:       core.KindObjective,
-		Content:    MustJSON(map[string]string{"description": goal}),
-		State:      &open,
-		Priority:   PriorityHigh,
-		SourceType: SourceUser,
-		CreatedAt:  time.Now(),
-	}
-	if _, err := s.CreateNode(ctx, node); err != nil {
-		if root, ok, rErr := s.RootObjectiveOf(ctx, taskID); rErr == nil && ok {
-			return root, nil
-		}
-		return Node{}, fmt.Errorf("创建根目标: %w", err)
-	}
-	return node, nil
+	return nil
 }
 
-// SetGoal 改写任务的目标（根目标的描述）；根目标还不存在时以新目标创建。
-func (s *Store) SetGoal(ctx context.Context, taskID, goal string) error {
-	root, err := s.EnsureRootObjective(ctx, taskID, goal)
+// WriteRootGoal 在调用方事务内改写根目标的描述（task.Store.SetGoal 的一部分）。改写
+// 递增根目标版本，按旧目标做出的规划结论随之失效（见 GoalBasis）。
+func WriteRootGoal(ctx context.Context, db Execer, taskID, goal string) error {
+	tag, err := db.Exec(ctx, `
+		UPDATE exploration_node SET content = jsonb_build_object('description', $2::text), updated_at = now()
+		 WHERE task_id = $1::uuid AND kind = 'objective' AND coalesce(metadata->>'source_type', '') <> 'planner'`,
+		taskID, goal)
 	if err != nil {
-		return err
+		return fmt.Errorf("改写根目标: %w", err)
 	}
-	if root.Goal() == goal {
-		return nil
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("任务 %s 应恰有一个根目标，改写了 %d 个", taskID, tag.RowsAffected())
 	}
-	return s.UpdateNodeContent(ctx, root.ID, MustJSON(map[string]string{"description": goal}))
+	return nil
 }

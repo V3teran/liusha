@@ -52,7 +52,7 @@ const (
 
 // parseTaskFilter 从 query 解析筛选 + 分页。
 //
-//	source=<direct|proxy> status=<active|completed|aborted> search=<brief/批次ID 子串>
+//	source=<direct|proxy> status=<active|completed|aborted> search=<目标/批次ID 子串>
 //	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
 //
 // 坏参数退化成不筛（对齐 parseTrafficFilter），page 缺省 1、size clamp 到上限。
@@ -211,7 +211,7 @@ func taskSummariesJSON(rows []task.Summary) []gin.H {
 func taskSummaryJSON(sm task.Summary) gin.H {
 	return gin.H{
 		"id":               sm.ID,
-		"brief":            sm.Brief,
+		"goal":             sm.Goal,
 		"target_host":      sm.TargetHost,
 		"status":           string(sm.Status),
 		"paused":           sm.Paused,

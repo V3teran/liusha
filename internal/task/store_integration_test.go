@@ -41,7 +41,7 @@ func TestCreateAndSummary(t *testing.T) {
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测")
 	for _, brief := range []string{"对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测"} {
-		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: brief}); err != nil {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: brief}); err != nil {
 			t.Fatalf("create task: %v", err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestCreateAndSummary(t *testing.T) {
 	if got.AssignmentTotal != 2 || got.AssignmentIndex < 1 || got.AssignmentIndex > 2 {
 		t.Errorf("批内序号/总数派生不符: %+v", got)
 	}
-	if got.ID != first.ID || got.Brief != first.Brief || got.Status != first.Status {
+	if got.ID != first.ID || got.Goal != first.Goal || got.Status != first.Status {
 		t.Errorf("GetSummary 与 ListFiltered 本体字段不一致: %+v vs %+v", got, first)
 	}
 }
@@ -98,7 +98,7 @@ func TestStatusTransitions(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://c.example.com 做存活探测")
-	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "对 http://c.example.com 做存活探测"})
+	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://c.example.com 做存活探测"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,11 +123,11 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "分析 10.0.0.1 的代理流量")
-	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "分析 10.0.0.1 的代理流量"}); err != nil {
+	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "分析 10.0.0.1 的代理流量"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// search 命中 brief
+	// search 命中目标
 	rows, err := tasks.ListFiltered(ctx, ListFilter{Search: "10.0.0.1", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestHeartbeatAndReaperView(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://d.example.com 做存活探测")
-	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "对 http://d.example.com 做存活探测"})
+	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://d.example.com 做存活探测"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,11 +194,11 @@ func TestSummaryScheduleLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("建定时批次: %v", err)
 	}
-	scheduled, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Brief: "b"})
+	scheduled, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Goal: "b"})
 	if err != nil {
 		t.Fatalf("建任务: %v", err)
 	}
-	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Brief: "p"})
+	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Goal: "p"})
 	if err != nil {
 		t.Fatalf("建普通任务: %v", err)
 	}

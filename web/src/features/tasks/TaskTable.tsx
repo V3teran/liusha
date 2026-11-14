@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { TaskSummary } from '@/api/types'
 import { controlTask } from '@/api/tasks'
-import { buildTaskColumns, briefHead } from './taskColumns'
+import { buildTaskColumns, goalHead } from './taskColumns'
 import { DataTable } from '@/components/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
@@ -49,7 +49,7 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
         selectedId={selectedId}
         getRowId={(row) => row.id}
         onRowClick={onRowClick}
-        rowAriaLabel={(row) => `查看任务详情 ${row.brief.slice(0, 24)}`}
+        rowAriaLabel={(row) => `查看任务详情 ${row.goal.slice(0, 24)}`}
       />
       <ConfirmDialog
         open={confirmTarget !== null}
@@ -61,7 +61,7 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
         confirmLabel="确认停止"
         message={
           confirmTarget
-            ? `任务「${briefHead(confirmTarget.brief)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
+            ? `任务「${goalHead(confirmTarget.goal)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
             : ''
         }
         onConfirm={() => {

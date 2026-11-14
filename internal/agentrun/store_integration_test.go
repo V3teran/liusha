@@ -18,10 +18,8 @@ func setup(t *testing.T) (*Store, string) {
 	pool := dbtest.NewPgPool(t)
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
-
 		AssignmentID: dbtest.SeedAssignment(t, pool),
-		Brief:        "test agent run",
-		TargetHost:   "test.example.com",
+		Goal:         "test agent run",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -37,7 +35,6 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	id, err := s.Create(ctx, NewParams{
 		TaskID: taskID,
 		Role:   "planner",
-		Input:  json.RawMessage(`{"window_id":"w1"}`),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)

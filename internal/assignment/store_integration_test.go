@@ -61,8 +61,8 @@ func TestDeriveStatus(t *testing.T) {
 	}
 
 	// 建子 task → running
-	t1, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Brief: "对 http://e.example.com 做存活探测"})
-	t2, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Brief: "对 http://f.example.com 做存活探测"})
+	t1, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Goal: "对 http://e.example.com 做存活探测"})
+	t2, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Goal: "对 http://f.example.com 做存活探测"})
 	if st, _ := asgs.DeriveStatus(ctx, a.ID); st != StatusRunning {
 		t.Fatalf("有 active 子 task 应 running, got %s", st)
 	}

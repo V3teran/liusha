@@ -7,7 +7,7 @@ import type { TaskSummary } from '@/api/types'
 function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
   return {
     id: 't-1',
-    brief: '测试本地靶机',
+    goal: '测试本地靶机',
     target_host: 'target.local',
     status: 'active',
     paused: false,

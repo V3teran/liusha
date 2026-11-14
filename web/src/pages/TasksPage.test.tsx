@@ -27,7 +27,7 @@ const mDetail = getTaskDetail as unknown as ReturnType<typeof vi.fn>
 function task(o: Partial<TaskSummary> = {}): TaskSummary {
   return {
     id: 't-1',
-    brief: 'DVWA 渗透测试',
+    goal: 'DVWA 渗透测试',
     target_host: 'dvwa.local',
     status: 'active',
     paused: false,
@@ -67,9 +67,9 @@ describe('TasksPage（任务模块）', () => {
     mDetail.mockReset()
   })
 
-  it('挂载拉取任务列表并渲染行（brief 可见）', async () => {
+  it('挂载拉取任务列表并渲染行（目标可见）', async () => {
     mList.mockResolvedValue({
-      items: [task(), task({ id: 't-2', brief: 'BAC 越权检测', status: 'completed' })],
+      items: [task(), task({ id: 't-2', goal: 'BAC 越权检测', status: 'completed' })],
       total: 2,
       page: 1,
       size: 20,

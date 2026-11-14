@@ -138,26 +138,26 @@ type Report struct {
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
 // sb 是沙盒命令执行入口；nil 表示无沙盒（run_command/drive_browser 不注册）。
-func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb tools.CommandRunner) (Report, error) {
-	return d.run(ctx, taskID, host, brief, conversationID, sb)
+//
+// 任务要做什么在探索图上（根目标，随任务创建、经 task.Store 改写），run 不另带目标。
+func Run(ctx context.Context, d *Deps, taskID, host, conversationID string, sb tools.CommandRunner) (Report, error) {
+	return d.run(ctx, taskID, host, conversationID, sb)
 }
 
 // run 是 Run 的内部实现（拆一层让 Run 的签名稳定、内部演进不惊动调用方）。
 func (d *Deps) run(
 	ctx context.Context,
-	taskID, host, brief, conversationID string,
+	taskID, host, conversationID string,
 	sb tools.CommandRunner,
 ) (Report, error) {
-	d.Logger.Info().
-		Str("brief", brief).
-		Msg("[RUN_COGNITION] 启动四Agent架构")
+	d.Logger.Info().Msg("[RUN_COGNITION] 启动四Agent架构")
 
 	if d.Graph == nil || taskID == "" || d.EventBus == nil {
 		return Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
-	// 根目标代表任务本身，每个任务只有一个（首个 run 以简报创建，之后的 run 沿用）。
-	if _, err := d.Graph.EnsureRootObjective(ctx, taskID, brief); err != nil {
+	// 根目标代表任务本身，随任务创建（task.Store.Create）；没有根目标就无从规划。
+	if _, err := d.Graph.GoalBasis(ctx, taskID); err != nil {
 		return Report{}, err
 	}
 
@@ -172,7 +172,7 @@ func (d *Deps) run(
 		d.Logger.Info().Int("count", reclaimed).Msg("已交还上一 run 留下的在途动作")
 	}
 
-	stack, err := d.assembleStack(ctx, taskID, host, brief, conversationID, sb)
+	stack, err := d.assembleStack(ctx, taskID, host, conversationID, sb)
 	if err != nil {
 		return Report{}, err
 	}
@@ -271,7 +271,7 @@ type cognitionStack struct {
 // 线性依赖链，按 Agent 分 constructors，各自独立可读。
 func (d *Deps) assembleStack(
 	ctx context.Context,
-	taskID, host, brief, conversationID string,
+	taskID, host, conversationID string,
 	sb tools.CommandRunner,
 ) (*cognitionStack, error) {
 	cfgs := d.loadAgentConfigs(ctx)

@@ -169,17 +169,13 @@ if [ $RC -eq 0 ]; then
   echo "  前端：web/（本仓）→ make run-web（/api 代理到本 api）"
   echo "  task 列表："
   echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT id, mode, target_host, brief, status FROM task ORDER BY created_at DESC;\""
-  echo ""
-  echo "  组合漏洞 chains（depends_on uuid[] 数组）："
-  echo "    docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "      \"SELECT id, severity, substr(summary,1,40), depends_on FROM finding WHERE depends_on <> '{}' ORDER BY created_at DESC;\""
+  echo "      \"SELECT id, target_host, substr(goal,1,40), status FROM task ORDER BY created_at DESC;\""
 else
   echo "✗ e2e 失败（exit $RC = 失败的 profile 数）"
   echo "  排查："
   echo "    1. logs/runner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "       'SELECT kind,severity,confidence,title FROM finding ORDER BY created_at DESC;'"
+  echo "       'SELECT severity, cwe_id, host, summary FROM finding ORDER BY created_at DESC;'"
   echo "    3. 前端看图：web/（本仓）→ make run-web（/api 代理到本 api）"
 fi
 

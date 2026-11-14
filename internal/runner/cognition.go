@@ -16,7 +16,7 @@ import (
 func (h *Handler) runCognition(
 	ctx context.Context,
 	taskLogger zerolog.Logger,
-	assignmentID, agentRunID, taskID, host, brief, conversationID string,
+	assignmentID, agentRunID, taskID, host, conversationID string,
 	installed sandbox.Inventory,
 ) (cognition.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
@@ -72,7 +72,7 @@ func (h *Handler) runCognition(
 
 		Conversations:  h.Conversations,
 		EventPublisher: h.EventPublisher,
-	}, taskID, host, brief, conversationID, h.Sandbox)
+	}, taskID, host, conversationID, h.Sandbox)
 }
 
 // stepLLMTimeout 取单步 LLM 看门狗上限：系统配置（热改）优先，读取失败或未配置时取

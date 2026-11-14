@@ -32,21 +32,18 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanRun() 的字段顺序一一对应。
 const colsSelect = `id, ` +
 	`task_id::text AS task_id, ` +
-	`role, input, result, status, created_at, updated_at`
+	`role, result, status, created_at, updated_at`
 
-// Create 插入一行 pending agent 运行，返回新 id。Input 为 nil 时落空对象。
-// TaskID 必填（NOT NULL 外键）。该 task 已有存活 run 时返回 ErrLiveRunExists。
+// Create 插入一行 pending agent 运行，返回新 id。run 不携带输入：它要做的事（任务目标）
+// 在任务行与探索图上，开跑时读取。TaskID 必填（NOT NULL 外键）。该 task 已有存活 run 时
+// 返回 ErrLiveRunExists。
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
-	if p.Input == nil {
-		p.Input = json.RawMessage("{}")
-	}
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (task_id, role, input)
-		VALUES ($1::uuid, $2, $3)
+		INSERT INTO agent_run (task_id, role)
+		VALUES ($1::uuid, $2)
 		RETURNING id`,
 		p.TaskID, p.Role,
-		[]byte(p.Input),
 	).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -169,15 +166,15 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 
 // scanRun 是 colsSelect 列序的统一反序列化点。
 func scanRun(r db.RowScanner, t *Run) error {
-	var input, result []byte
+	var result []byte
 	if err := r.Scan(
 		&t.ID,
 		&t.TaskID,
 		&t.Role,
-		&input, &result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
+		&result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return err
 	}
-	t.Input, t.Result = input, result
+	t.Result = result
 	return nil
 }

@@ -12,19 +12,25 @@ import (
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
-// graphFixture 在任务图上铺一组典型节点：根目标、派生目标（open 与已达成）、
-// open / running / completed 动作。返回节点 ID → 名称。
+// graphFixture 在任务图上铺一组典型节点：派生目标（open 与已达成）、open / running /
+// completed 动作，连同任务创建时就有的根目标。返回名称 → 节点 ID。
 func graphFixture(t *testing.T, pool *pgxpool.Pool, taskID string) map[string]string {
 	t.Helper()
+	ids := map[string]string{}
+	var root string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT id FROM exploration_node WHERE task_id = $1 AND kind = 'objective' AND metadata->>'source_type' = 'user'`,
+		taskID).Scan(&root); err != nil {
+		t.Fatalf("read root: %v", err)
+	}
+	ids["root"] = root
 	nodes := []struct{ name, kind, state, source string }{
-		{"root", "objective", "open", "user"},
 		{"derived-open", "objective", "open", "planner"},
 		{"derived-done", "objective", "completed", "planner"},
 		{"action-open", "action", "open", "planner"},
 		{"action-running", "action", "running", "planner"},
 		{"action-done", "action", "completed", "planner"},
 	}
-	ids := map[string]string{}
 	for _, n := range nodes {
 		var id string
 		if err := pool.QueryRow(context.Background(), `

@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -110,7 +109,7 @@ func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker
 // handler 没跑到回写）同样留下 running 脏行——终态任务只收行，不重投。
 func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
-		SELECT ar.id::text, ar.task_id::text, t.brief, t.paused, t.status::text,
+		SELECT ar.id::text, ar.task_id::text, t.paused, t.status::text,
 		       COALESCE((SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1), ''),
 		       (SELECT count(*) FROM agent_run a2
 		         WHERE a2.task_id = ar.task_id AND a2.status = 'error')
@@ -131,16 +130,16 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	defer rows.Close()
 
 	type zombie struct {
-		runID, taskID, brief, conversationID string
-		paused                               bool
-		terminal                             bool
-		attempts                             int
+		runID, taskID, conversationID string
+		paused                        bool
+		terminal                      bool
+		attempts                      int
 	}
 	var zombies []zombie
 	for rows.Next() {
 		var z zombie
 		var status string
-		if err := rows.Scan(&z.runID, &z.taskID, &z.brief, &z.paused, &status, &z.conversationID, &z.attempts); err != nil {
+		if err := rows.Scan(&z.runID, &z.taskID, &z.paused, &status, &z.conversationID, &z.attempts); err != nil {
 			return err
 		}
 		z.terminal = status != "active"
@@ -191,7 +190,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 			continue
 		}
 
-		m.redispatchPlanner(ctx, z.taskID, z.brief, z.conversationID)
+		m.redispatchPlanner(ctx, z.taskID, z.conversationID)
 	}
 	return m.recoverStranded(ctx)
 }
@@ -202,7 +201,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 // 空窗由 30s 巡检间隔天然错过，不计入。
 func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
-		SELECT t.id::text, t.brief,
+		SELECT t.id::text,
 		       COALESCE((SELECT c.id::text FROM conversation c WHERE c.task_id = t.id LIMIT 1), ''),
 		       (SELECT count(*) FROM agent_run a2
 		         WHERE a2.task_id = t.id AND a2.status = 'error')
@@ -219,13 +218,13 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 	defer rows.Close()
 
 	type stranded struct {
-		taskID, brief, conversationID string
-		attempts                      int
+		taskID, conversationID string
+		attempts               int
 	}
 	var list []stranded
 	for rows.Next() {
 		var s stranded
-		if err := rows.Scan(&s.taskID, &s.brief, &s.conversationID, &s.attempts); err != nil {
+		if err := rows.Scan(&s.taskID, &s.conversationID, &s.attempts); err != nil {
 			return err
 		}
 		list = append(list, s)
@@ -251,7 +250,7 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 			continue
 		}
 
-		m.redispatchPlanner(ctx, s.taskID, s.brief, s.conversationID)
+		m.redispatchPlanner(ctx, s.taskID, s.conversationID)
 	}
 	return nil
 }
@@ -259,12 +258,10 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 // redispatchPlanner 以全新 agent_run 重投 planner（探索图历史保留，认知循环
 // 从头规划）；失败仅告警，下一轮巡检重试。该 task 已有存活 run 时（与继续/
 // 续接的毫秒级竞态，部分唯一索引判定）跳过——先建者赢。
-func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brief, conversationID string) {
-	input, _ := json.Marshal(map[string]string{"brief": brief})
+func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, conversationID string) {
 	newID, err := m.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   runRecoveryResumeRole,
-		Input:  input,
 	})
 	if err != nil {
 		if errors.Is(err, agentrun.ErrLiveRunExists) {
@@ -280,7 +277,6 @@ func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brie
 		TaskID:         taskID,
 		ConversationID: conversationID,
 		TaskRole:       worker.RoleAgent,
-		Input:          input,
 	}); err != nil {
 		m.logger.Error().Err(err).Str("task_id", taskID).Str("new_agent_run_id", newID).
 			Msg("恢复 run 入队失败")

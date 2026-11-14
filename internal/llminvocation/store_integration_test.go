@@ -20,8 +20,7 @@ func setup(t *testing.T) (*Store, string) {
 	ts := task.NewStore(pool)
 	tk, err := ts.Create(context.Background(), task.NewParams{
 		AssignmentID: dbtest.SeedAssignment(t, pool),
-		Brief:        "test brief",
-		TargetHost:   "test.example.com",
+		Goal:         "test brief",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

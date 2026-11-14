@@ -275,11 +275,9 @@ func (s *Service) appendTaskStatus(ctx context.Context, conversationID, status, 
 // 单发（createTask，建单元素 assignment 后展开 1 条）与批量/定时（Scheduler，建多元素
 // assignment 后逐条展开）复用同一份展开逻辑，只是 assignment 的建法不同（单发 vs 批量/cron）。
 //
-// target_host 留空——不在 API 层 parse brief，runner 入口从 brief 抽取后回填（派生列）。
-//
-// attachments 是随消息提交的附件引用（可空）：task 落位后整批搬进 inbox，清单
-// （沙盒绝对路径）拼进 payload brief——agent 从 prompt 直接拿到可读路径；task.brief
-// 保持原文（清单是路由信息，不是目标描述，进 brief 会污染标题/批次名）。
+// 任务目标 = brief + 附件清单。attachments 是随消息提交的附件引用（可空）：task 落位后
+// 整批搬进 inbox（路径含任务 ID，所以先建任务），清单（沙盒路径）追加进目标——agent 从
+// 目标里直接拿到可读路径。标题与批次名取自 brief，不含清单。
 // userMsgSeq 是携带这批附件的用户消息 seq（0 = 无会话消息）：落位后据它改写
 // 消息 metadata 的引用路径（暂存 → inbox），时间线芯片随之指向文件的新家。
 func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
@@ -290,7 +288,7 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	}
 	tk, err := s.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
-		Brief:        brief,
+		Goal:         brief,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
@@ -305,33 +303,27 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 		}
 	}
 
-	payloadBrief := brief
+	goal := brief
 	if len(attachments) > 0 {
 		materialized, err := s.materialize(conversationID, assignmentID, tk.ID, attachments)
 		if err != nil {
 			return "", "", err
 		}
-		payloadBrief += s.Attachments.Manifest(materialized)
+		goal += s.Attachments.Manifest(materialized)
 		s.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
+		if err := s.Tasks.SetGoal(ctx, tk.ID, goal); err != nil {
+			return "", "", fmt.Errorf("写入附件清单: %w", err)
+		}
 	}
 
-	// payload 只装 brief 原文——目标 URL / host 由 runner 从 brief 自识别回填。
-	payloadInput, err := json.Marshal(map[string]string{"brief": payloadBrief})
-	if err != nil {
-		return "", "", fmt.Errorf("marshal payload: %w", err)
-	}
-	tid, err := s.enqueuePlannerRun(ctx, tk.ID, conversationID, payloadInput)
+	tid, err := s.enqueuePlannerRun(ctx, tk.ID, conversationID)
 	if err != nil {
 		return "", "", err
 	}
 
-	// task 创建成功 → 审计事件。metadata 记 brief 前 200 字便于事后查（完整 brief 在 task.brief 列）。
+	// task 创建成功 → 审计事件。metadata 记目标前 200 字便于事后查（完整目标在 task.goal 列）。
 	if s.Audit != nil {
-		briefPreview := brief
-		if len(briefPreview) > 200 {
-			briefPreview = briefPreview[:200]
-		}
-		meta, _ := json.Marshal(map[string]string{"brief_preview": briefPreview, "agent_run_id": tid})
+		meta, _ := json.Marshal(map[string]string{"goal_preview": textx.TruncateRunes(goal, 200, "…"), "agent_run_id": tid})
 		// 操作者由认证层写入 request context（HTTP 下发 → user:名）；cron 等系统
 		// 路径无操作者 → system。如实区分"谁"发起，而非统一静态标签。
 		actor := audit.ActorSystem
@@ -353,11 +345,10 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	return tk.ID, tid, nil
 }
 
-// FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队
-// （brief=追加消息）。复用 task 作用域的探索图——新 run 接着既有的目标、动作与坐实结果推进。
-// 入队 Payload 与 createTask 同构，仅 TaskID 复用传入 taskID、不新建 task。
-// attachments（可空）经 Materialize 收口进该任务 inbox，清单拼进本轮 payload brief，
-// userMsgSeq 同 createTask（落位后改写消息引用路径）。
+// FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队。
+// 复用 task 作用域的探索图——新 run 接着既有的目标、动作与坐实结果推进。
+// attachments（可空）经 Materialize 收口进该任务 inbox，userMsgSeq 同 createTask（落位后
+// 改写消息引用路径）。
 func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string, attachments []attachment.Ref, userMsgSeq int64) (string, error) {
 	if err := validateBrief(brief); err != nil {
 		return "", err
@@ -366,31 +357,24 @@ func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 	if err != nil {
 		return "", fmt.Errorf("read task: %w", err)
 	}
-	payloadBrief := brief
 	if len(attachments) > 0 {
 		materialized, err := s.materialize(conversationID, tk.AssignmentID, taskID, attachments)
 		if err != nil {
 			return "", err
 		}
-		payloadBrief += s.Attachments.Manifest(materialized)
 		s.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
 	}
 	if err := s.Tasks.Reopen(ctx, taskID); err != nil {
 		return "", fmt.Errorf("reopen task: %w", err)
 	}
-	payloadInput, err := json.Marshal(map[string]string{"brief": payloadBrief})
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-	runID, err := s.enqueuePlannerRun(ctx, taskID, conversationID, payloadInput)
+	runID, err := s.enqueuePlannerRun(ctx, taskID, conversationID)
 	if err != nil {
 		if !errors.Is(err, agentrun.ErrLiveRunExists) {
 			return "", err
 		}
-		// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：先建者赢，复用存活
-		// run——任务已被重拉起，但用户的续接指令未进本轮 brief（原 brief 续跑）。
-		chatLog.Warn().Str("task", taskID).Str("conversation_id", conversationID).
-			Msg("续接与并发重投竞争，复用已存活 run（本轮指令未并入 brief）")
+		// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：先建者赢，复用存活 run。
+		chatLog.Info().Str("task", taskID).Str("conversation_id", conversationID).
+			Msg("续接与并发重投竞争，复用已存活 run")
 		if latest, lErr := s.AgentRuns.LatestByTask(ctx, taskID); lErr == nil {
 			return latest.ID, nil
 		}
@@ -410,11 +394,10 @@ func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief st
 // 任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管的新 runner 进程没有
 // 原进程的认知循环状态（bus/共享沙箱），重跑只会产出脏状态。
 // MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
-func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID string, payloadInput []byte) (string, error) {
+func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID string) (string, error) {
 	tid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
 		Role:   "planner",
-		Input:  payloadInput,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create agent run: %w", err)
@@ -423,9 +406,7 @@ func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 		AgentRunID:     tid,
 		TaskID:         taskID,
 		ConversationID: conversationID, // 会话发起时非空 → runner 发过程事件
-		// 场景 code：runner 据此数据驱动派发引擎/操作员编排
-		Input:    payloadInput,
-		TaskRole: worker.RoleAgent,
+		TaskRole:       worker.RoleAgent,
 	}, asynq.MaxRetry(0), asynq.Timeout(wallClockOption(s.MaxRunTimeout))); err != nil {
 		// 未入队的 pending 行会让 runner 恢复巡检误判「有存活 run」，任务永久卡在 active。
 		// 标 aborted（从未执行）后，巡检把它识别为搁浅任务并自动重投。
@@ -494,8 +475,7 @@ func (s *Service) ResumeTask(ctx context.Context, taskID string) error {
 	if id, rErr := s.Conversations.ResolveConversationByTask(ctx, taskID); rErr == nil {
 		conversationID = id
 	}
-	input, _ := json.Marshal(map[string]string{"brief": tk.Brief})
-	if _, err := s.enqueuePlannerRun(ctx, taskID, conversationID, input); err != nil {
+	if _, err := s.enqueuePlannerRun(ctx, taskID, conversationID); err != nil {
 		if errors.Is(err, agentrun.ErrLiveRunExists) {
 			// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：任务已被并发生产者
 			// 拉起，「继续」的目的已达成，幂等返回。
@@ -661,8 +641,8 @@ func attachmentMeta(refs []attachment.Ref) json.RawMessage {
 }
 
 // effectiveBrief 把「纯附件消息」折算成可校验的 brief：文本为空但带附件时，
-// 用附件名列表占位——标题/批次名/task.brief/意图分类都取它（planner payload
-// 在此之上再拼沙盒路径清单）。有文本或无附件时原样返回。
+// 用附件名列表占位——标题/批次名/任务目标/意图分类都取它（任务目标在此之上再追加
+// 沙盒路径清单）。有文本或无附件时原样返回。
 func effectiveBrief(content string, refs []attachment.Ref) string {
 	if strings.TrimSpace(content) != "" || len(refs) == 0 {
 		return content
@@ -790,17 +770,10 @@ func renderFindingsSummary(fs []finding.Finding) string {
 	return b.String()
 }
 
-// maxBriefRunes 是任务描述（brief）的入口长度契约。brief 逐字进 executor
-// system prompt 与 planner 根目标，压缩机制不裁 system——超大 brief 绕过
-// 全部预算防线，只能在执行期被长度哨兵拦下（任务已下发、浪费一次跑）。
-// 契约在入口拒绝而非截断：上下文装配截断无损语义，任务指令被静默截断会
-// 腐蚀意图（agent 照半截指令干活），两者纪律不同。
-const maxBriefRunes = 20000
-
-// validateBrief 校验任务描述的入口契约。
+// validateBrief 校验下发输入：brief 就是任务目标的主体，守目标的长度契约（见 task.MaxGoalRunes）。
 func validateBrief(brief string) error {
-	if n := len([]rune(brief)); n > maxBriefRunes {
-		return fmt.Errorf("任务描述过长（%d 字 > 上限 %d），请精简后重发", n, maxBriefRunes)
+	if n := len([]rune(brief)); n > task.MaxGoalRunes {
+		return fmt.Errorf("任务描述过长（%d 字 > 上限 %d），请精简后重发", n, task.MaxGoalRunes)
 	}
 	return nil
 }

@@ -25,8 +25,7 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	assignmentID := dbtest.SeedAssignment(t, pool)
 	tk, err := taskStore.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
-		Brief:        "test brief",
-		TargetHost:   "example.com",
+		Goal:         "test brief",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

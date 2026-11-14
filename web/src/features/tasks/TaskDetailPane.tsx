@@ -9,7 +9,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
-import { briefHead } from './taskColumns'
+import { goalHead } from './taskColumns'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -60,8 +60,8 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text" title={task?.brief}>
-          {task ? task.brief : '任务详情'}
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text" title={task?.goal}>
+          {task ? task.goal : '任务详情'}
         </span>
         <button
           type="button"
@@ -209,7 +209,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
             <section>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">目标</h4>
               <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
-                {task.brief}
+                {task.goal}
               </div>
             </section>
 
@@ -226,7 +226,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
         confirmLabel="确认停止"
         message={
           task
-            ? `任务「${briefHead(task.brief)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
+            ? `任务「${goalHead(task.goal)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
             : ''
         }
         onConfirm={() => void doControl('terminate')}
