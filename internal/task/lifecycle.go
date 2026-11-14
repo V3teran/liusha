@@ -131,34 +131,28 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 	return fmt.Errorf("%w: task %s 当前 %s，拒绝迁入 %s", ErrConflict, id, t.Status, want)
 }
 
-// Reopen 把已终态的 task 置回 active，清 ended_at/error_message/paused（仅 active
-// 模式的 FollowUp 续接）。paused 必须一并清：上轮生命周期结束时若停在暂停中，
+// ReopenTx 在调用方事务内把已终态的 task 置回 active（对话里续接已结束的任务），清
+// ended_at/error_message/paused。paused 必须一并清：上轮生命周期结束时若停在暂停中，
 // 残留标记会让新跑的循环被误读为「已暂停」。
 //
 // 累计停顿：复活前把「上次 ended_at → 现在」的用户停顿累加进 paused_ms（PG UPDATE 表达式用行旧值），
 // WallclockMs 据此扣除停顿 = 纯 agent 工作耗时。ended_at 为空则不累加（COALESCE 兜底 0）。
 // heartbeat_at 一并重置为 now：复活即续命——否则旧心跳残留，队列积压场景下 reaper
-// 会把刚 Reopen 的任务按超时判死（Reopen → runner 领取之间存在无心跳空窗）。
-func (s *Store) Reopen(ctx context.Context, id string) error {
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			UPDATE task SET
-				status='active',
-				paused=false,
-				paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
-				heartbeat_at=now(),
-				ended_at=NULL,
-				error_message=''
-			WHERE id=$1`, id); err != nil {
-			return err
-		}
-		// 根目标代表任务本身，随任务回到 open。
-		return explorationgraph.SyncWithTask(ctx, tx, []string{id}, explorationgraph.TaskActive)
-	})
-	if err != nil {
+// 会把刚重开的任务按超时判死（重开 → runner 领取之间存在无心跳空窗）。
+func ReopenTx(ctx context.Context, tx pgx.Tx, id string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE task SET
+			status='active',
+			paused=false,
+			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
+			heartbeat_at=now(),
+			ended_at=NULL,
+			error_message=''
+		WHERE id=$1`, id); err != nil {
 		return fmt.Errorf("reopen task %s: %w", id, err)
 	}
-	return nil
+	// 根目标代表任务本身，随任务回到 open。
+	return explorationgraph.SyncWithTask(ctx, tx, []string{id}, explorationgraph.TaskActive)
 }
 
 // Heartbeat 刷新 active task 的 heartbeat_at（B2 探活：agent 每次工具调用驱动，节流见 caller）。

@@ -5,21 +5,25 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/worker"
 )
 
 type steeringFixture struct {
@@ -181,4 +185,78 @@ func TestRejectAction(t *testing.T) {
 	pending := f.action(t, explorationgraph.StateOpen, explorationgraph.SourcePlanner)
 	require.NoError(t, f.svc.Tasks.Abort(ctx, f.taskID, "停止"))
 	assert.ErrorIs(t, f.svc.RejectAction(ctx, f.taskID, pending, "x"), task.ErrNotActive)
+}
+
+// withRunner 给 fixture 装上入队依赖（重开任务要起新 run）。
+func (f steeringFixture) withRunner(t *testing.T) steeringFixture {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	enq := worker.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = enq.Close() })
+	f.svc.Enq = enq
+	f.svc.AgentRuns = agentrun.NewStore(f.svc.DB)
+	f.svc.MaxRunTimeout = time.Minute
+	return f
+}
+
+func (f steeringFixture) liveRuns(t *testing.T) int {
+	t.Helper()
+	var n int
+	require.NoError(t, f.svc.DB.QueryRow(context.Background(),
+		`SELECT count(*) FROM agent_run WHERE task_id = $1 AND status IN ('pending', 'running')`, f.taskID).Scan(&n))
+	return n
+}
+
+// 对话里要执行的消息追加到任务目标：进行中（含暂停中）原地追加、保持暂停、不另起 run；
+// 已结束的任务在同一事务里重开并追加，再起新一轮 run（续接的指令不再丢失）。
+func TestAppendRequirement(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("进行中原地追加", func(t *testing.T) {
+		f := newSteeringFixture(t).withRunner(t)
+		planned := f.action(t, explorationgraph.StateOpen, explorationgraph.SourcePlanner)
+		_, err := f.svc.Tasks.MarkPaused(ctx, f.taskID)
+		require.NoError(t, err)
+
+		require.NoError(t, f.svc.appendRequirement(ctx, f.taskID, "再测一下注册页", nil, 0))
+
+		tk, err := f.svc.Tasks.GetByID(ctx, f.taskID)
+		require.NoError(t, err)
+		assert.Equal(t, "测试 http://a.test 的登录页\n\n补充要求：再测一下注册页", tk.Goal)
+		assert.True(t, tk.Paused, "暂停状态保持")
+		assert.Equal(t, explorationgraph.StateAborted, f.state(t, planned), "按旧目标排出的规划撤回")
+		assert.Zero(t, f.liveRuns(t), "进行中的任务不另起 run")
+		receipts := f.receipts(t)
+		require.Len(t, receipts, 1)
+		assert.Equal(t, "补充要求：再测一下注册页", receipts[0].Content, "回执是实际写入的内容")
+		assert.Equal(t, conversation.SteeringGoalAppended, metaOf(t, receipts[0])["op"])
+	})
+
+	t.Run("已结束则重开并起新 run", func(t *testing.T) {
+		f := newSteeringFixture(t).withRunner(t)
+		require.NoError(t, f.svc.Tasks.Complete(ctx, f.taskID))
+
+		require.NoError(t, f.svc.appendRequirement(ctx, f.taskID, "继续测越权", nil, 0))
+
+		tk, err := f.svc.Tasks.GetByID(ctx, f.taskID)
+		require.NoError(t, err)
+		assert.Equal(t, task.StatusActive, tk.Status)
+		assert.Contains(t, tk.Goal, "补充要求：继续测越权")
+		root, _, err := f.graph.RootObjectiveOf(ctx, f.taskID)
+		require.NoError(t, err)
+		assert.Equal(t, explorationgraph.StateOpen, *root.State)
+		assert.Equal(t, tk.Goal, root.Goal())
+		assert.Equal(t, 1, f.liveRuns(t), "重开后起新一轮 run")
+	})
+
+	t.Run("超长被拒且什么都不改", func(t *testing.T) {
+		f := newSteeringFixture(t).withRunner(t)
+		require.NoError(t, f.svc.Tasks.Complete(ctx, f.taskID))
+		err := f.svc.appendRequirement(ctx, f.taskID, strings.Repeat("测", task.MaxGoalRunes), nil, 0)
+		require.ErrorIs(t, err, errGoalTooLong)
+		tk, err := f.svc.Tasks.GetByID(ctx, f.taskID)
+		require.NoError(t, err)
+		assert.Equal(t, task.StatusCompleted, tk.Status)
+		assert.Zero(t, f.liveRuns(t))
+	})
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
@@ -75,7 +77,7 @@ func TestGuard_IdempotentSameTerminal(t *testing.T) {
 	}
 }
 
-// Reopen 是唯一的终态出口：aborted → active 后可再次 Complete。
+// ReopenTx 是唯一的终态出口：aborted → active 后可再次 Complete。
 func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
@@ -83,7 +85,7 @@ func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 	if err := s.Abort(context.Background(), id, "用户停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
-	if err := s.Reopen(context.Background(), id); err != nil {
+	if err := reopen(s, context.Background(), id); err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
 	if err := s.Complete(context.Background(), id); err != nil {
@@ -92,7 +94,7 @@ func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 }
 
 // 暂停标记的 CAS 语义：MarkPaused/MarkResumed 只做单向迁移并报告是否发生；
-// Reopen 清残留标记；ReapStale 豁免暂停中的任务（有意停摆不是孤儿）。
+// ReopenTx 清残留标记；ReapStale 豁免暂停中的任务（有意停摆不是孤儿）。
 func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
@@ -122,7 +124,7 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 		t.Fatalf("终态任务不得置暂停: changed=%v err=%v", changed, err)
 	}
 
-	// 暂停中 Reopen（FollowUp 续接）：残留标记必须清除，否则新 run 被误读为已暂停。
+	// 暂停中被停止的任务重开（对话里续接）：残留标记必须清除，否则新 run 被误读为已暂停。
 	id2 := newActiveTask(t, s)
 	if _, err := s.MarkPaused(ctx, id2); err != nil {
 		t.Fatalf("pause: %v", err)
@@ -130,7 +132,7 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	if err := s.Abort(ctx, id2, "暂停后停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
-	if err := s.Reopen(ctx, id2); err != nil {
+	if err := reopen(s, ctx, id2); err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
 	if tk, err := s.GetByID(ctx, id2); err != nil || tk.Paused {
@@ -162,4 +164,9 @@ func TestGuard_ReapStaleExemptsPaused(t *testing.T) {
 	if tk.Status != StatusActive || !tk.Paused {
 		t.Fatalf("暂停任务应保持 active+paused: status=%s paused=%v", tk.Status, tk.Paused)
 	}
+}
+
+// reopen 在独立事务内重开任务（生产路径由对话续接在引导事务里调用 ReopenTx）。
+func reopen(s *Store, ctx context.Context, id string) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { return ReopenTx(ctx, tx, id) })
 }
