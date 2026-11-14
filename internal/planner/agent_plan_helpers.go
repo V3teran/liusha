@@ -87,7 +87,7 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Acti
 			Int("max_attempts", maxRetries+1).
 			Msg("即将调用 a.planner.Plan()")
 
-		actions, lastErr = a.planner.Plan(ctx, a.graph, a.taskID, a.functionTools)
+		actions, lastErr = a.planner.Plan(ctx, a.graph, a.taskID, PlanRequest{FunctionTools: a.functionTools})
 
 		a.logger.Info().
 			Bool("has_error", lastErr != nil).

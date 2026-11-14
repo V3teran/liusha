@@ -224,6 +224,7 @@ type PlanningContext struct {
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
+	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -243,10 +244,17 @@ type PlanningResponse struct {
 	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
 }
 
+// PlanRequest 是一次规划的入参。
+type PlanRequest struct {
+	FunctionTools []string // function_tools 白名单（nil=拒绝，[]=空集，["*"]=全量）
+	ReplanReasons []string // 强制重规划的理由（常规规划为空）
+}
+
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.ActionDraft, error) {
+func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) ([]explorationgraph.ActionDraft, error) {
+	functionTools := req.FunctionTools
 	e.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
@@ -274,6 +282,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.experienceLoaded = true
 	}
 	planCtx.Experience = e.experience
+	planCtx.ReplanReasons = req.ReplanReasons
 	prompt := e.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
@@ -478,6 +487,9 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 3. 任务目标
 	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
+
+	// 3.2 重规划理由（常规规划不渲染）
+	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
 
 	// 3.5 历史经验简报（跨任务知识库开局注入；空=不渲染该节）
 	sb.WriteString(buildExperienceSection(ctx.Experience))
