@@ -24,7 +24,6 @@ type EventBus interface {
 
 	// 便捷方法
 	PublishActionProposed(taskID, actionID string)
-	PublishActionCompleted(taskID, actionID string)
 	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
 	PublishVerificationPassed(taskID, nodeID string)
 	PublishVerificationRefuted(taskID, actionID string)
@@ -209,18 +208,6 @@ func (b *MemoryBus) Publish(event Event) {
 func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 	b.Publish(Event{
 		Type:     EventActionProposed,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-		},
-	})
-}
-
-// PublishActionCompleted 发布 action 完成事件（detector 计步 / planner 重规划）。
-func (b *MemoryBus) PublishActionCompleted(taskID, actionID string) {
-	b.Publish(Event{
-		Type:     EventActionCompleted,
 		TaskID:   taskID,
 		ActionID: actionID,
 		Payload: map[string]interface{}{

@@ -14,7 +14,6 @@ import (
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/credential"
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/task"
 
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -184,7 +183,7 @@ const distillTimeout = 2 * time.Minute
 // （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的
 // 停止入口（TerminateTask）或 reaper 可能已先行写 aborted + 「任务已停止」节点（CAS 先到者赢）——此时
 // 不重复落节点；runner 侧节点只在本次真正完成迁移时写。
-func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report executor.Report) {
+func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report cognition.Report) {
 	tk, gErr := h.Tasks.GetByID(ctx, taskID)
 	if gErr != nil {
 		taskLogger.Warn().Err(gErr).Msg("终止收尾读取 task 失败（终态交由 reaper 兜底）")
@@ -203,26 +202,22 @@ func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.L
 }
 
 // completionFields 汇总终态时间线节点的报告字段（completed/aborted 共用口径）。
-func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logger, conversationID, taskID string, report executor.Report) map[string]any {
-	// 步数口径与时间线卡片一致：一次 agent 推理=一步（dispatched 后的
-	// reasoning 终态数）；动作数（detector 的 Action 完成计数）另列字段。
-	reasoningSteps := 0
+func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logger, conversationID, taskID string, report cognition.Report) map[string]any {
+	// 步数 = 一次 agent 推理一步（dispatched 后的 reasoning 终态数），与时间线卡片同
+	// 口径；动作、结果、假设数来自图统计，各是各的字段，不互相顶替。
+	steps := 0
 	if conversationID != "" {
 		if n, cErr := h.Conversations.CountReasoningSinceDispatched(ctx, conversationID); cErr != nil {
-			taskLogger.Warn().Err(cErr).Str("conv", conversationID).Msg("推理步数统计失败（steps 回退动作数口径）")
+			taskLogger.Warn().Err(cErr).Str("conv", conversationID).Msg("推理步数统计失败（steps 记 0）")
 		} else {
-			reasoningSteps = n
+			steps = n
 		}
 	}
-	stepsField := reasoningSteps
-	if stepsField == 0 {
-		stepsField = report.Steps
-	}
 	return map[string]any{
-		"steps":       stepsField,
-		"actions":     report.Steps,
-		"promoted":    report.Promoted,
-		"attempts":    report.Attempts,
+		"steps":       steps,
+		"actions":     report.Actions,
+		"results":     report.Results,
+		"hypotheses":  report.Hypotheses,
 		"stop_reason": report.StopReason,
 		"findings":    h.findingsCount(ctx, taskID),
 	}

@@ -139,7 +139,7 @@ type AttachmentStore interface {
 
 // noWallClockLimit 表达「run 不设墙钟上限」。asynq 无法直接表达无限时：
 // Timeout(0) 与「未设置」同形（noTimeout 哨兵就是 0），会被落回默认 30 分钟
-// 截断。持续探索模式的真实上限是完成检测器（max_steps），墙钟只是可选护栏
+// 截断。run 何时结束由完成检测器判定（收敛或动作预算 max_actions_per_task），墙钟只是可选护栏
 // ——配置为 0 时用远超任何合法 run 时长的哨兵值顶住 asynq 默认。
 const noWallClockLimit = 365 * 24 * time.Hour
 

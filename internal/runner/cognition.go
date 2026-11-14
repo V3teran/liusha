@@ -7,7 +7,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cognition"
-	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
@@ -19,7 +18,7 @@ func (h *Handler) runCognition(
 	taskLogger zerolog.Logger,
 	assignmentID, agentRunID, taskID, host, brief, conversationID string,
 	installed sandbox.Inventory,
-) (executor.Report, error) {
+) (cognition.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
 	// 尾部保留，热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，
 	// 不阻塞任务。
@@ -56,8 +55,8 @@ func (h *Handler) runCognition(
 		ProxyStore: h.ProxyStore,
 		AgentStore: h.AgentStore,
 
-		MaxStepsPerTask: h.RunnerCfg.MaxStepsPerTask,
-		StepLLMTimeout:  stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
+		MaxActionsPerTask: h.RunnerCfg.MaxActionsPerTask,
+		StepLLMTimeout:    stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
 
 		ContextRatios: cognition.ContextRatios{
 			Planner:   comp.PlannerContextRatio,

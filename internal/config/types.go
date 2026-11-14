@@ -208,10 +208,8 @@ type RunnerConfig struct {
 	RunRecoveryTimeoutSeconds  int `mapstructure:"run_recovery_timeout_seconds"`
 	RunRecoveryMaxAttempts     int `mapstructure:"run_recovery_max_attempts"`
 
-	// MaxStepsPerTask 是单个 task 的最大执行步数（一次 agent 推理 = 一步）。
-	// ≤ 0 = 不限制（默认）：持续探索模式的正解——收敛由完成检测器判定，步数只是
-	// 可选护栏（防失控任务烧 LLM 账单），达到上限时任务自动终止。
-	MaxStepsPerTask int `mapstructure:"max_steps_per_task"`
+	// MaxActionsPerTask 是动作预算：一个任务最多执行多少个动作（被认领执行过即算）；0 = 不限。
+	MaxActionsPerTask int `mapstructure:"max_actions_per_task"`
 }
 
 // SandboxConfig 是沙盒服务参数：沙盒自身的监听与鉴权、runner 的访问地址、浏览器与
