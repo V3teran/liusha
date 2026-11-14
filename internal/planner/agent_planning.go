@@ -51,7 +51,7 @@ func (a *Agent) planActions(ctx context.Context) error {
 // applyPlan 把规划提案落图。实际新增为零——没有提案，或提案全被过滤（空指令 / 与
 // 既有动作重复）——与「planner 无新方向」是同一局面，走无动作处理（收敛判定）；
 // 否则图静止而每次唤醒都再付费规划一遍。
-func (a *Agent) applyPlan(ctx context.Context, actions []explorationgraph.Node, trigger string) error {
+func (a *Agent) applyPlan(ctx context.Context, actions []explorationgraph.ActionDraft, trigger string) error {
 	written := 0
 	if len(actions) > 0 {
 		n, err := a.writeActionsFromPlan(ctx, actions)
@@ -85,7 +85,7 @@ func (a *Agent) rootObjective(ctx context.Context) (explorationgraph.Node, error
 // 指令级去重（与结果分析的延续动作同一口径，见 admit）：空指令不可执行，与图上
 // 既有动作 instruction 字面一致的提案是复读，两者都跳过（语义去重仍靠 LLM 的
 // refuted 视野）。
-func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.Node) (int, error) {
+func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationgraph.ActionDraft) (int, error) {
 	a.logger.Info().
 		Int("action_count", len(actions)).
 		Msg("准备写入 Actions 到探索图")
@@ -105,10 +105,10 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 	}
 
 	written, failed, skipped := 0, 0, 0
-	for i, action := range actions {
+	for i, draft := range actions {
+		action := draft.Node
 		var c struct {
-			Instruction string   `json:"instruction"`
-			TriggeredBy []string `json:"triggered_by"`
+			Instruction string `json:"instruction"`
 		}
 		_ = json.Unmarshal(action.Content, &c)
 		if _, ok := admit(known, c.Instruction); !ok {
@@ -124,7 +124,7 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 
 		// 边集：目标归属（generates）+ 发现滋生（triggers）——后者是因果链
 		// 溯源（成果A 催生本动作）的图上事实，与节点原子落库。
-		edges := make([]explorationgraph.Edge, 0, 1+len(c.TriggeredBy))
+		edges := make([]explorationgraph.Edge, 0, 1+len(draft.TriggeredBy))
 		edges = append(edges, explorationgraph.Edge{
 			TaskID:    a.taskID,
 			SrcID:     root.ID,
@@ -132,7 +132,7 @@ func (a *Agent) writeActionsFromPlan(ctx context.Context, actions []explorationg
 			DstID:     action.ID,
 			CreatedAt: time.Now(),
 		})
-		for _, resultID := range c.TriggeredBy {
+		for _, resultID := range draft.TriggeredBy {
 			edges = append(edges, explorationgraph.Edge{
 				TaskID:    a.taskID,
 				SrcID:     resultID,

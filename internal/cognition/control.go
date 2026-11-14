@@ -200,7 +200,6 @@ func injectAction(ctx context.Context, taskID string, graph *explorationgraph.St
 		Content: mustJSON(map[string]interface{}{
 			"type":        p.Kind,
 			"instruction": p.Reason,
-			"origin":      "control-plane",
 		}),
 		State:      ptrState(explorationgraph.StateOpen),
 		Priority:   mapPriority(p.Priority),

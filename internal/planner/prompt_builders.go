@@ -231,13 +231,8 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	sb.WriteString(foldLine("失败动作", folded, total))
 	for _, action := range shown {
 		reason := "未知原因"
-		if action.State != nil && *action.State == explorationgraph.StateFailed {
-			var fullAction struct {
-				Reason string `json:"reason"`
-			}
-			if err := json.Unmarshal(action.Content, &fullAction); err == nil && fullAction.Reason != "" {
-				reason = fullAction.Reason
-			}
+		if action.BlockedReason != nil && *action.BlockedReason != "" {
+			reason = *action.BlockedReason
 		}
 		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), reason)
 	}

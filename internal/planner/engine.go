@@ -227,13 +227,12 @@ type PlanningContext struct {
 
 // ActionProposal LLM 返回的 Action 提案
 type ActionProposal struct {
-	Type        string                 `json:"type"`         // Action 类型
-	Instruction string                 `json:"instruction"`  // 执行指令
-	Complexity  string                 `json:"complexity"`   // 复杂度: simple/moderate/complex
-	Priority    string                 `json:"priority"`     // 优先级: critical/high/medium/low
-	Reason      string                 `json:"reason"`       // 规划理由
-	TriggeredBy []string               `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
-	Metadata    map[string]interface{} `json:"metadata"`     // 额外元数据
+	Type        string   `json:"type"`         // Action 类型
+	Instruction string   `json:"instruction"`  // 执行指令
+	Complexity  string   `json:"complexity"`   // 复杂度: simple/moderate/complex
+	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
+	Reasoning   string   `json:"reasoning"`    // 规划理由
+	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 }
 
 // PlanningResponse LLM 响应
@@ -246,7 +245,7 @@ type PlanningResponse struct {
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
+func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.ActionDraft, error) {
 	e.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
@@ -368,17 +367,13 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.logger.Info().
 			Str("reasoning", response.Reasoning).
 			Msg("LLM 判断任务应该停止")
-		return []explorationgraph.Node{}, nil
+		return nil, nil
 	}
 
-	// 6. 转换 LLM 提案为探索图节点
-	nodes := e.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
-
-	e.logger.Info().
-		Int("action_count", len(nodes)).
-		Msg("智能规划完成")
-
-	return nodes, nil
+	// 6. 转换 LLM 提案为动作草稿
+	drafts := e.convertProposals(ctx, graph, taskID, response.Actions)
+	e.logger.Info().Int("action_count", len(drafts)).Msg("智能规划完成")
+	return drafts, nil
 }
 
 // gatherContext 收集规划所需的上下文信息
@@ -582,8 +577,9 @@ func filterKnownIDs(ids []string, known map[string]bool) []string {
 	return valid
 }
 
-// convertProposalsToNodes 将 LLM 提案转换为探索图节点
-func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
+// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，因果引用随草稿
+// 交给落图（落成 triggers 边），内容只留动作本身——类型、指令与规划理由。
+func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.ActionDraft {
 	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
 	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
 	resultIDs := map[string]bool(nil)
@@ -597,7 +593,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			Msg("查询 Result 失败，本轮跳过 triggered_by 存在性过滤（仅格式校验）")
 	}
 
-	var nodes []explorationgraph.Node
+	var drafts []explorationgraph.ActionDraft
 	for _, proposal := range proposals {
 		// 生成节点 ID
 		actionID := uuid.New().String()
@@ -612,18 +608,11 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 				Msg("过滤掉无效/幻影的 triggered_by（图中不存在该 result——因果溯源只认真实节点）")
 		}
 
-		// 构建 Action 内容
-		actionContent := map[string]interface{}{
-			"type":         proposal.Type,
-			"instruction":  proposal.Instruction,
-			"complexity":   complexity,
-			"priority":     priority,
-			"reason":       proposal.Reason,
-			"triggered_by": validTriggeredBy,
-			"metadata":     proposal.Metadata,
-		}
-
-		contentBytes, _ := json.Marshal(actionContent)
+		contentBytes, _ := json.Marshal(map[string]string{
+			"type":        proposal.Type,
+			"instruction": proposal.Instruction,
+			"reasoning":   proposal.Reasoning,
+		})
 
 		openState := explorationgraph.StateOpen
 		node := explorationgraph.Node{
@@ -639,7 +628,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			CreatedAt:  time.Now(),
 		}
 
-		nodes = append(nodes, node)
+		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, TriggeredBy: validTriggeredBy})
 
 		e.logger.Debug().
 			Str("action_id", actionID).
@@ -648,7 +637,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			Msg("生成 Action 节点")
 	}
 
-	return nodes
+	return drafts
 }
 
 // planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 理由。
