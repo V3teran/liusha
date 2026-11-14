@@ -131,38 +131,6 @@ func (s *GraphStore) UpdateNode(_ context.Context, id string, update core.GraphN
 	return nil
 }
 
-// CompareAndSwapState 原子更新节点状态（单锁内完成条件检查与写入）。
-func (s *GraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	node, exists := s.nodes[nodeID]
-	if !exists {
-		return false, core.ErrGraphNodeNotFound
-	}
-
-	// 检查 taskID（如果提供）
-	if taskID != "" {
-		if node.Metadata != nil {
-			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
-				return false, nil // 不属于该任务
-			}
-		}
-	}
-
-	// 检查状态是否匹配
-	if node.State != expectedState {
-		// 状态不匹配，CAS 失败
-		return false, nil
-	}
-
-	// 状态匹配，更新状态并递增 version
-	node.State = newState
-	node.Version++
-
-	return true, nil
-}
-
 // DeleteNode 删除节点
 func (s *GraphStore) DeleteNode(_ context.Context, id string) error {
 	s.mu.Lock()
@@ -353,7 +321,7 @@ func checkTransitions(transitions []core.GraphStateTransition, lookup func(strin
 		if !seen && exists {
 			current = node.State
 		}
-		if !exists || taskOf(node) != t.TaskID || current != t.From {
+		if !exists || taskOf(node) != t.TaskID || current != t.From || !guardHolds(node, t.Guard) {
 			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, core.ErrGraphStateConflict)
 		}
 		states[t.NodeID] = t.To
@@ -455,6 +423,16 @@ func (s *GraphStore) applyChangeSet(changes core.GraphChangeSet) {
 }
 
 // taskOf 读取节点的任务归属（metadata.task_id）。
+// guardHolds 判断节点元数据满足迁移的 Guard（逐键字符串相等）。
+func guardHolds(node *core.GraphNode, guard map[string]string) bool {
+	for k, want := range guard {
+		if got, ok := node.Metadata[k].(string); !ok || got != want {
+			return false
+		}
+	}
+	return true
+}
+
 func taskOf(node *core.GraphNode) string {
 	tid, _ := node.Metadata["task_id"].(string)
 	return tid

@@ -56,10 +56,6 @@ func (m *RecoveryMonitor) Start(ctx context.Context) error {
 
 // recover 检测并恢复卡住的 action。
 //
-// 中断的 action 标 retryable=true（区别于业务性失败）：恢复重投后的新 planner
-// 据此优先重做这些步骤——它们失败的原因是 runner 停摆而非探索路径走不通，
-// 换路反而会漏掉该步骤本可能产出的信息（planner 章程的对应规则见 internal/builtin/agents/planner.md）。
-//
 // 活性判定用 task 级真实工作信号（最近的 LLM 调用或工具调用），不用
 // action.updated_at——action 进入 running 后执行期的迭代/工具活动不触碰
 // 该行，按它判死会把长 ReAct 的健康 action 误杀。task 在窗口内有任何
@@ -74,10 +70,7 @@ func (m *RecoveryMonitor) recover(ctx context.Context) error {
 		SET
 			state = 'failed',
 			metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-				'failure_reason', '执行超时（' || $1::text || '秒无 LLM/工具活动）',
-				'recovered_at', NOW(),
-				'previous_state', 'running',
-				'retryable', true
+				'failure_reason', '执行超时（' || $1::text || '秒无 LLM/工具活动）'
 			)
 		WHERE kind = 'action'
 		  AND state = 'running'

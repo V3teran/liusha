@@ -47,7 +47,7 @@ func TestDynamicActionGeneration(t *testing.T) {
 	}
 }
 
-// TestConcurrentActionClaim 验证 CAS 并发抢占
+// TestConcurrentActionClaim 验证并发认领只有一方成功
 //
 // 场景：多个 runner 实例并发抢占同一个 Action
 func TestConcurrentActionClaim(t *testing.T) {
@@ -63,8 +63,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 
 	// 实例 1：尝试抢占
 	go func() {
-		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
-			explorationgraph.StateOpen, explorationgraph.StateRunning)
+		success, err := store.ClaimAction(ctx, taskID, actionID, "run-1")
 		if err != nil {
 			t.Errorf("实例1 CAS 失败: %v", err)
 			ch <- false
@@ -77,8 +76,7 @@ func TestConcurrentActionClaim(t *testing.T) {
 	go func() {
 		// 确保实例 1 先执行
 		time.Sleep(10 * time.Millisecond)
-		success, err := store.CompareAndSwapActionState(ctx, taskID, actionID,
-			explorationgraph.StateOpen, explorationgraph.StateRunning)
+		success, err := store.ClaimAction(ctx, taskID, actionID, "run-2")
 		if err != nil {
 			t.Errorf("实例2 CAS 失败: %v", err)
 			ch <- false

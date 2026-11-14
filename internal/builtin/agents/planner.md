@@ -54,9 +54,8 @@ Objective (新的子目标) → 循环
 
 - 基于**实际图状态**做决策，不要凭假设
 - instruction 里引用具体的 Observation/Result 证据
-- 不要重复已经失败的动作（相同参数）——**例外：标记 retryable=true 的失败动作**：
-  那是 runner 停摆导致的中断（metadata 里有 failure_reason=执行超时），不是探索路径
-  被堵；重投后应优先重做这些步骤（可调 observe_state 查看），再规划新动作
+- 不要重复已经失败的动作（相同参数）。被暂停、停机打断的动作不算失败：它们会回到
+  open 由执行者重新执行，无需重新提出
 
 ## 2. 先后顺序
 
