@@ -111,7 +111,7 @@ func baseAttempt() Attempt {
 		TaskID:     "asg-1",
 		NodeID:     "node-source",
 		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
-		Content:    json.RawMessage(`{"summary":"X 参数存在可复现注入"}`),
+		Content:    json.RawMessage(`{"statement":"X 参数存在可复现注入"}`),
 		Priority:   "high",
 	}
 }
@@ -718,7 +718,7 @@ func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
 		t.Fatalf("Promote: %v", err)
 	}
 	if got != "X 参数存在可复现注入" {
-		t.Fatalf("评估者收到的陈述应为 summary 原文，得 %q", got)
+		t.Fatalf("评估者收到的陈述应为假设原文，得 %q", got)
 	}
 }
 

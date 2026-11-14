@@ -40,7 +40,7 @@ func derivedObjective(id string, state State) Node {
 }
 
 func resultNode(id string) Node {
-	return Node{ID: id, Kind: core.KindResult, SourceType: SourceEvaluator, Content: []byte(`{"summary":"r"}`)}
+	return Node{ID: id, Kind: core.KindResult, SourceType: SourceEvaluator, Content: []byte(`{"statement":"r"}`)}
 }
 
 func draft(id string, triggeredBy, supersedes []string) ObjectiveDraft {

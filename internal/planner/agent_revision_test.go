@@ -43,7 +43,7 @@ func isAnalyzed(t *testing.T, store *explorationgraph.Store, id string) bool {
 func revisionNode(id string, kind core.NodeKind, source explorationgraph.SourceType, state *explorationgraph.State, offset time.Duration) explorationgraph.Node {
 	return explorationgraph.Node{
 		ID: id, TaskID: revisionTask, Kind: kind, State: state, SourceType: source,
-		Content:   []byte(`{"description":"` + id + `","summary":"` + id + `"}`),
+		Content:   []byte(`{"description":"` + id + `","statement":"` + id + `"}`),
 		CreatedAt: time.Unix(1700000000, 0).Add(offset),
 	}
 }

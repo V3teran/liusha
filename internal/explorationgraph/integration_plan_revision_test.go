@@ -42,7 +42,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 	open := StateOpen
 	mk := func(id string, kind core.NodeKind, source SourceType, state *State) Node {
 		return Node{ID: id, TaskID: taskID, Kind: kind, State: state, SourceType: source,
-			Content: []byte(`{"description":"d","summary":"s"}`), CreatedAt: time.Now()}
+			Content: []byte(`{"description":"d","statement":"s"}`), CreatedAt: time.Now()}
 	}
 	for _, n := range []Node{
 		mk(rootID, core.KindObjective, SourceUser, &open),
@@ -131,7 +131,7 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 		Content: []byte(`{"instruction":"x"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,
-		SourceType: SourceEvaluator, Content: []byte(`{"summary":"s"}`)})
+		SourceType: SourceEvaluator, Content: []byte(`{"statement":"s"}`)})
 	require.NoError(t, err)
 
 	reason := "monitor killed"
@@ -175,7 +175,7 @@ func TestRevisePlanConsumesOncePostgres(t *testing.T) {
 		SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,
-		SourceType: SourceEvaluator, Content: []byte(`{"summary":"s"}`)})
+		SourceType: SourceEvaluator, Content: []byte(`{"statement":"s"}`)})
 	require.NoError(t, err)
 	objective := func(id string) ObjectiveDraft {
 		return ObjectiveDraft{Node: Node{ID: id, TaskID: taskID, Kind: core.KindObjective, State: &open,

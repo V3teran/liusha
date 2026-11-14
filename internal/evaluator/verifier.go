@@ -100,7 +100,7 @@ type Attempt struct {
 	TaskID     string          // 所属任务
 	NodeID     string          // 被验证的假设节点
 	Primitives json.RawMessage // 复现配方（域信封）
-	Content    json.RawMessage // 坐实后写入结果节点的载荷（summary/impact/suggestion）
+	Content    json.RawMessage // 坐实后写入结果节点的载荷（statement/impact/suggestion，与假设同名）
 	Priority   string          // 优先级（取假设节点的）
 }
 
@@ -347,7 +347,7 @@ func (g *PromotionGate) deliverClaim(
 	}
 
 	var content struct {
-		Summary    string          `json:"summary"`
+		Statement  string          `json:"statement"`
 		Impact     string          `json:"impact"`
 		Suggestion string          `json:"suggestion"`
 		Host       string          `json:"host"`
@@ -361,7 +361,7 @@ func (g *PromotionGate) deliverClaim(
 		TaskID:         node.TaskID,
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
-		Statement:      content.Summary,
+		Statement:      content.Statement,
 		Priority:       string(node.Priority),
 		Impact:         content.Impact,
 		Suggestion:     content.Suggestion,

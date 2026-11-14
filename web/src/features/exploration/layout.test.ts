@@ -21,7 +21,7 @@ const GRAPH: ConversationGraph = {
     node({ id: 'n-act-a', kind: 'action', state: 'running', content: { instruction: '端口发现' } }),
     node({ id: 'n-act-b', kind: 'action', state: 'open', content: { instruction: '目录扫描' } }),
     node({ id: 'n-obs', kind: 'observation', verification_status: 'confirmed', content: { statement: '发现登录页' } }),
-    node({ id: 'n-res', kind: 'result', content: { summary: '弱口令坐实' } }),
+    node({ id: 'n-res', kind: 'result', content: { statement: '弱口令坐实' } }),
   ],
   edges: [
     { src_id: 'n-obj', dst_id: 'n-act-a', rel: 'generates', created_at: '2026-06-10T00:00:00Z' },

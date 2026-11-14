@@ -36,7 +36,7 @@ func TestStore_VerificationStatusRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{
 		ID: "res-1", TaskID: "task-1", Kind: core.KindResult,
-		Content: []byte(`{"summary":"SQLi"}`), SourceType: SourceEvaluator,
+		Content: []byte(`{"statement":"SQLi"}`), SourceType: SourceEvaluator,
 	})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, mkObservation("obs-fact", "task-1", nil))

@@ -24,9 +24,9 @@ import (
 func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 	recipe := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
 
-	xss := Attempt{Content: json.RawMessage(`{"summary":"/search 存在反射型 XSS"}`), Primitives: recipe}
-	sqli := Attempt{Content: json.RawMessage(`{"summary":"/search 存在 SQL 注入"}`), Primitives: recipe}
-	sameAsXSS := Attempt{Content: json.RawMessage(`{"summary":"/search 存在反射型 XSS","severity":"high"}`), Primitives: recipe}
+	xss := Attempt{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS"}`), Primitives: recipe}
+	sqli := Attempt{Content: json.RawMessage(`{"statement":"/search 存在 SQL 注入"}`), Primitives: recipe}
+	sameAsXSS := Attempt{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS","severity":"high"}`), Primitives: recipe}
 
 	if attemptHash(xss) == attemptHash(sqli) {
 		t.Fatal("同配方不同陈述不得同键：会跨假设沿用判定")
@@ -37,7 +37,8 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 }
 
 // TestParseObservationToAttemptContentShape 锁定从假设节点构造的载荷形状：
-// summary/impact/suggestion 三字段；优先级取观察节点的优先级（只在节点层存一份）。
+// statement/impact/suggestion 三字段（结果与假设的陈述同名）；优先级取观察节点的
+// 优先级（只在节点层存一份）。
 func TestParseObservationToAttemptContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
@@ -56,7 +57,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 	if err := json.Unmarshal(att.Content, &c); err != nil {
 		t.Fatalf("unmarshal content: %v", err)
 	}
-	want := map[string]string{"summary": "S 存在漏洞", "impact": "i", "suggestion": "s"}
+	want := map[string]string{"statement": "S 存在漏洞", "impact": "i", "suggestion": "s"}
 	if !maps.Equal(c, want) {
 		t.Fatalf("载荷形状不符: %+v", c)
 	}

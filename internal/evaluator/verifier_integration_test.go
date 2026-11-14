@@ -58,7 +58,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 			TaskID:     taskID,
 			NodeID:     hypID,
 			Primitives: json.RawMessage(`{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""},"assert":{"body_contains":["leaked"]}}`),
-			Content:    json.RawMessage(`{"severity":"high","host":"` + loc + `","summary":"SQLi at ` + loc + `"}`),
+			Content:    json.RawMessage(`{"severity":"high","host":"` + loc + `","statement":"SQLi at ` + loc + `"}`),
 			Priority:   "high",
 		}
 	}
@@ -147,7 +147,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 		return v.Promote(ctx, evaluator.Attempt{
 			TaskID: taskID, NodeID: hypID,
 			Primitives: json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
-			Content:    json.RawMessage(`{"summary":"s","severity":"high"}`),
+			Content:    json.RawMessage(`{"statement":"s","severity":"high"}`),
 		})
 	}
 

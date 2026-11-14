@@ -462,7 +462,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	// 构造 Content（用于晋升后的节点）：中立层词汇（impact/suggestion），安全域
 	// 交付时由 deliverClaim 翻译成 remediation。优先级取观察节点的（只在节点层一份）。
 	attContent, err := json.Marshal(map[string]string{
-		"summary":    content.Statement,
+		"statement":  content.Statement,
 		"impact":     content.Impact,
 		"suggestion": content.Suggestion,
 	})
@@ -609,8 +609,7 @@ func (a *Agent) verdictStore(key string, v priorVerdict) {
 
 // attemptHash 对验证对象（假设陈述 + 配方）联合哈希：判定针对的是"假设是否
 // 坐实"，裸配方相同而陈述不同（同一请求既被当 XSS 也被当 SQLi 提交）是两次
-// 独立判定，不得沿用结论。陈述取 Attempt.Content.summary（事件/轮询两条
-// 路径都写它）。
+// 独立判定，不得沿用结论。陈述取 Attempt.Content.statement。
 func attemptHash(a Attempt) string {
 	h := sha256.New()
 	h.Write([]byte(attemptStatement(a)))
@@ -623,10 +622,10 @@ func attemptHash(a Attempt) string {
 // 此时验证键退化为纯配方哈希）。
 func attemptStatement(a Attempt) string {
 	var c struct {
-		Summary string `json:"summary"`
+		Statement string `json:"statement"`
 	}
 	if json.Unmarshal(a.Content, &c) == nil {
-		return c.Summary
+		return c.Statement
 	}
 	return ""
 }

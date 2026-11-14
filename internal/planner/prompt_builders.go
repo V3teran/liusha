@@ -268,7 +268,7 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildResultsSection 构建已确认发现部分：按 summary 去重（同义重复的判定
+// buildResultsSection 构建已确认发现部分：按陈述去重（同义重复的判定
 // 不重复占视野），逐条钳长。
 func buildResultsSection(results []explorationgraph.Node) string {
 	if len(results) == 0 {
@@ -280,18 +280,18 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	seen := make(map[string]bool, len(results))
 	for _, result := range results {
 		var r struct {
-			Summary string `json:"summary"`
+			Statement string `json:"statement"`
 		}
 		if err := json.Unmarshal(result.Content, &r); err != nil {
 			fmt.Fprintf(&sb, "- (解析失败: %v)\n", err)
 			continue
 		}
-		if seen[r.Summary] {
+		if seen[r.Statement] {
 			continue
 		}
-		seen[r.Summary] = true
+		seen[r.Statement] = true
 		// ID 必须展示：新动作的 triggered_by 因果声明引用它（发现滋生动作）。
-		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, textx.TruncateRunes(r.Summary, resultClampRunes, "…（截断）"))
+		fmt.Fprintf(&sb, "- [%s] %s\n", result.ID, textx.TruncateRunes(r.Statement, resultClampRunes, "…（截断）"))
 	}
 	sb.WriteString("\n")
 	return sb.String()
