@@ -54,7 +54,6 @@ func (e *Engine) createObservationNode(
 		Content:    content,
 		Priority:   explorationgraph.NormalizePriority(obs.Priority), // 优先级只在节点层一份
 		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   e.agentRunID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

@@ -9,7 +9,6 @@ function node(o: Partial<GraphNode> = {}): GraphNode {
     kind: 'objective',
     content: {},
     source_type: 'user',
-    source_id: 'u',
     created_at: '2026-06-10T00:00:00Z',
     updated_at: '2026-06-10T00:00:00Z',
     ...o,

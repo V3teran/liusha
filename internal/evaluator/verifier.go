@@ -316,7 +316,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 		promoted = duplicate
 	default:
 		// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
-		node, err := g.createVerifiedNode(ctx, a, uuid.New().String(), verID, fingerprintKey)
+		node, err := g.createVerifiedNode(ctx, a, uuid.New().String(), fingerprintKey)
 		if err != nil {
 			return nil, err
 		}

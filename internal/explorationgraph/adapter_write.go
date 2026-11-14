@@ -38,9 +38,6 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	if node.SourceType != "" {
 		metadata["source_type"] = string(node.SourceType)
 	}
-	if node.SourceID != "" {
-		metadata["source_id"] = node.SourceID
-	}
 	if node.Priority != "" {
 		metadata["priority"] = string(node.Priority)
 	}

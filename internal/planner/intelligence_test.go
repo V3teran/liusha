@@ -28,7 +28,6 @@ func TestObjectiveCreation(t *testing.T) {
 		Content:    []byte(`{"description":"测试目标"}`),
 		Priority:   explorationgraph.PriorityMedium,
 		SourceType: "user",
-		SourceID:   "test",
 	}
 
 	// 验证创建成功

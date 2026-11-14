@@ -182,7 +182,6 @@ func (a *Agent) analysisNode(kind core.NodeKind, priority core.Priority, content
 		Priority:   priority,
 		State:      &openState,
 		SourceType: explorationgraph.SourcePlanner,
-		SourceID:   "result-analyzer",
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil

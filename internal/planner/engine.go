@@ -624,7 +624,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			Priority:   priority,
 			Complexity: &complexity,
 			SourceType: explorationgraph.SourcePlanner,
-			SourceID:   "planner",
 			CreatedAt:  time.Now(),
 		}
 

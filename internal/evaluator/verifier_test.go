@@ -133,9 +133,6 @@ func TestPromote_Confirmed(t *testing.T) {
 	if node.Kind != core.KindResult || node.VerificationStatus != nil {
 		t.Errorf("坐实应晋升为 result（不带验证状态）, got %s %v", node.Kind, node.VerificationStatus)
 	}
-	if node.SourceID != "ver-99" {
-		t.Errorf("SourceID 应回指 ver-99, got %s", node.SourceID)
-	}
 	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.VerificationConfirmed {
 		t.Errorf("应落 1 条 confirmed verification, got %+v", w.verifications)
 	}

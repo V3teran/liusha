@@ -29,7 +29,7 @@ func (j verdictJudge) Judge(context.Context, string, json.RawMessage, json.RawMe
 }
 
 // TestEvaluator_PromoteAgainstRealStore 用真 explorationgraph.Store 跑晋升门，证明：
-//   - 坐实 → exploration_verification 落 confirmed + Result 节点晋升（SourceID 回指 verification）；
+//   - 坐实 → exploration_verification 落 confirmed + Result 节点晋升；
 //   - 证伪 → exploration_verification 落 refuted 留档，exploration_node 不新增。
 func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	ctx := context.Background()
@@ -63,7 +63,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		}
 	}
 
-	// 坐实：应晋升 verified 节点，SourceID 指向真实 exploration_verification.id。
+	// 坐实：应晋升 result 节点。
 	confirmed := evaluator.New(store, stubReplayer{res: evaluator.Result{
 		Evaluation: json.RawMessage(`{"poc":"' OR 1=1--"}`), DurationMs: 88,
 	}}, nil).WithJudge(verdictJudge{verdict: evaluator.VerdictConfirmed})
@@ -73,9 +73,6 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}
 	if node == nil || node.Kind != core.KindResult {
 		t.Fatalf("应晋升为 result 节点, got %+v", node)
-	}
-	if node.SourceID == "" {
-		t.Fatal("SourceID 应指向真实 verification id")
 	}
 
 	// 证伪：不进图，但 exploration_verification 留 refuted 档。

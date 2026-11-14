@@ -35,9 +35,6 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 	if sourceType, ok := graphNode.Metadata["source_type"].(string); ok {
 		node.SourceType = SourceType(sourceType)
 	}
-	if sourceID, ok := graphNode.Metadata["source_id"].(string); ok {
-		node.SourceID = sourceID
-	}
 	if priority, ok := graphNode.Metadata["priority"].(string); ok {
 		node.Priority = Priority(priority)
 	}

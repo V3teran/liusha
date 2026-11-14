@@ -173,7 +173,6 @@ func (g *PromotionGate) createVerifiedNode(
 	ctx context.Context,
 	a Attempt,
 	nodeID string,
-	verID string,
 	fingerprintKey string,
 ) (*explorationgraph.Node, error) {
 	node := explorationgraph.Node{
@@ -183,7 +182,6 @@ func (g *PromotionGate) createVerifiedNode(
 		Content:    a.Content,
 		Priority:   explorationgraph.Priority(a.Priority),
 		SourceType: explorationgraph.SourceEvaluator,
-		SourceID:   verID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

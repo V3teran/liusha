@@ -26,7 +26,6 @@ func newStore(graphStore core.GraphStore) *Store {
 // failure_reason 等），写入时 Node.Metadata 的键平铺合并进 graph metadata。
 var typedMetadataKeys = map[string]bool{
 	"source_type":    true,
-	"source_id":      true,
 	"priority":       true,
 	"complexity":     true,
 	"blocked_reason": true,

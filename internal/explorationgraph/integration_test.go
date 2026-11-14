@@ -119,7 +119,6 @@ func TestCompleteDataFlow(t *testing.T) {
 		VerificationStatus: &pending,
 		Priority:           PriorityMedium,
 		SourceType:         "executor",
-		SourceID:           "executor-1",
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
 	}
@@ -141,7 +140,6 @@ func TestCompleteDataFlow(t *testing.T) {
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
 		Priority:   PriorityHigh,
 		SourceType: SourceEvaluator,
-		SourceID:   "verifier-1",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
