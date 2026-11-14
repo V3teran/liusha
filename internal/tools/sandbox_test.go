@@ -153,33 +153,25 @@ func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 	}
 }
 
-// P2：浏览器身份 task 域化——IDENTITY 必为 "{taskID}-{身份名}"（跨任务/跨身份
-// 双隔离的 cookie jar 边界），身份名非法字符清洗（要进 socket 文件名）。
-func TestDriveBrowser_TaskScopedIdentity(t *testing.T) {
-	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
-	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
-	if !strings.Contains(fake.commands[0], `IDENTITY="t-42-default"`) {
-		t.Fatalf("默认身份应为 {taskID}-default, got %s", fake.commands[0])
-	}
-
-	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool2 := newDriveBrowserTool(Deps{Sandbox: fake2, TaskID: "t-42"}, 5*time.Second)
-	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin/foo 户"}`))
-	if !strings.Contains(fake2.commands[0], `IDENTITY="t-42-admin-foo--"`) {
-		t.Fatalf("身份名非法字符应清洗为 -, got %s", fake2.commands[0])
-	}
-
-	// 无 taskID（如 judge 复核侧）：裸身份名，不带任务前缀
-	fake3 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool3 := newDriveBrowserTool(Deps{Sandbox: fake3}, 5*time.Second)
-	_, _ = tool3.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
-	if !strings.Contains(fake3.commands[0], `IDENTITY="admin"`) {
-		t.Fatalf("无 taskID 应为裸身份名, got %s", fake3.commands[0])
+// 浏览器身份按身份名传给沙盒（缺省 default）：任务隔离由沙盒按命令所属任务完成，agent 在
+// run_command 里手写 IDENTITY=<身份名> 与本工具指向同一个浏览器。身份名中的非法字符清洗为 -
+// （它是端点文件名，且要原样进 shell）。
+func TestDriveBrowser_IdentityName(t *testing.T) {
+	for _, c := range []struct{ args, want string }{
+		{`{"action":"state"}`, `IDENTITY="default"`},
+		{`{"action":"state","identity":"admin"}`, `IDENTITY="admin"`},
+		{`{"action":"state","identity":"admin/foo 户"}`, `IDENTITY="admin-foo--"`},
+	} {
+		fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+		tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
+		_, _ = tool.Execute(context.Background(), json.RawMessage(c.args))
+		if !strings.Contains(fake.commands[0], c.want) || strings.Contains(fake.commands[0], "t-42") {
+			t.Errorf("%s: 应传身份名 %s（不带任务前缀）, got %s", c.args, c.want, fake.commands[0])
+		}
 	}
 }
 
-// P3：清理脚本只匹配本任务前缀的身份 socket。
+// 自愈只作用于出问题的身份，经 browser-use 请沙盒处理，不按进程名全机结束进程。
 
 func TestRunCommandDesc_ListenerContract(t *testing.T) {
 	// 未发布监听段：明示回连类操作不可达——LLM 不知道就会绑 4444 白跑一步。
@@ -243,7 +235,7 @@ func TestDriveBrowser_SelfHealScopedToIdentity(t *testing.T) {
 	}
 	for _, i := range []int{1, 3} {
 		cmd := fake.commands[i]
-		if !strings.Contains(cmd, `IDENTITY="t-42-admin"`) || !strings.Contains(cmd, "browser-use ") {
+		if !strings.Contains(cmd, `IDENTITY="admin"`) || !strings.Contains(cmd, "browser-use ") {
 			t.Errorf("修复命令应经 browser-use 作用于本身份, got %q", cmd)
 		}
 		if strings.Contains(cmd, "pkill") || strings.Contains(cmd, "killall") {

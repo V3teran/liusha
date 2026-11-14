@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/sandbox/browser"
 )
 
 // maxIngestBody 是单条回灌流量的上限（含 base64 的请求 / 响应体）。
@@ -21,8 +23,8 @@ const ingestTimeout = 10 * time.Second
 
 // localAPI 是沙盒给本机任务进程用的接口：只监听回环地址，凭本机口令访问。
 //
-//	POST   /browsers             确保某个浏览器身份的服务在运行（由沙盒启动，归属任务）
-//	DELETE /browsers/{identity}  强制结束某个浏览器身份的服务（它已无响应时）
+//	POST   /browsers                     确保任务某个浏览器身份的服务在运行（由沙盒启动，归属任务）
+//	DELETE /browsers/{identity}?task_id= 强制结束任务某个浏览器身份的服务（它已无响应时）
 //	POST   /ingest               浏览器服务回灌抓到的流量，沙盒带令牌转发给 runner
 //
 // 地址与口令随命令环境下发（LIUSHA_SANDBOX_LOCAL_URL / LIUSHA_SANDBOX_LOCAL_KEY），每次启动
@@ -82,8 +84,8 @@ func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decode request: %v", err)
 		return
 	}
-	if !isPathSafe(req.AssignmentID) || !isPathSafe(req.TaskID) || !ownsIdentity(req.TaskID, req.Identity) {
-		writeError(w, http.StatusBadRequest, "assignment_id / task_id / identity 不合法")
+	if !isPathSafe(req.AssignmentID) || !isPathSafe(req.TaskID) || !browser.ValidIdentity(req.Identity) {
+		writeError(w, http.StatusBadRequest, "assignment_id / task_id 须为 [A-Za-z0-9._-]{1,64}，身份名须为 [A-Za-z0-9_-]{1,64}")
 		return
 	}
 	if err := s.browsers.ensure(s, req); err != nil {
@@ -96,18 +98,12 @@ func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBrowserKill(w http.ResponseWriter, r *http.Request) {
 	identity := r.PathValue("identity")
 	taskID := r.URL.Query().Get("task_id")
-	if !isPathSafe(taskID) || !ownsIdentity(taskID, identity) {
-		writeError(w, http.StatusBadRequest, "task_id / identity 不合法")
+	if !isPathSafe(taskID) || !browser.ValidIdentity(identity) {
+		writeError(w, http.StatusBadRequest, "task_id 须为 [A-Za-z0-9._-]{1,64}，身份名须为 [A-Za-z0-9_-]{1,64}")
 		return
 	}
 	s.browsers.kill(s, taskID, identity)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// ownsIdentity 报告浏览器身份是否属于任务：身份形如 <任务ID>-<身份名>，整体路径安全（它是
-// 端点文件名，也是释放时按任务匹配的前缀）。
-func ownsIdentity(taskID, identity string) bool {
-	return isPathSafe(identity) && strings.HasPrefix(identity, taskID+"-") && len(identity) > len(taskID)+1
 }
 
 // ingestHandler 把浏览器服务回灌的流量带沙盒令牌转发给 runner，回传 runner 的状态码；未配置
