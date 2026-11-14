@@ -88,7 +88,8 @@ const (
 // 运行中引导的回执（metadata.kind = steering，op 区分操作）：人在任务运行中修正方向的
 // 记录。消息正文是实际写入的内容（新目标全文 / 指派的指令 / 否决原因）。
 const (
-	SteeringGoalAdjusted   = "goal_adjusted"   // 调整目标
+	SteeringGoalAdjusted   = "goal_adjusted"   // 调整目标（正文是新目标全文）
+	SteeringGoalAppended   = "goal_appended"   // 对话里追加要求（正文是追加的内容）
 	SteeringActionAssigned = "action_assigned" // 指派动作
 	SteeringActionRejected = "action_rejected" // 否决动作
 )

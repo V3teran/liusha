@@ -101,13 +101,22 @@ func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 	return t, nil
 }
 
-// LockActive 在调用方事务内锁住任务行（FOR UPDATE）并要求任务进行中（暂停中也算），
-// 返回锁定时的任务行。运行中引导、收敛完成都先锁任务行再写图，彼此串行：判定不会基于
-// 过期的状态。任务已结束返回 ErrNotActive；不存在返回包裹 pgx.ErrNoRows 的错误。
-func LockActive(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
+// Lock 在调用方事务内锁住任务行（FOR UPDATE），返回锁定时的任务行。运行中引导、收敛
+// 完成都先锁任务行再写图，彼此串行：判定不会基于过期的状态。不存在返回包裹
+// pgx.ErrNoRows 的错误。
+func Lock(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
 	var t Task
 	if err := scan(tx.QueryRow(ctx, "SELECT "+colsSelect+" FROM task WHERE id = $1 FOR UPDATE", id), &t); err != nil {
 		return Task{}, fmt.Errorf("锁定任务 %s: %w", id, err)
+	}
+	return t, nil
+}
+
+// LockActive 同 Lock，并要求任务进行中（暂停中也算）：已结束返回 ErrNotActive。
+func LockActive(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
+	t, err := Lock(ctx, tx, id)
+	if err != nil {
+		return Task{}, err
 	}
 	if t.Status != StatusActive {
 		return Task{}, ErrNotActive

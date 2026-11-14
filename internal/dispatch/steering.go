@@ -2,10 +2,13 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/task"
@@ -72,6 +75,77 @@ func (s *Service) RejectAction(ctx context.Context, taskID, actionID, reason str
 		}
 		return s.receipt(ctx, tx, convID, reason, conversation.SteeringActionRejected, map[string]any{"action_id": actionID})
 	})
+}
+
+// requirementPrefix 标出对话里追加到目标的要求。
+const requirementPrefix = "补充要求："
+
+// errGoalTooLong 表示追加后任务目标超过长度契约（task.MaxGoalRunes），本次追加未写入。
+var errGoalTooLong = errors.New("追加后任务目标过长")
+
+// appendRequirement 把对话里要执行的消息（连同附件清单）以「补充要求：…」追加到任务目标
+// 末尾——与调整目标同一语义（撤回尚未开始的规划动作、回执与变更同事务）：
+//   - 任务进行中（含暂停中）：原地追加，暂停保持；运行中的循环由任务行监视感知目标变化；
+//   - 任务已结束：同一事务里重开任务并追加，提交后起新一轮 run 从探索图续跑。
+func (s *Service) appendRequirement(ctx context.Context, taskID, content string, attachments []attachment.Ref, userMsgSeq int64) error {
+	tk, err := s.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("read task: %w", err)
+	}
+	addition := requirementPrefix + content
+	// 先按现有目标预判长度，避免为注定被拒的追加搬动附件；事务内按锁定时的目标终判。
+	if len([]rune(tk.Goal))+len([]rune(addition))+2 > task.MaxGoalRunes {
+		return errGoalTooLong
+	}
+	convID, _ := s.Conversations.ResolveConversationByTask(ctx, taskID)
+	if len(attachments) > 0 {
+		materialized, err := s.materialize(convID, tk.AssignmentID, taskID, attachments)
+		if err != nil {
+			return err
+		}
+		addition += s.Attachments.Manifest(materialized)
+		s.relinkMessageAttachments(ctx, convID, userMsgSeq, materialized)
+	}
+
+	reopened := false
+	err = s.steer(ctx, taskID, func(tx pgx.Tx, convID string) (*conversation.Message, error) {
+		locked, err := task.Lock(ctx, tx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		goal := locked.Goal + "\n\n" + addition
+		if len([]rune(goal)) > task.MaxGoalRunes {
+			return nil, errGoalTooLong
+		}
+		if locked.Status != task.StatusActive {
+			if err := task.ReopenTx(ctx, tx, taskID); err != nil {
+				return nil, err
+			}
+			reopened = true
+		}
+		if _, err := task.SetGoalTx(ctx, tx, taskID, goal); err != nil {
+			return nil, err
+		}
+		withdrawn, err := explorationgraph.WithdrawPlannedActions(ctx, tx, taskID, withdrawReason)
+		if err != nil {
+			return nil, err
+		}
+		return s.receipt(ctx, tx, convID, addition, conversation.SteeringGoalAppended, map[string]any{"withdrawn": withdrawn})
+	})
+	if err != nil || !reopened {
+		return err
+	}
+	if _, err := s.enqueuePlannerRun(ctx, taskID, convID); err != nil {
+		if !errors.Is(err, agentrun.ErrLiveRunExists) {
+			return err
+		}
+		// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：任务已被拉起，新 run 照样读到追加后的目标。
+		chatLog.Info().Str("task", taskID).Msg("续接与并发重投竞争，复用已存活 run")
+	}
+	if convID != "" {
+		s.appendTaskStatus(ctx, convID, conversation.TaskStatusDispatched, "任务已续接，智能体启动中…", nil)
+	}
+	return nil
 }
 
 // steer 在一个事务内执行一次引导写入，提交后推送它的时间线回执（无回执时不推送）。

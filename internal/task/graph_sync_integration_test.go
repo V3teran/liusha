@@ -128,7 +128,7 @@ func TestGraphFollowsTask_Reopen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.Reopen(context.Background(), id); err != nil {
+	if err := reopen(s, context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	assertStates(t, nodeStates(t, s.pool, ids), map[string]string{

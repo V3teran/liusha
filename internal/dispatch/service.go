@@ -347,51 +347,8 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	return tk.ID, tid, nil
 }
 
-// FollowUp 在已有 task 上发起一次续接 run（多轮动作）：重开 task + 建 agent run + 入队。
-// 复用 task 作用域的探索图——新 run 接着既有的目标、动作与坐实结果推进。
-// attachments（可空）经 Materialize 收口进该任务 inbox，userMsgSeq 同 createTask（落位后
-// 改写消息引用路径）。
-func (s *Service) FollowUp(ctx context.Context, taskID, conversationID, brief string, attachments []attachment.Ref, userMsgSeq int64) (string, error) {
-	if err := validateBrief(brief); err != nil {
-		return "", err
-	}
-	tk, err := s.Tasks.GetByID(ctx, taskID)
-	if err != nil {
-		return "", fmt.Errorf("read task: %w", err)
-	}
-	if len(attachments) > 0 {
-		materialized, err := s.materialize(conversationID, tk.AssignmentID, taskID, attachments)
-		if err != nil {
-			return "", err
-		}
-		s.relinkMessageAttachments(ctx, conversationID, userMsgSeq, materialized)
-	}
-	if err := s.Tasks.Reopen(ctx, taskID); err != nil {
-		return "", fmt.Errorf("reopen task: %w", err)
-	}
-	runID, err := s.enqueuePlannerRun(ctx, taskID, conversationID)
-	if err != nil {
-		if !errors.Is(err, agentrun.ErrLiveRunExists) {
-			return "", err
-		}
-		// 与恢复监控的同 tick 重投竞争（毫秒级窗口）：先建者赢，复用存活 run。
-		chatLog.Info().Str("task", taskID).Str("conversation_id", conversationID).
-			Msg("续接与并发重投竞争，复用已存活 run")
-		if latest, lErr := s.AgentRuns.LatestByTask(ctx, taskID); lErr == nil {
-			return latest.ID, nil
-		}
-		return "", err
-	}
-	// 续接同款下发边界：时间线标记新一轮 run 启动（与首发的 dispatched 同形）。
-	if conversationID != "" {
-		s.appendTaskStatus(ctx, conversationID, conversation.TaskStatusDispatched,
-			"任务已续接，智能体启动中…", nil)
-	}
-	return runID, nil
-}
-
-// enqueuePlannerRun 建 planner agent run 并入队——expandItem（首跑）与 FollowUp（续跑）
-// 共用同一份入队语义。
+// enqueuePlannerRun 建 planner agent run 并入队——首跑（expandItem）、继续（ResumeTask）与
+// 续接已结束的任务（appendRequirement）共用同一份入队语义。
 //
 // 任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管的新 runner 进程没有
 // 原进程的认知循环状态（bus/共享沙箱），重跑只会产出脏状态。
@@ -540,8 +497,8 @@ func (s *Service) DeleteConversation(ctx context.Context, conversationID string)
 const dispatchAnswerTimeout = 5 * time.Minute
 
 // HandleMessage 满足 httpapi.FollowUpAPI：落 user 消息后立即返回（请求路径零 LLM 调用），
-// 意图分类与分流全部异步（dispatchFollowUp）。扫描进行中/暂停中收到 action 指令的反馈
-// 由异步分支往时间线落提示消息——前端拿到 200 即清空输入框、追加的消息立即出现在
+// 意图分类与分流全部异步（dispatchFollowUp）：要执行的指令追加到任务目标（回执落时间线），
+// 写不进去时异步分支往时间线落提示——前端拿到 200 即清空输入框、追加的消息立即出现在
 // 时间线，回答/扫描进展经 SSE 流出。
 func (s *Service) HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (string, error) {
 	// 意图分类与问答生成同样依赖 LLM：未配置时在此拒绝（400 指引），不落到
@@ -564,7 +521,7 @@ func (s *Service) HandleMessage(ctx context.Context, conversationID, content str
 // dispatchFollowUp 追加消息的异步分发：意图闸 → 分流。detached ctx，
 // 独立于请求生命周期（请求 ctx 会随响应返回被取消，不能用于 LLM/落库）。
 // attachments 随消息元数据已落库；分流到这里只决定它们的去向——
-// qa/chat 内联小文本进回答 prompt，action 随下发/续接收口进任务 inbox。
+// qa/chat 内联小文本进回答 prompt，action 随下发 / 追加要求收口进任务 inbox。
 func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attachments []attachment.Ref, userMsgSeq int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
 	defer cancel()
@@ -599,7 +556,7 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 		return
 	}
 
-	// 已绑 task 的会话：action → 续接同一 task（finding 累积，不新建）；qa → 就已有 finding 提问。
+	// 已绑 task 的会话：action → 追加到同一 task 的目标（finding 累积，不新建）；qa → 就已有 finding 提问。
 	tk, err := s.Tasks.GetByID(ctx, taskID)
 	if err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("读取 task 失败")
@@ -607,19 +564,14 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 		return
 	}
 	if isAction {
-		if tk.Status == task.StatusActive {
-			// 忙：agent 在跑。不排队不拒绝，时间线给可见反馈（原 409 busy 语义）。
-			// 暂停中的任务同闸拦截但给暂停专属指引——「任务进行中」对暂停任务是误导。
-			if tk.Paused {
-				s.publishNotice(ctx, conversationID, "（任务已暂停，本条指令未下发；点「继续」恢复后再下发）")
+		// 要执行的消息是对目标的补充：追加到任务目标（进行中原地生效，已结束则重开续接）。
+		if err := s.appendRequirement(ctx, taskID, content, attachments, userMsgSeq); err != nil {
+			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("追加任务要求失败")
+			if errors.Is(err, errGoalTooLong) {
+				s.publishNotice(ctx, conversationID, fmt.Sprintf("（追加后任务目标超过 %d 字上限，本条要求未写入；请精简后重发）", task.MaxGoalRunes))
 			} else {
-				s.publishNotice(ctx, conversationID, "（任务进行中，本条指令未下发；停止任务后可重发）")
+				s.publishNotice(ctx, conversationID, "（本条要求未能写入任务："+err.Error()+"）")
 			}
-			return
-		}
-		if _, err := s.FollowUp(ctx, taskID, conversationID, content, attachments, userMsgSeq); err != nil {
-			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("续接扫描失败")
-			s.publishNotice(ctx, conversationID, "（任务下发失败："+err.Error()+"）")
 		}
 		return
 	}
