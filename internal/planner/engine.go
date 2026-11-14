@@ -196,16 +196,18 @@ func (e *Engine) WithTimeout(timeout time.Duration) *Engine {
 // RefutedHypothesis 是被复现门出圈的假设：反驳原因区分"证据没拿到"
 // （not_reproducible/invalid_recipe——配方或上下文问题）、"拿到了证据但
 // 主张不成立"（claim_invalid/assert_not_discriminative——语义/质量问题）与
-// "裁决没跑完"（adjudication_failed——主张未被否定），规划器据此决定换配方
+// "评估没跑完"（judge_unavailable——主张未被否定），规划器据此决定换配方
 // 重试、按原方向重提还是放弃方向。
 type RefutedHypothesis struct {
 	Statement string
 	Reason    string
 }
 
-// Fact 是已确认的世界状态断言（观察的终态类别）：会话已建立、某机制由
-// 什么控制、资源是否存在——规划的基底，直接消费、无需验证。
+// Fact 是已确认的世界状态断言（事实观察）：会话已建立、某机制由什么控制、
+// 资源是否存在——规划的基底，直接消费、无需验证。Category 是它的信息域，
+// 规划时按域分组呈现。
 type Fact struct {
+	Category  explorationgraph.ObservationCategory
 	Statement string
 }
 
@@ -215,7 +217,7 @@ type PlanningContext struct {
 	Objectives        []explorationgraph.Node // 全部目标（根目标 + 派生目标，含已收敛的；呈现时只列进行中的派生目标）
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
-	Results           []explorationgraph.Node // 已确认的结果（经裁决坐实的主张）
+	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
 	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
@@ -455,47 +457,31 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 	}
 	planCtx.Results = results
 
-	// 观察一次取全量，fact（世界状态）与 refuted（已证伪假设）两视图共用——
-	// 避免同表连查两次。
+	// 观察一次取全量，事实（世界状态）与已证伪假设两视图共用——避免同表连查两次。
 	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
 	}
-	// 已确认的世界状态（fact 观察是写入即终态，无流转）——规划的基底：
-	// 已建立的会话、已探明的机制、已确认的资源，直接拿来用。
 	for _, obs := range observations {
-		if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceFactual {
-			continue
-		}
 		var c struct {
-			Statement string `json:"statement"`
+			Category  explorationgraph.ObservationCategory `json:"category"`
+			Statement string                               `json:"statement"`
 		}
-		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
-			planCtx.Facts = append(planCtx.Facts, Fact{Statement: c.Statement})
-		}
-	}
-
-	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
-	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
-	// refute_reason 一并带出：复现失败类可换配方重试，语义证伪类才是方向作废。
-	for _, obs := range observations {
-		if obs.Metadata == nil {
+		if json.Unmarshal(obs.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
-		var m struct {
-			VerificationOutcome string `json:"verification_outcome"`
-			RefuteReason        string `json:"refute_reason"`
-		}
-		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != string(explorationgraph.OutcomeRefuted) {
-			continue
-		}
-		var c struct {
-			Statement string `json:"statement"`
-		}
-		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
+		switch {
+		case obs.IsFact():
+			// 已确认的世界状态（写入即终态）——规划的基底：已建立的会话、
+			// 已探明的机制、已确认的资源，直接拿来用。
+			planCtx.Facts = append(planCtx.Facts, Fact{Category: c.Category, Statement: c.Statement})
+		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
+			// 已证伪的假设——规划器对"哪条路已试死"的权威事实源，防同方向反复
+			// 重提（复读机）。原因一并带出：复现失败类可换配方重试，语义证伪类
+			// 才是方向作废，评估未完成可原方向重提。
 			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, RefutedHypothesis{
 				Statement: c.Statement,
-				Reason:    m.RefuteReason,
+				Reason:    obs.RefuteReason(),
 			})
 		}
 	}

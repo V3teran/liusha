@@ -24,27 +24,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// pollBatchSize 是单轮轮询最多圈定的待裁决假设数。裁决是重操作
+// pollBatchSize 是单轮轮询最多圈定的待验证假设数。判定是重操作
 // （机器复放 + judge ReAct），轮询按批推进即可。
 const pollBatchSize = 32
 
-// maxVerifyAttempts 是同一假设的验证失败上限：超过后标记为裁决失败并出圈
+// maxVerifyAttempts 是同一假设的验证失败上限：超过后标记为验证失败并出圈
 // （复现配方反复执行失败意味着配方损坏，重试无意义——烧 LLM 不解决问题）。
 const maxVerifyAttempts = 3
 
 // Agent 是持续运行的验证 Agent
 //
 // 职责：
-// - 事件驱动 + 轮询兜底地圈定未裁决的假设（observation，confidence=unverified）
+// - 事件驱动 + 轮询兜底地圈定待验证的假设（observation，verification_status=pending）
 // - 经 PromotionGate 复现门验证后晋升为 result 节点
 // - 发布 EventVerificationPassed/Refuted 事件
 //
 // 去重分两层：
-//   - 持久层：假设节点的 confidence（unverified → verified/refuted）是裁决
-//     状态的唯一事实源，进程重启后轮询按它圈定剩余工作，不重验已裁决项；
-//   - 进程层：inFlight 集合防止事件与轮询并发触发同一假设；adjudicated
-//     表按裁决键（假设+配方联合哈希）去重——LLM 重提同一假设的同一配方时
-//     沿用既有裁决，不再烧 judge。
+//   - 持久层：假设节点的验证状态（pending → confirmed/refuted）是验证
+//     进度的唯一事实源，进程重启后轮询按它圈定剩余工作，不重验已有结论的假设；
+//   - 进程层：inFlight 集合防止事件与轮询并发触发同一假设；verdicts
+//     表按验证键（假设+配方联合哈希）去重——LLM 重提同一假设的同一配方时
+//     沿用既有判定，不再烧 judge。
 type Agent struct {
 	taskID        string
 	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
@@ -58,7 +58,7 @@ type Agent struct {
 	// inFlight 收口在途验证 goroutine：Run 退出前等它们落定（ctx 已取消时
 	// 会快速返回），避免停机后仍向 bus/图写事件的竞态。
 	inFlight sync.WaitGroup
-	// fatal 承接异步裁决中的致命错误（LLM 配置错误），由 Run 返回终结任务（容量 1：只需首个）。
+	// fatal 承接异步判定中的致命错误（LLM 配置错误），由 Run 返回终结任务（容量 1：只需首个）。
 	fatal chan error
 
 	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
@@ -70,20 +70,20 @@ type Agent struct {
 	// 超过此时间的锁将被强制释放，防止goroutine卡死导致永久锁定
 	lockTimeout time.Duration
 
-	// verifyAttempts 记录各假设的验证失败次数（达上限后标记裁决失败出圈）。
+	// verifyAttempts 记录各假设的验证失败次数（达上限后标记验证失败出圈）。
 	verifyAttemptsMu sync.Mutex
 	verifyAttempts   map[string]int
 
-	// adjudicated 是裁决键（假设+配方联合哈希）→ 既有裁决的进程内去重表。
-	// 持久去重靠假设节点的 confidence 流转；本表只省"同裁决键重复进 judge"的钱。
-	adjudicatedMu sync.Mutex
-	adjudicated   map[string]priorVerdict
+	// verdicts 是验证键（假设+配方联合哈希）→ 既有判定的进程内去重表。
+	// 持久去重靠假设节点的验证状态流转；本表只省"同验证键重复进 judge"的钱。
+	verdictsMu sync.Mutex
+	verdicts   map[string]priorVerdict
 }
 
-// priorVerdict 是同裁决键命中时沿用的既有结论：裁决对象是"假设+配方"，
+// priorVerdict 是同验证键命中时沿用的既有结论：验证对象是"假设+配方"，
 // 沿用时反驳原因与验证档位一并流转，保持图上标记形状一致。
 type priorVerdict struct {
-	outcome      string
+	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
 	tier         string
 }
@@ -122,7 +122,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 		verifying:      map[string]time.Time{}, // 改为记录时间
 		verifyAttempts: map[string]int{},
-		adjudicated:    map[string]priorVerdict{},
+		verdicts:       map[string]priorVerdict{},
 		lockTimeout:    10 * time.Minute, // 验证锁超时时间
 	}
 }
@@ -136,11 +136,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("evaluator: Graph is required")
 	}
 
-	// LLM 审计维度：裁决调用归 task/本轮 run、角色 evaluator。
+	// LLM 审计维度：判定调用归 task/本轮 run、角色 evaluator。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
 	// 在途验证跑在派生 ctx 上：任一退出路径（ctx 取消 / 致命错误）都先取消、再等它们
-	// 落定后返回——生命周期只等待 Run，提前返回会让任务收尾与仍在跑的裁决交错。
+	// 落定后返回——生命周期只等待 Run，提前返回会让任务收尾与仍在跑的判定交错。
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
 		cancel()
@@ -173,7 +173,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case err := <-a.fatal:
-			a.logger.Error().Err(err).Msg("LLM 配置错误，裁决无法继续；取消在途验证")
+			a.logger.Error().Err(err).Msg("LLM 配置错误，判定无法继续；取消在途验证")
 			return err
 
 		case event := <-sub.Events():
@@ -221,7 +221,7 @@ func (a *Agent) tryAcquire(observationID string) bool {
 	return true
 }
 
-// release 解除"验证中"标记（裁决落定或出错重试前调用）。
+// release 解除"验证中"标记（判定落定或出错重试前调用）。
 func (a *Agent) release(observationID string) {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
@@ -254,20 +254,20 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 		return
 	}
 
-	// 无配方的 Attempt 不是可裁决假设——执行记录（降级模式推测、上下文结论）
-	// 不参与验证生命周期（图级 confidence 只属于带 repro 的假设）。放行会让
-	// 它们在裁决门里必然失败：烧掉裁决预算、以 invalid_recipe 污染 refuted
+	// 无配方的 Attempt 不是可验证假设——执行记录（降级模式推测、上下文结论）
+	// 不参与验证生命周期（验证状态只属于带 repro 的假设）。放行会让
+	// 它们在复现门里必然失败：烧掉验证预算、以 invalid_recipe 污染 refuted
 	// 分类（planner 会把执行记录误读成"可重试的失败假设"）、审计链还会因
-	// 空 primitives 违反 NOT NULL 丢记录。执行记录保持 confidence 为空，
+	// 空 primitives 违反 NOT NULL 丢记录。执行记录不带验证状态，
 	// 留在图上作审计面。
 	if len(attempt.Primitives) == 0 {
 		a.logger.Info().
 			Str("observation_id", attempt.NodeID).
-			Msg("Attempt 无复现配方（执行记录非假设），不进入裁决生命周期")
+			Msg("Attempt 无复现配方（执行记录非假设），不进入验证生命周期")
 		return
 	}
 
-	// 门侧归一化：与轮询路径（parseObservationToAttempt）对称——裁决入口
+	// 门侧归一化：与轮询路径（parseObservationToAttempt）对称——验证入口
 	// 永远不信任生产侧的形状。矫正失败保留原样，复放会以确定性错误终局，
 	// 归一化只救该救的，不掩盖真损坏。
 	if normalized, _, nErr := repro.NormalizeReproEnvelope(attempt.Primitives); nErr == nil {
@@ -284,23 +284,23 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struc
 	a.dispatchVerification(ctx, observationID, attempt, sem)
 }
 
-// pollAndVerify 圈定待裁决假设（confidence=unverified）并逐个过复现门。
+// pollAndVerify 圈定待验证假设（verification_status=pending）并逐个过复现门。
 //
-// evaluator 的管辖范围只有假设：事实（factual）是 executor 写入即终态的
-// 观察，出处即信任，无流转、无晋升、不消耗裁决预算——planner 直接从图
-// 读取。result 节点因此只承载经裁决坐实的主张，不承载事实。
+// evaluator 的管辖范围只有假设：事实是 executor 写入即终态的观察，出处即信任，
+// 无流转、无晋升、不消耗验证预算——planner 直接从图读取。result 节点因此只承载
+// 经判定坐实的主张，不承载事实。
 func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
-	observations, err := a.graph.ListObservationsByConfidence(
-		ctx, a.taskID, explorationgraph.ConfidenceUnverified, pollBatchSize)
+	observations, err := a.graph.ListHypotheses(
+		ctx, a.taskID, explorationgraph.VerificationPending, pollBatchSize)
 	if err != nil {
-		return fmt.Errorf("查询待裁决 observation 失败: %w", err)
+		return fmt.Errorf("查询待验证 observation 失败: %w", err)
 	}
 
 	if len(observations) == 0 {
 		return nil
 	}
 
-	a.logger.Debug().Int("count", len(observations)).Msg("发现待裁决 observation")
+	a.logger.Debug().Int("count", len(observations)).Msg("发现待验证 observation")
 
 	dispatched := 0
 	for _, obs := range observations {
@@ -309,7 +309,7 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 		if a.isVerifying(obs.ID) {
 			continue
 		}
-		// 带 confidence=unverified 的假设必有 repro（写入侧不变式）；content
+		// 待验证的假设必有 repro（写入侧不变式）；content
 		// 解析失败才是真损坏（executor 写入侧 content 必为合法 JSON），持续
 		// 告警。repro 形状问题已在 parse 内宽容化（保留原始配方继续派发）。
 		attempt, err := a.parseObservationToAttempt(obs)
@@ -375,15 +375,15 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			logx.ErrorUnlessCanceled(a.logger, err).
 				Err(err).
 				Str("observation_id", observationID).
-				Msg("验证失败（保持 unverified，下轮轮询重试）")
+				Msg("验证失败（保持待验证，下轮轮询重试）")
 			a.recordVerifyFailure(ctx, observationID, attempt, err)
 		}
 	}()
 	return true
 }
 
-// recordVerifyFailure 记一次验证失败；达上限后把假设标记为裁决失败并出圈
-// （confidence=refuted + verification_outcome=invalid_recipe），轮询不再圈定，
+// recordVerifyFailure 记一次验证失败；达上限后把假设标记为证伪并出圈
+// （verification_status=refuted，refute_reason 记出圈原因），轮询不再圈定，
 // 审计链留档失败原因。
 //
 // 分流规则：
@@ -393,7 +393,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //   - 确定性配方缺陷（JSON 形状/缺字段）——重放同样配方必然同样失败，
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, attempt Attempt, cause error) {
-	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标裁决失败
+	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
 	// 出圈），上报为 evaluator 致命错误。
 	if llm.IsConfigError(cause) {
 		select {
@@ -437,15 +437,15 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 	}
 
 	// 耗尽出圈的 refute_reason 分流：配方确定性缺陷 → invalid_recipe（planner
-	// 视为换配方才有意义的方向）；裁决官侧基础设施失败（LLM 调用/输出解析
-	// 反复失败）→ adjudication_failed——机器重放可能全过、主张可能为真，
-	// 只是裁决环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把
+	// 视为换配方才有意义的方向）；评估者侧基础设施失败（LLM 调用/输出解析
+	// 反复失败）→ judge_unavailable——机器重放可能全过、主张可能为真，
+	// 只是评估环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把
 	// 可重试方向误判成配方作废（实测真漏洞因此出圈）；目标反复不可达 →
 	// not_reproducible（复放失败，可换配方 / 换时机重试）。
 	refuteReason := RefuteInvalidRecipe
 	switch {
-	case errors.Is(cause, ErrAdjudicationUnavailable):
-		refuteReason = RefuteAdjudicationFailed
+	case errors.Is(cause, ErrJudgeUnavailable):
+		refuteReason = RefuteJudgeUnavailable
 	case targetUnreachable:
 		refuteReason = RefuteNotReproducible
 	}
@@ -454,24 +454,23 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		Str("observation_id", observationID).
 		Str("refute_reason", refuteReason).
 		Int("attempts", attempts).
-		Msg("验证反复失败达上限，标记裁决失败出圈")
+		Msg("验证反复失败达上限，标记验证失败出圈")
 
 	mark, mErr := json.Marshal(map[string]interface{}{
-		"verification_outcome": refuteReason,
-		"refute_reason":        refuteReason,
-		"confidence":           explorationgraph.ConfidenceRefuted,
-		"failure_reason":       cause.Error(),
-		"verify_attempts":      attempts,
+		"verification_status": explorationgraph.VerificationRefuted,
+		"refute_reason":       refuteReason,
+		"failure_reason":      cause.Error(),
+		"verify_attempts":     attempts,
 	})
 	if mErr != nil {
 		return
 	}
 	if uErr := a.graph.UpdateNodeMetadata(ctx, observationID, mark); uErr != nil {
-		a.logger.Error().Err(uErr).Str("observation_id", observationID).Msg("裁决失败标记写入失败")
+		a.logger.Error().Err(uErr).Str("observation_id", observationID).Msg("出圈标记写入失败")
 	}
 
-	// 审计链留档：invalid_recipe / adjudication_failed 都是裁决结论（前者是
-	// 配方无法被本门执行，后者是裁决环节不可用），证伪/失败都落
+	// 审计链留档：invalid_recipe / judge_unavailable 都是验证结论（前者是
+	// 配方无法被本门执行，后者是评估环节不可用），证伪/失败都落
 	// exploration_verification，保证全链路可回放。
 	audit := map[string]interface{}{
 		"refute_reason":   refuteReason,
@@ -486,7 +485,7 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		TaskID:     a.taskID,
 		NodeID:     observationID,
 		Primitives: coalescePrimitives(attempt.Primitives),
-		Outcome:    explorationgraph.OutcomeRefuted,
+		Outcome:    explorationgraph.VerificationRefuted,
 		Evaluation: mustJSON(audit),
 		CreatedAt:  time.Now(),
 	}); vErr != nil {
@@ -497,7 +496,7 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 }
 
 // coalescePrimitives 把空配方归一为空对象：primitives 落库列 NOT NULL，
-// 审计记录绝不能因载荷形状静默丢失（曾致 7 条 invalid_recipe 裁决零审计可查）。
+// 审计记录绝不能因载荷形状静默丢失（曾致 7 条 invalid_recipe 判定零审计可查）。
 func coalescePrimitives(p json.RawMessage) json.RawMessage {
 	if len(p) == 0 {
 		return json.RawMessage(`{}`)
@@ -514,7 +513,6 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		Priority   string          `json:"priority"`
 		Impact     string          `json:"impact"`
 		Suggestion string          `json:"suggestion"`
-		Confidence string          `json:"executor_confidence"` // executor 自评置信度的载荷键（图级 confidence 另有其位）
 		Repro      json.RawMessage `json:"repro"`
 	}
 
@@ -528,14 +526,14 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 
 	// 归一化 repro：容忍数组格式、缺失 domain 等 LLM 笔误形状（与写入侧同一归一化器）。
 	// 归一化失败不整条丢弃——与事件路径（handleEvent）同口径：保留原始配方
-	// 继续派发，由复现门/裁决官终局（确定性配方缺陷 fail-fast 出圈；generic
-	// 域 judge_only 无机器断言也可裁决）。此前整条丢弃会让该假设永远
-	// unverified：轮询每 5s 重解析重告警（实测同一节点连告 39 次），且
+	// 继续派发，由复现门/评估者终局（确定性配方缺陷 fail-fast 出圈；generic
+	// 域 judge_only 无机器断言也可验证）。此前整条丢弃会让该假设永远
+	// 待验证：轮询每 5s 重解析重告警（实测同一节点连告 39 次），且
 	// hasPendingVerdicts 永真——planner 永不收敛，任务只能被外部终止。
 	normalized, hint, err := repro.NormalizeReproEnvelope(content.Repro)
 	if err != nil {
 		a.logger.Warn().Err(err).Str("observation_id", obs.ID).
-			Msg("repro 归一化失败，保留原始配方继续派发（由裁决门终局）")
+			Msg("repro 归一化失败，保留原始配方继续派发（由复现门终局）")
 		normalized = content.Repro
 	}
 	if hint != "" {
@@ -545,12 +543,8 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 			Msg("repro 归一化提示")
 	}
 
-	// priority 缺省交领域交付层补（finding 映射处有默认）——通用裁决层
-	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
-	confidence := content.Confidence
-	if confidence == "" {
-		confidence = "low"
-	}
+	// priority 缺省交领域交付层补（finding 映射处有默认）——通用验证层
+	// 不制造领域默认值。
 
 	// 构造 Content（用于晋升后的节点）：中立层词汇（priority/impact/
 	// suggestion），安全域交付时由 deliverClaim 翻译成 severity/remediation。
@@ -559,7 +553,6 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		"priority":   content.Priority,
 		"impact":     content.Impact,
 		"suggestion": content.Suggestion,
-		"confidence": confidence,
 	})
 	if err != nil {
 		return Attempt{}, fmt.Errorf("构造 content 失败: %w", err)
@@ -576,23 +569,23 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 }
 
 // verifyObservation 验证单个 observation。
-// 裁决落定（坐实/证伪）后假设节点的 confidence 随之流转，轮询不再圈定；
-// 门本身出错则保持 unverified，下轮轮询自然重试。
+// 判定落定（坐实/证伪）后假设节点的验证状态随之流转，轮询不再圈定；
+// 门本身出错则保持待验证，下轮轮询自然重试。
 func (a *Agent) verifyObservation(ctx context.Context, observationID string, attempt Attempt) error {
 	startTime := time.Now()
 
-	// 去重：同一裁决键（假设+配方）已裁决过则沿用结论——不再烧 judge、不再重复写 finding。
+	// 去重：同一验证键（假设+配方）已验证过则沿用结论——不再烧 judge、不再重复写 finding。
 	hash := attemptHash(attempt)
-	if prev, seen := a.adjudicatedLookup(hash); seen {
+	if prev, seen := a.verdictLookup(hash); seen {
 		a.logger.Info().
 			Str("observation_id", observationID).
-			Str("previous_outcome", prev.outcome).
-			Msg("同裁决键已裁决，沿用既有结论")
+			Str("previous_status", string(prev.status)).
+			Msg("同验证键已验证，沿用既有结论")
 		return a.adoptPriorVerdict(ctx, observationID, prev)
 	}
 
 	// 设置验证超时时间为10分钟（从默认5分钟增加）
-	// LLM验证可能需要较长时间（复现+裁决），避免过早超时
+	// LLM验证可能需要较长时间（复现+判定），避免过早超时
 	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
@@ -612,8 +605,8 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 		return fmt.Errorf("promote: %w", err)
 	}
 
-	// 裁决完成（坐实或证伪）才入去重表；门出错允许重试。
-	a.adjudicatedStore(hash, a.priorVerdictFrom(ctx, observationID, node))
+	// 判定完成（坐实或证伪）才入去重表；门出错允许重试。
+	a.verdictStore(hash, a.priorVerdictFrom(ctx, observationID, node))
 
 	// node == nil 表示验证证伪
 	if node == nil {
@@ -640,18 +633,12 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 	return nil
 }
 
-// adoptPriorVerdict 把既有裁决结论落到当前假设节点上（裁决键命中的同假设
-// 同配方假设）：confidence 与 verification_outcome 同步流转，并注明系沿用。
+// adoptPriorVerdict 把既有验证结论落到当前假设节点上（验证键命中的同假设
+// 同配方假设），并注明系沿用。
 func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, prev priorVerdict) error {
-	confidence := explorationgraph.ConfidenceRefuted
-	if prev.outcome == string(explorationgraph.OutcomeConfirmed) {
-		confidence = explorationgraph.ConfidenceVerified
-	}
-
 	mark := map[string]interface{}{
-		"verification_outcome": prev.outcome,
-		"confidence":           confidence,
-		"verdict_source":       "same-verdict-key-dedup",
+		"verification_status": prev.status,
+		"verdict_source":      "same-verdict-key-dedup",
 	}
 	if prev.refuteReason != "" {
 		mark["refute_reason"] = prev.refuteReason
@@ -662,10 +649,10 @@ func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, pre
 	}
 
 	if err := a.graph.UpdateNodeMetadata(ctx, observationID, m); err != nil {
-		return fmt.Errorf("沿用既有裁决写标记失败: %w", err)
+		return fmt.Errorf("沿用既有判定写标记失败: %w", err)
 	}
 
-	if confidence == explorationgraph.ConfidenceVerified {
+	if prev.status == explorationgraph.VerificationConfirmed {
 		a.eventBus.PublishVerificationPassed(a.taskID, observationID)
 	} else {
 		a.eventBus.PublishVerificationRefuted(a.taskID, observationID)
@@ -673,12 +660,12 @@ func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, pre
 	return nil
 }
 
-// priorVerdictFrom 从假设节点刚落定的审判标记导出去重条目（outcome +
-// refute_reason + verification_tier）：同裁决键沿用时标记形状保持一致。
-// 读不到标记时退化为仅 outcome——去重不因读取失败失效。
+// priorVerdictFrom 从假设节点刚落定的验证结论导出去重条目（验证状态 +
+// refute_reason + verification_tier）：同验证键沿用时标记形状保持一致。
+// 读不到标记时退化为仅验证状态——去重不因读取失败失效。
 func (a *Agent) priorVerdictFrom(ctx context.Context, observationID string, node *explorationgraph.Node) priorVerdict {
-	pv := priorVerdict{outcome: string(promoteOutcome(node))}
-	if a.graph == nil { // 测试替身可无图运行——去重退化为仅 outcome
+	pv := priorVerdict{status: promoteOutcome(node)}
+	if a.graph == nil { // 测试替身可无图运行——去重退化为仅验证状态
 		return pv
 	}
 	obs, err := a.graph.GetNode(ctx, observationID)
@@ -696,22 +683,22 @@ func (a *Agent) priorVerdictFrom(ctx context.Context, observationID string, node
 	return pv
 }
 
-func (a *Agent) adjudicatedLookup(key string) (priorVerdict, bool) {
-	a.adjudicatedMu.Lock()
-	defer a.adjudicatedMu.Unlock()
-	out, ok := a.adjudicated[key]
+func (a *Agent) verdictLookup(key string) (priorVerdict, bool) {
+	a.verdictsMu.Lock()
+	defer a.verdictsMu.Unlock()
+	out, ok := a.verdicts[key]
 	return out, ok
 }
 
-func (a *Agent) adjudicatedStore(key string, v priorVerdict) {
-	a.adjudicatedMu.Lock()
-	defer a.adjudicatedMu.Unlock()
-	a.adjudicated[key] = v
+func (a *Agent) verdictStore(key string, v priorVerdict) {
+	a.verdictsMu.Lock()
+	defer a.verdictsMu.Unlock()
+	a.verdicts[key] = v
 }
 
-// attemptHash 对裁决对象（假设陈述 + 配方）联合哈希：裁决针对的是"假设是否
+// attemptHash 对验证对象（假设陈述 + 配方）联合哈希：判定针对的是"假设是否
 // 坐实"，裸配方相同而陈述不同（同一请求既被当 XSS 也被当 SQLi 提交）是两次
-// 独立裁决，不得沿用结论。陈述取 Attempt.Content.summary（事件/轮询两条
+// 独立判定，不得沿用结论。陈述取 Attempt.Content.summary（事件/轮询两条
 // 路径都写它）。
 func attemptHash(a Attempt) string {
 	h := sha256.New()
@@ -722,7 +709,7 @@ func attemptHash(a Attempt) string {
 }
 
 // attemptStatement 从 Attempt.Content 提取假设陈述（缺失返回空串——
-// 此时裁决键退化为纯配方哈希）。
+// 此时验证键退化为纯配方哈希）。
 func attemptStatement(a Attempt) string {
 	var c struct {
 		Summary string `json:"summary"`
@@ -733,12 +720,12 @@ func attemptStatement(a Attempt) string {
 	return ""
 }
 
-// promoteOutcome 从晋升结果导出裁决结论（nil = refuted）。
-func promoteOutcome(node *explorationgraph.Node) explorationgraph.VerifyOutcome {
+// promoteOutcome 从晋升结果导出验证结论（nil = refuted）。
+func promoteOutcome(node *explorationgraph.Node) explorationgraph.VerificationStatus {
 	if node == nil {
-		return explorationgraph.OutcomeRefuted
+		return explorationgraph.VerificationRefuted
 	}
-	return explorationgraph.OutcomeConfirmed
+	return explorationgraph.VerificationConfirmed
 }
 
 // isTransientProviderError 判断是否 provider 侧瞬时故障（网络抖动/DNS/限流/

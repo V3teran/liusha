@@ -110,18 +110,18 @@ func TestCompleteDataFlow(t *testing.T) {
 	err = store.TransitionState(ctx, act.ID, StateRunning, nil)
 	require.NoError(t, err)
 
-	confidence := ConfidenceUnverified
+	pending := VerificationPending
 	observation := Node{
-		ID:         "55555555-5555-4555-8555-555555555555",
-		TaskID:     taskID,
-		Kind:       core.KindObservation,
-		Content:    json.RawMessage(`{"detail":"发现目录 /admin"}`),
-		Confidence: &confidence,
-		Priority:   PriorityMedium,
-		SourceType: "executor",
-		SourceID:   "executor-1",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:                 "55555555-5555-4555-8555-555555555555",
+		TaskID:             taskID,
+		Kind:               core.KindObservation,
+		Content:            json.RawMessage(`{"detail":"发现目录 /admin"}`),
+		VerificationStatus: &pending,
+		Priority:           PriorityMedium,
+		SourceType:         "executor",
+		SourceID:           "executor-1",
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 	err = store.CreateNodeWithEdges(ctx, observation, []Edge{{
 		SrcID:     act.ID,
@@ -134,13 +134,11 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	// 3. 验证通过 → 晋升为 result（复现门产出的唯一终态节点）。
 	// 晋升溯源边（observation generates result）与节点原子落库。
-	verifiedConf := ConfidenceVerified
 	result := Node{
 		ID:         "66666666-6666-4666-8666-666666666666",
 		TaskID:     taskID,
 		Kind:       core.KindResult,
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
-		Confidence: &verifiedConf,
 		Priority:   PriorityHigh,
 		SourceType: SourceEvaluator,
 		SourceID:   "verifier-1",

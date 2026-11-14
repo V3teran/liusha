@@ -41,7 +41,7 @@ export function ExplorationGraphPage() {
   const verifQuery = useConversationVerifications(conversationId)
   const graph = graphQuery.data
 
-  // node_id → 最新一条裁决记录（时间倒序，首条即最新）
+  // node_id → 最新一条判定记录（时间倒序，首条即最新）
   const verificationsByNode = useMemo(() => {
     const byNode = new Map<string, Verification>()
     for (const v of verifQuery.data?.verifications ?? []) {

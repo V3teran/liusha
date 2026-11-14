@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// TestAttemptHashKeysOnStatementAndRecipe 锁定裁决键语义：裁决对象是"假设+配方"，
-// 同配方不同陈述是两次独立裁决，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
-// "SQLi"共享同一配方时互相继承裁决）。
+// TestAttemptHashKeysOnStatementAndRecipe 锁定验证键语义：验证对象是"假设+配方"，
+// 同配方不同陈述是两次独立判定，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
+// "SQLi"共享同一配方时互相继承判定）。
 func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 	recipe := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
 
@@ -28,7 +29,7 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 	sameAsXSS := Attempt{Content: json.RawMessage(`{"summary":"/search 存在反射型 XSS","severity":"high"}`), Primitives: recipe}
 
 	if attemptHash(xss) == attemptHash(sqli) {
-		t.Fatal("同配方不同陈述不得同键：会跨假设沿用裁决")
+		t.Fatal("同配方不同陈述不得同键：会跨假设沿用判定")
 	}
 	if attemptHash(xss) != attemptHash(sameAsXSS) {
 		t.Fatal("同陈述同配方（载荷多无关字段）应同键")
@@ -36,7 +37,7 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 }
 
 // TestParseObservationToAttemptContentShape 锁定轮询路径与事件路径的载荷形状
-// 一致：summary/priority/confidence 三字段齐全，缺省 confidence=low。
+// 一致：summary/priority/impact/suggestion 四字段，与执行器侧 observationToAttempt 同形。
 func TestParseObservationToAttemptContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
@@ -44,7 +45,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 		ID:      "obs-1",
 		TaskID:  "task-1",
 		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S 存在漏洞","priority":"high","impact":"i","suggestion":"s","executor_confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		Content: json.RawMessage(`{"statement":"S 存在漏洞","priority":"high","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
 	att, err := a.parseObservationToAttempt(obs)
 	if err != nil {
@@ -54,22 +55,9 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 	if err := json.Unmarshal(att.Content, &c); err != nil {
 		t.Fatalf("unmarshal content: %v", err)
 	}
-	if c["summary"] != "S 存在漏洞" || c["priority"] != "high" || c["confidence"] != "high" || c["impact"] != "i" || c["suggestion"] != "s" {
-		t.Fatalf("载荷字段缺失/错值: %+v", c)
-	}
-
-	// 缺省 confidence → low（与 executor 侧 observationToAttempt 同口径）
-	obs.Content = json.RawMessage(`{"statement":"S2","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`)
-	att, err = a.parseObservationToAttempt(obs)
-	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
-	}
-	c = map[string]string{}
-	if err := json.Unmarshal(att.Content, &c); err != nil {
-		t.Fatalf("unmarshal content: %v", err)
-	}
-	if c["confidence"] != "low" {
-		t.Fatalf("缺省 confidence 应为 low: %+v", c)
+	want := map[string]string{"summary": "S 存在漏洞", "priority": "high", "impact": "i", "suggestion": "s"}
+	if !maps.Equal(c, want) {
+		t.Fatalf("载荷应与执行器侧 observationToAttempt 同形: %+v", c)
 	}
 }
 
@@ -100,10 +88,10 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 	}
 }
 
-// evaluator 管辖边界不变式：轮询只圈 unverified 假设——事实（factual）
-// 是 executor 写入即终态的观察，出处即信任，不消耗裁决预算、永不晋升
-// （result 只承载经裁决坐实的主张）。
-func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
+// evaluator 管辖边界不变式：轮询只圈待验证的假设——事实
+// 是 executor 写入即终态的观察，出处即信任，不消耗验证预算、永不晋升
+// （result 只承载经判定坐实的主张）。
+func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-boundary"}
 	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
@@ -111,20 +99,20 @@ func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{TaskID: "t-boundary", Gate: promoter, EventBus: b, Graph: memGraph, Logger: zerolog.Nop()})
 
-	buildObs := func(id, statement string, conf explorationgraph.Confidence) explorationgraph.Node {
-		c := conf
+	buildObs := func(id, statement string, status *explorationgraph.VerificationStatus) explorationgraph.Node {
 		return explorationgraph.Node{
 			ID: id, TaskID: "t-boundary", Kind: core.KindObservation,
-			Content:    json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
-			Confidence: &c,
+			Content:            json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+			VerificationStatus: status,
 		}
 	}
+	status := func(s explorationgraph.VerificationStatus) *explorationgraph.VerificationStatus { return &s }
 
-	// 三种状态并存：只有 unverified 应被圈定
+	// 三种观察并存：只有待验证的假设应被圈定
 	for _, obs := range []explorationgraph.Node{
-		buildObs("obs-hyp", "待裁决假设", explorationgraph.ConfidenceUnverified),
-		buildObs("obs-fact", "已确认事实", explorationgraph.ConfidenceFactual),
-		buildObs("obs-done", "已裁决", explorationgraph.ConfidenceRefuted),
+		buildObs("obs-hyp", "待验证假设", status(explorationgraph.VerificationPending)),
+		buildObs("obs-fact", "已确认事实", nil),
+		buildObs("obs-done", "已证伪", status(explorationgraph.VerificationRefuted)),
 	} {
 		if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
 			t.Fatalf("建观察失败: %v", err)
@@ -139,14 +127,14 @@ func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for w.VerificationCount() < 1 {
 		if time.Now().After(deadline) {
-			t.Fatalf("unverified 假设应被裁决, got %d", w.VerificationCount())
+			t.Fatalf("待验证假设应被验证, got %d", w.VerificationCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// 裁决只发生 1 次：fact/refuted 不进队列
+	// 判定只发生 1 次：fact/refuted 不进队列
 	time.Sleep(100 * time.Millisecond)
 	if w.VerificationCount() != 1 {
-		t.Fatalf("只有 unverified 应进裁决管道: %d", w.VerificationCount())
+		t.Fatalf("只有待验证假设应进验证管道: %d", w.VerificationCount())
 	}
 }
 
@@ -185,11 +173,11 @@ func TestPollAndVerify_SkipsInFlightBeforeParsing(t *testing.T) {
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{TaskID: "t-inflight", EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.New(&logs)})
 
-	c := explorationgraph.ConfidenceUnverified
+	c := explorationgraph.VerificationPending
 	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
 		ID: "obs-inflight", TaskID: "t-inflight", Kind: core.KindObservation,
-		Content:    json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
-		Confidence: &c,
+		Content:            json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
+		VerificationStatus: &c,
 	}); err != nil {
 		t.Fatalf("建观察失败: %v", err)
 	}

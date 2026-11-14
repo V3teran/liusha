@@ -73,10 +73,9 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 		graphNode.Metadata["blocked_reason"] = *node.BlockedReason
 	}
 
-	// Confidence：验证生命周期裁决（unverified/verified/refuted），枚举原文入库。
-	// executor 的自评置信度（low/medium/high）属于假设载荷，走 Content，不进此处。
-	if node.Confidence != nil {
-		graphNode.Metadata["confidence"] = string(*node.Confidence)
+	// 验证状态（仅假设观察），枚举原文入库。
+	if node.VerificationStatus != nil {
+		graphNode.Metadata[metaVerification] = string(*node.VerificationStatus)
 	}
 
 	// 领域 Metadata 平铺合并（键不与类型化键冲突时等价于直接落库）

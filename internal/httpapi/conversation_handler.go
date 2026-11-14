@@ -109,7 +109,7 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 
 // FollowUpAPI 处理会话追加消息：落 user 消息后立即返回，意图分类/分流在服务端异步完成。
 // intent 固定返回 "accepted"。扫描进行中/暂停中收到 action 指令的反馈由服务端异步
-// 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态裁决。
+// 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态判定。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (intent string, err error)
 }

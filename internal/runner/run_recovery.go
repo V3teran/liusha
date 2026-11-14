@@ -28,7 +28,7 @@ import (
 //     口径，6 分钟 ≈ 2 倍单步 LLM 看门狗）→ 旧 run 标记 failed → 以全新
 //     agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
 //     已终态的任务例外：只回收僵尸 run 行（含进程死在终态落库之后的脏行），
-//     不重投——恢复分别由继续操作 / 终态裁决驱动。
+//     不重投——恢复分别由继续操作 / 终态判定驱动。
 //  2. 搁浅任务：active 且未暂停，却没有任何 pending/running run（暂停退出后
 //     的继续竞态、enqueue 失败等泄漏）→ 重投 planner。活跃任务的不变式是
 //     「必有 run 在跑或排队」，此规则让不变式自愈。
@@ -36,7 +36,7 @@ import (
 // 重投带尝试上限（按 error run 计数——只数中断，不数用户主动的暂停/完成）：
 // 连续多次中断不再自动恢复（防崩溃循环烧 LLM 账单），超限时任务落 aborted
 // 由用户手动重新触发。重投与其它 run 生产者（继续/续接）的毫秒级竞态由
-// agent_run 的部分唯一索引裁决（每任务至多一个存活 run），先建者赢。
+// agent_run 的部分唯一索引判定（每任务至多一个存活 run），先建者赢。
 
 const (
 	// runRecoveryMaxAttempts 是单任务自动重投上限（按 error run 计数）。
@@ -152,7 +152,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 
 	for _, z := range zombies {
 		// 暂停中/已终态的任务：只回收僵尸 run 行（审计面不留 running 脏态），
-		// 不重投、不计中断次数——恢复分别由继续操作 / 任务终态裁决驱动。
+		// 不重投、不计中断次数——恢复分别由继续操作 / 任务终态判定驱动。
 		if z.paused || z.terminal {
 			m.logger.Info().
 				Str("agent_run_id", z.runID).
@@ -258,7 +258,7 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 
 // redispatchPlanner 以全新 agent_run 重投 planner（探索图历史保留，认知循环
 // 从头规划）；失败仅告警，下一轮巡检重试。该 task 已有存活 run 时（与继续/
-// 续接的毫秒级竞态，部分唯一索引裁决）跳过——先建者赢。
+// 续接的毫秒级竞态，部分唯一索引判定）跳过——先建者赢。
 func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, brief, conversationID string) {
 	input, _ := json.Marshal(map[string]string{"brief": brief})
 	newID, err := m.agentRuns.Create(ctx, agentrun.NewParams{

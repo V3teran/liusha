@@ -75,13 +75,13 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.BlockedReason = &blockedReason
 	}
 
-	// Confidence：验证生命周期裁决，枚举原文存取
-	if confidence, ok := graphNode.Metadata["confidence"].(string); ok {
-		c := Confidence(confidence)
-		node.Confidence = &c
+	// 验证状态（仅假设观察）
+	if status, ok := graphNode.Metadata[metaVerification].(string); ok {
+		v := VerificationStatus(status)
+		node.VerificationStatus = &v
 	}
 
-	// 其余键 → Node.Metadata（verification_outcome / failure_reason 等业务扩展位）
+	// 其余键 → Node.Metadata（refute_reason / failure_reason 等业务扩展位）
 	leftover := make(map[string]interface{}, len(graphNode.Metadata))
 	for k, v := range graphNode.Metadata {
 		if !typedMetadataKeys[k] {

@@ -22,7 +22,7 @@ func newStore(graphStore core.GraphStore) *Store {
 }
 
 // typedMetadataKeys 是 graph metadata 中映射到 Node 类型化字段的键。
-// 其余键在读取时原样进入 Node.Metadata（业务扩展位：verification_outcome、
+// 其余键在读取时原样进入 Node.Metadata（业务扩展位：refute_reason、
 // failure_reason 等），写入时 Node.Metadata 的键平铺合并进 graph metadata。
 var typedMetadataKeys = map[string]bool{
 	"task_id":        true,
@@ -32,5 +32,9 @@ var typedMetadataKeys = map[string]bool{
 	"complexity":     true,
 	"depends_on":     true,
 	"blocked_reason": true,
-	"confidence":     true,
+	metaVerification: true,
 }
+
+// metaVerification 是验证状态在 graph metadata 中的键。evaluator 回写验证结论时以
+// 同一键浅合并（UpdateNodeMetadata），与 Node.VerificationStatus 同一事实。
+const metaVerification = "verification_status"

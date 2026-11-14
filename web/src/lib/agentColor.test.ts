@@ -34,7 +34,7 @@ describe('agentLabel', () => {
   it('已知 agent 返回中文标签', () => {
     expect(agentLabel('planner')).toBe('规划')
     expect(agentLabel('executor')).toBe('执行')
-    expect(agentLabel('evaluator')).toBe('裁决')
+    expect(agentLabel('evaluator')).toBe('评估')
     expect(agentLabel('monitor')).toBe('监察')
     expect(agentLabel('assistant')).toBe('助手')
   })

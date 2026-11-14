@@ -66,7 +66,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
             {severityLabel[chips.severity] ?? chips.severity}
           </span>
         )}
-        {chips.confidence && <span className="flex-shrink-0">{chips.confidence}</span>}
+        {chips.verification && <span className="flex-shrink-0">{chips.verification}</span>}
       </div>
 
       <Handle

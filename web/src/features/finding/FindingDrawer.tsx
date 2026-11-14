@@ -204,7 +204,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </section>
               )}
 
-              {/* 证据链三段式：复现步骤 / 机器证据 / 裁决——对齐漏洞报告
+              {/* 证据链三段式：复现步骤 / 机器证据 / 评估理由——对齐漏洞报告
                   标准结构（复现可执行、证据可核验、结论可追溯）。 */}
               {(ev.reproCommand || ev.assertReasons.length > 0 || ev.exploit || ev.judgeReasoning) && (
                 <section>
@@ -216,7 +216,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         dot={false}
                         color={ev.tier === 'full_gate' ? 'var(--status-success)' : 'var(--status-warning)'}
                       >
-                        {ev.tier === 'full_gate' ? '机器复放 + 终裁' : ev.tier === 'judge_only' ? '仅终裁' : ev.tier}
+                        {ev.tier === 'full_gate' ? '机器复放 + 终判' : ev.tier === 'judge_only' ? '仅终判' : ev.tier}
                       </Badge>
                     )}
                   </div>
@@ -275,10 +275,10 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       </div>
                     )}
 
-                    {/* 裁决：为什么判定成立（LLM 终裁理由，引用亲见差分） */}
+                    {/* 评估理由：为什么判定成立（LLM 终判理由，引用亲见差分） */}
                     {ev.judgeReasoning && (
                       <div className="rounded-lg border border-border bg-surface-2 p-4">
-                        <span className="mb-2 block text-sm font-medium text-text">裁决理由</span>
+                        <span className="mb-2 block text-sm font-medium text-text">评估理由</span>
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
                           {ev.judgeReasoning}
                         </p>

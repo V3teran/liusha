@@ -15,12 +15,12 @@ var Groups = []Group{GroupCompaction, GroupRuntime, GroupProxyFilter}
 // CompactionSettings 是 agent 上下文压缩旋钮：ReAct 循环按「历史 token 预算」压
 // 上下文——预算 = 比例 × 本角色路由 provider 的 context_window，超预算的历史前缀
 // 被裁并蒸馏成纪要。比例越大上下文越完整、token 越贵；按链路特点分角色配置
-// （长推理链预算大、短裁决链预算小）。按 token 预算而非消息条数：条数是 token 的
+// （长推理链预算大、短评估链预算小）。按 token 预算而非消息条数：条数是 token 的
 // 粗糙代理，模型窗口差异下无法表达真实预算。
 type CompactionSettings struct {
 	PlannerContextRatio   float64 `json:"planner_context_ratio"`   // 规划链路历史预算占比
 	ExecutorContextRatio  float64 `json:"executor_context_ratio"`  // 执行链路历史预算占比
-	EvaluatorContextRatio float64 `json:"evaluator_context_ratio"` // 裁决链路历史预算占比
+	EvaluatorContextRatio float64 `json:"evaluator_context_ratio"` // 评估链路历史预算占比
 	MonitorContextRatio   float64 `json:"monitor_context_ratio"`   // 监察链路历史预算占比
 }
 

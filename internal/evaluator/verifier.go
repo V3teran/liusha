@@ -4,18 +4,18 @@
 //
 // 探索图写权限不变式（4 种节点、谁写什么）：
 //   - planner 写 objective / action
-//   - executor 写 observation（假设 / 执行记录 / executor 侧证据）
+//   - executor 写 observation（假设 / 事实）
 //   - evaluator 只写 result——本文件就是 observation(假设) → result(坐实) 的唯一状态转换门
 //
-//	Observation(在途假设，图节点，confidence=unverified)
+//	Observation(在途假设，图节点，verification_status=pending)
 //	    → Promote(attempt)
 //	    → 域 Replayer 复放采证（primitives 对本包是不透明 blob，形状归各域）
-//	    → LLMJudge 终裁（机器采证，LLM 持判定权）
-//	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+裁决官每次复放
-//	    → confirmed: CreateNode(confidence=verified) 进图 + 写 finding 表
+//	    → LLMJudge 终判（机器采证，LLM 持判定权）
+//	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+评估者每次复放
+//	    → confirmed: CreateNode(result) 进图 + 写 finding 表
 //	    └ refuted:   不进图（证据留 exploration_verification 供审计）
 //
-// domain-agnostic：配方怎么执行归各域（web=HTTP 重放、generic=裁决官自主执行、
+// domain-agnostic：配方怎么执行归各域（web=HTTP 重放、generic=评估者自主执行、
 // 未来 binary/cloud/lateral=各自 Replayer），Evaluator 只认 Replayer 接口——加新域
 // 晋升门零改动。
 
@@ -39,8 +39,8 @@ import (
 // *explorationgraph.Store 自动满足本接口。
 //
 // 图的写权限不变式：planner 写 objective/action，executor 写 observation，
-// evaluator 只**新建** result（晋升）；对既有假设节点仅做 metadata 审判标记
-// （verification_outcome + confidence），不新建节点。复放证据不走图——
+// evaluator 只**新建** result（晋升）；对既有假设节点仅做 metadata 验证标记
+// （verification_status + refute_reason），不新建节点。复放证据不走图——
 // 落 exploration_verification 审计链。ListResults 供晋升前的语义去重对照。
 type graphStore interface {
 	RecordVerification(ctx context.Context, v explorationgraph.Verification) (string, error)
@@ -75,8 +75,8 @@ type ClaimSink interface {
 	Record(ctx context.Context, claim ConfirmedClaim) error
 }
 
-// FingerprintNormalizer 把裁决官输出的原始指纹归一成规范键——指纹形状
-// 由域定义（章程教给裁决官），归一逻辑随形状走，也归域。nil 容忍
+// FingerprintNormalizer 把评估者输出的原始指纹归一成规范键——指纹形状
+// 由域定义（章程教给评估者），归一逻辑随形状走，也归域。nil 容忍
 // （不启用语义去重）。
 type FingerprintNormalizer interface {
 	CanonicalKey(raw json.RawMessage) (string, bool)
@@ -88,7 +88,7 @@ type Replayer interface {
 	Replay(ctx context.Context, primitives json.RawMessage) (Result, error)
 }
 
-// Result 是一次复现采集的客观证据（机器不判定坐实——语义裁决权全在 LLMJudge）。
+// Result 是一次复现采集的客观证据（机器不判定坐实——语义判定权全在 LLMJudge）。
 type Result struct {
 	Evaluation json.RawMessage // 基线/利用请求双对照证据 + executor 声明预期的核验明细（参考）
 	DurationMs int64           // 利用请求重放耗时
@@ -104,18 +104,18 @@ type Attempt struct {
 	Priority   string          // 优先级（critical/high/medium/low）
 }
 
-// Verdict 是 LLM 裁决的两态结论字面量。
+// Verdict 是 LLM 判定的两态结论字面量。
 const (
 	VerdictConfirmed = "confirmed"
 	VerdictRefuted   = "refuted"
 )
 
-// Verdict 是裁决官的终裁输出：结论 + 置信 + 理由 + 结构化指纹（坐实时
+// Verdict 是评估者的终判输出：结论 + 置信 + 理由 + 结构化指纹（坐实时
 // 按章程契约给出）。指纹对门是不透明 blob——形状与归一归域适配层。
 type Verdict struct {
 	Verdict     string          // confirmed / refuted
-	Confidence  float64         // 0-1，裁决官自评
-	Reasoning   string          // 一句话裁决理由（引用亲见差分）
+	Confidence  float64         // 0-1，评估者自评
+	Reasoning   string          // 一句话评估理由（引用亲见差分）
 	Fingerprint json.RawMessage // 域教的结构化指纹；空 = 不参与语义去重
 }
 
@@ -125,27 +125,27 @@ const claimFingerprintMetadataKey = "claim_fingerprint"
 // 验证档位（verification_tier）：结论成色的显式标记，下游（报告/前端/planner）
 // 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
 const (
-	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终裁（web 域）
-	TierJudgeOnly = "judge_only" // 无机器重放通道，裁决官自主取证自主终裁（generic 域）
+	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终判（web 域）
+	TierJudgeOnly = "judge_only" // 无机器重放通道，评估者自主取证自主终判（generic 域）
 )
 
 // 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但不构成漏洞"——
 // planner 据此决定是换配方重试还是方向作废，两者处置不同。
 const (
 	RefuteNotReproducible         = "not_reproducible"          // 机器护栏：断言未命中/复放失败——配方或上下文问题，可换配方重试
-	RefuteClaimInvalid            = "claim_invalid"             // 裁决官语义证伪：复现成立但主张不成立——方向作废
+	RefuteClaimInvalid            = "claim_invalid"             // 评估者语义证伪：复现成立但主张不成立——方向作废
 	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 质量门：断言无鉴别力，配方无法构成证据——须换断言重提
 	RefuteInvalidRecipe           = "invalid_recipe"            // 确定性配方缺陷：重放必然同样失败，快速终局出圈
-	RefuteAdjudicationFailed      = "adjudication_failed"       // 裁决官不可用耗尽（LLM 调用/输出解析反复失败）——配方未必有错，方向可重试
+	RefuteJudgeUnavailable        = "judge_unavailable"         // 评估者不可用耗尽（LLM 调用/输出解析反复失败）——配方未必有错，方向可重试
 )
 
-// ErrAdjudicationUnavailable 标记裁决官侧的基础设施失败（LLM 调用失败/终稿
+// ErrJudgeUnavailable 标记评估者侧的基础设施失败（LLM 调用失败/终稿
 // 解析失败）——与配方损坏性质不同：机器重放可能全部通过、漏洞真实存在，
-// 只是裁决这一环没跑通。耗尽重试后以 RefuteAdjudicationFailed 出圈而非
+// 只是判定这一环没跑通。耗尽重试后以 RefuteJudgeUnavailable 出圈而非
 // invalid_recipe，planner 的 refuted 视野据此把方向视为可重试而非配方作废
-// （实测：断言全过 + 裁决散文写明 confirmed 0.99 的真漏洞被误标
+// （实测：断言全过 + 判定散文写明 confirmed 0.99 的真漏洞被误标
 // invalid_recipe/refuted 出圈）。
-var ErrAdjudicationUnavailable = errors.New("裁决官不可用")
+var ErrJudgeUnavailable = errors.New("评估者不可用")
 
 // verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
 // 域字面量与 executor.ReproEnvelope 的 domain 约定保持一致：web 有机器重放通道；
@@ -162,7 +162,7 @@ func verificationTier(primitives json.RawMessage) string {
 
 // ErrAssertNotDiscriminative 是复现方的"质量拒绝"哨兵：断言无鉴别力
 // （自指、基线同样命中等）——配方被证明无法构成漏洞证据。这不是门故障
-// （可重试），而是对这条假设的**证伪裁决**：走审计链留档，不走重试上限。
+// （可重试），而是对这条假设的**证伪判定**：走审计链留档，不走重试上限。
 var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
 // PromotionGate 是 Observation→图节点的晋升门。
@@ -171,7 +171,7 @@ type PromotionGate struct {
 	replayer Replayer
 	sink     ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
 	codec    FingerprintNormalizer // 指纹归一（域适配层注入；nil 不启用语义去重）
-	judge    LLMJudge              // LLM 语义裁决（生产必配）
+	judge    LLMJudge              // LLM 语义判定（生产必配）
 	logger   *zerolog.Logger       // 非致命错误（交付失败等）经此告警
 }
 
@@ -184,17 +184,17 @@ func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionGate {
 	}
 }
 
-// WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把裁决官
+// WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把评估者
 // 的原始指纹归一成规范键；不注入则同指纹主张不做折叠。
 func (g *PromotionGate) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionGate {
 	g.codec = codec
 	return g
 }
 
-// WithJudge 注入 LLM 裁决器（链式）。裁决语义：机器重放只采集证据，LLM 终裁
+// WithJudge 注入 LLM 判定器（链式）。判定语义：机器重放只采集证据，LLM 终判
 // 坐实/证伪——机器不持判定权，LLM 失败不回退机器断言（否则断言命中即坐实
-// 会放过"命中即常态输出"的假阳性）；本次未裁决，错误带
-// ErrAdjudicationUnavailable 交由调用方重试/止损分流。
+// 会放过"命中即常态输出"的假阳性）；本次未出结论，错误带
+// ErrJudgeUnavailable 交由调用方重试/止损分流。
 func (g *PromotionGate) WithJudge(j LLMJudge) *PromotionGate {
 	g.judge = j
 	return g
@@ -206,9 +206,9 @@ func (g *PromotionGate) WithLogger(l zerolog.Logger) *PromotionGate {
 	return g
 }
 
-// replayRecord 是裁决链上一次机器重放的审计记录（预跑 + 裁决官自主复放都落）。
+// replayRecord 是验证链上一次机器重放的审计记录（预跑 + 评估者自主复放都落）。
 type replayRecord struct {
-	Phase      string          `json:"phase"` // prerun（预跑）/ judge（裁决官自主复放）
+	Phase      string          `json:"phase"` // prerun（预跑）/ judge（评估者自主复放）
 	Evidence   json.RawMessage `json:"evidence"`
 	DurationMs int64           `json:"duration_ms"`
 	Error      string          `json:"error,omitempty"` // 重放失败也留档（审计需要）
@@ -235,7 +235,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	// 3. 预跑阶段
 	res, err := g.executePrerun(ctx, replay)
 	if err != nil {
-		// 质量拒绝（断言无鉴别力）是对假设的证伪裁决：留审计链，不走重试
+		// 质量拒绝（断言无鉴别力）是对假设的证伪判定：留审计链，不走重试
 		if errors.Is(err, ErrAssertNotDiscriminative) {
 			return g.refuteByQualityGate(ctx, a, err)
 		}
@@ -251,7 +251,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 		return node, err
 	}
 
-	// 6. LLM 裁决
+	// 6. LLM 判定
 	verdict, err := g.executeLLMJudge(ctx, a, hyp, res, replay)
 	if err != nil {
 		return nil, err
@@ -279,23 +279,20 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 		evaluation = withDuplicateInfo(evaluation, duplicate.ID, fingerprintKey)
 	}
 
-	// 9. 处理裁决结果并记录验证到审计链
-	outcome := explorationgraph.OutcomeRefuted
+	// 9. 处理判定结果并记录验证到审计链
+	outcome := explorationgraph.VerificationRefuted
 	if verdict.Verdict == VerdictConfirmed {
-		outcome = explorationgraph.OutcomeConfirmed
+		outcome = explorationgraph.VerificationConfirmed
 	}
 	verID, err := g.recordVerification(ctx, a, outcome, evaluation, final.DurationMs)
 	if err != nil {
 		return nil, err
 	}
 
-	// 10. 落图与交付先于假设标记：标记会把假设移出待裁决集合，必须等结果节点
-	// 与交付物都已落地——任一步失败都返回错误、假设保持 unverified，下一轮轮询
-	// 重新裁决（重试路径上已存在的结果节点经语义去重命中，交付按 dedup_key 幂等）。
-	mark := hypothesisMark{
-		outcome:   outcome,
-		confirmed: verdict.Verdict == VerdictConfirmed,
-	}
+	// 10. 落图与交付先于假设标记：标记会把假设移出待验证集合，必须等结果节点
+	// 与交付物都已落地——任一步失败都返回错误、假设保持 pending，下一轮轮询
+	// 重新判定（重试路径上已存在的结果节点经语义去重命中，交付按 dedup_key 幂等）。
+	mark := hypothesisMark{status: outcome}
 	var promoted *explorationgraph.Node
 	switch {
 	case verdict.Verdict == VerdictRefuted:
@@ -330,13 +327,13 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 		promoted = node
 	}
 
-	// 15. 在假设节点上回写审判标记
+	// 15. 在假设节点上回写验证标记
 	g.markHypothesisNode(ctx, a, mark)
 	return promoted, nil
 }
 
 // deliverClaim 把坐实主张交给交付管道。交付失败返回错误：调用方据此不标记假设，
-// 交给下一轮裁决重试——静默告警会让图里已有 verified result、台账却永久缺失。
+// 交给下一轮判定重试——静默告警会让图里已有 verified result、台账却永久缺失。
 func (g *PromotionGate) deliverClaim(
 	ctx context.Context,
 	a Attempt,
@@ -418,7 +415,7 @@ func withDuplicateInfo(evaluation json.RawMessage, existingID, key string) json.
 	return evaluation
 }
 
-// withReplayLog 把最终证据、裁决理由与完整重放链（预跑 + 裁决官复放，含失败）聚合成一份审计 JSON。
+// withReplayLog 把最终证据、评估理由与完整重放链（预跑 + 评估者复放，含失败）聚合成一份审计 JSON。
 // 保留原证据顶层字段（url/method 等）不套壳——下游（finding host 抽取等）依赖其形状。
 // assertPassedInEvidence 从机器证据中读 executor 断言的命中情况。
 // 证据无 assert_passed 字段（如 generic 域回显）返回 true——不阻断 judge 受理。
@@ -436,8 +433,8 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 }
 
 // refuteByQualityGate 把"断言无鉴别力"的质量拒绝落成正式证伪：审计链留档
-// （带 quality_gate 标记与拒绝理由）、假设节点 confidence 流转为 refuted。
-// 语义区别于 invalid_recipe（门故障止损）：这是裁决结论——配方证明了
+// （带 quality_gate 标记与拒绝理由）、假设节点验证状态流转为 refuted。
+// 语义区别于 invalid_recipe（门故障止损）：这是验证结论——配方证明了
 // 命中不构成漏洞证据。
 func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
@@ -453,7 +450,7 @@ func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
 		Primitives: a.Primitives,
-		Outcome:    explorationgraph.OutcomeRefuted,
+		Outcome:    explorationgraph.VerificationRefuted,
 		Evaluation: evaluation,
 		CreatedAt:  time.Now(),
 	})
@@ -462,8 +459,7 @@ func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 	}
 
 	g.markHypothesisNode(ctx, a, hypothesisMark{
-		outcome:      explorationgraph.OutcomeRefuted,
-		confirmed:    false,
+		status:       explorationgraph.VerificationRefuted,
 		refuteReason: RefuteAssertNotDiscriminative,
 	})
 	if g.logger != nil {
@@ -482,7 +478,7 @@ func (g *PromotionGate) refuteEarly(
 	a Attempt, hyp string, res Result, replays []replayRecord,
 ) (*explorationgraph.Node, error) {
 	const verdict = VerdictRefuted
-	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经裁决官直接证伪"
+	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经评估者直接证伪"
 	tier := verificationTier(a.Primitives)
 	evaluation := withReplayLog(res.Evaluation, tier, verdict, reasoning, replays)
 
@@ -491,7 +487,7 @@ func (g *PromotionGate) refuteEarly(
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
 		Primitives: a.Primitives,
-		Outcome:    explorationgraph.OutcomeRefuted,
+		Outcome:    explorationgraph.VerificationRefuted,
 		Evaluation: evaluation,
 		DurationMs: res.DurationMs,
 		CreatedAt:  time.Now(),
@@ -499,19 +495,12 @@ func (g *PromotionGate) refuteEarly(
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 记录 verification 失败: %w", err)
 	}
-	_ = hyp // refute 路径不复用假设对象；verID 在下方 map 中使用
+	_ = hyp // refute 路径不复用假设对象
 
-	if a.NodeID != "" {
-		mark, _ := json.Marshal(map[string]interface{}{
-			"verification_outcome": explorationgraph.OutcomeRefuted,
-			"refute_reason":        RefuteNotReproducible,
-			"confidence":           explorationgraph.ConfidenceRefuted,
-			"refuted_by":           "machine_guard",
-		})
-		if uErr := g.graph.UpdateNodeMetadata(ctx, a.NodeID, mark); uErr != nil && g.logger != nil {
-			g.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点 refuted 标记写入失败")
-		}
-	}
+	g.markHypothesisNode(ctx, a, hypothesisMark{
+		status:       explorationgraph.VerificationRefuted,
+		refuteReason: RefuteNotReproducible,
+	})
 	return nil, nil
 }
 

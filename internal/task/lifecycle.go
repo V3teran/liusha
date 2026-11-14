@@ -38,7 +38,7 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 // Complete 把 task 置为 completed（planner run 自然跑完的成功终态），写 ended_at。
 //
 // 守卫：仅 active 可迁入 completed（CAS）；已 completed 幂等返回 nil；已 aborted
-// 是冲突（迟到的成功收尾不得覆盖用户停止/判死裁决），返回错误但不覆盖——
+// 是冲突（迟到的成功收尾不得覆盖用户停止/判死判定），返回错误但不覆盖——
 // 典型时序：用户点停止（api 先 abort）→ runner 循环随后自然收敛，此处被拒。
 func (s *Store) Complete(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `

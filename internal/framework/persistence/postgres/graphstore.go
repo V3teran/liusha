@@ -26,12 +26,12 @@ import (
 // - core.GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
 // - core.GraphNode.Kind → exploration_node.kind（查询维度）
 // - core.GraphNode.Content → exploration_node.content (JSONB)
-// - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含 confidence 枚举等扩展位)
+// - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含验证状态等扩展位)
 // - core.GraphNode.State → exploration_node.state（查询维度）
 // - core.GraphNode.CreatedAt/UpdatedAt/Version → 同名列
 //
-// confidence 是验证生命周期枚举（unverified/verified/refuted），以枚举原文存
-// metadata["confidence"]——由复现门独占写权流转，非置信度数值。
+// 假设观察的验证状态（pending/confirmed/refuted）以枚举原文存 metadata["verification_status"]，
+// 由复现门独占写权流转。
 type GraphStore struct {
 	pool      *pgxpool.Pool
 	nodeTable string // 节点表名（默认 exploration_node）

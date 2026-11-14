@@ -55,7 +55,7 @@ function reportFields(md: TimelineEventMeta): string[] {
 
 // TaskStatusCard 是任务生命周期节点（kind=task_status）：下发/完成/停止/失败的
 // 时间线边界。系统事件居中窄条呈现（业界 CI 状态行范式），与 agent 卡（左侧
-// 归属卡）和会话消息（左右分置）三者形态区分——一眼分辨「谁在说话」与「系统裁决」。
+// 归属卡）和会话消息（左右分置）三者形态区分——一眼分辨「谁在说话」与「系统判定」。
 export function TaskStatusCard({ md }: TaskStatusCardProps) {
   const shape = statusShape(md)
   const fields = reportFields(md)

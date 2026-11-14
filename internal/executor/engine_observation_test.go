@@ -38,18 +38,18 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 
 	// 各 action 走 Engine 写入路径：建观察节点 + 落归属边 + 转 Attempt
 	nodeA, err := engine.createObservationNode(ctx, taskID, "act-A",
-		Observation{Statement: "A 的假设", Category: CategoryHypothesis, Repro: envelope})
+		Observation{Statement: "A 的假设", Category: explorationgraph.CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-A 观察节点失败: %v", err)
 	}
 	attA, err := engine.observationToAttempt(taskID, nodeA,
-		Observation{Statement: "A 的假设", Category: CategoryHypothesis, Repro: envelope})
+		Observation{Statement: "A 的假设", Category: explorationgraph.CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("转换 act-A Attempt 失败: %v", err)
 	}
 
 	nodeB, err := engine.createObservationNode(ctx, taskID, "act-B",
-		Observation{Statement: "B 的假设", Category: CategoryHypothesis, Repro: envelope})
+		Observation{Statement: "B 的假设", Category: explorationgraph.CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-B 观察节点失败: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestProcessOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 	result := &runtime.ReActResult{
 		FinalAnswer: "```json\n{\"status\":\"completed\",\"summary\":\"s\",\"observations\":[{" +
 			"\"statement\":\"xss_r name 参数存在反射型 XSS\"," +
-			"\"reasoning\":\"r\",\"test_plan\":\"p\",\"confidence\":\"high\",\"severity\":\"high\"," +
+			"\"reasoning\":\"r\",\"severity\":\"high\"," +
 			"\"repro\":" + string(rawRepro) + "}]}\n```",
 	}
 
@@ -156,8 +156,8 @@ func TestProcessOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 	}
 }
 
-// 生命周期分流不变式：hypothesis 进裁决管道（unverified + Attempt），
-// state 写入即终态（factual、零 Attempt）——result 只承载经裁决坐实的主张，
+// 生命周期分流不变式：hypothesis 进验证管道（pending + Attempt），
+// 事实写入即终态（无验证状态、零 Attempt）——result 只承载经判定坐实的主张，
 // 事实永远不伪装成 result。
 func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
@@ -170,47 +170,46 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		t.Fatalf("建 action 失败: %v", err)
 	}
 
-	// state：落图为 factual 终态，无 Attempt
+	// 事实：落图为终态，无 Attempt
 	state := Observation{
-		Category:   CategoryNote,
-		Statement:  "会话已建立且过滤机制由 X 控制",
-		Confidence: "high",
+		Category:  explorationgraph.CategoryNote,
+		Statement: "会话已建立且过滤机制由 X 控制",
 	}
 	stateAttempt, _ := e.harvestObservation(context.Background(), action, state, ExecutionTrace{})
 	if stateAttempt != nil {
-		t.Fatal("state 不得产出 Attempt（不进裁决管道）")
+		t.Fatal("state 不得产出 Attempt（不进验证管道）")
 	}
 	stateNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
 	if len(stateNodes) != 1 {
 		t.Fatalf("state 应落图 1 个观察: %d", len(stateNodes))
 	}
-	if stateNodes[0].Confidence == nil || *stateNodes[0].Confidence != explorationgraph.ConfidenceFactual {
-		t.Fatalf("state 图级状态应为 factual 终态: %+v", stateNodes[0].Confidence)
+	if !stateNodes[0].IsFact() {
+		t.Fatalf("事实不应带验证状态: %+v", stateNodes[0].VerificationStatus)
 	}
 
-	// hypothesis：unverified + Attempt
+	// hypothesis：pending + Attempt
 	hyp := Observation{
-		Category:  CategoryHypothesis,
+		Category:  explorationgraph.CategoryHypothesis,
 		Statement: "X 参数存在可复现的注入现象",
 		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 发请求 2. 观察回显"},"assert":{"description":"看到回显"}}`),
 	}
 	hypAttempt, _ := e.harvestObservation(context.Background(), action, hyp, ExecutionTrace{})
 	if hypAttempt == nil {
-		t.Fatal("hypothesis 应产出 Attempt（进裁决管道）")
+		t.Fatal("hypothesis 应产出 Attempt（进验证管道）")
 	}
 	hypNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
 	if len(hypNodes) != 2 {
 		t.Fatalf("hypothesis 应落图: %d", len(hypNodes))
 	}
 	for _, n := range hypNodes {
-		if n.ID == hypAttempt.NodeID && (n.Confidence == nil || *n.Confidence != explorationgraph.ConfidenceUnverified) {
-			t.Fatalf("hypothesis 图级状态应为 unverified: %+v", n.Confidence)
+		if n.ID == hypAttempt.NodeID && !n.HasVerificationStatus(explorationgraph.VerificationPending) {
+			t.Fatalf("hypothesis 写入时应为待验证: %+v", n.VerificationStatus)
 		}
 	}
 
-	// 无配方的 hypothesis：落图前降级为 state（无配方的主张无从裁决）
+	// 无配方的 hypothesis：落图前降级为 state（无配方的主张无从验证）
 	speculative := Observation{
-		Category:  CategoryHypothesis,
+		Category:  explorationgraph.CategoryHypothesis,
 		Statement: "未实测的推测",
 	}
 	specAttempt, _ := e.harvestObservation(context.Background(), action, speculative, ExecutionTrace{})
@@ -237,7 +236,7 @@ func TestHarvestObservation_FactWithoutReproIsNotNormalized(t *testing.T) {
 		t.Fatalf("建 action 失败: %v", err)
 	}
 
-	fact := Observation{Category: CategoryBehavior, Statement: "登录接口对错误密码返回 200 与提示文案"}
+	fact := Observation{Category: explorationgraph.CategoryBehavior, Statement: "登录接口对错误密码返回 200 与提示文案"}
 	if _, observed := e.harvestObservation(context.Background(), action, fact, ExecutionTrace{}); !observed {
 		t.Fatal("事实观察应落图")
 	}

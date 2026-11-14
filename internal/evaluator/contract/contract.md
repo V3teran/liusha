@@ -1,13 +1,13 @@
 # 重放通道（系统机制，必须遵守）
 
 1. **先调 `replay_for_verification`** 重放复现配方（域信封：domain + recipe + assert），取得机器证据（断言明细 + 响应快照）
-2. 证据标注 **domain=generic** 时无机器重放——用 `run_command` 按 recipe 的步骤自主执行取证，基于命令输出裁决
+2. 证据标注 **domain=generic** 时无机器重放——用 `run_command` 按 recipe 的步骤自主执行取证，基于命令输出判定
 
 # 输出契约（系统据此解析，必须遵守）
 
-裁决后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
+判定后停止调用工具，**只输出一个 JSON 对象**（不要包裹 markdown）：
 
-{"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话裁决理由（引用你亲见的差分）",
+{"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话评估理由（引用你亲见的差分）",
  "finding": {"class": "类别（按域指引词表）", "method": "方法", "host": "主机", "path": "路径", "param": "触发点"}}
 
 - verdict 只有 confirmed / refuted 两个取值（系统按两态落图）

@@ -20,13 +20,13 @@ func (g *PromotionGate) validateAttempt(a Attempt) error {
 		return fmt.Errorf("verifier: Attempt.Kind 必填")
 	}
 	if a.NodeID == "" {
-		return fmt.Errorf("verifier: Attempt.NodeID 必填（审计链与审判标记都要指向被裁决的假设节点）")
+		return fmt.Errorf("verifier: Attempt.NodeID 必填（审计链与验证标记都要指向被验证的假设节点）")
 	}
 	if g.replayer == nil {
 		return fmt.Errorf("verifier: 无 Replayer，无法复现晋升")
 	}
 	if g.judge == nil {
-		return fmt.Errorf("verifier: 无 LLM 裁决器，无法晋升（机器不持判定权）")
+		return fmt.Errorf("verifier: 无 LLM 判定器，无法晋升（机器不持判定权）")
 	}
 	return nil
 }
@@ -72,7 +72,7 @@ func (g *PromotionGate) checkMachineGuard(
 	return nil, true, nil
 }
 
-// executeLLMJudge 执行 LLM 裁决
+// executeLLMJudge 执行 LLM 判定
 func (g *PromotionGate) executeLLMJudge(
 	ctx context.Context,
 	a Attempt,
@@ -83,8 +83,8 @@ func (g *PromotionGate) executeLLMJudge(
 	verdict, err := g.judge.Judge(ctx, hyp, a.Primitives, res.Evaluation,
 		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
 	if err != nil {
-		return Verdict{}, fmt.Errorf("%w: verifier: LLM 裁决失败（本次未裁决，不回退机器）: %w",
-			ErrAdjudicationUnavailable, err)
+		return Verdict{}, fmt.Errorf("%w: verifier: LLM 判定失败（本次未出结论，不回退机器）: %w",
+			ErrJudgeUnavailable, err)
 	}
 	return verdict, nil
 }
@@ -103,11 +103,11 @@ func aggregateEvidence(res Result, tier, verdict string, reasoning string, repla
 }
 
 // recordVerification 记录验证结果到审计链。
-// node_id 指向被裁决的假设节点——审计链回答"谁被验证了"。
+// node_id 指向被验证的假设节点——审计链回答"谁被验证了"。
 func (g *PromotionGate) recordVerification(
 	ctx context.Context,
 	a Attempt,
-	outcome explorationgraph.VerifyOutcome,
+	outcome explorationgraph.VerificationStatus,
 	evaluation []byte,
 	durationMs int64,
 ) (string, error) {
@@ -127,19 +127,17 @@ func (g *PromotionGate) recordVerification(
 	return verID, nil
 }
 
-// hypothesisMark 是假设节点审判标记的载荷：结论与归属。
+// hypothesisMark 是假设节点验证标记的载荷：结论与归属。
 // 溯源细节（验证记录 ID/档位/时刻）以 exploration_verification 行为权威事实，
 // 节点 metadata 只留结论键——mark 里不重复落指针与时间戳。
 type hypothesisMark struct {
-	outcome      explorationgraph.VerifyOutcome
-	confirmed    bool
+	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
 	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
 }
 
-// markHypothesisNode 在假设节点上回写审判标记：verification_outcome 记录
-// 裁决溯源，confidence 同步流转（unverified → verified/refuted）——
-// 轮询方以 confidence=unverified 圈定待裁决集合，两个键必须一致更新。
+// markHypothesisNode 在假设节点上回写验证结论：验证状态流转（pending → confirmed /
+// refuted，轮询方以 pending 圈定待验证集合），证伪时附证伪原因。
 func (g *PromotionGate) markHypothesisNode(
 	ctx context.Context,
 	a Attempt,
@@ -149,14 +147,8 @@ func (g *PromotionGate) markHypothesisNode(
 		return
 	}
 
-	confidence := explorationgraph.ConfidenceRefuted
-	if m.confirmed {
-		confidence = explorationgraph.ConfidenceVerified
-	}
-
 	mark := map[string]interface{}{
-		"verification_outcome": m.outcome,
-		"confidence":           confidence,
+		"verification_status": m.status,
 	}
 	if m.refuteReason != "" {
 		mark["refute_reason"] = m.refuteReason
@@ -171,7 +163,7 @@ func (g *PromotionGate) markHypothesisNode(
 	}
 
 	if uErr := g.graph.UpdateNodeMetadata(ctx, a.NodeID, b); uErr != nil && g.logger != nil {
-		g.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点审判标记写入失败（不影响裁决）")
+		g.logger.Warn().Err(uErr).Str("node_id", a.NodeID).Msg("假设节点验证标记写入失败（不影响判定）")
 	}
 }
 
@@ -186,13 +178,11 @@ func (g *PromotionGate) createVerifiedNode(
 	verID string,
 	fingerprintKey string,
 ) (*explorationgraph.Node, error) {
-	verified := explorationgraph.ConfidenceVerified
 	node := explorationgraph.Node{
 		ID:         nodeID,
 		TaskID:     a.TaskID,
 		Kind:       a.Kind,
 		Content:    a.Content,
-		Confidence: &verified,
 		Priority:   explorationgraph.Priority(a.Priority),
 		SourceType: explorationgraph.SourceEvaluator,
 		SourceID:   verID,

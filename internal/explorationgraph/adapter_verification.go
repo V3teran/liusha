@@ -34,7 +34,7 @@ func (s *Store) RecordVerification(ctx context.Context, v Verification) (string,
 }
 
 // ListVerificationsByTask 按任务读验证审计链（时间倒序）——审计链的读路径：
-// 每条记录的 node_id 指向被裁决的假设节点，前端/复盘据此把坐实与证伪的
+// 每条记录的 node_id 指向被验证的假设节点，前端/复盘据此把坐实与证伪的
 // 机器证据回挂到图节点上。
 func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limit int) ([]Verification, error) {
 	if s.pool == nil {

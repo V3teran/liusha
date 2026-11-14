@@ -104,20 +104,20 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 		actions = filtered
 	}
 
-	// 查询发现（经裁决坐实的主张）
+	// 查询发现（经判定坐实的主张）
 	findings, err := t.graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}
 
-	// 查询已确认的世界状态（fact 观察终态）
+	// 查询已确认的世界状态（事实观察）
 	observations, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load observations: %v", err)}, nil
 	}
 	var facts []explorationgraph.Node
 	for _, obs := range observations {
-		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceFactual {
+		if obs.IsFact() {
 			facts = append(facts, obs)
 		}
 	}

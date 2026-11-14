@@ -41,7 +41,7 @@ func TestGuard_CompleteThenAbortRejected(t *testing.T) {
 	}
 }
 
-// 迁移守卫：aborted 后迟到的 Complete 不得覆盖停止裁决（典型时序：用户点停止 →
+// 迁移守卫：aborted 后迟到的 Complete 不得覆盖停止判定（典型时序：用户点停止 →
 // api 先 abort → runner 循环随后自然收敛）。
 func TestGuard_AbortThenCompleteRejected(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))

@@ -17,9 +17,9 @@ import (
 
 // createObservationNode 为观察结果创建 observation 节点
 //
-// 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
-// - hypothesis + repro → unverified（待复现门裁决）
-// - 其余全部 → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
+// 验证状态由 Category 完全决定（不由 executor 赋值）：
+// - hypothesis + repro → pending（待复现门验证）
+// - 其余全部 → 没有验证状态（事实写入即终态：信任来自执行轨迹出处，无需验证）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -74,21 +74,18 @@ func (e *Engine) createObservationNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	// 图级 Confidence 由 Category 决定：只有 hypothesis 进验证生命周期
-	// （unverified → 复现门裁决），其余六个信息域都是写入即终态的事实。
+	// 只有 hypothesis 进验证生命周期（pending → 复现门验证），其余五个信息域
+	// 都是写入即终态的事实，不带验证状态。
 	switch obs.Category {
-	case CategoryHypothesis:
+	case explorationgraph.CategoryHypothesis:
 		// hypothesis 必须有 repro
 		if len(obs.Repro) == 0 {
 			return nil, fmt.Errorf("hypothesis observation requires repro")
 		}
-		unverified := explorationgraph.ConfidenceUnverified
-		node.Confidence = &unverified
+		pending := explorationgraph.VerificationPending
+		node.VerificationStatus = &pending
 
-	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
-		CategoryIssue, CategoryNote:
-		factual := explorationgraph.ConfidenceFactual
-		node.Confidence = &factual
+	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
 
 	default:
 		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
@@ -122,21 +119,16 @@ func (e *Engine) observationToAttempt(
 	obs Observation,
 ) (evaluator.Attempt, error) {
 	// priority 缺省交领域交付层补（finding 映射处有默认）——通用执行层
-	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
+	// 不制造领域默认值。
 	priority := obs.Priority
-	confidence := obs.Confidence
-	if confidence == "" {
-		confidence = "low"
-	}
 
 	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——
 	// 中立层词汇 priority/impact/suggestion，安全域交付时译作
 	// severity/impact/remediation（域词归域）。executor 的执行轨迹随
 	// 观察节点另存，不进主张载荷（体积与职责：轨迹属图，主张属台账）。
 	content := map[string]interface{}{
-		"summary":    obs.Statement,
-		"priority":   priority,
-		"confidence": confidence,
+		"summary":  obs.Statement,
+		"priority": priority,
 	}
 	if obs.Impact != "" {
 		content["impact"] = obs.Impact
@@ -163,45 +155,14 @@ func (e *Engine) observationToAttempt(
 // 观察载荷与执行轨迹（Observation / ExecutionTrace / TraceBuilder）
 // ─────────────────────────────────────────────────────────────
 
-// ObservationCategory 是观察的信息类别：七个领域中立的信息域，决定观察的
-// 生命周期与检索语义。词汇表对任意领域的探索 agent 通用；分类定义随输出契约
-// （executor/contract）固定，领域例子由执行器章程承载，换领域自定义章程即可。
-//
-//   - entity：环境中存在的单个对象及其属性（inventory：有什么）
-//   - access：触达与运用对象的途径（affordance：怎么用）
-//   - structure：对象之间的关系与布局（topology：怎么连）
-//   - behavior：环境受激后的反应与内在机制（dynamics：怎么动）
-//   - issue：已观察到的异常与障碍——不经复现门、直接可判定的坏事实；
-//     需要证明的判断必须走 hypothesis → 裁决 → result，不许落在 issue 里
-//   - note：无法归入上述任何域的杂项（兜底；写作顺序上的最后手段）
-//   - hypothesis：待验证的判断——必须携带复现配方，经裁决门裁决后才成为
-//     result
-type ObservationCategory string
-
-// CategoryEntity 等是七种观察类别的枚举值（语义见 ObservationCategory）。
-const (
-	CategoryEntity     ObservationCategory = "entity"
-	CategoryAccess     ObservationCategory = "access"
-	CategoryStructure  ObservationCategory = "structure"
-	CategoryBehavior   ObservationCategory = "behavior"
-	CategoryNote       ObservationCategory = "note"
-	CategoryIssue      ObservationCategory = "issue"
-	CategoryHypothesis ObservationCategory = "hypothesis"
-)
-
-// Observation 是执行器从环境感知到的一条断言（Category 七值语义见
-// ObservationCategory）。图级 confidence 由 createObservationNode 按
-// Category 设置，executor 的自评置信度只进载荷（executor_confidence），
-// 不进图状态。
-//
-// 图级 confidence 由 createObservationNode 按 Category 设置，executor
-// 的自评置信度只进载荷（executor_confidence），不进图状态。
+// Observation 是执行器从环境感知到的一条断言（Category 语义见 explorationgraph.ObservationCategory）。
+// 验证状态由 createObservationNode 按 Category 设置，不由执行器给出。
 type Observation struct {
 	// Statement：观察的陈述
 	Statement string `json:"statement"`
 
 	// Category：观察分类（决定生命周期）
-	Category ObservationCategory `json:"category"`
+	Category explorationgraph.ObservationCategory `json:"category"`
 
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
@@ -213,22 +174,17 @@ type Observation struct {
 	// Impact：主张为真时的影响与波及面（中性因果陈述）。
 	Impact string `json:"impact,omitempty"`
 
-	// Confidence：executor 的置信度评估
-	// 取值：low / medium / high
-	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
-	Confidence string `json:"confidence,omitempty"`
-
 	// Suggestion：处理建议（若要改变这一局面可以怎么做）。
 	Suggestion string `json:"suggestion,omitempty"`
 
 	// Repro：复现配方
-	//   - hypothesis：必须（无配方的推测无从裁决）
+	//   - hypothesis：必须（无配方的推测无从验证）
 	//   - 其余类别：可选
 	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
 
 	// ExecutionTrace：完整执行轨迹（所有请求响应、会话状态、元数据）——
-	// 假设的裁决依据，事实的出处
+	// 假设的判定依据，事实的出处
 	ExecutionTrace *ExecutionTrace `json:"execution_trace,omitempty"`
 }
 

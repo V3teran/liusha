@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// ClaimFingerprint 是本域主张指纹的形状：裁决官按章程契约输出，描述
+// ClaimFingerprint 是本域主张指纹的形状：评估者按章程契约输出，描述
 // "什么类别的主张、打在哪个位置"。同一位置的同类主张共享同一规范键，
 // 晋升门据此折叠重复确认。
 type ClaimFingerprint struct {
@@ -29,7 +29,7 @@ func (f *ClaimFingerprint) canonicalKey() string {
 	}, "|")
 }
 
-// FingerprintNormalizer 实现 evaluator.FingerprintNormalizer：把裁决官
+// FingerprintNormalizer 实现 evaluator.FingerprintNormalizer：把评估者
 // 输出的原始指纹 JSON 归一成规范键。形状损坏返回 ok=false——该主张不
 // 参与语义去重，按无指纹处理（不丢发现，只是不折叠）。
 type FingerprintNormalizer struct{}

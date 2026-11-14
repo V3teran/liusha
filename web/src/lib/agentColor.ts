@@ -34,7 +34,7 @@ const FIXED: Record<string, AgentProfile> = {
     accent: catColor('sky'),
     soft: catSoft('sky'),
     icon: Scale,
-    label: '裁决'
+    label: '评估'
   },
   monitor: {
     accent: catColor('pink'),

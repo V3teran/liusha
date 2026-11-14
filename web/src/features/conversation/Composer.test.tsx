@@ -107,7 +107,7 @@ describe('Composer', () => {
     })
   })
 
-  it('followUp 失败时显示发送失败提示（busy 裁决已异步化，无同步特例）', async () => {
+  it('followUp 失败时显示发送失败提示（busy 判定已异步化，无同步特例）', async () => {
     vi.mocked(followUp).mockRejectedValue(new Error('network'))
     render(<Composer convId="c1" onStarted={vi.fn()} onAppended={vi.fn()}  />)
 
