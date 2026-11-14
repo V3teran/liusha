@@ -157,8 +157,12 @@ func (d *Deps) run(
 	}
 
 	// 根目标代表任务本身，随任务创建（task.Store.Create）；没有根目标就无从规划。
-	if _, err := d.Graph.GoalBasis(ctx, taskID); err != nil {
+	root, ok, err := d.Graph.RootObjectiveOf(ctx, taskID)
+	if err != nil {
 		return Report{}, err
+	}
+	if !ok {
+		return Report{}, fmt.Errorf("任务 %s 没有根目标", taskID)
 	}
 
 	// 本 run 此刻独占任务：之前的 run 留下的在途动作（进程崩溃、或新旧 run 重叠时
@@ -197,9 +201,14 @@ func (d *Deps) run(
 	stopWatch := (&taskWatcher{
 		taskID: taskID,
 		tasks:  d.Tasks,
+		goal:   root.Goal(),
 		stopRun: func(reason string) {
 			lifecycle.Stop()
 			stack.detector.Abort(reason)
+		},
+		onGoalChanged: func() {
+			stack.plannerAgent.RequestReplan("任务目标已被用户调整：按新目标重新规划（按旧目标排出、尚未开始的动作已撤回）")
+			stack.monitorAgent.RequestReview("任务目标已被用户调整：复核在途动作是否仍服务于新目标")
 		},
 		logger: d.Logger.With().Str("component", "task_watch").Logger(),
 	}).start(ctx)

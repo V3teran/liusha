@@ -259,8 +259,33 @@ func TestHarvestObservation_NoExecutionTrace(t *testing.T) {
 func TestBuildSystemPrompt_IncludesGoalVerbatim(t *testing.T) {
 	e := NewEngine(EngineConfig{Charter: "你是执行者。", Logger: zerolog.Nop()})
 	goal := "测试 http://t.local/login.php，账号 admin/password"
-	prompt := e.buildSystemPrompt("testing", "simple", goal, nil)
+	prompt := e.buildSystemPrompt(explorationgraph.Node{}, "testing", "simple", goal, nil)
 	if !strings.Contains(prompt, goal) {
 		t.Fatalf("系统提示词应逐字包含任务目标:\n%s", prompt)
+	}
+}
+
+// 用户指派的动作按来源装配指导（不借用 type）：按指令执行、不扩大范围。规划者的动作没有这段。
+func TestBuildSystemPrompt_UserAssignedGuidance(t *testing.T) {
+	e := NewEngine(EngineConfig{Charter: "你是执行者。", Logger: zerolog.Nop()})
+	user := explorationgraph.Node{SourceType: explorationgraph.SourceUser}
+	planned := explorationgraph.Node{SourceType: explorationgraph.SourcePlanner}
+	if prompt := e.buildSystemPrompt(user, "", "", "g", nil); !strings.Contains(prompt, "用户指派的动作") || !strings.Contains(prompt, "不扩大范围") {
+		t.Fatalf("用户指派的动作应带指导:\n%s", prompt)
+	}
+	if prompt := e.buildSystemPrompt(planned, "testing", "", "g", nil); strings.Contains(prompt, "用户指派") {
+		t.Fatalf("规划者的动作不应带用户指派指导:\n%s", prompt)
+	}
+}
+
+// 执行目标：用户指派的动作写明来源；没有类型时不留空的「类型」行。
+func TestActionObjective(t *testing.T) {
+	user := explorationgraph.Node{SourceType: explorationgraph.SourceUser}
+	planned := explorationgraph.Node{SourceType: explorationgraph.SourcePlanner}
+	if got := actionObjective(user, &ActionContent{Instruction: "复测登录"}); got != "执行用户指派的操作：复测登录" {
+		t.Fatalf("得 %q", got)
+	}
+	if got := actionObjective(planned, &ActionContent{Instruction: "枚举目录", Type: "reconnaissance"}); got != "执行以下操作：枚举目录\n\n类型：reconnaissance" {
+		t.Fatalf("得 %q", got)
 	}
 }

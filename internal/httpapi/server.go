@@ -54,6 +54,8 @@ type Deps struct {
 	// TaskControl 为 nil 时 POST /tasks/:id/control 不注册（任务行「暂停/继续/停止」）。
 	// api 组件注入 dispatch 侧适配器：三个操作都只写任务行，运行中的循环按行观察。
 	TaskControl TaskControlAPI
+	// TaskSteering 为 nil 时运行中引导路由不注册（调整目标 / 指派动作 / 否决动作）。
+	TaskSteering TaskSteeringAPI
 	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删会话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
 	// Attachments/AttachmentContext 为 nil（或 AttachmentMaxBytes<=0）时附件上传路由不注册。

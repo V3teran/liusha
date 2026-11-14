@@ -145,6 +145,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	publisher := convstream.NewPublisher(rdb)
 	dispatchService := &dispatch.Service{
+		DB:            pool,
 		LLM:           llmReadiness{llmRouter},
 		Assignments:   assignmentStore,
 		Tasks:         taskStore,
@@ -212,6 +213,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			TaskDispatch:       dispatchService,
 			Schedules:          cronStore,
 			TaskControl:        dispatchService,
+			TaskSteering:       dispatchService,
 			Logs:               logx.NewReader(logx.Dir()),
 			WebUI:              web.Assets(),
 		}),

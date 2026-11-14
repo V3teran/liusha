@@ -85,6 +85,36 @@ const (
 	TaskStatusResumed    = "resumed"    // 用户继续（api，重投/原地续跑）
 )
 
+// 运行中引导的回执（metadata.kind = steering，op 区分操作）：人在任务运行中修正方向的
+// 记录。消息正文是实际写入的内容（新目标全文 / 指派的指令 / 否决原因）。
+const (
+	SteeringGoalAdjusted   = "goal_adjusted"   // 调整目标
+	SteeringActionAssigned = "action_assigned" // 指派动作
+	SteeringActionRejected = "action_rejected" // 否决动作
+)
+
+// SteeringMeta 构造运行中引导回执的 metadata：{kind:"steering", op:..., 其余字段按操作
+// 可选（withdrawn 撤回的规划动作数、action_id、priority）}，零值省略。
+func SteeringMeta(op string, fields map[string]any) json.RawMessage {
+	m := map[string]any{"kind": "steering", "op": op}
+	for k, v := range fields {
+		switch t := v.(type) {
+		case string:
+			if t != "" {
+				m[k] = t
+			}
+		case int64:
+			if t > 0 {
+				m[k] = t
+			}
+		default:
+			m[k] = v
+		}
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
 // TaskStatusMeta 构造时间线任务状态节点的 metadata（单一契约源，五处迁移写者共用）：
 //
 //	{kind:"task_status", status:..., 其余字段按迁移可选（stop_reason/steps/findings/

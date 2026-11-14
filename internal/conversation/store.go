@@ -277,19 +277,48 @@ const msgCols = "seq, id, conversation_id, role, kind, content, metadata, create
 // 不开事务：append + touch updated_at 两条 Exec，与项目"保持简单不上事务"一致——
 // touch 失败仅影响列表排序，不影响消息已落库。
 func (s *Store) AppendMessage(ctx context.Context, conversationID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO message (conversation_id, role, kind, content, metadata)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING `+msgCols, conversationID, role, kind, content, metadata)
-	var m Message
-	if err := scanMessage(row, &m); err != nil {
-		return Message{}, fmt.Errorf("append message to %s: %w", conversationID, err)
+	m, err := insertMessage(ctx, s.pool, conversationID, role, kind, content, metadata)
+	if err != nil {
+		return Message{}, err
 	}
 	// touch updated_at（仅真实会话消息 user/assistant）：失败仅影响列表排序，消息已落库——不报错。
 	// KindEvent 是高频 agent 过程事件（active 一次几百条），不参与会话列表排序，跳过这次 DB 往返
 	// ——省掉热路径上每事件的第二次同步写。
 	if kind != KindEvent {
 		_, _ = s.pool.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", conversationID)
+	}
+	return m, nil
+}
+
+// AppendMessageTx 在调用方事务内追加一条消息：记录要与它记载的变更同时成立（如运行中
+// 引导的回执——目标被覆盖改写后，时间线是变更唯一的历史）。消息在事务提交后才可见，
+// 推送给前端须在提交之后。
+func AppendMessageTx(ctx context.Context, tx pgx.Tx, conversationID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
+	m, err := insertMessage(ctx, tx, conversationID, role, kind, content, metadata)
+	if err != nil {
+		return Message{}, err
+	}
+	if kind != KindEvent {
+		if _, err := tx.Exec(ctx, "UPDATE conversation SET updated_at=now() WHERE id=$1", conversationID); err != nil {
+			return Message{}, fmt.Errorf("touch conversation %s: %w", conversationID, err)
+		}
+	}
+	return m, nil
+}
+
+// rowQuerier 是追加消息所需的最小查询能力（pgxpool.Pool / pgx.Tx 都满足）。
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func insertMessage(ctx context.Context, q rowQuerier, conversationID string, role Role, kind Kind, content string, metadata json.RawMessage) (Message, error) {
+	row := q.QueryRow(ctx, `
+		INSERT INTO message (conversation_id, role, kind, content, metadata)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING `+msgCols, conversationID, role, kind, content, metadata)
+	var m Message
+	if err := scanMessage(row, &m); err != nil {
+		return Message{}, fmt.Errorf("append message to %s: %w", conversationID, err)
 	}
 	return m, nil
 }

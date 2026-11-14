@@ -191,6 +191,14 @@ func foldLine(label string, folded map[string]int, total int) string {
 	return fmt.Sprintf("- （更早的 %d 条%s已折叠：%s）\n", total, label, strings.Join(strs, "、"))
 }
 
+// actionTag 是动作行的状态标记，用户指派的动作附上来源（规划者据此知道哪些是用户直接要求的）。
+func actionTag(state string, n explorationgraph.Node) string {
+	if n.SourceType == explorationgraph.SourceUser {
+		return "[" + state + "·用户指派]"
+	}
+	return "[" + state + "]"
+}
+
 // actionInstruction 读动作指令并钳长。
 func actionInstruction(n explorationgraph.Node) string {
 	var a struct {
@@ -213,7 +221,7 @@ func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 	shown, folded, total := foldTerminalActions(actions)
 	sb.WriteString(foldLine("已完成动作", folded, total))
 	for _, action := range shown {
-		fmt.Fprintf(&sb, "- [完成] [ID: %s] %s\n", action.ID, actionInstruction(action))
+		fmt.Fprintf(&sb, "- %s [ID: %s] %s\n", actionTag("完成", action), action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -228,7 +236,7 @@ func buildPendingActionsSection(actions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 进行中的工作\n")
 	for _, action := range actions {
-		fmt.Fprintf(&sb, "- [进行中] [ID: %s] %s\n", action.ID, actionInstruction(action))
+		fmt.Fprintf(&sb, "- %s [ID: %s] %s\n", actionTag("进行中", action), action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -245,7 +253,7 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	shown, folded, total := foldTerminalActions(actions)
 	sb.WriteString(foldLine("失败动作", folded, total))
 	for _, action := range shown {
-		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), stateReason(action, "未知原因"))
+		fmt.Fprintf(&sb, "- %s [ID: %s] %s（原因：%s）\n", actionTag("失败", action), action.ID, actionInstruction(action), stateReason(action, "未知原因"))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -282,7 +290,7 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	shown, folded, total := foldTerminalActions(actions)
 	sb.WriteString(foldLine("已中止动作", folded, total))
 	for _, action := range shown {
-		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), stateReason(action, "未注明"))
+		fmt.Fprintf(&sb, "- %s [ID: %s] %s（原因：%s）\n", actionTag("已中止", action), action.ID, actionInstruction(action), stateReason(action, "未注明"))
 	}
 	sb.WriteString("\n")
 	return sb.String()

@@ -33,12 +33,16 @@ const StopReasonPaused = "user_paused"
 // （用户停止 / 判死），本 run 携此原因落 aborted，收尾不再写任务行。
 const StopReasonTerminated = "task_terminated"
 
-// taskWatcher 轮询任务行：终态或暂停即停 agents、携停止原因结束本 run。
+// taskWatcher 轮询任务行：终态或暂停即停 agents、携停止原因结束本 run；目标被调整即
+// 通知（规划者立即按新目标重规划、监察者立即复核在途动作）。通知只让变化更快生效，
+// 正确性不依赖它：规划结论以目标依据为前置落图（见 explorationgraph.GoalBasis）。
 type taskWatcher struct {
-	taskID  string
-	tasks   TaskStateReader
-	stopRun func(reason string) // 停 agents 并以 reason 结束本 run
-	logger  zerolog.Logger
+	taskID        string
+	tasks         TaskStateReader
+	goal          string              // 上次看到的目标（run 开始时的根目标）
+	stopRun       func(reason string) // 停 agents 并以 reason 结束本 run
+	onGoalChanged func()              // 目标被调整
+	logger        zerolog.Logger
 }
 
 // start 启动轮询，返回停止函数。只等 ctx 退出是不够的：run 被中止后 ctx 依然存活（它
@@ -87,6 +91,11 @@ func (w *taskWatcher) observe(ctx context.Context) bool {
 		w.logger.Info().Msg("观察到任务暂停，停止 agents 并结束本 run")
 		w.stopRun(StopReasonPaused)
 		return true
+	}
+	if tk.Goal != w.goal {
+		w.goal = tk.Goal
+		w.logger.Info().Msg("观察到任务目标被调整，通知规划者重规划、监察者复核")
+		w.onGoalChanged()
 	}
 	return false
 }

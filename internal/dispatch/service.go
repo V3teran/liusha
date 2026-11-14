@@ -34,6 +34,7 @@ import (
 	"github.com/V3teran/liusha/internal/textx"
 	"github.com/V3teran/liusha/internal/worker"
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -80,6 +81,7 @@ func (e EventStreamAdapter) Subscribe(ctx context.Context, conversationID string
 // task，由用户手动停止或僵尸 run 回收兜底——保持简单不上事务，与
 // ingestor.enqueueProxyTask 一致语义）。task.Store 管任务生命周期，agentrun.Store 建 run。
 type Service struct {
+	DB            *pgxpool.Pool // 运行中引导的事务（任务行、探索图与时间线回执同事务）
 	Assignments   *assignment.Store
 	Tasks         *task.Store
 	AgentRuns     *agentrun.Store
