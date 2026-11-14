@@ -324,8 +324,8 @@ func (d *Deps) assembleStack(
 	// CLI 工具清单按白名单过滤
 	filteredManifest := d.filterManifest(cfgs.executor.CliTools)
 
-	// executor：Engine（ReAct）→ Coordinator → Agent
-	executorAgent := d.buildExecutorAgent(ctx, taskID, host, agentRunID, cfgs.executor,
+	// executor：Engine（ReAct）→ Agent
+	executorAgent := d.buildExecutorAgent(ctx, taskID, agentRunID, cfgs.executor,
 		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"), activity)
 
 	// evaluator：评估者（ReAct judge）→ 复现晋升门 → Agent
@@ -445,10 +445,10 @@ func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	return filtered
 }
 
-// buildExecutorAgent 组装 Engine（ReAct）→ Coordinator → Executor Agent。
+// buildExecutorAgent 组装 Engine（ReAct）→ Executor Agent。
 func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
-	taskID, host, agentRunID string,
+	taskID, agentRunID string,
 	cfg agent.Agent,
 	filteredManifest *manifest.ToolManifest,
 	skillsView skill.Reader,
@@ -474,13 +474,12 @@ func (d *Deps) buildExecutorAgent(
 		Activity:            activity,                         // 每完成一步推理记一次进展
 		Logger:              d.Logger,
 	})
-	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
 
 	return executor.NewAgent(executor.AgentConfig{
 		TaskID:      taskID,
 		AgentRunID:  agentRunID, // 动作认领归属本 run
 		Graph:       d.Graph,
-		Executor:    coord,
+		Executor:    engine,
 		EventBus:    d.EventBus,
 		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
 		MaxParallel: 4, // open 动作并发执行（浏览器已按 action 隔离 tab）
