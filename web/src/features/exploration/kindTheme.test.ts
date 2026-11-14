@@ -20,11 +20,11 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(nodeTitle(node({ kind: 'objective', content: { description: '攻破 DVWA' } }))).toBe('攻破 DVWA')
     expect(nodeTitle(node({ id: 'n-act', kind: 'action', content: { instruction: '扫描登录页' } }))).toBe('扫描登录页')
     expect(nodeTitle(node({ id: 'n-obs', kind: 'observation', content: { statement: '发现弱口令' } }))).toBe('发现弱口令')
-    expect(nodeTitle(node({ id: 'n-res', kind: 'result', content: { summary: 'SQLi 已坐实' } }))).toBe('SQLi 已坐实')
+    expect(nodeTitle(node({ id: 'n-res', kind: 'result', content: { statement: 'SQLi 已坐实' } }))).toBe('SQLi 已坐实')
   })
 
-  it('nodeTitle 主字段缺失时逐级回落，content 非对象时返回空串', () => {
-    expect(nodeTitle(node({ kind: 'objective', content: { title: '回退标题' } }))).toBe('回退标题')
+  it('nodeTitle 主字段缺失或 content 非对象时返回空串', () => {
+    expect(nodeTitle(node({ kind: 'objective', content: { title: '不是主字段' } }))).toBe('')
     expect(nodeTitle(node({ kind: 'objective', content: null }))).toBe('')
     expect(nodeTitle(node({ kind: 'action', content: '纯字符串载荷' }))).toBe('')
   })

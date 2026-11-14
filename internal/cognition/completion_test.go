@@ -79,7 +79,7 @@ func TestCompletionDetector_ReportStatsFromGraph(t *testing.T) {
 		Content: []byte(`{"statement":"fact"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, explorationgraph.Node{ID: "r1", TaskID: detTask, Kind: core.KindResult,
-		Content: []byte(`{"summary":"r"}`)})
+		Content: []byte(`{"statement":"r"}`)})
 	require.NoError(t, err)
 
 	got := d.makeResult(StopReasonConverged)

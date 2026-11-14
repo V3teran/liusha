@@ -20,7 +20,7 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	resultID := "11111111-2222-4333-8444-555555555555"
 	_, err := store.CreateNode(ctx, explorationgraph.Node{ID: resultID, TaskID: "t1", Kind: core.KindResult,
-		Content: []byte(`{"summary":"r"}`)})
+		Content: []byte(`{"statement":"r"}`)})
 	require.NoError(t, err)
 
 	e := NewEngine(nil, zerolog.Nop())

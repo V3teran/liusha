@@ -136,10 +136,10 @@ func (s *Service) collect(ctx context.Context, taskID string) []string {
 	} else {
 		for _, r := range nodes {
 			var c struct {
-				Summary string `json:"summary"`
+				Statement string `json:"statement"`
 			}
-			if json.Unmarshal(r.Content, &c) == nil && strings.TrimSpace(c.Summary) != "" {
-				results = append(results, "已确认发现："+c.Summary)
+			if json.Unmarshal(r.Content, &c) == nil && strings.TrimSpace(c.Statement) != "" {
+				results = append(results, "已确认发现："+c.Statement)
 			}
 		}
 	}

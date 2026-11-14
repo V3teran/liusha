@@ -123,8 +123,8 @@ func buildAnalysisResultsSection(results []explorationgraph.Node) string {
 			continue
 		}
 		fmt.Fprintf(&sb, "%d. Result ID: %s\n", i+1, result.ID)
-		if summary, ok := content["summary"].(string); ok {
-			fmt.Fprintf(&sb, "   内容：%s\n", summary)
+		if statement, ok := content["statement"].(string); ok {
+			fmt.Fprintf(&sb, "   内容：%s\n", statement)
 		}
 		sb.WriteString("\n")
 	}

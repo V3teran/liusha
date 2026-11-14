@@ -111,29 +111,19 @@ function contentOf(node: GraphNode): Record<string, unknown> {
   return node.content && typeof node.content === 'object' ? (node.content as Record<string, unknown>) : {}
 }
 
-function pickContent(node: GraphNode, keys: string[]): string {
-  const c = contentOf(node)
-  for (const k of keys) {
-    const v = c[k]
-    if (v != null && v !== '') return String(v)
-  }
-  return ''
+/** 各 kind 的主文本字段（领域载荷的首字段） */
+const TITLE_FIELD: Record<string, string> = {
+  objective: 'description',
+  action: 'instruction',
+  observation: 'statement',
+  result: 'statement',
 }
 
-/** 卡片与详情面板共用的节点主文本（每种 kind 的领域载荷首字段） */
+/** 卡片与详情面板共用的节点主文本 */
 export function nodeTitle(node: GraphNode): string {
-  switch (node.kind) {
-    case 'objective':
-      return pickContent(node, ['description', 'goal', 'title', 'text'])
-    case 'action':
-      return pickContent(node, ['instruction', 'title', 'text'])
-    case 'observation':
-      return pickContent(node, ['statement', 'title', 'text'])
-    case 'result':
-      return pickContent(node, ['summary', 'title', 'text'])
-    default:
-      return pickContent(node, ['description', 'instruction', 'statement', 'summary', 'title', 'text'])
-  }
+  const field = TITLE_FIELD[node.kind]
+  const v = field ? contentOf(node)[field] : undefined
+  return v != null && v !== '' ? String(v) : ''
 }
 
 export interface NodeChips {
