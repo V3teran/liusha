@@ -16,7 +16,7 @@ type objectiveView struct {
 }
 
 // newObjectiveView 按「根目标 / 进行中的派生目标 / 已收敛的派生目标」划分
-// （objectives 按创建序升序；多 host 任务的各根目标共用同一 brief）。
+// （objectives 按创建序升序）。
 func newObjectiveView(objectives []explorationgraph.Node) objectiveView {
 	var view objectiveView
 	if root, ok := explorationgraph.RootObjective(objectives); ok {
@@ -36,13 +36,10 @@ func newObjectiveView(objectives []explorationgraph.Node) objectiveView {
 	return view
 }
 
-// objectiveDescription 读取 objective.content.description（缺失时回落为 ID）。
+// objectiveDescription 返回目标描述（缺失时回落为 ID）。
 func objectiveDescription(obj explorationgraph.Node) string {
-	var c struct {
-		Description string `json:"description"`
-	}
-	if json.Unmarshal(obj.Content, &c) == nil && c.Description != "" {
-		return c.Description
+	if goal := obj.Goal(); goal != "" {
+		return goal
 	}
 	return obj.ID
 }

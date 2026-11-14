@@ -169,48 +169,13 @@ func handleControlEvent(
 	}
 }
 
-// adjustObjective 改写 objective 节点的 description——planner 每轮规划从
-// 探索图读取目标，下一轮即按新目标行动。无 objective 节点时创建。
+// adjustObjective 改写任务目标（根目标的描述）——规划者与执行者都从图上读目标，
+// 下一轮即按新目标行动。
 func adjustObjective(ctx context.Context, taskID string, graph *explorationgraph.Store, newGoal string, logger zerolog.Logger) error {
-	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-	if err != nil {
+	if err := graph.SetGoal(ctx, taskID, newGoal); err != nil {
 		return err
 	}
-
-	if len(objectives) == 0 {
-		// ck_state_by_kind 要求 objective.state 非空——兜底创建与
-		// ensureRootObjective 同口径落 open 初始态。
-		state := explorationgraph.StateOpen
-		node := explorationgraph.Node{
-			ID:         uuid.New().String(),
-			TaskID:     taskID,
-			Kind:       core.KindObjective,
-			Content:    mustJSON(map[string]string{"description": newGoal}),
-			State:      &state,
-			SourceType: explorationgraph.SourceUser,
-			SourceID:   "control-plane",
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
-		}
-		if _, err := graph.CreateNode(ctx, node); err != nil {
-			return err
-		}
-		logger.Info().Str("goal", newGoal).Msg("无既有目标，已创建新 objective 节点")
-		return nil
-	}
-
-	// 保留原 content 的其余字段，只改 description
-	obj := objectives[0]
-	var content map[string]interface{}
-	if err := json.Unmarshal(obj.Content, &content); err != nil {
-		content = map[string]interface{}{}
-	}
-	content["description"] = newGoal
-
-	if err := graph.UpdateNodeContent(ctx, obj.ID, mustJSON(content)); err != nil {
-		return err
-	}
-	logger.Info().Str("node_id", obj.ID).Str("goal", newGoal).Msg("目标已调整")
+	logger.Info().Str("goal", newGoal).Msg("目标已调整")
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -226,5 +227,40 @@ func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
 	}
 	if _, ok := content["priority"]; ok {
 		t.Fatalf("内容里不应再存优先级: %v", content)
+	}
+}
+
+// 观察只承载陈述与配方：不再内嵌整个任务的流量轨迹（无任何读者，每条观察一份
+// 全量拷贝；流量本就在流量表里，按任务可查）。
+func TestHarvestObservation_NoExecutionTrace(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+	action := explorationgraph.Node{ID: "act-nt", TaskID: "t-nt", Kind: core.KindAction,
+		Content: json.RawMessage(`{"type":"testing","instruction":"i"}`)}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatal(err)
+	}
+	if e.harvestObservation(context.Background(), action, Observation{
+		Category: explorationgraph.CategoryEntity, Statement: "登录页存在",
+	}) == nil {
+		t.Fatal("观察应落图")
+	}
+	nodes, _ := graph.ListNodesByKind(context.Background(), "t-nt", core.KindObservation)
+	var content map[string]any
+	if err := json.Unmarshal(nodes[0].Content, &content); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := content["execution_trace"]; ok {
+		t.Fatalf("观察不应内嵌执行轨迹: %v", content)
+	}
+}
+
+// 任务目标逐字进入执行者的系统提示词：取自图上的根目标，调整目标后下一个动作即生效。
+func TestBuildSystemPrompt_IncludesGoalVerbatim(t *testing.T) {
+	e := NewEngine(EngineConfig{Charter: "你是执行者。", Logger: zerolog.Nop()})
+	goal := "测试 http://t.local/login.php，账号 admin/password"
+	prompt := e.buildSystemPrompt("testing", "simple", goal, nil)
+	if !strings.Contains(prompt, goal) {
+		t.Fatalf("系统提示词应逐字包含任务目标:\n%s", prompt)
 	}
 }

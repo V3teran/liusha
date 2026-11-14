@@ -2,7 +2,6 @@ package explorationgraph
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -136,42 +135,4 @@ func (s *Store) ListActionStates(ctx context.Context, taskID string) (map[string
 // ListResults 列出所有 result 节点
 func (s *Store) ListResults(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListNodesByKind(ctx, taskID, core.KindResult)
-}
-
-// GetObjective 获取任务的根 objective 节点（创建序最早——根目标由任务入口
-// 创建，planner 派生的目标晚于它；不排序会随机读到派生目标）。
-func (s *Store) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
-	query := core.GraphNodeQuery{
-		Kind: string(core.KindObjective),
-		Filters: map[string]interface{}{
-			"task_id": taskID,
-		},
-		OrderBy: "created_at",
-		Limit:   1,
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return ObjectiveNode{}, err
-	}
-
-	if len(nodes) == 0 {
-		return ObjectiveNode{}, fmt.Errorf("objective not found for task %s", taskID)
-	}
-
-	// 转换为 ObjectiveNode
-	var content struct {
-		Description string                 `json:"description"`
-		Context     map[string]interface{} `json:"context,omitempty"`
-	}
-	if err := json.Unmarshal(nodes[0].Content, &content); err != nil {
-		return ObjectiveNode{}, fmt.Errorf("unmarshal objective: %w", err)
-	}
-
-	obj := ObjectiveNode{
-		ID:   nodes[0].ID,
-		Goal: content.Description,
-	}
-
-	return obj, nil
 }

@@ -6,11 +6,9 @@ package cognition
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
@@ -26,7 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -156,7 +153,8 @@ func (d *Deps) run(
 		return Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
-	if err := d.ensureRootObjective(ctx, taskID, brief); err != nil {
+	// 根目标代表任务本身，每个任务只有一个（首个 run 以简报创建，之后的 run 沿用）。
+	if _, err := d.Graph.EnsureRootObjective(ctx, taskID, brief); err != nil {
 		return Report{}, err
 	}
 
@@ -221,45 +219,6 @@ func (d *Deps) run(
 	}
 	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
 	return report, result.Err
-}
-
-// ensureRootObjective 创建任务根 Objective 节点（幂等：onboard 已建则跳过，防双根）。
-func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) error {
-	if brief == "" {
-		d.Logger.Warn().
-			Msg("任务 brief 为空，跳过创建根 Objective")
-		return nil
-	}
-	if existing, listErr := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective); listErr == nil && len(existing) > 0 {
-		d.Logger.Info().
-			Int("existing_objectives", len(existing)).
-			Msg("根 Objective 已存在（onboard 创建），跳过重复创建")
-		return nil
-	}
-
-	// objective.content 的读契约是 description（GetObjective / planner 规划上下文都读它）
-	contentJSON, _ := json.Marshal(map[string]string{"description": brief})
-	// 数据库约束：objective 类型节点必须有非空 state
-	initialState := explorationgraph.StateOpen
-
-	createdID, err := d.Graph.CreateNode(ctx, explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     taskID,
-		Kind:       core.KindObjective,
-		Content:    contentJSON,
-		State:      &initialState,
-		Priority:   explorationgraph.PriorityHigh,
-		SourceType: explorationgraph.SourceUser,
-		SourceID:   "task_init",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create root objective: %w", err)
-	}
-	d.Logger.Info().
-		Str("root_id", createdID).
-		Str("brief", brief).
-		Msg("已创建根 Objective 节点")
-	return nil
 }
 
 // agentConfigs 是四个 agent 的生效配置（出厂值叠加用户自定义）。
@@ -366,7 +325,7 @@ func (d *Deps) assembleStack(
 	filteredManifest := d.filterManifest(cfgs.executor.CliTools)
 
 	// executor：Engine（ReAct）→ Coordinator → Agent
-	executorAgent := d.buildExecutorAgent(ctx, taskID, host, brief, agentRunID, cfgs.executor,
+	executorAgent := d.buildExecutorAgent(ctx, taskID, host, agentRunID, cfgs.executor,
 		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"), activity)
 
 	// evaluator：评估者（ReAct judge）→ 复现晋升门 → Agent
@@ -489,7 +448,7 @@ func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 // buildExecutorAgent 组装 Engine（ReAct）→ Coordinator → Executor Agent。
 func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
-	taskID, host, brief, agentRunID string,
+	taskID, host, agentRunID string,
 	cfg agent.Agent,
 	filteredManifest *manifest.ToolManifest,
 	skillsView skill.Reader,
@@ -511,7 +470,6 @@ func (d *Deps) buildExecutorAgent(
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
-		Brief:               brief,                            // 任务简报逐字进 executor system prompt（入口锚定）
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
 		Activity:            activity,                         // 每完成一步推理记一次进展
 		Logger:              d.Logger,

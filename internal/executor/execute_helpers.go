@@ -20,7 +20,6 @@ type ActionContent struct {
 	Type        string `json:"type"`
 	Instruction string `json:"instruction"`
 	Complexity  string `json:"complexity"`
-	Host        string `json:"host"`
 }
 
 // parseActionContent 从 action 节点中解析内容
@@ -48,17 +47,15 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	ctx context.Context,
 	action explorationgraph.Node,
 	actionContent *ActionContent,
+	goal string,
 	tools []registry.Tool,
 	kill *killSwitch,
 ) (*runtime.ReActConfig, error) {
 	// 构建执行目标
-	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
-		actionContent.Instruction,
-		actionContent.Type,
-		actionContent.Host)
+	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s", actionContent.Instruction, actionContent.Type)
 
 	// 构建系统提示
-	systemPrompt := e.buildSystemPrompt(actionContent.Type, actionContent.Complexity, tools)
+	systemPrompt := e.buildSystemPrompt(actionContent.Type, actionContent.Complexity, goal, tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)

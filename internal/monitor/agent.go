@@ -318,8 +318,8 @@ func (a *Agent) buildSystemPrompt() string {
 
 // GlobalState 是任务的全局状态快照。
 type GlobalState struct {
-	Objective explorationgraph.ObjectiveNode `json:"objective"`
-	Actions   []explorationgraph.Node        `json:"actions"`
+	Objective ObjectiveView           `json:"objective"`
+	Actions   []explorationgraph.Node `json:"actions"`
 	// Results 是坐实发现（图上 kind=result 节点）。与 finding 表（安全域
 	// 交付物）是两个概念：result 是图状态面，finding 是交付面。
 	Results []explorationgraph.Node `json:"results"`
@@ -331,6 +331,12 @@ type GlobalState struct {
 	// Metrics 是时间窗口指标（P5）
 	// 用于判断"每小时 <3 actions"、"超过 1 小时无新 Result"等场景
 	Metrics metrics.Snapshot `json:"metrics"`
+}
+
+// ObjectiveView 是根目标（任务本身）的监察视图。
+type ObjectiveView struct {
+	ID   string `json:"id"`
+	Goal string `json:"goal"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

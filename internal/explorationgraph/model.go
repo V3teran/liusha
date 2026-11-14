@@ -255,12 +255,6 @@ func (n *Node) RefuteReason() string {
 	return m.RefuteReason
 }
 
-// ObjectiveNode 是任务目标节点的简化表示（供 Monitor 等读取）
-type ObjectiveNode struct {
-	ID   string
-	Goal string
-}
-
 // NormalizePriority 把 LLM 输出的优先级词归一到 Priority（未知值归 medium）。
 // planner 提案、result 分析、控制平面注入共用本判定。
 func NormalizePriority(s string) Priority {
