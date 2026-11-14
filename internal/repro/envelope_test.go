@@ -2,13 +2,12 @@ package repro
 
 import (
 	"encoding/json"
-	"maps"
 	"strings"
 	"testing"
 )
 
-// NormalizeReproEnvelope 是域信封的唯一归一化入口（write_observation 写入与
-// executor 收割共用）——校验分域把关、历史形状包装、产出统一信封。
+// Registry.Normalize 是域信封的唯一归一化入口（执行者落图时调用）——领域分派、
+// 通用笔误矫正、产出统一信封；领域形状的测试在各领域包。
 
 func mustJSON(t *testing.T, v string) json.RawMessage {
 	t.Helper()
@@ -18,48 +17,9 @@ func mustJSON(t *testing.T, v string) json.RawMessage {
 	return json.RawMessage(v)
 }
 
-// 信封 web 配方原样通过（recipe/assert 已分离）。
-func TestNormalizeReproEnvelope_WebEnvelope(t *testing.T) {
-	in := mustJSON(t, `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api?id=1'","headers":{},"body":""}},"assert":{"body_contains":["SQL syntax error"]}}`)
-	out, _, err := NormalizeReproEnvelope(in)
-	if err != nil {
-		t.Fatalf("信封 web 应通过: %v", err)
-	}
-	var env struct {
-		Domain string          `json:"domain"`
-		Recipe json.RawMessage `json:"recipe"`
-		Assert json.RawMessage `json:"assert"`
-	}
-	if err := json.Unmarshal(out, &env); err != nil || env.Domain != "web" || len(env.Recipe) == 0 || len(env.Assert) == 0 {
-		t.Fatalf("归一化产物应为完整信封: %s err=%v", out, err)
-	}
-}
-
-// 扁平 web 形状（LLM 笔误：request/assert 写在顶层且漏写 domain）包装成信封。
-func TestNormalizeReproEnvelope_FlatWebWrapped(t *testing.T) {
-	in := mustJSON(t, `{"request":{"method":"POST","url":"http://h/login","headers":{"Content-Type":"application/x-www-form-urlencoded"},"body":"u=a"},"baseline":{"method":"POST","url":"http://h/login","headers":{},"body":"u=b"},"assert":{"status_code":302}}`)
-	out, _, err := NormalizeReproEnvelope(in)
-	if err != nil {
-		t.Fatalf("扁平 web 形状应包装通过: %v", err)
-	}
-	var env struct {
-		Domain string `json:"domain"`
-		Recipe struct {
-			Request  json.RawMessage `json:"request"`
-			Baseline json.RawMessage `json:"baseline"`
-		} `json:"recipe"`
-	}
-	if err := json.Unmarshal(out, &env); err != nil || env.Domain != "web" {
-		t.Fatalf("应归一化为 web 信封: %s err=%v", out, err)
-	}
-	if len(env.Recipe.Request) == 0 || len(env.Recipe.Baseline) == 0 {
-		t.Fatalf("request/baseline 应提进 recipe: %s", out)
-	}
-}
-
 // generic 域：steps 必填、assert.description 必填。
-func TestNormalizeReproEnvelope_Generic(t *testing.T) {
-	ok, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"generic","recipe":{"steps":"1. 登录 2. 导出配置"},"assert":{"description":"见明文密码即坐实"}}`))
+func TestNormalize_Generic(t *testing.T) {
+	ok, _, err := NewRegistry().Normalize(mustJSON(t, `{"domain":"generic","recipe":{"steps":"1. 登录 2. 导出配置"},"assert":{"description":"见明文密码即坐实"}}`))
 	if err != nil {
 		t.Fatalf("generic 信封应通过: %v", err)
 	}
@@ -67,66 +27,36 @@ func TestNormalizeReproEnvelope_Generic(t *testing.T) {
 		t.Fatalf("应保留 generic 域: %s", ok)
 	}
 
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"generic","recipe":{},"assert":{"description":"x"}}`)); err == nil ||
+	if _, _, err := NewRegistry().Normalize(mustJSON(t, `{"domain":"generic","recipe":{},"assert":{"description":"x"}}`)); err == nil ||
 		!strings.Contains(err.Error(), "steps") {
 		t.Fatalf("generic 缺 steps 应被拒: err=%v", err)
 	}
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"generic","recipe":{"steps":"do"},"assert":{}}`)); err == nil {
+	if _, _, err := NewRegistry().Normalize(mustJSON(t, `{"domain":"generic","recipe":{"steps":"do"},"assert":{}}`)); err == nil {
 		t.Fatal("generic 缺 assert 应被拒")
 	}
 }
 
-// 引用流量而不自带请求的配方、未知域拒绝；web 缺字段给出可行动错误。
-func TestNormalizeReproEnvelope_Guards(t *testing.T) {
+// 引用流量而不自带请求的配方、未知域、无信封裸配方拒绝。
+func TestNormalize_Guards(t *testing.T) {
 	// 配方必须自包含：只给流量 id 而不给请求，按缺信封拒绝并回示正确格式。
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"traffic_id":42,"modifications":{},"assert":{"status_code":200}}`)); err == nil ||
+	if _, _, err := NewRegistry().Normalize(mustJSON(t, `{"traffic_id":42,"modifications":{},"assert":{"status_code":200}}`)); err == nil ||
 		!strings.Contains(err.Error(), "缺少 domain") || !strings.Contains(err.Error(), "recipe") {
 		t.Fatalf("引用流量的配方应按缺信封被拒: err=%v", err)
 	}
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"binary","recipe":{},"assert":{}}`)); err == nil ||
+	if _, _, err := NewRegistry().Normalize(mustJSON(t, `{"domain":"binary","recipe":{},"assert":{}}`)); err == nil ||
 		!strings.Contains(err.Error(), "未知复现域") {
 		t.Fatalf("未知域应被拒: err=%v", err)
 	}
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"domain":"web","recipe":{"request":{"method":"GET","url":"/rel","headers":{},"body":""}},"assert":{"status_code":200}}`)); err == nil ||
-		!strings.Contains(err.Error(), "完整 URL") {
-		t.Fatalf("相对 URL 应被拒: err=%v", err)
-	}
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, `{"assert":{"status_code":200}}`)); err == nil ||
+	if _, _, err := NewRegistry().Normalize(mustJSON(t, `{"assert":{"status_code":200}}`)); err == nil ||
 		!strings.Contains(err.Error(), "domain") {
 		t.Fatalf("无信封裸配方应被拒: err=%v", err)
 	}
 }
 
-// 鉴别力：写入侧与复现门同一口径，只拒短子串（曾有 ["1","2","3"] 合规过审进 finding 的假阳性）；
-// 常规状态码等弱断言放行并完成形状矫正，鉴别力交 LLM 评估者终判。
-func TestNormalizeReproEnvelope_Discriminative(t *testing.T) {
-	short := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api?id=1'+UNION+SELECT+1,2,3--","headers":{},"body":""}},"assert":{"body_contains":["1","2","3"]}}`
-	if _, _, err := NormalizeReproEnvelope(mustJSON(t, short)); err == nil ||
-		!strings.Contains(err.Error(), "无鉴别力") {
-		t.Fatalf("短子串断言应被拒: err=%v", err)
-	}
-
-	// 无 baseline 的常规状态码：放行且矫正形状——若在此报错，收割侧会保留未矫正的
-	// 原始配方（"200" 字符串），复现门解析失败直接判死，评估者根本看不到。
-	bare := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""}},"assert":{"status_code":"200"}}`
-	out, _, err := NormalizeReproEnvelope(mustJSON(t, bare))
-	if err != nil {
-		t.Fatalf("无 baseline 的常规状态码应放行（交评估者终判）: %v", err)
-	}
-	var env struct {
-		Assert struct {
-			StatusCode int `json:"status_code"`
-		} `json:"assert"`
-	}
-	if err := json.Unmarshal(out, &env); err != nil || env.Assert.StatusCode != 200 {
-		t.Fatalf("status_code 应矫正为数字 200: err=%v out=%s", err, out)
-	}
-}
-
 // assert 误放进 recipe 里（e2e 实测 12 连犯的笔误）：自动提升 + 教学提示。
-func TestNormalizeReproEnvelope_AssertPromotedFromRecipe(t *testing.T) {
+func TestNormalize_AssertPromotedFromRecipe(t *testing.T) {
 	in := mustJSON(t, `{"domain":"generic","recipe":{"steps":"1. 爬取 2. 测试","assert":{"description":"发现 XSS 输入点即坐实"}}}`)
-	out, note, err := NormalizeReproEnvelope(in)
+	out, note, err := NewRegistry().Normalize(in)
 	if err != nil {
 		t.Fatalf("recipe 内 assert 应自动提升: %v", err)
 	}
@@ -145,74 +75,38 @@ func TestNormalizeReproEnvelope_AssertPromotedFromRecipe(t *testing.T) {
 	}
 }
 
-// TestNormalizeReproEnvelope_HeaderContainsArray 回归：LLM 把 header_contains
-// 写成数组时归一化成 map——形状放任会在复现门解析失败，该观察永远无法验证
-// （e2e 实测同一形状漂移连烧 3 次验证预算后 invalid_recipe 出圈）。
-func TestNormalizeReproEnvelope_HeaderContainsArray(t *testing.T) {
-	// 对象数组形状
-	in := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},"assert":{"header_contains":[{"X-Flag":"admin"}],"status_code":"200"}}`
-	out, _, err := NormalizeReproEnvelope(json.RawMessage(in))
-	if err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	var env struct {
-		Assert struct {
-			HeaderContains map[string]string `json:"header_contains"`
-			StatusCode     *int              `json:"status_code"`
-		} `json:"assert"`
-	}
-	if err := json.Unmarshal(out, &env); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if env.Assert.HeaderContains["x-flag"] != "admin" {
-		t.Fatalf("header_contains 数组应合并成 map: %+v", env.Assert.HeaderContains)
-	}
-	if env.Assert.StatusCode == nil || *env.Assert.StatusCode != 200 {
-		t.Fatalf("status_code 数字字符串应转数字: %+v", env.Assert.StatusCode)
-	}
+// fakeDomain 是测试用领域：按 marker 字段嗅探，原样收下 recipe/assert。
+type fakeDomain struct{}
 
-	// 字符串数组形状（"K: v"）
-	in2 := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},"assert":{"header_contains":["Set-Cookie: admin=1"]}}`
-	out2, _, err := NormalizeReproEnvelope(json.RawMessage(in2))
-	if err != nil {
-		t.Fatalf("normalize2: %v", err)
+func (fakeDomain) Name() string { return "fake" }
+func (fakeDomain) Recognizes(f map[string]json.RawMessage) bool {
+	return len(f["marker"]) > 0
+}
+func (fakeDomain) Example() string { return `{"domain":"fake"}` }
+func (fakeDomain) Normalize(f map[string]json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	return f["recipe"], f["assert"], nil
+}
+
+// 注册的领域按名分派，漏写 domain 时按领域特有字段嗅探；generic 始终可用。
+func TestRegistry_DispatchAndSniff(t *testing.T) {
+	r := NewRegistry(fakeDomain{})
+	out, _, err := r.Normalize(mustJSON(t, `{"marker":1,"recipe":{"x":1},"assert":{"y":2}}`))
+	if err != nil || !strings.Contains(string(out), `"domain":"fake"`) {
+		t.Fatalf("应嗅探为 fake 域: %s err=%v", out, err)
 	}
-	env2 := struct {
-		Assert struct {
-			HeaderContains map[string]string `json:"header_contains"`
-		} `json:"assert"`
-	}{}
-	if err := json.Unmarshal(out2, &env2); err != nil {
-		t.Fatalf("unmarshal2: %v", err)
+	if _, _, err := r.Normalize(mustJSON(t, `{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}`)); err != nil {
+		t.Fatalf("generic 应始终可用: %v", err)
 	}
-	if env2.Assert.HeaderContains["set-cookie"] != "admin=1" {
-		t.Fatalf("字符串数组应按 k: v 拆解: %+v", env2.Assert.HeaderContains)
+	if _, _, err := r.Normalize(mustJSON(t, `{"domain":"web","recipe":{},"assert":{}}`)); err == nil ||
+		!strings.Contains(err.Error(), "fake, generic") {
+		t.Fatalf("未注册的领域应被拒并列出已支持领域: err=%v", err)
 	}
 }
 
-// header_not_contains 的数组形状同样归一化成 map；只写头名（不带值）即要求该头不存在
-// （空子串）——「缺失安全头」最常见的写法。header_contains 只写头名则要求头存在。
-func TestNormalizeReproEnvelope_HeaderNotContainsArray(t *testing.T) {
-	in := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},` +
-		`"assert":{"header_not_contains":["Content-Security-Policy","Set-Cookie: HttpOnly",{"X-Frame-Options":""}],"header_contains":["Server"]}}`
-	out, _, err := NormalizeReproEnvelope(json.RawMessage(in))
-	if err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	var env struct {
-		Assert struct {
-			HeaderContains    map[string]string `json:"header_contains"`
-			HeaderNotContains map[string]string `json:"header_not_contains"`
-		} `json:"assert"`
-	}
-	if err := json.Unmarshal(out, &env); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	want := map[string]string{"content-security-policy": "", "set-cookie": "HttpOnly", "x-frame-options": ""}
-	if !maps.Equal(env.Assert.HeaderNotContains, want) {
-		t.Fatalf("header_not_contains = %v，期望 %v", env.Assert.HeaderNotContains, want)
-	}
-	if !maps.Equal(env.Assert.HeaderContains, map[string]string{"server": ""}) {
-		t.Fatalf("header_contains 只写头名应要求头存在: %v", env.Assert.HeaderContains)
+// 写成步骤列表的配方转成 generic 信封。
+func TestNormalize_StepListBecomesGeneric(t *testing.T) {
+	out, _, err := NewRegistry().Normalize(mustJSON(t, `["打开页面","提交表单"]`))
+	if err != nil || !strings.Contains(string(out), `"domain":"generic"`) || !strings.Contains(string(out), "提交表单") {
+		t.Fatalf("步骤列表应转 generic: %s err=%v", out, err)
 	}
 }

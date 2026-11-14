@@ -40,7 +40,7 @@ func (j *fatalJudge) Judge(ctx context.Context, hypothesis string, _, _ json.Raw
 // 返回，任务收尾（沙盒释放、目标终态）会与仍在跑的判定交错。
 func TestRun_FatalWaitsForInFlightVerifications(t *testing.T) {
 	judge := &fatalJudge{slowStarted: make(chan struct{})}
-	gate := New(&fakeGraphStore{verID: "ver-fatal"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
+	gate := gateWith(&fakeGraphStore{verID: "ver-fatal"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
 		WithJudge(judge)
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{

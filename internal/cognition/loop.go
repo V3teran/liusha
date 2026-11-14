@@ -29,6 +29,7 @@ import (
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/repro"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
@@ -36,6 +37,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/webrepro"
 )
 
 // Deps 是一次认知循环的全部外部依赖（由 runner 装配注入；全部字段只读）。
@@ -472,6 +474,7 @@ func (d *Deps) buildExecutorAgent(
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
 		Activity:            activity,                         // 每完成一步推理记一次进展
+		Repro:               repro.NewRegistry(webrepro.Domain{}),
 		Logger:              d.Logger,
 	})
 
@@ -490,7 +493,7 @@ func (d *Deps) buildExecutorAgent(
 }
 
 // buildEvaluatorAgent 组装评估者（ReAct judge）→ 复现晋升门 → Evaluator Agent。
-// Replayer 零依赖（复现配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
+// web 复现通道零依赖（web 配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
 // 流量同样可复现）。凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以
 // 登录态重放，防真实主张因重放落到登录页而被机器护栏误证伪。
 func (d *Deps) buildEvaluatorAgent(
@@ -551,7 +554,8 @@ func (d *Deps) buildEvaluatorAgent(
 			})
 		})
 	}
-	promoter := evaluator.New(d.Graph, executor.NewReplayer().WithCredentials(d.Creds, host), claimSink).
+	promoter := evaluator.New(d.Graph, claimSink).
+		WithReplayer(webrepro.Name, webrepro.NewReplayer().WithCredentials(d.Creds, host)).
 		WithJudge(judge). // ReAct 评估者：replay_for_verification + CLI 复核工具
 		WithFingerprintCodec(finding.FingerprintNormalizer{}).
 		WithLogger(d.Logger)

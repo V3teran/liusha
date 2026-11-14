@@ -9,14 +9,15 @@
 //
 //	Observation(在途假设，图节点，verification_status=pending)
 //	    → Promote(attempt)
-//	    → 域 Replayer 复放采证（repro 对本包是不透明 blob，形状归各域）
+//	    → 按信封 domain 选复现通道采证（recipe/assert 对本包不透明，形状归各域；
+//	      没有通道的领域回显配方，由评估者自主取证）
 //	    → LLMJudge 终判（机器采证，LLM 持判定权）
 //	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+评估者每次复放
 //	    → confirmed: CreateNode(result) 进图 + 写 finding 表
 //	    └ refuted:   不进图（证据留 exploration_verification 供审计）
 //
-// domain-agnostic：配方怎么执行归各域（web=HTTP 重放、generic=评估者自主执行、
-// 未来 binary/cloud/lateral=各自 Replayer），Evaluator 只认 Replayer 接口——加新域
+// 领域中立：配方怎么执行归各领域的复现通道（装配时经 WithReplayer 注册），门只认
+// Replayer 接口与哨兵错误（ErrInvalidRecipe / ErrTargetUnreachable）——加新领域
 // 晋升门零改动。
 
 package evaluator
@@ -33,6 +34,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/V3teran/liusha/internal/repro"
 )
 
 // graphStore 是 Evaluator 依赖的探索图读写子集：收窄依赖 + 便于测试替身。
@@ -82,8 +84,9 @@ type FingerprintNormalizer interface {
 	CanonicalKey(raw json.RawMessage) (string, bool)
 }
 
-// Replayer 是 domain-specific 复现执行器。Evaluator 把"复现"委托给它，自身不碰域细节。
-// repro 是要回放的复现配方（域信封，形状由域定义）；返回采集到的证据。
+// Replayer 是一个领域的机器复现通道。门把「复现」委托给它，自身不碰领域细节。
+// repro 是要回放的复现配方（域信封，形状由领域定义）；返回采集到的证据。配方缺陷与
+// 目标不可达分别包装成 ErrInvalidRecipe / ErrTargetUnreachable。
 type Replayer interface {
 	Replay(ctx context.Context, repro json.RawMessage) (Result, error)
 }
@@ -147,17 +150,15 @@ const (
 // invalid_recipe/refuted 出圈）。
 var ErrJudgeUnavailable = errors.New("评估者不可用")
 
-// verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
-// 域字面量与 executor.ReproEnvelope 的 domain 约定保持一致：web 有机器重放通道；
-// generic（含 web assert 不完整、被 evaluator agent 降级改写的配方）无机器通道。
-func verificationTier(repro json.RawMessage) string {
-	var env struct {
-		Domain string `json:"domain"`
+// verificationTier 判定验证档位：领域有机器复现通道即 full_gate，否则 judge_only。
+func (g *PromotionGate) verificationTier(envelope json.RawMessage) string {
+	var env repro.Envelope
+	if json.Unmarshal(envelope, &env) == nil {
+		if _, ok := g.replayers[env.Domain]; ok {
+			return TierFullGate
+		}
 	}
-	if err := json.Unmarshal(repro, &env); err != nil || env.Domain == "generic" {
-		return TierJudgeOnly
-	}
-	return TierFullGate
+	return TierJudgeOnly
 }
 
 // ErrAssertNotDiscriminative 是复现方的"质量拒绝"哨兵：断言无鉴别力
@@ -165,23 +166,69 @@ func verificationTier(repro json.RawMessage) string {
 // （可重试），而是对这条假设的**证伪判定**：走审计链留档，不走重试上限。
 var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
+// ErrInvalidRecipe 标记确定性配方缺陷（信封或领域形状不对、缺必需字段）：重放必然
+// 同样失败，复现门快速终局出圈（refute_reason=invalid_recipe），不走重试阶梯。复现
+// 通道把自己的形状错误包装成它。
+var ErrInvalidRecipe = errors.New("复现配方无效")
+
+// ErrTargetUnreachable 标记目标侧不可达（重放没拿到响应）：与评估者瞬时故障不同，
+// 它计入重试上限，耗尽按 not_reproducible 出圈——否则目标宕机时验证无限重试、任务
+// 永不收敛。复现通道把自己的传输失败包装成它。
+var ErrTargetUnreachable = errors.New("复现目标不可达")
+
 // PromotionGate 是 Observation→图节点的晋升门。
 type PromotionGate struct {
-	graph    graphStore
-	replayer Replayer
-	sink     ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
-	codec    FingerprintNormalizer // 指纹归一（域适配层注入；nil 不启用语义去重）
-	judge    LLMJudge              // LLM 语义判定（生产必配）
-	logger   *zerolog.Logger       // 非致命错误（交付失败等）经此告警
+	graph     graphStore
+	replayers map[string]Replayer   // 各领域的机器复现通道；没有通道的领域由评估者自主取证
+	sink      ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
+	codec     FingerprintNormalizer // 指纹归一（域适配层注入；nil 不启用语义去重）
+	judge     LLMJudge              // LLM 语义判定（生产必配）
+	logger    *zerolog.Logger       // 非致命错误（交付失败等）经此告警
 }
 
-// New 构造 Evaluator。replayer 为 nil 时 Promote 会报错（无复现能力即无晋升）。
-func New(graph graphStore, replayer Replayer, sink ClaimSink) *PromotionGate {
+// New 构造复现晋升门。领域的机器复现通道经 WithReplayer 注册；没有通道的领域（如
+// generic）由评估者按配方自主取证。
+func New(graph graphStore, sink ClaimSink) *PromotionGate {
 	return &PromotionGate{
-		graph:    graph,
-		replayer: replayer,
-		sink:     sink,
+		graph:     graph,
+		replayers: map[string]Replayer{},
+		sink:      sink,
 	}
+}
+
+// WithReplayer 注册一个领域的机器复现通道（链式）。
+func (g *PromotionGate) WithReplayer(domain string, r Replayer) *PromotionGate {
+	g.replayers[domain] = r
+	return g
+}
+
+// replay 按信封的领域分发到机器复现通道；没有通道的领域回显配方，由评估者按步骤自主
+// 执行取证（验证档位 judge_only）。
+func (g *PromotionGate) replay(ctx context.Context, envelope json.RawMessage) (Result, error) {
+	var env repro.Envelope
+	if err := json.Unmarshal(envelope, &env); err != nil {
+		return Result{}, fmt.Errorf("%w: 解析域信封失败: %w", ErrInvalidRecipe, err)
+	}
+	if r, ok := g.replayers[env.Domain]; ok {
+		return r.Replay(ctx, envelope)
+	}
+	if len(env.Recipe) == 0 {
+		return Result{}, fmt.Errorf("%w: recipe 为空——评估者无从执行", ErrInvalidRecipe)
+	}
+	assert := env.Assert
+	if len(assert) == 0 {
+		assert = json.RawMessage("{}")
+	}
+	out, err := json.Marshal(map[string]any{
+		"domain": env.Domain,
+		"recipe": env.Recipe,
+		"assert": assert,
+		"note":   "本域无机器复现通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出判定（不必调 replay_for_verification）",
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("序列化配方回显失败: %w", err)
+	}
+	return Result{Evidence: out}, nil
 }
 
 // WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把评估者
@@ -244,7 +291,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 
 	// 4. 提取假设
 	hyp := claimStatement(a)
-	tier := verificationTier(a.Repro)
+	tier := g.verificationTier(a.Repro)
 
 	// 5. 机器护栏检查
 	if node, shouldContinue, err := g.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
@@ -439,7 +486,7 @@ func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Claim, cause 
 	evaluation, _ := json.Marshal(map[string]interface{}{
 		"quality_gate":      true,
 		"refute_reason":     RefuteAssertNotDiscriminative,
-		"verification_tier": verificationTier(a.Repro),
+		"verification_tier": g.verificationTier(a.Repro),
 		"reason":            cause.Error(),
 		"phase":             "prerun",
 	})
@@ -478,7 +525,7 @@ func (g *PromotionGate) refuteEarly(
 ) (*explorationgraph.Node, error) {
 	const verdict = VerdictRefuted
 	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经评估者直接证伪"
-	tier := verificationTier(a.Repro)
+	tier := g.verificationTier(a.Repro)
 	evaluation := withReplayLog(res.Evidence, tier, verdict, reasoning, replays)
 
 	_, err := g.graph.RecordVerification(ctx, explorationgraph.Verification{

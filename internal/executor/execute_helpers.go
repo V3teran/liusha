@@ -13,7 +13,6 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/repro"
 )
 
 // ActionContent 是从 action.Content 解析出的数据
@@ -375,7 +374,7 @@ func (e *Engine) harvestObservation(
 	// 配方只在落图时归一化这一次：节点存的就是矫正后的信封，评估者只从节点读配方。
 	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。事实类观察不带配方，不归一化。
 	if len(obs.Repro) > 0 {
-		if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+		if normalized, note, nErr := e.repro.Normalize(obs.Repro); nErr == nil {
 			obs.Repro = normalized
 			if note != "" {
 				e.logger.Info().

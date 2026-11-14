@@ -1,8 +1,9 @@
-package executor
+package webrepro
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -33,10 +34,10 @@ func (r SelfContainedRequest) toSource() (httpreplay.Source, error) {
 		method = "GET"
 	}
 	if !strings.HasPrefix(r.URL, "http://") && !strings.HasPrefix(r.URL, "https://") {
-		return httpreplay.Source{}, fmt.Errorf("url 必须是完整 URL（含 http:// 或 https://），当前 %q", r.URL)
+		return httpreplay.Source{}, invalidRecipe("url 必须是完整 URL（含 http:// 或 https://），当前 %q", r.URL)
 	}
 	if _, err := url.Parse(r.URL); err != nil {
-		return httpreplay.Source{}, fmt.Errorf("url 解析失败: %w", err)
+		return httpreplay.Source{}, invalidRecipe("url 解析失败: %v", err)
 	}
 	headers := make(map[string]string, len(r.Headers))
 	for k, v := range r.Headers {
@@ -84,28 +85,20 @@ func (a Assertion) empty() bool {
 		len(a.HeaderContains) == 0 && len(a.HeaderNotContains) == 0 && a.MinDurationMs == nil
 }
 
-// ReproEnvelope 是复现配方的域信封：evaluator/图/收割层只认信封，不解析 recipe 内部
-// （形状归各域——加新域晋升门零改动）。配方在引擎收割路径落图前归一化成此结构。
-type ReproEnvelope struct {
-	Domain string          `json:"domain"` // web / generic /（未来 binary/cloud/lateral…）
-	Recipe json.RawMessage `json:"recipe"` // 域自定义：web={request,baseline?}；generic={steps}
-	Assert json.RawMessage `json:"assert"` // 域自定义坐实判据
+// invalidRecipe 包装确定性配方缺陷（形状不对、缺字段）：重放必然同样失败，复现门据
+// evaluator.ErrInvalidRecipe 快速终局出圈。
+func invalidRecipe(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{evaluator.ErrInvalidRecipe}, args...)...)
 }
 
-// 已支持的域。generic 无机器重放通道——由评估者经 run_command 按 recipe 自主执行取证。
-const (
-	DomainWeb     = "web"
-	DomainGeneric = "generic"
-)
-
-// Replayer 是 web+generic 双域的 evaluator.Replayer：按信封 domain 分发。
-// 不依赖任何流量存储——配方自包含（工具自发流量同样可复现）。
+// Replayer 是 web 域的机器复现通道（evaluator.Replayer）：确定性重发配方里的完整
+// HTTP 请求并按断言采证。不依赖任何流量存储——配方自包含（工具自发流量同样可复现）。
 type Replayer struct {
 	creds credential.Provider // 可选：按 host 注入会话上下文（配方缺 Cookie 时补全）
 	host  string
 }
 
-// NewReplayer 构造域分发 Replayer（零依赖：配方自包含）。
+// NewReplayer 构造 web 域复现通道（零依赖：配方自包含）。
 func NewReplayer() *Replayer { return &Replayer{} }
 
 // WithCredentials 注入凭据提供方与目标 host：web 重放请求缺会话头
@@ -254,26 +247,22 @@ type replayEvidence struct {
 
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
-// Replay 实现 evaluator.Replayer：按域信封分发。
-// web=机器确定性重放采证；generic=配方回显（评估者自主执行）。
-// 配方在写入侧已统一归一化为信封（repro.NormalizeReproEnvelope），
-// 复现门只认信封、不嗅探裸格式。
-func (r *Replayer) Replay(ctx context.Context, repro json.RawMessage) (evaluator.Result, error) {
-	var env ReproEnvelope
-	if err := json.Unmarshal(repro, &env); err != nil {
-		return evaluator.Result{}, fmt.Errorf("Replayer: 解析域信封失败: %w", err)
+// Replay 实现 evaluator.Replayer：重放 web 域信封里的配方并采证。目标侧不可达（没拿到
+// 响应）包装成 evaluator.ErrTargetUnreachable，复现门据此计入重试阶梯。
+func (r *Replayer) Replay(ctx context.Context, envelope json.RawMessage) (evaluator.Result, error) {
+	var env repro.Envelope
+	if err := json.Unmarshal(envelope, &env); err != nil {
+		return evaluator.Result{}, invalidRecipe("解析域信封失败: %v", err)
 	}
-	switch env.Domain {
-	case DomainWeb:
-		env.Recipe = r.injectSessionContext(ctx, env.Recipe)
-		return r.replayWebEnvelope(ctx, env)
-	case DomainGeneric:
-		return replayGeneric(env)
-	case "":
-		return evaluator.Result{}, fmt.Errorf("Replayer: 缺少 domain 信封（{\"domain\": \"web\"|\"generic\", \"recipe\": ..., \"assert\": ...}）")
-	default:
-		return evaluator.Result{}, fmt.Errorf("Replayer: 未知域 %q（已支持: %s, %s）", env.Domain, DomainWeb, DomainGeneric)
+	if env.Domain != Name {
+		return evaluator.Result{}, invalidRecipe("web 复现通道收到 %q 域的配方", env.Domain)
 	}
+	env.Recipe = r.injectSessionContext(ctx, env.Recipe)
+	res, err := r.replayWebEnvelope(ctx, env)
+	if errors.Is(err, httpreplay.ErrTransport) {
+		return res, fmt.Errorf("%w: %w", evaluator.ErrTargetUnreachable, err)
+	}
+	return res, err
 }
 
 // sessionHeaderKeys 是会话类请求头的小写键集——刷新重试只替换这些键，
@@ -434,23 +423,23 @@ func replaceSessionHeaders(recipe json.RawMessage, headers map[string]string) js
 // 凭据赢过池内新鲜会话，重放弹回登录页、真实主张被误证伪。首轮证据若呈
 // 认证弹跳形态，依次用池内身份替换会话头重放；任一轮断言通过即以该轮
 // 证据返回，全部尝试记入证据链（评估者可分辨环境失效与主张不成立）。
-func (r *Replayer) replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result, error) {
+func (r *Replayer) replayWebEnvelope(ctx context.Context, env repro.Envelope) (evaluator.Result, error) {
 	if len(env.Recipe) == 0 {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: recipe 为空（需 {\"request\": {...}, \"baseline\": {...}?}）")
+		return evaluator.Result{}, invalidRecipe("recipe 为空（需 {\"request\": {...}, \"baseline\": {...}?}）")
 	}
 	var core struct {
 		Request  SelfContainedRequest  `json:"request"`
 		Baseline *SelfContainedRequest `json:"baseline"`
 	}
 	if err := json.Unmarshal(env.Recipe, &core); err != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 recipe 失败: %w", err)
+		return evaluator.Result{}, invalidRecipe("解析 recipe 失败: %v", err)
 	}
 	var assert Assertion
 	if len(env.Assert) == 0 {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
+		return evaluator.Result{}, invalidRecipe("assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
 	}
 	if err := json.Unmarshal(env.Assert, &assert); err != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 assert 失败: %w", err)
+		return evaluator.Result{}, invalidRecipe("解析 assert 失败: %v", err)
 	}
 
 	// 首轮重放（补缺后的配方原样）
@@ -497,45 +486,20 @@ func (r *Replayer) replayWebEnvelope(ctx context.Context, env ReproEnvelope) (ev
 func marshalEvidence(ev replayEvidence, durMs int64) (evaluator.Result, error) {
 	evJSON, mErr := json.Marshal(ev)
 	if mErr != nil {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: 序列化证据失败: %w", mErr)
+		return evaluator.Result{}, fmt.Errorf("web 复现: 序列化证据失败: %w", mErr)
 	}
 	return evaluator.Result{Evidence: evJSON, DurationMs: durMs}, nil
 }
 
-// replayGeneric 无机器重放通道：配方原样回显给评估者（其经 run_command 按 recipe 步骤
-// 自主执行取证，轨迹以判定 reasoning + 本证据为审计面）。不执行任何动作。
-func replayGeneric(env ReproEnvelope) (evaluator.Result, error) {
-	if len(env.Recipe) == 0 {
-		return evaluator.Result{}, fmt.Errorf("generic.Replayer: recipe 为空——评估者无从执行")
-	}
-	out, err := json.Marshal(map[string]interface{}{
-		"domain": DomainGeneric,
-		"recipe": env.Recipe,
-		"assert": orEmptyRaw(env.Assert),
-		"note":   "本域无机器重放通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出判定（不必调 replay_for_verification）",
-	})
-	if err != nil {
-		return evaluator.Result{}, fmt.Errorf("generic.Replayer: 序列化证据失败: %w", err)
-	}
-	return evaluator.Result{Evidence: out}, nil
-}
-
-func orEmptyRaw(b json.RawMessage) json.RawMessage {
-	if len(b) == 0 {
-		return json.RawMessage("{}")
-	}
-	return b
-}
-
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
-//   - body_contains 每个子串须 ≥ repro.MinBodyContainsLen 个字符（修剪后按字节计）
+//   - body_contains 每个子串须 ≥ MinBodyContainsLen 个字符（修剪后按字节计）
 //
 // 自指与「无 baseline 须有强谓词」不在机器侧判定，交 LLM 评估者终判；写入侧
-// （repro.NormalizeReproEnvelope）与本守卫同一口径。
+// （Domain.Normalize）与本守卫同一口径。
 func assertDiscriminative(a Assertion) error {
 	for _, want := range a.BodyContains {
-		if len(strings.TrimSpace(want)) < repro.MinBodyContainsLen {
-			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, repro.MinBodyContainsLen)
+		if len(strings.TrimSpace(want)) < MinBodyContainsLen {
+			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, MinBodyContainsLen)
 		}
 	}
 	return nil
@@ -548,15 +512,15 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	var ev replayEvidence
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
-		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
+		return ev, httpreplay.Result{}, invalidRecipe("assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
 	}
 	// 结构先行（request 形状），语义随后（断言鉴别力）——错误信息指向首个真问题。
 	exploitSrc, err := recipe.Request.toSource()
 	if err != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: request 非法——%w", err)
+		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: request 非法——%w", err)
 	}
 	if dErr := assertDiscriminative(recipe.Assert); dErr != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: %w", dErr)
+		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: %w", dErr)
 	}
 
 	// 准备请求：抽服务器现造值注入主请求。抽值失败硬错误，绝不静默 pass（护栏2）。
@@ -568,7 +532,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 		injected := injectResolved(recipe.Request, name, val)
 		exploitSrc, err = injected.toSource()
 		if err != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: resolve 注入后 request 非法——%w", err)
+			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: resolve 注入后 request 非法——%w", err)
 		}
 	}
 
@@ -580,13 +544,13 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	if recipe.Baseline != nil {
 		baseSrc, bErr := recipe.Baseline.toSource()
 		if bErr != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: baseline 非法——%w", bErr)
+			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: baseline 非法——%w", bErr)
 		}
 		baseStart := time.Now()
 		bres, bErr := httpreplay.Replay(ctx, baseSrc, httpreplay.Overrides{})
 		baseDur = time.Since(baseStart).Milliseconds()
 		if bErr != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: 基线重放失败: %w", bErr)
+			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: 基线重放失败: %w", bErr)
 		}
 		baseline = &bres
 	}
@@ -596,7 +560,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	res, err := httpreplay.Replay(ctx, exploitSrc, httpreplay.Overrides{})
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: 重发失败: %w", err)
+		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: 重发失败: %w", err)
 	}
 
 	// assert 命中明细：executor 声明预期的核验（参考信息——机器不产出坐实结论，

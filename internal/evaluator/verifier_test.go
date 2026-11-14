@@ -106,11 +106,23 @@ func (f *fakeClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 	return nil
 }
 
+// stubDomain 是测试用的复现领域：经 gateWith 注册 fake 复现通道。
+const stubDomain = "stub"
+
+// gateWith 构造带 stubDomain 复现通道的晋升门；r 为 nil 时不注册通道。
+func gateWith(graph graphStore, r Replayer, sink ClaimSink) *PromotionGate {
+	g := New(graph, sink)
+	if r != nil {
+		g.WithReplayer(stubDomain, r)
+	}
+	return g
+}
+
 func baseClaim() Claim {
 	return Claim{
 		TaskID:   "asg-1",
 		NodeID:   "node-source",
-		Repro:    json.RawMessage(`[{"op":"http_request"}]`),
+		Repro:    json.RawMessage(`{"domain":"stub","recipe":{"op":"http_request"},"assert":{"marker":"x"}}`),
 		Content:  json.RawMessage(`{"statement":"X 参数存在可复现注入"}`),
 		Priority: "high",
 	}
@@ -120,7 +132,7 @@ func baseClaim() Claim {
 func TestPromote_Confirmed(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-99"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -145,7 +157,7 @@ func TestPromote_Confirmed(t *testing.T) {
 func TestPromote_Refuted(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-1"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"reason":"no repro"}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"reason":"no repro"}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -167,7 +179,7 @@ func TestPromote_Refuted(t *testing.T) {
 func TestPromote_ReplayError(t *testing.T) {
 	w := &fakeGraphStore{}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{err: errors.New("boom")}, fw)
+	v := gateWith(w, fakeReplayer{err: errors.New("boom")}, fw)
 
 	if _, err := v.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("复现失败应报错")
@@ -176,19 +188,45 @@ func TestPromote_ReplayError(t *testing.T) {
 	// 如果要求失败时不记录，需要修改 evaluator.go
 }
 
-// 无 Replayer：无复现能力即无晋升——直接报错，不放行。
-func TestPromote_NoReplayer(t *testing.T) {
-	fw := &fakeClaimSink{}
-	v := New(&fakeGraphStore{}, nil, fw)
-	if _, err := v.Promote(context.Background(), baseClaim()); err == nil {
-		t.Fatal("无 Replayer 应报错")
+// 没有机器复现通道的领域：门回显配方交给评估者自主取证，验证档位 judge_only——
+// 领域中立的核心不因缺少某个领域的通道而拒绝晋升。
+func TestPromote_DomainWithoutChannelGoesJudgeOnly(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-generic"}
+	var seen json.RawMessage
+	v := gateWith(w, fakeReplayer{err: errors.New("不应走到 stub 通道")}, &fakeClaimSink{}).
+		WithJudge(judgeFunc(func(_ context.Context, _ string, _, ev json.RawMessage, _ ReplayFunc) (Verdict, error) {
+			seen = ev
+			return Verdict{Verdict: VerdictConfirmed}, nil
+		}))
+	c := baseClaim()
+	c.Repro = json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 执行 x"},"assert":{"description":"看到 y"}}`)
+
+	if _, err := v.Promote(context.Background(), c); err != nil {
+		t.Fatalf("无通道领域应由评估者取证晋升: %v", err)
+	}
+	var echo map[string]json.RawMessage
+	if err := json.Unmarshal(seen, &echo); err != nil || string(echo["domain"]) != `"generic"` || len(echo["recipe"]) == 0 {
+		t.Fatalf("评估者应拿到配方回显，得 %s", seen)
+	}
+	if n := len(w.verifications); n != 1 || !strings.Contains(string(w.verifications[0].Evidence), TierJudgeOnly) {
+		t.Fatalf("审计应记 judge_only 档位，得 %d 条", n)
+	}
+}
+
+// 信封无法解析即确定性配方缺陷：包装 ErrInvalidRecipe，评估者据此一次出圈。
+func TestPromote_UnparseableEnvelopeIsInvalidRecipe(t *testing.T) {
+	v := gateWith(&fakeGraphStore{}, fakeReplayer{}, &fakeClaimSink{}).WithJudge(stubJudge{verdict: VerdictConfirmed})
+	c := baseClaim()
+	c.Repro = json.RawMessage(`[{"op":"http_request"}]`)
+	if _, err := v.Promote(context.Background(), c); !errors.Is(err, ErrInvalidRecipe) {
+		t.Fatalf("期望 ErrInvalidRecipe，得 %v", err)
 	}
 }
 
 // 必填校验：TaskID / NodeID 缺失即拒。
 func TestPromote_Validation(t *testing.T) {
 	fw := &fakeClaimSink{}
-	v := New(&fakeGraphStore{}, fakeReplayer{res: Result{}}, fw)
+	v := gateWith(&fakeGraphStore{}, fakeReplayer{res: Result{}}, fw)
 
 	noScan := baseClaim()
 	noScan.TaskID = ""
@@ -208,7 +246,7 @@ func TestPromote_Validation(t *testing.T) {
 func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j1"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "证据语义坐实"})
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -237,7 +275,7 @@ func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 func TestPromote_LLMJudgeRefutesRubberStamp(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j2"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted, reasoning: "200 只证明页面活着"})
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -256,7 +294,7 @@ func TestPromote_LLMJudgeRefutesRubberStamp(t *testing.T) {
 func TestPromote_JudgeErrorLeavesPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j3"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, fw).
 		WithJudge(errJudge{})
 
 	_, err := v.Promote(context.Background(), baseClaim())
@@ -273,7 +311,7 @@ func TestPromote_JudgeErrorLeavesPending(t *testing.T) {
 
 // 未装配 judge = 无晋升能力（机器不持判定权）。
 func TestPromote_NoJudgeNoPromotion(t *testing.T) {
-	v := New(&fakeGraphStore{verID: "v"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{})
+	v := gateWith(&fakeGraphStore{verID: "v"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{})
 	if _, err := v.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("无 judge 应报错")
 	}
@@ -290,7 +328,7 @@ func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
 		return Verdict{Verdict: VerdictConfirmed, Reasoning: "不该被调到"}, nil
 	})
 	failed := Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":false,"assert_reasons":["body 缺 \"<script>\" ✗"],"attack_status_code":404}`)}
-	v := New(w, fakeReplayer{res: failed}, fw).WithJudge(j)
+	v := gateWith(w, fakeReplayer{res: failed}, fw).WithJudge(j)
 
 	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
@@ -315,13 +353,13 @@ func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-mg2"}
 	fw := &fakeClaimSink{}
 
-	passed := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, fw).
+	passed := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	if node, err := passed.Promote(context.Background(), baseClaim()); err != nil || node == nil {
 		t.Fatalf("断言命中应正常进 judge 并晋升: node=%v err=%v", node, err)
 	}
 
-	noField := New(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"domain":"generic"}`)}}, fw).
+	noField := gateWith(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"domain":"generic"}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 	if node, err := noField.Promote(context.Background(), baseClaim()); err != nil || node != nil {
 		t.Fatalf("generic 证据不应被护栏拦截: node=%v err=%v", node, err)
@@ -349,7 +387,7 @@ func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ Re
 func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d1"}
 	fw := &fakeClaimSink{}
-	promoter := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+	promoter := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 
 	graph := explorationgraph.NewMemoryStore()
@@ -397,7 +435,7 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 
 	// 不同配方不受影响
 	other := baseClaim()
-	other.Repro = json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/y","headers":{},"body":""}},"assert":{"body_contains":["leaked-secret"]}}`)
+	other.Repro = json.RawMessage(`{"domain":"stub","recipe":{"op":"other"},"assert":{"marker":"leaked-secret"}}`)
 	if err := a.verifyObservation(context.Background(), "obs-3", other); err != nil {
 		t.Fatalf("新配方应正常验证: %v", err)
 	}
@@ -427,7 +465,7 @@ func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-r1"}
 	fw := &fakeClaimSink{}
 	j := &replayJudge{verdict: VerdictConfirmed, times: 2}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`), DurationMs: 10}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`), DurationMs: 10}}, fw).
 		WithJudge(j)
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -472,7 +510,7 @@ func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-r2"}
 	fw := &fakeClaimSink{}
 	j := &replayJudge{verdict: VerdictRefuted, times: 1}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x"}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x"}`)}}, fw).
 		WithJudge(j)
 
 	node, err := v.Promote(context.Background(), baseClaim())
@@ -510,7 +548,7 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-c1"}
 	fw := &fakeClaimSink{}
 	// 慢验证：复放 sleep 300ms，占住并发额度
-	promoter := New(w, slowReplayer{d: 300 * time.Millisecond, res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+	promoter := gateWith(w, slowReplayer{d: 300 * time.Millisecond, res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 	bus := bus.New(context.Background())
 	a := NewAgent(AgentConfig{
@@ -564,7 +602,7 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	codec := shapeCodec{}
 	replayRes := Result{Evidence: json.RawMessage(`{"url":"http://t.local:8080/vuln/xss_r/?name=p","assert_passed":true}`), DurationMs: 5}
 
-	first := New(w, fakeReplayer{res: replayRes}, fw).
+	first := gateWith(w, fakeReplayer{res: replayRes}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "首次坐实", fingerprint: fp}).
 		WithFingerprintCodec(codec)
 	node1, err := first.Promote(context.Background(), baseClaim())
@@ -578,7 +616,7 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	// 不同假设（不同源节点/不同陈述）但同指纹的第二次确认
 	secondAttempt := baseClaim()
 	secondAttempt.NodeID = "node-source-2"
-	second := New(w, fakeReplayer{res: replayRes}, fw).
+	second := gateWith(w, fakeReplayer{res: replayRes}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "换 payload 再证", fingerprint: fp}).
 		WithFingerprintCodec(codec)
 	node2, err := second.Promote(context.Background(), secondAttempt)
@@ -622,7 +660,7 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 // 指纹缺失（评估者没给 finding 字段）时去重静默降级——照常晋升，不因缺指纹丢发现。
 func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d2"}
-	v := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "无指纹"})
 	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil || node == nil {
@@ -632,7 +670,7 @@ func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 
 // invalid_recipe 终局的审计链不得因空 repro 丢失：空配方以空对象留档。
 func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
-	promoter := New(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
+	promoter := gateWith(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 
 	// coalesceRepro 是审计不丢记录的修复行：空配方归一为空对象
@@ -713,7 +751,7 @@ func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
 		got = hyp
 		return Verdict{Verdict: VerdictRefuted, Reasoning: "x"}, nil
 	})
-	v := New(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)
+	v := gateWith(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)
 	if _, err := v.Promote(context.Background(), baseClaim()); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
@@ -743,7 +781,7 @@ func TestPromote_DeliveryFailureLeavesHypothesisPendingAndRetryDelivers(t *testi
 	w := &fakeGraphStore{verID: "ver-f1"}
 	sink := &failingClaimSink{fails: 1}
 	fp := json.RawMessage(`{"class":"sqli","method":"GET","host":"t.local","path":"/q","param":"id"}`)
-	gate := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
+	gate := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp}).
 		WithFingerprintCodec(shapeCodec{})
 

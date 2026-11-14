@@ -18,7 +18,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/google/uuid"
 )
@@ -322,9 +321,9 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //
 // 分流规则：
 //   - LLM 侧瞬时故障（provider 网络/限流/超时）不计入重试阶梯——与具体假设无关，重试有意义；
-//   - 目标侧不可达（重放没拿到响应，httpreplay.ErrTransport）计入阶梯，耗尽按复放失败
+//   - 目标侧不可达（复现通道包装为 ErrTargetUnreachable）计入阶梯，耗尽按复放失败
 //     （not_reproducible）出圈：目标可能长期宕机，无限重试会让任务永不收敛并持续打目标；
-//   - 确定性配方缺陷（JSON 形状/缺字段）——重放同样配方必然同样失败，
+//   - 确定性配方缺陷（复现通道包装为 ErrInvalidRecipe）——重放同样配方必然同样失败，
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, claim Claim, cause error) {
 	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
@@ -338,7 +337,7 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 	}
 	// 目标侧判定必须先于下面两项豁免：它们按文本识别网络 / 超时，会把目标宕机、挂起
 	// 误当作 LLM provider 抖动无限豁免。任务停止导致的在途重放取消不算目标故障。
-	targetUnreachable := errors.Is(cause, httpreplay.ErrTransport)
+	targetUnreachable := errors.Is(cause, ErrTargetUnreachable)
 	if targetUnreachable && errors.Is(cause, context.Canceled) {
 		return
 	}
@@ -357,7 +356,7 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 	}
 
 	a.verifyAttemptsMu.Lock()
-	if isDeterministicRecipeError(cause) {
+	if errors.Is(cause, ErrInvalidRecipe) {
 		// 确定性缺陷：重试无意义，直接视为耗尽（-1 为随后的 ++ 预留，
 		// 审计计数与真实尝试次数一致）
 		a.verifyAttempts[observationID] = maxVerifyAttempts - 1
@@ -370,18 +369,18 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 		return
 	}
 
-	// 耗尽出圈的 refute_reason 分流：配方确定性缺陷 → invalid_recipe（planner
-	// 视为换配方才有意义的方向）；评估者侧基础设施失败（LLM 调用/输出解析
-	// 反复失败）→ judge_unavailable——机器重放可能全过、主张可能为真，
-	// 只是评估环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把
-	// 可重试方向误判成配方作废（实测真漏洞因此出圈）；目标反复不可达 →
-	// not_reproducible（复放失败，可换配方 / 换时机重试）。
-	refuteReason := RefuteInvalidRecipe
+	// 耗尽出圈的 refute_reason 分流：复现通道认定的配方缺陷 → invalid_recipe
+	// （planner 视为换配方才有意义的方向）；评估者侧基础设施失败（LLM 调用/输出
+	// 解析反复失败）→ judge_unavailable——机器重放可能全过、主张可能为真，只是
+	// 评估环节没跑通，planner 可原方向重试。混标 invalid_recipe 会把可重试方向
+	// 误判成配方作废（实测真漏洞因此出圈）；其余（目标反复不可达、复放反复失败）
+	// → not_reproducible（可换配方 / 换时机重试）。
+	refuteReason := RefuteNotReproducible
 	switch {
 	case errors.Is(cause, ErrJudgeUnavailable):
 		refuteReason = RefuteJudgeUnavailable
-	case targetUnreachable:
-		refuteReason = RefuteNotReproducible
+	case errors.Is(cause, ErrInvalidRecipe):
+		refuteReason = RefuteInvalidRecipe
 	}
 
 	a.logger.Warn().
@@ -450,11 +449,11 @@ func (a *Agent) claimFromHypothesis(obs explorationgraph.Node) (Claim, error) {
 	}
 
 	if err := json.Unmarshal(obs.Content, &content); err != nil {
-		return Claim{}, fmt.Errorf("解析 observation content 失败: %w", err)
+		return Claim{}, fmt.Errorf("%w: 解析 observation content 失败: %w", ErrInvalidRecipe, err)
 	}
 
 	if len(content.Repro) == 0 {
-		return Claim{}, fmt.Errorf("observation 缺少 repro 字段")
+		return Claim{}, fmt.Errorf("%w: observation 缺少 repro 字段", ErrInvalidRecipe)
 	}
 
 	// 配方在执行者落图时已归一化（唯一一处）；归一化失败的原始配方原样派发，由复现门
@@ -658,36 +657,6 @@ func isContextTimeoutError(err error) bool {
 	// 检查错误消息中是否包含超时关键字
 	msg := strings.ToLower(err.Error())
 	for _, token := range []string{"deadline exceeded", "context deadline", "timeout", "超时"} {
-		if strings.Contains(msg, token) {
-			return true
-		}
-	}
-	return false
-}
-
-// isDeterministicRecipeError 判断错误是否为确定性配方缺陷（JSON 形状漂移 /
-// 缺字段 / 结构非法）：同一配方重放必然同样失败，重试阶梯无意义。
-// 词表覆盖 replayer/归一化器的全部确定性错误文案。
-func isDeterministicRecipeError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	for _, token := range []string{
-		"unmarshal",         // json 形状不匹配（cannot unmarshal array/scalar...）
-		"解析失败",              // 归一化器/信封/assert 解析拒绝
-		"解析 assert 失败",      // replayer assert 解析
-		"解析 recipe 失败",      // replayer recipe 解析
-		"解析域信封失败",           // replayer 信封解析
-		"assert 为空",         // 无坐实谓词
-		"recipe 为空",         // 无复现步骤
-		"缺少 recipe.request", // web 域缺请求
-		"缺少 domain",         // 缺域信封
-		"缺少 repro",          // observation 无配方
-		"未知复现域",             // 未知 domain
-		"未知域",               // replayer 未知域
-		"url 必须是完整 url",     // request.url 形状
-	} {
 		if strings.Contains(msg, token) {
 			return true
 		}

@@ -14,7 +14,6 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
-	"github.com/V3teran/liusha/internal/httpreplay"
 )
 
 // TestClaimFromHypothesis_TolerantOfMalformedRepro 锁定双路径契约一致：
@@ -47,7 +46,8 @@ func TestClaimFromHypothesis_TolerantOfMalformedRepro(t *testing.T) {
 
 // TestRecordVerifyFailure_SplitsJudgeFromRecipe 锁定耗尽出圈的语义
 // 分流：评估者侧失败（ErrJudgeUnavailable——LLM 调用/输出解析反复
-// 失败）标 judge_unavailable，配方确定性缺陷才标 invalid_recipe。混标会把
+// 失败）标 judge_unavailable，复现通道认定的配方缺陷（ErrInvalidRecipe）才标
+// invalid_recipe，其余复放失败标 not_reproducible。混标会把
 // 机器重放全过、主张为真的方向误判成配方作废（实测真漏洞因此出圈）。
 func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 	cases := []struct {
@@ -62,7 +62,7 @@ func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 		},
 		{
 			name:       "配方确定性缺陷 → invalid_recipe",
-			cause:      errors.New("归一化 repro 失败: repro 解析失败: json: cannot unmarshal array"),
+			cause:      fmt.Errorf("verifier: 复现执行失败: %w: 解析域信封失败: json: cannot unmarshal array", ErrInvalidRecipe),
 			wantReason: RefuteInvalidRecipe,
 		},
 		{
@@ -70,19 +70,21 @@ func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 			// provider 瞬时故障无限豁免——目标宕机时假设永远待验证，任务不收敛且持续打目标。
 			name: "重放未到达目标（EOF） → not_reproducible",
 			cause: fmt.Errorf("promote: verifier: 复现执行失败: web.Replayer: 基线重放失败: %w",
-				fmt.Errorf("%w: %w", httpreplay.ErrTransport, io.EOF)),
+				fmt.Errorf("%w: %w", ErrTargetUnreachable, io.EOF)),
 			wantReason: RefuteNotReproducible,
 		},
 		{
 			name: "重放超时（目标挂起） → not_reproducible",
-			cause: fmt.Errorf("web.Replayer: 重发失败: %w",
-				fmt.Errorf("%w: Get \"http://t/\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)", httpreplay.ErrTransport)),
+			cause: fmt.Errorf("web 复现: 重发失败: %w",
+				fmt.Errorf("%w: Get \"http://t/\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)", ErrTargetUnreachable)),
 			wantReason: RefuteNotReproducible,
 		},
 		{
-			name:       "普通门错误（非配方非判定） → invalid_recipe",
-			cause:      errors.New("promote: 复现执行失败: 网络分区"),
-			wantReason: RefuteInvalidRecipe,
+			// 未被认定为配方缺陷的复放失败（如提取器未命中）不是 invalid_recipe：配方本身
+			// 可执行，只是这几次没复现出来。
+			name:       "普通复放失败（非配方非判定） → not_reproducible",
+			cause:      errors.New("promote: 复现执行失败: extractor \"token\": 正则无捕获组命中"),
+			wantReason: RefuteNotReproducible,
 		},
 	}
 
@@ -178,7 +180,7 @@ func TestRecordVerifyFailure_CanceledReplayNotCounted(t *testing.T) {
 	if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
 		t.Fatalf("建观察失败: %v", err)
 	}
-	cause := fmt.Errorf("web.Replayer: 重发失败: %w", fmt.Errorf("%w: %w", httpreplay.ErrTransport, context.Canceled))
+	cause := fmt.Errorf("web 复现: 重发失败: %w", fmt.Errorf("%w: %w", ErrTargetUnreachable, context.Canceled))
 	for i := 0; i < maxVerifyAttempts+1; i++ {
 		a.recordVerifyFailure(context.Background(), "obs-c", Claim{TaskID: "t1", NodeID: "obs-c"}, cause)
 	}

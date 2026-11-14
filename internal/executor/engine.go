@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
+	"github.com/V3teran/liusha/internal/repro"
 
 	"github.com/rs/zerolog"
 
@@ -38,6 +39,7 @@ type Engine struct {
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
 	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
+	repro               *repro.Registry         // 复现领域（配方落图时按领域归一化）
 	logger              zerolog.Logger
 }
 
@@ -64,7 +66,9 @@ type EngineConfig struct {
 	Thoughts reasoning.Tap
 	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
 	Activity *ActivityTracker
-	Logger   zerolog.Logger
+	// Repro 是可用的复现领域（nil = 只有内置的 generic 领域）。
+	Repro  *repro.Registry
+	Logger zerolog.Logger
 }
 
 // NewEngine 创建执行引擎
@@ -85,8 +89,16 @@ func NewEngine(cfg EngineConfig) *Engine {
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		agentRunID:          cfg.AgentRunID,
 		activity:            cfg.Activity,
+		repro:               reproOrGeneric(cfg.Repro),
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
+}
+
+func reproOrGeneric(r *repro.Registry) *repro.Registry {
+	if r == nil {
+		return repro.NewRegistry()
+	}
+	return r
 }
 
 // contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
