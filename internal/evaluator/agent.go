@@ -246,12 +246,12 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 		// 待验证的假设必有 repro（写入侧不变式）；content
 		// 解析失败才是真损坏（executor 写入侧 content 必为合法 JSON），持续
 		// 告警。repro 形状问题已在 parse 内宽容化（保留原始配方继续派发）。
-		attempt, err := a.parseObservationToAttempt(obs)
+		claim, err := a.claimFromHypothesis(obs)
 		if err != nil {
 			a.logger.Warn().Err(err).Str("obs_id", obs.ID).Msg("解析 observation 失败（疑似数据损坏）")
 			continue
 		}
-		if a.dispatchVerification(ctx, obs.ID, attempt, sem) {
+		if a.dispatchVerification(ctx, obs.ID, claim, sem) {
 			dispatched++
 		}
 	}
@@ -265,7 +265,7 @@ func (a *Agent) pollAndVerify(ctx context.Context, sem chan struct{}) error {
 
 // dispatchVerification 异步验证单个假设（信号量控制并发，先到先得防重入）。
 // 返回是否启动了验证（false = 已在途，本次跳过）。
-func (a *Agent) dispatchVerification(ctx context.Context, observationID string, attempt Attempt, sem chan struct{}) bool {
+func (a *Agent) dispatchVerification(ctx context.Context, observationID string, claim Claim, sem chan struct{}) bool {
 	if !a.tryAcquire(observationID) {
 		a.logger.Debug().
 			Str("observation_id", observationID).
@@ -305,12 +305,12 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			Str("observation_id", observationID).
 			Msg("开始验证 observation")
 
-		if err := a.verifyObservation(ctx, observationID, attempt); err != nil {
+		if err := a.verifyObservation(ctx, observationID, claim); err != nil {
 			logx.ErrorUnlessCanceled(a.logger, err).
 				Err(err).
 				Str("observation_id", observationID).
 				Msg("验证失败（保持待验证，下轮轮询重试）")
-			a.recordVerifyFailure(ctx, observationID, attempt, err)
+			a.recordVerifyFailure(ctx, observationID, claim, err)
 		}
 	}()
 	return true
@@ -326,7 +326,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //     （not_reproducible）出圈：目标可能长期宕机，无限重试会让任务永不收敛并持续打目标；
 //   - 确定性配方缺陷（JSON 形状/缺字段）——重放同样配方必然同样失败，
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
-func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, attempt Attempt, cause error) {
+func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, claim Claim, cause error) {
 	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
 	// 出圈），上报为 evaluator 致命错误。
 	if llm.IsConfigError(cause) {
@@ -415,13 +415,13 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 		audit["invalid_recipe"] = true
 	}
 	if _, vErr := a.graph.RecordVerification(ctx, explorationgraph.Verification{
-		ID:         uuid.New().String(),
-		TaskID:     a.taskID,
-		NodeID:     observationID,
-		Primitives: coalescePrimitives(attempt.Primitives),
-		Outcome:    explorationgraph.VerificationRefuted,
-		Evaluation: mustJSON(audit),
-		CreatedAt:  time.Now(),
+		ID:        uuid.New().String(),
+		TaskID:    a.taskID,
+		NodeID:    observationID,
+		Repro:     coalesceRepro(claim.Repro),
+		Outcome:   explorationgraph.VerificationRefuted,
+		Evidence:  mustJSON(audit),
+		CreatedAt: time.Now(),
 	}); vErr != nil {
 		a.logger.Warn().Err(vErr).Str("observation_id", observationID).Msg("invalid_recipe 审计留档失败")
 	}
@@ -429,9 +429,9 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, a
 	a.eventBus.PublishVerificationRefuted(a.taskID, observationID)
 }
 
-// coalescePrimitives 把空配方归一为空对象：primitives 落库列 NOT NULL，
+// coalesceRepro 把空配方归一为空对象：repro 落库列 NOT NULL，
 // 审计记录绝不能因载荷形状静默丢失（曾致 7 条 invalid_recipe 判定零审计可查）。
-func coalescePrimitives(p json.RawMessage) json.RawMessage {
+func coalesceRepro(p json.RawMessage) json.RawMessage {
 	if len(p) == 0 {
 		return json.RawMessage(`{}`)
 	}
@@ -440,8 +440,8 @@ func coalescePrimitives(p json.RawMessage) json.RawMessage {
 
 var mustJSON = explorationgraph.MustJSON
 
-// parseObservationToAttempt 从 observation 节点解析出 Attempt
-func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, error) {
+// claimFromHypothesis 从 observation 节点解析出 Claim
+func (a *Agent) claimFromHypothesis(obs explorationgraph.Node) (Claim, error) {
 	var content struct {
 		Statement  string          `json:"statement"`
 		Impact     string          `json:"impact"`
@@ -450,11 +450,11 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	}
 
 	if err := json.Unmarshal(obs.Content, &content); err != nil {
-		return Attempt{}, fmt.Errorf("解析 observation content 失败: %w", err)
+		return Claim{}, fmt.Errorf("解析 observation content 失败: %w", err)
 	}
 
 	if len(content.Repro) == 0 {
-		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
+		return Claim{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
 	// 配方在执行者落图时已归一化（唯一一处）；归一化失败的原始配方原样派发，由复现门
@@ -467,26 +467,26 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		"suggestion": content.Suggestion,
 	})
 	if err != nil {
-		return Attempt{}, fmt.Errorf("构造 content 失败: %w", err)
+		return Claim{}, fmt.Errorf("构造 content 失败: %w", err)
 	}
 
-	return Attempt{
-		TaskID:     a.taskID,
-		NodeID:     obs.ID,
-		Primitives: content.Repro,
-		Content:    attContent,
-		Priority:   string(obs.Priority),
+	return Claim{
+		TaskID:   a.taskID,
+		NodeID:   obs.ID,
+		Repro:    content.Repro,
+		Content:  attContent,
+		Priority: string(obs.Priority),
 	}, nil
 }
 
 // verifyObservation 验证单个 observation。
 // 判定落定（坐实/证伪）后假设节点的验证状态随之流转，轮询不再圈定；
 // 门本身出错则保持待验证，下轮轮询自然重试。
-func (a *Agent) verifyObservation(ctx context.Context, observationID string, attempt Attempt) error {
+func (a *Agent) verifyObservation(ctx context.Context, observationID string, claim Claim) error {
 	startTime := time.Now()
 
 	// 去重：同一验证键（假设+配方）已验证过则沿用结论——不再烧 judge、不再重复写 finding。
-	hash := attemptHash(attempt)
+	hash := claimHash(claim)
 	if prev, seen := a.verdictLookup(hash); seen {
 		a.logger.Info().
 			Str("observation_id", observationID).
@@ -501,7 +501,7 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, att
 	defer cancel()
 
 	// 调用 PromotionGate 验证
-	node, err := a.gate.Promote(verifyCtx, attempt)
+	node, err := a.gate.Promote(verifyCtx, claim)
 	if err != nil {
 		// 区分超时错误和其他错误
 		if isContextTimeoutError(err) {
@@ -607,20 +607,20 @@ func (a *Agent) verdictStore(key string, v priorVerdict) {
 	a.verdicts[key] = v
 }
 
-// attemptHash 对验证对象（假设陈述 + 配方）联合哈希：判定针对的是"假设是否
+// claimHash 对验证对象（假设陈述 + 配方）联合哈希：判定针对的是"假设是否
 // 坐实"，裸配方相同而陈述不同（同一请求既被当 XSS 也被当 SQLi 提交）是两次
-// 独立判定，不得沿用结论。陈述取 Attempt.Content.statement。
-func attemptHash(a Attempt) string {
+// 独立判定，不得沿用结论。陈述取 Claim.Content.statement。
+func claimHash(a Claim) string {
 	h := sha256.New()
-	h.Write([]byte(attemptStatement(a)))
+	h.Write([]byte(claimStatement(a)))
 	h.Write([]byte{0}) // 定界符：防"陈述A+配方B"与"陈述AB+配方"拼接碰撞
-	h.Write(bytes.TrimSpace(a.Primitives))
+	h.Write(bytes.TrimSpace(a.Repro))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// attemptStatement 从 Attempt.Content 提取假设陈述（缺失返回空串——
+// claimStatement 从 Claim.Content 提取假设陈述（缺失返回空串——
 // 此时验证键退化为纯配方哈希）。
-func attemptStatement(a Attempt) string {
+func claimStatement(a Claim) string {
 	var c struct {
 		Statement string `json:"statement"`
 	}

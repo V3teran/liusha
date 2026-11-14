@@ -23,9 +23,9 @@ func (s *Store) RecordVerification(ctx context.Context, v Verification) (string,
 	}
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO exploration_verification (id, task_id, node_id, primitives, outcome, evidence, duration_ms, created_at)
+		INSERT INTO exploration_verification (id, task_id, node_id, repro, outcome, evidence, duration_ms, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		v.ID, v.TaskID, v.NodeID, v.Primitives, string(v.Outcome), v.Evaluation, v.DurationMs, v.CreatedAt)
+		v.ID, v.TaskID, v.NodeID, v.Repro, string(v.Outcome), v.Evidence, v.DurationMs, v.CreatedAt)
 	if err != nil {
 		return "", fmt.Errorf("insert verification: %w", err)
 	}
@@ -47,7 +47,7 @@ func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limi
 		limit = 200
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, task_id::text, node_id::text, primitives, outcome, evidence, duration_ms, created_at
+		SELECT id, task_id::text, node_id::text, repro, outcome, evidence, duration_ms, created_at
 		FROM exploration_verification
 		WHERE task_id = $1::uuid
 		ORDER BY created_at DESC
@@ -60,7 +60,7 @@ func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limi
 	out := make([]Verification, 0)
 	for rows.Next() {
 		var v Verification
-		if err := rows.Scan(&v.ID, &v.TaskID, &v.NodeID, &v.Primitives, &v.Outcome, &v.Evaluation, &v.DurationMs, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.TaskID, &v.NodeID, &v.Repro, &v.Outcome, &v.Evidence, &v.DurationMs, &v.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan verification: %w", err)
 		}
 		out = append(out, v)

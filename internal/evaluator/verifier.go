@@ -9,7 +9,7 @@
 //
 //	Observation(在途假设，图节点，verification_status=pending)
 //	    → Promote(attempt)
-//	    → 域 Replayer 复放采证（primitives 对本包是不透明 blob，形状归各域）
+//	    → 域 Replayer 复放采证（repro 对本包是不透明 blob，形状归各域）
 //	    → LLMJudge 终判（机器采证，LLM 持判定权）
 //	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+评估者每次复放
 //	    → confirmed: CreateNode(result) 进图 + 写 finding 表
@@ -83,25 +83,25 @@ type FingerprintNormalizer interface {
 }
 
 // Replayer 是 domain-specific 复现执行器。Evaluator 把"复现"委托给它，自身不碰域细节。
-// primitives 是要回放的 L1 原语序列（形状由域定义）；返回是否坐实 + 证据。
+// repro 是要回放的复现配方（域信封，形状由域定义）；返回采集到的证据。
 type Replayer interface {
-	Replay(ctx context.Context, primitives json.RawMessage) (Result, error)
+	Replay(ctx context.Context, repro json.RawMessage) (Result, error)
 }
 
 // Result 是一次复现采集的客观证据（机器不判定坐实——语义判定权全在 LLMJudge）。
 type Result struct {
-	Evaluation json.RawMessage // 基线/利用请求双对照证据 + executor 声明预期的核验明细（参考）
+	Evidence   json.RawMessage // 基线/利用请求双对照证据 + executor 声明预期的核验明细（参考）
 	DurationMs int64           // 利用请求重放耗时
 }
 
-// Attempt 是一次晋升尝试的输入：被验证的假设节点、它的复现配方与坐实后结果节点的载荷。
+// Claim 是一条待验证的主张：被验证的假设节点、它的复现配方与坐实后结果节点的载荷。
 // 只由评估者从图上的假设节点构造。
-type Attempt struct {
-	TaskID     string          // 所属任务
-	NodeID     string          // 被验证的假设节点
-	Primitives json.RawMessage // 复现配方（域信封）
-	Content    json.RawMessage // 坐实后写入结果节点的载荷（statement/impact/suggestion，与假设同名）
-	Priority   string          // 优先级（取假设节点的）
+type Claim struct {
+	TaskID   string          // 所属任务
+	NodeID   string          // 被验证的假设节点
+	Repro    json.RawMessage // 复现配方（域信封）
+	Content  json.RawMessage // 坐实后写入结果节点的载荷（statement/impact/suggestion，与假设同名）
+	Priority string          // 优先级（取假设节点的）
 }
 
 // Verdict 是 LLM 判定的两态结论字面量。
@@ -150,11 +150,11 @@ var ErrJudgeUnavailable = errors.New("评估者不可用")
 // verificationTier 从域信封判定验证档位。evaluator 不 import executor（会成环），
 // 域字面量与 executor.ReproEnvelope 的 domain 约定保持一致：web 有机器重放通道；
 // generic（含 web assert 不完整、被 evaluator agent 降级改写的配方）无机器通道。
-func verificationTier(primitives json.RawMessage) string {
+func verificationTier(repro json.RawMessage) string {
 	var env struct {
 		Domain string `json:"domain"`
 	}
-	if err := json.Unmarshal(primitives, &env); err != nil || env.Domain == "generic" {
+	if err := json.Unmarshal(repro, &env); err != nil || env.Domain == "generic" {
 		return TierJudgeOnly
 	}
 	return TierFullGate
@@ -222,9 +222,9 @@ type replayRecord struct {
 //   - (nil, err)   门本身出错（复现执行/落库失败）。
 //
 // 库不 log，错误上抛由 caller 记录（与 explorationgraph.Store 一致）。
-func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgraph.Node, error) {
+func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph.Node, error) {
 	// 1. 验证输入
-	if err := g.validateAttempt(a); err != nil {
+	if err := g.validateClaim(a); err != nil {
 		return nil, err
 	}
 
@@ -243,8 +243,8 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 	}
 
 	// 4. 提取假设
-	hyp := attemptStatement(a)
-	tier := verificationTier(a.Primitives)
+	hyp := claimStatement(a)
+	tier := verificationTier(a.Repro)
 
 	// 5. 机器护栏检查
 	if node, shouldContinue, err := g.checkMachineGuard(ctx, a, hyp, res, replays); !shouldContinue {
@@ -336,7 +336,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Attempt) (*explorationgra
 // 交给下一轮判定重试——静默告警会让图里已有 verified result、台账却永久缺失。
 func (g *PromotionGate) deliverClaim(
 	ctx context.Context,
-	a Attempt,
+	a Claim,
 	node explorationgraph.Node,
 	verID string,
 	res Result,
@@ -367,8 +367,8 @@ func (g *PromotionGate) deliverClaim(
 		Suggestion:     content.Suggestion,
 		HostHint:       content.Host,
 		Target:         content.Target,
-		Evidence:       res.Evaluation,
-		Repro:          a.Primitives,
+		Evidence:       res.Evidence,
+		Repro:          a.Repro,
 		Tier:           tier,
 		DurationMs:     res.DurationMs,
 	})
@@ -435,23 +435,23 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 // （带 quality_gate 标记与拒绝理由）、假设节点验证状态流转为 refuted。
 // 语义区别于 invalid_recipe（门故障止损）：这是验证结论——配方证明了
 // 命中不构成漏洞证据。
-func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, cause error) (*explorationgraph.Node, error) {
+func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Claim, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
 		"quality_gate":      true,
 		"refute_reason":     RefuteAssertNotDiscriminative,
-		"verification_tier": verificationTier(a.Primitives),
+		"verification_tier": verificationTier(a.Repro),
 		"reason":            cause.Error(),
 		"phase":             "prerun",
 	})
 
 	_, err := g.graph.RecordVerification(ctx, explorationgraph.Verification{
-		ID:         uuid.New().String(),
-		TaskID:     a.TaskID,
-		NodeID:     a.NodeID,
-		Primitives: a.Primitives,
-		Outcome:    explorationgraph.VerificationRefuted,
-		Evaluation: evaluation,
-		CreatedAt:  time.Now(),
+		ID:        uuid.New().String(),
+		TaskID:    a.TaskID,
+		NodeID:    a.NodeID,
+		Repro:     a.Repro,
+		Outcome:   explorationgraph.VerificationRefuted,
+		Evidence:  evaluation,
+		CreatedAt: time.Now(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("verifier: 质量拒绝留档失败: %w", err)
@@ -474,20 +474,20 @@ func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Attempt, caus
 // 给假设节点打 refuted 标记、发布 refuted 事件语义（node=nil）。
 func (g *PromotionGate) refuteEarly(
 	ctx context.Context,
-	a Attempt, hyp string, res Result, replays []replayRecord,
+	a Claim, hyp string, res Result, replays []replayRecord,
 ) (*explorationgraph.Node, error) {
 	const verdict = VerdictRefuted
 	const reasoning = "机器护栏：复现断言全部未命中（配方声称的特征未出现），无支持坐实的证据，不经评估者直接证伪"
-	tier := verificationTier(a.Primitives)
-	evaluation := withReplayLog(res.Evaluation, tier, verdict, reasoning, replays)
+	tier := verificationTier(a.Repro)
+	evaluation := withReplayLog(res.Evidence, tier, verdict, reasoning, replays)
 
 	_, err := g.graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID:         uuid.New().String(),
 		TaskID:     a.TaskID,
 		NodeID:     a.NodeID,
-		Primitives: a.Primitives,
+		Repro:      a.Repro,
 		Outcome:    explorationgraph.VerificationRefuted,
-		Evaluation: evaluation,
+		Evidence:   evaluation,
 		DurationMs: res.DurationMs,
 		CreatedAt:  time.Now(),
 	})

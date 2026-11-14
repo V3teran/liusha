@@ -18,28 +18,28 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// TestAttemptHashKeysOnStatementAndRecipe 锁定验证键语义：验证对象是"假设+配方"，
+// TestClaimHashKeysOnStatementAndRecipe 锁定验证键语义：验证对象是"假设+配方"，
 // 同配方不同陈述是两次独立判定，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
 // "SQLi"共享同一配方时互相继承判定）。
-func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
+func TestClaimHashKeysOnStatementAndRecipe(t *testing.T) {
 	recipe := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
 
-	xss := Attempt{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS"}`), Primitives: recipe}
-	sqli := Attempt{Content: json.RawMessage(`{"statement":"/search 存在 SQL 注入"}`), Primitives: recipe}
-	sameAsXSS := Attempt{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS","severity":"high"}`), Primitives: recipe}
+	xss := Claim{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS"}`), Repro: recipe}
+	sqli := Claim{Content: json.RawMessage(`{"statement":"/search 存在 SQL 注入"}`), Repro: recipe}
+	sameAsXSS := Claim{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS","severity":"high"}`), Repro: recipe}
 
-	if attemptHash(xss) == attemptHash(sqli) {
+	if claimHash(xss) == claimHash(sqli) {
 		t.Fatal("同配方不同陈述不得同键：会跨假设沿用判定")
 	}
-	if attemptHash(xss) != attemptHash(sameAsXSS) {
+	if claimHash(xss) != claimHash(sameAsXSS) {
 		t.Fatal("同陈述同配方（载荷多无关字段）应同键")
 	}
 }
 
-// TestParseObservationToAttemptContentShape 锁定从假设节点构造的载荷形状：
+// TestClaimFromHypothesisContentShape 锁定从假设节点构造的载荷形状：
 // statement/impact/suggestion 三字段（结果与假设的陈述同名）；优先级取观察节点的
 // 优先级（只在节点层存一份）。
-func TestParseObservationToAttemptContentShape(t *testing.T) {
+func TestClaimFromHypothesisContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
 	obs := explorationgraph.Node{
@@ -49,9 +49,9 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 		Priority: explorationgraph.PriorityHigh,
 		Content:  json.RawMessage(`{"statement":"S 存在漏洞","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
-	att, err := a.parseObservationToAttempt(obs)
+	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
+		t.Fatalf("claimFromHypothesis: %v", err)
 	}
 	var c map[string]string
 	if err := json.Unmarshal(att.Content, &c); err != nil {
@@ -62,7 +62,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 		t.Fatalf("载荷形状不符: %+v", c)
 	}
 	if att.Priority != "high" {
-		t.Fatalf("Attempt 优先级应取观察节点的优先级，得 %q", att.Priority)
+		t.Fatalf("Claim 优先级应取观察节点的优先级，得 %q", att.Priority)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestIsDeterministicRecipeError(t *testing.T) {
 // （result 只承载经判定坐实的主张）。
 func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-boundary"}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+	promoter := New(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	memGraph := explorationgraph.NewMemoryStore()
@@ -143,10 +143,10 @@ func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	}
 }
 
-// TestParseObservationToAttemptKeepsReproDomain 锁定轮询入口不私改配方：
+// TestClaimFromHypothesisKeepsReproDomain 锁定轮询入口不私改配方：
 // 断言只有 description 的 web 配方（机器无从判定）必须原样交复现门终局，
 // 不得私自降级成 generic 绕过「空断言不可坐实」。
-func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
+func TestClaimFromHypothesisKeepsReproDomain(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 	obs := explorationgraph.Node{
 		ID:      "obs-web-desc",
@@ -154,19 +154,19 @@ func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
 		Kind:    core.KindObservation,
 		Content: json.RawMessage(`{"statement":"S","repro":{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/a","headers":{},"body":""},"baseline":{"method":"GET","url":"http://t/b","headers":{},"body":""}},"assert":{"description":"页面出现管理员数据"}}}`),
 	}
-	att, err := a.parseObservationToAttempt(obs)
+	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
+		t.Fatalf("claimFromHypothesis: %v", err)
 	}
 	var env struct {
 		Domain string          `json:"domain"`
 		Recipe json.RawMessage `json:"recipe"`
 	}
-	if err := json.Unmarshal(att.Primitives, &env); err != nil {
-		t.Fatalf("unmarshal primitives: %v", err)
+	if err := json.Unmarshal(att.Repro, &env); err != nil {
+		t.Fatalf("unmarshal repro: %v", err)
 	}
 	if env.Domain != "web" {
-		t.Fatalf("轮询入口改写了配方域: domain=%q primitives=%s", env.Domain, att.Primitives)
+		t.Fatalf("轮询入口改写了配方域: domain=%q repro=%s", env.Domain, att.Repro)
 	}
 }
 

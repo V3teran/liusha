@@ -24,7 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// ReplayFunc 是评估者可调用的机器重放（由 PromotionGate 注入，绑定本 Attempt 配方）。
+// ReplayFunc 是评估者可调用的机器重放（由 PromotionGate 注入，绑定本 Claim 配方）。
 type ReplayFunc func(ctx context.Context) (Result, error)
 
 // LLMJudge 是晋升门的语义判定器接口（ReAct 实现 + 测试 stub）。
@@ -336,7 +336,7 @@ func stringOrEmpty(b json.RawMessage) string {
 
 // ─── replay_for_verification 工具 ────────────────────────────────────────────
 
-// replayTool 把 ReplayFunc 包成 registry.Tool（绑定本 Attempt 的配方，LLM 可多次调用取证）。
+// replayTool 把 ReplayFunc 包成 registry.Tool（绑定本 Claim 的配方，LLM 可多次调用取证）。
 type replayTool struct {
 	registry.BaseTool
 	replay ReplayFunc
@@ -362,7 +362,7 @@ func (t *replayTool) Execute(ctx context.Context, _ json.RawMessage) (registry.T
 	if err != nil {
 		return registry.ToolResult{Error: "重放失败: " + err.Error()}, nil
 	}
-	ev := res.Evaluation
+	ev := res.Evidence
 	if len(ev) == 0 {
 		ev = json.RawMessage("{}")
 	}

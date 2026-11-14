@@ -55,9 +55,9 @@ export interface Verification {
   id: string
   task_id: string
   node_id: string
-  primitives: unknown
+  repro: unknown
   outcome: 'confirmed' | 'refuted'
-  evaluation: unknown
+  evidence: unknown
   duration_ms: number
   created_at: string
 }

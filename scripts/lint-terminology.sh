@@ -43,10 +43,13 @@ EXCLUDES=(
 # unverified / factual / verification_outcome / executor_confidence / test_plan：观察的图级
 #   「置信度」改为只有假设才有的验证状态 verification_status（pending/confirmed/refuted），
 #   验证结论不再双写，执行器自评置信度与 test_plan 字段删除（迁移 0208）。
+# Primitives / primitives 列 / Attempt：复现配方全系统叫 repro，待验证的主张叫 Claim（迁移 0222）。
 # blocked_reason：节点状态原因已统一为 state_reason（系统里没有「阻塞」状态，迁移 0221）。
 # 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
 #   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
 FORBIDDEN=(
+  'Primitives'
+  'parseObservationToAttempt'
   'blocked_reason'
   'BlockedReason'
   '裁决'

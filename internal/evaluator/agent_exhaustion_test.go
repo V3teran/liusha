@@ -17,11 +17,11 @@ import (
 	"github.com/V3teran/liusha/internal/httpreplay"
 )
 
-// TestParseObservationToAttempt_TolerantOfMalformedRepro 锁定双路径契约一致：
+// TestClaimFromHypothesis_TolerantOfMalformedRepro 锁定双路径契约一致：
 // repro 归一化失败（如 generic 域缺 assert）时轮询路径保留原始配方继续派发，
 // 而不是整条丢弃——此前该假设永远待验证：每 5s 重解析重告警（实测同一
 // 节点连告 39 次），且 hasPendingVerdicts 永真阻塞任务收敛。
-func TestParseObservationToAttempt_TolerantOfMalformedRepro(t *testing.T) {
+func TestClaimFromHypothesis_TolerantOfMalformedRepro(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
 	raw := json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`) // 缺 assert
@@ -32,16 +32,16 @@ func TestParseObservationToAttempt_TolerantOfMalformedRepro(t *testing.T) {
 		Content: appendJSONField(t, `{"statement":"S 存在存储型 XSS"}`, "repro", raw),
 	}
 
-	att, err := a.parseObservationToAttempt(obs)
+	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
 		t.Fatalf("归一化失败不应整条丢弃（由复现门终局）: %v", err)
 	}
 	var got map[string]any
-	if err := json.Unmarshal(att.Primitives, &got); err != nil {
+	if err := json.Unmarshal(att.Repro, &got); err != nil {
 		t.Fatalf("原始配方应原样保留: %v", err)
 	}
 	if got["domain"] != "generic" {
-		t.Fatalf("配方内容不应被改写: %s", att.Primitives)
+		t.Fatalf("配方内容不应被改写: %s", att.Repro)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 				t.Fatalf("建观察失败: %v", err)
 			}
 
-			attempt := Attempt{TaskID: "t1", NodeID: "obs-x", Primitives: obs.Content}
+			attempt := Claim{TaskID: "t1", NodeID: "obs-x", Repro: obs.Content}
 			for i := 0; i < maxVerifyAttempts; i++ {
 				a.recordVerifyFailure(context.Background(), "obs-x", attempt, tc.cause)
 			}
@@ -150,7 +150,7 @@ func TestErrJudgeUnavailableWrapping(t *testing.T) {
 func TestRecordVerifyFailure_ConfigErrorIsFatalNotPerHypothesis(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 	cfgErr := fmt.Errorf("%w: verifier: LLM 判定失败: %w", ErrJudgeUnavailable, &llm.HTTPError{Code: 401})
-	a.recordVerifyFailure(context.Background(), "obs-1", Attempt{}, cfgErr)
+	a.recordVerifyFailure(context.Background(), "obs-1", Claim{}, cfgErr)
 
 	a.verifyAttemptsMu.Lock()
 	n := a.verifyAttempts["obs-1"]
@@ -180,7 +180,7 @@ func TestRecordVerifyFailure_CanceledReplayNotCounted(t *testing.T) {
 	}
 	cause := fmt.Errorf("web.Replayer: 重发失败: %w", fmt.Errorf("%w: %w", httpreplay.ErrTransport, context.Canceled))
 	for i := 0; i < maxVerifyAttempts+1; i++ {
-		a.recordVerifyFailure(context.Background(), "obs-c", Attempt{TaskID: "t1", NodeID: "obs-c"}, cause)
+		a.recordVerifyFailure(context.Background(), "obs-c", Claim{TaskID: "t1", NodeID: "obs-c"}, cause)
 	}
 	node, err := memGraph.GetNode(context.Background(), "obs-c")
 	if err != nil {
