@@ -75,14 +75,11 @@ func SetGoalTx(ctx context.Context, tx pgx.Tx, id, goal string) (bool, error) {
 	if goal == "" {
 		return false, fmt.Errorf("goal 必填")
 	}
-	var status, current string
-	if err := tx.QueryRow(ctx, `SELECT status, goal FROM task WHERE id = $1 FOR UPDATE`, id).Scan(&status, &current); err != nil {
-		return false, fmt.Errorf("锁定任务: %w", err)
+	current, err := LockActive(ctx, tx, id)
+	if err != nil {
+		return false, err
 	}
-	if Status(status) != StatusActive {
-		return false, ErrNotActive
-	}
-	if current == goal {
+	if current.Goal == goal {
 		return false, nil
 	}
 	if _, err := tx.Exec(ctx, `UPDATE task SET goal = $2, target_host = $3 WHERE id = $1`, id, goal, targetHostOf(goal)); err != nil {
@@ -100,6 +97,20 @@ func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 	var t Task
 	if err := scan(row, &t); err != nil {
 		return Task{}, fmt.Errorf("get task %s: %w", id, err)
+	}
+	return t, nil
+}
+
+// LockActive 在调用方事务内锁住任务行（FOR UPDATE）并要求任务进行中（暂停中也算），
+// 返回锁定时的任务行。运行中引导、收敛完成都先锁任务行再写图，彼此串行：判定不会基于
+// 过期的状态。任务已结束返回 ErrNotActive；不存在返回包裹 pgx.ErrNoRows 的错误。
+func LockActive(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
+	var t Task
+	if err := scan(tx.QueryRow(ctx, "SELECT "+colsSelect+" FROM task WHERE id = $1 FOR UPDATE", id), &t); err != nil {
+		return Task{}, fmt.Errorf("锁定任务 %s: %w", id, err)
+	}
+	if t.Status != StatusActive {
+		return Task{}, ErrNotActive
 	}
 	return t, nil
 }

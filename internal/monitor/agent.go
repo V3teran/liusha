@@ -6,7 +6,9 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -41,6 +43,35 @@ type Agent struct {
 
 	// 时间序列指标收集器
 	metricsCollector *metrics.Collector
+
+	// 复核请求（经 RequestReview 发出）：reviewCh 容量 1，未消费前的多次请求合并为一次，
+	// 理由逐条保留（去重）。
+	reviewCh      chan struct{}
+	reviewMu      sync.Mutex
+	reviewReasons []string
+}
+
+// RequestReview 请求一次提前评估（如任务目标被调整：在途动作要按新目标复核）。不等定时
+// 周期；图上没有在途动作时不评估。未消费前的多次请求合并为一次，理由逐条保留。
+func (a *Agent) RequestReview(reason string) {
+	a.reviewMu.Lock()
+	if !slices.Contains(a.reviewReasons, reason) {
+		a.reviewReasons = append(a.reviewReasons, reason)
+	}
+	a.reviewMu.Unlock()
+	select {
+	case a.reviewCh <- struct{}{}:
+	default:
+	}
+}
+
+// takeReviewReasons 取走待处理复核请求的全部理由。
+func (a *Agent) takeReviewReasons() []string {
+	a.reviewMu.Lock()
+	defer a.reviewMu.Unlock()
+	reasons := a.reviewReasons
+	a.reviewReasons = nil
+	return reasons
 }
 
 // Config 是 Monitor Agent 的配置。
@@ -122,6 +153,7 @@ func New(cfg Config) *Agent {
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		metricsCollector:    metricsCollector,
 		thoughts:            cfg.Thoughts,
+		reviewCh:            make(chan struct{}, 1),
 	}
 }
 
@@ -169,7 +201,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// 的确定结论——烧一轮 LLM（含强制总结共 3 次调用）监察不存在的工作。
 	// 图上无 open/running 动作时跳过首评，等定时器（届时若任务真实必有在途）。
 	if a.hasSupervisableWork(ctx) {
-		if err := a.evaluationFailure(a.evaluate(ctx), "首次评估"); err != nil {
+		if err := a.evaluationFailure(a.evaluate(ctx, nil), "首次评估"); err != nil {
 			return err
 		}
 	} else {
@@ -189,7 +221,18 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.logger.Debug().Msg("周期评估跳过：图上无在途动作")
 				continue
 			}
-			if err := a.evaluationFailure(a.evaluate(ctx), "周期评估"); err != nil {
+			if err := a.evaluationFailure(a.evaluate(ctx, nil), "周期评估"); err != nil {
+				return err
+			}
+
+		case <-a.reviewCh:
+			reasons := a.takeReviewReasons()
+			if !a.hasSupervisableWork(ctx) {
+				a.logger.Info().Strs("reasons", reasons).Msg("复核跳过：图上无在途动作")
+				continue
+			}
+			a.logger.Info().Strs("reasons", reasons).Msg("收到复核请求，提前评估")
+			if err := a.evaluationFailure(a.evaluate(ctx, reasons), "复核"); err != nil {
 				return err
 			}
 		}
@@ -210,8 +253,9 @@ func (a *Agent) evaluationFailure(err error, phase string) error {
 	return nil
 }
 
-// evaluate 执行一次全局评估（使用 ReActRuntime）
-func (a *Agent) evaluate(ctx context.Context) error {
+// evaluate 执行一次全局评估（使用 ReActRuntime）。reviewReasons 非空时本轮是复核请求
+// 触发的提前评估，理由进评估目标。
+func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 	a.logger.Info().Msg("starting global evaluation with ReActRuntime")
 
 	// 更新时间序列指标
@@ -220,7 +264,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	}
 
 	// 构建评估目标
-	objective := a.buildEvaluationObjective()
+	objective := a.buildEvaluationObjective(reviewReasons)
 
 	// 构建系统提示
 	systemPrompt := a.buildSystemPrompt()
@@ -279,9 +323,9 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	return nil
 }
 
-// buildEvaluationObjective 构建评估目标
-func (a *Agent) buildEvaluationObjective() string {
-	return fmt.Sprintf(`你是任务 %s 的监察 Agent。
+// buildEvaluationObjective 构建评估目标；reviewReasons 非空时附上本轮复核的理由。
+func (a *Agent) buildEvaluationObjective(reviewReasons []string) string {
+	objective := fmt.Sprintf(`你是任务 %s 的监察 Agent。
 
 你的职责：
 1. 检查任务的全局状态
@@ -298,6 +342,17 @@ func (a *Agent) buildEvaluationObjective() string {
 - 缺乏进展 → 考虑 replan
 
 请开始评估。`, a.taskID)
+	if len(reviewReasons) == 0 {
+		return objective
+	}
+	var b strings.Builder
+	b.WriteString(objective)
+	b.WriteString("\n\n本轮是复核（不等定时周期提前评估），理由：")
+	for _, r := range reviewReasons {
+		b.WriteString("\n- " + r)
+	}
+	b.WriteString("\n按理由逐一复核在途动作：已不服务于当前任务目标的予以否决。")
+	return b.String()
 }
 
 // buildSystemPrompt 组装监察 system prompt：即章程本身。监察的决策经

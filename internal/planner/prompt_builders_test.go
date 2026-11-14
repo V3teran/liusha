@@ -91,3 +91,23 @@ func TestBuildReplanSection_ListsReasons(t *testing.T) {
 		}
 	}
 }
+
+// 用户指派的动作在规划视野里标出来源：规划者知道哪些是用户直接要求的，不重复提出等效动作。
+func TestActionSections_LabelUserAssigned(t *testing.T) {
+	open := explorationgraph.StateOpen
+	done := explorationgraph.StateCompleted
+	assigned := explorationgraph.Node{ID: "a1", Kind: core.KindAction, State: &open,
+		SourceType: explorationgraph.SourceUser, Content: []byte(`{"instruction":"复测登录接口"}`)}
+	planned := explorationgraph.Node{ID: "a2", Kind: core.KindAction, State: &open,
+		SourceType: explorationgraph.SourcePlanner, Content: []byte(`{"instruction":"枚举目录"}`)}
+
+	pending := buildPendingActionsSection([]explorationgraph.Node{assigned, planned})
+	if !strings.Contains(pending, "[进行中·用户指派] [ID: a1]") || !strings.Contains(pending, "[进行中] [ID: a2]") {
+		t.Fatalf("进行中的用户指派动作应标出来源:\n%s", pending)
+	}
+	assigned.State = &done
+	completed := buildCompletedActionsSection([]explorationgraph.Node{assigned})
+	if !strings.Contains(completed, "[完成·用户指派] [ID: a1]") {
+		t.Fatalf("已完成的用户指派动作应标出来源:\n%s", completed)
+	}
+}

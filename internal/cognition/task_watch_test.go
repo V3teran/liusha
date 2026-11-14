@@ -56,3 +56,25 @@ func TestTaskWatcher_ObservesLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// 目标被调整（任务行 goal 变化）时通知一次：规划者立即按新目标重规划、监察者立即复核
+// 在途动作；目标未变不通知。
+func TestTaskWatcher_NotifiesGoalChange(t *testing.T) {
+	changes := 0
+	w := &taskWatcher{
+		taskID: "t1",
+		tasks: &fakeTaskReader{rows: []task.Task{
+			{Status: task.StatusActive, Goal: "原目标"},
+			{Status: task.StatusActive, Goal: "调整后的目标"},
+			{Status: task.StatusActive, Goal: "调整后的目标"},
+		}},
+		goal:          "原目标",
+		stopRun:       func(string) { t.Fatal("目标调整不应结束 run") },
+		onGoalChanged: func() { changes++ },
+		logger:        zerolog.Nop(),
+	}
+	for range 3 {
+		w.observe(context.Background())
+	}
+	assert.Equal(t, 1, changes)
+}

@@ -30,6 +30,17 @@ func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionConten
 	return &data, nil
 }
 
+// actionObjective 构建一个动作的执行目标：用户指派的动作写明来源；没有类型时不带类型行。
+func actionObjective(action explorationgraph.Node, content *ActionContent) string {
+	if action.SourceType == explorationgraph.SourceUser {
+		return "执行用户指派的操作：" + content.Instruction
+	}
+	if content.Type == "" {
+		return "执行以下操作：" + content.Instruction
+	}
+	return fmt.Sprintf("执行以下操作：%s\n\n类型：%s", content.Instruction, content.Type)
+}
+
 // prepareReActTools 准备并过滤 ReAct 工具列表
 func (e *Engine) prepareReActTools() []registry.Tool {
 	var tools []registry.Tool
@@ -50,15 +61,14 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	tools []registry.Tool,
 	own *ownership,
 ) (*runtime.ReActConfig, error) {
-	// 构建执行目标
-	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s", actionContent.Instruction, actionContent.Type)
+	objective := actionObjective(action, actionContent)
 
 	// 构建系统提示
 	complexity := ""
 	if action.Complexity != nil {
 		complexity = string(*action.Complexity)
 	}
-	systemPrompt := e.buildSystemPrompt(actionContent.Type, complexity, goal, tools)
+	systemPrompt := e.buildSystemPrompt(action, actionContent.Type, complexity, goal, tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)

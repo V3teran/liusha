@@ -97,6 +97,13 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	if d.TaskControl != nil {
 		r.POST("/tasks/:id/control", uuidID, taskControlHandler(d.TaskControl))
 	}
+	if d.TaskSteering != nil {
+		if d.Tasks != nil {
+			r.PATCH("/tasks/:id", uuidID, patchTaskHandler(d.TaskSteering, d.Tasks))
+		}
+		r.POST("/tasks/:id/actions", uuidID, assignActionHandler(d.TaskSteering))
+		r.POST("/tasks/:id/actions/:action_id/reject", uuidID, requireUUIDParam("action_id"), rejectActionHandler(d.TaskSteering))
+	}
 	if d.Schedules != nil {
 		r.GET("/schedules", listSchedulesHandler(d.Schedules))
 		r.PATCH("/schedules/:id", uuidID, patchScheduleHandler(d.Schedules))

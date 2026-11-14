@@ -189,10 +189,10 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 // buildSystemPrompt 组装 executor system prompt：
 //
 //	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
-//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务目标）
+//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / 来源与类型指导 / 时间预期 / 任务目标）
 //
 // 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
-func (e *Engine) buildSystemPrompt(actionType, complexity, goal string, registered []registry.Tool) string {
+func (e *Engine) buildSystemPrompt(action explorationgraph.Node, actionType, complexity, goal string, registered []registry.Tool) string {
 	var toolSB strings.Builder
 	for _, t := range registered {
 		toolSB.WriteString("- " + t.Name() + ": " + t.ShortDesc() + "\n")
@@ -238,6 +238,15 @@ func (e *Engine) buildSystemPrompt(actionType, complexity, goal string, register
 		}
 	}
 	// ========================================================
+
+	// 用户指派的动作按来源装配指导（它没有 type，不借用类型分支）
+	if action.SourceType == explorationgraph.SourceUser {
+		basePrompt += `
+**用户指派的动作**：
+- 这一步是用户直接要求执行的：按指令执行，不扩大范围（不顺带测试指令以外的对象或手法）
+- 指令与任务目标的表述不一致时以指令为准，并在最终输出里如实说明
+`
+	}
 
 	// 根据 Action 类型添加特定指导（领域无关）
 	switch actionType {
