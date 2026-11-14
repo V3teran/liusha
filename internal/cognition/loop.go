@@ -149,6 +149,17 @@ func (d *Deps) run(
 		return executor.Report{}, err
 	}
 
+	// 本 run 此刻独占任务：之前的 run 留下的在途动作（进程崩溃、或新旧 run 重叠时
+	// 旧 run 尚未交还）交还 open 重新执行。旧 run 若仍活着，它迟到的结果因认领归属
+	// 不符而落空。
+	reclaimed, err := d.Graph.ReclaimRunningActions(ctx, taskID)
+	if err != nil {
+		return executor.Report{}, fmt.Errorf("回收上一 run 的在途动作: %w", err)
+	}
+	if reclaimed > 0 {
+		d.Logger.Info().Int("count", reclaimed).Msg("已交还上一 run 留下的在途动作")
+	}
+
 	stack, err := d.assembleStack(ctx, taskID, host, brief, conversationID, sb)
 	if err != nil {
 		return executor.Report{}, err
@@ -545,11 +556,12 @@ func (d *Deps) buildExecutorAgent(
 
 	return executor.NewAgent(executor.AgentConfig{
 		TaskID:      taskID,
+		AgentRunID:  agentRunID, // 动作认领归属本 run
 		Graph:       d.Graph,
 		Executor:    coord,
 		EventBus:    d.EventBus,
 		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
-		MaxParallel: 4, // 无依赖 action 并发执行（DAG 定可并行性；浏览器已按 action 隔离 tab）
+		MaxParallel: 4, // open 动作并发执行（浏览器已按 action 隔离 tab）
 	})
 }
 

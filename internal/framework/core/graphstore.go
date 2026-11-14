@@ -25,12 +25,6 @@ type GraphStore interface {
 	// UpdateNode 更新节点（部分更新）
 	UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error
 
-	// CompareAndSwapState 原子性地比较并交换节点状态（CAS操作）
-	// 只有当前状态等于 expectedState 时才更新为 newState
-	// 返回 (true, nil) 表示更新成功
-	// 返回 (false, nil) 表示状态不匹配，未更新
-	CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error)
-
 	// DeleteNode 删除节点（及其所有边）
 	DeleteNode(ctx context.Context, id string) error
 
@@ -140,6 +134,10 @@ type GraphStateTransition struct {
 
 	// To 是目标状态
 	To string
+
+	// Guard 是附加前置：节点元数据中这些键须等于给定值（按迁移前的元数据判定）。
+	// 用于归属校验——只有认领者才能迁移它认领的节点。
+	Guard map[string]string
 }
 
 // GraphNodeAnnotation 是对节点元数据的一次浅合并写入。

@@ -5,7 +5,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -32,6 +31,7 @@ type Agent struct {
 	eventBus     bus.EventBus
 	logger       zerolog.Logger
 	taskID       string
+	agentRunID   string // 本 run 的 ID：认领动作时记下，结束与交还以此校验归属
 	maxSteps     int
 	maxParallel  int         // 并发执行的 action 上限（1=串行）
 	completionCh chan Report // 任务完成通知通道
@@ -43,6 +43,7 @@ type Agent struct {
 // AgentConfig 配置 Agent
 type AgentConfig struct {
 	TaskID       string
+	AgentRunID   string // 本 run 的 ID（动作认领归属）
 	Graph        *explorationgraph.Store
 	Executor     ActionExecutor
 	EventBus     bus.EventBus
@@ -58,7 +59,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		cfg.MaxSteps = 1000 // 默认最大步数
 	}
 	if cfg.MaxParallel <= 0 {
-		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时无依赖的 action 并发执行
+		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时 open 动作并发执行
 	}
 
 	return &Agent{
@@ -67,6 +68,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		eventBus:     cfg.EventBus,
 		logger:       cfg.Logger.With().Str("agent", "executor").Logger(),
 		taskID:       cfg.TaskID,
+		agentRunID:   cfg.AgentRunID,
 		maxSteps:     cfg.MaxSteps,
 		maxParallel:  cfg.MaxParallel,
 		completionCh: cfg.CompletionCh}
@@ -237,83 +239,51 @@ func (a *Agent) executeAction(
 		Str("priority", string(action.Priority)).
 		Msg("开始执行 Action")
 
-	// 使用 CAS 标记为 running（防止并发执行同一 action）
-	ok, err := a.graph.CompareAndSwapActionState(
-		ctx,
-		action.TaskID,
-		action.ID,
-		explorationgraph.StateOpen,
-		explorationgraph.StateRunning,
-	)
+	ok, err := a.graph.ClaimAction(ctx, a.taskID, action.ID, a.agentRunID)
 	if err != nil {
-		return fmt.Errorf("CAS to running: %w", err)
+		return fmt.Errorf("认领动作: %w", err)
 	}
 	if !ok {
-		// CAS 失败，说明 action 已被其他 executor 抢占
-		a.logger.Info().
-			Str("action_id", action.ID).
-			Msg("Action 已被其他 executor 抢占，跳过")
+		a.logger.Info().Str("action_id", action.ID).Msg("动作已被认领或已结束，跳过")
 		return nil
 	}
 
-	// 执行 Action（调用 ActionExecutor）
 	attempts, outcome, execErr := a.executor.Execute(ctx, action)
 
-	// 终态标记的 ctx：执行期 ctx 被取消（terminate/kill）时，用已死的 ctx
-	// 做 CAS 必然失败——图终态只能等恢复监控 6 分钟后兜底（实测窗口）。
-	// 取消路径换独立短超时 ctx，让 kill 时刻的终态立即落图。
-	markCtx := ctx
-	if ctx.Err() != nil {
-		var cancel context.CancelFunc
-		markCtx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	// 落图用独立短时 ctx：run 被打断时执行期 ctx 已取消，用它写图必然失败。
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
+	// run 被中断（暂停、停机、run 超时）而动作没做完：交还 open，由下一个 run 重新
+	// 执行。中断不是失败——记成失败会让规划者以为此路不通。
+	if execErr != nil && ctx.Err() != nil {
+		if _, err := a.graph.ReleaseAction(markCtx, a.taskID, action.ID, a.agentRunID); err != nil {
+			a.logger.Error().Err(err).Str("action_id", action.ID).Msg("交还中断的动作失败")
+		}
+		return nil
 	}
 
-	// 终态标记用 CAS（running → completed/failed）：执行期间外部判定（恢复监控判死、
-	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
-	if execErr != nil {
-		errMsg := execErr.Error()
-		ok, casErr := a.graph.CompareAndSwapActionState(
-			markCtx, action.TaskID, action.ID,
-			explorationgraph.StateRunning, explorationgraph.StateFailed,
-		)
-		if casErr != nil {
-			a.logger.Error().Err(casErr).Str("action_id", action.ID).Msg("标记失败状态失败")
-			return execErr
-		}
-		if !ok {
-			a.logger.Warn().
-				Str("action_id", action.ID).
-				Msg("执行失败但状态已被外部改写（判死/kill），保留外部判定")
-			return execErr
-		}
-		// CAS 成功后补失败原因（metadata 合并写，不影响已生效的 failed 状态）
-		if b, mErr := json.Marshal(map[string]string{"blocked_reason": errMsg}); mErr == nil {
-			if uErr := a.graph.UpdateNodeMetadata(markCtx, action.ID, b); uErr != nil {
-				a.logger.Warn().Err(uErr).Str("action_id", action.ID).Msg("失败原因写入失败")
-			}
-		}
+	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（monitor 中止、看门狗
+	// 判死）或新 run 的回收已改写状态时，迟到的结果不覆盖它们。
+	to, reason := explorationgraph.StateCompleted, ""
+	switch {
+	case execErr != nil:
+		to, reason = explorationgraph.StateFailed, execErr.Error()
+	case outcome == OutcomeExhausted:
+		// 预算耗尽：有产出但没收敛，规划者与监察者据此区分「做完了」与「没做完」
+		to = explorationgraph.StateExhausted
+	}
+	finished, err := a.graph.FinishAction(markCtx, a.taskID, action.ID, a.agentRunID, to, reason)
+	if err != nil {
+		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("动作结束状态写入失败")
 		return execErr
 	}
-
-	// 成功路径按产出档分叉终态：预算内 → completed；预算耗尽 → exhausted
-	// （有产出未收敛，planner/monitor 据此区分「做完了」与「没做完」）。
-	doneState := explorationgraph.StateCompleted
-	if outcome == OutcomeExhausted {
-		doneState = explorationgraph.StateExhausted
+	if !finished {
+		a.logger.Warn().Str("action_id", action.ID).Msg("动作已被外部改写或回收，保留外部决定")
+		return execErr
 	}
-	ok, err = a.graph.CompareAndSwapActionState(
-		markCtx, action.TaskID, action.ID,
-		explorationgraph.StateRunning, doneState,
-	)
-	if err != nil {
-		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")
-	}
-	if !ok {
-		a.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("执行完成但状态已被外部改写（判死/kill），保留外部判定")
-		return nil
+	if execErr != nil {
+		return execErr
 	}
 
 	// 更新 report（并行执行下并发递增，加锁）

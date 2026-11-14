@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -295,38 +297,6 @@ func (s *GraphStore) ListNodes(ctx context.Context, query core.GraphNodeQuery) (
 	return executeListNodesQuery(ctx, s.pool, sqlQuery, args)
 }
 
-// CompareAndSwapState 原子性地比较并交换节点状态。
-// 单条 UPDATE 同时承担条件检查与写入（WHERE state = expectedState），
-// 不存在读-改-写窗口；version 由数据库触发器在同一语句内自增。
-// 返回 (true, nil) 表示更新成功；(false, nil) 表示状态不匹配或节点不存在。
-func (s *GraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
-	if nodeID == "" {
-		return false, errors.New("node ID cannot be empty")
-	}
-	if expectedState == "" || newState == "" {
-		return false, errors.New("expectedState and newState cannot be empty")
-	}
-
-	query := `
-		UPDATE ` + s.nodeTable + `
-		SET state = $1, updated_at = $2
-		WHERE id = $3 AND state = $4
-	`
-	args := []interface{}{newState, time.Now(), nodeID, expectedState}
-
-	if taskID != "" {
-		query += ` AND task_id = $5`
-		args = append(args, taskID)
-	}
-
-	result, err := s.pool.Exec(ctx, query, args...)
-	if err != nil {
-		return false, fmt.Errorf("update state: %w", err)
-	}
-
-	return result.RowsAffected() > 0, nil
-}
-
 // CreateNodeWithEdges 在单个事务内创建节点及其关联边。
 func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNode, edges []*core.GraphEdge) error {
 	tx, err := s.pool.Begin(ctx)
@@ -351,8 +321,8 @@ func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNo
 }
 
 // ApplyChangeSet 在单个事务内应用变更集：建节点 → 条件状态迁移 → 元数据批注 → 建边。
-// 迁移沿用 CompareAndSwapState 的单语句 CAS（WHERE state = From），零行受影响
-// 即前置不成立，回滚并返回 core.ErrGraphStateConflict。
+// 迁移是单语句 CAS（WHERE state = From 且元数据满足 Guard），零行受影响即前置不
+// 成立，回滚并返回 core.ErrGraphStateConflict。
 func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChangeSet) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -366,16 +336,12 @@ func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChang
 		}
 	}
 
-	query := `
-		UPDATE ` + s.nodeTable + `
-		SET state = $1, updated_at = $2
-		WHERE id = $3 AND task_id = $4 AND state = $5
-	`
 	for _, t := range changes.Transitions {
 		if t.TaskID == "" || t.NodeID == "" || t.From == "" || t.To == "" {
 			return errors.New("state transition requires task_id, node_id, from and to")
 		}
-		tag, err := tx.Exec(ctx, query, t.To, time.Now(), t.NodeID, t.TaskID, t.From)
+		query, args := s.transitionSQL(t)
+		tag, err := tx.Exec(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, err)
 		}
@@ -400,6 +366,25 @@ func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChang
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+// transitionSQL 构造一条条件迁移：状态前置 + Guard 的逐键相等前置。
+func (s *GraphStore) transitionSQL(t core.GraphStateTransition) (string, []interface{}) {
+	query := `
+		UPDATE ` + s.nodeTable + `
+		SET state = $1, updated_at = $2
+		WHERE id = $3 AND task_id = $4 AND state = $5`
+	args := []interface{}{t.To, time.Now(), t.NodeID, t.TaskID, t.From}
+	keys := make([]string, 0, len(t.Guard))
+	for k := range t.Guard {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		query += fmt.Sprintf(" AND metadata->>$%d = $%d", len(args)+1, len(args)+2)
+		args = append(args, k, t.Guard[k])
+	}
+	return query, args
 }
 
 // annotate 在事务内浅合并一条元数据批注。一次性批注（Once）以「键均不存在」

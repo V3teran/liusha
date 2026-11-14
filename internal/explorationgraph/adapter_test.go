@@ -76,14 +76,14 @@ func TestStore_ActionStateManagement(t *testing.T) {
 		assert.Equal(t, reason, *node.BlockedReason, "迁移原因落 metadata.blocked_reason")
 	})
 
-	t.Run("CompareAndSwapActionState 并发抢占", func(t *testing.T) {
-		ok, err := store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
+	t.Run("ClaimAction 并发抢占", func(t *testing.T) {
+		ok, err := store.ClaimAction(ctx, "task-001", "action-open-2", "run-1")
 		require.NoError(t, err)
-		assert.True(t, ok, "状态匹配应抢占成功")
+		assert.True(t, ok, "open 动作应认领成功")
 
-		ok, err = store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
+		ok, err = store.ClaimAction(ctx, "task-001", "action-open-2", "run-2")
 		require.NoError(t, err)
-		assert.False(t, ok, "状态不匹配 CAS 应失败")
+		assert.False(t, ok, "已被认领的动作不能再次认领")
 	})
 }
 

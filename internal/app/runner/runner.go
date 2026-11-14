@@ -115,13 +115,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	st := newStores(pool, cfg)
 	defer func() { _ = st.calls.Close() }()
 
-	// 上一实例停机时仍在 running 的 action 标记为 failed（其执行者已不存在）。
-	if recovered, err := st.graph.RecoverOrphanedActions(ctx); err != nil {
-		logger.Error().Err(err).Msg("恢复孤儿 action 失败")
-	} else if recovered > 0 {
-		logger.Info().Int("count", recovered).Msg("已恢复上一实例遗留的孤儿 action")
-	}
-
 	embedder, reranker := newCorpusEmbedder(logger)
 	tools := manifest.Default()
 

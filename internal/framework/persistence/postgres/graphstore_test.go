@@ -131,8 +131,8 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 	assert.Equal(t, int64(2), node.Version)
 }
 
-// TestGraphStore_CompareAndSwapState 测试 CAS 操作
-func TestGraphStore_CompareAndSwapState(t *testing.T) {
+// TestGraphStore_GuardedTransition 测试条件迁移：状态前置与 Guard 都须成立
+func TestGraphStore_GuardedTransition(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -142,44 +142,31 @@ func TestGraphStore_CompareAndSwapState(t *testing.T) {
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
+	const taskID, nodeID = "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444"
 
-	// 创建节点
 	node := &core.GraphNode{
-		ID:       "44444444-4444-4444-8444-444444444444",
+		ID:       nodeID,
 		Kind:     string(core.KindAction),
 		Content:  json.RawMessage(`{}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		State:    string(core.NodeStateRunning),
+		Metadata: map[string]interface{}{"task_id": taskID, "claimed_by": "run-1"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
-	t.Run("CAS成功", func(t *testing.T) {
-		swapped, err := store.CompareAndSwapState(
-			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
-			string(core.NodeStateOpen),
-			string(core.NodeStateRunning),
-		)
-		require.NoError(t, err)
-		assert.True(t, swapped, "状态匹配时CAS应该成功")
+	transition := func(from string, guard map[string]string) error {
+		return store.ApplyChangeSet(ctx, core.GraphChangeSet{Transitions: []core.GraphStateTransition{{
+			TaskID: taskID, NodeID: nodeID, From: from, To: string(core.NodeStateCompleted), Guard: guard,
+		}}})
+	}
 
-		// 验证状态已更新
-		updated, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
-		assert.Equal(t, string(core.NodeStateRunning), updated.State)
-	})
+	assert.ErrorIs(t, transition(string(core.NodeStateOpen), nil), core.ErrGraphStateConflict, "状态前置不成立")
+	assert.ErrorIs(t, transition(string(core.NodeStateRunning), map[string]string{"claimed_by": "run-2"}),
+		core.ErrGraphStateConflict, "Guard 不成立")
+	require.NoError(t, transition(string(core.NodeStateRunning), map[string]string{"claimed_by": "run-1"}))
 
-	t.Run("CAS失败", func(t *testing.T) {
-		swapped, err := store.CompareAndSwapState(
-			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
-			string(core.NodeStateOpen), // 期望是 open，但实际是 running
-			string(core.NodeStateCompleted),
-		)
-		require.NoError(t, err)
-		assert.False(t, swapped, "状态不匹配时CAS应该失败")
-
-		// 验证状态未改变
-		node, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
-		assert.Equal(t, string(core.NodeStateRunning), node.State)
-	})
+	updated, err := store.GetNode(ctx, nodeID)
+	require.NoError(t, err)
+	assert.Equal(t, string(core.NodeStateCompleted), updated.State)
 }
 
 // TestGraphStore_ListNodes 测试节点列表查询

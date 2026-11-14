@@ -151,10 +151,3 @@ func (s *Store) TransitionState(ctx context.Context, id string, state State, rea
 	}
 	return nil
 }
-
-// CompareAndSwapActionState 原子性地比较并交换 action 状态。
-// 只有当前状态等于 expectedState 时才更新为 newState，用于执行方抢占认领。
-// 返回 (true, nil) 表示更新成功；(false, nil) 表示状态不匹配（已被抢占/已流转）。
-func (s *Store) CompareAndSwapActionState(ctx context.Context, taskID, actionID string, expectedState, newState State) (bool, error) {
-	return s.graphStore.CompareAndSwapState(ctx, taskID, actionID, string(expectedState), string(newState))
-}
