@@ -181,7 +181,7 @@ func adjustObjective(ctx context.Context, taskID string, graph *explorationgraph
 
 // injectAction 把人工注入的意图落成 open 的 action 节点——
 // planner 轮询发现后纳入规划（或直接由 executor 认领执行）。
-// 注入节点标记 SourceUser/SourceID=control-plane，审计可溯源；与规划产出的
+// 注入节点标记来源 user（人工），审计可溯源；与规划产出的
 // 动作同样以根目标为归属（generates 边与节点原子落图）。
 func injectAction(ctx context.Context, taskID string, graph *explorationgraph.Store, p controlplane.InjectActionPayload, logger zerolog.Logger) error {
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
@@ -204,7 +204,6 @@ func injectAction(ctx context.Context, taskID string, graph *explorationgraph.St
 		State:      ptrState(explorationgraph.StateOpen),
 		Priority:   mapPriority(p.Priority),
 		SourceType: explorationgraph.SourceUser,
-		SourceID:   "control-plane",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

@@ -23,7 +23,6 @@ export interface GraphNode {
   complexity?: string
   priority?: string
   source_type: string
-  source_id: string
   /** action 专属：阻塞原因 */
   blocked_reason?: string
   /** 领域扩展字段（refute_reason 等） */

@@ -127,7 +127,7 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	)
 	open := StateOpen
 	_, err := store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh,
+		SourceType: SourcePlanner, Priority: PriorityHigh,
 		Content: []byte(`{"instruction":"x"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,

@@ -147,7 +147,6 @@ type Node struct {
 	// 通用字段
 	Priority   Priority        `json:"priority"` // critical/high/medium/low
 	SourceType SourceType      `json:"source_type"`
-	SourceID   string          `json:"source_id"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`

@@ -31,12 +31,12 @@ func seedNode(t *testing.T, store *Store, n Node) {
 
 func rootObjective(id string) Node {
 	return Node{ID: id, Kind: core.KindObjective, State: stateOf(StateOpen),
-		SourceType: SourceUser, SourceID: "task_init", Content: []byte(`{"description":"根"}`)}
+		SourceType: SourceUser, Content: []byte(`{"description":"根"}`)}
 }
 
 func derivedObjective(id string, state State) Node {
 	return Node{ID: id, Kind: core.KindObjective, State: stateOf(state),
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Content: []byte(`{"description":"派生"}`)}
+		SourceType: SourcePlanner, Content: []byte(`{"description":"派生"}`)}
 }
 
 func resultNode(id string) Node {
@@ -320,7 +320,7 @@ func TestTransitionState_ReasonKeepsNodeIdentity(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen),
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh})
+		SourceType: SourcePlanner, Priority: PriorityHigh})
 
 	reason := "monitor killed"
 	require.NoError(t, store.TransitionState(ctx, "a1", StateAborted, &reason))
