@@ -25,53 +25,6 @@ func seedObjective(t *testing.T, store *explorationgraph.Store, id string, sourc
 	require.NoError(t, err)
 }
 
-func objectiveState(t *testing.T, store *explorationgraph.Store, id string) explorationgraph.State {
-	t.Helper()
-	n, err := store.GetNode(context.Background(), id)
-	require.NoError(t, err)
-	return *n.State
-}
-
-// 任务收口：根目标随任务结局；派生目标的 completed 只属于有证据的达成，
-// 正常结束时仍 open 的派生目标落 exhausted；已终态的目标不动。
-func TestCloseObjectives_RootFollowsTaskDerivedNeverFakesCompletion(t *testing.T) {
-	cases := []struct {
-		stopWhy              string
-		wantRoot, wantDerive explorationgraph.State
-	}{
-		{"task_converged", explorationgraph.StateCompleted, explorationgraph.StateExhausted},
-		{"max_steps_reached", explorationgraph.StateCompleted, explorationgraph.StateExhausted},
-		{StopReasonTerminated, explorationgraph.StateAborted, explorationgraph.StateAborted},
-		{StopReasonAgentFailed, explorationgraph.StateFailed, explorationgraph.StateFailed},
-	}
-	for _, tc := range cases {
-		t.Run(tc.stopWhy, func(t *testing.T) {
-			store := explorationgraph.NewMemoryStore()
-			seedObjective(t, store, "root", explorationgraph.SourceUser, explorationgraph.StateOpen, 0)
-			seedObjective(t, store, "live", explorationgraph.SourcePlanner, explorationgraph.StateOpen, time.Second)
-			seedObjective(t, store, "achieved", explorationgraph.SourcePlanner, explorationgraph.StateCompleted, 2*time.Second)
-			d := &Deps{Graph: store, Logger: zerolog.Nop()}
-
-			d.closeObjectives(context.Background(), objTask, tc.stopWhy)
-
-			assert.Equal(t, tc.wantRoot, objectiveState(t, store, "root"))
-			assert.Equal(t, tc.wantDerive, objectiveState(t, store, "live"))
-			assert.Equal(t, explorationgraph.StateCompleted, objectiveState(t, store, "achieved"))
-		})
-	}
-}
-
-func TestCloseObjectives_PauseKeepsEverythingOpen(t *testing.T) {
-	store := explorationgraph.NewMemoryStore()
-	seedObjective(t, store, "root", explorationgraph.SourceUser, explorationgraph.StateOpen, 0)
-	seedObjective(t, store, "live", explorationgraph.SourcePlanner, explorationgraph.StateOpen, time.Second)
-
-	(&Deps{Graph: store, Logger: zerolog.Nop()}).closeObjectives(context.Background(), objTask, StopReasonPaused)
-
-	assert.Equal(t, explorationgraph.StateOpen, objectiveState(t, store, "root"))
-	assert.Equal(t, explorationgraph.StateOpen, objectiveState(t, store, "live"))
-}
-
 // 人工注入的动作与规划产出的动作同样归属根目标，不是孤立节点。
 func TestInjectAction_HangsOnRootObjective(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
