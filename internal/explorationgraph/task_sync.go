@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -20,6 +21,27 @@ const (
 // Execer 是同步所需的最小写能力（pgx.Tx / pgxpool.Pool 都满足）。
 type Execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// Querier 是只读判定所需的最小查询能力（pgx.Tx / pgxpool.Pool 都满足）。
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// ConvergenceHolds 判定一次收敛的依据此刻是否仍然成立：规划者宣告收敛时依据的目标
+// 未被改写，且图上没有待执行或执行中的动作（收敛之后被指派的动作）。任务落 completed
+// 的事务在锁住任务行之后调用它：引导写入同样先锁任务行，两者串行，判定不会过期。
+func ConvergenceHolds(ctx context.Context, db Querier, taskID string, basis GoalBasis) (bool, error) {
+	var holds bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM exploration_node WHERE id = $2 AND task_id = $1 AND version = $3)
+		   AND NOT EXISTS (SELECT 1 FROM exploration_node
+		                    WHERE task_id = $1 AND kind = 'action' AND state IN ('open', 'running'))`,
+		taskID, basis.ObjectiveID, basis.Version).Scan(&holds)
+	if err != nil {
+		return false, fmt.Errorf("判定收敛依据: %w", err)
+	}
+	return holds, nil
 }
 
 // SyncWithTask 让任务图跟随任务状态，必须与任务状态迁移在同一事务内执行——任务

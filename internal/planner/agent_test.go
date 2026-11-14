@@ -72,8 +72,8 @@ func TestRequestReplan_CoalescesSignalKeepsEveryReason(t *testing.T) {
 // 强制重规划把请求的理由交给规划器（此前只写日志，模型看不到为什么要重规划）。
 func TestForcePlanActions_PassesReasonsToPlanner(t *testing.T) {
 	rec := &recordingPlanner{}
-	a := NewAgent(AgentConfig{TaskID: "t1", Planner: rec, Graph: explorationgraph.NewMemoryStore(),
-		EventBus: &fakeEventBus{}, OnConverged: func(string) {}})
+	a := NewAgent(AgentConfig{TaskID: revisionTask, Planner: rec, Graph: rootOnlyStore(t),
+		EventBus: &fakeEventBus{}, OnConverged: func(string, explorationgraph.GoalBasis) {}})
 	require.NoError(t, a.forcePlanActions(context.Background(), []string{"探索停滞"}))
 	assert.Equal(t, []string{"探索停滞"}, rec.req.ReplanReasons)
 }

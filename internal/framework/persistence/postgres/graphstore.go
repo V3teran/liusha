@@ -320,15 +320,23 @@ func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNo
 	return nil
 }
 
-// ApplyChangeSet 在单个事务内应用变更集：建节点 → 条件状态迁移 → 元数据批注 → 建边。
-// 迁移是单语句 CAS（WHERE state = From 且元数据满足 Guard），零行受影响即前置不
-// 成立，回滚并返回 core.ErrGraphStateConflict。
+// ApplyChangeSet 在单个事务内应用变更集：版本前置 → 建节点 → 条件状态迁移 → 元数据
+// 批注 → 建边。版本前置以 FOR SHARE 读取：并发改写先提交则读到新版本（前置不成立，
+// 返回 core.ErrVersionMismatch），未提交则等它落定后再读；读到后节点被共享锁定到
+// 本事务提交。迁移是单语句 CAS（WHERE state = From 且元数据满足 Guard），零行受影响
+// 即前置不成立，回滚并返回 core.ErrGraphStateConflict。
 func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChangeSet) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, p := range changes.Preconditions {
+		if err := s.checkPrecondition(ctx, tx, p); err != nil {
+			return err
+		}
+	}
 
 	for _, node := range changes.Nodes {
 		if err := s.insertNode(ctx, tx, node); err != nil {
@@ -364,6 +372,26 @@ func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChang
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// checkPrecondition 在事务内校验一条版本前置并共享锁定该节点（见 ApplyChangeSet）。
+func (s *GraphStore) checkPrecondition(ctx context.Context, tx pgx.Tx, p core.GraphNodeVersion) error {
+	if p.TaskID == "" || p.NodeID == "" {
+		return errors.New("version precondition requires task_id and node_id")
+	}
+	var version int64
+	err := tx.QueryRow(ctx, `SELECT version FROM `+s.nodeTable+` WHERE id = $1 AND task_id = $2 FOR SHARE`,
+		p.NodeID, p.TaskID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("precondition %s: %w", p.NodeID, core.ErrGraphNodeNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("precondition %s: %w", p.NodeID, err)
+	}
+	if version != p.Version {
+		return fmt.Errorf("precondition %s version %d≠%d: %w", p.NodeID, version, p.Version, core.ErrVersionMismatch)
 	}
 	return nil
 }

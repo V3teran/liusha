@@ -274,6 +274,9 @@ func (s *GraphStore) ApplyChangeSet(_ context.Context, changes core.GraphChangeS
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.checkPreconditions(changes.Preconditions); err != nil {
+		return err
+	}
 	newNodes, err := s.checkNewNodes(changes.Nodes)
 	if err != nil {
 		return err
@@ -295,6 +298,23 @@ func (s *GraphStore) ApplyChangeSet(_ context.Context, changes core.GraphChangeS
 		return err
 	}
 	s.applyChangeSet(changes)
+	return nil
+}
+
+// checkPreconditions 校验版本前置：节点存在、属于声明的任务且版本一致（调用方持锁）。
+func (s *GraphStore) checkPreconditions(preconditions []core.GraphNodeVersion) error {
+	for _, p := range preconditions {
+		if p.TaskID == "" || p.NodeID == "" {
+			return fmt.Errorf("version precondition requires task_id and node_id")
+		}
+		node, ok := s.nodes[p.NodeID]
+		if !ok || node.TaskID != p.TaskID {
+			return fmt.Errorf("precondition %s: %w", p.NodeID, core.ErrGraphNodeNotFound)
+		}
+		if node.Version != p.Version {
+			return fmt.Errorf("precondition %s version %d≠%d: %w", p.NodeID, node.Version, p.Version, core.ErrVersionMismatch)
+		}
+	}
 	return nil
 }
 

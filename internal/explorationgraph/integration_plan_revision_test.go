@@ -59,7 +59,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 	}
 
 	// 1. 拆分吸收 + 宣告达成 + 延续动作，一次修订原子落库
-	report, err := store.RevisePlan(ctx, taskID, PlanRevision{
+	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
 		AddedActions:        []ActionDraft{{Node: mk(actionID, core.KindAction, SourcePlanner, &open), TriggeredBy: []string{resultID}}},
 		AddedObjectives:     []ObjectiveDraft{draftOf(newA, oldID, rootID), draftOf(newB, oldID)},
 		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: doneID, Evidence: []string{resultID}}},
@@ -109,9 +109,9 @@ func TestRevisePlanPostgres(t *testing.T) {
 }
 
 // TestTransitionStateKeepsIdentityPostgres 锁定 PG 端的元数据合并语义：带原因的
-// 状态迁移（monitor kill）只合并 state_reason——此前整体替换 metadata，被杀动作
-// 的来源、优先级、依赖全部丢失，而内存后端是合并语义，单测看不出来。
-func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
+// 否决与分析水位都只合并各自的键（state_reason / rejected_by、analyzed）：整体替换
+// metadata 会抹掉节点的来源、优先级等身份字段，而内存后端是合并语义，单测看不出来。
+func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -125,8 +125,10 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 		actionID = "2b2f6a9e-1111-4111-8111-000000000001"
 		resultID = "2b2f6a9e-1111-4111-8111-000000000002"
 	)
+	_, err := store.EnsureRootObjective(ctx, taskID, "root")
+	require.NoError(t, err)
 	open := StateOpen
-	_, err := store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
+	_, err = store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
 		SourceType: SourcePlanner, Priority: PriorityHigh,
 		Content: []byte(`{"instruction":"x"}`)})
 	require.NoError(t, err)
@@ -147,7 +149,7 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	assert.Equal(t, PriorityHigh, action.Priority)
 	assert.Equal(t, taskID, action.TaskID)
 
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}})
 	require.NoError(t, err)
 	result, err := store.GetNode(ctx, resultID)
 	require.NoError(t, err)
@@ -185,10 +187,18 @@ func TestRevisePlanConsumesOncePostgres(t *testing.T) {
 			SourceType: SourcePlanner, Content: []byte(`{"description":"d"}`)}}
 	}
 
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(firstID)}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(firstID)}})
 	require.NoError(t, err)
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(secondID)}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(secondID)}})
 	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
 	_, err = store.GetNode(ctx, secondID)
 	assert.Error(t, err, "后到的修订整体回滚")
+}
+
+// pgBasis 读取任务当前的目标依据。
+func pgBasis(t *testing.T, store *Store, taskID string) GoalBasis {
+	t.Helper()
+	basis, err := store.GoalBasis(context.Background(), taskID)
+	require.NoError(t, err)
+	return basis
 }

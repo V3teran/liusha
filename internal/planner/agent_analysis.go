@@ -16,7 +16,8 @@ import (
 // analyzeAndProcessResults 分析增量 Results，并把结论连同分析水位作为一次规划
 // 修订原子落图：达成、新方向及其吸收、延续动作互不排斥，分析给出几样就落几样，
 // 要么全落、要么全不落。失败返回错误——水位随修订一起未落，下一轮整体重做；
-// 因为没有部分生效的写入，重做不会重复落图。
+// 因为没有部分生效的写入，重做不会重复落图。分析以调用前读取的目标为依据，分析期间
+// 目标被改写则返回 ErrGoalChanged（结论作废，按新目标重新分析）。
 func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
 	a.logger.Info().Int("result_count", len(results)).Msg("开始分析 Results")
 
@@ -24,6 +25,10 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 		return nil
 	}
 
+	basis, err := a.graph.GoalBasis(ctx, a.taskID)
+	if err != nil {
+		return fmt.Errorf("读取分析依据: %w", err)
+	}
 	analysis, err := a.planner.AnalyzeResults(ctx, a.graph, a.taskID, results)
 	if err != nil {
 		return fmt.Errorf("analyze results: %w", err)
@@ -40,6 +45,7 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	if err != nil {
 		return err
 	}
+	revision.Basis = basis
 	for _, r := range results {
 		revision.Analyzed = append(revision.Analyzed, r.ID)
 	}
