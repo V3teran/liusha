@@ -22,7 +22,7 @@ type analysisPlanner struct {
 	analyzed []string
 }
 
-func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, []string) ([]explorationgraph.ActionDraft, error) {
+func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, PlanRequest) ([]explorationgraph.ActionDraft, error) {
 	return nil, nil
 }
 

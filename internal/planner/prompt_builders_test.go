@@ -78,3 +78,16 @@ func TestBuildAbortedActionsSection_AllowsReproposal(t *testing.T) {
 		t.Fatalf("中止不含对错判断，不应禁止重提:\n%s", section)
 	}
 }
+
+// 重规划理由逐条进入规划提示；不是重规划时不渲染该节。
+func TestBuildReplanSection_ListsReasons(t *testing.T) {
+	if got := buildReplanSection(nil); got != "" {
+		t.Fatalf("无理由不应渲染：%q", got)
+	}
+	section := buildReplanSection([]string{"探索停滞", "任务目标已调整"})
+	for _, want := range []string{"重规划", "探索停滞", "任务目标已调整"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("缺少 %q:\n%s", want, section)
+		}
+	}
+}

@@ -46,13 +46,14 @@ func TestAgentConfig_PollInterval(t *testing.T) {
 	assert.NotNil(t, NewAgent(cfg))
 }
 
-// 重规划请求在被消费前合并：多次请求只触发一次强制重规划，原因取最新——请求不会
-// 丢，也不会堆积成多轮重复规划。
-func TestRequestReplan_CoalescesToLatestReason(t *testing.T) {
+// 重规划请求在被消费前合并为一个信号：不会堆积成多轮重复规划，但每个来源的理由
+// 都要保留（监察者与目标调整可能同时请求）——相同理由只留一条。
+func TestRequestReplan_CoalescesSignalKeepsEveryReason(t *testing.T) {
 	a := NewAgent(AgentConfig{TaskID: "t1"})
 
 	a.RequestReplan("探索停滞")
-	a.RequestReplan("ROI 过低")
+	a.RequestReplan("任务目标已调整")
+	a.RequestReplan("探索停滞")
 
 	select {
 	case <-a.replanCh:
@@ -64,5 +65,27 @@ func TestRequestReplan_CoalescesToLatestReason(t *testing.T) {
 		t.Fatal("多次请求应合并为一个信号")
 	default:
 	}
-	assert.Equal(t, "ROI 过低", a.takeReplanReason())
+	assert.Equal(t, []string{"探索停滞", "任务目标已调整"}, a.takeReplanReasons())
+	assert.Empty(t, a.takeReplanReasons(), "取走后清空")
+}
+
+// 强制重规划把请求的理由交给规划器（此前只写日志，模型看不到为什么要重规划）。
+func TestForcePlanActions_PassesReasonsToPlanner(t *testing.T) {
+	rec := &recordingPlanner{}
+	a := NewAgent(AgentConfig{TaskID: "t1", Planner: rec, Graph: explorationgraph.NewMemoryStore(),
+		EventBus: &fakeEventBus{}, OnConverged: func(string) {}})
+	require.NoError(t, a.forcePlanActions(context.Background(), []string{"探索停滞"}))
+	assert.Equal(t, []string{"探索停滞"}, rec.req.ReplanReasons)
+}
+
+// recordingPlanner 记录规划请求，不产出提案。
+type recordingPlanner struct{ req PlanRequest }
+
+func (p *recordingPlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, req PlanRequest) ([]explorationgraph.ActionDraft, error) {
+	p.req = req
+	return nil, nil
+}
+
+func (p *recordingPlanner) AnalyzeResults(context.Context, *explorationgraph.Store, string, []explorationgraph.Node) (*ResultAnalysis, error) {
+	return &ResultAnalysis{}, nil
 }

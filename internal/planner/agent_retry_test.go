@@ -23,7 +23,7 @@ type fakePlanner struct {
 	result    []explorationgraph.ActionDraft
 }
 
-func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ []string) ([]explorationgraph.ActionDraft, error) {
+func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ PlanRequest) ([]explorationgraph.ActionDraft, error) {
 	idx := int(atomic.AddInt32(&f.callCount, 1)) - 1
 	if idx < len(f.errors) {
 		return nil, f.errors[idx]

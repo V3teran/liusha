@@ -189,7 +189,7 @@ func (a *Agent) analysisNode(kind core.NodeKind, priority core.Priority, content
 
 // GraphPlanner 规划接口（由 planner.New 提供）
 type GraphPlanner interface {
-	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.ActionDraft, error)
+	Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) ([]explorationgraph.ActionDraft, error)
 	AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error)
 }
 

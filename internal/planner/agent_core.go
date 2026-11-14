@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -29,11 +30,11 @@ type Agent struct {
 	// onConverged 把收敛直接通知完成检测器（控制信号，不走可丢的事件总线）。
 	onConverged func(reason string)
 
-	// 重规划请求（监察者经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次
-	// 请求合并为一次，原因取最新。
-	replanCh     chan struct{}
-	replanMu     sync.Mutex
-	replanReason string
+	// 重规划请求（经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次请求合并为
+	// 一次，理由逐条保留（去重）。
+	replanCh      chan struct{}
+	replanMu      sync.Mutex
+	replanReasons []string
 
 	stopCh chan struct{}
 }
@@ -72,11 +73,13 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 }
 
-// RequestReplan 请求一次强制重规划（监察者调用）：不看是否还有待执行动作，立即
-// 再规划一轮。未消费前的多次请求合并为一次，原因取最新。
+// RequestReplan 请求一次强制重规划：不看是否还有待执行动作，立即带着理由再规划一轮。
+// 未消费前的多次请求合并为一次，各来源的理由逐条保留（相同理由只留一条）。
 func (a *Agent) RequestReplan(reason string) {
 	a.replanMu.Lock()
-	a.replanReason = reason
+	if !slices.Contains(a.replanReasons, reason) {
+		a.replanReasons = append(a.replanReasons, reason)
+	}
 	a.replanMu.Unlock()
 	select {
 	case a.replanCh <- struct{}{}:
@@ -84,11 +87,11 @@ func (a *Agent) RequestReplan(reason string) {
 	}
 }
 
-// takeReplanReason 取走待处理重规划请求的原因。
-func (a *Agent) takeReplanReason() string {
+// takeReplanReasons 取走待处理重规划请求的全部理由。
+func (a *Agent) takeReplanReasons() []string {
 	a.replanMu.Lock()
 	defer a.replanMu.Unlock()
-	reason := a.replanReason
-	a.replanReason = ""
-	return reason
+	reasons := a.replanReasons
+	a.replanReasons = nil
+	return reasons
 }

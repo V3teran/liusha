@@ -92,6 +92,21 @@ func buildObjectiveSection(objective string, objectives []explorationgraph.Node)
 	return sb.String()
 }
 
+// buildReplanSection 构建重规划理由部分：本轮是被请求的重规划（监察者纠偏、任务目标
+// 调整等），理由逐条列出，规划须回应它们而不是照旧延续。常规规划返回空串。
+func buildReplanSection(reasons []string) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 本轮是重规划（必须回应以下理由修订策略）\n")
+	for _, r := range reasons {
+		fmt.Fprintf(&sb, "- %s\n", r)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // buildStatisticsSection 构建统计信息部分
 func buildStatisticsSection(ctx *PlanningContext) string {
 	var sb strings.Builder
