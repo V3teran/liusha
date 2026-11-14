@@ -25,17 +25,3 @@ const (
 	// 与 failed（错误）语义区分——处置应当增预算或拆动作，而非原样重跑。
 	OutcomeExhausted Outcome = "exhausted"
 )
-
-// Report 是认知循环的执行报告
-type Report struct {
-	Steps      int    // 执行的动作数量
-	Promoted   int    // 晋升的节点数量
-	Attempts   int    // 产出的 Attempt 数量
-	StopReason string // 停止原因
-}
-
-// 停止原因常量
-const (
-	stopMaxSteps = "达到最大步数"
-	stopCanceled = "任务取消"
-)

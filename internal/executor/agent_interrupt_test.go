@@ -43,7 +43,7 @@ func TestExecuteAction_RunInterruptionReturnsActionToOpen(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- a.executeAction(ctx, mustNode(t, store, "a1"), &Report{}) }()
+	go func() { done <- a.executeAction(ctx, mustNode(t, store, "a1")) }()
 	<-exec.started
 	cancel()
 	select {

@@ -21,7 +21,7 @@ export interface TimelineEventMeta {
   kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed/paused/resumed）
   steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
-  actions: number // task_status/completed：完成的 Action 数（报告数据，时间线不渲染）
+  actions: number // task_status/completed：执行过的动作数（报告数据，时间线不渲染）
   findings: number // task_status/completed：坐实发现数（晋升 result 的主张，中性领域词）
   stop_reason: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
   reason: string // task_status/aborted|failed：原因

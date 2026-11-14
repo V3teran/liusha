@@ -10,33 +10,25 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// CompletionDetector 检测任务完成状态
+// CompletionDetector 判定一次 run 何时结束。按优先级：
+//  1. 人工中止（终止、暂停退出共用此通道）
+//  2. 规划者宣告收敛（Converge，直接调用）
+//  3. 动作预算用尽（执行过的动作数达到上限；0 = 不限）
 //
-// 完成条件（任一触发）：
-// 1. 达到最大步数（可选，默认无限制）
-// 2. 收到人工中止信号
-//
-// 注意：取消了"空闲轮数自动停止"机制，改为持续探索模式
-// 任务会持续运行直到用户手动停止或达到资源限制
+// 另有两条旁路立即结束：agent 致命失败（Fail）与 run 被打断（ctx 取消）。动作预算
+// 与报告统计都从图上计数，不依赖事件总线。
 type CompletionDetector struct {
 	taskID string
 	graph  *explorationgraph.Store
-	bus    bus.EventBus
 	logger zerolog.Logger
 
-	// 配置
-	maxSteps      int           // 最大步数（0=无限制）
-	checkInterval time.Duration // 检查间隔
+	maxActions    int           // 动作预算（0 = 不限）
+	checkInterval time.Duration // 兜底检查间隔
 
-	// 运行时状态
-	totalSteps    atomic.Int64
-	promotedCount atomic.Int64
-	attemptCount  atomic.Int64
-	startTime     time.Time
+	startTime time.Time
 	// abortReason 非 nil 即已人工中止，指向中止原因。标志与原因必须是同一个原子值：
 	// 拆成「先置标志、后存原因」两步时，并发的兜底检查会落在两步之间，看到已中止却
 	// 读不到原因，回落兜底值把调用方原因吞掉。
@@ -49,11 +41,11 @@ type CompletionDetector struct {
 	completionCh chan Result
 }
 
-// Result 是任务完成的最终报告
+// Result 是一次 run 的结局与图统计。
 type Result struct {
-	Steps      int    // 总执行步数
-	Promoted   int    // 晋升的结果数量
-	Attempts   int    // 总尝试次数
+	Actions    int    // 执行过的动作数
+	Results    int    // 坐实的结果数
+	Hypotheses int    // 提出的假设数
 	StopReason string // 停止原因
 	Duration   time.Duration
 	Err        error // 致命失败（StopReasonAgentFailed）的原因；其余停止为 nil
@@ -63,28 +55,24 @@ type Result struct {
 type Config struct {
 	TaskID        string
 	Graph         *explorationgraph.Store
-	Bus           bus.EventBus
 	Logger        zerolog.Logger
-	MaxSteps      int           // 默认 0（无限制）
+	MaxActions    int           // 动作预算（0 = 不限）
 	CheckInterval time.Duration // 默认 5s
 }
 
 // NewCompletionDetector 创建完成检测器
 func NewCompletionDetector(cfg Config) *CompletionDetector {
-	// 默认无限制步数，改为持续探索模式
-	if cfg.MaxSteps < 0 {
-		cfg.MaxSteps = 0
+	if cfg.MaxActions < 0 {
+		cfg.MaxActions = 0
 	}
 	if cfg.CheckInterval == 0 {
 		cfg.CheckInterval = 5 * time.Second
 	}
-
 	return &CompletionDetector{
 		taskID:        cfg.TaskID,
 		graph:         cfg.Graph,
-		bus:           cfg.Bus,
 		logger:        cfg.Logger.With().Str("component", "completion_detector").Logger(),
-		maxSteps:      cfg.MaxSteps,
+		maxActions:    cfg.MaxActions,
 		checkInterval: cfg.CheckInterval,
 		startTime:     time.Now(),
 		wake:          make(chan struct{}, 1),
@@ -92,27 +80,19 @@ func NewCompletionDetector(cfg Config) *CompletionDetector {
 	}
 }
 
-// Start 启动完成检测（阻塞直到任务完成）
+// Start 启动完成检测（阻塞直到本 run 结束）
 func (d *CompletionDetector) Start(ctx context.Context) Result {
-	d.logger.Info().
-		Int("max_steps", d.maxSteps).
-		Msg("完成检测器启动（持续探索模式）")
+	d.logger.Info().Int("max_actions", d.maxActions).Msg("完成检测器启动")
 
-	// 订阅事件
-	sub := d.bus.SubscribeTask(d.taskID)
-	defer sub.Cancel()
-
-	// 定期检查
 	ticker := time.NewTicker(d.checkInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return d.makeResult("context_cancelled")
+			return d.makeResult(StopReasonCancelled)
 
 		case result := <-d.completionCh:
-			// 其他 goroutine 触发完成
 			return result
 
 		case <-d.wake:
@@ -120,40 +100,11 @@ func (d *CompletionDetector) Start(ctx context.Context) Result {
 				return result
 			}
 
-		case event := <-sub.Events():
-			d.handleEvent(event)
-
-			// 每次事件后检查是否完成
-			if result, done := d.checkCompletion(); done {
-				return result
-			}
-
 		case <-ticker.C:
-			// 定期兜底检查
 			if result, done := d.checkCompletion(); done {
 				return result
 			}
 		}
-	}
-}
-
-// handleEvent 处理事件并更新统计
-func (d *CompletionDetector) handleEvent(event bus.Event) {
-	switch event.Type {
-	case bus.EventActionCompleted:
-		d.totalSteps.Add(1)
-		d.logger.Debug().
-			Int64("total_steps", d.totalSteps.Load()).
-			Msg("Action 完成")
-
-	case bus.EventAttemptGenerated:
-		d.attemptCount.Add(1)
-
-	case bus.EventVerificationPassed:
-		d.promotedCount.Add(1)
-		d.logger.Debug().
-			Int64("promoted", d.promotedCount.Load()).
-			Msg("结果晋升")
 	}
 }
 
@@ -174,33 +125,47 @@ func (d *CompletionDetector) checkCompletion() (Result, bool) {
 		return d.makeResult(StopReasonConverged), true
 	}
 
-	// 3. 达到最大步数（如果设置了）
-	if d.maxSteps > 0 {
-		steps := d.totalSteps.Load()
-		if steps >= int64(d.maxSteps) {
-			d.logger.Info().
-				Int64("steps", steps).
-				Int("max_steps", d.maxSteps).
-				Msg("达到最大步数")
-			return d.makeResult("max_steps_reached"), true
+	// 3. 动作预算
+	if d.maxActions > 0 {
+		st, err := d.stats()
+		if err != nil {
+			d.logger.Warn().Err(err).Msg("统计动作数失败，本轮不判预算")
+			return Result{}, false
+		}
+		if st.ExecutedActions >= d.maxActions {
+			d.logger.Info().Int("actions", st.ExecutedActions).Int("max_actions", d.maxActions).Msg("动作预算用尽")
+			return d.makeResult(StopReasonActionBudget), true
 		}
 	}
-
-	// 持续探索模式：不再基于空闲轮数或优雅等待期自动停止
-	// 任务会一直运行，直到用户手动停止或达到资源限制
 	return Result{}, false
 }
 
-// makeResult 构造最终报告
+// makeResult 构造报告：统计从图上读（run 被打断时 ctx 已取消，用独立短时 ctx）。
 func (d *CompletionDetector) makeResult(stopWhy string) Result {
-	return Result{
-		Steps:      int(d.totalSteps.Load()),
-		Promoted:   int(d.promotedCount.Load()),
-		Attempts:   int(d.attemptCount.Load()),
-		StopReason: stopWhy,
-		Duration:   time.Since(d.startTime),
+	res := Result{StopReason: stopWhy, Duration: time.Since(d.startTime)}
+	st, err := d.stats()
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("统计任务图失败，报告统计为 0")
+		return res
 	}
+	res.Actions, res.Results, res.Hypotheses = st.ExecutedActions, st.Results, st.Hypotheses
+	return res
 }
+
+func (d *CompletionDetector) stats() (explorationgraph.TaskStats, error) {
+	if d.graph == nil {
+		return explorationgraph.TaskStats{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return d.graph.Stats(ctx, d.taskID)
+}
+
+// StopReasonCancelled 是 run 被打断（handler ctx 取消：停机、租约丢失、run 超时）的停止原因。
+const StopReasonCancelled = "context_cancelled"
+
+// StopReasonActionBudget 是动作预算用尽的停止原因。
+const StopReasonActionBudget = "action_budget_reached"
 
 // StopReasonConverged 是规划者宣告收敛（无新方向且图上无未完结工作）的停止原因。
 const StopReasonConverged = "task_converged"

@@ -71,7 +71,7 @@ func TestWatchdog_StalledActionFailsWithReason(t *testing.T) {
 	go a.watchStalls(ctx)
 
 	done := make(chan error, 1)
-	go func() { done <- a.executeAction(ctx, mustNode(t, store, "a1"), &Report{}) }()
+	go func() { done <- a.executeAction(ctx, mustNode(t, store, "a1")) }()
 	select {
 	case err := <-done:
 		require.Error(t, err, "停摆是执行失败")
@@ -93,6 +93,6 @@ func TestWatchdog_ActiveActionIsNotKilled(t *testing.T) {
 	defer cancel()
 	go a.watchStalls(ctx)
 
-	require.NoError(t, a.executeAction(ctx, mustNode(t, store, "a1"), &Report{}))
+	require.NoError(t, a.executeAction(ctx, mustNode(t, store, "a1")))
 	assert.Equal(t, explorationgraph.StateCompleted, *mustNode(t, store, "a1").State)
 }

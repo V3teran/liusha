@@ -77,7 +77,7 @@ type Deps struct {
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 
-	MaxStepsPerTask int // 0 = 完成检测器步数无限制
+	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
 	// StepLLMTimeout 是单步 LLM 看门狗上限（系统配置 runtime 组快照），与工具超时上限
 	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
@@ -127,10 +127,18 @@ type SandboxListener struct {
 	CallbackHost string
 }
 
+// Report 是一次 run 的报告：runner 据此收尾，写入时间线终态节点与 agent_run.result。
+type Report struct {
+	Actions    int    `json:"actions"`     // 执行过的动作数
+	Results    int    `json:"results"`     // 坐实的结果数
+	Hypotheses int    `json:"hypotheses"`  // 提出的假设数
+	StopReason string `json:"stop_reason"` // 停止原因
+}
+
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
 // sb 是沙盒命令执行入口；nil 表示无沙盒（run_command/drive_browser 不注册）。
-func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb tools.CommandRunner) (executor.Report, error) {
+func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb tools.CommandRunner) (Report, error) {
 	return d.run(ctx, taskID, host, brief, conversationID, sb)
 }
 
@@ -139,17 +147,17 @@ func (d *Deps) run(
 	ctx context.Context,
 	taskID, host, brief, conversationID string,
 	sb tools.CommandRunner,
-) (executor.Report, error) {
+) (Report, error) {
 	d.Logger.Info().
 		Str("brief", brief).
 		Msg("[RUN_COGNITION] 启动四Agent架构")
 
 	if d.Graph == nil || taskID == "" || d.EventBus == nil {
-		return executor.Report{}, fmt.Errorf("graph and eventBus are required")
+		return Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
 	if err := d.ensureRootObjective(ctx, taskID, brief); err != nil {
-		return executor.Report{}, err
+		return Report{}, err
 	}
 
 	// 本 run 此刻独占任务：之前的 run 留下的在途动作（进程崩溃、或新旧 run 重叠时
@@ -157,7 +165,7 @@ func (d *Deps) run(
 	// 不符而落空。
 	reclaimed, err := d.Graph.ReclaimRunningActions(ctx, taskID)
 	if err != nil {
-		return executor.Report{}, fmt.Errorf("回收上一 run 的在途动作: %w", err)
+		return Report{}, fmt.Errorf("回收上一 run 的在途动作: %w", err)
 	}
 	if reclaimed > 0 {
 		d.Logger.Info().Int("count", reclaimed).Msg("已交还上一 run 留下的在途动作")
@@ -165,7 +173,7 @@ func (d *Deps) run(
 
 	stack, err := d.assembleStack(ctx, taskID, host, brief, conversationID, sb)
 	if err != nil {
-		return executor.Report{}, err
+		return Report{}, err
 	}
 	// 思考流随循环关闭：冲刷未发增量（终态消息由各 agent 的 Done 落）。
 	defer stack.thoughts.Close()
@@ -200,15 +208,15 @@ func (d *Deps) run(
 
 	d.Logger.Info().
 		Int64("duration_ms", result.Duration.Milliseconds()).
-		Int("steps", result.Steps).
-		Int("promoted", result.Promoted).
+		Int("actions", result.Actions).
+		Int("results", result.Results).
 		Str("stop_reason", result.StopReason).
 		Msg("认知循环完成")
 
-	report := executor.Report{
-		Steps:      result.Steps,
-		Promoted:   result.Promoted,
-		Attempts:   result.Attempts,
+	report := Report{
+		Actions:    result.Actions,
+		Results:    result.Results,
+		Hypotheses: result.Hypotheses,
 		StopReason: result.StopReason,
 	}
 	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
@@ -399,9 +407,8 @@ func (d *Deps) assembleStack(
 	detector := NewCompletionDetector(Config{
 		TaskID:        taskID,
 		Graph:         d.Graph,
-		Bus:           d.EventBus,
 		Logger:        d.Logger,
-		MaxSteps:      d.MaxStepsPerTask, // 0 表示无限制
+		MaxActions:    d.MaxActionsPerTask, // 0 表示不限
 		CheckInterval: 5 * time.Second,
 	})
 

@@ -18,26 +18,16 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// Agent 是事件驱动的执行器 Agent
-//
-// 职责：
-// - 订阅 ActionProposed 事件（由 planner.Agent 发布）
-// - 执行 Action 并生成 Observation（通过 Attempt）
-// - 发布 ActionCompleted 事件
-// - 完全异步，不阻塞任何调用方
+// Agent 是执行者：认领 open 动作并执行，观察落图后把新提出的假设交给评估者。
+// 规划者提出新动作（ActionProposed）时立即处理，另有定时兜底检查。
 type Agent struct {
-	graph        *explorationgraph.Store
-	executor     ActionExecutor
-	eventBus     bus.EventBus
-	logger       zerolog.Logger
-	taskID       string
-	agentRunID   string // 本 run 的 ID：认领动作时记下，结束与交还以此校验归属
-	maxSteps     int
-	maxParallel  int         // 并发执行的 action 上限（1=串行）
-	completionCh chan Report // 任务完成通知通道
-
-	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
-	reportMu sync.Mutex
+	graph       *explorationgraph.Store
+	executor    ActionExecutor
+	eventBus    bus.EventBus
+	logger      zerolog.Logger
+	taskID      string
+	agentRunID  string // 本 run 的 ID：认领动作时记下，结束与交还以此校验归属
+	maxParallel int    // 并发执行的 action 上限（1=串行）
 
 	// 看门狗：在途动作超过 stallTimeout 无进展即取消（见 watchdog.go）
 	activity           *ActivityTracker
@@ -49,15 +39,13 @@ type Agent struct {
 
 // AgentConfig 配置 Agent
 type AgentConfig struct {
-	TaskID       string
-	AgentRunID   string // 本 run 的 ID（动作认领归属）
-	Graph        *explorationgraph.Store
-	Executor     ActionExecutor
-	EventBus     bus.EventBus
-	Logger       zerolog.Logger
-	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
-	MaxParallel  int         // 并发执行 action 上限（0/1=串行）
-	CompletionCh chan Report // 可选：任务完成时写入 Report
+	TaskID      string
+	AgentRunID  string // 本 run 的 ID（动作认领归属）
+	Graph       *explorationgraph.Store
+	Executor    ActionExecutor
+	EventBus    bus.EventBus
+	Logger      zerolog.Logger
+	MaxParallel int // 并发执行 action 上限（0/1=串行）
 
 	// Activity 是动作进展记录（工具拦截器与执行引擎写入，看门狗读取）；nil 时自建。
 	Activity *ActivityTracker
@@ -69,9 +57,6 @@ type AgentConfig struct {
 
 // NewAgent 创建 Agent
 func NewAgent(cfg AgentConfig) *Agent {
-	if cfg.MaxSteps == 0 {
-		cfg.MaxSteps = 1000 // 默认最大步数
-	}
 	if cfg.Activity == nil {
 		cfg.Activity = NewActivityTracker()
 	}
@@ -83,15 +68,13 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 
 	return &Agent{
-		graph:        cfg.Graph,
-		executor:     cfg.Executor,
-		eventBus:     cfg.EventBus,
-		logger:       cfg.Logger.With().Str("agent", "executor").Logger(),
-		taskID:       cfg.TaskID,
-		agentRunID:   cfg.AgentRunID,
-		maxSteps:     cfg.MaxSteps,
-		maxParallel:  cfg.MaxParallel,
-		completionCh: cfg.CompletionCh,
+		graph:       cfg.Graph,
+		executor:    cfg.Executor,
+		eventBus:    cfg.EventBus,
+		logger:      cfg.Logger.With().Str("agent", "executor").Logger(),
+		taskID:      cfg.TaskID,
+		agentRunID:  cfg.AgentRunID,
+		maxParallel: cfg.MaxParallel,
 
 		activity:           cfg.Activity,
 		stallTimeout:       cfg.StallTimeout,
@@ -100,31 +83,21 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 }
 
-// Run 启动事件循环（ctx 取消即停止）。
-//
-// 职责：
-// - 监听事件总线上的 Action 状态变化
-// - 认领并执行 open 动作
-// - 发布 ActionCompleted 事件
+// Run 启动执行循环（ctx 取消即停止）：认领并执行 open 动作，规划者提出新动作时
+// 立即处理，另有定时兜底检查。何时结束整个 run 由完成检测器判定，不在本层。
 func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().Msg("Agent 启动")
 
-	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
 	defer sub.Cancel()
 
 	// 看门狗与执行并行运行：执行循环在动作跑完前不会返回。
 	go a.watchStalls(ctx)
 
-	// 执行状态
-	var report Report
-
-	// 立即检查一次待执行的 Action
-	if err := a.loopFailure(a.processAvailableActions(ctx, &report), "初始 Action 处理"); err != nil {
+	if err := a.loopFailure(a.processAvailableActions(ctx), "初始 Action 处理"); err != nil {
 		return err
 	}
 
-	// 事件循环
 	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定期兜底检查
 	defer ticker.Stop()
 
@@ -132,44 +105,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			a.logger.Info().Msg("Agent 停止（context 取消）")
-			report.StopReason = stopCanceled
-			a.notifyCompletion(report)
 			return ctx.Err()
 
 		case event := <-sub.Events():
-			a.logger.Debug().
-				Str("event_type", string(event.Type)).
-				Msg("收到事件")
-
-			// 处理事件
-			if err := a.loopFailure(a.handleEvent(ctx, event, &report), "事件处理（"+string(event.Type)+"）"); err != nil {
+			if err := a.loopFailure(a.handleEvent(ctx, event), "事件处理（"+string(event.Type)+"）"); err != nil {
 				return err
-			}
-
-			// 检查停止条件
-			if a.shouldStop(&report) {
-				a.logger.Info().
-					Str("stop_reason", report.StopReason).
-					Int("steps", report.Steps).
-					Msg("Agent 达到停止条件")
-				a.notifyCompletion(report)
-				return nil
 			}
 
 		case <-ticker.C:
-			// 定期兜底：检查是否有遗漏的 Action
-			if err := a.loopFailure(a.processAvailableActions(ctx, &report), "定期检查 Action"); err != nil {
+			if err := a.loopFailure(a.processAvailableActions(ctx), "定期检查 Action"); err != nil {
 				return err
-			}
-
-			// 检查停止条件
-			if a.shouldStop(&report) {
-				a.logger.Info().
-					Str("stop_reason", report.StopReason).
-					Int("steps", report.Steps).
-					Msg("Agent 达到停止条件（定期检查）")
-				a.notifyCompletion(report)
-				return nil
 			}
 		}
 	}
@@ -190,13 +135,13 @@ func (a *Agent) loopFailure(err error, phase string) error {
 }
 
 // handleEvent 处理事件
-func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report) error {
+func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 	switch event.Type {
 	case bus.EventActionProposed:
 		// Planner 提议了新 Action，立即处理
 		a.logger.Info().
 			Msg("收到 ActionProposed 事件，处理可执行 Action")
-		return a.processAvailableActions(ctx, report)
+		return a.processAvailableActions(ctx)
 
 	default:
 		a.logger.Debug().
@@ -207,7 +152,7 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report
 }
 
 // processAvailableActions 并发执行全部 open 动作（CAS 认领防重复执行）
-func (a *Agent) processAvailableActions(ctx context.Context, report *Report) error {
+func (a *Agent) processAvailableActions(ctx context.Context) error {
 	// 获取所有 open 状态的 Action
 	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
 	if err != nil {
@@ -238,7 +183,7 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if err := a.executeAction(ctx, act, report); err != nil {
+			if err := a.executeAction(ctx, act); err != nil {
 				logx.ErrorUnlessCanceled(a.logger, err).
 					Err(err).
 					Str("action_id", act.ID).
@@ -261,7 +206,6 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 func (a *Agent) executeAction(
 	ctx context.Context,
 	action explorationgraph.Node,
-	report *Report,
 ) error {
 	a.logger.Info().
 		Str("action_id", action.ID).
@@ -320,19 +264,10 @@ func (a *Agent) executeAction(
 		return execErr
 	}
 
-	// 更新 report（并行执行下并发递增，加锁）
-	a.reportMu.Lock()
-	report.Steps++
-	report.Attempts += len(attempts)
-	a.reportMu.Unlock()
-
-	// 发布所有 attempt.generated 事件（通知 evaluator）
+	// 通知评估者验证新提出的假设
 	for _, attempt := range attempts {
 		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
 	}
-
-	// 最后发布 ActionCompleted 事件（确保 Evaluator 已收到所有 Attempt）
-	a.eventBus.PublishActionCompleted(a.taskID, action.ID)
 
 	a.logger.Info().
 		Str("action_id", action.ID).
@@ -340,29 +275,4 @@ func (a *Agent) executeAction(
 		Msg("Action 执行完成")
 
 	return nil
-}
-
-// shouldStop 判断是否应停止
-func (a *Agent) shouldStop(report *Report) bool {
-	// 达到最大步数
-	if a.maxSteps > 0 && report.Steps >= a.maxSteps {
-		report.StopReason = stopMaxSteps
-		return true
-	}
-
-	// 其余停止条件不在本层：「无新 Action 且图收敛」由 planner 直接通知、
-	// completion detector 判定；「外部停止」走控制平面 terminate → detector.Abort。
-	return false
-}
-
-// notifyCompletion 通知任务完成
-func (a *Agent) notifyCompletion(report Report) {
-	if a.completionCh != nil {
-		select {
-		case a.completionCh <- report:
-			a.logger.Info().Msg("任务完成报告已发送")
-		default:
-			a.logger.Warn().Msg("任务完成报告发送失败（channel 已满）")
-		}
-	}
 }

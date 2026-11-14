@@ -38,7 +38,7 @@ const STOP_REASON_LABELS: Record<string, string> = {
   task_terminated: '手动终止',
   context_cancelled: '执行被取消',
   task_converged: '目标收敛',
-  max_steps_reached: '达到步数上限',
+  action_budget_reached: '达到动作上限',
   agent_failed: '智能体故障',
 }
 
