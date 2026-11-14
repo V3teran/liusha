@@ -15,7 +15,7 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
         <span className="font-mono text-sm font-semibold text-accent">{call.name}</span>
       </div>
       {call.args ? (
-        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
+        <pre tabIndex={0} className="max-h-60 overflow-auto whitespace-pre-wrap break-words bg-surface-2 px-2.5 py-2 font-mono text-xs leading-relaxed text-text">
           {call.args}
         </pre>
       ) : (

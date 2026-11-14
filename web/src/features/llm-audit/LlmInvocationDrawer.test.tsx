@@ -42,6 +42,18 @@ describe('LlmInvocationDrawer', () => {
     })
   })
 
+  it('可滚动的长文本区块都可键盘聚焦（键盘用户能滚动阅读）', () => {
+    const detail = makeDetail({
+      error_message: '上游超时',
+      messages: [{ role: 'user', content: '输入正文' }],
+      result: { content: '返回正文' },
+    } as Partial<LLMInvocationDetail>)
+    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
+    const blocks = document.querySelectorAll('pre')
+    expect(blocks.length).toBeGreaterThan(0)
+    blocks.forEach((pre) => expect(pre.getAttribute('tabindex')).toBe('0'))
+  })
+
   it('loading=true 时显示加载中', () => {
     renderDrawer(<LlmInvocationDrawer open detail={null} loading error="" onOpenChange={vi.fn()} />)
     expect(screen.getByText('加载中…')).toBeTruthy()
