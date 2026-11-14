@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { FindingDrawer } from './FindingDrawer'
 import type { FindingRow } from '@/api/types'
 
@@ -42,6 +43,19 @@ describe('FindingDrawer', () => {
     expect(screen.getByText(/evil.example.com/)).toBeTruthy()
     // 位置行是「方法 host 路径」同一文本节点，联合断言。
     expect(screen.getByText(/GET evil\.example\.com\/a/)).toBeTruthy()
+  })
+
+  it('跳转区排在基本信息之前：回到产出上下文是最先用到的出口', () => {
+    const finding = makeFinding({ task_id: 't-1', conversation_id: 'c-1' })
+    render(
+      <MemoryRouter>
+        <FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />
+      </MemoryRouter>,
+    )
+    const jump = screen.getByRole('heading', { name: '跳转' })
+    const basic = screen.getByRole('heading', { name: '基本信息' })
+    expect(jump.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('link', { name: /任务/ })).toBeTruthy()
   })
 
   it('finding 为 null 时不渲染内容区块', () => {
