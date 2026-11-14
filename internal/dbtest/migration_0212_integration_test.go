@@ -29,7 +29,7 @@ func TestMigration0212_DropMonitorRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0212)
 
 	var content string
 	if err := pool.QueryRow(ctx, `SELECT content::text FROM exploration_node WHERE id = $1`, nodeID).Scan(&content); err != nil {

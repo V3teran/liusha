@@ -109,7 +109,7 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 		"exclude_content_types":[],"exclude_status_codes":[400,401,403,404,405,408,409,410,413,414,415,422,429,500,501,502,503,504],
 		"max_request_body_size":2097152,"max_response_body_size":8388608}`)
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0201)
 
 	// ── 用户层只含改过的字段 ──────────────────────────────────────────
 	fields := func(table, keyCol, key string) map[string]json.RawMessage {

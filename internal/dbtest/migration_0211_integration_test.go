@@ -49,7 +49,7 @@ func TestMigration0211_SettleGraphsOfFinishedTasks(t *testing.T) {
 		{"进行中任务不动", insert(active, "action", "open", "planner"), "open"},
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0211)
 
 	for _, c := range cases {
 		var state string

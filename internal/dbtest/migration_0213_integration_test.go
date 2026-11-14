@@ -38,7 +38,7 @@ func TestMigration0213_ReportFieldNames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0213)
 
 	var meta, result map[string]any
 	if err := pool.QueryRow(ctx, `SELECT metadata FROM message WHERE id = $1`, msgID).Scan(&meta); err != nil {
