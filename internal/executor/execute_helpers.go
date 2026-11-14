@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -92,66 +93,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
-		OutputFormatSchema: `请输出以下JSON格式：
-
-` + "```json\n" + `{
-  "status": "completed",
-  "summary": "简要总结你完成的工作",
-  "observations": [
-    {
-      "category": "hypothesis",
-      "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
-      "reasoning": "你为什么得出这个结论",
-      "priority": "优先级：这条主张值得多优先对待（low/medium/high/critical）",
-      "impact": "影响：主张为真时会发生什么、波及多大（一段话）",
-      "suggestion": "建议：若要改变这一局面可以怎么做（一段话）",
-      "repro": {
-        "domain": "web",
-        "recipe": {
-          "request": {
-            "method": "GET",
-            "url": "http://example.com/target",
-            "headers": {"Cookie": "session=abc"},
-            "body": ""
-          }
-        },
-        "assert": {
-          "body_contains": ["主张成立的独有特征子串"],
-          "status_code": 200
-        }
-      }
-    },
-    {
-      "category": "entity",
-      "statement": "对象陈述：环境中存在什么对象、有什么属性",
-      "reasoning": "依据是什么（来自哪个实测输出）"
-    }
-  ]
-}
-` + "```\n\n" + `说明：
-- 每条 observation 必须带 category（领域中立词汇，选最贴切的一个）：
-  * hypothesis：待验证的判断——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并成为正式发现。一眼可见的问题（敏感文件泄露、危险配置）同样写成 hypothesis：它们最容易给出配方
-  * entity：环境中存在的单个对象及其属性（某主机/端点/服务/页面/文件/配置项存在，及其关键属性）
-  * access：触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
-  * structure：对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
-  * behavior：环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律、拦截与限流等阻碍推进的防护）
-  * note：以上都不合适的杂项（最后手段——先找具体域，写不出归属再用 note）
-- entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
-- hypothesis 与事实的分界：凡是「这里有问题」的判断都记 hypothesis（必须带 repro）；事实只陈述环境是什么样、怎么反应，不下好坏结论
-- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
-- 没有值得记录的内容时，observations 可以是空数组 []
-- hypothesis 必须包含完整的 repro 复现步骤；只推测未实测的东西不要标 hypothesis
-- 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
-  * body_contains: 响应体必须包含的字符串数组（推荐）
-  * status_code: 期望的HTTP状态码（数字）
-  * header_contains: 响应头必须存在并包含子串，格式为对象 {"Header-Name": "substring"}，不是数组；子串为空即只要求该头存在
-  * header_not_contains: 响应头必须不存在、或存在但不含子串，格式同上；子串为空即要求该头不存在（缺失安全头、Cookie 缺 HttpOnly）
-  * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
-- domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被验证
-- 不要只写description，必须提供具体的断言条件
-- hypothesis 坐实后会成为交付物给人看：priority/impact/suggestion 都要写全——
-  impact 陈述主张为真时的具体影响（落实到对象，中性因果）；
-  suggestion 定位到根因给出可执行的处理，不写空话`,
+		OutputFormatSchema: executorcontract.Text, // 强制总结时重申输出契约（唯一一份）
 		// kill 止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
 		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
 		EarlyStopCondition: func(string) bool { return kill.Killed() },
