@@ -20,9 +20,6 @@ const (
 	// EventActionProposed 是 planner 提议新动作（唤醒执行者）。
 	EventActionProposed EventType = "action.proposed"
 
-	// EventAttemptGenerated 是 executor 提出待验证的假设（唤醒评估者）。
-	EventAttemptGenerated EventType = "attempt.generated"
-
 	// EventVerificationPassed 是复现坐实；EventVerificationRefuted 是复现证伪。
 	// 均为 planner 重规划的触发依据。
 	EventVerificationPassed  EventType = "verification.passed"

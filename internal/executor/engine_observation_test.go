@@ -15,8 +15,8 @@ import (
 
 // 观察归属在写入时精确建立：Engine.createObservationNode 建节点即落 generates 边
 // （action → observation），不存在收割期的二次归属查询——并行执行 action 时各自
-// 的观察天然只归各自的 action，不会串。Attempt 经 observationToAttempt 携带该
-// 节点 ID，repro 域信封整体透传（复现门按 domain 分发）。
+// 的观察天然只归各自的 action，不会串。repro 域信封整体存进节点（复现门按 domain
+// 分发）。
 func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
@@ -36,16 +36,11 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 
 	envelope := json.RawMessage(`{"domain":"generic","recipe":{"steps":"do"},"assert":{"description":"see x"}}`)
 
-	// 各 action 走 Engine 写入路径：建观察节点 + 落归属边 + 转 Attempt
+	// 各 action 走 Engine 写入路径：建观察节点 + 落归属边
 	nodeA, err := engine.createObservationNode(ctx, taskID, "act-A",
 		Observation{Statement: "A 的假设", Category: explorationgraph.CategoryHypothesis, Repro: envelope})
 	if err != nil {
 		t.Fatalf("创建 act-A 观察节点失败: %v", err)
-	}
-	attA, err := engine.observationToAttempt(taskID, nodeA,
-		Observation{Statement: "A 的假设", Category: explorationgraph.CategoryHypothesis, Repro: envelope})
-	if err != nil {
-		t.Fatalf("转换 act-A Attempt 失败: %v", err)
 	}
 
 	nodeB, err := engine.createObservationNode(ctx, taskID, "act-B",
@@ -72,28 +67,20 @@ func TestObservationOwnership_ByGeneratesEdgeAtWriteTime(t *testing.T) {
 		t.Fatalf("act-B 应只归属自己的观察 %s, got %v", nodeB.ID, owns["act-B"])
 	}
 
-	// Attempt 携带归属节点 ID，kind 为晋升目标 result
-	if attA.NodeID != nodeA.ID || attA.Kind != "result" {
-		t.Fatalf("Attempt 归属错误: node=%s kind=%s", attA.NodeID, attA.Kind)
+	// 信封整体存进节点，domain 可供复现门分发
+	var c struct {
+		Repro struct {
+			Domain string `json:"domain"`
+		} `json:"repro"`
 	}
-
-	// 信封整体透传（字节级），domain 可供复现门分发
-	if !bytes.Equal(bytes.TrimSpace(attA.Primitives), envelope) {
-		t.Fatalf("Attempt 的 repro 应为信封整体透传, got %s", attA.Primitives)
-	}
-	var env struct {
-		Domain string `json:"domain"`
-	}
-	if json.Unmarshal(attA.Primitives, &env) != nil || env.Domain != "generic" {
-		t.Fatalf("信封 domain 应为 generic, got %s", attA.Primitives)
+	if json.Unmarshal(nodeA.Content, &c) != nil || c.Repro.Domain != "generic" {
+		t.Fatalf("节点应携带信封（domain=generic）, got %s", nodeA.Content)
 	}
 }
 
-// 收割循环的配方归一化必须传播到 Attempt——节点与 Attempt 共用同一矫正结果。
-// 回归背景：归一化曾藏在节点构造内部（值拷贝上矫正），事件路径的 Attempt
-// 携带原始破碎形状（数组信封/标量断言）直通复现门被确定性杀死，4 条真漏洞
-// 假设冤死为 invalid_recipe，而节点上存的却是修复后的配方。
-func TestProcessOutput_NormalizationPropagatesToAttempt(t *testing.T) {
+// 配方在落图时归一化一次，节点存的就是矫正后的信封——评估者只从节点读配方，
+// 不再有第二条携带原始破碎形状（数组信封/标量断言）的消费路径。
+func TestProcessOutput_ReproNormalizedOnNode(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	out := &bytes.Buffer{}
 	e := NewEngine(EngineConfig{
@@ -121,44 +108,30 @@ func TestProcessOutput_NormalizationPropagatesToAttempt(t *testing.T) {
 			"\"repro\":" + string(rawRepro) + "}]}\n```",
 	}
 
-	attempts, err := e.processOutput(context.Background(), action, result)
-	if err != nil {
+	if err := e.processOutput(context.Background(), action, result); err != nil {
 		t.Fatalf("processOutput: %v", err)
 	}
-	if len(attempts) != 1 {
-		t.Fatalf("应产出 1 个 Attempt: %d\nlogs:\n%s", len(attempts), out.String())
+	hyps, err := graph.ListHypotheses(context.Background(), "t-norm", explorationgraph.VerificationPending, 0)
+	if err != nil || len(hyps) != 1 {
+		t.Fatalf("应落图 1 条待验证假设: %d %v\nlogs:\n%s", len(hyps), err, out.String())
 	}
 
-	// Attempt.Primitives 必须是归一化后的域信封对象，而非原始数组
-	var env struct {
-		Domain string `json:"domain"`
-	}
-	if err := json.Unmarshal(attempts[0].Primitives, &env); err != nil {
-		t.Fatalf("Attempt.Primitives 应为归一化信封对象: %v (%s)", err, attempts[0].Primitives)
-	}
-	if env.Domain != "generic" && env.Domain != "web" {
-		t.Fatalf("归一化后应有合法 domain: %q", env.Domain)
-	}
-
-	// 节点上存的与 Attempt 携带的是同一份配方（形状一致）
-	node, err := graph.GetNode(context.Background(), attempts[0].NodeID)
-	if err != nil || node == nil {
-		t.Fatalf("观察节点应落图: %v", err)
-	}
+	// 节点上存的是归一化后的域信封对象，而非原始数组
 	var content struct {
-		Repro json.RawMessage `json:"repro"`
+		Repro struct {
+			Domain string `json:"domain"`
+		} `json:"repro"`
 	}
-	if err := json.Unmarshal(node.Content, &content); err != nil || len(content.Repro) == 0 {
-		t.Fatalf("节点应携带 repro: %v", err)
+	if err := json.Unmarshal(hyps[0].Content, &content); err != nil {
+		t.Fatalf("节点 repro 应为归一化信封对象: %v (%s)", err, hyps[0].Content)
 	}
-	if string(content.Repro) != string(attempts[0].Primitives) {
-		t.Fatalf("节点与 Attempt 配方形状不一致:\nnode=%s\nattempt=%s", content.Repro, attempts[0].Primitives)
+	if content.Repro.Domain != "generic" && content.Repro.Domain != "web" {
+		t.Fatalf("归一化后应有合法 domain: %q", content.Repro.Domain)
 	}
 }
 
-// 生命周期分流不变式：hypothesis 进验证管道（pending + Attempt），
-// 事实写入即终态（无验证状态、零 Attempt）——result 只承载经判定坐实的主张，
-// 事实永远不伪装成 result。
+// 生命周期分流不变式：hypothesis 写入即待验证（pending，评估者从图上取），
+// 事实写入即终态（无验证状态）——result 只承载经判定坐实的主张，事实永远不伪装成 result。
 func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
@@ -170,55 +143,32 @@ func TestHarvestObservation_CategoryLifecycleSplit(t *testing.T) {
 		t.Fatalf("建 action 失败: %v", err)
 	}
 
-	// 事实：落图为终态，无 Attempt
-	state := Observation{
+	// 事实：落图为终态
+	fact := e.harvestObservation(context.Background(), action, Observation{
 		Category:  explorationgraph.CategoryNote,
 		Statement: "会话已建立且过滤机制由 X 控制",
-	}
-	stateAttempt, _ := e.harvestObservation(context.Background(), action, state, ExecutionTrace{})
-	if stateAttempt != nil {
-		t.Fatal("state 不得产出 Attempt（不进验证管道）")
-	}
-	stateNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
-	if len(stateNodes) != 1 {
-		t.Fatalf("state 应落图 1 个观察: %d", len(stateNodes))
-	}
-	if !stateNodes[0].IsFact() {
-		t.Fatalf("事实不应带验证状态: %+v", stateNodes[0].VerificationStatus)
+	})
+	if fact == nil || !fact.IsFact() {
+		t.Fatalf("事实应落图且不带验证状态: %+v", fact)
 	}
 
-	// hypothesis：pending + Attempt
-	hyp := Observation{
+	// hypothesis：写入即待验证
+	hyp := e.harvestObservation(context.Background(), action, Observation{
 		Category:  explorationgraph.CategoryHypothesis,
 		Statement: "X 参数存在可复现的注入现象",
 		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 发请求 2. 观察回显"},"assert":{"description":"看到回显"}}`),
-	}
-	hypAttempt, _ := e.harvestObservation(context.Background(), action, hyp, ExecutionTrace{})
-	if hypAttempt == nil {
-		t.Fatal("hypothesis 应产出 Attempt（进验证管道）")
-	}
-	hypNodes, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
-	if len(hypNodes) != 2 {
-		t.Fatalf("hypothesis 应落图: %d", len(hypNodes))
-	}
-	for _, n := range hypNodes {
-		if n.ID == hypAttempt.NodeID && !n.HasVerificationStatus(explorationgraph.VerificationPending) {
-			t.Fatalf("hypothesis 写入时应为待验证: %+v", n.VerificationStatus)
-		}
+	})
+	if hyp == nil || !hyp.HasVerificationStatus(explorationgraph.VerificationPending) {
+		t.Fatalf("hypothesis 写入时应为待验证: %+v", hyp)
 	}
 
-	// 无配方的 hypothesis：落图前降级为 state（无配方的主张无从验证）
-	speculative := Observation{
+	// 无配方的 hypothesis：落图前降级为事实（无配方的主张无从验证）
+	spec := e.harvestObservation(context.Background(), action, Observation{
 		Category:  explorationgraph.CategoryHypothesis,
 		Statement: "未实测的推测",
-	}
-	specAttempt, _ := e.harvestObservation(context.Background(), action, speculative, ExecutionTrace{})
-	if specAttempt != nil {
-		t.Fatal("无配方 hypothesis 不得产出 Attempt")
-	}
-	all, _ := graph.ListNodesByKind(context.Background(), "t-split", core.KindObservation)
-	if len(all) != 3 {
-		t.Fatalf("推测应降级为 state 落图: %d", len(all))
+	})
+	if spec == nil || !spec.IsFact() {
+		t.Fatalf("无配方 hypothesis 应降级为事实落图: %+v", spec)
 	}
 }
 
@@ -237,7 +187,7 @@ func TestHarvestObservation_FactWithoutReproIsNotNormalized(t *testing.T) {
 	}
 
 	fact := Observation{Category: explorationgraph.CategoryBehavior, Statement: "登录接口对错误密码返回 200 与提示文案"}
-	if _, observed := e.harvestObservation(context.Background(), action, fact, ExecutionTrace{}); !observed {
+	if e.harvestObservation(context.Background(), action, fact) == nil {
 		t.Fatal("事实观察应落图")
 	}
 	if bytes.Contains(logs.Bytes(), []byte("repro 归一化失败")) {
@@ -246,7 +196,7 @@ func TestHarvestObservation_FactWithoutReproIsNotNormalized(t *testing.T) {
 }
 
 // 优先级只在节点层存一份：观察给出的优先级归一后写进节点（图与界面据此展示），
-// 内容里不再另存；转交评估者的主张沿用节点优先级。
+// 内容里不再另存。
 func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
@@ -258,18 +208,14 @@ func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
 		t.Fatalf("建 action 失败: %v", err)
 	}
 
-	attempt, _ := e.harvestObservation(context.Background(), action, Observation{
+	node := e.harvestObservation(context.Background(), action, Observation{
 		Category:  explorationgraph.CategoryHypothesis,
 		Statement: "管理接口未鉴权",
 		Priority:  " Critical ",
 		Repro:     json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 访问"},"assert":{"description":"返回管理数据"}}`),
-	}, ExecutionTrace{})
-	if attempt == nil {
-		t.Fatal("假设应产出 Attempt")
-	}
-	node, err := graph.GetNode(context.Background(), attempt.NodeID)
-	if err != nil {
-		t.Fatal(err)
+	})
+	if node == nil {
+		t.Fatal("假设应落图")
 	}
 	if node.Priority != explorationgraph.PriorityCritical {
 		t.Fatalf("节点优先级应为 critical，得 %q", node.Priority)
@@ -280,8 +226,5 @@ func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
 	}
 	if _, ok := content["priority"]; ok {
 		t.Fatalf("内容里不应再存优先级: %v", content)
-	}
-	if attempt.Priority != string(explorationgraph.PriorityCritical) {
-		t.Fatalf("Attempt 应沿用节点优先级，得 %q", attempt.Priority)
 	}
 }

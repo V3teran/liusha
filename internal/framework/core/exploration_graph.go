@@ -75,7 +75,7 @@ const (
 //
 // 只有假设（category=hypothesis）有验证状态：pending → confirmed/refuted，流转由
 // evaluator 的复现门独占；confirmed 的唯一产物是 result 节点。事实没有验证状态
-// （写入即终态，信任来自执行轨迹出处而非复现）；result 也没有（它就是坐实本身）。
+// （写入即终态，可信来自产出它的动作而非复现）；result 也没有（它就是坐实本身）。
 // 审计链（exploration_verification）的每条记录也以它记结论，只取 confirmed / refuted。
 type VerificationStatus string
 

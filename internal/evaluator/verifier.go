@@ -94,14 +94,14 @@ type Result struct {
 	DurationMs int64           // 利用请求重放耗时
 }
 
-// Attempt 是一次晋升尝试的输入：要复现什么、坐实后落成哪种节点、落在哪。
+// Attempt 是一次晋升尝试的输入：被验证的假设节点、它的复现配方与坐实后结果节点的载荷。
+// 只由评估者从图上的假设节点构造。
 type Attempt struct {
-	TaskID     string          // = assignment_id，图归属（一次交战一个图）
-	NodeID     string          // 溯源到的源节点 ID（可空）
-	Kind       core.NodeKind   // 坐实后的节点类型（result）
-	Primitives json.RawMessage // 要回放的 L1 原语序列
-	Content    json.RawMessage // 坐实后写入节点的载荷（priority/impact/suggestion…）
-	Priority   string          // 优先级（critical/high/medium/low）
+	TaskID     string          // 所属任务
+	NodeID     string          // 被验证的假设节点
+	Primitives json.RawMessage // 复现配方（域信封）
+	Content    json.RawMessage // 坐实后写入结果节点的载荷（summary/impact/suggestion）
+	Priority   string          // 优先级（取假设节点的）
 }
 
 // Verdict 是 LLM 判定的两态结论字面量。

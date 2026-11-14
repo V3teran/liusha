@@ -151,7 +151,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	output += "\n"
 
 	// 已确认的世界状态（规划基底）：只渲染 statement（renderStatements——
-	// 观察载荷里的 repro/execution_trace 是验证与审计材料，对规划是噪音）
+	// 观察载荷里的 repro 是验证材料，对规划是噪音）
 	if len(facts) > 0 {
 		output += fmt.Sprintf("### 已确认事实 (%d)\n", len(facts))
 		output += renderStatements(facts)

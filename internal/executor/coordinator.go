@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/rs/zerolog"
 )
@@ -30,9 +29,9 @@ func NewCoordinatorWithEngine(taskID, host string, engine *Engine, logger zerolo
 }
 
 // Execute 实现 ActionExecutor
-func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
+func (c *Coordinator) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
 	if !action.IsAction() {
-		return nil, OutcomeDone, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
+		return OutcomeDone, fmt.Errorf("Coordinator: 节点不是 Action: %s", action.ID)
 	}
 
 	c.logger.Info().

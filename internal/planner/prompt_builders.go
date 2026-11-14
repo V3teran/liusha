@@ -303,7 +303,7 @@ func buildResultsSection(results []explorationgraph.Node) string {
 }
 
 // buildFactsSection 构建已确认世界状态部分——规划基底：已建立的会话、
-// 已探明的机制、已确认的资源。事实由执行轨迹背书（写入即终态），直接
+// 已探明的机制、已确认的资源。事实由产出它的动作背书（写入即终态），直接
 // 消费即可，禁止把已确认的事实重做成探索动作。
 func buildFactsSection(facts []Fact) string {
 	if len(facts) == 0 {

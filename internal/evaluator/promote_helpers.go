@@ -9,15 +9,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // validateAttempt 验证 Attempt 的必填字段
 func (g *PromotionGate) validateAttempt(a Attempt) error {
 	if a.TaskID == "" {
 		return fmt.Errorf("verifier: Attempt.TaskID 必填")
-	}
-	if a.Kind == "" {
-		return fmt.Errorf("verifier: Attempt.Kind 必填")
 	}
 	if a.NodeID == "" {
 		return fmt.Errorf("verifier: Attempt.NodeID 必填（审计链与验证标记都要指向被验证的假设节点）")
@@ -181,7 +179,7 @@ func (g *PromotionGate) createVerifiedNode(
 	node := explorationgraph.Node{
 		ID:         nodeID,
 		TaskID:     a.TaskID,
-		Kind:       a.Kind,
+		Kind:       core.KindResult,
 		Content:    a.Content,
 		Priority:   explorationgraph.Priority(a.Priority),
 		SourceType: explorationgraph.SourceEvaluator,

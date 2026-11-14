@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -327,12 +326,13 @@ func (e *Engine) fallbackExtractHypothesis(
 	}, nil
 }
 
-// processOutput 处理 Executor 输出，创建 Observation 节点
+// processOutput 解析 Executor 终稿并把观察落图。假设写入即待验证，评估者从图上取，
+// 执行侧不另构造验证载荷。
 func (e *Engine) processOutput(
 	ctx context.Context,
 	action explorationgraph.Node,
 	result *runtime.ReActResult,
-) ([]evaluator.Attempt, error) {
+) error {
 	// 解析输出
 	output, err := ParseOutput(result)
 	if err != nil {
@@ -355,25 +355,10 @@ func (e *Engine) processOutput(
 		Int("observations_count", len(output.Observations)).
 		Msg("解析 Executor 输出")
 
-	// 收集 ExecutionTrace（治本方案的核心）
-	trace := e.collectTrace(ctx, action)
-
-	// 为每个观察结果创建 observation 节点
-	var attempts []evaluator.Attempt
-
-	e.logger.Debug().
-		Str("action_id", action.ID).
-		Int("total_observations", len(output.Observations)).
-		Msg("开始处理 observations")
-
 	anyObserved := false
 	for _, obs := range output.Observations {
-		attempt, observed := e.harvestObservation(ctx, action, obs, trace)
-		if observed {
+		if e.harvestObservation(ctx, action, obs) != nil {
 			anyObserved = true
-		}
-		if attempt != nil {
-			attempts = append(attempts, *attempt)
 		}
 	}
 
@@ -384,12 +369,7 @@ func (e *Engine) processOutput(
 		e.ensureSummaryObservation(ctx, action, output)
 	}
 
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("attempts_count", len(attempts)).
-		Msg("Executor 输出处理完成")
-
-	return attempts, nil
+	return nil
 }
 
 // ensureSummaryObservation 为零观察完结的动作补一条执行总结观察（state 类，
@@ -403,50 +383,20 @@ func (e *Engine) ensureSummaryObservation(ctx context.Context, action exploratio
 		Category:  explorationgraph.CategoryNote,
 		Statement: "执行总结：" + summary,
 	}
-	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
+	if e.harvestObservation(ctx, action, obs) != nil {
 		e.logger.Info().
 			Str("action_id", action.ID).
 			Msg("动作零观察完结，已补执行总结观察（图完整性不变式）")
 	}
 }
 
-// collectTrace 从 agent_traffic 读取该 action 的完整 HTTP 轨迹；未配置收集器
-// 或收集失败时返回空 trace（不阻塞观察收割）。
-func (e *Engine) collectTrace(ctx context.Context, action explorationgraph.Node) ExecutionTrace {
-	empty := ExecutionTrace{
-		Traffic: []TrafficRecord{},
-		Session: SessionState{Cookies: make(map[string]string)},
-		Meta:    TraceMeta{},
-	}
-	if e.traceCollector == nil {
-		e.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("TraceCollector 未配置，无法收集 trace")
-		return empty
-	}
-	trace, err := e.traceCollector.CollectTrace(ctx, action.TaskID, action.ID)
-	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", action.ID).
-			Msg("收集 ExecutionTrace 失败，使用空 trace")
-		return empty
-	}
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("traffic_count", trace.Meta.RequestCount).
-		Msg("成功收集 ExecutionTrace")
-	return trace
-}
-
-// harvestObservation 收割单个观察：归一化配方 → 落 observation 节点 → 转 Attempt。
-// 任一步失败返回 nil（单条观察失败不中止同 action 的其余观察）。
+// harvestObservation 收割单个观察：类别归一 → 配方归一 → 落 observation 节点，返回落图
+// 的节点。失败返回 nil（单条观察失败不中止同 action 的其余观察）。
 func (e *Engine) harvestObservation(
 	ctx context.Context,
 	action explorationgraph.Node,
 	obs Observation,
-	trace ExecutionTrace,
-) (attempt *evaluator.Attempt, observed bool) {
+) *explorationgraph.Node {
 	// 类别边界归一化：模型输出是外部输入，三种失真三种处置——
 	//   漏写（空值）：按形状推断，有配方即主张（配方是主张意图的最强证据），
 	//     无配方落 note；观察本体永远比分类标签值钱，不因漏标签丢弃。
@@ -480,16 +430,8 @@ func (e *Engine) harvestObservation(
 		obs.Category = explorationgraph.CategoryNote
 	}
 
-	// 附加 ExecutionTrace：评估者看到的是完整执行轨迹，而不是 executor
-	// 转述的不可靠结论
-	obs.ExecutionTrace = &trace
-
-	// 配方归一化在此做一次、节点与 Attempt 共用同一结果——归一化若藏在
-	// 节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt 会携带原始
-	// 破碎形状（数组信封/标量断言）直通复现门被确定性杀死，而节点上存的
-	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真主张
-	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
-	// ——归一化不是万能的，但必须对所有消费路径一致。事实类观察不带配方，不归一化。
+	// 配方只在落图时归一化这一次：节点存的就是矫正后的信封，评估者只从节点读配方。
+	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。事实类观察不带配方，不归一化。
 	if len(obs.Repro) > 0 {
 		if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
 			obs.Repro = normalized
@@ -512,31 +454,15 @@ func (e *Engine) harvestObservation(
 			Err(err).
 			Str("action_id", action.ID).
 			Msg("创建 observation 节点失败")
-		return nil, false
+		return nil
 	}
-	observed = true
 	e.logger.Info().
 		Str("action_id", action.ID).
 		Str("observation_id", node.ID).
 		Str("statement", obs.Statement).
 		Str("category", string(obs.Category)).
 		Msg("创建 observation 节点成功")
-
-	// 只有假设进验证管道（Attempt → 复现门）；事实是终态，无 Attempt、
-	// 无事件、无晋升——planner 直接从图上读。
-	if obs.Category != explorationgraph.CategoryHypothesis {
-		return nil, observed
-	}
-
-	converted, err := e.observationToAttempt(action.TaskID, node, obs)
-	if err != nil {
-		e.logger.Error().
-			Err(err).
-			Str("observation_id", node.ID).
-			Msg("转换 observation 为 Attempt 失败")
-		return nil, observed
-	}
-	return &converted, observed
+	return node
 }
 
 // terminalIsJSON 判断 ReAct 终稿是否 JSON 形态（对象/数组起收）——执行协议

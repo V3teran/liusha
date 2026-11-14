@@ -4,7 +4,6 @@ package executor
 import (
 	"context"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
@@ -12,7 +11,7 @@ import (
 // executor.Agent 事件循环经它把图上的 open 动作交给具体引擎（ReAct Engine）执行。
 // 返回的 Outcome 是执行产出档（预算内完成 / 迭代预算耗尽），终态 CAS 由此分叉。
 type ActionExecutor interface {
-	Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error)
+	Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error)
 }
 
 // Outcome 是一次 Action 执行的产出档（与图终态一一对应：engine 判定，agent 落图）。
