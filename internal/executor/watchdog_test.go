@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
@@ -19,9 +18,9 @@ import (
 // stuckExecutor 卡住不再有任何进展，直到 ctx 被取消。
 type stuckExecutor struct{}
 
-func (stuckExecutor) Execute(ctx context.Context, _ explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
+func (stuckExecutor) Execute(ctx context.Context, _ explorationgraph.Node) (Outcome, error) {
 	<-ctx.Done()
-	return nil, OutcomeDone, ctx.Err()
+	return OutcomeDone, ctx.Err()
 }
 
 // busyExecutor 持续有进展（每隔 interval 记一次活动），共执行 total 时长后完成。
@@ -31,17 +30,17 @@ type busyExecutor struct {
 	total    time.Duration
 }
 
-func (b busyExecutor) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
+func (b busyExecutor) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
 	deadline := time.Now().Add(b.total)
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			return nil, OutcomeDone, ctx.Err()
+			return OutcomeDone, ctx.Err()
 		case <-time.After(b.interval):
 			b.activity.Touch(action.ID)
 		}
 	}
-	return nil, OutcomeDone, nil
+	return OutcomeDone, nil
 }
 
 func newWatchdogAgent(t *testing.T, exec ActionExecutor, activity *ActivityTracker) (*Agent, *explorationgraph.Store) {

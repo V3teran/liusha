@@ -110,7 +110,6 @@ func baseAttempt() Attempt {
 	return Attempt{
 		TaskID:     "asg-1",
 		NodeID:     "node-source",
-		Kind:       core.KindResult,
 		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
 		Content:    json.RawMessage(`{"summary":"X 参数存在可复现注入"}`),
 		Priority:   "high",
@@ -189,7 +188,7 @@ func TestPromote_NoReplayer(t *testing.T) {
 	}
 }
 
-// 必填校验：TaskID / Kind 缺失即拒。
+// 必填校验：TaskID / NodeID 缺失即拒。
 func TestPromote_Validation(t *testing.T) {
 	fw := &fakeClaimSink{}
 	v := New(&fakeGraphStore{}, fakeReplayer{res: Result{}}, fw)
@@ -200,10 +199,10 @@ func TestPromote_Validation(t *testing.T) {
 		t.Error("缺 TaskID 应报错")
 	}
 
-	noKind := baseAttempt()
-	noKind.Kind = ""
-	if _, err := v.Promote(context.Background(), noKind); err == nil {
-		t.Error("缺 Kind 应报错")
+	noNode := baseAttempt()
+	noNode.NodeID = ""
+	if _, err := v.Promote(context.Background(), noNode); err == nil {
+		t.Error("缺 NodeID 应报错")
 	}
 }
 
@@ -631,57 +630,6 @@ func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 	node, err := v.Promote(context.Background(), baseAttempt())
 	if err != nil || node == nil {
 		t.Fatalf("缺指纹应照常晋升: node=%v err=%v", node, err)
-	}
-}
-
-// 无配方的 Attempt 不得进入验证生命周期：执行记录（上下文结论/降级推测）
-// 不带验证状态，不烧验证预算、不污染 refuted 分类。
-// 回归背景：e2e 实测 7 条无 repro 的上下文记录被事件路径拖进复现门，
-// 以 invalid_recipe 终局后审计链又因空 primitives 违反 NOT NULL 丢记录。
-func TestAgent_EventPathSkipsAttemptsWithoutRecipe(t *testing.T) {
-	w := &fakeGraphStore{verID: "ver-nr1"}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
-		WithJudge(stubJudge{verdict: VerdictConfirmed})
-	b := bus.New(context.Background())
-	a := NewAgent(AgentConfig{
-		TaskID:   "t-norepro",
-		Gate:     promoter,
-		EventBus: b,
-		Logger:   zerolog.Nop(),
-	})
-
-	a.handleEvent(context.Background(), bus.Event{
-		Type:     bus.EventAttemptGenerated,
-		TaskID:   "t-norepro",
-		ActionID: "act-1",
-		Payload: map[string]interface{}{
-			"attempt": Attempt{TaskID: "t-norepro", NodeID: "obs-record", Kind: "result"},
-		},
-	}, make(chan struct{}, 1))
-
-	if w.VerificationCount() != 0 {
-		t.Fatalf("无配方 Attempt 不得触发验证: %d", w.VerificationCount())
-	}
-	if len(w.metadata) != 0 {
-		t.Fatalf("无配方 Attempt 不得改写节点标记: %+v", w.metadata)
-	}
-
-	// 对照组：带配方的 Attempt 照常进入判定
-	withRepro := baseAttempt()
-	withRepro.NodeID = "obs-hypothesis"
-	a.handleEvent(context.Background(), bus.Event{
-		Type:     bus.EventAttemptGenerated,
-		TaskID:   "t-norepro",
-		ActionID: "act-1",
-		Payload:  map[string]interface{}{"attempt": withRepro},
-	}, make(chan struct{}, 1))
-
-	deadline := time.Now().Add(3 * time.Second)
-	for w.VerificationCount() < 1 {
-		if time.Now().After(deadline) {
-			t.Fatalf("带配方 Attempt 应完成验证, got %d", w.VerificationCount())
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 

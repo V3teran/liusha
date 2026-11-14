@@ -36,9 +36,8 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 	}
 }
 
-// TestParseObservationToAttemptContentShape 锁定轮询路径与事件路径的载荷形状
-// 一致：summary/impact/suggestion 三字段，与执行器侧 observationToAttempt 同形；
-// 优先级取观察节点的优先级（只在节点层存一份）。
+// TestParseObservationToAttemptContentShape 锁定从假设节点构造的载荷形状：
+// summary/impact/suggestion 三字段；优先级取观察节点的优先级（只在节点层存一份）。
 func TestParseObservationToAttemptContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
@@ -59,7 +58,7 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 	}
 	want := map[string]string{"summary": "S 存在漏洞", "impact": "i", "suggestion": "s"}
 	if !maps.Equal(c, want) {
-		t.Fatalf("载荷应与执行器侧 observationToAttempt 同形: %+v", c)
+		t.Fatalf("载荷形状不符: %+v", c)
 	}
 	if att.Priority != "high" {
 		t.Fatalf("Attempt 优先级应取观察节点的优先级，得 %q", att.Priority)
@@ -145,7 +144,7 @@ func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 
 // TestParseObservationToAttemptKeepsReproDomain 锁定轮询入口不私改配方：
 // 断言只有 description 的 web 配方（机器无从判定）必须原样交复现门终局，
-// 与事件入口同口径——不得在轮询侧私自降级成 generic 绕过「空断言不可坐实」。
+// 不得私自降级成 generic 绕过「空断言不可坐实」。
 func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 	obs := explorationgraph.Node{

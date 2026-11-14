@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -38,7 +37,6 @@ type Engine struct {
 	toolOutputTailBytes int                     // 工具输出全局尾部钳制字节（0=不钳）
 	brief               string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
-	traceCollector      *TraceCollector         // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
 	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
 	logger              zerolog.Logger
@@ -62,9 +60,8 @@ type EngineConfig struct {
 	Distiller runtime.Distiller
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
-	Brief               string          // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
-	AgentRunID          string          // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
-	TraceCollector      *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	Brief               string // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
+	AgentRunID          string // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
 	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
@@ -90,7 +87,6 @@ func NewEngine(cfg EngineConfig) *Engine {
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		brief:               cfg.Brief,
 		agentRunID:          cfg.AgentRunID,
-		traceCollector:      cfg.TraceCollector,
 		activity:            cfg.Activity,
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
@@ -110,12 +106,12 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 	return int(float64(cw) * e.contextRatio)
 }
 
-// Execute 执行一个 Action，返回生成的 Attempt 列表
-func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
+// Execute 执行一个 Action：观察落图（假设写入即待验证），返回产出档。
+func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
 	// 1. 解析 action 内容
 	actionContent, err := e.parseActionContent(action)
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
 	// 2. 设置 LLM 审计上下文
@@ -142,37 +138,36 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	// 6. 构建 ReAct 配置
 	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, reactTools, kill)
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
 	// 7. 创建 ReAct Runtime 并注册工具
 	reactRuntime := runtime.NewReActRuntime()
 	if err := e.registerReActTools(reactRuntime, reactTools, action.ID); err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
 	// 8. 执行 ReAct 循环
 	result, err := e.executeReActRuntime(ctx, reactRuntime, reactConfig, action.ID)
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
 	// 9. 检查是否被 monitor kill（早期退出优化）
 	if err := e.checkActionAborted(ctx, action.ID); err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
-	// 10. 处理输出并生成 Attempts；迭代预算耗尽（max_iterations）如实上抛为
-	// exhausted——强制总结路径仍有结构化产出，attempts 照常发布。
-	attempts, perr := e.processOutput(ctx, action, result)
-	if perr != nil {
-		return nil, OutcomeDone, perr
+	// 10. 观察落图；迭代预算耗尽（max_iterations）如实上抛为 exhausted——强制总结
+	// 路径仍有结构化产出，照常落图。
+	if perr := e.processOutput(ctx, action, result); perr != nil {
+		return OutcomeDone, perr
 	}
 	outcome := OutcomeDone
 	if result.Status == runtime.ReActStatusMaxIterations {
 		outcome = OutcomeExhausted
 	}
-	return attempts, outcome, nil
+	return outcome, nil
 }
 
 // buildSystemPrompt 组装 executor system prompt：

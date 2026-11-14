@@ -124,7 +124,7 @@ func TestSubscribeTask_Broadcast(t *testing.T) {
 	for i := range subs {
 		subs[i] = b.SubscribeTask("t1")
 	}
-	b.Publish(Event{Type: EventAttemptGenerated, TaskID: "t1", ActionID: "a1"})
+	b.Publish(Event{Type: EventVerificationPassed, TaskID: "t1", ActionID: "a1"})
 	b.Publish(Event{Type: EventVerificationPassed, TaskID: "t1"})
 
 	for i, s := range subs {

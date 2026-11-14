@@ -20,7 +20,6 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/httpreplay"
 	"github.com/V3teran/liusha/internal/logx"
-	"github.com/V3teran/liusha/internal/repro"
 	"github.com/google/uuid"
 )
 
@@ -147,13 +146,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.inFlight.Wait()
 	}()
 
-	a.logger.Info().
-		Dur("poll_interval", a.pollInterval).
-		Msg("Evaluator Agent 启动（混合模式：事件驱动 + 轮询兜底）")
-
-	// 订阅事件总线
-	sub := a.eventBus.SubscribeTask(a.taskID)
-	defer sub.Cancel()
+	// 唯一入口是从图上轮询待验证假设：执行者落图即待验证，不另发验证载荷——
+	// 一次判定要数分钟，轮询间隔带来的几秒延迟可忽略，换来单一事实源。
+	a.logger.Info().Dur("poll_interval", a.pollInterval).Msg("Evaluator Agent 启动")
 
 	// 并发控制（信号量）
 	sem := make(chan struct{}, a.maxConcurrent)
@@ -176,12 +171,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.logger.Error().Err(err).Msg("LLM 配置错误，判定无法继续；取消在途验证")
 			return err
 
-		case event := <-sub.Events():
-			// 事件驱动：立即处理新 observation
-			a.handleEvent(ctx, event, sem)
-
 		case <-ticker.C:
-			// 轮询兜底：检查遗漏的 observation
 			if err := a.pollAndVerify(ctx, sem); err != nil {
 				logx.ErrorUnlessCanceled(a.logger, err).Err(err).Msg("轮询验证失败")
 			}
@@ -226,62 +216,6 @@ func (a *Agent) release(observationID string) {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
 	delete(a.verifying, observationID)
-}
-
-// handleEvent 处理事件总线推送的事件（事件驱动）
-func (a *Agent) handleEvent(ctx context.Context, event bus.Event, sem chan struct{}) {
-	// 只处理 EventAttemptGenerated
-	if event.Type != bus.EventAttemptGenerated {
-		return
-	}
-
-	// 从 Payload 提取 attempt
-	attemptData, ok := event.Payload["attempt"]
-	if !ok {
-		a.logger.Warn().
-			Str("event_type", string(event.Type)).
-			Msg("EventAttemptGenerated 缺少 attempt")
-		return
-	}
-
-	// 类型断言为 Attempt（executor 发布的是 evaluator.Attempt）
-	attempt, ok := attemptData.(Attempt)
-	if !ok {
-		a.logger.Warn().
-			Str("event_type", string(event.Type)).
-			Str("attempt_type", fmt.Sprintf("%T", attemptData)).
-			Msg("attempt 类型不匹配")
-		return
-	}
-
-	// 无配方的 Attempt 不是可验证假设——执行记录（降级模式推测、上下文结论）
-	// 不参与验证生命周期（验证状态只属于带 repro 的假设）。放行会让
-	// 它们在复现门里必然失败：烧掉验证预算、以 invalid_recipe 污染 refuted
-	// 分类（planner 会把执行记录误读成"可重试的失败假设"）、审计链还会因
-	// 空 primitives 违反 NOT NULL 丢记录。执行记录不带验证状态，
-	// 留在图上作审计面。
-	if len(attempt.Primitives) == 0 {
-		a.logger.Info().
-			Str("observation_id", attempt.NodeID).
-			Msg("Attempt 无复现配方（执行记录非假设），不进入验证生命周期")
-		return
-	}
-
-	// 门侧归一化：与轮询路径（parseObservationToAttempt）对称——验证入口
-	// 永远不信任生产侧的形状。矫正失败保留原样，复放会以确定性错误终局，
-	// 归一化只救该救的，不掩盖真损坏。
-	if normalized, _, nErr := repro.NormalizeReproEnvelope(attempt.Primitives); nErr == nil {
-		attempt.Primitives = normalized
-	}
-
-	observationID := attempt.NodeID
-
-	a.logger.Info().
-		Str("observation_id", observationID).
-		Str("action_id", event.ActionID).
-		Msg("收到 EventAttemptGenerated，立即验证")
-
-	a.dispatchVerification(ctx, observationID, attempt, sem)
 }
 
 // pollAndVerify 圈定待验证假设（verification_status=pending）并逐个过复现门。
@@ -523,25 +457,8 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		return Attempt{}, fmt.Errorf("observation 缺少 repro 字段")
 	}
 
-	// 归一化 repro：容忍数组格式、缺失 domain 等 LLM 笔误形状（与写入侧同一归一化器）。
-	// 归一化失败不整条丢弃——与事件路径（handleEvent）同口径：保留原始配方
-	// 继续派发，由复现门/评估者终局（确定性配方缺陷 fail-fast 出圈；generic
-	// 域 judge_only 无机器断言也可验证）。此前整条丢弃会让该假设永远
-	// 待验证：轮询每 5s 重解析重告警（实测同一节点连告 39 次），且
-	// hasPendingVerdicts 永真——planner 永不收敛，任务只能被外部终止。
-	normalized, hint, err := repro.NormalizeReproEnvelope(content.Repro)
-	if err != nil {
-		a.logger.Warn().Err(err).Str("observation_id", obs.ID).
-			Msg("repro 归一化失败，保留原始配方继续派发（由复现门终局）")
-		normalized = content.Repro
-	}
-	if hint != "" {
-		a.logger.Debug().
-			Str("observation_id", obs.ID).
-			Str("hint", hint).
-			Msg("repro 归一化提示")
-	}
-
+	// 配方在执行者落图时已归一化（唯一一处）；归一化失败的原始配方原样派发，由复现门
+	// 以确定性配方缺陷终局出圈——不在此丢弃，否则该假设永远待验证、任务无法收敛。
 	// 构造 Content（用于晋升后的节点）：中立层词汇（impact/suggestion），安全域
 	// 交付时由 deliverClaim 翻译成 remediation。优先级取观察节点的（只在节点层一份）。
 	attContent, err := json.Marshal(map[string]string{
@@ -556,8 +473,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 	return Attempt{
 		TaskID:     a.taskID,
 		NodeID:     obs.ID,
-		Kind:       "result",   // 晋升为 result 节点
-		Primitives: normalized, // 使用归一化后的repro
+		Primitives: content.Repro,
 		Content:    attContent,
 		Priority:   string(obs.Priority),
 	}, nil

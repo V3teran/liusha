@@ -15,7 +15,7 @@ type Output struct {
 	Observations []Observation `json:"observations"` // 观察结果列表
 }
 
-// Observation 及其执行轨迹载荷与本文件同包（observation.go）
+// Observation 载荷与本文件同包（observation.go）
 
 // ParseOutput 从 ReAct 结果中解析 Executor 的输出
 func ParseOutput(result *runtime.ReActResult) (*Output, error) {

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/V3teran/liusha/internal/bus"
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 )
@@ -18,10 +17,10 @@ import (
 // blockingExecutor 一直执行到 ctx 取消，模拟 run 被中断时在途的动作。
 type blockingExecutor struct{ started chan struct{} }
 
-func (b blockingExecutor) Execute(ctx context.Context, _ explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
+func (b blockingExecutor) Execute(ctx context.Context, _ explorationgraph.Node) (Outcome, error) {
 	close(b.started)
 	<-ctx.Done()
-	return nil, OutcomeDone, ctx.Err()
+	return OutcomeDone, ctx.Err()
 }
 
 // run 被中断（暂停、停机、run 超时）时在途动作没有做完：退回 open 等下一个 run

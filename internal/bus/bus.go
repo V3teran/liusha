@@ -24,7 +24,6 @@ type EventBus interface {
 
 	// 便捷方法
 	PublishActionProposed(taskID, actionID string)
-	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
 	PublishVerificationPassed(taskID, nodeID string)
 	PublishVerificationRefuted(taskID, actionID string)
 }
@@ -212,19 +211,6 @@ func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 		ActionID: actionID,
 		Payload: map[string]interface{}{
 			"action_id": actionID,
-		},
-	})
-}
-
-// PublishAttemptGenerated 发布漏洞候选事件（evaluator 复现门消费）。
-func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt interface{}) {
-	b.Publish(Event{
-		Type:     EventAttemptGenerated,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-			"attempt":   attempt,
 		},
 	})
 }

@@ -497,7 +497,6 @@ func (d *Deps) buildExecutorAgent(
 	thoughts reasoning.Tap,
 	activity *executor.ActivityTracker,
 ) *executor.Agent {
-	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:              d.Router,
 		Graph:               d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
@@ -513,7 +512,6 @@ func (d *Deps) buildExecutorAgent(
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
 		Brief:               brief,                            // 任务简报逐字进 executor system prompt（入口锚定）
-		TraceCollector:      traceCollector,                   // 从 agent_traffic 构建完整执行轨迹
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
 		Activity:            activity,                         // 每完成一步推理记一次进展
 		Logger:              d.Logger,

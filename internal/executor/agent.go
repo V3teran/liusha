@@ -222,7 +222,7 @@ func (a *Agent) executeAction(
 	}
 
 	actionCtx, untrack := a.track(ctx, action.ID)
-	attempts, outcome, execErr := a.executor.Execute(actionCtx, action)
+	outcome, execErr := a.executor.Execute(actionCtx, action)
 	stall := stallCause(actionCtx)
 	untrack()
 
@@ -264,15 +264,7 @@ func (a *Agent) executeAction(
 		return execErr
 	}
 
-	// 通知评估者验证新提出的假设
-	for _, attempt := range attempts {
-		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
-	}
-
-	a.logger.Info().
-		Str("action_id", action.ID).
-		Int("attempts_count", len(attempts)).
-		Msg("Action 执行完成")
+	a.logger.Info().Str("action_id", action.ID).Msg("Action 执行完成")
 
 	return nil
 }

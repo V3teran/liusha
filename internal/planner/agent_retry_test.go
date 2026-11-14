@@ -46,8 +46,6 @@ func (f *fakeEventBus) SubscribeTask(_ string) *bus.TaskSubscription {
 
 func (f *fakeEventBus) PublishActionProposed(_, _ string) {}
 
-func (f *fakeEventBus) PublishAttemptGenerated(_, _ string, _ interface{}) {}
-
 func (f *fakeEventBus) PublishVerificationPassed(_, _ string) {}
 
 func (f *fakeEventBus) PublishVerificationRefuted(_, _ string) {}
