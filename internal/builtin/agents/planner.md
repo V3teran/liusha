@@ -66,7 +66,7 @@ Objective (新的子目标) → 循环
 ## 3. 具体可执行
 
 - instruction 必须自包含：目标 URL、要测的参数、预期现象全写清——执行者不会读历史上下文
-- 在 reason 中说明这条 action 回应了哪个观察或假设
+- 在 reasoning 中说明这条 action 回应了哪个观察或假设
 
 ## 4. 平衡探索
 

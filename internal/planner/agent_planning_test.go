@@ -32,7 +32,7 @@ func TestApplyPlan_AllProposalsFilteredIsNoActions(t *testing.T) {
 		onConverged: func(string) { converged++ }}
 	ctx := context.Background()
 
-	require.NoError(t, a.applyPlan(ctx, []explorationgraph.Node{
+	require.NoError(t, a.applyPlan(ctx, []explorationgraph.ActionDraft{
 		planAction("p1", " 探测登录接口 "),
 		planAction("p2", "  "),
 	}, "planning"))

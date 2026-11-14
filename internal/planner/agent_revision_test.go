@@ -22,7 +22,7 @@ type analysisPlanner struct {
 	analyzed []string
 }
 
-func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, []string) ([]explorationgraph.Node, error) {
+func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, []string) ([]explorationgraph.ActionDraft, error) {
 	return nil, nil
 }
 
@@ -305,10 +305,10 @@ func TestAnalyzeAndProcessResults_NewObjectivesAreDeduplicated(t *testing.T) {
 	assert.True(t, isAnalyzed(t, store, "r1"), "分析水位随修订照常落图")
 }
 
-func planAction(id, instruction string) explorationgraph.Node {
+func planAction(id, instruction string) explorationgraph.ActionDraft {
 	n := revisionNode(id, core.KindAction, explorationgraph.SourcePlanner, openState(), 10*time.Second)
 	n.Content = []byte(`{"instruction":"` + instruction + `"}`)
-	return n
+	return explorationgraph.ActionDraft{Node: n}
 }
 
 // 规划入口与结果分析、人工注入同一口径：动作挂根目标；空指令与重复指令不落图。
@@ -316,7 +316,7 @@ func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	written, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{
+	written, err := a.writeActionsFromPlan(ctx, []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),
@@ -340,7 +340,7 @@ func TestWriteActionsFromPlan_RequiresRootObjective(t *testing.T) {
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
 	ctx := context.Background()
 
-	_, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{planAction("p1", "x")})
+	_, err := a.writeActionsFromPlan(ctx, []explorationgraph.ActionDraft{planAction("p1", "x")})
 	require.Error(t, err)
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)

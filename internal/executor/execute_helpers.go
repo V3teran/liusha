@@ -20,7 +20,6 @@ import (
 type ActionContent struct {
 	Type        string `json:"type"`
 	Instruction string `json:"instruction"`
-	Complexity  string `json:"complexity"`
 }
 
 // parseActionContent 从 action 节点中解析内容
@@ -56,7 +55,11 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s", actionContent.Instruction, actionContent.Type)
 
 	// 构建系统提示
-	systemPrompt := e.buildSystemPrompt(actionContent.Type, actionContent.Complexity, goal, tools)
+	complexity := ""
+	if action.Complexity != nil {
+		complexity = string(*action.Complexity)
+	}
+	systemPrompt := e.buildSystemPrompt(actionContent.Type, complexity, goal, tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)

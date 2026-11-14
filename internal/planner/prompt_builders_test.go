@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/V3teran/liusha/internal/evaluator"
+	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
 // TestRefuteReasonHint_EveryReasonHasExplicitGuidance：evaluator 产出的每个反驳原因都要有
@@ -26,5 +28,22 @@ func TestRefuteReasonHint_EveryReasonHasExplicitGuidance(t *testing.T) {
 	}
 	if hint := refuteReasonHint(evaluator.RefuteJudgeUnavailable); strings.Contains(hint, "不要") || strings.Contains(hint, "作废") {
 		t.Errorf("judge_unavailable 应指示可按原方向重试，得 %q", hint)
+	}
+}
+
+// 失败动作展示的是失败原因（状态原因），不是当初的规划理由——规划者据此判断此路
+// 是否走得通。
+func TestBuildFailedActionsSection_ShowsFailureNotRationale(t *testing.T) {
+	failed := explorationgraph.StateFailed
+	reason := "工具超时：sqlmap 运行超过 120 秒"
+	section := buildFailedActionsSection([]explorationgraph.Node{{
+		ID: "a1", Kind: core.KindAction, State: &failed, BlockedReason: &reason,
+		Content: []byte(`{"instruction":"跑 sqlmap","reasoning":"登录表单疑似注入"}`),
+	}})
+	if !strings.Contains(section, reason) {
+		t.Fatalf("应展示失败原因:\n%s", section)
+	}
+	if strings.Contains(section, "登录表单疑似注入") {
+		t.Fatalf("不应把规划理由当失败原因:\n%s", section)
 	}
 }

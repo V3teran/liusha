@@ -57,13 +57,13 @@ func (a *Agent) hasOpenActions(ctx context.Context) (bool, error) {
 }
 
 // generateNewActions 调用 Planner 生成新的 Actions
-func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Node, error) {
+func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.ActionDraft, error) {
 	const (
 		maxRetries = 3
 		baseDelay  = 5 * time.Second
 	)
 
-	var actions []explorationgraph.Node
+	var actions []explorationgraph.ActionDraft
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
