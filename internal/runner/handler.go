@@ -3,11 +3,11 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"github.com/V3teran/liusha/internal/cognition"
 	"regexp"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/V3teran/liusha/internal/cognition"
+
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
@@ -24,7 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/distill"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -84,117 +83,17 @@ type Handler struct {
 // 抽出首个 host 作 target_host 派生列与凭据池键。认知机械不做文本抽取。
 var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
 
-// onboard 从 brief 抽取目标 host 并完成三件 best-effort 副作用：
-//  1. 落探索图 KindObjective 节点（目标）；
-//  2. 回填 task.target_host 派生列；
-//  3. 返回 host key 供调用方下传。
-func (h *Handler) onboard(ctx context.Context, _, taskID, brief string, taskLogger zerolog.Logger) string {
-	matches := hostRe.FindAllStringSubmatch(brief, -1)
-	hosts := make([]string, 0, len(matches))
-	seen := map[string]bool{}
-	for _, m := range matches {
-		if h := m[1]; h != "" && !seen[h] {
-			seen[h] = true
-			hosts = append(hosts, h)
-		}
-	}
-	ok := len(hosts) > 0
-
-	taskLogger.Info().
-		Str("brief", brief).
-		Bool("onboard_ok", ok).
-		Int("hosts_found", len(hosts)).
-		Msg("onboard 开始解析")
-
-	if !ok {
-		taskLogger.Warn().
-			Bool("ok", ok).
-			Msg("onboard 解析失败，未创建 Objective")
+// onboard 从 brief 抽取首个目标 host：回填 task.target_host 派生列，并返回 host key
+// 供调用方下传（凭据池等按它分区）。根目标由认知循环创建（EnsureRootObjective）。
+func (h *Handler) onboard(ctx context.Context, taskID, brief string, taskLogger zerolog.Logger) string {
+	m := hostRe.FindStringSubmatch(brief)
+	if m == nil {
+		taskLogger.Info().Msg("简报里没有 http(s) 目标，凭据按任务分区")
 		return taskID
 	}
-
-	if h.Graph != nil && taskID != "" {
-		// 幂等前置：恢复重投（runner 硬杀后自动重投 planner）会第二次执行
-		// onboard——同 task 同 host 已有 open/running 目标则跳过建新，否则图里
-		// 出现双根，执行期 objectives[0] 顺序不定会读写错节点。DB 层另有
-		// exploration_objective_task_host_uniq 部分唯一索引兜底并发。
-		existingObjectives, listErr := h.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-		if listErr != nil {
-			taskLogger.Warn().Err(listErr).Msg("列既有 objective 失败（按无既有处理）")
-			existingObjectives = nil
-		}
-		hasLiveObjectiveForHost := func(host string) bool {
-			for _, obj := range existingObjectives {
-				var c map[string]any
-				if json.Unmarshal(obj.Content, &c) != nil {
-					continue
-				}
-				if c["target_host"] == host &&
-					(obj.State != nil && (*obj.State == explorationgraph.StateOpen || *obj.State == explorationgraph.StateRunning)) {
-					return true
-				}
-			}
-			return false
-		}
-
-		for _, targetHost := range hosts {
-			if hasLiveObjectiveForHost(targetHost) {
-				taskLogger.Info().
-					Str("host", targetHost).
-					Msg("同批次同 host 已有 open/running 目标（恢复重投路径），跳过重复创建")
-				continue
-			}
-
-			content, _ := json.Marshal(map[string]interface{}{
-				"target_host": targetHost,
-				"description": brief, // 添加 description 供 Planner 读取
-			})
-
-			// Objective 节点需要 state 字段（数据库约束 ck_state_by_kind 要求）
-			openState := explorationgraph.StateOpen
-
-			node := explorationgraph.Node{
-				ID:         uuid.New().String(),
-				TaskID:     taskID,
-				Kind:       core.KindObjective,
-				Content:    content,
-				State:      &openState, // 必须设置，否则违反数据库约束
-				Priority:   explorationgraph.PriorityMedium,
-				SourceType: "user",
-				SourceID:   "task_init",
-				CreatedAt:  time.Now(),
-				UpdatedAt:  time.Now(),
-			}
-
-			taskLogger.Info().
-				Str("objective_id", node.ID).
-				Str("host", targetHost).
-				Msg("准备创建 Objective 节点")
-
-			if _, err := h.Graph.CreateNode(ctx, node); err != nil {
-				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
-				taskLogger.Error().Err(err).
-					Str("host", targetHost).Msg("创建 objective 节点失败 - 任务将无法正常执行")
-				return taskID // 返回原 taskID，但已记录严重错误
-			}
-			taskLogger.Info().
-				Str("objective_id", node.ID).
-				Str("host", targetHost).
-				Msg("Objective 节点创建成功")
-		}
-	} else {
-		taskLogger.Warn().
-			Bool("graph_nil", h.Graph == nil).
-			Bool("taskID_empty", taskID == "").
-			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
-	}
-
-	host := hosts[0]
-	if host != taskID {
-		if err := h.Tasks.SetTargetHost(ctx, taskID, host); err != nil {
-			taskLogger.Warn().Err(err).Str("host", host).
-				Msg("回填 task.target_host 失败（不阻塞扫描）")
-		}
+	host := m[1]
+	if err := h.Tasks.SetTargetHost(ctx, taskID, host); err != nil {
+		taskLogger.Warn().Err(err).Str("host", host).Msg("回填 task.target_host 失败（不阻塞扫描）")
 	}
 	return host
 }

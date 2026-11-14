@@ -64,13 +64,12 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 	require.Empty(t, out.Error)
 
 	var state struct {
-		Objective explorationgraph.ObjectiveNode `json:"objective"`
-		Actions   []explorationgraph.Node        `json:"actions"`
-		Findings  []explorationgraph.Node        `json:"findings"`
+		Objective ObjectiveView           `json:"objective"`
+		Actions   []explorationgraph.Node `json:"actions"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out.Output), &state))
 	assert.Len(t, state.Actions, 3, "三个 action 全量返回")
-	assert.NotNil(t, state.Objective.ID, "objective 应存在")
+	assert.NotEmpty(t, state.Objective.ID, "根目标应存在")
 }
 
 func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {

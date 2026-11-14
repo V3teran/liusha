@@ -75,15 +75,18 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("list results: %v", err)}, nil
 	}
 
-	// 读取 Objective
-	objective, err := t.graph.GetObjective(ctx, t.taskID)
+	// 根目标（任务本身）
+	root, ok, err := t.graph.RootObjectiveOf(ctx, t.taskID)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("get objective: %v", err)}, nil
+	}
+	if !ok {
+		return registry.ToolResult{Error: "任务还没有根目标"}, nil
 	}
 
 	// 构建状态快照（running 动作的时长视图是 monitor kill 判断的决策变量）
 	state := GlobalState{
-		Objective:      objective,
+		Objective:      ObjectiveView{ID: root.ID, Goal: root.Goal()},
 		Actions:        allActions,
 		Results:        findings,
 		RunningActions: t.runningActionViews(allActions, time.Now()),

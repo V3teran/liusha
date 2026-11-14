@@ -139,7 +139,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
 | monitor | 中止 action（重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图） |
-| 控制面（runner / cognition 控制） | 建根 objective、用户追加的 objective / action（挂根目标）；新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
+| 控制面（cognition 与控制命令） | 建根 objective（只经 `EnsureRootObjective`，每任务一个，唯一索引兜底）、调整目标（`SetGoal`）、人工注入的 action（挂根目标）；新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
 | 任务状态迁移（`task.Store`） | 与任务状态迁移同事务让图跟随（`explorationgraph.SyncWithTask`）：根目标跟随任务状态（active→open、completed、aborted）；任务结束时仍 open 的派生目标落 `exhausted`（完成）或 aborted（终止），未结束的动作落 aborted |
 
 - Store 不校验调用方角色，这张表是约定，靠评审守住。

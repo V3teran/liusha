@@ -35,7 +35,6 @@ type Engine struct {
 	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
 	distiller           runtime.Distiller       // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
 	toolOutputTailBytes int                     // 工具输出全局尾部钳制字节（0=不钳）
-	brief               string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
 	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
@@ -60,7 +59,6 @@ type EngineConfig struct {
 	Distiller runtime.Distiller
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
-	Brief               string // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
 	AgentRunID          string // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
@@ -85,7 +83,6 @@ func NewEngine(cfg EngineConfig) *Engine {
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
-		brief:               cfg.Brief,
 		agentRunID:          cfg.AgentRunID,
 		activity:            cfg.Activity,
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
@@ -108,10 +105,14 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 
 // Execute 执行一个 Action：观察落图（假设写入即待验证），返回产出档。
 func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
-	// 1. 解析 action 内容
+	// 1. 解析 action 内容；任务目标每次从图上读（调整目标后下一个动作即生效）
 	actionContent, err := e.parseActionContent(action)
 	if err != nil {
 		return OutcomeDone, err
+	}
+	root, _, err := e.graph.RootObjectiveOf(ctx, action.TaskID)
+	if err != nil {
+		return OutcomeDone, fmt.Errorf("读取任务目标: %w", err)
 	}
 
 	// 2. 设置 LLM 审计上下文
@@ -136,7 +137,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 	defer stopKillWatch()
 
 	// 6. 构建 ReAct 配置
-	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, reactTools, kill)
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, root.Goal(), reactTools, kill)
 	if err != nil {
 		return OutcomeDone, err
 	}
@@ -173,10 +174,10 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 // buildSystemPrompt 组装 executor system prompt：
 //
 //	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
-//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
+//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务目标）
 //
 // 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
-func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []registry.Tool) string {
+func (e *Engine) buildSystemPrompt(actionType, complexity, goal string, registered []registry.Tool) string {
 	var toolSB strings.Builder
 	for _, t := range registered {
 		toolSB.WriteString("- " + t.Name() + ": " + t.ShortDesc() + "\n")
@@ -258,11 +259,11 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 		basePrompt += "\n**时间预期**：此任务可能需要较长时间，请耐心执行。\n"
 	}
 
-	// 任务简报原文（逐字）——用户指定的目标/入口 URL/凭据的唯一权威事实源。
-	// 曾因 brief 只在 planner 侧、executor 凭记忆转录入口 URL（/login.php→/login）
+	// 任务目标原文（逐字，取自图上的根目标，调整目标后即时生效）——用户指定的目标/
+	// 入口 URL/凭据的唯一权威事实源。曾因执行者凭记忆转录入口 URL（/login.php→/login）
 	// 打在 404 上浪费整轮；逐字附录比任何摘要/解析都可靠。
-	if e.brief != "" {
-		basePrompt += "\n**任务简报（用户原文，目标/入口 URL/凭据以此为准）**：\n" + e.brief + "\n"
+	if goal != "" {
+		basePrompt += "\n**任务目标（用户原文，目标/入口 URL/凭据以此为准）**：\n" + goal + "\n"
 	}
 
 	return basePrompt

@@ -45,7 +45,7 @@ func (h *Handler) executeTask(
 		taskLogger.Warn().Err(err).Msg("task入口心跳失败")
 	}
 
-	virtualHost := h.onboard(ctx, assignmentID, taskID, brief, taskLogger)
+	virtualHost := h.onboard(ctx, taskID, brief, taskLogger)
 
 	// 沙盒实际安装了什么决定本轮可用的工具（可用 = agent 允许 ∩ 沙盒已安装）。
 	installed, err := awaitInventory(ctx, h.Sandbox, sandboxWait, time.Second)
