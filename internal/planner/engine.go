@@ -340,28 +340,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
-		OutputFormatSchema: `请输出以下JSON格式：
-
-` + "```json\n" + `{
-  "should_continue": true,
-  "reasoning": "为什么需要继续/停止",
-  "actions": [
-    {
-      "type": "reconnaissance/analysis/testing",
-      "instruction": "具体要做什么",
-      "complexity": "simple/moderate/complex",
-      "priority": "low/medium/high/critical",
-      "reason": "为什么做（基于哪条观察）",
-      "triggered_by": [],
-      "metadata": {}
-    }
-  ]
-}
-` + "```\n\n" + `说明：
-- should_continue: 如果任务还未完成，设为true；如果已完成目标或无法继续，设为false
-- actions: 要执行的action列表，如果should_continue=false则为空数组[]
-- 每个action必须包含type、instruction和complexity
-- triggered_by: 滋生本动作的已确认发现（Result）的 ID——动作若源于某个已坐实发现（它启发了方向，或它产出的会话/凭据/入口使本动作可行），填其 ID；因果不成立就不填，宁缺勿假`,
+		OutputFormatSchema: plannercontract.Text, // 强制总结时重申输出契约（唯一一份）
 	})
 	if err != nil {
 		e.adaptBudget(err)

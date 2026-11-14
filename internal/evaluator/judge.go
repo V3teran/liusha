@@ -212,19 +212,7 @@ func (j *RouterJudge) Judge(
 		// invalid_recipe 出圈。设此字段后 runtime 的 forceStructuredOutput
 		// 会在散文终稿上强制补一轮 JSON 输出。
 		OutputFormatPrompt: "你是评估者，已完成取证，现在需要输出最终结论。",
-		OutputFormatSchema: `请输出以下JSON格式（只输出一个 JSON 对象，不要包裹 markdown）：
-
-` + "```json\n" + `{
-  "verdict": "confirmed 或 refuted",
-  "confidence": 0.9,
-  "reasoning": "一句话评估理由（引用你亲见的差分）",
-  "finding": {"class": "类别", "method": "方法", "host": "主机", "path": "路径", "param": "触发点"}
-}
-` + "```\n\n" + `说明：
-- verdict 只能是 confirmed 或 refuted 两个取值之一
-- confidence 是 0.0-1.0 的数字
-- finding 仅 verdict=confirmed 时必填（refuted 时省略）；class 词表与
-  各字段取法按你的角色章程执行`,
+		OutputFormatSchema: evaluatorcontract.Text, // 强制总结时重申输出契约（唯一一份）
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
