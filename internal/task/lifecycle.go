@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // ErrConflict 是终态迁移被拒（另一终态已先落，不覆盖）的哨兵；API 层据此映射 409。
@@ -20,19 +24,12 @@ var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行�
 // 用户停止 vs reaper 判死——先到者赢）；已 completed 是冲突（迟到的 abort 不得
 // 把成功终态改写成 aborted），返回错误但不覆盖。
 func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
-	tag, err := s.pool.Exec(ctx, `
+	return s.finish(ctx, id, StatusAborted, `
 		UPDATE task SET
 			status='aborted',
 			ended_at=now(),
-			error_message=$1
-		WHERE id=$2 AND status='active'`, errMsg, id)
-	if err != nil {
-		return fmt.Errorf("abort task %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return s.terminalOrConflict(ctx, id, StatusAborted)
-	}
-	return nil
+			error_message=$2
+		WHERE id=$1 AND status='active'`, errMsg)
 }
 
 // Complete 把 task 置为 completed（planner run 自然跑完的成功终态），写 ended_at。
@@ -41,18 +38,48 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 // 是冲突（迟到的成功收尾不得覆盖用户停止/判死判定），返回错误但不覆盖——
 // 典型时序：用户点停止（api 先 abort）→ runner 循环随后自然收敛，此处被拒。
 func (s *Store) Complete(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `
+	return s.finish(ctx, id, StatusCompleted, `
 		UPDATE task SET
 			status='completed',
 			ended_at=now()
-		WHERE id=$1 AND status='active'`, id)
+		WHERE id=$1 AND status='active'`)
+}
+
+// finish 执行一次 active → 终态的 CAS 迁移，并在同一事务内让任务图收口（见
+// explorationgraph.SyncWithTask）：任务结局与图上的收口同时成立。CAS 未命中时不改
+// 动任何东西，交 terminalOrConflict 判定幂等或冲突。
+func (s *Store) finish(ctx context.Context, id string, to Status, update string, args ...any) error {
+	applied := false
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, update, append([]any{id}, args...)...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		applied = true
+		return explorationgraph.SyncWithTask(ctx, tx, []string{id}, graphStatus(to))
+	})
 	if err != nil {
-		return fmt.Errorf("complete task %s: %w", id, err)
+		return fmt.Errorf("task %s 迁入 %s: %w", id, to, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return s.terminalOrConflict(ctx, id, StatusCompleted)
+	if !applied {
+		return s.terminalOrConflict(ctx, id, to)
 	}
 	return nil
+}
+
+// graphStatus 把任务状态映射为任务图的生命周期状态。
+func graphStatus(st Status) explorationgraph.TaskStatus {
+	switch st {
+	case StatusCompleted:
+		return explorationgraph.TaskCompleted
+	case StatusAborted:
+		return explorationgraph.TaskAborted
+	default:
+		return explorationgraph.TaskActive
+	}
 }
 
 // terminalOrConflict 是 CAS 零行更新后的判定：当前已是目标终态 → 幂等成功；
@@ -77,15 +104,21 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 // heartbeat_at 一并重置为 now：复活即续命——否则旧心跳残留，队列积压场景下 reaper
 // 会把刚 Reopen 的任务按超时判死（Reopen → runner 领取之间存在无心跳空窗）。
 func (s *Store) Reopen(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE task SET
-			status='active',
-			paused=false,
-			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
-			heartbeat_at=now(),
-			ended_at=NULL,
-			error_message=''
-		WHERE id=$1`, id)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE task SET
+				status='active',
+				paused=false,
+				paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
+				heartbeat_at=now(),
+				ended_at=NULL,
+				error_message=''
+			WHERE id=$1`, id); err != nil {
+			return err
+		}
+		// 根目标代表任务本身，随任务回到 open。
+		return explorationgraph.SyncWithTask(ctx, tx, []string{id}, explorationgraph.TaskActive)
+	})
 	if err != nil {
 		return fmt.Errorf("reopen task %s: %w", id, err)
 	}
@@ -119,27 +152,29 @@ func (s *Store) Heartbeat(ctx context.Context, id string) error {
 // 跨场景统一巡检：一次扫全部 active task，按 staleAfter 判死。返回回收的 task ID
 // 列表（调用方据此做后续可见性动作——时间线节点/告警）。
 func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `
-		UPDATE task SET
-			status='aborted',
-			ended_at=now(),
-			error_message='心跳超时（runner 进程崩溃或任务卡死）'
-		WHERE status='active' AND NOT paused AND heartbeat_at < now() - $1::interval
-		RETURNING id`,
-		fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
+	var ids []string
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			UPDATE task SET
+				status='aborted',
+				ended_at=now(),
+				error_message='心跳超时（runner 进程崩溃或任务卡死）'
+			WHERE status='active' AND NOT paused AND heartbeat_at < now() - $1::interval
+			RETURNING id`,
+			fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
+		if err != nil {
+			return err
+		}
+		ids, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		return explorationgraph.SyncWithTask(ctx, tx, ids, explorationgraph.TaskAborted)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("reap stale tasks: %w", err)
 	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return ids, fmt.Errorf("scan reaped task id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return ids, nil
 }
 
 // MarkPaused 把 active 任务置为暂停中（CAS：已暂停的行不重复迁移）。返回是否

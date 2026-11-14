@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -195,10 +194,6 @@ func (d *Deps) run(
 	result := stack.detector.Start(ctx)
 	lifecycle.Stop()
 
-	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
-	// 周期缺终态语义）。被终止的任务标 aborted，其余标 completed。best-effort。
-	d.closeObjectives(ctx, taskID, result.StopReason)
-
 	d.Logger.Info().
 		Int64("duration_ms", result.Duration.Milliseconds()).
 		Int("steps", result.Steps).
@@ -214,49 +209,6 @@ func (d *Deps) run(
 	}
 	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
 	return report, result.Err
-}
-
-// closeObjectives 在任务终态时收口全部仍 open 的目标，图生命周期对全部
-// objective 有始有终：
-//   - 根目标代表任务本身，随任务结局落定：正常结束 completed、被终止 aborted、
-//     agent 致命失败 failed；
-//   - 派生目标的 completed 专指「有结果证据的达成」（规划修订宣告），任务正常
-//     结束时仍 open 的派生目标是未达成的方向，落 exhausted（方向已穷尽）；随任务
-//     终止/失败时与根目标同为 aborted/failed。
-//
-// 暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批目标）。已终态
-// 的目标（含已达成、已吸收）不动。best-effort。
-func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
-	if d.Graph == nil {
-		return
-	}
-	if stopWhy == StopReasonPaused {
-		return // 暂停非终态：目标留给继续的 run
-	}
-	objectives, err := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-	if err != nil || len(objectives) == 0 {
-		return
-	}
-	outcome := explorationgraph.StateCompleted
-	switch {
-	case stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel"):
-		outcome = explorationgraph.StateAborted
-	case stopWhy == StopReasonAgentFailed:
-		outcome = explorationgraph.StateFailed // 未达成目标且非用户终止：失败，不得记作完成
-	}
-	for _, obj := range objectives {
-		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {
-			continue // 已终态（completed/failed/exhausted/aborted/superseded）不重复迁移
-		}
-		terminal := outcome
-		if obj.IsDerivedObjective() && outcome == explorationgraph.StateCompleted {
-			terminal = explorationgraph.StateExhausted
-		}
-		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
-			d.Logger.Warn().Err(err).Str("objective_id", obj.ID).
-				Msg("目标终态回写失败（该 objective 保持 open）")
-		}
-	}
 }
 
 // ensureRootObjective 创建任务根 Objective 节点（幂等：onboard 已建则跳过，防双根）。
