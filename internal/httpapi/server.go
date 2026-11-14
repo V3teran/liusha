@@ -52,7 +52,7 @@ type Deps struct {
 	// FollowUp 为 nil 时 POST /conversations/:id/messages 不注册（多轮动作续接）。
 	FollowUp FollowUpAPI
 	// TaskControl 为 nil 时 POST /tasks/:id/control 不注册（任务行「暂停/继续/停止」）。
-	// api 组件注入 dispatch 侧适配器（pause/resume=控制平面事件，terminate=会话停止链路）。
+	// api 组件注入 dispatch 侧适配器：三个操作都只写任务行，运行中的循环按行观察。
 	TaskControl TaskControlAPI
 	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删会话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
