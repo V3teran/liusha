@@ -15,10 +15,10 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
  * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
 // TimelineEventMeta 是会话时间线事件消息（kind=event）的 metadata 载荷：
-// 按 kind 分族消费（reasoning/tool_call/tool_result/task_status/finding），
+// 按 kind 分族消费（reasoning/tool_call/tool_result/task_status/finding/steering），
 // 各卡片只读自己族的字段。
 export interface TimelineEventMeta {
-  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | string
+  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | 'steering' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed/paused/resumed）
   steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
   actions: number // task_status/completed：执行过的动作数（报告数据，时间线不渲染）
@@ -42,6 +42,10 @@ export interface TimelineEventMeta {
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
   out_tokens: number // reasoning：本轮 LLM 输出 token 累计
   latency_ms: number // reasoning：本轮墙钟耗时(ms)
+  op: string // steering：引导操作（goal_adjusted/goal_appended/action_assigned/action_rejected），正文是实际写入的内容
+  withdrawn: number // steering/goal_*：撤回的未开始规划动作数
+  action_id: string // steering/action_*：被指派或否决的动作
+  priority: string // steering/action_assigned：指派的优先级
 }
 
 /**

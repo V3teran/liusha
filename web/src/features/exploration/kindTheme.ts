@@ -10,6 +10,7 @@
 
 import type { LucideIcon } from 'lucide-react'
 import { Crosshair, Zap, Eye, ShieldCheck, CircleHelp } from 'lucide-react'
+import { PRIORITY_META } from '@/lib/priority'
 import type { GraphNode, NodeKind, VerificationStatus } from '@/api/explorationgraph'
 
 export interface KindProfile {
@@ -61,19 +62,6 @@ export function stateMeta(state?: string): StateMeta | null {
 }
 
 /* ========== 优先级 / 验证状态 / 复杂度 / 动作类型 / 观察分类 ========== */
-
-export interface PriorityMeta {
-  /** 领域词汇：优先级代号（与后端 Priority 枚举一一对应） */
-  code: string
-  label: string
-}
-
-export const PRIORITY_META: Record<string, PriorityMeta> = {
-  critical: { code: 'P0', label: '关键' },
-  high: { code: 'P1', label: '高' },
-  medium: { code: 'P2', label: '中' },
-  low: { code: 'P3', label: '低' },
-}
 
 /** 假设观察的验证状态（事实观察与结果没有验证状态） */
 export const VERIFICATION_META: Record<VerificationStatus, string> = {

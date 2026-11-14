@@ -4,7 +4,8 @@
  * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
 
-import { API_BASE, get, post } from './client'
+import { API_BASE, get, patch, post } from './client'
+import type { Priority } from '@/lib/priority'
 import type {
   TaskCreateRequest,
   TaskCreateResponse,
@@ -50,4 +51,21 @@ export async function controlTask(taskID: string, action: 'pause' | 'resume' | '
     body: JSON.stringify({ action }),
   })
   if (!res.ok) throw new Error(`POST ${res.status}: ${(await res.json().catch(() => ({}))).error ?? '操作失败'}`)
+}
+
+// ── 运行中引导：只作用于进行中（含暂停中）的任务，已结束 409（在对话里续接）。 ──
+
+/** 调整目标：未开始的规划动作撤回、按新目标重新规划；返回更新后的任务。 */
+export async function adjustTaskGoal(taskID: string, goal: string): Promise<TaskSummary> {
+  return patch<TaskSummary>(`/tasks/${encodeURIComponent(taskID)}`, { goal })
+}
+
+/** 指派动作：在任务目标下新建一个用户指派的动作，执行者有空位即按优先级执行。 */
+export async function assignTaskAction(taskID: string, instruction: string, priority: Priority): Promise<{ id: string }> {
+  return post<{ id: string }>(`/tasks/${encodeURIComponent(taskID)}/actions`, { instruction, priority })
+}
+
+/** 否决动作：待执行或执行中的动作落「已否决」，执行中的立即中断，规划者不再重提等效动作。 */
+export async function rejectTaskAction(taskID: string, actionID: string, reason: string): Promise<void> {
+  await post(`/tasks/${encodeURIComponent(taskID)}/actions/${encodeURIComponent(actionID)}/reject`, { reason })
 }

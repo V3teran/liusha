@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
+import { Bug, Clock, GitBranch, ListPlus, MessageSquare, Pause, PencilLine, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
 import { JumpLink } from '@/components/JumpLink'
 import type { TaskSummary } from '@/api/types'
@@ -10,6 +10,7 @@ import { fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
 import { goalHead } from './taskColumns'
+import { AdjustGoalDialog, AssignActionDialog } from './SteeringDialogs'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -38,6 +39,8 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
   // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
   // 只有不可逆的停止过确认弹层（danger 形态）。
   const [confirmTerminate, setConfirmTerminate] = useState(false)
+  // 运行中引导（调整目标 / 指派动作）：只对进行中（含暂停中）的任务开放。
+  const [steering, setSteering] = useState<'goal' | 'action' | null>(null)
   const doControl = async (action: 'pause' | 'resume' | 'terminate') => {
     if (!task) return
     try {
@@ -206,16 +209,51 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
               </div>
             </section>
 
-            <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">目标</h4>
-              <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
+            <section aria-labelledby="task-goal-heading">
+              <h4 id="task-goal-heading" className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+                目标
+              </h4>
+              <div className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
                 {task.goal}
               </div>
+              {/* 运行中引导：修正往哪跑（与上方控制组「跑不跑」分开）。已结束的任务在对话里续接。 */}
+              <div className="mt-2.5 flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  disabled={task.status !== 'active'}
+                  onClick={() => setSteering('goal')}
+                >
+                  <PencilLine />
+                  调整目标
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  disabled={task.status !== 'active'}
+                  onClick={() => setSteering('action')}
+                >
+                  <ListPlus />
+                  指派动作
+                </Button>
+              </div>
+              {task.status !== 'active' && (
+                <p className="mt-1.5 text-[11.5px] text-text-tertiary">任务已结束，可在对话中续接</p>
+              )}
             </section>
 
           </div>
         ) : null}
       </div>
+
+      {task && steering === 'goal' && (
+        <AdjustGoalDialog task={task} open onOpenChange={(o) => !o && setSteering(null)} />
+      )}
+      {task && steering === 'action' && (
+        <AssignActionDialog task={task} open onOpenChange={(o) => !o && setSteering(null)} />
+      )}
 
       {/* 停止确认：与对话页头部/表格操作列同一文案与语义。 */}
       <ConfirmDialog

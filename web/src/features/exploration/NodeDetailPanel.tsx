@@ -3,10 +3,14 @@
  * （坐实/证伪的机器证据——审计链的可读出口）。
  */
 
-import { X } from 'lucide-react'
+import { useState } from 'react'
+import { Ban, X } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import type { GraphNode, Verification } from '@/api/explorationgraph'
-import { kindProfile, nodeTitle, stateMeta, verificationMeta, PRIORITY_META, COMPLEXITY_META } from './kindTheme'
+import { priorityMeta } from '@/lib/priority'
+import { kindProfile, nodeTitle, stateMeta, verificationMeta, COMPLEXITY_META } from './kindTheme'
+import { RejectActionDialog } from './RejectActionDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
   user: '用户',
@@ -55,6 +59,9 @@ export function NodeDetailPanel({
     ([, v]) => v != null && v !== '' && String(v) !== title,
   )
   const outcomeLabel = verification?.outcome === 'confirmed' ? '已坐实' : '已证伪'
+  // 待执行或执行中的动作可由用户否决（任务已结束时后端 409，弹层内如实提示）。
+  const rejectable = node.kind === 'action' && (node.state === 'open' || node.state === 'running')
+  const [rejecting, setRejecting] = useState(false)
 
   return (
     <div className="absolute right-4 top-4 z-10 flex max-h-[calc(100%-2rem)] w-96 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
@@ -81,10 +88,10 @@ export function NodeDetailPanel({
         {title && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">{title}</p>}
 
         <div className="flex flex-wrap gap-1.5">
-          {node.priority && PRIORITY_META[node.priority] && (
+          {priorityMeta(node.priority) && (
             <MetaChip
               label="优先级"
-              value={`${PRIORITY_META[node.priority].code} ${PRIORITY_META[node.priority].label}`}
+              value={`${priorityMeta(node.priority)!.code} ${priorityMeta(node.priority)!.label}`}
               valueClass={node.priority === 'critical' ? 'text-sev-critical' : node.priority === 'high' ? 'text-sev-high' : undefined}
             />
           )}
@@ -95,6 +102,13 @@ export function NodeDetailPanel({
           <MetaChip label="来源" value={SOURCE_LABELS[node.source_type] ?? node.source_type} />
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
+
+        {rejectable && (
+          <Button variant="danger" size="sm" onClick={() => setRejecting(true)}>
+            <Ban />
+            否决动作
+          </Button>
+        )}
 
         {node.kind === 'action' && node.state_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
@@ -166,6 +180,7 @@ export function NodeDetailPanel({
           </section>
         )}
       </div>
+      {rejecting && <RejectActionDialog action={node} onOpenChange={(o) => !o && setRejecting(false)} />}
     </div>
   )
 }
