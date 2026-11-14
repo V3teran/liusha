@@ -109,7 +109,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 }
 
 // TestTransitionStateKeepsIdentityPostgres 锁定 PG 端的元数据合并语义：带原因的
-// 状态迁移（monitor kill）只合并 blocked_reason——此前整体替换 metadata，被杀动作
+// 状态迁移（monitor kill）只合并 state_reason——此前整体替换 metadata，被杀动作
 // 的来源、优先级、依赖全部丢失，而内存后端是合并语义，单测看不出来。
 func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	if testing.Short() {
@@ -139,7 +139,7 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 	action, err := store.GetNode(ctx, actionID)
 	require.NoError(t, err)
 	assert.Equal(t, StateAborted, *action.State)
-	assert.Equal(t, reason, *action.BlockedReason)
+	assert.Equal(t, reason, *action.StateReason)
 	assert.Equal(t, SourcePlanner, action.SourceType)
 	assert.Equal(t, PriorityHigh, action.Priority)
 	assert.Equal(t, taskID, action.TaskID)

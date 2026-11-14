@@ -62,8 +62,8 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	if node.Complexity != nil {
 		graphNode.Metadata["complexity"] = string(*node.Complexity)
 	}
-	if node.BlockedReason != nil {
-		graphNode.Metadata["blocked_reason"] = *node.BlockedReason
+	if node.StateReason != nil {
+		graphNode.Metadata["state_reason"] = *node.StateReason
 	}
 
 	// 验证状态（仅假设观察），枚举原文入库。
@@ -104,8 +104,8 @@ func (s *Store) UpdateNodeContent(ctx context.Context, id string, content json.R
 }
 
 // TransitionState 迁移节点状态（action/objective 通用）并可选附带原因。
-// 状态以读到的当前状态为 CAS 前置，与原因（metadata.blocked_reason，依赖阻塞 /
-// kill 与判死理由等）在同一事务内落定——读-判-写窗口内若被并发迁移，CAS 前置
+// 状态以读到的当前状态为 CAS 前置，与原因（metadata.state_reason，如监察者中止的
+// 理由）在同一事务内落定——读-判-写窗口内若被并发迁移，CAS 前置
 // 不匹配即整体失败，不会覆盖并发写入的终态，也不会留下「原因已写、状态未变」。
 // aborted 是终态，不允许覆盖（除非目标状态也是 aborted）。superseded 不经此
 // 入口进出：它与 supersedes 边是同一事实，只能由 RevisePlan 连边一起原子写入，
@@ -136,7 +136,7 @@ func (s *Store) TransitionState(ctx context.Context, id string, state State, rea
 	}
 	if reason != nil {
 		changes.Annotations = []core.GraphNodeAnnotation{{
-			TaskID: current.TaskID, NodeID: id, Metadata: map[string]interface{}{"blocked_reason": *reason},
+			TaskID: current.TaskID, NodeID: id, Metadata: map[string]interface{}{"state_reason": *reason},
 		}}
 	}
 	if err := s.graphStore.ApplyChangeSet(ctx, changes); err != nil {

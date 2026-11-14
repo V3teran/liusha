@@ -231,8 +231,8 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 	sb.WriteString(foldLine("失败动作", folded, total))
 	for _, action := range shown {
 		reason := "未知原因"
-		if action.BlockedReason != nil && *action.BlockedReason != "" {
-			reason = *action.BlockedReason
+		if action.StateReason != nil && *action.StateReason != "" {
+			reason = *action.StateReason
 		}
 		fmt.Fprintf(&sb, "- [失败] [ID: %s] %s（原因：%s）\n", action.ID, actionInstruction(action), reason)
 	}
@@ -241,7 +241,7 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 }
 
 // buildAbortedActionsSection 构建外部纠偏中止部分——被 monitor kill 的动作
-// 连同 blocked_reason 呈现，规划者据此不再派等效方向（否则 kill 反馈回路断一半）。
+// 连同 state_reason 呈现，规划者据此不再派等效方向（否则 kill 反馈回路断一半）。
 // 尾部逐条 + 更早折叠。
 func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	if len(actions) == 0 {
@@ -256,10 +256,10 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 		reason := "未注明"
 		if action.Metadata != nil {
 			var m struct {
-				BlockedReason string `json:"blocked_reason"`
+				StateReason string `json:"state_reason"`
 			}
-			if json.Unmarshal(action.Metadata, &m) == nil && m.BlockedReason != "" {
-				reason = m.BlockedReason
+			if json.Unmarshal(action.Metadata, &m) == nil && m.StateReason != "" {
+				reason = m.StateReason
 			}
 		}
 		fmt.Fprintf(&sb, "- [已中止] [ID: %s] %s（纠偏原因：%s）\n", action.ID, actionInstruction(action), reason)

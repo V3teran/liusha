@@ -85,9 +85,9 @@ export function NodeDetailPanel({
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
 
-        {node.kind === 'action' && node.blocked_reason && (
+        {node.kind === 'action' && node.state_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
-            <div className="text-status-warning">阻塞：{node.blocked_reason}</div>
+            <div className="text-status-warning">原因：{node.state_reason}</div>
           </section>
         )}
 

@@ -88,8 +88,8 @@ func TestFinishAction_RejectsStaleOwner(t *testing.T) {
 	n, err = store.GetNode(ctx, "a1")
 	require.NoError(t, err)
 	assert.Equal(t, StateFailed, *n.State)
-	require.NotNil(t, n.BlockedReason)
-	assert.Equal(t, "工具超时", *n.BlockedReason)
+	require.NotNil(t, n.StateReason)
+	assert.Equal(t, "工具超时", *n.StateReason)
 }
 
 // 外部改写（monitor 中止）后，执行方的结束不得覆盖外部决定。

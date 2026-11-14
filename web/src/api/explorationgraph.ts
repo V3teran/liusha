@@ -24,7 +24,7 @@ export interface GraphNode {
   priority?: string
   source_type: string
   /** action 专属：阻塞原因 */
-  blocked_reason?: string
+  state_reason?: string
   /** 领域扩展字段（refute_reason 等） */
   metadata?: unknown
   created_at: string

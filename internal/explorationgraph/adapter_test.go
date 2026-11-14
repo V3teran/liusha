@@ -73,7 +73,7 @@ func TestStore_ActionStateManagement(t *testing.T) {
 		node, err := store.GetNode(ctx, "action-open-1")
 		require.NoError(t, err)
 		assert.Equal(t, core.NodeStateRunning, *node.State)
-		assert.Equal(t, reason, *node.BlockedReason, "迁移原因落 metadata.blocked_reason")
+		assert.Equal(t, reason, *node.StateReason, "迁移原因落 metadata.state_reason")
 	})
 
 	t.Run("ClaimAction 并发抢占", func(t *testing.T) {

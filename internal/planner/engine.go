@@ -219,7 +219,7 @@ type PlanningContext struct {
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
-	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
+	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 state_reason，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
@@ -415,7 +415,7 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 		case explorationgraph.StateFailed:
 			planCtx.FailedActions = append(planCtx.FailedActions, action)
 		case explorationgraph.StateAborted:
-			// 外部纠偏（monitor kill）的中止动作必须进规划视野：携带 blocked_reason
+			// 外部纠偏（monitor kill）的中止动作必须进规划视野：携带 state_reason
 			// 呈现"这条路被砍及原因"，否则规划者失明、重规划会原样再派等效动作。
 			planCtx.AbortedActions = append(planCtx.AbortedActions, action)
 		}

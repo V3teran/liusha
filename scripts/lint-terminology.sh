@@ -23,8 +23,7 @@ EXCLUDES=(
   ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
   ':!internal/tools/manifest/tools.yaml'  # 工具清单转述第三方工具的业界用语（如 passive DNS），不是本项目概念
   ':!scripts/lint-terminology.sh'
-  ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
-  ':!internal/dbtest/migration_0208_integration_test.go'  # 同上
+  ':!internal/dbtest/migration_*_integration_test.go'  # 迁移测试须按旧结构写入老数据
   ':!internal/dbtest/testdata'  # 迁移测试的历史出厂内容快照
   ':!web/dist' ':!**/node_modules'
 )
@@ -44,9 +43,12 @@ EXCLUDES=(
 # unverified / factual / verification_outcome / executor_confidence / test_plan：观察的图级
 #   「置信度」改为只有假设才有的验证状态 verification_status（pending/confirmed/refuted），
 #   验证结论不再双写，执行器自评置信度与 test_plan 字段删除（迁移 0208）。
+# blocked_reason：节点状态原因已统一为 state_reason（系统里没有「阻塞」状态，迁移 0221）。
 # 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
 #   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
 FORBIDDEN=(
+  'blocked_reason'
+  'BlockedReason'
   '裁决'
   'adjudicat'
   '知识图谱'

@@ -65,7 +65,7 @@ func (s *Store) FinishAction(ctx context.Context, taskID, actionID, runID string
 	}
 	if reason != "" {
 		changes.Annotations = []core.GraphNodeAnnotation{{
-			TaskID: taskID, NodeID: actionID, Metadata: map[string]interface{}{"blocked_reason": reason},
+			TaskID: taskID, NodeID: actionID, Metadata: map[string]interface{}{"state_reason": reason},
 		}}
 	}
 	return s.applyActionChange(ctx, changes)
