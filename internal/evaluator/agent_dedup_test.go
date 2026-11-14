@@ -37,15 +37,17 @@ func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
 }
 
 // TestParseObservationToAttemptContentShape 锁定轮询路径与事件路径的载荷形状
-// 一致：summary/priority/impact/suggestion 四字段，与执行器侧 observationToAttempt 同形。
+// 一致：summary/impact/suggestion 三字段，与执行器侧 observationToAttempt 同形；
+// 优先级取观察节点的优先级（只在节点层存一份）。
 func TestParseObservationToAttemptContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
 	obs := explorationgraph.Node{
-		ID:      "obs-1",
-		TaskID:  "task-1",
-		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S 存在漏洞","priority":"high","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		ID:       "obs-1",
+		TaskID:   "task-1",
+		Kind:     core.KindObservation,
+		Priority: explorationgraph.PriorityHigh,
+		Content:  json.RawMessage(`{"statement":"S 存在漏洞","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
 	att, err := a.parseObservationToAttempt(obs)
 	if err != nil {
@@ -55,9 +57,12 @@ func TestParseObservationToAttemptContentShape(t *testing.T) {
 	if err := json.Unmarshal(att.Content, &c); err != nil {
 		t.Fatalf("unmarshal content: %v", err)
 	}
-	want := map[string]string{"summary": "S 存在漏洞", "priority": "high", "impact": "i", "suggestion": "s"}
+	want := map[string]string{"summary": "S 存在漏洞", "impact": "i", "suggestion": "s"}
 	if !maps.Equal(c, want) {
 		t.Fatalf("载荷应与执行器侧 observationToAttempt 同形: %+v", c)
+	}
+	if att.Priority != "high" {
+		t.Fatalf("Attempt 优先级应取观察节点的优先级，得 %q", att.Priority)
 	}
 }
 

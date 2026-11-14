@@ -189,16 +189,11 @@ func renderFindings(nodes []explorationgraph.Node) string {
 	for _, n := range nodes {
 		var c struct {
 			Statement string `json:"statement"`
-			Priority  string `json:"priority"`
 		}
 		if json.Unmarshal(n.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
-		if c.Priority != "" {
-			fmt.Fprintf(&b, "- [%s] %s\n", c.Priority, c.Statement)
-		} else {
-			fmt.Fprintf(&b, "- %s\n", c.Statement)
-		}
+		fmt.Fprintf(&b, "- [%s] %s\n", n.Priority, c.Statement)
 	}
 	return b.String()
 }

@@ -9,9 +9,8 @@
 
 import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { severityLabel } from '@/lib/severity'
 import { cn } from '@/lib/utils'
-import { kindProfile, nodeChips, nodeTitle, SEVERITY_DOTS } from '../kindTheme'
+import { kindProfile, nodeChips, nodeTitle } from '../kindTheme'
 import type { ExplorationFlowNode } from '../layout'
 
 export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode>) => {
@@ -37,7 +36,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
         {chips.priority && (
           <span
             className={cn('ml-auto rounded bg-surface-2 px-1 py-px font-mono text-[10px] font-semibold', chips.priority.className)}
-            title="规划者评定的优先级（P0 关键 / P1 高 / P2 中 / P3 低）"
+            title="优先级（P0 关键 / P1 高 / P2 中 / P3 低）"
           >
             {chips.priority.code}
           </span>
@@ -57,15 +56,6 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           </span>
         )}
         {chips.category && <span className="flex-shrink-0">{chips.category}</span>}
-        {chips.severity && (
-          <span className="inline-flex flex-shrink-0 items-center gap-1">
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ background: SEVERITY_DOTS[chips.severity] ?? '#64748b' }}
-            />
-            {severityLabel[chips.severity] ?? chips.severity}
-          </span>
-        )}
         {chips.verification && <span className="flex-shrink-0">{chips.verification}</span>}
       </div>
 

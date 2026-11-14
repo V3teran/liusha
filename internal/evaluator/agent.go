@@ -510,7 +510,6 @@ var mustJSON = explorationgraph.MustJSON
 func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, error) {
 	var content struct {
 		Statement  string          `json:"statement"`
-		Priority   string          `json:"priority"`
 		Impact     string          `json:"impact"`
 		Suggestion string          `json:"suggestion"`
 		Repro      json.RawMessage `json:"repro"`
@@ -543,14 +542,10 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 			Msg("repro 归一化提示")
 	}
 
-	// priority 缺省交领域交付层补（finding 映射处有默认）——通用验证层
-	// 不制造领域默认值。
-
-	// 构造 Content（用于晋升后的节点）：中立层词汇（priority/impact/
-	// suggestion），安全域交付时由 deliverClaim 翻译成 severity/remediation。
+	// 构造 Content（用于晋升后的节点）：中立层词汇（impact/suggestion），安全域
+	// 交付时由 deliverClaim 翻译成 remediation。优先级取观察节点的（只在节点层一份）。
 	attContent, err := json.Marshal(map[string]string{
 		"summary":    content.Statement,
-		"priority":   content.Priority,
 		"impact":     content.Impact,
 		"suggestion": content.Suggestion,
 	})
@@ -564,7 +559,7 @@ func (a *Agent) parseObservationToAttempt(obs explorationgraph.Node) (Attempt, e
 		Kind:       "result",   // 晋升为 result 节点
 		Primitives: normalized, // 使用归一化后的repro
 		Content:    attContent,
-		Priority:   "medium",
+		Priority:   string(obs.Priority),
 	}, nil
 }
 

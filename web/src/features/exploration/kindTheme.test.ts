@@ -37,24 +37,25 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(chips.state?.label).toBe('执行中')
     expect(chips.category).toBe('侦察')
     expect(chips.priority?.code).toBe('P1')
-    expect(chips.severity).toBeUndefined()
     expect(chips.verification).toBeUndefined()
   })
 
-  it('nodeChips：假设观察带分类/等级/验证状态，P2 优先级不上卡', () => {
+  it('nodeChips：假设观察带分类/验证状态，优先级取节点层（P2 不上卡）', () => {
     const chips = nodeChips(
       node({
         id: 'n-obs',
         kind: 'observation',
         verification_status: 'refuted',
         priority: 'medium',
-        content: { category: 'hypothesis', priority: 'HIGH' },
+        content: { category: 'hypothesis' },
       }),
     )
     expect(chips.category).toBe('假设')
-    expect(chips.severity).toBe('high') // 大写归一
     expect(chips.verification).toBe('已证伪')
     expect(chips.priority).toBeUndefined()
+
+    const high = nodeChips(node({ id: 'n-obs2', kind: 'observation', priority: 'high', content: { category: 'hypothesis' } }))
+    expect(high.priority?.code).toBe('P1')
   })
 
   it('nodeChips：事实观察只有分类，没有验证状态', () => {
