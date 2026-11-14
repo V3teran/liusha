@@ -47,17 +47,17 @@ export function WorkspacePage() {
   const allEntries = treeQuery.data ?? []
 
   // 友好命名映射：目录树里的批次/任务目录原本是 UUID（又长又不可读），
-  // 用任务列表把 ID 翻译成人类可读的 brief（截断展示，悬停 title 仍显原始路径）。
+  // 用任务列表把 ID 翻译成人类可读的任务目标（截断展示，悬停 title 仍显原始路径）。
   const tasksQuery = useQuery({
     queryKey: ['tasks', 'for-workspace'],
-    queryFn: () => listTasks(1, 0), // 全量分页页（size=0 = 不限），建 UUID→brief 映射
+    queryFn: () => listTasks(1, 0), // 全量分页页（size=0 = 不限），建 UUID→目标 映射
   })
   const nameMaps = useMemo(() => {
     const taskTitle: Record<string, string> = {}
     const assignLabel: Record<string, string> = {}
     for (const t of tasksQuery.data?.items ?? []) {
-      taskTitle[t.id] = t.brief
-      if (!(t.assignment_id in assignLabel)) assignLabel[t.assignment_id] = t.brief
+      taskTitle[t.id] = t.goal
+      if (!(t.assignment_id in assignLabel)) assignLabel[t.assignment_id] = t.goal
     }
     return { taskTitle, assignLabel }
   }, [tasksQuery.data])

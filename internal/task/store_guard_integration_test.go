@@ -15,7 +15,7 @@ func newActiveTask(t *testing.T, s *Store) string {
 	t.Helper()
 	tk, err := s.Create(context.Background(), NewParams{
 		AssignmentID: dbtest.SeedAssignment(t, s.pool),
-		Brief:        "guard test",
+		Goal:         "guard test",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

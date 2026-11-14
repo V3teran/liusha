@@ -24,7 +24,7 @@ export function FileTree({
   onDownload: (path: string) => void
   onDelete: (path: string) => void
 }) {
-  /** 目录条目展示名：批次/任务层用人类可读名（批次标题 / 任务 brief，截 36 字），
+  /** 目录条目展示名：批次/任务层用人类可读名（批次标题 / 任务目标，截 36 字），
    * 更深层用末段名——每个目录只展示自己的名字，不叠角色前缀。 */
   function dirDisplayName(e: WorkspaceEntry): string {
     const segs = e.path.replace(/\/$/, '').split('/')

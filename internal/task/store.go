@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/V3teran/liusha/internal/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
 // Store 封装 task 表的所有持久化操作。
@@ -18,7 +21,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, assignment_id, brief, target_host, status, paused, heartbeat_at, paused_ms, " +
+const colsSelect = "id, assignment_id, goal, target_host, status, paused, heartbeat_at, paused_ms, " +
 	"created_at, ended_at, error_message"
 
 const (
@@ -26,23 +29,69 @@ const (
 	maxListLimit     = 200
 )
 
-// Create 建一个新 task。Brief 必填；TargetHost 可空（runner 回填）。
+// Create 建一个新 task，并在同一事务内建它的根目标（目标描述 = Goal）：任务从诞生起
+// 就有根目标，两份目标只经本包写入、不会分叉。
 func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 	if p.AssignmentID == "" {
 		return Task{}, fmt.Errorf("create task: assignment_id 必填")
 	}
-	if p.Brief == "" {
-		return Task{}, fmt.Errorf("create task: brief 必填")
+	if p.Goal == "" {
+		return Task{}, fmt.Errorf("create task: goal 必填")
 	}
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO task (assignment_id, brief, target_host, status)
-		VALUES ($1, $2, $3, 'active')
-		RETURNING `+colsSelect, p.AssignmentID, p.Brief, p.TargetHost)
 	var t Task
-	if err := scan(row, &t); err != nil {
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
+			INSERT INTO task (assignment_id, goal, target_host, status)
+			VALUES ($1, $2, $3, 'active')
+			RETURNING `+colsSelect, p.AssignmentID, p.Goal, targetHostOf(p.Goal))
+		if err := scan(row, &t); err != nil {
+			return err
+		}
+		return explorationgraph.CreateRootObjective(ctx, tx, t.ID, p.Goal)
+	})
+	if err != nil {
 		return Task{}, fmt.Errorf("create task: %w", err)
 	}
 	return t, nil
+}
+
+// SetGoal 改写进行中任务的目标——目标的唯一写入口：任务行（连同派生的 target_host）
+// 与根目标描述在同一事务内写入；根目标版本随之递增，按旧目标做出的规划结论失效（见
+// explorationgraph.GoalBasis）。内容不变什么都不写；任务已结束返回 ErrNotActive。
+func (s *Store) SetGoal(ctx context.Context, id, goal string) error {
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := SetGoalTx(ctx, tx, id, goal)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("task %s 调整目标: %w", id, err)
+	}
+	return nil
+}
+
+// SetGoalTx 在调用方事务内执行 SetGoal（先锁任务行），返回目标是否有变化——供需要与
+// 其它写入原子落定的调用方（如运行中引导）使用。
+func SetGoalTx(ctx context.Context, tx pgx.Tx, id, goal string) (bool, error) {
+	if goal == "" {
+		return false, fmt.Errorf("goal 必填")
+	}
+	var status, current string
+	if err := tx.QueryRow(ctx, `SELECT status, goal FROM task WHERE id = $1 FOR UPDATE`, id).Scan(&status, &current); err != nil {
+		return false, fmt.Errorf("锁定任务: %w", err)
+	}
+	if Status(status) != StatusActive {
+		return false, ErrNotActive
+	}
+	if current == goal {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE task SET goal = $2, target_host = $3 WHERE id = $1`, id, goal, targetHostOf(goal)); err != nil {
+		return false, fmt.Errorf("改写任务目标: %w", err)
+	}
+	if err := explorationgraph.WriteRootGoal(ctx, tx, id, goal); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // GetByID 按主键读取（不限 status）。
@@ -58,7 +107,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (Task, error) {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, t *Task) error {
 	var status string
-	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Brief, &t.TargetHost, &status, &t.Paused,
+	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Goal, &t.TargetHost, &status, &t.Paused,
 		&t.HeartbeatAt, &t.PausedMs,
 		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage); err != nil {
 		return err
@@ -72,7 +121,7 @@ func scan(r db.RowScanner, t *Task) error {
 // ListFilter 是任务列表的筛选条件（URL query 直读，语义对齐 parseTrafficFilter：
 // 坏参数退化成不筛，不打 400）。Since/Until 按 created_at 过滤，零值=不筛。
 type ListFilter struct {
-	Search string    // brief / 批次ID 子串（ILIKE）
+	Search string    // 目标 / 批次ID 子串（ILIKE）
 	Source string    // direct|proxy（所属 assignment 的真实来源）
 	Status string    // active|completed|aborted
 	Since  time.Time // 创建时间下界（含）
@@ -85,12 +134,12 @@ type ListFilter struct {
 // conversation + finding/探索图步数计数）。列表页与详情板共用这一个形状。
 type Summary struct {
 	ID              string
-	Brief           string
+	Goal            string
 	TargetHost      string
 	Paused          bool // 暂停中（仅 active 有意义）
 	Status          Status
 	AssignmentID    string
-	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务 brief）
+	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务的目标）
 	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
 	AssignmentTotal int    // 批内任务总数
 	Source          string // direct|proxy（assignment.source 原值；定时克隆批次落 direct）
@@ -125,9 +174,9 @@ const summaryStepCount = `COALESCE(NULLIF((SELECT count(*) FROM message m
 
 // summarySelect 是任务列表行 SELECT 的唯一事实源，与 scanSummary 17 目标一一对应。
 const summarySelect = `
-	t.id, t.brief, COALESCE(t.target_host,''), t.status::text, t.paused,
+	t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
 	t.assignment_id::text,
-	COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
+	COALESCE(NULLIF(a.title, ''), t.goal) AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
 	a.source,
@@ -145,7 +194,7 @@ const summarySelect = `
 const summaryWhere = `
 	WHERE ($1 = '' OR a.source = $1)
 	  AND ($2 = '' OR t.status = $2)
-	  AND ($3 = '' OR t.brief ILIKE '%' || $3 || '%' OR t.assignment_id::text ILIKE '%' || $3 || '%')
+	  AND ($3 = '' OR t.goal ILIKE '%' || $3 || '%' OR t.assignment_id::text ILIKE '%' || $3 || '%')
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
 	  AND ($5::timestamptz IS NULL OR t.created_at <= $5)`
 
@@ -159,7 +208,7 @@ func timeArg(t time.Time) any {
 
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
-	if err := r.Scan(&s.ID, &s.Brief, &s.TargetHost, &status, &s.Paused,
+	if err := r.Scan(&s.ID, &s.Goal, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.ScheduleID,
 		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
 		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt); err != nil {
@@ -220,9 +269,9 @@ func (s *Store) CountFiltered(ctx context.Context, f ListFilter) (int, error) {
 // 滤掉，COUNT OVER PARTITION 恒 1；此处用关联标量子查询对全批计数。
 func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.brief, COALESCE(t.target_host,''), t.status::text, t.paused,
+		SELECT t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
 			t.assignment_id::text,
-			COALESCE(NULLIF(a.title, ''), t.brief) AS assignment_title,
+			COALESCE(NULLIF(a.title, ''), t.goal) AS assignment_title,
 			(SELECT count(*) + 1 FROM task t2
 			 WHERE t2.assignment_id = t.assignment_id
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),

@@ -33,7 +33,7 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO assignment (id, source, title) VALUES ($1, 'direct', 'itest')`, taskID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
-		`INSERT INTO task (id, assignment_id, brief, target_host) VALUES ($1, $1, 'itest', 'target.local')`, taskID)
+		`INSERT INTO task (id, assignment_id, goal, target_host) VALUES ($1, $1, 'itest', 'target.local')`, taskID)
 	require.NoError(t, err)
 
 	// Save：必填校验
@@ -144,7 +144,7 @@ func seedTask(t *testing.T, pool *pgxpool.Pool, assignmentID string) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO task (assignment_id, brief) VALUES ($1, 'test') RETURNING id`,
+		`INSERT INTO task (assignment_id, goal) VALUES ($1, 'test') RETURNING id`,
 		assignmentID).Scan(&id)
 	require.NoError(t, err)
 	return id

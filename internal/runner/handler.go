@@ -2,8 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
-	"regexp"
 	"time"
 
 	"github.com/V3teran/liusha/internal/cognition"
@@ -77,23 +75,13 @@ type Handler struct {
 	Distiller *distill.Service
 }
 
-// hostRe 匹配 brief 里的 http(s) 目标（含端口）——任务装配层的入口记账：
-// 抽出首个 host 作 target_host 派生列与凭据池键。认知机械不做文本抽取。
-var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
-
-// onboard 从 brief 抽取首个目标 host：回填 task.target_host 派生列，并返回 host key
-// 供调用方下传（凭据池等按它分区）。根目标由认知循环创建（EnsureRootObjective）。
-func (h *Handler) onboard(ctx context.Context, taskID, brief string, taskLogger zerolog.Logger) string {
-	m := hostRe.FindStringSubmatch(brief)
-	if m == nil {
-		taskLogger.Info().Msg("简报里没有 http(s) 目标，凭据按任务分区")
-		return taskID
+// credentialHost 是本 run 的凭据分区键：任务的目标主机（目标的派生列，见 task.Task），
+// 目标里没有 http(s) 目标时按任务分区。开跑时取定——运行中调整目标，下一个 run 起才按新主机。
+func credentialHost(tk task.Task) string {
+	if tk.TargetHost != "" {
+		return tk.TargetHost
 	}
-	host := m[1]
-	if err := h.Tasks.SetTargetHost(ctx, taskID, host); err != nil {
-		taskLogger.Warn().Err(err).Str("host", host).Msg("回填 task.target_host 失败（不阻塞扫描）")
-	}
-	return host
+	return tk.ID
 }
 
 const terminalWriteTimeout = 10 * time.Second
@@ -157,24 +145,31 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// task 作用域派生：此后整条执行链（含 cognition 内部全部组件）经 taskLogger
-	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。assignmentID
-	// 取自 task 行；加载失败降级为空串（下游字段缺省，不阻塞执行）。
-	var assignmentID string
+	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。
 	tk, tErr := h.Tasks.GetByID(ctx, p.TaskID)
-	if tErr == nil {
-		assignmentID = tk.AssignmentID
-	}
 	taskLogger := h.Logger.With().
 		Str("task_id", p.TaskID).
-		Str("assignment_id", assignmentID).
+		Str("assignment_id", tk.AssignmentID).
 		Str("conv", p.ConversationID).
 		Logger()
+
+	// 任务行是 run 的输入（目标主机、所属批次）：读不到就无从开跑。run 落 error、任务保持
+	// active，由恢复监控按出错续跑（计入重投上限）——与开跑时沙盒不可达同一口径。
+	if tErr != nil {
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID, "读取任务失败: "+tErr.Error()); err != nil {
+			taskLogger.Warn().Err(err).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
+		}
+		taskLogger.Warn().Err(tErr).Msg("读取任务失败：本次 run 出错，任务保持进行中，由恢复监控重试")
+		return nil
+	}
 
 	// task 终态/暂停守卫：排队期间被用户停止/判死/暂停的任务不得开跑——terminate
 	// 只对运行中的循环生效，队列里的迟到领取靠此闸拦下；暂停中的任务开跑也没有
 	// 意义（循环首个控制周期就会因暂停标记退出），同样拦下。run 直落 aborted，
 	// 暂停的由继续操作重投。
-	if tErr == nil && (tk.Status != task.StatusActive || tk.Paused) {
+	if tk.Status != task.StatusActive || tk.Paused {
 		taskLogger.Info().
 			Str("status", string(tk.Status)).
 			Bool("paused", tk.Paused).
@@ -191,13 +186,6 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return err
 	}
 
-	var input struct {
-		Brief string `json:"brief"`
-	}
-	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, taskLogger, p.AgentRunID, p.TaskID, p.ConversationID, err)
-	}
-
 	// 设置超时
 	timeout := h.RunnerCfg.AgentRunTimeoutSeconds
 	if timeout > 0 {
@@ -207,5 +195,5 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 四Agent认知架构
-	return h.executeTask(ctx, p, input.Brief, taskLogger, assignmentID)
+	return h.executeTask(ctx, p, tk, taskLogger)
 }

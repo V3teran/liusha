@@ -10,14 +10,14 @@ import { sourceColor, sourceLabel } from '@/lib/source'
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
-// 确认弹层里的任务指称：省略号只在真截断时出现——短 brief 带「…」是误导。
-export function briefHead(brief: string): string {
-  return brief.length > 24 ? `${brief.slice(0, 24)}…` : brief
+// 确认弹层里的任务指称：省略号只在真截断时出现——短目标带「…」是误导。
+export function goalHead(goal: string): string {
+  return goal.length > 24 ? `${goal.slice(0, 24)}…` : goal
 }
 
 // 任务表列定义（对齐 trafficColumns 的对齐体系：数值/时间列表头与值同靠右，文本/徽章列靠左）。
 // # 是页内序号（offset+index+1）——task id 是 uuid 不可直显，序号仅定位用。
-// 目标列（brief）是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
+// 目标列是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
 
 function buildTaskColumns(
   offset: number,
@@ -52,7 +52,7 @@ function buildTaskColumns(
         )
       },
     }),
-    columnHelper.accessor('brief', {
+    columnHelper.accessor('goal', {
       header: '目标',
       // 设计宽度 180：全表设计宽度合计 ≈1130px，1440 视口（侧栏展开）内容区可完整
       // 放下全部列；宽屏下目标列按权重拉伸，超长目标截断 + title 悬停全文。

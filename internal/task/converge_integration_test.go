@@ -25,9 +25,6 @@ func TestCompleteConverged_RequiresBasisStillHolds(t *testing.T) {
 	setup := func(t *testing.T) (string, explorationgraph.GoalBasis) {
 		t.Helper()
 		id := newActiveTask(t, s)
-		if _, err := graph.EnsureRootObjective(ctx, id, "原目标"); err != nil {
-			t.Fatal(err)
-		}
 		basis, err := graph.GoalBasis(ctx, id)
 		if err != nil {
 			t.Fatal(err)
@@ -54,7 +51,7 @@ func TestCompleteConverged_RequiresBasisStillHolds(t *testing.T) {
 
 	t.Run("目标已改写", func(t *testing.T) {
 		id, basis := setup(t)
-		if err := graph.SetGoal(ctx, id, "调整后的目标"); err != nil {
+		if err := s.SetGoal(ctx, id, "调整后的目标"); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.CompleteConverged(ctx, id, basis); !errors.Is(err, ErrStaleConvergence) {

@@ -20,8 +20,7 @@ func newProxyTask(t *testing.T) (*pgxpool.Pool, string) {
 	tk, err := task.NewStore(pool).Create(context.Background(), task.NewParams{
 
 		AssignmentID: dbtest.SeedAssignment(t, pool),
-		Brief:        "test traffic ingest",
-		TargetHost:   "test.example.com",
+		Goal:         "test traffic ingest",
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

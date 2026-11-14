@@ -161,15 +161,6 @@ func (s *Store) Reopen(ctx context.Context, id string) error {
 	return nil
 }
 
-// SetTargetHost 回填 target_host（runner 从 brief 抽到真实 host 时）。幂等覆盖，best-effort。
-func (s *Store) SetTargetHost(ctx context.Context, id, host string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE task SET target_host=$1 WHERE id=$2`, host, id)
-	if err != nil {
-		return fmt.Errorf("set target_host %s: %w", id, err)
-	}
-	return nil
-}
-
 // Heartbeat 刷新 active task 的 heartbeat_at（B2 探活：agent 每次工具调用驱动，节流见 caller）。
 // 仅对 active 行生效——终态行不刷（避免复活已结束的扫描）。best-effort，不阻塞业务。
 func (s *Store) Heartbeat(ctx context.Context, id string) error {

@@ -70,18 +70,26 @@ type lessonsPayload struct {
 	Lessons []Lesson `json:"lessons"`
 }
 
-// DistillTask 蒸馏一个已完成任务并写回 corpus，返回写入的教训数。
+// DistillTask 蒸馏一个已完成任务并写回 corpus，返回写入的教训数。任务目标取图上的
+// 根目标（任务结束时的目标，运行中调整过也以最终为准）。
 // 无已验证材料时返回 0（不调 LLM）。写入逐条 best-effort：单条失败不阻断其余。
 // LLM 调用挂审计归属（role=distill + taskID）——后台蒸馏与在线调用同一审计面。
-func (s *Service) DistillTask(ctx context.Context, taskID, brief string) (int, error) {
+func (s *Service) DistillTask(ctx context.Context, taskID string) (int, error) {
 	ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{TaskID: taskID, Role: "distill"})
 	materials := s.collect(ctx, taskID)
 	if len(materials) == 0 {
 		s.logger.Info().Str("task_id", taskID).Msg("无已验证材料，跳过经验蒸馏")
 		return 0, nil
 	}
+	root, ok, err := s.graph.RootObjectiveOf(ctx, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("读取任务目标: %w", err)
+	}
+	if !ok {
+		return 0, fmt.Errorf("任务 %s 没有根目标", taskID)
+	}
 
-	lessons, err := s.generate(ctx, brief, materials)
+	lessons, err := s.generate(ctx, root.Goal(), materials)
 	if err != nil {
 		return 0, fmt.Errorf("generate lessons: %w", err)
 	}
@@ -203,12 +211,12 @@ func assembleMaterials(buckets ...[]string) []string {
 
 // generate 调 LLM 产出教训。解析失败（含修复层后）按无教训处理——蒸馏是
 // best-effort 交付尾工，不值得为格式问题重试。
-func (s *Service) generate(ctx context.Context, brief string, materials []string) ([]Lesson, error) {
+func (s *Service) generate(ctx context.Context, goal string, materials []string) ([]Lesson, error) {
 	provider, err := s.router.For(ctx, s.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	user := "【任务简报】\n" + brief + "\n\n【已验证材料】\n" + strings.Join(materials, "\n")
+	user := "【任务目标】\n" + goal + "\n\n【已验证材料】\n" + strings.Join(materials, "\n")
 	resp, err := provider.Complete(ctx, fwllm.Request{
 		Messages: []fwllm.Message{
 			{Role: fwllm.RoleSystem, Content: distillSystemPrompt},

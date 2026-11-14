@@ -125,9 +125,10 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 		actionID = "2b2f6a9e-1111-4111-8111-000000000001"
 		resultID = "2b2f6a9e-1111-4111-8111-000000000002"
 	)
-	_, err := store.EnsureRootObjective(ctx, taskID, "root")
-	require.NoError(t, err)
 	open := StateOpen
+	_, err := store.CreateNode(ctx, Node{ID: "2b2f6a9e-1111-4111-8111-0000000000ff", TaskID: taskID, Kind: core.KindObjective,
+		State: &open, SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
+	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
 		SourceType: SourcePlanner, Priority: PriorityHigh,
 		Content: []byte(`{"instruction":"x"}`)})

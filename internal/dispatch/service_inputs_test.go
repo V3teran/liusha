@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"github.com/V3teran/liusha/internal/attachment"
+	"github.com/V3teran/liusha/internal/task"
 	"strings"
 	"testing"
 
@@ -58,8 +59,8 @@ func TestSeverityRank(t *testing.T) {
 
 // TestValidateBrief 入口契约：超长显式拒绝（指令不可静默截断），限内放行。
 func TestValidateBrief(t *testing.T) {
-	require.NoError(t, validateBrief(strings.Repeat("测", maxBriefRunes)))
-	err := validateBrief(strings.Repeat("测", maxBriefRunes+1))
+	require.NoError(t, validateBrief(strings.Repeat("测", task.MaxGoalRunes)))
+	err := validateBrief(strings.Repeat("测", task.MaxGoalRunes+1))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "任务描述过长")
 }

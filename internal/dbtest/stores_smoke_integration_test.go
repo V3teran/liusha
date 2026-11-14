@@ -48,12 +48,12 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	// assignment/task/agent_run 链
 	asgID := SeedAssignment(t, pool)
 	tasks := task.NewStore(pool)
-	tk, err := tasks.Create(ctx, task.NewParams{AssignmentID: asgID, Brief: "smoke"})
+	tk, err := tasks.Create(ctx, task.NewParams{AssignmentID: asgID, Goal: "smoke"})
 	if err != nil {
 		t.Fatalf("task create: %v", err)
 	}
 	runs := agentrun.NewStore(pool)
-	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner", Input: []byte(`{}`)})
+	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
 	if err != nil {
 		t.Fatalf("agent_run create: %v", err)
 	}

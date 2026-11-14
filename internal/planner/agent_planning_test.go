@@ -89,7 +89,7 @@ type goalShiftingPlanner struct {
 func (p *goalShiftingPlanner) Plan(ctx context.Context, _ *explorationgraph.Store, taskID string, _ PlanRequest) ([]explorationgraph.ActionDraft, error) {
 	p.planCalls++
 	if p.planCalls == 1 && !p.shiftOnAnalyze {
-		if err := p.store.SetGoal(ctx, taskID, "调整后的目标"); err != nil {
+		if err := p.shiftGoal(ctx, taskID); err != nil {
 			return nil, err
 		}
 	}
@@ -102,11 +102,20 @@ func (p *goalShiftingPlanner) Plan(ctx context.Context, _ *explorationgraph.Stor
 func (p *goalShiftingPlanner) AnalyzeResults(ctx context.Context, _ *explorationgraph.Store, taskID string, _ []explorationgraph.Node) (*ResultAnalysis, error) {
 	p.analyzeCalls++
 	if p.analyzeCalls == 1 && p.shiftOnAnalyze {
-		if err := p.store.SetGoal(ctx, taskID, "调整后的目标"); err != nil {
+		if err := p.shiftGoal(ctx, taskID); err != nil {
 			return nil, err
 		}
 	}
 	return p.analysis, nil
+}
+
+// shiftGoal 改写根目标的描述（生产路径经 task.Store.SetGoal 与任务行同事务写入）。
+func (p *goalShiftingPlanner) shiftGoal(ctx context.Context, taskID string) error {
+	root, _, err := p.store.RootObjectiveOf(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	return p.store.UpdateNodeContent(ctx, root.ID, explorationgraph.MustJSON(map[string]string{"description": "调整后的目标"}))
 }
 
 func rootOnlyStore(t *testing.T) *explorationgraph.Store {

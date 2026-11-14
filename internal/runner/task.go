@@ -24,28 +24,23 @@ import (
 //  任务执行生命周期（终态回写 / 时间线 / 身份回收）
 // ─────────────────────────────────────────────────────────────
 
-// executeTask 是单个任务的执行全生命周期：心跳 → 图上线（objective）→ 沙箱获取
-// → 驱动认知循环 → 会话身份回收 → agent_run/task 终态回写。
+// executeTask 是单个任务的执行全生命周期：心跳 → 沙箱获取 → 驱动认知循环 → 会话身份
+// 回收 → agent_run/task 终态回写。tk 是开跑时读到的任务行（目标主机在本 run 内取定）。
 // 所有任务都走同一条链；taskLogger 是 Handle() 在任务作用域派生的 logger
 // （task_id/assignment_id/conv 自动附加），本函数与下游（runCognition →
 // cognition.Deps）全部经它出日志。
 func (h *Handler) executeTask(
 	ctx context.Context,
 	p worker.Payload,
-	brief string,
+	tk task.Task,
 	taskLogger zerolog.Logger,
-	assignmentID string,
 ) error {
-	if brief == "" {
-		return h.failTask(ctx, taskLogger, p.AgentRunID, p.TaskID, p.ConversationID, fmt.Errorf("任务缺少 brief"))
-	}
-
 	taskID := p.TaskID
 	if err := h.Tasks.Heartbeat(ctx, taskID); err != nil {
 		taskLogger.Warn().Err(err).Msg("task入口心跳失败")
 	}
 
-	virtualHost := h.onboard(ctx, taskID, brief, taskLogger)
+	virtualHost := credentialHost(tk)
 
 	// 沙盒实际安装了什么决定本轮可用的工具（可用 = agent 允许 ∩ 沙盒已安装）。
 	installed, err := awaitInventory(ctx, h.Sandbox, sandboxWait, time.Second)
@@ -81,7 +76,7 @@ func (h *Handler) executeTask(
 	defer h.releaseSandbox(taskLogger, taskID)
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, assignmentID, p.AgentRunID, taskID, virtualHost, brief, p.ConversationID, installed)
+	report, err := h.runCognition(ctx, taskLogger, tk.AssignmentID, p.AgentRunID, taskID, virtualHost, p.ConversationID, installed)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 
@@ -163,18 +158,18 @@ func (h *Handler) executeTask(
 		// 经验蒸馏（仅自然收敛触发；被终止任务的过程性结论可能误导后续任务）：
 		// 把复现门验证过的结论蒸馏成跨任务教训写回 corpus。独立短超时 ctx 异步
 		// best-effort——教训写入失败不影响任务交付（与 reclaimSessionIdentity
-		// 同一惯例；capture brief/taskID 进 goroutine）。
+		// 同一惯例）。
 		if h.Distiller != nil {
 			// #nosec G118 -- 蒸馏有意脱离请求上下文：任务已终态，教训写入应超出 handler 生命周期（独立短超时）。
-			go func(taskID, brief string) {
+			go func(taskID string) {
 				dctx, cancel := context.WithTimeout(context.Background(), distillTimeout)
 				defer cancel()
-				if n, err := h.Distiller.DistillTask(dctx, taskID, brief); err != nil {
+				if n, err := h.Distiller.DistillTask(dctx, taskID); err != nil {
 					taskLogger.Warn().Err(err).Str("task_id", taskID).Msg("任务经验蒸馏失败（corpus 无新教训）")
 				} else if n > 0 {
 					taskLogger.Info().Str("task_id", taskID).Int("lessons", n).Msg("任务经验已沉淀到知识库")
 				}
-			}(taskID, brief)
+			}(taskID)
 		}
 	}
 	return nil
