@@ -25,7 +25,6 @@ func newStore(graphStore core.GraphStore) *Store {
 // 其余键在读取时原样进入 Node.Metadata（业务扩展位：refute_reason、
 // failure_reason 等），写入时 Node.Metadata 的键平铺合并进 graph metadata。
 var typedMetadataKeys = map[string]bool{
-	"task_id":        true,
 	"source_type":    true,
 	"source_id":      true,
 	"priority":       true,

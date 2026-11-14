@@ -33,9 +33,7 @@ func (s *Store) CreateNodeWithEdges(ctx context.Context, node Node, edges []Edge
 
 // nodeToGraphNode 领域节点 → 通用图节点。
 func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
-	metadata := map[string]interface{}{
-		"task_id": node.TaskID,
-	}
+	metadata := map[string]interface{}{}
 	// 空值不写入 metadata：所有创建点都显式声明来源；无「系统默认来源」语义。
 	if node.SourceType != "" {
 		metadata["source_type"] = string(node.SourceType)
@@ -49,6 +47,7 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 
 	graphNode := &core.GraphNode{
 		ID:        node.ID,
+		TaskID:    node.TaskID,
 		Kind:      string(node.Kind),
 		Content:   node.Content,
 		Metadata:  metadata,

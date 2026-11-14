@@ -61,6 +61,9 @@ type GraphNode struct {
 	// ID 是节点的唯一标识符（UUID）
 	ID string `json:"id"`
 
+	// TaskID 是节点所属任务（归属维度，必填）
+	TaskID string `json:"task_id"`
+
 	// Kind 是节点类型（如 "action", "hypothesis", "finding"）
 	Kind string `json:"kind"`
 
@@ -183,7 +186,7 @@ type GraphNodeQuery struct {
 	State string `json:"state,omitempty"`
 
 	// Filters 是自定义过滤条件（key 是字段路径，value 是期望值）
-	// 例如：{"metadata.task_id": "task-123"}
+	// 例如：{"task_id": "task-123"}（task_id 走归属列），{"metadata.priority": "high"}
 	Filters map[string]interface{} `json:"filters,omitempty"`
 
 	// Limit 限制返回数量（0 表示不限制）

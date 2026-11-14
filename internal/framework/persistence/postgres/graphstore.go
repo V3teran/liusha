@@ -25,7 +25,7 @@ import (
 //
 // 字段映射（9 列，唯一事实源 = content + metadata）：
 // - core.GraphNode.ID → exploration_node.id (uuid)
-// - core.GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
+// - core.GraphNode.TaskID → exploration_node.task_id (uuid，归属与查询维度)
 // - core.GraphNode.Kind → exploration_node.kind（查询维度）
 // - core.GraphNode.Content → exploration_node.content (JSONB)
 // - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含验证状态等扩展位)
@@ -72,10 +72,9 @@ func (s *GraphStore) insertNode(ctx context.Context, db execer, node *core.Graph
 		return errors.New("node kind cannot be empty")
 	}
 
-	// task_id 是唯一的列级归属维度（经 metadata 传递，见字段映射）
-	taskID := s.extractString(node.Metadata, "task_id", "")
+	taskID := node.TaskID
 	if taskID == "" {
-		return errors.New("node metadata.task_id is required")
+		return errors.New("node task_id is required")
 	}
 
 	metadataJSON, err := json.Marshal(node.Metadata)
@@ -135,7 +134,7 @@ func (s *GraphStore) GetNode(ctx context.Context, id string) (*core.GraphNode, e
 
 	query := `
 		SELECT
-			id, kind, content, state, version,
+			id, task_id, kind, content, state, version,
 			metadata, created_at, updated_at
 		FROM ` + s.nodeTable + `
 		WHERE id = $1
@@ -147,6 +146,7 @@ func (s *GraphStore) GetNode(ctx context.Context, id string) (*core.GraphNode, e
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&node.ID,
+		&node.TaskID,
 		&node.Kind,
 		&node.Content,
 		&state,
@@ -428,17 +428,6 @@ func (s *GraphStore) annotate(ctx context.Context, tx pgx.Tx, a core.GraphNodeAn
 		}
 	}
 	return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphNodeNotFound)
-}
-
-// extractString 从 map 中读取字符串值（缺失或非字符串时返回 defaultValue）。
-func (s *GraphStore) extractString(m map[string]interface{}, key, defaultValue string) string {
-	if m == nil {
-		return defaultValue
-	}
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return defaultValue
 }
 
 func nullString(s string) *string {
