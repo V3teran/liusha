@@ -460,7 +460,7 @@ func (d *Deps) buildExecutorAgent(
 ) *executor.Agent {
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:              d.Router,
-		Graph:               d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		Graph:               d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:          agentRunID, // LLM 审计归属本轮 run
 		Registry:            execRegistry,
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）

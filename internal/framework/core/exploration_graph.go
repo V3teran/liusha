@@ -61,8 +61,13 @@ const (
 	// 派生 objective 是任务结束时方向仍未达成
 	NodeStateExhausted NodeState = "exhausted"
 
-	// NodeStateAborted 被中止
+	// NodeStateAborted 已中止：没有做完就被收回，不含对错判断——任务结束时仍未完成，
+	// 或任务目标调整时撤回的未执行规划
 	NodeStateAborted NodeState = "aborted"
+
+	// NodeStateRejected 已否决（action 专用）：监察者或用户判定这一步不该做，附原因；
+	// 规划者不得再提出等效动作
+	NodeStateRejected NodeState = "rejected"
 
 	// NodeStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
 	// 接管，本目标不再作为独立方向推进；与 supersedes 边同时落定，永不迁出）
@@ -111,6 +116,7 @@ func (s NodeState) IsTerminal() bool {
 		s == NodeStateFailed ||
 		s == NodeStateExhausted ||
 		s == NodeStateAborted ||
+		s == NodeStateRejected ||
 		s == NodeStateSuperseded
 }
 

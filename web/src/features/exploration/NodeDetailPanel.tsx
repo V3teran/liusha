@@ -25,6 +25,16 @@ function MetaChip({ label, value, valueClass }: { label: string; value: string; 
   )
 }
 
+/** 否决方（动作 metadata.rejected_by：user / monitor） */
+function rejectedBy(node: GraphNode): string {
+  const meta = node.metadata
+  if (meta && typeof meta === 'object' && 'rejected_by' in meta) {
+    const by = (meta as { rejected_by?: unknown }).rejected_by
+    if (typeof by === 'string') return by
+  }
+  return ''
+}
+
 export function NodeDetailPanel({
   node,
   verification,
@@ -88,7 +98,11 @@ export function NodeDetailPanel({
 
         {node.kind === 'action' && node.state_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
-            <div className="text-status-warning">原因：{node.state_reason}</div>
+            <div className="text-status-warning">
+              {node.state === 'rejected'
+                ? `否决（${SOURCE_LABELS[rejectedBy(node)] ?? '未知'}）：${node.state_reason}`
+                : `原因：${node.state_reason}`}
+            </div>
           </section>
         )}
 

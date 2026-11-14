@@ -122,7 +122,7 @@ func (r *reactRuntime) runIteration(
 	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 
 	// 3. 执行工具调用（Observation）——每个工具执行前同样检查外部中止：
-	//    浏览器/长命令执行期间的 kill 即刻生效。
+	//    浏览器/长命令执行期间的外部中止即刻生效。
 	for _, toolCall := range response.ToolCalls {
 		if config.AbortCheck != nil && config.AbortCheck() {
 			result.AddUserMessage("（外部中止：本轮执行已被验证终止，跳过剩余工具调用）")

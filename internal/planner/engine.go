@@ -219,7 +219,8 @@ type PlanningContext struct {
 	PendingActions    []explorationgraph.Node // 待执行的 Action
 	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
-	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 state_reason，禁止等效重提）
+	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
+	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
@@ -415,9 +416,11 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 		case explorationgraph.StateFailed:
 			planCtx.FailedActions = append(planCtx.FailedActions, action)
 		case explorationgraph.StateAborted:
-			// 外部纠偏（monitor kill）的中止动作必须进规划视野：携带 state_reason
-			// 呈现"这条路被砍及原因"，否则规划者失明、重规划会原样再派等效动作。
 			planCtx.AbortedActions = append(planCtx.AbortedActions, action)
+		case explorationgraph.StateRejected:
+			// 否决必须进规划视野：携带原因与否决方呈现「这一步不该做及为什么」，否则
+			// 规划者失明、重规划会原样再派等效动作。
+			planCtx.RejectedActions = append(planCtx.RejectedActions, action)
 		}
 	}
 
@@ -491,7 +494,8 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 7. 失败的尝试
 	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
 
-	// 7.5 被外部纠偏中止的动作（禁止等效重提）
+	// 7.5 已否决的动作（禁止等效重提）与已中止的动作（可按当前目标重提）
+	sb.WriteString(buildRejectedActionsSection(ctx.RejectedActions))
 	sb.WriteString(buildAbortedActionsSection(ctx.AbortedActions))
 
 	// 8. 已确认的发现

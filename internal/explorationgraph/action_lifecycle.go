@@ -10,18 +10,38 @@ import (
 )
 
 // 动作的执行生命周期：open →(认领)→ running →(结束)→ completed/exhausted/failed，
-// 或 running →(交还)→ open。
+// 或 running →(交还)→ open；open / running 都可被否决（→ rejected）。
 //
 // 认领记下执行它的 run（metaClaimedBy），结束与交还都以「仍由我认领」为前置：同一
 // 任务的新旧 run 可能短暂重叠（恢复重投、僵尸回收），新 run 回收并重新认领后，旧 run
-// 迟到的结果不得改写新 run 的认领。外部决定（monitor 中止）把动作迁出
-// running，执行方的结束随之落空，不会覆盖外部决定。
+// 迟到的结果不得改写新 run 的认领。外部决定（否决、任务收口）把动作迁出 running，
+// 执行方的结束随之落空，不会覆盖外部决定。
 //
 // 中断不是失败：run 被暂停、停机或超时打断时，在途动作交还 open，由下一个 run 重新
 // 执行；任务进入终态时由收尾统一处置仍未结束的动作。
 
 // metaClaimedBy 是认领者（agent_run.id）在 action metadata 中的键。
 const metaClaimedBy = "claimed_by"
+
+// metaRejectedBy 是否决方（SourceMonitor / SourceUser）在 action metadata 中的键。
+const metaRejectedBy = "rejected_by"
+
+// ErrActionNotFound 表示本任务下没有这个动作（节点不存在、属于别的任务或不是动作）。
+var ErrActionNotFound = errors.New("动作不存在")
+
+// RejectedBy 返回否决该动作的一方（未被否决为空）。
+func (n *Node) RejectedBy() SourceType {
+	if len(n.Metadata) == 0 {
+		return ""
+	}
+	var m struct {
+		RejectedBy SourceType `json:"rejected_by"`
+	}
+	if json.Unmarshal(n.Metadata, &m) != nil {
+		return ""
+	}
+	return m.RejectedBy
+}
 
 // ClaimedBy 返回认领该动作的 run（未被认领过为空）。
 func (n *Node) ClaimedBy() string {
@@ -76,6 +96,37 @@ func (s *Store) ReleaseAction(ctx context.Context, taskID, actionID, runID strin
 	return s.applyActionChange(ctx, core.GraphChangeSet{
 		Transitions: []core.GraphStateTransition{ownedTransition(taskID, actionID, runID, StateOpen)},
 	})
+}
+
+// RejectAction 否决一个待执行或执行中的动作（→ rejected），记下否决方与原因。执行中的
+// 动作由执行方的取消开关感知后中断，其迟到的结束因认领前置不成立而落空。动作已结束
+// 返回 false；不是本任务的动作返回 ErrActionNotFound。
+func (s *Store) RejectAction(ctx context.Context, taskID, actionID string, by SourceType, reason string) (bool, error) {
+	node, err := s.GetNode(ctx, actionID)
+	if err != nil {
+		return false, fmt.Errorf("%w: %s（%w）", ErrActionNotFound, actionID, err)
+	}
+	if node.TaskID != taskID || node.Kind != core.KindAction {
+		return false, fmt.Errorf("%w: %s", ErrActionNotFound, actionID)
+	}
+	annotation := core.GraphNodeAnnotation{
+		TaskID: taskID, NodeID: actionID,
+		Metadata: map[string]interface{}{"state_reason": reason, metaRejectedBy: string(by)},
+	}
+	// 两次 CAS 覆盖并发认领：open 在两次尝试之间被认领，第二次按 running 命中；
+	// 两次都落空即动作已结束。
+	for _, from := range []State{StateOpen, StateRunning} {
+		ok, err := s.applyActionChange(ctx, core.GraphChangeSet{
+			Transitions: []core.GraphStateTransition{{
+				TaskID: taskID, NodeID: actionID, From: string(from), To: string(StateRejected),
+			}},
+			Annotations: []core.GraphNodeAnnotation{annotation},
+		})
+		if err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
 }
 
 // ReclaimRunningActions 把任务中仍为 running 的动作交还 open，返回交还数。新 run 开始

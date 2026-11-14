@@ -47,3 +47,34 @@ func TestBuildFailedActionsSection_ShowsFailureNotRationale(t *testing.T) {
 		t.Fatalf("不应把规划理由当失败原因:\n%s", section)
 	}
 }
+
+// 已否决的动作：规划者看到否决方与原因，并被告知禁止等效重提。
+func TestBuildRejectedActionsSection_ForbidsEquivalentAndNamesRejecter(t *testing.T) {
+	rejected := explorationgraph.StateRejected
+	reason := "超出授权范围"
+	section := buildRejectedActionsSection([]explorationgraph.Node{{
+		ID: "a1", Kind: core.KindAction, State: &rejected, StateReason: &reason,
+		Content: []byte(`{"instruction":"扫描 C 段"}`), Metadata: []byte(`{"rejected_by":"user"}`),
+	}})
+	for _, want := range []string{"禁止等效重提", "扫描 C 段", reason, "用户"} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("缺少 %q:\n%s", want, section)
+		}
+	}
+}
+
+// 已中止的动作没有对错判断：规划者看到中止原因，并被告知与当前目标相关的可以重新提出。
+func TestBuildAbortedActionsSection_AllowsReproposal(t *testing.T) {
+	aborted := explorationgraph.StateAborted
+	reason := "目标已调整，撤回未执行的规划"
+	section := buildAbortedActionsSection([]explorationgraph.Node{{
+		ID: "a1", Kind: core.KindAction, State: &aborted, StateReason: &reason,
+		Content: []byte(`{"instruction":"探测登录接口"}`),
+	}})
+	if !strings.Contains(section, reason) || !strings.Contains(section, "可以重新提出") {
+		t.Fatalf("应展示中止原因并允许重提:\n%s", section)
+	}
+	if strings.Contains(section, "禁止") {
+		t.Fatalf("中止不含对错判断，不应禁止重提:\n%s", section)
+	}
+}

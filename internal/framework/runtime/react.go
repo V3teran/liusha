@@ -51,7 +51,7 @@ type ReActConfig struct {
 	// 提前终止条件（返回 true 时停止循环）
 	EarlyStopCondition func(thought string) bool
 
-	// AbortCheck 是外部中止探测（如动作被验证 kill）：callLLM 前与每个工具
+	// AbortCheck 是外部中止探测（如动作在执行途中被收回）：callLLM 前与每个工具
 	// 执行前检查，命中即注入说明并停止——外部止血不必等迭代边界，长生成/
 	// 长工具期间的延迟从「整迭代」降到「当前步骤」。nil=无外部中止源。
 	AbortCheck func() bool
