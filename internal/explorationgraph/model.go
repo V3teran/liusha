@@ -3,7 +3,7 @@
 // 节点（与 DB 约束 ck_exploration_node_kind 一致）：
 //   - objective: 根目标（来源 user，代表任务本身，随任务终态收敛）与派生目标（来源 planner，
 //     结果分析提出的方向）
-//   - action: planner 生成的执行动作（有 state/complexity/depends_on），统一挂在根目标下
+//   - action: planner 生成的执行动作（有 state/complexity），统一挂在根目标下
 //   - observation: executor 产出的观察（假设带 repro、有验证状态，待复现门验证 / 事实写入即终态）
 //   - result: 坐实的最终结果（仅复现门产出）
 //
@@ -17,7 +17,8 @@
 //   - supersedes: objective → objective（新派生目标吸收旧派生目标的范围，src=新、dst=旧；
 //     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
 //
-// 动作间执行依赖不走边，落在 action 的 metadata.depends_on，由 CanExecute 直接消费。
+// 动作之间没有执行依赖：open 即可执行，先后关系由增量规划表达——需要前一步结果的
+// 动作在前一步的观察落图后才被提出，指令因此基于真实结果。
 package explorationgraph
 
 import (
@@ -111,8 +112,6 @@ type Relation string
 // objective →(generates)→ action →(generates)→ observation →(generates)→ result。
 // triggers 是"发现滋生动作/新方向"的因果溯源（result → objective/action）——
 // 因果链（成果A 催生后续动作进而产出成果B）沿边可回溯。
-// 动作间执行依赖（DAG 调度）不走边——落在 action 节点的 metadata.depends_on，
-// 由 CanExecute 直接消费（依赖集随节点原子读写，无需二次 Join）。
 const (
 	RelGenerates  Relation = "generates"  // 上游产出下游（推导链）
 	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
@@ -140,7 +139,6 @@ type Node struct {
 	// action 专用字段
 	State         *State      `json:"state,omitempty"`          // open/running/completed/...
 	Complexity    *Complexity `json:"complexity,omitempty"`     // trivial/simple/moderate/...
-	DependsOn     []string    `json:"depends_on,omitempty"`     // 依赖的其他 action ID（低层依赖，限定作用域：同一目标方向内）
 	BlockedReason *string     `json:"blocked_reason,omitempty"` // 阻塞原因
 
 	// 假设观察专用：验证状态（pending/confirmed/refuted）。事实观察与 result 没有。
@@ -226,23 +224,6 @@ func (n *Node) IsObservation() bool {
 // IsResult 判断节点是否是 result
 func (n *Node) IsResult() bool {
 	return n.Kind == core.KindResult
-}
-
-// CanExecute 判断 action 是否可执行（无阻塞依赖）
-func (n *Node) CanExecute(completed map[string]bool) bool {
-	if !n.IsAction() {
-		return false
-	}
-	if n.State == nil || *n.State != StateOpen {
-		return false
-	}
-	// 检查所有依赖是否已完成
-	for _, depID := range n.DependsOn {
-		if !completed[depID] {
-			return false
-		}
-	}
-	return true
 }
 
 // IsHypothesis 判断节点是否是假设观察（带验证状态，写入时即为 pending）。

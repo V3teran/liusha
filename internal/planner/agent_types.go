@@ -31,5 +31,5 @@ type ContinuationAction struct {
 	Reasoning   string        // 为什么需要这个动作
 }
 
-// forcePlanActions 强制重规划（跳过 executable action 检查）
+// forcePlanActions 强制重规划（不看是否还有待执行动作）
 // 用于 Monitor 请求重规划的场景（探索停滞、资源耗尽等）

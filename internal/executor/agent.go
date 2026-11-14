@@ -33,7 +33,7 @@ type Agent struct {
 	logger       zerolog.Logger
 	taskID       string
 	maxSteps     int
-	maxParallel  int         // 并发执行的 action 上限（DAG 依赖仍由 CanExecute 保证；1=串行）
+	maxParallel  int         // 并发执行的 action 上限（1=串行）
 	completionCh chan Report // 任务完成通知通道
 
 	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
@@ -48,7 +48,7 @@ type AgentConfig struct {
 	EventBus     bus.EventBus
 	Logger       zerolog.Logger
 	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
-	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
+	MaxParallel  int         // 并发执行 action 上限（0/1=串行）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
 }
 
@@ -76,8 +76,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 //
 // 职责：
 // - 监听事件总线上的 Action 状态变化
-// - 执行可调度的 Action
-// - 处理依赖关系（只执行依赖已满足的 Action）
+// - 认领并执行 open 动作
 // - 发布 ActionCompleted 事件
 func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().Msg("Agent 启动")
@@ -176,7 +175,7 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report
 	}
 }
 
-// processAvailableActions 处理所有可执行的 Action
+// processAvailableActions 并发执行全部 open 动作（CAS 认领防重复执行）
 func (a *Agent) processAvailableActions(ctx context.Context, report *Report) error {
 	// 获取所有 open 状态的 Action
 	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
@@ -189,51 +188,16 @@ func (a *Agent) processAvailableActions(ctx context.Context, report *Report) err
 		return nil
 	}
 
-	// 全部 action 的状态投影（依赖判定只需要状态，不拉载荷）
-	states, err := a.graph.ListActionStates(ctx, a.taskID)
-	if err != nil {
-		return fmt.Errorf("list action states: %w", err)
-	}
+	a.logger.Info().Int("open_count", len(openActions)).Msg("开始执行待执行动作")
 
-	// 已完成的 Action ID 集合（依赖满足判据）
-	completed := make(map[string]bool, len(states))
-	for id, state := range states {
-		if state == explorationgraph.StateCompleted {
-			completed[id] = true
-		}
-	}
-
-	a.logger.Debug().
-		Int("completed_count", len(completed)).
-		Msg("已完成的 Action 数量")
-
-	// 筛选可执行的 Action（依赖已满足）
-	var executable []explorationgraph.Node
-	for _, action := range openActions {
-		if action.CanExecute(completed) {
-			executable = append(executable, action)
-		}
-	}
-
-	a.logger.Info().
-		Int("open_count", len(openActions)).
-		Int("executable_count", len(executable)).
-		Msg("筛选可执行 Action")
-
-	if len(executable) == 0 {
-		a.logger.Debug().Msg("无可执行 Action（等待依赖满足）")
-		return nil
-	}
-
-	// 并发执行可执行 Action：并发度 a.maxParallel（配置；1=串行）。
-	// 可并行性由 DAG 决定（CanExecute 已保证依赖满足），并发度由配置决定——
-	// 不由 LLM 运行时决定（业界调度惯例：依赖图 × 静态并发上限）。
+	// 并发执行 open 动作：动作之间没有执行依赖（先后由增量规划表达），并发度由
+	// 配置决定，不由 LLM 运行时决定。
 	sem := make(chan struct{}, a.maxParallel)
 	var wg sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
 
-	for _, action := range executable {
+	for _, action := range openActions {
 		if err := ctx.Err(); err != nil {
 			break
 		}

@@ -111,11 +111,11 @@ func TestStore_ListActionStates(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("a-open", "task-1", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("a-open", "task-1", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateCompleted, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateCompleted))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("a-failed", "task-1", StateFailed, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("a-failed", "task-1", StateFailed))
 	require.NoError(t, err)
 
 	states, err := store.ListActionStates(ctx, "task-1")
@@ -133,7 +133,7 @@ func TestStore_CreateNodeWithEdges(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("a-1", "task-1", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("a-1", "task-1", StateOpen))
 	require.NoError(t, err)
 
 	// 正常路径：observation 节点 + action → observation 边
@@ -165,7 +165,7 @@ func TestStore_ListEdgesTaskScoped(t *testing.T) {
 
 	for _, task := range []string{"task-1", "task-2"} {
 		// 溯源边随复合写落地（生产唯一边写入口）；动作节点前置创建供边引用。
-		if _, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen, nil)); err != nil {
+		if _, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen)); err != nil {
 			require.NoError(t, err)
 		}
 		require.NoError(t, store.CreateNodeWithEdges(ctx, mkObservation("obs-"+task, task, nil), []Edge{{

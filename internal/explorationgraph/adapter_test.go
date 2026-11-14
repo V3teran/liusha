@@ -11,7 +11,7 @@ import (
 )
 
 // mkActionNode 构造一个 action 节点（生产路径经 CreateNode 直写）。
-func mkActionNode(id, taskID string, state State, deps []string) Node {
+func mkActionNode(id, taskID string, state State) Node {
 	st := state
 	return Node{
 		ID:         id,
@@ -19,7 +19,6 @@ func mkActionNode(id, taskID string, state State, deps []string) Node {
 		Kind:       core.KindAction,
 		Content:    []byte(`{"instruction":"scan"}`),
 		State:      &st,
-		DependsOn:  deps,
 		SourceType: SourcePlanner,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -40,7 +39,7 @@ func TestStore_CreateNode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = store.CreateNode(ctx, mkActionNode("action-1", "task-001", StateOpen, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-1", "task-001", StateOpen))
 	require.NoError(t, err)
 
 	node, err := store.GetNode(ctx, "action-1")
@@ -54,11 +53,11 @@ func TestStore_ActionStateManagement(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("action-open-1", "task-001", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("action-open-1", "task-001", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("action-open-2", "task-001", StateOpen, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-open-2", "task-001", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateCompleted, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateCompleted))
 	require.NoError(t, err)
 
 	t.Run("ListOpenActions 只返回 open", func(t *testing.T) {
