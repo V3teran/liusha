@@ -9,9 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools"
 )
 
 // heartbeatThrottleMs 是连续两次心跳写入的最小间隔。
@@ -19,7 +21,7 @@ const heartbeatThrottleMs = 10_000
 
 // toolRecordInterceptor returns a registry.Interceptor that records every tool
 // call to toolinvocation.Store and throttles task heartbeats.
-func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *activityTracker) registry.Interceptor {
+func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activity *executor.ActivityTracker) registry.Interceptor {
 	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		d.Logger.Debug().
@@ -69,10 +71,8 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activities *acti
 				Str("tool_name", t.Name()).
 				Msg("d.ToolCalls is nil, cannot record invocation")
 		}
-		// 活动打点：monitor 的 kill 判据依据（图上无输出 ≠ 卡死）
-		if activities != nil {
-			activities.touch(ctx)
-		}
+		// 进展打点：执行者看门狗的停摆判据（图上无输出 ≠ 卡死）
+		activity.Touch(tools.ActionIDFromContext(ctx))
 
 		// throttled heartbeat
 		if taskID != "" {

@@ -79,6 +79,10 @@ type Deps struct {
 
 	MaxStepsPerTask int // 0 = 完成检测器步数无限制
 
+	// StepLLMTimeout 是单步 LLM 看门狗上限（系统配置 runtime 组快照），与工具超时上限
+	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
+	StepLLMTimeout time.Duration
+
 	// ContextRatios 是各角色的上下文历史预算占比（DB compaction 组在任务开始时
 	// 的快照，装配层现读传入；预算 = 比例 × 本角色路由 provider 的 context_window，
 	// 0 值由压缩器回退内置兜底）。
@@ -317,9 +321,9 @@ func (d *Deps) assembleStack(
 	// 工具注册表 + 拦截器链：遥测（tool_invocation 落库 + 节流续命）与时间线
 	// （工具过程事件进会话）各一个拦截器，单一职责。跨包工具依赖（executor 注册
 	// 与 evaluator BuildTools 共用同一份，避免字面量漂移）。
-	activities := newActivityTracker()
+	activity := executor.NewActivityTracker() // 动作进展：工具调用结束与推理步完成都记一次，看门狗据此判停摆
 	reg := registry.New()
-	reg.AddInterceptor(d.toolRecordInterceptor(agentRunID, taskID, activities))
+	reg.AddInterceptor(d.toolRecordInterceptor(agentRunID, taskID, activity))
 	reg.AddInterceptor(d.toolTimelineInterceptor(conversationID))
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
@@ -355,7 +359,7 @@ func (d *Deps) assembleStack(
 
 	// executor：Engine（ReAct）→ Coordinator → Agent
 	executorAgent := d.buildExecutorAgent(ctx, taskID, host, brief, agentRunID, cfgs.executor,
-		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"))
+		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"), activity)
 
 	// evaluator：评估者（ReAct judge）→ 复现晋升门 → Agent
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
@@ -428,7 +432,6 @@ func (d *Deps) assembleStack(
 		Router:              d.Router,
 		Complexity:          cfgs.monitor.Complexity,
 		Interval:            constants.MonitorInterval,
-		Activity:            activities.idleFor,
 		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
 	})
@@ -485,6 +488,7 @@ func (d *Deps) buildExecutorAgent(
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
 	thoughts reasoning.Tap,
+	activity *executor.ActivityTracker,
 ) *executor.Agent {
 	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
@@ -504,6 +508,7 @@ func (d *Deps) buildExecutorAgent(
 		Brief:               brief,                            // 任务简报逐字进 executor system prompt（入口锚定）
 		TraceCollector:      traceCollector,                   // 从 agent_traffic 构建完整执行轨迹
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
+		Activity:            activity,                         // 每完成一步推理记一次进展
 		Logger:              d.Logger,
 	})
 	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
@@ -516,6 +521,9 @@ func (d *Deps) buildExecutorAgent(
 		EventBus:    d.EventBus,
 		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
 		MaxParallel: 4, // open 动作并发执行（浏览器已按 action 隔离 tab）
+		Activity:    activity,
+		StallTimeout: executor.StallTimeout(d.stepLLMTimeout(),
+			time.Duration(d.ToolLimits.StepToolTimeoutSeconds)*time.Second),
 	})
 }
 
@@ -624,4 +632,12 @@ func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agen
 		return nil
 	}
 	return cards
+}
+
+// stepLLMTimeout 返回单步 LLM 看门狗上限（未配置时取内置默认 300 秒，与配置默认值一致）。
+func (d *Deps) stepLLMTimeout() time.Duration {
+	if d.StepLLMTimeout > 0 {
+		return d.StepLLMTimeout
+	}
+	return 300 * time.Second
 }

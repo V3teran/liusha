@@ -19,13 +19,13 @@ import (
 //
 // 缺口：active 任务以 MaxRetry(0) 入队（防 4h × 25 retry = 4 天死循环），
 // runner 被硬杀（pkill / 断电 / OOM）时 asynq 判任务失败直接进 archived
-// 永不重投——agent_run 停在 running、task 停在 active 成僵尸；探索图的
-// action 恢复监控只修图状态，不管这两个行。
+// 永不重投——agent_run 停在 running、task 停在 active 成僵尸。动作级停摆由
+// 执行者看门狗处理，新 run 开始时回收上一 run 留下的在途动作；本监控管 run 与任务。
 //
 // 本监控补另一半，两条规则：
 //
-//  1. 僵尸 run：running run + LLM/工具活动停摆超过 timeout（与 action 恢复同
-//     口径，6 分钟 ≈ 2 倍单步 LLM 看门狗）→ 旧 run 标记 failed → 以全新
+//  1. 僵尸 run：running run + LLM/工具活动停摆超过 timeout（6 分钟 ≈ 2 倍单步
+//     LLM 看门狗）→ 旧 run 标记 failed → 以全新
 //     agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
 //     已终态的任务例外：只回收僵尸 run 行（含进程死在终态落库之后的脏行），
 //     不重投——恢复分别由继续操作 / 终态判定驱动。

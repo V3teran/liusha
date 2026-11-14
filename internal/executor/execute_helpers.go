@@ -161,6 +161,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		EarlyStopCondition: func(string) bool { return kill.Killed() },
 		AbortCheck:         kill.Killed,
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
+			e.activity.Touch(action.ID) // 一步推理完成即一次进展
 			e.logger.Debug().
 				Str("action_id", action.ID).
 				Int("iteration", iteration).
