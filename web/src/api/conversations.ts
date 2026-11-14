@@ -82,7 +82,7 @@ export async function startChat(
 
 /**
  * 多轮：往已有会话追加动作消息。落库即 200，意图分类与分流在服务端异步完成——
- * 扫描进行中/暂停中收到 action 指令的反馈由时间线提示消息给出（无同步 busy 裁决）。
+ * 扫描进行中/暂停中收到 action 指令的反馈由时间线提示消息给出（无同步 busy 判定）。
  * @param convID 会话 ID
  * @param content 消息内容
  * @returns intent

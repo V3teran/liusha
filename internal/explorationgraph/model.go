@@ -4,8 +4,8 @@
 //   - objective: 根目标（来源 user，代表任务本身，随任务终态收敛）与派生目标（来源 planner，
 //     结果分析提出的方向）
 //   - action: planner 生成的执行动作（有 state/complexity/depends_on），统一挂在根目标下
-//   - observation: executor 产出的观察（hypothesis 带 repro 待裁决 / fact 写入即终态）
-//   - result: 坐实的最终结果（confidence=verified，仅复现门产出）
+//   - observation: executor 产出的观察（假设带 repro、有验证状态，待复现门验证 / 事实写入即终态）
+//   - result: 坐实的最终结果（仅复现门产出）
 //
 // 写权限不变式：planner 写 objective/action；executor 写 observation；evaluator 只经复现门
 // 建 result——observation(假设) 晋升为 result 的唯一入口在 evaluator。复放明细写
@@ -55,16 +55,42 @@ const (
 	ComplexityComplex  Complexity = "complex"  // 复杂
 )
 
-// Confidence 是 observation/result 的置信度（类型别名，指向 core.ObservationConfidence）
-type Confidence = core.ObservationConfidence
+// VerificationStatus 是假设观察的验证状态（类型别名，指向 core.VerificationStatus）。
+type VerificationStatus = core.VerificationStatus
 
-// 置信度常量：实体定义在 core，经别名提升为领域 API
+// 验证状态常量：实体定义在 core，经别名提升为领域 API
 const (
-	ConfidenceUnverified = core.ConfidenceUnverified
-	ConfidenceVerified   = core.ConfidenceVerified
-	ConfidenceRefuted    = core.ConfidenceRefuted
-	ConfidenceFactual    = core.ConfidenceFactual
+	VerificationPending   = core.VerificationPending
+	VerificationConfirmed = core.VerificationConfirmed
+	VerificationRefuted   = core.VerificationRefuted
 )
+
+// ObservationCategory 是观察的信息类别：一类主张加五个领域中立的信息域，决定观察的
+// 生命周期，规划时按域组织事实。词汇表对任意领域的探索 agent 通用；分类定义随执行器
+// 输出契约（executor/contract）固定，领域例子由执行器章程承载，换领域自定义章程即可。
+//
+//   - hypothesis：待验证的判断（包括一眼可见的问题）——必须携带复现配方，经复现门
+//     坐实后才成为 result。没有不经验证就成立的「问题」：坏事实要么可复现（走
+//     hypothesis），要么只是环境的反应（记 behavior）
+//   - entity：环境中存在的单个对象及其属性（inventory：有什么）
+//   - access：触达与运用对象的途径（affordance：怎么用）
+//   - structure：对象之间的关系与布局（topology：怎么连）
+//   - behavior：环境受激后的反应与内在机制，包括阻碍推进的防护（dynamics：怎么动）
+//   - note：无法归入上述任何域的杂项（兜底；写作顺序上的最后手段）
+type ObservationCategory string
+
+// CategoryHypothesis 等是观察类别的枚举值（语义见 ObservationCategory）。
+const (
+	CategoryHypothesis ObservationCategory = "hypothesis"
+	CategoryEntity     ObservationCategory = "entity"
+	CategoryAccess     ObservationCategory = "access"
+	CategoryStructure  ObservationCategory = "structure"
+	CategoryBehavior   ObservationCategory = "behavior"
+	CategoryNote       ObservationCategory = "note"
+)
+
+// FactCategories 是事实的信息域，按规划时呈现的顺序排列。
+var FactCategories = []ObservationCategory{CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior, CategoryNote}
 
 // Priority 是节点的优先级（类型别名，指向 core.Priority）
 type Priority = core.Priority
@@ -117,8 +143,8 @@ type Node struct {
 	DependsOn     []string    `json:"depends_on,omitempty"`     // 依赖的其他 action ID（低层依赖，限定作用域：同一目标方向内）
 	BlockedReason *string     `json:"blocked_reason,omitempty"` // 阻塞原因
 
-	// observation/result 专用字段
-	Confidence *Confidence `json:"confidence,omitempty"` // unverified/verified
+	// 假设观察专用：验证状态（pending/confirmed/refuted）。事实观察与 result 没有。
+	VerificationStatus *VerificationStatus `json:"verification_status,omitempty"`
 
 	// 通用字段
 	Priority   Priority        `json:"priority"` // critical/high/medium/low
@@ -139,25 +165,16 @@ type Edge struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// VerifyOutcome 是验证结果
-type VerifyOutcome string
-
-// 复现验证结论。
-const (
-	OutcomeConfirmed VerifyOutcome = "confirmed" // 确认
-	OutcomeRefuted   VerifyOutcome = "refuted"   // 反驳
-)
-
 // Verification 是验证记录（审计链）
 type Verification struct {
-	ID         string          `json:"id"`
-	TaskID     string          `json:"task_id"`
-	NodeID     string          `json:"node_id"` // 被验证的 observation 节点 ID
-	Primitives json.RawMessage `json:"primitives"`
-	Outcome    VerifyOutcome   `json:"outcome"`
-	Evaluation json.RawMessage `json:"evaluation"`
-	DurationMs int64           `json:"duration_ms"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID         string             `json:"id"`
+	TaskID     string             `json:"task_id"`
+	NodeID     string             `json:"node_id"` // 被验证的 observation 节点 ID
+	Primitives json.RawMessage    `json:"primitives"`
+	Outcome    VerificationStatus `json:"outcome"` // confirmed / refuted
+	Evaluation json.RawMessage    `json:"evaluation"`
+	DurationMs int64              `json:"duration_ms"`
+	CreatedAt  time.Time          `json:"created_at"`
 }
 
 // IsDerivedObjective 判断节点是否是派生目标：planner 在探索中提出的方向。
@@ -228,12 +245,33 @@ func (n *Node) CanExecute(completed map[string]bool) bool {
 	return true
 }
 
-// IsVerified 判断 observation/result 是否已验证
-func (n *Node) IsVerified() bool {
-	if n.Confidence == nil {
-		return false
+// IsHypothesis 判断节点是否是假设观察（带验证状态，写入时即为 pending）。
+func (n *Node) IsHypothesis() bool {
+	return n.Kind == core.KindObservation && n.VerificationStatus != nil
+}
+
+// IsFact 判断节点是否是事实观察（没有验证状态：写入即终态）。
+func (n *Node) IsFact() bool {
+	return n.Kind == core.KindObservation && n.VerificationStatus == nil
+}
+
+// HasVerificationStatus 判断节点是否是处于 status 的假设观察。
+func (n *Node) HasVerificationStatus(status VerificationStatus) bool {
+	return n.IsHypothesis() && *n.VerificationStatus == status
+}
+
+// RefuteReason 返回已证伪假设的证伪原因（节点 metadata 的 refute_reason；没有则为空）。
+func (n *Node) RefuteReason() string {
+	if len(n.Metadata) == 0 {
+		return ""
 	}
-	return *n.Confidence == ConfidenceVerified
+	var m struct {
+		RefuteReason string `json:"refute_reason"`
+	}
+	if json.Unmarshal(n.Metadata, &m) != nil {
+		return ""
+	}
+	return m.RefuteReason
 }
 
 // ObjectiveNode 是任务目标节点的简化表示（供 Monitor 等读取）

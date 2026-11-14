@@ -21,15 +21,15 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 	return s.res, nil
 }
 
-// verdictJudge 固定裁决（集成测试只测 store 咬合，语义裁决由单测覆盖）。
+// verdictJudge 固定判定（集成测试只测 store 咬合，语义判定由单测覆盖）。
 type verdictJudge struct{ verdict string }
 
 func (j verdictJudge) Judge(context.Context, string, json.RawMessage, json.RawMessage, evaluator.ReplayFunc) (evaluator.Verdict, error) {
-	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试固定裁决"}, nil
+	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试固定判定"}, nil
 }
 
 // TestEvaluator_PromoteAgainstRealStore 用真 explorationgraph.Store 跑晋升门，证明：
-//   - 坐实 → exploration_verification 落 confirmed + Result 节点晋升（confidence=verified，SourceID 回指 verification）；
+//   - 坐实 → exploration_verification 落 confirmed + Result 节点晋升（SourceID 回指 verification）；
 //   - 证伪 → exploration_verification 落 refuted 留档，exploration_node 不新增。
 func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	ctx := context.Background()
@@ -72,8 +72,8 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("坐实 Promote: %v", err)
 	}
-	if node == nil || node.Confidence == nil || *node.Confidence != explorationgraph.ConfidenceVerified {
-		t.Fatalf("应晋升 verified 节点, got %+v", node)
+	if node == nil || node.Kind != core.KindResult {
+		t.Fatalf("应晋升为 result 节点, got %+v", node)
 	}
 	if node.SourceID == "" {
 		t.Fatal("SourceID 应指向真实 verification id")
@@ -110,12 +110,12 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}
 }
 
-// replayJudgeITest 裁决前自主复放一次（模拟 RouterJudge 的 replay_for_verification）。
+// replayJudgeITest 判定前自主复放一次（模拟 RouterJudge 的 replay_for_verification）。
 type replayJudgeITest struct{ verdict string }
 
 func (j replayJudgeITest) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay evaluator.ReplayFunc) (evaluator.Verdict, error) {
 	_, _ = replay(context.Background())
-	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试复放后裁决"}, nil
+	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试复放后判定"}, nil
 }
 
 // TestEvaluator_WritesOnlyResultNodes 真 store 下锁定图的写权限不变式：
@@ -137,7 +137,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 			Evaluation: json.RawMessage(`{"url":"http://t.local/x"}`), DurationMs: 5,
 		}}, nil).WithJudge(replayJudgeITest{verdict: verdict})
 
-		// 晋升门会落 observation → result 溯源边：被裁决的假设节点必须真实在图
+		// 晋升门会落 observation → result 溯源边：被验证的假设节点必须真实在图
 		hypID := uuid.New().String()
 		if _, err := store.CreateNode(ctx, explorationgraph.Node{
 			ID:      hypID,
@@ -184,7 +184,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 		t.Errorf("晋升应落 observation → result 的 generates 溯源边, got %d", edgeCount)
 	}
 
-	// 审计链：2 条 verification（坐实+证伪），各含 2 次重放（预跑+裁决复放）。
+	// 审计链：2 条 verification（坐实+证伪），各含 2 次重放（预跑+判定复放）。
 	if _, err := promote(evaluator.VerdictRefuted); err != nil {
 		t.Fatalf("证伪 Promote 不应报错: %v", err)
 	}

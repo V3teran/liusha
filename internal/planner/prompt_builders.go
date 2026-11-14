@@ -273,7 +273,7 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildResultsSection 构建已确认发现部分：按 summary 去重（同义重复的裁决
+// buildResultsSection 构建已确认发现部分：按 summary 去重（同义重复的判定
 // 不重复占视野），逐条钳长。
 func buildResultsSection(results []explorationgraph.Node) string {
 	if len(results) == 0 {
@@ -320,7 +320,7 @@ func buildFactsSection(facts []Fact) string {
 			continue
 		}
 		seen[st] = true
-		dedup = append(dedup, Fact{Statement: st})
+		dedup = append(dedup, Fact{Category: facts[i].Category, Statement: st})
 	}
 
 	var sb strings.Builder
@@ -330,11 +330,35 @@ func buildFactsSection(facts []Fact) string {
 		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 observe_state 深挖）\n", len(dedup)-factRenderLimit)
 		shown = dedup[:factRenderLimit]
 	}
+	// 按信息域分组（域内近者在前）：规划器先看清环境的各个侧面，再据此推导。
+	byDomain := make(map[explorationgraph.ObservationCategory][]string, len(explorationgraph.FactCategories))
 	for _, f := range shown {
-		fmt.Fprintf(&sb, "- %s\n", f.Statement)
+		domain := f.Category
+		if _, known := factDomainHeadings[domain]; !known {
+			domain = explorationgraph.CategoryNote
+		}
+		byDomain[domain] = append(byDomain[domain], f.Statement)
+	}
+	for _, domain := range explorationgraph.FactCategories {
+		if len(byDomain[domain]) == 0 {
+			continue
+		}
+		fmt.Fprintf(&sb, "### %s\n", factDomainHeadings[domain])
+		for _, st := range byDomain[domain] {
+			fmt.Fprintf(&sb, "- %s\n", st)
+		}
 	}
 	sb.WriteString("\n**注意**：以上事实已确认成立。规划时直接利用（如复用已建立的会话、沿已探明的机制推导），不要生成重复确认它们的动作。\n\n")
 	return sb.String()
+}
+
+// factDomainHeadings 是事实各信息域在规划提示里的标题（与 FactCategories 一一对应）。
+var factDomainHeadings = map[explorationgraph.ObservationCategory]string{
+	explorationgraph.CategoryEntity:    "有什么（对象与属性）",
+	explorationgraph.CategoryAccess:    "怎么进入（入口、认证与凭据）",
+	explorationgraph.CategoryStructure: "怎么连接（关系与布局）",
+	explorationgraph.CategoryBehavior:  "怎么反应（处理机制与防护）",
+	explorationgraph.CategoryNote:      "其他",
 }
 
 // refuteReasonHint 把反驳原因翻译成规划指令：配方类失败（证据没拿到）可换姿势
@@ -350,8 +374,8 @@ func refuteReasonHint(reason string) string {
 		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
 	case evaluator.RefuteClaimInvalid:
 		return "（复现成立但主张不成立：此方向作废，除非有实质新证据）"
-	case evaluator.RefuteAdjudicationFailed:
-		return "（裁决环节未完成，主张未被否定：可按原方向重提验证）"
+	case evaluator.RefuteJudgeUnavailable:
+		return "（评估环节未完成，主张未被否定：可按原方向重提验证）"
 	default:
 		return "（经真实复现验证被否定：不要原样重提）"
 	}
@@ -364,7 +388,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已被证伪的假设（复现门裁决）\n")
+	sb.WriteString("## 已被证伪的假设（复现门判定）\n")
 	seen := make(map[string]bool, len(hypotheses))
 	for _, h := range hypotheses {
 		st := textx.TruncateRunes(h.Statement, historyClampRunes, "…（截断）")
@@ -374,7 +398,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 		seen[st] = true
 		fmt.Fprintf(&sb, "- %s %s\n", st, refuteReasonHint(h.Reason))
 	}
-	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提；裁决未完成（adjudication_failed）可按原方向重提。\n\n")
+	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提；评估未完成（judge_unavailable）可按原方向重提。\n\n")
 	return sb.String()
 }
 

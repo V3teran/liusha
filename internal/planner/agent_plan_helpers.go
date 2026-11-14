@@ -185,7 +185,7 @@ func isRetriableError(err error) bool {
 //
 // "本轮无新计划" ≠ "任务收敛"：图上还有未完结工作（见 pendingWork）时，
 // planner 返回空只是对在途工作的等待——发布收敛会终止整个认知循环、掐断在途
-// 执行、裁决与分析。只有图上再无任何未完结工作且 planner 也没有新方向，才是
+// 执行、判定与分析。只有图上再无任何未完结工作且 planner 也没有新方向，才是
 // 真正的收敛。
 func (a *Agent) handleNoActions(ctx context.Context, trigger string) {
 	if pending := a.pendingWork(ctx); pending != "" {
@@ -204,7 +204,7 @@ func (a *Agent) handleNoActions(ctx context.Context, trigger string) {
 
 // pendingWork 返回阻止任务收敛的未完结工作（空串 = 可以收敛）：
 //   - 非终态动作：在途执行会产出新观察；
-//   - 未裁决观察：带着积压收敛会留下永久悬空的假设；
+//   - 待验证假设：带着积压收敛会留下永久悬空的假设；
 //   - 未分析结果：坐实的发现还没进结果分析，它可能催生新方向、宣告方向达成。
 //
 // 各项判定失败都保守视为未完结（宁可多等一轮，不误终止任务）。
@@ -212,8 +212,8 @@ func (a *Agent) pendingWork(ctx context.Context) string {
 	switch {
 	case a.hasUnsettledWork(ctx):
 		return "在途/待执行动作"
-	case a.hasPendingVerdicts(ctx):
-		return "待裁决观察"
+	case a.hasPendingHypotheses(ctx):
+		return "待验证假设"
 	case a.hasUnanalyzedResults(ctx):
 		return "待分析结果"
 	}
@@ -236,29 +236,29 @@ func (a *Agent) hasUnanalyzedResults(ctx context.Context) bool {
 	return false
 }
 
-// hasPendingVerdicts 判断图上是否还有未裁决的假设观察（confidence=unverified）。
-// 收敛必须等裁决清零：带着积压收敛会留下永久悬空的假设（实测任务完成时
-// 遗留 1 条 unverified，无任何路径补裁决）。判定失败保守返回 true。
-func (a *Agent) hasPendingVerdicts(ctx context.Context) bool {
+// hasPendingHypotheses 判断图上是否还有待验证的假设（verification_status=pending）。
+// 收敛必须等验证清零：带着积压收敛会留下永久悬空的假设（实测任务完成时
+// 遗留 1 条待验证假设，无任何路径补验证）。判定失败保守返回 true。
+func (a *Agent) hasPendingHypotheses(ctx context.Context) bool {
 	observations, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObservation)
 	if err != nil {
-		a.logger.Warn().Err(err).Msg("读取 Observation 失败，保守视为有待裁决观察")
+		a.logger.Warn().Err(err).Msg("读取 Observation 失败，保守视为有待验证假设")
 		return true
 	}
 	for _, obs := range observations {
-		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceUnverified {
+		if obs.HasVerificationStatus(explorationgraph.VerificationPending) {
 			return true
 		}
 	}
 	return false
 }
 
-// graphFingerprint 是图的终态指纹：终态动作计数 + result/裁决落定计数。
+// graphFingerprint 是图的终态指纹：终态动作计数 + result/验证落定计数 + 事实计数。
 // 指纹不变 = 自上轮审议以来图上没有任何新信息，重新审议必然得出同一结论。
 type graphFingerprint struct {
 	done, failed, aborted, exhausted int
 	results                          int
-	verified, refuted, facts         int
+	confirmed, refuted, facts        int
 }
 
 func (f graphFingerprint) equal(o graphFingerprint) bool {
@@ -296,16 +296,13 @@ func (a *Agent) graphFingerprint(ctx context.Context) (graphFingerprint, error) 
 		return fp, err
 	}
 	for _, obs := range observations {
-		if obs.Confidence == nil {
-			continue
-		}
-		switch *obs.Confidence {
-		case explorationgraph.ConfidenceVerified:
-			fp.verified++
-		case explorationgraph.ConfidenceRefuted:
-			fp.refuted++
-		case explorationgraph.ConfidenceFactual:
+		switch {
+		case obs.IsFact():
 			fp.facts++
+		case obs.HasVerificationStatus(explorationgraph.VerificationConfirmed):
+			fp.confirmed++
+		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
+			fp.refuted++
 		}
 	}
 	return fp, nil

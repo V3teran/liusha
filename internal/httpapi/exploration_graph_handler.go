@@ -21,7 +21,7 @@ type ExplorationGraphAPI interface {
 	ListEdgesByConversationID(ctx context.Context, conversationID string) ([]explorationgraph.Edge, error)
 
 	// ListVerificationsByConversationID 按 conversation_id 查询验证审计链
-	// （每条记录的 node_id 指向被裁决的假设节点）
+	// （每条记录的 node_id 指向被验证的假设节点）
 	ListVerificationsByConversationID(ctx context.Context, conversationID string, limit int) ([]explorationgraph.Verification, error)
 }
 

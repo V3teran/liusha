@@ -24,6 +24,8 @@ EXCLUDES=(
   ':!internal/tools/manifest/tools.yaml'  # 工具清单转述第三方工具的业界用语（如 passive DNS），不是本项目概念
   ':!scripts/lint-terminology.sh'
   ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
+  ':!internal/dbtest/migration_0208_integration_test.go'  # 同上
+  ':!internal/dbtest/testdata'  # 迁移测试的历史出厂内容快照
   ':!web/dist' ':!**/node_modules'
 )
 
@@ -39,7 +41,14 @@ EXCLUDES=(
 # LIUSHA_AGENT_ID：命令环境里的 run 标识已更名 LIUSHA_AGENT_RUN_ID（它是 run 的 ID，不是 agent 的）。
 # reseed / system_prompt / system_setting：出厂内容编译进程序、数据库只存用户自定义后退役
 #   （迁移 0201）——提示词改称章程（charter），系统设置用户层为 setting_override。
+# unverified / factual / verification_outcome / executor_confidence / test_plan：观察的图级
+#   「置信度」改为只有假设才有的验证状态 verification_status（pending/confirmed/refuted），
+#   验证结论不再双写，执行器自评置信度与 test_plan 字段删除（迁移 0208）。
+# 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
+#   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
 FORBIDDEN=(
+  '裁决'
+  'adjudicat'
   '知识图谱'
   '认知图'
   '世界模型'
@@ -79,6 +88,11 @@ FORBIDDEN=(
   'system_prompt'
   'system_setting'
   'LIUSHA_AGENT_ID'
+  'unverified'
+  'factual'
+  'verification_outcome'
+  'executor_confidence'
+  'test_plan'
 )
 
 MODE="${1:-check}"

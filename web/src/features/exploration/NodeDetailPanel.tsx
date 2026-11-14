@@ -6,13 +6,13 @@
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GraphNode, Verification } from '@/api/explorationgraph'
-import { kindProfile, nodeTitle, stateMeta, confidenceMeta, PRIORITY_META, COMPLEXITY_META } from './kindTheme'
+import { kindProfile, nodeTitle, stateMeta, verificationMeta, PRIORITY_META, COMPLEXITY_META } from './kindTheme'
 
 const SOURCE_LABELS: Record<string, string> = {
   user: '用户',
   planner: '规划者',
   executor: '执行者',
-  evaluator: '裁决者',
+  evaluator: '评估者',
   monitor: '监察者',
 }
 
@@ -38,7 +38,7 @@ export function NodeDetailPanel({
   const Icon = profile.icon
   const title = nodeTitle(node)
   const state = stateMeta(node.state)
-  const confidence = confidenceMeta(node.confidence)
+  const verificationLabel = verificationMeta(node.verification_status)
   const content = (node.content ?? {}) as Record<string, unknown>
   // 主文本已置顶展示，k/v 里跳过同值字段避免重复
   const contentEntries = Object.entries(content).filter(
@@ -81,7 +81,7 @@ export function NodeDetailPanel({
           {node.complexity && COMPLEXITY_META[node.complexity] && (
             <MetaChip label="复杂度" value={COMPLEXITY_META[node.complexity]} />
           )}
-          {confidence && <MetaChip label="置信度" value={confidence} />}
+          {verificationLabel && <MetaChip label="验证" value={verificationLabel} />}
           <MetaChip label="来源" value={SOURCE_LABELS[node.source_type] ?? node.source_type} />
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
@@ -139,7 +139,7 @@ export function NodeDetailPanel({
             </h4>
             <div className="space-y-1 text-xs text-text-secondary">
               <div>
-                裁决时刻：<span className="font-mono">{new Date(verification.created_at).toLocaleString()}</span>
+                验证时刻：<span className="font-mono">{new Date(verification.created_at).toLocaleString()}</span>
               </div>
               {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
             </div>

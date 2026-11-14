@@ -6,6 +6,9 @@ import { get } from './client'
 
 export type NodeKind = 'objective' | 'action' | 'observation' | 'result'
 
+/** 假设观察的验证状态：待验证 → 已坐实（晋升结果）/ 已证伪 */
+export type VerificationStatus = 'pending' | 'confirmed' | 'refuted'
+
 export interface GraphNode {
   id: string
   task_id: string
@@ -14,8 +17,8 @@ export interface GraphNode {
   content: unknown
   /** objective/action 专属：状态机 */
   state?: string
-  /** observation/result 专属：置信度（unverified/verified/refuted/factual） */
-  confidence?: string
+  /** 假设观察专属：验证状态（事实观察与结果没有） */
+  verification_status?: VerificationStatus
   /** action 专属：复杂度 */
   complexity?: string
   priority?: string
@@ -25,7 +28,7 @@ export interface GraphNode {
   depends_on?: string[]
   /** action 专属：阻塞原因 */
   blocked_reason?: string
-  /** 派生字段（verification_outcome/refute_reason 等），展开在详情面板 */
+  /** 领域扩展字段（refute_reason 等） */
   metadata?: unknown
   created_at: string
   updated_at: string
@@ -63,7 +66,7 @@ export interface Verification {
 }
 
 /**
- * 获取会话的验证审计链（每次复现裁决的机器证据；node_id 回挂图节点）
+ * 获取会话的验证审计链（每次复现判定的机器证据；node_id 回挂图节点）
  */
 export async function getConversationVerifications(conversationId: string): Promise<{ verifications: Verification[] }> {
   return get(`/conversations/${conversationId}/exploration/verifications`)

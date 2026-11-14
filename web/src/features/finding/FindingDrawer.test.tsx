@@ -130,14 +130,14 @@ describe('FindingDrawer', () => {
     },
   }
 
-  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 裁决理由齐备渲染', () => {
+  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 评估理由齐备渲染', () => {
     const finding = makeFinding({ evaluation: chainEvaluation, repro: chainRepro })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
     expect(screen.getByText('证据链')).toBeTruthy()
     expect(screen.getByText('复现命令')).toBeTruthy()
     expect(screen.getByText('机器证据')).toBeTruthy()
-    expect(screen.getByText('裁决理由')).toBeTruthy()
+    expect(screen.getByText('评估理由')).toBeTruthy()
     // curl 命令带配方 URL 与 header
     expect(document.body.textContent).toContain("curl -X GET 'http://t:8080/shell.php?cmd=id'")
     expect(document.body.textContent).toContain("-H 'Cookie: s=a'")
@@ -148,7 +148,7 @@ describe('FindingDrawer', () => {
     // 基线对照说明
     expect(screen.getByText(/对照基线/)).toBeTruthy()
     // 档位徽章
-    expect(screen.getByText('机器复放 + 终裁')).toBeTruthy()
+    expect(screen.getByText('机器复放 + 终判')).toBeTruthy()
   })
 
   it('证据链：repro/evaluation 缺席时整区不渲染', () => {

@@ -106,7 +106,6 @@ func (e *Engine) buildReActConfigWithMonitoring(
       "category": "hypothesis",
       "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
       "reasoning": "你为什么得出这个结论",
-      "confidence": "low/medium/high",
       "priority": "优先级：这条主张值得多优先对待（low/medium/high/critical）",
       "impact": "影响：主张为真时会发生什么、波及多大（一段话）",
       "suggestion": "建议：若要改变这一局面可以怎么做（一段话）",
@@ -129,31 +128,30 @@ func (e *Engine) buildReActConfigWithMonitoring(
     {
       "category": "entity",
       "statement": "对象陈述：环境中存在什么对象、有什么属性",
-      "reasoning": "依据是什么（来自哪个实测输出）",
-      "confidence": "low/medium/high"
+      "reasoning": "依据是什么（来自哪个实测输出）"
     }
   ]
 }
 ` + "```\n\n" + `说明：
-- 每条 observation 必须带 category，七个信息域（领域中立词汇，选最贴切的一个）：
-  * hypothesis：待裁决的判断——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并可能成为正式发现
+- 每条 observation 必须带 category（领域中立词汇，选最贴切的一个）：
+  * hypothesis：待验证的判断——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并成为正式发现。一眼可见的问题（敏感文件泄露、危险配置）同样写成 hypothesis：它们最容易给出配方
   * entity：环境中存在的单个对象及其属性（某主机/端点/服务/页面/文件/配置项存在，及其关键属性）
   * access：触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
   * structure：对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
-  * behavior：环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律）
-  * issue：已观察到的异常与障碍（报错、崩溃、配置缺陷、阻塞推进的坑）——已证实、可直接判定的坏事实
+  * behavior：环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律、拦截与限流等阻碍推进的防护）
   * note：以上都不合适的杂项（最后手段——先找具体域，写不出归属再用 note）
 - entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
-- issue 与 hypothesis 的分界：看一眼就能判定的坏事实记 issue；需要复现证明才能下结论的判断记 hypothesis（必须带 repro）
+- hypothesis 与事实的分界：凡是「这里有问题」的判断都记 hypothesis（必须带 repro）；事实只陈述环境是什么样、怎么反应，不下好坏结论
 - 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
 - 没有值得记录的内容时，observations 可以是空数组 []
 - hypothesis 必须包含完整的 repro 复现步骤；只推测未实测的东西不要标 hypothesis
 - 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
   * body_contains: 响应体必须包含的字符串数组（推荐）
   * status_code: 期望的HTTP状态码（数字）
-  * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
+  * header_contains: 响应头必须存在并包含子串，格式为对象 {"Header-Name": "substring"}，不是数组；子串为空即只要求该头存在
+  * header_not_contains: 响应头必须不存在、或存在但不含子串，格式同上；子串为空即要求该头不存在（缺失安全头、Cookie 缺 HttpOnly）
   * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
-- domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被裁决
+- domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被验证
 - 不要只写description，必须提供具体的断言条件
 - hypothesis 坐实后会成为交付物给人看：priority/impact/suggestion 都要写全——
   impact 陈述主张为真时的具体影响（落实到对象，中性因果）；
@@ -290,8 +288,8 @@ func (e *Engine) executeReActRuntime(
 
 // fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
 // 通过单轮 LLM 调用，基于任务目标推导仍值得独立验证的假设——执行失败
-// 不等于一无所获，能给出复现步骤的推测交给裁决门去实测。请求携带完整系统
-// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与裁决管道，输出格式
+// 不等于一无所获，能给出复现步骤的推测交给复现门去实测。请求携带完整系统
+// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与验证管道，输出格式
 // 与配方形状只有输出契约一个权威，这里只交代降级任务本身。
 func (e *Engine) fallbackExtractHypothesis(
 	ctx context.Context,
@@ -401,7 +399,7 @@ func (e *Engine) ensureSummaryObservation(ctx context.Context, action exploratio
 		summary = "执行完结（无总结产出）"
 	}
 	obs := Observation{
-		Category:  CategoryNote,
+		Category:  explorationgraph.CategoryNote,
 		Statement: "执行总结：" + summary,
 	}
 	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
@@ -453,24 +451,24 @@ func (e *Engine) harvestObservation(
 	//     无配方落 note；观察本体永远比分类标签值钱，不因漏标签丢弃。
 	//   越界（契约外字面值）：落 note 兜底并告警——显式乱写不可信，不做
 	//     猜测性归类。
-	//   自相矛盾（hypothesis 无配方）：降级 note——无从裁决的主张退为杂记。
+	//   自相矛盾（hypothesis 无配方）：降级 note——无从验证的主张退为杂记。
 	if obs.Category == "" {
 		if len(obs.Repro) > 0 {
-			obs.Category = CategoryHypothesis
+			obs.Category = explorationgraph.CategoryHypothesis
 		} else {
-			obs.Category = CategoryNote
+			obs.Category = explorationgraph.CategoryNote
 		}
 	}
-	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
+	if obs.Category == explorationgraph.CategoryHypothesis && len(obs.Repro) == 0 {
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("hypothesis 缺少 repro，降级为 note 落图（无配方的主张无从裁决）")
-		obs.Category = CategoryNote
+			Msg("hypothesis 缺少 repro，降级为 note 落图（无配方的主张无从验证）")
+		obs.Category = explorationgraph.CategoryNote
 	}
 	switch obs.Category {
-	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
-		CategoryNote, CategoryIssue, CategoryHypothesis:
+	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior,
+		explorationgraph.CategoryNote, explorationgraph.CategoryHypothesis:
 		// 契约内类别，原样进入落图
 	default:
 		e.logger.Warn().
@@ -478,10 +476,10 @@ func (e *Engine) harvestObservation(
 			Str("raw_category", string(obs.Category)).
 			Str("statement", obs.Statement).
 			Msg("观察类别越界，落 note 兜底")
-		obs.Category = CategoryNote
+		obs.Category = explorationgraph.CategoryNote
 	}
 
-	// 附加 ExecutionTrace：裁决官看到的是完整执行轨迹，而不是 executor
+	// 附加 ExecutionTrace：评估者看到的是完整执行轨迹，而不是 executor
 	// 转述的不可靠结论
 	obs.ExecutionTrace = &trace
 
@@ -523,9 +521,9 @@ func (e *Engine) harvestObservation(
 		Str("category", string(obs.Category)).
 		Msg("创建 observation 节点成功")
 
-	// 只有假设进裁决管道（Attempt → 复现门）；事实是终态，无 Attempt、
+	// 只有假设进验证管道（Attempt → 复现门）；事实是终态，无 Attempt、
 	// 无事件、无晋升——planner 直接从图上读。
-	if obs.Category != CategoryHypothesis {
+	if obs.Category != explorationgraph.CategoryHypothesis {
 		return nil, observed
 	}
 

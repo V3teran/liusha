@@ -171,7 +171,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               </div>
             )
           }
-          // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统裁决无归属）。
+          // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统判定无归属）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
             return <TaskStatusCard key={r.key} md={r.msg.metadata!} />
           }

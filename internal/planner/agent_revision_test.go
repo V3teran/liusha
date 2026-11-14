@@ -251,20 +251,20 @@ type convergeRecorder struct {
 
 func (c *convergeRecorder) PublishTaskConverged(_, _ string) { c.converged++ }
 
-// 收敛判定的唯一口径：未分析的结果、未裁决的观察与非终态动作一样阻止收敛，
+// 收敛判定的唯一口径：未分析的结果、待验证的假设与非终态动作一样阻止收敛，
 // 常规规划与 monitor 强制重规划两条路径一致。
 func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
-	unverified := explorationgraph.ConfidenceUnverified
+	pending := explorationgraph.VerificationPending
 	cases := []struct {
 		name    string
 		seed    func(t *testing.T, store *explorationgraph.Store)
 		blocked bool
 	}{
 		{"未分析结果", func(*testing.T, *explorationgraph.Store) {}, true},
-		{"未裁决观察", func(t *testing.T, store *explorationgraph.Store) {
+		{"待验证假设", func(t *testing.T, store *explorationgraph.Store) {
 			markAllAnalyzed(t, store)
 			obs := revisionNode("o1", core.KindObservation, explorationgraph.SourceExecutor, nil, 5*time.Second)
-			obs.Confidence = &unverified
+			obs.VerificationStatus = &pending
 			_, err := store.CreateNode(context.Background(), obs)
 			require.NoError(t, err)
 		}, true},

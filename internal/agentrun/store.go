@@ -17,7 +17,7 @@ var ErrNoRun = errors.New("agent run 不存在")
 
 // ErrLiveRunExists 表示该 task 已有存活 run（pending/running）——部分唯一索引
 // agent_run_one_live_per_task 拒绝了第二个存活行的创建。agent run 有四个并发
-// 生产者（下发展开/会话续接/暂停后继续/恢复监控重投），此哨兵是竞争的裁决
+// 生产者（下发展开/会话续接/暂停后继续/恢复监控重投），此哨兵是竞争的判定
 // 信号：先建者赢，后来者按各自语义处理（幂等成功 / 跳过重投 / 复用既有 run）。
 var ErrLiveRunExists = errors.New("该任务已有存活 run（pending/running），拒绝再建")
 

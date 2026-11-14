@@ -1,8 +1,8 @@
-// Package evaluator 实现验证层：复现晋升门 + LLM 语义裁决器（ReAct 形态）。
+// Package evaluator 实现验证层：复现晋升门 + LLM 语义判定器（ReAct 形态）。
 //
-// judge.go 职责：分工铁律——复现门裁决官经 replay_for_verification 工具自主重放取证、
-// 按需多次验证，最终输出结构化裁决。断言命中 ≠ 主张成立（命中内容可能
-// 本就是常态输出），语义终裁交给裁决官——这是晋升门的最后一道闸。
+// judge.go 职责：分工铁律——复现门评估者经 replay_for_verification 工具自主重放取证、
+// 按需多次验证，最终输出结构化判定。断言命中 ≠ 主张成立（命中内容可能
+// 本就是常态输出），语义终判交给评估者——这是晋升门的最后一道闸。
 package evaluator
 
 import (
@@ -24,15 +24,15 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// ReplayFunc 是裁决官可调用的机器重放（由 PromotionGate 注入，绑定本 Attempt 配方）。
+// ReplayFunc 是评估者可调用的机器重放（由 PromotionGate 注入，绑定本 Attempt 配方）。
 type ReplayFunc func(ctx context.Context) (Result, error)
 
-// LLMJudge 是晋升门的语义裁决器接口（ReAct 实现 + 测试 stub）。
+// LLMJudge 是晋升门的语义判定器接口（ReAct 实现 + 测试 stub）。
 type LLMJudge interface {
 	Judge(ctx context.Context, hypothesis string, recipe, initialEvidence json.RawMessage, replay ReplayFunc) (Verdict, error)
 }
 
-// RouterJudge 经 ReAct runtime 跑语义裁决：工具（replay_for_verification）+ 终裁 JSON。
+// RouterJudge 经 ReAct runtime 跑语义判定：工具（replay_for_verification）+ 终判 JSON。
 type RouterJudge struct {
 	router        *llm.Router
 	logger        zerolog.Logger
@@ -50,7 +50,7 @@ type RouterJudge struct {
 	toolWrap      func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 
-// NewRouterJudge 构造 ReAct 裁决官。
+// NewRouterJudge 构造 ReAct 评估者。
 func NewRouterJudge(router *llm.Router, logger zerolog.Logger) *RouterJudge {
 	return &RouterJudge{
 		router: router,
@@ -71,7 +71,7 @@ func (j *RouterJudge) WithCLIManifest(m *manifest.ToolManifest) *RouterJudge {
 	return j
 }
 
-// WithSkills 注入 Tier 1 skill 索引（agent.skills 声明的 frontmatter）。裁决官与
+// WithSkills 注入 Tier 1 skill 索引（agent.skills 声明的 frontmatter）。评估者与
 // executor 共用同一渲染（skill.RenderIndex）——两侧对"有哪些手册可读"认知一致。
 func (j *RouterJudge) WithSkills(cards []*skill.Card) *RouterJudge {
 	j.skills = cards
@@ -114,7 +114,7 @@ func (j *RouterJudge) WithToolOutputTailBytes(n int) *RouterJudge {
 	return j
 }
 
-// WithToolWrapper 注入共享拦截链包装器（遥测/心跳/时间线）——裁决官对目标的
+// WithToolWrapper 注入共享拦截链包装器（遥测/心跳/时间线）——评估者对目标的
 // 主动动作（replay_for_verification 重放）与 executor 同一执行面，审计无盲区。
 // nil=不包装（独立部署/测试）。
 func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *RouterJudge {
@@ -130,7 +130,7 @@ func (j *RouterJudge) WithComplexity(complexity string) *RouterJudge {
 }
 
 // contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
-// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断裁决）。
+// 比例未配置/读取失败返回 0——压缩器内置兜底预算接管（配置问题绝不阻断判定）。
 func (j *RouterJudge) contextBudget(ctx context.Context) int {
 	if j.contextRatio <= 0 {
 		return 0
@@ -149,7 +149,7 @@ func (j *RouterJudge) WithExtraTools(ts []registry.Tool) *RouterJudge {
 	return j
 }
 
-// Judge 实现 LLMJudge：ReAct 循环内 LLM 自主调重放工具采证，FinalAnswer 为裁决 JSON。
+// Judge 实现 LLMJudge：ReAct 循环内 LLM 自主调重放工具采证，FinalAnswer 为判定 JSON。
 func (j *RouterJudge) Judge(
 	ctx context.Context,
 	hypothesis string,
@@ -199,25 +199,25 @@ func (j *RouterJudge) Judge(
 		SystemPrompt:               j.systemPrompt(),
 		LLMProvider:                provider,
 		MaxIterations:              j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
-		MaxConsecutiveToolFailures: 12,      // 连续工具失败止损阈值（单机制：runtime 内置，裁决链路容忍更高）
+		MaxConsecutiveToolFailures: 12,      // 连续工具失败止损阈值（单机制：runtime 内置，评估链路容忍更高）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MaxTokens:                  1500,
 		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller),
 		ToolOutputTailBytes:        j.toolTailBytes,
 		MiddlewareChain:            middlewareChain,
-		// 裁决终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
-		// 是自由散文——裁决结论写在散文里（"假设坐实 confirmed 0.99"）而
+		// 判定终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
+		// 是自由散文——验证结论写在散文里（"假设坐实 confirmed 0.99"）而
 		// parseVerdict 只认 JSON，实测真漏洞因输出格式漂移连败三次被误判
 		// invalid_recipe 出圈。设此字段后 runtime 的 forceStructuredOutput
 		// 会在散文终稿上强制补一轮 JSON 输出。
-		OutputFormatPrompt: "你是裁决官，已完成取证，现在需要输出最终裁决。",
+		OutputFormatPrompt: "你是评估者，已完成取证，现在需要输出最终结论。",
 		OutputFormatSchema: `请输出以下JSON格式（只输出一个 JSON 对象，不要包裹 markdown）：
 
 ` + "```json\n" + `{
   "verdict": "confirmed 或 refuted",
   "confidence": 0.9,
-  "reasoning": "一句话裁决理由（引用你亲见的差分）",
+  "reasoning": "一句话评估理由（引用你亲见的差分）",
   "finding": {"class": "类别", "method": "方法", "host": "主机", "path": "路径", "param": "触发点"}
 }
 ` + "```\n\n" + `说明：
@@ -229,7 +229,7 @@ func (j *RouterJudge) Judge(
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
 	}
-	// 终态叙述在解析边界完成：裁决协议转人读摘要作正文（谁解析谁叙述，
+	// 终态叙述在解析边界完成：判定协议转人读摘要作正文（谁解析谁叙述，
 	// 前端不解释协议；协议原文由审计面保存）；解析失败时正文回退原文，终态帧照落。
 	v, verr := parseVerdict(result.FinalAnswer)
 	round := reasoning.RoundOf(result)
@@ -242,7 +242,7 @@ func (j *RouterJudge) Judge(
 	return v, verr
 }
 
-// verdictNarrative 把裁决协议转成时间线人读叙述：结论 + 置信度 + 理由。
+// verdictNarrative 把判定协议转成时间线人读叙述：结论 + 置信度 + 理由。
 func verdictNarrative(v Verdict) string {
 	ruling := v.Verdict
 	switch v.Verdict {
@@ -251,17 +251,17 @@ func verdictNarrative(v Verdict) string {
 	case "refuted":
 		ruling = "证伪"
 	}
-	head := fmt.Sprintf("裁决：%s（置信度 %.0f%%）", ruling, v.Confidence*100)
+	head := fmt.Sprintf("评估结论：%s（置信度 %.0f%%）", ruling, v.Confidence*100)
 	if v.Reasoning == "" {
 		return head
 	}
 	return head + "\n\n理由：" + v.Reasoning
 }
 
-// buildObjective 组装裁决输入（假设 + 自包含配方 + 预跑对照摘要）。
+// buildObjective 组装判定输入（假设 + 自包含配方 + 预跑对照摘要）。
 func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence json.RawMessage) string {
 	var sb strings.Builder
-	sb.WriteString("裁决以下假设是否坐实。\n\n## 假设\n")
+	sb.WriteString("判定以下假设是否坐实。\n\n## 假设\n")
 	if hypothesis != "" {
 		sb.WriteString(hypothesis)
 	} else {
@@ -273,16 +273,16 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 	sb.WriteString(stringOrEmpty(initialEvidence))
 	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/利用请求差分（一致即无差分）；")
 	sb.WriteString("证据标注 domain=generic（无机器重放通道）时改用 run_command 按 recipe 步骤自主执行取证；")
-	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据裁决。")
-	sb.WriteString("\n\n裁决对象必须是可复现验证的主张断言；非主张类断言（枚举结果、状态汇报）按章程规则处理。")
+	sb.WriteString("需要独立取证时用 run_command（如 curl 重放配方 request、用正常参数做对照）。基于你亲见的证据判定。")
+	sb.WriteString("\n\n验证对象必须是可复现验证的主张断言；非主张类断言（枚举结果、状态汇报）按章程规则处理。")
 	sb.WriteString("confirmed 时按章程契约附结构化指纹（finding 字段），供系统对同一发现去重。")
 	return sb.String()
 }
 
-// systemPrompt 组装裁决官 system prompt：
+// systemPrompt 组装评估者 system prompt：
 //
-//	章程（可自定义：裁决准则、验证流程、域指引）
-//	+ 契约（evaluator/contract，与 parseVerdict 同改同测，不可自定义：重放通道语义、裁决 JSON）
+//	章程（可自定义：评估准则、验证流程、域指引）
+//	+ 契约（evaluator/contract，与 parseVerdict 同改同测，不可自定义：重放通道语义、判定 JSON）
 //	+ skill 索引（有声明且 read_skill 在白名单时渲染）
 //	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
 //
@@ -312,10 +312,10 @@ func (j *RouterJudge) systemPrompt() string {
 	return sb.String()
 }
 
-// parseVerdict 从 FinalAnswer 提取裁决 JSON（含坐实发现的结构化指纹）。
+// parseVerdict 从 FinalAnswer 提取判定 JSON（含坐实发现的结构化指纹）。
 func parseVerdict(content string) (Verdict, error) {
 	if content == "" {
-		return Verdict{}, fmt.Errorf("judge: 裁决输出为空")
+		return Verdict{}, fmt.Errorf("judge: 判定输出为空")
 	}
 	var v struct {
 		Verdict     string          `json:"verdict"`
@@ -324,7 +324,7 @@ func parseVerdict(content string) (Verdict, error) {
 		Fingerprint json.RawMessage `json:"finding"`
 	}
 	if err := llm.ParseJSON(content, &v); err != nil {
-		return Verdict{}, fmt.Errorf("judge: 解析裁决失败: %w (输出: %.200s)", err, content)
+		return Verdict{}, fmt.Errorf("judge: 解析判定失败: %w (输出: %.200s)", err, content)
 	}
 	switch v.Verdict {
 	case VerdictConfirmed, VerdictRefuted:
@@ -379,7 +379,7 @@ func (t *replayTool) Execute(ctx context.Context, _ json.RawMessage) (registry.T
 		ev = json.RawMessage("{}")
 	}
 	out, _ := json.Marshal(map[string]interface{}{
-		"note":        "assert_check 是 executor 声明预期的核验明细（参考，非结论）；坐实与否由你裁决",
+		"note":        "assert_check 是 executor 声明预期的核验明细（参考，非结论）；坐实与否由你判定",
 		"evidence":    ev,
 		"duration_ms": res.DurationMs,
 	})

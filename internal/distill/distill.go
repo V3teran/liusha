@@ -4,7 +4,7 @@
 //
 // 这是长期记忆的写入闭环：corpus 两条写路径——expert 人工导入与本包的 agent
 // 收尾沉淀（source=agent）。材料质量靠构造保证——
-// 只取复现门裁决过的节点，不做二次筛选；被中止任务不进本管道（过程性结论
+// 只取复现门判定过的节点，不做二次筛选；被中止任务不进本管道（过程性结论
 // 可能误导后续任务）。
 //
 // 去重语义由 corpus.Add 的 content_hash 承接：重复教训命中即 hit_count++，
@@ -156,19 +156,11 @@ func (s *Service) collect(ctx context.Context, taskID string) []string {
 		if json.Unmarshal(obs.Content, &c) != nil || strings.TrimSpace(c.Statement) == "" {
 			continue
 		}
-		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceFactual {
+		switch {
+		case obs.IsFact():
 			facts = append(facts, "已确认事实："+c.Statement)
-			continue
-		}
-		if obs.Metadata == nil {
-			continue
-		}
-		var m struct {
-			VerificationOutcome string `json:"verification_outcome"`
-			RefuteReason        string `json:"refute_reason"`
-		}
-		if json.Unmarshal(obs.Metadata, &m) == nil && m.VerificationOutcome == string(explorationgraph.OutcomeRefuted) {
-			refuted = append(refuted, "已证伪假设："+c.Statement+"（原因："+m.RefuteReason+"）")
+		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
+			refuted = append(refuted, "已证伪假设："+c.Statement+"（原因："+obs.RefuteReason()+"）")
 		}
 	}
 	return assembleMaterials(results, facts, refuted)

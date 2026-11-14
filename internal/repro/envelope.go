@@ -1,5 +1,5 @@
 // Package repro 承载复现配方的域信封契约：归一化、矫正、分域校验。
-// 它是纯函数叶子包（零内部依赖），executor 收割侧与 evaluator 裁决门共同依赖。
+// 它是纯函数叶子包（零内部依赖），executor 收割侧与 evaluator 复现门共同依赖。
 // 观察节点的唯一生产路径是 executor 引擎收割（ReAct 最终 JSON →
 // createObservationNode），归一化在落图前统一执行。
 package repro
@@ -146,7 +146,7 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 	assert = flex.Assert
 	if len(assert) == 0 {
 		return nil, nil, fmt.Errorf("repro 缺少 assert 字段。\n\n" +
-			"web 域可用字段: status_code, body_contains, body_not_contains, header_contains, min_duration_ms")
+			"web 域可用字段: status_code, body_contains, body_not_contains, header_contains, header_not_contains, min_duration_ms")
 	}
 	assert = coerceWebAssertShape(assert)
 	if err := validateWebRequestRecipe(recipe); err != nil {
@@ -161,7 +161,7 @@ func normalizeWebRepro(flex reproEnvelope) (recipe, assert json.RawMessage, err 
 // coerceWebAssertShape 对 assert 做宽容形状矫正（LLM 输出形状不可靠，写入侧
 // 统一归一到复现门期望的类型）：
 //   - body_contains/body_not_contains 传单个字符串时自动包装成单元素数组；
-//   - header_contains 传数组（对象数组/字符串数组）时合并成 key→value map；
+//   - header_contains/header_not_contains 传数组（对象数组/字符串数组）时合并成 key→value map；
 //   - status_code/min_duration_ms 传数字字符串时转成数字。
 //
 // 矫正不了的形状原样透传（门侧报错兜底）。
@@ -185,16 +185,17 @@ func coerceWebAssertShape(assert json.RawMessage) json.RawMessage {
 		}
 	}
 
-	// header_contains 数组 → map（复现门 Assertion 期望 key→value；
-	// 形状放任会在门侧解析失败，该观察永远无法裁决——e2e 实测连烧 3 次
-	// 验证预算后 invalid_recipe 出圈）
-	if v, ok := raw["header_contains"]; ok && len(v) > 0 {
-		if strings.HasPrefix(strings.TrimSpace(string(v)), "[") {
-			if m := mergeHeaderArray(v); m != nil {
-				if b, err := json.Marshal(m); err == nil {
-					raw["header_contains"] = b
-					changed = true
-				}
+	// 响应头谓词数组 → map（复现门 Assertion 期望 key→value；形状放任会在门侧
+	// 解析失败，该观察永远无法验证——e2e 实测连烧 3 次验证预算后 invalid_recipe 出圈）
+	for _, field := range []string{"header_contains", "header_not_contains"} {
+		v, ok := raw[field]
+		if !ok || len(v) == 0 || !strings.HasPrefix(strings.TrimSpace(string(v)), "[") {
+			continue
+		}
+		if m := mergeHeaderArray(v); m != nil {
+			if b, err := json.Marshal(m); err == nil {
+				raw[field] = b
+				changed = true
 			}
 		}
 	}
@@ -225,27 +226,33 @@ func coerceWebAssertShape(assert json.RawMessage) json.RawMessage {
 	return b
 }
 
-// mergeHeaderArray 把 header_contains 的数组形状合并成 map：
-// [{"X-Foo":"a"},{"X-Bar":"b"}] / ["X-Foo: a","X-Bar=b"] → {"x-foo":"a","x-bar":"b"}。
+// mergeHeaderArray 把响应头谓词的数组形状合并成 map：
+// [{"X-Foo":"a"},{"X-Bar":"b"}] / ["X-Foo: a","X-Bar=b","X-Baz"] → {"x-foo":"a","x-bar":"b","x-baz":""}。
+// 只写头名即子串为空（header_contains 要求头存在，header_not_contains 要求头不存在）。
 // 键统一小写（与复现门 HTTP 头匹配口径一致）；无法辨认的元素跳过，
 // 一个都拆不出时返回 nil（原样透传，让门侧报出真实形状）。
 func mergeHeaderArray(v json.RawMessage) map[string]string {
-	var objs []map[string]json.RawMessage
-	var strs []string
+	var elems []json.RawMessage
+	if json.Unmarshal(v, &elems) != nil {
+		return nil
+	}
 	merged := map[string]string{}
-	if json.Unmarshal(v, &objs) == nil {
-		for _, o := range objs {
-			for k, rv := range o {
+	for _, e := range elems {
+		var obj map[string]json.RawMessage
+		var str string
+		switch {
+		case json.Unmarshal(e, &obj) == nil:
+			for k, rv := range obj {
 				var s string
 				if json.Unmarshal(rv, &s) == nil {
 					merged[strings.ToLower(strings.TrimSpace(k))] = s
 				}
 			}
-		}
-	} else if json.Unmarshal(v, &strs) == nil {
-		for _, s := range strs {
-			if k, val, ok := splitHeaderPair(s); ok {
+		case json.Unmarshal(e, &str) == nil:
+			if k, val, ok := splitHeaderPair(str); ok {
 				merged[strings.ToLower(k)] = val
+			} else if name := strings.TrimSpace(str); isHeaderName(name) {
+				merged[strings.ToLower(name)] = ""
 			}
 		}
 	}
@@ -267,6 +274,23 @@ func splitHeaderPair(s string) (key, val string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// isHeaderName 判断字符串是否是合法的 HTTP 头名（RFC 9110 token）。
+func isHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isJSONInt 判断字符串是否为纯整数形态（status_code/min_duration_ms 用）。
@@ -302,7 +326,7 @@ func normalizeGenericRepro(flex reproEnvelope) (recipe, assert json.RawMessage, 
 		Steps string `json:"steps"`
 	}
 	if err := json.Unmarshal(recipe, &rc); err == nil && strings.TrimSpace(rc.Steps) == "" {
-		return nil, nil, fmt.Errorf("generic 域 recipe.steps 不能为空——裁决官据此自主执行，无步骤即无可复现")
+		return nil, nil, fmt.Errorf("generic 域 recipe.steps 不能为空——评估者据此自主执行，无步骤即无可复现")
 	}
 	assert = flex.Assert
 	if len(assert) == 0 {
@@ -358,14 +382,14 @@ func validateWebRequestRecipe(recipe json.RawMessage) error {
 
 // teachWebAssertDiscriminative 断言鉴别力的早期反馈，与复现门 assertDiscriminative
 // 同一口径：只拒 body_contains 短子串（几乎必命中任意页面）。常规状态码等弱断言
-// 不在此拦——鉴别力由 LLM 裁决官结合 baseline 差分与完整响应终判；在此报错只会让
-// 收割侧保留未矫正的原始配方，复现门因形状错误直接判死，裁决官反而看不到。
+// 不在此拦——鉴别力由 LLM 评估者结合 baseline 差分与完整响应终判；在此报错只会让
+// 收割侧保留未矫正的原始配方，复现门因形状错误直接判死，评估者反而看不到。
 func teachWebAssertDiscriminative(assert json.RawMessage) error {
 	var ac struct {
 		BodyContains []string `json:"body_contains"`
 	}
 	if err := json.Unmarshal(assert, &ac); err != nil {
-		return nil //nolint:nilerr // 结构留给闸门裁决，写入侧不做硬失败
+		return nil //nolint:nilerr // 结构留给闸门判定，写入侧不做硬失败
 	}
 	for _, want := range ac.BodyContains {
 		if len(strings.TrimSpace(want)) < MinBodyContainsLen {
@@ -378,7 +402,7 @@ func teachWebAssertDiscriminative(assert json.RawMessage) error {
 
 // convertArrayRepro 把数组形状的历史配方（["step1", "step2", ...]）转换成
 // generic 域信封——LLM 偶尔把复现步骤写成字符串列表，直接交给结构体解析
-// 会失败且该观察永远无法裁决。数组内非字符串元素时原样返回（由分域校验
+// 会失败且该观察永远无法验证。数组内非字符串元素时原样返回（由分域校验
 // 给出可行动的报错）。
 func convertArrayRepro(repro json.RawMessage) json.RawMessage {
 	trimmed := strings.TrimSpace(string(repro))

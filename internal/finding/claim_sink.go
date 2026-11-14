@@ -15,9 +15,9 @@ type findingStore interface {
 	Save(ctx context.Context, f Finding) (Finding, error)
 }
 
-// ClaimSink 把通用裁决门坐实的主张落成本域交付物（finding 表）。
+// ClaimSink 把通用复现门坐实的主张落成本域交付物（finding 表）。
 // 领域评级与定位的全部映射在此：severity 缺省、host 从证据 URL 抽取、
-// 交付载荷组装——通用裁决门只透传载荷，不解释领域字段。
+// 交付载荷组装——通用复现门只透传载荷，不解释领域字段。
 //
 // 依赖方向：领域交付包认识通用契约（evaluator.ConfirmedClaim），
 // 通用门对领域零感知。
@@ -79,7 +79,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		}
 	}
 
-	// evaluation 列的证据链形态：裁决结论/成色/理由提为第一层键（前端按
+	// evaluation 列的证据链形态：验证结论/成色/理由提为第一层键（前端按
 	// 键直取渲染），复放证据与机器断言明细收进 evidence 子对象。嵌套倾倒
 	// 形态（evaluation.evaluation.*）让前端只能平铺出乱码 JSON 块——
 	// 台账是给人看的，结构为消费方设计。

@@ -21,7 +21,7 @@ const GRAPH: ConversationGraph = {
     node(),
     node({ id: 'n-act-a', kind: 'action', state: 'running', content: { instruction: '端口发现' } }),
     node({ id: 'n-act-b', kind: 'action', state: 'open', depends_on: ['n-act-a'], content: { instruction: '目录扫描' } }),
-    node({ id: 'n-obs', kind: 'observation', confidence: 'verified', content: { statement: '发现登录页' } }),
+    node({ id: 'n-obs', kind: 'observation', verification_status: 'confirmed', content: { statement: '发现登录页' } }),
     node({ id: 'n-res', kind: 'result', content: { summary: '弱口令坐实' } }),
   ],
   edges: [

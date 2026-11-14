@@ -52,7 +52,7 @@ describe('buildEvidenceView', () => {
     expect(v.baseline?.url).toBe('http://t:8080/shell.php')
   })
 
-  it('裁决理由与档位提为第一层', () => {
+  it('评估理由与档位提为第一层', () => {
     const v = buildEvidenceView(realEvaluation, realRepro)
     expect(v.judgeReasoning).toContain('主张成立')
     expect(v.tier).toBe('full_gate')

@@ -26,7 +26,7 @@ export function useConversationGraph(conversationId: string) {
   })
 }
 
-/** 验证审计链（node_id → 最新裁决）。best-effort：失败时消费侧按空表处理，不阻塞图。 */
+/** 验证审计链（node_id → 最新判定）。best-effort：失败时消费侧按空表处理，不阻塞图。 */
 export function useConversationVerifications(conversationId: string) {
   return useQuery({
     queryKey: explorationKeys.verifications(conversationId),

@@ -301,7 +301,7 @@ export interface ProviderConfig {
 // RoleRouteConfig 是「复杂度档 → provider」的一行绑定。
 // role 列存复杂度档名（simple/medium/complex）；agent → 档 的绑定在 agent.complexity
 // （前端「智能体」页可改），路由解析链：agent.complexity → 档 → provider。
-//   complex 深度推理（规划、裁决等长链路）
+//   complex 深度推理（规划、评估等长链路）
 //   medium  标准推理（漏洞检测、工具调用）——未显式归档的 agent 落此档
 //   simple  轻量快答（意图分类 / 历史压缩）
 // 某档未绑定、或其 provider 停用/缺钥时，运行期按就近降级由相邻档承接。
@@ -623,7 +623,7 @@ export type SettingsGroup = 'compaction' | 'runtime' | 'proxy_filter'
 export interface CompactionSettings {
   planner_context_ratio: number // 规划链路历史预算占比，>0 且 ≤0.9
   executor_context_ratio: number // 执行链路历史预算占比，>0 且 ≤0.9
-  evaluator_context_ratio: number // 裁决链路历史预算占比，>0 且 ≤0.9
+  evaluator_context_ratio: number // 评估链路历史预算占比，>0 且 ≤0.9
   monitor_context_ratio: number // 监察链路历史预算占比，>0 且 ≤0.9
 }
 

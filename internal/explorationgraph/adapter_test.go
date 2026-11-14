@@ -94,7 +94,7 @@ func TestStore_RecordVerification_MemoryStoreRejects(t *testing.T) {
 
 	_, err := store.RecordVerification(context.Background(), Verification{
 		ID: "v-1", TaskID: "task-001", NodeID: "n-1",
-		Outcome: OutcomeConfirmed,
+		Outcome: VerificationConfirmed,
 	})
 	require.Error(t, err, "内存 store 无 pool，RecordVerification 应明确报错")
 }

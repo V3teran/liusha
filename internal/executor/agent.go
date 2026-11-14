@@ -305,7 +305,7 @@ func (a *Agent) executeAction(
 		defer cancel()
 	}
 
-	// 终态标记用 CAS（running → completed/failed）：执行期间外部裁决（恢复监控判死、
+	// 终态标记用 CAS（running → completed/failed）：执行期间外部判定（恢复监控判死、
 	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
 	if execErr != nil {
 		errMsg := execErr.Error()
@@ -320,7 +320,7 @@ func (a *Agent) executeAction(
 		if !ok {
 			a.logger.Warn().
 				Str("action_id", action.ID).
-				Msg("执行失败但状态已被外部改写（判死/kill），保留外部裁决")
+				Msg("执行失败但状态已被外部改写（判死/kill），保留外部判定")
 			return execErr
 		}
 		// CAS 成功后补失败原因（metadata 合并写，不影响已生效的 failed 状态）
@@ -348,7 +348,7 @@ func (a *Agent) executeAction(
 	if !ok {
 		a.logger.Warn().
 			Str("action_id", action.ID).
-			Msg("执行完成但状态已被外部改写（判死/kill），保留外部裁决")
+			Msg("执行完成但状态已被外部改写（判死/kill），保留外部判定")
 		return nil
 	}
 

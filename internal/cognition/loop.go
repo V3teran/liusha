@@ -394,7 +394,7 @@ func (d *Deps) assembleStack(
 	executorAgent := d.buildExecutorAgent(ctx, taskID, host, brief, agentRunID, cfgs.executor,
 		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"))
 
-	// evaluator：裁决官（ReAct judge）→ 复现晋升门 → Agent
+	// evaluator：评估者（ReAct judge）→ 复现晋升门 → Agent
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
@@ -553,7 +553,7 @@ func (d *Deps) buildExecutorAgent(
 	})
 }
 
-// buildEvaluatorAgent 组装裁决官（ReAct judge）→ 复现晋升门 → Evaluator Agent。
+// buildEvaluatorAgent 组装评估者（ReAct judge）→ 复现晋升门 → Evaluator Agent。
 // Replayer 零依赖（复现配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
 // 流量同样可复现）。凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以
 // 登录态重放，防真实主张因重放落到登录页而被机器护栏误证伪。
@@ -570,7 +570,7 @@ func (d *Deps) buildEvaluatorAgent(
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
 		evaluatorCLImanifest = d.ToolsManifest.FilterByNames(cfg.CliTools)
 	}
-	// 裁决工具走共享拦截器链（遥测/心跳/时间线）——裁决官对目标的动作
+	// 判定工具走共享拦截器链（遥测/心跳/时间线）——评估者对目标的动作
 	// （复现重放/HTTP 复核）与 executor 同一执行面，不遗漏、归属一致。
 	extraTools := tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools)
 	for i := range extraTools {
@@ -616,7 +616,7 @@ func (d *Deps) buildEvaluatorAgent(
 		})
 	}
 	promoter := evaluator.New(d.Graph, executor.NewReplayer().WithCredentials(d.Creds, host), claimSink).
-		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
+		WithJudge(judge). // ReAct 评估者：replay_for_verification + CLI 复核工具
 		WithFingerprintCodec(finding.FingerprintNormalizer{}).
 		WithLogger(d.Logger)
 

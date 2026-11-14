@@ -28,7 +28,7 @@ type Agent struct {
 	// 收敛去重：上轮规划结论为「无新方向」后记录图终态指纹；后续唤醒（验证
 	// 事件成串到达/定时器）若指纹无变化则跳过 LLM 重新审议——实测任务尾段
 	// planner 对同一结论重复审议 5 次（~18% LLM 浪费）。任何终态变迁（新
-	// result/裁决落定/新动作写入）都会改变指纹、恢复审议。
+	// result/判定落定/新动作写入）都会改变指纹、恢复审议。
 	convergedPending bool
 	convergedAt      graphFingerprint
 

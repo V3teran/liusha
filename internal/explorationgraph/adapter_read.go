@@ -68,14 +68,14 @@ func (s *Store) ListOpenActions(ctx context.Context, taskID string) ([]Node, err
 	return s.ListActionsByState(ctx, taskID, StateOpen)
 }
 
-// ListObservationsByConfidence 按验证裁决列出 observation（如轮询
-// confidence=unverified 的待裁决假设）。limit<=0 表示不限制。
-func (s *Store) ListObservationsByConfidence(ctx context.Context, taskID string, confidence Confidence, limit int) ([]Node, error) {
+// ListHypotheses 按验证状态列出假设观察（如轮询 pending 的待验证假设），按创建序。
+// limit<=0 表示不限制。
+func (s *Store) ListHypotheses(ctx context.Context, taskID string, status VerificationStatus, limit int) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(core.KindObservation),
 		Filters: map[string]interface{}{
-			"task_id":             taskID,
-			"metadata.confidence": string(confidence),
+			"task_id":                      taskID,
+			"metadata." + metaVerification: string(status),
 		},
 		OrderBy: "created_at",
 		Limit:   limit,

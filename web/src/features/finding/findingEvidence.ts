@@ -1,6 +1,6 @@
 /**
  * 漏洞证据链的结构化视图模型：从 evaluation/repro 两个 jsonb 提炼出
- * 「复现步骤 / 机器证据 / 裁决」三段渲染所需的数据，抽屉只消费结果。
+ * 「复现步骤 / 机器证据 / 评估理由」三段渲染所需的数据，抽屉只消费结果。
  * 纯函数（排序/归一/兜底），可单测。
  */
 
@@ -13,9 +13,9 @@ export interface EvidenceView {
   exploit: { method: string; url: string; status: number | null; bodySnippet: string | null } | null
   /** baseline 对照（有则展示差分逻辑：正常态 vs 利用态）。 */
   baseline: { url: string; status: number | null } | null
-  /** 裁决官理由（为什么判定成立）。 */
+  /** 评估理由（为什么判定成立）。 */
   judgeReasoning: string | null
-  /** 验证档位：full_gate=机器复放+终裁 / judge_only=仅终裁。 */
+  /** 验证档位：full_gate=机器复放+终判 / judge_only=仅终判。 */
   tier: string | null
 }
 

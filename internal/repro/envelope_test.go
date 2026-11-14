@@ -2,6 +2,7 @@ package repro
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,7 @@ func TestNormalizeReproEnvelope_Guards(t *testing.T) {
 }
 
 // 鉴别力：写入侧与复现门同一口径，只拒短子串（曾有 ["1","2","3"] 合规过审进 finding 的假阳性）；
-// 常规状态码等弱断言放行并完成形状矫正，鉴别力交 LLM 裁决官终判。
+// 常规状态码等弱断言放行并完成形状矫正，鉴别力交 LLM 评估者终判。
 func TestNormalizeReproEnvelope_Discriminative(t *testing.T) {
 	short := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api?id=1'+UNION+SELECT+1,2,3--","headers":{},"body":""}},"assert":{"body_contains":["1","2","3"]}}`
 	if _, _, err := NormalizeReproEnvelope(mustJSON(t, short)); err == nil ||
@@ -106,11 +107,11 @@ func TestNormalizeReproEnvelope_Discriminative(t *testing.T) {
 	}
 
 	// 无 baseline 的常规状态码：放行且矫正形状——若在此报错，收割侧会保留未矫正的
-	// 原始配方（"200" 字符串），复现门解析失败直接判死，裁决官根本看不到。
+	// 原始配方（"200" 字符串），复现门解析失败直接判死，评估者根本看不到。
 	bare := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://h/api","headers":{},"body":""}},"assert":{"status_code":"200"}}`
 	out, _, err := NormalizeReproEnvelope(mustJSON(t, bare))
 	if err != nil {
-		t.Fatalf("无 baseline 的常规状态码应放行（交裁决官终判）: %v", err)
+		t.Fatalf("无 baseline 的常规状态码应放行（交评估者终判）: %v", err)
 	}
 	var env struct {
 		Assert struct {
@@ -145,7 +146,7 @@ func TestNormalizeReproEnvelope_AssertPromotedFromRecipe(t *testing.T) {
 }
 
 // TestNormalizeReproEnvelope_HeaderContainsArray 回归：LLM 把 header_contains
-// 写成数组时归一化成 map——形状放任会在复现门解析失败，该观察永远无法裁决
+// 写成数组时归一化成 map——形状放任会在复现门解析失败，该观察永远无法验证
 // （e2e 实测同一形状漂移连烧 3 次验证预算后 invalid_recipe 出圈）。
 func TestNormalizeReproEnvelope_HeaderContainsArray(t *testing.T) {
 	// 对象数组形状
@@ -186,5 +187,32 @@ func TestNormalizeReproEnvelope_HeaderContainsArray(t *testing.T) {
 	}
 	if env2.Assert.HeaderContains["set-cookie"] != "admin=1" {
 		t.Fatalf("字符串数组应按 k: v 拆解: %+v", env2.Assert.HeaderContains)
+	}
+}
+
+// header_not_contains 的数组形状同样归一化成 map；只写头名（不带值）即要求该头不存在
+// （空子串）——「缺失安全头」最常见的写法。header_contains 只写头名则要求头存在。
+func TestNormalizeReproEnvelope_HeaderNotContainsArray(t *testing.T) {
+	in := `{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/x","headers":{},"body":""}},` +
+		`"assert":{"header_not_contains":["Content-Security-Policy","Set-Cookie: HttpOnly",{"X-Frame-Options":""}],"header_contains":["Server"]}}`
+	out, _, err := NormalizeReproEnvelope(json.RawMessage(in))
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	var env struct {
+		Assert struct {
+			HeaderContains    map[string]string `json:"header_contains"`
+			HeaderNotContains map[string]string `json:"header_not_contains"`
+		} `json:"assert"`
+	}
+	if err := json.Unmarshal(out, &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := map[string]string{"content-security-policy": "", "set-cookie": "HttpOnly", "x-frame-options": ""}
+	if !maps.Equal(env.Assert.HeaderNotContains, want) {
+		t.Fatalf("header_not_contains = %v，期望 %v", env.Assert.HeaderNotContains, want)
+	}
+	if !maps.Equal(env.Assert.HeaderContains, map[string]string{"server": ""}) {
+		t.Fatalf("header_contains 只写头名应要求头存在: %v", env.Assert.HeaderContains)
 	}
 }

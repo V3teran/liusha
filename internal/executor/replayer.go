@@ -68,16 +68,20 @@ type ReplayRecipe struct {
 // Assertion 是坐实断言：全部满足才算复现坐实。至少要有一条谓词，
 // 否则是橡皮图章（空断言"确认"一切）——拒绝坐实。
 type Assertion struct {
-	StatusCode      *int              `json:"status_code,omitempty"`       // 响应码须等于此值
-	BodyContains    []string          `json:"body_contains,omitempty"`     // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
-	BodyNotContains []string          `json:"body_not_contains,omitempty"` // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
-	HeaderContains  map[string]string `json:"header_contains,omitempty"`   // 响应头 key→子串
-	MinDurationMs   *int              `json:"min_duration_ms,omitempty"`   // 响应耗时至少 N ms——时间盲注入的合法证据类型
+	StatusCode      *int     `json:"status_code,omitempty"`       // 响应码须等于此值
+	BodyContains    []string `json:"body_contains,omitempty"`     // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
+	BodyNotContains []string `json:"body_not_contains,omitempty"` // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
+	// 响应头 key→子串：头须存在且含子串（子串为空即只要求头存在）。
+	HeaderContains map[string]string `json:"header_contains,omitempty"`
+	// 响应头 key→子串：头不存在，或存在但不含子串（子串为空即要求头不存在）——
+	// 缺失安全头、Cookie 缺 HttpOnly 这类配置弱点的证据。
+	HeaderNotContains map[string]string `json:"header_not_contains,omitempty"`
+	MinDurationMs     *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms——时间盲注入的合法证据类型
 }
 
 func (a Assertion) empty() bool {
-	return a.StatusCode == nil && len(a.BodyContains) == 0 &&
-		len(a.BodyNotContains) == 0 && len(a.HeaderContains) == 0 && a.MinDurationMs == nil
+	return a.StatusCode == nil && len(a.BodyContains) == 0 && len(a.BodyNotContains) == 0 &&
+		len(a.HeaderContains) == 0 && len(a.HeaderNotContains) == 0 && a.MinDurationMs == nil
 }
 
 // ReproEnvelope 是复现配方的域信封：evaluator/图/收割层只认信封，不解析 recipe 内部
@@ -88,7 +92,7 @@ type ReproEnvelope struct {
 	Assert json.RawMessage `json:"assert"` // 域自定义坐实判据
 }
 
-// 已支持的域。generic 无机器重放通道——由裁决官经 run_command 按 recipe 自主执行取证。
+// 已支持的域。generic 无机器重放通道——由评估者经 run_command 按 recipe 自主执行取证。
 const (
 	DomainWeb     = "web"
 	DomainGeneric = "generic"
@@ -219,7 +223,7 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 }
 
 // sessionRefreshAttempt 是一次会话刷新重试的审计记录（落进证据链，
-// 裁决官可据此区分「环境会话过期」与「主张不成立」）。
+// 评估者可据此区分「环境会话过期」与「主张不成立」）。
 type sessionRefreshAttempt struct {
 	Source       string `json:"source"`        // 凭据身份名（池内 label）
 	StatusCode   int    `json:"status_code"`   // 刷新后利用响应码
@@ -232,7 +236,7 @@ type replayEvidence struct {
 	Method string `json:"method"`
 	URL    string `json:"url"`
 	// 基线（配方提供 baseline 时的良性对照）与利用请求（配方 request 原样重发）的双对照——
-	// 裁决官据此看差分。
+	// 评估者据此看差分。
 	HasBaseline     bool              `json:"has_baseline"`
 	BaselineStatus  int               `json:"baseline_status_code,omitempty"`
 	BaselineDurMs   int64             `json:"baseline_duration_ms,omitempty"`
@@ -251,7 +255,7 @@ type replayEvidence struct {
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
 // Replay 实现 evaluator.Replayer：按域信封分发。
-// web=机器确定性重放采证；generic=配方回显（裁决官自主执行）。
+// web=机器确定性重放采证；generic=配方回显（评估者自主执行）。
 // 配方在写入侧已统一归一化为信封（repro.NormalizeReproEnvelope），
 // 复现门只认信封、不嗅探裸格式。
 func (r *Replayer) Replay(ctx context.Context, primitives json.RawMessage) (evaluator.Result, error) {
@@ -426,10 +430,10 @@ func replaceSessionHeaders(recipe json.RawMessage, headers map[string]string) js
 // 认证弹跳时按池凭据刷新会话重试（会话新鲜度守卫）。
 //
 // 守卫动因：配方是执行时刻的冻结快照，内嵌的会话材料（PHPSESSID 等）在
-// 裁决时刻可能已被服务端轮换失效——「配方显式头优先」的补缺策略会让过期
+// 验证时刻可能已被服务端轮换失效——「配方显式头优先」的补缺策略会让过期
 // 凭据赢过池内新鲜会话，重放弹回登录页、真实主张被误证伪。首轮证据若呈
 // 认证弹跳形态，依次用池内身份替换会话头重放；任一轮断言通过即以该轮
-// 证据返回，全部尝试记入证据链（裁决官可分辨环境失效与主张不成立）。
+// 证据返回，全部尝试记入证据链（评估者可分辨环境失效与主张不成立）。
 func (r *Replayer) replayWebEnvelope(ctx context.Context, env ReproEnvelope) (evaluator.Result, error) {
 	if len(env.Recipe) == 0 {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: recipe 为空（需 {\"request\": {...}, \"baseline\": {...}?}）")
@@ -443,7 +447,7 @@ func (r *Replayer) replayWebEnvelope(ctx context.Context, env ReproEnvelope) (ev
 	}
 	var assert Assertion
 	if len(env.Assert) == 0 {
-		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
+		return evaluator.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
 	}
 	if err := json.Unmarshal(env.Assert, &assert); err != nil {
 		return evaluator.Result{}, fmt.Errorf("web.Replayer: 解析 assert 失败: %w", err)
@@ -498,17 +502,17 @@ func marshalEvidence(ev replayEvidence, durMs int64) (evaluator.Result, error) {
 	return evaluator.Result{Evaluation: evJSON, DurationMs: durMs}, nil
 }
 
-// replayGeneric 无机器重放通道：配方原样回显给裁决官（其经 run_command 按 recipe 步骤
-// 自主执行取证，轨迹以裁决 reasoning + 本证据为审计面）。不执行任何动作。
+// replayGeneric 无机器重放通道：配方原样回显给评估者（其经 run_command 按 recipe 步骤
+// 自主执行取证，轨迹以判定 reasoning + 本证据为审计面）。不执行任何动作。
 func replayGeneric(env ReproEnvelope) (evaluator.Result, error) {
 	if len(env.Recipe) == 0 {
-		return evaluator.Result{}, fmt.Errorf("generic.Replayer: recipe 为空——裁决官无从执行")
+		return evaluator.Result{}, fmt.Errorf("generic.Replayer: recipe 为空——评估者无从执行")
 	}
 	out, err := json.Marshal(map[string]interface{}{
 		"domain": DomainGeneric,
 		"recipe": env.Recipe,
 		"assert": orEmptyRaw(env.Assert),
-		"note":   "本域无机器重放通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出裁决（不必调 replay_for_verification）",
+		"note":   "本域无机器重放通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出判定（不必调 replay_for_verification）",
 	})
 	if err != nil {
 		return evaluator.Result{}, fmt.Errorf("generic.Replayer: 序列化证据失败: %w", err)
@@ -526,7 +530,7 @@ func orEmptyRaw(b json.RawMessage) json.RawMessage {
 // assertDiscriminative 闸门鉴别力守卫（假阳性第一道机器防线）：
 //   - body_contains 每个子串须 ≥ repro.MinBodyContainsLen 个字符（修剪后按字节计）
 //
-// 自指与「无 baseline 须有强谓词」不在机器侧判定，交 LLM 裁决官终判；写入侧
+// 自指与「无 baseline 须有强谓词」不在机器侧判定，交 LLM 评估者终判；写入侧
 // （repro.NormalizeReproEnvelope）与本守卫同一口径。
 func assertDiscriminative(a Assertion) error {
 	for _, want := range a.BodyContains {
@@ -539,12 +543,12 @@ func assertDiscriminative(a Assertion) error {
 
 // replayWebEvidence web 域单轮机器复放：结构校验 → 鉴别力守卫 → resolve 注入
 // → baseline 差分对照 → 利用请求重发 → 采证。返回证据与利用响应（供调用方
-// 做认证弹跳检测）。机器不产出坐实结论——语义判定权在 LLM 裁决官。
+// 做认证弹跳检测）。机器不产出坐实结论——语义判定权在 LLM 评估者。
 func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (replayEvidence, httpreplay.Result, error) {
 	var ev replayEvidence
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
-		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/min_duration_ms）")
+		return ev, httpreplay.Result{}, fmt.Errorf("web.Replayer: assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
 	}
 	// 结构先行（request 形状），语义随后（断言鉴别力）——错误信息指向首个真问题。
 	exploitSrc, err := recipe.Request.toSource()
@@ -570,7 +574,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 
 	// 差分复现（业界基线对照法）：配方提供 baseline 时先放良性基线——
 	// 断言在基线上也全命中 = 断言无鉴别力。机器护栏不在此提前证伪
-	// （执行器断言质量不稳定，差分语义终判交 LLM 裁决官，其可见完整双对照）。
+	// （执行器断言质量不稳定，差分语义终判交 LLM 评估者，其可见完整双对照）。
 	var baseline *httpreplay.Result
 	var baseDur int64
 	if recipe.Baseline != nil {
@@ -596,7 +600,7 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	}
 
 	// assert 命中明细：executor 声明预期的核验（参考信息——机器不产出坐实结论，
-	// 语义判定权在 LLM 裁决官；断言全命中也仅说明"声称的特征出现了"）。
+	// 语义判定权在 LLM 评估者；断言全命中也仅说明"声称的特征出现了"）。
 	assertPassed, assertReasons := recipe.Assert.eval(res, dur)
 	ev = replayEvidence{
 		Method:        res.Method,
@@ -651,12 +655,31 @@ func (a Assertion) eval(res httpreplay.Result, durationMs int64) (bool, []string
 		}
 	}
 	for k, want := range a.HeaderContains {
-		got := res.ResponseHeaders[strings.ToLower(k)]
-		if strings.Contains(got, want) {
+		got, present := res.ResponseHeaders[strings.ToLower(k)]
+		switch {
+		case !present:
+			passed = false
+			reasons = append(reasons, fmt.Sprintf("header[%s] 不存在 ✗", k))
+		case strings.Contains(got, want):
 			reasons = append(reasons, fmt.Sprintf("header[%s] 含 %q ✓", k, want))
-		} else {
+		default:
 			passed = false
 			reasons = append(reasons, fmt.Sprintf("header[%s]=%q 缺 %q ✗", k, got, want))
+		}
+	}
+	for k, absent := range a.HeaderNotContains {
+		got, present := res.ResponseHeaders[strings.ToLower(k)]
+		switch {
+		case !present:
+			reasons = append(reasons, fmt.Sprintf("header[%s] 不存在 ✓", k))
+		case absent == "":
+			passed = false
+			reasons = append(reasons, fmt.Sprintf("header[%s]=%q 应不存在却存在 ✗", k, got))
+		case strings.Contains(got, absent):
+			passed = false
+			reasons = append(reasons, fmt.Sprintf("header[%s]=%q 不应含 %q 却含 ✗", k, got, absent))
+		default:
+			reasons = append(reasons, fmt.Sprintf("header[%s] 无 %q ✓", k, absent))
 		}
 	}
 	if a.MinDurationMs != nil {

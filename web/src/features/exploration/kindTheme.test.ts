@@ -38,22 +38,28 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(chips.category).toBe('侦察')
     expect(chips.priority?.code).toBe('P1')
     expect(chips.severity).toBeUndefined()
-    expect(chips.confidence).toBeUndefined()
+    expect(chips.verification).toBeUndefined()
   })
 
-  it('nodeChips：observation 分类/等级/置信度，P2 优先级不上卡', () => {
+  it('nodeChips：假设观察带分类/等级/验证状态，P2 优先级不上卡', () => {
     const chips = nodeChips(
       node({
         id: 'n-obs',
         kind: 'observation',
-        confidence: 'verified',
+        verification_status: 'refuted',
         priority: 'medium',
-        content: { category: 'issue', priority: 'HIGH' },
+        content: { category: 'hypothesis', priority: 'HIGH' },
       }),
     )
-    expect(chips.category).toBe('问题')
+    expect(chips.category).toBe('假设')
     expect(chips.severity).toBe('high') // 大写归一
-    expect(chips.confidence).toBe('已验证')
+    expect(chips.verification).toBe('已证伪')
     expect(chips.priority).toBeUndefined()
+  })
+
+  it('nodeChips：事实观察只有分类，没有验证状态', () => {
+    const chips = nodeChips(node({ id: 'n-fact', kind: 'observation', content: { category: 'behavior' } }))
+    expect(chips.category).toBe('行为')
+    expect(chips.verification).toBeUndefined()
   })
 })

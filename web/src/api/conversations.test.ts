@@ -127,7 +127,7 @@ describe('会话域 API', () => {
       expect(result.intent).toBe('action')
     })
 
-    it('followUp 非 2xx 抛错（busy 裁决已异步化，无 409 特例）', async () => {
+    it('followUp 非 2xx 抛错（busy 判定已异步化，无 409 特例）', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
