@@ -39,7 +39,7 @@ func (t *driveBrowserTool) buildBrowserCommand(ctx context.Context, a *browserCm
 
 // browserEnv 是浏览器命令的环境前缀：身份（选哪个浏览器服务）与动作 ID（选哪个 tab）。
 func (t *driveBrowserTool) browserEnv(ctx context.Context, identity string) string {
-	env := fmt.Sprintf("IDENTITY=%q ", browserIdentity(t.deps.TaskID, identity))
+	env := fmt.Sprintf("IDENTITY=%q ", browserIdentity(identity))
 	if actionID := ActionIDFromContext(ctx); actionID != "" {
 		env = fmt.Sprintf("AGENT_ID=%q %s", actionID, env)
 	}

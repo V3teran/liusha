@@ -4,12 +4,13 @@
 运行。
 
 模型：
-  IDENTITY = 身份（cookie jar 边界 = 独立 chromium）。缺省 "default"。
+  IDENTITY = 身份名（cookie jar 边界 = 独立 chromium），在任务内有效：不同任务的同名身份是不同的
+             浏览器。缺省 "default"。须为 [A-Za-z0-9_-]{1,64}（与沙盒 browser.ValidIdentity 同一规则）。
   AGENT_ID = 同身份下的并行执行单元（工具层注入 action id），各占一个 tab（页面/截图/并发隔离）。
   LIUSHA_AGENT_RUN_ID = 本条命令所属的 run（沙盒注入命令环境），浏览器抓到的流量据此归属。
 
 连接：服务监听回环地址的随机端口，把 {port, key, pid} 写进端点目录（沙盒注入的
-LIUSHA_BROWSER_DIR，只对本用户开放）下的 <身份>.json；客户端读端点文件、连接、每个请求带上
+LIUSHA_BROWSER_DIR，只对本用户开放）下的 <任务ID>/<身份>.json；客户端读端点文件、连接、每个请求带上
 口令。连不上或口令被拒即视为服务不在，请沙盒经本机接口（LIUSHA_SANDBOX_LOCAL_URL）启动它——
 服务由沙盒启动、归属任务，活过单条命令（命令超时被结束时登录态不丢），并发的启动请求由沙盒
 去重。约定与沙盒的 browser.go / browsers.go 一致。
@@ -19,14 +20,17 @@ kill 不经服务：服务已无响应时请沙盒强制结束它及其浏览器
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 IDENTITY = os.environ.get("IDENTITY", "default")
+IDENTITY_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 AGENT_ID = os.environ.get("AGENT_ID", "default")
 AGENT_RUN_ID = os.environ.get("LIUSHA_AGENT_RUN_ID", "")
 ASSIGNMENT_ID = os.environ.get("LIUSHA_ASSIGNMENT_ID", "")
@@ -63,9 +67,13 @@ class Stale(Exception):
     """端点指向的服务不在（连不上 / 口令被拒）。"""
 
 
+class LocalError(Exception):
+    """沙盒本机接口拒绝了请求或不可达；消息是给 agent 看的原因。"""
+
+
 def read_endpoint():
     try:
-        with open(os.path.join(BROWSER_DIR, IDENTITY + ".json"), encoding="utf-8") as f:
+        with open(os.path.join(BROWSER_DIR, TASK_ID, IDENTITY + ".json"), encoding="utf-8") as f:
             ep = json.load(f)
         return int(ep["port"]), str(ep["key"])
     except (OSError, ValueError, KeyError, TypeError):
@@ -100,12 +108,26 @@ def request(ep, payload: dict) -> dict:
 
 
 def local(method: str, path: str, body=None):
-    """调用沙盒的本机接口。"""
+    """调用沙盒的本机接口。被拒绝或不可达时抛 LocalError，带沙盒给出的原因。"""
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(LOCAL["url"] + path, data=data, method=method, headers={
         "Authorization": "Bearer " + LOCAL["key"], "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30):
-        pass
+    try:
+        with urllib.request.urlopen(req, timeout=30):
+            pass
+    except urllib.error.HTTPError as e:
+        raise LocalError("沙盒拒绝请求（HTTP %d）：%s" % (e.code, error_reason(e))) from None
+    except OSError as e:
+        raise LocalError("连不上沙盒本机接口：%s" % e) from None
+
+
+def error_reason(e: urllib.error.HTTPError) -> str:
+    """取沙盒错误体 {"error": "..."} 里的原因；不是这个形状就原样给出响应体。"""
+    body = e.read().decode("utf-8", "replace")
+    try:
+        return str(json.loads(body)["error"])
+    except (ValueError, KeyError, TypeError):
+        return body.strip() or e.reason
 
 
 def call(payload: dict) -> dict:
@@ -131,6 +153,14 @@ def call(payload: dict) -> dict:
 
 
 def main() -> int:
+    try:
+        return run()
+    except LocalError as e:
+        emit(sys.stderr, "browser-use: %s\n" % e)
+        return 1
+
+
+def run() -> int:
     sub = sys.argv[1] if len(sys.argv) > 1 else ""
     args = sys.argv[2:]
 
@@ -141,6 +171,9 @@ def main() -> int:
     if not (BROWSER_DIR and LOCAL["url"] and TASK_ID):
         emit(sys.stderr, "browser-use: 缺少沙盒注入的环境变量（应在沙盒命令中运行）\n")
         return 1
+    if not IDENTITY_RE.fullmatch(IDENTITY):
+        emit(sys.stderr, "browser-use: IDENTITY 须为字母、数字、- 或 _（1–64 个字符），收到 %r\n" % IDENTITY)
+        return 2
 
     if sub == "kill":
         local("DELETE", "/browsers/" + urllib.parse.quote(IDENTITY) + "?task_id=" + urllib.parse.quote(TASK_ID))

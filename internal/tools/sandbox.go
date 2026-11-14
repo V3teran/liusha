@@ -389,12 +389,13 @@ func orDash(s string) string {
 	return s
 }
 
-// browserIdentity 拼接浏览器身份隔离键：{taskID}-{身份名}。
-// 身份名清洗为 [a-zA-Z0-9_-]：它是浏览器服务端点文件名（<身份>.json），也是沙盒按任务释放时
-// 匹配的前缀（<taskID>-*），不能含路径分隔符与通配符。taskID 为 UUID 天然安全。
-func browserIdentity(taskID, identity string) string {
+// browserIdentity 把 agent 给的身份清洗为身份名（缺省 default）：非 [a-zA-Z0-9_-] 的字符换成
+// -。身份名是沙盒里浏览器服务的端点文件名，且原样进 shell 命令。任务隔离由沙盒按命令所属任务
+// 完成（同名身份在不同任务里是不同的浏览器），这里不拼任务前缀——agent 在 run_command 里手写
+// IDENTITY=<身份名> 时与本工具指向同一个浏览器。
+func browserIdentity(identity string) string {
 	if identity == "" {
-		identity = "default"
+		return "default"
 	}
 	var b strings.Builder
 	for _, r := range identity {
@@ -405,10 +406,7 @@ func browserIdentity(taskID, identity string) string {
 			b.WriteRune('-')
 		}
 	}
-	if taskID == "" {
-		return b.String()
-	}
-	return taskID + "-" + b.String()
+	return b.String()
 }
 
 // browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），

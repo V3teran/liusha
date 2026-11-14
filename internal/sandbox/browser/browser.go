@@ -1,9 +1,10 @@
 // Package browser 是沙盒的浏览器能力：浏览器服务脚本（client.py / service.py）编进程序，
 // 沙盒启动时释放到本地目录；按任务关闭浏览器会话；探测浏览器能力是否可用。
 //
-// 每个浏览器身份（{任务ID}-{身份名}）一个常驻服务进程，监听回环地址的随机端口，凭随机口令
-// 接收命令；端口与口令写在端点目录（沙盒运行目录下，只对本用户开放）的 <身份>.json 里，约定与
-// client.py / service.py 一致。回环 TCP 而不是 unix 套接字：全平台同一机制（Windows 上的 Python
+// 每个任务的每个浏览器身份一个常驻服务进程，监听回环地址的随机端口，凭随机口令接收命令；
+// 端口与口令写在端点目录（沙盒运行目录下，只对本用户开放）的 <任务ID>/<身份>.json 里，约定与
+// client.py / service.py 一致。身份只在任务内有意义（同名身份在不同任务里是不同的浏览器），
+// 任务归属由目录表达。回环 TCP 而不是 unix 套接字：全平台同一机制（Windows 上的 Python
 // 没有 unix 套接字）。drive_browser 工具在沙盒里执行 `browser-use <子命令>`，由本包生成的包装
 // 脚本以 sandbox.browser_python 运行 client.py。
 package browser
@@ -108,6 +109,27 @@ func wrapperScript(python, client string) string {
 	return b.String()
 }
 
+// ValidIdentity 报告身份名是否合法：[A-Za-z0-9_-]{1,64}。身份名是端点文件名，也是浏览器配置
+// 目录名（client.py 按同一规则先行校验）。
+func ValidIdentity(name string) bool {
+	if len(name) == 0 || len(name) > 64 {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		switch c := name[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// TaskDir 是任务的端点目录。taskID 须已校验为路径安全。
+func TaskDir(dir, taskID string) string {
+	return filepath.Join(dir, taskID)
+}
+
 // endpoint 是一个浏览器服务的端点文件内容（service.py 写入）。
 type endpoint struct {
 	Port int    `json:"port"`
@@ -116,8 +138,8 @@ type endpoint struct {
 }
 
 // EndpointPID 返回端点文件里记录的服务进程号。
-func EndpointPID(dir, identity string) (int, bool) {
-	raw, err := os.ReadFile(filepath.Join(dir, identity+".json")) // #nosec G304 // 身份由调用方校验为路径安全
+func EndpointPID(dir, taskID, identity string) (int, bool) {
+	raw, err := os.ReadFile(endpointFile(dir, taskID, identity)) // #nosec G304 // 任务与身份由调用方校验为路径安全
 	if err != nil {
 		return 0, false
 	}
@@ -128,18 +150,42 @@ func EndpointPID(dir, identity string) (int, bool) {
 	return ep.PID, true
 }
 
-// RemoveEndpoint 删除身份的端点文件。
-func RemoveEndpoint(dir, identity string) {
-	_ = os.Remove(filepath.Join(dir, identity+".json"))
+// RemoveEndpoint 删除任务某身份的端点文件。
+func RemoveEndpoint(dir, taskID, identity string) {
+	_ = os.Remove(endpointFile(dir, taskID, identity))
+}
+
+// SweepTask 清理任务端点目录里不属于运行中服务的端点（live 判定身份的服务是否在运行），
+// 目录空了即删除。调用方须保证判定期间不会有新服务登记（持有登记锁）。
+func SweepTask(dir, taskID string, live func(identity string) bool) {
+	if dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(TaskDir(dir, taskID))
+	if err != nil {
+		return // 目录不存在：任务没有端点
+	}
+	for _, e := range entries {
+		// <身份>.json 与服务写了一半的 <身份>.json.<进程号>.tmp
+		identity, _, _ := strings.Cut(e.Name(), ".json")
+		if !live(identity) {
+			_ = os.Remove(filepath.Join(TaskDir(dir, taskID), e.Name()))
+		}
+	}
+	_ = os.Remove(TaskDir(dir, taskID)) // 仍有运行中服务的端点时不为空，留着
+}
+
+func endpointFile(dir, taskID, identity string) string {
+	return filepath.Join(TaskDir(dir, taskID), identity+".json")
 }
 
 // ReleaseTask 关闭任务的全部浏览器会话（服务进程收到 reset 后关闭 chromium 并退出），
-// 返回成功关闭的会话数。dir 是端点目录；只匹配本任务的身份前缀，并发任务不受影响。
+// 返回成功关闭的会话数。dir 是端点目录；只动本任务目录下的端点，并发任务不受影响。
 func ReleaseTask(ctx context.Context, dir, taskID string) (int, error) {
 	if dir == "" {
 		return 0, nil
 	}
-	files, err := filepath.Glob(filepath.Join(dir, taskID+"-*.json"))
+	files, err := filepath.Glob(filepath.Join(TaskDir(dir, taskID), "*.json"))
 	if err != nil {
 		return 0, fmt.Errorf("列出浏览器会话: %w", err)
 	}

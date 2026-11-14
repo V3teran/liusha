@@ -15,13 +15,15 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "task id must be [A-Za-z0-9._-]{1,64}")
 		return
 	}
-	// 先优雅关浏览器（服务关闭 chromium 后退出），再兜底结束任务的其余进程。
+	// 先接手任务的浏览器服务，再优雅关浏览器（服务关闭 chromium 后退出），再兜底结束任务的
+	// 其余进程，最后收尾服务与端点。
+	stopping := s.browsers.stopTask(taskID)
 	browsers, err := browser.ReleaseTask(r.Context(), s.cfg.BrowserDir, taskID)
 	if err != nil {
 		releaseLog.Warn().Err(err).Str("task_id", taskID).Msg("部分浏览器会话关闭失败")
 	}
 	res := sandbox.ReleaseResult{Browsers: browsers, Processes: s.procs.killTask(taskID)}
-	s.browsers.forgetTask(s, taskID)
+	s.browsers.finishTask(s, taskID, stopping)
 	releaseLog.Info().Str("task_id", taskID).Int("browsers", res.Browsers).
 		Int("processes", res.Processes).Msg("任务资源已释放")
 	writeJSON(w, http.StatusOK, res)

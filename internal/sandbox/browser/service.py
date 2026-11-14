@@ -32,9 +32,10 @@ from browser_use.actor.page import Page
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 
-# 用法：service.py <身份> <端点目录>，由沙盒按需启动（归属任务，见 browsers.go）。服务监听回环
-# 地址的随机端口，把 {port, key, pid} 原子写入 <端点目录>/<身份>.json（客户端与沙盒据此连接，
-# 约定见 client.py / browser.go）；每个请求须带 key。
+# 用法：service.py <身份> <任务的端点目录>，由沙盒按需启动（归属任务，见 browsers.go）。服务监听
+# 回环地址的随机端口，把 {port, key, pid} 原子写入 <任务的端点目录>/<身份>.json（客户端与沙盒
+# 据此连接，约定见 client.py / browser.go）；每个请求须带 key。身份是任务内的身份名（如
+# default、admin），抓到的流量以它盖身份戳，与 agent 在工具里使用的身份名一致。
 IDENTITY = sys.argv[1]
 ENDPOINT = os.path.join(sys.argv[2], IDENTITY + ".json")
 KEY = secrets.token_urlsafe(32)
@@ -348,7 +349,7 @@ class Service:
             req_h["Cookie"] = cookie
         payload = {
             "agent_run_id": run_id,
-            "identity": IDENTITY,  # 进程级身份（= browser_use identity），给 internal flow 盖身份戳
+            "identity": IDENTITY,  # 本服务的身份名（与 agent 在工具里用的同名），给流量盖身份戳
             "tool": "browser",     # 发起工具固定 browser（本服务只抓浏览器流量）
             "host": u.hostname or "",
             "host_port": u.netloc or "",
@@ -665,6 +666,9 @@ def profile_dir() -> str:
 
 def write_endpoint(port: int):
     """原子写入端点文件（先写临时文件再改名），仅属主可读。"""
+    # 目录由沙盒在启动前建好；任务释放时会删除已空的目录，与紧随其后的启动交错时可能已被删，
+    # 这里再建一次。
+    os.makedirs(os.path.dirname(ENDPOINT), mode=0o700, exist_ok=True)
     tmp = f"{ENDPOINT}.{os.getpid()}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
