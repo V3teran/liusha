@@ -47,7 +47,8 @@ PASSTHROUGH = {"", "--help", "-h", "install", "init", "setup", "doctor",
 CONNECT_TIMEOUT = 2.0
 # 单个请求的上限须长于服务端最长的动作上限（open 150s、wait 按参数），这里只防服务失联。
 REQUEST_TIMEOUT = 900.0
-# 冷启动最多等 60s（首启含 chromium 起动）。
+# 等服务就绪（进程加载 browser_use、开始监听并写出端点）最多 60s。浏览器本身在首个请求里
+# 启动，计入该请求的上限。
 START_TIMEOUT = 60.0
 
 
