@@ -48,7 +48,7 @@ func TestMigration0207_BrowserTrafficIdentityBecomesName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0207)
 
 	for i, r := range rows {
 		var got string

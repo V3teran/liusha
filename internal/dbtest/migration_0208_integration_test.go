@@ -83,7 +83,7 @@ func TestMigration0208_VerificationStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0208)
 
 	for id, want := range map[string]map[string]any{
 		"v1": {"refute_reason": "judge_unavailable", "verify_attempts": float64(3)},

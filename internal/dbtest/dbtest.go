@@ -32,7 +32,7 @@ func NewPgPool(t *testing.T) *pgxpool.Pool {
 }
 
 // NewPgPoolBefore 建库并只迁移到 version 之前的最后一个版本（迁移测试用：先按旧结构
-// 写入老数据，再用 MigrateUp 执行被测迁移）。
+// 写入老数据，再用 MigrateTo(version) 只执行被测迁移）。
 func NewPgPoolBefore(t *testing.T, version uint) *pgxpool.Pool {
 	t.Helper()
 	pool := newEmptyPool(t)
@@ -40,6 +40,13 @@ func NewPgPoolBefore(t *testing.T, version uint) *pgxpool.Pool {
 		withMigrator(t, pool, func(m *db.Migrator) error { return m.To(prev) })
 	}
 	return pool
+}
+
+// MigrateTo 把库迁移到 version（迁移测试只执行被测迁移：之后新增的迁移改写同一批
+// 数据时，不会让早先迁移的测试失效）。
+func MigrateTo(t *testing.T, pool *pgxpool.Pool, version uint) {
+	t.Helper()
+	withMigrator(t, pool, func(m *db.Migrator) error { return m.To(version) })
 }
 
 // MigrateUp 把库迁移到最新版本。

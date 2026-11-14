@@ -53,7 +53,7 @@ func TestMigration0210_InterruptedActionsAreNotFailures(t *testing.T) {
 		ids[i] = insert(c.taskID, c.metadata)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0210)
 
 	for i, c := range cases {
 		var state string

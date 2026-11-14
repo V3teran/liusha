@@ -31,7 +31,7 @@ func TestMigration0209_DropActionDependsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateUp(t, pool)
+	MigrateTo(t, pool, migration0209)
 
 	var content, metadata map[string]any
 	if err := pool.QueryRow(ctx, `SELECT content, metadata FROM exploration_node WHERE id = $1`, actionID).
