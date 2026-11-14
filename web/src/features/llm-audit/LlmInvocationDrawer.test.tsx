@@ -62,6 +62,13 @@ describe('LlmInvocationDrawer', () => {
     expect(screen.getByText('req-abc-123')).toBeTruthy()
   })
 
+  it('跳转区排在元信息之前：回到产出上下文是最先用到的出口', () => {
+    renderDrawer(<LlmInvocationDrawer open detail={makeDetail()} loading={false} error="" onOpenChange={vi.fn()} />)
+    const jump = screen.getByRole('heading', { name: '跳转' })
+    const meta = screen.getByRole('heading', { name: '元信息' })
+    expect(jump.compareDocumentPosition(meta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('error_message 存在时显示错误区块与失败标签', () => {
     const detail = makeDetail({ error_message: '连接超时' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)

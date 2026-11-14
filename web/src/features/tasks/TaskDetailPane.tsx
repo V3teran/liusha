@@ -31,7 +31,7 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
   )
 }
 
-/** 任务详情板（右侧常驻，点行选中驱动）：任务信息 KV + 目标全文 + 控制组 + 三跳转。
+/** 任务详情板（右侧常驻，点行选中驱动）：三跳转 + 任务信息 KV + 控制组 + 目标全文。
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
  * 表格行内是快捷路径，两面并存。 */
 export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
@@ -84,6 +84,36 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
           </div>
         ) : task ? (
           <div className="flex flex-col gap-5">
+            {/* 跳转排在首位：从任务去对话、探索图与漏洞是最先用到的出口。 */}
+            {Boolean(task.conversation_id || task.finding_count > 0) && (
+              <section>
+                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
+                <div className="flex flex-wrap gap-2">
+                  {task.conversation_id && (
+                    <JumpLink
+                      to={conversationPath(task.source, task.conversation_id)}
+                      icon={MessageSquare}
+                    >
+                      对话
+                    </JumpLink>
+                  )}
+                  {task.conversation_id && (
+                    <JumpLink
+                      to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
+                      icon={GitBranch}
+                    >
+                      探索图
+                    </JumpLink>
+                  )}
+                  {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
+                  {task.finding_count > 0 && (
+                    <JumpLink to="/findings" icon={Bug}>
+                      漏洞
+                    </JumpLink>
+                  )}
+                </div>
+              </section>
+            )}
             <section>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>
@@ -183,35 +213,6 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
               </div>
             </section>
 
-            {Boolean(task.conversation_id || task.finding_count > 0) && (
-              <section>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
-                <div className="flex flex-wrap gap-2">
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={conversationPath(task.source, task.conversation_id)}
-                      icon={MessageSquare}
-                    >
-                      对话
-                    </JumpLink>
-                  )}
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
-                      icon={GitBranch}
-                    >
-                      探索图
-                    </JumpLink>
-                  )}
-                  {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
-                  {task.finding_count > 0 && (
-                    <JumpLink to="/findings" icon={Bug}>
-                      漏洞
-                    </JumpLink>
-                  )}
-                </div>
-              </section>
-            )}
           </div>
         ) : null}
       </div>

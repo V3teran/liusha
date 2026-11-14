@@ -23,7 +23,7 @@ interface LlmInvocationDrawerProps {
   onOpenChange: (open: boolean) => void
 }
 
-// LLM 调用详情抽屉：点审计表某行 → 右侧滑出，展示元信息 KV + 输入消息 + 返回结果原文。
+// LLM 调用详情抽屉：点审计表某行 → 右侧滑出，展示跳转 + 元信息 KV + 输入消息 + 返回结果原文。
 // messages 是 OpenAI 风格消息数组，按条渲染（role 标签 + 正文）；结构不符时退化为 JSON 展示。
 // 解析逻辑（contentToText/toMsgView/reasoning 提取）已抽到同目录 llmMessage.ts 独立测试；
 // 复制状态机抽到 useCopyToClipboard；重复的「标题+复制按钮+内容」结构抽到 CopySection。
@@ -102,6 +102,32 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
               <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
             ) : detail ? (
               <>
+                {/* 跳转：回到产出这次调用的上下文是最先用到的出口，排在首位；与漏洞详情抽屉
+                    同一节式语法（JumpLink 盒）。对话 tab 按下发来源定（见 conversationPath：缺 source 落人工下发 tab——
+                    纯聊天/轻量路由调用必归人工下发侧，代理分析行后端恒带 source）。
+                    链接缺失（未链会话的孤儿任务/任务级后台调用）不渲染占位。 */}
+                {(detail.task_id || detail.conversation_id) && (
+                  <section>
+                    <h3 className="mb-2.5 text-sm font-semibold text-text">跳转</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {detail.task_id && (
+                        <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
+                          任务
+                        </JumpLink>
+                      )}
+                      {detail.conversation_id && (
+                        <JumpLink
+                          to={conversationPath(detail.source, detail.conversation_id)}
+                          icon={MessageSquare}
+                          onClick={() => onOpenChange(false)}
+                        >
+                          对话
+                        </JumpLink>
+                      )}
+                    </div>
+                  </section>
+                )}
+
                 {/* 元信息：语义化定义列表，屏幕阅读器能理解字段-值对应关系。 */}
                 <section>
                   <h3 className="mb-2.5 text-sm font-semibold text-text">元信息</h3>
@@ -147,32 +173,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     )}
                   </dl>
                 </section>
-
-                {/* 跳转：与漏洞详情抽屉同一节式语法（JumpLink 盒）。对话 tab 按下发
-                    来源定（见 conversationPath：缺 source 落人工下发 tab——
-                    纯聊天/轻量路由调用必归人工下发侧，代理分析行后端恒带 source）。
-                    链接缺失（未链会话的孤儿任务/任务级后台调用）不渲染占位。 */}
-                {(detail.task_id || detail.conversation_id) && (
-                  <section>
-                    <h3 className="mb-2.5 text-sm font-semibold text-text">跳转</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {detail.task_id && (
-                        <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
-                          任务
-                        </JumpLink>
-                      )}
-                      {detail.conversation_id && (
-                        <JumpLink
-                          to={conversationPath(detail.source, detail.conversation_id)}
-                          icon={MessageSquare}
-                          onClick={() => onOpenChange(false)}
-                        >
-                          对话
-                        </JumpLink>
-                      )}
-                    </div>
-                  </section>
-                )}
 
                 {/* 错误单独成节，最先看到 */}
                 {detail.error_message && (
