@@ -24,10 +24,6 @@ type GetGlobalStateTool struct {
 	graph            *explorationgraph.Store
 	taskID           string
 	metricsCollector *metrics.Collector
-	// activity 返回 action 距最近一次工具活动的时长（false=无记录）。
-	// 图上"无输出"是长 ReAct 执行期的正常形态，工具活动才是活性真信号——
-	// kill 决策必须看它，否则会把正在深挖的 action 当卡死冤杀。
-	activity func(actionID string) (time.Duration, bool)
 }
 
 // NewGetGlobalStateTool 构造全局态势工具。
@@ -125,15 +121,6 @@ func (t *GetGlobalStateTool) runningActionViews(actions []explorationgraph.Node,
 			ID:             a.ID,
 			Instruction:    c.Instruction,
 			RunningMinutes: math.Round(mins*10) / 10,
-		}
-		// 活动信号：距最近一次工具调用的分钟数（无记录=该 action 尚无工具活动，
-		// 以 -1 标注，让决策者知道这是"还没开始干活"而非"干着干着停了"）
-		if t.activity != nil {
-			if idle, ok := t.activity(a.ID); ok {
-				view.IdleMinutes = math.Round(idle.Minutes()*10) / 10
-			} else {
-				view.IdleMinutes = -1
-			}
 		}
 		views = append(views, view)
 	}

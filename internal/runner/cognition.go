@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -56,6 +57,7 @@ func (h *Handler) runCognition(
 		AgentStore: h.AgentStore,
 
 		MaxStepsPerTask: h.RunnerCfg.MaxStepsPerTask,
+		StepLLMTimeout:  stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
 
 		ContextRatios: cognition.ContextRatios{
 			Planner:   comp.PlannerContextRatio,
@@ -73,4 +75,13 @@ func (h *Handler) runCognition(
 		Conversations:  h.Conversations,
 		EventPublisher: h.EventPublisher,
 	}, taskID, host, brief, conversationID, h.Sandbox)
+}
+
+// stepLLMTimeout 取单步 LLM 看门狗上限：系统配置（热改）优先，读取失败或未配置时取
+// 部署配置。
+func stepLLMTimeout(settingSeconds, deploySeconds int) time.Duration {
+	if settingSeconds > 0 {
+		return time.Duration(settingSeconds) * time.Second
+	}
+	return time.Duration(deploySeconds) * time.Second
 }

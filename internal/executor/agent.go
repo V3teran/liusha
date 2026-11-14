@@ -38,6 +38,13 @@ type Agent struct {
 
 	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
 	reportMu sync.Mutex
+
+	// 看门狗：在途动作超过 stallTimeout 无进展即取消（见 watchdog.go）
+	activity           *ActivityTracker
+	stallTimeout       time.Duration
+	stallCheckInterval time.Duration
+	inFlightMu         sync.Mutex
+	inFlight           map[string]inFlightAction
 }
 
 // AgentConfig 配置 Agent
@@ -51,12 +58,25 @@ type AgentConfig struct {
 	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
 	MaxParallel  int         // 并发执行 action 上限（0/1=串行）
 	CompletionCh chan Report // 可选：任务完成时写入 Report
+
+	// Activity 是动作进展记录（工具拦截器与执行引擎写入，看门狗读取）；nil 时自建。
+	Activity *ActivityTracker
+	// StallTimeout 是判定停摆的无进展时长（见 StallTimeout）；0 = 不启用看门狗。
+	StallTimeout time.Duration
+	// StallCheckInterval 是看门狗巡检周期（0 = 30 秒）。
+	StallCheckInterval time.Duration
 }
 
 // NewAgent 创建 Agent
 func NewAgent(cfg AgentConfig) *Agent {
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 1000 // 默认最大步数
+	}
+	if cfg.Activity == nil {
+		cfg.Activity = NewActivityTracker()
+	}
+	if cfg.StallCheckInterval <= 0 {
+		cfg.StallCheckInterval = 30 * time.Second
 	}
 	if cfg.MaxParallel <= 0 {
 		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时 open 动作并发执行
@@ -71,7 +91,13 @@ func NewAgent(cfg AgentConfig) *Agent {
 		agentRunID:   cfg.AgentRunID,
 		maxSteps:     cfg.MaxSteps,
 		maxParallel:  cfg.MaxParallel,
-		completionCh: cfg.CompletionCh}
+		completionCh: cfg.CompletionCh,
+
+		activity:           cfg.Activity,
+		stallTimeout:       cfg.StallTimeout,
+		stallCheckInterval: cfg.StallCheckInterval,
+		inFlight:           map[string]inFlightAction{},
+	}
 }
 
 // Run 启动事件循环（ctx 取消即停止）。
@@ -86,6 +112,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
 	defer sub.Cancel()
+
+	// 看门狗与执行并行运行：执行循环在动作跑完前不会返回。
+	go a.watchStalls(ctx)
 
 	// 执行状态
 	var report Report
@@ -248,7 +277,10 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
-	attempts, outcome, execErr := a.executor.Execute(ctx, action)
+	actionCtx, untrack := a.track(ctx, action.ID)
+	attempts, outcome, execErr := a.executor.Execute(actionCtx, action)
+	stall := stallCause(actionCtx)
+	untrack()
 
 	// 落图用独立短时 ctx：run 被打断时执行期 ctx 已取消，用它写图必然失败。
 	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -263,10 +295,12 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
-	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（monitor 中止、看门狗
-	// 判死）或新 run 的回收已改写状态时，迟到的结果不覆盖它们。
+	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（monitor 中止）或新 run
+	// 的回收已改写状态时，迟到的结果不覆盖它们。看门狗判停摆的动作在这里按失败结束。
 	to, reason := explorationgraph.StateCompleted, ""
 	switch {
+	case stall != nil:
+		to, reason = explorationgraph.StateFailed, stall.Error()
 	case execErr != nil:
 		to, reason = explorationgraph.StateFailed, execErr.Error()
 	case outcome == OutcomeExhausted:

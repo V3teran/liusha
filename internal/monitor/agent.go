@@ -66,11 +66,6 @@ type Config struct {
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
 
-	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
-	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
-	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
-	Activity func(actionID string) (time.Duration, bool)
-
 	// WrapTool 把监察工具包进共享拦截链（遥测/心跳/时间线）——系统里
 	// 破坏性最大的决策（kill）不应是审计盲区（实测 tool_invocation 0 行）。
 	// nil=不包装（独立部署/测试）。
@@ -97,9 +92,7 @@ func New(cfg Config) *Agent {
 	// 注册监察工具（function_tools 白名单过滤；nil=拒绝，[]=空集，["*"]=全量）
 	var registryTools []registry.Tool
 	if registry.Allows(cfg.FunctionTools, "get_global_state") {
-		tool := NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector)
-		tool.activity = cfg.Activity
-		registryTools = append(registryTools, tool)
+		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.Replanner, cfg.TaskID))
@@ -292,7 +285,7 @@ func (a *Agent) buildEvaluationObjective() string {
 
 你的职责：
 1. 检查任务的全局状态
-2. 识别停滞、低效或异常的 Actions
+2. 识别重复、偏离或方向已作废的 Actions，以及整体停滞
 3. 做出监察决策（kill_action 或 request_replan）
 
 请使用以下工具：
@@ -300,7 +293,7 @@ func (a *Agent) buildEvaluationObjective() string {
 - publish_decision：发布监察决策
 
 评估标准：
-- kill_action 只看活动停摆：running_actions[].idle_minutes 超过 25 分钟（远超单次长 LLM 生成）才果断 kill——idle_minutes=-1 表示还没开始干活，超过 10 分钟无活动同样可 kill；running_minutes 长但 idle_minutes 小的动作正在正常深挖，绝不可 kill
+- kill_action 只针对策略上已无价值的动作：重复已完成或已证伪的工作、所在方向已作废、偏离任务目标；卡死的动作由系统看门狗自动结束，不按运行时长判断
 - 大量 failed Actions → 考虑 replan
 - 缺乏进展 → 考虑 replan
 
@@ -331,10 +324,8 @@ type GlobalState struct {
 	// 交付物）是两个概念：result 是图状态面，finding 是交付面。
 	Results []explorationgraph.Node `json:"results"`
 
-	// RunningActions 是 running 态动作的已运行时长视图——monitor 的 kill 阈值
-	// 判断依据（e2e 实测：只给原始 created_at/updated_at 时间戳时，LLM 无从
-	// 计算"已运行多少分钟"，20 分钟 kill 职责形同虚设）。决策变量必须显式喂给
-	// 决策者，不能指望它做时间戳算术。
+	// RunningActions 是在途动作的指令与已运行时长（显式算好分钟数，不让决策者做
+	// 时间戳算术）。卡死由执行者看门狗处理，这里只供判断重复与偏离。
 	RunningActions []RunningActionView `json:"running_actions"`
 
 	// Metrics 是时间窗口指标（P5）
@@ -347,9 +338,6 @@ type RunningActionView struct {
 	ID             string  `json:"id"`
 	Instruction    string  `json:"instruction"`
 	RunningMinutes float64 `json:"running_minutes"`
-	// IdleMinutes 是距最近一次工具活动的分钟数；-1 = 尚无任何工具活动
-	// （还没开始干活），与"干着干着停了"是两种完全不同的处置依据。
-	IdleMinutes float64 `json:"idle_minutes"`
 }
 
 // Decision 是监察决策。

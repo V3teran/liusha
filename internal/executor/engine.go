@@ -40,6 +40,7 @@ type Engine struct {
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	traceCollector      *TraceCollector         // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
+	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
 	logger              zerolog.Logger
 }
 
@@ -66,6 +67,8 @@ type EngineConfig struct {
 	TraceCollector      *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
+	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
+	Activity *ActivityTracker
 	Logger   zerolog.Logger
 }
 
@@ -88,6 +91,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		brief:               cfg.Brief,
 		agentRunID:          cfg.AgentRunID,
 		traceCollector:      cfg.TraceCollector,
+		activity:            cfg.Activity,
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
 }

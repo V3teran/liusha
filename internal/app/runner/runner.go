@@ -264,19 +264,6 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 
 	// llm_invocation 留存清理（retention_days > 0 时每日删除到期行）。
 	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.Invocation, logger)
-
-	// action 恢复监控：判定阈值须超过单步 LLM 看门狗（一次长 LLM 调用是合法活动形态）再加缓冲。
-	// 启动时读一次热配置，进程内不热变——启发式缓冲对慢漂移不敏感。
-	recoveryStepLLM := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second
-	if rt, err := sysSettings.Runtime(ctx); err == nil && rt.StepLLMTimeoutSeconds > 0 {
-		recoveryStepLLM = time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
-	}
-	monitor := explorationgraph.NewRecoveryMonitor(st.graph, logger, 30*time.Second, recoveryStepLLM+time.Minute)
-	go func() {
-		if err := monitor.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error().Err(err).Msg("action recovery monitor stopped")
-		}
-	}()
 }
 
 // newCorpusEmbedder 构造知识库 embedding + rerank client。JINA_API_KEY 缺失时返回 nil，
