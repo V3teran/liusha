@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -19,8 +20,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// Agent 是执行者：认领 open 动作并执行，观察落图后把新提出的假设交给评估者。
-// 规划者提出新动作（ActionProposed）时立即处理，另有定时兜底检查。
+// Agent 是执行者：按优先级认领 open 动作并执行，观察落图后把新提出的假设交给评估者。
 type Agent struct {
 	graph       *explorationgraph.Store
 	executor    ActionExecutor
@@ -36,6 +36,14 @@ type Agent struct {
 	stallCheckInterval time.Duration
 	inFlightMu         sync.Mutex
 	inFlight           map[string]inFlightAction
+
+	// 执行池：slots 是已派发（含认领中）的动作，workers 等在途执行收尾，
+	// slotFreed 唤醒补位，failures 把执行失败交回主循环判断是否致命。
+	slotsMu   sync.Mutex
+	slots     map[string]struct{}
+	workers   sync.WaitGroup
+	slotFreed chan struct{}
+	failures  chan error
 }
 
 // AgentConfig 配置 Agent
@@ -81,43 +89,130 @@ func NewAgent(cfg AgentConfig) *Agent {
 		stallTimeout:       cfg.StallTimeout,
 		stallCheckInterval: cfg.StallCheckInterval,
 		inFlight:           map[string]inFlightAction{},
+
+		slots:     map[string]struct{}{},
+		slotFreed: make(chan struct{}, 1),
+		failures:  make(chan error, cfg.MaxParallel),
 	}
 }
 
-// Run 启动执行循环（ctx 取消即停止）：认领并执行 open 动作，规划者提出新动作时
-// 立即处理，另有定时兜底检查。何时结束整个 run 由完成检测器判定，不在本层。
+// Run 启动执行循环（ctx 取消即停止）：有空位就按优先级认领下一个 open 动作执行。
+// 空位释放、规划者提出新动作、定时兜底三种时机都会补位；没有整批屏障——一个慢动作
+// 不会挡住后面的动作。返回前等在途执行收尾（交还或结束落图）。何时结束整个 run 由
+// 完成检测器判定，不在本层。
 func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().Msg("Agent 启动")
 
 	sub := a.eventBus.SubscribeTask(a.taskID)
 	defer sub.Cancel()
 
-	// 看门狗与执行并行运行：执行循环在动作跑完前不会返回。
-	go a.watchStalls(ctx)
+	workCtx, stopWork := context.WithCancel(ctx)
+	defer func() {
+		stopWork()
+		a.workers.Wait()
+	}()
 
-	if err := a.loopFailure(a.processAvailableActions(ctx), "初始 Action 处理"); err != nil {
-		return err
-	}
+	go a.watchStalls(workCtx)
 
-	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定期兜底检查
+	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定时兜底：错过的事件与外部写入的动作
 	defer ticker.Stop()
 
 	for {
+		if err := a.loopFailure(a.dispatch(workCtx), "认领动作"); err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			a.logger.Info().Msg("Agent 停止（context 取消）")
 			return ctx.Err()
-
+		case err := <-a.failures:
+			if fatal := a.loopFailure(err, "执行动作"); fatal != nil {
+				return fatal
+			}
 		case event := <-sub.Events():
-			if err := a.loopFailure(a.handleEvent(ctx, event), "事件处理（"+string(event.Type)+"）"); err != nil {
-				return err
+			if event.Type != bus.EventActionProposed {
+				continue
 			}
-
+		case <-a.slotFreed:
 		case <-ticker.C:
-			if err := a.loopFailure(a.processAvailableActions(ctx), "定期检查 Action"); err != nil {
-				return err
-			}
 		}
+	}
+}
+
+// dispatch 按「优先级高 → 创建早」把 open 动作派到空位上，每个动作一个协程执行。
+// 认领在执行协程里以 CAS 完成，派发只占位防同一动作重复派发。
+func (a *Agent) dispatch(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return nil // run 正在收尾，不再派发
+	default:
+	}
+	open, err := a.graph.ListOpenActions(ctx, a.taskID)
+	if err != nil {
+		return fmt.Errorf("list open actions: %w", err)
+	}
+	sort.SliceStable(open, func(i, j int) bool {
+		return priorityRank(open[i].Priority) < priorityRank(open[j].Priority)
+	})
+	for _, action := range open {
+		taken, full := a.reserveSlot(action.ID)
+		if full {
+			return nil
+		}
+		if !taken {
+			continue // 已在执行
+		}
+		a.workers.Add(1)
+		go func(act explorationgraph.Node) {
+			defer a.workers.Done()
+			defer a.releaseSlot(act.ID)
+			if err := a.executeAction(ctx, act); err != nil {
+				select {
+				case a.failures <- fmt.Errorf("执行动作 %s: %w", act.ID, err):
+				case <-ctx.Done():
+				}
+			}
+		}(action)
+	}
+	return nil
+}
+
+// priorityRank 把优先级映射为认领次序（越小越先）；缺省按「中」。
+func priorityRank(p explorationgraph.Priority) int {
+	switch p {
+	case explorationgraph.PriorityCritical:
+		return 0
+	case explorationgraph.PriorityHigh:
+		return 1
+	case explorationgraph.PriorityLow:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// reserveSlot 为动作占一个执行位：taken 表示占位成功，full 表示已无空位。
+func (a *Agent) reserveSlot(actionID string) (taken, full bool) {
+	a.slotsMu.Lock()
+	defer a.slotsMu.Unlock()
+	if _, busy := a.slots[actionID]; busy {
+		return false, false
+	}
+	if len(a.slots) >= a.maxParallel {
+		return false, true
+	}
+	a.slots[actionID] = struct{}{}
+	return true, false
+}
+
+// releaseSlot 释放执行位并唤醒派发补位。
+func (a *Agent) releaseSlot(actionID string) {
+	a.slotsMu.Lock()
+	delete(a.slots, actionID)
+	a.slotsMu.Unlock()
+	select {
+	case a.slotFreed <- struct{}{}:
+	default:
 	}
 }
 
@@ -133,74 +228,6 @@ func (a *Agent) loopFailure(err error, phase string) error {
 	}
 	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("执行失败（下一轮继续）")
 	return nil
-}
-
-// handleEvent 处理事件
-func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
-	switch event.Type {
-	case bus.EventActionProposed:
-		// Planner 提议了新 Action，立即处理
-		a.logger.Info().
-			Msg("收到 ActionProposed 事件，处理可执行 Action")
-		return a.processAvailableActions(ctx)
-
-	default:
-		a.logger.Debug().
-			Str("event_type", string(event.Type)).
-			Msg("忽略事件（非 Executor 关注）")
-		return nil
-	}
-}
-
-// processAvailableActions 并发执行全部 open 动作（CAS 认领防重复执行）
-func (a *Agent) processAvailableActions(ctx context.Context) error {
-	// 获取所有 open 状态的 Action
-	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
-	if err != nil {
-		return fmt.Errorf("list open actions: %w", err)
-	}
-
-	if len(openActions) == 0 {
-		a.logger.Debug().Msg("无待执行 Action")
-		return nil
-	}
-
-	a.logger.Info().Int("open_count", len(openActions)).Msg("开始执行待执行动作")
-
-	// 并发执行 open 动作：动作之间没有执行依赖（先后由增量规划表达），并发度由
-	// 配置决定，不由 LLM 运行时决定。
-	sem := make(chan struct{}, a.maxParallel)
-	var wg sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-
-	for _, action := range openActions {
-		if err := ctx.Err(); err != nil {
-			break
-		}
-		wg.Add(1)
-		go func(act explorationgraph.Node) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if err := a.executeAction(ctx, act); err != nil {
-				logx.ErrorUnlessCanceled(a.logger, err).
-					Err(err).
-					Str("action_id", act.ID).
-					Msg("执行 Action 失败")
-				// 单个失败不中止其他 Action；记录首个错误供上层感知
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				errMu.Unlock()
-			}
-		}(action)
-	}
-	wg.Wait()
-
-	return firstErr
 }
 
 // executeAction 执行单个 Action
