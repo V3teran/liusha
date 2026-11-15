@@ -19,6 +19,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/V3teran/liusha/db/migrations"
+	"github.com/V3teran/liusha/internal/containertest"
 	"github.com/V3teran/liusha/internal/db"
 )
 
@@ -96,11 +97,13 @@ func newEmptyPool(t *testing.T) *pgxpool.Pool {
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 
-	c, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
-		tcpostgres.WithDatabase("liusha"),
-		tcpostgres.WithUsername("liusha"),
-		tcpostgres.WithPassword("liusha"),
-		tcpostgres.BasicWaitStrategies())
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+		return tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
+			tcpostgres.WithDatabase("liusha"),
+			tcpostgres.WithUsername("liusha"),
+			tcpostgres.WithPassword("liusha"),
+			tcpostgres.BasicWaitStrategies())
+	})
 	if err != nil {
 		t.Fatalf("启动 postgres 容器失败: %v", err)
 	}

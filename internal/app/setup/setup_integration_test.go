@@ -15,6 +15,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
+	"github.com/V3teran/liusha/internal/containertest"
 	"github.com/V3teran/liusha/internal/envfile"
 )
 
@@ -22,9 +23,11 @@ import (
 func TestRun_FreshInstall(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	pg, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
-		tcpostgres.WithDatabase("liusha"), tcpostgres.WithUsername("liusha"), tcpostgres.WithPassword("liusha"),
-		tcpostgres.BasicWaitStrategies())
+	pg, err := containertest.Start(ctx, func(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+		return tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
+			tcpostgres.WithDatabase("liusha"), tcpostgres.WithUsername("liusha"), tcpostgres.WithPassword("liusha"),
+			tcpostgres.BasicWaitStrategies())
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +36,7 @@ func TestRun_FreshInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rd, err := tcredis.Run(ctx, "redis:8")
+	rd, err := containertest.Start(ctx, func(ctx context.Context) (*tcredis.RedisContainer, error) { return tcredis.Run(ctx, "redis:8") })
 	if err != nil {
 		t.Fatal(err)
 	}

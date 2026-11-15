@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/containertest"
 )
 
 // startPostgres 启动一次性 pgvector 容器，返回 DSN。
@@ -21,11 +22,13 @@ func startPostgres(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
-	c, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
-		tcpostgres.WithDatabase("liusha"),
-		tcpostgres.WithUsername("liusha"),
-		tcpostgres.WithPassword("liusha"),
-		tcpostgres.BasicWaitStrategies())
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+		return tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
+			tcpostgres.WithDatabase("liusha"),
+			tcpostgres.WithUsername("liusha"),
+			tcpostgres.WithPassword("liusha"),
+			tcpostgres.BasicWaitStrategies())
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +57,7 @@ func TestNewPgPool_Ping(t *testing.T) {
 func TestNewRedis_Ping(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	c, err := tcredis.Run(ctx, "redis:8")
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcredis.RedisContainer, error) { return tcredis.Run(ctx, "redis:8") })
 	if err != nil {
 		t.Fatal(err)
 	}

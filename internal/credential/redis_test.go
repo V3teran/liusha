@@ -12,6 +12,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/containertest"
 	"github.com/V3teran/liusha/internal/db"
 )
 
@@ -21,7 +22,7 @@ func newProvider(t *testing.T) *RedisProvider {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
-	c, err := tcredis.Run(ctx, "redis:8")
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcredis.RedisContainer, error) { return tcredis.Run(ctx, "redis:8") })
 	if err != nil {
 		t.Fatalf("启动 redis 容器失败: %v", err)
 	}
