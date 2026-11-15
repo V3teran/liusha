@@ -39,14 +39,12 @@ export interface GraphEdge {
   created_at: string
 }
 
-/**
- * 获取会话的完整探索图（节点 + 边；后端经 conversation.task_id 解析）
- */
-export async function getConversationGraph(conversationId: string): Promise<ConversationGraph> {
-  return get<ConversationGraph>(`/conversations/${conversationId}/exploration/graph`)
+/** 任务的完整探索图（节点 + 边）：探索图属于任务。 */
+export async function getTaskGraph(taskId: string): Promise<ExplorationGraph> {
+  return get<ExplorationGraph>(`/tasks/${encodeURIComponent(taskId)}/exploration/graph`)
 }
 
-export interface ConversationGraph {
+export interface ExplorationGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
 }
@@ -62,9 +60,7 @@ export interface Verification {
   created_at: string
 }
 
-/**
- * 获取会话的验证审计链（每次复现判定的机器证据；node_id 回挂图节点）
- */
-export async function getConversationVerifications(conversationId: string): Promise<{ verifications: Verification[] }> {
-  return get(`/conversations/${conversationId}/exploration/verifications`)
+/** 任务的验证审计链（每次复现判定的机器证据，时间倒序；node_id 回挂图节点）。 */
+export async function getTaskVerifications(taskId: string): Promise<{ verifications: Verification[] }> {
+  return get(`/tasks/${encodeURIComponent(taskId)}/exploration/verifications`)
 }

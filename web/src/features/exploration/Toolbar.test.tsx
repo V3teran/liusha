@@ -3,27 +3,28 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toolbar } from './Toolbar'
-import { listConversations } from '@/api/conversations'
+import { listTasks } from '@/api/tasks'
 
-vi.mock('@/api/conversations', () => ({
-  listConversations: vi.fn(async ({ search }: { search?: string }) => ({
-    conversations: search
-      ? [{ id: 'c-9', title: '测试商城越权', task_id: 't', source: 'direct', created_at: '', updated_at: '2026-11-14T08:30:00' }]
+vi.mock('@/api/tasks', () => ({
+  listTasks: vi.fn(async (_page: number, _size: number, filters?: { search?: string }) => ({
+    items: filters?.search
+      ? [{ id: 't-9', goal: '测试商城越权', status: 'active', source: 'direct', created_at: '2026-11-14T08:30:00' }]
       : [],
-    hasMore: false,
-    total: search ? 1 : 0,
+    total: filters?.search ? 1 : 0,
+    page: 1,
+    size: 20,
   })),
 }))
 
 describe('探索图 Toolbar', () => {
-  it('对话由可搜索的选择框选取（服务端按标题 / 任务目标 / ID 检索），不再手输 ID', async () => {
+  it('探索图属于任务：任务由可搜索的选择框选取（服务端按目标 / 批次名检索）', async () => {
     const onChange = vi.fn()
     const user = userEvent.setup()
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Toolbar
-          conversationId=""
-          onConversationChange={onChange}
+          taskId=""
+          onTaskChange={onChange}
           disabled={false}
           refreshing={false}
           onRefresh={vi.fn()}
@@ -36,11 +37,13 @@ describe('探索图 Toolbar', () => {
         />
       </QueryClientProvider>,
     )
-    expect(screen.queryByRole('textbox', { name: '对话 ID' })).toBeNull()
-    await user.click(screen.getByRole('button', { name: '选择对话：选择对话' }))
-    await user.type(screen.getByRole('combobox', { name: '搜索对话标题、任务目标、ID' }), '商城')
-    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ search: '商城', limit: 20 }))
-    await user.click(await screen.findByRole('option', { name: /测试商城越权/ }))
-    expect(onChange).toHaveBeenCalledWith('c-9')
+    await user.click(screen.getByRole('button', { name: '选择任务：选择任务' }))
+    await user.type(screen.getByRole('combobox', { name: '搜索任务目标、批次名' }), '商城')
+    await waitFor(() => expect(listTasks).toHaveBeenCalledWith(1, 20, { search: '商城' }))
+    const option = await screen.findByRole('option', { name: /测试商城越权/ })
+    // 次要信息区分目标相同的任务：创建时间与状态
+    expect(option.textContent).toContain('11-14 08:30 创建 · 进行中')
+    await user.click(option)
+    expect(onChange).toHaveBeenCalledWith('t-9')
   })
 })

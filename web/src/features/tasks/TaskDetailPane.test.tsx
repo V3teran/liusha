@@ -62,17 +62,20 @@ describe('TaskDetailPane', () => {
     for (const name of ['对话', '探索图', '漏洞']) {
       expect(screen.getByRole('link', { name: new RegExp(name) })).toBeTruthy()
     }
-    // 漏洞跳到这个任务的漏洞，不是全量台账
+    // 漏洞、探索图都属于任务：按任务 ID 跳，不经对话
     expect(screen.getByRole('link', { name: /漏洞/ }).getAttribute('href')).toBe('/findings?task=t-1')
+    expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
   })
 
-  it('没有会话也没有漏洞时不渲染跳转区', () => {
+  it('对话已删除的任务仍可看探索图，只是没有对话入口', () => {
     render(
       <MemoryRouter>
         <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onClose={vi.fn()} />
       </MemoryRouter>,
     )
-    expect(screen.queryByRole('heading', { name: '跳转' })).toBeNull()
+    expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    expect(screen.queryByRole('link', { name: /对话/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /漏洞/ })).toBeNull()
   })
 })
 

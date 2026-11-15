@@ -67,15 +67,3 @@ func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limi
 	}
 	return out, rows.Err()
 }
-
-// ListVerificationsByConversationID 按会话解析任务后读验证审计链（HTTP API 路径）。
-func (s *Store) ListVerificationsByConversationID(ctx context.Context, conversationID string, limit int) ([]Verification, error) {
-	taskID, err := s.taskIDByConversation(ctx, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	if taskID == "" {
-		return []Verification{}, nil
-	}
-	return s.ListVerificationsByTask(ctx, taskID, limit)
-}

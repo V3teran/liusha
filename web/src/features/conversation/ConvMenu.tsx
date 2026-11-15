@@ -26,25 +26,27 @@ export function ConvMenu({
       style={style}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* 任务/探索图/漏洞：会话到各上游/下游视图的跳转（任务与漏洞需有关联 task） */}
+      {/* 任务/探索图/漏洞都属于会话所属的任务，按任务 ID 跳；纯聊天会话没有任务，不显示 */}
       {conv.task_id && (
-        <Link
-          to={`/tasks?task=${conv.task_id}`}
-          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
-          onClick={onClose}
-        >
-          <ListChecks className="h-3.5 w-3.5" />
-          任务
-        </Link>
+        <>
+          <Link
+            to={`/tasks?task=${encodeURIComponent(conv.task_id)}`}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+            onClick={onClose}
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            任务
+          </Link>
+          <Link
+            to={`/exploration-graph?task=${encodeURIComponent(conv.task_id)}`}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+            onClick={onClose}
+          >
+            <Network className="h-3.5 w-3.5" />
+            探索图
+          </Link>
+        </>
       )}
-      <Link
-        to={`/exploration-graph?conversation_id=${conv.id}`}
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
-        onClick={onClose}
-      >
-        <Network className="h-3.5 w-3.5" />
-        探索图
-      </Link>
       {/* 无洞不跳（与任务详情同一规则）：入口必须通向有内容的落点 */}
       {conv.task_id && (conv.finding_count ?? 0) > 0 && (
         <Link

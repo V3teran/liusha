@@ -2,89 +2,93 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/task"
 )
 
-// ExplorationGraphAPI 是探索图查询的窄接口（由 *explorationgraph.Store 实现）
+// ExplorationGraphAPI 是探索图读取的窄接口（*explorationgraph.Store 满足）。探索图属于任务，
+// 一律按任务 ID 取。
 type ExplorationGraphAPI interface {
-	// ListNodesByConversationID 按 conversation_id 查询节点（经会话关联的 task）
-	ListNodesByConversationID(ctx context.Context, conversationID string, kind string) ([]explorationgraph.Node, error)
-
-	// ListEdgesByConversationID 按 conversation_id 查询边（经会话关联的 task）
-	ListEdgesByConversationID(ctx context.Context, conversationID string) ([]explorationgraph.Edge, error)
-
-	// ListVerificationsByConversationID 按 conversation_id 查询验证审计链
-	// （每条记录的 node_id 指向被验证的假设节点）
-	ListVerificationsByConversationID(ctx context.Context, conversationID string, limit int) ([]explorationgraph.Verification, error)
+	ListNodesByTask(ctx context.Context, taskID string, kind string) ([]explorationgraph.Node, error)
+	ListEdgesByTask(ctx context.Context, taskID string) ([]explorationgraph.Edge, error)
+	// ListVerificationsByTask 读验证审计链（时间倒序；每条的 node_id 指向被验证的假设节点）。
+	ListVerificationsByTask(ctx context.Context, taskID string, limit int) ([]explorationgraph.Verification, error)
 }
 
-// GraphResponse 是完整图谱响应
+// TaskReader 读任务行（*task.Store 满足）。任务名下资源的接口据此区分「任务不存在」（404）
+// 与「任务还没有数据」（空结果）。不存在时返回包裹 pgx.ErrNoRows 的错误。
+type TaskReader interface {
+	GetByID(ctx context.Context, id string) (task.Task, error)
+}
+
+// GraphResponse 是完整探索图响应。
 type GraphResponse struct {
 	Nodes []explorationgraph.Node `json:"nodes"`
 	Edges []explorationgraph.Edge `json:"edges"`
 }
 
-// getConversationGraph 处理 GET /api/conversations/{id}/exploration/graph
-// 返回对话的完整探索图（nodes + edges）
-func getConversationGraph(api ExplorationGraphAPI) gin.HandlerFunc {
+// defaultVerificationLimit 是验证审计链缺省读取的条数。
+const defaultVerificationLimit = 200
+
+// requireTask 确认路径里的任务存在：不存在 404，查询失败 500；返回 false 时响应已写出。
+func requireTask(c *gin.Context, tasks TaskReader) bool {
+	if _, err := tasks.GetByID(c.Request.Context(), c.Param("id")); err != nil {
+		respondErr(c, http.StatusInternalServerError, err)
+		return false
+	}
+	return true
+}
+
+// getTaskGraphHandler 处理 GET /tasks/:id/exploration/graph：任务的完整探索图（节点 + 边）。
+func getTaskGraphHandler(tasks TaskReader, graph ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		conversationID := c.Param("id")
-		if conversationID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "conversation_id 不能为空"})
+		if !requireTask(c, tasks) {
 			return
 		}
-
-		// 查询所有节点
-		nodes, err := api.ListNodesByConversationID(c.Request.Context(), conversationID, "")
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found", "conversation_id": conversationID})
-				return
-			}
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-
-		// 查询所有边
-		edges, err := api.ListEdgesByConversationID(c.Request.Context(), conversationID)
+		ctx, taskID := c.Request.Context(), c.Param("id")
+		nodes, err := graph.ListNodesByTask(ctx, taskID, "")
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-
-		c.JSON(http.StatusOK, GraphResponse{
-			Nodes: nodes,
-			Edges: edges,
-		})
+		edges, err := graph.ListEdgesByTask(ctx, taskID)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		if nodes == nil {
+			nodes = []explorationgraph.Node{}
+		}
+		if edges == nil {
+			edges = []explorationgraph.Edge{}
+		}
+		c.JSON(http.StatusOK, GraphResponse{Nodes: nodes, Edges: edges})
 	}
 }
 
-// getConversationVerifications 处理 GET /api/conversations/{id}/exploration/verifications
-// 返回本会话任务的验证审计链（坐实与证伪的机器证据，node_id 回挂图节点）。
-func getConversationVerifications(api ExplorationGraphAPI) gin.HandlerFunc {
+// getTaskVerificationsHandler 处理 GET /tasks/:id/exploration/verifications?limit=：任务的验证
+// 审计链（坐实与证伪的机器证据，node_id 回挂图节点）。
+func getTaskVerificationsHandler(tasks TaskReader, graph ExplorationGraphAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		conversationID := c.Param("id")
-		if conversationID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "conversation_id 不能为空"})
+		if !requireTask(c, tasks) {
 			return
 		}
-		limit := 200
-		if l := c.Query("limit"); l != "" {
-			if n, err := strconv.Atoi(l); err == nil && n > 0 {
-				limit = n
-			}
+		limit := defaultVerificationLimit
+		if n, err := strconv.Atoi(c.Query("limit")); err == nil && n > 0 {
+			limit = n
 		}
-		verifications, err := api.ListVerificationsByConversationID(c.Request.Context(), conversationID, limit)
+		verifications, err := graph.ListVerificationsByTask(c.Request.Context(), c.Param("id"), limit)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
+		}
+		if verifications == nil {
+			verifications = []explorationgraph.Verification{}
 		}
 		c.JSON(http.StatusOK, gin.H{"verifications": verifications})
 	}

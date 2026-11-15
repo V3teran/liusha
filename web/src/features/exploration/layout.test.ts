@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildFlowGraph, applyFocus } from './layout'
-import type { ConversationGraph, GraphNode } from '@/api/explorationgraph'
+import type { ExplorationGraph, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
   return {
@@ -15,7 +15,7 @@ function node(o: Partial<GraphNode> = {}): GraphNode {
   }
 }
 
-const GRAPH: ConversationGraph = {
+const GRAPH: ExplorationGraph = {
   nodes: [
     node(),
     node({ id: 'n-act-a', kind: 'action', state: 'running', content: { instruction: '端口发现' } }),

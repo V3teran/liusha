@@ -210,6 +210,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			UsageLLM:           invocationStore,
 			UsageTools:         toolStore,
 			ExplorationGraph:   explorationGraphStore,
+			TaskReader:         taskStore,
 			Tasks:              taskStore,
 			TaskDispatch:       dispatchService,
 			Schedules:          cronStore,
