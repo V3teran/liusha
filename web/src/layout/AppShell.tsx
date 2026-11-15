@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { loginPath } from '@/lib/loginRedirect'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Menu } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
@@ -28,6 +29,7 @@ function readRailPreference(): boolean {
  */
 export function AppShell() {
   const { theme } = useTheme()
+  const location = useLocation()
   const authStatus = useAuthStore((s) => s.status)
   const bootstrap = useAuthStore((s) => s.bootstrap)
 
@@ -70,7 +72,8 @@ export function AppShell() {
     )
   }
   if (authStatus === 'anonymous') {
-    return <Navigate to="/login" replace />
+    // 记住原来要去的页面，登录后回到这里
+    return <Navigate to={loginPath(location.pathname + location.search)} replace />
   }
 
   return (

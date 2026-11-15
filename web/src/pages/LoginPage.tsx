@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { safeNextPath } from '@/lib/loginRedirect'
 import { Eye, EyeOff } from 'lucide-react'
 import * as authApi from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
@@ -28,6 +29,9 @@ function displayError(err: Error): string {
 
 export function LoginPage() {
   const navigate = useNavigate()
+  // 登录后回到原来要去的页面（守卫 / 会话过期跳来时带的 ?next=，只接受站内路径）
+  const [searchParams] = useSearchParams()
+  const next = safeNextPath(searchParams.get('next'))
   const setAccount = useAuthStore((s) => s.setAccount)
 
   const [username, setUsername] = useState('')
@@ -42,13 +46,13 @@ export function LoginPage() {
     authApi
       .me()
       .then(() => {
-        if (alive) navigate('/', { replace: true })
+        if (alive) navigate(next, { replace: true })
       })
       .catch(() => undefined)
     return () => {
       alive = false
     }
-  }, [navigate])
+  }, [navigate, next])
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -63,7 +67,7 @@ export function LoginPage() {
       .login(username, password)
       .then((me) => {
         setAccount(me.username)
-        navigate('/', { replace: true })
+        navigate(next, { replace: true })
       })
       .catch((err: Error) => setError(displayError(err)))
       .finally(() => setBusy(false))

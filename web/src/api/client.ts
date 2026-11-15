@@ -15,20 +15,18 @@
  * 前缀由此常量统一拼接——手写 '/api/...' 会双前缀 404（历史教训，见
  * explorationgraph.ts）。
  */
+import { LOGIN_PATH, loginPath } from '@/lib/loginRedirect'
+
 export const API_BASE = '/api'
 
 /**
- * 登录页路由。client 层 401 拦截跳转用，与 router.tsx 的路由定义保持一致。
- */
-const LOGIN_PATH = '/login'
-
-/**
- * 会话失效跳登录页。仅对业务请求触发（/auth/* 自身与登录页内不跳，
- * 否则登录失败会被重定向打断）。
+ * 会话失效跳登录页，带上当前页面（登录后回到这里）。仅对业务请求触发（/auth/* 自身与登录页内
+ * 不跳，否则登录失败会被重定向打断）。用 replace：不留下这条已失效的历史——否则在登录页按
+ * 后退会回到它、再被弹回登录页。
  */
 function redirectOnSessionExpired(path: string) {
-  if (path.startsWith('/auth/') || window.location.pathname.startsWith('/login')) return
-  window.location.assign(LOGIN_PATH)
+  if (path.startsWith('/auth/') || window.location.pathname.startsWith(LOGIN_PATH)) return
+  window.location.replace(loginPath(window.location.pathname + window.location.search))
 }
 
 /**
