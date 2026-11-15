@@ -198,7 +198,6 @@ func (f steeringFixture) withRunner(t *testing.T) steeringFixture {
 	t.Cleanup(func() { _ = enq.Close() })
 	f.svc.Enq = enq
 	f.svc.AgentRuns = agentrun.NewStore(f.svc.DB)
-	f.svc.MaxRunTimeout = time.Minute
 	return f
 }
 

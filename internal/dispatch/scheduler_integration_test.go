@@ -49,7 +49,6 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 			AgentRuns:     agentRuns,
 			Conversations: conversations,
 			Enq:           enq,
-			MaxRunTimeout: time.Minute,
 		},
 		Logger: zerolog.Nop(),
 	}

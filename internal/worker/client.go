@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/hibiken/asynq"
 )
@@ -21,13 +22,20 @@ func NewClient(opt asynq.RedisClientOpt) *Client {
 // Close 释放底层连接。
 func (c *Client) Close() error { return c.c.Close() }
 
-// Enqueue 投递一个任务到 role 对应的队列。
+// runQueueTimeout 是 run 在队列层的时限。asynq 未设时限时缺省 30 分钟就取消处理函数，且
+// 无法表达「不限」（Timeout(0) 等同未设置）；run 的墙钟上限由 runner 处理函数按
+// runner.agent_run_timeout_seconds 执行，队列层用远超任何 run 的值，不参与截断。
+const runQueueTimeout = 365 * 24 * time.Hour
+
+// Enqueue 投递一个 run 到 role 对应的队列。所有生产者（首次下发、继续、续接、恢复监控重投、
+// 代理捕获）同一份入队语义，在这里定死，不由调用方各自传：
+//   - 幂等：p.AgentRunID 作为 asynq 的 task ID，重复入队同一 run 返回 asynq.ErrTaskIDConflict。
+//   - 不重试（MaxRetry(0)）：重试接管的新进程没有原进程的认知循环状态，只会产出脏状态；
+//     中断的任务由恢复监控按探索图续跑。
+//   - 队列层不设短时限（runQueueTimeout）。
 //
-// 幂等：用 p.AgentRunID 作为 asynq 的 task ID，重复 Enqueue 同一 run 会返回 asynq.ErrTaskIDConflict。
-// opts 透传给 asynq.NewTask（如 asynq.MaxRetry(0) 用于 active planner禁止重试——
-// active 4h × asynq 默认 25 retry = 4 天死循环，且 retry 接管必弄 PG 僵尸态）。
 // 返回 (asynq 分配的 task ID, queue 名, error)。
-func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload, opts ...asynq.Option) (string, string, error) {
+func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload) (string, string, error) {
 	if p.AgentRunID == "" {
 		return "", "", fmt.Errorf("worker: payload.AgentRunID 不能为空")
 	}
@@ -39,11 +47,12 @@ func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload, opts ...
 		return "", "", fmt.Errorf("worker: 序列化 payload 失败: %w", err)
 	}
 
-	taskOpts := append([]asynq.Option{
+	task := asynq.NewTask(TaskTypeRun, body,
 		asynq.Queue(role.Queue()),
 		asynq.TaskID(p.AgentRunID),
-	}, opts...)
-	task := asynq.NewTask(TaskTypeRun, body, taskOpts...)
+		asynq.MaxRetry(0),
+		asynq.Timeout(runQueueTimeout),
+	)
 
 	info, err := c.c.EnqueueContext(ctx, task)
 	if err != nil {
