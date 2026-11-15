@@ -78,16 +78,16 @@ func (s *Store) ResolveTaskID(ctx context.Context, conversationID string) (strin
 	return c.TaskID, nil
 }
 
-// ResolveConversationByTask 反向解析：task id → 绑定的会话 id（思维链来源）。
-// 一 task 常对应一会话；若有多条（follow-up 复活等）取最近更新的一条。
-// 无绑定会话（纯代理捕获自动路径 / task 不存在）返回空串——调用方据此只出成果链，不报错。
+// ResolveConversationByTask 反向解析：task id → 关联的对话 id。一个任务至多一个对话
+// （conversation_one_per_task 唯一索引）。没有对话（对话已删除、代理捕获建对话失败、
+// task 不存在）返回空串——调用方据此跳过写时间线，不报错。
 func (s *Store) ResolveConversationByTask(ctx context.Context, taskID string) (string, error) {
 	if taskID == "" {
 		return "", nil
 	}
 	var conversationID string
 	err := s.pool.QueryRow(ctx,
-		`SELECT id FROM conversation WHERE task_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+		`SELECT id FROM conversation WHERE task_id = $1`,
 		taskID).Scan(&conversationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil

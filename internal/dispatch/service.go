@@ -212,9 +212,6 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 		if err != nil {
 			return asg.ID, out, err
 		}
-		if err := s.Conversations.LinkTask(ctx, created.ID, taskID); err != nil {
-			chatLog.Warn().Err(err).Str("conversation_id", created.ID).Msg("link task 失败")
-		}
 		s.appendTaskStatus(ctx, created.ID, conversation.TaskStatusDispatched, "任务已下发，智能体启动中…", nil)
 		go s.genTitle(created.ID, b) //nolint:gosec // G118：标题生成独立生命周期
 		out = append(out, httpapi.DispatchedTask{TaskID: taskID, ConversationID: created.ID})
@@ -295,10 +292,8 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
-	// 建好即链会话：后续任一步（落位/入队）失败时任务已留存（既有语义：
-	// 用户手动处理），链上会话才能从任务详情跳回会话看到失败现场——
-	// 不链的话会话成孤儿（有消息无任务）、任务成哑巴（有详情无入口）。
-	// 下发成功路径的 LinkTask 不再重复（此前在 createTask 调用方做）。
+	// 建好即链会话（任务与对话只在这里关联）：后续任一步（落位/入队）失败时任务已留存，
+	// 链上会话才能从任务详情跳回会话看到失败现场。
 	if conversationID != "" {
 		if err := s.Conversations.LinkTask(ctx, conversationID, tk.ID); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Str("task", tk.ID).Msg("link task 失败")
