@@ -4,10 +4,10 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 `runner`（任务执行）、`sandbox`（工具执行沙盒）、`migrate`（数据库迁移），`serve` 在同一
 进程运行全部组件。三种部署方式只是组件的摆放不同：
 
-| | 二进制 | compose | 单镜像 |
+| | 二进制 | Docker Compose | 单镜像 |
 |---|---|---|---|
 | 组件 | `liusha serve` 一个进程 | api / proxy / runner / sandbox 各一个容器 | 一个容器内 `liusha serve` |
-| PostgreSQL / Redis | 自备 | compose 内置（pg17） | 镜像内置（pg18） |
+| PostgreSQL / Redis | 自备 | Docker Compose 内置（pg17） | 镜像内置（pg18） |
 | 渗透工具 | 本机安装（Linux / macOS / Windows） | 沙盒镜像（本地构建） | 沙盒镜像（本地构建） |
 | 对外入口 | :8580 | nginx :50080 | :8580（映射到宿主自定） |
 | 数据库迁移 | `setup` 首装；`serve` 启动时 | 一次性的 `migrate` 服务 | `serve` 启动时 |
@@ -45,14 +45,14 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 - **浏览器**：`drive_browser` 需要装了 browser-use 0.13.x（1.0 起接口不兼容）的 Python
   （`sandbox.browser_python`，沙盒镜像里已配好）。不可用时工具页会说明缺什么。
 - **工作区**：api（文件页、附件）与沙盒必须看到同一目录、同一绝对路径（`sandbox.workspace_dir`，
-  缺省 `~/data/liusha/workspace`）。compose 以同一路径挂进两个容器。
+  缺省 `~/data/liusha/workspace`）。Docker Compose 以同一路径挂进两个容器。
 - **回连**：反弹 shell / 代理 / payload 托管只绑对外监听段（`sandbox.listener_ports`，缺省
   `21000-21099`）中的端口；`sandbox.callback_host` 是目标用来回连的地址。容器部署探测不到宿主
   地址，需要回连时必须填写，并放行该端口段。
 - 沙盒执行 agent 编写的任意命令（root 运行）：命令环境里没有 liusha 的密钥，沙盒令牌也不会
-  交给命令；但命令能访问沙盒所在机器上的一切。compose 部署时沙盒是独立容器，只挂载任务工作区；
+  交给命令；但命令能访问沙盒所在机器上的一切。Docker Compose 部署时沙盒是独立容器，只挂载任务工作区；
   二进制与单镜像部署时沙盒与平台同机（同容器），命令可以读到平台的数据目录与本机数据库——
-  需要隔离时选 compose。沙盒端口不要对外暴露（compose 只绑回环）。
+  需要隔离时选 Docker Compose。沙盒端口不要对外暴露（Docker Compose 只绑回环）。
 
 ## 二进制
 
@@ -146,7 +146,7 @@ sc.exe start liusha
 用专门的低权限账户；工具与 Python 须对该账户可用（装在系统范围，或装在该账户下），`liusha.env`
 也要用该账户执行 `setup` 生成（只有它与管理员可读）。
 
-## compose
+## Docker Compose
 
 ```bash
 cp .env.example .env    # 填写必填项
@@ -189,7 +189,7 @@ make dev-down             # 收工（-v 清数据）
 
 0.10 把五个程序合并为 `liusha`，沙盒改为常驻服务，镜像只发布 `ghcr.io/v3teran/liusha`。
 
-**compose**
+**Docker Compose**
 
 1. 备份数据库：`docker exec liusha-postgres pg_dump -U liusha -Fc liusha > liusha.dump`。
 2. 检出新版本；`compose.prod.yaml` 与 `--profile full` 不再使用，直接 `docker compose up -d --build`。
@@ -201,7 +201,7 @@ make dev-down             # 收工（-v 清数据）
    其密钥变量（如 `GLM_API_KEY`）保留在 `.env` 即可。
 5. 需要回连时在 `.env` 填 `LIUSHA_SANDBOX_CALLBACK_HOST`；对外监听段缺省改为 `21000-21099`。
 6. runner 不再挂载 docker.sock，58590 不再对外发布。旧版 runner 在宿主上拉起的沙盒容器不随
-   compose 删除，手动清掉（它们占着监听段端口）：`docker rm -f $(docker ps -aq --filter name=liusha-sandbox-)`。
+   Docker Compose 删除，手动清掉（它们占着监听段端口）：`docker rm -f $(docker ps -aq --filter name=liusha-sandbox-)`。
    旧镜像 `liusha-api` / `liusha-proxy` / `liusha-runner` / `liusha-nginx` / `liusha-sandbox` 停止更新，可删除。
 
 **单镜像**：数据库从 PostgreSQL 17 升到 18，数据目录不能直接沿用。
