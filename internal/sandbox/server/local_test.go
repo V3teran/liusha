@@ -117,3 +117,35 @@ func execEnv(t *testing.T, h *harness, command string) string {
 	h.decode(t, http.MethodPost, "/exec", bytes.NewReader(body), &res)
 	return res.Stdout
 }
+
+// eofReader 记录请求体是否被读完。
+type eofReader struct {
+	r    io.Reader
+	done bool
+}
+
+func (e *eofReader) Read(p []byte) (int, error) {
+	n, err := e.r.Read(p)
+	if err == io.EOF {
+		e.done = true
+	}
+	return n, err
+}
+
+// 拒绝请求前先读完请求体：浏览器客户端（Python urllib）总带 Connection: close，服务端在请求体
+// 未读完时回复并关闭连接，Windows 会以复位丢弃已到达的响应，客户端只看到「连接被重置」，
+// 看不到拒绝原因（在 Windows ARM 上实测复现）。
+func TestLocalAPI_RejectionDrainsRequestBody(t *testing.T) {
+	srv := New(Config{Token: testToken, WorkspaceDir: t.TempDir(), Shell: testShell})
+	body := &eofReader{r: strings.NewReader(`{"assignment_id":"a","task_id":"t","identity":"default"}`)}
+	req := httptest.NewRequest(http.MethodPost, "/browsers", body)
+	req.Header.Set("Authorization", "Bearer wrong")
+	rec := httptest.NewRecorder()
+	srv.localHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("口令不对应 401, got %d", rec.Code)
+	}
+	if !body.done {
+		t.Fatal("回复拒绝前应读完请求体")
+	}
+}
