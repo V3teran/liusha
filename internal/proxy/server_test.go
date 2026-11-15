@@ -6,13 +6,16 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/filter"
@@ -389,4 +392,84 @@ func makeResponse(t *testing.T, method, rawURL string, reqBody []byte, status in
 		Body:       io.NopCloser(bytes.NewReader(respBody)),
 	}
 	return resp
+}
+
+// runProxy 在空闲端口上运行代理，返回经它发请求的客户端。
+func runProxy(t *testing.T, resolver IPResolver) *http.Client {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyAddr := ln.Addr().String()
+	_ = ln.Close()
+	cfg := defaultCfg()
+	srv, err := NewServer(ServerDeps{
+		Filter: filter.NewTrafficFilter(cfg), Publisher: &fakePublisher{}, Cfg: cfg,
+		ListenAddr: proxyAddr, CertDir: t.TempDir(), Source: "external", Logger: zerolog.Nop(),
+		Resolver: resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.Run(ctx) }()
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 10 * time.Second}
+	for i := 0; i < 50; i++ {
+		c, err := net.Dial("tcp", proxyAddr)
+		if err == nil {
+			_ = c.Close()
+			return client
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("代理未就绪")
+	return nil
+}
+
+// 请求体原样转发（代理不得在转发途中读走或替换它）；Accept-Encoding 去掉 br：快照只解
+// gzip / deflate，brotli 压缩的响应存进快照是乱码。
+func TestServer_ForwardsRequestBodyIntact(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(r.Header.Get("Accept-Encoding") + "|" + string(body)))
+	}))
+	t.Cleanup(backend.Close)
+	client := runProxy(t, nil)
+
+	payload := strings.Repeat("q=<svg/onload=alert(1)>&", 2000)
+	req, _ := http.NewRequest(http.MethodPost, backend.URL+"/form", strings.NewReader(payload))
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	echoed, _ := io.ReadAll(resp.Body)
+	if want := "gzip, deflate|" + payload; string(echoed) != want {
+		t.Fatalf("请求体应原样到达后端、Accept-Encoding 去掉 br，得 %q…", string(echoed)[:min(len(echoed), 80)])
+	}
+}
+
+// 代理按系统解析目标主机名，与发起请求的浏览器一致：只有本机解析得到的名字（容器服务名、
+// 内网域名）也能代理到；不经公共 DNS（公共 DNS 解析不到它，或被劫持到别处）。
+func TestServer_ResolvesTargetsWithSystemResolver(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("hello from " + r.Host))
+	}))
+	t.Cleanup(backend.Close)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(backend.URL, "http://"))
+	client := runProxy(t, fakeResolver{"app.internal": {net.ParseIP("127.0.0.1")}})
+
+	resp, err := client.Get("http://app.internal:" + port + "/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "hello from app.internal:"+port {
+		t.Fatalf("应经系统解析代理到后端，得 %d %q", resp.StatusCode, body)
+	}
 }
