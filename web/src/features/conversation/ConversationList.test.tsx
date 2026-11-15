@@ -94,6 +94,27 @@ describe('ConversationList', () => {
     expect(listConversations).not.toHaveBeenCalledWith(expect.objectContaining({ search: 's' }))
   })
 
+  // 计数文案跟随「产出当前数据的那次请求」：关键词已生效、新结果还没回来时，屏上仍是旧数据，
+  // 不能把旧的总数标成「匹配 N 条」。
+  it('新结果到达前，计数仍按当前展示的数据标注', async () => {
+    let release: () => void = () => {}
+    vi.mocked(listConversations).mockImplementation(({ search } = {}) =>
+      search
+        ? new Promise((resolve) => {
+            release = () => resolve({ conversations: [mkConv({ id: 'c-9' })], hasMore: false, total: 1 })
+          })
+        : Promise.resolve({ conversations: [mkConv({ id: 'c-1' })], hasMore: true, total: 120 }),
+    )
+    renderList()
+    await screen.findByText('第 1–1 条 · 共 120 条')
+    await userEvent.type(screen.getByLabelText('搜索对话'), 'shop')
+    await waitFor(() => expect(listConversations).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'shop' })))
+    expect(screen.queryByText(/匹配 120 条/)).toBeNull()
+    expect(screen.getByText('第 1–1 条 · 共 120 条')).toBeTruthy()
+    release()
+    expect(await screen.findByText('第 1–1 条 · 匹配 1 条')).toBeTruthy()
+  })
+
   it('没有匹配时提示「没有匹配的对话」', async () => {
     vi.mocked(listConversations).mockImplementation(async ({ search } = {}) =>
       search ? { conversations: [], hasMore: false, total: 0 } : { conversations: [mkConv({ id: 'c-1' })], hasMore: false, total: 1 },

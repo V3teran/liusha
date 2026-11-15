@@ -82,6 +82,9 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const [query, setQuery] = useState('')
     // 关键词在服务端检索（覆盖全部会话，分页与总数同一口径），停顿后生效
     const debouncedQuery = useDebouncedSearch(query.trim())
+    // 当前展示的数据是哪个关键词检索出来的：计数与空态跟随它，而不是跟随已生效的关键词——
+    // 新结果回来之前屏上仍是旧数据，不能把旧的总数标成「匹配 N 条」。
+    const [shownQuery, setShownQuery] = useState('')
     const [menuOpen, setMenuOpen] = useState('')
     const [menuConv, setMenuConv] = useState<Conversation | null>(null)
     const [menuStyle, setMenuStyle] = useState<{ top: string; left: string }>({ top: '0px', left: '0px' })
@@ -114,6 +117,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           setItems(conversations)
           setHasMore(hm)
           setTotal(tt)
+          setShownQuery(debouncedQuery)
           setOffset(o)
           setLoadError('')
         } catch (e) {
@@ -308,7 +312,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
             {/* 区间+总数：一行同时表达「看到哪了」与「总量」（搜索时是匹配结果的区间与总数） */}
-            {`第 ${offset + 1}–${offset + items.length} 条 · ${debouncedQuery ? '匹配' : '共'} ${total} 条`}
+            {`第 ${offset + 1}–${offset + items.length} 条 · ${shownQuery ? '匹配' : '共'} ${total} 条`}
           </div>
         )}
         {items.length === 0 && !loadError ? null : (
@@ -416,12 +420,12 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
              还会让无数据 tab（代理捕获）与有数据 tab（人工下发）的左栏观感不一致。 */
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
-              {debouncedQuery ? '🔍' : emptyState?.mark ?? '💬'}
+              {shownQuery ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
             <p className="text-sm font-medium text-text">
-              {debouncedQuery ? '没有匹配的对话' : emptyState?.title ?? '暂无对话'}
+              {shownQuery ? '没有匹配的对话' : emptyState?.title ?? '暂无对话'}
             </p>
-            {!debouncedQuery && emptyState?.desc && (
+            {!shownQuery && emptyState?.desc && (
               <p className="max-w-[220px] text-xs leading-5 text-text-secondary">{emptyState.desc}</p>
             )}
           </div>
