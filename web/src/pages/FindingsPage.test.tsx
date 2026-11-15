@@ -4,17 +4,21 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { getFindingStat, listFindings, updateFindingTriage } from '@/api/findings'
+import { getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
 
 vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),
+  getFindingTaskFacets: vi.fn(async () => [
+    { id: 't-9', goal: '对 http://target 做 XSS 测试', count: 2 },
+    { id: 't-8', goal: '对 http://other 做注入测试', count: 1 },
+  ]),
 }))
 
 vi.mock('@/api/tasks', () => ({
-  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '对 http://target 做 XSS 测试' })),
+  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '已没有匹配漏洞的任务' })),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
@@ -296,15 +300,25 @@ describe('FindingsPage 任务筛选', () => {
     mockedGetFindingStat.mockResolvedValue({ total: 1, by_status: {}, by_severity: {} })
   })
 
-  it('从任务跳转来：列表与统计都只看这个任务，标签显示任务目标，可清除', async () => {
+  it('任务是筛选栏里的下拉：跳转带入即选中，列表与统计都只看这个任务，选「全部任务」清除', async () => {
     const user = userEvent.setup()
     renderPage('/findings?task=t-9')
-    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' })))
+    const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('t-9'))
+    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试（2）' })).toBeTruthy()
+    expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
     expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
-    expect(await screen.findByText('对 http://target 做 XSS 测试')).toBeTruthy()
+    // 选项不受任务筛选自身影响
+    expect(getFindingTaskFacets).toHaveBeenCalledWith(expect.not.objectContaining({ task: 't-9' }))
 
-    await user.click(screen.getByRole('button', { name: '取消任务筛选' }))
+    await user.selectOptions(select, '')
     await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
-    expect(screen.queryByRole('button', { name: '取消任务筛选' })).toBeNull()
+  })
+
+  it('所选任务在其它筛选下没有漏洞时仍显示为选中项（数量 0）', async () => {
+    renderPage('/findings?task=t-404')
+    const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
+    await waitFor(() => expect(within(select).getByRole('option', { name: /（0）$/ })).toBeTruthy())
+    expect(select.value).toBe('t-404')
   })
 })

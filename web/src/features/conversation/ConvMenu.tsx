@@ -45,8 +45,8 @@ export function ConvMenu({
         <Network className="h-3.5 w-3.5" />
         探索图
       </Link>
-      {/* 漏洞只属于任务：没有关联任务的纯聊天会话没有漏洞可看 */}
-      {conv.task_id && (
+      {/* 无洞不跳（与任务详情同一规则）：入口必须通向有内容的落点 */}
+      {conv.task_id && (conv.finding_count ?? 0) > 0 && (
         <Link
           to={`/findings?task=${encodeURIComponent(conv.task_id)}`}
           className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"

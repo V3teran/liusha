@@ -176,3 +176,35 @@ func TestLedger_FilterByTask(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, st.Total)
 }
+
+// 任务分面：只列有漏洞的任务（带目标与漏洞数），按最近一次发现倒序；其它筛选照常生效，
+// 任务筛选不作用于自身（选中一个任务时仍能看到其余可选任务）。
+func TestLedger_TaskFacets(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	assignmentID := dbtest.SeedAssignment(t, pool)
+	older, newer := seedTask(t, pool, assignmentID), seedTask(t, pool, assignmentID)
+	_ = seedTask(t, pool, assignmentID) // 没有漏洞的任务不出现
+	for _, tc := range []struct{ task, summary, severity string }{
+		{older, "XSS", "high"}, {older, "SQL 注入", "critical"}, {newer, "SSRF", "high"},
+	} {
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: tc.severity})
+		require.NoError(t, err)
+	}
+
+	facets, err := store.TaskFacets(ctx, finding.LedgerFilter{TaskID: older})
+	require.NoError(t, err)
+	require.Len(t, facets, 2, "任务筛选不作用于任务分面自身")
+	assert.Equal(t, newer, facets[0].TaskID, "最近有发现的任务在前")
+	assert.Equal(t, 1, facets[0].Count)
+	assert.Equal(t, older, facets[1].TaskID)
+	assert.Equal(t, 2, facets[1].Count)
+	assert.Equal(t, "test", facets[1].Goal)
+
+	critical, err := store.TaskFacets(ctx, finding.LedgerFilter{Severity: "critical"})
+	require.NoError(t, err)
+	require.Len(t, critical, 1, "其它筛选照常生效")
+	assert.Equal(t, older, critical[0].TaskID)
+	assert.Equal(t, 1, critical[0].Count)
+}
