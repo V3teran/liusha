@@ -338,7 +338,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 
 	// 10. 落图与交付先于假设标记：标记会把假设移出待验证集合，必须等结果节点
 	// 与交付物都已落地——任一步失败都返回错误、假设保持 pending，下一轮轮询
-	// 重新判定（重试路径上已存在的结果节点经语义去重命中，交付按 dedup_key 幂等）。
+	// 重新判定（重试路径上已存在的结果节点经语义去重命中，交付按结果节点幂等）。
 	mark := hypothesisMark{status: outcome}
 	var promoted *explorationgraph.Node
 	switch {
@@ -348,7 +348,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	case duplicate != nil:
 		// 12. 语义重复：既有发现即归属——不新建节点，返回既有节点让上游事件指向它
 		// （新证据已在审计链 replays 里）。重放交付：补齐既有节点此前可能失败的交付，
-		// finding 按 dedup_key 幂等，不会重复或改写已有记录。
+		// finding 按结果节点幂等，不会重复或改写已有记录。
 		mark.duplicateOf = duplicate.ID
 		if g.logger != nil {
 			g.logger.Info().

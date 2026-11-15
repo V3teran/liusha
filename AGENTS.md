@@ -185,7 +185,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `webrepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
 - 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
 - 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 pending，下轮重试。
-- finding 以 `(task_id, dedup_key)` 幂等，`dedup_key` 是 DB 生成列（host + cwe + 规范化路径 + method + parameter）。重试与重放交付不会重复或改写已有记录。
+- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 
 ### 凭证库（`internal/credential`）
 

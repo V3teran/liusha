@@ -176,6 +176,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"repro":           json.RawMessage(rawOrEmpty(r.Repro, "{}")),
 		"source":          r.Source,
 		"task_id":         r.TaskID,
+		"result_node_id":  r.ResultNodeID,
 		"conversation_id": r.ConversationID,
 		"status":          r.Status,
 		"triage_note":     r.TriageNote,

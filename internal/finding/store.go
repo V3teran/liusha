@@ -22,7 +22,7 @@ var findingLog = logx.New("finding")
 //
 // 设计要点：
 //   - severity 自由文本（前端按前缀配色）
-//   - dedup 在 DB 层完成（(task_id, dedup_key) ON CONFLICT），调用方无需自查
+//   - 交付按 (task_id, result_node_id) 幂等：同一坐实结果重放交付返回既有记录
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -31,15 +31,17 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, task_id::text AS task_id, " +
+const colsSelect = "id, task_id::text AS task_id, COALESCE(result_node_id::text, ''), " +
 	"agent_run_id, host, severity, summary, target, evaluation, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
 	"status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
-// Save 按 (task_id, dedup_key) UPSERT 一行 finding。
-//
-// 流程：INSERT ON CONFLICT → commit。dedup 在 DB 层无声完成，对调用方幂等。
+// Save 按 (task_id, result_node_id) UPSERT 一行 finding：同一坐实结果的重放交付（交付失败后
+// 下一轮重试、同一主张再次确认）返回既有记录，不重复、不改写。
 func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
+	if f.ResultNodeID == "" {
+		return Finding{}, fmt.Errorf("finding.ResultNodeID 必填")
+	}
 	if f.Host == "" {
 		return Finding{}, fmt.Errorf("finding.Host 必填")
 	}
@@ -61,19 +63,16 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
-	// UNIQUE(task_id, dedup_key)：dedup_key 是 PG 生成列（host + cwe + 规范化路径 + method +
-	// parameter；target 缺 path 时取 summary 前 40 字），单个 task 内去重。
-	// 多 agent 并发写同一漏洞时，ON CONFLICT 保留首个写入（first_seen_at 取较早），后续 dup
-	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
+	// UNIQUE(task_id, result_node_id)：重放交付保留首次写入（first_seen_at 取较早），返回既有行。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, agent_run_id, host, severity, summary, target, evaluation,
+			(task_id, result_node_id, agent_run_id, host, severity, summary, target, evaluation,
 			 cwe_id, owasp_category, remediation, repro)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7, NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), $11)
-		ON CONFLICT (task_id, dedup_key) DO UPDATE
+		VALUES ($1::uuid, $2::uuid, $3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12)
+		ON CONFLICT (task_id, result_node_id) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
-		f.TaskID,
+		f.TaskID, f.ResultNodeID,
 		f.AgentRunID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evaluation,
 		f.CWEID, f.OWASPCategory, f.Remediation, f.Repro)
@@ -87,14 +86,8 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 		return Finding{}, fmt.Errorf("commit: %w", err)
 	}
 
-	// dup 命中：DB 层把后续重复写无声合并到已有行；saved 是 existing 行内容。
-	// agent_run_id 不会被覆盖（DO UPDATE 只动 first_seen_at），所以 saved.AgentRunID 反映首次写入者。
-	dedupHit := f.AgentRunID != nil && saved.AgentRunID != nil && *f.AgentRunID != *saved.AgentRunID
-	ev := findingLog.Info()
-	if dedupHit {
-		ev = ev.Bool("dedup_hit", true)
-	}
-	ev.Str("finding_id", saved.ID).
+	findingLog.Info().Str("finding_id", saved.ID).
+		Str("result_node_id", saved.ResultNodeID).
 		Str("severity", saved.Severity).
 		Str("host", saved.Host).
 		Str("task_id", saved.TaskID).
@@ -372,7 +365,7 @@ func validStatus(s string) bool {
 // 不用程序化前缀：colsSelect 含 COALESCE(...) 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 source, conversation_id。
-const ledgerCols = "f.id, f.task_id::text AS task_id, " +
+const ledgerCols = "f.id, f.task_id::text AS task_id, COALESCE(f.result_node_id::text, ''), " +
 	"f.agent_run_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
@@ -382,7 +375,7 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	var agentID *string
 	var triagedAt *time.Time
 	if err := r.Scan(
-		&out.ID, &out.TaskID,
+		&out.ID, &out.TaskID, &out.ResultNodeID,
 		&agentID, &out.Host, &out.Severity,
 		&out.Summary, &out.Target, &out.Evaluation,
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
@@ -403,7 +396,7 @@ func scan(r db.RowScanner, f *Finding) error {
 	var agentID *string
 	var triagedAt *time.Time
 	if err := r.Scan(
-		&f.ID, &f.TaskID,
+		&f.ID, &f.TaskID, &f.ResultNodeID,
 		&agentID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evaluation,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
