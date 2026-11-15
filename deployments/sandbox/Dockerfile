@@ -243,11 +243,17 @@ RUN set -eux \
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 12: ysomap（Java 反序列化利用框架）
+# 源码构建（发布包停在 2023 年的 v0.1.5，之后的 gadget 链修复只在源码里），钉到提交以免上游
+# 改动让构建失败。依赖先从中央仓库取，不可达时改走备用镜像（见 maven-settings.xml）。
 # ══════════════════════════════════════════════════════════════════════════════
+COPY deployments/sandbox/maven-settings.xml /opt/ysomap-maven-settings.xml
 RUN set -eux \
- && git clone --depth 1 https://github.com/wh1t3p1g/ysomap.git /opt/ysomap \
+ && git init -q /opt/ysomap \
  && cd /opt/ysomap \
- && mvn clean package -DskipTests \
+ && git fetch -q --depth 1 https://github.com/wh1t3p1g/ysomap.git b3ed19c42105694748d6f0236eaecc941f96222d \
+ && git checkout -q FETCH_HEAD \
+ && { mvn -B clean package -DskipTests \
+      || mvn -B -U -s /opt/ysomap-maven-settings.xml clean package -DskipTests; } \
  && printf '#!/bin/sh\nexec java -jar /opt/ysomap/target/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
  && chmod +x /usr/local/bin/ysomap
 
