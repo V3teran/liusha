@@ -1,7 +1,10 @@
 package dispatch
 
 import (
+	"context"
+
 	"github.com/V3teran/liusha/internal/attachment"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/task"
 	"strings"
 	"testing"
@@ -103,5 +106,17 @@ func TestBatchTitle(t *testing.T) {
 				t.Errorf("得 %q，期望 %q", got, c.want)
 			}
 		})
+	}
+}
+
+// 对话内调用的审计归属：入口记下所在对话，生成器只补角色标签，不覆盖已有归属。
+func TestAuditContext_KeepsConversation(t *testing.T) {
+	ctx := withConversation(context.Background(), "c-1")
+	meta := fwllm.CallMetaFromContext(auditContext(ctx, "inspector"))
+	if meta.ConversationID != "c-1" || meta.Role != "inspector" {
+		t.Errorf("应保留对话并补上角色，得 %+v", meta)
+	}
+	if got := fwllm.CallMetaFromContext(auditContext(context.Background(), "inspector")); got.ConversationID != "" || got.Role != "inspector" {
+		t.Errorf("没有对话时只有角色，得 %+v", got)
 	}
 }

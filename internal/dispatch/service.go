@@ -519,7 +519,7 @@ func (s *Service) HandleMessage(ctx context.Context, conversationID, content str
 // attachments 随消息元数据已落库；分流到这里只决定它们的去向——
 // qa/chat 内联小文本进回答 prompt，action 随下发 / 追加要求收口进任务 inbox。
 func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attachments []attachment.Ref, userMsgSeq int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
+	ctx, cancel := context.WithTimeout(withConversation(context.Background(), conversationID), dispatchAnswerTimeout)
 	defer cancel()
 
 	// 纯附件消息先折算再分类——空文本分类是噪音输入，且必须与 StartChatTask
@@ -735,17 +735,32 @@ type RoleRouter struct {
 	Router *fwllm.Router
 }
 
+// withConversation 记下对话内调用的审计归属：入口（意图分类、问答、标题生成）调用，
+// 之后这条调用链上的 LLM 调用都记到这个对话下（智能体运行的调用归属任务，不经这里）。
+func withConversation(ctx context.Context, conversationID string) context.Context {
+	meta := fwllm.CallMetaFromContext(ctx)
+	meta.ConversationID = conversationID
+	return fwllm.WithCallMeta(ctx, meta)
+}
+
+// auditContext 给本次调用补上角色标签，保留入口记下的归属（对话）。
+func auditContext(ctx context.Context, role string) context.Context {
+	meta := fwllm.CallMetaFromContext(ctx)
+	meta.Role = role
+	return fwllm.WithCallMeta(ctx, meta)
+}
+
 // providerGen 是 RoleRouter 解析出的生成器：把 Router 侧已包好 retry 的 Provider
-// 适配成 Generator 形状（chat/qa/intent 的最小依赖接口），audit 归属（Role）随生成器
-// 携带——ctx 在调用时注入。
+// 适配成 Generator 形状（chat/qa/intent 的最小依赖接口），审计角色随生成器携带——
+// 调用时补进 ctx（归属由入口经 withConversation 记下）。
 type providerGen struct {
 	p         fwllm.Provider
-	auditRole string // llm_invocation.role 标签（inspector 等；api 侧调用无 task/run 归属）
+	auditRole string // llm_invocation.role 标签（inspector 等）
 }
 
 func (g providerGen) Generate(ctx context.Context, msgs []fwllm.Message, tools []fwllm.ToolSchema) (fwllm.Result, error) {
 	if g.auditRole != "" {
-		ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{Role: g.auditRole})
+		ctx = auditContext(ctx, g.auditRole)
 	}
 	resp, err := g.p.Complete(ctx, fwllm.Request{Messages: msgs, Tools: tools})
 	if err != nil {
@@ -770,8 +785,7 @@ func (r *RoleRouter) generateStream(ctx context.Context, role string, msgs []fwl
 	if err != nil {
 		return fwllm.Result{}, err
 	}
-	// 审计标签：api 侧调用无 task/run 归属，Role 标签区分 chat/qa/意图分类等路径。
-	ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{Role: role})
+	ctx = auditContext(ctx, role)
 	ch, err := p.Stream(ctx, fwllm.Request{Messages: msgs, Tools: tools})
 	if err != nil {
 		if errors.Is(err, fwllm.ErrStreamingUnsupported) {
@@ -932,6 +946,7 @@ func (s *Service) History(ctx context.Context, conversationID, excludeContent st
 // （入口方自行决定报错还是提示），不静默降级 qa。会话上文读取失败仅告警并
 // 去上文分类——分类闸失明才是主功能失效，上文只是指代消解的增强。
 func (s *Service) classifyIntent(ctx context.Context, conversationID, content string) (intent.Kind, error) {
+	ctx = withConversation(ctx, conversationID)
 	g, err := s.Router.generator(ctx, "inspector")
 	if err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("意图分类 provider 失败")
@@ -948,7 +963,7 @@ func (s *Service) classifyIntent(ctx context.Context, conversationID, content st
 // answerChatAsync 纯聊天的异步回答：增量经 SSE 打字机流出，全文落库兜底。
 // 回答生成慢（数十秒级），独立 context 不随请求结束被 cancel。
 func (s *Service) answerChatAsync(conversationID, brief string) {
-	ctx, cancel := context.WithTimeout(context.Background(), dispatchAnswerTimeout)
+	ctx, cancel := context.WithTimeout(withConversation(context.Background(), conversationID), dispatchAnswerTimeout)
 	defer cancel()
 	if err := chat.New(s).Answer(ctx, conversationID, brief); err != nil {
 		chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("纯聊天回答失败")
@@ -970,7 +985,7 @@ func (s *Service) publishNotice(ctx context.Context, conversationID, text string
 // genTitle 用 simple 档模型把 brief 总结成 ≤16 字的简短标题，回填 conversation.title。
 // 异步调用（独立 context，不随请求结束被 cancel）；失败静默（保留 BriefTitle 兜底）。
 func (s *Service) genTitle(conversationID, brief string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(withConversation(context.Background(), conversationID), 20*time.Second)
 	defer cancel()
 	g, err := s.Router.generator(ctx, "inspector") // simple 档，便宜
 	if err != nil {

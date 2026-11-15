@@ -17,19 +17,20 @@ import (
 
 // UsageRecord 是一次 LLM 调用的审计记录。
 type UsageRecord struct {
-	Provider     string
-	Model        string
-	InTokens     int
-	OutTokens    int
-	CachedTokens int
-	LatencyMs    int
-	FinishReason string
-	Err          string
-	Role         string // 调用者角色（planner/executor/monitor/chat 等），空 = 未分类
-	TaskID       string // 归属任务，空 = 任务外调用
-	AgentRunID   string // 归属认知轮次的 agent_run.id，空 = 未接通（历史行恒空）
-	Messages     []byte // jsonb：输入消息数组（审计回放用）
-	Result       []byte // jsonb：完整响应（非流式才有）
+	Provider       string
+	Model          string
+	InTokens       int
+	OutTokens      int
+	CachedTokens   int
+	LatencyMs      int
+	FinishReason   string
+	Err            string
+	Role           string // 调用者角色（planner/executor/monitor/chat 等），空 = 未分类
+	TaskID         string // 归属任务，空 = 任务外调用
+	AgentRunID     string // 归属认知轮次的 agent_run.id，空 = 未接通（历史行恒空）
+	ConversationID string // 对话内直接发起的调用所在的对话，空 = 智能体运行的调用或无对话
+	Messages       []byte // jsonb：输入消息数组（审计回放用）
+	Result         []byte // jsonb：完整响应（非流式才有）
 }
 
 // UsageSink 抽象审计落库层。
@@ -41,7 +42,10 @@ type UsageSink interface {
 type CallMeta struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（llm_invocation.agent_run_id 外键取值）
-	Role       string
+	// ConversationID 是对话里直接发起的调用（问答、意图分类、标题生成）所在的对话；
+	// 智能体运行的调用不填，经 TaskID 找对话。
+	ConversationID string
+	Role           string
 }
 
 type ctxKeyCallMeta struct{}
@@ -221,11 +225,12 @@ func (p *instrumentedProvider) ProviderID() string { return p.inner.ProviderID()
 
 func (p *instrumentedProvider) baseRecord(meta CallMeta) UsageRecord {
 	return UsageRecord{
-		Provider:   p.inner.ProviderID(),
-		Model:      p.inner.ModelID(),
-		Role:       meta.Role,
-		TaskID:     meta.TaskID,
-		AgentRunID: meta.AgentRunID,
+		Provider:       p.inner.ProviderID(),
+		Model:          p.inner.ModelID(),
+		Role:           meta.Role,
+		TaskID:         meta.TaskID,
+		AgentRunID:     meta.AgentRunID,
+		ConversationID: meta.ConversationID,
 	}
 }
 
