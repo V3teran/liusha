@@ -5,7 +5,8 @@ COMPOSE = docker compose
 # 镜像仓库/标签（compose.yaml 同默认值——本地 build 即同名 tag，pull 不撞远端）
 IMAGE_REPO ?= ghcr.io/v3teran
 IMAGE_TAG ?= latest
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# 版本号与发布物同一写法：不带 v（标签 v0.10.0 → 0.10.0；标签之后的提交带 -N-g<提交>）
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 
 # ── 本地开发：依赖（pg / redis / 沙盒）跑在容器里，组件在宿主上直接运行 ──
 # 完整流程见 scripts/dev/up.sh 与 scripts/dev/run-svc.sh。
@@ -48,7 +49,7 @@ publish:
 # ── 单镜像：以沙盒镜像为底，一个容器运行全部 ──
 # 目标机架构不同时加 --platform（如 linux/amd64）。
 single-build: build-sandbox
-	docker build -t liusha-single:local -f deployments/single/Dockerfile .
+	docker build --build-arg VERSION=$(VERSION) -t liusha-single:local -f deployments/single/Dockerfile .
 
 # 回连地址：目标访问「它:监听段端口」反连沙盒，按需改 CALLBACK_HOST 与监听段
 CALLBACK_HOST ?=
