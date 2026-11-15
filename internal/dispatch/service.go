@@ -33,7 +33,6 @@ import (
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/textx"
 	"github.com/V3teran/liusha/internal/worker"
-	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -98,11 +97,6 @@ type Service struct {
 	// 引用按空处理）。职责：下发收口点把暂存件搬进任务 inbox + 对话回答内联小文本。
 	Attachments AttachmentStore
 
-	// Run 整体超时上限。入队时设为 asynq.Timeout，
-	// 否则 asynq 默认 30min 任务 deadline 会架空 runner handler 里 4h 的 WithTimeout——
-	// run 跑到 30min 就被 ctx cancel（实测 30min 整 abort、planner 没机会收尾）。
-	MaxRunTimeout time.Duration
-
 	// LLM 是下发边界的就绪校验（nil = 跳过，测试替身/纯存储用法）。任务创建前
 	// 必须确认 LLM 可服务——否则任务入队后 planner 拿到「未配置」错误无限重试、
 	// 永挂 active。api 组件以 Router.For(simple) 适配（simple 是全部档位的降级
@@ -135,19 +129,6 @@ type AttachmentStore interface {
 	RemoveStaging(conversationID string) error
 	InlineTexts(dest attachment.Dest, refs []attachment.Ref) (string, error)
 	Manifest(refs []attachment.Ref) string
-}
-
-// noWallClockLimit 表达「run 不设墙钟上限」。asynq 无法直接表达无限时：
-// Timeout(0) 与「未设置」同形（noTimeout 哨兵就是 0），会被落回默认 30 分钟
-// 截断。run 何时结束由完成检测器判定（收敛或动作预算 max_actions_per_task），墙钟只是可选护栏
-// ——配置为 0 时用远超任何合法 run 时长的哨兵值顶住 asynq 默认。
-const noWallClockLimit = 365 * 24 * time.Hour
-
-func wallClockOption(d time.Duration) time.Duration {
-	if d <= 0 {
-		return noWallClockLimit
-	}
-	return d
 }
 
 // createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
@@ -343,11 +324,8 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 }
 
 // enqueuePlannerRun 建 planner agent run 并入队——首跑（expandItem）、继续（ResumeTask）与
-// 续接已结束的任务（appendRequirement）共用同一份入队语义。
-//
-// 任务跑 ~4h，asynq 默认 retry 25 次 → 4 天死循环；且 retry 接管的新 runner 进程没有
-// 原进程的认知循环状态（bus/共享沙箱），重跑只会产出脏状态。
-// MaxRetry(0)：跑挂就跑挂，让用户手动 abort + 重新触发，不重试。
+// 续接已结束的任务（appendRequirement）共用。入队语义（不重试、队列层不截断）由
+// worker.Client.Enqueue 统一给出。
 func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID string) (string, error) {
 	tid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
@@ -361,7 +339,7 @@ func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID 
 		TaskID:         taskID,
 		ConversationID: conversationID, // 会话发起时非空 → runner 发过程事件
 		TaskRole:       worker.RoleAgent,
-	}, asynq.MaxRetry(0), asynq.Timeout(wallClockOption(s.MaxRunTimeout))); err != nil {
+	}); err != nil {
 		// 未入队的 pending 行会让 runner 恢复巡检误判「有存活 run」，任务永久卡在 active。
 		// 标 aborted（从未执行）后，巡检把它识别为搁浅任务并自动重投。
 		if aerr := s.AgentRuns.SetAborted(context.WithoutCancel(ctx), tid); aerr != nil {

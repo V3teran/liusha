@@ -158,7 +158,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Findings:      findStore,
 		Publisher:     publisher,
 		Attachments:   attachmentStore,
-		MaxRunTimeout: time.Duration(cfg.Runner.AgentRunTimeoutSeconds) * time.Second,
 	}
 
 	// 定时调度器：轮询到点模板 → 克隆 assignment → 展开 task。随 ctx 取消立即退出，无在途状态要收尾。

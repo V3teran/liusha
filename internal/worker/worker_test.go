@@ -169,3 +169,26 @@ func (discardLogger) Info(_ ...interface{})  {}
 func (discardLogger) Warn(_ ...interface{})  {}
 func (discardLogger) Error(_ ...interface{}) {}
 func (discardLogger) Fatal(_ ...interface{}) {}
+
+// 每个 run 入队都不重试、且没有 30 分钟的任务时限：asynq 未设时限时缺省 30 分钟就取消
+// 处理函数，曾让恢复监控重投的 run、代理捕获的任务跑满 30 分钟即被终止（只有首次下发
+// 设了时限）。run 的墙钟上限只由处理函数按 runner.agent_run_timeout_seconds 执行。
+func TestClient_Enqueue_RunHasNoRetryAndNoQueueDeadline(t *testing.T) {
+	c, mr := newTestClient(t)
+	id, q, err := c.Enqueue(context.Background(), RoleAgent, Payload{AgentRunID: "run-x", TaskID: "task-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	insp := asynq.NewInspector(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = insp.Close() })
+	info, err := insp.GetTaskInfo(q, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.MaxRetry != 0 {
+		t.Errorf("run 不应重试，MaxRetry=%d", info.MaxRetry)
+	}
+	if info.Timeout < 24*time.Hour {
+		t.Errorf("队列层不应给 run 设短时限（asynq 缺省 30 分钟），得 %v", info.Timeout)
+	}
+}
