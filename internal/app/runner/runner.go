@@ -248,6 +248,13 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 
 	task.StartReaper(ctx, st.tasks, sysSettings, runnerCfg.StepLLMTimeoutSeconds, st.conversations, convstream.NewPublisher(rdb), logger)
 
+	// 坐实了却没进台账的结果补交付一次（交付一直失败、或 0230 之前被错误合并的发现）。
+	go func() {
+		if err := runner.RedeliverUndeliveredFindings(ctx, st.findings, st.graph, st.tasks, logger); err != nil {
+			logger.Warn().Err(err).Msg("坐实结果补交付未全部完成（下次启动重试）")
+		}
+	}()
+
 	// 会话身份终态清扫：任务终态回收（handler 内）的崩溃兜底，按任务状态回收、不依赖过期时间。
 	credential.StartSweepLoop(ctx, creds, func(ctx context.Context, taskID string) (string, bool, error) {
 		t, err := st.tasks.GetByID(ctx, taskID)
