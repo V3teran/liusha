@@ -1,30 +1,44 @@
 package config
 
 import (
+	"bytes"
+	_ "embed"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/viper"
 )
 
-// Load 从 path 读取 YAML，应用 LIUSHA_ ENV 覆盖，反序列化、应用默认值并校验，
-// 含 LLM 种子形状校验（见 validateLLMSeed；不校验密钥是否就位）。调 LLM 的进程
-// （runner / api）用它。
+// defaultYAML 是编进程序的默认配置：二进制开箱即用，部署无需挂配置文件。
+//
+//go:embed config.yaml
+var defaultYAML []byte
+
+// Load 加载配置：内置默认 → 覆盖文件（path 非空时，只需写改动的键）→ LIUSHA_ 环境变量，
+// 反序列化、应用默认值并校验，含 LLM 种子形状校验（见 validateLLMSeed；不校验密钥是否就位）。
+// 调 LLM 的组件（runner / api）用它。
 func Load(path string) (AppConfig, error) { return load(path, true) }
 
-// LoadWithoutLLM 与 Load 同，但跳过 LLM 种子校验。给纯 ingress 进程（cmd/proxy
-// 仅 MITM + XADD，从不调 LLM）用——LLM 配置与它无关，写错也不该挡它启动。
+// LoadWithoutLLM 与 Load 同，但跳过 LLM 种子校验。给不调 LLM 的组件（proxy、sandbox）用——
+// LLM 配置与它们无关，写错也不该挡它们启动。
 func LoadWithoutLLM(path string) (AppConfig, error) { return load(path, false) }
 
 func load(path string, withLLM bool) (AppConfig, error) {
 	v := viper.New()
-	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+	// 内置默认含全部键：AutomaticEnv 只覆盖已存在的键，默认里有，环境变量就一定生效。
+	if err := v.ReadConfig(bytes.NewReader(defaultYAML)); err != nil {
+		return AppConfig{}, fmt.Errorf("read embedded default config: %w", err)
+	}
+	if path != "" {
+		v.SetConfigFile(path)
+		if err := v.MergeInConfig(); err != nil {
+			return AppConfig{}, fmt.Errorf("read config %s: %w", path, err)
+		}
+	}
 	v.SetEnvPrefix("LIUSHA")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
-	if err := v.ReadInConfig(); err != nil {
-		return AppConfig{}, fmt.Errorf("read config %s: %w", path, err)
-	}
 	var c AppConfig
 	if err := v.Unmarshal(&c); err != nil {
 		return AppConfig{}, fmt.Errorf("unmarshal config: %w", err)

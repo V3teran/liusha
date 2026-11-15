@@ -7,17 +7,15 @@
  * 卡片尺寸固定（与 ExplorationNodeCard 严格一致），dagre 估算即精确，
  * 连线不会错位。
  *
- * 边的四种关系：
+ * 边的三种关系：
  *  - generates  推导：中性实线（颜色留给节点，避免满屏彩虹）
  *  - triggers   滋生：琥珀虚线，发现坐实后派生新目标/动作的回边一眼可辨
  *  - supersedes 吸收：紫色长虚线，新派生目标接管旧目标的范围
- *  - depends_on 依赖：点线，从 action 节点的 metadata.depends_on 派生
- *    （调度依赖不走边表，本模块在展示层还原为边）
  */
 
 import dagre from '@dagrejs/dagre'
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react'
-import type { ConversationGraph, GraphNode, Verification } from '@/api/explorationgraph'
+import type { ExplorationGraph, GraphNode, Verification } from '@/api/explorationgraph'
 
 export const NODE_WIDTH = 264
 export const NODE_HEIGHT = 104 // h-26
@@ -45,13 +43,12 @@ export interface GraphStats {
 //    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
 export const EDGE_COLORS = {
   generates: '#64748b',
-  depends: '#64748b',
   triggers: '#d97706',
   supersedes: '#8b5cf6',
 } as const
 
 export function buildFlowGraph(
-  graph: ConversationGraph,
+  graph: ExplorationGraph,
   filterKind: string,
   filterState: string,
   verificationsByNode: Map<string, Verification>,
@@ -108,27 +105,6 @@ export function buildFlowGraph(
           ? styled(EDGE_COLORS.supersedes, 1.4, '10 6')
           : styled(EDGE_COLORS.generates, 1.6)),
     }))
-
-  // 派生依赖边：前置动作 → 依赖它的动作（去重；引用缺失/自指静默跳过）
-  const depSeen = new Set<string>()
-  for (const n of graph.nodes) {
-    if (!n.depends_on?.length) continue
-    for (const depId of n.depends_on) {
-      if (depId === n.id || !visible.has(depId) || !visible.has(n.id)) continue
-      const key = `${depId}->${n.id}`
-      if (depSeen.has(key)) continue
-      depSeen.add(key)
-      edges.push({
-        id: `dep-${key}`,
-        source: depId,
-        target: n.id,
-        type: 'smoothstep',
-        pathOptions: { borderRadius: 14 },
-        animated: stateById.get(depId) === 'running',
-        ...styled(EDGE_COLORS.depends, 1.2, '2 4'),
-      })
-    }
-  }
 
   return { nodes: layoutLR(nodes, edges), edges, stats }
 }

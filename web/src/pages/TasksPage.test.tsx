@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TasksPage } from './TasksPage'
 import { getTaskDetail, listTasks } from '@/api/tasks'
@@ -12,6 +12,10 @@ vi.mock('@/api/tasks', () => ({
   listTasks: vi.fn(),
   getTaskDetail: vi.fn(),
   createTasks: vi.fn(),
+}))
+
+vi.mock('@/api/conversations', () => ({
+  getConversation: vi.fn(async (id: string) => ({ id, title: '登录页越权排查', task_id: 't-1' })),
 }))
 
 vi.mock('@/api/schedules', () => ({
@@ -27,7 +31,7 @@ const mDetail = getTaskDetail as unknown as ReturnType<typeof vi.fn>
 function task(o: Partial<TaskSummary> = {}): TaskSummary {
   return {
     id: 't-1',
-    brief: 'DVWA 渗透测试',
+    goal: 'DVWA 渗透测试',
     target_host: 'dvwa.local',
     status: 'active',
     paused: false,
@@ -50,26 +54,42 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
   }
 }
 
+// 模拟浏览器后退与地址栏（MemoryRouter 的历史栈）
+function HistoryProbe() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  return (
+    <>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+      <output data-testid="location">{location.search}</output>
+    </>
+  )
+}
+
 function renderPage(initialEntries: string[] = ['/tasks']) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
         <TasksPage />
+        <HistoryProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
 describe('TasksPage（任务模块）', () => {
+  afterEach(() => vi.unstubAllGlobals())
   beforeEach(() => {
     mList.mockReset()
     mDetail.mockReset()
   })
 
-  it('挂载拉取任务列表并渲染行（brief 可见）', async () => {
+  it('挂载拉取任务列表并渲染行（目标可见）', async () => {
     mList.mockResolvedValue({
-      items: [task(), task({ id: 't-2', brief: 'BAC 越权检测', status: 'completed' })],
+      items: [task(), task({ id: 't-2', goal: 'BAC 越权检测', status: 'completed' })],
       total: 2,
       page: 1,
       size: 20,
@@ -79,6 +99,69 @@ describe('TasksPage（任务模块）', () => {
     expect(await screen.findByText('DVWA 渗透测试')).toBeTruthy()
     expect(screen.getByText('BAC 越权检测')).toBeTruthy()
     expect(mList).toHaveBeenCalled()
+  })
+
+  // 从其它页面跳来只看这一个任务：列表按范围筛选，范围显示在筛选栏里，进页即打开详情；
+  // 清除范围回到全部任务。
+  it('从对话跳来：列表只剩这个对话的任务并打开详情，筛选栏显示对话标题，可清除', async () => {
+    mList.mockImplementation(async (_p: number, _s: number, f?: { conversation?: string }) =>
+      f?.conversation
+        ? { items: [task()], total: 1, page: 1, size: 20 }
+        : { items: [task(), task({ id: 't-2', goal: 'BAC 越权检测' })], total: 2, page: 1, size: 20 },
+    )
+    mDetail.mockResolvedValue(task())
+    const user = userEvent.setup()
+    renderPage(['/tasks?conversation=c-7&selected=t-1'])
+
+    await waitFor(() => expect(mList).toHaveBeenCalledWith(1, expect.any(Number), expect.objectContaining({ conversation: 'c-7' })))
+    expect(await screen.findByLabelText('关闭详情')).toBeTruthy()
+    expect(screen.queryByText('BAC 越权检测')).toBeNull()
+
+    await user.click(await screen.findByRole('button', { name: /^清除范围（对话：登录页越权排查）/ }))
+    expect(await screen.findByText('BAC 越权检测')).toBeTruthy()
+  })
+
+  it('从漏洞等页面跳来：按任务限定，筛选栏显示任务目标', async () => {
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    mDetail.mockResolvedValue(task())
+    renderPage(['/tasks?task=t-1'])
+    await waitFor(() => expect(mList).toHaveBeenCalledWith(1, expect.any(Number), expect.objectContaining({ task: 't-1' })))
+    expect(await screen.findByRole('button', { name: /^清除范围（任务：DVWA 渗透测试）/ })).toBeTruthy()
+  })
+
+  // 打开的任务写在 URL：刷新、跳走再后退都还原；打开是一步操作，后退即关闭。
+  it('点行打开详情写入 ?selected=，后退关闭详情；带 ?selected= 进页直接打开', async () => {
+    mList.mockResolvedValue({ items: [task(), task({ id: 't-2', goal: 'BAC 越权检测' })], total: 2, page: 1, size: 20 })
+    mDetail.mockImplementation(async (id: string) => task({ id }))
+    stubViewport(1440)
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByText('BAC 越权检测'))
+    expect(screen.getByTestId('location').textContent).toBe('?selected=t-2')
+    expect(await screen.findByLabelText('关闭详情')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '浏览器后退' }))
+    await waitFor(() => expect(screen.queryByLabelText('关闭详情')).toBeNull())
+    expect(screen.getByTestId('location').textContent).toBe('')
+  })
+
+  it('窄屏：详情由 ?selected= 决定，后退回到列表', async () => {
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    mDetail.mockResolvedValue(task())
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderPage(['/tasks', '/tasks?selected=t-1'])
+    expect(await screen.findByLabelText('关闭详情')).toBeTruthy()
+    expect(screen.queryByRole('search', { name: '任务筛选' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '浏览器后退' }))
+    expect(await screen.findByRole('search', { name: '任务筛选' })).toBeTruthy()
+  })
+
+  // 搜索匹配看得见的字段：目标与批次名（批次 ID 界面上不显示）。
+  it('搜索框按目标或批次名检索', async () => {
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    renderPage()
+    expect(await screen.findByRole('textbox', { name: '搜索目标或批次名' })).toBeTruthy()
   })
 
   it('点击行打开右侧详情板（行数据先撑住，详情请求按 id 发出）', async () => {

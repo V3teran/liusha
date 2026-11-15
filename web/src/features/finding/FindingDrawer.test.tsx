@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { FindingDrawer } from './FindingDrawer'
 import type { FindingRow } from '@/api/types'
 
@@ -42,6 +43,33 @@ describe('FindingDrawer', () => {
     expect(screen.getByText(/evil.example.com/)).toBeTruthy()
     // 位置行是「方法 host 路径」同一文本节点，联合断言。
     expect(screen.getByText(/GET evil\.example\.com\/a/)).toBeTruthy()
+  })
+
+  it('跳转区排在基本信息之前：回到产出上下文是最先用到的出口', () => {
+    const finding = makeFinding({ task_id: 't-1', conversation_id: 'c-1' })
+    render(
+      <MemoryRouter>
+        <FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />
+      </MemoryRouter>,
+    )
+    const jump = screen.getByRole('heading', { name: '跳转' })
+    const basic = screen.getByRole('heading', { name: '基本信息' })
+    expect(jump.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 只看这个漏洞所属的：任务、对话、探索图（漏洞属于任务，不跳回漏洞自身）
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1&selected=t-1')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
+  })
+
+  it('探索图定位到坐实这个漏洞的结果节点', () => {
+    const finding = makeFinding({ task_id: 't-1', result_node_id: 'r-9' })
+    render(
+      <MemoryRouter>
+        <FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1&selected=r-9')
   })
 
   it('finding 为 null 时不渲染内容区块', () => {
@@ -116,14 +144,14 @@ describe('FindingDrawer', () => {
     },
   }
 
-  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 裁决理由齐备渲染', () => {
+  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 评估理由齐备渲染', () => {
     const finding = makeFinding({ evaluation: chainEvaluation, repro: chainRepro })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
     expect(screen.getByText('证据链')).toBeTruthy()
     expect(screen.getByText('复现命令')).toBeTruthy()
     expect(screen.getByText('机器证据')).toBeTruthy()
-    expect(screen.getByText('裁决理由')).toBeTruthy()
+    expect(screen.getByText('评估理由')).toBeTruthy()
     // curl 命令带配方 URL 与 header
     expect(document.body.textContent).toContain("curl -X GET 'http://t:8080/shell.php?cmd=id'")
     expect(document.body.textContent).toContain("-H 'Cookie: s=a'")
@@ -134,7 +162,7 @@ describe('FindingDrawer', () => {
     // 基线对照说明
     expect(screen.getByText(/对照基线/)).toBeTruthy()
     // 档位徽章
-    expect(screen.getByText('机器复放 + 终裁')).toBeTruthy()
+    expect(screen.getByText('机器复放 + 终判')).toBeTruthy()
   })
 
   it('证据链：repro/evaluation 缺席时整区不渲染', () => {

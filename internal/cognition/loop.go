@@ -1,24 +1,20 @@
-// loop.go 认知循环的装配与驱动：四 Agent 组装、控制平面消费、完成检测。
-// （CompletionDetector 在 completion.go；生命周期/控制平面/活动打点/工具遥测
-// 分别见 lifecycle.go / control.go / activity.go / telemetry.go。）
+// loop.go 认知循环的装配与驱动：四 Agent 组装、任务行监视、完成检测。
+// （CompletionDetector 在 completion.go；agent 启停 / 任务行监视 / 工具遥测
+// 分别见 lifecycle.go / task_watch.go / telemetry.go。）
 
 package cognition
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/bus"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -27,12 +23,12 @@ import (
 	"github.com/V3teran/liusha/internal/executor"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/repro"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
@@ -40,6 +36,7 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/webrepro"
 )
 
 // Deps 是一次认知循环的全部外部依赖（由 runner 装配注入；全部字段只读）。
@@ -51,17 +48,19 @@ type Deps struct {
 	// 坐实漏洞都归属到它。由 runner 按投递消息注入——一个任务可有多个 run（暂停后继续、
 	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
 	// 产出全部错记到早已结束的首个 run）。
-	AgentRunID   string
-	Graph        *explorationgraph.Store
-	EventBus     bus.EventBus
-	ControlPlane *controlplane.Store
-	CfgStore     *configstore.Store
-	Router       *fwllm.Router
-	Logger       zerolog.Logger
+	AgentRunID string
+	Graph      *explorationgraph.Store
+	EventBus   bus.EventBus
+	CfgStore   *configstore.Store
+	Router     *fwllm.Router
+	Logger     zerolog.Logger
 
 	Skills        *skill.StoreReader
 	ToolsManifest *manifest.ToolManifest
-	Creds         credential.Provider
+	// Installed 是沙盒实际安装的工具与浏览器能力（任务开始时查询）。各 agent 的工具名单与它
+	// 求交：可用 = 允许 ∩ 已安装，未安装的工具既不注册也不出现在提示词里。
+	Installed sandbox.Inventory
+	Creds     credential.Provider
 
 	// 遥测后端（toolRecordInterceptor 用）
 	ToolCalls *toolinvocation.Store
@@ -75,7 +74,11 @@ type Deps struct {
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 
-	MaxStepsPerTask int // 0 = 完成检测器步数无限制
+	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
+
+	// StepLLMTimeout 是单步 LLM 看门狗上限（系统配置 runtime 组快照），与工具超时上限
+	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
+	StepLLMTimeout time.Duration
 
 	// ContextRatios 是各角色的上下文历史预算占比（DB compaction 组在任务开始时
 	// 的快照，装配层现读传入；预算 = 比例 × 本角色路由 provider 的 context_window，
@@ -121,39 +124,66 @@ type SandboxListener struct {
 	CallbackHost string
 }
 
+// Report 是一次 run 的报告：runner 据此收尾，写入时间线终态节点与 agent_run.result。
+type Report struct {
+	Actions    int    `json:"actions"`     // 执行过的动作数
+	Results    int    `json:"results"`     // 坐实的结果数
+	Hypotheses int    `json:"hypotheses"`  // 提出的假设数
+	StopReason string `json:"stop_reason"` // 停止原因
+	// GoalBasis 是收敛所依据的目标（仅自然收敛时有值）：任务以它为前置落 completed，
+	// 收敛之后目标被调整或又有了待执行动作则不结束（见 task.Store.CompleteConverged）。
+	GoalBasis explorationgraph.GoalBasis `json:"-"`
+}
+
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
-// sb 是本任务独占的沙箱客户端；nil 表示无沙箱（run_command/drive_browser 不注册）。
-func Run(ctx context.Context, d *Deps, taskID, host, brief, conversationID string, sb sandbox.Client) (executor.Report, error) {
-	return d.run(ctx, taskID, host, brief, conversationID, sb)
+// sb 是沙盒命令执行入口；nil 表示无沙盒（run_command/drive_browser 不注册）。
+//
+// 任务要做什么在探索图上（根目标，随任务创建、经 task.Store 改写），run 不另带目标。
+func Run(ctx context.Context, d *Deps, taskID, host, conversationID string, sb tools.CommandRunner) (Report, error) {
+	return d.run(ctx, taskID, host, conversationID, sb)
 }
 
 // run 是 Run 的内部实现（拆一层让 Run 的签名稳定、内部演进不惊动调用方）。
 func (d *Deps) run(
 	ctx context.Context,
-	taskID, host, brief, conversationID string,
-	sb sandbox.Client,
-) (executor.Report, error) {
-	d.Logger.Info().
-		Str("brief", brief).
-		Msg("[RUN_COGNITION] 启动四Agent架构")
+	taskID, host, conversationID string,
+	sb tools.CommandRunner,
+) (Report, error) {
+	d.Logger.Info().Msg("[RUN_COGNITION] 启动四Agent架构")
 
 	if d.Graph == nil || taskID == "" || d.EventBus == nil {
-		return executor.Report{}, fmt.Errorf("graph and eventBus are required")
+		return Report{}, fmt.Errorf("graph and eventBus are required")
 	}
 
-	if err := d.ensureRootObjective(ctx, taskID, brief); err != nil {
-		return executor.Report{}, err
-	}
-
-	stack, err := d.assembleStack(ctx, taskID, host, brief, conversationID, sb)
+	// 根目标代表任务本身，随任务创建（task.Store.Create）；没有根目标就无从规划。
+	root, ok, err := d.Graph.RootObjectiveOf(ctx, taskID)
 	if err != nil {
-		return executor.Report{}, err
+		return Report{}, err
+	}
+	if !ok {
+		return Report{}, fmt.Errorf("任务 %s 没有根目标", taskID)
+	}
+
+	// 本 run 此刻独占任务：之前的 run 留下的在途动作（进程崩溃、或新旧 run 重叠时
+	// 旧 run 尚未交还）交还 open 重新执行。旧 run 若仍活着，它迟到的结果因认领归属
+	// 不符而落空。
+	reclaimed, err := d.Graph.ReclaimRunningActions(ctx, taskID)
+	if err != nil {
+		return Report{}, fmt.Errorf("回收上一 run 的在途动作: %w", err)
+	}
+	if reclaimed > 0 {
+		d.Logger.Info().Int("count", reclaimed).Msg("已交还上一 run 留下的在途动作")
+	}
+
+	stack, err := d.assembleStack(ctx, taskID, host, conversationID, sb)
+	if err != nil {
+		return Report{}, err
 	}
 	// 思考流随循环关闭：冲刷未发增量（终态消息由各 agent 的 Done 落）。
 	defer stack.thoughts.Close()
 
-	// 启动四个 Agent（异步；启停封装成 agentLifecycle 供控制平面 pause/resume 复用）
+	// 启动四个 Agent（异步；启停封装成 agentLifecycle，主流程收尾与任务行监视共用 Stop）
 	lifecycle := newAgentLifecycle(ctx, d.Logger, []agentSpec{
 		{name: "planner", start: stack.plannerAgent.Run},
 		{name: "executor", start: stack.executorAgent.Run},
@@ -167,138 +197,45 @@ func (d *Deps) run(
 	lifecycle.Start()
 	defer lifecycle.Stop()
 
-	// 任务结束浏览器清理：本任务身份前缀的 daemon/chromium 逐个优雅
-	// reset——共享容器下立即释放内存（不等容器空闲回收），且只动本任务的身份
-	// （并发任务的其他身份不受影响）。best-effort，失败仅告警。
-	defer func() {
-		if script := tools.BrowserCleanupScript(taskID); script != "" && sb != nil {
-			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if res, err := sb.Exec(cctx, sandbox.ExecRequest{
-				AssignmentID: d.AssignmentID, TaskID: taskID, AgentID: "cleanup", Command: script, TimeoutSeconds: 30,
-			}); err != nil {
-				d.Logger.Warn().Err(err).Msg("浏览器清理执行失败（best-effort）")
-			} else {
-				d.Logger.Info().Int("exit_code", res.ExitCode).Msg("任务结束浏览器身份已清理")
-			}
-		}
-	}()
-
-	// 控制平面消费者：任务行承载生命周期（终态/暂停 → 停 agents、携精确
-	// 停止原因结束本 run），task_control_event 承载内容干预（adjust_goal/
-	// inject_action，落图由后续规划消费）。
-	if d.ControlPlane != nil {
-		stopConsumer := startControlConsumer(ctx, taskID, d.ControlPlane, d.Graph, stack.detector, lifecycle, d.Tasks, d.Logger)
-		defer stopConsumer()
-	}
+	// 任务行监视：终态 / 暂停 → 停 agents、携精确停止原因结束本 run。
+	stopWatch := (&taskWatcher{
+		taskID: taskID,
+		tasks:  d.Tasks,
+		goal:   root.Goal(),
+		stopRun: func(reason string) {
+			lifecycle.Stop()
+			stack.detector.Abort(reason)
+		},
+		onGoalChanged: func() {
+			stack.plannerAgent.RequestReplan("任务目标已被用户调整：按新目标重新规划（按旧目标排出、尚未开始的动作已撤回）")
+			stack.monitorAgent.RequestReview("任务目标已被用户调整：复核在途动作是否仍服务于新目标")
+		},
+		logger: d.Logger.With().Str("component", "task_watch").Logger(),
+	}).start(ctx)
+	defer stopWatch()
 
 	d.Logger.Info().Msg("四个 Agent 已启动，等待任务完成")
 
-	// 阻塞等待完成检测，随后停止所有 Agent（浏览器清理 defer 依赖 agents 已停）
+	// 阻塞等待完成检测，随后停止所有 Agent
 	result := stack.detector.Start(ctx)
 	lifecycle.Stop()
 
-	// 根目标终态：任务收敛/终止时关闭 objective（此前永远停在 open，图生命
-	// 周期缺终态语义）。被终止的任务标 aborted，其余标 completed。best-effort。
-	d.closeObjectives(ctx, taskID, result.StopReason)
-
 	d.Logger.Info().
 		Int64("duration_ms", result.Duration.Milliseconds()).
-		Int("steps", result.Steps).
-		Int("promoted", result.Promoted).
+		Int("actions", result.Actions).
+		Int("results", result.Results).
 		Str("stop_reason", result.StopReason).
 		Msg("认知循环完成")
 
-	report := executor.Report{
-		Steps:      result.Steps,
-		Promoted:   result.Promoted,
-		Attempts:   result.Attempts,
+	report := Report{
+		Actions:    result.Actions,
+		Results:    result.Results,
+		Hypotheses: result.Hypotheses,
 		StopReason: result.StopReason,
+		GoalBasis:  result.GoalBasis,
 	}
 	// 致命失败上抛：runner 走 failTask（run 落 error、任务落 aborted、时间线「任务执行失败」带原因）。
 	return report, result.Err
-}
-
-// closeObjectives 在任务终态时收口全部仍 open 的目标，图生命周期对全部
-// objective 有始有终：
-//   - 根目标代表任务本身，随任务结局落定：正常结束 completed、被终止 aborted、
-//     agent 致命失败 failed；
-//   - 派生目标的 completed 专指「有结果证据的达成」（规划修订宣告），任务正常
-//     结束时仍 open 的派生目标是未达成的方向，落 exhausted（方向已穷尽）；随任务
-//     终止/失败时与根目标同为 aborted/failed。
-//
-// 暂停退出例外：目标保持 open（任务未结束，继续的 run 消费同一批目标）。已终态
-// 的目标（含已达成、已吸收）不动。best-effort。
-func (d *Deps) closeObjectives(ctx context.Context, taskID, stopWhy string) {
-	if d.Graph == nil {
-		return
-	}
-	if stopWhy == StopReasonPaused {
-		return // 暂停非终态：目标留给继续的 run
-	}
-	objectives, err := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-	if err != nil || len(objectives) == 0 {
-		return
-	}
-	outcome := explorationgraph.StateCompleted
-	switch {
-	case stopWhy == StopReasonTerminated || strings.Contains(stopWhy, "cancel"):
-		outcome = explorationgraph.StateAborted
-	case stopWhy == StopReasonAgentFailed:
-		outcome = explorationgraph.StateFailed // 未达成目标且非用户终止：失败，不得记作完成
-	}
-	for _, obj := range objectives {
-		if obj.State == nil || (*obj.State != explorationgraph.StateOpen && *obj.State != explorationgraph.StateRunning) {
-			continue // 已终态（completed/failed/exhausted/aborted/superseded）不重复迁移
-		}
-		terminal := outcome
-		if obj.IsDerivedObjective() && outcome == explorationgraph.StateCompleted {
-			terminal = explorationgraph.StateExhausted
-		}
-		if err := d.Graph.TransitionState(ctx, obj.ID, terminal, nil); err != nil {
-			d.Logger.Warn().Err(err).Str("objective_id", obj.ID).
-				Msg("目标终态回写失败（该 objective 保持 open）")
-		}
-	}
-}
-
-// ensureRootObjective 创建任务根 Objective 节点（幂等：onboard 已建则跳过，防双根）。
-func (d *Deps) ensureRootObjective(ctx context.Context, taskID, brief string) error {
-	if brief == "" {
-		d.Logger.Warn().
-			Msg("任务 brief 为空，跳过创建根 Objective")
-		return nil
-	}
-	if existing, listErr := d.Graph.ListNodesByKind(ctx, taskID, core.KindObjective); listErr == nil && len(existing) > 0 {
-		d.Logger.Info().
-			Int("existing_objectives", len(existing)).
-			Msg("根 Objective 已存在（onboard 创建），跳过重复创建")
-		return nil
-	}
-
-	// objective.content 的读契约是 description（GetObjective / planner 规划上下文都读它）
-	contentJSON, _ := json.Marshal(map[string]string{"description": brief})
-	// 数据库约束：objective 类型节点必须有非空 state
-	initialState := explorationgraph.StateOpen
-
-	createdID, err := d.Graph.CreateNode(ctx, explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     taskID,
-		Kind:       core.KindObjective,
-		Content:    contentJSON,
-		State:      &initialState,
-		Priority:   explorationgraph.PriorityHigh,
-		SourceType: explorationgraph.SourceUser,
-		SourceID:   "task_init",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create root objective: %w", err)
-	}
-	d.Logger.Info().
-		Str("root_id", createdID).
-		Str("brief", brief).
-		Msg("已创建根 Objective 节点")
-	return nil
 }
 
 // agentConfigs 是四个 agent 的生效配置（出厂值叠加用户自定义）。
@@ -309,8 +246,9 @@ type agentConfigs struct {
 	monitor   agent.Agent
 }
 
-// loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存）；读失败降级为
-// 空配置（章程为空，ReAct 启动即报错）。前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
+// loadAgentConfigs 经 cfgStore 读四个 agent 的生效配置（用户层走三级缓存），工具名单收窄到
+// 沙盒已安装的部分；读失败降级为空配置（章程为空，ReAct 启动即报错）。
+// 前端改配置 → 失效广播 → 本进程缓存清 → 下个任务即新值。
 func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 	getCfg := func(code string) agent.Agent {
 		cfg, err := d.CfgStore.Agent(ctx, code)
@@ -318,7 +256,7 @@ func (d *Deps) loadAgentConfigs(ctx context.Context) agentConfigs {
 			d.Logger.Warn().Err(err).Str("code", code).Msg("加载 agent 配置失败，使用空配置")
 			return agent.Agent{Code: code}
 		}
-		return cfg
+		return d.restrictToInstalled(cfg)
 	}
 	return agentConfigs{
 		executor:  getCfg(constants.AgentCodeExecutor),
@@ -342,8 +280,8 @@ type cognitionStack struct {
 // 线性依赖链，按 Agent 分 constructors，各自独立可读。
 func (d *Deps) assembleStack(
 	ctx context.Context,
-	taskID, host, brief, conversationID string,
-	sb sandbox.Client,
+	taskID, host, conversationID string,
+	sb tools.CommandRunner,
 ) (*cognitionStack, error) {
 	cfgs := d.loadAgentConfigs(ctx)
 
@@ -367,9 +305,9 @@ func (d *Deps) assembleStack(
 	// 工具注册表 + 拦截器链：遥测（tool_invocation 落库 + 节流续命）与时间线
 	// （工具过程事件进会话）各一个拦截器，单一职责。跨包工具依赖（executor 注册
 	// 与 evaluator BuildTools 共用同一份，避免字面量漂移）。
-	activities := newActivityTracker()
+	activity := executor.NewActivityTracker() // 动作进展：工具调用结束与推理步完成都记一次，看门狗据此判停摆
 	reg := registry.New()
-	reg.AddInterceptor(d.toolRecordInterceptor(agentRunID, taskID, activities))
+	reg.AddInterceptor(d.toolRecordInterceptor(agentRunID, taskID, activity))
 	reg.AddInterceptor(d.toolTimelineInterceptor(conversationID))
 	toolDeps := func(skillsView skill.Reader) tools.Deps {
 		return tools.Deps{
@@ -403,11 +341,11 @@ func (d *Deps) assembleStack(
 	// CLI 工具清单按白名单过滤
 	filteredManifest := d.filterManifest(cfgs.executor.CliTools)
 
-	// executor：Engine（ReAct）→ Coordinator → Agent
-	executorAgent := d.buildExecutorAgent(ctx, taskID, host, brief, agentRunID, cfgs.executor,
-		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"))
+	// executor：Engine（ReAct）→ Agent
+	executorAgent := d.buildExecutorAgent(ctx, taskID, agentRunID, cfgs.executor,
+		filteredManifest, executorSkillView, executor.NewRegistry(reg), thoughts.TapFor("executor"), activity)
 
-	// evaluator：裁决官（ReAct judge）→ 复现晋升门 → Agent
+	// evaluator：评估者（ReAct judge）→ 复现晋升门 → Agent
 	evaluatorAgent := d.buildEvaluatorAgent(ctx, taskID, host, agentRunID, conversationID, cfgs.evaluator,
 		evaluatorSkillView, toolDeps, reg, thoughts.TapFor("evaluator"))
 
@@ -441,6 +379,15 @@ func (d *Deps) assembleStack(
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）
+	// 完成检测器先于规划者构造：规划者宣告收敛时直接通知它。
+	detector := NewCompletionDetector(Config{
+		TaskID:        taskID,
+		Graph:         d.Graph,
+		Logger:        d.Logger,
+		MaxActions:    d.MaxActionsPerTask, // 0 表示不限
+		CheckInterval: 5 * time.Second,
+	})
+
 	plannerAgent := planner.NewAgent(planner.AgentConfig{
 		TaskID:        taskID,
 		AgentRunID:    agentRunID,
@@ -449,6 +396,7 @@ func (d *Deps) assembleStack(
 		EventBus:      d.EventBus,
 		Logger:        d.Logger.With().Str("component", "planner_agent").Logger(),
 		FunctionTools: cfgs.planner.FunctionTools,
+		OnConverged:   detector.Converge,
 	})
 
 	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）
@@ -463,22 +411,12 @@ func (d *Deps) assembleStack(
 		Charter:             cfgs.monitor.Charter,
 		MaxIterations:       cfgs.monitor.MaxIterations,
 		Graph:               d.Graph,
-		EventBus:            d.EventBus,
+		Replanner:           plannerAgent, // 重规划请求直达规划者
 		Router:              d.Router,
 		Complexity:          cfgs.monitor.Complexity,
 		Interval:            constants.MonitorInterval,
-		Activity:            activities.idleFor,
 		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
-	})
-
-	detector := NewCompletionDetector(Config{
-		TaskID:        taskID,
-		Graph:         d.Graph,
-		Bus:           d.EventBus,
-		Logger:        d.Logger,
-		MaxSteps:      d.MaxStepsPerTask, // 0 表示无限制
-		CheckInterval: 5 * time.Second,
 	})
 
 	return &cognitionStack{
@@ -508,10 +446,10 @@ func intersectPlannerSafeTools(whitelist []string) []string {
 	return out
 }
 
-// filterManifest 按 cli_tools 白名单过滤工具清单（nil/空清单 → 空集并告警）。
+// filterManifest 按 cli_tools 白名单过滤工具清单（未注入清单或名单为空 → 空集并告警）。
 func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	if d.ToolsManifest == nil || len(cliTools) == 0 {
-		d.Logger.Warn().Msg("未配置 cli_tools 或 tools.yaml 未加载，外部工具不可用")
+		d.Logger.Warn().Msg("未配置 cli_tools，外部工具不可用")
 		return &manifest.ToolManifest{Tools: []manifest.Tool{}}
 	}
 	filtered := d.ToolsManifest.FilterByNames(cliTools)
@@ -524,20 +462,20 @@ func (d *Deps) filterManifest(cliTools []string) *manifest.ToolManifest {
 	return filtered
 }
 
-// buildExecutorAgent 组装 Engine（ReAct）→ Coordinator → Executor Agent。
+// buildExecutorAgent 组装 Engine（ReAct）→ Executor Agent。
 func (d *Deps) buildExecutorAgent(
 	ctx context.Context,
-	taskID, host, brief, agentRunID string,
+	taskID, agentRunID string,
 	cfg agent.Agent,
 	filteredManifest *manifest.ToolManifest,
 	skillsView skill.Reader,
 	execRegistry *executor.Registry,
 	thoughts reasoning.Tap,
+	activity *executor.ActivityTracker,
 ) *executor.Agent {
-	traceCollector := executor.NewTraceCollector(d.AgentStore, d.Logger)
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:              d.Router,
-		Graph:               d.Graph,    // observation 落图与 kill 检查依赖；nil 会在产出观察时空指针崩溃
+		Graph:               d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
 		AgentRunID:          agentRunID, // LLM 审计归属本轮 run
 		Registry:            execRegistry,
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
@@ -549,25 +487,28 @@ func (d *Deps) buildExecutorAgent(
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
-		Brief:               brief,                            // 任务简报逐字进 executor system prompt（入口锚定）
-		TraceCollector:      traceCollector,                   // 从 agent_traffic 构建完整执行轨迹
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
+		Activity:            activity,                         // 每完成一步推理记一次进展
+		Repro:               repro.NewRegistry(webrepro.Domain{}),
 		Logger:              d.Logger,
 	})
-	coord := executor.NewCoordinatorWithEngine(taskID, host, engine, d.Logger)
 
 	return executor.NewAgent(executor.AgentConfig{
 		TaskID:      taskID,
+		AgentRunID:  agentRunID, // 动作认领归属本 run
 		Graph:       d.Graph,
-		Executor:    coord,
+		Executor:    engine,
 		EventBus:    d.EventBus,
 		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
-		MaxParallel: 4, // 无依赖 action 并发执行（DAG 定可并行性；浏览器已按 action 隔离 tab）
+		MaxParallel: 4, // open 动作并发执行（浏览器已按 action 隔离 tab）
+		Activity:    activity,
+		StallTimeout: executor.StallTimeout(d.stepLLMTimeout(),
+			time.Duration(d.ToolLimits.StepToolTimeoutSeconds)*time.Second),
 	})
 }
 
-// buildEvaluatorAgent 组装裁决官（ReAct judge）→ 复现晋升门 → Evaluator Agent。
-// Replayer 零依赖（复现配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
+// buildEvaluatorAgent 组装评估者（ReAct judge）→ 复现晋升门 → Evaluator Agent。
+// web 复现通道零依赖（web 配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
 // 流量同样可复现）。凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以
 // 登录态重放，防真实主张因重放落到登录页而被机器护栏误证伪。
 func (d *Deps) buildEvaluatorAgent(
@@ -583,7 +524,7 @@ func (d *Deps) buildEvaluatorAgent(
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
 		evaluatorCLImanifest = d.ToolsManifest.FilterByNames(cfg.CliTools)
 	}
-	// 裁决工具走共享拦截器链（遥测/心跳/时间线）——裁决官对目标的动作
+	// 判定工具走共享拦截器链（遥测/心跳/时间线）——评估者对目标的动作
 	// （复现重放/HTTP 复核）与 executor 同一执行面，不遗漏、归属一致。
 	extraTools := tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools)
 	for i := range extraTools {
@@ -628,8 +569,9 @@ func (d *Deps) buildEvaluatorAgent(
 			})
 		})
 	}
-	promoter := evaluator.New(d.Graph, executor.NewReplayer().WithCredentials(d.Creds, host), claimSink).
-		WithJudge(judge). // ReAct 裁决官：replay_for_verification + CLI 复核工具
+	promoter := evaluator.New(d.Graph, claimSink).
+		WithReplayer(webrepro.Name, webrepro.NewReplayer().WithCredentials(d.Creds, host)).
+		WithJudge(judge). // ReAct 评估者：replay_for_verification + CLI 复核工具
 		WithFingerprintCodec(finding.FingerprintNormalizer{}).
 		WithLogger(d.Logger)
 
@@ -671,4 +613,12 @@ func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agen
 		return nil
 	}
 	return cards
+}
+
+// stepLLMTimeout 返回单步 LLM 看门狗上限（未配置时取内置默认 300 秒，与配置默认值一致）。
+func (d *Deps) stepLLMTimeout() time.Duration {
+	if d.StepLLMTimeout > 0 {
+		return d.StepLLMTimeout
+	}
+	return 300 * time.Second
 }

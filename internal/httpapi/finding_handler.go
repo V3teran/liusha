@@ -1,6 +1,6 @@
 // Package httpapi: 全局漏洞台账 handler（漏洞页）。
 //
-// 本组端点跨 task/host/ 全量拉取，支持 triage 处置流转。
+// 本组端点跨任务 / 主机全量拉取（可按任务等维度筛选），支持 triage 处置流转。
 
 package httpapi
 
@@ -20,6 +20,8 @@ type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.Stat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
+	GetLedgerRow(ctx context.Context, id string) (finding.LedgerRow, error)
+	TaskFacets(ctx context.Context, f finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.Finding, error)
 }
 
@@ -30,10 +32,42 @@ const (
 	maxFindingPageSize     = 200
 )
 
-// listFindingsHandler 处理 GET /findings?host=&severity=&status=&_id=&source=&page=&size=。
+// ledgerFilterParams 解析台账筛选参数（列表与统计共用，筛选口径不漂移）：task（任务 ID，须为
+// UUID）/ host / severity / status / source / search（关键词）。非法取值写 400 并返回 ok=false。
+func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
+	source, ok := sourceParam(c)
+	if !ok {
+		return finding.LedgerFilter{}, false
+	}
+	taskID, ok := uuidQuery(c, "task")
+	if !ok {
+		return finding.LedgerFilter{}, false
+	}
+	conversationID, ok := uuidQuery(c, "conversation")
+	if !ok {
+		return finding.LedgerFilter{}, false
+	}
+	return finding.LedgerFilter{
+		TaskID:         taskID,
+		ConversationID: conversationID,
+		Host:           c.Query("host"),
+		Severity:       c.Query("severity"),
+		Status:         c.Query("status"),
+		Source:         source,
+		Search:         c.Query("search"),
+	}, true
+}
+
+// 任务选项的数量：缺省 20、上限 50——选项靠搜索缩小，不一次全列出。
+const (
+	defaultTaskFacetLimit = 20
+	maxTaskFacetLimit     = 50
+)
+
+// listFindingsHandler 处理 GET /findings?task=&conversation=&host=&severity=&status=&source=&search=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
-// 空筛选=全量。响应含 _id + triage 处置态，供前端就地流转。
+// 空筛选=全量。响应含来源、所属会话与 triage 处置态，供前端跳转与就地流转。
 // page 缺省/非法=1；size clamp 到 [1,maxFindingPageSize]，缺省 defaultFindingPageSize。
 //
 // 响应结构（findingJSON 单一序列化点）：
@@ -47,20 +81,12 @@ const (
 //	}] }
 func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		source, ok := sourceParam(c)
+		f, ok := ledgerFilterParams(c)
 		if !ok {
 			return
 		}
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultFindingPageSize, maxFindingPageSize)
-
-		f := finding.LedgerFilter{
-			Host:     c.Query("host"),
-			Severity: c.Query("severity"),
-			Status:   c.Query("status"),
-			Source:   source,
-			Limit:    size,
-			Offset:   (page - 1) * size,
-		}
+		f.Limit, f.Offset = size, (page-1)*size
 
 		rows, err := api.ListAll(c.Request.Context(), f)
 		if err != nil {
@@ -78,6 +104,19 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 			out = append(out, findingJSON(r))
 		}
 		c.JSON(http.StatusOK, gin.H{"total": total, "page": page, "size": size, "findings": out})
+	}
+}
+
+// getFindingHandler 处理 GET /findings/:id：单条漏洞，与列表行同形状（漏洞详情按 ID 打开——
+// 不在当前页、刷新、后退回来时用）。不存在 404。
+func getFindingHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		row, err := api.GetLedgerRow(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, findingJSON(row))
 	}
 }
 
@@ -115,7 +154,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
-		// UpdateTriage 返回 Finding（无 _id），补零值即可（前端改处置不依赖 _id）。
+		// UpdateTriage 返回 Finding（不含来源与会话），这两列补零值即可（前端改处置不依赖它们）。
 		c.JSON(http.StatusOK, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{Finding: updated})})
 	}
 }
@@ -137,6 +176,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"repro":           json.RawMessage(rawOrEmpty(r.Repro, "{}")),
 		"source":          r.Source,
 		"task_id":         r.TaskID,
+		"result_node_id":  r.ResultNodeID,
 		"conversation_id": r.ConversationID,
 		"status":          r.Status,
 		"triage_note":     r.TriageNote,
@@ -146,19 +186,38 @@ func findingJSON(r finding.LedgerRow) gin.H {
 	}
 }
 
-// findingStatHandler 处理 GET /findings/stat?host=&severity=&status=&source=：
-// 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
-func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
+// findingTaskFacetsHandler 处理 GET /findings/tasks?search=&limit=&host=&severity=&status=&source=：
+// 台账「任务」筛选的选项——有漏洞的任务（目标、创建时间与漏洞数），结构化筛选照常生效。
+// 这个资源是任务，search 在这里按任务目标搜索（不是台账关键词）；has_more 表示还有未列出的。
+func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		source, ok := sourceParam(c)
+		f, ok := ledgerFilterParams(c)
 		if !ok {
 			return
 		}
-		f := finding.LedgerFilter{
-			Host:     c.Query("host"),
-			Severity: c.Query("severity"),
-			Status:   c.Query("status"),
-			Source:   source,
+		goalQuery := f.Search
+		f.Search = ""
+		limit := min(parseLimit(c, defaultTaskFacetLimit), maxTaskFacetLimit)
+		facets, more, err := api.TaskFacets(c.Request.Context(), f, goalQuery, limit)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		out := make([]gin.H, 0, len(facets))
+		for _, fc := range facets {
+			out = append(out, gin.H{"id": fc.TaskID, "goal": fc.Goal, "created_at": fc.CreatedAt, "count": fc.Count})
+		}
+		c.JSON(http.StatusOK, gin.H{"tasks": out, "has_more": more})
+	}
+}
+
+// findingStatHandler 处理 GET /findings/stat?task=&conversation=&host=&severity=&status=&source=：
+// 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
+func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f, ok := ledgerFilterParams(c)
+		if !ok {
+			return
 		}
 		st, err := api.StatFiltered(c.Request.Context(), f)
 		if err != nil {

@@ -32,6 +32,7 @@ func NewGraphStore() core.GraphStore {
 func copyGraphNode(node *core.GraphNode) *core.GraphNode {
 	nodeCopy := &core.GraphNode{
 		ID:        node.ID,
+		TaskID:    node.TaskID,
 		Kind:      node.Kind,
 		Content:   append([]byte(nil), node.Content...),
 		State:     node.State,
@@ -131,38 +132,6 @@ func (s *GraphStore) UpdateNode(_ context.Context, id string, update core.GraphN
 	return nil
 }
 
-// CompareAndSwapState 原子更新节点状态（单锁内完成条件检查与写入）。
-func (s *GraphStore) CompareAndSwapState(_ context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	node, exists := s.nodes[nodeID]
-	if !exists {
-		return false, core.ErrGraphNodeNotFound
-	}
-
-	// 检查 taskID（如果提供）
-	if taskID != "" {
-		if node.Metadata != nil {
-			if tid, ok := node.Metadata["task_id"].(string); ok && tid != taskID {
-				return false, nil // 不属于该任务
-			}
-		}
-	}
-
-	// 检查状态是否匹配
-	if node.State != expectedState {
-		// 状态不匹配，CAS 失败
-		return false, nil
-	}
-
-	// 状态匹配，更新状态并递增 version
-	node.State = newState
-	node.Version++
-
-	return true, nil
-}
-
 // DeleteNode 删除节点
 func (s *GraphStore) DeleteNode(_ context.Context, id string) error {
 	s.mu.Lock()
@@ -207,6 +176,13 @@ func (s *GraphStore) ListNodes(_ context.Context, query core.GraphNodeQuery) ([]
 		// 过滤 Metadata
 		match := true
 		for k, v := range query.Filters {
+			if k == "task_id" {
+				if node.TaskID != v {
+					match = false
+					break
+				}
+				continue
+			}
 			// 支持 "metadata.xxx" 嵌套访问
 			if len(k) > 9 && k[:9] == "metadata." {
 				metaKey := k[9:]
@@ -298,6 +274,9 @@ func (s *GraphStore) ApplyChangeSet(_ context.Context, changes core.GraphChangeS
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.checkPreconditions(changes.Preconditions); err != nil {
+		return err
+	}
 	newNodes, err := s.checkNewNodes(changes.Nodes)
 	if err != nil {
 		return err
@@ -319,6 +298,23 @@ func (s *GraphStore) ApplyChangeSet(_ context.Context, changes core.GraphChangeS
 		return err
 	}
 	s.applyChangeSet(changes)
+	return nil
+}
+
+// checkPreconditions 校验版本前置：节点存在、属于声明的任务且版本一致（调用方持锁）。
+func (s *GraphStore) checkPreconditions(preconditions []core.GraphNodeVersion) error {
+	for _, p := range preconditions {
+		if p.TaskID == "" || p.NodeID == "" {
+			return fmt.Errorf("version precondition requires task_id and node_id")
+		}
+		node, ok := s.nodes[p.NodeID]
+		if !ok || node.TaskID != p.TaskID {
+			return fmt.Errorf("precondition %s: %w", p.NodeID, core.ErrGraphNodeNotFound)
+		}
+		if node.Version != p.Version {
+			return fmt.Errorf("precondition %s version %d≠%d: %w", p.NodeID, node.Version, p.Version, core.ErrVersionMismatch)
+		}
+	}
 	return nil
 }
 
@@ -353,7 +349,7 @@ func checkTransitions(transitions []core.GraphStateTransition, lookup func(strin
 		if !seen && exists {
 			current = node.State
 		}
-		if !exists || taskOf(node) != t.TaskID || current != t.From {
+		if !exists || node.TaskID != t.TaskID || current != t.From || !guardHolds(node, t.Guard) {
 			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, core.ErrGraphStateConflict)
 		}
 		states[t.NodeID] = t.To
@@ -370,7 +366,7 @@ func checkAnnotations(annotations []core.GraphNodeAnnotation, lookup func(string
 			return fmt.Errorf("annotation requires task_id, node_id and metadata")
 		}
 		node, exists := lookup(a.NodeID)
-		if !exists || taskOf(node) != a.TaskID {
+		if !exists || node.TaskID != a.TaskID {
 			return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphNodeNotFound)
 		}
 		if written[a.NodeID] == nil {
@@ -454,10 +450,14 @@ func (s *GraphStore) applyChangeSet(changes core.GraphChangeSet) {
 	}
 }
 
-// taskOf 读取节点的任务归属（metadata.task_id）。
-func taskOf(node *core.GraphNode) string {
-	tid, _ := node.Metadata["task_id"].(string)
-	return tid
+// guardHolds 判断节点元数据满足迁移的 Guard（逐键字符串相等）。
+func guardHolds(node *core.GraphNode, guard map[string]string) bool {
+	for k, want := range guard {
+		if got, ok := node.Metadata[k].(string); !ok || got != want {
+			return false
+		}
+	}
+	return true
 }
 
 // hasEdge 判断同 (task_id, from, relation, to) 的边是否已存在（调用方持锁）。

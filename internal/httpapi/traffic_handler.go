@@ -27,12 +27,6 @@ type TrafficAPI interface {
 	GetByID(ctx context.Context, id int64) (traffic.ProxyTraffic, error)
 }
 
-// TaskConvResolver 把 task id 反解为绑定的会话 id（消费关系 chip → 会话跳转）；
-// *conversation.Store 自动满足。nil 时详情 chip 的 conv_id 恒空（前端降级为不可跳）。
-type TaskConvResolver interface {
-	ResolveConversationByTask(ctx context.Context, taskID string) (string, error)
-}
-
 // 流量列表分页默认值/上限。
 const (
 	defaultTrafficPageSize = 50
@@ -128,8 +122,8 @@ func trafficContentTypesHandler(api TrafficAPI) gin.HandlerFunc {
 }
 
 // trafficDetailHandler 处理 GET /traffic/:id：单条完整流量（Burp 式整条 raw 报文文本）+ 消费本条的
-// 代理捕获 task 列表（M:N）。每个消费者附解析出的会话 id 供前端 chip 跳转（/conversations/proxy?conv=）。
-func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.HandlerFunc {
+// 代理捕获 task 列表（M:N）。每个消费者带上跳转所需的来源、对话 ID（没有对话时为空）与漏洞数。
+func trafficDetailHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -149,18 +143,13 @@ func trafficDetailHandler(api TrafficAPI, resolver TaskConvResolver) gin.Handler
 
 		consumers := make([]gin.H, 0, len(v.ConsumedBy))
 		for _, ct := range v.ConsumedBy {
-			conversationID := ""
-			if resolver != nil {
-				if cid, rerr := resolver.ResolveConversationByTask(ctx, ct.TaskID); rerr == nil {
-					conversationID = cid
-				}
-			}
 			consumers = append(consumers, gin.H{
-				"task_id": ct.TaskID,
-				"_id":     "",
-				"host":    ct.Host,
-				"status":  ct.Status,
-				"conv_id": conversationID,
+				"task_id":         ct.TaskID,
+				"host":            ct.Host,
+				"status":          ct.Status,
+				"source":          ct.Source,
+				"conversation_id": ct.ConversationID,
+				"finding_count":   ct.FindingCount,
 			})
 		}
 

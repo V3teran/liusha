@@ -13,28 +13,17 @@ import (
 // EventType 定义事件类型
 type EventType string
 
-// EventActionCompleted 等枚举定义。
+// 事件类型：唤醒信号与遥测，可丢（订阅缓冲满即丢弃）。决定任务走向的控制信号
+// （收敛、重规划）不走总线，见 cognition.CompletionDetector.Converge 与
+// planner.Agent.RequestReplan。
 const (
-	// EventActionProposed 是 planner 提议新动作。
-	// EventActionCompleted 是 executor 完成一个动作。
-	EventActionProposed  EventType = "action.proposed"
-	EventActionCompleted EventType = "action.completed" // planner run 自然跑完时也发
-
-	// EventAttemptGenerated 是 executor 产出漏洞候选 Attempt（evaluator 复现门消费）。
-	EventAttemptGenerated EventType = "attempt.generated"
+	// EventActionProposed 是 planner 提议新动作（唤醒执行者）。
+	EventActionProposed EventType = "action.proposed"
 
 	// EventVerificationPassed 是复现坐实；EventVerificationRefuted 是复现证伪。
 	// 均为 planner 重规划的触发依据。
 	EventVerificationPassed  EventType = "verification.passed"
 	EventVerificationRefuted EventType = "verification.refuted"
-
-	// EventTaskConverged 是任务收敛信号（planner 无新 action 可生成）。
-	// CompletionDetector 消费此事件以停止任务，避免空转 LLM 调用。
-	EventTaskConverged EventType = "task.converged"
-
-	// EventReplanRequested 是 monitor 请求重新规划（探索停滞/资源耗尽场景）。
-	// planner 立即响应并强制重规划，跳过 executable action 检查。
-	EventReplanRequested EventType = "replan.requested"
 )
 
 // Event 统一事件结构

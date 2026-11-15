@@ -11,49 +11,55 @@ liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的�
 ```
 人工下发 brief ──┐
 定时模板到点 ────┼→ assignment → task → agent_run → Asynq 队列 → runner：四 agent 认知循环
-代理捕获流量 ────┘                                    （工具在 sandbox 容器里执行）
+代理捕获流量 ────┘                                    （工具经沙盒服务执行）
                                                       → 探索图 → 复现门坐实 → finding（漏洞台账）
 ```
 
-| 组件 | 入口 | 职责 |
+只有一个程序 `liusha`（`cmd/liusha`），组件是它的子命令，`serve` 在同一进程运行全部组件：
+
+| 组件 | 子命令（实现） | 职责 |
 |---|---|---|
-| web | `web/`（React + Vite，生产由 nginx 托管） | 运维控制台；`/api/*` 反代到 api |
-| api | `cmd/api`（gin，:8580） | HTTP API、鉴权、LLM 接入首装引导、定时调度器 |
-| proxy | `cmd/proxy`（:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
-| runner | `cmd/runner`（:8590） | Asynq 消费者：跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量；恢复监控与清扫器 |
-| sandbox | `cmd/sandbox-server` + `deployments/tool-images/sandbox` | Kali 工具容器；runner 经**宿主 docker** 拉起，warm pool 多任务共享 |
-| 存储 | PostgreSQL 17（pgvector）+ Redis | PG 存业务数据；Redis 承载队列、事件流、凭证库 |
+| api | `api`（`internal/app/api`，gin，:8580） | HTTP API、控制台前端（`web/dist` 编入程序）、鉴权、LLM 接入首装引导、定时调度器 |
+| proxy | `proxy`（`internal/app/proxy`，:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
+| runner | `runner`（`internal/app/runner`，:8590） | Asynq 消费者：跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量；恢复监控与清扫器 |
+| sandbox | `sandbox`（`internal/app/sandbox`，:8591） | 执行工具命令的常驻服务（令牌鉴权）；compose 时跑在本地构建的 Kali 镜像里，二进制部署（Linux / macOS / Windows）时工具即本机所装 |
+| 存储 | PostgreSQL 17+（pgvector）+ Redis | PG 存业务数据；Redis 承载队列、事件流、凭证库 |
 
 实体层级：assignment（一次下发的批次）→ task（一个目标，绑定一个会话）→ agent_run（一次执行；同一任务可有多个：暂停后继续、停机续跑、恢复重投）。
 
 ## 安全边界
 
 - 只对授权目标测试。测试与实测用本地靶机，绑定回环或内网地址，用完即停；不要把真实第三方站点写进测试、剧本或示例。
-- 密钥一律走环境变量（仓库根 `.env`），不进代码、配置文件、日志与提交；CI 跑 gitleaks。LLM 密钥的出站规则见「LLM 密钥」。
+- 密钥一律走环境变量（compose 与本地开发用仓库根 `.env`，二进制部署用 `liusha setup` 生成的环境变量文件），不进代码、配置文件、日志与提交；CI 跑 gitleaks。LLM 密钥的出站规则见「LLM 密钥」。
+- 沙盒执行 LLM 编写的任意命令：命令环境去掉 liusha 的全部密钥（`LIUSHA_*` 与配置声明的密钥变量，见 `internal/sandbox/server` 的 `scrubEnv`）；新增密钥类环境变量时同步该名单。沙盒令牌只在沙盒进程内：任务进程只拿到沙盒本机接口（回环地址 + 本机口令，`localAPI`）的地址，浏览器流量经它由沙盒带令牌转发给 runner，不得为任何需求把令牌注入命令环境。沙盒端口与令牌不得对外暴露。
 - `scripts/dev/e2e.sh` 每次执行都会 TRUNCATE 运行时表、FLUSHDB 并清日志——在有需要保留数据的库上不要跑；只想跑剧本用 `make e2e-xss` / `make e2e-full`（不清库）。
 - 本地实测创建的任务、定时模板、临时 provider 用完清理（停止 / 删除），不留下会持续触发或消耗 LLM 额度的东西。
 
 ## 仓库地图
 
+- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`agentrun`、`cronschedule`、`dispatch`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`；runner 的任务收尾、恢复监控在 `internal/runner`。
-- `db/migrations`：golang-migrate 迁移；`0196_baseline` 是压缩后的基线。
+- `db/migrations`：迁移 SQL，经 `migrations.FS` 编进程序，由 `internal/db.Migrator`（golang-migrate 库，`schema_migrations` 表）执行；`0196_baseline` 是压缩后的基线。
 - `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
 - `internal/override`：「出厂默认 + 用户自定义」的字段级引擎；`internal/overridestore` 是自定义表的读写协议。
-- `config/config.yaml`：部署配置（LLM provider 首装引导、系统设置的部署默认、运行参数）；密钥一律走环境变量。
-- `web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
-- `deployments/`：三种部署形态（本地开发 / 生产全容器 / 单镜像），说明见 `deployments/README.md`。
+- `internal/config/config.yaml`：编进程序的内置默认配置（列出全部键）；部署时用覆盖文件只写改动的键，或用 `LIUSHA_<键>` 环境变量。密钥一律走环境变量。
+- `internal/tools/manifest/tools.yaml`：沙盒 CLI 工具清单（编进程序）；沙盒镜像按它安装，沙盒按它探测已安装工具。
+- `internal/sandbox`：沙盒协议与客户端；`server` 是沙盒服务端，`browser` 是编进程序的浏览器服务脚本。
+- `web`：Go 包 `web` 在带 `webdist` 构建标签时嵌入 `web/dist`（不带时嵌入占位页，`go build` / `go test` 不依赖前端构建）。`web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
+- 部署：仓库根 `Dockerfile` 构建 `liusha` 镜像；`compose.yaml`；`deployments/sandbox`（沙盒镜像）、`deployments/single`（单镜像）、`deployments/nginx`（compose 用的反向代理配置）。说明见 `deployments/README.md`。`scripts/release` 是发布打包与第三方声明生成。
 - `vendor/`：Go 依赖入库，镜像以 `-mod=vendor` 构建。改依赖必须用 `make tidy`（tidy 后同步 vendor）。
 
 ## 常用命令
 
 ```bash
-cp .env.example .env               # 仓库根 .env 是唯一环境文件（compose 与脚本共用）
-make dev-up                        # 起 pg + redis 并执行迁移
-make build-sandbox                 # 本地构建沙盒镜像（首次 / 沙盒源码变更后；依赖已有 base 镜像）
-./scripts/dev/run-svc.sh           # host 侧起 proxy + api + runner（日志 logs/*.log）
+cp .env.example .env               # 仓库根 .env：compose 与开发脚本共用
+make dev-up                        # 起 pg + redis + 沙盒容器并迁移（首次构建沙盒镜像较久）
+./scripts/dev/run-svc.sh           # 宿主上起 proxy + api + runner（日志 logs/*.log）
 make run-web                       # 前端 dev server（:5173，/api 代理到 :8580）
 make migrate                       # 对本地库执行迁移
 make e2e-xss / make e2e-full       # 端到端剧本（需 dev 栈已起；不清库）
+make build                         # 本机构建带前端的 liusha（webdist 标签）
+make up / make single-build        # compose 全量部署 / 构建单镜像
 
 go test -race -short -run TestName ./internal/<包>/                  # 单个单测
 go test -race -tags=integration -run TestName ./internal/<包>/        # 单个集成测试（需 Docker）
@@ -84,24 +90,39 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 ### 任务生命周期与控制面
 
 - task 状态只有 `active` / `completed` / `aborted`；暂停是 `active` 的子状态（`paused` 标记），不改 status。agent_run 状态为 `pending` / `running` / `completed` / `aborted` / `error`；每个任务至多一个存活 run（部分唯一索引兜底，并发生产者先建者赢）。
-- 暂停 / 继续 / 停止只写任务行，统一入口 `POST /tasks/:id/control`。运行中的循环每 5 秒轮询任务行（`cognition/control.go`）：看到 `paused` 或终态就停 agents、结束本 run。继续时若上一 run 已退出则重投新 run（从探索图续跑），未退出则原地继续。
+- 暂停 / 继续 / 停止只写任务行，统一入口 `POST /tasks/:id/control`。运行中的循环每 5 秒轮询任务行（`cognition/task_watch.go`）：看到 `paused` 或终态就停 agents、结束本 run。继续时若上一 run 已退出则重投新 run（从探索图续跑），未退出则原地继续。
 - run 收尾按退出原因分流（`runner/task.go` 的 `classifyRunExit`），这张表决定 run 与 task 各落什么状态：
 
 | 退出原因 | run | task |
 |---|---|---|
 | 自然收敛 | completed | completed |
-| 用户停止 / run 超时 | aborted | aborted |
+| 自然收敛，但收敛之后目标被调整或又有了待执行动作（`task.ErrStaleConvergence`） | completed | 保持 active，由恢复监控续跑 |
+| 用户停止（任务行已由停止方写成终态） | aborted | 不写任务行（停止后紧接着续接会重开任务，迟到的收尾不得再终止它） |
+| run 超时 | aborted | aborted |
 | 暂停 | aborted | 保持 active + paused |
 | 进程停机 / asynq 租约丢失（handler ctx 被取消） | aborted | 保持 active，由恢复监控续跑 |
+| 开始时沙盒暂不可达（连不上 / 5xx），退避重试 2 分钟仍不可达 | error | 保持 active，由恢复监控续跑（计入重投上限，持续不可达时落 aborted） |
 | 执行出错 | error | aborted |
 
 - 一次 run 的归属（LLM 审计、工具调用、agent 流量、坐实漏洞）是投递消息里的 `agent_run_id`，由 runner 注入 `cognition.Deps.AgentRunID`。认知循环不得自行按任务反查 run——同一任务有多个 run，反查会把续跑的产出错记到别的 run。
 
 ### 恢复、停机与清扫
 
-- 恢复监控（`runner/run_recovery.go`，30 秒巡检）两条规则：僵尸 run（running 且 LLM / 工具活动停摆超 6 分钟）→ 标 error 并重投；搁浅任务（active、未暂停、无存活 run）→ 重投。重投上限按 error run 计数（默认 4），超限任务落 aborted。暂停中的任务不重投。
-- runner 停机顺序（`cmd/runner/main.go`）：停流量入口 → 排空 asynq（宽限期）→ 拆沙盒 → healthz。不要把拆沙盒挪到排空之前：在途工具会以「沙盒不可用」失败并作为动作结果写进探索图，续跑时 planner 看到的是假失败。
+- 动作的执行生命周期（`explorationgraph/action_lifecycle.go`）：认领记下 run 归属（`claimed_by`），结束与交还都以「仍由本 run 认领」为前置——新旧 run 重叠时旧 run 迟到的结果落空。中断不是失败：run 被暂停、停机或超时打断时，在途动作交还 open 由下一个 run 重做；新 run 开始时回收本任务仍 running 的动作。动作之间没有执行依赖，先后由增量规划表达。
+- 动作停摆由执行者看门狗处理（`executor/watchdog.go`）：工具调用结束与推理步完成都记作进展，在途动作超过「单步 LLM 上限 + 工具超时上限 + 1 分钟」无进展即取消并按失败结束。监察者的否决只做策略判断（重复、方向作废、偏离目标），不按运行时长判断，也不能否决用户指派的动作。
+- 恢复监控（`runner/run_recovery.go`，30 秒巡检）两条规则：僵尸 run（running 且 LLM / 工具活动停摆超 6 分钟）→ 标 error 并重投；搁浅任务（active、未暂停、无存活 run）→ 重投。重投上限按 error run 计数（默认 4），超限任务落 aborted，并在对话时间线落带原因的终止节点（与用户停止、心跳回收同一口径）。暂停中的任务不重投。
+- runner 停机顺序（`internal/app/runner` 的 `shutdown`）：停流量入口与后台循环 → 停止取新任务 → 中断在途 run（handler ctx 取消，按停机中断收尾）并等收尾落地（至多 `asynq_shutdown_timeout_seconds`）→ healthz。asynq 自身停机既不通知在途 handler、也不等被取消的 handler 返回，所以中断信号走 asynq 之外的 ctx（`internal/app/runner` 的 `taskServer`）；容器部署的停止宽限须长于该宽限期（compose `stop_grace_period`、单镜像 `--stop-timeout`）。沙盒是独立组件，不随 runner 停；`serve` 中沙盒在底层（`app.Serve` 逆序停层），runner 排空后才停沙盒——在途工具若以「沙盒不可用」失败会作为动作结果写进探索图，续跑时 planner 看到的是假失败。
+- 沙盒进程模型（`internal/sandbox/server`）：命令文本写入脚本文件交给 `sandbox.shell`（POSIX sh，全平台同一命令语言）执行，不经命令行传递。沙盒启动的每个进程（一条命令、一个浏览器服务）连同子孙是归属任务的进程组（`procGroup`）：命令超时只结束它的组，任务释放结束任务的全部组。实现按平台：Linux 与 macOS 按 `LIUSHA_TASK_ID` 从进程环境识别（/proc、sysctl `kern.procargs2`；沙盒重启后照样认领上一实例的进程），Windows 用嵌套作业对象（不允许脱离——Windows 上的 sh 运行时会让子进程自动脱离允许脱离的作业）。shell 缺省自动查找（`resolveShell`：PATH 中的 sh，Windows 上再找 Git for Windows）。浏览器服务由沙盒经本机接口按需启动，不由命令派生：它要活过单条命令、又随任务释放结束。浏览器身份是任务内的身份名（`default`、`admin`……），agent、工具与流量记录都只见身份名；任务隔离由沙盒按命令所属任务完成（端点放在 `<端点目录>/<任务ID>/<身份名>.json`），不要把任务 ID 拼进身份名。交给 agent 的路径一律经 `sandbox.AgentPath`（正斜杠形式）。
+- 沙盒资源按任务释放：一次 run 无论因何结束（收敛、终止、暂停、停机中断、出错），runner 都调用沙盒 `POST /tasks/{id}/release`，结束该任务遗留的进程组与浏览器会话；续跑的 run 从探索图恢复，不依赖上一 run 的进程。任务开始时向沙盒查询安装状态，工具可用 = agent 允许 ∩ 沙盒已安装（`cognition.restrictToInstalled`）；沙盒暂不可达先退避等待、等满仍不可达按出错收尾（见上表），沙盒拒绝请求（4xx，如令牌错误）则任务以错误结束。
 - 任务级会话身份的回收见「凭证库」。
+
+### 运行中引导
+
+- 人在任务运行中修正方向、不停任务，与生命周期控制（跑不跑）是两回事：`PATCH /tasks/:id {goal}` 调整目标、`POST /tasks/:id/actions {instruction, priority}` 指派动作、`POST /tasks/:id/actions/:action_id/reject {reason}` 否决动作（`dispatch/steering.go`）。只作用于进行中（含暂停中，暂停保持）的任务，已结束 409（在对话里续接）；动作已结束 409、不存在 404。
+- 每个操作一个事务：锁任务行（`task.LockActive` / `SetGoalTx`）→ 写任务行与探索图 → 写时间线回执（`conversation.AppendMessageTx`，metadata kind=steering）→ 提交后才推送回执。引导写入与收敛完成（`CompleteConverged`）都先锁任务行，彼此串行。
+- 调整目标：撤回规划者排好、尚未开始的动作（用户指派与执行中的不动）；任务行监视发现目标变化即通知规划者重规划、监察者复核在途动作（`monitor.Agent.RequestReview`）。正在进行的那次规划因目标依据前置不成立而整批作废。通知只是加速，正确性靠图上的依据。
+- 对话里被判定为「要执行」的消息以「补充要求：…（含附件清单）」追加到目标末尾（`appendRequirement`，同调整目标语义）：任务进行中（含暂停中）原地追加；已结束则在同一事务里重开任务并追加，提交后起新一轮 run。
+- 指派的动作来源 user、缺省优先级 high：执行者按来源装配「按指令执行、不扩大范围」的指导，规划视野里标「用户指派」，监察者不能否决它。
 
 ### 定时下发
 
@@ -113,10 +134,24 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 改到相关代码时必须守住。代码层没有强制的条目会特别注明，靠评审把关。
 
+### 实体关系
+
+- 任务是中心：探索图、漏洞、运行、LLM / 工具调用、工作区目录都按 `task_id` 挂在任务下；批次（assignment）是任务的分组；对话是人与任务交互的通道，一个任务至多一个对话（`conversation_one_per_task` 唯一索引），对话删除后任务仍在，纯聊天对话没有任务。
+- 任务名下的数据一律按 `task_id` 取（`/tasks/:id/exploration/*`、`/tasks/:id/usage`），不经对话换出任务再查；对话只承载消息与时间线，它显示的状态、用量、控制都取自任务。列表要带出对话 ID 时联表一次取出，不逐行反查。
+- 对话里直接发起的 LLM 调用（问答、意图分类、标题生成）没有任务，记 `llm_invocation.conversation_id`；智能体运行的调用记任务、经任务找对话。
+- 不保留没有写入方的关联列：界面会据此提供实际查不到的关系（如曾有的漏洞来源流量列）。
+- 跨页跳转只看被点击元素对应的内容（规则只在 `web/src/features/relations/taskJumps.ts` 定义）：任务和对话是同一件工作的两个入口，从对话出发落点按对话限定（`?conversation=`，显示「对话：标题」），从任务及漏洞、流量、LLM 调用、探索图出发按任务限定（`?task=`，显示「任务：目标」）。任务页、漏洞页、探索图页都接受这对参数且服务端直接按它过滤；漏洞跳探索图时再带 `?selected=` 打开坐实它的结果节点（`finding.result_node_id`）；对话页以 `?conversation=` 打开对话。没有对话不放「对话」，没有漏洞不放「漏洞」；按钮放在它真实所属的位置——漏洞属于任务，LLM 调用详情不放「漏洞」，流量详情的「漏洞」放在消费任务名下。
+
 ### 下发来源
 
 - 取值只有 `direct`（人工下发，含定时模板克隆）和 `proxy`（代理捕获）。DB CHECK、API、Go、TS、前端路由段、中文文案「人工下发 / 代理捕获」全层同名。
 - 事实源：`internal/assignment/model.go`、`web/src/lib/source.ts`。不留兼容别名；非法 `source` 参数返回 400。
+
+### 任务目标
+
+- 目标只有一处事实源：`task.goal`（智能体看到的目标全文：人工下发为 brief 加附件清单，代理捕获为合成的分析说明）与根目标描述由 `task.Store` 在同一事务内写入——任务创建时一同建根目标（`Create`），改写只经 `SetGoal` / `SetGoalTx`（内容不变不写，已结束的任务拒绝）。`target_host` 是目标的派生（第一个 http(s) 目标的主机），随目标一同写入。
+- run 不携带输入（`agent_run` 无 input 列，投递消息只有 run / 任务 / 会话 ID）：认知循环从图上读根目标，runner 开跑时从任务行取目标主机——续跑、恢复重投、目标调整后都以最新目标为准。
+- 「brief」只指下发入口的输入（`POST /chat`、`POST /tasks`、定时模板、assignment 条目）；目标长度契约是 `task.MaxGoalRunes`。
 
 ### 探索图（`internal/explorationgraph`）
 
@@ -124,34 +159,40 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 | 角色 | 可做的写操作 |
 |---|---|
-| planner | 建 action；清理 objective 上的 `monitor_request`；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`）、追加延续动作，并在被分析的 result 上记分析水位（`analyzed`） |
+| planner | 建 action；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`）、追加延续动作，并在被分析的 result 上记分析水位（`analyzed`） |
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
-| evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的裁决元数据 |
-| monitor | 中止 action；在 objective 上写 `monitor_request` |
-| 控制面（runner / cognition 控制） | 建根 objective、用户追加的 objective / action（挂根目标）；任务终态时收口仍 open 的目标：根目标随任务结局（completed/aborted/failed），未达成的派生目标在正常结束时落 `exhausted`、随终止/失败同为 aborted/failed |
+| evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
+| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图 |
+| 认知循环（cognition） | 新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
+| 任务目标（`task.Store`） | 建根 objective（随任务创建，`Create` 同事务，每任务一个，唯一索引兜底）、改写目标（`SetGoal`：任务行与根目标描述同事务） |
+| 运行中引导（`dispatch` 的 `AdjustGoal` / `AssignAction` / `RejectAction`） | 调整目标时撤回规划者排好、尚未开始的动作（→ aborted）；指派 action（来源 user，挂根目标）；否决 action（否决方 user）。与任务行锁、时间线回执同事务 |
+| 任务状态迁移（`task.Store`） | 与任务状态迁移同事务让图跟随（`explorationgraph.SyncWithTask`）：根目标跟随任务状态（active→open、completed、aborted）；任务结束时仍 open 的派生目标落 `exhausted`（完成）或 aborted（终止），未结束的动作落 aborted |
+
+- 动作的两种「没做完」不可混用：`aborted`（已中止）是没做完就被收回、不含对错判断（任务收口、目标调整撤回），规划者可按当前目标重提；`rejected`（已否决）是监察者或用户判定这一步不该做，附原因与否决方（`rejected_by`），规划者不得重提等效动作。执行方以「仍由本 run 持有」（running 且认领者是本 run）为执行前提，被收回即放弃结果（`executor/ownership.go`）。
 
 - Store 不校验调用方角色，这张表是约定，靠评审守住。
 - 新增坐实结果只能经过复现门晋升，禁止绕过 `PromotionGate` 直接建 result。
 - 复放明细写 `exploration_verification` 审计链，不为复放新建 observation 节点。
-- 目标分两类：根目标（来源 user，代表任务本身，只随任务终态收敛；`RootObjective` 取最早创建的那个）与派生目标（来源 planner，`IsDerivedObjective`）。规划层只修订派生目标；根目标的达成由整体探索收敛决定，不由单次分析宣告。派生目标的 `completed` 专指有结果证据的达成。动作统一挂在根目标下（规划、结果分析、人工注入三个入口同一口径），派生目标是规划视野里的方向，不拥有动作。
+- 目标分两类：根目标（来源 user，代表任务本身，只随任务终态收敛；`RootObjective` 取最早创建的那个）与派生目标（来源 planner，`IsDerivedObjective`）。规划层只修订派生目标；根目标的达成由整体探索收敛决定，不由单次分析宣告。派生目标的 `completed` 专指有结果证据的达成。动作统一挂在根目标下（规划、结果分析、用户指派同一口径），派生目标是规划视野里的方向，不拥有动作。
 - 节点 metadata 承载 task_id / source_type / priority 等身份字段：任何更新都是浅合并（`GraphStore.UpdateNode`、变更集批注），不得整体替换。
-- 一次结果分析的结论（新目标、达成、吸收、延续动作）连同分析水位是一个规划决策，经 `RevisePlan` 在一个事务内落图（`GraphStore.ApplyChangeSet`）：要么全落、要么全不落。水位在图上而不在进程内存里，且是一次性批注（并发消费同一结果只有一次修订能提交）：暂停后继续、崩溃重投、新旧 run 短暂重叠都不会重复分析，重做也不会重复写入；未分析的结果与非终态动作、未裁决观察一样阻止任务收敛（planner `pendingWork`，常规规划与强制重规划同一口径）。LLM 给出的失效引用只剔除并记日志，不拖垮修订。`superseded` 状态与指向它的 `supersedes` 边是同一事实：只能由修订一同写入，`TransitionState` 不进不出。吸收是范围转交而非放弃，不动任何动作。
+- 规划结论都以「所依据的目标」为前置（`explorationgraph.GoalBasis`：根目标及其版本，版本随目标改写与任务状态迁移递增）：常规规划与结果分析同走 `RevisePlan`（变更集的版本前置），规划期间目标被改写即整批作废（`ErrGoalChanged`）、立刻按新目标重做；收敛同样带着依据，任务落 completed 的事务在锁住任务行后核对依据仍成立（`task.Store.CompleteConverged`）。依据在调用 LLM 之前读取。
+- 一次结果分析的结论（新目标、达成、吸收、延续动作）连同分析水位是一个规划决策，经 `RevisePlan` 在一个事务内落图（`GraphStore.ApplyChangeSet`）：要么全落、要么全不落。水位在图上而不在进程内存里，且是一次性批注（并发消费同一结果只有一次修订能提交）：暂停后继续、崩溃重投、新旧 run 短暂重叠都不会重复分析，重做也不会重复写入；未分析的结果与非终态动作、待验证假设一样阻止任务收敛（planner `pendingWork`，常规规划与强制重规划同一口径）。LLM 给出的失效引用只剔除并记日志，不拖垮修订。`superseded` 状态与指向它的 `supersedes` 边是同一事实：只能由修订一同写入，`TransitionState` 不进不出。吸收是范围转交而非放弃，不动任何动作。
 
 ### 复现配方与坐实交付
 
-- 配方是域信封 `{domain, recipe, assert}`，`internal/repro.NormalizeReproEnvelope` 是形状契约的唯一权威。executor 落图前、evaluator 的事件入口与轮询入口都经它归一化，各入口不得私自改写配方（降级、补字段）。
-- 复现门（`executor/replayer.go`）是终局：web 域断言没有任何机器谓词即为空断言，不可坐实。
-- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `repro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 裁决官结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
-- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（重放没拿到响应，`httpreplay.ErrTransport`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷立即出圈。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
-- 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 unverified，下轮重试。
-- finding 以 `(task_id, dedup_key)` 幂等，`dedup_key` 是 DB 生成列（host + cwe + 规范化路径 + method + parameter）。重试与重放交付不会重复或改写已有记录。
+- 配方是域信封 `{domain, recipe, assert}`。核心领域中立：`internal/repro` 只定义信封与领域注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `generic` 领域），recipe / assert 的形状、矫正与机器复现通道归各领域包（Web 是 `internal/webrepro`），在 `cognition` 装配时注册。复现门按信封的 domain 选复现通道；没有通道的领域回显配方、由评估者自主取证（验证档位 `judge_only`）。新增领域实现 `repro.Domain`（与可选的 `evaluator.Replayer`）并在装配处注册，核心不出现领域字面量。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
+- 复现门是终局：web 域（`webrepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
+- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `webrepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
+- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
+- 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 pending，下轮重试。
+- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 
 ### 凭证库（`internal/credential`）
 
 - Redis 是唯一事实源。禁止任何过期机制：不用 key EXPIRE / HEXPIRE，也不在 value 里自管过期时间。
 - 键是规范化后的 `host[:port]`（去 scheme、小写），端口参与隔离：同主机不同端口不共享凭证，显式 `:443` 与无端口也是不同键。读写一律经 `CanonicalHost`。
 - `username` 必须是目标应用的真实登录名；同一账号更新既有条目，不另起代号。这一条只靠提示词约束。
-- 任务级会话身份（`task:{id}:session`）按事件回收：任务终态时由 runner 回收（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
+- 任务级会话身份（`task:{id}:session`）按事件回收：run 收尾落定任务状态后、任务确已结束时由 runner 回收（收敛依据失效、停止后已续接的不回收）（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
 
 ### LLM 密钥
 
@@ -199,12 +240,17 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 ### Go
 
 - gofmt；错误用 `%w` 包装并带上下文。
+- 用户输入进 LIKE / ILIKE 模式一律经 `db.EscapeLike` / `db.ContainsPattern`（`%`、`_`、`\` 按字面匹配）。
 - 接口在使用方定义、保持窄小（handler 的 `Deps` 字段、`cognition.Deps` 都是这种形态）；依赖经构造函数或 Deps 注入，不在业务代码里自行查询本该由调用方给出的上下文。
 
 ### 前端
 
 - 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
 - 页面文件命名为 `*Page.tsx`，只做编排；实现放进 `features/<领域>/`，后端调用放 `api/`，错误文案经 `errorText` 取后端中文原因。
+- 分页列表的搜索与筛选在服务端执行，与分页、总数、统计同一口径；不要在已分页的单页结果上再过滤（其它页搜不到，条数对不上），筛选项的选项也不从当前页的行推导（由服务端分面接口给，每个维度不受自身筛选影响）。服务端检索的搜索框经 `hooks/useDebouncedSearch` 防抖。
+- 选取值会持续增长的实体（任务、对话）用 `components/ui/EntityPicker`（服务端按关键词检索、限量、提示缩小范围）；取值少而固定的枚举用 `Select`。不要让用户手输实体 ID。
+- 实体之间的跳转按钮经 `features/relations`（`taskJumps` 规则 + `JumpLinks` / `TaskJumpLinks` 展示），落点的范围用 `scope.ts` 的 `task` / `conversation` 参数并以 `ScopeChip` 或选择框显示、可清除；不要在使用点手拼跳转链接。
+- 页面状态进 URL 并遵守同一套历史规则：列表页打开的条目（详情面板 / 抽屉）与探索图打开的节点是 `?selected=`（`hooks/useSelectedParam`），对话页打开的对话是 `?conversation=`，窄屏「列表 / 详情」由它们决定（返回列表 = 清除它，与浏览器后退一致）。用户主动的导航（打开、切换、关闭条目，改筛选、翻页、清除范围、换选任务）新增一条历史；系统自动的定位（进页打开最新对话、定位最新任务、新对话建立后落到它、删除当前对话）、键盘逐行移动与搜索框输入用 `replace`。
 - 服务端数据一律走 TanStack Query（`features/<领域>/use*Queries.ts`）：取消过期请求、写操作后失效重取，不手写序号防过期，不把服务端数据复制进全局 store。React 状态更新函数必须是纯函数（StrictMode 会重放，原地修改 prev 会重复追加）。
 - 弹层层级只有一个事实源 `index.css`：遮罩写 `className="app-overlay"`，对话框 / 抽屉内容带 `tac-modal` 或 `app-drawer`，锚定浮层带 `app-popover` / `app-menu`；使用点不写定位与 `z-*`（`components/ui/dialogLayering.test.ts` 按源码守住）。菜单、弹层用 Radix 原语，不手写 portal——模态打开时 body 为 `pointer-events:none`，手写浮层会点不到。
 - 不可逆操作经 `ConfirmDialog`（`danger`）确认，确认按钮文案用具体动词（「确认删除」）。
@@ -218,7 +264,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 并发代码一律带 `-race` 跑。偶发失败按真实竞态处理：找到根因修掉，不加 sleep，也不靠重跑放行。
 - 前端用 vitest + Testing Library，按角色与可访问名称查询元素（`getByRole('button', { name })`、`getByLabelText`），这同时校验了可访问性。
 - 浏览器实测：用 `/tmp` 下的一次性 Playwright 脚本（不入库）驱动 dev 栈，每步同时核对页面与库内数据。全量巡检覆盖 320 / 375 / 390 / 768 / 1024 / 1440 / 1920 视口、深浅两套主题，采集 pageerror / console.error / 4xx·5xx / 横向溢出，并跑 axe-core（WCAG 2 AA）要求 0 违规；弹层逐个验证遮罩、层级、控件可点与 Esc 关闭。跨浏览器至少覆盖 Chrome，条件允许补 Firefox / Safari，跑不了的如实记为阻塞。
-- 涉及控制面、恢复、停机、定时的改动要实机验证跨进程行为（如重启 runner 看续跑、等真实 cron 到点），单测覆盖不到进程边界。
+- 涉及控制面、恢复、停机、定时、沙盒的改动要实机验证跨进程行为（如重启 runner 看续跑、等真实 cron 到点、释放后沙盒内无该任务残留进程），单测覆盖不到进程边界。
 
 ## 数据库迁移
 
@@ -233,14 +279,14 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - 一个提交一个主题：修复与新功能分开提交，便于回滚与生成发布说明。
 - 版本号遵循 SemVer，0.x 内测期整体右移一位（SemVer §4 与 Cargo / npm 的 0.x 惯例）：次版本位 = 破坏性变更，补丁位 = 新功能与修复；配置为 `release-please-config.json` 的 `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`。1.0 起自动回到标准语义（主版本 = 破坏性、次版本 = 新功能、补丁 = 修复），这两项随之失效。已发布的标签不改写。git 标签带 `v`（`v0.9.1`，Go 生态要求），镜像标签不带（`0.9.1`、浮动的 `0.9`、`latest`）。
 - 破坏性变更 = 部署方或调用方必须采取行动、否则会出错的变更：删除或改名 API 端点与字段、改名配置项 / 环境变量 / Redis 键、需要人工操作或会改写、丢失存量数据的迁移。自动执行且无需任何操作的迁移（加列、加表、改注释）、纯新增的端点或字段不算。破坏性变更在主题的类型后加 `!`，正文末尾用 `BREAKING CHANGE: <升级注意>` 脚注写明升级步骤；release-please 只收录主题行与该脚注，写在正文其它位置的升级说明不会进 CHANGELOG。不要为了「醒目」把非破坏性变更标成 `!`：它会升次版本、让浮动标签失去意义。
-- 发布由 release-please 驱动：提交推到 main 后它维护 Release PR（标签 `autorelease: pending`），合并 Release PR（merge commit）即发版。Release PR 会累积后续提交，攒到一个有意义的批次（如一个功能收口、或按周）再合并，紧急修复随时合并；不必推一次发一次。只有 `ci` / `docs` / `chore` 等不进版本的改动时不会产生 Release PR。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 克隆 tag）由它改写，不要手改。
-- 发版触发 `release-images`：构建 api / proxy / runner / nginx 四个镜像（amd64 + arm64）；sandbox 不重建，而是找出与本版本沙盒源码一致的已构建镜像晋升为同版本 tag（找不到即失败，不发过期沙盒）。sandbox 在 main 上沙盒源码变更时由 `build-sandbox` 构建，以提交 sha 打标签。沙盒源码由 Dockerfile 的 COPY 推导（`scripts/ci/sandbox-inputs.sh`），构建判定与发版查找同源（`scripts/ci/sandbox-image-for.sh`），改 Dockerfile 不需要同步任何路径清单。合并发版 PR 不用等沙盒构建完成：发版会等它。
-- 发版后核对：五个镜像（api / proxy / runner / nginx / sandbox）的版本标签存在、双平台齐全，sandbox 版本标签指向与版本源码一致的镜像。
+- 发布由 release-please 驱动：提交推到 main 后它维护 Release PR（标签 `autorelease: pending`），合并 Release PR（merge commit）即发版。Release PR 会累积后续提交，攒到一个有意义的批次（如一个功能收口、或按周）再合并，紧急修复随时合并；不必推一次发一次。只有 `ci` / `docs` / `chore` 等不进版本的改动时不会产生 Release PR。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 中的版本号）由它改写，不要手改。
+- 发版触发 `release`：构建 `ghcr.io/v3teran/liusha` 镜像（amd64 + arm64，标签 X.Y.Z / X.Y / latest），并把两个架构的二进制压缩包（`liusha` + LICENSE + NOTICE + THIRD_PARTY_NOTICES）与 `checksums.txt` 上传到 Release（`scripts/release/package.sh`）。沙盒镜像与单镜像不发布，由部署方本地构建；沙盒 Dockerfile 或工具清单变更时 `sandbox` workflow 双架构构建并用沙盒自己的 `/tools` 验证工具齐全，不推送。
+- 发版后核对：`liusha` 镜像的版本标签存在、双平台齐全；Release 附件含两个压缩包与 `checksums.txt`，校验和匹配。
 
 ## 全仓体检分波
 
 全仓质量治理按以下三波划分，每波结束都跑一遍验证门：
 
-1. agent 核心（认知循环、复现与裁决、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,httpreplay,distill,reasoning,intent,chat,qa}`
+1. agent 核心（认知循环、复现与验证、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,webrepro,httpreplay,distill,reasoning,intent,chat,qa}`
 2. 平台服务：`internal/` 下其余全部包（持久化、调度、接入、配置、基础设施），以及 `cmd/`。
 3. 前端：`web/src`（pages 编排 / features 领域 / api 客户端 / styles Token）。

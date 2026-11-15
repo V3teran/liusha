@@ -17,6 +17,9 @@ import (
 // sessionCookieName 是登录会话 Cookie 名。
 const sessionCookieName = "liusha_session"
 
+// isAPIPath 报告 path 是否属于 /api 接口命名空间。
+func isAPIPath(path string) bool { return path == "/api" || strings.HasPrefix(path, "/api/") }
+
 // gin context 键：中间件写入、/auth 系 handler 读取。
 const (
 	ctxAccountID   = "auth.account_id"
@@ -26,26 +29,18 @@ const (
 // RequireAuth 校验 liusha_session 会话 Cookie：命中有效会话（滑动未过期 + 绝对上限内）
 // 即放行，并把账号身份写进 gin context；剩余不足半程时顺带滑动续期并同步 Cookie 寿命。
 //
-// 白名单（无会话可达）：
-//   - /healthz       探活高频路径
-//   - /favicon.ico   浏览器自动拉取，未注册即 404，不进鉴权避免污染 401 日志
+// 只有 /api 下的接口需要会话；其余路径（/healthz、控制台前端的静态资源——登录页本身
+// 就在其中）无需登录。/api 下的例外：
 //   - /api/auth/login    登录前当然没有会话
 //   - /api/auth/logout   清 HttpOnly Cookie 必须由服务端做，须容忍带着失效会话调用
 //
-// 初始建号不经 HTTP（cmd/api 启动期用 env 密码建 admin），api 全程没有
-// 未认证的建号端点。
-// store 为 nil 属装配错误，fail-closed：除白名单外全部 401。
+// 因此任何需要保护的端点都必须注册在 /api 下。初始建号不经 HTTP（api 组件启动期
+// 用 env 密码建 admin），api 全程没有未认证的建号端点。
+// store 为 nil 属装配错误，fail-closed：/api 下除例外外全部 401。
 func RequireAuth(store AuthStore, secure bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// FullPath 是 *已注册路由* 模板；未注册路径返回空串——白名单判断必须用
-		// URL.Path 兜底，否则白名单端点在未注册状态下会 401 而非 404/405，
-		// 混淆"路由不存在"与"鉴权失败"。
-		fp := c.FullPath()
 		path := c.Request.URL.Path
-		if strings.HasSuffix(fp, "/healthz") ||
-			path == "/favicon.ico" ||
-			path == "/api/auth/login" ||
-			path == "/api/auth/logout" {
+		if !isAPIPath(path) || path == "/api/auth/login" || path == "/api/auth/logout" {
 			c.Next()
 			return
 		}
@@ -84,7 +79,7 @@ func RequireAuth(store AuthStore, secure bool) gin.HandlerFunc {
 }
 
 // setSessionCookie 下发会话 Cookie：HttpOnly（JS 不可读）+ SameSite=Lax（跨站 POST
-// 不携带，覆盖 CSRF 面）+ Path=/；secure 由 LIUSHA_COOKIE_SECURE 决定（dev http 须 false）。
+// 不携带，覆盖 CSRF 面）+ Path=/；secure 由配置 api.cookie_secure 决定（纯 http 访问须 false）。
 func setSessionCookie(c *gin.Context, token string, maxAgeSeconds int, secure bool) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(sessionCookieName, token, maxAgeSeconds, "/", "", secure, true)

@@ -104,20 +104,20 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 		actions = filtered
 	}
 
-	// 查询发现（经裁决坐实的主张）
+	// 查询发现（经判定坐实的主张）
 	findings, err := t.graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load findings: %v", err)}, nil
 	}
 
-	// 查询已确认的世界状态（fact 观察终态）
+	// 查询已确认的世界状态（事实观察）
 	observations, err := t.graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("load observations: %v", err)}, nil
 	}
 	var facts []explorationgraph.Node
 	for _, obs := range observations {
-		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceFactual {
+		if obs.IsFact() {
 			facts = append(facts, obs)
 		}
 	}
@@ -148,32 +148,10 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 	for state, count := range stateCounts {
 		output += fmt.Sprintf("- %s: %d\n", state, count)
 	}
-	// retryable 中断动作逐条列出：这些是 runner 停摆导致的失败（非探索路径被堵），
-	// 恢复重投后的新 planner 应优先重做——藏在计数里 planner 看不到个体。
-	var retryables []string
-	for _, action := range actions {
-		if action.State == nil || *action.State != explorationgraph.StateFailed || len(action.Metadata) == 0 {
-			continue
-		}
-		var meta map[string]any
-		if json.Unmarshal(action.Metadata, &meta) == nil && meta["retryable"] == true {
-			id := action.ID
-			if len(id) > 8 {
-				id = id[:8]
-			}
-			retryables = append(retryables, fmt.Sprintf("- %s %s", id, action.Content))
-		}
-	}
-	if len(retryables) > 0 {
-		output += fmt.Sprintf("\n**可重做的中断动作（%d，retryable——runner 停摆所致，优先重做而非换路）：**\n", len(retryables))
-		for _, r := range retryables {
-			output += r + "\n"
-		}
-	}
 	output += "\n"
 
 	// 已确认的世界状态（规划基底）：只渲染 statement（renderStatements——
-	// 观察载荷里的 repro/execution_trace 是验证与审计材料，对规划是噪音）
+	// 观察载荷里的 repro 是验证材料，对规划是噪音）
 	if len(facts) > 0 {
 		output += fmt.Sprintf("### 已确认事实 (%d)\n", len(facts))
 		output += renderStatements(facts)
@@ -211,16 +189,11 @@ func renderFindings(nodes []explorationgraph.Node) string {
 	for _, n := range nodes {
 		var c struct {
 			Statement string `json:"statement"`
-			Priority  string `json:"priority"`
 		}
 		if json.Unmarshal(n.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
-		if c.Priority != "" {
-			fmt.Fprintf(&b, "- [%s] %s\n", c.Priority, c.Statement)
-		} else {
-			fmt.Fprintf(&b, "- %s\n", c.Statement)
-		}
+		fmt.Fprintf(&b, "- [%s] %s\n", n.Priority, c.Statement)
 	}
 	return b.String()
 }

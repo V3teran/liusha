@@ -1,64 +1,62 @@
-#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
-# liusha 单镜像（比赛/受限环境形态）：一个容器内跑全家——
-# PostgreSQL(pgvector) + Redis + proxy + runner + api + nginx(前端)。
-# 入口 entrypoint.sh 做进程托管：initdb → migrate → 依次拉起，任一子进程退出即整体关停
-# （单容器语义：进程共生共死，由编排器重启，不做容器内自愈）。
+#（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够）
+# liusha 单镜像：一个容器运行全部——PostgreSQL 18（pgvector）+ Redis + liusha serve（含沙盒）。
+# 以沙盒镜像为底（工具都在其中），先构建沙盒镜像：
 #
-# 依赖（运行时，挂载进容器）：
-#   - /var/run/docker.sock：runner 经宿主 docker 拉起沙盒容器（sandbox 镜像须在宿主存在）
-#   - 沙盒回连：host.docker.internal:8590（launcher 已内置 DinD 兼容），容器须 -p 发布 8590
+#   docker build -t liusha-sandbox:local -f deployments/sandbox/Dockerfile .
+#   docker build -t liusha-single:local -f deployments/single/Dockerfile .
 #
-# 构建：make single-build（目标机 amd64 时用 docker buildx --platform linux/amd64）。
-# 数据持久化：VOLUME /data（PG/Redis/证书/密钥/日志都在其下）。
+# 沙盒镜像里的 liusha 只跑 sandbox 子命令、不编入前端；这里另行构建编入前端的 liusha 覆盖它。
+# 进程托管见 entrypoint.sh；数据（库、队列、工作区、日志、证书、密钥）都在 /data。
+ARG SANDBOX_IMAGE=liusha-sandbox:local
 
-# ── Stage 0a：Go 三进程（vendor 构建，免联网）──
-FROM golang:1.25-alpine AS gobuild
-WORKDIR /src
-COPY go.mod go.sum ./
-COPY vendor ./vendor
-COPY . .
-ENV CGO_ENABLED=0
-RUN go build -mod=vendor -o /out/api ./cmd/api \
- && go build -mod=vendor -o /out/runner ./cmd/runner \
- && go build -mod=vendor -o /out/proxy ./cmd/proxy
-
-# migrate CLI 独立构建层：与 Makefile / migrate 镜像同版本同 tag（构建期联网，
-# 不在 vendor 内）——单独分层，改它不触发上面三个二进制重编。
-FROM golang:1.25-alpine AS migratebuild
-RUN go install -mod=mod -tags "postgres" github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
-
-# ── Stage 0b：前端 dist（与 nginx 镜像同源逻辑）──
-FROM node:22-alpine AS webbuild
+# ── 前端：web/ → web/dist ──
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 RUN corepack enable
-# CI=true：无 TTY 环境下 pnpm 依赖状态检查会交互确认失败，显式声明非交互。
+# CI=true：无 TTY 时 pnpm 不再尝试交互确认。
 ENV CI=true
 WORKDIR /web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
+COPY scripts/release/web-notices.mjs /tmp/web-notices.mjs
+RUN node /tmp/web-notices.mjs /web > /web/THIRD_PARTY_WEB
 
-# ── Stage 1：运行时基座 = pgvector PG17（自带 vector 扩展）+ redis + nginx ──
-FROM pgvector/pgvector:pg17
+# ── liusha：带 webdist 标签编入前端 ──
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+ARG TARGETOS TARGETARCH
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY . .
+COPY --from=web /web/dist ./web/dist
+COPY --from=web /web/THIRD_PARTY_WEB /tmp/THIRD_PARTY_WEB
+ENV CGO_ENABLED=0
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -tags webdist \
+      -ldflags "-s -w -X main.version=${VERSION}" -o /out/liusha ./cmd/liusha \
+ && go run -mod=vendor ./scripts/release/notices -binary /out/liusha -web /tmp/THIRD_PARTY_WEB > /out/THIRD_PARTY_NOTICES
+
+FROM ${SANDBOX_IMAGE}
+
+# PostgreSQL 主版本显式钉住：数据目录跨主版本不兼容，发行版升级主版本时宁可构建失败也不
+# 静默换版本。
 RUN apt-get update \
- && apt-get install -y --no-install-recommends redis-server nginx ca-certificates \
+ && apt-get install -y --no-install-recommends postgresql-18 postgresql-18-pgvector redis-server tini \
  && rm -rf /var/lib/apt/lists/*
-# docker CLI（静态拷自官方 cli 镜像，免加第三方 apt 源）：runner 经宿主 docker.sock
-# 拉沙盒容器需要本机有 CLI；sock 由运行时挂载。
-COPY --from=docker:27-cli /usr/local/bin/docker /usr/bin/docker
 
-WORKDIR /app
-COPY --from=gobuild /out/api /out/runner /out/proxy /app/
-COPY --from=migratebuild /go/bin/migrate /app/migrate
-COPY config /app/config
-COPY db/migrations /app/migrations
-# 工具清单（tools.yaml）——漏拷则 cli_tools 候选空（agent/技能出厂内容已编译进程序）
-COPY deployments/tool-images/sandbox/tools.yaml /app/deployments/tool-images/sandbox/tools.yaml
-COPY --from=webbuild /web/dist /usr/share/nginx/html
-COPY deployments/single/nginx.conf /etc/nginx/liusha-single.conf
-COPY deployments/single/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh /app/api /app/runner /app/proxy /app/migrate
+COPY --from=build /out/liusha /usr/local/bin/liusha
+COPY LICENSE NOTICE /usr/share/doc/liusha/
+COPY --from=build /out/THIRD_PARTY_NOTICES /usr/share/doc/liusha/
+COPY deployments/single/entrypoint.sh /usr/local/bin/liusha-single
+RUN chmod +x /usr/local/bin/liusha-single
+
+# 沙盒只供同容器的 runner 调用：收回到回环（沙盒镜像默认监听全部网卡）。
+ENV LIUSHA_SANDBOX_LISTEN_ADDR=127.0.0.1:8591 \
+    LIUSHA_ENV=production
 
 VOLUME ["/data"]
-EXPOSE 80 8588 8590
-ENTRYPOINT ["/app/entrypoint.sh"]
+# 8580 控制台与 API；8588 MITM 代理；对外监听段（缺省 21000-21099）按需 -p 发布
+EXPOSE 8580 8588
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/liusha-single"]
+CMD []

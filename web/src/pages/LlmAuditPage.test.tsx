@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { LlmAuditPage } from './LlmAuditPage'
 import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/llmaudit'
 import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
@@ -12,6 +12,7 @@ import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 vi.mock('@/api/llmaudit', () => ({
   searchLLMInvocations: vi.fn(),
   searchLLMInvocationStat: vi.fn(),
+  searchLLMInvocationFacets: vi.fn(async () => ({ roles: ['executor', 'planner'], models: ['deepseek-chat', 'gpt-5'] })),
   getLLMInvocationDetail: vi.fn(),
 }))
 
@@ -68,15 +69,20 @@ function setupDefaultMocks() {
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router。retry:false 避免测试里
 // mock 拒绝时反复重试拖慢用例。
-function renderPage() {
+function renderPage(entry = '/llm-audit') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/llm-audit']}>
+      <MemoryRouter initialEntries={[entry]}>
         <LlmAuditPage />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+function LocationProbe() {
+  return <output data-testid="location">{useLocation().search}</output>
 }
 
 describe('LlmAuditPage', () => {
@@ -166,5 +172,25 @@ describe('LlmAuditPage', () => {
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
     // 抽屉渲染详情的 request_id。
     expect(await screen.findByText('req-1')).toBeTruthy()
+    // 打开的调用写在 URL：跳到任务 / 对话再后退时还原抽屉
+    expect(screen.getByTestId('location').textContent).toBe('?selected=1')
+  })
+
+  it('带 ?selected= 进页直接打开这条调用的抽屉', async () => {
+    setupDefaultMocks()
+    renderPage('/llm-audit?selected=1')
+    await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
+    expect(await screen.findByText('req-1')).toBeTruthy()
+  })
+})
+
+describe('LlmAuditPage 角色 / 模型选项', () => {
+  it('选项来自服务端（整个筛选结果集），不是当前页的行：当前页只有 gpt-5 也能选其它模型', async () => {
+    setupDefaultMocks()
+    renderPage()
+    const model = (await screen.findByRole('combobox', { name: /模型/ })) as HTMLSelectElement
+    await waitFor(() => expect(within(model).getByRole('option', { name: 'deepseek-chat' })).toBeTruthy())
+    const role = screen.getByRole('combobox', { name: /角色/ }) as HTMLSelectElement
+    expect(within(role).getByRole('option', { name: /executor|执行者/ })).toBeTruthy()
   })
 })

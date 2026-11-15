@@ -28,9 +28,8 @@ func (f *fakeSandboxClient) Exec(_ context.Context, req sandbox.ExecRequest) (sa
 	}
 	return sandbox.ExecResult{}, nil
 }
-func (f *fakeSandboxClient) Close() error { return nil }
 
-func runBrowserTool(t *testing.T, client sandbox.Client, args string) string {
+func runBrowserTool(t *testing.T, client CommandRunner, args string) string {
 	t.Helper()
 	tool := newDriveBrowserTool(Deps{Sandbox: client}, 5*time.Second)
 	res, err := tool.Execute(context.Background(), json.RawMessage(args))
@@ -96,14 +95,14 @@ func TestDriveBrowser_WatchdogSelfHealL2(t *testing.T) {
 		{Stdout: "Error: Event handler drive_browser.browser.watchdog_base timed out", ExitCode: 1}, // 原命令退化
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "Error: ...watchdog_base timed out", ExitCode: 1}, // L1 后仍退化
-		{Stdout: ""}, // L2 pkill
+		{Stdout: "ok"}, // L2 kill
 		{Stdout: "url: http://target/\n[exit_code: 0]"}, // L2 后重试成功
 	}}
 	out := runBrowserTool(t, fake, `{"action":"open","url":"http://target/"}`)
 	if !strings.Contains(out, "url: http://target/") {
 		t.Fatalf("L2 自愈后应返回重试成功结果, got:\n%s", out)
 	}
-	if !strings.Contains(out, "L2 杀 daemon+chromium 冷启动") {
+	if !strings.Contains(out, "L2 强制结束本身份的浏览器服务") {
 		t.Fatal("L2 升级应留痕")
 	}
 	if fake.calls != 5 {
@@ -117,7 +116,7 @@ func TestDriveBrowser_WatchdogSelfHealExhausted(t *testing.T) {
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // 原命令
 		{Stdout: "ok"}, // L1 reset
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L1 后
-		{Stdout: ""}, // L2 pkill
+		{Stdout: "ok"}, // L2 kill
 		{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}, // L2 后仍坏
 	}}
 	out := runBrowserTool(t, fake, `{"action":"state"}`)
@@ -154,42 +153,25 @@ func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 	}
 }
 
-// P2：浏览器身份 task 域化——IDENTITY 必为 "{taskID}-{身份名}"（跨任务/跨身份
-// 双隔离的 cookie jar 边界），身份名非法字符清洗（要进 socket 文件名）。
-func TestDriveBrowser_TaskScopedIdentity(t *testing.T) {
-	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
-	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state"}`))
-	if !strings.Contains(fake.commands[0], `IDENTITY="t-42-default"`) {
-		t.Fatalf("默认身份应为 {taskID}-default, got %s", fake.commands[0])
-	}
-
-	fake2 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool2 := newDriveBrowserTool(Deps{Sandbox: fake2, TaskID: "t-42"}, 5*time.Second)
-	_, _ = tool2.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin/foo 户"}`))
-	if !strings.Contains(fake2.commands[0], `IDENTITY="t-42-admin-foo--"`) {
-		t.Fatalf("身份名非法字符应清洗为 -, got %s", fake2.commands[0])
-	}
-
-	// 无 taskID（如 judge 复核侧）：裸身份名，不带任务前缀
-	fake3 := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
-	tool3 := newDriveBrowserTool(Deps{Sandbox: fake3}, 5*time.Second)
-	_, _ = tool3.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
-	if !strings.Contains(fake3.commands[0], `IDENTITY="admin"`) {
-		t.Fatalf("无 taskID 应为裸身份名, got %s", fake3.commands[0])
+// 浏览器身份按身份名传给沙盒（缺省 default）：任务隔离由沙盒按命令所属任务完成，agent 在
+// run_command 里手写 IDENTITY=<身份名> 与本工具指向同一个浏览器。身份名中的非法字符清洗为 -
+// （它是端点文件名，且要原样进 shell）。
+func TestDriveBrowser_IdentityName(t *testing.T) {
+	for _, c := range []struct{ args, want string }{
+		{`{"action":"state"}`, `IDENTITY="default"`},
+		{`{"action":"state","identity":"admin"}`, `IDENTITY="admin"`},
+		{`{"action":"state","identity":"admin/foo 户"}`, `IDENTITY="admin-foo--"`},
+	} {
+		fake := &fakeSandboxClient{responses: []sandbox.ExecResult{{Stdout: "ok"}}}
+		tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
+		_, _ = tool.Execute(context.Background(), json.RawMessage(c.args))
+		if !strings.Contains(fake.commands[0], c.want) || strings.Contains(fake.commands[0], "t-42") {
+			t.Errorf("%s: 应传身份名 %s（不带任务前缀）, got %s", c.args, c.want, fake.commands[0])
+		}
 	}
 }
 
-// P3：清理脚本只匹配本任务前缀的身份 socket。
-func TestBrowserCleanupScript(t *testing.T) {
-	script := BrowserCleanupScript("t-42")
-	if !strings.Contains(script, "/tmp/browser-svc-t-42-*.sock") {
-		t.Fatalf("清理脚本应按任务前缀匹配, got %s", script)
-	}
-	if BrowserCleanupScript("") != "" {
-		t.Fatal("空 taskID 应返回空脚本（不清理）")
-	}
-}
+// 自愈只作用于出问题的身份，经 browser-use 请沙盒处理，不按进程名全机结束进程。
 
 func TestRunCommandDesc_ListenerContract(t *testing.T) {
 	// 未发布监听段：明示回连类操作不可达——LLM 不知道就会绑 4444 白跑一步。
@@ -238,5 +220,26 @@ func TestDriveBrowser_HealRequestsCarryAssignmentAndFailWhenUnrecovered(t *testi
 	}
 	if res.Error == "" {
 		t.Fatal("自愈耗尽应记为结果性失败（ToolResult.Error 非空）")
+	}
+}
+
+// 自愈只作用于出问题的身份：修复命令带上同一身份，不波及同任务的其他身份、更不波及其他
+// 任务的浏览器（不按进程名在全机范围内结束进程）。
+func TestDriveBrowser_SelfHealScopedToIdentity(t *testing.T) {
+	degraded := sandbox.ExecResult{Stdout: "Error: ...watchdog_base... timed out", ExitCode: 1}
+	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{degraded, {Stdout: "ok"}, degraded, {Stdout: "ok"}, degraded}}
+	tool := newDriveBrowserTool(Deps{Sandbox: fake, TaskID: "t-42"}, 5*time.Second)
+	_, _ = tool.Execute(context.Background(), json.RawMessage(`{"action":"state","identity":"admin"}`))
+	if len(fake.commands) != 5 {
+		t.Fatalf("应执行 原命令+L1两步+L2两步, got %v", fake.commands)
+	}
+	for _, i := range []int{1, 3} {
+		cmd := fake.commands[i]
+		if !strings.Contains(cmd, `IDENTITY="admin"`) || !strings.Contains(cmd, "browser-use ") {
+			t.Errorf("修复命令应经 browser-use 作用于本身份, got %q", cmd)
+		}
+		if strings.Contains(cmd, "pkill") || strings.Contains(cmd, "killall") {
+			t.Errorf("修复命令不得按进程名全机结束进程, got %q", cmd)
+		}
 	}
 }

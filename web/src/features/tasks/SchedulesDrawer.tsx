@@ -118,7 +118,7 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
             title="删除定时模板"
             message={
               <>
-                删除「{pendingDelete ? scheduleName(pendingDelete) : ''}」后不再触发。已触发的任务保留，但不再标为定时触发。
+                删除「{pendingDelete?.title ?? ''}」后不再触发。已触发的任务保留，但不再标为定时触发。
               </>
             }
             confirmLabel="确认删除"
@@ -131,11 +131,6 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
   )
 }
 
-/** 模板展示名：未填标题时取首个目标。 */
-function scheduleName(r: ScheduleRow): string {
-  return r.title || r.briefs[0] || '未命名模板'
-}
-
 interface ScheduleCardProps {
   row: ScheduleRow
   focused: boolean
@@ -146,7 +141,7 @@ interface ScheduleCardProps {
 
 function ScheduleCard({ row, focused, busy, onToggle, onDelete }: ScheduleCardProps) {
   const ref = useRef<HTMLElement>(null)
-  const name = scheduleName(row)
+  const name = row.title
   const human = cronHuman(row.cron)
   const hidden = row.briefs.length - BRIEF_PREVIEW
 

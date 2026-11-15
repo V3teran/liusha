@@ -1,6 +1,6 @@
 // scheduler.go 实现定时下发：轮询 cron_schedule.next_run_at 到点的模板 → 克隆一个新
 // assignment（source=direct，schedule_id 指回模板）→ 每个 brief 条目展开一个 task（建会话 +
-// enqueue，target_host 由 runner 从 brief 抽取回填）→ 回写 last_run_at/next_run_at。
+// enqueue，brief 即任务目标）→ 回写 last_run_at/next_run_at。
 // 模板条目恒为用户编写的 brief（唯一写入方 DispatchScheduled）。单副本够用；api 多副本时
 // 需另抽 leader 选举。
 

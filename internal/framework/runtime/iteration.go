@@ -43,7 +43,7 @@ func (r *reactRuntime) runIteration(
 	// 1. 调用 LLM（Thought + Action）——外部中止在此先行检查：长生成期间
 	//    的止血不等迭代边界。
 	if config.AbortCheck != nil && config.AbortCheck() {
-		result.AddUserMessage("（外部中止：本轮执行已被裁决终止，停止后续调用）")
+		result.AddUserMessage("（外部中止：本轮执行已被验证终止，停止后续调用）")
 		trace.Status = IterationStatusCompleted
 		trace.EndTime = time.Now().UnixMilli()
 		return trace, true, nil
@@ -122,10 +122,10 @@ func (r *reactRuntime) runIteration(
 	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 
 	// 3. 执行工具调用（Observation）——每个工具执行前同样检查外部中止：
-	//    浏览器/长命令执行期间的 kill 即刻生效。
+	//    浏览器/长命令执行期间的外部中止即刻生效。
 	for _, toolCall := range response.ToolCalls {
 		if config.AbortCheck != nil && config.AbortCheck() {
-			result.AddUserMessage("（外部中止：本轮执行已被裁决终止，跳过剩余工具调用）")
+			result.AddUserMessage("（外部中止：本轮执行已被验证终止，跳过剩余工具调用）")
 			trace.Status = IterationStatusCompleted
 			trace.EndTime = time.Now().UnixMilli()
 			return trace, true, nil

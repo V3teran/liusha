@@ -1,122 +1,171 @@
-// Package server 实现 sandbox-server 的 HTTP 端点。
+// Package server 实现沙盒服务（liusha sandbox）的 HTTP 端点。
 //
-// 容器内 PID 1 进程，提供：
+//	GET  /healthz              健康检查（无需令牌）
+//	POST /exec                 以配置的 POSIX shell 执行一条命令（$OUTPUT_DIR 产物作为附件返回）
+//	GET  /tools                工具清单中各 CLI 工具与浏览器能力的安装状态
+//	POST /tasks/{id}/release   结束任务遗留的全部进程组与浏览器会话
 //
-//	POST /exec      跑 sh -c + OUTPUT_DIR 附件机制
-//	GET  /healthz   健康检查（spawn 后等待 ready 用）
+// 除 /healthz 外都要求 Authorization: Bearer <令牌>。
 //
-// 设计哲学：sandbox-server 是纯 sh 执行器，**不感知 chrome / browser-use 等
-// 具体工具**——按需启动由调用者（如 browser-cli）自负。
+// 另有一个只供本机任务进程使用的回环接口（见 localAPI）：浏览器客户端经它启停浏览器服务，
+// 浏览器服务经它回灌流量，沙盒带令牌转发给 runner。令牌只在沙盒进程内，不进入任何进程的环境。
 package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
-// maxLifetimeFallback 是远超任何正常 agent run 时长的安全冗余。
-// 主进程崩溃 / docker stop 失败时由 lifetime guard 兜底自杀，容器随之销毁。
-//
-// 不是 idle timeout——agent 思考期无 /exec 请求不触发自杀，避免误杀。
-const maxLifetimeFallback = 4 * time.Hour
-
-// 附件上限：单文件无上限（避免视口截图 200KB+ 被丢），
-// 仅总量 10MB + 数量 5 兜底防一次返巨量文件撑爆 HTTP body。
-//
-// 单文件不限的根据：browser-use screenshot 默认 viewport-only
-// page.screenshot(full_page=False) 同款），典型 200-500KB；DOM 大的复杂页
-// 1-2MB 也合理。要更严的总量控制由 LLM 自己注意命名/数量。
+// 附件上限：单文件不限（视口截图 200KB+、复杂页 1-2MB 都合理），
+// 仅总量 10MB + 数量 5 兜底，防一次返回巨量文件撑爆 HTTP 响应。
 const (
-	maxTotalSize = 10 * 1024 * 1024 // 总 10MB
+	maxTotalSize = 10 * 1024 * 1024
 	maxFileCount = 5
 )
 
-// HTTPServer 持有 HTTP 路由 + 启动时间（max lifetime 计算用）。
-type HTTPServer struct {
-	mux       *http.ServeMux
-	startTime time.Time
+// Config 是沙盒服务参数。
+type Config struct {
+	// Token 是共享密钥：调用方须携带它；沙盒转发浏览器流量给 runner 时也用它。
+	Token string
+	// WorkspaceDir 是任务工作区根目录（<根>/<批次>/<任务>/{work,out,state}）。
+	WorkspaceDir string
+	// Shell 是执行命令的 POSIX shell（可执行文件路径）。
+	Shell string
+	// Tools 是工具清单中的 CLI 工具名（GET /tools 的探测范围）。
+	Tools []string
+	// BrowserBin 是浏览器包装脚本所在目录，加到命令 PATH 最前；BrowserPython 是其解释器（能力探测用）。
+	BrowserBin    string
+	BrowserPython string
+	// BrowserService 是浏览器服务脚本：沙盒按需以 BrowserPython 启动它（见 browserServices）。
+	BrowserService string
+	// BrowserDir 是浏览器服务的端点文件目录（每个身份一个，见 browser 包），须只对本用户开放。
+	BrowserDir string
+	// IngestURL 是浏览器抓到的流量回灌 runner 的地址；空 = 不回灌。
+	IngestURL string
+	// ViewportWidth/Height 是浏览器视口尺寸。
+	ViewportWidth  int
+	ViewportHeight int
+	// SecretEnv 是除 LIUSHA_ 前缀外、承载 liusha 密钥的环境变量名，不得进入命令环境（见 scrubEnv）。
+	SecretEnv []string
 }
 
-// New 构造 HTTPServer，注册端点。
-func New() *HTTPServer {
-	s := &HTTPServer{
-		mux:       http.NewServeMux(),
-		startTime: time.Now(),
+// Server 是沙盒服务。
+type Server struct {
+	cfg       Config
+	mux       *http.ServeMux
+	procs     *taskProcesses
+	inventory *inventoryCache
+	// local 是本机接口（ListenAndServe 启动它之后才有地址）。
+	local    localAPI
+	browsers *browserServices
+	// browsersPath 是本机已装浏览器内核的位置：命令的 HOME 指向任务状态目录，按 HOME 推算
+	// 的缺省位置会漂到每个任务各一份（每个任务重新下载内核）。沙盒按自身环境解析后显式注入。
+	browsersPath string
+}
+
+// New 构造沙盒服务。
+func New(cfg Config) *Server {
+	s := &Server{
+		cfg:          cfg,
+		mux:          http.NewServeMux(),
+		procs:        newTaskProcesses(),
+		browsersPath: browsersPath(),
+		local:        localAPI{key: newLocalKey()},
+		browsers:     newBrowserServices(),
 	}
-	// Go 1.22+ 路由 method+path 语法。
-	s.mux.HandleFunc("POST /exec", s.handleExec)
+	s.inventory = newInventoryCache(s.probeInventory)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.Handle("POST /exec", s.requireToken(http.HandlerFunc(s.handleExec)))
+	s.mux.Handle("GET /tools", s.requireToken(http.HandlerFunc(s.handleTools)))
+	s.mux.Handle("POST /tasks/{id}/release", s.requireToken(http.HandlerFunc(s.handleRelease)))
 	return s
 }
 
-// ListenAndServe 启动 HTTP server 并开启 max lifetime 自杀 goroutine。
-//
-// ctx 被取消时 server 优雅关闭（10s 超时）。
-//
-// 不设 ReadTimeout/WriteTimeout：单工具最长 30min，HTTP 同步长连接由主进程 client
-// 端 timeout 兜底（31min）。
-func (s *HTTPServer) ListenAndServe(ctx context.Context, addr string) error {
-	go s.runLifetimeGuard(ctx)
+// Handler 返回 HTTP 处理器（测试与自定义 http.Server 用）。
+func (s *Server) Handler() http.Handler { return s.mux }
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           s.mux,
-		ReadHeaderTimeout: 10 * time.Second,
+// ListenAndServe 监听 addr 与本机接口直到 ctx 取消，然后优雅关闭（10s 超时）。
+//
+// 不设 ReadTimeout/WriteTimeout：命令可长达数十分钟，HTTP 同步长连接由调用方按命令超时兜底。
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	servers := []*http.Server{{Addr: addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}}
+	listeners := []net.Listener{nil}
+	// 本机接口先于主服务就绪：命令环境里要带上它的地址。
+	ln, err := listenLocal()
+	if err != nil {
+		return err
+	}
+	s.local.url = "http://" + ln.Addr().String()
+	servers = append(servers, &http.Server{Handler: s.localHandler(), ReadHeaderTimeout: 10 * time.Second})
+	listeners = append(listeners, ln)
+
+	serveErr := make(chan error, len(servers))
+	for i, srv := range servers {
+		go func() {
+			if listeners[i] == nil {
+				serveErr <- srv.ListenAndServe()
+				return
+			}
+			serveErr <- srv.Serve(listeners[i])
+		}()
 	}
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- srv.ListenAndServe()
-	}()
-
+	var runErr error
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("graceful shutdown: %w", err)
-		}
-		return nil
 	case err := <-serveErr:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return fmt.Errorf("http server: %w", err)
+		runErr = fmt.Errorf("http server: %w", err)
 	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+			runErr = fmt.Errorf("graceful shutdown: %w", err)
+		}
+	}
+	return runErr
 }
 
-// runLifetimeGuard 每分钟检查启动时长，超过 maxLifetimeFallback 直接退出进程
-// （容器随 PID 1 死亡被一起回收）。
-//
-// 直接 os.Exit 不走 graceful shutdown：场景是主进程已死（孤儿容器），无 client
-// 在等响应，立即退出最干净。
-func (s *HTTPServer) runLifetimeGuard(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
+// browsersPath 解析浏览器内核位置：已显式设置的照用，否则取本机用户缓存目录下的缺省位置
+// （与浏览器库按沙盒自身环境推算的结果一致）。
+func browsersPath() string {
+	if v := os.Getenv("PLAYWRIGHT_BROWSERS_PATH"); v != "" {
+		return v
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "ms-playwright")
+}
+
+// requireToken 校验 Bearer 令牌（常量时间比较，不泄露前缀匹配长度）。
+func (s *Server) requireToken(next http.Handler) http.Handler {
+	want := []byte(s.cfg.Token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || len(want) == 0 || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			writeError(w, http.StatusUnauthorized, "令牌无效")
 			return
-		case <-ticker.C:
-			if time.Since(s.startTime) > maxLifetimeFallback {
-				ticker.Stop()
-				fmt.Fprintf(os.Stderr, "[sandbox-server] max lifetime %v exceeded, exiting\n", maxLifetimeFallback)
-				os.Exit(1) //nolint:gocritic // 孤儿容器场景：立即退出即回收，graceful shutdown 无意义
-			}
 		}
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
-// handleHealthz 返回 200 + {"status":"ok"}，无副作用。
-func (s *HTTPServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.inventory.get(r.Context()))
 }
 
 // writeError 写 plain text 错误响应。

@@ -14,13 +14,15 @@ import "time"
 // 始终落库（不脱敏、不开关），cookie 等敏感头会原样保留。
 // 类型为 []byte，由调用方 json.Marshal 后写入；nil 时落 default '[]' / '{}'。
 //
-// ConversationID / AssignmentID 是派生字段（JOIN 查询填充），不存储在 llm_invocation 表。
+// 归属：智能体运行的调用记 TaskID（经任务找对话）；对话里直接发起的调用（问答、意图分类、
+// 标题生成）没有任务，记 ConversationID。读出时 ConversationID 是调用所属的对话（自己记下的
+// 优先，否则任务的对话），AssignmentID / Source 是归属任务的批次与来源（JOIN 填充）。
 type Invocation struct {
 	ID             int64
 	RequestID      string  // 跨系统关联键,db 侧 gen_random_uuid() 生成（写路径不传，见 store.go copyFromBatch）
 	AgentRunID     *string // 所属 agent_run.id（可空：SET NULL 外键；列名 agent_run_id）
 	TaskID         *string // 所属 task.id（可空：SET NULL 外键）
-	ConversationID *string // 所属 conversation.id（派生字段，JOIN 查询填充）
+	ConversationID *string // 写入：对话内调用所在的对话；读出：调用所属的对话（可空：SET NULL 外键）
 	AssignmentID   *string // 所属 assignment.id（派生字段，JOIN 查询填充）
 	Source         string  // 下发来源 direct|proxy（派生字段，详情 JOIN assignment 填充；对话跳转定 tab）
 	Provider       string

@@ -18,7 +18,7 @@ export function SystemConfigPage() {
     {
       id: 'compaction',
       title: '上下文压缩',
-      keywords: '上下文 压缩 历史 token 预算 占比 规划 执行 裁决 监察 纪要',
+      keywords: '上下文 压缩 历史 token 预算 占比 规划 执行 评估 监察 纪要',
       component: <CompactionSection />,
     },
     {

@@ -34,7 +34,7 @@ const mListCandidates = listToolCandidates as unknown as ReturnType<typeof vi.fn
 const mListSkills = listSkillCandidates as unknown as ReturnType<typeof vi.fn>
 
 function tool(name: string, kind: ToolKind, category: string, categoryName = category): Tool {
-  return { name, kind, category, category_name: categoryName, description: `${name} 描述`, sort_order: 0 }
+  return { name, kind, category, category_name: categoryName, description: `${name} 描述`, sort_order: 0, installed: true }
 }
 
 const FUNCTION_TOOLS = [tool('read_credentials', 'function', 'credentials'), tool('write_credential', 'function', 'credentials')]

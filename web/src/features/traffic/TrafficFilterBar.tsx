@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 import type { TrafficFilters } from '@/api/types'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
@@ -9,7 +10,7 @@ import { isoToLocalInput, syncIsoWithLocalInput } from '@/lib/datetime'
 interface TrafficFilterBarProps {
   filters: TrafficFilters
   contentTypes: string[]
-  onChange: (next: TrafficFilters) => void
+  onChange: (next: TrafficFilters, opts?: HistoryOptions) => void
   onReset: () => void
   trailing?: ReactNode
 }
@@ -36,7 +37,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localSearch !== filters.search) {
-        onChange({ ...filters, search: localSearch })
+        onChange({ ...filters, search: localSearch }, { replace: true })
       }
     }, 300)
     return () => clearTimeout(timer)

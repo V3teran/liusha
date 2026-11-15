@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
+	"github.com/V3teran/liusha/internal/repro"
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -36,10 +36,10 @@ type Engine struct {
 	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
 	distiller           runtime.Distiller       // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
 	toolOutputTailBytes int                     // 工具输出全局尾部钳制字节（0=不钳）
-	brief               string                  // 任务简报原文（用户指定的入口 URL 等，逐字渲染进 system prompt——防转录漂移）
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
-	traceCollector      *TraceCollector         // trace 收集器（从 agent_traffic 构建完整执行轨迹）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
+	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
+	repro               *repro.Registry         // 复现领域（配方落图时按领域归一化）
 	logger              zerolog.Logger
 }
 
@@ -61,12 +61,14 @@ type EngineConfig struct {
 	Distiller runtime.Distiller
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
-	Brief               string          // 任务简报原文（可选；渲染进 system prompt 作入口锚定）
-	AgentRunID          string          // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
-	TraceCollector      *TraceCollector // trace 收集器（从 agent_traffic 构建完整执行轨迹）
+	AgentRunID          string // 本轮认知循环的 agent_run.id（LLM 审计归属；空 = 审计行不挂 run）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
-	Logger   zerolog.Logger
+	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
+	Activity *ActivityTracker
+	// Repro 是可用的复现领域（nil = 只有内置的 generic 领域）。
+	Repro  *repro.Registry
+	Logger zerolog.Logger
 }
 
 // NewEngine 创建执行引擎
@@ -85,11 +87,18 @@ func NewEngine(cfg EngineConfig) *Engine {
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
-		brief:               cfg.Brief,
 		agentRunID:          cfg.AgentRunID,
-		traceCollector:      cfg.TraceCollector,
+		activity:            cfg.Activity,
+		repro:               reproOrGeneric(cfg.Repro),
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
+}
+
+func reproOrGeneric(r *repro.Registry) *repro.Registry {
+	if r == nil {
+		return repro.NewRegistry()
+	}
+	return r
 }
 
 // contextBudget 解析历史 token 预算：比例 × 本角色路由 provider 的 context_window。
@@ -106,12 +115,16 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 	return int(float64(cw) * e.contextRatio)
 }
 
-// Execute 执行一个 Action，返回生成的 Attempt 列表
-func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]evaluator.Attempt, Outcome, error) {
-	// 1. 解析 action 内容
+// Execute 执行一个 Action：观察落图（假设写入即待验证），返回产出档。
+func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
+	// 1. 解析 action 内容；任务目标每次从图上读（调整目标后下一个动作即生效）
 	actionContent, err := e.parseActionContent(action)
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
+	}
+	root, _, err := e.graph.RootObjectiveOf(ctx, action.TaskID)
+	if err != nil {
+		return OutcomeDone, fmt.Errorf("读取任务目标: %w", err)
 	}
 
 	// 2. 设置 LLM 审计上下文
@@ -131,53 +144,55 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) ([]e
 	// 4. 准备工具列表
 	reactTools := e.prepareReActTools()
 
-	// 5. kill 传导：action 级 context 在 monitor kill 时取消（在途 LLM/工具即刻退出）
-	ctx, kill, stopKillWatch := watchKill(ctx, e.graphReader(), action.ID, killPollInterval, e.logger)
-	defer stopKillWatch()
+	// 5. 收回传导：动作被否决、收口或回收时取消 action 级 context（在途 LLM/工具即刻退出）
+	ctx, own, stopOwnershipWatch := watchOwnership(ctx, e.graphReader(), action.ID, e.agentRunID, ownershipPollInterval, e.logger)
+	defer stopOwnershipWatch()
 
 	// 6. 构建 ReAct 配置
-	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, reactTools, kill)
+	reactConfig, err := e.buildReActConfigWithMonitoring(ctx, action, actionContent, root.Goal(), reactTools, own)
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
 	// 7. 创建 ReAct Runtime 并注册工具
 	reactRuntime := runtime.NewReActRuntime()
 	if err := e.registerReActTools(reactRuntime, reactTools, action.ID); err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
-	// 8. 执行 ReAct 循环
+	// 8. 执行 ReAct 循环（被收回导致的退出如实报告为收回，不报成执行错误）
 	result, err := e.executeReActRuntime(ctx, reactRuntime, reactConfig, action.ID)
+	if own.Lost() {
+		return OutcomeDone, e.confirmHeld(context.WithoutCancel(ctx), action.ID)
+	}
 	if err != nil {
-		return nil, OutcomeDone, err
+		return OutcomeDone, err
 	}
 
-	// 9. 检查是否被 monitor kill（早期退出优化）
-	if err := e.checkActionAborted(ctx, action.ID); err != nil {
-		return nil, OutcomeDone, err
+	// 9. 落图前再核一次持有：轮询间隔内被收回的动作不再写观察
+	if err := e.confirmHeld(ctx, action.ID); err != nil {
+		return OutcomeDone, err
 	}
 
-	// 10. 处理输出并生成 Attempts；迭代预算耗尽（max_iterations）如实上抛为
-	// exhausted——强制总结路径仍有结构化产出，attempts 照常发布。
-	attempts, perr := e.processOutput(ctx, action, result)
-	if perr != nil {
-		return nil, OutcomeDone, perr
+	// 10. 观察落图；迭代预算耗尽（max_iterations）如实上抛为 exhausted——强制总结
+	// 路径仍有结构化产出，照常落图。
+	if perr := e.processOutput(ctx, action, result); perr != nil {
+		return OutcomeDone, perr
 	}
 	outcome := OutcomeDone
 	if result.Status == runtime.ReActStatusMaxIterations {
 		outcome = OutcomeExhausted
 	}
-	return attempts, outcome, nil
+	return outcome, nil
 }
 
 // buildSystemPrompt 组装 executor system prompt：
 //
 //	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
-//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / actionType 指导 / 时间预期 / 任务简报）
+//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / 来源与类型指导 / 时间预期 / 任务目标）
 //
 // 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
-func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []registry.Tool) string {
+func (e *Engine) buildSystemPrompt(action explorationgraph.Node, actionType, complexity, goal string, registered []registry.Tool) string {
 	var toolSB strings.Builder
 	for _, t := range registered {
 		toolSB.WriteString("- " + t.Name() + ": " + t.ShortDesc() + "\n")
@@ -224,6 +239,15 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 	}
 	// ========================================================
 
+	// 用户指派的动作按来源装配指导（它没有 type，不借用类型分支）
+	if action.SourceType == explorationgraph.SourceUser {
+		basePrompt += `
+**用户指派的动作**：
+- 这一步是用户直接要求执行的：按指令执行，不扩大范围（不顺带测试指令以外的对象或手法）
+- 指令与任务目标的表述不一致时以指令为准，并在最终输出里如实说明
+`
+	}
+
 	// 根据 Action 类型添加特定指导（领域无关）
 	switch actionType {
 	case "reconnaissance":
@@ -259,11 +283,11 @@ func (e *Engine) buildSystemPrompt(actionType, complexity string, registered []r
 		basePrompt += "\n**时间预期**：此任务可能需要较长时间，请耐心执行。\n"
 	}
 
-	// 任务简报原文（逐字）——用户指定的目标/入口 URL/凭据的唯一权威事实源。
-	// 曾因 brief 只在 planner 侧、executor 凭记忆转录入口 URL（/login.php→/login）
+	// 任务目标原文（逐字，取自图上的根目标，调整目标后即时生效）——用户指定的目标/
+	// 入口 URL/凭据的唯一权威事实源。曾因执行者凭记忆转录入口 URL（/login.php→/login）
 	// 打在 404 上浪费整轮；逐字附录比任何摘要/解析都可靠。
-	if e.brief != "" {
-		basePrompt += "\n**任务简报（用户原文，目标/入口 URL/凭据以此为准）**：\n" + e.brief + "\n"
+	if goal != "" {
+		basePrompt += "\n**任务目标（用户原文，目标/入口 URL/凭据以此为准）**：\n" + goal + "\n"
 	}
 
 	return basePrompt

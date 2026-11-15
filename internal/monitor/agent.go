@@ -6,12 +6,13 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -27,7 +28,6 @@ type Agent struct {
 	taskID       string
 	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	graph        *explorationgraph.Store
-	eventBus     bus.EventBus
 	router       *llm.Router // 每次评估现取 provider——配置/密钥变更经 30s TTL 对本任务生效
 	complexity   llm.Complexity
 	reactRuntime runtime.ReActRuntime
@@ -43,6 +43,35 @@ type Agent struct {
 
 	// 时间序列指标收集器
 	metricsCollector *metrics.Collector
+
+	// 复核请求（经 RequestReview 发出）：reviewCh 容量 1，未消费前的多次请求合并为一次，
+	// 理由逐条保留（去重）。
+	reviewCh      chan struct{}
+	reviewMu      sync.Mutex
+	reviewReasons []string
+}
+
+// RequestReview 请求一次提前评估（如任务目标被调整：在途动作要按新目标复核）。不等定时
+// 周期；图上没有在途动作时不评估。未消费前的多次请求合并为一次，理由逐条保留。
+func (a *Agent) RequestReview(reason string) {
+	a.reviewMu.Lock()
+	if !slices.Contains(a.reviewReasons, reason) {
+		a.reviewReasons = append(a.reviewReasons, reason)
+	}
+	a.reviewMu.Unlock()
+	select {
+	case a.reviewCh <- struct{}{}:
+	default:
+	}
+}
+
+// takeReviewReasons 取走待处理复核请求的全部理由。
+func (a *Agent) takeReviewReasons() []string {
+	a.reviewMu.Lock()
+	defer a.reviewMu.Unlock()
+	reasons := a.reviewReasons
+	a.reviewReasons = nil
+	return reasons
 }
 
 // Config 是 Monitor Agent 的配置。
@@ -50,7 +79,7 @@ type Config struct {
 	TaskID     string
 	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	Graph      *explorationgraph.Store
-	EventBus   bus.EventBus
+	Replanner  Replanner     // 重规划请求直达规划者
 	Router     *llm.Router   // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
 	Complexity string        // LLM 档位（agent.complexity，simple|medium|complex）
 	Interval   time.Duration // 评估间隔，默认 6 分钟
@@ -68,13 +97,8 @@ type Config struct {
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
 
-	// Activity 返回 action 距最近一次工具活动的时长（可选）。提供后
-	// get_global_state 会向决策者暴露 idle_minutes——kill 判据从
-	// "运行时长"升级为"活动停摆时长"，避免冤杀长时深挖的活跃 action。
-	Activity func(actionID string) (time.Duration, bool)
-
 	// WrapTool 把监察工具包进共享拦截链（遥测/心跳/时间线）——系统里
-	// 破坏性最大的决策（kill）不应是审计盲区（实测 tool_invocation 0 行）。
+	// 破坏性最大的决策（否决动作）不应是审计盲区（实测 tool_invocation 0 行）。
 	// nil=不包装（独立部署/测试）。
 	WrapTool func(registry.Tool) registry.Tool
 
@@ -99,12 +123,10 @@ func New(cfg Config) *Agent {
 	// 注册监察工具（function_tools 白名单过滤；nil=拒绝，[]=空集，["*"]=全量）
 	var registryTools []registry.Tool
 	if registry.Allows(cfg.FunctionTools, "get_global_state") {
-		tool := NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector)
-		tool.activity = cfg.Activity
-		registryTools = append(registryTools, tool)
+		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
 	}
 	if registry.Allows(cfg.FunctionTools, "publish_decision") {
-		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.EventBus, cfg.TaskID))
+		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.Replanner, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
 		if cfg.WrapTool != nil {
@@ -119,7 +141,6 @@ func New(cfg Config) *Agent {
 		taskID:              cfg.TaskID,
 		agentRunID:          cfg.AgentRunID,
 		graph:               cfg.Graph,
-		eventBus:            cfg.EventBus,
 		router:              cfg.Router,
 		complexity:          llm.ParseComplexity(cfg.Complexity),
 		reactRuntime:        reactRuntime,
@@ -132,6 +153,7 @@ func New(cfg Config) *Agent {
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		metricsCollector:    metricsCollector,
 		thoughts:            cfg.Thoughts,
+		reviewCh:            make(chan struct{}, 1),
 	}
 }
 
@@ -179,7 +201,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// 的确定结论——烧一轮 LLM（含强制总结共 3 次调用）监察不存在的工作。
 	// 图上无 open/running 动作时跳过首评，等定时器（届时若任务真实必有在途）。
 	if a.hasSupervisableWork(ctx) {
-		if err := a.evaluationFailure(a.evaluate(ctx), "首次评估"); err != nil {
+		if err := a.evaluationFailure(a.evaluate(ctx, nil), "首次评估"); err != nil {
 			return err
 		}
 	} else {
@@ -199,7 +221,18 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.logger.Debug().Msg("周期评估跳过：图上无在途动作")
 				continue
 			}
-			if err := a.evaluationFailure(a.evaluate(ctx), "周期评估"); err != nil {
+			if err := a.evaluationFailure(a.evaluate(ctx, nil), "周期评估"); err != nil {
+				return err
+			}
+
+		case <-a.reviewCh:
+			reasons := a.takeReviewReasons()
+			if !a.hasSupervisableWork(ctx) {
+				a.logger.Info().Strs("reasons", reasons).Msg("复核跳过：图上无在途动作")
+				continue
+			}
+			a.logger.Info().Strs("reasons", reasons).Msg("收到复核请求，提前评估")
+			if err := a.evaluationFailure(a.evaluate(ctx, reasons), "复核"); err != nil {
 				return err
 			}
 		}
@@ -220,8 +253,9 @@ func (a *Agent) evaluationFailure(err error, phase string) error {
 	return nil
 }
 
-// evaluate 执行一次全局评估（使用 ReActRuntime）
-func (a *Agent) evaluate(ctx context.Context) error {
+// evaluate 执行一次全局评估（使用 ReActRuntime）。reviewReasons 非空时本轮是复核请求
+// 触发的提前评估，理由进评估目标。
+func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 	a.logger.Info().Msg("starting global evaluation with ReActRuntime")
 
 	// 更新时间序列指标
@@ -230,7 +264,7 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	}
 
 	// 构建评估目标
-	objective := a.buildEvaluationObjective()
+	objective := a.buildEvaluationObjective(reviewReasons)
 
 	// 构建系统提示
 	systemPrompt := a.buildSystemPrompt()
@@ -289,25 +323,36 @@ func (a *Agent) evaluate(ctx context.Context) error {
 	return nil
 }
 
-// buildEvaluationObjective 构建评估目标
-func (a *Agent) buildEvaluationObjective() string {
-	return fmt.Sprintf(`你是任务 %s 的监察 Agent。
+// buildEvaluationObjective 构建评估目标；reviewReasons 非空时附上本轮复核的理由。
+func (a *Agent) buildEvaluationObjective(reviewReasons []string) string {
+	objective := fmt.Sprintf(`你是任务 %s 的监察 Agent。
 
 你的职责：
 1. 检查任务的全局状态
-2. 识别停滞、低效或异常的 Actions
-3. 做出监察决策（kill_action 或 request_replan）
+2. 识别重复、偏离或方向已作废的 Actions，以及整体停滞
+3. 需要时发布监察决策（否决动作或请求重规划）
 
 请使用以下工具：
 - get_global_state：获取任务的全局状态
 - publish_decision：发布监察决策
 
 评估标准：
-- kill_action 只看活动停摆：running_actions[].idle_minutes 超过 25 分钟（远超单次长 LLM 生成）才果断 kill——idle_minutes=-1 表示还没开始干活，超过 10 分钟无活动同样可 kill；running_minutes 长但 idle_minutes 小的动作正在正常深挖，绝不可 kill
+- 否决只针对策略上已无价值的动作：重复已完成或已证伪的工作、所在方向已作废、偏离任务目标；卡死的动作由系统看门狗自动结束，不按运行时长判断；用户指派的动作不可否决
 - 大量 failed Actions → 考虑 replan
 - 缺乏进展 → 考虑 replan
 
 请开始评估。`, a.taskID)
+	if len(reviewReasons) == 0 {
+		return objective
+	}
+	var b strings.Builder
+	b.WriteString(objective)
+	b.WriteString("\n\n本轮是复核（不等定时周期提前评估），理由：")
+	for _, r := range reviewReasons {
+		b.WriteString("\n- " + r)
+	}
+	b.WriteString("\n按理由逐一复核在途动作：已不服务于当前任务目标的予以否决。")
+	return b.String()
 }
 
 // buildSystemPrompt 组装监察 system prompt：即章程本身。监察的决策经
@@ -328,16 +373,14 @@ func (a *Agent) buildSystemPrompt() string {
 
 // GlobalState 是任务的全局状态快照。
 type GlobalState struct {
-	Objective explorationgraph.ObjectiveNode `json:"objective"`
-	Actions   []explorationgraph.Node        `json:"actions"`
+	Objective ObjectiveView           `json:"objective"`
+	Actions   []explorationgraph.Node `json:"actions"`
 	// Results 是坐实发现（图上 kind=result 节点）。与 finding 表（安全域
 	// 交付物）是两个概念：result 是图状态面，finding 是交付面。
 	Results []explorationgraph.Node `json:"results"`
 
-	// RunningActions 是 running 态动作的已运行时长视图——monitor 的 kill 阈值
-	// 判断依据（e2e 实测：只给原始 created_at/updated_at 时间戳时，LLM 无从
-	// 计算"已运行多少分钟"，20 分钟 kill 职责形同虚设）。决策变量必须显式喂给
-	// 决策者，不能指望它做时间戳算术。
+	// RunningActions 是在途动作的指令与已运行时长（显式算好分钟数，不让决策者做
+	// 时间戳算术）。卡死由执行者看门狗处理，这里只供判断重复与偏离。
 	RunningActions []RunningActionView `json:"running_actions"`
 
 	// Metrics 是时间窗口指标（P5）
@@ -345,19 +388,22 @@ type GlobalState struct {
 	Metrics metrics.Snapshot `json:"metrics"`
 }
 
+// ObjectiveView 是根目标（任务本身）的监察视图。
+type ObjectiveView struct {
+	ID   string `json:"id"`
+	Goal string `json:"goal"`
+}
+
 // RunningActionView 是 running 动作的监察视图。
 type RunningActionView struct {
 	ID             string  `json:"id"`
 	Instruction    string  `json:"instruction"`
 	RunningMinutes float64 `json:"running_minutes"`
-	// IdleMinutes 是距最近一次工具活动的分钟数；-1 = 尚无任何工具活动
-	// （还没开始干活），与"干着干着停了"是两种完全不同的处置依据。
-	IdleMinutes float64 `json:"idle_minutes"`
 }
 
 // Decision 是监察决策。
 type Decision struct {
-	Type     string `json:"type"`                // "kill_action" | "request_replan"
-	ActionID string `json:"action_id,omitempty"` // kill_action 需要
+	Type     string `json:"type"`                // DecisionRejectAction | DecisionRequestReplan
+	ActionID string `json:"action_id,omitempty"` // 否决时必填
 	Reason   string `json:"reason"`              // 决策理由
 }

@@ -107,21 +107,21 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. 执行 action → 产出 observation（节点与 action→observation 溯源边原子落库）
-	err = store.TransitionState(ctx, act.ID, StateRunning, nil)
+	claimed, err := store.ClaimAction(ctx, taskID, act.ID, "run-1")
 	require.NoError(t, err)
+	require.True(t, claimed)
 
-	confidence := ConfidenceUnverified
+	pending := VerificationPending
 	observation := Node{
-		ID:         "55555555-5555-4555-8555-555555555555",
-		TaskID:     taskID,
-		Kind:       core.KindObservation,
-		Content:    json.RawMessage(`{"detail":"发现目录 /admin"}`),
-		Confidence: &confidence,
-		Priority:   PriorityMedium,
-		SourceType: "executor",
-		SourceID:   "executor-1",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:                 "55555555-5555-4555-8555-555555555555",
+		TaskID:             taskID,
+		Kind:               core.KindObservation,
+		Content:            json.RawMessage(`{"detail":"发现目录 /admin"}`),
+		VerificationStatus: &pending,
+		Priority:           PriorityMedium,
+		SourceType:         "executor",
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 	err = store.CreateNodeWithEdges(ctx, observation, []Edge{{
 		SrcID:     act.ID,
@@ -134,16 +134,13 @@ func TestCompleteDataFlow(t *testing.T) {
 
 	// 3. 验证通过 → 晋升为 result（复现门产出的唯一终态节点）。
 	// 晋升溯源边（observation generates result）与节点原子落库。
-	verifiedConf := ConfidenceVerified
 	result := Node{
 		ID:         "66666666-6666-4666-8666-666666666666",
 		TaskID:     taskID,
 		Kind:       core.KindResult,
 		Content:    json.RawMessage(`{"type":"vulnerability","severity":"medium"}`),
-		Confidence: &verifiedConf,
 		Priority:   PriorityHigh,
 		SourceType: SourceEvaluator,
-		SourceID:   "verifier-1",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -157,8 +154,9 @@ func TestCompleteDataFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Action 完成
-	err = store.TransitionState(ctx, act.ID, StateCompleted, nil)
+	finished, err := store.FinishAction(ctx, taskID, act.ID, "run-1", StateCompleted, "")
 	require.NoError(t, err)
+	require.True(t, finished)
 
 	// 验证已晋升的 result
 	results, err := store.ListResults(ctx, taskID)
@@ -167,8 +165,8 @@ func TestCompleteDataFlow(t *testing.T) {
 	assert.Equal(t, "66666666-6666-4666-8666-666666666666", results[0].ID)
 }
 
-// TestActionDependency 测试 action 依赖关系（depends_on 满足才可执行）
-func TestActionDependency(t *testing.T) {
+// TestListOpenActions_ExcludesSettled 已结束的动作不再出现在待执行列表里。
+func TestListOpenActions_ExcludesSettled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -184,7 +182,6 @@ func TestActionDependency(t *testing.T) {
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
 
-	// action-1：无依赖
 	act1 := Node{
 		ID:         "33333333-3333-4333-8333-333333333333",
 		TaskID:     taskID,
@@ -199,7 +196,6 @@ func TestActionDependency(t *testing.T) {
 	_, err := store.CreateNode(ctx, act1)
 	require.NoError(t, err)
 
-	// action-2：依赖 action-1
 	act2 := Node{
 		ID:         "44444444-4444-4444-8444-444444444444",
 		TaskID:     taskID,
@@ -207,7 +203,6 @@ func TestActionDependency(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		DependsOn:  []string{"33333333-3333-4333-8333-333333333333"},
 		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -220,11 +215,21 @@ func TestActionDependency(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, actions, 2)
 
-	// action-1 完成
-	err = store.TransitionState(ctx, "33333333-3333-4333-8333-333333333333", StateCompleted, nil)
-	require.NoError(t, err)
+	// action-1 执行完成
+	for _, step := range []func() (bool, error){
+		func() (bool, error) {
+			return store.ClaimAction(ctx, taskID, "33333333-3333-4333-8333-333333333333", "run-1")
+		},
+		func() (bool, error) {
+			return store.FinishAction(ctx, taskID, "33333333-3333-4333-8333-333333333333", "run-1", StateCompleted, "")
+		},
+	} {
+		ok, err := step()
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
 
-	// 再次查询，只有 action-2 (action-1 已 completed)
+	// 再次查询，只剩 action-2（action-1 已 completed）
 	actions, err = store.ListOpenActions(ctx, taskID)
 	require.NoError(t, err)
 	assert.Len(t, actions, 1)

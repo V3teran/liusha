@@ -4,7 +4,7 @@
 //
 // 这是长期记忆的写入闭环：corpus 两条写路径——expert 人工导入与本包的 agent
 // 收尾沉淀（source=agent）。材料质量靠构造保证——
-// 只取复现门裁决过的节点，不做二次筛选；被中止任务不进本管道（过程性结论
+// 只取复现门判定过的节点，不做二次筛选；被中止任务不进本管道（过程性结论
 // 可能误导后续任务）。
 //
 // 去重语义由 corpus.Add 的 content_hash 承接：重复教训命中即 hit_count++，
@@ -70,18 +70,26 @@ type lessonsPayload struct {
 	Lessons []Lesson `json:"lessons"`
 }
 
-// DistillTask 蒸馏一个已完成任务并写回 corpus，返回写入的教训数。
+// DistillTask 蒸馏一个已完成任务并写回 corpus，返回写入的教训数。任务目标取图上的
+// 根目标（任务结束时的目标，运行中调整过也以最终为准）。
 // 无已验证材料时返回 0（不调 LLM）。写入逐条 best-effort：单条失败不阻断其余。
 // LLM 调用挂审计归属（role=distill + taskID）——后台蒸馏与在线调用同一审计面。
-func (s *Service) DistillTask(ctx context.Context, taskID, brief string) (int, error) {
+func (s *Service) DistillTask(ctx context.Context, taskID string) (int, error) {
 	ctx = fwllm.WithCallMeta(ctx, fwllm.CallMeta{TaskID: taskID, Role: "distill"})
 	materials := s.collect(ctx, taskID)
 	if len(materials) == 0 {
 		s.logger.Info().Str("task_id", taskID).Msg("无已验证材料，跳过经验蒸馏")
 		return 0, nil
 	}
+	root, ok, err := s.graph.RootObjectiveOf(ctx, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("读取任务目标: %w", err)
+	}
+	if !ok {
+		return 0, fmt.Errorf("任务 %s 没有根目标", taskID)
+	}
 
-	lessons, err := s.generate(ctx, brief, materials)
+	lessons, err := s.generate(ctx, root.Goal(), materials)
 	if err != nil {
 		return 0, fmt.Errorf("generate lessons: %w", err)
 	}
@@ -136,10 +144,10 @@ func (s *Service) collect(ctx context.Context, taskID string) []string {
 	} else {
 		for _, r := range nodes {
 			var c struct {
-				Summary string `json:"summary"`
+				Statement string `json:"statement"`
 			}
-			if json.Unmarshal(r.Content, &c) == nil && strings.TrimSpace(c.Summary) != "" {
-				results = append(results, "已确认发现："+c.Summary)
+			if json.Unmarshal(r.Content, &c) == nil && strings.TrimSpace(c.Statement) != "" {
+				results = append(results, "已确认发现："+c.Statement)
 			}
 		}
 	}
@@ -156,19 +164,11 @@ func (s *Service) collect(ctx context.Context, taskID string) []string {
 		if json.Unmarshal(obs.Content, &c) != nil || strings.TrimSpace(c.Statement) == "" {
 			continue
 		}
-		if obs.Confidence != nil && *obs.Confidence == explorationgraph.ConfidenceFactual {
+		switch {
+		case obs.IsFact():
 			facts = append(facts, "已确认事实："+c.Statement)
-			continue
-		}
-		if obs.Metadata == nil {
-			continue
-		}
-		var m struct {
-			VerificationOutcome string `json:"verification_outcome"`
-			RefuteReason        string `json:"refute_reason"`
-		}
-		if json.Unmarshal(obs.Metadata, &m) == nil && m.VerificationOutcome == string(explorationgraph.OutcomeRefuted) {
-			refuted = append(refuted, "已证伪假设："+c.Statement+"（原因："+m.RefuteReason+"）")
+		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
+			refuted = append(refuted, "已证伪假设："+c.Statement+"（原因："+obs.RefuteReason()+"）")
 		}
 	}
 	return assembleMaterials(results, facts, refuted)
@@ -211,12 +211,12 @@ func assembleMaterials(buckets ...[]string) []string {
 
 // generate 调 LLM 产出教训。解析失败（含修复层后）按无教训处理——蒸馏是
 // best-effort 交付尾工，不值得为格式问题重试。
-func (s *Service) generate(ctx context.Context, brief string, materials []string) ([]Lesson, error) {
+func (s *Service) generate(ctx context.Context, goal string, materials []string) ([]Lesson, error) {
 	provider, err := s.router.For(ctx, s.complexity)
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	user := "【任务简报】\n" + brief + "\n\n【已验证材料】\n" + strings.Join(materials, "\n")
+	user := "【任务目标】\n" + goal + "\n\n【已验证材料】\n" + strings.Join(materials, "\n")
 	resp, err := provider.Complete(ctx, fwllm.Request{
 		Messages: []fwllm.Message{
 			{Role: fwllm.RoleSystem, Content: distillSystemPrompt},

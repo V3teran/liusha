@@ -96,7 +96,7 @@ func (s *GraphStore) buildListNodesSQL(query core.GraphNodeQuery) (string, []int
 
 	sqlQuery := fmt.Sprintf(`
 		SELECT
-			id, kind, content, state, version,
+			id, task_id, kind, content, state, version,
 			metadata, created_at, updated_at
 		FROM %s
 		%s
@@ -115,6 +115,7 @@ func scanGraphNode(rows pgx.Rows) (*core.GraphNode, error) {
 
 	err := rows.Scan(
 		&node.ID,
+		&node.TaskID,
 		&node.Kind,
 		&node.Content,
 		&state,

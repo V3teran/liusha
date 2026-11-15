@@ -32,14 +32,10 @@ web/node_modules/
 coverage.out
 coverage.html
 
-# cmd/* 二进制在仓库根目录的游离副本（`go build ./cmd/<x>` 默认输出于此）
-/api
-/cmd/api/api
-/corpus-import
+# 本地构建产物（`go build ./cmd/<x>` 默认输出于仓库根；发布打包输出到 dist/）
+/liusha
 /e2e
-/proxy
-/runner
-/sandbox-server
+/dist/
 
 # 本地调试产物（playwright MCP 转储）
 /.playwright-mcp/

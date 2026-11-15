@@ -61,8 +61,8 @@ func TestDeriveStatus(t *testing.T) {
 	}
 
 	// 建子 task → running
-	t1, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Brief: "对 http://e.example.com 做存活探测"})
-	t2, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Brief: "对 http://f.example.com 做存活探测"})
+	t1, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Goal: "对 http://e.example.com 做存活探测"})
+	t2, _ := tasks.Create(ctx, task.NewParams{AssignmentID: a.ID, Goal: "对 http://f.example.com 做存活探测"})
 	if st, _ := asgs.DeriveStatus(ctx, a.ID); st != StatusRunning {
 		t.Fatalf("有 active 子 task 应 running, got %s", st)
 	}
@@ -86,7 +86,10 @@ func TestSourceValidation(t *testing.T) {
 	asg, _ := newStores(t)
 	ctx := context.Background()
 
-	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Items: []Item{{Brief: "x"}}}); err == nil {
+	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Items: []Item{{Brief: "x"}}, Title: "x"}); err == nil {
 		t.Fatal("非法 source 应报错")
+	}
+	if _, err := asg.Create(ctx, NewParams{Source: SourceDirect, Items: []Item{{Brief: "x"}}}); err == nil {
+		t.Fatal("缺批次名应报错（未填写时由下发入口取首个目标）")
 	}
 }

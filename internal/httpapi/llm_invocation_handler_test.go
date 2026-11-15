@@ -19,6 +19,13 @@ type fakeInvocations struct {
 	err       error
 	gotFilter llminvocation.ListFilter // 列表收到的筛选（断言 query 解析）
 	gotAggF   llminvocation.ListFilter // 统计收到的筛选（断言与列表同源）
+	gotFacetF llminvocation.ListFilter // 选项收到的筛选
+	facets    llminvocation.Facets
+}
+
+func (f *fakeInvocations) Facets(_ context.Context, ftr llminvocation.ListFilter) (llminvocation.Facets, error) {
+	f.gotFacetF = ftr
+	return f.facets, f.err
 }
 
 func (f *fakeInvocations) Flush(_ context.Context) error { return nil }
@@ -106,4 +113,23 @@ func TestLLMInvocationsHandler_SearchStat(t *testing.T) {
 			t.Errorf("calls=%v，期望 197", raw["calls"])
 		}
 	})
+}
+
+// 角色 / 模型选项走服务端：与列表同一套筛选参数透传。
+func TestLLMInvocationsHandler_Facets(t *testing.T) {
+	fake := &fakeInvocations{facets: llminvocation.Facets{Roles: []string{"executor", "planner"}, Models: []string{"glm"}}}
+	srv := newTestServer(t, Deps{Invocations: fake})
+	defer srv.Close()
+
+	code, body := doJSON(t, "GET", srv.URL+"/api/llm/invocations/search/facets?model=glm&only_err=1", nil)
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	roles, _ := body["roles"].([]any)
+	if len(roles) != 2 || roles[0] != "executor" {
+		t.Fatalf("roles=%v", body["roles"])
+	}
+	if fake.gotFacetF.Model != "glm" || !fake.gotFacetF.OnlyErr {
+		t.Fatalf("筛选未透传: %+v", fake.gotFacetF)
+	}
 }

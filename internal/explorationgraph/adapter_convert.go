@@ -28,17 +28,13 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		Content:   graphNode.Content,
 		CreatedAt: graphNode.CreatedAt,
 		UpdatedAt: graphNode.UpdatedAt,
+		Version:   graphNode.Version,
 	}
 
 	// 从 Metadata 恢复类型化字段
-	if taskID, ok := graphNode.Metadata["task_id"].(string); ok {
-		node.TaskID = taskID
-	}
+	node.TaskID = graphNode.TaskID
 	if sourceType, ok := graphNode.Metadata["source_type"].(string); ok {
 		node.SourceType = SourceType(sourceType)
-	}
-	if sourceID, ok := graphNode.Metadata["source_id"].(string); ok {
-		node.SourceID = sourceID
 	}
 	if priority, ok := graphNode.Metadata["priority"].(string); ok {
 		node.Priority = Priority(priority)
@@ -56,32 +52,18 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.Complexity = &c
 	}
 
-	// DependsOn（内存后端存 []string，JSON 往返后是 []interface{}，两者都接受）
-	switch dependsOn := graphNode.Metadata["depends_on"].(type) {
-	case []interface{}:
-		deps := make([]string, 0, len(dependsOn))
-		for _, dep := range dependsOn {
-			if str, ok := dep.(string); ok {
-				deps = append(deps, str)
-			}
-		}
-		node.DependsOn = deps
-	case []string:
-		node.DependsOn = dependsOn
+	// StateReason
+	if stateReason, ok := graphNode.Metadata["state_reason"].(string); ok {
+		node.StateReason = &stateReason
 	}
 
-	// BlockedReason
-	if blockedReason, ok := graphNode.Metadata["blocked_reason"].(string); ok {
-		node.BlockedReason = &blockedReason
+	// 验证状态（仅假设观察）
+	if status, ok := graphNode.Metadata[metaVerification].(string); ok {
+		v := VerificationStatus(status)
+		node.VerificationStatus = &v
 	}
 
-	// Confidence：验证生命周期裁决，枚举原文存取
-	if confidence, ok := graphNode.Metadata["confidence"].(string); ok {
-		c := Confidence(confidence)
-		node.Confidence = &c
-	}
-
-	// 其余键 → Node.Metadata（verification_outcome / failure_reason 等业务扩展位）
+	// 其余键 → Node.Metadata（refute_reason / failure_reason 等业务扩展位）
 	leftover := make(map[string]interface{}, len(graphNode.Metadata))
 	for k, v := range graphNode.Metadata {
 		if !typedMetadataKeys[k] {

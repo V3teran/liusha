@@ -52,18 +52,29 @@ const (
 
 // parseTaskFilter 从 query 解析筛选 + 分页。
 //
-//	source=<direct|proxy> status=<active|completed|aborted> search=<brief/批次ID 子串>
+//	task=<任务 UUID> conversation=<对话 UUID>（范围：只看这个任务 / 这个对话的任务；非法 400）
+//	source=<direct|proxy> status=<active|completed|aborted> search=<目标/批次名 子串>
 //	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
 //
-// 坏参数退化成不筛（对齐 parseTrafficFilter），page 缺省 1、size clamp 到上限。
-func parseTaskFilter(c *gin.Context, source string) (task.ListFilter, int, int) {
-	page, size := parsePagination(c.Query("page"), c.Query("size"), defaultTaskPageSize, maxTaskPageSize)
-	f := task.ListFilter{
-		Source: source,
-		Status: strings.TrimSpace(c.Query("status")),
-		Search: strings.TrimSpace(c.Query("search")),
-		Limit:  size,
-		Offset: (page - 1) * size,
+// page 缺省 1、size clamp 到上限。返回 ok=false 时 400 已写出。
+func parseTaskFilter(c *gin.Context, source string) (f task.ListFilter, page, size int, ok bool) {
+	taskID, ok := uuidQuery(c, "task")
+	if !ok {
+		return task.ListFilter{}, 0, 0, false
+	}
+	conversationID, ok := uuidQuery(c, "conversation")
+	if !ok {
+		return task.ListFilter{}, 0, 0, false
+	}
+	page, size = parsePagination(c.Query("page"), c.Query("size"), defaultTaskPageSize, maxTaskPageSize)
+	f = task.ListFilter{
+		TaskID:         taskID,
+		ConversationID: conversationID,
+		Source:         source,
+		Status:         strings.TrimSpace(c.Query("status")),
+		Search:         strings.TrimSpace(c.Query("search")),
+		Limit:          size,
+		Offset:         (page - 1) * size,
 	}
 	if s := c.Query("since"); s != "" {
 		if t, err := time.Parse(time.RFC3339, s); err == nil {
@@ -75,10 +86,10 @@ func parseTaskFilter(c *gin.Context, source string) (task.ListFilter, int, int) 
 			f.Until = t
 		}
 	}
-	return f, page, size
+	return f, page, size, true
 }
 
-// listTasksHandler 处理 GET /tasks?source=&status=&search=&page=&size=。
+// listTasksHandler 处理 GET /tasks?task=&conversation=&source=&status=&search=&page=&size=。
 //
 // 返回瘦摘要行（含派生列）+ total（同口径），供前端分页表：
 //
@@ -90,7 +101,10 @@ func listTasksHandler(api TasksAPI) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		f, page, size := parseTaskFilter(c, source)
+		f, page, size, ok := parseTaskFilter(c, source)
+		if !ok {
+			return
+		}
 
 		rows, err := api.ListFiltered(ctx, f)
 		if err != nil {
@@ -211,7 +225,7 @@ func taskSummariesJSON(rows []task.Summary) []gin.H {
 func taskSummaryJSON(sm task.Summary) gin.H {
 	return gin.H{
 		"id":               sm.ID,
-		"brief":            sm.Brief,
+		"goal":             sm.Goal,
 		"target_host":      sm.TargetHost,
 		"status":           string(sm.Status),
 		"paused":           sm.Paused,
@@ -243,7 +257,7 @@ func isNoRows(err error) bool {
 // TaskControlAPI 是任务行操作的后端依赖：pause/resume 是 task.paused 标记的
 // CAS 迁移（暂停同步生效，循环在下一控制周期观察到并结束本 run；继续在 run
 // 已退出时重投全新 planner 从探索图续跑）；terminate 是 task 行 Abort 终态
-// （运行中的循环按行观察退出，与对话页「停止」同一语义）。cmd/api 注入
+// （运行中的循环按行观察退出，与对话页「停止」同一语义）。api 组件注入
 // dispatch 侧适配器。
 type TaskControlAPI interface {
 	PauseTask(ctx context.Context, taskID string) error

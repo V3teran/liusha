@@ -196,16 +196,18 @@ func (e *Engine) WithTimeout(timeout time.Duration) *Engine {
 // RefutedHypothesis 是被复现门出圈的假设：反驳原因区分"证据没拿到"
 // （not_reproducible/invalid_recipe——配方或上下文问题）、"拿到了证据但
 // 主张不成立"（claim_invalid/assert_not_discriminative——语义/质量问题）与
-// "裁决没跑完"（adjudication_failed——主张未被否定），规划器据此决定换配方
+// "评估没跑完"（judge_unavailable——主张未被否定），规划器据此决定换配方
 // 重试、按原方向重提还是放弃方向。
 type RefutedHypothesis struct {
 	Statement string
 	Reason    string
 }
 
-// Fact 是已确认的世界状态断言（观察的终态类别）：会话已建立、某机制由
-// 什么控制、资源是否存在——规划的基底，直接消费、无需验证。
+// Fact 是已确认的世界状态断言（事实观察）：会话已建立、某机制由什么控制、
+// 资源是否存在——规划的基底，直接消费、无需验证。Category 是它的信息域，
+// 规划时按域分组呈现。
 type Fact struct {
+	Category  explorationgraph.ObservationCategory
 	Statement string
 }
 
@@ -215,24 +217,24 @@ type PlanningContext struct {
 	Objectives        []explorationgraph.Node // 全部目标（根目标 + 派生目标，含已收敛的；呈现时只列进行中的派生目标）
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 待执行的 Action
-	Results           []explorationgraph.Node // 已确认的结果（经裁决坐实的主张）
+	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
-	AbortedActions    []explorationgraph.Node // 被外部纠偏中止的 Action（monitor kill；含 blocked_reason，禁止等效重提）
+	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
+	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
+	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 }
 
 // ActionProposal LLM 返回的 Action 提案
 type ActionProposal struct {
-	Type        string                 `json:"type"`         // Action 类型
-	Instruction string                 `json:"instruction"`  // 执行指令
-	Complexity  string                 `json:"complexity"`   // 复杂度: simple/moderate/complex
-	Priority    string                 `json:"priority"`     // 优先级: critical/high/medium/low
-	Reason      string                 `json:"reason"`       // 规划理由
-	DependsOn   []string               `json:"depends_on"`   // 依赖的 Action ID
-	TriggeredBy []string               `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
-	Metadata    map[string]interface{} `json:"metadata"`     // 额外元数据
+	Type        string   `json:"type"`         // Action 类型
+	Instruction string   `json:"instruction"`  // 执行指令
+	Complexity  string   `json:"complexity"`   // 复杂度: simple/moderate/complex
+	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
+	Reasoning   string   `json:"reasoning"`    // 规划理由
+	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 }
 
 // PlanningResponse LLM 响应
@@ -242,10 +244,17 @@ type PlanningResponse struct {
 	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
 }
 
+// PlanRequest 是一次规划的入参。
+type PlanRequest struct {
+	FunctionTools []string // function_tools 白名单（nil=拒绝，[]=空集，["*"]=全量）
+	ReplanReasons []string // 强制重规划的理由（常规规划为空）
+}
+
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, functionTools []string) ([]explorationgraph.Node, error) {
+func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) ([]explorationgraph.ActionDraft, error) {
+	functionTools := req.FunctionTools
 	e.logger.Info().Msg("开始智能规划")
 
 	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
@@ -273,6 +282,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.experienceLoaded = true
 	}
 	planCtx.Experience = e.experience
+	planCtx.ReplanReasons = req.ReplanReasons
 	prompt := e.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
@@ -339,30 +349,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
-		OutputFormatSchema: `请输出以下JSON格式：
-
-` + "```json\n" + `{
-  "should_continue": true,
-  "reasoning": "为什么需要继续/停止",
-  "actions": [
-    {
-      "type": "reconnaissance/analysis/testing",
-      "instruction": "具体要做什么",
-      "complexity": "simple/moderate/complex",
-      "priority": "low/medium/high/critical",
-      "reason": "为什么做（基于哪条观察）",
-      "depends_on": [],
-      "triggered_by": [],
-      "metadata": {}
-    }
-  ]
-}
-` + "```\n\n" + `说明：
-- should_continue: 如果任务还未完成，设为true；如果已完成目标或无法继续，设为false
-- actions: 要执行的action列表，如果should_continue=false则为空数组[]
-- 每个action必须包含type、instruction和complexity
-- depends_on: 本动作须等待完成的其它 action 的 ID（来自上文动作清单）
-- triggered_by: 滋生本动作的已确认发现（Result）的 ID——动作若源于某个已坐实发现（它启发了方向，或它产出的会话/凭据/入口使本动作可行），填其 ID；因果不成立就不填，宁缺勿假`,
+		OutputFormatSchema: plannercontract.Text, // 强制总结时重申输出契约（唯一一份）
 	})
 	if err != nil {
 		e.adaptBudget(err)
@@ -390,17 +377,13 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.logger.Info().
 			Str("reasoning", response.Reasoning).
 			Msg("LLM 判断任务应该停止")
-		return []explorationgraph.Node{}, nil
+		return nil, nil
 	}
 
-	// 6. 转换 LLM 提案为探索图节点
-	nodes := e.convertProposalsToNodes(ctx, graph, taskID, response.Actions)
-
-	e.logger.Info().
-		Int("action_count", len(nodes)).
-		Msg("智能规划完成")
-
-	return nodes, nil
+	// 6. 转换 LLM 提案为动作草稿
+	drafts := e.convertProposals(ctx, graph, taskID, response.Actions)
+	e.logger.Info().Int("action_count", len(drafts)).Msg("智能规划完成")
+	return drafts, nil
 }
 
 // gatherContext 收集规划所需的上下文信息
@@ -442,9 +425,11 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 		case explorationgraph.StateFailed:
 			planCtx.FailedActions = append(planCtx.FailedActions, action)
 		case explorationgraph.StateAborted:
-			// 外部纠偏（monitor kill）的中止动作必须进规划视野：携带 blocked_reason
-			// 呈现"这条路被砍及原因"，否则规划者失明、重规划会原样再派等效动作。
 			planCtx.AbortedActions = append(planCtx.AbortedActions, action)
+		case explorationgraph.StateRejected:
+			// 否决必须进规划视野：携带原因与否决方呈现「这一步不该做及为什么」，否则
+			// 规划者失明、重规划会原样再派等效动作。
+			planCtx.RejectedActions = append(planCtx.RejectedActions, action)
 		}
 	}
 
@@ -455,47 +440,31 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 	}
 	planCtx.Results = results
 
-	// 观察一次取全量，fact（世界状态）与 refuted（已证伪假设）两视图共用——
-	// 避免同表连查两次。
+	// 观察一次取全量，事实（世界状态）与已证伪假设两视图共用——避免同表连查两次。
 	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
 	}
-	// 已确认的世界状态（fact 观察是写入即终态，无流转）——规划的基底：
-	// 已建立的会话、已探明的机制、已确认的资源，直接拿来用。
 	for _, obs := range observations {
-		if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceFactual {
-			continue
-		}
 		var c struct {
-			Statement string `json:"statement"`
+			Category  explorationgraph.ObservationCategory `json:"category"`
+			Statement string                               `json:"statement"`
 		}
-		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
-			planCtx.Facts = append(planCtx.Facts, Fact{Statement: c.Statement})
-		}
-	}
-
-	// 获取已被复现门证伪的假设（evaluator 的 verification_outcome 标记）——
-	// 规划器对"哪条路已试死"的权威事实源，防同方向反复重提（复读机）。
-	// refute_reason 一并带出：复现失败类可换配方重试，语义证伪类才是方向作废。
-	for _, obs := range observations {
-		if obs.Metadata == nil {
+		if json.Unmarshal(obs.Content, &c) != nil || c.Statement == "" {
 			continue
 		}
-		var m struct {
-			VerificationOutcome string `json:"verification_outcome"`
-			RefuteReason        string `json:"refute_reason"`
-		}
-		if json.Unmarshal(obs.Metadata, &m) != nil || m.VerificationOutcome != string(explorationgraph.OutcomeRefuted) {
-			continue
-		}
-		var c struct {
-			Statement string `json:"statement"`
-		}
-		if json.Unmarshal(obs.Content, &c) == nil && c.Statement != "" {
+		switch {
+		case obs.IsFact():
+			// 已确认的世界状态（写入即终态）——规划的基底：已建立的会话、
+			// 已探明的机制、已确认的资源，直接拿来用。
+			planCtx.Facts = append(planCtx.Facts, Fact{Category: c.Category, Statement: c.Statement})
+		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
+			// 已证伪的假设——规划器对"哪条路已试死"的权威事实源，防同方向反复
+			// 重提（复读机）。原因一并带出：复现失败类可换配方重试，语义证伪类
+			// 才是方向作废，评估未完成可原方向重提。
 			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, RefutedHypothesis{
 				Statement: c.Statement,
-				Reason:    m.RefuteReason,
+				Reason:    obs.RefuteReason(),
 			})
 		}
 	}
@@ -519,6 +488,9 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 3. 任务目标
 	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
 
+	// 3.2 重规划理由（常规规划不渲染）
+	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
+
 	// 3.5 历史经验简报（跨任务知识库开局注入；空=不渲染该节）
 	sb.WriteString(buildExperienceSection(ctx.Experience))
 
@@ -534,7 +506,8 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 7. 失败的尝试
 	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
 
-	// 7.5 被外部纠偏中止的动作（禁止等效重提）
+	// 7.5 已否决的动作（禁止等效重提）与已中止的动作（可按当前目标重提）
+	sb.WriteString(buildRejectedActionsSection(ctx.RejectedActions))
 	sb.WriteString(buildAbortedActionsSection(ctx.AbortedActions))
 
 	// 8. 已确认的发现
@@ -603,39 +576,26 @@ func (e *Engine) adaptBudget(err error) {
 		Msg("规划预算耗尽（LLM 慢速期），下一轮预算已放大")
 }
 
-// filterValidDependencies 过滤依赖 ID 中的非法值——LLM 可能编造非 UUID 的依赖
-// （如 "0"），或照抄 prompt 里的示例 UUID（格式合法但图中不存在）；两者都会把
-// Action 永久卡在 blocked。existingIDs 为图中已知 action ID 集（nil 跳过存在性校验）。
-func filterValidDependencies(deps []string, existingIDs map[string]bool) []string {
-	valid := make([]string, 0, len(deps))
-	for _, depID := range deps {
-		if _, err := uuid.Parse(depID); err != nil {
+// filterKnownIDs 过滤 LLM 引用的节点 ID：非 UUID（如 "0"）与图中不存在的 ID（多为
+// 照抄 prompt 示例）都剔除——指向不存在节点的溯源边是假溯源。known 为 nil 时只做
+// 格式校验。
+func filterKnownIDs(ids []string, known map[string]bool) []string {
+	valid := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, err := uuid.Parse(id); err != nil {
 			continue
 		}
-		if existingIDs != nil && !existingIDs[depID] {
+		if known != nil && !known[id] {
 			continue
 		}
-		valid = append(valid, depID)
+		valid = append(valid, id)
 	}
 	return valid
 }
 
-// convertProposalsToNodes 将 LLM 提案转换为探索图节点
-func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.Node {
-	// 过滤无效的依赖 ID——坏依赖（格式非法、或图里不存在的"幻影 ID"，如 LLM
-	// 照抄 prompt 里的示例 UUID）会把 Action 永久卡 blocked，进而死锁全图。
-	// 已知 action 集整批查一次（查不到就不做存在性过滤，退回纯格式校验）。
-	existing, exErr := graph.ListNodesByKind(ctx, taskID, core.KindAction)
-	if exErr != nil {
-		e.logger.Warn().Err(exErr).
-			Msg("查询已有 Action 失败，本轮跳过依赖存在性过滤（仅格式校验）")
-		existing = nil
-	}
-	existingIDs := make(map[string]bool, len(existing))
-	for _, a := range existing {
-		existingIDs[a.ID] = true
-	}
-
+// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，因果引用随草稿
+// 交给落图（落成 triggers 边），内容只留动作本身——类型、指令与规划理由。
+func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.ActionDraft {
 	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
 	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
 	resultIDs := map[string]bool(nil)
@@ -649,7 +609,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			Msg("查询 Result 失败，本轮跳过 triggered_by 存在性过滤（仅格式校验）")
 	}
 
-	var nodes []explorationgraph.Node
+	var drafts []explorationgraph.ActionDraft
 	for _, proposal := range proposals {
 		// 生成节点 ID
 		actionID := uuid.New().String()
@@ -657,38 +617,18 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 		complexity := explorationgraph.NormalizeComplexity(proposal.Complexity)
 		priority := explorationgraph.NormalizePriority(proposal.Priority)
 
-		validDependsOn := filterValidDependencies(proposal.DependsOn, existingIDs)
-		if len(validDependsOn) < len(proposal.DependsOn) {
-			for _, depID := range proposal.DependsOn {
-				if _, pErr := uuid.Parse(depID); pErr != nil {
-					e.logger.Warn().Str("invalid_dep_id", depID).Str("action_id", actionID).
-						Msg("过滤掉无效的依赖 ID（格式非法）")
-				} else if !existingIDs[depID] {
-					e.logger.Warn().Str("phantom_dep_id", depID).Str("action_id", actionID).
-						Msg("过滤掉幻影依赖 ID（图中不存在——多为 LLM 照抄 prompt 示例）")
-				}
-			}
-		}
-		validTriggeredBy := filterValidDependencies(proposal.TriggeredBy, resultIDs)
+		validTriggeredBy := filterKnownIDs(proposal.TriggeredBy, resultIDs)
 		if len(validTriggeredBy) < len(proposal.TriggeredBy) {
 			e.logger.Warn().Int("dropped", len(proposal.TriggeredBy)-len(validTriggeredBy)).
 				Str("action_id", actionID).
 				Msg("过滤掉无效/幻影的 triggered_by（图中不存在该 result——因果溯源只认真实节点）")
 		}
 
-		// 构建 Action 内容
-		actionContent := map[string]interface{}{
-			"type":         proposal.Type,
-			"instruction":  proposal.Instruction,
-			"complexity":   complexity,
-			"priority":     priority,
-			"reason":       proposal.Reason,
-			"depends_on":   validDependsOn,
-			"triggered_by": validTriggeredBy,
-			"metadata":     proposal.Metadata,
-		}
-
-		contentBytes, _ := json.Marshal(actionContent)
+		contentBytes, _ := json.Marshal(map[string]string{
+			"type":        proposal.Type,
+			"instruction": proposal.Instruction,
+			"reasoning":   proposal.Reasoning,
+		})
 
 		openState := explorationgraph.StateOpen
 		node := explorationgraph.Node{
@@ -699,13 +639,11 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			State:      &openState,
 			Priority:   priority,
 			Complexity: &complexity,
-			DependsOn:  validDependsOn,
 			SourceType: explorationgraph.SourcePlanner,
-			SourceID:   "planner",
 			CreatedAt:  time.Now(),
 		}
 
-		nodes = append(nodes, node)
+		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, TriggeredBy: validTriggeredBy})
 
 		e.logger.Debug().
 			Str("action_id", actionID).
@@ -714,7 +652,7 @@ func (e *Engine) convertProposalsToNodes(ctx context.Context, graph *exploration
 			Msg("生成 Action 节点")
 	}
 
-	return nodes
+	return drafts
 }
 
 // planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 理由。

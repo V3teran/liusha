@@ -11,7 +11,7 @@ import (
 )
 
 // mkActionNode 构造一个 action 节点（生产路径经 CreateNode 直写）。
-func mkActionNode(id, taskID string, state State, deps []string) Node {
+func mkActionNode(id, taskID string, state State) Node {
 	st := state
 	return Node{
 		ID:         id,
@@ -19,7 +19,6 @@ func mkActionNode(id, taskID string, state State, deps []string) Node {
 		Kind:       core.KindAction,
 		Content:    []byte(`{"instruction":"scan"}`),
 		State:      &st,
-		DependsOn:  deps,
 		SourceType: SourcePlanner,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -40,7 +39,7 @@ func TestStore_CreateNode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = store.CreateNode(ctx, mkActionNode("action-1", "task-001", StateOpen, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-1", "task-001", StateOpen))
 	require.NoError(t, err)
 
 	node, err := store.GetNode(ctx, "action-1")
@@ -54,11 +53,11 @@ func TestStore_ActionStateManagement(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("action-open-1", "task-001", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("action-open-1", "task-001", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("action-open-2", "task-001", StateOpen, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-open-2", "task-001", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateCompleted, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("action-done", "task-001", StateCompleted))
 	require.NoError(t, err)
 
 	t.Run("ListOpenActions 只返回 open", func(t *testing.T) {
@@ -67,24 +66,14 @@ func TestStore_ActionStateManagement(t *testing.T) {
 		assert.Len(t, openActions, 2)
 	})
 
-	t.Run("TransitionState 迁移并留痕", func(t *testing.T) {
-		reason := "missing credentials"
-		require.NoError(t, store.TransitionState(ctx, "action-open-1", StateRunning, &reason))
-
-		node, err := store.GetNode(ctx, "action-open-1")
+	t.Run("ClaimAction 并发抢占", func(t *testing.T) {
+		ok, err := store.ClaimAction(ctx, "task-001", "action-open-2", "run-1")
 		require.NoError(t, err)
-		assert.Equal(t, core.NodeStateRunning, *node.State)
-		assert.Equal(t, reason, *node.BlockedReason, "迁移原因落 metadata.blocked_reason")
-	})
+		assert.True(t, ok, "open 动作应认领成功")
 
-	t.Run("CompareAndSwapActionState 并发抢占", func(t *testing.T) {
-		ok, err := store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
+		ok, err = store.ClaimAction(ctx, "task-001", "action-open-2", "run-2")
 		require.NoError(t, err)
-		assert.True(t, ok, "状态匹配应抢占成功")
-
-		ok, err = store.CompareAndSwapActionState(ctx, "task-001", "action-open-2", StateOpen, StateRunning)
-		require.NoError(t, err)
-		assert.False(t, ok, "状态不匹配 CAS 应失败")
+		assert.False(t, ok, "已被认领的动作不能再次认领")
 	})
 }
 
@@ -94,7 +83,7 @@ func TestStore_RecordVerification_MemoryStoreRejects(t *testing.T) {
 
 	_, err := store.RecordVerification(context.Background(), Verification{
 		ID: "v-1", TaskID: "task-001", NodeID: "n-1",
-		Outcome: OutcomeConfirmed,
+		Outcome: VerificationConfirmed,
 	})
 	require.Error(t, err, "内存 store 无 pool，RecordVerification 应明确报错")
 }

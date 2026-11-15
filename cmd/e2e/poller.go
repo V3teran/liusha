@@ -17,7 +17,7 @@ import (
 const stallWindowTicks = 40 // 40 tick × 15s = 10 分钟
 
 // terminateWaitInterval/terminateGracePeriod 是验收通过后优雅终止的等待节奏
-// 与上限：控制平面消费器的轮询周期是 5s，四 agent 退出 + 终态落库在其之上
+// 与上限：认知循环每 5s 读一次任务行，四 agent 退出 + 终态落库在其之上
 // 再加余量。超时未落终态判 FAIL——验收包含停机路径，挂死的任务不许溜过。
 const (
 	terminateWaitInterval = 5 * time.Second
@@ -88,7 +88,7 @@ func terminateAndAwait(ctx context.Context, pool *pgxpool.Pool, apiBase string, 
 	return "active", fmt.Errorf("任务在 %v 内未落终态（停机链路卡死）", terminateGracePeriod)
 }
 
-// pollTaskWithGraphStats 轮询任务直到满足验收标准，随后经控制平面优雅终止
+// pollTaskWithGraphStats 轮询任务直到满足验收标准，随后经控制 API 优雅终止
 // 任务并等待终态（验收包含停机路径——"挖到漏洞"和"收得住"都是验收项）。
 func pollTaskWithGraphStats(
 	ctx context.Context,
@@ -165,9 +165,9 @@ func pollTaskWithGraphStats(
 					Interface("stats", stats).
 					Msg("✓ 任务完成，满足验收标准")
 
-				// 验收通过 ≠ 万事大吉：认知循环仍在烧 LLM。经控制平面下发
+				// 验收通过 ≠ 万事大吉：认知循环仍在烧 LLM。经控制 API 下发
 				// terminate（而不是直接改 task.status）——同时验证优雅停机
-				// 路径：事件消费 → 四 agent 中止 → 终态落库。
+				// 路径：任务行终态 → 循环观察到 → 四 agent 中止 → run 收尾落库。
 				finalStatus, err := terminateAndAwait(ctx, pool, apiBase, session, taskID, logger)
 				if err != nil {
 					return fmt.Errorf("优雅终止失败: %w", err)

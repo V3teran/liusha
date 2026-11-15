@@ -66,33 +66,55 @@ func TestLoad_OK(t *testing.T) {
 	}
 }
 
-// TestLoad_EmptyProvidersRelyOnDB：providers 留空时事实源在 DB，Load 不应 fail-fast
-// 强制 default_provider——空 yaml + 满 DB 的正常部署必须能启动（见 validateLLMSeed）。
-func TestLoad_EmptyProvidersRelyOnDB(t *testing.T) {
-	const noProvidersYAML = `
-api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
-postgres: {max_conns: 20, min_conns: 2}
-`
-	cfg, err := Load(writeConfig(t, noProvidersYAML))
+// TestLoad_EmbeddedDefaults：不给覆盖文件时用编进程序的默认配置——二进制开箱即用，
+// 部署无需挂配置文件。默认不预置任何 LLM provider（只认协议、不认服务，接入在前端配置）。
+func TestLoad_EmbeddedDefaults(t *testing.T) {
+	cfg, err := Load("")
 	if err != nil {
-		t.Fatalf("providers 留空应放行（DB 为事实源），got err: %v", err)
+		t.Fatalf("内置默认配置应可加载: %v", err)
+	}
+	if cfg.API.ListenAddr == "" || cfg.Sandbox.ViewportWidth == 0 || cfg.Sandbox.URL == "" {
+		t.Fatalf("内置默认值缺失: api=%q viewport=%d sandbox.url=%q", cfg.API.ListenAddr, cfg.Sandbox.ViewportWidth, cfg.Sandbox.URL)
 	}
 	if len(cfg.Providers) != 0 {
-		t.Fatalf("期望空 providers，got %+v", cfg.Providers)
+		t.Fatalf("内置默认不应预置 provider，got %+v", cfg.Providers)
 	}
 }
 
-// TestLoad_EnvOverridesSandboxImage：compose 经 LIUSHA_SANDBOX_DEFAULT_IMAGE 把沙盒镜像
-// 钉到与业务镜像同一 tag——yaml 里已落名的键必须能被该 env 覆盖。
-func TestLoad_EnvOverridesSandboxImage(t *testing.T) {
-	const want = "ghcr.io/v3teran/liusha-sandbox:0.4.1"
-	t.Setenv("LIUSHA_SANDBOX_DEFAULT_IMAGE", want)
-	cfg, err := Load(writeConfig(t, minimalYAML+"sandbox: {default_image: ghcr.io/v3teran/liusha-sandbox:latest}\n"))
+// TestLoad_OverrideFileMergesOntoDefaults：覆盖文件只需写改动的键，其余沿用内置默认。
+func TestLoad_OverrideFileMergesOntoDefaults(t *testing.T) {
+	def, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Sandbox.DefaultImage != want {
-		t.Fatalf("DefaultImage = %q, want %q", cfg.Sandbox.DefaultImage, want)
+	cfg, err := Load(writeConfig(t, "api: {listen_addr: \":9999\"}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.API.ListenAddr != ":9999" {
+		t.Fatalf("覆盖未生效: %q", cfg.API.ListenAddr)
+	}
+	if cfg.Sandbox.ViewportWidth != def.Sandbox.ViewportWidth || cfg.Postgres.MaxConns != def.Postgres.MaxConns {
+		t.Fatalf("未覆盖的键应沿用默认: %+v", cfg.Sandbox)
+	}
+}
+
+// TestLoad_MissingOverrideFileFails：显式指定的覆盖文件不存在是部署错误，必须报错而非静默用默认。
+func TestLoad_MissingOverrideFileFails(t *testing.T) {
+	if _, err := Load(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
+		t.Fatal("覆盖文件不存在应报错")
+	}
+}
+
+// TestLoad_EnvOverridesDefaults：内置默认里的键都能被 LIUSHA_ 环境变量覆盖。
+func TestLoad_EnvOverridesDefaults(t *testing.T) {
+	t.Setenv("LIUSHA_SANDBOX_URL", "http://sandbox:8591")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sandbox.URL != "http://sandbox:8591" {
+		t.Fatalf("Sandbox.URL = %q", cfg.Sandbox.URL)
 	}
 }
 
@@ -114,5 +136,19 @@ func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
 	explicit := applyIngestorDefaults(IngestorConfig{ConsumerName: "custom-name"}).ConsumerName
 	if explicit != "custom-name" {
 		t.Fatalf("显式 consumer_name 被覆盖: %q", explicit)
+	}
+}
+
+// 工作区配成相对路径时按进程工作目录解析为绝对路径：沙盒在任务目录里执行命令，api 与沙盒
+// 也可能在不同目录启动，相对路径在两处、在命令里各指一处。
+func TestLoad_WorkspaceDirIsAbsolute(t *testing.T) {
+	t.Setenv("LIUSHA_SANDBOX_WORKSPACE_DIR", filepath.Join("rel", "workspace"))
+	cfg, err := LoadWithoutLLM("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	if want := filepath.Join(wd, "rel", "workspace"); cfg.Sandbox.WorkspaceDir != want {
+		t.Fatalf("WorkspaceDir = %q，期望 %q", cfg.Sandbox.WorkspaceDir, want)
 	}
 }

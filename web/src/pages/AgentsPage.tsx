@@ -325,7 +325,7 @@ export function AgentsPage() {
                           </p>
                           <details className="mt-2">
                             <summary className="cursor-pointer text-text-secondary">查看归档原文</summary>
-                            <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono">
+                            <pre tabIndex={0} className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono">
                               {detail.prompt_archive.prompt}
                             </pre>
                           </details>
@@ -350,7 +350,7 @@ export function AgentsPage() {
                           <summary className="cursor-pointer text-text-secondary">
                             输出契约（随程序版本，不可修改；附在章程之后发给模型）
                           </summary>
-                          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-text-secondary">
+                          <pre tabIndex={0} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-text-secondary">
                             {detail.contract}
                           </pre>
                         </details>

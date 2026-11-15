@@ -1,9 +1,10 @@
 // Package finding 实现 finding 表持久化层：
 // 自由文本 summary 主体 + 自由文本 severity（前端按前缀配色）+ 可选 evidence jsonb。
-// LLM 自决全部表达（无 kind / confidence / dedup_key 等强结构化约束）。
+// LLM 自决全部表达（无 kind / confidence 等强结构化约束）。
 //
-// dedup 在 DB 层完成：dedup_key（generated 列，host + summary 前 60 字）ON CONFLICT
-// 合并重复行，对调用方幂等。
+// 一条漏洞对应一个坐实结果节点（ResultNodeID）：交付按 (task_id, result_node_id) 幂等。
+// 主张的语义去重不在这里——复现门按主张指纹在探索图里把同一主张的再次确认折叠进同一
+// 结果节点，台账与结果一一对应。
 package finding
 
 import (
@@ -14,14 +15,13 @@ import (
 // Finding 是 finding 表行的 Go 表示。
 //
 // Host 必填；Save 内空字符串校验防漏填。
-// SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
 // Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
 type Finding struct {
-	ID              string
-	TaskID          string // 所属 task.id
-	AgentRunID      *string
-	SourceTrafficID *int64
-	Host            string
+	ID           string
+	TaskID       string // 所属 task.id
+	ResultNodeID string // 坐实这条漏洞的探索图结果节点（必填；交付幂等键）
+	AgentRunID   *string
+	Host         string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
 	// 其他值前端配色退化为蓝色）；DB 列无 enum CHECK 约束。
 	Severity string
@@ -36,7 +36,7 @@ type Finding struct {
 	// 分类元数据
 	CWEID         string    // 例 "CWE-89"
 	OWASPCategory string    // 例 "A03:2021"
-	FirstSeenAt   time.Time // 首次发现时间——dedup Update 不变；新建时与 CreatedAt 一致
+	FirstSeenAt   time.Time // 首次发现时间——重放交付不变；新建时与 CreatedAt 一致
 	Remediation   string    // 修复建议自然语言；evidence 仍存 PoC
 
 	// —— triage 处置字段 ——

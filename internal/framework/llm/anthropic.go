@@ -133,12 +133,19 @@ func isAnthropicMessage(resp *anthropic.Message) bool {
 //	user / assistant 各自转 MessageParam；
 //	tool（即 ToolResult）必须包在 user role 的 ToolResultBlock 里。
 //
-// 不合并相邻 tool 消息（Anthropic 允许单 ToolResult 也允许聚合，单条更简单）。
+// 相邻的 tool 消息（并行工具调用的各个结果）合进同一条 user 消息：协议要求 assistant 的每个
+// tool_use 都在紧随其后的那条消息里有对应的 tool_result，分成多条 user 消息时，严格实现协议
+// 的端点会以「tool_use 没有紧随的 tool_result」拒绝请求。
 func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam, error) {
 	var systemBlocks []anthropic.TextBlockParam
 	out := make([]anthropic.MessageParam, 0, len(in))
 
+	// toolResults 是正在累积的那条 tool_result user 消息在 out 中的下标（-1 = 没有）。
+	toolResults := -1
 	for i, m := range in {
+		if m.Role != RoleTool {
+			toolResults = -1
+		}
 		switch m.Role {
 		case RoleSystem:
 			if m.Content != "" {
@@ -184,21 +191,24 @@ func toAnthropicMessages(in []Message) ([]anthropic.TextBlockParam, []anthropic.
 		case RoleTool:
 			// 含图走 ToolResultBlockParam struct（NewToolResultBlock helper 只接 string content，
 			// 没法传 image block）；否则走 helper 短路径。
+			var block anthropic.ContentBlockParamUnion
 			if len(m.ContentParts) > 0 {
 				toolBlocks, err := contentPartsToAnthropicToolBlocks(m.ContentParts)
 				if err != nil {
 					return nil, nil, fmt.Errorf("tool content parts: %w", err)
 				}
-				out = append(out, anthropic.NewUserMessage(anthropic.ContentBlockParamUnion{
-					OfToolResult: &anthropic.ToolResultBlockParam{
-						ToolUseID: m.ToolCallID,
-						Content:   toolBlocks,
-					},
-				}))
+				block = anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
+					ToolUseID: m.ToolCallID,
+					Content:   toolBlocks,
+				}}
 			} else {
-				out = append(out, anthropic.NewUserMessage(
-					anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false),
-				))
+				block = anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false)
+			}
+			if toolResults >= 0 {
+				out[toolResults].Content = append(out[toolResults].Content, block)
+			} else {
+				out = append(out, anthropic.NewUserMessage(block))
+				toolResults = len(out) - 1
 			}
 		default:
 			return nil, nil, fmt.Errorf("unsupported role: %q", m.Role)

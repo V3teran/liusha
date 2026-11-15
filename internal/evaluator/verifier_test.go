@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ import (
 )
 
 // fakeGraphStore 记录 Evaluator 对探索图的写入，供断言"门的副作用"。
-// 写权限不变式：evaluator 只应新建 result 节点；对假设节点仅 metadata 审判标记。
+// 写权限不变式：evaluator 只应新建 result 节点；对假设节点仅 metadata 验证标记。
 type fakeGraphStore struct {
 	mu            sync.Mutex // 并发验证 goroutine 共享本 fake，写入需互斥
 	verifications []explorationgraph.Verification
@@ -105,14 +106,25 @@ func (f *fakeClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 	return nil
 }
 
-func baseAttempt() Attempt {
-	return Attempt{
-		TaskID:     "asg-1",
-		NodeID:     "node-source",
-		Kind:       core.KindResult,
-		Primitives: json.RawMessage(`[{"op":"http_request"}]`),
-		Content:    json.RawMessage(`{"summary":"X 参数存在可复现注入","severity":"high"}`),
-		Priority:   "high",
+// stubDomain 是测试用的复现领域：经 gateWith 注册 fake 复现通道。
+const stubDomain = "stub"
+
+// gateWith 构造带 stubDomain 复现通道的晋升门；r 为 nil 时不注册通道。
+func gateWith(graph graphStore, r Replayer, sink ClaimSink) *PromotionGate {
+	g := New(graph, sink)
+	if r != nil {
+		g.WithReplayer(stubDomain, r)
+	}
+	return g
+}
+
+func baseClaim() Claim {
+	return Claim{
+		TaskID:   "asg-1",
+		NodeID:   "node-source",
+		Repro:    json.RawMessage(`{"domain":"stub","recipe":{"op":"http_request"},"assert":{"marker":"x"}}`),
+		Content:  json.RawMessage(`{"statement":"X 参数存在可复现注入"}`),
+		Priority: "high",
 	}
 }
 
@@ -120,23 +132,20 @@ func baseAttempt() Attempt {
 func TestPromote_Confirmed(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-99"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"poc":"x"}`), DurationMs: 42}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("Promote 出错: %v", err)
 	}
 	if node == nil {
 		t.Fatal("坐实应返回晋升后的节点")
 	}
-	if node.Confidence == nil || *node.Confidence != explorationgraph.ConfidenceVerified {
-		t.Errorf("节点应 verified, got %v", node.Confidence)
+	if node.Kind != core.KindResult || node.VerificationStatus != nil {
+		t.Errorf("坐实应晋升为 result（不带验证状态）, got %s %v", node.Kind, node.VerificationStatus)
 	}
-	if node.SourceID != "ver-99" {
-		t.Errorf("SourceID 应回指 ver-99, got %s", node.SourceID)
-	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeConfirmed {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.VerificationConfirmed {
 		t.Errorf("应落 1 条 confirmed verification, got %+v", w.verifications)
 	}
 	if len(w.nodes) != 1 {
@@ -148,17 +157,17 @@ func TestPromote_Confirmed(t *testing.T) {
 func TestPromote_Refuted(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-1"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"reason":"no repro"}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"reason":"no repro"}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("证伪不是错误, got err: %v", err)
 	}
 	if node != nil {
 		t.Errorf("证伪不应进图, got node %+v", node)
 	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.VerificationRefuted {
 		t.Errorf("应留 1 条 refuted verification 供审计, got %+v", w.verifications)
 	}
 	if len(w.nodes) != 0 {
@@ -170,56 +179,82 @@ func TestPromote_Refuted(t *testing.T) {
 func TestPromote_ReplayError(t *testing.T) {
 	w := &fakeGraphStore{}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{err: errors.New("boom")}, fw)
+	v := gateWith(w, fakeReplayer{err: errors.New("boom")}, fw)
 
-	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
+	if _, err := v.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("复现失败应报错")
 	}
 	// 注意：当前实现会记录 verification（即使 replay 失败），这是设计决策
 	// 如果要求失败时不记录，需要修改 evaluator.go
 }
 
-// 无 Replayer：无复现能力即无晋升——直接报错，不放行。
-func TestPromote_NoReplayer(t *testing.T) {
-	fw := &fakeClaimSink{}
-	v := New(&fakeGraphStore{}, nil, fw)
-	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
-		t.Fatal("无 Replayer 应报错")
+// 没有机器复现通道的领域：门回显配方交给评估者自主取证，验证档位 judge_only——
+// 领域中立的核心不因缺少某个领域的通道而拒绝晋升。
+func TestPromote_DomainWithoutChannelGoesJudgeOnly(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-generic"}
+	var seen json.RawMessage
+	v := gateWith(w, fakeReplayer{err: errors.New("不应走到 stub 通道")}, &fakeClaimSink{}).
+		WithJudge(judgeFunc(func(_ context.Context, _ string, _, ev json.RawMessage, _ ReplayFunc) (Verdict, error) {
+			seen = ev
+			return Verdict{Verdict: VerdictConfirmed}, nil
+		}))
+	c := baseClaim()
+	c.Repro = json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 执行 x"},"assert":{"description":"看到 y"}}`)
+
+	if _, err := v.Promote(context.Background(), c); err != nil {
+		t.Fatalf("无通道领域应由评估者取证晋升: %v", err)
+	}
+	var echo map[string]json.RawMessage
+	if err := json.Unmarshal(seen, &echo); err != nil || string(echo["domain"]) != `"generic"` || len(echo["recipe"]) == 0 {
+		t.Fatalf("评估者应拿到配方回显，得 %s", seen)
+	}
+	if n := len(w.verifications); n != 1 || !strings.Contains(string(w.verifications[0].Evidence), TierJudgeOnly) {
+		t.Fatalf("审计应记 judge_only 档位，得 %d 条", n)
 	}
 }
 
-// 必填校验：TaskID / Kind 缺失即拒。
+// 信封无法解析即确定性配方缺陷：包装 ErrInvalidRecipe，评估者据此一次出圈。
+func TestPromote_UnparseableEnvelopeIsInvalidRecipe(t *testing.T) {
+	v := gateWith(&fakeGraphStore{}, fakeReplayer{}, &fakeClaimSink{}).WithJudge(stubJudge{verdict: VerdictConfirmed})
+	c := baseClaim()
+	c.Repro = json.RawMessage(`[{"op":"http_request"}]`)
+	if _, err := v.Promote(context.Background(), c); !errors.Is(err, ErrInvalidRecipe) {
+		t.Fatalf("期望 ErrInvalidRecipe，得 %v", err)
+	}
+}
+
+// 必填校验：TaskID / NodeID 缺失即拒。
 func TestPromote_Validation(t *testing.T) {
 	fw := &fakeClaimSink{}
-	v := New(&fakeGraphStore{}, fakeReplayer{res: Result{}}, fw)
+	v := gateWith(&fakeGraphStore{}, fakeReplayer{res: Result{}}, fw)
 
-	noScan := baseAttempt()
+	noScan := baseClaim()
 	noScan.TaskID = ""
 	if _, err := v.Promote(context.Background(), noScan); err == nil {
 		t.Error("缺 TaskID 应报错")
 	}
 
-	noKind := baseAttempt()
-	noKind.Kind = ""
-	if _, err := v.Promote(context.Background(), noKind); err == nil {
-		t.Error("缺 Kind 应报错")
+	noNode := baseClaim()
+	noNode.NodeID = ""
+	if _, err := v.Promote(context.Background(), noNode); err == nil {
+		t.Error("缺 NodeID 应报错")
 	}
 }
 
-// LLM 裁决全链：机器重放 + judge confirmed → 晋升 + 坐实主张交付管道。
+// LLM 判定全链：机器重放 + judge confirmed → 晋升 + 坐实主张交付管道。
 // 交付物的领域归属（agent_run_id 等）由域适配 sink 构造时注入，门只透传载荷。
 func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j1"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"status_code":200}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "证据语义坐实"})
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("Promote 出错: %v", err)
 	}
 	if node == nil {
-		t.Fatal("LLM 裁决 confirmed 应晋升（机器断言未过但语义坐实）")
+		t.Fatal("LLM 判定 confirmed 应晋升（机器断言未过但语义坐实）")
 	}
 	if len(fw.claims) != 1 {
 		t.Fatalf("应交付 1 条坐实主张, got %d", len(fw.claims))
@@ -231,50 +266,53 @@ func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 	if c.Statement == "" || len(c.Evidence) == 0 || len(c.Repro) == 0 {
 		t.Fatalf("交付载荷应透传陈述/证据/配方: %+v", c)
 	}
+	if c.Priority != "high" || node.Priority != explorationgraph.PriorityHigh {
+		t.Fatalf("优先级只在节点层一份，交付取结果节点的优先级: claim=%q node=%q", c.Priority, node.Priority)
+	}
 }
 
-// LLM 裁决 refuted：机器断言通过（橡皮图章）也被语义否决——不晋升不落 finding。
+// LLM 判定 refuted：机器断言通过（橡皮图章）也被语义否决——不晋升不落 finding。
 func TestPromote_LLMJudgeRefutesRubberStamp(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j2"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"status_code":200}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"status_code":200}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted, reasoning: "200 只证明页面活着"})
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("Promote 出错: %v", err)
 	}
 	if node != nil {
-		t.Fatal("LLM 裁决 refuted 不应晋升")
+		t.Fatal("LLM 判定 refuted 不应晋升")
 	}
 	if len(fw.claims) != 0 {
 		t.Fatalf("不应写 finding, got %d", len(fw.claims))
 	}
 }
 
-// LLM 裁决失败 = 本次未裁决：返回错误，绝不回退机器断言（机器不持判定权）。
-func TestPromote_JudgeErrorIsUnadjudicated(t *testing.T) {
+// LLM 判定失败 = 本次未出结论：返回错误，绝不回退机器断言（机器不持判定权）。
+func TestPromote_JudgeErrorLeavesPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j3"}
 	fw := &fakeClaimSink{}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, fw).
 		WithJudge(errJudge{})
 
-	_, err := v.Promote(context.Background(), baseAttempt())
+	_, err := v.Promote(context.Background(), baseClaim())
 	if err == nil {
 		t.Fatal("judge 失败必须返回错误（不回退机器）")
 	}
 	if len(w.nodes) != 0 {
-		t.Fatal("未裁决不得晋升节点")
+		t.Fatal("未出结论不得晋升节点")
 	}
 	if len(fw.claims) != 0 {
-		t.Fatal("未裁决不得写 finding")
+		t.Fatal("未出结论不得写 finding")
 	}
 }
 
 // 未装配 judge = 无晋升能力（机器不持判定权）。
 func TestPromote_NoJudgeNoPromotion(t *testing.T) {
-	v := New(&fakeGraphStore{verID: "v"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{})
-	if _, err := v.Promote(context.Background(), baseAttempt()); err == nil {
+	v := gateWith(&fakeGraphStore{verID: "v"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{})
+	if _, err := v.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("无 judge 应报错")
 	}
 }
@@ -289,24 +327,23 @@ func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
 		judgeCalled = true
 		return Verdict{Verdict: VerdictConfirmed, Reasoning: "不该被调到"}, nil
 	})
-	failed := Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":false,"assert_reasons":["body 缺 \"<script>\" ✗"],"attack_status_code":404}`)}
-	v := New(w, fakeReplayer{res: failed}, fw).WithJudge(j)
+	failed := Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":false,"assert_reasons":["body 缺 \"<script>\" ✗"],"attack_status_code":404}`)}
+	v := gateWith(w, fakeReplayer{res: failed}, fw).WithJudge(j)
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("机器证伪不应报错: %v", err)
 	}
 	if node != nil || judgeCalled {
 		t.Fatalf("断言未命中应机器证伪且不进 judge: node=%v judgeCalled=%v", node, judgeCalled)
 	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.VerificationRefuted {
 		t.Fatalf("应留 refuted 审计, got %+v", w.verifications)
 	}
-	var mark struct {
-		RefutedBy string `json:"refuted_by"`
-	}
-	if raw, ok := w.metadata["node-source"]; !ok || json.Unmarshal(raw, &mark) != nil || mark.RefutedBy != "machine_guard" {
-		t.Fatalf("假设节点应带 machine_guard 标记, got %+v", w.metadata)
+	var mark map[string]string
+	if raw, ok := w.metadata["node-source"]; !ok || json.Unmarshal(raw, &mark) != nil ||
+		!maps.Equal(mark, map[string]string{"verification_status": "refuted", "refute_reason": RefuteNotReproducible}) {
+		t.Fatalf("假设节点应标记为复放失败证伪, got %s", w.metadata["node-source"])
 	}
 }
 
@@ -316,15 +353,15 @@ func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-mg2"}
 	fw := &fakeClaimSink{}
 
-	passed := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, fw).
+	passed := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
-	if node, err := passed.Promote(context.Background(), baseAttempt()); err != nil || node == nil {
+	if node, err := passed.Promote(context.Background(), baseClaim()); err != nil || node == nil {
 		t.Fatalf("断言命中应正常进 judge 并晋升: node=%v err=%v", node, err)
 	}
 
-	noField := New(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"domain":"generic"}`)}}, fw).
+	noField := gateWith(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"domain":"generic"}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
-	if node, err := noField.Promote(context.Background(), baseAttempt()); err != nil || node != nil {
+	if node, err := noField.Promote(context.Background(), baseClaim()); err != nil || node != nil {
 		t.Fatalf("generic 证据不应被护栏拦截: node=%v err=%v", node, err)
 	}
 }
@@ -345,12 +382,12 @@ func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ Re
 	return Verdict{Verdict: s.verdict, Reasoning: s.reasoning, Fingerprint: s.fingerprint}, nil
 }
 
-// 同一配方（字节级相同）只裁一次：第二次进门的 Attempt 沿用既有裁决——
+// 同一配方（字节级相同）只判定一次：第二次进门的 Claim 沿用既有判定——
 // 不再烧 judge、不再重复写 finding，假设节点标记同步流转。
 func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d1"}
 	fw := &fakeClaimSink{}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+	promoter := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 
 	graph := explorationgraph.NewMemoryStore()
@@ -375,30 +412,30 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 		}
 	}
 
-	att := baseAttempt()
+	att := baseClaim()
 	if err := a.verifyObservation(context.Background(), "obs-1", att); err != nil {
 		t.Fatalf("首次验证应成功: %v", err)
 	}
 	if err := a.verifyObservation(context.Background(), "obs-2", att); err != nil {
-		t.Fatalf("重复配方应沿用裁决而非报错: %v", err)
+		t.Fatalf("重复配方应沿用判定而非报错: %v", err)
 	}
 	if len(w.verifications) != 1 || len(w.nodes) != 1 || len(fw.claims) != 1 {
 		t.Fatalf("同配方二次进门应被去重: ver=%d nodes=%d findings=%d",
 			len(w.verifications), len(w.nodes), len(fw.claims))
 	}
 
-	// 沿用裁决的假设节点：confidence 流转为 verified，轮询不再圈定
+	// 沿用判定的假设节点：验证状态流转为 confirmed，轮询不再圈定
 	marked, err := graph.GetNode(context.Background(), "obs-2")
 	if err != nil {
-		t.Fatalf("读回沿用裁决的假设节点失败: %v", err)
+		t.Fatalf("读回沿用判定的假设节点失败: %v", err)
 	}
-	if marked.Confidence == nil || *marked.Confidence != explorationgraph.ConfidenceVerified {
-		t.Fatalf("沿用裁决应把 confidence 流转为 verified, got %v", marked.Confidence)
+	if !marked.HasVerificationStatus(explorationgraph.VerificationConfirmed) {
+		t.Fatalf("沿用判定应把验证状态流转为 confirmed, got %v", marked.VerificationStatus)
 	}
 
 	// 不同配方不受影响
-	other := baseAttempt()
-	other.Primitives = json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/y","headers":{},"body":""}},"assert":{"body_contains":["leaked-secret"]}}`)
+	other := baseClaim()
+	other.Repro = json.RawMessage(`{"domain":"stub","recipe":{"op":"other"},"assert":{"marker":"leaked-secret"}}`)
 	if err := a.verifyObservation(context.Background(), "obs-3", other); err != nil {
 		t.Fatalf("新配方应正常验证: %v", err)
 	}
@@ -407,7 +444,7 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	}
 }
 
-// replayJudge 裁决前自主复放 N 次（模拟 RouterJudge 的 replay_for_verification 调用）。
+// replayJudge 判定前自主复放 N 次（模拟 RouterJudge 的 replay_for_verification 调用）。
 type replayJudge struct {
 	verdict string
 	replay  ReplayFunc
@@ -419,19 +456,19 @@ func (s *replayJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, r
 	for i := 0; i < s.times; i++ {
 		_, _ = replay(context.Background())
 	}
-	return Verdict{Verdict: s.verdict, Reasoning: "自主复放后裁决"}, nil
+	return Verdict{Verdict: s.verdict, Reasoning: "自主复放后判定"}, nil
 }
 
-// 裁决官复放的审计落 verification.evidence.replays（预跑 + 每次裁决复放），
+// 评估者复放的审计落 verification.evidence.replays（预跑 + 每次判定复放），
 // 且 evaluator 不越权写观察节点——confirmed 只写 1 个 result 节点。
 func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-r1"}
 	fw := &fakeClaimSink{}
 	j := &replayJudge{verdict: VerdictConfirmed, times: 2}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`), DurationMs: 10}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`), DurationMs: 10}}, fw).
 		WithJudge(j)
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("Promote 出错: %v", err)
 	}
@@ -444,7 +481,7 @@ func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
 		t.Fatalf("evaluator 应只写 1 个 result 节点, got %+v", w.nodes)
 	}
 
-	// 审计链：1 预跑 + 2 裁决复放 = 3 条记录，且裁决理由入档
+	// 审计链：1 预跑 + 2 判定复放 = 3 条记录，且评估理由入档
 	var ev struct {
 		Verdict     string `json:"verdict"`
 		Reasoning   string `json:"reasoning"`
@@ -453,30 +490,30 @@ func TestPromote_JudgeReplaysAuditedNotGraphWritten(t *testing.T) {
 			Phase string `json:"phase"`
 		} `json:"replays"`
 	}
-	if err := json.Unmarshal(w.verifications[0].Evaluation, &ev); err != nil {
+	if err := json.Unmarshal(w.verifications[0].Evidence, &ev); err != nil {
 		t.Fatalf("证据应可解析: %v", err)
 	}
 	if ev.ReplayCount != 3 || len(ev.Replays) != 3 {
-		t.Fatalf("应含 3 次重放记录（预跑+2 裁决复放）, got %d", ev.ReplayCount)
+		t.Fatalf("应含 3 次重放记录（预跑+2 判定复放）, got %d", ev.ReplayCount)
 	}
 	if ev.Replays[0].Phase != "prerun" || ev.Replays[1].Phase != "judge" || ev.Replays[2].Phase != "judge" {
 		t.Fatalf("重放阶段应按 prerun/judge 记录, got %+v", ev.Replays)
 	}
-	if ev.Verdict != VerdictConfirmed || ev.Reasoning != "自主复放后裁决" {
-		t.Fatalf("裁决结论与理由应入档, got %+v", ev)
+	if ev.Verdict != VerdictConfirmed || ev.Reasoning != "自主复放后判定" {
+		t.Fatalf("验证结论与理由应入档, got %+v", ev)
 	}
 }
 
 // 证伪：不写任何节点（铁律——图只存坐实态），审计链仍完整，
-// 且假设节点被回写 refuted 审判标记（图可回答"试过没有"——防死假设复活）。
+// 且假设节点被回写 refuted 验证标记（图可回答"试过没有"——防死假设复活）。
 func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-r2"}
 	fw := &fakeClaimSink{}
 	j := &replayJudge{verdict: VerdictRefuted, times: 1}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x"}`)}}, fw).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x"}`)}}, fw).
 		WithJudge(j)
 
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil {
 		t.Fatalf("Promote 出错: %v", err)
 	}
@@ -486,14 +523,15 @@ func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 	if len(w.nodes) != 0 {
 		t.Fatalf("证伪不应写任何节点, got %d", len(w.nodes))
 	}
-	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.OutcomeRefuted {
+	if len(w.verifications) != 1 || w.verifications[0].Outcome != explorationgraph.VerificationRefuted {
 		t.Fatalf("证伪应留 verification 审计, got %+v", w.verifications)
 	}
 	var mark struct {
-		Outcome string `json:"verification_outcome"`
+		Status       string `json:"verification_status"`
+		RefuteReason string `json:"refute_reason"`
 	}
 	if raw, ok := w.metadata["node-source"]; !ok ||
-		json.Unmarshal(raw, &mark) != nil || mark.Outcome != VerdictRefuted {
+		json.Unmarshal(raw, &mark) != nil || mark.Status != "refuted" || mark.RefuteReason == "" {
 		t.Fatalf("假设节点应被回写 refuted 标记, got %+v", w.metadata)
 	}
 }
@@ -510,7 +548,7 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-c1"}
 	fw := &fakeClaimSink{}
 	// 慢验证：复放 sleep 300ms，占住并发额度
-	promoter := New(w, slowReplayer{d: 300 * time.Millisecond, res: Result{Evaluation: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
+	promoter := gateWith(w, slowReplayer{d: 300 * time.Millisecond, res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 	bus := bus.New(context.Background())
 	a := NewAgent(AgentConfig{
@@ -523,11 +561,11 @@ func TestAgent_VerifyConcurrencyDoesNotBlockEventLoop(t *testing.T) {
 
 	start := time.Now()
 	// 两个 attempt 背靠背进验证（第二个必须能立即入队而非阻塞发送方）
-	go func() { _ = a.verifyObservation(context.Background(), "act-1", baseAttempt()) }()
-	go func() { _ = a.verifyObservation(context.Background(), "act-2", baseAttempt()) }()
+	go func() { _ = a.verifyObservation(context.Background(), "act-1", baseClaim()) }()
+	go func() { _ = a.verifyObservation(context.Background(), "act-2", baseClaim()) }()
 	// 主线程立即做一次去重查询——若事件循环被卡（旧实现语义在事件循环取号），
 	// 这里照样能即时返回
-	_, _ = a.adjudicatedLookup("anything")
+	_, _ = a.verdictLookup("anything")
 
 	// 轮询等待两个验证都完成（直接调用 verifyObservation 不经 Run 的信号量，二者并行）
 	deadline := time.Now().Add(3 * time.Second)
@@ -562,12 +600,12 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	fw := &fakeClaimSink{}
 	fp := json.RawMessage(`{"class":"reflected_xss","method":"GET","host":"t.local:8080","path":"/vuln/xss_r/","param":"name"}`)
 	codec := shapeCodec{}
-	replayRes := Result{Evaluation: json.RawMessage(`{"url":"http://t.local:8080/vuln/xss_r/?name=p","assert_passed":true}`), DurationMs: 5}
+	replayRes := Result{Evidence: json.RawMessage(`{"url":"http://t.local:8080/vuln/xss_r/?name=p","assert_passed":true}`), DurationMs: 5}
 
-	first := New(w, fakeReplayer{res: replayRes}, fw).
+	first := gateWith(w, fakeReplayer{res: replayRes}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "首次坐实", fingerprint: fp}).
 		WithFingerprintCodec(codec)
-	node1, err := first.Promote(context.Background(), baseAttempt())
+	node1, err := first.Promote(context.Background(), baseClaim())
 	if err != nil || node1 == nil {
 		t.Fatalf("首次确认应晋升: node=%v err=%v", node1, err)
 	}
@@ -576,9 +614,9 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	}
 
 	// 不同假设（不同源节点/不同陈述）但同指纹的第二次确认
-	secondAttempt := baseAttempt()
+	secondAttempt := baseClaim()
 	secondAttempt.NodeID = "node-source-2"
-	second := New(w, fakeReplayer{res: replayRes}, fw).
+	second := gateWith(w, fakeReplayer{res: replayRes}, fw).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "换 payload 再证", fingerprint: fp}).
 		WithFingerprintCodec(codec)
 	node2, err := second.Promote(context.Background(), secondAttempt)
@@ -592,23 +630,18 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 		t.Fatalf("同指纹不得新建节点: nodes=%d", len(w.nodes))
 	}
 	// 重复确认重放交付且指向既有节点：补齐既有节点此前可能失败的交付；
-	// 台账按 dedup_key 幂等（同摘要合并到既有行），不会产生第二条 finding。
+	// 台账按结果节点幂等，不会产生第二条 finding。
 	if len(fw.claims) != 2 || fw.claims[1].ResultNodeID != node1.ID || fw.claims[1].Statement != fw.claims[0].Statement {
 		t.Fatalf("重复确认的交付应指向既有节点且载荷同源: %+v", fw.claims)
 	}
 
 	// 假设节点标记：confirmed + duplicate_of 指向既有发现
 	// （promoted_node 冗余已裁剪——observation→result 的 generates 边承载归属）
-	var mark struct {
-		Confidence          string `json:"confidence"`
-		VerificationOutcome string `json:"verification_outcome"`
-		DuplicateOf         string `json:"duplicate_of"`
-	}
+	var mark map[string]string
 	if raw := w.metadata["node-source-2"]; raw == nil || json.Unmarshal(raw, &mark) != nil {
-		t.Fatalf("第二假设应有审判标记: %+v", w.metadata["node-source-2"])
+		t.Fatalf("第二假设应有验证标记: %+v", w.metadata["node-source-2"])
 	}
-	if mark.Confidence != "verified" || mark.VerificationOutcome != "confirmed" ||
-		mark.DuplicateOf != node1.ID {
+	if want := map[string]string{"verification_status": "confirmed", "duplicate_of": node1.ID}; !maps.Equal(mark, want) {
 		t.Fatalf("标记形状不符: %+v", mark)
 	}
 
@@ -619,84 +652,33 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	var ev struct {
 		DuplicateOf string `json:"duplicate_of"`
 	}
-	if json.Unmarshal(w.verifications[1].Evaluation, &ev) != nil || ev.DuplicateOf != node1.ID {
-		t.Fatalf("第二条审计应带 duplicate_of: %s", w.verifications[1].Evaluation)
+	if json.Unmarshal(w.verifications[1].Evidence, &ev) != nil || ev.DuplicateOf != node1.ID {
+		t.Fatalf("第二条审计应带 duplicate_of: %s", w.verifications[1].Evidence)
 	}
 }
 
-// 指纹缺失（裁决官没给 finding 字段）时去重静默降级——照常晋升，不因缺指纹丢发现。
+// 指纹缺失（评估者没给 finding 字段）时去重静默降级——照常晋升，不因缺指纹丢发现。
 func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d2"}
-	v := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+	v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "无指纹"})
-	node, err := v.Promote(context.Background(), baseAttempt())
+	node, err := v.Promote(context.Background(), baseClaim())
 	if err != nil || node == nil {
 		t.Fatalf("缺指纹应照常晋升: node=%v err=%v", node, err)
 	}
 }
 
-// 无配方的 Attempt 不得进入裁决生命周期：执行记录（上下文结论/降级推测）
-// 保持 confidence 为空，不烧裁决预算、不污染 refuted 分类。
-// 回归背景：e2e 实测 7 条无 repro 的上下文记录被事件路径拖进裁决门，
-// 以 invalid_recipe 终局后审计链又因空 primitives 违反 NOT NULL 丢记录。
-func TestAgent_EventPathSkipsAttemptsWithoutRecipe(t *testing.T) {
-	w := &fakeGraphStore{verID: "ver-nr1"}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
-		WithJudge(stubJudge{verdict: VerdictConfirmed})
-	b := bus.New(context.Background())
-	a := NewAgent(AgentConfig{
-		TaskID:   "t-norepro",
-		Gate:     promoter,
-		EventBus: b,
-		Logger:   zerolog.Nop(),
-	})
-
-	a.handleEvent(context.Background(), bus.Event{
-		Type:     bus.EventAttemptGenerated,
-		TaskID:   "t-norepro",
-		ActionID: "act-1",
-		Payload: map[string]interface{}{
-			"attempt": Attempt{TaskID: "t-norepro", NodeID: "obs-record", Kind: "result"},
-		},
-	}, make(chan struct{}, 1))
-
-	if w.VerificationCount() != 0 {
-		t.Fatalf("无配方 Attempt 不得触发验证: %d", w.VerificationCount())
-	}
-	if len(w.metadata) != 0 {
-		t.Fatalf("无配方 Attempt 不得改写节点标记: %+v", w.metadata)
-	}
-
-	// 对照组：带配方的 Attempt 照常进入裁决
-	withRepro := baseAttempt()
-	withRepro.NodeID = "obs-hypothesis"
-	a.handleEvent(context.Background(), bus.Event{
-		Type:     bus.EventAttemptGenerated,
-		TaskID:   "t-norepro",
-		ActionID: "act-1",
-		Payload:  map[string]interface{}{"attempt": withRepro},
-	}, make(chan struct{}, 1))
-
-	deadline := time.Now().Add(3 * time.Second)
-	for w.VerificationCount() < 1 {
-		if time.Now().After(deadline) {
-			t.Fatalf("带配方 Attempt 应完成验证, got %d", w.VerificationCount())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-// invalid_recipe 终局的审计链不得因空 primitives 丢失：空配方以空对象留档。
-func TestAgent_InvalidRecipeAuditSurvivesEmptyPrimitives(t *testing.T) {
-	promoter := New(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
+// invalid_recipe 终局的审计链不得因空 repro 丢失：空配方以空对象留档。
+func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
+	promoter := gateWith(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 
-	// coalescePrimitives 是审计不丢记录的修复行：空配方归一为空对象
-	// （primitives 落库列 NOT NULL，nil 会违反约束静默丢整条审计）。
-	if got := coalescePrimitives(nil); string(got) != `{}` {
+	// coalesceRepro 是审计不丢记录的修复行：空配方归一为空对象
+	// （repro 落库列 NOT NULL，nil 会违反约束静默丢整条审计）。
+	if got := coalesceRepro(nil); string(got) != `{}` {
 		t.Fatalf("nil 应归一为空对象: %s", got)
 	}
-	if got := coalescePrimitives(json.RawMessage(`{"domain":"web"}`)); string(got) != `{"domain":"web"}` {
+	if got := coalesceRepro(json.RawMessage(`{"domain":"web"}`)); string(got) != `{"domain":"web"}` {
 		t.Fatalf("非空应原样透传: %s", got)
 	}
 
@@ -709,20 +691,20 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyPrimitives(t *testing.T) {
 		Graph:    memGraph,
 		Logger:   zerolog.Nop(),
 	})
-	// 生产不变式：被裁决的观察节点由 executor 先落图
-	unverified := explorationgraph.ConfidenceUnverified
+	// 生产不变式：被验证的观察节点由 executor 先落图
+	pending := explorationgraph.VerificationPending
 	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
-		ID:         "obs-empty",
-		TaskID:     "t-empty",
-		Kind:       core.KindObservation,
-		Content:    json.RawMessage(`{"statement":"s"}`),
-		Confidence: &unverified,
+		ID:                 "obs-empty",
+		TaskID:             "t-empty",
+		Kind:               core.KindObservation,
+		Content:            json.RawMessage(`{"statement":"s"}`),
+		VerificationStatus: &pending,
 	}); err != nil {
 		t.Fatalf("建观察节点失败: %v", err)
 	}
-	empty := baseAttempt()
+	empty := baseClaim()
 	empty.NodeID = "obs-empty"
-	empty.Primitives = nil
+	empty.Repro = nil
 	if err := a2.verifyObservation(context.Background(), "obs-empty", empty); err == nil {
 		t.Fatal("空配方复现应失败")
 	} else {
@@ -733,16 +715,12 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyPrimitives(t *testing.T) {
 	if err != nil || obs == nil {
 		t.Fatalf("观察节点应存在: %v", err)
 	}
-	var mark struct {
-		RefuteReason string `json:"refute_reason"`
-	}
-	if json.Unmarshal(obs.Metadata, &mark) != nil || mark.RefuteReason != "invalid_recipe" {
+	if obs.RefuteReason() != "invalid_recipe" {
 		t.Fatalf("确定性缺陷应带 invalid_recipe 标记: %+v", obs.Metadata)
 	}
-	// confidence 是图级类型化键（读取时提到 Node.Confidence）——
-	// 终局出圈后节点不再是 unverified，轮询不再圈定
-	if obs.Confidence == nil || *obs.Confidence != explorationgraph.ConfidenceRefuted {
-		t.Fatalf("节点 confidence 应流转为 refuted: %+v", obs.Confidence)
+	// 终局出圈后节点不再待验证，轮询不再圈定
+	if !obs.HasVerificationStatus(explorationgraph.VerificationRefuted) {
+		t.Fatalf("验证状态应流转为 refuted: %+v", obs.VerificationStatus)
 	}
 }
 
@@ -765,20 +743,20 @@ func (shapeCodec) CanonicalKey(raw json.RawMessage) (string, bool) {
 	return strings.Join([]string{norm(fp.Class), norm(fp.Method), norm(fp.Host), strings.TrimSuffix(norm(fp.Path), "/"), norm(fp.Param)}, "|"), true
 }
 
-// 裁决官必须收到 executor 提出的假设陈述（Attempt.Content.summary）：陈述为空时裁决官只能
-// 从配方自行推断裁决对象，同一请求可支撑多种主张时会确认并非被提交的那一个。
+// 评估者必须收到 executor 提出的假设陈述（Claim.Content.summary）：陈述为空时评估者只能
+// 从配方自行推断验证对象，同一请求可支撑多种主张时会确认并非被提交的那一个。
 func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
 	var got string
 	j := judgeFunc(func(_ context.Context, hyp string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
 		got = hyp
 		return Verdict{Verdict: VerdictRefuted, Reasoning: "x"}, nil
 	})
-	v := New(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)
-	if _, err := v.Promote(context.Background(), baseAttempt()); err != nil {
+	v := gateWith(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)
+	if _, err := v.Promote(context.Background(), baseClaim()); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
 	if got != "X 参数存在可复现注入" {
-		t.Fatalf("裁决官收到的陈述应为 summary 原文，得 %q", got)
+		t.Fatalf("评估者收到的陈述应为假设原文，得 %q", got)
 	}
 }
 
@@ -797,24 +775,24 @@ func (f *failingClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 	return nil
 }
 
-// 交付失败：晋升返回错误、假设不被标记（保持待裁决），重试时经语义去重命中既有
+// 交付失败：晋升返回错误、假设不被标记（保持待验证），重试时经语义去重命中既有
 // 结果节点并补齐交付——图里有 verified result 而台账缺失的状态不会固化。
 func TestPromote_DeliveryFailureLeavesHypothesisPendingAndRetryDelivers(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-f1"}
 	sink := &failingClaimSink{fails: 1}
 	fp := json.RawMessage(`{"class":"sqli","method":"GET","host":"t.local","path":"/q","param":"id"}`)
-	gate := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
+	gate := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp}).
 		WithFingerprintCodec(shapeCodec{})
 
-	if _, err := gate.Promote(context.Background(), baseAttempt()); err == nil {
+	if _, err := gate.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("交付失败应返回错误")
 	}
-	if _, marked := w.metadata[baseAttempt().NodeID]; marked {
-		t.Fatal("交付失败时不得标记假设（否则移出待裁决集合，永不重试）")
+	if _, marked := w.metadata[baseClaim().NodeID]; marked {
+		t.Fatal("交付失败时不得标记假设（否则移出待验证集合，永不重试）")
 	}
 
-	node, err := gate.Promote(context.Background(), baseAttempt())
+	node, err := gate.Promote(context.Background(), baseClaim())
 	if err != nil || node == nil {
 		t.Fatalf("重试应成功: node=%v err=%v", node, err)
 	}

@@ -15,15 +15,16 @@ cd "$REPO_ROOT"
 SCAN_ARGS=(
   --include='*.go' --include='*.ts' --include='*.tsx' --include='*.md'
   --include='*.yaml' --include='*.yml' --include='*.json'
-  internal/ cmd/ web/src db/ config/ deployments/ Makefile
+  internal/ cmd/ web/src db/ deployments/ Makefile
 )
 
 # 排除路径（契约保留区 / 工具自身 / 第三方产物）
 EXCLUDES=(
   ':!db/migrations'         # 历史迁移不可编辑（目录形式，** 通配在 git pathspec 排除里不生效）
-  ':!deployments'        # 容器镜像契约（LIUSHA_AGENT_ID 等）
+  ':!internal/tools/manifest/tools.yaml'  # 工具清单转述第三方工具的业界用语（如 passive DNS），不是本项目概念
   ':!scripts/lint-terminology.sh'
-  ':!internal/dbtest/migration_0201_integration_test.go'  # 迁移测试须按旧结构写入老数据
+  ':!internal/dbtest/migration_*_integration_test.go'  # 迁移测试须按旧结构写入老数据
+  ':!internal/dbtest/testdata'  # 迁移测试的历史出厂内容快照
   ':!web/dist' ':!**/node_modules'
 )
 
@@ -36,9 +37,26 @@ EXCLUDES=(
 # llmcall / einotools：已并入 llminvocation / registry 的旧包名。
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
 # body_absent：断言键已统一为 body_not_contains（迁移 0200 改写存量）。
+# LIUSHA_AGENT_ID：命令环境里的 run 标识已更名 LIUSHA_AGENT_RUN_ID（它是 run 的 ID，不是 agent 的）。
 # reseed / system_prompt / system_setting：出厂内容编译进程序、数据库只存用户自定义后退役
 #   （迁移 0201）——提示词改称章程（charter），系统设置用户层为 setting_override。
+# unverified / factual / verification_outcome / executor_confidence / test_plan：观察的图级
+#   「置信度」改为只有假设才有的验证状态 verification_status（pending/confirmed/refuted），
+#   验证结论不再双写，执行器自评置信度与 test_plan 字段删除（迁移 0208）。
+# kill_action：监察决策已更名 reject_action，动作状态为 rejected（迁移 0223）。
+# controlplane / 控制平面 / task_control_event / adjust_goal / inject_action：没有生产者的控制
+#   事件队列已删除（迁移 0224）；生命周期只写任务行，运行中的引导走直接的 API。
+# Primitives / primitives 列 / Attempt：复现配方全系统叫 repro，待验证的主张叫 Claim（迁移 0222）。
+# blocked_reason：节点状态原因已统一为 state_reason（系统里没有「阻塞」状态，迁移 0221）。
+# 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
+#   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
 FORBIDDEN=(
+  'Primitives'
+  'parseObservationToAttempt'
+  'blocked_reason'
+  'BlockedReason'
+  '裁决'
+  'adjudicat'
   '知识图谱'
   '认知图'
   '世界模型'
@@ -77,6 +95,18 @@ FORBIDDEN=(
   'reseed'
   'system_prompt'
   'system_setting'
+  'LIUSHA_AGENT_ID'
+  'unverified'
+  'factual'
+  'verification_outcome'
+  'executor_confidence'
+  'test_plan'
+  'kill_action'
+  'controlplane'
+  '控制平面'
+  'task_control_event'
+  'adjust_goal'
+  'inject_action'
 )
 
 MODE="${1:-check}"

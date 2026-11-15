@@ -58,7 +58,7 @@ func TestSubscriptionCancel_TakesEffectBeforeReturn(t *testing.T) {
 		taskID := fmt.Sprintf("t%d", round)
 		sub := b.SubscribeTask(taskID)
 		sub.Cancel()
-		b.Publish(Event{Type: EventActionCompleted, TaskID: taskID, ActionID: "a1"})
+		b.Publish(Event{Type: EventActionProposed, TaskID: taskID, ActionID: "a1"})
 
 		ev, ok := <-sub.Events() // Cancel 已生效则通道已关闭且为空，立即返回
 		if ok {
@@ -100,7 +100,7 @@ func TestPublish_DoesNotBlockWhenNoSubscriber(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		b.Publish(Event{Type: EventActionCompleted, TaskID: "nobody", ActionID: "a"})
+		b.Publish(Event{Type: EventActionProposed, TaskID: "nobody", ActionID: "a"})
 	}()
 	select {
 	case <-done:
@@ -124,7 +124,7 @@ func TestSubscribeTask_Broadcast(t *testing.T) {
 	for i := range subs {
 		subs[i] = b.SubscribeTask("t1")
 	}
-	b.Publish(Event{Type: EventAttemptGenerated, TaskID: "t1", ActionID: "a1"})
+	b.Publish(Event{Type: EventVerificationPassed, TaskID: "t1", ActionID: "a1"})
 	b.Publish(Event{Type: EventVerificationPassed, TaskID: "t1"})
 
 	for i, s := range subs {
@@ -141,7 +141,7 @@ func TestSubscribeTask_Broadcast(t *testing.T) {
 
 	// 单个订阅者退出不影响同伴
 	subs[0].Cancel()
-	b.Publish(Event{Type: EventActionCompleted, TaskID: "t1", ActionID: "a2"})
+	b.Publish(Event{Type: EventActionProposed, TaskID: "t1", ActionID: "a2"})
 	select {
 	case <-subs[1].Events():
 	case <-time.After(time.Second):

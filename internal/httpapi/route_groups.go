@@ -24,13 +24,15 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
-	r.GET("/workspaces/tree", getWorkspaceTreeHandler(d.Workspaces))
+	r.GET("/workspaces/tree", getWorkspaceTreeHandler(d.Workspaces, d.WorkspaceLabels))
 	r.GET("/workspaces/raw", getWorkspaceRawHandler(d.Workspaces))
 	r.GET("/workspaces/content", getWorkspaceFileHandler(d.Workspaces))
 	r.PUT("/workspaces/content", putWorkspaceFileHandler(d.Workspaces))
 	r.DELETE("/workspaces", deleteWorkspacePathHandler(d.Workspaces))
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
+	r.GET("/findings/tasks", findingTaskFacetsHandler(d.Findings))
+	r.GET("/findings/:id", uuidID, getFindingHandler(d.Findings))
 	r.PATCH("/findings/:id/status", uuidID, updateFindingStatusHandler(d.Findings))
 }
 
@@ -42,6 +44,7 @@ func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 	// 注意：更具体的路由必须在通配路由之前注册
 	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
 	r.GET("/llm/invocations/search/stat", llmInvocationsSearchStatHandler(d.Invocations))
+	r.GET("/llm/invocations/search/facets", llmInvocationsFacetsHandler(d.Invocations))
 	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
 }
 
@@ -75,14 +78,13 @@ func registerSkillRoutes(r gin.IRouter, d Deps) {
 	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))
 }
 
-// registerExplorationGraphRoutes 注册探索图路由
+// registerExplorationGraphRoutes 注册探索图路由：探索图属于任务，挂在任务之下。
 func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
-	if d.ExplorationGraph == nil {
+	if d.ExplorationGraph == nil || d.TaskReader == nil {
 		return
 	}
-	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/conversations/:id/exploration/graph", uuidID, getConversationGraph(d.ExplorationGraph))
-	r.GET("/conversations/:id/exploration/verifications", uuidID, getConversationVerifications(d.ExplorationGraph))
+	r.GET("/tasks/:id/exploration/graph", uuidID, getTaskGraphHandler(d.TaskReader, d.ExplorationGraph))
+	r.GET("/tasks/:id/exploration/verifications", uuidID, getTaskVerificationsHandler(d.TaskReader, d.ExplorationGraph))
 }
 
 // registerTasksRoutes 注册任务模块路由（前端 /tasks 页）。
@@ -96,6 +98,13 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	}
 	if d.TaskControl != nil {
 		r.POST("/tasks/:id/control", uuidID, taskControlHandler(d.TaskControl))
+	}
+	if d.TaskSteering != nil {
+		if d.Tasks != nil {
+			r.PATCH("/tasks/:id", uuidID, patchTaskHandler(d.TaskSteering, d.Tasks))
+		}
+		r.POST("/tasks/:id/actions", uuidID, assignActionHandler(d.TaskSteering))
+		r.POST("/tasks/:id/actions/:action_id/reject", uuidID, requireUUIDParam("action_id"), rejectActionHandler(d.TaskSteering))
 	}
 	if d.Schedules != nil {
 		r.GET("/schedules", listSchedulesHandler(d.Schedules))
@@ -123,7 +132,7 @@ func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	// 静态段（/hosts、/content-types）须先于 /traffic/:id 注册避免冲突
 	r.GET("/traffic", listTrafficHandler(d.Traffic))
 	r.GET("/traffic/content-types", trafficContentTypesHandler(d.Traffic))
-	r.GET("/traffic/:id", trafficDetailHandler(d.Traffic, d.TrafficConv))
+	r.GET("/traffic/:id", trafficDetailHandler(d.Traffic))
 }
 
 // registerToolCatalogRoutes 注册工具目录路由
@@ -132,8 +141,8 @@ func registerToolCatalogRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 工具目录（只读检索）+ 工具↔智能体装配（读写下沉后端，单一权威）
-	r.GET("/tools", listToolsHandler(d.ToolCatalog))
-	r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore))
+	r.GET("/tools", listToolsHandler(d.ToolCatalog, d.SandboxInventory))
+	r.GET("/tools/:name", getToolHandler(d.ToolCatalog, d.ConfigStore, d.SandboxInventory))
 	r.PUT("/tools/:name/agents/:code", assignToolHandler(d.ToolCatalog, d.ConfigStore))
 }
 
@@ -194,6 +203,7 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	}
 
 	r.GET("/conversations", listConversationsHandler(d.Conversations))
+	r.GET("/conversations/:id", uuidID, getConversationHandler(d.Conversations))
 	r.GET("/conversations/:id/messages", uuidID, messagesHandler(d.Conversations))
 
 	if d.FollowUp != nil {
@@ -222,12 +232,12 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	}
 }
 
-// registerUsageRoutes 注册使用统计路由
+// registerUsageRoutes 注册任务用量路由：用量属于任务，挂在任务之下。
 func registerUsageRoutes(r gin.IRouter, d Deps) {
-	if d.UsageTasks == nil || d.UsageLLM == nil || d.UsageTools == nil {
+	if d.TaskReader == nil || d.UsageLLM == nil || d.UsageTools == nil {
 		return
 	}
-	r.GET("/conversations/:id/usage", uuidID, conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
+	r.GET("/tasks/:id/usage", uuidID, getTaskUsageHandler(d.TaskReader, d.UsageLLM, d.UsageTools))
 }
 
 // registerAuthRoutes 注册登录认证路由（/auth 系列）。

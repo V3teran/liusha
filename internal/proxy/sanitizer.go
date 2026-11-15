@@ -7,6 +7,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -101,20 +102,26 @@ func readHTTPHead(br *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// RunExternalSanitizer 监听 publicAddr（external 8588，代理入口）。
+// RunExternalSanitizer 监听 publicAddr（代理入口）直到 ctx 取消（返回 nil）。
 // 仅做 URI patch — 把首段 raw bytes 的 relative URI 改写成 absolute form 再
-// forward 给 upstreamAddr（proxify loopback 端口）。
+// forward 给 upstreamAddr（proxify 回环端口）。
 //
 // 这是本仓库唯一的 sanitizer：sandbox 自产流量不经代理（chromium 走 CDP capture，
 // CLI 工具直连不入字典）。
-func RunExternalSanitizer(publicAddr, upstreamAddr string) error {
-	ln, err := net.Listen("tcp", publicAddr)
+func RunExternalSanitizer(ctx context.Context, publicAddr, upstreamAddr string) error {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", publicAddr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", publicAddr, err)
 	}
+	stop := context.AfterFunc(ctx, func() { _ = ln.Close() })
+	defer stop()
 	for {
 		client, err := ln.Accept()
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return fmt.Errorf("accept: %w", err)
 		}
 		go handleConn(client, upstreamAddr)

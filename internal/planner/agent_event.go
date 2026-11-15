@@ -42,6 +42,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.logger.Info().Msg("Agent 停止")
 			return nil
 
+		case <-a.replanCh:
+			reasons := a.takeReplanReasons()
+			a.logger.Info().Strs("reasons", reasons).Msg("收到重规划请求，强制重规划")
+			if err := a.planFailure(a.forcePlanActions(ctx, reasons), "强制重规划"); err != nil {
+				return err
+			}
+
 		case event := <-sub.Events():
 			// 处理验证结果事件
 			if err := a.planFailure(a.handleEvent(ctx, event), "事件触发规划（"+string(event.Type)+"）"); err != nil {
@@ -85,17 +92,6 @@ func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
 		a.logger.Info().
 			Msg("收到 VerificationRefuted 事件，触发调整规划")
 		return a.planActions(ctx)
-
-	case bus.EventReplanRequested:
-		// P2：Monitor 请求重规划
-		reason := ""
-		if r, ok := event.Payload["reason"].(string); ok {
-			reason = r
-		}
-		a.logger.Info().
-			Str("reason", reason).
-			Msg("收到 Monitor 重规划请求，强制重规划")
-		return a.forcePlanActions(ctx, reason)
 
 	default:
 		// 忽略其他事件

@@ -7,6 +7,8 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/corpus"
@@ -35,8 +37,8 @@ type Deps struct {
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Creds      credential.Provider
-	Sandbox    sandbox.Client // Spawn 后注入，可 nil
-	Skills     skill.Reader   // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+	Sandbox    CommandRunner // 沙盒命令执行（run_command / drive_browser）；nil 时这两个工具不注册
+	Skills     skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
 
 	// StepToolTimeoutSeconds 是 run_command 的超时钳制上限秒（系统配置 runtime 组，
 	// 任务开始时快照；0=内置默认 120s）。注册表级超时与 LLM 自传 timeout_seconds
@@ -50,4 +52,9 @@ type Deps struct {
 
 	// RunTailBytes 是 run_command 输出保留尾部的字节数（0=内置默认 8192）。
 	RunTailBytes int
+}
+
+// CommandRunner 是工具层对沙盒的唯一依赖：执行一条命令（*sandbox.HTTPClient 满足）。
+type CommandRunner interface {
+	Exec(ctx context.Context, req sandbox.ExecRequest) (sandbox.ExecResult, error)
 }

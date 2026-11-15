@@ -33,7 +33,6 @@ type Run struct {
 	ID        string
 	TaskID    string // 所属 task.id
 	Role      string
-	Input     json.RawMessage
 	Result    json.RawMessage
 	Status    Status
 	CreatedAt time.Time
@@ -45,5 +44,4 @@ type Run struct {
 type NewParams struct {
 	TaskID string
 	Role   string
-	Input  json.RawMessage
 }

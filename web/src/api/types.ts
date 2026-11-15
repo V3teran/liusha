@@ -15,13 +15,13 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
  * 小写 snake_case 键（后端手工 map 序列化，JSON 惯例）
  */
 // TimelineEventMeta 是会话时间线事件消息（kind=event）的 metadata 载荷：
-// 按 kind 分族消费（reasoning/tool_call/tool_result/task_status/finding），
+// 按 kind 分族消费（reasoning/tool_call/tool_result/task_status/finding/steering），
 // 各卡片只读自己族的字段。
 export interface TimelineEventMeta {
-  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | string
+  kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | 'steering' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed/paused/resumed）
   steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
-  actions: number // task_status/completed：完成的 Action 数（报告数据，时间线不渲染）
+  actions: number // task_status/completed：执行过的动作数（报告数据，时间线不渲染）
   findings: number // task_status/completed：坐实发现数（晋升 result 的主张，中性领域词）
   stop_reason: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
   reason: string // task_status/aborted|failed：原因
@@ -42,6 +42,10 @@ export interface TimelineEventMeta {
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
   out_tokens: number // reasoning：本轮 LLM 输出 token 累计
   latency_ms: number // reasoning：本轮墙钟耗时(ms)
+  op: string // steering：引导操作（goal_adjusted/goal_appended/action_assigned/action_rejected），正文是实际写入的内容
+  withdrawn: number // steering/goal_*：撤回的未开始规划动作数
+  action_id: string // steering/action_*：被指派或否决的动作
+  priority: string // steering/action_assigned：指派的优先级
 }
 
 /**
@@ -90,19 +94,14 @@ export interface Conversation {
  * 权威口径：后端 SUM llm_invocation + tool_invocation（覆盖纯 tool_call 调用 + 缓存 token），
  * 非前端按 SSE 事件求和。小写键（Go gin.H DTO）。
  */
-export interface ConversationUsage {
-  conversation_id: string
-  task_id: string // 关联扫描 task；纯聊天会话为空
-  tokens: { in: number; out: number; cached: number; total: number }
-  llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
-  tool_duration_ms: number // 所有工具执行耗时合计（明细）
-  duration_ms: number // 墙钟：发起→完成真实流逝（"我等了多久"，前端"耗时"展示用此）
-  work_ms: number // Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅明细参考
+/** 任务的用量合计（GET /tasks/:id/usage）。状态与暂停见 TaskSummary。 */
+export interface TaskUsage {
+  tokens: { in: number; out: number; cached: number }
   llm_calls: number
+  llm_latency_ms: number // 各 LLM 调用耗时之和
   tool_calls: number
-  running: boolean // 是否仍有运行中的扫描（权威：后端 task 终态）
-  paused?: boolean // 任务暂停中（active 的子状态）：头部控制组据此切换「暂停/继续」
-  status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
+  tool_duration_ms: number // 各工具执行耗时之和
+  elapsed_ms: number // 墙钟：发起→结束（进行中到此刻），扣除续接前的停顿；子代理并发时小于上面两者之和
 }
 
 /* ============================================================
@@ -225,6 +224,9 @@ export interface Tool {
   description: string
   sort_order: number
   synced_at?: string
+  // 沙盒是否已安装（CLI 工具看沙盒的 PATH，drive_browser 看浏览器能力，其余函数工具恒为 true）；
+  // null = 沙盒不可达、状态未知。工具可用 = 已装配到智能体 ∩ 已安装。
+  installed: boolean | null
 }
 
 // ToolListResponse 是 GET /tools 的响应信封（分页时带 total）。
@@ -298,7 +300,7 @@ export interface ProviderConfig {
 // RoleRouteConfig 是「复杂度档 → provider」的一行绑定。
 // role 列存复杂度档名（simple/medium/complex）；agent → 档 的绑定在 agent.complexity
 // （前端「智能体」页可改），路由解析链：agent.complexity → 档 → provider。
-//   complex 深度推理（规划、裁决等长链路）
+//   complex 深度推理（规划、评估等长链路）
 //   medium  标准推理（漏洞检测、工具调用）——未显式归档的 agent 落此档
 //   simple  轻量快答（意图分类 / 历史压缩）
 // 某档未绑定、或其 provider 停用/缺钥时，运行期按就近降级由相邻档承接。
@@ -419,21 +421,33 @@ export interface FindingRow {
   repro?: Record<string, unknown>
   source: Source // JOIN assignment 派生
   task_id?: string // 产出本漏洞的任务（详情跳转用）
+  result_node_id?: string // 坐实本漏洞的结果节点（跳到探索图时定位到它；历史记录可能没有）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
-  first_seen_at: string // 首次发现时间（dedup Update 不变；追踪漏洞存续时长）
+  first_seen_at: string // 首次发现时间（重放交付不变；追踪漏洞存续时长）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
 export interface FindingFilters {
+  task?: string // 范围：只看这个任务的漏洞（从任务及其它页面跳来）
+  conversation?: string // 范围：只看这个对话的漏洞（从对话跳来）
+  search?: string // 关键词：漏洞摘要、主机、路径、所属任务的目标（服务端检索）
   host?: string
   severity?: string
   status?: string
   source?: string
   page?: number // 1-based
   size?: number
+}
+
+// GET /findings/tasks：台账「任务」筛选的选项——有漏洞的任务（按最近一次发现倒序）。
+export interface FindingTaskFacet {
+  id: string
+  goal: string
+  created_at: string // 任务创建时间：同一目标常被反复下发，目标相同的任务靠它区分
+  count: number // 当前其它筛选下该任务的漏洞数
 }
 
 // GET /findings 分页响应：seq desc（最新优先）+ 同筛选口径的全局 total。
@@ -538,10 +552,11 @@ export interface TrafficSummary {
 // TrafficConsumer 是消费本条流量的代理捕获 task（M:N），附解析出的会话 id 供 chip 跳转。
 export interface TrafficConsumer {
   task_id: string
-  
   host: string
-  status: string
-  conv_id: string // 绑定会话；空表示暂不可跳
+  status: string // 任务状态 active / completed / aborted
+  source: string // 下发来源（对话落在哪个标签页）
+  conversation_id: string // 任务的对话；空表示没有对话
+  finding_count: number // 任务的漏洞数（为 0 时不放「漏洞」）
 }
 // TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。
@@ -620,7 +635,7 @@ export type SettingsGroup = 'compaction' | 'runtime' | 'proxy_filter'
 export interface CompactionSettings {
   planner_context_ratio: number // 规划链路历史预算占比，>0 且 ≤0.9
   executor_context_ratio: number // 执行链路历史预算占比，>0 且 ≤0.9
-  evaluator_context_ratio: number // 裁决链路历史预算占比，>0 且 ≤0.9
+  evaluator_context_ratio: number // 评估链路历史预算占比，>0 且 ≤0.9
   monitor_context_ratio: number // 监察链路历史预算占比，>0 且 ≤0.9
 }
 
@@ -671,12 +686,12 @@ export interface SettingsDetail<T> {
 //   - conversation_id：1 task : 1 对话 的跳转链接（旧数据可能为空）
 export interface TaskSummary {
   id: string
-  brief: string
-  target_host: string
+  goal: string // 任务目标（智能体看到的目标全文，可在运行中调整）
+  target_host: string // 目标里第一个 http(s) 目标的主机（目标的派生）
   status: string // active | completed | aborted
-  paused: boolean // 暂停中（仅 active 有意义；pause 控制事件生效）
+  paused: boolean // 暂停中（仅 active 有意义）
   assignment_id: string
-  assignment_title: string // 批次标题（assignment.title；空回退首个任务 brief）
+  assignment_title: string // 批次名（写入时确定，不为空）
   assignment_index: number
   assignment_total: number
   source: Source
@@ -699,9 +714,12 @@ export interface TaskListResponse {
   size: number
 }
 
-// TaskFilters：source 等值 / status 等值 / search 跨 brief+批次ID 子串 /
+// TaskFilters：task / conversation 范围（只看这个任务 / 这个对话的任务，从其它页面跳来）/
+// source 等值 / status 等值 / search 跨目标+批次名 子串 /
 // since+until 创建时间范围（RFC3339，datetime-local 本地值转 ISO）。
 export interface TaskFilters {
+  task: string
+  conversation: string
   source: string
   status: string
   search: string

@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom'
 import type { TrafficConsumer, TrafficDetail } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
 import { fullTime } from '@/lib/format'
+import { taskStatusMeta } from '@/lib/taskStatus'
+import { JumpLinks } from '@/features/relations/TaskJumpLinks'
+import { taskJumps } from '@/features/relations/taskJumps'
 import { methodColor, statusColor } from './httpStatus'
 import { RawMessageBlock } from './RawMessageBlock'
 
@@ -12,35 +14,29 @@ interface TrafficDetailPaneProps {
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
-// 消费本条流量的代理捕获 task chip：host + 状态色点；有 conv_id 则整块可点跳会话。
-function ConsumerChip({ c }: { c: TrafficConsumer }) {
-  const inner = (
-    <>
-      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
-      <span className="truncate text-text-secondary">{c.host}</span>
-      {c.status && <span className="text-text-tertiary">({c.status})</span>}
-    </>
+// 消费本条流量的一个代理捕获任务：主机 + 状态，下面是这个任务的跳转（任务、对话、漏洞、
+// 探索图）。漏洞属于任务——这里的「漏洞」是这个任务的漏洞，库里不记录漏洞来自哪条流量。
+function ConsumerRow({ c }: { c: TrafficConsumer }) {
+  const jumps = taskJumps(
+    { taskId: c.task_id, conversationId: c.conversation_id, source: c.source, findingCount: c.finding_count, from: 'task' },
+    ['task', 'conversation', 'findings', 'exploration'],
   )
-  const cls =
-    'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs transition-colors'
-  if (c.conv_id) {
-    return (
-      <Link to={`/conversations/proxy?conv=${encodeURIComponent(c.conv_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>
-        {inner}
-      </Link>
-    )
-  }
   return (
-    <span className={cls} title="该任务暂无绑定会话">
-      {inner}
-    </span>
+    <li className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-2/50 px-3 py-2.5">
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-xs">
+        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: taskStatusMeta(c.status).color }} aria-hidden="true" />
+        <span className="truncate text-text">{c.host}</span>
+        {c.status && <span className="text-text-tertiary">（{taskStatusMeta(c.status).label}）</span>}
+      </span>
+      <JumpLinks jumps={jumps} />
+    </li>
   )
 }
 
 // 流量详情面板（Burp 式）：按需出现在列表下方，展示单条完整流量。仅在选中某行后由页面挂载。
 // 顶部元信息行（#序号 · 方法 · 状态 · URL · 时间 + 关闭按钮）让详情区自明「我在看哪条」——
 // 翻页/换筛选后选中行不在本页时（孤儿报文场景）仍可辨认，列表滚动后选中行滚出视口同理。
-// 其下为消费任务 chip 列表（M:N，空则隐藏）；再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。
+// 其下为消费任务列表（M:N，空则隐藏；每个任务带它的跳转）；再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。
 export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDetailPaneProps) {
   if (loading) {
     return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
@@ -87,11 +83,11 @@ export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDe
         {consumers.length > 0 && (
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">消费任务</h3>
-            <div className="flex flex-wrap gap-1.5">
+            <ul className="flex flex-col gap-2">
               {consumers.map((c) => (
-                <ConsumerChip key={c.task_id} c={c} />
+                <ConsumerRow key={c.task_id} c={c} />
               ))}
-            </div>
+            </ul>
           </section>
         )}
 

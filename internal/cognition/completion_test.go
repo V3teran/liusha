@@ -11,99 +11,107 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
+	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// CompletionDetector 是任务终止判定的唯一入口：
-// 人工中止 > 暂停冻结 > 步数上限。事件计数（steps/attempts/promoted）必须准确。
+// CompletionDetector 是任务终止判定的唯一入口：人工中止（含暂停）> 收敛 > 动作预算。
+// 动作预算与报告统计都从图上计数，不依赖事件总线。
 
-func newDetector(t *testing.T, maxSteps int) (*CompletionDetector, bus.EventBus) {
+const detTask = "t1"
+
+func newDetector(t *testing.T, maxActions int) (*CompletionDetector, *explorationgraph.Store) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	eb := bus.New(ctx)
+	store := explorationgraph.NewMemoryStore()
 	d := NewCompletionDetector(Config{
-		TaskID:        "t1",
-		Graph:         explorationgraph.NewMemoryStore(),
-		Bus:           eb,
+		TaskID:        detTask,
+		Graph:         store,
 		Logger:        zerolog.Nop(),
-		MaxSteps:      maxSteps,
+		MaxActions:    maxActions,
 		CheckInterval: 10 * time.Millisecond,
 	})
-	return d, eb
+	return d, store
 }
 
-func TestCompletionDetector_StatsCounting(t *testing.T) {
-	d, _ := newDetector(t, 0)
+// seedAction 建一个动作；claimed 为真时模拟已被执行者认领（执行过）。
+func seedAction(t *testing.T, store *explorationgraph.Store, id string, claimed bool) {
+	t.Helper()
+	ctx := context.Background()
+	open := explorationgraph.StateOpen
+	_, err := store.CreateNode(ctx, explorationgraph.Node{
+		ID: id, TaskID: detTask, Kind: core.KindAction, State: &open,
+		SourceType: explorationgraph.SourcePlanner, Content: []byte(`{"instruction":"x"}`),
+	})
+	require.NoError(t, err)
+	if claimed {
+		ok, err := store.ClaimAction(ctx, detTask, id, "run-1")
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
+}
 
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
-	d.feedEvent(bus.Event{Type: bus.EventVerificationPassed, TaskID: "t1"})
+// 动作预算按「执行过的动作」计数（被认领过即算），未执行的 open 动作不占预算。
+func TestCompletionDetector_ActionBudgetCountsExecutedActions(t *testing.T) {
+	d, store := newDetector(t, 2)
+	seedAction(t, store, "a1", true)
+	seedAction(t, store, "a2", false)
 
-	got := d.stats()
-	assert.Equal(t, 2, got.Steps, "两个 ActionCompleted 应计 2 步")
-	assert.Equal(t, 1, got.Promoted, "一个 VerificationPassed 应计 1 晋升")
+	_, done := d.checkCompletion()
+	assert.False(t, done, "执行过 1 个动作，未到预算 2")
+
+	seedAction(t, store, "a3", true)
+	res, done := d.checkCompletion()
+	require.True(t, done, "执行过 2 个动作，达到预算")
+	assert.Equal(t, StopReasonActionBudget, res.StopReason)
+}
+
+// 报告统计从图上读：执行过的动作、坐实结果、提出的假设。
+func TestCompletionDetector_ReportStatsFromGraph(t *testing.T) {
+	d, store := newDetector(t, 0)
+	ctx := context.Background()
+	seedAction(t, store, "a1", true)
+	seedAction(t, store, "a2", false)
+	pending := explorationgraph.VerificationPending
+	_, err := store.CreateNode(ctx, explorationgraph.Node{ID: "h1", TaskID: detTask, Kind: core.KindObservation,
+		VerificationStatus: &pending, Content: []byte(`{"statement":"h"}`)})
+	require.NoError(t, err)
+	_, err = store.CreateNode(ctx, explorationgraph.Node{ID: "f1", TaskID: detTask, Kind: core.KindObservation,
+		Content: []byte(`{"statement":"fact"}`)})
+	require.NoError(t, err)
+	_, err = store.CreateNode(ctx, explorationgraph.Node{ID: "r1", TaskID: detTask, Kind: core.KindResult,
+		Content: []byte(`{"statement":"r"}`)})
+	require.NoError(t, err)
+
+	got := d.makeResult(StopReasonConverged)
+	assert.Equal(t, 1, got.Actions, "只计执行过的动作")
+	assert.Equal(t, 1, got.Results)
+	assert.Equal(t, 1, got.Hypotheses, "只计假设，不计事实")
 }
 
 func TestCompletionDetector_AbortWins(t *testing.T) {
 	d, _ := newDetector(t, 0)
 
 	d.Abort("control-plane: terminate")
-	res, done := d.checkNow()
+	res, done := d.checkCompletion()
 	require.True(t, done, "人工中止应立即判定完成")
 	assert.Equal(t, "control-plane: terminate", res.StopReason)
 }
 
-func TestCompletionDetector_MaxSteps(t *testing.T) {
-	d, _ := newDetector(t, 3)
-
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a2"})
-	_, done := d.checkNow()
-	assert.False(t, done, "2/3 步不应完成")
-
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a3"})
-	res, done := d.checkNow()
-	require.True(t, done, "3/3 步应触发完成")
-	assert.Equal(t, "max_steps_reached", res.StopReason)
-}
-
+// 暂停退出复用中止通道，且优先于动作预算：停止原因必须原样透传给 runner 分流。
 func TestCompletionDetector_AbortCarriesPauseReason(t *testing.T) {
-	d, _ := newDetector(t, 1)
+	d, store := newDetector(t, 1)
+	seedAction(t, store, "a1", true)
+	d.Abort(StopReasonPaused)
 
-	d.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	_, done := d.checkNow()
-	assert.True(t, done, "步数满足应触发完成")
-
-	d2, _ := newDetector(t, 1)
-	d2.feedEvent(bus.Event{Type: bus.EventActionCompleted, TaskID: "t1", ActionID: "a1"})
-	d2.Abort(StopReasonPaused)
-	res, done := d2.checkNow()
-	require.True(t, done, "人工中止应立即生效（暂停退出复用此通道）")
-	assert.Equal(t, StopReasonPaused, res.StopReason, "停止原因必须原样透传给 runner 分流")
+	res, done := d.checkCompletion()
+	require.True(t, done)
+	assert.Equal(t, StopReasonPaused, res.StopReason)
 }
 
-// checkNow 同步执行一次完成判定（测试的确定性驱动入口；生产走 Start 循环）。
-func (d *CompletionDetector) checkNow() (Result, bool) {
-	return d.checkCompletion()
-}
-
-// feedEvent 直接喂事件给检测器（测试绕过 bus 订阅注入；与 Start 共用 handleEvent）。
-func (d *CompletionDetector) feedEvent(event bus.Event) {
-	d.handleEvent(event)
-}
-
-// stats 获取当前统计快照（非阻塞，测试断言用）。
-func (d *CompletionDetector) stats() Result {
-	return d.makeResult("in_progress")
-}
-
-// agent 致命失败（如 LLM 配置错误）必须终结检测循环并携带错误——否则持续探索
-// 模式下任务永不收敛，停在 active。
+// agent 致命失败（如 LLM 配置错误）必须终结检测循环并携带错误——否则任务永不收敛，
+// 停在 active。
 func TestCompletionDetector_FailStopsWithError(t *testing.T) {
-	d := NewCompletionDetector(Config{TaskID: "t1", Bus: bus.New(context.Background()), Logger: zerolog.Nop(),
-		CheckInterval: 10 * time.Millisecond})
+	d, _ := newDetector(t, 0)
 	cause := errors.New("planner agent: http 401")
 	go d.Fail(cause)
 
@@ -119,6 +127,41 @@ func TestCompletionDetector_FailStopsWithError(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Fail 后检测循环未退出")
+	}
+}
+
+// 收敛由规划者直接通知，检测器立即结束（不等定时兜底检查）。
+func TestCompletionDetector_ConvergeStopsImmediately(t *testing.T) {
+	d := NewCompletionDetector(Config{
+		TaskID: detTask, Graph: explorationgraph.NewMemoryStore(), Logger: zerolog.Nop(), CheckInterval: time.Hour,
+	})
+	done := make(chan Result, 1)
+	go func() { done <- d.Start(context.Background()) }()
+
+	basis := explorationgraph.GoalBasis{ObjectiveID: "root", Version: 3}
+	d.Converge("planner: 无新方向且图上无未完结工作", basis)
+
+	select {
+	case r := <-done:
+		assert.Equal(t, StopReasonConverged, r.StopReason)
+		assert.Equal(t, basis, r.GoalBasis, "收敛带出它所依据的目标，任务落 completed 时以它为前置")
+	case <-time.After(2 * time.Second):
+		t.Fatal("收敛后检测器未结束")
+	}
+}
+
+// ctx 取消（run 被打断）时检测循环结束并如实报告。
+func TestCompletionDetector_ContextCancelled(t *testing.T) {
+	d, _ := newDetector(t, 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan Result, 1)
+	go func() { done <- d.Start(ctx) }()
+	cancel()
+	select {
+	case r := <-done:
+		assert.Equal(t, StopReasonCancelled, r.StopReason)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ctx 取消后检测器未结束")
 	}
 }
 
@@ -154,10 +197,8 @@ func TestAgentLifecycle_ReportsUnexpectedExit(t *testing.T) {
 	}
 }
 
-// TestCompletionDetector_AbortReasonNeverLostToConcurrentCheck：Abort 与后台兜底检查并发时，
-// 检查一旦观察到「已中止」就必须同时拿到调用方传入的原因，绝不能回落到兜底值——
-// 否则用户的中止原因被吞（CI 实测 TestCompletionDetector_AbortStillWorksE2E 偶发得到
-// "manual_abort"）。紧循环轮询放大竞态窗口。
+// Abort 与后台兜底检查并发时，检查一旦观察到「已中止」就必须同时拿到调用方传入的
+// 原因，绝不能回落到兜底值——否则用户的中止原因被吞。紧循环轮询放大竞态窗口。
 func TestCompletionDetector_AbortReasonNeverLostToConcurrentCheck(t *testing.T) {
 	const reason = "user requested termination"
 	for i := 0; i < 20000; i++ {

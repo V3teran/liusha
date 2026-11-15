@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/attachment"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/workspace"
 )
@@ -32,11 +33,11 @@ type AttachmentUploader interface {
 	SweepStalePending(maxAge time.Duration)
 }
 
-// AttachmentContext 解析 会话→任务→批次 链（供附件落位定 inbox）。
-// *conversation.Store + *task.Store 的组合满足（cmd/api 注入组合体）。
+// AttachmentContext 解析 会话→任务→批次 链（供附件落位定 inbox）：会话取所属任务，任务取所属批次。
+// *conversation.Store + *task.Store 的组合满足（api 组件注入组合体）。
 type AttachmentContext interface {
-	ResolveTaskID(ctx context.Context, conversationID string) (string, error)
-	GetSummary(ctx context.Context, id string) (task.Summary, error)
+	GetConversation(ctx context.Context, id string) (conversation.Conversation, error)
+	GetByID(ctx context.Context, id string) (task.Task, error)
 }
 
 // pendingStaleAfter 是未认领 pending 暂存目录的超期时长（每次上传顺手清扫）。
@@ -71,22 +72,22 @@ func uploadAttachmentHandler(up AttachmentUploader, ctx AttachmentContext, sizeC
 
 		var assignmentID, taskID string
 		if convID != "" {
-			taskID, err = ctx.ResolveTaskID(c.Request.Context(), convID)
+			conv, err := ctx.GetConversation(c.Request.Context(), convID)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found", "conversation_id": convID})
+					c.JSON(http.StatusNotFound, gin.H{"error": "会话不存在", "conversation_id": convID})
 					return
 				}
 				respondErr(c, http.StatusInternalServerError, err)
 				return
 			}
-			if taskID != "" {
-				sm, gerr := ctx.GetSummary(c.Request.Context(), taskID)
-				if gerr != nil {
-					respondErr(c, http.StatusInternalServerError, gerr)
+			if taskID = conv.TaskID; taskID != "" {
+				tk, err := ctx.GetByID(c.Request.Context(), taskID)
+				if err != nil {
+					respondErr(c, http.StatusInternalServerError, err)
 					return
 				}
-				assignmentID = sm.AssignmentID
+				assignmentID = tk.AssignmentID
 			}
 		}
 

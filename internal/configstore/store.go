@@ -38,10 +38,10 @@ var ErrCustomSkill = errors.New("自建技能没有出厂内容可恢复")
 // ToolCatalog 是工具全集：展开 agent 工具白名单的「全部」、校验工具引用。
 type ToolCatalog struct {
 	FunctionTools []string // 内置函数工具（registry.FunctionToolCatalog）
-	CliTools      []string // 沙箱 CLI 工具（tools.yaml；加载失败时为空）
+	CliTools      []string // 沙箱 CLI 工具（工具清单）
 }
 
-// ToolCatalogFrom 由函数工具目录与 CLI 工具清单（可为 nil：tools.yaml 加载失败）组装工具全集。
+// ToolCatalogFrom 由函数工具目录与 CLI 工具清单组装工具全集；m 为 nil 时不含 CLI 工具（测试只关心函数工具时用）。
 func ToolCatalogFrom(m *manifest.ToolManifest) ToolCatalog {
 	var tc ToolCatalog
 	for _, meta := range registry.FunctionToolCatalog {

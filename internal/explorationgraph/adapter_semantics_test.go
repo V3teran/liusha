@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mkObservation 构造一个假设 observation 节点（带 repro、unverified）。
-func mkObservation(id, taskID string, confidence *Confidence) Node {
+// mkObservation 构造一个观察节点：status 非空即假设（带 repro），为空即事实。
+func mkObservation(id, taskID string, status *VerificationStatus) Node {
 	n := Node{
 		ID:         id,
 		TaskID:     taskID,
@@ -19,117 +19,91 @@ func mkObservation(id, taskID string, confidence *Confidence) Node {
 		Content:    []byte(`{"statement":"SQLi at /api","repro":{"domain":"web"}}`),
 		SourceType: SourceExecutor,
 	}
-	if confidence != nil {
-		n.Confidence = confidence
+	if status != nil {
+		n.VerificationStatus = status
 	}
 	return n
 }
 
-// TestStore_ConfidenceRoundTrip 验证 confidence 枚举经存储往返不丢：
-// 写入侧落 metadata.confidence 枚举原文，读取侧从 metadata 恢复。
-func TestStore_ConfidenceRoundTrip(t *testing.T) {
+func statusOf(s VerificationStatus) *VerificationStatus { return &s }
+
+// 验证状态经存储往返不丢；只有假设带验证状态：事实与 result 都没有。
+func TestStore_VerificationStatusRoundTrip(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	unverified := ConfidenceUnverified
-	verified := ConfidenceVerified
-
-	// 假设以 unverified 入图
-	_, err := store.CreateNode(ctx, mkObservation("obs-uv", "task-1", &unverified))
+	_, err := store.CreateNode(ctx, mkObservation("obs-hyp", "task-1", statusOf(VerificationPending)))
 	require.NoError(t, err)
-	// 复现门坐实后的 result 以 verified 入图
 	_, err = store.CreateNode(ctx, Node{
-		ID:         "res-1",
-		TaskID:     "task-1",
-		Kind:       core.KindResult,
-		Content:    []byte(`{"summary":"SQLi"}`),
-		Confidence: &verified,
-		SourceType: SourceEvaluator,
+		ID: "res-1", TaskID: "task-1", Kind: core.KindResult,
+		Content: []byte(`{"statement":"SQLi"}`), SourceType: SourceEvaluator,
 	})
 	require.NoError(t, err)
-	// 执行记录（无 repro）不携带 confidence——不参与裁决生命周期
-	_, err = store.CreateNode(ctx, Node{
-		ID:         "obs-record",
-		TaskID:     "task-1",
-		Kind:       core.KindObservation,
-		Content:    []byte(`{"statement":"scan finished"}`),
-		SourceType: SourceExecutor,
-	})
+	_, err = store.CreateNode(ctx, mkObservation("obs-fact", "task-1", nil))
 	require.NoError(t, err)
 
-	obs, err := store.GetNode(ctx, "obs-uv")
+	hyp, err := store.GetNode(ctx, "obs-hyp")
 	require.NoError(t, err)
-	require.NotNil(t, obs.Confidence, "假设的 confidence 不得在往返中丢失")
-	assert.Equal(t, ConfidenceUnverified, *obs.Confidence)
+	require.NotNil(t, hyp.VerificationStatus, "假设的验证状态不得在往返中丢失")
+	assert.Equal(t, VerificationPending, *hyp.VerificationStatus)
+	assert.True(t, hyp.IsHypothesis())
+	assert.False(t, hyp.IsFact())
 
 	res, err := store.GetNode(ctx, "res-1")
 	require.NoError(t, err)
-	require.NotNil(t, res.Confidence)
-	assert.Equal(t, ConfidenceVerified, *res.Confidence)
+	assert.Nil(t, res.VerificationStatus, "result 就是坐实本身，不带验证状态")
+	assert.False(t, res.IsHypothesis() || res.IsFact(), "result 不是观察")
 
-	record, err := store.GetNode(ctx, "obs-record")
+	fact, err := store.GetNode(ctx, "obs-fact")
 	require.NoError(t, err)
-	assert.Nil(t, record.Confidence, "非假设观察不应携带 confidence")
+	assert.Nil(t, fact.VerificationStatus, "事实写入即终态，不带验证状态")
+	assert.True(t, fact.IsFact())
 }
 
-// TestStore_MetadataLeftoversReadable 验证 graph metadata 的非类型化键
-// （verification_outcome 等）读回时进入 Node.Metadata——planner 的
-// 证伪反馈环依赖此路径。
-func TestStore_MetadataLeftoversReadable(t *testing.T) {
+// evaluator 以浅合并回写验证结论：验证状态读回到类型化字段，证伪原因读回到 Metadata。
+func TestStore_VerificationMarkReadable(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	unverified := ConfidenceUnverified
-	_, err := store.CreateNode(ctx, mkObservation("obs-1", "task-1", &unverified))
+	_, err := store.CreateNode(ctx, mkObservation("obs-1", "task-1", statusOf(VerificationPending)))
 	require.NoError(t, err)
 
 	mark, err := json.Marshal(map[string]interface{}{
-		"verification_outcome": "refuted",
-		"confidence":           ConfidenceRefuted,
+		"verification_status": VerificationRefuted,
+		"refute_reason":       "invalid_recipe",
 	})
 	require.NoError(t, err)
 	require.NoError(t, store.UpdateNodeMetadata(ctx, "obs-1", mark))
 
 	node, err := store.GetNode(ctx, "obs-1")
 	require.NoError(t, err)
-	require.NotNil(t, node.Confidence)
-	assert.Equal(t, ConfidenceRefuted, *node.Confidence)
-
-	var m struct {
-		VerificationOutcome string `json:"verification_outcome"`
-	}
-	require.NoError(t, json.Unmarshal(node.Metadata, &m))
-	assert.Equal(t, "refuted", m.VerificationOutcome, "metadata 扩展键必须可读回")
+	assert.True(t, node.HasVerificationStatus(VerificationRefuted))
+	assert.Equal(t, "invalid_recipe", node.RefuteReason())
 }
 
-// TestStore_ListObservationsByConfidence 验证按裁决态圈定待裁决假设：
-// 只返回 confidence=unverified 的 observation。
-func TestStore_ListObservationsByConfidence(t *testing.T) {
+// 按验证状态圈定待验证假设：只返回本任务 pending 的假设。
+func TestStore_ListHypotheses(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	unverified := ConfidenceUnverified
-	verified := ConfidenceVerified
+	for _, n := range []Node{
+		mkObservation("obs-pending-1", "task-1", statusOf(VerificationPending)),
+		mkObservation("obs-pending-2", "task-1", statusOf(VerificationPending)),
+		mkObservation("obs-done", "task-1", statusOf(VerificationConfirmed)),
+		mkObservation("obs-fact", "task-1", nil),
+		mkObservation("obs-other-task", "task-2", statusOf(VerificationPending)), // 其他任务不得串入
+	} {
+		_, err := store.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
 
-	_, err := store.CreateNode(ctx, mkObservation("obs-pending-1", "task-1", &unverified))
+	pending, err := store.ListHypotheses(ctx, "task-1", VerificationPending, 0)
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkObservation("obs-pending-2", "task-1", &unverified))
-	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkObservation("obs-done", "task-1", &verified))
-	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkObservation("obs-record", "task-1", nil))
-	require.NoError(t, err)
-	// 其他 task 的假设不得串入
-	_, err = store.CreateNode(ctx, mkObservation("obs-other-task", "task-2", &unverified))
-	require.NoError(t, err)
+	assert.Len(t, pending, 2, "只应圈定本任务 pending 的假设")
 
-	pending, err := store.ListObservationsByConfidence(ctx, "task-1", ConfidenceUnverified, 0)
+	limited, err := store.ListHypotheses(ctx, "task-1", VerificationPending, 1)
 	require.NoError(t, err)
-	assert.Len(t, pending, 2, "只应圈定本 task 的 unverified 假设")
-
-	pendingLimited, err := store.ListObservationsByConfidence(ctx, "task-1", ConfidenceUnverified, 1)
-	require.NoError(t, err)
-	assert.Len(t, pendingLimited, 1, "limit 应生效")
+	assert.Len(t, limited, 1, "limit 应生效")
 }
 
 // TestStore_ListActionStates 验证状态投影：只取 id → state，不拉载荷。
@@ -137,11 +111,11 @@ func TestStore_ListActionStates(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("a-open", "task-1", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("a-open", "task-1", StateOpen))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateCompleted, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("a-done", "task-1", StateCompleted))
 	require.NoError(t, err)
-	_, err = store.CreateNode(ctx, mkActionNode("a-failed", "task-1", StateFailed, nil))
+	_, err = store.CreateNode(ctx, mkActionNode("a-failed", "task-1", StateFailed))
 	require.NoError(t, err)
 
 	states, err := store.ListActionStates(ctx, "task-1")
@@ -159,7 +133,7 @@ func TestStore_CreateNodeWithEdges(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	_, err := store.CreateNode(ctx, mkActionNode("a-1", "task-1", StateOpen, nil))
+	_, err := store.CreateNode(ctx, mkActionNode("a-1", "task-1", StateOpen))
 	require.NoError(t, err)
 
 	// 正常路径：observation 节点 + action → observation 边
@@ -191,7 +165,7 @@ func TestStore_ListEdgesTaskScoped(t *testing.T) {
 
 	for _, task := range []string{"task-1", "task-2"} {
 		// 溯源边随复合写落地（生产唯一边写入口）；动作节点前置创建供边引用。
-		if _, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen, nil)); err != nil {
+		if _, err := store.CreateNode(ctx, mkActionNode("a-"+task, task, StateOpen)); err != nil {
 			require.NoError(t, err)
 		}
 		require.NoError(t, store.CreateNodeWithEdges(ctx, mkObservation("obs-"+task, task, nil), []Edge{{

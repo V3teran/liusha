@@ -1,8 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ListChecks, MessageSquare, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
-import { JumpLink } from '@/components/JumpLink'
+import { JumpLinks } from '@/features/relations/TaskJumpLinks'
+import { taskJumps } from '@/features/relations/taskJumps'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
@@ -13,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { buildEvidenceView } from './findingEvidence'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
-import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
+import { sourceColor, sourceLabel } from '@/lib/source'
 
 interface FindingDrawerProps {
   open: boolean
@@ -59,8 +60,9 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content
           className={cn(
-            'tac-modal fixed right-0 top-0 flex h-full w-[720px] flex-col',
-            'rounded-l-2xl border-l border-border bg-surface shadow-2xl'
+            // 窄屏占满宽度（定宽会把左半截推出屏幕），sm 起是右侧定宽抽屉
+            'tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col sm:max-w-[720px]',
+            'border-border bg-surface shadow-2xl sm:rounded-l-2xl sm:border-l'
           )}
         >
           {/* 头部 */}
@@ -96,6 +98,25 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
           {/* 内容区域 */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
+              {/* 跳转：只看这个漏洞所属的任务、对话与探索图，探索图定位到坐实它的结果（规则见 taskJumps） */}
+              {finding.task_id && (
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
+                  <JumpLinks
+                    jumps={taskJumps(
+                      {
+                        taskId: finding.task_id,
+                        conversationId: finding.conversation_id ?? '',
+                        source: finding.source ?? '',
+                        from: 'task',
+                        explorationNode: finding.result_node_id,
+                      },
+                      ['task', 'conversation', 'exploration'],
+                    )}
+                  />
+                </section>
+              )}
+
               {/* 基本信息 */}
               <section>
                 <h3 className="mb-3 text-sm font-semibold text-text">基本信息</h3>
@@ -169,29 +190,6 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </section>
               )}
 
-              {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
-                  JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
-              {(finding.task_id || finding.conversation_id) && (
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {finding.task_id && (
-                      <JumpLink to={`/tasks?task=${encodeURIComponent(finding.task_id)}`} icon={ListChecks}>
-                        任务
-                      </JumpLink>
-                    )}
-                    {finding.conversation_id && (
-                      <JumpLink
-                        to={conversationPath(finding.source, finding.conversation_id)}
-                        icon={MessageSquare}
-                      >
-                        对话
-                      </JumpLink>
-                    )}
-                  </div>
-                </section>
-              )}
-
               {/* 修复建议（坐实主张随 remediation 落台账；无值不渲染） */}
               {finding.remediation?.trim() && (
                 <section>
@@ -204,7 +202,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 </section>
               )}
 
-              {/* 证据链三段式：复现步骤 / 机器证据 / 裁决——对齐漏洞报告
+              {/* 证据链三段式：复现步骤 / 机器证据 / 评估理由——对齐漏洞报告
                   标准结构（复现可执行、证据可核验、结论可追溯）。 */}
               {(ev.reproCommand || ev.assertReasons.length > 0 || ev.exploit || ev.judgeReasoning) && (
                 <section>
@@ -216,7 +214,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         dot={false}
                         color={ev.tier === 'full_gate' ? 'var(--status-success)' : 'var(--status-warning)'}
                       >
-                        {ev.tier === 'full_gate' ? '机器复放 + 终裁' : ev.tier === 'judge_only' ? '仅终裁' : ev.tier}
+                        {ev.tier === 'full_gate' ? '机器复放 + 终判' : ev.tier === 'judge_only' ? '仅终判' : ev.tier}
                       </Badge>
                     )}
                   </div>
@@ -275,10 +273,10 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       </div>
                     )}
 
-                    {/* 裁决：为什么判定成立（LLM 终裁理由，引用亲见差分） */}
+                    {/* 评估理由：为什么判定成立（LLM 终判理由，引用亲见差分） */}
                     {ev.judgeReasoning && (
                       <div className="rounded-lg border border-border bg-surface-2 p-4">
-                        <span className="mb-2 block text-sm font-medium text-text">裁决理由</span>
+                        <span className="mb-2 block text-sm font-medium text-text">评估理由</span>
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
                           {ev.judgeReasoning}
                         </p>

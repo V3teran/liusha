@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dev/down.sh — 关基础设施（postgres + redis + proxify）
+# scripts/dev/down.sh — 关本地开发依赖容器（postgres + redis + 沙盒）
 # 不删 volume，下次起仍保留数据；要彻底重置加 -v
 
 set -euo pipefail

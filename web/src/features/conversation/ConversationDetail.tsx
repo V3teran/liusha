@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Pause, Play, Square } from 'lucide-react'
-import { getConversationUsage, listMessages } from '@/api/conversations'
+import { listMessages } from '@/api/conversations'
 import { controlTask } from '@/api/tasks'
-import type { ConversationUsage } from '@/api/types'
 import { ApiError } from '@/api/client'
+import { taskKeys, useTaskDetail, useTaskUsage } from '@/features/tasks/useTaskQueries'
+import { conversationKeys, useConversation } from './useConversationQueries'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
 import { fullTime, humanDuration, humanTokens } from '@/lib/format'
@@ -40,17 +42,18 @@ function emptyCopy(source: 'direct' | 'proxy') {
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
 // 人工下发(direct) 与 代理捕获(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
+//
+// 对话只是通道：消息与时间线属于对话；状态、暂停、用量与控制都属于对话所属的任务，
+// 按任务 ID 取（纯聊天没有任务，不显示这些）。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
   // 加载失败分两态：missing = 会话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
   const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('open')
-  const [usage, setUsage] = useState<ConversationUsage | null>(null)
   const handleRef = useRef<StreamHandle | null>(null)
-  const usageDebounceRef = useRef<number | undefined>(undefined)
-  const convIdRef = useRef(convId)
-  convIdRef.current = convId
+  const refreshDebounceRef = useRef<number | undefined>(undefined)
+  const queryClient = useQueryClient()
   // 会话代际：每次打开会话与卸载都 +1。异步请求返回时代际已变 = 用户已切走或页面已离开，
   // 结果必须丢弃——否则迟到的历史会在卸载后重建 SSE、迟到的补拉会混进新会话。
   // （只比 convId 不够：卸载不改变 convId，同一会话重进也不改变。）
@@ -58,38 +61,36 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
   const hasConv = !!convId
   const startedAt = store.messages[0]?.created_at ?? ''
+  // 所属任务（纯聊天为空；聊天转为执行时中途关联上，见下方的事件驱动刷新）
+  const taskID = useConversation(convId ?? '').data?.task_id || ''
+  const task = useTaskDetail(taskID || null).data
   // 任务三档运行态：active（含暂停子态）/ 终态 / 无任务。控制组与状态文案据此派生。
-  const taskID = usage?.task_id || ''
-  const taskActive = hasConv && usage?.status === 'active' && !!taskID
-  const paused = taskActive && (usage?.paused ?? false)
-  const scanning = hasConv && (usage?.running ?? false) && !paused
-  const topStatus = taskStatusMeta(usage?.status)
+  const taskActive = hasConv && !!taskID && task?.status === 'active'
+  const paused = taskActive && !!task?.paused
+  const scanning = taskActive && !paused
+  const topStatus = taskStatusMeta(taskID ? task?.status : undefined)
+  const usage = useTaskUsage(taskID || null, taskActive).data
 
-  const refreshUsage = useCallback(async () => {
-    const reqConv = convIdRef.current
-    if (!reqConv) return
-    try {
-      const u = await getConversationUsage(reqConv)
-      if (convIdRef.current === reqConv) {
-        setUsage(u)
+  // 事件驱动刷新：每有新消息落定（seq 增长）防抖 800ms 重取对话（可能刚关联上任务）与任务的
+  // 状态、用量；任务进行中另有轮询兜底「最后一条消息之后的状态翻转」。
+  const refreshKeysRef = useRef({ convId, taskID })
+  refreshKeysRef.current = { convId, taskID }
+  const scheduleRefresh = useCallback(() => {
+    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current)
+    refreshDebounceRef.current = window.setTimeout(() => {
+      const { convId: c, taskID: t } = refreshKeysRef.current
+      if (c) void queryClient.invalidateQueries({ queryKey: conversationKeys.detail(c) })
+      if (t) {
+        void queryClient.invalidateQueries({ queryKey: taskKeys.detail(t) })
+        void queryClient.invalidateQueries({ queryKey: taskKeys.usage(t) })
       }
-
-    } catch {
-      // 静默
-    }
-  }, [])
-
-  // 事件驱动刷新：每有新消息落定（seq 增长）防抖 800ms 刷用量，不依赖固定轮询启发。
-  const scheduleUsageRefresh = useCallback(() => {
-    if (usageDebounceRef.current) clearTimeout(usageDebounceRef.current)
-    usageDebounceRef.current = window.setTimeout(refreshUsage, 800)
-  }, [refreshUsage])
+    }, 800)
+  }, [queryClient])
 
   const resetToEmpty = useCallback(() => {
     handleRef.current?.close()
     handleRef.current = null
     store.reset()
-    setUsage(null)
     setStreamStatus('open')
     setLoading(false)
     setLoadError(null)
@@ -100,7 +101,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       const gen = ++generationRef.current
       handleRef.current?.close()
       store.reset()
-      setUsage(null)
       setLoadError(null)
       setLoading(true)
       setStreamStatus('open')
@@ -118,9 +118,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       setLoading(false)
       for (const m of history) store.ingest(m)
       handleRef.current = openEventStream(convID, store, setStreamStatus)
-      void refreshUsage()
     },
-    [store, refreshUsage],
+    [store],
   )
 
   // convId 变化即切会话（含切到 undefined=新建态）。
@@ -134,20 +133,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId])
 
-  // 每有新消息落定（seq 增长）→防抖刷用量。
+  // 每有新消息落定（seq 增长）→防抖刷新。
   useEffect(() => {
-    scheduleUsageRefresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.lastSeq])
-
-  // 运行中兜底轮询：任务仍在 active（含暂停——等待继续翻转）每 4s 拉权威用量，
-  // 补「最后事件后终态翻转」；终态 running=false 自停。
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (taskActive) void refreshUsage()
-    }, 4000)
-    return () => clearInterval(timer)
-  }, [taskActive, refreshUsage])
+    if (store.lastSeq > 0) scheduleRefresh()
+  }, [store.lastSeq, scheduleRefresh])
 
   // 运行态翻转→通知父刷新左列表状态点（无需手动点 ↻）。
   const prevScanningRef = useRef(scanning)
@@ -158,24 +147,25 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
 
   useEffect(
     () => () => {
-      if (usageDebounceRef.current) clearTimeout(usageDebounceRef.current)
+      if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current)
     },
     [],
   )
 
+  const tokenTotal = usage ? usage.tokens.in + usage.tokens.out : 0
   const tokenTip = usage
     ? [
         `输入 ${humanTokens(usage.tokens.in)}`,
         `输出 ${humanTokens(usage.tokens.out)}`,
         `其中缓存命中 ${humanTokens(usage.tokens.cached)}`,
-        `合计 ${humanTokens(usage.tokens.total)}`,
+        `合计 ${humanTokens(tokenTotal)}`,
         `${usage.llm_calls} 次 LLM 调用`,
       ].join(' · ')
     : ''
   const durationTip = usage
     ? [
-        `墙钟 ${humanDuration(usage.duration_ms)}（发起→完成）`,
-        `工作时间 ${humanDuration(usage.work_ms)}（含子代理并发累加，故 > 墙钟）`,
+        `墙钟 ${humanDuration(usage.elapsed_ms)}（发起→完成）`,
+        `工作时间 ${humanDuration(usage.llm_latency_ms + usage.tool_duration_ms)}（含子代理并发累加，故 > 墙钟）`,
         `LLM ${humanDuration(usage.llm_latency_ms)} · 工具 ${humanDuration(usage.tool_duration_ms)} · ${usage.tool_calls} 次工具调用`,
       ].join(' · ')
     : ''
@@ -206,7 +196,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       window.alert(`操作失败：${(e as Error).message}`)
       return
     }
-    await refreshUsage()
+    await queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskID) })
   }
   const control = async (action: 'pause' | 'resume' | 'terminate') => {
     if (action === 'terminate') {
@@ -236,15 +226,15 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                 重连中…
               </span>
             )}
+          </div>
+          <div className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
             {startedAt && (
               <span className="font-mono text-xs text-text-secondary" title={`发起于 ${fullTime(startedAt)}`}>
                 发起 {fullTime(startedAt)}
               </span>
             )}
-          </div>
-          <div className="inline-flex items-center gap-3">
             <span className="inline-flex items-center gap-2.5">
-              {usage && usage.tokens.total > 0 && (
+              {usage && tokenTotal > 0 && (
                 <span className="inline-flex flex-wrap items-center gap-x-3.5 gap-y-1">
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={tokenTip}>
                     <span className="text-text-secondary">tokens</span>
@@ -254,7 +244,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </span>
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
                     <span className="text-text-secondary">耗时</span>
-                    <span className="font-mono text-text">{humanDuration(usage.duration_ms)}</span>
+                    <span className="font-mono text-text">{humanDuration(usage.elapsed_ms)}</span>
                   </span>
                 </span>
               )}
@@ -321,7 +311,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           ))}
         </div>
       ) : hasConv || store.messages.length > 0 ? (
-        <TimelineThread active={scanning} elapsedMs={usage?.duration_ms} />
+        <TimelineThread active={scanning} elapsedMs={usage?.elapsed_ms} />
       ) : (
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
           <div className="max-w-[420px] text-center text-text-secondary">

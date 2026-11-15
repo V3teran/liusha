@@ -35,25 +35,26 @@ var sseLog = logx.New("httpapi.sse")
 // 认证统一走 RequireAuth 的 liusha_session 会话 Cookie：SSE 的 EventSource 同源
 // 自动带 Cookie，与普通端点同一路径，无特例。
 
-// ChatAPI 是发起会话扫描的窄接口（cmd/api 注入 *dispatch.Service：建 conversation + task + 入队带 conversationID）。
+// ChatAPI 是发起会话扫描的窄接口（api 组件注入 *dispatch.Service：建 conversation + task + 入队带 conversationID）。
 type ChatAPI interface {
 	StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (conversationID, taskID string, err error)
 }
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
-	CountConversations(ctx context.Context, source string) (int, error)
+	ListConversations(ctx context.Context, f conversation.ListFilter) ([]conversation.Conversation, bool, error)
+	CountConversations(ctx context.Context, f conversation.ListFilter) (int, error)
+	GetConversation(ctx context.Context, id string) (conversation.Conversation, error)
 	ListMessages(ctx context.Context, conversationID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
-// EventSubscription 是一次会话事件订阅（cmd/api 用 convstream.Subscription 适配）。
+// EventSubscription 是一次会话事件订阅（api 组件用 convstream.Subscription 适配）。
 type EventSubscription interface {
 	Events() <-chan []byte
 	Close() error
 }
 
-// EventStream 订阅某会话的实时事件 channel（cmd/api 注入 redis-backed 适配器）。
+// EventStream 订阅某会话的实时事件 channel（api 组件注入 redis-backed 适配器）。
 type EventStream interface {
 	Subscribe(ctx context.Context, conversationID string) EventSubscription
 }
@@ -109,7 +110,7 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 
 // FollowUpAPI 处理会话追加消息：落 user 消息后立即返回，意图分类/分流在服务端异步完成。
 // intent 固定返回 "accepted"。扫描进行中/暂停中收到 action 指令的反馈由服务端异步
-// 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态裁决。
+// 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态判定。
 type FollowUpAPI interface {
 	HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (intent string, err error)
 }
@@ -195,9 +196,9 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations?limit=&offset=&_id=&source=：分页会话列表（UI 侧栏翻页）。
-// _id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
-// 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&source=&search=：分页会话列表（UI 侧栏翻页）。
+// source / search 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
+// 总条数」一致（若由前端在已分页的单页结果上再过滤，其它页搜不到，页码和条数也对不上）。
 // source ∈ {direct,proxy}：前端「人工下发 / 代理捕获」双 tab（纯聊天归 direct 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 // maxConversationListLimit 与 conversation.Store maxListLimit 一致（两层钳制数值契约）。
@@ -213,12 +214,13 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 		if limit > maxConversationListLimit {
 			limit = maxConversationListLimit
 		}
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), limit, parseOffset(c), source)
+		f := conversation.ListFilter{Source: source, Search: c.Query("search"), Limit: limit, Offset: parseOffset(c)}
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), f)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		total, err := api.CountConversations(c.Request.Context(), source)
+		total, err := api.CountConversations(c.Request.Context(), f)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -227,6 +229,18 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 			convs = []conversation.Conversation{} // 空集序列化为 []，与 messages 口径一致
 		}
 		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore, "total": total})
+	}
+}
+
+// getConversationHandler 处理 GET /conversations/:id：单个会话（标题、关联任务等）。不存在 404。
+func getConversationHandler(api ConversationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conv, err := api.GetConversation(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, conv)
 	}
 }
 

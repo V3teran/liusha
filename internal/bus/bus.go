@@ -24,12 +24,8 @@ type EventBus interface {
 
 	// 便捷方法
 	PublishActionProposed(taskID, actionID string)
-	PublishActionCompleted(taskID, actionID string)
-	PublishAttemptGenerated(taskID, actionID string, attempt interface{})
 	PublishVerificationPassed(taskID, nodeID string)
 	PublishVerificationRefuted(taskID, actionID string)
-	PublishTaskConverged(taskID, reason string)
-	PublishReplanRequested(taskID, reason string)
 }
 
 // TaskSubscription 是 Task 级订阅句柄：持有独立的广播 channel。
@@ -219,31 +215,6 @@ func (b *MemoryBus) PublishActionProposed(taskID, actionID string) {
 	})
 }
 
-// PublishActionCompleted 发布 action 完成事件（detector 计步 / planner 重规划）。
-func (b *MemoryBus) PublishActionCompleted(taskID, actionID string) {
-	b.Publish(Event{
-		Type:     EventActionCompleted,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-		},
-	})
-}
-
-// PublishAttemptGenerated 发布漏洞候选事件（evaluator 复现门消费）。
-func (b *MemoryBus) PublishAttemptGenerated(taskID, actionID string, attempt interface{}) {
-	b.Publish(Event{
-		Type:     EventAttemptGenerated,
-		TaskID:   taskID,
-		ActionID: actionID,
-		Payload: map[string]interface{}{
-			"action_id": actionID,
-			"attempt":   attempt,
-		},
-	})
-}
-
 // PublishVerificationPassed 发布复现坐实事件（planner 重规划依据）。
 func (b *MemoryBus) PublishVerificationPassed(taskID, nodeID string) {
 	b.Publish(Event{
@@ -263,30 +234,6 @@ func (b *MemoryBus) PublishVerificationRefuted(taskID, actionID string) {
 		ActionID: actionID,
 		Payload: map[string]interface{}{
 			"action_id": actionID,
-		},
-	})
-}
-
-// PublishTaskConverged 发布任务收敛事件（planner 无新 action 可生成）。
-// CompletionDetector 消费此事件以停止任务，避免空转 LLM 调用。
-func (b *MemoryBus) PublishTaskConverged(taskID, reason string) {
-	b.Publish(Event{
-		Type:   EventTaskConverged,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"reason": reason,
-		},
-	})
-}
-
-// PublishReplanRequested 发布重规划请求事件（monitor 触发）。
-// planner 立即响应并强制重规划，跳过 executable action 检查。
-func (b *MemoryBus) PublishReplanRequested(taskID, reason string) {
-	b.Publish(Event{
-		Type:   EventReplanRequested,
-		TaskID: taskID,
-		Payload: map[string]interface{}{
-			"reason": reason,
 		},
 	})
 }

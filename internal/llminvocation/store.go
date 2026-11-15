@@ -212,7 +212,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	rows := make([][]any, len(batch))
 	for i, c := range batch {
 		rows[i] = []any{
-			c.AgentRunID, c.TaskID,
+			c.AgentRunID, c.TaskID, c.ConversationID,
 			c.Provider, c.Model,
 			c.InTokens, c.OutTokens, c.CachedTokens,
 			c.LatencyMs,
@@ -224,7 +224,7 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 		ctx,
 		pgx.Identifier{"llm_invocation"},
 		[]string{
-			"agent_run_id", "task_id",
+			"agent_run_id", "task_id", "conversation_id",
 			"provider", "model",
 			"in_tokens", "out_tokens", "cached_tokens",
 			"latency_ms",
@@ -297,8 +297,8 @@ func (f ListFilter) whereAll() (conds []string, args []any) {
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
 	}
 	if f.Search != "" {
-		// 搜索：匹配 task_id/conversation_id/assignment_id
-		add("(li.task_id::text = $%d OR c.id::text = $%[1]d OR t.assignment_id::text = $%[1]d)", f.Search)
+		// 搜索：匹配 task_id/conversation_id/assignment_id（对话与批次按 invocationJoins 的归属口径）
+		add("(li.task_id::text = $%d OR "+invocationConversation+"::text = $%[1]d OR t.assignment_id::text = $%[1]d)", f.Search)
 	}
 	if f.Role != "" {
 		add("li.role = $%d", f.Role)
@@ -332,9 +332,21 @@ func (f ListFilter) limitOrDefault() int {
 	return f.Limit
 }
 
-// listSelect 是列表查询共享的列序与 JOIN（ListByTask / ListAll
-// 单一口径）：业务键
-// （conversation/assignment）经 JOIN 派生。新增列时两处同步改 scanListRow。
+// invocationJoins 是全部查询共用的归属联表：
+//   - tc：任务的对话（智能体运行的调用经 task_id 找对话；一个任务至多一个对话）
+//   - cc：调用自己记下的对话（对话里直接发起的调用：问答、意图分类、标题生成）
+//   - t / a：归属任务与批次——调用自己的任务，没有时取所在对话的任务（来源据此定标签页）
+const invocationJoins = `
+	LEFT JOIN conversation tc ON tc.task_id = li.task_id
+	LEFT JOIN conversation cc ON cc.id = li.conversation_id
+	LEFT JOIN task t ON t.id = COALESCE(li.task_id, cc.task_id)
+	LEFT JOIN assignment a ON a.id = t.assignment_id`
+
+// invocationConversation 是调用所属对话的表达式：自己记下的对话优先，否则是任务的对话。
+const invocationConversation = "COALESCE(cc.id, tc.id)"
+
+// listSelect 是列表查询共享的列序与 JOIN（ListByTask / ListAll 单一口径）：业务键
+// （conversation/assignment）经 invocationJoins 派生。新增列时同步改 scanListRow。
 const listSelect = `
 	SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
 	       li.provider, li.model,
@@ -342,11 +354,9 @@ const listSelect = `
 	       li.latency_ms,
 	       li.finish_reason, li.error_message, li.error_kind, li.role,
 	       li.created_at,
-	       c.id::text AS conversation_id,
+	       ` + invocationConversation + `::text AS conversation_id,
 	       t.assignment_id::text AS assignment_id
-	FROM llm_invocation li
-	LEFT JOIN task t ON t.id = li.task_id
-	LEFT JOIN conversation c ON c.task_id = li.task_id`
+	FROM llm_invocation li` + invocationJoins
 
 // scanListRow 是 listSelect 列序的统一反序列化点。
 func scanListRow(rows pgx.Rows, v *Invocation) error {
@@ -422,13 +432,10 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		       li.latency_ms,
 		       li.finish_reason, li.error_message, li.error_kind, li.role,
 		       li.messages, li.result, li.created_at,
-		       c.id::text AS conversation_id,
+		       `+invocationConversation+`::text AS conversation_id,
 		       t.assignment_id::text AS assignment_id,
 		       COALESCE(a.source, '')
-		FROM llm_invocation li
-		LEFT JOIN task t ON t.id = li.task_id
-		LEFT JOIN assignment a ON a.id = t.assignment_id
-		LEFT JOIN conversation c ON c.task_id = li.task_id
+		FROM llm_invocation li`+invocationJoins+`
 		WHERE li.id=$1`, id).Scan(
 		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
 		&v.Provider, &v.Model,
@@ -530,9 +537,7 @@ func (s *Store) CountAll(ctx context.Context, f ListFilter) (int, error) {
 	conds, args := f.whereAll()
 	q := fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM llm_invocation li
-		LEFT JOIN task t ON t.id = li.task_id
-		LEFT JOIN conversation c ON c.task_id = li.task_id
+		FROM llm_invocation li`+invocationJoins+`
 		WHERE %s`, strings.Join(conds, " AND "))
 	var total int
 	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
@@ -551,9 +556,7 @@ func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, erro
 		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
 		       COALESCE(SUM(cached_tokens),0),
 		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation li
-		LEFT JOIN task t ON t.id = li.task_id
-		LEFT JOIN conversation c ON c.task_id = li.task_id
+		FROM llm_invocation li`+invocationJoins+`
 		WHERE %s`, strings.Join(conds, " AND "))
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, q, args...).
@@ -562,6 +565,50 @@ func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, erro
 		return Aggregate{}, fmt.Errorf("aggregate all llm_invocation: %w", err)
 	}
 	return a, nil
+}
+
+// Facets 是角色 / 模型筛选的选项。
+type Facets struct {
+	Roles  []string
+	Models []string
+}
+
+// Facets 取角色与模型的可选值：来自整个筛选结果集（不是当前页），每个维度不受自身筛选
+// 影响——选中一个模型后其余模型仍可选；其它筛选（搜索、仅错误、时间）照常收窄。
+func (s *Store) Facets(ctx context.Context, f ListFilter) (Facets, error) {
+	roleFilter, modelFilter := f, f
+	roleFilter.Role, modelFilter.Model = "", ""
+	roles, err := s.distinct(ctx, "li.role", roleFilter)
+	if err != nil {
+		return Facets{}, err
+	}
+	models, err := s.distinct(ctx, "li.model", modelFilter)
+	if err != nil {
+		return Facets{}, err
+	}
+	return Facets{Roles: roles, Models: models}, nil
+}
+
+// distinct 取筛选结果集里某列的非空去重值（升序）。col 只取自本包常量，不来自输入。
+func (s *Store) distinct(ctx context.Context, col string, f ListFilter) ([]string, error) {
+	conds, args := f.whereAll()
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT %[1]s FROM llm_invocation li`+invocationJoins+`
+		WHERE %[2]s AND %[1]s <> ''
+		ORDER BY 1`, col, strings.Join(conds, " AND ")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("distinct %s: %w", col, err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("scan %s: %w", col, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 // DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，返回删除行数。

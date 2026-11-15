@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"mime"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/workspace"
 )
@@ -24,21 +26,80 @@ type WorkspaceFileAPI interface {
 	ZipTo(rel string, w io.Writer) error
 }
 
+// WorkspaceLabelsAPI 给工作区的批次 / 任务目录取显示名（*task.Store 满足）：返回 ID → 显示名，
+// 查不到的 ID 不出现。
+type WorkspaceLabelsAPI interface {
+	DirectoryLabels(ctx context.Context, assignmentIDs, taskIDs []string) (map[string]string, map[string]string, error)
+}
+
 const maxUploadBytes = 8 << 20 // 8 MiB：写入口的内容上限
 
-// getWorkspaceTreeHandler 处理 GET /workspaces/tree：整棵工作区文件树
-// （顶层任务目录按活动时间最新在前）。
-func getWorkspaceTreeHandler(api WorkspaceFileAPI) gin.HandlerFunc {
+// treeEntry 是目录树的一项：工作区条目 + 显示名（批次目录 = 批次标题，任务目录 = 任务目标；
+// 其余为空）。显示名随树下发，前端据此显示与搜索，不必为了取名字另拉全量任务。
+type treeEntry struct {
+	workspace.Entry
+	Label string `json:"label,omitempty"`
+}
+
+// getWorkspaceTreeHandler 处理 GET /workspaces/tree：整棵工作区文件树（顶层批次目录按活动时间
+// 最新在前），批次 / 任务目录带显示名。labels 为 nil 或取名失败时照常返回树（只是没有显示名）。
+func getWorkspaceTreeHandler(api WorkspaceFileAPI, labels WorkspaceLabelsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		entries, err := api.Tree()
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		if entries == nil {
-			entries = []workspace.Entry{}
+		out := make([]treeEntry, 0, len(entries))
+		for _, e := range entries {
+			out = append(out, treeEntry{Entry: e})
 		}
-		c.JSON(http.StatusOK, gin.H{"entries": entries})
+		if labels != nil {
+			labelTree(c.Request.Context(), labels, out)
+		}
+		c.JSON(http.StatusOK, gin.H{"entries": out})
+	}
+}
+
+// labelTree 给批次（第一层）与任务（第二层）目录填显示名。工作区布局是 <批次ID>/<任务ID>/…，
+// 不是 UUID 的目录名不查询（手工建的目录、游离文件）。
+func labelTree(ctx context.Context, labels WorkspaceLabelsAPI, entries []treeEntry) {
+	var assignmentIDs, taskIDs []string
+	for _, e := range entries {
+		if !e.IsDir {
+			continue
+		}
+		segs := strings.Split(strings.TrimSuffix(e.Path, "/"), "/")
+		id := segs[len(segs)-1]
+		if _, err := uuid.Parse(id); err != nil {
+			continue
+		}
+		switch len(segs) {
+		case 1:
+			assignmentIDs = append(assignmentIDs, id)
+		case 2:
+			taskIDs = append(taskIDs, id)
+		}
+	}
+	if len(assignmentIDs) == 0 && len(taskIDs) == 0 {
+		return
+	}
+	asgLabels, taskLabels, err := labels.DirectoryLabels(ctx, assignmentIDs, taskIDs)
+	if err != nil {
+		apiLog.Warn().Err(err).Msg("取工作区目录显示名失败（目录按 ID 显示）")
+		return
+	}
+	for i, e := range entries {
+		if !e.IsDir {
+			continue
+		}
+		segs := strings.Split(strings.TrimSuffix(e.Path, "/"), "/")
+		switch len(segs) {
+		case 1:
+			entries[i].Label = asgLabels[segs[0]]
+		case 2:
+			entries[i].Label = taskLabels[segs[1]]
+		}
 	}
 }
 

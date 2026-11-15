@@ -45,17 +45,17 @@ func (t *runCommandTool) Name() string      { return "run_command" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
 func (t *runCommandTool) Desc() string {
 	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。"
-	// 对外可达性契约：监听段未发布时 LLM 无从得知——它会把 nc -lvnp 4444 当
-	// 可回连的监听（实际仅容器内可达，反弹 shell 静默失败）。段发布时显式
-	// 告知可用端口段与回连地址，让 payload 一次写对；未发布时同样明示，
-	// 阻止注定失败的回连尝试。
+	// 对外可达性契约：不告知时 LLM 会把 nc -lvnp 4444 当可回连的监听（端口
+	// 未对外发布时目标连不进来，反弹 shell 静默失败）。提供监听段时显式告知
+	// 可用端口段与回连地址，让 payload 一次写对；未提供时同样明示，阻止注定
+	// 失败的回连尝试。
 	if t.deps.ListenerPortCount > 0 && t.deps.ListenerPortStart > 0 {
 		end := t.deps.ListenerPortStart + t.deps.ListenerPortCount - 1
 		if t.deps.CallbackHost != "" {
-			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口：宿主同号直达，payload 回连地址 %s；其它端口的监听仅容器内可达。长驻监听后台运行并重定向输出（如 nc -lvnp %d > /tmp/listener.log 2>&1 &）以免阻塞本步；端口被并行任务占用时换段内下一个。",
+			desc += fmt.Sprintf(" 需目标回连的监听（反弹 shell/代理/payload 托管）只绑 %d-%d 端口（目标经回连地址的同号端口直达），payload 回连地址 %s；其它端口不保证目标可达。长驻监听后台运行并重定向输出（如 nc -lvnp %d > /tmp/listener.log 2>&1 &）以免阻塞本步；端口被并行任务占用时换段内下一个。",
 				t.deps.ListenerPortStart, end, t.deps.CallbackHost, end)
 		} else {
-			desc += fmt.Sprintf(" 需目标回连的监听只绑 %d-%d 端口（宿主同号直达）；回连地址未配置（sandbox.callback_host），向操作员确认后再构造回连 payload。",
+			desc += fmt.Sprintf(" 需目标回连的监听只绑 %d-%d 端口（目标经回连地址的同号端口直达）；回连地址未配置（sandbox.callback_host），向操作员确认后再构造回连 payload。",
 				t.deps.ListenerPortStart, end)
 		}
 	} else {
@@ -89,7 +89,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	req := sandbox.ExecRequest{
 		AssignmentID:   t.deps.AssignmentID,
 		TaskID:         t.deps.TaskID,
-		AgentID:        t.deps.AgentRunID,
+		AgentRunID:     t.deps.AgentRunID,
 		Command:        a.Command,
 		TimeoutSeconds: a.TimeoutSeconds,
 		Tag:            a.Tag,
@@ -224,7 +224,7 @@ func newDriveBrowserTool(deps Deps, timeout time.Duration) *driveBrowserTool {
 	return t
 }
 
-func (t *driveBrowserTool) Name() string { return "drive_browser" }
+func (t *driveBrowserTool) Name() string { return DriveBrowser }
 func (t *driveBrowserTool) ShortDesc() string {
 	return "用真实浏览器操作目标页面（原子操作）"
 }
@@ -249,7 +249,7 @@ func shellJoin(parts ...string) string {
 	return strings.Join(quoted, " ")
 }
 
-// browserCmdArgs 是 drive_browser 的参数（字段与 browser-svc.py 子命令约定对应）。
+// browserCmdArgs 是 drive_browser 的参数（字段与沙盒浏览器服务的子命令约定对应）。
 type browserCmdArgs struct {
 	Action    string `json:"action"`
 	URL       string `json:"url"`
@@ -292,7 +292,7 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	}
 
 	// 4. 尝试修复退化的浏览器 daemon
-	res, unrecovered := t.tryHealBrowserDaemon(ctx, command, res)
+	res, unrecovered := t.tryHealBrowserDaemon(ctx, &a, command, res)
 
 	// 5. 格式化输出
 	output := formatBrowserOutput(res, a.TimeoutSeconds)
@@ -389,12 +389,13 @@ func orDash(s string) string {
 	return s
 }
 
-// browserIdentity 拼接浏览器身份隔离键：{taskID}-{身份名}。
-// 身份名清洗为 [a-zA-Z0-9_-]（它将进入 unix socket 文件名 /tmp/browser-svc-{IDENTITY}.sock，
-// 非法字符会被文件系统拒绝）。taskID 为 UUID 天然安全。
-func browserIdentity(taskID, identity string) string {
+// browserIdentity 把 agent 给的身份清洗为身份名（缺省 default）：非 [a-zA-Z0-9_-] 的字符换成
+// -。身份名是沙盒里浏览器服务的端点文件名，且原样进 shell 命令。任务隔离由沙盒按命令所属任务
+// 完成（同名身份在不同任务里是不同的浏览器），这里不拼任务前缀——agent 在 run_command 里手写
+// IDENTITY=<身份名> 时与本工具指向同一个浏览器。
+func browserIdentity(identity string) string {
 	if identity == "" {
-		identity = "default"
+		return "default"
 	}
 	var b strings.Builder
 	for _, r := range identity {
@@ -405,20 +406,7 @@ func browserIdentity(taskID, identity string) string {
 			b.WriteRune('-')
 		}
 	}
-	if taskID == "" {
-		return b.String()
-	}
-	return taskID + "-" + b.String()
-}
-
-// BrowserCleanupScript 生成本任务浏览器身份的清理脚本（任务结束时经沙箱 exec）：
-// 逐个优雅 reset 本 taskID 前缀的所有身份 daemon（reset 会连带关闭其 chromium）。
-// 只匹配本任务前缀，并发任务的其他身份不受影响。
-func BrowserCleanupScript(taskID string) string {
-	if taskID == "" {
-		return ""
-	}
-	return fmt.Sprintf(`sh -c 'for s in /tmp/browser-svc-%s-*.sock; do [ -e "$s" ] || continue; i="${s#/tmp/browser-svc-}"; i="${i%%.sock}"; IDENTITY="$i" browser-use reset; done'`, taskID)
+	return b.String()
 }
 
 // browserDegraded 识别 browser-use 库的退化态错误签名（watchdog 内部超时等），

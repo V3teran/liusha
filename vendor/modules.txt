@@ -324,6 +324,15 @@ github.com/goccy/go-yaml/parser
 github.com/goccy/go-yaml/printer
 github.com/goccy/go-yaml/scanner
 github.com/goccy/go-yaml/token
+# github.com/golang-migrate/migrate/v4 v4.19.1
+## explicit; go 1.24.0
+github.com/golang-migrate/migrate/v4
+github.com/golang-migrate/migrate/v4/database
+github.com/golang-migrate/migrate/v4/database/multistmt
+github.com/golang-migrate/migrate/v4/database/pgx/v5
+github.com/golang-migrate/migrate/v4/internal/url
+github.com/golang-migrate/migrate/v4/source
+github.com/golang-migrate/migrate/v4/source/iofs
 # github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
@@ -370,6 +379,9 @@ github.com/hibiken/asynq/internal/timeutil
 # github.com/invopop/jsonschema v0.14.0
 ## explicit; go 1.24
 github.com/invopop/jsonschema
+# github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
+## explicit; go 1.12
+github.com/jackc/pgerrcode
 # github.com/jackc/pgpassfile v1.0.0
 ## explicit; go 1.12
 github.com/jackc/pgpassfile
@@ -389,6 +401,7 @@ github.com/jackc/pgx/v5/pgconn/internal/bgreader
 github.com/jackc/pgx/v5/pgproto3
 github.com/jackc/pgx/v5/pgtype
 github.com/jackc/pgx/v5/pgxpool
+github.com/jackc/pgx/v5/stdlib
 github.com/jackc/pgx/v5/tracelog
 # github.com/jackc/puddle/v2 v2.2.2
 ## explicit; go 1.19
@@ -1038,6 +1051,7 @@ golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
+golang.org/x/sys/windows/svc
 # golang.org/x/text v0.40.0
 ## explicit; go 1.25.0
 golang.org/x/text/cases
@@ -1087,10 +1101,6 @@ golang.org/x/tools/internal/versions
 ## explicit; go 1.18
 golang.org/x/xerrors
 golang.org/x/xerrors/internal
-# google.golang.org/genproto/googleapis/rpc v0.0.0-20250818200422-3122310a409c
-## explicit; go 1.23.0
-# google.golang.org/grpc v1.74.2
-## explicit; go 1.23.0
 # google.golang.org/protobuf v1.36.11
 ## explicit; go 1.23
 google.golang.org/protobuf/encoding/prototext

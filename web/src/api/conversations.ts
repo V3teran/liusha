@@ -6,26 +6,36 @@
  */
 
 import { API_BASE, get, patch, post } from './client'
-import type { AttachmentRef, Conversation, ConversationUsage, Message } from './types'
+import type { AttachmentRef, Conversation, Message } from './types'
+
+/** 单个会话（标题、关联任务等）；不存在时抛 404。 */
+export async function getConversation(convID: string): Promise<Conversation> {
+  return get<Conversation>(`/conversations/${encodeURIComponent(convID)}`)
+}
 
 /**
  * 分页获取会话列表（offset 翻页——会话列表按 updated_at 排序，活跃会话会被顶到最前，
  * 没有稳定单调游标可用，故用 offset；这个数据量级下足够，翻页时小幅重排是可接受的权衡）。
  *
- * source 过滤下沉到服务端（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
- * 否则「当前 tab 下共 N 个会话」与实际翻得到的条数会对不上。
- *
- * @param limit 每页条数（后端默认 30）
- * @param offset 跳过条数（默认 0 = 首页）
- * @param source 可选，按下发来源过滤（direct 人工下发 / proxy 代理捕获；纯聊天归 direct）
+ * 来源与关键词都在服务端过滤（非前端在单页结果上再过滤）：分页边界必须建立在已过滤的集合上，
+ * 否则其它页的会话搜不到，「共 N 个会话」与实际翻得到的条数也对不上。
  */
-export async function listConversations(
+export interface ConversationQuery {
+  limit?: number // 每页条数（后端默认 30）
+  offset?: number // 跳过条数（默认 0 = 首页）
+  source?: string // 下发来源（direct 人工下发 / proxy 代理捕获；纯聊天归 direct）
+  search?: string // 关键词：会话标题、所属任务的目标或会话 ID 前缀
+}
+
+export async function listConversations({
   limit = 30,
   offset = 0,
   source = '',
-): Promise<{ conversations: Conversation[]; hasMore: boolean; total: number }> {
+  search = '',
+}: ConversationQuery = {}): Promise<{ conversations: Conversation[]; hasMore: boolean; total: number }> {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (source) q.set('source', source)
+  if (search.trim()) q.set('search', search.trim())
   const res = await get<{ conversations: Conversation[] | null; has_more: boolean; total: number }>(`/conversations?${q}`)
   // 后端无数据时 conversations 返回 null（Go 的 nil slice 序列化为 null 而非 []）——
   // 归一为空数组，避免下游 items.length 等消费点炸。
@@ -61,14 +71,6 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
 }
 
 /**
- * 拉取本会话的用量合计（权威：后端 SUM llm_invocation + tool_invocation）。
- * 用于会话头部 token / 耗时 chip，支持轮询实时刷新。
- */
-export async function getConversationUsage(convID: string): Promise<ConversationUsage> {
-  return get<ConversationUsage>(`/conversations/${convID}/usage`)
-}
-
-/**
  * 从会话发起任务
  * @param brief 任务目标描述
  * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
@@ -82,7 +84,7 @@ export async function startChat(
 
 /**
  * 多轮：往已有会话追加动作消息。落库即 200，意图分类与分流在服务端异步完成——
- * 扫描进行中/暂停中收到 action 指令的反馈由时间线提示消息给出（无同步 busy 裁决）。
+ * 扫描进行中/暂停中收到 action 指令的反馈由时间线提示消息给出（无同步 busy 判定）。
  * @param convID 会话 ID
  * @param content 消息内容
  * @returns intent

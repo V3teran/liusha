@@ -9,7 +9,6 @@ export function FileTree({
   entries,
   selected,
   collapsed,
-  nameMaps,
   onToggleDir,
   onSelect,
   onDownload,
@@ -18,29 +17,23 @@ export function FileTree({
   entries: WorkspaceEntry[]
   selected: string | null
   collapsed: Set<string>
-  nameMaps: { taskTitle: Record<string, string>; assignLabel: Record<string, string> }
   onToggleDir: (dirPath: string) => void
   onSelect: (path: string) => void
   onDownload: (path: string) => void
   onDelete: (path: string) => void
 }) {
-  /** 目录条目展示名：批次/任务层用人类可读名（批次标题 / 任务 brief，截 36 字），
-   * 更深层用末段名——每个目录只展示自己的名字，不叠角色前缀。 */
+  /** 目录条目展示名：批次/任务层用接口给的显示名（批次标题 / 任务目标，截 36 字），
+   * 其余用末段名——每个目录只展示自己的名字，不叠角色前缀。 */
   function dirDisplayName(e: WorkspaceEntry): string {
     const segs = e.path.replace(/\/$/, '').split('/')
-    const trunc = (v: string) => (v.length > 36 ? v.slice(0, 36) + '…' : v)
-    if (segs.length === 1) return trunc(nameMaps.assignLabel[segs[0]] ?? segs[0])
-    if (segs.length === 2) return trunc(nameMaps.taskTitle[segs[1]] ?? segs[1])
+    if (e.label) return e.label.length > 36 ? e.label.slice(0, 36) + '…' : e.label
     return segs[segs.length - 1]
   }
 
   /** 行悬停 title：与展示名同一套语义的全名（不截断、无 UUID 前缀）——
    * 原始路径对人无意义，删除确认框里仍有完整原始路径兜底。 */
   function rowTitle(e: WorkspaceEntry): string {
-    const segs = e.path.replace(/\/$/, '').split('/')
-    if (e.is_dir && segs.length === 1) return nameMaps.assignLabel[segs[0]] ?? segs[0]
-    if (e.is_dir && segs.length === 2) return nameMaps.taskTitle[segs[1]] ?? segs[1]
-    return displayPath(e.path)
+    return e.label || displayPath(e.path)
   }
 
   return (

@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/V3teran/liusha/internal/framework/core"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/core"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,15 +25,15 @@ import (
 //
 // 字段映射（9 列，唯一事实源 = content + metadata）：
 // - core.GraphNode.ID → exploration_node.id (uuid)
-// - core.GraphNode.TaskID（经 Metadata["task_id"]）→ exploration_node.task_id (uuid，查询维度)
+// - core.GraphNode.TaskID → exploration_node.task_id (uuid，归属与查询维度)
 // - core.GraphNode.Kind → exploration_node.kind（查询维度）
 // - core.GraphNode.Content → exploration_node.content (JSONB)
-// - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含 confidence 枚举等扩展位)
+// - core.GraphNode.Metadata → exploration_node.metadata (JSONB，含验证状态等扩展位)
 // - core.GraphNode.State → exploration_node.state（查询维度）
 // - core.GraphNode.CreatedAt/UpdatedAt/Version → 同名列
 //
-// confidence 是验证生命周期枚举（unverified/verified/refuted），以枚举原文存
-// metadata["confidence"]——由复现门独占写权流转，非置信度数值。
+// 假设观察的验证状态（pending/confirmed/refuted）以枚举原文存 metadata["verification_status"]，
+// 由复现门独占写权流转。
 type GraphStore struct {
 	pool      *pgxpool.Pool
 	nodeTable string // 节点表名（默认 exploration_node）
@@ -70,10 +72,9 @@ func (s *GraphStore) insertNode(ctx context.Context, db execer, node *core.Graph
 		return errors.New("node kind cannot be empty")
 	}
 
-	// task_id 是唯一的列级归属维度（经 metadata 传递，见字段映射）
-	taskID := s.extractString(node.Metadata, "task_id", "")
+	taskID := node.TaskID
 	if taskID == "" {
-		return errors.New("node metadata.task_id is required")
+		return errors.New("node task_id is required")
 	}
 
 	metadataJSON, err := json.Marshal(node.Metadata)
@@ -133,7 +134,7 @@ func (s *GraphStore) GetNode(ctx context.Context, id string) (*core.GraphNode, e
 
 	query := `
 		SELECT
-			id, kind, content, state, version,
+			id, task_id, kind, content, state, version,
 			metadata, created_at, updated_at
 		FROM ` + s.nodeTable + `
 		WHERE id = $1
@@ -145,6 +146,7 @@ func (s *GraphStore) GetNode(ctx context.Context, id string) (*core.GraphNode, e
 
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&node.ID,
+		&node.TaskID,
 		&node.Kind,
 		&node.Content,
 		&state,
@@ -295,38 +297,6 @@ func (s *GraphStore) ListNodes(ctx context.Context, query core.GraphNodeQuery) (
 	return executeListNodesQuery(ctx, s.pool, sqlQuery, args)
 }
 
-// CompareAndSwapState 原子性地比较并交换节点状态。
-// 单条 UPDATE 同时承担条件检查与写入（WHERE state = expectedState），
-// 不存在读-改-写窗口；version 由数据库触发器在同一语句内自增。
-// 返回 (true, nil) 表示更新成功；(false, nil) 表示状态不匹配或节点不存在。
-func (s *GraphStore) CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error) {
-	if nodeID == "" {
-		return false, errors.New("node ID cannot be empty")
-	}
-	if expectedState == "" || newState == "" {
-		return false, errors.New("expectedState and newState cannot be empty")
-	}
-
-	query := `
-		UPDATE ` + s.nodeTable + `
-		SET state = $1, updated_at = $2
-		WHERE id = $3 AND state = $4
-	`
-	args := []interface{}{newState, time.Now(), nodeID, expectedState}
-
-	if taskID != "" {
-		query += ` AND task_id = $5`
-		args = append(args, taskID)
-	}
-
-	result, err := s.pool.Exec(ctx, query, args...)
-	if err != nil {
-		return false, fmt.Errorf("update state: %w", err)
-	}
-
-	return result.RowsAffected() > 0, nil
-}
-
 // CreateNodeWithEdges 在单个事务内创建节点及其关联边。
 func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNode, edges []*core.GraphEdge) error {
 	tx, err := s.pool.Begin(ctx)
@@ -350,8 +320,10 @@ func (s *GraphStore) CreateNodeWithEdges(ctx context.Context, node *core.GraphNo
 	return nil
 }
 
-// ApplyChangeSet 在单个事务内应用变更集：建节点 → 条件状态迁移 → 元数据批注 → 建边。
-// 迁移沿用 CompareAndSwapState 的单语句 CAS（WHERE state = From），零行受影响
+// ApplyChangeSet 在单个事务内应用变更集：版本前置 → 建节点 → 条件状态迁移 → 元数据
+// 批注 → 建边。版本前置以 FOR SHARE 读取：并发改写先提交则读到新版本（前置不成立，
+// 返回 core.ErrVersionMismatch），未提交则等它落定后再读；读到后节点被共享锁定到
+// 本事务提交。迁移是单语句 CAS（WHERE state = From 且元数据满足 Guard），零行受影响
 // 即前置不成立，回滚并返回 core.ErrGraphStateConflict。
 func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChangeSet) error {
 	tx, err := s.pool.Begin(ctx)
@@ -360,22 +332,24 @@ func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChang
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	for _, p := range changes.Preconditions {
+		if err := s.checkPrecondition(ctx, tx, p); err != nil {
+			return err
+		}
+	}
+
 	for _, node := range changes.Nodes {
 		if err := s.insertNode(ctx, tx, node); err != nil {
 			return err
 		}
 	}
 
-	query := `
-		UPDATE ` + s.nodeTable + `
-		SET state = $1, updated_at = $2
-		WHERE id = $3 AND task_id = $4 AND state = $5
-	`
 	for _, t := range changes.Transitions {
 		if t.TaskID == "" || t.NodeID == "" || t.From == "" || t.To == "" {
 			return errors.New("state transition requires task_id, node_id, from and to")
 		}
-		tag, err := tx.Exec(ctx, query, t.To, time.Now(), t.NodeID, t.TaskID, t.From)
+		query, args := s.transitionSQL(t)
+		tag, err := tx.Exec(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("transition %s %s→%s: %w", t.NodeID, t.From, t.To, err)
 		}
@@ -400,6 +374,45 @@ func (s *GraphStore) ApplyChangeSet(ctx context.Context, changes core.GraphChang
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+// checkPrecondition 在事务内校验一条版本前置并共享锁定该节点（见 ApplyChangeSet）。
+func (s *GraphStore) checkPrecondition(ctx context.Context, tx pgx.Tx, p core.GraphNodeVersion) error {
+	if p.TaskID == "" || p.NodeID == "" {
+		return errors.New("version precondition requires task_id and node_id")
+	}
+	var version int64
+	err := tx.QueryRow(ctx, `SELECT version FROM `+s.nodeTable+` WHERE id = $1 AND task_id = $2 FOR SHARE`,
+		p.NodeID, p.TaskID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("precondition %s: %w", p.NodeID, core.ErrGraphNodeNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("precondition %s: %w", p.NodeID, err)
+	}
+	if version != p.Version {
+		return fmt.Errorf("precondition %s version %d≠%d: %w", p.NodeID, version, p.Version, core.ErrVersionMismatch)
+	}
+	return nil
+}
+
+// transitionSQL 构造一条条件迁移：状态前置 + Guard 的逐键相等前置。
+func (s *GraphStore) transitionSQL(t core.GraphStateTransition) (string, []interface{}) {
+	query := `
+		UPDATE ` + s.nodeTable + `
+		SET state = $1, updated_at = $2
+		WHERE id = $3 AND task_id = $4 AND state = $5`
+	args := []interface{}{t.To, time.Now(), t.NodeID, t.TaskID, t.From}
+	keys := make([]string, 0, len(t.Guard))
+	for k := range t.Guard {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		query += fmt.Sprintf(" AND metadata->>$%d = $%d", len(args)+1, len(args)+2)
+		args = append(args, k, t.Guard[k])
+	}
+	return query, args
 }
 
 // annotate 在事务内浅合并一条元数据批注。一次性批注（Once）以「键均不存在」
@@ -443,17 +456,6 @@ func (s *GraphStore) annotate(ctx context.Context, tx pgx.Tx, a core.GraphNodeAn
 		}
 	}
 	return fmt.Errorf("annotate %s: %w", a.NodeID, core.ErrGraphNodeNotFound)
-}
-
-// extractString 从 map 中读取字符串值（缺失或非字符串时返回 defaultValue）。
-func (s *GraphStore) extractString(m map[string]interface{}, key, defaultValue string) string {
-	if m == nil {
-		return defaultValue
-	}
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return defaultValue
 }
 
 func nullString(s string) *string {

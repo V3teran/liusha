@@ -20,10 +20,10 @@ import (
 type fakePlanner struct {
 	callCount int32
 	errors    []error
-	result    []explorationgraph.Node
+	result    []explorationgraph.ActionDraft
 }
 
-func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ []string) ([]explorationgraph.Node, error) {
+func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ PlanRequest) ([]explorationgraph.ActionDraft, error) {
 	idx := int(atomic.AddInt32(&f.callCount, 1)) - 1
 	if idx < len(f.errors) {
 		return nil, f.errors[idx]
@@ -46,24 +46,16 @@ func (f *fakeEventBus) SubscribeTask(_ string) *bus.TaskSubscription {
 
 func (f *fakeEventBus) PublishActionProposed(_, _ string) {}
 
-func (f *fakeEventBus) PublishActionCompleted(_, _ string) {}
-
-func (f *fakeEventBus) PublishAttemptGenerated(_, _ string, _ interface{}) {}
-
 func (f *fakeEventBus) PublishVerificationPassed(_, _ string) {}
 
 func (f *fakeEventBus) PublishVerificationRefuted(_, _ string) {}
-
-func (f *fakeEventBus) PublishTaskConverged(_, _ string) {}
-
-func (f *fakeEventBus) PublishReplanRequested(_, _ string) {}
 
 func TestGenerateNewActions_RetryOn429(t *testing.T) {
 	fake := &fakePlanner{
 		errors: []error{
 			errors.New("429 Too Many Requests"),
 		},
-		result: []explorationgraph.Node{{ID: "action-1"}},
+		result: []explorationgraph.ActionDraft{{Node: explorationgraph.Node{ID: "action-1"}}},
 	}
 
 	agent := &Agent{
@@ -81,7 +73,7 @@ func TestGenerateNewActions_RetryOn429(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Len(t, actions, 1)
-	assert.Equal(t, "action-1", actions[0].ID)
+	assert.Equal(t, "action-1", actions[0].Node.ID)
 	assert.Equal(t, int32(2), fake.callCount) // 第一次失败，第二次成功
 }
 
@@ -91,7 +83,7 @@ func TestGenerateNewActions_RetryOnTimeout(t *testing.T) {
 			errors.New("context deadline exceeded"),
 			errors.New("context deadline exceeded"),
 		},
-		result: []explorationgraph.Node{{ID: "action-1"}},
+		result: []explorationgraph.ActionDraft{{Node: explorationgraph.Node{ID: "action-1"}}},
 	}
 
 	agent := &Agent{

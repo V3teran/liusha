@@ -24,13 +24,13 @@ describe('source', () => {
 
 describe('conversationPath', () => {
   it('路径段等于来源值，带会话 id 时编码为 conv 参数', () => {
-    expect(conversationPath('proxy', 'c 1')).toBe('/conversations/proxy?conv=c%201')
-    expect(conversationPath('direct', 'c1')).toBe('/conversations/direct?conv=c1')
+    expect(conversationPath('proxy', 'c 1')).toBe('/conversations/proxy?conversation=c%201')
+    expect(conversationPath('direct', 'c1')).toBe('/conversations/direct?conversation=c1')
   })
 
   it('缺失或未知来源落人工下发 tab', () => {
-    expect(conversationPath(undefined, 'c1')).toBe('/conversations/direct?conv=c1')
-    expect(conversationPath('', 'c1')).toBe('/conversations/direct?conv=c1')
+    expect(conversationPath(undefined, 'c1')).toBe('/conversations/direct?conversation=c1')
+    expect(conversationPath('', 'c1')).toBe('/conversations/direct?conversation=c1')
     expect(conversationPath('weird')).toBe('/conversations/direct')
   })
 })

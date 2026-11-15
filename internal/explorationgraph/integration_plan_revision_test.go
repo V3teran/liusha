@@ -42,7 +42,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 	open := StateOpen
 	mk := func(id string, kind core.NodeKind, source SourceType, state *State) Node {
 		return Node{ID: id, TaskID: taskID, Kind: kind, State: state, SourceType: source,
-			Content: []byte(`{"description":"d","summary":"s"}`), CreatedAt: time.Now()}
+			Content: []byte(`{"description":"d","statement":"s"}`), CreatedAt: time.Now()}
 	}
 	for _, n := range []Node{
 		mk(rootID, core.KindObjective, SourceUser, &open),
@@ -59,7 +59,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 	}
 
 	// 1. 拆分吸收 + 宣告达成 + 延续动作，一次修订原子落库
-	report, err := store.RevisePlan(ctx, taskID, PlanRevision{
+	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
 		AddedActions:        []ActionDraft{{Node: mk(actionID, core.KindAction, SourcePlanner, &open), TriggeredBy: []string{resultID}}},
 		AddedObjectives:     []ObjectiveDraft{draftOf(newA, oldID, rootID), draftOf(newB, oldID)},
 		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: doneID, Evidence: []string{resultID}}},
@@ -109,9 +109,9 @@ func TestRevisePlanPostgres(t *testing.T) {
 }
 
 // TestTransitionStateKeepsIdentityPostgres 锁定 PG 端的元数据合并语义：带原因的
-// 状态迁移（monitor kill）只合并 blocked_reason——此前整体替换 metadata，被杀动作
-// 的来源、优先级、依赖全部丢失，而内存后端是合并语义，单测看不出来。
-func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
+// 否决与分析水位都只合并各自的键（state_reason / rejected_by、analyzed）：整体替换
+// metadata 会抹掉节点的来源、优先级等身份字段，而内存后端是合并语义，单测看不出来。
+func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -126,26 +126,31 @@ func TestTransitionStateKeepsIdentityPostgres(t *testing.T) {
 		resultID = "2b2f6a9e-1111-4111-8111-000000000002"
 	)
 	open := StateOpen
-	_, err := store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh,
-		DependsOn: []string{"2b2f6a9e-1111-4111-8111-0000000000ff"}, Content: []byte(`{"instruction":"x"}`)})
+	_, err := store.CreateNode(ctx, Node{ID: "2b2f6a9e-1111-4111-8111-0000000000ff", TaskID: taskID, Kind: core.KindObjective,
+		State: &open, SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
+	require.NoError(t, err)
+	_, err = store.CreateNode(ctx, Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
+		SourceType: SourcePlanner, Priority: PriorityHigh,
+		Content: []byte(`{"instruction":"x"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,
-		SourceType: SourceEvaluator, Content: []byte(`{"summary":"s"}`)})
+		SourceType: SourceEvaluator, Content: []byte(`{"statement":"s"}`)})
 	require.NoError(t, err)
 
-	reason := "monitor killed"
-	require.NoError(t, store.TransitionState(ctx, actionID, StateAborted, &reason))
+	reason := "偏离目标"
+	ok, err := store.RejectAction(ctx, taskID, actionID, SourceMonitor, reason)
+	require.NoError(t, err)
+	require.True(t, ok)
 	action, err := store.GetNode(ctx, actionID)
 	require.NoError(t, err)
-	assert.Equal(t, StateAborted, *action.State)
-	assert.Equal(t, reason, *action.BlockedReason)
+	assert.Equal(t, StateRejected, *action.State)
+	assert.Equal(t, SourceMonitor, action.RejectedBy())
+	assert.Equal(t, reason, *action.StateReason)
 	assert.Equal(t, SourcePlanner, action.SourceType)
 	assert.Equal(t, PriorityHigh, action.Priority)
-	assert.Equal(t, []string{"2b2f6a9e-1111-4111-8111-0000000000ff"}, action.DependsOn)
 	assert.Equal(t, taskID, action.TaskID)
 
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}})
 	require.NoError(t, err)
 	result, err := store.GetNode(ctx, resultID)
 	require.NoError(t, err)
@@ -176,17 +181,25 @@ func TestRevisePlanConsumesOncePostgres(t *testing.T) {
 		SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
 	require.NoError(t, err)
 	_, err = store.CreateNode(ctx, Node{ID: resultID, TaskID: taskID, Kind: core.KindResult,
-		SourceType: SourceEvaluator, Content: []byte(`{"summary":"s"}`)})
+		SourceType: SourceEvaluator, Content: []byte(`{"statement":"s"}`)})
 	require.NoError(t, err)
 	objective := func(id string) ObjectiveDraft {
 		return ObjectiveDraft{Node: Node{ID: id, TaskID: taskID, Kind: core.KindObjective, State: &open,
 			SourceType: SourcePlanner, Content: []byte(`{"description":"d"}`)}}
 	}
 
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(firstID)}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(firstID)}})
 	require.NoError(t, err)
-	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(secondID)}})
+	_, err = store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID), Analyzed: []string{resultID}, AddedObjectives: []ObjectiveDraft{objective(secondID)}})
 	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
 	_, err = store.GetNode(ctx, secondID)
 	assert.Error(t, err, "后到的修订整体回滚")
+}
+
+// pgBasis 读取任务当前的目标依据。
+func pgBasis(t *testing.T, store *Store, taskID string) GoalBasis {
+	t.Helper()
+	basis, err := store.GoalBasis(context.Background(), taskID)
+	require.NoError(t, err)
+	return basis
 }

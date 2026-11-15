@@ -87,7 +87,7 @@ func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f Ag
 		add("method=$%d", strings.ToUpper(f.Method))
 	}
 	if f.Path != "" {
-		pattern := strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%")
+		pattern := strings.ReplaceAll(db.EscapeLike(f.Path), "*", "%")
 		add("path LIKE $%d", pattern)
 	}
 	if f.Identity != "" {

@@ -1,5 +1,6 @@
 import type { TrafficFilters } from '@/api/types'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 // 流量浏览筛选态迁移进 URL search params：刷新、前进/后退、把链接发给同事
 // 复核，筛选条件与翻页位置都能还原。
@@ -20,7 +21,7 @@ export interface TrafficUrlState {
   filters: TrafficFilters
   page: number // 1-based
   size: number // 每页条数，PAGE_SIZE_OPTIONS 之一
-  setFilters: (next: TrafficFilters) => void
+  setFilters: (next: TrafficFilters, opts?: HistoryOptions) => void
   setPage: (page: number) => void
   setSize: (size: number) => void
   resetFilters: () => void

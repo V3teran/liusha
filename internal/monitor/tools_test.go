@@ -10,15 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/monitor/metrics"
 )
 
 // monitor 的两个工具是监察决策的出入口：
-// GetGlobalStateTool 汇总探索图态势；PublishDecisionTool 的 kill_action
-// 直接把 action 置 aborted（executor 认领前检查 state，即真实生效路径）。
+// GetGlobalStateTool 汇总探索图态势；PublishDecisionTool 的 reject_action
+// 直接把动作置为已否决（执行者只认领 open、在途执行随状态变化中断，即真实生效路径）。
 
 func newGraphWithActions(t *testing.T) *explorationgraph.Store {
 	t.Helper()
@@ -65,38 +64,55 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 	require.Empty(t, out.Error)
 
 	var state struct {
-		Objective explorationgraph.ObjectiveNode `json:"objective"`
-		Actions   []explorationgraph.Node        `json:"actions"`
-		Findings  []explorationgraph.Node        `json:"findings"`
+		Objective ObjectiveView           `json:"objective"`
+		Actions   []explorationgraph.Node `json:"actions"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out.Output), &state))
 	assert.Len(t, state.Actions, 3, "三个 action 全量返回")
-	assert.NotNil(t, state.Objective.ID, "objective 应存在")
+	assert.NotEmpty(t, state.Objective.ID, "根目标应存在")
 }
 
-func TestPublishDecisionTool_KillAction_AppliesStateChange(t *testing.T) {
+func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	eventBus := bus.New(ctx)
-	tool := NewPublishDecisionTool(graph, eventBus, "t1")
+	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
 
 	out, err := tool.Execute(ctx, []byte(
-		`{"type":"kill_action","action_id":"a-open","reason":"监察发现无效循环"}`))
+		`{"type":"reject_action","action_id":"a-running","reason":"与已完成动作重复"}`))
 	require.NoError(t, err)
 	require.Empty(t, out.Error)
 
-	// kill 的生效路径是探索图状态变更：aborted 后 executor 不再认领
-	node, err := graph.GetNode(ctx, "a-open")
+	node, err := graph.GetNode(ctx, "a-running")
 	require.NoError(t, err)
-	require.NotNil(t, node.State)
-	assert.Equal(t, "aborted", string(*node.State))
+	assert.Equal(t, explorationgraph.StateRejected, *node.State)
+	assert.Equal(t, explorationgraph.SourceMonitor, node.RejectedBy())
+	assert.Equal(t, "与已完成动作重复", *node.StateReason)
+}
+
+// 用户指派的动作体现人的明确意图，监察者无权否决；状态不得改变。
+func TestPublishDecisionTool_RejectAction_SparesUserAssigned(t *testing.T) {
+	graph := newGraphWithActions(t)
+	ctx := context.Background()
+	open := explorationgraph.StateOpen
+	_, err := graph.CreateNode(ctx, explorationgraph.Node{
+		ID: "a-user", TaskID: "t1", Kind: core.KindAction, State: &open,
+		Content: []byte(`{"instruction":"用户指定的一步"}`), SourceType: explorationgraph.SourceUser,
+	})
+	require.NoError(t, err)
+	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
+
+	out, err := tool.Execute(ctx, []byte(`{"type":"reject_action","action_id":"a-user","reason":"偏离"}`))
+	require.NoError(t, err)
+	assert.Contains(t, out.Error, "用户指派")
+	node, err := graph.GetNode(ctx, "a-user")
+	require.NoError(t, err)
+	assert.Equal(t, explorationgraph.StateOpen, *node.State)
 }
 
 func TestPublishDecisionTool_RequestReplan(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	eventBus := bus.New(ctx)
-	tool := NewPublishDecisionTool(graph, eventBus, "t1")
+	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
 
 	out, err := tool.Execute(ctx, json.RawMessage(`{"type":"request_replan","reason":"当前方向停滞"}`))
 	require.NoError(t, err)
@@ -106,14 +122,13 @@ func TestPublishDecisionTool_RequestReplan(t *testing.T) {
 func TestPublishDecisionTool_Validation(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	eventBus := bus.New(ctx)
-	tool := NewPublishDecisionTool(graph, eventBus, "t1")
+	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
 
 	cases := []struct {
 		name, args, wantErr string
 	}{
-		{"未知决策类型", `{"type":"bogus","reason":"r"}`, "type must be kill_action or request_replan"},
-		{"kill_action 缺 action_id", `{"type":"kill_action","reason":"r"}`, "action_id is required for kill_action"},
+		{"未知决策类型", `{"type":"bogus","reason":"r"}`, "type must be reject_action or request_replan"},
+		{"reject_action 缺 action_id", `{"type":"reject_action","reason":"r"}`, "action_id is required for reject_action"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

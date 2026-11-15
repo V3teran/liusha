@@ -6,22 +6,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/evaluator"
+	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
-	"github.com/V3teran/liusha/internal/repro"
 )
 
 // ActionContent 是从 action.Content 解析出的数据
 type ActionContent struct {
 	Type        string `json:"type"`
 	Instruction string `json:"instruction"`
-	Complexity  string `json:"complexity"`
-	Host        string `json:"host"`
 }
 
 // parseActionContent 从 action 节点中解析内容
@@ -31,6 +28,17 @@ func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionConten
 		return nil, fmt.Errorf("解析 Action 失败: %w", err)
 	}
 	return &data, nil
+}
+
+// actionObjective 构建一个动作的执行目标：用户指派的动作写明来源；没有类型时不带类型行。
+func actionObjective(action explorationgraph.Node, content *ActionContent) string {
+	if action.SourceType == explorationgraph.SourceUser {
+		return "执行用户指派的操作：" + content.Instruction
+	}
+	if content.Type == "" {
+		return "执行以下操作：" + content.Instruction
+	}
+	return fmt.Sprintf("执行以下操作：%s\n\n类型：%s", content.Instruction, content.Type)
 }
 
 // prepareReActTools 准备并过滤 ReAct 工具列表
@@ -49,17 +57,18 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	ctx context.Context,
 	action explorationgraph.Node,
 	actionContent *ActionContent,
+	goal string,
 	tools []registry.Tool,
-	kill *killSwitch,
+	own *ownership,
 ) (*runtime.ReActConfig, error) {
-	// 构建执行目标
-	objective := fmt.Sprintf("执行以下操作：%s\n\n类型：%s\n目标：%s",
-		actionContent.Instruction,
-		actionContent.Type,
-		actionContent.Host)
+	objective := actionObjective(action, actionContent)
 
 	// 构建系统提示
-	systemPrompt := e.buildSystemPrompt(actionContent.Type, actionContent.Complexity, tools)
+	complexity := ""
+	if action.Complexity != nil {
+		complexity = string(*action.Complexity)
+	}
+	systemPrompt := e.buildSystemPrompt(action, actionContent.Type, complexity, goal, tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)
@@ -74,7 +83,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
 	)
 
-	// 构建配置，包含 monitor kill 检查（kill 由 watchKill 后台侦测置位）
+	// 构建配置，包含收回检查（由 watchOwnership 后台侦测置位）
 	// 思考流（nil=不流式）：方法值不能从 nil 接口取，先守卫。
 	var onThoughtDelta, onThinkingDelta func(string)
 	if e.thoughts != nil {
@@ -96,73 +105,13 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
-		OutputFormatSchema: `请输出以下JSON格式：
-
-` + "```json\n" + `{
-  "status": "completed",
-  "summary": "简要总结你完成的工作",
-  "observations": [
-    {
-      "category": "hypothesis",
-      "statement": "主张陈述：什么位置、什么条件、出现什么可复现现象",
-      "reasoning": "你为什么得出这个结论",
-      "confidence": "low/medium/high",
-      "priority": "优先级：这条主张值得多优先对待（low/medium/high/critical）",
-      "impact": "影响：主张为真时会发生什么、波及多大（一段话）",
-      "suggestion": "建议：若要改变这一局面可以怎么做（一段话）",
-      "repro": {
-        "domain": "web",
-        "recipe": {
-          "request": {
-            "method": "GET",
-            "url": "http://example.com/target",
-            "headers": {"Cookie": "session=abc"},
-            "body": ""
-          }
-        },
-        "assert": {
-          "body_contains": ["主张成立的独有特征子串"],
-          "status_code": 200
-        }
-      }
-    },
-    {
-      "category": "entity",
-      "statement": "对象陈述：环境中存在什么对象、有什么属性",
-      "reasoning": "依据是什么（来自哪个实测输出）",
-      "confidence": "low/medium/high"
-    }
-  ]
-}
-` + "```\n\n" + `说明：
-- 每条 observation 必须带 category，七个信息域（领域中立词汇，选最贴切的一个）：
-  * hypothesis：待裁决的判断——断言存在可复现的现象，必须带完整 repro；只有这类会被独立验证并可能成为正式发现
-  * entity：环境中存在的单个对象及其属性（某主机/端点/服务/页面/文件/配置项存在，及其关键属性）
-  * access：触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
-  * structure：对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
-  * behavior：环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律）
-  * issue：已观察到的异常与障碍（报错、崩溃、配置缺陷、阻塞推进的坑）——已证实、可直接判定的坏事实
-  * note：以上都不合适的杂项（最后手段——先找具体域，写不出归属再用 note）
-- entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
-- issue 与 hypothesis 的分界：看一眼就能判定的坏事实记 issue；需要复现证明才能下结论的判断记 hypothesis（必须带 repro）
-- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation
-- 没有值得记录的内容时，observations 可以是空数组 []
-- hypothesis 必须包含完整的 repro 复现步骤；只推测未实测的东西不要标 hypothesis
-- 重要：domain="web"时，assert必须包含至少一个机器可验证的字段：
-  * body_contains: 响应体必须包含的字符串数组（推荐）
-  * status_code: 期望的HTTP状态码（数字）
-  * header_contains: 响应头必须包含的字段，格式为对象 {"Header-Name": "substring"}，不是数组
-  * body_not_contains: 响应体必须不含的字符串数组（主张成立的反向特征）
-- domain="generic"（非 HTTP 复现）时，assert 必填且形如 {"description": "执行 steps 后观察到什么才算坐实"}——判据缺失的主张无法被裁决
-- 不要只写description，必须提供具体的断言条件
-- hypothesis 坐实后会成为交付物给人看：priority/impact/suggestion 都要写全——
-  impact 陈述主张为真时的具体影响（落实到对象，中性因果）；
-  suggestion 定位到根因给出可执行的处理，不写空话`,
-		// kill 止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
+		OutputFormatSchema: executorcontract.Text, // 强制总结时重申输出契约（唯一一份）
+		// 收回止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
 		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
-		EarlyStopCondition: func(string) bool { return kill.Killed() },
-		AbortCheck:         kill.Killed,
+		EarlyStopCondition: func(string) bool { return own.Lost() },
+		AbortCheck:         own.Lost,
 		OnIteration: func(iteration int, status runtime.IterationStatus) {
+			e.activity.Touch(action.ID) // 一步推理完成即一次进展
 			e.logger.Debug().
 				Str("action_id", action.ID).
 				Int("iteration", iteration).
@@ -174,33 +123,18 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	return config, nil
 }
 
-// checkActionAborted 检查 action 是否被 monitor kill
-func (e *Engine) checkActionAborted(ctx context.Context, actionID string) error {
+// confirmHeld 核对本 run 仍持有该动作；已被收回返回 ErrActionRevoked。读图失败不阻断
+// 执行（侦测尽力而为），但必须留痕。
+func (e *Engine) confirmHeld(ctx context.Context, actionID string) error {
 	if e.graph == nil {
 		return nil
 	}
-
 	node, err := e.graph.GetNode(ctx, actionID)
 	if err != nil {
-		// 中止检查是尽力而为：读图失败不阻断执行，但必须留痕——否则被中止的动作
-		// 继续跑下去时无从排查。
-		e.logger.Warn().Err(err).Str("action_id", actionID).Msg("读取动作状态失败，跳过本次中止检查")
+		e.logger.Warn().Err(err).Str("action_id", actionID).Msg("读取动作状态失败，跳过本次持有核对")
 		return nil
 	}
-
-	if node.State != nil && *node.State == explorationgraph.StateAborted {
-		reason := "unknown"
-		if node.BlockedReason != nil {
-			reason = *node.BlockedReason
-		}
-		e.logger.Warn().
-			Str("action_id", actionID).
-			Str("reason", reason).
-			Msg("action 已被 monitor kill，提前返回（图层 CAS 已保护状态）")
-		return fmt.Errorf("action killed by monitor: %s", reason)
-	}
-
-	return nil
+	return revocation(node, e.agentRunID)
 }
 
 // registerReActTools 注册工具到 ReAct runtime
@@ -290,8 +224,8 @@ func (e *Engine) executeReActRuntime(
 
 // fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
 // 通过单轮 LLM 调用，基于任务目标推导仍值得独立验证的假设——执行失败
-// 不等于一无所获，能给出复现步骤的推测交给裁决门去实测。请求携带完整系统
-// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与裁决管道，输出格式
+// 不等于一无所获，能给出复现步骤的推测交给复现门去实测。请求携带完整系统
+// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与验证管道，输出格式
 // 与配方形状只有输出契约一个权威，这里只交代降级任务本身。
 func (e *Engine) fallbackExtractHypothesis(
 	ctx context.Context,
@@ -328,12 +262,13 @@ func (e *Engine) fallbackExtractHypothesis(
 	}, nil
 }
 
-// processOutput 处理 Executor 输出，创建 Observation 节点
+// processOutput 解析 Executor 终稿并把观察落图。假设写入即待验证，评估者从图上取，
+// 执行侧不另构造验证载荷。
 func (e *Engine) processOutput(
 	ctx context.Context,
 	action explorationgraph.Node,
 	result *runtime.ReActResult,
-) ([]evaluator.Attempt, error) {
+) error {
 	// 解析输出
 	output, err := ParseOutput(result)
 	if err != nil {
@@ -356,25 +291,10 @@ func (e *Engine) processOutput(
 		Int("observations_count", len(output.Observations)).
 		Msg("解析 Executor 输出")
 
-	// 收集 ExecutionTrace（治本方案的核心）
-	trace := e.collectTrace(ctx, action)
-
-	// 为每个观察结果创建 observation 节点
-	var attempts []evaluator.Attempt
-
-	e.logger.Debug().
-		Str("action_id", action.ID).
-		Int("total_observations", len(output.Observations)).
-		Msg("开始处理 observations")
-
 	anyObserved := false
 	for _, obs := range output.Observations {
-		attempt, observed := e.harvestObservation(ctx, action, obs, trace)
-		if observed {
+		if e.harvestObservation(ctx, action, obs) != nil {
 			anyObserved = true
-		}
-		if attempt != nil {
-			attempts = append(attempts, *attempt)
 		}
 	}
 
@@ -385,12 +305,7 @@ func (e *Engine) processOutput(
 		e.ensureSummaryObservation(ctx, action, output)
 	}
 
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("attempts_count", len(attempts)).
-		Msg("Executor 输出处理完成")
-
-	return attempts, nil
+	return nil
 }
 
 // ensureSummaryObservation 为零观察完结的动作补一条执行总结观察（state 类，
@@ -401,76 +316,46 @@ func (e *Engine) ensureSummaryObservation(ctx context.Context, action exploratio
 		summary = "执行完结（无总结产出）"
 	}
 	obs := Observation{
-		Category:  CategoryNote,
+		Category:  explorationgraph.CategoryNote,
 		Statement: "执行总结：" + summary,
 	}
-	if _, observed := e.harvestObservation(ctx, action, obs, ExecutionTrace{}); observed {
+	if e.harvestObservation(ctx, action, obs) != nil {
 		e.logger.Info().
 			Str("action_id", action.ID).
 			Msg("动作零观察完结，已补执行总结观察（图完整性不变式）")
 	}
 }
 
-// collectTrace 从 agent_traffic 读取该 action 的完整 HTTP 轨迹；未配置收集器
-// 或收集失败时返回空 trace（不阻塞观察收割）。
-func (e *Engine) collectTrace(ctx context.Context, action explorationgraph.Node) ExecutionTrace {
-	empty := ExecutionTrace{
-		Traffic: []TrafficRecord{},
-		Session: SessionState{Cookies: make(map[string]string)},
-		Meta:    TraceMeta{},
-	}
-	if e.traceCollector == nil {
-		e.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("TraceCollector 未配置，无法收集 trace")
-		return empty
-	}
-	trace, err := e.traceCollector.CollectTrace(ctx, action.TaskID, action.ID)
-	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", action.ID).
-			Msg("收集 ExecutionTrace 失败，使用空 trace")
-		return empty
-	}
-	e.logger.Info().
-		Str("action_id", action.ID).
-		Int("traffic_count", trace.Meta.RequestCount).
-		Msg("成功收集 ExecutionTrace")
-	return trace
-}
-
-// harvestObservation 收割单个观察：归一化配方 → 落 observation 节点 → 转 Attempt。
-// 任一步失败返回 nil（单条观察失败不中止同 action 的其余观察）。
+// harvestObservation 收割单个观察：类别归一 → 配方归一 → 落 observation 节点，返回落图
+// 的节点。失败返回 nil（单条观察失败不中止同 action 的其余观察）。
 func (e *Engine) harvestObservation(
 	ctx context.Context,
 	action explorationgraph.Node,
 	obs Observation,
-	trace ExecutionTrace,
-) (attempt *evaluator.Attempt, observed bool) {
+) *explorationgraph.Node {
 	// 类别边界归一化：模型输出是外部输入，三种失真三种处置——
 	//   漏写（空值）：按形状推断，有配方即主张（配方是主张意图的最强证据），
 	//     无配方落 note；观察本体永远比分类标签值钱，不因漏标签丢弃。
 	//   越界（契约外字面值）：落 note 兜底并告警——显式乱写不可信，不做
 	//     猜测性归类。
-	//   自相矛盾（hypothesis 无配方）：降级 note——无从裁决的主张退为杂记。
+	//   自相矛盾（hypothesis 无配方）：降级 note——无从验证的主张退为杂记。
 	if obs.Category == "" {
 		if len(obs.Repro) > 0 {
-			obs.Category = CategoryHypothesis
+			obs.Category = explorationgraph.CategoryHypothesis
 		} else {
-			obs.Category = CategoryNote
+			obs.Category = explorationgraph.CategoryNote
 		}
 	}
-	if obs.Category == CategoryHypothesis && len(obs.Repro) == 0 {
+	if obs.Category == explorationgraph.CategoryHypothesis && len(obs.Repro) == 0 {
 		e.logger.Warn().
 			Str("action_id", action.ID).
 			Str("statement", obs.Statement).
-			Msg("hypothesis 缺少 repro，降级为 note 落图（无配方的主张无从裁决）")
-		obs.Category = CategoryNote
+			Msg("hypothesis 缺少 repro，降级为 note 落图（无配方的主张无从验证）")
+		obs.Category = explorationgraph.CategoryNote
 	}
 	switch obs.Category {
-	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
-		CategoryNote, CategoryIssue, CategoryHypothesis:
+	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior,
+		explorationgraph.CategoryNote, explorationgraph.CategoryHypothesis:
 		// 契约内类别，原样进入落图
 	default:
 		e.logger.Warn().
@@ -478,21 +363,13 @@ func (e *Engine) harvestObservation(
 			Str("raw_category", string(obs.Category)).
 			Str("statement", obs.Statement).
 			Msg("观察类别越界，落 note 兜底")
-		obs.Category = CategoryNote
+		obs.Category = explorationgraph.CategoryNote
 	}
 
-	// 附加 ExecutionTrace：裁决官看到的是完整执行轨迹，而不是 executor
-	// 转述的不可靠结论
-	obs.ExecutionTrace = &trace
-
-	// 配方归一化在此做一次、节点与 Attempt 共用同一结果——归一化若藏在
-	// 节点构造内部，矫正结果不会传回 obs，事件路径的 Attempt 会携带原始
-	// 破碎形状（数组信封/标量断言）直通复现门被确定性杀死，而节点上存的
-	// 却是修复后的配方：同一观察两条消费路径各说各话（e2e 实测 4 条真主张
-	// 假设因此冤死）。矫正失败保留原始配方，由门侧以 invalid_recipe 终局
-	// ——归一化不是万能的，但必须对所有消费路径一致。事实类观察不带配方，不归一化。
+	// 配方只在落图时归一化这一次：节点存的就是矫正后的信封，评估者只从节点读配方。
+	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。事实类观察不带配方，不归一化。
 	if len(obs.Repro) > 0 {
-		if normalized, note, nErr := repro.NormalizeReproEnvelope(obs.Repro); nErr == nil {
+		if normalized, note, nErr := e.repro.Normalize(obs.Repro); nErr == nil {
 			obs.Repro = normalized
 			if note != "" {
 				e.logger.Info().
@@ -513,31 +390,15 @@ func (e *Engine) harvestObservation(
 			Err(err).
 			Str("action_id", action.ID).
 			Msg("创建 observation 节点失败")
-		return nil, false
+		return nil
 	}
-	observed = true
 	e.logger.Info().
 		Str("action_id", action.ID).
 		Str("observation_id", node.ID).
 		Str("statement", obs.Statement).
 		Str("category", string(obs.Category)).
 		Msg("创建 observation 节点成功")
-
-	// 只有假设进裁决管道（Attempt → 复现门）；事实是终态，无 Attempt、
-	// 无事件、无晋升——planner 直接从图上读。
-	if obs.Category != CategoryHypothesis {
-		return nil, observed
-	}
-
-	converted, err := e.observationToAttempt(action.TaskID, node, obs)
-	if err != nil {
-		e.logger.Error().
-			Err(err).
-			Str("observation_id", node.ID).
-			Msg("转换 observation 为 Attempt 失败")
-		return nil, observed
-	}
-	return &converted, observed
+	return node
 }
 
 // terminalIsJSON 判断 ReAct 终稿是否 JSON 形态（对象/数组起收）——执行协议

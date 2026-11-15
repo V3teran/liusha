@@ -4,12 +4,14 @@
 // 输出形态：stdout（dev=console 彩色；prod=json）+ file（永远 json，lumberjack 轮转）
 // 全部行为由环境变量驱动，零配置即可运行。
 //
-// 文件聚合：同一进程内所有 New() 共写一个 logs/{processName}.log。
-// 测试二进制（testing.Testing()）里文件落盘缺省关闭——包级 logger 在测试启动即初始化，
-// 否则会在每个被测包目录下留下 logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
-// processName 取自 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] basename
-// （cmd 二进制名）。多 logger 实例共享同一个 *lumberjack.Logger，
-// 由 lumberjack 内部 mutex 保证并发安全。
+// 输出端进程内唯一：所有 New() 写同一个输出端，它在首条日志写出时才按当时的环境变量构建
+// （级别、格式、是否写 stdout / 文件、目录）。包级 logger 在包初始化时就已建好，而入口可能
+// 之后才补齐环境（liusha 的 -env-file）——惰性构建让它们与入口建的 logger 同一口径。
+//
+// 文件聚合：同一进程写一个 logs/{进程名}.log。进程名由入口经 SetProcess 设定（liusha 的
+// 子命令名），未设定时取 os.Args[0] 的 basename。
+// 测试二进制（testing.Testing()）里文件落盘缺省关闭——否则会在每个被测包目录下留下
+// logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
 package logx
 
 import (
@@ -20,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,17 +31,49 @@ import (
 )
 
 // New 返回带 service / instance / caller / timestamp 的 logger。
-// 同进程多次调用安全；每次返回新副本，但共享底层 writer。
+// 同进程多次调用安全；所有 logger 共写进程内唯一的输出端。
 func New(service string) zerolog.Logger {
 	cfg := loadConfig()
 	applyGlobals(cfg)
-	w := buildWriter(cfg)
-	return zerolog.New(w).With().
+	return zerolog.New(output).With().
 		Timestamp().
 		Caller().
 		Str("service", service).
 		Str("instance", cfg.instance).
 		Logger()
+}
+
+// output 是进程内全部 logger 共用的输出端。
+var output = &lazyOutput{}
+
+// lazyOutput 在首次写入时按当时的环境构建真正的输出端。
+type lazyOutput struct {
+	mu sync.Mutex
+	w  atomic.Pointer[io.Writer]
+}
+
+func (o *lazyOutput) Write(p []byte) (int, error) {
+	if w := o.w.Load(); w != nil {
+		return (*w).Write(p)
+	}
+	o.mu.Lock()
+	w := o.w.Load()
+	if w == nil {
+		cfg := loadConfig()
+		applyGlobals(cfg)
+		built := buildWriter(cfg)
+		w = &built
+		o.w.Store(w)
+	}
+	o.mu.Unlock()
+	return (*w).Write(p)
+}
+
+// reset 让下一次写入重新构建输出端。
+func (o *lazyOutput) reset() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.w.Store(nil)
 }
 
 const (
@@ -83,24 +118,27 @@ func newConsoleWriter(out io.Writer, noColor bool) zerolog.ConsoleWriter {
 }
 
 type config struct {
-	level       zerolog.Level
-	format      string // "json" | "console"
-	toStdout    bool
-	toFile      bool
-	dir         string
-	instance    string
-	processName string
-	maxSizeMB   int
-	maxBackups  int
-	maxAgeDays  int
-	compress    bool
+	level      zerolog.Level
+	format     string // "json" | "console"
+	toStdout   bool
+	toFile     bool
+	dir        string
+	instance   string
+	maxSizeMB  int
+	maxBackups int
+	maxAgeDays int
+	compress   bool
 }
 
-// logDir 解析日志文件目录（LIUSHA_LOG_DIR，缺省 logs 相对进程工作目录）。
-// 写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
+// logDir 解析日志文件目录：LIUSHA_LOG_DIR，缺省 ~/data/liusha/logs（与任务工作区同一数据根）。
+// 缺省不用相对路径：以服务方式运行时工作目录不可依赖（systemd 为 /，Windows 服务为
+// System32）。写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
 func logDir() string {
 	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_DIR")); v != "" {
 		return v
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, "data", "liusha", "logs")
 	}
 	return "logs"
 }
@@ -121,26 +159,39 @@ func loadConfig() config {
 	dir := logDir()
 
 	return config{
-		level:       parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
-		format:      format,
-		toStdout:    boolEnv("LIUSHA_LOG_TO_STDOUT", true),
-		toFile:      boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
-		dir:         dir,
-		instance:    resolveInstance(),
-		processName: resolveProcessName(),
-		maxSizeMB:   intEnv("LIUSHA_LOG_MAX_SIZE_MB", 100),
-		maxBackups:  intEnv("LIUSHA_LOG_MAX_BACKUPS", 7),
-		maxAgeDays:  intEnv("LIUSHA_LOG_MAX_AGE_DAYS", 14),
-		compress:    boolEnv("LIUSHA_LOG_COMPRESS", true),
+		level:      parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
+		format:     format,
+		toStdout:   boolEnv("LIUSHA_LOG_TO_STDOUT", true),
+		toFile:     boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
+		dir:        dir,
+		instance:   resolveInstance(),
+		maxSizeMB:  intEnv("LIUSHA_LOG_MAX_SIZE_MB", 100),
+		maxBackups: intEnv("LIUSHA_LOG_MAX_BACKUPS", 7),
+		maxAgeDays: intEnv("LIUSHA_LOG_MAX_AGE_DAYS", 14),
+		compress:   boolEnv("LIUSHA_LOG_COMPRESS", true),
 	}
 }
 
-// resolveProcessName 决定文件名（同进程所有 logger 共写此文件）。
-// 优先 LIUSHA_LOG_PROCESS env，fallback 到 os.Args[0] 的 basename
-// （即 cmd 二进制名，如 ./bin/runner → "runner"）。
-func resolveProcessName() string {
-	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_PROCESS")); v != "" {
-		return v
+var (
+	processMu   sync.Mutex
+	processName string
+)
+
+// SetProcess 设定本进程的日志文件名（logs/<name>.log）。入口在补齐环境之后、写出任何日志
+// 之前调用一次：之后的首条日志按此时的环境构建输出端。
+func SetProcess(name string) {
+	processMu.Lock()
+	processName = name
+	processMu.Unlock()
+	output.reset()
+}
+
+// currentProcess 返回日志文件名：SetProcess 设定的值，未设定时取 os.Args[0] 的 basename。
+func currentProcess() string {
+	processMu.Lock()
+	defer processMu.Unlock()
+	if processName != "" {
+		return processName
 	}
 	if len(os.Args) == 0 || os.Args[0] == "" {
 		return "app"
@@ -159,12 +210,18 @@ func resolveInstance() string {
 	return fmt.Sprintf("%d@%s", os.Getpid(), host)
 }
 
-func applyGlobals(cfg config) {
-	zerolog.SetGlobalLevel(cfg.level)
+// zerolog 的字段名、时间格式、caller 格式是普通包级变量，每条日志都会读：只能在任何日志写出
+// 之前设定一次。它们不随环境变化，放在包初始化里。
+func init() {
 	zerolog.MessageFieldName = "message"
 	zerolog.ErrorFieldName = "error"
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	zerolog.CallerMarshalFunc = shortCaller
+}
+
+// applyGlobals 应用随环境变化的全局设置（级别；zerolog 以原子操作读写，可随时调用）。
+func applyGlobals(cfg config) {
+	zerolog.SetGlobalLevel(cfg.level)
 }
 
 // shortCaller 把 /abs/path/to/pkg/file.go 缩成 pkg/file.go:line。
@@ -208,19 +265,39 @@ func sharedFileWriter(path string, cfg config) *lumberjack.Logger {
 	return w
 }
 
+// closeFiles 关闭并忘掉全部日志文件，下一条日志重新打开（测试用：Windows 上打开着的文件删不掉）。
+func closeFiles() {
+	fileWritersMu.Lock()
+	defer fileWritersMu.Unlock()
+	for path, w := range fileWriters {
+		_ = w.Close()
+		delete(fileWriters, path)
+	}
+	output.reset()
+}
+
+// colorful 报告控制台输出是否着色：只在输出是终端时着色（被 systemd / launchd / Windows 服务
+// 接管或重定向到文件时，颜色控制码会成为日志里的乱码），并遵守 NO_COLOR 约定。
+func colorful(f *os.File) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func buildWriter(cfg config) io.Writer {
 	var ws []io.Writer
 	if cfg.toStdout {
 		if cfg.format == "console" {
-			ws = append(ws, newConsoleWriter(os.Stdout, false))
+			ws = append(ws, newConsoleWriter(os.Stdout, !colorful(os.Stdout)))
 		} else {
 			ws = append(ws, os.Stdout)
 		}
 	}
 	if cfg.toFile {
 		if err := os.MkdirAll(cfg.dir, 0o750); err == nil {
-			path := filepath.Join(cfg.dir, cfg.processName+".log")
-			ws = append(ws, sharedFileWriter(path, cfg))
+			ws = append(ws, sharedFileWriter(filepath.Join(cfg.dir, currentProcess()+".log"), cfg))
 		} else {
 			fmt.Fprintf(os.Stderr, "logx: 创建日志目录 %s 失败: %v\n", cfg.dir, err)
 		}

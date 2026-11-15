@@ -61,35 +61,36 @@ const (
 	// 派生 objective 是任务结束时方向仍未达成
 	NodeStateExhausted NodeState = "exhausted"
 
-	// NodeStateAborted 被中止
+	// NodeStateAborted 已中止：没有做完就被收回，不含对错判断——任务结束时仍未完成，
+	// 或任务目标调整时撤回的未执行规划
 	NodeStateAborted NodeState = "aborted"
+
+	// NodeStateRejected 已否决（action 专用）：监察者或用户判定这一步不该做，附原因；
+	// 规划者不得再提出等效动作
+	NodeStateRejected NodeState = "rejected"
 
 	// NodeStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
 	// 接管，本目标不再作为独立方向推进；与 supersedes 边同时落定，永不迁出）
 	NodeStateSuperseded NodeState = "superseded"
 )
 
-// ObservationConfidence 是观察的图级状态。探索图是领域中立的认知架构：
-// 这里只有「主张」与「事实」，领域语义（如安全场景的漏洞）由章程与
-// 领域存储承载，不进图本体。
+// VerificationStatus 是假设观察的验证状态。探索图是领域中立的认知架构：
+// 这里只有「假设」与「事实」，领域语义（如安全场景的漏洞）由章程与领域存储
+// 承载，不进图本体。
 //
-// 两条互不重叠的生命周期：
-//   - 假设（category=hypothesis）：unverified → verified/refuted，流转由
-//     evaluator 复现门独占；verified 的唯一产物是 result 节点——result
-//     只承载经裁决坐实的主张，事实永远不晋升为 result。
-//   - 事实（category=fact）：factual 写入即终态，无流转——事实是世界
-//     状态断言，信任来自执行轨迹出处而非复现；planner 直接消费。
-type ObservationConfidence string
+// 只有假设（category=hypothesis）有验证状态：pending → confirmed/refuted，流转由
+// evaluator 的复现门独占；confirmed 的唯一产物是 result 节点。事实没有验证状态
+// （写入即终态，可信来自产出它的动作而非复现）；result 也没有（它就是坐实本身）。
+// 审计链（exploration_verification）的每条记录也以它记结论，只取 confirmed / refuted。
+type VerificationStatus string
 
 const (
-	// ConfidenceUnverified 待裁决（假设生命周期由 evaluator 复现门独占流转）。
-	ConfidenceUnverified ObservationConfidence = "unverified"
-	// ConfidenceVerified 已坐实（晋升 result）。
-	ConfidenceVerified ObservationConfidence = "verified"
-	// ConfidenceRefuted 已证伪。
-	ConfidenceRefuted ObservationConfidence = "refuted"
-	// ConfidenceFactual 已确认事实（executor 写入即终态）。
-	ConfidenceFactual ObservationConfidence = "factual"
+	// VerificationPending 待验证（假设写入时的状态）。
+	VerificationPending VerificationStatus = "pending"
+	// VerificationConfirmed 已坐实（晋升 result）。
+	VerificationConfirmed VerificationStatus = "confirmed"
+	// VerificationRefuted 已证伪（原因见节点的 refute_reason）。
+	VerificationRefuted VerificationStatus = "refuted"
 )
 
 // Priority 是节点的优先级
@@ -115,6 +116,7 @@ func (s NodeState) IsTerminal() bool {
 		s == NodeStateFailed ||
 		s == NodeStateExhausted ||
 		s == NodeStateAborted ||
+		s == NodeStateRejected ||
 		s == NodeStateSuperseded
 }
 

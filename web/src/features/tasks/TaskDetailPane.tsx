@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Bug, Clock, GitBranch, MessageSquare, Pause, Play, Square, X } from 'lucide-react'
+import { Clock, ListPlus, Pause, PencilLine, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
-import { JumpLink } from '@/components/JumpLink'
+import { JumpLinks } from '@/features/relations/TaskJumpLinks'
+import { jumpContext, taskJumps } from '@/features/relations/taskJumps'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
-import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
-import { briefHead } from './taskColumns'
+import { sourceColor, sourceLabel } from '@/lib/source'
+import { goalHead } from './taskColumns'
+import { AdjustGoalDialog, AssignActionDialog } from './SteeringDialogs'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
@@ -31,13 +33,15 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
   )
 }
 
-/** 任务详情板（右侧常驻，点行选中驱动）：任务信息 KV + 目标全文 + 控制组 + 三跳转。
+/** 任务详情板（右侧常驻，点行选中驱动）：三跳转 + 任务信息 KV + 控制组 + 目标全文。
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
  * 表格行内是快捷路径，两面并存。 */
 export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
   // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
   // 只有不可逆的停止过确认弹层（danger 形态）。
   const [confirmTerminate, setConfirmTerminate] = useState(false)
+  // 运行中引导（调整目标 / 指派动作）：只对进行中（含暂停中）的任务开放。
+  const [steering, setSteering] = useState<'goal' | 'action' | null>(null)
   const doControl = async (action: 'pause' | 'resume' | 'terminate') => {
     if (!task) return
     try {
@@ -60,8 +64,8 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text" title={task?.brief}>
-          {task ? task.brief : '任务详情'}
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text" title={task?.goal}>
+          {task ? task.goal : '任务详情'}
         </span>
         <button
           type="button"
@@ -84,6 +88,11 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
           </div>
         ) : task ? (
           <div className="flex flex-col gap-5">
+            {/* 跳转排在首位：从任务去对话、漏洞与探索图是最先用到的出口（只看这个任务的）。 */}
+            <section>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
+              <JumpLinks jumps={taskJumps(jumpContext(task, 'task'), ['conversation', 'findings', 'exploration'])} />
+            </section>
             <section>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>
@@ -176,45 +185,51 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
               </div>
             </section>
 
-            <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">目标</h4>
-              <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
-                {task.brief}
+            <section aria-labelledby="task-goal-heading">
+              <h4 id="task-goal-heading" className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+                目标
+              </h4>
+              <div className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
+                {task.goal}
               </div>
+              {/* 运行中引导：修正往哪跑（与上方控制组「跑不跑」分开）。已结束的任务在对话里续接。 */}
+              <div className="mt-2.5 flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  disabled={task.status !== 'active'}
+                  onClick={() => setSteering('goal')}
+                >
+                  <PencilLine />
+                  调整目标
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  disabled={task.status !== 'active'}
+                  onClick={() => setSteering('action')}
+                >
+                  <ListPlus />
+                  指派动作
+                </Button>
+              </div>
+              {task.status !== 'active' && (
+                <p className="mt-1.5 text-[11.5px] text-text-tertiary">任务已结束，可在对话中续接</p>
+              )}
             </section>
 
-            {Boolean(task.conversation_id || task.finding_count > 0) && (
-              <section>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
-                <div className="flex flex-wrap gap-2">
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={conversationPath(task.source, task.conversation_id)}
-                      icon={MessageSquare}
-                    >
-                      对话
-                    </JumpLink>
-                  )}
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
-                      icon={GitBranch}
-                    >
-                      探索图
-                    </JumpLink>
-                  )}
-                  {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
-                  {task.finding_count > 0 && (
-                    <JumpLink to="/findings" icon={Bug}>
-                      漏洞
-                    </JumpLink>
-                  )}
-                </div>
-              </section>
-            )}
           </div>
         ) : null}
       </div>
+
+      {task && steering === 'goal' && (
+        <AdjustGoalDialog task={task} open onOpenChange={(o) => !o && setSteering(null)} />
+      )}
+      {task && steering === 'action' && (
+        <AssignActionDialog task={task} open onOpenChange={(o) => !o && setSteering(null)} />
+      )}
 
       {/* 停止确认：与对话页头部/表格操作列同一文案与语义。 */}
       <ConfirmDialog
@@ -225,7 +240,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
         confirmLabel="确认停止"
         message={
           task
-            ? `任务「${briefHead(task.brief)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
+            ? `任务「${goalHead(task.goal)}」将落终态，进行中的 agent 立即退出（可重新下发）。`
             : ''
         }
         onConfirm={() => void doControl('terminate')}

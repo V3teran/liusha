@@ -22,7 +22,7 @@ type analysisPlanner struct {
 	analyzed []string
 }
 
-func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, []string) ([]explorationgraph.Node, error) {
+func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, PlanRequest) ([]explorationgraph.ActionDraft, error) {
 	return nil, nil
 }
 
@@ -43,7 +43,7 @@ func isAnalyzed(t *testing.T, store *explorationgraph.Store, id string) bool {
 func revisionNode(id string, kind core.NodeKind, source explorationgraph.SourceType, state *explorationgraph.State, offset time.Duration) explorationgraph.Node {
 	return explorationgraph.Node{
 		ID: id, TaskID: revisionTask, Kind: kind, State: state, SourceType: source,
-		Content:   []byte(`{"description":"` + id + `","summary":"` + id + `"}`),
+		Content:   []byte(`{"description":"` + id + `","statement":"` + id + `"}`),
 		CreatedAt: time.Unix(1700000000, 0).Add(offset),
 	}
 }
@@ -243,28 +243,20 @@ func TestAnalyzeAndProcessResults_ContinuationActionsAreDeduplicated(t *testing.
 	assert.JSONEq(t, `{"instruction":"新测试","reasoning":""}`, string(actions[1].Content))
 }
 
-// convergeRecorder 记录收敛事件的事件总线替身。
-type convergeRecorder struct {
-	fakeEventBus
-	converged int
-}
-
-func (c *convergeRecorder) PublishTaskConverged(_, _ string) { c.converged++ }
-
-// 收敛判定的唯一口径：未分析的结果、未裁决的观察与非终态动作一样阻止收敛，
+// 收敛判定的唯一口径：未分析的结果、待验证的假设与非终态动作一样阻止收敛，
 // 常规规划与 monitor 强制重规划两条路径一致。
 func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
-	unverified := explorationgraph.ConfidenceUnverified
+	pending := explorationgraph.VerificationPending
 	cases := []struct {
 		name    string
 		seed    func(t *testing.T, store *explorationgraph.Store)
 		blocked bool
 	}{
 		{"未分析结果", func(*testing.T, *explorationgraph.Store) {}, true},
-		{"未裁决观察", func(t *testing.T, store *explorationgraph.Store) {
+		{"待验证假设", func(t *testing.T, store *explorationgraph.Store) {
 			markAllAnalyzed(t, store)
 			obs := revisionNode("o1", core.KindObservation, explorationgraph.SourceExecutor, nil, 5*time.Second)
-			obs.Confidence = &unverified
+			obs.VerificationStatus = &pending
 			_, err := store.CreateNode(context.Background(), obs)
 			require.NoError(t, err)
 		}, true},
@@ -274,13 +266,13 @@ func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
 		for _, trigger := range []string{"planning", "forced replan"} {
 			t.Run(tc.name+"/"+trigger, func(t *testing.T) {
 				a, store := revisionAgent(t, &ResultAnalysis{})
-				bus := &convergeRecorder{}
-				a.eventBus = bus
+				converged := 0
+				a.onConverged = func(string, explorationgraph.GoalBasis) { converged++ }
 				tc.seed(t, store)
 
-				a.handleNoActions(context.Background(), trigger)
+				require.NoError(t, a.handleNoActions(context.Background(), basisOf(t, store), trigger))
 
-				assert.Equal(t, !tc.blocked, bus.converged == 1)
+				assert.Equal(t, !tc.blocked, converged == 1)
 			})
 		}
 	}
@@ -288,7 +280,9 @@ func TestHandleNoActions_PendingWorkBlocksConvergence(t *testing.T) {
 
 func markAllAnalyzed(t *testing.T, store *explorationgraph.Store) {
 	t.Helper()
-	_, err := store.RevisePlan(context.Background(), revisionTask, explorationgraph.PlanRevision{Analyzed: []string{"r1"}})
+	basis, err := store.GoalBasis(context.Background(), revisionTask)
+	require.NoError(t, err)
+	_, err = store.RevisePlan(context.Background(), revisionTask, explorationgraph.PlanRevision{Basis: basis, Analyzed: []string{"r1"}})
 	require.NoError(t, err)
 }
 
@@ -313,24 +307,22 @@ func TestAnalyzeAndProcessResults_NewObjectivesAreDeduplicated(t *testing.T) {
 	assert.True(t, isAnalyzed(t, store, "r1"), "分析水位随修订照常落图")
 }
 
-func planAction(id, instruction string) explorationgraph.Node {
+func planAction(id, instruction string) explorationgraph.ActionDraft {
 	n := revisionNode(id, core.KindAction, explorationgraph.SourcePlanner, openState(), 10*time.Second)
 	n.Content = []byte(`{"instruction":"` + instruction + `"}`)
-	return n
+	return explorationgraph.ActionDraft{Node: n}
 }
 
 // 规划入口与结果分析、人工注入同一口径：动作挂根目标；空指令与重复指令不落图。
-func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
+func TestApplyPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	written, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{
+	require.NoError(t, a.applyPlan(ctx, basisOf(t, store), []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, written)
+	}, "planning"))
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
@@ -343,13 +335,15 @@ func TestWriteActionsFromPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 		[3]string{edges[0].SrcID, string(edges[0].Rel), edges[0].DstID})
 }
 
-func TestWriteActionsFromPlan_RequiresRootObjective(t *testing.T) {
+// 没有根目标就没有规划依据：不调用规划器，也不落孤立动作。
+func TestPlanActions_RequiresRootObjective(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
-	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
+	planner := &goalShiftingPlanner{store: store, plans: [][]explorationgraph.ActionDraft{{planAction("p1", "x")}}}
+	a := &Agent{taskID: revisionTask, graph: store, planner: planner, eventBus: &fakeEventBus{}, logger: zerolog.Nop()}
 	ctx := context.Background()
 
-	_, err := a.writeActionsFromPlan(ctx, []explorationgraph.Node{planAction("p1", "x")})
-	require.Error(t, err)
+	require.Error(t, a.planActions(ctx))
+	assert.Zero(t, planner.planCalls)
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
 	assert.Empty(t, actions, "无根目标不落孤立动作")

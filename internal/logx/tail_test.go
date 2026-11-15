@@ -1,9 +1,11 @@
 package logx
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -304,5 +306,13 @@ func TestProcessesInventory(t *testing.T) {
 	}
 	if byName["runner"].Exists {
 		t.Error("未写的 runner 文件应 exists=false")
+	}
+	// 无文件的进程 instances 也是空数组而非 null：前端按数组迭代，null 会让日志页渲染崩溃。
+	raw, err := json.Marshal(byName["runner"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"instances":[]`) {
+		t.Errorf("无文件进程的 instances 应序列化为 []，得 %s", raw)
 	}
 }

@@ -2,7 +2,6 @@ package explorationgraph
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -68,14 +67,14 @@ func (s *Store) ListOpenActions(ctx context.Context, taskID string) ([]Node, err
 	return s.ListActionsByState(ctx, taskID, StateOpen)
 }
 
-// ListObservationsByConfidence 按验证裁决列出 observation（如轮询
-// confidence=unverified 的待裁决假设）。limit<=0 表示不限制。
-func (s *Store) ListObservationsByConfidence(ctx context.Context, taskID string, confidence Confidence, limit int) ([]Node, error) {
+// ListHypotheses 按验证状态列出假设观察（如轮询 pending 的待验证假设），按创建序。
+// limit<=0 表示不限制。
+func (s *Store) ListHypotheses(ctx context.Context, taskID string, status VerificationStatus, limit int) ([]Node, error) {
 	query := core.GraphNodeQuery{
 		Kind: string(core.KindObservation),
 		Filters: map[string]interface{}{
-			"task_id":             taskID,
-			"metadata.confidence": string(confidence),
+			"task_id":                      taskID,
+			"metadata." + metaVerification: string(status),
 		},
 		OrderBy: "created_at",
 		Limit:   limit,
@@ -136,42 +135,4 @@ func (s *Store) ListActionStates(ctx context.Context, taskID string) (map[string
 // ListResults 列出所有 result 节点
 func (s *Store) ListResults(ctx context.Context, taskID string) ([]Node, error) {
 	return s.ListNodesByKind(ctx, taskID, core.KindResult)
-}
-
-// GetObjective 获取任务的根 objective 节点（创建序最早——根目标由任务入口
-// 创建，planner 派生的目标晚于它；不排序会随机读到派生目标）。
-func (s *Store) GetObjective(ctx context.Context, taskID string) (ObjectiveNode, error) {
-	query := core.GraphNodeQuery{
-		Kind: string(core.KindObjective),
-		Filters: map[string]interface{}{
-			"task_id": taskID,
-		},
-		OrderBy: "created_at",
-		Limit:   1,
-	}
-
-	nodes, err := s.graphStore.ListNodes(ctx, query)
-	if err != nil {
-		return ObjectiveNode{}, err
-	}
-
-	if len(nodes) == 0 {
-		return ObjectiveNode{}, fmt.Errorf("objective not found for task %s", taskID)
-	}
-
-	// 转换为 ObjectiveNode
-	var content struct {
-		Description string                 `json:"description"`
-		Context     map[string]interface{} `json:"context,omitempty"`
-	}
-	if err := json.Unmarshal(nodes[0].Content, &content); err != nil {
-		return ObjectiveNode{}, fmt.Errorf("unmarshal objective: %w", err)
-	}
-
-	obj := ObjectiveNode{
-		ID:   nodes[0].ID,
-		Goal: content.Description,
-	}
-
-	return obj, nil
 }

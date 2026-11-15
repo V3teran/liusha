@@ -89,7 +89,7 @@ type Diagnosis struct {
 
 // ProviderDiagnoser 对一个 provider 规格做连接诊断。只有无法发起（已存 provider 不存在、
 // 密钥未配置）才返回 error；上游的任何失败都体现在 Diagnosis.Steps 里。
-// cmd/api 注入闭合 llmstore + cryptx + framework/llm 的实现；为 nil 时路由不注册。
+// api 组件注入闭合 llmstore + cryptx + framework/llm 的实现；为 nil 时路由不注册。
 type ProviderDiagnoser interface {
 	Diagnose(ctx context.Context, spec ProviderProbeSpec) (Diagnosis, error)
 }

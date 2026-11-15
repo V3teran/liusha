@@ -1,21 +1,45 @@
 /**
- * 探索图工具栏：会话搜索 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
+ * 探索图工具栏：任务选择 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
  * 计数即统计、色点即图例、点击即过滤）+ 状态筛选 + 总量。
  */
 
-import { RefreshCw, Search } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { listTasks } from '@/api/tasks'
+import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
+import { shortDateTime } from '@/lib/format'
+import { taskStatusMeta } from '@/lib/taskStatus'
 import { KIND_ORDER, KIND_PROFILES, STATE_META } from './kindTheme'
 import type { GraphStats } from './layout'
 import { Select } from '@/components/ui/Select'
 import { FilterBar } from '@/components/FilterBar'
 import { Button } from '@/components/ui/Button'
-import { controlClass } from '@/components/ui/control'
+
+/** 一次列出的任务候选上限：任务持续增长，靠关键词缩小范围。 */
+const TASK_OPTION_LIMIT = 20
+
+/**
+ * 任务候选：按目标或批次名由服务端检索（与任务页搜索同一口径），最新创建的在前；
+ * 次要信息是创建时间与状态，区分目标相同的任务。
+ */
+async function fetchTaskOptions(q: string): Promise<PickerResult> {
+  const { items, total } = await listTasks(1, TASK_OPTION_LIMIT, q ? { search: q } : undefined)
+  return {
+    options: items.map((t) => ({
+      value: t.id,
+      label: t.goal,
+      detail: `${shortDateTime(t.created_at)} 创建 · ${taskStatusMeta(t.status).label}`,
+    })),
+    hasMore: total > items.length,
+  }
+}
 
 export function Toolbar({
-  conversationInput,
-  onConversationInput,
-  onConversationSubmit,
+  scopeId,
+  scopeLabel,
+  onTaskChange,
+  scopeJumps,
   disabled,
   refreshing,
   onRefresh,
@@ -26,9 +50,12 @@ export function Toolbar({
   onFilterState,
   stats,
 }: {
-  conversationInput: string
-  onConversationInput: (v: string) => void
-  onConversationSubmit: () => void
+  /** 当前范围（任务或对话）的 ID 与显示名（「任务：目标」/「对话：标题」） */
+  scopeId: string
+  scopeLabel?: string
+  onTaskChange: (id: string) => void
+  /** 当前任务的跳转（任务、对话、漏洞）：紧跟在选择框后，属于选中的任务而不是整个页面 */
+  scopeJumps?: ReactNode
   disabled: boolean
   refreshing: boolean
   onRefresh: () => void
@@ -50,19 +77,18 @@ export function Toolbar({
         ) : undefined
       }
     >
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-        <input
-          type="text"
-          value={conversationInput}
-          onChange={(e) => onConversationInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onConversationSubmit()}
-          placeholder="输入对话 ID，回车加载"
-          aria-label="对话 ID"
-          className={controlClass('sm', 'w-72 pl-9 font-mono')}
-          disabled={disabled}
-        />
-      </div>
+      <EntityPicker
+        value={scopeId}
+        valueLabel={scopeLabel}
+        onChange={onTaskChange}
+        fetchOptions={fetchTaskOptions}
+        queryKey={['exploration', 'task-options']}
+        emptyLabel="选择任务"
+        searchPlaceholder="搜索任务目标、批次名"
+        ariaLabel="选择任务"
+        className="w-full sm:w-72"
+      />
+      {scopeJumps}
 
       <Button
         variant="secondary"
