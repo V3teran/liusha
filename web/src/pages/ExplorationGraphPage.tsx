@@ -8,6 +8,8 @@ import { GraphCanvas } from '@/features/exploration/GraphCanvas'
 import { Toolbar } from '@/features/exploration/Toolbar'
 import { NodeDetailPanel } from '@/features/exploration/NodeDetailPanel'
 import type { Verification } from '@/api/explorationgraph'
+import { useQuery } from '@tanstack/react-query'
+import { getConversation } from '@/api/conversations'
 
 const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
 
@@ -55,12 +57,14 @@ export function ExplorationGraphPage() {
   const [selectedNodeId, setSelectedNodeId] = useState('')
   useEffect(() => setSelectedNodeId(''), [conversationId])
 
-  // 输入框本地态：URL 直达/跳转/最新会话回填时同步进来，回车才提交到 URL
-  const [convInput, setConvInput] = useState(conversationId)
-  useEffect(() => setConvInput(conversationId), [conversationId])
-  const submitConversationId = () => {
-    setSearchParams(convInput.trim() ? { conversation_id: convInput.trim() } : {}, { replace: true })
-  }
+  // 选中对话的标题（选择框显示用）
+  const conversationQuery = useQuery({
+    queryKey: ['exploration', 'conversation', conversationId],
+    queryFn: () => getConversation(conversationId),
+    enabled: conversationId !== '',
+    retry: false,
+  })
+  const selectConversation = (id: string) => setSearchParams(id ? { conversation_id: id } : {}, { replace: true })
 
   const flow = useMemo(
     () => (graph ? buildFlowGraph(graph, filterKind, filterState, verificationsByNode) : { nodes: [], edges: [], stats: EMPTY_STATS }),
@@ -90,9 +94,9 @@ export function ExplorationGraphPage() {
       <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
 
       <Toolbar
-        conversationInput={convInput}
-        onConversationInput={setConvInput}
-        onConversationSubmit={submitConversationId}
+        conversationId={conversationId}
+        conversationLabel={conversationQuery.data ? conversationQuery.data.title || conversationQuery.data.id : undefined}
+        onConversationChange={selectConversation}
         disabled={loading}
         refreshing={graphQuery.isFetching}
         onRefresh={refresh}
@@ -120,7 +124,7 @@ export function ExplorationGraphPage() {
             </div>
             <div className="text-lg font-medium text-status-error">{error}</div>
             <div className="max-w-md text-center text-sm text-text-secondary">
-              请检查任务 ID 是否正确（需要 UUID 格式），或从对话列表中选择一个任务查看其探索图
+              对话不存在或已删除，请在上方重新选择对话
             </div>
           </div>
         ) : !hasGraph ? (
@@ -131,8 +135,7 @@ export function ExplorationGraphPage() {
               </div>
               <div className="mb-2 text-lg font-medium text-text">暂无数据</div>
               <div className="text-sm">
-                请输入对话 ID 并回车加载，或通过 URL 参数{' '}
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">?conversation_id=xxx</code> 访问
+                {conversationId ? '这个对话还没有探索图（任务尚未开始规划，或是纯聊天对话）' : '在上方选择一个对话，查看它的探索图'}
               </div>
             </div>
           </div>

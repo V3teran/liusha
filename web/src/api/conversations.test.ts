@@ -35,7 +35,7 @@ describe('会话域 API', () => {
       })
       ;(globalThis as any).fetch = mockFetch
 
-      const result = await listConversations(30, 30)
+      const result = await listConversations({ limit: 30, offset: 30 })
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/conversations?limit=30&offset=30'),
@@ -50,9 +50,21 @@ describe('会话域 API', () => {
       })
       ;(globalThis as any).fetch = mockFetch
 
-      await listConversations(30, 0, 'proxy')
+      await listConversations({ source: 'proxy' })
 
       expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('source=proxy'))
+    })
+
+    it('listConversations 带关键词时交给服务端检索', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ conversations: [], has_more: false, total: 0 }),
+      })
+      ;(globalThis as any).fetch = mockFetch
+
+      await listConversations({ search: ' 商城 ' })
+
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('search=%E5%95%86%E5%9F%8E'))
     })
 
     it('listConversations 把后端 null（Go nil slice）归一为空数组，不透传 null', async () => {
@@ -62,7 +74,7 @@ describe('会话域 API', () => {
       })
       ;(globalThis as any).fetch = mockFetch
 
-      const result = await listConversations(30, 0, 'proxy')
+      const result = await listConversations({ source: 'proxy' })
 
       expect(result.conversations).toEqual([])
       expect(result.conversations).toHaveLength(0)

@@ -190,3 +190,67 @@ func TestConversationStore_MissingConversationIsNotFound(t *testing.T) {
 		t.Errorf("存在的会话改名应成功，得 %v", err)
 	}
 }
+
+// 关键词搜索在后端执行，覆盖全部会话：匹配标题、所属任务的目标或会话 ID 前缀；列表与计数同口径，
+// 分页在搜索结果上进行；搜索词按字面匹配。
+func TestListConversations_Search(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	ctx := context.Background()
+	store := conversation.NewStore(pool)
+	assignment := dbtest.SeedAssignment(t, pool)
+	var taskID string
+	if err := pool.QueryRow(ctx, `INSERT INTO task (assignment_id, goal) VALUES ($1, '测试商城 shop.local 的越权') RETURNING id`,
+		assignment).Scan(&taskID); err != nil {
+		t.Fatal(err)
+	}
+	byGoal, err := store.CreateConversation(ctx, "未命名", taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle, err := store.CreateConversation(ctx, "订单 user_id 越权排查", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateConversation(ctx, "闲聊", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	ids := func(f conversation.ListFilter) []string {
+		t.Helper()
+		convs, _, err := store.ListConversations(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := store.CountConversations(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Limit == 0 && n != len(convs) {
+			t.Fatalf("计数 %d 与列表 %d 不同口径", n, len(convs))
+		}
+		out := make([]string, 0, len(convs))
+		for _, c := range convs {
+			out = append(out, c.ID)
+		}
+		return out
+	}
+	expect := func(name string, got []string, want ...string) {
+		t.Helper()
+		if len(got) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got, want)) {
+			t.Errorf("%s: 得 %v，期望 %v", name, got, want)
+		}
+	}
+	expect("任务目标", ids(conversation.ListFilter{Search: "商城"}), byGoal.ID)
+	expect("标题", ids(conversation.ListFilter{Search: "排查"}), byTitle.ID)
+	expect("下划线按字面", ids(conversation.ListFilter{Search: "user_id"}), byTitle.ID)
+	expect("ID 前缀", ids(conversation.ListFilter{Search: byTitle.ID[:8]}), byTitle.ID)
+	expect("无匹配", ids(conversation.ListFilter{Search: "userXid"}))
+
+	page, more, err := store.ListConversations(ctx, conversation.ListFilter{Search: "越权", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 1 || !more {
+		t.Fatalf("分页在搜索结果上进行：首页 1 条且还有更多，得 %d 条 more=%v", len(page), more)
+	}
+}

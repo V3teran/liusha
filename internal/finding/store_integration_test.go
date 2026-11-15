@@ -193,9 +193,10 @@ func TestLedger_TaskFacets(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	facets, err := store.TaskFacets(ctx, finding.LedgerFilter{TaskID: older})
+	facets, more, err := store.TaskFacets(ctx, finding.LedgerFilter{TaskID: older}, "", 10)
 	require.NoError(t, err)
 	require.Len(t, facets, 2, "任务筛选不作用于任务分面自身")
+	assert.False(t, more)
 	assert.Equal(t, newer, facets[0].TaskID, "最近有发现的任务在前")
 	assert.Equal(t, 1, facets[0].Count)
 	assert.Equal(t, older, facets[1].TaskID)
@@ -203,9 +204,53 @@ func TestLedger_TaskFacets(t *testing.T) {
 	assert.Equal(t, "test", facets[1].Goal)
 	assert.False(t, facets[1].CreatedAt.IsZero(), "目标相同的任务靠创建时间区分")
 
-	critical, err := store.TaskFacets(ctx, finding.LedgerFilter{Severity: "critical"})
+	critical, _, err := store.TaskFacets(ctx, finding.LedgerFilter{Severity: "critical"}, "", 10)
 	require.NoError(t, err)
 	require.Len(t, critical, 1, "其它筛选照常生效")
 	assert.Equal(t, older, critical[0].TaskID)
 	assert.Equal(t, 1, critical[0].Count)
+}
+
+// 台账关键词搜索在后端执行，覆盖全部页：匹配漏洞摘要、主机、路径与所属任务的目标；
+// 搜索词按字面匹配。任务选项可按目标搜索并限量，超出时报告还有更多。
+func TestLedger_SearchAndFacetSearch(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	assignmentID := dbtest.SeedAssignment(t, pool)
+	var shop, blog string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO task (assignment_id, goal) VALUES ($1, '测试商城 shop.local') RETURNING id`, assignmentID).Scan(&shop))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO task (assignment_id, goal) VALUES ($1, '测试博客 blog.local') RETURNING id`, assignmentID).Scan(&blog))
+	for _, f := range []finding.Finding{
+		{TaskID: shop, Host: "shop.local", Summary: "订单接口 user_id 越权", Severity: "high", Target: []byte(`{"path":"/api/order"}`)},
+		{TaskID: shop, Host: "shop.local", Summary: "反射型 XSS", Severity: "medium", Target: []byte(`{"path":"/search"}`)},
+		{TaskID: blog, Host: "blog.local", Summary: "评论区存储型 XSS", Severity: "high", Target: []byte(`{"path":"/comment"}`)},
+	} {
+		_, err := store.Save(ctx, f)
+		require.NoError(t, err)
+	}
+	count := func(q string) int {
+		n, err := store.CountAll(ctx, finding.LedgerFilter{Search: q})
+		require.NoError(t, err)
+		return n
+	}
+	assert.Equal(t, 2, count("xss"), "摘要，大小写不敏感")
+	assert.Equal(t, 1, count("/api/order"), "路径")
+	assert.Equal(t, 1, count("blog.local"), "主机")
+	assert.Equal(t, 2, count("商城"), "所属任务的目标")
+	assert.Equal(t, 1, count("user_id"), "下划线按字面")
+	assert.Equal(t, 0, count("userXid"))
+	st, err := store.StatFiltered(ctx, finding.LedgerFilter{Search: "xss"})
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Total, "统计与列表同一口径")
+
+	facets, more, err := store.TaskFacets(ctx, finding.LedgerFilter{}, "博客", 10)
+	require.NoError(t, err)
+	require.Len(t, facets, 1)
+	assert.Equal(t, blog, facets[0].TaskID)
+	assert.False(t, more)
+	facets, more, err = store.TaskFacets(ctx, finding.LedgerFilter{}, "", 1)
+	require.NoError(t, err)
+	assert.Len(t, facets, 1)
+	assert.True(t, more, "超出上限时报告还有更多")
 }

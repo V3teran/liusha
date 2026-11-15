@@ -283,3 +283,36 @@ func TestStore_AggregateByTask_Empty(t *testing.T) {
 		t.Fatalf("空 task 应全零, got %+v", agg)
 	}
 }
+
+// 角色 / 模型筛选的选项来自整个筛选结果集（不是当前页），每个维度不受自身筛选影响：
+// 选中一个模型后，其它模型仍可选；其它筛选（仅错误）照常收窄选项。
+func TestStore_Facets(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+	seedFiltered(t, s, taskID)
+
+	all, err := s.Facets(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(all.Roles, []string{"executor", "planner"}) || !reflect.DeepEqual(all.Models, []string{"deepseek-chat", "glm-5.3-flash"}) {
+		t.Fatalf("全量选项不符: %+v", all)
+	}
+	picked, err := s.Facets(ctx, ListFilter{Model: "deepseek-chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(picked.Models, []string{"deepseek-chat", "glm-5.3-flash"}) {
+		t.Errorf("模型选项不应受模型筛选自身影响: %+v", picked.Models)
+	}
+	if !reflect.DeepEqual(picked.Roles, []string{"executor"}) {
+		t.Errorf("角色选项应随模型筛选收窄: %+v", picked.Roles)
+	}
+	errOnly, err := s.Facets(ctx, ListFilter{OnlyErr: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(errOnly.Models, []string{"deepseek-chat"}) {
+		t.Errorf("其它筛选照常收窄: %+v", errOnly.Models)
+	}
+}

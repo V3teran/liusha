@@ -24,7 +24,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 静态子路由须先于 :id 类路由注册避免冲突
-	r.GET("/workspaces/tree", getWorkspaceTreeHandler(d.Workspaces))
+	r.GET("/workspaces/tree", getWorkspaceTreeHandler(d.Workspaces, d.WorkspaceLabels))
 	r.GET("/workspaces/raw", getWorkspaceRawHandler(d.Workspaces))
 	r.GET("/workspaces/content", getWorkspaceFileHandler(d.Workspaces))
 	r.PUT("/workspaces/content", putWorkspaceFileHandler(d.Workspaces))
@@ -43,6 +43,7 @@ func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 	// 注意：更具体的路由必须在通配路由之前注册
 	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
 	r.GET("/llm/invocations/search/stat", llmInvocationsSearchStatHandler(d.Invocations))
+	r.GET("/llm/invocations/search/facets", llmInvocationsFacetsHandler(d.Invocations))
 	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
 }
 
@@ -202,6 +203,7 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	}
 
 	r.GET("/conversations", listConversationsHandler(d.Conversations))
+	r.GET("/conversations/:id", uuidID, getConversationHandler(d.Conversations))
 	r.GET("/conversations/:id/messages", uuidID, messagesHandler(d.Conversations))
 
 	if d.FollowUp != nil {

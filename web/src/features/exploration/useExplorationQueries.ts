@@ -44,7 +44,7 @@ export function useLatestConversationId(enabled: boolean) {
   return useQuery({
     queryKey: explorationKeys.latestConversation(),
     queryFn: async () => {
-      const { conversations } = await listConversations(1, 0, '')
+      const { conversations } = await listConversations({ limit: 1 })
       return conversations[0]?.id ?? ''
     },
     enabled,

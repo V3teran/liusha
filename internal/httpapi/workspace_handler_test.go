@@ -3,6 +3,8 @@ package httpapi
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -65,5 +67,62 @@ func TestWorkspaceRaw_DirZipAndEncodedFilename(t *testing.T) {
 	}
 	if cd := w.Header().Get("Content-Disposition"); cd != `attachment; filename*=utf-8''%E4%BB%BB%E5%8A%A1%E4%B8%80.zip` {
 		t.Fatalf("下载头编码不符: %s", cd)
+	}
+}
+
+// fakeDirLabels 是 WorkspaceLabelsAPI 的替身：记录收到的 ID，按表返回显示名。
+type fakeDirLabels struct {
+	gotAssignments, gotTasks []string
+}
+
+func (f *fakeDirLabels) DirectoryLabels(_ context.Context, assignmentIDs, taskIDs []string) (map[string]string, map[string]string, error) {
+	f.gotAssignments, f.gotTasks = assignmentIDs, taskIDs
+	return map[string]string{"11111111-1111-4111-8111-111111111111": "夜间复扫"},
+		map[string]string{"22222222-2222-4222-8222-222222222222": "测试商城 shop.local"}, nil
+}
+
+// 目录树给批次 / 任务目录带上显示名（前端据此显示与搜索，不再拉全量任务）；非 UUID 的目录不查询。
+func TestWorkspaceTree_LabelsBatchAndTaskDirs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ws, err := workspace.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ws.Close() })
+	const asg, tk = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	for _, dir := range []string{asg + "/" + tk + "/inbox", "scratch"} {
+		if err := os.MkdirAll(filepath.Join(ws.Root(), filepath.FromSlash(dir)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	labels := &fakeDirLabels{}
+	r := gin.New()
+	r.GET("/workspaces/tree", getWorkspaceTreeHandler(ws, labels))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/workspaces/tree", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+	var body struct {
+		Entries []struct {
+			Path  string `json:"path"`
+			Label string `json:"label"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, e := range body.Entries {
+		got[e.Path] = e.Label
+	}
+	if got[asg+"/"] != "夜间复扫" || got[asg+"/"+tk+"/"] != "测试商城 shop.local" {
+		t.Fatalf("批次 / 任务目录应带显示名: %v", got)
+	}
+	if got["scratch/"] != "" || got[asg+"/"+tk+"/inbox/"] != "" {
+		t.Fatalf("其它目录不带显示名: %v", got)
+	}
+	if len(labels.gotAssignments) != 1 || len(labels.gotTasks) != 1 {
+		t.Fatalf("只查询 UUID 形态的批次 / 任务目录: %v %v", labels.gotAssignments, labels.gotTasks)
 	}
 }

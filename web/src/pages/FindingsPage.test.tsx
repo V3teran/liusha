@@ -11,14 +11,17 @@ vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),
-  getFindingTaskFacets: vi.fn(async () => [
-    { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
-    { id: 't-8', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-13T21:05:00', count: 1 },
-  ]),
+  getFindingTaskFacets: vi.fn(async () => ({
+    tasks: [
+      { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
+      { id: 't-8', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-13T21:05:00', count: 1 },
+    ],
+    has_more: false,
+  })),
 }))
 
 vi.mock('@/api/tasks', () => ({
-  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '已没有匹配漏洞的任务', created_at: '2026-11-12T08:00:00' })),
+  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '选中任务的目标', created_at: '2026-11-12T08:00:00' })),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
@@ -131,40 +134,21 @@ describe('FindingsPage', () => {
     expect(within(findLegendButton(container, '低危')).getByText('1')).toBeTruthy()
   })
 
-  it('搜索框按 summary/host/path 模糊过滤（前端叠加，仅作用于当前页）', async () => {
+  it('关键词搜索交给服务端（覆盖全部页），停顿后发起，并回到第一页', async () => {
     const user = userEvent.setup()
-    mockedListFindings.mockResolvedValue(
-      makeListResponse([
-        makeFinding({ id: 'f1', summary: 'SQL 注入', host: 'a.example.com' }),
-        makeFinding({ id: 'f2', summary: 'XSS 漏洞', host: 'b.example.com', target: { path: '/search' } }),
-      ]),
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()], { total: 120 }))
+    renderPage('/findings?page=3')
+    await screen.findByText('SQL 注入漏洞')
+    mockedListFindings.mockClear()
+
+    await user.type(screen.getByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+
+    await waitFor(() =>
+      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ search: 'xss', page: 1 })),
     )
-    renderPage()
-    await screen.findByText('SQL 注入')
-
-    const search = screen.getByPlaceholderText(/搜索漏洞标题/)
-    await user.type(search, 'xss')
-
-    expect(screen.queryByText('SQL 注入')).toBeNull()
-    expect(screen.getByText('XSS 漏洞')).toBeTruthy()
-  })
-
-  it('搜索框按 host 过滤', async () => {
-    const user = userEvent.setup()
-    mockedListFindings.mockResolvedValue(
-      makeListResponse([
-        makeFinding({ id: 'f1', summary: 'A 漏洞', host: 'unique-host.example.com' }),
-        makeFinding({ id: 'f2', summary: 'B 漏洞', host: 'other.example.com' }),
-      ]),
-    )
-    renderPage()
-    await screen.findByText('A 漏洞')
-
-    const search = screen.getByPlaceholderText(/搜索漏洞标题/)
-    await user.type(search, 'unique-host')
-
-    expect(screen.getByText('A 漏洞')).toBeTruthy()
-    expect(screen.queryByText('B 漏洞')).toBeNull()
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ search: 'xss' }))
+    // 逐字不发请求：只有停顿后的完整关键词
+    expect(mockedListFindings).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'x' }))
   })
 
   it('status 下拉筛选触发重新加载（走服务端）', async () => {
@@ -300,27 +284,29 @@ describe('FindingsPage 任务筛选', () => {
     mockedGetFindingStat.mockResolvedValue({ total: 1, by_status: {}, by_severity: {} })
   })
 
-  it('任务是筛选栏里的下拉：跳转带入即选中，列表与统计都只看这个任务，选「全部任务」清除', async () => {
-    const user = userEvent.setup()
+  it('任务是筛选栏里的可搜索选择框：跳转带入即选中，列表与统计都只看这个任务', async () => {
     renderPage('/findings?task=t-9')
-    const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
-    await waitFor(() => expect(select.value).toBe('t-9'))
-    // 目标相同的任务靠创建时间区分
-    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试 · 11-14 06:49（2）' })).toBeTruthy()
-    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试 · 11-13 21:05（1）' })).toBeTruthy()
-    expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
+    expect(await screen.findByRole('button', { name: '按任务筛选：选中任务的目标' })).toBeTruthy()
+    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' })))
     expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
-    // 选项不受任务筛选自身影响
-    expect(getFindingTaskFacets).toHaveBeenCalledWith(expect.not.objectContaining({ task: 't-9' }))
-
-    await user.selectOptions(select, '')
-    await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
   })
 
-  it('所选任务在其它筛选下没有漏洞时仍显示为选中项（数量 0）', async () => {
-    renderPage('/findings?task=t-404')
-    const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
-    await waitFor(() => expect(within(select).getByRole('option', { name: '已没有匹配漏洞的任务 · 11-12 08:00（0）' })).toBeTruthy())
-    expect(select.value).toBe('t-404')
+  it('候选由服务端按目标检索，只随结构化筛选变化；同目标的任务靠创建时间区分；可清除', async () => {
+    const user = userEvent.setup()
+    renderPage('/findings?task=t-9&source=direct&search=xss')
+    await user.click(await screen.findByRole('button', { name: /按任务筛选/ }))
+    const options = await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ })
+    expect(options).toHaveLength(2)
+    expect(screen.getByText('11-14 06:49 创建 · 2 个漏洞')).toBeTruthy()
+    expect(screen.getByText('11-13 21:05 创建 · 1 个漏洞')).toBeTruthy()
+    // 候选只随结构化筛选：带来源，不带任务本身与台账关键词
+    const [filters, q] = (getFindingTaskFacets as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+    expect(filters).toEqual(expect.objectContaining({ source: 'direct' }))
+    expect(filters.task).toBeUndefined()
+    expect(filters.search).toBeUndefined()
+    expect(q).toBe('')
+
+    await user.click(screen.getByRole('option', { name: '全部任务' }))
+    await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
   })
 })

@@ -16,11 +16,13 @@ type fakeFindings struct {
 	gotStatFilter  finding.LedgerFilter
 	gotFacetFilter finding.LedgerFilter
 	facets         []finding.TaskFacet
+	gotGoalQuery   string
+	gotFacetLimit  int
 }
 
-func (f *fakeFindings) TaskFacets(_ context.Context, fl finding.LedgerFilter) ([]finding.TaskFacet, error) {
-	f.gotFacetFilter = fl
-	return f.facets, nil
+func (f *fakeFindings) TaskFacets(_ context.Context, fl finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error) {
+	f.gotFacetFilter, f.gotGoalQuery, f.gotFacetLimit = fl, goalQuery, limit
+	return f.facets, false, nil
 }
 
 func (f *fakeFindings) ListAll(_ context.Context, fl finding.LedgerFilter) ([]finding.LedgerRow, error) {
@@ -83,7 +85,8 @@ func TestFindings_TaskFilter(t *testing.T) {
 			t.Fatalf("%s 非法 task 应 400，得 %d", path, bad.StatusCode)
 		}
 	}
-	if fk.gotListFilter.TaskID != taskID || fk.gotListFilter.Source != "direct" {
+	doReq(t, "GET", srv.URL+"/api/findings?task="+taskID+"&source=direct&search=xss", "")
+	if fk.gotListFilter.TaskID != taskID || fk.gotListFilter.Source != "direct" || fk.gotListFilter.Search != "xss" {
 		t.Fatalf("列表筛选未透传: %+v", fk.gotListFilter)
 	}
 	if fk.gotStatFilter.TaskID != taskID {
@@ -104,8 +107,17 @@ func TestFindings_TaskFacets(t *testing.T) {
 	if tasks, ok := body["tasks"].([]any); !ok || len(tasks) != 0 {
 		t.Fatalf("空结果应为空数组: %v", body)
 	}
-	if fk.gotFacetFilter.Source != "proxy" {
-		t.Fatalf("筛选未透传: %+v", fk.gotFacetFilter)
+	if fk.gotFacetFilter.Source != "proxy" || fk.gotFacetLimit != 20 {
+		t.Fatalf("筛选未透传或缺省上限不是 20: %+v %d", fk.gotFacetFilter, fk.gotFacetLimit)
+	}
+	if body["has_more"] != false {
+		t.Fatalf("应带 has_more: %v", body)
+	}
+
+	// search 在任务资源上按目标搜索，不作为台账关键词；limit 钳到 50
+	doJSON(t, "GET", srv.URL+"/api/findings/tasks?search=商城&limit=500", nil)
+	if fk.gotGoalQuery != "商城" || fk.gotFacetFilter.Search != "" || fk.gotFacetLimit != 50 {
+		t.Fatalf("目标搜索 / 上限不符: %q %+v %d", fk.gotGoalQuery, fk.gotFacetFilter, fk.gotFacetLimit)
 	}
 
 	fk.facets = []finding.TaskFacet{{TaskID: "t-1", Goal: "对 http://a 做测试", Count: 2}}

@@ -5,10 +5,11 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ExplorationGraphPage } from './ExplorationGraphPage'
 import { getConversationGraph, type GraphNode } from '@/api/explorationgraph'
-import { listConversations } from '@/api/conversations'
+import { getConversation, listConversations } from '@/api/conversations'
 
 vi.mock('@/api/conversations', () => ({
   listConversations: vi.fn(),
+  getConversation: vi.fn(),
 }))
 
 vi.mock('@/api/explorationgraph', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/api/explorationgraph', () => ({
 
 const mListConvs = listConversations as unknown as ReturnType<typeof vi.fn>
 const mGraph = getConversationGraph as unknown as ReturnType<typeof vi.fn>
+const mGetConv = getConversation as unknown as ReturnType<typeof vi.fn>
 
 // ReactFlow（@xyflow/react）在 jsdom 缺少 ResizeObserver / DOMMatrixReadOnly——画布
 // 测量需要的最小 stub（零尺寸即可，页面只断言画布外的工具栏与空/错态）。
@@ -66,6 +68,8 @@ describe('ExplorationGraphPage（探索图）', () => {
   beforeEach(() => {
     mListConvs.mockReset()
     mGraph.mockReset()
+    mGetConv.mockReset()
+    mGetConv.mockImplementation(async (id: string) => ({ id, title: '测试商城越权', task_id: 't-1' }))
   })
 
   it('挂载取最新会话并按其加载探索图（conversation_id 回写 URL）', async () => {
@@ -74,10 +78,12 @@ describe('ExplorationGraphPage（探索图）', () => {
     renderPage()
 
     // 先取最新会话 → 再按该会话拉图
-    await waitFor(() => expect(mListConvs).toHaveBeenCalledWith(1, 0, ''))
+    await waitFor(() => expect(mListConvs).toHaveBeenCalledWith({ limit: 1 }))
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(CONV_ID))
     // 空图 → 空态（画布区不渲染 ReactFlow）
     expect(await screen.findByText('暂无数据')).toBeTruthy()
+    // 选择框显示选中对话的标题，而不是 ID
+    expect(await screen.findByRole('button', { name: '选择对话：测试商城越权' })).toBeTruthy()
   })
 
   it('图数据加载失败时展示错误与排查提示', async () => {
@@ -87,7 +93,7 @@ describe('ExplorationGraphPage（探索图）', () => {
 
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(CONV_ID))
     expect(await screen.findByText('GET 404: 会话不存在')).toBeTruthy()
-    expect(screen.getByText(/请检查任务 ID 是否正确/)).toBeTruthy()
+    expect(screen.getByText(/请在上方重新选择对话/)).toBeTruthy()
   })
 
   it('带节点数据时渲染 kind 计数 chips 与总量，点击 chip 即筛选', async () => {
@@ -117,17 +123,21 @@ describe('ExplorationGraphPage（探索图）', () => {
     expect(actionChip.getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('编辑会话输入框不触发请求，回车才提交加载', async () => {
-    mListConvs.mockResolvedValue({ conversations: [], hasMore: false, total: 0 })
+  it('对话从可搜索的选择框选取，选中后按它加载探索图', async () => {
+    mListConvs.mockImplementation(async ({ search }: { search?: string }) => ({
+      conversations: search ? [{ id: CONV_ID, title: '测试商城越权', updated_at: '2026-11-14T08:30:00' }] : [],
+      hasMore: false,
+      total: search ? 1 : 0,
+    }))
     mGraph.mockResolvedValue({ nodes: [], edges: [] })
     const user = userEvent.setup()
     renderPage()
 
-    const input = screen.getByPlaceholderText('输入对话 ID，回车加载')
-    await user.type(input, CONV_ID)
-    // 打字过程只改本地态，不发图请求
+    await user.click(await screen.findByRole('button', { name: '选择对话：选择对话' }))
+    await user.type(screen.getByRole('combobox', { name: '搜索对话标题、任务目标、ID' }), '商城')
+    // 选中前不拉图
     expect(mGraph).not.toHaveBeenCalled()
-    await user.keyboard('{Enter}')
+    await user.click(await screen.findByRole('option', { name: /测试商城越权/ }))
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(CONV_ID))
   })
 })

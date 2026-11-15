@@ -21,7 +21,7 @@ type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.Stat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
-	TaskFacets(ctx context.Context, f finding.LedgerFilter) ([]finding.TaskFacet, error)
+	TaskFacets(ctx context.Context, f finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.Finding, error)
 }
 
@@ -33,7 +33,7 @@ const (
 )
 
 // ledgerFilterParams 解析台账筛选参数（列表与统计共用，筛选口径不漂移）：task（任务 ID，须为
-// UUID）/ host / severity / status / source。非法取值写 400 并返回 ok=false。
+// UUID）/ host / severity / status / source / search（关键词）。非法取值写 400 并返回 ok=false。
 func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
 	source, ok := sourceParam(c)
 	if !ok {
@@ -52,10 +52,17 @@ func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
 		Severity: c.Query("severity"),
 		Status:   c.Query("status"),
 		Source:   source,
+		Search:   c.Query("search"),
 	}, true
 }
 
-// listFindingsHandler 处理 GET /findings?task=&host=&severity=&status=&source=&page=&size=。
+// 任务选项的数量：缺省 20、上限 50——选项靠搜索缩小，不一次全列出。
+const (
+	defaultTaskFacetLimit = 20
+	maxTaskFacetLimit     = 50
+)
+
+// listFindingsHandler 处理 GET /findings?task=&host=&severity=&status=&source=&search=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
 // 空筛选=全量。响应含来源、所属会话与 triage 处置态，供前端跳转与就地流转。
@@ -163,15 +170,19 @@ func findingJSON(r finding.LedgerRow) gin.H {
 	}
 }
 
-// findingTaskFacetsHandler 处理 GET /findings/tasks?host=&severity=&status=&source=：
-// 台账「任务」筛选的选项——有漏洞的任务（目标、创建时间与漏洞数），其它筛选照常生效。
+// findingTaskFacetsHandler 处理 GET /findings/tasks?search=&limit=&host=&severity=&status=&source=：
+// 台账「任务」筛选的选项——有漏洞的任务（目标、创建时间与漏洞数），结构化筛选照常生效。
+// 这个资源是任务，search 在这里按任务目标搜索（不是台账关键词）；has_more 表示还有未列出的。
 func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		f, ok := ledgerFilterParams(c)
 		if !ok {
 			return
 		}
-		facets, err := api.TaskFacets(c.Request.Context(), f)
+		goalQuery := f.Search
+		f.Search = ""
+		limit := min(parseLimit(c, defaultTaskFacetLimit), maxTaskFacetLimit)
+		facets, more, err := api.TaskFacets(c.Request.Context(), f, goalQuery, limit)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -180,7 +191,7 @@ func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 		for _, fc := range facets {
 			out = append(out, gin.H{"id": fc.TaskID, "goal": fc.Goal, "created_at": fc.CreatedAt, "count": fc.Count})
 		}
-		c.JSON(http.StatusOK, gin.H{"tasks": out})
+		c.JSON(http.StatusOK, gin.H{"tasks": out, "has_more": more})
 	}
 }
 

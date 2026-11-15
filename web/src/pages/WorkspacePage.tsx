@@ -11,7 +11,7 @@ import {
   mkdirWorkspace,
   putWorkspaceFile,
 } from '@/api/workspaces'
-import { listTasks } from '@/api/tasks'
+import { searchTree } from '@/features/workspace/searchTree'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { controlClass } from '@/components/ui/control'
@@ -37,7 +37,7 @@ const FileEditor = lazy(() =>
  */
 export function WorkspacePage() {
   const qc = useQueryClient()
-  const [taskQuery, setTaskQuery] = useState('')
+  const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const treeQuery = useQuery({
     queryKey: ['workspace', 'tree'],
@@ -46,44 +46,17 @@ export function WorkspacePage() {
   })
   const allEntries = treeQuery.data ?? []
 
-  // 友好命名映射：目录树里的批次/任务目录原本是 UUID（又长又不可读），
-  // 用任务列表把 ID 翻译成人类可读的任务目标（截断展示，悬停 title 仍显原始路径）。
-  const tasksQuery = useQuery({
-    queryKey: ['tasks', 'for-workspace'],
-    queryFn: () => listTasks(1, 0), // 全量分页页（size=0 = 不限），建 UUID→目标 映射
-  })
-  const nameMaps = useMemo(() => {
-    const taskTitle: Record<string, string> = {}
-    const assignLabel: Record<string, string> = {}
-    for (const t of tasksQuery.data?.items ?? []) {
-      taskTitle[t.id] = t.goal
-      if (!(t.assignment_id in assignLabel)) assignLabel[t.assignment_id] = t.goal
-    }
-    return { taskTitle, assignLabel }
-  }, [tasksQuery.data])
 
   // 树的可见节点 = 搜索过滤 ∩ 折叠过滤。搜索时无视折叠（命中即展开，
   // 否则搜到的文件被藏进折叠目录里等于搜索失效）；浏览时应用折叠。
   const entries = useMemo(() => {
-    const q = taskQuery.trim().toLowerCase()
-    let list = allEntries
-    if (q) {
-      const hit = new Set<string>()
-      for (const e of allEntries) {
-        if (e.path.toLowerCase().includes(q)) {
-          hit.add(e.path)
-          const segs = e.path.split('/')
-          for (let i = 1; i < segs.length; i++) hit.add(segs.slice(0, i).join('/') + '/')
-        }
-      }
-      list = allEntries.filter((e) => hit.has(e.path))
-    } else if (collapsed.size > 0) {
-      list = allEntries.filter(
-        (e) => ![...collapsed].some((d) => e.path.startsWith(d) && e.path !== d),
-      )
+    const q = query.trim().toLowerCase()
+    if (q) return searchTree(allEntries, q)
+    if (collapsed.size > 0) {
+      return allEntries.filter((e) => ![...collapsed].some((d) => e.path.startsWith(d) && e.path !== d))
     }
-    return list
-  }, [allEntries, taskQuery, collapsed])
+    return allEntries
+  }, [allEntries, query, collapsed])
 
   function toggleDir(dirPath: string) {
     setCollapsed((prev) => {
@@ -211,10 +184,10 @@ export function WorkspacePage() {
       >
         <SearchInput
           className="w-72"
-          value={taskQuery}
-          onChange={setTaskQuery}
-          placeholder="搜索路径（批次 / 任务 / 文件名）…"
-          ariaLabel="搜索工作区路径"
+          value={query}
+          onChange={setQuery}
+          placeholder="搜索批次、任务目标、文件名…"
+          ariaLabel="搜索工作区"
         />
         {notice && (
           <span role="status" className="text-xs text-text-secondary">
@@ -284,7 +257,6 @@ export function WorkspacePage() {
             entries={entries}
             selected={selected}
             collapsed={collapsed}
-            nameMaps={nameMaps}
             onToggleDir={toggleDir}
             onSelect={(p) => {
               setSelected(p)

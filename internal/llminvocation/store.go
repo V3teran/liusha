@@ -564,6 +564,52 @@ func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, erro
 	return a, nil
 }
 
+// Facets 是角色 / 模型筛选的选项。
+type Facets struct {
+	Roles  []string
+	Models []string
+}
+
+// Facets 取角色与模型的可选值：来自整个筛选结果集（不是当前页），每个维度不受自身筛选
+// 影响——选中一个模型后其余模型仍可选；其它筛选（搜索、仅错误、时间）照常收窄。
+func (s *Store) Facets(ctx context.Context, f ListFilter) (Facets, error) {
+	roleFilter, modelFilter := f, f
+	roleFilter.Role, modelFilter.Model = "", ""
+	roles, err := s.distinct(ctx, "li.role", roleFilter)
+	if err != nil {
+		return Facets{}, err
+	}
+	models, err := s.distinct(ctx, "li.model", modelFilter)
+	if err != nil {
+		return Facets{}, err
+	}
+	return Facets{Roles: roles, Models: models}, nil
+}
+
+// distinct 取筛选结果集里某列的非空去重值（升序）。col 只取自本包常量，不来自输入。
+func (s *Store) distinct(ctx context.Context, col string, f ListFilter) ([]string, error) {
+	conds, args := f.whereAll()
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT %[1]s FROM llm_invocation li
+		LEFT JOIN task t ON t.id = li.task_id
+		LEFT JOIN conversation c ON c.task_id = li.task_id
+		WHERE %[2]s AND %[1]s <> ''
+		ORDER BY 1`, col, strings.Join(conds, " AND ")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("distinct %s: %w", col, err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("scan %s: %w", col, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，返回删除行数。
 // 记录含完整 prompt/response 敏感载荷，留存策略由调用方周期执行（如每日）。
 // 删除前调用方应先 Flush()，保证 buffer 内的新记录不被误删窗口漏算。

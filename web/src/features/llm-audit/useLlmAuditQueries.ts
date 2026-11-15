@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/llmaudit'
+import { getLLMInvocationDetail, searchLLMInvocationFacets, searchLLMInvocationStat, searchLLMInvocations } from '@/api/llmaudit'
 import { getRuntimeSettings } from '@/api/settings'
 import type { LLMInvocationFilters } from '@/api/types'
 
@@ -14,6 +14,8 @@ const llmAuditKeys = {
     ['llm-audit', 'search', search, filters, page, size] as const,
   stat: (search: string, filters: LLMInvocationFilters) =>
     ['llm-audit', 'stat', search, filters] as const,
+  facets: (search: string, filters: LLMInvocationFilters) =>
+    ['llm-audit', 'facets', search, filters] as const,
   runtime: () => ['settings', 'runtime'] as const,
 }
 
@@ -48,6 +50,16 @@ export function useLlmAuditStat(params: { search: string } & LLMInvocationFilter
   return useQuery({
     queryKey: llmAuditKeys.stat(search, filters),
     queryFn: () => searchLLMInvocationStat(search, filters),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** 角色 / 模型筛选的选项（服务端，整个筛选结果集）。key 不含分页：翻页不重新请求。 */
+export function useLlmAuditFacets(params: { search: string } & LLMInvocationFilters) {
+  const { search, ...filters } = params
+  return useQuery({
+    queryKey: llmAuditKeys.facets(search, filters),
+    queryFn: () => searchLLMInvocationFacets(search, filters),
     placeholderData: keepPreviousData,
   })
 }

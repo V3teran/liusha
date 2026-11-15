@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -12,6 +12,7 @@ import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 vi.mock('@/api/llmaudit', () => ({
   searchLLMInvocations: vi.fn(),
   searchLLMInvocationStat: vi.fn(),
+  searchLLMInvocationFacets: vi.fn(async () => ({ roles: ['executor', 'planner'], models: ['deepseek-chat', 'gpt-5'] })),
   getLLMInvocationDetail: vi.fn(),
 }))
 
@@ -166,5 +167,16 @@ describe('LlmAuditPage', () => {
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
     // 抽屉渲染详情的 request_id。
     expect(await screen.findByText('req-1')).toBeTruthy()
+  })
+})
+
+describe('LlmAuditPage 角色 / 模型选项', () => {
+  it('选项来自服务端（整个筛选结果集），不是当前页的行：当前页只有 gpt-5 也能选其它模型', async () => {
+    setupDefaultMocks()
+    renderPage()
+    const model = (await screen.findByRole('combobox', { name: /模型/ })) as HTMLSelectElement
+    await waitFor(() => expect(within(model).getByRole('option', { name: 'deepseek-chat' })).toBeTruthy())
+    const role = screen.getByRole('combobox', { name: /角色/ }) as HTMLSelectElement
+    expect(within(role).getByRole('option', { name: /executor|执行者/ })).toBeTruthy()
   })
 })

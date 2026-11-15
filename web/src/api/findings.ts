@@ -25,10 +25,16 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
   return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
 }
 
-/** 台账「任务」筛选的选项：有漏洞的任务（其它筛选照常生效，任务筛选不作用于自身）。 */
-export async function getFindingTaskFacets(filters: FindingFilters): Promise<FindingTaskFacet[]> {
-  const { tasks } = await get<{ tasks: FindingTaskFacet[] }>(`/findings/tasks?${ledgerParams(filters)}`)
-  return tasks
+/**
+ * 台账「任务」筛选的候选：有漏洞的任务，按目标关键词 search 检索、服务端限量（has_more 表示
+ * 还有未列出的）。结构化筛选照常收窄候选。
+ */
+export async function getFindingTaskFacets(
+  filters: FindingFilters,
+  search: string,
+): Promise<{ tasks: FindingTaskFacet[]; has_more: boolean }> {
+  const params = ledgerParams({ ...filters, search })
+  return get(`/findings/tasks?${params}`)
 }
 
 /** 台账统计（与列表同筛选口径；status/severity 分布，供头部 chip 全量口径）。 */

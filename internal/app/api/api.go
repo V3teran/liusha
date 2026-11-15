@@ -181,6 +181,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			AuthAudit:          auditStore,
 			CookieSecure:       cfg.API.CookieSecure,
 			Workspaces:         workspaceStore,
+			WorkspaceLabels:    taskStore,
 			Credentials:        credAPI,
 			CredentialAudit:    auditStore,
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},

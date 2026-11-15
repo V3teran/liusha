@@ -139,6 +139,7 @@ type LedgerFilter struct {
 	Severity string
 	Status   string
 	Source   string // direct / proxy（下发来源）
+	Search   string // 关键词：匹配漏洞摘要、主机、路径与所属任务的目标（包含、大小写不敏感、按字面）
 	Limit    int
 	Offset   int
 }
@@ -167,6 +168,10 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	}
 	if f.Source != "" {
 		add("a.source = $%d", f.Source)
+	}
+	if strings.TrimSpace(f.Search) != "" {
+		add("(f.summary ILIKE $%[1]d OR f.host ILIKE $%[1]d OR f.target->>'path' ILIKE $%[1]d OR t.goal ILIKE $%[1]d)",
+			db.ContainsPattern(f.Search))
 	}
 	if len(where) == 0 {
 		return "", args
@@ -233,33 +238,49 @@ type TaskFacet struct {
 	Count     int
 }
 
-// TaskFacets 列出有漏洞的任务（任务筛选的选项），按最近一次发现倒序。按分面惯例，其它
-// 筛选维度照常生效、任务筛选不作用于自身——选中一个任务时，其余可选任务仍在列表里。
-func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter) ([]TaskFacet, error) {
-	f.TaskID = ""
+// TaskFacets 列出有漏洞的任务（任务筛选的选项），按最近一次发现倒序，至多 limit 个，more 报告
+// 是否还有更多（选项须靠 goalQuery 按目标搜索缩小，而不是一次全列出——任务会持续增长）。
+// 按分面惯例，结构化筛选（来源、状态、严重度、主机）照常生效，任务筛选不作用于自身——选中
+// 一个任务时其余任务仍可选；台账关键词搜索针对漏洞本身，不作用于任务选项。
+func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter, goalQuery string, limit int) (facets []TaskFacet, more bool, err error) {
+	f.TaskID, f.Search = "", ""
 	where, args := ledgerWhere(f)
+	if strings.TrimSpace(goalQuery) != "" {
+		args = append(args, db.ContainsPattern(goalQuery))
+		cond := fmt.Sprintf("t.goal ILIKE $%d", len(args))
+		if where == "" {
+			where = " WHERE " + cond
+		} else {
+			where += " AND " + cond
+		}
+	}
+	args = append(args, limit+1)
 	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, t.created_at, count(*)
 		FROM finding f
 		JOIN task t ON t.id = f.task_id
 		JOIN assignment a ON a.id = t.assignment_id`+where+`
 		GROUP BY t.id, t.goal, t.created_at
-		ORDER BY max(f.seq) DESC`, args...)
+		ORDER BY max(f.seq) DESC
+		LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
-		return nil, fmt.Errorf("finding task facets: %w", err)
+		return nil, false, fmt.Errorf("finding task facets: %w", err)
 	}
 	defer rows.Close()
 	out := []TaskFacet{}
 	for rows.Next() {
 		var fc TaskFacet
 		if err := rows.Scan(&fc.TaskID, &fc.Goal, &fc.CreatedAt, &fc.Count); err != nil {
-			return nil, fmt.Errorf("scan task facet: %w", err)
+			return nil, false, fmt.Errorf("scan task facet: %w", err)
 		}
 		out = append(out, fc)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("finding task facets: %w", err)
+		return nil, false, fmt.Errorf("finding task facets: %w", err)
 	}
-	return out, nil
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
 }
 
 // Stat 是台账头部统计 chip 的数据源：与 ListAll/CountAll 同一筛选口径
