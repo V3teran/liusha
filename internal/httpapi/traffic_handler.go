@@ -122,7 +122,7 @@ func trafficContentTypesHandler(api TrafficAPI) gin.HandlerFunc {
 }
 
 // trafficDetailHandler 处理 GET /traffic/:id：单条完整流量（Burp 式整条 raw 报文文本）+ 消费本条的
-// 代理捕获 task 列表（M:N）。每个消费者带上它的对话 ID 供前端 chip 跳转（没有对话时为空）。
+// 代理捕获 task 列表（M:N）。每个消费者带上跳转所需的来源、对话 ID（没有对话时为空）与漏洞数。
 func trafficDetailHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -147,7 +147,9 @@ func trafficDetailHandler(api TrafficAPI) gin.HandlerFunc {
 				"task_id":         ct.TaskID,
 				"host":            ct.Host,
 				"status":          ct.Status,
+				"source":          ct.Source,
 				"conversation_id": ct.ConversationID,
+				"finding_count":   ct.FindingCount,
 			})
 		}
 

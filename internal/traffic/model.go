@@ -41,13 +41,16 @@ type ProxyTraffic struct {
 	ConsumedBy []ConsumerTask
 }
 
-// ConsumerTask 是消费某条代理流量的代理捕获 task 摘要（前端消费关系 chip 展示用）。
-// ConversationID 是该任务的对话（chip 据此跳转；没有对话时为空）。
+// ConsumerTask 是消费某条代理流量的代理捕获 task 摘要：详情里每个消费任务一行，带这个任务
+// 的跳转（任务、对话、漏洞、探索图）。ConversationID 没有对话时为空；FindingCount 决定是否
+// 放「漏洞」；Source 决定对话落在哪个标签页。
 type ConsumerTask struct {
 	TaskID         string
 	Host           string
 	Status         string
+	Source         string
 	ConversationID string
+	FindingCount   int
 }
 
 // AgentTraffic 是 agent_traffic 表行——agent 自产流量，按 task 归属。

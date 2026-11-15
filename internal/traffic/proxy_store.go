@@ -70,12 +70,15 @@ func (s *ProxyStore) GetByID(ctx context.Context, id int64) (ProxyTraffic, error
 	return f, nil
 }
 
-// listConsumers 查消费某条流量的全部代理捕获 task 及其对话（一个任务至多一个对话），供 chip 展示与跳转。
+// listConsumers 查消费某条流量的全部代理捕获 task，连同跳转所需的来源、对话（一个任务至多
+// 一个对话）与漏洞数，一次查出。
 func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]ConsumerTask, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id::text, COALESCE(t.target_host, ''), t.status, COALESCE(c.id::text, '')
+		SELECT t.id::text, COALESCE(t.target_host, ''), t.status, a.source, COALESCE(c.id::text, ''),
+		       (SELECT count(*) FROM finding f WHERE f.task_id = t.id)
 		FROM traffic_task tt
 		JOIN task t ON t.id = tt.task_id
+		JOIN assignment a ON a.id = t.assignment_id
 		LEFT JOIN conversation c ON c.task_id = t.id
 		WHERE tt.traffic_id = $1
 		ORDER BY tt.created_at ASC`, trafficID)
@@ -87,7 +90,7 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 	var out []ConsumerTask
 	for rows.Next() {
 		var c ConsumerTask
-		if err := rows.Scan(&c.TaskID, &c.Host, &c.Status, &c.ConversationID); err != nil {
+		if err := rows.Scan(&c.TaskID, &c.Host, &c.Status, &c.Source, &c.ConversationID, &c.FindingCount); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

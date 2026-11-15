@@ -160,7 +160,7 @@ func TestTrafficHandler_Detail(t *testing.T) {
 				StatusCode: 200, ContentType: "text/plain", HTTPVersion: "HTTP/1.1",
 				RequestRaw:  []byte("POST /login HTTP/1.1\r\nHost: a.com\r\n\r\nu=admin"),
 				ResponseRaw: []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok"),
-				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", Host: "a.com", Status: "completed", ConversationID: "c1"}}},
+				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", Host: "a.com", Status: "completed", Source: "proxy", ConversationID: "c1", FindingCount: 2}}},
 		}}
 		srv := newTestServer(t, Deps{Traffic: fake})
 		defer srv.Close()
@@ -186,7 +186,7 @@ func TestTrafficHandler_Detail(t *testing.T) {
 		if body.ID != 5 || !strings.Contains(body.RequestRaw, "u=admin") || !strings.Contains(body.ResponseRaw, "ok") {
 			t.Errorf("详情 raw 报文不符: %+v", body)
 		}
-		want := map[string]any{"task_id": "t1", "host": "a.com", "status": "completed", "conversation_id": "c1"}
+		want := map[string]any{"task_id": "t1", "host": "a.com", "status": "completed", "source": "proxy", "conversation_id": "c1", "finding_count": 2.0}
 		if len(body.ConsumedBy) != 1 || !reflect.DeepEqual(body.ConsumedBy[0], want) {
 			t.Errorf("consumed_by 应为 %v，得 %+v", want, body.ConsumedBy)
 		}
