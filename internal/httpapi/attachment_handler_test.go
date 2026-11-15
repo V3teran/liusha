@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,23 +11,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/V3teran/liusha/internal/attachment"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/workspace"
 )
 
-// fakeAttachmentContext 是 会话→任务→批次 解析链的测试替身。
+// fakeAttachmentContext 是 会话→任务→批次 解析链的测试替身：会话 c1 关联 taskID（可空 = 纯聊天），
+// 其它会话不存在。
 type fakeAttachmentContext struct {
 	taskID       string
 	assignmentID string
 }
 
-func (f *fakeAttachmentContext) ResolveTaskID(_ context.Context, _ string) (string, error) {
-	return f.taskID, nil
+func (f *fakeAttachmentContext) GetConversation(_ context.Context, id string) (conversation.Conversation, error) {
+	if id != "c1" {
+		return conversation.Conversation{}, fmt.Errorf("get conversation %s: %w", id, pgx.ErrNoRows)
+	}
+	return conversation.Conversation{ID: id, TaskID: f.taskID}, nil
 }
 
-func (f *fakeAttachmentContext) GetSummary(_ context.Context, _ string) (task.Summary, error) {
-	return task.Summary{AssignmentID: f.assignmentID}, nil
+func (f *fakeAttachmentContext) GetByID(_ context.Context, id string) (task.Task, error) {
+	return task.Task{ID: id, AssignmentID: f.assignmentID}, nil
 }
 
 func newAttachmentTestServer(t *testing.T, sizeCap int64, ctx *fakeAttachmentContext) (*gin.Engine, string) {
@@ -90,6 +98,24 @@ func TestUploadAttachment_ToInbox(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), ctx.assignmentID) || !strings.Contains(w.Body.String(), "/inbox/") {
 		t.Fatalf("应直落 inbox: %s", w.Body.String())
+	}
+}
+
+// TestUploadAttachment_UnknownConversation：上传到不存在的会话 404。
+func TestUploadAttachment_UnknownConversation(t *testing.T) {
+	r, _ := newAttachmentTestServer(t, 1<<20, &fakeAttachmentContext{})
+	w := postAttachment(r, multipartBody("dict.txt", "password", map[string]string{"conversation_id": "c-gone"}))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("会话不存在应 404，得 %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUploadAttachment_PureChatToStaging：纯聊天会话（没有任务）暂存，等随消息下发时落位。
+func TestUploadAttachment_PureChatToStaging(t *testing.T) {
+	r, _ := newAttachmentTestServer(t, 1<<20, &fakeAttachmentContext{})
+	w := postAttachment(r, multipartBody("dict.txt", "password", map[string]string{"conversation_id": "c1"}))
+	if w.Code != http.StatusCreated || strings.Contains(w.Body.String(), "/inbox/") {
+		t.Fatalf("纯聊天会话应 201 且不落 inbox，得 %d: %s", w.Code, w.Body.String())
 	}
 }
 

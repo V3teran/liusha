@@ -206,7 +206,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			TrafficConv:        conversationStore,
 			Conversations:      conversationStore,
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb},
-			UsageTasks:         conversationStore,
 			UsageLLM:           invocationStore,
 			UsageTools:         toolStore,
 			ExplorationGraph:   explorationGraphStore,
@@ -319,12 +318,12 @@ type attachmentContext struct {
 	Tasks         *task.Store
 }
 
-func (a attachmentContext) ResolveTaskID(ctx context.Context, conversationID string) (string, error) {
-	return a.Conversations.ResolveTaskID(ctx, conversationID)
+func (a attachmentContext) GetConversation(ctx context.Context, id string) (conversation.Conversation, error) {
+	return a.Conversations.GetConversation(ctx, id)
 }
 
-func (a attachmentContext) GetSummary(ctx context.Context, id string) (task.Summary, error) {
-	return a.Tasks.GetSummary(ctx, id)
+func (a attachmentContext) GetByID(ctx context.Context, id string) (task.Task, error) {
+	return a.Tasks.GetByID(ctx, id)
 }
 
 // llmReadiness 把 LLM Router 适配为下发边界的就绪校验：simple 是全部档位的降级兜底——

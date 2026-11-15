@@ -140,7 +140,7 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 // 残留标记会让新跑的循环被误读为「已暂停」。
 //
 // 累计停顿：复活前把「上次 ended_at → 现在」的用户停顿累加进 paused_ms（PG UPDATE 表达式用行旧值），
-// WallclockMs 据此扣除停顿 = 纯 agent 工作耗时。ended_at 为空则不累加（COALESCE 兜底 0）。
+// Task.Elapsed 据此扣除停顿。ended_at 为空则不累加（COALESCE 兜底 0）。
 // heartbeat_at 一并重置为 now：复活即续命——否则旧心跳残留，队列积压场景下 reaper
 // 会把刚重开的任务按超时判死（重开 → runner 领取之间存在无心跳空窗）。
 func ReopenTx(ctx context.Context, tx pgx.Tx, id string) error {

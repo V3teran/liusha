@@ -12,6 +12,7 @@ import type {
   TaskFilters,
   TaskListResponse,
   TaskSummary,
+  TaskUsage,
 } from './types'
 
 /** 任务列表（筛选 + 分页），对齐 listTraffic 形态。 */
@@ -35,6 +36,11 @@ export async function listTasks(
 /** 单任务详情（详情板）。 */
 export async function getTaskDetail(id: string): Promise<TaskSummary> {
   return get<TaskSummary>(`/tasks/${encodeURIComponent(id)}`)
+}
+
+/** 任务的用量合计（LLM / 工具调用与耗时）。 */
+export async function getTaskUsage(id: string): Promise<TaskUsage> {
+  return get<TaskUsage>(`/tasks/${encodeURIComponent(id)}/usage`)
 }
 
 /** 「新建任务」下发：cron 空 = 立即（1 assignment → N task → N 对话）；非空 = 定时模板。 */

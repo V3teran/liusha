@@ -6,7 +6,7 @@
  */
 
 import { API_BASE, get, patch, post } from './client'
-import type { AttachmentRef, Conversation, ConversationUsage, Message } from './types'
+import type { AttachmentRef, Conversation, Message } from './types'
 
 /** 单个会话（标题、关联任务等）；不存在时抛 404。 */
 export async function getConversation(convID: string): Promise<Conversation> {
@@ -68,14 +68,6 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
     if (page.length < PAGE) break
   }
   return all
-}
-
-/**
- * 拉取本会话的用量合计（权威：后端 SUM llm_invocation + tool_invocation）。
- * 用于会话头部 token / 耗时 chip，支持轮询实时刷新。
- */
-export async function getConversationUsage(convID: string): Promise<ConversationUsage> {
-  return get<ConversationUsage>(`/conversations/${convID}/usage`)
 }
 
 /**

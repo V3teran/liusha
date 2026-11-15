@@ -27,7 +27,7 @@ const (
 )
 
 // 可空 uuid/text 列读用 COALESCE 把 NULL 折成空串（Conversation 字段是 string 不接 NULL）。
-// 会话没有状态列：运行态一律派生自关联任务（见 RunStatus）。
+// 会话没有状态列：任务的状态、暂停、用量都按任务取（列表投影见 ListConversations）。
 const conversationCols = "id, COALESCE(title,''), COALESCE(task_id::text,''), " +
 	"created_at, updated_at"
 
@@ -68,16 +68,6 @@ func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResolveTaskID 解析会话关联的 task id（用于聚合 llm_invocation / tool_invocation 用量）。
-// 两轨统一：conversation.task_id 即所属 task；纯聊天无关联 → 返回空串（调用方据此返回零用量）。
-func (s *Store) ResolveTaskID(ctx context.Context, conversationID string) (string, error) {
-	c, err := s.GetConversation(ctx, conversationID)
-	if err != nil {
-		return "", err
-	}
-	return c.TaskID, nil
-}
-
 // ResolveConversationByTask 反向解析：task id → 关联的对话 id。一个任务至多一个对话
 // （conversation_one_per_task 唯一索引）。没有对话（对话已删除、代理捕获建对话失败、
 // task 不存在）返回空串——调用方据此跳过写时间线，不报错。
@@ -96,37 +86,6 @@ func (s *Store) ResolveConversationByTask(ctx context.Context, taskID string) (s
 		return "", fmt.Errorf("resolve conversation for task %s: %w", taskID, err)
 	}
 	return conversationID, nil
-}
-
-// IsRunActive 返回本会话当前是否有正在运行的扫描（权威：后端 task 终态，非客户端计时）。
-// 关联 task.status='active'（completed/aborted 为终态）；纯聊天 / 已结束返回 false。
-// 前端据此显示"agent 工作中"指示器，避免历史回灌误判。
-func (s *Store) IsRunActive(ctx context.Context, conversationID string) (bool, error) {
-	var running bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(
-		         SELECT 1 FROM task t JOIN conversation c ON c.task_id = t.id
-		         WHERE c.id = $1 AND t.status = 'active'
-		       )`, conversationID).Scan(&running)
-	if err != nil {
-		return false, fmt.Errorf("check run active for conversation %s: %w", conversationID, err)
-	}
-	return running, nil
-}
-
-// RunPaused 判会话关联任务是否处于暂停中（active 的子状态）。会话头部控制组
-// 据此切换「暂停/继续」按钮与状态文案。
-func (s *Store) RunPaused(ctx context.Context, conversationID string) (bool, error) {
-	var paused bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(
-		         SELECT 1 FROM task t JOIN conversation c ON c.task_id = t.id
-		         WHERE c.id = $1 AND t.status = 'active' AND t.paused
-		       )`, conversationID).Scan(&paused)
-	if err != nil {
-		return false, fmt.Errorf("check run paused for conversation %s: %w", conversationID, err)
-	}
-	return paused, nil
 }
 
 // CountReasoningSinceDispatched 统计本会话最近一次任务下发（dispatched 状态节点）
@@ -148,28 +107,6 @@ func (s *Store) CountReasoningSinceDispatched(ctx context.Context, conversationI
 		return 0, fmt.Errorf("count reasoning since dispatched for %s: %w", conversationID, err)
 	}
 	return n, nil
-}
-
-// WallclockMs 返回本会话关联 task 的「纯工作」墙钟时长（毫秒）——发起→完成的流逝时间扣除停顿。
-// 跑中用 now()-created_at，结束用 ended_at-created_at；再减 task.paused_ms（多轮 follow-up
-// 复活间的用户停顿累计，见 task.Reopen）。首次扫描 paused_ms=0。纯聊天/无关联 task 返回 0。
-func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, error) {
-	var ms *int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT ((EXTRACT(EPOCH FROM (COALESCE(t.ended_at, now()) - t.created_at)) * 1000)::bigint - t.paused_ms)
-		FROM task t JOIN conversation c ON c.task_id = t.id
-		WHERE c.id = $1
-		LIMIT 1`, conversationID).Scan(&ms)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("wallclock for conversation %s: %w", conversationID, err)
-	}
-	if ms == nil {
-		return 0, nil
-	}
-	return *ms, nil
 }
 
 // ListFilter 是会话列表的筛选与分页（List / Count 共用筛选口径）。
@@ -444,25 +381,6 @@ func scanConversation(r db.RowScanner, c *Conversation) error {
 func scanConversationWithRun(r db.RowScanner, c *Conversation) error {
 	return r.Scan(&c.ID, &c.Title, &c.TaskID, &c.CreatedAt, &c.UpdatedAt,
 		&c.RunStatus, &c.RunPaused, &c.FindingCount, &c.Source)
-}
-
-// RunStatus 返回会话关联 task 的「真实运行态」（task.status：active/completed/aborted；
-// 纯聊天空串）——供顶部状态栏显示三态，区别于 IsRunActive 的二元布尔。
-// 用 conversation.status 是僵尸字段（默认 active 从不更新），不可用于显示。
-func (s *Store) RunStatus(ctx context.Context, conversationID string) (string, error) {
-	var status string
-	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(t.status, '')
-		FROM conversation c
-		LEFT JOIN task t ON t.id = c.task_id
-		WHERE c.id = $1`, conversationID).Scan(&status)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("run status for conversation %s: %w", conversationID, err)
-	}
-	return status, nil
 }
 
 func scanMessage(r db.RowScanner, m *Message) error {
