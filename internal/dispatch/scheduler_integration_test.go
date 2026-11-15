@@ -142,7 +142,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "should not fire"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
-		CronExpr: "* * * * *", Items: items,
+		CronExpr: "* * * * *", Items: items, Title: "disabled",
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)

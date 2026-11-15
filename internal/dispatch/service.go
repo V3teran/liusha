@@ -190,7 +190,7 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
 		Source:      assignment.SourceDirect,
 		Items:       items,
-		Title:       title,
+		Title:       batchTitle(title, briefs),
 		Description: description,
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ func (s *Service) DispatchScheduled(ctx context.Context, title, description stri
 	sched, err := s.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr:    cronExpr,
 		Items:       items,
-		Title:       title,
+		Title:       batchTitle(title, briefs),
 		Description: description,
 	})
 	if err != nil {
@@ -994,7 +994,16 @@ func (s *Service) genTitle(conversationID, brief string) {
 	_ = s.Conversations.SetTitle(ctx, conversationID, title)
 }
 
-// BriefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作会话标题。
+// batchTitle 是批次（及定时模板）的名称：未填写时取首个目标的摘要，与对话发起的批次
+// 同一规则。名称因此总在写入时确定（库里不为空），读取侧直接用，不再各自推导。
+func batchTitle(title string, briefs []string) string {
+	if title != "" || len(briefs) == 0 {
+		return title
+	}
+	return BriefTitle(briefs[0])
+}
+
+// BriefTitle 取 brief 前 40 字（rune 安全，不截半个中文）作会话标题与默认批次名。
 func BriefTitle(brief string) string {
 	const maxRunes = 40
 	r := []rune(brief)

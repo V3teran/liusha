@@ -39,6 +39,9 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Schedule, error) {
 	if p.CronExpr == "" {
 		return Schedule{}, fmt.Errorf("create cron_schedule: cron_expr 必填")
 	}
+	if p.Title == "" {
+		return Schedule{}, fmt.Errorf("create cron_schedule: title 必填（未填写时由下发入口取首个目标）")
+	}
 	next, err := NextRun(p.CronExpr, time.Now())
 	if err != nil {
 		return Schedule{}, err

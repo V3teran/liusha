@@ -89,8 +89,8 @@ function buildTaskColumns(
       size: 150,
       cell: (ctx) => {
         const t = ctx.row.original
-        // 进度前置（扫到第几个一目了然），悬停给批次全名——ID 对人无意义
-        const title = t.assignment_title || t.assignment_id.slice(0, 8)
+        // 进度前置（扫到第几个一目了然），悬停给批次全名
+        const title = t.assignment_title
         return (
           <span
             className="block truncate text-xs text-text-secondary"
