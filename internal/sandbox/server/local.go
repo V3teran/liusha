@@ -54,6 +54,10 @@ func listenLocal() (net.Listener, error) {
 	return ln, nil
 }
 
+// maxRejectedBody 是拒绝请求前读掉的请求体上限。本机接口的请求体都很小（浏览器启停的 JSON），
+// 回灌的流量体可能更大，超出部分交给 net/http 自行处置。
+const maxRejectedBody = 64 << 10
+
 // localHandler 是本机接口的处理器。
 func (s *Server) localHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -64,6 +68,9 @@ func (s *Server) localHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			// 先读完请求体再回复：客户端（Python urllib）总带 Connection: close，请求体未读完时
+			// 回复后关闭连接，Windows 会以复位丢弃已到达的响应，客户端看不到拒绝原因。
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxRejectedBody))
 			writeError(w, http.StatusUnauthorized, "本机口令无效")
 			return
 		}
