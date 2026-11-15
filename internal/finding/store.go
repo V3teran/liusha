@@ -32,7 +32,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, task_id::text AS task_id, " +
-	"agent_run_id, source_traffic_id, host, severity, summary, target, evaluation, " +
+	"agent_run_id, host, severity, summary, target, evaluation, " +
 	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
 	"status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
@@ -67,14 +67,14 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	// 不报错而是返回 existing 行——LLM 视角 Save 始终幂等成功，dedup 在 DB 层无声完成。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
-			(task_id, agent_run_id, source_traffic_id, host, severity, summary, target, evaluation,
+			(task_id, agent_run_id, host, severity, summary, target, evaluation,
 			 cwe_id, owasp_category, remediation, repro)
-		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12)
+		VALUES ($1::uuid, $2,$3,$4,$5,$6,$7, NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), $11)
 		ON CONFLICT (task_id, dedup_key) DO UPDATE
 		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
 		RETURNING `+colsSelect,
 		f.TaskID,
-		f.AgentRunID, f.SourceTrafficID, f.Host, f.Severity,
+		f.AgentRunID, f.Host, f.Severity,
 		f.Summary, f.Target, f.Evaluation,
 		f.CWEID, f.OWASPCategory, f.Remediation, f.Repro)
 
@@ -362,18 +362,17 @@ func validStatus(s string) bool {
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 source, conversation_id。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
-	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
+	"f.agent_run_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
 	"f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
 // scanLedger 扫 ledgerCols 列序 + 末尾 source, conversation_id（比 scan() 多两列）。
 func scanLedger(r db.RowScanner, out *LedgerRow) error {
 	var agentID *string
-	var sourceTrafficID *int64
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&out.ID, &out.TaskID,
-		&agentID, &sourceTrafficID, &out.Host, &out.Severity,
+		&agentID, &out.Host, &out.Severity,
 		&out.Summary, &out.Target, &out.Evaluation,
 		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
 		&out.Status, &out.TriageNote, &triagedAt,
@@ -383,20 +382,18 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 		return err
 	}
 	out.AgentRunID = agentID
-	out.SourceTrafficID = sourceTrafficID
 	out.TriagedAt = triagedAt
 	return nil
 }
 
 // scan 是 colsSelect 列序的统一反序列化点。
-// agentID / sourceTrafficID 用指针接住 NULL；AgentRunID 是 *string 保留 nil，SourceTrafficID 是 *int64 同。
+// agentID 用指针接住 NULL（AgentRunID 是 *string，保留 nil）。
 func scan(r db.RowScanner, f *Finding) error {
 	var agentID *string
-	var sourceTrafficID *int64
 	var triagedAt *time.Time
 	if err := r.Scan(
 		&f.ID, &f.TaskID,
-		&agentID, &sourceTrafficID, &f.Host, &f.Severity,
+		&agentID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evaluation,
 		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
 		&f.Status, &f.TriageNote, &triagedAt,
@@ -405,7 +402,6 @@ func scan(r db.RowScanner, f *Finding) error {
 		return err
 	}
 	f.AgentRunID = agentID
-	f.SourceTrafficID = sourceTrafficID
 	f.TriagedAt = triagedAt
 	return nil
 }

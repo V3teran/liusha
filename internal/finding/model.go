@@ -14,14 +14,12 @@ import (
 // Finding 是 finding 表行的 Go 表示。
 //
 // Host 必填；Save 内空字符串校验防漏填。
-// SourceTrafficID 可空（不绑定具体流量时 nil）；指向 proxy_traffic / agent_traffic 任一。
 // Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
 type Finding struct {
-	ID              string
-	TaskID          string // 所属 task.id
-	AgentRunID      *string
-	SourceTrafficID *int64
-	Host            string
+	ID         string
+	TaskID     string // 所属 task.id
+	AgentRunID *string
+	Host       string
 	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
 	// 其他值前端配色退化为蓝色）；DB 列无 enum CHECK 约束。
 	Severity string
