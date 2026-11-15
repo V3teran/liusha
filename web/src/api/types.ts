@@ -421,11 +421,12 @@ export interface FindingRow {
   repro?: Record<string, unknown>
   source: Source // JOIN assignment 派生
   task_id?: string // 产出本漏洞的任务（详情跳转用）
+  result_node_id?: string // 坐实本漏洞的结果节点（跳到探索图时定位到它；历史记录可能没有）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
-  first_seen_at: string // 首次发现时间（dedup Update 不变；追踪漏洞存续时长）
+  first_seen_at: string // 首次发现时间（重放交付不变；追踪漏洞存续时长）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。

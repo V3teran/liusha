@@ -26,6 +26,8 @@ export interface TaskJumpContext {
   findingCount?: number
   /** 从哪里出发：从对话出发时落点按对话限定，其余按任务限定（见 scope.ts） */
   from: 'task' | 'conversation'
+  /** 探索图落点打开的节点：从漏洞出发时是坐实它的结果节点；缺省 = 看整张图 */
+  explorationNode?: string
 }
 
 /** 从任务摘要取跳转所需的信息。 */
@@ -79,7 +81,7 @@ export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]):
     task: `/tasks?${scopeQuery(scope)}&selected=${encodeURIComponent(ctx.taskId)}`,
     conversation: ctx.conversationId ? conversationPath(ctx.source, ctx.conversationId) : null,
     findings: (ctx.findingCount ?? 0) > 0 ? `/findings?${scopeQuery(scope)}` : null,
-    exploration: `/exploration-graph?${scopeQuery(scope)}`,
+    exploration: `/exploration-graph?${scopeQuery(scope)}${ctx.explorationNode ? `&selected=${encodeURIComponent(ctx.explorationNode)}` : ''}`,
   }
   return ORDER.filter((t) => targets.includes(t)).flatMap((target) => {
     const to = href[target]

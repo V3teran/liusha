@@ -40,6 +40,13 @@ describe('taskJumps', () => {
     expect(conv.to).toBe('/conversations/proxy?conversation=c-1')
   })
 
+  it('探索图可定位到一个节点（从漏洞出发：坐实它的结果），范围规则不变', () => {
+    expect(taskJumps(ctx({ explorationNode: 'r-9' }), ['exploration'])[0].to).toBe('/exploration-graph?task=t-1&selected=r-9')
+    expect(taskJumps(ctx({ from: 'conversation', explorationNode: 'r-9' }), ['exploration'])[0].to).toBe(
+      '/exploration-graph?conversation=c-1&selected=r-9',
+    )
+  })
+
   it('只取要求的目标（详情不跳到自身）', () => {
     expect(taskJumps(ctx(), ['conversation', 'exploration']).map((j) => j.target)).toEqual(['conversation', 'exploration'])
   })

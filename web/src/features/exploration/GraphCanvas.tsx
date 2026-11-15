@@ -1,7 +1,7 @@
 /**
  * 探索图画布：React Flow 只读封装。
  * 自定义节点（nodeTypes 模块级常量，避免每渲染重建）、聚焦高亮由上层
- * applyFocus 算好传入；节点数变化或会话切换时 fitView 复位视口。
+ * applyFocus 算好传入；节点数变化或任务切换时 fitView 复位视口。
  */
 
 import { useEffect, useRef } from 'react'
@@ -30,8 +30,10 @@ const LEGIBLE_MIN_ZOOM = 0.6
 export function GraphCanvas(props: {
   nodes: ExplorationFlowNode[]
   edges: Edge[]
-  /** 会话切换（或其它需要视口复位的事件键） */
+  /** 任务切换（或其它需要视口复位的事件键） */
   resetKey: string
+  /** 视口复位时对准的节点（打开的节点，如从漏洞跳来的结果节点）；空 = 按图的活动状态定位 */
+  focusNodeId: string
   onNodeClick: (id: string) => void
 }) {
   return (
@@ -45,11 +47,13 @@ function GraphCanvasInner({
   nodes,
   edges,
   resetKey,
+  focusNodeId,
   onNodeClick,
 }: {
   nodes: ExplorationFlowNode[]
   edges: Edge[]
   resetKey: string
+  focusNodeId: string
   onNodeClick: (id: string) => void
 }) {
   const { fitView } = useReactFlow()
@@ -58,6 +62,9 @@ function GraphCanvasInner({
   // 最新节点经 ref 读取：fitView 回调触发时取当下状态（含 running 前沿）
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
+  // 对准的节点同样经 ref 读取：只在复位时生效，之后点选节点不移动视口
+  const focusRef = useRef(focusNodeId)
+  focusRef.current = focusNodeId
   // 已排程守卫：React Flow 初始化会重建 viewport helpers（fitView 身份变化）导致
   // effect 重跑，若靠 cleanup 取消 rAF 会把还没执行的 fitView 撤掉，且数量守卫
   // 不再补发——视口停在默认缩放的竞态。排程后由守卫挡住重复调度，不做取消。
@@ -76,8 +83,12 @@ function GraphCanvasInner({
         // 智能初始视口：图在跑（存在 running 节点）时定位到活动前沿，随新节点
         // 到来持续跟进；图静止时适配全图，但缩放不低于可读下限——大图全量装进视口时
         // 节点字号会缩到不可辨认，全局鸟瞰交给右下角小地图，主画布保证卡片可读。
+        // 有打开的节点时先对准它（从漏洞跳来看坐实它的结果），其次才是活动前沿与全图。
+        const focus = focusRef.current
         const running = nodesRef.current.filter((n) => n.data.node.state === 'running').map((n) => n.id)
-        if (running.length > 0) {
+        if (focus && nodesRef.current.some((n) => n.id === focus)) {
+          void fitView({ nodes: [{ id: focus }], padding: 0.35, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
+        } else if (running.length > 0) {
           void fitView({ nodes: running.map((id) => ({ id })), padding: 0.35, duration: 300, minZoom: 0.3, maxZoom: 1 })
         } else {
           void fitView({ padding: 0.15, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
