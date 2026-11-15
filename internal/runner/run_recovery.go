@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
+	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/worker"
 )
@@ -44,23 +45,30 @@ const (
 	runRecoveryResumeRole = "planner"
 )
 
+// messagePublisher 把落库的时间线消息广播给对话的实时订阅者（*convstream.Publisher 满足）。
+type messagePublisher interface {
+	PublishMessage(ctx context.Context, conversationID string, msg any) error
+}
+
 // RunRecoveryMonitor 定期回收僵尸 run 并重投。
 type RunRecoveryMonitor struct {
-	pool        *pgxpool.Pool
-	wc          *worker.Client
-	agentRuns   *agentrun.Store
-	tasks       *task.Store
-	logger      zerolog.Logger
-	interval    time.Duration
-	timeout     time.Duration
-	maxAttempts int
+	pool          *pgxpool.Pool
+	wc            *worker.Client
+	agentRuns     *agentrun.Store
+	tasks         *task.Store
+	conversations *conversation.Store
+	publisher     messagePublisher
+	logger        zerolog.Logger
+	interval      time.Duration
+	timeout       time.Duration
+	maxAttempts   int
 }
 
 // StartRunRecoveryMonitor 启动僵尸 run 回收循环（非阻塞）。
 // interval/timeout <=0 或 maxAttempts<=0 时用内置默认。
 func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker.Client,
-	agentRuns *agentrun.Store, tasks *task.Store, logger zerolog.Logger,
-	interval, timeout time.Duration, maxAttempts int) {
+	agentRuns *agentrun.Store, tasks *task.Store, conversations *conversation.Store, publisher messagePublisher,
+	logger zerolog.Logger, interval, timeout time.Duration, maxAttempts int) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -71,14 +79,16 @@ func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker
 		maxAttempts = runRecoveryMaxAttempts
 	}
 	m := &RunRecoveryMonitor{
-		pool:        pool,
-		wc:          wc,
-		agentRuns:   agentRuns,
-		tasks:       tasks,
-		logger:      logger.With().Str("component", "run_recovery_monitor").Logger(),
-		interval:    interval,
-		timeout:     timeout,
-		maxAttempts: maxAttempts,
+		pool:          pool,
+		wc:            wc,
+		agentRuns:     agentRuns,
+		tasks:         tasks,
+		conversations: conversations,
+		publisher:     publisher,
+		logger:        logger.With().Str("component", "run_recovery_monitor").Logger(),
+		interval:      interval,
+		timeout:       timeout,
+		maxAttempts:   maxAttempts,
 	}
 	go func() {
 		ticker := time.NewTicker(m.interval)
@@ -180,13 +190,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 
 		// 尝试上限：连续中断防崩溃循环（每次重投都从 planner 重新规划）。
 		if z.attempts >= m.maxAttempts {
-			m.logger.Warn().Str("task_id", z.taskID).
-				Int("attempts", z.attempts).Int("limit", m.maxAttempts).
-				Msg("中断次数达上限，任务落 aborted（请手动重新触发）")
-			if _, err := m.tasks.Abort(ctx, z.taskID,
-				"runner 连续中断 "+strconv.Itoa(z.attempts)+" 次，已停止自动恢复；请手动重新下发任务"); err != nil {
-				m.logger.Error().Err(err).Msg("任务落 aborted 失败")
-			}
+			m.abortAfterRetries(ctx, z.taskID, z.conversationID, z.attempts)
 			continue
 		}
 
@@ -240,19 +244,31 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 			Msg("检测到搁浅任务（active 但无存活 run），重投 planner")
 
 		if s.attempts >= m.maxAttempts {
-			m.logger.Warn().Str("task_id", s.taskID).
-				Int("attempts", s.attempts).Int("limit", m.maxAttempts).
-				Msg("中断次数达上限，搁浅任务落 aborted（请手动重新触发）")
-			if _, err := m.tasks.Abort(ctx, s.taskID,
-				"runner 连续中断 "+strconv.Itoa(s.attempts)+" 次，已停止自动恢复；请手动重新下发任务"); err != nil {
-				m.logger.Error().Err(err).Msg("任务落 aborted 失败")
-			}
+			m.abortAfterRetries(ctx, s.taskID, s.conversationID, s.attempts)
 			continue
 		}
 
 		m.redispatchPlanner(ctx, s.taskID, s.conversationID)
 	}
 	return nil
+}
+
+// abortAfterRetries 中断次数达上限：任务落 aborted，并往对话时间线落终止节点（与用户停止、
+// 心跳回收、运行出错同一口径——否则对话停在「工作中」的最后一条消息，看不出任务已被终止
+// 及原因）。节点只由真正完成迁移的一方落，任务已被别处终止时不重复。
+func (m *RunRecoveryMonitor) abortAfterRetries(ctx context.Context, taskID, conversationID string, attempts int) {
+	reason := "runner 连续中断 " + strconv.Itoa(attempts) + " 次，已停止自动恢复；请手动重新下发任务"
+	m.logger.Warn().Str("task_id", taskID).Int("attempts", attempts).Int("limit", m.maxAttempts).
+		Msg("中断次数达上限，任务落 aborted（请手动重新触发）")
+	applied, err := m.tasks.Abort(ctx, taskID, reason)
+	if err != nil {
+		m.logger.Error().Err(err).Str("task_id", taskID).Msg("任务落 aborted 失败")
+		return
+	}
+	if applied {
+		appendTaskStatus(ctx, m.conversations, m.publisher, m.logger, conversationID,
+			conversation.TaskStatusAborted, "任务已终止", map[string]any{"reason": reason})
+	}
 }
 
 // redispatchPlanner 以全新 agent_run 重投 planner（探索图历史保留，认知循环
