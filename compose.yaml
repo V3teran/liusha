@@ -177,6 +177,8 @@ services:
     build:
       context: .
       dockerfile: deployments/sandbox/Dockerfile
+      args:
+        VERSION: 0.10.0 # x-release-please-version
     restart: unless-stopped
     # tini 作 PID 1：回收命令结束后被托孤的后台进程（扫描器、浏览器子进程）
     init: true
