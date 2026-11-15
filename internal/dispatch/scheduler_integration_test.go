@@ -42,7 +42,7 @@ func newTestScheduler(t *testing.T) (*Scheduler, *pgxpool.Pool) {
 		Enq:           enq,
 		Conversations: conversations,
 		// Dispatcher 与 Scheduler 共用同一 conversation store：brief 条目展开时
-		// expandItem 要把任务链到会话（生产装配同源，见 cmd/api）。
+		// expandItem 要把任务链到会话（生产装配同源，见 api 组件）。
 		Dispatcher: &Service{
 			Assignments:   assignments,
 			Tasks:         tasks,
@@ -99,12 +99,12 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	}
 	var found *task.Summary
 	for i := range tasks {
-		if tasks[i].Brief == items[0].Brief {
+		if tasks[i].Goal == items[0].Brief {
 			found = &tasks[i]
 		}
 	}
 	if found == nil {
-		t.Fatalf("应展开出 brief=%q 的 task，got %+v", items[0].Brief, tasks)
+		t.Fatalf("应展开出目标=%q 的 task，got %+v", items[0].Brief, tasks)
 	}
 	if found.AssignmentID == "" {
 		t.Fatal("展开的 task 应挂到克隆出的 assignment 上")
@@ -142,7 +142,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 
 	items := []assignment.Item{{Brief: "should not fire"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
-		CronExpr: "* * * * *", Items: items,
+		CronExpr: "* * * * *", Items: items, Title: "disabled",
 	})
 	if err != nil {
 		t.Fatalf("create schedule: %v", err)
@@ -159,7 +159,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 		t.Fatalf("list tasks: %v", err)
 	}
 	for _, tk := range tasks {
-		if tk.Brief == items[0].Brief {
+		if tk.Goal == items[0].Brief {
 			t.Fatalf("停用的模板不应展开出 task: %+v", tk)
 		}
 	}

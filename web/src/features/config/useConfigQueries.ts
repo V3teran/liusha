@@ -3,19 +3,8 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { listAgentsPaged, listSkillsPaged } from '@/api/config'
 import type { AgentListItem, SkillListItem } from '@/api/types'
 import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 
-// 搜索防抖时延（毫秒）：输入停顿后再打服务端，避免逐字请求。
-const SEARCH_DEBOUNCE_MS = 300
-
-// useDebounced 返回防抖后的值（输入停顿 delay 后才同步）。
-function useDebounced(value: string, delay: number): string {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay)
-    return () => clearTimeout(t)
-  }, [value, delay])
-  return debounced
-}
 
 // usePagedQueryState 是分页列表的页码/条数/搜索词状态机（Agent/Skill 两页共用）：
 //   - 搜索词防抖生效后回到第 1 页（防逐键请求）；
@@ -25,7 +14,7 @@ function usePagedQueryState() {
   const [page, setPageRaw] = useState(1)
   const [size, setSizeRaw] = useState(DEFAULT_PAGE_SIZE)
   const [query, setQuery] = useState('')
-  const debouncedQuery = useDebounced(query, SEARCH_DEBOUNCE_MS)
+  const debouncedQuery = useDebouncedSearch(query)
 
   useEffect(() => {
     setPageRaw(1)

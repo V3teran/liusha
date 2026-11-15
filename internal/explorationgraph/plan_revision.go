@@ -2,6 +2,7 @@ package explorationgraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,7 +18,11 @@ import (
 //
 // 目标修订只作用于派生目标（IsDerivedObjective）。根目标代表任务本身，只随
 // 任务终态由控制面收敛；延续动作挂在根目标下。
+//
+// 修订以 Basis（规划所依据的目标）为前置：规划期间目标被改写，修订整体作废
+// （ErrGoalChanged），不会把按旧目标得出的结论写进新目标的图。
 type PlanRevision struct {
+	Basis               GoalBasis             // 规划所依据的目标（必填，规划开始前读取）
 	Analyzed            []string              // 本次分析消费的 result：同事务落分析水位（metaAnalyzed）
 	AddedObjectives     []ObjectiveDraft      // 新提出的派生目标
 	CompletedObjectives []ObjectiveCompletion // 宣告达成的派生目标
@@ -80,15 +85,18 @@ func (r PlanRevision) IsEmpty() bool {
 // RevisePlan 校验并原子应用一次规划修订。
 //
 // 校验在事务外基于当前图快照进行，剔除无效引用（见 RejectedReference）；随后
-// 全部新节点、边、状态迁移与分析水位在一个事务内落定。若校验后被引用目标已被
-// 并发流转（如任务终态收敛），或被分析的结果已被另一次分析消费，事务整体回滚
-// 并返回包裹 core.ErrGraphStateConflict 的错误——什么都没落，调用方下一轮按新
-// 快照整体重做即可。
-// 草稿节点本身不合法（类型/来源/状态/归属/重复 ID）或水位引用了不存在的结果，
-// 属于调用方编程错误，直接返回错误。
+// 全部新节点、边、状态迁移与分析水位在一个事务内落定。规划所依据的目标已被改写
+// 时整体回滚并返回 ErrGoalChanged——结论作废，调用方按新目标重新规划；若校验后
+// 被引用目标已被并发流转，或被分析的结果已被另一次分析消费，整体回滚并返回包裹
+// core.ErrGraphStateConflict 的错误——什么都没落，调用方下一轮按新快照整体重做即可。
+// 缺少依据、草稿节点本身不合法（类型/来源/状态/归属/重复 ID）或水位引用了不存在
+// 的结果，属于调用方编程错误，直接返回错误。
 func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision) (RevisionReport, error) {
 	if rev.IsEmpty() {
 		return RevisionReport{}, nil
+	}
+	if rev.Basis.ObjectiveID == "" {
+		return RevisionReport{}, fmt.Errorf("规划修订缺少依据（任务 %s）", taskID)
 	}
 	if err := validateDrafts(taskID, rev); err != nil {
 		return RevisionReport{}, err
@@ -103,7 +111,13 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 		return RevisionReport{}, fmt.Errorf("读取结果快照: %w", err)
 	}
 
+	root, ok := RootObjective(objectives)
+	if !ok || root.ID != rev.Basis.ObjectiveID {
+		return RevisionReport{}, fmt.Errorf("修订依据 %s 不是任务 %s 的根目标", rev.Basis.ObjectiveID, taskID)
+	}
+
 	b := newRevisionBuilder(s, taskID, objectives, results)
+	b.changes.Preconditions = []core.GraphNodeVersion{{TaskID: taskID, NodeID: root.ID, Version: rev.Basis.Version}}
 	if err := b.markAnalyzed(rev.Analyzed); err != nil {
 		return RevisionReport{}, err
 	}
@@ -114,6 +128,9 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	}
 
 	if err := s.graphStore.ApplyChangeSet(ctx, b.changes); err != nil {
+		if errors.Is(err, core.ErrVersionMismatch) {
+			err = ErrGoalChanged
+		}
 		return RevisionReport{Rejected: b.report.Rejected}, fmt.Errorf("应用规划修订: %w", err)
 	}
 	return b.report, nil

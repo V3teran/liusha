@@ -1,15 +1,15 @@
 import { PageHeader } from '@/components/PageHeader'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useSelectedParam, type HistoryOptions } from '@/hooks/useSelectedParam'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useSearchParams } from 'react-router-dom'
 import { CalendarClock, Plus } from 'lucide-react'
 import { TaskFilterBar } from '@/features/tasks/TaskFilterBar'
 import { TaskTable } from '@/features/tasks/TaskTable'
 import { TaskDetailPane } from '@/features/tasks/TaskDetailPane'
 import { NewTaskDialog } from '@/features/tasks/NewTaskDialog'
 import { SchedulesDrawer } from '@/features/tasks/SchedulesDrawer'
-import { useTaskFilters } from '@/features/tasks/useTaskFilters'
+import { hasTaskFilter, useTaskFilters } from '@/features/tasks/useTaskFilters'
 import { useTaskDetail, useTaskList } from '@/features/tasks/useTaskQueries'
 import type { TaskSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -19,7 +19,8 @@ import { Button } from '@/components/ui/Button'
 // 代理捕获 1 assignment → 1 task；每 task 绑一个对话（详情板跳转）。
 //
 // 布局：左列表（筛选 + 10 列表 + 分页）+ 右详情板（点行选中，Esc/✕ 关闭）。
-// 筛选/分页态进 URL（useTaskFilters），列表含 active 任务时 15s 轮询推进状态/进度。
+// 筛选/分页态与打开的任务都进 URL（useTaskFilters / useSelectedParam），列表含 active 任务时
+// 15s 轮询推进状态/进度。
 export function TasksPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useTaskFilters()
   const listQuery = useTaskList(filters, page, size)
@@ -27,17 +28,11 @@ export function TasksPage() {
   const rows = useMemo(() => listQuery.data?.items ?? [], [listQuery.data])
   const total = listQuery.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / size))
-  const hasFilter = !!(filters.source || filters.status || filters.search)
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selected, select] = useSelectedParam()
+  const selectedId = selected || null
   const isWide = useMediaQuery('(min-width: 768px)', true)
   const detailQuery = useTaskDetail(selectedId)
-  // ?task=<id>（对话列表 ⋯ 菜单「任务」跳转）：进页即选中该任务打开详情板
-  const [searchParams] = useSearchParams()
-  const preselectTask = searchParams.get('task')
-  useEffect(() => {
-    if (preselectTask) setSelectedId(preselectTask)
-  }, [preselectTask])
   // 列表行已带全量派生列，详情请求返回前先用行数据撑住详情板（零闪跳）。
   const rowTask = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
   const detail = detailQuery.data ?? rowTask
@@ -51,11 +46,12 @@ export function TasksPage() {
     setSchedulesOpen(true)
   }, [])
 
-  const selectRow = useCallback((row: TaskSummary) => setSelectedId(row.id), [])
-  const closeDetail = useCallback(() => setSelectedId(null), [])
+  const selectRow = useCallback((row: TaskSummary) => select(row.id), [select])
+  const closeDetail = useCallback(() => select(''), [select])
+  const selectById = useCallback((id: string | null, opts?: HistoryOptions) => select(id ?? '', opts), [select])
 
   // 键盘导航（↑/↓ 移动选中、Esc 清除）——两页同构，抽 useListKeyboardNav
-  const { onListKeyDown } = useListKeyboardNav(rows, selectedId, setSelectedId)
+  const { onListKeyDown } = useListKeyboardNav(rows, selectedId, selectById)
 
   const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
 
@@ -107,7 +103,7 @@ export function TasksPage() {
                 <TaskTable
                   rows={rows}
                   loading={listQuery.isPending}
-                  hasFilter={hasFilter}
+                  hasFilter={hasTaskFilter(filters)}
                   offset={(page - 1) * size}
                   selectedId={selectedId}
                   onRowClick={selectRow}

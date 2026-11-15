@@ -6,10 +6,14 @@ import { Select } from '@/components/ui/Select'
 import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { isoToLocalInput, syncIsoWithLocalInput } from '@/lib/datetime'
 import { SOURCE_OPTIONS } from '@/lib/source'
+import { ScopeChip } from '@/features/relations/ScopeChip'
+import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
+import { hasTaskFilter } from './useTaskFilters'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 interface TaskFilterBarProps {
   filters: TaskFilters
-  onChange: (next: TaskFilters) => void
+  onChange: (next: TaskFilters, opts?: HistoryOptions) => void
   onReset: () => void
   trailing?: ReactNode
 }
@@ -20,7 +24,10 @@ const STATUSES: Array<{ value: string; label: string }> = [
   { value: 'aborted', label: '已中止' },
 ]
 
-/** 任务筛选栏（全站统一顺序）：来源/状态下拉 → 搜索（300ms 防抖）→ 创建时间范围 → 清空 →（右）分页。 */
+/**
+ * 任务筛选栏（全站统一顺序）：范围（从其它页面跳来时）→ 来源/状态下拉 → 搜索（300ms 防抖）→
+ * 创建时间范围 → 清空 →（右）分页。
+ */
 export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilterBarProps) {
   const [localSearch, setLocalSearch] = useState(filters.search)
   useEffect(() => {
@@ -29,16 +36,16 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localSearch !== filters.search) {
-        onChange({ ...filters, search: localSearch })
+        onChange({ ...filters, search: localSearch }, { replace: true })
       }
     }, 300)
     return () => clearTimeout(timer)
   }, [localSearch, filters, onChange])
 
-  const hasFilter = !!(filters.source || filters.status || filters.search || filters.since || filters.until)
-
+  const scope = scopeOf(filters)
   return (
-    <FilterBar label="任务筛选" canReset={hasFilter} onReset={onReset} trailing={trailing}>
+    <FilterBar label="任务筛选" canReset={hasTaskFilter(filters)} onReset={onReset} trailing={trailing}>
+      {scope && <ScopeChip scope={scope} onClear={() => onChange({ ...filters, ...NO_SCOPE })} />}
       <Select
         value={filters.source}
         onChange={(e) => onChange({ ...filters, source: e.target.value })}
@@ -71,8 +78,8 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
         className="w-64"
         value={localSearch}
         onChange={setLocalSearch}
-        placeholder="搜索目标、批次 ID"
-        ariaLabel="搜索目标或批次 ID"
+        placeholder="搜索目标、批次名"
+        ariaLabel="搜索目标或批次名"
       />
 
       <DateTimeRange

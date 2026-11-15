@@ -18,7 +18,7 @@ import (
 )
 
 // fatalJudge：陈述含 "bad" 的假设报 LLM 未配置（evaluator 致命错误）；其余假设
-// 一直裁决到 ctx 取消，用于模拟在途验证。
+// 一直判定到 ctx 取消，用于模拟在途验证。
 type fatalJudge struct {
 	slowStarted chan struct{}
 	slowDone    atomic.Bool
@@ -37,10 +37,10 @@ func (j *fatalJudge) Judge(ctx context.Context, hypothesis string, _, _ json.Raw
 }
 
 // 致命错误终结 Run 时，在途验证必须先被取消并收尾：生命周期只等待 Run，Run 一旦提前
-// 返回，任务收尾（沙盒释放、目标终态）会与仍在跑的裁决交错。
+// 返回，任务收尾（沙盒释放、目标终态）会与仍在跑的判定交错。
 func TestRun_FatalWaitsForInFlightVerifications(t *testing.T) {
 	judge := &fatalJudge{slowStarted: make(chan struct{})}
-	gate := New(&fakeGraphStore{verID: "ver-fatal"}, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
+	gate := gateWith(&fakeGraphStore{verID: "ver-fatal"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).
 		WithJudge(judge)
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{
@@ -48,9 +48,9 @@ func TestRun_FatalWaitsForInFlightVerifications(t *testing.T) {
 		MaxConcurrent: 2, PollInterval: time.Hour, Logger: zerolog.Nop(),
 	})
 	for _, id := range []string{"obs-slow", "obs-bad"} {
-		c := explorationgraph.ConfidenceUnverified
+		c := explorationgraph.VerificationPending
 		if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
-			ID: id, TaskID: "t-fatal", Kind: core.KindObservation, Confidence: &c,
+			ID: id, TaskID: "t-fatal", Kind: core.KindObservation, VerificationStatus: &c,
 			Content: json.RawMessage(`{"statement":"` + id + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
 		}); err != nil {
 			t.Fatal(err)

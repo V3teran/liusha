@@ -153,7 +153,7 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
               <div className="border-b border-border px-3 py-1.5">
                 <span className="text-xs font-medium text-text-secondary">参数</span>
               </div>
-              <pre className="max-h-[320px] overflow-auto p-3 text-xs leading-relaxed">
+              <pre tabIndex={0} className="max-h-[320px] overflow-auto p-3 text-xs leading-relaxed">
                 {pretty}
               </pre>
             </div>
@@ -182,7 +182,7 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
                   {failed ? '错误' : '输出'}
                 </span>
               </div>
-              <pre
+              <pre tabIndex={0}
                 className={cn(
                   'max-h-[320px] overflow-auto p-3 text-xs leading-relaxed',
                   failed && 'text-status-error'

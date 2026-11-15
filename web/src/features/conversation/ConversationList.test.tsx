@@ -67,31 +67,62 @@ describe('ConversationList', () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 direct-x.com', source: 'direct' })])
     renderList({ source: 'direct' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith(30, 0, 'direct')
+      expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 0, source: 'direct', search: '' })
       expect(screen.getByText(/direct-x\.com/)).toBeTruthy()
     })
   })
 
-  it('搜索框按标题过滤（本页内）', async () => {
-    mockPage([mkConv({ id: 'c1', title: '我要扫描 alpha.com' }), mkConv({ id: 'c2', title: '我要扫描 beta.com' })])
-    renderList()
-    await waitFor(() => expect(screen.getByText(/alpha\.com/)).toBeTruthy())
+  // 关键词交给服务端检索（覆盖全部会话，分页与总数同一口径）：在已分页的单页上过滤时，
+  // 其它页的会话搜不到，「共 N 条」也与看到的对不上。
+  it('搜索交给服务端：停顿后带关键词从第一页重新请求，计数是匹配总数', async () => {
+    vi.mocked(listConversations).mockImplementation(async ({ search } = {}) =>
+      search
+        ? { conversations: [mkConv({ id: 'c-9', title: '我要扫描 shop.local 越权' })], hasMore: false, total: 1 }
+        : { conversations: [mkConv({ id: 'c-1', title: '我要扫描 alpha.com' })], hasMore: true, total: 120 },
+    )
+    renderList({ source: 'direct' })
+    await screen.findByText('第 1–1 条 · 共 120 条')
 
-    const search = screen.getByLabelText('搜索对话')
-    await userEvent.type(search, 'beta')
-    expect(screen.queryByText(/alpha\.com/)).toBeFalsy()
-    expect(screen.getByText(/beta\.com/)).toBeTruthy()
+    await userEvent.type(screen.getByLabelText('搜索对话'), 'shop')
+
+    await waitFor(() =>
+      expect(listConversations).toHaveBeenLastCalledWith({ limit: 30, offset: 0, source: 'direct', search: 'shop' }),
+    )
+    expect(await screen.findByText('第 1–1 条 · 匹配 1 条')).toBeTruthy()
+    expect(screen.getByText(/shop\.local/)).toBeTruthy()
+    // 逐字不发请求：只有停顿后的完整关键词
+    expect(listConversations).not.toHaveBeenCalledWith(expect.objectContaining({ search: 's' }))
   })
 
-  it('搜索框按 id 前缀过滤', async () => {
-    mockPage([mkConv({ id: 'abc12345', title: '' }), mkConv({ id: 'zzz99999', title: '' })])
+  // 计数文案跟随「产出当前数据的那次请求」：关键词已生效、新结果还没回来时，屏上仍是旧数据，
+  // 不能把旧的总数标成「匹配 N 条」。
+  it('新结果到达前，计数仍按当前展示的数据标注', async () => {
+    let release: () => void = () => {}
+    vi.mocked(listConversations).mockImplementation(({ search } = {}) =>
+      search
+        ? new Promise((resolve) => {
+            release = () => resolve({ conversations: [mkConv({ id: 'c-9' })], hasMore: false, total: 1 })
+          })
+        : Promise.resolve({ conversations: [mkConv({ id: 'c-1' })], hasMore: true, total: 120 }),
+    )
     renderList()
-    await waitFor(() => expect(screen.getByText('abc12345')).toBeTruthy())
+    await screen.findByText('第 1–1 条 · 共 120 条')
+    await userEvent.type(screen.getByLabelText('搜索对话'), 'shop')
+    await waitFor(() => expect(listConversations).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'shop' })))
+    expect(screen.queryByText(/匹配 120 条/)).toBeNull()
+    expect(screen.getByText('第 1–1 条 · 共 120 条')).toBeTruthy()
+    release()
+    expect(await screen.findByText('第 1–1 条 · 匹配 1 条')).toBeTruthy()
+  })
 
-    const search = screen.getByLabelText('搜索对话')
-    await userEvent.type(search, 'abc')
-    expect(screen.getByText('abc12345')).toBeTruthy()
-    expect(screen.queryByText('zzz99999')).toBeFalsy()
+  it('没有匹配时提示「没有匹配的对话」', async () => {
+    vi.mocked(listConversations).mockImplementation(async ({ search } = {}) =>
+      search ? { conversations: [], hasMore: false, total: 0 } : { conversations: [mkConv({ id: 'c-1' })], hasMore: false, total: 1 },
+    )
+    renderList()
+    await screen.findByText(/example\.com/)
+    await userEvent.type(screen.getByLabelText('搜索对话'), 'zzz')
+    expect(await screen.findByText('没有匹配的对话')).toBeTruthy()
   })
 
   it('点击会话行调用 onSelect', async () => {
@@ -296,7 +327,7 @@ describe('ConversationList', () => {
     expect(nextBtn).not.toBeDisabled()
     await userEvent.click(nextBtn)
 
-    await waitFor(() => expect(listConversations).toHaveBeenCalledWith(30, 30, ''))
+    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 30, source: '', search: '' }))
     await waitFor(() => expect(screen.getByText(/page2\.com/)).toBeTruthy())
     expect(screen.queryByText(/page1\.com/)).toBeFalsy()
   })

@@ -24,7 +24,7 @@ func (p *captureProvider) CountTokens(_ context.Context, _ llm.Request) (int, er
 func (p *captureProvider) ModelID() string                                           { return "m" }
 func (p *captureProvider) ProviderID() string                                        { return "p" }
 
-// 降级推导的假设走同一条落图与裁决管道，配方格式只能有一个权威——输出契约。
+// 降级推导的假设走同一条落图与验证管道，配方格式只能有一个权威——输出契约。
 // 此前降级请求只发一条 user 消息（章程与契约都不在），又自带「repro 为字符串数组」
 // 的格式，按它产出的假设缺 domain 信封与 assert，在复现门必然判无效。
 func TestFallbackExtractHypothesis_UsesContract(t *testing.T) {

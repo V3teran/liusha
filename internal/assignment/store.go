@@ -28,6 +28,9 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 	default:
 		return Assignment{}, fmt.Errorf("create assignment: 非法 source %q", p.Source)
 	}
+	if p.Title == "" {
+		return Assignment{}, fmt.Errorf("create assignment: title 必填（未填写时由下发入口取首个目标）")
+	}
 	items := p.Items
 	if items == nil {
 		items = []Item{}

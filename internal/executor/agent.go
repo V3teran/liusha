@@ -5,8 +5,9 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -19,129 +20,199 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// Agent 是事件驱动的执行器 Agent
-//
-// 职责：
-// - 订阅 ActionProposed 事件（由 planner.Agent 发布）
-// - 执行 Action 并生成 Observation（通过 Attempt）
-// - 发布 ActionCompleted 事件
-// - 完全异步，不阻塞任何调用方
+// Agent 是执行者：按优先级认领 open 动作并执行，观察落图后把新提出的假设交给评估者。
 type Agent struct {
-	graph        *explorationgraph.Store
-	executor     ActionExecutor
-	eventBus     bus.EventBus
-	logger       zerolog.Logger
-	taskID       string
-	maxSteps     int
-	maxParallel  int         // 并发执行的 action 上限（DAG 依赖仍由 CanExecute 保证；1=串行）
-	completionCh chan Report // 任务完成通知通道
+	graph       *explorationgraph.Store
+	executor    ActionExecutor
+	eventBus    bus.EventBus
+	logger      zerolog.Logger
+	taskID      string
+	agentRunID  string // 本 run 的 ID：认领动作时记下，结束与交还以此校验归属
+	maxParallel int    // 并发执行的 action 上限（1=串行）
 
-	// reportMu 保护共享 Report（并行执行 action 时计数并发递增）
-	reportMu sync.Mutex
+	// 看门狗：在途动作超过 stallTimeout 无进展即取消（见 watchdog.go）
+	activity           *ActivityTracker
+	stallTimeout       time.Duration
+	stallCheckInterval time.Duration
+	inFlightMu         sync.Mutex
+	inFlight           map[string]inFlightAction
+
+	// 执行池：slots 是已派发（含认领中）的动作，workers 等在途执行收尾，
+	// slotFreed 唤醒补位，failures 把执行失败交回主循环判断是否致命。
+	slotsMu   sync.Mutex
+	slots     map[string]struct{}
+	workers   sync.WaitGroup
+	slotFreed chan struct{}
+	failures  chan error
 }
 
 // AgentConfig 配置 Agent
 type AgentConfig struct {
-	TaskID       string
-	Graph        *explorationgraph.Store
-	Executor     ActionExecutor
-	EventBus     bus.EventBus
-	Logger       zerolog.Logger
-	MaxSteps     int         // 最大执行步数（0 = 默认 1000）
-	MaxParallel  int         // 并发执行 action 上限（0/1=串行；DAG 依赖仍由 CanExecute 保证）
-	CompletionCh chan Report // 可选：任务完成时写入 Report
+	TaskID      string
+	AgentRunID  string // 本 run 的 ID（动作认领归属）
+	Graph       *explorationgraph.Store
+	Executor    ActionExecutor
+	EventBus    bus.EventBus
+	Logger      zerolog.Logger
+	MaxParallel int // 并发执行 action 上限（0/1=串行）
+
+	// Activity 是动作进展记录（工具拦截器与执行引擎写入，看门狗读取）；nil 时自建。
+	Activity *ActivityTracker
+	// StallTimeout 是判定停摆的无进展时长（见 StallTimeout）；0 = 不启用看门狗。
+	StallTimeout time.Duration
+	// StallCheckInterval 是看门狗巡检周期（0 = 30 秒）。
+	StallCheckInterval time.Duration
 }
 
 // NewAgent 创建 Agent
 func NewAgent(cfg AgentConfig) *Agent {
-	if cfg.MaxSteps == 0 {
-		cfg.MaxSteps = 1000 // 默认最大步数
+	if cfg.Activity == nil {
+		cfg.Activity = NewActivityTracker()
+	}
+	if cfg.StallCheckInterval <= 0 {
+		cfg.StallCheckInterval = 30 * time.Second
 	}
 	if cfg.MaxParallel <= 0 {
-		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时无依赖的 action 并发执行
+		cfg.MaxParallel = 1 // 默认串行（保守）；>1 时 open 动作并发执行
 	}
 
 	return &Agent{
-		graph:        cfg.Graph,
-		executor:     cfg.Executor,
-		eventBus:     cfg.EventBus,
-		logger:       cfg.Logger.With().Str("agent", "executor").Logger(),
-		taskID:       cfg.TaskID,
-		maxSteps:     cfg.MaxSteps,
-		maxParallel:  cfg.MaxParallel,
-		completionCh: cfg.CompletionCh}
+		graph:       cfg.Graph,
+		executor:    cfg.Executor,
+		eventBus:    cfg.EventBus,
+		logger:      cfg.Logger.With().Str("agent", "executor").Logger(),
+		taskID:      cfg.TaskID,
+		agentRunID:  cfg.AgentRunID,
+		maxParallel: cfg.MaxParallel,
+
+		activity:           cfg.Activity,
+		stallTimeout:       cfg.StallTimeout,
+		stallCheckInterval: cfg.StallCheckInterval,
+		inFlight:           map[string]inFlightAction{},
+
+		slots:     map[string]struct{}{},
+		slotFreed: make(chan struct{}, 1),
+		failures:  make(chan error, cfg.MaxParallel),
+	}
 }
 
-// Run 启动事件循环（ctx 取消即停止）。
-//
-// 职责：
-// - 监听事件总线上的 Action 状态变化
-// - 执行可调度的 Action
-// - 处理依赖关系（只执行依赖已满足的 Action）
-// - 发布 ActionCompleted 事件
+// Run 启动执行循环（ctx 取消即停止）：有空位就按优先级认领下一个 open 动作执行。
+// 空位释放、规划者提出新动作、定时兜底三种时机都会补位；没有整批屏障——一个慢动作
+// 不会挡住后面的动作。返回前等在途执行收尾（交还或结束落图）。何时结束整个 run 由
+// 完成检测器判定，不在本层。
 func (a *Agent) Run(ctx context.Context) error {
 	a.logger.Info().Msg("Agent 启动")
 
-	// 订阅事件
 	sub := a.eventBus.SubscribeTask(a.taskID)
 	defer sub.Cancel()
 
-	// 执行状态
-	var report Report
+	workCtx, stopWork := context.WithCancel(ctx)
+	defer func() {
+		stopWork()
+		a.workers.Wait()
+	}()
 
-	// 立即检查一次待执行的 Action
-	if err := a.loopFailure(a.processAvailableActions(ctx, &report), "初始 Action 处理"); err != nil {
-		return err
-	}
+	go a.watchStalls(workCtx)
 
-	// 事件循环
-	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定期兜底检查
+	ticker := time.NewTicker(constants.ToolTimeoutQuick) // 定时兜底：错过的事件与外部写入的动作
 	defer ticker.Stop()
 
 	for {
+		if err := a.loopFailure(a.dispatch(workCtx), "认领动作"); err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			a.logger.Info().Msg("Agent 停止（context 取消）")
-			report.StopReason = stopCanceled
-			a.notifyCompletion(report)
 			return ctx.Err()
-
+		case err := <-a.failures:
+			if fatal := a.loopFailure(err, "执行动作"); fatal != nil {
+				return fatal
+			}
 		case event := <-sub.Events():
-			a.logger.Debug().
-				Str("event_type", string(event.Type)).
-				Msg("收到事件")
-
-			// 处理事件
-			if err := a.loopFailure(a.handleEvent(ctx, event, &report), "事件处理（"+string(event.Type)+"）"); err != nil {
-				return err
+			if event.Type != bus.EventActionProposed {
+				continue
 			}
-
-			// 检查停止条件
-			if a.shouldStop(&report) {
-				a.logger.Info().
-					Str("stop_reason", report.StopReason).
-					Int("steps", report.Steps).
-					Msg("Agent 达到停止条件")
-				a.notifyCompletion(report)
-				return nil
-			}
-
+		case <-a.slotFreed:
 		case <-ticker.C:
-			// 定期兜底：检查是否有遗漏的 Action
-			if err := a.loopFailure(a.processAvailableActions(ctx, &report), "定期检查 Action"); err != nil {
-				return err
-			}
-
-			// 检查停止条件
-			if a.shouldStop(&report) {
-				a.logger.Info().
-					Str("stop_reason", report.StopReason).
-					Int("steps", report.Steps).
-					Msg("Agent 达到停止条件（定期检查）")
-				a.notifyCompletion(report)
-				return nil
-			}
 		}
+	}
+}
+
+// dispatch 按「优先级高 → 创建早」把 open 动作派到空位上，每个动作一个协程执行。
+// 认领在执行协程里以 CAS 完成，派发只占位防同一动作重复派发。
+func (a *Agent) dispatch(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return nil // run 正在收尾，不再派发
+	default:
+	}
+	open, err := a.graph.ListOpenActions(ctx, a.taskID)
+	if err != nil {
+		return fmt.Errorf("list open actions: %w", err)
+	}
+	sort.SliceStable(open, func(i, j int) bool {
+		return priorityRank(open[i].Priority) < priorityRank(open[j].Priority)
+	})
+	for _, action := range open {
+		taken, full := a.reserveSlot(action.ID)
+		if full {
+			return nil
+		}
+		if !taken {
+			continue // 已在执行
+		}
+		a.workers.Add(1)
+		go func(act explorationgraph.Node) {
+			defer a.workers.Done()
+			defer a.releaseSlot(act.ID)
+			if err := a.executeAction(ctx, act); err != nil {
+				select {
+				case a.failures <- fmt.Errorf("执行动作 %s: %w", act.ID, err):
+				case <-ctx.Done():
+				}
+			}
+		}(action)
+	}
+	return nil
+}
+
+// priorityRank 把优先级映射为认领次序（越小越先）；缺省按「中」。
+func priorityRank(p explorationgraph.Priority) int {
+	switch p {
+	case explorationgraph.PriorityCritical:
+		return 0
+	case explorationgraph.PriorityHigh:
+		return 1
+	case explorationgraph.PriorityLow:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// reserveSlot 为动作占一个执行位：taken 表示占位成功，full 表示已无空位。
+func (a *Agent) reserveSlot(actionID string) (taken, full bool) {
+	a.slotsMu.Lock()
+	defer a.slotsMu.Unlock()
+	if _, busy := a.slots[actionID]; busy {
+		return false, false
+	}
+	if len(a.slots) >= a.maxParallel {
+		return false, true
+	}
+	a.slots[actionID] = struct{}{}
+	return true, false
+}
+
+// releaseSlot 释放执行位并唤醒派发补位。
+func (a *Agent) releaseSlot(actionID string) {
+	a.slotsMu.Lock()
+	delete(a.slots, actionID)
+	a.slotsMu.Unlock()
+	select {
+	case a.slotFreed <- struct{}{}:
+	default:
 	}
 }
 
@@ -159,242 +230,76 @@ func (a *Agent) loopFailure(err error, phase string) error {
 	return nil
 }
 
-// handleEvent 处理事件
-func (a *Agent) handleEvent(ctx context.Context, event bus.Event, report *Report) error {
-	switch event.Type {
-	case bus.EventActionProposed:
-		// Planner 提议了新 Action，立即处理
-		a.logger.Info().
-			Msg("收到 ActionProposed 事件，处理可执行 Action")
-		return a.processAvailableActions(ctx, report)
-
-	default:
-		a.logger.Debug().
-			Str("event_type", string(event.Type)).
-			Msg("忽略事件（非 Executor 关注）")
-		return nil
-	}
-}
-
-// processAvailableActions 处理所有可执行的 Action
-func (a *Agent) processAvailableActions(ctx context.Context, report *Report) error {
-	// 获取所有 open 状态的 Action
-	openActions, err := a.graph.ListOpenActions(ctx, a.taskID)
-	if err != nil {
-		return fmt.Errorf("list open actions: %w", err)
-	}
-
-	if len(openActions) == 0 {
-		a.logger.Debug().Msg("无待执行 Action")
-		return nil
-	}
-
-	// 全部 action 的状态投影（依赖判定只需要状态，不拉载荷）
-	states, err := a.graph.ListActionStates(ctx, a.taskID)
-	if err != nil {
-		return fmt.Errorf("list action states: %w", err)
-	}
-
-	// 已完成的 Action ID 集合（依赖满足判据）
-	completed := make(map[string]bool, len(states))
-	for id, state := range states {
-		if state == explorationgraph.StateCompleted {
-			completed[id] = true
-		}
-	}
-
-	a.logger.Debug().
-		Int("completed_count", len(completed)).
-		Msg("已完成的 Action 数量")
-
-	// 筛选可执行的 Action（依赖已满足）
-	var executable []explorationgraph.Node
-	for _, action := range openActions {
-		if action.CanExecute(completed) {
-			executable = append(executable, action)
-		}
-	}
-
-	a.logger.Info().
-		Int("open_count", len(openActions)).
-		Int("executable_count", len(executable)).
-		Msg("筛选可执行 Action")
-
-	if len(executable) == 0 {
-		a.logger.Debug().Msg("无可执行 Action（等待依赖满足）")
-		return nil
-	}
-
-	// 并发执行可执行 Action：并发度 a.maxParallel（配置；1=串行）。
-	// 可并行性由 DAG 决定（CanExecute 已保证依赖满足），并发度由配置决定——
-	// 不由 LLM 运行时决定（业界调度惯例：依赖图 × 静态并发上限）。
-	sem := make(chan struct{}, a.maxParallel)
-	var wg sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-
-	for _, action := range executable {
-		if err := ctx.Err(); err != nil {
-			break
-		}
-		wg.Add(1)
-		go func(act explorationgraph.Node) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if err := a.executeAction(ctx, act, report); err != nil {
-				logx.ErrorUnlessCanceled(a.logger, err).
-					Err(err).
-					Str("action_id", act.ID).
-					Msg("执行 Action 失败")
-				// 单个失败不中止其他 Action；记录首个错误供上层感知
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				errMu.Unlock()
-			}
-		}(action)
-	}
-	wg.Wait()
-
-	return firstErr
-}
-
 // executeAction 执行单个 Action
 func (a *Agent) executeAction(
 	ctx context.Context,
 	action explorationgraph.Node,
-	report *Report,
 ) error {
 	a.logger.Info().
 		Str("action_id", action.ID).
 		Str("priority", string(action.Priority)).
 		Msg("开始执行 Action")
 
-	// 使用 CAS 标记为 running（防止并发执行同一 action）
-	ok, err := a.graph.CompareAndSwapActionState(
-		ctx,
-		action.TaskID,
-		action.ID,
-		explorationgraph.StateOpen,
-		explorationgraph.StateRunning,
-	)
+	ok, err := a.graph.ClaimAction(ctx, a.taskID, action.ID, a.agentRunID)
 	if err != nil {
-		return fmt.Errorf("CAS to running: %w", err)
+		return fmt.Errorf("认领动作: %w", err)
 	}
 	if !ok {
-		// CAS 失败，说明 action 已被其他 executor 抢占
-		a.logger.Info().
-			Str("action_id", action.ID).
-			Msg("Action 已被其他 executor 抢占，跳过")
+		a.logger.Info().Str("action_id", action.ID).Msg("动作已被认领或已结束，跳过")
 		return nil
 	}
 
-	// 执行 Action（调用 ActionExecutor）
-	attempts, outcome, execErr := a.executor.Execute(ctx, action)
+	actionCtx, untrack := a.track(ctx, action.ID)
+	outcome, execErr := a.executor.Execute(actionCtx, action)
+	stall := stallCause(actionCtx)
+	untrack()
 
-	// 终态标记的 ctx：执行期 ctx 被取消（terminate/kill）时，用已死的 ctx
-	// 做 CAS 必然失败——图终态只能等恢复监控 6 分钟后兜底（实测窗口）。
-	// 取消路径换独立短超时 ctx，让 kill 时刻的终态立即落图。
-	markCtx := ctx
-	if ctx.Err() != nil {
-		var cancel context.CancelFunc
-		markCtx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	// 落图用独立短时 ctx：run 被打断时执行期 ctx 已取消，用它写图必然失败。
+	markCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
+	// 动作在执行途中被收回（否决、任务收口、被新 run 回收）：外部决定已落图，放弃本次
+	// 结果，不改写动作状态，也不算执行失败。
+	if errors.Is(execErr, ErrActionRevoked) {
+		a.logger.Info().Str("action_id", action.ID).Err(execErr).Msg("动作已被收回，放弃本次执行结果")
+		return nil
 	}
 
-	// 终态标记用 CAS（running → completed/failed）：执行期间外部裁决（恢复监控判死、
-	// monitor kill）可能已改写状态，迟到的执行结果不得覆盖外部决策。
+	// run 被中断（暂停、停机、run 超时）而动作没做完：交还 open，由下一个 run 重新
+	// 执行。中断不是失败——记成失败会让规划者以为此路不通。
+	if execErr != nil && ctx.Err() != nil {
+		if _, err := a.graph.ReleaseAction(markCtx, a.taskID, action.ID, a.agentRunID); err != nil {
+			a.logger.Error().Err(err).Str("action_id", action.ID).Msg("交还中断的动作失败")
+		}
+		return nil
+	}
+
+	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（否决、任务收口）或新 run
+	// 的回收已改写状态时，迟到的结果不覆盖它们。看门狗判停摆的动作在这里按失败结束。
+	to, reason := explorationgraph.StateCompleted, ""
+	switch {
+	case stall != nil:
+		to, reason = explorationgraph.StateFailed, stall.Error()
+	case execErr != nil:
+		to, reason = explorationgraph.StateFailed, execErr.Error()
+	case outcome == OutcomeExhausted:
+		// 预算耗尽：有产出但没收敛，规划者与监察者据此区分「做完了」与「没做完」
+		to = explorationgraph.StateExhausted
+	}
+	finished, err := a.graph.FinishAction(markCtx, a.taskID, action.ID, a.agentRunID, to, reason)
+	if err != nil {
+		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("动作结束状态写入失败")
+		return execErr
+	}
+	if !finished {
+		a.logger.Warn().Str("action_id", action.ID).Msg("动作已被外部改写或回收，保留外部决定")
+		return execErr
+	}
 	if execErr != nil {
-		errMsg := execErr.Error()
-		ok, casErr := a.graph.CompareAndSwapActionState(
-			markCtx, action.TaskID, action.ID,
-			explorationgraph.StateRunning, explorationgraph.StateFailed,
-		)
-		if casErr != nil {
-			a.logger.Error().Err(casErr).Str("action_id", action.ID).Msg("标记失败状态失败")
-			return execErr
-		}
-		if !ok {
-			a.logger.Warn().
-				Str("action_id", action.ID).
-				Msg("执行失败但状态已被外部改写（判死/kill），保留外部裁决")
-			return execErr
-		}
-		// CAS 成功后补失败原因（metadata 合并写，不影响已生效的 failed 状态）
-		if b, mErr := json.Marshal(map[string]string{"blocked_reason": errMsg}); mErr == nil {
-			if uErr := a.graph.UpdateNodeMetadata(markCtx, action.ID, b); uErr != nil {
-				a.logger.Warn().Err(uErr).Str("action_id", action.ID).Msg("失败原因写入失败")
-			}
-		}
 		return execErr
 	}
 
-	// 成功路径按产出档分叉终态：预算内 → completed；预算耗尽 → exhausted
-	// （有产出未收敛，planner/monitor 据此区分「做完了」与「没做完」）。
-	doneState := explorationgraph.StateCompleted
-	if outcome == OutcomeExhausted {
-		doneState = explorationgraph.StateExhausted
-	}
-	ok, err = a.graph.CompareAndSwapActionState(
-		markCtx, action.TaskID, action.ID,
-		explorationgraph.StateRunning, doneState,
-	)
-	if err != nil {
-		a.logger.Error().Err(err).Str("action_id", action.ID).Msg("标记完成状态失败")
-	}
-	if !ok {
-		a.logger.Warn().
-			Str("action_id", action.ID).
-			Msg("执行完成但状态已被外部改写（判死/kill），保留外部裁决")
-		return nil
-	}
-
-	// 更新 report（并行执行下并发递增，加锁）
-	a.reportMu.Lock()
-	report.Steps++
-	report.Attempts += len(attempts)
-	a.reportMu.Unlock()
-
-	// 发布所有 attempt.generated 事件（通知 evaluator）
-	for _, attempt := range attempts {
-		a.eventBus.PublishAttemptGenerated(a.taskID, action.ID, attempt)
-	}
-
-	// 最后发布 ActionCompleted 事件（确保 Evaluator 已收到所有 Attempt）
-	a.eventBus.PublishActionCompleted(a.taskID, action.ID)
-
-	a.logger.Info().
-		Str("action_id", action.ID).
-		Int("attempts_count", len(attempts)).
-		Msg("Action 执行完成")
+	a.logger.Info().Str("action_id", action.ID).Msg("Action 执行完成")
 
 	return nil
-}
-
-// shouldStop 判断是否应停止
-func (a *Agent) shouldStop(report *Report) bool {
-	// 达到最大步数
-	if a.maxSteps > 0 && report.Steps >= a.maxSteps {
-		report.StopReason = stopMaxSteps
-		return true
-	}
-
-	// 其余停止条件不在本层：「无新 Action 且图收敛」由 planner 发布收敛事件、
-	// completion detector 判定；「外部停止」走控制平面 terminate → detector.Abort。
-	return false
-}
-
-// notifyCompletion 通知任务完成
-func (a *Agent) notifyCompletion(report Report) {
-	if a.completionCh != nil {
-		select {
-		case a.completionCh <- report:
-			a.logger.Info().Msg("任务完成报告已发送")
-		default:
-			a.logger.Warn().Msg("任务完成报告发送失败（channel 已满）")
-		}
-	}
 }

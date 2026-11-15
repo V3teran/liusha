@@ -1,4 +1,6 @@
 import { SearchInput } from '@/components/SearchInput'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
@@ -24,7 +26,8 @@ interface ConversationListProps {
   emptyState?: { mark: string; title: string; desc: string }
   /** 首次加载成功且当前无选中时，自动打开最新一条会话（一次性，不劫持后续交互）。 */
   autoSelect?: boolean
-  onSelect: (convID: string) => void
+  /** 打开对话：用户点选新增一条历史；进页自动打开最新对话传 replace */
+  onSelect: (convID: string, opts?: HistoryOptions) => void
   onNew: () => void
   onDeleted: (convID: string) => void
 }
@@ -79,9 +82,13 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const [loading, setLoading] = useState(false)
     const [loadError, setLoadError] = useState('')
     const [query, setQuery] = useState('')
+    // 关键词在服务端检索（覆盖全部会话，分页与总数同一口径），停顿后生效
+    const debouncedQuery = useDebouncedSearch(query.trim())
+    // 当前展示的数据是哪个关键词检索出来的：计数与空态跟随它，而不是跟随已生效的关键词——
+    // 新结果回来之前屏上仍是旧数据，不能把旧的总数标成「匹配 N 条」。
+    const [shownQuery, setShownQuery] = useState('')
+    // 正在打开「⋯」菜单的对话：菜单开着时暂停轮询刷新（不在操作中途换掉列表）
     const [menuOpen, setMenuOpen] = useState('')
-    const [menuConv, setMenuConv] = useState<Conversation | null>(null)
-    const [menuStyle, setMenuStyle] = useState<{ top: string; left: string }>({ top: '0px', left: '0px' })
     const [deleting, setDeleting] = useState('')
     const [renamingId, setRenamingId] = useState('')
     const [renameText, setRenameText] = useState('')
@@ -101,11 +108,17 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         const seq = ++reqSeqRef.current
         setLoading(true)
         try {
-          const { conversations, hasMore: hm, total: tt } = await listConversations(size, o, source ?? '')
+          const { conversations, hasMore: hm, total: tt } = await listConversations({
+            limit: size,
+            offset: o,
+            source: source ?? '',
+            search: debouncedQuery,
+          })
           if (seq !== reqSeqRef.current) return
           setItems(conversations)
           setHasMore(hm)
           setTotal(tt)
+          setShownQuery(debouncedQuery)
           setOffset(o)
           setLoadError('')
         } catch (e) {
@@ -116,7 +129,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           if (seq === reqSeqRef.current) setLoading(false)
         }
       },
-      [source, size],
+      [source, size, debouncedQuery],
     )
 
     // 供外部（父组件）调用的 refresh：语义是「有新变化，给我最新视图」——回第 1 页，
@@ -127,16 +140,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     useEffect(() => {
       void load(0)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source, size])
+    }, [source, size, debouncedQuery])
 
-    // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conv 深链接、
+    // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conversation 深链接、
     // 用户没点过）时选第一条——一次性消费，之后轮询刷新/「新对话」态都不再劫持。
     const autoSelectedRef = useRef(false)
     useEffect(() => {
       if (!autoSelect || autoSelectedRef.current || loading || loadError) return
       if (items.length === 0) return
       autoSelectedRef.current = true
-      if (!activeId) onSelect(items[0].id)
+      if (!activeId) onSelect(items[0].id, { replace: true })
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [items, loading, loadError, activeId, autoSelect])
 
@@ -150,23 +163,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       return () => clearInterval(timer)
     }, [load])
 
-    // 点外部关闭菜单。
-    useEffect(() => {
-      const close = () => {
-        setMenuOpen('')
-        setMenuConv(null)
-      }
-      document.addEventListener('click', close)
-      return () => document.removeEventListener('click', close)
-    }, [])
-
-    // 搜索：仅在当前页内按标题（去前缀后）+ id 前缀过滤——分页后不再一次性拉全量，
-    // 搜索范围随之收窄到当前页（这个数据量级下，配合 30 条/页，多数场景首页就够用）。
-    const filtered = useMemo(() => {
-      const q = query.trim().toLowerCase()
-      if (!q) return items
-      return items.filter((c) => fullTitle(c).toLowerCase().includes(q) || c.id.toLowerCase().startsWith(q))
-    }, [items, query])
 
     const pageNo = Math.floor(offset / size) + 1
     const totalPages = Math.max(1, Math.ceil(total / size))
@@ -179,27 +175,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       void load(offset + size)
     }
 
-    const toggleMenu = (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
-      if (menuOpen === c.id) {
-        setMenuOpen('')
-        setMenuConv(null)
-        return
-      }
-      const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-      // 贴底自动上翻：菜单高约 170px（5 项），下方放不下就从按钮顶往上弹；左右夹取在视口内。
-      const MENU_H = 170
-      const MENU_W = 150
-      const openUp = r.bottom + 4 + MENU_H > window.innerHeight - 8
-      const top = openUp ? Math.max(8, r.top - MENU_H - 4) : r.bottom + 4
-      const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8)
-      setMenuStyle({ top: `${top}px`, left: `${left}px` })
-      setMenuConv(c)
-      setMenuOpen(c.id)
-    }
-
-    const onDelete = async (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
+    const onDelete = async (c: Conversation) => {
       setMenuOpen('')
       if (deleting) return
       // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
@@ -220,10 +196,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       }
     }
 
-    const startRename = (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
+    const startRename = (c: Conversation) => {
       setMenuOpen('')
-      setMenuConv(null)
       setRenamingId(c.id)
       setRenameText(fullTitle(c))
     }
@@ -300,22 +274,19 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             className="w-full"
             value={query}
             onChange={setQuery}
-            placeholder="搜索本页对话…"
+            placeholder="搜索对话标题、任务目标、ID…"
             ariaLabel="搜索对话"
           />
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
-            {/* 区间+总数：一行同时表达「看到哪了」与「总量」；
-                搜索是页内过滤，匹配行如实标注「仅本页」 */}
-            {query.trim()
-              ? `匹配 ${filtered.length} 条（仅本页）`
-              : `第 ${offset + 1}–${offset + items.length} 条 · 共 ${total} 条`}
+            {/* 区间+总数：一行同时表达「看到哪了」与「总量」（搜索时是匹配结果的区间与总数） */}
+            {`第 ${offset + 1}–${offset + items.length} 条 · ${shownQuery ? '匹配' : '共'} ${total} 条`}
           </div>
         )}
-        {filtered.length === 0 && !loadError ? null : (
+        {items.length === 0 && !loadError ? null : (
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
-          {filtered.map((c) => {
+          {items.map((c) => {
             const meta = taskStatusMeta(c.run_status)
             return (
               <li
@@ -388,15 +359,13 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  title="更多"
-                  aria-label="更多"
-                  onClick={(ev) => toggleMenu(c, ev)}
-                  className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-text-secondary opacity-0 hover:bg-surface group-hover:opacity-100 focus:opacity-100"
-                >
-                  <span className="text-base leading-none">⋯</span>
-                </button>
+                <ConvMenu
+                  conv={c}
+                  deleting={deleting}
+                  onOpenChange={(open) => setMenuOpen(open ? c.id : '')}
+                  onRename={startRename}
+                  onDelete={onDelete}
+                />
               </li>
             )
           })}
@@ -412,18 +381,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             ⚠ 列表加载失败：{loadError}
           </div>
         )}
-        {!loadError && filtered.length === 0 && (
+        {!loadError && !loading && items.length === 0 && (
           /* 结构化空态：居中引导块占据列表区——空数据也是一等界面状态。
              不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
              还会让无数据 tab（代理捕获）与有数据 tab（人工下发）的左栏观感不一致。 */
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
-              {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
+              {shownQuery ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
             <p className="text-sm font-medium text-text">
-              {query.trim() ? '本页无匹配对话' : emptyState?.title ?? '暂无对话'}
+              {shownQuery ? '没有匹配的对话' : emptyState?.title ?? '暂无对话'}
             </p>
-            {!query.trim() && emptyState?.desc && (
+            {!shownQuery && emptyState?.desc && (
               <p className="max-w-[220px] text-xs leading-5 text-text-secondary">{emptyState.desc}</p>
             )}
           </div>
@@ -455,17 +424,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             </button>
             <PageSizeSelect value={size} onChange={setSize} className="ml-auto" />
           </div>
-        )}
-        {/* ⋯ 菜单挂到 body：fixed 视口坐标定位，不被 ul overflow 裁剪（ConvMenu 子组件） */}
-        {menuConv && (
-          <ConvMenu
-            conv={menuConv}
-            style={menuStyle}
-            deleting={deleting}
-            onClose={() => setMenuOpen('')}
-            onRename={startRename}
-            onDelete={onDelete}
-          />
         )}
       </aside>
     )

@@ -70,12 +70,16 @@ func (s *ProxyStore) GetByID(ctx context.Context, id int64) (ProxyTraffic, error
 	return f, nil
 }
 
-// listConsumers 查消费某条流量的全部代理捕获 task（traffic_task JOIN task），供 chip 展示。
+// listConsumers 查消费某条流量的全部代理捕获 task，连同跳转所需的来源、对话（一个任务至多
+// 一个对话）与漏洞数，一次查出。
 func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]ConsumerTask, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id::text, t.target_host, t.status
+		SELECT t.id::text, COALESCE(t.target_host, ''), t.status, a.source, COALESCE(c.id::text, ''),
+		       (SELECT count(*) FROM finding f WHERE f.task_id = t.id)
 		FROM traffic_task tt
 		JOIN task t ON t.id = tt.task_id
+		JOIN assignment a ON a.id = t.assignment_id
+		LEFT JOIN conversation c ON c.task_id = t.id
 		WHERE tt.traffic_id = $1
 		ORDER BY tt.created_at ASC`, trafficID)
 	if err != nil {
@@ -86,7 +90,7 @@ func (s *ProxyStore) listConsumers(ctx context.Context, trafficID int64) ([]Cons
 	var out []ConsumerTask
 	for rows.Next() {
 		var c ConsumerTask
-		if err := rows.Scan(&c.TaskID, &c.Host, &c.Status); err != nil {
+		if err := rows.Scan(&c.TaskID, &c.Host, &c.Status, &c.Source, &c.ConversationID, &c.FindingCount); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -167,7 +171,7 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 		add("method=$%d", strings.ToUpper(f.Method))
 	}
 	if f.Path != "" {
-		add("path LIKE $%d", strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%"))
+		add("path LIKE $%d", strings.ReplaceAll(db.EscapeLike(f.Path), "*", "%"))
 	}
 	if f.StatusMin > 0 {
 		add("status_code >= $%d", f.StatusMin)
@@ -213,7 +217,7 @@ func proxyWhere(f ProxyListFilter, startArg int) (string, []any) {
 		add("method=$%d", strings.ToUpper(f.Method))
 	}
 	if f.Path != "" {
-		add("path LIKE $%d", strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%"))
+		add("path LIKE $%d", strings.ReplaceAll(db.EscapeLike(f.Path), "*", "%"))
 	}
 	if f.ContentType != "" {
 		add("content_type=$%d", f.ContentType)
@@ -221,7 +225,7 @@ func proxyWhere(f ProxyListFilter, startArg int) (string, []any) {
 	if f.Search != "" {
 		// 一个搜索框跨 host + url 两列：任一命中即可（OR），大小写不敏感（ILIKE），
 		// '*' 视作通配（→'%'）；未含 '*' 时两端补 '%' 退化为子串包含，符合搜索框直觉。
-		pat := strings.ReplaceAll(sqlEscapeLike(f.Search), "*", "%")
+		pat := strings.ReplaceAll(db.EscapeLike(f.Search), "*", "%")
 		if !strings.Contains(f.Search, "*") {
 			pat = "%" + pat + "%"
 		}

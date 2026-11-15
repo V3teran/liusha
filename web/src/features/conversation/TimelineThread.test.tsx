@@ -117,7 +117,7 @@ describe('TimelineThread', () => {
     const { container } = render(<TimelineThread />)
     const card = container.querySelector('[data-card="reasoning"]')
     expect(card).toBeTruthy()
-    expect(screen.getAllByText('裁决').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('评估').length).toBeGreaterThan(0)
   })
 
   it('多条思考道并发渲染（四 agent 并发场景）', () => {

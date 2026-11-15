@@ -15,15 +15,15 @@ type findingStore interface {
 	Save(ctx context.Context, f Finding) (Finding, error)
 }
 
-// ClaimSink 把通用裁决门坐实的主张落成本域交付物（finding 表）。
+// ClaimSink 把通用复现门坐实的主张落成本域交付物（finding 表）。
 // 领域评级与定位的全部映射在此：severity 缺省、host 从证据 URL 抽取、
-// 交付载荷组装——通用裁决门只透传载荷，不解释领域字段。
+// 交付载荷组装——通用复现门只透传载荷，不解释领域字段。
 //
 // 依赖方向：领域交付包认识通用契约（evaluator.ConfirmedClaim），
 // 通用门对领域零感知。
 type ClaimSink struct {
 	store      findingStore
-	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键)
+	agentRunID string // 归属 agent_run.id；空 = 无归属 run（补交付），落 NULL
 	// taskHost 是主机线索全部落空时的最终兜底（任务锚定的目标主机——task 行
 	// 的 target_host）。nil = 无兜底，主机缺失的交付按原样被存储校验拒绝。
 	taskHost func(ctx context.Context, taskID string) (string, error)
@@ -79,7 +79,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		}
 	}
 
-	// evaluation 列的证据链形态：裁决结论/成色/理由提为第一层键（前端按
+	// evaluation 列的证据链形态：验证结论/成色/理由提为第一层键（前端按
 	// 键直取渲染），复放证据与机器断言明细收进 evidence 子对象。嵌套倾倒
 	// 形态（evaluation.evaluation.*）让前端只能平铺出乱码 JSON 块——
 	// 台账是给人看的，结构为消费方设计。
@@ -116,17 +116,21 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		c.Target = deriveTarget(c.Repro)
 	}
 
-	agentRunID := s.agentRunID
+	var agentRunID *string
+	if s.agentRunID != "" {
+		agentRunID = &s.agentRunID
+	}
 	saved, err := s.store.Save(ctx, Finding{
-		TaskID:      c.TaskID,
-		AgentRunID:  &agentRunID,
-		Host:        host,
-		Summary:     summary,
-		Severity:    severity,
-		Remediation: c.Suggestion, // 处理建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
-		Evaluation:  evaluation,
-		Target:      c.Target,
-		Repro:       c.Repro,
+		TaskID:       c.TaskID,
+		ResultNodeID: c.ResultNodeID,
+		AgentRunID:   agentRunID,
+		Host:         host,
+		Summary:      summary,
+		Severity:     severity,
+		Remediation:  c.Suggestion, // 处理建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
+		Evaluation:   evaluation,
+		Target:       c.Target,
+		Repro:        c.Repro,
 	})
 	if err != nil {
 		return err
@@ -147,8 +151,7 @@ func deriveTarget(repro json.RawMessage) json.RawMessage {
 				URL    string `json:"url"`
 			} `json:"request"`
 			// Steps 是 generic 域的自由文本步骤；首条「METHOD /path」行足以
-			// 定位端点——dedup 需要与 web 域交付同构的 target，否则同一漏洞
-			// 因配方域不同分裂成多条台账记录。
+			// 定位端点——台账的定位列不因配方域不同而缺失。
 			Steps string `json:"steps"`
 		} `json:"recipe"`
 	}

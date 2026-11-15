@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { LoginPage } from './LoginPage'
 import * as authApi from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
@@ -16,15 +16,20 @@ vi.mock('@/api/auth', () => ({
 const mMe = authApi.me as unknown as ReturnType<typeof vi.fn>
 const mLogin = authApi.login as unknown as ReturnType<typeof vi.fn>
 
-function renderAtLogin() {
+function renderAtLogin(entry = '/login') {
   return render(
-    <MemoryRouter initialEntries={['/login']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<div>HOME-PAGE</div>} />
+        <Route path="/findings" element={<FindingsProbe />} />
       </Routes>
     </MemoryRouter>,
   )
+}
+
+function FindingsProbe() {
+  return <div>FINDINGS-PAGE {useLocation().search}</div>
 }
 
 describe('LoginPage', () => {
@@ -73,6 +78,24 @@ describe('LoginPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法连接到服务器')
   })
+  // 守卫 / 会话过期跳来时带着原来要去的页面：登录后回到那里
+  it('登录成功回到 ?next= 指向的站内页面', async () => {
+    mLogin.mockResolvedValue({ username: 'admin' })
+    renderAtLogin('/login?next=%2Ffindings%3Fselected%3Df-1')
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByLabelText('用户名')).toBeInTheDocument())
+    await user.type(screen.getByLabelText('用户名'), 'admin')
+    await user.type(screen.getByLabelText('密码'), 'correct-pass')
+    await user.click(screen.getByRole('button', { name: '登录' }))
+    expect(await screen.findByText('FINDINGS-PAGE ?selected=f-1')).toBeInTheDocument()
+  })
+
+  it('?next= 指向外站时回主页（防开放重定向）', async () => {
+    mMe.mockResolvedValue({ username: 'admin' })
+    renderAtLogin('/login?next=%2F%2Fevil.test')
+    await waitFor(() => expect(screen.getByText('HOME-PAGE')).toBeInTheDocument())
+  })
+
   it('已登录访问 /login 直接回主页', async () => {
     mMe.mockResolvedValue({ username: 'admin' })
     renderAtLogin()

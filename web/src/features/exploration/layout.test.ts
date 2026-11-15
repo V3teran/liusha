@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildFlowGraph, applyFocus } from './layout'
-import type { ConversationGraph, GraphNode } from '@/api/explorationgraph'
+import type { ExplorationGraph, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
   return {
@@ -9,20 +9,19 @@ function node(o: Partial<GraphNode> = {}): GraphNode {
     kind: 'objective',
     content: { description: '攻破 DVWA' },
     source_type: 'user',
-    source_id: 'u',
     created_at: '2026-06-10T00:00:00Z',
     updated_at: '2026-06-10T00:00:00Z',
     ...o,
   }
 }
 
-const GRAPH: ConversationGraph = {
+const GRAPH: ExplorationGraph = {
   nodes: [
     node(),
     node({ id: 'n-act-a', kind: 'action', state: 'running', content: { instruction: '端口发现' } }),
-    node({ id: 'n-act-b', kind: 'action', state: 'open', depends_on: ['n-act-a'], content: { instruction: '目录扫描' } }),
-    node({ id: 'n-obs', kind: 'observation', confidence: 'verified', content: { statement: '发现登录页' } }),
-    node({ id: 'n-res', kind: 'result', content: { summary: '弱口令坐实' } }),
+    node({ id: 'n-act-b', kind: 'action', state: 'open', content: { instruction: '目录扫描' } }),
+    node({ id: 'n-obs', kind: 'observation', verification_status: 'confirmed', content: { statement: '发现登录页' } }),
+    node({ id: 'n-res', kind: 'result', content: { statement: '弱口令坐实' } }),
   ],
   edges: [
     { src_id: 'n-obj', dst_id: 'n-act-a', rel: 'generates', created_at: '2026-06-10T00:00:00Z' },
@@ -39,7 +38,7 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
 
     expect(stats).toEqual({
       total: 5,
-      edgeCount: 5, // 存储边计数不含派生依赖边
+      edgeCount: 5,
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
     })
     expect(nodes).toHaveLength(5)
@@ -62,43 +61,21 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
     expect(edges.find((e) => e.source === 'n-obj')?.animated).not.toBe(true)
   })
 
-  it('buildFlowGraph：depends_on 派生为依赖边（点线、方向前置→依赖方）', () => {
-    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
-    const dep = edges.find((e) => e.id === 'dep-n-act-a->n-act-b')
-    expect(dep).toBeDefined()
-    expect(dep?.source).toBe('n-act-a')
-    expect(dep?.target).toBe('n-act-b')
-    expect(dep?.style?.strokeDasharray).toBe('2 4')
-    expect(dep?.style?.strokeWidth).toBe(1.2)
-    // 依赖方排在前置方右侧（参与布局，因果有序）
-    const { nodes } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
-    const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]))
-    expect(pos['n-act-b'].x).toBeGreaterThan(pos['n-act-a'].x)
-  })
-
-  it('buildFlowGraph：依赖引用被筛除的节点时不产生悬空边', () => {
-    // 只看 observation：两个 action 均被筛掉，依赖边两端不同时可见 → 不生成
-    const { nodes, edges } = buildFlowGraph(GRAPH, 'observation', 'all', new Map())
-    expect(nodes.map((n) => n.id)).toEqual(['n-obs'])
-    expect(edges.filter((e) => e.id.startsWith('dep-'))).toEqual([])
-  })
-
   it('buildFlowGraph：kind 筛选后剔除悬空边', () => {
     const { nodes, edges, stats } = buildFlowGraph(GRAPH, 'action', 'all', new Map())
     expect(nodes.map((n) => n.id).sort()).toEqual(['n-act-a', 'n-act-b'])
-    // 存储 generates 边（连 objective）被剔；依赖边两端均可见 → 保留
-    expect(edges.filter((e) => !e.id.startsWith('dep-'))).toEqual([])
-    expect(edges.filter((e) => e.id.startsWith('dep-'))).toHaveLength(1)
+    // generates 边的另一端（objective）被筛掉 → 剔除
+    expect(edges).toEqual([])
     expect(stats.byKind.action).toBe(2) // 统计保持全量
   })
 
-  it('applyFocus：选中节点高亮、一二级邻居常亮、其余降暗；取消后恢复', () => {
+  it('applyFocus：选中节点高亮、直连邻居常亮、其余降暗；取消后恢复', () => {
     const flow = buildFlowGraph(GRAPH, 'all', 'all', new Map())
     const view = applyFocus(flow, 'n-act-b')
 
     const cls = Object.fromEntries(view.nodes.map((n) => [n.id, n.className]))
     expect(cls['n-act-b']).toBe('exp-selected')
-    expect(cls['n-act-a']).toBeUndefined() // 依赖边直连邻居
+    expect(cls['n-act-a']).toBe('exp-dimmed') // 与选中节点无直连边
     expect(cls['n-obj']).toBeUndefined() // generates 直连邻居
     expect(cls['n-obs']).toBe('exp-dimmed')
 

@@ -1,16 +1,42 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { getFindingStat, listFindings, updateFindingTriage } from '@/api/findings'
+import { getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
 
 vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),
+  getFinding: vi.fn(async (id: string) => ({
+    id,
+    seq: 9,
+    severity: 'high',
+    summary: '不在当前页的漏洞',
+    host: 'b.example.com',
+    source: 'direct',
+    status: 'open',
+    first_seen_at: '2026-01-01T00:00:00Z',
+    created_at: '2026-01-01T00:00:00Z',
+  })),
+  getFindingTaskFacets: vi.fn(async () => ({
+    tasks: [
+      { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
+      { id: 't-8', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-13T21:05:00', count: 1 },
+    ],
+    has_more: false,
+  })),
+}))
+
+vi.mock('@/api/tasks', () => ({
+  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '选中任务的目标', created_at: '2026-11-12T08:00:00' })),
+}))
+
+vi.mock('@/api/conversations', () => ({
+  getConversation: vi.fn(async (id: string) => ({ id, title: '登录页越权排查', task_id: 't-7' })),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
@@ -49,12 +75,26 @@ function makeListResponse(findings: FindingRow[], overrides: Partial<FindingList
 }
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router（对齐 useTrafficFilters 测试模式）。
-function renderPage() {
+// 模拟浏览器后退与地址栏（MemoryRouter 的历史栈）
+function HistoryProbe() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="location">{useLocation().search}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+    </>
+  )
+}
+
+function renderPage(entry = '/findings') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/findings']}>
+      <MemoryRouter initialEntries={[entry]}>
         <FindingsPage />
+        <HistoryProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -123,40 +163,21 @@ describe('FindingsPage', () => {
     expect(within(findLegendButton(container, '低危')).getByText('1')).toBeTruthy()
   })
 
-  it('搜索框按 summary/host/path 模糊过滤（前端叠加，仅作用于当前页）', async () => {
+  it('关键词搜索交给服务端（覆盖全部页），停顿后发起，并回到第一页', async () => {
     const user = userEvent.setup()
-    mockedListFindings.mockResolvedValue(
-      makeListResponse([
-        makeFinding({ id: 'f1', summary: 'SQL 注入', host: 'a.example.com' }),
-        makeFinding({ id: 'f2', summary: 'XSS 漏洞', host: 'b.example.com', target: { path: '/search' } }),
-      ]),
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()], { total: 120 }))
+    renderPage('/findings?page=3')
+    await screen.findByText('SQL 注入漏洞')
+    mockedListFindings.mockClear()
+
+    await user.type(screen.getByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+
+    await waitFor(() =>
+      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ search: 'xss', page: 1 })),
     )
-    renderPage()
-    await screen.findByText('SQL 注入')
-
-    const search = screen.getByPlaceholderText(/搜索漏洞标题/)
-    await user.type(search, 'xss')
-
-    expect(screen.queryByText('SQL 注入')).toBeNull()
-    expect(screen.getByText('XSS 漏洞')).toBeTruthy()
-  })
-
-  it('搜索框按 host 过滤', async () => {
-    const user = userEvent.setup()
-    mockedListFindings.mockResolvedValue(
-      makeListResponse([
-        makeFinding({ id: 'f1', summary: 'A 漏洞', host: 'unique-host.example.com' }),
-        makeFinding({ id: 'f2', summary: 'B 漏洞', host: 'other.example.com' }),
-      ]),
-    )
-    renderPage()
-    await screen.findByText('A 漏洞')
-
-    const search = screen.getByPlaceholderText(/搜索漏洞标题/)
-    await user.type(search, 'unique-host')
-
-    expect(screen.getByText('A 漏洞')).toBeTruthy()
-    expect(screen.queryByText('B 漏洞')).toBeNull()
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ search: 'xss' }))
+    // 逐字不发请求：只有停顿后的完整关键词
+    expect(mockedListFindings).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'x' }))
   })
 
   it('status 下拉筛选触发重新加载（走服务端）', async () => {
@@ -210,6 +231,43 @@ describe('FindingsPage', () => {
     // 再次点击应取消 severity 筛选
     const lastCallArgs = mockedListFindings.mock.calls[mockedListFindings.mock.calls.length - 1][0]
     expect(lastCallArgs.severity).toBe('')
+  })
+
+  // 打开的漏洞写在 URL：跳到任务 / 对话再后退、刷新都还原抽屉；不在当前页也能按 ID 打开。
+  it('打开写入 ?selected=，后退关闭抽屉', async () => {
+    const user = userEvent.setup()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding({ summary: '点击测试漏洞' })]))
+    renderPage()
+    await user.click(await screen.findByText('点击测试漏洞'))
+    expect(screen.getByTestId('location').textContent).toBe('?selected=f-1')
+    expect(await screen.findByText('漏洞处置')).toBeTruthy()
+    // 模态抽屉打开时页面其余部分不可点（pointer-events: none），后退按钮直接派发点击
+    fireEvent.click(screen.getByText('浏览器后退'))
+    await waitFor(() => expect(screen.queryByText('漏洞处置')).toBeNull())
+  })
+
+  it('带 ?selected= 进页：不在当前页的漏洞按 ID 取回并打开', async () => {
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    renderPage('/findings?selected=f-9')
+    expect(await screen.findByText('不在当前页的漏洞')).toBeTruthy()
+  })
+
+  // 搜索框输入不是导航：不新增历史，后退回到搜索之前
+  it('搜索不进历史：后退回到搜索之前', async () => {
+    const user = userEvent.setup()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={['/findings?severity=high', '/findings']} initialIndex={1}>
+          <FindingsPage />
+          <HistoryProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await user.type(await screen.findByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?search=xss'))
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('location').textContent).toBe('?severity=high')
   })
 
   it('点击表格行打开详情抽屉', async () => {
@@ -280,6 +338,56 @@ describe('FindingsPage', () => {
 
     await waitFor(() =>
       expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ page: 2, size: 50 })),
+    )
+  })
+})
+
+describe('FindingsPage 任务筛选', () => {
+  beforeEach(() => {
+    mockedListFindings.mockReset()
+    mockedGetFindingStat.mockReset()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    mockedGetFindingStat.mockResolvedValue({ total: 1, by_status: {}, by_severity: {} })
+  })
+
+  it('范围是筛选栏里的可搜索选择框：从任务跳来即选中，列表与统计都只看这个任务', async () => {
+    renderPage('/findings?task=t-9')
+    expect(await screen.findByRole('button', { name: '范围：任务：选中任务的目标' })).toBeTruthy()
+    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' })))
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
+  })
+
+  it('候选由服务端按目标检索，只随结构化筛选变化；同目标的任务靠创建时间区分；可清除', async () => {
+    const user = userEvent.setup()
+    renderPage('/findings?task=t-9&source=direct&search=xss')
+    await user.click(await screen.findByRole('button', { name: /^范围：/ }))
+    const options = await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ })
+    expect(options).toHaveLength(2)
+    expect(screen.getByText('11-14 06:49 创建 · 2 个漏洞')).toBeTruthy()
+    expect(screen.getByText('11-13 21:05 创建 · 1 个漏洞')).toBeTruthy()
+    // 候选只随结构化筛选：带来源，不带任务本身与台账关键词
+    const [filters, q] = (getFindingTaskFacets as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
+    expect(filters).toEqual(expect.objectContaining({ source: 'direct' }))
+    expect(filters.task).toBeUndefined()
+    expect(filters.search).toBeUndefined()
+    expect(q).toBe('')
+
+    await user.click(screen.getByRole('option', { name: '全部任务' }))
+    await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
+  })
+
+  // 从对话跳来只看「这个对话的漏洞」：服务端按对话过滤，范围显示对话标题而不是任务目标。
+  it('从对话跳来按对话限定，范围显示对话标题；改选任务即换成按任务限定', async () => {
+    const user = userEvent.setup()
+    renderPage('/findings?conversation=c-7')
+    expect(await screen.findByRole('button', { name: '范围：对话：登录页越权排查' })).toBeTruthy()
+    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ conversation: 'c-7' })))
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ conversation: 'c-7' }))
+
+    await user.click(screen.getByRole('button', { name: /^范围：/ }))
+    await user.click((await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ }))[0])
+    await waitFor(() =>
+      expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: 't-9', conversation: '' })),
     )
   })
 })

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from './AppShell'
 import { useTheme } from '@/hooks/useTheme'
 import { useAuthStore } from '@/stores/auth'
@@ -21,11 +21,15 @@ vi.mock('@/api/auth', () => ({
 
 const mockedUseTheme = useTheme as unknown as ReturnType<typeof vi.fn>
 
+function LoginProbe() {
+  return <div>LOGIN-PAGE {useLocation().search}</div>
+}
+
 function renderShell(initialPath: string, withLoginRoute = false) {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        {withLoginRoute && <Route path="/login" element={<div>LOGIN-PAGE</div>} />}
+        {withLoginRoute && <Route path="/login" element={<LoginProbe />} />}
         <Route path="/conversations/direct" element={<AppShell />}>
           <Route index element={<div>child-active</div>} />
         </Route>
@@ -51,7 +55,8 @@ describe('AppShell', () => {
     useAuthStore.setState({ status: 'anonymous', username: '' })
     renderShell('/conversations/direct', true)
 
-    expect(screen.getByText('LOGIN-PAGE')).toBeTruthy()
+    // 记住原来要去的页面，登录后回到这里
+    expect(screen.getByText('LOGIN-PAGE ?next=%2Fconversations%2Fdirect')).toBeTruthy()
     expect(screen.queryByText('对话')).toBeNull()
   })
 

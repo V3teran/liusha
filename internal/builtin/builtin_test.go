@@ -25,10 +25,7 @@ func TestAgentsAreTheFourRoles(t *testing.T) {
 }
 
 func TestAgentDefaultsAreValid(t *testing.T) {
-	m, err := manifest.Load("../../deployments/tool-images/sandbox/tools.yaml")
-	if err != nil {
-		t.Fatalf("加载 CLI 工具清单: %v", err)
-	}
+	m := manifest.Default()
 	cliTools := map[string]bool{}
 	for _, tool := range m.Tools {
 		cliTools[tool.Name] = true

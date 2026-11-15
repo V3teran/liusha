@@ -9,7 +9,6 @@ function node(o: Partial<GraphNode> = {}): GraphNode {
     kind: 'objective',
     content: {},
     source_type: 'user',
-    source_id: 'u',
     created_at: '2026-06-10T00:00:00Z',
     updated_at: '2026-06-10T00:00:00Z',
     ...o,
@@ -21,11 +20,11 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(nodeTitle(node({ kind: 'objective', content: { description: '攻破 DVWA' } }))).toBe('攻破 DVWA')
     expect(nodeTitle(node({ id: 'n-act', kind: 'action', content: { instruction: '扫描登录页' } }))).toBe('扫描登录页')
     expect(nodeTitle(node({ id: 'n-obs', kind: 'observation', content: { statement: '发现弱口令' } }))).toBe('发现弱口令')
-    expect(nodeTitle(node({ id: 'n-res', kind: 'result', content: { summary: 'SQLi 已坐实' } }))).toBe('SQLi 已坐实')
+    expect(nodeTitle(node({ id: 'n-res', kind: 'result', content: { statement: 'SQLi 已坐实' } }))).toBe('SQLi 已坐实')
   })
 
-  it('nodeTitle 主字段缺失时逐级回落，content 非对象时返回空串', () => {
-    expect(nodeTitle(node({ kind: 'objective', content: { title: '回退标题' } }))).toBe('回退标题')
+  it('nodeTitle 主字段缺失或 content 非对象时返回空串', () => {
+    expect(nodeTitle(node({ kind: 'objective', content: { title: '不是主字段' } }))).toBe('')
     expect(nodeTitle(node({ kind: 'objective', content: null }))).toBe('')
     expect(nodeTitle(node({ kind: 'action', content: '纯字符串载荷' }))).toBe('')
   })
@@ -37,23 +36,30 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(chips.state?.label).toBe('执行中')
     expect(chips.category).toBe('侦察')
     expect(chips.priority?.code).toBe('P1')
-    expect(chips.severity).toBeUndefined()
-    expect(chips.confidence).toBeUndefined()
+    expect(chips.verification).toBeUndefined()
   })
 
-  it('nodeChips：observation 分类/等级/置信度，P2 优先级不上卡', () => {
+  it('nodeChips：假设观察带分类/验证状态，优先级取节点层（P2 不上卡）', () => {
     const chips = nodeChips(
       node({
         id: 'n-obs',
         kind: 'observation',
-        confidence: 'verified',
+        verification_status: 'refuted',
         priority: 'medium',
-        content: { category: 'issue', priority: 'HIGH' },
+        content: { category: 'hypothesis' },
       }),
     )
-    expect(chips.category).toBe('问题')
-    expect(chips.severity).toBe('high') // 大写归一
-    expect(chips.confidence).toBe('已验证')
+    expect(chips.category).toBe('假设')
+    expect(chips.verification).toBe('已证伪')
     expect(chips.priority).toBeUndefined()
+
+    const high = nodeChips(node({ id: 'n-obs2', kind: 'observation', priority: 'high', content: { category: 'hypothesis' } }))
+    expect(high.priority?.code).toBe('P1')
+  })
+
+  it('nodeChips：事实观察只有分类，没有验证状态', () => {
+    const chips = nodeChips(node({ id: 'n-fact', kind: 'observation', content: { category: 'behavior' } }))
+    expect(chips.category).toBe('行为')
+    expect(chips.verification).toBeUndefined()
   })
 })

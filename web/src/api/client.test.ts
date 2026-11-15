@@ -73,13 +73,13 @@ describe('API 客户端内核', () => {
     await expect(get('/findings')).rejects.toThrow('GET 502')
   })
 
-  it('业务请求 401 抛错并触发登录页跳转', async () => {
-    // jsdom 未实现导航：替换 location.assign 为可断言的 spy。
-    const assign = vi.fn()
+  it('业务请求 401 抛错并替换到登录页，带上当前页面（登录后回到这里，登录页后退不再被弹回）', async () => {
+    // jsdom 未实现导航：替换 location.replace 为可断言的 spy。
+    const replace = vi.fn()
     const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'location')
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { ...window.location, pathname: '/tasks', assign },
+      value: { ...window.location, pathname: '/tasks', search: '?selected=t-1', replace },
     })
 
     try {
@@ -90,18 +90,18 @@ describe('API 客户端内核', () => {
       })
 
       await expect(get('/findings')).rejects.toThrow('GET 401: 未登录或会话已过期')
-      expect(assign).toHaveBeenCalledWith('/login')
+      expect(replace).toHaveBeenCalledWith('/login?next=%2Ftasks%3Fselected%3Dt-1')
     } finally {
       if (originalDescriptor) Object.defineProperty(window, 'location', originalDescriptor)
     }
   })
 
   it('/auth 域请求 401 只抛错不跳转（登录失败不得被重定向打断）', async () => {
-    const assign = vi.fn()
+    const replace = vi.fn()
     const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'location')
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { ...window.location, pathname: '/login', assign },
+      value: { ...window.location, pathname: '/login', replace },
     })
 
     try {
@@ -114,7 +114,7 @@ describe('API 客户端内核', () => {
       await expect(post('/auth/login', { username: 'a', password: 'b' })).rejects.toThrow(
         'POST 401: 用户名或密码错误',
       )
-      expect(assign).not.toHaveBeenCalled()
+      expect(replace).not.toHaveBeenCalled()
     } finally {
       if (originalDescriptor) Object.defineProperty(window, 'location', originalDescriptor)
     }

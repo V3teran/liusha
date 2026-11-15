@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
+import type { HistoryOptions } from './useSelectedParam'
 
 // URL 分页/筛选状态的单一实现（此前 task/traffic/finding/llm-audit 四个
 // hook 各自复制同一套 numOr 解析、size 白名单校验、setOrDel 写回、reset——
@@ -63,17 +64,22 @@ export function useUrlFilterFields<K extends string>(fields: Record<K, string>) 
 
   // 筛选写回/重置自带「回到第一页」（page 一并清除）——领域侧不要再组合
   // setPage(1)：同 tick 连发两次 setSearchParams 会基于过期 location 互相覆盖。
-  const setFilters = (next: Partial<Record<K, string>>) => {
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev)
-      for (const k of keys) {
-        const v = next[k]
-        if (v) p.set(fields[k], v)
-        else p.delete(fields[k])
-      }
-      p.delete('page')
-      return p
-    })
+  // 历史：选项、范围的改动各新增一条（后退可撤销）；搜索框输入传 replace（打字不是导航，
+  // 否则后退一格只删几个字）。
+  const setFilters = (next: Partial<Record<K, string>>, opts?: HistoryOptions) => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        for (const k of keys) {
+          const v = next[k]
+          if (v) p.set(fields[k], v)
+          else p.delete(fields[k])
+        }
+        p.delete('page')
+        return p
+      },
+      { replace: opts?.replace },
+    )
   }
 
   const resetFilters = () => {

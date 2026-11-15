@@ -31,16 +31,16 @@ func seedNode(t *testing.T, store *Store, n Node) {
 
 func rootObjective(id string) Node {
 	return Node{ID: id, Kind: core.KindObjective, State: stateOf(StateOpen),
-		SourceType: SourceUser, SourceID: "task_init", Content: []byte(`{"description":"根"}`)}
+		SourceType: SourceUser, Content: []byte(`{"description":"根"}`)}
 }
 
 func derivedObjective(id string, state State) Node {
 	return Node{ID: id, Kind: core.KindObjective, State: stateOf(state),
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Content: []byte(`{"description":"派生"}`)}
+		SourceType: SourcePlanner, Content: []byte(`{"description":"派生"}`)}
 }
 
 func resultNode(id string) Node {
-	return Node{ID: id, Kind: core.KindResult, SourceType: SourceEvaluator, Content: []byte(`{"summary":"r"}`)}
+	return Node{ID: id, Kind: core.KindResult, SourceType: SourceEvaluator, Content: []byte(`{"statement":"r"}`)}
 }
 
 func draft(id string, triggeredBy, supersedes []string) ObjectiveDraft {
@@ -85,7 +85,7 @@ func edgesOf(t *testing.T, store *Store, rel Relation) map[[2]string]bool {
 func TestRevisePlan_SupersedeLandsStateAndEdgeTogether(t *testing.T) {
 	store := revisionFixture(t)
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{draft("n1", []string{"r1"}, []string{"d1"})},
 	})
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestRevisePlan_SupersedeLandsStateAndEdgeTogether(t *testing.T) {
 func TestRevisePlan_SplitRecordsEveryAbsorber(t *testing.T) {
 	store := revisionFixture(t)
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{
 			draft("n1", nil, []string{"d1"}),
 			draft("n2", nil, []string{"d1", "d1"}),
@@ -124,7 +124,7 @@ func TestRevisePlan_RejectsInvalidReferencesWithoutBlockingTheRest(t *testing.T)
 		State: stateOf(StateOpen), SourceType: SourcePlanner, CreatedAt: time.Now()})
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen), SourceType: SourcePlanner})
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{
 			draft("n1", []string{"r1", "ghost-result"}, []string{"root", "d-done", "foreign", "a1", "ghost", "d2"}),
 		},
@@ -152,7 +152,7 @@ func TestRevisePlan_RejectsInvalidReferencesWithoutBlockingTheRest(t *testing.T)
 func TestRevisePlan_CompletionNeedsDerivedOpenTargetAndEvidence(t *testing.T) {
 	store := revisionFixture(t)
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		CompletedObjectives: []ObjectiveCompletion{
 			{ObjectiveID: "d1", Evidence: []string{"r1"}},
 			{ObjectiveID: "d2", Evidence: []string{"ghost-result"}},
@@ -171,7 +171,7 @@ func TestRevisePlan_CompletionNeedsDerivedOpenTargetAndEvidence(t *testing.T) {
 func TestRevisePlan_CompletionWinsOverSupersedeOfSameObjective(t *testing.T) {
 	store := revisionFixture(t)
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: "d1", Evidence: []string{"r1"}}},
 		AddedObjectives:     []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
 	})
@@ -194,10 +194,10 @@ func TestRevisePlan_RejectsMalformedDrafts(t *testing.T) {
 	notOpen.Node.State = stateOf(StateCompleted)
 
 	for name, d := range map[string]ObjectiveDraft{"跨任务": foreign, "非派生": notDerived, "非 open": notOpen} {
-		_, err := store.RevisePlan(ctx, revTask, PlanRevision{AddedObjectives: []ObjectiveDraft{d}})
+		_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store), AddedObjectives: []ObjectiveDraft{d}})
 		assert.Error(t, err, name)
 	}
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{draft("dup", nil, nil), draft("dup", nil, nil)},
 	})
 	assert.Error(t, err, "ID 重复")
@@ -225,23 +225,6 @@ func TestApplyChangeSet_ConflictRollsBackEverything(t *testing.T) {
 	assert.Empty(t, edgesOf(t, store, RelSupersedes))
 }
 
-func TestTransitionState_SupersededOnlyThroughRevision(t *testing.T) {
-	store := revisionFixture(t)
-	ctx := context.Background()
-
-	assert.Error(t, store.TransitionState(ctx, "d1", StateSuperseded, nil), "不能绕过修订直接置 superseded")
-	assert.Equal(t, StateOpen, nodeState(t, store, "d1"))
-
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
-		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
-	})
-	require.NoError(t, err)
-	for _, target := range []State{StateOpen, StateCompleted, StateAborted} {
-		assert.Error(t, store.TransitionState(ctx, "d1", target, nil), "superseded 不可迁出到 %s", target)
-	}
-	assert.Equal(t, StateSuperseded, nodeState(t, store, "d1"))
-}
-
 func TestIsDerivedObjective(t *testing.T) {
 	root, derived, action := rootObjective("a"), derivedObjective("b", StateOpen), Node{Kind: core.KindAction, SourceType: SourcePlanner}
 	assert.False(t, root.IsDerivedObjective())
@@ -260,7 +243,7 @@ func actionDraft(id string, triggeredBy []string) ActionDraft {
 func TestRevisePlan_ActionsHangOnRootAndShareTheTransaction(t *testing.T) {
 	store := revisionFixture(t)
 
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
 		AddedActions:    []ActionDraft{actionDraft("a1", []string{"r1", "ghost-result"})},
 	})
@@ -279,7 +262,7 @@ func TestRevisePlan_FailureLeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	clash := actionDraft("n1", nil) // 与新目标同 ID：编程错误，整体拒绝
 
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
 		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
 		AddedActions:    []ActionDraft{clash},
 	})
@@ -293,7 +276,7 @@ func TestRevisePlan_ActionsNeedARootObjective(t *testing.T) {
 	store := NewMemoryStore()
 	seedNode(t, store, derivedObjective("d1", StateOpen))
 
-	_, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+	_, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: GoalBasis{ObjectiveID: "d1", Version: 1},
 		AddedActions: []ActionDraft{actionDraft("a1", nil)},
 	})
 	assert.Error(t, err)
@@ -305,33 +288,34 @@ func TestRevisePlan_AnalyzedWatermarkCommitsWithTheRevision(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Analyzed: []string{"r1"}})
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store), Analyzed: []string{"r1"}})
 	require.NoError(t, err, "空结论的分析也要落水位")
 	r1, err := store.GetNode(ctx, "r1")
 	require.NoError(t, err)
 	assert.True(t, r1.IsAnalyzed())
 
-	_, err = store.RevisePlan(ctx, revTask, PlanRevision{Analyzed: []string{"ghost-result"}})
+	_, err = store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store), Analyzed: []string{"ghost-result"}})
 	assert.Error(t, err, "水位只能落在本任务的结果上")
 }
 
-// 带原因的状态迁移只合并 blocked_reason，节点身份字段（来源/优先级/依赖）不丢。
-func TestTransitionState_ReasonKeepsNodeIdentity(t *testing.T) {
+// 否决只合并 state_reason / rejected_by，节点身份字段（来源/优先级）不丢。
+func TestRejectAction_KeepsNodeIdentity(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen),
-		SourceType: SourcePlanner, SourceID: "result-analyzer", Priority: PriorityHigh, DependsOn: []string{"a0"}})
+		SourceType: SourcePlanner, Priority: PriorityHigh})
 
-	reason := "monitor killed"
-	require.NoError(t, store.TransitionState(ctx, "a1", StateAborted, &reason))
+	reason := "偏离目标"
+	ok, err := store.RejectAction(ctx, revTask, "a1", SourceMonitor, reason)
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	a1, err := store.GetNode(ctx, "a1")
 	require.NoError(t, err)
-	assert.Equal(t, StateAborted, *a1.State)
-	assert.Equal(t, reason, *a1.BlockedReason)
+	assert.Equal(t, StateRejected, *a1.State)
+	assert.Equal(t, reason, *a1.StateReason)
 	assert.Equal(t, SourcePlanner, a1.SourceType)
 	assert.Equal(t, PriorityHigh, a1.Priority)
-	assert.Equal(t, []string{"a0"}, a1.DependsOn)
 	assert.Equal(t, revTask, a1.TaskID)
 }
 
@@ -349,14 +333,82 @@ func TestRevisePlan_ConcurrentConsumersCommitOnce(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 
-	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
 		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("first", nil, nil)},
 	})
 	require.NoError(t, err)
-	_, err = store.RevisePlan(ctx, revTask, PlanRevision{
+	_, err = store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
 		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("second", nil, nil)},
 	})
 	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
 	_, getErr := store.GetNode(ctx, "second")
 	assert.Error(t, getErr, "后到的修订整体回滚")
+}
+
+// rewriteGoal 改写 fixture 根目标的描述（生产路径经 task.Store.SetGoal 与任务行同事务写入）。
+func rewriteGoal(t *testing.T, store *Store, goal string) {
+	t.Helper()
+	require.NoError(t, store.UpdateNodeContent(context.Background(), "root", MustJSON(map[string]string{"description": goal})))
+}
+
+// basisOf 读取任务当前的目标依据。
+func basisOf(t *testing.T, store *Store) GoalBasis {
+	t.Helper()
+	basis, err := store.GoalBasis(context.Background(), revTask)
+	require.NoError(t, err)
+	return basis
+}
+
+// 规划修订以「规划所依据的目标」为前置：规划期间目标被改写，整批作废、什么都不落。
+func TestRevisePlan_DiscardedWhenGoalChangedSinceBasis(t *testing.T) {
+	store := revisionFixture(t)
+	ctx := context.Background()
+	basis := basisOf(t, store)
+
+	rewriteGoal(t, store, "新目标")
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{
+		Basis:        basis,
+		Analyzed:     []string{"r1"},
+		AddedActions: []ActionDraft{actionDraft("a1", nil)},
+	})
+	require.ErrorIs(t, err, ErrGoalChanged)
+	_, getErr := store.GetNode(ctx, "a1")
+	assert.Error(t, getErr, "按旧目标做出的动作不落图")
+	r1, err := store.GetNode(ctx, "r1")
+	require.NoError(t, err)
+	assert.False(t, r1.IsAnalyzed(), "分析水位随修订一同作废，按新目标重新分析")
+
+	_, err = store.RevisePlan(ctx, revTask, PlanRevision{
+		Basis: basisOf(t, store), AddedActions: []ActionDraft{actionDraft("a1", nil)},
+	})
+	require.NoError(t, err, "按新依据重做即可落图")
+}
+
+// 修订必须声明依据：没有依据的规划结论无从判断是否仍然成立。
+func TestRevisePlan_RequiresBasis(t *testing.T) {
+	store := revisionFixture(t)
+	_, err := store.RevisePlan(context.Background(), revTask, PlanRevision{
+		AddedActions: []ActionDraft{actionDraft("a1", nil)},
+	})
+	require.Error(t, err)
+	_, getErr := store.GetNode(context.Background(), "a1")
+	assert.Error(t, getErr)
+}
+
+// 目标依据随目标改写与任务状态迁移变化，其余图写入（动作、批注）不影响它。
+func TestGoalBasis_TracksGoalOnly(t *testing.T) {
+	store := revisionFixture(t)
+	ctx := context.Background()
+	before := basisOf(t, store)
+	assert.Equal(t, "root", before.ObjectiveID)
+
+	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: before, AddedActions: []ActionDraft{actionDraft("a1", nil)}})
+	require.NoError(t, err)
+	assert.Equal(t, before, basisOf(t, store), "动作挂到根目标下不改变依据")
+
+	rewriteGoal(t, store, "新目标")
+	assert.NotEqual(t, before, basisOf(t, store), "目标改写后依据随之变化")
+
+	_, err = NewMemoryStore().GoalBasis(ctx, revTask)
+	assert.Error(t, err, "没有根目标就没有依据")
 }

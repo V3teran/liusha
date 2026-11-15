@@ -20,7 +20,7 @@ category: vuln
 
 | | 请求重放模态（http_request + 流量字典） | 浏览器渲染模态（drive_browser） |
 |---|---|---|
-| **身份 =** | `http_request` 的 `identity` 参数选中的凭证集 | 同一容器内一个独立浏览器（独立 jar，已登录为该账号） |
+| **身份 =** | `http_request` 的 `identity` 参数选中的凭证集 | 沙盒内一个独立浏览器（独立 jar，已登录为该账号） |
 | **换身份** | 同一请求改 `identity` 值重发 | 各 identity（=账号名，如 admin/lowpriv）各开一个浏览器、各自登录、各自 `open` 同一功能 |
 | **anonymous** | `"identity": ""`——不注入任何凭证、不带会话 Cookie、响应不落会话 | 从没登录过的 identity（空 jar）`open` |
 | **枚举对象** | 改请求里的对象引用值重发 | 在某身份浏览器 `open` 不同对象的 URL |

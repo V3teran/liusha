@@ -43,7 +43,7 @@ export function CompactionSection() {
             onChange={(v) => s.patch({ executor_context_ratio: v })}
           />
           <RatioField
-            label="裁决占比"
+            label="评估占比"
             aside={<SettingStatus s={s} field="evaluator_context_ratio" />}
             hint="单假设取证链路短，预算最小"
             value={d.evaluator_context_ratio}

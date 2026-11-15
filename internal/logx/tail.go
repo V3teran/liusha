@@ -19,9 +19,10 @@ import (
 // 字节；文件比游标短（lumberjack 轮转/外部截断）时对该进程置 reset 整段重取。
 // 不引入第二日志事实源——UI 看到的与文件落地的永远一致。
 
-// ViewProcesses 是日志视图的进程域：三个业务进程；
-// 新业务进程加进此表即自动出现在进程枚举与读取结果里。
-var ViewProcesses = []string{"api", "proxy", "runner"}
+// ViewProcesses 是日志视图的进程域：进程名即 liusha 子命令名。serve 是单进程全组件
+// （二进制 / 单镜像部署），其余是分进程部署（compose）的各组件；部署只会产生其中一种布局，
+// 文件不存在的进程照常列出（exists=false）。
+var ViewProcesses = []string{"serve", "api", "proxy", "runner", "sandbox"}
 
 // defaultReadLimit 是 Limit 非法时的兜底值（handler 已 clamp，这里再守一道）。
 const defaultReadLimit = 500
@@ -89,9 +90,8 @@ func NewReader(dir string) *Reader {
 	return &Reader{dir: dir, scanWindow: 16 << 20, instanceWindow: 512 << 10}
 }
 
-// Dir 返回日志文件目录：LIUSHA_LOG_DIR，缺省 logs（相对进程工作目录）。
-// 容器部署三个业务进程共用一个日志卷（compose.yaml），
-// api 进程经它读全体进程文件；同机非容器部署要求各进程同工作目录或同设该变量。
+// Dir 返回日志文件目录（解析规则见 logDir）。
+// 分进程部署时各组件共用一个日志目录（compose 共享日志卷），api 经它读全体进程文件。
 func Dir() string { return logDir() }
 
 // LogProcesses 枚举视图域内各进程文件的存在性/大小/近期实例。
@@ -99,10 +99,12 @@ func Dir() string { return logDir() }
 func (r *Reader) LogProcesses() []ProcessInfo {
 	out := make([]ProcessInfo, 0, len(ViewProcesses))
 	for _, name := range ViewProcesses {
-		info := ProcessInfo{Name: name}
+		info := ProcessInfo{Name: name, Instances: []string{}} // 无文件也是空数组：前端按数组迭代
 		if fi, err := os.Stat(r.filePath(name)); err == nil && fi.Mode().IsRegular() {
 			info.Exists, info.SizeBytes, info.ModTime = true, fi.Size(), fi.ModTime()
-			info.Instances = r.recentInstances(name)
+			if inst := r.recentInstances(name); inst != nil {
+				info.Instances = inst
+			}
 		}
 		out = append(out, info)
 	}
@@ -276,7 +278,7 @@ func (r *Reader) recentInstances(name string) []string {
 	return out
 }
 
-// filePath 是文件布局的唯一权威：dir/{process}.log，与写入端 sharedFileWriter 一致。
+// filePath 是文件布局的唯一权威：dir/{process}.log，与写入端 buildWriter 一致。
 func (r *Reader) filePath(name string) string {
 	return filepath.Join(r.dir, name+".log")
 }

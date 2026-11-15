@@ -1,7 +1,11 @@
 package dispatch
 
 import (
+	"context"
+
 	"github.com/V3teran/liusha/internal/attachment"
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/task"
 	"strings"
 	"testing"
 
@@ -58,8 +62,8 @@ func TestSeverityRank(t *testing.T) {
 
 // TestValidateBrief 入口契约：超长显式拒绝（指令不可静默截断），限内放行。
 func TestValidateBrief(t *testing.T) {
-	require.NoError(t, validateBrief(strings.Repeat("测", maxBriefRunes)))
-	err := validateBrief(strings.Repeat("测", maxBriefRunes+1))
+	require.NoError(t, validateBrief(strings.Repeat("测", task.MaxGoalRunes)))
+	err := validateBrief(strings.Repeat("测", task.MaxGoalRunes+1))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "任务描述过长")
 }
@@ -82,4 +86,37 @@ func TestEffectiveBrief(t *testing.T) {
 		t.Fatalf("纯附件折算不符: %q", got)
 	}
 	// 空白文本按纯附件对待（TrimSpace 口径与 validateBrief 一致）
+}
+
+// 批次与定时模板的名称在写入时确定：未填写时取首个目标的前 40 个字（与对话发起的批次同一规则）。
+func TestBatchTitle(t *testing.T) {
+	long := strings.Repeat("长", 45)
+	for _, c := range []struct {
+		name   string
+		title  string
+		briefs []string
+		want   string
+	}{
+		{"填写了用填写的", "夜间复扫", []string{"扫描 http://a.test"}, "夜间复扫"},
+		{"未填写取首个目标", "", []string{"扫描 http://a.test", "扫描 http://b.test"}, "扫描 http://a.test"},
+		{"首个目标截取前 40 个字", "", []string{long}, strings.Repeat("长", 40)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := batchTitle(c.title, c.briefs); got != c.want {
+				t.Errorf("得 %q，期望 %q", got, c.want)
+			}
+		})
+	}
+}
+
+// 对话内调用的审计归属：入口记下所在对话，生成器只补角色标签，不覆盖已有归属。
+func TestAuditContext_KeepsConversation(t *testing.T) {
+	ctx := withConversation(context.Background(), "c-1")
+	meta := fwllm.CallMetaFromContext(auditContext(ctx, "inspector"))
+	if meta.ConversationID != "c-1" || meta.Role != "inspector" {
+		t.Errorf("应保留对话并补上角色，得 %+v", meta)
+	}
+	if got := fwllm.CallMetaFromContext(auditContext(context.Background(), "inspector")); got.ConversationID != "" || got.Role != "inspector" {
+		t.Errorf("没有对话时只有角色，得 %+v", got)
+	}
 }

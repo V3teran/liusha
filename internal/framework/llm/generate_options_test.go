@@ -10,7 +10,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// 非流式路径必须透传请求级 MaxTokens（与流式同口径）：否则裁决的 token 上限、
+// 非流式路径必须透传请求级 MaxTokens（与流式同口径）：否则判定的 token 上限、
 // 强制收尾的预算调整在非流式调用上全部失效。
 func TestComplete_PassesRequestMaxTokens(t *testing.T) {
 	var gotMax int

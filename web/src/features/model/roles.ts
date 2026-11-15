@@ -16,7 +16,7 @@ export const COMPLEXITY_GROUPS: ComplexityGroupMeta[] = [
   {
     key: COMPLEXITY_COMPLEX,
     label: '深度推理',
-    desc: '规划、裁决等长链路推理；强模型承接',
+    desc: '规划、评估等长链路推理；强模型承接',
   },
   {
     key: COMPLEXITY_MEDIUM,

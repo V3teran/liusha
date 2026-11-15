@@ -33,34 +33,23 @@ func TestNewParams_Validate(t *testing.T) {
 			name: "合法参数",
 			params: NewParams{
 				AssignmentID: "a1",
-				Brief:        "测试目标",
-				TargetHost:   "example.com",
+				Goal:         "测试目标",
 			},
 			wantErr: false,
 		},
 		{
 			name: "缺少 AssignmentID",
 			params: NewParams{
-				Brief:      "测试目标",
-				TargetHost: "example.com",
+				Goal: "测试目标",
 			},
 			wantErr: true,
 		},
 		{
-			name: "缺少 Brief",
+			name: "缺少 Goal",
 			params: NewParams{
 				AssignmentID: "a1",
-				TargetHost:   "example.com",
 			},
 			wantErr: true,
-		},
-		{
-			name: "TargetHost 可选",
-			params: NewParams{
-				AssignmentID: "a1",
-				Brief:        "测试目标",
-			},
-			wantErr: false,
 		},
 	}
 
@@ -70,8 +59,8 @@ func TestNewParams_Validate(t *testing.T) {
 			if tt.params.AssignmentID == "" && !tt.wantErr {
 				t.Error("应该要求 AssignmentID")
 			}
-			if tt.params.Brief == "" && !tt.wantErr {
-				t.Error("应该要求 Brief")
+			if tt.params.Goal == "" && !tt.wantErr {
+				t.Error("应该要求 Goal")
 			}
 		})
 	}
@@ -163,6 +152,44 @@ func TestTask_WallclockDuration(t *testing.T) {
 			}
 			if diff > time.Second {
 				t.Errorf("WallclockDuration() = %v, want %v (diff %v)", wallclock, tt.want, diff)
+			}
+		})
+	}
+}
+
+// 目标主机是目标的派生：取第一个 http(s) 目标的主机（含端口），没有则为空。
+func TestTargetHostOf(t *testing.T) {
+	cases := map[string]string{
+		"测试 http://a.test:8080/login 与 https://b.test": "a.test:8080",
+		"代理流量分析：https://shop.test 的 3 条流量":             "shop.test",
+		"分析 10.0.0.1 的代理流量":                            "",
+	}
+	for goal, want := range cases {
+		if got := targetHostOf(goal); got != want {
+			t.Errorf("targetHostOf(%q) = %q，期望 %q", goal, got, want)
+		}
+	}
+}
+
+// 耗时是发起→结束（进行中到此刻）的墙钟，扣除续接前的停顿（结束到再次续接之间的等待）。
+func TestTask_Elapsed(t *testing.T) {
+	created := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	now := created.Add(90 * time.Minute)
+	ended := created.Add(30 * time.Minute)
+	tests := []struct {
+		name string
+		task Task
+		want time.Duration
+	}{
+		{"进行中算到此刻", Task{CreatedAt: created}, 90 * time.Minute},
+		{"已结束算到结束", Task{CreatedAt: created, EndedAt: &ended}, 30 * time.Minute},
+		{"扣除续接前的停顿", Task{CreatedAt: created, PausedMs: (20 * time.Minute).Milliseconds()}, 70 * time.Minute},
+		{"时钟偏差不出负数", Task{CreatedAt: now.Add(time.Second)}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.task.Elapsed(now); got != tt.want {
+				t.Errorf("Elapsed = %v，期望 %v", got, tt.want)
 			}
 		})
 	}

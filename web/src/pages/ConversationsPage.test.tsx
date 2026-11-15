@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { ConversationsPage } from './ConversationsPage'
 
 // ConversationsPage 只做主从双栏编排（当前选中会话 + 列表刷新 ref + 删除态清理），
@@ -16,6 +16,12 @@ vi.mock('@/features/conversation/ConversationList', () => ({
       <div data-testid="conv-list">
         <button type="button" onClick={() => (props.onSelect as (id: string) => void)('conv-selected')}>
           select
+        </button>
+        <button
+          type="button"
+          onClick={() => (props.onSelect as (id: string, o: { replace: boolean }) => void)('conv-auto', { replace: true })}
+        >
+          auto-select
         </button>
         <button type="button" onClick={() => (props.onNew as () => void)()}>
           new
@@ -45,12 +51,21 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
 }))
 
 function LocationProbe() {
-  return <output data-testid="location">{useLocation().search}</output>
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="location">{useLocation().search}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+    </>
+  )
 }
 
+// initialPath 之前垫一条别的页面，模拟从别处进入对话页（后退离开对话页时回到它）
 function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter initialEntries={['/?from=elsewhere', initialPath]} initialIndex={1}>
       <ConversationsPage source={source} />
       <LocationProbe />
     </MemoryRouter>,
@@ -58,19 +73,19 @@ function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
 }
 
 describe('ConversationsPage', () => {
-  it('人工下发(direct) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('人工下发(direct) 下读取 ?conversation= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('direct', '/?conv=conv-from-query')
+    renderPage('direct', '/?conversation=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('代理捕获(proxy) 同样读取 ?conv=（深链双 tab 生效）', () => {
+  it('代理捕获(proxy) 同样读取 ?conversation=（深链双 tab 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('proxy', '/?conv=conv-from-query')
+    renderPage('proxy', '/?conversation=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
@@ -159,17 +174,36 @@ describe('ConversationsPage', () => {
 })
 
 describe('ConversationsPage URL 状态', () => {
-  it('从深链打开 A 后选择 B：URL 随之变为 ?conv=B（刷新/分享还原 B）', async () => {
+  it('从深链打开 A 后选择 B：URL 随之变为 ?conversation=B（刷新/分享还原 B）', async () => {
     const user = userEvent.setup()
-    renderPage('direct', '/?conv=conv-a')
+    renderPage('direct', '/?conversation=conv-a')
     await user.click(screen.getByText('select'))
-    expect(screen.getByTestId('location').textContent).toBe('?conv=conv-selected')
+    expect(screen.getByTestId('location').textContent).toBe('?conversation=conv-selected')
     expect(detailProps.mock.calls.at(-1)?.[0].convId).toBe('conv-selected')
+  })
+
+  // 用户点开、切换对话是一步导航：新增历史，后退回到上一个对话
+  it('依次点开两个对话，后退回到上一个', async () => {
+    const user = userEvent.setup()
+    renderPage('direct', '/?conversation=conv-a')
+    await user.click(screen.getByText('select'))
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('location').textContent).toBe('?conversation=conv-a')
+  })
+
+  // 进页自动打开最新对话不进历史：后退直接离开对话页，而不是停在「没有选中」
+  it('自动打开最新对话改写当前历史', async () => {
+    const user = userEvent.setup()
+    renderPage('direct')
+    await user.click(screen.getByText('auto-select'))
+    expect(screen.getByTestId('location').textContent).toBe('?conversation=conv-auto')
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('location').textContent).toBe('?from=elsewhere')
   })
 
   it('新建：清除 URL 中的会话，详情回到新建态', async () => {
     const user = userEvent.setup()
-    renderPage('direct', '/?conv=conv-a')
+    renderPage('direct', '/?conversation=conv-a')
     await user.click(screen.getByText('new'))
     expect(screen.getByTestId('location').textContent).toBe('')
     expect(detailProps.mock.calls.at(-1)?.[0].convId).toBeUndefined()
@@ -200,7 +234,7 @@ describe('ConversationsPage 窄屏（< 768）主从单栏', () => {
     expect(listProps.mock.calls.at(-1)?.[0].autoSelect).toBe(false)
   })
 
-  it('点选会话进入详情，「返回对话列表」回到列表', async () => {
+  it('点选会话进入详情，「返回对话列表」回到列表，地址栏随之清除对话', async () => {
     stubViewport(390)
     const user = userEvent.setup()
     renderPage('direct')
@@ -210,11 +244,33 @@ describe('ConversationsPage 窄屏（< 768）主从单栏', () => {
     await user.click(screen.getByRole('button', { name: '返回对话列表' }))
     expect(screen.getByTestId('conv-list')).toBeInTheDocument()
     expect(screen.queryByTestId('conv-detail')).toBeNull()
+    expect(screen.getByTestId('location').textContent).toBe('')
   })
 
-  it('深链带 ?conv= 直接落在详情', () => {
+  // 窄屏的「详情 / 列表」由 URL 决定：浏览器后退与「返回对话列表」结果一致
+  it('点选会话进入详情，浏览器后退回到列表（而不是离开页面）', async () => {
     stubViewport(390)
-    renderPage('direct', '/?conv=conv-a')
+    const user = userEvent.setup()
+    renderPage('direct')
+    await user.click(screen.getByText('select'))
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('conv-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('conv-detail')).toBeNull()
+  })
+
+  it('新对话（还没有对话 ID）进入输入框，浏览器后退回到列表', async () => {
+    stubViewport(390)
+    const user = userEvent.setup()
+    renderPage('direct')
+    await user.click(screen.getByText('new'))
+    expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('conv-list')).toBeInTheDocument()
+  })
+
+  it('深链带 ?conversation= 直接落在详情', () => {
+    stubViewport(390)
+    renderPage('direct', '/?conversation=conv-a')
     expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
     expect(screen.queryByTestId('conv-list')).toBeNull()
   })

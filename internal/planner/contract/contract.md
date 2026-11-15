@@ -12,10 +12,8 @@
       "instruction": "具体做什么（执行者只看这段话干活，必须自包含）",
       "complexity": "simple|moderate|complex",
       "priority": "critical|high|medium|low",
-      "reason": "为什么做（基于哪条观察）",
-      "depends_on": ["<前置action的ID，只引用图中真实存在的UUID>"],
-      "triggered_by": ["<滋生本动作的Result的ID，因果不成立就不填>"],
-      "metadata": {}
+      "reasoning": "为什么做（基于哪条观察）",
+      "triggered_by": ["<滋生本动作的Result的ID，因果不成立就不填>"]
     }
   ]
 }

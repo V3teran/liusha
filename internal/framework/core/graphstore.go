@@ -25,12 +25,6 @@ type GraphStore interface {
 	// UpdateNode 更新节点（部分更新）
 	UpdateNode(ctx context.Context, id string, update GraphNodeUpdate) error
 
-	// CompareAndSwapState 原子性地比较并交换节点状态（CAS操作）
-	// 只有当前状态等于 expectedState 时才更新为 newState
-	// 返回 (true, nil) 表示更新成功
-	// 返回 (false, nil) 表示状态不匹配，未更新
-	CompareAndSwapState(ctx context.Context, taskID, nodeID string, expectedState, newState string) (bool, error)
-
 	// DeleteNode 删除节点（及其所有边）
 	DeleteNode(ctx context.Context, id string) error
 
@@ -42,9 +36,10 @@ type GraphStore interface {
 	// edges 中的边引用该节点或图中已存在的节点。
 	CreateNodeWithEdges(ctx context.Context, node *GraphNode, edges []*GraphEdge) error
 
-	// ApplyChangeSet 在单个事务内应用变更集：先建节点，再逐条执行条件状态迁移，
-	// 然后合并元数据批注，最后建边。任一迁移的前置状态不成立、或一次性批注的
-	// 键已存在，返回 ErrGraphStateConflict；批注的节点不存在返回 ErrGraphNodeNotFound；任一写入
+	// ApplyChangeSet 在单个事务内应用变更集：先校验版本前置，再建节点，逐条执行
+	// 条件状态迁移，然后合并元数据批注，最后建边。版本前置不成立返回
+	// ErrVersionMismatch；任一迁移的前置状态不成立、或一次性批注的键已存在，返回
+	// ErrGraphStateConflict；前置或批注的节点不存在返回 ErrGraphNodeNotFound；任一写入
 	// 失败返回对应错误——各种情况都整体回滚，图上不留部分生效的变更。
 	ApplyChangeSet(ctx context.Context, changes GraphChangeSet) error
 
@@ -66,6 +61,9 @@ type GraphStore interface {
 type GraphNode struct {
 	// ID 是节点的唯一标识符（UUID）
 	ID string `json:"id"`
+
+	// TaskID 是节点所属任务（归属维度，必填）
+	TaskID string `json:"task_id"`
 
 	// Kind 是节点类型（如 "action", "hypothesis", "finding"）
 	Kind string `json:"kind"`
@@ -100,7 +98,7 @@ type GraphEdge struct {
 	// To 是目标节点 ID
 	To string `json:"to"`
 
-	// Relation 是边的关系类型（如 "depends_on", "verifies", "produces"）
+	// Relation 是边的关系类型（取值由领域层定义）
 	Relation string `json:"relation"`
 
 	// Metadata 是边的元数据（可选）
@@ -114,6 +112,11 @@ type GraphEdge struct {
 // 节点的状态迁移与元数据批注，以及连接它们的边。迁移、批注与边都可以作用于
 // 本变更集的新节点（新节点最先生效）。
 type GraphChangeSet struct {
+	// Preconditions 是版本前置：这些节点的当前版本须等于给定值，否则整批不生效。
+	// 用于「决策依据未变」——一个决策读取某节点后做出，落图时该节点若已被改写，
+	// 决策即失效。
+	Preconditions []GraphNodeVersion
+
 	// Nodes 是要新建的节点
 	Nodes []*GraphNode
 
@@ -125,6 +128,20 @@ type GraphChangeSet struct {
 
 	// Edges 是要新建的边（可引用本变更集的新节点或图中既有节点）
 	Edges []*GraphEdge
+}
+
+// GraphNodeVersion 是变更集的一条版本前置。前置节点只读不写；判定按最新提交的
+// 版本进行，且节点在变更集提交前不会被并发改写——改写它的写入要么先提交（前置
+// 随之不成立），要么等变更集提交后才落定（之后的读写都能看到变更集的写入）。
+type GraphNodeVersion struct {
+	// TaskID 是节点所属任务（按任务隔离，必填）
+	TaskID string
+
+	// NodeID 是作为依据的节点
+	NodeID string
+
+	// Version 是决策读取该节点时的版本
+	Version int64
 }
 
 // GraphStateTransition 是一条条件状态迁移：节点当前状态为 From 时迁到 To。
@@ -140,6 +157,10 @@ type GraphStateTransition struct {
 
 	// To 是目标状态
 	To string
+
+	// Guard 是附加前置：节点元数据中这些键须等于给定值（按迁移前的元数据判定）。
+	// 用于归属校验——只有认领者才能迁移它认领的节点。
+	Guard map[string]string
 }
 
 // GraphNodeAnnotation 是对节点元数据的一次浅合并写入。
@@ -185,7 +206,7 @@ type GraphNodeQuery struct {
 	State string `json:"state,omitempty"`
 
 	// Filters 是自定义过滤条件（key 是字段路径，value 是期望值）
-	// 例如：{"metadata.task_id": "task-123"}
+	// 例如：{"task_id": "task-123"}（task_id 走归属列），{"metadata.priority": "high"}
 	Filters map[string]interface{} `json:"filters,omitempty"`
 
 	// Limit 限制返回数量（0 表示不限制）

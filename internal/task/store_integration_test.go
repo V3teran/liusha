@@ -41,7 +41,7 @@ func TestCreateAndSummary(t *testing.T) {
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测")
 	for _, brief := range []string{"对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测"} {
-		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: brief}); err != nil {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: brief}); err != nil {
 			t.Fatalf("create task: %v", err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestCreateAndSummary(t *testing.T) {
 	if got.AssignmentTotal != 2 || got.AssignmentIndex < 1 || got.AssignmentIndex > 2 {
 		t.Errorf("批内序号/总数派生不符: %+v", got)
 	}
-	if got.ID != first.ID || got.Brief != first.Brief || got.Status != first.Status {
+	if got.ID != first.ID || got.Goal != first.Goal || got.Status != first.Status {
 		t.Errorf("GetSummary 与 ListFiltered 本体字段不一致: %+v vs %+v", got, first)
 	}
 }
@@ -98,7 +98,7 @@ func TestStatusTransitions(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://c.example.com 做存活探测")
-	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "对 http://c.example.com 做存活探测"})
+	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://c.example.com 做存活探测"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestStatusTransitions(t *testing.T) {
 	}
 
 	// 终态护栏：completed 后 abort 应被拒（保持既有终态）
-	if err := tasks.Abort(ctx, tk.ID, "迟到的终止"); err == nil {
+	if _, err := tasks.Abort(ctx, tk.ID, "迟到的终止"); err == nil {
 		t.Fatal("终态后 abort 应报错（CAS 守卫）")
 	}
 }
@@ -123,11 +123,11 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "分析 10.0.0.1 的代理流量")
-	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "分析 10.0.0.1 的代理流量"}); err != nil {
+	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "分析 10.0.0.1 的代理流量"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// search 命中 brief
+	// search 命中目标
 	rows, err := tasks.ListFiltered(ctx, ListFilter{Search: "10.0.0.1", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestHeartbeatAndReaperView(t *testing.T) {
 	ctx := context.Background()
 
 	asg := mkAssignment(t, assignments, ctx, "对 http://d.example.com 做存活探测")
-	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Brief: "对 http://d.example.com 做存活探测"})
+	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://d.example.com 做存活探测"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,16 +189,16 @@ func TestSummaryScheduleLink(t *testing.T) {
 		t.Fatalf("建模板: %v", err)
 	}
 	asg, err := assignments.Create(ctx, assignment.NewParams{
-		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, ScheduleID: &scheduleID,
+		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, Title: "s", ScheduleID: &scheduleID,
 	})
 	if err != nil {
 		t.Fatalf("建定时批次: %v", err)
 	}
-	scheduled, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Brief: "b"})
+	scheduled, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Goal: "b"})
 	if err != nil {
 		t.Fatalf("建任务: %v", err)
 	}
-	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Brief: "p"})
+	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Goal: "p"})
 	if err != nil {
 		t.Fatalf("建普通任务: %v", err)
 	}
@@ -225,5 +225,136 @@ func TestSummaryScheduleLink(t *testing.T) {
 				t.Errorf("普通任务不应带模板信息: %+v", r)
 			}
 		}
+	}
+}
+
+// 任务搜索匹配看得见的字段：目标或批次名（批次 ID 界面上不显示，不参与匹配）。
+// 同一批次的任务显示同一个批次名（批次名写入时确定，不按行推导）。
+func TestListFilteredSearchByBatchTitle(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "a"}, {Brief: "b"}}, Title: "夜间复扫"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, goal := range []string{"扫描 http://a.test", "扫描 http://b.test"} {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Goal: goal}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := tasks.ListFiltered(ctx, ListFilter{Search: "夜间", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("按批次名应命中该批次的 2 个任务，得 %d", len(rows))
+	}
+	for _, r := range rows {
+		if r.AssignmentTitle != "夜间复扫" {
+			t.Errorf("同一批次应显示同一个批次名，得 %q", r.AssignmentTitle)
+		}
+	}
+	if n, err := tasks.CountFiltered(ctx, ListFilter{Search: asg.ID[:8]}); err != nil || n != 0 {
+		t.Errorf("批次 ID 不参与匹配，得 %d（%v）", n, err)
+	}
+}
+
+// 范围筛选（从其它页面跳来「只看这个任务 / 这个对话的任务」）：列表只剩这一个任务；批次内
+// 序号与总数仍按整个批次计，不受筛选影响（筛掉兄弟任务后也不会显示成 [1/1]）。
+func TestListFilteredScope(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg := mkAssignment(t, assignments, ctx, "a", "b")
+	first, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "扫描 http://a.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "扫描 http://b.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conv string
+	if err := tasks.pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('b', $1) RETURNING id`, second.ID).Scan(&conv); err != nil {
+		t.Fatal(err)
+	}
+	if err := tasks.Complete(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name   string
+		filter ListFilter
+		want   string
+		index  int
+	}{
+		{"按任务", ListFilter{TaskID: second.ID}, second.ID, 2},
+		{"按对话", ListFilter{ConversationID: conv}, second.ID, 2},
+		{"按状态筛掉兄弟任务", ListFilter{Status: "completed"}, first.ID, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rows, err := tasks.ListFiltered(ctx, c.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, err := tasks.CountFiltered(ctx, c.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || n != 1 || rows[0].ID != c.want {
+				t.Fatalf("应只剩任务 %s，得 %d 行（计数 %d）", c.want, len(rows), n)
+			}
+			if rows[0].AssignmentIndex != c.index || rows[0].AssignmentTotal != 2 {
+				t.Errorf("批次序号应按整个批次计 [%d/2]，得 [%d/%d]", c.index, rows[0].AssignmentIndex, rows[0].AssignmentTotal)
+			}
+		})
+	}
+}
+
+// 搜索词里的 % _ 按字面匹配：搜「user_id」不应命中「userXid」。
+func TestListFilteredSearchIsLiteral(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg := mkAssignment(t, assignments, ctx, "x")
+	for _, goal := range []string{"测试 user_id 参数", "测试 userXid 参数", "折扣 100% 的接口"} {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: goal}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for q, want := range map[string]int{"user_id": 1, "100%": 1, "测试": 2} {
+		n, err := tasks.CountFiltered(ctx, ListFilter{Search: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Errorf("搜索 %q 命中 %d 条，期望 %d", q, n, want)
+		}
+	}
+}
+
+// 工作空间目录的显示名：批次取批次名，任务取目标；查不到的 ID 不出现。
+func TestDirectoryLabels(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	titled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "y"}}, Title: "夜间复扫"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := tasks.Create(ctx, NewParams{AssignmentID: titled.ID, Goal: "首个任务的目标"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const missing = "33333333-3333-4333-8333-333333333333"
+	asgLabels, taskLabels, err := tasks.DirectoryLabels(ctx, []string{titled.ID, missing}, []string{first.ID, missing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asgLabels[titled.ID] != "夜间复扫" {
+		t.Errorf("批次显示名不符: %v", asgLabels)
+	}
+	if taskLabels[first.ID] != "首个任务的目标" {
+		t.Errorf("任务显示名不符: %v", taskLabels)
+	}
+	if _, ok := asgLabels[missing]; ok {
+		t.Error("查不到的 ID 不应出现")
 	}
 }

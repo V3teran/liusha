@@ -1,15 +1,26 @@
 import type { FindingFilters } from '@/api/types'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 // 漏洞台账筛选态迁移进 URL search params：刷新、前进/后退、分享链接都能还原
-// 筛选条件与翻页位置。参数名：host / severity / status / source / page / size。
-const FIELDS = { host: 'host', severity: 'severity', status: 'status', source: 'source' } as const
+// 筛选条件与翻页位置。参数名：task / conversation / host / severity / status / source / search /
+// page / size。task / conversation 是范围：筛选栏的「范围」选择框选任务；「漏洞」跳转带着
+// 来源进来（从任务及其它页面 → task，从对话 → conversation）。
+const FIELDS = {
+  task: 'task',
+  conversation: 'conversation',
+  host: 'host',
+  severity: 'severity',
+  status: 'status',
+  source: 'source',
+  search: 'search',
+} as const
 
 export interface FindingUrlState {
   filters: FindingFilters
   page: number // 1-based
   size: number // 每页条数，PAGE_SIZE_OPTIONS 之一
-  setFilters: (next: FindingFilters) => void
+  setFilters: (next: FindingFilters, opts?: HistoryOptions) => void
   setPage: (page: number) => void
   setSize: (size: number) => void
   resetFilters: () => void

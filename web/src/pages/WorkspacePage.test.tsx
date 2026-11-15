@@ -21,9 +21,6 @@ import {
   putWorkspaceFile,
 } from '@/api/workspaces'
 
-vi.mock('@/api/tasks', () => ({
-  listTasks: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, size: 0 }),
-}))
 
 vi.mock('@/api/workspaces', () => ({
   getWorkspaceTree: vi.fn(),
@@ -137,10 +134,27 @@ describe('WorkspacePage', () => {
     renderPage()
 
     await screen.findByText('poc.py')
-    await user.type(screen.getByLabelText('搜索工作区路径'), 'xyz')
+    await user.type(screen.getByLabelText('搜索工作区'), 'xyz')
     expect(screen.getByText('task-xyz')).toBeTruthy()
     // 命中 + 祖先链之外整体滤掉（无匹配占位仅在结果为空时出现，此处有结果）
     await waitFor(() => expect(screen.queryByText('poc.py')).toBeNull())
+  })
+
+  it('批次 / 任务目录显示接口给的名字，搜索也能按名字命中（看到该任务的文件）', async () => {
+    mockedTree.mockResolvedValue([
+      { ...makeEntry('a1/', true), label: '夜间复扫' },
+      { ...makeEntry('a1/t1/', true), label: '测试商城 shop.local' },
+      makeEntry('a1/t1/report.md'),
+      { ...makeEntry('a1/t2/', true), label: '测试博客 blog.local' },
+      makeEntry('a1/t2/notes.txt'),
+    ])
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('测试商城 shop.local')).toBeTruthy()
+    await user.type(screen.getByLabelText('搜索工作区'), '商城')
+    expect(screen.getByText('report.md')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('notes.txt')).toBeNull())
   })
 
   it('新建文件走根相对路径（点按钮展开输入，确认提交）', async () => {

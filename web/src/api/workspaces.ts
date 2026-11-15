@@ -14,6 +14,8 @@ export interface WorkspaceEntry {
   size: number
   is_dir: boolean
   mod_time: string
+  /** 显示名：批次目录 = 批次标题，任务目录 = 任务目标；其余目录与文件没有。 */
+  label?: string
 }
 
 export interface WorkspaceFile {

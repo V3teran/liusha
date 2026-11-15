@@ -20,8 +20,8 @@ import (
 //
 // 带抓流的 typed HTTP 工具：主进程侧发请求 + 落 agent_traffic（返回 traffic_id）。
 //
-// 架构位置：它是 browser-svc.py（CDP capture）的对位物——容器内 mitm 抓流层缺失时
-// （Dockerfile 未装 mitmproxy），CLI 工具的 HTTP 无法进入复现弹药库。本工具把
+// 架构位置：它是沙盒浏览器服务（CDP capture）的对位物——沙盒不抓 CLI 工具的流量，
+// CLI 工具的 HTTP 无法进入复现弹药库。本工具把
 // executor 的 HTTP 操作收拢到 typed 通道：请求自动入 agent_traffic → LLM 拿到
 // 流量回放取证 → executor 最终输出的 repro 引用完整请求 → 复现门重放坐实。
 // 晋升链的完整闭环依赖此工具提供的「可复现原语」。

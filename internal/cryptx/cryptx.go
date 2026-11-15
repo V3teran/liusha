@@ -4,7 +4,7 @@
 // 输出格式为 nonce || ciphertext（ciphertext 含 GCM tag）单一 []byte，落 bytea 列。
 //
 // 密钥来自 LIUSHA_LLM_KEY_SECRET 环境变量（32 字节，hex 编码）——启动期由
-// cmd/api 校验非空且长度合法，缺失直接拒启动，不静默退化。
+// api 组件校验非空且长度合法，缺失直接拒启动，不静默退化。
 package cryptx
 
 import (
@@ -16,7 +16,7 @@ import (
 	"os"
 )
 
-// KeySize 是 AES-256 密钥字节数；调用方（cmd/api）据此校验 LIUSHA_LLM_KEY_SECRET hex 解码后的长度。
+// KeySize 是 AES-256 密钥字节数；调用方（api 组件）据此校验 LIUSHA_LLM_KEY_SECRET hex 解码后的长度。
 const KeySize = 32
 
 // Cipher 封装一把 AES-256-GCM 密钥，对外只暴露 Encrypt/Decrypt——调用方不接触 nonce 细节。
@@ -25,7 +25,7 @@ type Cipher struct {
 }
 
 // NewFromEnv 读 envVar（hex 编码，32 字节）构造 Cipher——三个 main.go 入口
-// （cmd/api、cmd/runner、cmd/corpus-import）共用同一套 fail-fast 校验，不各写一份。
+// （api、runner、corpus-import）共用同一套 fail-fast 校验，不各写一份。
 // 生成密钥：openssl rand -hex 32。
 func NewFromEnv(envVar string) (*Cipher, error) {
 	hexKey := os.Getenv(envVar)

@@ -31,3 +31,17 @@ func sourceParam(c *gin.Context) (source string, ok bool) {
 	c.JSON(http.StatusBadRequest, gin.H{"error": "source 取值无效（可选 direct / proxy）", "source": s})
 	return "", false
 }
+
+// uuidQuery 解析可选的 UUID 查询参数（如范围筛选 task / conversation）：空 = 不筛选；
+// 非空必须是合法 UUID，否则写 400 并返回 ok=false——畸形输入不下沉成 500。
+func uuidQuery(c *gin.Context, name string) (value string, ok bool) {
+	v := c.Query(name)
+	if v == "" {
+		return "", true
+	}
+	if _, err := uuid.Parse(v); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": name + " 不是合法的 UUID", name: v})
+		return "", false
+	}
+	return v, true
+}

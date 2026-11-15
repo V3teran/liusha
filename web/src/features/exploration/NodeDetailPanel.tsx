@@ -3,16 +3,20 @@
  * （坐实/证伪的机器证据——审计链的可读出口）。
  */
 
-import { X } from 'lucide-react'
+import { useState } from 'react'
+import { Ban, X } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import type { GraphNode, Verification } from '@/api/explorationgraph'
-import { kindProfile, nodeTitle, stateMeta, confidenceMeta, PRIORITY_META, COMPLEXITY_META } from './kindTheme'
+import { priorityMeta } from '@/lib/priority'
+import { kindProfile, nodeTitle, stateMeta, verificationMeta, COMPLEXITY_META } from './kindTheme'
+import { RejectActionDialog } from './RejectActionDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
   user: '用户',
   planner: '规划者',
   executor: '执行者',
-  evaluator: '裁决者',
+  evaluator: '评估者',
   monitor: '监察者',
 }
 
@@ -23,6 +27,16 @@ function MetaChip({ label, value, valueClass }: { label: string; value: string; 
       <span className={cn('font-medium text-text', valueClass)}>{value}</span>
     </span>
   )
+}
+
+/** 否决方（动作 metadata.rejected_by：user / monitor） */
+function rejectedBy(node: GraphNode): string {
+  const meta = node.metadata
+  if (meta && typeof meta === 'object' && 'rejected_by' in meta) {
+    const by = (meta as { rejected_by?: unknown }).rejected_by
+    if (typeof by === 'string') return by
+  }
+  return ''
 }
 
 export function NodeDetailPanel({
@@ -38,14 +52,16 @@ export function NodeDetailPanel({
   const Icon = profile.icon
   const title = nodeTitle(node)
   const state = stateMeta(node.state)
-  const confidence = confidenceMeta(node.confidence)
+  const verificationLabel = verificationMeta(node.verification_status)
   const content = (node.content ?? {}) as Record<string, unknown>
   // 主文本已置顶展示，k/v 里跳过同值字段避免重复
   const contentEntries = Object.entries(content).filter(
     ([, v]) => v != null && v !== '' && String(v) !== title,
   )
   const outcomeLabel = verification?.outcome === 'confirmed' ? '已坐实' : '已证伪'
-  const dependsCount = node.depends_on?.length ?? 0
+  // 待执行或执行中的动作可由用户否决（任务已结束时后端 409，弹层内如实提示）。
+  const rejectable = node.kind === 'action' && (node.state === 'open' || node.state === 'running')
+  const [rejecting, setRejecting] = useState(false)
 
   return (
     <div className="absolute right-4 top-4 z-10 flex max-h-[calc(100%-2rem)] w-96 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
@@ -61,35 +77,46 @@ export function NodeDetailPanel({
         <button
           onClick={onClose}
           className="ml-auto rounded p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
+          aria-label="关闭详情"
           title="关闭"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+      <div role="region" aria-label="节点详情" tabIndex={0} className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
         {title && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">{title}</p>}
 
         <div className="flex flex-wrap gap-1.5">
-          {node.priority && PRIORITY_META[node.priority] && (
+          {priorityMeta(node.priority) && (
             <MetaChip
               label="优先级"
-              value={`${PRIORITY_META[node.priority].code} ${PRIORITY_META[node.priority].label}`}
+              value={`${priorityMeta(node.priority)!.code} ${priorityMeta(node.priority)!.label}`}
               valueClass={node.priority === 'critical' ? 'text-sev-critical' : node.priority === 'high' ? 'text-sev-high' : undefined}
             />
           )}
           {node.complexity && COMPLEXITY_META[node.complexity] && (
             <MetaChip label="复杂度" value={COMPLEXITY_META[node.complexity]} />
           )}
-          {confidence && <MetaChip label="置信度" value={confidence} />}
+          {verificationLabel && <MetaChip label="验证" value={verificationLabel} />}
           <MetaChip label="来源" value={SOURCE_LABELS[node.source_type] ?? node.source_type} />
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
 
-        {node.kind === 'action' && (dependsCount > 0 || node.blocked_reason) && (
+        {rejectable && (
+          <Button variant="danger" size="sm" onClick={() => setRejecting(true)}>
+            <Ban />
+            否决动作
+          </Button>
+        )}
+
+        {node.kind === 'action' && node.state_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
-            {dependsCount > 0 && <div>依赖 {dependsCount} 个前置动作</div>}
-            {node.blocked_reason && <div className="text-status-warning">阻塞：{node.blocked_reason}</div>}
+            <div className="text-status-warning">
+              {node.state === 'rejected'
+                ? `否决（${SOURCE_LABELS[rejectedBy(node)] ?? '未知'}）：${node.state_reason}`
+                : `原因：${node.state_reason}`}
+            </div>
           </section>
         )}
 
@@ -104,7 +131,12 @@ export function NodeDetailPanel({
                   <dt className="text-xs text-text-tertiary">{k}</dt>
                   <dd className="text-xs text-text">
                     {typeof v === 'object' ? (
-                      <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed">
+                      // 可滚动区域须能用键盘聚焦滚动（WCAG 2.1.1）
+                      <pre
+                        tabIndex={0}
+                        aria-label={k}
+                        className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed"
+                      >
                         {JSON.stringify(v, null, 2)}
                       </pre>
                     ) : (
@@ -134,20 +166,21 @@ export function NodeDetailPanel({
             </h4>
             <div className="space-y-1 text-xs text-text-secondary">
               <div>
-                裁决时刻：<span className="font-mono">{new Date(verification.created_at).toLocaleString()}</span>
+                验证时刻：<span className="font-mono">{new Date(verification.created_at).toLocaleString()}</span>
               </div>
               {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
             </div>
-            {verification.evaluation != null && (
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
-                {typeof verification.evaluation === 'string'
-                  ? verification.evaluation
-                  : JSON.stringify(verification.evaluation, null, 2)}
+            {verification.evidence != null && (
+              <pre tabIndex={0} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
+                {typeof verification.evidence === 'string'
+                  ? verification.evidence
+                  : JSON.stringify(verification.evidence, null, 2)}
               </pre>
             )}
           </section>
         )}
       </div>
+      {rejecting && <RejectActionDialog action={node} onOpenChange={(o) => !o && setRejecting(false)} />}
     </div>
   )
 }

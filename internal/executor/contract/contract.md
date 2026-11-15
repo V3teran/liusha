@@ -22,8 +22,6 @@
       "category": "hypothesis",
       "statement": "后台接口无需认证即可访问",
       "reasoning": "未携带任何认证凭据直接访问，返回成功且含完整数据",
-      "test_plan": "匿名访问目标接口，对比带凭证请求；确认响应独有数据",
-      "confidence": "high",
       "priority": "high",
       "impact": "任何匿名访问者可拉取全部用户数据",
       "suggestion": "为后台接口增加认证与鉴权校验；敏感数据接口默认拒绝匿名访问，并按最小权限放行。",
@@ -56,47 +54,34 @@
 - **summary**: 简短总结（1-2 句话）
 - **observations**: 观察结果列表（可以为空数组）
 
-每个 observation 必须包含 **category**（七个信息域，见下方「分类纪律」）。
+每个 observation 必须包含 **category**（见下方「分类纪律」）。
 
-**category="issue"（异常与障碍）**——已观察到的坏事实，写入即终态：
-- **statement**: 问题陈述（如"发现 .git 目录泄露"、"CORS 配置为 *"）
-- **reasoning**: 为什么这是一个问题
-- **test_plan**: 如何验证这个问题（可选）
-- **confidence**: "low" / "medium" / "high"
-- **priority**: "low" / "medium" / "high" / "critical"
-- **impact**: 影响说明（一段自然语言：主张为真会发生什么、波及多大）
-- **suggestion**: 处理建议（一段自然语言：怎么做可改变这一局面）——issue/hypothesis 必须给，其余类别不带
-- **repro**: 可选（用于复现或深度验证）
-
-**category="entity"/"access"/"structure"/"behavior"/"note"（信息域事实）**——环境知识，写入即终态：
-- **statement**: 知识陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
-- **reasoning**: 依据来自哪个实测输出
-- **confidence**: "low" / "medium" / "high"
-- 通常不带 **repro**、不带 **priority**
-
-**category="hypothesis"（待验证推测）**——需要通过复现配方验证的推测性断言，只有这类会被独立验证并可能成为正式发现：
+**category="hypothesis"（待验证的判断）**——凡是「这里有问题」的判断都写成它，经复现门独立验证，坐实后成为正式发现：
 - **statement**: 清晰的主张陈述
 - **reasoning**: 为什么得出这个主张
-- **confidence**: "low" / "medium" / "high"
 - **priority**: "low" / "medium" / "high" / "critical"
 - **impact**: 影响说明（主张为真会发生什么、波及多大）
 - **suggestion**: 处理建议（经验证坐实后随发现交付）
-- **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从裁决
+- **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从验证
+
+**category="entity"/"access"/"structure"/"behavior"/"note"（事实）**——环境知识，写入即终态，规划时按域直接使用：
+- **statement**: 知识陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
+- **reasoning**: 依据来自哪个实测输出
+- 不带 **repro**、**priority**、**impact**、**suggestion**
 
 **定位由配方派生**：交付层从 repro 首请求自动派生 {method,url,path}——
 无需另填定位字段；不同参数注入点在配方 URL/query 里天然不同，不会被
 交付去重合并。
 
-分类纪律（七个信息域，领域中立词汇，选最贴切的一个）：
+分类纪律（领域中立词汇，选最贴切的一个）：
+- **hypothesis** 用于待验证的判断：漏洞（SQL 注入、XSS、RCE、认证绕过），也包括一眼可见的问题（敏感文件泄露、危险配置、默认凭据）——它们最容易给出配方，同样要经验证才算数。必须带 repro（没有配方会被降级为 note）
 - **entity** 用于存在的单个对象及其属性（主机、端点、服务、页面、配置项，及其版本/路径等关键属性）
 - **access** 用于触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
 - **structure** 用于对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
-- **behavior** 用于环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律）
-- **issue** 用于已观察到的异常与障碍（信息泄露、配置弱点、默认配置、报错、阻塞推进的坑）——看一眼就能判定的坏事实
-- **hypothesis** 用于待验证推测（SQL 注入、XSS、RCE、认证绕过）——必须带 repro（没有配方会被拒绝落图）
+- **behavior** 用于环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律、拦截与限流等阻碍推进的防护）
 - **note** 用于以上都不合适的杂项（最后手段——先找具体域）
+- hypothesis 与事实的分界：判断「这里有问题」的写 hypothesis；事实只陈述环境是什么样、怎么反应，不下好坏结论
 - entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
-- issue 与 hypothesis 的分界：需要复现证明才能下结论的判断必须走 hypothesis，不许落在 issue 里偷懒
 - 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation——只记对规划有决策价值的结论
 
 **示例**：
@@ -107,10 +92,19 @@
   "summary": "发现 .git 目录泄露和技术栈信息",
   "observations": [
     {
-      "category": "issue",
-      "statement": "发现 .git 目录泄露",
+      "category": "hypothesis",
+      "statement": "站点根目录下的 .git 目录可被匿名下载",
+      "reasoning": "访问 /.git/config 返回仓库配置原文",
       "priority": "medium",
-      "reasoning": "通过访问 /.git/config 确认存在完整 git 仓库"
+      "impact": "可还原完整源码与提交历史，其中可能含密钥与内部地址",
+      "suggestion": "部署时排除 .git 目录，并在 Web 服务器上拒绝访问以点开头的路径。",
+      "repro": {
+        "domain": "web",
+        "recipe": {
+          "request": {"method": "GET", "url": "http://target.local/.git/config", "headers": {}, "body": ""}
+        },
+        "assert": {"body_contains": "[core]"}
+      }
     },
     {
       "category": "entity",
@@ -176,6 +170,11 @@
 5. **避免误报**：
    - ❌ 禁止：`"status_code": 200` + 通用页面标题
    - ✅ 正确：`"body_contains": "mysql_error"`（配 recipe.baseline 让基线差分自动生效）
+6. **属性类主张**（目标自身的配置与暴露面，没有载荷）：不带 baseline，断言直接描述该属性——
+   - 缺失安全响应头：`"header_not_contains": {"Content-Security-Policy": ""}`（子串为空即要求该头不存在）
+   - Cookie 缺安全属性：`"header_not_contains": {"Set-Cookie": "HttpOnly"}`
+   - 敏感文件可下载：`"body_contains": "[core]"`（下载到的确实是敏感内容）
+   - `header_contains` 同理：头须存在并含子串，子串为空即只要求存在
 
 ## 示例：正确的输出
 
@@ -188,8 +187,6 @@
       "category": "hypothesis",
       "statement": "/api/users 接口的 id 参数存在未净化的输入回显",
       "reasoning": "注入特殊字符导致错误响应，回显了内部错误信息",
-      "test_plan": "在 id 参数注入特殊字符，观察是否返回异常数据或错误",
-      "confidence": "high",
       "priority": "critical",
       "repro": {
         "domain": "web",

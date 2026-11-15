@@ -14,25 +14,37 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/config"
+	"github.com/V3teran/liusha/internal/containertest"
 )
 
-func TestNewPgPool_Ping(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	c, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
-		tcpostgres.WithDatabase("liusha"),
-		tcpostgres.WithUsername("liusha"),
-		tcpostgres.WithPassword("liusha"),
-		tcpostgres.BasicWaitStrategies())
+// startPostgres 启动一次性 pgvector 容器，返回 DSN。
+func startPostgres(t *testing.T) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	t.Cleanup(cancel)
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+		return tcpostgres.Run(ctx, "pgvector/pgvector:pg17",
+			tcpostgres.WithDatabase("liusha"),
+			tcpostgres.WithUsername("liusha"),
+			tcpostgres.WithPassword("liusha"),
+			tcpostgres.BasicWaitStrategies())
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
+	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
 	dsn, err := c.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := NewPgPool(ctx, dsn, zerolog.Nop(), 5, 1, 5, 0)
+	return dsn
+}
+
+func TestNewPgPool_Ping(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	dsn := startPostgres(t)
+	pool, err := NewPgPool(ctx, config.PostgresConfig{DSN: dsn, MaxConns: 5, MinConns: 1, ConnectTimeoutSeconds: 5}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +57,7 @@ func TestNewPgPool_Ping(t *testing.T) {
 func TestNewRedis_Ping(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	c, err := tcredis.Run(ctx, "redis:8")
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcredis.RedisContainer, error) { return tcredis.Run(ctx, "redis:8") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +66,7 @@ func TestNewRedis_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewRedis(ctx, strings.TrimPrefix(addr, "redis://"), config.RedisConfig{})
+	r, err := NewRedis(ctx, config.RedisConfig{Addr: strings.TrimPrefix(addr, "redis://")})
 	if err != nil {
 		t.Fatal(err)
 	}

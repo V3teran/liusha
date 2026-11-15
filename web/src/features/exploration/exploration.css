@@ -52,10 +52,26 @@
   border-radius: 10px;
 }
 
-/* 聚焦高亮（applyFocus 写入的包装类） */
-.react-flow__node.exp-dimmed {
-  opacity: 0.22;
-  transition: opacity var(--duration-fast) var(--ease-out);
+/* 聚焦高亮（applyFocus 写入的包装类）。
+   非焦点节点「退到背景」而不是变透明：整卡透明会让文字一起跌破 4.5:1，而淡化的
+   节点仍是可读内容。去掉类型底色、阴影与彩色（图标/色点/优先级），边框换最浅一档，
+   文字统一用 tertiary——它对全部表面层都满足 AA；焦点节点保留色彩与主文字，层次靠
+   「有色 vs 去色」区分。 */
+.react-flow__node.exp-dimmed .exp-card {
+  background: var(--surface) !important; /* 卡片底色是按类型算的内联样式，类选择器须 !important 才能覆盖 */
+  border-color: var(--border-subtle);
+  box-shadow: none;
+  filter: grayscale(1);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.react-flow__node.exp-dimmed .exp-card :is(p, span) {
+  color: var(--text-tertiary);
+}
+.react-flow__node.exp-dimmed .exp-card :is(svg, .rounded-full),
+.react-flow__node.exp-dimmed .react-flow__handle {
+  opacity: 0.4;
 }
 
 .react-flow__node.exp-selected .exp-card {

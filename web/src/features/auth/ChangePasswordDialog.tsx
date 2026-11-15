@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { loginPath } from '@/lib/loginRedirect'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Eye, EyeOff, X } from 'lucide-react'
 import { changePassword } from '@/api/auth'
@@ -32,6 +33,7 @@ interface ChangePasswordDialogProps {
 
 export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialogProps) {
   const navigate = useNavigate()
+  const location = useLocation()
   const clear = useAuthStore((s) => s.clear)
 
   const [current, setCurrent] = useState('')
@@ -84,10 +86,10 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
     changePassword(current, next)
       .then(() => {
         setSuccess(true)
-        // 全部会话已被服务端吊销：短暂展示结果后回登录页重新认证。
+        // 全部会话已被服务端吊销：短暂展示结果后回登录页重新认证，认证后回到当前页面。
         window.setTimeout(() => {
           clear()
-          navigate('/login', { replace: true })
+          navigate(loginPath(location.pathname + location.search), { replace: true })
         }, 1500)
       })
       .catch((err: Error) => setError(displayError(err)))

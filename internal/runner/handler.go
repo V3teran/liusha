@@ -2,12 +2,10 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
-	"github.com/V3teran/liusha/internal/cognition"
-	"regexp"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/V3teran/liusha/internal/cognition"
+
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
@@ -16,7 +14,6 @@ import (
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/config"
 	configstore "github.com/V3teran/liusha/internal/configstore"
-	"github.com/V3teran/liusha/internal/controlplane"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
 	"github.com/V3teran/liusha/internal/corpus"
@@ -24,7 +21,6 @@ import (
 	"github.com/V3teran/liusha/internal/distill"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -50,9 +46,11 @@ type Handler struct {
 	Calls      *llminvocation.Store
 	Settings   *settingstore.Store
 	RunnerCfg  config.RunnerConfig
-	Sandbox    cognition.SandboxListener // 沙盒对外可达性契约（监听段+回连地址），注入认知循环的工具契约
-	SandboxMgr sandbox.Manager           // 沙盒借还（暖池共享容器）
-	Logger     zerolog.Logger
+	// Sandbox 是沙盒服务客户端：任务开始时查询安装状态，工具经它执行命令，run 结束时释放任务资源。
+	Sandbox sandbox.Client
+	// SandboxListener 是沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
+	SandboxListener cognition.SandboxListener
+	Logger          zerolog.Logger
 
 	// LLM 路由（tier → provider）
 	Router *llm.Router
@@ -69,132 +67,21 @@ type Handler struct {
 	Conversations  *conversation.Store
 	EventPublisher *convstream.Publisher
 
-	Graph        *explorationgraph.Store
-	EventBus     bus.EventBus // 统一事件总线
-	ControlPlane *controlplane.Store
+	Graph    *explorationgraph.Store
+	EventBus bus.EventBus // 统一事件总线
 
 	// Distiller 是任务终态经验蒸馏（corpus source=agent 写入闭环）；
 	// nil=关闭该能力（如 corpus 未装配）。
 	Distiller *distill.Service
 }
 
-// hostRe 匹配 brief 里的 http(s) 目标（含端口）——任务装配层的入口记账：
-// 抽出首个 host 作 target_host 派生列与凭据池键。认知机械不做文本抽取。
-var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
-
-// onboard 从 brief 抽取目标 host 并完成三件 best-effort 副作用：
-//  1. 落探索图 KindObjective 节点（目标）；
-//  2. 回填 task.target_host 派生列；
-//  3. 返回 host key 供调用方下传。
-func (h *Handler) onboard(ctx context.Context, _, taskID, brief string, taskLogger zerolog.Logger) string {
-	matches := hostRe.FindAllStringSubmatch(brief, -1)
-	hosts := make([]string, 0, len(matches))
-	seen := map[string]bool{}
-	for _, m := range matches {
-		if h := m[1]; h != "" && !seen[h] {
-			seen[h] = true
-			hosts = append(hosts, h)
-		}
+// credentialHost 是本 run 的凭据分区键：任务的目标主机（目标的派生列，见 task.Task），
+// 目标里没有 http(s) 目标时按任务分区。开跑时取定——运行中调整目标，下一个 run 起才按新主机。
+func credentialHost(tk task.Task) string {
+	if tk.TargetHost != "" {
+		return tk.TargetHost
 	}
-	ok := len(hosts) > 0
-
-	taskLogger.Info().
-		Str("brief", brief).
-		Bool("onboard_ok", ok).
-		Int("hosts_found", len(hosts)).
-		Msg("onboard 开始解析")
-
-	if !ok {
-		taskLogger.Warn().
-			Bool("ok", ok).
-			Msg("onboard 解析失败，未创建 Objective")
-		return taskID
-	}
-
-	if h.Graph != nil && taskID != "" {
-		// 幂等前置：恢复重投（runner 硬杀后自动重投 planner）会第二次执行
-		// onboard——同 task 同 host 已有 open/running 目标则跳过建新，否则图里
-		// 出现双根，执行期 objectives[0] 顺序不定会读写错节点。DB 层另有
-		// exploration_objective_task_host_uniq 部分唯一索引兜底并发。
-		existingObjectives, listErr := h.Graph.ListNodesByKind(ctx, taskID, core.KindObjective)
-		if listErr != nil {
-			taskLogger.Warn().Err(listErr).Msg("列既有 objective 失败（按无既有处理）")
-			existingObjectives = nil
-		}
-		hasLiveObjectiveForHost := func(host string) bool {
-			for _, obj := range existingObjectives {
-				var c map[string]any
-				if json.Unmarshal(obj.Content, &c) != nil {
-					continue
-				}
-				if c["target_host"] == host &&
-					(obj.State != nil && (*obj.State == explorationgraph.StateOpen || *obj.State == explorationgraph.StateRunning)) {
-					return true
-				}
-			}
-			return false
-		}
-
-		for _, targetHost := range hosts {
-			if hasLiveObjectiveForHost(targetHost) {
-				taskLogger.Info().
-					Str("host", targetHost).
-					Msg("同批次同 host 已有 open/running 目标（恢复重投路径），跳过重复创建")
-				continue
-			}
-
-			content, _ := json.Marshal(map[string]interface{}{
-				"target_host": targetHost,
-				"description": brief, // 添加 description 供 Planner 读取
-			})
-
-			// Objective 节点需要 state 字段（数据库约束 ck_state_by_kind 要求）
-			openState := explorationgraph.StateOpen
-
-			node := explorationgraph.Node{
-				ID:         uuid.New().String(),
-				TaskID:     taskID,
-				Kind:       core.KindObjective,
-				Content:    content,
-				State:      &openState, // 必须设置，否则违反数据库约束
-				Priority:   explorationgraph.PriorityMedium,
-				SourceType: "user",
-				SourceID:   "task_init",
-				CreatedAt:  time.Now(),
-				UpdatedAt:  time.Now(),
-			}
-
-			taskLogger.Info().
-				Str("objective_id", node.ID).
-				Str("host", targetHost).
-				Msg("准备创建 Objective 节点")
-
-			if _, err := h.Graph.CreateNode(ctx, node); err != nil {
-				// 改进1: Fail-Fast - Objective 创建失败应该中止任务
-				taskLogger.Error().Err(err).
-					Str("host", targetHost).Msg("创建 objective 节点失败 - 任务将无法正常执行")
-				return taskID // 返回原 taskID，但已记录严重错误
-			}
-			taskLogger.Info().
-				Str("objective_id", node.ID).
-				Str("host", targetHost).
-				Msg("Objective 节点创建成功")
-		}
-	} else {
-		taskLogger.Warn().
-			Bool("graph_nil", h.Graph == nil).
-			Bool("taskID_empty", taskID == "").
-			Msg(" 跳过创建 Objective：graph 为 nil 或 taskID 为空")
-	}
-
-	host := hosts[0]
-	if host != taskID {
-		if err := h.Tasks.SetTargetHost(ctx, taskID, host); err != nil {
-			taskLogger.Warn().Err(err).Str("host", host).
-				Msg("回填 task.target_host 失败（不阻塞扫描）")
-		}
-	}
-	return host
+	return tk.ID
 }
 
 const terminalWriteTimeout = 10 * time.Second
@@ -210,12 +97,11 @@ func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agent
 		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
-	// task 终态：失败即 aborted（此前缺失——task 停留 active 直至 reaper 判死，
-	// 期间前端显示「进行中」名不副实）。守卫幂等：已终态（如用户抢先停止）不覆盖。
+	// task 终态：失败即 aborted。守卫幂等：已终态（如用户抢先停止）不覆盖，也不重复落节点。
 	if taskID != "" {
-		if abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
+		if applied, abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
 			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
-		} else {
+		} else if applied {
 			h.appendTaskStatus(writeCtx, taskLogger, conversationID,
 				conversation.TaskStatusFailed, "任务执行失败",
 				map[string]any{"reason": err.Error()})
@@ -258,24 +144,31 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// task 作用域派生：此后整条执行链（含 cognition 内部全部组件）经 taskLogger
-	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。assignmentID
-	// 取自 task 行；加载失败降级为空串（下游字段缺省，不阻塞执行）。
-	var assignmentID string
+	// 出日志，task_id/assignment_id/conv 自动附加，调用点不再手写。
 	tk, tErr := h.Tasks.GetByID(ctx, p.TaskID)
-	if tErr == nil {
-		assignmentID = tk.AssignmentID
-	}
 	taskLogger := h.Logger.With().
 		Str("task_id", p.TaskID).
-		Str("assignment_id", assignmentID).
+		Str("assignment_id", tk.AssignmentID).
 		Str("conv", p.ConversationID).
 		Logger()
+
+	// 任务行是 run 的输入（目标主机、所属批次）：读不到就无从开跑。run 落 error、任务保持
+	// active，由恢复监控按出错续跑（计入重投上限）——与开跑时沙盒不可达同一口径。
+	if tErr != nil {
+		writeCtx, cancel := terminalCtx(ctx)
+		defer cancel()
+		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID, "读取任务失败: "+tErr.Error()); err != nil {
+			taskLogger.Warn().Err(err).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
+		}
+		taskLogger.Warn().Err(tErr).Msg("读取任务失败：本次 run 出错，任务保持进行中，由恢复监控重试")
+		return nil
+	}
 
 	// task 终态/暂停守卫：排队期间被用户停止/判死/暂停的任务不得开跑——terminate
 	// 只对运行中的循环生效，队列里的迟到领取靠此闸拦下；暂停中的任务开跑也没有
 	// 意义（循环首个控制周期就会因暂停标记退出），同样拦下。run 直落 aborted，
 	// 暂停的由继续操作重投。
-	if tErr == nil && (tk.Status != task.StatusActive || tk.Paused) {
+	if tk.Status != task.StatusActive || tk.Paused {
 		taskLogger.Info().
 			Str("status", string(tk.Status)).
 			Bool("paused", tk.Paused).
@@ -292,13 +185,6 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 		return err
 	}
 
-	var input struct {
-		Brief string `json:"brief"`
-	}
-	if err := json.Unmarshal(p.Input, &input); err != nil {
-		return h.failTask(ctx, taskLogger, p.AgentRunID, p.TaskID, p.ConversationID, err)
-	}
-
 	// 设置超时
 	timeout := h.RunnerCfg.AgentRunTimeoutSeconds
 	if timeout > 0 {
@@ -308,5 +194,5 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	}
 
 	// 四Agent认知架构
-	return h.executeTask(ctx, p, input.Brief, taskLogger, assignmentID)
+	return h.executeTask(ctx, p, tk, taskLogger)
 }

@@ -38,7 +38,7 @@ const STOP_REASON_LABELS: Record<string, string> = {
   task_terminated: '手动终止',
   context_cancelled: '执行被取消',
   task_converged: '目标收敛',
-  max_steps_reached: '达到步数上限',
+  action_budget_reached: '达到动作上限',
   agent_failed: '智能体故障',
 }
 
@@ -55,7 +55,7 @@ function reportFields(md: TimelineEventMeta): string[] {
 
 // TaskStatusCard 是任务生命周期节点（kind=task_status）：下发/完成/停止/失败的
 // 时间线边界。系统事件居中窄条呈现（业界 CI 状态行范式），与 agent 卡（左侧
-// 归属卡）和会话消息（左右分置）三者形态区分——一眼分辨「谁在说话」与「系统裁决」。
+// 归属卡）和会话消息（左右分置）三者形态区分——一眼分辨「谁在说话」与「系统判定」。
 export function TaskStatusCard({ md }: TaskStatusCardProps) {
   const shape = statusShape(md)
   const fields = reportFields(md)

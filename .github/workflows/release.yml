@@ -1,0 +1,89 @@
+name: release
+
+# 正式版 Release 发布后构建发布产物：
+#   - ghcr.io/v3teran/liusha 镜像（amd64 + arm64），标签 X.Y.Z、X.Y、latest
+#   - 二进制压缩包（linux / darwin amd64 / arm64 的 tar.gz、windows amd64 / arm64 的 zip，含
+#     LICENSE、NOTICE、THIRD_PARTY_NOTICES）与 checksums.txt，上传到该 Release
+# 沙盒镜像与单镜像不发布，由部署方本地构建。
+# 发版链：conventional commits → release-please 维护版本 PR → 合并出 Release → 本 workflow。
+# 手动重建某版本：gh workflow run release.yml --ref vX.Y.Z（只接受 tag ref）。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# 同一版本的构建串行，不互相取消（重建不会被打断成半推送状态）。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # 上传 Release 附件
+  packages: write
+
+jobs:
+  image:
+    # 只从版本 tag 构建：误在分支上手动触发直接跳过，杜绝未发版代码占用 latest。
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # ghcr 镜像名必须小写（仓库属主 V3teran 含大写）
+          images: ghcr.io/v3teran/liusha
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # GITHUB_TOKEN 的 packages:write 只覆盖包首次创建，包与仓库关联后增量推送会被拒，用 PAT。
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          # 含 org.opencontainers.image.source（GHCR 据此把包关联到仓库）/ revision / version
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=liusha
+          cache-to: type=gha,scope=liusha,mode=max
+
+  binaries:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - name: Install web dependencies
+        working-directory: web
+        env:
+          CI: "true"
+        run: pnpm install --frozen-lockfile
+      - name: Package
+        run: scripts/release/package.sh "${GITHUB_REF_NAME#v}" dist
+      - name: Upload to release
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber

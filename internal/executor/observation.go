@@ -8,18 +8,15 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
-	"github.com/V3teran/liusha/internal/proxy"
-	"github.com/V3teran/liusha/internal/repro"
 )
 
 // createObservationNode 为观察结果创建 observation 节点
 //
-// 图级 Confidence 由 Category 完全决定（不由 executor 赋值）：
-// - hypothesis + repro → unverified（待复现门裁决）
-// - 其余全部 → factual（写入即终态：信任来自执行轨迹出处，无需裁决）
+// 验证状态由 Category 完全决定（不由 executor 赋值）：
+// - hypothesis + repro → pending（待复现门验证）
+// - 其余全部 → 没有验证状态（事实写入即终态：可信来自产出它的动作（推导链出处），无需验证）
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
@@ -33,9 +30,6 @@ func (e *Engine) createObservationNode(
 		"reasoning": obs.Reasoning,
 	}
 
-	if obs.Priority != "" {
-		contentMap["priority"] = obs.Priority
-	}
 	if obs.Impact != "" {
 		contentMap["impact"] = obs.Impact
 	}
@@ -43,17 +37,8 @@ func (e *Engine) createObservationNode(
 		contentMap["suggestion"] = obs.Suggestion
 	}
 
-	// 保存执行轨迹
-	if obs.ExecutionTrace != nil {
-		contentMap["execution_trace"] = obs.ExecutionTrace
-	}
-
-	// 保存复现配方（仅对 vulnerability 有意义）
+	// 复现配方（假设必带；收割时已归一化）
 	if len(obs.Repro) > 0 {
-		normalized, _, nErr := repro.NormalizeReproEnvelope(obs.Repro)
-		if nErr == nil {
-			obs.Repro = normalized
-		}
 		contentMap["repro"] = obs.Repro
 	}
 
@@ -67,28 +52,24 @@ func (e *Engine) createObservationNode(
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
 		Content:    content,
-		Priority:   explorationgraph.PriorityMedium,
+		Priority:   explorationgraph.NormalizePriority(obs.Priority), // 优先级只在节点层一份
 		SourceType: explorationgraph.SourceExecutor,
-		SourceID:   e.agentRunID,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
 
-	// 图级 Confidence 由 Category 决定：只有 hypothesis 进验证生命周期
-	// （unverified → 复现门裁决），其余六个信息域都是写入即终态的事实。
+	// 只有 hypothesis 进验证生命周期（pending → 复现门验证），其余五个信息域
+	// 都是写入即终态的事实，不带验证状态。
 	switch obs.Category {
-	case CategoryHypothesis:
+	case explorationgraph.CategoryHypothesis:
 		// hypothesis 必须有 repro
 		if len(obs.Repro) == 0 {
 			return nil, fmt.Errorf("hypothesis observation requires repro")
 		}
-		unverified := explorationgraph.ConfidenceUnverified
-		node.Confidence = &unverified
+		pending := explorationgraph.VerificationPending
+		node.VerificationStatus = &pending
 
-	case CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior,
-		CategoryIssue, CategoryNote:
-		factual := explorationgraph.ConfidenceFactual
-		node.Confidence = &factual
+	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
 
 	default:
 		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
@@ -115,93 +96,18 @@ func (e *Engine) createObservationNode(
 	return &node, nil
 }
 
-// observationToAttempt 将 observation 节点转换为 Attempt
-func (e *Engine) observationToAttempt(
-	taskID string,
-	node *explorationgraph.Node,
-	obs Observation,
-) (evaluator.Attempt, error) {
-	// priority 缺省交领域交付层补（finding 映射处有默认）——通用执行层
-	// 不制造领域默认值；confidence 是 executor 自评载荷，缺省 low。
-	priority := obs.Priority
-	confidence := obs.Confidence
-	if confidence == "" {
-		confidence = "low"
-	}
-
-	// 构造 Content：交付层（deliverClaim）按这些键解构坐实载荷——
-	// 中立层词汇 priority/impact/suggestion，安全域交付时译作
-	// severity/impact/remediation（域词归域）。executor 的执行轨迹随
-	// 观察节点另存，不进主张载荷（体积与职责：轨迹属图，主张属台账）。
-	content := map[string]interface{}{
-		"summary":    obs.Statement,
-		"priority":   priority,
-		"confidence": confidence,
-	}
-	if obs.Impact != "" {
-		content["impact"] = obs.Impact
-	}
-	if obs.Suggestion != "" {
-		content["suggestion"] = obs.Suggestion
-	}
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		return evaluator.Attempt{}, fmt.Errorf("marshal content: %w", err)
-	}
-
-	return evaluator.Attempt{
-		TaskID:     taskID,
-		NodeID:     node.ID,
-		Kind:       "result", // 晋升为 result 节点
-		Primitives: obs.Repro,
-		Content:    contentJSON,
-		Priority:   "medium",
-	}, nil
-}
-
 // ─────────────────────────────────────────────────────────────
-// 观察载荷与执行轨迹（Observation / ExecutionTrace / TraceBuilder）
+// 观察载荷（Observation）
 // ─────────────────────────────────────────────────────────────
 
-// ObservationCategory 是观察的信息类别：七个领域中立的信息域，决定观察的
-// 生命周期与检索语义。词汇表对任意领域的探索 agent 通用；分类定义随输出契约
-// （executor/contract）固定，领域例子由执行器章程承载，换领域自定义章程即可。
-//
-//   - entity：环境中存在的单个对象及其属性（inventory：有什么）
-//   - access：触达与运用对象的途径（affordance：怎么用）
-//   - structure：对象之间的关系与布局（topology：怎么连）
-//   - behavior：环境受激后的反应与内在机制（dynamics：怎么动）
-//   - issue：已观察到的异常与障碍——不经复现门、直接可判定的坏事实；
-//     需要证明的判断必须走 hypothesis → 裁决 → result，不许落在 issue 里
-//   - note：无法归入上述任何域的杂项（兜底；写作顺序上的最后手段）
-//   - hypothesis：待验证的判断——必须携带复现配方，经裁决门裁决后才成为
-//     result
-type ObservationCategory string
-
-// CategoryEntity 等是七种观察类别的枚举值（语义见 ObservationCategory）。
-const (
-	CategoryEntity     ObservationCategory = "entity"
-	CategoryAccess     ObservationCategory = "access"
-	CategoryStructure  ObservationCategory = "structure"
-	CategoryBehavior   ObservationCategory = "behavior"
-	CategoryNote       ObservationCategory = "note"
-	CategoryIssue      ObservationCategory = "issue"
-	CategoryHypothesis ObservationCategory = "hypothesis"
-)
-
-// Observation 是执行器从环境感知到的一条断言（Category 七值语义见
-// ObservationCategory）。图级 confidence 由 createObservationNode 按
-// Category 设置，executor 的自评置信度只进载荷（executor_confidence），
-// 不进图状态。
-//
-// 图级 confidence 由 createObservationNode 按 Category 设置，executor
-// 的自评置信度只进载荷（executor_confidence），不进图状态。
+// Observation 是执行器从环境感知到的一条断言（Category 语义见 explorationgraph.ObservationCategory）。
+// 验证状态由 createObservationNode 按 Category 设置，不由执行器给出。
 type Observation struct {
 	// Statement：观察的陈述
 	Statement string `json:"statement"`
 
 	// Category：观察分类（决定生命周期）
-	Category ObservationCategory `json:"category"`
+	Category explorationgraph.ObservationCategory `json:"category"`
 
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
@@ -213,280 +119,12 @@ type Observation struct {
 	// Impact：主张为真时的影响与波及面（中性因果陈述）。
 	Impact string `json:"impact,omitempty"`
 
-	// Confidence：executor 的置信度评估
-	// 取值：low / medium / high
-	// 注：这是 executor 的主观评分，不是图级的 confidence 状态
-	Confidence string `json:"confidence,omitempty"`
-
 	// Suggestion：处理建议（若要改变这一局面可以怎么做）。
 	Suggestion string `json:"suggestion,omitempty"`
 
 	// Repro：复现配方
-	//   - hypothesis：必须（无配方的推测无从裁决）
+	//   - hypothesis：必须（无配方的推测无从验证）
 	//   - 其余类别：可选
 	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
 	Repro json.RawMessage `json:"repro,omitempty"`
-
-	// ExecutionTrace：完整执行轨迹（所有请求响应、会话状态、元数据）——
-	// 假设的裁决依据，事实的出处
-	ExecutionTrace *ExecutionTrace `json:"execution_trace,omitempty"`
-}
-
-// ExecutionTrace 记录 Executor 执行时的完整轨迹
-type ExecutionTrace struct {
-	// Traffic：所有 HTTP 请求/响应（按时间顺序）
-	Traffic []TrafficRecord `json:"traffic"`
-
-	// Session：会话状态（cookies, headers）
-	Session SessionState `json:"session"`
-
-	// Metadata：元数据
-	Meta TraceMeta `json:"meta"`
-}
-
-// TrafficRecord 是单条 HTTP 记录
-type TrafficRecord struct {
-	// Seq：序号（从 0 开始）
-	Seq int `json:"seq"`
-
-	// ID：traffic ID
-	ID string `json:"id"`
-
-	// Request：HTTP 请求
-	Request HTTPRequest `json:"request"`
-
-	// Response：HTTP 响应
-	Response HTTPResponse `json:"response"`
-
-	// Tool：产生这个请求的工具
-	Tool string `json:"tool,omitempty"`
-
-	// Timestamp：时间戳
-	Timestamp time.Time `json:"timestamp"`
-
-	// Comment：注释（Executor 可以标注这个请求的用途）
-	Comment string `json:"comment,omitempty"`
-}
-
-// HTTPRequest 是 HTTP 请求
-type HTTPRequest struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-}
-
-// HTTPResponse 是 HTTP 响应
-type HTTPResponse struct {
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-}
-
-// SessionState 是会话状态
-type SessionState struct {
-	// Cookies：所有 cookies
-	Cookies map[string]string `json:"cookies"`
-
-	// Headers：默认 headers
-	Headers map[string]string `json:"headers,omitempty"`
-
-	// Host：目标主机
-	Host string `json:"host,omitempty"`
-}
-
-// TraceMeta 是 trace 的元数据
-type TraceMeta struct {
-	ActionID     string    `json:"action_id,omitempty"`
-	TaskID       string    `json:"task_id,omitempty"`
-	StartTime    time.Time `json:"start_time,omitempty"`
-	EndTime      time.Time `json:"end_time,omitempty"`
-	DurationMs   int64     `json:"duration_ms,omitempty"` // 轨迹墙钟耗时（毫秒）
-	RequestCount int       `json:"request_count"`         // 轨迹内 HTTP 请求条数
-}
-
-// TraceBuilder 用于构建 ExecutionTrace
-type TraceBuilder struct {
-	trace ExecutionTrace
-}
-
-// NewTraceBuilder 创建一个新的 TraceBuilder
-func NewTraceBuilder() *TraceBuilder {
-	return &TraceBuilder{
-		trace: ExecutionTrace{
-			Traffic: make([]TrafficRecord, 0),
-			Session: SessionState{
-				Cookies: make(map[string]string),
-				Headers: make(map[string]string),
-			},
-			Meta: TraceMeta{StartTime: time.Now()},
-		},
-	}
-}
-
-// AddTraffic 添加一条 traffic 记录
-// 返回这条记录的序号
-func (b *TraceBuilder) AddTraffic(snapshot proxy.TrafficSnapshot, tool, comment string) int {
-	seq := len(b.trace.Traffic)
-
-	// 提取请求
-	req := HTTPRequest{
-		Method:  snapshot.Method,
-		URL:     buildURL(snapshot),
-		Headers: snapshot.RequestHeaders,
-		Body:    string(snapshot.RequestBody),
-	}
-
-	// 提取响应
-	resp := HTTPResponse{
-		Status:  snapshot.StatusCode,
-		Headers: flattenHeaders(snapshot.ResponseHeaders),
-		Body:    string(snapshot.ResponseBody),
-	}
-
-	// 创建记录
-	record := TrafficRecord{
-		Seq:       seq,
-		ID:        snapshot.ID,
-		Request:   req,
-		Response:  resp,
-		Tool:      tool,
-		Timestamp: snapshot.Timestamp,
-		Comment:   comment,
-	}
-
-	b.trace.Traffic = append(b.trace.Traffic, record)
-	b.trace.Meta.RequestCount++
-
-	// 更新会话状态
-	b.updateSession(snapshot)
-
-	return seq
-}
-
-// Build 完成构建并返回 trace
-func (b *TraceBuilder) Build() ExecutionTrace {
-	b.trace.Meta.EndTime = time.Now()
-	b.trace.Meta.DurationMs = b.trace.Meta.EndTime.Sub(b.trace.Meta.StartTime).Milliseconds()
-	return b.trace
-}
-
-// updateSession 从 traffic 中更新会话状态
-func (b *TraceBuilder) updateSession(snapshot proxy.TrafficSnapshot) {
-	// 从请求头中提取 cookies
-	if cookie, ok := snapshot.RequestHeaders["cookie"]; ok {
-		cookies := parseCookieHeader(cookie)
-		for k, v := range cookies {
-			b.trace.Session.Cookies[k] = v
-		}
-	}
-
-	// 从响应头中提取 Set-Cookie
-	if setCookies, ok := snapshot.ResponseHeaders["set-cookie"]; ok {
-		for _, sc := range setCookies {
-			name, value := parseSetCookie(sc)
-			if name != "" {
-				b.trace.Session.Cookies[name] = value
-			}
-		}
-	}
-
-	// 更新 host
-	if b.trace.Session.Host == "" {
-		b.trace.Session.Host = snapshot.Host
-	}
-}
-
-// Helper functions
-
-func buildURL(s proxy.TrafficSnapshot) string {
-	scheme := s.Scheme
-	if scheme == "" {
-		scheme = "http"
-	}
-	url := scheme + "://" + s.Host
-	if s.Path != "" {
-		url += s.Path
-	} else {
-		url += "/"
-	}
-	return url
-}
-
-func flattenHeaders(headers map[string][]string) map[string]string {
-	if len(headers) == 0 {
-		return nil
-	}
-	result := make(map[string]string, len(headers))
-	for k, v := range headers {
-		if len(v) > 0 {
-			result[k] = v[0] // 只取第一个值
-		}
-	}
-	return result
-}
-
-func parseCookieHeader(cookie string) map[string]string {
-	cookies := make(map[string]string)
-	// 请求头格式形如「name1=value1; name2=value2」，按分号切分后逐对取键值
-	pairs := splitBySemicolon(cookie)
-	for _, pair := range pairs {
-		if idx := indexOfByte(pair, '='); idx > 0 {
-			name := trim(pair[:idx])
-			value := trim(pair[idx+1:])
-			cookies[name] = value
-		}
-	}
-	return cookies
-}
-
-func parseSetCookie(setCookie string) (name, value string) {
-	// Set-Cookie: name=value; Path=/; HttpOnly
-	if idx := indexOfByte(setCookie, ';'); idx > 0 {
-		setCookie = setCookie[:idx]
-	}
-	if idx := indexOfByte(setCookie, '='); idx > 0 {
-		name = trim(setCookie[:idx])
-		value = trim(setCookie[idx+1:])
-	}
-	return
-}
-
-func splitBySemicolon(s string) []string {
-	var result []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == ';' {
-			result = append(result, s[start:i])
-			start = i + 1
-			for start < len(s) && s[start] == ' ' {
-				start++
-			}
-			i = start - 1
-		}
-	}
-	if start < len(s) {
-		result = append(result, s[start:])
-	}
-	return result
-}
-
-func indexOfByte(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
-func trim(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-	return s[start:end]
 }

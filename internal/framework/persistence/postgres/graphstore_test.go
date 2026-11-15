@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/stretchr/testify/assert"
@@ -27,11 +28,11 @@ func TestGraphStore_CreateAndGetNode(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "11111111-1111-4111-8111-111111111111",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{"title":"test action"}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
-		State:    string(core.NodeStateOpen),
+		ID:      "11111111-1111-4111-8111-111111111111",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{"title":"test action"}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
+		State: string(core.NodeStateOpen),
 	}
 
 	err := store.CreateNode(ctx, node)
@@ -61,11 +62,11 @@ func TestGraphStore_UpdateNode(t *testing.T) {
 
 	// 创建初始节点
 	node := &core.GraphNode{
-		ID:       "22222222-2222-4222-8222-222222222222",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{"title":"initial"}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "22222222-2222-4222-8222-222222222222",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{"title":"initial"}`),
+		State:   string(core.NodeStateOpen),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -99,11 +100,11 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "33333333-3333-4333-8333-333333333333",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "33333333-3333-4333-8333-333333333333",
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{}`),
+		State:   string(core.NodeStateOpen),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -131,8 +132,8 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 	assert.Equal(t, int64(2), node.Version)
 }
 
-// TestGraphStore_CompareAndSwapState 测试 CAS 操作
-func TestGraphStore_CompareAndSwapState(t *testing.T) {
+// TestGraphStore_GuardedTransition 测试条件迁移：状态前置与 Guard 都须成立
+func TestGraphStore_GuardedTransition(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -142,44 +143,31 @@ func TestGraphStore_CompareAndSwapState(t *testing.T) {
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
+	const taskID, nodeID = "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444"
 
-	// 创建节点
 	node := &core.GraphNode{
-		ID:       "44444444-4444-4444-8444-444444444444",
-		Kind:     string(core.KindAction),
-		Content:  json.RawMessage(`{}`),
-		State:    string(core.NodeStateOpen),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      nodeID,
+		Kind:    string(core.KindAction),
+		Content: json.RawMessage(`{}`),
+		State:   string(core.NodeStateRunning),
+		TaskID:  taskID, Metadata: map[string]interface{}{"claimed_by": "run-1"},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
-	t.Run("CAS成功", func(t *testing.T) {
-		swapped, err := store.CompareAndSwapState(
-			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
-			string(core.NodeStateOpen),
-			string(core.NodeStateRunning),
-		)
-		require.NoError(t, err)
-		assert.True(t, swapped, "状态匹配时CAS应该成功")
+	transition := func(from string, guard map[string]string) error {
+		return store.ApplyChangeSet(ctx, core.GraphChangeSet{Transitions: []core.GraphStateTransition{{
+			TaskID: taskID, NodeID: nodeID, From: from, To: string(core.NodeStateCompleted), Guard: guard,
+		}}})
+	}
 
-		// 验证状态已更新
-		updated, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
-		assert.Equal(t, string(core.NodeStateRunning), updated.State)
-	})
+	assert.ErrorIs(t, transition(string(core.NodeStateOpen), nil), core.ErrGraphStateConflict, "状态前置不成立")
+	assert.ErrorIs(t, transition(string(core.NodeStateRunning), map[string]string{"claimed_by": "run-2"}),
+		core.ErrGraphStateConflict, "Guard 不成立")
+	require.NoError(t, transition(string(core.NodeStateRunning), map[string]string{"claimed_by": "run-1"}))
 
-	t.Run("CAS失败", func(t *testing.T) {
-		swapped, err := store.CompareAndSwapState(
-			ctx, "cccccccc-0000-4000-8000-000000000001", "44444444-4444-4444-8444-444444444444",
-			string(core.NodeStateOpen), // 期望是 open，但实际是 running
-			string(core.NodeStateCompleted),
-		)
-		require.NoError(t, err)
-		assert.False(t, swapped, "状态不匹配时CAS应该失败")
-
-		// 验证状态未改变
-		node, _ := store.GetNode(ctx, "44444444-4444-4444-8444-444444444444")
-		assert.Equal(t, string(core.NodeStateRunning), node.State)
-	})
+	updated, err := store.GetNode(ctx, nodeID)
+	require.NoError(t, err)
+	assert.Equal(t, string(core.NodeStateCompleted), updated.State)
 }
 
 // TestGraphStore_ListNodes 测试节点列表查询
@@ -197,25 +185,25 @@ func TestGraphStore_ListNodes(t *testing.T) {
 	// 创建多个节点
 	nodes := []*core.GraphNode{
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000001",
-			Kind:     string(core.KindAction),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateOpen),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "high"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000001",
+			Kind:    string(core.KindAction),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateOpen),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "high"},
 		},
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000002",
-			Kind:     string(core.KindObjective),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateRunning),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001", "priority": "medium"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000002",
+			Kind:    string(core.KindObjective),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateRunning),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "medium"},
 		},
 		{
-			ID:       "aaaaaaaa-0000-4000-8000-000000000003",
-			Kind:     string(core.KindAction),
-			Content:  json.RawMessage(`{}`),
-			State:    string(core.NodeStateCompleted),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000002", "priority": "high"},
+			ID:      "aaaaaaaa-0000-4000-8000-000000000003",
+			Kind:    string(core.KindAction),
+			Content: json.RawMessage(`{}`),
+			State:   string(core.NodeStateCompleted),
+			TaskID:  "cccccccc-0000-4000-8000-000000000002", Metadata: map[string]interface{}{"priority": "high"},
 		},
 	}
 
@@ -243,7 +231,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 
 	t.Run("按Metadata过滤", func(t *testing.T) {
 		query := core.GraphNodeQuery{
-			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
+			Filters: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -254,7 +242,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 		query := core.GraphNodeQuery{
 			Kind:    string(core.KindAction),
 			State:   string(core.NodeStateOpen),
-			Filters: map[string]interface{}{"metadata.task_id": "cccccccc-0000-4000-8000-000000000001"},
+			Filters: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
 		}
 		result, err := store.ListNodes(ctx, query)
 		require.NoError(t, err)
@@ -286,17 +274,17 @@ func TestGraphStore_CreateAndListEdges(t *testing.T) {
 	// 创建节点
 	nodes := []*core.GraphNode{
 		{
-			ID:       "bbbbbbbb-0000-4000-8000-000000000001",
-			Kind:     string(core.KindAction),
-			State:    string(core.NodeStateOpen),
-			Content:  json.RawMessage(`{}`),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+			ID:      "bbbbbbbb-0000-4000-8000-000000000001",
+			Kind:    string(core.KindAction),
+			State:   string(core.NodeStateOpen),
+			Content: json.RawMessage(`{}`),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 		},
 		{
-			ID:       "bbbbbbbb-0000-4000-8000-000000000002",
-			Kind:     string(core.KindObservation),
-			Content:  json.RawMessage(`{}`),
-			Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+			ID:      "bbbbbbbb-0000-4000-8000-000000000002",
+			Kind:    string(core.KindObservation),
+			Content: json.RawMessage(`{}`),
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 		},
 	}
 	for _, n := range nodes {
@@ -342,20 +330,20 @@ func TestGraphStore_CreateNodeWithEdges(t *testing.T) {
 
 	// 创建一个已存在的节点
 	existingNode := &core.GraphNode{
-		ID:       "ffffffff-0000-4000-8000-000000000001",
-		Kind:     string(core.KindAction),
-		State:    string(core.NodeStateOpen),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "ffffffff-0000-4000-8000-000000000001",
+		Kind:    string(core.KindAction),
+		State:   string(core.NodeStateOpen),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, existingNode))
 
 	// 事务性创建新节点及其边
 	newNode := &core.GraphNode{
-		ID:       "ffffffff-0000-4000-8000-000000000002",
-		Kind:     string(core.KindObservation),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "ffffffff-0000-4000-8000-000000000002",
+		Kind:    string(core.KindObservation),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 
 	edges := []*core.GraphEdge{
@@ -395,11 +383,11 @@ func TestGraphStore_DeleteNode(t *testing.T) {
 
 	// 创建节点
 	node := &core.GraphNode{
-		ID:       "dddddddd-0000-4000-8000-000000000001",
-		Kind:     string(core.KindAction),
-		State:    string(core.NodeStateOpen),
-		Content:  json.RawMessage(`{}`),
-		Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"},
+		ID:      "dddddddd-0000-4000-8000-000000000001",
+		Kind:    string(core.KindAction),
+		State:   string(core.NodeStateOpen),
+		Content: json.RawMessage(`{}`),
+		TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{},
 	}
 	require.NoError(t, store.CreateNode(ctx, node))
 
@@ -426,8 +414,8 @@ func TestGraphStore_DeleteEdge(t *testing.T) {
 
 	// 创建节点和边
 	nodes := []*core.GraphNode{
-		{ID: "eeeeeeee-0000-4000-8000-000000000001", Kind: string(core.KindAction), State: string(core.NodeStateOpen), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
-		{ID: "eeeeeeee-0000-4000-8000-000000000002", Kind: string(core.KindObservation), Content: json.RawMessage(`{}`), Metadata: map[string]interface{}{"task_id": "cccccccc-0000-4000-8000-000000000001"}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000001", Kind: string(core.KindAction), State: string(core.NodeStateOpen), Content: json.RawMessage(`{}`), TaskID: "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{}},
+		{ID: "eeeeeeee-0000-4000-8000-000000000002", Kind: string(core.KindObservation), Content: json.RawMessage(`{}`), TaskID: "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{}},
 	}
 	for _, n := range nodes {
 		require.NoError(t, store.CreateNode(ctx, n))
@@ -457,4 +445,70 @@ func TestGraphStore_DeleteEdge(t *testing.T) {
 		}
 	}
 	assert.False(t, found, "边应该已被删除")
+}
+
+// TestGraphStore_VersionPrecondition 锁定版本前置在 PG 上的语义：版本过期整批回滚；
+// 前置节点在事务内被共享锁定——并发改写它的事务要等变更集提交后才能落定，因此
+// 改写之后的语句总能看到变更集的写入（目标调整撤回规划依赖这一点）。
+func TestGraphStore_VersionPrecondition(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewGraphStore(pool)
+
+	const (
+		taskID = "cccccccc-0000-4000-8000-0000000000a1"
+		rootID = "21111111-1111-4111-8111-111111111111"
+	)
+	require.NoError(t, store.CreateNode(ctx, &core.GraphNode{ID: rootID, Kind: string(core.KindObjective),
+		Content: json.RawMessage(`{"description":"旧目标"}`), TaskID: taskID,
+		Metadata: map[string]interface{}{"source_type": "user"}, State: string(core.NodeStateOpen)}))
+	action := func(id string) []*core.GraphNode {
+		return []*core.GraphNode{{ID: id, Kind: string(core.KindAction), Content: json.RawMessage(`{"instruction":"x"}`),
+			TaskID: taskID, Metadata: map[string]interface{}{"source_type": "planner"}, State: string(core.NodeStateOpen)}}
+	}
+	basis, err := store.GetNode(ctx, rootID)
+	require.NoError(t, err)
+
+	require.NoError(t, store.UpdateNode(ctx, rootID, core.GraphNodeUpdate{Content: json.RawMessage(`{"description":"新目标"}`)}))
+	err = store.ApplyChangeSet(ctx, core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: taskID, NodeID: rootID, Version: basis.Version}},
+		Nodes:         action("31111111-1111-4111-8111-111111111111"),
+	})
+	require.ErrorIs(t, err, core.ErrVersionMismatch)
+	_, err = store.GetNode(ctx, "31111111-1111-4111-8111-111111111111")
+	require.ErrorIs(t, err, core.ErrGraphNodeNotFound, "前置不成立时整批回滚")
+
+	err = store.ApplyChangeSet(ctx, core.GraphChangeSet{
+		Preconditions: []core.GraphNodeVersion{{TaskID: "cccccccc-0000-4000-8000-0000000000a2", NodeID: rootID, Version: basis.Version + 1}},
+	})
+	require.ErrorIs(t, err, core.ErrGraphNodeNotFound, "前置节点不属于声明的任务视为不存在")
+
+	// 并发：改写前置节点的事务未提交时，变更集等它落定，再按最新版本判定——不会
+	// 基于旧快照放行。
+	current, err := store.GetNode(ctx, rootID)
+	require.NoError(t, err)
+	writer, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = writer.Rollback(ctx) }()
+	_, err = writer.Exec(ctx, `UPDATE exploration_node SET content = '{"description":"再改"}' WHERE id = $1`, rootID)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- store.ApplyChangeSet(ctx, core.GraphChangeSet{
+			Preconditions: []core.GraphNodeVersion{{TaskID: taskID, NodeID: rootID, Version: current.Version}},
+			Nodes:         action("41111111-1111-4111-8111-111111111111"),
+		})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("改写未提交时变更集应等待，却已返回: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.NoError(t, writer.Commit(ctx))
+	require.ErrorIs(t, <-done, core.ErrVersionMismatch, "等到改写提交后按最新版本判定")
 }

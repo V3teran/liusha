@@ -37,16 +37,15 @@ const (
 )
 
 // Conversation 是 conversation 表行的 Go 表示。json tag 是 API 契约：
-// 列表端点直出本结构，键统一小写蛇形（与 usage 等其它 DTO 同口径）。
+// 列表端点直出本结构，键统一小写蛇形。
 type Conversation struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`   // 可空——首条消息摘要，UI 列表用
 	TaskID    string    `json:"task_id"` // 可空——关联本会话所属的 task
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	// RunStatus 是派生的「真实运行态」（关联 task 的 status：active/completed/aborted；
-	// 纯聊天为空）。仅 ListConversations 填充。
-	// （注：conversation 表自身的 status 列是僵尸字段，已不读入；运行态一律派生自关联 task。）
+	// RunStatus 是关联任务的状态（active/completed/aborted；纯聊天为空），会话自身没有状态。
+	// 仅 ListConversations 填充（侧栏状态点）；会话页的状态与控制直接取任务。
 	RunStatus string `json:"run_status,omitempty"`
 	// RunPaused 是 active 的暂停子态（关联 task.paused）。仅 ListConversations 填充——
 	// 侧栏呼吸点是「正在烧 token」的活性信号，暂停中的会话显示静态点。
@@ -84,6 +83,37 @@ const (
 	TaskStatusPaused     = "paused"     // 用户暂停（api，任务保持 active）
 	TaskStatusResumed    = "resumed"    // 用户继续（api，重投/原地续跑）
 )
+
+// 运行中引导的回执（metadata.kind = steering，op 区分操作）：人在任务运行中修正方向的
+// 记录。消息正文是实际写入的内容（新目标全文 / 指派的指令 / 否决原因）。
+const (
+	SteeringGoalAdjusted   = "goal_adjusted"   // 调整目标（正文是新目标全文）
+	SteeringGoalAppended   = "goal_appended"   // 对话里追加要求（正文是追加的内容）
+	SteeringActionAssigned = "action_assigned" // 指派动作
+	SteeringActionRejected = "action_rejected" // 否决动作
+)
+
+// SteeringMeta 构造运行中引导回执的 metadata：{kind:"steering", op:..., 其余字段按操作
+// 可选（withdrawn 撤回的规划动作数、action_id、priority）}，零值省略。
+func SteeringMeta(op string, fields map[string]any) json.RawMessage {
+	m := map[string]any{"kind": "steering", "op": op}
+	for k, v := range fields {
+		switch t := v.(type) {
+		case string:
+			if t != "" {
+				m[k] = t
+			}
+		case int64:
+			if t > 0 {
+				m[k] = t
+			}
+		default:
+			m[k] = v
+		}
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
 
 // TaskStatusMeta 构造时间线任务状态节点的 metadata（单一契约源，五处迁移写者共用）：
 //

@@ -15,6 +15,7 @@ import { ToolCallCard } from './cards/ToolCallCard'
 import { ToolResultCard } from './cards/ToolResultCard'
 import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
+import { SteeringCard } from './cards/SteeringCard'
 
 function rowAgent(r: ThreadRow): string {
   if (r.kind === 'tools') return r.tools[0]?.metadata?.agent_name || ''
@@ -171,9 +172,13 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               </div>
             )
           }
-          // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统裁决无归属）。
+          // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统判定无归属）。
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
             return <TaskStatusCard key={r.key} md={r.msg.metadata!} />
+          }
+          // 运行中引导的回执 → 同为居中系统窄条（人的操作，不归属任何 agent）。
+          if (r.kind === 'msg' && classifyMessage(r.msg) === 'steering') {
+            return <SteeringCard key={r.key} msg={r.msg} />
           }
           if (r.kind === 'tools') {
             return (
@@ -299,7 +304,13 @@ function ThinkingStream({ text }: { text: string | unknown }) {
         <Brain className="h-3 w-3" />
         <span>深度思考中…</span>
       </div>
-      <div className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap">
+      {/* 可滚动区域须能用键盘聚焦滚动（WCAG 2.1.1） */}
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="深度思考内容"
+        className="max-h-40 overflow-y-auto px-2.5 pb-2 text-xs leading-relaxed text-text-secondary/90 whitespace-pre-wrap"
+      >
         {typed}
       </div>
     </div>

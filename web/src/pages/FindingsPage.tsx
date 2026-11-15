@@ -2,7 +2,7 @@ import { SearchInput } from '@/components/SearchInput'
 import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
 import { PageHeader } from '@/components/PageHeader'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
@@ -14,8 +14,35 @@ import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
-import { useFindingList } from '@/features/finding/useFindingQueries'
+import { findingKeys, useFindingDetail, useFindingList } from '@/features/finding/useFindingQueries'
+import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { SOURCE_OPTIONS } from '@/lib/source'
+import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
+import { useScopeLabel } from '@/features/relations/useScopeLabel'
+import { shortDateTime } from '@/lib/format'
+import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
+import { getFindingTaskFacets } from '@/api/findings'
+import type { FindingFilters } from '@/api/types'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+
+/**
+ * 「任务」选择框的候选：有漏洞的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
+ * 列全）。结构化筛选（来源、状态、严重度、主机）照常收窄候选；同一目标常被反复下发，次要
+ * 信息里的创建时间用来区分。
+ */
+function fetchTaskOptions(filters: FindingFilters) {
+  return async (q: string): Promise<PickerResult> => {
+    const { tasks, has_more } = await getFindingTaskFacets(filters, q)
+    return {
+      options: tasks.map((t) => ({
+        value: t.id,
+        label: t.goal.replace(/\s+/g, ' '),
+        detail: `${shortDateTime(t.created_at)} 创建 · ${t.count} 个漏洞`,
+      })),
+      hasMore: has_more,
+    }
+  }
+}
 
 /**
  * FindingsPage - 漏洞管理页面（平铺台账）
@@ -23,6 +50,29 @@ import { SOURCE_OPTIONS } from '@/lib/source'
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
   const queryClient = useQueryClient()
+  // 范围（任务 / 对话）的显示名：选中项可能不在当前候选里（如经链接带入），按范围本身取名
+  const scope = scopeOf(filters)
+  const scopeLabel = useScopeLabel(scope)
+  // 任务候选只随结构化筛选变化：关键词搜索针对漏洞本身
+  const facetFilters: FindingFilters = {
+    source: filters.source,
+    status: filters.status,
+    severity: filters.severity,
+    host: filters.host,
+  }
+
+  // 关键词搜索在服务端执行（覆盖全部页，与分页、统计同一口径），停顿后写入 URL
+  const [query, setQuery] = useState(filters.search ?? '')
+  const debouncedQuery = useDebouncedSearch(query.trim())
+  useEffect(() => {
+    // 打字不是导航：改写当前历史记录，后退回到搜索之前而不是逐段删字
+    if (debouncedQuery !== (filters.search ?? '')) setFilters({ ...filters, search: debouncedQuery }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
+  }, [debouncedQuery])
+  // URL 被外部改写（清空筛选、前进后退）时同步输入框；与输入框去空白后一致时不动（保留正在输入的空格）
+  useEffect(() => {
+    setQuery((q) => (q.trim() === (filters.search ?? '') ? q : (filters.search ?? '')))
+  }, [filters.search])
 
   const listQuery = useFindingList(filters, page, size)
 
@@ -39,16 +89,13 @@ export function FindingsPage() {
   const stat = statQuery.data
   const totalPages = Math.max(1, Math.ceil(total / size))
 
-  const [query, setQuery] = useState('')
   const [savingId, setSavingId] = useState('')
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
+  // 打开的漏洞写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉；按 ID 取详情，
+  // 不在当前页也能打开，取回前先用当前页的行撑住。
+  const [selected, select] = useSelectedParam()
+  const detailQuery = useFindingDetail(selected)
+  const drawerFinding = detailQuery.data ?? rows.find((r) => r.id === selected) ?? null
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((f) => `${f.summary}${f.host}${f.target?.path ?? ''}`.toLowerCase().includes(q))
-  }, [rows, query])
 
   const sevCounts = useMemo(
     () =>
@@ -63,16 +110,13 @@ export function FindingsPage() {
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: ['findings', 'list'] })
 
-  const openDrawer = (f: FindingRow) => {
-    setDrawerFinding(f)
-    setDrawerOpen(true)
-  }
+  const openDrawer = (f: FindingRow) => select(f.id)
 
   const saveTriage = async (payload: { id: string; status: string; severity: string; note: string }) => {
     setSavingId(payload.id)
     try {
       const updated = await updateFindingTriage(payload.id, payload.status, payload.severity, payload.note)
-      setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev))
+      queryClient.setQueryData<FindingRow>(findingKeys.detail(updated.id), (prev) => (prev ? { ...prev, ...updated } : prev))
       invalidateList()
     } catch {
       window.alert('处置保存失败，请重试')
@@ -81,7 +125,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(query || filters.host || filters.severity || filters.status || filters.source)
+  const hasFilter = Object.values(filters).some(Boolean)
 
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
@@ -194,6 +238,18 @@ export function FindingsPage() {
           ))}
         </Select>
 
+        <EntityPicker
+          value={scope?.id ?? ''}
+          valueLabel={scopeLabel}
+          onChange={(task) => setFilters({ ...filters, ...NO_SCOPE, task })}
+          fetchOptions={fetchTaskOptions(facetFilters)}
+          queryKey={['findings', 'task-options', facetFilters]}
+          emptyLabel="全部任务"
+          searchPlaceholder="搜索任务目标"
+          ariaLabel="范围"
+          className="w-full sm:w-64"
+        />
+
         <Select
           value={filters.status}
           onChange={(e) => setFilters({ ...filters, status: e.target.value })}
@@ -212,8 +268,8 @@ export function FindingsPage() {
           className="w-64"
           value={query}
           onChange={setQuery}
-          placeholder="搜索漏洞标题 / host / 路径…"
-          ariaLabel="搜索漏洞标题、host 或路径"
+          placeholder="搜索漏洞、主机、路径、任务目标…"
+          ariaLabel="搜索漏洞、主机、路径或任务目标"
         />
       </FilterBar>
 
@@ -225,7 +281,7 @@ export function FindingsPage() {
              严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */
           <DataTable
             ariaLabel="漏洞列表"
-            rows={visible}
+            rows={rows}
             columns={findingColumns as never}
             loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}
             hasFilter={hasFilter}
@@ -240,9 +296,11 @@ export function FindingsPage() {
       </div>
 
       <FindingDrawer
-        open={drawerOpen}
+        open={selected !== ''}
         finding={drawerFinding}
-        onOpenChange={setDrawerOpen}
+        onOpenChange={(open) => {
+          if (!open) select('')
+        }}
         onSave={(p) => void saveTriage(p)}
       />
     </div>

@@ -42,6 +42,18 @@ describe('LlmInvocationDrawer', () => {
     })
   })
 
+  it('可滚动的长文本区块都可键盘聚焦（键盘用户能滚动阅读）', () => {
+    const detail = makeDetail({
+      error_message: '上游超时',
+      messages: [{ role: 'user', content: '输入正文' }],
+      result: { content: '返回正文' },
+    } as Partial<LLMInvocationDetail>)
+    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
+    const blocks = document.querySelectorAll('pre')
+    expect(blocks.length).toBeGreaterThan(0)
+    blocks.forEach((pre) => expect(pre.getAttribute('tabindex')).toBe('0'))
+  })
+
   it('loading=true 时显示加载中', () => {
     renderDrawer(<LlmInvocationDrawer open detail={null} loading error="" onOpenChange={vi.fn()} />)
     expect(screen.getByText('加载中…')).toBeTruthy()
@@ -60,6 +72,13 @@ describe('LlmInvocationDrawer', () => {
     expect(screen.getByText('gpt-5-mini')).toBeTruthy()
     expect(screen.getByText(/anthropic/)).toBeTruthy()
     expect(screen.getByText('req-abc-123')).toBeTruthy()
+  })
+
+  it('跳转区排在元信息之前：回到产出上下文是最先用到的出口', () => {
+    renderDrawer(<LlmInvocationDrawer open detail={makeDetail()} loading={false} error="" onOpenChange={vi.fn()} />)
+    const jump = screen.getByRole('heading', { name: '跳转' })
+    const meta = screen.getByRole('heading', { name: '元信息' })
+    expect(jump.compareDocumentPosition(meta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('error_message 存在时显示错误区块与失败标签', () => {
@@ -169,25 +188,33 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
     })
   })
 
-  it('有 task_id/conversation_id 时渲染任务/对话按钮，tab 按 source 定', () => {
+  it('属于任务的调用：任务、对话、探索图，对话 tab 按来源定', () => {
     const detail = makeDetail({ task_id: 't-1', conversation_id: 'c-1', source: 'proxy' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    const taskLink = screen.getByText('任务').closest('a')
-    const convLink = screen.getByText('对话').closest('a')
-    expect(taskLink?.getAttribute('href')).toBe('/tasks?task=t-1')
-    expect(convLink?.getAttribute('href')).toBe('/conversations/proxy?conv=c-1')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1&selected=t-1')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c-1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    // 漏洞属于任务而不是某次调用，这里不放
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
   })
 
   it('source 缺省落 direct tab', () => {
     const detail = makeDetail({ task_id: 't-2', conversation_id: 'c-2' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('对话').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-2')
+  })
+
+  it('对话里直接发起的调用（没有任务）：只跳回所在对话', () => {
+    const detail = makeDetail({ task_id: null, conversation_id: 'c-3', role: 'inspector' })
+    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-3')
+    expect(screen.queryByRole('link', { name: '任务' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '探索图' })).toBeNull()
   })
 
   it('无 task/conversation 时不渲染按钮', () => {
     const detail = makeDetail({ task_id: null, conversation_id: null })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.queryByText('任务')).toBeNull()
-    expect(screen.queryByText('打开对话 →')).toBeNull()
+    expect(screen.queryByRole('heading', { name: '跳转' })).toBeNull()
   })
 })

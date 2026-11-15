@@ -7,18 +7,16 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-// Payload 是所有 agent 任务的统一载荷。
-//
-// Input 是该 task 的入参（已序列化的 JSON），由 handler 自行解释。
-// 全部生产者（cmd/api 人工下发 / ingestor 代理捕获攒批）都填 AgentRunID + TaskID。
+// Payload 是所有 agent 任务的统一载荷：只指明跑哪个 run、属于哪个任务。run 不携带输入——
+// 任务目标在任务行与探索图上，开跑时读取（续跑、恢复重投、目标调整后都以最新目标为准）。
+// 全部生产者（api 组件人工下发 / ingestor 代理捕获攒批 / 恢复监控）都填 AgentRunID + TaskID。
 type Payload struct {
 	AgentRunID string `json:"agent_run_id"` // 所属 agent_run.id（幂等键，见 client.go）
 	TaskID     string `json:"task_id"`      // 所属 task.id
 	// ConversationID 关联本任务所属会话（会话发起时填）；asynq 自动入口为空——
 	// 空则 runner 不发过程事件、不落 conversation message（纯后台扫描）。
-	ConversationID string          `json:"conversation_id,omitempty"`
-	TaskRole       TaskRole        `json:"role"` // asynq 队列路由角色
-	Input          json.RawMessage `json:"input,omitempty"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	TaskRole       TaskRole `json:"role"` // asynq 队列路由角色
 }
 
 // RoleHandler 处理一个反序列化好的 Payload。

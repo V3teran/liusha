@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -17,114 +19,145 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// TestAttemptHashKeysOnStatementAndRecipe 锁定裁决键语义：裁决对象是"假设+配方"，
-// 同配方不同陈述是两次独立裁决，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
-// "SQLi"共享同一配方时互相继承裁决）。
-func TestAttemptHashKeysOnStatementAndRecipe(t *testing.T) {
+// TestClaimHashKeysOnStatementAndRecipe 锁定验证键语义：验证对象是"假设+配方"，
+// 同配方不同陈述是两次独立判定，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
+// "SQLi"共享同一配方时互相继承判定）。
+func TestClaimHashKeysOnStatementAndRecipe(t *testing.T) {
 	recipe := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
 
-	xss := Attempt{Content: json.RawMessage(`{"summary":"/search 存在反射型 XSS"}`), Primitives: recipe}
-	sqli := Attempt{Content: json.RawMessage(`{"summary":"/search 存在 SQL 注入"}`), Primitives: recipe}
-	sameAsXSS := Attempt{Content: json.RawMessage(`{"summary":"/search 存在反射型 XSS","severity":"high"}`), Primitives: recipe}
+	xss := Claim{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS"}`), Repro: recipe}
+	sqli := Claim{Content: json.RawMessage(`{"statement":"/search 存在 SQL 注入"}`), Repro: recipe}
+	sameAsXSS := Claim{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS","severity":"high"}`), Repro: recipe}
 
-	if attemptHash(xss) == attemptHash(sqli) {
-		t.Fatal("同配方不同陈述不得同键：会跨假设沿用裁决")
+	if claimHash(xss) == claimHash(sqli) {
+		t.Fatal("同配方不同陈述不得同键：会跨假设沿用判定")
 	}
-	if attemptHash(xss) != attemptHash(sameAsXSS) {
+	if claimHash(xss) != claimHash(sameAsXSS) {
 		t.Fatal("同陈述同配方（载荷多无关字段）应同键")
 	}
 }
 
-// TestParseObservationToAttemptContentShape 锁定轮询路径与事件路径的载荷形状
-// 一致：summary/priority/confidence 三字段齐全，缺省 confidence=low。
-func TestParseObservationToAttemptContentShape(t *testing.T) {
+// TestClaimFromHypothesisContentShape 锁定从假设节点构造的载荷形状：
+// statement/impact/suggestion 三字段（结果与假设的陈述同名）；优先级取观察节点的
+// 优先级（只在节点层存一份）。
+func TestClaimFromHypothesisContentShape(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
 	obs := explorationgraph.Node{
-		ID:      "obs-1",
-		TaskID:  "task-1",
-		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S 存在漏洞","priority":"high","impact":"i","suggestion":"s","executor_confidence":"high","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		ID:       "obs-1",
+		TaskID:   "task-1",
+		Kind:     core.KindObservation,
+		Priority: explorationgraph.PriorityHigh,
+		Content:  json.RawMessage(`{"statement":"S 存在漏洞","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
-	att, err := a.parseObservationToAttempt(obs)
+	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
+		t.Fatalf("claimFromHypothesis: %v", err)
 	}
 	var c map[string]string
 	if err := json.Unmarshal(att.Content, &c); err != nil {
 		t.Fatalf("unmarshal content: %v", err)
 	}
-	if c["summary"] != "S 存在漏洞" || c["priority"] != "high" || c["confidence"] != "high" || c["impact"] != "i" || c["suggestion"] != "s" {
-		t.Fatalf("载荷字段缺失/错值: %+v", c)
+	want := map[string]string{"statement": "S 存在漏洞", "impact": "i", "suggestion": "s"}
+	if !maps.Equal(c, want) {
+		t.Fatalf("载荷形状不符: %+v", c)
 	}
+	if att.Priority != "high" {
+		t.Fatalf("Claim 优先级应取观察节点的优先级，得 %q", att.Priority)
+	}
+}
 
-	// 缺省 confidence → low（与 executor 侧 observationToAttempt 同口径）
-	obs.Content = json.RawMessage(`{"statement":"S2","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`)
-	att, err = a.parseObservationToAttempt(obs)
+// TestRecordVerifyFailure_InvalidRecipeFailsFast 锁定 fail-fast 语义：复现通道认定的
+// 配方缺陷（ErrInvalidRecipe）重放必然同样失败，一次即终局出圈；未认定为配方缺陷的
+// 失败按重试阶梯计数。分类只认哨兵错误，不按错误文本猜。
+func TestRecordVerifyFailure_InvalidRecipeFailsFast(t *testing.T) {
+	cases := []struct {
+		name        string
+		cause       error
+		wantRefuted bool
+	}{
+		{"配方缺陷一次出圈", fmt.Errorf("verifier: 复现执行失败: %w: 未知 source", ErrInvalidRecipe), true},
+		// 文本里有「解析失败」「unmarshal」也不算——不是复现通道认定的配方缺陷
+		{"文本相似但非哨兵不出圈", errors.New("judge: 解析失败: json: cannot unmarshal array"), false},
+		{"目标不可达计一次不出圈", fmt.Errorf("%w: EOF", ErrTargetUnreachable), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memGraph := explorationgraph.NewMemoryStore()
+			a := NewAgent(AgentConfig{TaskID: "t1", EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.Nop()})
+			pending := explorationgraph.VerificationPending
+			if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+				ID: "obs-f", TaskID: "t1", Kind: core.KindObservation,
+				Content: json.RawMessage(`{"statement":"S"}`), VerificationStatus: &pending,
+			}); err != nil {
+				t.Fatalf("建观察失败: %v", err)
+			}
+			a.recordVerifyFailure(context.Background(), "obs-f", Claim{TaskID: "t1", NodeID: "obs-f"}, tc.cause)
+			node, err := memGraph.GetNode(context.Background(), "obs-f")
+			if err != nil {
+				t.Fatalf("读回节点失败: %v", err)
+			}
+			if got := node.HasVerificationStatus(explorationgraph.VerificationRefuted); got != tc.wantRefuted {
+				t.Fatalf("一次失败后 refuted=%v，期望 %v（refute_reason=%q）", got, tc.wantRefuted, node.RefuteReason())
+			}
+			if tc.wantRefuted && node.RefuteReason() != RefuteInvalidRecipe {
+				t.Fatalf("refute_reason=%q，期望 invalid_recipe", node.RefuteReason())
+			}
+		})
+	}
+}
+
+// TestPollAndVerify_CorruptHypothesisRefutedNotStuck 锁定损坏的假设（无配方）直接以
+// invalid_recipe 出圈：此前轮询只告警跳过，它永远待验证、阻塞任务收敛。
+func TestPollAndVerify_CorruptHypothesisRefutedNotStuck(t *testing.T) {
+	memGraph := explorationgraph.NewMemoryStore()
+	gate := gateWith(&fakeGraphStore{verID: "v"}, fakeReplayer{}, &fakeClaimSink{}).WithJudge(stubJudge{verdict: VerdictConfirmed})
+	a := NewAgent(AgentConfig{TaskID: "t-corrupt", Gate: gate, EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.Nop()})
+	pending := explorationgraph.VerificationPending
+	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
+		ID: "obs-norepro", TaskID: "t-corrupt", Kind: core.KindObservation,
+		Content: json.RawMessage(`{"statement":"S"}`), VerificationStatus: &pending,
+	}); err != nil {
+		t.Fatalf("建观察失败: %v", err)
+	}
+	sem := make(chan struct{}, 1)
+	if err := a.pollAndVerify(context.Background(), sem); err != nil {
+		t.Fatalf("轮询失败: %v", err)
+	}
+	node, err := memGraph.GetNode(context.Background(), "obs-norepro")
 	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
+		t.Fatalf("读回节点失败: %v", err)
 	}
-	c = map[string]string{}
-	if err := json.Unmarshal(att.Content, &c); err != nil {
-		t.Fatalf("unmarshal content: %v", err)
-	}
-	if c["confidence"] != "low" {
-		t.Fatalf("缺省 confidence 应为 low: %+v", c)
+	if !node.HasVerificationStatus(explorationgraph.VerificationRefuted) || node.RefuteReason() != RefuteInvalidRecipe {
+		t.Fatalf("status=%v refute_reason=%q，期望 refuted / invalid_recipe", node.VerificationStatus, node.RefuteReason())
 	}
 }
 
-// TestIsDeterministicRecipeError 锁定 fail-fast 语义：确定性配方缺陷（形状/
-// 缺字段）重试无意义，应直接终局出圈；网络类错误不在其列。
-func TestIsDeterministicRecipeError(t *testing.T) {
-	deterministic := []string{
-		"verifier: 复现执行失败: Replayer: 解析域信封失败: json: cannot unmarshal array into Go value of type executor.ReproEnvelope",
-		"web.Replayer: 解析 assert 失败: json: cannot unmarshal array into Go struct field .header_contains",
-		"observation 缺少 repro 字段",
-		"Replayer: 未知域 \"xss\"（已支持: web, generic）",
-		"web.Replayer: request 非法——url 必须是完整 URL（含 http:// 或 https://），当前 \"x\"",
-	}
-	for _, s := range deterministic {
-		if !isDeterministicRecipeError(fmt.Errorf("%s", s)) {
-			t.Errorf("应判为确定性缺陷: %s", s)
-		}
-	}
-	transient := []string{
-		`web.Replayer: 基线重放失败: replay 请求未拿到目标响应: Get "http://t": dial tcp: lookup t: no such host`,
-		"verification timeout (will retry): context deadline exceeded",
-		"http 429: Too Many Requests",
-	}
-	for _, s := range transient {
-		if isDeterministicRecipeError(fmt.Errorf("%s", s)) {
-			t.Errorf("不应判为确定性缺陷: %s", s)
-		}
-	}
-}
-
-// evaluator 管辖边界不变式：轮询只圈 unverified 假设——事实（factual）
-// 是 executor 写入即终态的观察，出处即信任，不消耗裁决预算、永不晋升
-// （result 只承载经裁决坐实的主张）。
-func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
+// evaluator 管辖边界不变式：轮询只圈待验证的假设——事实
+// 是 executor 写入即终态的观察，出处即信任，不消耗验证预算、永不晋升
+// （result 只承载经判定坐实的主张）。
+func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-boundary"}
-	promoter := New(w, fakeReplayer{res: Result{Evaluation: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+	promoter := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictConfirmed})
 	b := bus.New(context.Background())
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{TaskID: "t-boundary", Gate: promoter, EventBus: b, Graph: memGraph, Logger: zerolog.Nop()})
 
-	buildObs := func(id, statement string, conf explorationgraph.Confidence) explorationgraph.Node {
-		c := conf
+	buildObs := func(id, statement string, status *explorationgraph.VerificationStatus) explorationgraph.Node {
 		return explorationgraph.Node{
 			ID: id, TaskID: "t-boundary", Kind: core.KindObservation,
-			Content:    json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
-			Confidence: &c,
+			Content:            json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+			VerificationStatus: status,
 		}
 	}
+	status := func(s explorationgraph.VerificationStatus) *explorationgraph.VerificationStatus { return &s }
 
-	// 三种状态并存：只有 unverified 应被圈定
+	// 三种观察并存：只有待验证的假设应被圈定
 	for _, obs := range []explorationgraph.Node{
-		buildObs("obs-hyp", "待裁决假设", explorationgraph.ConfidenceUnverified),
-		buildObs("obs-fact", "已确认事实", explorationgraph.ConfidenceFactual),
-		buildObs("obs-done", "已裁决", explorationgraph.ConfidenceRefuted),
+		buildObs("obs-hyp", "待验证假设", status(explorationgraph.VerificationPending)),
+		buildObs("obs-fact", "已确认事实", nil),
+		buildObs("obs-done", "已证伪", status(explorationgraph.VerificationRefuted)),
 	} {
 		if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
 			t.Fatalf("建观察失败: %v", err)
@@ -139,21 +172,21 @@ func TestPollAndVerify_OnlyPicksUnverified(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for w.VerificationCount() < 1 {
 		if time.Now().After(deadline) {
-			t.Fatalf("unverified 假设应被裁决, got %d", w.VerificationCount())
+			t.Fatalf("待验证假设应被验证, got %d", w.VerificationCount())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// 裁决只发生 1 次：fact/refuted 不进队列
+	// 判定只发生 1 次：fact/refuted 不进队列
 	time.Sleep(100 * time.Millisecond)
 	if w.VerificationCount() != 1 {
-		t.Fatalf("只有 unverified 应进裁决管道: %d", w.VerificationCount())
+		t.Fatalf("只有待验证假设应进验证管道: %d", w.VerificationCount())
 	}
 }
 
-// TestParseObservationToAttemptKeepsReproDomain 锁定轮询入口不私改配方：
+// TestClaimFromHypothesisKeepsReproDomain 锁定轮询入口不私改配方：
 // 断言只有 description 的 web 配方（机器无从判定）必须原样交复现门终局，
-// 与事件入口同口径——不得在轮询侧私自降级成 generic 绕过「空断言不可坐实」。
-func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
+// 不得私自降级成 generic 绕过「空断言不可坐实」。
+func TestClaimFromHypothesisKeepsReproDomain(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 	obs := explorationgraph.Node{
 		ID:      "obs-web-desc",
@@ -161,19 +194,19 @@ func TestParseObservationToAttemptKeepsReproDomain(t *testing.T) {
 		Kind:    core.KindObservation,
 		Content: json.RawMessage(`{"statement":"S","repro":{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/a","headers":{},"body":""},"baseline":{"method":"GET","url":"http://t/b","headers":{},"body":""}},"assert":{"description":"页面出现管理员数据"}}}`),
 	}
-	att, err := a.parseObservationToAttempt(obs)
+	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
-		t.Fatalf("parseObservationToAttempt: %v", err)
+		t.Fatalf("claimFromHypothesis: %v", err)
 	}
 	var env struct {
 		Domain string          `json:"domain"`
 		Recipe json.RawMessage `json:"recipe"`
 	}
-	if err := json.Unmarshal(att.Primitives, &env); err != nil {
-		t.Fatalf("unmarshal primitives: %v", err)
+	if err := json.Unmarshal(att.Repro, &env); err != nil {
+		t.Fatalf("unmarshal repro: %v", err)
 	}
 	if env.Domain != "web" {
-		t.Fatalf("轮询入口改写了配方域: domain=%q primitives=%s", env.Domain, att.Primitives)
+		t.Fatalf("轮询入口改写了配方域: domain=%q repro=%s", env.Domain, att.Repro)
 	}
 }
 
@@ -185,11 +218,11 @@ func TestPollAndVerify_SkipsInFlightBeforeParsing(t *testing.T) {
 	memGraph := explorationgraph.NewMemoryStore()
 	a := NewAgent(AgentConfig{TaskID: "t-inflight", EventBus: bus.New(context.Background()), Graph: memGraph, Logger: zerolog.New(&logs)})
 
-	c := explorationgraph.ConfidenceUnverified
+	c := explorationgraph.VerificationPending
 	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
 		ID: "obs-inflight", TaskID: "t-inflight", Kind: core.KindObservation,
-		Content:    json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
-		Confidence: &c,
+		Content:            json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
+		VerificationStatus: &c,
 	}); err != nil {
 		t.Fatalf("建观察失败: %v", err)
 	}

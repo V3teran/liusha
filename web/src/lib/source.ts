@@ -26,10 +26,13 @@ export const SOURCE_OPTIONS: ReadonlyArray<{ value: Source; label: string }> = [
 ]
 
 /**
- * 会话页路由：对话按来源分两个 tab，路径段即来源值（/conversations/direct | proxy）。
- * 缺失或未知来源落人工下发 tab——纯聊天与无 task 的会话归人工下发侧（与后端列表分流一致）。
+ * 对话页路由：对话按来源分两个 tab，路径段即来源值（/conversations/direct | proxy），
+ * ?conversation= 是打开的对话。缺失或未知来源落人工下发 tab——纯聊天与无 task 的会话归
+ * 人工下发侧（与后端列表分流一致）。
  */
 export function conversationPath(source: string | undefined, conversationId?: string): string {
   const tab: Source = source === 'proxy' ? 'proxy' : 'direct'
-  return conversationId ? `/conversations/${tab}?conv=${encodeURIComponent(conversationId)}` : `/conversations/${tab}`
+  return conversationId
+    ? `/conversations/${tab}?conversation=${encodeURIComponent(conversationId)}`
+    : `/conversations/${tab}`
 }
