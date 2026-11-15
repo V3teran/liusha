@@ -189,7 +189,7 @@ func TestSummaryScheduleLink(t *testing.T) {
 		t.Fatalf("建模板: %v", err)
 	}
 	asg, err := assignments.Create(ctx, assignment.NewParams{
-		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, ScheduleID: &scheduleID,
+		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, Title: "s", ScheduleID: &scheduleID,
 	})
 	if err != nil {
 		t.Fatalf("建定时批次: %v", err)
@@ -228,6 +228,37 @@ func TestSummaryScheduleLink(t *testing.T) {
 	}
 }
 
+// 任务搜索匹配看得见的字段：目标或批次名（批次 ID 界面上不显示，不参与匹配）。
+// 同一批次的任务显示同一个批次名（批次名写入时确定，不按行推导）。
+func TestListFilteredSearchByBatchTitle(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "a"}, {Brief: "b"}}, Title: "夜间复扫"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, goal := range []string{"扫描 http://a.test", "扫描 http://b.test"} {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg.ID, Goal: goal}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := tasks.ListFiltered(ctx, ListFilter{Search: "夜间", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("按批次名应命中该批次的 2 个任务，得 %d", len(rows))
+	}
+	for _, r := range rows {
+		if r.AssignmentTitle != "夜间复扫" {
+			t.Errorf("同一批次应显示同一个批次名，得 %q", r.AssignmentTitle)
+		}
+	}
+	if n, err := tasks.CountFiltered(ctx, ListFilter{Search: asg.ID[:8]}); err != nil || n != 0 {
+		t.Errorf("批次 ID 不参与匹配，得 %d（%v）", n, err)
+	}
+}
+
 // 搜索词里的 % _ 按字面匹配：搜「user_id」不应命中「userXid」。
 func TestListFilteredSearchIsLiteral(t *testing.T) {
 	tasks, assignments := newStores(t)
@@ -249,31 +280,24 @@ func TestListFilteredSearchIsLiteral(t *testing.T) {
 	}
 }
 
-// 工作空间目录的显示名：批次取标题（没写标题时取首个任务的目标），任务取目标；查不到的 ID 不出现。
+// 工作空间目录的显示名：批次取批次名，任务取目标；查不到的 ID 不出现。
 func TestDirectoryLabels(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
-	untitled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "x"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	titled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "y"}}, Title: "夜间复扫"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := tasks.Create(ctx, NewParams{AssignmentID: untitled.ID, Goal: "首个任务的目标"})
+	first, err := tasks.Create(ctx, NewParams{AssignmentID: titled.ID, Goal: "首个任务的目标"})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tasks.Create(ctx, NewParams{AssignmentID: untitled.ID, Goal: "第二个任务"}); err != nil {
 		t.Fatal(err)
 	}
 	const missing = "33333333-3333-4333-8333-333333333333"
-	asgLabels, taskLabels, err := tasks.DirectoryLabels(ctx, []string{untitled.ID, titled.ID, missing}, []string{first.ID, missing})
+	asgLabels, taskLabels, err := tasks.DirectoryLabels(ctx, []string{titled.ID, missing}, []string{first.ID, missing})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asgLabels[untitled.ID] != "首个任务的目标" || asgLabels[titled.ID] != "夜间复扫" {
+	if asgLabels[titled.ID] != "夜间复扫" {
 		t.Errorf("批次显示名不符: %v", asgLabels)
 	}
 	if taskLabels[first.ID] != "首个任务的目标" {

@@ -86,7 +86,10 @@ func TestSourceValidation(t *testing.T) {
 	asg, _ := newStores(t)
 	ctx := context.Background()
 
-	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Items: []Item{{Brief: "x"}}}); err == nil {
+	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Items: []Item{{Brief: "x"}}, Title: "x"}); err == nil {
 		t.Fatal("非法 source 应报错")
+	}
+	if _, err := asg.Create(ctx, NewParams{Source: SourceDirect, Items: []Item{{Brief: "x"}}}); err == nil {
+		t.Fatal("缺批次名应报错（未填写时由下发入口取首个目标）")
 	}
 }

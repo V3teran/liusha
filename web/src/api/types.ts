@@ -687,7 +687,7 @@ export interface TaskSummary {
   status: string // active | completed | aborted
   paused: boolean // 暂停中（仅 active 有意义）
   assignment_id: string
-  assignment_title: string // 批次标题（assignment.title；空回退首个任务的目标）
+  assignment_title: string // 批次名（写入时确定，不为空）
   assignment_index: number
   assignment_total: number
   source: Source
@@ -710,7 +710,7 @@ export interface TaskListResponse {
   size: number
 }
 
-// TaskFilters：source 等值 / status 等值 / search 跨目标+批次ID 子串 /
+// TaskFilters：source 等值 / status 等值 / search 跨目标+批次名 子串 /
 // since+until 创建时间范围（RFC3339，datetime-local 本地值转 ISO）。
 export interface TaskFilters {
   source: string

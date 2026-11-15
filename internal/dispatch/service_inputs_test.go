@@ -84,3 +84,24 @@ func TestEffectiveBrief(t *testing.T) {
 	}
 	// 空白文本按纯附件对待（TrimSpace 口径与 validateBrief 一致）
 }
+
+// 批次与定时模板的名称在写入时确定：未填写时取首个目标的前 40 个字（与对话发起的批次同一规则）。
+func TestBatchTitle(t *testing.T) {
+	long := strings.Repeat("长", 45)
+	for _, c := range []struct {
+		name   string
+		title  string
+		briefs []string
+		want   string
+	}{
+		{"填写了用填写的", "夜间复扫", []string{"扫描 http://a.test"}, "夜间复扫"},
+		{"未填写取首个目标", "", []string{"扫描 http://a.test", "扫描 http://b.test"}, "扫描 http://a.test"},
+		{"首个目标截取前 40 个字", "", []string{long}, strings.Repeat("长", 40)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := batchTitle(c.title, c.briefs); got != c.want {
+				t.Errorf("得 %q，期望 %q", got, c.want)
+			}
+		})
+	}
+}

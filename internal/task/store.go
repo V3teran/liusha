@@ -113,16 +113,14 @@ func Lock(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
 	return t, nil
 }
 
-// DirectoryLabels 给工作区的批次 / 任务目录取显示名：批次取标题，没写标题时取批次内首个
-// 任务的目标；任务取目标。返回 ID → 显示名，查不到的 ID 不出现。
+// DirectoryLabels 给工作区的批次 / 任务目录取显示名：批次取批次名，任务取目标。
+// 返回 ID → 显示名，查不到的 ID 不出现。
 func (s *Store) DirectoryLabels(ctx context.Context, assignmentIDs, taskIDs []string) (map[string]string, map[string]string, error) {
 	asgLabels := make(map[string]string, len(assignmentIDs))
 	taskLabels := make(map[string]string, len(taskIDs))
 	if len(assignmentIDs) > 0 {
 		rows, err := s.pool.Query(ctx, `
-			SELECT a.id::text, COALESCE(NULLIF(a.title, ''),
-			       (SELECT t.goal FROM task t WHERE t.assignment_id = a.id ORDER BY t.created_at, t.id LIMIT 1), '')
-			  FROM assignment a WHERE a.id = ANY($1::uuid[])`, assignmentIDs)
+			SELECT id::text, title FROM assignment WHERE id = ANY($1::uuid[])`, assignmentIDs)
 		if err != nil {
 			return nil, nil, fmt.Errorf("批次显示名: %w", err)
 		}
@@ -186,7 +184,7 @@ func scan(r db.RowScanner, t *Task) error {
 // ListFilter 是任务列表的筛选条件（URL query 直读，语义对齐 parseTrafficFilter：
 // 坏参数退化成不筛，不打 400）。Since/Until 按 created_at 过滤，零值=不筛。
 type ListFilter struct {
-	Search string    // 目标 / 批次ID 子串（ILIKE）
+	Search string    // 目标 / 批次名 子串（按字面、大小写不敏感）
 	Source string    // direct|proxy（所属 assignment 的真实来源）
 	Status string    // active|completed|aborted
 	Since  time.Time // 创建时间下界（含）
@@ -204,7 +202,7 @@ type Summary struct {
 	Paused          bool // 暂停中（仅 active 有意义）
 	Status          Status
 	AssignmentID    string
-	AssignmentTitle string // 批次标题（assignment.title；空回退首个任务的目标）
+	AssignmentTitle string // 批次名（assignment.title，写入时确定、不为空）
 	AssignmentIndex int    // 批内序号（1-based，按 created_at 排）
 	AssignmentTotal int    // 批内任务总数
 	Source          string // direct|proxy（assignment.source 原值；定时克隆批次落 direct）
@@ -241,7 +239,7 @@ const summaryStepCount = `COALESCE(NULLIF((SELECT count(*) FROM message m
 const summarySelect = `
 	t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
 	t.assignment_id::text,
-	COALESCE(NULLIF(a.title, ''), t.goal) AS assignment_title,
+	a.title AS assignment_title,
 	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
 	COUNT(*)     OVER (PARTITION BY t.assignment_id),
 	a.source,
@@ -267,7 +265,7 @@ func searchArg(q string) string {
 const summaryWhere = `
 	WHERE ($1 = '' OR a.source = $1)
 	  AND ($2 = '' OR t.status = $2)
-	  AND ($3 = '' OR t.goal ILIKE $3 OR t.assignment_id::text ILIKE $3)
+	  AND ($3 = '' OR t.goal ILIKE $3 OR a.title ILIKE $3)
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
 	  AND ($5::timestamptz IS NULL OR t.created_at <= $5)`
 
@@ -344,7 +342,7 @@ func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
 			t.assignment_id::text,
-			COALESCE(NULLIF(a.title, ''), t.goal) AS assignment_title,
+			a.title AS assignment_title,
 			(SELECT count(*) + 1 FROM task t2
 			 WHERE t2.assignment_id = t.assignment_id
 			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),

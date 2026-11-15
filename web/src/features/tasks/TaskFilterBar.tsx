@@ -71,8 +71,8 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
         className="w-64"
         value={localSearch}
         onChange={setLocalSearch}
-        placeholder="搜索目标、批次 ID"
-        ariaLabel="搜索目标或批次 ID"
+        placeholder="搜索目标、批次名"
+        ariaLabel="搜索目标或批次名"
       />
 
       <DateTimeRange

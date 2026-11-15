@@ -81,6 +81,13 @@ describe('TasksPage（任务模块）', () => {
     expect(mList).toHaveBeenCalled()
   })
 
+  // 搜索匹配看得见的字段：目标与批次名（批次 ID 界面上不显示）。
+  it('搜索框按目标或批次名检索', async () => {
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    renderPage()
+    expect(await screen.findByRole('textbox', { name: '搜索目标或批次名' })).toBeTruthy()
+  })
+
   it('点击行打开右侧详情板（行数据先撑住，详情请求按 id 发出）', async () => {
     const user = userEvent.setup()
     mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
