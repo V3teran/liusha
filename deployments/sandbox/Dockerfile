@@ -30,7 +30,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIPX_HOME=/opt/pipx \
     PIPX_BIN_DIR=/usr/local/bin
 
-# apt 重试配置（网络抖动不让整层 abort）
+# apt 失败退避重试（apt-retry，见脚本说明；单镜像以本镜像为底，同样使用）
+COPY deployments/sandbox/apt-retry.sh /usr/local/bin/apt-retry
+
+# apt 超时与重试配置（网络抖动不让整层 abort）
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
       > /etc/apt/apt.conf.d/80-retries && \
     # 钉官方 CDN（kali.download）：http.kali.org 是重定向器，按地理位置导流到
@@ -49,8 +52,8 @@ ARG TARGETARCH
 ENV TARGETARCH=${TARGETARCH}
 
 RUN set -eux \
- && apt-get update \
- && apt-get install -y --no-install-recommends \
+ && apt-retry update \
+ && apt-retry install -y --no-install-recommends \
       ca-certificates curl wget git unzip xz-utils tar file \
       python3 python3-pip python3-venv python3-dev pipx \
       nodejs npm \
@@ -112,8 +115,8 @@ ENV JAVA_HOME=/opt/jdk8
 # ══════════════════════════════════════════════════════════════════════════════
 # Kali 官方源直供的工具，apt 一次装齐
 RUN set -eux \
- && apt-get update \
- && apt-get install -y --no-install-recommends \
+ && apt-retry update \
+ && apt-retry install -y --no-install-recommends \
       nmap sqlmap hydra ffuf feroxbuster wafw00f arjun \
       subfinder httpx-toolkit nuclei \
       phpggc trufflehog \
