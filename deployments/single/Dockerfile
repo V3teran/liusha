@@ -41,8 +41,8 @@ FROM ${SANDBOX_IMAGE}
 
 # PostgreSQL 主版本显式钉住：数据目录跨主版本不兼容，发行版升级主版本时宁可构建失败也不
 # 静默换版本。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-18 postgresql-18-pgvector redis-server tini \
+RUN apt-retry update \
+ && apt-retry install -y --no-install-recommends postgresql-18 postgresql-18-pgvector redis-server tini \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/liusha /usr/local/bin/liusha
