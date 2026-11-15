@@ -201,9 +201,12 @@ if ($PgBin -and $RedisDir) {
       Run-Bounded "$PgBin\pg_ctl.exe" @('-D', $pgdata, '-m', 'fast', 'stop') 60 5 | Out-Null
     }
   }
+} else {
+  # 不静默跳过：结果表里列出未执行的阶段与原因（不计为失败）。
+  $results['serve'] = 'skipped: 未提供 PostgreSQL / Redis（-PgBin / -RedisDir）'
 }
 
 Write-Host '==== 冒烟结果'
 $results.GetEnumerator() | ForEach-Object { Write-Host ("{0,-8} {1}" -f $_.Key, $_.Value) }
-if ($results.Values | Where-Object { $_ -ne 'pass' }) { exit 1 }
+if ($results.Values | Where-Object { $_ -ne 'pass' -and -not $_.StartsWith('skipped') }) { exit 1 }
 Write-Host 'Windows 冒烟通过'
