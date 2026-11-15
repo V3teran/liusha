@@ -60,8 +60,9 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content
           className={cn(
-            'tac-modal fixed right-0 top-0 flex h-full w-[720px] flex-col',
-            'rounded-l-2xl border-l border-border bg-surface shadow-2xl'
+            // 窄屏占满宽度（定宽会把左半截推出屏幕），sm 起是右侧定宽抽屉
+            'tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col sm:max-w-[720px]',
+            'border-border bg-surface shadow-2xl sm:rounded-l-2xl sm:border-l'
           )}
         >
           {/* 头部 */}
