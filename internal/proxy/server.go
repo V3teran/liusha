@@ -130,6 +130,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		DumpRequest:        false,
 		DumpResponse:       false,
 		Verbosity:          types.VerbositySilent,
+		OnRequestCallback:  onRequest,
 		OnResponseCallback: srv.onResponse,
 		// 必填空指针：proxify NewLogger 内部直接读 .Addr，nil 会 panic
 		Elastic: &elastic.Options{},
@@ -143,6 +144,24 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	srv.proxy = p
 
 	return srv, nil
+}
+
+// onRequest 是 proxify 的请求回调。设置它，proxify 就不再把请求交给自带的日志协程：那个
+// 协程对每个请求做带请求体的转储（读走并替换 req.Body），与转发上游并发进行，是数据竞争，
+// 会让 POST 的请求体残缺地到达目标。回调里保留 proxify 缺省路径对快照必需的两件事：会话
+// 标识（响应回调据此关联请求），以及从 Accept-Encoding 去掉 br（快照只解 gzip / deflate）。
+func onRequest(req *http.Request, ctx *martian.Context) error {
+	ctx.Set("user-data", types.UserData{ID: ctx.ID(), Host: req.Host})
+	if ae := req.Header.Get("Accept-Encoding"); ae != "" {
+		var kept []string
+		for _, enc := range strings.Split(ae, ",") {
+			if enc = strings.TrimSpace(enc); enc != "" && !strings.EqualFold(enc, "br") {
+				kept = append(kept, enc)
+			}
+		}
+		req.Header.Set("Accept-Encoding", strings.Join(kept, ", "))
+	}
+	return nil
 }
 
 // onResponse 是 proxify 的响应回调：
