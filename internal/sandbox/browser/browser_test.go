@@ -289,7 +289,9 @@ func TestClient_ReportsSandboxRejection(t *testing.T) {
 	if _, err := Install(dir, python); err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// 与沙盒本机接口一致：读完请求再拒绝（未读完就回复并关闭连接，Windows 会以复位丢弃响应）。
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"error":"沙盒未配置浏览器能力"}`))
