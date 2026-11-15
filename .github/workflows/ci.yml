@@ -87,9 +87,13 @@ jobs:
           - runner: windows-latest
             race: '-race'
             serve: true
+            python-arch: x64
           - runner: windows-11-arm
             race: ''
             serve: false
+            # browser-use 依赖的 cryptography 没有 Windows ARM64 安装包：ARM 机器上用 x64 Python
+            # （系统转译运行），与部署文档给用户的做法一致。
+            python-arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: 保持仓库换行原样（测试按字节比对脚本与输出）
@@ -102,6 +106,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          architecture: ${{ matrix.python-arch }}
       - name: unit tests
         shell: bash
         run: go test ${{ matrix.race }} -short ./...
