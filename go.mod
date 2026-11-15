@@ -10,8 +10,10 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hibiken/asynq v0.26.0
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/miekg/dns v1.1.56
 	github.com/pgvector/pgvector-go v0.4.0
 	github.com/pgvector/pgvector-go/pgx v0.4.0
+	github.com/projectdiscovery/fastdialer v0.3.0
 	github.com/projectdiscovery/martian/v3 v3.0.0-20240219194442-fed3b744f477
 	github.com/projectdiscovery/proxify v0.0.16
 	github.com/redis/go-redis/v9 v9.18.0
@@ -20,6 +22,7 @@ require (
 	github.com/sashabaranov/go-openai v1.37.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
+	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.42.0
 	golang.org/x/crypto v0.54.0
@@ -114,7 +117,6 @@ require (
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mholt/archiver/v3 v3.5.1 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
-	github.com/miekg/dns v1.1.56 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect
 	github.com/moby/moby/api v1.54.1 // indirect
@@ -137,7 +139,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/projectdiscovery/blackrock v0.0.1 // indirect
 	github.com/projectdiscovery/dsl v0.3.19 // indirect
-	github.com/projectdiscovery/fastdialer v0.3.0 // indirect
 	github.com/projectdiscovery/gologger v1.1.47 // indirect
 	github.com/projectdiscovery/gostruct v0.0.2 // indirect
 	github.com/projectdiscovery/hmap v0.0.81 // indirect
@@ -161,7 +162,6 @@ require (
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
-	github.com/testcontainers/testcontainers-go v0.42.0 // indirect
 	github.com/things-go/go-socks5 v0.0.5 // indirect
 	github.com/tidwall/btree v1.6.0 // indirect
 	github.com/tidwall/buntdb v1.3.0 // indirect

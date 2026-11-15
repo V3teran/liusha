@@ -10,15 +10,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/filter"
+	"github.com/projectdiscovery/fastdialer/fastdialer"
 	"github.com/projectdiscovery/martian/v3"
 	"github.com/projectdiscovery/proxify"
 	"github.com/projectdiscovery/proxify/pkg/certs"
@@ -57,6 +60,8 @@ type filterState struct {
 // Server 是进程内 MITM 代理：过滤链 + 快照发布 + 双端口监听。
 type Server struct {
 	proxy       *proxify.Proxy
+	dns         *systemDNS // 代理拨号器唯一的 DNS 服务器：把主机名交给系统解析
+	stopOnce    sync.Once
 	filterState atomic.Pointer[filterState] // proxy_filter 组热改：proxy 组件订阅失效后 SwapFilter 原子换入
 	publisher   SnapshotPublisher
 	listenAddr  string
@@ -76,6 +81,8 @@ type ServerDeps struct {
 	CertDir    string
 	Source     string // 必填：'external' / 'internal'
 	Logger     zerolog.Logger
+	// Resolver 解析代理要连的主机名；nil = 系统解析（net.DefaultResolver）。
+	Resolver IPResolver
 }
 
 // NewServer 构造内嵌 MITM 代理；首次启动会在 CertDir 下生成 CA。
@@ -141,7 +148,27 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建 proxify 实例失败: %w", err)
 	}
+	resolver := deps.Resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	sysDNS, err := startSystemDNS(resolver)
+	if err != nil {
+		p.Dialer.Close()
+		return nil, err
+	}
+	dialer, err := systemResolvingDialer(sysDNS.addr)
+	if err != nil {
+		p.Dialer.Close()
+		_ = sysDNS.Close()
+		return nil, err
+	}
+	// proxify 的拨号器缺省查公共 DNS（见 systemDNS）；换成只查回环 DNS 的拨号器。
+	// HTTP 请求与 HTTPS 隧道都在拨号时读取这个字段。
+	p.Dialer.Close()
+	p.Dialer = dialer
 	srv.proxy = p
+	srv.dns = sysDNS
 
 	return srv, nil
 }
@@ -259,9 +286,31 @@ func (s *Server) Run(ctx context.Context) error {
 // 因此调用方应在进程退出时依赖 listener 随进程关闭。
 // Publisher 是无状态的，无需关闭（rdb 由调用方关）。
 func (s *Server) Stop() {
-	if s.proxy != nil {
-		s.proxy.Stop()
+	s.stopOnce.Do(func() {
+		if s.proxy != nil {
+			s.proxy.Stop()
+			s.proxy.Dialer.Close()
+		}
+		if s.dns != nil {
+			_ = s.dns.Close()
+		}
+	})
+}
+
+// systemResolvingDialer 构造只向 dnsAddr 查询的拨号器：不读系统 resolv.conf 与 hosts 文件
+// （系统解析已包含它们），不配公共 DNS；回环 DNS 出错时直接回退到系统解析。
+func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
+	opts := fastdialer.DefaultOptions
+	opts.BaseResolvers = []string{dnsAddr}
+	opts.ResolversFile = false
+	opts.HostsFile = false
+	opts.EnableFallback = true
+	opts.CacheType = fastdialer.Memory
+	d, err := fastdialer.NewDialer(opts)
+	if err != nil {
+		return nil, fmt.Errorf("创建代理拨号器: %w", err)
 	}
+	return d, nil
 }
 
 // SwapFilter 原子换入新的过滤链 + body 上限（proxy_filter 组热改）。

@@ -395,7 +395,7 @@ func makeResponse(t *testing.T, method, rawURL string, reqBody []byte, status in
 }
 
 // runProxy 在空闲端口上运行代理，返回经它发请求的客户端。
-func runProxy(t *testing.T) *http.Client {
+func runProxy(t *testing.T, resolver IPResolver) *http.Client {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -407,6 +407,7 @@ func runProxy(t *testing.T) *http.Client {
 	srv, err := NewServer(ServerDeps{
 		Filter: filter.NewTrafficFilter(cfg), Publisher: &fakePublisher{}, Cfg: cfg,
 		ListenAddr: proxyAddr, CertDir: t.TempDir(), Source: "external", Logger: zerolog.Nop(),
+		Resolver: resolver,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +437,7 @@ func TestServer_ForwardsRequestBodyIntact(t *testing.T) {
 		_, _ = w.Write([]byte(r.Header.Get("Accept-Encoding") + "|" + string(body)))
 	}))
 	t.Cleanup(backend.Close)
-	client := runProxy(t)
+	client := runProxy(t, nil)
 
 	payload := strings.Repeat("q=<svg/onload=alert(1)>&", 2000)
 	req, _ := http.NewRequest(http.MethodPost, backend.URL+"/form", strings.NewReader(payload))
@@ -449,5 +450,26 @@ func TestServer_ForwardsRequestBodyIntact(t *testing.T) {
 	echoed, _ := io.ReadAll(resp.Body)
 	if want := "gzip, deflate|" + payload; string(echoed) != want {
 		t.Fatalf("请求体应原样到达后端、Accept-Encoding 去掉 br，得 %q…", string(echoed)[:min(len(echoed), 80)])
+	}
+}
+
+// 代理按系统解析目标主机名，与发起请求的浏览器一致：只有本机解析得到的名字（容器服务名、
+// 内网域名）也能代理到；不经公共 DNS（公共 DNS 解析不到它，或被劫持到别处）。
+func TestServer_ResolvesTargetsWithSystemResolver(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("hello from " + r.Host))
+	}))
+	t.Cleanup(backend.Close)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(backend.URL, "http://"))
+	client := runProxy(t, fakeResolver{"app.internal": {net.ParseIP("127.0.0.1")}})
+
+	resp, err := client.Get("http://app.internal:" + port + "/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "hello from app.internal:"+port {
+		t.Fatalf("应经系统解析代理到后端，得 %d %q", resp.StatusCode, body)
 	}
 }
