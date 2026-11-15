@@ -132,7 +132,9 @@ WantedBy=multi-user.target
   命令语义与 Linux 完全一致。控制台与代理端口在 Windows 上经 `localhost` 可达。
 - **原生：`liusha.exe`。** 需要提供 sh 的环境：安装 Git for Windows 即可（沙盒自动找到它的
   `bin\sh.exe`，装在别处或用 MSYS2 时用 `LIUSHA_SANDBOX_SHELL` 指定）。渗透工具装 Windows 版
-  （nmap、sqlmap、nuclei、ffuf 等都有）。
+  （nmap、sqlmap、nuclei、ffuf 等都有）。ARM 机型（如骁龙 Copilot+ PC）用 `windows_arm64` 程序；
+  浏览器能力要装 **x64 版** Python 再装 browser-use——它依赖的 cryptography 不提供 ARM64 安装包，
+  ARM64 版 Python 装不上；x64 版由 Windows 自动转译运行，浏览器（Edge）仍是原生 ARM。
 
 原生运行时可作为 Windows 服务（以管理员身份执行；服务名任取）：
 
