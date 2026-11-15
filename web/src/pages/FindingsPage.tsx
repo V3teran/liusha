@@ -22,7 +22,7 @@ import { shortDateTime } from '@/lib/format'
 
 /** 「任务」下拉的选项文案：目标摘要 · 创建时间（漏洞数）。同一目标常被反复下发，靠时间区分。 */
 function taskOptionLabel(t: { goal: string; created_at: string; count: number }): string {
-  return `${goalHead(t.goal.replace(/\s+/g, ' '))} · ${shortDateTime(t.created_at)}（${t.count}）`
+  return `${goalHead(t.goal.replace(/\s+/g, ' '), 40)} · ${shortDateTime(t.created_at)}（${t.count}）`
 }
 
 /**
