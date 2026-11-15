@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -95,13 +94,8 @@ func (h *Handler) executeTask(
 	}
 
 	if exit != runExitPaused {
-		// 会话身份回收：任务到此必然终态（正常收敛 / 出错进 failTask），本任务的
-		// 自动会话快照（task:{id}:session）随之删除——凭证库无过期机制，生命周期
-		// 由事件驱动，这里是主通道；进程崩溃没跑到这里时由终态清扫器按任务状态
-		// 兜底。独立短超时 ctx（task ctx 可能已取消）；best-effort + 审计。
-		reclaimCtx, reclaimCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		h.reclaimSessionIdentity(reclaimCtx, taskLogger, taskID, virtualHost)
-		reclaimCancel()
+		// 会话身份回收在收尾落定任务状态之后：任务确实已结束才回收（见 reclaimIfEnded）。
+		defer h.reclaimIfEnded(taskLogger, taskID, virtualHost)
 	}
 
 	if exit == runExitFailed {
@@ -122,11 +116,10 @@ func (h *Handler) executeTask(
 		return nil
 	}
 
-	// run 终态按停止原因分流：外部终止（任务行终态 task_terminated / run 超时）落
-	// aborted——被杀的 run 标 completed 会让审计面误读为自然收敛；认知报告仍随
-	// result 落库（终止时也有 steps/attempts 可读）。
+	// run 终态按停止原因分流：被停止（task_terminated）与超时落 aborted——被杀的 run 标
+	// completed 会让审计面误读为自然收敛；认知报告仍随 result 落库（终止时也有 steps/attempts 可读）。
 	reportJSON, _ := json.Marshal(report)
-	terminated := exit == runExitTerminated
+	terminated := exit == runExitTerminated || exit == runExitTimedOut
 	var runErr error
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
@@ -137,13 +130,22 @@ func (h *Handler) executeTask(
 		taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
 	}
 
-	// task 终态回写：按停止原因与 agent_run 同口径分流——外部终止（任务行已
-	// 终态 / run 超时）落 aborted，自然收敛才落 completed。此前无条件
-	// Complete：终止路径无人写 aborted，CAS 守卫形同虚设，被杀任务标
-	// completed、时间线广播「任务完成」。
-	if terminated {
-		h.finishTerminatedTask(doneCtx, taskLogger, p, taskID, report)
-	} else if err := h.completeTask(doneCtx, taskID, report); errors.Is(err, task.ErrStaleConvergence) {
+	// task 终态回写：被停止时任务行已由停止方写成终态（及其时间线节点），这里不再碰；
+	// 超时由 runner 终止任务；自然收敛才落 completed。
+	switch exit {
+	case runExitTerminated:
+		taskLogger.Info().Msg("任务已被停止：run 收尾不写任务行")
+	case runExitTimedOut:
+		h.finishTimedOutTask(doneCtx, taskLogger, p, taskID, report)
+	default:
+		h.finishConvergedTask(doneCtx, taskLogger, p, taskID, report)
+	}
+	return nil
+}
+
+// finishConvergedTask 处理自然收敛（或动作预算用尽）的任务终态、时间线与经验蒸馏。
+func (h *Handler) finishConvergedTask(doneCtx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report cognition.Report) {
+	if err := h.completeTask(doneCtx, taskID, report); errors.Is(err, task.ErrStaleConvergence) {
 		// 收敛之后目标被调整或又有了待执行动作：本 run 按它的依据收敛了，任务却还有事
 		// 要做——保持 active，由恢复监控的「搁浅任务」规则以新 run 续跑。
 		taskLogger.Info().Msg("收敛之后任务目标已调整或有了新的待执行动作：任务保持进行中，由恢复监控续跑")
@@ -172,7 +174,6 @@ func (h *Handler) executeTask(
 			}(taskID)
 		}
 	}
-	return nil
 }
 
 // completeTask 按停止原因落 completed：规划收敛以收敛依据为前置（依据失效返回
@@ -184,25 +185,37 @@ func (h *Handler) completeTask(ctx context.Context, taskID string, report cognit
 	return h.Tasks.Complete(ctx, taskID)
 }
 
+// reclaimIfEnded 在 run 收尾落定任务状态之后回收会话身份：只回收确已结束的任务——收敛
+// 依据失效（任务保持进行中待续跑）、停止后紧接着在对话里续接（任务已重开）时，续跑的
+// run 要复用同一登录态。读不到任务状态时保留（终态清扫器按同一规则兜底）。独立短超时
+// ctx（task ctx 可能已取消）。
+func (h *Handler) reclaimIfEnded(taskLogger zerolog.Logger, taskID, host string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tk, err := h.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		taskLogger.Warn().Err(err).Msg("读取任务状态失败，会话身份暂不回收（终态清扫器兜底）")
+		return
+	}
+	if tk.Status == task.StatusActive {
+		return
+	}
+	h.reclaimSessionIdentity(ctx, taskLogger, taskID, host)
+}
+
 // distillTimeout 是任务经验蒸馏的总预算（LLM 生成 + embedding + 写库）。
 const distillTimeout = 2 * time.Minute
 
-// finishTerminatedTask 处理被终止任务的 task 终态与时间线：task 落 aborted
-// （与 agent_run 的 aborted 分流、objective 的 aborted 终态同一语义）。api 的
-// 停止入口（TerminateTask）或 reaper 可能已先行写 aborted + 「任务已停止」节点（CAS 先到者赢）——此时
-// 不重复落节点；runner 侧节点只在本次真正完成迁移时写。
-func (h *Handler) finishTerminatedTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report cognition.Report) {
-	tk, gErr := h.Tasks.GetByID(ctx, taskID)
-	if gErr != nil {
-		taskLogger.Warn().Err(gErr).Msg("终止收尾读取 task 失败（终态交由 reaper 兜底）")
-		return
-	}
-	if tk.Status != task.StatusActive {
-		return // api abort / reaper 已落终态及其时间线节点
-	}
-	if err := h.Tasks.Abort(ctx, taskID, "任务被终止（"+report.StopReason+"）"); err != nil {
+// finishTimedOutTask 处理 run 超时的任务终态与时间线：task 落 aborted。停止方或 reaper 可能
+// 已先行写了终态（CAS 先到者赢），Abort 随之幂等或被拒，此时不重复落节点。
+func (h *Handler) finishTimedOutTask(ctx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report cognition.Report) {
+	applied, err := h.Tasks.Abort(ctx, taskID, "任务运行超时（"+report.StopReason+"）")
+	if err != nil {
 		taskLogger.Warn().Err(err).Msg("task 终止迁移被拒（保持既有终态）")
 		return
+	}
+	if !applied {
+		return // 停止方或恢复监控已先行写了终态及其时间线节点
 	}
 	h.appendTaskStatus(ctx, taskLogger, p.ConversationID,
 		conversation.TaskStatusAborted, "任务已终止",
@@ -289,7 +302,8 @@ type runExit int
 
 const (
 	runExitCompleted   runExit = iota // 自然收敛：run completed，task completed
-	runExitTerminated                 // 外部终止（任务行已终态 / run 超时）：run 与 task 都 aborted
+	runExitTerminated                 // 任务行已被停止方写成终态（用户停止 / 判死）：run aborted，任务行不动
+	runExitTimedOut                   // run 超时：run aborted，task 由 runner 终止
 	runExitPaused                     // 用户暂停：run aborted，task 保持 active+paused
 	runExitInterrupted                // 进程停机 / 租约丢失：run aborted，task 保持 active，由恢复监控续跑
 	runExitFailed                     // 执行出错：failTask（run error，task aborted）
@@ -298,7 +312,9 @@ const (
 // classifyRunExit 按 handler ctx 的结束原因、认知循环错误与停止原因分类。
 //
 // handler ctx 被取消（context.Canceled）只有两个来源：runner 停机中断在途 run、asynq 租约
-// 丢失——两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，按外部终止处理。
+// 丢失——两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，由 runner 终止
+// 任务。用户停止时任务行早已是终态（停止方写入，循环据此退出），收尾不再碰任务行：停止后
+// 紧接着续接会重开任务，旧 run 迟到的收尾若再写任务行，会把刚续接的任务又终止一次。
 // 暂停优先于中断：两者都不动任务，暂停还要保留 paused 标记交给继续操作。
 func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 	if err == nil && stopReason == cognition.StopReasonPaused {
@@ -310,8 +326,11 @@ func classifyRunExit(ctxErr, err error, stopReason string) runExit {
 	if err != nil {
 		return runExitFailed
 	}
-	if stopReason == cognition.StopReasonTerminated || strings.Contains(stopReason, "cancel") {
+	switch {
+	case stopReason == cognition.StopReasonTerminated:
 		return runExitTerminated
+	case errors.Is(ctxErr, context.DeadlineExceeded) || stopReason == cognition.StopReasonCancelled:
+		return runExitTimedOut
 	}
 	return runExitCompleted
 }

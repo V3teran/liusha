@@ -113,7 +113,7 @@ func TestStatusTransitions(t *testing.T) {
 	}
 
 	// 终态护栏：completed 后 abort 应被拒（保持既有终态）
-	if err := tasks.Abort(ctx, tk.ID, "迟到的终止"); err == nil {
+	if _, err := tasks.Abort(ctx, tk.ID, "迟到的终止"); err == nil {
 		t.Fatal("终态后 abort 应报错（CAS 守卫）")
 	}
 }

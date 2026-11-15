@@ -93,7 +93,7 @@ func TestCompleteConverged_RequiresBasisStillHolds(t *testing.T) {
 
 	t.Run("已被停止", func(t *testing.T) {
 		id, basis := setup(t)
-		if err := s.Abort(ctx, id, "用户停止"); err != nil {
+		if _, err := s.Abort(ctx, id, "用户停止"); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.CompleteConverged(ctx, id, basis); !errors.Is(err, ErrConflict) {

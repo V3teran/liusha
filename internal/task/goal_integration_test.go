@@ -92,7 +92,7 @@ func TestSetGoal_WritesTaskAndRootTogether(t *testing.T) {
 		t.Fatal("改写后依据应变化")
 	}
 
-	if err := s.Abort(ctx, id, "停止"); err != nil {
+	if _, err := s.Abort(ctx, id, "停止"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetGoal(ctx, id, "迟到的调整"); !errors.Is(err, ErrNotActive) {

@@ -73,7 +73,7 @@ func TestGraphFollowsTask_Abort(t *testing.T) {
 	id := newActiveTask(t, s)
 	ids := graphFixture(t, s.pool, id)
 
-	if err := s.Abort(context.Background(), id, "用户手动停止"); err != nil {
+	if _, err := s.Abort(context.Background(), id, "用户手动停止"); err != nil {
 		t.Fatal(err)
 	}
 	assertStates(t, nodeStates(t, s.pool, ids), map[string]string{
@@ -144,7 +144,7 @@ func TestGraphFollowsTask_RejectedTransitionLeavesGraph(t *testing.T) {
 	if err := s.Complete(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Abort(context.Background(), id, "迟到的停止"); err == nil {
+	if _, err := s.Abort(context.Background(), id, "迟到的停止"); err == nil {
 		t.Fatal("completed 后 Abort 应被拒")
 	}
 	assertStates(t, nodeStates(t, s.pool, ids), map[string]string{"root": "completed", "derived-open": "exhausted"})

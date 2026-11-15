@@ -97,7 +97,8 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 |---|---|---|
 | 自然收敛 | completed | completed |
 | 自然收敛，但收敛之后目标被调整或又有了待执行动作（`task.ErrStaleConvergence`） | completed | 保持 active，由恢复监控续跑 |
-| 用户停止 / run 超时 | aborted | aborted |
+| 用户停止（任务行已由停止方写成终态） | aborted | 不写任务行（停止后紧接着续接会重开任务，迟到的收尾不得再终止它） |
+| run 超时 | aborted | aborted |
 | 暂停 | aborted | 保持 active + paused |
 | 进程停机 / asynq 租约丢失（handler ctx 被取消） | aborted | 保持 active，由恢复监控续跑 |
 | 开始时沙盒暂不可达（连不上 / 5xx），退避重试 2 分钟仍不可达 | error | 保持 active，由恢复监控续跑（计入重投上限，持续不可达时落 aborted） |
@@ -183,7 +184,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - Redis 是唯一事实源。禁止任何过期机制：不用 key EXPIRE / HEXPIRE，也不在 value 里自管过期时间。
 - 键是规范化后的 `host[:port]`（去 scheme、小写），端口参与隔离：同主机不同端口不共享凭证，显式 `:443` 与无端口也是不同键。读写一律经 `CanonicalHost`。
 - `username` 必须是目标应用的真实登录名；同一账号更新既有条目，不另起代号。这一条只靠提示词约束。
-- 任务级会话身份（`task:{id}:session`）按事件回收：任务终态时由 runner 回收（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
+- 任务级会话身份（`task:{id}:session`）按事件回收：run 收尾落定任务状态后、任务确已结束时由 runner 回收（收敛依据失效、停止后已续接的不回收）（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
 
 ### LLM 密钥
 

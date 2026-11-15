@@ -97,12 +97,11 @@ func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agent
 		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
-	// task 终态：失败即 aborted（此前缺失——task 停留 active 直至 reaper 判死，
-	// 期间前端显示「进行中」名不副实）。守卫幂等：已终态（如用户抢先停止）不覆盖。
+	// task 终态：失败即 aborted。守卫幂等：已终态（如用户抢先停止）不覆盖，也不重复落节点。
 	if taskID != "" {
-		if abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
+		if applied, abortErr := h.Tasks.Abort(writeCtx, taskID, "执行失败: "+err.Error()); abortErr != nil {
 			taskLogger.Warn().Err(abortErr).Msg("task 失败终态迁移被拒（保持既有终态）")
-		} else {
+		} else if applied {
 			h.appendTaskStatus(writeCtx, taskLogger, conversationID,
 				conversation.TaskStatusFailed, "任务执行失败",
 				map[string]any{"reason": err.Error()})
