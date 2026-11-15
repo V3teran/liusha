@@ -104,9 +104,7 @@ func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
 }
 
 // deriveTarget 对 generic 域文本配方（recipe.steps 自由文本）也要抽出 method/path——
-// 台账去重键由 host|path|method|param 构成，抽不出 target 时 dedup 回退 summary
-// 前缀，同一漏洞会因配方域不同分裂成多条台账记录（实测 full_gate 与 judge_only
-// 双交付未折叠）。
+// 台账的定位列（方法、路径）不该因配方域不同而缺失。
 func TestDeriveTarget_GenericTextRecipe(t *testing.T) {
 	generic := json.RawMessage(`{"domain":"generic","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 view_traffic 抓取响应确认标记\n浏览器访问同一 URL"}}`)
 	out := deriveTarget(generic)

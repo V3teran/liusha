@@ -630,7 +630,7 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 		t.Fatalf("同指纹不得新建节点: nodes=%d", len(w.nodes))
 	}
 	// 重复确认重放交付且指向既有节点：补齐既有节点此前可能失败的交付；
-	// 台账按 dedup_key 幂等（同摘要合并到既有行），不会产生第二条 finding。
+	// 台账按结果节点幂等，不会产生第二条 finding。
 	if len(fw.claims) != 2 || fw.claims[1].ResultNodeID != node1.ID || fw.claims[1].Statement != fw.claims[0].Statement {
 		t.Fatalf("重复确认的交付应指向既有节点且载荷同源: %+v", fw.claims)
 	}

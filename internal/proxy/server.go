@@ -362,7 +362,7 @@ func buildSnapshot(req *http.Request, statusCode int, respHeader http.Header, re
 	if hostPort == "" {
 		hostPort = req.Header.Get("Host")
 	}
-	// snapshot.Host 全链路含端口：credentials key / finding.dedup_key 据此区分多端口部署。
+	// snapshot.Host 全链路含端口：凭证库键与漏洞主机据此区分同主机的不同端口。
 	// 过滤链的主机匹配由 HostFilter.ShouldProcess 自行去端口。
 	host := hostPort
 
@@ -380,7 +380,7 @@ func buildSnapshot(req *http.Request, statusCode int, respHeader http.Header, re
 		uri = req.URL.Path
 	}
 
-	// 拆解：path 用于 dedup 模板化；query 多值 map 用于 sniffer 结构化操作。
+	// 拆解：path 用于 sniffer 路由判断；query 多值 map 用于 sniffer 结构化操作。
 	// req.URL.Query() 返回 url.Values（即 map[string][]string）；空 query 时不写入字段（json omitempty）。
 	var query map[string][]string
 	if q := req.URL.Query(); len(q) > 0 {

@@ -17,9 +17,9 @@ import (
 )
 
 // finding 存储是交付物的唯一落点（仅坐实漏洞入库）——本套件锁定其核心契约：
-// Save 幂等去重（task+dedup_key）、Update 保留 first_seen、按 task/host/limit 读取。
+// 一个坐实结果一条漏洞、交付按结果节点幂等、处置流转、按 task/host 读取。
 
-func TestFinding_SaveDedupUpdateList(t *testing.T) {
+func TestFinding_SaveIdempotentPerResult(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
 	store := finding.NewStore(pool)
@@ -37,16 +37,20 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 		`INSERT INTO task (id, assignment_id, goal, target_host) VALUES ($1, $1, 'itest', 'target.local')`, taskID)
 	require.NoError(t, err)
 
-	// Save：必填校验
-	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Summary: "s"})
+	// Save：必填校验（坐实结果节点是交付幂等键）
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Host: "target.local", Summary: "s"})
+	require.ErrorContains(t, err, "ResultNodeID 必填")
+	result := seedResult(t, pool, taskID)
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, ResultNodeID: result, Summary: "s"})
 	require.ErrorContains(t, err, "Host 必填")
 
 	// Save：正常写入，默认 severity=medium，分配 ID/Seq/Status
 	saved, err := store.Save(ctx, finding.Finding{
-		TaskID:  taskID,
-		Host:    "target.local",
-		Summary: "SQL 注入可枚举 users 表",
-		Repro:   json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
+		TaskID:       taskID,
+		ResultNodeID: result,
+		Host:         "target.local",
+		Summary:      "SQL 注入可枚举 users 表",
+		Repro:        json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, saved.ID)
@@ -54,18 +58,21 @@ func TestFinding_SaveDedupUpdateList(t *testing.T) {
 	assert.Equal(t, "medium", saved.Severity)
 	assert.Equal(t, "open", saved.Status)
 
-	// Save 幂等去重：同 task + 同 host/summary → 返回 existing 行（同 ID），不新增
+	// 同一坐实结果重放交付（交付失败后重试、同一主张再次确认）→ 返回既有记录，不新增、不改写
 	again, err := store.Save(ctx, finding.Finding{
-		TaskID:  taskID,
-		Host:    "target.local",
-		Summary: "SQL 注入可枚举 users 表",
-		Repro:   json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
+		TaskID:       taskID,
+		ResultNodeID: result,
+		Host:         "target.local",
+		Summary:      "重放时的摘要",
+		Repro:        json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, saved.ID, again.ID, "同 dedup_key 应返回 existing 行")
+	assert.Equal(t, saved.ID, again.ID, "同一结果节点应返回既有记录")
+	assert.Equal(t, "SQL 注入可枚举 users 表", again.Summary, "重放交付不改写既有记录")
+	assert.Equal(t, result, again.ResultNodeID)
 
 	// ListAll + Host 过滤：按 host 筛（与台账页同口径）
-	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Host: "other.local", Summary: "另一台主机的漏洞"})
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, ResultNodeID: seedResult(t, pool, taskID), Host: "other.local", Summary: "另一台主机的漏洞"})
 	require.NoError(t, err)
 	byHost, err := store.ListAll(ctx, finding.LedgerFilter{Host: "target.local"})
 	require.NoError(t, err)
@@ -96,7 +103,7 @@ func TestListAll_CountAll(t *testing.T) {
 		{"other.local", "SSRF", "medium"},
 	} {
 		_, err := store.Save(ctx, finding.Finding{
-			TaskID: taskID, Host: tc.host, Summary: tc.summary, Severity: tc.severity,
+			TaskID: taskID, ResultNodeID: seedResult(t, pool, taskID), Host: tc.host, Summary: tc.summary, Severity: tc.severity,
 		})
 		require.NoError(t, err)
 	}
@@ -159,7 +166,7 @@ func TestLedger_FilterByTask(t *testing.T) {
 	assignmentID := dbtest.SeedAssignment(t, pool)
 	mine, other := seedTask(t, pool, assignmentID), seedTask(t, pool, assignmentID)
 	for _, tc := range []struct{ task, summary string }{{mine, "XSS"}, {mine, "SQL 注入"}, {other, "SSRF"}} {
-		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: "high"})
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, ResultNodeID: seedResult(t, pool, tc.task), Host: "t.local", Summary: tc.summary, Severity: "high"})
 		require.NoError(t, err)
 	}
 
@@ -189,7 +196,7 @@ func TestLedger_FilterByConversation(t *testing.T) {
 	var conv string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('c', $1) RETURNING id`, mine).Scan(&conv))
 	for _, tc := range []struct{ task, summary string }{{mine, "XSS"}, {mine, "SQL 注入"}, {other, "SSRF"}} {
-		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: "high"})
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, ResultNodeID: seedResult(t, pool, tc.task), Host: "t.local", Summary: tc.summary, Severity: "high"})
 		require.NoError(t, err)
 	}
 
@@ -220,7 +227,7 @@ func TestLedger_GetRow(t *testing.T) {
 	taskID := seedTask(t, pool, dbtest.SeedAssignment(t, pool))
 	var conv string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('c', $1) RETURNING id`, taskID).Scan(&conv))
-	saved, err := store.Save(ctx, finding.Finding{TaskID: taskID, Host: "t.local", Summary: "XSS", Severity: "high"})
+	saved, err := store.Save(ctx, finding.Finding{TaskID: taskID, ResultNodeID: seedResult(t, pool, taskID), Host: "t.local", Summary: "XSS", Severity: "high"})
 	require.NoError(t, err)
 
 	row, err := store.GetLedgerRow(ctx, saved.ID)
@@ -245,7 +252,7 @@ func TestLedger_TaskFacets(t *testing.T) {
 	for _, tc := range []struct{ task, summary, severity string }{
 		{older, "XSS", "high"}, {older, "SQL 注入", "critical"}, {newer, "SSRF", "high"},
 	} {
-		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: tc.severity})
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, ResultNodeID: seedResult(t, pool, tc.task), Host: "t.local", Summary: tc.summary, Severity: tc.severity})
 		require.NoError(t, err)
 	}
 
@@ -282,6 +289,7 @@ func TestLedger_SearchAndFacetSearch(t *testing.T) {
 		{TaskID: shop, Host: "shop.local", Summary: "反射型 XSS", Severity: "medium", Target: []byte(`{"path":"/search"}`)},
 		{TaskID: blog, Host: "blog.local", Summary: "评论区存储型 XSS", Severity: "high", Target: []byte(`{"path":"/comment"}`)},
 	} {
+		f.ResultNodeID = seedResult(t, pool, f.TaskID)
 		_, err := store.Save(ctx, f)
 		require.NoError(t, err)
 	}
@@ -309,4 +317,36 @@ func TestLedger_SearchAndFacetSearch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, facets, 1)
 	assert.True(t, more, "超出上限时报告还有更多")
+}
+
+// 同一接口上坐实的不同主张各是一条漏洞：此前去重键退化成「主机 + 路径 + 方法」，先交付的
+// 低危主张（缺少 CSP 响应头）吞掉了之后坐实的高危主张（反射型 XSS），后者从台账里消失。
+func TestFinding_DistinctResultsOnSameEndpointAreKept(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	taskID := seedTask(t, pool, dbtest.SeedAssignment(t, pool))
+	target := json.RawMessage(`{"url":"http://t.local/search","path":"/search","method":"GET"}`)
+	for _, f := range []finding.Finding{
+		{Severity: "low", Summary: "/search 响应缺少 Content-Security-Policy"},
+		{Severity: "high", Summary: "/search 的 q 参数存在反射型 XSS"},
+	} {
+		f.TaskID, f.ResultNodeID, f.Host, f.Target = taskID, seedResult(t, pool, taskID), "t.local", target
+		_, err := store.Save(ctx, f)
+		require.NoError(t, err)
+	}
+	rows, err := store.ListByTask(ctx, taskID)
+	require.NoError(t, err)
+	require.Len(t, rows, 2, "同一接口上的两个坐实结果应各落一条")
+}
+
+// seedResult 建一个坐实结果节点返回 id（漏洞关联它，交付按它幂等）。
+func seedResult(t *testing.T, pool *pgxpool.Pool, taskID string) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO exploration_node (id, task_id, kind, content) VALUES (gen_random_uuid(), $1, 'result', '{}') RETURNING id::text`,
+		taskID).Scan(&id)
+	require.NoError(t, err)
+	return id
 }
