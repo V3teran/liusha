@@ -52,18 +52,29 @@ const (
 
 // parseTaskFilter 从 query 解析筛选 + 分页。
 //
-//	source=<direct|proxy> status=<active|completed|aborted> search=<目标/批次ID 子串>
+//	task=<任务 UUID> conversation=<对话 UUID>（范围：只看这个任务 / 这个对话的任务；非法 400）
+//	source=<direct|proxy> status=<active|completed|aborted> search=<目标/批次名 子串>
 //	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
 //
-// 坏参数退化成不筛（对齐 parseTrafficFilter），page 缺省 1、size clamp 到上限。
-func parseTaskFilter(c *gin.Context, source string) (task.ListFilter, int, int) {
-	page, size := parsePagination(c.Query("page"), c.Query("size"), defaultTaskPageSize, maxTaskPageSize)
-	f := task.ListFilter{
-		Source: source,
-		Status: strings.TrimSpace(c.Query("status")),
-		Search: strings.TrimSpace(c.Query("search")),
-		Limit:  size,
-		Offset: (page - 1) * size,
+// page 缺省 1、size clamp 到上限。返回 ok=false 时 400 已写出。
+func parseTaskFilter(c *gin.Context, source string) (f task.ListFilter, page, size int, ok bool) {
+	taskID, ok := uuidQuery(c, "task")
+	if !ok {
+		return task.ListFilter{}, 0, 0, false
+	}
+	conversationID, ok := uuidQuery(c, "conversation")
+	if !ok {
+		return task.ListFilter{}, 0, 0, false
+	}
+	page, size = parsePagination(c.Query("page"), c.Query("size"), defaultTaskPageSize, maxTaskPageSize)
+	f = task.ListFilter{
+		TaskID:         taskID,
+		ConversationID: conversationID,
+		Source:         source,
+		Status:         strings.TrimSpace(c.Query("status")),
+		Search:         strings.TrimSpace(c.Query("search")),
+		Limit:          size,
+		Offset:         (page - 1) * size,
 	}
 	if s := c.Query("since"); s != "" {
 		if t, err := time.Parse(time.RFC3339, s); err == nil {
@@ -75,10 +86,10 @@ func parseTaskFilter(c *gin.Context, source string) (task.ListFilter, int, int) 
 			f.Until = t
 		}
 	}
-	return f, page, size
+	return f, page, size, true
 }
 
-// listTasksHandler 处理 GET /tasks?source=&status=&search=&page=&size=。
+// listTasksHandler 处理 GET /tasks?task=&conversation=&source=&status=&search=&page=&size=。
 //
 // 返回瘦摘要行（含派生列）+ total（同口径），供前端分页表：
 //
@@ -90,7 +101,10 @@ func listTasksHandler(api TasksAPI) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		f, page, size := parseTaskFilter(c, source)
+		f, page, size, ok := parseTaskFilter(c, source)
+		if !ok {
+			return
+		}
 
 		rows, err := api.ListFiltered(ctx, f)
 		if err != nil {

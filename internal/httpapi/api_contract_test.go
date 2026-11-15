@@ -68,10 +68,13 @@ func TestRespondErr_GenuineFailureStays500(t *testing.T) {
 	}
 }
 
-type fakeTasksList struct{ called bool }
+type fakeTasksList struct {
+	called bool
+	got    task.ListFilter
+}
 
-func (f *fakeTasksList) ListFiltered(context.Context, task.ListFilter) ([]task.Summary, error) {
-	f.called = true
+func (f *fakeTasksList) ListFiltered(_ context.Context, lf task.ListFilter) ([]task.Summary, error) {
+	f.called, f.got = true, lf
 	return nil, nil
 }
 func (f *fakeTasksList) CountFiltered(context.Context, task.ListFilter) (int, error) { return 0, nil }
@@ -95,6 +98,28 @@ func TestListTasks_UnknownSourceRejected(t *testing.T) {
 	for _, ok := range []string{"", "direct", "proxy"} {
 		if w := serve(r, http.MethodGet, "/tasks?source="+ok, ""); w.Code != http.StatusOK {
 			t.Fatalf("source=%q 应 200，得 %d", ok, w.Code)
+		}
+	}
+}
+
+// 范围筛选（从其它页面跳来）：task / conversation 透传给 store；非法 UUID 400 且不触达 store。
+func TestListTasks_Scope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const taskID, convID = "66666666-6666-4666-8666-666666666666", "77777777-7777-4777-8777-777777777777"
+	api := &fakeTasksList{}
+	r := gin.New()
+	r.GET("/tasks", listTasksHandler(api))
+
+	if w := serve(r, http.MethodGet, "/tasks?task="+taskID+"&conversation="+convID, ""); w.Code != http.StatusOK {
+		t.Fatalf("合法范围应 200，得 %d", w.Code)
+	}
+	if api.got.TaskID != taskID || api.got.ConversationID != convID {
+		t.Fatalf("范围未透传: %+v", api.got)
+	}
+	for _, q := range []string{"task=x", "conversation=x"} {
+		api.called = false
+		if w := serve(r, http.MethodGet, "/tasks?"+q, ""); w.Code != http.StatusBadRequest || api.called {
+			t.Fatalf("%s 应 400 且不触达 store，得 %d（called=%v）", q, w.Code, api.called)
 		}
 	}
 }
