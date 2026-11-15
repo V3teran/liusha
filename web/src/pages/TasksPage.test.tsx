@@ -14,6 +14,10 @@ vi.mock('@/api/tasks', () => ({
   createTasks: vi.fn(),
 }))
 
+vi.mock('@/api/conversations', () => ({
+  getConversation: vi.fn(async (id: string) => ({ id, title: '登录页越权排查', task_id: 't-1' })),
+}))
+
 vi.mock('@/api/schedules', () => ({
   listSchedules: vi.fn(),
   setScheduleEnabled: vi.fn(),
@@ -79,6 +83,34 @@ describe('TasksPage（任务模块）', () => {
     expect(await screen.findByText('DVWA 渗透测试')).toBeTruthy()
     expect(screen.getByText('BAC 越权检测')).toBeTruthy()
     expect(mList).toHaveBeenCalled()
+  })
+
+  // 从其它页面跳来只看这一个任务：列表按范围筛选，范围显示在筛选栏里，进页即打开详情；
+  // 清除范围回到全部任务。
+  it('从对话跳来：列表只剩这个对话的任务并打开详情，筛选栏显示对话标题，可清除', async () => {
+    mList.mockImplementation(async (_p: number, _s: number, f?: { conversation?: string }) =>
+      f?.conversation
+        ? { items: [task()], total: 1, page: 1, size: 20 }
+        : { items: [task(), task({ id: 't-2', goal: 'BAC 越权检测' })], total: 2, page: 1, size: 20 },
+    )
+    mDetail.mockResolvedValue(task())
+    const user = userEvent.setup()
+    renderPage(['/tasks?conversation=c-7'])
+
+    await waitFor(() => expect(mList).toHaveBeenCalledWith(1, expect.any(Number), expect.objectContaining({ conversation: 'c-7' })))
+    expect(await screen.findByLabelText('关闭详情')).toBeTruthy()
+    expect(screen.queryByText('BAC 越权检测')).toBeNull()
+
+    await user.click(await screen.findByRole('button', { name: /^清除范围（对话：登录页越权排查）/ }))
+    expect(await screen.findByText('BAC 越权检测')).toBeTruthy()
+  })
+
+  it('从漏洞等页面跳来：按任务限定，筛选栏显示任务目标', async () => {
+    mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
+    mDetail.mockResolvedValue(task())
+    renderPage(['/tasks?task=t-1'])
+    await waitFor(() => expect(mList).toHaveBeenCalledWith(1, expect.any(Number), expect.objectContaining({ task: 't-1' })))
+    expect(await screen.findByRole('button', { name: /^清除范围（任务：DVWA 渗透测试）/ })).toBeTruthy()
   })
 
   // 搜索匹配看得见的字段：目标与批次名（批次 ID 界面上不显示）。

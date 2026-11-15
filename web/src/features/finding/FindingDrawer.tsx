@@ -1,8 +1,9 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ListChecks, MessageSquare, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
-import { JumpLink } from '@/components/JumpLink'
+import { JumpLinks } from '@/features/relations/TaskJumpLinks'
+import { taskJumps } from '@/features/relations/taskJumps'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
 import { fullTime, daysSince } from '@/lib/format'
@@ -13,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { buildEvidenceView } from './findingEvidence'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
-import { conversationPath, sourceColor, sourceLabel } from '@/lib/source'
+import { sourceColor, sourceLabel } from '@/lib/source'
 
 interface FindingDrawerProps {
   open: boolean
@@ -96,26 +97,21 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
           {/* 内容区域 */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
-              {/* 跳转：漏洞回它的产出上下文（任务 / 对话），与任务详情板跳转区同一
-                  JumpLink 语法。链接缺失（旧数据/无会话）不渲染占位。 */}
-              {(finding.task_id || finding.conversation_id) && (
+              {/* 跳转：只看这个漏洞所属的任务、对话与探索图（规则见 taskJumps） */}
+              {finding.task_id && (
                 <section>
                   <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {finding.task_id && (
-                      <JumpLink to={`/tasks?task=${encodeURIComponent(finding.task_id)}`} icon={ListChecks}>
-                        任务
-                      </JumpLink>
+                  <JumpLinks
+                    jumps={taskJumps(
+                      {
+                        taskId: finding.task_id,
+                        conversationId: finding.conversation_id ?? '',
+                        source: finding.source ?? '',
+                        from: 'task',
+                      },
+                      ['task', 'conversation', 'exploration'],
                     )}
-                    {finding.conversation_id && (
-                      <JumpLink
-                        to={conversationPath(finding.source, finding.conversation_id)}
-                        icon={MessageSquare}
-                      >
-                        对话
-                      </JumpLink>
-                    )}
-                  </div>
+                  />
                 </section>
               )}
 

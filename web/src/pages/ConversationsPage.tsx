@@ -20,22 +20,22 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const convListRef = useRef<ConversationListHandle>(null)
   const isWide = useMediaQuery('(min-width: 768px)', true)
-  // 窄屏当前是否停在详情：深链带 ?conv= 时直接进详情。
-  const [narrowDetail, setNarrowDetail] = useState(() => Boolean(searchParams.get('conv')))
+  // 窄屏当前是否停在详情：深链带 ?conversation= 时直接进详情。
+  const [narrowDetail, setNarrowDetail] = useState(() => Boolean(searchParams.get('conversation')))
   const showList = isWide || !narrowDetail
   const showDetail = isWide || narrowDetail
 
-  // 当前会话以 URL 的 ?conv= 为唯一状态：刷新、分享链接、浏览器前进后退都还原同一视图，
+  // 当前会话以 URL 的 ?conversation= 为唯一状态：刷新、分享链接、浏览器前进后退都还原同一视图，
   // 跨页深链接（流量详情 / 任务详情带 conv 跳转）也走同一入口。选择用 replace 写入，
   // 列表的自动选中不会在历史栈里堆出一串条目。
-  const currentConv = searchParams.get('conv') ?? ''
+  const currentConv = searchParams.get('conversation') ?? ''
   const setCurrentConv = useCallback(
     (id: string) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
-          if (id) next.set('conv', id)
-          else next.delete('conv')
+          if (id) next.set('conversation', id)
+          else next.delete('conversation')
           return next
         },
         { replace: true },

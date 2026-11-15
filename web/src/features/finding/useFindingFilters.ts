@@ -2,9 +2,18 @@ import type { FindingFilters } from '@/api/types'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 
 // 漏洞台账筛选态迁移进 URL search params：刷新、前进/后退、分享链接都能还原
-// 筛选条件与翻页位置。参数名：task / host / severity / status / source / search / page / size。
-// task 是筛选栏里的「任务」下拉；任务详情与对话的「漏洞」跳转带着它进来（只看这个任务的漏洞）。
-const FIELDS = { task: 'task', host: 'host', severity: 'severity', status: 'status', source: 'source', search: 'search' } as const
+// 筛选条件与翻页位置。参数名：task / conversation / host / severity / status / source / search /
+// page / size。task / conversation 是范围：筛选栏的「范围」选择框选任务；「漏洞」跳转带着
+// 来源进来（从任务及其它页面 → task，从对话 → conversation）。
+const FIELDS = {
+  task: 'task',
+  conversation: 'conversation',
+  host: 'host',
+  severity: 'severity',
+  status: 'status',
+  source: 'source',
+  search: 'search',
+} as const
 
 export interface FindingUrlState {
   filters: FindingFilters

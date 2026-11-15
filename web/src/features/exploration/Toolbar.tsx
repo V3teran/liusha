@@ -35,8 +35,8 @@ async function fetchTaskOptions(q: string): Promise<PickerResult> {
 }
 
 export function Toolbar({
-  taskId,
-  taskLabel,
+  scopeId,
+  scopeLabel,
   onTaskChange,
   disabled,
   refreshing,
@@ -48,8 +48,9 @@ export function Toolbar({
   onFilterState,
   stats,
 }: {
-  taskId: string
-  taskLabel?: string
+  /** 当前范围（任务或对话）的 ID 与显示名（「任务：目标」/「对话：标题」） */
+  scopeId: string
+  scopeLabel?: string
   onTaskChange: (id: string) => void
   disabled: boolean
   refreshing: boolean
@@ -73,8 +74,8 @@ export function Toolbar({
       }
     >
       <EntityPicker
-        value={taskId}
-        valueLabel={taskLabel}
+        value={scopeId}
+        valueLabel={scopeLabel}
         onChange={onTaskChange}
         fetchOptions={fetchTaskOptions}
         queryKey={['exploration', 'task-options']}

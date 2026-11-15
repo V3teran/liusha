@@ -1,9 +1,10 @@
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { Bug, Clock3, ListChecks, Network, Pencil, Trash2 } from 'lucide-react'
+import { Clock3, Pencil, Trash2 } from 'lucide-react'
 import type { Conversation } from '@/api/types'
+import { taskJumps } from '@/features/relations/taskJumps'
 
-/** ⋯ 菜单（挂 body 的 portal）：跳转（任务/探索图/漏洞）+ 重命名 + 删除
+/** ⋯ 菜单（挂 body 的 portal）：跳转（任务/漏洞/探索图）+ 重命名 + 删除
  * （任务进行中禁删）。由 ConversationList 持有状态，本组件纯展示分发。 */
 export function ConvMenu({
   conv,
@@ -20,44 +21,36 @@ export function ConvMenu({
   onRename: (c: Conversation, ev: React.MouseEvent) => void
   onDelete: (c: Conversation, ev: React.MouseEvent) => void
 }) {
+  const jumps = conv.task_id
+    ? taskJumps(
+        {
+          taskId: conv.task_id,
+          conversationId: conv.id,
+          source: conv.source ?? '',
+          findingCount: conv.finding_count ?? 0,
+          from: 'conversation',
+        },
+        ['task', 'findings', 'exploration'],
+      )
+    : []
   return createPortal(
     <div
       className="fixed z-[1000] min-w-[148px] rounded-lg border border-border bg-surface p-1 shadow-lg"
       style={style}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* 任务/探索图/漏洞都属于会话所属的任务，按任务 ID 跳；纯聊天会话没有任务，不显示 */}
-      {conv.task_id && (
-        <>
-          <Link
-            to={`/tasks?task=${encodeURIComponent(conv.task_id)}`}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
-            onClick={onClose}
-          >
-            <ListChecks className="h-3.5 w-3.5" />
-            任务
-          </Link>
-          <Link
-            to={`/exploration-graph?task=${encodeURIComponent(conv.task_id)}`}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
-            onClick={onClose}
-          >
-            <Network className="h-3.5 w-3.5" />
-            探索图
-          </Link>
-        </>
-      )}
-      {/* 无洞不跳（与任务详情同一规则）：入口必须通向有内容的落点 */}
-      {conv.task_id && (conv.finding_count ?? 0) > 0 && (
+      {/* 跳转：只看这个对话的任务、漏洞与探索图（规则见 taskJumps）；纯聊天对话没有任务，不显示 */}
+      {jumps.map((j) => (
         <Link
-          to={`/findings?task=${encodeURIComponent(conv.task_id)}`}
+          key={j.target}
+          to={j.to}
           className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
           onClick={onClose}
         >
-          <Bug className="h-3.5 w-3.5" />
-          漏洞
+          <j.icon className="h-3.5 w-3.5" />
+          {j.label}
         </Link>
-      )}
+      ))}
       <button
         type="button"
         onClick={(ev) => onRename(conv, ev)}

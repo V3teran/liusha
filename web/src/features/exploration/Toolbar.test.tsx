@@ -23,7 +23,7 @@ describe('探索图 Toolbar', () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Toolbar
-          taskId=""
+          scopeId=""
           onTaskChange={onChange}
           disabled={false}
           refreshing={false}

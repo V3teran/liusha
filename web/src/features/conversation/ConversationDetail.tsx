@@ -6,6 +6,7 @@ import { controlTask } from '@/api/tasks'
 import { ApiError } from '@/api/client'
 import { taskKeys, useTaskDetail, useTaskUsage } from '@/features/tasks/useTaskQueries'
 import { conversationKeys, useConversation } from './useConversationQueries'
+import { TaskJumpLinks } from '@/features/relations/TaskJumpLinks'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
 import { fullTime, humanDuration, humanTokens } from '@/lib/format'
@@ -232,7 +233,9 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               </span>
             )}
           </div>
-          <div className="inline-flex items-center gap-3">
+          <div className="inline-flex flex-wrap items-center gap-3">
+            {/* 跳转：只看这个对话的任务、漏洞与探索图；纯聊天没有任务，不显示 */}
+            {taskID && <TaskJumpLinks taskId={taskID} from="conversation" targets={['task', 'findings', 'exploration']} />}
             <span className="inline-flex items-center gap-2.5">
               {usage && tokenTotal > 0 && (
                 <span className="inline-flex flex-wrap items-center gap-x-3.5 gap-y-1">

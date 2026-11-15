@@ -12,6 +12,12 @@ vi.mock('@/api/tasks', () => ({
   getTaskDetail: vi.fn(),
 }))
 
+vi.mock('@/api/conversations', () => ({
+  getConversation: vi.fn(async (id: string) =>
+    id === 'c-chat' ? { id, title: '闲聊', task_id: '' } : { id, title: '登录页越权排查', task_id: TASK_ID },
+  ),
+}))
+
 vi.mock('@/api/explorationgraph', () => ({
   getTaskGraph: vi.fn(),
   getTaskVerifications: vi.fn().mockResolvedValue({ verifications: [] }),
@@ -84,8 +90,8 @@ describe('ExplorationGraphPage（探索图）', () => {
     await waitFor(() => expect(mListTasks).toHaveBeenCalledWith(1, 1))
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(TASK_ID))
     expect(await screen.findByText('暂无数据')).toBeTruthy()
-    // 选择框显示选中任务的目标，而不是 ID
-    expect(await screen.findByRole('button', { name: '选择任务：测试商城越权' })).toBeTruthy()
+    // 选择框显示范围：选中任务的目标，而不是 ID
+    expect(await screen.findByRole('button', { name: '选择任务：任务：测试商城越权' })).toBeTruthy()
   })
 
   it('链接带 task 时直接按该任务加载，不再取最新任务', async () => {
@@ -94,6 +100,32 @@ describe('ExplorationGraphPage（探索图）', () => {
 
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(TASK_ID))
     expect(mListTasks).not.toHaveBeenCalled()
+  })
+
+  // 从对话跳来只看「这个对话的探索图」：范围显示对话标题，图按对话所属的任务取。
+  it('链接带 conversation 时按对话限定：显示对话标题，按对话所属任务取图', async () => {
+    mGraph.mockResolvedValue({ nodes: [], edges: [] })
+    renderPage('/exploration-graph?conversation=c-7')
+
+    await waitFor(() => expect(mGraph).toHaveBeenCalledWith(TASK_ID))
+    expect(await screen.findByRole('button', { name: '选择任务：对话：登录页越权排查' })).toBeTruthy()
+    expect(mListTasks).not.toHaveBeenCalled()
+  })
+
+  it('纯聊天对话没有任务，提示没有探索图', async () => {
+    renderPage('/exploration-graph?conversation=c-chat')
+    expect(await screen.findByText('这个对话是纯聊天，没有任务，也就没有探索图')).toBeTruthy()
+    expect(mGraph).not.toHaveBeenCalled()
+  })
+
+  it('页头带这个任务的任务、对话、漏洞跳转', async () => {
+    mGetTask.mockImplementation(async (id: string) => taskRow({ id, conversation_id: 'c-7', finding_count: 3 }))
+    mGraph.mockResolvedValue({ nodes: [], edges: [] })
+    renderPage(`/exploration-graph?task=${TASK_ID}`)
+
+    expect((await screen.findByRole('link', { name: '任务' })).getAttribute('href')).toBe(`/tasks?task=${TASK_ID}`)
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-7')
+    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe(`/findings?task=${TASK_ID}`)
   })
 
   it('图数据加载失败时展示错误与排查提示', async () => {

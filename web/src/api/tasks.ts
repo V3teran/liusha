@@ -22,6 +22,8 @@ export async function listTasks(
   filters?: Partial<TaskFilters>,
 ): Promise<TaskListResponse> {
   const params = new URLSearchParams()
+  if (filters?.task) params.set('task', filters.task)
+  if (filters?.conversation) params.set('conversation', filters.conversation)
   if (filters?.source) params.set('source', filters.source)
   if (filters?.status) params.set('status', filters.status)
   if (filters?.search) params.set('search', filters.search)
