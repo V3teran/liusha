@@ -249,3 +249,37 @@ func TestListFilteredSearchIsLiteral(t *testing.T) {
 	}
 }
 
+// 工作空间目录的显示名：批次取标题（没写标题时取首个任务的目标），任务取目标；查不到的 ID 不出现。
+func TestDirectoryLabels(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	untitled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "x"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	titled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "y"}}, Title: "夜间复扫"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := tasks.Create(ctx, NewParams{AssignmentID: untitled.ID, Goal: "首个任务的目标"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tasks.Create(ctx, NewParams{AssignmentID: untitled.ID, Goal: "第二个任务"}); err != nil {
+		t.Fatal(err)
+	}
+	const missing = "33333333-3333-4333-8333-333333333333"
+	asgLabels, taskLabels, err := tasks.DirectoryLabels(ctx, []string{untitled.ID, titled.ID, missing}, []string{first.ID, missing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asgLabels[untitled.ID] != "首个任务的目标" || asgLabels[titled.ID] != "夜间复扫" {
+		t.Errorf("批次显示名不符: %v", asgLabels)
+	}
+	if taskLabels[first.ID] != "首个任务的目标" {
+		t.Errorf("任务显示名不符: %v", taskLabels)
+	}
+	if _, ok := asgLabels[missing]; ok {
+		t.Error("查不到的 ID 不应出现")
+	}
+}

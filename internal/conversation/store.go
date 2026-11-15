@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -171,7 +172,33 @@ func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, 
 	return *ms, nil
 }
 
+// ListFilter 是会话列表的筛选与分页（List / Count 共用筛选口径）。
+type ListFilter struct {
+	Source string // direct / proxy（见 ListConversations）
+	Search string // 关键词：匹配会话标题、所属任务的目标（包含）或会话 ID 前缀，大小写不敏感、按字面
+	Limit  int
+	Offset int
+}
+
+// listWhere 是会话列表与计数共用的筛选子句（$1 source / $2 包含模式 / $3 ID 前缀模式；
+// 后两者为空串即不筛）。
+const listWhere = `
+		WHERE ($1 = '' OR a.source = $1 OR ($1 = 'direct' AND c.task_id IS NULL))
+		  AND ($2 = '' OR c.title ILIKE $2 OR t.goal ILIKE $2 OR c.id::text ILIKE $3)`
+
+// listArgs 是 listWhere 的参数。
+func listArgs(f ListFilter) []any {
+	q := strings.TrimSpace(f.Search)
+	if q == "" {
+		return []any{f.Source, "", ""}
+	}
+	return []any{f.Source, db.ContainsPattern(q), db.EscapeLike(strings.ToLower(q)) + "%"}
+}
+
 // ListConversations 按 updated_at DESC 分页列出会话（UI 列表）。offset<0 视为 0。
+//
+// 关键词搜索在这里执行，覆盖全部会话：分页、总数与搜索结果同一口径（在前端对已分页的单页
+// 再过滤，其它页的会话搜不到，页码与条数也对不上）。
 //
 // source 非空时按下发来源过滤（前端「人工下发 / 代理捕获」双 tab）：
 //   - 'direct'：assignment.source='direct' 的会话 + 纯聊天会话（无 task → 无 source，归人工下发侧）；
@@ -184,11 +211,9 @@ func (s *Store) WallclockMs(ctx context.Context, conversationID string) (int64, 
 // 不是海量 feed）offset 分页足够，也更简单：翻页时排序小幅重排是可接受的权衡。
 //
 // hasMore 判定用「多取一条」（LIMIT limit+1），不额外发 COUNT 查询。
-func (s *Store) ListConversations(ctx context.Context, limit, offset int, source string) ([]Conversation, bool, error) {
-	limit = clampLimit(limit)
-	if offset < 0 {
-		offset = 0
-	}
+func (s *Store) ListConversations(ctx context.Context, f ListFilter) ([]Conversation, bool, error) {
+	limit := clampLimit(f.Limit)
+	offset := max(f.Offset, 0)
 	// run_status：派生「真实运行态」——取关联 task.status（active/completed/aborted）。
 	// 无关联 task（纯聊天）→ 空串。前端列表据此显示准确状态。
 	// run_paused：active 的暂停子态——侧栏呼吸点是「正在烧 token」的活性信号，
@@ -203,11 +228,8 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 			COALESCE(a.source, '') AS source
 		FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
-		LEFT JOIN assignment a ON a.id = t.assignment_id
-		WHERE ($3 = ''
-		       OR a.source = $3
-		       OR ($3 = 'direct' AND c.task_id IS NULL))
-		ORDER BY c.updated_at DESC LIMIT $1 OFFSET $2`, limit+1, offset, source)
+		LEFT JOIN assignment a ON a.id = t.assignment_id`+listWhere+`
+		ORDER BY c.updated_at DESC LIMIT $4 OFFSET $5`, append(listArgs(f), limit+1, offset)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("list conversations: %w", err)
 	}
@@ -231,15 +253,14 @@ func (s *Store) ListConversations(ctx context.Context, limit, offset int, source
 	return out, hasMore, nil
 }
 
-// CountConversations 与 ListConversations 同口径计数（同 source 过滤，纯聊天归 direct），
+// CountConversations 与 ListConversations 同口径计数（同来源与关键词筛选，纯聊天归 direct），
 // 供前端「第 X / Y 页」总页数。
-func (s *Store) CountConversations(ctx context.Context, source string) (int, error) {
+func (s *Store) CountConversations(ctx context.Context, f ListFilter) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM conversation c
 		LEFT JOIN task t ON t.id = c.task_id
-		LEFT JOIN assignment a ON a.id = t.assignment_id
-		WHERE ($1 = '' OR a.source = $1 OR ($1 = 'direct' AND c.task_id IS NULL))`, source).Scan(&n)
+		LEFT JOIN assignment a ON a.id = t.assignment_id`+listWhere, listArgs(f)...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count conversations: %w", err)
 	}

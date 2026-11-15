@@ -1,21 +1,40 @@
 /**
- * 探索图工具栏：会话搜索 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
+ * 探索图工具栏：对话选择 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
  * 计数即统计、色点即图例、点击即过滤）+ 状态筛选 + 总量。
  */
 
-import { RefreshCw, Search } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { listConversations } from '@/api/conversations'
+import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
+import { shortDateTime } from '@/lib/format'
+import { sourceLabel } from '@/lib/source'
 import { KIND_ORDER, KIND_PROFILES, STATE_META } from './kindTheme'
 import type { GraphStats } from './layout'
 import { Select } from '@/components/ui/Select'
 import { FilterBar } from '@/components/FilterBar'
 import { Button } from '@/components/ui/Button'
-import { controlClass } from '@/components/ui/control'
+
+/**
+ * 对话候选：按标题、所属任务的目标或 ID 前缀由服务端检索、限量（对话会持续增长，不一次列全）；
+ * 次要信息是最近更新时间与来源，区分同名对话。
+ */
+async function fetchConversationOptions(q: string): Promise<PickerResult> {
+  const { conversations, hasMore } = await listConversations({ search: q, limit: 20 })
+  return {
+    options: conversations.map((c) => ({
+      value: c.id,
+      label: c.title || c.id,
+      detail: `${shortDateTime(c.updated_at)} 更新 · ${sourceLabel(c.source || 'direct')}`,
+    })),
+    hasMore,
+  }
+}
 
 export function Toolbar({
-  conversationInput,
-  onConversationInput,
-  onConversationSubmit,
+  conversationId,
+  conversationLabel,
+  onConversationChange,
   disabled,
   refreshing,
   onRefresh,
@@ -26,9 +45,9 @@ export function Toolbar({
   onFilterState,
   stats,
 }: {
-  conversationInput: string
-  onConversationInput: (v: string) => void
-  onConversationSubmit: () => void
+  conversationId: string
+  conversationLabel?: string
+  onConversationChange: (id: string) => void
   disabled: boolean
   refreshing: boolean
   onRefresh: () => void
@@ -50,19 +69,17 @@ export function Toolbar({
         ) : undefined
       }
     >
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
-        <input
-          type="text"
-          value={conversationInput}
-          onChange={(e) => onConversationInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onConversationSubmit()}
-          placeholder="输入对话 ID，回车加载"
-          aria-label="对话 ID"
-          className={controlClass('sm', 'w-72 pl-9 font-mono')}
-          disabled={disabled}
-        />
-      </div>
+      <EntityPicker
+        value={conversationId}
+        valueLabel={conversationLabel}
+        onChange={onConversationChange}
+        fetchOptions={fetchConversationOptions}
+        queryKey={['exploration', 'conversation-options']}
+        emptyLabel="选择对话"
+        searchPlaceholder="搜索对话标题、任务目标、ID"
+        ariaLabel="选择对话"
+        className="w-full sm:w-72"
+      />
 
       <Button
         variant="secondary"

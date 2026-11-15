@@ -9,9 +9,8 @@ import { SearchInput } from '@/components/SearchInput'
 import { ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 
-// 搜索防抖：输入停顿后才发起检索。
-const SEARCH_DEBOUNCE_MS = 250
 
 // 工具目录（主从双栏）：左栏按种类/分类分组、可搜索、点选；右栏常驻详情面板。
 // 有界目录（代码来源），左栏加载全量并分组滚动，故无翻页（分组与分页天然冲突）。
@@ -19,11 +18,7 @@ const SEARCH_DEBOUNCE_MS = 250
 export function ToolsPage() {
   const [kind, setKind] = useState<KindFilter>('')
   const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), query ? SEARCH_DEBOUNCE_MS : 0)
-    return () => clearTimeout(timer)
-  }, [query])
+  const debouncedQuery = useDebouncedSearch(query)
 
   const list = useToolList(kind, debouncedQuery)
   const tools = useMemo(() => list.data?.tools ?? [], [list.data])

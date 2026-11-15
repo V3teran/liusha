@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/attachment"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 )
 
 type fakeChat struct{}
@@ -120,16 +122,17 @@ func TestDeleteHandler_OK_200(t *testing.T) {
 	}
 }
 
-// fakeConversations 满足 ConversationsAPI，记录 ListConversations 收到的 limit/offset/source。
+// fakeConversations 满足 ConversationsAPI，记录 ListConversations / CountConversations 收到的筛选。
 type fakeConversations struct {
 	gotLimit, gotOffset int
 	gotSource           string
+	gotList, gotCount   conversation.ListFilter
 	convs               []conversation.Conversation
 	hasMore             bool
 }
 
-func (f *fakeConversations) ListConversations(_ context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error) {
-	f.gotLimit, f.gotOffset, f.gotSource = limit, offset, source
+func (f *fakeConversations) ListConversations(_ context.Context, fl conversation.ListFilter) ([]conversation.Conversation, bool, error) {
+	f.gotLimit, f.gotOffset, f.gotSource, f.gotList = fl.Limit, fl.Offset, fl.Source, fl
 	return f.convs, f.hasMore, nil
 }
 
@@ -137,7 +140,17 @@ func (f *fakeConversations) ListMessages(_ context.Context, _ string, _ int64, _
 	return nil, nil
 }
 
-func (f *fakeConversations) CountConversations(_ context.Context, _ string) (int, error) {
+func (f *fakeConversations) GetConversation(_ context.Context, id string) (conversation.Conversation, error) {
+	for _, c := range f.convs {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	return conversation.Conversation{}, fmt.Errorf("get conversation %s: %w", id, pgx.ErrNoRows)
+}
+
+func (f *fakeConversations) CountConversations(_ context.Context, fl conversation.ListFilter) (int, error) {
+	f.gotCount = fl
 	return len(f.convs), nil
 }
 
@@ -201,6 +214,20 @@ func TestListConversationsHandler_SourceFilterPassedToStore(t *testing.T) {
 		t.Errorf("source=proxy 应透传给 store，得 %q", fc.gotSource)
 	}
 }
+
+// 关键词搜索在后端执行：列表与计数收到同一个关键词（总数与搜索结果同口径）。
+func TestListConversationsHandler_SearchPassedToListAndCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fc := &fakeConversations{}
+	r := gin.New()
+	r.GET("/conversations", listConversationsHandler(fc))
+	req := httptest.NewRequest("GET", "/conversations?search=%E5%95%86%E5%9F%8E&source=direct", nil)
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	if fc.gotList.Search != "商城" || fc.gotCount.Search != "商城" || fc.gotCount.Source != "direct" {
+		t.Errorf("列表与计数应收到同一筛选，得 list=%+v count=%+v", fc.gotList, fc.gotCount)
+	}
+}
 func TestChatHandler_TooManyAttachments(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -255,5 +282,25 @@ func TestMessageHandlers_BlankTextWithAttachmentAccepted(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("纯附件消息应 200，得 %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+// 单个会话：存在返回会话，不存在 404。
+func TestGetConversationHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const id = "55555555-5555-4555-8555-555555555555"
+	fc := &fakeConversations{convs: []conversation.Conversation{{ID: id, Title: "测试商城越权"}}}
+	r := gin.New()
+	r.GET("/conversations/:id", getConversationHandler(fc))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/conversations/"+id, nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "测试商城越权") {
+		t.Fatalf("want 200 + 标题，得 %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/conversations/66666666-6666-4666-8666-666666666666", nil))
+	if w.Code != 404 {
+		t.Fatalf("不存在应 404，得 %d", w.Code)
 	}
 }

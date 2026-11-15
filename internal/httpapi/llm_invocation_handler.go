@@ -22,6 +22,7 @@ type InvocationsAPI interface {
 	ListAll(ctx context.Context, f llminvocation.ListFilter) ([]llminvocation.Invocation, error)
 	CountAll(ctx context.Context, f llminvocation.ListFilter) (int, error)
 	AggregateAll(ctx context.Context, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
+	Facets(ctx context.Context, f llminvocation.ListFilter) (llminvocation.Facets, error)
 	GetDetailByID(ctx context.Context, id int64) (llminvocation.Invocation, error)
 }
 
@@ -153,6 +154,19 @@ func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
 			"cached_tokens": a.CachedTokens,
 			"latency_ms":    a.LatencyMs,
 		})
+	}
+}
+
+// llmInvocationsFacetsHandler 处理 GET /llm/invocations/search/facets（与列表同一套筛选参数）：
+// 角色 / 模型筛选的选项，来自整个筛选结果集而非当前页，每个维度不受自身筛选影响。
+func llmInvocationsFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		facets, err := api.Facets(c.Request.Context(), parseInvocationFilter(c, 0, 0))
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"roles": facets.Roles, "models": facets.Models})
 	}
 }
 

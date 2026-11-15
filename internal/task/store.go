@@ -113,6 +113,50 @@ func Lock(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
 	return t, nil
 }
 
+// DirectoryLabels 给工作区的批次 / 任务目录取显示名：批次取标题，没写标题时取批次内首个
+// 任务的目标；任务取目标。返回 ID → 显示名，查不到的 ID 不出现。
+func (s *Store) DirectoryLabels(ctx context.Context, assignmentIDs, taskIDs []string) (map[string]string, map[string]string, error) {
+	asgLabels := make(map[string]string, len(assignmentIDs))
+	taskLabels := make(map[string]string, len(taskIDs))
+	if len(assignmentIDs) > 0 {
+		rows, err := s.pool.Query(ctx, `
+			SELECT a.id::text, COALESCE(NULLIF(a.title, ''),
+			       (SELECT t.goal FROM task t WHERE t.assignment_id = a.id ORDER BY t.created_at, t.id LIMIT 1), '')
+			  FROM assignment a WHERE a.id = ANY($1::uuid[])`, assignmentIDs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("批次显示名: %w", err)
+		}
+		if err := collectLabels(rows, asgLabels); err != nil {
+			return nil, nil, fmt.Errorf("批次显示名: %w", err)
+		}
+	}
+	if len(taskIDs) > 0 {
+		rows, err := s.pool.Query(ctx, `SELECT id::text, goal FROM task WHERE id = ANY($1::uuid[])`, taskIDs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("任务显示名: %w", err)
+		}
+		if err := collectLabels(rows, taskLabels); err != nil {
+			return nil, nil, fmt.Errorf("任务显示名: %w", err)
+		}
+	}
+	return asgLabels, taskLabels, nil
+}
+
+// collectLabels 把 (id, label) 行收进 map（空显示名不收）。
+func collectLabels(rows pgx.Rows, into map[string]string) error {
+	defer rows.Close()
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return err
+		}
+		if label != "" {
+			into[id] = label
+		}
+	}
+	return rows.Err()
+}
+
 // LockActive 同 Lock，并要求任务进行中（暂停中也算）：已结束返回 ErrNotActive。
 func LockActive(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
 	t, err := Lock(ctx, tx, id)

@@ -1,4 +1,5 @@
 import { SearchInput } from '@/components/SearchInput'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
@@ -79,6 +80,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     const [loading, setLoading] = useState(false)
     const [loadError, setLoadError] = useState('')
     const [query, setQuery] = useState('')
+    // 关键词在服务端检索（覆盖全部会话，分页与总数同一口径），停顿后生效
+    const debouncedQuery = useDebouncedSearch(query.trim())
     const [menuOpen, setMenuOpen] = useState('')
     const [menuConv, setMenuConv] = useState<Conversation | null>(null)
     const [menuStyle, setMenuStyle] = useState<{ top: string; left: string }>({ top: '0px', left: '0px' })
@@ -101,7 +104,12 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         const seq = ++reqSeqRef.current
         setLoading(true)
         try {
-          const { conversations, hasMore: hm, total: tt } = await listConversations(size, o, source ?? '')
+          const { conversations, hasMore: hm, total: tt } = await listConversations({
+            limit: size,
+            offset: o,
+            source: source ?? '',
+            search: debouncedQuery,
+          })
           if (seq !== reqSeqRef.current) return
           setItems(conversations)
           setHasMore(hm)
@@ -116,7 +124,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           if (seq === reqSeqRef.current) setLoading(false)
         }
       },
-      [source, size],
+      [source, size, debouncedQuery],
     )
 
     // 供外部（父组件）调用的 refresh：语义是「有新变化，给我最新视图」——回第 1 页，
@@ -127,7 +135,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     useEffect(() => {
       void load(0)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source, size])
+    }, [source, size, debouncedQuery])
 
     // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conv 深链接、
     // 用户没点过）时选第一条——一次性消费，之后轮询刷新/「新对话」态都不再劫持。
@@ -160,13 +168,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       return () => document.removeEventListener('click', close)
     }, [])
 
-    // 搜索：仅在当前页内按标题（去前缀后）+ id 前缀过滤——分页后不再一次性拉全量，
-    // 搜索范围随之收窄到当前页（这个数据量级下，配合 30 条/页，多数场景首页就够用）。
-    const filtered = useMemo(() => {
-      const q = query.trim().toLowerCase()
-      if (!q) return items
-      return items.filter((c) => fullTitle(c).toLowerCase().includes(q) || c.id.toLowerCase().startsWith(q))
-    }, [items, query])
 
     const pageNo = Math.floor(offset / size) + 1
     const totalPages = Math.max(1, Math.ceil(total / size))
@@ -300,22 +301,19 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             className="w-full"
             value={query}
             onChange={setQuery}
-            placeholder="搜索本页对话…"
+            placeholder="搜索对话标题、任务目标、ID…"
             ariaLabel="搜索对话"
           />
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
-            {/* 区间+总数：一行同时表达「看到哪了」与「总量」；
-                搜索是页内过滤，匹配行如实标注「仅本页」 */}
-            {query.trim()
-              ? `匹配 ${filtered.length} 条（仅本页）`
-              : `第 ${offset + 1}–${offset + items.length} 条 · 共 ${total} 条`}
+            {/* 区间+总数：一行同时表达「看到哪了」与「总量」（搜索时是匹配结果的区间与总数） */}
+            {`第 ${offset + 1}–${offset + items.length} 条 · ${debouncedQuery ? '匹配' : '共'} ${total} 条`}
           </div>
         )}
-        {filtered.length === 0 && !loadError ? null : (
+        {items.length === 0 && !loadError ? null : (
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
-          {filtered.map((c) => {
+          {items.map((c) => {
             const meta = taskStatusMeta(c.run_status)
             return (
               <li
@@ -412,18 +410,18 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             ⚠ 列表加载失败：{loadError}
           </div>
         )}
-        {!loadError && filtered.length === 0 && (
+        {!loadError && !loading && items.length === 0 && (
           /* 结构化空态：居中引导块占据列表区——空数据也是一等界面状态。
              不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
              还会让无数据 tab（代理捕获）与有数据 tab（人工下发）的左栏观感不一致。 */
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
-              {query.trim() ? '🔍' : emptyState?.mark ?? '💬'}
+              {debouncedQuery ? '🔍' : emptyState?.mark ?? '💬'}
             </span>
             <p className="text-sm font-medium text-text">
-              {query.trim() ? '本页无匹配对话' : emptyState?.title ?? '暂无对话'}
+              {debouncedQuery ? '没有匹配的对话' : emptyState?.title ?? '暂无对话'}
             </p>
-            {!query.trim() && emptyState?.desc && (
+            {!debouncedQuery && emptyState?.desc && (
               <p className="max-w-[220px] text-xs leading-5 text-text-secondary">{emptyState.desc}</p>
             )}
           </div>

@@ -39,6 +39,8 @@ type Deps struct {
 	// Workspaces 为 nil 时 /workspaces 路由不注册。由 api 组件注入
 	// *workspace.Store——任务工作区的文件检索与 CRUD（沙盒工件）。
 	Workspaces WorkspaceFileAPI
+	// WorkspaceLabels 给工作区批次 / 任务目录取显示名（nil = 目录按 ID 显示）。
+	WorkspaceLabels WorkspaceLabelsAPI
 	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
 	// 由 api 组件注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI

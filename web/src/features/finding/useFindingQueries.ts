@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getFindingTaskFacets, listFindings } from '@/api/findings'
+import { listFindings } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 
 // 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
@@ -8,7 +8,6 @@ import type { FindingFilters } from '@/api/types'
 
 const findingKeys = {
   list: (filters: FindingFilters, page: number, size: number) => ['findings', 'list', filters, page, size] as const,
-  taskFacets: (filters: FindingFilters) => ['findings', 'task-facets', filters] as const,
 }
 
 /** 分页列表：吃筛选 + page 号 + 每页条数（offset 分页，seq desc）。 */
@@ -20,12 +19,3 @@ export function useFindingList(filters: FindingFilters, page: number, size: numb
   })
 }
 
-/** 「任务」筛选的选项：key 不含任务本身——切换所选任务不重新拉选项（分面不受自身筛选影响）。 */
-export function useFindingTaskFacets(filters: FindingFilters) {
-  const { task: _selected, ...others } = filters
-  return useQuery({
-    queryKey: findingKeys.taskFacets(others),
-    queryFn: () => getFindingTaskFacets(others),
-    placeholderData: keepPreviousData,
-  })
-}

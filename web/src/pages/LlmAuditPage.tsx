@@ -4,7 +4,7 @@ import { LlmAuditFilterBar } from '@/features/llm-audit/LlmAuditFilterBar'
 import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
 import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
-import { useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/llm-audit/useLlmAuditQueries'
+import { useLlmAuditFacets, useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/llm-audit/useLlmAuditQueries'
 import type { LLMInvocationSummary } from '@/api/types'
 import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -53,14 +53,10 @@ export function LlmAuditPage() {
     return providers.size > 1
   }, [rows])
 
-  const { roles, models } = useMemo(() => {
-    const roleSet = new Set(rows.map((r) => r.role))
-    const modelSet = new Set(rows.map((r) => r.model))
-    return {
-      roles: Array.from(roleSet).sort(),
-      models: Array.from(modelSet).sort(),
-    }
-  }, [rows])
+  // 角色 / 模型选项来自服务端（整个筛选结果集），不从当前页的行推导
+  const facetsQuery = useLlmAuditFacets({ search: query, ...filters })
+  const roles = facetsQuery.data?.roles ?? []
+  const models = facetsQuery.data?.models ?? []
 
   return (
     <div className="flex h-full min-h-0 flex-col">

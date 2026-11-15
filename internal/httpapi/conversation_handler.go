@@ -42,8 +42,9 @@ type ChatAPI interface {
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
 type ConversationsAPI interface {
-	ListConversations(ctx context.Context, limit, offset int, source string) ([]conversation.Conversation, bool, error)
-	CountConversations(ctx context.Context, source string) (int, error)
+	ListConversations(ctx context.Context, f conversation.ListFilter) ([]conversation.Conversation, bool, error)
+	CountConversations(ctx context.Context, f conversation.ListFilter) (int, error)
+	GetConversation(ctx context.Context, id string) (conversation.Conversation, error)
 	ListMessages(ctx context.Context, conversationID string, afterSeq int64, limit int) ([]conversation.Message, error)
 }
 
@@ -195,9 +196,9 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	}
 }
 
-// listConversationsHandler 处理 GET /conversations?limit=&offset=&_id=&source=：分页会话列表（UI 侧栏翻页）。
-// _id / source 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
-// 总条数」一致（若仍由前端在已分页的单页结果上再过滤，页码和条数会对不上）。
+// listConversationsHandler 处理 GET /conversations?limit=&offset=&source=&search=：分页会话列表（UI 侧栏翻页）。
+// source / search 可选，空则不过滤——过滤下沉到 SQL，保证分页边界与「当前过滤下的
+// 总条数」一致（若由前端在已分页的单页结果上再过滤，其它页搜不到，页码和条数也对不上）。
 // source ∈ {direct,proxy}：前端「人工下发 / 代理捕获」双 tab（纯聊天归 direct 侧，见 store）。
 // has_more：本页拉满 limit+1 条时才可能有下一页（store 已裁剪到 limit，见 ListConversations）。
 // maxConversationListLimit 与 conversation.Store maxListLimit 一致（两层钳制数值契约）。
@@ -213,12 +214,13 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 		if limit > maxConversationListLimit {
 			limit = maxConversationListLimit
 		}
-		convs, hasMore, err := api.ListConversations(c.Request.Context(), limit, parseOffset(c), source)
+		f := conversation.ListFilter{Source: source, Search: c.Query("search"), Limit: limit, Offset: parseOffset(c)}
+		convs, hasMore, err := api.ListConversations(c.Request.Context(), f)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		total, err := api.CountConversations(c.Request.Context(), source)
+		total, err := api.CountConversations(c.Request.Context(), f)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -227,6 +229,18 @@ func listConversationsHandler(api ConversationsAPI) gin.HandlerFunc {
 			convs = []conversation.Conversation{} // 空集序列化为 []，与 messages 口径一致
 		}
 		c.JSON(http.StatusOK, gin.H{"conversations": convs, "has_more": hasMore, "total": total})
+	}
+}
+
+// getConversationHandler 处理 GET /conversations/:id：单个会话（标题、关联任务等）。不存在 404。
+func getConversationHandler(api ConversationsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conv, err := api.GetConversation(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, conv)
 	}
 }
 
