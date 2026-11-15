@@ -75,7 +75,8 @@ export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]):
       ? { kind: 'conversation', id: ctx.conversationId }
       : { kind: 'task', id: ctx.taskId }
   const href: Record<JumpTarget, string | null> = {
-    task: `/tasks?${scopeQuery(scope)}`,
+    // 任务页：列表收窄到这一个任务并打开它的详情
+    task: `/tasks?${scopeQuery(scope)}&selected=${encodeURIComponent(ctx.taskId)}`,
     conversation: ctx.conversationId ? conversationPath(ctx.source, ctx.conversationId) : null,
     findings: (ctx.findingCount ?? 0) > 0 ? `/findings?${scopeQuery(scope)}` : null,
     exploration: `/exploration-graph?${scopeQuery(scope)}`,

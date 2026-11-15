@@ -188,7 +188,7 @@ describe('ConversationDetail', () => {
   it('顶栏带这个对话的任务、漏洞、探索图跳转', async () => {
     withTask({ status: 'completed', conversation_id: 'c1', finding_count: 2, source: 'direct' })
     render(<ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect((await screen.findByRole('link', { name: '任务' })).getAttribute('href')).toBe('/tasks?conversation=c1')
+    expect((await screen.findByRole('link', { name: '任务' })).getAttribute('href')).toBe('/tasks?conversation=c1&selected=o1')
     expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?conversation=c1')
     expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c1')
   })

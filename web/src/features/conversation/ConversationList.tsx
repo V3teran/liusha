@@ -1,5 +1,6 @@
 import { SearchInput } from '@/components/SearchInput'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
 import { Bug, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
@@ -25,7 +26,8 @@ interface ConversationListProps {
   emptyState?: { mark: string; title: string; desc: string }
   /** 首次加载成功且当前无选中时，自动打开最新一条会话（一次性，不劫持后续交互）。 */
   autoSelect?: boolean
-  onSelect: (convID: string) => void
+  /** 打开对话：用户点选新增一条历史；进页自动打开最新对话传 replace */
+  onSelect: (convID: string, opts?: HistoryOptions) => void
   onNew: () => void
   onDeleted: (convID: string) => void
 }
@@ -148,7 +150,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       if (!autoSelect || autoSelectedRef.current || loading || loadError) return
       if (items.length === 0) return
       autoSelectedRef.current = true
-      if (!activeId) onSelect(items[0].id)
+      if (!activeId) onSelect(items[0].id, { replace: true })
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [items, loading, loadError, activeId, autoSelect])
 

@@ -14,7 +14,8 @@ import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
-import { useFindingList } from '@/features/finding/useFindingQueries'
+import { findingKeys, useFindingDetail, useFindingList } from '@/features/finding/useFindingQueries'
+import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { SOURCE_OPTIONS } from '@/lib/source'
 import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { useScopeLabel } from '@/features/relations/useScopeLabel'
@@ -64,7 +65,8 @@ export function FindingsPage() {
   const [query, setQuery] = useState(filters.search ?? '')
   const debouncedQuery = useDebouncedSearch(query.trim())
   useEffect(() => {
-    if (debouncedQuery !== (filters.search ?? '')) setFilters({ ...filters, search: debouncedQuery })
+    // 打字不是导航：改写当前历史记录，后退回到搜索之前而不是逐段删字
+    if (debouncedQuery !== (filters.search ?? '')) setFilters({ ...filters, search: debouncedQuery }, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
   }, [debouncedQuery])
   // URL 被外部改写（清空筛选、前进后退）时同步输入框；与输入框去空白后一致时不动（保留正在输入的空格）
@@ -88,8 +90,11 @@ export function FindingsPage() {
   const totalPages = Math.max(1, Math.ceil(total / size))
 
   const [savingId, setSavingId] = useState('')
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerFinding, setDrawerFinding] = useState<FindingRow | null>(null)
+  // 打开的漏洞写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉；按 ID 取详情，
+  // 不在当前页也能打开，取回前先用当前页的行撑住。
+  const [selected, select] = useSelectedParam()
+  const detailQuery = useFindingDetail(selected)
+  const drawerFinding = detailQuery.data ?? rows.find((r) => r.id === selected) ?? null
 
 
   const sevCounts = useMemo(
@@ -105,16 +110,13 @@ export function FindingsPage() {
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: ['findings', 'list'] })
 
-  const openDrawer = (f: FindingRow) => {
-    setDrawerFinding(f)
-    setDrawerOpen(true)
-  }
+  const openDrawer = (f: FindingRow) => select(f.id)
 
   const saveTriage = async (payload: { id: string; status: string; severity: string; note: string }) => {
     setSavingId(payload.id)
     try {
       const updated = await updateFindingTriage(payload.id, payload.status, payload.severity, payload.note)
-      setDrawerFinding((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev))
+      queryClient.setQueryData<FindingRow>(findingKeys.detail(updated.id), (prev) => (prev ? { ...prev, ...updated } : prev))
       invalidateList()
     } catch {
       window.alert('处置保存失败，请重试')
@@ -294,9 +296,11 @@ export function FindingsPage() {
       </div>
 
       <FindingDrawer
-        open={drawerOpen}
+        open={selected !== ''}
         finding={drawerFinding}
-        onOpenChange={setDrawerOpen}
+        onOpenChange={(open) => {
+          if (!open) select('')
+        }}
         onSave={(p) => void saveTriage(p)}
       />
     </div>

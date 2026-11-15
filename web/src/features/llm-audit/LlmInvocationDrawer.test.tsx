@@ -191,7 +191,7 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
   it('属于任务的调用：任务、对话、探索图，对话 tab 按来源定', () => {
     const detail = makeDetail({ task_id: 't-1', conversation_id: 'c-1', source: 'proxy' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1&selected=t-1')
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c-1')
     expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
     // 漏洞属于任务而不是某次调用，这里不放

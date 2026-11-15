@@ -82,7 +82,7 @@ describe('TrafficDetailPane', () => {
     })
     expect(screen.getByText('消费任务')).toBeTruthy()
     expect(screen.getByText('（进行中）')).toBeTruthy()
-    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t1')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t1&selected=t1')
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c9')
     expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?task=t1')
     expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t1')

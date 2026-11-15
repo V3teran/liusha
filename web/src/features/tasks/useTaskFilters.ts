@@ -1,5 +1,6 @@
 import type { TaskFilters } from '@/api/types'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 // 任务列表筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/分页应作为
 // URL state」）：刷新、前进/后退、分享链接都能还原筛选与翻页位置。
@@ -25,7 +26,7 @@ export interface TaskUrlState {
   filters: TaskFilters
   page: number // 1-based
   size: number
-  setFilters: (next: TaskFilters) => void
+  setFilters: (next: TaskFilters, opts?: HistoryOptions) => void
   setPage: (page: number) => void
   setSize: (size: number) => void
   resetFilters: () => void

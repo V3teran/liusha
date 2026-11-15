@@ -9,10 +9,11 @@ import { SOURCE_OPTIONS } from '@/lib/source'
 import { ScopeChip } from '@/features/relations/ScopeChip'
 import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { hasTaskFilter } from './useTaskFilters'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 interface TaskFilterBarProps {
   filters: TaskFilters
-  onChange: (next: TaskFilters) => void
+  onChange: (next: TaskFilters, opts?: HistoryOptions) => void
   onReset: () => void
   trailing?: ReactNode
 }
@@ -35,7 +36,7 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localSearch !== filters.search) {
-        onChange({ ...filters, search: localSearch })
+        onChange({ ...filters, search: localSearch }, { replace: true })
       }
     }, 300)
     return () => clearTimeout(timer)

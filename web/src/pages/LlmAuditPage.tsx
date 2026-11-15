@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/PageHeader'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { LlmAuditFilterBar } from '@/features/llm-audit/LlmAuditFilterBar'
 import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
 import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
@@ -12,8 +13,9 @@ import { StatChip } from '@/components/StatChip'
 import { catColor } from '@/lib/categoricalColor'
 
 export function LlmAuditPage() {
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  // 打开的调用写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉
+  const [selected, select] = useSelectedParam()
+  const selectedId = selected && Number.isFinite(Number(selected)) ? Number(selected) : null
 
   // 搜索词与筛选/分页同住 URL state（?q=）：刷新、分享链接都能还原完整查询上下文。
   const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
@@ -38,10 +40,7 @@ export function LlmAuditPage() {
 
   const detailQuery = useLlmInvocationDetail(selectedId)
 
-  const openDetail = (row: LLMInvocationSummary) => {
-    setSelectedId(row.id)
-    setDrawerOpen(true)
-  }
+  const openDetail = (row: LLMInvocationSummary) => select(String(row.id))
 
   const rows = searchQueryResult.data?.items ?? []
   const total = searchQueryResult.data?.total ?? 0
@@ -120,12 +119,14 @@ export function LlmAuditPage() {
       </div>
 
       <LlmInvocationDrawer
-        open={drawerOpen}
+        open={selectedId != null}
         detail={detailQuery.data ?? null}
         loading={detailQuery.isPending && selectedId != null}
         error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
         llmTimeoutMs={llmTimeoutMs}
-        onOpenChange={setDrawerOpen}
+        onOpenChange={(open) => {
+          if (!open) select('')
+        }}
       />
     </div>
   )

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ExplorationGraphPage } from './ExplorationGraphPage'
 import { getTaskGraph, type GraphNode } from '@/api/explorationgraph'
@@ -63,12 +63,25 @@ function taskRow(o: Record<string, unknown> = {}) {
   return { id: TASK_ID, goal: '测试商城越权', status: 'completed', source: 'direct', created_at: '2026-11-14T08:30:00', ...o }
 }
 
+function HistoryProbe() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="location">{useLocation().search}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+    </>
+  )
+}
+
 function renderPage(url = '/exploration-graph') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={[url]}>
       <QueryClientProvider client={client}>
         <ExplorationGraphPage />
+        <HistoryProbe />
       </QueryClientProvider>
     </MemoryRouter>,
   )
@@ -112,6 +125,19 @@ describe('ExplorationGraphPage（探索图）', () => {
     expect(mListTasks).not.toHaveBeenCalled()
   })
 
+  // 换选任务是一步导航：后退回到原来的任务
+  it('换选任务后浏览器后退回到原来的任务', async () => {
+    mListTasks.mockResolvedValue({ items: [taskRow({ id: 't-other', goal: '另一个任务' })], total: 1, page: 1, size: 20 })
+    mGraph.mockResolvedValue({ nodes: [], edges: [] })
+    const user = userEvent.setup()
+    renderPage(`/exploration-graph?task=${TASK_ID}`)
+    await user.click(await screen.findByRole('button', { name: /^选择任务：/ }))
+    await user.click(await screen.findByRole('option', { name: /另一个任务/ }))
+    expect(screen.getByTestId('location').textContent).toBe('?task=t-other')
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('location').textContent).toBe(`?task=${TASK_ID}`)
+  })
+
   it('纯聊天对话没有任务，提示没有探索图', async () => {
     renderPage('/exploration-graph?conversation=c-chat')
     expect(await screen.findByText('这个对话是纯聊天，没有任务，也就没有探索图')).toBeTruthy()
@@ -124,7 +150,7 @@ describe('ExplorationGraphPage（探索图）', () => {
     renderPage(`/exploration-graph?task=${TASK_ID}`)
 
     const toolbar = await screen.findByRole('search', { name: '探索图筛选' })
-    expect((await within(toolbar).findByRole('link', { name: '任务' })).getAttribute('href')).toBe(`/tasks?task=${TASK_ID}`)
+    expect((await within(toolbar).findByRole('link', { name: '任务' })).getAttribute('href')).toBe(`/tasks?task=${TASK_ID}&selected=${TASK_ID}`)
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-7')
     expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe(`/findings?task=${TASK_ID}`)
   })

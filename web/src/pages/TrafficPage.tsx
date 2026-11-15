@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/PageHeader'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
+import { useSelectedParam, type HistoryOptions } from '@/hooks/useSelectedParam'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { TrafficFilterBar } from '@/features/traffic/TrafficFilterBar'
 import { TrafficTable } from '@/features/traffic/TrafficTable'
@@ -36,16 +37,22 @@ export function TrafficPage() {
   // host 列只在结果确实跨多个 host 时显示——单 host 时每行重复同值是噪声。
   const showHost = useMemo(() => new Set(rows.map((r) => r.host)).size > 1, [rows])
 
-  // 详情钻取：选中行 id 驱动右栏查询。翻页/换筛选后当前选中若不在本页，右栏保留上次结果直到另选。
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  // 详情钻取：打开的流量写在 URL（?selected=，刷新、跳走再后退都还原），按 id 查详情——
+  // 翻页/换筛选后不在本页也照常显示。
+  const [selected, select] = useSelectedParam()
+  const selectedId = selected && Number.isFinite(Number(selected)) ? Number(selected) : null
   const detailQuery = useTrafficDetail(selectedId)
-  const selectRow = useCallback((row: TrafficSummary) => setSelectedId(row.id), [])
-  const closeDetail = useCallback(() => setSelectedId(null), [])
+  const selectRow = useCallback((row: TrafficSummary) => select(String(row.id)), [select])
+  const closeDetail = useCallback(() => select(''), [select])
+  const selectById = useCallback(
+    (id: number | null, opts?: HistoryOptions) => select(id == null ? '' : String(id), opts),
+    [select],
+  )
   const hasSelection = selectedId != null
 
   // ↑↓ 在当前页内移动选择（列表获焦时）。首次按下且无选中则选中首行。
   // 键盘导航（↑/↓ 移动选中、Esc 清除）——两页同构，抽 useListKeyboardNav
-  const { onListKeyDown } = useListKeyboardNav(rows, selectedId, setSelectedId)
+  const { onListKeyDown } = useListKeyboardNav(rows, selectedId, selectById)
 
   const listError = listQuery.isError ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败') : ''
 
