@@ -387,11 +387,11 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 	claimed, err := t.proxyStore.ClaimUnconsumedByHost(ctx, tk.ID, host, t.agg.batchN())
 	if err != nil {
 		taskLogger.Warn().Err(err).Msg("领取 proxy_traffic 失败，abort 本 task")
-		_ = t.tasks.Abort(ctx, tk.ID, "领取流量失败")
+		_, _ = t.tasks.Abort(ctx, tk.ID, "领取流量失败")
 		return
 	}
 	if claimed == 0 {
-		_ = t.tasks.Abort(ctx, tk.ID, "无未消费流量可分析")
+		_, _ = t.tasks.Abort(ctx, tk.ID, "无未消费流量可分析")
 		return
 	}
 
@@ -404,7 +404,7 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 	goal := ProxyTaskGoal(host, claimedTraffic)
 	if err := t.tasks.SetGoal(ctx, tk.ID, goal); err != nil {
 		taskLogger.Warn().Err(err).Msg("定稿任务目标失败，abort 本 task")
-		_ = t.tasks.Abort(ctx, tk.ID, "定稿任务目标失败")
+		_, _ = t.tasks.Abort(ctx, tk.ID, "定稿任务目标失败")
 		return
 	}
 	conversationID := t.ensureConversation(ctx, taskLogger, tk.ID, host, goal)

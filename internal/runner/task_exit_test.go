@@ -22,8 +22,10 @@ func TestClassifyRunExit(t *testing.T) {
 		want       runExit
 	}{
 		{"自然收敛", nil, nil, "objective_completed", runExitCompleted},
+		// 用户停止时任务行已由停止方写成终态：run 收尾不再写任务行——停止后紧接着在对话里
+		// 续接，任务已被重开，旧 run 迟到的收尾不得把它再终止一次。
 		{"用户停止（任务行已终态）", nil, nil, cognition.StopReasonTerminated, runExitTerminated},
-		{"run 超时（deadline）", context.DeadlineExceeded, nil, "context_cancelled", runExitTerminated},
+		{"run 超时（deadline）", context.DeadlineExceeded, nil, cognition.StopReasonCancelled, runExitTimedOut},
 		{"暂停", nil, nil, cognition.StopReasonPaused, runExitPaused},
 		{"执行出错", nil, errors.New("agent 故障"), "", runExitFailed},
 		{"进程停机：handler ctx 取消", context.Canceled, nil, "context_cancelled", runExitInterrupted},

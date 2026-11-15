@@ -183,7 +183,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 			m.logger.Warn().Str("task_id", z.taskID).
 				Int("attempts", z.attempts).Int("limit", m.maxAttempts).
 				Msg("中断次数达上限，任务落 aborted（请手动重新触发）")
-			if err := m.tasks.Abort(ctx, z.taskID,
+			if _, err := m.tasks.Abort(ctx, z.taskID,
 				"runner 连续中断 "+strconv.Itoa(z.attempts)+" 次，已停止自动恢复；请手动重新下发任务"); err != nil {
 				m.logger.Error().Err(err).Msg("任务落 aborted 失败")
 			}
@@ -243,7 +243,7 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 			m.logger.Warn().Str("task_id", s.taskID).
 				Int("attempts", s.attempts).Int("limit", m.maxAttempts).
 				Msg("中断次数达上限，搁浅任务落 aborted（请手动重新触发）")
-			if err := m.tasks.Abort(ctx, s.taskID,
+			if _, err := m.tasks.Abort(ctx, s.taskID,
 				"runner 连续中断 "+strconv.Itoa(s.attempts)+" 次，已停止自动恢复；请手动重新下发任务"); err != nil {
 				m.logger.Error().Err(err).Msg("任务落 aborted 失败")
 			}

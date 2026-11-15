@@ -24,11 +24,12 @@ var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行�
 // Abort 把 task 推进到 aborted 终态：写 status / ended_at / error_message。
 // 用户主动停 / ctx 取消 / 错误路径共用。
 //
-// 守卫：仅 active 可迁入 aborted（CAS）；已 aborted 幂等返回 nil（并发双写者——
-// 用户停止 vs reaper 判死——先到者赢）；已 completed 是冲突（迟到的 abort 不得
-// 把成功终态改写成 aborted），返回错误但不覆盖。
-func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
-	return s.finish(ctx, id, StatusAborted, nil, `
+// 守卫：仅 active 可迁入 aborted（CAS）；已 aborted 幂等（并发双写者——用户停止 vs
+// 恢复监控判死——先到者赢）；已 completed 是冲突（迟到的 abort 不得把成功终态改写成
+// aborted），返回错误但不覆盖。applied 报告本次是否真正完成了迁移：时间线的终态节点只由
+// 真正迁移的一方落，幂等的重复停止不重复落节点。
+func (s *Store) Abort(ctx context.Context, id, errMsg string) (applied bool, err error) {
+	return s.finishApplied(ctx, id, StatusAborted, nil, `
 		UPDATE task SET
 			status='aborted',
 			ended_at=now(),
@@ -42,7 +43,8 @@ func (s *Store) Abort(ctx context.Context, id, errMsg string) error {
 // 是冲突（迟到的成功收尾不得覆盖用户停止/判死判定），返回错误但不覆盖——
 // 典型时序：用户点停止（api 先 abort）→ runner 循环随后自然收敛，此处被拒。
 func (s *Store) Complete(ctx context.Context, id string) error {
-	return s.finish(ctx, id, StatusCompleted, nil, completeSQL)
+	_, err := s.finishApplied(ctx, id, StatusCompleted, nil, completeSQL)
+	return err
 }
 
 // CompleteConverged 把因规划收敛而结束的 task 置为 completed，前置是收敛依据仍成立
@@ -50,7 +52,7 @@ func (s *Store) Complete(ctx context.Context, id string) error {
 // 动作这些先锁任务行的写入串行。依据失效返回 ErrStaleConvergence，任务保持 active、
 // 图不收口；其余守卫与 Complete 相同。
 func (s *Store) CompleteConverged(ctx context.Context, id string, basis explorationgraph.GoalBasis) error {
-	return s.finish(ctx, id, StatusCompleted, func(tx pgx.Tx) error {
+	_, err := s.finishApplied(ctx, id, StatusCompleted, func(tx pgx.Tx) error {
 		holds, err := explorationgraph.ConvergenceHolds(ctx, tx, id, basis)
 		if err != nil {
 			return err
@@ -60,6 +62,7 @@ func (s *Store) CompleteConverged(ctx context.Context, id string, basis explorat
 		}
 		return nil
 	}, completeSQL)
+	return err
 }
 
 const completeSQL = `
@@ -68,11 +71,12 @@ const completeSQL = `
 			ended_at=now()
 		WHERE id=$1 AND status='active'`
 
-// finish 执行一次 active → 终态的 CAS 迁移，并在同一事务内让任务图收口（见
+// finishApplied 执行一次 active → 终态的 CAS 迁移，并在同一事务内让任务图收口（见
 // explorationgraph.SyncWithTask）：任务结局与图上的收口同时成立。guard 非空时先锁住
 // 任务行（仍 active 才判定），guard 返回错误即整体放弃。CAS 未命中时不改动任何东西，
 // 交 terminalOrConflict 判定幂等或冲突。
-func (s *Store) finish(ctx context.Context, id string, to Status, guard func(pgx.Tx) error, update string, args ...any) error {
+// 返回本次是否真正完成了迁移（已是目标终态的幂等成功为 false）。
+func (s *Store) finishApplied(ctx context.Context, id string, to Status, guard func(pgx.Tx) error, update string, args ...any) (bool, error) {
 	applied := false
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if guard != nil {
@@ -98,12 +102,12 @@ func (s *Store) finish(ctx context.Context, id string, to Status, guard func(pgx
 		return explorationgraph.SyncWithTask(ctx, tx, []string{id}, graphStatus(to))
 	})
 	if err != nil {
-		return fmt.Errorf("task %s 迁入 %s: %w", id, to, err)
+		return false, fmt.Errorf("task %s 迁入 %s: %w", id, to, err)
 	}
 	if !applied {
-		return s.terminalOrConflict(ctx, id, to)
+		return false, s.terminalOrConflict(ctx, id, to)
 	}
-	return nil
+	return true, nil
 }
 
 // graphStatus 把任务状态映射为任务图的生命周期状态。

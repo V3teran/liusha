@@ -34,7 +34,7 @@ func TestGuard_CompleteThenAbortRejected(t *testing.T) {
 	if err := s.Complete(context.Background(), id); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	if err := s.Abort(context.Background(), id, "迟到的停止"); err == nil {
+	if _, err := s.Abort(context.Background(), id, "迟到的停止"); err == nil {
 		t.Fatal("completed 后 Abort 应被拒（不得覆盖成功终态）")
 	}
 	tk, _ := s.GetByID(context.Background(), id)
@@ -49,7 +49,7 @@ func TestGuard_AbortThenCompleteRejected(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
 
-	if err := s.Abort(context.Background(), id, "用户停止"); err != nil {
+	if _, err := s.Abort(context.Background(), id, "用户停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
 	if err := s.Complete(context.Background(), id); err == nil {
@@ -61,16 +61,17 @@ func TestGuard_AbortThenCompleteRejected(t *testing.T) {
 	}
 }
 
-// 幂等：同终态重复迁移返回 nil（并发双写者先到后到不互斥）。
+// 幂等：同终态重复迁移返回 nil（并发双写者先到后到不互斥），只有真正迁移的一方 applied——
+// 时间线终态节点据此只落一次。
 func TestGuard_IdempotentSameTerminal(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
 
-	if err := s.Abort(context.Background(), id, "用户停止"); err != nil {
-		t.Fatalf("abort 1: %v", err)
+	if applied, err := s.Abort(context.Background(), id, "用户停止"); err != nil || !applied {
+		t.Fatalf("abort 1: applied=%v err=%v", applied, err)
 	}
-	if err := s.Abort(context.Background(), id, "reaper 判死"); err != nil {
-		t.Fatalf("abort 2（应幂等）: %v", err)
+	if applied, err := s.Abort(context.Background(), id, "恢复监控判死"); err != nil || applied {
+		t.Fatalf("abort 2 应幂等且不算迁移: applied=%v err=%v", applied, err)
 	}
 	if err := s.Complete(context.Background(), id); err == nil {
 		t.Fatal("aborted 后 Complete 仍应被拒")
@@ -82,7 +83,7 @@ func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
 
-	if err := s.Abort(context.Background(), id, "用户停止"); err != nil {
+	if _, err := s.Abort(context.Background(), id, "用户停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
 	if err := reopen(s, context.Background(), id); err != nil {
@@ -117,7 +118,7 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	}
 
 	// 终态任务：标记不迁移（循环按行观察，终态即退出，不看 paused）。
-	if err := s.Abort(ctx, id, "用户停止"); err != nil {
+	if _, err := s.Abort(ctx, id, "用户停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
 	if changed, err := s.MarkPaused(ctx, id); err != nil || changed {
@@ -129,7 +130,7 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	if _, err := s.MarkPaused(ctx, id2); err != nil {
 		t.Fatalf("pause: %v", err)
 	}
-	if err := s.Abort(ctx, id2, "暂停后停止"); err != nil {
+	if _, err := s.Abort(ctx, id2, "暂停后停止"); err != nil {
 		t.Fatalf("abort: %v", err)
 	}
 	if err := reopen(s, ctx, id2); err != nil {

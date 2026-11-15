@@ -129,7 +129,8 @@ func TestAdjustGoal(t *testing.T) {
 	require.NoError(t, f.svc.AdjustGoal(ctx, f.taskID, tk.Goal))
 	assert.Len(t, f.receipts(t), 1, "内容不变不写回执")
 
-	require.NoError(t, f.svc.Tasks.Abort(ctx, f.taskID, "停止"))
+	_, err = f.svc.Tasks.Abort(ctx, f.taskID, "停止")
+	require.NoError(t, err)
 	assert.ErrorIs(t, f.svc.AdjustGoal(ctx, f.taskID, "迟到的调整"), task.ErrNotActive)
 	assert.Len(t, f.receipts(t), 1)
 }
@@ -157,7 +158,8 @@ func TestAssignAction(t *testing.T) {
 	assert.Equal(t, "复测登录接口的 SQL 注入", receipts[0].Content)
 	assert.Equal(t, id, metaOf(t, receipts[0])["action_id"])
 
-	require.NoError(t, f.svc.Tasks.Abort(ctx, f.taskID, "停止"))
+	_, err = f.svc.Tasks.Abort(ctx, f.taskID, "停止")
+	require.NoError(t, err)
 	_, err = f.svc.AssignAction(ctx, f.taskID, "x", explorationgraph.PriorityHigh)
 	assert.ErrorIs(t, err, task.ErrNotActive)
 }
@@ -183,7 +185,8 @@ func TestRejectAction(t *testing.T) {
 	assert.Len(t, f.receipts(t), 1, "被拒的操作不写回执")
 
 	pending := f.action(t, explorationgraph.StateOpen, explorationgraph.SourcePlanner)
-	require.NoError(t, f.svc.Tasks.Abort(ctx, f.taskID, "停止"))
+	_, err = f.svc.Tasks.Abort(ctx, f.taskID, "停止")
+	require.NoError(t, err)
 	assert.ErrorIs(t, f.svc.RejectAction(ctx, f.taskID, pending, "x"), task.ErrNotActive)
 }
 
@@ -259,4 +262,26 @@ func TestAppendRequirement(t *testing.T) {
 		assert.Equal(t, task.StatusCompleted, tk.Status)
 		assert.Zero(t, f.liveRuns(t))
 	})
+}
+
+// 重复停止（连点、或与恢复监控判死竞争）幂等，时间线只落一个「已停止」节点。
+func TestTerminateTask_RecordsStopOnce(t *testing.T) {
+	f := newSteeringFixture(t)
+	ctx := context.Background()
+	require.NoError(t, f.svc.TerminateTask(ctx, f.taskID))
+	require.NoError(t, f.svc.TerminateTask(ctx, f.taskID))
+
+	msgs, err := f.svc.Conversations.ListMessages(ctx, f.convID, 0, 100)
+	require.NoError(t, err)
+	stops := 0
+	for _, m := range msgs {
+		var md struct {
+			Kind   string `json:"kind"`
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(m.Metadata, &md) == nil && md.Kind == "task_status" && md.Status == conversation.TaskStatusAborted {
+			stops++
+		}
+	}
+	assert.Equal(t, 1, stops)
 }

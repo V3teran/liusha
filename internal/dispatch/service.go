@@ -451,12 +451,13 @@ func (s *Service) ResumeTask(ctx context.Context, taskID string) error {
 
 // TerminateTask 按 taskID 停止（任务页与对话页的「停止」同此入口），两件事一体：
 //  1. task 置 aborted（DB 终态，幂等/守卫见 task.Store.Abort）；
-//  2. 关联会话时间线落 aborted 节点（用户可见的停止边界）。
+//  2. 真正完成迁移时，关联会话时间线落 aborted 节点（用户可见的停止边界；重复停止不重复落）。
 //
 // 运行中的循环由任务行观察停摆（≤一个控制轮询周期）——行状态与 API 响应同事务生效，
 // 没有事件投递失败的停摆缺口。
 func (s *Service) TerminateTask(ctx context.Context, taskID string) error {
-	if err := s.Tasks.Abort(ctx, taskID, "用户手动停止"); err != nil {
+	applied, err := s.Tasks.Abort(ctx, taskID, "用户手动停止")
+	if err != nil || !applied {
 		return err
 	}
 	if convID, err := s.Conversations.ResolveConversationByTask(ctx, taskID); err == nil && convID != "" {
