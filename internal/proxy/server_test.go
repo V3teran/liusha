@@ -6,13 +6,16 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/filter"
@@ -389,4 +392,62 @@ func makeResponse(t *testing.T, method, rawURL string, reqBody []byte, status in
 		Body:       io.NopCloser(bytes.NewReader(respBody)),
 	}
 	return resp
+}
+
+// runProxy 在空闲端口上运行代理，返回经它发请求的客户端。
+func runProxy(t *testing.T) *http.Client {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyAddr := ln.Addr().String()
+	_ = ln.Close()
+	cfg := defaultCfg()
+	srv, err := NewServer(ServerDeps{
+		Filter: filter.NewTrafficFilter(cfg), Publisher: &fakePublisher{}, Cfg: cfg,
+		ListenAddr: proxyAddr, CertDir: t.TempDir(), Source: "external", Logger: zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = srv.Run(ctx) }()
+	proxyURL, _ := url.Parse("http://" + proxyAddr)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 10 * time.Second}
+	for i := 0; i < 50; i++ {
+		c, err := net.Dial("tcp", proxyAddr)
+		if err == nil {
+			_ = c.Close()
+			return client
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("代理未就绪")
+	return nil
+}
+
+// 请求体原样转发（代理不得在转发途中读走或替换它）；Accept-Encoding 去掉 br：快照只解
+// gzip / deflate，brotli 压缩的响应存进快照是乱码。
+func TestServer_ForwardsRequestBodyIntact(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(r.Header.Get("Accept-Encoding") + "|" + string(body)))
+	}))
+	t.Cleanup(backend.Close)
+	client := runProxy(t)
+
+	payload := strings.Repeat("q=<svg/onload=alert(1)>&", 2000)
+	req, _ := http.NewRequest(http.MethodPost, backend.URL+"/form", strings.NewReader(payload))
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	echoed, _ := io.ReadAll(resp.Body)
+	if want := "gzip, deflate|" + payload; string(echoed) != want {
+		t.Fatalf("请求体应原样到达后端、Accept-Encoding 去掉 br，得 %q…", string(echoed)[:min(len(echoed), 80)])
+	}
 }
