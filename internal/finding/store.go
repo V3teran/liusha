@@ -134,15 +134,24 @@ type LedgerRow struct {
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）+ 分页。
 // Limit<=0 时 ListAll 不分页（历史行为，内部调用方/测试用）；handler 层始终传 >0。
 type LedgerFilter struct {
-	TaskID   string // 只看这个任务的漏洞（任务详情、对话跳转用）
-	Host     string
-	Severity string
-	Status   string
-	Source   string // direct / proxy（下发来源）
-	Search   string // 关键词：匹配漏洞摘要、主机、路径与所属任务的目标（包含、大小写不敏感、按字面）
-	Limit    int
-	Offset   int
+	// 范围：只看这个任务 / 这个对话的漏洞（从任务、对话跳来时用；一个任务至多一个对话）
+	TaskID         string
+	ConversationID string
+	Host           string
+	Severity       string
+	Status         string
+	Source         string // direct / proxy（下发来源）
+	Search         string // 关键词：匹配漏洞摘要、主机、路径与所属任务的目标（包含、大小写不敏感、按字面）
+	Limit          int
+	Offset         int
 }
+
+// ledgerFrom 是台账查询共用的 FROM 子句：漏洞经任务带出批次（来源）与对话（跳转、按对话筛选）。
+const ledgerFrom = `
+		FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id
+		LEFT JOIN conversation c ON c.task_id = t.id`
 
 // ledgerWhere 拼 LedgerFilter 的 WHERE 子句（ListAll / CountAll 共用，防筛选口径漂移）。
 func ledgerWhere(f LedgerFilter) (string, []any) {
@@ -156,6 +165,9 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	}
 	if f.TaskID != "" {
 		add("f.task_id = $%d", f.TaskID)
+	}
+	if f.ConversationID != "" {
+		add("c.id = $%d", f.ConversationID)
 	}
 	if f.Host != "" {
 		add("f.host = $%d", f.Host)
@@ -189,11 +201,7 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 // 各自有各自的 triage 处置态，互不影响。台账平铺全部，不折叠。
 func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error) {
 	where, args := ledgerWhere(f)
-	q := `SELECT ` + ledgerCols + `, a.source, COALESCE(c.id::text, '')
-		FROM finding f
-		JOIN task t ON t.id = f.task_id
-		JOIN assignment a ON a.id = t.assignment_id
-		LEFT JOIN conversation c ON c.task_id = t.id` +
+	q := `SELECT ` + ledgerCols + `, a.source, COALESCE(c.id::text, '')` + ledgerFrom +
 		where + " ORDER BY f.seq DESC"
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", f.Limit, f.Offset)
@@ -219,9 +227,7 @@ func (s *Store) ListAll(ctx context.Context, f LedgerFilter) ([]LedgerRow, error
 // CountAll 返回同筛选口径下的全局总行数（分页 total；忽略 Limit/Offset）。
 func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	where, args := ledgerWhere(f)
-	q := `SELECT count(*) FROM finding f
-		JOIN task t ON t.id = f.task_id
-		JOIN assignment a ON a.id = t.assignment_id` + where
+	q := `SELECT count(*)` + ledgerFrom + where
 	var n int
 	if err := s.pool.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count all findings: %w", err)
@@ -240,10 +246,10 @@ type TaskFacet struct {
 
 // TaskFacets 列出有漏洞的任务（任务筛选的选项），按最近一次发现倒序，至多 limit 个，more 报告
 // 是否还有更多（选项须靠 goalQuery 按目标搜索缩小，而不是一次全列出——任务会持续增长）。
-// 按分面惯例，结构化筛选（来源、状态、严重度、主机）照常生效，任务筛选不作用于自身——选中
-// 一个任务时其余任务仍可选；台账关键词搜索针对漏洞本身，不作用于任务选项。
+// 按分面惯例，结构化筛选（来源、状态、严重度、主机）照常生效，范围（任务 / 对话）不作用于
+// 任务选项——限定在一个任务或对话上时其余任务仍可选；台账关键词搜索针对漏洞本身，不作用于任务选项。
 func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter, goalQuery string, limit int) (facets []TaskFacet, more bool, err error) {
-	f.TaskID, f.Search = "", ""
+	f.TaskID, f.ConversationID, f.Search = "", "", ""
 	where, args := ledgerWhere(f)
 	if strings.TrimSpace(goalQuery) != "" {
 		args = append(args, db.ContainsPattern(goalQuery))
@@ -255,10 +261,7 @@ func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter, goalQuery string
 		}
 	}
 	args = append(args, limit+1)
-	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, t.created_at, count(*)
-		FROM finding f
-		JOIN task t ON t.id = f.task_id
-		JOIN assignment a ON a.id = t.assignment_id`+where+`
+	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, t.created_at, count(*)`+ledgerFrom+where+`
 		GROUP BY t.id, t.goal, t.created_at
 		ORDER BY max(f.seq) DESC
 		LIMIT $`+fmt.Sprint(len(args)), args...)
@@ -302,9 +305,7 @@ func (s *Store) StatFiltered(ctx context.Context, f LedgerFilter) (Stat, error) 
 			count(*) FILTER (WHERE f.severity = 'high'),
 			count(*) FILTER (WHERE f.severity = 'medium'),
 			count(*) FILTER (WHERE f.severity = 'low')
-		FROM finding f
-		JOIN task t ON t.id = f.task_id
-		JOIN assignment a ON a.id = t.assignment_id` + where
+` + ledgerFrom + where
 	var st Stat
 	var open, confirmed, critical, high, medium, low int
 	if err := s.pool.QueryRow(ctx, q, args...).
