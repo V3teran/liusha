@@ -227,3 +227,25 @@ func TestSummaryScheduleLink(t *testing.T) {
 		}
 	}
 }
+
+// 搜索词里的 % _ 按字面匹配：搜「user_id」不应命中「userXid」。
+func TestListFilteredSearchIsLiteral(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg := mkAssignment(t, assignments, ctx, "x")
+	for _, goal := range []string{"测试 user_id 参数", "测试 userXid 参数", "折扣 100% 的接口"} {
+		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: goal}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for q, want := range map[string]int{"user_id": 1, "100%": 1, "测试": 2} {
+		n, err := tasks.CountFiltered(ctx, ListFilter{Search: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Errorf("搜索 %q 命中 %d 条，期望 %d", q, n, want)
+		}
+	}
+}
+

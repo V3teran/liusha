@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -209,12 +210,20 @@ const summarySelect = `
 	(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 	t.created_at, t.ended_at`
 
+// searchArg 把搜索框输入转成「包含」模式（元字符按字面匹配）；空输入保持空串，筛选子句据此不筛。
+func searchArg(q string) string {
+	if strings.TrimSpace(q) == "" {
+		return ""
+	}
+	return db.ContainsPattern(q)
+}
+
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
 // $4 since / $5 until）。since/until 传 NULL 表示不筛该端。
 const summaryWhere = `
 	WHERE ($1 = '' OR a.source = $1)
 	  AND ($2 = '' OR t.status = $2)
-	  AND ($3 = '' OR t.goal ILIKE '%' || $3 || '%' OR t.assignment_id::text ILIKE '%' || $3 || '%')
+	  AND ($3 = '' OR t.goal ILIKE $3 OR t.assignment_id::text ILIKE $3)
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
 	  AND ($5::timestamptz IS NULL OR t.created_at <= $5)`
 
@@ -253,7 +262,7 @@ func (s *Store) ListFiltered(ctx context.Context, f ListFilter) ([]Summary, erro
 		LEFT JOIN cron_schedule cs ON cs.id = a.schedule_id
 		LEFT JOIN conversation c ON c.task_id = t.id`+summaryWhere+`
 		ORDER BY t.created_at DESC, t.id LIMIT $6 OFFSET $7`,
-		f.Source, f.Status, f.Search, timeArg(f.Since), timeArg(f.Until), f.Limit, f.Offset)
+		f.Source, f.Status, searchArg(f.Search), timeArg(f.Since), timeArg(f.Until), f.Limit, f.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks filtered: %w", err)
 	}
@@ -275,7 +284,7 @@ func (s *Store) CountFiltered(ctx context.Context, f ListFilter) (int, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM task t
 		JOIN assignment a ON a.id = t.assignment_id`+summaryWhere,
-		f.Source, f.Status, f.Search, timeArg(f.Since), timeArg(f.Until)).Scan(&n)
+		f.Source, f.Status, searchArg(f.Search), timeArg(f.Since), timeArg(f.Until)).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count tasks filtered: %w", err)
 	}
