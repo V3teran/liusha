@@ -10,9 +10,10 @@ import { sourceColor, sourceLabel } from '@/lib/source'
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
-// 确认弹层里的任务指称：省略号只在真截断时出现——短目标带「…」是误导。
-export function goalHead(goal: string): string {
-  return goal.length > 24 ? `${goal.slice(0, 24)}…` : goal
+// 任务目标的单行指称（确认弹层、下拉选项）：省略号只在真截断时出现——短目标带「…」是误导。
+// 缺省 24 字适合句中指称；下拉展开时有富余宽度，可放宽以保留区分度。
+export function goalHead(goal: string, max = 24): string {
+  return goal.length > max ? `${goal.slice(0, max)}…` : goal
 }
 
 // 任务表列定义（对齐 trafficColumns 的对齐体系：数值/时间列表头与值同靠右，文本/徽章列靠左）。
