@@ -164,7 +164,7 @@ func findingJSON(r finding.LedgerRow) gin.H {
 }
 
 // findingTaskFacetsHandler 处理 GET /findings/tasks?host=&severity=&status=&source=：
-// 台账「任务」筛选的选项——有漏洞的任务（目标与漏洞数），其它筛选照常生效。
+// 台账「任务」筛选的选项——有漏洞的任务（目标、创建时间与漏洞数），其它筛选照常生效。
 func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		f, ok := ledgerFilterParams(c)
@@ -178,7 +178,7 @@ func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 		}
 		out := make([]gin.H, 0, len(facets))
 		for _, fc := range facets {
-			out = append(out, gin.H{"id": fc.TaskID, "goal": fc.Goal, "count": fc.Count})
+			out = append(out, gin.H{"id": fc.TaskID, "goal": fc.Goal, "created_at": fc.CreatedAt, "count": fc.Count})
 		}
 		c.JSON(http.StatusOK, gin.H{"tasks": out})
 	}

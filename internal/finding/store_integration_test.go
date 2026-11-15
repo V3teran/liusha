@@ -201,6 +201,7 @@ func TestLedger_TaskFacets(t *testing.T) {
 	assert.Equal(t, older, facets[1].TaskID)
 	assert.Equal(t, 2, facets[1].Count)
 	assert.Equal(t, "test", facets[1].Goal)
+	assert.False(t, facets[1].CreatedAt.IsZero(), "目标相同的任务靠创建时间区分")
 
 	critical, err := store.TaskFacets(ctx, finding.LedgerFilter{Severity: "critical"})
 	require.NoError(t, err)

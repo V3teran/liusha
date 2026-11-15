@@ -9,6 +9,7 @@ import {
   humanDuration,
   humanTokens,
   relativeTime,
+  shortDateTime,
 } from './format'
 
 describe('format', () => {
@@ -129,5 +130,13 @@ describe('format', () => {
     it('空串返回空串', () => {
       expect(relativeTime('')).toBe('')
     })
+  })
+})
+
+describe('shortDateTime', () => {
+  it('MM-DD HH:MM（本地时区），无效输入为空串', () => {
+    expect(shortDateTime('2026-11-14T06:49:30')).toBe('11-14 06:49')
+    expect(shortDateTime('')).toBe('')
+    expect(shortDateTime('not-a-date')).toBe('')
   })
 })
