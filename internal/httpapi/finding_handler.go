@@ -20,6 +20,7 @@ type FindingsAPI interface {
 	ListAll(ctx context.Context, f finding.LedgerFilter) ([]finding.LedgerRow, error)
 	StatFiltered(ctx context.Context, f finding.LedgerFilter) (finding.Stat, error)
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
+	GetLedgerRow(ctx context.Context, id string) (finding.LedgerRow, error)
 	TaskFacets(ctx context.Context, f finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.Finding, error)
 }
@@ -103,6 +104,19 @@ func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 			out = append(out, findingJSON(r))
 		}
 		c.JSON(http.StatusOK, gin.H{"total": total, "page": page, "size": size, "findings": out})
+	}
+}
+
+// getFindingHandler 处理 GET /findings/:id：单条漏洞，与列表行同形状（漏洞详情按 ID 打开——
+// 不在当前页、刷新、后退回来时用）。不存在 404。
+func getFindingHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		row, err := api.GetLedgerRow(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, findingJSON(row))
 	}
 }
 

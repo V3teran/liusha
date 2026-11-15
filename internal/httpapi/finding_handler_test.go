@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/finding"
 )
@@ -37,6 +40,42 @@ func (f *fakeFindings) StatFiltered(_ context.Context, fl finding.LedgerFilter) 
 
 func (f *fakeFindings) CountAll(_ context.Context, _ finding.LedgerFilter) (int, error) {
 	return len(f.rows), nil
+}
+
+func (f *fakeFindings) GetLedgerRow(_ context.Context, id string) (finding.LedgerRow, error) {
+	for _, r := range f.rows {
+		if r.ID == id {
+			return r, nil
+		}
+	}
+	return finding.LedgerRow{}, fmt.Errorf("get finding %s: %w", id, pgx.ErrNoRows)
+}
+
+// 单条漏洞：与列表行同形状；不存在 404，非法 ID 400；不与 /findings/stat、/findings/tasks 冲突。
+func TestFindings_GetOne(t *testing.T) {
+	const id = "99999999-9999-4999-8999-999999999999"
+	fk := &fakeFindings{rows: []finding.LedgerRow{{Finding: finding.Finding{ID: id, Host: "t.local", Summary: "XSS", Severity: "high"}, Source: "direct"}}}
+	srv := newTestServer(t, Deps{Findings: fk})
+	defer srv.Close()
+
+	resp := doReq(t, "GET", srv.URL+"/api/findings/"+id, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	var body map[string]any
+	decode(t, resp, &body)
+	if body["id"] != id || body["summary"] != "XSS" || body["source"] != "direct" {
+		t.Fatalf("应与列表行同形状，得 %v", body)
+	}
+	if r := doReq(t, "GET", srv.URL+"/api/findings/88888888-8888-4888-8888-888888888888", ""); r.StatusCode != 404 {
+		t.Fatalf("不存在应 404，得 %d", r.StatusCode)
+	}
+	if r := doReq(t, "GET", srv.URL+"/api/findings/x", ""); r.StatusCode != 400 {
+		t.Fatalf("非法 ID 应 400，得 %d", r.StatusCode)
+	}
+	if r := doReq(t, "GET", srv.URL+"/api/findings/stat", ""); r.StatusCode != 200 {
+		t.Fatalf("/findings/stat 不应被单条路由吞掉，得 %d", r.StatusCode)
+	}
 }
 
 func (f *fakeFindings) UpdateTriage(_ context.Context, _, _, _, _ string) (finding.Finding, error) {

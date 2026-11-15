@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,6 +209,28 @@ func TestLedger_FilterByConversation(t *testing.T) {
 	facets, _, err := store.TaskFacets(ctx, f, "", 10)
 	require.NoError(t, err)
 	assert.Len(t, facets, 2, "任务分面不受范围限制")
+}
+
+// 单条台账行：漏洞详情按 ID 打开（不在当前页、刷新、后退回来时用），与列表行同形状；
+// 不存在包裹 pgx.ErrNoRows。
+func TestLedger_GetRow(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	taskID := seedTask(t, pool, dbtest.SeedAssignment(t, pool))
+	var conv string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('c', $1) RETURNING id`, taskID).Scan(&conv))
+	saved, err := store.Save(ctx, finding.Finding{TaskID: taskID, Host: "t.local", Summary: "XSS", Severity: "high"})
+	require.NoError(t, err)
+
+	row, err := store.GetLedgerRow(ctx, saved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, saved.ID, row.ID)
+	assert.Equal(t, "direct", row.Source)
+	assert.Equal(t, conv, row.ConversationID)
+
+	_, err = store.GetLedgerRow(ctx, "88888888-8888-4888-8888-888888888888")
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 // 任务分面：只列有漏洞的任务（带目标与漏洞数），按最近一次发现倒序；其它筛选照常生效，

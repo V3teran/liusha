@@ -191,6 +191,17 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
+// GetLedgerRow 取单条台账行（与 ListAll 同形状，漏洞详情按 ID 打开用）。不存在返回包裹
+// pgx.ErrNoRows 的错误。
+func (s *Store) GetLedgerRow(ctx context.Context, id string) (LedgerRow, error) {
+	row := s.pool.QueryRow(ctx, `SELECT `+ledgerCols+`, a.source, COALESCE(c.id::text, '')`+ledgerFrom+` WHERE f.id = $1`, id)
+	var r LedgerRow
+	if err := scanLedger(row, &r); err != nil {
+		return LedgerRow{}, fmt.Errorf("get finding %s: %w", id, err)
+	}
+	return r, nil
+}
+
 // ListAll 全局漏洞台账查询：跨任务 / 主机平铺列出漏洞，JOIN task/assignment/conversation 带出来源与所属会话，按可选维度筛选。
 //
 // 不指定任务时跨任务一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
