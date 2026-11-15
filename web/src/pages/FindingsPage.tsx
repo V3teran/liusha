@@ -18,6 +18,12 @@ import { useFindingList, useFindingTaskFacets } from '@/features/finding/useFind
 import { SOURCE_OPTIONS } from '@/lib/source'
 import { useTaskDetail } from '@/features/tasks/useTaskQueries'
 import { goalHead } from '@/features/tasks/taskColumns'
+import { shortDateTime } from '@/lib/format'
+
+/** 「任务」下拉的选项文案：目标摘要 · 创建时间（漏洞数）。同一目标常被反复下发，靠时间区分。 */
+function taskOptionLabel(t: { goal: string; created_at: string; count: number }): string {
+  return `${goalHead(t.goal.replace(/\s+/g, ' '))} · ${shortDateTime(t.created_at)}（${t.count}）`
+}
 
 /**
  * FindingsPage - 漏洞管理页面（平铺台账）
@@ -211,12 +217,12 @@ export function FindingsPage() {
           <option value="">全部任务</option>
           {selectedMissing && (
             <option value={filters.task}>
-              {selectedTask.data ? goalHead(selectedTask.data.goal) : '所选任务'}（0）
+              {selectedTask.data ? taskOptionLabel({ ...selectedTask.data, count: 0 }) : '所选任务（0）'}
             </option>
           )}
           {facets.map((t) => (
             <option key={t.id} value={t.id}>
-              {goalHead(t.goal)}（{t.count}）
+              {taskOptionLabel(t)}
             </option>
           ))}
         </Select>

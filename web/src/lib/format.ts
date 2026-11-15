@@ -11,10 +11,15 @@ export function clockTime(iso: string): string {
 }
 
 /**
- * 紧凑日期时间 MM-DD HH:MM:SS（表格时刻列用）。
- * 省年份而非省日期：审计表内跨天是真实情形（实测有 task 从 7/17 跨到 7/18），
- * 只显时分秒会让时序误读；年份则可由悬停 fullTime 补足。
+ * 紧凑日期时间 MM-DD HH:MM：在同名对象之间作区分（如目标相同的任务）。省年份不省日期——
+ * 跨天是常态，只显时分会误读；年份由悬停 fullTime 补足。无效输入返回空串。
  */
+export function shortDateTime(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 /** 完整日期 YYYY-MM-DD（审计表时刻列首行用，年份不再藏进悬停）。 */
 export function dateOnly(iso: string): string {

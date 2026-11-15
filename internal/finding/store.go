@@ -224,11 +224,13 @@ func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	return n, nil
 }
 
-// TaskFacet 是台账「任务」筛选的一个选项：有漏洞的任务及其漏洞数。
+// TaskFacet 是台账「任务」筛选的一个选项：有漏洞的任务及其漏洞数。同一目标常被反复下发，
+// 目标相同的任务靠创建时间区分。
 type TaskFacet struct {
-	TaskID string
-	Goal   string
-	Count  int
+	TaskID    string
+	Goal      string
+	CreatedAt time.Time
+	Count     int
 }
 
 // TaskFacets 列出有漏洞的任务（任务筛选的选项），按最近一次发现倒序。按分面惯例，其它
@@ -236,11 +238,11 @@ type TaskFacet struct {
 func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter) ([]TaskFacet, error) {
 	f.TaskID = ""
 	where, args := ledgerWhere(f)
-	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, count(*)
+	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, t.created_at, count(*)
 		FROM finding f
 		JOIN task t ON t.id = f.task_id
 		JOIN assignment a ON a.id = t.assignment_id`+where+`
-		GROUP BY t.id, t.goal
+		GROUP BY t.id, t.goal, t.created_at
 		ORDER BY max(f.seq) DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("finding task facets: %w", err)
@@ -249,7 +251,7 @@ func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter) ([]TaskFacet, er
 	out := []TaskFacet{}
 	for rows.Next() {
 		var fc TaskFacet
-		if err := rows.Scan(&fc.TaskID, &fc.Goal, &fc.Count); err != nil {
+		if err := rows.Scan(&fc.TaskID, &fc.Goal, &fc.CreatedAt, &fc.Count); err != nil {
 			return nil, fmt.Errorf("scan task facet: %w", err)
 		}
 		out = append(out, fc)

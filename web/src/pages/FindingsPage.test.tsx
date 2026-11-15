@@ -12,13 +12,13 @@ vi.mock('@/api/findings', () => ({
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),
   getFindingTaskFacets: vi.fn(async () => [
-    { id: 't-9', goal: '对 http://target 做 XSS 测试', count: 2 },
-    { id: 't-8', goal: '对 http://other 做注入测试', count: 1 },
+    { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
+    { id: 't-8', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-13T21:05:00', count: 1 },
   ]),
 }))
 
 vi.mock('@/api/tasks', () => ({
-  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '已没有匹配漏洞的任务' })),
+  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '已没有匹配漏洞的任务', created_at: '2026-11-12T08:00:00' })),
 }))
 
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
@@ -305,7 +305,9 @@ describe('FindingsPage 任务筛选', () => {
     renderPage('/findings?task=t-9')
     const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
     await waitFor(() => expect(select.value).toBe('t-9'))
-    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试（2）' })).toBeTruthy()
+    // 目标相同的任务靠创建时间区分
+    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试 · 11-14 06:49（2）' })).toBeTruthy()
+    expect(within(select).getByRole('option', { name: '对 http://target 做 XSS 测试 · 11-13 21:05（1）' })).toBeTruthy()
     expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
     expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
     // 选项不受任务筛选自身影响
@@ -318,7 +320,7 @@ describe('FindingsPage 任务筛选', () => {
   it('所选任务在其它筛选下没有漏洞时仍显示为选中项（数量 0）', async () => {
     renderPage('/findings?task=t-404')
     const select = (await screen.findByRole('combobox', { name: '按任务筛选' })) as HTMLSelectElement
-    await waitFor(() => expect(within(select).getByRole('option', { name: /（0）$/ })).toBeTruthy())
+    await waitFor(() => expect(within(select).getByRole('option', { name: '已没有匹配漏洞的任务 · 11-12 08:00（0）' })).toBeTruthy())
     expect(select.value).toBe('t-404')
   })
 })

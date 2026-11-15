@@ -448,6 +448,7 @@ export interface FindingFilters {
 export interface FindingTaskFacet {
   id: string
   goal: string
+  created_at: string // 任务创建时间：同一目标常被反复下发，目标相同的任务靠它区分
   count: number // 当前其它筛选下该任务的漏洞数
 }
 
