@@ -247,17 +247,27 @@ func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logge
 // appendTaskStatus 落任务生命周期节点并广播 SSE（会话任务专用；无会话纯后台
 // 扫描跳过）。best-effort——失败仅告警，不影响状态迁移本体。
 func (h *Handler) appendTaskStatus(ctx context.Context, taskLogger zerolog.Logger, conversationID, status, summary string, fields map[string]any) {
-	if conversationID == "" {
+	appendTaskStatus(ctx, h.Conversations, h.EventPublisher, taskLogger, conversationID, status, summary, fields)
+}
+
+// appendTaskStatus 是 runner 内落任务状态节点的唯一实现（run 收尾与恢复监控共用）。
+func appendTaskStatus(ctx context.Context, convs *conversation.Store, pub messagePublisher, logger zerolog.Logger,
+	conversationID, status, summary string, fields map[string]any) {
+	if conversationID == "" || convs == nil {
 		return
 	}
-	msg, err := h.Conversations.AppendMessage(ctx, conversationID,
+	msg, err := convs.AppendMessage(ctx, conversationID,
 		conversation.RoleAssistant, conversation.KindEvent,
 		summary, conversation.TaskStatusMeta(status, fields))
 	if err != nil {
-		taskLogger.Warn().Err(err).Str("conv", conversationID).Str("status", status).Msg("任务状态节点落库失败")
+		logger.Warn().Err(err).Str("conv", conversationID).Str("status", status).Msg("任务状态节点落库失败")
 		return
 	}
-	_ = h.EventPublisher.PublishMessage(ctx, conversationID, msg)
+	if pub != nil {
+		if err := pub.PublishMessage(ctx, conversationID, msg); err != nil {
+			logger.Warn().Err(err).Str("conv", conversationID).Msg("任务状态节点广播失败（已落库，重连补历史可见）")
+		}
+	}
 }
 
 // findingsCount 数 task 的 finding（completed 节点报告字段；读失败返回 -1 缺省隐藏）。

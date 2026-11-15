@@ -241,7 +241,7 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 ) {
 	runnerCfg := cfg.Runner
 	// 僵尸 run 回收与搁浅任务重投。
-	runner.StartRunRecoveryMonitor(ctx, pool, wc, st.agentRuns, st.tasks, logger,
+	runner.StartRunRecoveryMonitor(ctx, pool, wc, st.agentRuns, st.tasks, st.conversations, convstream.NewPublisher(rdb), logger,
 		time.Duration(runnerCfg.RunRecoveryIntervalSeconds)*time.Second,
 		time.Duration(runnerCfg.RunRecoveryTimeoutSeconds)*time.Second,
 		runnerCfg.RunRecoveryMaxAttempts)
