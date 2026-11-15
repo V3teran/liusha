@@ -550,10 +550,9 @@ export interface TrafficSummary {
 // TrafficConsumer 是消费本条流量的代理捕获 task（M:N），附解析出的会话 id 供 chip 跳转。
 export interface TrafficConsumer {
   task_id: string
-  
   host: string
-  status: string
-  conv_id: string // 绑定会话；空表示暂不可跳
+  status: string // 任务状态 active / completed / aborted
+  conversation_id: string // 任务的对话；空表示没有对话（不可跳）
 }
 // TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。

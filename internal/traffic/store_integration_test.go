@@ -125,13 +125,30 @@ func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 		t.Fatalf("排序应按 captured_at 升序: %+v", list)
 	}
 
-	// GetByID 的 ConsumedBy 应含本 task。
+	// GetByID 的 ConsumedBy 应含本 task；还没有对话时对话 ID 为空。
 	got, err := s.GetByID(ctx, firstID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 	if !consumedByTaskID(got.ConsumedBy, taskID) {
 		t.Fatalf("ConsumedBy 应含 task %q, got %+v", taskID, got.ConsumedBy)
+	}
+	if got.ConsumedBy[0].ConversationID != "" {
+		t.Fatalf("没有对话时对话 ID 应为空，得 %q", got.ConsumedBy[0].ConversationID)
+	}
+
+	// 消费任务连同它的对话 ID 一次查出（详情 chip 据此跳转），不逐个反查。
+	var convID string
+	if err := pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('test.example.com', $1) RETURNING id`,
+		taskID).Scan(&convID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetByID(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ConsumedBy[0].ConversationID != convID {
+		t.Fatalf("消费任务应带出对话 ID %q，得 %+v", convID, got.ConsumedBy)
 	}
 }
 

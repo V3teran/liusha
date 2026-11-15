@@ -131,7 +131,7 @@ func registerTrafficRoutes(r gin.IRouter, d Deps) {
 	// 静态段（/hosts、/content-types）须先于 /traffic/:id 注册避免冲突
 	r.GET("/traffic", listTrafficHandler(d.Traffic))
 	r.GET("/traffic/content-types", trafficContentTypesHandler(d.Traffic))
-	r.GET("/traffic/:id", trafficDetailHandler(d.Traffic, d.TrafficConv))
+	r.GET("/traffic/:id", trafficDetailHandler(d.Traffic))
 }
 
 // registerToolCatalogRoutes 注册工具目录路由
