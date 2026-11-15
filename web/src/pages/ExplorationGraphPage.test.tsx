@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -118,12 +118,13 @@ describe('ExplorationGraphPage（探索图）', () => {
     expect(mGraph).not.toHaveBeenCalled()
   })
 
-  it('页头带这个任务的任务、对话、漏洞跳转', async () => {
+  it('任务选择框旁带这个任务的任务、对话、漏洞跳转（属于选中的任务，不在页头）', async () => {
     mGetTask.mockImplementation(async (id: string) => taskRow({ id, conversation_id: 'c-7', finding_count: 3 }))
     mGraph.mockResolvedValue({ nodes: [], edges: [] })
     renderPage(`/exploration-graph?task=${TASK_ID}`)
 
-    expect((await screen.findByRole('link', { name: '任务' })).getAttribute('href')).toBe(`/tasks?task=${TASK_ID}`)
+    const toolbar = await screen.findByRole('search', { name: '探索图筛选' })
+    expect((await within(toolbar).findByRole('link', { name: '任务' })).getAttribute('href')).toBe(`/tasks?task=${TASK_ID}`)
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-7')
     expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe(`/findings?task=${TASK_ID}`)
   })

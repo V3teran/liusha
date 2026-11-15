@@ -464,7 +464,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             conv={menuConv}
             style={menuStyle}
             deleting={deleting}
-            onClose={() => setMenuOpen('')}
             onRename={startRename}
             onDelete={onDelete}
           />

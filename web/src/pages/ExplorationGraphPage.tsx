@@ -88,14 +88,15 @@ export function ExplorationGraphPage() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成">
-        {taskId ? <TaskJumpLinks taskId={taskId} targets={['task', 'conversation', 'findings']} /> : null}
-      </PageHeader>
+      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
 
       <Toolbar
         scopeId={scope?.id ?? ''}
         scopeLabel={scopeLabel}
         onTaskChange={selectTask}
+        scopeJumps={
+          taskId ? <TaskJumpLinks taskId={taskId} size="sm" targets={['task', 'conversation', 'findings']} /> : null
+        }
         disabled={loading}
         refreshing={graphQuery.isFetching}
         onRefresh={refresh}
