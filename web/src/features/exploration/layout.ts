@@ -15,7 +15,7 @@
 
 import dagre from '@dagrejs/dagre'
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react'
-import type { ConversationGraph, GraphNode, Verification } from '@/api/explorationgraph'
+import type { ExplorationGraph, GraphNode, Verification } from '@/api/explorationgraph'
 
 export const NODE_WIDTH = 264
 export const NODE_HEIGHT = 104 // h-26
@@ -48,7 +48,7 @@ export const EDGE_COLORS = {
 } as const
 
 export function buildFlowGraph(
-  graph: ConversationGraph,
+  graph: ExplorationGraph,
   filterKind: string,
   filterState: string,
   verificationsByNode: Map<string, Verification>,

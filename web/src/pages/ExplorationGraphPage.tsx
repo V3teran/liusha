@@ -2,45 +2,44 @@ import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AlertCircle, Info } from 'lucide-react'
-import { useConversationGraph, useConversationVerifications, useLatestConversationId } from '@/features/exploration/useExplorationQueries'
+import { useLatestTaskId, useTaskGraph, useTaskVerifications } from '@/features/exploration/useExplorationQueries'
 import { applyFocus, buildFlowGraph, type GraphStats } from '@/features/exploration/layout'
 import { GraphCanvas } from '@/features/exploration/GraphCanvas'
 import { Toolbar } from '@/features/exploration/Toolbar'
 import { NodeDetailPanel } from '@/features/exploration/NodeDetailPanel'
 import type { Verification } from '@/api/explorationgraph'
-import { useQuery } from '@tanstack/react-query'
-import { getConversation } from '@/api/conversations'
+import { useTaskDetail } from '@/features/tasks/useTaskQueries'
 
 const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
 
 /**
  * ExplorationGraphPage - 探索图可视化页面（薄组装层）。
  * 数据取数在 useExplorationQueries，图构建/布局/聚焦在 layout.ts，
- * 画布渲染在 GraphCanvas；conversationId 以 URL 为单一事实源。
+ * 画布渲染在 GraphCanvas。探索图属于任务：taskId 以 URL（?task=）为单一事实源。
  */
 export function ExplorationGraphPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const conversationId = searchParams.get('conversation_id') || ''
-  // 仅挂载时缺 id 才自动解析最新会话：用户清空输入框后不应再抢跑回填
-  const shouldResolveLatest = useRef(!searchParams.get('conversation_id')).current
+  const taskId = searchParams.get('task') || ''
+  // 仅挂载时缺 id 才自动解析最新任务：用户清空选择后不应再抢跑回填
+  const shouldResolveLatest = useRef(!searchParams.get('task')).current
 
-  const latestQuery = useLatestConversationId(shouldResolveLatest)
+  const latestQuery = useLatestTaskId(shouldResolveLatest)
   useEffect(() => {
     const id = latestQuery.data
-    if (!shouldResolveLatest || conversationId || !id) return
+    if (!shouldResolveLatest || taskId || !id) return
     setSearchParams(
       (prev) => {
-        if (prev.get('conversation_id')) return prev
+        if (prev.get('task')) return prev
         const p = new URLSearchParams(prev)
-        p.set('conversation_id', id)
+        p.set('task', id)
         return p
       },
       { replace: true },
     )
-  }, [latestQuery.data, conversationId, shouldResolveLatest, setSearchParams])
+  }, [latestQuery.data, taskId, shouldResolveLatest, setSearchParams])
 
-  const graphQuery = useConversationGraph(conversationId)
-  const verifQuery = useConversationVerifications(conversationId)
+  const graphQuery = useTaskGraph(taskId)
+  const verifQuery = useTaskVerifications(taskId)
   const graph = graphQuery.data
 
   // node_id → 最新一条判定记录（时间倒序，首条即最新）
@@ -55,16 +54,11 @@ export function ExplorationGraphPage() {
   const [filterKind, setFilterKind] = useState('all')
   const [filterState, setFilterState] = useState('all')
   const [selectedNodeId, setSelectedNodeId] = useState('')
-  useEffect(() => setSelectedNodeId(''), [conversationId])
+  useEffect(() => setSelectedNodeId(''), [taskId])
 
-  // 选中对话的标题（选择框显示用）
-  const conversationQuery = useQuery({
-    queryKey: ['exploration', 'conversation', conversationId],
-    queryFn: () => getConversation(conversationId),
-    enabled: conversationId !== '',
-    retry: false,
-  })
-  const selectConversation = (id: string) => setSearchParams(id ? { conversation_id: id } : {}, { replace: true })
+  // 选中任务的目标（选择框显示用）
+  const taskQuery = useTaskDetail(taskId || null)
+  const selectTask = (id: string) => setSearchParams(id ? { task: id } : {}, { replace: true })
 
   const flow = useMemo(
     () => (graph ? buildFlowGraph(graph, filterKind, filterState, verificationsByNode) : { nodes: [], edges: [], stats: EMPTY_STATS }),
@@ -73,15 +67,15 @@ export function ExplorationGraphPage() {
   const view = useMemo(() => applyFocus(flow, selectedNodeId), [flow, selectedNodeId])
 
   const refresh = () => {
-    if (!conversationId) return
+    if (!taskId) return
     void graphQuery.refetch()
     void verifQuery.refetch()
   }
 
-  const resolvingLatest = shouldResolveLatest && !conversationId && latestQuery.isPending
-  const loading = conversationId !== '' && graphQuery.isPending
+  const resolvingLatest = shouldResolveLatest && !taskId && latestQuery.isPending
+  const loading = taskId !== '' && graphQuery.isPending
   const error =
-    conversationId !== '' && graphQuery.isError
+    taskId !== '' && graphQuery.isError
       ? graphQuery.error instanceof Error
         ? graphQuery.error.message
         : '加载失败'
@@ -94,9 +88,9 @@ export function ExplorationGraphPage() {
       <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
 
       <Toolbar
-        conversationId={conversationId}
-        conversationLabel={conversationQuery.data ? conversationQuery.data.title || conversationQuery.data.id : undefined}
-        onConversationChange={selectConversation}
+        taskId={taskId}
+        taskLabel={taskQuery.data?.goal}
+        onTaskChange={selectTask}
         disabled={loading}
         refreshing={graphQuery.isFetching}
         onRefresh={refresh}
@@ -114,7 +108,7 @@ export function ExplorationGraphPage() {
           <div className="flex h-full flex-col items-center justify-center gap-4">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-accent border-t-transparent" />
             <span className="font-mono text-sm text-text-secondary terminal-cursor">
-              {resolvingLatest ? '定位最新会话' : '加载中'}
+              {resolvingLatest ? '定位最新任务' : '加载中'}
             </span>
           </div>
         ) : error ? (
@@ -124,7 +118,7 @@ export function ExplorationGraphPage() {
             </div>
             <div className="text-lg font-medium text-status-error">{error}</div>
             <div className="max-w-md text-center text-sm text-text-secondary">
-              对话不存在或已删除，请在上方重新选择对话
+              任务不存在或已删除，请在上方重新选择任务
             </div>
           </div>
         ) : !hasGraph ? (
@@ -135,12 +129,12 @@ export function ExplorationGraphPage() {
               </div>
               <div className="mb-2 text-lg font-medium text-text">暂无数据</div>
               <div className="text-sm">
-                {conversationId ? '这个对话还没有探索图（任务尚未开始规划，或是纯聊天对话）' : '在上方选择一个对话，查看它的探索图'}
+                {taskId ? '这个任务还没有探索图（尚未开始规划）' : '在上方选择一个任务，查看它的探索图'}
               </div>
             </div>
           </div>
         ) : (
-          <GraphCanvas nodes={view.nodes} edges={view.edges} resetKey={conversationId} onNodeClick={setSelectedNodeId} />
+          <GraphCanvas nodes={view.nodes} edges={view.edges} resetKey={taskId} onNodeClick={setSelectedNodeId} />
         )}
         {selectedNode && (
           <NodeDetailPanel

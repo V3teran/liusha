@@ -21,6 +21,17 @@ describe('ConvMenu', () => {
     expect(screen.getByRole('link', { name: /漏洞/ }).getAttribute('href')).toBe('/findings?task=t-1')
   })
 
+  it('探索图跳到这个会话所属任务的探索图', () => {
+    renderMenu(conv({}))
+    expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+  })
+
+  it('纯聊天会话（没有任务）没有任务与探索图入口', () => {
+    renderMenu(conv({ task_id: '' }))
+    expect(screen.queryByRole('link', { name: /探索图/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /任务/ })).toBeNull()
+  })
+
   it('没有关联任务或没有漏洞的会话没有漏洞入口（无洞不跳）', () => {
     renderMenu(conv({ task_id: '' }))
     expect(screen.queryByRole('link', { name: /漏洞/ })).toBeNull()

@@ -108,10 +108,11 @@ type Deps struct {
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
 	// （工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgstore 读（read_skill）。
 	SkillStore SkillAPI
-	// ExplorationGraph 为 nil 时探索图 API 路由（/tasks/:id/graph|nodes|stats）不注册。
-	// Phase 1: 探索图 API（e2e 测试迁移专用）。
+	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
+	// TaskReader 读任务行，任务名下资源（探索图）据此判定任务存在；注入 *task.Store。
+	TaskReader TaskReader
 	// Tasks 为 nil 时任务模块读路由（GET /tasks 系列）不注册。
 	// 由 api 组件注入 *task.Store（自动满足 TasksAPI 窄接口）——列表/详情
 	// JOIN assignment（来源/批次）、conversation（对话链接）、finding/探索图步数派生列。

@@ -87,36 +87,30 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
           </div>
         ) : task ? (
           <div className="flex flex-col gap-5">
-            {/* 跳转排在首位：从任务去对话、探索图与漏洞是最先用到的出口。 */}
-            {Boolean(task.conversation_id || task.finding_count > 0) && (
-              <section>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
-                <div className="flex flex-wrap gap-2">
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={conversationPath(task.source, task.conversation_id)}
-                      icon={MessageSquare}
-                    >
-                      对话
-                    </JumpLink>
-                  )}
-                  {task.conversation_id && (
-                    <JumpLink
-                      to={`/exploration-graph?conversation_id=${encodeURIComponent(task.conversation_id)}`}
-                      icon={GitBranch}
-                    >
-                      探索图
-                    </JumpLink>
-                  )}
-                  {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
-                  {task.finding_count > 0 && (
-                    <JumpLink to={`/findings?task=${encodeURIComponent(task.id)}`} icon={Bug}>
-                      漏洞
-                    </JumpLink>
-                  )}
-                </div>
-              </section>
-            )}
+            {/* 跳转排在首位：从任务去对话、探索图与漏洞是最先用到的出口。探索图与漏洞属于
+                任务，按任务 ID 跳；对话可能已删除，有才显示。 */}
+            <section>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
+              <div className="flex flex-wrap gap-2">
+                {task.conversation_id && (
+                  <JumpLink
+                    to={conversationPath(task.source, task.conversation_id)}
+                    icon={MessageSquare}
+                  >
+                    对话
+                  </JumpLink>
+                )}
+                <JumpLink to={`/exploration-graph?task=${encodeURIComponent(task.id)}`} icon={GitBranch}>
+                  探索图
+                </JumpLink>
+                {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
+                {task.finding_count > 0 && (
+                  <JumpLink to={`/findings?task=${encodeURIComponent(task.id)}`} icon={Bug}>
+                    漏洞
+                  </JumpLink>
+                )}
+              </div>
+            </section>
             <section>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>

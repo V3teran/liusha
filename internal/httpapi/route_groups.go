@@ -77,14 +77,13 @@ func registerSkillRoutes(r gin.IRouter, d Deps) {
 	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))
 }
 
-// registerExplorationGraphRoutes 注册探索图路由
+// registerExplorationGraphRoutes 注册探索图路由：探索图属于任务，挂在任务之下。
 func registerExplorationGraphRoutes(r gin.IRouter, d Deps) {
-	if d.ExplorationGraph == nil {
+	if d.ExplorationGraph == nil || d.TaskReader == nil {
 		return
 	}
-	// Phase 1: 探索图 API（e2e 测试迁移专用）
-	r.GET("/conversations/:id/exploration/graph", uuidID, getConversationGraph(d.ExplorationGraph))
-	r.GET("/conversations/:id/exploration/verifications", uuidID, getConversationVerifications(d.ExplorationGraph))
+	r.GET("/tasks/:id/exploration/graph", uuidID, getTaskGraphHandler(d.TaskReader, d.ExplorationGraph))
+	r.GET("/tasks/:id/exploration/verifications", uuidID, getTaskVerificationsHandler(d.TaskReader, d.ExplorationGraph))
 }
 
 // registerTasksRoutes 注册任务模块路由（前端 /tasks 页）。

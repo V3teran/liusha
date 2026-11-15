@@ -1,40 +1,43 @@
 /**
- * 探索图工具栏：对话选择 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
+ * 探索图工具栏：任务选择 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
  * 计数即统计、色点即图例、点击即过滤）+ 状态筛选 + 总量。
  */
 
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { listConversations } from '@/api/conversations'
+import { listTasks } from '@/api/tasks'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
 import { shortDateTime } from '@/lib/format'
-import { sourceLabel } from '@/lib/source'
+import { taskStatusMeta } from '@/lib/taskStatus'
 import { KIND_ORDER, KIND_PROFILES, STATE_META } from './kindTheme'
 import type { GraphStats } from './layout'
 import { Select } from '@/components/ui/Select'
 import { FilterBar } from '@/components/FilterBar'
 import { Button } from '@/components/ui/Button'
 
+/** 一次列出的任务候选上限：任务持续增长，靠关键词缩小范围。 */
+const TASK_OPTION_LIMIT = 20
+
 /**
- * 对话候选：按标题、所属任务的目标或 ID 前缀由服务端检索、限量（对话会持续增长，不一次列全）；
- * 次要信息是最近更新时间与来源，区分同名对话。
+ * 任务候选：按目标或批次名由服务端检索（与任务页搜索同一口径），最新创建的在前；
+ * 次要信息是创建时间与状态，区分目标相同的任务。
  */
-async function fetchConversationOptions(q: string): Promise<PickerResult> {
-  const { conversations, hasMore } = await listConversations({ search: q, limit: 20 })
+async function fetchTaskOptions(q: string): Promise<PickerResult> {
+  const { items, total } = await listTasks(1, TASK_OPTION_LIMIT, q ? { search: q } : undefined)
   return {
-    options: conversations.map((c) => ({
-      value: c.id,
-      label: c.title || c.id,
-      detail: `${shortDateTime(c.updated_at)} 更新 · ${sourceLabel(c.source || 'direct')}`,
+    options: items.map((t) => ({
+      value: t.id,
+      label: t.goal,
+      detail: `${shortDateTime(t.created_at)} 创建 · ${taskStatusMeta(t.status).label}`,
     })),
-    hasMore,
+    hasMore: total > items.length,
   }
 }
 
 export function Toolbar({
-  conversationId,
-  conversationLabel,
-  onConversationChange,
+  taskId,
+  taskLabel,
+  onTaskChange,
   disabled,
   refreshing,
   onRefresh,
@@ -45,9 +48,9 @@ export function Toolbar({
   onFilterState,
   stats,
 }: {
-  conversationId: string
-  conversationLabel?: string
-  onConversationChange: (id: string) => void
+  taskId: string
+  taskLabel?: string
+  onTaskChange: (id: string) => void
   disabled: boolean
   refreshing: boolean
   onRefresh: () => void
@@ -70,14 +73,14 @@ export function Toolbar({
       }
     >
       <EntityPicker
-        value={conversationId}
-        valueLabel={conversationLabel}
-        onChange={onConversationChange}
-        fetchOptions={fetchConversationOptions}
-        queryKey={['exploration', 'conversation-options']}
-        emptyLabel="选择对话"
-        searchPlaceholder="搜索对话标题、任务目标、ID"
-        ariaLabel="选择对话"
+        value={taskId}
+        valueLabel={taskLabel}
+        onChange={onTaskChange}
+        fetchOptions={fetchTaskOptions}
+        queryKey={['exploration', 'task-options']}
+        emptyLabel="选择任务"
+        searchPlaceholder="搜索任务目标、批次名"
+        ariaLabel="选择任务"
         className="w-full sm:w-72"
       />
 
