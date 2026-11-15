@@ -6,6 +6,17 @@ on:
   pull_request:
 
 jobs:
+  commits:
+    # PR 内提交的主题格式与宽度（规范见 .gitmessage）：feat / fix 主题原样进 CHANGELOG 与 Release 页面。
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: commit subjects
+        run: scripts/lint-commit-subjects.sh "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
   test:
     # 运行 vet/gofmt/单元+集成测试：集成用例里的 testcontainers 会在 ubuntu-latest 上拉起真实 pg17。
     runs-on: ubuntu-latest

@@ -275,13 +275,14 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 ## 提交与发布
 
-- 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。类型只能用模板列出的：release-please 不识别的类型（如 `pipeline`）不会进 CHANGELOG 和发布说明。
+- 提交信息按 `.gitmessage` 模板：`<type>(<scope>): <中文主题>`，正文先写根因或动机，再列行为变化。类型与 scope 列表见模板。主题写用户能感知的变化，不写实现，也不带「——原因」（原因写正文）：`feat` / `fix` 的主题原样进 CHANGELOG 与 Release 页面，不用代码标识符与内部用语；建议 50 显示列以内，硬上限 72（中文按 2 列计，CI 的 `commits` 作业经 `scripts/lint-commit-subjects.sh` 检查 PR 内提交）。类型只能用模板列出的：release-please 不识别的类型（如 `pipeline`）不会进 CHANGELOG 和发布说明。
 - 一个提交一个主题：修复与新功能分开提交，便于回滚与生成发布说明。
 - 版本号遵循 SemVer，0.x 内测期整体右移一位（SemVer §4 与 Cargo / npm 的 0.x 惯例）：次版本位 = 破坏性变更，补丁位 = 新功能与修复；配置为 `release-please-config.json` 的 `bump-minor-pre-major` + `bump-patch-for-minor-pre-major`。1.0 起自动回到标准语义（主版本 = 破坏性、次版本 = 新功能、补丁 = 修复），这两项随之失效。已发布的标签不改写。git 标签带 `v`（`v0.9.1`，Go 生态要求），镜像标签不带（`0.9.1`、浮动的 `0.9`、`latest`）。
-- 破坏性变更 = 部署方或调用方必须采取行动、否则会出错的变更：删除或改名 API 端点与字段、改名配置项 / 环境变量 / Redis 键、需要人工操作或会改写、丢失存量数据的迁移。自动执行且无需任何操作的迁移（加列、加表、改注释）、纯新增的端点或字段不算。破坏性变更在主题的类型后加 `!`，正文末尾用 `BREAKING CHANGE: <升级注意>` 脚注写明升级步骤；release-please 只收录主题行与该脚注，写在正文其它位置的升级说明不会进 CHANGELOG。不要为了「醒目」把非破坏性变更标成 `!`：它会升次版本、让浮动标签失去意义。
+- 破坏性变更 = 部署方或调用方必须采取行动、否则会出错的变更：删除或改名 API 端点与字段、改名配置项 / 环境变量 / Redis 键、需要人工操作或会改写、丢失存量数据的迁移。自动执行且无需任何操作的迁移（加列、加表、改注释）、纯新增的端点或字段不算。破坏性变更在主题的类型后加 `!`，正文末尾用 `BREAKING CHANGE: <什么变了>，<部署方 / 调用方要做什么>` 脚注写明，一条一行、不折行（release-please 把折行拼成空格，中文中间会多出空格），详细步骤写进升级文档；release-please 只收录主题行与该脚注，写在正文其它位置的升级说明不会进 CHANGELOG。只在程序内部使用的格式（如 agent 的输出契约）不是对外接口，改它不算破坏性变更。不要为了「醒目」把非破坏性变更标成 `!`：它会升次版本、让浮动标签失去意义。
 - 发布由 release-please 驱动：提交推到 main 后它维护 Release PR（标签 `autorelease: pending`），合并 Release PR（merge commit）即发版。Release PR 会累积后续提交，攒到一个有意义的批次（如一个功能收口、或按周）再合并，紧急修复随时合并；不必推一次发一次。只有 `ci` / `docs` / `chore` 等不进版本的改动时不会产生 Release PR。带 `x-release-please-version` 标记的行（`compose.yaml` 镜像 tag、README 中的版本号）由它改写，不要手改。
-- 发版触发 `release`：构建 `ghcr.io/v3teran/liusha` 镜像（amd64 + arm64，标签 X.Y.Z / X.Y / latest），并把两个架构的二进制压缩包（`liusha` + LICENSE + NOTICE + THIRD_PARTY_NOTICES）与 `checksums.txt` 上传到 Release（`scripts/release/package.sh`）。沙盒镜像与单镜像不发布，由部署方本地构建；沙盒 Dockerfile 或工具清单变更时 `sandbox` workflow 双架构构建并用沙盒自己的 `/tools` 验证工具齐全，不推送。
-- 发版后核对：`liusha` 镜像的版本标签存在、双平台齐全；Release 附件含两个压缩包与 `checksums.txt`，校验和匹配。
+- 发版触发 `release`：构建 `ghcr.io/v3teran/liusha` 镜像（amd64 + arm64，标签 X.Y.Z / X.Y / latest），并把 Linux / macOS / Windows 各两个架构的二进制压缩包（`liusha` + LICENSE + NOTICE + THIRD_PARTY_NOTICES）与 `checksums.txt` 上传到 Release（`scripts/release/package.sh`）。沙盒镜像与单镜像不发布，由部署方本地构建；沙盒 Dockerfile 或工具清单变更时 `sandbox` workflow 双架构构建并用沙盒自己的 `/tools` 验证工具齐全，不推送。
+- 发版后核对：`liusha` 镜像的版本标签存在、双平台齐全，且未登录也能拉取（ghcr 包须为公开）；Release 附件含六个压缩包与 `checksums.txt`，校验和匹配。
+- 有破坏性变更或大功能的版本，发布后在 Release 页面正文顶部补「概要」（3–5 行）与「升级须知」（关键动作 + 升级文档链接），自动生成的清单留在下面；CHANGELOG.md 保持生成内容。
 
 ## 全仓体检分波
 
