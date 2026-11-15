@@ -529,7 +529,7 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 	if err != nil {
 		// 会话内入口无 HTTP 响应可承载失败——发可见提示，不静默降级 qa
 		// （那会把用户的动作请求悄悄变成聊天回答）。
-		s.publishNotice(ctx, conversationID, "（意图分类暂不可用，请稍后重试）")
+		s.publishNotice(ctx, conversationID, "（没能判断这条消息是要执行还是提问，请重试）")
 		return
 	}
 	isAction := kind == intent.Action
