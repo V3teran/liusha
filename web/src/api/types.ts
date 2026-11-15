@@ -435,6 +435,7 @@ export interface FindingRow {
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
 export interface FindingFilters {
+  task?: string // 只看这个任务的漏洞（任务详情 / 对话跳转带入）
   host?: string
   severity?: string
   status?: string

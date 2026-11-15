@@ -16,6 +16,9 @@ import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
 import { SOURCE_OPTIONS } from '@/lib/source'
+import { X } from 'lucide-react'
+import { useTaskDetail } from '@/features/tasks/useTaskQueries'
+import { goalHead } from '@/features/tasks/taskColumns'
 
 /**
  * FindingsPage - 漏洞管理页面（平铺台账）
@@ -23,6 +26,8 @@ import { SOURCE_OPTIONS } from '@/lib/source'
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
   const queryClient = useQueryClient()
+  // 任务筛选由任务详情 / 对话的「漏洞」跳转带入：以目标摘要标出当前只看哪个任务。
+  const scopedTask = useTaskDetail(filters.task || null)
 
   const listQuery = useFindingList(filters, page, size)
 
@@ -81,7 +86,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(query || filters.host || filters.severity || filters.status || filters.source)
+  const hasFilter = !!(query || filters.task || filters.host || filters.severity || filters.status || filters.source)
 
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
@@ -180,6 +185,23 @@ export function FindingsPage() {
           />
         }
       >
+        {filters.task && (
+          <span className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-lg border border-border bg-surface-2 pl-3 pr-1 text-sm text-text">
+            <span className="shrink-0 text-text-secondary">任务</span>
+            <span className="min-w-0 truncate" title={scopedTask.data?.goal}>
+              {scopedTask.data ? goalHead(scopedTask.data.goal) : scopedTask.isError ? '（任务不存在）' : '…'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, task: '' })}
+              aria-label="取消任务筛选"
+              className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface hover:text-text"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        )}
+
         <Select
           value={filters.source}
           onChange={(e) => setFilters({ ...filters, source: e.target.value })}

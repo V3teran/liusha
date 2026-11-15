@@ -62,6 +62,8 @@ describe('TaskDetailPane', () => {
     for (const name of ['对话', '探索图', '漏洞']) {
       expect(screen.getByRole('link', { name: new RegExp(name) })).toBeTruthy()
     }
+    // 漏洞跳到这个任务的漏洞，不是全量台账
+    expect(screen.getByRole('link', { name: /漏洞/ }).getAttribute('href')).toBe('/findings?task=t-1')
   })
 
   it('没有会话也没有漏洞时不渲染跳转区', () => {

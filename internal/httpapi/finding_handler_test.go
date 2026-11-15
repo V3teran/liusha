@@ -12,10 +12,12 @@ type fakeFindings struct {
 	rows []finding.LedgerRow
 	stat finding.Stat
 
+	gotListFilter finding.LedgerFilter
 	gotStatFilter finding.LedgerFilter
 }
 
-func (f *fakeFindings) ListAll(_ context.Context, _ finding.LedgerFilter) ([]finding.LedgerRow, error) {
+func (f *fakeFindings) ListAll(_ context.Context, fl finding.LedgerFilter) ([]finding.LedgerRow, error) {
+	f.gotListFilter = fl
 	return f.rows, nil
 }
 
@@ -55,5 +57,29 @@ func TestFindingsRoutes_StatRegistered(t *testing.T) {
 	}
 	if fk.gotStatFilter.Severity != "high" {
 		t.Fatalf("筛选未透传: %+v", fk.gotStatFilter)
+	}
+}
+
+// 台账列表与统计同一筛选口径：task 参数透传给两者；非法任务 ID 400（不让畸形输入下沉成 500）。
+func TestFindings_TaskFilter(t *testing.T) {
+	const taskID = "44444444-4444-4444-8444-444444444444"
+	fk := &fakeFindings{}
+	srv := newTestServer(t, Deps{Findings: fk})
+	defer srv.Close()
+
+	for _, path := range []string{"/api/findings", "/api/findings/stat"} {
+		resp := doReq(t, "GET", srv.URL+path+"?task="+taskID+"&source=direct", "")
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s status=%d", path, resp.StatusCode)
+		}
+		if bad := doReq(t, "GET", srv.URL+path+"?task=not-a-uuid", ""); bad.StatusCode != 400 {
+			t.Fatalf("%s 非法 task 应 400，得 %d", path, bad.StatusCode)
+		}
+	}
+	if fk.gotListFilter.TaskID != taskID || fk.gotListFilter.Source != "direct" {
+		t.Fatalf("列表筛选未透传: %+v", fk.gotListFilter)
+	}
+	if fk.gotStatFilter.TaskID != taskID {
+		t.Fatalf("统计筛选未透传: %+v", fk.gotStatFilter)
 	}
 }
