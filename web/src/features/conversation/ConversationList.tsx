@@ -87,9 +87,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     // 当前展示的数据是哪个关键词检索出来的：计数与空态跟随它，而不是跟随已生效的关键词——
     // 新结果回来之前屏上仍是旧数据，不能把旧的总数标成「匹配 N 条」。
     const [shownQuery, setShownQuery] = useState('')
+    // 正在打开「⋯」菜单的对话：菜单开着时暂停轮询刷新（不在操作中途换掉列表）
     const [menuOpen, setMenuOpen] = useState('')
-    const [menuConv, setMenuConv] = useState<Conversation | null>(null)
-    const [menuStyle, setMenuStyle] = useState<{ top: string; left: string }>({ top: '0px', left: '0px' })
     const [deleting, setDeleting] = useState('')
     const [renamingId, setRenamingId] = useState('')
     const [renameText, setRenameText] = useState('')
@@ -164,16 +163,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       return () => clearInterval(timer)
     }, [load])
 
-    // 点外部关闭菜单。
-    useEffect(() => {
-      const close = () => {
-        setMenuOpen('')
-        setMenuConv(null)
-      }
-      document.addEventListener('click', close)
-      return () => document.removeEventListener('click', close)
-    }, [])
-
 
     const pageNo = Math.floor(offset / size) + 1
     const totalPages = Math.max(1, Math.ceil(total / size))
@@ -186,27 +175,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       void load(offset + size)
     }
 
-    const toggleMenu = (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
-      if (menuOpen === c.id) {
-        setMenuOpen('')
-        setMenuConv(null)
-        return
-      }
-      const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-      // 贴底自动上翻：菜单高约 170px（5 项），下方放不下就从按钮顶往上弹；左右夹取在视口内。
-      const MENU_H = 170
-      const MENU_W = 150
-      const openUp = r.bottom + 4 + MENU_H > window.innerHeight - 8
-      const top = openUp ? Math.max(8, r.top - MENU_H - 4) : r.bottom + 4
-      const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8)
-      setMenuStyle({ top: `${top}px`, left: `${left}px` })
-      setMenuConv(c)
-      setMenuOpen(c.id)
-    }
-
-    const onDelete = async (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
+    const onDelete = async (c: Conversation) => {
       setMenuOpen('')
       if (deleting) return
       // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
@@ -227,10 +196,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       }
     }
 
-    const startRename = (c: Conversation, ev: React.MouseEvent) => {
-      ev.stopPropagation()
+    const startRename = (c: Conversation) => {
       setMenuOpen('')
-      setMenuConv(null)
       setRenamingId(c.id)
       setRenameText(fullTitle(c))
     }
@@ -392,15 +359,13 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  title="更多"
-                  aria-label="更多"
-                  onClick={(ev) => toggleMenu(c, ev)}
-                  className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-text-secondary opacity-0 hover:bg-surface group-hover:opacity-100 focus:opacity-100"
-                >
-                  <span className="text-base leading-none">⋯</span>
-                </button>
+                <ConvMenu
+                  conv={c}
+                  deleting={deleting}
+                  onOpenChange={(open) => setMenuOpen(open ? c.id : '')}
+                  onRename={startRename}
+                  onDelete={onDelete}
+                />
               </li>
             )
           })}
@@ -459,16 +424,6 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             </button>
             <PageSizeSelect value={size} onChange={setSize} className="ml-auto" />
           </div>
-        )}
-        {/* ⋯ 菜单挂到 body：fixed 视口坐标定位，不被 ul overflow 裁剪（ConvMenu 子组件） */}
-        {menuConv && (
-          <ConvMenu
-            conv={menuConv}
-            style={menuStyle}
-            deleting={deleting}
-            onRename={startRename}
-            onDelete={onDelete}
-          />
         )}
       </aside>
     )
