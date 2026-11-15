@@ -35,14 +35,6 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// sqlEscapeLike 转义 LIKE 模式里的 % 和 _ —— 但保留 *（上层转换为 %）。
-func sqlEscapeLike(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `%`, `\%`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
-	return s
-}
-
 // extractHost 从 URL 提取 host（不含 port / path / query）。scheme 可选，遇 :/?# 中止。
 func extractHost(rawURL string) string {
 	s := stripScheme(rawURL)

@@ -167,7 +167,7 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 		add("method=$%d", strings.ToUpper(f.Method))
 	}
 	if f.Path != "" {
-		add("path LIKE $%d", strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%"))
+		add("path LIKE $%d", strings.ReplaceAll(db.EscapeLike(f.Path), "*", "%"))
 	}
 	if f.StatusMin > 0 {
 		add("status_code >= $%d", f.StatusMin)
@@ -213,7 +213,7 @@ func proxyWhere(f ProxyListFilter, startArg int) (string, []any) {
 		add("method=$%d", strings.ToUpper(f.Method))
 	}
 	if f.Path != "" {
-		add("path LIKE $%d", strings.ReplaceAll(sqlEscapeLike(f.Path), "*", "%"))
+		add("path LIKE $%d", strings.ReplaceAll(db.EscapeLike(f.Path), "*", "%"))
 	}
 	if f.ContentType != "" {
 		add("content_type=$%d", f.ContentType)
@@ -221,7 +221,7 @@ func proxyWhere(f ProxyListFilter, startArg int) (string, []any) {
 	if f.Search != "" {
 		// 一个搜索框跨 host + url 两列：任一命中即可（OR），大小写不敏感（ILIKE），
 		// '*' 视作通配（→'%'）；未含 '*' 时两端补 '%' 退化为子串包含，符合搜索框直觉。
-		pat := strings.ReplaceAll(sqlEscapeLike(f.Search), "*", "%")
+		pat := strings.ReplaceAll(db.EscapeLike(f.Search), "*", "%")
 		if !strings.Contains(f.Search, "*") {
 			pat = "%" + pat + "%"
 		}
