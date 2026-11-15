@@ -77,7 +77,20 @@ jobs:
     # Windows 原生运行：全部单测在真实 Windows 上跑（作业对象、Windows 服务、文件权限等平台实现，
     # 以及路径、换行、编码等跨平台假设）。沙盒命令经 Git Bash 的 sh 执行；浏览器客户端协议测试
     # 需要 Python。集成测试依赖 Linux 容器，只在 test 作业跑。
-    runs-on: windows-latest
+    # 发布物含 x64 与 arm64 两个 Windows 程序，两种架构都在真实机器上跑。arm64 上：Go 的竞态检测
+    # 不支持 windows/arm64，单测不带 -race；serve 阶段测的是与架构无关的业务链路（x64 已覆盖），
+    # 依赖的 PostgreSQL + pgvector 在 ARM 机器上没有现成环境，冒烟结果里明确记为跳过。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            race: '-race'
+            serve: true
+          - runner: windows-11-arm
+            race: ''
+            serve: false
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: 保持仓库换行原样（测试按字节比对脚本与输出）
         run: git config --global core.autocrlf false
@@ -91,8 +104,9 @@ jobs:
           python-version: '3.12'
       - name: unit tests
         shell: bash
-        run: go test -race -short ./...
+        run: go test ${{ matrix.race }} -short ./...
       - name: binary smoke prerequisites (PostgreSQL + pgvector, Redis)
+        if: matrix.serve
         # 二进制部署在 Windows 上的依赖：runner 镜像自带的 PostgreSQL，pgvector 按其官方步骤用
         # MSVC 编译安装；Redis 用 Windows 原生构建。
         shell: cmd
