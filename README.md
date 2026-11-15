@@ -34,7 +34,7 @@ Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
 `setup` 迁移数据库、生成密钥与初始管理员密码，写入 `liusha.env`。控制台在 `http://<主机>:8580`。
 作为后台服务运行（systemd / launchd / Windows 服务）见 [deployments/README.md](deployments/README.md#二进制)。
 
-### compose
+### Docker Compose
 
 ```bash
 git clone --branch v0.10.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
@@ -58,7 +58,7 @@ docker exec liusha cat /data/secrets/admin.initial_password   # 初始管理员 
 数据库迁移随启动自动执行，只进不退；跨版本回滚前先备份数据库。
 
 - 二进制：下载新版本替换 `liusha`（Windows 为 `liusha.exe`），重启 `liusha serve`。
-- compose：`git fetch --tags && git checkout vX.Y.Z && docker compose pull && docker compose up -d --build`。
+- Docker Compose：`git fetch --tags && git checkout vX.Y.Z && docker compose pull && docker compose up -d --build`。
 - 单镜像：检出新版本后重新 `make single-build`，删除旧容器，以同一数据目录重新运行。
 
 从 0.9 升级到 0.10 有不兼容变更，按 [deployments/README.md](deployments/README.md#从-09-升级) 操作。版本列表见 [Releases](https://github.com/V3teran/liusha/releases)。
