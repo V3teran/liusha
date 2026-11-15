@@ -181,16 +181,18 @@ func scan(r db.RowScanner, t *Task) error {
 
 // ── 任务模块列表（前端 /tasks 页）───────────────────────────────────────────
 
-// ListFilter 是任务列表的筛选条件（URL query 直读，语义对齐 parseTrafficFilter：
-// 坏参数退化成不筛，不打 400）。Since/Until 按 created_at 过滤，零值=不筛。
+// ListFilter 是任务列表的筛选条件，零值 = 不筛该维度。Since/Until 按 created_at 过滤。
 type ListFilter struct {
-	Search string    // 目标 / 批次名 子串（按字面、大小写不敏感）
-	Source string    // direct|proxy（所属 assignment 的真实来源）
-	Status string    // active|completed|aborted
-	Since  time.Time // 创建时间下界（含）
-	Until  time.Time // 创建时间上界（含）
-	Limit  int
-	Offset int
+	// 范围：只看这个任务 / 这个对话的任务（从其它页面跳来时用；一个任务至多一个对话）
+	TaskID         string
+	ConversationID string
+	Search         string    // 目标 / 批次名 子串（按字面、大小写不敏感）
+	Source         string    // direct|proxy（所属 assignment 的真实来源）
+	Status         string    // active|completed|aborted
+	Since          time.Time // 创建时间下界（含）
+	Until          time.Time // 创建时间上界（含）
+	Limit          int
+	Offset         int
 }
 
 // Summary 是任务列表行：task 本体 + 派生列（JOIN assignment/cron_schedule/
@@ -225,7 +227,6 @@ type Summary struct {
 
 // summaryStepCount 是 StepCount 的统一口径表达式：会话内最近一次 dispatched 之后的
 // reasoning 终态数，无推理步（后台任务/旧数据）回退探索图 action 节点数。
-// 列表与单查共用一份——内联副本漂移正是 GetSummary 500（15 列 vs 17 目标）的根因。
 const summaryStepCount = `COALESCE(NULLIF((SELECT count(*) FROM message m
 		WHERE m.conversation_id = c.id
 		  AND m.metadata->>'kind' = 'reasoning'
@@ -235,13 +236,16 @@ const summaryStepCount = `COALESCE(NULLIF((SELECT count(*) FROM message m
 		          AND metadata->>'status' = 'dispatched'), 0)), 0),
 	(SELECT count(*) FROM exploration_node n WHERE n.task_id = t.id AND n.kind = 'action'))`
 
-// summarySelect 是任务列表行 SELECT 的唯一事实源，与 scanSummary 17 目标一一对应。
+// summarySelect 是任务摘要（列表行与详情板）SELECT 的唯一事实源，与 scanSummary 一一对应。
+// 批次内序号与总数按整个批次计（关联子查询，走 task_assignment_idx）：窗口函数只在筛选后的
+// 结果里计数，按状态、搜索或范围筛掉兄弟任务后会错成 [1/1]。
 const summarySelect = `
 	t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
 	t.assignment_id::text,
 	a.title AS assignment_title,
-	ROW_NUMBER() OVER (PARTITION BY t.assignment_id ORDER BY t.created_at, t.id),
-	COUNT(*)     OVER (PARTITION BY t.assignment_id),
+	(SELECT count(*) FROM task t2
+	  WHERE t2.assignment_id = t.assignment_id AND (t2.created_at, t2.id) <= (t.created_at, t.id)),
+	(SELECT count(*) FROM task t3 WHERE t3.assignment_id = t.assignment_id),
 	a.source,
 	COALESCE(a.schedule_id::text, ''),
 	COALESCE(cs.cron_expr, ''),
@@ -260,14 +264,28 @@ func searchArg(q string) string {
 	return db.ContainsPattern(q)
 }
 
+// summaryFrom 是任务摘要共用的 FROM 子句：任务带出批次、定时模板与对话（一个任务至多一个对话）。
+const summaryFrom = `
+	FROM task t
+	JOIN assignment a ON a.id = t.assignment_id
+	LEFT JOIN cron_schedule cs ON cs.id = a.schedule_id
+	LEFT JOIN conversation c ON c.task_id = t.id`
+
 // summaryWhere 是 List/Count 共用的筛选子句（$1 source / $2 status / $3 search /
-// $4 since / $5 until）。since/until 传 NULL 表示不筛该端。
+// $4 since / $5 until / $6 任务 / $7 对话）。空串与 NULL 表示不筛该维度。
 const summaryWhere = `
 	WHERE ($1 = '' OR a.source = $1)
 	  AND ($2 = '' OR t.status = $2)
 	  AND ($3 = '' OR t.goal ILIKE $3 OR a.title ILIKE $3)
 	  AND ($4::timestamptz IS NULL OR t.created_at >= $4)
-	  AND ($5::timestamptz IS NULL OR t.created_at <= $5)`
+	  AND ($5::timestamptz IS NULL OR t.created_at <= $5)
+	  AND ($6 = '' OR t.id::text = $6)
+	  AND ($7 = '' OR c.id::text = $7)`
+
+// summaryArgs 是 summaryWhere 的参数（顺序与占位符一一对应）。
+func summaryArgs(f ListFilter) []any {
+	return []any{f.Source, f.Status, searchArg(f.Search), timeArg(f.Since), timeArg(f.Until), f.TaskID, f.ConversationID}
+}
 
 // timeArg 把零值时间折叠成 NULL（pgx 传零值 time.Time 会落成 year-1 而非 NULL）。
 func timeArg(t time.Time) any {
@@ -297,14 +315,9 @@ func (s *Store) ListFiltered(ctx context.Context, f ListFilter) ([]Summary, erro
 	if f.Offset < 0 {
 		f.Offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+summarySelect+`
-		FROM task t
-		JOIN assignment a ON a.id = t.assignment_id
-		LEFT JOIN cron_schedule cs ON cs.id = a.schedule_id
-		LEFT JOIN conversation c ON c.task_id = t.id`+summaryWhere+`
-		ORDER BY t.created_at DESC, t.id LIMIT $6 OFFSET $7`,
-		f.Source, f.Status, searchArg(f.Search), timeArg(f.Since), timeArg(f.Until), f.Limit, f.Offset)
+	rows, err := s.pool.Query(ctx, `SELECT `+summarySelect+summaryFrom+summaryWhere+`
+		ORDER BY t.created_at DESC, t.id LIMIT $8 OFFSET $9`,
+		append(summaryArgs(f), f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks filtered: %w", err)
 	}
@@ -323,44 +336,16 @@ func (s *Store) ListFiltered(ctx context.Context, f ListFilter) ([]Summary, erro
 // CountFiltered 与 ListFiltered 同口径计数（分页 total）。
 func (s *Store) CountFiltered(ctx context.Context, f ListFilter) (int, error) {
 	var n int
-	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FROM task t
-		JOIN assignment a ON a.id = t.assignment_id`+summaryWhere,
-		f.Source, f.Status, searchArg(f.Search), timeArg(f.Since), timeArg(f.Until)).Scan(&n)
+	err := s.pool.QueryRow(ctx, `SELECT count(*)`+summaryFrom+summaryWhere, summaryArgs(f)...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count tasks filtered: %w", err)
 	}
 	return n, nil
 }
 
-// GetSummary 取单个任务的列表形状（详情板），列序与 scanSummary 17 目标严格一致
-// （summarySelect 的单行变体）。pgx.ErrNoRows 由调用方映射 404。
-//
-// 批内序号/总数不能用 ListFiltered 的窗口函数——WHERE t.id=$1 先把同批兄弟行
-// 滤掉，COUNT OVER PARTITION 恒 1；此处用关联标量子查询对全批计数。
+// GetSummary 取单个任务的摘要（详情板），与列表行同一 SELECT。pgx.ErrNoRows 由调用方映射 404。
 func (s *Store) GetSummary(ctx context.Context, id string) (Summary, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.goal, COALESCE(t.target_host,''), t.status::text, t.paused,
-			t.assignment_id::text,
-			a.title AS assignment_title,
-			(SELECT count(*) + 1 FROM task t2
-			 WHERE t2.assignment_id = t.assignment_id
-			   AND (t2.created_at, t2.id) < (t.created_at, t.id)),
-			(SELECT count(*) FROM task t3 WHERE t3.assignment_id = t.assignment_id),
-			a.source,
-			COALESCE(a.schedule_id::text, ''),
-			COALESCE(cs.cron_expr, ''),
-			COALESCE(c.id::text, ''),
-			(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
-			`+summaryStepCount+`,
-			(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
-			(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
-			t.created_at, t.ended_at
-		FROM task t
-		JOIN assignment a ON a.id = t.assignment_id
-		LEFT JOIN cron_schedule cs ON cs.id = a.schedule_id
-		LEFT JOIN conversation c ON c.task_id = t.id
-		WHERE t.id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT `+summarySelect+summaryFrom+` WHERE t.id = $1`, id)
 	var sm Summary
 	if err := scanSummary(row, &sm); err != nil {
 		return Summary{}, fmt.Errorf("get task summary %s: %w", id, err)

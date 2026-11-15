@@ -259,6 +259,57 @@ func TestListFilteredSearchByBatchTitle(t *testing.T) {
 	}
 }
 
+// 范围筛选（从其它页面跳来「只看这个任务 / 这个对话的任务」）：列表只剩这一个任务；批次内
+// 序号与总数仍按整个批次计，不受筛选影响（筛掉兄弟任务后也不会显示成 [1/1]）。
+func TestListFilteredScope(t *testing.T) {
+	tasks, assignments := newStores(t)
+	ctx := context.Background()
+	asg := mkAssignment(t, assignments, ctx, "a", "b")
+	first, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "扫描 http://a.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "扫描 http://b.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conv string
+	if err := tasks.pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('b', $1) RETURNING id`, second.ID).Scan(&conv); err != nil {
+		t.Fatal(err)
+	}
+	if err := tasks.Complete(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name   string
+		filter ListFilter
+		want   string
+		index  int
+	}{
+		{"按任务", ListFilter{TaskID: second.ID}, second.ID, 2},
+		{"按对话", ListFilter{ConversationID: conv}, second.ID, 2},
+		{"按状态筛掉兄弟任务", ListFilter{Status: "completed"}, first.ID, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rows, err := tasks.ListFiltered(ctx, c.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, err := tasks.CountFiltered(ctx, c.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || n != 1 || rows[0].ID != c.want {
+				t.Fatalf("应只剩任务 %s，得 %d 行（计数 %d）", c.want, len(rows), n)
+			}
+			if rows[0].AssignmentIndex != c.index || rows[0].AssignmentTotal != 2 {
+				t.Errorf("批次序号应按整个批次计 [%d/2]，得 [%d/%d]", c.index, rows[0].AssignmentIndex, rows[0].AssignmentTotal)
+			}
+		})
+	}
+}
+
 // 搜索词里的 % _ 按字面匹配：搜「user_id」不应命中「userXid」。
 func TestListFilteredSearchIsLiteral(t *testing.T) {
 	tasks, assignments := newStores(t)
