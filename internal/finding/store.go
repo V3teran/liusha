@@ -184,6 +184,29 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
+// UndeliveredResults 列出坐实了却没有对应漏洞的结果节点 ID（补交付用）：交付一直失败，或
+// 曾被按接口退化的去重键合并掉（0230 之前）。
+func (s *Store) UndeliveredResults(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT n.id::text FROM exploration_node n
+		WHERE n.kind = 'result'
+		  AND NOT EXISTS (SELECT 1 FROM finding f WHERE f.result_node_id = n.id)
+		ORDER BY n.created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("list undelivered results: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan undelivered result: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // GetLedgerRow 取单条台账行（与 ListAll 同形状，漏洞详情按 ID 打开用）。不存在返回包裹
 // pgx.ErrNoRows 的错误。
 func (s *Store) GetLedgerRow(ctx context.Context, id string) (LedgerRow, error) {

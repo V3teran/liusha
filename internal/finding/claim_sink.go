@@ -23,7 +23,7 @@ type findingStore interface {
 // 通用门对领域零感知。
 type ClaimSink struct {
 	store      findingStore
-	agentRunID string // 归属 agent_run.id（表 NOT NULL 外键)
+	agentRunID string // 归属 agent_run.id；空 = 无归属 run（补交付），落 NULL
 	// taskHost 是主机线索全部落空时的最终兜底（任务锚定的目标主机——task 行
 	// 的 target_host）。nil = 无兜底，主机缺失的交付按原样被存储校验拒绝。
 	taskHost func(ctx context.Context, taskID string) (string, error)
@@ -116,11 +116,14 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		c.Target = deriveTarget(c.Repro)
 	}
 
-	agentRunID := s.agentRunID
+	var agentRunID *string
+	if s.agentRunID != "" {
+		agentRunID = &s.agentRunID
+	}
 	saved, err := s.store.Save(ctx, Finding{
 		TaskID:       c.TaskID,
 		ResultNodeID: c.ResultNodeID,
-		AgentRunID:   &agentRunID,
+		AgentRunID:   agentRunID,
 		Host:         host,
 		Summary:      summary,
 		Severity:     severity,

@@ -392,7 +392,18 @@ func (g *PromotionGate) deliverClaim(
 	if g.sink == nil || node.Kind != core.KindResult {
 		return nil
 	}
+	claim, err := confirmedClaim(node, verID, res.Evidence, a.Repro, tier, res.DurationMs)
+	if err != nil {
+		return err
+	}
+	if err := g.sink.Record(ctx, claim); err != nil {
+		return fmt.Errorf("坐实主张交付失败 (node %s): %w", node.ID, err)
+	}
+	return nil
+}
 
+// confirmedClaim 由结果节点与坐实它的那次验证组装交付载荷（正常交付与补交付共用一份）。
+func confirmedClaim(node explorationgraph.Node, verID string, evidence, repro json.RawMessage, tier string, durationMs int64) (ConfirmedClaim, error) {
 	var content struct {
 		Statement  string          `json:"statement"`
 		Impact     string          `json:"impact"`
@@ -401,10 +412,9 @@ func (g *PromotionGate) deliverClaim(
 		Target     json.RawMessage `json:"target"`
 	}
 	if err := json.Unmarshal(node.Content, &content); err != nil {
-		return fmt.Errorf("交付载荷解析失败 (node %s): %w", node.ID, err)
+		return ConfirmedClaim{}, fmt.Errorf("交付载荷解析失败 (node %s): %w", node.ID, err)
 	}
-
-	err := g.sink.Record(ctx, ConfirmedClaim{
+	return ConfirmedClaim{
 		TaskID:         node.TaskID,
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
@@ -414,13 +424,43 @@ func (g *PromotionGate) deliverClaim(
 		Suggestion:     content.Suggestion,
 		HostHint:       content.Host,
 		Target:         content.Target,
-		Evidence:       res.Evidence,
-		Repro:          a.Repro,
+		Evidence:       evidence,
+		Repro:          repro,
 		Tier:           tier,
-		DurationMs:     res.DurationMs,
-	})
+		DurationMs:     durationMs,
+	}, nil
+}
+
+// ConfirmedResultReader 是补交付读取坐实结果所需的窄接口（*explorationgraph.Store 满足）。
+type ConfirmedResultReader interface {
+	GetNode(ctx context.Context, id string) (*explorationgraph.Node, error)
+	ConfirmingVerification(ctx context.Context, resultID string) (explorationgraph.Verification, error)
+}
+
+// Redeliver 补交付一个坐实了却没进交付物的结果（交付一直失败，或曾被交付侧错误合并）：载荷由
+// 结果节点与坐实它的那次验证重建，与正常交付同一份；交付侧按结果节点幂等。
+func Redeliver(ctx context.Context, graph ConfirmedResultReader, sink ClaimSink, resultID string) error {
+	node, err := graph.GetNode(ctx, resultID)
 	if err != nil {
-		return fmt.Errorf("坐实主张交付失败 (node %s): %w", node.ID, err)
+		return fmt.Errorf("读取结果节点 %s: %w", resultID, err)
+	}
+	if node == nil || node.Kind != core.KindResult {
+		return fmt.Errorf("%s 不是结果节点", resultID)
+	}
+	v, err := graph.ConfirmingVerification(ctx, resultID)
+	if err != nil {
+		return err
+	}
+	var meta struct {
+		Tier string `json:"verification_tier"`
+	}
+	_ = json.Unmarshal(v.Evidence, &meta) // 档位缺失按空交付（交付侧兜底 unknown）
+	claim, err := confirmedClaim(*node, v.ID, v.Evidence, v.Repro, meta.Tier, v.DurationMs)
+	if err != nil {
+		return err
+	}
+	if err := sink.Record(ctx, claim); err != nil {
+		return fmt.Errorf("补交付失败 (node %s): %w", resultID, err)
 	}
 	return nil
 }

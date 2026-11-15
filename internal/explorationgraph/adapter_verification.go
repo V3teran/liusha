@@ -67,3 +67,25 @@ func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limi
 	}
 	return out, rows.Err()
 }
+
+// ConfirmingVerification 取坐实这个结果的那次验证：结果 ←generates— 假设，该假设在结果建立
+// 之前最近一次「坐实」判定。结果节点不存在或追溯不到验证时返回包裹 pgx.ErrNoRows 的错误。
+// 补交付（坐实了却没进台账的结果）据此重建与正常交付相同的载荷。
+func (s *Store) ConfirmingVerification(ctx context.Context, resultID string) (Verification, error) {
+	if s.pool == nil {
+		return Verification{}, fmt.Errorf("ConfirmingVerification requires a pool-backed store")
+	}
+	var v Verification
+	err := s.pool.QueryRow(ctx, `
+		SELECT v.id, v.task_id::text, v.node_id::text, v.repro, v.outcome, v.evidence, v.duration_ms, v.created_at
+		FROM exploration_node r
+		JOIN exploration_edge e ON e.dst_id = r.id AND e.rel = 'generates'
+		JOIN exploration_verification v ON v.node_id = e.src_id AND v.outcome = 'confirmed' AND v.created_at <= r.created_at
+		WHERE r.id = $1::uuid AND r.kind = 'result'
+		ORDER BY v.created_at DESC
+		LIMIT 1`, resultID).Scan(&v.ID, &v.TaskID, &v.NodeID, &v.Repro, &v.Outcome, &v.Evidence, &v.DurationMs, &v.CreatedAt)
+	if err != nil {
+		return Verification{}, fmt.Errorf("坐实结果 %s 的验证: %w", resultID, err)
+	}
+	return v, nil
+}
