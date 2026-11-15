@@ -10,30 +10,17 @@ const conv = (over: Partial<Conversation>): Conversation =>
 function renderMenu(c: Conversation) {
   return render(
     <MemoryRouter>
-      <ConvMenu conv={c} style={{ top: "0px", left: "0px" }} deleting={null} onClose={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} />
+      <ConvMenu conv={c} style={{ top: "0px", left: "0px" }} deleting={null} onRename={vi.fn()} onDelete={vi.fn()} />
     </MemoryRouter>,
   )
 }
 
 describe('ConvMenu', () => {
-  // 从对话出发只看这个对话的：任务、漏洞、探索图都按对话限定（落点显示对话标题）。
-  it('任务、漏洞、探索图都跳到「这个对话的」', () => {
+  // 行菜单只放对话行的操作；跳转是对话自身的出口，在对话顶栏（不重复）。
+  it('只有重命名与删除，没有跳转', () => {
     renderMenu(conv({}))
-    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?conversation=c-1')
-    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?conversation=c-1')
-    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c-1')
-  })
-
-  it('纯聊天会话（没有任务）没有任务与探索图入口', () => {
-    renderMenu(conv({ task_id: '' }))
-    expect(screen.queryByRole('link', { name: /探索图/ })).toBeNull()
-    expect(screen.queryByRole('link', { name: /任务/ })).toBeNull()
-  })
-
-  it('没有关联任务或没有漏洞的会话没有漏洞入口（无洞不跳）', () => {
-    renderMenu(conv({ task_id: '' }))
-    expect(screen.queryByRole('link', { name: /漏洞/ })).toBeNull()
-    renderMenu(conv({ finding_count: 0 }))
-    expect(screen.queryByRole('link', { name: /漏洞/ })).toBeNull()
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: /重命名/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /删除/ })).toBeTruthy()
   })
 })

@@ -221,21 +221,24 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               />
               {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
             </span>
+            {/* 跳转：只看这个对话的任务、漏洞与探索图（对话自身的出口，列表行菜单不再重复）；
+                纯聊天没有任务，不显示 */}
+            {taskID && (
+              <TaskJumpLinks taskId={taskID} from="conversation" size="sm" targets={['task', 'findings', 'exploration']} />
+            )}
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-sev-medium" title="实时连接断开，正在自动重连…">
                 <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-sev-medium/40 border-t-sev-medium" />
                 重连中…
               </span>
             )}
+          </div>
+          <div className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
             {startedAt && (
               <span className="font-mono text-xs text-text-secondary" title={`发起于 ${fullTime(startedAt)}`}>
                 发起 {fullTime(startedAt)}
               </span>
             )}
-          </div>
-          <div className="inline-flex flex-wrap items-center gap-3">
-            {/* 跳转：只看这个对话的任务、漏洞与探索图；纯聊天没有任务，不显示 */}
-            {taskID && <TaskJumpLinks taskId={taskID} from="conversation" targets={['task', 'findings', 'exploration']} />}
             <span className="inline-flex items-center gap-2.5">
               {usage && tokenTotal > 0 && (
                 <span className="inline-flex flex-wrap items-center gap-x-3.5 gap-y-1">

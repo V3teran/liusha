@@ -3,6 +3,7 @@
  * 计数即统计、色点即图例、点击即过滤）+ 状态筛选 + 总量。
  */
 
+import type { ReactNode } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { listTasks } from '@/api/tasks'
@@ -38,6 +39,7 @@ export function Toolbar({
   scopeId,
   scopeLabel,
   onTaskChange,
+  scopeJumps,
   disabled,
   refreshing,
   onRefresh,
@@ -52,6 +54,8 @@ export function Toolbar({
   scopeId: string
   scopeLabel?: string
   onTaskChange: (id: string) => void
+  /** 当前任务的跳转（任务、对话、漏洞）：紧跟在选择框后，属于选中的任务而不是整个页面 */
+  scopeJumps?: ReactNode
   disabled: boolean
   refreshing: boolean
   onRefresh: () => void
@@ -84,6 +88,7 @@ export function Toolbar({
         ariaLabel="选择任务"
         className="w-full sm:w-72"
       />
+      {scopeJumps}
 
       <Button
         variant="secondary"
