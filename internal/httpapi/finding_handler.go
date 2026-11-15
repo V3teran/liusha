@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/finding"
 )
@@ -39,20 +38,22 @@ func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
 	if !ok {
 		return finding.LedgerFilter{}, false
 	}
-	taskID := c.Query("task")
-	if taskID != "" {
-		if _, err := uuid.Parse(taskID); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "task 不是合法的 UUID"})
-			return finding.LedgerFilter{}, false
-		}
+	taskID, ok := uuidQuery(c, "task")
+	if !ok {
+		return finding.LedgerFilter{}, false
+	}
+	conversationID, ok := uuidQuery(c, "conversation")
+	if !ok {
+		return finding.LedgerFilter{}, false
 	}
 	return finding.LedgerFilter{
-		TaskID:   taskID,
-		Host:     c.Query("host"),
-		Severity: c.Query("severity"),
-		Status:   c.Query("status"),
-		Source:   source,
-		Search:   c.Query("search"),
+		TaskID:         taskID,
+		ConversationID: conversationID,
+		Host:           c.Query("host"),
+		Severity:       c.Query("severity"),
+		Status:         c.Query("status"),
+		Source:         source,
+		Search:         c.Query("search"),
 	}, true
 }
 
@@ -62,7 +63,7 @@ const (
 	maxTaskFacetLimit     = 50
 )
 
-// listFindingsHandler 处理 GET /findings?task=&host=&severity=&status=&source=&search=&page=&size=。
+// listFindingsHandler 处理 GET /findings?task=&conversation=&host=&severity=&status=&source=&search=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
 // 空筛选=全量。响应含来源、所属会话与 triage 处置态，供前端跳转与就地流转。
@@ -195,7 +196,7 @@ func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 	}
 }
 
-// findingStatHandler 处理 GET /findings/stat?task=&host=&severity=&status=&source=：
+// findingStatHandler 处理 GET /findings/stat?task=&conversation=&host=&severity=&status=&source=：
 // 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
 func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

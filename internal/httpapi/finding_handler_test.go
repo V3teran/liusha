@@ -94,6 +94,27 @@ func TestFindings_TaskFilter(t *testing.T) {
 	}
 }
 
+// 按对话限定（从对话跳来）：conversation 参数透传给列表与统计；非法对话 ID 400。
+func TestFindings_ConversationFilter(t *testing.T) {
+	const convID = "55555555-5555-4555-8555-555555555555"
+	fk := &fakeFindings{}
+	srv := newTestServer(t, Deps{Findings: fk})
+	defer srv.Close()
+
+	for _, path := range []string{"/api/findings", "/api/findings/stat"} {
+		if resp := doReq(t, "GET", srv.URL+path+"?conversation="+convID, ""); resp.StatusCode != 200 {
+			t.Fatalf("%s status=%d", path, resp.StatusCode)
+		}
+		if bad := doReq(t, "GET", srv.URL+path+"?conversation=x", ""); bad.StatusCode != 400 {
+			t.Fatalf("%s 非法 conversation 应 400，得 %d", path, bad.StatusCode)
+		}
+	}
+	doReq(t, "GET", srv.URL+"/api/findings?conversation="+convID, "")
+	if fk.gotListFilter.ConversationID != convID || fk.gotStatFilter.ConversationID != convID {
+		t.Fatalf("对话筛选未透传: list=%+v stat=%+v", fk.gotListFilter, fk.gotStatFilter)
+	}
+}
+
 // 任务分面：与列表同一筛选参数；空结果是数组而不是 null。
 func TestFindings_TaskFacets(t *testing.T) {
 	fk := &fakeFindings{}

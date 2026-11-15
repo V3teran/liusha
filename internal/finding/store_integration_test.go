@@ -177,6 +177,39 @@ func TestLedger_FilterByTask(t *testing.T) {
 	assert.Equal(t, 2, st.Total)
 }
 
+// 按对话筛选：从对话跳到「这个对话的漏洞」——服务端直接按对话过滤（一个任务至多一个对话），
+// 列表、计数、统计同一口径；任务分面不受它限制（选别的任务时仍可选）。
+func TestLedger_FilterByConversation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	assignmentID := dbtest.SeedAssignment(t, pool)
+	mine, other := seedTask(t, pool, assignmentID), seedTask(t, pool, assignmentID)
+	var conv string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO conversation (title, task_id) VALUES ('c', $1) RETURNING id`, mine).Scan(&conv))
+	for _, tc := range []struct{ task, summary string }{{mine, "XSS"}, {mine, "SQL 注入"}, {other, "SSRF"}} {
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: "high"})
+		require.NoError(t, err)
+	}
+
+	f := finding.LedgerFilter{ConversationID: conv}
+	rows, err := store.ListAll(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, r := range rows {
+		assert.Equal(t, conv, r.ConversationID)
+	}
+	n, err := store.CountAll(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	st, err := store.StatFiltered(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Total)
+	facets, _, err := store.TaskFacets(ctx, f, "", 10)
+	require.NoError(t, err)
+	assert.Len(t, facets, 2, "任务分面不受范围限制")
+}
+
 // 任务分面：只列有漏洞的任务（带目标与漏洞数），按最近一次发现倒序；其它筛选照常生效，
 // 任务筛选不作用于自身（选中一个任务时仍能看到其余可选任务）。
 func TestLedger_TaskFacets(t *testing.T) {
