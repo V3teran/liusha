@@ -63,7 +63,8 @@ export function ExplorationGraphPage() {
   const [selectedNodeId, setSelectedNodeId] = useState('')
   useEffect(() => setSelectedNodeId(''), [taskId])
 
-  const selectTask = (id: string) => setSearchParams(id ? { task: id } : {}, { replace: true })
+  // 换选任务是一步导航：新增一条历史，后退回到原来的任务（进页自动定位最新任务才用 replace）
+  const selectTask = (id: string) => setSearchParams(id ? { task: id } : {})
 
   const flow = useMemo(
     () => (graph ? buildFlowGraph(graph, filterKind, filterState, verificationsByNode) : { nodes: [], edges: [], stats: EMPTY_STATS }),

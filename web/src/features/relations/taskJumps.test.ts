@@ -15,7 +15,7 @@ describe('taskJumps', () => {
   it('从任务出发：落点按任务限定，顺序与侧栏一致，名字取侧栏导航', () => {
     const jumps = taskJumps(ctx(), ALL)
     expect(jumps.map((j) => [j.label, j.to])).toEqual([
-      ['任务', '/tasks?task=t-1'],
+      ['任务', '/tasks?task=t-1&selected=t-1'],
       ['对话', '/conversations/direct?conversation=c-1'],
       ['漏洞', '/findings?task=t-1'],
       ['探索图', '/exploration-graph?task=t-1'],
@@ -25,7 +25,7 @@ describe('taskJumps', () => {
   it('从对话出发：任务、漏洞、探索图都按这个对话限定', () => {
     const jumps = taskJumps(ctx({ from: 'conversation' }), ['task', 'findings', 'exploration'])
     expect(jumps.map((j) => j.to)).toEqual([
-      '/tasks?conversation=c-1',
+      '/tasks?conversation=c-1&selected=t-1',
       '/findings?conversation=c-1',
       '/exploration-graph?conversation=c-1',
     ])

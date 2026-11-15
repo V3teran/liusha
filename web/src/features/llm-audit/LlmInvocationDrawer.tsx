@@ -117,7 +117,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 {jumps.length > 0 && (
                   <section>
                     <h3 className="mb-2.5 text-sm font-semibold text-text">跳转</h3>
-                    <JumpLinks jumps={jumps} onNavigate={() => onOpenChange(false)} />
+                    <JumpLinks jumps={jumps} />
                   </section>
                 )}
 

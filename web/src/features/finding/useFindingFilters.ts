@@ -1,5 +1,6 @@
 import type { FindingFilters } from '@/api/types'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
+import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 // 漏洞台账筛选态迁移进 URL search params：刷新、前进/后退、分享链接都能还原
 // 筛选条件与翻页位置。参数名：task / conversation / host / severity / status / source / search /
@@ -19,7 +20,7 @@ export interface FindingUrlState {
   filters: FindingFilters
   page: number // 1-based
   size: number // 每页条数，PAGE_SIZE_OPTIONS 之一
-  setFilters: (next: FindingFilters) => void
+  setFilters: (next: FindingFilters, opts?: HistoryOptions) => void
   setPage: (page: number) => void
   setSize: (size: number) => void
   resetFilters: () => void

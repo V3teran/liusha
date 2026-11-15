@@ -37,6 +37,11 @@ export async function getFindingTaskFacets(
   return get(`/findings/tasks?${params}`)
 }
 
+/** 单条漏洞（与台账列表行同形状）：漏洞详情按 ID 打开——不在当前页、刷新、后退回来时用。 */
+export function getFinding(id: string): Promise<FindingRow> {
+  return get<FindingRow>(`/findings/${encodeURIComponent(id)}`)
+}
+
 /** 台账统计（与列表同筛选口径；status/severity 分布，供头部 chip 全量口径）。 */
 export interface FindingStat {
   total: number

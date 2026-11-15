@@ -84,7 +84,7 @@ export function LogsPage() {
   }, [filters.search])
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localSearch !== filters.search) setFilters({ ...filters, search: localSearch })
+      if (localSearch !== filters.search) setFilters({ ...filters, search: localSearch }, { replace: true })
     }, 300)
     return () => clearTimeout(timer)
   }, [localSearch, filters, setFilters])

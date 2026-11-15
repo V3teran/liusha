@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
 import { getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
@@ -11,6 +11,17 @@ vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
   updateFindingTriage: vi.fn(),
   getFindingStat: vi.fn(),
+  getFinding: vi.fn(async (id: string) => ({
+    id,
+    seq: 9,
+    severity: 'high',
+    summary: '不在当前页的漏洞',
+    host: 'b.example.com',
+    source: 'direct',
+    status: 'open',
+    first_seen_at: '2026-01-01T00:00:00Z',
+    created_at: '2026-01-01T00:00:00Z',
+  })),
   getFindingTaskFacets: vi.fn(async () => ({
     tasks: [
       { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
@@ -64,12 +75,26 @@ function makeListResponse(findings: FindingRow[], overrides: Partial<FindingList
 }
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router（对齐 useTrafficFilters 测试模式）。
+// 模拟浏览器后退与地址栏（MemoryRouter 的历史栈）
+function HistoryProbe() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="location">{useLocation().search}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+    </>
+  )
+}
+
 function renderPage(entry = '/findings') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[entry]}>
         <FindingsPage />
+        <HistoryProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -206,6 +231,43 @@ describe('FindingsPage', () => {
     // 再次点击应取消 severity 筛选
     const lastCallArgs = mockedListFindings.mock.calls[mockedListFindings.mock.calls.length - 1][0]
     expect(lastCallArgs.severity).toBe('')
+  })
+
+  // 打开的漏洞写在 URL：跳到任务 / 对话再后退、刷新都还原抽屉；不在当前页也能按 ID 打开。
+  it('打开写入 ?selected=，后退关闭抽屉', async () => {
+    const user = userEvent.setup()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding({ summary: '点击测试漏洞' })]))
+    renderPage()
+    await user.click(await screen.findByText('点击测试漏洞'))
+    expect(screen.getByTestId('location').textContent).toBe('?selected=f-1')
+    expect(await screen.findByText('漏洞处置')).toBeTruthy()
+    // 模态抽屉打开时页面其余部分不可点（pointer-events: none），后退按钮直接派发点击
+    fireEvent.click(screen.getByText('浏览器后退'))
+    await waitFor(() => expect(screen.queryByText('漏洞处置')).toBeNull())
+  })
+
+  it('带 ?selected= 进页：不在当前页的漏洞按 ID 取回并打开', async () => {
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    renderPage('/findings?selected=f-9')
+    expect(await screen.findByText('不在当前页的漏洞')).toBeTruthy()
+  })
+
+  // 搜索框输入不是导航：不新增历史，后退回到搜索之前
+  it('搜索不进历史：后退回到搜索之前', async () => {
+    const user = userEvent.setup()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={['/findings?severity=high', '/findings']} initialIndex={1}>
+          <FindingsPage />
+          <HistoryProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await user.type(await screen.findByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?search=xss'))
+    await user.click(screen.getByText('浏览器后退'))
+    expect(screen.getByTestId('location').textContent).toBe('?severity=high')
   })
 
   it('点击表格行打开详情抽屉', async () => {

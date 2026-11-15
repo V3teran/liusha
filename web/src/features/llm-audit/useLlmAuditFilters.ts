@@ -37,14 +37,18 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
     [searchParams],
   )
 
+  // 搜索框输入改写当前历史记录（打字不是导航，否则后退一格只删几个字）
   const setQuery = (q: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (q) next.set('q', q)
-      else next.delete('q')
-      next.delete('page') // 换搜索词回到第一页
-      return next
-    })
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (q) next.set('q', q)
+        else next.delete('q')
+        next.delete('page') // 换搜索词回到第一页
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const setFilters = (nextFilters: LLMInvocationFilters) => {
