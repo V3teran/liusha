@@ -12,8 +12,15 @@ type fakeFindings struct {
 	rows []finding.LedgerRow
 	stat finding.Stat
 
-	gotListFilter finding.LedgerFilter
-	gotStatFilter finding.LedgerFilter
+	gotListFilter  finding.LedgerFilter
+	gotStatFilter  finding.LedgerFilter
+	gotFacetFilter finding.LedgerFilter
+	facets         []finding.TaskFacet
+}
+
+func (f *fakeFindings) TaskFacets(_ context.Context, fl finding.LedgerFilter) ([]finding.TaskFacet, error) {
+	f.gotFacetFilter = fl
+	return f.facets, nil
 }
 
 func (f *fakeFindings) ListAll(_ context.Context, fl finding.LedgerFilter) ([]finding.LedgerRow, error) {
@@ -81,5 +88,33 @@ func TestFindings_TaskFilter(t *testing.T) {
 	}
 	if fk.gotStatFilter.TaskID != taskID {
 		t.Fatalf("统计筛选未透传: %+v", fk.gotStatFilter)
+	}
+}
+
+// 任务分面：与列表同一筛选参数；空结果是数组而不是 null。
+func TestFindings_TaskFacets(t *testing.T) {
+	fk := &fakeFindings{}
+	srv := newTestServer(t, Deps{Findings: fk})
+	defer srv.Close()
+
+	code, body := doJSON(t, "GET", srv.URL+"/api/findings/tasks?source=proxy", nil)
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if tasks, ok := body["tasks"].([]any); !ok || len(tasks) != 0 {
+		t.Fatalf("空结果应为空数组: %v", body)
+	}
+	if fk.gotFacetFilter.Source != "proxy" {
+		t.Fatalf("筛选未透传: %+v", fk.gotFacetFilter)
+	}
+
+	fk.facets = []finding.TaskFacet{{TaskID: "t-1", Goal: "对 http://a 做测试", Count: 2}}
+	_, body = doJSON(t, "GET", srv.URL+"/api/findings/tasks", nil)
+	first := body["tasks"].([]any)[0].(map[string]any)
+	if first["id"] != "t-1" || first["goal"] != "对 http://a 做测试" || first["count"] != float64(2) {
+		t.Fatalf("字段不符: %v", first)
+	}
+	if code, _ := doJSON(t, "GET", srv.URL+"/api/findings/tasks?source=bogus", nil); code != 400 {
+		t.Fatalf("非法来源应 400，得 %d", code)
 	}
 }

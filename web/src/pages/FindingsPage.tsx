@@ -14,9 +14,8 @@ import { cn } from '@/lib/utils'
 import { FindingDrawer } from '@/features/finding/FindingDrawer'
 import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
-import { useFindingList } from '@/features/finding/useFindingQueries'
+import { useFindingList, useFindingTaskFacets } from '@/features/finding/useFindingQueries'
 import { SOURCE_OPTIONS } from '@/lib/source'
-import { X } from 'lucide-react'
 import { useTaskDetail } from '@/features/tasks/useTaskQueries'
 import { goalHead } from '@/features/tasks/taskColumns'
 
@@ -26,8 +25,12 @@ import { goalHead } from '@/features/tasks/taskColumns'
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
   const queryClient = useQueryClient()
-  // 任务筛选由任务详情 / 对话的「漏洞」跳转带入：以目标摘要标出当前只看哪个任务。
-  const scopedTask = useTaskDetail(filters.task || null)
+  // 「任务」下拉的选项：有漏洞的任务。所选任务在其它筛选下没有漏洞时不在选项里，单独补一项
+  // （数量 0），下拉才不会显示成别的值。
+  const taskFacets = useFindingTaskFacets(filters)
+  const facets = taskFacets.data ?? []
+  const selectedMissing = !!filters.task && taskFacets.isSuccess && !facets.some((t) => t.id === filters.task)
+  const selectedTask = useTaskDetail(selectedMissing ? filters.task! : null)
 
   const listQuery = useFindingList(filters, page, size)
 
@@ -185,23 +188,6 @@ export function FindingsPage() {
           />
         }
       >
-        {filters.task && (
-          <span className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-lg border border-border bg-surface-2 pl-3 pr-1 text-sm text-text">
-            <span className="shrink-0 text-text-secondary">任务</span>
-            <span className="min-w-0 truncate" title={scopedTask.data?.goal}>
-              {scopedTask.data ? goalHead(scopedTask.data.goal) : scopedTask.isError ? '（任务不存在）' : '…'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setFilters({ ...filters, task: '' })}
-              aria-label="取消任务筛选"
-              className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface hover:text-text"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </span>
-        )}
-
         <Select
           value={filters.source}
           onChange={(e) => setFilters({ ...filters, source: e.target.value })}
@@ -212,6 +198,25 @@ export function FindingsPage() {
           {SOURCE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          value={filters.task}
+          onChange={(e) => setFilters({ ...filters, task: e.target.value })}
+          className="w-full sm:w-64"
+          aria-label="按任务筛选"
+        >
+          <option value="">全部任务</option>
+          {selectedMissing && (
+            <option value={filters.task}>
+              {selectedTask.data ? goalHead(selectedTask.data.goal) : '所选任务'}（0）
+            </option>
+          )}
+          {facets.map((t) => (
+            <option key={t.id} value={t.id}>
+              {goalHead(t.goal)}（{t.count}）
             </option>
           ))}
         </Select>

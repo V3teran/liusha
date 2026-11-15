@@ -5,7 +5,7 @@
  */
 
 import { get, patch } from './client'
-import type { FindingFilters, FindingListResponse, FindingRow } from './types'
+import type { FindingFilters, FindingListResponse, FindingRow, FindingTaskFacet } from './types'
 
 /** 台账筛选的查询参数（列表与统计共用，筛选口径不漂移；空值不带）。 */
 function ledgerParams(filters: FindingFilters): URLSearchParams {
@@ -23,6 +23,12 @@ function ledgerParams(filters: FindingFilters): URLSearchParams {
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
   const q = ledgerParams(filters).toString()
   return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
+}
+
+/** 台账「任务」筛选的选项：有漏洞的任务（其它筛选照常生效，任务筛选不作用于自身）。 */
+export async function getFindingTaskFacets(filters: FindingFilters): Promise<FindingTaskFacet[]> {
+  const { tasks } = await get<{ tasks: FindingTaskFacet[] }>(`/findings/tasks?${ledgerParams(filters)}`)
+  return tasks
 }
 
 /** 台账统计（与列表同筛选口径；status/severity 分布，供头部 chip 全量口径）。 */

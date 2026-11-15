@@ -31,6 +31,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	r.DELETE("/workspaces", deleteWorkspacePathHandler(d.Workspaces))
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
+	r.GET("/findings/tasks", findingTaskFacetsHandler(d.Findings))
 	r.PATCH("/findings/:id/status", uuidID, updateFindingStatusHandler(d.Findings))
 }
 

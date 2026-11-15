@@ -444,6 +444,13 @@ export interface FindingFilters {
   size?: number
 }
 
+// GET /findings/tasks：台账「任务」筛选的选项——有漏洞的任务（按最近一次发现倒序）。
+export interface FindingTaskFacet {
+  id: string
+  goal: string
+  count: number // 当前其它筛选下该任务的漏洞数
+}
+
 // GET /findings 分页响应：seq desc（最新优先）+ 同筛选口径的全局 total。
 export interface FindingListResponse {
   findings: FindingRow[]

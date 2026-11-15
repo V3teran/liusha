@@ -224,6 +224,42 @@ func (s *Store) CountAll(ctx context.Context, f LedgerFilter) (int, error) {
 	return n, nil
 }
 
+// TaskFacet 是台账「任务」筛选的一个选项：有漏洞的任务及其漏洞数。
+type TaskFacet struct {
+	TaskID string
+	Goal   string
+	Count  int
+}
+
+// TaskFacets 列出有漏洞的任务（任务筛选的选项），按最近一次发现倒序。按分面惯例，其它
+// 筛选维度照常生效、任务筛选不作用于自身——选中一个任务时，其余可选任务仍在列表里。
+func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter) ([]TaskFacet, error) {
+	f.TaskID = ""
+	where, args := ledgerWhere(f)
+	rows, err := s.pool.Query(ctx, `SELECT t.id::text, t.goal, count(*)
+		FROM finding f
+		JOIN task t ON t.id = f.task_id
+		JOIN assignment a ON a.id = t.assignment_id`+where+`
+		GROUP BY t.id, t.goal
+		ORDER BY max(f.seq) DESC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("finding task facets: %w", err)
+	}
+	defer rows.Close()
+	out := []TaskFacet{}
+	for rows.Next() {
+		var fc TaskFacet
+		if err := rows.Scan(&fc.TaskID, &fc.Goal, &fc.Count); err != nil {
+			return nil, fmt.Errorf("scan task facet: %w", err)
+		}
+		out = append(out, fc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding task facets: %w", err)
+	}
+	return out, nil
+}
+
 // Stat 是台账头部统计 chip 的数据源：与 ListAll/CountAll 同一筛选口径
 // （ledgerWhere 单一口径），按 status / severity 维度聚合——口径与列表一致，
 // 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 LLM 审计页）。
