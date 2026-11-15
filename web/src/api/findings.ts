@@ -7,16 +7,21 @@
 import { get, patch } from './client'
 import type { FindingFilters, FindingListResponse, FindingRow } from './types'
 
-/**
- * 分页拉取全局漏洞台账。可选按 host/severity/status/source 筛选；
- * page/size 缺省时后端落 1 / 50。
- */
-export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
+/** 台账筛选的查询参数（列表与统计共用，筛选口径不漂移；空值不带）。 */
+function ledgerParams(filters: FindingFilters): URLSearchParams {
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(filters)) {
     if (v) params.set(k, String(v))
   }
-  const q = params.toString()
+  return params
+}
+
+/**
+ * 分页拉取全局漏洞台账。可选按 task/host/severity/status/source 筛选；
+ * page/size 缺省时后端落 1 / 50。
+ */
+export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
+  const q = ledgerParams(filters).toString()
   return get<FindingListResponse>(`/findings${q ? '?' + q : ''}`)
 }
 
@@ -29,12 +34,7 @@ export interface FindingStat {
 
 /** 台账头部统计：与列表同筛选口径的 status/severity 聚合（与翻页无关）。 */
 export function getFindingStat(filters: FindingFilters): Promise<FindingStat> {
-  const params = new URLSearchParams()
-  if (filters.host) params.set('host', filters.host)
-  if (filters.severity) params.set('severity', filters.severity)
-  if (filters.status) params.set('status', filters.status)
-  if (filters.source) params.set('source', filters.source)
-  return get(`/findings/stat?${params}`)
+  return get(`/findings/stat?${ledgerParams(filters)}`)
 }
 
 /**

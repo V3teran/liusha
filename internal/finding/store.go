@@ -134,6 +134,7 @@ type LedgerRow struct {
 // LedgerFilter 是台账查询的可选筛选（零值=不筛该维度）+ 分页。
 // Limit<=0 时 ListAll 不分页（历史行为，内部调用方/测试用）；handler 层始终传 >0。
 type LedgerFilter struct {
+	TaskID   string // 只看这个任务的漏洞（任务详情、对话跳转用）
 	Host     string
 	Severity string
 	Status   string
@@ -151,6 +152,9 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 		where = append(where, fmt.Sprintf(clause, idx))
 		args = append(args, val)
 		idx++
+	}
+	if f.TaskID != "" {
+		add("f.task_id = $%d", f.TaskID)
 	}
 	if f.Host != "" {
 		add("f.host = $%d", f.Host)
@@ -170,9 +174,9 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	return " WHERE " + strings.Join(where, " AND "), args
 }
 
-// ListAll 全局漏洞台账查询：跨 task/host 平铺列出漏洞，JOIN task/assignment 带出 _id 与 source，按可选维度筛选。
+// ListAll 全局漏洞台账查询：跨任务 / 主机平铺列出漏洞，JOIN task/assignment/conversation 带出来源与所属会话，按可选维度筛选。
 //
-// 本方法不受 task/ 作用域约束，跨场景一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
+// 不指定任务时跨任务一网打尽，按 seq desc 排序（对外顺序号倒序，最新发现优先，
 // 且是全局单调序，不会像 created_at 那样同批写入并列时出现顺序不稳定）。
 // Limit>0 时分页（Offset 配合翻页）；Limit<=0 时不限（历史全量口径，内部调用方用）。
 //
@@ -296,7 +300,7 @@ func validStatus(s string) bool {
 // ledgerCols 是台账 JOIN 查询的列序（= colsSelect 但每列显式加 f. 前缀）。
 // 不用程序化前缀：colsSelect 含 COALESCE(...) 等内部带逗号的表达式，
 // 按 ", " 切分会劈碎；且 JOIN task 后 id/status/created_at 列名歧义，必须 f. 限定。
-// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 _id, source。
+// 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 source, conversation_id。
 const ledgerCols = "f.id, f.task_id::text AS task_id, " +
 	"f.agent_run_id, f.source_traffic_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
 	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +

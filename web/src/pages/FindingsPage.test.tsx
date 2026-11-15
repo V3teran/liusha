@@ -13,6 +13,10 @@ vi.mock('@/api/findings', () => ({
   getFindingStat: vi.fn(),
 }))
 
+vi.mock('@/api/tasks', () => ({
+  getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '对 http://target 做 XSS 测试' })),
+}))
+
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
 const mockedUpdateFindingTriage = updateFindingTriage as unknown as ReturnType<typeof vi.fn>
 const mockedGetFindingStat = getFindingStat as unknown as ReturnType<typeof vi.fn>
@@ -49,11 +53,11 @@ function makeListResponse(findings: FindingRow[], overrides: Partial<FindingList
 }
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router（对齐 useTrafficFilters 测试模式）。
-function renderPage() {
+function renderPage(entry = '/findings') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/findings']}>
+      <MemoryRouter initialEntries={[entry]}>
         <FindingsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -281,5 +285,26 @@ describe('FindingsPage', () => {
     await waitFor(() =>
       expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ page: 2, size: 50 })),
     )
+  })
+})
+
+describe('FindingsPage 任务筛选', () => {
+  beforeEach(() => {
+    mockedListFindings.mockReset()
+    mockedGetFindingStat.mockReset()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    mockedGetFindingStat.mockResolvedValue({ total: 1, by_status: {}, by_severity: {} })
+  })
+
+  it('从任务跳转来：列表与统计都只看这个任务，标签显示任务目标，可清除', async () => {
+    const user = userEvent.setup()
+    renderPage('/findings?task=t-9')
+    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' })))
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
+    expect(await screen.findByText('对 http://target 做 XSS 测试')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '取消任务筛选' }))
+    await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
+    expect(screen.queryByRole('button', { name: '取消任务筛选' })).toBeNull()
   })
 })

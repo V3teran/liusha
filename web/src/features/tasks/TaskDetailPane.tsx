@@ -110,7 +110,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
                   )}
                   {/* 无洞不跳：按钮必须通向有内容的落点，空台账链接是噪音 */}
                   {task.finding_count > 0 && (
-                    <JumpLink to="/findings" icon={Bug}>
+                    <JumpLink to={`/findings?task=${encodeURIComponent(task.id)}`} icon={Bug}>
                       漏洞
                     </JumpLink>
                   )}

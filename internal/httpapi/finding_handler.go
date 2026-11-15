@@ -1,6 +1,6 @@
 // Package httpapi: 全局漏洞台账 handler（漏洞页）。
 //
-// 本组端点跨 task/host/ 全量拉取，支持 triage 处置流转。
+// 本组端点跨任务 / 主机全量拉取（可按任务等维度筛选），支持 triage 处置流转。
 
 package httpapi
 
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/V3teran/liusha/internal/finding"
 )
@@ -30,10 +31,33 @@ const (
 	maxFindingPageSize     = 200
 )
 
-// listFindingsHandler 处理 GET /findings?host=&severity=&status=&_id=&source=&page=&size=。
+// ledgerFilterParams 解析台账筛选参数（列表与统计共用，筛选口径不漂移）：task（任务 ID，须为
+// UUID）/ host / severity / status / source。非法取值写 400 并返回 ok=false。
+func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
+	source, ok := sourceParam(c)
+	if !ok {
+		return finding.LedgerFilter{}, false
+	}
+	taskID := c.Query("task")
+	if taskID != "" {
+		if _, err := uuid.Parse(taskID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "task 不是合法的 UUID"})
+			return finding.LedgerFilter{}, false
+		}
+	}
+	return finding.LedgerFilter{
+		TaskID:   taskID,
+		Host:     c.Query("host"),
+		Severity: c.Query("severity"),
+		Status:   c.Query("status"),
+		Source:   source,
+	}, true
+}
+
+// listFindingsHandler 处理 GET /findings?task=&host=&severity=&status=&source=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
-// 空筛选=全量。响应含 _id + triage 处置态，供前端就地流转。
+// 空筛选=全量。响应含来源、所属会话与 triage 处置态，供前端跳转与就地流转。
 // page 缺省/非法=1；size clamp 到 [1,maxFindingPageSize]，缺省 defaultFindingPageSize。
 //
 // 响应结构（findingJSON 单一序列化点）：
@@ -47,20 +71,12 @@ const (
 //	}] }
 func listFindingsHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		source, ok := sourceParam(c)
+		f, ok := ledgerFilterParams(c)
 		if !ok {
 			return
 		}
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultFindingPageSize, maxFindingPageSize)
-
-		f := finding.LedgerFilter{
-			Host:     c.Query("host"),
-			Severity: c.Query("severity"),
-			Status:   c.Query("status"),
-			Source:   source,
-			Limit:    size,
-			Offset:   (page - 1) * size,
-		}
+		f.Limit, f.Offset = size, (page-1)*size
 
 		rows, err := api.ListAll(c.Request.Context(), f)
 		if err != nil {
@@ -115,7 +131,7 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
-		// UpdateTriage 返回 Finding（无 _id），补零值即可（前端改处置不依赖 _id）。
+		// UpdateTriage 返回 Finding（不含来源与会话），这两列补零值即可（前端改处置不依赖它们）。
 		c.JSON(http.StatusOK, gin.H{"ok": true, "finding": findingJSON(finding.LedgerRow{Finding: updated})})
 	}
 }
@@ -146,19 +162,13 @@ func findingJSON(r finding.LedgerRow) gin.H {
 	}
 }
 
-// findingStatHandler 处理 GET /findings/stat?host=&severity=&status=&source=：
+// findingStatHandler 处理 GET /findings/stat?task=&host=&severity=&status=&source=：
 // 与列表同筛选口径的 status/severity 聚合（台账头部统计 chip 数据源）。
 func findingStatHandler(api FindingsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		source, ok := sourceParam(c)
+		f, ok := ledgerFilterParams(c)
 		if !ok {
 			return
-		}
-		f := finding.LedgerFilter{
-			Host:     c.Query("host"),
-			Severity: c.Query("severity"),
-			Status:   c.Query("status"),
-			Source:   source,
 		}
 		st, err := api.StatFiltered(c.Request.Context(), f)
 		if err != nil {

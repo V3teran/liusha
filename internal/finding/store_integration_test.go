@@ -149,3 +149,30 @@ func seedTask(t *testing.T, pool *pgxpool.Pool, assignmentID string) string {
 	require.NoError(t, err)
 	return id
 }
+
+// 按任务筛选：任务详情与对话跳到「这个任务的漏洞」，列表、计数、统计同一口径。
+func TestLedger_FilterByTask(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	assignmentID := dbtest.SeedAssignment(t, pool)
+	mine, other := seedTask(t, pool, assignmentID), seedTask(t, pool, assignmentID)
+	for _, tc := range []struct{ task, summary string }{{mine, "XSS"}, {mine, "SQL 注入"}, {other, "SSRF"}} {
+		_, err := store.Save(ctx, finding.Finding{TaskID: tc.task, Host: "t.local", Summary: tc.summary, Severity: "high"})
+		require.NoError(t, err)
+	}
+
+	f := finding.LedgerFilter{TaskID: mine}
+	rows, err := store.ListAll(ctx, f)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, r := range rows {
+		assert.Equal(t, mine, r.TaskID)
+	}
+	n, err := store.CountAll(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	st, err := store.StatFiltered(ctx, f)
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Total)
+}

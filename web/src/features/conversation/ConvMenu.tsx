@@ -26,7 +26,7 @@ export function ConvMenu({
       style={style}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* 任务/探索图/漏洞：会话到各上游/下游视图的跳转（任务需有关联 task） */}
+      {/* 任务/探索图/漏洞：会话到各上游/下游视图的跳转（任务与漏洞需有关联 task） */}
       {conv.task_id && (
         <Link
           to={`/tasks?task=${conv.task_id}`}
@@ -45,14 +45,17 @@ export function ConvMenu({
         <Network className="h-3.5 w-3.5" />
         探索图
       </Link>
-      <Link
-        to={`/findings?source=${conv.source || 'direct'}`}
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
-        onClick={onClose}
-      >
-        <Bug className="h-3.5 w-3.5" />
-        漏洞
-      </Link>
+      {/* 漏洞只属于任务：没有关联任务的纯聊天会话没有漏洞可看 */}
+      {conv.task_id && (
+        <Link
+          to={`/findings?task=${encodeURIComponent(conv.task_id)}`}
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text hover:bg-surface-2"
+          onClick={onClose}
+        >
+          <Bug className="h-3.5 w-3.5" />
+          漏洞
+        </Link>
+      )}
       <button
         type="button"
         onClick={(ev) => onRename(conv, ev)}
