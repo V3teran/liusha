@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import type { TrafficConsumer, TrafficDetail } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
 import { fullTime } from '@/lib/format'
+import { taskStatusMeta } from '@/lib/taskStatus'
 import { methodColor, statusColor } from './httpStatus'
 import { RawMessageBlock } from './RawMessageBlock'
 
@@ -12,26 +13,26 @@ interface TrafficDetailPaneProps {
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
-// 消费本条流量的代理捕获 task chip：host + 状态色点；有 conv_id 则整块可点跳会话。
+// 消费本条流量的代理捕获 task chip：host + 状态；任务有对话则整块可点跳会话。
 function ConsumerChip({ c }: { c: TrafficConsumer }) {
   const inner = (
     <>
       <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
       <span className="truncate text-text-secondary">{c.host}</span>
-      {c.status && <span className="text-text-tertiary">({c.status})</span>}
+      {c.status && <span className="text-text-tertiary">（{taskStatusMeta(c.status).label}）</span>}
     </>
   )
   const cls =
     'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs transition-colors'
-  if (c.conv_id) {
+  if (c.conversation_id) {
     return (
-      <Link to={`/conversations/proxy?conv=${encodeURIComponent(c.conv_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>
+      <Link to={`/conversations/proxy?conv=${encodeURIComponent(c.conversation_id)}`} className={`${cls} hover:border-accent hover:bg-accent/10`}>
         {inner}
       </Link>
     )
   }
   return (
-    <span className={cls} title="该任务暂无绑定会话">
+    <span className={cls} title="该任务没有对话">
       {inner}
     </span>
   )

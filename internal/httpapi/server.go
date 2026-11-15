@@ -74,9 +74,6 @@ type Deps struct {
 	// Traffic 为 nil 时代理捕获流量浏览路由（/traffic 系列）不注册。
 	// 由 api 组件注入 *traffic.ProxyStore（自动满足 TrafficAPI 窄接口）。只读浏览，无写入。
 	Traffic TrafficAPI
-	// TrafficConv 把消费某流量的 task 反解为会话 id（详情消费关系 chip 跳转）；可空（chip 不可跳）。
-	// 由 api 组件注入 *conversation.Store（满足 TaskConvResolver）。
-	TrafficConv TaskConvResolver
 	// ToolCatalog 或 ConfigStore 为 nil 时工具目录路由（/tools 系列）不注册——
 	// 详情/装配需列举、改写智能体，故与 ConfigStore 同守卫。
 	// 由 api 组件注入 *toolstore.Store（自动满足 ToolCatalogAPI 窄接口）。数据源是 tool 表

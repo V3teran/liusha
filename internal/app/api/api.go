@@ -203,7 +203,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
 			Settings:           settingStore,
 			Traffic:            proxyTrafficStore,
-			TrafficConv:        conversationStore,
 			Conversations:      conversationStore,
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb},
 			UsageLLM:           invocationStore,
