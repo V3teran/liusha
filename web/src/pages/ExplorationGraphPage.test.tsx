@@ -138,6 +138,34 @@ describe('ExplorationGraphPage（探索图）', () => {
     expect(screen.getByTestId('location').textContent).toBe(`?task=${TASK_ID}`)
   })
 
+  // 从漏洞跳来：链接带 selected，直接打开坐实它的结果节点；关闭是一步导航，后退重新打开
+  it('链接带 selected 时打开该节点的详情，关闭后后退重新打开', async () => {
+    mGraph.mockResolvedValue({
+      nodes: [node(), node({ id: 'n-res', kind: 'result', source_type: 'evaluator', content: { statement: '反射型 XSS 已坐实' } })],
+      edges: [{ src_id: 'n-obj', dst_id: 'n-res', rel: 'generates', created_at: '2026-06-10T00:00:00Z' }],
+    })
+    const user = userEvent.setup()
+    renderPage(`/exploration-graph?task=${TASK_ID}&selected=n-res`)
+    const detail = await screen.findByRole('region', { name: '节点详情' })
+    expect(within(detail).getByText('反射型 XSS 已坐实')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '关闭详情' }))
+    expect(screen.queryByRole('region', { name: '节点详情' })).toBeNull()
+    expect(screen.getByTestId('location').textContent).toBe(`?task=${TASK_ID}`)
+    await user.click(screen.getByText('浏览器后退'))
+    expect(await screen.findByRole('region', { name: '节点详情' })).toBeTruthy()
+  })
+
+  it('换选任务清掉原来打开的节点', async () => {
+    mListTasks.mockResolvedValue({ items: [taskRow({ id: 't-other', goal: '另一个任务' })], total: 1, page: 1, size: 20 })
+    mGraph.mockResolvedValue({ nodes: [], edges: [] })
+    const user = userEvent.setup()
+    renderPage(`/exploration-graph?task=${TASK_ID}&selected=n-res`)
+    await user.click(await screen.findByRole('button', { name: /^选择任务：/ }))
+    await user.click(await screen.findByRole('option', { name: /另一个任务/ }))
+    expect(screen.getByTestId('location').textContent).toBe('?task=t-other')
+  })
+
   it('纯聊天对话没有任务，提示没有探索图', async () => {
     renderPage('/exploration-graph?conversation=c-chat')
     expect(await screen.findByText('这个对话是纯聊天，没有任务，也就没有探索图')).toBeTruthy()

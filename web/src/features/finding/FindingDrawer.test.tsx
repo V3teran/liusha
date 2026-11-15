@@ -62,6 +62,16 @@ describe('FindingDrawer', () => {
     expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
   })
 
+  it('探索图定位到坐实这个漏洞的结果节点', () => {
+    const finding = makeFinding({ task_id: 't-1', result_node_id: 'r-9' })
+    render(
+      <MemoryRouter>
+        <FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1&selected=r-9')
+  })
+
   it('finding 为 null 时不渲染内容区块', () => {
     render(<FindingDrawer open finding={null} onOpenChange={vi.fn()} onSave={vi.fn()} />)
     expect(screen.queryByText('处置')).toBeNull()

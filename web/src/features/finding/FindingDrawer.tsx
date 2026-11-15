@@ -97,7 +97,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
           {/* 内容区域 */}
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-6">
-              {/* 跳转：只看这个漏洞所属的任务、对话与探索图（规则见 taskJumps） */}
+              {/* 跳转：只看这个漏洞所属的任务、对话与探索图，探索图定位到坐实它的结果（规则见 taskJumps） */}
               {finding.task_id && (
                 <section>
                   <h3 className="mb-3 text-sm font-semibold text-text">跳转</h3>
@@ -108,6 +108,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                         conversationId: finding.conversation_id ?? '',
                         source: finding.source ?? '',
                         from: 'task',
+                        explorationNode: finding.result_node_id,
                       },
                       ['task', 'conversation', 'exploration'],
                     )}
