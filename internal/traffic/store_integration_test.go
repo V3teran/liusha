@@ -150,6 +150,17 @@ func TestProxyStore_ClaimThenListByTask(t *testing.T) {
 	if got.ConsumedBy[0].ConversationID != convID {
 		t.Fatalf("消费任务应带出对话 ID %q，得 %+v", convID, got.ConsumedBy)
 	}
+	// 跳转所需的来源与漏洞数一并带出
+	if _, err := pool.Exec(ctx, `INSERT INTO finding (task_id, host, severity, summary) VALUES ($1, 'test.example.com', 'high', 'XSS')`, taskID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetByID(ctx, firstID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if c := got.ConsumedBy[0]; c.FindingCount != 1 || c.Source == "" {
+		t.Fatalf("消费任务应带出来源与漏洞数，得 %+v", c)
+	}
 }
 
 // consumedByTaskID 测试辅助：判断消费者列表是否含某 task。
