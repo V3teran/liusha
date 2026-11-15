@@ -6,7 +6,6 @@ import { controlTask } from '@/api/tasks'
 import { ApiError } from '@/api/client'
 import { taskKeys, useTaskDetail, useTaskUsage } from '@/features/tasks/useTaskQueries'
 import { conversationKeys, useConversation } from './useConversationQueries'
-import { TaskJumpLinks } from '@/features/relations/TaskJumpLinks'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
 import { fullTime, humanDuration, humanTokens } from '@/lib/format'
@@ -221,11 +220,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               />
               {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
             </span>
-            {/* 跳转：只看这个对话的任务、漏洞与探索图（对话自身的出口，列表行菜单不再重复）；
-                纯聊天没有任务，不显示 */}
-            {taskID && (
-              <TaskJumpLinks taskId={taskID} from="conversation" size="sm" targets={['task', 'findings', 'exploration']} />
-            )}
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-sev-medium" title="实时连接断开，正在自动重连…">
                 <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-sev-medium/40 border-t-sev-medium" />

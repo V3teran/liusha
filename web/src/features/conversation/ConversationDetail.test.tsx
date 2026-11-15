@@ -184,13 +184,12 @@ describe('ConversationDetail', () => {
     expect(onRunningChanged).toHaveBeenCalled()
   })
 
-  // 对话页顶栏直接放跳转（窄屏打开对话后看不到列表的「⋯」菜单）：只看这个对话的。
-  it('顶栏带这个对话的任务、漏洞、探索图跳转', async () => {
+  // 跳转在对话列表行的「⋯」菜单里，顶栏不重复
+  it('顶栏不放跳转', async () => {
     withTask({ status: 'completed', conversation_id: 'c1', finding_count: 2, source: 'direct' })
     render(<ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect((await screen.findByRole('link', { name: '任务' })).getAttribute('href')).toBe('/tasks?conversation=c1&selected=o1')
-    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?conversation=c1')
-    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c1')
+    await waitFor(() => expect(tasksClient.getTaskDetail).toHaveBeenCalledWith('o1'))
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
   })
 
   it('纯聊天对话（没有任务）不显示控制组，也不取任务', async () => {
