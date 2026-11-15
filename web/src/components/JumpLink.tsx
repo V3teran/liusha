@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { LucideIcon } from 'lucide-react'
+import type { ComponentType, ReactNode } from 'react'
 
 /**
  * 跳转链接：详情面板/抽屉「跳转」区的统一视觉语法——边框盒 + 图标 + 文本，
@@ -14,10 +14,10 @@ export function JumpLink({
   children,
 }: {
   to: string
-  icon: LucideIcon
+  icon: ComponentType<{ className?: string }>
   title?: string
   onClick?: () => void
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <Link

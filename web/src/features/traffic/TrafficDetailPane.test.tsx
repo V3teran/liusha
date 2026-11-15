@@ -71,27 +71,32 @@ describe('TrafficDetailPane', () => {
     expect(screen.queryByText('消费任务')).toBeNull()
   })
 
-  it('有消费任务时渲染 chip（状态用中文文案），有对话则可跳会话', () => {
+  // 每个消费任务带这个任务的跳转：任务、对话、漏洞、探索图（只看这个任务的）。
+  it('消费任务带这个任务的任务、对话、漏洞、探索图跳转，状态用中文文案', () => {
     renderPane({
       detail: makeDetail({
-        consumed_by: [{ task_id: 't1', host: 'api.example.com', status: 'active', conversation_id: 'c9' }],
+        consumed_by: [
+          { task_id: 't1', host: 'api.example.com', status: 'active', source: 'proxy', conversation_id: 'c9', finding_count: 2 },
+        ],
       }),
     })
     expect(screen.getByText('消费任务')).toBeTruthy()
-    expect(screen.getByText('api.example.com')).toBeTruthy()
     expect(screen.getByText('（进行中）')).toBeTruthy()
-    const link = screen.getByRole('link')
-    expect(link.getAttribute('href')).toContain('/conversations/proxy?conv=c9')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t1')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c9')
+    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?task=t1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t1')
   })
 
-  it('消费任务没有对话（对话已删除）时 chip 不可点', () => {
+  it('消费任务没有对话、没有漏洞时只有任务与探索图', () => {
     renderPane({
       detail: makeDetail({
-        consumed_by: [{ task_id: 't1', host: 'api.example.com', status: 'completed', conversation_id: '' }],
+        consumed_by: [
+          { task_id: 't1', host: 'api.example.com', status: 'completed', source: 'proxy', conversation_id: '', finding_count: 0 },
+        ],
       }),
     })
-    expect(screen.getByText('api.example.com')).toBeTruthy()
-    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual(['任务', '探索图'])
   })
 
   it('响应无 body 时该块不提供美化切换（请求块仍可美化）', () => {

@@ -2,14 +2,13 @@ import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useSearchParams } from 'react-router-dom'
 import { CalendarClock, Plus } from 'lucide-react'
 import { TaskFilterBar } from '@/features/tasks/TaskFilterBar'
 import { TaskTable } from '@/features/tasks/TaskTable'
 import { TaskDetailPane } from '@/features/tasks/TaskDetailPane'
 import { NewTaskDialog } from '@/features/tasks/NewTaskDialog'
 import { SchedulesDrawer } from '@/features/tasks/SchedulesDrawer'
-import { useTaskFilters } from '@/features/tasks/useTaskFilters'
+import { hasTaskFilter, useTaskFilters } from '@/features/tasks/useTaskFilters'
 import { useTaskDetail, useTaskList } from '@/features/tasks/useTaskQueries'
 import type { TaskSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -27,17 +26,15 @@ export function TasksPage() {
   const rows = useMemo(() => listQuery.data?.items ?? [], [listQuery.data])
   const total = listQuery.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / size))
-  const hasFilter = !!(filters.source || filters.status || filters.search)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const isWide = useMediaQuery('(min-width: 768px)', true)
   const detailQuery = useTaskDetail(selectedId)
-  // ?task=<id>（对话列表 ⋯ 菜单「任务」跳转）：进页即选中该任务打开详情板
-  const [searchParams] = useSearchParams()
-  const preselectTask = searchParams.get('task')
+  // 从其它页面跳来（?task= / ?conversation=）：列表只剩这一个任务，进页即打开它的详情
+  const scopedTask = filters.task || filters.conversation ? (rows.length === 1 ? rows[0].id : null) : null
   useEffect(() => {
-    if (preselectTask) setSelectedId(preselectTask)
-  }, [preselectTask])
+    if (scopedTask) setSelectedId(scopedTask)
+  }, [scopedTask])
   // 列表行已带全量派生列，详情请求返回前先用行数据撑住详情板（零闪跳）。
   const rowTask = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId])
   const detail = detailQuery.data ?? rowTask
@@ -107,7 +104,7 @@ export function TasksPage() {
                 <TaskTable
                   rows={rows}
                   loading={listQuery.isPending}
-                  hasFilter={hasFilter}
+                  hasFilter={hasTaskFilter(filters)}
                   offset={(page - 1) * size}
                   selectedId={selectedId}
                   onRowClick={selectRow}

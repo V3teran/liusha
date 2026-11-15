@@ -8,35 +8,42 @@ import { GraphCanvas } from '@/features/exploration/GraphCanvas'
 import { Toolbar } from '@/features/exploration/Toolbar'
 import { NodeDetailPanel } from '@/features/exploration/NodeDetailPanel'
 import type { Verification } from '@/api/explorationgraph'
-import { useTaskDetail } from '@/features/tasks/useTaskQueries'
+import { useConversation } from '@/features/conversation/useConversationQueries'
+import { scopeOf } from '@/features/relations/scope'
+import { useScopeLabel } from '@/features/relations/useScopeLabel'
+import { TaskJumpLinks } from '@/features/relations/TaskJumpLinks'
 
 const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
 
 /**
  * ExplorationGraphPage - 探索图可视化页面（薄组装层）。
  * 数据取数在 useExplorationQueries，图构建/布局/聚焦在 layout.ts，
- * 画布渲染在 GraphCanvas。探索图属于任务：taskId 以 URL（?task=）为单一事实源。
+ * 画布渲染在 GraphCanvas。探索图属于任务；范围以 URL 为单一事实源：?task= 是这个任务的图，
+ * ?conversation= 是这个对话的图（从对话跳来，显示对话标题；图按对话所属的任务取）。
  */
 export function ExplorationGraphPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const taskId = searchParams.get('task') || ''
-  // 仅挂载时缺 id 才自动解析最新任务：用户清空选择后不应再抢跑回填
-  const shouldResolveLatest = useRef(!searchParams.get('task')).current
+  const scope = scopeOf({ task: searchParams.get('task') ?? '', conversation: searchParams.get('conversation') ?? '' })
+  const conversationQuery = useConversation(scope?.kind === 'conversation' ? scope.id : '')
+  const taskId = scope?.kind === 'task' ? scope.id : (conversationQuery.data?.task_id ?? '')
+  const scopeLabel = useScopeLabel(scope)
+  // 仅挂载时缺范围才自动解析最新任务：用户清空选择后不应再抢跑回填
+  const shouldResolveLatest = useRef(!scope).current
 
   const latestQuery = useLatestTaskId(shouldResolveLatest)
   useEffect(() => {
     const id = latestQuery.data
-    if (!shouldResolveLatest || taskId || !id) return
+    if (!shouldResolveLatest || scope || !id) return
     setSearchParams(
       (prev) => {
-        if (prev.get('task')) return prev
+        if (prev.get('task') || prev.get('conversation')) return prev
         const p = new URLSearchParams(prev)
         p.set('task', id)
         return p
       },
       { replace: true },
     )
-  }, [latestQuery.data, taskId, shouldResolveLatest, setSearchParams])
+  }, [latestQuery.data, scope, shouldResolveLatest, setSearchParams])
 
   const graphQuery = useTaskGraph(taskId)
   const verifQuery = useTaskVerifications(taskId)
@@ -56,8 +63,6 @@ export function ExplorationGraphPage() {
   const [selectedNodeId, setSelectedNodeId] = useState('')
   useEffect(() => setSelectedNodeId(''), [taskId])
 
-  // 选中任务的目标（选择框显示用）
-  const taskQuery = useTaskDetail(taskId || null)
   const selectTask = (id: string) => setSearchParams(id ? { task: id } : {}, { replace: true })
 
   const flow = useMemo(
@@ -72,24 +77,24 @@ export function ExplorationGraphPage() {
     void verifQuery.refetch()
   }
 
-  const resolvingLatest = shouldResolveLatest && !taskId && latestQuery.isPending
-  const loading = taskId !== '' && graphQuery.isPending
-  const error =
-    taskId !== '' && graphQuery.isError
-      ? graphQuery.error instanceof Error
-        ? graphQuery.error.message
-        : '加载失败'
-      : ''
+  const resolvingLatest = shouldResolveLatest && !scope && latestQuery.isPending
+  const loading = (scope?.kind === 'conversation' && conversationQuery.isPending) || (taskId !== '' && graphQuery.isPending)
+  const failed = conversationQuery.isError ? conversationQuery.error : taskId !== '' && graphQuery.isError ? graphQuery.error : null
+  const error = failed ? (failed instanceof Error ? failed.message : '加载失败') : ''
+  // 从纯聊天对话进来：没有任务，也就没有探索图
+  const chatOnly = scope?.kind === 'conversation' && conversationQuery.isSuccess && !taskId
   const hasGraph = (graph?.nodes.length ?? 0) > 0
   const selectedNode = selectedNodeId ? graph?.nodes.find((n) => n.id === selectedNodeId) : undefined
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
+      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成">
+        {taskId ? <TaskJumpLinks taskId={taskId} targets={['task', 'conversation', 'findings']} /> : null}
+      </PageHeader>
 
       <Toolbar
-        taskId={taskId}
-        taskLabel={taskQuery.data?.goal}
+        scopeId={scope?.id ?? ''}
+        scopeLabel={scopeLabel}
         onTaskChange={selectTask}
         disabled={loading}
         refreshing={graphQuery.isFetching}
@@ -118,7 +123,7 @@ export function ExplorationGraphPage() {
             </div>
             <div className="text-lg font-medium text-status-error">{error}</div>
             <div className="max-w-md text-center text-sm text-text-secondary">
-              任务不存在或已删除，请在上方重新选择任务
+              {scope?.kind === 'conversation' ? '对话' : '任务'}不存在或已删除，请在上方重新选择任务
             </div>
           </div>
         ) : !hasGraph ? (
@@ -129,7 +134,11 @@ export function ExplorationGraphPage() {
               </div>
               <div className="mb-2 text-lg font-medium text-text">暂无数据</div>
               <div className="text-sm">
-                {taskId ? '这个任务还没有探索图（尚未开始规划）' : '在上方选择一个任务，查看它的探索图'}
+                {chatOnly
+                  ? '这个对话是纯聊天，没有任务，也就没有探索图'
+                  : taskId
+                    ? '这个任务还没有探索图（尚未开始规划）'
+                    : '在上方选择一个任务，查看它的探索图'}
               </div>
             </div>
           </div>

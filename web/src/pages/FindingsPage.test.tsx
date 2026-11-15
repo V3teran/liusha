@@ -24,6 +24,10 @@ vi.mock('@/api/tasks', () => ({
   getTaskDetail: vi.fn(async (id: string) => ({ id, goal: '选中任务的目标', created_at: '2026-11-12T08:00:00' })),
 }))
 
+vi.mock('@/api/conversations', () => ({
+  getConversation: vi.fn(async (id: string) => ({ id, title: '登录页越权排查', task_id: 't-7' })),
+}))
+
 const mockedListFindings = listFindings as unknown as ReturnType<typeof vi.fn>
 const mockedUpdateFindingTriage = updateFindingTriage as unknown as ReturnType<typeof vi.fn>
 const mockedGetFindingStat = getFindingStat as unknown as ReturnType<typeof vi.fn>
@@ -284,9 +288,9 @@ describe('FindingsPage 任务筛选', () => {
     mockedGetFindingStat.mockResolvedValue({ total: 1, by_status: {}, by_severity: {} })
   })
 
-  it('任务是筛选栏里的可搜索选择框：跳转带入即选中，列表与统计都只看这个任务', async () => {
+  it('范围是筛选栏里的可搜索选择框：从任务跳来即选中，列表与统计都只看这个任务', async () => {
     renderPage('/findings?task=t-9')
-    expect(await screen.findByRole('button', { name: '按任务筛选：选中任务的目标' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '范围：任务：选中任务的目标' })).toBeTruthy()
     await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' })))
     expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ task: 't-9' }))
   })
@@ -294,7 +298,7 @@ describe('FindingsPage 任务筛选', () => {
   it('候选由服务端按目标检索，只随结构化筛选变化；同目标的任务靠创建时间区分；可清除', async () => {
     const user = userEvent.setup()
     renderPage('/findings?task=t-9&source=direct&search=xss')
-    await user.click(await screen.findByRole('button', { name: /按任务筛选/ }))
+    await user.click(await screen.findByRole('button', { name: /^范围：/ }))
     const options = await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ })
     expect(options).toHaveLength(2)
     expect(screen.getByText('11-14 06:49 创建 · 2 个漏洞')).toBeTruthy()
@@ -308,5 +312,20 @@ describe('FindingsPage 任务筛选', () => {
 
     await user.click(screen.getByRole('option', { name: '全部任务' }))
     await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
+  })
+
+  // 从对话跳来只看「这个对话的漏洞」：服务端按对话过滤，范围显示对话标题而不是任务目标。
+  it('从对话跳来按对话限定，范围显示对话标题；改选任务即换成按任务限定', async () => {
+    const user = userEvent.setup()
+    renderPage('/findings?conversation=c-7')
+    expect(await screen.findByRole('button', { name: '范围：对话：登录页越权排查' })).toBeTruthy()
+    await waitFor(() => expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ conversation: 'c-7' })))
+    expect(mockedGetFindingStat).toHaveBeenCalledWith(expect.objectContaining({ conversation: 'c-7' }))
+
+    await user.click(screen.getByRole('button', { name: /^范围：/ }))
+    await user.click((await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ }))[0])
+    await waitFor(() =>
+      expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: 't-9', conversation: '' })),
+    )
   })
 })

@@ -58,19 +58,19 @@ function renderPage(source: 'direct' | 'proxy', initialPath = '/') {
 }
 
 describe('ConversationsPage', () => {
-  it('人工下发(direct) 下读取 ?conv= 并作为初始会话传给 ConversationDetail', () => {
+  it('人工下发(direct) 下读取 ?conversation= 并作为初始会话传给 ConversationDetail', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('direct', '/?conv=conv-from-query')
+    renderPage('direct', '/?conversation=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
   })
 
-  it('代理捕获(proxy) 同样读取 ?conv=（深链双 tab 生效）', () => {
+  it('代理捕获(proxy) 同样读取 ?conversation=（深链双 tab 生效）', () => {
     listProps.mockClear()
     detailProps.mockClear()
-    renderPage('proxy', '/?conv=conv-from-query')
+    renderPage('proxy', '/?conversation=conv-from-query')
 
     const lastDetailCall = detailProps.mock.calls[detailProps.mock.calls.length - 1][0]
     expect(lastDetailCall.convId).toBe('conv-from-query')
@@ -159,17 +159,17 @@ describe('ConversationsPage', () => {
 })
 
 describe('ConversationsPage URL 状态', () => {
-  it('从深链打开 A 后选择 B：URL 随之变为 ?conv=B（刷新/分享还原 B）', async () => {
+  it('从深链打开 A 后选择 B：URL 随之变为 ?conversation=B（刷新/分享还原 B）', async () => {
     const user = userEvent.setup()
-    renderPage('direct', '/?conv=conv-a')
+    renderPage('direct', '/?conversation=conv-a')
     await user.click(screen.getByText('select'))
-    expect(screen.getByTestId('location').textContent).toBe('?conv=conv-selected')
+    expect(screen.getByTestId('location').textContent).toBe('?conversation=conv-selected')
     expect(detailProps.mock.calls.at(-1)?.[0].convId).toBe('conv-selected')
   })
 
   it('新建：清除 URL 中的会话，详情回到新建态', async () => {
     const user = userEvent.setup()
-    renderPage('direct', '/?conv=conv-a')
+    renderPage('direct', '/?conversation=conv-a')
     await user.click(screen.getByText('new'))
     expect(screen.getByTestId('location').textContent).toBe('')
     expect(detailProps.mock.calls.at(-1)?.[0].convId).toBeUndefined()
@@ -212,9 +212,9 @@ describe('ConversationsPage 窄屏（< 768）主从单栏', () => {
     expect(screen.queryByTestId('conv-detail')).toBeNull()
   })
 
-  it('深链带 ?conv= 直接落在详情', () => {
+  it('深链带 ?conversation= 直接落在详情', () => {
     stubViewport(390)
-    renderPage('direct', '/?conv=conv-a')
+    renderPage('direct', '/?conversation=conv-a')
     expect(screen.getByTestId('conv-detail')).toBeInTheDocument()
     expect(screen.queryByTestId('conv-list')).toBeNull()
   })

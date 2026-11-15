@@ -17,7 +17,7 @@ function ledgerParams(filters: FindingFilters): URLSearchParams {
 }
 
 /**
- * 分页拉取全局漏洞台账。可选按 task/host/severity/status/source 筛选；
+ * 分页拉取全局漏洞台账。可选按范围（task / conversation）与 host/severity/status/source 筛选；
  * page/size 缺省时后端落 1 / 50。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {

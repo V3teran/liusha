@@ -16,14 +16,12 @@ function renderMenu(c: Conversation) {
 }
 
 describe('ConvMenu', () => {
-  it('漏洞跳到这个会话所属任务的漏洞', () => {
+  // 从对话出发只看这个对话的：任务、漏洞、探索图都按对话限定（落点显示对话标题）。
+  it('任务、漏洞、探索图都跳到「这个对话的」', () => {
     renderMenu(conv({}))
-    expect(screen.getByRole('link', { name: /漏洞/ }).getAttribute('href')).toBe('/findings?task=t-1')
-  })
-
-  it('探索图跳到这个会话所属任务的探索图', () => {
-    renderMenu(conv({}))
-    expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?conversation=c-1')
+    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?conversation=c-1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c-1')
   })
 
   it('纯聊天会话（没有任务）没有任务与探索图入口', () => {

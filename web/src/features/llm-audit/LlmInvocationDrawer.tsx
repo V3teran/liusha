@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { ListChecks, MessageSquare, X } from 'lucide-react'
-import { JumpLink } from '@/components/JumpLink'
+import { X } from 'lucide-react'
+import { JumpLinks } from '@/features/relations/TaskJumpLinks'
+import { conversationJump, taskJumps } from '@/features/relations/taskJumps'
 import type { LLMInvocationDetail } from '@/api/types'
 import { CopyButton } from '@/components/CopyButton'
 import { CopySection } from '@/components/CopySection'
@@ -12,7 +13,6 @@ import { invocationStatus } from './llmInvocationStatus'
 import { isTimeout, throughputLabel } from './llmTiming'
 import { toToolCalls } from './toolCalls'
 import { ToolCallCard } from './ToolCallCard'
-import { conversationPath } from '@/lib/source'
 
 interface LlmInvocationDrawerProps {
   open: boolean
@@ -29,6 +29,16 @@ interface LlmInvocationDrawerProps {
 // 复制状态机抽到 useCopyToClipboard；重复的「标题+复制按钮+内容」结构抽到 CopySection。
 export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs, onOpenChange }: LlmInvocationDrawerProps) {
   const { copiedKey, copy } = useCopyToClipboard()
+  const jumps = !detail
+    ? []
+    : detail.task_id
+      ? taskJumps(
+          { taskId: detail.task_id, conversationId: detail.conversation_id ?? '', source: detail.source ?? '', from: 'task' },
+          ['task', 'conversation', 'exploration'],
+        )
+      : detail.conversation_id
+        ? [conversationJump(detail.source ?? '', detail.conversation_id)]
+        : []
 
   // messages 是「每轮完整重发的对话历史快照」——第 N 次调用的 messages 几乎完整包含第 N-1 次的。
   // 这里只取本次增量：末条消息即"这次新喂进去的东西"。完整历史可「复制完整上下文」取走。
@@ -102,29 +112,12 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
               <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
             ) : detail ? (
               <>
-                {/* 跳转：回到产出这次调用的上下文是最先用到的出口，排在首位；与漏洞详情抽屉
-                    同一节式语法（JumpLink 盒）。对话 tab 按下发来源定（见 conversationPath：缺 source 落人工下发 tab——
-                    纯聊天/轻量路由调用必归人工下发侧，代理分析行后端恒带 source）。
-                    链接缺失（未链会话的孤儿任务/任务级后台调用）不渲染占位。 */}
-                {(detail.task_id || detail.conversation_id) && (
+                {/* 跳转：只看这次调用所属的任务、对话与探索图（规则见 taskJumps）。对话里直接
+                    发起的调用（问答、意图分类、标题生成）没有任务，只有所在对话一个去处。 */}
+                {jumps.length > 0 && (
                   <section>
                     <h3 className="mb-2.5 text-sm font-semibold text-text">跳转</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {detail.task_id && (
-                        <JumpLink to={`/tasks?task=${detail.task_id}`} icon={ListChecks} onClick={() => onOpenChange(false)}>
-                          任务
-                        </JumpLink>
-                      )}
-                      {detail.conversation_id && (
-                        <JumpLink
-                          to={conversationPath(detail.source, detail.conversation_id)}
-                          icon={MessageSquare}
-                          onClick={() => onOpenChange(false)}
-                        >
-                          对话
-                        </JumpLink>
-                      )}
-                    </div>
+                    <JumpLinks jumps={jumps} onNavigate={() => onOpenChange(false)} />
                   </section>
                 )}
 

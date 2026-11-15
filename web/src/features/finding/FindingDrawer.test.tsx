@@ -55,7 +55,11 @@ describe('FindingDrawer', () => {
     const jump = screen.getByRole('heading', { name: '跳转' })
     const basic = screen.getByRole('heading', { name: '基本信息' })
     expect(jump.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByRole('link', { name: /任务/ })).toBeTruthy()
+    // 只看这个漏洞所属的：任务、对话、探索图（漏洞属于任务，不跳回漏洞自身）
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
   })
 
   it('finding 为 null 时不渲染内容区块', () => {

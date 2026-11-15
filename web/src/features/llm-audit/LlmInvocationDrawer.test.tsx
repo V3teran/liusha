@@ -188,25 +188,33 @@ describe('LlmInvocationDrawer 跳转按钮', () => {
     })
   })
 
-  it('有 task_id/conversation_id 时渲染任务/对话按钮，tab 按 source 定', () => {
+  it('属于任务的调用：任务、对话、探索图，对话 tab 按来源定', () => {
     const detail = makeDetail({ task_id: 't-1', conversation_id: 'c-1', source: 'proxy' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    const taskLink = screen.getByText('任务').closest('a')
-    const convLink = screen.getByText('对话').closest('a')
-    expect(taskLink?.getAttribute('href')).toBe('/tasks?task=t-1')
-    expect(convLink?.getAttribute('href')).toBe('/conversations/proxy?conv=c-1')
+    expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t-1')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c-1')
+    expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
+    // 漏洞属于任务而不是某次调用，这里不放
+    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
   })
 
   it('source 缺省落 direct tab', () => {
     const detail = makeDetail({ task_id: 't-2', conversation_id: 'c-2' })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.getByText('对话').closest('a')?.getAttribute('href')).toBe('/conversations/direct?conv=c-2')
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-2')
+  })
+
+  it('对话里直接发起的调用（没有任务）：只跳回所在对话', () => {
+    const detail = makeDetail({ task_id: null, conversation_id: 'c-3', role: 'inspector' })
+    renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
+    expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/direct?conversation=c-3')
+    expect(screen.queryByRole('link', { name: '任务' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '探索图' })).toBeNull()
   })
 
   it('无 task/conversation 时不渲染按钮', () => {
     const detail = makeDetail({ task_id: null, conversation_id: null })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onOpenChange={vi.fn()} />)
-    expect(screen.queryByText('任务')).toBeNull()
-    expect(screen.queryByText('打开对话 →')).toBeNull()
+    expect(screen.queryByRole('heading', { name: '跳转' })).toBeNull()
   })
 })

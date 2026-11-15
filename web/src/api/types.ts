@@ -430,7 +430,8 @@ export interface FindingRow {
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
 export interface FindingFilters {
-  task?: string // 只看这个任务的漏洞（任务详情 / 对话跳转带入）
+  task?: string // 范围：只看这个任务的漏洞（从任务及其它页面跳来）
+  conversation?: string // 范围：只看这个对话的漏洞（从对话跳来）
   search?: string // 关键词：漏洞摘要、主机、路径、所属任务的目标（服务端检索）
   host?: string
   severity?: string
@@ -552,7 +553,9 @@ export interface TrafficConsumer {
   task_id: string
   host: string
   status: string // 任务状态 active / completed / aborted
-  conversation_id: string // 任务的对话；空表示没有对话（不可跳）
+  source: string // 下发来源（对话落在哪个标签页）
+  conversation_id: string // 任务的对话；空表示没有对话
+  finding_count: number // 任务的漏洞数（为 0 时不放「漏洞」）
 }
 // TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。
@@ -710,9 +713,12 @@ export interface TaskListResponse {
   size: number
 }
 
-// TaskFilters：source 等值 / status 等值 / search 跨目标+批次名 子串 /
+// TaskFilters：task / conversation 范围（只看这个任务 / 这个对话的任务，从其它页面跳来）/
+// source 等值 / status 等值 / search 跨目标+批次名 子串 /
 // since+until 创建时间范围（RFC3339，datetime-local 本地值转 ISO）。
 export interface TaskFilters {
+  task: string
+  conversation: string
   source: string
   status: string
   search: string

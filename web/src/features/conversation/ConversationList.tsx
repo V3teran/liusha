@@ -141,7 +141,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [source, size, debouncedQuery])
 
-    // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conv 深链接、
+    // 进入页面默认打开最新会话：首次成功加载且没有任何选中（无 ?conversation 深链接、
     // 用户没点过）时选第一条——一次性消费，之后轮询刷新/「新对话」态都不再劫持。
     const autoSelectedRef = useRef(false)
     useEffect(() => {

@@ -16,7 +16,8 @@ import { useFindingFilters } from '@/features/finding/useFindingFilters'
 import { useQueryClient, keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFindingList } from '@/features/finding/useFindingQueries'
 import { SOURCE_OPTIONS } from '@/lib/source'
-import { useTaskDetail } from '@/features/tasks/useTaskQueries'
+import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
+import { useScopeLabel } from '@/features/relations/useScopeLabel'
 import { shortDateTime } from '@/lib/format'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
 import { getFindingTaskFacets } from '@/api/findings'
@@ -48,8 +49,9 @@ function fetchTaskOptions(filters: FindingFilters) {
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
   const queryClient = useQueryClient()
-  // 选中任务的显示名（选中项可能不在当前候选里，如经链接带入）
-  const selectedTask = useTaskDetail(filters.task || null)
+  // 范围（任务 / 对话）的显示名：选中项可能不在当前候选里（如经链接带入），按范围本身取名
+  const scope = scopeOf(filters)
+  const scopeLabel = useScopeLabel(scope)
   // 任务候选只随结构化筛选变化：关键词搜索针对漏洞本身
   const facetFilters: FindingFilters = {
     source: filters.source,
@@ -121,7 +123,7 @@ export function FindingsPage() {
     }
   }
 
-  const hasFilter = !!(filters.search || filters.task || filters.host || filters.severity || filters.status || filters.source)
+  const hasFilter = Object.values(filters).some(Boolean)
 
   const listError = listQuery.isError
     ? (listQuery.error instanceof Error ? listQuery.error.message : '加载失败')
@@ -235,14 +237,14 @@ export function FindingsPage() {
         </Select>
 
         <EntityPicker
-          value={filters.task ?? ''}
-          valueLabel={selectedTask.data?.goal.replace(/\s+/g, ' ')}
-          onChange={(task) => setFilters({ ...filters, task })}
+          value={scope?.id ?? ''}
+          valueLabel={scopeLabel}
+          onChange={(task) => setFilters({ ...filters, ...NO_SCOPE, task })}
           fetchOptions={fetchTaskOptions(facetFilters)}
           queryKey={['findings', 'task-options', facetFilters]}
           emptyLabel="全部任务"
           searchPlaceholder="搜索任务目标"
-          ariaLabel="按任务筛选"
+          ariaLabel="范围"
           className="w-full sm:w-64"
         />
 
