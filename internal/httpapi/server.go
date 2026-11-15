@@ -98,9 +98,8 @@ type Deps struct {
 	// 由 api 组件注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链。
 	Settings SettingsAPI
-	// 会话用量合计（GET /conversations/:id/usage）：三者任一为 nil 则路由不注册。
-	// api 组件注入 conversationStore / invocationStore / toolStore（各满足对应窄接口）。
-	UsageTasks UsageTaskResolver
+	// 任务用量合计（GET /tasks/:id/usage）：与 TaskReader 任一为 nil 则路由不注册。
+	// api 组件注入 invocationStore / toolStore（各满足对应窄接口）。
 	UsageLLM   LLMUsageAggregator
 	UsageTools ToolUsageAggregator
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
@@ -111,7 +110,7 @@ type Deps struct {
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
-	// TaskReader 读任务行，任务名下资源（探索图）据此判定任务存在；注入 *task.Store。
+	// TaskReader 读任务行，任务名下资源（探索图、用量）据此判定任务存在；注入 *task.Store。
 	TaskReader TaskReader
 	// Tasks 为 nil 时任务模块读路由（GET /tasks 系列）不注册。
 	// 由 api 组件注入 *task.Store（自动满足 TasksAPI 窄接口）——列表/详情

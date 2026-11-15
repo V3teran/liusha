@@ -94,19 +94,14 @@ export interface Conversation {
  * 权威口径：后端 SUM llm_invocation + tool_invocation（覆盖纯 tool_call 调用 + 缓存 token），
  * 非前端按 SSE 事件求和。小写键（Go gin.H DTO）。
  */
-export interface ConversationUsage {
-  conversation_id: string
-  task_id: string // 关联扫描 task；纯聊天会话为空
-  tokens: { in: number; out: number; cached: number; total: number }
-  llm_latency_ms: number // 所有 LLM 调用耗时合计（明细）
-  tool_duration_ms: number // 所有工具执行耗时合计（明细）
-  duration_ms: number // 墙钟：发起→完成真实流逝（"我等了多久"，前端"耗时"展示用此）
-  work_ms: number // Σ(LLM latency + 工具 duration)，因子代理并发累加 > 墙钟，仅明细参考
+/** 任务的用量合计（GET /tasks/:id/usage）。状态与暂停见 TaskSummary。 */
+export interface TaskUsage {
+  tokens: { in: number; out: number; cached: number }
   llm_calls: number
+  llm_latency_ms: number // 各 LLM 调用耗时之和
   tool_calls: number
-  running: boolean // 是否仍有运行中的扫描（权威：后端 task 终态）
-  paused?: boolean // 任务暂停中（active 的子状态）：头部控制组据此切换「暂停/继续」
-  status?: string // 真实三态 active/completed/aborted（顶部状态栏三态显示；区别于二元 running）
+  tool_duration_ms: number // 各工具执行耗时之和
+  elapsed_ms: number // 墙钟：发起→结束（进行中到此刻），扣除续接前的停顿；子代理并发时小于上面两者之和
 }
 
 /* ============================================================

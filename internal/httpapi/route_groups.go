@@ -231,12 +231,12 @@ func registerConversationRoutes(r gin.IRouter, d Deps) {
 	}
 }
 
-// registerUsageRoutes 注册使用统计路由
+// registerUsageRoutes 注册任务用量路由：用量属于任务，挂在任务之下。
 func registerUsageRoutes(r gin.IRouter, d Deps) {
-	if d.UsageTasks == nil || d.UsageLLM == nil || d.UsageTools == nil {
+	if d.TaskReader == nil || d.UsageLLM == nil || d.UsageTools == nil {
 		return
 	}
-	r.GET("/conversations/:id/usage", uuidID, conversationUsageHandler(d.UsageTasks, d.UsageLLM, d.UsageTools))
+	r.GET("/tasks/:id/usage", uuidID, getTaskUsageHandler(d.TaskReader, d.UsageLLM, d.UsageTools))
 }
 
 // registerAuthRoutes 注册登录认证路由（/auth 系列）。

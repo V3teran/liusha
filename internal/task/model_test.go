@@ -170,3 +170,27 @@ func TestTargetHostOf(t *testing.T) {
 		}
 	}
 }
+
+// 耗时是发起→结束（进行中到此刻）的墙钟，扣除续接前的停顿（结束到再次续接之间的等待）。
+func TestTask_Elapsed(t *testing.T) {
+	created := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	now := created.Add(90 * time.Minute)
+	ended := created.Add(30 * time.Minute)
+	tests := []struct {
+		name string
+		task Task
+		want time.Duration
+	}{
+		{"进行中算到此刻", Task{CreatedAt: created}, 90 * time.Minute},
+		{"已结束算到结束", Task{CreatedAt: created, EndedAt: &ended}, 30 * time.Minute},
+		{"扣除续接前的停顿", Task{CreatedAt: created, PausedMs: (20 * time.Minute).Milliseconds()}, 70 * time.Minute},
+		{"时钟偏差不出负数", Task{CreatedAt: now.Add(time.Second)}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.task.Elapsed(now); got != tt.want {
+				t.Errorf("Elapsed = %v，期望 %v", got, tt.want)
+			}
+		})
+	}
+}

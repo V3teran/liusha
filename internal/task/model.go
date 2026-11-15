@@ -1,6 +1,7 @@
 // Package task 实现扫描任务（task 表）的 model + store。
 //
-// 业务定位：一次扫描活动 = 一个会话。
+// 业务定位：任务是一个目标的测试，探索图、漏洞、运行、LLM / 工具调用都按 task_id 挂在它名下；
+// 对话是人与任务交互的通道，一个任务至多一个对话（对话删除后任务仍在）。
 //   - 任务目标（goal）是智能体看到的目标全文，与探索图根目标的描述同事务写入；
 //     target_host 是目标的派生列（目标里第一个 http(s) 目标的主机），随目标一同写入。
 //
@@ -34,7 +35,7 @@ const (
 //
 // Goal：任务目标（见包注释），可在运行中调整。
 // TargetHost：目标的派生列，可空。
-// PausedMs：FollowUp 历次停顿累计 ms；WallclockMs 减去它 = 纯 agent 耗时。
+// PausedMs：续接前的历次停顿累计 ms（结束到再次续接之间的等待），Elapsed 扣除它。
 type Task struct {
 	Paused       bool
 	ID           string
@@ -47,6 +48,19 @@ type Task struct {
 	CreatedAt    time.Time
 	EndedAt      *time.Time
 	ErrorMessage string
+}
+
+// Elapsed 返回任务的耗时：发起到结束（进行中算到 now）的墙钟，扣除续接前的停顿。
+func (t Task) Elapsed(now time.Time) time.Duration {
+	end := now
+	if t.EndedAt != nil {
+		end = *t.EndedAt
+	}
+	d := end.Sub(t.CreatedAt) - time.Duration(t.PausedMs)*time.Millisecond
+	if d < 0 {
+		return 0
+	}
+	return d
 }
 
 // NewParams 是 Store.Create 的入参：AssignmentID 必填（一切 task 皆属某 assignment），

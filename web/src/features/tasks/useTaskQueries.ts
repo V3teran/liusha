@@ -1,14 +1,15 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { createTasks, getTaskDetail, listTasks } from '@/api/tasks'
+import { createTasks, getTaskDetail, getTaskUsage, listTasks } from '@/api/tasks'
 import type { TaskFilters } from '@/api/types'
 
 // 任务模块 React Query hooks（对齐 useTrafficQueries 约定）：
 // queryKey 含 filters+page+size → 任一变化即新查询，过期请求自动被丢弃；
 // keepPreviousData 让筛选/翻页时旧数据先留屏不闪骨架。
 
-const taskKeys = {
+export const taskKeys = {
   list: (filters: TaskFilters, page: number, size: number) => ['tasks', 'list', filters, page, size] as const,
   detail: (id: string | null) => ['tasks', 'detail', id] as const,
+  usage: (id: string | null) => ['tasks', 'usage', id] as const,
 }
 
 /** 任务列表。列表里有 active 任务时 15s 轮询（进度/状态自动前进），否则静态。 */
@@ -31,6 +32,18 @@ export function useTaskDetail(id: string | null) {
     queryFn: () => getTaskDetail(id!),
     enabled: id != null,
     refetchInterval: (query) => (query.state.data?.status === 'active' ? 10_000 : false),
+  })
+}
+
+/**
+ * 任务的用量合计。id 为 null 不发请求；live（任务进行中）时 10s 轮询，结束后静态。
+ */
+export function useTaskUsage(id: string | null, live: boolean) {
+  return useQuery({
+    queryKey: taskKeys.usage(id),
+    queryFn: () => getTaskUsage(id!),
+    enabled: id != null,
+    refetchInterval: live ? 10_000 : false,
   })
 }
 
