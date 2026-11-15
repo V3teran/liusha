@@ -1,5 +1,134 @@
 # Changelog
 
+## [0.10.0](https://github.com/V3teran/liusha/compare/v0.9.0...v0.10.0) (2026-11-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **finding:** 迁移 0230 会合并同一坐实结果的重复漏洞记录（保留人工处置过的或最早的一条，其余删除），并删除 finding.dedup_key 列；依赖该列的外部查询需改用 result_node_id。
+* **httpapi:** GET /traffic/:id 响应 consumed_by[] 的 conv_id 字段改名为 conversation_id，并删除恒为空的 _id 字段。
+* **task:** 删除 GET /conversations/:id/usage。状态与暂停改取 GET /tasks/:id（对话所属任务见 GET /conversations/:id 的 task_id），用量改取 GET /tasks/:id/usage；响应字段 duration_ms 更名 elapsed_ms，不再返回 tokens.total、work_ms、running、paused、status、conversation_id、task_id。
+* **exploration:** 删除 GET /conversations/:id/exploration/graph 与 GET /conversations/:id/exploration/verifications，改用 GET /tasks/:id/exploration/graph 与 GET /tasks/:id/exploration/verifications（对话的任务 ID 见 GET /conversations/:id 的 task_id）；探索图页链接参数由 ?conversation_id= 改为 ?task=。
+* **task:** 任务的 API 字段 `brief` 改名 `goal`（`GET /api/tasks`、`GET /api/tasks/:id`），按字段名读取任务目标的调用方需同步改名；数据库列 task.brief 改名 task.goal、agent_run.input 删除（迁移自动执行），直接查询这两列的外部脚本需同步修改。
+* **exploration:** 表 task_control_event 已删除（迁移自动执行）；直接向该表写入事件的外部脚本需改用 `POST /api/tasks/:id/control`（暂停 / 继续 / 停止）。
+* **exploration:** 验证审计链接口字段 primitives 改名 repro、evaluation 改名 evidence； exploration_verification 表列 primitives 改名 repro（迁移 0222）。直接读该表或接口的 外部调用方需同步改名。
+* **exploration:** 探索图节点字段 blocked_reason 改名 state_reason（迁移 0221 改写存量）。
+* **exploration:** 探索图结果节点内容的 summary 改名 statement（迁移 0220 改写存量）。
+* **exploration:** 探索图节点不再返回 source_id 字段（迁移 0219 删除存量）。
+* **exploration:** 规划输出契约的动作字段 reason 改名 reasoning、删除 metadata；探索图 动作节点内容不再包含 complexity / priority / triggered_by / metadata / origin，规划理由 字段改名 reasoning（迁移 0217 改写存量）。
+* **exploration:** 探索图观察节点的内容不再包含 execution_trace（迁移 0215 删除存量）； 事件总线删除 attempt.generated 事件。读取上述字段或订阅该事件的外部调用方需调整。
+* **exploration:** 配置项 runner.max_steps_per_task 改名为 runner.max_actions_per_task（环境变量 LIUSHA_RUNNER_MAX_ACTIONS_PER_TASK），含义为 单任务最多执行的动作数；部署覆盖文件或环境变量里用了旧名的需改名。停止原因取值 max_steps_reached 改为 action_budget_reached；时间线终态节点与 agent_run.result 的 报告字段改为 actions / results / hypotheses / stop_reason（迁移 0213 改写存量）。
+* **exploration:** 探索图节点不再返回 depends_on 字段，规划输出契约删除 depends_on；迁移 0209 自动清理存量数据，读取该字段的外部调用方需删除相关逻辑。
+* **exploration:** 探索图节点不再返回 confidence，改为假设节点上的 verification_status（pending / confirmed / refuted）；观察类别 issue 删除； refute_reason 取值 adjudication_failed 改为 judge_unavailable。升级时迁移 0208 自动改写存量数据，读取上述字段的外部调用方需同步改字段名与取值。
+* **deploy:** 镜像 liusha-api / liusha-proxy / liusha-runner / liusha-nginx / liusha-sandbox 停止更新（已发布的保留），改用 ghcr.io/v3teran/liusha；沙盒镜像由部署方本地构建（deployments/sandbox/Dockerfile）。
+* **deploy:** compose 改为 docker compose up -d --build（不再叠加 compose.prod.yaml 与 --profile full，沙盒镜像本地构建）；.env 新增必填 LIUSHA_SANDBOX_TOKEN，HOST_WORKSPACE_DIR 不再使用（工作区固定为 ${HOST_DATA_DIR}/workspace）；单镜像改用 PostgreSQL 18，须先用旧镜像导出数据再导入；对外监听段缺省改为 21000-21099。升级步骤见 deployments/README.md「从 0.9 升级」。
+* **sandbox:** runner 不再拉起沙盒容器，须以 liusha sandbox 单独运行沙盒服务（compose 中为 sandbox 服务，无需再挂 docker.sock）；sandbox / runner 必须配置 LIUSHA_SANDBOX_TOKEN（api 也应配置，用于查询工具安装状态），并按部署设置 LIUSHA_SANDBOX_URL / LIUSHA_SANDBOX_INGEST_URL；删除配置项 sandbox.default_image 与环境变量 LIUSHA_INGEST_TOKEN、LIUSHA_INGEST_PUBLIC_PORT、SANDBOX_SMOKE。
+* **deploy:** liusha-nginx 镜像停止发布；compose 部署改用官方 nginx 镜像挂载 deployments/nginx/nginx.conf（新版 compose 已包含），控制台由 api 直接提供。
+* **deploy:** cmd/api、cmd/proxy、cmd/runner、cmd/sandbox-server、cmd/corpus-import 合并为 liusha 子命令；config/config.yaml 移除，改用内置默认 + -config 覆盖文件（只写要改的键）；LIUSHA_API_ADDR 改为 LIUSHA_API_LISTEN_ADDR，LIUSHA_COOKIE_SECURE 改为 LIUSHA_API_COOKIE_SECURE，LIUSHA_INGEST_TOKEN 改为 LIUSHA_SANDBOX_TOKEN，删除 LIUSHA_TOOLS_MANIFEST_PATH 与 LIUSHA_LOG_PROCESS；内置默认不再预置 LLM provider，需在前端「LLM 配置」页接入或在覆盖文件中声明 providers。
+
+### Features
+
+* **conversation:** 对话里发起的 LLM 调用记下所在对话 ([a79fbd8](https://github.com/V3teran/liusha/commit/a79fbd889283c469b256b7ff8b3a3881c6daae49))
+* **deploy:** liusha 可作为 Windows 服务运行，密钥文件只对当前用户开放 ([584377b](https://github.com/V3teran/liusha/commit/584377bbbc0eb721f4e2309eeceb02f9e631736f))
+* **deploy:** 三种部署形态——二进制、compose、单镜像 ([b804458](https://github.com/V3teran/liusha/commit/b80445800bed6f4f08d5c20a807d627da5d52b65))
+* **deploy:** 发布 macOS 二进制（amd64 / arm64） ([67a5bc0](https://github.com/V3teran/liusha/commit/67a5bc0c38bbbeca647e06845a8ae31090823a66))
+* **deploy:** 发布 Windows 二进制（amd64 / arm64） ([937e7a5](https://github.com/V3teran/liusha/commit/937e7a588e3ab9cb515dbbbc8206df37f81d44ce))
+* **deploy:** 发版产出 liusha 镜像与二进制压缩包 ([2e5e5e4](https://github.com/V3teran/liusha/commit/2e5e5e496f871970279ebd7ad21471ecb5fb77b9))
+* **deploy:** 控制台前端编进 liusha，由 api 直接提供 ([690175b](https://github.com/V3teran/liusha/commit/690175b3f411557d38e32413be5a522e1bcec5b1))
+* **deploy:** 统一为一个程序 liusha——各组件改为子命令 ([d1be2a7](https://github.com/V3teran/liusha/commit/d1be2a7ca6eeb53d8d8cd0e2aec420a4ec48f272))
+* **exploration:** 运行中引导——调整目标、指派动作、否决动作 ([fe7b385](https://github.com/V3teran/liusha/commit/fe7b3855a5981201c2c64b94ed3132bb6ed389e3))
+* **finding:** 新增按 ID 取单条漏洞的接口 ([8f3b2b5](https://github.com/V3teran/liusha/commit/8f3b2b5af2fa27b4b9f9859a5caa11b9d3152eeb))
+* **finding:** 漏洞台账可按对话限定范围 ([e9b22a4](https://github.com/V3teran/liusha/commit/e9b22a43fb02d4a82ff185303686ecfc706a7ba3))
+* **httpapi:** 流量详情的消费任务带上来源与漏洞数 ([3420bf1](https://github.com/V3teran/liusha/commit/3420bf1bab251bb88292866a1bfdc7d68b2272b8))
+* **sandbox:** macOS 上按任务标识识别进程，沙盒重启后照样认领 ([6b9b16a](https://github.com/V3teran/liusha/commit/6b9b16a6521d3ccfef19806f1bd5e1ae722227c6))
+* **sandbox:** 执行命令的 shell 缺省自动查找，Windows 上找到 Git for Windows ([440e56f](https://github.com/V3teran/liusha/commit/440e56f59ee73fb9a46722f119307d73edee87e6))
+* **sandbox:** 沙盒在 Windows 上原生运行，浏览器服务改由沙盒启动 ([ccf9956](https://github.com/V3teran/liusha/commit/ccf9956ac4a1958e02771fd62f9c3c64afed86dd))
+* **sandbox:** 沙盒执行与浏览器通道改用全平台同一机制 ([cc45a81](https://github.com/V3teran/liusha/commit/cc45a81964e1b0d081ac221965013669993c9e2d))
+* **sandbox:** 沙盒改为常驻服务，runner 不再经宿主 docker 拉起容器 ([7ca87e1](https://github.com/V3teran/liusha/commit/7ca87e194ae468d416129cd86fc8af5a4df7d390))
+* **task:** 任务列表可按任务、对话限定范围，批次序号按整个批次计 ([b4ce381](https://github.com/V3teran/liusha/commit/b4ce3817a1a3eea7a4d7002701004cd23c667e82))
+* **ui:** 任务详情可调整目标、指派动作，探索图可否决动作，时间线显示引导回执 ([aaeaf50](https://github.com/V3teran/liusha/commit/aaeaf50c977bb50e0e7d7bb325a6aecb44f544a5))
+* **ui:** 实体跳转只看被点击元素对应的内容，跳转规则只定义一处 ([df1bfff](https://github.com/V3teran/liusha/commit/df1bfff8c912d2041ac91a4f1351e615a99f1f17))
+* **ui:** 漏洞跳到探索图时定位到坐实它的结果节点 ([be31c4c](https://github.com/V3teran/liusha/commit/be31c4c96b61530b066e09d593fc1e5325f628db))
+
+
+### Bug Fixes
+
+* **conversation:** 一个任务至多一个对话由唯一索引保证 ([c15b0ca](https://github.com/V3teran/liusha/commit/c15b0ca16f7db938e5690e18b1a904de63acba5b))
+* **conversation:** 对话列表的计数跟随当前展示的数据，不再把旧总数标成「匹配 N 条」 ([3f6876a](https://github.com/V3teran/liusha/commit/3f6876a60ff487df282e8aceca7a8eea7ba557e0))
+* **conversation:** 对话里要执行的消息追加到任务目标，续接已结束任务的指令不再丢失 ([c8c7135](https://github.com/V3teran/liusha/commit/c8c7135cb8e676ae6f7a41418a348ee15b214e0a))
+* **deploy:** -env-file 里的日志配置对全部 logger 生效 ([7720a92](https://github.com/V3teran/liusha/commit/7720a925cb3e47c114afa85fb167f8e7a276c219))
+* **deploy:** 单镜像不再把初始管理员密码打进日志 ([46ea2c4](https://github.com/V3teran/liusha/commit/46ea2c4e7506887b1394b1f4d0af4106ce63bf2d))
+* **deploy:** 单镜像编入真实控制台，全新数据卷首次启动不再失败 ([52045cf](https://github.com/V3teran/liusha/commit/52045cf9a8ad1223f5c44d013477cb508c3eb7e0))
+* **deploy:** 控制台日志只在终端里着色 ([06c366d](https://github.com/V3teran/liusha/commit/06c366da005eb2a451e2abd81dbc6fb2e3a42f23))
+* **deploy:** 日志缺省写到数据根，不依赖进程工作目录 ([0273a22](https://github.com/V3teran/liusha/commit/0273a22b868e6d3323f6a8b9b5e190ee922bf672))
+* **deploy:** 环境变量文件只写各方解析一致的值 ([e3f9fac](https://github.com/V3teran/liusha/commit/e3f9fac61caa52053317243c36585aa3901c7f97))
+* **exploration:** 任务图跟随任务状态，所有终态路径都收口开放工作 ([f11bec1](https://github.com/V3teran/liusha/commit/f11bec152d42fcf5df596800c630a9ee20708ea4))
+* **exploration:** 优先级只在节点层存一份，严重级结果不再显示成 P2 ([1bad1e1](https://github.com/V3teran/liusha/commit/1bad1e10b7786e937a350fd57a77e22e7f9d7013))
+* **exploration:** 删除动作间的执行依赖，被依赖的动作失败不再卡死任务 ([3330f6c](https://github.com/V3teran/liusha/commit/3330f6c381f8fb191d3b389a50806b63bab4245d))
+* **exploration:** 动作停摆由执行者看门狗按单个动作判定并真正取消执行 ([9324507](https://github.com/V3teran/liusha/commit/9324507339bcca9b16280357f823534b936c506d))
+* **exploration:** 动作内容只留动作本身，规划者看到的失败原因不再是规划理由 ([e6a20a1](https://github.com/V3teran/liusha/commit/e6a20a1edc0e408aea770b3958eececf6c570ec5))
+* **exploration:** 动作的「中止」拆为已中止与已否决，被打断的工作不再被当成禁区 ([c2e4e07](https://github.com/V3teran/liusha/commit/c2e4e07d17a72e908a5ed59c642405c79d257087))
+* **exploration:** 动作预算只保留一个、从图上计数，报告统计不再依赖可丢事件 ([931aedf](https://github.com/V3teran/liusha/commit/931aedf17f5431c919284aa944c77b752d3960fa))
+* **exploration:** 执行者按优先级持续认领动作，不再被一个慢动作挡住整批 ([6fa6f4d](https://github.com/V3teran/liusha/commit/6fa6f4dc92bc13b11bd00437165fd2b4fb47d62c))
+* **exploration:** 收敛与重规划改为进程内直接调用，不再因事件丢失挂到超时 ([3b0648c](https://github.com/V3teran/liusha/commit/3b0648c7a1dda41f5eab4b2b2be3d9ad46e2ff2b))
+* **exploration:** 每个任务只有一个根目标，执行者每次从图上读当前目标 ([a996e36](https://github.com/V3teran/liusha/commit/a996e36a8f4de23939ae53e8572fabbabb77010b))
+* **exploration:** 结果的陈述与假设同名，规划者终于能看到坐实的发现 ([1afcbe2](https://github.com/V3teran/liusha/commit/1afcbe2a1a71b7bbbf5aa69792f5133377900f0e))
+* **exploration:** 被打断的动作交还 open 重做，不再记成失败 ([bd375e3](https://github.com/V3teran/liusha/commit/bd375e33797fc1c2493e204958170c53b975e8e2))
+* **exploration:** 规划结论以所依据的目标为前置，规划期间目标被改写即整批作废 ([18cba9a](https://github.com/V3teran/liusha/commit/18cba9ad576cc4304acdc66c31be953aa88e559d))
+* **exploration:** 解析不出配方的假设直接出圈，不再永远待验证 ([1d2c585](https://github.com/V3teran/liusha/commit/1d2c585954f6d4cc7519f527e9e4d72b6826ddba))
+* **exploration:** 重规划请求的理由交给规划者，多个来源的理由不再互相覆盖 ([7352061](https://github.com/V3teran/liusha/commit/73520612f18f1b5dabe213fc9e7dd694d4ac4d26))
+* **finding:** 一个坐实结果一条漏洞，同接口上的高危主张不再被低危主张吞掉 ([3ce7581](https://github.com/V3teran/liusha/commit/3ce7581843ea34c282099b01c55b1f1050a33bb0))
+* **finding:** 任务下拉的目标摘要放宽到 40 字，保留有区分度的部分 ([414f48c](https://github.com/V3teran/liusha/commit/414f48cb9623ab6b33af3601af0e850e583f76ba))
+* **finding:** 任务下拉的选项带创建时间，目标相同的任务可以区分 ([ac55e3b](https://github.com/V3teran/liusha/commit/ac55e3b3dd5458b8a9554cfe9f55788328cac32e))
+* **finding:** 任务筛选并入漏洞页筛选栏，选项是有漏洞的任务 ([cfae2c4](https://github.com/V3teran/liusha/commit/cfae2c41150c37b5171f1e9bf80ee0d7383ef8fb))
+* **finding:** 任务详情与对话的「漏洞」跳到这个任务的漏洞 ([5fe6c8d](https://github.com/V3teran/liusha/commit/5fe6c8dd9aee49209f66c35bcf7c107bdf31ba67))
+* **finding:** 补交付坐实了却没进台账的结果——runner 启动时按结果节点补齐 ([901349e](https://github.com/V3teran/liusha/commit/901349e71f26b129c2c6fd607f8817fbfe5d332e))
+* **httpapi:** 尚无日志文件的进程不再让日志页崩溃 ([0e1bccb](https://github.com/V3teran/liusha/commit/0e1bccbf425f3f542b454aedcbfb63ffa1333f4e))
+* **httpapi:** 流量详情的消费任务连同对话 ID 一次查出 ([b27f089](https://github.com/V3teran/liusha/commit/b27f0896323d83ceb5a7c3ad8641c1c2dd5a96a5))
+* **logx:** zerolog 字段格式在包初始化时设定，消除并发写日志的竞争 ([6e8efe4](https://github.com/V3teran/liusha/commit/6e8efe48d58fc90d2606609bd172465b1d37283b))
+* **runner:** 停机时中断在途 run 并等其收尾，任务由恢复监控续跑 ([25fba7c](https://github.com/V3teran/liusha/commit/25fba7c746663ea8c1d334013f89cd19d0e3db3b))
+* **runner:** 沙盒持续不可达时任务不再无限重投 ([69aa75d](https://github.com/V3teran/liusha/commit/69aa75db19aa86124788779ebec6a43f4cbb9611))
+* **runner:** 被停止的 run 收尾不再写任务行，停止后紧接着续接的任务不会被再终止一次 ([b3b9fd4](https://github.com/V3teran/liusha/commit/b3b9fd48315c3f3afed95f15b52db8b7e90b9a81))
+* **sandbox:** 任务释放只按核验过的任务归属结束进程 ([99ec3cf](https://github.com/V3teran/liusha/commit/99ec3cf90bbde5e86d98aebb2f5d16f364db42c0))
+* **sandbox:** 命令环境清掉库里声明的 LLM 密钥变量，运行目录按实例区分 ([9b6a9d4](https://github.com/V3teran/liusha/commit/9b6a9d44795fa57d8da5371b1e425d382da26b7c))
+* **sandbox:** 沙盒令牌不再交给 agent 命令——浏览器流量经本地套接字回灌 ([dadcfd3](https://github.com/V3teran/liusha/commit/dadcfd32472cf67718c6860134f6845d8c1cd771))
+* **sandbox:** 浏览器不加载扩展，冷启动不再因 30 秒时限失败 ([0131455](https://github.com/V3teran/liusha/commit/0131455edf8eedcb87616e387ca8f68676c6cb19))
+* **sandbox:** 浏览器回灌流量按 run 归属，不再被全部丢弃 ([074f82f](https://github.com/V3teran/liusha/commit/074f82f35905245496fc5574d9a1d278a41fd370))
+* **sandbox:** 浏览器能力如实探测，任务释放不再遗留 chromium ([56a1a36](https://github.com/V3teran/liusha/commit/56a1a36dc68d5186689aa0cb77237ca13fcf8767))
+* **sandbox:** 浏览器自愈只作用于出问题的身份 ([ed6a1a2](https://github.com/V3teran/liusha/commit/ed6a1a2aa34b245a4738c512c6c6eda962abbc41))
+* **sandbox:** 浏览器身份全程只用身份名，任务隔离改由沙盒按任务目录完成 ([a472a15](https://github.com/V3teran/liusha/commit/a472a155e6d7af054f847018fcabe60ce24534d7))
+* **task:** 并行工具调用的结果合进同一条消息，Anthropic 兼容端点不再拒绝 ([7b21122](https://github.com/V3teran/liusha/commit/7b21122d8841be1b2684693a55e36e8841ec652a))
+* **task:** 批次名在写入时确定，任务搜索按批次名匹配 ([bc3ba0d](https://github.com/V3teran/liusha/commit/bc3ba0d9d9ea60d1d42b016f01f171a5bdf908c6))
+* **task:** 沙盒暂不可达时任务保持进行中，等沙盒恢复后续跑 ([5c75e96](https://github.com/V3teran/liusha/commit/5c75e96609e8d9d8e14c9af9148f809aa23a7149))
+* **task:** 自动恢复达上限终止任务时，对话时间线写终止节点 ([ab56650](https://github.com/V3teran/liusha/commit/ab566504827afbe59a11384dbbf2fb5b8c32edd8))
+* **ui:** 任务详情与 LLM 调用抽屉的跳转区移到信息区之前 ([1f70788](https://github.com/V3teran/liusha/commit/1f70788037bb2e089104e8fe2ed38c264bee3256))
+* **ui:** 列表搜索与筛选选项改到服务端，实体用可搜索的选择框选取 ([a3b6864](https://github.com/V3teran/liusha/commit/a3b6864e54d81f7f1c0396d40a913ad5ce436929))
+* **ui:** 可滚动的长文本区块可键盘聚焦 ([93f2726](https://github.com/V3teran/liusha/commit/93f27260da6a9cf828140b849ab68aba4e19cf67))
+* **ui:** 对话的任务、漏洞、探索图跳转放回「⋯」菜单，菜单改用 Radix ([692c54f](https://github.com/V3teran/liusha/commit/692c54f140883c243b573c52fe27b95e42dbeebc))
+* **ui:** 带底色的行上文字对比度达标，可滚动区域可用键盘聚焦 ([c3e673b](https://github.com/V3teran/liusha/commit/c3e673b008394a365f3704ce0947713e1f6c6819))
+* **ui:** 探索图聚焦时非焦点节点退到背景，文字仍满足 AA ([0ea70d7](https://github.com/V3teran/liusha/commit/0ea70d7ace7ed274d700d2f9ee2af17096acb2a6))
+* **ui:** 浏览器后退回到应回的地方——打开的条目进 URL，统一历史规则 ([5815bbf](https://github.com/V3teran/liusha/commit/5815bbfa7225ae42f333e7e74b0bc1be29f50335))
+* **ui:** 漏洞详情在窄屏占满宽度，不再把左半截推出屏幕 ([07d76df](https://github.com/V3teran/liusha/commit/07d76df0ff7b67844a83b8c02ab8d20c08308613))
+* **ui:** 漏洞详情的跳转区移到基本信息之前 ([9cd31d2](https://github.com/V3teran/liusha/commit/9cd31d2b211205151fec7946527798c8cf5ac0e5))
+* **ui:** 登录后回到原来要去的页面 ([a2483c8](https://github.com/V3teran/liusha/commit/a2483c8ff48a64c3856d781ee7e02df03882d7a7))
+* **ui:** 跳转按钮放在所属元素旁，去掉对话行菜单里的重复入口 ([890aeb2](https://github.com/V3teran/liusha/commit/890aeb23922ac7b4fcd2c8c0842fcc7ddeb42e68))
+* **ui:** 选中行上的次要文字对比度达到 AA ([1aae626](https://github.com/V3teran/liusha/commit/1aae626f662adf340a01a9da006bb78704fb7e3b))
+* **workspace:** api 停止时关闭工作区目录，测试结束释放打开的文件 ([1e86243](https://github.com/V3teran/liusha/commit/1e8624330fa7f3d6da27f693c47f3578290636ed))
+* 搜索词里的 % _ 按字面匹配，任务与工具搜索不再误命中 ([cc33c53](https://github.com/V3teran/liusha/commit/cc33c534f2f97b0ec549442164daebc5aef4eb02))
+
+
+### Code Refactoring
+
+* **exploration:** 删除没有生产者的控制事件队列，任务行监视无条件启动 ([2fb0f48](https://github.com/V3teran/liusha/commit/2fb0f48d56101b685bceefa481fc7c9294e67e90))
+* **exploration:** 执行者与评估者只经图交接，删除执行轨迹与验证事件载荷 ([bac753d](https://github.com/V3teran/liusha/commit/bac753d47355b39a47de8a188912b2fb9701976e))
+* **exploration:** 探索图按任务取，不再经对话转一道 ([dd52eea](https://github.com/V3teran/liusha/commit/dd52eea308b71945cebfdb0d6b887a86248ed87a))
+* **exploration:** 节点不再记没有读者的 source_id ([3b1299f](https://github.com/V3teran/liusha/commit/3b1299f8557482310190365de0a507e76d908a92))
+* **exploration:** 节点的状态原因统一叫 state_reason ([2ca14f6](https://github.com/V3teran/liusha/commit/2ca14f642e36e406db1d85df7da67b4a604285df))
+* **exploration:** 观察的「置信度」改为假设专有的验证状态，评估者不再有别名 ([8415993](https://github.com/V3teran/liusha/commit/841599334f1ee74d53026d45eafd3cb88442386a))
+* **exploration:** 评估链路一物一名：主张叫 Claim、配方叫 repro、证据叫 evidence ([068c425](https://github.com/V3teran/liusha/commit/068c425397a692ce53e4ef07c79214d8364524de))
+* **task:** 任务目标只有一处事实源：task.brief 改为 task.goal，与根目标同事务写入 ([ce9330a](https://github.com/V3teran/liusha/commit/ce9330a4dadde3774e98df9f872ef64a46d04fe9))
+* **task:** 状态与用量按任务取，对话不再代理任务数据 ([30a90fc](https://github.com/V3teran/liusha/commit/30a90fce2e9dcb0d6e4162860d80c23da91f4054))
+
 ## [0.9.0](https://github.com/V3teran/liusha/compare/v0.8.0...v0.9.0) (2026-11-12)
 
 
