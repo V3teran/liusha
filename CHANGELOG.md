@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/V3teran/liusha/compare/v0.10.1...v0.10.2) (2026-11-16)
+
+
+### 新功能
+
+* **deploy:** 对外监听段默认扩到 300 个端口 ([ce62672](https://github.com/V3teran/liusha/commit/ce6267272372135b21791a814664eff96dc2933e))
+
 ## [0.10.1](https://github.com/V3teran/liusha/compare/v0.10.0...v0.10.1) (2026-11-16)
 
 
