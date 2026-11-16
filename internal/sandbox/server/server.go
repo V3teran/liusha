@@ -53,8 +53,6 @@ type Config struct {
 	// ViewportWidth/Height 是浏览器视口尺寸。
 	ViewportWidth  int
 	ViewportHeight int
-	// SecretEnv 是除 LIUSHA_ 前缀外、承载 liusha 密钥的环境变量名，不得进入命令环境（见 scrubEnv）。
-	SecretEnv []string
 }
 
 // Server 是沙盒服务。

@@ -42,8 +42,8 @@ const proxy: ProxyFilterSettings = {
   exclude_suffixes: ['.css'],
   exclude_content_types: [],
   exclude_status_codes: [304],
-  max_request_body_size: 1048576,
-  max_response_body_size: 2097152,
+  max_request_body_bytes: 1048576,
+  max_response_body_bytes: 2097152,
 }
 
 const plain = <T,>(values: T): SettingsDetail<T> => ({ values, defaults: values, overrides: {} })

@@ -63,26 +63,14 @@ type Router struct {
 	cached          map[Complexity]cachedProvider
 }
 
-// NewRouter 构造 Router（默认退避表）。
+// NewRouter 构造 Router（框架内置的退避策略 DefaultRetryOptions）。
 func NewRouter(store RouterStore) *Router {
-	return NewRouterWithOpts(store, RetryOptions{})
+	return NewRouterWithOpts(store, DefaultRetryOptions())
 }
 
-// NewRouterWithOpts 构造 Router（opts 零值字段由 DefaultRetryOptions 逐项填充）。
+// NewRouterWithOpts 构造 Router，按 opts 原样执行重试（次数为 0 即该类错误不重试）。
+// 部署方的重试策略来自配置 llm.retry，不在这里补值。
 func NewRouterWithOpts(store RouterStore, opts RetryOptions) *Router {
-	def := DefaultRetryOptions()
-	if opts.MaxRetries429 == 0 {
-		opts.MaxRetries429 = def.MaxRetries429
-	}
-	if opts.MaxRetries529 == 0 {
-		opts.MaxRetries529 = def.MaxRetries529
-	}
-	if opts.MaxRetries5xx == 0 {
-		opts.MaxRetries5xx = def.MaxRetries5xx
-	}
-	if opts.MaxRetriesNet == 0 {
-		opts.MaxRetriesNet = def.MaxRetriesNet
-	}
 	return &Router{
 		store:     store,
 		pool:      NewClientPool(),

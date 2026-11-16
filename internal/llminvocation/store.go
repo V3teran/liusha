@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/logx"
 )
@@ -39,42 +38,26 @@ type Store struct {
 	insertTimeout time.Duration
 }
 
-// fallback 参数（caller 用 NewStore(pool) 不带 config 路径时使用）。
+// 批量写入参数：缓冲满则丢一行并告警；累积 batchSize 行或每 flushInterval 写一次。
+// 写入机制的内部参数，不是部署方需要决定的事。
 const (
-	fallbackBufferSize    = 1024
-	fallbackBatchSize     = 100
-	fallbackFlushInterval = constants.LogFlushInterval
-	fallbackInsertTimeout = constants.DBQueryTimeout
+	bufferSize    = 1024
+	batchSize     = 100
+	flushInterval = constants.LogFlushInterval
+	insertTimeout = constants.DBQueryTimeout
 )
 
-// NewStoreWithConfig 用 yaml 配置构造 Store 并启动后台 batch worker；任一字段为 0 时回退到 fallback 常量。
-// 进程退出前必须调用 Close() 排空 buffer，否则丢失最近写入。
-func NewStoreWithConfig(pool *pgxpool.Pool, c config.InvocationConfig) *Store {
-	bufSize := c.BufferSize
-	if bufSize <= 0 {
-		bufSize = fallbackBufferSize
-	}
-	batchSize := c.BatchSize
-	if batchSize <= 0 {
-		batchSize = fallbackBatchSize
-	}
-	flush := time.Duration(c.FlushIntervalMs) * time.Millisecond
-	if flush <= 0 {
-		flush = fallbackFlushInterval
-	}
-	insertTO := time.Duration(c.InsertTimeoutSec) * time.Second
-	if insertTO <= 0 {
-		insertTO = fallbackInsertTimeout
-	}
+// NewStore 构造 Store 并启动后台批量写入。进程退出前必须调用 Close() 排空缓冲，否则丢失最近写入。
+func NewStore(pool *pgxpool.Pool) *Store {
 	s := &Store{
 		pool:          pool,
-		ch:            make(chan Invocation, bufSize),
+		ch:            make(chan Invocation, bufferSize),
 		flushReq:      make(chan chan struct{}),
 		closed:        make(chan struct{}),
 		log:           logx.New("llminvocation.store"),
 		batchSize:     batchSize,
-		flushInterval: flush,
-		insertTimeout: insertTO,
+		flushInterval: flushInterval,
+		insertTimeout: insertTimeout,
 	}
 	s.wg.Add(1)
 	go s.run()

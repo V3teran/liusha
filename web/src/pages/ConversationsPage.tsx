@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
+import { PROXY_SETUP_HINT } from '@/lib/source'
 
 interface ConversationsPageProps {
   source: 'direct' | 'proxy'
@@ -68,16 +69,8 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   const heading = source === 'proxy' ? '代理批次' : undefined
   const emptyState =
     source === 'proxy'
-      ? {
-          mark: '⇄',
-          title: '暂无代理批次',
-          desc: '把浏览器代理指向 liusha 代理入口（本机直接运行为 8588 端口，容器部署默认宿主端口 58588）后浏览目标站，捕获的流量会自动成批进入分析队列。',
-        }
-      : {
-          mark: '⌖',
-          title: '暂无人工下发的对话',
-          desc: '点击上方「新对话」，描述目标与测试方向即可发起一次渗透测试任务。',
-        }
+      ? { noun: '代理批次', hint: PROXY_SETUP_HINT }
+      : { noun: '对话', hint: '点击「新对话」，描述目标与测试方向即可发起任务。' }
 
   return (
     <div className="flex h-full min-h-0 flex-col">

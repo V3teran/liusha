@@ -1,6 +1,7 @@
 import { SearchInput } from '@/components/SearchInput'
 import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -22,7 +23,7 @@ export function LogsPage() {
   const [live, setLive] = useState(true)
   const stream = useLogStream(filters, live)
 
-  const { data: procData } = useQuery({
+  const { data: procData, isSuccess: processesLoaded } = useQuery({
     queryKey: ['log-processes'],
     queryFn: listLogProcesses,
     refetchInterval: 15000,
@@ -103,7 +104,13 @@ export function LogsPage() {
     setOpenKey((prev) => (prev === key ? null : key))
   }, [])
 
-  const anyExists = processes.some((p) => p.exists)
+  // 没有任何日志文件：文件日志没开，或数据目录不对
+  const noLogFiles = processesLoaded && processes.length === 0
+  // 进程选项 = 有日志文件的进程；URL 里带着的进程若已无文件（旧链接）也保留，选择框如实显示当前筛选
+  const processOptions =
+    filters.process && !processes.some((p) => p.name === filters.process)
+      ? [...processes.map((p) => p.name), filters.process]
+      : processes.map((p) => p.name)
   const hasFilter = !!(filters.process || filters.instance || filters.level || filters.search)
   const resetFilters = () => setFilters({ process: '', instance: '', level: '', search: '' })
 
@@ -158,10 +165,9 @@ export function LogsPage() {
           aria-label="按进程筛选"
         >
           <option value="">全部进程</option>
-          {processes.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name}
-              {!p.exists && '（无日志文件）'}
+          {processOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
             </option>
           ))}
         </Select>
@@ -206,13 +212,18 @@ export function LogsPage() {
       <div className="relative min-h-0 flex-1">
         <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto py-1">
           {!stream.loading && entries.length === 0 ? (
-            <div className="p-12 text-center font-sans text-sm text-text-tertiary">
-              {anyExists
-                ? hasFilter
-                  ? '当前筛选无匹配日志'
-                  : '暂无日志输出'
-                : '未发现日志文件——进程日志目录为 logs/（LIUSHA_LOG_DIR 可改），确认各进程已开启文件日志'}
-            </div>
+            noLogFiles ? (
+              <EmptyState
+                kind="empty"
+                noun="日志"
+                hint="日志写在数据目录的 logs/ 下，确认 config.yaml 的 log.to_file 已开启。"
+                className="font-sans"
+              />
+            ) : hasFilter ? (
+              <EmptyState kind="no-match" noun="日志" className="font-sans" />
+            ) : (
+              <EmptyState kind="empty" noun="日志" hint="各组件运行后，日志会实时出现在这里。" className="font-sans" />
+            )
           ) : (
             entries.map((e) => (
               <LogRow

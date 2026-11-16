@@ -62,17 +62,13 @@ func TestIsComplexity(t *testing.T) {
 }
 
 func TestProviderHasKey(t *testing.T) {
-	t.Setenv("LIUSHA_TEST_KEY_EMPTY", "")
-	t.Setenv("LIUSHA_TEST_KEY_SET", "sk")
 	cases := []struct {
 		name string
 		p    Provider
 		want bool
 	}{
 		{"已加密落库", Provider{EncryptedAPIKey: []byte("x")}, true},
-		{"环境变量有值", Provider{APIKeyEnv: "LIUSHA_TEST_KEY_SET"}, true},
-		{"环境变量为空", Provider{APIKeyEnv: "LIUSHA_TEST_KEY_EMPTY"}, false},
-		{"无任何来源", Provider{}, false},
+		{"未设置密钥", Provider{}, false},
 	}
 	for _, tc := range cases {
 		if got := tc.p.HasKey(); got != tc.want {

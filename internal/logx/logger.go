@@ -1,17 +1,15 @@
 // Package logx 提供统一的结构化日志器。
 //
 // 字段约定：time / level / service / instance / caller / message / error / stack
-// 输出形态：stdout（dev=console 彩色；prod=json）+ file（永远 json，lumberjack 轮转）
-// 全部行为由环境变量驱动，零配置即可运行。
+// 输出形态：标准输出（console 彩色或 json）+ 文件（永远 json，按大小轮转）。
 //
-// 输出端进程内唯一：所有 New() 写同一个输出端，它在首条日志写出时才按当时的环境变量构建
-// （级别、格式、是否写 stdout / 文件、目录）。包级 logger 在包初始化时就已建好，而入口可能
-// 之后才补齐环境（liusha 的 -env-file）——惰性构建让它们与入口建的 logger 同一口径。
+// 输出参数来自配置（log 段与 <data_dir>/logs），入口加载配置后调用 Configure 一次。输出端进程内
+// 唯一：所有 New() 写同一个输出端，它在首条日志写出时才按当时的参数构建——包级 logger 在包
+// 初始化时就已建好，惰性构建让它们与入口配置后的 logger 同一口径。Configure 之前（如单测）
+// 只写标准输出、console 格式、info 级。
 //
-// 文件聚合：同一进程写一个 logs/{进程名}.log。进程名由入口经 SetProcess 设定（liusha 的
+// 文件聚合：同一进程写一个 <日志目录>/{进程名}.log。进程名由入口经 SetProcess 设定（liusha 的
 // 子命令名），未设定时取 os.Args[0] 的 basename。
-// 测试二进制（testing.Testing()）里文件落盘缺省关闭——否则会在每个被测包目录下留下
-// logs/*.test.log；需要时显式设 LIUSHA_LOG_TO_FILE=true。
 package logx
 
 import (
@@ -23,7 +21,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -117,6 +114,19 @@ func newConsoleWriter(out io.Writer, noColor bool) zerolog.ConsoleWriter {
 	}
 }
 
+// Options 是日志输出参数，取自配置的 log 段；Dir 是 <data_dir>/logs。
+type Options struct {
+	Level        string // debug / info / warn / error
+	Format       string // 标准输出格式：json / console
+	ToStdout     bool
+	ToFile       bool
+	Dir          string
+	MaxSizeBytes int64 // 单个文件轮转大小（按 MiB 轮转）
+	MaxBackups   int
+	MaxAgeDays   int
+	Compress     bool
+}
+
 type config struct {
 	level      zerolog.Level
 	format     string // "json" | "console"
@@ -130,46 +140,44 @@ type config struct {
 	compress   bool
 }
 
-// logDir 解析日志文件目录：LIUSHA_LOG_DIR，缺省 ~/data/liusha/logs（与任务工作区同一数据根）。
-// 缺省不用相对路径：以服务方式运行时工作目录不可依赖（systemd 为 /，Windows 服务为
-// System32）。写入端（buildWriter）与读取端（tail.go 的 Dir）共用这一处解析。
-func logDir() string {
-	if v := strings.TrimSpace(os.Getenv("LIUSHA_LOG_DIR")); v != "" {
-		return v
+// instance 是本进程在日志里的身份：进程号@主机名（多副本、同主机多进程都能区分）。
+var instance = func() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, "data", "liusha", "logs")
+	return fmt.Sprintf("%d@%s", os.Getpid(), host)
+}()
+
+var (
+	configMu sync.Mutex
+	// current 是生效的输出参数；Configure 之前只写标准输出（console、info 级）。
+	current = config{level: zerolog.InfoLevel, format: "console", toStdout: true, instance: instance}
+)
+
+// Configure 设定日志输出参数并让下一条日志按它重建输出端。入口加载配置后、业务日志写出之前调用。
+func Configure(o Options) {
+	configMu.Lock()
+	current = config{
+		level:      parseLevel(o.Level),
+		format:     o.Format,
+		toStdout:   o.ToStdout,
+		toFile:     o.ToFile,
+		dir:        o.Dir,
+		instance:   instance,
+		maxSizeMB:  int(o.MaxSizeBytes >> 20),
+		maxBackups: o.MaxBackups,
+		maxAgeDays: o.MaxAgeDays,
+		compress:   o.Compress,
 	}
-	return "logs"
+	configMu.Unlock()
+	output.reset()
 }
 
 func loadConfig() config {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("LIUSHA_ENV")))
-	isDev := env == "" || env == "development" || env == "dev"
-
-	format := strings.ToLower(strings.TrimSpace(os.Getenv("LIUSHA_LOG_FORMAT")))
-	if format != "json" && format != "console" {
-		if isDev {
-			format = "console"
-		} else {
-			format = "json"
-		}
-	}
-
-	dir := logDir()
-
-	return config{
-		level:      parseLevel(os.Getenv("LIUSHA_LOG_LEVEL")),
-		format:     format,
-		toStdout:   boolEnv("LIUSHA_LOG_TO_STDOUT", true),
-		toFile:     boolEnv("LIUSHA_LOG_TO_FILE", !testing.Testing()),
-		dir:        dir,
-		instance:   resolveInstance(),
-		maxSizeMB:  intEnv("LIUSHA_LOG_MAX_SIZE_MB", 100),
-		maxBackups: intEnv("LIUSHA_LOG_MAX_BACKUPS", 7),
-		maxAgeDays: intEnv("LIUSHA_LOG_MAX_AGE_DAYS", 14),
-		compress:   boolEnv("LIUSHA_LOG_COMPRESS", true),
-	}
+	configMu.Lock()
+	defer configMu.Unlock()
+	return current
 }
 
 var (
@@ -197,17 +205,6 @@ func currentProcess() string {
 		return "app"
 	}
 	return filepath.Base(os.Args[0])
-}
-
-func resolveInstance() string {
-	if v := strings.TrimSpace(os.Getenv("LIUSHA_INSTANCE")); v != "" {
-		return v
-	}
-	host, err := os.Hostname()
-	if err != nil || host == "" {
-		host = "unknown"
-	}
-	return fmt.Sprintf("%d@%s", os.Getpid(), host)
 }
 
 // zerolog 的字段名、时间格式、caller 格式是普通包级变量，每条日志都会读：只能在任何日志写出
@@ -323,31 +320,6 @@ func parseLevel(s string) zerolog.Level {
 	default:
 		return zerolog.InfoLevel
 	}
-}
-
-func boolEnv(key string, def bool) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "":
-		return def
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return def
-	}
-}
-
-func intEnv(key string, def int) int {
-	v := strings.TrimSpace(os.Getenv(key))
-	if v == "" {
-		return def
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 0 {
-		return def
-	}
-	return n
 }
 
 // Recover 返回 defer 用的 recover 处理：panic 转错误日志。

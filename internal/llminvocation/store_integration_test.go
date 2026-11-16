@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
 )
@@ -25,7 +24,7 @@ func setup(t *testing.T) (*Store, string) {
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
-	return NewStoreWithConfig(pool, config.InvocationConfig{}), tk.ID
+	return NewStore(pool), tk.ID
 }
 
 // TestStore_Append_ListAll 验证：插一条调用 → flush → 读回，token/role 正确。

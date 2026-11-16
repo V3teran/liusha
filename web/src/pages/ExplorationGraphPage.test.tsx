@@ -102,7 +102,8 @@ describe('ExplorationGraphPage（探索图）', () => {
 
     await waitFor(() => expect(mListTasks).toHaveBeenCalledWith(1, 1))
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(TASK_ID))
-    expect(await screen.findByText('暂无数据')).toBeTruthy()
+    expect(await screen.findByText('暂无探索图')).toBeTruthy()
+    expect(screen.getByText('任务开始规划后，探索图会出现在这里。')).toBeTruthy()
     // 选择框显示范围：选中任务的目标，而不是 ID
     expect(await screen.findByRole('button', { name: '选择任务：任务：测试商城越权' })).toBeTruthy()
   })
@@ -168,7 +169,16 @@ describe('ExplorationGraphPage（探索图）', () => {
 
   it('纯聊天对话没有任务，提示没有探索图', async () => {
     renderPage('/exploration-graph?conversation=c-chat')
-    expect(await screen.findByText('这个对话是纯聊天，没有任务，也就没有探索图')).toBeTruthy()
+    expect(await screen.findByText('这个对话是纯聊天，没有任务。')).toBeTruthy()
+    expect(mGraph).not.toHaveBeenCalled()
+  })
+
+  // 一个任务都没有是「暂无任务」，不是让用户去选一个不存在的任务。
+  it('没有任何任务：显示「暂无任务」', async () => {
+    mListTasks.mockResolvedValue({ items: [], total: 0, page: 1, size: 1 })
+    renderPage()
+    expect(await screen.findByText('暂无任务')).toBeTruthy()
+    expect(screen.queryByText('未选择任务')).toBeNull()
     expect(mGraph).not.toHaveBeenCalled()
   })
 
@@ -190,7 +200,7 @@ describe('ExplorationGraphPage（探索图）', () => {
 
     await waitFor(() => expect(mGraph).toHaveBeenCalledWith(TASK_ID))
     expect(await screen.findByText('资源不存在')).toBeTruthy()
-    expect(screen.getByText(/请在上方重新选择任务/)).toBeTruthy()
+    expect(screen.getByText(/不存在或已删除，请重新选择任务。/)).toBeTruthy()
   })
 
   it('带节点数据时渲染 kind 计数 chips 与总量，点击 chip 即筛选', async () => {

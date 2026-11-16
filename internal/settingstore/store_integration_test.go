@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -19,9 +20,19 @@ import (
 	"github.com/V3teran/liusha/internal/override"
 )
 
-func testDefaults() Defaults {
-	cfg := config.AppConfig{}
-	cfg.ApplyDefaults()
+// loadConfigTemplate 加载配置文件模板 internal/config/config.yaml：出厂默认按交给用户的那份算出。
+func loadConfigTemplate(t *testing.T) config.AppConfig {
+	t.Helper()
+	cfg, err := config.Load(filepath.Join("..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func testDefaults(t *testing.T) Defaults {
+	t.Helper()
+	cfg := loadConfigTemplate(t)
 	cfg.Proxy.ExcludeHosts = []string{"cdn.example"}
 	return DefaultsFrom(cfg)
 }
@@ -30,7 +41,7 @@ func newStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	mr := miniredis.RunT(t)
-	return New(pool, cachestore.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 0), testDefaults()), context.Background()
+	return New(pool, cachestore.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 0), testDefaults(t)), context.Background()
 }
 
 func TestPatchResetAndDefaults(t *testing.T) {
@@ -72,7 +83,7 @@ func TestPatchValidation(t *testing.T) {
 	}{
 		{GroupRuntime, override.Document{"run_tail_bytes": json.RawMessage(`0`)}},
 		{GroupCompaction, override.Document{"monitor_context_ratio": json.RawMessage(`0.95`)}},
-		{GroupProxyFilter, override.Document{"max_request_body_size": json.RawMessage(`-1`)}},
+		{GroupProxyFilter, override.Document{"max_request_body_bytes": json.RawMessage(`-1`)}},
 		{GroupRuntime, override.Document{"no_such_field": json.RawMessage(`1`)}},
 		{Group("nope"), override.Document{"x": json.RawMessage(`1`)}},
 	}
@@ -100,8 +111,7 @@ func TestProxyFilterListChanges(t *testing.T) {
 		t.Fatalf("生效排除主机: %v", pf.ExcludeHosts)
 	}
 	// 部署者在 yaml 里新增出厂排除主机：用户删掉的保持删除，新增的出厂项生效。
-	cfg := config.AppConfig{}
-	cfg.ApplyDefaults()
+	cfg := loadConfigTemplate(t)
 	cfg.Proxy.ExcludeHosts = []string{"cdn.example", "tracker.example"}
 	s2 := New(s.table.Pool, s.cache, DefaultsFrom(cfg))
 	pf2, _ := s2.ProxyFilter(ctx)
@@ -121,7 +131,7 @@ func TestCrossProcessInvalidation(t *testing.T) {
 		go func() { _ = c.Subscribe(ctx) }()
 		return c
 	}
-	a, b := New(pool, newCache(), testDefaults()), New(pool, newCache(), testDefaults())
+	a, b := New(pool, newCache(), testDefaults(t)), New(pool, newCache(), testDefaults(t))
 
 	if rt, _ := b.Runtime(ctx); rt.StepLLMTimeoutSeconds != 300 {
 		t.Fatalf("B 预热读: %+v", rt)

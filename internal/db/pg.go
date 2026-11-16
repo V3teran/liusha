@@ -1,4 +1,4 @@
-// Package db 封装 PostgreSQL / Redis 连接构造：统一 DSN 解析、连接池参数与
+// Package db 封装 PostgreSQL / Redis 连接构造：统一连接串解析、连接池参数与
 // 生产部署约定（pgvector 类型注册等），供全部需要持久层的入口复用。
 package db
 
@@ -19,20 +19,18 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// NewPgPool 构造 pgxpool.Pool 并 Ping 验证。
-//
-// 连接池参数取自 cfg：maxConns / connectTimeout / maxConnLifetime ≤ 0 时不覆盖 pgxpool 默认，
-// minConns 为 0 时保底 2 条暖连接（见下）。
+// NewPgPool 构造 pgxpool.Pool 并 Ping 验证。连接池参数取自配置（加载时已校验取值）。
 func NewPgPool(ctx context.Context, cfg config.PostgresConfig, logger zerolog.Logger) (*pgxpool.Pool, error) {
-	if cfg.DSN == "" {
-		return nil, errors.New("postgres.dsn 未配置（环境变量 LIUSHA_POSTGRES_DSN）")
+	if cfg.URL == "" {
+		return nil, errors.New("postgres.url 未配置（环境变量 LIUSHA_POSTGRES_URL）")
 	}
-	pcfg, err := pgxpool.ParseConfig(cfg.DSN)
+	pcfg, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("parse pg dsn: %w", err)
+		return nil, fmt.Errorf("解析 postgres.url: %w", err)
 	}
-	maxConns, minConns := cfg.MaxConns, cfg.MinConns
-	connectTimeoutSec, maxConnLifetimeSec := cfg.ConnectTimeoutSeconds, cfg.MaxConnLifetimeSeconds
+	if cfg.MaxConns > math.MaxInt32 || cfg.MinConns > math.MaxInt32 {
+		return nil, errors.New("postgres.max_conns / min_conns 超出范围")
+	}
 	// 池级日志接进 logx（pgx tracelog 适配）：连接失效/获取超时等池事件调用方
 	// 看不见，此前完全不可见。只透传 warn+——info 级是每查询一条的噪声；
 	// 查询级错误本就由各 store 调用方记录，这里兜的是池/连接内部事件。
@@ -40,28 +38,12 @@ func NewPgPool(ctx context.Context, cfg config.PostgresConfig, logger zerolog.Lo
 		Logger:   pgxLogger{log: logger},
 		LogLevel: tracelog.LogLevelWarn,
 	}
-	if maxConns > 0 && maxConns <= math.MaxInt32 {
-		pcfg.MaxConns = int32(maxConns)
-	}
-	// 暖连接兜底（调用方未配时）：MinConns 默认 0 会在空闲时清空池，闲置后的
-	// 首个请求付一次全新拨号——macOS Docker 端口转发对新拨号会间歇性卡顿
-	// （实测 api 单日 38 次 dial error，用户登录直接撞上）。保底 2 条常驻
-	// 连接让请求路径复用暖连接，新拨号只发生在池自身的健康检查里。
-	if minConns == 0 {
-		minConns = 2
-	}
-	if minConns > 0 && minConns <= math.MaxInt32 {
-		pcfg.MinConns = int32(minConns)
-	}
-	// 拨号超时兜底 5s：既防 vpnkit 半开连接无限挂起，也不至于长时间占住请求 ctx。
-	if connectTimeoutSec == 0 {
-		pcfg.ConnConfig.ConnectTimeout = 5 * time.Second
-	} else if connectTimeoutSec > 0 {
-		pcfg.ConnConfig.ConnectTimeout = time.Duration(connectTimeoutSec) * time.Second
-	}
-	if maxConnLifetimeSec > 0 {
-		pcfg.MaxConnLifetime = time.Duration(maxConnLifetimeSec) * time.Second
-	}
+	pcfg.MaxConns = int32(cfg.MaxConns) // #nosec G115 // 上方已校验不超过 int32
+	// 常驻暖连接：空闲时池不清空，闲置后的首个请求不必付一次全新拨号（macOS Docker 端口转发
+	// 对新拨号会间歇性卡顿）。
+	pcfg.MinConns = int32(cfg.MinConns) // #nosec G115 // 上方已校验不超过 int32
+	pcfg.ConnConfig.ConnectTimeout = time.Duration(cfg.ConnectTimeoutSeconds) * time.Second
+	pcfg.MaxConnLifetime = time.Duration(cfg.MaxConnLifetimeSeconds) * time.Second
 	// 每条连接注册 pgvector 类型，启用 corpus.embedding vector 列的二进制编解码。
 	// 注册失败不致命（返回 nil）：vector 扩展尚未建立时（全新库、迁移先于建池的引导窗口）
 	// 连接仍应可用——pgvector.Vector 实现 driver.Valuer/sql.Scanner，缺注册时自动降级文本协议，

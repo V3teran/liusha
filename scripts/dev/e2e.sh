@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/dev/e2e.sh [profile…] — 跑 e2e 触发器（host 侧）；自动管理 dev 栈生命周期
-# 流程：清空 db/redis → 关 service → 清 logs → 重启 service → 等 healthz → 跑 e2e
+# 流程：清空 db/redis → 关 service → 清宿主组件日志 → 重启 service → 等 healthz → 跑 e2e
 # 用法（剧本定义见 cmd/e2e/profiles.go）：
 #   ./scripts/dev/e2e.sh             # 不带参 = 按字典序跑全部剧本
 #   ./scripts/dev/e2e.sh xss         # XSS 专项扫描
@@ -10,31 +10,21 @@
 # 清空范围（每次执行都做一次）：
 #   - postgres：运行时表动态 TRUNCATE（豁免用户配置/登录资产/迁移台账）
 #   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
-#   - logs：先关 service 再 rm —— 确保 lumberjack fd 释放，新 service 写干净 logs
+#   - 日志：先关 service，再删数据目录 logs/ 下宿主三个组件（proxy / api / runner）的日志——
+#     确保文件句柄已释放，新 service 写干净日志；同目录里沙盒容器的日志不动
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-PG_CONTAINER="${LIUSHA_PG_CONTAINER:-liusha-postgres}"
-REDIS_CONTAINER="${LIUSHA_REDIS_CONTAINER:-liusha-redis}"
+PG_CONTAINER="${LIUSHA_E2E_PG_CONTAINER:-liusha-postgres}"
+REDIS_CONTAINER="${LIUSHA_E2E_REDIS_CONTAINER:-liusha-redis}"
 HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-120}"  # 含编译 liusha 的时间
 
-# load .env
-if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
-
-# host 侧地址
-export LIUSHA_API_BASE="${LIUSHA_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
-export LIUSHA_POSTGRES_DSN="${LIUSHA_POSTGRES_DSN:-postgres://liusha:${POSTGRES_PASSWORD}@localhost:${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"
-
-# LLM Provider API Keys（从 .env 继承，显式 export 给子进程）
-# LLM key（多把）随 .env 透传；redis 密码必填
-export LIUSHA_REDIS_PASSWORD="${REDIS_PASSWORD}"
-export LIUSHA_LLM_KEY_SECRET="${LIUSHA_LLM_KEY_SECRET}"
+# .env 与宿主侧连接（与 run-svc.sh 同一份）。
+# shellcheck source=scripts/dev/env.sh
+. scripts/dev/env.sh
+LOG_DIR="$LIUSHA_DATA_DIR/logs"
+export LIUSHA_E2E_API_BASE="${LIUSHA_E2E_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
 # migrate 必须在 TRUNCATE 之前——否则代码里新增的表（如 finding_relation）尚未创建，
@@ -76,9 +66,9 @@ fi
 echo "  ✓ postgres 业务表已 truncate（$(echo "$TABLES" | awk -F', ' '{print NF}') 张）"
 
 # redis FLUSHDB → 立即重建 ingestor consumer group
-if docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" FLUSHDB >/dev/null 2>&1; then
+if docker exec "$REDIS_CONTAINER" redis-cli -a "$LIUSHA_REDIS_PASSWORD" FLUSHDB >/dev/null 2>&1; then
   echo "  ✓ redis FLUSHDB"
-  docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" --no-auth-warning XGROUP CREATE liusha:traffic_snapshots liusha-ingestor 0 MKSTREAM \
+  docker exec "$REDIS_CONTAINER" redis-cli -a "$LIUSHA_REDIS_PASSWORD" --no-auth-warning XGROUP CREATE liusha:traffic_snapshots liusha-ingestor 0 MKSTREAM \
     >/dev/null 2>&1 || true
   echo "  ✓ ingestor consumer group 已重建（XGROUP CREATE MKSTREAM）"
 else
@@ -112,13 +102,14 @@ sleep 1
 echo "  ✓ 旧 service 已关停（端口 8588/8580/8590 释放 + runner 进程兜底 pkill）"
 
 echo ""
-echo "===== 4/6 清 logs（fd 已释放，rm 真正删除）====="
+echo "===== 4/6 清宿主组件日志（fd 已释放，rm 真正删除）====="
 removed=0
 shopt -s nullglob 2>/dev/null || true
-for f in logs/*.log logs/*.stderr; do
+for f in "$LOG_DIR"/proxy.log* "$LOG_DIR"/api.log* "$LOG_DIR"/runner.log* \
+         "$LOG_DIR"/proxy.stderr "$LOG_DIR"/api.stderr "$LOG_DIR"/runner.stderr; do
   rm -f "$f" 2>/dev/null && removed=$((removed + 1))
 done
-echo "  ✓ logs 已清空（删 ${removed} 个文件）"
+echo "  ✓ $LOG_DIR 下宿主组件日志已清空（删 ${removed} 个文件）"
 
 echo ""
 echo "===== 5/6 重启 service ====="
@@ -131,7 +122,7 @@ echo "  等 healthz 全部上线（最多 ${HEALTHZ_WAIT_SECONDS}s）..."
 deadline=$((SECONDS + HEALTHZ_WAIT_SECONDS))
 while [ $SECONDS -lt $deadline ]; do
   api_ok=0; runner_ok=0; proxy_ok=0
-  curl -sf -m 2 "${LIUSHA_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
+  curl -sf -m 2 "${LIUSHA_E2E_API_BASE}/healthz" >/dev/null 2>&1 && api_ok=1
   curl -sf -m 2 http://localhost:8590/healthz >/dev/null 2>&1 && runner_ok=1
   # proxy 无 healthz HTTP（纯 MITM）——探 TCP 8588 mitm 口是否在听。
   nc -z localhost 8588 2>/dev/null && proxy_ok=1
@@ -148,7 +139,7 @@ while [ $SECONDS -lt $deadline ]; do
 done
 if [ $SECONDS -ge $deadline ]; then
   echo "  ✗ healthz 等待超时（${HEALTHZ_WAIT_SECONDS}s）— api=$api_ok runner=$runner_ok proxy=$proxy_ok"
-  echo "  → 看 /tmp/liusha-run-svc.out 与 logs/*.stderr"
+  echo "  → 看 /tmp/liusha-run-svc.out 与 $LOG_DIR/*.stderr"
   exit 1
 fi
 
@@ -173,7 +164,7 @@ if [ $RC -eq 0 ]; then
 else
   echo "✗ e2e 失败（exit $RC = 失败的 profile 数）"
   echo "  排查："
-  echo "    1. logs/runner.log 看 ReAct 循环是否跑"
+  echo "    1. $LOG_DIR/runner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
   echo "       'SELECT severity, cwe_id, host, summary FROM finding ORDER BY created_at DESC;'"
   echo "    3. 前端看图：web/（本仓）→ make run-web（/api 代理到本 api）"

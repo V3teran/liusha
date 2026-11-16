@@ -16,7 +16,7 @@ func TestRouterStoreAdapter_MissingKeyWrapsNotConfigured(t *testing.T) {
 	f := &fakeLLM{providers: []llmconfig.Provider{{
 		Code: "p1", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "m",
 		Enabled: true,
-		// EncryptedAPIKey nil、APIKeyEnv 空 → ResolveAPIKey 报「未配置密钥」
+		// EncryptedAPIKey nil（未设置密钥）→ ResolveAPIKey 报「未设置密钥」
 	}}}
 	s := newLLMTestStore(t, f)
 	a := s.AsRouterStore(nil) // cipher nil：密文为空的 provider 走不到解密

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { columnPixelWidths, totalColumnWidth } from '@/lib/tableLayout'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/ui/EmptyState'
 import type { CredentialRow } from './useCredentialQueries'
 import type { CredentialTableMeta } from './credentialColumns'
 import { buildCredentialColumns } from './credentialColumns'
@@ -43,9 +44,12 @@ export function CredentialTable({
   const colWidths = columnPixelWidths(sizes)
   const minWidth = totalColumnWidth(sizes)
   const colCount = leafColumns.length
+  const isEmpty = !loading && rows.length === 0
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+    {/* 窄屏下表格横向滚动：滚动容器本身可聚焦，键盘用户也能左右滚（空表时没有别的可聚焦元素） */}
+    <div role="region" aria-label="凭证列表" tabIndex={0} className="overflow-x-auto">
       {/* min-width 兜底：窄屏出横向滚动条，列不压缩（全站表格统一约定） */}
       <table role="grid" aria-label="凭证列表" className="w-full border-collapse table-fixed" style={{ minWidth }}>
         <colgroup>
@@ -81,13 +85,7 @@ export function CredentialTable({
                 ))}
               </tr>
             ))
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-text-secondary">
-                {hasFilter ? '当前筛选无匹配凭证' : '暂无凭证 · 点击右上角录入，或由扫描任务自动写入'}
-              </td>
-            </tr>
-          ) : (
+          ) : isEmpty ? null : (
             table.getRowModel().rows.map((row) => {
               const v = row.original
               const selected = v.rowId === selectedRowId
@@ -117,6 +115,14 @@ export function CredentialTable({
           )}
         </tbody>
       </table>
+    </div>
+    {/* 空态放在横向滚动区外：放进表格会按设计列宽居中，窄屏下落到可视区之外 */}
+    {isEmpty &&
+      (hasFilter ? (
+        <EmptyState kind="no-match" scope="search" noun="凭证" />
+      ) : (
+        <EmptyState kind="empty" noun="凭证" hint="点击「录入」手动添加，或由任务运行时自动写入。" />
+      ))}
     </div>
   )
 }

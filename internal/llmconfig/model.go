@@ -1,7 +1,7 @@
 // Package llmconfig 是 LLM 配置（provider / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
-// 事实源是 DB（前端「LLM 配置」页改这里）；config.yaml 只在空库时引导一次（internal/config/seed）。
+// 事实源是 DB（前端「LLM 配置」页改这里），配置文件不涉及 LLM 接入。
 // 运行期消费方经 internal/llmstore（多级缓存）读，不直连本包 Store（跨进程一致性）。
 //
 // 路由模型：调用方 → 档位 → provider 两跳。
@@ -12,14 +12,13 @@
 // 为何需要中间层：complexity 是**语义分档**（快速/标准/深度），多个 agent 天然共享同一档，
 // 「换一个复杂档位的模型」只改该档配置一处即全量跟随。agent→complexity 可配置实现精细成本控制。
 //
-// 安全：APIKeyEnv 只存**环境变量名**，密钥值永不落库。
+// 安全：provider 密钥只以 AES-256-GCM 密文落库（加密在 httpapi 层完成），明文永不落库。
 package llmconfig
 
 import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -55,17 +54,14 @@ const (
 // Provider 是一个 LLM provider（连接参数 + 能力标志）。SupportsVision/ContextWindow
 // 在 DB 为 NOT NULL（schema 层强制），故用非指针类型，无需区分「未填」。
 //
-// API Key 两条路径，前端优先（见 ResolveAPIKey）：EncryptedAPIKey 非空时用它（前端直填 →
-// AES-256-GCM 加密落库）；为空时读 APIKeyEnv 指定的环境变量（部署期路径：config.yaml
-// providers 块 + .env 同名变量）。
+// API Key 在前端填写、AES-256-GCM 加密落库（见 ResolveAPIKey）。
 type Provider struct {
 	Code             string // 稳定引用标识（角色路由 FK 指向；列名 code）
 	Type             string
 	BaseURL          string
 	DefaultModel     string
-	APIKeyEnv        string // 部署期路径：环境变量名；仅当 EncryptedAPIKey 为空时生效
-	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；非空时优先于 APIKeyEnv
-	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）；密钥走环境变量时为空
+	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；空 = 尚未设置密钥
+	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）
 	AuthScheme       string // 鉴权方式（AuthBearer / AuthXAPIKey）
 	OutputLimitParam string // 输出上限字段（OutputLimitMaxTokens / OutputLimitMaxCompletionTokens）
 	MaxTokens        int
@@ -83,11 +79,10 @@ type Provider struct {
 	UpdatedAt            time.Time
 }
 
-// HasKey 报告该 provider 当前能否解析出密钥：已加密落库，或 api_key_env 指向的
-// 环境变量在本进程有值（与 ResolveAPIKey 的判定同口径，只是不解密）。供前端
-// 「密钥是否就绪」提示——只填了变量名而变量为空时同样视为缺失，绝不透出密钥值本身。
+// HasKey 报告该 provider 是否已设置密钥（与 ResolveAPIKey 的判定同口径，只是不解密）。
+// 供前端「密钥是否就绪」提示，绝不透出密钥值本身。
 func (p Provider) HasKey() bool {
-	return len(p.EncryptedAPIKey) > 0 || (p.APIKeyEnv != "" && os.Getenv(p.APIKeyEnv) != "")
+	return len(p.EncryptedAPIKey) > 0
 }
 
 // ErrInvalid 标记不合法的 provider 配置；HTTP 层收敛为 400。
@@ -242,7 +237,6 @@ type ProviderParams struct {
 	Type                 string
 	BaseURL              string
 	DefaultModel         string
-	APIKeyEnv            string // 部署期路径：环境变量名，仅首装种子（config.yaml providers）写入
 	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）

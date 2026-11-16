@@ -10,7 +10,6 @@ vi.mock('@/features/model/useModelQueries')
 const mockedUseProviders = queries.useProviders as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveProvider = queries.useSaveProvider as unknown as ReturnType<typeof vi.fn>
 const mockedUseDeleteProvider = queries.useDeleteProvider as unknown as ReturnType<typeof vi.fn>
-const mockedUseRestoreProviderEnvKey = queries.useRestoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
 const mockedUseRouting = queries.useRouting as unknown as ReturnType<typeof vi.fn>
 const mockedUseAgents = queries.useAgents as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveRoleRoute = queries.useSaveRoleRoute as unknown as ReturnType<typeof vi.fn>
@@ -32,7 +31,6 @@ describe('ModelPage', () => {
     // Mock 所有 ProvidersView 需要的 hooks
     mockedUseSaveProvider.mockReturnValue({ isPending: false, mutate: vi.fn() })
     mockedUseDeleteProvider.mockReturnValue({ isPending: false, mutate: vi.fn() })
-    mockedUseRestoreProviderEnvKey.mockReturnValue({ mutate: vi.fn() })
 
     // Mock AssignmentView 需要的 hooks
     mockedUseRouting.mockReturnValue({ data: { routes: [] }, isLoading: false })

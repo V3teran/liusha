@@ -10,7 +10,7 @@ function paging(over: Partial<ServerPaging> = {}): ServerPaging {
   return { page: 1, totalPages: 2, count: 13, onPage: vi.fn(), size: 12, onSize: vi.fn(), ...over }
 }
 
-function renderShell(props: { n?: number; server?: ServerPaging; loading?: boolean; error?: string } = {}) {
+function renderShell(props: { n?: number; server?: ServerPaging; loading?: boolean; error?: string; query?: string } = {}) {
   const n = props.n ?? 3
   return render(
     <ConfigListShell
@@ -19,9 +19,10 @@ function renderShell(props: { n?: number; server?: ServerPaging; loading?: boole
       loading={props.loading ?? false}
       error={props.error ?? ''}
       empty={n === 0}
-      emptyHint="暂无配置"
+      noun="智能体"
+      emptyHint="智能体随程序内置"
       onNew={vi.fn()}
-      search={{ value: '', onChange: vi.fn(), placeholder: '搜索名称' }}
+      search={{ value: props.query ?? '', onChange: vi.fn(), placeholder: '搜索名称' }}
       server={props.server ?? paging()}
     >
       {cards(n)}
@@ -49,10 +50,18 @@ describe('ConfigListShell', () => {
     expect(screen.getByRole('search')).toContainElement(screen.getByPlaceholderText('搜索名称'))
   })
 
-  it('空态显示提示、不渲染卡片网格', () => {
+  it('无数据：显示「暂无X」与说明、不渲染卡片网格', () => {
     renderShell({ n: 0, server: paging({ count: 0, totalPages: 1 }) })
-    expect(screen.getByText('暂无配置')).toBeInTheDocument()
+    expect(screen.getByText('暂无智能体')).toBeInTheDocument()
+    expect(screen.getByText('智能体随程序内置')).toBeInTheDocument()
     expect(screen.queryByText('item-0')).toBeNull()
+  })
+
+  it('搜索无结果：显示「没有匹配的X」与换关键词提示', () => {
+    renderShell({ n: 0, query: 'zzz', server: paging({ count: 0, totalPages: 1 }) })
+    expect(screen.getByText('没有匹配的智能体')).toBeInTheDocument()
+    expect(screen.getByText('换个关键词试试。')).toBeInTheDocument()
+    expect(screen.queryByText('暂无智能体')).toBeNull()
   })
 
   it('错误态显示错误信息（role=alert）', () => {

@@ -1,7 +1,6 @@
 // Package workspace 提供任务工作区的文件检索与 CRUD（api 的文件面）。
 //
-// 工作区根目录即沙盒执行命令的同一目录（sandbox.workspace_dir，默认
-// ~/data/liusha/workspace）：树按 <assignment>/<task> 两级分层，沙盒在任务目录下
+// 工作区根目录即沙盒执行命令的同一目录（<data_dir>/workspace）：树按 <assignment>/<task> 两级分层，沙盒在任务目录下
 // 分 work/out/state 子目录。本包在同一路径树上做安全的文件操作。工作区内容来自不受信沙箱（可创建任意符号链接），所有
 // 文件操作经 os.Root 执行：路径解析由目录句柄在内核侧钳制，任何跟随符号链接
 // 逃出根目录的访问都会失败——不依赖可被 TOCTOU 绕过的字符串前缀比对。

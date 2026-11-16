@@ -242,25 +242,25 @@ func (f *StatusCodeFilter) ShouldProcess(_ *http.Request, resp *http.Response) (
 
 // SizeFilter 请求体/响应体大小上限（0=不限）。
 type SizeFilter struct {
-	maxRequestBodySize  int
-	maxResponseBodySize int
+	maxRequestBodyBytes  int
+	maxResponseBodyBytes int
 }
 
 // NewSizeFilter 构造 body 大小过滤器（超上限丢弃，防大响应撑爆存储）。
-func NewSizeFilter(maxRequestBodySize, maxResponseBodySize int) *SizeFilter {
+func NewSizeFilter(maxRequestBodyBytes, maxResponseBodyBytes int) *SizeFilter {
 	return &SizeFilter{
-		maxRequestBodySize:  maxRequestBodySize,
-		maxResponseBodySize: maxResponseBodySize,
+		maxRequestBodyBytes:  maxRequestBodyBytes,
+		maxResponseBodyBytes: maxResponseBodyBytes,
 	}
 }
 
 // ShouldProcess 判定响应 body 是否超尺寸上限。
 func (f *SizeFilter) ShouldProcess(req *http.Request, resp *http.Response) (bool, string) {
-	if f.maxRequestBodySize > 0 && req.ContentLength > 0 && int(req.ContentLength) > f.maxRequestBodySize {
-		return false, fmt.Sprintf("request body too large: %d > %d", req.ContentLength, f.maxRequestBodySize)
+	if f.maxRequestBodyBytes > 0 && req.ContentLength > 0 && int(req.ContentLength) > f.maxRequestBodyBytes {
+		return false, fmt.Sprintf("request body too large: %d > %d", req.ContentLength, f.maxRequestBodyBytes)
 	}
-	if f.maxResponseBodySize > 0 && resp != nil && resp.ContentLength > 0 && int(resp.ContentLength) > f.maxResponseBodySize {
-		return false, fmt.Sprintf("response body too large: %d > %d", resp.ContentLength, f.maxResponseBodySize)
+	if f.maxResponseBodyBytes > 0 && resp != nil && resp.ContentLength > 0 && int(resp.ContentLength) > f.maxResponseBodyBytes {
+		return false, fmt.Sprintf("response body too large: %d > %d", resp.ContentLength, f.maxResponseBodyBytes)
 	}
 	return true, ""
 }

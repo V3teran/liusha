@@ -1,154 +1,180 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-const minimalYAML = `
-api: {read_timeout_seconds: 15, write_timeout_seconds: 30}
-postgres: {max_conns: 20, min_conns: 2}
-llm:
-  complexity_routes:
-    simple: deepseek
-    medium: deepseek
-    complex: anthropic
-providers:
-  deepseek:  {base_url: https://api.deepseek.com,  default_model: deepseek-chat,  api_key_env: DEEPSEEK_API_KEY,  max_tokens: 4096, supports_tools: true,  supports_vision: false, context_window: 65536}
-  anthropic: {base_url: https://api.anthropic.com, default_model: claude-sonnet-4-6, api_key_env: ANTHROPIC_API_KEY, max_tokens: 8192, supports_tools: true, supports_vision: true,  context_window: 200000}
-`
+// templatePath 是本包目录下的配置文件模板：发布压缩包与容器部署用的就是这份。
+const templatePath = "config.yaml"
 
-func writeConfig(t *testing.T, body string) string {
+// editTemplate 对模板做一处文本替换后写到临时文件；old 必须恰好出现一次，防止模板改动后测试悄悄失效。
+func editTemplate(t *testing.T, old, new string) string {
 	t.Helper()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+	b, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	if n := strings.Count(body, old); n != 1 {
+		t.Fatalf("模板中 %q 出现 %d 次，期望 1 次", old, n)
+	}
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(strings.Replace(body, old, new, 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
-// TestLoad_PartialKeyEnvBoots：部分 provider 密钥缺失不拒启——缺档由运行期
-// 就近降级接管（complex 缺→medium→simple 等）；仅保留形状校验 fatal。
-func TestLoad_PartialKeyEnvBoots(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
-	if _, err := Load(writeConfig(t, minimalYAML)); err != nil {
-		t.Fatalf("部分密钥缺失应可启动（就近降级）: %v", err)
-	}
-}
-
-// TestLoad_AllKeysMissingBoots：全部路由档位密钥缺失不拒启——「先部署、后在前端
-// 配置」的启动期体现；就绪由下发边界拒绝与运行期致命化接管。
-func TestLoad_AllKeysMissingBoots(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	c, err := Load(writeConfig(t, minimalYAML))
+// 仓库里的 config.yaml 本身必须能加载：它就是交给用户的那份。数据目录按当前用户主目录展开，
+// 工作区、日志、证书目录都在它之下。
+func TestLoad_Template(t *testing.T) {
+	cfg, err := Load(templatePath)
 	if err != nil {
-		t.Fatalf("全部密钥缺失应可启动: %v", err)
+		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
-	if len(c.Providers) == 0 {
-		t.Fatal("providers 应照常加载（就绪判定在运行期）")
+	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 6 || cfg.Runner.URL != "http://127.0.0.1:8590" {
+		t.Fatalf("取值与 config.yaml 不符: api=%q concurrency=%d runner.url=%q", cfg.API.ListenAddr, cfg.Runner.Concurrency, cfg.Runner.URL)
 	}
-}
-
-func TestLoad_OK(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "k-deep")
-	t.Setenv("ANTHROPIC_API_KEY", "k-anth")
-	cfg, err := Load(writeConfig(t, minimalYAML))
+	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.ComplexityRoutes["medium"] != "deepseek" || cfg.Providers["deepseek"].DefaultModel != "deepseek-chat" {
-		t.Fatalf("unexpected: %+v", cfg)
+	dataDir := filepath.Join(home, "data", "liusha")
+	if cfg.DataDir != dataDir {
+		t.Fatalf("data_dir = %q，期望 %q", cfg.DataDir, dataDir)
+	}
+	for got, want := range map[string]string{
+		cfg.WorkspaceDir(): filepath.Join(dataDir, "workspace"),
+		cfg.LogDir():       filepath.Join(dataDir, "logs"),
+		cfg.CertDir():      filepath.Join(dataDir, "certs"),
+	} {
+		if got != want {
+			t.Fatalf("数据子目录 = %q，期望 %q", got, want)
+		}
+	}
+	// 密钥在模板里一律留空，经环境变量注入。
+	for key, v := range map[string]string{
+		"postgres.url": cfg.Postgres.URL, "redis.url": cfg.Redis.URL, "sandbox.token": cfg.Sandbox.Token,
+		"llm.encryption_key": cfg.LLM.EncryptionKey, "admin.initial_password": cfg.Admin.InitialPassword,
+		"embedding.api_key": cfg.Embedding.APIKey,
+	} {
+		if v != "" && os.Getenv("LIUSHA_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_"))) == "" {
+			t.Fatalf("模板里的密钥 %s 应留空，got %q", key, v)
+		}
 	}
 }
 
-// TestLoad_EmbeddedDefaults：不给覆盖文件时用编进程序的默认配置——二进制开箱即用，
-// 部署无需挂配置文件。默认不预置任何 LLM provider（只认协议、不认服务，接入在前端配置）。
-func TestLoad_EmbeddedDefaults(t *testing.T) {
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("内置默认配置应可加载: %v", err)
+// 没有配置文件就不启动：程序不内置任何配置。
+func TestLoad_FileRequired(t *testing.T) {
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "未指定配置文件") {
+		t.Fatalf("未指定配置文件应报错，got %v", err)
 	}
-	if cfg.API.ListenAddr == "" || cfg.Sandbox.ViewportWidth == 0 || cfg.Sandbox.URL == "" {
-		t.Fatalf("内置默认值缺失: api=%q viewport=%d sandbox.url=%q", cfg.API.ListenAddr, cfg.Sandbox.ViewportWidth, cfg.Sandbox.URL)
-	}
-	if len(cfg.Providers) != 0 {
-		t.Fatalf("内置默认不应预置 provider，got %+v", cfg.Providers)
+	missing := filepath.Join(t.TempDir(), "nope.yaml")
+	if _, err := Load(missing); err == nil || !strings.Contains(err.Error(), "nope.yaml") {
+		t.Fatalf("配置文件不存在应报错并指出路径，got %v", err)
 	}
 }
 
-// TestLoad_OverrideFileMergesOntoDefaults：覆盖文件只需写改动的键，其余沿用内置默认。
-func TestLoad_OverrideFileMergesOntoDefaults(t *testing.T) {
-	def, err := Load("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(writeConfig(t, "api: {listen_addr: \":9999\"}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.API.ListenAddr != ":9999" {
-		t.Fatalf("覆盖未生效: %q", cfg.API.ListenAddr)
-	}
-	if cfg.Sandbox.ViewportWidth != def.Sandbox.ViewportWidth || cfg.Postgres.MaxConns != def.Postgres.MaxConns {
-		t.Fatalf("未覆盖的键应沿用默认: %+v", cfg.Sandbox)
+// 缺键直接报错并列出缺的键，不拿任何值顶替。
+func TestLoad_MissingKeyFails(t *testing.T) {
+	for _, c := range []struct{ line, key string }{
+		{"  concurrency: 6                     # 同时执行的任务数\n", "runner.concurrency"},
+		{"  cookie_secure: false", "api.cookie_secure"},
+		{"  level: info                        # debug / info / warn / error\n", "log.level"},
+		{"data_dir: ~/data/liusha\n", "data_dir"},
+	} {
+		p := editTemplate(t, c.line, "")
+		_, err := Load(p)
+		if err == nil || !strings.Contains(err.Error(), "缺少键") || !strings.Contains(err.Error(), c.key) {
+			t.Fatalf("缺 %s 应报错并列出该键，got %v", c.key, err)
+		}
 	}
 }
 
-// TestLoad_MissingOverrideFileFails：显式指定的覆盖文件不存在是部署错误，必须报错而非静默用默认。
-func TestLoad_MissingOverrideFileFails(t *testing.T) {
-	if _, err := Load(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
-		t.Fatal("覆盖文件不存在应报错")
+// 写了值为空（yaml 的 null）等同于没写这个键。
+func TestLoad_NullValueIsMissing(t *testing.T) {
+	p := editTemplate(t, `  callback_host: ""`, "  callback_host:")
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "sandbox.callback_host") {
+		t.Fatalf("值为空的键应按缺键报错，got %v", err)
 	}
 }
 
-// TestLoad_EnvOverridesDefaults：内置默认里的键都能被 LIUSHA_ 环境变量覆盖。
-func TestLoad_EnvOverridesDefaults(t *testing.T) {
+// 不认识的键（拼错、已删除的旧键）报错，不静默忽略。
+func TestLoad_UnknownKeyFails(t *testing.T) {
+	for _, c := range []struct{ old, new, key string }{
+		{"  concurrency: 6", "  concurency: 6\n  concurrency: 6", "concurency"},
+		// 已删除的键：LLM 种子、内部约定、改名前的旧键。
+		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_compat}\n", "providers"},
+		{"  stream_max_len: 100000", "  stream_name: x\n  stream_max_len: 100000", "stream_name"},
+		{"  concurrency: 6", "  asynq_concurrency: 6\n  concurrency: 6", "asynq_concurrency"},
+	} {
+		p := editTemplate(t, c.old, c.new)
+		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), c.key) {
+			t.Fatalf("未知键 %s 应报错并指出该键，got %v", c.key, err)
+		}
+	}
+}
+
+// 没有意义的取值报错，不替换成别的值。
+func TestLoad_InvalidValueFails(t *testing.T) {
+	for _, c := range []struct{ old, new, key string }{
+		{"  concurrency: 6", "  concurrency: 0", "runner.concurrency"},
+		{"  level: info", "  level: verbose", "log.level"},
+		{"  format: json", "  format: text", "log.format"},
+		{"  max_size_bytes: 104857600", "  max_size_bytes: 1000", "log.max_size_bytes"},
+		{"  pool_size: 20", "  pool_size: 0", "redis.pool_size"},
+		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
+		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
+		// 相对路径依赖进程工作目录：以服务方式运行时不可靠，拒绝。
+		{"data_dir: ~/data/liusha", "data_dir: data/liusha", "data_dir"},
+	} {
+		p := editTemplate(t, c.old, c.new)
+		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), c.key) {
+			t.Fatalf("%s 取值无效应报错，got %v", c.key, err)
+		}
+	}
+}
+
+// 文件里的每个键都能被 LIUSHA_<键> 环境变量覆盖（含密钥与数据目录）；值为空串的环境变量不覆盖。
+func TestLoad_EnvOverridesFile(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("LIUSHA_DATA_DIR", dataDir)
 	t.Setenv("LIUSHA_SANDBOX_URL", "http://sandbox:8591")
-	cfg, err := Load("")
+	t.Setenv("LIUSHA_RUNNER_CONCURRENCY", "10")
+	t.Setenv("LIUSHA_POSTGRES_URL", "postgres://u:p@db:5432/liusha")
+	t.Setenv("LIUSHA_REDIS_URL", "redis://:p@redis:6379/0")
+	t.Setenv("LIUSHA_LLM_ENCRYPTION_KEY", "ab")
+	t.Setenv("LIUSHA_ADMIN_INITIAL_PASSWORD", "changeme-admin")
+	t.Setenv("LIUSHA_EMBEDDING_API_KEY", "changeme-embedding")
+	t.Setenv("LIUSHA_RUNNER_URL", "")
+	cfg, err := Load(templatePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Sandbox.URL != "http://sandbox:8591" {
-		t.Fatalf("Sandbox.URL = %q", cfg.Sandbox.URL)
+	if cfg.DataDir != dataDir || cfg.Sandbox.URL != "http://sandbox:8591" || cfg.Runner.Concurrency != 10 ||
+		cfg.Postgres.URL != "postgres://u:p@db:5432/liusha" || cfg.Redis.URL != "redis://:p@redis:6379/0" ||
+		cfg.LLM.EncryptionKey != "ab" || cfg.Admin.InitialPassword != "changeme-admin" || cfg.Embedding.APIKey != "changeme-embedding" {
+		t.Fatalf("环境变量未覆盖: %+v", cfg)
+	}
+	if cfg.Runner.URL != "http://127.0.0.1:8590" {
+		t.Fatalf("值为空串的环境变量不应覆盖文件，runner.url = %q", cfg.Runner.URL)
 	}
 }
 
-func TestApplyIngestorDefaults_ConsumerNameIsInstanceUnique(t *testing.T) {
-	// consumer_name 留空时应派生每实例唯一名，绝不能退回写死的 ingestor-1
-	// （多副本用同名进同组会静默 pending 混乱）。
-	got := applyIngestorDefaults(IngestorConfig{}).ConsumerName
-
-	if got == "ingestor-1" {
-		t.Fatalf("consumer name 仍是写死的 ingestor-1，多副本会撞名")
-	}
-	host, _ := os.Hostname()
-	want := "ingestor-" + host + "-" + fmt.Sprint(os.Getpid())
-	if got != want {
-		t.Fatalf("consumer name = %q, 期望派生自 hostname+pid = %q", got, want)
-	}
-
-	// 显式配置应被尊重，不被默认值覆盖。
-	explicit := applyIngestorDefaults(IngestorConfig{ConsumerName: "custom-name"}).ConsumerName
-	if explicit != "custom-name" {
-		t.Fatalf("显式 consumer_name 被覆盖: %q", explicit)
-	}
-}
-
-// 工作区配成相对路径时按进程工作目录解析为绝对路径：沙盒在任务目录里执行命令，api 与沙盒
-// 也可能在不同目录启动，相对路径在两处、在命令里各指一处。
-func TestLoad_WorkspaceDirIsAbsolute(t *testing.T) {
-	t.Setenv("LIUSHA_SANDBOX_WORKSPACE_DIR", filepath.Join("rel", "workspace"))
-	cfg, err := LoadWithoutLLM("")
+// browser_python 写空串表示本机惯用名；写了就按写的用。
+func TestLoad_BrowserPython(t *testing.T) {
+	cfg, err := Load(templatePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wd, _ := os.Getwd()
-	if want := filepath.Join(wd, "rel", "workspace"); cfg.Sandbox.WorkspaceDir != want {
-		t.Fatalf("WorkspaceDir = %q，期望 %q", cfg.Sandbox.WorkspaceDir, want)
+	if cfg.Sandbox.BrowserPython != "python3" && cfg.Sandbox.BrowserPython != "python" {
+		t.Fatalf("browser_python 空串应解析为本机惯用名，got %q", cfg.Sandbox.BrowserPython)
+	}
+	t.Setenv("LIUSHA_SANDBOX_BROWSER_PYTHON", "/opt/venv/bin/python")
+	if cfg, err = Load(templatePath); err != nil || cfg.Sandbox.BrowserPython != "/opt/venv/bin/python" {
+		t.Fatalf("显式 browser_python 应原样使用: %q %v", cfg.Sandbox.BrowserPython, err)
 	}
 }

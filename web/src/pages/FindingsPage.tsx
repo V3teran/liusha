@@ -285,7 +285,8 @@ export function FindingsPage() {
             columns={findingColumns as never}
             loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}
             hasFilter={hasFilter}
-            emptyText="漏洞——发起扫描或挂代理收流量后，AI 挖到的漏洞会汇总到此"
+            emptyNoun="漏洞"
+            emptyHint="任务运行中经复现验证的漏洞会出现在这里。"
             getRowId={(row) => row.id}
             onRowClick={openDrawer}
             rowAriaLabel={(f) => `查看漏洞详情：${f.summary}`}

@@ -4,6 +4,10 @@
 // Authorization: Bearer <sandbox.token>。
 package sandbox
 
+// TrafficIngestPath 是 runner 接收沙盒浏览器回灌流量的路由（反方向的协议：沙盒带令牌调用
+// runner）。runner 注册它，沙盒以 runner.url 加它拼出回灌地址。
+const TrafficIngestPath = "/internal/v1/traffic/ingest"
+
 // ExecRequest 是 POST /exec 的请求体。
 //
 // 字段语义：

@@ -288,31 +288,29 @@ func TestProcessesInventory(t *testing.T) {
 		logLine("2026-01-01T10:00:02Z", "info", "api", "72661@hohehoe.local", "a.go:2", "y"),
 		logLine("2026-01-01T10:00:03Z", "info", "api", "8912@docker-host-2", "a.go:3", "z"),
 	})
+	// 刚创建、还没写入的文件：进程已在运行，照常列出
+	if err := os.WriteFile(filepath.Join(dir, "proxy.log"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	r := newTestReader(dir)
 	ps := r.LogProcesses()
-	if len(ps) != len(ViewProcesses) {
-		t.Fatalf("应枚举全部视图域进程, got %d", len(ps))
+	// 一种部署只产生一种布局：没有日志文件的进程（serve / runner / sandbox）不列出
+	if len(ps) != 2 || ps[0].Name != "api" || ps[1].Name != "proxy" {
+		t.Fatalf("应只列出有日志文件的进程（按视图域顺序）, got %+v", ps)
 	}
-	byName := map[string]ProcessInfo{}
-	for _, p := range ps {
-		byName[p.Name] = p
-	}
-	api := byName["api"]
-	if !api.Exists || api.SizeBytes == 0 {
-		t.Errorf("api 文件应存在: %+v", api)
+	api := ps[0]
+	if api.SizeBytes == 0 {
+		t.Errorf("api 文件大小应非零: %+v", api)
 	}
 	if len(api.Instances) != 2 || api.Instances[0] != "72661@hohehoe.local" || api.Instances[1] != "8912@docker-host-2" {
 		t.Errorf("实例枚举不符（去重+首现序）: %+v", api.Instances)
 	}
-	if byName["runner"].Exists {
-		t.Error("未写的 runner 文件应 exists=false")
-	}
-	// 无文件的进程 instances 也是空数组而非 null：前端按数组迭代，null 会让日志页渲染崩溃。
-	raw, err := json.Marshal(byName["runner"])
+	// 没有实例的进程 instances 也是空数组而非 null：前端按数组迭代，null 会让日志页渲染崩溃。
+	raw, err := json.Marshal(ps[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(raw), `"instances":[]`) {
-		t.Errorf("无文件进程的 instances 应序列化为 []，得 %s", raw)
+		t.Errorf("无实例进程的 instances 应序列化为 []，得 %s", raw)
 	}
 }

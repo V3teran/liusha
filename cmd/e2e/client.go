@@ -2,64 +2,91 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"io"
+	"net/http"
+	"net/url"
 )
 
-// ExplorationGraphClient 通过数据库直接查询探索图统计
-type ExplorationGraphClient struct {
-	pool *pgxpool.Pool
+// taskAPI 经公开 API 观察任务（状态、探索图、用量）：与前端同一路径，e2e 不依赖库表结构，
+// 也不需要数据库凭据。
+type taskAPI struct {
+	base    string
+	session *http.Cookie
 }
 
-// NewExplorationGraphClient 创建客户端
-func NewExplorationGraphClient(pool *pgxpool.Pool) *ExplorationGraphClient {
-	return &ExplorationGraphClient{
-		pool: pool,
-	}
-}
-
-// GetTaskStats 查询任务的探索图节点统计
-// 直接查询 exploration_node 表（探索图）
-func (c *ExplorationGraphClient) GetTaskStats(ctx context.Context, taskID string) (GraphStats, error) {
-	query := `
-		SELECT
-			kind,
-			COUNT(*) as count
-		FROM exploration_node
-		WHERE task_id = $1
-		GROUP BY kind
-	`
-
-	rows, err := c.pool.Query(ctx, query, taskID)
+// getJSON 带会话 GET base+path 并解码 JSON 响应。
+func (a taskAPI) getJSON(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.base+path, nil)
 	if err != nil {
-		return GraphStats{}, fmt.Errorf("query exploration_node: %w", err)
+		return fmt.Errorf("构造请求 %s: %w", path, err)
 	}
-	defer rows.Close()
+	req.AddCookie(a.session)
+	resp, err := authClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("GET %s: HTTP %d %s", path, resp.StatusCode, body)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("解析 %s 响应: %w", path, err)
+	}
+	return nil
+}
 
-	stats := GraphStats{}
-	for rows.Next() {
-		var kind string
-		var count int
-		if err := rows.Scan(&kind, &count); err != nil {
-			return GraphStats{}, fmt.Errorf("scan row: %w", err)
-		}
+func taskPath(taskID, suffix string) string {
+	return "/api/tasks/" + url.PathEscape(taskID) + suffix
+}
 
-		switch kind {
+// Status 返回任务状态（active / completed / aborted）。
+func (a taskAPI) Status(ctx context.Context, taskID string) (string, error) {
+	var t struct {
+		Status string `json:"status"`
+	}
+	if err := a.getJSON(ctx, taskPath(taskID, ""), &t); err != nil {
+		return "", err
+	}
+	return t.Status, nil
+}
+
+// GraphStats 按节点类型统计任务的探索图。
+func (a taskAPI) GraphStats(ctx context.Context, taskID string) (GraphStats, error) {
+	var g struct {
+		Nodes []struct {
+			Kind string `json:"kind"`
+		} `json:"nodes"`
+	}
+	if err := a.getJSON(ctx, taskPath(taskID, "/exploration/graph"), &g); err != nil {
+		return GraphStats{}, err
+	}
+	var s GraphStats
+	for _, n := range g.Nodes {
+		switch n.Kind {
 		case "objective":
-			stats.Objectives = count
+			s.Objectives++
 		case "action":
-			stats.Actions = count
+			s.Actions++
 		case "observation":
-			stats.Observations = count
+			s.Observations++
 		case "result":
-			stats.Results = count
+			s.Results++
 		}
 	}
+	return s, nil
+}
 
-	if err := rows.Err(); err != nil {
-		return GraphStats{}, fmt.Errorf("rows error: %w", err)
+// ActivityCount 返回任务累计的 LLM 调用与工具调用次数：在一段时间内不增长即没有活动。
+func (a taskAPI) ActivityCount(ctx context.Context, taskID string) (int, error) {
+	var u struct {
+		LLMInvocations  int `json:"llm_calls"`
+		ToolInvocations int `json:"tool_calls"`
 	}
-
-	return stats, nil
+	if err := a.getJSON(ctx, taskPath(taskID, "/usage"), &u); err != nil {
+		return 0, err
+	}
+	return u.LLMInvocations + u.ToolInvocations, nil
 }

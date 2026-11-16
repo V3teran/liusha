@@ -158,3 +158,14 @@ func TestRouter_AllUnavailableIsNotConfigured(t *testing.T) {
 		t.Fatalf("全部停用应是 ErrNotConfigured，got %v", err)
 	}
 }
+
+// 部署方配置的重试次数原样生效：写 0 就是该类错误不重试，不被换成内置值。
+func TestNewRouterWithOpts_HonorsZeroRetries(t *testing.T) {
+	r := NewRouterWithOpts(&fakeRouterStore{routes: map[string]string{}, providers: map[string]ProviderSpec{}}, RetryOptions{})
+	if r.retryOpts.MaxRetries429 != 0 || r.retryOpts.MaxRetries529 != 0 || r.retryOpts.MaxRetries5xx != 0 || r.retryOpts.MaxRetriesNet != 0 {
+		t.Fatalf("重试次数被改写: %+v", r.retryOpts)
+	}
+	if d := NewRouter(&fakeRouterStore{routes: map[string]string{}, providers: map[string]ProviderSpec{}}).retryOpts; d.MaxRetries429 != DefaultRetryOptions().MaxRetries429 {
+		t.Fatalf("无配置的构造应使用内置策略: %+v", d)
+	}
+}

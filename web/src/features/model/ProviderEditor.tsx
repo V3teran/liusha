@@ -17,7 +17,6 @@ interface ProviderEditorProps {
   onPatch: (p: Partial<ProviderConfig>) => void
   onSave: () => void
   onReset: () => void
-  onRestoreEnvKey?: () => void // 恢复使用环境变量（清密文，立即生效）
   onCancel: () => void // 取消编辑、回到列表（有未保存更改时先出确认条）
   onDiscard: () => void // 确认条「丢弃」：执行被拦的收起/切换
   onKeepEditing: () => void
@@ -39,7 +38,6 @@ export function ProviderEditor({
   onPatch,
   onSave,
   onReset,
-  onRestoreEnvKey,
   onCancel,
   onDiscard,
   onKeepEditing,
@@ -65,7 +63,6 @@ export function ProviderEditor({
           draft={draft}
           patch={onPatch}
           isNew={isNew}
-          onRestoreEnvKey={onRestoreEnvKey}
           models={models}
           diagnosis={<DiagnosisPanel draft={draft} onApply={onPatch} onModels={setModels} />}
         />

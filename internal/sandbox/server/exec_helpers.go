@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +131,7 @@ func (d taskDirs) env(outputDir string) []string {
 
 // baseEnv 是每条命令共有的环境：沙盒进程环境去掉 liusha 的密钥，加上浏览器能力所需的变量。
 func (s *Server) baseEnv() []string {
-	env := scrubEnv(os.Environ(), s.cfg.SecretEnv)
+	env := scrubEnv(os.Environ())
 	if s.cfg.BrowserBin != "" {
 		env = prependPath(env, s.cfg.BrowserBin)
 	}
@@ -156,14 +155,13 @@ func (s *Server) baseEnv() []string {
 }
 
 // scrubEnv 去掉不该进入 agent 命令的变量：命令由 LLM 编写、输出回到 LLM，单进程部署（serve）
-// 时沙盒与 api / runner 共享进程环境，其中有数据库连接串、密钥加密密钥、LLM 密钥等。
-// 去掉全部 LIUSHA_ 变量（命令所需的由沙盒按需重新注入）与 secret 中列出的变量；其余原样保留
-// （用户有意提供给工具的凭据，如侦察工具的 API 密钥）。
-func scrubEnv(env, secret []string) []string {
+// 时沙盒与 api / runner 共享进程环境，其中有数据库连接串、密钥加密密钥等。liusha 的全部变量
+// （配置、密钥、部署变量）都在 LIUSHA_ 前缀下，一律去掉——命令所需的任务变量由沙盒按需重新注入；
+// 其余原样保留（用户有意提供给工具的凭据，如侦察工具的 API 密钥）。
+func scrubEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		name := envName(kv)
-		if hasEnvPrefix(name, "LIUSHA_") || slices.ContainsFunc(secret, func(s string) bool { return sameEnvName(s, name) }) {
+		if hasEnvPrefix(envName(kv), "LIUSHA_") {
 			continue
 		}
 		out = append(out, kv)

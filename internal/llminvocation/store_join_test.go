@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
@@ -17,7 +16,7 @@ import (
 func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
-	invStore := NewStoreWithConfig(pool, config.InvocationConfig{})
+	invStore := NewStore(pool)
 	taskStore := task.NewStore(pool)
 	conversationStore := conversation.NewStore(pool)
 
@@ -88,7 +87,7 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 func TestConversationScopedInvocation(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPgPool(t)
-	invStore := NewStoreWithConfig(pool, config.InvocationConfig{})
+	invStore := NewStore(pool)
 	var assignmentID string
 	if err := pool.QueryRow(ctx, `INSERT INTO assignment (source, payload, title) VALUES ('proxy', '[]', 'p.test') RETURNING id`).
 		Scan(&assignmentID); err != nil {

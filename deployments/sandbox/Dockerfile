@@ -471,12 +471,15 @@ RUN /usr/local/sbin/check-wrappers
 # liusha 沙盒服务
 # ══════════════════════════════════════════════════════════════════════════════
 COPY --from=liusha /out/liusha /usr/local/bin/liusha
+# 配置文件由部署方挂载到 /data/config.yaml；镜像里附一份同版本的样板供取用。
+COPY internal/config/config.yaml /usr/share/doc/liusha/config.yaml
 
 LABEL org.opencontainers.image.source="https://github.com/V3teran/liusha" \
       org.opencontainers.image.description="liusha 沙盒：Kali 工具集 + liusha sandbox"
 
 # 浏览器服务用 browser-use 专属 venv（Layer 20）：与随发行版滚动的系统 Python 隔离。
-ENV LIUSHA_SANDBOX_LISTEN_ADDR=0.0.0.0:8591 \
+ENV LIUSHA_CONFIG=/data/config.yaml \
+    LIUSHA_SANDBOX_LISTEN_ADDR=0.0.0.0:8591 \
     LIUSHA_SANDBOX_BROWSER_PYTHON=/opt/browser-use-venv/bin/python
 WORKDIR /root
 EXPOSE 8591

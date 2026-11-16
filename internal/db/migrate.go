@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -22,16 +24,16 @@ type Migrator struct {
 	db *sql.DB
 }
 
-// NewMigrator 打开 dsn 指向的库并装载内置迁移。用完调 Close。
-func NewMigrator(dsn string) (*Migrator, error) {
-	if dsn == "" {
-		return nil, errors.New("postgres.dsn 未配置（环境变量 LIUSHA_POSTGRES_DSN）")
+// NewMigrator 打开连接串 url 指向的库并装载内置迁移。用完调 Close。
+func NewMigrator(url string) (*Migrator, error) {
+	if url == "" {
+		return nil, errors.New("postgres.url 未配置（环境变量 LIUSHA_POSTGRES_URL）")
 	}
 	src, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return nil, fmt.Errorf("装载内置迁移: %w", err)
 	}
-	conn, err := sql.Open("pgx", dsn)
+	conn, err := sql.Open("pgx", url)
 	if err != nil {
 		_ = src.Close()
 		return nil, fmt.Errorf("打开数据库: %w", err)
@@ -98,9 +100,28 @@ func (mg *Migrator) Close() error {
 	return errors.Join(srcErr, dbErr)
 }
 
-// Migrate 把 dsn 指向的库迁移到最新版本，并记录版本变化。
-func Migrate(ctx context.Context, dsn string, logger zerolog.Logger) error {
-	mg, err := NewMigrator(dsn)
+// SchemaVersion 返回库当前的数据库结构版本（schema_migrations.version）。迁移处于未完成（dirty）
+// 状态时报错：库结构可能是半成品，不能按某个版本使用。
+func SchemaVersion(ctx context.Context, pool *pgxpool.Pool) (uint, error) {
+	var (
+		v     int64
+		dirty bool
+	)
+	if err := pool.QueryRow(ctx, "SELECT version, dirty FROM schema_migrations").Scan(&v, &dirty); err != nil {
+		return 0, fmt.Errorf("读取数据库结构版本（库是否已迁移？）: %w", err)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("数据库结构版本 %d 不合法", v)
+	}
+	if dirty {
+		return 0, dirtyErr(uint(v))
+	}
+	return uint(v), nil
+}
+
+// Migrate 把连接串 url 指向的库迁移到最新版本，并记录版本变化。
+func Migrate(ctx context.Context, url string, logger zerolog.Logger) error {
+	mg, err := NewMigrator(url)
 	if err != nil {
 		return err
 	}

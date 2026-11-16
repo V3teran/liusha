@@ -23,26 +23,6 @@ func (stuckExecutor) Execute(ctx context.Context, _ explorationgraph.Node) (Outc
 	return OutcomeDone, ctx.Err()
 }
 
-// busyExecutor 持续有进展（每隔 interval 记一次活动），共执行 total 时长后完成。
-type busyExecutor struct {
-	activity *ActivityTracker
-	interval time.Duration
-	total    time.Duration
-}
-
-func (b busyExecutor) Execute(ctx context.Context, action explorationgraph.Node) (Outcome, error) {
-	deadline := time.Now().Add(b.total)
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return OutcomeDone, ctx.Err()
-		case <-time.After(b.interval):
-			b.activity.Touch(action.ID)
-		}
-	}
-	return OutcomeDone, nil
-}
-
 func newWatchdogAgent(t *testing.T, exec ActionExecutor, activity *ActivityTracker) (*Agent, *explorationgraph.Store) {
 	t.Helper()
 	store := explorationgraph.NewMemoryStore()
@@ -84,14 +64,27 @@ func TestWatchdog_StalledActionFailsWithReason(t *testing.T) {
 	assert.True(t, strings.Contains(*n.StateReason, "停摆"), "原因应说明停摆：%s", *n.StateReason)
 }
 
-// 持续有进展的长动作不会被误杀。
+// 持续有进展的长动作不会被误杀：判据是距最近一次进展的时长，不是动作已运行多久。
+// 由测试直接驱动判定（不起看门狗循环、不靠真实计时），结果与机器负载无关。
 func TestWatchdog_ActiveActionIsNotKilled(t *testing.T) {
 	activity := NewActivityTracker()
-	a, store := newWatchdogAgent(t, busyExecutor{activity: activity, interval: 30 * time.Millisecond, total: 600 * time.Millisecond}, activity)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go a.watchStalls(ctx)
+	exec := newGatedExecutor("a1")
+	a, store := newWatchdogAgent(t, exec, activity)
 
-	require.NoError(t, a.executeAction(ctx, mustNode(t, store, "a1")))
+	done := make(chan error, 1)
+	go func() { done <- a.executeAction(context.Background(), mustNode(t, store, "a1")) }()
+	exec.waitStarted(t, "a1")
+
+	// 动作已运行了 10 个停摆阈值之久，但刚有过进展。
+	a.inFlightMu.Lock()
+	f := a.inFlight["a1"]
+	f.started = time.Now().Add(-10 * a.stallTimeout)
+	a.inFlight["a1"] = f
+	a.inFlightMu.Unlock()
+	activity.Touch("a1")
+	a.cancelStalled(time.Now())
+
+	close(exec.gates["a1"])
+	require.NoError(t, <-done)
 	assert.Equal(t, explorationgraph.StateCompleted, *mustNode(t, store, "a1").State)
 }

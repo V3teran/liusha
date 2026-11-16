@@ -4,7 +4,7 @@
 // runner 的 ingestor。过滤规则的生效值 = 部署默认叠加前端「系统配置」的自定义，改后经
 // 多级缓存的失效广播热换过滤链，因此本组件也连 PostgreSQL 并订阅失效总线。
 //
-// 单个公开监听：listen_addr → sanitizer（URI 修补）→ internal_addr 回环 → proxify。
+// 单个公开监听：listen_addr → sanitizer（URI 修补）→ 回环上系统分配的端口 → proxify。
 // 沙盒自产流量不经本组件（浏览器经 CDP 抓取回灌 runner，CLI 工具直连不抓），避免
 // agent 自己的流量回灌代理流量分析形成自激。存活检测探 listen_addr 的 TCP。
 package proxy
@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"time"
 
@@ -43,21 +44,31 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	defer pool.Close()
 
-	cache := cachestore.New(rdb, 0)
+	schemaVersion, err := db.SchemaVersion(ctx, pool)
+	if err != nil {
+		return err
+	}
+	cache := cachestore.New(rdb, schemaVersion)
 	settingStore := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 	proxyCfg := cfg.Proxy
 
 	filterCfg := proxyFilterConfig(ctx, settingStore, proxyCfg, logger)
-	publisher, err := proxy.NewPublisher(rdb, proxyCfg.StreamName, int64(proxyCfg.StreamMaxLen))
+	publisher, err := proxy.NewPublisher(rdb, int64(proxyCfg.StreamMaxLen))
 	if err != nil {
 		return fmt.Errorf("构造流量发布器: %w", err)
+	}
+	// MITM 代理只在回环上供入口转发，端口由系统分配：它不对外，没有理由占一个固定端口、
+	// 让部署方去避让冲突。
+	mitmAddr, err := freeLoopbackAddr()
+	if err != nil {
+		return err
 	}
 	server, err := proxy.NewServer(proxy.ServerDeps{
 		Filter:     filter.NewTrafficFilter(filterCfg),
 		Publisher:  publisher,
 		Cfg:        filterCfg, // body 上限属 proxy_filter 组，与过滤链同源
-		ListenAddr: proxyCfg.InternalAddr,
-		CertDir:    proxyCfg.CertDir,
+		ListenAddr: mitmAddr,
+		CertDir:    cfg.CertDir(),
 		Source:     "external",
 		Logger:     logger.With().Str("listener", "external").Logger(),
 	})
@@ -74,7 +85,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		next := proxyFilterConfig(rctx, settingStore, proxyCfg, logger)
-		server.SwapFilter(filter.NewTrafficFilter(next), next.MaxRequestBodySize, next.MaxResponseBodySize)
+		server.SwapFilter(filter.NewTrafficFilter(next), next.MaxRequestBodyBytes, next.MaxResponseBodyBytes)
 		logger.Info().Msg("proxy_filter 已热换（过滤链 + body 上限原子替换）")
 	})
 	go func() {
@@ -87,14 +98,14 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	defer stopProxy()
 	failed := make(chan error, 2)
 	go func() {
-		logger.Info().Str("loopback", proxyCfg.InternalAddr).Msg("mitm proxy starting")
+		logger.Info().Str("loopback", mitmAddr).Msg("mitm proxy starting")
 		if err := server.Run(proxyCtx); err != nil && !errors.Is(err, context.Canceled) {
 			failed <- fmt.Errorf("MITM 代理退出: %w", err)
 		}
 	}()
 	go func() {
-		logger.Info().Str("public", proxyCfg.ListenAddr).Str("upstream", proxyCfg.InternalAddr).Msg("uri sanitizer listening")
-		if err := proxy.RunExternalSanitizer(proxyCtx, proxyCfg.ListenAddr, proxyCfg.InternalAddr); err != nil {
+		logger.Info().Str("public", proxyCfg.ListenAddr).Str("upstream", mitmAddr).Msg("uri sanitizer listening")
+		if err := proxy.RunExternalSanitizer(proxyCtx, proxyCfg.ListenAddr, mitmAddr); err != nil {
 			failed <- fmt.Errorf("代理入口 %s 退出: %w", proxyCfg.ListenAddr, err)
 		}
 	}()
@@ -107,6 +118,20 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	server.Stop()
 	logger.Info().Msg("proxy stopped")
 	return runErr
+}
+
+// freeLoopbackAddr 向系统要一个回环上的空闲端口。MITM 代理库只接受地址字符串、自行监听，
+// 不能交给它已建好的监听器，所以先占位取端口再释放；释放到它监听之间的窗口极短。
+func freeLoopbackAddr() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", fmt.Errorf("分配 MITM 代理的回环端口: %w", err)
+	}
+	addr := l.Addr().String()
+	if err := l.Close(); err != nil {
+		return "", fmt.Errorf("分配 MITM 代理的回环端口: %w", err)
+	}
+	return addr, nil
 }
 
 // proxyFilterConfig 把 proxy_filter 组的生效值写入部署配置的过滤字段。读失败（DB 抖动）降级
@@ -125,7 +150,7 @@ func proxyFilterConfig(ctx context.Context, store *settingstore.Store, base conf
 	base.ExcludeSuffixes = pf.ExcludeSuffixes
 	base.ExcludeContentTypes = pf.ExcludeContentTypes
 	base.ExcludeStatusCodes = pf.ExcludeStatusCodes
-	base.MaxRequestBodySize = pf.MaxRequestBodySize
-	base.MaxResponseBodySize = pf.MaxResponseBodySize
+	base.MaxRequestBodyBytes = pf.MaxRequestBodyBytes
+	base.MaxResponseBodyBytes = pf.MaxResponseBodyBytes
 	return base
 }

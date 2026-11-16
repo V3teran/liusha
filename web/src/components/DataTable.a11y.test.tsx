@@ -20,7 +20,7 @@ describe('DataTable 无障碍语义', () => {
         rows={[{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]}
         columns={columns as never}
         loading={false}
-        emptyText="数据"
+        emptyNoun="数据" emptyHint=""
         selectedId="b"
         onRowClick={vi.fn()}
         ariaLabel="测试列表"
@@ -35,7 +35,7 @@ describe('DataTable 无障碍语义', () => {
   })
 
   it('不可点击：普通 table，行无选中语义', () => {
-    render(<DataTable<Row> rows={[{ id: 'a', name: 'A' }]} columns={columns as never} loading={false} emptyText="数据" />)
+    render(<DataTable<Row> rows={[{ id: 'a', name: 'A' }]} columns={columns as never} loading={false} emptyNoun="数据" emptyHint="" />)
     expect(screen.queryByRole('grid')).toBeNull()
     expect(screen.getByRole('table')).toBeTruthy()
   })
