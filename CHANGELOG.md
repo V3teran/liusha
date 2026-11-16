@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0](https://github.com/V3teran/liusha/compare/v0.10.2...v0.11.0) (2026-11-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** MITM 根证书移到 <data_dir>/certs（二进制原在 ~/.liusha，多镜像原为 proxy-certs），移过去可沿用已信任的 CA。
+
+### 新功能
+
+* **config:** 配置文件与 .env 统一，三种部署同一套用法 ([7b9091e](https://github.com/V3teran/liusha/commit/7b9091ecae313516d50d9f290a3b92ec8da9e8c5))
+
+
+### 问题修复
+
+* **ui:** 各页空列表的提示统一，窄屏下也能看到 ([dfcc7d3](https://github.com/V3teran/liusha/commit/dfcc7d30b0d2c3d35146fc0583d74d99c9611769))
+* **ui:** 日志页的进程选项只列出有日志的进程 ([547c46e](https://github.com/V3teran/liusha/commit/547c46ef45dac58dd43ecbc7db3094196a7e0917))
+
 ## [0.10.2](https://github.com/V3teran/liusha/compare/v0.10.1...v0.10.2) (2026-11-16)
 
 
