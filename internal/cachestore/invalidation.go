@@ -44,7 +44,11 @@ func (c *Cache) evict(ctx context.Context, keys []string) {
 		return
 	}
 	c.l1.del(keys...)
-	_ = c.rdb.Del(ctx, keys...).Err() // L2 尽力删；漏删由 TTL 兜底
+	l2 := make([]string, len(keys))
+	for i, k := range keys {
+		l2[i] = c.l2Key(k)
+	}
+	_ = c.rdb.Del(ctx, l2...).Err() // L2 尽力删；漏删由 TTL 兜底
 }
 
 // Subscribe 后台订阅失效总线，收到消息即清本进程 L1 + L2 对应键，直到 ctx 取消。

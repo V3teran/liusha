@@ -3,8 +3,8 @@
 #   jobs     命令执行、超时只结束这条命令、任务释放后无残留进程
 #   browser  浏览器能力打开本地页面（失败时采集诊断：浏览器服务日志、作业外对照组、Chrome 原始启动）
 #   service  作为 Windows 服务启停，停止时优雅收尾
-#   serve    setup + serve 全部组件（PostgreSQL / Redis 为 Windows 原生版），经 MITM 代理的流量落库
-# 用法：pwsh scripts/ci/windows-smoke.ps1 -Exe <liusha.exe> -Python <装了 browser-use 的 python>
+#   serve    按 .env.example 填写 .env 后 serve 全部组件（PostgreSQL / Redis 为 Windows 原生版），经 MITM 代理的流量落库
+# 用法：pwsh scripts/ci/windows-smoke.ps1 -Exe <liusha.exe（同目录放 config.yaml）> -Python <装了 browser-use 的 python>
 #        [-PgBin <PostgreSQL bin 目录>] [-RedisDir <Redis 目录>]
 param(
   [Parameter(Mandatory)] [string] $Exe,
@@ -60,17 +60,16 @@ function Step($label, $file, [string[]] $arguments, $seconds) {
 $env:Path = ($env:Path -split ';' | Where-Object { $_ -notmatch '\\Git\\' }) -join ';'
 $env:LIUSHA_SANDBOX_TOKEN = $token
 $env:LIUSHA_SANDBOX_LISTEN_ADDR = '127.0.0.1:18591'
-$env:LIUSHA_SANDBOX_WORKSPACE_DIR = Join-Path $work 'ws'
+# 各阶段各用一个数据目录（工作区 workspace\、日志 logs\ 都在其下），互不干扰。
+$env:LIUSHA_DATA_DIR = Join-Path $work 'sbx'
 $env:LIUSHA_SANDBOX_BROWSER_PYTHON = $Python
-$env:LIUSHA_SANDBOX_INGEST_URL = ''
-$env:LIUSHA_LOG_DIR = Join-Path $work 'logs'
 $sandbox = Start-Process -FilePath $Exe -ArgumentList 'sandbox' -PassThru -NoNewWindow `
   -RedirectStandardOutput (Join-Path $work 'sandbox.out') -RedirectStandardError (Join-Path $work 'sandbox.err')
 
 Stage 'shell' {
   if (Get-Command sh -ErrorAction SilentlyContinue) { throw '前提：PATH 中不应再有 sh' }
   Wait-Http "$base/healthz"
-  $line = Select-String -Path (Join-Path $work 'logs\sandbox.log') -Pattern '命令 shell 已就绪' | Select-Object -First 1
+  $line = Select-String -Path (Join-Path $work 'sbx\logs\sandbox.log') -Pattern '命令 shell 已就绪' | Select-Object -First 1
   if (-not $line -or $line.Line -notmatch 'Git') { throw "未自动找到 Git Bash: $line" }
   Write-Host $line.Line
 }
@@ -99,7 +98,7 @@ Stage 'browser' {
   try {
     Wait-Http 'http://127.0.0.1:18080/'
     $r = Exec-Sandbox 'AGENT_ID=a browser-use open http://127.0.0.1:18080/ && AGENT_ID=a browser-use state' 180 'smoke-task'
-    $logs = Get-ChildItem -Recurse -Filter 'browser-*.log' (Join-Path $work 'ws') | ForEach-Object { Get-Content $_.FullName -Tail 40 }
+    $logs = Get-ChildItem -Recurse -Filter 'browser-*.log' (Join-Path $work 'sbx\workspace') | ForEach-Object { Get-Content $_.FullName -Tail 40 }
     if ($r.exit_code -ne 0 -or $r.stdout -notmatch 'liusha smoke') {
       Write-Host '--- 浏览器服务日志'
       $logs | Out-Host
@@ -126,8 +125,7 @@ Stage 'service' {
   Set-Content -Path $envFile -Encoding utf8 -Value @(
     "LIUSHA_SANDBOX_TOKEN=`"$token`"",
     "LIUSHA_SANDBOX_LISTEN_ADDR=`"127.0.0.1:18591`"",
-    "LIUSHA_SANDBOX_WORKSPACE_DIR=`"$((Join-Path $work 'svc-ws') -replace '\\','/')`"",
-    "LIUSHA_LOG_DIR=`"$((Join-Path $work 'svc-logs') -replace '\\','/')`""
+    "LIUSHA_DATA_DIR=`"$((Join-Path $work 'svc') -replace '\\','/')`""
   )
   New-Service -Name liusha-smoke -StartupType Manual -BinaryPathName "`"$Exe`" sandbox -env-file `"$envFile`"" | Out-Null
   try {
@@ -137,7 +135,7 @@ Stage 'service' {
     Stop-Service liusha-smoke
     (Get-Service liusha-smoke).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(60))
     Write-Host "服务停止耗时 $([int]$sw.Elapsed.TotalSeconds)s"
-    if (-not (Select-String -Path (Join-Path $work 'svc-logs\sandbox.log') -Pattern 'sandbox stopped' -Quiet)) {
+    if (-not (Select-String -Path (Join-Path $work 'svc\logs\sandbox.log') -Pattern 'sandbox stopped' -Quiet)) {
       throw '服务停止时未优雅收尾（日志缺 sandbox stopped）'
     }
   } finally {
@@ -157,11 +155,21 @@ if ($PgBin -and $RedisDir) {
     Start-Sleep -Seconds 2
     if ($redis.HasExited) { throw 'Redis 启动即退出' }
     try {
-      $envFile = Join-Path $work 'liusha.env'
+      $envFile = Join-Path $work '.env'
       Remove-Item Env:LIUSHA_* -ErrorAction SilentlyContinue
-      Step 'liusha setup' $Exe @('setup', '-env-file', $envFile, '-postgres-dsn', 'postgres://liusha@127.0.0.1:55432/liusha?sslmode=disable', '-redis-addr', '127.0.0.1:56379', '-workspace-dir', (Join-Path $work 'serve-ws')) 180
-      $password = ((Get-Content $envFile | Select-String '^LIUSHA_ADMIN_INITIAL_PASSWORD=').Line -split '=', 2)[1].Trim('"')
-      $env:LIUSHA_LOG_DIR = Join-Path $work 'serve-logs'
+      # 与二进制部署同一做法：由仓库的 .env.example（压缩包里的同一份）复制为 .env，填写必填项与二进制的连接项。
+      $password = [guid]::NewGuid().ToString('N')
+      $fill = [ordered]@{
+        LIUSHA_SANDBOX_TOKEN          = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLower()
+        LIUSHA_LLM_ENCRYPTION_KEY     = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLower()
+        LIUSHA_ADMIN_INITIAL_PASSWORD = $password
+        LIUSHA_POSTGRES_URL           = 'postgres://liusha@127.0.0.1:55432/liusha?sslmode=disable'
+        LIUSHA_REDIS_URL              = 'redis://127.0.0.1:56379/0'
+        LIUSHA_DATA_DIR               = (Join-Path $work 'serve') -replace '\\', '/'
+      }
+      $keys = ($fill.Keys -join '|')
+      $template = Get-Content (Join-Path $PSScriptRoot '..\..\.env.example') | Where-Object { $_ -notmatch "^#?($keys)=" }
+      Set-Content -Path $envFile -Value ($template + ($fill.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }))
       $serve = Start-Process -FilePath $Exe -ArgumentList 'serve', '-env-file', $envFile -PassThru -NoNewWindow `
         -RedirectStandardOutput (Join-Path $work 'serve.out') -RedirectStandardError (Join-Path $work 'serve.err')
       try {

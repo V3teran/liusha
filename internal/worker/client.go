@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 )
 
 // Client 是 asynq 生产者的薄封装，按 TaskRole 路由到对应队列，并以 Payload.AgentRunID 实现幂等。
@@ -17,6 +18,23 @@ type Client struct {
 // NewClient 创建一个 Client。调用方负责 Close。
 func NewClient(opt asynq.RedisClientOpt) *Client {
 	return &Client{c: asynq.NewClient(opt)}
+}
+
+// RedisOpt 把 go-redis 连接选项换算为任务队列的连接选项：队列与其它 Redis 用途连同一个实例、
+// 同一个库，用户名、密码、TLS、超时与连接池一致。
+func RedisOpt(o *redis.Options) asynq.RedisClientOpt {
+	return asynq.RedisClientOpt{
+		Network:      o.Network,
+		Addr:         o.Addr,
+		Username:     o.Username,
+		Password:     o.Password,
+		DB:           o.DB,
+		DialTimeout:  o.DialTimeout,
+		ReadTimeout:  o.ReadTimeout,
+		WriteTimeout: o.WriteTimeout,
+		PoolSize:     o.PoolSize,
+		TLSConfig:    o.TLSConfig,
+	}
 }
 
 // Close 释放底层连接。

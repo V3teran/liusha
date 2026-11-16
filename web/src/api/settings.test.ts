@@ -32,11 +32,11 @@ describe('settings API 客户端', () => {
 
   it('patchSettings PATCH 只含改动字段，名单为 {on, off}', async () => {
     const fn = mockFetch(200, detail)
-    await patchSettings('proxy_filter', { exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_size: 1024 })
+    await patchSettings('proxy_filter', { exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_bytes: 1024 })
     const [url, init] = fn.mock.calls[0]
     expect(url).toBe('/api/settings/proxy_filter')
     expect(init.method).toBe('PATCH')
-    expect(JSON.parse(init.body)).toEqual({ exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_size: 1024 })
+    expect(JSON.parse(init.body)).toEqual({ exclude_hosts: { on: ['cdn.example'], off: [] }, max_request_body_bytes: 1024 })
   })
 
   it('resetSettings DELETE …/overrides[/:field]', async () => {

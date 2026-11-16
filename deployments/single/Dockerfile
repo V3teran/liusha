@@ -6,7 +6,8 @@
 #   docker build -t liusha-single:local -f deployments/single/Dockerfile .
 #
 # 沙盒镜像里的 liusha 只跑 sandbox 子命令、不编入前端；这里另行构建编入前端的 liusha 覆盖它。
-# 进程托管见 entrypoint.sh；数据（库、队列、工作区、日志、证书、密钥）都在 /data。
+# 进程托管见 entrypoint.sh；数据（库、队列、工作区、日志、证书）都在 /data，配置文件由部署方
+# 只读挂载为 /data/config.yaml，密钥由 .env 传入（docker run --env-file .env），与多镜像相同。
 ARG SANDBOX_IMAGE=liusha-sandbox:local
 
 # ── 前端：web/ → web/dist ──
@@ -47,16 +48,18 @@ RUN apt-retry update \
 
 COPY --from=build /out/liusha /usr/local/bin/liusha
 COPY LICENSE NOTICE /usr/share/doc/liusha/
+COPY internal/config/config.yaml /usr/share/doc/liusha/
 COPY --from=build /out/THIRD_PARTY_NOTICES /usr/share/doc/liusha/
 COPY deployments/single/entrypoint.sh /usr/local/bin/liusha-single
 RUN chmod +x /usr/local/bin/liusha-single
 
-# 沙盒只供同容器的 runner 调用：收回到回环（沙盒镜像默认监听全部网卡）。
-ENV LIUSHA_SANDBOX_LISTEN_ADDR=127.0.0.1:8591 \
-    LIUSHA_ENV=production
+# 数据目录即 /data；沙盒只供同容器的 runner 调用：收回到回环（沙盒镜像默认监听全部网卡）。
+ENV LIUSHA_CONFIG=/data/config.yaml \
+    LIUSHA_DATA_DIR=/data \
+    LIUSHA_SANDBOX_LISTEN_ADDR=127.0.0.1:8591
 
 VOLUME ["/data"]
-# 8580 控制台与 API；8588 MITM 代理；对外监听段（缺省 21000-21099）按需 -p 发布
+# 8580 控制台与 API；8588 MITM 代理；对外监听段（.env 的 LIUSHA_SANDBOX_LISTENER_PORTS）按同号 -p 发布
 EXPOSE 8580 8588
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/liusha-single"]
 CMD []

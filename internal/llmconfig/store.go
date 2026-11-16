@@ -23,7 +23,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // provColsSelect 是 provider 所有 SELECT/RETURNING 的统一列序，与 scanProvider 一一对应。
-const provColsSelect = "code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, auth_scheme, output_limit_param, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
+const provColsSelect = "code, type, base_url, default_model, encrypted_api_key, api_key_last4, auth_scheme, output_limit_param, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
 
 // ── provider CRUD ─────────────────────────────────────────────────────
 
@@ -34,10 +34,10 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		return Provider{}, err
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO llm_provider (code, type, base_url, default_model, api_key_env, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, auth_scheme, output_limit_param)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		INSERT INTO llm_provider (code, type, base_url, default_model, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, auth_scheme, output_limit_param)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		RETURNING `+provColsSelect,
-		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.APIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
+		p.Code, p.Type, p.BaseURL, p.DefaultModel, p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
 		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens,
 		p.AuthScheme, p.OutputLimitParam)
 	var pr Provider
@@ -69,27 +69,26 @@ const displayNameUniqueIndex = "uq_llm_provider_display_name"
 // UpdateProvider 按 code 全量更新一行 provider（code 是稳定引用标识，不可改）；
 // 行不存在时包装 pgx.ErrNoRows。
 // KeepExistingKey=true 时 SET 子句用 COALESCE 跳过 encrypted_api_key 列——前端编辑表单
-// 不重新填密钥即保留原密文，不会被本次更新误清空。APIKeyEnv 仅 seed 路径会填非空，
-// 前端 CRUD 路径始终传空串（置空该列，事实源已转到 encrypted_api_key）。
+// 不重新填密钥即保留原密文，不会被本次更新误清空。
 func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider, error) {
 	p.Normalize()
 	if err := p.Validate(); err != nil {
 		return Provider{}, err
 	}
-	keyExpr := "$6"   // encrypted_api_key
-	last4Expr := "$7" // api_key_last4（与密钥列成对：改则一起改，保留则一起 COALESCE）
+	keyExpr := "$5"   // encrypted_api_key
+	last4Expr := "$6" // api_key_last4（与密钥列成对：改则一起改，保留则一起 COALESCE）
 	if p.KeepExistingKey {
-		keyExpr = "COALESCE($6, encrypted_api_key)" // $6=NULL 时保留原密文
-		last4Expr = "COALESCE($7, api_key_last4)"   // $7=NULL 时保留原尾号
+		keyExpr = "COALESCE($5, encrypted_api_key)" // $5=NULL 时保留原密文
+		last4Expr = "COALESCE($6, api_key_last4)"   // $6=NULL 时保留原尾号
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE llm_provider
-		SET type=$2, base_url=$3, default_model=$4, api_key_env=COALESCE($5, api_key_env), encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$8,
-		    supports_tools=$9, supports_vision=$10, context_window=$11, display_name=$12, description=$13, sort_order=$14, enabled=$15, thinking_budget_tokens=$16,
-		    auth_scheme=$17, output_limit_param=$18, updated_at=now()
+		SET type=$2, base_url=$3, default_model=$4, encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$7,
+		    supports_tools=$8, supports_vision=$9, context_window=$10, display_name=$11, description=$12, sort_order=$13, enabled=$14, thinking_budget_tokens=$15,
+		    auth_scheme=$16, output_limit_param=$17, updated_at=now()
 		WHERE code=$1
 		RETURNING `+provColsSelect,
-		p.Code, p.Type, p.BaseURL, p.DefaultModel, nullableText(p.APIKeyEnv), p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
+		p.Code, p.Type, p.BaseURL, p.DefaultModel, p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
 		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens,
 		p.AuthScheme, p.OutputLimitParam)
 	var pr Provider
@@ -102,38 +101,12 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	return pr, nil
 }
 
-// nullableText 把空串转 nil；Update 以 COALESCE($5, api_key_env) 消费——写路径不携带
-// api_key_env（前端编辑表单不含此字段）时保留原值，避免 UI 保存把环境变量密钥引用抹掉。
-// （NULL 才代表「无 env 路径」，与 HasKey / ClearProviderKey 的判定一致。）
+// nullableText 把空串转 nil：尾号与密文成对，KeepExistingKey 时 NULL 经 COALESCE 保留原值。
 func nullableText(s string) any {
 	if s == "" {
 		return nil
 	}
 	return s
-}
-
-// ClearProviderKey 清除加密密钥（密文+尾号置空），api_key_env 引用原样保留——
-// 「恢复使用环境变量」：解析回落 env 路径。只在存在 env 引用时才可清除（否则清除
-// 即让 provider 失去全部密钥来源，返回 ErrConflict）；行不存在时包装 pgx.ErrNoRows。
-func (s *Store) ClearProviderKey(ctx context.Context, code string) (Provider, error) {
-	row := s.pool.QueryRow(ctx, `
-		UPDATE llm_provider
-		SET encrypted_api_key=NULL, api_key_last4=NULL, updated_at=now()
-		WHERE code=$1 AND api_key_env IS NOT NULL
-		RETURNING `+provColsSelect,
-		code)
-	var pr Provider
-	err := scanProvider(row, &pr)
-	if err == nil {
-		return pr, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return Provider{}, fmt.Errorf("clear encrypted key %q: %w", code, err)
-	}
-	if _, getErr := s.GetProvider(ctx, code); getErr != nil {
-		return Provider{}, getErr // 行不存在：GetProvider 已包装 pgx.ErrNoRows
-	}
-	return Provider{}, conflictf("该 provider 未配置环境变量密钥，清除后将无密钥可用，不能恢复使用环境变量")
 }
 
 // DeleteProvider 按 code 删 provider。被角色路由 FK 引用（ON DELETE RESTRICT）时撞约束，错误透传。
@@ -246,16 +219,15 @@ func (s *Store) GetRouting(ctx context.Context) (Routing, error) {
 // ── scan ──────────────────────────────────────────────────────────────
 
 // scanProvider 是 provColsSelect 列序的统一反序列化点。
-// api_key_env 列可空，经 sql.NullString 中转，NULL 时 Provider.APIKeyEnv 留空串。
+// api_key_last4 列可空，经 sql.NullString 中转，NULL 时留空串。
 func scanProvider(r db.RowScanner, p *Provider) error {
-	var apiKeyEnv, apiKeyLast4 sql.NullString
+	var apiKeyLast4 sql.NullString
 	var displayName sql.NullString
-	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &apiKeyEnv, &p.EncryptedAPIKey, &apiKeyLast4,
+	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &p.EncryptedAPIKey, &apiKeyLast4,
 		&p.AuthScheme, &p.OutputLimitParam, &p.MaxTokens, &p.SupportsTools, &p.SupportsVision, &p.ContextWindow, &displayName,
 		&p.Description, &p.SortOrder, &p.Enabled, &p.ThinkingBudgetTokens, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return err
 	}
-	p.APIKeyEnv = apiKeyEnv.String
 	p.APIKeyLast4 = apiKeyLast4.String
 	p.DisplayName = displayName.String
 	return nil

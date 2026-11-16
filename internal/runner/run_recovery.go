@@ -38,12 +38,8 @@ import (
 // 由用户手动重新触发。重投与其它 run 生产者（继续/续接）的毫秒级竞态由
 // agent_run 的部分唯一索引判定（每任务至多一个存活 run），先建者赢。
 
-const (
-	// runRecoveryMaxAttempts 是单任务自动重投上限（按 error run 计数）。
-	runRecoveryMaxAttempts = 4
-	// runRecoveryResumeRole 是恢复/重投使用的 agent 角色。
-	runRecoveryResumeRole = "planner"
-)
+// runRecoveryResumeRole 是恢复/重投使用的 agent 角色。
+const runRecoveryResumeRole = "planner"
 
 // messagePublisher 把落库的时间线消息广播给对话的实时订阅者（*convstream.Publisher 满足）。
 type messagePublisher interface {
@@ -64,20 +60,11 @@ type RunRecoveryMonitor struct {
 	maxAttempts   int
 }
 
-// StartRunRecoveryMonitor 启动僵尸 run 回收循环（非阻塞）。
-// interval/timeout <=0 或 maxAttempts<=0 时用内置默认。
+// StartRunRecoveryMonitor 启动僵尸 run 回收循环（非阻塞）。interval、timeout、maxAttempts
+// 取自配置（runner.run_recovery_*），加载配置时已校验均 > 0。
 func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker.Client,
 	agentRuns *agentrun.Store, tasks *task.Store, conversations *conversation.Store, publisher messagePublisher,
 	logger zerolog.Logger, interval, timeout time.Duration, maxAttempts int) {
-	if interval <= 0 {
-		interval = 30 * time.Second
-	}
-	if timeout <= 0 {
-		timeout = 6 * time.Minute
-	}
-	if maxAttempts <= 0 {
-		maxAttempts = runRecoveryMaxAttempts
-	}
 	m := &RunRecoveryMonitor{
 		pool:          pool,
 		wc:            wc,

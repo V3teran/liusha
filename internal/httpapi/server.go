@@ -87,7 +87,7 @@ type Deps struct {
 	Models ModelAPI
 	// KeyEncrypter 为 nil 时 provider 保存路由（POST/PUT /models/providers*）不注册——
 	// 前端直填的明文 API Key 必须先加密才能落库，缺加密器就不该开这条写路径（fail-closed）。
-	// 由 api 组件注入 *cryptx.Cipher（自动满足），密钥来自 LIUSHA_LLM_KEY_SECRET（fail-fast）。
+	// 由 api 组件注入 *cryptx.Cipher（自动满足），密钥来自配置 llm.encryption_key（fail-fast）。
 	KeyEncrypter KeyEncrypter
 	// ProviderDiagnoser 为 nil 时连接诊断路由（POST /models/providers/diagnose）不注册。
 	ProviderDiagnoser ProviderDiagnoser

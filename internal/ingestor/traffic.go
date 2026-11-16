@@ -1,6 +1,6 @@
 // Package ingestor 是 Stream 流量摄入器，双来源分流：
 //
-//	proxy 责任链放行 → XADD → <stream_name>
+//	proxy 责任链放行 → XADD → proxy.TrafficStream
 //	ingestor.Traffic XREADGROUP → 按 source 分流：
 //	  external（代理捕获的真实流量）→ 落 proxy_traffic（按 host）→ 喂 Redis 聚合窗口
 //	                                → 攒批（20 条/10s）→ 建代理捕获 task → 领取流量（traffic_task 关联）→ enqueue
@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -48,6 +49,29 @@ type ConversationCreator interface {
 // 有界 → 满时 SubmitInternal 返 false，handler 回 503 给沙箱明确背压信号。
 const internalQueueSize = 1024
 
+// Stream 消费参数：消费组是多副本共享的负载均衡单元；每次读取的条数、阻塞等待与出错后的
+// 重试间隔是读取循环的内部机制。
+const (
+	consumerGroup        = "liusha-ingestor"
+	readBatch            = 16
+	readBlock            = time.Second
+	retryDelay           = 500 * time.Millisecond
+	recreateGroupBackoff = 500 * time.Millisecond
+)
+
+// consumerName 生成每实例唯一的 Stream 消费者名。
+//
+// 消费组是负载均衡单元、多副本共享；消费者名是每实例身份，同组内必须唯一——否则多副本用同名
+// 进同组，Redis 无法区分 pending 归属，投递/ack 记账错乱（且不报错，属静默故障）。故派生自
+// hostname + pid：容器场景 hostname 通常已唯一，附加 pid 再区分同主机多进程。
+func consumerName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return fmt.Sprintf("ingestor-%s-%d", host, os.Getpid())
+}
+
 // PEL 回收参数：处理失败未 ACK 的消息滞留超过 reclaimMinIdle 后由 reclaimLoop
 // XAUTOCLAIM 重投；单消息处理（毫秒级）远小于该阈值，不会误回收在途消息。
 const (
@@ -78,11 +102,10 @@ type Traffic struct {
 	logger        zerolog.Logger
 }
 
-// Deps 注入。Stream 必填（来自 cfg.Proxy.StreamName）；Cfg 提供 group/consumer/batch/聚合参数。
+// Deps 注入。Cfg 提供攒批建任务的参数。
 type Deps struct {
 	Redis         *redis.Client
 	Cfg           config.IngestorConfig
-	Stream        string
 	Assignments   *assignment.Store
 	Tasks         *task.Store
 	ProxyStore    *traffic.ProxyStore
@@ -99,19 +122,16 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		deps.AgentStore == nil || deps.AgentRuns == nil || deps.Enqueuer == nil {
 		return nil, errors.New("ingestor.NewTraffic: redis/assignments/tasks/proxyStore/agentStore/agentRuns/enqueuer 必填")
 	}
-	if strings.TrimSpace(deps.Stream) == "" {
-		return nil, errors.New("ingestor.NewTraffic: stream 必填（应来自 cfg.Proxy.StreamName）")
-	}
 	window := time.Duration(deps.Cfg.AggregateWindowSeconds) * time.Second
 	t := &Traffic{
 		rdb:           deps.Redis,
-		stream:        deps.Stream,
-		group:         deps.Cfg.ConsumerGroup,
-		name:          deps.Cfg.ConsumerName,
-		readBatch:     int64(deps.Cfg.ReadBatch),
-		readBlock:     time.Duration(deps.Cfg.ReadBlockTimeoutMs) * time.Millisecond,
-		retryDelay:    time.Duration(deps.Cfg.RetryDelayMs) * time.Millisecond,
-		recreateDelay: time.Duration(deps.Cfg.RecreateGroupDelayMs) * time.Millisecond,
+		stream:        proxy.TrafficStream,
+		group:         consumerGroup,
+		name:          consumerName(),
+		readBatch:     readBatch,
+		readBlock:     readBlock,
+		retryDelay:    retryDelay,
+		recreateDelay: recreateGroupBackoff,
 		assignments:   deps.Assignments,
 		tasks:         deps.Tasks,
 		agg:           newAggregator(deps.Redis, deps.Cfg.AggregateBatchSize, window, deps.Logger),

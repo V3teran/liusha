@@ -22,7 +22,7 @@ import (
 var ErrConversationTaskActive = errors.New("会话关联任务进行中，请先停止再删除")
 
 // sseLog 是 SSE 流的诊断 logger（连接/订阅/补历史/实时转发/退出全链路）。
-// 包级构建一次（避免每连接触发 logx 全局写入的 race）。LIUSHA_LOG_LEVEL=debug 看逐帧。
+// 包级构建一次（避免每连接触发 logx 全局写入的 race）。log.level 设为 debug 看逐帧。
 var sseLog = logx.New("httpapi.sse")
 
 // conversation_handler.go：会话式平台的 HTTP 入口。

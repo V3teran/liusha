@@ -100,16 +100,5 @@ export async function deleteRoleRoute(role: string): Promise<void> {
   await del(`/models/routes/${encodeURIComponent(role)}`)
 }
 
-/**
- * 恢复使用环境变量：清除 UI 设置的加密密钥（密文+尾号），api_key_env 引用保留。
- * 返回更新后的 provider（key_last4 置空、api_key_env 保留）；无环境变量可回落时后端 409。
- */
-export async function restoreProviderEnvKey(code: string): Promise<ProviderConfig> {
-  const b = await del<{ provider: ProviderConfig }>(
-    `/models/providers/${encodeURIComponent(code)}/key`,
-  )
-  return b.provider
-}
-
 // PUT / DELETE 走 client 统一封装：错误响应体（含 409 的中文 FK 原因）由
 // client 的 raise 统一读取抛出，此处不再有专用副本。

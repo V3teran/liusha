@@ -40,8 +40,6 @@ type ModelAPI interface {
 	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	DeleteProvider(ctx context.Context, code string) error
-	// ClearProviderKey 清除 UI 设置的加密密钥（密文+尾号），保留 api_key_env 引用——「恢复使用环境变量」。
-	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
 	// 档位路由（档 → provider 直连）
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error)
@@ -211,26 +209,12 @@ func deleteProviderHandler(api ModelAPI) gin.HandlerFunc {
 	}
 }
 
-// clearProviderKeyHandler 处理 DELETE /models/providers/:code/key：「恢复使用环境变量」。
-// 清除 UI 设置的加密密钥后，解析回落到 api_key_env 指向的环境变量；无 env 引用 → 409。
-func clearProviderKeyHandler(api ModelAPI) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		p, err := api.ClearProviderKey(c.Request.Context(), c.Param("code"))
-		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"provider": providerJSON(p)})
-	}
-}
-
 // providerJSON 是 provider 响应的单一序列化点。
-// key_present：当前能否解析出密钥（已加密落库，或 api_key_env 指向的变量有值），不含密钥值本身。
-// key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）；仅 ENV 来源时为空串。
+// key_present：是否已设置密钥（加密落库），不含密钥值本身。
+// key_last4：明文末 4 位（脱敏辨识锚点，非密钥值）。
 func providerJSON(p llmconfig.Provider) gin.H {
 	return gin.H{
 		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
-		"api_key_env": p.APIKeyEnv, // env 变量名引用（非密钥值）；UI 密文存在时被覆盖
 		"key_present": p.HasKey(), "key_last4": p.APIKeyLast4,
 		"auth_scheme": p.AuthScheme, "output_limit_param": p.OutputLimitParam,
 		"max_tokens": p.MaxTokens, "thinking_budget_tokens": p.ThinkingBudgetTokens,

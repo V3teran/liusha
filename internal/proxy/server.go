@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,13 +30,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// 兜底常量：caller 未通过 ServerDeps 传入对应字段时使用。
-// 正常路径由 proxy 组件从 config.ProxyConfig 注入，因此这里仅作为调用方失误时的最后防线。
-const (
-	fallbackListenAddr = "0.0.0.0:8588"
-	fallbackCertSubdir = ".liusha"
-)
-
 // SnapshotPublisher 抽象快照发布行为，便于单元测试不依赖 Redis（生产实现 XADD）。
 // Server 把 proxify SDK 当作进程内 MITM 代理，OnResponseCallback 触发 filter→snapshot→publisher（XADD）。
 //
@@ -52,9 +44,9 @@ type SnapshotPublisher interface {
 // filterState 是 proxy_filter 组的运行期快照：过滤链 + 两个 body 上限一并原子替换。
 // 三者同属 proxy_filter 分组 KV，热改时整体换入，避免链与上限撕裂（半旧半新）。
 type filterState struct {
-	filter              *filter.TrafficFilter
-	maxRequestBodySize  int
-	maxResponseBodySize int
+	filter               *filter.TrafficFilter
+	maxRequestBodyBytes  int
+	maxResponseBodyBytes int
 }
 
 // Server 是进程内 MITM 代理：过滤链 + 快照发布 + 双端口监听。
@@ -70,7 +62,7 @@ type Server struct {
 	logger      zerolog.Logger
 }
 
-// ServerDeps 注入服务依赖；ListenAddr / CertDir 为空时走默认值。
+// ServerDeps 注入服务依赖；ListenAddr（MITM 代理的监听地址）与 CertDir（根证书目录）必填。
 // Source 必填——双 listener 部署时按 listener 区分 'external'（代理入口）/
 // 'internal'（agent 工具入口）；ingestor 据此决定是否触发代理流量分析。
 type ServerDeps struct {
@@ -95,13 +87,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	}
 
 	listenAddr := strings.TrimSpace(deps.ListenAddr)
-	if listenAddr == "" {
-		listenAddr = fallbackListenAddr
-	}
-
-	certDir, err := resolveCertDir(deps.CertDir)
-	if err != nil {
-		return nil, fmt.Errorf("解析证书目录失败: %w", err)
+	certDir := strings.TrimSpace(deps.CertDir)
+	if listenAddr == "" || certDir == "" {
+		return nil, errors.New("proxy.NewServer: ListenAddr 与 CertDir 必填")
 	}
 	if err := os.MkdirAll(certDir, 0o750); err != nil {
 		return nil, fmt.Errorf("创建证书目录 %s 失败: %w", certDir, err)
@@ -124,9 +112,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		logger:     deps.Logger,
 	}
 	srv.filterState.Store(&filterState{
-		filter:              deps.Filter,
-		maxRequestBodySize:  deps.Cfg.MaxRequestBodySize,
-		maxResponseBodySize: deps.Cfg.MaxResponseBodySize,
+		filter:               deps.Filter,
+		maxRequestBodyBytes:  deps.Cfg.MaxRequestBodyBytes,
+		maxResponseBodyBytes: deps.Cfg.MaxResponseBodyBytes,
 	})
 
 	opts := &proxify.Options{
@@ -194,7 +182,7 @@ func onRequest(req *http.Request, ctx *martian.Context) error {
 // onResponse 是 proxify 的响应回调：
 //  1. 走 TrafficFilter；不通过即丢弃（return nil 不影响转发）。
 //  2. 读取 req/resp body 并重建（必须，否则代理会断），构造 TrafficSnapshot。
-//  3. XADD 到 Redis Stream（proxy.stream_name）；publish 失败仅 warn 不阻断转发。
+//  3. XADD 到 Redis Stream（TrafficStream）；publish 失败仅 warn 不阻断转发。
 func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	if resp == nil || resp.Request == nil {
 		return nil
@@ -219,12 +207,12 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 
 	// 2) 采集 body 副本（请求 / 响应都要）。采集只取前 N 字节供快照，
 	//    转发流保持完整原始字节——代理不得改动客户端看到的任何内容。
-	reqBody, err := captureBody(&req.Body, fs.maxRequestBodySize)
+	reqBody, err := captureBody(&req.Body, fs.maxRequestBodyBytes)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取请求体失败，跳过该流量")
 		return nil
 	}
-	respBody, err := captureBody(&resp.Body, fs.maxResponseBodySize)
+	respBody, err := captureBody(&resp.Body, fs.maxResponseBodyBytes)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("读取响应体失败，跳过该流量")
 		return nil
@@ -234,7 +222,7 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	//      user prompt 后写 jsonb 时被 PG 拒收。只改快照的头部副本，转发响应原样不动。
 	snapHeader := resp.Header.Clone()
 	if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
-		if decoded, derr := decompressIfEncoded(respBody, encoding, decompressLimit(fs.maxResponseBodySize)); derr != nil {
+		if decoded, derr := decompressIfEncoded(respBody, encoding, decompressLimit(fs.maxResponseBodyBytes)); derr != nil {
 			s.logger.Warn().Err(derr).Str("encoding", encoding).
 				Msg("解压响应失败，快照保留原始字节（下游可能含二进制乱码）")
 		} else {
@@ -318,30 +306,10 @@ func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
 // 换入后下一条流量即走新规则，进行中的流量仍用其加载时的快照，无锁无撕裂。
 func (s *Server) SwapFilter(f *filter.TrafficFilter, maxReqBody, maxRespBody int) {
 	s.filterState.Store(&filterState{
-		filter:              f,
-		maxRequestBodySize:  maxReqBody,
-		maxResponseBodySize: maxRespBody,
+		filter:               f,
+		maxRequestBodyBytes:  maxReqBody,
+		maxResponseBodyBytes: maxRespBody,
 	})
-}
-
-// resolveCertDir 把 ~ 展开成 $HOME/.liusha；空字符串走默认。
-func resolveCertDir(dir string) (string, error) {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, fallbackCertSubdir), nil
-	}
-	if strings.HasPrefix(dir, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, dir[2:]), nil
-	}
-	return dir, nil
 }
 
 // decompressIfEncoded 按 Content-Encoding 解压响应 body。
@@ -390,9 +358,9 @@ func decompressIfEncoded(body []byte, encoding string, limit int64) ([]byte, err
 const defaultDecompressLimit = 32 << 20
 
 // decompressLimit 让解压输出上限与响应采集上限同口径：快照正文无论压缩与否都不超过它。
-func decompressLimit(maxResponseBodySize int) int64 {
-	if maxResponseBodySize > 0 {
-		return int64(maxResponseBodySize)
+func decompressLimit(maxResponseBodyBytes int) int64 {
+	if maxResponseBodyBytes > 0 {
+		return int64(maxResponseBodyBytes)
 	}
 	return defaultDecompressLimit
 }

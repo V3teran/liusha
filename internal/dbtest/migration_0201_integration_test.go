@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -208,8 +209,11 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 		t.Errorf("bac 生效值: %+v", sk)
 	}
 
-	defaults := config.AppConfig{}
-	defaults.ApplyDefaults()
+	// 出厂默认按交给用户的 config.yaml 算出。
+	defaults, err := config.Load(filepath.Join("..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	set := settingstore.New(pool, smokeCache(t), settingstore.DefaultsFrom(defaults))
 	rt, _ := set.Runtime(ctx)
 	if rt.StepLLMTimeoutSeconds != 240 || rt.RunTailBytes != 8192 {

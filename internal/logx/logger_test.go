@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,20 @@ import (
 
 	"github.com/rs/zerolog"
 )
+
+// configureFile 让本测试的日志只写 dir 下的 json 文件，结束时恢复为未配置状态。
+func configureFile(t *testing.T, dir string) {
+	t.Helper()
+	saved := loadConfig()
+	Configure(Options{Level: "info", Format: "json", ToFile: true, Dir: dir, MaxSizeBytes: 1 << 20})
+	t.Cleanup(func() {
+		closeFiles()
+		configMu.Lock()
+		current = saved
+		configMu.Unlock()
+		output.reset()
+	})
+}
 
 func TestNew_JSONIncludesService(t *testing.T) {
 	var buf bytes.Buffer
@@ -42,14 +57,9 @@ func TestNew_DevelopmentIsConsole(t *testing.T) {
 
 func TestNew_FileWriteAndFields(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Cleanup(closeFiles)
+	configureFile(t, dir)
 	SetProcess("proc-A")
 	t.Cleanup(func() { SetProcess("") })
-	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
-	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
-	t.Setenv("LIUSHA_LOG_FORMAT", "json")
-	t.Setenv("LIUSHA_INSTANCE", "pid-123@host-x")
 
 	l := New("svcA")
 	l.Info().Str("k", "v").Msg("first")
@@ -71,8 +81,9 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 	if got["service"] != "svcA" {
 		t.Fatalf("service = %v, want svcA", got["service"])
 	}
-	if got["instance"] != "pid-123@host-x" {
-		t.Fatalf("instance = %v", got["instance"])
+	host, _ := os.Hostname()
+	if want := fmt.Sprintf("%d@%s", os.Getpid(), host); got["instance"] != want {
+		t.Fatalf("instance = %v，期望 进程号@主机名 %q", got["instance"], want)
 	}
 	if got["message"] != "first" {
 		t.Fatalf("message = %v", got["message"])
@@ -88,13 +99,9 @@ func TestNew_FileWriteAndFields(t *testing.T) {
 
 func TestNew_ErrorFieldAttached(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Cleanup(closeFiles)
+	configureFile(t, dir)
 	SetProcess("proc-err")
 	t.Cleanup(func() { SetProcess("") })
-	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
-	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
-	t.Setenv("LIUSHA_LOG_FORMAT", "json")
 
 	l := New("svcErr")
 	l.Error().Err(errors.New("boom")).Msg("oops")
@@ -143,17 +150,12 @@ func TestParseLevelDefaults(t *testing.T) {
 }
 
 // TestE2E_ProcessAggregation 模拟一个进程内多个 logger（入口 + 多个包级 logger）
-// 各自调用 logx.New("name") 后，日志聚合到 logs/{进程名}.log 单文件，
+// 各自调用 logx.New("name") 后，日志聚合到 <日志目录>/{进程名}.log 单文件，
 // 通过 service JSON 字段区分上下文。包级 logger 在入口 SetProcess 之前就已建好
 // （包初始化期），仍须落到入口设定的文件——文件在首次写入时才确定。
 func TestE2E_ProcessAggregation(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Cleanup(closeFiles)
-	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
-	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
-	t.Setenv("LIUSHA_LOG_FORMAT", "json")
-	t.Setenv("LIUSHA_INSTANCE", "pid-x@host-y")
+	configureFile(t, dir)
 	t.Cleanup(func() { SetProcess("") })
 
 	// 模拟 runner 进程：入口 logger + 6 个包级 logger，包级 logger 先于 SetProcess 构造
@@ -209,7 +211,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 			t.Errorf("missing entry for service=%s", want)
 			continue
 		}
-		if got["instance"] != "pid-x@host-y" {
+		if got["instance"] != instance {
 			t.Errorf("service=%s instance = %v", want, got["instance"])
 		}
 		if got["k"] != want+"-marker" {
@@ -221,7 +223,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	}
 }
 
-// newWith 仅供本包单测注入 writer 与显式形态使用，不读 LIUSHA_LOG_DIR/TO_FILE。
+// newWith 仅供本包单测注入 writer 与显式形态使用，不经 Configure。
 func newWith(w io.Writer, env string) zerolog.Logger {
 	applyGlobals(loadConfig())
 	if env == "development" {
@@ -230,29 +232,21 @@ func newWith(w io.Writer, env string) zerolog.Logger {
 	return zerolog.New(w).With().Timestamp().Logger()
 }
 
-// 测试二进制里文件落盘缺省关闭：包级 logger 在测试启动即初始化，缺省相对目录 logs
-// 会在每个被测包目录下生成 logs/*.test.log 产物。显式 LIUSHA_LOG_TO_FILE 仍然生效。
-func TestLoadConfig_FileSinkOffByDefaultUnderTest(t *testing.T) {
-	t.Setenv("LIUSHA_LOG_TO_FILE", "")
-	if loadConfig().toFile {
-		t.Fatal("go test 下文件落盘缺省应关闭")
-	}
-	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
-	if !loadConfig().toFile {
-		t.Fatal("显式 LIUSHA_LOG_TO_FILE=true 应开启文件落盘")
+// 未经 Configure（单测、加载配置之前）只写标准输出，不落盘：否则会在任意目录留下日志文件。
+func TestLoadConfig_UnconfiguredWritesStdoutOnly(t *testing.T) {
+	c := loadConfig()
+	if c.toFile || !c.toStdout || c.level != zerolog.InfoLevel {
+		t.Fatalf("未配置时应只写标准输出、info 级: %+v", c)
 	}
 }
 
-// 包级 logger 在入口补齐环境（liusha 的 -env-file）之前就已建好：输出端须按 SetProcess 时的
-// 环境构建，而不是 logger 创建时的环境。
-func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
+// 包级 logger 在入口加载配置之前就已建好：输出端须按 Configure 之后的参数构建，而不是
+// logger 创建时的参数。
+func TestNew_OutputFollowsConfigure(t *testing.T) {
 	early := New("pkg-level")
 
 	dir := t.TempDir()
-	t.Setenv("LIUSHA_LOG_DIR", dir)
-	t.Cleanup(closeFiles)
-	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
-	t.Setenv("LIUSHA_LOG_TO_FILE", "true")
+	configureFile(t, dir)
 	SetProcess("late-env")
 	t.Cleanup(func() { SetProcess("") })
 
@@ -265,8 +259,9 @@ func TestNew_OutputFollowsEnvironmentAtSetProcess(t *testing.T) {
 
 // 输出端构建（首条日志、SetProcess 之后）与其它 goroutine 的写日志、建 logger 并发安全。
 func TestOutput_ConcurrentBuildIsRaceFree(t *testing.T) {
-	t.Setenv("LIUSHA_LOG_TO_STDOUT", "false")
+	configureFile(t, t.TempDir())
 	SetProcess("race")
+	t.Cleanup(func() { SetProcess("") })
 	var wg sync.WaitGroup
 	for i := range 8 {
 		wg.Add(1)
@@ -280,14 +275,22 @@ func TestOutput_ConcurrentBuildIsRaceFree(t *testing.T) {
 	wg.Wait()
 }
 
-// 缺省日志目录在数据根下，不依赖进程工作目录（服务方式运行时工作目录是 / 或 System32）。
-func TestLogDir_DefaultsUnderDataRoot(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("LIUSHA_LOG_DIR", "")
-	if got, want := Dir(), filepath.Join(home, "data", "liusha", "logs"); got != want {
-		t.Fatalf("Dir() = %q，期望 %q", got, want)
+// 日志级别按配置过滤；文件按配置的大小（MiB）轮转。
+func TestConfigure_LevelAndRotation(t *testing.T) {
+	dir := t.TempDir()
+	configureFile(t, dir)
+	Configure(Options{Level: "warn", Format: "json", ToFile: true, Dir: dir, MaxSizeBytes: 3 << 20, MaxBackups: 2, MaxAgeDays: 5, Compress: true})
+	SetProcess("lvl")
+	t.Cleanup(func() { SetProcess("") })
+	if c := loadConfig(); c.maxSizeMB != 3 || c.maxBackups != 2 || c.maxAgeDays != 5 || !c.compress {
+		t.Fatalf("轮转参数未按配置生效: %+v", c)
+	}
+	l := New("lvl")
+	l.Info().Msg("filtered")
+	l.Warn().Msg("kept")
+	raw, err := os.ReadFile(filepath.Join(dir, "lvl.log")) // #nosec G304 // 测试临时目录
+	if err != nil || strings.Contains(string(raw), "filtered") || !strings.Contains(string(raw), "kept") {
+		t.Fatalf("warn 级应滤掉 info、保留 warn: %v %q", err, raw)
 	}
 }
 

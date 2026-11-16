@@ -281,12 +281,11 @@ func TestDiagnose_AuthFailure(t *testing.T) {
 }
 
 func TestResolveKey_ClassifiesMissingSources(t *testing.T) {
-	t.Setenv("LIUSHA_PROBE_EMPTY", "")
-	d := New(fakeStore{"env-empty": {Code: "env-empty", APIKeyEnv: "LIUSHA_PROBE_EMPTY"}}, nil)
+	d := New(fakeStore{"no-key": {Code: "no-key"}}, nil)
 	if _, err := d.resolveKey(context.Background(), httpapi.ProviderProbeSpec{Code: "ghost"}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("已存 provider 不存在应透传 ErrNoRows（HTTP 404），got %v", err)
 	}
-	if _, err := d.resolveKey(context.Background(), httpapi.ProviderProbeSpec{Code: "env-empty"}); !errors.Is(err, fwllm.ErrNotConfigured) {
+	if _, err := d.resolveKey(context.Background(), httpapi.ProviderProbeSpec{Code: "no-key"}); !errors.Is(err, fwllm.ErrNotConfigured) {
 		t.Fatalf("取不到密钥应是 ErrNotConfigured（HTTP 400），got %v", err)
 	}
 }

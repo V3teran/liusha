@@ -3,14 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProvidersView } from './ProvidersView'
-import { listProviders, saveProvider, deleteProvider, restoreProviderEnvKey, diagnoseProvider } from '@/api/models'
+import { listProviders, saveProvider, deleteProvider, diagnoseProvider } from '@/api/models'
 import type { ProviderConfig } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
   saveProvider: vi.fn(),
   deleteProvider: vi.fn(),
-  restoreProviderEnvKey: vi.fn(),
   // 编辑面板挂载即引用 diagnoseProvider（连接诊断），mock 掉避免真发请求。
   diagnoseProvider: vi.fn(),
 }))
@@ -18,7 +17,6 @@ vi.mock('@/api/models', () => ({
 const mList = listProviders as unknown as ReturnType<typeof vi.fn>
 const mSave = saveProvider as unknown as ReturnType<typeof vi.fn>
 const mDelete = deleteProvider as unknown as ReturnType<typeof vi.fn>
-const mRestore = restoreProviderEnvKey as unknown as ReturnType<typeof vi.fn>
 const mDiagnose = diagnoseProvider as unknown as ReturnType<typeof vi.fn>
 
 function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
@@ -303,35 +301,12 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     expect(screen.getByText('更换密钥')).toBeTruthy()
   })
 
-  it('恢复使用环境变量：仅密文生效且存在 env 引用时出现，两段式确认后清密文', async () => {
-    mRestore.mockResolvedValue(prov({ key_present: true, key_last4: undefined, api_key_env: 'GLM_API_KEY' }))
-    await openEdit({ key_present: true, key_last4: '9f2c', api_key_env: 'GLM_API_KEY' })
-    // 密文生效 + env 引用存在 → 恢复按钮出现（等编辑面板挂载后用文本查询——
-    // 按钮带 title 属性时 accessible name 取 title，role 查询会失配）
+  // 密钥只有前端填写这一种来源：没有回落环境变量的入口。
+  it('已设置密钥的编辑面板只提供更换密钥，没有回落环境变量的入口', async () => {
+    await openEdit({ key_present: true, key_last4: '9f2c' })
     await screen.findByText('编辑 deepseek')
-    const btn = await screen.findByText('恢复使用环境变量')
-    expect(mRestore).not.toHaveBeenCalled()
-    await userEvent.click(btn)
-    await userEvent.click(await screen.findByText('确认恢复？'))
-    await waitFor(() => expect(mRestore).toHaveBeenCalledWith('deepseek'))
-    // 密钥字段写回：尾号消失、回落 env 展示
-    await waitFor(() => expect(screen.queryByText(/9f2c/)).toBeNull())
-    expect(await screen.findByText(/来自环境变量（GLM_API_KEY）/)).toBeTruthy()
-  })
-
-  // 恢复密钥只提交密钥字段：其余未保存的修改仍是未保存，保存按钮可用。
-  it('恢复使用环境变量不把其它未保存修改记成已保存', async () => {
-    mRestore.mockResolvedValue(prov({ key_present: true, key_last4: undefined, api_key_env: 'GLM_API_KEY' }))
-    await openEdit({ key_present: true, key_last4: '9f2c', api_key_env: 'GLM_API_KEY' })
-    await screen.findByText('编辑 deepseek')
-    await userEvent.type(screen.getByLabelText('描述'), '改动')
-    await userEvent.click(await screen.findByText('恢复使用环境变量'))
-    await userEvent.click(await screen.findByText('确认恢复？'))
-    await waitFor(() => expect(mRestore).toHaveBeenCalledWith('deepseek'))
-    await waitFor(() => expect(screen.queryByText(/9f2c/)).toBeNull())
-    expect((screen.getByLabelText('描述') as HTMLInputElement).value).toBe('改动')
-    expect(screen.getByText('未保存')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+    expect(screen.queryByText(/环境变量/)).toBeNull()
+    expect(screen.getByText('更换密钥')).toBeTruthy()
   })
 
   // 「新建」与切换到其它行同一口径：有未保存更改时先确认，不静默丢弃。

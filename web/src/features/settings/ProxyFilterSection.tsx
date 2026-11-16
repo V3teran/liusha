@@ -10,7 +10,7 @@ const CODE_TEXTAREA_CLASS = TEXTAREA_CLASS + ' min-h-[76px] font-mono'
 export function ProxyFilterSection() {
   const s = useSettingSection('proxy_filter')
   const d = s.draft
-  const invalid = !d || d.max_request_body_size <= 0 || d.max_response_body_size <= 0
+  const invalid = !d || d.max_request_body_bytes <= 0 || d.max_response_body_bytes <= 0
 
   return (
     <SettingsSection
@@ -80,22 +80,22 @@ export function ProxyFilterSection() {
             />
           </Field>
           <div className="flex gap-3">
-            <Field label="请求体上限（字节）" hint=">0" aside={<SettingStatus s={s} field="max_request_body_size" />}>
+            <Field label="请求体上限（字节）" hint=">0" aside={<SettingStatus s={s} field="max_request_body_bytes" />}>
               <input
                 type="number"
                 min={1}
                 className={NUMBER_INPUT_CLASS}
-                value={d.max_request_body_size}
-                onChange={(e) => s.patch({ max_request_body_size: Number(e.target.value) })}
+                value={d.max_request_body_bytes}
+                onChange={(e) => s.patch({ max_request_body_bytes: Number(e.target.value) })}
               />
             </Field>
-            <Field label="响应体上限（字节）" hint=">0" aside={<SettingStatus s={s} field="max_response_body_size" />}>
+            <Field label="响应体上限（字节）" hint=">0" aside={<SettingStatus s={s} field="max_response_body_bytes" />}>
               <input
                 type="number"
                 min={1}
                 className={NUMBER_INPUT_CLASS}
-                value={d.max_response_body_size}
-                onChange={(e) => s.patch({ max_response_body_size: Number(e.target.value) })}
+                value={d.max_response_body_bytes}
+                onChange={(e) => s.patch({ max_response_body_bytes: Number(e.target.value) })}
               />
             </Field>
           </div>

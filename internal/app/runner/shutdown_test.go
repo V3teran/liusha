@@ -21,7 +21,7 @@ import (
 func TestShutdown_InterruptsInFlightRunsAndWaitsForTheirWrapUp(t *testing.T) {
 	mr := miniredis.RunT(t)
 	opt := asynq.RedisClientOpt{Addr: mr.Addr()}
-	cfg := config.RunnerConfig{AsynqConcurrency: 1, QueueAgentWeight: 1, AsynqShutdownTimeoutSeconds: 10}
+	cfg := config.RunnerConfig{Concurrency: 1, DrainTimeoutSeconds: 10}
 	ts := newTaskServer(opt, cfg, zerolog.Nop())
 
 	started := make(chan struct{})

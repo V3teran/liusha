@@ -3,8 +3,8 @@
 // AES-256-GCM：nonce 随机生成、随密文一起存（GCM 标准做法，nonce 不是秘密），
 // 输出格式为 nonce || ciphertext（ciphertext 含 GCM tag）单一 []byte，落 bytea 列。
 //
-// 密钥来自 LIUSHA_LLM_KEY_SECRET 环境变量（32 字节，hex 编码）——启动期由
-// api 组件校验非空且长度合法，缺失直接拒启动，不静默退化。
+// 密钥是配置 llm.encryption_key（32 字节，hex 编码，经 LIUSHA_LLM_ENCRYPTION_KEY 注入）——
+// 用到它的组件启动时校验非空且长度合法，缺失直接拒启动，不静默退化。
 package cryptx
 
 import (
@@ -13,10 +13,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
 )
 
-// KeySize 是 AES-256 密钥字节数；调用方（api 组件）据此校验 LIUSHA_LLM_KEY_SECRET hex 解码后的长度。
+// KeySize 是 AES-256 密钥字节数。
 const KeySize = 32
 
 // Cipher 封装一把 AES-256-GCM 密钥，对外只暴露 Encrypt/Decrypt——调用方不接触 nonce 细节。
@@ -24,17 +23,15 @@ type Cipher struct {
 	gcm cipher.AEAD
 }
 
-// NewFromEnv 读 envVar（hex 编码，32 字节）构造 Cipher——三个 main.go 入口
-// （api、runner、corpus-import）共用同一套 fail-fast 校验，不各写一份。
-// 生成密钥：openssl rand -hex 32。
-func NewFromEnv(envVar string) (*Cipher, error) {
-	hexKey := os.Getenv(envVar)
+// NewFromHex 用 hex 编码的 32 字节密钥（配置 llm.encryption_key）构造 Cipher——调 LLM 的组件
+// （api、runner、corpus-import）共用同一套 fail-fast 校验。生成密钥：openssl rand -hex 32。
+func NewFromHex(hexKey string) (*Cipher, error) {
 	if hexKey == "" {
-		return nil, fmt.Errorf("cryptx: env %s 为空", envVar)
+		return nil, fmt.Errorf("密钥为空")
 	}
 	key, err := hex.DecodeString(hexKey)
 	if err != nil {
-		return nil, fmt.Errorf("cryptx: env %s hex 解码失败: %w", envVar, err)
+		return nil, fmt.Errorf("密钥不是合法的 hex: %w", err)
 	}
 	return New(key)
 }
