@@ -4,10 +4,10 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 `runner`（任务执行）、`sandbox`（工具执行沙盒）、`migrate`（数据库迁移），`serve` 在同一
 进程运行全部组件。三种部署方式只是组件的摆放不同：
 
-| | 二进制 | 单镜像 | 多镜像（Docker Compose） |
+| | 二进制 | 单镜像 | 多镜像 |
 |---|---|---|---|
 | 组件 | `liusha serve` 一个进程 | 一个容器内 `liusha serve` | api / proxy / runner / sandbox 各一个容器 |
-| PostgreSQL / Redis | 自备 | 镜像内置（pg18） | Docker Compose 内置（pg17） |
+| PostgreSQL / Redis | 自备 | 镜像内置（pg18） | 独立容器（pg17） |
 | 渗透工具 | 本机安装（Linux / macOS / Windows） | 沙盒镜像（本地构建） | 沙盒镜像（本地构建） |
 | 对外入口 | :8580 | :8580（映射到宿主自定） | nginx :50080 |
 | 数据库迁移 | `serve` 启动时 | `serve` 启动时 | 一次性的 `migrate` 服务 |
@@ -222,7 +222,7 @@ docker run -d --name liusha-single --stop-timeout 60 --env-file .env \
 
 目标机架构不同时构建加 `--platform`；离线分发用 `docker save liusha-single:local | gzip`。
 
-## 多镜像（Docker Compose）
+## 多镜像
 
 ```bash
 cp .env.example .env                                   # 填写密钥与容器部署必填项
@@ -335,7 +335,7 @@ make dev-down             # 收工（-v 清数据）
 
 0.10 把五个程序合并为 `liusha`，沙盒改为常驻服务，镜像只发布 `ghcr.io/v3teran/liusha`。
 
-**Docker Compose**
+**多镜像**
 
 1. 备份数据库：`docker exec liusha-postgres pg_dump -U liusha -Fc liusha > liusha.dump`。
 2. 检出新版本；`compose.prod.yaml` 与 `--profile full` 不再使用，直接 `docker compose up -d --build`。

@@ -4,7 +4,7 @@
 
 ## 部署
 
-三种方式任选其一：二进制、单镜像、多镜像（Docker Compose）。都由两份文件驱动——`config.yaml`（全部配置，
+三种方式任选其一：二进制、单镜像、多镜像。都由两份文件驱动——`config.yaml`（全部配置，
 发布压缩包与仓库里各有一份模板）与 `.env`（密钥，由 `.env.example` 复制填写，三种方式共用一份模板）。
 配置、沙盒与本地开发的细节见 [deployments/README.md](deployments/README.md)。
 
@@ -48,7 +48,7 @@ make single-run
 
 首次会本地构建沙盒镜像（Kali + 工具），需要较长时间。控制台在 `http://<主机>:50080`。
 
-### 多镜像（Docker Compose）
+### 多镜像
 
 ```bash
 git clone --branch v0.11.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
