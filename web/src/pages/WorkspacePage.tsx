@@ -18,6 +18,8 @@ import { controlClass } from '@/components/ui/control'
 import { cn } from '@/lib/utils'
 import { FilterBar } from '@/components/FilterBar'
 import { FileTree } from '@/features/workspace/FileTree'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { errorText } from '@/api/client'
 import { displayPath } from '@/features/workspace/displayPath'
 
 // 文件树工具栏的方形图标按钮（28px 热区，图标居中）。
@@ -253,6 +255,17 @@ export function WorkspacePage() {
               </Button>
             </div>
           )}
+          {treeQuery.isPending ? (
+            <p className="p-4 text-sm text-text-secondary">加载中…</p>
+          ) : treeQuery.isError && allEntries.length === 0 ? (
+            <p role="alert" className="p-4 text-sm text-sev-critical">
+              ⚠ {errorText(treeQuery.error, '加载工作空间失败')}
+            </p>
+          ) : allEntries.length === 0 ? (
+            <EmptyState kind="empty" noun="文件" hint="任务在沙盒中产生和使用的文件会出现在这里。" />
+          ) : entries.length === 0 ? (
+            <EmptyState kind="no-match" scope="search" noun="文件" />
+          ) : (
           <FileTree
             entries={entries}
             selected={selected}
@@ -265,12 +278,13 @@ export function WorkspacePage() {
             onDownload={(p) => void download(p)}
             onDelete={(p) => void remove(p)}
           />
+          )}
         </div>
 
         {/* 查看 / 编辑 */}
         <div className="rounded-xl border border-border bg-surface p-3 shadow-sm">
           {!selected ? (
-            <p className="p-4 text-sm text-text-secondary">从左侧选择文件（行悬停可下载 / 删除）</p>
+            <EmptyState kind="unselected" noun="文件" hint="选择一个文件查看内容；悬停文件行可下载或删除。" />
           ) : fileQuery.isLoading ? (
             <p className="p-4 text-sm text-text-secondary">加载中…</p>
           ) : fileQuery.data?.binary ? (

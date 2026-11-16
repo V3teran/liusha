@@ -33,13 +33,15 @@ function mockPage(conversations: Conversation[], hasMore = false) {
   vi.mocked(listConversations).mockResolvedValue({ conversations, hasMore, total: conversations.length })
 }
 
+const EMPTY = { noun: '对话', hint: '点击「新对话」发起。' }
+
 function renderList(props: Partial<React.ComponentProps<typeof ConversationList>> = {}) {
   const onSelect = vi.fn()
   const onNew = vi.fn()
   const onDeleted = vi.fn()
   const utils = render(
     <MemoryRouter>
-      <ConversationList onSelect={onSelect} onNew={onNew} onDeleted={onDeleted} {...props} />
+      <ConversationList emptyState={EMPTY} onSelect={onSelect} onNew={onNew} onDeleted={onDeleted} {...props} />
     </MemoryRouter>,
   )
   return { ...utils, onSelect, onNew, onDeleted }
@@ -150,12 +152,12 @@ describe('ConversationList', () => {
     expect(screen.getByText('会话列表')).toBeTruthy()
   })
 
-  it('空列表渲染结构化空态（标题 + 描述）', async () => {
+  it('空列表按名词渲染「暂无X」空态与说明', async () => {
     mockPage([])
-    renderList({ emptyState: { mark: '⌖', title: '还没有会话哦', desc: '发起新扫描试试' } })
+    renderList({ emptyState: { noun: '代理批次', hint: '把浏览器代理指向 liusha' } })
     await waitFor(() => {
-      expect(screen.getByText('还没有会话哦')).toBeTruthy()
-      expect(screen.getByText('发起新扫描试试')).toBeTruthy()
+      expect(screen.getByText('暂无代理批次')).toBeTruthy()
+      expect(screen.getByText('把浏览器代理指向 liusha')).toBeTruthy()
     })
   })
 
@@ -284,7 +286,7 @@ describe('ConversationList', () => {
     const ref = createRef<ConversationListHandle>()
     render(
       <MemoryRouter>
-        <ConversationList ref={ref} onSelect={vi.fn()} onNew={vi.fn()} onDeleted={vi.fn()} />
+        <ConversationList ref={ref} emptyState={EMPTY} onSelect={vi.fn()} onNew={vi.fn()} onDeleted={vi.fn()} />
       </MemoryRouter>,
     )
     await waitFor(() => expect(screen.getByText(/first\.com/)).toBeTruthy())
@@ -357,7 +359,7 @@ describe('ConversationList 请求竞态', () => {
       .mockImplementationOnce(() => new Promise((r) => (resolveOld = r)))
       .mockResolvedValueOnce({ conversations: [mkConv({ id: 'p1', title: '代理批次 new.com' })], hasMore: false, total: 1 })
     const { rerender } = renderList({ source: 'direct' })
-    rerender(<MemoryRouter><ConversationList source="proxy" onSelect={vi.fn()} onNew={vi.fn()} onDeleted={vi.fn()} /></MemoryRouter>)
+    rerender(<MemoryRouter><ConversationList source="proxy" emptyState={EMPTY} onSelect={vi.fn()} onNew={vi.fn()} onDeleted={vi.fn()} /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText(/new\.com/)).toBeTruthy())
 
     resolveOld({ conversations: [mkConv({ id: 'd1', title: '旧来源 stale.com' })], hasMore: false, total: 1 })

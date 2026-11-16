@@ -45,7 +45,8 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
         cellPadding="px-3"
         loading={loading}
         hasFilter={hasFilter}
-        emptyText="任务——右上角「新建任务」下发第一批"
+        emptyNoun="任务"
+        emptyHint="点击「新建任务」下发，或在对话中描述目标发起。"
         selectedId={selectedId}
         getRowId={(row) => row.id}
         onRowClick={onRowClick}

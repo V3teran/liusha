@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle, Inbox, Plus } from 'lucide-react'
+import { AlertTriangle, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
 import { Button } from '@/components/ui/Button'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { cn } from '@/lib/utils'
 
 /** 服务端分页参数（配置资源列表一律走服务端分页 + 每页条数）。 */
@@ -29,6 +30,8 @@ interface ConfigListShellProps {
   loading: boolean
   error: string
   empty: boolean
+  /** 空态名词；搜索框有词时显示「没有匹配的X」，否则「暂无X」+ emptyHint */
+  noun: string
   emptyHint: string
   onNew?: () => void
   children: ReactNode
@@ -48,6 +51,7 @@ export function ConfigListShell({
   loading,
   error,
   empty,
+  noun,
   emptyHint,
   onNew,
   children,
@@ -104,12 +108,11 @@ export function ConfigListShell({
             <p className="mt-4 font-mono text-sm text-status-error">{error}</p>
           </div>
         ) : empty ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-text-tertiary">
-              <Inbox aria-hidden className="h-6 w-6" />
-            </span>
-            <p className="mt-4 text-sm text-text-secondary">{emptyHint}</p>
-          </div>
+          search?.value.trim() ? (
+            <EmptyState kind="no-match" scope="search" noun={noun} className="py-20" />
+          ) : (
+            <EmptyState kind="empty" noun={noun} hint={emptyHint} className="py-20" />
+          )
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">{children}</div>
         )}

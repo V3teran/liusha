@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { Tool, ToolKind } from '@/api/types'
 import { KIND_LABEL, categoryLabel } from './toolMeta'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 // 种类段：全部 / 内部函数 / 外部 CLI。'' = 不过滤。
 export type KindFilter = '' | ToolKind
@@ -64,7 +65,7 @@ export function ToolMasterList({
   loading,
   error,
   empty,
-  emptyHint,
+  filtered,
   selected,
   onSelect,
 }: {
@@ -75,7 +76,8 @@ export function ToolMasterList({
   loading: boolean
   error: string
   empty: boolean
-  emptyHint: string
+  /** 有搜索词或种类筛选：空结果是「没有匹配」而不是目录为空 */
+  filtered: boolean
   selected: string | null
   onSelect: (name: string) => void
 }) {
@@ -144,7 +146,11 @@ export function ToolMasterList({
         ) : error ? (
           <div className="px-4 py-16 text-center font-mono text-sm text-sev-critical">⚠ {error}</div>
         ) : empty ? (
-          <div className="px-4 py-16 text-center text-sm text-text-secondary">{emptyHint}</div>
+          filtered ? (
+            <EmptyState kind="no-match" noun="工具" className="py-16" />
+          ) : (
+            <EmptyState kind="empty" noun="工具" hint="工具目录在服务启动时同步，请查看 api 日志。" className="py-16" />
+          )
         ) : (
           groups.map((g) => (
             <section key={g.kind}>

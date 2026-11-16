@@ -3,6 +3,7 @@ import { categoryLabel } from './toolMeta'
 import { KindBadge } from './KindBadge'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 // 工具详情面板（主从视图右栏常驻，非 modal）。四态：未选 / 加载中 / 加载失败 / 已选。
 // 已选态展示：种类徽章 + 分类 + 沙盒安装状态 + 完整描述 + 全量智能体（已装配者高亮，点击装/卸）。
@@ -49,10 +50,7 @@ export function ToolDetailPanel({
   if (!tool) {
     return (
       <PanelFrame>
-        <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="font-mono text-sm text-text-secondary">从左侧选择一个工具</p>
-          <p className="text-xs text-text-tertiary">查看完整描述并装配到智能体</p>
-        </div>
+        <EmptyState kind="unselected" noun="工具" hint="选择一个工具，查看完整描述并装配到智能体。" className="h-full py-16" />
       </PanelFrame>
     )
   }
