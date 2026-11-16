@@ -47,7 +47,7 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 - **工作区**：api（文件页、附件）与沙盒必须看到同一目录、同一绝对路径（`sandbox.workspace_dir`，
   缺省 `~/data/liusha/workspace`）。Docker Compose 以同一路径挂进两个容器。
 - **回连**：反弹 shell / 代理 / payload 托管只绑对外监听段（`sandbox.listener_ports`，缺省
-  `21000-21099`）中的端口；`sandbox.callback_host` 是目标用来回连的地址。容器部署探测不到宿主
+  `21000-21299`）中的端口；`sandbox.callback_host` 是目标用来回连的地址。容器部署探测不到宿主
   地址，需要回连时必须填写，并放行该端口段。
 - 沙盒执行 agent 编写的任意命令（root 运行）：命令环境里没有 liusha 的密钥，沙盒令牌也不会
   交给命令；但命令能访问沙盒所在机器上的一切。Docker Compose 部署时沙盒是独立容器，只挂载任务工作区；
@@ -172,7 +172,7 @@ docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/d
 （`docker exec liusha cat /data/secrets/admin.initial_password`）。`--stop-timeout 60` 留出停机
 收尾时间：在途任务按中断收尾（至多 `runner.asynq_shutdown_timeout_seconds`，缺省 30 秒）后
 数据库才关闭，Docker 缺省的 10 秒会在收尾中途强杀。需要回连时加
-`-e LIUSHA_SANDBOX_CALLBACK_HOST=<宿主地址> -p 21000-21099:21000-21099`（`make single-run` 已含）。
+`-e LIUSHA_SANDBOX_CALLBACK_HOST=<宿主地址> -p 21000-21299:21000-21299`（`make single-run` 已含）。
 目标机架构不同时构建加 `--platform`；离线分发用 `docker save liusha-single:local | gzip`。
 
 ## 本地开发
@@ -201,7 +201,7 @@ make dev-down             # 收工（-v 清数据）
 4. `config/config.yaml` 已移除：改过的键写进覆盖文件（挂进容器并设 `LIUSHA_CONFIG`），或改用
    `LIUSHA_<键>` 环境变量。内置默认不再预置 GLM provider；已导入数据库的 provider 不受影响，
    其密钥变量（如 `GLM_API_KEY`）保留在 `.env` 即可。
-5. 需要回连时在 `.env` 填 `LIUSHA_SANDBOX_CALLBACK_HOST`；对外监听段缺省改为 `21000-21099`。
+5. 需要回连时在 `.env` 填 `LIUSHA_SANDBOX_CALLBACK_HOST`；对外监听段缺省改为 `21000-21299`。
 6. runner 不再挂载 docker.sock，58590 不再对外发布。旧版 runner 在宿主上拉起的沙盒容器不随
    Docker Compose 删除，手动清掉（它们占着监听段端口）：`docker rm -f $(docker ps -aq --filter name=liusha-sandbox-)`。
    旧镜像 `liusha-api` / `liusha-proxy` / `liusha-runner` / `liusha-nginx` / `liusha-sandbox` 停止更新，可删除。

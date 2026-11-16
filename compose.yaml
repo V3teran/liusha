@@ -158,7 +158,7 @@ services:
       JINA_API_KEY: ${JINA_API_KEY:-}
       # 回连契约：容器内探测不到宿主地址，需要反弹 shell 等回连时在 .env 填宿主对目标可达的 IP / 域名
       LIUSHA_SANDBOX_CALLBACK_HOST: ${LIUSHA_SANDBOX_CALLBACK_HOST:-}
-      LIUSHA_SANDBOX_LISTENER_PORTS: ${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21099}
+      LIUSHA_SANDBOX_LISTENER_PORTS: ${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}
     volumes:
       - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/logs
     depends_on:
@@ -200,7 +200,7 @@ services:
       - "127.0.0.1:${SANDBOX_HOST_PORT:-58591}:8591"
       # 对外监听段：反弹 shell / 代理 / payload 托管绑段内端口，目标经「回连地址:同号端口」直达。
       # 与 runner 的 LIUSHA_SANDBOX_LISTENER_PORTS 是同一个值。
-      - "${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21099}:${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21099}"
+      - "${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}:${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8591/healthz"]
       interval: 10s
