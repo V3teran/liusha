@@ -13,7 +13,7 @@
 # 附件清单交给 agent 的路径在两侧一致，宿主上直接运行的开发进程也看到同一路径。
 
 x-liusha-image: &liusha-image
-  image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha:${LIUSHA_IMAGE_TAG:-0.10.1} # x-release-please-version
+  image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha:${LIUSHA_IMAGE_TAG:-0.10.2} # x-release-please-version
 
 # 连接与日志：所有 liusha 组件共用。密钥一律来自 .env，缺失即拒绝启动。
 x-liusha-env: &liusha-env
@@ -178,7 +178,7 @@ services:
       context: .
       dockerfile: deployments/sandbox/Dockerfile
       args:
-        VERSION: 0.10.1 # x-release-please-version
+        VERSION: 0.10.2 # x-release-please-version
     restart: unless-stopped
     # tini 作 PID 1：回收命令结束后被托孤的后台进程（扫描器、浏览器子进程）
     init: true
