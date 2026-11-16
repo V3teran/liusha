@@ -774,10 +774,9 @@ export interface LogEntry {
   fields?: Record<string, unknown>
 }
 
-// LogProcessInfo 是进程日志文件概况；文件缺失时 exists=false、instances 为空。
+// LogProcessInfo 是进程日志文件概况；只列出有日志文件的进程（一种部署只产生 serve 或分进程中的一种布局）。
 export interface LogProcessInfo {
   name: string
-  exists: boolean
   size_bytes: number
   mod_time: string
   instances: string[]
