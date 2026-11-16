@@ -11,7 +11,7 @@
 自备 PostgreSQL 17+（装好 pgvector 扩展）、Redis，渗透工具装在本机。Linux（如 Kali）：
 
 ```bash
-VERSION=0.10.1  # x-release-please-version
+VERSION=0.10.2  # x-release-please-version
 curl -fLO https://github.com/V3teran/liusha/releases/download/v${VERSION}/liusha_${VERSION}_linux_amd64.tar.gz
 tar -xzf liusha_${VERSION}_linux_amd64.tar.gz && cd liusha_${VERSION}_linux_amd64
 ./liusha setup -postgres-dsn 'postgres://liusha:<密码>@127.0.0.1:5432/liusha' -redis-addr 127.0.0.1:6379
@@ -24,7 +24,7 @@ Windows（PowerShell；智能体的命令按 sh 语法执行，需安装 Git for
 要完整工具集可在 WSL2 的 Kali 里用 Linux 版）：
 
 ```powershell
-$VERSION = "0.10.1"  # x-release-please-version
+$VERSION = "0.10.2"  # x-release-please-version
 Invoke-WebRequest -OutFile liusha.zip "https://github.com/V3teran/liusha/releases/download/v$VERSION/liusha_${VERSION}_windows_amd64.zip"
 Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
 .\liusha.exe setup -postgres-dsn "postgres://liusha:<密码>@127.0.0.1:5432/liusha" -redis-addr 127.0.0.1:6379
@@ -37,7 +37,7 @@ Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
 ### Docker Compose
 
 ```bash
-git clone --branch v0.10.1 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+git clone --branch v0.10.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 cp .env.example .env    # 填写必填项
 docker compose up -d --build
 ```
@@ -47,7 +47,7 @@ docker compose up -d --build
 ### 单镜像
 
 ```bash
-git clone --branch v0.10.1 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+git clone --branch v0.10.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 make single-build
 docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
 docker exec liusha cat /data/secrets/admin.initial_password   # 初始管理员 admin 的密码
