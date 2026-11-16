@@ -254,7 +254,7 @@ RUN set -eux \
  && git checkout -q FETCH_HEAD \
  && { mvn -B clean package -DskipTests \
       || mvn -B -U -s /opt/ysomap-maven-settings.xml clean package -DskipTests; } \
- && printf '#!/bin/sh\nexec java -jar /opt/ysomap/target/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
+ && printf '#!/bin/sh\nexec java -jar /opt/ysomap/cli/target/ysomap.jar "$@"\n' > /usr/local/bin/ysomap \
  && chmod +x /usr/local/bin/ysomap
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -324,7 +324,7 @@ RUN set -eux \
  && git clone --depth 1 https://github.com/RsaCtfTool/RsaCtfTool.git /opt/RsaCtfTool \
  && python3 -m venv /opt/venvs/RsaCtfTool \
  && /opt/venvs/RsaCtfTool/bin/pip install --no-cache-dir -e /opt/RsaCtfTool \
- && printf '#!/bin/sh\nexec /opt/venvs/RsaCtfTool/bin/python3 /opt/RsaCtfTool/RsaCtfTool.py "$@"\n' > /usr/local/bin/RsaCtfTool \
+ && printf '#!/bin/sh\nexec /opt/venvs/RsaCtfTool/bin/RsaCtfTool "$@"\n' > /usr/local/bin/RsaCtfTool \
  && chmod +x /usr/local/bin/RsaCtfTool
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -459,6 +459,13 @@ RUN set -eux \
 # ══════════════════════════════════════════════════════════════════════════════
 RUN set -eux \
  && nuclei -ut
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 包装脚本校验：每个工具的入口都真实存在（上游改了目录布局时构建失败，而不是装进一个
+# 运行即报错的工具）。放在 liusha 之前，工具层不变时命中缓存。
+# ══════════════════════════════════════════════════════════════════════════════
+COPY deployments/sandbox/check-wrappers.sh /usr/local/sbin/check-wrappers
+RUN /usr/local/sbin/check-wrappers
 
 # ══════════════════════════════════════════════════════════════════════════════
 # liusha 沙盒服务
