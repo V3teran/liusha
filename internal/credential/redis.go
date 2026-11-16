@@ -17,8 +17,7 @@ import (
 // credLog 是本包共享 logger（与 finding 等存储包同一模式）。
 var credLog = logx.New("credential")
 
-// fallbackHashKeyPrefix 在 caller 传入空 keyPrefix 时使用——保持与历史一致的
-// "credentials:<host>" 数据布局，避免老 redis 数据 key 漂移。
+// hashKeyPrefix 是凭证 hash 的键前缀（凭证库的数据布局，组件间与跨版本不变的内部约定）。
 //
 // 数据布局：
 //
@@ -30,7 +29,7 @@ var credLog = logx.New("credential")
 //
 // 本命名空间只承载凭证 hash。信号量/聚合窗口等运行时键一律用各自的
 // 前缀，禁止借用本前缀——枚举（SCAN）依赖命名空间的纯净。
-const fallbackHashKeyPrefix = "credentials:"
+const hashKeyPrefix = "credentials:"
 
 // CanonicalHost 把目标地址归一到凭证库的 scope 键：`host[:port]`（小写主机、
 // 保留端口；剥 scheme/userinfo/路径/query）。
@@ -76,26 +75,19 @@ func CanonicalHost(addr string) string {
 }
 
 // RedisProvider 是 Provider 的 Redis 实现。
-//
-// keyPrefix 由 cmd 层从 config.Credential.RedisKeyPrefix 注入；
-// 多项目共享 redis 时通过 yaml 改前缀即可隔离命名空间。
 type RedisProvider struct {
-	client    *redis.Client
-	keyPrefix string
+	client *redis.Client
 }
 
-// NewRedis 构造 RedisProvider；keyPrefix 空时回退 fallbackHashKeyPrefix。
-func NewRedis(client *redis.Client, keyPrefix string) *RedisProvider {
-	if keyPrefix == "" {
-		keyPrefix = fallbackHashKeyPrefix
-	}
-	return &RedisProvider{client: client, keyPrefix: keyPrefix}
+// NewRedis 构造 RedisProvider。
+func NewRedis(client *redis.Client) *RedisProvider {
+	return &RedisProvider{client: client}
 }
 
 // hashKey 拼接 host hash 的完整 Redis key。host 经 CanonicalHost 归一——
 // 所有写读共用此单点，调用方传 "host"、"host:port" 或完整 URL 落到同一键。
 func (r *RedisProvider) hashKey(host string) string {
-	return r.keyPrefix + CanonicalHost(host)
+	return hashKeyPrefix + CanonicalHost(host)
 }
 
 // SaveIdentities 按 Name 覆盖写（upsert）。时间戳语义：
@@ -218,7 +210,7 @@ func (r *RedisProvider) DeleteIdentity(ctx context.Context, host, name string) e
 // 命名空间纯净是常态，类型过滤是防御），每 host 一次 HKEYS 分类计数。
 // 全程不读任何 field 值——枚举层不接触秘密材料。
 func (r *RedisProvider) ListHosts(ctx context.Context) ([]HostSummary, error) {
-	pattern := r.keyPrefix + "*"
+	pattern := hashKeyPrefix + "*"
 	var keys []string
 	var cursor uint64
 	for {
@@ -243,7 +235,7 @@ func (r *RedisProvider) ListHosts(ctx context.Context) ([]HostSummary, error) {
 		if err != nil {
 			continue
 		}
-		summary := HostSummary{Host: key[len(r.keyPrefix):]}
+		summary := HostSummary{Host: key[len(hashKeyPrefix):]}
 		for _, n := range names {
 			if IsSessionIdentity(n) {
 				summary.Sessions++

@@ -98,7 +98,6 @@ export function FileTree({
           </li>
         )
       })}
-      {entries.length === 0 && <li className="p-2 text-xs text-text-secondary">无匹配路径</li>}
     </ul>
   )
 }

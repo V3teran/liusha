@@ -1,7 +1,8 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertCircle, Info } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { useLatestTaskId, useTaskGraph, useTaskVerifications } from '@/features/exploration/useExplorationQueries'
 import { applyFocus, buildFlowGraph, type GraphStats } from '@/features/exploration/layout'
 import { GraphCanvas } from '@/features/exploration/GraphCanvas'
@@ -88,6 +89,8 @@ export function ExplorationGraphPage() {
   // 从纯聊天对话进来：没有任务，也就没有探索图
   const chatOnly = scope?.kind === 'conversation' && conversationQuery.isSuccess && !taskId
   const hasGraph = (graph?.nodes.length ?? 0) > 0
+  // 进页定位最新任务却一个任务都没有：是「暂无任务」，不是「未选择」
+  const noTasks = !scope && shouldResolveLatest && latestQuery.isSuccess && !latestQuery.data
   const selectedNode = selectedNodeId ? graph?.nodes.find((n) => n.id === selectedNodeId) : undefined
 
   return (
@@ -128,25 +131,17 @@ export function ExplorationGraphPage() {
             </div>
             <div className="text-lg font-medium text-status-error">{error}</div>
             <div className="max-w-md text-center text-sm text-text-secondary">
-              {scope?.kind === 'conversation' ? '对话' : '任务'}不存在或已删除，请在上方重新选择任务
+              {scope?.kind === 'conversation' ? '对话' : '任务'}不存在或已删除，请重新选择任务。
             </div>
           </div>
-        ) : !hasGraph ? (
-          <div className="flex h-full flex-col items-center justify-center text-text-secondary">
-            <div className="max-w-md text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-2">
-                <Info className="h-8 w-8 text-text-tertiary" />
-              </div>
-              <div className="mb-2 text-lg font-medium text-text">暂无数据</div>
-              <div className="text-sm">
-                {chatOnly
-                  ? '这个对话是纯聊天，没有任务，也就没有探索图'
-                  : taskId
-                    ? '这个任务还没有探索图（尚未开始规划）'
-                    : '在上方选择一个任务，查看它的探索图'}
-              </div>
-            </div>
-          </div>
+        ) : chatOnly ? (
+          <EmptyState kind="empty" noun="探索图" hint="这个对话是纯聊天，没有任务。" className="h-full" />
+        ) : taskId && !hasGraph ? (
+          <EmptyState kind="empty" noun="探索图" hint="任务开始规划后，探索图会出现在这里。" className="h-full" />
+        ) : noTasks ? (
+          <EmptyState kind="empty" noun="任务" hint="在「任务」页新建任务后，可在这里查看它的探索图。" className="h-full" />
+        ) : !taskId ? (
+          <EmptyState kind="unselected" noun="任务" hint="选择一个任务，查看它的目标、动作与结论。" className="h-full" />
         ) : (
           <GraphCanvas
             nodes={view.nodes}

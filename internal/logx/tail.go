@@ -20,8 +20,8 @@ import (
 // 不引入第二日志事实源——UI 看到的与文件落地的永远一致。
 
 // ViewProcesses 是日志视图的进程域：进程名即 liusha 子命令名。serve 是单进程全组件
-// （二进制 / 单镜像部署），其余是分进程部署（compose）的各组件；部署只会产生其中一种布局，
-// 文件不存在的进程照常列出（exists=false）。
+// （二进制 / 单镜像部署），其余是分进程部署（多镜像、本地开发）的各组件；一种部署只会产生
+// 其中一种布局，所以日志页只列出有日志文件的进程（LogProcesses）。
 var ViewProcesses = []string{"serve", "api", "proxy", "runner", "sandbox"}
 
 // defaultReadLimit 是 Limit 非法时的兜底值（handler 已 clamp，这里再守一道）。
@@ -33,7 +33,6 @@ const instanceCap = 16
 // ProcessInfo 是进程日志文件概况。
 type ProcessInfo struct {
 	Name      string    `json:"name"`
-	Exists    bool      `json:"exists"`
 	SizeBytes int64     `json:"size_bytes"`
 	ModTime   time.Time `json:"mod_time"`
 	// Instances 是文件尾窗口内出现过的 instance（pid@host），按首次出现序。
@@ -84,24 +83,24 @@ type Reader struct {
 	instanceWindow int64
 }
 
-// NewReader 构造读 dir 目录的 Reader。dir 一律传 Dir()——与写入端同一套
-// LIUSHA_LOG_DIR 解析，读到的一定是写出的。
+// NewReader 构造读 dir 目录的 Reader。dir 与写入端同为 <data_dir>/logs（多镜像部署时各组件
+// 以同一路径挂载这个目录），api 经它读全体进程的文件。
 func NewReader(dir string) *Reader {
 	return &Reader{dir: dir, scanWindow: 16 << 20, instanceWindow: 512 << 10}
 }
 
-// Dir 返回日志文件目录（解析规则见 logDir）。
-// 分进程部署时各组件共用一个日志目录（compose 共享日志卷），api 经它读全体进程文件。
-func Dir() string { return logDir() }
-
-// LogProcesses 枚举视图域内各进程文件的存在性/大小/近期实例。
-// 文件缺失的进程照常返回（exists=false），前端下拉保持稳定并提示无文件。
+// LogProcesses 列出有日志文件的进程及其大小、近期实例：没有文件的进程不列出——选它必然
+// 为空。文件存在但读不了（权限等）照常列出，由读取时报出真实错误，不伪装成没有日志。
 func (r *Reader) LogProcesses() []ProcessInfo {
 	out := make([]ProcessInfo, 0, len(ViewProcesses))
 	for _, name := range ViewProcesses {
-		info := ProcessInfo{Name: name, Instances: []string{}} // 无文件也是空数组：前端按数组迭代
-		if fi, err := os.Stat(r.filePath(name)); err == nil && fi.Mode().IsRegular() {
-			info.Exists, info.SizeBytes, info.ModTime = true, fi.Size(), fi.ModTime()
+		fi, err := os.Stat(r.filePath(name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		info := ProcessInfo{Name: name, Instances: []string{}} // 无实例也是空数组：前端按数组迭代
+		if err == nil && fi.Mode().IsRegular() {
+			info.SizeBytes, info.ModTime = fi.Size(), fi.ModTime()
 			if inst := r.recentInstances(name); inst != nil {
 				info.Instances = inst
 			}

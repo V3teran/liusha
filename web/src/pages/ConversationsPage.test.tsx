@@ -133,13 +133,13 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('人工下发(direct)：allowNew=true，无自定义 heading，带结构化空态', () => {
+  it('人工下发(direct)：allowNew=true，无自定义 heading，空态名词为对话', () => {
     listProps.mockClear()
     renderPage('direct')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
     expect(lastListCall.heading).toBeUndefined()
-    expect(lastListCall.emptyState.title).toBe('暂无人工下发的对话')
+    expect(lastListCall.emptyState.noun).toBe('对话')
   })
 
   it('代理捕获(proxy)：allowNew=false，heading=代理批次，空态引导挂代理', () => {
@@ -148,7 +148,8 @@ describe('ConversationsPage', () => {
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(false)
     expect(lastListCall.heading).toBe('代理批次')
-    expect(lastListCall.emptyState.desc).toMatch(/8588/)
+    expect(lastListCall.emptyState.noun).toBe('代理批次')
+    expect(lastListCall.emptyState.hint).toMatch(/8588/)
   })
 
   it('onNew：新建会话时清空 currentConv（新建态）', async () => {

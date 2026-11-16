@@ -31,7 +31,6 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
 function makeProcess(overrides: Partial<LogProcessInfo> = {}): LogProcessInfo {
   return {
     name: 'api',
-    exists: true,
     size_bytes: 4096,
     mod_time: '2026-01-01T10:00:02Z',
     instances: ['72661@hohehoe.local'],
@@ -44,11 +43,11 @@ function makeResponse(entries: LogEntry[]): LogReadResponse {
 }
 
 // React Query 需要 Provider；筛选态走 URL 需要 Router（对齐 FindingsPage 测试模式）。
-function renderPage() {
+function renderPage(url = '/logs') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/logs']}>
+      <MemoryRouter initialEntries={[url]}>
         <LogsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -65,7 +64,7 @@ describe('LogsPage', () => {
     mockedListLogProcesses.mockReset()
     mockedReadLogs.mockReset()
     mockedListLogProcesses.mockResolvedValue({
-      processes: [makeProcess(), makeProcess({ name: 'runner', exists: false, instances: [] }), makeProcess({ name: 'proxy' })],
+      processes: [makeProcess(), makeProcess({ name: 'proxy' })],
     })
   })
 
@@ -131,10 +130,10 @@ describe('LogsPage', () => {
     mockedReadLogs.mockResolvedValue(makeResponse([makeEntry()]))
     renderPage()
     await waitFor(() => expect(mockedReadLogs).toHaveBeenCalled())
-    await user.selectOptions(screen.getByLabelText('按进程筛选'), 'runner')
+    await user.selectOptions(screen.getByLabelText('按进程筛选'), 'proxy')
     await waitFor(() => {
       const filters = mockedReadLogs.mock.calls.at(-1)![0] as LogFilters
-      expect(filters.process).toBe('runner')
+      expect(filters.process).toBe('proxy')
       expect(filters.instance).toBe('') // 切进程时实例联动清空
     })
   })
@@ -148,5 +147,32 @@ describe('LogsPage', () => {
     await waitFor(() => {
       expect((mockedReadLogs.mock.calls.at(-1)![0] as LogFilters).level).toBe('error')
     })
+  })
+
+  // 进程选项只列有日志文件的进程：选了必然为空的进程不出现
+  it('进程选项只列出有日志文件的进程', async () => {
+    mockedReadLogs.mockResolvedValue(makeResponse([makeEntry()]))
+    renderPage()
+    const select = screen.getByLabelText('按进程筛选')
+    await waitFor(() =>
+      expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['全部进程', 'api', 'proxy']),
+    )
+  })
+
+  // 旧链接带着已无日志文件的进程：选择框如实显示当前筛选，而不是假装「全部进程」
+  it('URL 中的进程已无日志文件时仍显示为当前筛选', async () => {
+    mockedReadLogs.mockResolvedValue(makeResponse([]))
+    renderPage('/logs?process=serve')
+    const select = screen.getByLabelText('按进程筛选') as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('serve'))
+    expect(await screen.findByText('没有匹配的日志')).toBeTruthy()
+  })
+
+  it('没有任何日志文件：提示检查文件日志配置', async () => {
+    mockedListLogProcesses.mockResolvedValue({ processes: [] })
+    mockedReadLogs.mockResolvedValue(makeResponse([]))
+    renderPage()
+    expect(await screen.findByText('暂无日志')).toBeTruthy()
+    expect(screen.getByText(/log\.to_file/)).toBeTruthy()
   })
 })

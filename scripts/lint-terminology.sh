@@ -48,6 +48,16 @@ EXCLUDES=(
 #   事件队列已删除（迁移 0224）；生命周期只写任务行，运行中的引导走直接的 API。
 # Primitives / primitives 列 / Attempt：复现配方全系统叫 repro，待验证的主张叫 Claim（迁移 0222）。
 # blocked_reason：节点状态原因已统一为 state_reason（系统里没有「阻塞」状态，迁移 0221）。
+# NewFromEnv / LoadWithoutLLM / APIKeyEnv / ClearProviderKey / restoreProviderEnvKey / HealthzAddr /
+#   AsynqConcurrency / AsynqShutdownTimeout / QueueAgentWeight / RedisKeyPrefix / InternalAddr /
+#   MaxRequestBodySize / MaxResponseBodySize / StreamName / NewStoreWithConfig：配置与 .env 统一后
+#   删除或改名的代码标识符（LLM 种子与环境变量密钥路径删除；runner.listen_addr / concurrency /
+#   drain_timeout_seconds；内部约定改为常量；body 上限改 _bytes）。配置键与环境变量的旧名留在升级
+#   文档里，不进本清单。
+# LIUSHA_API_BASE / LIUSHA_E2E_PG_DSN / LIUSHA_E2E_ADMIN / LIUSHA_PG_CONTAINER / LIUSHA_REDIS_CONTAINER /
+#   newPgxPoolForE2E / ExplorationGraphClient / containerSecretEnv：e2e 改为只经公开 API 观察任务（不再
+#   直连数据库，参数统一 LIUSHA_E2E_*，管理员密码共用 LIUSHA_ADMIN_INITIAL_PASSWORD）；.env 变量统一带
+#   LIUSHA_ 前缀后，沙盒清洗只按前缀，不再有单独的容器密码名单。
 # 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
 #   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
 FORBIDDEN=(
@@ -102,6 +112,29 @@ FORBIDDEN=(
   'executor_confidence'
   'test_plan'
   'kill_action'
+  'NewFromEnv'
+  'LoadWithoutLLM'
+  'APIKeyEnv'
+  'ClearProviderKey'
+  'restoreProviderEnvKey'
+  'HealthzAddr'
+  'AsynqConcurrency'
+  'AsynqShutdownTimeout'
+  'QueueAgentWeight'
+  'RedisKeyPrefix'
+  'InternalAddr'
+  'MaxRequestBodySize'
+  'MaxResponseBodySize'
+  'StreamName'
+  'NewStoreWithConfig'
+  'LIUSHA_API_BASE'
+  'LIUSHA_E2E_PG_DSN'
+  'LIUSHA_E2E_ADMIN'
+  'LIUSHA_PG_CONTAINER'
+  'LIUSHA_REDIS_CONTAINER'
+  'newPgxPoolForE2E'
+  'ExplorationGraphClient'
+  'containerSecretEnv'
   'controlplane'
   '控制平面'
   'task_control_event'

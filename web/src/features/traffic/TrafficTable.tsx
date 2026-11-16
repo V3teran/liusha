@@ -1,6 +1,7 @@
 import type { TrafficSummary } from '@/api/types'
 import { buildTrafficColumns } from './trafficColumns'
 import { DataTable } from '@/components/DataTable'
+import { PROXY_SETUP_HINT } from '@/lib/source'
 
 interface TrafficTableProps {
   rows: TrafficSummary[]
@@ -20,7 +21,8 @@ export function TrafficTable({ rows, loading, hasFilter, showHost, selectedId, o
       columns={buildTrafficColumns(showHost) as never}
       loading={loading}
       hasFilter={hasFilter}
-      emptyText="代理捕获流量"
+      emptyNoun="代理流量"
+      emptyHint={PROXY_SETUP_HINT}
       selectedId={selectedId}
       getRowId={(row) => String(row.id)}
       onRowClick={onRowClick}

@@ -42,8 +42,8 @@ func DefaultsFrom(cfg config.AppConfig) Defaults {
 			ExcludeSuffixes:         p.ExcludeSuffixes,
 			ExcludeContentTypes:     p.ExcludeContentTypes,
 			ExcludeStatusCodes:      p.ExcludeStatusCodes,
-			MaxRequestBodySize:      p.MaxRequestBodySize,
-			MaxResponseBodySize:     p.MaxResponseBodySize,
+			MaxRequestBodyBytes:     p.MaxRequestBodyBytes,
+			MaxResponseBodyBytes:    p.MaxResponseBodyBytes,
 		}.normalized(),
 	}
 }
@@ -235,11 +235,11 @@ func validate(g Group, doc override.Document) error {
 		if err := override.FromDocument(doc, &p); err != nil {
 			return fmt.Errorf("%w：%w", override.ErrInvalid, err)
 		}
-		if p.MaxRequestBodySize <= 0 {
-			problems = append(problems, "max_request_body_size 必须 > 0（请求体切片上限字节）")
+		if p.MaxRequestBodyBytes <= 0 {
+			problems = append(problems, "max_request_body_bytes 必须 > 0（请求体切片上限字节）")
 		}
-		if p.MaxResponseBodySize <= 0 {
-			problems = append(problems, "max_response_body_size 必须 > 0（响应体切片上限字节）")
+		if p.MaxResponseBodyBytes <= 0 {
+			problems = append(problems, "max_response_body_bytes 必须 > 0（响应体切片上限字节）")
 		}
 	}
 	if len(problems) > 0 {

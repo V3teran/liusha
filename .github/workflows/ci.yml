@@ -131,6 +131,8 @@ jobs:
         timeout-minutes: 25
         run: |
           go build -o "$env:RUNNER_TEMP\liusha.exe" ./cmd/liusha
+          # 与发布压缩包同一摆放：config.yaml 在程序所在目录
+          Copy-Item internal/config/config.yaml "$env:RUNNER_TEMP\config.yaml"
           python -m venv "$env:RUNNER_TEMP\bu"
           & "$env:RUNNER_TEMP\bu\Scripts\python.exe" -m pip install -q browser-use==0.13.14
           ./scripts/ci/windows-smoke.ps1 -Exe "$env:RUNNER_TEMP\liusha.exe" -Python "$env:RUNNER_TEMP\bu\Scripts\python.exe" -PgBin "$env:PG_BIN" -RedisDir "$env:REDIS_DIR"

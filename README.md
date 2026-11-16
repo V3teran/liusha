@@ -4,7 +4,9 @@
 
 ## 部署
 
-三种方式任选其一，配置、沙盒与本地开发的细节见 [deployments/README.md](deployments/README.md)。
+三种方式任选其一：二进制、单镜像、多镜像（Docker Compose）。都由两份文件驱动——`config.yaml`（全部配置，
+发布压缩包与仓库里各有一份模板）与 `.env`（密钥，由 `.env.example` 复制填写，三种方式共用一份模板）。
+配置、沙盒与本地开发的细节见 [deployments/README.md](deployments/README.md)。
 
 ### 二进制
 
@@ -14,8 +16,8 @@
 VERSION=0.10.2  # x-release-please-version
 curl -fLO https://github.com/V3teran/liusha/releases/download/v${VERSION}/liusha_${VERSION}_linux_amd64.tar.gz
 tar -xzf liusha_${VERSION}_linux_amd64.tar.gz && cd liusha_${VERSION}_linux_amd64
-./liusha setup -postgres-dsn 'postgres://liusha:<密码>@127.0.0.1:5432/liusha' -redis-addr 127.0.0.1:6379
-./liusha serve -env-file liusha.env
+cp .env.example .env && chmod 600 .env   # 填写密钥，取消注释并填写 LIUSHA_POSTGRES_URL、LIUSHA_REDIS_URL
+./liusha serve -env-file .env            # 启动时自动迁移数据库；其余配置在同目录的 config.yaml
 ```
 
 macOS 用 `liusha_${VERSION}_darwin_arm64.tar.gz`（Intel 机型为 `darwin_amd64`），步骤相同。
@@ -27,41 +29,47 @@ Windows（PowerShell；智能体的命令按 sh 语法执行，需安装 Git for
 $VERSION = "0.10.2"  # x-release-please-version
 Invoke-WebRequest -OutFile liusha.zip "https://github.com/V3teran/liusha/releases/download/v$VERSION/liusha_${VERSION}_windows_amd64.zip"
 Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
-.\liusha.exe setup -postgres-dsn "postgres://liusha:<密码>@127.0.0.1:5432/liusha" -redis-addr 127.0.0.1:6379
-.\liusha.exe serve -env-file liusha.env
+Copy-Item .env.example .env   # 填写密钥，取消注释并填写 LIUSHA_POSTGRES_URL、LIUSHA_REDIS_URL
+.\liusha.exe serve -env-file .env
 ```
 
-`setup` 迁移数据库、生成密钥与初始管理员密码，写入 `liusha.env`。控制台在 `http://<主机>:8580`。
+控制台在 `http://<主机>:8580`，用 `.env` 里的 `LIUSHA_ADMIN_INITIAL_PASSWORD` 以 admin 登录。
 作为后台服务运行（systemd / launchd / Windows 服务）见 [deployments/README.md](deployments/README.md#二进制)。
-
-### Docker Compose
-
-```bash
-git clone --branch v0.10.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
-cp .env.example .env    # 填写必填项
-docker compose up -d --build
-```
-
-首次会本地构建沙盒镜像（Kali + 工具），需要较长时间。控制台在 `http://<主机>:50080`。
 
 ### 单镜像
 
 ```bash
 git clone --branch v0.10.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 make single-build
-docker run -d --name liusha --stop-timeout 60 -p 50080:8580 -p 58588:8588 -v ~/data/liusha/single:/data liusha-single:local
-docker exec liusha cat /data/secrets/admin.initial_password   # 初始管理员 admin 的密码
+cp .env.example .env    # 填写密钥与容器部署必填项
+mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件，按需修改
+make single-run
 ```
+
+首次会本地构建沙盒镜像（Kali + 工具），需要较长时间。控制台在 `http://<主机>:50080`。
+
+### 多镜像（Docker Compose）
+
+```bash
+git clone --branch v0.10.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+cp .env.example .env    # 填写密钥与容器部署必填项（与单镜像同一组）
+mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件，按需修改
+docker compose up -d --build
+```
+
+首次会本地构建沙盒镜像（Kali + 工具），需要较长时间。控制台在 `http://<主机>:50080`。
 
 ## 升级
 
-数据库迁移随启动自动执行，只进不退；跨版本回滚前先备份数据库。
+数据库迁移随启动自动执行，只进不退；跨版本回滚前先备份数据库。升级后对照新版本的 `config.yaml` 与
+`.env.example` 补齐新增的项。
 
 - 二进制：下载新版本替换 `liusha`（Windows 为 `liusha.exe`），重启 `liusha serve`。
-- Docker Compose：`git fetch --tags && git checkout vX.Y.Z && docker compose pull && docker compose up -d --build`。
 - 单镜像：检出新版本后重新 `make single-build`，删除旧容器，以同一数据目录重新运行。
+- 多镜像：`git fetch --tags && git checkout vX.Y.Z && docker compose pull && docker compose up -d --build`。
 
-从 0.9 升级到 0.10 有不兼容变更，按 [deployments/README.md](deployments/README.md#从-09-升级) 操作。版本列表见 [Releases](https://github.com/V3teran/liusha/releases)。
+不兼容变更的升级步骤见 [deployments/README.md](deployments/README.md)（本版本：「配置文件与 .env 统一」；
+0.9 升级到 0.10：「从 0.9 升级」）。版本列表见 [Releases](https://github.com/V3teran/liusha/releases)。
 
 ## 许可证
 

@@ -185,7 +185,7 @@ describe('TasksPage（任务模块）', () => {
 
     await user.click(await screen.findByRole('button', { name: '定时模板' }))
     expect(await screen.findByRole('dialog', { name: '定时模板' })).toBeTruthy()
-    expect(await screen.findByText(/还没有定时模板/)).toBeTruthy()
+    expect(await screen.findByText('暂无定时模板')).toBeTruthy()
   })
 
   it('定时任务详情的「定时」标记打开抽屉并定位到来源模板', async () => {

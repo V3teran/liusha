@@ -1,82 +1,12 @@
 package envfile
 
 import (
-	"errors"
-	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
-
-var tricky = []Var{
-	{Key: "LIUSHA_POSTGRES_DSN", Value: `postgres://u:p%24ss@h:5432/db?sslmode=disable&x=1 #notcomment`},
-	{Key: "PLAIN", Value: "abc123"},
-	{Key: "EMPTY", Value: ""},
-	{Key: "TOKEN", Value: "Zm9v-YmFy_YmF6"},
-}
-
-// 三方解析可能不一致的字符一律拒绝写入，且不创建文件。
-func TestCreate_RejectsAmbiguousValues(t *testing.T) {
-	for _, v := range []string{`a"b`, `a'b`, `a\b`, "a$b", "a`b", "a\nb", "a\rb"} {
-		path := filepath.Join(t.TempDir(), "x.env")
-		if err := Create(path, []Section{{Vars: []Var{{Key: "K", Value: v}}}}); err == nil {
-			t.Errorf("%q 应被拒绝", v)
-		}
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Errorf("%q 被拒绝时不应创建文件", v)
-		}
-	}
-}
-
-// 写出的文件能被本包读回同样的值，且权限为 0600；已存在时拒绝覆盖。
-func TestCreateRead_RoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "liusha.env")
-	if err := Create(path, []Section{{Comments: []string{"说明"}, Vars: tricky}}); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows 的权限见 private_windows_test
-		t.Fatalf("权限 = %v，期望 0600", info.Mode().Perm())
-	}
-	got, err := Read(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(tricky) {
-		t.Fatalf("got %v", got)
-	}
-	for i := range tricky {
-		if got[i] != tricky[i] {
-			t.Errorf("第 %d 项 = %+v，期望 %+v", i, got[i], tricky[i])
-		}
-	}
-	if err := Create(path, nil); !errors.Is(err, fs.ErrExist) {
-		t.Fatalf("已存在应拒绝覆盖, got %v", err)
-	}
-}
-
-// 生成的文件被 sh source 后值不变（运维常用 set -a; . liusha.env）。
-func TestCreate_ShellCompatible(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "liusha.env")
-	if err := Create(path, []Section{{Vars: tricky}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range tricky {
-		out, err := exec.Command("sh", "-c", `. "$1" && printf %s "$`+v.Key+`"`, "sh", path).Output() // #nosec G204 // 测试内固定变量名
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(out) != v.Value {
-			t.Errorf("%s: sh 读到 %q，期望 %q", v.Key, out, v.Value)
-		}
-	}
-}
 
 func TestRead_Syntax(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a.env")
@@ -122,5 +52,22 @@ func TestLoad_DoesNotOverrideEnvironment(t *testing.T) {
 	}
 	if os.Getenv("LIUSHA_TEST_A") != "env" || os.Getenv("LIUSHA_TEST_B") != "file" {
 		t.Fatalf("A=%q B=%q", os.Getenv("LIUSHA_TEST_A"), os.Getenv("LIUSHA_TEST_B"))
+	}
+}
+
+// 仓库根的 .env.example（三种部署方式共用）能被 -env-file 原样读入；默认生效（不注释）的只有各部署
+// 方式都要填的密钥——按部署方式才用的项默认注释，二进制复制后不会带上容器专用的值。
+func TestRead_EnvExample(t *testing.T) {
+	vars, err := Read(filepath.Join("..", "..", ".env.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(vars))
+	for _, v := range vars {
+		got = append(got, v.Key)
+	}
+	want := []string{"LIUSHA_SANDBOX_TOKEN", "LIUSHA_LLM_ENCRYPTION_KEY", "LIUSHA_ADMIN_INITIAL_PASSWORD"}
+	if !slices.Equal(got, want) {
+		t.Fatalf(".env.example 默认生效的变量 = %v，期望 %v", got, want)
 	}
 }

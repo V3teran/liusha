@@ -4,7 +4,6 @@ package db
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -44,7 +43,7 @@ func TestNewPgPool_Ping(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	dsn := startPostgres(t)
-	pool, err := NewPgPool(ctx, config.PostgresConfig{DSN: dsn, MaxConns: 5, MinConns: 1, ConnectTimeoutSeconds: 5}, zerolog.Nop())
+	pool, err := NewPgPool(ctx, config.PostgresConfig{URL: dsn, MaxConns: 5, MinConns: 1, ConnectTimeoutSeconds: 5, MaxConnLifetimeSeconds: 3600}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +65,7 @@ func TestNewRedis_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewRedis(ctx, config.RedisConfig{Addr: strings.TrimPrefix(addr, "redis://")})
+	r, err := NewRedis(ctx, config.RedisConfig{URL: addr, PoolSize: 5, DialTimeoutSeconds: 5, ReadTimeoutSeconds: 3, WriteTimeoutSeconds: 3})
 	if err != nil {
 		t.Fatal(err)
 	}

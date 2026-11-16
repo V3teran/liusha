@@ -9,8 +9,8 @@
 //
 //	→ 进程内有界队列 → ingestor.drainInternal → handleInternalSnap 落库（不绕 Redis，自环 broker 冗余）。
 //
-// 路径：POST /internal/v1/traffic/ingest（挂在 runner 的 healthz HTTP mux 上）
-// 认证：Bearer <sandbox.token>（与 runner 调沙盒同一共享密钥；沙盒经 sandbox.ingest_url 访问）
+// 路径：POST sandbox.TrafficIngestPath（/internal/v1/traffic/ingest，挂在 runner 的 HTTP 服务上）
+// 认证：Bearer <sandbox.token>（与 runner 调沙盒同一共享密钥；沙盒经 runner.url 访问）
 
 package runner
 

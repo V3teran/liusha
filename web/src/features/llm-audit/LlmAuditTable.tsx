@@ -22,7 +22,8 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeo
       stickyHeader
       loading={loading}
       hasFilter={hasFilter}
-      emptyText=" LLM 调用记录"
+      emptyNoun="LLM 调用记录"
+      emptyHint="任务运行和对话中的每次 LLM 调用都会记录在这里。"
       meta={meta as never}
       getRowId={(row) => String(row.id)}
       onRowClick={onRowClick}

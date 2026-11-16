@@ -4,31 +4,37 @@ package convstream_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
+	"github.com/V3teran/liusha/internal/containertest"
 	"github.com/V3teran/liusha/internal/convstream"
 )
 
-// 用 dev redis 测 publish→subscribe 往返。需 LIUSHA_REDIS_ADDR（缺省 localhost:6379）。
-//
-//	LIUSHA_REDIS_ADDR=localhost:6379 go test -tags integration ./internal/convstream/
+// 用真实 Redis（testcontainers 拉起）测 publish→subscribe 往返：Pub/Sub 的订阅就绪、
+// 投递顺序是 Redis 的行为，内存替身不足以覆盖。
 func TestPubSub_RoundTrip(t *testing.T) {
-	addr := os.Getenv("LIUSHA_REDIS_ADDR")
-	if addr == "" {
-		addr = "localhost:6379"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	defer rdb.Close()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Skipf("redis 不可达（%s），跳过：%v", addr, err)
+	c, err := containertest.Start(ctx, func(ctx context.Context) (*tcredis.RedisContainer, error) { return tcredis.Run(ctx, "redis:8") })
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	url, err := c.ConnectionString(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rdb := redis.NewClient(opts)
+	defer rdb.Close()
 
 	const conversationID = "test-conv-roundtrip"
 	sub := convstream.Subscribe(ctx, rdb, conversationID)

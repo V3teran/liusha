@@ -1,7 +1,8 @@
-# liusha compose 部署：
+# liusha 多镜像部署（Docker Compose）：
 #
-#   cp .env.example .env              # 填写必填项
-#   docker compose up -d --build      # 首次构建沙盒镜像约需半小时以上（Kali + 约 90 个工具）
+#   cp .env.example .env                       # 填写密钥与容器部署的必填项
+#   mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件（LIUSHA_DATA_DIR 改过就放到那里），按需修改
+#   docker compose up -d --build               # 首次构建沙盒镜像约需半小时以上（Kali + 约 90 个工具）
 #
 # 服务：nginx（官方镜像，对外入口）→ api（控制台与 API）；proxy（MITM 代理入口）；runner（任务执行）；
 # sandbox（工具执行沙盒，本地构建）；postgres；redis；migrate（一次性数据库迁移，成功退出后
@@ -9,25 +10,40 @@
 #
 # 本地开发只起依赖：docker compose up -d postgres redis sandbox（见 scripts/dev/up.sh）。
 #
-# 数据都在 HOST_DATA_DIR（缺省 ~/data/liusha）下。任务工作区以同一绝对路径挂进 api 与 sandbox：
-# 附件清单交给 agent 的路径在两侧一致，宿主上直接运行的开发进程也看到同一路径。
+# 配置文件与数据都在 LIUSHA_DATA_DIR（缺省 ~/data/liusha）下：配置文件 ${LIUSHA_DATA_DIR}/config.yaml
+# 只读挂成各 liusha 容器的 /data/config.yaml（与单镜像同一位置），编辑宿主上的文件、重启服务生效；
+# 文件不存在时拒绝启动（不让 Docker 在原处建出空目录）。liusha 的数据目录（data_dir）在容器里就是
+# LIUSHA_DATA_DIR 这个宿主路径，workspace / logs / certs 以同一绝对路径挂进需要的容器：
+# 附件清单交给 agent 的路径在 api 与沙盒两侧一致，宿主上直接运行的开发进程也看到同一路径。
+#
+# .env 由 docker compose 读取，只把各服务需要的变量逐个传进容器。其中不对应配置键的部署变量
+# （数据库密码、宿主端口、镜像）只在这里使用，liusha 不读。
 
 x-liusha-image: &liusha-image
   image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha:${LIUSHA_IMAGE_TAG:-0.10.2} # x-release-please-version
 
-# 连接与日志：所有 liusha 组件共用。密钥一律来自 .env，缺失即拒绝启动。
+# 数据目录与连接：所有 liusha 组件共用。连接串由数据库容器的密码拼出，密码缺失即拒绝启动。
 x-liusha-env: &liusha-env
-  LIUSHA_POSTGRES_DSN: postgres://liusha:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable
-  LIUSHA_REDIS_ADDR: redis:6379
-  LIUSHA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD 未设置}
-  LIUSHA_LOG_DIR: /logs
-  LIUSHA_ENV: production
+  LIUSHA_DATA_DIR: ${LIUSHA_DATA_DIR:-$HOME/data/liusha}
+  LIUSHA_POSTGRES_URL: postgres://liusha:${LIUSHA_POSTGRES_PASSWORD:?LIUSHA_POSTGRES_PASSWORD 未设置}@postgres:5432/liusha?sslmode=disable
+  LIUSHA_REDIS_URL: redis://:${LIUSHA_REDIS_PASSWORD:?LIUSHA_REDIS_PASSWORD 未设置}@redis:6379/0
 
 # 访问沙盒：api 查询工具安装状态，runner 执行工具。
 x-sandbox-env: &sandbox-env
   LIUSHA_SANDBOX_TOKEN: ${LIUSHA_SANDBOX_TOKEN:?LIUSHA_SANDBOX_TOKEN 未设置}
   LIUSHA_SANDBOX_URL: http://sandbox:8591
-  LIUSHA_SANDBOX_WORKSPACE_DIR: ${HOST_DATA_DIR:-$HOME/data/liusha}/workspace
+
+# 配置文件：liusha 镜像读 /data/config.yaml（LIUSHA_CONFIG）。
+x-config: &config
+  type: bind
+  source: ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/config.yaml
+  target: /data/config.yaml
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-logs: &logs ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/logs:${LIUSHA_DATA_DIR:-$HOME/data/liusha}/logs
+x-workspace: &workspace ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/workspace:${LIUSHA_DATA_DIR:-$HOME/data/liusha}/workspace
 
 x-ready: &ready
   postgres:
@@ -44,13 +60,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: liusha
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}
+      POSTGRES_PASSWORD: ${LIUSHA_POSTGRES_PASSWORD:?LIUSHA_POSTGRES_PASSWORD 未设置}
       POSTGRES_DB: liusha
     # 只绑回环：数据库不对外；宿主上运行的开发进程经此端口连库
     ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
+      - "127.0.0.1:${LIUSHA_POSTGRES_HOST_PORT:-55432}:5432"
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/postgres:/var/lib/postgresql/data
+      - ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U liusha -d liusha"]
       interval: 5s
@@ -62,15 +78,15 @@ services:
     image: redis:8
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD 未设置}
+      REDIS_PASSWORD: ${LIUSHA_REDIS_PASSWORD:?LIUSHA_REDIS_PASSWORD 未设置}
     command: ["sh", "-c", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
     ports:
-      - "127.0.0.1:${REDIS_HOST_PORT:-56379}:6379"
+      - "127.0.0.1:${LIUSHA_REDIS_HOST_PORT:-56379}:6379"
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/redis:/data
+      - ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/redis:/data
     healthcheck:
       # requirepass 下裸 ping 返回 NOAUTH，必须带密码
-      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -81,6 +97,9 @@ services:
     command: ["migrate"]
     restart: "no"
     environment: *liusha-env
+    volumes:
+      - *config
+      - *logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,18 +109,14 @@ services:
     <<: *liusha-image
     command: ["api"]
     restart: unless-stopped
-    # .env 整体透传：配置覆盖文件里 provider 声明的密钥变量名无法预先枚举
-    env_file: [.env]
     environment:
       <<: [*liusha-env, *sandbox-env]
       LIUSHA_ADMIN_INITIAL_PASSWORD: ${LIUSHA_ADMIN_INITIAL_PASSWORD:?LIUSHA_ADMIN_INITIAL_PASSWORD 未设置}
-      LIUSHA_LLM_KEY_SECRET: ${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}
+      LIUSHA_LLM_ENCRYPTION_KEY: ${LIUSHA_LLM_ENCRYPTION_KEY:?LIUSHA_LLM_ENCRYPTION_KEY 未设置}
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/workspace:${HOST_DATA_DIR:-$HOME/data/liusha}/workspace
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/logs
-    # 只绑回环：对外入口是 nginx；本机调试可直连
-    ports:
-      - "127.0.0.1:${API_HOST_PORT:-58580}:8580"
+      - *config
+      - *workspace
+      - *logs
     depends_on: *ready
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8580/healthz"]
@@ -115,7 +130,7 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
-      - "${NGINX_HOST_PORT:-50080}:80"
+      - "${LIUSHA_CONSOLE_HOST_PORT:-50080}:80"
     volumes:
       - ./deployments/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -127,15 +142,14 @@ services:
     <<: *liusha-image
     command: ["proxy"]
     restart: unless-stopped
-    environment:
-      <<: *liusha-env
-      LIUSHA_PROXY_CERT_DIR: /certs
+    environment: *liusha-env
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/proxy-certs:/certs
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/logs
+      - *config
+      - ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/certs:${LIUSHA_DATA_DIR:-$HOME/data/liusha}/certs
+      - *logs
     # 浏览器 / 客户端把 HTTP 代理指到「宿主 IP:58588」
     ports:
-      - "${PROXY_HOST_PORT:-58588}:8588"
+      - "${LIUSHA_PROXY_HOST_PORT:-58588}:8588"
     depends_on: *ready
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "8588"]
@@ -148,19 +162,18 @@ services:
     <<: *liusha-image
     command: ["runner"]
     restart: unless-stopped
-    # 停机时在途任务按中断收尾（至多 runner.asynq_shutdown_timeout_seconds，缺省 30 秒），
+    # 停机时在途任务按中断收尾（至多 config.yaml 的 runner.drain_timeout_seconds，模板为 30 秒），
     # Docker 缺省的 10 秒宽限会在收尾中途强杀，run 残留 running。
     stop_grace_period: 45s
-    env_file: [.env]
     environment:
       <<: [*liusha-env, *sandbox-env]
-      LIUSHA_LLM_KEY_SECRET: ${LIUSHA_LLM_KEY_SECRET:?LIUSHA_LLM_KEY_SECRET 未设置}
-      JINA_API_KEY: ${JINA_API_KEY:-}
-      # 回连契约：容器内探测不到宿主地址，需要反弹 shell 等回连时在 .env 填宿主对目标可达的 IP / 域名
-      LIUSHA_SANDBOX_CALLBACK_HOST: ${LIUSHA_SANDBOX_CALLBACK_HOST:-}
-      LIUSHA_SANDBOX_LISTENER_PORTS: ${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}
+      LIUSHA_LLM_ENCRYPTION_KEY: ${LIUSHA_LLM_ENCRYPTION_KEY:?LIUSHA_LLM_ENCRYPTION_KEY 未设置}
+      LIUSHA_EMBEDDING_API_KEY: ${LIUSHA_EMBEDDING_API_KEY:-} # 可选；空值不覆盖配置文件
+      # 对外监听段：与 sandbox 发布的端口是同一个值（容器部署以 .env 为准，见 .env.example）
+      LIUSHA_SANDBOX_LISTENER_PORTS: ${LIUSHA_SANDBOX_LISTENER_PORTS:?LIUSHA_SANDBOX_LISTENER_PORTS 未设置}
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/logs
+      - *config
+      - *logs
     depends_on:
       <<: *ready
       sandbox:
@@ -183,24 +196,22 @@ services:
     # tini 作 PID 1：回收命令结束后被托孤的后台进程（扫描器、浏览器子进程）
     init: true
     environment:
+      LIUSHA_DATA_DIR: ${LIUSHA_DATA_DIR:-$HOME/data/liusha}
       LIUSHA_SANDBOX_TOKEN: ${LIUSHA_SANDBOX_TOKEN:?LIUSHA_SANDBOX_TOKEN 未设置}
-      LIUSHA_SANDBOX_WORKSPACE_DIR: ${HOST_DATA_DIR:-$HOME/data/liusha}/workspace
-      LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS: ${LIUSHA_SANDBOX_WORKSPACE_RETENTION_DAYS:-0}
-      # 浏览器流量回灌 runner；宿主上直接运行 runner 的开发形态改指 host.docker.internal
-      LIUSHA_SANDBOX_INGEST_URL: ${LIUSHA_SANDBOX_INGEST_URL:-http://runner:8590/internal/v1/traffic/ingest}
-      LIUSHA_LOG_DIR: /logs
-      LIUSHA_ENV: production
+      # 浏览器流量回灌 runner。宿主上直接运行 runner 的开发形态由 scripts/dev/up.sh 改指
+      # host.docker.internal（LIUSHA_RUNNER_URL）。
+      LIUSHA_RUNNER_URL: ${LIUSHA_RUNNER_URL:-http://runner:8590}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/workspace:${HOST_DATA_DIR:-$HOME/data/liusha}/workspace
-      - ${HOST_DATA_DIR:-$HOME/data/liusha}/logs:/logs
+      - *config
+      - *workspace
+      - *logs
     ports:
       # 只绑回环：供宿主上直接运行的开发进程访问；容器间走 compose 网络
-      - "127.0.0.1:${SANDBOX_HOST_PORT:-58591}:8591"
+      - "127.0.0.1:${LIUSHA_SANDBOX_HOST_PORT:-58591}:8591"
       # 对外监听段：反弹 shell / 代理 / payload 托管绑段内端口，目标经「回连地址:同号端口」直达。
-      # 与 runner 的 LIUSHA_SANDBOX_LISTENER_PORTS 是同一个值。
-      - "${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}:${LIUSHA_SANDBOX_LISTENER_PORTS:-21000-21299}"
+      - "${LIUSHA_SANDBOX_LISTENER_PORTS:?LIUSHA_SANDBOX_LISTENER_PORTS 未设置}:${LIUSHA_SANDBOX_LISTENER_PORTS:?LIUSHA_SANDBOX_LISTENER_PORTS 未设置}"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8591/healthz"]
       interval: 10s

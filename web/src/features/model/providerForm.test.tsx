@@ -34,7 +34,6 @@ function renderForm(over: Partial<ProviderConfig> = {}, patchSpy = vi.fn()) {
       draft={draft(over)}
       patch={patchSpy}
       isNew
-      onRestoreEnvKey={undefined}
     />,
   )
   return { patchSpy }
@@ -80,13 +79,13 @@ describe('providerForm 数字字段', () => {
   it('重置场景：外部 draft 值变化时本地显示跟随（重置按钮依赖）', async () => {
     const user = userEvent.setup()
     const { rerender } = render(
-      <ProviderFormBody draft={draft()} patch={vi.fn()} isNew onRestoreEnvKey={undefined} />,
+      <ProviderFormBody draft={draft()} patch={vi.fn()} isNew />,
     )
     const input = screen.getByLabelText(/上下文窗口/)
     await user.clear(input)
     await user.type(input, '123')
     rerender(
-      <ProviderFormBody draft={draft({ context_window: 999999 })} patch={vi.fn()} isNew onRestoreEnvKey={undefined} />,
+      <ProviderFormBody draft={draft({ context_window: 999999 })} patch={vi.fn()} isNew />,
     )
     expect((input as HTMLInputElement).value).toBe('999999')
   })

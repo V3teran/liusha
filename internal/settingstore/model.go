@@ -102,8 +102,8 @@ type ProxyFilterSettings struct {
 	ExcludeSuffixes         []string `json:"exclude_suffixes"`          // 排除的 URL 后缀（.css/.js/图片…）
 	ExcludeContentTypes     []string `json:"exclude_content_types"`     // 排除的 Content-Type
 	ExcludeStatusCodes      []int    `json:"exclude_status_codes"`      // 排除的响应状态码
-	MaxRequestBodySize      int      `json:"max_request_body_size"`     // 请求体切片上限字节
-	MaxResponseBodySize     int      `json:"max_response_body_size"`    // 响应体切片上限字节
+	MaxRequestBodyBytes     int      `json:"max_request_body_bytes"`    // 请求体切片上限字节
+	MaxResponseBodyBytes    int      `json:"max_response_body_bytes"`   // 响应体切片上限字节
 }
 
 // normalized 把 nil 切片归一为空切片：yaml 缺省时为 nil，而过滤链构建、集合

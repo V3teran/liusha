@@ -3,19 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
 // runProfiles 顺序跑被选的剧本：调 POST /chat → 轮询探索图。
-func runProfiles(ctx context.Context, profs []profile, apiBase string, session *http.Cookie, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	kgClient := NewExplorationGraphClient(pool)
-
+func runProfiles(ctx context.Context, profs []profile, api taskAPI, logger zerolog.Logger) error {
 	for _, p := range profs {
 		// 走会话入口（POST /chat）
-		conversationID, taskID, err := createChatTask(apiBase, session, p.brief)
+		conversationID, taskID, err := createChatTask(api.base, api.session, p.brief)
 		if err != nil {
 			return fmt.Errorf("profile %s: createChatTask: %w", p.name, err)
 		}
@@ -28,8 +24,8 @@ func runProfiles(ctx context.Context, profs []profile, apiBase string, session *
 			Int("min_results", p.acceptance.MinResults).
 			Msg("chat scan dispatched")
 
-		// 使用探索图轮询（直接查询数据库）
-		if err := pollTaskWithGraphStats(ctx, kgClient, pool, apiBase, session, taskID, p.acceptance, &logger); err != nil {
+		// 经公开 API 轮询探索图
+		if err := pollTaskWithGraphStats(ctx, api, taskID, p.acceptance, &logger); err != nil {
 			return fmt.Errorf("profile %s: %w", p.name, err)
 		}
 

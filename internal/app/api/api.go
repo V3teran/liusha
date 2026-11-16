@@ -1,6 +1,6 @@
-// Package api 是 api 组件：HTTP API 与控制台前端、鉴权、LLM 接入首装引导、定时调度器。
+// Package api 是 api 组件：HTTP API 与控制台前端、鉴权、定时调度器。
 //
-// 启动顺序：pg + redis → stores → 首装引导（技能转换、LLM 种子、工具目录、初始管理员）→
+// 启动顺序：pg + redis → stores → 启动引导（技能转换、工具目录、初始管理员）→
 // 调度器 → http server。ctx 取消后在 shutdown_timeout 内优雅关闭 http server。
 package api
 
@@ -9,10 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
@@ -23,7 +21,6 @@ import (
 	"github.com/V3teran/liusha/internal/auth"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/config/seed"
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
@@ -63,26 +60,30 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	defer pool.Close()
 
+	redisOpts, err := db.RedisOptions(cfg.Redis)
+	if err != nil {
+		return err
+	}
 	rdb, err := db.NewRedis(ctx, cfg.Redis)
 	if err != nil {
 		return fmt.Errorf("连接 Redis: %w", err)
 	}
 	defer func() { _ = rdb.Close() }()
 
-	// LLM provider API Key 加密密钥：缺失或长度不对直接拒启动——前端「LLM 配置」页写密钥、
+	// provider 密钥的加密密钥：缺失或长度不对直接拒启动——前端「LLM 配置」页写密钥、
 	// LLM 调用读密钥都靠它，静默跳过会让密钥以明文落库或运行期解密报错。
-	llmKeyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	llmKeyCipher, err := cryptx.NewFromHex(cfg.LLM.EncryptionKey)
 	if err != nil {
-		return fmt.Errorf("LIUSHA_LLM_KEY_SECRET 未配置或不合法（provider 密钥加密需要它）: %w", err)
+		return fmt.Errorf("llm.encryption_key（LIUSHA_LLM_ENCRYPTION_KEY）未配置或不合法: %w", err)
 	}
 
-	credAPI := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
+	credAPI := credential.NewRedis(rdb)
 	taskStore := task.NewStore(pool)
 	assignmentStore := assignment.NewStore(pool)
 	cronStore := cronschedule.NewStore(pool)
 	findStore := finding.NewStore(pool)
 	proxyTrafficStore := traffic.NewProxyStore(pool)
-	invocationStore := llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation)
+	invocationStore := llminvocation.NewStore(pool)
 	defer func() { _ = invocationStore.Close() }()
 	agentRunStore := agentrun.NewStore(pool)
 	auditStore := audit.NewStore(pool)
@@ -91,12 +92,16 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	explorationGraphStore := explorationgraph.NewStore(pool)
 	authStore := auth.NewStore(pool)
 
-	enq := worker.NewClient(asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password})
+	enq := worker.NewClient(worker.RedisOpt(redisOpts))
 	defer func() { _ = enq.Close() }()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：所有配置资源（agent 与技能、
 	// LLM、系统设置）复用同一实例，一条 Subscribe 循环覆盖全部资源。
-	cache := cachestore.New(rdb, 0)
+	schemaVersion, err := db.SchemaVersion(ctx, pool)
+	if err != nil {
+		return err
+	}
+	cache := cachestore.New(rdb, schemaVersion)
 	go func() {
 		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
@@ -112,8 +117,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	settingStore := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 	toolCatalog := toolstore.New(pool)
 
-	bootstrap(ctx, logger, cfg, pool, cfgStore, llmStore, toolCatalog, tools)
-	if err := ensureInitialAdmin(ctx, authStore, logger); err != nil {
+	bootstrap(ctx, logger, pool, cfgStore, toolCatalog, tools)
+	if err := ensureInitialAdmin(ctx, authStore, cfg.Admin.InitialPassword, logger); err != nil {
 		return err
 	}
 
@@ -134,12 +139,12 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	})
 
 	// 任务工作区（文件 CRUD 面）：与沙盒执行命令的工作区是同一目录。
-	workspaceStore, err := workspace.NewStore(cfg.Sandbox.WorkspaceDir)
+	workspaceStore, err := workspace.NewStore(cfg.WorkspaceDir())
 	if err != nil {
-		return fmt.Errorf("打开任务工作区 %s: %w", cfg.Sandbox.WorkspaceDir, err)
+		return fmt.Errorf("打开任务工作区 %s: %w", cfg.WorkspaceDir(), err)
 	}
 	defer func() { _ = workspaceStore.Close() }()
-	logger.Info().Str("root", cfg.Sandbox.WorkspaceDir).Msg("任务工作区已就绪")
+	logger.Info().Str("root", cfg.WorkspaceDir()).Msg("任务工作区已就绪")
 	// 附件复用工作区的路径钳制与落盘（暂存与落位同一棵树，下发搬家用 rename）。
 	attachmentStore := attachment.NewStore(workspaceStore)
 
@@ -213,11 +218,12 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			Schedules:          cronStore,
 			TaskControl:        dispatchService,
 			TaskSteering:       dispatchService,
-			Logs:               logx.NewReader(logx.Dir()),
+			Logs:               logx.NewReader(cfg.LogDir()),
 			WebUI:              web.Assets(),
 		}),
-		ReadTimeout:  time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
-		WriteTimeout: time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
+		ReadTimeout:       time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
+		WriteTimeout:      time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
+		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
 	}
 
 	if cfg.Sandbox.Token == "" {
@@ -248,8 +254,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 }
 
 // bootstrap 执行启动期的幂等引导。各步失败都不阻止启动（下次启动重试，或可在前端补齐），只记日志。
-func bootstrap(ctx context.Context, logger zerolog.Logger, cfg config.AppConfig, pool *pgxpool.Pool,
-	cfgStore *configstore.Store, llmStore *llmstore.Store, toolCatalog *toolstore.Store, tools *manifest.ToolManifest,
+func bootstrap(ctx context.Context, logger zerolog.Logger, pool *pgxpool.Pool,
+	cfgStore *configstore.Store, toolCatalog *toolstore.Store, tools *manifest.ToolManifest,
 ) {
 	// 已下线、但用户自定义过的内置技能转为同 code 的自建技能，用户的修改不随下线丢失。
 	if adopted, err := cfgStore.AdoptRetiredSkills(ctx); err != nil {
@@ -258,18 +264,8 @@ func bootstrap(ctx context.Context, logger zerolog.Logger, cfg config.AppConfig,
 		logger.Info().Strs("skills", adopted).Msg("已下线的内置技能已转为自建技能（保留用户自定义）")
 	}
 
-	// LLM 配置种子：llm_provider 空表时才导入配置里声明的 providers；非空库整段跳过
-	// （数据库是运行期事实源，界面删除的 provider 不会被配置复活）。
-	llmConfigStore := llmconfig.NewStore(pool)
-	if err := seed.ImportLLM(ctx, cfg, llmConfigStore); err != nil {
-		logger.Warn().Err(err).Msg("LLM 配置种子导入失败（跳过，可在「LLM 配置」页手动补齐）")
-	}
-	// 种子直连数据库写，绕过缓存层：导入后清空 LLM 配置读缓存，避免旧缓存盖过新配置。
-	if err := llmStore.InvalidateAll(ctx); err != nil {
-		logger.Warn().Err(err).Msg("LLM 配置缓存清空失败（运行期首读可能短暂滞后）")
-	}
-	// 零 provider 不拒启：允许「先部署、后在前端配置」，下发边界会拒绝并给出指引。
-	if provs, err := llmConfigStore.ListProviders(ctx, false); err != nil {
+	// 零 provider 不拒启：LLM 在前端「LLM 配置」页接入，未接入时下发边界会拒绝并给出指引。
+	if provs, err := llmconfig.NewStore(pool).ListProviders(ctx, false); err != nil {
 		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查 LLM 配置）")
 	} else if len(provs) == 0 {
 		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「LLM 配置」页接入 provider")
@@ -283,10 +279,10 @@ func bootstrap(ctx context.Context, logger zerolog.Logger, cfg config.AppConfig,
 	}
 }
 
-// ensureInitialAdmin 在账号表为空时用 LIUSHA_ADMIN_INITIAL_PASSWORD 建 admin（仅首启生效，
+// ensureInitialAdmin 在账号表为空时用 admin.initial_password 建 admin（仅首启生效，
 // 之后永久跳过，改密走前端）。凭据随进程启动即存在——不存在「服务已起、账号未建」的
 // 公网抢占窗口，api 没有任何未认证的建号端点。
-func ensureInitialAdmin(ctx context.Context, accounts *auth.Store, logger zerolog.Logger) error {
+func ensureInitialAdmin(ctx context.Context, accounts *auth.Store, pw string, logger zerolog.Logger) error {
 	n, err := accounts.CountAccounts(ctx)
 	if err != nil {
 		return fmt.Errorf("读取账号数: %w", err)
@@ -294,9 +290,8 @@ func ensureInitialAdmin(ctx context.Context, accounts *auth.Store, logger zerolo
 	if n > 0 {
 		return nil
 	}
-	pw := os.Getenv("LIUSHA_ADMIN_INITIAL_PASSWORD")
 	if len(pw) < 8 || len(pw) > 72 {
-		return errors.New("首次启动需要 LIUSHA_ADMIN_INITIAL_PASSWORD（8-72 字节）初始化 admin 账号；仅首启生效，之后改密走前端")
+		return errors.New("首次启动需要 admin.initial_password（LIUSHA_ADMIN_INITIAL_PASSWORD，8-72 字节）初始化 admin 账号；仅首启生效，之后改密走前端")
 	}
 	hash, err := auth.HashPassword(pw)
 	if err != nil {

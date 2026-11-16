@@ -22,9 +22,9 @@ func TestEnvName(t *testing.T) {
 
 // Windows 的变量名不区分大小写：Path 就是 PATH，liusha_x 也是 liusha 的变量。
 func TestScrubAndPrepend_FollowPlatformNameRules(t *testing.T) {
-	env := []string{"Path=C:\\bin", "liusha_postgres_dsn=x", "Main_Api_Key=k", "KEEP=1"}
-	got := prependPath(scrubEnv(env, []string{"MAIN_API_KEY"}), "D:\\browser")
-	want := []string{"Path=C:\\bin", "liusha_postgres_dsn=x", "Main_Api_Key=k", "KEEP=1", "PATH=D:\\browser"}
+	env := []string{"Path=C:\\bin", "liusha_postgres_url=x", "KEEP=1"}
+	got := prependPath(scrubEnv(env), "D:\\browser")
+	want := []string{"Path=C:\\bin", "liusha_postgres_url=x", "KEEP=1", "PATH=D:\\browser"}
 	if runtime.GOOS == "windows" {
 		want = []string{"Path=D:\\browser;C:\\bin", "KEEP=1"}
 	}

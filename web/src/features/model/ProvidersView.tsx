@@ -11,9 +11,9 @@ import {
   useProviders,
   useSaveProvider,
   useDeleteProvider,
-  useRestoreProviderEnvKey,
 } from './useModelQueries'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 /** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
 const INTERACTIVE =
@@ -35,10 +35,9 @@ export function ProvidersView() {
   const { data: providers = [], isLoading, isError, error, refetch } = useProviders()
   const saveMutation = useSaveProvider()
   const deleteMutation = useDeleteProvider()
-  const restoreMutation = useRestoreProviderEnvKey()
 
   const [query, setQuery] = useState('')
-  const { draft, setDraft, open: openDraftState, close: closeDraftState, isDirty: dirty, commitFields, reset: resetDraft } =
+  const { draft, setDraft, open: openDraftState, close: closeDraftState, isDirty: dirty, reset: resetDraft } =
     useDirtyDraft<ProviderConfig>()
   const [isNew, setIsNew] = useState(false)
   // dirty 时被拦截的收起/切换意图：确认条上「丢弃」按钮据此执行。
@@ -139,23 +138,6 @@ export function ProvidersView() {
     })
   }
 
-  // 恢复使用环境变量：服务端只清了密文——只把密钥字段同时写入草稿与基线，其余字段的
-  // 未保存修改保持未保存；响应到达时已切到别的 provider 则不动当前草稿。
-  const onRestoreEnvKey = () => {
-    if (!draft) return
-    const code = draft.code
-    setActionError('')
-    restoreMutation.mutate(code, {
-      onSuccess: (p) => {
-        commitFields(
-          { api_key: '', key_present: p.key_present, key_last4: p.key_last4, api_key_env: p.api_key_env },
-          (d) => d.code === code,
-        )
-      },
-      onError: (e) => setActionError(errorText(e, '恢复失败')),
-    })
-  }
-
   const saving = saveMutation.isPending || deleteMutation.isPending
 
   const onSave = () => {
@@ -218,9 +200,11 @@ export function ProvidersView() {
             </Button>
           </div>
         ) : filtered.length === 0 && !isNew ? (
-          <div className="py-10 text-center text-sm text-text-secondary">
-            {query.trim() ? '无匹配 provider' : '暂无 provider——点「新建」接入第一个 provider'}
-          </div>
+          query.trim() ? (
+            <EmptyState kind="no-match" scope="search" noun="provider" />
+          ) : (
+            <EmptyState kind="empty" noun="provider" hint="点击「新建」接入第一个 provider。" />
+          )
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {isNew && draft && (
@@ -239,7 +223,6 @@ export function ProvidersView() {
                     resetDraft()
                     setActionError('')
                   }}
-                  onRestoreEnvKey={onRestoreEnvKey}
                   onCancel={requestCollapse}
                   onDiscard={discardPending}
                   onKeepEditing={() => setPending(null)}
@@ -281,8 +264,7 @@ export function ProvidersView() {
                       resetDraft()
                       setActionError('')
                     }}
-                    onRestoreEnvKey={onRestoreEnvKey}
-                    onCancel={requestCollapse}
+                      onCancel={requestCollapse}
                     onDiscard={discardPending}
                     onKeepEditing={() => setPending(null)}
                     onDismissError={() => setActionError('')}

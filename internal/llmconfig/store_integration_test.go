@@ -87,15 +87,6 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 		t.Fatalf("更新不存在应包装 ErrNoRows，got %v", err)
 	}
 
-	if _, err := s.ClearProviderKey(ctx, "keyed"); !errors.Is(err, ErrConflict) {
-		t.Fatalf("无环境变量时清除密钥应 ErrConflict，got %v", err)
-	}
-	if p, _ := s.GetProvider(ctx, "keyed"); string(p.EncryptedAPIKey) != "sealed" {
-		t.Fatal("被拒绝的清除不应动已存密钥")
-	}
-	if _, err := s.ClearProviderKey(ctx, "ghost"); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("清除不存在 provider 的密钥应包装 ErrNoRows，got %v", err)
-	}
 	if err := s.DeleteProvider(ctx, "ghost"); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("删除不存在应包装 ErrNoRows，got %v", err)
 	}

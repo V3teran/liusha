@@ -23,12 +23,10 @@ func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
 	if len(cfg.ExcludeMethods) > 0 {
 		chain.Add(NewMethodFilter(cfg.ExcludeMethods))
 	}
-	// 协议升级黑名单：未配置时兜底拦 websocket（绝大多数代理场景下不应进入扫描流量）。
-	upgradeProtocols := cfg.ExcludeUpgradeProtocols
-	if len(upgradeProtocols) == 0 {
-		upgradeProtocols = []string{"websocket"}
+	// 协议升级黑名单：名单为空即不按 Upgrade 过滤（出厂名单 [websocket] 由配置模板给出）。
+	if len(cfg.ExcludeUpgradeProtocols) > 0 {
+		chain.Add(NewProtocolFilter(cfg.ExcludeUpgradeProtocols))
 	}
-	chain.Add(NewProtocolFilter(upgradeProtocols))
 	chain.Add(NewHostFilter(cfg.AllowHosts, cfg.ExcludeHosts))
 	if len(cfg.ExcludeSuffixes) > 0 {
 		chain.Add(NewSuffixFilter(cfg.ExcludeSuffixes))
@@ -39,7 +37,7 @@ func NewTrafficFilter(cfg config.ProxyConfig) *TrafficFilter {
 	if len(cfg.ExcludeStatusCodes) > 0 {
 		chain.Add(NewStatusCodeFilter(cfg.ExcludeStatusCodes))
 	}
-	chain.Add(NewSizeFilter(cfg.MaxRequestBodySize, cfg.MaxResponseBodySize))
+	chain.Add(NewSizeFilter(cfg.MaxRequestBodyBytes, cfg.MaxResponseBodyBytes))
 
 	return &TrafficFilter{chain: chain}
 }

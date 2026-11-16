@@ -311,7 +311,7 @@ func hasControlRune(s string) bool {
 }
 
 // Manifest 渲染注入扫描指令 prompt 的附件清单（绝对路径，agent 经工具直接读取）。
-// 沙盒与 api 共用同一工作区目录（sandbox.workspace_dir；compose 以同一路径挂进两个容器），
+// 沙盒与 api 共用同一工作区目录（<data_dir>/workspace；多镜像部署以同一路径挂进两个容器），
 // 因此 agent 可读路径 = 工作区根 + 相对路径（交给 agent 的形式，见 sandbox.AgentPath）。refs 为空返回空串。
 func (s *Store) Manifest(refs []Ref) string {
 	if len(refs) == 0 {

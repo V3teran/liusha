@@ -6,9 +6,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# 配置文件：沙盒容器与宿主上的组件读同一份 ${LIUSHA_DATA_DIR}/config.yaml。没有就停下，由人放入——
+# 不替人生成，免得仓库模板更新后本地那份悄悄过期。
+# shellcheck source=scripts/dev/env.sh
+. scripts/dev/env.sh
+if [ ! -f "$LIUSHA_CONFIG" ]; then
+  echo "✗ 缺少配置文件 $LIUSHA_CONFIG"
+  echo "  → mkdir -p \"$(dirname "$LIUSHA_CONFIG")\" && cp internal/config/config.yaml \"$LIUSHA_CONFIG\""
+  exit 1
+fi
+
 echo "===== 1. 起依赖容器（postgres + redis + sandbox）====="
 # 沙盒的浏览器流量回灌到宿主上运行的 runner（compose 缺省指向容器内的 runner 服务）。
-export LIUSHA_SANDBOX_INGEST_URL="http://host.docker.internal:8590/internal/v1/traffic/ingest"
+export LIUSHA_RUNNER_URL="http://host.docker.internal:8590"
 docker compose up -d --build postgres redis sandbox
 
 echo ""

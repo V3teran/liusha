@@ -5,17 +5,13 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/V3teran/liusha/internal/config"
 )
 
 // newTestStore 构造一个不连真实 DB 的 Store：flush() 遇到空 batch 直接 return，
 // 不会 touch pool，故这里传 nil 也能跑——专测 Flush() 的等待行为，不测落库。
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s := NewStoreWithConfig(nil, config.InvocationConfig{
-		FlushIntervalMs: 1000, // 与生产默认一致：若 Flush 退化回「盲等」，这里就会跑够 1s 而超时失败
-	})
+	s := NewStore(nil)
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
@@ -81,7 +77,7 @@ func TestFlush_ContextCanceled(t *testing.T) {
 
 // Close 之后再调 Flush 不应挂死（worker 已退出，flushReq 发不出去）。
 func TestFlush_AfterClose(t *testing.T) {
-	s := NewStoreWithConfig(nil, config.InvocationConfig{FlushIntervalMs: 1000})
+	s := NewStore(nil)
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close 失败: %v", err)
 	}

@@ -71,16 +71,22 @@ func newTestServer(t *testing.T, listenAddr, certDir string, cfg config.ProxyCon
 // 默认放行全部的 cfg；上限设大避免误截断。
 func defaultCfg() config.ProxyConfig {
 	return config.ProxyConfig{
-		MaxRequestBodySize:  1 << 20,
-		MaxResponseBodySize: 1 << 20,
+		MaxRequestBodyBytes:  1 << 20,
+		MaxResponseBodyBytes: 1 << 20,
 	}
 }
 
-func TestNewServer_DefaultListenAddr(t *testing.T) {
-	tmp := t.TempDir()
-	srv, _ := newTestServer(t, "", tmp, defaultCfg())
-	if srv.listenAddr != fallbackListenAddr {
-		t.Fatalf("期望默认监听地址 %q, 实际 %q", fallbackListenAddr, srv.listenAddr)
+// 监听地址与证书目录没有代码内的默认值：缺任一都拒绝构造。
+func TestNewServer_RequiresListenAddrAndCertDir(t *testing.T) {
+	f := filter.NewTrafficFilter(defaultCfg())
+	pub := &fakePublisher{}
+	for _, deps := range []ServerDeps{
+		{Filter: f, Publisher: pub, CertDir: t.TempDir(), Source: "external"},
+		{Filter: f, Publisher: pub, ListenAddr: "127.0.0.1:0", Source: "external"},
+	} {
+		if _, err := NewServer(deps); err == nil {
+			t.Fatalf("缺监听地址或证书目录应报错: %+v", deps)
+		}
 	}
 }
 
@@ -210,11 +216,11 @@ func TestServer_OnResponse_BodyRebuild(t *testing.T) {
 	}
 }
 
-// 大 body 截断：MaxResponseBodySize=10，原始 body=20 → 实际只保留 10 字节。
+// 大 body 截断：MaxResponseBodyBytes=10，原始 body=20 → 实际只保留 10 字节。
 func TestServer_OnResponse_BodyTruncated(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := defaultCfg()
-	cfg.MaxResponseBodySize = 10
+	cfg.MaxResponseBodyBytes = 10
 	srv, pub := newTestServer(t, "127.0.0.1:0", tmp, cfg)
 
 	full := bytes.Repeat([]byte("A"), 20)
@@ -236,7 +242,7 @@ func TestServer_OnResponse_BodyTruncated(t *testing.T) {
 // 不被过滤器拦下时，截断转发等于代理改坏业务响应）。
 func TestServer_OnResponse_TruncationDoesNotAlterForwardedBody(t *testing.T) {
 	cfg := defaultCfg()
-	cfg.MaxResponseBodySize = 10
+	cfg.MaxResponseBodyBytes = 10
 	srv, pub := newTestServer(t, "127.0.0.1:0", t.TempDir(), cfg)
 
 	full := bytes.Repeat([]byte("A"), 20)
@@ -334,8 +340,8 @@ func TestServer_SwapFilter_HotReload(t *testing.T) {
 	// 热换：把 OPTIONS 加入方法黑名单 + 收紧 body 上限。
 	newCfg := defaultCfg()
 	newCfg.ExcludeMethods = []string{"OPTIONS"}
-	newCfg.MaxResponseBodySize = 5
-	srv.SwapFilter(filter.NewTrafficFilter(newCfg), newCfg.MaxRequestBodySize, newCfg.MaxResponseBodySize)
+	newCfg.MaxResponseBodyBytes = 5
+	srv.SwapFilter(filter.NewTrafficFilter(newCfg), newCfg.MaxRequestBodyBytes, newCfg.MaxResponseBodyBytes)
 
 	// 换后：同样的 OPTIONS 流量被拦 → snapshot 数不增。
 	resp2 := makeResponse(t, "OPTIONS", "http://api.example.com/foo", nil, 200, []byte("{}"))

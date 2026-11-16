@@ -2,21 +2,23 @@
 
 COMPOSE = docker compose
 
-# 镜像仓库/标签（compose.yaml 同默认值——本地 build 即同名 tag，pull 不撞远端）
+# make image / publish 构建的镜像仓库与标签（命令行参数；部署时 compose 按 .env 的
+# LIUSHA_IMAGE_REPO / LIUSHA_IMAGE_TAG 选用镜像）
 IMAGE_REPO ?= ghcr.io/v3teran
 IMAGE_TAG ?= latest
 # 版本号与发布物同一写法：不带 v（标签 v0.10.0 → 0.10.0；标签之后的提交带 -N-g<提交>）
 VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 
 # ── 本地开发：依赖（pg / redis / 沙盒）跑在容器里，组件在宿主上直接运行 ──
-# 完整流程见 scripts/dev/up.sh 与 scripts/dev/run-svc.sh。
+# 完整流程见 scripts/dev/up.sh 与 scripts/dev/run-svc.sh。宿主进程与容器读同一份配置文件
+# ${LIUSHA_DATA_DIR}/config.yaml（缺省 ~/data/liusha/config.yaml），连接串由 scripts/dev/env.sh 按 .env 拼出。
 dev-up:
 	bash scripts/dev/up.sh
 
 dev-down:
 	bash scripts/dev/down.sh
 
-# ── compose 部署：全部服务；数据库迁移由一次性的 migrate 服务随 up 执行 ──
+# ── 多镜像部署（Docker Compose）：全部服务；数据库迁移由一次性的 migrate 服务随 up 执行 ──
 up:
 	$(COMPOSE) up -d --build
 
@@ -51,30 +53,32 @@ publish:
 single-build: build-sandbox
 	docker build --build-arg VERSION=$(VERSION) -t liusha-single:local -f deployments/single/Dockerfile .
 
-# 回连地址：目标访问「它:监听段端口」反连沙盒，按需改 CALLBACK_HOST 与监听段
-CALLBACK_HOST ?=
-LISTENER_PORTS ?= 21000-21299
+# .env 与多镜像同一份（仓库根）：控制台 / 代理的宿主端口与对外监听段都取自其中，与多镜像同名同义。
+# 回连地址等其余配置在 ~/data/liusha/config.yaml。
 single-run:
-	docker run -d --restart unless-stopped --stop-timeout 60 --name liusha-single \
-	  -p 50080:8580 -p 58588:8588 -p $(LISTENER_PORTS):$(LISTENER_PORTS) \
-	  -e LIUSHA_SANDBOX_CALLBACK_HOST=$(CALLBACK_HOST) -e LIUSHA_SANDBOX_LISTENER_PORTS=$(LISTENER_PORTS) \
+	@test -f .env || { echo "缺少 .env：cp .env.example .env 并填写"; exit 1; }
+	env_val() { sed -n "s/^$$1=//p" .env; }; \
+	ports=$$(env_val LIUSHA_SANDBOX_LISTENER_PORTS); \
+	test -n "$$ports" || { echo ".env 缺少 LIUSHA_SANDBOX_LISTENER_PORTS"; exit 1; }; \
+	console=$$(env_val LIUSHA_CONSOLE_HOST_PORT); proxy=$$(env_val LIUSHA_PROXY_HOST_PORT); \
+	docker run -d --restart unless-stopped --stop-timeout 60 --name liusha-single --env-file .env \
+	  -p $${console:-50080}:8580 -p $${proxy:-58588}:8588 -p $$ports:$$ports \
 	  -v $(HOME)/data/liusha/single:/data \
+	  --mount type=bind,src=$(HOME)/data/liusha/config.yaml,dst=/data/config.yaml,readonly \
 	  liusha-single:local
 
 logs:
 	$(COMPOSE) logs -f --tail=100
 
-# 对本地开发库执行迁移（连接串取 LIUSHA_POSTGRES_DSN，缺省按 .env 的 POSTGRES_PASSWORD 拼出）
+# 对本地开发库执行迁移（连接串由 scripts/dev/env.sh 按 .env 拼出）
 migrate:
-	bash -c 'set -a; [ -f .env ] && . ./.env; set +a; \
-	  export LIUSHA_POSTGRES_DSN="$${LIUSHA_POSTGRES_DSN:-postgres://liusha:$${POSTGRES_PASSWORD}@localhost:$${POSTGRES_HOST_PORT:-55432}/liusha?sslmode=disable}"; \
-	  go run ./cmd/liusha migrate'
+	bash -c '. scripts/dev/env.sh && go run ./cmd/liusha migrate'
 
 run-api:
-	go run ./cmd/liusha api
+	bash -c '. scripts/dev/env.sh && go run ./cmd/liusha api'
 
 run-runner:
-	go run ./cmd/liusha runner
+	bash -c '. scripts/dev/env.sh && go run ./cmd/liusha runner'
 
 # 前端（web/）：源码与后端同仓。开发用 vite（/api 代理到 api）；发布时编入 liusha（webdist 标签）。
 run-web:
@@ -128,7 +132,7 @@ tidy:
 e2e: e2e-xss
 
 e2e-xss:
-	go run ./cmd/e2e xss
+	bash -c '. scripts/dev/env.sh && go run ./cmd/e2e xss'
 
 e2e-full:
-	go run ./cmd/e2e full
+	bash -c '. scripts/dev/env.sh && go run ./cmd/e2e full'

@@ -1,6 +1,7 @@
 #（无 syntax= 指令：仅用基础语法，内置 BuildKit 前端足够，构建免连 Docker Hub）
 # liusha 镜像：一个程序（控制台前端已编入），compose 以不同命令运行各组件
-# （api / proxy / runner / migrate）。许可证与第三方声明在 /usr/share/doc/liusha/。
+# （api / proxy / runner / migrate）。配置文件由部署方挂载到 /data/config.yaml；许可证、第三方声明
+# 与同版本的配置文件样板（config.yaml）在 /usr/share/doc/liusha/。
 # 多架构（amd64+arm64）：构建阶段钉在构建机原生架构（$BUILDPLATFORM）——前端产物与架构
 # 无关，Go 经 GOOS/GOARCH 交叉编译出目标架构的纯静态二进制，零 QEMU；运行时层按目标
 # 架构拉官方多架构镜像。
@@ -39,7 +40,9 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates wget
 COPY --from=build /out/liusha /usr/local/bin/liusha
 COPY LICENSE NOTICE /usr/share/doc/liusha/
+COPY internal/config/config.yaml /usr/share/doc/liusha/
 COPY --from=build /out/THIRD_PARTY_NOTICES /usr/share/doc/liusha/
+ENV LIUSHA_CONFIG=/data/config.yaml
 # 以 root 运行：api 与必须以 root 运行的沙盒共享任务工作区（双方都要读写对方建的目录），
 # 日志、证书目录是宿主上由 docker 以 root 创建的挂载点。隔离边界是容器本身。
 WORKDIR /app

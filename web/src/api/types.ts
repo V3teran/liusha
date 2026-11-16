@@ -277,9 +277,8 @@ export interface ProviderConfig {
   default_model: string
   api_key?: string // 仅保存时携带的明文输入；编辑态留空 = 不修改已存密钥。GET 响应不含此字段。
   display_name: string // 显示名称：界面上唯一可读的标识（code 是 UUID）；必填、不区分大小写唯一，可随时改
-  key_present: boolean // 当前能否解析出密钥：已加密落库，或 api_key_env 指向的变量有值
-  key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；无已存密钥或来自 ENV 时为空
-  api_key_env?: string // 密钥的 env 变量名引用（seed 引入）；非空且无密文时密钥走 env 路径
+  key_present: boolean // 是否已设置密钥（加密落库）
+  key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；未设置密钥时为空
   auth_scheme: AuthScheme // 鉴权方式（运行诊断识别后回填）
   output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI 兼容协议生效；运行诊断识别后回填）
   // 数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
@@ -656,8 +655,8 @@ export interface ProxyFilterSettings {
   exclude_suffixes: string[] // 排除的 URL 后缀
   exclude_content_types: string[] // 排除的 Content-Type
   exclude_status_codes: number[] // 排除的响应状态码
-  max_request_body_size: number // 请求体切片上限字节，>0
-  max_response_body_size: number // 响应体切片上限字节，>0
+  max_request_body_bytes: number // 请求体切片上限字节，>0
+  max_response_body_bytes: number // 响应体切片上限字节，>0
 }
 
 export interface SettingsByGroup {
@@ -775,10 +774,9 @@ export interface LogEntry {
   fields?: Record<string, unknown>
 }
 
-// LogProcessInfo 是进程日志文件概况；文件缺失时 exists=false、instances 为空。
+// LogProcessInfo 是进程日志文件概况；只列出有日志文件的进程（一种部署只产生 serve 或分进程中的一种布局）。
 export interface LogProcessInfo {
   name: string
-  exists: boolean
   size_bytes: number
   mod_time: string
   instances: string[]
