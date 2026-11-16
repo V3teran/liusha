@@ -75,4 +75,4 @@ docker compose up -d --build
 
 Copyright 2026 V3teran
 
-本项目以 [Apache License 2.0](LICENSE) 授权：可以自由使用、修改、分发与商用；再分发时须保留许可证与 [NOTICE](NOTICE) 中的署名，并标明所做的修改。v0.6.2 及之前发布的版本仍按当时的 MIT 许可证授权。发布产物附带的第三方组件声明见其中的 THIRD_PARTY_NOTICES。
+本项目以 [Apache License 2.0](LICENSE) 授权：可以自由使用、修改、分发与商用；再分发时须附带许可证，并标明所做的修改。v0.6.2 及之前发布的版本仍按当时的 MIT 许可证授权。发布产物附带的第三方组件声明见其中的 THIRD_PARTY_NOTICES。
