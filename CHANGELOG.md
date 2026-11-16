@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.10.1](https://github.com/V3teran/liusha/compare/v0.10.0...v0.10.1) (2026-11-16)
+
+
+### 问题修复
+
+* **conversation:** 下发的测试请求不再偶尔被当成聊天而不建任务 ([2783a81](https://github.com/V3teran/liusha/commit/2783a81f943f98eb5b6179da16968b94d2e50146))
+* **conversation:** 下发的测试请求不再偶尔被当成聊天而不建任务 ([1304776](https://github.com/V3teran/liusha/commit/130477632e361f33401934f07e5dc85d092d4b7f))
+* **deploy:** 中央仓库不可达时 ysomap 改从镜像取依赖，沙盒构建不再失败 ([5a3da62](https://github.com/V3teran/liusha/commit/5a3da6228356321c1647e481cc6e88690c2e5733))
+* **deploy:** 代理按系统 DNS 解析目标，内网与容器内的目标也能抓到流量 ([ad3caa6](https://github.com/V3teran/liusha/commit/ad3caa641b8b578142407edaa6a0b177e7948420))
+* **deploy:** 代理按系统 DNS 解析目标；POST 请求体不再被并发读走 ([f9d51d6](https://github.com/V3teran/liusha/commit/f9d51d68e65ca65b1d3e2110647d4dccd436e994))
+* **deploy:** 本地构建的镜像带上正确的版本号 ([df5acc9](https://github.com/V3teran/liusha/commit/df5acc949b5f41494745df2b4689532f2c82c99a))
+* **deploy:** 本地构建遇软件源 502 自动重试，镜像带正确版本号 ([e1b599d](https://github.com/V3teran/liusha/commit/e1b599d334b0decfb8318517652db404accc1503))
+* **deploy:** 经代理的 POST 请求体不再被并发读走 ([a3a9ff1](https://github.com/V3teran/liusha/commit/a3a9ff11aa945ffe4c89ae875dd5a37103e79e35))
+* **deploy:** 软件源偶发 502 时构建自动重试，不再整体失败 ([dd28610](https://github.com/V3teran/liusha/commit/dd28610d26602508b19eef5a7363f87d1726c298))
+* **sandbox:** Windows 上浏览器请求被拒时如实给出原因 ([63262f4](https://github.com/V3teran/liusha/commit/63262f441d8602b1ed7f3a48c3ce0346b6ea5ee2))
+* **sandbox:** Windows 上浏览器请求被拒时如实给出原因 ([4490fb9](https://github.com/V3teran/liusha/commit/4490fb9ced187697974bb7b8deb6af7ecd5ff77e))
+* **sandbox:** ysomap 与 RsaCtfTool 能真正运行，构建时校验所有工具入口 ([8631ca4](https://github.com/V3teran/liusha/commit/8631ca4f4a85d3920762f4eee48543aec9a82f48))
+* **task:** 续跑与代理捕获的任务不再跑满 30 分钟就被终止 ([098b25d](https://github.com/V3teran/liusha/commit/098b25d23883361c83c0e00fb753362cf1db6dde))
+* **task:** 续跑与代理捕获的任务不再跑满 30 分钟就被终止 ([da5d8f6](https://github.com/V3teran/liusha/commit/da5d8f6dd7f1af86746804a9ac1a36b88e23f690))
+
 ## [0.10.0](https://github.com/V3teran/liusha/compare/v0.9.0...v0.10.0) (2026-11-15)
 
 
