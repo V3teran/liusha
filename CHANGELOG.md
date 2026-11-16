@@ -3,7 +3,7 @@
 ## [0.11.0](https://github.com/V3teran/liusha/compare/v0.10.2...v0.11.0) (2026-11-16)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **config:** 必须提供完整的 `config.yaml`（缺键、未知键拒绝启动），原先 `LIUSHA_<键>` 或覆盖文件里的改动改写进这份文件，详见 `deployments/README.md`「配置文件与 .env 统一」。
 * **config:** 配置键改名或删除（`postgres.dsn` → `postgres.url`，`redis.addr` + `redis.password` → `redis.url`，`runner.healthz_addr` → `runner.listen_addr`，`runner.asynq_concurrency` → `runner.concurrency`，`sandbox.ingest_url` → `runner.url`，`proxy.max_*_body_size` → `proxy.max_*_body_bytes` 等），按升级文档逐项改写。
@@ -47,7 +47,7 @@
 ## [0.10.0](https://github.com/V3teran/liusha/compare/v0.9.0...v0.10.0) (2026-11-15)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **finding:** 迁移 0230 会合并同一坐实结果的重复漏洞记录（保留人工处置过的或最早的一条，其余删除），并删除 finding.dedup_key 列；依赖该列的外部查询需改用 result_node_id。
 * **httpapi:** GET /traffic/:id 响应 consumed_by[] 的 conv_id 字段改名为 conversation_id，并删除恒为空的 _id 字段。
@@ -188,7 +188,7 @@
 ## [0.8.0](https://github.com/V3teran/liusha/compare/v0.7.0...v0.8.0) (2026-11-12)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **ui:** 移除 DELETE /credentials/:host 与 DELETE /credentials/:host/sessions（逐个删除身份仍走 DELETE /credentials/:host/usernames/:username）；LLM 审计详情不再解析旧格式历史行（大写键、reasoning_content 等），此类行的正文与思考过程不再结构化展示。
 * **sandbox:** 新增迁移 0206（tool 表增加 category_name 列），随 up 自动执行；工具目录在 api 启动同步时回填。GET /tools、GET /tools/:name 响应的工具对象新增 category_name 字段。
@@ -224,7 +224,7 @@
 ## [0.7.0](https://github.com/V3teran/liusha/compare/v0.6.2...v0.7.0) (2026-11-10)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **config:** 移除 POST /models/providers/test 与 /models/providers/list-models，改用 POST /models/providers/diagnose；provider 新增 auth_scheme、output_limit_param 字段（迁移 0203 按协议回填），display_name 改为必填且不区分大小写唯一（迁移 0204 把空名称回填为 Base URL 主机名，同名追加序号）；API 提交空名称返回 400、重名返回 409。迁移随 up 自动执行。
 * **exploration:** 新增迁移 0202（exploration_node.state 增加 superseded，exploration_edge.rel 增加 supersedes），升级随 up 自动执行；回滚（down）会删除吸收边、把 superseded 目标改为 aborted。
@@ -262,7 +262,7 @@
 ## [0.6.0](https://github.com/V3teran/liusha/compare/v0.5.1...v0.6.0) (2026-11-09)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **config:** 需执行迁移 0201（Docker 部署随 up 自动执行，升级前改过的整份提示词归档待处理）； 接口契约变更——/agents/:id → /agents/:code、PUT → PATCH（名单字段为 {on, off}）、 /skills/:code/detail 并入 /skills/:code、/settings/proxy-filter → /settings/proxy_filter； `make reseed` 已移除。
 
