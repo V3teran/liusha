@@ -53,7 +53,7 @@ single-build: build-sandbox
 
 # 回连地址：目标访问「它:监听段端口」反连沙盒，按需改 CALLBACK_HOST 与监听段
 CALLBACK_HOST ?=
-LISTENER_PORTS ?= 21000-21099
+LISTENER_PORTS ?= 21000-21299
 single-run:
 	docker run -d --restart unless-stopped --stop-timeout 60 --name liusha-single \
 	  -p 50080:8580 -p 58588:8588 -p $(LISTENER_PORTS):$(LISTENER_PORTS) \
