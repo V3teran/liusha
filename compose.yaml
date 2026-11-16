@@ -1,4 +1,4 @@
-# liusha 多镜像部署（Docker Compose）：
+# liusha 多镜像部署：
 #
 #   cp .env.example .env                       # 填写密钥与容器部署的必填项
 #   mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件（LIUSHA_DATA_DIR 改过就放到那里），按需修改

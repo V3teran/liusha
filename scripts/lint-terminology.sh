@@ -38,6 +38,7 @@ EXCLUDES=(
 # flows/ingest：sandbox 抓流 ingest 路由已更名为 /internal/v1/traffic/ingest。
 # body_absent：断言键已统一为 body_not_contains（迁移 0200 改写存量）。
 # LIUSHA_AGENT_ID：命令环境里的 run 标识已更名 LIUSHA_AGENT_RUN_ID（它是 run 的 ID，不是 agent 的）。
+# 多镜像（Docker Compose）/ 多镜像部署（Docker Compose）：部署方式统一称「多镜像」，与二进制、单镜像对称。
 # reseed / system_prompt / system_setting：出厂内容编译进程序、数据库只存用户自定义后退役
 #   （迁移 0201）——提示词改称章程（charter），系统设置用户层为 setting_override。
 # unverified / factual / verification_outcome / executor_confidence / test_plan：观察的图级
@@ -140,6 +141,7 @@ FORBIDDEN=(
   'task_control_event'
   'adjust_goal'
   'inject_action'
+  '多镜像(部署)?（Docker Compose）'
 )
 
 MODE="${1:-check}"
