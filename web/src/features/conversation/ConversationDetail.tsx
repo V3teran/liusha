@@ -16,6 +16,7 @@ import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface ConversationDetailProps {
   convId?: string
@@ -24,20 +25,6 @@ interface ConversationDetailProps {
   onRunningChanged: () => void
 }
 
-// 空状态文案按来源区分（direct 可发起、proxy 等流量）。
-function emptyCopy(source: 'direct' | 'proxy') {
-  return source === 'proxy'
-    ? {
-        mark: '⇄',
-        title: '选择一批流量查看分析',
-        desc: '左侧是代理捕获的流量批次，AI 已逐批分析。点开任意一批，实时观察分析轨迹与漏洞产出，可随时插话追问。',
-      }
-    : {
-        mark: '⌖',
-        title: '发起一次渗透测试任务',
-        desc: '在下方描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与漏洞产出。',
-      }
-}
 
 // 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
 // 人工下发(direct) 与 代理捕获(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
@@ -48,7 +35,7 @@ function emptyCopy(source: 'direct' | 'proxy') {
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
-  // 加载失败分两态：missing = 会话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
+  // 加载失败分两态：missing = 对话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
   const [loadError, setLoadError] = useState<'missing' | 'failed' | null>(null)
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('open')
   const handleRef = useRef<StreamHandle | null>(null)
@@ -206,7 +193,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     await doControl(action)
   }
 
-  const copy = emptyCopy(source)
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col">
@@ -286,8 +272,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
             {loadError === 'missing' ? (
               <>
-                <h2 className="mb-2 text-[17px] text-text">会话不存在</h2>
-                <p className="text-sm leading-relaxed">该会话可能已被删除，请从左侧列表重新选择。</p>
+                <h2 className="mb-2 text-[17px] text-text">对话不存在</h2>
+                <p className="text-sm leading-relaxed">该对话可能已被删除，请重新选择。</p>
               </>
             ) : (
               <>
@@ -312,12 +298,23 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         </div>
       ) : hasConv || store.messages.length > 0 ? (
         <TimelineThread active={scanning} elapsedMs={usage?.elapsed_ms} />
+      ) : source === 'proxy' ? (
+        /* 代理捕获没有发起入口：未选中批次就是普通的「未选择」空态 */
+        <EmptyState
+          kind="unselected"
+          noun="代理批次"
+          hint="选择一个批次，查看智能体的分析过程与漏洞产出，可随时插话追问。"
+          className="min-h-0 flex-1"
+        />
       ) : (
+        /* 人工下发的新对话：发起引导（对话框就在下方），不是空态 */
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
           <div className="max-w-[420px] text-center text-text-secondary">
-            <div className="mb-3.5 text-4xl leading-none text-accent">{copy.mark}</div>
-            <h2 className="mb-2 text-[17px] text-text">{copy.title}</h2>
-            <p className="text-sm leading-relaxed">{copy.desc}</p>
+            <div className="mb-3.5 text-4xl leading-none text-accent">⌖</div>
+            <h2 className="mb-2 text-[17px] text-text">发起一次渗透测试任务</h2>
+            <p className="text-sm leading-relaxed">
+              在下方描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与漏洞产出。
+            </p>
           </div>
         </div>
       )}
@@ -328,7 +325,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         convId={convId}
         disabled={source === 'proxy' && !hasConv}
         placeholder={
-          source === 'proxy' && !hasConv ? '选择左侧一批流量后，可在这里插话追问…' : undefined
+          source === 'proxy' && !hasConv ? '选择代理批次后，可在这里插话追问…' : undefined
         }
         onStarted={handleStarted}
         onAppended={handleAppended}

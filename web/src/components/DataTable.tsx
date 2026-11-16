@@ -1,6 +1,7 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type TableMeta } from '@tanstack/react-table'
 import { cn } from '@/lib/utils'
 import { columnPixelWidths, totalColumnWidth } from '@/lib/tableLayout'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const SKELETON_ROWS = 8
 
@@ -10,9 +11,12 @@ interface DataTableProps<T> {
   /** 单元格水平内边距（px-3 / px-4，表头同步） */
   cellPadding?: 'px-3' | 'px-4'
   loading: boolean
+  /** 有生效的搜索 / 筛选：空结果显示「没有匹配的X」，否则显示「暂无X」 */
   hasFilter?: boolean
-  /** 空态文案（hasFilter 区分「无匹配」与「暂无」两态） */
-  emptyText: string
+  /** 空态名词（任务、漏洞……） */
+  emptyNoun: string
+  /** 无数据时的说明：数据从哪来、怎么产生 */
+  emptyHint: string
   /** 行数据错误标记（如 HTTP 5xx 流量行整行红染） */
   rowError?: (row: T) => boolean
   /** 行级内联样式（如漏洞行把严重度色挂到 --sev 变量驱动左边条悬停） */
@@ -40,7 +44,7 @@ interface DataTableProps<T> {
  * 定义——窄容器锁像素出真实横向滚动，宽容器按权重等比拉伸，见 tableLayout）+
  * 骨架屏/空态/行点击与键盘可达/选中态描边。任务 / 流量 / LLM 审计 / 漏洞等列表共用。
  */
-export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyText, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader, ariaLabel }: DataTableProps<T>) {
+export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyNoun, emptyHint, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader, ariaLabel }: DataTableProps<T>) {
   const table = useReactTable({
     data: rows,
     columns,
@@ -54,9 +58,12 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
   const minWidth = totalColumnWidth(sizes)
   const colCount = leafColumns.length
   const cellCls = `overflow-hidden ${cellPadding} py-2`
+  const isEmpty = !loading && rows.length === 0
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+    {/* 窄屏下表格按设计列宽横向滚动：滚动容器本身可聚焦，键盘用户也能左右滚（空表时没有别的可聚焦元素） */}
+    <div role="region" aria-label={ariaLabel ?? `${emptyNoun}列表`} tabIndex={0} className="overflow-x-auto">
       {/* 可选行表格走 WAI-ARIA grid 模式：表格为 grid、行保持原生 row 语义——选中态
           aria-selected 在 row 上合法，单元格内可放交互控件（复制按钮等）。 */}
       <table
@@ -98,13 +105,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                 ))}
               </tr>
             ))
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={colCount} className="px-4 py-11 text-center text-sm text-text-secondary">
-                {hasFilter ? `当前筛选无匹配（${emptyText}）` : `暂无${emptyText}`}
-              </td>
-            </tr>
-          ) : (
+          ) : isEmpty ? null : (
             table.getRowModel().rows.map((row) => {
               const v = row.original
               const clickable = !!onRowClick
@@ -149,6 +150,14 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
           )}
         </tbody>
       </table>
+    </div>
+    {/* 空态放在横向滚动区外：放进表格会按设计列宽居中，窄屏下落到可视区之外 */}
+    {isEmpty &&
+      (hasFilter ? (
+        <EmptyState kind="no-match" noun={emptyNoun} />
+      ) : (
+        <EmptyState kind="empty" noun={emptyNoun} hint={emptyHint} />
+      ))}
     </div>
   )
 }

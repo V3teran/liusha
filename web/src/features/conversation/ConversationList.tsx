@@ -12,6 +12,7 @@ import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 export interface ConversationListHandle {
   refresh: () => Promise<void>
@@ -22,8 +23,8 @@ interface ConversationListProps {
   source?: string
   allowNew?: boolean
   heading?: string
-  /** 空态：mark/标题/描述构成的结构化引导块（无数据时撑满列表区，替代浮字）。 */
-  emptyState?: { mark: string; title: string; desc: string }
+  /** 无数据时的空态：名词与说明（数据从哪来）；搜索无结果统一为「没有匹配的X」 */
+  emptyState: { noun: string; hint: string }
   /** 首次加载成功且当前无选中时，自动打开最新一条会话（一次性，不劫持后续交互）。 */
   autoSelect?: boolean
   /** 打开对话：用户点选新增一条历史；进页自动打开最新对话传 replace */
@@ -382,20 +383,12 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
           </div>
         )}
         {!loadError && !loading && items.length === 0 && (
-          /* 结构化空态：居中引导块占据列表区——空数据也是一等界面状态。
-             不加虚线框：虚线的惯例语义是「拖放/上传目标区」，对纯空态是误导性装饰，
-             还会让无数据 tab（代理捕获）与有数据 tab（人工下发）的左栏观感不一致。 */
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-lg text-text-secondary">
-              {shownQuery ? '🔍' : emptyState?.mark ?? '💬'}
-            </span>
-            <p className="text-sm font-medium text-text">
-              {shownQuery ? '没有匹配的对话' : emptyState?.title ?? '暂无对话'}
-            </p>
-            {!shownQuery && emptyState?.desc && (
-              <p className="max-w-[220px] text-xs leading-5 text-text-secondary">{emptyState.desc}</p>
-            )}
-          </div>
+          /* 空态撑满列表区：空数据也是一等界面状态 */
+          shownQuery ? (
+            <EmptyState kind="no-match" scope="search" noun={emptyState.noun} className="min-h-0 flex-1" />
+          ) : (
+            <EmptyState kind="empty" noun={emptyState.noun} hint={emptyState.hint} className="min-h-0 flex-1" />
+          )
         )}
         {/* 翻页：offset 分页（非 keyset）。常显（单页时按钮禁用）——「第 X / Y 页」总页数
             来自后端同口径 count，翻页能力始终可见可发现。 */}

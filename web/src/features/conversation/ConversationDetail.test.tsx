@@ -77,9 +77,9 @@ describe('ConversationDetail', () => {
     expect(await screen.findByText('发起一次渗透测试任务')).toBeTruthy()
   })
 
-  it('无 convId（代理捕获 proxy）显示对应空状态文案', async () => {
+  it('无 convId（代理捕获 proxy）显示「未选择代理批次」', async () => {
     render(<ConversationDetail source="proxy" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('选择一批流量查看分析')).toBeTruthy()
+    expect(await screen.findByText('未选择代理批次')).toBeTruthy()
   })
 
   it('有 convId 时拉取历史消息并订阅 SSE', async () => {
@@ -228,10 +228,10 @@ describe('ConversationDetail', () => {
     expect(screen.getByText('耗时')).toBeTruthy()
   })
 
-  it('会话不存在（404，如已删除会话的旧深链）：提示不存在且不提供必然失败的重试', async () => {
+  it('对话不存在（404，如已删除对话的旧深链）：提示不存在且不提供必然失败的重试', async () => {
     vi.mocked(apiClient.listMessages).mockRejectedValue(new ApiError('GET', 404, '资源不存在'))
     render(<ConversationDetail convId="gone" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('会话不存在')).toBeTruthy()
+    expect(await screen.findByText('对话不存在')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
     expect(sseHook.openEventStream).not.toHaveBeenCalled()
   })

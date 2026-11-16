@@ -62,7 +62,7 @@ describe('SchedulesDrawer', () => {
   it('空态给出创建指引', async () => {
     mList.mockResolvedValue([])
     renderDrawer()
-    expect(await screen.findByText(/还没有定时模板/)).toBeTruthy()
+    expect(await screen.findByText('暂无定时模板')).toBeTruthy()
   })
 
   it('切换开关以目标状态调用 API', async () => {

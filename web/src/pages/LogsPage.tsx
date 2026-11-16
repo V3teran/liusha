@@ -1,6 +1,7 @@
 import { SearchInput } from '@/components/SearchInput'
 import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -206,13 +207,18 @@ export function LogsPage() {
       <div className="relative min-h-0 flex-1">
         <div ref={listRef} onScroll={onScroll} className="h-full overflow-y-auto py-1">
           {!stream.loading && entries.length === 0 ? (
-            <div className="p-12 text-center font-sans text-sm text-text-tertiary">
-              {anyExists
-                ? hasFilter
-                  ? '当前筛选无匹配日志'
-                  : '暂无日志输出'
-                : '未发现日志文件——日志在数据目录（config.yaml 的 data_dir）下的 logs/，确认各进程开启了文件日志（log.to_file）'}
-            </div>
+            !anyExists ? (
+              <EmptyState
+                kind="empty"
+                noun="日志"
+                hint="日志写在数据目录的 logs/ 下，确认 config.yaml 的 log.to_file 已开启。"
+                className="font-sans"
+              />
+            ) : hasFilter ? (
+              <EmptyState kind="no-match" noun="日志" className="font-sans" />
+            ) : (
+              <EmptyState kind="empty" noun="日志" hint="各组件运行后，日志会实时出现在这里。" className="font-sans" />
+            )
           ) : (
             entries.map((e) => (
               <LogRow

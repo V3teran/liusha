@@ -13,6 +13,7 @@ import {
   useDeleteProvider,
 } from './useModelQueries'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 /** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
 const INTERACTIVE =
@@ -199,9 +200,11 @@ export function ProvidersView() {
             </Button>
           </div>
         ) : filtered.length === 0 && !isNew ? (
-          <div className="py-10 text-center text-sm text-text-secondary">
-            {query.trim() ? '无匹配 provider' : '暂无 provider——点「新建」接入第一个 provider'}
-          </div>
+          query.trim() ? (
+            <EmptyState kind="no-match" scope="search" noun="provider" />
+          ) : (
+            <EmptyState kind="empty" noun="provider" hint="点击「新建」接入第一个 provider。" />
+          )
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {isNew && draft && (

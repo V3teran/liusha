@@ -216,7 +216,8 @@ export function SkillsPage() {
         loading={list.loading}
         error={list.error}
         empty={rows.length === 0}
-        emptyHint={list.query ? '无匹配技能' : '暂无技能'}
+        noun="技能"
+        emptyHint="点击「新建」添加自定义技能。"
         search={{ value: list.query, onChange: list.setQuery, placeholder: '搜索名称 / 标识 / 描述' }}
         server={{
           page: list.page,

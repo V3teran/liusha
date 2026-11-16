@@ -147,7 +147,7 @@ describe('ToolsPage', () => {
     mGet.mockRejectedValueOnce(new Error('后端不可用'))
     renderPage()
     expect(await screen.findByRole('alert')).toHaveTextContent('后端不可用')
-    expect(screen.queryByText('从左侧选择一个工具')).toBeNull()
+    expect(screen.queryByText('未选择工具')).toBeNull()
     mGet.mockResolvedValue(detailOf(FN))
     await userEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
@@ -172,10 +172,20 @@ describe('ToolsPage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('空态提示', async () => {
+  it('目录为空：显示「暂无工具」', async () => {
     mList.mockResolvedValue({ tools: [], total: 0 })
     renderPage()
-    expect(await screen.findByText(/工具目录为空/)).toBeTruthy()
+    expect(await screen.findByText('暂无工具')).toBeTruthy()
+  })
+
+  // 种类筛选下为空是「没有匹配」，不能误报目录为空。
+  it('筛选无结果：显示「没有匹配的工具」', async () => {
+    mList.mockResolvedValue({ tools: [], total: 0 })
+    renderPage()
+    await screen.findByText('暂无工具')
+    const cliSegment = screen.getAllByRole('button').find((b) => b.textContent === '外部工具')
+    await userEvent.click(cliSegment!)
+    expect(await screen.findByText('没有匹配的工具')).toBeTruthy()
   })
 })
 

@@ -5,6 +5,7 @@ import { errorText } from '@/api/client'
 import type { ScheduleRow } from '@/api/types'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { Switch } from '@/components/ui/Switch'
 import { fullTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -90,11 +91,7 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
                 ⚠ {errorText(query.error, '加载定时模板失败')}
               </p>
             ) : rows.length === 0 ? (
-              <p className="py-16 text-center text-sm leading-relaxed text-text-tertiary">
-                还没有定时模板。
-                <br />
-                新建任务时开启「定时执行」即可创建。
-              </p>
+              <EmptyState kind="empty" noun="定时模板" hint="新建任务时开启「定时执行」即可创建。" className="py-16" />
             ) : (
               <ul className="flex flex-col gap-3">
                 {rows.map((r) => (

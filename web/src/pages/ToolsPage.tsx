@@ -79,7 +79,7 @@ export function ToolsPage() {
             loading={list.isLoading}
             error={list.isError ? errorText(list.error, '加载工具目录失败') : ''}
             empty={tools.length === 0}
-            emptyHint={query ? '无匹配工具' : '工具目录为空——检查后端同步是否成功'}
+            filtered={!!query.trim() || kind !== ''}
             selected={selected}
             onSelect={(name) => {
               setSelected(name)
