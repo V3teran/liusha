@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 构建 ysomap 时的备用 Maven 仓库：中央仓库不可达（部分网络对 repo.maven.apache.org 返回
+     403）时，改从 Google 托管的中央仓库只读镜像取依赖。镜像是中央仓库的同步副本，只用于构建。 -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>central-gcs</id>
+      <name>Maven Central mirror on Google Cloud Storage</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
