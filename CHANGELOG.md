@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0](https://github.com/V3teran/liusha/compare/v0.10.2...v0.11.0) (2026-11-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** 必须提供完整的 `config.yaml`（缺键、未知键拒绝启动），原先 `LIUSHA_<键>` 或覆盖文件里的改动改写进这份文件，详见 `deployments/README.md`「配置文件与 .env 统一」。
+* **config:** 配置键改名或删除（`postgres.dsn` → `postgres.url`，`redis.addr` + `redis.password` → `redis.url`，`runner.healthz_addr` → `runner.listen_addr`，`runner.asynq_concurrency` → `runner.concurrency`，`sandbox.ingest_url` → `runner.url`，`proxy.max_*_body_size` → `proxy.max_*_body_bytes` 等），按升级文档逐项改写。
+* **config:** 环境变量改名：`LIUSHA_LLM_KEY_SECRET` → `LIUSHA_LLM_ENCRYPTION_KEY`（值必须沿用），`JINA_API_KEY` → `LIUSHA_EMBEDDING_API_KEY`，多镜像 `.env` 的 `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `HOST_DATA_DIR` / `*_HOST_PORT` 加 `LIUSHA_` 前缀，删除 `API_HOST_PORT`、`LIUSHA_ENV`、`LIUSHA_INSTANCE`。
+* **config:** 删除 `setup` 子命令与 LLM 种子，原先从环境变量取密钥的 provider 需在「LLM 配置」页重新填写密钥。
+* **config:** 单镜像改用 `--env-file .env` 并挂载 `config.yaml`，原 `/data/secrets` 下的密钥抄进 `.env`（`llm_key.secret` 必须沿用）。
+* **config:** MITM 根证书移到 `<data_dir>/certs`（二进制原在 `~/.liusha`，多镜像原为 `proxy-certs`），移过去可沿用已信任的 CA。
+
+### 新功能
+
+* **config:** 配置文件与 .env 统一，三种部署同一套用法 ([7b9091e](https://github.com/V3teran/liusha/commit/7b9091ecae313516d50d9f290a3b92ec8da9e8c5))
+
+
+### 问题修复
+
+* **ui:** 各页空列表的提示统一，窄屏下也能看到 ([dfcc7d3](https://github.com/V3teran/liusha/commit/dfcc7d30b0d2c3d35146fc0583d74d99c9611769))
+* **ui:** 日志页的进程选项只列出有日志的进程 ([547c46e](https://github.com/V3teran/liusha/commit/547c46ef45dac58dd43ecbc7db3094196a7e0917))
+
 ## [0.10.2](https://github.com/V3teran/liusha/compare/v0.10.1...v0.10.2) (2026-11-16)
 
 
