@@ -173,7 +173,7 @@ tools:
   - name: ysomap
     category: deserialization
     description: Java 反序列化利用框架（主力）——比 ysoserial 更强的 bypass/高版本绕过 + JNDI 联动 + 内存马注入，支持交互 cli（`ysomap cli`）与脚本模式。经典链先试 ysoserial，bypass/JNDI/高版本场景用 ysomap。用 JDK8 运行。
-    # install noop：Dockerfile 专属层（git clone master + mvn package）已安装。
+    # install noop：Dockerfile 专属层（钉住提交的源码 + mvn package）已安装。
   - name: ysoserial
     category: deserialization
     description: Java 反序列化 payload 生成器（经典链兜底）——CommonsCollections/Groovy/Spring 等经典 gadget chain + cmd → payload，最稳最全。用 JDK8 运行。
