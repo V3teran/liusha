@@ -45,8 +45,8 @@ import (
 //	RequestHeaders  请求头（key 小写化；多值用 "," join — HTTP/1.1 请求头无多 header 行场景）
 //	ResponseHeaders 响应头（key 小写化；保留 []string 多值切片，与 http.Header 原 shape 对齐，
 //	                正确处理 Set-Cookie 等 RFC 6265 强制独立多行的 header）
-//	RequestBody     请求体（已截断到 MaxRequestBodySize）
-//	ResponseBody    响应体（已截断到 MaxResponseBodySize）
+//	RequestBody     请求体（已截断到 MaxRequestBodyBytes）
+//	ResponseBody    响应体（已截断到 MaxResponseBodyBytes）
 //	Duration        请求-响应耗时——proxify 回调不提供，external 路径恒 0（仅 internal
 //	                  路径由沙盒浏览器服务填）
 //	Timestamp       捕获时间（host 本地时钟，UTC）

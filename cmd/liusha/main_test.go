@@ -39,7 +39,7 @@ func TestRun_HelpAndVersion(t *testing.T) {
 	}
 }
 
-// 子命令都接受 -config：指定的覆盖文件不存在是部署错误，必须在启动任何组件之前报出。
+// 子命令都接受 -config：指定的配置文件不存在是部署错误，必须在启动任何组件之前报出。
 func TestRun_ConfigFlagReachesLoader(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.yaml")
 	for _, c := range commands {
@@ -50,9 +50,23 @@ func TestRun_ConfigFlagReachesLoader(t *testing.T) {
 	}
 }
 
+// 不给 -config 也没有 LIUSHA_CONFIG 时读程序所在目录的 config.yaml（二进制部署的摆放）；
+// 那里没有就报错，不用任何内置配置顶替。
+func TestRun_ConfigBesideExecutable(t *testing.T) {
+	t.Setenv("LIUSHA_CONFIG", "")
+	want, err := besideExecutable("config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "migrate")
+	if code != 1 || !strings.Contains(stderr, want) {
+		t.Fatalf("应读取程序所在目录的 %s: code=%d stderr=%q", want, code, stderr)
+	}
+}
+
 // 位置参数：组件命令不接受，corpus-import 要求至少一个文件。均在连接任何外部依赖之前报错。
 func TestRun_PositionalArgs(t *testing.T) {
-	t.Setenv("LIUSHA_CONFIG", "")
+	t.Setenv("LIUSHA_CONFIG", filepath.Join("..", "..", "internal", "config", "config.yaml"))
 	if code, _, stderr := runCLI(t, "migrate", "extra"); code != 1 || !strings.Contains(stderr, "不接受参数") {
 		t.Fatalf("migrate extra: code=%d stderr=%q", code, stderr)
 	}
@@ -61,13 +75,13 @@ func TestRun_PositionalArgs(t *testing.T) {
 	}
 }
 
-// -env-file 先于配置加载生效：文件里指定的覆盖文件路径被采用。
+// -env-file 先于配置加载生效：文件里指定的配置文件路径被采用。
 func TestRun_EnvFileAppliedBeforeConfig(t *testing.T) {
 	t.Setenv("LIUSHA_CONFIG", "")
 	_ = os.Unsetenv("LIUSHA_CONFIG")
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "from-env-file.yaml")
-	envPath := filepath.Join(dir, "liusha.env")
+	envPath := filepath.Join(dir, ".env")
 	if err := os.WriteFile(envPath, []byte("LIUSHA_CONFIG="+missing+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -77,25 +91,5 @@ func TestRun_EnvFileAppliedBeforeConfig(t *testing.T) {
 	}
 	if code, _, stderr := runCLI(t, "migrate", "-env-file", filepath.Join(dir, "nope.env")); code != 1 || !strings.Contains(stderr, "环境变量文件") {
 		t.Fatalf("环境变量文件不存在应报错: code=%d stderr=%q", code, stderr)
-	}
-}
-
-// setup 列在用法里；缺连接串、文件已存在都在连接任何依赖之前拒绝。
-func TestRun_Setup(t *testing.T) {
-	if _, stdout, _ := runCLI(t, "help"); !strings.Contains(stdout, "setup") {
-		t.Fatalf("用法应列出 setup: %s", stdout)
-	}
-	t.Setenv("LIUSHA_POSTGRES_DSN", "")
-	dir := t.TempDir()
-	if code, _, stderr := runCLI(t, "setup", "-env-file", filepath.Join(dir, "a.env")); code != 1 || !strings.Contains(stderr, "-postgres-dsn") {
-		t.Fatalf("缺连接串应报错: code=%d stderr=%q", code, stderr)
-	}
-	existing := filepath.Join(dir, "b.env")
-	if err := os.WriteFile(existing, []byte("X=1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, _, stderr := runCLI(t, "setup", "-env-file", existing, "-postgres-dsn", "postgres://unused")
-	if code != 1 || !strings.Contains(stderr, "已存在") {
-		t.Fatalf("文件已存在应拒绝: code=%d stderr=%q", code, stderr)
 	}
 }

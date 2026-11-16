@@ -4,14 +4,13 @@
 // search_corpus 检索能力，知识沉淀由本命令离线完成（来源与信任级受控）。
 // 流程：读 markdown → 按 ## 段切条 → LLM 自动打标 title/tags → embed → 落库。
 //
-// 打标模型取「LLM 配置」页的 simple 档；JINA_API_KEY 缺失时只落行不 embed（仍可 sparse 检索）。
+// 打标模型取「LLM 配置」页的 simple 档；embedding.api_key 缺失时只落行不 embed（仍可 sparse 检索）。
 package corpusimport
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/config"
@@ -44,16 +43,20 @@ func Run(ctx context.Context, cfg config.AppConfig, files []string) error {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	keyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	keyCipher, err := cryptx.NewFromHex(cfg.LLM.EncryptionKey)
 	if err != nil {
-		return fmt.Errorf("LIUSHA_LLM_KEY_SECRET 未配置或不合法（provider 密钥解密需要它）: %w", err)
+		return fmt.Errorf("llm.encryption_key（LIUSHA_LLM_ENCRYPTION_KEY）未配置或不合法: %w", err)
 	}
-	llmStore := llmstore.New(pool, cachestore.New(rdb, 0))
+	schemaVersion, err := db.SchemaVersion(ctx, pool)
+	if err != nil {
+		return err
+	}
+	llmStore := llmstore.New(pool, cachestore.New(rdb, schemaVersion))
 	tagger := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options())
 
 	var embedder *embedding.Client
-	if ec, err := embedding.NewClient(os.Getenv("JINA_API_KEY")); err != nil {
-		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置：只落行不 embed（仍可 sparse 检索）")
+	if ec, err := embedding.NewClient(cfg.Embedding.APIKey); err != nil {
+		logger.Warn().Err(err).Msg("embedding.api_key 未配置：只落行不向量化（仍可关键词检索）")
 	} else {
 		embedder = ec
 	}

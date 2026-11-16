@@ -9,20 +9,25 @@
 // 类型分派。于是一个进程共享**一个 Cache + 一条订阅循环**，configstore / llmstore / settingstore 等所有资源复用同一实例（键各带全局前缀，不撞）。
 //
 // 缓存粒度由调用方决定：单条热读走 ReadThrough；列表读等低频、失效成本高的读直穿事实源不缓存。
+//
+// L2 的键挂在数据库结构版本的命名空间下（cache:v<版本>:<键>）：缓存的都是数据库里的数据，
+// 迁移可能改写它们（改字段名、改取值），升级后的进程换到新版本的命名空间，不会读到迁移前
+// 的旧副本；旧副本由 TTL 清走。L1 随进程启动为空，不受影响。
 package cachestore
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// DefaultL2TTL 是 redis L2 条目的保守兜底过期（防订阅漏消息导致的永久脏读）。
+// l2TTL 是 redis L2 条目的保守兜底过期（防订阅漏消息导致的永久脏读）。
 // 正常失效靠 PUBLISH 驱逐，TTL 只是安全网。
-const DefaultL2TTL = 10 * time.Minute
+const l2TTL = 10 * time.Minute
 
 // l1Cache 是进程内第一级缓存：RWMutex 保护的 key→json 字节表。
 // 无 TTL——条目靠失效消息（本进程写 / redis 订阅）驱逐，不靠过期。
@@ -66,10 +71,10 @@ func (c *l1Cache) del(keys ...string) {
 // Cache 编排 L1（本进程内存）+ L2（redis，跨进程共享 + 失效总线）。
 // 一个进程构造一个共享实例，供所有资源仓储复用。
 type Cache struct {
-	rdb     *redis.Client
-	l1      *l1Cache
-	l2TTL   time.Duration
-	channel string // 失效总线 redis pub/sub channel
+	rdb       *redis.Client
+	l1        *l1Cache
+	namespace string // L2 键前缀：cache:v<数据库结构版本>:
+	channel   string // 失效总线 redis pub/sub channel
 
 	hooksMu sync.RWMutex
 	hooks   []func(ctx context.Context, keys []string) // 跨进程失效后置回调（见 OnInvalidate）
@@ -97,13 +102,13 @@ func (c *Cache) fireHooks(ctx context.Context, keys []string) {
 	}
 }
 
-// New 构造共享多级缓存。l2TTL<=0 时取 DefaultL2TTL。
-func New(rdb *redis.Client, l2TTL time.Duration) *Cache {
-	if l2TTL <= 0 {
-		l2TTL = DefaultL2TTL
-	}
-	return &Cache{rdb: rdb, l1: newL1(), l2TTL: l2TTL, channel: invalidateChannel}
+// New 构造共享多级缓存。schemaVersion 是数据库结构版本（db.SchemaVersion），决定 L2 的命名空间。
+func New(rdb *redis.Client, schemaVersion uint) *Cache {
+	return &Cache{rdb: rdb, l1: newL1(), namespace: fmt.Sprintf("cache:v%d:", schemaVersion), channel: invalidateChannel}
 }
+
+// l2Key 把逻辑键映射到 L2 的实际键（加数据库结构版本命名空间）。L1 与失效消息用逻辑键。
+func (c *Cache) l2Key(key string) string { return c.namespace + key }
 
 // ReadThrough 是多级读的统一泛型骨架：L1 命中即返 → L2（同键）命中回填 L1 → 事实源
 // 经 load 加载后回填 L1+L2。fillKeys 返回该值应写入的全部缓存键（如一条场景的 code/id 双键）。
@@ -117,7 +122,7 @@ func ReadThrough[T any](
 		return decode[T](b, zero)
 	}
 	// L2
-	if b, err := c.rdb.Get(ctx, primaryKey).Bytes(); err == nil {
+	if b, err := c.rdb.Get(ctx, c.l2Key(primaryKey)).Bytes(); err == nil {
 		c.l1.set(primaryKey, b) // 回填 L1
 		return decode[T](b, zero)
 	}
@@ -147,7 +152,7 @@ func (c *Cache) Fill(ctx context.Context, v any, keys []string) {
 	}
 	for _, k := range keys {
 		c.l1.set(k, b)
-		_ = c.rdb.Set(ctx, k, b, c.l2TTL).Err()
+		_ = c.rdb.Set(ctx, c.l2Key(k), b, l2TTL).Err()
 	}
 }
 

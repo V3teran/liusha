@@ -7,37 +7,26 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"time"
 )
 
-// e2e 管理员凭据：默认与 scripts/dev 的 LIUSHA_ADMIN_INITIAL_PASSWORD 开发默认值
-// 对齐（等价于昔日 changeme-dev-key 的角色），可经 env 覆盖。账号由 api 启动期
-// 用 env 密码建号，e2e 只做登录。
-var (
-	e2eAdminUserDefault = "admin"
-	e2eAdminPassDefault = "changeme" + "-admin-pass"
-)
+// adminUser 是 api 首次启动时建立的初始管理员账号名。
+const adminUser = "admin"
 
-// bootstrapSession 登录取得会话 Cookie（随请求发送）。凭据失效即报错——
-// e2e 环境的账号由 LIUSHA_ADMIN_INITIAL_PASSWORD 在 api 首启时建立。
+// bootstrapSession 以初始管理员登录取得会话 Cookie（随请求发送）。密码与 api 首启建号用的是同一个
+// 变量 LIUSHA_ADMIN_INITIAL_PASSWORD（dev 环境由 scripts/dev/env.sh 给出）；凭据失效即报错。
 func bootstrapSession(base string) (*http.Cookie, error) {
-	user := lookupEnv("LIUSHA_E2E_ADMIN_USER")
-	if user == "" {
-		user = e2eAdminUserDefault
-	}
-	pass := lookupEnv("LIUSHA_E2E_ADMIN_PASSWORD")
+	pass := os.Getenv("LIUSHA_ADMIN_INITIAL_PASSWORD")
 	if pass == "" {
-		pass = lookupEnv("LIUSHA_ADMIN_INITIAL_PASSWORD")
+		return nil, fmt.Errorf("未设置 LIUSHA_ADMIN_INITIAL_PASSWORD（初始管理员密码；dev 环境用 . scripts/dev/env.sh 加载）")
 	}
-	if pass == "" {
-		pass = e2eAdminPassDefault
-	}
-	ck, status, err := tryLogin(base, user, pass)
+	ck, status, err := tryLogin(base, adminUser, pass)
 	if err != nil {
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("login %d（凭据与 api 首启 LIUSHA_ADMIN_INITIAL_PASSWORD 不一致？）", status)
+		return nil, fmt.Errorf("login %d（密码与 api 首启的 LIUSHA_ADMIN_INITIAL_PASSWORD 不一致？）", status)
 	}
 	return ck, nil
 }

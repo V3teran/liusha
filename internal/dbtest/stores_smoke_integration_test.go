@@ -68,7 +68,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	}
 
 	// llm_invocation（LLM 审计；Append 满即丢缓冲，GetByID 前先 Flush）
-	inv := llminvocation.NewStoreWithConfig(pool, config.InvocationConfig{})
+	inv := llminvocation.NewStore(pool)
 	if err := inv.Append(ctx, llminvocation.Invocation{
 		AgentRunID: &runID, TaskID: &tk.ID, Provider: "deepseek", Model: "deepseek-chat",
 		Role: "executor", Messages: []byte("[]"), Result: []byte("{}"),

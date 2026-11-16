@@ -201,70 +201,27 @@ function ApiKeyField({
   draft,
   patch,
   isNew,
-  onRestoreEnvKey,
 }: {
   draft: ProviderConfig
   patch: (p: Partial<ProviderConfig>) => void
   isNew: boolean
-  onRestoreEnvKey?: () => void
 }) {
   const [reveal, setReveal] = useState(false)
   // 编辑态且已有密钥时，默认收起输入（只展示脱敏尾号）；点「更换密钥」才展开。
   const [rotating, setRotating] = useState(false)
 
   const editingHasKey = !isNew && draft.key_present
-  // 收起态：只读展示已配置尾号 +「更换密钥」入口。
-  // key_last4 有值 → 展示脱敏尾号「···· 9f2c」；为空（旧行 / 仅 ENV 变量回退，无明文尾号可脱敏）
-  // → 展示「来自环境变量」而非误导性的 ····****（那串星号会被当成尾号，实则无尾号可显）。
-  // 恢复使用环境变量：仅当密文生效且存在 env 引用时可用（两段式确认）。
-  const [confirmingRestore, setConfirmingRestore] = useState(false)
-
+  // 收起态：只读展示脱敏尾号「···· 9f2c」+「更换密钥」入口。
   if (editingHasKey && !rotating) {
-    const fromEnv = !draft.key_last4
     return (
-      <Field
-        label="API Key"
-        hint={
-          fromEnv
-            ? '密钥来自环境变量（部署默认），未落库；点「更换密钥」设置后以此为准'
-            : '密钥加密落库，永不回显；如需替换请点「更换密钥」'
-        }
-      >
+      <Field label="API Key" hint="密钥加密落库，永不回显；如需替换请点「更换密钥」">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2">
           <span className="flex min-w-0 items-center gap-2 text-sm text-text">
             <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
             已配置
-            {fromEnv ? (
-              <span className="min-w-0 truncate text-xs text-text-tertiary">
-                来自环境变量{draft.api_key_env ? `（${draft.api_key_env}）` : ''}
-              </span>
-            ) : (
-              <code className="font-mono text-text-secondary">···· {draft.key_last4}</code>
-            )}
+            <code className="font-mono text-text-secondary">···· {draft.key_last4}</code>
           </span>
           <div className="flex flex-shrink-0 items-center gap-1.5">
-            {onRestoreEnvKey && !fromEnv && draft.api_key_env && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirmingRestore) {
-                    setConfirmingRestore(false)
-                    onRestoreEnvKey()
-                    return
-                  }
-                  setConfirmingRestore(true)
-                  window.setTimeout(() => setConfirmingRestore(false), 3000)
-                }}
-                title={confirmingRestore ? '再点一次确认：清除已存密文，回落环境变量' : `清除已存密文，回落环境变量 ${draft.api_key_env}`}
-                className={
-                  confirmingRestore
-                    ? 'rounded-md bg-sev-critical/10 px-2.5 py-1 text-xs text-sev-critical'
-                    : 'rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary transition-colors hover:border-accent hover:text-accent'
-                }
-              >
-                {confirmingRestore ? '确认恢复？' : '恢复使用环境变量'}
-              </button>
-            )}
             <Button
               variant="secondary"
               size="xs"
@@ -420,14 +377,12 @@ export function ProviderFormBody({
   draft,
   patch,
   isNew,
-  onRestoreEnvKey,
   models = [],
   diagnosis,
 }: {
   draft: ProviderConfig
   patch: (p: Partial<ProviderConfig>) => void
   isNew: boolean
-  onRestoreEnvKey?: () => void
   models?: string[]
   diagnosis?: ReactNode
 }) {
@@ -450,12 +405,7 @@ export function ProviderFormBody({
             />
           </Field>
           <BaseUrlField draft={draft} patch={patch} />
-          <ApiKeyField
-            draft={draft}
-            patch={patch}
-            isNew={isNew}
-            onRestoreEnvKey={onRestoreEnvKey}
-          />
+          <ApiKeyField draft={draft} patch={patch} isNew={isNew} />
           <AuthSchemeField value={draft.auth_scheme} onChange={(v) => patch({ auth_scheme: v })} />
           <ModelField draft={draft} patch={patch} models={models} />
           {diagnosis}

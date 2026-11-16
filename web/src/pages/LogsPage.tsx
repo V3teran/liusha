@@ -211,7 +211,7 @@ export function LogsPage() {
                 ? hasFilter
                   ? '当前筛选无匹配日志'
                   : '暂无日志输出'
-                : '未发现日志文件——进程日志目录为 logs/（LIUSHA_LOG_DIR 可改），确认各进程已开启文件日志'}
+                : '未发现日志文件——日志在数据目录（config.yaml 的 data_dir）下的 logs/，确认各进程开启了文件日志（log.to_file）'}
             </div>
           ) : (
             entries.map((e) => (

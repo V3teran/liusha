@@ -3,7 +3,6 @@ import {
   listProviders,
   saveProvider,
   deleteProvider,
-  restoreProviderEnvKey,
   getRouting,
   saveRoleRoute,
   deleteRoleRoute,
@@ -67,15 +66,6 @@ export function useDeleteProvider() {
   const invalidate = useInvalidateModels()
   return useMutation({
     mutationFn: (key: string) => deleteProvider(key),
-    onSuccess: invalidate,
-  })
-}
-
-/** 恢复使用环境变量：清除 UI 设置的加密密钥，密钥解析回落 env 引用。 */
-export function useRestoreProviderEnvKey() {
-  const invalidate = useInvalidateModels()
-  return useMutation({
-    mutationFn: (code: string) => restoreProviderEnvKey(code),
     onSuccess: invalidate,
   })
 }

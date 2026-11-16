@@ -244,11 +244,12 @@ func TestTrafficFilter_EmptyConfig_PassesByDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("空配置应放行普通流量")
 	}
-	ok, _ = tf.ShouldProcess(
-		mkReq("GET", "any.com", "/", map[string]string{"Upgrade": "websocket"}, 0),
-		nil,
-	)
-	if ok {
-		t.Fatalf("websocket 应始终被拦")
+	// 名单为空即不按 Upgrade 过滤：出厂名单 [websocket] 由配置模板给出，代码不补值。
+	upgrade := mkReq("GET", "any.com", "/", map[string]string{"Upgrade": "websocket"}, 0)
+	if ok, _ = tf.ShouldProcess(upgrade, nil); !ok {
+		t.Fatalf("升级协议黑名单为空时不应拦 Upgrade 请求")
+	}
+	if ok, _ = NewTrafficFilter(config.ProxyConfig{ExcludeUpgradeProtocols: []string{"websocket"}}).ShouldProcess(upgrade, nil); ok {
+		t.Fatalf("名单含 websocket 时应拦截")
 	}
 }

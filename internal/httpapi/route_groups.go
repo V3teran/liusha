@@ -163,7 +163,6 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 	}
 
 	r.DELETE("/models/providers/:code", deleteProviderHandler(d.Models))
-	r.DELETE("/models/providers/:code/key", clearProviderKeyHandler(d.Models))
 
 	// 档位路由
 	r.GET("/models/routing", listRoutingHandler(d.Models))

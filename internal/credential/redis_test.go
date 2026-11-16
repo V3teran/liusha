@@ -5,7 +5,6 @@ package credential
 import (
 	"context"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -32,13 +31,13 @@ func newProvider(t *testing.T) *RedisProvider {
 	if err != nil {
 		t.Fatalf("获取 redis 连接串失败: %v", err)
 	}
-	client, err := db.NewRedis(ctx, config.RedisConfig{Addr: strings.TrimPrefix(connStr, "redis://")})
+	client, err := db.NewRedis(ctx, config.RedisConfig{URL: connStr, PoolSize: 5, DialTimeoutSeconds: 5, ReadTimeoutSeconds: 3, WriteTimeoutSeconds: 3})
 	if err != nil {
 		t.Fatalf("连接 redis 失败: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	return NewRedis(client, "")
+	return NewRedis(client)
 }
 
 // names 提取 identity 列表的 Name 并排序，便于断言。

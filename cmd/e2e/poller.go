@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
 
@@ -24,56 +22,43 @@ const (
 	terminateGracePeriod  = 3 * time.Minute
 )
 
-// activityIdle 查询该 task 最近 5 分钟是否有 LLM/工具活动。
-// 活性口径与 runner 的恢复监控一致：图停滞 + 活动停摆才算真死。
-// 查询失败按"有活动"处理（宁可多等，不误杀）。
-func activityIdle(ctx context.Context, taskID string) bool {
-	// 复用 api 的探索图统计通道不可行（那是图数据）；
-	// 直接查 api 暴露的会话用量接口过于间接——e2e 触发器与 DB 同机（dev 契约），
-	// 用 LIUSHA_E2E_PG_DSN 直查是最低耦合做法；DSN 未配时保守返回 false（不判死）。
-	dsn := envOrDefault("LIUSHA_E2E_PG_DSN", "postgres://liusha:liusha@localhost:55432/liusha?sslmode=disable")
-	pool, err := newPgxPoolForE2E(ctx, dsn)
-	if err != nil {
-		return false
-	}
-	defer pool.Close()
+// activityIdleWindow 是判定「没有 LLM / 工具活动」的时长，与 runner 恢复监控的活性口径一致：
+// 图停滞 + 活动停摆才算真死。
+const activityIdleWindow = 5 * time.Minute
 
-	var n int
-	err = pool.QueryRow(ctx, `
-		SELECT (
-			SELECT count(*) FROM llm_invocation
-			WHERE task_id = $1 AND created_at > now() - interval '5 minutes'
-		) + (
-			SELECT count(*) FROM tool_invocation
-			WHERE task_id = $1 AND created_at > now() - interval '5 minutes'
-		)`, taskID).Scan(&n)
-	if err != nil {
-		return false
-	}
-	return n == 0
+// activityWatch 按任务累计的 LLM / 工具调用次数判断最近是否有活动：次数增长即有活动。
+type activityWatch struct {
+	count     int
+	changedAt time.Time
 }
 
-// envOrDefault 读环境变量（缺省回退）。
-func envOrDefault(key, fallback string) string {
-	if v := lookupEnv(key); v != "" {
-		return v
+// idle 读取最新累计次数，报告是否已有 activityIdleWindow 没有增长。读取失败按「有活动」处理
+// （宁可多等，不误判停滞），并记日志。
+func (w *activityWatch) idle(ctx context.Context, api taskAPI, taskID string, logger *zerolog.Logger) bool {
+	n, err := api.ActivityCount(ctx, taskID)
+	if err != nil {
+		logger.Warn().Err(err).Msg("读取任务用量失败，按有活动处理")
+		return false
 	}
-	return fallback
+	if n != w.count || w.changedAt.IsZero() {
+		w.count, w.changedAt = n, time.Now()
+	}
+	return time.Since(w.changedAt) >= activityIdleWindow
 }
 
 // terminateAndAwait 走公开 API 下发 terminate 并等待任务落终态，返回最终状态。
 // 下发与前端同一控制端点（验收路径 = 用户路径），等待走 task.status——
 // 控制下发 → 停机传播 → 四 agent 退出 → 终态落库的整条链路都在验收内。
-func terminateAndAwait(ctx context.Context, pool *pgxpool.Pool, apiBase string, session *http.Cookie, taskID string, logger *zerolog.Logger) (string, error) {
-	if err := controlTask(apiBase, session, taskID, "terminate"); err != nil {
+func terminateAndAwait(ctx context.Context, api taskAPI, taskID string, logger *zerolog.Logger) (string, error) {
+	if err := controlTask(api.base, api.session, taskID, "terminate"); err != nil {
 		return "", fmt.Errorf("下发 terminate 失败: %w", err)
 	}
 	logger.Info().Str("task_id", taskID).Msg("已下发 terminate，等待优雅停机")
 
 	deadline := time.Now().Add(terminateGracePeriod)
 	for time.Now().Before(deadline) {
-		var status string
-		if err := pool.QueryRow(ctx, `SELECT status FROM task WHERE id=$1`, taskID).Scan(&status); err != nil {
+		status, err := api.Status(ctx, taskID)
+		if err != nil {
 			return "", fmt.Errorf("查询任务状态失败: %w", err)
 		}
 		if status != "active" {
@@ -92,10 +77,7 @@ func terminateAndAwait(ctx context.Context, pool *pgxpool.Pool, apiBase string, 
 // 任务并等待终态（验收包含停机路径——"挖到漏洞"和"收得住"都是验收项）。
 func pollTaskWithGraphStats(
 	ctx context.Context,
-	client *ExplorationGraphClient,
-	pool *pgxpool.Pool,
-	apiBase string,
-	session *http.Cookie,
+	api taskAPI,
 	taskID string,
 	criteria AcceptanceCriteria,
 	logger *zerolog.Logger,
@@ -117,6 +99,7 @@ func pollTaskWithGraphStats(
 		Msg("开始轮询任务（探索图模式）")
 
 	var lastStats GraphStats
+	var activity activityWatch
 	noProgressCount := 0
 
 	for {
@@ -130,7 +113,7 @@ func pollTaskWithGraphStats(
 			}
 
 			// 查询探索图统计
-			stats, err := client.GetTaskStats(ctx, taskID)
+			stats, err := api.GraphStats(ctx, taskID)
 			if err != nil {
 				logger.Warn().Err(err).Msg("获取任务统计失败，继续轮询")
 				continue
@@ -145,7 +128,7 @@ func pollTaskWithGraphStats(
 						Interface("stats", stats).
 						Msg("任务无图变化超过 2 分钟")
 				}
-				if noProgressCount >= stallWindowTicks && activityIdle(ctx, taskID) {
+				if noProgressCount >= stallWindowTicks && activity.idle(ctx, api, taskID, logger) {
 					return fmt.Errorf("任务卡住: 图统计 %v 已无变化超过 %v 且无 LLM/工具活动",
 						stats, stallWindowTicks*15*time.Second)
 				}
@@ -168,7 +151,7 @@ func pollTaskWithGraphStats(
 				// 验收通过 ≠ 万事大吉：认知循环仍在烧 LLM。经控制 API 下发
 				// terminate（而不是直接改 task.status）——同时验证优雅停机
 				// 路径：任务行终态 → 循环观察到 → 四 agent 中止 → run 收尾落库。
-				finalStatus, err := terminateAndAwait(ctx, pool, apiBase, session, taskID, logger)
+				finalStatus, err := terminateAndAwait(ctx, api, taskID, logger)
 				if err != nil {
 					return fmt.Errorf("优雅终止失败: %w", err)
 				}

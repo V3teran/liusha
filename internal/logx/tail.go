@@ -20,7 +20,7 @@ import (
 // 不引入第二日志事实源——UI 看到的与文件落地的永远一致。
 
 // ViewProcesses 是日志视图的进程域：进程名即 liusha 子命令名。serve 是单进程全组件
-// （二进制 / 单镜像部署），其余是分进程部署（compose）的各组件；部署只会产生其中一种布局，
+// （二进制 / 单镜像部署），其余是分进程部署（多镜像、本地开发）的各组件；部署只会产生其中一种布局，
 // 文件不存在的进程照常列出（exists=false）。
 var ViewProcesses = []string{"serve", "api", "proxy", "runner", "sandbox"}
 
@@ -84,15 +84,11 @@ type Reader struct {
 	instanceWindow int64
 }
 
-// NewReader 构造读 dir 目录的 Reader。dir 一律传 Dir()——与写入端同一套
-// LIUSHA_LOG_DIR 解析，读到的一定是写出的。
+// NewReader 构造读 dir 目录的 Reader。dir 与写入端同为 <data_dir>/logs（多镜像部署时各组件
+// 以同一路径挂载这个目录），api 经它读全体进程的文件。
 func NewReader(dir string) *Reader {
 	return &Reader{dir: dir, scanWindow: 16 << 20, instanceWindow: 512 << 10}
 }
-
-// Dir 返回日志文件目录（解析规则见 logDir）。
-// 分进程部署时各组件共用一个日志目录（compose 共享日志卷），api 经它读全体进程文件。
-func Dir() string { return logDir() }
 
 // LogProcesses 枚举视图域内各进程文件的存在性/大小/近期实例。
 // 文件缺失的进程照常返回（exists=false），前端下拉保持稳定并提示无文件。

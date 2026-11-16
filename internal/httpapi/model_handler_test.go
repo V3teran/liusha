@@ -32,7 +32,6 @@ type fakeModel struct {
 	getErr        error
 	updateMissing bool  // UpdateProvider 模拟目标不存在
 	deleteMissing bool  // DeleteProvider 模拟目标不存在
-	clearErr      error // ClearProviderKey 的返回错误
 	routeErr      error // UpsertRoleRoute 的返回错误
 }
 
@@ -96,13 +95,6 @@ func (f *fakeModel) DeleteProvider(_ context.Context, key string) error {
 	return nil
 }
 
-func (f *fakeModel) ClearProviderKey(_ context.Context, code string) (llmconfig.Provider, error) {
-	if f.clearErr != nil {
-		return llmconfig.Provider{}, f.clearErr
-	}
-	f.deleted = append(f.deleted, "key:"+code)
-	return llmconfig.Provider{Code: code, APIKeyEnv: "GLM_API_KEY"}, nil
-}
 func (f *fakeModel) ListRoleRoutes(_ context.Context) ([]llmconfig.RoleRoute, error) {
 	return f.routes, nil
 }
@@ -410,9 +402,9 @@ func TestProviderWriteSemantics(t *testing.T) {
 	}
 }
 
-// TestProviderNotFoundAndConflict：读/删/清密钥的「不存在」统一 404 中文；无环境变量
-// 可回落时清除密钥 → 409。
-func TestProviderNotFoundAndConflict(t *testing.T) {
+// TestProviderNotFound：读/删的「不存在」统一 404 中文；清除密钥的接口已删除（密钥只有前端
+// 填写这一种来源，没有可回落的去处）。
+func TestProviderNotFound(t *testing.T) {
 	cases := []struct {
 		name   string
 		fm     *fakeModel
@@ -422,8 +414,6 @@ func TestProviderNotFoundAndConflict(t *testing.T) {
 	}{
 		{"GET 不存在", &fakeModel{}, "GET", "/api/models/providers/ghost", 404},
 		{"DELETE 不存在", &fakeModel{deleteMissing: true}, "DELETE", "/api/models/providers/ghost", 404},
-		{"清密钥 不存在", &fakeModel{clearErr: fmt.Errorf("get provider: %w", pgxErrNoRows())}, "DELETE", "/api/models/providers/ghost/key", 404},
-		{"清密钥 无环境变量", &fakeModel{clearErr: fmt.Errorf("无可回落的来源: %w", llmconfig.ErrConflict)}, "DELETE", "/api/models/providers/a/key", 409},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -452,18 +442,28 @@ func TestSaveRoleRoute_InvalidTier(t *testing.T) {
 	}
 }
 
-// TestProviderJSON_KeyPresentFollowsResolvability：key_present 反映能否真正解析出密钥——
-// 只填了环境变量名而变量为空时为 false；思考预算随响应返回。
-func TestProviderJSON_KeyPresentFollowsResolvability(t *testing.T) {
-	t.Setenv("LIUSHA_TEST_EMPTY_KEY", "")
-	t.Setenv("LIUSHA_TEST_SET_KEY", "sk-x")
-	got := providerJSON(llmconfig.Provider{APIKeyEnv: "LIUSHA_TEST_EMPTY_KEY"})
+// TestProviderJSON_KeyPresent：key_present 反映是否已设置密钥；响应不含任何密钥来源以外的
+// 字段（不再有 api_key_env）；思考预算随响应返回。
+func TestProviderJSON_KeyPresent(t *testing.T) {
+	got := providerJSON(llmconfig.Provider{})
 	if got["key_present"] != false {
-		t.Fatalf("环境变量为空应 key_present=false: %v", got)
+		t.Fatalf("未设置密钥应 key_present=false: %v", got)
 	}
-	got = providerJSON(llmconfig.Provider{APIKeyEnv: "LIUSHA_TEST_SET_KEY", ThinkingBudgetTokens: 2048})
-	if got["key_present"] != true || got["thinking_budget_tokens"] != int64(2048) {
-		t.Fatalf("环境变量有值应 key_present=true 且带思考预算: %v", got)
+	if _, ok := got["api_key_env"]; ok {
+		t.Fatalf("响应不应再有 api_key_env: %v", got)
+	}
+	got = providerJSON(llmconfig.Provider{EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "9f2c", ThinkingBudgetTokens: 2048})
+	if got["key_present"] != true || got["key_last4"] != "9f2c" || got["thinking_budget_tokens"] != int64(2048) {
+		t.Fatalf("已设置密钥应 key_present=true 且带尾号与思考预算: %v", got)
+	}
+}
+
+// 「恢复使用环境变量」接口已删除：路由不存在。
+func TestProviderKeyRestoreRouteRemoved(t *testing.T) {
+	srv := newTestServer(t, Deps{Models: &fakeModel{}})
+	defer srv.Close()
+	if code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/providers/a/key", nil); code != 404 {
+		t.Fatalf("DELETE /models/providers/:code/key 应不存在（404），got %d", code)
 	}
 }
 

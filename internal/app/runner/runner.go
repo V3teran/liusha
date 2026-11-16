@@ -69,7 +69,7 @@ type stores struct {
 	calls         *llminvocation.Store
 }
 
-func newStores(pool *pgxpool.Pool, cfg config.AppConfig) *stores {
+func newStores(pool *pgxpool.Pool) *stores {
 	return &stores{
 		tasks:         task.NewStore(pool),
 		assignments:   assignment.NewStore(pool),
@@ -81,7 +81,7 @@ func newStores(pool *pgxpool.Pool, cfg config.AppConfig) *stores {
 		proxyStore:    traffic.NewProxyStore(pool), // 代理捕获流量（按 host）
 		agentStore:    traffic.NewAgentStore(pool), // agent 自产流量（按 task）
 		corpus:        corpus.NewStore(pool),       // 跨目标知识库（hybrid RAG）
-		calls:         llminvocation.NewStoreWithConfig(pool, cfg.LLM.Invocation),
+		calls:         llminvocation.NewStore(pool),
 	}
 }
 
@@ -96,6 +96,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	defer pool.Close()
 
+	redisOpts, err := db.RedisOptions(cfg.Redis)
+	if err != nil {
+		return err
+	}
 	rdb, err := db.NewRedis(ctx, cfg.Redis)
 	if err != nil {
 		return fmt.Errorf("连接 Redis: %w", err)
@@ -106,23 +110,27 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		return errors.New("sandbox.token 未配置（环境变量 LIUSHA_SANDBOX_TOKEN）：runner 调用沙盒与接收其流量回灌都需要它")
 	}
 	// runner 是解密密钥、真正拿明文打 LLM 请求的一端，缺密钥直接拒启动。
-	keyCipher, err := cryptx.NewFromEnv("LIUSHA_LLM_KEY_SECRET")
+	keyCipher, err := cryptx.NewFromHex(cfg.LLM.EncryptionKey)
 	if err != nil {
-		return fmt.Errorf("LIUSHA_LLM_KEY_SECRET 未配置或不合法（provider 密钥解密需要它）: %w", err)
+		return fmt.Errorf("llm.encryption_key（LIUSHA_LLM_ENCRYPTION_KEY）未配置或不合法: %w", err)
 	}
 
-	st := newStores(pool, cfg)
+	st := newStores(pool)
 	defer func() { _ = st.calls.Close() }()
 
-	embedder, reranker := newCorpusEmbedder(logger)
+	embedder, reranker := newCorpusEmbedder(cfg.Embedding.APIKey, logger)
 	tools := manifest.Default()
 
-	redisOpt := asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password}
+	redisOpt := worker.RedisOpt(redisOpts)
 	wc := worker.NewClient(redisOpt)
 	defer func() { _ = wc.Close() }()
 
 	// 共享多级缓存内核（L1 内存 + L2 redis + 跨进程失效总线）：一条 Subscribe 循环覆盖全部配置资源。
-	cache := cachestore.New(rdb, 0)
+	schemaVersion, err := db.SchemaVersion(ctx, pool)
+	if err != nil {
+		return err
+	}
+	cache := cachestore.New(rdb, schemaVersion)
 	go func() {
 		if err := cache.Subscribe(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error().Err(err).Msg("cachestore 失效订阅退出——配置跨进程失效不可用")
@@ -150,7 +158,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			}), llminvocation.UsageSink{Store: st.calls})
 	})
 
-	creds := credential.NewRedis(rdb, cfg.Credential.RedisKeyPrefix)
+	creds := credential.NewRedis(rdb)
 	h := &runner.Handler{
 		AgentRuns:       st.agentRuns,
 		Tasks:           st.tasks,
@@ -191,7 +199,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	trafficIngestor, err := ingestor.NewTraffic(bgCtx, ingestor.Deps{
 		Redis:         rdb,
 		Cfg:           cfg.Ingestor,
-		Stream:        cfg.Proxy.StreamName,
 		Assignments:   st.assignments,
 		Tasks:         st.tasks,
 		ProxyStore:    st.proxyStore,
@@ -220,7 +227,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	hs := newHealthGateway(cfg, trafficIngestor, logger)
 	gatewayErr := make(chan error, 1)
 	go func() {
-		logger.Info().Str("addr", hs.Addr).Msg("runner healthz listening")
+		logger.Info().Str("addr", hs.Addr).Msg("runner listening")
 		if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			gatewayErr <- fmt.Errorf("runner 监听 %s: %w", hs.Addr, err)
 		}
@@ -267,16 +274,16 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		return string(t.Status), true, nil
 	}, logger)
 
-	// llm_invocation 留存清理（retention_days > 0 时每日删除到期行）。
-	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.Invocation, logger)
+	// LLM 调用记录留存清理（llm.invocation_retention_days > 0 时每日删除到期行）。
+	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.InvocationRetentionDays, logger)
 }
 
-// newCorpusEmbedder 构造知识库 embedding + rerank client。JINA_API_KEY 缺失时返回 nil，
+// newCorpusEmbedder 构造知识库 embedding + rerank client。embedding.api_key 为空时返回 nil，
 // 知识库降级（检索退纯 sparse、写入不 embed），不阻塞主流程。
-func newCorpusEmbedder(logger zerolog.Logger) (corpus.Embedder, corpus.Reranker) {
-	jc, err := embedding.NewClient(os.Getenv("JINA_API_KEY"))
+func newCorpusEmbedder(apiKey string, logger zerolog.Logger) (corpus.Embedder, corpus.Reranker) {
+	jc, err := embedding.NewClient(apiKey)
 	if err != nil {
-		logger.Warn().Err(err).Msg("JINA_API_KEY 未配置，corpus 降级为纯 sparse 检索（不影响主流程）")
+		logger.Warn().Err(err).Msg("embedding.api_key 未配置，知识库降级为纯关键词检索（不影响主流程）")
 		return nil, nil
 	}
 	return jc, jc
@@ -330,18 +337,18 @@ func runningInContainer() bool {
 	return err == nil
 }
 
-// newHealthGateway 构造 healthz + 沙盒流量回灌端点：沙盒浏览器（CDP）抓的流量 POST 到这里，
-// 直接入摄入器的进程内队列落 agent_traffic。
+// newHealthGateway 构造 runner 的 HTTP 服务：healthz 与沙盒流量回灌端点（沙盒浏览器（CDP）抓的
+// 流量 POST 到这里，直接入摄入器的进程内队列落 agent_traffic）。
 func newHealthGateway(cfg config.AppConfig, trafficIngestor *ingestor.Traffic, logger zerolog.Logger) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	mux.HandleFunc("/internal/v1/traffic/ingest", runner.NewIngestHandler(trafficIngestor, cfg.Sandbox.Token, logger))
+	mux.HandleFunc(sandbox.TrafficIngestPath, runner.NewIngestHandler(trafficIngestor, cfg.Sandbox.Token, logger))
 	return &http.Server{
-		Addr:              cfg.Runner.HealthzAddr,
+		Addr:              cfg.Runner.ListenAddr,
 		Handler:           mux,
-		ReadHeaderTimeout: time.Duration(cfg.API.ReadHeaderTimeoutSeconds) * time.Second,
+		ReadHeaderTimeout: time.Duration(cfg.Runner.ReadHeaderTimeoutSeconds) * time.Second,
 	}
 }
 
@@ -364,9 +371,10 @@ func newTaskServer(redisOpt asynq.RedisConnOpt, runnerCfg config.RunnerConfig, l
 	runs, interrupt := context.WithCancel(context.Background())
 	return &taskServer{
 		srv: asynq.NewServer(redisOpt, asynq.Config{
-			Concurrency:     runnerCfg.AsynqConcurrency,
-			Queues:          map[string]int{worker.QueueAgent: runnerCfg.QueueAgentWeight},
-			ShutdownTimeout: time.Duration(runnerCfg.AsynqShutdownTimeoutSeconds) * time.Second,
+			Concurrency: runnerCfg.Concurrency,
+			// 只有一个队列：权重没有比较对象，取 1。
+			Queues:          map[string]int{worker.QueueAgent: 1},
+			ShutdownTimeout: time.Duration(runnerCfg.DrainTimeoutSeconds) * time.Second,
 			// asynq 内部日志（投递重试 / 处理错误）事关任务是否丢失，接进 logx。
 			Logger: asynqLogAdapter{logger},
 		}),
@@ -392,7 +400,7 @@ func (s *taskServer) Shutdown() {
 	s.srv.Shutdown()
 }
 
-// shutdown 优雅关停：停止流量入口与后台循环 → 中断在途 run 并等其收尾 → healthz。
+// shutdown 优雅关停：停止流量入口与后台循环 → 中断在途 run 并等其收尾 → HTTP 服务。
 //
 // 沙盒是独立组件，不随 runner 停止；同进程运行（serve）时由编排保证沙盒在 runner 之后才停，
 // 收尾中的释放请求仍能送达。
@@ -404,7 +412,7 @@ func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, ts *taskServ
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer hsCancel()
 	if err := hs.Shutdown(hsCtx); err != nil {
-		logger.Error().Err(err).Msg("healthz shutdown")
+		logger.Error().Err(err).Msg("runner HTTP 服务停机")
 	}
 	logger.Info().Msg("runner stopped")
 }

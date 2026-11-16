@@ -35,7 +35,6 @@ type llmStore interface {
 	CreateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	UpdateProvider(ctx context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error)
 	DeleteProvider(ctx context.Context, code string) error
-	ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error)
 	GetProvider(ctx context.Context, code string) (llmconfig.Provider, error)
 	ListProviders(ctx context.Context, onlyEnabled bool) ([]llmconfig.Provider, error)
 
@@ -172,19 +171,6 @@ func (s *Store) DeleteProvider(ctx context.Context, code string) error {
 		return err
 	}
 	return s.cache.Invalidate(ctx, providerKeys(code)...)
-}
-
-// ClearProviderKey 清除 provider 的加密密钥（密文+尾号置空），api_key_env 引用原样保留——
-// 「恢复使用环境变量」：解析回落 env 路径。失效其 provider 键 + 列表键。
-func (s *Store) ClearProviderKey(ctx context.Context, code string) (llmconfig.Provider, error) {
-	pr, err := s.db.ClearProviderKey(ctx, code)
-	if err != nil {
-		return llmconfig.Provider{}, err
-	}
-	if err := s.cache.Invalidate(ctx, providerKeys(code)...); err != nil {
-		return pr, err
-	}
-	return pr, nil
 }
 
 // UpsertRoleRoute upsert 一个角色 → provider code 直连映射，失效路由快照 + 路由列表键。

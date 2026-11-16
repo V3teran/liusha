@@ -21,19 +21,19 @@ type Publisher struct {
 	maxLen int64
 }
 
-// NewPublisher 构造 Publisher。
-//
-//	rdb:    必填
-//	stream: 空时报错（必须由 caller 从 config.ProxyConfig.StreamName 显式传入）
-//	maxLen: <=0 时不裁剪（XADD 不带 MAXLEN）；>0 走近似裁剪（Approx=true）
-func NewPublisher(rdb *redis.Client, stream string, maxLen int64) (*Publisher, error) {
+// TrafficStream 是代理流量快照的 Redis Stream：proxy 发布、runner 的流量摄入器消费，
+// 两端共用的内部约定。
+const TrafficStream = "liusha:traffic_snapshots"
+
+// NewPublisher 构造 Publisher。maxLen 是 Stream 的近似裁剪上限（proxy.stream_max_len，> 0）。
+func NewPublisher(rdb *redis.Client, maxLen int64) (*Publisher, error) {
 	if rdb == nil {
 		return nil, errors.New("proxy.NewPublisher: rdb 必填")
 	}
-	if stream == "" {
-		return nil, errors.New("proxy.NewPublisher: stream 必填")
+	if maxLen <= 0 {
+		return nil, errors.New("proxy.NewPublisher: maxLen 须大于 0")
 	}
-	return &Publisher{rdb: rdb, stream: stream, maxLen: maxLen}, nil
+	return &Publisher{rdb: rdb, stream: TrafficStream, maxLen: maxLen}, nil
 }
 
 // Publish 发布一条 snapshot；snap 为 nil 直接返回。redis 错误透传给上层处理。
@@ -45,13 +45,10 @@ func (p *Publisher) Publish(ctx context.Context, snap *TrafficSnapshot) error {
 	if err != nil {
 		return fmt.Errorf("marshal snapshot: %w", err)
 	}
-	args := &redis.XAddArgs{
+	return p.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: p.stream,
 		Values: map[string]interface{}{"snap": body},
-	}
-	if p.maxLen > 0 {
-		args.MaxLen = p.maxLen
-		args.Approx = true
-	}
-	return p.rdb.XAdd(ctx, args).Err()
+		MaxLen: p.maxLen,
+		Approx: true, // 近似裁剪：按宏节点整块删除，代价远低于精确裁剪
+	}).Err()
 }

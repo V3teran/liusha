@@ -14,7 +14,7 @@ func newTestProvider(t *testing.T) (*RedisProvider, *miniredis.Miniredis) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	return NewRedis(client, ""), mr
+	return NewRedis(client), mr
 }
 
 // TestSessionIdentityNaming 锁定会话身份命名权威：名字是身份类别的唯一

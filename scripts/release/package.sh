@@ -3,10 +3,13 @@
 #
 # 产物（输出目录缺省 dist/）：
 #   liusha_<版本>_{linux,darwin}_{amd64,arm64}.tar.gz
-#     └─ liusha_<版本>_<系统>_<架构>/{liusha, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
+#     └─ liusha_<版本>_<系统>_<架构>/{liusha, config.yaml, .env.example, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
 #   liusha_<版本>_windows_{amd64,arm64}.zip
-#     └─ liusha_<版本>_windows_<架构>/{liusha.exe, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
+#     └─ liusha_<版本>_windows_<架构>/{liusha.exe, config.yaml, .env.example, LICENSE, NOTICE, THIRD_PARTY_NOTICES}
 #   checksums.txt（sha256，覆盖全部压缩包）
+#
+# config.yaml 与程序放在同一目录：liusha 缺省读程序所在目录的 config.yaml。.env.example 与 compose 部署
+# 同一份，部署方复制为同目录的 .env 填写，启动时 -env-file .env 读入。
 #
 # 前置：Go、Node 22 + pnpm（web/ 已 pnpm install）、zip。前端先构建并以 webdist 标签编入程序。
 set -euo pipefail
@@ -34,7 +37,7 @@ for target in "${TARGETS[@]}"; do
   mkdir -p "$work/$name"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -mod=vendor -trimpath -tags webdist \
     -ldflags "-s -w -X main.version=${VERSION}" -o "$work/$name/$exe" ./cmd/liusha
-  cp LICENSE NOTICE "$work/$name/"
+  cp internal/config/config.yaml .env.example LICENSE NOTICE "$work/$name/"
   # 第三方声明按程序实际链接的模块生成：各平台链接的模块不同（如 Windows 的服务与作业对象支持）。
   go run -mod=vendor ./scripts/release/notices \
     -binary "$work/$name/$exe" -web "$work/THIRD_PARTY_WEB" > "$work/$name/THIRD_PARTY_NOTICES"

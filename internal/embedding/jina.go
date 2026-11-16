@@ -1,6 +1,6 @@
 // Package embedding 封装 Jina 的 embedding + rerank HTTP client，供 corpus 的 hybrid RAG 用。
 //
-// 密钥走 ENV JINA_API_KEY，绝不入 config/git。
+// 密钥是配置 embedding.api_key（经 LIUSHA_EMBEDDING_API_KEY 注入，配置文件里留空）。
 // 密钥缺失时构造返回 ErrNoAPIKey，调用方据此降级（corpus 写入只落行不 embed、检索退纯 sparse）——
 // 渗透主流程不该被知识库可用性阻塞。
 package embedding
@@ -29,8 +29,8 @@ const (
 	taskRetrievalPassge = "retrieval.passage" // 入库时的 passage 向量（非对称检索，Jina 最佳实践）
 )
 
-// ErrNoAPIKey 表示 JINA_API_KEY 未配置——调用方据此降级，不 fail-fast。
-var ErrNoAPIKey = errors.New("embedding: JINA_API_KEY 未配置")
+// ErrNoAPIKey 表示 embedding.api_key 未配置——调用方据此降级，不 fail-fast。
+var ErrNoAPIKey = errors.New("embedding: embedding.api_key 未配置")
 
 // Client 是 Jina 的 Embedder + Reranker 实现。
 type Client struct {
