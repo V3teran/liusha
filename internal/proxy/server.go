@@ -61,6 +61,7 @@ type Server struct {
 	certDir     string
 	source      string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
 	logger      zerolog.Logger
+	ca          CA
 }
 
 // ServerDeps 注入服务依赖；ListenAddr（MITM 代理的监听地址）与 CertDir（根证书目录）必填。
@@ -78,7 +79,7 @@ type ServerDeps struct {
 	Resolver IPResolver
 }
 
-// NewServer 构造内嵌 MITM 代理；首次启动会在 CertDir 下生成 CA。
+// NewServer 构造内嵌 MITM 代理；根证书见 EnsureCA。
 func NewServer(deps ServerDeps) (*Server, error) {
 	if deps.Filter == nil {
 		return nil, errors.New("proxy.NewServer: Filter 必填")
@@ -95,9 +96,17 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	if err := os.MkdirAll(certDir, 0o750); err != nil {
 		return nil, fmt.Errorf("创建证书目录 %s 失败: %w", certDir, err)
 	}
-	// 首次启动会自动生成 CA；已存在则就地加载
+	ca, replaced, err := EnsureCA(certDir)
+	if err != nil {
+		return nil, fmt.Errorf("准备根证书: %w", err)
+	}
+	if replaced {
+		deps.Logger.Warn().Str("cert_dir", certDir).Str("fingerprint", ca.Fingerprint).
+			Msg("根证书已更换为永久有效的新证书，客户端需要重新安装（证书目录里的 cacert.pem）")
+	}
+	// 代理库从同一目录加载 EnsureCA 准备好的证书
 	if err := certs.LoadCerts(certDir); err != nil {
-		return nil, fmt.Errorf("加载/生成 CA 证书失败: %w", err)
+		return nil, fmt.Errorf("加载根证书: %w", err)
 	}
 
 	source := strings.TrimSpace(deps.Source)
@@ -111,6 +120,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		certDir:    certDir,
 		source:     source,
 		logger:     deps.Logger,
+		ca:         ca,
 	}
 	srv.filterState.Store(&filterState{
 		filter:               deps.Filter,
@@ -250,6 +260,9 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 		Int("status", snap.StatusCode).Msg("traffic 已投递到 stream")
 	return nil
 }
+
+// CA 返回代理正在使用的根证书。
+func (s *Server) CA() CA { return s.ca }
 
 // Run 启动 proxify（阻塞 HTTP listener），ctx 取消时 stop。
 func (s *Server) Run(ctx context.Context) error {
