@@ -116,5 +116,14 @@ func (r *reactRuntime) callLLMStreaming(
 		}
 		return llm.Response{}, err
 	}
-	return llm.CollectStream(ctx, ch, config.OnThoughtDelta, config.OnThinkingDelta)
+	resp, err := llm.CollectStream(ctx, ch, config.OnThoughtDelta, config.OnThinkingDelta)
+	if err != nil && llm.IsTransient(err) {
+		// 流已建立、消费途中遇可重试的瞬时故障（限流 / 过载 / 网络抖动）：已产出的
+		// 增量无法从通道回收，但本轮权威消息历史在成功前尚未写入，整体改走非流式
+		// Complete（重试装饰器按退避表重试）是安全的——保全本轮之前已累积的多步推理，
+		// 不必把整个动作交还重做。只对中途失败降级：建流失败已由重试装饰器处理过，
+		// 不在此叠加第二层重试。
+		return config.LLMProvider.Complete(ctx, request)
+	}
+	return resp, err
 }

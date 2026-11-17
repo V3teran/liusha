@@ -274,6 +274,21 @@ func (a *Agent) executeAction(
 		return nil
 	}
 
+	// 执行期遇基础设施瞬时故障（provider 限流 / 过载 / 网络抖动）：这不是对动作的判决，
+	// 与「中断」同类——交还 open 待重试，不记 failed。记成失败会让规划者把可行的方向
+	// 读作「此路不通」而弃掉。瞬时判定委托 llm.IsTransient（全系统唯一事实源）。看门狗
+	// 判停摆的动作（stall）是真·卡死，不在此列，仍按失败结束。调用层的短暂故障已由重试
+	// 装饰器与流式降级吸收，走到这里的是退避耗尽后仍未恢复的持续故障：交还而非记死，
+	// 让方向在 provider 恢复后仍可原路继续。
+	if execErr != nil && stall == nil && llm.IsTransient(execErr) {
+		a.logger.Warn().Str("action_id", action.ID).Err(execErr).
+			Msg("执行期 provider 瞬时故障，交还动作待重试（不记失败）")
+		if _, err := a.graph.ReleaseAction(markCtx, a.taskID, action.ID, a.agentRunID); err != nil {
+			a.logger.Error().Err(err).Str("action_id", action.ID).Msg("交还瞬时故障的动作失败")
+		}
+		return nil
+	}
+
 	// 结束以「仍由本 run 认领且仍 running」为前置：外部决定（否决、任务收口）或新 run
 	// 的回收已改写状态时，迟到的结果不覆盖它们。看门狗判停摆的动作在这里按失败结束。
 	to, reason := explorationgraph.StateCompleted, ""
