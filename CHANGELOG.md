@@ -3,7 +3,7 @@
 ## [0.13.0](https://github.com/V3teran/liusha/compare/v0.12.0...v0.13.0) (2026-11-17)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * 漏洞 API 返回的 repro.domain 改为 repro.kind（取值 web→http、generic→steps），evaluation 证据中 exploit_status_code / exploit_duration_ms 改为 status_code / duration_ms，探索图动作节点不再含 type；存量数据由迁移自动改写，直接读取这些字段的外部调用方需改用新字段名
 
