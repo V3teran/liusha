@@ -12,68 +12,64 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// createObservationNode 为观察结果创建 observation 节点
+// createObservationNode 为观察结果创建 observation 节点。
 //
-// 验证状态由 Category 完全决定（不由 executor 赋值）：
-// - hypothesis + repro → pending（待复现门验证）
-// - 其余全部 → 没有验证状态（事实写入即终态：可信来自产出它的动作（推导链出处），无需验证）
+// 字段按类别结构化约束（契约的唯一执行点，不依赖模型自觉）：
+//   - 所有观察：statement / category / reasoning；
+//   - hypothesis（待验证主张）专属：repro（必带）、impact、suggestion、priority、
+//     验证状态 pending —— 进复现门验证；
+//   - 其余五类事实：写入即终态（可信来自产出它的动作），只带上面三项，
+//     不带任何假设专属字段。模型若给事实误填这些字段，在此一并丢弃。
 func (e *Engine) createObservationNode(
 	ctx context.Context,
 	taskID string,
 	actionID string,
 	obs Observation,
 ) (*explorationgraph.Node, error) {
-	// 构造 content
 	contentMap := map[string]interface{}{
 		"statement": obs.Statement,
 		"category":  obs.Category,
 		"reasoning": obs.Reasoning,
 	}
 
-	if obs.Impact != "" {
-		contentMap["impact"] = obs.Impact
-	}
-	if obs.Suggestion != "" {
-		contentMap["suggestion"] = obs.Suggestion
+	node := explorationgraph.Node{
+		ID:         uuid.New().String(),
+		TaskID:     taskID,
+		Kind:       core.KindObservation,
+		SourceType: explorationgraph.SourceExecutor,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 
-	// 复现配方（假设必带；收割时已归一化）
-	if len(obs.Repro) > 0 {
+	switch obs.Category {
+	case explorationgraph.CategoryHypothesis:
+		// hypothesis 必带 repro，并携带主张专属字段与待验证状态
+		if len(obs.Repro) == 0 {
+			return nil, fmt.Errorf("hypothesis observation requires repro")
+		}
 		contentMap["repro"] = obs.Repro
+		if obs.Impact != "" {
+			contentMap["impact"] = obs.Impact
+		}
+		if obs.Suggestion != "" {
+			contentMap["suggestion"] = obs.Suggestion
+		}
+		node.Priority = explorationgraph.NormalizePriority(obs.Priority)
+		pending := explorationgraph.VerificationPending
+		node.VerificationStatus = &pending
+
+	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
+		// 事实只带 statement/category/reasoning —— 无 repro/impact/suggestion/priority/验证状态
+
+	default:
+		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
 	}
 
 	content, err := json.Marshal(contentMap)
 	if err != nil {
 		return nil, fmt.Errorf("marshal content: %w", err)
 	}
-
-	node := explorationgraph.Node{
-		ID:         uuid.New().String(),
-		TaskID:     taskID,
-		Kind:       core.KindObservation,
-		Content:    content,
-		Priority:   explorationgraph.NormalizePriority(obs.Priority), // 优先级只在节点层一份
-		SourceType: explorationgraph.SourceExecutor,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-	}
-
-	// 只有 hypothesis 进验证生命周期（pending → 复现门验证），其余五类观察
-	// 都是写入即终态的事实，不带验证状态。
-	switch obs.Category {
-	case explorationgraph.CategoryHypothesis:
-		// hypothesis 必须有 repro
-		if len(obs.Repro) == 0 {
-			return nil, fmt.Errorf("hypothesis observation requires repro")
-		}
-		pending := explorationgraph.VerificationPending
-		node.VerificationStatus = &pending
-
-	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
-
-	default:
-		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
-	}
+	node.Content = content
 
 	// action → observation 关系边与节点原子落库
 	if actionID != "" {
@@ -112,8 +108,9 @@ type Observation struct {
 	// Reasoning：为什么做出这个观察
 	Reasoning string `json:"reasoning"`
 
-	// Priority：主张的优先级（low/medium/high/critical）——领域通用词，
-	// 与图级 Priority 同一概念（探索资源有限，轻重缓急任何领域都有）。
+	// 以下四项是 hypothesis（待验证主张）专属，事实不带（createObservationNode 按类别约束）。
+
+	// Priority：主张的优先级（low/medium/high/critical），与图级 Priority 同一概念。
 	Priority string `json:"priority,omitempty"`
 
 	// Impact：主张为真时的影响与波及面（中性因果陈述）。
@@ -122,9 +119,7 @@ type Observation struct {
 	// Suggestion：处理建议（若要改变这一局面可以怎么做）。
 	Suggestion string `json:"suggestion,omitempty"`
 
-	// Repro：复现配方
-	//   - hypothesis：必须（无配方的推测无从验证）
-	//   - 其余类别：可选
+	// Repro：复现配方 —— hypothesis 必带（无配方的推测无从验证），事实不带。
 	// 形式：信封 {kind, recipe, assert}，recipe/assert 的形状由 kind 定义（http=HTTP 请求，steps=自然语言步骤）
 	Repro json.RawMessage `json:"repro,omitempty"`
 }
