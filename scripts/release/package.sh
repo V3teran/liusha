@@ -6,7 +6,7 @@
 #     └─ liusha_<版本>_<系统>_<架构>/{liusha, config.yaml, .env.example, LICENSE, THIRD_PARTY_NOTICES}
 #   liusha_<版本>_windows_{amd64,arm64}.zip
 #     └─ liusha_<版本>_windows_<架构>/{liusha.exe, config.yaml, .env.example, LICENSE, THIRD_PARTY_NOTICES}
-#   checksums.txt（sha256，覆盖全部压缩包）
+#   SHA256SUMS（覆盖全部压缩包；GitHub 发布页按文件名排序、不分大小写，这个名字排在压缩包之后）
 #
 # config.yaml 与程序放在同一目录：liusha 缺省读程序所在目录的 config.yaml。.env.example 与 compose 部署
 # 同一份，部署方复制为同目录的 .env 填写，启动时 -env-file .env 读入。
@@ -49,5 +49,5 @@ for target in "${TARGETS[@]}"; do
 done
 
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
-(cd "$OUT" && sha256 ./*.tar.gz ./*.zip | sed 's# \./# #' > checksums.txt)
+(cd "$OUT" && sha256 ./*.tar.gz ./*.zip | sed 's# \./# #' > SHA256SUMS)
 ls -l "$OUT"
