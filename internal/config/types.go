@@ -126,7 +126,11 @@ type EmbeddingConfig struct {
 
 // ProxyConfig 是 MITM 代理入口与流量过滤规则的部署默认（过滤规则可在前端「系统配置」自定义）。
 type ProxyConfig struct {
-	ListenAddr string `mapstructure:"listen_addr"` // 浏览器 / 客户端把代理指到这里
+	ListenAddr string `mapstructure:"listen_addr"`
+	// PublicAddr 是客户端设置代理时填写的地址，控制台「代理接入」显示它：「主机:端口」，或只写
+	// 「:端口」表示主机即控制台所在的主机。空 = 由 listen_addr 推出（监听全部网卡时只取端口，
+	// 否则即监听地址）。容器部署时代理端口映射到宿主的另一个端口，须显式配置。
+	PublicAddr string `mapstructure:"public_addr"`
 	// StreamMaxLen 是代理流量在 Redis 中等待摄入的缓冲上限（条，近似裁剪）。
 	StreamMaxLen int `mapstructure:"stream_max_len"`
 

@@ -142,7 +142,11 @@ services:
     <<: *liusha-image
     command: ["proxy"]
     restart: unless-stopped
-    environment: *liusha-env
+    environment:
+      <<: *liusha-env
+      # 控制台「代理接入」显示的代理地址：容器内的 8588 映射到宿主的另一个端口，按宿主端口给出
+      # （主机由控制台补为它自己的主机）；控制台与代理不在同一主机时在 .env 写完整地址。
+      LIUSHA_PROXY_PUBLIC_ADDR: ${LIUSHA_PROXY_PUBLIC_ADDR:-:${LIUSHA_PROXY_HOST_PORT:-58588}}
     volumes:
       - *config
       - ${LIUSHA_DATA_DIR:-$HOME/data/liusha}/certs:${LIUSHA_DATA_DIR:-$HOME/data/liusha}/certs

@@ -5,6 +5,7 @@ import { useListKeyboardNav } from '@/hooks/useListKeyboardNav'
 import { TrafficFilterBar } from '@/features/traffic/TrafficFilterBar'
 import { TrafficTable } from '@/features/traffic/TrafficTable'
 import { TrafficDetailPane } from '@/features/traffic/TrafficDetailPane'
+import { ProxyAccess } from '@/features/proxy/ProxyAccess'
 import { useTrafficFilters } from '@/features/traffic/useTrafficFilters'
 import { useTrafficContentTypes, useTrafficDetail, useTrafficList } from '@/features/traffic/useTrafficQueries'
 import type { TrafficSummary } from '@/api/types'
@@ -58,9 +59,11 @@ export function TrafficPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="代理流量" subtitle="代理捕获的 HTTP 请求 / 响应原文，及其被消费的批次" />
+      <PageHeader title="代理流量" subtitle="代理捕获的 HTTP 请求 / 响应原文，及其被消费的批次">
+        <ProxyAccess />
+      </PageHeader>
 
-      {/* 上下分栏（对齐 Burp HTTP history）：默认列表占满全高、可浏览全部流量；
+      {/* 上下分栏：默认列表占满全高、可浏览全部流量；
           点击某行后才在下方拆出详情面板（详情内部请求/响应再左右并排），关闭后恢复全高。
           筛选栏固定在顶部；未选中时列表 flex-1 独占，选中后列表退为 42%、详情占余下空间。 */}
       <div className="flex min-h-0 flex-1 flex-col">

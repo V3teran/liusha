@@ -47,6 +47,9 @@ chown postgres:postgres "$DATA_DIR/logs/postgres.log"
 export LIUSHA_DATA_DIR="$DATA_DIR"
 export LIUSHA_POSTGRES_URL="postgres://liusha:$LIUSHA_POSTGRES_PASSWORD@127.0.0.1:5432/liusha?sslmode=disable"
 export LIUSHA_REDIS_URL="redis://:$LIUSHA_REDIS_PASSWORD@127.0.0.1:6379/0"
+# 控制台「代理接入」显示的代理地址：容器内的 8588 按 LIUSHA_PROXY_HOST_PORT 发布到宿主（与 make single-run
+# 同一缺省），主机由控制台补为它自己的主机；.env 写了完整地址时以它为准。
+export LIUSHA_PROXY_PUBLIC_ADDR="${LIUSHA_PROXY_PUBLIC_ADDR:-:${LIUSHA_PROXY_HOST_PORT:-58588}}"
 
 # ── PostgreSQL ──
 if [ -s "$PGDATA/PG_VERSION" ] && [ "$(cat "$PGDATA/PG_VERSION")" != "$PG_MAJOR" ]; then

@@ -128,6 +128,8 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  pool_size: 20", "  pool_size: 0", "redis.pool_size"},
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
+		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},
+		{"  public_addr: \"\"", "  public_addr: \":70000\"", "proxy.public_addr"},
 		// 相对路径依赖进程工作目录：以服务方式运行时不可靠，拒绝。
 		{"data_dir: ~/data/liusha", "data_dir: data/liusha", "data_dir"},
 	} {
@@ -139,6 +141,17 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 }
 
 // 文件里的每个键都能被 LIUSHA_<键> 环境变量覆盖（含密钥与数据目录）；值为空串的环境变量不覆盖。
+// proxy.public_addr 可写「主机:端口」或只写「:端口」。
+func TestLoad_ProxyPublicAddr(t *testing.T) {
+	for _, v := range []string{"10.0.0.5:58588", ":58588", "proxy.example.com:58588", "[::1]:8588"} {
+		t.Setenv("LIUSHA_PROXY_PUBLIC_ADDR", v)
+		cfg, err := Load(templatePath)
+		if err != nil || cfg.Proxy.PublicAddr != v {
+			t.Fatalf("public_addr=%q 应可加载，got %q err=%v", v, cfg.Proxy.PublicAddr, err)
+		}
+	}
+}
+
 func TestLoad_EnvOverridesFile(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("LIUSHA_DATA_DIR", dataDir)

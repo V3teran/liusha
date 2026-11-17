@@ -62,6 +62,9 @@ type Server struct {
 	source      string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
 	logger      zerolog.Logger
 	ca          CA
+	// lastRequest 是最近收到请求的时刻（UnixNano，0 = 尚未收到）：被过滤掉的请求也算，
+	// 用来判断客户端是否已经把代理指到这里。
+	lastRequest atomic.Int64
 }
 
 // ServerDeps 注入服务依赖；ListenAddr（MITM 代理的监听地址）与 CertDir（根证书目录）必填。
@@ -102,7 +105,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	}
 	if replaced {
 		deps.Logger.Warn().Str("cert_dir", certDir).Str("fingerprint", ca.Fingerprint).
-			Msg("根证书已更换为永久有效的新证书，客户端需要重新安装（证书目录里的 cacert.pem）")
+			Msg("根证书已更换为永久有效的新证书，客户端需要重新安装（控制台「代理接入」下载）")
 	}
 	// 代理库从同一目录加载 EnsureCA 准备好的证书
 	if err := certs.LoadCerts(certDir); err != nil {
@@ -136,7 +139,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		DumpRequest:        false,
 		DumpResponse:       false,
 		Verbosity:          types.VerbositySilent,
-		OnRequestCallback:  onRequest,
+		OnRequestCallback:  srv.onRequest,
 		OnResponseCallback: srv.onResponse,
 		// 必填空指针：proxify NewLogger 内部直接读 .Addr，nil 会 panic
 		Elastic: &elastic.Options{},
@@ -176,7 +179,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 // 协程对每个请求做带请求体的转储（读走并替换 req.Body），与转发上游并发进行，是数据竞争，
 // 会让 POST 的请求体残缺地到达目标。回调里保留 proxify 缺省路径对快照必需的两件事：会话
 // 标识（响应回调据此关联请求），以及从 Accept-Encoding 去掉 br（快照只解 gzip / deflate）。
-func onRequest(req *http.Request, ctx *martian.Context) error {
+// 另记下收到请求的时刻（LastRequestAt）。
+func (s *Server) onRequest(req *http.Request, ctx *martian.Context) error {
+	s.lastRequest.Store(time.Now().UnixNano())
 	ctx.Set("user-data", types.UserData{ID: ctx.ID(), Host: req.Host})
 	if ae := req.Header.Get("Accept-Encoding"); ae != "" {
 		var kept []string
@@ -263,6 +268,14 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 
 // CA 返回代理正在使用的根证书。
 func (s *Server) CA() CA { return s.ca }
+
+// LastRequestAt 返回最近收到请求的时刻；尚未收到过请求时为零值。
+func (s *Server) LastRequestAt() time.Time {
+	if ns := s.lastRequest.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
 
 // Run 启动 proxify（阻塞 HTTP listener），ctx 取消时 stop。
 func (s *Server) Run(ctx context.Context) error {

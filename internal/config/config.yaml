@@ -83,7 +83,8 @@ embedding:
 
 # ---- proxy：MITM 代理入口 + 过滤规则出厂值 ----
 proxy:
-  listen_addr: 0.0.0.0:8588          # 浏览器 / 客户端把代理指到这里
+  listen_addr: 0.0.0.0:8588
+  public_addr: ""                    # 客户端设置代理时填的地址（控制台「代理接入」显示）：主机:端口，或 :端口（主机即控制台所在主机）；空 = 由 listen_addr 推出
   stream_max_len: 100000             # 代理流量在 Redis 中等待摄入的缓冲上限（约 5 KiB × 1e5 ≈ 500 MiB）
   # 过滤规则（前端「系统配置 · 代理过滤」可自定义）
   allow_hosts: []                    # 主机白名单（空 = 放行全部）

@@ -113,6 +113,15 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	}
 }
 
+// registerProxyRoutes 注册代理接入路由（控制台「代理接入」）。
+func registerProxyRoutes(r gin.IRouter, d Deps) {
+	if d.Proxy == nil {
+		return
+	}
+	r.GET("/proxy", getProxyStatusHandler(d.Proxy))
+	r.GET("/proxy/ca.crt", getProxyCAHandler(d.Proxy))
+}
+
 // registerLogsRoutes 注册日志查看路由（前端 /logs 页）。
 func registerLogsRoutes(r gin.IRouter, d Deps) {
 	if d.Logs == nil {
