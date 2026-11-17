@@ -6,7 +6,7 @@
 
 ## 项目一览
 
-liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的安全研究与学习）。一次测试的数据流：
+liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限授权的安全研究与学习）。核心层（四个 agent、探索图、agent 框架）是领域中立的探索引擎，渗透测试只经章程的「域指引」、装配处注册的扩展与产品表层注入（边界见「领域不变式 · 核心层领域中立」）。一次测试的数据流：
 
 ```
 人工下发 brief ──┐
@@ -136,6 +136,26 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 改到相关代码时必须守住。代码层没有强制的条目会特别注明，靠评审把关。
 
+### 核心层领域中立
+
+liusha 的产品定位是渗透测试，但核心层是一台通用的「目标驱动探索」引擎：围绕目标规划动作、执行取得观察、复现坐实结果、全程监察纠偏。渗透测试只是这次部署注入的领域；核心层保持中立，换一个领域时只换注入的部分、不动核心。
+
+| 层 | 范围 | 领域属性 |
+|---|---|---|
+| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、知识库导入、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
+| 注入点 | 章程末节「域指引」；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
+| 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
+
+- **判据**：一段进入 LLM 的文本、一个概念或一个枚举能否放进核心层，看它在另一个领域（代码审计、故障排查、资料调研……）的部署里是否依然成立。成立才进核心层，否则放进域指引或扩展。核心层只用探索图的词汇表达：目标、动作、观察（假设）、结果、主张、配方、证据。
+- **落位**：
+  - 章程正文写角色、方法、判断准则，用中立词汇；阶段划分、示例、判据、类别词表、领域工具的用法只写在章程最后一个一级标题 `# 域指引`。换领域部署只改这一节（「智能体」页可自定义）。
+  - 输出契约不可自定义，因此必须中立，示例也用中立对象。
+  - 核心包代码里进入 LLM 的文本（提示词组装、工具描述与 schema、回给 LLM 的报错、压缩与蒸馏话术）只陈述数据与机制，不含领域词，也不含行为指导（见「出厂默认与用户自定义」的提示词分层）。
+  - 领域能力只经扩展接入、在 `cognition` 装配处注册；核心包不 import 具体实现，也不按领域分支。
+- **概念不借领域的名**：核心概念按自身语义命名，不与业务领域共用一个词。反例：复现配方的形状曾叫 `domain`（`web` / `generic`），与「业务领域」撞名，把「一个 HTTP 请求的形状」误当成「Web 领域」；现在叫 `kind`（`http` / `steps`）。
+- **方法论也是领域内容**：固定的阶段词表、分类体系即使写成中性的英文枚举，也是领域方法论（动作曾有的 `type` = reconnaissance / analysis / testing 因此删除）。核心层的结构只表达探索本身（目标、依据、因果、状态）。
+- **守门**：`internal/builtin/neutrality_test.go` 用领域词表扫描章程正文（域指引之前）、三份契约与核心包的字符串字面量（日志调用除外）。新增会产出 LLM 文本的核心包或源码时登记进 `coreSources`；词表只收不会出现在中立表述里的词。守门只能拦词，拦不住改头换面的方法论与命名，这两类靠评审按上面的判据把关。
+
 ### 实体关系
 
 - 任务是中心：探索图、漏洞、运行、LLM / 工具调用、工作区目录都按 `task_id` 挂在任务下；批次（assignment）是任务的分组；对话是人与任务交互的通道，一个任务至多一个对话（`conversation_one_per_task` 唯一索引），对话删除后任务仍在，纯聊天对话没有任务。
@@ -182,12 +202,12 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 ### 复现配方与坐实交付
 
-- 配方是域信封 `{domain, recipe, assert}`。核心领域中立：`internal/repro` 只定义信封与领域注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `generic` 领域），recipe / assert 的形状、矫正与机器复现通道归各领域包（Web 是 `internal/webrepro`），在 `cognition` 装配时注册。复现门按信封的 domain 选复现通道；没有通道的领域回显配方、由评估者自主取证（验证档位 `judge_only`）。新增领域实现 `repro.Domain`（与可选的 `evaluator.Replayer`）并在装配处注册，核心不出现领域字面量。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
-- 复现门是终局：web 域（`webrepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
-- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `webrepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
-- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步 planner 的证伪提示（`planner/prompt_builders.go`）。
+- 配方是信封 `{kind, recipe, assert}`，`kind` 是配方的形状（怎样复现），不是业务领域。`internal/repro` 只定义信封与配方形状注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `steps` 形状：自然语言步骤 + 判据描述），其余形状的 recipe / assert、矫正与机器复现通道归各自的包（一个 HTTP 请求的 `http` 形状在 `internal/httprepro`），在 `cognition` 装配时注册。复现门按信封的 kind 选复现通道；没有通道的形状回显配方、由评估者自主取证（验证档位 `judge_only`）。新增形状实现 `repro.Kind`（与可选的 `evaluator.Replayer`）并在装配处注册，同时在执行者契约里写明它的配方、在评估者契约里写明它的证据（`httprepro` 的测试守住两份契约与实现一致）。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
+- 复现门是终局：http 配方（`httprepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
+- 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `httprepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
+- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
 - 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 pending，下轮重试。
-- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
+- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 
 ### 凭证库（`internal/credential`）
 
@@ -220,7 +240,9 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - **产品定义的**（agent、内置技能、系统设置）：出厂值属于代码——agent 与内置技能编译在 `internal/builtin`，系统设置默认值 = 代码 + `config.yaml` 部署值。数据库只存用户改过的字段（`agent_override` / `skill_override` / `setting_override`），生效值在读取时合成（`internal/override`），三级缓存只缓存用户层。改出厂内容即随版本生效，不需要任何同步命令。
 - **用户定义的**（LLM 接入、自建技能 `custom_skill`、定时模板、管理员账号、知识库）：用户数据，在前端维护；`.env` 只在首装时提供初始管理员密码（`admin.initial_password`）。
 - 自定义规则：整值字段记录值与基线（写入时依据的出厂原文）；名单字段以 `{on, off}` 提交、记录增删，生效值 = 出厂 ∪ 新增 − 删除，「全部」(`*`) 中取消某项按全集展开。**保存时与出厂相同的值不算自定义**。各资源的写入一律经资源级锁事务（`overridestore`，事务级 advisory lock，含清空即删行），并发写不丢更新；需要与其它写入原子落定时用 `UpdateTx` 在调用方事务内执行。
-- agent 系统提示词 = 章程（可自定义）+ 输出契约（程序解析依赖的格式，随解析代码放在各 agent 的 `contract` 子包，不可自定义）。改输出格式只改契约与解析代码；**不要把程序依赖的约定写进章程**（`internal/builtin` 的测试会拦下章程里的契约章节）。
+- agent 系统提示词 = 章程（可自定义）+ 输出契约（程序解析依赖的格式，随解析代码放在各 agent 的 `contract` 子包，不可自定义）。改输出格式只改契约与解析代码；**不要把程序依赖的约定写进章程**（`internal/builtin` 的测试会拦下章程里的契约章节）。规划者有常规规划与结果分析两次调用，共用一份章程、各有一份契约。
+- 提示词分层，每类内容只有一处：行为指导（角色、方法、判断准则）只在章程；格式只在契约；代码组装的输入（objective、状态摘要）只陈述数据，不写「应当 / 不要」这类指导；工具的用法只在工具自己的描述与 schema 里，章程不复述参数。代码里藏着的指导用户看不到也改不了，还会与自定义后的章程互相矛盾。
+- 领域内容在提示词里只有一处：章程最后一节「域指引」；章程正文、契约与核心代码组装的文本保持中立（见「核心层领域中立」）。
 - 内置技能同 code 时自建技能优先；内置技能下线时，用户自定义过的按 `last_saved` 转为同 code 自建技能（api 启动执行）；删除自建技能同时清理各 agent 对它的引用。
 - 新增可自定义字段：在资源的配置结构体（`agent.Config` / `skillstore.Content` / 各组设置结构体）加 json 字段即可，字段表由结构体推导（切片为名单、其余为整值）；删除字段后残留的自定义自动失效，不需要迁移。
 - agent 名单（`function_tools` / `cli_tools` / `skills`）的成员判定只经 `registry.Allows`：nil = 拒绝，空 = 空集，含 `*` = 全部（含以后新增）。运行时装配与页面上的「已装配」状态同用这一个判定，不要另写——技能索引与 CLI 工具目录都曾因各写一份漏掉 `*` 而恒为空。
@@ -291,6 +313,6 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 全仓质量治理按以下三波划分，每波结束都跑一遍验证门：
 
-1. agent 核心（认知循环、复现与验证、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,webrepro,httpreplay,distill,reasoning,intent,chat,qa}`
+1. agent 核心（认知循环、复现与验证、会话 LLM 路径、出厂内容）：`internal/{planner,executor,evaluator,monitor,cognition,framework,registry,tools,skill,builtin,corpus,embedding,explorationgraph,repro,httprepro,httpreplay,distill,reasoning,intent,chat,qa}`
 2. 平台服务：`internal/` 下其余全部包（持久化、调度、接入、配置、基础设施），以及 `cmd/`。
 3. 前端：`web/src`（pages 编排 / features 领域 / api 客户端 / styles Token）。
