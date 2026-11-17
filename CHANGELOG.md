@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.0](https://github.com/V3teran/liusha/compare/v0.11.0...v0.12.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **proxy:** `config.yaml` 新增 `proxy.public_addr`，缺这个键会拒绝启动，从新版本的模板复制这一行（保持空值即可），详见 deployments/README.md「从 0.11 升级」。
+* **proxy:** 升级后首次启动 proxy 会把旧的「Proxify CA」换成永久有效的「liusha CA」，已信任旧证书的浏览器与设备需要重新安装 `<data_dir>/certs/cacert.pem`。
+
+### 新功能
+
+* **proxy:** 控制台显示代理地址与运行状态，可下载根证书 ([c57329e](https://github.com/V3teran/liusha/commit/c57329e4d8c022564dc7c90fb933bf024d7e076d))
+
+
+### 问题修复
+
+* **proxy:** 根证书永久有效，到期不再导致代理无法启动 ([665abad](https://github.com/V3teran/liusha/commit/665abada1f4b2b35c70dd651933645e29cbb24df))
+* **proxy:** 目标恢复后代理立即可用，不再一直返回 502 ([3c1473f](https://github.com/V3teran/liusha/commit/3c1473fd00f6b50a3eaa9e4e0bb06fe652a7d5a7))
+
 ## [0.11.0](https://github.com/V3teran/liusha/compare/v0.10.2...v0.11.0) (2026-11-16)
 
 
