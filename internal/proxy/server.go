@@ -28,6 +28,7 @@ import (
 	"github.com/projectdiscovery/proxify/pkg/logger/kafka"
 	"github.com/projectdiscovery/proxify/pkg/types"
 	"github.com/rs/zerolog"
+	netproxy "golang.org/x/net/proxy"
 )
 
 // SnapshotPublisher 抽象快照发布行为，便于单元测试不依赖 Redis（生产实现 XADD）。
@@ -60,6 +61,10 @@ type Server struct {
 	certDir     string
 	source      string // 'external' / 'internal'，注入到每条 snapshot 用于 ingestor 分流
 	logger      zerolog.Logger
+	ca          CA
+	// lastRequest 是最近收到请求的时刻（UnixNano，0 = 尚未收到）：被过滤掉的请求也算，
+	// 用来判断客户端是否已经把代理指到这里。
+	lastRequest atomic.Int64
 }
 
 // ServerDeps 注入服务依赖；ListenAddr（MITM 代理的监听地址）与 CertDir（根证书目录）必填。
@@ -77,7 +82,7 @@ type ServerDeps struct {
 	Resolver IPResolver
 }
 
-// NewServer 构造内嵌 MITM 代理；首次启动会在 CertDir 下生成 CA。
+// NewServer 构造内嵌 MITM 代理；根证书见 EnsureCA。
 func NewServer(deps ServerDeps) (*Server, error) {
 	if deps.Filter == nil {
 		return nil, errors.New("proxy.NewServer: Filter 必填")
@@ -94,9 +99,17 @@ func NewServer(deps ServerDeps) (*Server, error) {
 	if err := os.MkdirAll(certDir, 0o750); err != nil {
 		return nil, fmt.Errorf("创建证书目录 %s 失败: %w", certDir, err)
 	}
-	// 首次启动会自动生成 CA；已存在则就地加载
+	ca, replaced, err := EnsureCA(certDir)
+	if err != nil {
+		return nil, fmt.Errorf("准备根证书: %w", err)
+	}
+	if replaced {
+		deps.Logger.Warn().Str("cert_dir", certDir).Str("fingerprint", ca.Fingerprint).
+			Msg("根证书已更换为永久有效的新证书，客户端需要重新安装（控制台「代理接入」下载）")
+	}
+	// 代理库从同一目录加载 EnsureCA 准备好的证书
 	if err := certs.LoadCerts(certDir); err != nil {
-		return nil, fmt.Errorf("加载/生成 CA 证书失败: %w", err)
+		return nil, fmt.Errorf("加载根证书: %w", err)
 	}
 
 	source := strings.TrimSpace(deps.Source)
@@ -110,6 +123,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		certDir:    certDir,
 		source:     source,
 		logger:     deps.Logger,
+		ca:         ca,
 	}
 	srv.filterState.Store(&filterState{
 		filter:               deps.Filter,
@@ -125,7 +139,7 @@ func NewServer(deps ServerDeps) (*Server, error) {
 		DumpRequest:        false,
 		DumpResponse:       false,
 		Verbosity:          types.VerbositySilent,
-		OnRequestCallback:  onRequest,
+		OnRequestCallback:  srv.onRequest,
 		OnResponseCallback: srv.onResponse,
 		// 必填空指针：proxify NewLogger 内部直接读 .Addr，nil 会 panic
 		Elastic: &elastic.Options{},
@@ -165,7 +179,9 @@ func NewServer(deps ServerDeps) (*Server, error) {
 // 协程对每个请求做带请求体的转储（读走并替换 req.Body），与转发上游并发进行，是数据竞争，
 // 会让 POST 的请求体残缺地到达目标。回调里保留 proxify 缺省路径对快照必需的两件事：会话
 // 标识（响应回调据此关联请求），以及从 Accept-Encoding 去掉 br（快照只解 gzip / deflate）。
-func onRequest(req *http.Request, ctx *martian.Context) error {
+// 另记下收到请求的时刻（LastRequestAt）。
+func (s *Server) onRequest(req *http.Request, ctx *martian.Context) error {
+	s.lastRequest.Store(time.Now().UnixNano())
 	ctx.Set("user-data", types.UserData{ID: ctx.ID(), Host: req.Host})
 	if ae := req.Header.Get("Accept-Encoding"); ae != "" {
 		var kept []string
@@ -250,6 +266,17 @@ func (s *Server) onResponse(resp *http.Response, _ *martian.Context) error {
 	return nil
 }
 
+// CA 返回代理正在使用的根证书。
+func (s *Server) CA() CA { return s.ca }
+
+// LastRequestAt 返回最近收到请求的时刻；尚未收到过请求时为零值。
+func (s *Server) LastRequestAt() time.Time {
+	if ns := s.lastRequest.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
 // Run 启动 proxify（阻塞 HTTP listener），ctx 取消时 stop。
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
@@ -287,6 +314,10 @@ func (s *Server) Stop() {
 
 // systemResolvingDialer 构造只向 dnsAddr 查询的拨号器：不读系统 resolv.conf 与 hosts 文件
 // （系统解析已包含它们），不配公共 DNS；回环 DNS 出错时直接回退到系统解析。
+//
+// 连接交给标准库拨号器直连解析结果中的首个地址（IPv4 在前）。不用这个拨号器自带的连接方式：
+// 它把每个「主机:端口」第一次连接的结果记在不过期的缓存里，第一次连不上（目标还没起、正在
+// 重启）之后，到这个目标的请求全部直接失败，直到代理重启；设置了 ProxyDialer 就不走那个缓存。
 func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
 	opts := fastdialer.DefaultOptions
 	opts.BaseResolvers = []string{dnsAddr}
@@ -294,6 +325,8 @@ func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
 	opts.HostsFile = false
 	opts.EnableFallback = true
 	opts.CacheType = fastdialer.Memory
+	var direct netproxy.Dialer = &net.Dialer{Timeout: opts.DialerTimeout, KeepAlive: opts.DialerKeepAlive}
+	opts.ProxyDialer = &direct
 	d, err := fastdialer.NewDialer(opts)
 	if err != nil {
 		return nil, fmt.Errorf("创建代理拨号器: %w", err)

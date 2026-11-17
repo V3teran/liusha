@@ -19,9 +19,9 @@ export function sourceColor(source: string): string {
   return SOURCE_META[source as Source]?.color ?? 'var(--status-neutral)'
 }
 
-/** 代理捕获的接入说明：代理批次与代理流量两处空态共用。 */
+/** 代理捕获的接入说明：代理批次与代理流量两处空态共用；地址与证书见同页的「代理接入」。 */
 export const PROXY_SETUP_HINT =
-  '把浏览器的 HTTP 代理设为 liusha 代理入口（二进制部署默认 8588 端口，容器部署默认 58588）后浏览目标站，流量会自动分批交给智能体分析。'
+  '点击「代理接入」设置浏览器代理并安装根证书，之后浏览目标站，流量会自动分批交给智能体分析。'
 
 /** 筛选下拉选项（固定顺序：人工下发在前）。 */
 export const SOURCE_OPTIONS: ReadonlyArray<{ value: Source; label: string }> = [

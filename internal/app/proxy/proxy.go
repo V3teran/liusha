@@ -7,6 +7,9 @@
 // 单个公开监听：listen_addr → sanitizer（URI 修补）→ 回环上系统分配的端口 → proxify。
 // 沙盒自产流量不经本组件（浏览器经 CDP 抓取回灌 runner，CLI 工具直连不抓），避免
 // agent 自己的流量回灌代理流量分析形成自激。存活检测探 listen_addr 的 TCP。
+//
+// 运行状态（对外地址、根证书、最近收到请求的时刻）定期上报到 Redis（proxystatus），控制台
+// 「代理接入」据此显示。
 package proxy
 
 import (
@@ -25,6 +28,7 @@ import (
 	"github.com/V3teran/liusha/internal/filter"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/proxy"
+	"github.com/V3teran/liusha/internal/proxystatus"
 	"github.com/V3teran/liusha/internal/settingstore"
 )
 
@@ -110,14 +114,51 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	}()
 
+	reportCtx, stopReport := context.WithCancel(context.WithoutCancel(ctx))
+	reported := make(chan struct{})
+	go func() {
+		defer close(reported)
+		startedAt, publicAddr, ca := time.Now(), publicAddr(proxyCfg), server.CA()
+		proxystatus.Report(reportCtx, proxystatus.New(rdb), func() proxystatus.Record {
+			r := proxystatus.Record{
+				StartedAt: startedAt, PublicAddr: publicAddr,
+				CAPEM: string(ca.PEM), CAFingerprint: ca.Fingerprint,
+			}
+			if t := server.LastRequestAt(); !t.IsZero() {
+				r.LastRequestAt = &t
+			}
+			return r
+		}, logger)
+	}()
+
 	var runErr error
 	select {
 	case <-ctx.Done():
 	case runErr = <-failed:
 	}
+	// 先写入停止时间再关 Redis 连接（defer）：控制台立即显示代理已停止。
+	stopReport()
+	<-reported
 	server.Stop()
 	logger.Info().Msg("proxy stopped")
 	return runErr
+}
+
+// publicAddr 是上报给控制台的代理地址：显式配置的 public_addr 优先；否则由监听地址推出——
+// 监听全部网卡时客户端连哪个地址取决于它所在的网络，只给端口，主机由控制台补为它自己的主机；
+// 监听某个具体地址时就是这个地址。
+func publicAddr(cfg config.ProxyConfig) string {
+	if cfg.PublicAddr != "" {
+		return cfg.PublicAddr
+	}
+	host, port, err := net.SplitHostPort(cfg.ListenAddr)
+	if err != nil {
+		return cfg.ListenAddr
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		return ":" + port
+	}
+	return cfg.ListenAddr
 }
 
 // freeLoopbackAddr 向系统要一个回环上的空闲端口。MITM 代理库只接受地址字符串、自行监听，

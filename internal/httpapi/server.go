@@ -120,9 +120,11 @@ type Deps struct {
 	// 由 api 组件注入 *cronschedule.Store。
 	Schedules SchedulesAPI
 	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
-	// 由 api 组件注入 *logx.NewReader(logx.Dir())（自动满足 LogsAPI 窄接口）——
-	// 尾读共享日志卷上各进程的 JSON lines 文件，冷读 + 游标增量轮询。
+	// 由 api 组件注入 logx.NewReader(<data_dir>/logs)（自动满足 LogsAPI 窄接口）——
+	// 尾读各进程的 JSON lines 日志文件，冷读 + 游标增量轮询。
 	Logs LogsAPI
+	// Proxy 为 nil 时代理接入路由（/proxy 系列）不注册。由 api 组件注入 *proxystatus.Store。
+	Proxy ProxyStatusAPI
 }
 
 // NewServer 组装 gin 路由：访问日志 + panic 恢复 + 全局会话认证中间件 + 业务路由。
@@ -220,6 +222,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
 	registerLogsRoutes(r, d)
+	registerProxyRoutes(r, d)
 	registerTrafficRoutes(r, d)
 	registerToolCatalogRoutes(r, d)
 	registerModelsRoutes(r, d)

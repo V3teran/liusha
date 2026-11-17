@@ -796,3 +796,14 @@ export interface LogFilters {
   level: string
   search: string
 }
+
+// ProxyStatus 是代理的运行状态（GET /proxy，控制台「代理接入」）。代理从未运行过时 state=offline、
+// 各时刻为 null、public_addr 与 ca_fingerprint 为空。
+export interface ProxyStatus {
+  state: 'online' | 'offline'
+  last_seen_at: string | null // 最后一次心跳
+  started_at: string | null
+  last_request_at: string | null // 最近收到请求（被过滤掉的也算）
+  public_addr: string // 「主机:端口」，或以「:」开头只有端口（主机即控制台所在主机）
+  ca_fingerprint: string // 根证书 SHA-256 指纹，冒号分隔
+}
