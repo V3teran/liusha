@@ -3,7 +3,7 @@
 ## [0.12.0](https://github.com/V3teran/liusha/compare/v0.11.0...v0.12.0) (2026-11-17)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **proxy:** `config.yaml` 新增 `proxy.public_addr`，缺这个键会拒绝启动，从新版本的模板复制这一行（保持空值即可），详见 deployments/README.md「从 0.11 升级」。
 * **proxy:** 升级后首次启动 proxy 会把旧的「Proxify CA」换成永久有效的「liusha CA」，已信任旧证书的浏览器与设备需要重新安装 `<data_dir>/certs/cacert.pem`。
