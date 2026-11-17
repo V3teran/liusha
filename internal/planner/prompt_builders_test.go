@@ -4,16 +4,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
+
 	"github.com/V3teran/liusha/internal/evaluator"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
+	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// TestRefuteReasonHint_EveryReasonHasExplicitGuidance：evaluator 产出的每个反驳原因都要有
-// 专属规划指令。落到兜底文案（「不要原样重提」）会与原因本身的语义冲突——
-// judge_unavailable 的定义是「评估环节没跑通、主张未被否定、方向可重试」，曾因缺分支
-// 被告知 planner 不要重提。
-func TestRefuteReasonHint_EveryReasonHasExplicitGuidance(t *testing.T) {
+// TestRefuteReasonHint_EveryReasonHasExplicitMeaning：evaluator 产出的每个反驳原因都要有
+// 专属的含义说明，且带上原因字面量（章程按字面量写处置）。落到兜底文案会抹掉原因的语义——
+// judge_unavailable 的定义是「评估环节没跑通、主张未被检验」，曾因缺分支被当成已证伪。
+func TestRefuteReasonHint_EveryReasonHasExplicitMeaning(t *testing.T) {
 	fallback := refuteReasonHint("__unknown__")
 	for _, reason := range []string{
 		evaluator.RefuteNotReproducible,
@@ -22,12 +24,13 @@ func TestRefuteReasonHint_EveryReasonHasExplicitGuidance(t *testing.T) {
 		evaluator.RefuteInvalidRecipe,
 		evaluator.RefuteJudgeUnavailable,
 	} {
-		if got := refuteReasonHint(reason); got == fallback {
-			t.Errorf("反驳原因 %q 落到兜底指令 %q", reason, got)
+		got := refuteReasonHint(reason)
+		if got == fallback || !strings.Contains(got, reason) {
+			t.Errorf("反驳原因 %q 应有带字面量的专属说明，得 %q", reason, got)
 		}
 	}
-	if hint := refuteReasonHint(evaluator.RefuteJudgeUnavailable); strings.Contains(hint, "不要") || strings.Contains(hint, "作废") {
-		t.Errorf("judge_unavailable 应指示可按原方向重试，得 %q", hint)
+	if hint := refuteReasonHint(evaluator.RefuteJudgeUnavailable); !strings.Contains(hint, "未被检验") {
+		t.Errorf("judge_unavailable 应说明主张未被检验，得 %q", hint)
 	}
 }
 
@@ -48,31 +51,31 @@ func TestBuildFailedActionsSection_ShowsFailureNotRationale(t *testing.T) {
 	}
 }
 
-// 已否决的动作：规划者看到否决方与原因，并被告知禁止等效重提。
-func TestBuildRejectedActionsSection_ForbidsEquivalentAndNamesRejecter(t *testing.T) {
+// 已否决的动作：规划者看到否决方、原因与「判定不该做」的状态含义（不得等效重提的纪律在章程）。
+func TestBuildRejectedActionsSection_NamesRejecterAndMeaning(t *testing.T) {
 	rejected := explorationgraph.StateRejected
 	reason := "超出授权范围"
 	section := buildRejectedActionsSection([]explorationgraph.Node{{
 		ID: "a1", Kind: core.KindAction, State: &rejected, StateReason: &reason,
 		Content: []byte(`{"instruction":"扫描 C 段"}`), Metadata: []byte(`{"rejected_by":"user"}`),
 	}})
-	for _, want := range []string{"禁止等效重提", "扫描 C 段", reason, "用户"} {
+	for _, want := range []string{"不该做", "扫描 C 段", reason, "用户"} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("缺少 %q:\n%s", want, section)
 		}
 	}
 }
 
-// 已中止的动作没有对错判断：规划者看到中止原因，并被告知与当前目标相关的可以重新提出。
-func TestBuildAbortedActionsSection_AllowsReproposal(t *testing.T) {
+// 已中止的动作没有对错判断：规划者看到中止原因与状态含义（可按当前目标重提的纪律在章程）。
+func TestBuildAbortedActionsSection_NoJudgement(t *testing.T) {
 	aborted := explorationgraph.StateAborted
 	reason := "目标已调整，撤回未执行的规划"
 	section := buildAbortedActionsSection([]explorationgraph.Node{{
 		ID: "a1", Kind: core.KindAction, State: &aborted, StateReason: &reason,
 		Content: []byte(`{"instruction":"探测登录接口"}`),
 	}})
-	if !strings.Contains(section, reason) || !strings.Contains(section, "可以重新提出") {
-		t.Fatalf("应展示中止原因并允许重提:\n%s", section)
+	if !strings.Contains(section, reason) || !strings.Contains(section, "不含对错判断") {
+		t.Fatalf("应展示中止原因与状态含义:\n%s", section)
 	}
 	if strings.Contains(section, "禁止") {
 		t.Fatalf("中止不含对错判断，不应禁止重提:\n%s", section)
@@ -109,5 +112,18 @@ func TestActionSections_LabelUserAssigned(t *testing.T) {
 	completed := buildCompletedActionsSection([]explorationgraph.Node{assigned})
 	if !strings.Contains(completed, "[完成·用户指派] [ID: a1]") {
 		t.Fatalf("已完成的用户指派动作应标出来源:\n%s", completed)
+	}
+}
+
+// 结果分析是规划者的另一项职责：system prompt 由规划者章程（可自定义）+ 结果分析契约组成，
+// 方法论只在章程里；章程为空时不发起调用。
+func TestBuildAnalysisSystemPrompt(t *testing.T) {
+	e := NewEngine(nil, zerolog.Nop()).WithCharter("规划者章程正文")
+	got := e.buildAnalysisSystemPrompt()
+	if !strings.HasPrefix(got, "规划者章程正文") || !strings.Contains(got, plannercontract.AnalysisText) {
+		t.Fatalf("应为章程 + 结果分析契约:\n%s", got)
+	}
+	if (&Engine{}).buildAnalysisSystemPrompt() != "" {
+		t.Fatal("章程为空时应返回空串")
 	}
 }

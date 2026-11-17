@@ -1,4 +1,4 @@
-package webrepro
+package httprepro
 
 import (
 	"context"
@@ -55,8 +55,8 @@ func (r SelfContainedRequest) toSource() (httpreplay.Source, error) {
 	}, nil
 }
 
-// ReplayRecipe 是 web 域复现配方的 recipe 段（evaluator.Claim.Repro 信封里的形状）。
-// 机器可判的坐实配方：完整利用请求 + 断言，可选良性基线做差分对照。
+// ReplayRecipe 是 http 配方的 recipe 段（evaluator.Claim.Repro 信封里的形状）。
+// 机器可判的坐实配方：完整验证请求 + 断言，可选对照请求做差分。
 // Resolve 非空时，主请求前先发一个准备请求抽新鲜值注入——专治 replay 时无法
 // 复用的服务器现造值（opaque-id / nonce / 过期 token）。
 type ReplayRecipe struct {
@@ -70,14 +70,14 @@ type ReplayRecipe struct {
 // 否则是橡皮图章（空断言"确认"一切）——拒绝坐实。
 type Assertion struct {
 	StatusCode      *int     `json:"status_code,omitempty"`       // 响应码须等于此值
-	BodyContains    []string `json:"body_contains,omitempty"`     // 响应体须含全部子串（越权拿到数据、SQL 报错、XSS 回显）
-	BodyNotContains []string `json:"body_not_contains,omitempty"` // 响应体须不含任一子串（未跳登录页=认证绕过坐实）
+	BodyContains    []string `json:"body_contains,omitempty"`     // 响应体须含全部子串
+	BodyNotContains []string `json:"body_not_contains,omitempty"` // 响应体须不含任一子串
 	// 响应头 key→子串：头须存在且含子串（子串为空即只要求头存在）。
 	HeaderContains map[string]string `json:"header_contains,omitempty"`
 	// 响应头 key→子串：头不存在，或存在但不含子串（子串为空即要求头不存在）——
 	// 缺失安全头、Cookie 缺 HttpOnly 这类配置弱点的证据。
 	HeaderNotContains map[string]string `json:"header_not_contains,omitempty"`
-	MinDurationMs     *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms——时间盲注入的合法证据类型
+	MinDurationMs     *int              `json:"min_duration_ms,omitempty"` // 响应耗时至少 N ms
 }
 
 func (a Assertion) empty() bool {
@@ -91,17 +91,17 @@ func invalidRecipe(format string, args ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{evaluator.ErrInvalidRecipe}, args...)...)
 }
 
-// Replayer 是 web 域的机器复现通道（evaluator.Replayer）：确定性重发配方里的完整
+// Replayer 是 http 配方的机器复现通道（evaluator.Replayer）：确定性重发配方里的完整
 // HTTP 请求并按断言采证。不依赖任何流量存储——配方自包含（工具自发流量同样可复现）。
 type Replayer struct {
 	creds credential.Provider // 可选：按 host 注入会话上下文（配方缺 Cookie 时补全）
 	host  string
 }
 
-// NewReplayer 构造 web 域复现通道（零依赖：配方自包含）。
+// NewReplayer 构造 http 配方的复现通道（零依赖：配方自包含）。
 func NewReplayer() *Replayer { return &Replayer{} }
 
-// WithCredentials 注入凭据提供方与目标 host：web 重放请求缺会话头
+// WithCredentials 注入凭据提供方与目标 host：重放请求缺会话头
 // （Cookie/Authorization）时，用凭据池里该 host 的首个身份补全——
 // 配方自包含是理想，LLM 漏写会话上下文时重放会打到登录页导致真实主张
 // 被误证伪。best-effort：查询失败按无凭据处理。
@@ -131,9 +131,9 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 		return recipe
 	}
 	// 多身份时持久优先、名称破平——HGetAll 返回序任意，盲取 [0] 曾把任务
-	// 临时会话（security 停在 impossible 的浏览器快照）注入复放，把 DVWA
-	// 全部假设打到修复版难度上整体证伪。持久身份是显式录入的权威凭据；
-	// 自动会话快照只在无持久身份时兜底。
+	// 临时会话（浏览器快照里停在另一种应用状态的会话）注入复放，让全部假设在
+	// 错误的应用状态下整体证伪。持久身份是显式录入的权威凭据；自动会话快照只在
+	// 无持久身份时兜底。
 	sort.SliceStable(identities, func(i, j int) bool {
 		pi, pj := credential.IsSessionIdentity(identities[i].Username), credential.IsSessionIdentity(identities[j].Username)
 		if pi != pj {
@@ -219,23 +219,23 @@ func (r *Replayer) injectSessionContext(ctx context.Context, recipe json.RawMess
 // 评估者可据此区分「环境会话过期」与「主张不成立」）。
 type sessionRefreshAttempt struct {
 	Source       string `json:"source"`        // 凭据身份名（池内 label）
-	StatusCode   int    `json:"status_code"`   // 刷新后利用响应码
+	StatusCode   int    `json:"status_code"`   // 刷新后验证响应码
 	AssertPassed bool   `json:"assert_passed"` // 刷新后断言是否全过
 	Note         string `json:"note,omitempty"`
 }
 
-// replayEvidence 是落进 exploration_verification 的复现证据（基线/利用请求双对照 + 断言明细）。
+// replayEvidence 是落进 exploration_verification 的复现证据（对照/验证请求双对照 + 断言明细）。
 type replayEvidence struct {
 	Method string `json:"method"`
 	URL    string `json:"url"`
-	// 基线（配方提供 baseline 时的良性对照）与利用请求（配方 request 原样重发）的双对照——
+	// 对照请求（配方提供 baseline 时）与验证请求（配方 request 原样重发）的双对照——
 	// 评估者据此看差分。
 	HasBaseline     bool              `json:"has_baseline"`
 	BaselineStatus  int               `json:"baseline_status_code,omitempty"`
 	BaselineDurMs   int64             `json:"baseline_duration_ms,omitempty"`
 	BaselineBodyLen int               `json:"baseline_body_len,omitempty"`
-	ExploitStatus   int               `json:"exploit_status_code"`
-	ExploitDurMs    int64             `json:"exploit_duration_ms"`
+	StatusCode      int               `json:"status_code"`
+	DurationMs      int64             `json:"duration_ms"`
 	RespHeaders     map[string]string `json:"response_headers"`
 	RespBodyLen     int               `json:"response_body_len"`
 	RespBodySnip    string            `json:"response_body_snippet"`
@@ -247,18 +247,18 @@ type replayEvidence struct {
 
 const evidenceBodySnip = 2048 // 证据里响应体截断长度
 
-// Replay 实现 evaluator.Replayer：重放 web 域信封里的配方并采证。目标侧不可达（没拿到
+// Replay 实现 evaluator.Replayer：重放 http 配方并采证。目标侧不可达（没拿到
 // 响应）包装成 evaluator.ErrTargetUnreachable，复现门据此计入重试阶梯。
 func (r *Replayer) Replay(ctx context.Context, envelope json.RawMessage) (evaluator.Result, error) {
 	var env repro.Envelope
 	if err := json.Unmarshal(envelope, &env); err != nil {
-		return evaluator.Result{}, invalidRecipe("解析域信封失败: %v", err)
+		return evaluator.Result{}, invalidRecipe("解析配方信封失败: %v", err)
 	}
-	if env.Domain != Name {
-		return evaluator.Result{}, invalidRecipe("web 复现通道收到 %q 域的配方", env.Domain)
+	if env.Kind != Name {
+		return evaluator.Result{}, invalidRecipe("http 复现通道收到 %q 形状的配方", env.Kind)
 	}
 	env.Recipe = r.injectSessionContext(ctx, env.Recipe)
-	res, err := r.replayWebEnvelope(ctx, env)
+	res, err := r.replayEnvelope(ctx, env)
 	if errors.Is(err, httpreplay.ErrTransport) {
 		return res, fmt.Errorf("%w: %w", evaluator.ErrTargetUnreachable, err)
 	}
@@ -284,7 +284,7 @@ var loginPathRe = regexp.MustCompile(`(?i)/(login|log-?on|sign-?in|auth)`)
 
 // authBounced 判定一次重放响应是否呈认证弹跳形态（会话失效的信号）：
 // 401；3xx 且 Location 指向登录/认证路径；或响应体含密码输入框而配方目标
-// 本身不是登录页。保守集合——403 不算（越权类假设里 403 是待检信号而非弹跳）。
+// 本身不是登录页。保守集合——403 不算（访问控制类假设里 403 是待检信号而非弹跳）。
 func authBounced(res httpreplay.Result) bool {
 	if res.StatusCode == 401 {
 		return true
@@ -415,7 +415,7 @@ func replaceSessionHeaders(recipe json.RawMessage, headers map[string]string) js
 	return out
 }
 
-// replayWebEnvelope 信封化 web 配方并重放：结构校验 → 首轮重放 →
+// replayEnvelope 信封化 http 配方并重放：结构校验 → 首轮重放 →
 // 认证弹跳时按池凭据刷新会话重试（会话新鲜度守卫）。
 //
 // 守卫动因：配方是执行时刻的冻结快照，内嵌的会话材料（PHPSESSID 等）在
@@ -423,7 +423,7 @@ func replaceSessionHeaders(recipe json.RawMessage, headers map[string]string) js
 // 凭据赢过池内新鲜会话，重放弹回登录页、真实主张被误证伪。首轮证据若呈
 // 认证弹跳形态，依次用池内身份替换会话头重放；任一轮断言通过即以该轮
 // 证据返回，全部尝试记入证据链（评估者可分辨环境失效与主张不成立）。
-func (r *Replayer) replayWebEnvelope(ctx context.Context, env repro.Envelope) (evaluator.Result, error) {
+func (r *Replayer) replayEnvelope(ctx context.Context, env repro.Envelope) (evaluator.Result, error) {
 	if len(env.Recipe) == 0 {
 		return evaluator.Result{}, invalidRecipe("recipe 为空（需 {\"request\": {...}, \"baseline\": {...}?}）")
 	}
@@ -444,7 +444,7 @@ func (r *Replayer) replayWebEnvelope(ctx context.Context, env repro.Envelope) (e
 
 	// 首轮重放（补缺后的配方原样）
 	recipe := ReplayRecipe{Request: core.Request, Baseline: core.Baseline, Assert: assert}
-	ev, lastRes, err := r.replayWebEvidence(ctx, recipe)
+	ev, lastRes, err := r.replayOnce(ctx, recipe)
 	if err != nil {
 		return evaluator.Result{}, err
 	}
@@ -461,7 +461,7 @@ func (r *Replayer) replayWebEnvelope(ctx context.Context, env repro.Envelope) (e
 				continue
 			}
 			attempt := sessionRefreshAttempt{Source: cand.label}
-			ev2, _, err2 := r.replayWebEvidence(ctx, ReplayRecipe{
+			ev2, _, err2 := r.replayOnce(ctx, ReplayRecipe{
 				Request: refreshedCore.Request, Baseline: refreshedCore.Baseline, Assert: assert,
 			})
 			if err2 != nil {
@@ -469,24 +469,24 @@ func (r *Replayer) replayWebEnvelope(ctx context.Context, env repro.Envelope) (e
 				ev.SessionRefresh = append(ev.SessionRefresh, attempt)
 				continue
 			}
-			attempt.StatusCode = ev2.ExploitStatus
+			attempt.StatusCode = ev2.StatusCode
 			attempt.AssertPassed = ev2.AssertPassed
 			ev.SessionRefresh = append(ev.SessionRefresh, attempt)
 			if ev2.AssertPassed {
 				ev2.SessionRefresh = ev.SessionRefresh
-				return marshalEvidence(ev2, ev2.ExploitDurMs)
+				return marshalEvidence(ev2, ev2.DurationMs)
 			}
 		}
 	}
 
-	return marshalEvidence(ev, ev.ExploitDurMs)
+	return marshalEvidence(ev, ev.DurationMs)
 }
 
 // marshalEvidence 序列化证据为 evaluator.Result。
 func marshalEvidence(ev replayEvidence, durMs int64) (evaluator.Result, error) {
 	evJSON, mErr := json.Marshal(ev)
 	if mErr != nil {
-		return evaluator.Result{}, fmt.Errorf("web 复现: 序列化证据失败: %w", mErr)
+		return evaluator.Result{}, fmt.Errorf("http 复现: 序列化证据失败: %w", mErr)
 	}
 	return evaluator.Result{Evidence: evJSON, DurationMs: durMs}, nil
 }
@@ -495,32 +495,32 @@ func marshalEvidence(ev replayEvidence, durMs int64) (evaluator.Result, error) {
 //   - body_contains 每个子串须 ≥ MinBodyContainsLen 个字符（修剪后按字节计）
 //
 // 自指与「无 baseline 须有强谓词」不在机器侧判定，交 LLM 评估者终判；写入侧
-// （Domain.Normalize）与本守卫同一口径。
+// （Kind.Normalize）与本守卫同一口径。
 func assertDiscriminative(a Assertion) error {
 	for _, want := range a.BodyContains {
 		if len(strings.TrimSpace(want)) < MinBodyContainsLen {
-			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 SQL 错误片段、dump 出的字段值）", evaluator.ErrAssertNotDiscriminative, want, MinBodyContainsLen)
+			return fmt.Errorf("%w: body_contains 子串 %q 短于 %d 字符（几乎必命中任意页面）。断言应捕捉验证响应独有的特征：只在主张成立时才出现的完整内容片段", evaluator.ErrAssertNotDiscriminative, want, MinBodyContainsLen)
 		}
 	}
 	return nil
 }
 
-// replayWebEvidence web 域单轮机器复放：结构校验 → 鉴别力守卫 → resolve 注入
-// → baseline 差分对照 → 利用请求重发 → 采证。返回证据与利用响应（供调用方
+// replayOnce 单轮机器复放：结构校验 → 鉴别力守卫 → resolve 注入
+// → baseline 差分对照 → 验证请求重发 → 采证。返回证据与验证响应（供调用方
 // 做认证弹跳检测）。机器不产出坐实结论——语义判定权在 LLM 评估者。
-func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (replayEvidence, httpreplay.Result, error) {
+func (r *Replayer) replayOnce(ctx context.Context, recipe ReplayRecipe) (replayEvidence, httpreplay.Result, error) {
 	var ev replayEvidence
 	// 空断言不可坐实：机器无从判定即无法晋升（拒绝橡皮图章）。
 	if recipe.Assert.empty() {
 		return ev, httpreplay.Result{}, invalidRecipe("assert 为空，无坐实谓词（至少给一条 status_code/body_contains/body_not_contains/header_contains/header_not_contains/min_duration_ms）")
 	}
 	// 结构先行（request 形状），语义随后（断言鉴别力）——错误信息指向首个真问题。
-	exploitSrc, err := recipe.Request.toSource()
+	requestSrc, err := recipe.Request.toSource()
 	if err != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: request 非法——%w", err)
+		return ev, httpreplay.Result{}, fmt.Errorf("http 复现: request 非法——%w", err)
 	}
 	if dErr := assertDiscriminative(recipe.Assert); dErr != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: %w", dErr)
+		return ev, httpreplay.Result{}, fmt.Errorf("http 复现: %w", dErr)
 	}
 
 	// 准备请求：抽服务器现造值注入主请求。抽值失败硬错误，绝不静默 pass（护栏2）。
@@ -530,9 +530,9 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 			return ev, httpreplay.Result{}, rErr
 		}
 		injected := injectResolved(recipe.Request, name, val)
-		exploitSrc, err = injected.toSource()
+		requestSrc, err = injected.toSource()
 		if err != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: resolve 注入后 request 非法——%w", err)
+			return ev, httpreplay.Result{}, fmt.Errorf("http 复现: resolve 注入后 request 非法——%w", err)
 		}
 	}
 
@@ -544,23 +544,23 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 	if recipe.Baseline != nil {
 		baseSrc, bErr := recipe.Baseline.toSource()
 		if bErr != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: baseline 非法——%w", bErr)
+			return ev, httpreplay.Result{}, fmt.Errorf("http 复现: baseline 非法——%w", bErr)
 		}
 		baseStart := time.Now()
 		bres, bErr := httpreplay.Replay(ctx, baseSrc, httpreplay.Overrides{})
 		baseDur = time.Since(baseStart).Milliseconds()
 		if bErr != nil {
-			return ev, httpreplay.Result{}, fmt.Errorf("web 复现: 基线重放失败: %w", bErr)
+			return ev, httpreplay.Result{}, fmt.Errorf("http 复现: 基线重放失败: %w", bErr)
 		}
 		baseline = &bres
 	}
 
-	// 利用请求：配方 request 原样重发。
+	// 验证请求：配方 request 原样重发。
 	start := time.Now()
-	res, err := httpreplay.Replay(ctx, exploitSrc, httpreplay.Overrides{})
+	res, err := httpreplay.Replay(ctx, requestSrc, httpreplay.Overrides{})
 	dur := time.Since(start).Milliseconds()
 	if err != nil {
-		return ev, httpreplay.Result{}, fmt.Errorf("web 复现: 重发失败: %w", err)
+		return ev, httpreplay.Result{}, fmt.Errorf("http 复现: 重发失败: %w", err)
 	}
 
 	// assert 命中明细：executor 声明预期的核验（参考信息——机器不产出坐实结论，
@@ -570,8 +570,8 @@ func (r *Replayer) replayWebEvidence(ctx context.Context, recipe ReplayRecipe) (
 		Method:        res.Method,
 		URL:           res.URL,
 		HasBaseline:   baseline != nil,
-		ExploitStatus: res.StatusCode,
-		ExploitDurMs:  dur,
+		StatusCode:    res.StatusCode,
+		DurationMs:    dur,
 		RespHeaders:   res.ResponseHeaders,
 		RespBodyLen:   len(res.ResponseBody),
 		RespBodySnip:  snippet(res.ResponseBody, evidenceBodySnip),

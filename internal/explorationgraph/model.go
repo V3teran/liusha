@@ -33,7 +33,7 @@ import (
 // State 是 action 与 objective 的状态（类型别名，指向 core.NodeState）
 type State = core.NodeState
 
-// 状态常量：实体定义在 core，经类型别名提升为领域 API
+// 状态常量：实体定义在 core，经类型别名提升为本包 API
 const (
 	StateOpen       = core.NodeStateOpen
 	StateRunning    = core.NodeStateRunning
@@ -60,16 +60,16 @@ const (
 // VerificationStatus 是假设观察的验证状态（类型别名，指向 core.VerificationStatus）。
 type VerificationStatus = core.VerificationStatus
 
-// 验证状态常量：实体定义在 core，经别名提升为领域 API
+// 验证状态常量：实体定义在 core，经别名提升为本包 API
 const (
 	VerificationPending   = core.VerificationPending
 	VerificationConfirmed = core.VerificationConfirmed
 	VerificationRefuted   = core.VerificationRefuted
 )
 
-// ObservationCategory 是观察的信息类别：一类主张加五个领域中立的信息域，决定观察的
-// 生命周期，规划时按域组织事实。词汇表对任意领域的探索 agent 通用；分类定义随执行器
-// 输出契约（executor/contract）固定，领域例子由执行器章程承载，换领域自定义章程即可。
+// ObservationCategory 是观察的信息类别：一类主张加五类事实，决定观察的生命周期，规划时
+// 按类组织事实。词汇对任何业务领域的探索通用；分类定义随执行器输出契约（executor/contract）
+// 固定，领域例子写在执行器章程的「域指引」里。
 //
 //   - hypothesis：待验证的判断（包括一眼可见的问题）——必须携带复现配方，经复现门
 //     坐实后才成为 result。没有不经验证就成立的「问题」：坏事实要么可复现（走
@@ -78,7 +78,7 @@ const (
 //   - access：触达与运用对象的途径（affordance：怎么用）
 //   - structure：对象之间的关系与布局（topology：怎么连）
 //   - behavior：环境受激后的反应与内在机制，包括阻碍推进的防护（dynamics：怎么动）
-//   - note：无法归入上述任何域的杂项（兜底；写作顺序上的最后手段）
+//   - note：无法归入上述任何类别的杂项（兜底；写作顺序上的最后手段）
 type ObservationCategory string
 
 // CategoryHypothesis 等是观察类别的枚举值（语义见 ObservationCategory）。
@@ -91,13 +91,13 @@ const (
 	CategoryNote       ObservationCategory = "note"
 )
 
-// FactCategories 是事实的信息域，按规划时呈现的顺序排列。
+// FactCategories 是事实的类别，按规划时呈现的顺序排列。
 var FactCategories = []ObservationCategory{CategoryEntity, CategoryAccess, CategoryStructure, CategoryBehavior, CategoryNote}
 
 // Priority 是节点的优先级（类型别名，指向 core.Priority）
 type Priority = core.Priority
 
-// 优先级常量：实体定义在 core，经别名提升为领域 API
+// 优先级常量：实体定义在 core，经别名提升为本包 API
 const (
 	PriorityCritical = core.PriorityCritical
 	PriorityHigh     = core.PriorityHigh

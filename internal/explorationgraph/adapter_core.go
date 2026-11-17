@@ -5,7 +5,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store 是探索图的 Framework 适配器：领域 Node/Edge 与通用 GraphNode/GraphEdge
+// Store 是探索图的 Framework 适配器：探索图 Node/Edge 与通用 GraphNode/GraphEdge
 // 的双向映射。pool 非 nil 时（Postgres 后端），统计/状态投影等查询直接 SQL 下推；
 // 内存后端 pool 为 nil，退化为经 GraphStore 通用查询。
 type Store struct {

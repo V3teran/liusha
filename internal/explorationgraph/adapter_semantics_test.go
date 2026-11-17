@@ -16,7 +16,7 @@ func mkObservation(id, taskID string, status *VerificationStatus) Node {
 		ID:         id,
 		TaskID:     taskID,
 		Kind:       core.KindObservation,
-		Content:    []byte(`{"statement":"SQLi at /api","repro":{"domain":"web"}}`),
+		Content:    []byte(`{"statement":"SQLi at /api","repro":{"kind":"http"}}`),
 		SourceType: SourceExecutor,
 	}
 	if status != nil {

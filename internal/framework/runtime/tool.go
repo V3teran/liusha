@@ -63,7 +63,7 @@ func thinkingText(t *llm.ThinkingBlock) string {
 // 导致生产链路永不计数、止损恒死）与成功。
 //
 // 成功输出经 config.ToolOutputTailBytes 全局钳制（尾部保留）后才作为观察进入
-// 上下文——个别工具内的领域化裁剪先行，这里兜底保证任何单条工具结果有界。
+// 上下文——个别工具自身的裁剪先行，这里兜底保证任何单条工具结果有界。
 func (r *reactRuntime) executeTool(ctx context.Context, config *ReActConfig, toolCall llm.ToolCall) (observation string, failed bool, err error) {
 	r.mu.RLock()
 	tool, exists := r.tools[toolCall.Name]

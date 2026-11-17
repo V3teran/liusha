@@ -9,8 +9,8 @@ export interface EvidenceView {
   reproCommand: string | null
   /** 机器断言（主张成立的判据明细，逐条展示）。 */
   assertReasons: string[]
-  /** exploit 请求：URL/方法/状态码/响应片段。 */
-  exploit: { method: string; url: string; status: number | null; bodySnippet: string | null } | null
+  /** 验证请求：URL/方法/状态码/响应片段。 */
+  request: { method: string; url: string; status: number | null; bodySnippet: string | null } | null
   /** baseline 对照（有则展示差分逻辑：正常态 vs 利用态）。 */
   baseline: { url: string; status: number | null } | null
   /** 评估理由（为什么判定成立）。 */
@@ -41,7 +41,7 @@ export function buildEvidenceView(
   const rp = (repro ?? {}) as Record<string, any>
   const evidence = (ev.evidence ?? {}) as Record<string, any>
 
-  // 复现命令：web 域配方渲染 curl；generic 域渲染 steps 文本
+  // 复现命令：http 配方渲染 curl；steps 配方渲染步骤文本
   let reproCommand: string | null = null
   const recipe = rp.recipe as Record<string, any> | undefined
   if (recipe?.request) {
@@ -60,12 +60,12 @@ export function buildEvidenceView(
     ? evidence.assert_reasons.map(String)
     : []
 
-  let exploit: EvidenceView['exploit'] = null
+  let request: EvidenceView['request'] = null
   if (evidence.url || rp.recipe?.request?.url) {
-    exploit = {
+    request = {
       method: String(evidence.method ?? rp.recipe?.request?.method ?? 'GET'),
       url: String(evidence.url ?? rp.recipe?.request?.url ?? ''),
-      status: typeof evidence.exploit_status_code === 'number' ? evidence.exploit_status_code : null,
+      status: typeof evidence.status_code === 'number' ? evidence.status_code : null,
       bodySnippet: evidence.response_body_snippet ? String(evidence.response_body_snippet) : null,
     }
   }
@@ -81,7 +81,7 @@ export function buildEvidenceView(
   return {
     reproCommand,
     assertReasons,
-    exploit,
+    request,
     baseline,
     judgeReasoning: ev.judge_reasoning ? String(ev.judge_reasoning) : null,
     tier: ev.verification_tier ? String(ev.verification_tier) : null,

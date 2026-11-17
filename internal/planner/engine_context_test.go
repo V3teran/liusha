@@ -70,9 +70,9 @@ func TestGatherContext_RefutedHypothesesCarryEveryReason(t *testing.T) {
 	assert.Empty(t, planCtx.Facts, "假设不是事实")
 }
 
-// 事实按信息域分组呈现给规划器（有什么 / 怎么进入 / 怎么连接 / 怎么反应 / 其他），域内
+// 事实按类别分组呈现给规划器（有什么 / 怎么进入 / 怎么连接 / 怎么反应 / 其他），同类别内
 // 近者在前；规划器据此先看清环境的各个侧面，而不是读一串混杂的陈述。
-func TestGatherContext_FactsGroupedByDomain(t *testing.T) {
+func TestGatherContext_FactsGroupedByCategory(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	for _, n := range []explorationgraph.Node{
 		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
@@ -101,5 +101,5 @@ func TestGatherContext_FactsGroupedByDomain(t *testing.T) {
 	for _, heading := range []string{"有什么", "怎么进入", "怎么反应", "其他"} {
 		assert.Contains(t, section, heading)
 	}
-	assert.NotContains(t, section, "怎么连接", "没有该域的事实就不出现该域标题")
+	assert.NotContains(t, section, "怎么连接", "没有该类别的事实就不出现该类别标题")
 }

@@ -8,7 +8,6 @@ import (
 
 	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
 	"github.com/V3teran/liusha/internal/explorationgraph"
-	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/reasoning"
@@ -17,7 +16,6 @@ import (
 
 // ActionContent 是从 action.Content 解析出的数据
 type ActionContent struct {
-	Type        string `json:"type"`
 	Instruction string `json:"instruction"`
 }
 
@@ -30,15 +28,24 @@ func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionConten
 	return &data, nil
 }
 
-// actionObjective 构建一个动作的执行目标：用户指派的动作写明来源；没有类型时不带类型行。
-func actionObjective(action explorationgraph.Node, content *ActionContent) string {
+// actionObjective 构建一个动作的执行输入：只陈述事实——指令、来源、复杂度与任务目标
+// 原文。怎样对待这些事实（用户指派不扩大范围、按复杂度把握投入）由章程说明。
+//
+// 任务目标逐字附上（取自图上的根目标，调整目标后即时生效）：执行者曾凭记忆转录目标里的
+// 入口地址而打空整轮，逐字原文比任何摘要都可靠。
+func actionObjective(action explorationgraph.Node, content *ActionContent, goal string) string {
+	var b strings.Builder
+	b.WriteString("## 动作指令\n" + content.Instruction + "\n")
 	if action.SourceType == explorationgraph.SourceUser {
-		return "执行用户指派的操作：" + content.Instruction
+		b.WriteString("\n来源：用户指派\n")
 	}
-	if content.Type == "" {
-		return "执行以下操作：" + content.Instruction
+	if action.Complexity != nil {
+		b.WriteString("\n复杂度：" + string(*action.Complexity) + "\n")
 	}
-	return fmt.Sprintf("执行以下操作：%s\n\n类型：%s", content.Instruction, content.Type)
+	if goal != "" {
+		b.WriteString("\n## 任务目标（用户原文）\n" + goal + "\n")
+	}
+	return b.String()
 }
 
 // prepareReActTools 准备并过滤 ReAct 工具列表
@@ -61,14 +68,8 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	tools []registry.Tool,
 	own *ownership,
 ) (*runtime.ReActConfig, error) {
-	objective := actionObjective(action, actionContent)
-
-	// 构建系统提示
-	complexity := ""
-	if action.Complexity != nil {
-		complexity = string(*action.Complexity)
-	}
-	systemPrompt := e.buildSystemPrompt(action, actionContent.Type, complexity, goal, tools)
+	objective := actionObjective(action, actionContent, goal)
+	systemPrompt := e.buildSystemPrompt(tools)
 
 	// 获取 LLM Provider
 	provider, err := e.router.For(ctx, e.complexity)
@@ -78,9 +79,9 @@ func (e *Engine) buildReActConfigWithMonitoring(
 
 	// 构建中间件链：防止工具循环、目标偏离、无进展
 	middlewareChain := runtime.NewMiddlewareChain(
-		runtime.NewLoopDetectionMiddleware(10, 8),        // 连续 10 次相同工具 / 8 次相似思考
-		runtime.NewProgressTrackingMiddleware(15),        // 15 轮无新输出终止（连续失败止损由 runtime 内置，阈值随装配下发）
-		runtime.NewGoalAlignmentMiddleware(objective, 6), // 6 次偏离目标
+		runtime.NewLoopDetectionMiddleware(10, 8),                        // 连续 10 次相同工具 / 8 次相似思考
+		runtime.NewProgressTrackingMiddleware(15),                        // 15 轮无新输出终止（连续失败止损由 runtime 内置，阈值随装配下发）
+		runtime.NewGoalAlignmentMiddleware(actionContent.Instruction, 6), // 6 次偏离动作指令
 	)
 
 	// 构建配置，包含收回检查（由 watchOwnership 后台侦测置位）
@@ -104,7 +105,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
-		OutputFormatPrompt: "你刚才完成了测试任务，现在需要输出结构化的观察结果。",
+		OutputFormatPrompt: "你刚才完成了动作的执行，现在需要按输出契约输出终稿。",
 		OutputFormatSchema: executorcontract.Text, // 强制总结时重申输出契约（唯一一份）
 		// 收回止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
 		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
@@ -169,7 +170,8 @@ func (e *Engine) registerReActTools(
 	return nil
 }
 
-// executeReActRuntime 执行 ReAct runtime，失败时降级提取假设
+// executeReActRuntime 执行 ReAct runtime。失败即如实返回错误，动作按失败结束：没有
+// 工具结果就没有可报告的观察，不凭任务目标推测假设充数。
 func (e *Engine) executeReActRuntime(
 	ctx context.Context,
 	reactRuntime runtime.ReActRuntime,
@@ -181,7 +183,10 @@ func (e *Engine) executeReActRuntime(
 		Msg("开始执行 ReAct")
 
 	result, err := reactRuntime.Run(ctx, config)
-	if err == nil && e.thoughts != nil {
+	if err != nil {
+		return nil, fmt.Errorf("ReAct 执行失败: %w", err)
+	}
+	if e.thoughts != nil {
 		// 终态叙述在解析边界完成：执行协议转人读摘要（谁解析谁叙述，原文由
 		// 审计面保存）。仅当终稿确为 JSON 且解析成功才叙述——ParseOutput 的
 		// 兜底策略永不报错，散文终稿若被兜底摘要覆盖反而是信息损失。
@@ -191,27 +196,6 @@ func (e *Engine) executeReActRuntime(
 		}
 		e.thoughts.Done(round)
 	}
-	if err != nil {
-		// ReAct 失败：尝试降级策略——强制提取假设
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", actionID).
-			Msg(" ReAct 执行失败，进入降级模式：强制提取假设")
-
-		fallbackResult, fallbackErr := e.fallbackExtractHypothesis(ctx, config, actionID)
-		if fallbackErr != nil {
-			// 降级也失败：返回原始错误
-			return nil, fmt.Errorf("ReAct 执行失败: %w", err)
-		}
-
-		e.logger.Info().
-			Str("action_id", actionID).
-			Msg("降级模式成功提取假设")
-		if e.thoughts != nil {
-			e.thoughts.Done(reasoning.RoundOf(fallbackResult))
-		}
-		return fallbackResult, nil
-	}
 
 	e.logger.Info().
 		Str("action_id", actionID).
@@ -220,46 +204,6 @@ func (e *Engine) executeReActRuntime(
 		Msg("ReAct 执行完成")
 
 	return result, nil
-}
-
-// fallbackExtractHypothesis 是 ReAct 失败后的降级策略：
-// 通过单轮 LLM 调用，基于任务目标推导仍值得独立验证的假设——执行失败
-// 不等于一无所获，能给出复现步骤的推测交给复现门去实测。请求携带完整系统
-// 提示词（章程 + 输出契约）：降级产出的假设走同一条落图与验证管道，输出格式
-// 与配方形状只有输出契约一个权威，这里只交代降级任务本身。
-func (e *Engine) fallbackExtractHypothesis(
-	ctx context.Context,
-	config *runtime.ReActConfig,
-	_ string,
-) (*runtime.ReActResult, error) {
-	fallbackPrompt := fmt.Sprintf(`以下 Action 执行失败，没有可用的工具结果，但任务目标仍可能推导出值得独立验证的假设。
-
-**任务目标**：
-%s
-
-**要求**：
-1. 推导 1-3 个最可能成立、且能写出可复现配方的假设；给不出配方的纯猜测不要写
-2. 按系统提示中的输出契约输出终稿 JSON：每个假设 category 为 hypothesis，repro 使用契约规定的复现配方格式（含 domain、recipe、assert）
-3. 推导不出任何可复现的假设时，observations 留空`, config.Objective)
-
-	req := llm.Request{
-		Messages: []llm.Message{
-			{Role: llm.RoleSystem, Content: config.SystemPrompt},
-			{Role: llm.RoleUser, Content: fallbackPrompt},
-		},
-	}
-
-	result, err := config.LLMProvider.Complete(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("降级 LLM 调用失败: %w", err)
-	}
-
-	// 构造伪 ReActResult（模拟成功完成）
-	return &runtime.ReActResult{
-		Status:      runtime.ReActStatusSuccess,
-		Iterations:  1, // 降级只有一轮
-		FinalAnswer: result.Content,
-	}, nil
 }
 
 // processOutput 解析 Executor 终稿并把观察落图。假设写入即待验证，评估者从图上取，
@@ -367,8 +311,9 @@ func (e *Engine) harvestObservation(
 	}
 
 	// 配方只在落图时归一化这一次：节点存的就是矫正后的信封，评估者只从节点读配方。
-	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。事实类观察不带配方，不归一化。
-	if len(obs.Repro) > 0 {
+	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。只有 hypothesis 带配方——
+	// 事实即便被模型误填 repro 也不归一化（createObservationNode 会按类别丢弃它）。
+	if obs.Category == explorationgraph.CategoryHypothesis && len(obs.Repro) > 0 {
 		if normalized, note, nErr := e.repro.Normalize(obs.Repro); nErr == nil {
 			obs.Repro = normalized
 			if note != "" {

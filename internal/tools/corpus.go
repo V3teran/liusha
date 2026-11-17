@@ -36,7 +36,7 @@ func newSearchCorpusTool(deps Deps, timeout time.Duration) *searchCorpusTool {
 func (t *searchCorpusTool) Name() string      { return "search_corpus" }
 func (t *searchCorpusTool) ShortDesc() string { return "检索跨目标长期知识库" }
 func (t *searchCorpusTool) Desc() string {
-	return "检索跨目标长期知识库：沉淀的可复用打法、专家经验、历史教训。"
+	return "检索跨任务长期知识库：沉淀下来的可复用方法、经验与教训。"
 }
 func (t *searchCorpusTool) Schema() json.RawMessage { return searchCorpusSchema }
 

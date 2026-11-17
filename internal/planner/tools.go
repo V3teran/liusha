@@ -222,7 +222,7 @@ func (t *EvaluateProgressTool) ShortDesc() string {
 
 // Desc 实现工具接口。
 func (t *EvaluateProgressTool) Desc() string {
-	return "评估任务进展，判断是否应该继续生成 Action"
+	return "汇总任务进展：动作按状态计数、完成率与已坐实的结果数"
 }
 
 // Schema 实现工具接口。
@@ -268,24 +268,18 @@ func (t *EvaluateProgressTool) Execute(ctx context.Context, _ json.RawMessage) (
 		completionRate = float64(doneActions) / float64(totalActions) * 100
 	}
 
-	var output string
-	output += "## 任务进展\n\n"
-	output += fmt.Sprintf("- 总 Action 数: %d\n", totalActions)
-	output += fmt.Sprintf("- 已完成: %d\n", doneActions)
-	output += fmt.Sprintf("- 执行中: %d\n", runningActions)
-	output += fmt.Sprintf("- 待执行: %d\n", openActions)
-	output += fmt.Sprintf("- 完成率: %.1f%%\n\n", completionRate)
-	output += fmt.Sprintf("- 发现数: %d\n\n", len(findings))
+	// 只汇报数据：何时停止、要不要继续生成动作由规划者按章程判断。
+	var b strings.Builder
+	b.WriteString("## 任务进展\n\n")
+	fmt.Fprintf(&b, "- 动作总数: %d\n", totalActions)
+	fmt.Fprintf(&b, "- 已完成: %d\n", doneActions)
+	fmt.Fprintf(&b, "- 执行中: %d\n", runningActions)
+	fmt.Fprintf(&b, "- 待执行: %d\n", openActions)
+	fmt.Fprintf(&b, "- 失败: %d\n", stateCounts[explorationgraph.StateFailed])
+	fmt.Fprintf(&b, "- 已否决: %d\n", stateCounts[explorationgraph.StateRejected])
+	fmt.Fprintf(&b, "- 已中止: %d\n", stateCounts[explorationgraph.StateAborted])
+	fmt.Fprintf(&b, "- 完成率: %.1f%%\n", completionRate)
+	fmt.Fprintf(&b, "- 已坐实结果: %d\n", len(findings))
 
-	// 判断
-	switch {
-	case openActions > 0 || runningActions > 0:
-		output += "建议：还有待执行或执行中的 Action，暂时不需要生成新 Action。\n"
-	case completionRate >= 80 && len(findings) > 0:
-		output += "建议：任务进展良好，已有足够发现，可以考虑结束。\n"
-	default:
-		output += "建议：可以根据当前发现生成新 Action。\n"
-	}
-
-	return registry.ToolResult{Output: output}, nil
+	return registry.ToolResult{Output: b.String()}, nil
 }

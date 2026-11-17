@@ -19,7 +19,7 @@ func (s *Store) convertGraphNodesToNodes(graphNodes []*core.GraphNode) []Node {
 	return nodes
 }
 
-// graphNodeToNode 通用图节点 → 领域节点。类型化字段从 metadata 恢复，
+// graphNodeToNode 通用图节点 → 探索图节点。类型化字段从 metadata 恢复，
 // 其余 metadata 键序列化进 Node.Metadata（业务扩展位）。
 func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 	node := &Node{

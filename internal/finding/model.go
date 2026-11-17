@@ -30,8 +30,8 @@ type Finding struct {
 	Summary    string
 	Target     json.RawMessage
 	Evaluation json.RawMessage
-	// Repro 是通过复现门的配方（域信封 {domain,recipe,assert}），交付时随主张落库，供复验
-	// 与人读。形状 domain-specific，本层只作 jsonb 透传。
+	// Repro 是通过复现门的配方（信封 {kind,recipe,assert}），交付时随主张落库，供复验
+	// 与人读。recipe/assert 的形状归配方形状，本层只作 jsonb 透传。
 	Repro json.RawMessage
 	// 分类元数据
 	CWEID         string    // 例 "CWE-89"
