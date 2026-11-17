@@ -136,6 +136,16 @@ RUN set -eux \
       afl++ \
  && rm -rf /var/lib/apt/lists/*
 
+# nmap 的 postinst 在系统装有 setcap 时（这里由其它工具的依赖带进 libcap2-bin）给二进制
+# 打上含 cap_net_admin 的文件能力，而容器的 bounding 集（Docker 默认）不含 net_admin。
+# 内核对「文件 permitted 能力超出 bounding 集」的 execve 一律 EPERM：nmap 在任何扫描模式下
+# 都在 exec 层失败。沙箱以 root 执行命令，root 已持有 bounding 集内的全部能力（SYN 扫描所需
+# 的 net_raw 在内），文件能力是多余的，故有则移除——不依赖容器具体给了哪些能力（没有
+# setcap 时 postinst 本就不打能力，getcap 同包缺失即为空；setcap -r 对无能力的文件会报错，
+# 所以只在确有能力时移除）。末尾实跑一次，构建期即拦下回归。
+RUN if [ -n "$(getcap /usr/lib/nmap/nmap 2>/dev/null)" ]; then setcap -r /usr/lib/nmap/nmap; fi \
+ && nmap --version >/dev/null
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Layer 4: httpx 命名兼容 + PD 系工具 -duc wrapper
 # ══════════════════════════════════════════════════════════════════════════════
