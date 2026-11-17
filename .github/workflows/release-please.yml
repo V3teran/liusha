@@ -21,3 +21,15 @@ jobs:
           token: ${{ secrets.GHCR_PAT }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please 的模板把破坏性变更一节的标题写死为英文：Release PR 更新后改为中文
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GHCR_PAT }}
+      - name: 发布说明标题改为中文
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_PAT }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          scripts/release/localize-notes.sh

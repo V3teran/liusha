@@ -4,7 +4,7 @@
 
 ## 部署
 
-三种方式任选其一：二进制、单镜像、多镜像（Docker Compose）。都由两份文件驱动——`config.yaml`（全部配置，
+三种方式任选其一：二进制、单镜像、多镜像。都由两份文件驱动——`config.yaml`（全部配置，
 发布压缩包与仓库里各有一份模板）与 `.env`（密钥，由 `.env.example` 复制填写，三种方式共用一份模板）。
 配置、沙盒与本地开发的细节见 [deployments/README.md](deployments/README.md)。
 
@@ -48,7 +48,7 @@ make single-run
 
 首次会本地构建沙盒镜像（Kali + 工具），需要较长时间。控制台在 `http://<主机>:50080`。
 
-### 多镜像（Docker Compose）
+### 多镜像
 
 ```bash
 git clone --branch v0.11.0 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
@@ -75,4 +75,4 @@ docker compose up -d --build
 
 Copyright 2026 V3teran
 
-本项目以 [Apache License 2.0](LICENSE) 授权：可以自由使用、修改、分发与商用；再分发时须保留许可证与 [NOTICE](NOTICE) 中的署名，并标明所做的修改。v0.6.2 及之前发布的版本仍按当时的 MIT 许可证授权。发布产物附带的第三方组件声明见其中的 THIRD_PARTY_NOTICES。
+本项目以 [Apache License 2.0](LICENSE) 授权：可以自由使用、修改、分发与商用；再分发时须附带许可证，并标明所做的修改。v0.6.2 及之前发布的版本仍按当时的 MIT 许可证授权。发布产物附带的第三方组件声明见其中的 THIRD_PARTY_NOTICES。

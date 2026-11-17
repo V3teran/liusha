@@ -47,7 +47,7 @@ RUN apt-retry update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/liusha /usr/local/bin/liusha
-COPY LICENSE NOTICE /usr/share/doc/liusha/
+COPY LICENSE /usr/share/doc/liusha/
 COPY internal/config/config.yaml /usr/share/doc/liusha/
 COPY --from=build /out/THIRD_PARTY_NOTICES /usr/share/doc/liusha/
 COPY deployments/single/entrypoint.sh /usr/local/bin/liusha-single
