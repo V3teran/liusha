@@ -15,9 +15,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-const tagInstruction = `你是渗透知识库标注器。给定一段知识正文，生成：
+const tagInstruction = `你是知识库标注器。给定一段知识正文，生成：
 - title：一句话主题（≤30 字，概括这段讲什么）
-- tags：技术/场景标签数组（如 sso:cas、jwt、fastjson、waf:cloudflare、cve:2023-xxx），2-5 个，用于检索时按标签过滤
+- tags：技术/场景标签数组（小写，可用「类别:取值」形式），2-5 个，用于检索时按标签过滤
 
 严格输出 JSON（无前后缀、无 markdown 代码块）：{"title":"...","tags":["...","..."]}`
 

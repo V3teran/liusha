@@ -8,6 +8,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动：哪些派生目标已达成、
@@ -82,32 +83,25 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 	return analysis, nil
 }
 
-// buildAnalysisPrompt 构建 Result 分析 prompt
+// buildAnalysisPrompt 构建结果分析的输入：只陈述数据——任务的动作总量、目标视野与本次
+// 分析的新结果。怎样判断方向达成、穷尽与切换由章程说明，响应格式由结果分析契约规定。
 func (e *Engine) buildAnalysisPrompt(view objectiveView, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
-
-	// 1. 头部
-	sb.WriteString(buildAnalysisHeader())
-
-	// 2. Action 数量警告
-	sb.WriteString(buildActionCountWarning(actionCount))
-
-	// 3. 任务目标与派生目标（进行中的可修订；已收敛的供去重）
+	fmt.Fprintf(&sb, "任务目前共有 %d 个动作。\n\n", actionCount)
 	sb.WriteString(buildObjectiveViewSection(view))
-
-	// 4. 新 Results
 	sb.WriteString(buildAnalysisResultsSection(results))
-
-	// 5. 决策流程指导
-	sb.WriteString(buildDecisionGuide())
-
-	// 6. 响应格式
-	sb.WriteString(buildResponseFormat())
-
-	// 7. 关键提示
-	sb.WriteString(buildKeyReminders())
-
 	return sb.String()
+}
+
+// buildAnalysisSystemPrompt 组装结果分析的 system prompt：规划者章程（可自定义）+ 结果分析
+// 契约（planner/contract，与本文件的解析同改同测，不可自定义）。结果分析是规划者的另一项
+// 职责，与常规规划共用同一份章程。章程为空时返回空串，由调用方拒绝。
+func (e *Engine) buildAnalysisSystemPrompt() string {
+	charter := strings.TrimSpace(e.charter)
+	if charter == "" {
+		return ""
+	}
+	return charter + "\n\n" + plannercontract.AnalysisText
 }
 
 // AnalysisResponse 是 LLM 的分析响应
@@ -148,11 +142,13 @@ func (e *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisR
 		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
+	system := e.buildAnalysisSystemPrompt()
+	if system == "" {
+		return nil, fmt.Errorf("规划者章程为空")
+	}
 	messages := []llm.Message{
-		{
-			Role:    llm.RoleUser,
-			Content: prompt,
-		},
+		{Role: llm.RoleSystem, Content: system},
+		{Role: llm.RoleUser, Content: prompt},
 	}
 
 	resp, err := provider.Complete(ctx, llm.Request{

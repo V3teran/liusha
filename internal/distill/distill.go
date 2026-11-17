@@ -47,12 +47,12 @@ func New(router *fwllm.Router, graph *explorationgraph.Store, store *corpus.Stor
 	}
 }
 
-const distillSystemPrompt = `你是渗透测试任务的经验蒸馏官。把一个已完成任务中「经过复现门验证的结论」蒸馏成可跨任务复用的教训（lessons）。
+const distillSystemPrompt = `你是任务经验蒸馏官。把一个已完成任务中「经过复现门验证的结论」蒸馏成可跨任务复用的教训（lessons）。
 
 要求：
 - 只依据给出的材料，禁止编造；
 - 教训要抽象到方法层（什么情境 + 什么做法/什么坑），去掉本任务特有的临时细节（随机路径、一次性 ID、具体时间戳）；
-- 每条 lesson：title 一句话（不超过 40 字），content 方法层正文（不超过 300 字），tags 1~3 个小写英文标签（如 sqli、auth-bypass、recon、waf-bypass、defense-evasion）；
+- 每条 lesson：title 一句话（不超过 40 字），content 方法层正文（不超过 300 字），tags 1~3 个小写英文标签（概括教训适用的情境或方法类别，用短横线连接词）；
 - 最多 8 条；材料不足时宁少勿滥，可为 0 条。
 
 只输出 JSON，格式：

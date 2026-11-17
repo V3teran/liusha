@@ -62,7 +62,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 		return evaluator.Claim{
 			TaskID:   taskID,
 			NodeID:   hypID,
-			Repro:    json.RawMessage(`{"domain":"stub","recipe":{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""}},"assert":{"body_contains":["leaked"]}}`),
+			Repro:    json.RawMessage(`{"kind":"stub","recipe":{"request":{"method":"GET","url":"http://` + loc + `/api?id=1","headers":{},"body":""}},"assert":{"body_contains":["leaked"]}}`),
 			Content:  json.RawMessage(`{"severity":"high","host":"` + loc + `","statement":"SQLi at ` + loc + `"}`),
 			Priority: "high",
 		}
@@ -151,7 +151,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 
 		return v.Promote(ctx, evaluator.Claim{
 			TaskID: taskID, NodeID: hypID,
-			Repro:   json.RawMessage(`{"domain":"stub","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
+			Repro:   json.RawMessage(`{"kind":"stub","recipe":{"request":{"method":"GET","url":"http://t.local/x","headers":{},"body":""}},"assert":{"body_contains":["y"]}}`),
 			Content: json.RawMessage(`{"statement":"s","severity":"high"}`),
 		})
 	}

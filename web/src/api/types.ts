@@ -413,9 +413,9 @@ export interface FindingRow {
   remediation?: string
   target?: FindingTarget
   // evaluation 是复现门证据链 jsonb：第一层 judge_reasoning/verification_tier/
-  // evidence{baseline/exploit 对照 + assert_reasons 断言明细}，前端证据链区渲染。
+  // evidence{对照/验证请求 + assert_reasons 断言明细}，前端证据链区渲染。
   evaluation?: Record<string, unknown>
-  // repro 是机器可验的复现配方 jsonb（{domain, recipe:{request,baseline?},
+  // repro 是机器可验的复现配方 jsonb（{kind, recipe:{request,baseline?},
   // assert}）——复现步骤区的数据源。
   repro?: Record<string, unknown>
   source: Source // JOIN assignment 派生

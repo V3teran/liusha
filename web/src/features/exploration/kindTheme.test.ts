@@ -29,12 +29,12 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(nodeTitle(node({ kind: 'action', content: '纯字符串载荷' }))).toBe('')
   })
 
-  it('nodeChips：action 状态/类型/P0-P1 优先级上卡', () => {
+  it('nodeChips：action 状态/P0-P1 优先级上卡，无分类徽章', () => {
     const chips = nodeChips(
-      node({ id: 'n-act', kind: 'action', state: 'running', priority: 'high', content: { type: 'reconnaissance' } }),
+      node({ id: 'n-act', kind: 'action', state: 'running', priority: 'high', content: { instruction: '列出入口' } }),
     )
     expect(chips.state?.label).toBe('执行中')
-    expect(chips.category).toBe('侦察')
+    expect(chips.category).toBeUndefined()
     expect(chips.priority?.code).toBe('P1')
     expect(chips.verification).toBeUndefined()
   })

@@ -83,7 +83,7 @@ type ReActConfig struct {
 	MaxTokens int
 
 	// ToolOutputTailBytes 是单条工具输出进上下文前的全局尾部保留字节（>0 启用）。
-	// 运行时统一收口：个别工具内的领域化裁剪仍先行，这里兜底保证任何工具结果
+	// 运行时统一收口：个别工具自身的裁剪仍先行，这里兜底保证任何工具结果
 	// 都有界——不撑爆上下文预算、不撞长度校验哨兵弄死整轮。0 = 不钳制（仅测试）。
 	ToolOutputTailBytes int
 

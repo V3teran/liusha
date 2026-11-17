@@ -36,7 +36,7 @@ const (
 	KindResult NodeKind = "result"
 )
 
-// 边关系枚举的权威定义在领域包 internal/explorationgraph（Relation，与 DB
+// 边关系枚举的权威定义在探索图包 internal/explorationgraph（Relation，与 DB
 // 约束 ck_exploration_edge_rel 严格一致）；本层 GraphNode.Rel 以 string 承载，
 // 不在本层重复定义枚举（两处定义有漂移风险）。
 
@@ -74,8 +74,8 @@ const (
 	NodeStateSuperseded NodeState = "superseded"
 )
 
-// VerificationStatus 是假设观察的验证状态。探索图是领域中立的认知架构：
-// 这里只有「假设」与「事实」，领域语义（如安全场景的漏洞）由章程与领域存储
+// VerificationStatus 是假设观察的验证状态。探索图与业务领域无关：
+// 这里只有「假设」与「事实」，业务语义由章程的「域指引」与交付管道
 // 承载，不进图本体。
 //
 // 只有假设（category=hypothesis）有验证状态：pending → confirmed/refuted，流转由

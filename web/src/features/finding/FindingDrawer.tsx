@@ -204,7 +204,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
 
               {/* 证据链三段式：复现步骤 / 机器证据 / 评估理由——对齐漏洞报告
                   标准结构（复现可执行、证据可核验、结论可追溯）。 */}
-              {(ev.reproCommand || ev.assertReasons.length > 0 || ev.exploit || ev.judgeReasoning) && (
+              {(ev.reproCommand || ev.assertReasons.length > 0 || ev.request || ev.judgeReasoning) && (
                 <section>
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-text">证据链</h3>
@@ -243,21 +243,21 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       </div>
                     )}
 
-                    {/* 机器证据：断言明细 + exploit 响应 */}
-                    {(ev.assertReasons.length > 0 || ev.exploit) && (
+                    {/* 机器证据：断言明细 + 验证请求的响应 */}
+                    {(ev.assertReasons.length > 0 || ev.request) && (
                       <div className="rounded-lg border border-border bg-surface-2 p-4">
                         <span className="mb-2 block text-sm font-medium text-text">机器证据</span>
-                        {ev.exploit && (
+                        {ev.request && (
                           <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs">
-                            <Badge size="sm" dot={false} color={ev.exploit.status === 200 ? 'var(--status-success)' : 'var(--status-warning)'}>
-                              {ev.exploit.method} {ev.exploit.status ?? '—'}
+                            <Badge size="sm" dot={false} color={ev.request.status === 200 ? 'var(--status-success)' : 'var(--status-warning)'}>
+                              {ev.request.method} {ev.request.status ?? '—'}
                             </Badge>
-                            <span className="break-all text-text">{ev.exploit.url}</span>
+                            <span className="break-all text-text">{ev.request.url}</span>
                           </div>
                         )}
-                        {ev.exploit?.bodySnippet && (
+                        {ev.request?.bodySnippet && (
                           <pre tabIndex={0} className="mb-2 overflow-x-auto rounded-lg bg-background p-3 text-xs leading-relaxed text-text-secondary">
-                            {ev.exploit.bodySnippet}
+                            {ev.request.bodySnippet}
                           </pre>
                         )}
                         {ev.assertReasons.length > 0 && (

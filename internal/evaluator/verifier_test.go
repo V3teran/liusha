@@ -106,14 +106,14 @@ func (f *fakeClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 	return nil
 }
 
-// stubDomain 是测试用的复现领域：经 gateWith 注册 fake 复现通道。
-const stubDomain = "stub"
+// stubKind 是测试用的配方形状：经 gateWith 注册 fake 复现通道。
+const stubKind = "stub"
 
-// gateWith 构造带 stubDomain 复现通道的晋升门；r 为 nil 时不注册通道。
+// gateWith 构造带 stubKind 复现通道的晋升门；r 为 nil 时不注册通道。
 func gateWith(graph graphStore, r Replayer, sink ClaimSink) *PromotionGate {
 	g := New(graph, sink)
 	if r != nil {
-		g.WithReplayer(stubDomain, r)
+		g.WithReplayer(stubKind, r)
 	}
 	return g
 }
@@ -122,7 +122,7 @@ func baseClaim() Claim {
 	return Claim{
 		TaskID:   "asg-1",
 		NodeID:   "node-source",
-		Repro:    json.RawMessage(`{"domain":"stub","recipe":{"op":"http_request"},"assert":{"marker":"x"}}`),
+		Repro:    json.RawMessage(`{"kind":"stub","recipe":{"op":"http_request"},"assert":{"marker":"x"}}`),
 		Content:  json.RawMessage(`{"statement":"X 参数存在可复现注入"}`),
 		Priority: "high",
 	}
@@ -188,10 +188,10 @@ func TestPromote_ReplayError(t *testing.T) {
 	// 如果要求失败时不记录，需要修改 evaluator.go
 }
 
-// 没有机器复现通道的领域：门回显配方交给评估者自主取证，验证档位 judge_only——
-// 领域中立的核心不因缺少某个领域的通道而拒绝晋升。
-func TestPromote_DomainWithoutChannelGoesJudgeOnly(t *testing.T) {
-	w := &fakeGraphStore{verID: "ver-generic"}
+// 没有机器复现通道的配方形状：门回显配方交给评估者自主取证，验证档位 judge_only——
+// 晋升门不因缺少某种形状的通道而拒绝晋升。
+func TestPromote_KindWithoutChannelGoesJudgeOnly(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-steps"}
 	var seen json.RawMessage
 	v := gateWith(w, fakeReplayer{err: errors.New("不应走到 stub 通道")}, &fakeClaimSink{}).
 		WithJudge(judgeFunc(func(_ context.Context, _ string, _, ev json.RawMessage, _ ReplayFunc) (Verdict, error) {
@@ -199,13 +199,13 @@ func TestPromote_DomainWithoutChannelGoesJudgeOnly(t *testing.T) {
 			return Verdict{Verdict: VerdictConfirmed}, nil
 		}))
 	c := baseClaim()
-	c.Repro = json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 执行 x"},"assert":{"description":"看到 y"}}`)
+	c.Repro = json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 执行 x"},"assert":{"description":"看到 y"}}`)
 
 	if _, err := v.Promote(context.Background(), c); err != nil {
-		t.Fatalf("无通道领域应由评估者取证晋升: %v", err)
+		t.Fatalf("无通道形状应由评估者取证晋升: %v", err)
 	}
 	var echo map[string]json.RawMessage
-	if err := json.Unmarshal(seen, &echo); err != nil || string(echo["domain"]) != `"generic"` || len(echo["recipe"]) == 0 {
+	if err := json.Unmarshal(seen, &echo); err != nil || string(echo["kind"]) != `"steps"` || len(echo["recipe"]) == 0 {
 		t.Fatalf("评估者应拿到配方回显，得 %s", seen)
 	}
 	if n := len(w.verifications); n != 1 || !strings.Contains(string(w.verifications[0].Evidence), TierJudgeOnly) {
@@ -242,7 +242,7 @@ func TestPromote_Validation(t *testing.T) {
 }
 
 // LLM 判定全链：机器重放 + judge confirmed → 晋升 + 坐实主张交付管道。
-// 交付物的领域归属（agent_run_id 等）由域适配 sink 构造时注入，门只透传载荷。
+// 交付物的归属（agent_run_id 等）由交付管道构造时注入，门只透传载荷。
 func TestPromote_LLMJudgeConfirmedDeliversClaim(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-j1"}
 	fw := &fakeClaimSink{}
@@ -348,7 +348,7 @@ func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
 }
 
 // 机器护栏不误伤：assert_passed=true 的证据照常进 judge；无 assert_passed 字段
-// （generic 域回显）不阻断。
+// （无复现通道时的配方回显）不阻断。
 func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-mg2"}
 	fw := &fakeClaimSink{}
@@ -359,10 +359,10 @@ func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 		t.Fatalf("断言命中应正常进 judge 并晋升: node=%v err=%v", node, err)
 	}
 
-	noField := gateWith(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"domain":"generic"}`)}}, fw).
+	noField := gateWith(&fakeGraphStore{verID: "ver-mg3"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"kind":"steps"}`)}}, fw).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 	if node, err := noField.Promote(context.Background(), baseClaim()); err != nil || node != nil {
-		t.Fatalf("generic 证据不应被护栏拦截: node=%v err=%v", node, err)
+		t.Fatalf("配方回显不应被护栏拦截: node=%v err=%v", node, err)
 	}
 }
 
@@ -435,7 +435,7 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 
 	// 不同配方不受影响
 	other := baseClaim()
-	other.Repro = json.RawMessage(`{"domain":"stub","recipe":{"op":"other"},"assert":{"marker":"leaked-secret"}}`)
+	other.Repro = json.RawMessage(`{"kind":"stub","recipe":{"op":"other"},"assert":{"marker":"leaked-secret"}}`)
 	if err := a.verifyObservation(context.Background(), "obs-3", other); err != nil {
 		t.Fatalf("新配方应正常验证: %v", err)
 	}
@@ -593,18 +593,16 @@ func (s slowReplayer) Replay(ctx context.Context, _ json.RawMessage) (Result, er
 	}
 }
 
-// 语义去重：同一漏洞（同指纹）的第二次确认折叠为既有发现的佐证——
+// 语义去重：同一主张（同指纹）的第二次确认折叠为既有结果的佐证——
 // 不新建 result、不重写 finding，假设节点标记 duplicate_of 并指向既有发现。
 func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d1"}
 	fw := &fakeClaimSink{}
-	fp := json.RawMessage(`{"class":"reflected_xss","method":"GET","host":"t.local:8080","path":"/vuln/xss_r/","param":"name"}`)
-	codec := shapeCodec{}
-	replayRes := Result{Evidence: json.RawMessage(`{"url":"http://t.local:8080/vuln/xss_r/?name=p","assert_passed":true}`), DurationMs: 5}
+	fp := json.RawMessage(`{"class":"weak_config","target":"GET http://t.local:8080/admin/","point":"name"}`)
+	replayRes := Result{Evidence: json.RawMessage(`{"url":"http://t.local:8080/admin/?name=p","assert_passed":true}`), DurationMs: 5}
 
 	first := gateWith(w, fakeReplayer{res: replayRes}, fw).
-		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "首次坐实", fingerprint: fp}).
-		WithFingerprintCodec(codec)
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "首次坐实", fingerprint: fp})
 	node1, err := first.Promote(context.Background(), baseClaim())
 	if err != nil || node1 == nil {
 		t.Fatalf("首次确认应晋升: node=%v err=%v", node1, err)
@@ -617,8 +615,7 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	secondAttempt := baseClaim()
 	secondAttempt.NodeID = "node-source-2"
 	second := gateWith(w, fakeReplayer{res: replayRes}, fw).
-		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "换 payload 再证", fingerprint: fp}).
-		WithFingerprintCodec(codec)
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "换 payload 再证", fingerprint: fp})
 	node2, err := second.Promote(context.Background(), secondAttempt)
 	if err != nil {
 		t.Fatalf("重复确认不应报错: %v", err)
@@ -670,7 +667,7 @@ func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 
 // invalid_recipe 终局的审计链不得因空 repro 丢失：空配方以空对象留档。
 func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
-	promoter := gateWith(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析域信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
+	promoter := gateWith(&fakeGraphStore{verID: "ver-nr2"}, fakeReplayer{err: fmt.Errorf("Replayer: 解析配方信封失败: unexpected end of JSON input")}, &fakeClaimSink{}).
 		WithJudge(stubJudge{verdict: VerdictRefuted})
 
 	// coalesceRepro 是审计不丢记录的修复行：空配方归一为空对象
@@ -678,7 +675,7 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
 	if got := coalesceRepro(nil); string(got) != `{}` {
 		t.Fatalf("nil 应归一为空对象: %s", got)
 	}
-	if got := coalesceRepro(json.RawMessage(`{"domain":"web"}`)); string(got) != `{"domain":"web"}` {
+	if got := coalesceRepro(json.RawMessage(`{"kind":"http"}`)); string(got) != `{"kind":"http"}` {
 		t.Fatalf("非空应原样透传: %s", got)
 	}
 
@@ -724,25 +721,6 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
 	}
 }
 
-// shapeCodec 是测试内的最小指纹归一器：实现 FingerprintNormalizer，
-// 归一语义的真身与测试在 finding 包（此处只验证晋升门对 codec 的用法）。
-type shapeCodec struct{}
-
-func (shapeCodec) CanonicalKey(raw json.RawMessage) (string, bool) {
-	var fp struct {
-		Class  string `json:"class"`
-		Method string `json:"method"`
-		Host   string `json:"host"`
-		Path   string `json:"path"`
-		Param  string `json:"param"`
-	}
-	if json.Unmarshal(raw, &fp) != nil {
-		return "", false
-	}
-	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
-	return strings.Join([]string{norm(fp.Class), norm(fp.Method), norm(fp.Host), strings.TrimSuffix(norm(fp.Path), "/"), norm(fp.Param)}, "|"), true
-}
-
 // 评估者必须收到 executor 提出的假设陈述（Claim.Content.summary）：陈述为空时评估者只能
 // 从配方自行推断验证对象，同一请求可支撑多种主张时会确认并非被提交的那一个。
 func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
@@ -780,10 +758,9 @@ func (f *failingClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 func TestPromote_DeliveryFailureLeavesHypothesisPendingAndRetryDelivers(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-f1"}
 	sink := &failingClaimSink{fails: 1}
-	fp := json.RawMessage(`{"class":"sqli","method":"GET","host":"t.local","path":"/q","param":"id"}`)
+	fp := json.RawMessage(`{"class":"weak_config","target":"GET http://t.local/q","point":"id"}`)
 	gate := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
-		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp}).
-		WithFingerprintCodec(shapeCodec{})
+		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp})
 
 	if _, err := gate.Promote(context.Background(), baseClaim()); err == nil {
 		t.Fatal("交付失败应返回错误")

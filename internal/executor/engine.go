@@ -39,7 +39,7 @@ type Engine struct {
 	agentRunID          string                  // 本轮认知循环的 agent_run.id（LLM 审计归属）
 	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
 	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
-	repro               *repro.Registry         // 复现领域（配方落图时按领域归一化）
+	repro               *repro.Registry         // 复现配方形状（配方落图时按形状归一化）
 	logger              zerolog.Logger
 }
 
@@ -66,7 +66,7 @@ type EngineConfig struct {
 	Thoughts reasoning.Tap
 	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
 	Activity *ActivityTracker
-	// Repro 是可用的复现领域（nil = 只有内置的 generic 领域）。
+	// Repro 是可用的复现配方形状（nil = 只有内置的 steps 形状）。
 	Repro  *repro.Registry
 	Logger zerolog.Logger
 }
@@ -89,12 +89,12 @@ func NewEngine(cfg EngineConfig) *Engine {
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		agentRunID:          cfg.AgentRunID,
 		activity:            cfg.Activity,
-		repro:               reproOrGeneric(cfg.Repro),
+		repro:               reproOrSteps(cfg.Repro),
 		logger:              cfg.Logger.With().Str("component", "executor_engine").Logger(),
 	}
 }
 
-func reproOrGeneric(r *repro.Registry) *repro.Registry {
+func reproOrSteps(r *repro.Registry) *repro.Registry {
 	if r == nil {
 		return repro.NewRegistry()
 	}
@@ -189,18 +189,11 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 // buildSystemPrompt 组装 executor system prompt：
 //
 //	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
-//	+ 动态装配段（工具清单 / CLI 目录 / skill 索引 / 来源与类型指导 / 时间预期 / 任务目标）
+//	+ 可用工具 / CLI 目录 / skill 索引（随 agent 配置装配）
 //
-// 静态段（章程、契约）在前、动态段在后，利于 provider 侧的前缀缓存。
-func (e *Engine) buildSystemPrompt(action explorationgraph.Node, actionType, complexity, goal string, registered []registry.Tool) string {
-	var toolSB strings.Builder
-	for _, t := range registered {
-		toolSB.WriteString("- " + t.Name() + ": " + t.ShortDesc() + "\n")
-	}
-	if toolSB.Len() == 0 {
-		toolSB.WriteString("（无可用工具——function_tools 白名单为空）\n")
-	}
-
+// 只放随 agent 配置变化的内容，同一配置下所有动作共用一份，利于 provider 侧的前缀缓存；
+// 每个动作的数据（指令、来源、复杂度、任务目标）在 objective 里（actionObjective）。
+func (e *Engine) buildSystemPrompt(registered []registry.Tool) string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
 		// 自定义层在写入时已拒绝空章程，此处只是兜底：返回空串让 ReAct.Run 报错。
@@ -208,89 +201,37 @@ func (e *Engine) buildSystemPrompt(action explorationgraph.Node, actionType, com
 		return ""
 	}
 
-	var promptSB strings.Builder
-	promptSB.WriteString(charter)
-	promptSB.WriteString("\n\n")
-	promptSB.WriteString(executorcontract.Text)
-	promptSB.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
-	promptSB.WriteString(toolSB.String())
-	basePrompt := promptSB.String()
+	var b strings.Builder
+	b.WriteString(charter)
+	b.WriteString("\n\n")
+	b.WriteString(executorcontract.Text)
+	b.WriteString("\n\n**可用工具**（只能用这些，其余名字不可用）：\n")
+	if len(registered) == 0 {
+		b.WriteString("（无可用工具——function_tools 白名单为空）\n")
+	}
+	for _, t := range registered {
+		b.WriteString("- " + t.Name() + ": " + t.ShortDesc() + "\n")
+	}
 
-	// ========== 添加过滤后的 CLI 工具清单 ==========
 	if e.toolsManifest != nil && len(e.toolsManifest.Tools) > 0 {
-		basePrompt += "\n"
-		// 按能力轴分组渲染（从 manifest.Categories 读取顺序和名称）
-		basePrompt += renderCLICatalog(e.toolsManifest.ByCategory(), e.toolsManifest)
+		b.WriteString("\n")
+		b.WriteString(renderCLICatalog(e.toolsManifest.ByCategory(), e.toolsManifest))
 	} else {
 		e.logger.Warn().Msg("没有可用的 CLI 工具（cli_tools 未配置或为空）")
 	}
-	// ========================================================
 
-	// ========== Tier 1 skill 索引（渐进式加载：索引常驻 prompt，正文按需 read_skill）==========
-	// 仅在 read_skill 实际注册进 ReAct（function_tools 白名单放行）且本 agent 声明了
-	// skills 时渲染——工具不在场还宣传手册入口，LLM 会徒劳调用。
+	// Tier 1 skill 索引（渐进式加载：索引常驻 prompt，正文按需 read_skill）。仅在
+	// read_skill 实际注册进 ReAct（function_tools 白名单放行）且本 agent 声明了 skills 时
+	// 渲染——工具不在场还宣传手册入口，LLM 会徒劳调用。
 	for _, t := range registered {
 		if t.Name() == "read_skill" {
 			if idx := skill.RenderIndex(e.skills); idx != "" {
-				basePrompt += "\n" + idx
+				b.WriteString("\n" + idx)
 			}
 			break
 		}
 	}
-	// ========================================================
-
-	// 用户指派的动作按来源装配指导（它没有 type，不借用类型分支）
-	if action.SourceType == explorationgraph.SourceUser {
-		basePrompt += `
-**用户指派的动作**：
-- 这一步是用户直接要求执行的：按指令执行，不扩大范围（不顺带测试指令以外的对象或手法）
-- 指令与任务目标的表述不一致时以指令为准，并在最终输出里如实说明
-`
-	}
-
-	// 根据 Action 类型添加特定指导（领域无关）
-	switch actionType {
-	case "reconnaissance":
-		basePrompt += `
-**信息收集任务指导**：
-- 使用适当的工具收集目标的基础事实
-- 把对后续动作有决策价值的结论记入 observations（category=fact）
-`
-	case "analysis":
-		basePrompt += `
-**分析任务指导**：
-- 使用专用分析工具
-- 针对已知线索搜索相关信息
-- 发现可疑现象立即在最终输出的 observations 里记录假设（附 repro 配方）
-`
-	case "testing":
-		basePrompt += `
-**测试任务指导**：
-- 仔细验证问题存在性
-- 构造精准的测试用例
-- 避免破坏性操作
-- 成功测试后记录完整的复现步骤
-`
-	}
-
-	// 根据复杂度添加时间建议
-	switch complexity {
-	case "simple":
-		basePrompt += "\n**时间预期**：此任务预计在 5 分钟内完成。\n"
-	case "moderate":
-		basePrompt += "\n**时间预期**：此任务预计在 15 分钟内完成。\n"
-	case "complex":
-		basePrompt += "\n**时间预期**：此任务可能需要较长时间，请耐心执行。\n"
-	}
-
-	// 任务目标原文（逐字，取自图上的根目标，调整目标后即时生效）——用户指定的目标/
-	// 入口 URL/凭据的唯一权威事实源。曾因执行者凭记忆转录入口 URL（/login.php→/login）
-	// 打在 404 上浪费整轮；逐字附录比任何摘要/解析都可靠。
-	if goal != "" {
-		basePrompt += "\n**任务目标（用户原文，目标/入口 URL/凭据以此为准）**：\n" + goal + "\n"
-	}
-
-	return basePrompt
+	return b.String()
 }
 
 // renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt。
@@ -338,6 +279,5 @@ func renderCLICatalog(categoryMap map[string][]manifest.Tool, m *manifest.ToolMa
 		}
 	}
 
-	b.WriteString("\n**重要提示**：必须实际调用工具执行测试，不要只做理论分析；每次调用后仔细分析结果再决定下一步。\n")
 	return b.String()
 }

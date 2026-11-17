@@ -29,7 +29,7 @@ func (s *Store) CreateNodeWithEdges(ctx context.Context, node Node, edges []Edge
 	return s.graphStore.CreateNodeWithEdges(ctx, s.nodeToGraphNode(node), graphEdges)
 }
 
-// nodeToGraphNode 领域节点 → 通用图节点。
+// nodeToGraphNode 探索图节点 → 通用图节点。
 func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	metadata := map[string]interface{}{}
 	// 空值不写入 metadata：所有创建点都显式声明来源；无「系统默认来源」语义。
@@ -69,7 +69,7 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 		graphNode.Metadata[metaVerification] = string(*node.VerificationStatus)
 	}
 
-	// 领域 Metadata 平铺合并（键不与类型化键冲突时等价于直接落库）
+	// 节点 Metadata 平铺合并（键不与类型化键冲突时等价于直接落库）
 	if len(node.Metadata) > 0 {
 		var extra map[string]interface{}
 		if json.Unmarshal(node.Metadata, &extra) == nil {
@@ -82,7 +82,7 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 	return graphNode
 }
 
-// edgeToGraphEdge 领域边 → 通用图边。
+// edgeToGraphEdge 探索图边 → 通用图边。
 func (s *Store) edgeToGraphEdge(edge *Edge) *core.GraphEdge {
 	graphEdge := &core.GraphEdge{
 		TaskID:    edge.TaskID,
