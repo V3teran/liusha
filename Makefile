@@ -18,7 +18,7 @@ dev-up:
 dev-down:
 	bash scripts/dev/down.sh
 
-# ── 多镜像部署（Docker Compose）：全部服务；数据库迁移由一次性的 migrate 服务随 up 执行 ──
+# ── 多镜像部署：全部服务；数据库迁移由一次性的 migrate 服务随 up 执行 ──
 up:
 	$(COMPOSE) up -d --build
 
