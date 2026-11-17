@@ -311,8 +311,9 @@ func (e *Engine) harvestObservation(
 	}
 
 	// 配方只在落图时归一化这一次：节点存的就是矫正后的信封，评估者只从节点读配方。
-	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。事实类观察不带配方，不归一化。
-	if len(obs.Repro) > 0 {
+	// 矫正失败保留原始配方，由复现门以 invalid_recipe 终局。只有 hypothesis 带配方——
+	// 事实即便被模型误填 repro 也不归一化（createObservationNode 会按类别丢弃它）。
+	if obs.Category == explorationgraph.CategoryHypothesis && len(obs.Repro) > 0 {
 		if normalized, note, nErr := e.repro.Normalize(obs.Repro); nErr == nil {
 			obs.Repro = normalized
 			if note != "" {

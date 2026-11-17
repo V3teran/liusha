@@ -230,6 +230,56 @@ func TestHarvestObservation_PriorityLivesOnNode(t *testing.T) {
 	}
 }
 
+// 假设专属字段（priority / impact / suggestion / repro）只属于 hypothesis：事实是写入即
+// 终态、不排程、无需验证的节点。契约只靠这里结构化约束，不依赖模型自觉——模型若给事实误填
+// 这些字段一律丢弃。此前对所有类别无差别塞字段，priority 还因空值兜底成 medium 必然泄漏
+// （每条事实都挂 priority=medium），impact/suggestion/repro 则随模型误填而混入。
+func TestHarvestObservation_FactDropsHypothesisOnlyFields(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+	action := explorationgraph.Node{
+		ID: "act-factpri", TaskID: "t-factpri", Kind: core.KindAction,
+		Content: json.RawMessage(`{"instruction":"i"}`),
+	}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatalf("建 action 失败: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		obs  Observation
+	}{
+		{"事实未填专属字段", Observation{Category: explorationgraph.CategoryEntity, Statement: "目标为 nginx 1.18"}},
+		{"事实误填专属字段一律丢弃", Observation{
+			Category:   explorationgraph.CategoryBehavior,
+			Statement:  "参数原样回显",
+			Priority:   "high",
+			Impact:     "影响面",
+			Suggestion: "处理建议",
+			Repro:      json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 发请求"},"assert":{"description":"看到回显"}}`),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := e.harvestObservation(context.Background(), action, tc.obs)
+			if node == nil || !node.IsFact() {
+				t.Fatalf("事实应落图为终态: %+v", node)
+			}
+			if node.Priority != "" {
+				t.Fatalf("事实不应带优先级，得 %q", node.Priority)
+			}
+			var content map[string]any
+			if err := json.Unmarshal(node.Content, &content); err != nil {
+				t.Fatal(err)
+			}
+			for _, k := range []string{"priority", "impact", "suggestion", "repro"} {
+				if _, ok := content[k]; ok {
+					t.Fatalf("事实内容不应带假设专属字段 %q: %v", k, content)
+				}
+			}
+		})
+	}
+}
+
 // 观察只承载陈述与配方：不再内嵌整个任务的流量轨迹（无任何读者，每条观察一份
 // 全量拷贝；流量本就在流量表里，按任务可查）。
 func TestHarvestObservation_NoExecutionTrace(t *testing.T) {
