@@ -38,6 +38,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/proxystatus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
 	"github.com/V3teran/liusha/internal/task"
@@ -219,6 +220,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			TaskControl:        dispatchService,
 			TaskSteering:       dispatchService,
 			Logs:               logx.NewReader(cfg.LogDir()),
+			Proxy:              proxystatus.New(rdb),
 			WebUI:              web.Assets(),
 		}),
 		ReadTimeout:       time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,

@@ -8,6 +8,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
 import { PROXY_SETUP_HINT } from '@/lib/source'
+import { ProxyAccess } from '@/features/proxy/ProxyAccess'
 
 interface ConversationsPageProps {
   source: 'direct' | 'proxy'
@@ -77,8 +78,10 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       {/* 统一头部 */}
       <PageHeader
         title="对话"
-        subtitle={source === 'direct' ? '实时观看智能体干活，可随时插话补充指令' : '选一批捕获的流量，看 AI 逐批分析，可插话追问'}
-      />
+        subtitle={source === 'direct' ? '实时观看智能体干活，可随时插话补充指令' : '选一批捕获的流量，看智能体逐批分析，可插话追问'}
+      >
+        {source === 'proxy' && <ProxyAccess />}
+      </PageHeader>
 
       {/* 主从双栏（窄屏单栏） */}
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[304px_1fr]">

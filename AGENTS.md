@@ -20,7 +20,7 @@ liusha 是多 agent 协作的自动化 Web 安全测试平台（仅限授权的�
 | 组件 | 子命令（实现） | 职责 |
 |---|---|---|
 | api | `api`（`internal/app/api`，gin，:8580） | HTTP API、控制台前端（`web/dist` 编入程序）、鉴权、LLM 接入首装引导、定时调度器 |
-| proxy | `proxy`（`internal/app/proxy`，:8588） | MITM 代理：过滤 / 去重 / 按主机攒批 → 下发 `proxy` 来源任务 |
+| proxy | `proxy`（`internal/app/proxy`，:8588） | MITM 代理：过滤后把流量写入 Redis Stream（runner 摄入、按主机攒批下发 `proxy` 来源任务）；管理根证书，上报运行状态（`internal/proxystatus`，控制台「代理接入」读它） |
 | runner | `runner`（`internal/app/runner`，:8590） | Asynq 消费者：跑 planner / executor / evaluator / monitor 四 agent；接收沙盒回灌流量；恢复监控与清扫器 |
 | sandbox | `sandbox`（`internal/app/sandbox`，:8591） | 执行工具命令的常驻服务（令牌鉴权）；单镜像 / 多镜像时跑在本地构建的 Kali 镜像里，二进制部署（Linux / macOS / Windows）时工具即本机所装 |
 | 存储 | PostgreSQL 17+（pgvector）+ Redis | PG 存业务数据；Redis 承载队列、事件流、凭证库 |
