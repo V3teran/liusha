@@ -28,6 +28,7 @@ import (
 	"github.com/projectdiscovery/proxify/pkg/logger/kafka"
 	"github.com/projectdiscovery/proxify/pkg/types"
 	"github.com/rs/zerolog"
+	netproxy "golang.org/x/net/proxy"
 )
 
 // SnapshotPublisher 抽象快照发布行为，便于单元测试不依赖 Redis（生产实现 XADD）。
@@ -287,6 +288,10 @@ func (s *Server) Stop() {
 
 // systemResolvingDialer 构造只向 dnsAddr 查询的拨号器：不读系统 resolv.conf 与 hosts 文件
 // （系统解析已包含它们），不配公共 DNS；回环 DNS 出错时直接回退到系统解析。
+//
+// 连接交给标准库拨号器直连解析结果中的首个地址（IPv4 在前）。不用这个拨号器自带的连接方式：
+// 它把每个「主机:端口」第一次连接的结果记在不过期的缓存里，第一次连不上（目标还没起、正在
+// 重启）之后，到这个目标的请求全部直接失败，直到代理重启；设置了 ProxyDialer 就不走那个缓存。
 func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
 	opts := fastdialer.DefaultOptions
 	opts.BaseResolvers = []string{dnsAddr}
@@ -294,6 +299,8 @@ func systemResolvingDialer(dnsAddr string) (*fastdialer.Dialer, error) {
 	opts.HostsFile = false
 	opts.EnableFallback = true
 	opts.CacheType = fastdialer.Memory
+	var direct netproxy.Dialer = &net.Dialer{Timeout: opts.DialerTimeout, KeepAlive: opts.DialerKeepAlive}
+	opts.ProxyDialer = &direct
 	d, err := fastdialer.NewDialer(opts)
 	if err != nil {
 		return nil, fmt.Errorf("创建代理拨号器: %w", err)
