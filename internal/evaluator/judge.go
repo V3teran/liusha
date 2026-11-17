@@ -208,7 +208,7 @@ func (j *RouterJudge) Judge(
 		MiddlewareChain:            middlewareChain,
 		// 判定终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
 		// 是自由散文——验证结论写在散文里（"假设坐实 confirmed 0.99"）而
-		// parseVerdict 只认 JSON，实测真漏洞因输出格式漂移连败三次被误判
+		// parseVerdict 只认 JSON，实测真实主张因输出格式漂移连败三次被误判
 		// invalid_recipe 出圈。设此字段后 runtime 的 forceStructuredOutput
 		// 会在散文终稿上强制补一轮 JSON 输出。
 		OutputFormatPrompt: "你是评估者，已完成取证，现在需要输出最终结论。",
@@ -246,24 +246,20 @@ func verdictNarrative(v Verdict) string {
 	return head + "\n\n理由：" + v.Reasoning
 }
 
-// buildObjective 组装判定输入（假设 + 自包含配方 + 预跑对照摘要）。
+// buildObjective 组装判定输入：只陈述被验证的事实——假设陈述、复现配方与机器预跑证据。
+// 怎样取证、证据怎样读、怎样判由章程与判定契约说明。
 func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence json.RawMessage) string {
 	var sb strings.Builder
-	sb.WriteString("判定以下假设是否坐实。\n\n## 假设\n")
+	sb.WriteString("## 待验证的假设\n")
 	if hypothesis != "" {
 		sb.WriteString(hypothesis)
 	} else {
 		sb.WriteString("（陈述缺失，从配方与证据推断）")
 	}
-	sb.WriteString("\n\n## 复现配方（域信封：domain / recipe / assert）\n")
+	sb.WriteString("\n\n## 复现配方\n")
 	sb.WriteString(stringOrEmpty(recipe))
-	sb.WriteString("\n\n## 配方预跑证据（机器采集，参考——须自主二次验证）\n")
+	sb.WriteString("\n\n## 机器预跑证据\n")
 	sb.WriteString(stringOrEmpty(initialEvidence))
-	sb.WriteString("\n\n先用 replay_for_verification 复核机器证据；证据含 baseline_* 字段时对比基线/利用请求差分（一致即无差分）；")
-	sb.WriteString("证据是配方回显、并注明本域无机器复现通道时，改用 run_command 按 recipe 步骤自主执行取证；")
-	sb.WriteString("需要独立取证时用 run_command（如重放配方中的请求、用正常输入做对照）。基于你亲见的证据判定。")
-	sb.WriteString("\n\n验证对象必须是可复现验证的主张断言；非主张类断言（枚举结果、状态汇报）按章程规则处理。")
-	sb.WriteString("confirmed 时按章程契约附结构化指纹（finding 字段），供系统对同一发现去重。")
 	return sb.String()
 }
 
@@ -351,7 +347,7 @@ func newReplayTool(replay ReplayFunc) *replayTool {
 func (t *replayTool) Name() string      { return "replay_for_verification" }
 func (t *replayTool) ShortDesc() string { return "重放复现配方取得机器证据" }
 func (t *replayTool) Desc() string {
-	return "执行本假设的复现配方（重放源流量并跑机器断言），返回状态码/响应片段/断言判定明细等证据。可多次调用。"
+	return "按本假设的复现配方执行一次机器复现，返回采集到的证据与断言逐条判定。可多次调用。"
 }
 func (t *replayTool) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{},"description":"无参数——重放本假设的既定配方"}`)
@@ -367,7 +363,7 @@ func (t *replayTool) Execute(ctx context.Context, _ json.RawMessage) (registry.T
 		ev = json.RawMessage("{}")
 	}
 	out, _ := json.Marshal(map[string]interface{}{
-		"note":        "assert_check 是 executor 声明预期的核验明细（参考，非结论）；坐实与否由你判定",
+		"note":        "assert_passed / assert_reasons 是配方断言的机器判定（参考，非结论）；坐实与否由你判定",
 		"evidence":    ev,
 		"duration_ms": res.DurationMs,
 	})

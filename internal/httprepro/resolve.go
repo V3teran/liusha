@@ -1,4 +1,4 @@
-package webrepro
+package httprepro
 
 import (
 	"context"
@@ -22,15 +22,15 @@ type ResolveStep struct {
 func runResolve(ctx context.Context, step ResolveStep) (string, string, error) {
 	src, err := step.Request.toSource()
 	if err != nil {
-		return "", "", fmt.Errorf("web 复现: resolve.request 非法——%w", err)
+		return "", "", fmt.Errorf("http 复现: resolve.request 非法——%w", err)
 	}
 	res, err := httpreplay.Replay(ctx, src, httpreplay.Overrides{})
 	if err != nil {
-		return "", "", fmt.Errorf("web 复现: 准备请求重发失败: %w", err)
+		return "", "", fmt.Errorf("http 复现: 准备请求重发失败: %w", err)
 	}
 	val, err := step.Extract.extract(res)
 	if err != nil {
-		return "", "", fmt.Errorf("web 复现: %w", err)
+		return "", "", fmt.Errorf("http 复现: %w", err)
 	}
 	return step.Extract.Name, val, nil
 }

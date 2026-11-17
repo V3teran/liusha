@@ -38,8 +38,9 @@ const (
 )
 
 // contracts 是各 agent 的输出契约原文（只读展示；monitor 的决策经工具调用发布，无契约）。
+// 规划者有常规规划与结果分析两次调用，两份契约都展示。
 var contracts = map[string]string{
-	constants.AgentCodePlanner:   plannercontract.Text,
+	constants.AgentCodePlanner:   plannercontract.Text + "\n\n" + plannercontract.AnalysisText,
 	constants.AgentCodeExecutor:  executorcontract.Text,
 	constants.AgentCodeEvaluator: evaluatorcontract.Text,
 }

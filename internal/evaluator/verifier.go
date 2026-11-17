@@ -9,16 +9,15 @@
 //
 //	Observation(在途假设，图节点，verification_status=pending)
 //	    → Promote(attempt)
-//	    → 按信封 domain 选复现通道采证（recipe/assert 对本包不透明，形状归各域；
-//	      没有通道的领域回显配方，由评估者自主取证）
+//	    → 按信封 kind 选复现通道采证（recipe/assert 对本包不透明，形状归各配方形状；
+//	      没有通道的形状回显配方，由评估者自主取证）
 //	    → LLMJudge 终判（机器采证，LLM 持判定权）
 //	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+评估者每次复放
 //	    → confirmed: CreateNode(result) 进图 + 写 finding 表
 //	    └ refuted:   不进图（证据留 exploration_verification 供审计）
 //
-// 领域中立：配方怎么执行归各领域的复现通道（装配时经 WithReplayer 注册），门只认
-// Replayer 接口与哨兵错误（ErrInvalidRecipe / ErrTargetUnreachable）——加新领域
-// 晋升门零改动。
+// 配方怎么执行归各配方形状的复现通道（装配时经 WithReplayer 注册），门只认 Replayer
+// 接口与哨兵错误（ErrInvalidRecipe / ErrTargetUnreachable）——加新形状晋升门零改动。
 
 package evaluator
 
@@ -52,40 +51,31 @@ type graphStore interface {
 	ListResults(ctx context.Context, taskID string) ([]explorationgraph.Node, error)
 }
 
-// ConfirmedClaim 是复现门坐实一条主张后交给域适配层的完整交付输入：
-// 通用字段透传（陈述/证据/配方/成色），领域解释（评级、定位、指纹形状）
-// 全部归域侧——门的产出是领域中立的"坐实主张"。
+// ConfirmedClaim 是复现门坐实一条主张后交给交付管道的完整输入：门只透传通用字段
+// （陈述/证据/配方/成色），交付侧怎样解释它们（评级、台账定位）归交付管道。
 type ConfirmedClaim struct {
 	TaskID         string
 	ResultNodeID   string          // 晋升产生的 result 节点
 	VerificationID string          // 审计链回指
 	Statement      string          // 主张陈述
-	Priority       string          // 优先级（领域通用词；安全域交付时译作 severity 并兜底）
+	Priority       string          // 优先级（交付侧按自己的评级体系转译并兜底）
 	Impact         string          // 影响与波及面（中性因果陈述；台账同名直传）
 	Suggestion     string          // 处理建议（译作 remediation）
-	HostHint       string          // 载荷自带的位置提示（可空，域侧可重抽）
+	HostHint       string          // 载荷自带的位置提示（可空，交付侧可重抽）
 	Target         json.RawMessage // 载荷自带的目标引用（可空）
-	Evidence       json.RawMessage // 复现证据（基线/利用双对照 + 断言明细）
+	Evidence       json.RawMessage // 复现证据（对照/验证请求双对照 + 断言明细）
 	Repro          json.RawMessage // 复现配方
 	Tier           string          // 验证档位 full_gate/judge_only
 	DurationMs     int64
 }
 
-// ClaimSink 是坐实主张的交付管道：安全域把它落成 finding，其他域各有
-// 各的交付物。nil 容忍（不交付，供测试）。
+// ClaimSink 是坐实主张的交付管道（装配时注入，交付物由部署决定）。nil 容忍（不交付，供测试）。
 type ClaimSink interface {
 	Record(ctx context.Context, claim ConfirmedClaim) error
 }
 
-// FingerprintNormalizer 把评估者输出的原始指纹归一成规范键——指纹形状
-// 由域定义（章程教给评估者），归一逻辑随形状走，也归域。nil 容忍
-// （不启用语义去重）。
-type FingerprintNormalizer interface {
-	CanonicalKey(raw json.RawMessage) (string, bool)
-}
-
-// Replayer 是一个领域的机器复现通道。门把「复现」委托给它，自身不碰领域细节。
-// repro 是要回放的复现配方（域信封，形状由领域定义）；返回采集到的证据。配方缺陷与
+// Replayer 是一种配方形状的机器复现通道。门把「复现」委托给它，自身不碰形状细节。
+// repro 是要回放的复现配方（信封，recipe/assert 形状由配方形状定义）；返回采集到的证据。配方缺陷与
 // 目标不可达分别包装成 ErrInvalidRecipe / ErrTargetUnreachable。
 type Replayer interface {
 	Replay(ctx context.Context, repro json.RawMessage) (Result, error)
@@ -102,7 +92,7 @@ type Result struct {
 type Claim struct {
 	TaskID   string          // 所属任务
 	NodeID   string          // 被验证的假设节点
-	Repro    json.RawMessage // 复现配方（域信封）
+	Repro    json.RawMessage // 复现配方（信封）
 	Content  json.RawMessage // 坐实后写入结果节点的载荷（statement/impact/suggestion，与假设同名）
 	Priority string          // 优先级（取假设节点的）
 }
@@ -113,13 +103,13 @@ const (
 	VerdictRefuted   = "refuted"
 )
 
-// Verdict 是评估者的终判输出：结论 + 置信 + 理由 + 结构化指纹（坐实时
-// 按章程契约给出）。指纹对门是不透明 blob——形状与归一归域适配层。
+// Verdict 是评估者的终判输出：结论 + 置信 + 理由 + 主张指纹（坐实时按判定契约给出，
+// 形状见 ClaimFingerprint）。
 type Verdict struct {
 	Verdict     string          // confirmed / refuted
 	Confidence  float64         // 0-1，评估者自评
 	Reasoning   string          // 一句话评估理由（引用亲见差分）
-	Fingerprint json.RawMessage // 域教的结构化指纹；空 = 不参与语义去重
+	Fingerprint json.RawMessage // 主张指纹原文；空或形状损坏 = 不参与语义去重
 }
 
 // claimFingerprintMetadataKey 是 result 节点 metadata 中指纹规范键的落库键。
@@ -128,11 +118,11 @@ const claimFingerprintMetadataKey = "claim_fingerprint"
 // 验证档位（verification_tier）：结论成色的显式标记，下游（报告/前端/planner）
 // 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
 const (
-	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终判（web 域）
-	TierJudgeOnly = "judge_only" // 无机器重放通道，评估者自主取证自主终判（generic 域）
+	TierFullGate  = "full_gate"  // 机器复放采证 + LLM 终判（有复现通道的配方形状，如 http）
+	TierJudgeOnly = "judge_only" // 无机器复现通道，评估者自主取证自主终判（如 steps）
 )
 
-// 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但不构成漏洞"——
+// 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但主张不成立"——
 // planner 据此决定是换配方重试还是方向作废，两者处置不同。
 const (
 	RefuteNotReproducible         = "not_reproducible"          // 机器护栏：断言未命中/复放失败——配方或上下文问题，可换配方重试
@@ -143,18 +133,18 @@ const (
 )
 
 // ErrJudgeUnavailable 标记评估者侧的基础设施失败（LLM 调用失败/终稿
-// 解析失败）——与配方损坏性质不同：机器重放可能全部通过、漏洞真实存在，
+// 解析失败）——与配方损坏性质不同：机器重放可能全部通过、主张真实成立，
 // 只是判定这一环没跑通。耗尽重试后以 RefuteJudgeUnavailable 出圈而非
 // invalid_recipe，planner 的 refuted 视野据此把方向视为可重试而非配方作废
-// （实测：断言全过 + 判定散文写明 confirmed 0.99 的真漏洞被误标
+// （实测：断言全过 + 判定散文写明 confirmed 0.99 的真实主张被误标
 // invalid_recipe/refuted 出圈）。
 var ErrJudgeUnavailable = errors.New("评估者不可用")
 
-// verificationTier 判定验证档位：领域有机器复现通道即 full_gate，否则 judge_only。
+// verificationTier 判定验证档位：配方形状有机器复现通道即 full_gate，否则 judge_only。
 func (g *PromotionGate) verificationTier(envelope json.RawMessage) string {
 	var env repro.Envelope
 	if json.Unmarshal(envelope, &env) == nil {
-		if _, ok := g.replayers[env.Domain]; ok {
+		if _, ok := g.replayers[env.Kind]; ok {
 			return TierFullGate
 		}
 	}
@@ -162,11 +152,11 @@ func (g *PromotionGate) verificationTier(envelope json.RawMessage) string {
 }
 
 // ErrAssertNotDiscriminative 是复现方的"质量拒绝"哨兵：断言无鉴别力
-// （自指、基线同样命中等）——配方被证明无法构成漏洞证据。这不是门故障
+// （自指、基线同样命中等）——配方被证明无法构成主张的证据。这不是门故障
 // （可重试），而是对这条假设的**证伪判定**：走审计链留档，不走重试上限。
 var ErrAssertNotDiscriminative = errors.New("assert not discriminative")
 
-// ErrInvalidRecipe 标记确定性配方缺陷（信封或领域形状不对、缺必需字段）：重放必然
+// ErrInvalidRecipe 标记确定性配方缺陷（信封或配方形状不对、缺必需字段）：重放必然
 // 同样失败，复现门快速终局出圈（refute_reason=invalid_recipe），不走重试阶梯。复现
 // 通道把自己的形状错误包装成它。
 var ErrInvalidRecipe = errors.New("复现配方无效")
@@ -179,15 +169,14 @@ var ErrTargetUnreachable = errors.New("复现目标不可达")
 // PromotionGate 是 Observation→图节点的晋升门。
 type PromotionGate struct {
 	graph     graphStore
-	replayers map[string]Replayer   // 各领域的机器复现通道；没有通道的领域由评估者自主取证
-	sink      ClaimSink             // 坐实主张的交付管道（域适配层注入；nil 不交付）
-	codec     FingerprintNormalizer // 指纹归一（域适配层注入；nil 不启用语义去重）
-	judge     LLMJudge              // LLM 语义判定（生产必配）
-	logger    *zerolog.Logger       // 非致命错误（交付失败等）经此告警
+	replayers map[string]Replayer // 各配方形状的机器复现通道；没有通道的形状由评估者自主取证
+	sink      ClaimSink           // 坐实主张的交付管道（装配时注入；nil 不交付）
+	judge     LLMJudge            // LLM 语义判定（生产必配）
+	logger    *zerolog.Logger     // 非致命错误（交付失败等）经此告警
 }
 
-// New 构造复现晋升门。领域的机器复现通道经 WithReplayer 注册；没有通道的领域（如
-// generic）由评估者按配方自主取证。
+// New 构造复现晋升门。配方形状的机器复现通道经 WithReplayer 注册；没有通道的形状（如
+// steps）由评估者按配方自主取证。
 func New(graph graphStore, sink ClaimSink) *PromotionGate {
 	return &PromotionGate{
 		graph:     graph,
@@ -196,20 +185,20 @@ func New(graph graphStore, sink ClaimSink) *PromotionGate {
 	}
 }
 
-// WithReplayer 注册一个领域的机器复现通道（链式）。
-func (g *PromotionGate) WithReplayer(domain string, r Replayer) *PromotionGate {
-	g.replayers[domain] = r
+// WithReplayer 注册一种配方形状的机器复现通道（链式）。
+func (g *PromotionGate) WithReplayer(kind string, r Replayer) *PromotionGate {
+	g.replayers[kind] = r
 	return g
 }
 
-// replay 按信封的领域分发到机器复现通道；没有通道的领域回显配方，由评估者按步骤自主
+// replay 按信封的 kind 分发到机器复现通道；没有通道的形状回显配方，由评估者按步骤自主
 // 执行取证（验证档位 judge_only）。
 func (g *PromotionGate) replay(ctx context.Context, envelope json.RawMessage) (Result, error) {
 	var env repro.Envelope
 	if err := json.Unmarshal(envelope, &env); err != nil {
-		return Result{}, fmt.Errorf("%w: 解析域信封失败: %w", ErrInvalidRecipe, err)
+		return Result{}, fmt.Errorf("%w: 解析配方信封失败: %w", ErrInvalidRecipe, err)
 	}
-	if r, ok := g.replayers[env.Domain]; ok {
+	if r, ok := g.replayers[env.Kind]; ok {
 		return r.Replay(ctx, envelope)
 	}
 	if len(env.Recipe) == 0 {
@@ -220,22 +209,15 @@ func (g *PromotionGate) replay(ctx context.Context, envelope json.RawMessage) (R
 		assert = json.RawMessage("{}")
 	}
 	out, err := json.Marshal(map[string]any{
-		"domain": env.Domain,
+		"kind":   env.Kind,
 		"recipe": env.Recipe,
 		"assert": assert,
-		"note":   "本域无机器复现通道：请用 run_command 按 recipe 的步骤自主执行取证，基于你亲见的命令输出判定（不必调 replay_for_verification）",
+		"note":   "该形状的配方没有机器复现通道，以上是配方原文",
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("序列化配方回显失败: %w", err)
 	}
 	return Result{Evidence: out}, nil
-}
-
-// WithFingerprintCodec 注入域指纹归一器（链式）。语义去重依赖它把评估者
-// 的原始指纹归一成规范键；不注入则同指纹主张不做折叠。
-func (g *PromotionGate) WithFingerprintCodec(codec FingerprintNormalizer) *PromotionGate {
-	g.codec = codec
-	return g
 }
 
 // WithJudge 注入 LLM 判定器（链式）。判定语义：机器重放只采集证据，LLM 终判
@@ -308,10 +290,10 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	final, evaluation := aggregateEvidence(res, tier, verdict.Verdict, verdict.Reasoning, replays)
 
 	// 8. 坐实先查语义去重：同一主张（同指纹规范键）的再次确认折叠为既有
-	// 发现的佐证。指纹形状与归一归域适配层；无归一器或形状损坏则不折叠。
+	// 结果的佐证。指纹缺失或形状损坏则不折叠。
 	fingerprintKey := ""
-	if g.codec != nil && verdict.Verdict == VerdictConfirmed && len(verdict.Fingerprint) > 0 {
-		if key, ok := g.codec.CanonicalKey(verdict.Fingerprint); ok {
+	if verdict.Verdict == VerdictConfirmed {
+		if key, ok := canonicalFingerprint(verdict.Fingerprint); ok {
 			fingerprintKey = key
 		}
 	}
@@ -367,7 +349,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 		if err != nil {
 			return nil, err
 		}
-		// 14. 交付：坐实主张交给域适配管道（安全域落 finding，他域各有交付物）
+		// 14. 交付：坐实主张交给装配时注入的交付管道
 		if err := g.deliverClaim(ctx, a, *node, verID, final, tier); err != nil {
 			return nil, err
 		}
@@ -466,7 +448,7 @@ func Redeliver(ctx context.Context, graph ConfirmedResultReader, sink ClaimSink,
 }
 
 // findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。
-// 对照键是域归一后的指纹规范键；未带指纹的历史 result 不参与对照
+// 对照键是归一后的指纹规范键；未带指纹的 result 不参与对照
 // （缺失指纹的发现保持原样，不影响其地位）。
 func (g *PromotionGate) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
 	results, err := g.graph.ListResults(ctx, taskID)
@@ -504,7 +486,7 @@ func withDuplicateInfo(evaluation json.RawMessage, existingID, key string) json.
 // withReplayLog 把最终证据、评估理由与完整重放链（预跑 + 评估者复放，含失败）聚合成一份审计 JSON。
 // 保留原证据顶层字段（url/method 等）不套壳——下游（finding host 抽取等）依赖其形状。
 // assertPassedInEvidence 从机器证据中读 executor 断言的命中情况。
-// 证据无 assert_passed 字段（如 generic 域回显）返回 true——不阻断 judge 受理。
+// 证据无 assert_passed 字段（如无复现通道时的配方回显）返回 true——不阻断 judge 受理。
 func assertPassedInEvidence(evidence json.RawMessage) bool {
 	if len(evidence) == 0 {
 		return true
@@ -521,7 +503,7 @@ func assertPassedInEvidence(evidence json.RawMessage) bool {
 // refuteByQualityGate 把"断言无鉴别力"的质量拒绝落成正式证伪：审计链留档
 // （带 quality_gate 标记与拒绝理由）、假设节点验证状态流转为 refuted。
 // 语义区别于 invalid_recipe（门故障止损）：这是验证结论——配方证明了
-// 命中不构成漏洞证据。
+// 命中不构成主张的证据。
 func (g *PromotionGate) refuteByQualityGate(ctx context.Context, a Claim, cause error) (*explorationgraph.Node, error) {
 	evaluation, _ := json.Marshal(map[string]interface{}{
 		"quality_gate":      true,

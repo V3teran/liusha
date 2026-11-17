@@ -126,25 +126,25 @@ describe('FindingDrawer', () => {
   // 证据链区（真库形态样本：active:full 实测 finding 的结构）
   const chainEvaluation = {
     verification_tier: 'full_gate',
-    judge_reasoning: 'exploit 带 cmd=id 返回 uid=33，基线无此特征，主张成立',
+    judge_reasoning: '验证请求带 cmd=id 返回 uid=33，基线无此特征，主张成立',
     evidence: {
       url: 'http://t:8080/shell.php?cmd=id',
       method: 'GET',
       assert_reasons: ['status_code=200 ✓', 'body 含 "uid=33(www-data)" ✓'],
-      exploit_status_code: 200,
+      status_code: 200,
       baseline_status_code: 200,
       response_body_snippet: 'uid=33(www-data)',
     },
   }
   const chainRepro = {
-    domain: 'web',
+    kind: 'http',
     recipe: {
       request: { method: 'GET', url: 'http://t:8080/shell.php?cmd=id', headers: { Cookie: 's=a' } },
       baseline: { url: 'http://t:8080/shell.php', method: 'GET' },
     },
   }
 
-  it('证据链：复现命令（curl）/ 断言明细 / exploit 响应 / 评估理由齐备渲染', () => {
+  it('证据链：复现命令（curl）/ 断言明细 / 验证响应 / 评估理由齐备渲染', () => {
     const finding = makeFinding({ evaluation: chainEvaluation, repro: chainRepro })
     render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
 
@@ -157,7 +157,7 @@ describe('FindingDrawer', () => {
     expect(document.body.textContent).toContain("-H 'Cookie: s=a'")
     // 断言逐条
     expect(screen.getByText(/status_code=200/)).toBeTruthy()
-    // exploit 响应片段（响应 pre 与断言行都含 uid——断言至少出现）
+    // 验证响应片段（响应 pre 与断言行都含 uid——断言至少出现）
     expect(screen.getAllByText(/uid=33/).length).toBeGreaterThanOrEqual(1)
     // 基线对照说明
     expect(screen.getByText(/对照基线/)).toBeTruthy()
@@ -220,7 +220,7 @@ describe('FindingDrawer 可访问性', () => {
 
   it('复现命令块可被键盘聚焦（可滚动区域）', () => {
     const finding = makeFinding({
-      repro: { domain: 'web', recipe: { request: { method: 'GET', url: 'http://t/a?q=1' } }, assert: {} },
+      repro: { kind: 'http', recipe: { request: { method: 'GET', url: 'http://t/a?q=1' } }, assert: {} },
     } as Partial<FindingRow>)
     const { container } = render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
     const pres = [...(container.ownerDocument.querySelectorAll('pre') as NodeListOf<HTMLPreElement>)]

@@ -1,7 +1,7 @@
-// Package webrepro 是 Web 复现领域：配方是一个完整的 HTTP 请求（可带良性基线），判据
+// Package httprepro 是 http 配方形状：配方是一个完整的 HTTP 请求（可带对照请求），判据
 // 是状态码、响应体、响应头与耗时谓词。它向中立核心提供两样东西——配方的形状矫正
-// （repro.Domain）与机器复现通道（evaluator.Replayer）。
-package webrepro
+// （repro.Kind）与机器复现通道（evaluator.Replayer）。
+package httprepro
 
 import (
 	"encoding/json"
@@ -9,21 +9,21 @@ import (
 	"strings"
 )
 
-// Name 是 Web 领域在信封里的 domain 取值。
-const Name = "web"
+// Name 是 http 形状在信封里的 kind 取值。
+const Name = "http"
 
 // MinBodyContainsLen 是 body_contains 子串的最小鉴别长度：过短的子串（如 "1"/"2"/"3"）
 // 几乎必然命中任意页面。写入侧与复现通道共用此阈值。
 const MinBodyContainsLen = 4
 
-// Domain 实现 repro.Domain。
-type Domain struct{}
+// Kind 实现 repro.Kind。
+type Kind struct{}
 
-// Name 实现 repro.Domain。
-func (Domain) Name() string { return Name }
+// Name 实现 repro.Kind。
+func (Kind) Name() string { return Name }
 
-// Recognizes 实现 repro.Domain：recipe 内或顶层（笔误）写了 request。
-func (Domain) Recognizes(fields map[string]json.RawMessage) bool {
+// Recognizes 实现 repro.Kind：recipe 内或顶层（笔误）写了 request。
+func (Kind) Recognizes(fields map[string]json.RawMessage) bool {
 	if len(fields["request"]) > 0 {
 		return true
 	}
@@ -33,13 +33,13 @@ func (Domain) Recognizes(fields map[string]json.RawMessage) bool {
 	return json.Unmarshal(fields["recipe"], &recipe) == nil && len(recipe.Request) > 0
 }
 
-// Example 实现 repro.Domain。
-func (Domain) Example() string {
-	return `{"domain": "web", "recipe": {"request": {"method": "GET", "url": "http://host/api?id=payload", "headers": {}, "body": ""}}, "assert": {"body_contains": [...]}}`
+// Example 实现 repro.Kind。
+func (Kind) Example() string {
+	return `{"kind": "http", "recipe": {"request": {"method": "GET", "url": "http://host/path?q=1", "headers": {}, "body": ""}}, "assert": {"body_contains": [...]}}`
 }
 
-// Normalize 实现 repro.Domain：扁平形状包装 + assert 形状矫正 + request 与鉴别力校验。
-func (Domain) Normalize(fields map[string]json.RawMessage) (recipe, assert json.RawMessage, err error) {
+// Normalize 实现 repro.Kind：扁平形状包装 + assert 形状矫正 + request 与鉴别力校验。
+func (Kind) Normalize(fields map[string]json.RawMessage) (recipe, assert json.RawMessage, err error) {
 	switch {
 	case len(fields["recipe"]) > 0:
 		recipe = fields["recipe"]
@@ -53,12 +53,12 @@ func (Domain) Normalize(fields map[string]json.RawMessage) (recipe, assert json.
 			return nil, nil, fmt.Errorf("repro 归一化失败: %w", err)
 		}
 	default:
-		return nil, nil, fmt.Errorf("web 域 repro 缺少 recipe.request。\n\n正确格式：%s", Domain{}.Example())
+		return nil, nil, fmt.Errorf("http 配方缺少 recipe.request。\n\n正确格式：%s", Kind{}.Example())
 	}
 	assert = fields["assert"]
 	if len(assert) == 0 {
 		return nil, nil, fmt.Errorf("repro 缺少 assert 字段。\n\n" +
-			"web 域可用字段: status_code, body_contains, body_not_contains, header_contains, header_not_contains, min_duration_ms")
+			"http 配方的 assert 可用字段: status_code, body_contains, body_not_contains, header_contains, header_not_contains, min_duration_ms")
 	}
 	assert = coerceAssertShape(assert)
 	if err := validateRequestRecipe(recipe); err != nil {
@@ -227,7 +227,7 @@ func validateRequestRecipe(recipe json.RawMessage) error {
 		} `json:"request"`
 	}
 	if err := json.Unmarshal(recipe, &rc); err != nil {
-		return fmt.Errorf("web 域 recipe 解析失败: %w", err)
+		return fmt.Errorf("http 配方的 recipe 解析失败: %w", err)
 	}
 	req := rc.Request
 	var missing []string
@@ -267,7 +267,7 @@ func teachAssertDiscriminative(assert json.RawMessage) error {
 	for _, want := range ac.BodyContains {
 		if len(strings.TrimSpace(want)) < MinBodyContainsLen {
 			return fmt.Errorf("无鉴别力断言——body_contains 子串 %q 过短（几乎必命中任意页面）。\n\n"+
-				"断言应捕捉利用响应独有特征：报错回显/泄露数据的完整子串（如 \"SQL syntax error\"、dump 出的字段值）", want)
+				"断言应捕捉验证响应独有的特征：只在主张成立时才出现的完整内容片段", want)
 		}
 	}
 	return nil

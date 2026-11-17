@@ -16,10 +16,12 @@ var deploymentEnv = []string{
 	"LIUSHA_IMAGE_REPO", "LIUSHA_IMAGE_TAG",
 }
 
-// otherEnv 是 LIUSHA_ 命名空间里另外两类不对应配置键的变量：配置文件位置与开发工具（e2e）的参数。
+// otherEnv 是 LIUSHA_ 命名空间里另外两类不对应配置键的变量：配置文件位置与开发工具（e2e、tsecbench）的参数。
 var otherEnv = []string{
 	"LIUSHA_CONFIG",
 	"LIUSHA_E2E_API_BASE", "LIUSHA_E2E_POLL_DEADLINE_SECONDS", "LIUSHA_E2E_PG_CONTAINER", "LIUSHA_E2E_REDIS_CONTAINER",
+	"LIUSHA_TSB_API_BASE", "LIUSHA_TSB_PROBE_URL", "LIUSHA_TSB_USER", "LIUSHA_TSB_PASS", "LIUSHA_TSB_FLAG_RE",
+	"LIUSHA_TSB_CONCURRENCY", "LIUSHA_TSB_POLL_SECONDS", "LIUSHA_TSB_TASK_DEADLINE_SECONDS", "LIUSHA_TSB_IDLE_SECONDS", "LIUSHA_TSB_ONLY",
 }
 
 // configEnv 返回全部配置键对应的环境变量名（LIUSHA_<键>）。

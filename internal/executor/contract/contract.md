@@ -1,233 +1,98 @@
 # 产物落盘（交付约定，必须遵守）
 
-- **交付物与证据文件写 `$OUTPUT_DIR`**（环境变量已注入，绝对路径）：扫描报告（nmap -oA）、PoC 脚本、下载的样本/页面存证、复现材料。操作员在工作空间页直接查看/下载这些文件。
+- **交付物与证据文件写 `$OUTPUT_DIR`**（环境变量已注入，绝对路径）：工具生成的报告、编写的脚本、下载的原始材料、复现材料。操作员在工作空间页直接查看/下载这些文件。
 - 每次命令执行后，系统自动收集 `$OUTPUT_DIR` 顶层新增文件（单次 ≤10MB、≤5 个）并在输出尾部给出 `[out/ 产物]` 清单——看到它说明文件已存档成功。
 - 临时文件（管道中间产物、工具自带会话目录）放当前目录即可，不要与交付物混放；需要引用产物内容时 `cat "$OUTPUT_DIR/文件名"`。
 - **归档判据**：问一句「这个文件之后还要用吗——复现时要用、报告要引用、操作员要拿走？」要，就写 `$OUTPUT_DIR`；只是让命令跑起来的（会话目录、一次性试错脚本），留在当前目录。
 
 # 输出契约（系统据此解析，必须遵守）
 
-**在完成任务后，你必须输出一个标准的 JSON 对象，总结你的执行结果和发现。**
-
-## 标准输出格式
-
-在 ReAct 循环的最后，输出以下 JSON 格式：
+执行结束时，作为**最后一条消息**输出一个 JSON 对象（可以包在 ```json 代码块里），系统解析后把观察落进探索图：
 
 ```json
 {
   "status": "completed",
-  "summary": "执行了 3 个测试，发现 1 个高优先级问题和 1 个中优先级问题",
+  "summary": "一两句话的执行总结",
   "observations": [
     {
       "category": "hypothesis",
-      "statement": "后台接口无需认证即可访问",
-      "reasoning": "未携带任何认证凭据直接访问，返回成功且含完整数据",
+      "statement": "清晰、具体的主张",
+      "reasoning": "依据来自哪个实测输出",
       "priority": "high",
-      "impact": "任何匿名访问者可拉取全部用户数据",
-      "suggestion": "为后台接口增加认证与鉴权校验；敏感数据接口默认拒绝匿名访问，并按最小权限放行。",
-      "repro": {
-        "domain": "web",
-        "recipe": {
-          "request": {
-            "method": "GET",
-            "url": "http://target.com/api/data",
-            "headers": {},
-            "body": ""
-          },
-          "baseline": {
-            "method": "GET",
-            "url": "http://target.com/api/public",
-            "headers": {},
-            "body": ""
-          }
-        },
-        "assert": {"body_contains": "sensitive_data"}
-      }
-    }
-  ]
-}
-```
-
-## 字段说明
-
-- **status**: "completed" 或 "failed"（任务执行状态）
-- **summary**: 简短总结（1-2 句话）
-- **observations**: 观察结果列表（可以为空数组）
-
-每个 observation 必须包含 **category**（见下方「分类纪律」）。
-
-**category="hypothesis"（待验证的判断）**——凡是「这里有问题」的判断都写成它，经复现门独立验证，坐实后成为正式发现：
-- **statement**: 清晰的主张陈述
-- **reasoning**: 为什么得出这个主张
-- **priority**: "low" / "medium" / "high" / "critical"
-- **impact**: 影响说明（主张为真会发生什么、波及多大）
-- **suggestion**: 处理建议（经验证坐实后随发现交付）
-- **repro**: 机器可执行的复现配方（见下文）——**必须有**，无配方的主张无从验证
-
-**category="entity"/"access"/"structure"/"behavior"/"note"（事实）**——环境知识，写入即终态，规划时按域直接使用：
-- **statement**: 知识陈述（如"目标开放端口 22, 80, 443"、"技术栈为 nginx 1.18.0"）
-- **reasoning**: 依据来自哪个实测输出
-- 不带 **repro**、**priority**、**impact**、**suggestion**
-
-**定位由配方派生**：交付层从 repro 首请求自动派生 {method,url,path}——
-无需另填定位字段；不同参数注入点在配方 URL/query 里天然不同，不会被
-交付去重合并。
-
-分类纪律（领域中立词汇，选最贴切的一个）：
-- **hypothesis** 用于待验证的判断：漏洞（SQL 注入、XSS、RCE、认证绕过），也包括一眼可见的问题（敏感文件泄露、危险配置、默认凭据）——它们最容易给出配方，同样要经验证才算数。必须带 repro（没有配方会被降级为 note）
-- **entity** 用于存在的单个对象及其属性（主机、端点、服务、页面、配置项，及其版本/路径等关键属性）
-- **access** 用于触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则）
-- **structure** 用于对象之间的关系与布局（站点地图、网络拓扑、组件依赖、目录层级）
-- **behavior** 用于环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、过滤/转义规律、拦截与限流等阻碍推进的防护）
-- **note** 用于以上都不合适的杂项（最后手段——先找具体域）
-- hypothesis 与事实的分界：判断「这里有问题」的写 hypothesis；事实只陈述环境是什么样、怎么反应，不下好坏结论
-- entity 与 structure 的分界：单个对象的存在与属性记 entity；对象之间怎么连接、怎么组织记 structure
-- 不要把纯过程性记录（"访问了某页"、"请求返回 200"）写成 observation——只记对规划有决策价值的结论
-
-**示例**：
-
-```json
-{
-  "status": "completed",
-  "summary": "发现 .git 目录泄露和技术栈信息",
-  "observations": [
-    {
-      "category": "hypothesis",
-      "statement": "站点根目录下的 .git 目录可被匿名下载",
-      "reasoning": "访问 /.git/config 返回仓库配置原文",
-      "priority": "medium",
-      "impact": "可还原完整源码与提交历史，其中可能含密钥与内部地址",
-      "suggestion": "部署时排除 .git 目录，并在 Web 服务器上拒绝访问以点开头的路径。",
-      "repro": {
-        "domain": "web",
-        "recipe": {
-          "request": {"method": "GET", "url": "http://target.local/.git/config", "headers": {}, "body": ""}
-        },
-        "assert": {"body_contains": "[core]"}
-      }
+      "impact": "主张为真会发生什么、波及多大",
+      "suggestion": "处理建议",
+      "repro": {"kind": "steps", "recipe": {"steps": "..."}, "assert": {"description": "..."}}
     },
     {
       "category": "entity",
-      "statement": "目标使用 nginx 1.18.0 + PHP 7.4",
-      "reasoning": "从 Server 响应头和错误页面确认"
+      "statement": "环境里存在什么、它有什么属性",
+      "reasoning": "依据来自哪个实测输出"
     }
   ]
 }
 ```
 
-## 复现配方（repro）格式
+- **status**：`completed` 或 `failed`
+- **summary**：简短总结
+- **observations**：观察列表，可以为空数组；每条必须有 **category**
 
-### HTTP 验证（domain: "web"）
+## 观察分类
+
+| category | 含义 | 生命周期 |
+|---|---|---|
+| `hypothesis` | 待验证的判断：「这里有问题 / 这个主张成立」 | 写入即待验证，经复现门独立验证，坐实后成为结果 |
+| `entity` | 存在的单个对象及其属性（名称、版本、位置等） | 写入即终态 |
+| `access` | 触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则） | 写入即终态 |
+| `structure` | 对象之间的关系与布局（层级、拓扑、依赖） | 写入即终态 |
+| `behavior` | 环境受激后的反应与内在机制（输入如何被处理、状态如何迁移、限制与拦截） | 写入即终态 |
+| `note` | 以上都不合适的杂项（最后手段） | 写入即终态 |
+
+- **hypothesis** 必须带 `statement`、`reasoning`、`priority`（`low` / `medium` / `high` / `critical`）、`impact`、`suggestion` 与 `repro`；没有配方的假设无从验证，会被降级为 note
+- 事实类（entity / access / structure / behavior / note）只带 `statement` 与 `reasoning`，不带 repro、priority、impact、suggestion
+- 分界：判断「这里有问题」的写 hypothesis，事实只陈述环境是什么样、怎么反应；单个对象的存在与属性记 entity，对象之间怎么连接、怎么组织记 structure
+- 纯过程记录（「执行了某命令」「请求返回成功」）不是观察
+
+## 复现配方（repro）
+
+配方是信封 `{kind, recipe, assert}`：`kind` 说明配方的形状，评估者按它复现。配方必须**自包含**——评估者没有你的上下文，只凭配方就能独立复现；并且必须是你**实测过**、确实触发了主张现象的。
+
+### kind = "http"：一个 HTTP 请求
+
+复现通道原样重发请求，按断言判定；可带一个对照请求。
 
 ```json
 {
-  "domain": "web",
+  "kind": "http",
   "recipe": {
-    "request": {
-      "method": "GET",
-      "url": "http://target.com/api/user?id=1' OR '1'='1",
-      "headers": {"Authorization": "Bearer token"},
-      "body": ""
-    },
-    "baseline": {
-      "method": "GET", 
-      "url": "http://target.com/api/user?id=1",
-      "headers": {"Authorization": "Bearer token"},
-      "body": ""
-    }
+    "request":  {"method": "GET", "url": "http://host.local/items/42", "headers": {}, "body": ""},
+    "baseline": {"method": "GET", "url": "http://host.local/items/41", "headers": {}, "body": ""}
   },
-  "assert": {
-    "body_contains": "mysql_error"
-  }
+  "assert": {"body_contains": ["\"owner\":"]}
 }
 ```
 
-**关键点**：
-1. `recipe.request` = 完整验证请求（能触发主张现象）
-2. `recipe.baseline` = 对照请求（可选；提供后差分自动生效——断言须命中验证响应且基线不命中）
-3. `assert` = 断言验证响应的**独有特征**
+- `recipe.request`：完整的验证请求，四个字段齐全（`headers` 可为 `{}`、`body` 可为 `""`），`url` 带 `http://` 或 `https://`
+- `recipe.baseline`（可选）：对照请求。提供后差分自动生效——断言须命中验证响应、且对照响应不命中
+- `assert`：验证响应的**独有特征**，至少一条，全部满足才算复现：
+  - `status_code`：响应码等于此值
+  - `body_contains` / `body_not_contains`：响应体含全部子串 / 不含任一子串（子串至少 4 个字符）
+  - `header_contains`：响应头存在并含子串（子串为空即只要求该头存在）
+  - `header_not_contains`：响应头不存在或不含子串（子串为空即要求该头不存在）
+  - `min_duration_ms`：响应耗时至少 N 毫秒
+- 只描述目标自身某种属性、没有触发输入的主张，不带 baseline，断言直接描述该属性
+- 单独的 `status_code`、页面常态内容（通用标题、导航文字）在任何响应里都会出现，不是独有特征
 
-### 通用场景（domain: "generic"）
+### kind = "steps"：自然语言步骤
+
+没有机器复现通道：评估者按步骤自主执行取证，对照判据判定。
 
 ```json
 {
-  "domain": "generic",
-  "recipe": {
-    "steps": "1. 运行命令 X\n2. 观察输出 Y\n3. 确认 Z 存在"
-  },
-  "assert": {
-    "description": "执行后观察到敏感信息泄露"
-  }
+  "kind": "steps",
+  "recipe": {"steps": "1. 执行操作 A\n2. 观察输出 B\n3. 确认 C 出现"},
+  "assert": {"description": "执行步骤后观察到 C，且不做操作 A 时不会出现"}
 }
 ```
 
-## 复现配方规则（重要）
-
-1. **自包含**：repro 必须包含所有信息，evaluator 可以独立复现，不依赖任何外部上下文
-2. **完整 URL**：必须包含 `http://` 或 `https://`
-3. **实测过**：request 必须是你实际执行过并触发主张现象的请求
-4. **精确断言**：assert 必须描述验证响应的**独有特征**，不能是基线响应也会有的特征
-5. **避免误报**：
-   - ❌ 禁止：`"status_code": 200` + 通用页面标题
-   - ✅ 正确：`"body_contains": "mysql_error"`（配 recipe.baseline 让基线差分自动生效）
-6. **属性类主张**（目标自身的配置与暴露面，没有载荷）：不带 baseline，断言直接描述该属性——
-   - 缺失安全响应头：`"header_not_contains": {"Content-Security-Policy": ""}`（子串为空即要求该头不存在）
-   - Cookie 缺安全属性：`"header_not_contains": {"Set-Cookie": "HttpOnly"}`
-   - 敏感文件可下载：`"body_contains": "[core]"`（下载到的确实是敏感内容）
-   - `header_contains` 同理：头须存在并含子串，子串为空即只要求存在
-
-## 示例：正确的输出
-
-```json
-{
-  "status": "completed",
-  "summary": "扫描了 5 个接口，发现 1 个高优先级问题",
-  "observations": [
-    {
-      "category": "hypothesis",
-      "statement": "/api/users 接口的 id 参数存在未净化的输入回显",
-      "reasoning": "注入特殊字符导致错误响应，回显了内部错误信息",
-      "priority": "critical",
-      "repro": {
-        "domain": "web",
-        "recipe": {
-          "request": {
-            "method": "GET",
-            "url": "http://target.local/api/users?id=1'",
-            "headers": {},
-            "body": ""
-          },
-          "baseline": {
-            "method": "GET",
-            "url": "http://target.local/api/users?id=1",
-            "headers": {},
-            "body": ""
-          }
-        },
-        "assert": {
-          "body_contains": "error in your syntax"
-        }
-      }
-    }
-  ]
-}
-```
-
-## 示例：没有发现
-
-```json
-{
-  "status": "completed",
-  "summary": "扫描了 10 个接口，未发现明显问题",
-  "observations": []
-}
-```
-
-## 输出时机
-
-在完成所有测试后，作为你的**最后一条消息**，输出标准 JSON 格式。
-
-**重要**：
-- 可以用 Markdown 代码块包裹：\`\`\`json ... \`\`\`
-- 也可以直接输出 JSON 对象
-- 必须确保 JSON 格式正确
+- `steps`：照着就能从头复现的完整步骤
+- `assert.description`：坐实判据——观察到什么才算主张成立，以及正常情况下为什么不会出现
