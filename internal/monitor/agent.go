@@ -323,35 +323,18 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 	return nil
 }
 
-// buildEvaluationObjective 构建评估目标；reviewReasons 非空时附上本轮复核的理由。
+// buildEvaluationObjective 构建本轮评估的输入：只陈述这一轮为什么运行（定时周期或带理由的
+// 复核）。职责、干预场景与判断标准只在章程里——这里再写一份会与自定义后的章程互相矛盾。
 func (a *Agent) buildEvaluationObjective(reviewReasons []string) string {
-	objective := fmt.Sprintf(`你是任务 %s 的监察 Agent。
-
-你的职责：
-1. 检查任务的全局状态
-2. 识别重复、偏离或方向已作废的 Actions，以及整体停滞
-3. 需要时发布监察决策（否决动作或请求重规划）
-
-请使用以下工具：
-- get_global_state：获取任务的全局状态
-- publish_decision：发布监察决策
-
-评估标准：
-- 否决只针对策略上已无价值的动作：重复已完成或已证伪的工作、所在方向已作废、偏离任务目标；卡死的动作由系统看门狗自动结束，不按运行时长判断；用户指派的动作不可否决
-- 大量 failed Actions → 考虑 replan
-- 缺乏进展 → 考虑 replan
-
-请开始评估。`, a.taskID)
 	if len(reviewReasons) == 0 {
-		return objective
+		return "评估任务的当前态势，需要时发布监察决策。"
 	}
 	var b strings.Builder
-	b.WriteString(objective)
-	b.WriteString("\n\n本轮是复核（不等定时周期提前评估），理由：")
+	b.WriteString("本轮是复核（不等定时周期提前评估），理由：")
 	for _, r := range reviewReasons {
 		b.WriteString("\n- " + r)
 	}
-	b.WriteString("\n按理由逐一复核在途动作：已不服务于当前任务目标的予以否决。")
+	b.WriteString("\n\n按理由复核在途动作，需要时发布监察决策。")
 	return b.String()
 }
 

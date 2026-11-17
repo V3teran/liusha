@@ -61,7 +61,7 @@ export function stateMeta(state?: string): StateMeta | null {
   return STATE_META[state] ?? { label: state, dotClass: 'bg-status-neutral' }
 }
 
-/* ========== 优先级 / 验证状态 / 复杂度 / 动作类型 / 观察分类 ========== */
+/* ========== 优先级 / 验证状态 / 复杂度 / 观察分类 ========== */
 
 /** 假设观察的验证状态（事实观察与结果没有验证状态） */
 export const VERIFICATION_META: Record<VerificationStatus, string> = {
@@ -79,12 +79,6 @@ export const COMPLEXITY_META: Record<string, string> = {
   simple: '简单',
   moderate: '中等',
   complex: '复杂',
-}
-
-export const ACTION_TYPE_META: Record<string, string> = {
-  reconnaissance: '侦察',
-  analysis: '分析',
-  testing: '测试',
 }
 
 export const OBSERVATION_CATEGORY_META: Record<string, string> = {
@@ -120,7 +114,7 @@ export function nodeTitle(node: GraphNode): string {
 export interface NodeChips {
   /** 状态（objective/action） */
   state?: StateMeta
-  /** 动作类型 / 观测分类 */
+  /** 观察分类 */
   category?: string
   /** 验证状态文字标签（仅假设观察） */
   verification?: string
@@ -135,10 +129,7 @@ export function nodeChips(node: GraphNode): NodeChips {
 
   if (node.state) chips.state = stateMeta(node.state) ?? undefined
 
-  if (node.kind === 'action') {
-    const t = typeof c.type === 'string' ? c.type : ''
-    chips.category = ACTION_TYPE_META[t] ?? (t || undefined)
-  } else if (node.kind === 'observation') {
+  if (node.kind === 'observation') {
     const cat = typeof c.category === 'string' ? c.category : ''
     chips.category = OBSERVATION_CATEGORY_META[cat] ?? (cat || undefined)
   }

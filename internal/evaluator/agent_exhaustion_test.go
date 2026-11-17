@@ -17,13 +17,13 @@ import (
 )
 
 // TestClaimFromHypothesis_TolerantOfMalformedRepro 锁定双路径契约一致：
-// repro 归一化失败（如 generic 域缺 assert）时轮询路径保留原始配方继续派发，
+// repro 归一化失败（如 steps 配方缺 assert）时轮询路径保留原始配方继续派发，
 // 而不是整条丢弃——此前该假设永远待验证：每 5s 重解析重告警（实测同一
 // 节点连告 39 次），且 hasPendingVerdicts 永真阻塞任务收敛。
 func TestClaimFromHypothesis_TolerantOfMalformedRepro(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 
-	raw := json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`) // 缺 assert
+	raw := json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`) // 缺 assert
 	obs := explorationgraph.Node{
 		ID:      "obs-bad-repro",
 		TaskID:  "t1",
@@ -39,7 +39,7 @@ func TestClaimFromHypothesis_TolerantOfMalformedRepro(t *testing.T) {
 	if err := json.Unmarshal(att.Repro, &got); err != nil {
 		t.Fatalf("原始配方应原样保留: %v", err)
 	}
-	if got["domain"] != "generic" {
+	if got["kind"] != "steps" {
 		t.Fatalf("配方内容不应被改写: %s", att.Repro)
 	}
 }
@@ -62,20 +62,20 @@ func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 		},
 		{
 			name:       "配方确定性缺陷 → invalid_recipe",
-			cause:      fmt.Errorf("verifier: 复现执行失败: %w: 解析域信封失败: json: cannot unmarshal array", ErrInvalidRecipe),
+			cause:      fmt.Errorf("verifier: 复现执行失败: %w: 解析配方信封失败: json: cannot unmarshal array", ErrInvalidRecipe),
 			wantReason: RefuteInvalidRecipe,
 		},
 		{
 			// 目标不可达（重放没拿到响应）：计入上限、耗尽按复放失败出圈。曾被当作 LLM
 			// provider 瞬时故障无限豁免——目标宕机时假设永远待验证，任务不收敛且持续打目标。
 			name: "重放未到达目标（EOF） → not_reproducible",
-			cause: fmt.Errorf("promote: verifier: 复现执行失败: web.Replayer: 基线重放失败: %w",
+			cause: fmt.Errorf("promote: verifier: 复现执行失败: http 复现: 基线重放失败: %w",
 				fmt.Errorf("%w: %w", ErrTargetUnreachable, io.EOF)),
 			wantReason: RefuteNotReproducible,
 		},
 		{
 			name: "重放超时（目标挂起） → not_reproducible",
-			cause: fmt.Errorf("web 复现: 重发失败: %w",
+			cause: fmt.Errorf("http 复现: 重发失败: %w",
 				fmt.Errorf("%w: Get \"http://t/\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)", ErrTargetUnreachable)),
 			wantReason: RefuteNotReproducible,
 		},
@@ -99,7 +99,7 @@ func TestRecordVerifyFailure_SplitsJudgeFromRecipe(t *testing.T) {
 			pending := explorationgraph.VerificationPending
 			obs := explorationgraph.Node{
 				ID: "obs-x", TaskID: "t1", Kind: core.KindObservation,
-				Content:            json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+				Content:            json.RawMessage(`{"statement":"S","repro":{"kind":"steps","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
 				VerificationStatus: &pending,
 			}
 			if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
@@ -180,7 +180,7 @@ func TestRecordVerifyFailure_CanceledReplayNotCounted(t *testing.T) {
 	if _, err := memGraph.CreateNode(context.Background(), obs); err != nil {
 		t.Fatalf("建观察失败: %v", err)
 	}
-	cause := fmt.Errorf("web 复现: 重发失败: %w", fmt.Errorf("%w: %w", ErrTargetUnreachable, context.Canceled))
+	cause := fmt.Errorf("http 复现: 重发失败: %w", fmt.Errorf("%w: %w", ErrTargetUnreachable, context.Canceled))
 	for i := 0; i < maxVerifyAttempts+1; i++ {
 		a.recordVerifyFailure(context.Background(), "obs-c", Claim{TaskID: "t1", NodeID: "obs-c"}, cause)
 	}

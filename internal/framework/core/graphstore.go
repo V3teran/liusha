@@ -98,7 +98,7 @@ type GraphEdge struct {
 	// To 是目标节点 ID
 	To string `json:"to"`
 
-	// Relation 是边的关系类型（取值由领域层定义）
+	// Relation 是边的关系类型（取值由探索图包定义）
 	Relation string `json:"relation"`
 
 	// Metadata 是边的元数据（可选）

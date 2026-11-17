@@ -25,7 +25,7 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 
 	e := NewEngine(nil, zerolog.Nop())
 	drafts := e.convertProposals(ctx, store, "t1", []ActionProposal{{
-		Type: "testing", Instruction: "复测 /search", Complexity: "complex", Priority: "high",
+		Instruction: "复测 /search", Complexity: "complex", Priority: "high",
 		Reasoning: "反射点已坐实", TriggeredBy: []string{resultID, "phantom"},
 	}})
 
@@ -38,5 +38,5 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 
 	var content map[string]any
 	require.NoError(t, json.Unmarshal(d.Node.Content, &content))
-	assert.Equal(t, map[string]any{"type": "testing", "instruction": "复测 /search", "reasoning": "反射点已坐实"}, content)
+	assert.Equal(t, map[string]any{"instruction": "复测 /search", "reasoning": "反射点已坐实"}, content)
 }

@@ -12,7 +12,7 @@ import (
 // 根目标代表任务本身：每个任务恰好一个（DB 部分唯一索引兜底），内容只有目标描述
 // （description），与任务行的 goal 是同一个目标——两者只经 task.Store 在同一事务内写入
 // （任务创建时 CreateRootObjective，改写目标时 WriteRootGoal）。目标所指的对象范围
-// （如 Web 域的主机）属于任务与领域，不进根目标。
+// （如目标主机）属于任务行，不进根目标。
 
 // Goal 返回目标节点的目标描述（非目标节点或内容缺失时为空）。
 func (n *Node) Goal() string {

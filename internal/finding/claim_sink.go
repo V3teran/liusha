@@ -150,8 +150,8 @@ func deriveTarget(repro json.RawMessage) json.RawMessage {
 				Method string `json:"method"`
 				URL    string `json:"url"`
 			} `json:"request"`
-			// Steps 是 generic 域的自由文本步骤；首条「METHOD /path」行足以
-			// 定位端点——台账的定位列不因配方域不同而缺失。
+			// Steps 是 steps 配方的自由文本步骤；首条「METHOD /path」行足以
+			// 定位端点——台账的定位列不因配方形状不同而缺失。
 			Steps string `json:"steps"`
 		} `json:"recipe"`
 	}

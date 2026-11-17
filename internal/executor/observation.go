@@ -58,7 +58,7 @@ func (e *Engine) createObservationNode(
 		UpdatedAt:  time.Now(),
 	}
 
-	// 只有 hypothesis 进验证生命周期（pending → 复现门验证），其余五个信息域
+	// 只有 hypothesis 进验证生命周期（pending → 复现门验证），其余五类观察
 	// 都是写入即终态的事实，不带验证状态。
 	switch obs.Category {
 	case explorationgraph.CategoryHypothesis:
@@ -125,6 +125,6 @@ type Observation struct {
 	// Repro：复现配方
 	//   - hypothesis：必须（无配方的推测无从验证）
 	//   - 其余类别：可选
-	// 形式：JSON，由域定义（web=HTTP请求序列，generic=自由形式等）
+	// 形式：信封 {kind, recipe, assert}，recipe/assert 的形状由 kind 定义（http=HTTP 请求，steps=自然语言步骤）
 	Repro json.RawMessage `json:"repro,omitempty"`
 }
