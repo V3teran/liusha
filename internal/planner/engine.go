@@ -204,8 +204,8 @@ type RefutedHypothesis struct {
 }
 
 // Fact 是已确认的世界状态断言（事实观察）：会话已建立、某机制由什么控制、
-// 资源是否存在——规划的基底，直接消费、无需验证。Category 是它的信息域，
-// 规划时按域分组呈现。
+// 资源是否存在——规划的基底，直接消费、无需验证。Category 是它的类别，
+// 规划时按类别分组呈现。
 type Fact struct {
 	Category  explorationgraph.ObservationCategory
 	Statement string
@@ -229,7 +229,6 @@ type PlanningContext struct {
 
 // ActionProposal LLM 返回的 Action 提案
 type ActionProposal struct {
-	Type        string   `json:"type"`         // Action 类型
 	Instruction string   `json:"instruction"`  // 执行指令
 	Complexity  string   `json:"complexity"`   // 复杂度: simple/moderate/complex
 	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
@@ -476,14 +475,8 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	var sb strings.Builder
 
-	// 1. 头部和核心原则
-	sb.WriteString(buildPlanningPromptHeader())
-
-	// 1.5 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
+	// 1. 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
 	sb.WriteString(buildTeamRosterSection(e.roster))
-
-	// 2. 停止条件
-	sb.WriteString(buildStopCriteria())
 
 	// 3. 任务目标
 	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
@@ -506,21 +499,18 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 7. 失败的尝试
 	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
 
-	// 7.5 已否决的动作（禁止等效重提）与已中止的动作（可按当前目标重提）
+	// 7.5 已否决的动作与已中止的动作
 	sb.WriteString(buildRejectedActionsSection(ctx.RejectedActions))
 	sb.WriteString(buildAbortedActionsSection(ctx.AbortedActions))
 
-	// 8. 已确认的发现
+	// 8. 已坐实的结果
 	sb.WriteString(buildResultsSection(ctx.Results))
 
-	// 8.5 已确认的世界状态（规划基底）
+	// 8.5 已确认的事实（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
 
 	// 9. 已被证伪的假设
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
-
-	// 10. 规划要求
-	sb.WriteString(buildPlanningRequirements())
 
 	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）
 	sb.WriteString("按系统提示中的「输出契约」只输出一个 JSON 对象。\n")
@@ -625,7 +615,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 		}
 
 		contentBytes, _ := json.Marshal(map[string]string{
-			"type":        proposal.Type,
 			"instruction": proposal.Instruction,
 			"reasoning":   proposal.Reasoning,
 		})
@@ -647,7 +636,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 
 		e.logger.Debug().
 			Str("action_id", actionID).
-			Str("type", proposal.Type).
 			Str("priority", string(priority)).
 			Msg("生成 Action 节点")
 	}
@@ -662,11 +650,7 @@ func planningNarrative(r PlanningResponse) string {
 	if r.ShouldContinue {
 		fmt.Fprintf(&b, "继续执行，本轮派发 %d 个动作：", len(r.Actions))
 		for i, a := range r.Actions {
-			if a.Type != "" {
-				fmt.Fprintf(&b, "\n%d. [%s] %s", i+1, a.Type, a.Instruction)
-			} else {
-				fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
-			}
+			fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
 		}
 	} else {
 		b.WriteString("任务收敛，不再派发动作。")

@@ -23,7 +23,7 @@ import (
 // 同配方不同陈述是两次独立判定，不得沿用结论（历史 bug：纯配方哈希让"XSS"和
 // "SQLi"共享同一配方时互相继承判定）。
 func TestClaimHashKeysOnStatementAndRecipe(t *testing.T) {
-	recipe := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
+	recipe := json.RawMessage(`{"kind":"http","recipe":{"request":{"method":"GET","url":"http://t/search?q=1"}},"assert":{"body_contains":["leaked"]}}`)
 
 	xss := Claim{Content: json.RawMessage(`{"statement":"/search 存在反射型 XSS"}`), Repro: recipe}
 	sqli := Claim{Content: json.RawMessage(`{"statement":"/search 存在 SQL 注入"}`), Repro: recipe}
@@ -48,7 +48,7 @@ func TestClaimFromHypothesisContentShape(t *testing.T) {
 		TaskID:   "task-1",
 		Kind:     core.KindObservation,
 		Priority: explorationgraph.PriorityHigh,
-		Content:  json.RawMessage(`{"statement":"S 存在漏洞","impact":"i","suggestion":"s","repro":{"domain":"generic","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
+		Content:  json.RawMessage(`{"statement":"S 存在漏洞","impact":"i","suggestion":"s","repro":{"kind":"steps","recipe":{"steps":["curl x"]},"assert":{"description":"d"}}}`),
 	}
 	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	buildObs := func(id, statement string, status *explorationgraph.VerificationStatus) explorationgraph.Node {
 		return explorationgraph.Node{
 			ID: id, TaskID: "t-boundary", Kind: core.KindObservation,
-			Content:            json.RawMessage(`{"statement":"` + statement + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+			Content:            json.RawMessage(`{"statement":"` + statement + `","repro":{"kind":"steps","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
 			VerificationStatus: status,
 		}
 	}
@@ -183,30 +183,30 @@ func TestPollAndVerify_OnlyPicksPending(t *testing.T) {
 	}
 }
 
-// TestClaimFromHypothesisKeepsReproDomain 锁定轮询入口不私改配方：
-// 断言只有 description 的 web 配方（机器无从判定）必须原样交复现门终局，
-// 不得私自降级成 generic 绕过「空断言不可坐实」。
-func TestClaimFromHypothesisKeepsReproDomain(t *testing.T) {
+// TestClaimFromHypothesisKeepsReproKind 锁定轮询入口不私改配方：
+// 断言只有 description 的 http 配方（机器无从判定）必须原样交复现门终局，
+// 不得私自降级成 steps 绕过「空断言不可坐实」。
+func TestClaimFromHypothesisKeepsReproKind(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})
 	obs := explorationgraph.Node{
 		ID:      "obs-web-desc",
 		TaskID:  "task-1",
 		Kind:    core.KindObservation,
-		Content: json.RawMessage(`{"statement":"S","repro":{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t/a","headers":{},"body":""},"baseline":{"method":"GET","url":"http://t/b","headers":{},"body":""}},"assert":{"description":"页面出现管理员数据"}}}`),
+		Content: json.RawMessage(`{"statement":"S","repro":{"kind":"http","recipe":{"request":{"method":"GET","url":"http://t/a","headers":{},"body":""},"baseline":{"method":"GET","url":"http://t/b","headers":{},"body":""}},"assert":{"description":"页面出现管理员数据"}}}`),
 	}
 	att, err := a.claimFromHypothesis(obs)
 	if err != nil {
 		t.Fatalf("claimFromHypothesis: %v", err)
 	}
 	var env struct {
-		Domain string          `json:"domain"`
+		Kind   string          `json:"kind"`
 		Recipe json.RawMessage `json:"recipe"`
 	}
 	if err := json.Unmarshal(att.Repro, &env); err != nil {
 		t.Fatalf("unmarshal repro: %v", err)
 	}
-	if env.Domain != "web" {
-		t.Fatalf("轮询入口改写了配方域: domain=%q repro=%s", env.Domain, att.Repro)
+	if env.Kind != "http" {
+		t.Fatalf("轮询入口改写了配方形状: kind=%q repro=%s", env.Kind, att.Repro)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestPollAndVerify_SkipsInFlightBeforeParsing(t *testing.T) {
 	c := explorationgraph.VerificationPending
 	if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
 		ID: "obs-inflight", TaskID: "t-inflight", Kind: core.KindObservation,
-		Content:            json.RawMessage(`{"statement":"S","repro":{"domain":"generic","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
+		Content:            json.RawMessage(`{"statement":"S","repro":{"kind":"steps","recipe":{"steps":["curl x"]}}}`), // 缺 assert：归一化必失败
 		VerificationStatus: &c,
 	}); err != nil {
 		t.Fatalf("建观察失败: %v", err)

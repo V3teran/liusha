@@ -43,7 +43,7 @@ func TestRedeliverUndeliveredFindings(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	repro := json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"http://t.local/search?q=%3Csvg%3E"}},"assert":{}}`)
+	repro := json.RawMessage(`{"kind":"http","recipe":{"request":{"method":"GET","url":"http://t.local/search?q=%3Csvg%3E"}},"assert":{}}`)
 	verified := time.Now().Add(-time.Minute)
 	if _, err := graph.RecordVerification(ctx, explorationgraph.Verification{
 		ID: uuid.NewString(), TaskID: tk.ID, NodeID: hypothesis, Repro: repro,

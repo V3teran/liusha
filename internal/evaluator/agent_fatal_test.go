@@ -51,7 +51,7 @@ func TestRun_FatalWaitsForInFlightVerifications(t *testing.T) {
 		c := explorationgraph.VerificationPending
 		if _, err := memGraph.CreateNode(context.Background(), explorationgraph.Node{
 			ID: id, TaskID: "t-fatal", Kind: core.KindObservation, VerificationStatus: &c,
-			Content: json.RawMessage(`{"statement":"` + id + `","repro":{"domain":"generic","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
+			Content: json.RawMessage(`{"statement":"` + id + `","repro":{"kind":"steps","recipe":{"steps":"s"},"assert":{"description":"d"}}}`),
 		}); err != nil {
 			t.Fatal(err)
 		}

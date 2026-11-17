@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # 扫描范围：代码 + 文档 + 配置；排除历史迁移（不可编辑）、契约保留区、第三方与本脚本自身。
+# 含未跟踪文件（--untracked，仍遵守 .gitignore）：提交前本地跑与 CI 同口径，新文件不漏扫。
 SCAN_ARGS=(
   --include='*.go' --include='*.ts' --include='*.tsx' --include='*.md'
   --include='*.yaml' --include='*.yml' --include='*.json'
@@ -61,7 +62,29 @@ EXCLUDES=(
 #   LIUSHA_ 前缀后，沙盒清洗只按前缀，不再有单独的容器密码名单。
 # 裁决 / adjudicat*：评估者（evaluator）的别名。角色统一叫评估者，过程叫验证，结果叫
 #   结论 / 判定；出圈原因 adjudication_failed 改名 judge_unavailable（迁移 0208）。
+# webrepro / reproOrGeneric / exploit_status_code / exploit_duration_ms / FingerprintNormalizer /
+#   WithFingerprintCodec："领域"同时指业务领域与配方形状，造成混淆（迁移 0234）。配方信封字段改为
+#   kind（web → http、generic → steps），包改名 httprepro；证据字段与 baseline_* 对称为
+#   status_code / duration_ms；主张指纹改为核心自有的中立形状 evaluator.ClaimFingerprint。
+# ACTION_TYPE_META / foldTerminalActions 按类型折叠：动作不再携带类型（迁移 0233）。
+# web 复现 / web 配方 / web 形状 / web.Replayer / 域信封 / 配方域：同一次改名的中文与错误文本写法
+#   （形状叫 kind，取值 http / steps；信封叫配方信封）。
+# 信息域 / factDomainHeadings：观察类别（ObservationCategory）曾被称为「信息域」，与业务领域撞名，
+#   统一称类别。
 FORBIDDEN=(
+  'webrepro'
+  'web ?域?(复现|配方|形状)'
+  'web\.Replayer'
+  '域信封'
+  '配方域'
+  '信息域'
+  'factDomainHeadings'
+  'reproOrGeneric'
+  'exploit_status_code'
+  'exploit_duration_ms'
+  'FingerprintNormalizer'
+  'WithFingerprintCodec'
+  'ACTION_TYPE_META'
   'Primitives'
   'parseObservationToAttempt'
   'blocked_reason'
@@ -148,11 +171,11 @@ MODE="${1:-check}"
 
 total=0
 for term in "${FORBIDDEN[@]}"; do
-  hits=$(git grep -i -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  hits=$(git grep --untracked -i -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | wc -l | tr -d ' ')
   if [ "$hits" != "0" ]; then
     echo "残留 [$term]: $hits"
     if [ "$MODE" != "count" ]; then
-      git grep -i -n -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | head -10
+      git grep --untracked -i -n -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | head -10
     fi
     total=$((total + hits))
   fi

@@ -1,4 +1,4 @@
-package webrepro
+package httprepro
 
 import (
 	"context"

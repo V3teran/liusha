@@ -24,6 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/httprepro"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
 	"github.com/V3teran/liusha/internal/reasoning"
@@ -36,7 +37,6 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
-	"github.com/V3teran/liusha/internal/webrepro"
 )
 
 // Deps 是一次认知循环的全部外部依赖（由 runner 装配注入；全部字段只读）。
@@ -111,7 +111,7 @@ type ToolLimits struct {
 	StepToolTimeoutSeconds int // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
 	RunTailBytes           int // run_command stdout/stderr 保留尾部字节数
 	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
-	// （ReAct 运行时统一收口，个别工具内的领域化裁剪先行）。
+	// （ReAct 运行时统一收口，个别工具自身的裁剪先行）。
 	ToolOutputTailBytes int
 }
 
@@ -489,7 +489,7 @@ func (d *Deps) buildExecutorAgent(
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
 		Activity:            activity,                         // 每完成一步推理记一次进展
-		Repro:               repro.NewRegistry(webrepro.Domain{}),
+		Repro:               repro.NewRegistry(httprepro.Kind{}),
 		Logger:              d.Logger,
 	})
 
@@ -508,7 +508,7 @@ func (d *Deps) buildExecutorAgent(
 }
 
 // buildEvaluatorAgent 组装评估者（ReAct judge）→ 复现晋升门 → Evaluator Agent。
-// web 复现通道零依赖（web 配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
+// http 复现通道零依赖（http 配方自包含完整 HTTP 请求，不从 traffic 表取流量——工具自发
 // 流量同样可复现）。凭据池按 host 注入会话上下文：LLM 漏写 Cookie 的配方也能以
 // 登录态重放，防真实主张因重放落到登录页而被机器护栏误证伪。
 func (d *Deps) buildEvaluatorAgent(
@@ -544,9 +544,8 @@ func (d *Deps) buildEvaluatorAgent(
 		WithToolWrapper(reg.WrapTool). // judge 自有的 replay_for_verification 同入审计链
 		WithExtraTools(extraTools)
 
-	// 复现晋升门：域交付管道（finding.ClaimSink）与指纹归一（finding 形状）
-	// 由领域包注入——通用门对领域零感知。坐实发现（晋升 result 的主张，中性
-	// 领域词——信息成果与漏洞同为发现）落库即发时间线事件（会话发现卡）。漏洞一词在此为安全域注释语境。
+	// 复现晋升门：交付管道（finding.ClaimSink，本部署把坐实的主张落进漏洞台账）在此装配，
+	// 门本身不认识交付物。坐实的主张落库即发时间线事件（会话发现卡）。
 	claimSink := finding.NewClaimSink(d.Findings, agentRunID).
 		// 主机兜底：坐实材料抽不出主机时回任务锚定的目标主机（task.target_host）
 		WithTaskHostFallback(func(ctx context.Context, taskID string) (string, error) {
@@ -570,9 +569,8 @@ func (d *Deps) buildEvaluatorAgent(
 		})
 	}
 	promoter := evaluator.New(d.Graph, claimSink).
-		WithReplayer(webrepro.Name, webrepro.NewReplayer().WithCredentials(d.Creds, host)).
+		WithReplayer(httprepro.Name, httprepro.NewReplayer().WithCredentials(d.Creds, host)).
 		WithJudge(judge). // ReAct 评估者：replay_for_verification + CLI 复核工具
-		WithFingerprintCodec(finding.FingerprintNormalizer{}).
 		WithLogger(d.Logger)
 
 	return evaluator.NewAgent(evaluator.AgentConfig{
