@@ -1,4 +1,4 @@
-package webrepro
+package httprepro
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 // 复现通道用哨兵错误告诉中立的复现门失败属于哪一类：配方缺陷（一次出圈）、目标不可达
-// （计入重试阶梯）。门与评估者只认哨兵，不认本领域的错误文本。
+// （计入重试阶梯）。门与评估者只认哨兵，不认本形状的错误文本。
 func TestReplay_ClassifiesFailuresWithSentinels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("leaked-secret"))
@@ -28,7 +28,7 @@ func TestReplay_ClassifiesFailuresWithSentinels(t *testing.T) {
 	_ = ln.Close() // 端口释放后无人监听：连接被拒
 
 	envelope := func(url, assert string) json.RawMessage {
-		return json.RawMessage(`{"domain":"web","recipe":{"request":{"method":"GET","url":"` + url + `","headers":{},"body":""}},"assert":` + assert + `}`)
+		return json.RawMessage(`{"kind":"http","recipe":{"request":{"method":"GET","url":"` + url + `","headers":{},"body":""}},"assert":` + assert + `}`)
 	}
 	cases := []struct {
 		name    string
@@ -36,7 +36,7 @@ func TestReplay_ClassifiesFailuresWithSentinels(t *testing.T) {
 		wantErr error
 	}{
 		{"信封不是对象", json.RawMessage(`[1]`), evaluator.ErrInvalidRecipe},
-		{"别的领域的配方", json.RawMessage(`{"domain":"generic","recipe":{"steps":"s"},"assert":{}}`), evaluator.ErrInvalidRecipe},
+		{"别的形状的配方", json.RawMessage(`{"kind":"steps","recipe":{"steps":"s"},"assert":{}}`), evaluator.ErrInvalidRecipe},
 		{"无坐实谓词", envelope(srv.URL, `{}`), evaluator.ErrInvalidRecipe},
 		{"相对 URL", envelope("/rel", `{"status_code":200}`), evaluator.ErrInvalidRecipe},
 		{"目标不可达", envelope(closedURL, `{"body_contains":["leaked-secret"]}`), evaluator.ErrTargetUnreachable},

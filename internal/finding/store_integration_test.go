@@ -50,7 +50,7 @@ func TestFinding_SaveIdempotentPerResult(t *testing.T) {
 		ResultNodeID: result,
 		Host:         "target.local",
 		Summary:      "SQL 注入可枚举 users 表",
-		Repro:        json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
+		Repro:        json.RawMessage(`{"kind":"http","recipe":{},"assert":{}}`),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, saved.ID)
@@ -64,7 +64,7 @@ func TestFinding_SaveIdempotentPerResult(t *testing.T) {
 		ResultNodeID: result,
 		Host:         "target.local",
 		Summary:      "重放时的摘要",
-		Repro:        json.RawMessage(`{"domain":"web","recipe":{},"assert":{}}`),
+		Repro:        json.RawMessage(`{"kind":"http","recipe":{},"assert":{}}`),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, saved.ID, again.ID, "同一结果节点应返回既有记录")

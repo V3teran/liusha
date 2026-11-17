@@ -6,58 +6,20 @@ import (
 
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/textx"
 )
 
-// buildPlanningPromptHeader 构建 prompt 头部
-func buildPlanningPromptHeader() string {
-	var sb strings.Builder
-	sb.WriteString("你是一个探索规划专家。根据当前任务状态，决定下一步应该执行的操作。\n\n")
-
-	sb.WriteString("## 核心原则：智能探索模式\n")
-	sb.WriteString("- 你需要**主动判断**当前探索方向是否已充分\n")
-	sb.WriteString("- 根据探索内容的实质判断，而非机械计数\n")
-	sb.WriteString("- 不要在同一方向无限探索，也不要过早放弃\n\n")
-
-	return sb.String()
-}
-
-// buildStopCriteria 构建停止条件说明
-func buildStopCriteria() string {
-	var sb strings.Builder
-	sb.WriteString("## 何时停止当前方向（should_continue=false）\n\n")
-	sb.WriteString("**判断标准**（根据实际情况灵活判断）：\n\n")
-	sb.WriteString("1. **内容维度**（最重要）\n")
-	sb.WriteString("   - 当前方向的主要探索点已基本覆盖\n")
-	sb.WriteString("   - 近期 Actions 出现重复或相似模式\n")
-	sb.WriteString("   - 新 Actions 的边际收益明显递减\n")
-	sb.WriteString("   - 已有发现足以支撑新的探索方向\n\n")
-
-	sb.WriteString("2. **深度参考**（仅供参考，不是硬性要求）\n")
-	sb.WriteString("   - 简单方向：5-10 个动作\n")
-	sb.WriteString("   - 常规方向：10-20 个动作\n")
-	sb.WriteString("   - 复杂方向：20-30+ 动作\n\n")
-
-	sb.WriteString("**重要**：主动判断是否应该停止，不要等到无事可做！\n")
-	sb.WriteString("停止后，系统会自动从 Results 中提取新的探索方向。\n\n")
-
-	return sb.String()
-}
-
 // buildTeamRosterSection 构建多智能体分工名册：四角色的展示名 + 调度摘要。
-// 调度摘要来自各 agent.description（前端「智能体」页可编辑）——planner 据此理解
-// 团队分工、让动作指令对准执行方的职责边界。名册为空时不渲染该节。
+// 调度摘要来自各 agent.description（前端「智能体」页可编辑）。名册为空时不渲染该节。
 func buildTeamRosterSection(roster []AgentBrief) string {
 	if len(roster) == 0 {
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString("## 多智能体分工\n")
-	sb.WriteString("团队由以下固定角色组成，动作指令应与执行方的职责摘要对齐：\n\n")
 	for _, a := range roster {
 		if a.Description == "" {
 			fmt.Fprintf(&sb, "- %s（%s）\n", a.Code, a.Name)
@@ -93,13 +55,13 @@ func buildObjectiveSection(objective string, objectives []explorationgraph.Node)
 }
 
 // buildReplanSection 构建重规划理由部分：本轮是被请求的重规划（监察者纠偏、任务目标
-// 调整等），理由逐条列出，规划须回应它们而不是照旧延续。常规规划返回空串。
+// 调整等），理由逐条列出。常规规划返回空串。
 func buildReplanSection(reasons []string) string {
 	if len(reasons) == 0 {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("## 本轮是重规划（必须回应以下理由修订策略）\n")
+	sb.WriteString("## 本轮是重规划，理由\n")
 	for _, r := range reasons {
 		fmt.Fprintf(&sb, "- %s\n", r)
 	}
@@ -111,12 +73,9 @@ func buildReplanSection(reasons []string) string {
 func buildStatisticsSection(ctx *PlanningContext) string {
 	var sb strings.Builder
 	sb.WriteString("## 当前探索统计\n")
-	fmt.Fprintf(&sb, "- 已完成 Actions: %d\n", len(ctx.CompletedActions))
-	fmt.Fprintf(&sb, "- 进行中 Actions: %d\n", len(ctx.PendingActions))
-	fmt.Fprintf(&sb, "- 已确认 Results: %d\n", len(ctx.Results))
-	if len(ctx.CompletedActions) >= 20 {
-		sb.WriteString("- 提示：当前方向已探索较深，建议评估是否应该切换方向\n")
-	}
+	fmt.Fprintf(&sb, "- 已完成动作: %d\n", len(ctx.CompletedActions))
+	fmt.Fprintf(&sb, "- 进行中动作: %d\n", len(ctx.PendingActions))
+	fmt.Fprintf(&sb, "- 已坐实结果: %d\n", len(ctx.Results))
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -140,55 +99,21 @@ const (
 	historyClampRunes = 600
 )
 
-// foldTerminalActions 把终态动作序列拆成「逐条渲染的尾部」与「按类型折叠的
-// 前缀」。
-func foldTerminalActions(actions []explorationgraph.Node) (shown []explorationgraph.Node, folded map[string]int, foldedTotal int) {
+// foldTerminalActions 把终态动作序列拆成「逐条渲染的尾部」与被折叠的更早条数。
+func foldTerminalActions(actions []explorationgraph.Node) (shown []explorationgraph.Node, foldedTotal int) {
 	if len(actions) <= actionFoldLimit {
-		return actions, nil, 0
+		return actions, 0
 	}
 	cut := len(actions) - actionFoldLimit
-	folded = make(map[string]int)
-	for _, a := range actions[:cut] {
-		folded[actionType(a)]++
-	}
-	return actions[cut:], folded, cut
+	return actions[cut:], cut
 }
 
-// actionType 读动作类型（content.type；缺失归 unknown）。
-func actionType(n explorationgraph.Node) string {
-	var c struct {
-		Type string `json:"type"`
-	}
-	if json.Unmarshal(n.Content, &c) == nil && c.Type != "" {
-		return c.Type
-	}
-	return "unknown"
-}
-
-// foldLine 渲染折叠计数行（类型 → 计数，计数降序，同计数按类型名稳定排序）。
-func foldLine(label string, folded map[string]int, total int) string {
+// foldLine 渲染折叠计数行。
+func foldLine(label string, total int) string {
 	if total == 0 {
 		return ""
 	}
-	type kv struct {
-		k string
-		v int
-	}
-	parts := make([]kv, 0, len(folded))
-	for k, v := range folded {
-		parts = append(parts, kv{k, v})
-	}
-	sort.Slice(parts, func(i, j int) bool {
-		if parts[i].v != parts[j].v {
-			return parts[i].v > parts[j].v
-		}
-		return parts[i].k < parts[j].k
-	})
-	strs := make([]string, len(parts))
-	for i, p := range parts {
-		strs[i] = fmt.Sprintf("%s×%d", p.k, p.v)
-	}
-	return fmt.Sprintf("- （更早的 %d 条%s已折叠：%s）\n", total, label, strings.Join(strs, "、"))
+	return fmt.Sprintf("- （更早的 %d 条%s已折叠）\n", total, label)
 }
 
 // actionTag 是动作行的状态标记，用户指派的动作附上来源（规划者据此知道哪些是用户直接要求的）。
@@ -218,8 +143,8 @@ func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 		sb.WriteString("（尚未完成任何操作）\n\n")
 		return sb.String()
 	}
-	shown, folded, total := foldTerminalActions(actions)
-	sb.WriteString(foldLine("已完成动作", folded, total))
+	shown, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已完成动作", total))
 	for _, action := range shown {
 		fmt.Fprintf(&sb, "- %s [ID: %s] %s\n", actionTag("完成", action), action.ID, actionInstruction(action))
 	}
@@ -250,8 +175,8 @@ func buildFailedActionsSection(actions []explorationgraph.Node) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 失败的尝试\n")
-	shown, folded, total := foldTerminalActions(actions)
-	sb.WriteString(foldLine("失败动作", folded, total))
+	shown, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("失败动作", total))
 	for _, action := range shown {
 		fmt.Fprintf(&sb, "- %s [ID: %s] %s（原因：%s）\n", actionTag("失败", action), action.ID, actionInstruction(action), stateReason(action, "未知原因"))
 	}
@@ -267,9 +192,9 @@ func buildRejectedActionsSection(actions []explorationgraph.Node) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已否决的动作（禁止等效重提）\n")
-	shown, folded, total := foldTerminalActions(actions)
-	sb.WriteString(foldLine("已否决动作", folded, total))
+	sb.WriteString("## 已否决的动作（监察者或用户判定这一步不该做）\n")
+	shown, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已否决动作", total))
 	for _, action := range shown {
 		fmt.Fprintf(&sb, "- [已否决·%s] [ID: %s] %s（理由：%s）\n",
 			rejecterLabel(action.RejectedBy()), action.ID, actionInstruction(action), stateReason(action, "未注明"))
@@ -286,9 +211,9 @@ func buildAbortedActionsSection(actions []explorationgraph.Node) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已中止的动作（未执行完即被收回；与当前目标相关的可以重新提出）\n")
-	shown, folded, total := foldTerminalActions(actions)
-	sb.WriteString(foldLine("已中止动作", folded, total))
+	sb.WriteString("## 已中止的动作（未执行完即被收回，不含对错判断）\n")
+	shown, total := foldTerminalActions(actions)
+	sb.WriteString(foldLine("已中止动作", total))
 	for _, action := range shown {
 		fmt.Fprintf(&sb, "- %s [ID: %s] %s（原因：%s）\n", actionTag("已中止", action), action.ID, actionInstruction(action), stateReason(action, "未注明"))
 	}
@@ -324,7 +249,7 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已确认的发现\n")
+	sb.WriteString("## 已坐实的结果\n")
 	seen := make(map[string]bool, len(results))
 	for _, result := range results {
 		var r struct {
@@ -345,9 +270,8 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildFactsSection 构建已确认世界状态部分——规划基底：已建立的会话、
-// 已探明的机制、已确认的资源。事实由产出它的动作背书（写入即终态），直接
-// 消费即可，禁止把已确认的事实重做成探索动作。
+// buildFactsSection 构建已确认事实部分——规划基底。事实由产出它的动作背书（写入即
+// 终态），怎样利用由章程说明。
 func buildFactsSection(facts []Fact) string {
 	if len(facts) == 0 {
 		return ""
@@ -367,60 +291,60 @@ func buildFactsSection(facts []Fact) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 已确认的世界状态（直接可用，无需重新探索）\n")
+	sb.WriteString("## 已确认的事实\n")
 	shown := dedup
 	if len(dedup) > factRenderLimit {
 		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 observe_state 深挖）\n", len(dedup)-factRenderLimit)
 		shown = dedup[:factRenderLimit]
 	}
-	// 按信息域分组（域内近者在前）：规划器先看清环境的各个侧面，再据此推导。
-	byDomain := make(map[explorationgraph.ObservationCategory][]string, len(explorationgraph.FactCategories))
+	// 按类别分组（同类别内近者在前）：规划器先看清环境的各个侧面，再据此推导。
+	byCategory := make(map[explorationgraph.ObservationCategory][]string, len(explorationgraph.FactCategories))
 	for _, f := range shown {
-		domain := f.Category
-		if _, known := factDomainHeadings[domain]; !known {
-			domain = explorationgraph.CategoryNote
+		category := f.Category
+		if _, known := factCategoryHeadings[category]; !known {
+			category = explorationgraph.CategoryNote
 		}
-		byDomain[domain] = append(byDomain[domain], f.Statement)
+		byCategory[category] = append(byCategory[category], f.Statement)
 	}
-	for _, domain := range explorationgraph.FactCategories {
-		if len(byDomain[domain]) == 0 {
+	for _, category := range explorationgraph.FactCategories {
+		if len(byCategory[category]) == 0 {
 			continue
 		}
-		fmt.Fprintf(&sb, "### %s\n", factDomainHeadings[domain])
-		for _, st := range byDomain[domain] {
+		fmt.Fprintf(&sb, "### %s\n", factCategoryHeadings[category])
+		for _, st := range byCategory[category] {
 			fmt.Fprintf(&sb, "- %s\n", st)
 		}
 	}
-	sb.WriteString("\n**注意**：以上事实已确认成立。规划时直接利用（如复用已建立的会话、沿已探明的机制推导），不要生成重复确认它们的动作。\n\n")
+	sb.WriteString("\n")
 	return sb.String()
 }
 
-// factDomainHeadings 是事实各信息域在规划提示里的标题（与 FactCategories 一一对应）。
-var factDomainHeadings = map[explorationgraph.ObservationCategory]string{
+// factCategoryHeadings 是事实各类别在规划提示里的标题（与 FactCategories 一一对应）。
+var factCategoryHeadings = map[explorationgraph.ObservationCategory]string{
 	explorationgraph.CategoryEntity:    "有什么（对象与属性）",
 	explorationgraph.CategoryAccess:    "怎么进入（入口、认证与凭据）",
 	explorationgraph.CategoryStructure: "怎么连接（关系与布局）",
-	explorationgraph.CategoryBehavior:  "怎么反应（处理机制与防护）",
+	explorationgraph.CategoryBehavior:  "怎么反应（处理机制与限制）",
 	explorationgraph.CategoryNote:      "其他",
 }
 
-// refuteReasonHint 把反驳原因翻译成规划指令：配方类失败（证据没拿到）可换姿势
-// 重试，语义证伪（证据到了但不构成可交付主张）才是方向作废——两者处置不同。
-// 原因字面量与 evaluator 包的 refute_reason 常量保持一致（metadata JSON 契约）。
+// refuteReasonHint 陈述反驳原因的含义：证据没拿到（配方或上下文问题）与证据到了但主张不
+// 成立是两回事，规划者据此决定换配方再试还是放弃方向（处置写在章程里）。原因字面量与
+// evaluator 包的 refute_reason 常量一致（metadata JSON 契约）。
 func refuteReasonHint(reason string) string {
 	switch reason {
 	case evaluator.RefuteNotReproducible:
-		return "（复现失败：配方或上下文问题——可换配方/换方法重试，不要原样重提）"
+		return "（not_reproducible：复现失败——断言未命中或复放失败，主张未被否定）"
 	case evaluator.RefuteInvalidRecipe:
-		return "（配方损坏：可换有效配方重试）"
+		return "（invalid_recipe：配方损坏——配方形状不对，主张未被检验）"
 	case evaluator.RefuteAssertNotDiscriminative:
-		return "（断言无鉴别力被质量门拒绝：换捕捉利用响应独有特征的断言重提）"
+		return "（assert_not_discriminative：断言无鉴别力——断言在正常响应里也会命中，配方构不成证据）"
 	case evaluator.RefuteClaimInvalid:
-		return "（复现成立但主张不成立：此方向作废，除非有实质新证据）"
+		return "（claim_invalid：复现成立，但主张经评估不成立）"
 	case evaluator.RefuteJudgeUnavailable:
-		return "（评估环节未完成，主张未被否定：可按原方向重提验证）"
+		return "（judge_unavailable：评估环节未完成，主张未被检验）"
 	default:
-		return "（经真实复现验证被否定：不要原样重提）"
+		return "（经复现门判定不成立）"
 	}
 }
 
@@ -441,39 +365,7 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 		seen[st] = true
 		fmt.Fprintf(&sb, "- %s %s\n", st, refuteReasonHint(h.Reason))
 	}
-	sb.WriteString("\n**注意**：语义证伪（claim_invalid）的假设禁止同方向重提；复现失败类（not_reproducible/invalid_recipe/assert_not_discriminative）允许换配方换断言再试，但都不要原样重提；评估未完成（judge_unavailable）可按原方向重提。\n\n")
-	return sb.String()
-}
-
-// buildPlanningRequirements 构建规划要求部分
-func buildPlanningRequirements() string {
-	var sb strings.Builder
-	sb.WriteString("## 规划要求\n\n")
-	sb.WriteString("请基于以上信息，提出下一步的探索操作。\n\n")
-
-	sb.WriteString("**继续探索的判断标准**：\n")
-	sb.WriteString("- 从已有发现中寻找新的探索线索\n")
-	sb.WriteString("- 对成功的操作进行深入探索\n")
-	sb.WriteString("- 对失败的操作尝试替代方案\n")
-	sb.WriteString("- 横向扩展到相关领域\n")
-	sb.WriteString("- 只有在确实无法继续时才设置 should_continue=false\n\n")
-
-	sb.WriteString("**Action 类型参考**（自由描述，用于执行指导分派）：\n")
-	sb.WriteString("- reconnaissance: 信息收集\n")
-	sb.WriteString("- analysis: 分析研究\n")
-	sb.WriteString("- testing: 实测验证\n\n")
-
-	sb.WriteString("**复杂度级别**：\n")
-	sb.WriteString("- simple: 简单操作（快速执行）\n")
-	sb.WriteString("- moderate: 中等复杂度（常规操作）\n")
-	sb.WriteString("- complex: 复杂操作（深度分析）\n\n")
-
-	sb.WriteString("**优先级**：\n")
-	sb.WriteString("- critical: 阻塞后续工作\n")
-	sb.WriteString("- high: 重要且紧急\n")
-	sb.WriteString("- medium: 常规优先级\n")
-	sb.WriteString("- low: 可选补充\n\n")
-
+	sb.WriteString("\n")
 	return sb.String()
 }
 
@@ -489,6 +381,6 @@ func buildExperienceSection(entries []corpus.Entry) string {
 	for _, e := range entries {
 		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, textx.TruncateRunes(e.Content, 400, "…（截断）"))
 	}
-	sb.WriteString("\n**注意**：经验来自其它任务的沉淀，仅供参考——与本任务的事实/目标冲突时以本任务为准。\n\n")
+	sb.WriteString("\n")
 	return sb.String()
 }

@@ -6,20 +6,20 @@ const realEvaluation = {
   node_id: 'af96e33e',
   verification_id: '5d01f219',
   verification_tier: 'full_gate',
-  judge_reasoning: 'exploit 请求带 cmd=id 返回 uid=33(www-data)，基线无该特征，主张成立',
+  judge_reasoning: '验证请求带 cmd=id 返回 uid=33(www-data)，基线无该特征，主张成立',
   duration_ms: 75,
   evidence: {
     url: 'http://t:8080/shell.php?cmd=id',
     method: 'GET',
     assert_passed: true,
     assert_reasons: ['status_code=200 ✓', 'body 含 "uid=33(www-data)" ✓'],
-    exploit_status_code: 200,
+    status_code: 200,
     baseline_status_code: 200,
     response_body_snippet: 'uid=33(www-data) gid=33(www-data)\n',
   },
 }
 const realRepro = {
-  domain: 'web',
+  kind: 'http',
   recipe: {
     request: {
       method: 'GET',
@@ -33,7 +33,7 @@ const realRepro = {
 }
 
 describe('buildEvidenceView', () => {
-  it('web 域配方渲染为可复制 curl（含 header/body）', () => {
+  it('http 配方渲染为可复制 curl（含 header/body）', () => {
     const v = buildEvidenceView(realEvaluation, realRepro)
     expect(v.reproCommand).toContain("curl -X GET 'http://t:8080/shell.php?cmd=id'")
     expect(v.reproCommand).toContain("-H 'Cookie: session=abc'")
@@ -45,10 +45,10 @@ describe('buildEvidenceView', () => {
     expect(v.assertReasons[0]).toContain('status_code=200')
   })
 
-  it('exploit 与 baseline 对照齐备', () => {
+  it('验证请求与对照请求齐备', () => {
     const v = buildEvidenceView(realEvaluation, realRepro)
-    expect(v.exploit?.status).toBe(200)
-    expect(v.exploit?.bodySnippet).toContain('uid=33')
+    expect(v.request?.status).toBe(200)
+    expect(v.request?.bodySnippet).toContain('uid=33')
     expect(v.baseline?.url).toBe('http://t:8080/shell.php')
   })
 
@@ -58,8 +58,8 @@ describe('buildEvidenceView', () => {
     expect(v.tier).toBe('full_gate')
   })
 
-  it('generic 域（steps 配方）渲染为文本步骤', () => {
-    const v = buildEvidenceView(undefined, { domain: 'generic', recipe: { steps: '1. 登录 2. 访问 /admin' } })
+  it('steps 配方渲染为文本步骤', () => {
+    const v = buildEvidenceView(undefined, { kind: 'steps', recipe: { steps: '1. 登录 2. 访问 /admin' } })
     expect(v.reproCommand).toContain('1. 登录')
   })
 
@@ -67,7 +67,7 @@ describe('buildEvidenceView', () => {
     const v = buildEvidenceView(undefined, undefined)
     expect(v.reproCommand).toBeNull()
     expect(v.assertReasons).toHaveLength(0)
-    expect(v.exploit).toBeNull()
+    expect(v.request).toBeNull()
   })
 })
 

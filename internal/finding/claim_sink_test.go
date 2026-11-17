@@ -103,13 +103,13 @@ func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
 	}
 }
 
-// deriveTarget 对 generic 域文本配方（recipe.steps 自由文本）也要抽出 method/path——
-// 台账的定位列（方法、路径）不该因配方域不同而缺失。
-func TestDeriveTarget_GenericTextRecipe(t *testing.T) {
-	generic := json.RawMessage(`{"domain":"generic","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 view_traffic 抓取响应确认标记\n浏览器访问同一 URL"}}`)
-	out := deriveTarget(generic)
+// deriveTarget 对 steps 配方（recipe.steps 自由文本）也要抽出 method/path——
+// 台账的定位列（方法、路径）不该因配方形状不同而缺失。
+func TestDeriveTarget_StepsRecipe(t *testing.T) {
+	steps := json.RawMessage(`{"kind":"steps","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 view_traffic 抓取响应确认标记\n浏览器访问同一 URL"}}`)
+	out := deriveTarget(steps)
 	if out == nil {
-		t.Fatal("generic 文本配方应抽出 target")
+		t.Fatal("steps 配方应抽出 target")
 	}
 	var tgt map[string]string
 	if err := json.Unmarshal(out, &tgt); err != nil {
@@ -120,7 +120,7 @@ func TestDeriveTarget_GenericTextRecipe(t *testing.T) {
 	}
 
 	// 无 HTTP 请求行 → 诚实降级为 nil（不伪造）
-	noReq := json.RawMessage(`{"domain":"generic","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`)
+	noReq := json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 登录 2. 提交 payload 3. 断言回显"}}`)
 	if out := deriveTarget(noReq); out != nil {
 		t.Fatalf("无可识别请求行的配方应返回 nil，得 %s", out)
 	}
