@@ -37,6 +37,9 @@ vi.mock('@/features/conversation/ConversationList', () => ({
   },
 }))
 
+// 「代理接入」自带状态查询，与本页编排无关
+vi.mock('@/features/proxy/ProxyAccess', () => ({ ProxyAccess: () => <button type="button">代理接入</button> }))
+
 vi.mock('@/features/conversation/ConversationDetail', () => ({
   ConversationDetail: (props: Record<string, unknown>) => {
     detailProps(props)
@@ -149,7 +152,16 @@ describe('ConversationsPage', () => {
     expect(lastListCall.allowNew).toBe(false)
     expect(lastListCall.heading).toBe('代理批次')
     expect(lastListCall.emptyState.noun).toBe('代理批次')
-    expect(lastListCall.emptyState.hint).toMatch(/8588/)
+    expect(lastListCall.emptyState.hint).toMatch(/代理接入/)
+  })
+
+  // 「代理接入」只在代理捕获出现：人工下发与代理无关
+  it('代理捕获页头带「代理接入」，人工下发不带', () => {
+    const { unmount } = renderPage('proxy')
+    expect(screen.getByRole('button', { name: '代理接入' })).toBeInTheDocument()
+    unmount()
+    renderPage('direct')
+    expect(screen.queryByRole('button', { name: '代理接入' })).toBeNull()
   })
 
   it('onNew：新建会话时清空 currentConv（新建态）', async () => {

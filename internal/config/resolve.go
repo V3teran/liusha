@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,6 +164,9 @@ func invalidValues(c AppConfig) []string {
 	nonNegative("llm.invocation_retention_days", int64(c.LLM.InvocationRetentionDays))
 
 	nonEmpty("proxy.listen_addr", c.Proxy.ListenAddr)
+	if a := c.Proxy.PublicAddr; a != "" && !validHostPort(a) {
+		invalid = append(invalid, "proxy.public_addr 须为「主机:端口」或「:端口」")
+	}
 	positive("proxy.stream_max_len", int64(c.Proxy.StreamMaxLen))
 	positive("proxy.max_request_body_bytes", int64(c.Proxy.MaxRequestBodyBytes))
 	positive("proxy.max_response_body_bytes", int64(c.Proxy.MaxResponseBodyBytes))
@@ -190,4 +195,14 @@ func invalidValues(c AppConfig) []string {
 
 	positive("conversation.attachment_max_bytes", c.Conversation.AttachmentMaxBytes)
 	return invalid
+}
+
+// validHostPort 判断 addr 是「主机:端口」或「:端口」，端口为 1-65535。
+func validHostPort(addr string) bool {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	n, err := strconv.Atoi(port)
+	return err == nil && n >= 1 && n <= 65535
 }

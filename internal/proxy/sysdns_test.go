@@ -64,3 +64,49 @@ func TestSystemDNS_AnswersWithSystemResolver(t *testing.T) {
 		t.Fatalf("解析不到的名字不应有应答，得 %v", missing.Answer)
 	}
 }
+
+// 目标一次连不上（服务还没起、重启中）不能让之后的请求一直失败：拨号器每次都真正去连。
+func TestSystemResolvingDialer_RetriesAfterRefused(t *testing.T) {
+	dns, err := startSystemDNS(net.DefaultResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dns.Close() }()
+	d, err := systemResolvingDialer(dns.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	// 先占一个端口再释放：此刻没有服务在听
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+	_, port, _ := net.SplitHostPort(addr)
+	target := net.JoinHostPort("localhost", port)
+
+	if conn, err := d.Dial(context.Background(), "tcp", target); err == nil {
+		_ = conn.Close()
+		t.Fatal("端口无人监听时应连不上")
+	}
+
+	// 服务起来了：下一次连接必须成功
+	l, err = net.Listen("tcp", addr)
+	if err != nil {
+		t.Skipf("端口 %s 被占用，跳过：%v", addr, err)
+	}
+	defer func() { _ = l.Close() }()
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			_ = c.Close()
+		}
+	}()
+	conn, err := d.Dial(context.Background(), "tcp", target)
+	if err != nil {
+		t.Fatalf("服务恢复后应能连上，got %v", err)
+	}
+	_ = conn.Close()
+}
