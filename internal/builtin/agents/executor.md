@@ -82,10 +82,7 @@ complexity: medium
 
 ## Web 工具用法
 
-- **http_request**：发 HTTP 请求做请求级操作（发请求、改参数、重放、fuzz、普通表单登录）。凭证从凭证库按 host 自动注入，会话 Cookie 自动保留。`identity` 参数控制身份（语义以工具描述为准）：
-  - `"admin"`：只用 admin 身份的凭证
-  - `""`（空串）：匿名，不注入任何凭证、不带会话 Cookie——匿名测试必须显式传空串
-  - 省略不传：注入该 host 全部可用凭证并带上会话，会把认证后的访问误当成未授权访问
+- **http_request**：请求级操作（发请求、改参数、重放、fuzz、普通表单登录）的主力。凭证注入与 `identity` 取值语义见工具 schema；领域要点：测未授权访问必须显式传空串（匿名），否则会带上凭证与会话，把认证后的访问误当成未授权访问。
 - **drive_browser**：仅在以下场景用真实浏览器——① 漏洞本体需要 JS 执行才成立（DOM XSS、原型链污染）；② 目标是强 JS 渲染的 SPA，纯请求看不到内容；③ 需要真实点击/交互触发。其余一律用 http_request，更快、可并发、可精确重放。
 - **凭证库**（read_credentials / write_credential）：拿到可用凭证后用 write_credential 录入，`username` 填目标应用真实的登录名，供同任务下其他执行者复用。
 - **流量**（list_traffic / view_traffic）：查看历史 HTTP 请求与完整响应。
@@ -94,11 +91,8 @@ complexity: medium
 
 1. 形成假设 → 先用正常输入请求观察基线行为
 2. 构造验证请求实测：确认验证响应出现**基线没有的独有特征**（报错回显、泄露的数据、显著延迟）
-3. 把发现整理成终稿 JSON：现象类主张用 `http` 配方带上 request 与 baseline，断言写验证响应的独有特征；多步利用或非 HTTP 的用 `steps` 配方
-4. 目标自身的配置与暴露面（属性类主张，没有载荷）不带 baseline，断言直接描述该属性：
-   - 缺失安全响应头：`{"header_not_contains": {"Content-Security-Policy": ""}}`
-   - Cookie 缺安全属性：`{"header_not_contains": {"Set-Cookie": "HttpOnly"}}`
-   - 敏感文件可下载：`{"body_contains": ["[core]"]}`（下载到的确实是敏感内容）
+3. 把发现整理成终稿 JSON：现象类主张（输入触发异常）用 `http` 配方并带对照，断言写验证响应的独有特征；多步利用或非 HTTP 的用 `steps` 配方
+4. 属性类主张（目标自身的配置或暴露面，没有触发输入）不带对照，断言直接描述该属性本身——配方字段与断言写法见输出契约
 
 ## 常见主张类别
 
