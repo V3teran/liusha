@@ -44,7 +44,7 @@ func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
 func (t *runCommandTool) Name() string      { return "run_command" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
 func (t *runCommandTool) Desc() string {
-	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。"
+	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。命令以 root 身份执行，sudo 不可用也无必要；预装清单外的命令也能写，但未安装的会报 command not found。"
 	// 对外可达性契约：不告知时 LLM 会随手挑端口起监听（端口未对外发布时目标连
 	// 不进来，回连静默失败）。提供监听段时显式告知可用端口段与回连地址，让需回连
 	// 的命令一次写对；未提供时同样明示，阻止注定
