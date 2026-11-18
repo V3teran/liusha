@@ -117,6 +117,12 @@ tools:
   - name: fscan
     category: recon
     description: 国产内网综合扫描（一键打点）——集成端口扫描 + 服务爆破 + 漏洞检测（MS17-010/Redis/SMB/FTP/MySQL），内网横向首选，一条命令拿下全 C 段资产。
+  - name: ncat
+    category: recon
+    description: nmap 套件的通用 TCP/UDP 工具——端口连通探测、banner 抓取、回连监听（支持 SSL/代理）。比 python socket 顺手，适合单端口交互与反弹 shell 监听。
+    examples:
+      - "ncat -v -w3 10.0.0.1 8080 </dev/null"
+      - "printf 'GET / HTTP/1.0\\r\\n\\r\\n' | ncat 10.0.0.1 80"
 
   # ===== discovery（内容/参数发现）=====
   - name: arjun
@@ -423,3 +429,6 @@ tools:
   - name: jq
     category: utility
     description: JSON 解析/提取/重构。配合 curl pipe 用，避免自己 grep JSON 跑偏。
+  - name: xxd
+    category: utility
+    description: 十六进制 dump / 反转（`xxd` 看字节、`xxd -r` 还原）。处理二进制响应、构造裸字节 payload、校验编码时用。
