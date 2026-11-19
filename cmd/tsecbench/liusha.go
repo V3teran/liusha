@@ -88,7 +88,7 @@ func (c *liushaClient) req(ctx context.Context, method, path string, body, out a
 	return nil
 }
 
-// benchScenario 是跑分任务的场景：CTF 夺旗（flag 的回报规约在场景里，见 internal/builtin/scenarios/ctf.md）。
+// benchScenario 是跑分任务的场景：CTF（flag 的回报规约在场景里，见 internal/builtin/scenarios/ctf.md）。
 const benchScenario = "ctf"
 
 // createTask 以单条 brief 建一个 task（场景 benchScenario），返回 taskID。title/description 便于在控制台归类。

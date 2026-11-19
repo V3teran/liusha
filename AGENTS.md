@@ -158,7 +158,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 场景（`internal/scenariostore`、`internal/scenario`）
 
-- 场景 = 任务所处情境的说明（名称 + 说明 + 正文），领域内容（可交付主张的标准、类别词表、验证模式、领域工具要点、示例）都在这里。出厂 `pentest`（渗透测试）与 `ctf`（CTF 夺旗）。
+- 场景 = 任务所处情境的说明（名称 + 说明 + 正文），领域内容（可交付主张的标准、类别词表、验证模式、领域工具要点、示例）都在这里。出厂 `pentest`（渗透测试）与 `ctf`（CTF）。
 - 归属任务：下发入口（`POST /tasks` 含定时、`POST /chat`、对话跟进中纯聊天升级为任务）的请求字段 `scenario`（`*string`，区分不带与显式空串）——不带 → 缺省场景 `pentest`，它被停用或删除时即无场景（`configstore.DefaultScenario`，用户的操作决定，不另找兜底）；`""` → 无场景；点名的场景未知或已停用 → 400（`scenariostore.ErrUnavailable`），不悄悄换场景。代理捕获的任务同样取缺省场景；读缺省场景失败（库故障）时放弃本次下发、流量保持未消费。定时模板不指定场景时记下创建时的缺省场景。缺省在入口层落定，不靠数据库默认值。
 - 建任务时快照到任务行（`task.scenario` / `scenario_name` / `scenario_body`，同空同有），建后不改；每个 run（续跑、恢复重投）都读快照，runner 按快照渲染（`scenario.Render`），注入路径不查场景表。场景之后被改、停用、删除都不影响已建任务；任务摘要带 `scenario_deleted` 标注。
 - 注入：`<scenario name="…">正文</scenario>` 经 `cognition.Deps.Scenario`（与章程并列的独立输入）拼在五处系统提示词末尾（执行者、评估者、规划者常规与结果分析、监察者）；无场景时什么都不加。渲染只陈述数据，不写指导语。

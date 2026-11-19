@@ -71,7 +71,9 @@ EXCLUDES=(
 #   （形状叫 kind，取值 http / steps；信封叫配方信封）。
 # 信息域 / factDomainHeadings：观察类别（ObservationCategory）曾被称为「信息域」，与业务领域撞名，
 #   统一称类别。
+# 夺旗：出厂场景 ctf 的名称统一为「CTF」（迁移 0236 改写存量快照）。
 FORBIDDEN=(
+  '夺旗'
   'webrepro'
   'web ?域?(复现|配方|形状)'
   'web\.Replayer'
