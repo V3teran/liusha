@@ -252,6 +252,14 @@ type PlanningResponse struct {
 	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
 }
 
+// PlanOutcome 是一次常规规划的结论。
+type PlanOutcome struct {
+	// Stop 为真表示规划者判定停止探索（契约的 should_continue=false）：这是对任务的结论，
+	// 不是「本轮没有新动作」——由 Agent 收回规划者尚未做完的动作，等其余工作落定后收敛。
+	Stop    bool
+	Actions []explorationgraph.ActionDraft // 新提议的动作（Stop 时为空）
+}
+
 // PlanRequest 是一次规划的入参。
 type PlanRequest struct {
 	FunctionTools []string // function_tools 白名单（nil=拒绝，[]=空集，["*"]=全量）
@@ -261,7 +269,7 @@ type PlanRequest struct {
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
 // LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
-func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) ([]explorationgraph.ActionDraft, error) {
+func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) (PlanOutcome, error) {
 	functionTools := req.FunctionTools
 	e.logger.Info().Msg("开始智能规划")
 
@@ -281,7 +289,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	// 1. 收集规划上下文（作为首条输入的紧凑摘要；细节靠工具按需深挖）
 	planCtx, err := e.gatherContext(ctx, graph, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("收集规划上下文失败: %w", err)
+		return PlanOutcome{}, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
 	// 历史经验简报：以任务目标检索跨任务知识库（top5，检索失败静默跳过——
 	// 经验是增益不是依赖），开局即把历史教训带进规划视野；任务内检索一次。
@@ -296,7 +304,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
 	provider, err := e.router.For(ctx, e.complexity)
 	if err != nil {
-		return nil, fmt.Errorf("获取 LLM provider 失败: %w", err)
+		return PlanOutcome{}, fmt.Errorf("获取 LLM provider 失败: %w", err)
 	}
 
 	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
@@ -309,12 +317,12 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	}
 	if registry.Allows(functionTools, "observe_state") {
 		if err := registerGraphTool(NewObserveStateTool(graph)); err != nil {
-			return nil, fmt.Errorf("注册 observe_state 失败: %w", err)
+			return PlanOutcome{}, fmt.Errorf("注册 observe_state 失败: %w", err)
 		}
 	}
 	if registry.Allows(functionTools, "evaluate_progress") {
 		if err := registerGraphTool(NewEvaluateProgressTool(graph)); err != nil {
-			return nil, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
+			return PlanOutcome{}, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
 		}
 	}
 	for _, t := range e.extraTools {
@@ -322,7 +330,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 			continue
 		}
 		if err := registerGraphTool(t); err != nil {
-			return nil, fmt.Errorf("注册 %s 失败: %w", t.Name(), err)
+			return PlanOutcome{}, fmt.Errorf("注册 %s 失败: %w", t.Name(), err)
 		}
 	}
 
@@ -351,7 +359,6 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		MaxConsecutiveToolFailures: 8,       // 连续工具失败止损阈值（单机制：runtime 内置，随装配按角色调参）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
-		MaxTokens:                  4000,
 		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller),
 		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
@@ -361,7 +368,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	})
 	if err != nil {
 		e.adaptBudget(err)
-		return nil, fmt.Errorf("ReAct 规划失败: %w", err)
+		return PlanOutcome{}, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
 	e.budget = e.timeout // 成功即回落基准预算
 
@@ -377,21 +384,22 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.thoughts.Done(round)
 	}
 	if perr != nil {
-		return nil, fmt.Errorf("解析规划输出失败: %w", perr)
+		return PlanOutcome{}, fmt.Errorf("解析规划输出失败: %w", perr)
 	}
 
-	// 5. 如果 LLM 判断不应该继续，返回空
+	// 5. 停止探索：结论原样交给 Agent 落定（契约要求此时 actions 为空，给了也不执行）
 	if !response.ShouldContinue {
 		e.logger.Info().
 			Str("reasoning", response.Reasoning).
-			Msg("LLM 判断任务应该停止")
-		return nil, nil
+			Int("ignored_actions", len(response.Actions)).
+			Msg("LLM 判定停止探索")
+		return PlanOutcome{Stop: true}, nil
 	}
 
 	// 6. 转换 LLM 提案为动作草稿
 	drafts := e.convertProposals(ctx, graph, taskID, response.Actions)
 	e.logger.Info().Int("action_count", len(drafts)).Msg("智能规划完成")
-	return drafts, nil
+	return PlanOutcome{Actions: drafts}, nil
 }
 
 // gatherContext 收集规划所需的上下文信息

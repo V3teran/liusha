@@ -31,6 +31,11 @@ type Agent struct {
 	// 收敛所依据的目标：任务落 completed 时以它为前置，期间目标被改写则不结束任务。
 	onConverged func(reason string, basis explorationgraph.GoalBasis)
 
+	// conclusion 是上一次规划「本轮不再新增动作」的结论（停止探索或等待），图面不变时
+	// 复用（见 conclusion）。只在 Run 的事件循环内读写；进程内状态，新 run 从零开始，
+	// 首轮规划重新求解一次。
+	conclusion *conclusion
+
 	// 重规划请求（经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次请求合并为
 	// 一次，理由逐条保留（去重）。
 	replanCh      chan struct{}

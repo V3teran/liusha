@@ -17,22 +17,23 @@ func (a *Agent) planActions(ctx context.Context) error {
 	return a.untilGoalStable(ctx, "常规规划", a.planRound)
 }
 
-// forcePlanActions 强制重规划：不看是否还有待执行动作，带着理由立即规划一轮。
+// forcePlanActions 强制重规划：不看是否还有待执行动作、也不复用既有结论，带着理由立即
+// 规划一轮。
 func (a *Agent) forcePlanActions(ctx context.Context, reasons []string) error {
 	return a.untilGoalStable(ctx, "强制重规划", func(ctx context.Context) error {
-		basis, err := a.graph.GoalBasis(ctx, a.taskID)
+		basis, view, err := a.planningBasis(ctx)
 		if err != nil {
-			return fmt.Errorf("读取规划依据: %w", err)
+			return err
 		}
 		// 理由进规划提示，模型据此修订策略
-		actions, err := a.planner.Plan(ctx, a.graph, a.taskID, PlanRequest{
+		outcome, err := a.planner.Plan(ctx, a.graph, a.taskID, PlanRequest{
 			FunctionTools: a.functionTools, ReplanReasons: reasons,
 		})
 		if err != nil {
 			return fmt.Errorf("forced plan: %w", err)
 		}
-		a.logger.Info().Int("action_count", len(actions)).Strs("reasons", reasons).Msg("强制重规划完成")
-		return a.applyPlan(ctx, basis, actions, "forced replan")
+		a.logger.Info().Bool("stop", outcome.Stop).Int("action_count", len(outcome.Actions)).Strs("reasons", reasons).Msg("强制重规划完成")
+		return a.applyOutcome(ctx, basis, view, outcome, "forced replan")
 	})
 }
 
@@ -72,41 +73,89 @@ func (a *Agent) planRound(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. 生成新的 Actions：依据在调用规划器之前读取——规划器看到的目标不会比依据旧
-	basis, err := a.graph.GoalBasis(ctx, a.taskID)
+	// 3. 依据与图面在调用规划器之前读取——规划器看到的目标与图面不会比它们旧
+	basis, view, err := a.planningBasis(ctx)
 	if err != nil {
-		return fmt.Errorf("读取规划依据: %w", err)
+		return err
 	}
-	actions, err := a.generateNewActions(ctx)
+	// 图面未变：上一次的结论依然成立，不再求解，只重做收敛判定（未完结工作可能已落定）
+	if a.conclusion.holds(view) {
+		return a.handleNoActions(ctx, basis, "planning")
+	}
+	outcome, err := a.generateNewActions(ctx)
 	if err != nil {
 		return err
 	}
 
-	// 4. 落图；没有实际新增动作即走收敛判定
-	return a.applyPlan(ctx, basis, actions, "planning")
+	// 4. 落定结论
+	return a.applyOutcome(ctx, basis, view, outcome, "planning")
 }
 
-// applyPlan 把规划提案以 basis 为前置原子落图（与结果分析的修订同一条写入路径）。
-// 实际新增为零——没有提案，或提案全被过滤（空指令 / 与既有动作重复）——与「planner
-// 无新方向」是同一局面，走无动作处理（收敛判定）；否则图静止而每次唤醒都再付费规划
-// 一遍。目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
-func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis, actions []explorationgraph.ActionDraft, trigger string) error {
+// planningBasis 读取规划依据与图面。
+func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, graphView, error) {
+	basis, err := a.graph.GoalBasis(ctx, a.taskID)
+	if err != nil {
+		return basis, graphView{}, fmt.Errorf("读取规划依据: %w", err)
+	}
+	view, err := a.observeView(ctx, basis)
+	if err != nil {
+		return basis, graphView{}, err
+	}
+	return basis, view, nil
+}
+
+// applyOutcome 落定一次规划结论（常规规划与强制重规划共用）：
+//   - 停止探索：收回规划者排出、还没做完的动作（以 basis 为前置），记下结论，走收敛判定——
+//     余下的只有用户指派的动作、待验证假设与待分析结果，落定后即收敛；
+//   - 有新动作：落图，此前的结论随之作废；
+//   - 没有实际新增：记下「等待」结论，走收敛判定。
+//
+// 目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
+func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view graphView, outcome PlanOutcome, trigger string) error {
+	if outcome.Stop {
+		withdrawn, err := a.graph.StopExploration(ctx, a.taskID, basis, stopReason)
+		if err != nil {
+			return fmt.Errorf("停止探索: %w", err)
+		}
+		a.logger.Info().Str("trigger", trigger).Strs("withdrawn", withdrawn).Msg("规划者停止探索，已收回未做完的规划动作")
+		a.conclusion = &conclusion{stop: true, view: view}
+		return a.handleNoActions(ctx, basis, trigger)
+	}
+	added, err := a.applyPlan(ctx, basis, outcome.Actions)
+	if err != nil {
+		return err
+	}
+	if added {
+		a.conclusion = nil
+		return nil
+	}
+	a.conclusion = &conclusion{view: view}
+	return a.handleNoActions(ctx, basis, trigger)
+}
+
+// stopReason 是规划者停止探索时收回动作所记的原因。
+const stopReason = "规划者已停止探索，收回未做完的动作"
+
+// applyPlan 把规划提案以 basis 为前置原子落图（与结果分析的修订同一条写入路径），返回
+// 是否实际新增了动作。提案全被过滤（空指令 / 与既有动作重复）与「没有提案」是同一局面，
+// 由调用方走无动作处理。目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
+func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis, actions []explorationgraph.ActionDraft) (bool, error) {
 	drafts := a.admitActions(ctx, actions)
 	if len(drafts) == 0 {
-		return a.handleNoActions(ctx, basis, trigger)
+		return false, nil
 	}
 	report, err := a.graph.RevisePlan(ctx, a.taskID, explorationgraph.PlanRevision{Basis: basis, AddedActions: drafts})
 	for _, r := range report.Rejected {
 		a.logger.Warn().Str("field", string(r.Field)).Str("ref", r.ID).Str("reason", r.Reason).Msg("规划提案剔除无效引用")
 	}
 	if err != nil {
-		return fmt.Errorf("写入 Action: %w", err)
+		return false, fmt.Errorf("写入 Action: %w", err)
 	}
 	for _, id := range report.AddedActions {
 		a.eventBus.PublishActionProposed(a.taskID, id)
 	}
 	a.logger.Info().Strs("action_ids", report.AddedActions).Msg("新 Action 已落图")
-	return nil
+	return true, nil
 }
 
 // admitActions 过滤规划提案：指令级去重（与结果分析的延续动作同一口径，见 admit）——

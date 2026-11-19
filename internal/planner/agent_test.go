@@ -81,9 +81,9 @@ func TestForcePlanActions_PassesReasonsToPlanner(t *testing.T) {
 // recordingPlanner 记录规划请求，不产出提案。
 type recordingPlanner struct{ req PlanRequest }
 
-func (p *recordingPlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, req PlanRequest) ([]explorationgraph.ActionDraft, error) {
+func (p *recordingPlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, req PlanRequest) (PlanOutcome, error) {
 	p.req = req
-	return nil, nil
+	return PlanOutcome{}, nil
 }
 
 func (p *recordingPlanner) AnalyzeResults(context.Context, *explorationgraph.Store, string, []explorationgraph.Node) (*ResultAnalysis, error) {

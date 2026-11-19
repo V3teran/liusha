@@ -32,10 +32,10 @@ func TestApplyPlan_AllProposalsFilteredIsNoActions(t *testing.T) {
 		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
 	ctx := context.Background()
 
-	require.NoError(t, a.applyPlan(ctx, basisOf(t, store), []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", " 探测登录接口 "),
 		planAction("p2", "  "),
-	}, "planning"))
+	}}, "planning"))
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
@@ -64,10 +64,10 @@ func TestApplyPlan_AbortedInstructionMayBeReproposed(t *testing.T) {
 		onConverged: func(string, explorationgraph.GoalBasis) {}}
 	ctx := context.Background()
 
-	require.NoError(t, a.applyPlan(ctx, basisOf(t, store), []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", "爆破后台口令"),
-	}, "planning"))
+	}}, "planning"))
 
 	open, err := store.ListOpenActions(ctx, revisionTask)
 	require.NoError(t, err)
@@ -86,17 +86,17 @@ type goalShiftingPlanner struct {
 	analyzeCalls   int
 }
 
-func (p *goalShiftingPlanner) Plan(ctx context.Context, _ *explorationgraph.Store, taskID string, _ PlanRequest) ([]explorationgraph.ActionDraft, error) {
+func (p *goalShiftingPlanner) Plan(ctx context.Context, _ *explorationgraph.Store, taskID string, _ PlanRequest) (PlanOutcome, error) {
 	p.planCalls++
 	if p.planCalls == 1 && !p.shiftOnAnalyze {
 		if err := p.shiftGoal(ctx, taskID); err != nil {
-			return nil, err
+			return PlanOutcome{}, err
 		}
 	}
 	if p.planCalls > len(p.plans) {
-		return nil, nil
+		return PlanOutcome{}, nil
 	}
-	return p.plans[p.planCalls-1], nil
+	return PlanOutcome{Actions: p.plans[p.planCalls-1]}, nil
 }
 
 func (p *goalShiftingPlanner) AnalyzeResults(ctx context.Context, _ *explorationgraph.Store, taskID string, _ []explorationgraph.Node) (*ResultAnalysis, error) {
