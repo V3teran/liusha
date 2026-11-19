@@ -34,7 +34,7 @@ func (p *recordingPublisher) PublishMessage(_ context.Context, conversationID st
 	return nil
 }
 
-// 自动恢复连续中断达上限、任务落 aborted 时，对话时间线要有终态节点（与用户停止、心跳回收、
+// 自动恢复连续中断达上限、任务落 aborted 时，对话时间线要有终态节点（与用户停止、
 // 运行出错同一口径）：否则对话里任务停在「工作中」的最后一条消息，看不出它已被终止及原因。
 func TestRunRecovery_AbortAfterRetriesWritesTimeline(t *testing.T) {
 	ctx := context.Background()

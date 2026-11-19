@@ -122,7 +122,7 @@ func (j *RouterJudge) WithToolOutputTailBytes(n int) *RouterJudge {
 	return j
 }
 
-// WithToolWrapper 注入共享拦截链包装器（遥测/心跳/时间线）——评估者对目标的
+// WithToolWrapper 注入共享拦截链包装器（遥测/时间线）——评估者对目标的
 // 主动动作（replay_for_verification 重放）与 executor 同一执行面，审计无盲区。
 // nil=不包装（独立部署/测试）。
 func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *RouterJudge {

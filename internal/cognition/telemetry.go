@@ -1,12 +1,11 @@
-// telemetry.go 工具调用遥测：每次工具调用落 tool_invocation、节流续命
-// task.heartbeat_at（reaper 判活依据）、活动打点（执行者看门狗判停摆的依据）。
+// telemetry.go 工具调用遥测：每次工具调用落 tool_invocation（恢复监控判 run 停摆的依据之一）、
+// 活动打点（执行者看门狗判动作停摆的依据）。
 
 package cognition
 
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
 	"time"
 
 	"github.com/V3teran/liusha/internal/executor"
@@ -16,13 +15,9 @@ import (
 	"github.com/V3teran/liusha/internal/tools"
 )
 
-// heartbeatThrottleMs 是连续两次心跳写入的最小间隔。
-const heartbeatThrottleMs = 10_000
-
 // toolRecordInterceptor returns a registry.Interceptor that records every tool
-// call to toolinvocation.Store and throttles task heartbeats.
+// call to toolinvocation.Store and touches the action activity tracker.
 func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activity *executor.ActivityTracker) registry.Interceptor {
-	lastBeatMs := new(atomic.Int64)
 	return func(ctx context.Context, t registry.Tool, args []byte, next registry.ExecuteFunc) (registry.ToolResult, error) {
 		d.Logger.Debug().
 			Str("tool_name", t.Name()).
@@ -73,24 +68,6 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activity *execut
 		}
 		// 进展打点：执行者看门狗的停摆判据（图上无输出 ≠ 卡死）
 		activity.Touch(tools.ActionIDFromContext(ctx))
-
-		// throttled heartbeat
-		if taskID != "" {
-			now := time.Now().UnixMilli()
-			last := lastBeatMs.Load()
-			if now-last >= heartbeatThrottleMs {
-				if lastBeatMs.CompareAndSwap(last, now) {
-					hctx, hcancel := context.WithTimeout(context.Background(), 3*time.Second)
-					defer hcancel()
-					if d.Tasks != nil {
-						// 心跳失败必须留痕：reaper 以心跳判活，静默失败会被误回收。
-						if hbErr := d.Tasks.Heartbeat(hctx, taskID); hbErr != nil {
-							d.Logger.Warn().Err(hbErr).Msg("心跳写入失败")
-						}
-					}
-				}
-			}
-		}
 		return res, err
 	}
 }

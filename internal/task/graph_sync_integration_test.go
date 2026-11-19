@@ -5,7 +5,6 @@ package task
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -94,28 +93,6 @@ func TestGraphFollowsTask_Complete(t *testing.T) {
 	assertStates(t, nodeStates(t, s.pool, ids), map[string]string{
 		"root": "completed", "derived-open": "exhausted", "derived-done": "completed",
 		"action-open": "aborted", "action-running": "aborted", "action-done": "completed",
-	})
-}
-
-// 心跳超时批量判死与单个终止同口径。
-func TestGraphFollowsTask_ReapStale(t *testing.T) {
-	s := NewStore(dbtest.NewPgPool(t))
-	id := newActiveTask(t, s)
-	ids := graphFixture(t, s.pool, id)
-	if _, err := s.pool.Exec(context.Background(),
-		`UPDATE task SET heartbeat_at = now() - interval '1 hour' WHERE id = $1`, id); err != nil {
-		t.Fatal(err)
-	}
-
-	reaped, err := s.ReapStale(context.Background(), time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reaped) != 1 || reaped[0] != id {
-		t.Fatalf("reaped = %v", reaped)
-	}
-	assertStates(t, nodeStates(t, s.pool, ids), map[string]string{
-		"root": "aborted", "action-running": "aborted",
 	})
 }
 

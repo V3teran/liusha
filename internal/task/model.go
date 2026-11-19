@@ -9,7 +9,7 @@
 //   - 每批流量/每次下发产一个独立 task，同 host 可多个。「是否在监控」从 proxy_traffic 派生。
 //   - 附属表（agent_run/finding/...）直接以 task_id 外键挂 task.id。
 //
-// 状态机：active → completed（自然跑完）| aborted（用户停/取消/错误/心跳超时）。
+// 状态机：active → completed（自然跑完）| aborted（用户停/取消/错误/恢复重投达上限）。
 // FollowUp 可 Reopen 终态 task 续跑（累计停顿进 paused_ms）。
 package task
 
@@ -43,7 +43,6 @@ type Task struct {
 	Goal         string
 	TargetHost   string
 	Status       Status
-	HeartbeatAt  time.Time
 	PausedMs     int64
 	CreatedAt    time.Time
 	EndedAt      *time.Time

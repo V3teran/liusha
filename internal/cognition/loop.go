@@ -530,7 +530,7 @@ func (d *Deps) buildEvaluatorAgent(
 	if d.ToolsManifest != nil && len(cfg.CliTools) > 0 {
 		evaluatorCLImanifest = d.ToolsManifest.FilterByNames(cfg.CliTools)
 	}
-	// 判定工具走共享拦截器链（遥测/心跳/时间线）——评估者对目标的动作
+	// 判定工具走共享拦截器链（遥测/时间线）——评估者对目标的动作
 	// （复现重放/HTTP 复核）与 executor 同一执行面，不遗漏、归属一致。
 	extraTools := tools.BuildTools(toolDeps(skillsView), cfg.FunctionTools)
 	for i := range extraTools {

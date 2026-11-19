@@ -290,7 +290,7 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 }
 
 // abortAfterRetries 中断次数达上限：任务落 aborted，并往对话时间线落终止节点（与用户停止、
-// 心跳回收、运行出错同一口径——否则对话停在「工作中」的最后一条消息，看不出任务已被终止
+// 运行出错同一口径——否则对话停在「工作中」的最后一条消息，看不出任务已被终止
 // 及原因）。节点只由真正完成迁移的一方落，任务已被别处终止时不重复。
 func (m *RunRecoveryMonitor) abortAfterRetries(ctx context.Context, taskID, conversationID string, attempts int) {
 	reason := "runner 连续中断 " + strconv.Itoa(attempts) + " 次，已停止自动恢复；请手动重新下发任务"
