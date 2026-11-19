@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.2](https://github.com/V3teran/liusha/compare/v0.13.1...v0.13.2) (2026-11-19)
+
+
+### 新功能
+
+* **task:** CTF 场景改用简短名称「CTF」 ([10d7039](https://github.com/V3teran/liusha/commit/10d7039c76ed187fdf59233c64be21cdc1444e9a))
+
+
+### 问题修复
+
+* **exploration:** LLM 限流等瞬时故障不再误判探索动作失败 ([1dea72b](https://github.com/V3teran/liusha/commit/1dea72b2384430feb2bd0fd72a3f44567c7226c5))
+
 ## [0.13.1](https://github.com/V3teran/liusha/compare/v0.13.0...v0.13.1) (2026-11-19)
 
 
