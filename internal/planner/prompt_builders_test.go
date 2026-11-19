@@ -127,3 +127,21 @@ func TestBuildAnalysisSystemPrompt(t *testing.T) {
 		t.Fatal("章程为空时应返回空串")
 	}
 }
+
+// 场景块拼在常规规划与结果分析两份系统提示词末尾；无场景时与原来逐字一致。
+func TestPlannerSystemPrompts_AppendScenario(t *testing.T) {
+	plain := NewEngine(nil, zerolog.Nop()).WithCharter("章程")
+	block := "<scenario name=\"渗透测试\">\n正文\n</scenario>"
+	withScenario := NewEngine(nil, zerolog.Nop()).WithCharter("章程").WithScenario(block)
+	for name, pair := range map[string][2]string{
+		"规划": {plain.buildPlannerSystemPrompt(), withScenario.buildPlannerSystemPrompt()},
+		"分析": {plain.buildAnalysisSystemPrompt(), withScenario.buildAnalysisSystemPrompt()},
+	} {
+		if pair[1] != pair[0]+"\n\n"+block {
+			t.Errorf("%s：场景块应拼在末尾:\n%s", name, pair[1])
+		}
+		if strings.Contains(pair[0], "<scenario") {
+			t.Errorf("%s：无场景时不应有场景块", name)
+		}
+	}
+}

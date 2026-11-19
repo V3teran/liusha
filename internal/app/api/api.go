@@ -110,8 +110,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}()
 
 	tools := manifest.Default()
-	// agent 与技能配置：出厂值编译在程序里，用户层经三级缓存读写；写后广播失效，
-	// runner 被动清缓存，下个任务即用新配置。
+	// agent、技能与场景配置经三级缓存读写（agent 为出厂值叠加用户层，技能与场景为整表）；
+	// 写后广播失效，runner 被动清缓存，下个任务即用新配置。
 	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(tools))
 	llmStore := llmstore.New(pool, cache)
 	// 系统设置：出厂默认 = 代码 + 部署配置，用户层经三级缓存读写；写后广播失效。
@@ -164,6 +164,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Findings:      findStore,
 		Publisher:     publisher,
 		Attachments:   attachmentStore,
+		Scenarios:     cfgStore,
 	}
 
 	// 定时调度器：轮询到点模板 → 克隆 assignment → 展开 task。随 ctx 取消立即退出，无在途状态要收尾。
@@ -201,6 +202,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			Renamer:            conversationStore,
 			ConfigStore:        cfgStore,
 			SkillStore:         cfgStore,
+			ScenarioStore:      cfgStore,
 			ToolCatalog:        toolCatalog,
 			SandboxInventory:   sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 			Models:             llmStore,
@@ -259,13 +261,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 func bootstrap(ctx context.Context, logger zerolog.Logger, pool *pgxpool.Pool,
 	cfgStore *configstore.Store, toolCatalog *toolstore.Store, tools *manifest.ToolManifest,
 ) {
-	// 已下线、但用户自定义过的内置技能转为同 code 的自建技能，用户的修改不随下线丢失。
-	if adopted, err := cfgStore.AdoptRetiredSkills(ctx); err != nil {
-		logger.Warn().Err(err).Msg("转换已下线内置技能失败（下次启动重试）")
-	} else if len(adopted) > 0 {
-		logger.Info().Strs("skills", adopted).Msg("已下线的内置技能已转为自建技能（保留用户自定义）")
-	}
-
 	// 零 provider 不拒启：LLM 在前端「LLM 配置」页接入，未接入时下发边界会拒绝并给出指引。
 	if provs, err := llmconfig.NewStore(pool).ListProviders(ctx, false); err != nil {
 		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查 LLM 配置）")

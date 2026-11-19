@@ -73,13 +73,15 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
 /**
  * 从会话发起任务
  * @param brief 任务目标描述
+ * @param scenario 消息被判为要执行时所建任务的场景 code（空串 = 无场景；不传 = 后端缺省渗透测试）
  * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
  */
 export async function startChat(
   brief: string,
-  attachments: AttachmentRef[] = []
+  attachments: AttachmentRef[] = [],
+  scenario?: string
 ): Promise<{ conversation_id: string; task_id: string }> {
-  return post('/chat', { brief, attachments: attachments.length > 0 ? attachments : undefined })
+  return post('/chat', { brief, attachments: attachments.length > 0 ? attachments : undefined, scenario })
 }
 
 /**
@@ -92,15 +94,14 @@ export async function startChat(
 export async function followUp(
   convID: string,
   content: string,
-  attachments: AttachmentRef[] = []
+  attachments: AttachmentRef[] = [],
+  scenario?: string // 会话尚未绑定任务时，消息被判为要执行所建任务的场景（语义同 startChat）
 ): Promise<{ intent: string }> {
-  const res = await fetch(`${API_BASE}/conversations/${convID}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, attachments: attachments.length > 0 ? attachments : undefined }),
+  return post(`/conversations/${convID}/messages`, {
+    content,
+    attachments: attachments.length > 0 ? attachments : undefined,
+    scenario,
   })
-  if (!res.ok) throw new Error(`POST /conversations/${convID}/messages → ${res.status}`)
-  return res.json()
 }
 
 // 删除会话及其消息（后端 message FK CASCADE 连带删；不动关联 scan/finding 成果）。

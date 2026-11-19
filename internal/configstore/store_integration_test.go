@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/V3teran/liusha/internal/builtin"
+	"github.com/V3teran/liusha/internal/builtinsync"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/override"
@@ -22,10 +24,50 @@ import (
 
 func newTestStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
+	s, _ := newTestStoreWithPool(t)
+	return s, context.Background()
+}
+
+func newTestStoreWithPool(t *testing.T) (*Store, *pgxpool.Pool) {
+	t.Helper()
 	pool := dbtest.NewPgPool(t)
 	mr := miniredis.RunT(t)
 	cache := cachestore.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), 0)
-	return New(pool, cache, ToolCatalogFrom(nil)), context.Background()
+	s := New(pool, cache, ToolCatalogFrom(nil))
+	syncBuiltins(t, s)
+	return s, pool
+}
+
+// execSQL 直接改表（模拟升级前的数据形态）。
+func execSQL(t *testing.T, s *Store, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.agents.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// syncBuiltins 执行出厂同步（生产形态由 liusha migrate 在迁移后执行）。
+func syncBuiltins(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.skills.SyncBuiltins(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.scenarios.SyncBuiltins(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.cache.Invalidate(ctx, keySkills, keyScenarios); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func onOff(on, off []string) json.RawMessage {
@@ -173,9 +215,6 @@ func TestSkills_CustomLifecycleAndReferenceCleanup(t *testing.T) {
 	if p, _ := s.Agent(ctx, "planner"); !slices.Contains(p.Skills, "mine") {
 		t.Fatalf("planner 应装配 mine: %v", p.Skills)
 	}
-	if err := s.DeleteSkill(ctx, "bac"); !errors.Is(err, ErrBuiltinSkill) {
-		t.Fatalf("内置技能不可删除，得 %v", err)
-	}
 	if err := s.DeleteSkill(ctx, "mine"); err != nil {
 		t.Fatal(err)
 	}
@@ -211,8 +250,12 @@ func TestDeleteSkill_ReferencesCleanedEvenIfCacheInvalidationFails(t *testing.T)
 	if len(ovs["planner"]) != 0 {
 		t.Fatalf("技能已删，planner 不应残留对它的引用: %v", ovs["planner"])
 	}
-	if _, err := s.skills.ListCustom(ctx); err != nil {
+	recs, err := s.skills.List(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if slices.ContainsFunc(recs, func(r skillstore.Record) bool { return r.Code == "mine" }) {
+		t.Fatal("技能应已删除")
 	}
 }
 
@@ -236,41 +279,112 @@ func TestBuiltinSkill_OverrideResetAndShadow(t *testing.T) {
 		t.Fatalf("恢复出厂后应启用且为出厂正文: %+v", sk)
 	}
 
-	// 同名自建技能遮蔽内置版本（只可能来自升级前的数据或新增内置技能撞名）。
-	skills := s.skills
-	if _, err := skills.CreateCustom(ctx, skillstore.Skill{Code: "browser-use", Category: "tool", Name: "我的浏览器手册", Body: "b", Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	_ = s.cache.Invalidate(ctx, keyCustomSkills)
-	d, err := s.SkillDetail(ctx, "browser-use")
-	if err != nil || d.Skill.IsBuiltin || !d.Shadows || d.Skill.Name != "我的浏览器手册" {
-		t.Fatalf("同名时自建技能优先并标注遮蔽: %+v %v", d, err)
+	if d, _ := s.SkillDetail(ctx, "bac"); len(d.Overrides) != 0 {
+		t.Fatalf("恢复出厂后不应再有偏离出厂的字段: %v", d.Overrides)
 	}
 }
 
-// 已下线、但用户自定义过的内置技能转为同 code 的自建技能，内容取最后一次保存的样子。
-func TestAdoptRetiredSkills(t *testing.T) {
+// 出厂同步：没改过的跟随新版（保留启停）、改过的不动、改回原样算没改、自建同 code 遮蔽内置、
+// 下线的内置技能改过转自建、没改过删除。
+func TestSyncBuiltinSkills(t *testing.T) {
 	s, ctx := newTestStore(t)
-	saved, _ := json.Marshal(skillstore.Skill{Code: "gone", Category: "tool", Name: "已下线", Description: "d", Body: "用户改过的正文", Enabled: true, IsBuiltin: true})
-	if _, err := s.skills.UpdateOverrides(ctx, "gone", func(override.Overrides) (override.Overrides, skillstore.Skill, error) {
-		var sk skillstore.Skill
-		_ = json.Unmarshal(saved, &sk)
-		return override.Overrides{"body": {Value: json.RawMessage(`"用户改过的正文"`)}}, sk, nil
-	}); err != nil {
+	pool := s.skills
+	exec := func(sql string, args ...any) { t.Helper(); execSQL(t, s, sql, args...) }
+	bac, _ := builtin.SkillByCode("bac")
+	browser, _ := builtin.SkillByCode("browser-use")
+	oldHash := builtinsync.Hash(bac.Name, bac.Description, "旧版正文")
+
+	// bac：模拟「上一版出厂 + 用户只停用」——内容是旧出厂、基线是旧出厂哈希。
+	exec(`UPDATE skill SET body='旧版正文', enabled=false, seed_hash=$1 WHERE code='bac'`, oldHash)
+	// browser-use：用户改过正文（基线是当前出厂）。
+	exec(`UPDATE skill SET body='我改过的' WHERE code='browser-use'`)
+	// 下线的内置技能：gone-clean 没改过，gone-edited 改过。
+	goneHash := builtinsync.Hash("下线", "", "正文")
+	exec(`INSERT INTO skill (code, category, name, body, is_builtin, seed_hash) VALUES
+		('gone-clean', 'tool', '下线', '正文', true, $1),
+		('gone-edited', 'tool', '下线', '改过的正文', true, $1)`, goneHash)
+
+	done, err := pool.SyncBuiltins(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	adopted, err := s.AdoptRetiredSkills(ctx)
-	if err != nil || !slices.Equal(adopted, []string{"gone"}) {
-		t.Fatalf("应转换 gone: %v %v", adopted, err)
+	if len(done) != 3 {
+		t.Fatalf("应有 3 个动作（bac 更新、gone-clean 删除、gone-edited 转自建），实际 %v", done)
 	}
-	sk, err := s.Skill(ctx, "gone")
-	if err != nil || sk.IsBuiltin || sk.Body != "用户改过的正文" {
-		t.Fatalf("转换后为自建技能且保留内容: %+v %v", sk, err)
+	_ = s.cache.Invalidate(ctx, keySkills)
+
+	if sk, _ := s.Skill(ctx, "bac"); sk.Body != bac.Body || sk.Enabled {
+		t.Fatalf("没改过的应跟随新版且保留停用: %+v", sk)
 	}
-	if again, _ := s.AdoptRetiredSkills(ctx); len(again) != 0 {
-		t.Fatalf("应幂等: %v", again)
+	if sk, _ := s.Skill(ctx, "browser-use"); sk.Body != "我改过的" || !sk.IsBuiltin {
+		t.Fatalf("改过的应保持用户内容: %+v", sk)
 	}
-	if ovs, _ := s.skills.Overrides(ctx); len(ovs) != 0 {
-		t.Fatalf("转换后不应残留用户层: %v", ovs)
+	if d, _ := s.SkillDetail(ctx, "browser-use"); d.Overrides["body"].Kind == "" || d.Overrides["body"].DefaultChanged {
+		t.Fatalf("改过的正文应标为已自定义、出厂未更新: %+v", d.Overrides)
+	}
+	if _, err := s.Skill(ctx, "gone-clean"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("没改过的下线技能应删除: %v", err)
+	}
+	if sk, err := s.Skill(ctx, "gone-edited"); err != nil || sk.IsBuiltin || sk.Body != "改过的正文" {
+		t.Fatalf("改过的下线技能应转自建并保留内容: %+v %v", sk, err)
+	}
+
+	// 改回原样（与当前出厂相同）即不算自定义，此后照常跟随新版。
+	if _, err := s.PatchSkill(ctx, "browser-use", override.Document{"body": mustJSON(browser.Body)}); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := s.SkillDetail(ctx, "browser-use"); len(d.Overrides) != 0 {
+		t.Fatalf("改回出厂后不应有偏离出厂的字段: %v", d.Overrides)
+	}
+	exec(`UPDATE skill SET body='旧版', seed_hash=$1 WHERE code='browser-use'`, builtinsync.Hash(browser.Name, browser.Description, "旧版"))
+	if _, err := pool.SyncBuiltins(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.cache.Invalidate(ctx, keySkills)
+	if sk, _ := s.Skill(ctx, "browser-use"); sk.Body != browser.Body {
+		t.Fatalf("没改过的应跟随新版: %+v", sk)
+	}
+
+	// 自建同 code：出厂同步不动它，内置版本被遮蔽。
+	exec(`DELETE FROM skill WHERE code='bac'`)
+	exec(`INSERT INTO skill (code, category, name, body) VALUES ('bac', 'vuln', '我的 BAC', '自建正文')`)
+	if done, _ := pool.SyncBuiltins(ctx); len(done) != 0 {
+		t.Fatalf("自建同 code 时同步不应有动作: %v", done)
+	}
+	_ = s.cache.Invalidate(ctx, keySkills)
+	d, err := s.SkillDetail(ctx, "bac")
+	if err != nil || d.Skill.IsBuiltin || !d.Shadows || d.Skill.Name != "我的 BAC" {
+		t.Fatalf("自建同 code 应优先并标注遮蔽: %+v %v", d, err)
+	}
+}
+
+// 内置技能可删除：从列表与启用列表消失、清掉各 agent 的引用、出厂同步不补回、可恢复。
+func TestSkills_DeleteBuiltinSurvivesSyncAndRestores(t *testing.T) {
+	s, ctx := newTestStore(t)
+	bac, _ := builtin.SkillByCode("bac")
+	if _, err := s.PatchAgent(ctx, "planner", override.Document{"skills": onOff([]string{"bac"}, nil)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSkill(ctx, "bac"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Skill(ctx, "bac"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("删除后不应再列出: %v", err)
+	}
+	if enabled, _ := s.EnabledSkills(ctx); slices.ContainsFunc(enabled, func(sk skillstore.Skill) bool { return sk.Code == "bac" }) {
+		t.Fatal("删除的技能不应进技能索引")
+	}
+	if d, _ := s.AgentDetail(ctx, "planner"); len(d.Overrides) != 0 {
+		t.Fatalf("删除技能后 agent 不应残留对它的引用: %v", d.Overrides)
+	}
+	syncBuiltins(t, s)
+	if _, err := s.Skill(ctx, "bac"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("出厂同步不应补回用户删除的内置技能: %v", err)
+	}
+	if deleted, _ := s.DeletedSkills(ctx); len(deleted) != 1 || deleted[0].Code != "bac" {
+		t.Fatalf("应列出可恢复的 bac: %+v", deleted)
+	}
+	if sk, err := s.RestoreSkill(ctx, "bac"); err != nil || sk.Body != bac.Body || !sk.Enabled || sk.Category != bac.Category {
+		t.Fatalf("恢复后应为当前出厂内容并启用: %+v %v", sk, err)
 	}
 }

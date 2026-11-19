@@ -62,6 +62,21 @@ func registerAgentConfigRoutes(r gin.IRouter, d Deps) {
 	r.DELETE("/agents/:code/prompt-archive", deletePromptArchiveHandler(d.ConfigStore))
 }
 
+// registerScenarioRoutes 注册场景路由
+func registerScenarioRoutes(r gin.IRouter, d Deps) {
+	if d.ScenarioStore == nil {
+		return
+	}
+	r.GET("/scenarios", listScenariosHandler(d.ScenarioStore))
+	r.POST("/scenarios", createScenarioHandler(d.ScenarioStore))
+	r.GET("/scenarios/:code", getScenarioHandler(d.ScenarioStore))
+	r.PATCH("/scenarios/:code", patchScenarioHandler(d.ScenarioStore))
+	r.DELETE("/scenarios/:code", deleteScenarioHandler(d.ScenarioStore))
+	r.POST("/scenarios/:code/restore", restoreScenarioHandler(d.ScenarioStore))
+	r.DELETE("/scenarios/:code/overrides", resetScenarioHandler(d.ScenarioStore))
+	r.DELETE("/scenarios/:code/overrides/:field", resetScenarioHandler(d.ScenarioStore))
+}
+
 // registerSkillRoutes 注册技能/知识库路由
 func registerSkillRoutes(r gin.IRouter, d Deps) {
 	if d.SkillStore == nil {
@@ -73,6 +88,7 @@ func registerSkillRoutes(r gin.IRouter, d Deps) {
 	r.GET("/skills/:code", getSkillHandler(d.SkillStore))
 	r.PATCH("/skills/:code", patchSkillHandler(d.SkillStore))
 	r.DELETE("/skills/:code", deleteSkillHandler(d.SkillStore))
+	r.POST("/skills/:code/restore", restoreSkillHandler(d.SkillStore))
 	r.DELETE("/skills/:code/overrides", resetSkillHandler(d.SkillStore))
 	r.DELETE("/skills/:code/overrides/:field", resetSkillHandler(d.SkillStore))
 	r.PUT("/skills/:code/agents/:agentCode", assignSkillHandler(d.SkillStore))

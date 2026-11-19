@@ -33,7 +33,7 @@ describe('Composer', () => {
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalledWith('扫一下 example.com', [])
+      expect(startChat).toHaveBeenCalledWith('扫一下 example.com', [], undefined)
       expect(onStarted).toHaveBeenCalledWith('new-conv')
     })
   })
@@ -206,9 +206,11 @@ describe('Composer 附件流', () => {
     expect(sendBtn).not.toBeDisabled()
     await userEvent.click(sendBtn)
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalledWith('', [
-        { name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt' },
-      ])
+      expect(startChat).toHaveBeenCalledWith(
+        '',
+        [{ name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt' }],
+        undefined,
+      )
       expect(onStarted).toHaveBeenCalledWith('new-conv')
     })
     expect(screen.queryByText('targets.txt')).toBeNull()

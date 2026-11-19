@@ -17,8 +17,10 @@ import (
 
 type fakeSkills struct {
 	*fakeConfig
-	skills  []configstore.SkillDetail
-	deleted string
+	skills   []configstore.SkillDetail
+	deleted  string
+	restored string
+	trashed  []skillstore.Skill // 已删除、可恢复的内置技能
 }
 
 func (f *fakeSkills) SkillDetails(context.Context) ([]configstore.SkillDetail, error) {
@@ -54,15 +56,25 @@ func (f *fakeSkills) ResetSkill(_ context.Context, code string, _ ...string) (sk
 }
 
 func (f *fakeSkills) DeleteSkill(_ context.Context, code string) error {
-	d, err := f.SkillDetail(context.Background(), code)
-	if err != nil {
+	if _, err := f.SkillDetail(context.Background(), code); err != nil {
 		return err
-	}
-	if d.Skill.IsBuiltin {
-		return configstore.ErrBuiltinSkill
 	}
 	f.deleted = code
 	return nil
+}
+
+func (f *fakeSkills) DeletedSkills(context.Context) ([]skillstore.Skill, error) {
+	return f.trashed, nil
+}
+
+func (f *fakeSkills) RestoreSkill(_ context.Context, code string) (skillstore.Skill, error) {
+	for _, sk := range f.trashed {
+		if sk.Code == code {
+			f.restored = code
+			return sk, nil
+		}
+	}
+	return skillstore.Skill{}, fmt.Errorf("已删除的内置技能 %q %w", code, configstore.ErrNotFound)
 }
 
 func skillRouter(f *fakeSkills) *gin.Engine {
@@ -122,13 +134,29 @@ func TestAssignSkill_TogglesAgentSkills(t *testing.T) {
 func TestDeleteAndResetSkill_ByOrigin(t *testing.T) {
 	f := newFakeSkills()
 	r := skillRouter(f)
-	if w := serve(r, http.MethodDelete, "/skills/bac", ""); w.Code != http.StatusConflict {
-		t.Fatalf("删除内置技能应 409，得 %d", w.Code)
+	if w := serve(r, http.MethodDelete, "/skills/bac", ""); w.Code != http.StatusNoContent || f.deleted != "bac" {
+		t.Fatalf("内置技能也可删除: %d %q", w.Code, f.deleted)
 	}
 	if w := serve(r, http.MethodDelete, "/skills/mine", ""); w.Code != http.StatusNoContent || f.deleted != "mine" {
 		t.Fatalf("删除自建技能: %d %q", w.Code, f.deleted)
 	}
 	if w := serve(r, http.MethodDelete, "/skills/mine/overrides", ""); w.Code != http.StatusConflict {
 		t.Fatalf("自建技能恢复出厂应 409，得 %d", w.Code)
+	}
+}
+
+// 已删除的内置技能：?deleted=true 列出，restore 恢复；不是已删除的内置技能恢复 → 404。
+func TestDeletedSkills_ListAndRestore(t *testing.T) {
+	f := newFakeSkills()
+	f.trashed = []skillstore.Skill{{Code: "bac", Name: "BAC", IsBuiltin: true, Enabled: true}}
+	r := skillRouter(f)
+	if w := serve(r, http.MethodGet, "/skills?deleted=true", ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"code":"bac"`) {
+		t.Fatalf("应列出已删除的内置技能: %d %s", w.Code, w.Body.String())
+	}
+	if w := serve(r, http.MethodPost, "/skills/bac/restore", ""); w.Code != http.StatusOK || f.restored != "bac" {
+		t.Fatalf("恢复: %d %q", w.Code, f.restored)
+	}
+	if w := serve(r, http.MethodPost, "/skills/mine/restore", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("不是已删除的内置技能恢复应 404，得 %d", w.Code)
 	}
 }

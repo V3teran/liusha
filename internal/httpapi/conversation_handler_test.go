@@ -17,7 +17,7 @@ import (
 
 type fakeChat struct{}
 
-func (fakeChat) StartChatTask(_ context.Context, _ string, _ []attachment.Ref) (string, string, error) {
+func (fakeChat) StartChatTask(_ context.Context, _ string, _ []attachment.Ref, _ *string) (string, string, error) {
 	return "conv-abc", "scan-xyz", nil
 }
 
@@ -49,7 +49,7 @@ type fakeFollowUp struct {
 	handleIntent   string
 }
 
-func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string, _ []attachment.Ref) (string, error) {
+func (f *fakeFollowUp) HandleMessage(_ context.Context, conversationID, content string, _ []attachment.Ref, _ *string) (string, error) {
 	f.conversationID = conversationID
 	f.calledBrief = content
 	return f.handleIntent, nil

@@ -333,3 +333,13 @@ func TestBuildSystemPrompt_ConfigOnly(t *testing.T) {
 		t.Fatalf("系统提示词应为章程 + 契约 + 工具清单:\n%s", prompt)
 	}
 }
+
+// 场景块拼在系统提示词末尾（工具清单之后）；无场景时不加。
+func TestBuildSystemPrompt_AppendsScenario(t *testing.T) {
+	plain := NewEngine(EngineConfig{Charter: "你是执行者。", Logger: zerolog.Nop()}).buildSystemPrompt(nil)
+	block := "<scenario name=\"CTF 夺旗\">\n规约\n</scenario>"
+	got := NewEngine(EngineConfig{Charter: "你是执行者。", Scenario: block, Logger: zerolog.Nop()}).buildSystemPrompt(nil)
+	if got != plain+"\n\n"+block {
+		t.Fatalf("场景块应拼在末尾:\n%s", got)
+	}
+}

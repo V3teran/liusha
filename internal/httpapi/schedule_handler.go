@@ -87,6 +87,7 @@ func scheduleJSON(s cronschedule.Schedule) gin.H {
 		"description": s.Description,
 		"cron":        s.CronExpr,
 		"enabled":     s.Enabled,
+		"scenario":    s.Scenario,
 		"briefs":      briefs,
 		"next_run_at": s.NextRunAt,
 		"last_run_at": s.LastRunAt,

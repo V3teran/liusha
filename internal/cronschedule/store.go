@@ -3,6 +3,7 @@ package cronschedule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/db"
+	"github.com/V3teran/liusha/internal/scenariostore"
 )
 
 // Store 封装 cron_schedule 表的持久化操作。
@@ -23,7 +25,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, cron_expr, payload, title, description, enabled, next_run_at, last_run_at, created_at"
+const colsSelect = "id, cron_expr, payload, title, description, COALESCE(scenario, ''), enabled, next_run_at, last_run_at, created_at"
 
 // NextRun 解析标准 5 段 cron 表达式，返回 from 之后的下一次触发时间。
 func NextRun(expr string, from time.Time) (time.Time, error) {
@@ -54,13 +56,26 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Schedule, error) {
 	if err != nil {
 		return Schedule{}, fmt.Errorf("marshal cron_schedule payload: %w", err)
 	}
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO cron_schedule (cron_expr, payload, title, description, next_run_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING `+colsSelect,
-		p.CronExpr, payload, p.Title, p.Description, next)
 	var c Schedule
-	if err := scan(row, &c); err != nil {
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var scenario any
+		if p.Scenario != "" {
+			// 锁住场景行核对存在且启用：与场景的停用、删除串行，模板建成后引用的场景必然可用。
+			if err := scenariostore.LockUsable(ctx, tx, p.Scenario); err != nil {
+				return err
+			}
+			scenario = p.Scenario
+		}
+		return scan(tx.QueryRow(ctx, `
+			INSERT INTO cron_schedule (cron_expr, payload, title, description, scenario, next_run_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING `+colsSelect,
+			p.CronExpr, payload, p.Title, p.Description, scenario, next), &c)
+	})
+	if errors.Is(err, scenariostore.ErrUnavailable) {
+		return Schedule{}, err // 原样交给接口层（400），消息面向操作者
+	}
+	if err != nil {
 		return Schedule{}, fmt.Errorf("create cron_schedule: %w", err)
 	}
 	return c, nil
@@ -183,7 +198,7 @@ func (s *Store) MarkFired(ctx context.Context, id string, firedAt, expectedNextR
 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, c *Schedule) error {
-	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title, &c.Description,
+	if err := r.Scan(&c.ID, &c.CronExpr, &c.Payload, &c.Title, &c.Description, &c.Scenario,
 		&c.Enabled, &c.NextRunAt, &c.LastRunAt, &c.CreatedAt); err != nil {
 		return err
 	}

@@ -37,7 +37,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // ChatAPI 是发起会话扫描的窄接口（api 组件注入 *dispatch.Service：建 conversation + task + 入队带 conversationID）。
 type ChatAPI interface {
-	StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (conversationID, taskID string, err error)
+	StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref, scenario *string) (conversationID, taskID string, err error)
 }
 
 // ConversationsAPI 是会话/消息读取窄接口（*conversation.Store 自动满足）。
@@ -64,6 +64,9 @@ type EventStream interface {
 type ChatRequest struct {
 	Brief       string           `json:"brief"`
 	Attachments []attachment.Ref `json:"attachments"`
+	// Scenario 是消息被判为要执行时所建任务的场景：不带 → 缺省场景（缺省场景被停用、删除时为无场景），
+	// 空串 → 无场景，其余为场景 code（不可用 → 400）。用指针区分「不带」与「显式选无场景」。
+	Scenario *string `json:"scenario"`
 }
 
 // maxAttachmentsPerMessage 是单条消息携带的附件数上界。扫描链路的 payload
@@ -99,7 +102,7 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "单条消息最多携带 10 个附件"})
 			return
 		}
-		conversationID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief, req.Attachments)
+		conversationID, taskID, err := api.StartChatTask(c.Request.Context(), req.Brief, req.Attachments, req.Scenario)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -112,13 +115,15 @@ func chatHandler(api ChatAPI) gin.HandlerFunc {
 // intent 固定返回 "accepted"。扫描进行中/暂停中收到 action 指令的反馈由服务端异步
 // 落时间线提示（意图闸内判），不经同步响应——请求路径零 LLM 调用、零状态判定。
 type FollowUpAPI interface {
-	HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (intent string, err error)
+	HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref, scenario *string) (intent string, err error)
 }
 
 // FollowUpRequest 是 POST /conversations/:id/messages 请求体（Attachments 语义同 ChatRequest）。
 type FollowUpRequest struct {
 	Content     string           `json:"content"`
 	Attachments []attachment.Ref `json:"attachments"`
+	// Scenario 只在会话尚未绑定任务、这条消息被判为要执行时生效（语义同 ChatRequest.Scenario）。
+	Scenario *string `json:"scenario"`
 }
 
 func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
@@ -133,7 +138,7 @@ func followUpHandler(api FollowUpAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "单条消息最多携带 10 个附件"})
 			return
 		}
-		intent, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content, req.Attachments)
+		intent, err := api.HandleMessage(c.Request.Context(), conversationID, req.Content, req.Attachments, req.Scenario)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return

@@ -26,7 +26,9 @@ export function OverrideStatus({ state, current, onReset, busy = false, long = f
 
   const isSet = state.kind === 'set'
   const stale = staleOf(state)
-  const unknownBaseline = !isSet && state.baseline === null
+  // 基线未知：升级前的修改。「出厂已更新」时基线可能只记了哈希（技能、场景不存当年原文），
+  // 那是已知的更新，不归为升级前的修改。
+  const unknownBaseline = !isSet && state.baseline === null && !state.default_changed
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-accent/25 bg-accent/5 px-3 py-2 text-xs">
@@ -85,7 +87,7 @@ function Compare({
   if (!long) {
     return (
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-text-secondary">
-        {state.default_changed && (
+        {state.default_changed && state.baseline !== null && (
           <>
             <dt>你修改时的出厂值</dt>
             <dd className="font-mono text-text">{format(state.baseline)}</dd>
@@ -101,7 +103,7 @@ function Compare({
   const def = String(state.default ?? '')
   return (
     <div className="flex flex-col gap-3">
-      {state.default_changed && (
+      {state.default_changed && state.baseline !== null && (
         <DiffBlock title="出厂的变化（你修改时 → 现在）" before={String(state.baseline ?? '')} after={def} />
       )}
       <DiffBlock title="你的版本相对当前出厂" before={def} after={String(current ?? '')} />
