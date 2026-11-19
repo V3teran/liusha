@@ -5,7 +5,6 @@ package task
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -95,7 +94,7 @@ func TestGuard_ReopenReenablesTransitions(t *testing.T) {
 }
 
 // 暂停标记的 CAS 语义：MarkPaused/MarkResumed 只做单向迁移并报告是否发生；
-// ReopenTx 清残留标记；ReapStale 豁免暂停中的任务（有意停摆不是孤儿）。
+// ReopenTx 清残留标记。
 func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	s := NewStore(dbtest.NewPgPool(t))
 	id := newActiveTask(t, s)
@@ -138,32 +137,6 @@ func TestGuard_PauseMarkLifecycle(t *testing.T) {
 	}
 	if tk, err := s.GetByID(ctx, id2); err != nil || tk.Paused {
 		t.Fatalf("reopen 后残留暂停标记应被清除: paused=%v err=%v", tk.Paused, err)
-	}
-}
-
-// ReapStale 暂停豁免：暂停中的任务心跳再旧也不判死——停摆是用户意图，
-// 由继续操作复活。
-func TestGuard_ReapStaleExemptsPaused(t *testing.T) {
-	s := NewStore(dbtest.NewPgPool(t))
-	id := newActiveTask(t, s)
-	ctx := context.Background()
-
-	if _, err := s.MarkPaused(ctx, id); err != nil {
-		t.Fatalf("pause: %v", err)
-	}
-	// 心跳拨回 2 小时前（绕过 MarkPaused 的顺带续命），模拟长暂停。
-	if _, err := s.pool.Exec(ctx,
-		`UPDATE task SET heartbeat_at = now() - interval '2 hours' WHERE id=$1`, id); err != nil {
-		t.Fatalf("回拨心跳: %v", err)
-	}
-	if ids, err := s.ReapStale(ctx, time.Minute); err != nil {
-		t.Fatalf("reap: %v", err)
-	} else if len(ids) != 0 {
-		t.Fatalf("暂停中的任务不得被回收: %v", ids)
-	}
-	tk, _ := s.GetByID(ctx, id)
-	if tk.Status != StatusActive || !tk.Paused {
-		t.Fatalf("暂停任务应保持 active+paused: status=%s paused=%v", tk.Status, tk.Paused)
 	}
 }
 

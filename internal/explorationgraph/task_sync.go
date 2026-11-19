@@ -46,7 +46,7 @@ func ConvergenceHolds(ctx context.Context, db Querier, taskID string, basis Goal
 
 // SyncWithTask 让任务图跟随任务状态，必须与任务状态迁移在同一事务内执行——任务
 // 结局与图上的收口要么同时成立、要么都不成立，任务进入终态的每条路径（runner 收尾、
-// 用户停止、恢复上限、心跳判死）因此都不会留下仍 open 的工作。
+// 用户停止、恢复上限）因此都不会留下仍 open 的工作。
 //
 //   - 根目标代表任务本身，状态跟随任务：active → open，completed → completed，
 //     aborted → aborted；

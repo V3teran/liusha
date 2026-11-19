@@ -28,7 +28,7 @@ func (r *Registry) List() []registry.Tool {
 }
 
 // WrappedTools 返回包了 Interceptor 链的工具集——供 ReAct runtime 等绕过
-// Registry.execute 直调 tool.Execute 的路径使用，保证遥测/心跳拦截器不被跳过。
+// Registry.execute 直调 tool.Execute 的路径使用，保证遥测拦截器不被跳过。
 func (r *Registry) WrappedTools() []registry.Tool {
 	raw := r.List()
 	out := make([]registry.Tool, 0, len(raw))

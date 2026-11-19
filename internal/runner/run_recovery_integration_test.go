@@ -8,13 +8,17 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
+	"github.com/V3teran/liusha/internal/worker"
 )
 
 // recordingPublisher 记录广播到对话的消息（实时流的替身）。
@@ -30,7 +34,7 @@ func (p *recordingPublisher) PublishMessage(_ context.Context, conversationID st
 	return nil
 }
 
-// 自动恢复连续中断达上限、任务落 aborted 时，对话时间线要有终态节点（与用户停止、心跳回收、
+// 自动恢复连续中断达上限、任务落 aborted 时，对话时间线要有终态节点（与用户停止、
 // 运行出错同一口径）：否则对话里任务停在「工作中」的最后一条消息，看不出它已被终止及原因。
 func TestRunRecovery_AbortAfterRetriesWritesTimeline(t *testing.T) {
 	ctx := context.Background()
@@ -98,5 +102,92 @@ func TestRunRecovery_AbortAfterRetriesWritesTimeline(t *testing.T) {
 	}
 	if len(pub.sent) != 1 {
 		t.Errorf("已终止的任务不应重复落节点，得 %d 次广播", len(pub.sent))
+	}
+}
+
+// 孤儿 pending run：入队后队列里已没有它（Redis 数据丢失、处理中进程被硬杀后归档），run 行永远
+// 停在 pending，搁浅规则又把它算作存活 run——任务卡在进行中。恢复监控按队列实况收掉它（从未执行，
+// 不计入重投上限）并在同一轮重投；队列里还在排的、刚建不久的、队列查不了的都不动。
+func TestRunRecovery_OrphanPendingRunIsRedispatched(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	tasks := task.NewStore(pool)
+	runs := agentrun.NewStore(pool)
+	mr := miniredis.RunT(t)
+	wc := worker.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = wc.Close() })
+
+	newTaskWithPending := func(goal string, age time.Duration, enqueue bool) (string, string) {
+		t.Helper()
+		tk, err := tasks.Create(ctx, task.NewParams{AssignmentID: dbtest.SeedAssignment(t, pool), Goal: goal})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if enqueue {
+			if _, _, err := wc.Enqueue(ctx, worker.RoleAgent, worker.Payload{AgentRunID: runID, TaskID: tk.ID}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET updated_at = now() - $2 * interval '1 second' WHERE id = $1`,
+			runID, int(age.Seconds())); err != nil {
+			t.Fatal(err)
+		}
+		return tk.ID, runID
+	}
+	orphanTask, orphanRun := newTaskWithPending("扫描 http://orphan.test", 10*time.Minute, false)
+	_, queuedRun := newTaskWithPending("扫描 http://queued.test", 10*time.Minute, true)
+	_, freshRun := newTaskWithPending("扫描 http://fresh.test", 0, false)
+
+	m := &RunRecoveryMonitor{
+		pool: pool, wc: wc, agentRuns: runs, tasks: tasks, conversations: conversation.NewStore(pool),
+		publisher: &recordingPublisher{}, logger: zerolog.New(io.Discard), timeout: 6 * time.Minute, maxAttempts: 4,
+	}
+	if err := m.recoverOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	status := func(id string) agentrun.Status {
+		t.Helper()
+		r, err := runs.GetByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Status
+	}
+	if got := status(orphanRun); got != agentrun.StatusAborted {
+		t.Fatalf("孤儿 pending run 应落 aborted，得 %s", got)
+	}
+	if got := status(queuedRun); got != agentrun.StatusPending {
+		t.Errorf("队列里还在排的 run 不得回收，得 %s", got)
+	}
+	if got := status(freshRun); got != agentrun.StatusPending {
+		t.Errorf("刚建的 run（生产者可能尚未入队）不得回收，得 %s", got)
+	}
+	latest, err := runs.LatestByTask(ctx, orphanTask)
+	if err != nil || latest == nil {
+		t.Fatalf("孤儿任务应在同一轮重投: %v", err)
+	}
+	if latest.ID == orphanRun || latest.Status != agentrun.StatusPending {
+		t.Fatalf("应有新的 pending run，得 %+v", latest)
+	}
+	if queued, err := wc.RunQueued(latest.ID); err != nil || !queued {
+		t.Fatalf("重投的 run 应已入队: queued=%v err=%v", queued, err)
+	}
+	if tk, _ := tasks.GetByID(ctx, orphanTask); tk.Status != task.StatusActive {
+		t.Errorf("孤儿 run 从未执行，任务应保持进行中，得 %s", tk.Status)
+	}
+
+	// 队列查不了（Redis 不可达）时不得把正常排队的 run 当孤儿收掉。
+	_, unknownRun := newTaskWithPending("扫描 http://unknown.test", 10*time.Minute, true)
+	mr.Close()
+	if err := m.recoverOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(unknownRun); got != agentrun.StatusPending {
+		t.Errorf("队列状态未知时不得回收，得 %s", got)
 	}
 }

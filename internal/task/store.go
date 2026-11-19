@@ -22,7 +22,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, assignment_id, goal, target_host, status, paused, heartbeat_at, paused_ms, " +
+const colsSelect = "id, assignment_id, goal, target_host, status, paused, paused_ms, " +
 	"created_at, ended_at, error_message, scenario, scenario_name, scenario_body"
 
 const (
@@ -172,7 +172,7 @@ func scan(r db.RowScanner, t *Task) error {
 	var status string
 	var scCode, scName, scBody *string
 	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Goal, &t.TargetHost, &status, &t.Paused,
-		&t.HeartbeatAt, &t.PausedMs,
+		&t.PausedMs,
 		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage, &scCode, &scName, &scBody); err != nil {
 		return err
 	}

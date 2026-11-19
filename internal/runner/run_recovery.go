@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
@@ -15,21 +16,25 @@ import (
 	"github.com/V3teran/liusha/internal/worker"
 )
 
-// run_recovery.go：僵尸 run 回收与搁浅任务重投。
+// run_recovery.go：僵尸 run、孤儿 pending run 回收与搁浅任务重投。
 //
 // 缺口：active 任务以 MaxRetry(0) 入队（防 4h × 25 retry = 4 天死循环），
 // runner 被硬杀（pkill / 断电 / OOM）时 asynq 判任务失败直接进 archived
 // 永不重投——agent_run 停在 running、task 停在 active 成僵尸。动作级停摆由
 // 执行者看门狗处理，新 run 开始时回收上一 run 留下的在途动作；本监控管 run 与任务。
 //
-// 本监控补另一半，两条规则：
+// 本监控补另一半，三条规则：
 //
 //  1. 僵尸 run：running run + LLM/工具活动停摆超过 timeout（6 分钟 ≈ 2 倍单步
 //     LLM 看门狗）→ 旧 run 标记 failed → 以全新
 //     agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
 //     已终态的任务例外：只回收僵尸 run 行（含进程死在终态落库之后的脏行），
 //     不重投——恢复分别由继续操作 / 终态判定驱动。
-//  2. 搁浅任务：active 且未暂停，却没有任何 pending/running run（暂停退出后
+//  2. 孤儿 pending run：pending 超过 timeout，队列里却已没有它（入队后 Redis 数据
+//     丢失；领取后、开跑前进程被硬杀，租约过期后因不重试直接归档）→ 标 aborted（从未
+//     执行，不计中断次数），由规则 3 在同一轮重投。按队列实况判定，队列积压不会误判；
+//     队列查不了时不动。
+//  3. 搁浅任务：active 且未暂停，却没有任何 pending/running run（暂停退出后
 //     的继续竞态、enqueue 失败等泄漏）→ 重投 planner。活跃任务的不变式是
 //     「必有 run 在跑或排队」，此规则让不变式自愈。
 //
@@ -183,7 +188,51 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 
 		m.redispatchPlanner(ctx, z.taskID, z.conversationID)
 	}
+	if err := m.recoverOrphanPending(ctx); err != nil {
+		m.logger.Error().Err(err).Msg("孤儿 pending run 回收失败")
+	}
 	return m.recoverStranded(ctx)
+}
+
+// recoverOrphanPending 回收队列里已不存在的 pending run。只看 pending 超过 timeout 的行：
+// 生产者先建 run 行再入队，刚建的行可能尚未入队。回收只认 pending（AbortPending），与 handler
+// 领取互斥；任务随后由搁浅规则重投（暂停中、已终态的任务只收行，与僵尸 run 同口径）。
+func (m *RunRecoveryMonitor) recoverOrphanPending(ctx context.Context) error {
+	rows, err := m.pool.Query(ctx, `
+		SELECT id::text, task_id::text FROM agent_run
+		WHERE status = 'pending' AND updated_at < NOW() - $1 * INTERVAL '1 second'
+	`, int(m.timeout.Seconds()))
+	if err != nil {
+		return err
+	}
+	type pendingRun struct{ runID, taskID string }
+	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (pendingRun, error) {
+		var p pendingRun
+		return p, r.Scan(&p.runID, &p.taskID)
+	})
+	if err != nil {
+		return err
+	}
+	for _, p := range list {
+		queued, err := m.wc.RunQueued(p.runID)
+		if err != nil {
+			m.logger.Warn().Err(err).Str("agent_run_id", p.runID).Msg("查询 run 的队列状态失败，本轮不回收")
+			continue
+		}
+		if queued {
+			continue // 仍在排队（积压）或正在被领取，交给 handler
+		}
+		aborted, err := m.agentRuns.AbortPending(ctx, p.runID)
+		if err != nil {
+			m.logger.Error().Err(err).Str("agent_run_id", p.runID).Msg("孤儿 pending run 回收失败")
+			continue
+		}
+		if aborted {
+			m.logger.Warn().Str("agent_run_id", p.runID).Str("task_id", p.taskID).
+				Msg("pending run 已不在队列中（从未执行），回收后由搁浅规则重投")
+		}
+	}
+	return nil
 }
 
 // recoverStranded 重投搁浅任务：active 且未暂停，却没有任何 pending/running
@@ -241,7 +290,7 @@ func (m *RunRecoveryMonitor) recoverStranded(ctx context.Context) error {
 }
 
 // abortAfterRetries 中断次数达上限：任务落 aborted，并往对话时间线落终止节点（与用户停止、
-// 心跳回收、运行出错同一口径——否则对话停在「工作中」的最后一条消息，看不出任务已被终止
+// 运行出错同一口径——否则对话停在「工作中」的最后一条消息，看不出任务已被终止
 // 及原因）。节点只由真正完成迁移的一方落，任务已被别处终止时不重复。
 func (m *RunRecoveryMonitor) abortAfterRetries(ctx context.Context, taskID, conversationID string, attempts int) {
 	reason := "runner 连续中断 " + strconv.Itoa(attempts) + " 次，已停止自动恢复；请手动重新下发任务"

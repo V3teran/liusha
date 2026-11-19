@@ -192,3 +192,36 @@ func TestClient_Enqueue_RunHasNoRetryAndNoQueueDeadline(t *testing.T) {
 		t.Errorf("队列层不应给 run 设短时限（asynq 缺省 30 分钟），得 %v", info.Timeout)
 	}
 }
+
+// RunQueued 区分「队列层还会执行」与「再也不会被执行」：恢复监控据此回收孤儿 pending run——
+// 入队后 Redis 数据丢失、或处理中进程被硬杀后任务被归档（不重试），run 行会永远停在 pending。
+func TestClient_RunQueued(t *testing.T) {
+	c, mr := newTestClient(t)
+	if _, _, err := c.Enqueue(context.Background(), RoleAgent, Payload{AgentRunID: "run-q", TaskID: "task-q"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Enqueue(context.Background(), RoleAgent, Payload{AgentRunID: "run-archived", TaskID: "task-q"}); err != nil {
+		t.Fatal(err)
+	}
+	insp := asynq.NewInspector(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = insp.Close() })
+	if err := insp.ArchiveTask(RoleAgent.Queue(), "run-archived"); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string]bool{"run-q": true, "run-archived": false, "run-missing": false}
+	for id, want := range cases {
+		got, err := c.RunQueued(id)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if got != want {
+			t.Errorf("RunQueued(%s) = %v，应为 %v", id, got, want)
+		}
+	}
+
+	mr.Close()
+	if _, err := c.RunQueued("run-q"); err == nil {
+		t.Error("Redis 不可达时应返回错误，不得当作「不在队列」——否则恢复监控会误收正常排队的 run")
+	}
+}

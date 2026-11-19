@@ -99,7 +99,7 @@ type Config struct {
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
 
-	// WrapTool 把监察工具包进共享拦截链（遥测/心跳/时间线）——系统里
+	// WrapTool 把监察工具包进共享拦截链（遥测/时间线）——系统里
 	// 破坏性最大的决策（否决动作）不应是审计盲区（实测 tool_invocation 0 行）。
 	// nil=不包装（独立部署/测试）。
 	WrapTool func(registry.Tool) registry.Tool

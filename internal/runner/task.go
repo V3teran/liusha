@@ -23,7 +23,7 @@ import (
 //  任务执行生命周期（终态回写 / 时间线 / 身份回收）
 // ─────────────────────────────────────────────────────────────
 
-// executeTask 是单个任务的执行全生命周期：心跳 → 沙箱获取 → 驱动认知循环 → 会话身份
+// executeTask 是单个任务的执行全生命周期：沙箱获取 → 驱动认知循环 → 会话身份
 // 回收 → agent_run/task 终态回写。tk 是开跑时读到的任务行（目标主机在本 run 内取定）。
 // 所有任务都走同一条链；taskLogger 是 Handle() 在任务作用域派生的 logger
 // （task_id/assignment_id/conv 自动附加），本函数与下游（runCognition →
@@ -35,9 +35,6 @@ func (h *Handler) executeTask(
 	taskLogger zerolog.Logger,
 ) error {
 	taskID := p.TaskID
-	if err := h.Tasks.Heartbeat(ctx, taskID); err != nil {
-		taskLogger.Warn().Err(err).Msg("task入口心跳失败")
-	}
 
 	virtualHost := credentialHost(tk)
 

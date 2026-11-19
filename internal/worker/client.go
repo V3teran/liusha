@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,12 +13,13 @@ import (
 
 // Client 是 asynq 生产者的薄封装，按 TaskRole 路由到对应队列，并以 Payload.AgentRunID 实现幂等。
 type Client struct {
-	c *asynq.Client
+	c    *asynq.Client
+	insp *asynq.Inspector
 }
 
 // NewClient 创建一个 Client。调用方负责 Close。
 func NewClient(opt asynq.RedisClientOpt) *Client {
-	return &Client{c: asynq.NewClient(opt)}
+	return &Client{c: asynq.NewClient(opt), insp: asynq.NewInspector(opt)}
 }
 
 // RedisOpt 把 go-redis 连接选项换算为任务队列的连接选项：队列与其它 Redis 用途连同一个实例、
@@ -38,7 +40,7 @@ func RedisOpt(o *redis.Options) asynq.RedisClientOpt {
 }
 
 // Close 释放底层连接。
-func (c *Client) Close() error { return c.c.Close() }
+func (c *Client) Close() error { return errors.Join(c.c.Close(), c.insp.Close()) }
 
 // runQueueTimeout 是 run 在队列层的时限。asynq 未设时限时缺省 30 分钟就取消处理函数，且
 // 无法表达「不限」（Timeout(0) 等同未设置）；run 的墙钟上限由 runner 处理函数按
@@ -77,4 +79,23 @@ func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload) (string,
 		return "", "", fmt.Errorf("worker: 入队 role=%s run=%s 失败: %w", role, p.AgentRunID, err)
 	}
 	return info.ID, info.Queue, nil
+}
+
+// RunQueued 报告 run 在队列层是否还会被执行（run ID 即 asynq 的 task ID）：排队、定时、重试中或
+// 正在处理返回 true；查不到（入队后 Redis 数据丢失）、已归档（处理中进程被硬杀、租约过期后因不重试
+// 直接归档）或已完成返回 false。查询失败返回错误——调用方不得把它当作「不在队列」。
+func (c *Client) RunQueued(runID string) (bool, error) {
+	info, err := c.insp.GetTaskInfo(RoleAgent.Queue(), runID)
+	switch {
+	case errors.Is(err, asynq.ErrTaskNotFound), errors.Is(err, asynq.ErrQueueNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("worker: 查询 run=%s 的队列状态失败: %w", runID, err)
+	}
+	switch info.State {
+	case asynq.TaskStateArchived, asynq.TaskStateCompleted:
+		return false, nil
+	default:
+		return true, nil
+	}
 }

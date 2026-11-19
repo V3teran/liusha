@@ -218,7 +218,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	}()
 
-	startBackgroundLoops(bgCtx, cfg, pool, wc, st, sysSettings, creds, rdb, logger)
+	startBackgroundLoops(bgCtx, cfg, pool, wc, st, creds, rdb, logger)
 
 	ts := newTaskServer(redisOpt, runnerCfg, logger)
 	if err := ts.Start(mux.AsynqMux()); err != nil {
@@ -245,7 +245,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 // startBackgroundLoops 启动恢复监控与各类清扫器（随 ctx 取消退出）。
 func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpool.Pool, wc *worker.Client,
-	st *stores, sysSettings *settingstore.Store, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
+	st *stores, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
 ) {
 	runnerCfg := cfg.Runner
 	// 僵尸 run 回收与搁浅任务重投。
@@ -253,8 +253,6 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		time.Duration(runnerCfg.RunRecoveryIntervalSeconds)*time.Second,
 		time.Duration(runnerCfg.RunRecoveryTimeoutSeconds)*time.Second,
 		runnerCfg.RunRecoveryMaxAttempts)
-
-	task.StartReaper(ctx, st.tasks, sysSettings, runnerCfg.StepLLMTimeoutSeconds, st.conversations, convstream.NewPublisher(rdb), logger)
 
 	// 坐实了却没进台账的结果补交付一次（交付一直失败、或 0230 之前被错误合并的发现）。
 	go func() {

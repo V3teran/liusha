@@ -5,7 +5,6 @@ package task
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/dbtest"
@@ -152,26 +151,6 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("count 应为 1, got %d", n)
-	}
-}
-
-func TestHeartbeatAndReaperView(t *testing.T) {
-	tasks, assignments := newStores(t)
-	ctx := context.Background()
-
-	asg := mkAssignment(t, assignments, ctx, "对 http://d.example.com 做存活探测")
-	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://d.example.com 做存活探测"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// 心跳推进 heartbeat_at（reaper 判活依据）
-	if err := tasks.Heartbeat(ctx, tk.ID); err != nil {
-		t.Fatalf("heartbeat: %v", err)
-	}
-	got, _ := tasks.GetByID(ctx, tk.ID)
-	if time.Since(got.HeartbeatAt) > time.Minute {
-		t.Fatalf("heartbeat_at 应为刚写入的时刻: %+v", got.HeartbeatAt)
 	}
 }
 

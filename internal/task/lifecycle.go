@@ -3,7 +3,6 @@ package task
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -141,15 +140,12 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 //
 // 累计停顿：复活前把「上次 ended_at → 现在」的用户停顿累加进 paused_ms（PG UPDATE 表达式用行旧值），
 // Task.Elapsed 据此扣除停顿。ended_at 为空则不累加（COALESCE 兜底 0）。
-// heartbeat_at 一并重置为 now：复活即续命——否则旧心跳残留，队列积压场景下 reaper
-// 会把刚重开的任务按超时判死（重开 → runner 领取之间存在无心跳空窗）。
 func ReopenTx(ctx context.Context, tx pgx.Tx, id string) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE task SET
 			status='active',
 			paused=false,
 			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
-			heartbeat_at=now(),
 			ended_at=NULL,
 			error_message=''
 		WHERE id=$1`, id); err != nil {
@@ -159,56 +155,11 @@ func ReopenTx(ctx context.Context, tx pgx.Tx, id string) error {
 	return explorationgraph.SyncWithTask(ctx, tx, []string{id}, explorationgraph.TaskActive)
 }
 
-// Heartbeat 刷新 active task 的 heartbeat_at（B2 探活：agent 每次工具调用驱动，节流见 caller）。
-// 仅对 active 行生效——终态行不刷（避免复活已结束的扫描）。best-effort，不阻塞业务。
-func (s *Store) Heartbeat(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE task SET heartbeat_at=now() WHERE id=$1 AND status='active'`, id)
-	if err != nil {
-		return fmt.Errorf("heartbeat task %s: %w", id, err)
-	}
-	return nil
-}
-
-// ReapStale 把心跳超时的 active task 判为 aborted（进程崩溃/卡死的孤儿）。
-// 暂停中的任务豁免：暂停即有意停摆（无 run 在跑、无心跳是常态），由继续操作
-// 复活，判死条件永不成立才对。
-//
-// 跨场景统一巡检：一次扫全部 active task，按 staleAfter 判死。返回回收的 task ID
-// 列表（调用方据此做后续可见性动作——时间线节点/告警）。
-func (s *Store) ReapStale(ctx context.Context, staleAfter time.Duration) ([]string, error) {
-	var ids []string
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			UPDATE task SET
-				status='aborted',
-				ended_at=now(),
-				error_message='心跳超时（runner 进程崩溃或任务卡死）'
-			WHERE status='active' AND NOT paused AND heartbeat_at < now() - $1::interval
-			RETURNING id`,
-			fmt.Sprintf("%d milliseconds", staleAfter.Milliseconds()))
-		if err != nil {
-			return err
-		}
-		ids, err = pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			return err
-		}
-		return explorationgraph.SyncWithTask(ctx, tx, ids, explorationgraph.TaskAborted)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("reap stale tasks: %w", err)
-	}
-	return ids, nil
-}
-
 // MarkPaused 把 active 任务置为暂停中（CAS：已暂停的行不重复迁移）。返回是否
 // 发生了迁移——false 即已是暂停态，调用方据此跳过重复的时间线/通知动作。
-// heartbeat_at 顺带续命：暂停期无 run 在跑，心跳就此定格，由 ReapStale 的
-// 暂停豁免兜住；续命是为了拉平「暂停落库 → 循环退出（≤5s）」窗口内的判死风险。
 func (s *Store) MarkPaused(ctx context.Context, id string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE task SET paused = true, heartbeat_at = now()
+		UPDATE task SET paused = true
 		WHERE id = $1 AND status = 'active' AND NOT paused`, id)
 	if err != nil {
 		return false, fmt.Errorf("mark paused: %w", err)
@@ -217,11 +168,10 @@ func (s *Store) MarkPaused(ctx context.Context, id string) (bool, error) {
 }
 
 // MarkResumed 解除暂停（CAS：仅暂停中的行）。返回是否发生迁移——false 即
-// 未在暂停（或已终态），调用方视为幂等 no-op。心跳同步续命，拉平
-// 「解除暂停 → 恢复 run 领取」窗口。
+// 未在暂停（或已终态），调用方视为幂等 no-op。
 func (s *Store) MarkResumed(ctx context.Context, id string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE task SET paused = false, heartbeat_at = now()
+		UPDATE task SET paused = false
 		WHERE id = $1 AND status = 'active' AND paused`, id)
 	if err != nil {
 		return false, fmt.Errorf("mark resumed: %w", err)
