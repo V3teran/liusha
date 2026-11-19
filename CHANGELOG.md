@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.1](https://github.com/V3teran/liusha/compare/v0.13.0...v0.13.1) (2026-11-19)
+
+
+### 新功能
+
+* **sandbox:** 沙盒预装 ncat 与 xxd ([dc7affd](https://github.com/V3teran/liusha/commit/dc7affddc848c91ec6e49de1de3ff98c68a40c11))
+* **task:** 下发任务可选择场景，领域指引随场景提供 ([77c03c2](https://github.com/V3teran/liusha/commit/77c03c2fb73114e94b402d8b729682f2e37fb059))
+* **tsecbench:** 跑分适配器入库，建任务走 CTF 场景 ([a9db0d7](https://github.com/V3teran/liusha/commit/a9db0d7af61170d071ead12f466398dc66cde29e))
+
+
+### 问题修复
+
+* **sandbox:** 沙盒中的 nmap 恢复可用 ([d7e9fdd](https://github.com/V3teran/liusha/commit/d7e9fdd0613e7976d6864b31554a5e2dfdb90878))
+
 ## [0.13.0](https://github.com/V3teran/liusha/compare/v0.12.0...v0.13.0) (2026-11-17)
 
 
