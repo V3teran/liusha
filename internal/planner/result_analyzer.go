@@ -154,8 +154,7 @@ func (e *Engine) callAnalysisLLM(ctx context.Context, prompt string) (*AnalysisR
 	}
 
 	resp, err := provider.Complete(ctx, llm.Request{
-		Messages:  messages,
-		MaxTokens: 4000,
+		Messages: messages,
 	})
 	if err != nil {
 		return nil, err

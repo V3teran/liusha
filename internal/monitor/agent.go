@@ -287,7 +287,6 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		LLMProvider:          provider,
 		MaxIterations:        a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:          0.3,     // 较低温度，确保稳定性
-		MaxTokens:            4000,
 		MessageModifierChain: runtime.NewCompactionChain(a.contextBudget(ctx), "monitor", a.distiller),
 		ToolOutputTailBytes:  a.toolOutputTailBytes,
 		// 监察链路也会多轮调工具（get_global_state 深挖/重试）：循环检测与

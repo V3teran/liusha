@@ -57,13 +57,13 @@ func (a *Agent) hasOpenActions(ctx context.Context) (bool, error) {
 }
 
 // generateNewActions 调用 Planner 生成新的 Actions
-func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.ActionDraft, error) {
+func (a *Agent) generateNewActions(ctx context.Context) (PlanOutcome, error) {
 	const (
 		maxRetries = 3
 		baseDelay  = 5 * time.Second
 	)
 
-	var actions []explorationgraph.ActionDraft
+	var outcome PlanOutcome
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -78,7 +78,7 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Acti
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return PlanOutcome{}, ctx.Err()
 			}
 		}
 
@@ -87,20 +87,21 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Acti
 			Int("max_attempts", maxRetries+1).
 			Msg("即将调用 a.planner.Plan()")
 
-		actions, lastErr = a.planner.Plan(ctx, a.graph, a.taskID, PlanRequest{FunctionTools: a.functionTools})
+		outcome, lastErr = a.planner.Plan(ctx, a.graph, a.taskID, PlanRequest{FunctionTools: a.functionTools})
 
 		a.logger.Info().
 			Bool("has_error", lastErr != nil).
-			Int("actions_len", len(actions)).
+			Bool("stop", outcome.Stop).
+			Int("actions_len", len(outcome.Actions)).
 			Int("attempt", attempt+1).
 			Msg("a.planner.Plan() 返回")
 
 		if lastErr == nil {
 			a.logger.Info().
-				Int("action_count", len(actions)).
+				Int("action_count", len(outcome.Actions)).
 				Int("attempts_used", attempt+1).
 				Msg("Planner.Plan 成功")
-			return actions, nil
+			return outcome, nil
 		}
 
 		// 判断是否应该重试
@@ -108,7 +109,7 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Acti
 			a.logger.Error().
 				Err(lastErr).
 				Msg("Plan() 调用失败（不可重试错误）")
-			return nil, fmt.Errorf("plan: %w", lastErr)
+			return PlanOutcome{}, fmt.Errorf("plan: %w", lastErr)
 		}
 
 		a.logger.Warn().
@@ -121,7 +122,7 @@ func (a *Agent) generateNewActions(ctx context.Context) ([]explorationgraph.Acti
 		Err(lastErr).
 		Int("total_attempts", maxRetries+1).
 		Msg("Plan() 调用失败（重试耗尽）")
-	return nil, fmt.Errorf("plan: 重试 %d 次后仍失败: %w", maxRetries+1, lastErr)
+	return PlanOutcome{}, fmt.Errorf("plan: 重试 %d 次后仍失败: %w", maxRetries+1, lastErr)
 }
 
 // isRetriableError 判断错误是否可重试：网络抖动/限流/服务端过载/超时委托给
@@ -216,7 +217,7 @@ func (a *Agent) hasPendingHypotheses(ctx context.Context) bool {
 	return false
 }
 
-// hasUnsettledWork 判断图上是否还有非终态 action（running/open/blocked）。
+// hasUnsettledWork 判断图上是否还有非终态 action（open / running）。
 // 判定失败保守返回 true（宁可多跑，不误终止任务）。
 func (a *Agent) hasUnsettledWork(ctx context.Context) bool {
 	states, err := a.graph.ListActionStates(ctx, a.taskID)

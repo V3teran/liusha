@@ -210,7 +210,6 @@ func (j *RouterJudge) Judge(
 		MaxConsecutiveToolFailures: 12,      // 连续工具失败止损阈值（单机制：runtime 内置，评估链路容忍更高）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
-		MaxTokens:                  1500,
 		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller),
 		ToolOutputTailBytes:        j.toolTailBytes,
 		MiddlewareChain:            middlewareChain,

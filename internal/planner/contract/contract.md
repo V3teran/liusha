@@ -18,7 +18,7 @@
 }
 ```
 
-停止探索时输出 `{"should_continue": false, "reasoning": "..."}`，actions 为空。
+停止探索时输出 `{"should_continue": false, "reasoning": "..."}`，actions 为空。停止探索是对整个任务的结论：你排出的、还没做完的动作（包括执行中的）随之收回，用户指派的动作照常做完；之后图上出现新坐实的结果、新的目标或动作，或任务目标被调整时，会再次请你规划。
 
 - `complexity`：`simple` 简单操作、`moderate` 常规操作、`complex` 需要深入的操作
 - `priority`：`critical` 阻塞后续工作、`high` 重要且紧急、`medium` 常规、`low` 可选补充

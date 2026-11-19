@@ -23,12 +23,12 @@ type fakePlanner struct {
 	result    []explorationgraph.ActionDraft
 }
 
-func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ PlanRequest) ([]explorationgraph.ActionDraft, error) {
+func (f *fakePlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ string, _ PlanRequest) (PlanOutcome, error) {
 	idx := int(atomic.AddInt32(&f.callCount, 1)) - 1
 	if idx < len(f.errors) {
-		return nil, f.errors[idx]
+		return PlanOutcome{}, f.errors[idx]
 	}
-	return f.result, nil
+	return PlanOutcome{Actions: f.result}, nil
 }
 
 func (f *fakePlanner) AnalyzeResults(_ context.Context, _ *explorationgraph.Store, _ string, _ []explorationgraph.Node) (*ResultAnalysis, error) {
@@ -69,11 +69,11 @@ func TestGenerateNewActions_RetryOn429(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	actions, err := agent.generateNewActions(ctx)
+	outcome, err := agent.generateNewActions(ctx)
 
 	assert.NoError(t, err)
-	assert.Len(t, actions, 1)
-	assert.Equal(t, "action-1", actions[0].Node.ID)
+	assert.Len(t, outcome.Actions, 1)
+	assert.Equal(t, "action-1", outcome.Actions[0].Node.ID)
 	assert.Equal(t, int32(2), fake.callCount) // 第一次失败，第二次成功
 }
 
@@ -97,10 +97,10 @@ func TestGenerateNewActions_RetryOnTimeout(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	actions, err := agent.generateNewActions(ctx)
+	outcome, err := agent.generateNewActions(ctx)
 
 	assert.NoError(t, err)
-	assert.Len(t, actions, 1)
+	assert.Len(t, outcome.Actions, 1)
 	assert.Equal(t, int32(3), fake.callCount) // 两次失败，第三次成功
 }
 
@@ -125,10 +125,10 @@ func TestGenerateNewActions_ExhaustRetries(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	actions, err := agent.generateNewActions(ctx)
+	outcome, err := agent.generateNewActions(ctx)
 
 	assert.Error(t, err)
-	assert.Nil(t, actions)
+	assert.Nil(t, outcome.Actions)
 	assert.Contains(t, err.Error(), "重试 4 次后仍失败")
 	assert.Equal(t, int32(4), fake.callCount) // 总共 4 次调用
 }
@@ -151,10 +151,10 @@ func TestGenerateNewActions_NonRetriableError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	actions, err := agent.generateNewActions(ctx)
+	outcome, err := agent.generateNewActions(ctx)
 
 	assert.Error(t, err)
-	assert.Nil(t, actions)
+	assert.Nil(t, outcome.Actions)
 	assert.Contains(t, err.Error(), "invalid JSON response")
 	assert.Equal(t, int32(1), fake.callCount) // 不可重试，只调用 1 次
 }
@@ -202,10 +202,10 @@ func TestGenerateNewActions_RespectContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	actions, err := agent.generateNewActions(ctx)
+	outcome, err := agent.generateNewActions(ctx)
 
 	assert.Error(t, err)
-	assert.Nil(t, actions)
+	assert.Nil(t, outcome.Actions)
 	// context 取消后应该立即返回，不会重试
 	assert.Equal(t, int32(1), fake.callCount)
 }

@@ -70,7 +70,6 @@ func (d *compactionDistiller) Distill(ctx context.Context, role string, evicted 
 			{Role: llm.RoleSystem, Content: distillSystemPrompt},
 			{Role: llm.RoleUser, Content: "为「" + role + "」角色压缩以下执行历史：\n\n" + user},
 		},
-		MaxTokens: 1200,
 	})
 	if err != nil {
 		return "", fmt.Errorf("compaction distill: generate: %w", err)

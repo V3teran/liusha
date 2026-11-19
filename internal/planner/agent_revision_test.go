@@ -22,8 +22,8 @@ type analysisPlanner struct {
 	analyzed []string
 }
 
-func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, PlanRequest) ([]explorationgraph.ActionDraft, error) {
-	return nil, nil
+func (p *analysisPlanner) Plan(context.Context, *explorationgraph.Store, string, PlanRequest) (PlanOutcome, error) {
+	return PlanOutcome{}, nil
 }
 
 func (p *analysisPlanner) AnalyzeResults(_ context.Context, _ *explorationgraph.Store, _ string, results []explorationgraph.Node) (*ResultAnalysis, error) {
@@ -318,11 +318,11 @@ func TestApplyPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	require.NoError(t, a.applyPlan(ctx, basisOf(t, store), []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),
-	}, "planning"))
+	}}, "planning"))
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
