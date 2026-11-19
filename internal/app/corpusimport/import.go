@@ -101,7 +101,6 @@ func autoTag(ctx context.Context, logger zerolog.Logger, router *llm.Router, con
 			{Role: llm.RoleSystem, Content: tagInstruction},
 			{Role: llm.RoleUser, Content: content},
 		},
-		MaxTokens: 256,
 	})
 	if err != nil {
 		logger.Warn().Err(err).Msg("打标调用失败（降级：首行当 title）")

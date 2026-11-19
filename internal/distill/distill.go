@@ -222,7 +222,6 @@ func (s *Service) generate(ctx context.Context, goal string, materials []string)
 			{Role: fwllm.RoleSystem, Content: distillSystemPrompt},
 			{Role: fwllm.RoleUser, Content: user},
 		},
-		MaxTokens: 2000,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("complete: %w", err)

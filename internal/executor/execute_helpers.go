@@ -100,7 +100,6 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		Temperature:                0.7,
-		MaxTokens:                  4000,
 		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "executor", e.distiller),
 		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
