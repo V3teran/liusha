@@ -17,7 +17,7 @@ const sc = (o: Partial<ScenarioListItem>): ScenarioListItem => ({
 })
 
 const SCENARIOS = [
-  sc({ code: 'ctf', name: 'CTF 夺旗' }),
+  sc({ code: 'ctf', name: 'CTF' }),
   sc({ code: 'pentest', name: '渗透测试', is_default: true }),
   sc({ code: 'off', name: '停用的', enabled: false, is_builtin: false }),
 ]
@@ -40,7 +40,7 @@ describe('ScenarioSelect', () => {
   it('未选时不带场景（服务端落定缺省）', async () => {
     vi.mocked(startChat).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
     renderComposer()
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '扫一下')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => expect(startChat).toHaveBeenCalledWith('扫一下', [], undefined))
@@ -68,7 +68,7 @@ describe('ScenarioSelect', () => {
       </QueryClientProvider>
     )
     const { rerender } = render(ui('a'))
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     await userEvent.selectOptions(screen.getByRole('combobox', { name: '任务场景' }), 'ctf')
     rerender(ui('b'))
     expect((screen.getByRole('combobox', { name: '任务场景' }) as HTMLSelectElement).value).toBe('pentest')
@@ -88,7 +88,7 @@ describe('ScenarioSelect', () => {
     )
     const { rerender } = render(ui())
     const pick = () => screen.getByRole('combobox', { name: '任务场景' }) as HTMLSelectElement
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     await userEvent.selectOptions(pick(), 'ctf')
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '聊聊')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -106,7 +106,7 @@ describe('ScenarioSelect', () => {
     vi.mocked(startChat).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
     renderComposer()
     const select = screen.getByRole('combobox', { name: '任务场景' })
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     expect((select as HTMLSelectElement).value).toBe('pentest')
     expect(screen.queryByRole('option', { name: '停用的' })).toBeNull()
     const options = screen.getAllByRole('option').map((o) => o.textContent)
@@ -121,7 +121,7 @@ describe('ScenarioSelect', () => {
   it('尚未绑定任务的会话追加消息时带上场景；选「无场景」提交空串', async () => {
     vi.mocked(followUp).mockResolvedValue({ intent: 'accepted' })
     renderComposer({ convId: 'c1' })
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     await userEvent.selectOptions(screen.getByRole('combobox', { name: '任务场景' }), '')
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '看看')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -136,14 +136,14 @@ describe('ScenarioSelect', () => {
 
 describe('ScenarioSelect 缺省场景不可用', () => {
   it('缺省场景被停用或删除时，未选即显示无场景', async () => {
-    vi.mocked(listScenarios).mockResolvedValue([sc({ code: 'ctf', name: 'CTF 夺旗' })])
+    vi.mocked(listScenarios).mockResolvedValue([sc({ code: 'ctf', name: 'CTF' })])
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={qc}>
         <ScenarioSelect value={null} onChange={vi.fn()} aria-label="场景" />
       </QueryClientProvider>,
     )
-    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF 夺旗' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     expect((screen.getByRole('combobox', { name: '场景' }) as HTMLSelectElement).value).toBe('')
   })
 })

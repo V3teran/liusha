@@ -155,9 +155,9 @@ describe('ScenariosPage', () => {
   })
 
   it('保存在途时切到别的场景：迟到的结果不关闭新打开的编辑器', async () => {
-    mList.mockResolvedValue({ scenarios: [item(sc()), item(sc({ code: 'ctf', name: 'CTF 夺旗', is_default: false }))], total: 2 })
+    mList.mockResolvedValue({ scenarios: [item(sc()), item(sc({ code: 'ctf', name: 'CTF', is_default: false }))], total: 2 })
     mGet.mockImplementation(async (code: string) =>
-      detail(code === 'ctf' ? sc({ code: 'ctf', name: 'CTF 夺旗', is_default: false }) : sc()),
+      detail(code === 'ctf' ? sc({ code: 'ctf', name: 'CTF', is_default: false }) : sc()),
     )
     let finish!: (d: ScenarioDetail) => void
     mPatch.mockReturnValue(new Promise((r) => (finish = r)))
@@ -168,12 +168,12 @@ describe('ScenariosPage', () => {
     await user.type(name, '渗透')
     await user.click(screen.getByText('保存'))
     fireEvent.click(screen.getByTestId('go-ctf'))
-    expect(await screen.findByDisplayValue('CTF 夺旗')).toBeTruthy()
+    expect(await screen.findByDisplayValue('CTF')).toBeTruthy()
     finish(detail(sc({ name: '渗透' })))
     await waitFor(() => expect(mPatch).toHaveBeenCalled())
     await new Promise((r) => setTimeout(r, 50))
     expect(screen.getByTestId('loc').textContent).toBe('?selected=ctf')
-    expect(screen.getByDisplayValue('CTF 夺旗')).toBeTruthy()
+    expect(screen.getByDisplayValue('CTF')).toBeTruthy()
   })
 
   it('全部恢复出厂经确认对话框，草稿回到出厂内容', async () => {
@@ -238,8 +238,8 @@ describe('ScenariosPage', () => {
     mList.mockResolvedValue({ scenarios: [item(sc())], total: 1 })
     mGet.mockResolvedValue(detail(sc()))
     mDelete.mockResolvedValue()
-    mDeleted.mockResolvedValue([sc({ code: 'ctf', name: 'CTF 夺旗', is_default: false })])
-    mRestore.mockResolvedValue(detail(sc({ code: 'ctf', name: 'CTF 夺旗', is_default: false })))
+    mDeleted.mockResolvedValue([sc({ code: 'ctf', name: 'CTF', is_default: false })])
+    mRestore.mockResolvedValue(detail(sc({ code: 'ctf', name: 'CTF', is_default: false })))
     const user = userEvent.setup()
     renderPage('/config/scenarios?selected=pentest')
     await user.click(await screen.findByText('删除'))
@@ -248,7 +248,7 @@ describe('ScenariosPage', () => {
     await user.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('pentest'))
     await user.click(await screen.findByRole('button', { name: '已删除的内置（1）' }))
-    await user.click(await screen.findByRole('button', { name: '恢复场景「CTF 夺旗」' }))
+    await user.click(await screen.findByRole('button', { name: '恢复场景「CTF」' }))
     await waitFor(() => expect(mRestore).toHaveBeenCalledWith('ctf'))
   })
 })

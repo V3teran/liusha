@@ -161,7 +161,7 @@ func TestScenarioConflicts(t *testing.T) {
 // 已删除的内置场景：?deleted=true 列出，restore 恢复；不是已删除的内置场景恢复 → 404。
 func TestDeletedScenarios_ListAndRestore(t *testing.T) {
 	f := newFakeScenarios()
-	f.trashed = []scenariostore.Scenario{{Code: "ctf", Name: "CTF 夺旗", IsBuiltin: true, Enabled: true}}
+	f.trashed = []scenariostore.Scenario{{Code: "ctf", Name: "CTF", IsBuiltin: true, Enabled: true}}
 	f.items = append(f.items, configstore.ScenarioDetail{Scenario: f.trashed[0], Overrides: map[string]override.State{}})
 	r := scenarioRouter(f)
 	if w := serve(r, http.MethodGet, "/scenarios?deleted=true", ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"code":"ctf"`) {
