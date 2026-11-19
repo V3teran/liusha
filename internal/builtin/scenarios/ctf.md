@@ -1,8 +1,8 @@
 ---
-name: CTF 夺旗
+name: CTF
 description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数量找全。
 ---
-本任务是在授权 CTF 靶场里解题夺旗，交付物是题目设定的 flag。
+本任务是在授权 CTF 靶场里解题，交付物是题目设定的 flag。
 
 ## flag 回报
 
