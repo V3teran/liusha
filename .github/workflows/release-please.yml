@@ -33,7 +33,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GHCR_PAT }}
           PRS: ${{ steps.release.outputs.prs }}
+        # 提交以 PAT 所有者（与 Release PR 同一身份）署名：署名 github-actions[bot] 会让它
+        # 随发版合并进 main，出现在仓库的贡献者列表里。
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          read -r login id < <(gh api user --jq '"\(.login) \(.id)"')
+          git config user.name "$login"
+          git config user.email "$id+$login@users.noreply.github.com"
           scripts/release/localize-notes.sh "$PRS"
