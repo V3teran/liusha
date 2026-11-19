@@ -115,6 +115,19 @@ func (s *Store) SetAborted(ctx context.Context, id string) error {
 	return nil
 }
 
+// AbortPending 把仍为 pending 的运行置为 aborted（CAS：只认 pending），返回是否发生迁移。
+// 用于回收队列里已不存在的孤儿 run：与 handler 领取（SetRunning，同样只认 pending）互斥，
+// 已被领取的运行不受影响。
+func (s *Store) AbortPending(ctx context.Context, id string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE agent_run SET status='aborted', updated_at=now()
+		WHERE id=$1 AND status='pending'`, id)
+	if err != nil {
+		return false, fmt.Errorf("abort pending %s: %w", id, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // GetByID 按主键读取 agent 运行行。
 func (s *Store) GetByID(ctx context.Context, id string) (Run, error) {
 	row := s.pool.QueryRow(ctx, `SELECT `+colsSelect+` FROM agent_run WHERE id=$1`, id)
