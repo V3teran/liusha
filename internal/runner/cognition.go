@@ -8,6 +8,8 @@ import (
 
 	"github.com/V3teran/liusha/internal/cognition"
 	"github.com/V3teran/liusha/internal/sandbox"
+	"github.com/V3teran/liusha/internal/scenario"
+	"github.com/V3teran/liusha/internal/task"
 )
 
 // runCognition 把 handler 依赖组装成 cognition.Deps 并驱动认知循环。
@@ -16,7 +18,7 @@ import (
 func (h *Handler) runCognition(
 	ctx context.Context,
 	taskLogger zerolog.Logger,
-	assignmentID, agentRunID, taskID, host, conversationID string,
+	tk task.Task, agentRunID, host, conversationID string,
 	installed sandbox.Inventory,
 ) (cognition.Report, error) {
 	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
@@ -31,8 +33,9 @@ func (h *Handler) runCognition(
 		taskLogger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
 	}
 	return cognition.Run(ctx, &cognition.Deps{
-		AssignmentID: assignmentID,
+		AssignmentID: tk.AssignmentID,
 		AgentRunID:   agentRunID,
+		Scenario:     scenarioBlock(tk),
 		Graph:        h.Graph,
 		EventBus:     h.EventBus,
 		CfgStore:     h.CfgStore,
@@ -72,7 +75,16 @@ func (h *Handler) runCognition(
 
 		Conversations:  h.Conversations,
 		EventPublisher: h.EventPublisher,
-	}, taskID, host, conversationID, h.Sandbox)
+	}, tk.ID, host, conversationID, h.Sandbox)
+}
+
+// scenarioBlock 按任务行的场景快照渲染场景块（不查场景表：场景之后被改、删都不影响已建任务，
+// 注入路径也就没有「场景读不到」的失败分支）。
+func scenarioBlock(tk task.Task) string {
+	if tk.Scenario == nil {
+		return ""
+	}
+	return scenario.Render(tk.Scenario.Name, tk.Scenario.Body)
 }
 
 // stepLLMTimeout 取单步 LLM 看门狗上限：系统配置（热改）优先，读取失败或未配置时取

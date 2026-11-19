@@ -49,7 +49,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const hasConv = !!convId
   const startedAt = store.messages[0]?.created_at ?? ''
   // 所属任务（纯聊天为空；聊天转为执行时中途关联上，见下方的事件驱动刷新）
-  const taskID = useConversation(convId ?? '').data?.task_id || ''
+  const convQuery = useConversation(convId ?? '')
+  const taskID = convQuery.data?.task_id || ''
+  // 新对话、或已加载且尚未绑定任务的对话：消息被判为要执行时会建任务，由用户选场景。
+  const pickScenario = !convId || (!!convQuery.data && !taskID)
   const task = useTaskDetail(taskID || null).data
   // 任务三档运行态：active（含暂停子态）/ 终态 / 无任务。控制组与状态文案据此派生。
   const taskActive = hasConv && !!taskID && task?.status === 'active'
@@ -327,6 +330,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         placeholder={
           source === 'proxy' && !hasConv ? '选择代理批次后，可在这里插话追问…' : undefined
         }
+        pickScenario={pickScenario && source !== 'proxy'}
         onStarted={handleStarted}
         onAppended={handleAppended}
       />

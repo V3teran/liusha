@@ -100,10 +100,12 @@ type Deps struct {
 	UsageLLM   LLMUsageAggregator
 	UsageTools ToolUsageAggregator
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
-	// 由 api 组件注入 *cache.Store（cfgstore：L1/L2/DB 多级缓存 + 写失效广播，
+	// 由 api 组件注入 *configstore.Store（L1/L2/DB 多级缓存 + 写失效广播，
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
 	// （工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgstore 读（read_skill）。
 	SkillStore SkillAPI
+	// ScenarioStore 为 nil 时场景路由（/scenarios 系列）不注册；api 组件注入 *configstore.Store。
+	ScenarioStore ScenarioAPI
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
@@ -219,6 +221,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerLLMInvocationRoutes(r, d)
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
+	registerScenarioRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
 	registerLogsRoutes(r, d)

@@ -123,6 +123,12 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
                       ))}
                   </span>
                 </Kv>
+                <Kv k="场景">
+                  <span className="text-xs">
+                    {task.scenario ? task.scenario_name : '无场景'}
+                    {task.scenario_deleted && <span className="ml-1 text-text-tertiary">（已删除）</span>}
+                  </span>
+                </Kv>
                 <Kv k="批次">
                   <span className="text-xs">
                     {task.assignment_title}（第 {task.assignment_index} / {task.assignment_total} 个）

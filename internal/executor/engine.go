@@ -17,6 +17,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
@@ -31,6 +32,7 @@ type Engine struct {
 	toolsManifest       ToolsManifest           // 过滤后的 CLI 工具清单
 	skills              []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
 	charter             string                  // 角色章程（生效值：出厂叠加用户自定义）
+	scenario            string                  // 任务场景块（scenario.Render；空 = 无场景）
 	complexity          llm.Complexity          // LLM 档位（agent 生效配置的 complexity；唯一来源）
 	maxIt               int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
@@ -52,6 +54,7 @@ type EngineConfig struct {
 	ToolsManifest ToolsManifest // 过滤后的 CLI 工具清单
 	Skills        []*skill.Card // agent.skills 声明的 skill 索引（Tier 1；渐进式加载的目录层）
 	Charter       string        // 角色章程（出厂值叠加用户自定义后的生效值）
+	Scenario      string        // 任务场景块（scenario.Render；空 = 无场景），拼在系统提示词末尾
 	Complexity    string        // LLM 档位（agent.complexity，simple|medium|complex；空回退 medium）
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	// ContextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
@@ -82,6 +85,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		toolsManifest:       cfg.ToolsManifest,
 		skills:              cfg.Skills,
 		charter:             cfg.Charter,
+		scenario:            cfg.Scenario,
 		complexity:          llm.ParseComplexity(cfg.Complexity),
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
@@ -190,9 +194,11 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 //
 //	章程（可自定义）+ 输出契约（executor/contract，与 ParseOutput 同改同测，不可自定义）
 //	+ 可用工具 / CLI 目录 / skill 索引（随 agent 配置装配）
+//	+ 任务场景块（scenario.Render，任务建立时快照；无场景时没有）
 //
-// 只放随 agent 配置变化的内容，同一配置下所有动作共用一份，利于 provider 侧的前缀缓存；
-// 每个动作的数据（指令、来源、复杂度、任务目标）在 objective 里（actionObjective）。
+// 只放随 agent 配置与任务场景变化的内容，同一任务的所有动作共用一份，利于 provider 侧的前缀
+// 缓存（场景随任务变，放在最后）；每个动作的数据（指令、来源、复杂度、任务目标）在 objective
+// 里（actionObjective）。
 func (e *Engine) buildSystemPrompt(registered []registry.Tool) string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
@@ -231,7 +237,7 @@ func (e *Engine) buildSystemPrompt(registered []registry.Tool) string {
 			break
 		}
 	}
-	return b.String()
+	return scenario.Append(b.String(), e.scenario)
 }
 
 // renderCLICatalog 把过滤后的 CLI 工具清单按类别渲染进 prompt。

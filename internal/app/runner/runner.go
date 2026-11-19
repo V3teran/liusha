@@ -137,7 +137,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	}()
 
-	// agent 与技能配置：出厂值编译在程序里，用户层经三级缓存读取；api 改配置后广播失效，下个任务即用新配置。
+	// agent、技能与场景配置经三级缓存读取；api 改配置后广播失效，下个任务即用新配置。
 	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(tools))
 	llmStore := llmstore.New(pool, cache)
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
@@ -205,6 +205,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		AgentStore:    st.agentStore,
 		AgentRuns:     st.agentRuns,
 		Conversations: st.conversations,
+		Scenarios:     cfgStore,
 		Enqueuer:      wc,
 		Logger:        logger,
 	})

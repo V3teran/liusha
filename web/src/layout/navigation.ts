@@ -5,6 +5,7 @@ import {
   Bot,
   Boxes,
   Bug,
+  Compass,
   Cpu,
   FolderOpen,
   GitBranch,
@@ -58,6 +59,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '配置',
     items: [
       { to: '/config/agents', label: '智能体', icon: Bot },
+      { to: '/config/scenarios', label: '场景', icon: Compass },
       { to: '/config/tools', label: '工具', icon: Wrench },
       { to: '/config/skills', label: '技能', icon: BookOpen },
       { to: '/config/models', label: 'LLM 配置', icon: Boxes },

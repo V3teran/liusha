@@ -10,6 +10,7 @@ import { SCHEDULES_KEY } from './useScheduleQueries'
 import { cronHuman } from './cron'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
+import { ScenarioSelect } from '@/features/scenarios/ScenarioSelect'
 
 interface NewTaskDialogProps {
   open: boolean
@@ -71,6 +72,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
   const [briefsText, setBriefsText] = useState('')
   const [cronOn, setCronOn] = useState(false)
   const [cron, setCron] = useState('0 9 * * 1')
+  const [scenario, setScenario] = useState<string | null>(null) // null = 未选，服务端落定缺省场景
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('') // 成功态：短暂展示后自动关弹层（无全局 toast 基建，就近反馈）
 
@@ -82,6 +84,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
       setBriefsText('')
       setCronOn(false)
       setCron('0 9 * * 1')
+      setScenario(null)
       setError('')
       setSuccess('')
     }
@@ -94,7 +97,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
   const mutation = useMutation({
     mutationFn: () =>
-      createTasks({ title: title.trim(), description: description.trim(), briefs, cron: cronOn ? cron.trim() : '' }),
+      createTasks({ title: title.trim(), description: description.trim(), briefs, cron: cronOn ? cron.trim() : '', scenario: scenario ?? undefined }),
     onSuccess: (resp: TaskCreateResponse) => {
       qc.invalidateQueries({ queryKey: TASK_LIST_KEY })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -150,6 +153,16 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
             <div>
               <div className="mb-1.5 flex items-baseline justify-between">
+                <label htmlFor="nt-scenario" className={FIELD_LABEL_CLASS}>
+                  场景
+                </label>
+                <span className="text-[11.5px] text-text-tertiary">任务所处情境的说明，建任务时固定</span>
+              </div>
+              <ScenarioSelect id="nt-scenario" value={scenario} onChange={setScenario} className="w-full" />
+            </div>
+
+            <div>
+              <div className="mb-1.5 flex items-baseline justify-between">
                 <label htmlFor="nt-briefs" className={FIELD_LABEL_CLASS}>
                   任务目标
                 </label>
@@ -198,7 +211,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
           <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-2/50 px-5 py-3.5">
             <span className="mr-auto text-[11px] text-text-tertiary">
               {briefs.length > 0 ? `共 ${briefs.length} 个任务` : '至少写一行任务目标'}
-              <span className="ml-2 opacity-75">⌘/Ctrl+Enter 创建</span>
+              <span className="ml-2">⌘/Ctrl+Enter 创建</span>
             </span>
             <Dialog.Close asChild>
               <Button variant="secondary">取消</Button>

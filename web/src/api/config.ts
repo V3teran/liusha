@@ -1,15 +1,18 @@
 /**
- * 配置 API 客户端：智能体、技能与工具目录。
+ * 配置 API 客户端：智能体、技能、场景与工具目录。
  *
- * 智能体与内置技能的出厂值随程序发布，接口只读写用户自定义：PATCH 只提交改动的字段
- * （名单字段为 SetChange），DELETE …/overrides[/:field] 恢复出厂。四个智能体以 code 寻址、
- * 不可增删；自建技能可增删改。
+ * PATCH 只提交改动的字段（智能体的名单字段为 SetChange），DELETE …/overrides[/:field] 恢复出厂。
+ * 四个智能体以 code 寻址、不可增删；技能与场景的内置条目随版本更新（没改过的自动跟随新版），
+ * 内置与自建都可编辑、删除——删除的内置条目升级不再补回，可在「已删除的内置」里恢复。
  */
 
 import { get, post, put, patch, del } from './client'
 import type {
   AgentDetail,
   AgentListItem,
+  Scenario,
+  ScenarioDetail,
+  ScenarioListItem,
   SetChange,
   Skill,
   SkillDetail,
@@ -110,7 +113,7 @@ export async function createSkill(payload: NewSkill): Promise<Skill> {
   return post<Skill>('/skills', payload)
 }
 
-/** 技能的一次修改：只含改动的字段（内置技能写入自定义层，自建技能直接修改）。 */
+/** 技能的一次修改：只含改动的字段（内置与自建同一路径）。 */
 export interface SkillPatch {
   name?: string
   description?: string
@@ -128,9 +131,86 @@ export async function resetSkill(code: string, field?: string): Promise<SkillDet
   return del<SkillDetail>(`/skills/${enc(code)}/overrides${suffix}`)
 }
 
-/** 删除自建技能（同时清除各智能体对它的引用；内置技能返回 409）。 */
+/** 删除技能（同时清除各智能体对它的引用）；内置技能可在「已删除的内置」里恢复。 */
 export async function deleteSkill(code: string): Promise<void> {
   await del(`/skills/${enc(code)}`)
+}
+
+/** 被删除、可恢复的内置技能（内容为当前出厂）。 */
+export async function listDeletedSkills(): Promise<Skill[]> {
+  return (await get<{ skills: Skill[] }>('/skills?deleted=true')).skills
+}
+
+/** 把删除的内置技能恢复成当前出厂内容。 */
+export async function restoreSkill(code: string): Promise<SkillDetail> {
+  return post<SkillDetail>(`/skills/${enc(code)}/restore`)
+}
+
+// ── 场景 ────────────────────────────────────────────────────────────
+
+/** 全部场景（下发入口的场景选择框用；内置在前）。 */
+export async function listScenarios(): Promise<ScenarioListItem[]> {
+  return (await get<{ scenarios: ScenarioListItem[] }>('/scenarios')).scenarios
+}
+
+/** 分页 + 搜索获取场景（场景页）。 */
+export async function listScenariosPaged(
+  page: number,
+  size: number,
+  q = '',
+): Promise<{ scenarios: ScenarioListItem[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (q) params.set('q', q)
+  return get<{ scenarios: ScenarioListItem[]; total: number }>(`/scenarios?${params}`)
+}
+
+export async function getScenario(code: string): Promise<ScenarioDetail> {
+  return get<ScenarioDetail>(`/scenarios/${enc(code)}`)
+}
+
+/** 新建自建场景（与内置或已有场景同名时后端返回 409）。 */
+export interface NewScenario {
+  code: string
+  name: string
+  description: string
+  body: string
+}
+
+export async function createScenario(payload: NewScenario): Promise<Scenario> {
+  return post<Scenario>('/scenarios', payload)
+}
+
+/** 场景的一次修改：只含改动的字段。 */
+export interface ScenarioPatch {
+  name?: string
+  description?: string
+  body?: string
+  enabled?: boolean
+}
+
+export async function patchScenario(code: string, changes: ScenarioPatch): Promise<ScenarioDetail> {
+  return patch<ScenarioDetail>(`/scenarios/${enc(code)}`, changes)
+}
+
+/** 把内置场景的某字段（不传则全部字段）恢复为出厂内容。 */
+export async function resetScenario(code: string, field?: string): Promise<ScenarioDetail> {
+  const suffix = field ? `/${enc(field)}` : ''
+  return del<ScenarioDetail>(`/scenarios/${enc(code)}/overrides${suffix}`)
+}
+
+/** 删除场景（被定时模板引用时返回 409；已建任务不受影响）；内置场景可在「已删除的内置」里恢复。 */
+export async function deleteScenario(code: string): Promise<void> {
+  await del(`/scenarios/${enc(code)}`)
+}
+
+/** 被删除、可恢复的内置场景（内容为当前出厂）。 */
+export async function listDeletedScenarios(): Promise<Scenario[]> {
+  return (await get<{ scenarios: Scenario[] }>('/scenarios?deleted=true')).scenarios
+}
+
+/** 把删除的内置场景恢复成当前出厂内容。 */
+export async function restoreScenario(code: string): Promise<ScenarioDetail> {
+  return post<ScenarioDetail>(`/scenarios/${enc(code)}/restore`)
 }
 
 /** 从技能侧装配/卸载某智能体的该技能（记为该智能体技能名单的勾选或取消）。 */

@@ -22,6 +22,10 @@ export LIUSHA_LOG_TO_FILE=true
 echo "===== 编译 liusha ====="
 go build -o bin/liusha ./cmd/liusha
 
+# 迁移数据库并同步出厂内容（内置技能与场景）：改了出厂内容重启即生效，与部署形态同一口径。
+echo "===== 迁移数据库并同步出厂内容 ====="
+./bin/liusha migrate
+
 echo "===== 启动 3 个 host 服务 ====="
 echo "  postgres:      localhost:${LIUSHA_POSTGRES_HOST_PORT:-55432}"
 echo "  redis:         localhost:${LIUSHA_REDIS_HOST_PORT:-56379}"

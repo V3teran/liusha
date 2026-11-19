@@ -1,11 +1,14 @@
-// Package skillstore 定义技能的生效模型与持久化。
+// Package skillstore 定义技能的模型与持久化。
 //
-// 技能有两种来源：
-//   - 内置技能：出厂内容编译在 internal/builtin，用户只能逐字段自定义
-//     （名称、描述、正文、启用），自定义存 skill_override；
-//   - 自建技能：用户新建的数据，整行存 custom_skill。
+// 技能一张表（skill），一行一个技能：
+//   - 内置技能：出厂内容编译在 internal/builtin，是种子——迁移后由出厂同步（SyncBuiltins）写入；
+//     用户可编辑、停用、恢复出厂、删除。seed_hash 记最近一次写入的出厂内容的哈希，当前内容的
+//     哈希与它相等即未改过，升级时跟随新版（见 internal/builtinsync）。删除只记删除标记
+//     （deleted_at）：出厂同步不再补回，用户可恢复成当前出厂内容。
+//   - 自建技能：用户新建的数据（is_builtin = false），可增删改；删除即删行。
 //
-// 同 code 时自建技能优先，内置版本被遮蔽；新建自建技能拒绝与内置技能同名。
+// 同 code 时只有一行：自建技能占用了某内置技能的 code 时内置版本被遮蔽；新建自建技能拒绝与
+// 内置技能同名。
 package skillstore
 
 import (
@@ -14,10 +17,11 @@ import (
 	"strings"
 
 	"github.com/V3teran/liusha/internal/builtin"
+	"github.com/V3teran/liusha/internal/builtinsync"
 	"github.com/V3teran/liusha/internal/override"
 )
 
-// Skill 是一个生效技能。
+// Skill 是一个技能。
 type Skill struct {
 	Code        string `json:"code"`     // 寻址名：agent.skills 白名单与 read_skill 均用它
 	Category    string `json:"category"` // 知识域：vuln（漏洞知识）/ tool（工具使用知识）
@@ -28,7 +32,14 @@ type Skill struct {
 	IsBuiltin   bool   `json:"is_builtin"`
 }
 
-// Content 是技能可修改的字段：内置技能经用户层自定义，自建技能直接修改。
+// Record 是表里的一行：技能本身 + 同步基线。
+type Record struct {
+	Skill
+	SeedHash *string `json:"seed_hash"` // 最近一次写入的出厂内容的哈希；nil = 自建或基线未知
+	Deleted  bool    `json:"deleted"`   // 内置技能被用户删除（留删除标记，可恢复）
+}
+
+// Content 是技能可修改的字段。
 type Content struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -36,17 +47,9 @@ type Content struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// 可修改字段名。
-const (
-	FieldName        = "name"
-	FieldDescription = "description"
-	FieldBody        = "body"
-	FieldEnabled     = "enabled"
-)
-
 var codePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
-// Schema 返回技能的可自定义字段表：由 Content 的字段推导（全部为整值替换）。
+// Schema 返回技能的可修改字段表：由 Content 的字段推导（全部为整值）。
 func Schema() override.Schema {
 	return override.SchemaOf(Content{})
 }
@@ -56,27 +59,19 @@ func Defaults(b builtin.Skill) Content {
 	return Content{Name: b.Name, Description: b.Description, Body: b.Body, Enabled: true}
 }
 
-// DefaultsDocument 返回出厂内容的文档形式。
-func DefaultsDocument(b builtin.Skill) override.Document {
-	return mustDocument(Defaults(b))
-}
-
-// Resolve 合成内置技能的生效值：出厂内容叠加用户层。
-func Resolve(b builtin.Skill, ov override.Overrides) (Skill, error) {
-	var c Content
-	if err := override.FromDocument(override.Apply(Schema(), DefaultsDocument(b), ov), &c); err != nil {
-		return Skill{}, fmt.Errorf("技能 %s: 合成生效值: %w", b.Code, err)
-	}
-	return Skill{
-		Code: b.Code, Category: b.Category,
-		Name: c.Name, Description: c.Description, Body: c.Body, Enabled: c.Enabled,
-		IsBuiltin: true,
-	}, nil
+// SeedHash 返回内置技能出厂内容的哈希。
+func SeedHash(b builtin.Skill) string {
+	return builtinsync.Hash(b.Name, b.Description, b.Body)
 }
 
 // ContentOf 取技能的可修改部分。
 func ContentOf(s Skill) Content {
 	return Content{Name: s.Name, Description: s.Description, Body: s.Body, Enabled: s.Enabled}
+}
+
+// Hash 返回技能当前内容的哈希（与出厂哈希同一算式）。
+func (s Skill) Hash() string {
+	return builtinsync.Hash(s.Name, s.Description, s.Body)
 }
 
 // Validate 校验技能内容。
@@ -103,12 +98,4 @@ func ValidateNew(s Skill) error {
 		return fmt.Errorf("%w：分类不能为空", override.ErrInvalid)
 	}
 	return Validate(ContentOf(s))
-}
-
-func mustDocument(v any) override.Document {
-	d, err := override.ToDocument(v)
-	if err != nil {
-		panic(fmt.Sprintf("skillstore: 序列化失败: %v", err))
-	}
-	return d
 }

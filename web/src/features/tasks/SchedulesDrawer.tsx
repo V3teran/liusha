@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/Switch'
 import { fullTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { cronHuman } from './cron'
+import { ScenarioName } from '@/features/scenarios/ScenarioName'
 import { useDeleteSchedule, useSchedules, useToggleSchedule } from './useScheduleQueries'
 
 interface SchedulesDrawerProps {
@@ -175,6 +176,10 @@ function ScheduleCard({ row, focused, busy, onToggle, onDelete }: ScheduleCardPr
         <dd className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           {human !== row.cron && <span className="text-text">{human}</span>}
           <code className="font-mono text-text-secondary">{row.cron}</code>
+        </dd>
+        <dt className="text-text-tertiary">场景</dt>
+        <dd className="text-text-secondary">
+          <ScenarioName code={row.scenario} />
         </dd>
         <dt className="text-text-tertiary">下次</dt>
         <dd className={row.enabled ? 'text-text' : 'text-text-tertiary'}>

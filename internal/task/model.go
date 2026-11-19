@@ -48,6 +48,15 @@ type Task struct {
 	CreatedAt    time.Time
 	EndedAt      *time.Time
 	ErrorMessage string
+	Scenario     *Scenario // 建任务时的场景快照（nil = 无场景）；建后不改
+}
+
+// Scenario 是建任务时冻结到任务行的场景（code + 当时的名称与正文）：每个 run 都读它，
+// 场景之后被改、停用、删除都不影响本任务。
+type Scenario struct {
+	Code string
+	Name string
+	Body string
 }
 
 // Elapsed 返回任务的耗时：发起到结束（进行中算到 now）的墙钟，扣除续接前的停顿。
@@ -64,10 +73,11 @@ func (t Task) Elapsed(now time.Time) time.Duration {
 }
 
 // NewParams 是 Store.Create 的入参：AssignmentID 必填（一切 task 皆属某 assignment），
-// Goal 必填。
+// Goal 必填；Scenario 可空（无场景）。
 type NewParams struct {
 	AssignmentID string
 	Goal         string
+	Scenario     *Scenario
 }
 
 // MaxGoalRunes 是任务目标的长度契约。目标逐字进 executor 与 planner 的提示词，压缩机制

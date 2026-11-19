@@ -75,7 +75,7 @@ func (h *Handler) executeTask(
 	defer h.releaseSandbox(taskLogger, taskID)
 
 	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, tk.AssignmentID, p.AgentRunID, taskID, virtualHost, p.ConversationID, installed)
+	report, err := h.runCognition(ctx, taskLogger, tk, p.AgentRunID, virtualHost, p.ConversationID, installed)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
 

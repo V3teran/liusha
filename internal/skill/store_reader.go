@@ -7,8 +7,8 @@ import (
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
-// Source 是 StoreReader 依赖的最小后端能力（*configstore.Store 满足——生效技能 =
-// 内置技能叠加用户自定义 + 自建技能，用户层走三级缓存，前端改动广播失效后下次读即最新）。
+// Source 是 StoreReader 依赖的最小后端能力（*configstore.Store 满足——技能表（内置与自建）
+// 走三级缓存，前端改动广播失效后下次读即最新）。
 type Source interface {
 	EnabledSkills(ctx context.Context) ([]skillstore.Skill, error)
 	Skill(ctx context.Context, code string) (skillstore.Skill, error)

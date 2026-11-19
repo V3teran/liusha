@@ -11,6 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/skillstore"
 )
 
@@ -38,15 +39,15 @@ func respondErr(c *gin.Context, status int, err error) {
 		return
 	}
 	// 配置类的客户端错误同样不是服务端故障：提交不合法 → 400；标识冲突、
-	// 操作不适用于该类对象（删除内置技能、恢复自建技能的出厂内容）→ 409。
+	// 操作不适用于该类对象（恢复自建的出厂内容、删除或停用被定时模板引用的场景）→ 409。
 	if status >= http.StatusInternalServerError {
 		switch {
-		case errors.Is(err, override.ErrInvalid), errors.Is(err, llmconfig.ErrInvalid):
+		case errors.Is(err, override.ErrInvalid), errors.Is(err, llmconfig.ErrInvalid),
+			errors.Is(err, scenariostore.ErrUnavailable):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		case errors.Is(err, skillstore.ErrConflict), errors.Is(err, llmconfig.ErrConflict),
-			errors.Is(err, configstore.ErrBuiltinSkill),
-			errors.Is(err, configstore.ErrCustomSkill):
+			errors.Is(err, configstore.ErrCustomSkill), scenariostore.IsConflict(err):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
