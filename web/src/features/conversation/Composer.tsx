@@ -8,6 +8,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { humanBytes } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Select'
 import { ScenarioSelect } from '@/features/scenarios/ScenarioSelect'
 
 interface ComposerProps {
@@ -16,8 +17,9 @@ interface ComposerProps {
   disabled?: boolean
   /** 禁用态的输入框占位文案（缺省走通用文案）。 */
   placeholder?: string
-  /** 会话尚未绑定任务：消息被判为要执行时会建任务，显示场景选择框（已绑定任务的会话沿用任务的场景）。 */
-  pickScenario?: boolean
+  /** 场景控件：pick = 会话未绑定任务，消息被判为要执行时按所选场景建任务；
+   *  locked = 已绑定任务，只读展示该任务建时快照的场景（场景随任务固定，不可更改）。 */
+  scenarioControl?: { mode: 'pick' } | { mode: 'locked'; label: string }
   onStarted: (convID: string) => void
   onAppended: (afterSeq: number) => void
 }
@@ -31,7 +33,7 @@ interface ComposerProps {
  * 全部附件随行。
  */
 const MAX_ATTACHMENTS = 10
-export function Composer({ convId, disabled = false, placeholder, pickScenario = false, onStarted, onAppended }: ComposerProps) {
+export function Composer({ convId, disabled = false, placeholder, scenarioControl, onStarted, onAppended }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const beginThinking = useConversationStore((s) => s.beginThinking)
   const [brief, setBrief] = useState('')
@@ -96,7 +98,7 @@ export function Composer({ convId, disabled = false, placeholder, pickScenario =
       if (convId) {
         const beforeSeq = lastSeq
         // 已绑定任务的会话沿用任务自己的场景，不带场景字段。
-        await (pickScenario
+        await (scenarioControl?.mode === 'pick'
           ? followUp(convId, brief, attachments, scenario ?? undefined)
           : followUp(convId, brief, attachments))
         setBrief('')
@@ -215,7 +217,20 @@ export function Composer({ convId, disabled = false, placeholder, pickScenario =
             >
               <Paperclip className="h-4 w-4" />
             </button>
-            {pickScenario && (
+            {scenarioControl?.mode === 'locked' ? (
+              // 只读展示：值是任务建时的场景快照名，与场景库的现状无关（已删除的场景照显示快照名）。
+              <Select
+                size="sm"
+                disabled
+                aria-label="任务场景（已随任务固定）"
+                title="场景在建任务时选定并快照到任务，不可更改"
+                className="max-w-[9rem] flex-shrink-0"
+                value="locked"
+                onChange={() => {}}
+              >
+                <option value="locked">{scenarioControl.label || '无场景'}</option>
+              </Select>
+            ) : scenarioControl?.mode === 'pick' ? (
               <ScenarioSelect
                 size="sm"
                 value={scenario}
@@ -224,7 +239,7 @@ export function Composer({ convId, disabled = false, placeholder, pickScenario =
                 aria-label="任务场景"
                 className="max-w-[9rem] flex-shrink-0"
               />
-            )}
+            ) : null}
             <div className="min-w-0 truncate text-xs text-text-tertiary">
               {busyMsg ? (
                 <span className="animate-slide-down font-medium text-status-error">{busyMsg}</span>

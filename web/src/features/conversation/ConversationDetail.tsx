@@ -51,9 +51,22 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   // 所属任务（纯聊天为空；聊天转为执行时中途关联上，见下方的事件驱动刷新）
   const convQuery = useConversation(convId ?? '')
   const taskID = convQuery.data?.task_id || ''
-  // 新对话、或已加载且尚未绑定任务的对话：消息被判为要执行时会建任务，由用户选场景。
-  const pickScenario = !convId || (!!convQuery.data && !taskID)
   const task = useTaskDetail(taskID || null).data
+  // 场景控件：新对话、或已加载且尚未绑定任务的对话由用户选；绑定了任务则只读展示
+  // 任务建时快照的场景（进行中与已完成的任务都不能改场景，但控件不消失）。
+  const scenarioControl = !convId || (!!convQuery.data && !taskID)
+    ? { mode: 'pick' as const }
+    : {
+        mode: 'locked' as const,
+        label:
+          task === undefined
+            ? '加载中…'
+            : task.scenario
+              ? task.scenario_deleted
+                ? `${task.scenario_name}（已删除）`
+                : task.scenario_name
+              : '无场景',
+      }
   // 任务三档运行态：active（含暂停子态）/ 终态 / 无任务。控制组与状态文案据此派生。
   const taskActive = hasConv && !!taskID && task?.status === 'active'
   const paused = taskActive && !!task?.paused
@@ -330,7 +343,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         placeholder={
           source === 'proxy' && !hasConv ? '选择代理批次后，可在这里插话追问…' : undefined
         }
-        pickScenario={pickScenario && source !== 'proxy'}
+        scenarioControl={scenarioControl}
         onStarted={handleStarted}
         onAppended={handleAppended}
       />
