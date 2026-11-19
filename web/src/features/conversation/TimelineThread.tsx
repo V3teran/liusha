@@ -157,19 +157,20 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
             )
           }
           if (r.kind === 'msg' && classifyMessage(r.msg) === 'assistant') {
+            // 聊天回答与任务 agent 消息同一张卡：头像色环 + 气泡内折叠思考 + 正文。
+            // 时间与复制走卡片常亮元信息，正文块只保留身份头。
             return (
-              <div key={r.key} className="flex justify-start pb-5">
-                <div className="flex w-full max-w-3xl flex-col items-start">
-                  <ThinkingFold text={r.msg.metadata?.thinking} />
-                  <ReplyBlock
-                    content={r.msg.content}
-                    agentName={r.msg.metadata?.agent_name}
-                    createdAt={r.msg.created_at}
-                    copied={copiedKey === r.msg.id}
-                    onCopy={() => copy(r.msg.id, r.msg.content)}
-                  />
-                </div>
-              </div>
+              <AgentCard
+                key={r.key}
+                agentName={r.msg.metadata?.agent_name || 'assistant'}
+                createdAt={r.msg.created_at}
+                copied={copiedKey === r.msg.id}
+                onCopy={() => copy(r.msg.id, r.msg.content)}
+                copyText={r.msg.content}
+              >
+                <ThinkingFold text={r.msg.metadata?.thinking} />
+                <ReplyBlock content={r.msg.content} agentName={r.msg.metadata?.agent_name || 'assistant'} />
+              </AgentCard>
             )
           }
           // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统判定无归属）。
@@ -343,22 +344,15 @@ function LiveThoughtLane({
   lane: { thinking: string; text: string }
 }) {
   const typed = useTypewriter(lane.text)
-  if (agentName === 'assistant') {
-    return (
-      <div className="flex justify-start pb-5">
-        <div className="flex w-full max-w-3xl flex-col items-start">
-          {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
-          <div className="rounded-2xl rounded-tl-md bg-surface-2 px-4 py-2.5 text-sm leading-relaxed text-text">
-            {typed}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // 聊天回答与任务 agent 的流式道同构：一张 agent 卡，卡内先思考道后正文。
   return (
     <AgentCard agentName={agentName}>
       {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
-      <ReasoningCard text={typed} agentName={agentName} streaming />
+      {agentName === 'assistant' ? (
+        <ReplyBlock content={typed} agentName={agentName} />
+      ) : (
+        <ReasoningCard text={typed} agentName={agentName} streaming />
+      )}
     </AgentCard>
   )
 }

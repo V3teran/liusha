@@ -9,8 +9,9 @@ interface ReplyBlockProps {
   content: string
   agentName?: string
   createdAt?: string
-  copied: boolean
-  onCopy: () => void
+  /** 复制由外层 agent 卡的常亮元信息承担时不传，块内不再重复一份。 */
+  copied?: boolean
+  onCopy?: () => void
   className?: string
 }
 
@@ -49,7 +50,7 @@ export function ReplyBlock({ content, agentName, createdAt, copied, onCopy, clas
             {relativeTime(createdAt)}
           </time>
         )}
-        <CopyButton copied={copied} onClick={onCopy} size="sm" />
+        {onCopy && <CopyButton copied={!!copied} onClick={onCopy} size="sm" />}
       </div>
     </div>
   )

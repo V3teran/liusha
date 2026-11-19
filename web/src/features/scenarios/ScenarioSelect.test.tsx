@@ -27,7 +27,7 @@ function renderComposer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <Composer pickScenario onStarted={vi.fn()} onAppended={vi.fn()} {...props} />
+      <Composer scenarioControl={{ mode: 'pick' }} onStarted={vi.fn()} onAppended={vi.fn()} {...props} />
     </QueryClientProvider>,
   )
 }
@@ -64,7 +64,7 @@ describe('ScenarioSelect', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const ui = (convId: string) => (
       <QueryClientProvider client={qc}>
-        <Composer convId={convId} pickScenario onStarted={vi.fn()} onAppended={vi.fn()} />
+        <Composer convId={convId} scenarioControl={{ mode: 'pick' }} onStarted={vi.fn()} onAppended={vi.fn()} />
       </QueryClientProvider>
     )
     const { rerender } = render(ui('a'))
@@ -83,7 +83,7 @@ describe('ScenarioSelect', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const ui = (convId?: string) => (
       <QueryClientProvider client={qc}>
-        <Composer convId={convId} pickScenario onStarted={vi.fn()} onAppended={vi.fn()} />
+        <Composer convId={convId} scenarioControl={{ mode: 'pick' }} onStarted={vi.fn()} onAppended={vi.fn()} />
       </QueryClientProvider>
     )
     const { rerender } = render(ui())
@@ -128,9 +128,16 @@ describe('ScenarioSelect', () => {
     await waitFor(() => expect(followUp).toHaveBeenCalledWith('c1', '看看', [], ''))
   })
 
-  it('已绑定任务的会话不显示场景选择', () => {
-    renderComposer({ convId: 'c1', pickScenario: false })
+  it('未要求场景控件时不显示', () => {
+    renderComposer({ convId: 'c1', scenarioControl: undefined })
     expect(screen.queryByRole('combobox', { name: '任务场景' })).toBeNull()
+  })
+
+  it('已绑定任务的会话显示只读场景（快照名，不可改）', () => {
+    renderComposer({ convId: 'c1', scenarioControl: { mode: 'locked', label: 'CTF' } })
+    const sel = screen.getByRole('combobox', { name: '任务场景（已随任务固定）' }) as HTMLSelectElement
+    expect(sel.disabled).toBe(true)
+    expect(sel.selectedOptions[0].textContent).toBe('CTF')
   })
 })
 

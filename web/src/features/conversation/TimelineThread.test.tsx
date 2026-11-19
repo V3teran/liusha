@@ -89,6 +89,25 @@ describe('TimelineThread', () => {
   // 四 agent 平级平铺：认知循环是平级协作（bus 广播、互相制衡），不存在主从调度——
   // 身份由配色/图标/领头名承担，任何 agent 的行都不缩进（缩进语言保留给未来真正的
   // orchestrator→subagent 派发场景）。
+  it('聊天回答的思考与正文在同一张 agent 卡内（与任务消息同构）', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '你好'))
+    s.ingest({
+      ...base,
+      seq: 2,
+      role: 'assistant',
+      kind: 'message',
+      content: '你好，我是安全测试助手',
+      metadata: { thinking: '用户在打招呼，简单回应' },
+    } as Message)
+    render(<TimelineThread />)
+    // 同一张卡：思考折叠与正文同处一个气泡容器，身份头随卡展示
+    const fold = screen.getByText('内部思考').closest('details')
+    expect(fold).toBeTruthy()
+    expect(fold!.parentElement!.textContent).toContain('你好，我是安全测试助手')
+    expect(screen.getByText('助手')).toBeTruthy()
+  })
+
   it('四 agent 行全部平铺（无主从缩进）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
