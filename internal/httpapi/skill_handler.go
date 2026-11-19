@@ -1,7 +1,8 @@
 // Package httpapi: 技能 handler（前端「技能」页）。
 //
-// 内置技能出厂内容编译在程序里，用户只能自定义（名称、描述、正文、启用）或恢复出厂，
-// 不可删除；自建技能是用户数据，可增删改。同 code 时自建技能优先。
+// 技能一张表：内置技能（出厂内容是种子，没改过的随版本更新）可修改名称、描述、正文、启用，
+// 可恢复出厂、删除；删除的内置技能升级时不再补回，可在「已删除的内置」里恢复。自建技能可增删改。
+// 同 code 只有一个，自建占用时内置版本被遮蔽。
 package httpapi
 
 import (
@@ -25,6 +26,8 @@ type SkillAPI interface {
 	PatchSkill(ctx context.Context, code string, changes override.Document) (skillstore.Skill, error)
 	ResetSkill(ctx context.Context, code string, fields ...string) (skillstore.Skill, error)
 	DeleteSkill(ctx context.Context, code string) error
+	DeletedSkills(ctx context.Context) ([]skillstore.Skill, error)
+	RestoreSkill(ctx context.Context, code string) (skillstore.Skill, error)
 
 	// 装配到智能体：读全部 agent 算装配态，按 agent 技能名单单项装卸。
 	Agents(ctx context.Context) ([]agent.Agent, error)
@@ -33,8 +36,22 @@ type SkillAPI interface {
 
 // listSkillsHandler 处理 GET /skills?q=&page=&size= → {skills, total}。
 // 每项为生效技能，附已自定义字段名与是否遮蔽同名内置技能；未带 page 返回全部。
+// 带 deleted=true 时返回被删除、可恢复的内置技能（内容为当前出厂）。
 func listSkillsHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Query("deleted") == "true" {
+			deleted, err := api.DeletedSkills(c.Request.Context())
+			if err != nil {
+				respondErr(c, http.StatusInternalServerError, err)
+				return
+			}
+			items := make([]gin.H, 0, len(deleted))
+			for _, sk := range deleted {
+				items = append(items, skillJSON(sk))
+			}
+			c.JSON(http.StatusOK, gin.H{"skills": items, "total": len(items)})
+			return
+		}
 		all, err := api.SkillDetails(c.Request.Context())
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
@@ -90,8 +107,8 @@ func createSkillHandler(api SkillAPI) gin.HandlerFunc {
 	}
 }
 
-// patchSkillHandler 处理 PATCH /skills/:code。请求体只含改动的字段（name/description/body/enabled）：
-// 内置技能写入自定义层（与出厂相同即不算自定义），自建技能直接修改。
+// patchSkillHandler 处理 PATCH /skills/:code。请求体只含改动的字段（name/description/body/enabled），
+// 内置与自建同一路径（内置技能改回与出厂相同即不算自定义）。
 func patchSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var changes override.Document
@@ -126,8 +143,8 @@ func resetSkillHandler(api SkillAPI) gin.HandlerFunc {
 	}
 }
 
-// deleteSkillHandler 处理 DELETE /skills/:code：删除自建技能（同时清除各 agent 对它的引用）；
-// 内置技能不可删除 → 409。
+// deleteSkillHandler 处理 DELETE /skills/:code：删除技能（同时清除各 agent 对它的引用）。
+// 内置技能记删除标记，可恢复。
 func deleteSkillHandler(api SkillAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := api.DeleteSkill(c.Request.Context(), c.Param("code")); err != nil {
@@ -135,6 +152,18 @@ func deleteSkillHandler(api SkillAPI) gin.HandlerFunc {
 			return
 		}
 		c.Status(http.StatusNoContent)
+	}
+}
+
+// restoreSkillHandler 处理 POST /skills/:code/restore：把删除的内置技能恢复成当前出厂内容。
+// 不是已删除的内置技能 → 404。
+func restoreSkillHandler(api SkillAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, err := api.RestoreSkill(c.Request.Context(), c.Param("code")); err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		respondSkillDetail(c, api, c.Param("code"))
 	}
 }
 

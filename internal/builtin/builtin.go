@@ -1,13 +1,13 @@
-// Package builtin 承载随程序发布的出厂内容：四个 agent 的出厂配置与内置技能。
+// Package builtin 承载随程序发布的出厂内容：四个 agent 的出厂配置、内置技能与内置场景。
 //
-// 内容编译进程序（go:embed），任何进程读到的出厂值都与自身代码同一版本——
-// 章程引用的工具、技能与代码永远对得上，不存在启动同步与版本错配。
-// 用户在前端的修改是叠加在出厂值之上的自定义层（见 internal/override），
-// 不写回本包。
+// 内容编译进程序（go:embed）。agent 的出厂值在读取时叠加用户自定义层（见 internal/override）；
+// 技能与场景的出厂内容是种子，由 internal/builtinsync 在迁移后同步进 skill / scenario 表
+// （用户没改过的跟随新版，改过的不动）。
 //
 // 目录约定：
 //   - agents/<code>.md            ：frontmatter（出厂配置）+ 正文（章程）
 //   - skills/<category>/<code>/SKILL.md：frontmatter（名称/描述）+ 正文
+//   - scenarios/<code>.md         ：frontmatter（名称/描述）+ 正文（场景内容）
 //
 // 章程只承载可自定义的角色指导；程序解析所依赖的输出契约随解析代码放在各
 // agent 包内（planner/executor/evaluator 的 contract.md），不在这里。
@@ -33,6 +33,9 @@ var agentFS embed.FS
 //go:embed skills
 var skillFS embed.FS
 
+//go:embed scenarios/*.md
+var scenarioFS embed.FS
+
 // Agent 是一个 agent 角色的出厂配置。
 type Agent struct {
 	Code          string   // 角色身份（planner/executor/evaluator/monitor）
@@ -56,6 +59,14 @@ type Skill struct {
 	Body        string
 }
 
+// Scenario 是一个内置场景的出厂内容。Code 取文件名（去 .md）。
+type Scenario struct {
+	Code        string
+	Name        string
+	Description string
+	Body        string
+}
+
 type agentFront struct {
 	Code          string   `yaml:"code"`
 	Name          string   `yaml:"name"`
@@ -73,8 +84,9 @@ type skillFront struct {
 }
 
 type catalog struct {
-	agents []Agent
-	skills []Skill
+	agents    []Agent
+	skills    []Skill
+	scenarios []Scenario
 }
 
 // load 解析全部出厂内容。内容随编译固定，解析失败是构建产物缺陷——
@@ -88,7 +100,11 @@ var load = sync.OnceValue(func() catalog {
 	if err != nil {
 		panic(fmt.Sprintf("builtin: 解析内置技能失败: %v", err))
 	}
-	return catalog{agents: agents, skills: skills}
+	scenarios, err := ParseScenarios(scenarioFS)
+	if err != nil {
+		panic(fmt.Sprintf("builtin: 解析内置场景失败: %v", err))
+	}
+	return catalog{agents: agents, skills: skills, scenarios: scenarios}
 })
 
 // Agents 返回全部出厂 agent（按 code 升序，返回副本）。
@@ -124,6 +140,21 @@ func SkillByCode(code string) (Skill, bool) {
 		}
 	}
 	return Skill{}, false
+}
+
+// Scenarios 返回全部内置场景（按 code 升序，返回副本）。
+func Scenarios() []Scenario {
+	return slices.Clone(load().scenarios)
+}
+
+// ScenarioByCode 按 code 取内置场景。
+func ScenarioByCode(code string) (Scenario, bool) {
+	for _, s := range load().scenarios {
+		if s.Code == code {
+			return s, true
+		}
+	}
+	return Scenario{}, false
 }
 
 func (a Agent) clone() Agent {
@@ -208,6 +239,37 @@ func ParseSkills(fsys fs.FS) ([]Skill, error) {
 		}
 		return strings.Compare(a.Code, b.Code)
 	})
+	return out, nil
+}
+
+// ParseScenarios 解析 fsys 下 scenarios/<code>.md 的内置场景（按 code 升序）。
+func ParseScenarios(fsys fs.FS) ([]Scenario, error) {
+	paths, err := fs.Glob(fsys, "scenarios/*.md")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Scenario, 0, len(paths))
+	for _, p := range paths {
+		raw, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return nil, err
+		}
+		front, body, err := SplitFrontmatter(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		var f skillFront
+		if err := yaml.Unmarshal(front, &f); err != nil {
+			return nil, fmt.Errorf("%s: frontmatter: %w", p, err)
+		}
+		out = append(out, Scenario{
+			Code:        strings.TrimSuffix(path.Base(p), ".md"),
+			Name:        f.Name,
+			Description: f.Description,
+			Body:        string(body),
+		})
+	}
+	slices.SortFunc(out, func(a, b Scenario) int { return strings.Compare(a.Code, b.Code) })
 	return out, nil
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/override"
+	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/task"
 )
@@ -171,8 +172,9 @@ func TestRespondErr_ConfigClientErrors(t *testing.T) {
 		want int
 	}{
 		{fmt.Errorf("%w：章程不能为空", override.ErrInvalid), http.StatusBadRequest},
-		{configstore.ErrBuiltinSkill, http.StatusConflict},
 		{configstore.ErrCustomSkill, http.StatusConflict},
+		{fmt.Errorf("%w：定时模板「每日」在使用它", scenariostore.ErrInUse), http.StatusConflict},
+		{scenariostore.NotFound("nope"), http.StatusBadRequest},
 		{fmt.Errorf("agent %q %w", "x", configstore.ErrNotFound), http.StatusNotFound},
 	}
 	for _, tc := range cases {

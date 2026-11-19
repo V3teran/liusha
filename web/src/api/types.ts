@@ -177,7 +177,7 @@ export interface AgentDetail {
   contract: string // 输出契约原文（只读；随程序版本）
 }
 
-// Skill 是生效技能：内置技能叠加用户自定义，或用户自建技能（同 code 时自建优先）。
+// Skill 是技能：内置（出厂种子，没改过的随版本更新）或自建；同 code 只有一个，自建占用时内置被遮蔽。
 export interface Skill {
   code: string
   category: string
@@ -194,6 +194,31 @@ export type SkillContent = Pick<Skill, 'name' | 'description' | 'body' | 'enable
 export interface SkillListItem extends Skill {
   customized: string[]
   shadows_builtin: boolean // 自建技能与某内置技能同名，内置版本被遮蔽
+}
+
+// Scenario 是任务所处情境的说明：建任务时快照到任务行，整份拼在各智能体系统提示词末尾。
+export interface Scenario {
+  code: string
+  name: string
+  description: string
+  body: string
+  enabled: boolean
+  is_builtin: boolean
+  is_default: boolean // 缺省场景（渗透测试）：常驻启用，不可停用
+}
+
+export type ScenarioContent = Pick<Scenario, 'name' | 'description' | 'body' | 'enabled'>
+
+export interface ScenarioListItem extends Scenario {
+  customized: string[]
+  shadows_builtin: boolean // 自建场景与某内置场景同名，内置版本被遮蔽
+}
+
+export interface ScenarioDetail {
+  scenario: Scenario
+  defaults: ScenarioContent | null // 内置场景的出厂内容；自建场景为 null
+  overrides: Overrides
+  shadows_builtin: boolean
 }
 
 // SkillAgent 是技能详情里的一个智能体条目：involved 由后端按生效名单计算（含 "*" = 全部）。
@@ -698,6 +723,9 @@ export interface TaskSummary {
   schedule_id: string // 来源定时模板 id（非定时为空）
   cron: string
   conversation_id: string
+  scenario: string // 建任务时选定的场景 code（空 = 无场景）
+  scenario_name: string // 场景名称快照
+  scenario_deleted: boolean // 场景此后已被删除（任务照常使用自己的快照）
   finding_count: number
   step_count: number
   tokens_in: number // 累计 LLM 输入 tokens
@@ -734,6 +762,7 @@ export interface ScheduleRow {
   description: string
   cron: string // 5 段 cron
   enabled: boolean
+  scenario: string // 到点建任务所用的场景 code（空 = 无场景）
   briefs: string[]
   next_run_at: string | null
   last_run_at: string | null
@@ -746,6 +775,7 @@ export interface TaskCreateRequest {
   description: string // 批次描述（可空）
   briefs: string[] // 每行一个任务目标
   cron: string // 空 = 立即下发；非空 = 定时模板（5 段 cron）
+  scenario?: string // 场景 code；空串 = 无场景；不带 = 服务端缺省场景
 }
 
 // TaskCreateResponse 两种形态按 scheduled 分流。

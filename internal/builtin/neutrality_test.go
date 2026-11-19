@@ -17,12 +17,9 @@ import (
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// 核心层（四个 agent、探索图、agent 框架、知识链路）领域中立：领域内容只出现在章程末尾的
-// 「域指引」节（可在「智能体」页自定义），以及产品表层与领域实现里。以下守门防止领域词回流到
-// 章程正文、输出契约与核心包代码里会进入 LLM 的文本。
-
-// domainHeading 是章程里领域内容的唯一落点：最后一个一级标题。
-const domainHeading = "# 域指引"
+// 核心层（四个 agent、探索图、agent 框架、知识链路）领域中立：领域内容只出现在场景
+// （internal/builtin/scenarios，按任务选择、拼在系统提示词末尾）以及产品表层与领域实现里。
+// 以下守门防止领域词回流到章程、输出契约与核心包代码里会进入 LLM 的文本。
 
 // domainTerms 是领域（当前部署：渗透测试）专有的词。只收不会出现在中立表述里的词。
 var domainTerms = []string{
@@ -41,20 +38,12 @@ func findDomainTerm(text string) string {
 	return ""
 }
 
-// 每份章程以「域指引」收尾，正文不含领域词。
-func TestChartersKeepDomainContentInDomainGuide(t *testing.T) {
+// 章程整份领域中立：领域内容放进场景。
+func TestChartersAreDomainNeutral(t *testing.T) {
 	for _, a := range builtin.Agents() {
-		idx := strings.LastIndex(a.Charter, "\n"+domainHeading)
-		if idx < 0 {
-			t.Errorf("%s 章程缺少「%s」节", a.Code, domainHeading)
-			continue
-		}
-		if strings.Contains(a.Charter[idx+1:], "\n# ") {
-			t.Errorf("%s 章程的「%s」应是最后一个一级标题", a.Code, domainHeading)
-		}
-		for i, line := range strings.Split(a.Charter[:idx], "\n") {
+		for i, line := range strings.Split(a.Charter, "\n") {
 			if term := findDomainTerm(line); term != "" {
-				t.Errorf("%s 章程正文第 %d 行含领域词 %q（领域内容放进「%s」）: %s", a.Code, i+1, term, domainHeading, strings.TrimSpace(line))
+				t.Errorf("%s 章程第 %d 行含领域词 %q（领域内容放进场景）: %s", a.Code, i+1, term, strings.TrimSpace(line))
 			}
 		}
 	}
@@ -82,7 +71,7 @@ func TestContractsAreDomainNeutral(t *testing.T) {
 var coreSources = []string{
 	"planner", "executor", "evaluator", "monitor", "cognition", "framework",
 	"explorationgraph", "reasoning", "repro", "httprepro", "distill", "skill",
-	"app/corpusimport", "tools/corpus.go", "tools/skill.go", "tools/command.go",
+	"app/corpusimport", "tools/corpus.go", "tools/skill.go", "tools/command.go", "scenario",
 }
 
 // isLogCall 判断字符串字面量是否位于日志调用里（日志不进 LLM）。

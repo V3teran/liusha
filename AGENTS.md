@@ -6,7 +6,7 @@
 
 ## 项目一览
 
-liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限授权的安全研究与学习）。核心层（四个 agent、探索图、agent 框架）是领域中立的探索引擎，渗透测试只经章程的「域指引」、装配处注册的扩展与产品表层注入（边界见「领域不变式 · 核心层领域中立」）。一次测试的数据流：
+liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限授权的安全研究与学习）。核心层（四个 agent、探索图、agent 框架）是领域中立的探索引擎，渗透测试只经任务的「场景」、装配处注册的扩展与产品表层注入（边界见「领域不变式 · 核心层领域中立」）。一次测试的数据流：
 
 ```
 人工下发 brief ──┐
@@ -41,8 +41,8 @@ liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限�
 - `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`；配置文件不指定时取 `LIUSHA_CONFIG`，再取程序所在目录的 `config.yaml`）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`agentrun`、`cronschedule`、`dispatch`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`；runner 的任务收尾、恢复监控在 `internal/runner`。
 - `db/migrations`：迁移 SQL，经 `migrations.FS` 编进程序，由 `internal/db.Migrator`（golang-migrate 库，`schema_migrations` 表）执行；`0196_baseline` 是压缩后的基线。
-- `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
-- `internal/override`：「出厂默认 + 用户自定义」的字段级引擎；`internal/overridestore` 是自定义表的读写协议。
+- `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）、`scenarios/<code>.md`（内置场景）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
+- `internal/override`：「出厂默认 + 用户自定义」的字段级引擎（agent、系统设置）；`internal/overridestore` 是自定义表的读写协议。`internal/builtinsync`：技能与场景的出厂种子同步（「没改过的跟随新版」判定与执行）。
 - `internal/config/config.yaml`：交给部署方的配置文件模板，列出全部键。程序不内置配置、不为缺键补值：读不到文件、缺键、有未知键都拒绝启动（`internal/config` 按结构体推导键表）；新增配置键时同步改它，`internal/config` 的测试直接加载这份。文件只写字面值（不支持 `${VAR}`），`LIUSHA_<键>` 环境变量覆盖文件中的值；密钥一律走环境变量。只放部署方要决定的事（拓扑、容量、可调策略、密钥），组件之间的内部约定（Stream 名、消费组、键前缀、队列）是代码常量；键名以单位结尾（`_seconds` / `_ms` / `_bytes` / `_days`）。持久数据都在 `data_dir` 下（`workspace/`、`logs/`、`certs/`）。二进制部署放在程序旁边（发布压缩包自带），容器部署由宿主 `~/data/liusha/config.yaml` 挂成 `/data/config.yaml`（镜像设 `LIUSHA_CONFIG`）。
 - `internal/tools/manifest/tools.yaml`：沙盒 CLI 工具清单（编进程序）；沙盒镜像按它安装，沙盒按它探测已安装工具。
 - `internal/sandbox`：沙盒协议与客户端；`server` 是沙盒服务端，`browser` 是编进程序的浏览器服务脚本。
@@ -56,7 +56,7 @@ liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限�
 cp .env.example .env               # 仓库根 .env：compose、单镜像与开发脚本共用（scripts/dev/env.sh 按它拼宿主侧连接串）
 mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件：沙盒容器与宿主组件共用
 make dev-up                        # 起 pg + redis + 沙盒容器并迁移（首次构建沙盒镜像较久）
-./scripts/dev/run-svc.sh           # 宿主上起 proxy + api + runner（日志 ~/data/liusha/logs/*.log）
+./scripts/dev/run-svc.sh           # 宿主上迁移并同步出厂内容，再起 proxy + api + runner（日志 ~/data/liusha/logs/*.log）
 make run-web                       # 前端 dev server（:5173，/api 代理到 :8580）
 make migrate                       # 对本地库执行迁移
 make e2e-xss / make e2e-full       # 端到端剧本（需 dev 栈已起；不清库）
@@ -143,18 +143,27 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 | 层 | 范围 | 领域属性 |
 |---|---|---|
 | 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、知识库导入、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
-| 注入点 | 章程末节「域指引」；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
+| 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
 | 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
 
-- **判据**：一段进入 LLM 的文本、一个概念或一个枚举能否放进核心层，看它在另一个领域（代码审计、故障排查、资料调研……）的部署里是否依然成立。成立才进核心层，否则放进域指引或扩展。核心层只用探索图的词汇表达：目标、动作、观察（假设）、结果、主张、配方、证据。
+- **判据**：一段进入 LLM 的文本、一个概念或一个枚举能否放进核心层，看它在另一个领域（代码审计、故障排查、资料调研……）的部署里是否依然成立。成立才进核心层，否则放进场景或扩展。核心层只用探索图的词汇表达：目标、动作、观察（假设）、结果、主张、配方、证据。
 - **落位**：
-  - 章程正文写角色、方法、判断准则，用中立词汇；阶段划分、示例、判据、类别词表、领域工具的用法只写在章程最后一个一级标题 `# 域指引`。换领域部署只改这一节（「智能体」页可自定义）。
+  - 章程整份写角色、方法、判断准则，用中立词汇；阶段划分、示例、判据、类别词表、领域工具的用法只写在场景里。换领域部署只换 / 改场景（「场景」页），不动章程。
   - 输出契约不可自定义，因此必须中立，示例也用中立对象。
   - 核心包代码里进入 LLM 的文本（提示词组装、工具描述与 schema、回给 LLM 的报错、压缩与蒸馏话术）只陈述数据与机制，不含领域词，也不含行为指导（见「出厂默认与用户自定义」的提示词分层）。
   - 领域能力只经扩展接入、在 `cognition` 装配处注册；核心包不 import 具体实现，也不按领域分支。
 - **概念不借领域的名**：核心概念按自身语义命名，不与业务领域共用一个词。反例：复现配方的形状曾叫 `domain`（`web` / `generic`），与「业务领域」撞名，把「一个 HTTP 请求的形状」误当成「Web 领域」；现在叫 `kind`（`http` / `steps`）。
 - **方法论也是领域内容**：固定的阶段词表、分类体系即使写成中性的英文枚举，也是领域方法论（动作曾有的 `type` = reconnaissance / analysis / testing 因此删除）。核心层的结构只表达探索本身（目标、依据、因果、状态）。
-- **守门**：`internal/builtin/neutrality_test.go` 用领域词表扫描章程正文（域指引之前）、三份契约与核心包的字符串字面量（日志调用除外）。新增会产出 LLM 文本的核心包或源码时登记进 `coreSources`；词表只收不会出现在中立表述里的词。守门只能拦词，拦不住改头换面的方法论与命名，这两类靠评审按上面的判据把关。
+- **守门**：`internal/builtin/neutrality_test.go` 用领域词表扫描整份章程、三份契约与核心包的字符串字面量（日志调用除外）。新增会产出 LLM 文本的核心包或源码时登记进 `coreSources`；词表只收不会出现在中立表述里的词。守门只能拦词，拦不住改头换面的方法论与命名，这两类靠评审按上面的判据把关。
+
+### 场景（`internal/scenariostore`、`internal/scenario`）
+
+- 场景 = 任务所处情境的说明（名称 + 说明 + 正文），领域内容（可交付主张的标准、类别词表、验证模式、领域工具要点、示例）都在这里。出厂 `pentest`（渗透测试）与 `ctf`（CTF 夺旗）。
+- 归属任务：下发入口（`POST /tasks` 含定时、`POST /chat`、对话跟进中纯聊天升级为任务）的请求字段 `scenario`（`*string`，区分不带与显式空串）——不带 → 缺省场景 `pentest`，它被停用或删除时即无场景（`configstore.DefaultScenario`，用户的操作决定，不另找兜底）；`""` → 无场景；点名的场景未知或已停用 → 400（`scenariostore.ErrUnavailable`），不悄悄换场景。代理捕获的任务同样取缺省场景；读缺省场景失败（库故障）时放弃本次下发、流量保持未消费。定时模板不指定场景时记下创建时的缺省场景。缺省在入口层落定，不靠数据库默认值。
+- 建任务时快照到任务行（`task.scenario` / `scenario_name` / `scenario_body`，同空同有），建后不改；每个 run（续跑、恢复重投）都读快照，runner 按快照渲染（`scenario.Render`），注入路径不查场景表。场景之后被改、停用、删除都不影响已建任务；任务摘要带 `scenario_deleted` 标注。
+- 注入：`<scenario name="…">正文</scenario>` 经 `cognition.Deps.Scenario`（与章程并列的独立输入）拼在五处系统提示词末尾（执行者、评估者、规划者常规与结果分析、监察者）；无场景时什么都不加。渲染只陈述数据，不写指导语。
+- 定时模板引用活场景（`cron_schedule.scenario`，到点按当时内容快照），不变式：**模板只引用存在且启用的场景**。场景的修改（含停用）、删除、出厂同步与模板的新建都先锁场景行（`SELECT … FOR UPDATE`）再检查，彼此串行；被模板（含停用中的）引用时删除与停用都 409 并列出模板。
+- 删配置不停任务：停任务只经控制入口，删 / 停用场景对已建任务零影响。
 
 ### 实体关系
 
@@ -229,22 +238,23 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 - 错误体统一为 `{"error": "<消息>"}`。面向操作者的消息用中文，可附额外字段（如 `task_active`）。
 - 路径 UUID 格式非法返回 400（路由组挂 `requireUUIDParam`）；资源不存在返回 404；唯一约束冲突返回 409；对终态任务做控制返回 409。
-- handler 透传 error 值时必须经 `respondErr`：它记结构化日志，并把客户端错误收敛为 4xx——`pgx.ErrNoRows` → 404，LLM 未配置 → 400，`override.ErrInvalid`（提交的配置不合法）→ 400，技能标识冲突与对象类型不适用的操作（删除内置技能、恢复自建技能）→ 409。store 层必须用 `%w` 包装 `pgx.ErrNoRows`，否则 404 收敛失效。
+- handler 透传 error 值时必须经 `respondErr`：它记结构化日志，并把客户端错误收敛为 4xx——`pgx.ErrNoRows` → 404，LLM 未配置 → 400，`override.ErrInvalid`（提交的配置不合法）→ 400，技能 / 场景标识冲突与对象类型不适用的操作（恢复自建的出厂内容、删除或停用被定时模板引用的场景，`scenariostore.IsConflict`）→ 409；点名的场景不可用（`scenariostore.ErrUnavailable`）→ 400。store 层必须用 `%w` 包装 `pgx.ErrNoRows`，否则 404 收敛失效。
 - 用户输入在边界校验：消息类请求文本 TrimSpace 后为空且无附件即 400（空白消息会建空会话、白付一次 LLM 调用）；请求体用指针字段区分「缺失」与「零值」（如 `{"enabled": false}`）。
 - 新增路由在 `route_groups.go` 注册，依赖经 `Deps` 窄接口注入（nil 即不注册）；handler 测试用内存 fake 覆盖 400 / 404 / 成功路径。
 
 ### 出厂默认与用户自定义
 
-按「这条记录是谁让它存在的」分两类：
+按「这条记录是谁让它存在的」与存放方式分三类：
 
-- **产品定义的**（agent、内置技能、系统设置）：出厂值属于代码——agent 与内置技能编译在 `internal/builtin`，系统设置默认值 = 代码 + `config.yaml` 部署值。数据库只存用户改过的字段（`agent_override` / `skill_override` / `setting_override`），生效值在读取时合成（`internal/override`），三级缓存只缓存用户层。改出厂内容即随版本生效，不需要任何同步命令。
-- **用户定义的**（LLM 接入、自建技能 `custom_skill`、定时模板、管理员账号、知识库）：用户数据，在前端维护；`.env` 只在首装时提供初始管理员密码（`admin.initial_password`）。
-- 自定义规则：整值字段记录值与基线（写入时依据的出厂原文）；名单字段以 `{on, off}` 提交、记录增删，生效值 = 出厂 ∪ 新增 − 删除，「全部」(`*`) 中取消某项按全集展开。**保存时与出厂相同的值不算自定义**。各资源的写入一律经资源级锁事务（`overridestore`，事务级 advisory lock，含清空即删行），并发写不丢更新；需要与其它写入原子落定时用 `UpdateTx` 在调用方事务内执行。
+- **产品定义的、字段级用户层**（agent、系统设置）：出厂值属于代码——agent 编译在 `internal/builtin`，系统设置默认值 = 代码 + `config.yaml` 部署值。数据库只存用户改过的字段（`agent_override` / `setting_override`），生效值在读取时合成（`internal/override`），三级缓存只缓存用户层。改出厂内容即随版本生效，不需要任何同步命令。
+- **出厂种子 + 用户数据同表**（技能 `skill`、场景 `scenario`）：一张表一行一个资源，内置与自建同表（`is_builtin`）。出厂内容编译在 `internal/builtin`，是种子：`liusha migrate`（`serve` 启动前同样执行，`internal/app/migrate`）迁移后由出厂同步（`internal/builtinsync`）写入——库里没有就插入；`seed_hash` 记最近一次写入的出厂内容的哈希，当前内容（名称 ␟ 说明 ␟ 正文，启停不参与）的哈希与它相等即没改过，跟随新版（保留启停），改过的不动；编辑后恰与当前出厂相同即重记基线（不算自定义）；同步与用户编辑都先锁行，彼此串行；下线的内置行改过的转自建、没改过的删除（场景仍被定时模板引用时转自建）。粒度是整份内容：改过任一字段，此后出厂更新需用户「恢复出厂」取用。迁移 SQL 计算哈希与 `builtinsync.Hash` 同一算式（`internal/builtinsync` 与 0235 迁移测试守住）。缓存键带出厂内容摘要（`builtinsync.Digest`），出厂更新后不读旧版本留在 L2 的副本。内置与自建都可编辑、停用、删除：自建删除即删行；内置删除记删除标记（`deleted_at`），列表、选择框与运行时都看不到，出厂同步不补回、不更新，用户可在「已删除的内置」里恢复成当前出厂内容（`POST /…/:code/restore`）；出厂也下线时删除标记随之清掉。同 code 时只有一行，自建占用了某内置 code 则内置被遮蔽，新建自建拒绝与内置同名。
+- **用户定义的**（LLM 接入、定时模板、管理员账号、知识库）：用户数据，在前端维护；`.env` 只在首装时提供初始管理员密码（`admin.initial_password`）。
+- 自定义规则（agent、系统设置）：整值字段记录值与基线（写入时依据的出厂原文）；名单字段以 `{on, off}` 提交、记录增删，生效值 = 出厂 ∪ 新增 − 删除，「全部」(`*`) 中取消某项按全集展开。**保存时与出厂相同的值不算自定义**。各资源的写入一律经资源级锁事务（`overridestore`，事务级 advisory lock，含清空即删行），并发写不丢更新；需要与其它写入原子落定时用 `UpdateTx` 在调用方事务内执行。
 - agent 系统提示词 = 章程（可自定义）+ 输出契约（程序解析依赖的格式，随解析代码放在各 agent 的 `contract` 子包，不可自定义）。改输出格式只改契约与解析代码；**不要把程序依赖的约定写进章程**（`internal/builtin` 的测试会拦下章程里的契约章节）。规划者有常规规划与结果分析两次调用，共用一份章程、各有一份契约。
 - 提示词分层，每类内容只有一处：行为指导（角色、方法、判断准则）只在章程；格式只在契约；代码组装的输入（objective、状态摘要）只陈述数据，不写「应当 / 不要」这类指导；工具的用法只在工具自己的描述与 schema 里，章程不复述参数。代码里藏着的指导用户看不到也改不了，还会与自定义后的章程互相矛盾。
-- 领域内容在提示词里只有一处：章程最后一节「域指引」；章程正文、契约与核心代码组装的文本保持中立（见「核心层领域中立」）。
-- 内置技能同 code 时自建技能优先；内置技能下线时，用户自定义过的按 `last_saved` 转为同 code 自建技能（api 启动执行）；删除自建技能同时清理各 agent 对它的引用。
-- 新增可自定义字段：在资源的配置结构体（`agent.Config` / `skillstore.Content` / 各组设置结构体）加 json 字段即可，字段表由结构体推导（切片为名单、其余为整值）；删除字段后残留的自定义自动失效，不需要迁移。
+- 领域内容在提示词里只有一处：任务的场景；章程、契约与核心代码组装的文本保持中立（见「核心层领域中立」）。
+- 删除技能（内置与自建）同时清理各 agent 对它的引用（名单成员，去掉一项是范围明确的收窄）；场景是定时模板的唯一情境，被引用时拒绝删除（409），不级联。
+- 新增可自定义字段：在资源的配置结构体（`agent.Config` / 各组设置结构体）加 json 字段即可，字段表由结构体推导（切片为名单、其余为整值）；删除字段后残留的自定义自动失效，不需要迁移。
 - agent 名单（`function_tools` / `cli_tools` / `skills`）的成员判定只经 `registry.Allows`：nil = 拒绝，空 = 空集，含 `*` = 全部（含以后新增）。运行时装配与页面上的「已装配」状态同用这一个判定，不要另写——技能索引与 CLI 工具目录都曾因各写一份漏掉 `*` 而恒为空。
 
 ### 事件总线（`internal/bus`）

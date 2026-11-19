@@ -7,7 +7,7 @@ import (
 
 // ClaimFingerprint 是坐实主张的指纹：什么类别的主张、作用在哪个对象的哪一点。评估者
 // 坐实时按判定契约给出（contract.md 的 finding 字段），晋升门据此把同一主张的再次确认
-// 折叠进既有结果节点。类别词表属于业务领域，由评估者章程的「域指引」给出。
+// 折叠进既有结果节点。类别词表属于业务领域，由任务的场景给出。
 type ClaimFingerprint struct {
 	Class  string `json:"class"`  // 主张类别
 	Target string `json:"target"` // 主张作用的对象

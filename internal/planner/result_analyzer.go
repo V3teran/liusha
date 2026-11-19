@@ -9,6 +9,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
+	"github.com/V3teran/liusha/internal/scenario"
 )
 
 // AnalyzeResults 分析 Result 节点，决定下一步行动：哪些派生目标已达成、
@@ -94,14 +95,15 @@ func (e *Engine) buildAnalysisPrompt(view objectiveView, results []explorationgr
 }
 
 // buildAnalysisSystemPrompt 组装结果分析的 system prompt：规划者章程（可自定义）+ 结果分析
-// 契约（planner/contract，与本文件的解析同改同测，不可自定义）。结果分析是规划者的另一项
+// 契约（planner/contract，与本文件的解析同改同测，不可自定义）+ 任务场景块（无场景时没有）。
+// 结果分析是规划者的另一项
 // 职责，与常规规划共用同一份章程。章程为空时返回空串，由调用方拒绝。
 func (e *Engine) buildAnalysisSystemPrompt() string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
 		return ""
 	}
-	return charter + "\n\n" + plannercontract.AnalysisText
+	return scenario.Append(charter+"\n\n"+plannercontract.AnalysisText, e.scenario)
 }
 
 // AnalysisResponse 是 LLM 的分析响应

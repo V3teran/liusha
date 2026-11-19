@@ -20,6 +20,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
@@ -42,6 +43,7 @@ type RouterJudge struct {
 	cliManifest   *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
 	skills        []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
 	charter       string                            // 角色章程（生效值：出厂叠加用户自定义）
+	scenario      string                            // 任务场景块（scenario.Render；空 = 无场景）
 	complexity    llm.Complexity                    // LLM 档位（agent 生效配置的 complexity）
 	maxIt         int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	contextRatio  float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
@@ -81,6 +83,12 @@ func (j *RouterJudge) WithSkills(cards []*skill.Card) *RouterJudge {
 // WithCharter 注入角色章程（出厂值叠加用户自定义后的生效值）。
 func (j *RouterJudge) WithCharter(charter string) *RouterJudge {
 	j.charter = charter
+	return j
+}
+
+// WithScenario 注入任务场景块（scenario.Render；空 = 无场景），拼在系统提示词末尾。
+func (j *RouterJudge) WithScenario(block string) *RouterJudge {
+	j.scenario = block
 	return j
 }
 
@@ -265,10 +273,11 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 
 // systemPrompt 组装评估者 system prompt：
 //
-//	章程（可自定义：评估准则、验证流程、域指引）
+//	章程（可自定义：评估准则、验证流程）
 //	+ 契约（evaluator/contract，与 parseVerdict 同改同测，不可自定义：重放通道语义、判定 JSON）
 //	+ skill 索引（有声明且 read_skill 在白名单时渲染）
 //	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
+//	+ 任务场景块（scenario.Render，任务建立时快照；无场景时没有）
 //
 // 章程为空时返回空串让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
 func (j *RouterJudge) systemPrompt() string {
@@ -293,7 +302,7 @@ func (j *RouterJudge) systemPrompt() string {
 			sb.WriteString("- " + t.Name + ": " + t.Description + "\n")
 		}
 	}
-	return sb.String()
+	return scenario.Append(sb.String(), j.scenario)
 }
 
 // parseVerdict 从 FinalAnswer 提取判定 JSON（含坐实发现的结构化指纹）。

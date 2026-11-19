@@ -83,6 +83,11 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
 		return fmt.Errorf("unmarshal schedule %s payload: %w", sched.ID, err)
 	}
+	// 模板只引用存在且启用的场景（场景被引用时不可删除、停用）；仍按当前内容快照进任务。
+	sc, err := s.Dispatcher.resolveScenario(ctx, &sched.Scenario)
+	if err != nil {
+		return fmt.Errorf("schedule %s 的场景 %s: %w", sched.ID, sched.Scenario, err)
+	}
 
 	scheduleID := sched.ID
 	// 模板条目是用户编写的目标描述（DispatchScheduled 是模板的唯一写入方），
@@ -109,7 +114,7 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 		} else if _, aerr := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, item.Brief, nil); aerr != nil {
 			expandErr = fmt.Errorf("append user message: %w", aerr)
 		} else {
-			_, _, expandErr = s.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0)
+			_, _, expandErr = s.Dispatcher.expandItem(ctx, asg.ID, item.Brief, created.ID, nil, 0, sc)
 		}
 		if expandErr != nil {
 			s.Logger.Warn().Err(expandErr).Str("schedule_id", sched.ID).Str("assignment_id", asg.ID).

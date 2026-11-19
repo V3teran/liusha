@@ -98,7 +98,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("observation create: %v", err)
 	}
 
-	// 自建技能（custom_skill）
+	// 自建技能（skill 表）
 	if _, err := cfgStore.CreateSkill(ctx, skillstore.Skill{
 		Code: "smoke", Category: "tool", Name: "smoke", Description: "d", Body: "b", Enabled: true,
 	}); err != nil {

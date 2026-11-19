@@ -1,7 +1,7 @@
 # 部署
 
 liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）、`proxy`（MITM 代理入口）、
-`runner`（任务执行）、`sandbox`（工具执行沙盒）、`migrate`（数据库迁移），`serve` 在同一
+`runner`（任务执行）、`sandbox`（工具执行沙盒）、`migrate`（数据库迁移与出厂内容同步），`serve` 在同一
 进程运行全部组件。三种部署方式只是组件的摆放不同：
 
 | | 二进制 | 单镜像 | 多镜像 |
@@ -10,7 +10,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | PostgreSQL / Redis | 自备 | 镜像内置（pg18） | 独立容器（pg17） |
 | 渗透工具 | 本机安装（Linux / macOS / Windows） | 沙盒镜像（本地构建） | 沙盒镜像（本地构建） |
 | 对外入口 | :8580 | :8580（映射到宿主自定） | nginx :50080 |
-| 数据库迁移 | `serve` 启动时 | `serve` 启动时 | 一次性的 `migrate` 服务 |
+| 数据库迁移与出厂内容同步 | `serve` 启动时 | `serve` 启动时 | 一次性的 `migrate` 服务 |
 
 发布产物只有 Releases 中的二进制压缩包与 `ghcr.io/v3teran/liusha` 镜像；沙盒镜像与单镜像由
 部署方本地构建。

@@ -24,6 +24,7 @@ function row(over: Partial<ScheduleRow> = {}): ScheduleRow {
     description: '',
     cron: '0 4 * * *',
     enabled: true,
+    scenario: 'pentest',
     briefs: ['复扫 http://a', '复扫 http://b'],
     next_run_at: '2026-11-12T04:00:00Z',
     last_run_at: null,

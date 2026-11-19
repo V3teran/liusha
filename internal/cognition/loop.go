@@ -49,11 +49,14 @@ type Deps struct {
 	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
 	// 产出全部错记到早已结束的首个 run）。
 	AgentRunID string
-	Graph      *explorationgraph.Store
-	EventBus   bus.EventBus
-	CfgStore   *configstore.Store
-	Router     *fwllm.Router
-	Logger     zerolog.Logger
+	// Scenario 是任务的场景块（scenario.Render，由 runner 按任务行的场景快照渲染；空 = 无场景）：
+	// 四个 agent 的系统提示词末尾拼同一份。与章程并列的独立输入，不拼进章程。
+	Scenario string
+	Graph    *explorationgraph.Store
+	EventBus bus.EventBus
+	CfgStore *configstore.Store
+	Router   *fwllm.Router
+	Logger   zerolog.Logger
 
 	Skills        *skill.StoreReader
 	ToolsManifest *manifest.ToolManifest
@@ -362,6 +365,7 @@ func (d *Deps) assembleStack(
 	}
 	engine := planner.NewEngine(d.Router, d.Logger).
 		WithCharter(cfgs.planner.Charter).
+		WithScenario(d.Scenario).
 		WithComplexity(cfgs.planner.Complexity).
 		WithMaxIterations(cfgs.planner.MaxIterations).
 		WithAgentRoster([]planner.AgentBrief{
@@ -409,6 +413,7 @@ func (d *Deps) assembleStack(
 		AgentRunID:          agentRunID,
 		FunctionTools:       cfgs.monitor.FunctionTools,
 		Charter:             cfgs.monitor.Charter,
+		Scenario:            d.Scenario,
 		MaxIterations:       cfgs.monitor.MaxIterations,
 		Graph:               d.Graph,
 		Replanner:           plannerAgent, // 重规划请求直达规划者
@@ -482,6 +487,7 @@ func (d *Deps) buildExecutorAgent(
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
 		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
 		Charter:             cfg.Charter,                                       // 角色章程（生效值）
+		Scenario:            d.Scenario,                                        // 任务场景块（拼在系统提示词末尾）
 		Complexity:          cfg.Complexity,                                    // LLM 档位（agent 生效配置）
 		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
@@ -535,6 +541,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithCLIManifest(evaluatorCLImanifest).
 		WithSkills(skillCards(ctx, skillsView, d.Logger, "evaluator")).
 		WithCharter(cfg.Charter).
+		WithScenario(d.Scenario).
 		WithComplexity(cfg.Complexity).
 		WithMaxIterations(cfg.MaxIterations).
 		WithContextRatio(d.ContextRatios.Evaluator).

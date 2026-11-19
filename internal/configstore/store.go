@@ -1,9 +1,11 @@
-// Package configstore 编排 agent 与技能配置的读写：出厂值（internal/builtin，编译进程序）
-// 叠加用户层（数据库），经三级缓存（进程内存 L1 → redis L2 → 数据库）供 api 与 runner 读取。
+// Package configstore 编排 agent、技能与场景配置的读写，经三级缓存（进程内存 L1 → redis L2
+// → 数据库）供 api 与 runner 读取。
 //
-// 只缓存用户层（体量小、键空间固定）：agent 用户层、内置技能用户层、自建技能各一个键。
-// 出厂值本就在进程内存里，生效值在读取时合成。写路径写库后经 cachestore 广播失效，
-// 其它进程被动清本地缓存，下次读即最新。
+//   - agent：出厂值（internal/builtin，编译进程序）叠加用户层（agent_override），只缓存用户层，
+//     生效值在读取时合成；
+//   - 技能、场景：一张表一行一个资源（内置的出厂内容是种子，迁移后由出厂同步写入），缓存整表。
+//
+// 写路径写库后经 cachestore 广播失效，其它进程被动清本地缓存，下次读即最新。
 package configstore
 
 import (
@@ -12,25 +14,23 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/agent"
 	"github.com/V3teran/liusha/internal/builtin"
+	"github.com/V3teran/liusha/internal/builtinsync"
 	"github.com/V3teran/liusha/internal/cachestore"
 	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/skillstore"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
 // ErrNotFound 标记 agent 或技能不存在（包装 pgx.ErrNoRows，接口层统一映射为 404）。
 var ErrNotFound = fmt.Errorf("不存在: %w", pgx.ErrNoRows)
-
-// ErrBuiltinSkill 标记对内置技能做了只适用于自建技能的操作（删除），接口层映射为 409。
-var ErrBuiltinSkill = errors.New("内置技能不可删除，可停用或自定义内容")
 
 // ErrCustomSkill 标记对自建技能做了只适用于内置技能的操作（恢复出厂），接口层映射为 409。
 var ErrCustomSkill = errors.New("自建技能没有出厂内容可恢复")
@@ -55,26 +55,29 @@ func ToolCatalogFrom(m *manifest.ToolManifest) ToolCatalog {
 	return tc
 }
 
-// Store 是 agent 与技能配置的读写入口。
+// Store 是 agent、技能与场景配置的读写入口。
 type Store struct {
-	agents *agent.Store
-	skills *skillstore.Store
-	cache  *cachestore.Cache
-	tools  ToolCatalog
+	agents    *agent.Store
+	skills    *skillstore.Store
+	scenarios *scenariostore.Store
+	cache     *cachestore.Cache
+	tools     ToolCatalog
 }
 
 // New 构造 Store。cache 由进程唯一构造并已在后台 Subscribe。
 func New(pool *pgxpool.Pool, cache *cachestore.Cache, tools ToolCatalog) *Store {
-	return &Store{agents: agent.NewStore(pool), skills: skillstore.New(pool), cache: cache, tools: tools}
+	return &Store{
+		agents: agent.NewStore(pool), skills: skillstore.New(pool), scenarios: scenariostore.New(pool),
+		cache: cache, tools: tools,
+	}
 }
 
 // ── 缓存（只缓存用户层）─────────────────────────────────────────────
 
-const (
-	keyAgentOverrides = "configstore:agent_overrides"
-	keySkillOverrides = "configstore:skill_overrides"
-	keyCustomSkills   = "configstore:custom_skills"
-)
+const keyAgentOverrides = "configstore:agent_overrides"
+
+// 技能表的缓存键带出厂内容摘要：出厂同步改写了表的新版本进程，不会读到旧版本留在 L2 的副本。
+var keySkills = "configstore:skills:" + builtinsync.Digest(skillstore.Seeds())
 
 func (s *Store) agentOverrides(ctx context.Context) (map[string]override.Overrides, error) {
 	return cachestore.ReadThrough(ctx, s.cache, keyAgentOverrides,
@@ -82,16 +85,10 @@ func (s *Store) agentOverrides(ctx context.Context) (map[string]override.Overrid
 		s.agents.Overrides)
 }
 
-func (s *Store) skillOverrides(ctx context.Context) (map[string]override.Overrides, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keySkillOverrides,
-		func(map[string]override.Overrides) []string { return []string{keySkillOverrides} },
-		s.skills.Overrides)
-}
-
-func (s *Store) customSkills(ctx context.Context) ([]skillstore.Skill, error) {
-	return cachestore.ReadThrough(ctx, s.cache, keyCustomSkills,
-		func([]skillstore.Skill) []string { return []string{keyCustomSkills} },
-		s.skills.ListCustom)
+func (s *Store) skillRecords(ctx context.Context) ([]skillstore.Record, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keySkills,
+		func([]skillstore.Record) []string { return []string{keySkills} },
+		s.skills.List)
 }
 
 // ── agent ───────────────────────────────────────────────────────────
@@ -275,7 +272,7 @@ func (s *Store) agentCatalog(ctx context.Context) (agent.Catalog, error) {
 
 // ── 技能 ────────────────────────────────────────────────────────────
 
-// SkillDetail 是技能页需要的全部信息。内置技能附出厂值与已自定义字段状态。
+// SkillDetail 是技能页需要的全部信息。内置技能附出厂内容与各字段相对出厂的状态。
 type SkillDetail struct {
 	Skill     skillstore.Skill          `json:"skill"`
 	Defaults  *skillstore.Content       `json:"defaults"`
@@ -284,38 +281,61 @@ type SkillDetail struct {
 	Shadows bool `json:"shadows_builtin"`
 }
 
-// Skills 返回全部生效技能（内置技能叠加用户层 + 自建技能；同名时自建优先），
-// 按 category、code 升序。
+// liveSkills 返回未被删除的技能行（按 category、code 升序）。
+func (s *Store) liveSkills(ctx context.Context) ([]skillstore.Record, error) {
+	recs, err := s.skillRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(slices.Clone(recs), func(r skillstore.Record) bool { return r.Deleted }), nil
+}
+
+// Skills 返回全部技能（不含已删除的内置技能，按 category、code 升序）。
 func (s *Store) Skills(ctx context.Context) ([]skillstore.Skill, error) {
-	customs, err := s.customSkills(ctx)
+	recs, err := s.liveSkills(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ovs, err := s.skillOverrides(ctx)
-	if err != nil {
-		return nil, err
+	out := make([]skillstore.Skill, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, r.Skill)
 	}
-	out := slices.Clone(customs)
-	for _, b := range builtin.Skills() {
-		if hasCode(customs, b.Code) {
-			continue // 被同名自建技能遮蔽
-		}
-		sk, err := skillstore.Resolve(b, ovs[b.Code])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sk)
-	}
-	slices.SortFunc(out, func(a, b skillstore.Skill) int {
-		if c := strings.Compare(a.Category, b.Category); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Code, b.Code)
-	})
 	return out, nil
 }
 
-// EnabledSkills 返回全部启用的生效技能（runner 构建技能索引的数据源）。
+// DeletedSkills 返回被用户删除、可恢复的内置技能（名称与描述取当前出厂内容，恢复即得到它）。
+func (s *Store) DeletedSkills(ctx context.Context) ([]skillstore.Skill, error) {
+	recs, err := s.skillRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []skillstore.Skill
+	for _, r := range recs {
+		if b, ok := builtin.SkillByCode(r.Code); ok && r.Deleted {
+			out = append(out, skillstore.Skill{
+				Code: b.Code, Category: b.Category, Name: b.Name, Description: b.Description, Body: b.Body,
+				Enabled: true, IsBuiltin: true,
+			})
+		}
+	}
+	return out, nil
+}
+
+// RestoreSkill 把用户删除的内置技能恢复成当前出厂内容。不是已删除的内置技能返回 ErrNotFound。
+func (s *Store) RestoreSkill(ctx context.Context, code string) (skillstore.Skill, error) {
+	if err := s.skills.Restore(ctx, code); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return skillstore.Skill{}, fmt.Errorf("已删除的内置技能 %q %w", code, ErrNotFound)
+		}
+		return skillstore.Skill{}, err
+	}
+	if err := s.cache.Invalidate(ctx, keySkills); err != nil {
+		return skillstore.Skill{}, err
+	}
+	return s.Skill(ctx, code)
+}
+
+// EnabledSkills 返回全部启用的技能（runner 构建技能索引的数据源）。
 func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
 	all, err := s.Skills(ctx)
 	if err != nil {
@@ -324,7 +344,7 @@ func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
 	return slices.DeleteFunc(all, func(sk skillstore.Skill) bool { return !sk.Enabled }), nil
 }
 
-// Skill 按 code 返回生效技能（read_skill 的后端）。
+// Skill 按 code 返回技能（read_skill 的后端）。
 func (s *Store) Skill(ctx context.Context, code string) (skillstore.Skill, error) {
 	all, err := s.Skills(ctx)
 	if err != nil {
@@ -338,27 +358,28 @@ func (s *Store) Skill(ctx context.Context, code string) (skillstore.Skill, error
 	return skillstore.Skill{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
 }
 
-// SkillDetails 返回全部生效技能及其详情（顺序同 Skills）：内置技能附出厂内容与
-// 已自定义字段状态，自建技能标明是否遮蔽了同名内置技能。
+// SkillDetails 返回全部技能及其详情（顺序同 Skills）：内置技能附出厂内容与各字段相对出厂的
+// 状态，自建技能标明是否遮蔽了同名内置技能。
 func (s *Store) SkillDetails(ctx context.Context) ([]SkillDetail, error) {
-	skills, err := s.Skills(ctx)
+	recs, err := s.liveSkills(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ovs, err := s.skillOverrides(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SkillDetail, 0, len(skills))
-	for _, sk := range skills {
-		d := SkillDetail{Skill: sk, Overrides: map[string]override.State{}}
-		b, isBuiltinCode := builtin.SkillByCode(sk.Code)
-		if sk.IsBuiltin {
+	out := make([]SkillDetail, 0, len(recs))
+	for _, r := range recs {
+		d := SkillDetail{Skill: r.Skill, Overrides: map[string]override.State{}}
+		b, seeded := builtin.SkillByCode(r.Code)
+		switch {
+		case r.IsBuiltin && seeded:
 			def := skillstore.Defaults(b)
 			d.Defaults = &def
-			d.Overrides = override.Describe(skillstore.Schema(), skillstore.DefaultsDocument(b), ovs[sk.Code])
-		} else {
-			d.Shadows = isBuiltinCode
+			ov, err := describeAgainstSeed(skillstore.ContentOf(r.Skill), def, r.SeedHash, skillstore.SeedHash(b))
+			if err != nil {
+				return nil, fmt.Errorf("技能 %s: %w", r.Code, err)
+			}
+			d.Overrides = ov
+		case !r.IsBuiltin:
+			d.Shadows = seeded
 		}
 		out = append(out, d)
 	}
@@ -379,7 +400,7 @@ func (s *Store) SkillDetail(ctx context.Context, code string) (SkillDetail, erro
 	return SkillDetail{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
 }
 
-// CreateSkill 新建自建技能。与内置技能或已有自建技能同名返回 skillstore.ErrConflict。
+// CreateSkill 新建自建技能。与内置技能或已有技能同名返回 skillstore.ErrConflict。
 func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstore.Skill, error) {
 	sk.IsBuiltin = false
 	if err := skillstore.ValidateNew(sk); err != nil {
@@ -388,64 +409,45 @@ func (s *Store) CreateSkill(ctx context.Context, sk skillstore.Skill) (skillstor
 	if _, ok := builtin.SkillByCode(sk.Code); ok {
 		return skillstore.Skill{}, fmt.Errorf("%w：%s 是内置技能", skillstore.ErrConflict, sk.Code)
 	}
-	created, err := s.skills.CreateCustom(ctx, sk)
+	created, err := s.skills.Create(ctx, sk)
 	if err != nil {
 		return skillstore.Skill{}, err
 	}
-	return created, s.cache.Invalidate(ctx, keyCustomSkills)
+	return created.Skill, s.cache.Invalidate(ctx, keySkills)
 }
 
-// PatchSkill 修改技能：内置技能写入用户层（与出厂相同即不算自定义），自建技能直接修改。
+// PatchSkill 修改技能的可修改字段（内置与自建同一路径）。
 func (s *Store) PatchSkill(ctx context.Context, code string, changes override.Document) (skillstore.Skill, error) {
-	sk, err := s.Skill(ctx, code)
-	if err != nil {
-		return skillstore.Skill{}, err
-	}
-	if !sk.IsBuiltin {
-		updated, err := s.skills.UpdateCustom(ctx, code, func(cur skillstore.Skill) (skillstore.Content, error) {
-			return mergeContent(skillstore.ContentOf(cur), changes)
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return skillstore.Skill{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
-			}
-			return skillstore.Skill{}, err
-		}
-		return updated, s.cache.Invalidate(ctx, keyCustomSkills)
-	}
-	return s.updateBuiltinSkill(ctx, code, func(def override.Document, cur override.Overrides) (override.Overrides, error) {
-		return override.Patch(skillstore.Schema(), def, cur, changes)
+	return s.updateSkill(ctx, code, func(r skillstore.Record) (skillstore.Content, error) {
+		return mergeContent(skillstore.ContentOf(r.Skill), changes)
 	})
 }
 
 // ResetSkill 把内置技能的指定字段恢复为出厂内容（不传字段则全部恢复）。
 func (s *Store) ResetSkill(ctx context.Context, code string, fields ...string) (skillstore.Skill, error) {
-	sk, err := s.Skill(ctx, code)
-	if err != nil {
-		return skillstore.Skill{}, err
-	}
-	if !sk.IsBuiltin {
-		return skillstore.Skill{}, ErrCustomSkill
-	}
-	return s.updateBuiltinSkill(ctx, code, func(_ override.Document, cur override.Overrides) (override.Overrides, error) {
-		for _, f := range fields {
-			if _, ok := skillstore.Schema()[f]; !ok {
-				return nil, fmt.Errorf("%w：字段 %q 不可自定义", override.ErrInvalid, f)
-			}
+	return s.updateSkill(ctx, code, func(r skillstore.Record) (skillstore.Content, error) {
+		b, ok := builtin.SkillByCode(code)
+		if !r.IsBuiltin || !ok {
+			return skillstore.Content{}, ErrCustomSkill
 		}
-		return override.Reset(cur, fields...), nil
+		return resetContent(skillstore.ContentOf(r.Skill), skillstore.Defaults(b), fields)
 	})
 }
 
-// DeleteSkill 删除自建技能，并从各 agent 的技能自定义里抹去对它的引用。
-func (s *Store) DeleteSkill(ctx context.Context, code string) error {
-	sk, err := s.Skill(ctx, code)
+func (s *Store) updateSkill(ctx context.Context, code string, fn func(skillstore.Record) (skillstore.Content, error)) (skillstore.Skill, error) {
+	updated, err := s.skills.Update(ctx, code, fn)
 	if err != nil {
-		return err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return skillstore.Skill{}, fmt.Errorf("技能 %q %w", code, ErrNotFound)
+		}
+		return skillstore.Skill{}, err
 	}
-	if sk.IsBuiltin {
-		return ErrBuiltinSkill
-	}
+	return updated.Skill, s.cache.Invalidate(ctx, keySkills)
+}
+
+// DeleteSkill 删除技能（自建删行，内置记删除标记、可恢复），并从各 agent 的技能自定义里抹去
+// 对它的引用。
+func (s *Store) DeleteSkill(ctx context.Context, code string) error {
 	// 删除与清理各 agent 的引用在一个事务内落定：任一步失败整体回滚、可原样重试，
 	// 不会留下「技能已删、引用残留」（残留绑定会在日后同名重建时自动生效）。
 	tx, err := s.agents.Begin(ctx)
@@ -453,7 +455,7 @@ func (s *Store) DeleteSkill(ctx context.Context, code string) error {
 		return fmt.Errorf("删除技能 %s: %w", code, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := s.skills.DeleteCustom(ctx, tx, code); err != nil {
+	if err := s.skills.Delete(ctx, tx, code); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("技能 %q %w", code, ErrNotFound)
 		}
@@ -465,40 +467,7 @@ func (s *Store) DeleteSkill(ctx context.Context, code string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("删除技能 %s: %w", code, err)
 	}
-	return s.cache.Invalidate(ctx, keyCustomSkills, keyAgentOverrides)
-}
-
-// AdoptRetiredSkills 把已下线、但用户自定义过的内置技能转为同 code 的自建技能
-// （api 启动时执行，幂等）。返回转换的 code。
-func (s *Store) AdoptRetiredSkills(ctx context.Context) ([]string, error) {
-	var codes []string
-	for _, b := range builtin.Skills() {
-		codes = append(codes, b.Code)
-	}
-	adopted, err := s.skills.AdoptRetired(ctx, codes)
-	if err != nil || len(adopted) == 0 {
-		return adopted, err
-	}
-	return adopted, s.cache.Invalidate(ctx, keySkillOverrides, keyCustomSkills)
-}
-
-func (s *Store) updateBuiltinSkill(ctx context.Context, code string, edit func(override.Document, override.Overrides) (override.Overrides, error)) (skillstore.Skill, error) {
-	b, _ := builtin.SkillByCode(code)
-	def := skillstore.DefaultsDocument(b)
-	var result skillstore.Skill
-	if _, err := s.skills.UpdateOverrides(ctx, code, func(cur override.Overrides) (override.Overrides, skillstore.Skill, error) {
-		next, err := edit(def, cur)
-		if err != nil {
-			return nil, skillstore.Skill{}, err
-		}
-		if result, err = skillstore.Resolve(b, next); err != nil { // 同 updateAgent：按提交不合法收敛
-			return nil, skillstore.Skill{}, fmt.Errorf("%w：%w", override.ErrInvalid, err)
-		}
-		return next, result, skillstore.Validate(skillstore.ContentOf(result))
-	}); err != nil {
-		return skillstore.Skill{}, err
-	}
-	return result, s.cache.Invalidate(ctx, keySkillOverrides)
+	return s.cache.Invalidate(ctx, keySkills, keyAgentOverrides)
 }
 
 // removeSkillReferences 在调用方事务内从各 agent 技能字段的新增、删除记录里抹去被删技能。
@@ -514,30 +483,6 @@ func (s *Store) removeSkillReferences(ctx context.Context, tx pgx.Tx, code strin
 		}
 	}
 	return nil
-}
-
-// mergeContent 把提交的字段合入自建技能内容（只接受可修改字段）并校验。
-func mergeContent(cur skillstore.Content, changes override.Document) (skillstore.Content, error) {
-	schema := skillstore.Schema()
-	doc, err := override.ToDocument(cur)
-	if err != nil {
-		return skillstore.Content{}, err
-	}
-	for name, v := range changes {
-		if _, ok := schema[name]; !ok {
-			return skillstore.Content{}, fmt.Errorf("%w：字段 %q 不可修改", override.ErrInvalid, name)
-		}
-		doc[name] = v
-	}
-	var next skillstore.Content
-	if err := override.FromDocument(doc, &next); err != nil {
-		return skillstore.Content{}, fmt.Errorf("%w：%w", override.ErrInvalid, err)
-	}
-	return next, skillstore.Validate(next)
-}
-
-func hasCode(list []skillstore.Skill, code string) bool {
-	return slices.ContainsFunc(list, func(sk skillstore.Skill) bool { return sk.Code == code })
 }
 
 func mustJSON(s string) json.RawMessage {

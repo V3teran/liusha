@@ -1,8 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { errorText } from '@/api/client'
 import {
   assignSkill,
   createSkill,
   deleteSkill,
+  listDeletedSkills,
+  restoreSkill,
   getSkill,
   patchSkill,
   resetSkill,
@@ -11,15 +15,18 @@ import {
 import type { SkillAgent, SkillDetail } from '@/api/types'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
 import { Badge } from '@/components/ui/Badge'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
+import { DeletedBuiltins } from '@/features/config/DeletedBuiltins'
 import { OverrideStatus } from '@/features/config/OverrideStatus'
 import { useSkillsPagedList } from '@/features/config/useConfigQueries'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 
-// 技能页（/config/skills）。内置技能的出厂内容随程序发布：可自定义名称、描述、正文、启用，
-// 可对比出厂与恢复默认，不可删除；自建技能可增删改。同标识时自建技能优先（内置版本被遮蔽）。
+// 技能页（/config/skills）。内置技能的出厂内容随版本更新（没改过的自动跟随新版）：可修改名称、描述、正文、启用，
+// 可对比出厂与恢复默认，可删除（升级不再补回，可在「已删除的内置」里恢复）；自建技能可增删改。同标识时
+// 自建技能优先（内置版本被遮蔽）。
 
 interface SkillDraft {
   code: string
@@ -45,6 +52,9 @@ const draftOf = (d: SkillDetail): SkillDraft => ({
 
 export function SkillsPage() {
   const list = useSkillsPagedList()
+  const qc = useQueryClient()
+  const deletedSkills = useQuery({ queryKey: ['skills', 'deleted'], queryFn: listDeletedSkills })
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const rows = list.rows
 
   const { draft, patch, open, close, rebase, baseline } = useDirtyDraft<SkillDraft>()
@@ -135,14 +145,15 @@ export function SkillsPage() {
 
   const onDelete = async () => {
     if (!draft) return
-    if (!window.confirm(`删除技能「${draft.name}」？不可恢复，各智能体对它的装配也会一并移除。`)) return
     setSaving(true)
     try {
       await deleteSkill(draft.code)
+      setConfirmDelete(false)
       closeDrawer()
       list.reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '删除失败')
+      setConfirmDelete(false)
+      window.alert(errorText(e, '删除失败'))
     } finally {
       setSaving(false)
     }
@@ -228,6 +239,16 @@ export function SkillsPage() {
           onSize: list.setSize,
         }}
         onNew={openNew}
+        headerExtra={
+          <DeletedBuiltins
+            noun="技能"
+            items={deletedSkills.data ?? []}
+            onRestore={async (code) => {
+              await restoreSkill(code)
+              await qc.invalidateQueries({ queryKey: ['skills'] })
+            }}
+          />
+        }
       >
         {rows.map((sk) => (
           <ConfigRow
@@ -254,7 +275,7 @@ export function SkillsPage() {
         title={isNew ? '新建技能' : draft?.name || '技能'}
         onOpenChange={(o) => !o && requestClose()}
         onSave={() => void onSave()}
-        onDelete={isNew || isBuiltin ? undefined : () => void onDelete()}
+        onDelete={isNew ? undefined : () => setConfirmDelete(true)}
         saving={saving}
         saveDisabled={saving || !!createInvalid || !dirty || resetting !== null}
         tabs={
@@ -354,6 +375,19 @@ export function SkillsPage() {
               ]
             : []
         }
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="删除技能"
+        message={
+          isBuiltin
+            ? `删除内置技能「${draft?.name ?? ''}」？各智能体对它的装配会一并移除；升级不会再补回它，可在「已删除的内置」里恢复成出厂内容（你的修改不保留）。`
+            : `删除技能「${draft?.name ?? ''}」？不可恢复，各智能体对它的装配也会一并移除。`
+        }
+        danger
+        confirmLabel="确认删除"
+        onConfirm={() => void onDelete()}
       />
     </>
   )

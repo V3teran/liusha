@@ -20,6 +20,7 @@ import (
 	"github.com/V3teran/liusha/internal/monitor/metrics"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/scenario"
 )
 
 // Agent 是独立的监察 Agent。
@@ -34,8 +35,9 @@ type Agent struct {
 	interval     time.Duration
 	logger       zerolog.Logger
 
-	charter string // 角色章程（生效值；空=ReAct.Run 报错）
-	maxIt   int    // ReAct 迭代上限（0=不设限）
+	charter  string // 角色章程（生效值；空=ReAct.Run 报错）
+	scenario string // 任务场景块（scenario.Render；空 = 无场景）
+	maxIt    int    // ReAct 迭代上限（0=不设限）
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）。
 	contextRatio        float64
 	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
@@ -103,6 +105,7 @@ type Config struct {
 	WrapTool func(registry.Tool) registry.Tool
 
 	Charter       string        // 角色章程（出厂值叠加用户自定义后的生效值）
+	Scenario      string        // 任务场景块（scenario.Render；空 = 无场景），拼在系统提示词末尾
 	MaxIterations int           // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	Thoughts      reasoning.Tap // 思考流出口（认知循环注入；nil=不流式）
 }
@@ -147,6 +150,7 @@ func New(cfg Config) *Agent {
 		interval:            interval,
 		logger:              cfg.Logger,
 		charter:             cfg.Charter,
+		scenario:            cfg.Scenario,
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
@@ -338,7 +342,7 @@ func (a *Agent) buildEvaluationObjective(reviewReasons []string) string {
 	return b.String()
 }
 
-// buildSystemPrompt 组装监察 system prompt：即章程本身。监察的决策经
+// buildSystemPrompt 组装监察 system prompt：章程 + 任务场景块（无场景时没有）。监察的决策经
 // publish_decision 工具调用发布，形状由工具 schema 约束，最终文本不被解析，
 // 因此没有需要随代码固定的输出契约。章程为空时返回空串让 ReAct.Run 报错
 // （自定义层在写入时已拒绝空章程，此处只是兜底）。
@@ -347,7 +351,7 @@ func (a *Agent) buildSystemPrompt() string {
 	if charter == "" {
 		return ""
 	}
-	return charter
+	return scenario.Append(charter, a.scenario)
 }
 
 // ============================================

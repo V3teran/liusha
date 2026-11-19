@@ -21,6 +21,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/scenario"
 )
 
 // ErrPlanOutputParse 表示规划输出经修复层后仍不可解析。它区别于网络类瞬时
@@ -33,6 +34,7 @@ type Engine struct {
 	router     *llm.Router
 	logger     zerolog.Logger
 	charter    string         // 角色章程（生效值：出厂叠加用户自定义）
+	scenario   string         // 任务场景块（scenario.Render；空 = 无场景）
 	complexity llm.Complexity // LLM 档位（agent 生效配置的 complexity）
 	thoughts   reasoning.Tap  // 思考流出口（认知循环注入；nil=不流式）
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
@@ -92,6 +94,13 @@ func NewEngine(router *llm.Router, logger zerolog.Logger) *Engine {
 // WithCharter 注入角色章程（出厂值叠加用户自定义后的生效值）。
 func (e *Engine) WithCharter(charter string) *Engine {
 	e.charter = charter
+	return e
+}
+
+// WithScenario 注入任务场景块（scenario.Render；空 = 无场景），拼在常规规划与结果分析两份
+// 系统提示词末尾。
+func (e *Engine) WithScenario(block string) *Engine {
+	e.scenario = block
 	return e
 }
 
@@ -519,14 +528,15 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 }
 
 // buildPlannerSystemPrompt 组装规划 system prompt：章程（可自定义）+ 输出契约
-// （planner/contract，与 parsePlanningResponse 同改同测，不可自定义）。章程为空时返回空串，
+// （planner/contract，与 parsePlanningResponse 同改同测，不可自定义）+ 任务场景块（无场景时
+// 没有）。章程为空时返回空串，
 // 让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
 func (e *Engine) buildPlannerSystemPrompt() string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
 		return ""
 	}
-	return charter + "\n\n" + plannercontract.Text
+	return scenario.Append(charter+"\n\n"+plannercontract.Text, e.scenario)
 }
 
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。

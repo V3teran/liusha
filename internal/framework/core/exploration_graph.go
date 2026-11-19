@@ -75,7 +75,7 @@ const (
 )
 
 // VerificationStatus 是假设观察的验证状态。探索图与业务领域无关：
-// 这里只有「假设」与「事实」，业务语义由章程的「域指引」与交付管道
+// 这里只有「假设」与「事实」，业务语义由任务的场景与交付管道
 // 承载，不进图本体。
 //
 // 只有假设（category=hypothesis）有验证状态：pending → confirmed/refuted，流转由

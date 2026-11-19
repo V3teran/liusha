@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Loader2, Paperclip, Send, X } from 'lucide-react'
+import { ApiError } from '@/api/client'
 import { followUp, startChat } from '@/api/conversations'
 import { uploadAttachment } from '@/api/attachments'
 import type { AttachmentRef } from '@/api/types'
@@ -7,6 +8,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { humanBytes } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { ScenarioSelect } from '@/features/scenarios/ScenarioSelect'
 
 interface ComposerProps {
   convId?: string
@@ -14,6 +16,8 @@ interface ComposerProps {
   disabled?: boolean
   /** 禁用态的输入框占位文案（缺省走通用文案）。 */
   placeholder?: string
+  /** 会话尚未绑定任务：消息被判为要执行时会建任务，显示场景选择框（已绑定任务的会话沿用任务的场景）。 */
+  pickScenario?: boolean
   onStarted: (convID: string) => void
   onAppended: (afterSeq: number) => void
 }
@@ -27,7 +31,7 @@ interface ComposerProps {
  * 全部附件随行。
  */
 const MAX_ATTACHMENTS = 10
-export function Composer({ convId, disabled = false, placeholder, onStarted, onAppended }: ComposerProps) {
+export function Composer({ convId, disabled = false, placeholder, pickScenario = false, onStarted, onAppended }: ComposerProps) {
   const lastSeq = useConversationStore((s) => s.lastSeq)
   const beginThinking = useConversationStore((s) => s.beginThinking)
   const [brief, setBrief] = useState('')
@@ -35,9 +39,12 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
   const [sending, setSending] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentRef[]>([])
   const [uploadingCount, setUploadingCount] = useState(0)
+  const [scenario, setScenario] = useState<string | null>(null) // null = 未选，服务端落定缺省场景
   const fileInputRef = useRef<HTMLInputElement>(null)
   const convIdRef = useRef(convId)
   convIdRef.current = convId
+  // 本输入框刚发起的对话：首条消息建出对话后 convId 随之变化，那是同一份草稿的延续，场景选择保留。
+  const startedConvRef = useRef<string | null>(null)
 
   // 附件引用是会话域资源（服务端按会话合法根校验）：Composer 实例跨会话
   // 复用，切会话必须清芯片——否则 A 会话的引用随 B 会话的消息提交，只会
@@ -45,6 +52,13 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
   useEffect(() => {
     setAttachments([])
     setBusyMsg('')
+    // 场景选择属于一次发起：切到别的对话（或回到新对话）回到未选，免得把上一处的选择带进新任务。
+    // 唯一的例外是本输入框刚发起的对话（新对话 → 它），只豁免这一次。
+    if (convId !== undefined && convId === startedConvRef.current) {
+      startedConvRef.current = null
+      return
+    }
+    setScenario(null)
   }, [convId])
 
   const removeAttachment = (path: string) =>
@@ -81,20 +95,25 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
     try {
       if (convId) {
         const beforeSeq = lastSeq
-        await followUp(convId, brief, attachments)
+        // 已绑定任务的会话沿用任务自己的场景，不带场景字段。
+        await (pickScenario
+          ? followUp(convId, brief, attachments, scenario ?? undefined)
+          : followUp(convId, brief, attachments))
         setBrief('')
         setAttachments([])
         beginThinking()
         onAppended(beforeSeq)
       } else {
-        const { conversation_id } = await startChat(brief, attachments)
+        const { conversation_id } = await startChat(brief, attachments, scenario ?? undefined)
+        startedConvRef.current = conversation_id
         setBrief('')
         setAttachments([])
         beginThinking()
         onStarted(conversation_id)
       }
-    } catch {
-      setBusyMsg('发送失败')
+    } catch (e) {
+      // 后端给了原因（如所选场景已停用）就说出来；网络等失败只提示发送失败。
+      setBusyMsg(e instanceof ApiError && e.detail ? `发送失败：${e.detail}` : '发送失败')
     } finally {
       setSending(false)
     }
@@ -196,6 +215,16 @@ export function Composer({ convId, disabled = false, placeholder, onStarted, onA
             >
               <Paperclip className="h-4 w-4" />
             </button>
+            {pickScenario && (
+              <ScenarioSelect
+                size="sm"
+                value={scenario}
+                onChange={setScenario}
+                disabled={disabled || sending}
+                aria-label="任务场景"
+                className="max-w-[9rem] flex-shrink-0"
+              />
+            )}
             <div className="min-w-0 truncate text-xs text-text-tertiary">
               {busyMsg ? (
                 <span className="animate-slide-down font-medium text-status-error">{busyMsg}</span>

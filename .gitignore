@@ -34,6 +34,7 @@ coverage.html
 
 # 本地构建产物（`go build ./cmd/<x>` 默认输出于仓库根；发布打包输出到 dist/）
 /liusha
+/tsecbench
 /e2e
 /dist/
 

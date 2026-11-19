@@ -23,7 +23,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, assignment_id, goal, target_host, status, paused, heartbeat_at, paused_ms, " +
-	"created_at, ended_at, error_message"
+	"created_at, ended_at, error_message, scenario, scenario_name, scenario_body"
 
 const (
 	defaultListLimit = 50 // 对齐 httpapi parseTaskFilter 的缺省 50——两层钳制数值必须一致
@@ -42,9 +42,9 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Task, error) {
 	var t Task
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO task (assignment_id, goal, target_host, status)
-			VALUES ($1, $2, $3, 'active')
-			RETURNING `+colsSelect, p.AssignmentID, p.Goal, targetHostOf(p.Goal))
+			INSERT INTO task (assignment_id, goal, target_host, status, scenario, scenario_name, scenario_body)
+			VALUES ($1, $2, $3, 'active', $4, $5, $6)
+			RETURNING `+colsSelect, append([]any{p.AssignmentID, p.Goal, targetHostOf(p.Goal)}, scenarioArgs(p.Scenario)...)...)
 		if err := scan(row, &t); err != nil {
 			return err
 		}
@@ -170,13 +170,33 @@ func LockActive(ctx context.Context, tx pgx.Tx, id string) (Task, error) {
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, t *Task) error {
 	var status string
+	var scCode, scName, scBody *string
 	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Goal, &t.TargetHost, &status, &t.Paused,
 		&t.HeartbeatAt, &t.PausedMs,
-		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage); err != nil {
+		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage, &scCode, &scName, &scBody); err != nil {
 		return err
 	}
 	t.Status = Status(status)
+	t.Scenario = nil
+	if scCode != nil {
+		t.Scenario = &Scenario{Code: *scCode, Name: deref(scName), Body: deref(scBody)}
+	}
 	return nil
+}
+
+// scenarioArgs 把场景快照展开成 (scenario, scenario_name, scenario_body) 三个参数；无场景三列皆空。
+func scenarioArgs(sc *Scenario) []any {
+	if sc == nil {
+		return []any{nil, nil, nil}
+	}
+	return []any{sc.Code, sc.Name, sc.Body}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // ── 任务模块列表（前端 /tasks 页）───────────────────────────────────────────
@@ -211,6 +231,9 @@ type Summary struct {
 	ScheduleID      string // 来源定时模板 id（assignment.schedule_id；非定时、或模板已删除为空）
 	CronExpr        string // 来源模板的 cron 表达式（非定时为空）
 	ConversationID  string
+	ScenarioCode    string // 建任务时选定的场景（空 = 无场景）
+	ScenarioName    string // 场景名称快照
+	ScenarioDeleted bool   // 场景此后已被删除（任务照常读自身快照）
 	FindingCount    int
 	// StepCount 是认知循环推理步数（reasoning 终态数，最近一次 dispatched 之后）——
 	// 与对话时间线卡片的「第 N 步」同一口径。会话无推理步（后台任务/旧数据）时
@@ -250,6 +273,8 @@ const summarySelect = `
 	COALESCE(a.schedule_id::text, ''),
 	COALESCE(cs.cron_expr, ''),
 	COALESCE(c.id::text, ''),
+	COALESCE(t.scenario, ''), COALESCE(t.scenario_name, ''),
+	(t.scenario IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scenario sc WHERE sc.code = t.scenario)),
 	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
 	` + summaryStepCount + `,
 	(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
@@ -299,7 +324,7 @@ func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
 	if err := r.Scan(&s.ID, &s.Goal, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.ScheduleID,
-		&s.CronExpr, &s.ConversationID, &s.FindingCount, &s.StepCount,
+		&s.CronExpr, &s.ConversationID, &s.ScenarioCode, &s.ScenarioName, &s.ScenarioDeleted, &s.FindingCount, &s.StepCount,
 		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt); err != nil {
 		return err
 	}
