@@ -20,7 +20,7 @@
 # （数据库密码、宿主端口、镜像）只在这里使用，liusha 不读。
 
 x-liusha-image: &liusha-image
-  image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha:${LIUSHA_IMAGE_TAG:-0.13.1} # x-release-please-version
+  image: ${LIUSHA_IMAGE_REPO:-ghcr.io/v3teran}/liusha:${LIUSHA_IMAGE_TAG:-0.13.2} # x-release-please-version
 
 # 数据目录与连接：所有 liusha 组件共用。连接串由数据库容器的密码拼出，密码缺失即拒绝启动。
 x-liusha-env: &liusha-env
@@ -195,7 +195,7 @@ services:
       context: .
       dockerfile: deployments/sandbox/Dockerfile
       args:
-        VERSION: 0.13.1 # x-release-please-version
+        VERSION: 0.13.2 # x-release-please-version
     restart: unless-stopped
     # tini 作 PID 1：回收命令结束后被托孤的后台进程（扫描器、浏览器子进程）
     init: true

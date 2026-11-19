@@ -13,7 +13,7 @@
 自备 PostgreSQL 17+（装好 pgvector 扩展）、Redis，渗透工具装在本机。Linux（如 Kali）：
 
 ```bash
-VERSION=0.13.1  # x-release-please-version
+VERSION=0.13.2  # x-release-please-version
 curl -fLO https://github.com/V3teran/liusha/releases/download/v${VERSION}/liusha_${VERSION}_linux_amd64.tar.gz
 tar -xzf liusha_${VERSION}_linux_amd64.tar.gz && cd liusha_${VERSION}_linux_amd64
 cp .env.example .env && chmod 600 .env   # 填写密钥，取消注释并填写 LIUSHA_POSTGRES_URL、LIUSHA_REDIS_URL
@@ -26,7 +26,7 @@ Windows（PowerShell；智能体的命令按 sh 语法执行，需安装 Git for
 要完整工具集可在 WSL2 的 Kali 里用 Linux 版）：
 
 ```powershell
-$VERSION = "0.13.1"  # x-release-please-version
+$VERSION = "0.13.2"  # x-release-please-version
 Invoke-WebRequest -OutFile liusha.zip "https://github.com/V3teran/liusha/releases/download/v$VERSION/liusha_${VERSION}_windows_amd64.zip"
 Expand-Archive liusha.zip .; cd "liusha_${VERSION}_windows_amd64"
 Copy-Item .env.example .env   # 填写密钥，取消注释并填写 LIUSHA_POSTGRES_URL、LIUSHA_REDIS_URL
@@ -39,7 +39,7 @@ Copy-Item .env.example .env   # 填写密钥，取消注释并填写 LIUSHA_POST
 ### 单镜像
 
 ```bash
-git clone --branch v0.13.1 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+git clone --branch v0.13.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 make single-build
 cp .env.example .env    # 填写密钥与容器部署必填项
 mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件，按需修改
@@ -51,7 +51,7 @@ make single-run
 ### 多镜像
 
 ```bash
-git clone --branch v0.13.1 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
+git clone --branch v0.13.2 https://github.com/V3teran/liusha.git && cd liusha  # x-release-please-version
 cp .env.example .env    # 填写密钥与容器部署必填项（与单镜像同一组）
 mkdir -p ~/data/liusha && cp internal/config/config.yaml ~/data/liusha/   # 配置文件，按需修改
 docker compose up -d --build
