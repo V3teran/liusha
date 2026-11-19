@@ -5,7 +5,7 @@
 #   docker compose up -d --build               # 首次构建沙盒镜像约需半小时以上（Kali + 约 90 个工具）
 #
 # 服务：nginx（官方镜像，对外入口）→ api（控制台与 API）；proxy（MITM 代理入口）；runner（任务执行）；
-# sandbox（工具执行沙盒，本地构建）；postgres；redis；migrate（一次性数据库迁移，成功退出后
+# sandbox（工具执行沙盒，本地构建）；postgres；redis；migrate（一次性数据库迁移与出厂内容同步，成功退出后
 # 业务服务才启动）。api / proxy / runner / migrate 是同一个 liusha 镜像的不同命令。
 #
 # 本地开发只起依赖：docker compose up -d postgres redis sandbox（见 scripts/dev/up.sh）。

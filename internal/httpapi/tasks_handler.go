@@ -39,9 +39,9 @@ type DispatchedTask struct {
 // TaskDispatchAPI 是「新建任务」的下发窄接口（*dispatch.Service 实现）。
 type TaskDispatchAPI interface {
 	// DispatchBatch 立即下发：1 assignment(direct, N items) → N task → N conversation。
-	DispatchBatch(ctx context.Context, title, description string, briefs []string) (assignmentID string, items []DispatchedTask, err error)
+	DispatchBatch(ctx context.Context, title, description string, briefs []string, scenario *string) (assignmentID string, items []DispatchedTask, err error)
 	// DispatchScheduled 建定时模板（不立即跑）；返回模板 id 与首次触发时间。
-	DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string) (scheduleID string, nextRunAt time.Time, err error)
+	DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string, scenario *string) (scheduleID string, nextRunAt time.Time, err error)
 }
 
 // 任务列表分页默认值/上限（对齐 traffic 口径）。
@@ -145,6 +145,7 @@ type taskCreateRequest struct {
 	Description string   `json:"description"` // 批次描述（可空）
 	Briefs      []string `json:"briefs"`      // 每行一个任务目标（已分行）
 	Cron        string   `json:"cron"`        // 可空 = 立即下发；非空 = 定时模板（5 段 cron）
+	Scenario    *string  `json:"scenario"`    // 任务场景（语义同 ChatRequest.Scenario）
 }
 
 // createTasksHandler 处理 POST /tasks。
@@ -168,7 +169,7 @@ func createTasksHandler(api TaskDispatchAPI) gin.HandlerFunc {
 
 		if cronExpr := strings.TrimSpace(req.Cron); cronExpr != "" {
 			scheduleID, nextRunAt, err := api.DispatchScheduled(c.Request.Context(),
-				strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs, cronExpr)
+				strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs, cronExpr, req.Scenario)
 			if err != nil {
 				respondErr(c, http.StatusBadRequest, err) // cron 非法等入参错
 				return
@@ -183,7 +184,7 @@ func createTasksHandler(api TaskDispatchAPI) gin.HandlerFunc {
 		}
 
 		assignmentID, items, err := api.DispatchBatch(c.Request.Context(),
-			strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs)
+			strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs, req.Scenario)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -238,6 +239,9 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"schedule_id":      sm.ScheduleID,
 		"cron":             sm.CronExpr,
 		"conversation_id":  sm.ConversationID,
+		"scenario":         sm.ScenarioCode,
+		"scenario_name":    sm.ScenarioName,
+		"scenario_deleted": sm.ScenarioDeleted,
 		"finding_count":    sm.FindingCount,
 		"step_count":       sm.StepCount,
 		"tokens_in":        sm.TokensIn,

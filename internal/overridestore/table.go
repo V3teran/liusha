@@ -1,6 +1,6 @@
 // Package overridestore 是用户自定义层的表访问器：每张自定义表以资源键为主键、
-// 一行一资源，fields 列存 override.Overrides。三类资源（agent、内置技能、系统设置）
-// 共用同一读写协议：
+// 一行一资源，fields 列存 override.Overrides。agent 与系统设置共用同一读写协议（技能与场景
+// 不在此列：它们是「出厂种子 + 用户数据」同表，见 internal/builtinsync）：
 //
 //   - 只在被自定义时有行；用户层清空即删行；
 //   - 写入在事务内取资源级锁后「读 → 计算 → 写」，同一资源的并发写（含删行）串行化，
@@ -66,7 +66,7 @@ func (t Table) Get(ctx context.Context, key string) (override.Overrides, error) 
 	return ov, nil
 }
 
-// UpdateFunc 在锁行事务内计算新的用户层。tx 供同事务写附属列（如技能的 last_saved）。
+// UpdateFunc 在锁行事务内计算新的用户层。tx 供调用方在同事务内做其它写入。
 type UpdateFunc func(ctx context.Context, tx pgx.Tx, current override.Overrides) (override.Overrides, error)
 
 // Update 在事务内取资源级锁，交由 fn 计算新的用户层并写回；结果为空即删行。
@@ -97,8 +97,7 @@ func (t Table) UpdateTx(ctx context.Context, tx pgx.Tx, key string, fn UpdateFun
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", t.Name+"/"+key); err != nil {
 		return nil, fmt.Errorf("锁 %s[%s]: %w", t.Name, key, err)
 	}
-	// 再确保行存在：fn 可能在同事务写附属列（如技能的 last_saved），需要行在。结果为空时
-	// 在同一事务内删除，外部看不到空行。
+	// 再确保行存在（FOR UPDATE 需要行在）。结果为空时在同一事务内删除，外部看不到空行。
 	if _, err := tx.Exec(ctx, fmt.Sprintf("INSERT INTO %s (%s) VALUES ($1) ON CONFLICT DO NOTHING", t.Name, t.Key), key); err != nil { // #nosec G201 -- 表名与列名为代码常量
 		return nil, fmt.Errorf("写 %s[%s]: %w", t.Name, key, err)
 	}

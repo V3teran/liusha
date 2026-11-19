@@ -30,6 +30,7 @@ import (
 	llmconfig "github.com/V3teran/liusha/internal/llmconfig"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/qa"
+	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/textx"
 	"github.com/V3teran/liusha/internal/worker"
@@ -97,11 +98,52 @@ type Service struct {
 	// 引用按空处理）。职责：下发收口点把暂存件搬进任务 inbox + 对话回答内联小文本。
 	Attachments AttachmentStore
 
+	// Scenarios 解析建任务所用的场景（*configstore.Store 满足；nil = 不带场景，测试替身用）。
+	Scenarios ScenarioResolver
+
 	// LLM 是下发边界的就绪校验（nil = 跳过，测试替身/纯存储用法）。任务创建前
 	// 必须确认 LLM 可服务——否则任务入队后 planner 拿到「未配置」错误无限重试、
 	// 永挂 active。api 组件以 Router.For(simple) 适配（simple 是全部档位的降级
 	// 兜底：它可解析 ⟺ 任意档位可解析）。
 	LLM LLMReadiness
+}
+
+// ScenarioResolver 解析建任务所用的场景（*configstore.Store 满足）。
+type ScenarioResolver interface {
+	// UsableScenario 返回点名的场景：存在且启用，否则 scenariostore.ErrUnavailable（400）。
+	UsableScenario(ctx context.Context, code string) (scenariostore.Scenario, error)
+	// DefaultScenario 返回缺省场景；它被停用或删除时为 nil（缺省即无场景）。
+	DefaultScenario(ctx context.Context) (*scenariostore.Scenario, error)
+}
+
+// resolveScenarioCode 把入口对场景的选择落定为场景 code（空 = 无场景）：choice 为 nil（请求没
+// 指定）取缺省场景，缺省不可用时为无场景；否则即点名的 code（是否可用由调用方核对）。
+func (s *Service) resolveScenarioCode(ctx context.Context, choice *string) (string, error) {
+	if choice != nil {
+		return strings.TrimSpace(*choice), nil
+	}
+	if s.Scenarios == nil {
+		return "", nil
+	}
+	def, err := s.Scenarios.DefaultScenario(ctx)
+	if err != nil || def == nil {
+		return "", err
+	}
+	return def.Code, nil
+}
+
+// resolveScenario 把入口对场景的选择落定为任务的场景快照（nil = 无场景）。入口在建会话、落消息
+// 之前调用：点名的场景用不了时直接拒绝，不留半截状态，也不悄悄换成别的场景。
+func (s *Service) resolveScenario(ctx context.Context, choice *string) (*task.Scenario, error) {
+	code, err := s.resolveScenarioCode(ctx, choice)
+	if err != nil || code == "" || s.Scenarios == nil {
+		return nil, err
+	}
+	sc, err := s.Scenarios.UsableScenario(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	return &task.Scenario{Code: sc.Code, Name: sc.Name, Body: sc.Body}, nil
 }
 
 // LLMReadiness 报告当前部署能否解析出可用的 LLM provider（消费者定义的窄接口）。
@@ -134,7 +176,7 @@ type AttachmentStore interface {
 // createTask 是建任务的核心：建 assignment + task + agent run + 入 asynq 队列（带
 // conversationID）。会话发起（StartChatTask）与会话内追加下发（HandleMessage）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
-func (s *Service) createTask(ctx context.Context, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
+func (s *Service) createTask(ctx context.Context, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64, sc *task.Scenario) (string, string, error) {
 	if err := validateBrief(brief); err != nil {
 		return "", "", err
 	}
@@ -147,7 +189,7 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 	if err != nil {
 		return "", "", fmt.Errorf("create assignment: %w", err)
 	}
-	taskID, runID, err := s.expandItem(ctx, asg.ID, brief, conversationID, attachments, userMsgSeq)
+	taskID, runID, err := s.expandItem(ctx, asg.ID, brief, conversationID, attachments, userMsgSeq, sc)
 	if err != nil {
 		return "", "", err
 	}
@@ -163,7 +205,11 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 // 1 assignment(direct, N items) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatTask 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
-func (s *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string) (string, []httpapi.DispatchedTask, error) {
+func (s *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string, scenario *string) (string, []httpapi.DispatchedTask, error) {
+	sc, err := s.resolveScenario(ctx, scenario)
+	if err != nil {
+		return "", nil, err
+	}
 	items := make([]assignment.Item, 0, len(briefs))
 	for _, b := range briefs {
 		items = append(items, assignment.Item{Brief: b})
@@ -189,7 +235,7 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 		if _, err := s.Conversations.AppendMessage(ctx, created.ID, conversation.RoleUser, conversation.KindMessage, b, nil); err != nil {
 			return asg.ID, out, fmt.Errorf("append user message: %w", err)
 		}
-		taskID, _, err := s.expandItem(ctx, asg.ID, b, created.ID, nil, 0)
+		taskID, _, err := s.expandItem(ctx, asg.ID, b, created.ID, nil, 0, sc)
 		if err != nil {
 			return asg.ID, out, err
 		}
@@ -208,9 +254,14 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 // DispatchScheduled 满足 httpapi.TaskDispatchAPI：定时下发——建 cron_schedule 模板
 // （含批次名/描述与目标清单），不立即执行；到点由 Scheduler 克隆 assignment 展开
 // （见 Scheduler.fireOne）。cron 表达式当场校验（cronschedule.NextRun）。
-func (s *Service) DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string) (string, time.Time, error) {
+func (s *Service) DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string, scenario *string) (string, time.Time, error) {
 	// 模板创建时就校验：不许创建到点必败的模板（LLM 未配置时每次触发都失败）。
 	if err := s.requireLLMReady(ctx); err != nil {
+		return "", time.Time{}, err
+	}
+	// 模板引用活场景：没指定就记下此刻的缺省场景（缺省不可用即无场景），到点按它当时的内容快照。
+	scenarioCode, err := s.resolveScenarioCode(ctx, scenario)
+	if err != nil {
 		return "", time.Time{}, err
 	}
 	items := make([]assignment.Item, 0, len(briefs))
@@ -222,6 +273,7 @@ func (s *Service) DispatchScheduled(ctx context.Context, title, description stri
 		Items:       items,
 		Title:       batchTitle(title, briefs),
 		Description: description,
+		Scenario:    scenarioCode,
 	})
 	if err != nil {
 		return "", time.Time{}, err
@@ -260,7 +312,7 @@ func (s *Service) appendTaskStatus(ctx context.Context, conversationID, status, 
 // 目标里直接拿到可读路径。标题与批次名取自 brief，不含清单。
 // userMsgSeq 是携带这批附件的用户消息 seq（0 = 无会话消息）：落位后据它改写
 // 消息 metadata 的引用路径（暂存 → inbox），时间线芯片随之指向文件的新家。
-func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64) (string, string, error) {
+func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64, sc *task.Scenario) (string, string, error) {
 	// expandItem 是全部任务展开的统一收口点（单发批次 / 定时克隆 / 会话发起都经此），
 	// 就绪校验挂这里才能覆盖全部入口。
 	if err := s.requireLLMReady(ctx); err != nil {
@@ -269,6 +321,7 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 	tk, err := s.Tasks.Create(ctx, task.NewParams{
 		AssignmentID: assignmentID,
 		Goal:         brief,
+		Scenario:     sc,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
@@ -474,7 +527,10 @@ const dispatchAnswerTimeout = 5 * time.Minute
 // 意图分类与分流全部异步（dispatchFollowUp）：要执行的指令追加到任务目标（回执落时间线），
 // 写不进去时异步分支往时间线落提示——前端拿到 200 即清空输入框、追加的消息立即出现在
 // 时间线，回答/扫描进展经 SSE 流出。
-func (s *Service) HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref) (string, error) {
+//
+// scenario 是会话尚未绑定任务时、这条消息若被判为要执行所建任务的场景（nil = 缺省，"" = 无场景）；
+// 已绑定任务的会话沿用任务自己的场景，忽略它。
+func (s *Service) HandleMessage(ctx context.Context, conversationID, content string, attachments []attachment.Ref, scenario *string) (string, error) {
 	// 意图分类与问答生成同样依赖 LLM：未配置时在此拒绝（400 指引），不落到
 	// 分类器 provider 错误的 500。
 	if err := s.requireLLMReady(ctx); err != nil {
@@ -484,11 +540,17 @@ func (s *Service) HandleMessage(ctx context.Context, conversationID, content str
 	if err != nil {
 		return "", err
 	}
+	var sc *task.Scenario
+	if fetched.TaskID == "" {
+		if sc, err = s.resolveScenario(ctx, scenario); err != nil {
+			return "", err
+		}
+	}
 	msg, err := s.Conversations.AppendMessage(ctx, conversationID, conversation.RoleUser, conversation.KindMessage, content, attachmentMeta(attachments))
 	if err != nil {
 		return "", err
 	}
-	go s.dispatchFollowUp(conversationID, fetched.TaskID, content, attachments, msg.Seq) //nolint:gosec // G118：分发独立于请求生命周期
+	go s.dispatchFollowUp(conversationID, fetched.TaskID, content, attachments, msg.Seq, sc) //nolint:gosec // G118：分发独立于请求生命周期
 	return "accepted", nil
 }
 
@@ -496,7 +558,7 @@ func (s *Service) HandleMessage(ctx context.Context, conversationID, content str
 // 独立于请求生命周期（请求 ctx 会随响应返回被取消，不能用于 LLM/落库）。
 // attachments 随消息元数据已落库；分流到这里只决定它们的去向——
 // qa/chat 内联小文本进回答 prompt，action 随下发 / 追加要求收口进任务 inbox。
-func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attachments []attachment.Ref, userMsgSeq int64) {
+func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attachments []attachment.Ref, userMsgSeq int64, sc *task.Scenario) {
 	ctx, cancel := context.WithTimeout(withConversation(context.Background(), conversationID), dispatchAnswerTimeout)
 	defer cancel()
 
@@ -521,7 +583,7 @@ func (s *Service) dispatchFollowUp(conversationID, taskID, content string, attac
 			}
 			return
 		}
-		if _, _, err := s.createTask(ctx, content, conversationID, attachments, userMsgSeq); err != nil {
+		if _, _, err := s.createTask(ctx, content, conversationID, attachments, userMsgSeq, sc); err != nil {
 			chatLog.Warn().Err(err).Str("conversation_id", conversationID).Msg("扫描下发失败")
 			s.publishNotice(ctx, conversationID, "（任务下发失败："+err.Error()+"）")
 			return
@@ -846,7 +908,13 @@ func (s *Service) Publish(ctx context.Context, conversationID string, payload []
 // 消费方无从发现任务）。分类是单 token 的 simple 档调用（秒级），同步代价
 // 可忽略；真正慢的是 qa 回答生成与扫描执行——两者保持异步（原「GLM 慢时浏览器
 // 干等几十秒」的病灶在慢回答，不在分类）。
-func (s *Service) StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref) (string, string, error) {
+//
+// scenario 是消息被判为要执行时所建任务的场景（nil = 缺省，"" = 无场景），在建会话之前核对。
+func (s *Service) StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref, scenario *string) (string, string, error) {
+	sc, err := s.resolveScenario(ctx, scenario)
+	if err != nil {
+		return "", "", err
+	}
 	// 纯附件消息：时间线存原文（空文本 + 芯片），分类/标题/下发用附件名折算值。
 	dispatchBrief := effectiveBrief(brief, attachments)
 	created, err := s.Conversations.CreateConversation(ctx, BriefTitle(dispatchBrief), "")
@@ -868,7 +936,7 @@ func (s *Service) StartChatTask(ctx context.Context, brief string, attachments [
 		return conversationID, "", nil
 	}
 
-	taskID, _, err := s.createTask(ctx, dispatchBrief, conversationID, attachments, msg.Seq)
+	taskID, _, err := s.createTask(ctx, dispatchBrief, conversationID, attachments, msg.Seq, sc)
 	if err != nil {
 		return conversationID, "", fmt.Errorf("dispatch task: %w", err)
 	}

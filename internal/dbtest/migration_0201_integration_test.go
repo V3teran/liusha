@@ -186,6 +186,8 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 	}
 
 	// ── 经新的读写入口验证生效值：未自定义的字段跟随当前出厂值 ──────────────
+	// 当前读写入口对应最新结构：先迁移到最新（技能经 0235 搬进单表）。
+	MigrateUp(t, pool)
 	curExecutor, _ := builtin.AgentByCode("executor")
 	curMonitor, _ := builtin.AgentByCode("monitor")
 	cfg := configstore.New(pool, smokeCache(t), configstore.ToolCatalogFrom(nil))

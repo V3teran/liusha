@@ -3,7 +3,7 @@
 //	liusha serve          同一进程运行全部组件（二进制与单镜像部署）
 //	liusha api|proxy|runner|sandbox
 //	                      分别运行单个组件（compose 部署，每个容器一个）
-//	liusha migrate        把数据库迁移到最新版本
+//	liusha migrate        把数据库迁移到最新版本并同步出厂内容（内置技能与场景）
 //	liusha corpus-import  向知识库导入专家知识
 //	liusha version        打印版本
 //
@@ -27,11 +27,11 @@ import (
 	"github.com/V3teran/liusha/internal/app"
 	"github.com/V3teran/liusha/internal/app/api"
 	"github.com/V3teran/liusha/internal/app/corpusimport"
+	appmigrate "github.com/V3teran/liusha/internal/app/migrate"
 	"github.com/V3teran/liusha/internal/app/proxy"
 	"github.com/V3teran/liusha/internal/app/runner"
 	"github.com/V3teran/liusha/internal/app/sandbox"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/envfile"
 	"github.com/V3teran/liusha/internal/logx"
 )
@@ -52,7 +52,7 @@ var commands = []command{
 	{name: "proxy", summary: "运行 proxy 组件（MITM 代理入口）", run: component(proxy.Run)},
 	{name: "runner", summary: "运行 runner 组件（任务执行）", run: component(runner.Run)},
 	{name: "sandbox", summary: "运行 sandbox 组件（工具执行沙盒）", run: component(sandbox.Run)},
-	{name: "migrate", summary: "把数据库迁移到最新版本", run: migrate},
+	{name: "migrate", summary: "把数据库迁移到最新版本并同步出厂内容", run: migrate},
 	{name: "corpus-import", summary: "向知识库导入专家知识：corpus-import <file.md>...", run: corpusimport.Run},
 }
 
@@ -180,15 +180,15 @@ func migrate(ctx context.Context, cfg config.AppConfig, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("不接受参数 %q", args)
 	}
-	return db.Migrate(ctx, cfg.Postgres.URL, logx.New("migrate"))
+	return appmigrate.Run(ctx, cfg)
 }
 
-// serve 先把数据库迁移到最新版本（单机部署替换程序即升级），再在同一进程运行全部组件。
+// serve 先把数据库迁移到最新版本并同步出厂内容（单机部署替换程序即升级），再在同一进程运行全部组件。
 func serve(ctx context.Context, cfg config.AppConfig, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("不接受参数 %q", args)
 	}
-	if err := db.Migrate(ctx, cfg.Postgres.URL, logx.New("migrate")); err != nil {
+	if err := appmigrate.Run(ctx, cfg); err != nil {
 		return err
 	}
 	bind := func(name string, run func(context.Context, config.AppConfig) error) app.Component {

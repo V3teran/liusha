@@ -17,6 +17,7 @@ type Schedule struct {
 	Payload     []byte // jsonb 原文（[]assignment.Item 的序列化，触发时克隆进新 assignment）
 	Title       string
 	Description string // 批次描述（触发时克隆进新 assignment.description；可空）
+	Scenario    string // 到点建任务所用的场景 code（空 = 无场景）；只引用存在且启用的场景
 	Enabled     bool
 	NextRunAt   *time.Time
 	LastRunAt   *time.Time
@@ -29,4 +30,5 @@ type NewParams struct {
 	Items       []assignment.Item
 	Title       string
 	Description string
+	Scenario    string // 空 = 无场景；非空须存在且启用（建模板时锁住场景行核对）
 }

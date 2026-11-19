@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { listAgentsPaged, listSkillsPaged } from '@/api/config'
-import type { AgentListItem, SkillListItem } from '@/api/types'
+import { listAgentsPaged, listScenariosPaged, listSkillsPaged } from '@/api/config'
+import type { AgentListItem, ScenarioListItem, SkillListItem } from '@/api/types'
 import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 
@@ -47,7 +47,7 @@ export interface PagedListHandle<T> {
 // (page, size, q)，任一变化即新查询、过期响应由 RQ 丢弃；keepPreviousData 让筛选/翻页时旧数据先留屏。
 // reload 走 invalidateQueries——写路径（保存/删除）后失效该资源全部页缓存。
 function useResourcePagedList<T>(
-  resource: 'agents' | 'skills',
+  resource: 'agents' | 'skills' | 'scenarios',
   fetchPage: (page: number, size: number, q: string) => Promise<{ items: T[]; total: number }>,
 ): PagedListHandle<T> {
   const qc = useQueryClient()
@@ -98,5 +98,13 @@ export function useSkillsPagedList(): PagedListHandle<SkillListItem> {
   return useResourcePagedList<SkillListItem>('skills', async (page, size, q) => {
     const res = await listSkillsPaged(page, size, q)
     return { items: res.skills, total: res.total }
+  })
+}
+
+/** 场景分页列表（场景页）。 */
+export function useScenariosPagedList(): PagedListHandle<ScenarioListItem> {
+  return useResourcePagedList<ScenarioListItem>('scenarios', async (page, size, q) => {
+    const res = await listScenariosPaged(page, size, q)
+    return { items: res.scenarios, total: res.total }
   })
 }

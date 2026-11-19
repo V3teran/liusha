@@ -12,6 +12,7 @@ const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ de
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
+const ScenariosPage = lazy(() => import('@/pages/ScenariosPage').then((m) => ({ default: m.ScenariosPage })))
 const SkillsPage = lazy(() => import('@/pages/SkillsPage').then((m) => ({ default: m.SkillsPage })))
 const TrafficPage = lazy(() => import('@/pages/TrafficPage').then((m) => ({ default: m.TrafficPage })))
 const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default: m.ModelPage })))
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/config/agents" replace /> },
           { path: 'agents', element: withSuspense(<AgentsPage />) },
+          { path: 'scenarios', element: withSuspense(<ScenariosPage />) },
           { path: 'tools', element: withSuspense(<ToolsPage />) },
           { path: 'skills', element: withSuspense(<SkillsPage />) },
           { path: 'models', element: withSuspense(<ModelPage />) },

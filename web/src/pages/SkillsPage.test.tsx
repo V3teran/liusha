@@ -4,7 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SkillsPage } from './SkillsPage'
-import { createSkill, deleteSkill, getSkill, listSkillsPaged, patchSkill, resetSkill } from '@/api/config'
+import {
+  createSkill,
+  deleteSkill,
+  getSkill,
+  listDeletedSkills,
+  listSkillsPaged,
+  patchSkill,
+  resetSkill,
+  restoreSkill,
+} from '@/api/config'
 import type { Skill, SkillDetail, SkillListItem } from '@/api/types'
 
 vi.mock('@/api/config', () => ({
@@ -15,6 +24,8 @@ vi.mock('@/api/config', () => ({
   getSkill: vi.fn(),
   assignSkill: vi.fn(),
   listSkillsPaged: vi.fn(),
+  listDeletedSkills: vi.fn(),
+  restoreSkill: vi.fn(),
 }))
 
 const mList = listSkillsPaged as unknown as ReturnType<typeof vi.fn>
@@ -64,6 +75,8 @@ function renderPage() {
 describe('SkillsPage', () => {
   beforeEach(() => {
     for (const m of [mList, mCreate, mPatch, mReset, mDelete, mGet]) m.mockReset()
+    vi.mocked(listDeletedSkills).mockReset().mockResolvedValue([])
+    vi.mocked(restoreSkill).mockReset()
     mList.mockResolvedValue({ skills: [item(sk())], total: 1 })
     mGet.mockResolvedValue(detail(sk()))
     vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -78,7 +91,7 @@ describe('SkillsPage', () => {
     expect(screen.getByText('已自定义')).toBeTruthy()
   })
 
-  it('内置技能：标识与分类只读、不可删除；修改只提交改动字段', async () => {
+  it('内置技能：标识与分类只读、可删除；修改只提交改动字段', async () => {
     const user = userEvent.setup()
     mPatch.mockResolvedValue(detail(sk()))
     renderPage()
@@ -86,7 +99,7 @@ describe('SkillsPage', () => {
     const name = await screen.findByLabelText('名称', { exact: false })
     expect((screen.getByLabelText('标识符', { exact: false }) as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByLabelText('分类', { exact: false }) as HTMLInputElement).disabled).toBe(true)
-    expect(screen.queryByText('删除')).toBeNull()
+    expect(screen.getByText('删除')).toBeTruthy()
     await user.type(name, ' v2')
     await user.click(screen.getByText('保存'))
     await waitFor(() => expect(mPatch).toHaveBeenCalledWith('bac', { name: 'BAC 越权检测指南 v2' }))
@@ -117,7 +130,27 @@ describe('SkillsPage', () => {
     renderPage()
     await user.click(await screen.findByRole('button', { name: /我的技能/ }))
     await user.click(await screen.findByText('删除'))
+    expect(await screen.findByText(/不可恢复/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('mine'))
+  })
+
+  it('内置技能删除走确认框；已删除的内置可从入口恢复', async () => {
+    const user = userEvent.setup()
+    mList.mockResolvedValue({ skills: [item(sk())], total: 1 })
+    mGet.mockResolvedValue(detail(sk()))
+    mDelete.mockResolvedValue(undefined)
+    vi.mocked(listDeletedSkills).mockResolvedValue([sk({ code: 'gone', name: '已删技能' })])
+    vi.mocked(restoreSkill).mockResolvedValue(detail(sk({ code: 'gone', name: '已删技能' })))
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /BAC 越权检测指南/ }))
+    await user.click(await screen.findByText('删除'))
+    expect(await screen.findByText(/可在「已删除的内置」里恢复/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(mDelete).toHaveBeenCalledWith('bac'))
+    await user.click(await screen.findByRole('button', { name: '已删除的内置（1）' }))
+    await user.click(await screen.findByRole('button', { name: '恢复技能「已删技能」' }))
+    await waitFor(() => expect(restoreSkill).toHaveBeenCalledWith('gone'))
   })
 
   it('新建技能：必填校验 + createSkill 载荷', async () => {

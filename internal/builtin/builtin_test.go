@@ -120,14 +120,38 @@ func TestSplitFrontmatter(t *testing.T) {
 	}
 }
 
+func TestScenariosAreValid(t *testing.T) {
+	var codes []string
+	for _, s := range builtin.Scenarios() {
+		codes = append(codes, s.Code)
+		if s.Name == "" || s.Description == "" || strings.TrimSpace(s.Body) == "" {
+			t.Errorf("%s: 名称、描述、正文不可为空", s.Code)
+		}
+	}
+	// pentest 是下发入口的缺省场景，ctf 由跑分适配器指定：两者必须随程序出厂。
+	if !slices.Equal(codes, []string{"ctf", "pentest"}) {
+		t.Errorf("内置场景应为 ctf、pentest，实际 %v", codes)
+	}
+	if _, ok := builtin.ScenarioByCode("pentest"); !ok {
+		t.Error("ScenarioByCode 取不到 pentest")
+	}
+}
+
 // http_request 的 identity 语义以工具为准：空串 = 匿名，省略或 null = 注入该 host 全部
-// 凭证。出厂章程若把 null 说成匿名，agent 照做的「匿名」验证会带上已登录身份的凭证，
+// 凭证。出厂章程或场景若把 null 说成匿名，agent 照做的「匿名」验证会带上已登录身份的凭证，
 // 把认证后的访问当成未授权访问的证据。
-func TestChartersDescribeAnonymousIdentityAsEmptyString(t *testing.T) {
+func TestBuiltinTextsDescribeAnonymousIdentityAsEmptyString(t *testing.T) {
+	texts := map[string]string{}
 	for _, a := range builtin.Agents() {
-		for i, line := range strings.Split(a.Charter, "\n") {
+		texts[a.Code+" 章程"] = a.Charter
+	}
+	for _, s := range builtin.Scenarios() {
+		texts[s.Code+" 场景"] = s.Body
+	}
+	for name, text := range texts {
+		for i, line := range strings.Split(text, "\n") {
 			if strings.Contains(line, "null") && strings.Contains(line, "匿名") {
-				t.Errorf("%s 章程第 %d 行把 null 与匿名关联（匿名应为 identity: \"\"）: %s", a.Code, i+1, strings.TrimSpace(line))
+				t.Errorf("%s第 %d 行把 null 与匿名关联（匿名应为 identity: \"\"）: %s", name, i+1, strings.TrimSpace(line))
 			}
 		}
 	}

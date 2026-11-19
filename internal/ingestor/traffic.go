@@ -27,6 +27,7 @@ import (
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/proxy"
+	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -98,6 +99,7 @@ type Traffic struct {
 	agentStore    *traffic.AgentStore // agent 自产流量落库
 	agentRuns     *agentrun.Store     // internal 流量反查 run→task_id
 	conversations ConversationCreator // 建代理捕获 task 会话流（nil 跳过）
+	scenarios     ScenarioResolver    // 代理捕获任务的场景（缺省场景；nil 只用于测试：不带场景）
 	enq           *worker.Client
 	logger        zerolog.Logger
 }
@@ -112,8 +114,14 @@ type Deps struct {
 	AgentStore    *traffic.AgentStore
 	AgentRuns     *agentrun.Store
 	Conversations ConversationCreator
+	Scenarios     ScenarioResolver
 	Enqueuer      *worker.Client
 	Logger        zerolog.Logger
+}
+
+// ScenarioResolver 返回缺省场景（*configstore.Store 满足）；它被停用或删除时为 nil。
+type ScenarioResolver interface {
+	DefaultScenario(ctx context.Context) (*scenariostore.Scenario, error)
 }
 
 // NewTraffic 构造并 ensure consumer group 存在。
@@ -139,6 +147,7 @@ func NewTraffic(ctx context.Context, deps Deps) (*Traffic, error) {
 		agentStore:    deps.AgentStore,
 		agentRuns:     deps.AgentRuns,
 		conversations: deps.Conversations,
+		scenarios:     deps.Scenarios,
 		enq:           deps.Enqueuer,
 		logger:        deps.Logger,
 		internalCh:    make(chan *proxy.TrafficSnapshot, internalQueueSize),
@@ -383,6 +392,20 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 // 领取跨实例幂等（见 traffic.ProxyStore.ClaimUnconsumedByHost）。领到 0 条说明流量已被
 // 别的 task 消费或全部滞留锁定，回滚建的 task（abort）避免空任务。
 func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
+	// 代理捕获的任务用缺省场景；缺省场景被用户停用或删除时即无场景。读取失败（库故障）时放弃
+	// 这次下发：流量保持未消费，下一批到来时重试——不能因读失败建出无场景的任务（快照一旦落定，
+	// 续跑也纠正不了）。
+	var sc *task.Scenario
+	if t.scenarios != nil {
+		def, err := t.scenarios.DefaultScenario(ctx)
+		if err != nil {
+			t.logger.Warn().Err(err).Str("host", host).Msg("读缺省场景失败，本批代理流量暂不下发")
+			return
+		}
+		if def != nil {
+			sc = &task.Scenario{Code: def.Code, Name: def.Name, Body: def.Body}
+		}
+	}
 	// 一切下发皆走 assignment：聚合器建 assignment(source=proxy, [host]) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceProxy,
@@ -397,6 +420,7 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 	tk, err := t.tasks.Create(ctx, task.NewParams{
 		AssignmentID: asg.ID,
 		Goal:         fmt.Sprintf("分析 %s 的代理流量", host),
+		Scenario:     sc,
 	})
 	if err != nil {
 		t.logger.Warn().Err(err).Str("host", host).Msg("建代理捕获 task 失败")
