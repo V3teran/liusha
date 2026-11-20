@@ -44,7 +44,26 @@ func TestPlanTools_WrapsOnlyGraphTools(t *testing.T) {
 	for _, name := range []string{"observe_state", "evaluate_progress"} {
 		assert.IsType(t, wrappedStub{}, byName[name], "%s 应经引擎包装", name)
 	}
-	assert.Same(t, extra, byName["search_corpus"], "额外工具不应被引擎再次包装")
+	assert.NotEqual(t, wrappedStub{}, byName["search_corpus"], "额外工具不应被引擎再次包装进审计链")
+}
+
+// 每轮规划是一次新的推理，看不到前几轮发出过的知识库查询：引擎在本次运行内记下它们，写进
+// 状态摘要（「同一方向只检索一次」才有据可依）。
+func TestPlanTools_RecordsKnowledgeQueries(t *testing.T) {
+	e := NewEngine(nil, zerolog.Nop()).WithExtraTools([]registry.Tool{&stubTool{name: "search_corpus"}})
+
+	for _, args := range []string{`{"query":" 诱饵 真假分辨 "}`, `{"query":""}`, `{"query":"诱饵 真假分辨"}`, `not json`} {
+		for _, tool := range e.planTools(nil, []string{"*"}) {
+			if tool.Name() == "search_corpus" {
+				_, _ = tool.Execute(context.Background(), json.RawMessage(args))
+			}
+		}
+	}
+
+	assert.Equal(t, []string{"诱饵 真假分辨"}, e.knowledgeQueries, "去掉首尾空白、空查询不记、重复只记一次")
+	section := buildKnowledgeQueriesSection(e.knowledgeQueries)
+	assert.Contains(t, section, "## 本次运行已检索过的知识库查询\n- 诱饵 真假分辨\n")
+	assert.Empty(t, buildKnowledgeQueriesSection(nil))
 }
 
 func TestPlanTools_FiltersByWhitelist(t *testing.T) {

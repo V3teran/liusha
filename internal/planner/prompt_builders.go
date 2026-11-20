@@ -392,3 +392,17 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	sb.WriteString("\n")
 	return sb.String()
 }
+
+// buildKnowledgeQueriesSection 列出本次运行已发出的知识库查询（每轮规划看不到前几轮的检索）。
+func buildKnowledgeQueriesSection(queries []string) string {
+	if len(queries) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 本次运行已检索过的知识库查询\n")
+	for _, q := range queries {
+		fmt.Fprintf(&sb, "- %s\n", textx.TruncateRunes(q, historyClampRunes, "…（截断）"))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
