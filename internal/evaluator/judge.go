@@ -310,10 +310,11 @@ func parseVerdict(content string) (Verdict, error) {
 		return Verdict{}, fmt.Errorf("judge: 判定输出为空")
 	}
 	var v struct {
-		Verdict     string          `json:"verdict"`
-		Confidence  float64         `json:"confidence"`
-		Reasoning   string          `json:"reasoning"`
-		Fingerprint json.RawMessage `json:"finding"`
+		Verdict      string          `json:"verdict"`
+		Confidence   float64         `json:"confidence"`
+		Reasoning    string          `json:"reasoning"`
+		RefuteReason string          `json:"refute_reason"`
+		Fingerprint  json.RawMessage `json:"finding"`
 	}
 	if err := llm.ParseJSON(content, &v); err != nil {
 		return Verdict{}, fmt.Errorf("judge: 解析判定失败: %w (输出: %.200s)", err, content)
@@ -321,10 +322,11 @@ func parseVerdict(content string) (Verdict, error) {
 	switch v.Verdict {
 	case VerdictConfirmed, VerdictRefuted:
 		return Verdict{
-			Verdict:     v.Verdict,
-			Confidence:  v.Confidence,
-			Reasoning:   v.Reasoning,
-			Fingerprint: v.Fingerprint,
+			Verdict:      v.Verdict,
+			Confidence:   v.Confidence,
+			Reasoning:    v.Reasoning,
+			RefuteReason: v.RefuteReason,
+			Fingerprint:  v.Fingerprint,
 		}, nil
 	default:
 		return Verdict{}, fmt.Errorf("judge: 未知 verdict %q", v.Verdict)

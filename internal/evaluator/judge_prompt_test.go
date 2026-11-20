@@ -19,3 +19,14 @@ func TestJudgeSystemPrompt_AppendsScenario(t *testing.T) {
 		t.Fatalf("场景块应拼在末尾:\n%s", got)
 	}
 }
+
+// 判定 JSON 的 refute_reason 原样带出，取值的合法性由落标处统一判定。
+func TestParseVerdict_RefuteReason(t *testing.T) {
+	v, err := parseVerdict(`{"verdict":"refuted","confidence":0.6,"reasoning":"目标限流","refute_reason":"not_reproducible"}`)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if v.RefuteReason != RefuteNotReproducible {
+		t.Fatalf("refute_reason 应原样带出，得 %q", v.RefuteReason)
+	}
+}

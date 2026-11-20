@@ -175,6 +175,88 @@ func TestPromote_Refuted(t *testing.T) {
 	}
 }
 
+// 评估者证伪时给出的反驳原因原样落到假设节点：「证据没拿到」与「主张不成立」的处置不同
+// （前者可换配方再试，后者方向作废），全记成 claim_invalid 会让一次限流就判死整个方向。
+// 评估者只能给出判定层面的三种原因；缺失或越权（复现通道 / 评估环节专属的原因）时按
+// claim_invalid 落标。
+func TestPromote_JudgeRefuteReason(t *testing.T) {
+	cases := []struct {
+		given string
+		want  string
+	}{
+		{RefuteNotReproducible, RefuteNotReproducible},
+		{RefuteAssertNotDiscriminative, RefuteAssertNotDiscriminative},
+		{RefuteClaimInvalid, RefuteClaimInvalid},
+		{"", RefuteClaimInvalid},
+		{"unknown_reason", RefuteClaimInvalid},
+		{RefuteInvalidRecipe, RefuteClaimInvalid},
+		{RefuteJudgeUnavailable, RefuteClaimInvalid},
+	}
+	for _, tc := range cases {
+		t.Run("given_"+tc.given, func(t *testing.T) {
+			w := &fakeGraphStore{verID: "ver-rr"}
+			v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x"}`)}}, &fakeClaimSink{}).
+				WithJudge(stubJudge{verdict: VerdictRefuted, reasoning: "x", refuteReason: tc.given})
+			if _, err := v.Promote(context.Background(), baseClaim()); err != nil {
+				t.Fatalf("Promote 出错: %v", err)
+			}
+			var mark struct {
+				RefuteReason string `json:"refute_reason"`
+				RefuteDetail string `json:"refute_detail"`
+			}
+			raw, ok := w.metadata["node-source"]
+			if !ok || json.Unmarshal(raw, &mark) != nil {
+				t.Fatalf("假设节点应被回写验证标记, got %+v", w.metadata)
+			}
+			if mark.RefuteReason != tc.want {
+				t.Fatalf("评估者给出 %q，落标应为 %q，得 %q", tc.given, tc.want, mark.RefuteReason)
+			}
+			// 评估者的理由随原因落标：原因只是类别，缺了什么证据、哪部分已被证明在理由里。
+			if mark.RefuteDetail != "x" {
+				t.Fatalf("证伪理由应随反驳原因落标，得 %q", mark.RefuteDetail)
+			}
+		})
+	}
+}
+
+// 同验证键沿用证伪结论时，反驳原因与理由一并沿用：图上同一结论的标记形状一致。
+func TestAgent_AdoptedRefutationCarriesDetail(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-d2"}
+	promoter := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t/x","assert_passed":true}`)}}, &fakeClaimSink{}).
+		WithJudge(stubJudge{verdict: VerdictRefuted, reasoning: "与对照无差异", refuteReason: RefuteClaimInvalid})
+	graph := explorationgraph.NewMemoryStore()
+	a := NewAgent(AgentConfig{
+		TaskID: "t-adopt", Gate: promoter, EventBus: bus.New(context.Background()), Graph: graph, Logger: zerolog.Nop(),
+	})
+	for _, id := range []string{"obs-1", "obs-2"} {
+		if _, err := graph.CreateNode(context.Background(), explorationgraph.Node{
+			ID: id, TaskID: "t-adopt", Kind: core.KindObservation, Content: json.RawMessage(`{"statement":"same hypothesis"}`),
+		}); err != nil {
+			t.Fatalf("预建假设节点 %s 失败: %v", id, err)
+		}
+	}
+	// 门的标记写进 fakeGraphStore，沿用的标记写进 graph：先把首个判定的标记同步进 graph。
+	if err := a.verifyObservation(context.Background(), "obs-1", baseClaim()); err != nil {
+		t.Fatalf("首次验证应成功: %v", err)
+	}
+	if raw, ok := w.metadata["node-source"]; ok {
+		if err := graph.UpdateNodeMetadata(context.Background(), "obs-1", raw); err != nil {
+			t.Fatalf("同步标记失败: %v", err)
+		}
+	}
+	a.verdictStore(claimHash(baseClaim()), a.priorVerdictFrom(context.Background(), "obs-1", nil))
+	if err := a.verifyObservation(context.Background(), "obs-2", baseClaim()); err != nil {
+		t.Fatalf("重复配方应沿用判定: %v", err)
+	}
+	adopted, err := graph.GetNode(context.Background(), "obs-2")
+	if err != nil {
+		t.Fatalf("读回沿用判定的节点失败: %v", err)
+	}
+	if adopted.RefuteReason() != RefuteClaimInvalid || adopted.RefuteDetail() != "与对照无差异" {
+		t.Fatalf("沿用的证伪应带原因与理由，得 reason=%q detail=%q", adopted.RefuteReason(), adopted.RefuteDetail())
+	}
+}
+
 // 复现执行失败：门报错，且不落任何 verification/节点（避免脏证据链）。
 func TestPromote_ReplayError(t *testing.T) {
 	w := &fakeGraphStore{}
@@ -373,13 +455,14 @@ func (f judgeFunc) Judge(ctx context.Context, hyp string, recipe, ev json.RawMes
 }
 
 type stubJudge struct {
-	verdict     string
-	reasoning   string
-	fingerprint json.RawMessage
+	verdict      string
+	reasoning    string
+	refuteReason string
+	fingerprint  json.RawMessage
 }
 
 func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
-	return Verdict{Verdict: s.verdict, Reasoning: s.reasoning, Fingerprint: s.fingerprint}, nil
+	return Verdict{Verdict: s.verdict, Reasoning: s.reasoning, RefuteReason: s.refuteReason, Fingerprint: s.fingerprint}, nil
 }
 
 // 同一配方（字节级相同）只判定一次：第二次进门的 Claim 沿用既有判定——

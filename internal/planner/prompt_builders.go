@@ -334,13 +334,13 @@ var factCategoryHeadings = map[explorationgraph.ObservationCategory]string{
 func refuteReasonHint(reason string) string {
 	switch reason {
 	case evaluator.RefuteNotReproducible:
-		return "（not_reproducible：复现失败——断言未命中或复放失败，主张未被否定）"
+		return "（not_reproducible：没取得主张成立的证据——复现不出、证据不足或受外部干扰，主张未被否定）"
 	case evaluator.RefuteInvalidRecipe:
 		return "（invalid_recipe：配方损坏——配方形状不对，主张未被检验）"
 	case evaluator.RefuteAssertNotDiscriminative:
-		return "（assert_not_discriminative：断言无鉴别力——断言在正常响应里也会命中，配方构不成证据）"
+		return "（assert_not_discriminative：断言无鉴别力——它在正常情况下也会成立，配方构不成证据）"
 	case evaluator.RefuteClaimInvalid:
-		return "（claim_invalid：复现成立，但主张经评估不成立）"
+		return "（claim_invalid：证据已取得，但不支持主张）"
 	case evaluator.RefuteJudgeUnavailable:
 		return "（judge_unavailable：评估环节未完成，主张未被检验）"
 	default:
@@ -348,7 +348,7 @@ func refuteReasonHint(reason string) string {
 	}
 }
 
-// buildRefutedHypothesesSection 构建已证伪假设部分（含反驳原因分类）
+// buildRefutedHypothesesSection 构建已证伪假设部分（含反驳原因分类与评估者的理由）
 func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	if len(hypotheses) == 0 {
 		return ""
@@ -363,7 +363,11 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 			continue
 		}
 		seen[st] = true
-		fmt.Fprintf(&sb, "- %s %s\n", st, refuteReasonHint(h.Reason))
+		fmt.Fprintf(&sb, "- %s %s", st, refuteReasonHint(h.Reason))
+		if detail := strings.TrimSpace(h.Detail); detail != "" {
+			sb.WriteString("；评估说明：" + textx.TruncateRunes(detail, historyClampRunes, "…（截断）"))
+		}
+		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
 	return sb.String()

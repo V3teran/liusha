@@ -70,6 +70,22 @@ func TestGatherContext_RefutedHypothesesCarryEveryReason(t *testing.T) {
 	assert.Empty(t, planCtx.Facts, "假设不是事实")
 }
 
+// 评估者的证伪理由随假设进规划视野：原因只是类别，缺了什么证据、哪部分已被证明要看理由。
+func TestGatherContext_RefutedHypothesisCarriesDetail(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	h := contextObservation("h", "hypothesis", "接口可读取任意记录", verification(explorationgraph.VerificationRefuted), "", time.Second)
+	h.Metadata, _ = json.Marshal(map[string]string{"refute_reason": evaluator.RefuteNotReproducible, "refute_detail": "只读到本人记录"})
+	for _, n := range []explorationgraph.Node{revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0), h} {
+		_, err := store.CreateNode(context.Background(), n)
+		require.NoError(t, err)
+	}
+
+	planCtx, err := (&Engine{}).gatherContext(context.Background(), store, revisionTask)
+	require.NoError(t, err)
+	require.Len(t, planCtx.RefutedHypotheses, 1)
+	assert.Equal(t, "只读到本人记录", planCtx.RefutedHypotheses[0].Detail)
+}
+
 // 事实按类别分组呈现给规划器（有什么 / 怎么进入 / 怎么连接 / 怎么反应 / 其他），同类别内
 // 近者在前；规划器据此先看清环境的各个侧面，而不是读一串混杂的陈述。
 func TestGatherContext_FactsGroupedByCategory(t *testing.T) {

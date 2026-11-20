@@ -106,10 +106,11 @@ const (
 // Verdict 是评估者的终判输出：结论 + 置信 + 理由 + 主张指纹（坐实时按判定契约给出，
 // 形状见 ClaimFingerprint）。
 type Verdict struct {
-	Verdict     string          // confirmed / refuted
-	Confidence  float64         // 0-1，评估者自评
-	Reasoning   string          // 一句话评估理由（引用亲见差分）
-	Fingerprint json.RawMessage // 主张指纹原文；空或形状损坏 = 不参与语义去重
+	Verdict      string          // confirmed / refuted
+	Confidence   float64         // 0-1，评估者自评
+	Reasoning    string          // 一句话评估理由（引用亲见差分）
+	RefuteReason string          // refuted 时评估者给出的反驳原因原文；合法性由 judgeRefuteReason 判定
+	Fingerprint  json.RawMessage // 主张指纹原文；空或形状损坏 = 不参与语义去重
 }
 
 // claimFingerprintMetadataKey 是 result 节点 metadata 中指纹规范键的落库键。
@@ -124,13 +125,30 @@ const (
 
 // 反驳原因（refute_reason）：区分"证据没拿到"与"拿到了证据但主张不成立"——
 // planner 据此决定是换配方重试还是方向作废，两者处置不同。
+//
+// 前三种既可由机器（护栏、质量门）判出，也可由评估者在判定里给出；后两种只属于复现通道
+// 与评估环节，评估者不能给出。
 const (
-	RefuteNotReproducible         = "not_reproducible"          // 机器护栏：断言未命中/复放失败——配方或上下文问题，可换配方重试
-	RefuteClaimInvalid            = "claim_invalid"             // 评估者语义证伪：复现成立但主张不成立——方向作废
-	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 质量门：断言无鉴别力，配方无法构成证据——须换断言重提
+	RefuteNotReproducible         = "not_reproducible"          // 证据没拿到：断言未命中、复放失败或评估者取证不足——主张未被否定，可换配方重试
+	RefuteClaimInvalid            = "claim_invalid"             // 主张不成立：证据到手但不支持主张——方向作废
+	RefuteAssertNotDiscriminative = "assert_not_discriminative" // 断言无鉴别力：命中的特征在正常情况下也出现，配方构不成证据——须换断言重提
 	RefuteInvalidRecipe           = "invalid_recipe"            // 确定性配方缺陷：重放必然同样失败，快速终局出圈
 	RefuteJudgeUnavailable        = "judge_unavailable"         // 评估者不可用耗尽（LLM 调用/输出解析反复失败）——配方未必有错，方向可重试
 )
+
+// judgeRefuteReason 把评估者给出的反驳原因归一为落标值：只接受判定层面的三种原因；缺失或
+// 越权时按 claim_invalid 落标并记日志（判定契约要求必填，缺失属于输出不合规）。
+func (g *PromotionGate) judgeRefuteReason(nodeID, given string) string {
+	switch given {
+	case RefuteNotReproducible, RefuteAssertNotDiscriminative, RefuteClaimInvalid:
+		return given
+	}
+	if g.logger != nil {
+		g.logger.Warn().Str("node_id", nodeID).Str("refute_reason", given).
+			Msg("评估者未给出合法的反驳原因，按 claim_invalid 落标")
+	}
+	return RefuteClaimInvalid
+}
 
 // ErrJudgeUnavailable 标记评估者侧的基础设施失败（LLM 调用失败/终稿
 // 解析失败）——与配方损坏性质不同：机器重放可能全部通过、主张真实成立，
@@ -326,8 +344,9 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	var promoted *explorationgraph.Node
 	switch {
 	case verdict.Verdict == VerdictRefuted:
-		// 11. 证伪：不进图
-		mark.refuteReason = RefuteClaimInvalid
+		// 11. 证伪：不进图；反驳原因取评估者的分类（证据没拿到 / 断言无鉴别力 / 主张不成立）
+		mark.refuteReason = g.judgeRefuteReason(a.NodeID, verdict.RefuteReason)
+		mark.refuteDetail = verdict.Reasoning
 	case duplicate != nil:
 		// 12. 语义重复：既有发现即归属——不新建节点，返回既有节点让上游事件指向它
 		// （新证据已在审计链 replays 里）。重放交付：补齐既有节点此前可能失败的交付，

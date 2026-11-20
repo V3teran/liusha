@@ -79,10 +79,11 @@ type Agent struct {
 }
 
 // priorVerdict 是同验证键命中时沿用的既有结论：验证对象是"假设+配方"，
-// 沿用时反驳原因与验证档位一并流转，保持图上标记形状一致。
+// 沿用时反驳原因、理由与验证档位一并流转，保持图上标记形状一致。
 type priorVerdict struct {
 	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
+	refuteDetail string
 	tier         string
 }
 
@@ -553,6 +554,9 @@ func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, pre
 	if prev.refuteReason != "" {
 		mark["refute_reason"] = prev.refuteReason
 	}
+	if prev.refuteDetail != "" {
+		mark["refute_detail"] = prev.refuteDetail
+	}
 	m, err := json.Marshal(mark)
 	if err != nil {
 		return err
@@ -571,7 +575,7 @@ func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, pre
 }
 
 // priorVerdictFrom 从假设节点刚落定的验证结论导出去重条目（验证状态 +
-// refute_reason + verification_tier）：同验证键沿用时标记形状保持一致。
+// refute_reason / refute_detail + verification_tier）：同验证键沿用时标记形状保持一致。
 // 读不到标记时退化为仅验证状态——去重不因读取失败失效。
 func (a *Agent) priorVerdictFrom(ctx context.Context, observationID string, node *explorationgraph.Node) priorVerdict {
 	pv := priorVerdict{status: promoteOutcome(node)}
@@ -583,13 +587,13 @@ func (a *Agent) priorVerdictFrom(ctx context.Context, observationID string, node
 		return pv
 	}
 	var m struct {
-		RefuteReason     string `json:"refute_reason"`
 		VerificationTier string `json:"verification_tier"`
 	}
 	if json.Unmarshal(obs.Metadata, &m) == nil {
-		pv.refuteReason = m.RefuteReason
 		pv.tier = m.VerificationTier
 	}
+	pv.refuteReason = obs.RefuteReason()
+	pv.refuteDetail = obs.RefuteDetail()
 	return pv
 }
 

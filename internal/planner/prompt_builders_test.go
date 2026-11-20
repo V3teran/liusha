@@ -145,3 +145,17 @@ func TestPlannerSystemPrompts_AppendScenario(t *testing.T) {
 		}
 	}
 }
+
+// 已证伪假设渲染时带上评估者的理由；没有理由（机器判出）时只有原因说明。
+func TestBuildRefutedHypothesesSection_RendersDetail(t *testing.T) {
+	got := buildRefutedHypothesesSection([]RefutedHypothesis{
+		{Statement: "主张甲", Reason: evaluator.RefuteNotReproducible, Detail: "只读到本人记录"},
+		{Statement: "主张乙", Reason: evaluator.RefuteInvalidRecipe},
+	})
+	if !strings.Contains(got, "主张甲") || !strings.Contains(got, "评估说明：只读到本人记录") {
+		t.Fatalf("应渲染评估者理由，得:\n%s", got)
+	}
+	if strings.Count(got, "评估说明") != 1 {
+		t.Fatalf("没有理由的假设不应渲染评估说明，得:\n%s", got)
+	}
+}
