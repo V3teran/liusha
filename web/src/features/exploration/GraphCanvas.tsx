@@ -32,7 +32,7 @@ export function GraphCanvas(props: {
   edges: Edge[]
   /** 任务切换（或其它需要视口复位的事件键） */
   resetKey: string
-  /** 视口复位时对准的节点（打开的节点，如从漏洞跳来的结果节点）；空 = 按图的活动状态定位 */
+  /** 视口复位时对准的节点（打开的节点，如从发现跳来的结果节点）；空 = 按图的活动状态定位 */
   focusNodeId: string
   onNodeClick: (id: string) => void
 }) {
@@ -83,7 +83,7 @@ function GraphCanvasInner({
         // 智能初始视口：图在跑（存在 running 节点）时定位到活动前沿，随新节点
         // 到来持续跟进；图静止时适配全图，但缩放不低于可读下限——大图全量装进视口时
         // 节点字号会缩到不可辨认，全局鸟瞰交给右下角小地图，主画布保证卡片可读。
-        // 有打开的节点时先对准它（从漏洞跳来看坐实它的结果），其次才是活动前沿与全图。
+        // 有打开的节点时先对准它（从发现跳来看坐实它的结果），其次才是活动前沿与全图。
         const focus = focusRef.current
         const running = nodesRef.current.filter((n) => n.data.node.state === 'running').map((n) => n.id)
         if (focus && nodesRef.current.some((n) => n.id === focus)) {

@@ -1,4 +1,4 @@
-// 漏洞分级 → 颜色 / 标签 / 排序。单一真相源：漏洞台账列 / FindingDrawer / FindingCard /
+// 发现分级 → 颜色 / 标签 / 排序。单一真相源：发现台账列 / FindingDrawer / FindingCard /
 // 探索图节点卡全部从此处取值。
 // 颜色引用设计 token（design-tokens.css 的 --sev-*，深浅主题各自校准到 WCAG AA），
 // 返回 CSS 值字符串，可直接用于 style 与 color-mix()。

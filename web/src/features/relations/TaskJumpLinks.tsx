@@ -35,7 +35,7 @@ interface TaskJumpLinksProps {
 }
 
 /**
- * 只知道任务 ID 时的跳转按钮组（漏洞、流量、LLM 调用、探索图）：对话、漏洞数与来源取任务
+ * 只知道任务 ID 时的跳转按钮组（发现、流量、LLM 调用、探索图）：对话、发现数与来源取任务
  * 摘要（与任务详情共用缓存），摘要还没取到时不渲染。
  */
 export function TaskJumpLinks({ taskId, targets, from = 'task', size, onNavigate }: TaskJumpLinksProps) {

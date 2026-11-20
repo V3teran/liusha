@@ -7,7 +7,7 @@ import { useUrlPageState } from '@/hooks/useUrlPageState'
 // 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
 //
 // 参数名：q / role / model / only_err / start / end / page / size。
-// offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页 + 每页条数」体验。
+// offset 分页（非游标）：对齐流量/发现模块的「共 X 条 + N/M 页 + 每页条数」体验。
 
 export interface LlmAuditUrlState {
   query: string

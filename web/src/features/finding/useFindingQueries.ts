@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getFinding, listFindings } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 
-// 漏洞台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
+// 发现台账数据层：统一走 React Query（对齐流量模块 useTrafficQueries 的模式）。
 // query key 含 filters + page + size：任一变化即视为新查询，过期请求的结果自动被丢弃。
 // placeholderData: keepPreviousData 让筛选/翻页时旧数据先留屏，不必每次整表闪骨架。
 
@@ -20,7 +20,7 @@ export function useFindingList(filters: FindingFilters, page: number, size: numb
   })
 }
 
-/** 单条漏洞（详情抽屉）。id 为空不发请求。 */
+/** 单条发现（详情抽屉）。id 为空不发请求。 */
 export function useFindingDetail(id: string) {
   return useQuery({
     queryKey: findingKeys.detail(id),

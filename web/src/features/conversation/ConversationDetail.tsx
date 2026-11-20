@@ -319,7 +319,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         <EmptyState
           kind="unselected"
           noun="代理批次"
-          hint="选择一个批次，查看智能体的分析过程与漏洞产出，可随时插话追问。"
+          hint="选择一个批次，查看智能体的分析过程与发现产出，可随时插话追问。"
           className="min-h-0 flex-1"
         />
       ) : (
@@ -329,7 +329,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
             <div className="mb-3.5 text-4xl leading-none text-accent">⌖</div>
             <h2 className="mb-2 text-[17px] text-text">发起一次渗透测试任务</h2>
             <p className="text-sm leading-relaxed">
-              在下方描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与漏洞产出。
+              在下方描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与发现产出。
             </p>
           </div>
         </div>

@@ -26,7 +26,7 @@ import type { FindingFilters } from '@/api/types'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 
 /**
- * 「任务」选择框的候选：有漏洞的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
+ * 「任务」选择框的候选：有发现的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
  * 列全）。结构化筛选（来源、状态、严重度、主机）照常收窄候选；同一目标常被反复下发，次要
  * 信息里的创建时间用来区分。
  */
@@ -37,7 +37,7 @@ function fetchTaskOptions(filters: FindingFilters) {
       options: tasks.map((t) => ({
         value: t.id,
         label: t.goal.replace(/\s+/g, ' '),
-        detail: `${shortDateTime(t.created_at)} 创建 · ${t.count} 个漏洞`,
+        detail: `${shortDateTime(t.created_at)} 创建 · ${t.count} 个发现`,
       })),
       hasMore: has_more,
     }
@@ -45,7 +45,7 @@ function fetchTaskOptions(filters: FindingFilters) {
 }
 
 /**
- * FindingsPage - 漏洞管理页面（平铺台账）
+ * FindingsPage - 发现管理页面（平铺台账）
  */
 export function FindingsPage() {
   const { filters, page, size, setFilters, setPage, setSize, resetFilters } = useFindingFilters()
@@ -53,7 +53,7 @@ export function FindingsPage() {
   // 范围（任务 / 对话）的显示名：选中项可能不在当前候选里（如经链接带入），按范围本身取名
   const scope = scopeOf(filters)
   const scopeLabel = useScopeLabel(scope)
-  // 任务候选只随结构化筛选变化：关键词搜索针对漏洞本身
+  // 任务候选只随结构化筛选变化：关键词搜索针对发现本身
   const facetFilters: FindingFilters = {
     source: filters.source,
     status: filters.status,
@@ -90,7 +90,7 @@ export function FindingsPage() {
   const totalPages = Math.max(1, Math.ceil(total / size))
 
   const [savingId, setSavingId] = useState('')
-  // 打开的漏洞写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉；按 ID 取详情，
+  // 打开的发现写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉；按 ID 取详情，
   // 不在当前页也能打开，取回前先用当前页的行撑住。
   const [selected, select] = useSelectedParam()
   const detailQuery = useFindingDetail(selected)
@@ -138,12 +138,12 @@ export function FindingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="漏洞" subtitle="每条附复现证据链与配方；可处置：确认 / 已修复 / 误报 / 接受" />
+      <PageHeader title="发现" subtitle="每条附复现证据链与配方；可处置：确认 / 已修复 / 误报 / 接受" />
 
       {/* 指标卡：台账总量 + 处置进度 + 严重度分布（分布条与图例可点击按等级筛选） */}
-      <section aria-label="漏洞概况" className="flex-shrink-0 px-6 pt-4">
+      <section aria-label="发现概况" className="flex-shrink-0 px-6 pt-4">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-6 py-3 shadow-sm">
-          <div className="text-2xl font-bold tabular-nums text-text" aria-label={`共 ${total} 个漏洞`}>
+          <div className="text-2xl font-bold tabular-nums text-text" aria-label={`共 ${total} 个发现`}>
             {total}
           </div>
 
@@ -208,7 +208,7 @@ export function FindingsPage() {
       {/* 筛选栏（全站统一顺序：枚举下拉（粗→细）→ 关键词搜索 → 清空 →（右端）分页）。
           来源取值对齐 assignment.source（direct / proxy）。 */}
       <FilterBar
-        label="漏洞筛选"
+        label="发现筛选"
         canReset={hasFilter}
         onReset={resetAll}
         className="mt-4"
@@ -268,8 +268,8 @@ export function FindingsPage() {
           className="w-64"
           value={query}
           onChange={setQuery}
-          placeholder="搜索漏洞、主机、路径、任务目标…"
-          ariaLabel="搜索漏洞、主机、路径或任务目标"
+          placeholder="搜索发现、主机、路径、任务目标…"
+          ariaLabel="搜索发现、主机、路径或任务目标"
         />
       </FilterBar>
 
@@ -280,16 +280,16 @@ export function FindingsPage() {
           /* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
              严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */
           <DataTable
-            ariaLabel="漏洞列表"
+            ariaLabel="发现列表"
             rows={rows}
             columns={findingColumns as never}
             loading={listQuery.isPending || (listQuery.isFetching && rows.length === 0)}
             hasFilter={hasFilter}
-            emptyNoun="漏洞"
-            emptyHint="任务运行中经复现验证的漏洞会出现在这里。"
+            emptyNoun="发现"
+            emptyHint="任务运行中经复现验证的发现会出现在这里。"
             getRowId={(row) => row.id}
             onRowClick={openDrawer}
-            rowAriaLabel={(f) => `查看漏洞详情：${f.summary}`}
+            rowAriaLabel={(f) => `查看发现详情：${f.summary}`}
             rowStyle={(f) => ({ '--sev': severityColorOf(f.severity) }) as React.CSSProperties}
             rowClassName={(f) => (savingId === f.id ? 'opacity-50' : undefined)}
           />

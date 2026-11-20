@@ -17,14 +17,14 @@ describe('emptyTitle', () => {
 
 describe('EmptyState', () => {
   it('无数据：标题 + 调用方给的说明', () => {
-    render(<EmptyState kind="empty" noun="漏洞" hint="任务运行中经复现验证的漏洞会出现在这里。" />)
-    expect(screen.getByText('暂无漏洞')).toBeInTheDocument()
-    expect(screen.getByText('任务运行中经复现验证的漏洞会出现在这里。')).toBeInTheDocument()
+    render(<EmptyState kind="empty" noun="发现" hint="任务运行中经复现验证的发现会出现在这里。" />)
+    expect(screen.getByText('暂无发现')).toBeInTheDocument()
+    expect(screen.getByText('任务运行中经复现验证的发现会出现在这里。')).toBeInTheDocument()
   })
 
   it('无匹配：带筛选栏的页面提示调整筛选，只有搜索框的提示换关键词', () => {
-    const { rerender } = render(<EmptyState kind="no-match" noun="漏洞" />)
-    expect(screen.getByText('没有匹配的漏洞')).toBeInTheDocument()
+    const { rerender } = render(<EmptyState kind="no-match" noun="发现" />)
+    expect(screen.getByText('没有匹配的发现')).toBeInTheDocument()
     expect(screen.getByText('换个关键词或调整筛选条件。')).toBeInTheDocument()
     rerender(<EmptyState kind="no-match" scope="search" noun="凭证" />)
     expect(screen.getByText('换个关键词试试。')).toBeInTheDocument()

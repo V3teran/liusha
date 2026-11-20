@@ -105,7 +105,7 @@ function buildTaskColumns(
       },
     }),
     columnHelper.accessor('finding_count', {
-      header: '漏洞',
+      header: '发现',
       size: 64,
       meta: { align: 'right' },
       cell: (ctx) => {
@@ -128,7 +128,7 @@ function buildTaskColumns(
         if (!t.tokens_in && !t.tokens_out)
           return <span className="block text-right font-mono text-xs text-text-tertiary">—</span>
         // TokenPair：与对话页/审计页同一呈现（↑入↓出，中性色——token 是
-        // 度量数据不是风险信号，不借漏洞色板）
+        // 度量数据不是风险信号，不借发现色板）
         return (
           <span className="block text-right">
             <TokenPair inTokens={t.tokens_in} outTokens={t.tokens_out} />

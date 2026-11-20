@@ -22,11 +22,11 @@ async function openMenu(c: Conversation, handlers: { onRename?: () => void; onDe
 }
 
 describe('ConvMenu', () => {
-  // 从对话出发只看这个对话的：任务、漏洞、探索图都按对话限定（落点显示对话标题）
-  it('任务、漏洞、探索图都跳到「这个对话的」', async () => {
+  // 从对话出发只看这个对话的：任务、发现、探索图都按对话限定（落点显示对话标题）
+  it('任务、发现、探索图都跳到「这个对话的」', async () => {
     await openMenu(conv({}))
     expect(screen.getByRole('menuitem', { name: '任务' }).getAttribute('href')).toBe('/tasks?conversation=c-1&selected=t-1')
-    expect(screen.getByRole('menuitem', { name: '漏洞' }).getAttribute('href')).toBe('/findings?conversation=c-1')
+    expect(screen.getByRole('menuitem', { name: '发现' }).getAttribute('href')).toBe('/findings?conversation=c-1')
     expect(screen.getByRole('menuitem', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c-1')
   })
 
@@ -35,9 +35,9 @@ describe('ConvMenu', () => {
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['重命名', '删除对话'])
   })
 
-  it('没有漏洞的对话没有漏洞入口（无洞不跳）', async () => {
+  it('没有发现的对话没有发现入口（无洞不跳）', async () => {
     await openMenu(conv({ finding_count: 0 }))
-    expect(screen.queryByRole('menuitem', { name: '漏洞' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '发现' })).toBeNull()
   })
 
   it('重命名、删除交给列表处理', async () => {

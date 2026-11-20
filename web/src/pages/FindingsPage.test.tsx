@@ -15,7 +15,7 @@ vi.mock('@/api/findings', () => ({
     id,
     seq: 9,
     severity: 'high',
-    summary: '不在当前页的漏洞',
+    summary: '不在当前页的发现',
     host: 'b.example.com',
     source: 'direct',
     status: 'open',
@@ -120,7 +120,7 @@ describe('FindingsPage', () => {
   it('无数据时显示空态提示', async () => {
     mockedListFindings.mockResolvedValue(makeListResponse([]))
     renderPage()
-    expect(await screen.findByText(/暂无漏洞/)).toBeTruthy()
+    expect(await screen.findByText(/暂无发现/)).toBeTruthy()
   })
 
   it('加载失败时显示错误', async () => {
@@ -170,7 +170,7 @@ describe('FindingsPage', () => {
     await screen.findByText('SQL 注入漏洞')
     mockedListFindings.mockClear()
 
-    await user.type(screen.getByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+    await user.type(screen.getByRole('textbox', { name: '搜索发现、主机、路径或任务目标' }), 'xss')
 
     await waitFor(() =>
       expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ search: 'xss', page: 1 })),
@@ -233,23 +233,23 @@ describe('FindingsPage', () => {
     expect(lastCallArgs.severity).toBe('')
   })
 
-  // 打开的漏洞写在 URL：跳到任务 / 对话再后退、刷新都还原抽屉；不在当前页也能按 ID 打开。
+  // 打开的发现写在 URL：跳到任务 / 对话再后退、刷新都还原抽屉；不在当前页也能按 ID 打开。
   it('打开写入 ?selected=，后退关闭抽屉', async () => {
     const user = userEvent.setup()
     mockedListFindings.mockResolvedValue(makeListResponse([makeFinding({ summary: '点击测试漏洞' })]))
     renderPage()
     await user.click(await screen.findByText('点击测试漏洞'))
     expect(screen.getByTestId('location').textContent).toBe('?selected=f-1')
-    expect(await screen.findByText('漏洞处置')).toBeTruthy()
+    expect(await screen.findByText('发现处置')).toBeTruthy()
     // 模态抽屉打开时页面其余部分不可点（pointer-events: none），后退按钮直接派发点击
     fireEvent.click(screen.getByText('浏览器后退'))
-    await waitFor(() => expect(screen.queryByText('漏洞处置')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('发现处置')).toBeNull())
   })
 
-  it('带 ?selected= 进页：不在当前页的漏洞按 ID 取回并打开', async () => {
+  it('带 ?selected= 进页：不在当前页的发现按 ID 取回并打开', async () => {
     mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
     renderPage('/findings?selected=f-9')
-    expect(await screen.findByText('不在当前页的漏洞')).toBeTruthy()
+    expect(await screen.findByText('不在当前页的发现')).toBeTruthy()
   })
 
   // 搜索框输入不是导航：不新增历史，后退回到搜索之前
@@ -264,7 +264,7 @@ describe('FindingsPage', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    await user.type(await screen.findByRole('textbox', { name: '搜索漏洞、主机、路径或任务目标' }), 'xss')
+    await user.type(await screen.findByRole('textbox', { name: '搜索发现、主机、路径或任务目标' }), 'xss')
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?search=xss'))
     await user.click(screen.getByText('浏览器后退'))
     expect(screen.getByTestId('location').textContent).toBe('?severity=high')
@@ -278,8 +278,8 @@ describe('FindingsPage', () => {
 
     await user.click(row)
 
-    // 抽屉标题为 sr-only「漏洞详情」，处置区块「漏洞处置」应可见
-    expect(await screen.findByText('漏洞处置')).toBeTruthy()
+    // 抽屉标题为 sr-only「发现详情」，处置区块「发现处置」应可见
+    expect(await screen.findByText('发现处置')).toBeTruthy()
   })
 
   it('保存 triage：成功后调用 updateFindingTriage 并重拉列表', async () => {
@@ -363,8 +363,8 @@ describe('FindingsPage 任务筛选', () => {
     await user.click(await screen.findByRole('button', { name: /^范围：/ }))
     const options = await screen.findAllByRole('option', { name: /对 http:\/\/target 做 XSS 测试/ })
     expect(options).toHaveLength(2)
-    expect(screen.getByText('11-14 06:49 创建 · 2 个漏洞')).toBeTruthy()
-    expect(screen.getByText('11-13 21:05 创建 · 1 个漏洞')).toBeTruthy()
+    expect(screen.getByText('11-14 06:49 创建 · 2 个发现')).toBeTruthy()
+    expect(screen.getByText('11-13 21:05 创建 · 1 个发现')).toBeTruthy()
     // 候选只随结构化筛选：带来源，不带任务本身与台账关键词
     const [filters, q] = (getFindingTaskFacets as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)!
     expect(filters).toEqual(expect.objectContaining({ source: 'direct' }))
@@ -376,7 +376,7 @@ describe('FindingsPage 任务筛选', () => {
     await waitFor(() => expect(mockedListFindings).toHaveBeenLastCalledWith(expect.objectContaining({ task: '' })))
   })
 
-  // 从对话跳来只看「这个对话的漏洞」：服务端按对话过滤，范围显示对话标题而不是任务目标。
+  // 从对话跳来只看「这个对话的发现」：服务端按对话过滤，范围显示对话标题而不是任务目标。
   it('从对话跳来按对话限定，范围显示对话标题；改选任务即换成按任务限定', async () => {
     const user = userEvent.setup()
     renderPage('/findings?conversation=c-7')

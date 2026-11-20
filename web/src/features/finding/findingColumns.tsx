@@ -8,7 +8,7 @@ import { findingStatusMeta } from './findingStatus'
 
 const columnHelper = createColumnHelper<FindingRow>()
 
-// 漏洞台账表的列定义：单点声明，表外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件。
+// 发现台账表的列定义：单点声明，表外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件。
 export const findingColumns = [
   columnHelper.accessor('seq', {
     header: '#',
@@ -27,7 +27,7 @@ export const findingColumns = [
     },
   }),
   columnHelper.accessor('summary', {
-    header: '漏洞',
+    header: '发现',
     size: 400,
     cell: (ctx) => {
       const f = ctx.row.original

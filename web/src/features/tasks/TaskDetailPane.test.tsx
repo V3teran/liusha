@@ -53,7 +53,7 @@ function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
 }
 
 describe('TaskDetailPane', () => {
-  it('跳转区排在任务信息之前：从任务去对话、探索图与漏洞是最先用到的出口', () => {
+  it('跳转区排在任务信息之前：从任务去对话、探索图与发现是最先用到的出口', () => {
     render(
       <MemoryRouter>
         <TaskDetailPane task={makeTask()} loading={false} error="" onClose={vi.fn()} />
@@ -62,11 +62,11 @@ describe('TaskDetailPane', () => {
     const jump = screen.getByRole('heading', { name: '跳转' })
     const info = screen.getByRole('heading', { name: '任务信息' })
     expect(jump.compareDocumentPosition(info) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    for (const name of ['对话', '探索图', '漏洞']) {
+    for (const name of ['对话', '探索图', '发现']) {
       expect(screen.getByRole('link', { name: new RegExp(name) })).toBeTruthy()
     }
-    // 漏洞、探索图都属于任务：按任务 ID 跳，不经对话
-    expect(screen.getByRole('link', { name: /漏洞/ }).getAttribute('href')).toBe('/findings?task=t-1')
+    // 发现、探索图都属于任务：按任务 ID 跳，不经对话
+    expect(screen.getByRole('link', { name: /发现/ }).getAttribute('href')).toBe('/findings?task=t-1')
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
   })
 
@@ -78,7 +78,7 @@ describe('TaskDetailPane', () => {
     )
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
     expect(screen.queryByRole('link', { name: /对话/ })).toBeNull()
-    expect(screen.queryByRole('link', { name: /漏洞/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /发现/ })).toBeNull()
   })
 })
 

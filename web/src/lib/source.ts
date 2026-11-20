@@ -1,4 +1,4 @@
-// 下发来源（assignment.source）→ 展示文案 / 色。单一真相源：任务表、漏洞台账、漏洞抽屉、
+// 下发来源（assignment.source）→ 展示文案 / 色。单一真相源：任务表、发现台账、发现抽屉、
 // 各筛选下拉全部从此取值，保证同一概念全站一个叫法。
 // 取值与 DB assignment_source_check 一致：direct 人工下发 / proxy 代理捕获。
 

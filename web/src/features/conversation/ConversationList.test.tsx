@@ -309,11 +309,11 @@ describe('ConversationList', () => {
     expect(document.body.contains(menuBtn)).toBe(true)
   })
 
-  it('漏洞计数徽章：FindingCount > 0 时显示', async () => {
+  it('发现计数徽章：FindingCount > 0 时显示', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 findings.com', finding_count: 3 })])
     renderList()
     await waitFor(() => {
-      expect(screen.getByTitle('3 个漏洞')).toBeTruthy()
+      expect(screen.getByTitle('3 个发现')).toBeTruthy()
     })
   })
 

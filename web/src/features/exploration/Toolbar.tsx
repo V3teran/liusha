@@ -54,7 +54,7 @@ export function Toolbar({
   scopeId: string
   scopeLabel?: string
   onTaskChange: (id: string) => void
-  /** 当前任务的跳转（任务、对话、漏洞）：紧跟在选择框后，属于选中的任务而不是整个页面 */
+  /** 当前任务的跳转（任务、对话、发现）：紧跟在选择框后，属于选中的任务而不是整个页面 */
   scopeJumps?: ReactNode
   disabled: boolean
   refreshing: boolean

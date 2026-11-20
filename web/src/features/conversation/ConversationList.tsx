@@ -184,7 +184,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
         window.alert(TASK_ACTIVE_HINT)
         return
       }
-      if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（漏洞/图）保留。`)) return
+      if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（发现/图）保留。`)) return
       setDeleting(c.id)
       try {
         await deleteConversation(c.id)
@@ -352,7 +352,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                       <span
                         className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none text-sev-high"
                         style={{ background: 'color-mix(in srgb, var(--sev-high) 16%, var(--surface))' }}
-                        title={`${c.finding_count} 个漏洞`}
+                        title={`${c.finding_count} 个发现`}
                       >
                         <Bug className="h-3 w-3" />
                         {c.finding_count}

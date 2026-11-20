@@ -14,8 +14,8 @@ interface TrafficDetailPaneProps {
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
-// 消费本条流量的一个代理捕获任务：主机 + 状态，下面是这个任务的跳转（任务、对话、漏洞、
-// 探索图）。漏洞属于任务——这里的「漏洞」是这个任务的漏洞，库里不记录漏洞来自哪条流量。
+// 消费本条流量的一个代理捕获任务：主机 + 状态，下面是这个任务的跳转（任务、对话、发现、
+// 探索图）。发现属于任务——这里的「发现」是这个任务的成果，库里不记录发现来自哪条流量。
 function ConsumerRow({ c }: { c: TrafficConsumer }) {
   const jumps = taskJumps(
     { taskId: c.task_id, conversationId: c.conversation_id, source: c.source, findingCount: c.finding_count, from: 'task' },
