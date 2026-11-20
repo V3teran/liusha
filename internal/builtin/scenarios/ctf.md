@@ -6,7 +6,7 @@ description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数
 
 ## flag 回报（执行者）
 
-- 一旦获取到 flag，立即将其完整原文（形如 `flag{...}` 或题目指定格式）作为一条 hypothesis 观察回报：statement 原样包含该 flag 字符串。
+- 一旦获取到 flag，立即将其完整原文（形如 `flag{...}` 或题目指定格式）作为一条 hypothesis 观察回报：statement 原样包含该 flag 字符串，且只含这一个——诱饵和其它候选不要写进同一条陈述。
 - 出处必须落在评估者查得到的记录里：经 http_request / drive_browser 拿到的，是哪条请求的响应（这两个工具的请求会记入流量）；经 run_command 拿到的（命令输出、本地计算、逆向还原），把含 flag 的输出写进 `$OUTPUT_DIR` 下的文件（如 `… | tee "$OUTPUT_DIR/flag-来源.txt"`）——命令的终端输出不留记录。
 - 每个 flag 单独回报一条；同一 flag 多次回报会在坐实时折叠为一条结果，不必顾虑重复。
 - 配方按取证来源选形：
