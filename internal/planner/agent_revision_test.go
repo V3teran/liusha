@@ -294,7 +294,7 @@ func TestApplyPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),

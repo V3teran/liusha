@@ -92,14 +92,14 @@ func (a *Agent) planRound(ctx context.Context) error {
 }
 
 // planningBasis 读取规划依据与图面。
-func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, graphView, error) {
+func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, explorationgraph.Surface, error) {
 	basis, err := a.graph.GoalBasis(ctx, a.taskID)
 	if err != nil {
-		return basis, graphView{}, fmt.Errorf("读取规划依据: %w", err)
+		return basis, explorationgraph.Surface{}, fmt.Errorf("读取规划依据: %w", err)
 	}
-	view, err := a.observeView(ctx, basis)
+	view, err := a.graph.Surface(ctx, a.taskID, basis)
 	if err != nil {
-		return basis, graphView{}, err
+		return basis, explorationgraph.Surface{}, err
 	}
 	return basis, view, nil
 }
@@ -111,7 +111,7 @@ func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, 
 //   - 没有实际新增：记下「等待」结论，走收敛判定。
 //
 // 目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
-func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view graphView, outcome PlanOutcome, trigger string) error {
+func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view explorationgraph.Surface, outcome PlanOutcome, trigger string) error {
 	if outcome.Stop {
 		withdrawn, err := a.graph.StopExploration(ctx, a.taskID, basis, stopReason)
 		if err != nil {

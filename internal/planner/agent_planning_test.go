@@ -32,7 +32,7 @@ func TestApplyPlan_AllProposalsFilteredIsNoActions(t *testing.T) {
 		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
 	ctx := context.Background()
 
-	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", " 探测登录接口 "),
 		planAction("p2", "  "),
 	}}, "planning"))
@@ -64,7 +64,7 @@ func TestApplyPlan_AbortedInstructionMayBeReproposed(t *testing.T) {
 		onConverged: func(string, explorationgraph.GoalBasis) {}}
 	ctx := context.Background()
 
-	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", "爆破后台口令"),
 	}}, "planning"))
