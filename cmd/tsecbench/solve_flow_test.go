@@ -113,17 +113,44 @@ func TestSolve_StartGivesUpWithoutTask(t *testing.T) {
 	}
 }
 
-// TestSolve_NoContainerAddrSkipsWithoutTask 验证启动没给地址就不建任务：授权范围只能是平台
-// 给出的地址，没有地址的目标会让智能体自行在 VPN 网段里找靶场。
-func TestSolve_NoContainerAddrSkipsWithoutTask(t *testing.T) {
+// TestSolve_StartGivesUpWhenContainerNeverReady 验证容器始终未就绪（start 持续返回空地址，
+// 即容器停在 pending）时重试到用尽后放弃：不建任务（没有授权地址的目标会让智能体在 VPN
+// 网段里乱找靶场），靶场照常 close。
+func TestSolve_StartGivesUpWhenContainerNeverReady(t *testing.T) {
 	f := newFakeStack(t)
 	f.containers = nil
 
 	if _, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1}); err == nil {
-		t.Fatal("没有靶场地址应报错")
+		t.Fatal("容器始终未就绪应报错")
 	}
-	if _, closes, _, _, goals := f.snapshot(); len(goals) != 0 || !slices.Equal(closes, []string{"web_01"}) {
-		t.Fatalf("不应建任务且应 close：goals=%v closes=%v", goals, closes)
+	starts, closes, _, _, goals := f.snapshot()
+	if len(starts) != startAttempts || len(goals) != 0 || !slices.Equal(closes, []string{"web_01"}) {
+		t.Fatalf("应重试到用尽、不建任务、close：starts=%d（应 %d） goals=%v closes=%v",
+			len(starts), startAttempts, goals, closes)
+	}
+}
+
+// TestSolve_StartWaitsForContainerReady 验证容器就绪前 start 返回空地址（pending）：适配器
+// 继续重试，等到地址就绪再下发任务，不白白跳题。
+func TestSolve_StartWaitsForContainerReady(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{abc}"}
+	f.startErr = nil
+	ready := f.containers
+	f.containers = nil // 前两次 pending（空地址），第三次就绪
+	f.startHook = func(call int) {
+		if call >= 3 {
+			f.containers = ready
+		}
+	}
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{abc}")} }
+
+	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil || !res.Completed {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+	if starts, _, _, _, goals := f.snapshot(); len(starts) != 3 || len(goals) != 1 {
+		t.Fatalf("应等到第三次就绪再建任务：starts=%d goals=%d", len(starts), len(goals))
 	}
 }
 

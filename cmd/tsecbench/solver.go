@@ -83,9 +83,6 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 	if err != nil {
 		return res, fmt.Errorf("start %s: %w", ch.UniqueCode, err)
 	}
-	if len(start.ContainerAddr) == 0 {
-		return res, fmt.Errorf("start %s 未返回靶场地址，不下发任务", ch.UniqueCode)
-	}
 	log.Info().Strs("addr", start.ContainerAddr).Msg("靶场已启动")
 
 	// 2. 建 liusha task。
@@ -110,16 +107,32 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 	return s.harvest(ctx, &log, ch, taskID, res)
 }
 
-// startChallenge 启动靶场，可重试错误（503 / 500）按轮询间隔重试，至多 startAttempts 次；
-// 其余错误（活跃满、题目不存在、任务结束）原样返回，由调用方分类处置。
+// errContainerNotReady 表示重试用尽时容器仍未就绪（start 一直没给地址）。
+var errContainerNotReady = errors.New("容器未就绪，未返回靶场地址，不下发任务")
+
+// startChallenge 启动靶场并等到容器就绪，返回的地址必非空。两种情况按轮询间隔重试，至多
+// startAttempts 次：可重试错误（503 / 500，平台定义的网络波动），以及 start 成功但未给地址
+// （容器还在 pending，拉起需要时间）。没有地址不能下发任务：授权范围只能是平台给出的地址，
+// 否则智能体会在 VPN 网段里自行寻找靶场。其余错误（活跃满、题目不存在、任务结束）原样返回，
+// 由调用方分类处置。
 func (s *solver) startChallenge(ctx context.Context, log *zerolog.Logger, uniqueCode string) (startResp, error) {
 	for attempt := 1; ; attempt++ {
 		start, err := s.bench.start(ctx, uniqueCode)
-		var be *benchError
-		if err == nil || !errors.As(err, &be) || !be.retriable() || attempt == startAttempts {
-			return start, err
+		switch {
+		case err == nil && len(start.ContainerAddr) > 0:
+			return start, nil
+		case err == nil:
+			if attempt == startAttempts {
+				return start, errContainerNotReady
+			}
+			log.Info().Int("attempt", attempt).Msg("容器尚未就绪，稍后重试")
+		default:
+			var be *benchError
+			if !errors.As(err, &be) || !be.retriable() || attempt == startAttempts {
+				return start, err
+			}
+			log.Warn().Err(be).Int("attempt", attempt).Msg("启动靶场遇可重试错误，稍后重试")
 		}
-		log.Warn().Err(be).Int("attempt", attempt).Msg("启动靶场遇可重试错误，稍后重试")
 		select {
 		case <-ctx.Done():
 			return start, ctx.Err()
