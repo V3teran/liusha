@@ -205,7 +205,7 @@ describe('ScenariosPage', () => {
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
 
-  it('新建：标识、名称、正文必填，超长不可保存', async () => {
+  it('新建：名称与正文必填（标识由服务端生成），超长不可保存', async () => {
     mList.mockResolvedValue({ scenarios: [], total: 0 })
     mCreate.mockResolvedValue(sc({ code: 'ops' }))
     const user = userEvent.setup()
@@ -214,12 +214,11 @@ describe('ScenariosPage', () => {
     const save = () => screen.getByText('保存').closest('button') as HTMLButtonElement
     expect(save().disabled).toBe(true)
     const inputs = screen.getAllByRole('textbox')
-    await user.type(inputs[0], 'ops')
-    await user.click(inputs[1])
+    await user.click(inputs[0])
     await user.paste('名'.repeat(65))
     expect(screen.getByText(/名称超过 64 字上限/)).toBeTruthy()
-    await user.clear(inputs[1])
-    await user.type(inputs[1], '运维排障')
+    await user.clear(inputs[0])
+    await user.type(inputs[0], '运维排障')
     await user.click(screen.getByRole('tab', { name: '场景内容' }))
     const body = screen.getByRole('textbox')
     await user.click(body)
@@ -230,7 +229,7 @@ describe('ScenariosPage', () => {
     await user.type(body, '排障要点')
     await user.click(save())
     await waitFor(() =>
-      expect(mCreate).toHaveBeenCalledWith({ code: 'ops', name: '运维排障', description: '', body: '排障要点' }),
+      expect(mCreate).toHaveBeenCalledWith({ name: '运维排障', description: '', body: '排障要点' }),
     )
   })
 

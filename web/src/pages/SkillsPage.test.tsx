@@ -91,13 +91,13 @@ describe('SkillsPage', () => {
     expect(screen.getByText('已自定义')).toBeTruthy()
   })
 
-  it('内置技能：标识与分类只读、可删除；修改只提交改动字段', async () => {
+  it('内置技能：详情不展示标识符，分类只读、可删除；修改只提交改动字段', async () => {
     const user = userEvent.setup()
     mPatch.mockResolvedValue(detail(sk()))
     renderPage()
     await user.click(await screen.findByRole('button', { name: /BAC 越权检测指南/ }))
     const name = await screen.findByLabelText('名称', { exact: false })
-    expect((screen.getByLabelText('标识符', { exact: false }) as HTMLInputElement).disabled).toBe(true)
+    expect(screen.queryByLabelText('标识符', { exact: false })).toBeNull()
     expect((screen.getByLabelText('分类', { exact: false }) as HTMLInputElement).disabled).toBe(true)
     expect(screen.getByText('删除')).toBeTruthy()
     await user.type(name, ' v2')
@@ -160,7 +160,7 @@ describe('SkillsPage', () => {
     await screen.findByText('BAC 越权检测指南')
     await user.click(screen.getByText('新建'))
     expect((screen.getByText('保存').closest('button') as HTMLButtonElement).disabled).toBe(true)
-    await user.type(screen.getByLabelText('标识符', { exact: false }), 'xss')
+    expect(screen.queryByLabelText('标识符', { exact: false })).toBeNull()
     await user.type(screen.getByLabelText('名称', { exact: false }), 'XSS 指南')
     await user.type(screen.getByLabelText('分类', { exact: false }), 'vuln')
     await user.click(screen.getByRole('tab', { name: '知识内容' }))
@@ -168,7 +168,6 @@ describe('SkillsPage', () => {
     await user.click(screen.getByText('保存'))
     await waitFor(() => expect(mCreate).toHaveBeenCalled())
     expect(mCreate.mock.calls[0][0]).toEqual({
-      code: 'xss',
       name: 'XSS 指南',
       description: '',
       category: 'vuln',

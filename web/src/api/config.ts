@@ -102,7 +102,8 @@ export async function getSkill(code: string): Promise<SkillDetail> {
 
 /** 新建自建技能的字段（code 建后固定；与内置或已有技能同名时后端返回 409）。 */
 export interface NewSkill {
-  code: string
+  /** 缺省由服务端按名称生成（slug + 随机后缀）；显式传值用于导入等寻址名可控的场景。 */
+  code?: string
   name: string
   description: string
   category: string
@@ -170,7 +171,8 @@ export async function getScenario(code: string): Promise<ScenarioDetail> {
 
 /** 新建自建场景（与内置或已有场景同名时后端返回 409）。 */
 export interface NewScenario {
-  code: string
+  /** 缺省由服务端按名称生成（slug + 随机后缀）；显式传值用于导入等寻址名可控的场景。 */
+  code?: string
   name: string
   description: string
   body: string

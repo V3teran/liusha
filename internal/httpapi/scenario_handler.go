@@ -6,6 +6,11 @@
 package httpapi
 
 import (
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
 	"context"
 	"net/http"
 
@@ -89,7 +94,7 @@ func createScenarioHandler(api ScenarioAPI) gin.HandlerFunc {
 			return
 		}
 		created, err := api.CreateScenario(c.Request.Context(), scenariostore.Scenario{
-			Code: req.Code, Name: req.Name, Description: req.Description, Body: req.Body, Enabled: true,
+			Code: generatedCode(req.Code, req.Name), Name: req.Name, Description: req.Description, Body: req.Body, Enabled: true,
 		})
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
@@ -180,3 +185,37 @@ func scenarioJSON(sc scenariostore.Scenario) gin.H {
 		"is_default": sc.Code == scenariostore.DefaultCode,
 	}
 }
+
+// generatedCode 落定新建资源的标识符：请求带了按请求（兼容显式寻址名），缺省由
+// 服务端生成——slug 化名称（小写字母数字连字符）并拼随机后缀防撞；名称无法 slug
+// （纯中文等）时用短随机串。code 是可读的外部契约（agent 名单、定时模板引用它），
+// 不是内部身份，不该让用户手填或看到。
+func generatedCode(req, name string) string {
+	req = strings.TrimSpace(req)
+	if req != "" {
+		return req
+	}
+	slug := nameSlug(name)
+	suffix := strconv.FormatInt(time.Now().UnixNano()%1e6, 36)
+	if slug == "" {
+		return "c-" + suffix
+	}
+	if len(slug) > 40 {
+		slug = slug[:40]
+	}
+	return slug + "-" + suffix
+}
+
+// nameSlug 取名称里的 ASCII 字母数字序列以连字符相连（小写化）；无可用序列返回空串。
+func nameSlug(name string) string {
+	parts := nonAlphaNumeric.Split(strings.ToLower(strings.TrimSpace(name)), -1)
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, "-")
+}
+
+var nonAlphaNumeric = regexp.MustCompile(`[^a-z0-9]+`)
