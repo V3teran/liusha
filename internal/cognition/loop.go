@@ -381,7 +381,7 @@ func (d *Deps) assembleStack(
 		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
-		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）
+		WithToolWrapper(reg.WrapTool) // 引擎自有的图读工具入共享审计链（plannerTools 上面已包装）
 	// 完成检测器先于规划者构造：规划者宣告收敛时直接通知它。
 	detector := NewCompletionDetector(Config{
 		TaskID:        taskID,

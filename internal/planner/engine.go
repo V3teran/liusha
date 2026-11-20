@@ -47,11 +47,11 @@ type Engine struct {
 	roster              []AgentBrief      // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
 	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
-	// 工厂构建），Plan 时按白名单注册进 ReAct。
+	// 工厂构建并已包装进共享拦截链），Plan 时按白名单注册进 ReAct，不再经 toolWrap。
 	extraTools []registry.Tool
 
-	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
-	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
+	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装），只包装
+	// 引擎自有的图读工具——它们与 executor 工具同一执行面，遥测/时间线无盲区。
 	toolWrap func(registry.Tool) registry.Tool
 }
 
@@ -224,6 +224,28 @@ type PlanOutcome struct {
 	Actions []explorationgraph.ActionDraft // 新提议的动作（Stop 时为空）
 }
 
+// planTools 按 function_tools 白名单列出本次规划要注册的工具。共享拦截链只包装
+// 引擎自有的图读工具：额外工具由装配层包装后注入，再包一层会让每次调用在审计链
+// 里落两条记录、在时间线上推两次。
+func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string) []registry.Tool {
+	var out []registry.Tool
+	for _, tool := range []registry.Tool{NewObserveStateTool(graph), NewEvaluateProgressTool(graph)} {
+		if !registry.Allows(functionTools, tool.Name()) {
+			continue
+		}
+		if e.toolWrap != nil {
+			tool = e.toolWrap(tool)
+		}
+		out = append(out, tool)
+	}
+	for _, tool := range e.extraTools {
+		if registry.Allows(functionTools, tool.Name()) {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
 // PlanRequest 是一次规划的入参。
 type PlanRequest struct {
 	FunctionTools []string // function_tools 白名单（nil=拒绝，[]=空集，["*"]=全量）
@@ -266,28 +288,9 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 
 	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
 	react := runtime.NewReActRuntime()
-	registerGraphTool := func(tool registry.Tool) error {
-		if e.toolWrap != nil {
-			tool = e.toolWrap(tool)
-		}
-		return react.RegisterTool(tool)
-	}
-	if registry.Allows(functionTools, "observe_state") {
-		if err := registerGraphTool(NewObserveStateTool(graph)); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 observe_state 失败: %w", err)
-		}
-	}
-	if registry.Allows(functionTools, "evaluate_progress") {
-		if err := registerGraphTool(NewEvaluateProgressTool(graph)); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
-		}
-	}
-	for _, t := range e.extraTools {
-		if !registry.Allows(functionTools, t.Name()) {
-			continue
-		}
-		if err := registerGraphTool(t); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 %s 失败: %w", t.Name(), err)
+	for _, tool := range e.planTools(graph, functionTools) {
+		if err := react.RegisterTool(tool); err != nil {
+			return PlanOutcome{}, fmt.Errorf("注册 %s 失败: %w", tool.Name(), err)
 		}
 	}
 
