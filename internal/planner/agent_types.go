@@ -5,12 +5,12 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// ResultAnalysis 是 planner 对新 Result 的分析结论：派生目标集合的修订
-// （宣告达成 / 提出新方向并吸收旧方向）与任务方向上的延续动作。
+// ResultAnalysis 是 planner 对新 Result 的分析结论：只修订派生目标集合（宣告达成 /
+// 提出新方向并吸收旧方向）。动作只由常规规划排出——它看得到事实、已做与在途的动作，
+// 分析的视野里没有这些。
 type ResultAnalysis struct {
 	CompletedObjectives []explorationgraph.ObjectiveCompletion // 已达成的派生目标（附作证 Result）
 	NewObjectives       []NewObjective                         // 发现的新探索方向
-	ContinuationActions []ContinuationAction                   // 当前方向的延续
 	Reasoning           string                                 // 判断理由
 }
 
@@ -22,14 +22,3 @@ type NewObjective struct {
 	Supersedes  []string      // 被本目标吸收的既有派生目标 ID 列表
 	Reasoning   string        // 为什么需要这个目标
 }
-
-// ContinuationAction 表示在任务方向上继续深挖的新动作
-type ContinuationAction struct {
-	Instruction string        // 动作指令
-	Priority    core.Priority // 优先级
-	TriggeredBy []string      // 触发此动作的 Result ID 列表
-	Reasoning   string        // 为什么需要这个动作
-}
-
-// forcePlanActions 强制重规划（不看是否还有待执行动作）
-// 用于 Monitor 请求重规划的场景（探索停滞、资源耗尽等）

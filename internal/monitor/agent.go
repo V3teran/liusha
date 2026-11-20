@@ -310,7 +310,8 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		config.OnThoughtDelta = a.thoughts.Delta
 		config.OnThinkingDelta = a.thoughts.ThinkingDelta
 	}
-	result, err := a.reactRuntime.Run(ctx, config)
+	// 每轮评估一份所见记录：决策只能基于本轮经 get_global_state 看到的态势
+	result, err := a.reactRuntime.Run(withSeenSurface(ctx), config)
 	if err != nil {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
 	}
@@ -402,7 +403,9 @@ type RunningActionView struct {
 
 // Decision 是监察决策。
 type Decision struct {
-	Type     string `json:"type"`                // DecisionRejectAction | DecisionRequestReplan
-	ActionID string `json:"action_id,omitempty"` // 否决时必填
-	Reason   string `json:"reason"`              // 决策理由
+	Type        string   `json:"type"`                // DecisionRejectAction | DecisionRequestReplan
+	Problem     string   `json:"problem"`             // 针对的功能障碍（Problem*）
+	EvidenceIDs []string `json:"evidence_ids"`        // 支撑判断的节点
+	ActionID    string   `json:"action_id,omitempty"` // 否决时必填
+	Reason      string   `json:"reason"`              // 决策理由
 }

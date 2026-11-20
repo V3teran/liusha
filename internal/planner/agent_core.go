@@ -37,10 +37,10 @@ type Agent struct {
 	conclusion *conclusion
 
 	// 重规划请求（经 RequestReplan 发出）：replanCh 容量 1，未消费前的多次请求合并为
-	// 一次，理由逐条保留（去重）。
-	replanCh      chan struct{}
-	replanMu      sync.Mutex
-	replanReasons []string
+	// 一次，请求逐条保留（按理由去重）。
+	replanCh       chan struct{}
+	replanMu       sync.Mutex
+	replanRequests []replanRequest
 
 	stopCh chan struct{}
 }
@@ -79,12 +79,21 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 }
 
-// RequestReplan 请求一次强制重规划：不看是否还有待执行动作，立即带着理由再规划一轮。
-// 未消费前的多次请求合并为一次，各来源的理由逐条保留（相同理由只留一条）。
-func (a *Agent) RequestReplan(reason string) {
+// replanRequest 是一次待处理的重规划请求。seen 是发起方作出判断时所见的图面：请求只在
+// 这个前提仍成立时有效（见 liveReplanReasons）；为空的请求无条件有效——目标调整发起的
+// 请求，前提就是目标变了。
+type replanRequest struct {
+	reason string
+	seen   *explorationgraph.Surface
+}
+
+// RequestReplan 请求一次强制重规划：不看是否还有待执行动作，带着理由再规划一轮。seen 是
+// 发起方作出判断时所见的图面，处理时图面已有实质进展的请求作废；nil 表示无条件有效。
+// 未消费前的多次请求合并为一次，各来源的请求逐条保留（相同理由只留一条）。
+func (a *Agent) RequestReplan(reason string, seen *explorationgraph.Surface) {
 	a.replanMu.Lock()
-	if !slices.Contains(a.replanReasons, reason) {
-		a.replanReasons = append(a.replanReasons, reason)
+	if !slices.ContainsFunc(a.replanRequests, func(r replanRequest) bool { return r.reason == reason }) {
+		a.replanRequests = append(a.replanRequests, replanRequest{reason: reason, seen: seen})
 	}
 	a.replanMu.Unlock()
 	select {
@@ -93,11 +102,11 @@ func (a *Agent) RequestReplan(reason string) {
 	}
 }
 
-// takeReplanReasons 取走待处理重规划请求的全部理由。
-func (a *Agent) takeReplanReasons() []string {
+// takeReplanRequests 取走全部待处理的重规划请求。
+func (a *Agent) takeReplanRequests() []replanRequest {
 	a.replanMu.Lock()
 	defer a.replanMu.Unlock()
-	reasons := a.replanReasons
-	a.replanReasons = nil
-	return reasons
+	requests := a.replanRequests
+	a.replanRequests = nil
+	return requests
 }

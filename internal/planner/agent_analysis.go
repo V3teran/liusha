@@ -14,8 +14,8 @@ import (
 )
 
 // analyzeAndProcessResults 分析增量 Results，并把结论连同分析水位作为一次规划
-// 修订原子落图：达成、新方向及其吸收、延续动作互不排斥，分析给出几样就落几样，
-// 要么全落、要么全不落。失败返回错误——水位随修订一起未落，下一轮整体重做；
+// 修订原子落图：达成与新方向及其吸收互不排斥，分析给出几样就落几样，要么全落、
+// 要么全不落。分析只修订方向，不排动作。失败返回错误——水位随修订一起未落，下一轮整体重做；
 // 因为没有部分生效的写入，重做不会重复落图。分析以调用前读取的目标为依据，分析期间
 // 目标被改写则返回 ErrGoalChanged（结论作废，按新目标重新分析）。
 func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
@@ -37,11 +37,10 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	a.logger.Info().
 		Int("completed_objectives", len(analysis.CompletedObjectives)).
 		Int("new_objectives", len(analysis.NewObjectives)).
-		Int("continuation_actions", len(analysis.ContinuationActions)).
 		Str("reasoning", analysis.Reasoning).
 		Msg("Result 分析完成")
 
-	revision, err := a.planRevision(analysis, a.knownProposals(ctx))
+	revision, err := a.planRevision(analysis, a.knownObjectives(ctx))
 	if err != nil {
 		return err
 	}
@@ -64,7 +63,6 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 
 	a.logger.Info().
 		Strs("added_objectives", report.AddedObjectives).
-		Strs("added_actions", report.AddedActions).
 		Strs("completed", report.CompletedObjectives).
 		Strs("superseded", report.SupersededObjectives).
 		Msg("规划修订已落图")
@@ -75,21 +73,11 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	for _, id := range report.CompletedObjectives {
 		a.logger.Info().Str("objective_id", id).Strs("evidence", evidence[id]).Msg("派生目标已达成")
 	}
-	for _, id := range report.AddedActions {
-		a.eventBus.PublishActionProposed(a.taskID, id)
-	}
 	return nil
 }
 
-// knownProposals 是图上既有提案的字面集合（去首尾空白）：动作指令与目标描述。
-// 结果分析的新提案逐条与它比对并登记，空提案与字面复读（含本批内）在落图前
-// 拦断——与规划产出动作的指令去重同一口径。
-type knownProposals struct {
-	instructions map[string]bool
-	objectives   map[string]bool
-}
-
-// admit 判定提案文本可否落图：非空且未见过则登记并放行。
+// admit 判定提案文本可否落图：非空且未见过则登记并放行（规划的动作指令与分析的
+// 新目标描述各用一个集合）。
 func admit(seen map[string]bool, text string) (string, bool) {
 	text = strings.TrimSpace(text)
 	if text == "" || seen[text] {
@@ -99,15 +87,10 @@ func admit(seen map[string]bool, text string) (string, bool) {
 	return text, true
 }
 
-// knownProposals 读取图上全部动作指令与目标描述（含根目标与已收敛目标）。
+// knownObjectives 读取图上全部目标描述（去首尾空白，含根目标与已收敛目标）。
 // 读失败降级为空集：本轮跳过去重，不阻断分析结论落图。
-func (a *Agent) knownProposals(ctx context.Context) knownProposals {
-	known := knownProposals{instructions: map[string]bool{}, objectives: map[string]bool{}}
-	if instructions, err := a.knownInstructions(ctx); err == nil {
-		known.instructions = instructions
-	} else {
-		a.logger.Warn().Err(err).Msg("读取既有动作指令失败（延续动作跳过去重）")
-	}
+func (a *Agent) knownObjectives(ctx context.Context) map[string]bool {
+	known := map[string]bool{}
 	objectives, err := a.graph.ListNodesByKind(ctx, a.taskID, core.KindObjective)
 	if err != nil {
 		a.logger.Warn().Err(err).Msg("读取既有目标失败（新目标跳过去重）")
@@ -119,7 +102,7 @@ func (a *Agent) knownProposals(ctx context.Context) knownProposals {
 		}
 		if json.Unmarshal(obj.Content, &c) == nil {
 			if desc := strings.TrimSpace(c.Description); desc != "" {
-				known.objectives[desc] = true
+				known[desc] = true
 			}
 		}
 	}
@@ -127,17 +110,16 @@ func (a *Agent) knownProposals(ctx context.Context) knownProposals {
 }
 
 // planRevision 把分析结论翻译为规划修订（构造新节点，引用原样交给 RevisePlan
-// 校验）。新目标与延续动作先过 knownProposals 的字面去重——分析视野里看不到
-// 既有动作，目标清单也可能被复述，复读只能在这里结构化拦断。
-func (a *Agent) planRevision(analysis *ResultAnalysis, known knownProposals) (explorationgraph.PlanRevision, error) {
+// 校验）。新目标先按描述字面去重：分析会复述目标清单，复读在这里拦下。
+func (a *Agent) planRevision(analysis *ResultAnalysis, knownObjectives map[string]bool) (explorationgraph.PlanRevision, error) {
 	revision := explorationgraph.PlanRevision{CompletedObjectives: analysis.CompletedObjectives}
 	for _, obj := range analysis.NewObjectives {
-		description, ok := admit(known.objectives, obj.Description)
+		description, ok := admit(knownObjectives, obj.Description)
 		if !ok {
 			a.logger.Info().Str("description", obj.Description).Msg("新目标为空或与既有目标描述重复，跳过")
 			continue
 		}
-		node, err := a.analysisNode(core.KindObjective, obj.Priority, map[string]interface{}{
+		node, err := a.derivedObjectiveNode(obj.Priority, map[string]interface{}{
 			"description": description,
 			"reasoning":   obj.Reasoning,
 		})
@@ -150,40 +132,22 @@ func (a *Agent) planRevision(analysis *ResultAnalysis, known knownProposals) (ex
 			Supersedes:  obj.Supersedes,
 		})
 	}
-	for _, action := range analysis.ContinuationActions {
-		instruction, ok := admit(known.instructions, action.Instruction)
-		if !ok {
-			a.logger.Info().Str("instruction", action.Instruction).Msg("延续动作为空或与既有动作指令重复，跳过")
-			continue
-		}
-		node, err := a.analysisNode(core.KindAction, action.Priority, map[string]interface{}{
-			"instruction": instruction,
-			"reasoning":   action.Reasoning,
-		})
-		if err != nil {
-			return revision, err
-		}
-		revision.AddedActions = append(revision.AddedActions, explorationgraph.ActionDraft{
-			Node:        node,
-			TriggeredBy: action.TriggeredBy,
-		})
-	}
 	return revision, nil
 }
 
-// analysisNode 构造结果分析产出的新节点（open，来源 planner/result-analyzer）。
-// objective 与 action 都必须有非空 state（DB 约束 ck_state_by_kind）。
-func (a *Agent) analysisNode(kind core.NodeKind, priority core.Priority, content map[string]interface{}) (explorationgraph.Node, error) {
+// derivedObjectiveNode 构造结果分析提出的派生目标节点（open，来源 planner；目标必须有
+// 非空 state，DB 约束 ck_state_by_kind）。
+func (a *Agent) derivedObjectiveNode(priority core.Priority, content map[string]interface{}) (explorationgraph.Node, error) {
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
-		return explorationgraph.Node{}, fmt.Errorf("序列化 %s 内容: %w", kind, err)
+		return explorationgraph.Node{}, fmt.Errorf("序列化派生目标内容: %w", err)
 	}
 	openState := explorationgraph.StateOpen
 	now := time.Now()
 	return explorationgraph.Node{
 		ID:         uuid.New().String(),
 		TaskID:     a.taskID,
-		Kind:       kind,
+		Kind:       core.KindObjective,
 		Content:    contentJSON,
 		Priority:   priority,
 		State:      &openState,

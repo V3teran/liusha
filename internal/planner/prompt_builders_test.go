@@ -159,3 +159,17 @@ func TestBuildRefutedHypothesesSection_RendersDetail(t *testing.T) {
 		t.Fatalf("没有理由的假设不应渲染评估说明，得:\n%s", got)
 	}
 }
+
+// 待验证的假设按陈述去重逐条渲染；没有时不渲染该节。
+func TestBuildPendingHypothesesSection(t *testing.T) {
+	if got := buildPendingHypothesesSection(nil); got != "" {
+		t.Fatalf("没有待验证假设时不应渲染，得:\n%s", got)
+	}
+	got := buildPendingHypothesesSection([]string{"主张甲", "主张乙", "主张甲"})
+	if !strings.Contains(got, "待验证") || !strings.Contains(got, "主张甲") || !strings.Contains(got, "主张乙") {
+		t.Fatalf("应逐条渲染待验证假设，得:\n%s", got)
+	}
+	if strings.Count(got, "主张甲") != 1 {
+		t.Fatalf("同一陈述只渲染一次，得:\n%s", got)
+	}
+}

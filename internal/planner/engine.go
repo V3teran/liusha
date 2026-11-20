@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -47,19 +46,12 @@ type Engine struct {
 	budget              time.Duration     // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
 	roster              []AgentBrief      // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
-	// 跨任务经验面（nil=关闭）：corpus 检索开局注入经验简报；extraTools 是
-	// 白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
-	// 工厂构建），Plan 时按白名单注册进 ReAct。
-	corpus     *corpus.Store
-	embedder   corpus.Embedder
+	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
+	// 工厂构建并已包装进共享拦截链），Plan 时按白名单注册进 ReAct，不再经 toolWrap。
 	extraTools []registry.Tool
-	// 经验简报按任务缓存：Engine 随认知循环构造（一次任务一份），查询键
-	// （根目标）在任务内稳定——只检索一次，不随规划轮次重复烧 embedding/检索。
-	experienceLoaded bool
-	experience       []corpus.Entry
 
-	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
-	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
+	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装），只包装
+	// 引擎自有的图读工具——它们与 executor 工具同一执行面，遥测/时间线无盲区。
 	toolWrap func(registry.Tool) registry.Tool
 }
 
@@ -128,13 +120,6 @@ func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
 	return e
 }
 
-// WithCorpus 注入跨任务知识库（经验简报检索；nil=关闭该能力）。
-func (e *Engine) WithCorpus(store *corpus.Store, emb corpus.Embedder) *Engine {
-	e.corpus = store
-	e.embedder = emb
-	return e
-}
-
 // WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
 // 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
 func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
@@ -161,27 +146,6 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 		return 0
 	}
 	return int(float64(cw) * e.contextRatio)
-}
-
-// experienceBriefing 检索与本任务目标相关的历史教训（agent 蒸馏与 expert 导入
-// 同源）。embedding 可用时走 hybrid 检索，否则退纯 sparse；失败返回 nil——
-// 检索不可用不能弄死规划。
-func (e *Engine) experienceBriefing(ctx context.Context, objective string) []corpus.Entry {
-	if e.corpus == nil || strings.TrimSpace(objective) == "" {
-		return nil
-	}
-	var queryVec []float32
-	if e.embedder != nil {
-		if v, err := e.embedder.EmbedQuery(ctx, objective); err == nil {
-			queryVec = v
-		}
-	}
-	entries, err := e.corpus.SearchHybrid(ctx, objective, queryVec, nil, 20, 5, nil)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("经验简报检索失败（本轮规划不带历史经验）")
-		return nil
-	}
-	return entries
 }
 
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
@@ -231,8 +195,8 @@ type PlanningContext struct {
 	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
 	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
+	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
-	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 }
 
@@ -258,6 +222,28 @@ type PlanOutcome struct {
 	// 不是「本轮没有新动作」——由 Agent 收回规划者尚未做完的动作，等其余工作落定后收敛。
 	Stop    bool
 	Actions []explorationgraph.ActionDraft // 新提议的动作（Stop 时为空）
+}
+
+// planTools 按 function_tools 白名单列出本次规划要注册的工具。共享拦截链只包装
+// 引擎自有的图读工具：额外工具由装配层包装后注入，再包一层会让每次调用在审计链
+// 里落两条记录、在时间线上推两次。
+func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string) []registry.Tool {
+	var out []registry.Tool
+	for _, tool := range []registry.Tool{NewObserveStateTool(graph), NewEvaluateProgressTool(graph)} {
+		if !registry.Allows(functionTools, tool.Name()) {
+			continue
+		}
+		if e.toolWrap != nil {
+			tool = e.toolWrap(tool)
+		}
+		out = append(out, tool)
+	}
+	for _, tool := range e.extraTools {
+		if registry.Allows(functionTools, tool.Name()) {
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 
 // PlanRequest 是一次规划的入参。
@@ -291,13 +277,6 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	if err != nil {
 		return PlanOutcome{}, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
-	// 历史经验简报：以任务目标检索跨任务知识库（top5，检索失败静默跳过——
-	// 经验是增益不是依赖），开局即把历史教训带进规划视野；任务内检索一次。
-	if !e.experienceLoaded {
-		e.experience = e.experienceBriefing(ctx, planCtx.Objective)
-		e.experienceLoaded = true
-	}
-	planCtx.Experience = e.experience
 	planCtx.ReplanReasons = req.ReplanReasons
 	prompt := e.buildPlanningPrompt(planCtx)
 
@@ -309,28 +288,9 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 
 	// function_tools 白名单过滤（nil=拒绝，[]=空集，["*"]=全量——严格白名单，与 cli_tools 语义一致）
 	react := runtime.NewReActRuntime()
-	registerGraphTool := func(tool registry.Tool) error {
-		if e.toolWrap != nil {
-			tool = e.toolWrap(tool)
-		}
-		return react.RegisterTool(tool)
-	}
-	if registry.Allows(functionTools, "observe_state") {
-		if err := registerGraphTool(NewObserveStateTool(graph)); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 observe_state 失败: %w", err)
-		}
-	}
-	if registry.Allows(functionTools, "evaluate_progress") {
-		if err := registerGraphTool(NewEvaluateProgressTool(graph)); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 evaluate_progress 失败: %w", err)
-		}
-	}
-	for _, t := range e.extraTools {
-		if !registry.Allows(functionTools, t.Name()) {
-			continue
-		}
-		if err := registerGraphTool(t); err != nil {
-			return PlanOutcome{}, fmt.Errorf("注册 %s 失败: %w", t.Name(), err)
+	for _, tool := range e.planTools(graph, functionTools) {
+		if err := react.RegisterTool(tool); err != nil {
+			return PlanOutcome{}, fmt.Errorf("注册 %s 失败: %w", tool.Name(), err)
 		}
 	}
 
@@ -456,7 +416,7 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 	}
 	planCtx.Results = results
 
-	// 观察一次取全量，事实（世界状态）与已证伪假设两视图共用——避免同表连查两次。
+	// 观察一次取全量，事实（世界状态）与待验证、已证伪的假设共用——避免同表连查多次。
 	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
@@ -474,6 +434,10 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			// 已确认的世界状态（写入即终态）——规划的基底：已建立的会话、
 			// 已探明的机制、已确认的资源，直接拿来用。
 			planCtx.Facts = append(planCtx.Facts, Fact{Category: c.Category, Statement: c.Statement})
+		case obs.HasVerificationStatus(explorationgraph.VerificationPending):
+			// 已上报、正在复现门里排队的主张：规划者看不见它们时会排动作重新取得，
+			// 造成重复执行与重复上报。
+			planCtx.PendingHypotheses = append(planCtx.PendingHypotheses, c.Statement)
 		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
 			// 已证伪的假设——规划器对"哪条路已试死"的权威事实源，防同方向反复
 			// 重提（复读机）。原因一并带出：复现失败类可换配方重试，语义证伪类
@@ -502,9 +466,6 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 3.2 重规划理由（常规规划不渲染）
 	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
 
-	// 3.5 历史经验简报（跨任务知识库开局注入；空=不渲染该节）
-	sb.WriteString(buildExperienceSection(ctx.Experience))
-
 	// 4. 统计信息
 	sb.WriteString(buildStatisticsSection(ctx))
 
@@ -527,7 +488,8 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 8.5 已确认的事实（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
 
-	// 9. 已被证伪的假设
+	// 9. 待验证与已被证伪的假设
+	sb.WriteString(buildPendingHypothesesSection(ctx.PendingHypotheses))
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
 
 	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）

@@ -147,3 +147,20 @@ func TestCredentialedClient_FollowsSameOriginRedirect(t *testing.T) {
 		t.Fatalf("同源跟随后的请求应携带凭据，得 %q", got)
 	}
 }
+
+// 传输层不限制生成耗时：非流式调用的响应头要等整段生成完才返回，响应头超时等于给生成
+// 长度设了上限——超过它的正常生成会被掐断并重试，重复消耗额度（实测：规划者的一次结果
+// 分析挂满单调用看门狗的 300 秒，零输出）。生成耗时只由业务侧的单调用看门狗控制。
+func TestLLMHTTPClient_DoesNotBoundGenerationTime(t *testing.T) {
+	c := llmHTTPClient()
+	if c.Timeout != 0 {
+		t.Fatalf("不应设整体超时，得 %v", c.Timeout)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("传输层类型 %T", c.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 0 {
+		t.Fatalf("不应设响应头超时，得 %v", tr.ResponseHeaderTimeout)
+	}
+}

@@ -12,8 +12,8 @@ import (
 	"github.com/V3teran/liusha/internal/scenario"
 )
 
-// AnalyzeResults 分析 Result 节点，决定下一步行动：哪些派生目标已达成、
-// 是否提出新方向（及其吸收的旧方向）、任务方向上还要深挖什么。
+// AnalyzeResults 分析 Result 节点，修订探索方向：哪些派生目标已达成、是否提出新方向
+// （及其吸收的旧方向）。下一步做什么由随后的常规规划决定。
 func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
 	e.logger.Info().
 		Int("result_count", len(results)).
@@ -72,14 +72,6 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 			Reasoning:   obj.Reasoning,
 		})
 	}
-	for _, action := range response.NewActions {
-		analysis.ContinuationActions = append(analysis.ContinuationActions, ContinuationAction{
-			Instruction: action.Instruction,
-			Priority:    explorationgraph.NormalizePriority(action.Priority),
-			TriggeredBy: action.TriggeredBy,
-			Reasoning:   action.Reasoning,
-		})
-	}
 
 	return analysis, nil
 }
@@ -111,7 +103,6 @@ type AnalysisResponse struct {
 	Reasoning           string                       `json:"reasoning"`
 	CompletedObjectives []AnalysisCompletedObjective `json:"completed_objectives"`
 	NewObjectives       []AnalysisObjective          `json:"new_objectives"`
-	NewActions          []AnalysisAction             `json:"new_actions"`
 }
 
 // AnalysisCompletedObjective 是 AnalyzeResults 宣告达成的派生目标。
@@ -126,14 +117,6 @@ type AnalysisObjective struct {
 	Priority    string   `json:"priority"`
 	TriggeredBy []string `json:"triggered_by"`
 	Supersedes  []string `json:"supersedes"`
-	Reasoning   string   `json:"reasoning"`
-}
-
-// AnalysisAction 是 AnalyzeResults 提议的新动作。
-type AnalysisAction struct {
-	Instruction string   `json:"instruction"`
-	Priority    string   `json:"priority"`
-	TriggeredBy []string `json:"triggered_by"`
 	Reasoning   string   `json:"reasoning"`
 }
 

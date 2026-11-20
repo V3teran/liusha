@@ -250,7 +250,7 @@ func TestRevisePlan_ActionsHangOnRootAndShareTheTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"a1"}, report.AddedActions)
-	assert.True(t, edgesOf(t, store, RelGenerates)[[2]string{"root", "a1"}], "延续动作归属根目标")
+	assert.True(t, edgesOf(t, store, RelGenerates)[[2]string{"root", "a1"}], "动作归属根目标")
 	assert.True(t, edgesOf(t, store, RelTriggers)[[2]string{"r1", "a1"}])
 	require.Len(t, report.Rejected, 1, "幻觉结果引用只剔除，不拖垮修订")
 	assert.Equal(t, FieldTriggeredBy, report.Rejected[0].Field)

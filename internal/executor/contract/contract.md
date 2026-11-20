@@ -40,7 +40,7 @@
 
 | category | 含义 | 生命周期 |
 |---|---|---|
-| `hypothesis` | 待验证的判断：「这里有问题 / 这个主张成立」 | 写入即待验证，经复现门独立验证，坐实后成为结果 |
+| `hypothesis` | 可交付的主张：任务要交付的那类结论（什么算可交付由任务场景规定） | 写入即待验证，经复现门独立验证，坐实后成为交付的结果 |
 | `entity` | 存在的单个对象及其属性（名称、版本、位置等） | 写入即终态 |
 | `access` | 触达与运用对象的途径（入口、认证方式、授权范围、可用凭据、会话规则） | 写入即终态 |
 | `structure` | 对象之间的关系与布局（层级、拓扑、依赖） | 写入即终态 |
@@ -49,7 +49,7 @@
 
 - **hypothesis** 必须带 `statement`、`reasoning`、`priority`（`low` / `medium` / `high` / `critical`）、`impact`、`suggestion` 与 `repro`；没有配方的假设无从验证，会被降级为 note
 - 事实类（entity / access / structure / behavior / note）只带 `statement` 与 `reasoning`，不带 repro、priority、impact、suggestion
-- 分界：判断「这里有问题」的写 hypothesis，事实只陈述环境是什么样、怎么反应；单个对象的存在与属性记 entity，对象之间怎么连接、怎么组织记 structure
+- 分界：可交付的主张写 hypothesis，事实只陈述环境是什么样、怎么反应；单个对象的存在与属性记 entity，对象之间怎么连接、怎么组织记 structure
 - 纯过程记录（「执行了某命令」「请求返回成功」）不是观察
 
 ## 复现配方（repro）

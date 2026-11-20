@@ -43,7 +43,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			return nil
 
 		case <-a.replanCh:
-			reasons := a.takeReplanReasons()
+			reasons := a.liveReplanReasons(ctx, a.takeReplanRequests())
+			if len(reasons) == 0 {
+				continue
+			}
 			a.logger.Info().Strs("reasons", reasons).Msg("收到重规划请求，强制重规划")
 			if err := a.planFailure(a.forcePlanActions(ctx, reasons), "强制重规划"); err != nil {
 				return err

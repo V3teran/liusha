@@ -51,9 +51,9 @@ func TestAgentConfig_PollInterval(t *testing.T) {
 func TestRequestReplan_CoalescesSignalKeepsEveryReason(t *testing.T) {
 	a := NewAgent(AgentConfig{TaskID: "t1"})
 
-	a.RequestReplan("探索停滞")
-	a.RequestReplan("任务目标已调整")
-	a.RequestReplan("探索停滞")
+	a.RequestReplan("探索停滞", nil)
+	a.RequestReplan("任务目标已调整", nil)
+	a.RequestReplan("探索停滞", nil)
 
 	select {
 	case <-a.replanCh:
@@ -65,8 +65,11 @@ func TestRequestReplan_CoalescesSignalKeepsEveryReason(t *testing.T) {
 		t.Fatal("多次请求应合并为一个信号")
 	default:
 	}
-	assert.Equal(t, []string{"探索停滞", "任务目标已调整"}, a.takeReplanReasons())
-	assert.Empty(t, a.takeReplanReasons(), "取走后清空")
+	requests := a.takeReplanRequests()
+	require.Len(t, requests, 2)
+	assert.Equal(t, "探索停滞", requests[0].reason)
+	assert.Equal(t, "任务目标已调整", requests[1].reason)
+	assert.Empty(t, a.takeReplanRequests(), "取走后清空")
 }
 
 // 强制重规划把请求的理由交给规划器（此前只写日志，模型看不到为什么要重规划）。

@@ -36,7 +36,9 @@ func newSearchCorpusTool(deps Deps, timeout time.Duration) *searchCorpusTool {
 func (t *searchCorpusTool) Name() string      { return "search_corpus" }
 func (t *searchCorpusTool) ShortDesc() string { return "检索跨目标长期知识库" }
 func (t *searchCorpusTool) Desc() string {
-	return "检索跨任务长期知识库：沉淀下来的可复用方法、经验与教训。"
+	return "检索跨任务长期知识库：沉淀下来的可复用方法、经验与教训。" +
+		"按语义与字面相似度召回、返回最接近查询的至多 top_k 条：知识库非空时通常总有返回，不保证与查询相关；" +
+		"返回为空表示没有可召回的条目。"
 }
 func (t *searchCorpusTool) Schema() json.RawMessage { return searchCorpusSchema }
 
@@ -61,7 +63,8 @@ func (t *searchCorpusTool) Execute(ctx context.Context, args json.RawMessage) (r
 		var err error
 		queryVec, err = t.deps.Embedder.EmbedQuery(ctx, a.Query)
 		if err != nil {
-			// embedder 失败降级 sparse，不中断
+			// embedder 失败降级为纯字面检索，不中断
+			t.deps.Logger.Warn().Err(err).Msg("知识库查询向量化失败，降级为字面检索")
 			queryVec = nil
 		}
 	}

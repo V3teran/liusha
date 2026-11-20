@@ -92,14 +92,14 @@ func (a *Agent) planRound(ctx context.Context) error {
 }
 
 // planningBasis 读取规划依据与图面。
-func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, graphView, error) {
+func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, explorationgraph.Surface, error) {
 	basis, err := a.graph.GoalBasis(ctx, a.taskID)
 	if err != nil {
-		return basis, graphView{}, fmt.Errorf("读取规划依据: %w", err)
+		return basis, explorationgraph.Surface{}, fmt.Errorf("读取规划依据: %w", err)
 	}
-	view, err := a.observeView(ctx, basis)
+	view, err := a.graph.Surface(ctx, a.taskID, basis)
 	if err != nil {
-		return basis, graphView{}, err
+		return basis, explorationgraph.Surface{}, err
 	}
 	return basis, view, nil
 }
@@ -111,7 +111,7 @@ func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, 
 //   - 没有实际新增：记下「等待」结论，走收敛判定。
 //
 // 目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
-func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view graphView, outcome PlanOutcome, trigger string) error {
+func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view explorationgraph.Surface, outcome PlanOutcome, trigger string) error {
 	if outcome.Stop {
 		withdrawn, err := a.graph.StopExploration(ctx, a.taskID, basis, stopReason)
 		if err != nil {
@@ -158,10 +158,10 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 	return true, nil
 }
 
-// admitActions 过滤规划提案：指令级去重（与结果分析的延续动作同一口径，见 admit）——
-// 空指令不可执行，与图上既有动作（已中止的除外）或本批更早提案 instruction 字面一致的
-// 是复读，两者都跳过（语义去重仍靠 LLM 的 refuted 视野）。动作统一挂在根目标下、溯源
-// 边 result → action 随动作落图（见 RevisePlan）。
+// admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有
+// 动作（已中止的除外）或本批更早提案 instruction 字面一致的是复读，两者都跳过（语义
+// 去重靠规划者看得到的已做、在途动作与待验证、已证伪的假设）。动作统一挂在根目标下、
+// 溯源边 result → action 随动作落图（见 RevisePlan）。
 func (a *Agent) admitActions(ctx context.Context, actions []explorationgraph.ActionDraft) []explorationgraph.ActionDraft {
 	if len(actions) == 0 {
 		return nil
@@ -209,4 +209,33 @@ func (a *Agent) knownInstructions(ctx context.Context) (map[string]bool, error) 
 		}
 	}
 	return set, nil
+}
+
+// liveReplanReasons 取出仍然成立的重规划请求的理由。带着所见图面的请求，在此期间目标被
+// 改写、出现了新的派生目标或新结果，判断的前提已经变了，作废并记日志——发起方周期运行，
+// 问题仍在会再次提出，作废的代价至多一个周期；照旧执行则会按过时的判断推翻规划者此后
+// 的结论。新增的动作不使请求作废：团队原地打转时动作照样增长，那正是请求要纠正的局面。
+// 读不到当前图面时保守保留全部请求。
+func (a *Agent) liveReplanReasons(ctx context.Context, requests []replanRequest) []string {
+	if len(requests) == 0 {
+		return nil
+	}
+	_, now, err := a.planningBasis(ctx)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取图面失败，重规划请求全部保留")
+	}
+	reasons := make([]string, 0, len(requests))
+	for _, r := range requests {
+		if err == nil && r.seen != nil && premiseChanged(*r.seen, now) {
+			a.logger.Info().Str("reason", r.reason).Msg("重规划请求作废：发起后图面已有实质进展，判断前提已变")
+			continue
+		}
+		reasons = append(reasons, r.reason)
+	}
+	return reasons
+}
+
+// premiseChanged 判断两个图面之间是否有实质进展：目标改写、新的派生目标、新结果。
+func premiseChanged(seen, now explorationgraph.Surface) bool {
+	return seen.Goal != now.Goal || seen.Objectives != now.Objectives || seen.Results != now.Results
 }

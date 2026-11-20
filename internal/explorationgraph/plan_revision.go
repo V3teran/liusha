@@ -9,15 +9,15 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// PlanRevision 是规划层基于一次结果分析对探索图的修订：提出新方向、宣告方向
-// 达成、让新方向吸收旧方向、在任务方向上追加延续动作，并把被分析的结果标记
-// 为已分析。它们是同一个规划决策的不同侧面，整体原子落图——不会出现「新目标
+// PlanRevision 是规划层对探索图的一次修订：结果分析提出新方向、宣告方向达成、
+// 让新方向吸收旧方向，并把被分析的结果标记为已分析；常规规划新增动作。一次修订
+// 是同一个规划决策的不同侧面，整体原子落图——不会出现「新目标
 // 已建、被它吸收的旧目标仍 open」「旧目标已 superseded、却查不到吸收者」，
 // 也不会出现决策只落了一半、或结论已落而结果仍待分析，从而在重试或下一个 run
 // 里被重复写入。
 //
 // 目标修订只作用于派生目标（IsDerivedObjective）。根目标代表任务本身，只随
-// 任务终态由控制面收敛；延续动作挂在根目标下。
+// 任务终态由控制面收敛；动作挂在根目标下。
 //
 // 修订以 Basis（规划所依据的目标）为前置：规划期间目标被改写，修订整体作废
 // （ErrGoalChanged），不会把按旧目标得出的结论写进新目标的图。
@@ -26,7 +26,7 @@ type PlanRevision struct {
 	Analyzed            []string              // 本次分析消费的 result：同事务落分析水位（metaAnalyzed）
 	AddedObjectives     []ObjectiveDraft      // 新提出的派生目标
 	CompletedObjectives []ObjectiveCompletion // 宣告达成的派生目标
-	AddedActions        []ActionDraft         // 任务方向上的延续动作
+	AddedActions        []ActionDraft         // 常规规划新增的动作
 }
 
 // ObjectiveDraft 是一个待落图的新派生目标。
@@ -42,7 +42,7 @@ type ObjectiveCompletion struct {
 	Evidence    []string // 作证的 result，至少一条有效才成立
 }
 
-// ActionDraft 是一个待落图的延续动作（归属根目标，落 generates 边）。
+// ActionDraft 是一个待落图的动作（归属根目标，落 generates 边）。
 type ActionDraft struct {
 	Node        Node     // 动作节点：kind=action、state=open、source=planner、属本任务
 	TriggeredBy []string // 催生它的 result（落 triggers 边）
@@ -70,7 +70,7 @@ type RejectedReference struct {
 // RevisionReport 是一次修订的落图结果。
 type RevisionReport struct {
 	AddedObjectives      []string            // 新建的派生目标
-	AddedActions         []string            // 新建的延续动作
+	AddedActions         []string            // 新建的动作
 	CompletedObjectives  []string            // 转 completed 的派生目标
 	SupersededObjectives []string            // 转 superseded 的派生目标
 	Rejected             []RejectedReference // 被剔除的无效引用
@@ -241,14 +241,14 @@ func (b *revisionBuilder) absorb(oldID string) bool {
 	return true
 }
 
-// addActions 延续动作：归属根目标 + 溯源边。
+// addActions 新动作：归属根目标 + 溯源边。
 func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 	if len(drafts) == 0 {
 		return nil
 	}
 	root, ok := RootObjective(b.objectives)
 	if !ok {
-		return fmt.Errorf("任务 %s 没有根目标，延续动作无处归属", b.taskID)
+		return fmt.Errorf("任务 %s 没有根目标，动作无处归属", b.taskID)
 	}
 	for _, d := range drafts {
 		b.changes.Nodes = append(b.changes.Nodes, b.store.nodeToGraphNode(d.Node))

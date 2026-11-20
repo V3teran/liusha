@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/evaluator"
 
 	"encoding/json"
@@ -348,6 +347,27 @@ func refuteReasonHint(reason string) string {
 	}
 }
 
+// buildPendingHypothesesSection 构建待验证假设部分：已上报、正在复现门里验证的主张陈述
+// （按陈述去重）。怎样对待它们由章程说明。
+func buildPendingHypothesesSection(statements []string) string {
+	if len(statements) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 待验证的假设（复现门验证中）\n")
+	seen := make(map[string]bool, len(statements))
+	for _, s := range statements {
+		st := textx.TruncateRunes(s, historyClampRunes, "…（截断）")
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
+		fmt.Fprintf(&sb, "- %s\n", st)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // buildRefutedHypothesesSection 构建已证伪假设部分（含反驳原因分类与评估者的理由）
 func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	if len(hypotheses) == 0 {
@@ -368,22 +388,6 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 			sb.WriteString("；评估说明：" + textx.TruncateRunes(detail, historyClampRunes, "…（截断）"))
 		}
 		sb.WriteString("\n")
-	}
-	sb.WriteString("\n")
-	return sb.String()
-}
-
-// buildExperienceSection 渲染跨任务历史经验简报：以任务目标检索出的历史教训
-// （agent 收尾蒸馏 + expert 导入同源）。每条钳长防止单条经验霸占规划视野；
-// 空列表不渲染该节。
-func buildExperienceSection(entries []corpus.Entry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("## 历史经验参考（来自跨任务知识库）\n")
-	for _, e := range entries {
-		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, textx.TruncateRunes(e.Content, 400, "…（截断）"))
 	}
 	sb.WriteString("\n")
 	return sb.String()

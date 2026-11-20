@@ -83,8 +83,7 @@ func stateIn(t *testing.T, store *explorationgraph.Store, id string) exploration
 	return *n.State
 }
 
-// 达成、新方向（含吸收）与延续动作同时出现时全部落实——此前有延续动作就提前
-// 返回，新方向连同其 supersedes 声明被静默丢弃。
+// 达成与新方向（含吸收）同时出现时全部落实；结果分析只修订方向，不排动作。
 func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{
 		CompletedObjectives: []explorationgraph.ObjectiveCompletion{{ObjectiveID: "d2", Evidence: []string{"r1"}}},
@@ -92,7 +91,6 @@ func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 			Description: "细化后的方向", Priority: core.PriorityHigh,
 			TriggeredBy: []string{"r1"}, Supersedes: []string{"d1"},
 		}},
-		ContinuationActions: []ContinuationAction{{Instruction: "继续深挖参数", Priority: core.PriorityMedium}},
 	})
 	ctx := context.Background()
 
@@ -125,7 +123,7 @@ func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
-	assert.Len(t, actions, 1, "延续动作与目标修订一起落实")
+	assert.Empty(t, actions, "动作只由常规规划排出")
 	assert.True(t, isAnalyzed(t, store, "r1"), "分析水位随修订落图")
 }
 
@@ -172,7 +170,7 @@ func TestObjectiveView_SeparatesRootLiveAndSettled(t *testing.T) {
 		"规划只看进行中的方向：%s", planning)
 }
 
-// 修订整体失败（此处：没有根目标，延续动作无处归属）时什么都不落、水位不推进——
+// 修订整体失败（此处：没有根目标，读不到分析依据）时什么都不落、水位不推进——
 // 下一轮整体重做，不会重复写入上一轮已生效的一半。
 func TestAnalyzeAndProcessResults_FailedRevisionWritesNothing(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
@@ -186,8 +184,7 @@ func TestAnalyzeAndProcessResults_FailedRevisionWritesNothing(t *testing.T) {
 	a := &Agent{
 		taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		planner: &analysisPlanner{analysis: &ResultAnalysis{
-			NewObjectives:       []NewObjective{{Description: "新方向", Supersedes: []string{"d1"}}},
-			ContinuationActions: []ContinuationAction{{Instruction: "深挖"}},
+			NewObjectives: []NewObjective{{Description: "新方向", Supersedes: []string{"d1"}}},
 		}},
 	}
 	ctx := context.Background()
@@ -220,27 +217,6 @@ func TestAnalyzeNewResults_WatermarkSurvivesAcrossRuns(t *testing.T) {
 	objectives, err := store.ListNodesByKind(ctx, revisionTask, core.KindObjective)
 	require.NoError(t, err)
 	assert.Len(t, objectives, 4, "新方向只落一次")
-}
-
-// 延续动作与规划产出的动作守同一道去重：空指令与既有指令（含本批）字面相同的不落图。
-func TestAnalyzeAndProcessResults_ContinuationActionsAreDeduplicated(t *testing.T) {
-	a, store := revisionAgent(t, &ResultAnalysis{ContinuationActions: []ContinuationAction{
-		{Instruction: "已做过的测试"},
-		{Instruction: "  新测试  "},
-		{Instruction: "新测试"},
-		{Instruction: "   "},
-	}})
-	ctx := context.Background()
-	_, err := store.CreateNode(ctx, revisionNode("a0", core.KindAction, explorationgraph.SourcePlanner, openState(), 5*time.Second))
-	require.NoError(t, err)
-	require.NoError(t, store.UpdateNodeContent(ctx, "a0", []byte(`{"instruction":"已做过的测试"}`)))
-
-	require.NoError(t, a.analyzeNewResults(ctx))
-
-	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
-	require.NoError(t, err)
-	require.Len(t, actions, 2, "只新增一条「新测试」")
-	assert.JSONEq(t, `{"instruction":"新测试","reasoning":""}`, string(actions[1].Content))
 }
 
 // 收敛判定的唯一口径：未分析的结果、待验证的假设与非终态动作一样阻止收敛，
@@ -286,8 +262,8 @@ func markAllAnalyzed(t *testing.T, store *explorationgraph.Store) {
 	require.NoError(t, err)
 }
 
-// 新目标与延续动作守同一道字面去重：与既有目标（含根目标）描述相同、空描述、
-// 本批内重复的新目标都不落图。
+// 新目标按描述字面去重：与既有目标（含根目标）描述相同、空描述、本批内重复的新目标
+// 都不落图。
 func TestAnalyzeAndProcessResults_NewObjectivesAreDeduplicated(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{NewObjectives: []NewObjective{
 		{Description: "d1"},     // 既有派生目标
@@ -318,7 +294,7 @@ func TestApplyPlan_HangsOnRootAndSkipsBlankAndRepeats(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{})
 	ctx := context.Background()
 
-	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), graphView{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{Actions: []explorationgraph.ActionDraft{
 		planAction("p1", "探测登录接口"),
 		planAction("p2", " 探测登录接口 "),
 		planAction("p3", "  "),

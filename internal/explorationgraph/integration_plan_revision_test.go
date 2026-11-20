@@ -58,7 +58,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 			TriggeredBy: []string{resultID}, Supersedes: supersedes}
 	}
 
-	// 1. 拆分吸收 + 宣告达成 + 延续动作，一次修订原子落库
+	// 1. 拆分吸收 + 宣告达成 + 新动作，一次修订原子落库
 	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
 		AddedActions:        []ActionDraft{{Node: mk(actionID, core.KindAction, SourcePlanner, &open), TriggeredBy: []string{resultID}}},
 		AddedObjectives:     []ObjectiveDraft{draftOf(newA, oldID, rootID), draftOf(newB, oldID)},
@@ -95,7 +95,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 			rootGeneratesAction = true
 		}
 	}
-	assert.True(t, rootGeneratesAction, "延续动作归属根目标")
+	assert.True(t, rootGeneratesAction, "动作归属根目标")
 
 	// 2. 冲突回滚：校验通过后被引用目标已流转，新节点与边一个都不落
 	err = store.graphStore.ApplyChangeSet(ctx, core.GraphChangeSet{
