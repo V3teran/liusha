@@ -158,10 +158,10 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 	return true, nil
 }
 
-// admitActions 过滤规划提案：指令级去重（与结果分析的延续动作同一口径，见 admit）——
-// 空指令不可执行，与图上既有动作（已中止的除外）或本批更早提案 instruction 字面一致的
-// 是复读，两者都跳过（语义去重仍靠 LLM 的 refuted 视野）。动作统一挂在根目标下、溯源
-// 边 result → action 随动作落图（见 RevisePlan）。
+// admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有
+// 动作（已中止的除外）或本批更早提案 instruction 字面一致的是复读，两者都跳过（语义
+// 去重靠规划者看得到的已做、在途动作与待验证、已证伪的假设）。动作统一挂在根目标下、
+// 溯源边 result → action 随动作落图（见 RevisePlan）。
 func (a *Agent) admitActions(ctx context.Context, actions []explorationgraph.ActionDraft) []explorationgraph.ActionDraft {
 	if len(actions) == 0 {
 		return nil

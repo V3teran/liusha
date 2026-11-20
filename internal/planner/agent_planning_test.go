@@ -168,7 +168,7 @@ func TestPlanActions_GoalChangedBeforeConvergenceReplans(t *testing.T) {
 func TestPlanActions_GoalChangedDuringAnalysisReanalyzes(t *testing.T) {
 	a, store := revisionAgent(t, nil)
 	planner := &goalShiftingPlanner{store: store, shiftOnAnalyze: true,
-		analysis: &ResultAnalysis{ContinuationActions: []ContinuationAction{{Instruction: "沿结果深挖"}}}}
+		analysis: &ResultAnalysis{NewObjectives: []NewObjective{{Description: "沿结果深挖"}}}}
 	a.planner = planner
 	a.onConverged = func(string, explorationgraph.GoalBasis) {}
 	ctx := context.Background()
@@ -177,9 +177,9 @@ func TestPlanActions_GoalChangedDuringAnalysisReanalyzes(t *testing.T) {
 
 	assert.Equal(t, 2, planner.analyzeCalls, "目标变化后立即重新分析")
 	assert.True(t, isAnalyzed(t, store, "r1"))
-	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
+	objectives, err := store.ListNodesByKind(ctx, revisionTask, core.KindObjective)
 	require.NoError(t, err)
-	assert.Len(t, actions, 1, "作废的那次分析什么都没落")
+	assert.Len(t, objectives, 4, "作废的那次分析什么都没落：只有重做的那次落下一个新方向")
 }
 
 // basisOf 读取任务当前的目标依据。
@@ -188,4 +188,57 @@ func basisOf(t *testing.T, store *explorationgraph.Store) explorationgraph.GoalB
 	basis, err := store.GoalBasis(context.Background(), revisionTask)
 	require.NoError(t, err)
 	return basis
+}
+
+// directionPlanner 记录常规规划被调用时图上进行中的派生目标：验证结果分析修订的方向
+// 在同一轮里就交给看得到全貌的常规规划。
+type directionPlanner struct {
+	store       *explorationgraph.Store
+	analysis    *ResultAnalysis
+	plan        []explorationgraph.ActionDraft
+	planCalls   int
+	liveAtPlans []string
+}
+
+func (p *directionPlanner) Plan(ctx context.Context, _ *explorationgraph.Store, taskID string, _ PlanRequest) (PlanOutcome, error) {
+	p.planCalls++
+	objectives, err := p.store.ListNodesByKind(ctx, taskID, core.KindObjective)
+	if err != nil {
+		return PlanOutcome{}, err
+	}
+	for _, o := range objectives {
+		if o.IsDerivedObjective() && o.State != nil && *o.State == explorationgraph.StateOpen {
+			p.liveAtPlans = append(p.liveAtPlans, o.ID)
+		}
+	}
+	return PlanOutcome{Actions: p.plan}, nil
+}
+
+func (p *directionPlanner) AnalyzeResults(context.Context, *explorationgraph.Store, string, []explorationgraph.Node) (*ResultAnalysis, error) {
+	return p.analysis, nil
+}
+
+// 结果分析只修订方向，动作由同一轮的常规规划排出：常规规划看得到分析刚落下的新方向，
+// 不会因为分析先排了动作而被跳过（实测：分析看不到已有事实与动作，排出的重复动作挤掉了
+// 看得到全貌的那次规划）。
+func TestPlanActions_AnalysisRevisesDirectionThenPlanningSchedules(t *testing.T) {
+	a, store := revisionAgent(t, nil)
+	planner := &directionPlanner{
+		store:    store,
+		analysis: &ResultAnalysis{CompletedObjectives: []explorationgraph.ObjectiveCompletion{{ObjectiveID: "d1", Evidence: []string{"r1"}}}},
+		plan:     []explorationgraph.ActionDraft{planAction("p1", "沿新结果探测")},
+	}
+	a.planner = planner
+	a.onConverged = func(string, explorationgraph.GoalBasis) { t.Fatal("有新动作时不应收敛") }
+	ctx := context.Background()
+
+	require.NoError(t, a.planActions(ctx))
+
+	assert.True(t, isAnalyzed(t, store, "r1"))
+	assert.Equal(t, 1, planner.planCalls, "分析之后同一轮即常规规划")
+	assert.Equal(t, []string{"d2"}, planner.liveAtPlans, "常规规划看到的是分析修订后的方向")
+	open, err := store.ListOpenActions(ctx, revisionTask)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	assert.Equal(t, "p1", open[0].ID)
 }

@@ -13,7 +13,7 @@
 //
 // 关系（与 DB 约束 ck_exploration_edge_rel 一致，见 Relation）：
 //   - generates: objective → action、action → observation、observation → result（推导链）
-//   - triggers: result → objective/action（结果催生新目标 / 延续动作）
+//   - triggers: result → objective/action（结果催生新目标 / 新动作）
 //   - supersedes: objective → objective（新派生目标吸收旧派生目标的范围，src=新、dst=旧；
 //     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
 //
