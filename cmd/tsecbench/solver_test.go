@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -55,5 +56,20 @@ func TestBuildGoal_NoContainerAddr(t *testing.T) {
 	goal := buildGoal(challenge{UniqueCode: "x", FlagCount: 1}, nil)
 	if strings.TrimSpace(goal) == "" {
 		t.Fatal("goal 不应为空")
+	}
+}
+
+// TestBuildGoal_FlagCountWritten 验证平台给出数量就写进目标（含 1）：数量是收敛依据，
+// 普通题拿到真 flag 即 1/1 收敛；未知（0）才不写。
+func TestBuildGoal_FlagCountWritten(t *testing.T) {
+	for _, n := range []int{1, 3} {
+		goal := buildGoal(challenge{UniqueCode: "x", FlagCount: n}, nil)
+		want := fmt.Sprintf("本题共有 %d 个 flag", n)
+		if !strings.Contains(goal, want) {
+			t.Fatalf("FlagCount=%d 的 goal 应含 %q：%s", n, want, goal)
+		}
+	}
+	if goal := buildGoal(challenge{UniqueCode: "x"}, nil); strings.Contains(goal, "个 flag，全部捕获") {
+		t.Fatalf("未知数量不应写收敛口径：%s", goal)
 	}
 }

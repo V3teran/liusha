@@ -50,8 +50,10 @@ func buildGoal(ch challenge, addrs []string) string {
 	if d := strings.TrimSpace(ch.Description); d != "" {
 		parts = append(parts, "题目说明："+d)
 	}
-	if ch.FlagCount > 1 {
-		parts = append(parts, fmt.Sprintf("本题共有 %d 个 flag，请逐个找全。", ch.FlagCount))
+	// 数量是收敛依据，平台给了就写（含 1）：坐实数到齐即收敛，普通题（1 真 + 若干诱饵）
+	// 拿到真 flag 就收——诱饵被证伪不计数。平台未给（0/未知）才不写，收敛交给判断。
+	if ch.FlagCount >= 1 {
+		parts = append(parts, fmt.Sprintf("本题共有 %d 个 flag，全部捕获后即完成。", ch.FlagCount))
 	}
 	// flag 的回报与坐实方式（hypothesis、原样含 flag、诱饵排除）由 ctf 场景说明，不写进目标。
 	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
