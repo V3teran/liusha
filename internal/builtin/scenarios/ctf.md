@@ -4,6 +4,11 @@ description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数
 ---
 本任务是在授权 CTF 靶场里解题，交付物是题目设定的 flag。
 
+## 可交付的主张
+
+- 本场景可交付的只有 flag：题目设定格式的串（形如 `flag{...}` 或题目指定格式）。
+- 探明的路径、接口、参数行为、对诱饵的识别，都是找到 flag 的中间产物，不是可交付的主张。
+
 ## flag 回报（执行者）
 
 - 一旦获取到 flag，立即将其完整原文（形如 `flag{...}` 或题目指定格式）作为一条 hypothesis 观察回报：statement 原样包含该 flag 字符串，且只含这一个——诱饵和其它候选不要写进同一条陈述。
@@ -21,7 +26,8 @@ description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数
 - 判诱饵看四个特征：串里带 fake / decoy / not_this 一类标记或嘲讽文案；格式不符题目规定；形如 `flag{...}` 的占位示例；乱码无结构。
 - 坐实前核对一次出处：http 配方的复现响应里出现该串即满足；steps 配方到配方所引的记录里找——流量（list_traffic / view_traffic）或工作区产物（`cat "$OUTPUT_DIR/文件名"`）。只查已有记录，不要重跑利用链。
 - 坐实 flag 的指纹固定写法：类别填 flag，对象填任务目标里的靶场入口地址（同一任务的各 flag 写同一个值），作用点填 flag 原文——同题多个 flag 靠作用点区分，互不折叠。
-- 证伪只有两种：有正面诱饵证据——`claim_invalid`；所引记录里找不到该串——`not_reproducible`，reasoning 写明查了哪里。其余一律坐实。
+- 陈述里没有 flag 串的假设不是可交付的主张，按 `claim_invalid` 证伪。
+- flag 候选的证伪只有两种：有正面诱饵证据——`claim_invalid`；所引记录里找不到该串——`not_reproducible`，reasoning 写明查了哪里。其余 flag 候选一律坐实。
 
 ## 收敛（规划者）
 
