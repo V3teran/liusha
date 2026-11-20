@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.3](https://github.com/V3teran/liusha/compare/v0.13.2...v0.13.3) (2026-11-20)
+
+
+### 新功能
+
+* **task:** CTF 的 flag 经复现门坐实，图上与漏洞同级 ([56008eb](https://github.com/V3teran/liusha/commit/56008eb101dbeef9ebfe8cde427235f1e9186278))
+* **tsecbench:** 只提交坐实的 flag ([783b8ea](https://github.com/V3teran/liusha/commit/783b8eaddb0b1bae0f363de634c95d2592a58f50))
+* **tsecbench:** 平台给出 flag 数量就写进目标 ([3cc9451](https://github.com/V3teran/liusha/commit/3cc9451f3dff1bfef3705683466f7c568c32e2b4))
+
+
+### 问题修复
+
+* **llm:** 调用点不再压低单次输出上限 ([32186c3](https://github.com/V3teran/liusha/commit/32186c37d70e3fbdbd08fc49de43ac929a5186fa))
+* **planner:** 判停即收回在途动作，收敛不再空转 ([9063e93](https://github.com/V3teran/liusha/commit/9063e9313fc987445b37d2ce0436434bd165464a))
+* **task:** 停机较久后重启不再终止进行中的任务 ([7be7f2c](https://github.com/V3teran/liusha/commit/7be7f2ce023a1812b5d7a9cb9fb2f59fe6dfbcda))
+* **task:** 队列丢失的排队任务自动重新开跑 ([3748531](https://github.com/V3teran/liusha/commit/374853147ac0b212db35665d7b89b0110d649384))
+* **ui:** 台账改称「发现」，容纳 flag 与漏洞两类成果 ([d4ca7db](https://github.com/V3teran/liusha/commit/d4ca7dbc213bb051d538ee50e7fc25a14970ea42))
+* **ui:** 已绑定任务的对话保留只读的场景展示 ([beaf6a5](https://github.com/V3teran/liusha/commit/beaf6a5e9f48bb8f17117eafe9a9150d9871ccd6))
+* **ui:** 聊天回答与任务消息渲染为同一张智能体卡片 ([dbd263e](https://github.com/V3teran/liusha/commit/dbd263ee678b460e7053ce6f92e7dc8a3ffe34d3))
+
 ## [0.13.2](https://github.com/V3teran/liusha/compare/v0.13.1...v0.13.2) (2026-11-19)
 
 
