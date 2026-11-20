@@ -19,7 +19,7 @@ const defaultFlagPattern = `flag\{[^\s{}'"]{1,512}\}`
 const placeholderChars = ".…*xX?"
 
 // flagExtractor 从自由文本里提取 flag 候选。来源文本按喂入顺序扫描（solver 喂入探索图
-// observation / result 节点正文，flag 由执行者记为 entity 事实观察），结果去重保序，
+// result 节点正文，flag 经复现门坐实成 result），结果去重保序，
 // solver 据此依次提交。
 type flagExtractor struct {
 	re *regexp.Regexp

@@ -13,18 +13,25 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// res 构造坐实 flag 的 result 节点（flag 经复现门晋升后的形态，正文是主张描述）。
+func res(text string) graphNode {
+	b, _ := json.Marshal(map[string]string{"statement": text})
+	return graphNode{Kind: "result", Content: b}
+}
+
+// obs 构造未坐实的观察节点（诱饵、待验证假设都在这层，不应被提取）。
 func obs(text string) graphNode {
 	b, _ := json.Marshal(map[string]string{"output": text})
 	return graphNode{Kind: "observation", Content: b}
 }
 
-// TestSolve_FlagFromObservationCompletesAndCleansUp 验证主路径：观察节点正文里的 flag 被提交、
+// TestSolve_FlagFromResultCompletesAndCleansUp 验证主路径：坐实 result 正文里的 flag 被提交、
 // 本题通关，且收尾时终止 liusha 任务并 close 靶场释放名额。
-func TestSolve_FlagFromObservationCompletesAndCleansUp(t *testing.T) {
+func TestSolve_FlagFromResultCompletesAndCleansUp(t *testing.T) {
 	f := newFakeStack(t)
 	f.flags["web_01"] = []string{"flag{abc}"}
 	f.nodesFn = func(int) []graphNode {
-		return []graphNode{obs("拿到 flag{abc}")}
+		return []graphNode{res("捕获 flag：flag{abc}")}
 	}
 
 	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
@@ -46,17 +53,43 @@ func TestSolve_FlagFromObservationCompletesAndCleansUp(t *testing.T) {
 	}
 }
 
-// TestSolve_MultiFlagCollectsFromObservations 验证多 flag 题：两个 flag 分别出现在不同的
-// 探索图 observation 节点，错误候选不计入，全部正确后通关；action 节点的文本不参与提取。
-func TestSolve_MultiFlagCollectsFromObservations(t *testing.T) {
+// TestSolve_UnconfirmedObservationsIgnored 验证只认坐实：观察节点（待验证假设、诱饵、
+// 侦察记录）里的 flag 串不参与提取——未过复现门的东西不提交。
+func TestSolve_UnconfirmedObservationsIgnored(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{real}"}
+	f.nodesFn = func(int) []graphNode {
+		return []graphNode{
+			obs("诱饵页写着 flag{fake_not_this}，疑似假"),
+			obs("待验证假设：flag{real}"),
+		}
+	}
+	f.usageFn = func(int) int { return 42 } // 活动停摆：让空闲收手快速触发
+	sv := f.newSolver()
+	sv.idleWindow = 10 * time.Millisecond
+	res, err := sv.solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+	if res.Completed {
+		t.Fatalf("未坐实的观察不应产生提交，res = %+v", res)
+	}
+	if _, _, submits, _, _ := f.snapshot(); len(submits) != 0 {
+		t.Fatalf("不应有任何提交，got %v", submits)
+	}
+}
+
+// TestSolve_MultiFlagCollectsFromResults 验证多 flag 题：两个 flag 分别出现在不同的
+// result 节点，错误候选不计入，全部正确后通关；action 节点的文本不参与提取。
+func TestSolve_MultiFlagCollectsFromResults(t *testing.T) {
 	f := newFakeStack(t)
 	f.flags["web_02"] = []string{"flag{one}", "flag{two}"}
 	f.nodesFn = func(int) []graphNode {
 		action, _ := json.Marshal(map[string]string{"plan": "试试 flag{guess}"})
 		return []graphNode{
-			obs("确认 flag{one}"),
+			res("确认 flag{one}"),
 			{Kind: "action", Content: action},
-			obs("响应体 flag{wrong} 与 flag{two}"),
+			res("响应体 flag{wrong} 与 flag{two}"),
 		}
 	}
 
@@ -98,7 +131,7 @@ func TestHarvest_FinalRoundAfterTaskEnds(t *testing.T) {
 		if call == 1 {
 			return nil
 		}
-		return []graphNode{obs("flag{late}")}
+		return []graphNode{res("flag{late}")}
 	}
 	f.statusFn = func(int) string { return "completed" }
 
@@ -217,7 +250,7 @@ func TestTrySubmit_ErrorClassification(t *testing.T) {
 // 供 schedule 取消全局。
 func TestSolve_FatalSubmitErrorPropagates(t *testing.T) {
 	f := newFakeStack(t)
-	f.nodesFn = func(int) []graphNode { return []graphNode{obs("flag{a}")} }
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{a}")} }
 	f.submitErr = func(string) (int, string) { return http.StatusNotFound, codeTaskNotFound }
 
 	_, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_08", FlagCount: 1})
@@ -231,7 +264,7 @@ func TestSolve_FatalSubmitErrorPropagates(t *testing.T) {
 func TestSolve_RetriableSubmitRetriedNextRound(t *testing.T) {
 	f := newFakeStack(t)
 	f.flags["web_09"] = []string{"flag{r}"}
-	f.nodesFn = func(int) []graphNode { return []graphNode{obs("flag{r}")} }
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{r}")} }
 	calls := 0
 	f.submitErr = func(string) (int, string) {
 		calls++
@@ -250,7 +283,7 @@ func TestSolve_RetriableSubmitRetriedNextRound(t *testing.T) {
 // TestSchedule_StopsDispatchOnFatal 验证一道题报致命错误后不再派发后续题目。
 func TestSchedule_StopsDispatchOnFatal(t *testing.T) {
 	f := newFakeStack(t)
-	f.nodesFn = func(int) []graphNode { return []graphNode{obs("flag{a}")} }
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{a}")} }
 	f.submitErr = func(string) (int, string) { return http.StatusConflict, codeInvalidState }
 	s := f.newSolver()
 	cfg := config{concurrency: 1, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
@@ -272,7 +305,7 @@ func TestSchedule_SolvesAll(t *testing.T) {
 	for _, c := range []string{"a", "b", "c", "d"} {
 		f.flags[c] = []string{"flag{ok}"}
 	}
-	f.nodesFn = func(int) []graphNode { return []graphNode{obs("flag{ok}")} }
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{ok}")} }
 	s := f.newSolver()
 	cfg := config{concurrency: 3, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
 	pending := []challenge{{UniqueCode: "a"}, {UniqueCode: "b"}, {UniqueCode: "c"}, {UniqueCode: "d"}}
