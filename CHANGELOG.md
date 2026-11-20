@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.13.5](https://github.com/V3teran/liusha/compare/v0.13.4...v0.13.5) (2026-11-20)
+
+
+### 问题修复
+
+* **config:** CTF 场景只把 flag 当作可交付的主张 ([f62f8cd](https://github.com/V3teran/liusha/commit/f62f8cd28238b47ad8b97d41cb7c076f0adcab6d))
+* **config:** CTF 已有定论的 flag 不再被重复回报 ([1bb4ed4](https://github.com/V3teran/liusha/commit/1bb4ed45bd5353e6bdb84db58648245a4d658311))
+* **config:** CTF 的 flag 陈述只含一个 flag ([5bdfd92](https://github.com/V3teran/liusha/commit/5bdfd9292ba293d5d0041ae99f66d1cd0c880275))
+* **config:** CTF 的候选 flag 够数时先等验证结论 ([23b8803](https://github.com/V3teran/liusha/commit/23b880393a1653f2ee3085394aca57113d6ff2d2))
+* **config:** 渗透测试与 CTF 场景说明更准确 ([e93c4bb](https://github.com/V3teran/liusha/commit/e93c4bb253ae7d3dddb57206c4622e9585cb67af))
+* **exploration:** 侦察中的推断不再当作主张送去验证 ([be0e88f](https://github.com/V3teran/liusha/commit/be0e88f225be6fa8936eed82b86ddb2239b09bba))
+* **exploration:** 同一主张经不同配方确认不再落成重复的漏洞 ([a2d8715](https://github.com/V3teran/liusha/commit/a2d8715d937b8e6cae46db4e532545e809616ce8))
+* **exploration:** 新结果坐实后不再排出重复的动作 ([dbe91bf](https://github.com/V3teran/liusha/commit/dbe91bfb80e936110e6e721b28c10d8aa578d488))
+* **exploration:** 监察者不再发出无据或过时的重规划请求 ([d0d8630](https://github.com/V3teran/liusha/commit/d0d86305b62a5e83b4045fe7017742445e1f095c))
+* **exploration:** 监察者能看到假设的验证情况 ([ac3d8e9](https://github.com/V3teran/liusha/commit/ac3d8e9c61ee2bcbdc8b3a2288efe9e673a70bea))
+* **exploration:** 规划者的知识库检索不再重复记录 ([9a31662](https://github.com/V3teran/liusha/commit/9a31662fce6e30901574fc94471b3de919ffff23))
+* **exploration:** 规划者能看到待验证的主张，不再重复取得 ([3bab3a6](https://github.com/V3teran/liusha/commit/3bab3a66587daec181d6fcdbe1bcf7d59d525b66))
+* **exploration:** 证据不足的证伪不再让探索方向被放弃 ([0306c5d](https://github.com/V3teran/liusha/commit/0306c5d3ec1e8df62290b8ece399dca9470e0b43))
+* **exploration:** 限流后重新取得的主张能重新验证 ([8a93f9d](https://github.com/V3teran/liusha/commit/8a93f9de13bba695e266164d20f79bb6d2e2db56))
+* **llm:** 生成较久的非流式调用不再被掐断重试 ([386a6bd](https://github.com/V3teran/liusha/commit/386a6bd701fe937c24df9282083d9f58c5d2cd4d))
+* **tsecbench:** 只提交坐实主张里的 flag，靶场启动可重试 ([987d50b](https://github.com/V3teran/liusha/commit/987d50b27e32f555644ab158ae2940814c0f07d6))
+* **tsecbench:** 等靶场容器就绪再下发任务 ([d68455a](https://github.com/V3teran/liusha/commit/d68455a696fae3d41769a4d6c6d7062a1dfe8cd2))
+
+
+### 性能优化
+
+* **exploration:** 执行者不再持有知识库检索 ([50b2540](https://github.com/V3teran/liusha/commit/50b2540fb25fd6d6bc81daaba5a7d06aff301b8c))
+* **exploration:** 规划者同一方向只检索一次知识库 ([4f28241](https://github.com/V3teran/liusha/commit/4f282418a972d8fcc07866739eb24e30636d4abf))
+* **exploration:** 规划者开局不再自动带入以往任务的经验 ([14ba0a7](https://github.com/V3teran/liusha/commit/14ba0a74c0af4da3dce562219f59c6a6da8f0e4e))
+
 ## [0.13.4](https://github.com/V3teran/liusha/compare/v0.13.3...v0.13.4) (2026-11-20)
 
 
