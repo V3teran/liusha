@@ -30,15 +30,14 @@ type Deps struct {
 	// 降级/异常路径（如 store 查询失败）经它留痕。零值 = 丢弃输出（测试用）。
 	Logger zerolog.Logger
 
-	Tasks      *task.Store
-	Corpus     *corpus.Store
-	Embedder   corpus.Embedder // 可 nil → 退化为纯 sparse 检索
-	Reranker   corpus.Reranker
-	ProxyStore *traffic.ProxyStore
-	AgentStore *traffic.AgentStore
-	Creds      credential.Provider
-	Sandbox    CommandRunner // 沙盒命令执行（run_command / drive_browser）；nil 时这两个工具不注册
-	Skills     skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+	Tasks       *task.Store
+	Corpus      *corpus.Service
+	CorpusScope corpus.Scope // search_corpus 的可见范围
+	ProxyStore  *traffic.ProxyStore
+	AgentStore  *traffic.AgentStore
+	Creds       credential.Provider
+	Sandbox     CommandRunner // 沙盒命令执行（run_command / drive_browser）；nil 时这两个工具不注册
+	Skills      skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
 
 	// StepToolTimeoutSeconds 是 run_command 的超时钳制上限秒（系统配置 runtime 组，
 	// 任务开始时快照；0=内置默认 120s）。注册表级超时与 LLM 自传 timeout_seconds

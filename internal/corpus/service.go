@@ -1,0 +1,287 @@
+package corpus
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/rs/zerolog"
+)
+
+// Service 是知识库的唯一入口：检索、增删改、印证与向量补齐。
+type Service struct {
+	store  *Store
+	models Models
+	logger zerolog.Logger
+}
+
+// NewService 构造知识库服务。models 不具备语义检索能力时只做字面检索、写入不生成向量。
+func NewService(store *Store, models Models, logger zerolog.Logger) *Service {
+	return &Service{store: store, models: models, logger: logger.With().Str("component", "corpus").Logger()}
+}
+
+// Mode 是配置决定的检索方式（运行期故障另见 Result.Fallback）。
+func (s *Service) Mode() Mode {
+	if s.models.Semantic() {
+		return ModeSemantic
+	}
+	return ModeLexical
+}
+
+// Status 是知识库的检索能力与索引覆盖情况。
+type Status struct {
+	Mode           Mode
+	EmbeddingModel string // 语义模式下启用的向量模型
+	RerankModel    string // 语义模式下启用的重排模型
+	Index          IndexStats
+}
+
+// Status 返回检索能力与索引覆盖情况。
+func (s *Service) Status(ctx context.Context) (Status, error) {
+	st, err := s.store.indexStats(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	out := Status{Mode: s.Mode(), Index: st}
+	if s.models.Semantic() {
+		out.EmbeddingModel, out.RerankModel = s.models.EmbeddingModel, s.models.RerankModel
+	}
+	return out, nil
+}
+
+// Search 检索知识。语义检索出故障时退回字面检索并在结果里注明（调用方取消除外）。
+func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
+	q.Text = strings.TrimSpace(q.Text)
+	if q.Text == "" {
+		return Result{}, fmt.Errorf("%w：检索内容不能为空", ErrInvalid)
+	}
+	if s.models.Semantic() {
+		hits, err := s.store.searchSemantic(ctx, s.models, q)
+		if err == nil {
+			return Result{Mode: ModeSemantic, Hits: hits}, nil
+		}
+		if ctx.Err() != nil {
+			return Result{}, err
+		}
+		s.logger.Warn().Err(err).Msg("语义检索失败，本次退回字面检索")
+		hits, lexErr := s.store.searchLexical(ctx, q)
+		if lexErr != nil {
+			return Result{}, errors.Join(err, lexErr)
+		}
+		return Result{Mode: ModeLexical, Fallback: err.Error(), Hits: hits}, nil
+	}
+	hits, err := s.store.searchLexical(ctx, q)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Mode: ModeLexical, Hits: hits}, nil
+}
+
+// embed 为条目文本生成向量；未启用语义检索返回 nil。失败只记日志、返回 nil——条目照常写入，
+// 向量由 IndexPending 补齐。
+func (s *Service) embed(ctx context.Context, text string) []float32 {
+	if !s.models.Semantic() {
+		return nil
+	}
+	vecs, err := s.models.Embedder.EmbedPassage(ctx, []string{text})
+	if err != nil || len(vecs) != 1 {
+		s.logger.Warn().Err(err).Msg("知识条目向量化失败，先写入、稍后补齐")
+		return nil
+	}
+	return vecs[0]
+}
+
+// Create 写入一条新知识。正文已存在返回 ErrDuplicate。
+func (s *Service) Create(ctx context.Context, d Draft) (Entry, error) {
+	d, err := d.Normalize()
+	if err != nil {
+		return Entry{}, err
+	}
+	return s.store.insert(ctx, d, s.embed(ctx, Text(d.Title, d.Content)))
+}
+
+// Get 读取一条知识与印证过它的任务。
+func (s *Service) Get(ctx context.Context, id string) (Entry, []Confirmation, error) {
+	e, err := s.store.get(ctx, id)
+	if err != nil {
+		return Entry{}, nil, err
+	}
+	cs, err := s.store.confirmations(ctx, id)
+	if err != nil {
+		return Entry{}, nil, err
+	}
+	return e, cs, nil
+}
+
+// Page 是一页列表。
+type Page struct {
+	Items []Entry
+	Total int
+}
+
+// List 列出知识（按更新时间倒序）。
+func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
+	if err := q.Validate(); err != nil {
+		return Page{}, err
+	}
+	items, total, err := s.store.list(ctx, q)
+	if err != nil {
+		return Page{}, err
+	}
+	return Page{Items: items, Total: total}, nil
+}
+
+// Facets 返回列表筛选项的分面计数。
+func (s *Service) Facets(ctx context.Context, q ListQuery) (Facets, error) {
+	if err := q.Validate(); err != nil {
+		return Facets{}, err
+	}
+	return s.store.facets(ctx, q)
+}
+
+// Patch 是人工对条目的修改；nil 字段不改。ScenarioSet 为真时把场景改为 Scenario（nil = 通用）。
+type Patch struct {
+	Title       *string
+	Content     *string
+	Scenario    *string
+	ScenarioSet bool
+}
+
+// Update 应用人工修改。改了标题或正文，条目即为人工内容（source = expert），此后收尾整合
+// 只能印证、不再改写它；只改场景不改变作者。
+func (s *Service) Update(ctx context.Context, id string, p Patch) (Entry, error) {
+	cur, err := s.store.get(ctx, id)
+	if err != nil {
+		return Entry{}, err
+	}
+	f := fields{Title: cur.Title, Content: cur.Content, Scenario: cur.Scenario, Source: cur.Source}
+	if p.Title != nil {
+		f.Title = strings.TrimSpace(*p.Title)
+	}
+	if p.Content != nil {
+		f.Content = strings.TrimSpace(*p.Content)
+	}
+	if p.ScenarioSet {
+		f.Scenario = p.Scenario
+		if f.Scenario != nil && strings.TrimSpace(*f.Scenario) == "" {
+			f.Scenario = nil
+		}
+	}
+	if err := validate(f.Title, f.Content); err != nil {
+		return Entry{}, err
+	}
+	textChanged := f.Title != cur.Title || f.Content != cur.Content
+	var vec []float32
+	if textChanged {
+		f.Source = SourceExpert
+		vec = s.embed(ctx, Text(f.Title, f.Content))
+	}
+	if err := s.store.updateIf(ctx, id, cur.UpdatedAt, f, textChanged, vec); err != nil {
+		return Entry{}, err
+	}
+	return s.store.get(ctx, id)
+}
+
+// ErrAuthored 表示条目是人工内容，不能被收尾整合改写。
+var ErrAuthored = errors.New("人工内容不能被收尾整合改写")
+
+// Revise 用一次收尾整合的结论改写任务沉淀的条目，并记下 taskID 的印证。seen 是整合时看到的
+// 版本：其间被人改过返回 ErrStale，人工内容返回 ErrAuthored——两者都由调用方另行处理。
+func (s *Service) Revise(ctx context.Context, seen Entry, title, content, taskID string) error {
+	if seen.Source != SourceAgent {
+		return ErrAuthored
+	}
+	title, content = strings.TrimSpace(title), strings.TrimSpace(content)
+	if err := validate(title, content); err != nil {
+		return err
+	}
+	f := fields{Title: title, Content: content, Scenario: seen.Scenario, Source: SourceAgent}
+	if err := s.store.updateIf(ctx, seen.ID, seen.UpdatedAt, f, true, s.embed(ctx, Text(title, content))); err != nil {
+		return err
+	}
+	return s.store.confirm(ctx, seen.ID, taskID)
+}
+
+// Exclusive 在知识库写锁下执行 fn（跨进程互斥）。收尾整合「检索近似条目 → 判定 → 写入」
+// 必须整体在锁内，否则并发的两次整合会各自判定为新增、写出重复知识。
+func (s *Service) Exclusive(ctx context.Context, fn func(ctx context.Context) error) error {
+	return s.store.exclusive(ctx, fn)
+}
+
+// Confirm 记下 taskID 印证了条目（幂等）。
+func (s *Service) Confirm(ctx context.Context, entryID, taskID string) error {
+	return s.store.confirm(ctx, entryID, taskID)
+}
+
+// Delete 删除一条知识（连同印证记录）。
+func (s *Service) Delete(ctx context.Context, id string) error {
+	return s.store.delete(ctx, id)
+}
+
+// indexBatch 是一次补齐的条目数（一次向量化请求）。
+const indexBatch = 32
+
+// IndexPending 为尚无向量的条目补齐向量，返回补齐的条数。未启用语义检索时什么都不做。
+// 条目在补齐期间被改写过的跳过（新文本的向量由改写方生成或下一轮补齐）。
+func (s *Service) IndexPending(ctx context.Context) (int, error) {
+	if !s.models.Semantic() {
+		return 0, nil
+	}
+	done := 0
+	for {
+		batch, err := s.store.pendingIndex(ctx, indexBatch)
+		if err != nil || len(batch) == 0 {
+			return done, err
+		}
+		texts := make([]string, len(batch))
+		for i, e := range batch {
+			texts[i] = e.Text()
+		}
+		vecs, err := s.models.Embedder.EmbedPassage(ctx, texts)
+		if err != nil {
+			return done, fmt.Errorf("补齐向量: %w", err)
+		}
+		if len(vecs) != len(batch) {
+			return done, fmt.Errorf("补齐向量: 期望 %d 个向量，得到 %d", len(batch), len(vecs))
+		}
+		progressed := false
+		for i, e := range batch {
+			ok, err := s.store.setEmbedding(ctx, e.ID, e.UpdatedAt, vecs[i])
+			if err != nil {
+				return done, err
+			}
+			if ok {
+				done++
+				progressed = true
+			}
+		}
+		if !progressed {
+			return done, nil // 整批都在补齐期间被改写：留给下一轮，避免空转
+		}
+	}
+}
+
+// ImportResult 是一次 Markdown 导入的结果。
+type ImportResult struct {
+	Imported   int // 新写入的条目
+	Duplicates int // 正文与已有条目相同、跳过的条目
+}
+
+// Import 把 Markdown 切成条目（见 SplitMarkdown）作为人工内容写入，归属 scenario（nil = 通用）。
+// 正文与已有条目相同的跳过并计数；其余写入失败即返回（已写入的保留）。
+func (s *Service) Import(ctx context.Context, md string, scenario *string) (ImportResult, error) {
+	var out ImportResult
+	for _, sec := range SplitMarkdown(md) {
+		_, err := s.Create(ctx, Draft{Title: sec.Title, Content: sec.Content, Scenario: scenario, Source: SourceExpert})
+		switch {
+		case errors.Is(err, ErrDuplicate):
+			out.Duplicates++
+		case err != nil:
+			return out, fmt.Errorf("导入「%s」: %w", sec.Title, err)
+		default:
+			out.Imported++
+		}
+	}
+	return out, nil
+}

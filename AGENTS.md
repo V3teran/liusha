@@ -142,7 +142,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 | 层 | 范围 | 领域属性 |
 |---|---|---|
-| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、知识库导入、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
+| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、`corpus`、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
 | 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
 | 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
 
@@ -226,6 +226,18 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 键是规范化后的 `host[:port]`（去 scheme、小写），端口参与隔离：同主机不同端口不共享凭证，显式 `:443` 与无端口也是不同键。读写一律经 `CanonicalHost`。
 - `username` 必须是目标应用的真实登录名；同一账号更新既有条目，不另起代号。这一条只靠提示词约束。
 - 任务级会话身份（`task:{id}:session`）按事件回收：run 收尾落定任务状态后、任务确已结束时由 runner 回收（收敛依据失效、停止后已续接的不回收）（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
+
+### 知识库（`internal/corpus`、`internal/distill`）
+
+- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `search_corpus` 与页面的检索预览，两者走同一个 `corpus.Service.Search`。
+- 检索方式由配置决定：配了 `embedding.api_key` 是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与历史真实查询标定，依据写在 `search.go`。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径。
+- 词元只有一处实现：数据库函数 `corpus_terms`（英文按词、中文按相邻两字），写入时生成 `terms` 生成列，查询用同一个函数切分查询文本。不要在 Go 里另写一份分词。
+- 每条知识归属一个场景，空 = 通用：任务只看得到本场景与通用的知识，无场景的任务只看得到通用知识。沉淀时由蒸馏判定每条经验是否依赖场景的规定（交付标准、类别词表等），依赖的归本场景。
+- `source` 是当前内容的作者：`agent` 任务沉淀，`expert` 人工。人工改了标题或正文即成为 `expert`（只改场景不变）；收尾整合只能印证人工内容，不能改写。
+- 沉淀分两步：提炼候选，再为每条候选检索近似的已有条目，由 LLM 判定新增、印证或修订。整个整合在知识库写锁（PG advisory lock，`Service.Exclusive`）内进行，并发的两次整合不会各写一条重复知识；修订以读到的 `updated_at` 为前置，其间被人改过或是人工内容就改为新增。正文一字不差的写入由唯一约束收敛为印证。
+- 「印证」是任务与知识的关系（`corpus_confirmation`）：沉淀出它或整合时判定一致的任务，同一任务重复收敛只计一次。不统计「被检索到几次」——检索次数会让常被检索的条目自我强化。
+- 改了文本的条目清掉旧向量（旧文本的向量对新文本是错的），连同写入时向量化失败的条目，由 runner 周期补齐（`StartCorpusIndexLoop`，启动一次 + 每 10 分钟）。
+- 经验沉淀是持久化的队列任务（`corpus.distill`，独立的 `distill` 队列，权重低于 agent run，按任务幂等）：任务自然收敛后投递，由 runner 消费；它要调用两次 LLM、耗时分钟级，停机中断或调用失败都留在队列里重试（至多 3 次）。不要改回进程内协程——停机宽限期远短于一次沉淀，进程内的沉淀遇重启即丢。
 
 ### LLM 密钥
 

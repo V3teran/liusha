@@ -64,14 +64,11 @@ func TestRun_ConfigBesideExecutable(t *testing.T) {
 	}
 }
 
-// 位置参数：组件命令不接受，corpus-import 要求至少一个文件。均在连接任何外部依赖之前报错。
+// 位置参数：命令不接受，在连接任何外部依赖之前报错。
 func TestRun_PositionalArgs(t *testing.T) {
 	t.Setenv("LIUSHA_CONFIG", filepath.Join("..", "..", "internal", "config", "config.yaml"))
 	if code, _, stderr := runCLI(t, "migrate", "extra"); code != 1 || !strings.Contains(stderr, "不接受参数") {
 		t.Fatalf("migrate extra: code=%d stderr=%q", code, stderr)
-	}
-	if code, _, stderr := runCLI(t, "corpus-import"); code != 1 || !strings.Contains(stderr, "缺少要导入的文件") {
-		t.Fatalf("corpus-import: code=%d stderr=%q", code, stderr)
 	}
 }
 

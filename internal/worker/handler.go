@@ -22,9 +22,10 @@ type Payload struct {
 // RoleHandler 处理一个反序列化好的 Payload。
 type RoleHandler func(ctx context.Context, p Payload) error
 
-// Mux 按 TaskRole 路由 asynq 任务到对应 handler。
+// Mux 按 TaskRole 路由 asynq 任务到对应 handler；经验沉淀另有自己的任务类型。
 type Mux struct {
 	handlers map[TaskRole]RoleHandler
+	distill  DistillHandler
 }
 
 // NewMux 创建一个空的 Mux。
@@ -35,6 +36,11 @@ func NewMux() *Mux {
 // Register 注册 role 对应的 handler。重复注册会覆盖旧值。
 func (m *Mux) Register(role TaskRole, h RoleHandler) {
 	m.handlers[role] = h
+}
+
+// HandleDistill 注册经验沉淀的处理函数。
+func (m *Mux) HandleDistill(h DistillHandler) {
+	m.distill = h
 }
 
 // AsynqMux 返回一个 asynq.ServeMux：
@@ -53,5 +59,14 @@ func (m *Mux) AsynqMux() *asynq.ServeMux {
 		}
 		return h(ctx, p)
 	})
+	if m.distill != nil {
+		mux.HandleFunc(TaskTypeDistill, func(ctx context.Context, t *asynq.Task) error {
+			var p distillPayload
+			if err := json.Unmarshal(t.Payload(), &p); err != nil || p.TaskID == "" {
+				return asynq.SkipRetry
+			}
+			return m.distill(ctx, p.TaskID)
+		})
+	}
 	return mux
 }

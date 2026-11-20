@@ -47,7 +47,7 @@ func expandHome(p string) (string, error) {
 	return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/")), nil
 }
 
-// Options 把配置换算为框架的重试参数（api / runner / corpus-import 装配 Router 共用）。
+// Options 把配置换算为框架的重试参数（api / runner 装配 Router 共用）。
 func (c RetryConfig) Options() llm.RetryOptions {
 	return llm.RetryOptions{
 		MaxRetries429: c.Max429,

@@ -4,7 +4,6 @@
 //	liusha api|proxy|runner|sandbox
 //	                      分别运行单个组件（compose 部署，每个容器一个）
 //	liusha migrate        把数据库迁移到最新版本并同步出厂内容（内置技能与场景）
-//	liusha corpus-import  向知识库导入专家知识
 //	liusha version        打印版本
 //
 // 子命令都接受：
@@ -26,7 +25,6 @@ import (
 
 	"github.com/V3teran/liusha/internal/app"
 	"github.com/V3teran/liusha/internal/app/api"
-	"github.com/V3teran/liusha/internal/app/corpusimport"
 	appmigrate "github.com/V3teran/liusha/internal/app/migrate"
 	"github.com/V3teran/liusha/internal/app/proxy"
 	"github.com/V3teran/liusha/internal/app/runner"
@@ -53,7 +51,6 @@ var commands = []command{
 	{name: "runner", summary: "运行 runner 组件（任务执行）", run: component(runner.Run)},
 	{name: "sandbox", summary: "运行 sandbox 组件（工具执行沙盒）", run: component(sandbox.Run)},
 	{name: "migrate", summary: "把数据库迁移到最新版本并同步出厂内容", run: migrate},
-	{name: "corpus-import", summary: "向知识库导入专家知识：corpus-import <file.md>...", run: corpusimport.Run},
 }
 
 func main() {

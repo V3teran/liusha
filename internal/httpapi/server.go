@@ -106,6 +106,8 @@ type Deps struct {
 	SkillStore SkillAPI
 	// ScenarioStore 为 nil 时场景路由（/scenarios 系列）不注册；api 组件注入 *configstore.Store。
 	ScenarioStore ScenarioAPI
+	// Corpus 为 nil（或 ScenarioStore 为 nil）时知识库路由（/corpus 系列）不注册；api 组件注入 *corpus.Service。
+	Corpus CorpusAPI
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
@@ -222,6 +224,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerScenarioRoutes(r, d)
+	registerCorpusRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
 	registerLogsRoutes(r, d)

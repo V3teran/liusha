@@ -113,6 +113,7 @@ services:
       <<: [*liusha-env, *sandbox-env]
       LIUSHA_ADMIN_INITIAL_PASSWORD: ${LIUSHA_ADMIN_INITIAL_PASSWORD:?LIUSHA_ADMIN_INITIAL_PASSWORD 未设置}
       LIUSHA_LLM_ENCRYPTION_KEY: ${LIUSHA_LLM_ENCRYPTION_KEY:?LIUSHA_LLM_ENCRYPTION_KEY 未设置}
+      LIUSHA_EMBEDDING_API_KEY: ${LIUSHA_EMBEDDING_API_KEY:-} # 可选；空值不覆盖配置文件
     volumes:
       - *config
       - *workspace
