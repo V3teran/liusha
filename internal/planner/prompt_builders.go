@@ -348,6 +348,27 @@ func refuteReasonHint(reason string) string {
 	}
 }
 
+// buildPendingHypothesesSection 构建待验证假设部分：已上报、正在复现门里验证的主张陈述
+// （按陈述去重）。怎样对待它们由章程说明。
+func buildPendingHypothesesSection(statements []string) string {
+	if len(statements) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 待验证的假设（复现门验证中）\n")
+	seen := make(map[string]bool, len(statements))
+	for _, s := range statements {
+		st := textx.TruncateRunes(s, historyClampRunes, "…（截断）")
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
+		fmt.Fprintf(&sb, "- %s\n", st)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 // buildRefutedHypothesesSection 构建已证伪假设部分（含反驳原因分类与评估者的理由）
 func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 	if len(hypotheses) == 0 {

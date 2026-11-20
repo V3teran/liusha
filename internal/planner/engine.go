@@ -231,6 +231,7 @@ type PlanningContext struct {
 	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
 	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
+	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
@@ -456,7 +457,7 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 	}
 	planCtx.Results = results
 
-	// 观察一次取全量，事实（世界状态）与已证伪假设两视图共用——避免同表连查两次。
+	// 观察一次取全量，事实（世界状态）与待验证、已证伪的假设共用——避免同表连查多次。
 	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
@@ -474,6 +475,10 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			// 已确认的世界状态（写入即终态）——规划的基底：已建立的会话、
 			// 已探明的机制、已确认的资源，直接拿来用。
 			planCtx.Facts = append(planCtx.Facts, Fact{Category: c.Category, Statement: c.Statement})
+		case obs.HasVerificationStatus(explorationgraph.VerificationPending):
+			// 已上报、正在复现门里排队的主张：规划者看不见它们时会排动作重新取得，
+			// 造成重复执行与重复上报。
+			planCtx.PendingHypotheses = append(planCtx.PendingHypotheses, c.Statement)
 		case obs.HasVerificationStatus(explorationgraph.VerificationRefuted):
 			// 已证伪的假设——规划器对"哪条路已试死"的权威事实源，防同方向反复
 			// 重提（复读机）。原因一并带出：复现失败类可换配方重试，语义证伪类
@@ -527,7 +532,8 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 8.5 已确认的事实（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
 
-	// 9. 已被证伪的假设
+	// 9. 待验证与已被证伪的假设
+	sb.WriteString(buildPendingHypothesesSection(ctx.PendingHypotheses))
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
 
 	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）

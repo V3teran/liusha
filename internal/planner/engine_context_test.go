@@ -86,6 +86,26 @@ func TestGatherContext_RefutedHypothesisCarriesDetail(t *testing.T) {
 	assert.Equal(t, "只读到本人记录", planCtx.RefutedHypotheses[0].Detail)
 }
 
+// 待验证的假设进规划视野：规划者看不见它们时，会为已上报、正在复现门里排队的主张再排动作
+// 重新取得（实测：flag 待验证期间被重复取得、重复上报，多出整批动作）。
+func TestGatherContext_PendingHypothesesVisible(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	nodes := []explorationgraph.Node{
+		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
+		contextObservation("pending", "hypothesis", "接口泄露配置", verification(explorationgraph.VerificationPending), "", time.Second),
+		contextObservation("confirmed", "hypothesis", "已坐实", verification(explorationgraph.VerificationConfirmed), "", 2*time.Second),
+		contextObservation("refuted", "hypothesis", "已证伪", verification(explorationgraph.VerificationRefuted), evaluator.RefuteClaimInvalid, 3*time.Second),
+	}
+	for _, n := range nodes {
+		_, err := store.CreateNode(context.Background(), n)
+		require.NoError(t, err)
+	}
+
+	planCtx, err := (&Engine{}).gatherContext(context.Background(), store, revisionTask)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"接口泄露配置"}, planCtx.PendingHypotheses)
+}
+
 // 事实按类别分组呈现给规划器（有什么 / 怎么进入 / 怎么连接 / 怎么反应 / 其他），同类别内
 // 近者在前；规划器据此先看清环境的各个侧面，而不是读一串混杂的陈述。
 func TestGatherContext_FactsGroupedByCategory(t *testing.T) {
