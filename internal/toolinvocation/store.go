@@ -8,11 +8,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
 )
 
-// previewMax 是 output_preview 列的最大字符数；超过截断。
+// previewMax 是 output_preview 列的字节上限（截到字符边界）。截断只在这里做一次。
 const previewMax = 4096
 
 // Store 封装 tool_invocation 表的所有持久化操作。
@@ -23,7 +21,7 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// Append 单条插入。args 为 nil 时落空 jsonb；output 超 previewMax 自动截断 preview。
+// Append 单条插入。args 为 nil 时落空 jsonb；Output 传完整输出，由本函数生成预览。
 func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if v.AgentRunID == "" {
 		return 0, fmt.Errorf("tool_invocation: AgentRunID 必填")
@@ -39,9 +37,7 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 		args = json.RawMessage("{}")
 	}
 
-	// 清洗 UTF-8：先修复非法字节，再截断
-	preview := sanitizeUTF8(v.OutputPreview)
-	preview = truncateUTF8(preview, previewMax)
+	outputPreview := preview(v.Output)
 
 	var errMsg any
 	if v.ErrorMessage != "" {
@@ -56,7 +52,7 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		v.AgentRunID, v.TaskID, v.Role, v.ToolName, args,
-		v.OutputSize, preview, v.DurationMs, errMsg,
+		v.OutputSize, outputPreview, v.DurationMs, errMsg,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append tool_invocation: %w", err)
@@ -87,50 +83,26 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, 
 	return a, nil
 }
 
-// sanitizeUTF8 清洗字符串中的非法 UTF-8 字节序列。
-//
-// 策略：
-// 1. 如果已经是合法 UTF-8，直接返回
-// 2. 尝试从 GBK/GB2312 转换（常见的中文编码错误）
-// 3. 最后兜底：替换非法字节为 � (U+FFFD)
-//
-// 业界最佳实践：所有外部数据入库前必须保证 UTF-8 合法性。
-func sanitizeUTF8(s string) string {
-	// 快速路径：已经合法
-	if utf8.ValidString(s) {
-		return s
-	}
-
-	// 尝试 GBK → UTF-8 转换（常见场景：命令行输出是 GBK 编码）
-	decoder := simplifiedchinese.GBK.NewDecoder()
-	result, _, err := transform.String(decoder, s)
-	if err == nil && utf8.ValidString(result) {
-		return result
-	}
-
-	// 兜底：替换非法字节为替换字符
-	return strings.ToValidUTF8(s, "�")
+// preview 生成落库的输出预览：先把非法字节替换为替换字符，再按字节上限截到字符边界。
+// 不猜测其它编码：截断不当或混入二进制都会让串非法，把它按某种编码重新解码只会造出乱码。
+func preview(s string) string {
+	// 先截再清洗：输出可能有数 MB，没必要整段清洗；替换字符比坏字节长，清洗后再截一次。
+	return truncateUTF8(sanitizeUTF8(truncateUTF8(s, previewMax)), previewMax)
 }
 
-// truncateUTF8 按字节上限截断，但保证不切到 multi-byte rune 中间——
-// PG text 列要求合法 UTF-8，原始 string(bytes)[:max] 若切到 0xe6 0x97 (3-byte rune 中间)
-// 会触发 SQLSTATE 22021。本函数从 max 处向前回退到上一个完整 rune 边界。
+// sanitizeUTF8 把非法 UTF-8 字节序列替换为替换字符（PG text 列要求合法 UTF-8）。
+func sanitizeUTF8(s string) string {
+	return strings.ToValidUTF8(s, "\uFFFD")
+}
+
+// truncateUTF8 按字节上限截断，并退回到字符边界：截在多字节字符中间会留下非法字节。
 func truncateUTF8(s string, limit int) string {
 	if len(s) <= limit {
 		return s
 	}
-	// 向前回退到 ASCII 字节或 UTF-8 leading byte（0xxxxxxx 或 11xxxxxx）。
-	// continuation byte 是 10xxxxxx，必须跳过。
-	for end := limit; end > 0; end-- {
-		b := s[end-1]
-		if b < 0x80 || b >= 0xC0 {
-			// 该位置是 ASCII 或 leading byte——但 leading byte 自己也要看它能否容下完整 rune。
-			// 简化处理：如果 end-1 是 leading byte，再退一位（不含本 rune）。
-			if b >= 0xC0 {
-				return s[:end-1]
-			}
-			return s[:end]
-		}
+	end := max(limit, 0)
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
 	}
-	return ""
+	return s[:end]
 }

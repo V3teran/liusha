@@ -15,18 +15,18 @@ import (
 
 // Invocation 是 tool_invocation 表行的 Go 表示。
 //
-// OutputSize 是字节数；OutputPreview 是首 4096 字符的文本预览（避免存满 PG）。
+// OutputSize 是字节数；Output 是完整输出，落库时只存预览（output_preview 列，见 previewMax）。
 // 完整 output 仍在 LLM message history（llm_invocation.messages jsonb）里。
 type Invocation struct {
-	ID            int64
-	AgentRunID    string          // FK→agent_run.id（本轮认知循环的 run 行）
-	TaskID        string          // 所属 task.id
-	Role          string          // 调用方 agent（planner/executor/evaluator/monitor）——跨 agent 行为审计
-	ToolName      string          // 'sqlmap' / 'curl' / 'http_request' / ...
-	Args          json.RawMessage // 工具调用参数 jsonb
-	OutputSize    int             // 字节数
-	OutputPreview string          // 首 4096 字符预览
-	DurationMs    int             // Execute 耗时
-	ErrorMessage  string          // Execute 错误时填；成功为空
-	CreatedAt     time.Time
+	ID           int64
+	AgentRunID   string          // FK→agent_run.id（本轮认知循环的 run 行）
+	TaskID       string          // 所属 task.id
+	Role         string          // 调用方 agent（planner/executor/evaluator/monitor）——跨 agent 行为审计
+	ToolName     string          // 'sqlmap' / 'curl' / 'http_request' / ...
+	Args         json.RawMessage // 工具调用参数 jsonb
+	OutputSize   int             // 字节数
+	Output       string          // 完整输出；落库时截为预览
+	DurationMs   int             // Execute 耗时
+	ErrorMessage string          // Execute 错误时填；成功为空
+	CreatedAt    time.Time
 }
