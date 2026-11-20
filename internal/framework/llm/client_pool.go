@@ -16,9 +16,10 @@ import (
 
 // llmHTTPClient 是 LLM 出站连接的共享 HTTP client。
 //
-// 超时只布在 Transport 各阶段（拨号/TLS/响应头），不设 Client.Timeout——
-// 流式响应可合法运行数分钟，整体超时会掐断活流。各阶段超时兜底的是
-// 连接黑洞（对端不握手/不回包），生成耗时的控制归业务侧单调用看门狗。
+// 超时只布在建连阶段（拨号/TLS），兜底连不上的对端；生成耗时只由业务侧的单调用
+// 看门狗控制。不设 Client.Timeout：流式响应可合法运行数分钟，整体超时会掐断活流。
+// 也不设响应头超时：非流式调用的响应头要等整段生成完才返回，响应头超时等于给生成
+// 长度设上限，超过它的正常生成会被掐断、再被重试，重复消耗额度。
 func llmHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
@@ -27,11 +28,10 @@ func llmHTTPClient() *http.Client {
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 120 * time.Second,
-			IdleConnTimeout:       90 * time.Second,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   10,
+			TLSHandshakeTimeout: 10 * time.Second,
+			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
 		},
 	}
 }
