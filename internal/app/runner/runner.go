@@ -254,10 +254,23 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		time.Duration(runnerCfg.RunRecoveryTimeoutSeconds)*time.Second,
 		runnerCfg.RunRecoveryMaxAttempts)
 
-	// 坐实了却没进台账的结果补交付一次（交付一直失败、或 0230 之前被错误合并的发现）。
+	// 坐实了却没进台账的结果补交付：启动跑一次，此后周期巡检——交付在验证侧尽力而
+	// 为（失败只告警），台账缺口由这里按结果节点幂等收账，不等下次重启。
 	go func() {
 		if err := runner.RedeliverUndeliveredFindings(ctx, st.findings, st.graph, st.tasks, logger); err != nil {
-			logger.Warn().Err(err).Msg("坐实结果补交付未全部完成（下次启动重试）")
+			logger.Warn().Err(err).Msg("坐实结果补交付未全部完成（下轮巡检重试）")
+		}
+		ticker := time.NewTicker(runner.RedeliverInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := runner.RedeliverUndeliveredFindings(ctx, st.findings, st.graph, st.tasks, logger); err != nil {
+					logger.Warn().Err(err).Msg("坐实结果补交付未全部完成（下轮巡检重试）")
+				}
+			}
 		}
 	}()
 

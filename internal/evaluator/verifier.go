@@ -318,9 +318,10 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 		return nil, err
 	}
 
-	// 10. 落图与交付先于假设标记：标记会把假设移出待验证集合，必须等结果节点
-	// 与交付物都已落地——任一步失败都返回错误、假设保持 pending，下一轮轮询
-	// 重新判定（重试路径上已存在的结果节点经语义去重命中，交付按结果节点幂等）。
+	// 10. 落图先于假设标记：标记会把假设移出待验证集合，必须等结果节点落地。
+	// 交付尽力而为（见 deliverClaim）：验证结论以审计链与图为准，交付是幂等投影，
+	// 缺口由 runner 的周期补交付收账——交付故障拖不垮验证，也不再把假设按
+	// 不可复现错驳（实测：交付反复失败曾令已坐实主张整批出圈）。
 	mark := hypothesisMark{status: outcome}
 	var promoted *explorationgraph.Node
 	switch {
@@ -361,8 +362,9 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	return promoted, nil
 }
 
-// deliverClaim 把坐实主张交给交付管道。交付失败返回错误：调用方据此不标记假设，
-// 交给下一轮判定重试——静默告警会让图里已有 verified result、台账却永久缺失。
+// deliverClaim 把坐实主张交给交付管道，尽力而为：失败只告警、不影响验证结论与
+// 假设标记。交付按结果节点幂等，台账缺口由 runner 的周期补交付按同一载荷收账；
+// 把交付失败当验证失败会重跑复现、按不可复现错驳已坐实的主张。
 func (g *PromotionGate) deliverClaim(
 	ctx context.Context,
 	a Claim,
@@ -376,10 +378,16 @@ func (g *PromotionGate) deliverClaim(
 	}
 	claim, err := confirmedClaim(node, verID, res.Evidence, a.Repro, tier, res.DurationMs)
 	if err != nil {
-		return err
+		// 载荷组装是确定性变换，失败即坐实材料损坏：如实告警，留补交付按结果节点重试。
+		if g.logger != nil {
+			g.logger.Error().Err(err).Str("node_id", node.ID).Msg("坐实主张交付载荷组装失败（补交付将重试）")
+		}
+		return nil
 	}
 	if err := g.sink.Record(ctx, claim); err != nil {
-		return fmt.Errorf("坐实主张交付失败 (node %s): %w", node.ID, err)
+		if g.logger != nil {
+			g.logger.Error().Err(err).Str("node_id", node.ID).Msg("坐实主张交付失败（周期补交付将收账）")
+		}
 	}
 	return nil
 }
