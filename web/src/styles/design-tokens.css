@@ -56,6 +56,10 @@
   --source-direct: oklch(48% 0.12 225);
   --source-proxy: oklch(51% 0.17 300);
 
+  /* 知识来源：任务沉淀（agent）/ 人工录入（expert） */
+  --corpus-agent: oklch(48% 0.1 175);
+  --corpus-expert: oklch(52% 0.13 65);
+
   /* 语义色：状态 */
   --status-success: oklch(48% 0.12 162);
   --status-error: oklch(52% 0.21 25);
@@ -160,6 +164,9 @@
 
   --source-direct: oklch(70% 0.14 220);
   --source-proxy: oklch(70% 0.14 300);
+
+  --corpus-agent: oklch(74% 0.11 175);
+  --corpus-expert: oklch(79% 0.13 70);
 
   --status-success: oklch(70% 0.16 162);
   --status-error: oklch(65% 0.22 25);

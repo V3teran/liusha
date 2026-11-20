@@ -19,6 +19,7 @@ const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default:
 const SystemConfigPage = lazy(() => import('@/pages/SystemConfigPage').then((m) => ({ default: m.SystemConfigPage })))
 const ExplorationGraphPage = lazy(() => import('@/pages/ExplorationGraphPage').then((m) => ({ default: m.ExplorationGraphPage })))
 const CredentialsPage = lazy(() => import('@/pages/CredentialsPage').then((m) => ({ default: m.CredentialsPage })))
+const CorpusPage = lazy(() => import('@/pages/CorpusPage').then((m) => ({ default: m.CorpusPage })))
 const LogsPage = lazy(() => import('@/pages/LogsPage').then((m) => ({ default: m.LogsPage })))
 
 function Loading() {
@@ -71,6 +72,7 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
+      { path: 'corpus', element: withSuspense(<CorpusPage />) },
       // 日志：各组件运行日志（api 尾读 logs/ 目录），运维排障视图。
       { path: 'logs', element: withSuspense(<LogsPage />) },
       // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。
