@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import type { GraphNode, Verification } from '@/api/explorationgraph'
 import { priorityMeta } from '@/lib/priority'
-import { kindProfile, nodeTitle, stateMeta, verificationMeta, COMPLEXITY_META } from './kindTheme'
+import { kindProfile, nodeTitle, stateMeta, verificationMeta, COMPLEXITY_META, OBSERVATION_CATEGORY_META } from './kindTheme'
 import { RejectActionDialog } from './RejectActionDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -18,6 +18,28 @@ const SOURCE_LABELS: Record<string, string> = {
   executor: '执行者',
   evaluator: '评估者',
   monitor: '监察者',
+}
+
+/** 内容字段的展示名：契约固定字段给中文名，LLM 自由扩展字段按原键展示（如实）。 */
+const CONTENT_FIELD_LABELS: Record<string, string> = {
+  statement: '陈述',
+  instruction: '指令',
+  description: '描述',
+  reasoning: '推理依据',
+  category: '分类',
+  repro: '复现配方',
+  impact: '影响',
+  suggestion: '建议',
+  host: '主机线索',
+  target: '目标指向',
+}
+
+/** 标量值的展示形：枚举字段按既有词表翻译，其余按原值。 */
+function displayValue(key: string, v: unknown): string {
+  if (key === 'category' && typeof v === 'string') {
+    return OBSERVATION_CATEGORY_META[v] ?? v
+  }
+  return String(v)
 }
 
 function MetaChip({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
@@ -128,19 +150,19 @@ export function NodeDetailPanel({
             <dl className="space-y-2">
               {contentEntries.map(([k, v]) => (
                 <div key={k}>
-                  <dt className="text-xs text-text-tertiary">{k}</dt>
+                  <dt className="text-xs text-text-tertiary">{CONTENT_FIELD_LABELS[k] ?? k}</dt>
                   <dd className="text-xs text-text">
                     {typeof v === 'object' ? (
                       // 可滚动区域须能用键盘聚焦滚动（WCAG 2.1.1）
                       <pre
                         tabIndex={0}
-                        aria-label={k}
+                        aria-label={CONTENT_FIELD_LABELS[k] ?? k}
                         className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed"
                       >
                         {JSON.stringify(v, null, 2)}
                       </pre>
                     ) : (
-                      <span className="whitespace-pre-wrap break-words">{String(v)}</span>
+                      <span className="whitespace-pre-wrap break-words">{displayValue(k, v)}</span>
                     )}
                   </dd>
                 </div>
