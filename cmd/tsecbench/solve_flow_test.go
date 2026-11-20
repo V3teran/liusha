@@ -53,6 +53,107 @@ func TestSolve_FlagFromResultCompletesAndCleansUp(t *testing.T) {
 	}
 }
 
+// TestSolve_SubmitsOnlyConfirmedStatement 验证只提交主张陈述里的 flag：复现门坐实的是陈述，
+// 结果正文里的影响、建议是执行者的附言（可能提到见过的诱饵），不是被确认的内容。
+func TestSolve_SubmitsOnlyConfirmedStatement(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{real}"}
+	f.nodesFn = func(int) []graphNode {
+		b, _ := json.Marshal(map[string]string{
+			"statement":  "捕获 flag{real}",
+			"impact":     "首页另有 flag{decoy_page}，已判为诱饵",
+			"suggestion": "忽略 flag{not_this}",
+		})
+		return []graphNode{{Kind: "result", Content: b}}
+	}
+
+	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil || !res.Completed {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+	if _, _, submits, _, _ := f.snapshot(); !slices.Equal(submits, []string{"flag{real}"}) {
+		t.Fatalf("只应提交陈述里的 flag，submits=%v", submits)
+	}
+}
+
+// TestSolve_StartRetriesTransientErrors 验证启动靶场遇到可重试错误（503/500）会重试：
+// 平台把它定义为网络波动，一次失败就跳题会白白丢掉整道题。
+func TestSolve_StartRetriesTransientErrors(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{abc}"}
+	f.startErr = func(call int) (int, string) {
+		if call <= 2 {
+			return http.StatusServiceUnavailable, codeResourceUnavailable
+		}
+		return 0, ""
+	}
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{abc}")} }
+
+	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil || !res.Completed {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+	if starts, _, _, _, _ := f.snapshot(); len(starts) != 3 {
+		t.Fatalf("应重试到成功，starts=%v", starts)
+	}
+}
+
+// TestSolve_StartGivesUpWithoutTask 验证启动始终失败时有限次重试后放弃：不建 liusha 任务，
+// 靶场照常 close 释放名额。
+func TestSolve_StartGivesUpWithoutTask(t *testing.T) {
+	f := newFakeStack(t)
+	f.startErr = func(int) (int, string) { return http.StatusServiceUnavailable, codeResourceUnavailable }
+
+	if _, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1}); err == nil {
+		t.Fatal("启动始终失败应报错")
+	}
+	starts, closes, _, _, goals := f.snapshot()
+	if len(starts) != startAttempts || len(goals) != 0 || !slices.Equal(closes, []string{"web_01"}) {
+		t.Fatalf("starts=%d（应为 %d） goals=%v closes=%v", len(starts), startAttempts, goals, closes)
+	}
+}
+
+// TestSolve_StartGivesUpWhenContainerNeverReady 验证容器始终未就绪（start 持续返回空地址，
+// 即容器停在 pending）时重试到用尽后放弃：不建任务（没有授权地址的目标会让智能体在 VPN
+// 网段里乱找靶场），靶场照常 close。
+func TestSolve_StartGivesUpWhenContainerNeverReady(t *testing.T) {
+	f := newFakeStack(t)
+	f.containers = nil
+
+	if _, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1}); err == nil {
+		t.Fatal("容器始终未就绪应报错")
+	}
+	starts, closes, _, _, goals := f.snapshot()
+	if len(starts) != startAttempts || len(goals) != 0 || !slices.Equal(closes, []string{"web_01"}) {
+		t.Fatalf("应重试到用尽、不建任务、close：starts=%d（应 %d） goals=%v closes=%v",
+			len(starts), startAttempts, goals, closes)
+	}
+}
+
+// TestSolve_StartWaitsForContainerReady 验证容器就绪前 start 返回空地址（pending）：适配器
+// 继续重试，等到地址就绪再下发任务，不白白跳题。
+func TestSolve_StartWaitsForContainerReady(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{abc}"}
+	f.startErr = nil
+	ready := f.containers
+	f.containers = nil // 前两次 pending（空地址），第三次就绪
+	f.startHook = func(call int) {
+		if call >= 3 {
+			f.containers = ready
+		}
+	}
+	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{abc}")} }
+
+	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil || !res.Completed {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+	if starts, _, _, _, goals := f.snapshot(); len(starts) != 3 || len(goals) != 1 {
+		t.Fatalf("应等到第三次就绪再建任务：starts=%d goals=%d", len(starts), len(goals))
+	}
+}
+
 // TestSolve_UnconfirmedObservationsIgnored 验证只认坐实：观察节点（待验证假设、诱饵、
 // 侦察记录）里的 flag 串不参与提取——未过复现门的东西不提交。
 func TestSolve_UnconfirmedObservationsIgnored(t *testing.T) {

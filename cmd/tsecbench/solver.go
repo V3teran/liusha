@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -33,19 +32,24 @@ type solver struct {
 	idleWindow   time.Duration // LLM/工具活动停摆多久判定该题跑不动，提前收手
 }
 
-// buildGoal 构造交给 liusha 的任务目标。只给靶场地址与「找 flag」目标，不注入任何
-// 题解或历史答案——闭卷合规由此处保证。flag 的回报与坐实由 ctf 场景说明：执行者把
-// 每个 flag 原样写进一条待验证假设观察，经复现门坐实成 result；适配器只取坐实的
-// result 提交。
+// startAttempts 是启动靶场的尝试次数上限：平台把 503 / 500 定义为网络波动、可重试，
+// 一次失败就跳题会白白丢掉整道题；持续失败则放弃本题，不无限占用并发名额。
+const startAttempts = 5
+
+// buildGoal 构造交给 liusha 的任务目标。只给靶场地址、题面与 flag 数量，不注入任何
+// 题解或历史答案——闭卷合规由此处保证。题型不限于 Web，目标不写题型。flag 的回报与
+// 坐实由 ctf 场景说明：执行者把每个 flag 原样写进一条待验证假设观察，经复现门坐实成
+// result；适配器只取坐实的 result 提交。
+//
+// 授权范围只能是平台给出的地址（调用方保证非空）：VPN 网段里还有其他题的靶场，目标须
+// 写明测试范围。
 //
 // 结果必须是单行：POST /api/tasks 的契约是「每行一个任务」，多行会把一道题拆成多个任务。
 // 题目说明自带的换行同样折叠为空格。
 func buildGoal(ch challenge, addrs []string) string {
-	parts := []string{"对以下授权靶场目标进行 Web 安全测试，目标是找到并捕获该题的 flag。"}
-	if len(addrs) > 0 {
-		parts = append(parts, "靶场入口地址（VPN 内直连）："+strings.Join(addrs, "、"))
-	} else {
-		parts = append(parts, "靶场入口地址稍后在探索中确认。")
+	parts := []string{
+		"在以下授权 CTF 靶场中解题，找到并捕获该题的 flag。",
+		"靶场入口地址（VPN 内直连）：" + strings.Join(addrs, "、") + "，测试范围仅限上述地址。",
 	}
 	if d := strings.TrimSpace(ch.Description); d != "" {
 		parts = append(parts, "题目说明："+d)
@@ -65,14 +69,7 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 	res := challengeResult{UniqueCode: ch.UniqueCode, TotalFlags: ch.FlagCount}
 	log := s.logger.With().Str("challenge", ch.UniqueCode).Logger()
 
-	// 1. 启动靶场容器（幂等：已启动返回现有地址）。
-	start, err := s.bench.start(ctx, ch.UniqueCode)
-	if err != nil {
-		return res, fmt.Errorf("start %s: %w", ch.UniqueCode, err)
-	}
-	log.Info().Strs("addr", start.ContainerAddr).Msg("靶场已启动")
-
-	// 题目结束后务必 close，释放活跃名额（幂等）。
+	// 题目结束后务必 close，释放活跃名额（幂等）。启动失败也要 close：容器可能已在拉起。
 	defer func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -80,6 +77,13 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 			log.Warn().Err(err).Msg("close 靶场失败")
 		}
 	}()
+
+	// 1. 启动靶场容器（幂等：已启动返回现有地址）。
+	start, err := s.startChallenge(ctx, &log, ch.UniqueCode)
+	if err != nil {
+		return res, fmt.Errorf("start %s: %w", ch.UniqueCode, err)
+	}
+	log.Info().Strs("addr", start.ContainerAddr).Msg("靶场已启动")
 
 	// 2. 建 liusha task。
 	goal := buildGoal(ch, start.ContainerAddr)
@@ -101,6 +105,40 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 
 	// 3. 轮询产出、提取并提交 flag。
 	return s.harvest(ctx, &log, ch, taskID, res)
+}
+
+// errContainerNotReady 表示重试用尽时容器仍未就绪（start 一直没给地址）。
+var errContainerNotReady = errors.New("容器未就绪，未返回靶场地址，不下发任务")
+
+// startChallenge 启动靶场并等到容器就绪，返回的地址必非空。两种情况按轮询间隔重试，至多
+// startAttempts 次：可重试错误（503 / 500，平台定义的网络波动），以及 start 成功但未给地址
+// （容器还在 pending，拉起需要时间）。没有地址不能下发任务：授权范围只能是平台给出的地址，
+// 否则智能体会在 VPN 网段里自行寻找靶场。其余错误（活跃满、题目不存在、任务结束）原样返回，
+// 由调用方分类处置。
+func (s *solver) startChallenge(ctx context.Context, log *zerolog.Logger, uniqueCode string) (startResp, error) {
+	for attempt := 1; ; attempt++ {
+		start, err := s.bench.start(ctx, uniqueCode)
+		switch {
+		case err == nil && len(start.ContainerAddr) > 0:
+			return start, nil
+		case err == nil:
+			if attempt == startAttempts {
+				return start, errContainerNotReady
+			}
+			log.Info().Int("attempt", attempt).Msg("容器尚未就绪，稍后重试")
+		default:
+			var be *benchError
+			if !errors.As(err, &be) || !be.retriable() || attempt == startAttempts {
+				return start, err
+			}
+			log.Warn().Err(be).Int("attempt", attempt).Msg("启动靶场遇可重试错误，稍后重试")
+		}
+		select {
+		case <-ctx.Done():
+			return start, ctx.Err()
+		case <-time.After(s.pollInterval):
+		}
+	}
 }
 
 // harvest 周期性拉 liusha 产出、提取 flag 候选并提交，直到通关 / task 结束 / 超时 / 停摆。
@@ -158,7 +196,7 @@ func (s *solver) harvest(ctx context.Context, log *zerolog.Logger, ch challenge,
 
 // submitRound 拉一轮产出并提交其中尚未提交的 flag 候选。返回 (本题是否通关, 需全局停止的致命错误)。
 func (s *solver) submitRound(ctx context.Context, log *zerolog.Logger, uniqueCode, taskID string, submitted map[string]bool, res *challengeResult) (bool, error) {
-	candidates, err := s.collectCandidates(ctx, taskID)
+	candidates, err := s.collectCandidates(ctx, log, taskID)
 	if err != nil {
 		log.Warn().Err(err).Msg("拉取 liusha 产出失败，继续轮询")
 	}
@@ -179,51 +217,36 @@ func (s *solver) submitRound(ctx context.Context, log *zerolog.Logger, uniqueCod
 	return false, nil
 }
 
-// collectCandidates 从探索图的 result 节点正文提取去重 flag 候选。flag 经复现门坐实成
-// result 才算数：诱饵与编造已被门排除，这里只做提取。节点 Content 是 JSON，按解码后的
-// 字符串值扫——直接扫 JSON 原文会拿到转义形式（flag{a\u0026b}、带反斜杠转义），提交的
-// 就不是 flag 原文。
-func (s *solver) collectCandidates(ctx context.Context, taskID string) ([]string, error) {
+// collectCandidates 从探索图 result 节点的主张陈述提取去重 flag 候选。flag 经复现门坐实成
+// result 才算数：诱饵与编造已被门排除，这里只做提取。只读陈述：复现门坐实的是陈述，
+// 正文里的影响、建议是执行者的附言，可能提到见过的诱饵。
+func (s *solver) collectCandidates(ctx context.Context, log *zerolog.Logger, taskID string) ([]string, error) {
 	nodes, err := s.liusha.graphNodes(ctx, taskID)
 	var texts []string
 	for _, n := range nodes {
-		if n.Kind == "result" {
-			texts = append(texts, jsonStrings(n.Content)...)
+		if n.Kind != "result" {
+			continue
 		}
+		st, serr := resultStatement(n.Content)
+		if serr != nil {
+			log.Warn().Err(serr).Msg("result 正文无法解析，跳过该节点")
+			continue
+		}
+		texts = append(texts, st)
 	}
 	return s.extractor.scan(texts...), err
 }
 
-// jsonStrings 返回 JSON 值里的全部字符串值（递归；对象按键名排序，结果确定）。解析失败时按
-// 原文返回，仍可扫出未转义的 flag。
-func jsonStrings(raw json.RawMessage) []string {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return []string{string(raw)}
+// resultStatement 取 result 正文里的主张陈述（解码后的字符串）。必须按 JSON 解码：直接扫
+// 原文会拿到转义形式（flag{a\u0026b}、带反斜杠转义），提交的就不是 flag 原文。
+func resultStatement(content json.RawMessage) (string, error) {
+	var c struct {
+		Statement string `json:"statement"`
 	}
-	var out []string
-	var walk func(any)
-	walk = func(v any) {
-		switch x := v.(type) {
-		case string:
-			out = append(out, x)
-		case []any:
-			for _, e := range x {
-				walk(e)
-			}
-		case map[string]any:
-			keys := make([]string, 0, len(x))
-			for k := range x {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				walk(x[k])
-			}
-		}
+	if err := json.Unmarshal(content, &c); err != nil {
+		return "", fmt.Errorf("解析 result 正文: %w", err)
 	}
-	walk(v)
-	return out
+	return c.Statement, nil
 }
 
 // trySubmit 提交单个候选 flag，更新已提交集合与得分。返回 (该题是否通关, 需全局停止的致命错误)。

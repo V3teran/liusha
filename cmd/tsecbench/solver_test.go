@@ -22,8 +22,12 @@ func TestBuildGoal_IncludesTargetsAndFlagInstruction(t *testing.T) {
 			t.Errorf("goal 应含 %q，实际：\n%s", must, goal)
 		}
 	}
-	if strings.Contains(goal, "entity") {
+	if strings.Contains(goal, "hypothesis") {
 		t.Errorf("回报规约属于 ctf 场景，不应写进目标：\n%s", goal)
+	}
+	// 题型不限于 Web；授权范围写明只限平台给出的地址。
+	if strings.Contains(goal, "Web") || !strings.Contains(goal, "测试范围仅限上述地址") {
+		t.Errorf("目标应不限题型并写明授权范围：\n%s", goal)
 	}
 	// 多 flag 题应提示 flag 数量，促使 agent 找全。
 	if !strings.Contains(goal, "2") {
@@ -51,25 +55,17 @@ func TestBuildGoal_SingleLine(t *testing.T) {
 	}
 }
 
-// TestBuildGoal_NoContainerAddr 验证无地址时 goal 仍成立（不崩，给出说明）。
-func TestBuildGoal_NoContainerAddr(t *testing.T) {
-	goal := buildGoal(challenge{UniqueCode: "x", FlagCount: 1}, nil)
-	if strings.TrimSpace(goal) == "" {
-		t.Fatal("goal 不应为空")
-	}
-}
-
 // TestBuildGoal_FlagCountWritten 验证平台给出数量就写进目标（含 1）：数量是收敛依据，
 // 普通题拿到真 flag 即 1/1 收敛；未知（0）才不写。
 func TestBuildGoal_FlagCountWritten(t *testing.T) {
 	for _, n := range []int{1, 3} {
-		goal := buildGoal(challenge{UniqueCode: "x", FlagCount: n}, nil)
+		goal := buildGoal(challenge{UniqueCode: "x", FlagCount: n}, []string{"10.0.1.2:8080"})
 		want := fmt.Sprintf("本题共有 %d 个 flag", n)
 		if !strings.Contains(goal, want) {
 			t.Fatalf("FlagCount=%d 的 goal 应含 %q：%s", n, want, goal)
 		}
 	}
-	if goal := buildGoal(challenge{UniqueCode: "x"}, nil); strings.Contains(goal, "个 flag，全部捕获") {
+	if goal := buildGoal(challenge{UniqueCode: "x"}, []string{"10.0.1.2:8080"}); strings.Contains(goal, "个 flag，全部捕获") {
 		t.Fatalf("未知数量不应写收敛口径：%s", goal)
 	}
 }

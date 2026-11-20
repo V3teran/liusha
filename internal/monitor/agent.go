@@ -365,6 +365,10 @@ type GlobalState struct {
 	// 交付物）是两个概念：result 是图状态面，finding 是交付面。
 	Results []explorationgraph.Node `json:"results"`
 
+	// Hypotheses 是全部假设（按提交先后）：验证状态与反驳原因供判断方向是否已被证伪、
+	// 验证是否接连落空、是否还有待验证的假设。
+	Hypotheses []HypothesisView `json:"hypotheses"`
+
 	// RunningActions 是在途动作的指令与已运行时长（显式算好分钟数，不让决策者做
 	// 时间戳算术）。卡死由执行者看门狗处理，这里只供判断重复与偏离。
 	RunningActions []RunningActionView `json:"running_actions"`
@@ -378,6 +382,15 @@ type GlobalState struct {
 type ObjectiveView struct {
 	ID   string `json:"id"`
 	Goal string `json:"goal"`
+}
+
+// HypothesisView 是假设的监察视图。
+type HypothesisView struct {
+	ID                 string                              `json:"id"`
+	Statement          string                              `json:"statement"`
+	VerificationStatus explorationgraph.VerificationStatus `json:"verification_status"` // pending / confirmed / refuted
+	RefuteReason       string                              `json:"refute_reason,omitempty"`
+	CreatedAt          time.Time                           `json:"created_at"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

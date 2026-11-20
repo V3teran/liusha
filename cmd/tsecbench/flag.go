@@ -10,7 +10,7 @@ import (
 // flag{...}；拿不准的格式由题目 description 提示后经 LIUSHA_TSB_FLAG_RE 覆盖，或直接把
 // 候选 submit 让平台判定（submit 幂等、错误不扣分）。
 //
-// 花括号内不允许空白与引号：探索图正文里有大量 agent 的推理与命令文本，
+// 花括号内不允许空白与引号：主张陈述是自由文本，会夹带命令与说明，
 // 「grep 'flag{' 于 /home ... }」这类片段在宽松模式下会被当成 flag 提交。
 const defaultFlagPattern = `flag\{[^\s{}'"]{1,512}\}`
 
@@ -19,7 +19,7 @@ const defaultFlagPattern = `flag\{[^\s{}'"]{1,512}\}`
 const placeholderChars = ".…*xX?"
 
 // flagExtractor 从自由文本里提取 flag 候选。来源文本按喂入顺序扫描（solver 喂入探索图
-// result 节点正文，flag 经复现门坐实成 result），结果去重保序，
+// result 节点的主张陈述，flag 经复现门坐实成 result），结果去重保序，
 // solver 据此依次提交。
 type flagExtractor struct {
 	re *regexp.Regexp

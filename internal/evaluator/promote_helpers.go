@@ -128,6 +128,7 @@ func (g *PromotionGate) recordVerification(
 type hypothesisMark struct {
 	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
+	refuteDetail string // 评估者证伪时的理由（机器判出的证伪没有）
 	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
 }
 
@@ -147,6 +148,9 @@ func (g *PromotionGate) markHypothesisNode(
 	}
 	if m.refuteReason != "" {
 		mark["refute_reason"] = m.refuteReason
+	}
+	if m.refuteDetail != "" {
+		mark["refute_detail"] = m.refuteDetail
 	}
 	if m.duplicateOf != "" {
 		mark["duplicate_of"] = m.duplicateOf

@@ -202,14 +202,14 @@ func (e *Engine) WithTimeout(timeout time.Duration) *Engine {
 	return e
 }
 
-// RefutedHypothesis 是被复现门出圈的假设：反驳原因区分"证据没拿到"
-// （not_reproducible/invalid_recipe——配方或上下文问题）、"拿到了证据但
-// 主张不成立"（claim_invalid/assert_not_discriminative——语义/质量问题）与
-// "评估没跑完"（judge_unavailable——主张未被否定），规划器据此决定换配方
-// 重试、按原方向重提还是放弃方向。
+// RefutedHypothesis 是被复现门出圈的假设：反驳原因区分"证据没拿到或构不成证据"
+// （not_reproducible/invalid_recipe/assert_not_discriminative——换配方或判据重试）、
+// "证据到了但主张不成立"（claim_invalid——方向作废）与"评估没跑完"
+// （judge_unavailable——主张未被检验，原方向重提），处置写在规划者章程里。
 type RefutedHypothesis struct {
 	Statement string
 	Reason    string
+	Detail    string // 评估者证伪时的理由（缺了什么证据、哪部分已被证明）；机器判出的证伪为空
 }
 
 // Fact 是已确认的世界状态断言（事实观察）：会话已建立、某机制由什么控制、
@@ -481,6 +481,7 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			planCtx.RefutedHypotheses = append(planCtx.RefutedHypotheses, RefutedHypothesis{
 				Statement: c.Statement,
 				Reason:    obs.RefuteReason(),
+				Detail:    obs.RefuteDetail(),
 			})
 		}
 	}

@@ -127,7 +127,7 @@ func (c *liushaClient) status(ctx context.Context, taskID string) (taskStatusRes
 	return out, err
 }
 
-// graphNodes 返回任务探索图的节点（flag 兜底提取从 observation 的 content 扫）。
+// graphNodes 返回任务探索图的节点（flag 从 result 节点的主张陈述提取）。
 func (c *liushaClient) graphNodes(ctx context.Context, taskID string) ([]graphNode, error) {
 	var out graphResp
 	if err := c.req(ctx, http.MethodGet, taskPath(taskID, "/exploration/graph"), nil, &out); err != nil {

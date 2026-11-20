@@ -247,16 +247,26 @@ func (n *Node) HasVerificationStatus(status VerificationStatus) bool {
 
 // RefuteReason 返回已证伪假设的证伪原因（节点 metadata 的 refute_reason；没有则为空）。
 func (n *Node) RefuteReason() string {
-	if len(n.Metadata) == 0 {
-		return ""
+	return n.refuteMark().RefuteReason
+}
+
+// RefuteDetail 返回评估者证伪时给出的理由（节点 metadata 的 refute_detail；机器判出的证伪
+// 没有理由，返回空）。原因是类别，理由说明缺了什么证据、哪部分已被证明。
+func (n *Node) RefuteDetail() string {
+	return n.refuteMark().RefuteDetail
+}
+
+type refuteMark struct {
+	RefuteReason string `json:"refute_reason"`
+	RefuteDetail string `json:"refute_detail"`
+}
+
+func (n *Node) refuteMark() refuteMark {
+	var m refuteMark
+	if len(n.Metadata) == 0 || json.Unmarshal(n.Metadata, &m) != nil {
+		return refuteMark{}
 	}
-	var m struct {
-		RefuteReason string `json:"refute_reason"`
-	}
-	if json.Unmarshal(n.Metadata, &m) != nil {
-		return ""
-	}
-	return m.RefuteReason
+	return m
 }
 
 // NormalizePriority 把 LLM 输出的优先级词归一到 Priority（未知值归 medium）。
