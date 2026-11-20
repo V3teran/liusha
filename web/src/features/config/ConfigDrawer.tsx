@@ -23,7 +23,7 @@ interface ConfigDrawerProps {
   saveDisabled?: boolean // 表单未过校验时禁用保存（跨分页统一判定）
 }
 
-// 配置管理资源共用的居中编辑抽屉外壳（复用漏洞页 Radix Dialog 模式）。
+// 配置管理资源共用的居中编辑抽屉外壳（复用发现页 Radix Dialog 模式）。
 // 外壳职责：遮罩 + 面板 + 头部标题/关闭 + 顶部分页栏 + 可滚动主体 + 底部保存。
 // 表单主体按 tab 分组注入；每次打开重置到第一个分页，避免残留上一条记录的分页位置。
 export function ConfigDrawer({

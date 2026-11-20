@@ -8,7 +8,7 @@ interface CardHeaderProps {
   agent?: string
   /** 领头 agent 配色（与卡外图标同色）。 */
   agentColor: string
-  /** 动作词（推理/派发/漏洞…）——弱化在名字之后。 */
+  /** 动作词（推理/派发/发现…）——弱化在名字之后。 */
   action: string
   /** 派发目标 agent（如 编排 → 侦察），以目标 agent 配色显示。 */
   target?: { name: string; color: string }

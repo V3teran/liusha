@@ -7,7 +7,7 @@ afterEach(() => {
   ;(globalThis as any).fetch = nativeFetch
 })
 
-describe('全局漏洞台账 API', () => {
+describe('全局发现台账 API', () => {
   beforeEach(() => {
     sessionStorage.clear()
     ;(globalThis as any).fetch = vi.fn()

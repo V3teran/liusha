@@ -22,11 +22,11 @@ export interface TaskJumpContext {
   conversationId: string
   /** 下发来源：决定对话页的标签页 */
   source: string
-  /** 漏洞数：「漏洞」只在有漏洞时出现；不要「漏洞」的调用方可不填 */
+  /** 发现数：「发现」只在有发现时出现；不要「发现」的调用方可不填 */
   findingCount?: number
   /** 从哪里出发：从对话出发时落点按对话限定，其余按任务限定（见 scope.ts） */
   from: 'task' | 'conversation'
-  /** 探索图落点打开的节点：从漏洞出发时是坐实它的结果节点；缺省 = 看整张图 */
+  /** 探索图落点打开的节点：从发现出发时是坐实它的结果节点；缺省 = 看整张图 */
   explorationNode?: string
 }
 
@@ -69,7 +69,7 @@ export function conversationJump(source: string, conversationId: string): Jump {
 
 /**
  * 任务相关跳转（全站唯一规则）：按 targets 取需要的目标，固定顺序；没有对话不放「对话」，
- * 没有漏洞不放「漏洞」（不做通向空页面的按钮）。落点只显示这个任务 / 这个对话的内容。
+ * 没有发现不放「发现」（不做通向空页面的按钮）。落点只显示这个任务 / 这个对话的内容。
  */
 export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]): Jump[] {
   const scope: Scope =

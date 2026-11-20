@@ -1,5 +1,5 @@
 /**
- * 全局漏洞台账域 API 客户端（跨 task/host 全量 + triage 处置）
+ * 全局发现台账域 API 客户端（跨 task/host 全量 + triage 处置）
  *
  * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
@@ -17,7 +17,7 @@ function ledgerParams(filters: FindingFilters): URLSearchParams {
 }
 
 /**
- * 分页拉取全局漏洞台账。可选按范围（task / conversation）与 host/severity/status/source 筛选；
+ * 分页拉取全局发现台账。可选按范围（task / conversation）与 host/severity/status/source 筛选；
  * page/size 缺省时后端落 1 / 50。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
@@ -26,7 +26,7 @@ export async function listFindings(filters: FindingFilters = {}): Promise<Findin
 }
 
 /**
- * 台账「任务」筛选的候选：有漏洞的任务，按目标关键词 search 检索、服务端限量（has_more 表示
+ * 台账「任务」筛选的候选：有发现的任务，按目标关键词 search 检索、服务端限量（has_more 表示
  * 还有未列出的）。结构化筛选照常收窄候选。
  */
 export async function getFindingTaskFacets(
@@ -37,7 +37,7 @@ export async function getFindingTaskFacets(
   return get(`/findings/tasks?${params}`)
 }
 
-/** 单条漏洞（与台账列表行同形状）：漏洞详情按 ID 打开——不在当前页、刷新、后退回来时用。 */
+/** 单条发现（与台账列表行同形状）：发现详情按 ID 打开——不在当前页、刷新、后退回来时用。 */
 export function getFinding(id: string): Promise<FindingRow> {
   return get<FindingRow>(`/findings/${encodeURIComponent(id)}`)
 }
@@ -55,7 +55,7 @@ export function getFindingStat(filters: FindingFilters): Promise<FindingStat> {
 }
 
 /**
- * 人工处置一条漏洞（triage）。status 五态之一；severity 传空保留扫描原值、非空覆盖；note 可空。
+ * 人工处置一条发现（triage）。status 五态之一；severity 传空保留扫描原值、非空覆盖；note 可空。
  * 后端 triaged_at 自动打点并 RETURNING 更新后的行——返回它供前端覆盖乐观值（消除时钟偏差）。
  * 非法 status 返 400、id 不存在返 404。
  */

@@ -34,8 +34,9 @@ type solver struct {
 }
 
 // buildGoal 构造交给 liusha 的任务目标。只给靶场地址与「找 flag」目标，不注入任何
-// 题解或历史答案——闭卷合规由此处保证。要求 agent 把每个 flag 原样写进一条 entity 事实
-// 观察的 statement（flag 是已取得的成果，不经复现门），适配器据此正则扫探索图提取。
+// 题解或历史答案——闭卷合规由此处保证。flag 的回报与坐实由 ctf 场景说明：执行者把
+// 每个 flag 原样写进一条待验证假设观察，经复现门坐实成 result；适配器只取坐实的
+// result 提交。
 //
 // 结果必须是单行：POST /api/tasks 的契约是「每行一个任务」，多行会把一道题拆成多个任务。
 // 题目说明自带的换行同样折叠为空格。
@@ -49,10 +50,12 @@ func buildGoal(ch challenge, addrs []string) string {
 	if d := strings.TrimSpace(ch.Description); d != "" {
 		parts = append(parts, "题目说明："+d)
 	}
-	if ch.FlagCount > 1 {
-		parts = append(parts, fmt.Sprintf("本题共有 %d 个 flag，请逐个找全。", ch.FlagCount))
+	// 数量是收敛依据，平台给了就写（含 1）：坐实数到齐即收敛，普通题（1 真 + 若干诱饵）
+	// 拿到真 flag 就收——诱饵被证伪不计数。平台未给（0/未知）才不写，收敛交给判断。
+	if ch.FlagCount >= 1 {
+		parts = append(parts, fmt.Sprintf("本题共有 %d 个 flag，全部捕获后即完成。", ch.FlagCount))
 	}
-	// flag 的回报方式（entity 事实观察、原样含 flag、一条一个、识别诱饵）由 ctf 场景说明，不写进目标。
+	// flag 的回报与坐实方式（hypothesis、原样含 flag、诱饵排除）由 ctf 场景说明，不写进目标。
 	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
 }
 
@@ -176,14 +179,15 @@ func (s *solver) submitRound(ctx context.Context, log *zerolog.Logger, uniqueCod
 	return false, nil
 }
 
-// collectCandidates 从探索图的 observation / result 节点正文提取去重 flag 候选。
-// flag 被执行者记为 entity 事实观察；节点 Content 是 JSON，按解码后的字符串值扫——直接扫
-// JSON 原文会拿到转义形式（flag{a\u0026b}、带反斜杠转义），提交的就不是 flag 原文。
+// collectCandidates 从探索图的 result 节点正文提取去重 flag 候选。flag 经复现门坐实成
+// result 才算数：诱饵与编造已被门排除，这里只做提取。节点 Content 是 JSON，按解码后的
+// 字符串值扫——直接扫 JSON 原文会拿到转义形式（flag{a\u0026b}、带反斜杠转义），提交的
+// 就不是 flag 原文。
 func (s *solver) collectCandidates(ctx context.Context, taskID string) ([]string, error) {
 	nodes, err := s.liusha.graphNodes(ctx, taskID)
 	var texts []string
 	for _, n := range nodes {
-		if n.Kind == "observation" || n.Kind == "result" {
+		if n.Kind == "result" {
 			texts = append(texts, jsonStrings(n.Content)...)
 		}
 	}

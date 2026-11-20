@@ -83,7 +83,7 @@ export interface Conversation {
   task_id: string // 关联 task.id（纯聊天为空）——会话菜单据此跳转任务详情
   run_status?: string // 派生的真实运行态（active/completed/aborted；纯聊天无此键）——列表显示用此
   run_paused?: boolean // active 的暂停子态——侧栏呼吸点据此停闪（暂停不在烧 token）
-  finding_count?: number // 本会话关联 task 已挖到的漏洞数——会话列表行尾的漏洞数徽标
+  finding_count?: number // 本会话关联 task 已挖到的发现数——会话列表行尾的发现数徽标
   source?: string // 派生的下发来源（direct 人工下发 / proxy 代理捕获；纯聊天归 direct）——双 tab 分流
   created_at: string
   updated_at: string
@@ -419,14 +419,14 @@ export function parseEventMeta(m: Message): TimelineEventMeta | null {
 }
 
 /* ============================================================
-   全局漏洞台账（GET /findings，跨 task/host，人工下发 + 代理捕获全量 + triage）
+   全局发现台账（GET /findings，跨 task/host，人工下发 + 代理捕获全量 + triage）
    ============================================================ */
 // FindingTarget 是 finding.target jsonb 的常见形态（LLM 自决，字段可缺）。
 export interface FindingTarget {
   path?: string
   method?: string
 }
-// FindingRow 是台账一行：漏洞主体 + 派生 source + triage 处置态 + 聚合计数。
+// FindingRow 是台账一行：发现主体 + 派生 source + triage 处置态 + 聚合计数。
 export interface FindingRow {
   id: string // uuid 内部主键（drawer/URL 用，不在列表直显）
   seq: number // 对外顺序号（bigserial，列表 # 列直显，报告/会话可引用）
@@ -444,20 +444,20 @@ export interface FindingRow {
   // assert}）——复现步骤区的数据源。
   repro?: Record<string, unknown>
   source: Source // JOIN assignment 派生
-  task_id?: string // 产出本漏洞的任务（详情跳转用）
-  result_node_id?: string // 坐实本漏洞的结果节点（跳到探索图时定位到它；历史记录可能没有）
+  task_id?: string // 产出本发现的任务（详情跳转用）
+  result_node_id?: string // 坐实本发现的结果节点（跳到探索图时定位到它；历史记录可能没有）
   conversation_id?: string // 关联会话（详情跳转用；无会话为空）
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
-  first_seen_at: string // 首次发现时间（重放交付不变；追踪漏洞存续时长）
+  first_seen_at: string // 首次发现时间（重放交付不变；追踪发现存续时长）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
 export interface FindingFilters {
-  task?: string // 范围：只看这个任务的漏洞（从任务及其它页面跳来）
-  conversation?: string // 范围：只看这个对话的漏洞（从对话跳来）
-  search?: string // 关键词：漏洞摘要、主机、路径、所属任务的目标（服务端检索）
+  task?: string // 范围：只看这个任务的发现（从任务及其它页面跳来）
+  conversation?: string // 范围：只看这个对话的发现（从对话跳来）
+  search?: string // 关键词：发现摘要、主机、路径、所属任务的目标（服务端检索）
   host?: string
   severity?: string
   status?: string
@@ -466,12 +466,12 @@ export interface FindingFilters {
   size?: number
 }
 
-// GET /findings/tasks：台账「任务」筛选的选项——有漏洞的任务（按最近一次发现倒序）。
+// GET /findings/tasks：台账「任务」筛选的选项——有发现的任务（按最近一次发现倒序）。
 export interface FindingTaskFacet {
   id: string
   goal: string
   created_at: string // 任务创建时间：同一目标常被反复下发，目标相同的任务靠它区分
-  count: number // 当前其它筛选下该任务的漏洞数
+  count: number // 当前其它筛选下该任务的发现数
 }
 
 // GET /findings 分页响应：seq desc（最新优先）+ 同筛选口径的全局 total。
@@ -516,7 +516,7 @@ export interface LLMInvocationDetail extends LLMInvocationSummary {
   source?: Source | '' // 无关联批次（如独立调用）为空串
 }
 export interface LLMInvocationsResponse {
-  total: number // 跨页总数（对齐流量/漏洞模块的 offset 分页口径）
+  total: number // 跨页总数（对齐流量/发现模块的 offset 分页口径）
   page: number
   size: number
   items: LLMInvocationSummary[]
@@ -580,7 +580,7 @@ export interface TrafficConsumer {
   status: string // 任务状态 active / completed / aborted
   source: string // 下发来源（对话落在哪个标签页）
   conversation_id: string // 任务的对话；空表示没有对话
-  finding_count: number // 任务的漏洞数（为 0 时不放「漏洞」）
+  finding_count: number // 任务的发现数（为 0 时不放「发现」）
 }
 // TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。

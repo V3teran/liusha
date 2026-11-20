@@ -88,7 +88,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
           </div>
         ) : task ? (
           <div className="flex flex-col gap-5">
-            {/* 跳转排在首位：从任务去对话、漏洞与探索图是最先用到的出口（只看这个任务的）。 */}
+            {/* 跳转排在首位：从任务去对话、发现与探索图是最先用到的出口（只看这个任务的）。 */}
             <section>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
               <JumpLinks jumps={taskJumps(jumpContext(task, 'task'), ['conversation', 'findings', 'exploration'])} />
@@ -156,7 +156,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
                       : '—'}
                   </span>
                 </Kv>
-                <Kv k="漏洞">
+                <Kv k="发现">
                   <span className={task.finding_count > 0 ? 'font-semibold text-sev-high' : 'text-text'}>
                     {task.finding_count} 个
                   </span>

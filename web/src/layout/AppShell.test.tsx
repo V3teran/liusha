@@ -84,7 +84,7 @@ describe('AppShell', () => {
     renderShell('/conversations/direct')
 
     expect(screen.getByText('对话')).toBeTruthy()
-    expect(screen.getByText('漏洞')).toBeTruthy()
+    expect(screen.getByText('发现')).toBeTruthy()
     expect(screen.getByText('探索图')).toBeTruthy()
     expect(screen.getByText('LLM 审计')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
@@ -104,7 +104,7 @@ describe('AppShell', () => {
     renderShell('/conversations/direct')
 
     const activeLink = screen.getByText('对话').closest('a')
-    const inactiveLink = screen.getByText('漏洞').closest('a')
+    const inactiveLink = screen.getByText('发现').closest('a')
     expect(activeLink?.className).toContain('bg-accent-soft')
     expect(inactiveLink?.className).not.toContain('bg-accent-soft')
   })
@@ -120,7 +120,7 @@ describe('AppShell', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/findings')
 
-    const findingsLink = screen.getByText('漏洞').closest('a')
+    const findingsLink = screen.getByText('发现').closest('a')
     const conversationsLink = screen.getByText('对话').closest('a')
     expect(findingsLink?.className).toContain('bg-accent-soft')
     expect(conversationsLink?.className).not.toContain('bg-accent-soft')
@@ -160,7 +160,7 @@ describe('AppShell', () => {
   it('当前页导航项带 aria-current="page"', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/findings')
-    expect(screen.getByText('漏洞').closest('a')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByText('发现').closest('a')).toHaveAttribute('aria-current', 'page')
     expect(screen.getByText('对话').closest('a')).not.toHaveAttribute('aria-current')
   })
 })
@@ -189,8 +189,8 @@ describe('AppShell 响应式', () => {
   it('平板宽度（768–1023）强制图标栏：导航项文字收起、靠 aria-label 命名', () => {
     stubViewport(900)
     renderShell('/conversations/direct')
-    expect(screen.queryByText('漏洞')).toBeNull()
-    expect(screen.getByRole('link', { name: '漏洞' })).toBeTruthy()
+    expect(screen.queryByText('发现')).toBeNull()
+    expect(screen.getByRole('link', { name: '发现' })).toBeTruthy()
     expect(screen.queryByLabelText('收起侧边栏')).toBeNull()
   })
 
@@ -199,10 +199,10 @@ describe('AppShell 响应式', () => {
     const user = userEvent.setup()
     renderShell('/conversations/direct')
 
-    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '发现' })).toBeNull()
     await user.click(screen.getByRole('button', { name: '打开导航' }))
     const drawer = screen.getByRole('dialog', { name: '导航' })
-    expect(within(drawer).getByText('漏洞')).toBeTruthy()
+    expect(within(drawer).getByText('发现')).toBeTruthy()
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: '导航' })).toBeNull()
@@ -214,7 +214,7 @@ describe('AppShell 响应式', () => {
     renderShell('/conversations/direct')
 
     await user.click(screen.getByRole('button', { name: '打开导航' }))
-    await user.click(within(screen.getByRole('dialog', { name: '导航' })).getByText('漏洞'))
+    await user.click(within(screen.getByRole('dialog', { name: '导航' })).getByText('发现'))
     expect(screen.queryByRole('dialog', { name: '导航' })).toBeNull()
     expect(screen.getByText('child-findings')).toBeTruthy()
   })

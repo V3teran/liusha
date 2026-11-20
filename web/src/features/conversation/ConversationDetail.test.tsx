@@ -189,7 +189,7 @@ describe('ConversationDetail', () => {
     withTask({ status: 'completed', conversation_id: 'c1', finding_count: 2, source: 'direct' })
     render(<ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
     await waitFor(() => expect(tasksClient.getTaskDetail).toHaveBeenCalledWith('o1'))
-    expect(screen.queryByRole('link', { name: '漏洞' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '发现' })).toBeNull()
   })
 
   it('纯聊天对话（没有任务）不显示控制组，也不取任务', async () => {

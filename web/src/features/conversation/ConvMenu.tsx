@@ -9,7 +9,7 @@ const ITEM_CLASS =
   'flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text outline-none data-[highlighted]:bg-surface-2'
 
 /**
- * 对话行的「⋯」菜单（Radix DropdownMenu，层级走 app-menu）：跳转（只看这个对话的任务、漏洞、
+ * 对话行的「⋯」菜单（Radix DropdownMenu，层级走 app-menu）：跳转（只看这个对话的任务、发现、
  * 探索图，规则见 taskJumps；纯聊天没有任务，不显示）+ 重命名 + 删除（任务进行中禁删）。
  * 由 ConversationList 持有重命名 / 删除逻辑，本组件只负责菜单本身。
  */

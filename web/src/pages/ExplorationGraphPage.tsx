@@ -22,7 +22,7 @@ const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
  * 数据取数在 useExplorationQueries，图构建/布局/聚焦在 layout.ts，
  * 画布渲染在 GraphCanvas。探索图属于任务；范围以 URL 为单一事实源：?task= 是这个任务的图，
  * ?conversation= 是这个对话的图（从对话跳来，显示对话标题；图按对话所属的任务取）。
- * 打开的节点是 ?selected=（与列表页打开的条目同一套历史规则）：从漏洞跳来时即坐实它的结果节点，
+ * 打开的节点是 ?selected=（与列表页打开的条目同一套历史规则）：从发现跳来时即坐实它的结果节点，
  * 画布首屏对准它；换选任务清掉它。
  */
 export function ExplorationGraphPage() {

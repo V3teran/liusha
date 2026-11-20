@@ -71,8 +71,8 @@ describe('TrafficDetailPane', () => {
     expect(screen.queryByText('消费任务')).toBeNull()
   })
 
-  // 每个消费任务带这个任务的跳转：任务、对话、漏洞、探索图（只看这个任务的）。
-  it('消费任务带这个任务的任务、对话、漏洞、探索图跳转，状态用中文文案', () => {
+  // 每个消费任务带这个任务的跳转：任务、对话、发现、探索图（只看这个任务的）。
+  it('消费任务带这个任务的任务、对话、发现、探索图跳转，状态用中文文案', () => {
     renderPane({
       detail: makeDetail({
         consumed_by: [
@@ -84,11 +84,11 @@ describe('TrafficDetailPane', () => {
     expect(screen.getByText('（进行中）')).toBeTruthy()
     expect(screen.getByRole('link', { name: '任务' }).getAttribute('href')).toBe('/tasks?task=t1&selected=t1')
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('href')).toBe('/conversations/proxy?conversation=c9')
-    expect(screen.getByRole('link', { name: '漏洞' }).getAttribute('href')).toBe('/findings?task=t1')
+    expect(screen.getByRole('link', { name: '发现' }).getAttribute('href')).toBe('/findings?task=t1')
     expect(screen.getByRole('link', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?task=t1')
   })
 
-  it('消费任务没有对话、没有漏洞时只有任务与探索图', () => {
+  it('消费任务没有对话、没有发现时只有任务与探索图', () => {
     renderPane({
       detail: makeDetail({
         consumed_by: [

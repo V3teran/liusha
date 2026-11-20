@@ -124,7 +124,7 @@ describe('TasksPage（任务模块）', () => {
     expect(await screen.findByText('BAC 越权检测')).toBeTruthy()
   })
 
-  it('从漏洞等页面跳来：按任务限定，筛选栏显示任务目标', async () => {
+  it('从发现等页面跳来：按任务限定，筛选栏显示任务目标', async () => {
     mList.mockResolvedValue({ items: [task()], total: 1, page: 1, size: 20 })
     mDetail.mockResolvedValue(task())
     renderPage(['/tasks?task=t-1'])

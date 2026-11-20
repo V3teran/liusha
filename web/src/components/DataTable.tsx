@@ -13,13 +13,13 @@ interface DataTableProps<T> {
   loading: boolean
   /** 有生效的搜索 / 筛选：空结果显示「没有匹配的X」，否则显示「暂无X」 */
   hasFilter?: boolean
-  /** 空态名词（任务、漏洞……） */
+  /** 空态名词（任务、发现……） */
   emptyNoun: string
   /** 无数据时的说明：数据从哪来、怎么产生 */
   emptyHint: string
   /** 行数据错误标记（如 HTTP 5xx 流量行整行红染） */
   rowError?: (row: T) => boolean
-  /** 行级内联样式（如漏洞行把严重度色挂到 --sev 变量驱动左边条悬停） */
+  /** 行级内联样式（如发现行把严重度色挂到 --sev 变量驱动左边条悬停） */
   rowStyle?: (row: T) => React.CSSProperties | undefined
   /** 行 className 追加（如保存中降透明度） */
   rowClassName?: (row: T) => string | undefined
@@ -42,7 +42,7 @@ interface DataTableProps<T> {
 /**
  * react-table 通用外壳：table-fixed + colgroup 设计像素列宽（columnDef.size 单点
  * 定义——窄容器锁像素出真实横向滚动，宽容器按权重等比拉伸，见 tableLayout）+
- * 骨架屏/空态/行点击与键盘可达/选中态描边。任务 / 流量 / LLM 审计 / 漏洞等列表共用。
+ * 骨架屏/空态/行点击与键盘可达/选中态描边。任务 / 流量 / LLM 审计 / 发现等列表共用。
  */
 export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyNoun, emptyHint, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader, ariaLabel }: DataTableProps<T>) {
   const table = useReactTable({
