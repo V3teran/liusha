@@ -80,19 +80,17 @@ func TestFlagExtractor_NoMatch(t *testing.T) {
 	}
 }
 
-// TestJSONStrings_DecodesEscapes 验证按解码后的字符串值扫：JSON 原文里的 &、\\ 转义不会
-// 进入提交的 flag。
-func TestJSONStrings_DecodesEscapes(t *testing.T) {
-	ex, err := newFlagExtractor("")
+// TestResultStatement_DecodesEscapes 验证 flag 从解码后的主张陈述里取：JSON 原文里的 &、\\
+// 转义不会进入提交的 flag；正文不是对象时没有陈述。
+func TestResultStatement_DecodesEscapes(t *testing.T) {
+	got, err := resultStatement([]byte(`{"statement":"拿到 flag{a&b} 与 flag{c\\d}"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := []byte(`{"statement":"拿到 flag{a&b}","evidence":{"lines":["flag{c\\d}"]}}`)
-	got := ex.scan(jsonStrings(raw)...)
-	if want := []string{`flag{c\d}`, "flag{a&b}"}; !reflect.DeepEqual(got, want) {
+	if want := `拿到 flag{a&b} 与 flag{c\d}`; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if got := jsonStrings([]byte(`not json flag{x}`)); len(got) != 1 {
-		t.Fatalf("非 JSON 应按原文返回: %q", got)
+	if _, err := resultStatement([]byte(`not json flag{x}`)); err == nil {
+		t.Fatal("正文不是 JSON 对象时应报错")
 	}
 }

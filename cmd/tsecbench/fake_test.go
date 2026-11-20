@@ -28,6 +28,7 @@ type fakeStack struct {
 	closes     []string
 	submits    []string
 	submitErr  func(flag string) (int, string) // 非 nil 且返回非 0 状态时以该业务错误响应
+	startErr   func(call int) (int, string)    // 非 nil 且返回非 0 状态时以该业务错误响应（call 从 1 计）
 	containers []string
 	// liusha 侧
 	goals      []string
@@ -81,6 +82,12 @@ func (f *fakeStack) handleStart(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	code := r.URL.Query().Get("unique_code")
 	f.starts = append(f.starts, code)
+	if f.startErr != nil {
+		if status, ecode := f.startErr(len(f.starts)); status != 0 {
+			writeBenchErr(w, status, ecode)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, startResp{UniqueCode: code, ContainerAddr: f.containers})
 }
 

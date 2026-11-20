@@ -68,7 +68,8 @@ type graphResp struct {
 	Nodes []graphNode `json:"nodes"`
 }
 
-// graphNode 只取 flag 提取所需字段；content 是 LLM 自由 jsonb，原样透传后按文本扫。
+// graphNode 只取 flag 提取所需字段；result 的 content 是 {statement, impact, suggestion}，
+// 原样透传后由 resultStatement 取陈述。
 type graphNode struct {
 	Kind    string          `json:"kind"` // objective/action/observation/result
 	Content json.RawMessage `json:"content"`
