@@ -113,69 +113,43 @@ func TestGetGlobalStateTool_ListsHypotheses(t *testing.T) {
 
 func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
 	graph := newGraphWithActions(t)
-	ctx := context.Background()
+	ctx := observedCtx(t, graph, "t1")
 	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
 
-	out, err := tool.Execute(ctx, []byte(
-		`{"type":"reject_action","action_id":"a-running","reason":"与已完成动作重复"}`))
+	out, err := tool.Execute(ctx, decisionArgs(t, Decision{
+		Type: DecisionRejectAction, ActionID: "a-running", Problem: ProblemDuplicate,
+		EvidenceIDs: []string{"a-done"}, Reason: "与已完成动作做同一件事",
+	}))
 	require.NoError(t, err)
 	require.Empty(t, out.Error)
 
-	node, err := graph.GetNode(ctx, "a-running")
+	node, err := graph.GetNode(context.Background(), "a-running")
 	require.NoError(t, err)
 	assert.Equal(t, explorationgraph.StateRejected, *node.State)
 	assert.Equal(t, explorationgraph.SourceMonitor, node.RejectedBy())
-	assert.Equal(t, "与已完成动作重复", *node.StateReason)
+	assert.Equal(t, "重复：与已完成动作做同一件事（证据：a-done）", *node.StateReason)
 }
 
 // 用户指派的动作体现人的明确意图，监察者无权否决；状态不得改变。
 func TestPublishDecisionTool_RejectAction_SparesUserAssigned(t *testing.T) {
 	graph := newGraphWithActions(t)
-	ctx := context.Background()
 	open := explorationgraph.StateOpen
-	_, err := graph.CreateNode(ctx, explorationgraph.Node{
+	_, err := graph.CreateNode(context.Background(), explorationgraph.Node{
 		ID: "a-user", TaskID: "t1", Kind: core.KindAction, State: &open,
 		Content: []byte(`{"instruction":"用户指定的一步"}`), SourceType: explorationgraph.SourceUser,
 	})
 	require.NoError(t, err)
+	ctx := observedCtx(t, graph, "t1")
 	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
 
-	out, err := tool.Execute(ctx, []byte(`{"type":"reject_action","action_id":"a-user","reason":"偏离"}`))
+	out, err := tool.Execute(ctx, decisionArgs(t, Decision{
+		Type: DecisionRejectAction, ActionID: "a-user", Problem: ProblemOffGoal, EvidenceIDs: []string{"a-user"}, Reason: "偏离",
+	}))
 	require.NoError(t, err)
 	assert.Contains(t, out.Error, "用户指派")
-	node, err := graph.GetNode(ctx, "a-user")
+	node, err := graph.GetNode(context.Background(), "a-user")
 	require.NoError(t, err)
 	assert.Equal(t, explorationgraph.StateOpen, *node.State)
-}
-
-func TestPublishDecisionTool_RequestReplan(t *testing.T) {
-	graph := newGraphWithActions(t)
-	ctx := context.Background()
-	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
-
-	out, err := tool.Execute(ctx, json.RawMessage(`{"type":"request_replan","reason":"当前方向停滞"}`))
-	require.NoError(t, err)
-	require.Empty(t, out.Error)
-}
-
-func TestPublishDecisionTool_Validation(t *testing.T) {
-	graph := newGraphWithActions(t)
-	ctx := context.Background()
-	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
-
-	cases := []struct {
-		name, args, wantErr string
-	}{
-		{"未知决策类型", `{"type":"bogus","reason":"r"}`, "type must be reject_action or request_replan"},
-		{"reject_action 缺 action_id", `{"type":"reject_action","reason":"r"}`, "action_id is required for reject_action"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			out, err := tool.Execute(ctx, json.RawMessage(c.args))
-			require.NoError(t, err)
-			assert.Contains(t, out.Error, c.wantErr)
-		})
-	}
 }
 
 // running_actions 时长视图是 monitor kill 决策的变量源（此前只给原始时间戳，

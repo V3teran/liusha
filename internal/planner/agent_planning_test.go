@@ -242,3 +242,28 @@ func TestPlanActions_AnalysisRevisesDirectionThenPlanningSchedules(t *testing.T)
 	require.Len(t, open, 1)
 	assert.Equal(t, "p1", open[0].ID)
 }
+
+// 带着所见图面的重规划请求，在处理时图面已有实质进展（目标改写、新的派生目标、新结果）
+// 即作废：判断的前提已经变了（实测：监察者基于「1/2 已坐实」的图面请求重规划，三分钟后
+// 才被处理，那时两个结果都已坐实）。新增的动作不使请求作废——原地打转时动作照样增长，
+// 那正是请求要纠正的局面。不带图面的请求（目标调整）无条件有效。
+func TestLiveReplanReasons_DropsRequestsWhosePremiseChanged(t *testing.T) {
+	a, store := revisionAgent(t, nil)
+	ctx := context.Background()
+	basis := basisOf(t, store)
+	seen, err := store.Surface(ctx, revisionTask, basis)
+	require.NoError(t, err)
+
+	_, err = store.CreateNode(ctx, revisionNode("a-new", core.KindAction, explorationgraph.SourcePlanner, openState(), 5*time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"原地打转"},
+		a.liveReplanReasons(ctx, []replanRequest{{reason: "原地打转", seen: &seen}}),
+		"只多了动作：请求仍成立")
+
+	_, err = store.CreateNode(ctx, revisionNode("r-new", core.KindResult, explorationgraph.SourceEvaluator, nil, 6*time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"目标已调整"}, a.liveReplanReasons(ctx, []replanRequest{
+		{reason: "收益递减", seen: &seen},
+		{reason: "目标已调整"},
+	}), "出现新结果：基于旧图面的请求作废，无条件请求保留")
+}

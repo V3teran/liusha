@@ -210,7 +210,7 @@ func (d *Deps) run(
 			stack.detector.Abort(reason)
 		},
 		onGoalChanged: func() {
-			stack.plannerAgent.RequestReplan("任务目标已被用户调整：按新目标重新规划（按旧目标排出、尚未开始的动作已撤回）")
+			stack.plannerAgent.RequestReplan("任务目标已被用户调整：按新目标重新规划（按旧目标排出、尚未开始的动作已撤回）", nil)
 			stack.monitorAgent.RequestReview("任务目标已被用户调整：复核在途动作是否仍服务于新目标")
 		},
 		logger: d.Logger.With().Str("component", "task_watch").Logger(),

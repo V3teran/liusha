@@ -193,7 +193,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 | planner | 建 action；停止探索时收回自己排出、还没做完的动作（`StopExploration`：open / running → aborted，以规划依据为前置，用户指派的不动）；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`），并在被分析的 result 上记分析水位（`analyzed`）；结果分析不排动作 |
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
-| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图 |
+| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `get_global_state` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
 | 认知循环（cognition） | 新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
 | 任务目标（`task.Store`） | 建根 objective（随任务创建，`Create` 同事务，每任务一个，唯一索引兜底）、改写目标（`SetGoal`：任务行与根目标描述同事务） |
 | 运行中引导（`dispatch` 的 `AdjustGoal` / `AssignAction` / `RejectAction`） | 调整目标时撤回规划者排好、尚未开始的动作（→ aborted）；指派 action（来源 user，挂根目标）；否决 action（否决方 user）。与任务行锁、时间线回执同事务 |

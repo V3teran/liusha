@@ -210,3 +210,32 @@ func (a *Agent) knownInstructions(ctx context.Context) (map[string]bool, error) 
 	}
 	return set, nil
 }
+
+// liveReplanReasons 取出仍然成立的重规划请求的理由。带着所见图面的请求，在此期间目标被
+// 改写、出现了新的派生目标或新结果，判断的前提已经变了，作废并记日志——发起方周期运行，
+// 问题仍在会再次提出，作废的代价至多一个周期；照旧执行则会按过时的判断推翻规划者此后
+// 的结论。新增的动作不使请求作废：团队原地打转时动作照样增长，那正是请求要纠正的局面。
+// 读不到当前图面时保守保留全部请求。
+func (a *Agent) liveReplanReasons(ctx context.Context, requests []replanRequest) []string {
+	if len(requests) == 0 {
+		return nil
+	}
+	_, now, err := a.planningBasis(ctx)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("读取图面失败，重规划请求全部保留")
+	}
+	reasons := make([]string, 0, len(requests))
+	for _, r := range requests {
+		if err == nil && r.seen != nil && premiseChanged(*r.seen, now) {
+			a.logger.Info().Str("reason", r.reason).Msg("重规划请求作废：发起后图面已有实质进展，判断前提已变")
+			continue
+		}
+		reasons = append(reasons, r.reason)
+	}
+	return reasons
+}
+
+// premiseChanged 判断两个图面之间是否有实质进展：目标改写、新的派生目标、新结果。
+func premiseChanged(seen, now explorationgraph.Surface) bool {
+	return seen.Goal != now.Goal || seen.Objectives != now.Objectives || seen.Results != now.Results
+}
