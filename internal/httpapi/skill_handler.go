@@ -96,7 +96,7 @@ func createSkillHandler(api SkillAPI) gin.HandlerFunc {
 			return
 		}
 		created, err := api.CreateSkill(c.Request.Context(), skillstore.Skill{
-			Code: req.Code, Category: req.Category, Name: req.Name,
+			Code: generatedCode(req.Code, req.Name), Category: req.Category, Name: req.Name,
 			Description: req.Description, Body: req.Body, Enabled: true,
 		})
 		if err != nil {

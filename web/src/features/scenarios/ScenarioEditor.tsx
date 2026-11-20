@@ -111,8 +111,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
     !draft.name.trim() ||
     !draft.body.trim() ||
     nameRunes > MAX_NAME_RUNES ||
-    bodyRunes > MAX_BODY_RUNES ||
-    (isNew && !draft.code.trim())
+    bodyRunes > MAX_BODY_RUNES
 
   const invalidate = () => qc.invalidateQueries({ queryKey: SCENARIOS_KEY })
 
@@ -122,7 +121,6 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
     try {
       if (isNew) {
         await createScenario({
-          code: draft.code.trim(),
           name: draft.name.trim(),
           description: draft.description,
           body: draft.body,
@@ -214,15 +212,6 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                   label: '基本信息',
                   content: (
                     <>
-                      <Field label="标识符" hint={isNew ? '唯一寻址名：小写字母、数字与连字符，创建后不可修改' : '创建后固定'}>
-                        <input
-                          className={INPUT_CLASS}
-                          value={draft.code}
-                          spellCheck={false}
-                          disabled={!isNew}
-                          onChange={(e) => patch({ code: e.target.value })}
-                        />
-                      </Field>
                       {detail?.shadows_builtin && (
                         <p className="text-xs text-status-warning">
                           这个自建场景与同名内置场景冲突，内置版本被遮蔽、不生效。
