@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.4](https://github.com/V3teran/liusha/compare/v0.13.3...v0.13.4) (2026-11-20)
+
+
+### 新功能
+
+* **config:** 技能与场景新建不再要求用户填标识符 ([701a6a1](https://github.com/V3teran/liusha/commit/701a6a1c843d6dd3d2747f1d433aa577925d2901))
+
+
+### 问题修复
+
+* **db:** jsonb 写入边界清洗字符串值中的 NUL ([4c1e886](https://github.com/V3teran/liusha/commit/4c1e88668a8bec5c199399226a1f8b4a610788c3))
+* **finding:** 交付与验证解耦，台账缺口由周期补交付收账 ([5bb9283](https://github.com/V3teran/liusha/commit/5bb9283498580475a09ee79b8080f67d3d35efcb))
+* **llm:** 流截断归为瞬时故障，取消的流不再误记为截断 ([962cf75](https://github.com/V3teran/liusha/commit/962cf75b8d9a0f1f25da9b3043405a6fb15bae6e))
+* **task:** 目标主机派生认裸地址，存量任务回填 ([8fb8dc2](https://github.com/V3teran/liusha/commit/8fb8dc2d6eae7061c77e95c33286808bd547f874))
+* **ui:** 探索图节点详情的字段标题与分类值中文化 ([ba9f7c6](https://github.com/V3teran/liusha/commit/ba9f7c62d221c7562a78062275e6133575d541b6))
+
 ## [0.13.3](https://github.com/V3teran/liusha/compare/v0.13.2...v0.13.3) (2026-11-20)
 
 
