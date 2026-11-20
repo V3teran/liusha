@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.6](https://github.com/V3teran/liusha/compare/v0.13.5...v0.13.6) (2026-11-20)
+
+
+### 问题修复
+
+* **audit:** 工具调用记录里的中文输出不再变成乱码 ([e2c31c8](https://github.com/V3teran/liusha/commit/e2c31c817fd22b2de9f9636b381e68629de80329))
+
 ## [0.13.5](https://github.com/V3teran/liusha/compare/v0.13.4...v0.13.5) (2026-11-20)
 
 
