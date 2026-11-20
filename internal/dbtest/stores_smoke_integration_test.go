@@ -62,7 +62,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	ti := toolinvocation.NewStore(pool)
 	if _, err := ti.Append(ctx, toolinvocation.Invocation{
 		AgentRunID: runID, TaskID: tk.ID, ToolName: "run_command",
-		Args: []byte(`{}`), OutputSize: 2, OutputPreview: "ok", DurationMs: 3,
+		Args: []byte(`{}`), OutputSize: 2, Output: "ok", DurationMs: 3,
 	}); err != nil {
 		t.Fatalf("tool_invocation append: %v", err)
 	}
