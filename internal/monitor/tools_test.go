@@ -72,6 +72,45 @@ func TestGetGlobalStateTool_SumsExplorationState(t *testing.T) {
 	assert.NotEmpty(t, state.Objective.ID, "根目标应存在")
 }
 
+// 监察者判断「方向已被证伪」「最近提交的假设全部被证伪」「没有待验证的假设」都要看假设：
+// 全局状态按提交先后列出假设的陈述、验证状态与反驳原因；事实观察不在其列。
+func TestGetGlobalStateTool_ListsHypotheses(t *testing.T) {
+	graph := newGraphWithActions(t)
+	ctx := context.Background()
+	base := time.Unix(1700000000, 0)
+	pending := explorationgraph.VerificationPending
+	refuted := explorationgraph.VerificationRefuted
+	for _, n := range []explorationgraph.Node{
+		{ID: "h-refuted", TaskID: "t1", Kind: core.KindObservation, VerificationStatus: &refuted,
+			Content:   []byte(`{"category":"hypothesis","statement":"主张甲"}`),
+			Metadata:  []byte(`{"refute_reason":"claim_invalid"}`),
+			CreatedAt: base.Add(time.Second)},
+		{ID: "h-pending", TaskID: "t1", Kind: core.KindObservation, VerificationStatus: &pending,
+			Content: []byte(`{"category":"hypothesis","statement":"主张乙"}`), CreatedAt: base.Add(2 * time.Second)},
+		{ID: "fact", TaskID: "t1", Kind: core.KindObservation,
+			Content: []byte(`{"category":"entity","statement":"事实"}`), CreatedAt: base.Add(3 * time.Second)},
+	} {
+		_, err := graph.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
+
+	tool := NewGetGlobalStateTool(graph, "t1", metrics.NewCollector(graph, "t1", zerolog.Nop()))
+	out, err := tool.Execute(ctx, []byte(`{}`))
+	require.NoError(t, err)
+	require.Empty(t, out.Error)
+
+	var state struct {
+		Hypotheses []HypothesisView `json:"hypotheses"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out.Output), &state))
+	require.Len(t, state.Hypotheses, 2, "只列假设，不列事实")
+	assert.Equal(t, HypothesisView{ID: "h-refuted", Statement: "主张甲", VerificationStatus: refuted,
+		RefuteReason: "claim_invalid", CreatedAt: state.Hypotheses[0].CreatedAt}, state.Hypotheses[0])
+	assert.Equal(t, "h-pending", state.Hypotheses[1].ID)
+	assert.Equal(t, pending, state.Hypotheses[1].VerificationStatus)
+	assert.Empty(t, state.Hypotheses[1].RefuteReason)
+}
+
 func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()

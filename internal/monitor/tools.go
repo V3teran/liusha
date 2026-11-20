@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/V3teran/liusha/internal/constants"
@@ -18,7 +19,7 @@ import (
 // GetGlobalStateTool - 获取任务全局状态
 // ============================================
 
-// GetGlobalStateTool 把探索图全局态势（objectives/actions/results 摘要）喂给 LLM。
+// GetGlobalStateTool 把探索图全局态势（根目标、动作、结果、假设、在途动作、速率）喂给 LLM。
 type GetGlobalStateTool struct {
 	registry.BaseTool
 	graph            *explorationgraph.Store
@@ -49,7 +50,7 @@ func (t *GetGlobalStateTool) ShortDesc() string {
 
 // Desc 实现工具接口。
 func (t *GetGlobalStateTool) Desc() string {
-	return "获取任务的全局状态，包括 Objective、所有 Actions 和 Results"
+	return "获取任务的全局态势：根目标、全部动作、已坐实的结果、全部假设（含验证状态与反驳原因）、在途动作与速率指标"
 }
 
 // Schema 实现工具接口。
@@ -75,6 +76,11 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("list results: %v", err)}, nil
 	}
 
+	observations, err := t.graph.ListNodesByKind(ctx, t.taskID, core.KindObservation)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("list observations: %v", err)}, nil
+	}
+
 	// 根目标（任务本身）
 	root, ok, err := t.graph.RootObjectiveOf(ctx, t.taskID)
 	if err != nil {
@@ -89,6 +95,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Objective:      ObjectiveView{ID: root.ID, Goal: root.Goal()},
 		Actions:        allActions,
 		Results:        findings,
+		Hypotheses:     hypothesisViews(observations),
 		RunningActions: t.runningActionViews(allActions, time.Now()),
 		Metrics:        t.metricsCollector.Snapshot(),
 	}
@@ -100,6 +107,32 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 	}
 
 	return registry.ToolResult{Output: string(stateJSON)}, nil
+}
+
+// hypothesisViews 从观察中抽取假设的监察视图，按提交先后排列。
+func hypothesisViews(observations []explorationgraph.Node) []HypothesisView {
+	views := []HypothesisView{}
+	for i := range observations {
+		obs := &observations[i]
+		if !obs.IsHypothesis() {
+			continue
+		}
+		var c struct {
+			Statement string `json:"statement"`
+		}
+		if err := json.Unmarshal(obs.Content, &c); err != nil {
+			continue // content 由 MustJSON 写入，解析失败=节点损坏，不进视图
+		}
+		views = append(views, HypothesisView{
+			ID:                 obs.ID,
+			Statement:          c.Statement,
+			VerificationStatus: *obs.VerificationStatus,
+			RefuteReason:       obs.RefuteReason(),
+			CreatedAt:          obs.CreatedAt,
+		})
+	}
+	sort.SliceStable(views, func(i, j int) bool { return views[i].CreatedAt.Before(views[j].CreatedAt) })
+	return views
 }
 
 // runningActionViews 从动作列表抽取 running 态的监察视图。
