@@ -157,12 +157,22 @@ func TestTask_WallclockDuration(t *testing.T) {
 	}
 }
 
-// 目标主机是目标的派生：取第一个 http(s) 目标的主机（含端口），没有则为空。
+// 目标主机是目标的派生：URL 优先，其次裸地址（裸 IPv4 端口可选、裸主机名须含点带
+// 端口），散文里的时间、比例、版本号不误配，没有则为空。
 func TestTargetHostOf(t *testing.T) {
 	cases := map[string]string{
 		"测试 http://a.test:8080/login 与 https://b.test": "a.test:8080",
 		"代理流量分析：https://shop.test 的 3 条流量":             "shop.test",
-		"分析 10.0.0.1 的代理流量":                            "",
+		// URL 优先于其后出现的裸地址
+		"先看 https://shop.test 再拨 10.0.0.9": "shop.test",
+		// 裸 IPv4：带端口与不带端口都是目标
+		"靶场入口地址（VPN 内直连）：10.0.164.145:8080、10.0.164.145:5005": "10.0.164.145:8080",
+		"分析 10.0.0.1 的代理流量":                                   "10.0.0.1",
+		// 裸主机名：含点且带端口才认
+		"目标 shop.internal:8443 已就绪": "shop.internal:8443",
+		// 散文不误配：时间、无点服务名、版本号冒数字
+		"耗时约 1:30，见图 hugegraph:8080 已注册": "",
+		"协议版本 v2:8080 不适用":               "",
 	}
 	for goal, want := range cases {
 		if got := targetHostOf(goal); got != want {

@@ -180,7 +180,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 任务目标
 
-- 目标只有一处事实源：`task.goal`（智能体看到的目标全文：人工下发为 brief 加附件清单，代理捕获为合成的分析说明）与根目标描述由 `task.Store` 在同一事务内写入——任务创建时一同建根目标（`Create`），改写只经 `SetGoal` / `SetGoalTx`（内容不变不写，已结束的任务拒绝）。`target_host` 是目标的派生（第一个 http(s) 目标的主机），随目标一同写入。
+- 目标只有一处事实源：`task.goal`（智能体看到的目标全文：人工下发为 brief 加附件清单，代理捕获为合成的分析说明）与根目标描述由 `task.Store` 在同一事务内写入——任务创建时一同建根目标（`Create`），改写只经 `SetGoal` / `SetGoalTx`（内容不变不写，已结束的任务拒绝）。`target_host` 是目标的派生（第一个目标地址的主机：URL 优先，其次裸 IPv4（端口可选）与含点带端口的主机名），随目标一同写入。
 - run 不携带输入（`agent_run` 无 input 列，投递消息只有 run / 任务 / 会话 ID）：认知循环从图上读根目标，runner 开跑时从任务行取目标主机——续跑、恢复重投、目标调整后都以最新目标为准。
 - 「brief」只指下发入口的输入（`POST /chat`、`POST /tasks`、定时模板、assignment 条目）；目标长度契约是 `task.MaxGoalRunes`。
 
@@ -216,7 +216,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 复现门是终局：http 配方（`httprepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
 - 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `httprepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
 - 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
-- 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付 → 标记假设已验证。交付成功前不得标记；任一步失败，假设保持 pending，下轮重试。
+- 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付（尽力而为：失败只告警，不回滚验证结论）→ 标记假设已验证。验证结论以审计链与图为准；交付是按结果节点幂等的投影，台账缺口由 runner 的周期补交付（`RedeliverUndeliveredFindings`，启动一次 + 每 10 分钟）收账——交付故障不得按验证失败处理，否则复现成功的主张会被重跑复现、按不可复现错驳（实测：交付反复失败曾令坐实成果整批出圈）。
 - 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 
 ### 凭证库（`internal/credential`）
