@@ -1,7 +1,6 @@
 package planner
 
 import (
-	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/evaluator"
 
 	"encoding/json"
@@ -389,22 +388,6 @@ func buildRefutedHypothesesSection(hypotheses []RefutedHypothesis) string {
 			sb.WriteString("；评估说明：" + textx.TruncateRunes(detail, historyClampRunes, "…（截断）"))
 		}
 		sb.WriteString("\n")
-	}
-	sb.WriteString("\n")
-	return sb.String()
-}
-
-// buildExperienceSection 渲染跨任务历史经验简报：以任务目标检索出的历史教训
-// （agent 收尾蒸馏 + expert 导入同源）。每条钳长防止单条经验霸占规划视野；
-// 空列表不渲染该节。
-func buildExperienceSection(entries []corpus.Entry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("## 历史经验参考（来自跨任务知识库）\n")
-	for _, e := range entries {
-		fmt.Fprintf(&sb, "- %s：%s\n", e.Title, textx.TruncateRunes(e.Content, 400, "…（截断）"))
 	}
 	sb.WriteString("\n")
 	return sb.String()

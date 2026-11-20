@@ -354,8 +354,8 @@ func (d *Deps) assembleStack(
 
 	// planner。执行经验经 gatherContext 注入：gatherContext 拉全图观察
 	// （含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
-	// 跨任务经验面：corpus 经验简报（开局注入）+ 白名单 function 工具
-	// （search_corpus 按需检索）——战略层与执行层同等接通长期记忆。
+	// 跨任务知识库只经白名单 function 工具（search_corpus）按需检索，
+	// 不在规划输入里预先注入——战略层与执行层同等接通长期记忆。
 	// 白名单先与规划安全工具集求交：规划者不做执行面动作（run_command/
 	// drive_browser/http_request 是 executor/evaluator 的职责），白名单误配
 	// "*" 不得把执行工具武装给规划者——角色边界由代码守护而非运维自觉。
@@ -379,7 +379,6 @@ func (d *Deps) assembleStack(
 		WithContextRatio(d.ContextRatios.Planner).
 		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
 		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
-		WithCorpus(d.Corpus, d.Embedder).
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 图读工具入共享审计链（遥测/时间线）

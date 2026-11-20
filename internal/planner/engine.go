@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -47,16 +46,9 @@ type Engine struct {
 	budget              time.Duration     // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
 	roster              []AgentBrief      // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
-	// 跨任务经验面（nil=关闭）：corpus 检索开局注入经验简报；extraTools 是
-	// 白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
+	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
 	// 工厂构建），Plan 时按白名单注册进 ReAct。
-	corpus     *corpus.Store
-	embedder   corpus.Embedder
 	extraTools []registry.Tool
-	// 经验简报按任务缓存：Engine 随认知循环构造（一次任务一份），查询键
-	// （根目标）在任务内稳定——只检索一次，不随规划轮次重复烧 embedding/检索。
-	experienceLoaded bool
-	experience       []corpus.Entry
 
 	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装）——
 	// 规划器的图读工具与 executor 工具同一执行面，遥测/时间线无盲区。
@@ -128,13 +120,6 @@ func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
 	return e
 }
 
-// WithCorpus 注入跨任务知识库（经验简报检索；nil=关闭该能力）。
-func (e *Engine) WithCorpus(store *corpus.Store, emb corpus.Embedder) *Engine {
-	e.corpus = store
-	e.embedder = emb
-	return e
-}
-
 // WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
 // 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
 func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
@@ -161,27 +146,6 @@ func (e *Engine) contextBudget(ctx context.Context) int {
 		return 0
 	}
 	return int(float64(cw) * e.contextRatio)
-}
-
-// experienceBriefing 检索与本任务目标相关的历史教训（agent 蒸馏与 expert 导入
-// 同源）。embedding 可用时走 hybrid 检索，否则退纯 sparse；失败返回 nil——
-// 检索不可用不能弄死规划。
-func (e *Engine) experienceBriefing(ctx context.Context, objective string) []corpus.Entry {
-	if e.corpus == nil || strings.TrimSpace(objective) == "" {
-		return nil
-	}
-	var queryVec []float32
-	if e.embedder != nil {
-		if v, err := e.embedder.EmbedQuery(ctx, objective); err == nil {
-			queryVec = v
-		}
-	}
-	entries, err := e.corpus.SearchHybrid(ctx, objective, queryVec, nil, 20, 5, nil)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("经验简报检索失败（本轮规划不带历史经验）")
-		return nil
-	}
-	return entries
 }
 
 // WithThoughts 注入思考流出口（认知循环的会话流实现；nil=不流式）。
@@ -233,7 +197,6 @@ type PlanningContext struct {
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
-	Experience        []corpus.Entry          // 跨任务历史经验简报（开局检索注入；空=无）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 }
 
@@ -292,13 +255,6 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	if err != nil {
 		return PlanOutcome{}, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
-	// 历史经验简报：以任务目标检索跨任务知识库（top5，检索失败静默跳过——
-	// 经验是增益不是依赖），开局即把历史教训带进规划视野；任务内检索一次。
-	if !e.experienceLoaded {
-		e.experience = e.experienceBriefing(ctx, planCtx.Objective)
-		e.experienceLoaded = true
-	}
-	planCtx.Experience = e.experience
 	planCtx.ReplanReasons = req.ReplanReasons
 	prompt := e.buildPlanningPrompt(planCtx)
 
@@ -506,9 +462,6 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 
 	// 3.2 重规划理由（常规规划不渲染）
 	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
-
-	// 3.5 历史经验简报（跨任务知识库开局注入；空=不渲染该节）
-	sb.WriteString(buildExperienceSection(ctx.Experience))
 
 	// 4. 统计信息
 	sb.WriteString(buildStatisticsSection(ctx))
