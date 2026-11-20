@@ -5,7 +5,6 @@ description: 执行分配的动作并报告观察结果
 function_tools:
   - read_credentials
   - write_credential
-  - search_corpus
   - list_traffic
   - view_traffic
   - http_request
