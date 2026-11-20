@@ -753,30 +753,40 @@ func (f *failingClaimSink) Record(_ context.Context, c ConfirmedClaim) error {
 	return nil
 }
 
-// 交付失败：晋升返回错误、假设不被标记（保持待验证），重试时经语义去重命中既有
-// 结果节点并补齐交付——图里有 verified result 而台账缺失的状态不会固化。
-func TestPromote_DeliveryFailureLeavesHypothesisPendingAndRetryDelivers(t *testing.T) {
+// 交付失败不拖垮验证：晋升照常完成、假设按结论标记，交付缺口由周期补交付按结果
+// 节点收账——把交付失败当验证失败会重跑复现，并把已坐实主张按不可复现错驳
+// （实测：交付反复失败曾令坐实成果整批出圈、台账永久缺失）。
+func TestPromote_DeliveryFailureDoesNotBlockConfirmation(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-f1"}
 	sink := &failingClaimSink{fails: 1}
 	fp := json.RawMessage(`{"class":"weak_config","target":"GET http://t.local/q","point":"id"}`)
 	gate := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"url":"http://t.local/q?id=1"}`)}}, sink).
 		WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: fp})
 
-	if _, err := gate.Promote(context.Background(), baseClaim()); err == nil {
-		t.Fatal("交付失败应返回错误")
-	}
-	if _, marked := w.metadata[baseClaim().NodeID]; marked {
-		t.Fatal("交付失败时不得标记假设（否则移出待验证集合，永不重试）")
-	}
-
 	node, err := gate.Promote(context.Background(), baseClaim())
 	if err != nil || node == nil {
-		t.Fatalf("重试应成功: node=%v err=%v", node, err)
+		t.Fatalf("交付失败不应拖垮晋升: node=%v err=%v", node, err)
 	}
-	if len(sink.claims) != 1 || sink.claims[0].ResultNodeID != node.ID {
-		t.Fatalf("重试应补齐交付: %+v", sink.claims)
+	var mark struct {
+		VerificationStatus string `json:"verification_status"`
+	}
+	if err := json.Unmarshal(w.metadata[baseClaim().NodeID], &mark); err != nil || mark.VerificationStatus != "confirmed" {
+		t.Fatalf("假设应按结论标记 confirmed，got %s err=%v", w.metadata[baseClaim().NodeID], err)
+	}
+	if len(sink.claims) != 0 {
+		t.Fatalf("首次交付失败不应落数: %+v", sink.claims)
 	}
 	if len(w.nodes) != 1 {
-		t.Fatalf("重试不应新建第二个结果节点: %d", len(w.nodes))
+		t.Fatalf("应只建一个结果节点: %d", len(w.nodes))
+	}
+
+	// 同指纹的第二条假设坐实：经语义去重命中既有结果并补齐交付（补交付的验证内形态）。
+	second := baseClaim()
+	second.NodeID = "obs-2"
+	if node2, err := gate.Promote(context.Background(), second); err != nil || node2 == nil || node2.ID != node.ID {
+		t.Fatalf("同指纹再确认应折叠进既有结果: node=%v err=%v", node2, err)
+	}
+	if len(sink.claims) != 1 || sink.claims[0].ResultNodeID != node.ID {
+		t.Fatalf("再确认应补齐既有结果的交付: %+v", sink.claims)
 	}
 }

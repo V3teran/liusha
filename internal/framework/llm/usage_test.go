@@ -74,6 +74,20 @@ func TestInstrumentProvider_NilMetaLeavesAttributionEmpty(t *testing.T) {
 	}
 }
 
+// providerFuncs 按需注入 Stream/Complete 的测试替身（其余走零值）。
+type providerFuncs struct {
+	stream func() (<-chan StreamEvent, error)
+}
+
+func (p providerFuncs) ProviderID() string { return "stub" }
+func (p providerFuncs) ModelID() string    { return "stub-model" }
+func (p providerFuncs) Complete(_ context.Context, _ Request) (Response, error) {
+	return Response{}, nil
+}
+func (p providerFuncs) Stream(_ context.Context, _ Request) (<-chan StreamEvent, error) {
+	return p.stream()
+}
+
 // streamStubProvider 按脚本吐流式事件（text/thinking/tool_call 增量 + done 收尾）。
 type streamStubProvider struct{ events []StreamEvent }
 
@@ -132,6 +146,36 @@ func TestInstrumentProvider_StreamRecordsAssembledResult(t *testing.T) {
 	}
 	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "run_command" {
 		t.Errorf("工具调用聚合 = %+v", got.ToolCalls)
+	}
+}
+
+// 消费方经 ctx 取消、provider 未发收尾事件即关通道：审计按取消归因（abandoned），
+// 不得记成流截断——截断意味着 provider 掉流，排障口径不同。
+func TestInstrumentProvider_CanceledStreamRecordsAbandonedNotTruncated(t *testing.T) {
+	sink := &captureSink{}
+	ctx, cancel := context.WithCancel(context.Background())
+	// 受控 provider：先吐一个事件，等消费方取消后再关通道（无收尾事件）——保证
+	// 审计收尾时 ctx 已取消，排除「通道先关、取消后到」的竞态。
+	gated := make(chan StreamEvent)
+	inner := providerFuncs{stream: func() (<-chan StreamEvent, error) {
+		go func() {
+			gated <- StreamEvent{Kind: StreamText, Content: "部分"}
+			<-ctx.Done()
+			close(gated)
+		}()
+		return gated, nil
+	}}
+	p := InstrumentProvider(inner, sink)
+
+	ch, _ := p.Stream(ctx, Request{})
+	<-ch           // 读到首个事件
+	cancel()       //nolint:revive // 模拟消费方放弃
+	for range ch { //nolint:revive // 排空通道（审计在关闭后落库）
+	}
+
+	rec := sink.recs[0]
+	if rec.FinishReason != "error: stream abandoned: context canceled" {
+		t.Errorf("FinishReason = %q，应为 abandoned 归因", rec.FinishReason)
 	}
 }
 

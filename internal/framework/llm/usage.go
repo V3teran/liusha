@@ -176,9 +176,15 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 			}
 		}
 		// 未见收尾事件即关闭：部分正文不得审计为成功（与 CollectStream 同口径）。
+		// 消费方经 ctx 放弃（任务中止/停机）时 provider 直接关通道、不发收尾事件——
+		// 这不是截断，先按取消归因，与上面 select 分支的 abandoned 同口径。
 		if !failed && !done {
 			failed = true
-			streamError = ErrStreamTruncated.Error()
+			if ctx.Err() != nil {
+				streamError = "stream abandoned: " + ctx.Err().Error()
+			} else {
+				streamError = ErrStreamTruncated.Error()
+			}
 			finish = "error: " + streamError
 		}
 		rec := p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError)

@@ -84,12 +84,28 @@ type NewParams struct {
 // 截断：任务指令被静默截断会腐蚀意图（agent 照半截指令干活）。
 const MaxGoalRunes = 20000
 
-// hostRe 匹配目标里的 http(s) 目标（含端口）。
-var hostRe = regexp.MustCompile(`https?://([^/\s]+)`)
+var (
+	// schemeHostRe 匹配目标里带 scheme 的 URL 主机（含端口）——首选派生源。
+	schemeHostRe = regexp.MustCompile(`https?://([^/\s]+)`)
+	// bareIPv4Re 匹配裸 IPv4（端口可选）：自由文本里的 IPv4 几乎只指目标主机。
+	bareIPv4Re = regexp.MustCompile(`\b((?:\d{1,3}\.){3}\d{1,3})(:\d{1,5})?`)
+	// bareHostRe 匹配裸主机名（必须含点且带端口）：不带端口或不含点的主机名与散文
+	// （「时长 1:30」「v2:8080」这类）歧义过高，不入派生。
+	bareHostRe = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9-]+:\d{1,5})`)
+)
 
-// targetHostOf 取目标里第一个 http(s) 目标的主机（含端口）；没有则为空。
+// targetHostOf 取目标里第一个目标地址的主机（含端口）：URL 优先，其次裸地址
+// （裸 IPv4 可不带端口，裸主机名须含点带端口）；没有则为空。裸地址是下发 brief 的
+// 常见写法（跑分适配器只拿得到 host:port），不认会令 target_host 全空——它是坐实
+// 交付时主机线索落空的最终兜底。
 func targetHostOf(goal string) string {
-	if m := hostRe.FindStringSubmatch(goal); m != nil {
+	if m := schemeHostRe.FindStringSubmatch(goal); m != nil {
+		return m[1]
+	}
+	if m := bareIPv4Re.FindStringSubmatch(goal); m != nil {
+		return m[1] + m[2]
+	}
+	if m := bareHostRe.FindStringSubmatch(goal); m != nil {
 		return m[1]
 	}
 	return ""

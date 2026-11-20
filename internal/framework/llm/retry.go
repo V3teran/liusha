@@ -85,6 +85,12 @@ func Classify(err error) ErrorClass {
 	if errors.As(err, &he) {
 		return ClassifyCode(he.Code)
 	}
+	// 流未见收尾事件即关闭（provider 掉流）：传输中断属瞬时故障，与下面的网络词同档。
+	// 只影响 Complete 的整轮重试与调用方阶梯的瞬时判定；Stream 建立后的中途失败
+	// 仍不自动重试（已发增量不可收回，决策权在调用方）。
+	if errors.Is(err, ErrStreamTruncated) {
+		return ClassNet
+	}
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {
 		return ClassNet

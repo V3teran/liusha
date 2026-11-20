@@ -1,6 +1,8 @@
 package explorationgraph
 
 import (
+	"github.com/V3teran/liusha/internal/db"
+
 	"context"
 	"fmt"
 )
@@ -25,7 +27,7 @@ func (s *Store) RecordVerification(ctx context.Context, v Verification) (string,
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO exploration_verification (id, task_id, node_id, repro, outcome, evidence, duration_ms, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		v.ID, v.TaskID, v.NodeID, v.Repro, string(v.Outcome), v.Evidence, v.DurationMs, v.CreatedAt)
+		v.ID, v.TaskID, v.NodeID, db.ScrubJSONB(v.Repro), string(v.Outcome), db.ScrubJSONB(v.Evidence), v.DurationMs, v.CreatedAt)
 	if err != nil {
 		return "", fmt.Errorf("insert verification: %w", err)
 	}

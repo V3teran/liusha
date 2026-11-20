@@ -10,6 +10,18 @@ import (
 // TestClassifyDNSTransient 回归：DNS 解析失败是瞬时网络错误，必须可重试。
 // e2e 实测：GLM 端点 DNS 抖动 35 次全部被误判为"不可重试错误"——三处分类器
 // 词表各自漂移的系统性缺陷，现统一委托 llm.Classify。
+// 流未见收尾事件即关闭是传输中断的瞬时故障：Complete 整轮重试安全，调用方阶梯
+// （评估者豁免、规划重试）据此视其为可重试。
+func TestClassifyStreamTruncatedTransient(t *testing.T) {
+	err := fmt.Errorf("LLM 调用失败: %w", ErrStreamTruncated)
+	if got := Classify(err); got != ClassNet {
+		t.Errorf("ErrStreamTruncated 应归为 ClassNet, got %v", got)
+	}
+	if !IsTransient(err) {
+		t.Error("ErrStreamTruncated 应为瞬时故障")
+	}
+}
+
 func TestClassifyDNSTransient(t *testing.T) {
 	dnsErr := fmt.Errorf(`Post "https://open.bigmodel.cn/api/paas/v4/chat/completions": dial tcp: lookup open.bigmodel.cn: no such host`)
 	if Classify(dnsErr) != ClassNet {
