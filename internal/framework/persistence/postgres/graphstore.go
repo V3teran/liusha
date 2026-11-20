@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	lidb "github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/framework/core"
 
 	"github.com/jackc/pgx/v5"
@@ -111,10 +112,10 @@ func (s *GraphStore) insertNode(ctx context.Context, db execer, node *core.Graph
 		node.ID,
 		taskID,
 		node.Kind,
-		node.Content,
+		lidb.ScrubJSONB(node.Content),
 		nullString(node.State),
 		version,
-		metadataJSON,
+		lidb.ScrubJSONB(metadataJSON),
 		now,
 		now,
 	)
@@ -193,7 +194,7 @@ func (s *GraphStore) UpdateNode(ctx context.Context, id string, update core.Grap
 
 	if update.Content != nil {
 		setParts = append(setParts, fmt.Sprintf("content = $%d", argIndex))
-		args = append(args, update.Content)
+		args = append(args, lidb.ScrubJSONB(update.Content))
 		argIndex++
 	}
 
@@ -209,7 +210,7 @@ func (s *GraphStore) UpdateNode(ctx context.Context, id string, update core.Grap
 			return fmt.Errorf("marshal metadata: %w", err)
 		}
 		setParts = append(setParts, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", argIndex))
-		args = append(args, metadataJSON)
+		args = append(args, lidb.ScrubJSONB(metadataJSON))
 		argIndex++
 	}
 

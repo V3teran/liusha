@@ -74,8 +74,8 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 		RETURNING `+colsSelect,
 		f.TaskID, f.ResultNodeID,
 		f.AgentRunID, f.Host, f.Severity,
-		f.Summary, f.Target, f.Evaluation,
-		f.CWEID, f.OWASPCategory, f.Remediation, f.Repro)
+		f.Summary, db.ScrubJSONB(f.Target), db.ScrubJSONB(f.Evaluation),
+		f.CWEID, f.OWASPCategory, f.Remediation, db.ScrubJSONB(f.Repro))
 
 	var saved Finding
 	if err := scan(row, &saved); err != nil {
