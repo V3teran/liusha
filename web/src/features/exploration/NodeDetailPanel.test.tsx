@@ -32,6 +32,29 @@ describe('NodeDetailPanel', () => {
     screen.getByRole('button', { name: '关闭详情' }).click()
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  it('内容字段标题用中文展示名，分类值经词表翻译', () => {
+    const obs: GraphNode = {
+      ...node,
+      kind: 'observation',
+      state: undefined,
+      content: {
+        statement: '捕获 flag{demo}',
+        category: 'hypothesis',
+        reasoning: '出自 /download 响应',
+        repro: { kind: 'steps' },
+      },
+    }
+    render(<NodeDetailPanel node={obs} onClose={vi.fn()} />)
+    // 契约固定字段给中文名
+    expect(screen.getByText('推理依据')).toBeTruthy()
+    expect(screen.getByText('复现配方')).toBeTruthy()
+    expect(screen.getByText('分类')).toBeTruthy()
+    // 枚举值经词表翻译，不再裸露英文
+    expect(screen.getByText('假设')).toBeTruthy()
+    expect(screen.queryByText('hypothesis')).toBeNull()
+    expect(screen.queryByText('reasoning')).toBeNull()
+  })
 })
 
 describe('NodeDetailPanel 已否决动作', () => {
