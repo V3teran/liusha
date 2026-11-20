@@ -87,6 +87,21 @@ type priorVerdict struct {
 	tier         string
 }
 
+// settled 报告这个结论能否沿用给同一「假设+配方」的再次验证：坐实，或证伪原因是对假设
+// 与配方本身的判断（主张不成立、断言无鉴别力、配方缺陷）。证据没拿到（not_reproducible）、
+// 评估者不可用以及读不到原因的证伪都不算定论——主张未被否定，规划者会安排重新取得后以
+// 同一配方重报，届时必须重新复现，沿用会让一次限流或宕机永久判死真实的主张。
+func (p priorVerdict) settled() bool {
+	if p.status == explorationgraph.VerificationConfirmed {
+		return true
+	}
+	switch p.refuteReason {
+	case RefuteClaimInvalid, RefuteAssertNotDiscriminative, RefuteInvalidRecipe:
+		return true
+	}
+	return false
+}
+
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
@@ -516,8 +531,11 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, cla
 		return fmt.Errorf("promote: %w", err)
 	}
 
-	// 判定完成（坐实或证伪）才入去重表；门出错允许重试。
-	a.verdictStore(hash, a.priorVerdictFrom(ctx, observationID, node))
+	// 判定完成（坐实或证伪）才入去重表；门出错允许重试。只缓存重验也会得出同样结论的
+	// 判定（见 priorVerdict.settled）。
+	if pv := a.priorVerdictFrom(ctx, observationID, node); pv.settled() {
+		a.verdictStore(hash, pv)
+	}
 
 	// node == nil 表示验证证伪
 	if node == nil {

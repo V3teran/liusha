@@ -257,6 +257,87 @@ func TestAgent_AdoptedRefutationCarriesDetail(t *testing.T) {
 	}
 }
 
+// flakyReplayer 前 failures 次复现断言未命中，之后命中：模拟目标限流 / 维护后恢复。
+type flakyReplayer struct {
+	mu       sync.Mutex
+	calls    int
+	failures int
+}
+
+func (f *flakyReplayer) Replay(context.Context, json.RawMessage) (Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls <= f.failures {
+		return Result{Evidence: json.RawMessage(`{"assert_passed":false,"attack_status_code":503}`)}, nil
+	}
+	return Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}, nil
+}
+
+// markSyncedGraph 让门的假设标记同时落到评估者读取的图上（内存图不支持审计链，
+// 审计与结果节点仍写 fakeGraphStore）：去重表据图上的反驳原因决定能否沿用。
+type markSyncedGraph struct {
+	*fakeGraphStore
+	marks *explorationgraph.Store
+}
+
+func (g markSyncedGraph) UpdateNodeMetadata(ctx context.Context, id string, metadata json.RawMessage) error {
+	if err := g.fakeGraphStore.UpdateNodeMetadata(ctx, id, metadata); err != nil {
+		return err
+	}
+	return g.marks.UpdateNodeMetadata(ctx, id, metadata)
+}
+
+// 证据没拿到（not_reproducible）不是对「假设+配方」的定论：规划者按它安排重新取得、
+// 以同一配方重报时必须重新复现，不得沿用上次的证伪（实测：目标维护窗口内的一次复放
+// 失败，让重新取得的真 flag 被去重直接判死）。
+func TestAgent_NotReproducibleIsNotAdoptedForSameRecipe(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	replayer := &flakyReplayer{failures: 1}
+	gateGraph := markSyncedGraph{fakeGraphStore: &fakeGraphStore{verID: "ver-r1"}, marks: graph}
+	promoter := gateWith(gateGraph, replayer, &fakeClaimSink{}).WithJudge(stubJudge{verdict: VerdictConfirmed})
+	a := NewAgent(AgentConfig{
+		TaskID: "t-retry", Gate: promoter, EventBus: bus.New(context.Background()), Graph: graph, Logger: zerolog.Nop(),
+	})
+	for _, id := range []string{"obs-1", "obs-2"} {
+		if _, err := graph.CreateNode(context.Background(), explorationgraph.Node{
+			ID: id, TaskID: "t-retry", Kind: core.KindObservation, Content: json.RawMessage(`{"statement":"X 参数存在可复现注入"}`),
+		}); err != nil {
+			t.Fatalf("预建假设节点 %s 失败: %v", id, err)
+		}
+	}
+	claimFor := func(id string) Claim {
+		c := baseClaim()
+		c.TaskID, c.NodeID = "t-retry", id
+		return c
+	}
+
+	if err := a.verifyObservation(context.Background(), "obs-1", claimFor("obs-1")); err != nil {
+		t.Fatalf("首次验证应成功: %v", err)
+	}
+	first, err := graph.GetNode(context.Background(), "obs-1")
+	if err != nil {
+		t.Fatalf("读回首个假设失败: %v", err)
+	}
+	if first.RefuteReason() != RefuteNotReproducible {
+		t.Fatalf("前置：首次复现未命中应按 not_reproducible 证伪，得 %q", first.RefuteReason())
+	}
+
+	if err := a.verifyObservation(context.Background(), "obs-2", claimFor("obs-2")); err != nil {
+		t.Fatalf("重报验证应成功: %v", err)
+	}
+	if replayer.calls != 2 {
+		t.Fatalf("同配方重报应重新复现，复现次数得 %d", replayer.calls)
+	}
+	second, err := graph.GetNode(context.Background(), "obs-2")
+	if err != nil {
+		t.Fatalf("读回重报假设失败: %v", err)
+	}
+	if !second.HasVerificationStatus(explorationgraph.VerificationConfirmed) {
+		t.Fatalf("目标恢复后重报应坐实，得 status=%v reason=%q", second.VerificationStatus, second.RefuteReason())
+	}
+}
+
 // 复现执行失败：门报错，且不落任何 verification/节点（避免脏证据链）。
 func TestPromote_ReplayError(t *testing.T) {
 	w := &fakeGraphStore{}
