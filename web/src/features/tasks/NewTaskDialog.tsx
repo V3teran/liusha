@@ -12,6 +12,7 @@ import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 import { ScenarioSelect } from '@/features/scenarios/ScenarioSelect'
 import { DialogClose } from '@/components/ui/DialogClose'
 import { InlineError } from '@/components/ui/InlineError'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface NewTaskDialogProps {
   open: boolean
@@ -121,11 +122,12 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
     mutation.mutate()
   }
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[620px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[620px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <Dialog.Title className="text-base font-semibold text-text">新建任务</Dialog.Title>
             <DialogClose />

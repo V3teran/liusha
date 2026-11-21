@@ -4,6 +4,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { DialogClose } from './DialogClose'
 import { InlineError } from './InlineError'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface FormDialogProps {
   open: boolean
@@ -46,11 +47,12 @@ export function FormDialog({
     e?.preventDefault()
     if (canSubmit && !pending) onSubmit()
   }
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[520px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[520px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <form
             onSubmit={submit}
             onKeyDown={(e) => {

@@ -15,6 +15,7 @@ import { ToolCallCard } from './ToolCallCard'
 import { DialogClose } from '@/components/ui/DialogClose'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState } from '@/components/ui/LoadingState'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface LlmInvocationDrawerProps {
   open: boolean
@@ -68,11 +69,12 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onRetry, llm
   const { accent: roleColor } = agentAccent(detail?.role)
   const status = detail ? invocationStatus(detail, llmTimeoutMs) : null
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]">
+        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]" onCloseAutoFocus={returnFocus}>
           <Dialog.Title className="sr-only">LLM 调用详情</Dialog.Title>
           <div
             className="border-b border-border border-l-4 px-5 pb-3.5 pt-4"

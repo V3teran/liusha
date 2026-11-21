@@ -15,6 +15,7 @@ import { useDeleteSchedule, useSchedules, useToggleSchedule } from './useSchedul
 import { DialogClose } from '@/components/ui/DialogClose'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState } from '@/components/ui/LoadingState'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface SchedulesDrawerProps {
   open: boolean
@@ -51,11 +52,12 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
     remove.mutate(r.id, { onError: (e) => setActionError(errorText(e, '删除失败')) })
   }
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[560px]">
+        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[560px]" onCloseAutoFocus={returnFocus}>
           <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
             <div className="min-w-0">
               <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-text">

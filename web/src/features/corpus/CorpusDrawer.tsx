@@ -19,6 +19,7 @@ import { DialogClose } from '@/components/ui/DialogClose'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { InlineError } from '@/components/ui/InlineError'
 import { LoadingState } from '@/components/ui/LoadingState'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface CorpusDrawerProps {
   /** 打开的条目 ID；空 = 关闭 */
@@ -87,6 +88,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
   const cancelEdit = guard(() => edit.close())
   const close = guard(onClose)
 
+  const returnFocus = useReturnFocus(id !== '')
   return (
     <Dialog.Root open={id !== ''} onOpenChange={(open) => !open && close()}>
       <Dialog.Portal>
@@ -96,6 +98,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
             'tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col sm:max-w-[640px]',
             'border-border bg-surface shadow-2xl sm:rounded-l-2xl sm:border-l',
           )}
+          onCloseAutoFocus={returnFocus}
         >
           <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
             <div className="min-w-0 flex-1">

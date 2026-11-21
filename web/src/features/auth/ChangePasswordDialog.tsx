@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 import { DialogClose } from '@/components/ui/DialogClose'
 import { InlineError } from '@/components/ui/InlineError'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 /**
  * 修改密码弹层。
@@ -98,11 +99,12 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
       .finally(() => setBusy(false))
   }
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[440px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[440px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <Dialog.Title className="text-base font-semibold text-text">修改密码</Dialog.Title>
             <DialogClose />

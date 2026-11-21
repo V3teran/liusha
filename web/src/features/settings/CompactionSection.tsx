@@ -82,7 +82,6 @@ function RatioField({
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
         />
-        <span className="flex-shrink-0 text-sm text-text-secondary">× 上下文窗口</span>
       </span>
     </Field>
   )

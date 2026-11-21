@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { sourceColor, sourceLabel } from '@/lib/source'
 import { DialogClose } from '@/components/ui/DialogClose'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface FindingDrawerProps {
   open: boolean
@@ -35,6 +36,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   const [note, setNote] = useState('')
   const fieldId = useId()
   const { copiedKey, copy } = useCopyToClipboard()
+  // 钩子须在下方的提前返回之前调用
+  const returnFocus = useReturnFocus(open)
 
   useEffect(() => {
     if (finding) {
@@ -64,6 +67,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
             'tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col sm:max-w-[720px]',
             'border-border bg-surface shadow-2xl sm:rounded-l-2xl sm:border-l'
           )}
+          onCloseAutoFocus={returnFocus}
         >
           {/* 头部 */}
           <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">

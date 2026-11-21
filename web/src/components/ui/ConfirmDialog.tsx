@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { AlertTriangle } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -14,7 +15,8 @@ interface ConfirmDialogProps {
   /** 危险操作（不可逆）：确认钮用 danger 变体 + 标题带警示图标。 */
   danger?: boolean
   onConfirm: () => void
-  /** 关闭后焦点还给谁：缺省由 Radix 还给触发按钮；以代码打开（没有触发按钮）时由调用方给出。 */
+  /** 关闭后焦点还给谁：缺省还给打开时的焦点元素（useReturnFocus）；发起点在打开前就已失焦时
+   *  （如从菜单项发起，菜单随即卸载）由调用方给出。 */
   returnFocusTo?: HTMLElement | null
 }
 
@@ -22,6 +24,7 @@ interface ConfirmDialogProps {
 // 在部分嵌入环境行为不一致）。取摆在 Confirm 前——首个可聚焦元素落在取消侧，
 // 危险操作的安全默认是「不动手」。Esc/遮罩点击由 Radix 统一映射为取消。
 export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel, danger, onConfirm, returnFocusTo }: ConfirmDialogProps) {
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -31,7 +34,7 @@ export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel
           aria-modal
           className="tac-modal fixed left-1/2 top-1/2 w-[360px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface p-5 shadow-lg outline-none"
           onCloseAutoFocus={(e) => {
-            if (!returnFocusTo?.isConnected) return
+            if (!returnFocusTo?.isConnected) return returnFocus(e)
             e.preventDefault()
             returnFocusTo.focus()
           }}
