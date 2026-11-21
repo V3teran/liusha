@@ -47,8 +47,8 @@ export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 品牌行：与页头同为 64px 高，底边线贯穿壳体 */}
-      <div className={cn('flex h-16 flex-shrink-0 items-center border-b border-border px-3', rail && 'justify-center gap-1')}>
+      {/* 品牌行：与页头同为 56px 高，底边线贯穿壳体 */}
+      <div className={cn('flex h-14 flex-shrink-0 items-center border-b border-border px-3', rail && 'justify-center gap-1')}>
         <BrandMark />
         {!rail && (
           <div className="ml-3 min-w-0 flex-1">
@@ -135,7 +135,7 @@ function SidebarLink({ item, rail, active, onNavigate }: { item: NavItem; rail: 
       aria-current={active ? 'page' : undefined}
       className={cn(
         'group flex items-center rounded-lg text-sm font-medium transition-colors duration-150',
-        rail ? 'h-9 justify-center' : 'gap-3 px-3 py-2',
+        rail ? 'h-9 justify-center' : 'gap-3 px-3 py-1.5',
         active
           ? 'bg-accent-soft text-accent shadow-[var(--glow-accent)]'
           : 'text-text-secondary hover:bg-surface-2 hover:text-text',

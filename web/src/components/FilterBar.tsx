@@ -32,7 +32,7 @@ export function FilterBar({ children, trailing, canReset, onReset, label = 'ç­›é
       role="search"
       aria-label={label}
       className={cn(
-        'flex flex-shrink-0 flex-col gap-3 border-b border-border-subtle bg-surface/50 px-6 py-3 sm:flex-row sm:items-start',
+        'flex flex-shrink-0 flex-col gap-3 border-b border-border-subtle bg-surface/50 px-6 py-2.5 sm:flex-row sm:items-start',
         className,
       )}
     >

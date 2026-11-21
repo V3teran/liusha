@@ -64,7 +64,7 @@ export function CredentialTable({
                 <th
                   key={h.id}
                   className={cn(
-                    'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary',
+                    'px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary',
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
