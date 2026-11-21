@@ -21,7 +21,7 @@ import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { useScopeLabel } from '@/features/relations/useScopeLabel'
 import { shortDateTime } from '@/lib/format'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
-import { getFindingTaskFacets } from '@/api/findings'
+import { getFindingClassFacets, getFindingTaskFacets } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -29,7 +29,7 @@ import { toast } from '@/components/ui/toast'
 
 /**
  * 「任务」选择框的候选：有发现的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
- * 列全）。结构化筛选（来源、状态、严重度、主机）照常收窄候选；同一目标常被反复下发，次要
+ * 列全）。结构化筛选（来源、状态、严重度、类型、主机）照常收窄候选；同一目标常被反复下发，次要
  * 信息里的创建时间用来区分。
  */
 function fetchTaskOptions(filters: FindingFilters) {
@@ -60,8 +60,18 @@ export function FindingsPage() {
     source: filters.source,
     status: filters.status,
     severity: filters.severity,
+    class: filters.class,
     host: filters.host,
   }
+  // 类型选项由服务端按其余筛选聚合（类型自身不收窄选项）
+  const { class: _class, page: _page, size: _size, ...classFacetFilters } = filters
+  const classFacets = useQuery({
+    queryKey: ['findings', 'class-options', classFacetFilters],
+    queryFn: () => getFindingClassFacets(classFacetFilters),
+    placeholderData: keepPreviousData,
+  })
+  const classOptions = classFacets.data ?? []
+  const classMissing = filters.class !== undefined && filters.class !== '' && !classOptions.some((o) => o.class === filters.class)
 
   // 关键词搜索在服务端执行（覆盖全部页，与分页、统计同一口径），停顿后写入 URL
   const [query, setQuery] = useState(filters.search ?? '')
@@ -262,6 +272,22 @@ export function FindingsPage() {
           {FINDING_STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          value={filters.class ?? ''}
+          onChange={(e) => setFilters({ ...filters, class: e.target.value })}
+          className="w-40"
+          aria-label="按类型筛选"
+        >
+          <option value="">全部类型</option>
+          {/* 经链接带入、当前筛选下已没有发现的类型照样列出，选择框如实显示当前筛选 */}
+          {classMissing && <option value={filters.class}>{filters.class}</option>}
+          {classOptions.map((o) => (
+            <option key={o.class} value={o.class}>
+              {o.name}（{o.count}）
             </option>
           ))}
         </Select>

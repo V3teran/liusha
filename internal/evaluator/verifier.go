@@ -58,6 +58,7 @@ type ConfirmedClaim struct {
 	ResultNodeID   string          // 晋升产生的 result 节点
 	VerificationID string          // 审计链回指
 	Statement      string          // 主张陈述
+	Class          string          // 主张类别（评估者按判定契约给出，类别词表由场景定；空 = 未给出）
 	Priority       string          // 优先级（交付侧按自己的评级体系转译并兜底）
 	Impact         string          // 影响与波及面（中性因果陈述；台账同名直传）
 	Suggestion     string          // 处理建议（译作 remediation）
@@ -115,6 +116,10 @@ type Verdict struct {
 
 // claimFingerprintMetadataKey 是 result 节点 metadata 中指纹规范键的落库键。
 const claimFingerprintMetadataKey = "claim_fingerprint"
+
+// claimClassMetadataKey 是 result 节点 metadata 中主张类别的落库键：交付按它给出类别，
+// 不从规范键里拆（规范键是去重的对照形式，不是数据的出处）。
+const claimClassMetadataKey = "claim_class"
 
 // 验证档位（verification_tier）：结论成色的显式标记，下游（报告/前端/planner）
 // 据此分级消费——judge_only 的结论没经过机器复放通道，含金量低于全门。
@@ -309,11 +314,12 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 
 	// 8. 坐实先查语义去重：同一主张（同指纹规范键）的再次确认折叠为既有
 	// 结果的佐证。指纹缺失或形状损坏则不折叠。
-	fingerprintKey := ""
+	fingerprintKey, class := "", ""
 	if verdict.Verdict == VerdictConfirmed {
 		if key, ok := canonicalFingerprint(verdict.Fingerprint); ok {
 			fingerprintKey = key
 		}
+		class = claimClass(verdict.Fingerprint)
 	}
 	var duplicate *explorationgraph.Node
 	if fingerprintKey != "" {
@@ -364,8 +370,8 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 		}
 		promoted = duplicate
 	default:
-		// 13. 创建已验证节点（指纹随 metadata 落库，供后续去重对照）
-		node, err := g.createVerifiedNode(ctx, a, uuid.New().String(), fingerprintKey)
+		// 13. 创建已验证节点（指纹规范键与主张类别随 metadata 落库：前者供后续去重对照，后者随交付给出）
+		node, err := g.createVerifiedNode(ctx, a, uuid.New().String(), fingerprintKey, class)
 		if err != nil {
 			return nil, err
 		}
@@ -413,6 +419,12 @@ func (g *PromotionGate) deliverClaim(
 
 // confirmedClaim 由结果节点与坐实它的那次验证组装交付载荷（正常交付与补交付共用一份）。
 func confirmedClaim(node explorationgraph.Node, verID string, evidence, repro json.RawMessage, tier string, durationMs int64) (ConfirmedClaim, error) {
+	var meta struct {
+		Class string `json:"claim_class"`
+	}
+	if len(node.Metadata) > 0 {
+		_ = json.Unmarshal(node.Metadata, &meta) // metadata 损坏只缺类别，不拦交付
+	}
 	var content struct {
 		Statement  string          `json:"statement"`
 		Impact     string          `json:"impact"`
@@ -428,6 +440,7 @@ func confirmedClaim(node explorationgraph.Node, verID string, evidence, repro js
 		ResultNodeID:   node.ID,
 		VerificationID: verID,
 		Statement:      content.Statement,
+		Class:          meta.Class,
 		Priority:       string(node.Priority),
 		Impact:         content.Impact,
 		Suggestion:     content.Suggestion,

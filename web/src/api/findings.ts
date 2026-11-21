@@ -5,7 +5,7 @@
  */
 
 import { get, patch } from './client'
-import type { FindingFilters, FindingListResponse, FindingRow, FindingTaskFacet } from './types'
+import type { FindingClassFacet, FindingFilters, FindingListResponse, FindingRow, FindingTaskFacet } from './types'
 
 /** 台账筛选的查询参数（列表与统计共用，筛选口径不漂移；空值不带）。 */
 function ledgerParams(filters: FindingFilters): URLSearchParams {
@@ -17,7 +17,7 @@ function ledgerParams(filters: FindingFilters): URLSearchParams {
 }
 
 /**
- * 分页拉取全局发现台账。可选按范围（task / conversation）与 host/severity/status/source 筛选；
+ * 分页拉取全局发现台账。可选按范围（task / conversation）与 host/severity/class/status/source 筛选；
  * page/size 缺省时后端落 1 / 50。
  */
 export async function listFindings(filters: FindingFilters = {}): Promise<FindingListResponse> {
@@ -35,6 +35,15 @@ export async function getFindingTaskFacets(
 ): Promise<{ tasks: FindingTaskFacet[]; has_more: boolean }> {
   const params = ledgerParams({ ...filters, search })
   return get(`/findings/tasks?${params}`)
+}
+
+/**
+ * 台账「类型」筛选的选项：出现过的发现类型与发现数（按发现数降序）。其余筛选照常生效，
+ * 类型自身的筛选不作用于选项（选中一个类型时其余类型仍可选）。
+ */
+export async function getFindingClassFacets(filters: FindingFilters): Promise<FindingClassFacet[]> {
+  const { classes } = await get<{ classes: FindingClassFacet[] }>(`/findings/classes?${ledgerParams(filters)}`)
+  return classes
 }
 
 /** 单条发现（与台账列表行同形状）：发现详情按 ID 打开——不在当前页、刷新、后退回来时用。 */

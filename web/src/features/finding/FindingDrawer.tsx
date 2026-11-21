@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
+import { ExternalLink } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
@@ -124,16 +125,24 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       {finding.target?.path}
                     </span>
                   </div>
-                  {finding.cwe_id && (
+                  <div className="flex items-start gap-3">
+                    <span className="w-24 flex-shrink-0 text-text-secondary">类型</span>
+                    <span className="text-text">{finding.class_name}</span>
+                  </div>
+                  {finding.cwe && (
                     <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">CWE ID</span>
-                      <span className="font-mono text-text">{finding.cwe_id}</span>
-                    </div>
-                  )}
-                  {finding.owasp_category && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">OWASP</span>
-                      <span className="font-mono text-text">{finding.owasp_category}</span>
+                      <span className="w-24 flex-shrink-0 text-text-secondary">CWE</span>
+                      {/* 编号链到 MITRE 的定义页：弱点的标准说明与修复参考 */}
+                      <a
+                        href={`https://cwe.mitre.org/data/definitions/${finding.cwe.replace('CWE-', '')}.html`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-xs text-text underline-offset-2 hover:text-accent hover:underline"
+                      >
+                        {finding.cwe}
+                        <ExternalLink aria-hidden className="h-3 w-3" />
+                        <span className="sr-only">（在新标签页打开 MITRE 定义）</span>
+                      </a>
                     </div>
                   )}
                   <div className="flex items-start gap-3">

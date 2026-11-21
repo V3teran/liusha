@@ -175,7 +175,7 @@ else
   echo "  排查："
   echo "    1. $LOG_DIR/runner.log 看 ReAct 循环是否跑"
   echo "    2. docker exec ${PG_CONTAINER} psql -U liusha -d liusha -c \\"
-  echo "       'SELECT severity, cwe_id, host, summary FROM finding ORDER BY created_at DESC;'"
+  echo "       'SELECT severity, class, host, summary FROM finding ORDER BY created_at DESC;'"
   echo "    3. 前端看图：web/（本仓）→ make run-web（/api 代理到本 api）"
 fi
 

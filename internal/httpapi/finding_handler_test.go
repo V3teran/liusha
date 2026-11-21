@@ -21,6 +21,14 @@ type fakeFindings struct {
 	facets         []finding.TaskFacet
 	gotGoalQuery   string
 	gotFacetLimit  int
+
+	classFacets    []finding.ClassFacet
+	gotClassFilter finding.LedgerFilter
+}
+
+func (f *fakeFindings) ClassFacets(_ context.Context, fl finding.LedgerFilter) ([]finding.ClassFacet, error) {
+	f.gotClassFilter = fl
+	return f.classFacets, nil
 }
 
 func (f *fakeFindings) TaskFacets(_ context.Context, fl finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error) {
@@ -188,5 +196,49 @@ func TestFindings_TaskFacets(t *testing.T) {
 	}
 	if code, _ := doJSON(t, "GET", srv.URL+"/api/findings/tasks?source=bogus", nil); code != 400 {
 		t.Fatalf("非法来源应 400，得 %d", code)
+	}
+}
+
+// 类型分面与类型筛选：class 参数透传给列表；分面与列表同一筛选参数，带展示名，空结果是数组。
+func TestFindings_ClassFilterAndFacets(t *testing.T) {
+	fk := &fakeFindings{}
+	srv := newTestServer(t, Deps{Findings: fk})
+	defer srv.Close()
+
+	doReq(t, "GET", srv.URL+"/api/findings?class=sql_injection&status=open", "")
+	if fk.gotListFilter.Class != "sql_injection" || fk.gotListFilter.Status != "open" {
+		t.Fatalf("类型筛选未透传: %+v", fk.gotListFilter)
+	}
+
+	code, body := doJSON(t, "GET", srv.URL+"/api/findings/classes?status=open", nil)
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if classes, ok := body["classes"].([]any); !ok || len(classes) != 0 {
+		t.Fatalf("空结果应为空数组: %v", body)
+	}
+	if fk.gotClassFilter.Status != "open" {
+		t.Fatalf("分面筛选未透传: %+v", fk.gotClassFilter)
+	}
+
+	fk.classFacets = []finding.ClassFacet{{Class: "info_disclosure", Count: 9}, {Class: "other", Count: 2}}
+	_, body = doJSON(t, "GET", srv.URL+"/api/findings/classes", nil)
+	got := body["classes"].([]any)
+	first, second := got[0].(map[string]any), got[1].(map[string]any)
+	if first["class"] != "info_disclosure" || first["name"] != "敏感信息泄露" || first["count"] != float64(9) ||
+		second["class"] != "other" || second["name"] != "其他" {
+		t.Fatalf("字段不符: %v", got)
+	}
+}
+
+// 漏洞按类型带出展示名与 CWE（从词表取，不另存）。
+func TestFindingJSON_ClassNameAndCWE(t *testing.T) {
+	got := findingJSON(finding.LedgerRow{Finding: finding.Finding{Class: "sql_injection"}})
+	if got["class_name"] != "SQL 注入" || got["cwe"] != "CWE-89" {
+		t.Fatalf("类型展示名 / CWE 不符: %v %v", got["class_name"], got["cwe"])
+	}
+	got = findingJSON(finding.LedgerRow{Finding: finding.Finding{Class: "security_misconfiguration"}})
+	if got["class_name"] != "安全配置缺陷" || got["cwe"] != "" {
+		t.Fatalf("没有合适 CWE 的类型应为空: %v", got["cwe"])
 	}
 }

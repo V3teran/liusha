@@ -33,11 +33,11 @@ type Finding struct {
 	// Repro 是通过复现门的配方（信封 {kind,recipe,assert}），交付时随主张落库，供复验
 	// 与人读。recipe/assert 的形状归配方形状，本层只作 jsonb 透传。
 	Repro json.RawMessage
-	// 分类元数据
-	CWEID         string    // 例 "CWE-89"
-	OWASPCategory string    // 例 "A03:2021"
-	FirstSeenAt   time.Time // 首次发现时间——重放交付不变；新建时与 CreatedAt 一致
-	Remediation   string    // 修复建议自然语言；evidence 仍存 PoC
+	// Class 是发现的类型，取自封闭词表（class.go）：坐实主张时评估者给出的主张类别，词表之外的
+	// 与未给出的归入 other。展示名与 CWE 按类型从词表取。
+	Class       string
+	FirstSeenAt time.Time // 首次发现时间——重放交付不变；新建时与 CreatedAt 一致
+	Remediation string    // 修复建议自然语言；evidence 仍存 PoC
 
 	// —— triage 处置字段 ——
 	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。
