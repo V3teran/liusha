@@ -278,3 +278,19 @@ func TestCredentialDelete_Identity(t *testing.T) {
 		t.Fatalf("删除操作应落审计: %+v", env.auditEv.events)
 	}
 }
+
+// 录入非法主机 400，且什么都不写：凭证按主机键匹配目标，非法主机的条目永远用不上。
+func TestCredentialPut_InvalidHost(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{}, nil, true)
+	body := `{"username":"alice","credentials":[{"type":"headers","key":"Cookie","value":"v"}]}`
+	for _, h := range []string{"bad%20host!", "host:99999"} {
+		resp := doReq(t, "PUT", env.srv.URL+"/api/credentials/"+h+"/usernames", body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s 应 400，得 %d", h, resp.StatusCode)
+		}
+	}
+	if len(env.fake.byHost) != 0 || len(env.auditEv.events) != 0 {
+		t.Fatalf("非法主机不应写入或落审计: %+v %+v", env.fake.byHost, env.auditEv.events)
+	}
+}

@@ -188,8 +188,8 @@ func upsertCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 	return func(c *gin.Context) {
 		rawHost := c.Param("host")
 		host := credential.CanonicalHost(rawHost)
-		if host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "host required"})
+		if err := credential.ValidateHost(host); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		var id credential.Identity

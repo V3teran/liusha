@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +88,68 @@ func NewRedis(client *redis.Client) *RedisProvider {
 
 // hashKey 拼接 host hash 的完整 Redis key。host 经 CanonicalHost 归一——
 // 所有写读共用此单点，调用方传 "host"、"host:port" 或完整 URL 落到同一键。
+// ErrInvalidHost 表示主机不是合法的域名或 IP（端口可选且在 1–65535）。
+var ErrInvalidHost = errors.New("主机不合法")
+
+// ValidateHost 校验规范化后的主机（CanonicalHost 的输出）：域名或 IP，端口可选。凭证按主机键
+// 匹配目标，非法主机写进去的条目永远匹配不上任何目标，所以写入一律先校验。
+// 域名标签允许下划线：内网主机名常带下划线，HTTP 客户端也照常访问。
+func ValidateHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("%w：为空", ErrInvalidHost)
+	}
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+	name, port := host, ""
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		name, port = host[:i], host[i+1:]
+		if !validPort(port) {
+			return fmt.Errorf("%w：%q 的端口须为 1–65535", ErrInvalidHost, host)
+		}
+		if strings.Contains(name, ":") { // IPv6 + 端口（CanonicalHost 去掉了方括号）
+			if net.ParseIP(name) == nil {
+				return fmt.Errorf("%w：%q", ErrInvalidHost, host)
+			}
+			return nil
+		}
+	}
+	if net.ParseIP(name) != nil || validHostname(name) {
+		return nil
+	}
+	return fmt.Errorf("%w：%q 不是合法的域名或 IP", ErrInvalidHost, host)
+}
+
+func validPort(s string) bool {
+	if s == "" || !isAllDigits(s) || len(s) > 5 {
+		return false
+	}
+	n, _ := strconv.Atoi(s)
+	return n >= 1 && n <= 65535
+}
+
+// hostnameRune 报告字符能否出现在主机名标签里（规范化后已是小写）。
+func hostnameRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+}
+
+func validHostname(name string) bool {
+	if name == "" || len(name) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !hostnameRune(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (r *RedisProvider) hashKey(host string) string {
 	return hashKeyPrefix + CanonicalHost(host)
 }
@@ -98,6 +162,9 @@ func (r *RedisProvider) hashKey(host string) string {
 //
 // 永久存储，无任何过期语义。
 func (r *RedisProvider) SaveIdentities(ctx context.Context, host string, ids []Identity) error {
+	if err := ValidateHost(CanonicalHost(host)); err != nil {
+		return err
+	}
 	key := r.hashKey(host)
 	// 用户名单点归一：trim + 小写——同名（含大小写/空白变体）在同一目标键下
 	// 唯一是本库不变式（HSET field=用户名），归一杜绝 "Admin"/"admin " 类
