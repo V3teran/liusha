@@ -84,7 +84,9 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                 <th
                   key={h.id}
                   className={cn(
-                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary`,
+                    // relative：表头里的 sr-only 列名（绝对定位）以单元格为参照、随表格滚动容器裁剪，
+                    // 否则它按页面定位，落在宽表格最右侧的位置把整页撑出横向滚动。
+                    `relative ${cellPadding} py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary`,
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >
@@ -135,7 +137,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                     clickable && selected && 'bg-accent/12 shadow-[inset_2px_0_0_var(--accent)]',
                     // 错误行带红底：三级文字色只对 --surface 保证 4.5:1，在红底上提升为二级文字色。
                     rowError?.(v) &&
-                      'bg-sev-critical/[0.08] hover:bg-sev-critical/[0.14] [&_.text-text-tertiary]:text-text-secondary',
+                      'bg-status-error/[0.08] hover:bg-status-error/[0.14] [&_.text-text-tertiary]:text-text-secondary',
                     rowClassName?.(v),
                   )}
                 >

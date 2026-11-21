@@ -67,7 +67,7 @@ func NewPgPool(ctx context.Context, cfg config.PostgresConfig, logger zerolog.Lo
 // 保留键冲突，桥接时归一：err 抬到 zerolog error 字段（错误统一走 error
 // 通道，下游解析与展示把它当一等公民）；time 是操作耗时（ms），与时间戳
 // 键同名——不改名 JSON 行会出现重复键，解析取后写者导致耗时被静默吞掉，
-// 改名 elapsed_ms。
+// 改名 elapsed_ms。SQL 参数只记个数。
 type pgxLogger struct{ log zerolog.Logger }
 
 func (l pgxLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
@@ -88,6 +88,11 @@ func (l pgxLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, d
 			fields["error"] = v
 		case "time":
 			fields["elapsed_ms"] = v
+		case "args":
+			// 只记参数个数：参数里可能有密钥、凭据或上千维的向量，原样落日志既泄露又刷屏。
+			if args, ok := v.([]any); ok {
+				fields["arg_count"] = len(args)
+			}
 		default:
 			fields[k] = v
 		}

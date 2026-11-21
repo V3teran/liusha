@@ -27,7 +27,7 @@ function makeDetail(overrides: Partial<TrafficDetail> = {}): TrafficDetail {
 function renderPane(props: Partial<Parameters<typeof TrafficDetailPane>[0]> = {}) {
   return render(
     <MemoryRouter>
-      <TrafficDetailPane detail={makeDetail()} loading={false} error="" onClose={() => {}} {...props} />
+      <TrafficDetailPane detail={makeDetail()} loading={false} error="" onRetry={() => {}} onClose={() => {}} {...props} />
     </MemoryRouter>,
   )
 }
@@ -109,7 +109,7 @@ describe('TrafficDetailPane', () => {
     let closed = false
     render(
       <MemoryRouter>
-        <TrafficDetailPane detail={makeDetail()} loading={false} error="" onClose={() => (closed = true)} />
+        <TrafficDetailPane detail={makeDetail()} loading={false} error="" onRetry={() => {}} onClose={() => (closed = true)} />
       </MemoryRouter>,
     )
     fireEvent.click(screen.getByLabelText('关闭详情'))

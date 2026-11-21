@@ -52,7 +52,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | `LIUSHA_SANDBOX_TOKEN` | `sandbox.token` | 沙盒与 runner / api 的共享密钥 | sandbox、runner、api |
 | `LIUSHA_LLM_ENCRYPTION_KEY` | `llm.encryption_key` | 加密数据库里保存的 LLM 密钥（32 字节 hex），生成后不要更改 | api、runner |
 | `LIUSHA_ADMIN_INITIAL_PASSWORD` | `admin.initial_password` | 首次启动创建 admin 的密码 | api |
-| `LIUSHA_EMBEDDING_API_KEY` | `embedding.api_key` | 知识库检索的向量化与重排服务（可选） | runner |
+| `LIUSHA_EMBEDDING_API_KEY` | `embedding.api_key` | 知识库语义检索：一个密钥同时启用向量与重排（可选；不配则只做字面检索） | api、runner |
 | `LIUSHA_POSTGRES_URL` | `postgres.url` | 二进制：数据库连接串（容器部署由容器拼出） | 除 sandbox 外全部 |
 | `LIUSHA_REDIS_URL` | `redis.url` | 二进制：Redis 连接串 `redis://[用户名]:密码@主机:端口/库号`，TLS 用 `rediss://` | 除 sandbox 外全部 |
 

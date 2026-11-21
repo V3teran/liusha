@@ -118,7 +118,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	st := newStores(pool)
 	defer func() { _ = st.calls.Close() }()
 
-	embedder, reranker := newCorpusEmbedder(cfg.Embedding.APIKey, logger)
+	kb := newCorpus(st.corpus, cfg.Embedding.APIKey, logger)
 	tools := manifest.Default()
 
 	redisOpt := worker.RedisOpt(redisOpts)
@@ -165,9 +165,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Findings:        st.findings,
 		Sandbox:         sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 		SandboxListener: resolveSandboxContract(cfg, logger),
-		Corpus:          st.corpus,
-		Embedder:        embedder,
-		Reranker:        reranker,
+		Corpus:          kb,
 		ProxyStore:      st.proxyStore,
 		AgentStore:      st.agentStore,
 		Calls:           st.calls,
@@ -185,12 +183,13 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		EventPublisher:  convstream.NewPublisher(rdb),
 		Graph:           st.graph,
 		EventBus:        bus.New(ctx),
-		// 任务终态经验蒸馏：embedder 缺席时教训降级纯 sparse 检索，不阻塞写入。
-		Distiller: distill.New(router, st.graph, st.corpus, embedder, logger),
+		Distiller:       distill.New(router, st.graph, st.tasks, kb, logger),
+		DistillQueue:    wc,
 	}
 
 	mux := worker.NewMux()
 	mux.Register(worker.RoleAgent, h.Handle)
+	mux.HandleDistill(h.HandleDistill)
 
 	// 后台循环共用一个 ctx：停机第一步取消它，停止接收新流量与各类巡检。
 	bgCtx, stopBackground := context.WithCancel(ctx)
@@ -218,7 +217,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	}()
 
-	startBackgroundLoops(bgCtx, cfg, pool, wc, st, creds, rdb, logger)
+	startBackgroundLoops(bgCtx, cfg, pool, wc, st, kb, creds, rdb, logger)
 
 	ts := newTaskServer(redisOpt, runnerCfg, logger)
 	if err := ts.Start(mux.AsynqMux()); err != nil {
@@ -245,7 +244,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 // startBackgroundLoops 启动恢复监控与各类清扫器（随 ctx 取消退出）。
 func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpool.Pool, wc *worker.Client,
-	st *stores, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
+	st *stores, kb *corpus.Service, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
 ) {
 	runnerCfg := cfg.Runner
 	// 僵尸 run 回收与搁浅任务重投。
@@ -274,6 +273,9 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		}
 	}()
 
+	// 知识库向量补齐：写入时向量化失败、或在配置密钥之前写入的条目。
+	runner.StartCorpusIndexLoop(ctx, kb, logger)
+
 	// 会话身份终态清扫：任务终态回收（handler 内）的崩溃兜底，按任务状态回收、不依赖过期时间。
 	credential.StartSweepLoop(ctx, creds, func(ctx context.Context, taskID string) (string, bool, error) {
 		t, err := st.tasks.GetByID(ctx, taskID)
@@ -290,15 +292,17 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.InvocationRetentionDays, logger)
 }
 
-// newCorpusEmbedder 构造知识库 embedding + rerank client。embedding.api_key 为空时返回 nil，
-// 知识库降级（检索退纯 sparse、写入不 embed），不阻塞主流程。
-func newCorpusEmbedder(apiKey string, logger zerolog.Logger) (corpus.Embedder, corpus.Reranker) {
-	jc, err := embedding.NewClient(apiKey)
-	if err != nil {
-		logger.Warn().Err(err).Msg("embedding.api_key 未配置，知识库降级为纯关键词检索（不影响主流程）")
-		return nil, nil
+// newCorpus 装配知识库服务并记下实际启用的检索方式。
+func newCorpus(store *corpus.Store, apiKey string, logger zerolog.Logger) *corpus.Service {
+	models := embedding.Models(apiKey)
+	kb := corpus.NewService(store, models, logger)
+	if models.Semantic() {
+		logger.Info().Str("embedding_model", models.EmbeddingModel).Str("rerank_model", models.RerankModel).
+			Msg("知识库启用语义检索（向量 + 重排）")
+	} else {
+		logger.Info().Msg("embedding.api_key 未配置，知识库只做字面检索")
 	}
-	return jc, jc
+	return kb
 }
 
 // resolveSandboxContract 解析沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
@@ -384,8 +388,8 @@ func newTaskServer(redisOpt asynq.RedisConnOpt, runnerCfg config.RunnerConfig, l
 	return &taskServer{
 		srv: asynq.NewServer(redisOpt, asynq.Config{
 			Concurrency: runnerCfg.Concurrency,
-			// 只有一个队列：权重没有比较对象，取 1。
-			Queues:          map[string]int{worker.QueueAgent: 1},
+			// 经验沉淀是收尾的后台工作，权重低于 agent run：积压时不挤占任务执行。
+			Queues:          map[string]int{worker.QueueAgent: 6, worker.QueueDistill: 1},
 			ShutdownTimeout: time.Duration(runnerCfg.DrainTimeoutSeconds) * time.Second,
 			// asynq 内部日志（投递重试 / 处理错误）事关任务是否丢失，接进 logx。
 			Logger: asynqLogAdapter{logger},
@@ -419,7 +423,7 @@ func (s *taskServer) Shutdown() {
 func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, ts *taskServer, hs *http.Server, stopBackground context.CancelFunc) {
 	stopBackground()
 	ts.Shutdown()
-	logger.Info().Msg("在途 run 已按停机中断收尾，任务由恢复监控续跑")
+	logger.Info().Msg("在途 run 已按停机中断收尾，任务由恢复监控续跑；中断的经验沉淀留在队列里重试")
 
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer hsCancel()

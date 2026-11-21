@@ -51,7 +51,7 @@ export function StepTools({ tools, runningSeqs, pairs, ended }: StepToolsProps) 
           'hover:bg-surface hover:text-text',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 flex-none transition-transform', expanded && 'rotate-90')} strokeWidth={2.5} />
+        <ChevronRight className={cn('h-3 w-3 flex-none transition-transform', expanded && 'rotate-90')} />
         {running ? <Loader2 className="h-3 w-3 flex-none animate-spin text-accent" aria-label="执行中" /> : null}
         <span className="font-semibold">{callCount} 次工具调用</span>
         {running && <span className="text-text-tertiary">执行中…</span>}

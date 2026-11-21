@@ -42,11 +42,11 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         className={cn(
           'flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left text-sm text-text',
           'hover:border-border-strong',
-          err && 'border-sev-critical',
+          err && 'border-status-error',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-text-secondary transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
-        <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-sev-critical' : 'bg-emerald-500')} />
+        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-text-secondary transition-transform', open && 'rotate-90')} />
+        <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-status-error' : 'bg-status-success')} />
         <code className="font-mono text-text-secondary">{tool}</code>
         <span className="text-xs text-text-secondary">{durationMs}ms</span>
         {agentName && (
@@ -63,7 +63,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         <pre tabIndex={0}
           className={cn(
             'mt-1.5 max-h-[280px] overflow-auto rounded-md border border-border bg-background p-2.5 text-xs',
-            err && 'border-sev-critical text-sev-critical',
+            err && 'border-status-error text-status-error',
           )}
         >
           {pretty}

@@ -4,11 +4,14 @@ import { errorText } from '@/api/client'
 import { createScenario, deleteScenario, patchScenario, resetScenario, type ScenarioPatch } from '@/api/config'
 import type { ScenarioDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS } from '@/components/ui/control'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { OverrideStatus } from '@/features/config/OverrideStatus'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { SCENARIOS_KEY, useScenarioDetail } from './useScenarioQueries'
+import { toast } from '@/components/ui/toast'
+import { confirmDiscard } from '@/components/ui/confirm'
 
 // 场景编辑抽屉：新建自建场景，或编辑一个已有场景（内置与自建同一表单）。内置场景可编辑、停用、
 // 恢复出厂、删除（删除后可在「已删除的内置」里恢复）；被定时模板引用的场景不可删除、停用（服务端
@@ -74,7 +77,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
   const loadFailed = !!detailQuery.error && !detailQuery.data
   useEffect(() => {
     if (!loadFailed) return
-    window.alert(errorText(detailQuery.error, '加载场景失败'))
+    toast.error(errorText(detailQuery.error, '加载场景失败'))
     onClose({ replace: true })
   }, [loadFailed, detailQuery.error, onClose])
 
@@ -98,9 +101,9 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
   }, [draft, baseline])
   const dirty = isNew ? JSON.stringify(draft) !== JSON.stringify(EMPTY_DRAFT) : Object.keys(changes).length > 0
 
-  const requestClose = () => {
+  const requestClose = async () => {
     if (saving) return // 写请求在途：等它落定，结果决定是否关闭
-    if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
+    if (dirty && !(await confirmDiscard())) return
     onClose()
   }
 
@@ -131,7 +134,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
       void invalidate()
       if (alive.current) onClose()
     } catch (e) {
-      window.alert(errorText(e, '保存失败'))
+      toast.error(errorText(e, '保存失败'))
     } finally {
       setSaving(false)
     }
@@ -147,7 +150,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
       if (alive.current) onClose({ replace: true })
     } catch (e) {
       setConfirmDelete(false)
-      window.alert(errorText(e, '删除失败'))
+      toast.error(errorText(e, '删除失败'))
     } finally {
       setSaving(false)
     }
@@ -173,7 +176,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
         return merged
       })
     } catch (e) {
-      window.alert(errorText(e, '恢复失败'))
+      toast.error(errorText(e, '恢复失败'))
     } finally {
       setResetting(null)
     }
@@ -219,7 +222,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                       )}
                       <Field
                         label="名称"
-                        hint={`智能体看到的场景名，也显示在下发入口的选择框里 · ${nameRunes} / ${MAX_NAME_RUNES} 字`}
+                        hint={`${nameRunes} / ${MAX_NAME_RUNES}`}
                         aside={status('name')}
                       >
                         <input
@@ -232,23 +235,15 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                       {nameRunes > MAX_NAME_RUNES && (
                         <p className="text-xs text-status-error">名称超过 {MAX_NAME_RUNES} 字上限。</p>
                       )}
-                      <Field label="说明" hint="给人看的简介：选择场景时作为提示，不进智能体提示词" aside={status('description', true)}>
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[4rem] resize-y'}
+                      <Field label="说明" aside={status('description', true)}>
+                        <AutoTextarea
+                          className="min-h-[4rem]"
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
                       {!isNew && (
-                        <Field
-                          label="启用"
-                          hint={
-                            isDefault
-                              ? '缺省场景：下发不指定场景时使用。停用或删除后，缺省即无场景'
-                              : '停用后不能再用于新任务；已建任务照常使用自己的场景快照'
-                          }
-                          aside={status('enabled')}
-                        >
+                        <Field label="启用" aside={status('enabled')}>
                           <span className="flex items-center gap-2 text-sm text-text">
                             <input
                               type="checkbox"
@@ -259,9 +254,15 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                           </span>
                         </Field>
                       )}
+                      {/* 停用缺省场景改变的是此后所有不指定场景的下发：只在用户正要这样做时提示后果 */}
+                      {isDefault && !draft.enabled && (
+                        <p role="note" className="text-xs text-status-warning">
+                          这是缺省场景：停用后，不指定场景的下发即无场景
+                        </p>
+                      )}
                       {customizedCount > 0 && (
                         <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs text-text-secondary">
-                          <span>已自定义 {customizedCount} 项（改过的内容不随版本更新）</span>
+                          <span>已自定义 {customizedCount} 项</span>
                           <button
                             type="button"
                             disabled={resetting !== null}
@@ -279,14 +280,11 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                   value: 'content',
                   label: '场景内容',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex flex-col gap-2">
                       {status('body', true)}
-                      <Field
-                        label="场景正文（Markdown）"
-                        hint={`整份拼在四个智能体系统提示词的末尾 · ${bodyRunes} / ${MAX_BODY_RUNES} 字`}
-                      >
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[24rem] resize-y font-mono'}
+                      <Field label="场景正文（Markdown）" hint={`${bodyRunes} / ${MAX_BODY_RUNES}`}>
+                        <AutoTextarea
+                          className="min-h-[24rem] font-mono"
                           value={draft.body}
                           aria-invalid={bodyRunes > MAX_BODY_RUNES}
                           onChange={(e) => patch({ body: e.target.value })}

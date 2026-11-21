@@ -5,7 +5,9 @@
     <!-- 图标集（默认浅色系：白容器 + 黑剪影，深色对照版见 brand/app-icon-dark.svg）：
          SVG 优先（现代浏览器），PNG 32/16 回退（SVG favicon 不渲染的环境），
          iOS 主屏走 apple-touch-icon，Safari 固定标签页走 mask-icon（color 即着色）。
-         theme-color 取 design-tokens.css --background 换算值：浅 #fafafa / 深 #09090b。 -->
+         theme-color 取 design-tokens.css --background 换算值：浅 #fafafa / 深 #09090b。两条按系统偏好
+         的声明是无脚本时的回退；下方脚本与 useTheme 会把两条都改写成当前主题的颜色（用户手动选的主题
+         可能与系统偏好相反，浏览器地址栏须跟随页面而不是系统）。 -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=7" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=7" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=7" />
@@ -23,6 +25,10 @@
         var systemLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
         var theme = stored === 'light' || stored === 'dark' ? stored : systemLight ? 'light' : 'dark'
         if (theme === 'dark') document.documentElement.classList.add('dark')
+        var color = theme === 'dark' ? '#09090b' : '#fafafa'
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+          m.setAttribute('content', color)
+        })
       })()
     </script>
   </head>

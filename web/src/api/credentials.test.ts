@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  listCredentialHosts,
-  getCredentialDetail,
+  listCredentials,
   saveCredentialIdentity,
   deleteCredentialIdentity,
 } from './credentials'
@@ -23,29 +22,26 @@ describe('凭证库 API', () => {
     ;(globalThis as any).fetch = undefined
   })
 
-  it('listCredentialHosts GET /credentials', async () => {
+  it('listCredentials 把关键词与分页交给服务端', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: vi.fn().mockResolvedValue({ hosts: [{ host: 'a.com', identities: 1, sessions: 2 }] }),
+      json: vi.fn().mockResolvedValue({ items: [{ host: 'a.com', username: 'admin' }], total: 1 }),
     })
     ;(globalThis as any).fetch = mockFetch
 
-    const hosts = await listCredentialHosts()
+    const res = await listCredentials('Cookie=a b', 2, 50)
 
-    expect(hosts[0].host).toBe('a.com')
-    expect(mockFetch).toHaveBeenCalledWith('/api/credentials')
+    expect(res.total).toBe(1)
+    expect(mockFetch).toHaveBeenCalledWith('/api/credentials?page=2&size=50&search=Cookie%3Da+b')
   })
 
-  it('getCredentialDetail GET 单 host 明文详情', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue({ host: 'a.com', identities: [] }),
-    })
+  it('listCredentials 无关键词时不带 search 参数', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ items: [], total: 0 }) })
     ;(globalThis as any).fetch = mockFetch
 
-    await getCredentialDetail('a.com')
+    await listCredentials('', 1, 10)
 
-    expect(mockFetch).toHaveBeenCalledWith('/api/credentials/a.com')
+    expect(mockFetch).toHaveBeenCalledWith('/api/credentials?page=1&size=10')
   })
 
   it('saveCredentialIdentity PUT 单登录身份', async () => {

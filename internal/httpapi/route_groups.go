@@ -12,8 +12,7 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
 		return
 	}
-	r.GET("/credentials", listCredentialHostsHandler(d.Credentials))
-	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
+	r.GET("/credentials", listCredentialsHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 }
@@ -32,6 +31,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
 	r.GET("/findings/tasks", findingTaskFacetsHandler(d.Findings))
+	r.GET("/findings/classes", findingClassFacetsHandler(d.Findings))
 	r.GET("/findings/:id", uuidID, getFindingHandler(d.Findings))
 	r.PATCH("/findings/:id/status", uuidID, updateFindingStatusHandler(d.Findings))
 }

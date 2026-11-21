@@ -24,11 +24,13 @@ import (
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/convstream"
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/credential"
 	"github.com/V3teran/liusha/internal/cronschedule"
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/dispatch"
+	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
@@ -38,6 +40,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/overview"
 	"github.com/V3teran/liusha/internal/proxystatus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
@@ -203,6 +206,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ConfigStore:        cfgStore,
 			SkillStore:         cfgStore,
 			ScenarioStore:      cfgStore,
+			Corpus:             newCorpus(pool, cfg.Embedding.APIKey, logger),
 			ToolCatalog:        toolCatalog,
 			SandboxInventory:   sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 			Models:             llmStore,
@@ -210,6 +214,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
 			Settings:           settingStore,
 			Traffic:            proxyTrafficStore,
+			Overview:           overview.NewStore(pool),
+			ProxyTraffic:       proxyTrafficStore,
+			Runners:            enq,
+			DataStores:         db.DataStores{Pool: pool, Redis: rdb},
 			Conversations:      conversationStore,
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb},
 			UsageLLM:           invocationStore,
@@ -323,4 +331,16 @@ type llmReadiness struct{ r *fwllm.Router }
 func (a llmReadiness) Ready(ctx context.Context) error {
 	_, err := a.r.For(ctx, fwllm.ComplexitySimple)
 	return err
+}
+
+// newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）并记下实际启用的检索方式。
+func newCorpus(pool *pgxpool.Pool, apiKey string, logger zerolog.Logger) *corpus.Service {
+	models := embedding.Models(apiKey)
+	if models.Semantic() {
+		logger.Info().Str("embedding_model", models.EmbeddingModel).Str("rerank_model", models.RerankModel).
+			Msg("知识库启用语义检索（向量 + 重排）")
+	} else {
+		logger.Info().Msg("embedding.api_key 未配置，知识库只做字面检索")
+	}
+	return corpus.NewService(corpus.NewStore(pool), models, logger)
 }

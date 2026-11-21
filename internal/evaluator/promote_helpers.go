@@ -169,12 +169,14 @@ func (g *PromotionGate) markHypothesisNode(
 // createVerifiedNode 创建已验证的 result 节点，并落 observation → result 的
 // generates 溯源边——推导链 objective →(generates)→ action →(generates)→
 // observation →(generates)→ result 全程可溯，result 不是图孤儿。
-// fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键。
+// fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键；class 非空时一同落库，
+// 是交付给出主张类别的出处。
 func (g *PromotionGate) createVerifiedNode(
 	ctx context.Context,
 	a Claim,
 	nodeID string,
 	fingerprintKey string,
+	class string,
 ) (*explorationgraph.Node, error) {
 	node := explorationgraph.Node{
 		ID:         nodeID,
@@ -186,8 +188,15 @@ func (g *PromotionGate) createVerifiedNode(
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
+	meta := map[string]string{}
 	if fingerprintKey != "" {
-		if b, err := json.Marshal(map[string]string{claimFingerprintMetadataKey: fingerprintKey}); err == nil {
+		meta[claimFingerprintMetadataKey] = fingerprintKey
+	}
+	if class != "" {
+		meta[claimClassMetadataKey] = class
+	}
+	if len(meta) > 0 {
+		if b, err := json.Marshal(meta); err == nil {
 			node.Metadata = b
 		}
 	}

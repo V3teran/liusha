@@ -204,3 +204,16 @@ func TestTrafficHandler_Detail(t *testing.T) {
 		}
 	})
 }
+
+// 筛选参数写错时 400，而不是悄悄不筛：调用方会把未筛选的结果当成筛选后的。
+func TestTrafficHandler_InvalidFilterRejected(t *testing.T) {
+	srv := newTestServer(t, Deps{Traffic: &fakeTraffic{}})
+	defer srv.Close()
+	for _, q := range []string{"since=yesterday", "until=2026-13-01", "status_min=abc", "status_max=2xx"} {
+		resp := doReq(t, "GET", srv.URL+"/api/traffic?"+q, "")
+		_ = resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s 应 400，得 %d", q, resp.StatusCode)
+		}
+	}
+}

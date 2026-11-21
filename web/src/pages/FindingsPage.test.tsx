@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
-import { getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
+import { getFindingClassFacets, getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
@@ -17,11 +19,19 @@ vi.mock('@/api/findings', () => ({
     severity: 'high',
     summary: '不在当前页的发现',
     host: 'b.example.com',
+    class: 'other',
+    class_name: '其他',
+    cwe: '',
     source: 'direct',
     status: 'open',
     first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
   })),
+  getFindingClassFacets: vi.fn(async () => [
+    { class: 'info_disclosure', name: '敏感信息泄露', count: 9 },
+    { class: 'sql_injection', name: 'SQL 注入', count: 3 },
+    { class: 'other', name: '其他', count: 1 },
+  ]),
   getFindingTaskFacets: vi.fn(async () => ({
     tasks: [
       { id: 't-9', goal: '对 http://target 做 XSS 测试', created_at: '2026-11-14T06:49:00', count: 2 },
@@ -62,6 +72,9 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'a.example.com',
+    class: 'sql_injection',
+    class_name: 'SQL 注入',
+    cwe: 'CWE-89',
     source: 'direct',
     status: 'open',
     first_seen_at: '2026-01-01T00:00:00Z',
@@ -95,6 +108,8 @@ function renderPage(entry = '/findings') {
       <MemoryRouter initialEntries={[entry]}>
         <FindingsPage />
         <HistoryProbe />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -104,8 +119,7 @@ describe('FindingsPage', () => {
   beforeEach(() => {
     mockedListFindings.mockReset()
     mockedUpdateFindingTriage.mockReset()
-    
-    vi.spyOn(window, 'alert').mockImplementation(() => {})
+
     // stat 默认空口径（汇总条测试内显式覆盖）
     mockedGetFindingStat.mockResolvedValue({ total: 0, by_status: {}, by_severity: {} })
   })
@@ -192,6 +206,24 @@ describe('FindingsPage', () => {
 
     await waitFor(() =>
       expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ status: 'confirmed' })),
+    )
+  })
+
+  it('类型筛选：选项来自服务端分面（展示名 + 数量，「其他」也可筛），选中后按类型重新加载，类型列显示展示名', async () => {
+    const user = userEvent.setup()
+    mockedListFindings.mockResolvedValue(makeListResponse([makeFinding()]))
+    renderPage()
+    await screen.findByText('SQL 注入漏洞')
+    expect(screen.getByRole('cell', { name: 'SQL 注入' })).toBeInTheDocument()
+    const classSelect = screen.getByRole('combobox', { name: '按类型筛选' })
+    await waitFor(() => expect(within(classSelect).getByRole('option', { name: '敏感信息泄露（9）' })).toBeInTheDocument())
+    expect(within(classSelect).getByRole('option', { name: '其他（1）' })).toHaveValue('other')
+    expect(vi.mocked(getFindingClassFacets).mock.calls[0]?.[0]).not.toHaveProperty('class')
+    mockedListFindings.mockClear()
+
+    await user.selectOptions(classSelect, 'info_disclosure')
+    await waitFor(() =>
+      expect(mockedListFindings).toHaveBeenCalledWith(expect.objectContaining({ class: 'info_disclosure' })),
     )
   })
 
@@ -303,7 +335,7 @@ describe('FindingsPage', () => {
     )
   })
 
-  it('保存 triage 失败时 alert 提示', async () => {
+  it('保存 triage 失败时弹出失败通知', async () => {
     const user = userEvent.setup()
     const finding = makeFinding({ id: 'f-fail', status: 'open', triage_note: '' })
     mockedListFindings.mockResolvedValue(makeListResponse([finding]))
@@ -319,7 +351,7 @@ describe('FindingsPage', () => {
     const saveBtn = screen.getByRole('button', { name: '保存处置' })
     await user.click(saveBtn)
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('处置保存失败，请重试'))
+    expect(await screen.findByText('处置保存失败，请重试')).toBeTruthy()
     expect(mockedUpdateFindingTriage).toHaveBeenCalled()
   })
 

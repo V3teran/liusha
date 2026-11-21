@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { ToolsPage } from './ToolsPage'
 import { listTools, getTool, assignTool } from '@/api/config'
 import type { Tool, ToolAgent, ToolDetail, ToolKind } from '@/api/types'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/config', () => ({
   listTools: vi.fn(),
@@ -32,6 +33,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={qc}>
       <ToolsPage />
+      <Toaster />
     </QueryClientProvider>,
   )
 }
@@ -65,7 +67,7 @@ describe('ToolsPage', () => {
     mList.mockResolvedValue({ tools: [missing], total: 1 })
     mGet.mockResolvedValue(detailOf(missing, [agent('executor', '执行者', true), agent('planner', '规划者', false)]))
     renderPage()
-    expect(await screen.findByRole('note')).toHaveTextContent('已允许 · 未安装：已装配它的 1 个智能体运行时无法调用')
+    expect(await screen.findByRole('note')).toHaveTextContent('沙盒未安装：装配它的 1 个智能体运行时无法调用')
     expect(screen.getAllByText('未安装').length).toBeGreaterThan(0)
   })
 
@@ -155,7 +157,6 @@ describe('ToolsPage', () => {
 
   // 在 A 上装配，未落定前切到 B；A 的写入失败只回滚 A，不把 B 显示成已装配。
   it('装配失败只回滚发起写入的工具', async () => {
-    vi.stubGlobal('alert', vi.fn())
     mList.mockResolvedValue({ tools: [FN, CLI], total: 2 })
     mGet.mockImplementation((name: string) =>
       Promise.resolve(name === 'nmap' ? detailOf(CLI, [agent('web', 'Web 智能体', false)]) : detailOf(FN, [agent('web', 'Web 智能体', false)])),
@@ -167,9 +168,8 @@ describe('ToolsPage', () => {
     await userEvent.click(screen.getByText('nmap'))
     await waitFor(() => expect(mGet).toHaveBeenCalledWith('nmap'))
     reject(new Error('保存失败'))
-    await waitFor(() => expect(window.alert).toHaveBeenCalled())
+    expect(await screen.findByText('保存失败')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Web 智能体' }).getAttribute('aria-pressed')).toBe('false')
-    vi.unstubAllGlobals()
   })
 
   it('目录为空：显示「暂无工具」', async () => {

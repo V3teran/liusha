@@ -7,8 +7,8 @@
 
 /** 状态码类别色：2xx 成功/绿、3xx 跳转/中性、4xx 客户端错/琥珀、5xx 服务端错/红、其它/中性。 */
 export function statusColor(code: number): string {
-  if (code >= 500) return 'var(--sev-critical)'
-  if (code >= 400) return 'var(--sev-medium)'
+  if (code >= 500) return 'var(--status-error)'
+  if (code >= 400) return 'var(--status-warning)'
   if (code >= 300) return 'var(--status-neutral)'
   if (code >= 200) return 'var(--status-success)'
   return 'var(--status-neutral)'
@@ -17,7 +17,7 @@ export function statusColor(code: number): string {
 /** method 语义色：DELETE 破坏性=红、POST/PUT/PATCH 写=蓝、GET/HEAD/OPTIONS 读=中性。 */
 export function methodColor(method: string): string {
   const m = method.toUpperCase()
-  if (m === 'DELETE') return 'var(--sev-critical)'
-  if (m === 'POST' || m === 'PUT' || m === 'PATCH') return 'var(--sev-info)'
+  if (m === 'DELETE') return 'var(--status-error)'
+  if (m === 'POST' || m === 'PUT' || m === 'PATCH') return 'var(--status-info)'
   return 'var(--status-neutral)'
 }

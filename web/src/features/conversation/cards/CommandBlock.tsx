@@ -43,7 +43,7 @@ export function CommandBlock({ content, createdAt, attachments, copied, onCopy }
             )}
           </div>
           <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent/10">
-            <User className="h-5 w-5 text-accent" strokeWidth={2} />
+            <User className="h-5 w-5 text-accent" />
           </span>
         </div>
         <div className="mr-11 mt-1.5 flex items-center gap-2">

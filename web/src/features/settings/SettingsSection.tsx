@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
+import { InlineError } from '@/components/ui/InlineError'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // SettingsSection 是系统配置页每组设置的分区卡：标题 + 说明 + 表单体 + 底部保存条。
 // 每组独立加载/保存/错误态，互不影响（一组保存失败不阻塞其他组）。
 // 「放弃」撤销未保存的编辑；「全部恢复出厂」清除本组全部自定义（即时生效）。
 export function SettingsSection({
   title,
-  subtitle,
   loading,
   error,
   saving,
@@ -21,7 +22,6 @@ export function SettingsSection({
   children,
 }: {
   title: string
-  subtitle: string
   loading: boolean
   error: string
   saving: boolean
@@ -43,7 +43,6 @@ export function SettingsSection({
       <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div>
           <h2 className="font-mono text-sm font-semibold text-text">{title}</h2>
-          <p className="mt-0.5 text-xs text-text-secondary">{subtitle}</p>
         </div>
         {onResetAll && customizedCount > 0 && (
           <button
@@ -58,14 +57,12 @@ export function SettingsSection({
       </div>
 
       {loading ? (
-        <div className="px-5 py-10 text-center font-mono text-sm text-text-secondary">
-          加载中
-        </div>
+        <LoadingState className="py-10" />
       ) : (
         <>
           <div className="flex flex-col gap-4 px-5 py-4">{children}</div>
           <div className="flex items-center justify-end gap-3 border-t border-border px-5 py-3">
-            {error && <span className="text-xs text-status-error">⚠ {error}</span>}
+            {error && <InlineError>{error}</InlineError>}
             {saved && !error && !isDirty && (
               <span className="text-xs text-accent">已保存并生效</span>
             )}

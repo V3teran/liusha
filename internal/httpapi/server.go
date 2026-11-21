@@ -106,6 +106,8 @@ type Deps struct {
 	SkillStore SkillAPI
 	// ScenarioStore 为 nil 时场景路由（/scenarios 系列）不注册；api 组件注入 *configstore.Store。
 	ScenarioStore ScenarioAPI
+	// Corpus 为 nil（或 ScenarioStore 为 nil）时知识库路由（/corpus 系列）不注册；api 组件注入 *corpus.Service。
+	Corpus CorpusAPI
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
@@ -125,6 +127,15 @@ type Deps struct {
 	// 由 api 组件注入 logx.NewReader(<data_dir>/logs)（自动满足 LogsAPI 窄接口）——
 	// 尾读各进程的 JSON lines 日志文件，冷读 + 游标增量轮询。
 	Logs LogsAPI
+	// Overview 为 nil 时「概览」路由（/overview 系列）不注册。由 api 组件注入 *overview.Store；
+	// 组件健康检查用 Runners / Proxy / ProxyTraffic / SandboxInventory / DataStores，缺哪项哪项报 unknown。
+	Overview OverviewAPI
+	// Runners 列出在线的 runner 实例（由 api 组件注入 *worker.Client）。
+	Runners RunnerRegistryAPI
+	// ProxyTraffic 统计代理捕获的流量（由 api 组件注入 *traffic.ProxyStore）。
+	ProxyTraffic ProxyTrafficAPI
+	// DataStores 探测 PostgreSQL 与 Redis（由 api 组件注入 db.DataStores）。
+	DataStores DataStoresAPI
 	// Proxy 为 nil 时代理接入路由（/proxy 系列）不注册。由 api 组件注入 *proxystatus.Store。
 	Proxy ProxyStatusAPI
 }
@@ -216,12 +227,14 @@ func NewServer(d Deps) http.Handler {
 func registerRouteGroups(r gin.IRouter, d Deps) {
 	// 按业务模块注册路由（auth 最先：登录是其余路由的入口前提）
 	registerAuthRoutes(r, d)
+	registerOverviewRoutes(r, d)
 	registerCredentialsRoutes(r, d)
 	registerFindingsRoutes(r, d)
 	registerLLMInvocationRoutes(r, d)
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerScenarioRoutes(r, d)
+	registerCorpusRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
 	registerLogsRoutes(r, d)

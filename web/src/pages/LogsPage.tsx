@@ -5,7 +5,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/PageHeader'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { RotateCw } from 'lucide-react'
+import { ArrowDown, RotateCw } from 'lucide-react'
 import { listLogProcesses } from '@/api/logs'
 import { cn } from '@/lib/utils'
 import { useLogFilters } from '@/features/logs/useLogFilters'
@@ -116,13 +116,13 @@ export function LogsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="日志" subtitle="各组件运行日志，实时尾读">
+      <PageHeader title="日志">
         <button
           type="button"
           onClick={() => setLive((v) => !v)}
           aria-pressed={live}
           className={cn(
-            'inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-all',
+            'inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition-colors',
             live
               ? 'border-status-success/45 bg-status-success/8 text-status-success'
               : 'border-border bg-surface text-text-secondary hover:text-text',
@@ -144,9 +144,9 @@ export function LogsPage() {
               <button
                 type="button"
                 onClick={stream.refresh}
-                className="inline-flex items-center gap-1 text-sev-critical hover:underline"
+                className="inline-flex items-center gap-1 text-status-error hover:underline"
               >
-                <RotateCw className="h-3 w-3" /> {stream.error} · 点击重试
+                <RotateCw className="h-3 w-3" /> {stream.error} · 重试
               </button>
             ) : (
               <span>
@@ -240,9 +240,10 @@ export function LogsPage() {
           <button
             type="button"
             onClick={followNow}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-accent/30 bg-accent-soft px-3.5 py-1.5 text-xs text-accent shadow-md transition-all hover:bg-accent/15"
+            className="absolute inset-x-0 bottom-4 mx-auto flex w-fit items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-3.5 py-1.5 text-xs text-accent shadow-md transition-colors hover:bg-accent/15"
           >
-            ↓ 有新日志（{pending}）· 点击回到底部跟随
+            <ArrowDown aria-hidden className="h-3.5 w-3.5" />
+            {pending} 条新日志，回到底部跟随
           </button>
         )}
       </div>

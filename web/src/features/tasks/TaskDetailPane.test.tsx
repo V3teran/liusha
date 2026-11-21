@@ -17,7 +17,7 @@ function renderPane(task: TaskSummary) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <TaskDetailPane task={task} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={task} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -56,7 +56,7 @@ describe('TaskDetailPane', () => {
   it('跳转区排在任务信息之前：从任务去对话、探索图与发现是最先用到的出口', () => {
     render(
       <MemoryRouter>
-        <TaskDetailPane task={makeTask()} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={makeTask()} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>,
     )
     const jump = screen.getByRole('heading', { name: '跳转' })
@@ -73,7 +73,7 @@ describe('TaskDetailPane', () => {
   it('对话已删除的任务仍可看探索图，只是没有对话入口', () => {
     render(
       <MemoryRouter>
-        <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>,
     )
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')

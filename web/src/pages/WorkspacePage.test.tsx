@@ -20,6 +20,7 @@ import {
   getWorkspaceTree,
   putWorkspaceFile,
 } from '@/api/workspaces'
+import { ConfirmHost } from '@/components/ui/confirm'
 
 
 vi.mock('@/api/workspaces', () => ({
@@ -44,6 +45,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={qc}>
       <WorkspacePage />
+      <ConfirmHost />
     </QueryClientProvider>,
   )
 }
@@ -200,13 +202,14 @@ describe('WorkspacePage', () => {
 
   it('删除走确认 + 根相对路径', async () => {
     mockedTree.mockResolvedValue([makeEntry('task-abc/work/poc.py')])
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     ;(deleteWorkspacePath as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
     const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('poc.py')
     await user.click(screen.getByLabelText('删除 task-abc/work/poc.py'))
+    expect(deleteWorkspacePath).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() => {
       expect(deleteWorkspacePath).toHaveBeenCalledWith('task-abc/work/poc.py')
     })

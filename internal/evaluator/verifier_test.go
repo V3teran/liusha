@@ -818,6 +818,43 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 	}
 }
 
+// 主张类别随结果节点落库并交给交付管道；缺对象的指纹不参与去重，但类别照样记下。
+func TestPromote_ClaimClassRecordedAndDelivered(t *testing.T) {
+	cases := []struct {
+		name string
+		fp   string
+		want string
+	}{
+		{"完整指纹", `{"class":" SQL_Injection ","target":"GET http://t.local/item","point":"id"}`, "sql_injection"},
+		{"缺对象", `{"class":"info_disclosure"}`, "info_disclosure"},
+		{"无指纹", ``, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &fakeGraphStore{verID: "ver-c"}
+			fw := &fakeClaimSink{}
+			v := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, fw).
+				WithJudge(stubJudge{verdict: VerdictConfirmed, reasoning: "坐实", fingerprint: json.RawMessage(tc.fp)})
+			node, err := v.Promote(context.Background(), baseClaim())
+			if err != nil || node == nil {
+				t.Fatalf("应晋升: node=%v err=%v", node, err)
+			}
+			var meta map[string]string
+			if len(node.Metadata) > 0 {
+				if err := json.Unmarshal(node.Metadata, &meta); err != nil {
+					t.Fatalf("metadata 形状: %v", err)
+				}
+			}
+			if meta[claimClassMetadataKey] != tc.want {
+				t.Fatalf("结果节点的类别 = %q，期望 %q", meta[claimClassMetadataKey], tc.want)
+			}
+			if len(fw.claims) != 1 || fw.claims[0].Class != tc.want {
+				t.Fatalf("交付的类别 = %+v，期望 %q", fw.claims, tc.want)
+			}
+		})
+	}
+}
+
 // 指纹缺失（评估者没给 finding 字段）时去重静默降级——照常晋升，不因缺指纹丢发现。
 func TestPromote_MissingFingerprintPromotesNormally(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-d2"}
@@ -952,5 +989,39 @@ func TestPromote_DeliveryFailureDoesNotBlockConfirmation(t *testing.T) {
 	}
 	if len(sink.claims) != 1 || sink.claims[0].ResultNodeID != node.ID {
 		t.Fatalf("再确认应补齐既有结果的交付: %+v", sink.claims)
+	}
+}
+
+// resultReader 是补交付读取坐实结果的替身。
+type resultReader struct {
+	node explorationgraph.Node
+	ver  explorationgraph.Verification
+}
+
+func (r resultReader) GetNode(context.Context, string) (*explorationgraph.Node, error) {
+	return &r.node, nil
+}
+func (r resultReader) ConfirmingVerification(context.Context, string) (explorationgraph.Verification, error) {
+	return r.ver, nil
+}
+
+// 补交付从结果节点重建载荷，主张类别与正常交付同一出处。
+func TestRedeliver_CarriesClaimClass(t *testing.T) {
+	reader := resultReader{
+		node: explorationgraph.Node{
+			ID:       "res-1",
+			TaskID:   "t-1",
+			Kind:     core.KindResult,
+			Content:  json.RawMessage(`{"statement":"s"}`),
+			Metadata: json.RawMessage(`{"claim_fingerprint":"sql_injection|get http://t.local/item|id","claim_class":"sql_injection"}`),
+		},
+		ver: explorationgraph.Verification{ID: "ver-1", Evidence: json.RawMessage(`{"verification_tier":"full_gate"}`)},
+	}
+	sink := &fakeClaimSink{}
+	if err := Redeliver(context.Background(), reader, sink, "res-1"); err != nil {
+		t.Fatalf("补交付: %v", err)
+	}
+	if len(sink.claims) != 1 || sink.claims[0].Class != "sql_injection" {
+		t.Fatalf("补交付的类别 = %+v", sink.claims)
 	}
 }

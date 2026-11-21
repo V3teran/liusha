@@ -39,6 +39,21 @@ func TestCanonicalFingerprint(t *testing.T) {
 	}
 }
 
+// 主张类别与规范键同一归一口径，且不依赖对象是否给出。
+func TestClaimClass(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"class":" Reflected_XSS ","target":"t"}`: "reflected_xss",
+		`{"class":"flag"}`:                         "flag",
+		`{"target":"t"}`:                           "",
+		``:                                         "",
+		`["x"]`:                                    "",
+	} {
+		if got := claimClass(json.RawMessage(raw)); got != want {
+			t.Errorf("claimClass(%q) = %q，期望 %q", raw, got, want)
+		}
+	}
+}
+
 // 判定契约逐一讲到指纹的每个字段：契约是评估者填写指纹的唯一依据，与归一形状不得漂移。
 func TestContractDescribesFingerprint(t *testing.T) {
 	typ := reflect.TypeOf(ClaimFingerprint{})

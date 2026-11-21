@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"strconv"
 
@@ -226,7 +227,7 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		if err != nil {
 			return registry.ToolResult{Error: fmt.Sprintf("view_traffic: agent 流量 %s 不存在", a.ID)}, nil
 		}
-		b, _ := json.MarshalIndent(rec, "", "  ")
+		b, _ := json.MarshalIndent(agentTrafficView(rec), "", "  ")
 		return registry.ToolResult{
 			Output: string(b),
 			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
@@ -261,4 +262,39 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 				Content: fmt.Sprintf("[proxy] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
 		}, nil
 	}
+}
+
+// agentTrafficViewRecord 是 view_traffic 给出的一条 agent 流量：请求与响应体是文本。
+type agentTrafficViewRecord struct {
+	ID              string          `json:"id"`
+	Identity        string          `json:"identity,omitempty"`
+	Tool            string          `json:"tool,omitempty"`
+	Method          string          `json:"method"`
+	URL             string          `json:"url"`
+	StatusCode      int             `json:"status_code"`
+	RequestHeaders  json.RawMessage `json:"request_headers,omitempty"`
+	RequestBody     string          `json:"request_body"`
+	ResponseHeaders json.RawMessage `json:"response_headers,omitempty"`
+	ResponseBody    string          `json:"response_body"`
+	DurationMs      int             `json:"duration_ms"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
+// agentTrafficView 把记录转成给读者看的视图。体直接序列化 []byte 会变成 base64，按明文核对
+// 出处时会误判「记录里没有」；非 UTF-8 的二进制体只注明字节数。
+func agentTrafficView(rec traffic.AgentTraffic) agentTrafficViewRecord {
+	return agentTrafficViewRecord{
+		ID: qualifyTrafficRef(trafficSourceAgent, rec.ID), Identity: rec.Identity, Tool: rec.Tool,
+		Method: rec.Method, URL: rec.URL, StatusCode: rec.StatusCode,
+		RequestHeaders: rec.RequestHeaders, RequestBody: bodyText(rec.RequestBody),
+		ResponseHeaders: rec.ResponseHeaders, ResponseBody: bodyText(rec.ResponseBody),
+		DurationMs: rec.DurationMs, CreatedAt: rec.CreatedAt,
+	}
+}
+
+func bodyText(b []byte) string {
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	return fmt.Sprintf("（二进制内容，%d 字节）", len(b))
 }

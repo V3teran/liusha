@@ -3,10 +3,12 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
 const TasksPage = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })))
+const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((m) => ({ default: m.OverviewPage })))
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((m) => ({ default: m.WorkspacePage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
@@ -19,10 +21,11 @@ const ModelPage = lazy(() => import('@/pages/ModelPage').then((m) => ({ default:
 const SystemConfigPage = lazy(() => import('@/pages/SystemConfigPage').then((m) => ({ default: m.SystemConfigPage })))
 const ExplorationGraphPage = lazy(() => import('@/pages/ExplorationGraphPage').then((m) => ({ default: m.ExplorationGraphPage })))
 const CredentialsPage = lazy(() => import('@/pages/CredentialsPage').then((m) => ({ default: m.CredentialsPage })))
+const CorpusPage = lazy(() => import('@/pages/CorpusPage').then((m) => ({ default: m.CorpusPage })))
 const LogsPage = lazy(() => import('@/pages/LogsPage').then((m) => ({ default: m.LogsPage })))
 
 function Loading() {
-  return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
+  return <LoadingState className="h-full" />
 }
 
 function withSuspense(el: React.ReactNode) {
@@ -42,6 +45,7 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <Navigate to="/conversations/direct" replace /> },
+      { path: 'overview', element: withSuspense(<OverviewPage />) },
       // 任务：批次（assignment）→ 任务（task）列表与下发，位于对话上游。
       { path: 'tasks', element: withSuspense(<TasksPage />) },
       {
@@ -71,6 +75,7 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'credentials', element: withSuspense(<CredentialsPage />) },
+      { path: 'corpus', element: withSuspense(<CorpusPage />) },
       // 日志：各组件运行日志（api 尾读 logs/ 目录），运维排障视图。
       { path: 'logs', element: withSuspense(<LogsPage />) },
       // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。

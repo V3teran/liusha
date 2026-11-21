@@ -16,12 +16,12 @@ interface StatChipProps {
 export function StatChip({ color, label, value, title }: StatChipProps) {
   return (
     <span
-      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface pl-2 pr-2.5 text-xs transition-all hover:border-border-strong hover:shadow-sm"
+      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface pl-2 pr-2.5 text-xs transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-sm"
       style={{ borderLeftWidth: '3px', borderLeftColor: color }}
       title={title}
     >
       <span className="text-text-secondary">{label}</span>
-      <b className="font-mono text-sm font-semibold tabular-nums text-text">{value}</b>
+      <b className="text-sm font-semibold tabular-nums text-text">{value}</b>
     </span>
   )
 }

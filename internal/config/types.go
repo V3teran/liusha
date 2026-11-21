@@ -118,9 +118,9 @@ type RetryConfig struct {
 	Backoff529Ms      int   `mapstructure:"backoff_529_ms"`
 }
 
-// EmbeddingConfig 是知识库检索所用的向量化与重排服务。
+// EmbeddingConfig 是知识库语义检索所用的模型服务（api 与 runner 都用）。
 type EmbeddingConfig struct {
-	// APIKey 是该服务的密钥，经 LIUSHA_EMBEDDING_API_KEY 注入；空 = 知识库只做关键词检索。
+	// APIKey 是该服务的密钥，经 LIUSHA_EMBEDDING_API_KEY 注入，同时启用向量与重排；空 = 知识库只做字面检索。
 	APIKey string `mapstructure:"api_key"`
 }
 

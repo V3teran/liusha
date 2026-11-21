@@ -37,6 +37,25 @@ describe('useTheme', () => {
     expect(localStorage.getItem('liusha-theme')).toBe('dark')
   })
 
+  it('浏览器界面色（theme-color）跟随当前主题，而不是系统偏好', () => {
+    // 与 index.html 一致：两条按系统偏好区分的声明
+    const metas = ['(prefers-color-scheme: light)', '(prefers-color-scheme: dark)'].map((media) => {
+      const m = document.createElement('meta')
+      m.name = 'theme-color'
+      m.media = media
+      document.head.appendChild(m)
+      return m
+    })
+    try {
+      const { result } = renderHook(() => useTheme())
+      expect(metas.map((m) => m.content)).toEqual(['#09090b', '#09090b'])
+      act(() => result.current.toggle())
+      expect(metas.map((m) => m.content)).toEqual(['#fafafa', '#fafafa'])
+    } finally {
+      metas.forEach((m) => m.remove())
+    }
+  })
+
   it('localStorage 中的非法值回退为 dark', () => {
     localStorage.setItem('liusha-theme', 'garbage')
     const { result } = renderHook(() => useTheme())

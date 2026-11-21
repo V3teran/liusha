@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, useId } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { errorText } from '@/api/client'
 import {
@@ -16,13 +16,17 @@ import type { SkillAgent, SkillDetail } from '@/api/types'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS } from '@/components/ui/control'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { DeletedBuiltins } from '@/features/config/DeletedBuiltins'
 import { OverrideStatus } from '@/features/config/OverrideStatus'
 import { useSkillsPagedList } from '@/features/config/useConfigQueries'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { toast } from '@/components/ui/toast'
+import { confirmAction, confirmDiscard } from '@/components/ui/confirm'
 
 // 技能页（/config/skills）。内置技能的出厂内容随版本更新（没改过的自动跟随新版）：可修改名称、描述、正文、启用，
 // 可对比出厂与恢复默认，可删除（升级不再补回，可在「已删除的内置」里恢复）；自建技能可增删改。同标识时
@@ -60,6 +64,7 @@ export function SkillsPage() {
   const { draft, patch, open, close, rebase, baseline } = useDirtyDraft<SkillDraft>()
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [isNew, setIsNew] = useState(false)
+  const categoryListId = useId()
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState<string | null>(null)
   const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
@@ -81,7 +86,7 @@ export function SkillsPage() {
         applyDetail(d)
         open(draftOf(d))
       })
-      .catch((e: unknown) => window.alert(e instanceof Error ? e.message : '加载失败'))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : '加载失败'))
   }
 
   const openNew = () => {
@@ -110,9 +115,9 @@ export function SkillsPage() {
   }, [draft, baseline])
   const dirty = isNew || Object.keys(changes).length > 0
 
-  const requestClose = () => {
+  const requestClose = async () => {
     const edited = isNew ? JSON.stringify(draft) !== JSON.stringify(EMPTY_DRAFT) : dirty
-    if (edited && !window.confirm('有未保存的更改，确认丢弃？')) return
+    if (edited && !(await confirmDiscard())) return
     closeDrawer()
   }
 
@@ -136,7 +141,7 @@ export function SkillsPage() {
       closeDrawer()
       list.reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '保存失败')
+      toast.error(e instanceof Error ? e.message : '保存失败')
     } finally {
       setSaving(false)
     }
@@ -152,7 +157,7 @@ export function SkillsPage() {
       list.reload()
     } catch (e) {
       setConfirmDelete(false)
-      window.alert(errorText(e, '删除失败'))
+      toast.error(errorText(e, '删除失败'))
     } finally {
       setSaving(false)
     }
@@ -161,7 +166,12 @@ export function SkillsPage() {
   // 恢复默认是即时的服务端操作；其它字段上未保存的编辑保留。
   const onReset = async (field?: ContentField) => {
     if (!draft || !baseline) return
-    if (!window.confirm(`把${field ? '该项' : '全部字段'}恢复为出厂内容？`)) return
+    const ok = await confirmAction({
+      title: field ? '恢复出厂内容' : '全部恢复出厂内容',
+      message: `把${field ? '该项' : '全部字段'}恢复为出厂内容？自定义内容会被清除。`,
+      confirmLabel: field ? '恢复出厂' : '全部恢复',
+    })
+    if (!ok) return
     const code = draft.code
     setResetting(field ?? 'all')
     try {
@@ -180,7 +190,7 @@ export function SkillsPage() {
         return merged
       })
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '恢复失败')
+      toast.error(e instanceof Error ? e.message : '恢复失败')
     } finally {
       setResetting(null)
     }
@@ -197,7 +207,7 @@ export function SkillsPage() {
     assignSkill(skillCode, agentCode, next)
       .catch(() => {
         if (openCodeRef.current === skillCode) flip(!next)
-        window.alert('装配状态保存失败')
+        toast.error('装配状态保存失败')
       })
       .finally(() => {
         if (openCodeRef.current === skillCode) setAssignSaving(null)
@@ -221,8 +231,8 @@ export function SkillsPage() {
   return (
     <>
       <ConfigListShell
+        onRetry={list.reload}
         title="技能"
-        subtitle="供智能体检索的方法论文档：摘要进索引，全文按需读取。内置技能随版本更新，可自定义"
         loading={list.loading}
         error={list.error}
         empty={rows.length === 0}
@@ -293,27 +303,28 @@ export function SkillsPage() {
                       <Field label="名称" aside={status('name')}>
                         <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
                       </Field>
-                      <Field label="分类" hint={isBuiltin ? '内置技能的分类随出厂固定' : '知识域：vuln（漏洞知识）/ tool（工具使用知识）'}>
+                      <Field label="分类">
                         <input
                           className={INPUT_CLASS}
                           value={draft.category}
                           disabled={!isNew}
+                          list={categoryListId}
                           onChange={(e) => patch({ category: e.target.value })}
                         />
                       </Field>
-                      <Field
-                        label="描述"
-                        hint="进智能体技能索引的摘要——直接决定 LLM 何时选用本技能"
-                        aside={status('description', true)}
-                      >
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[4rem] resize-y'}
+                      <datalist id={categoryListId}>
+                        <option value="vuln">漏洞知识</option>
+                        <option value="tool">工具使用知识</option>
+                      </datalist>
+                      <Field label="描述" aside={status('description', true)}>
+                        <AutoTextarea
+                          className="min-h-[4rem]"
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
                       {!isNew && (
-                        <Field label="启用" hint="停用后不进任何智能体的技能索引" aside={status('enabled')}>
+                        <Field label="启用" aside={status('enabled')}>
                           <span className="flex items-center gap-2 text-sm text-text">
                             <input
                               type="checkbox"
@@ -339,7 +350,7 @@ export function SkillsPage() {
                       )}
                       {!isNew &&
                         (assignAgents === null ? (
-                          <p className="text-sm text-text-secondary">装配状态加载中…</p>
+                          <LoadingState label="装配状态加载中…" className="justify-start px-0 py-2" />
                         ) : (
                           <AgentAssignSection agents={assignAgents} savingCode={assignSaving} onToggle={toggleAssign} />
                         ))}
@@ -350,11 +361,11 @@ export function SkillsPage() {
                   value: 'content',
                   label: '知识内容',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex flex-col gap-2">
                       {status('body', true)}
-                      <Field label="技能文档（Markdown）" hint="read_skill 全文读取的方法论正文">
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[24rem] resize-y font-mono'}
+                      <Field label="技能文档（Markdown）">
+                        <AutoTextarea
+                          className="min-h-[24rem] font-mono"
                           value={draft.body}
                           onChange={(e) => patch({ body: e.target.value })}
                         />

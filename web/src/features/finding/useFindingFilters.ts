@@ -3,7 +3,7 @@ import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 import type { HistoryOptions } from '@/hooks/useSelectedParam'
 
 // 发现台账筛选态迁移进 URL search params：刷新、前进/后退、分享链接都能还原
-// 筛选条件与翻页位置。参数名：task / conversation / host / severity / status / source / search /
+// 筛选条件与翻页位置。参数名：task / conversation / host / severity / class / status / source / search /
 // page / size。task / conversation 是范围：筛选栏的「范围」选择框选任务；「发现」跳转带着
 // 来源进来（从任务及其它页面 → task，从对话 → conversation）。
 const FIELDS = {
@@ -11,6 +11,7 @@ const FIELDS = {
   conversation: 'conversation',
   host: 'host',
   severity: 'severity',
+  class: 'class',
   status: 'status',
   source: 'source',
   search: 'search',

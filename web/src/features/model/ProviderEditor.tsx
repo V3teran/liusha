@@ -70,8 +70,8 @@ export function ProviderEditor({
 
       {/* dirty 收起确认条：丢弃 / 继续编辑。 */}
       {pendingIntent !== null && (
-        <div className="mt-3 flex items-center gap-3 rounded-lg border border-sev-high/40 bg-sev-high/5 px-3.5 py-2.5">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-sev-high" />
+        <div className="mt-3 flex items-center gap-3 rounded-lg border border-status-warning/40 bg-status-warning/5 px-3.5 py-2.5">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-status-warning" />
           <p className="min-w-0 flex-1 text-xs text-text">
             有未保存更改——{pendingIntent === 'switch' ? '切换到其他行' : '收起'}将丢弃这些更改
           </p>
@@ -86,9 +86,9 @@ export function ProviderEditor({
 
       {/* 保存/删除失败回显条。 */}
       {actionError && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-sev-critical/40 bg-sev-critical/5 px-3.5 py-2.5">
-          <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-sev-critical" />
-          <p className="min-w-0 flex-1 break-all text-xs text-sev-critical">{actionError}</p>
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-status-error/40 bg-status-error/5 px-3.5 py-2.5">
+          <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-status-error" />
+          <p className="min-w-0 flex-1 break-all text-xs text-status-error">{actionError}</p>
           <button
             type="button"
             onClick={onDismissError}

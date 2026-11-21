@@ -3,10 +3,19 @@
    所有设计决策集中在此，便于全局调整与主题扩展
    ============================================================ */
 
-/* 字体家族 */
+/* 字体家族：IBM Plex 自托管（main.tsx 引入，按 Unicode 区段分片、只下载用到的字符；离线部署不依赖外网）。
+   中文没有打包字体，走系统字体（苹方 / 微软雅黑）。等宽字体只用于标识符、地址与代码；
+   数字用正文字体的等宽数字（tabular-nums），与同一行的文字同一字形。 */
 @theme {
-  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-sans: "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* 字号阶梯（全站只用这几级，不写 text-[Npx]）：
+     2xs 11px 次要元数据（徽章、等宽时间戳、分组小标题、行号）
+     xs 12px 辅助文字与表单标签 / sm 14px 正文与控件 / base 16px 页面与弹层标题
+     lg 18px 抽屉内的数值强调 / 2xl 24px 统计主数字 */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
 }
 
 :root {
@@ -56,6 +65,10 @@
   --source-direct: oklch(48% 0.12 225);
   --source-proxy: oklch(51% 0.17 300);
 
+  /* 知识来源：任务沉淀（agent）/ 人工录入（expert） */
+  --corpus-agent: oklch(48% 0.1 175);
+  --corpus-expert: oklch(52% 0.13 65);
+
   /* 语义色：状态 */
   --status-success: oklch(48% 0.12 162);
   --status-error: oklch(52% 0.21 25);
@@ -65,14 +78,14 @@
 
   /* 分类色：无语义的「身份区分」色板（智能体身份、消息角色、指标类别）。
      与语义色正交——不表达好坏/严重度，只表达「这是哪一类」。对比度约束同上。 */
-  --cat-violet: oklch(52% 0.2 293);
-  --cat-emerald: oklch(48% 0.12 163);
-  --cat-sky: oklch(50% 0.13 235);
-  --cat-pink: oklch(52% 0.2 350);
-  --cat-cyan: oklch(48% 0.1 211);
-  --cat-orange: oklch(51% 0.16 50);
-  --cat-lime: oklch(50% 0.14 131);
-  --cat-neutral: oklch(50% 0 0);
+  --cat-violet: oklch(49% 0.2 293);
+  --cat-emerald: oklch(44.5% 0.12 163);
+  --cat-sky: oklch(45% 0.13 235);
+  --cat-pink: oklch(47% 0.2 350);
+  --cat-cyan: oklch(45% 0.1 211);
+  --cat-orange: oklch(47.5% 0.16 50);
+  --cat-lime: oklch(46% 0.14 131);
+  --cat-neutral: oklch(47.5% 0 0);
 
   /* ========== 空间系统 ========== */
   --space-0: 0;
@@ -88,11 +101,13 @@
   --space-16: 4rem;
   --space-20: 5rem;
 
-  /* ========== 圆角系统 ========== */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* ========== 圆角系统 ==========
+     小圆角（2–8px）：控件与面板边缘利落；胶囊形（rounded-full）只留给徽章与头像。 */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
   --radius-full: 9999px;
 
   /* ========== 阴影系统 ========== */
@@ -160,6 +175,9 @@
 
   --source-direct: oklch(70% 0.14 220);
   --source-proxy: oklch(70% 0.14 300);
+
+  --corpus-agent: oklch(74% 0.11 175);
+  --corpus-expert: oklch(79% 0.13 70);
 
   --status-success: oklch(70% 0.16 162);
   --status-error: oklch(65% 0.22 25);

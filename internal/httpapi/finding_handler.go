@@ -7,8 +7,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,6 +22,7 @@ type FindingsAPI interface {
 	CountAll(ctx context.Context, f finding.LedgerFilter) (int, error)
 	GetLedgerRow(ctx context.Context, id string) (finding.LedgerRow, error)
 	TaskFacets(ctx context.Context, f finding.LedgerFilter, goalQuery string, limit int) ([]finding.TaskFacet, bool, error)
+	ClassFacets(ctx context.Context, f finding.LedgerFilter) ([]finding.ClassFacet, error)
 	UpdateTriage(ctx context.Context, id, status, severity, note string) (finding.Finding, error)
 }
 
@@ -33,7 +34,7 @@ const (
 )
 
 // ledgerFilterParams 解析台账筛选参数（列表与统计共用，筛选口径不漂移）：task（任务 ID，须为
-// UUID）/ host / severity / status / source / search（关键词）。非法取值写 400 并返回 ok=false。
+// UUID）/ host / severity / class（发现类型）/ status / source / search（关键词）。非法取值写 400 并返回 ok=false。
 func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
 	source, ok := sourceParam(c)
 	if !ok {
@@ -52,6 +53,7 @@ func ledgerFilterParams(c *gin.Context) (finding.LedgerFilter, bool) {
 		ConversationID: conversationID,
 		Host:           c.Query("host"),
 		Severity:       c.Query("severity"),
+		Class:          c.Query("class"),
 		Status:         c.Query("status"),
 		Source:         source,
 		Search:         c.Query("search"),
@@ -64,7 +66,7 @@ const (
 	maxTaskFacetLimit     = 50
 )
 
-// listFindingsHandler 处理 GET /findings?task=&conversation=&host=&severity=&status=&source=&search=&page=&size=。
+// listFindingsHandler 处理 GET /findings?task=&conversation=&host=&severity=&class=&status=&source=&search=&page=&size=。
 //
 // 全局台账：跨 task/host 列出所有漏洞，按可选维度筛选，created_at desc（最新优先）。
 // 空筛选=全量。响应含来源、所属会话与 triage 处置态，供前端跳转与就地流转。
@@ -73,7 +75,7 @@ const (
 // 响应结构（findingJSON 单一序列化点）：
 //
 //	{ "total": N, "page": P, "size": S, "findings": [{
-//	    "id","seq","severity","summary","host","cwe_id","owasp_category","remediation",
+//	    "id","seq","severity","class","class_name","cwe","summary","host","remediation",
 //	    "target":{...},"evaluation":{...},"repro":{...},"source":"direct|proxy",
 //	    "task_id","conversation_id",
 //	    "status":"open|confirmed|fixed|false_positive|accepted","triage_note","triaged_at",
@@ -142,15 +144,11 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 		}
 		updated, err := api.UpdateTriage(c.Request.Context(), id, body.Status, body.Severity, body.Note)
 		if err != nil {
-			msg := err.Error()
-			switch {
-			case strings.Contains(msg, "not found"):
-				c.JSON(http.StatusNotFound, gin.H{"error": msg, "id": id})
-			case strings.Contains(msg, "非法 status"):
-				c.JSON(http.StatusBadRequest, gin.H{"error": msg})
-			default:
-				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			if errors.Is(err, finding.ErrInvalidTriage) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
 			}
+			respondErr(c, http.StatusInternalServerError, err) // 发现不存在（pgx.ErrNoRows）收敛为 404
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。
@@ -168,8 +166,9 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"severity":        r.Severity,
 		"summary":         r.Summary,
 		"host":            r.Host,
-		"cwe_id":          r.CWEID,
-		"owasp_category":  r.OWASPCategory,
+		"class":           r.Class,
+		"class_name":      finding.Class(r.Class).Name,
+		"cwe":             finding.Class(r.Class).CWE,
 		"remediation":     r.Remediation,
 		"target":          json.RawMessage(rawOrEmpty(r.Target, "{}")),
 		"evaluation":      json.RawMessage(rawOrEmpty(r.Evaluation, "{}")),
@@ -208,6 +207,27 @@ func findingTaskFacetsHandler(api FindingsAPI) gin.HandlerFunc {
 			out = append(out, gin.H{"id": fc.TaskID, "goal": fc.Goal, "created_at": fc.CreatedAt, "count": fc.Count})
 		}
 		c.JSON(http.StatusOK, gin.H{"tasks": out, "has_more": more})
+	}
+}
+
+// findingClassFacetsHandler 处理 GET /findings/classes?task=&conversation=&host=&severity=&status=&source=&search=：
+// 台账「类型」筛选的选项——出现过的发现类型、展示名与漏洞数，其余筛选照常生效。
+func findingClassFacetsHandler(api FindingsAPI) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f, ok := ledgerFilterParams(c)
+		if !ok {
+			return
+		}
+		facets, err := api.ClassFacets(c.Request.Context(), f)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		out := make([]gin.H, 0, len(facets))
+		for _, fc := range facets {
+			out = append(out, gin.H{"class": fc.Class, "name": finding.Class(fc.Class).Name, "count": fc.Count})
+		}
+		c.JSON(http.StatusOK, gin.H{"classes": out})
 	}
 }
 

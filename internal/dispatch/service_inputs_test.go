@@ -60,12 +60,13 @@ func TestSeverityRank(t *testing.T) {
 	assert.Equal(t, 0, severityRank("离谱等级"))
 }
 
-// TestValidateBrief 入口契约：超长显式拒绝（指令不可静默截断），限内放行。
-func TestValidateBrief(t *testing.T) {
-	require.NoError(t, validateBrief(strings.Repeat("测", task.MaxGoalRunes)))
-	err := validateBrief(strings.Repeat("测", task.MaxGoalRunes+1))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "任务描述过长")
+// TestValidateBriefs 入口契约：超长显式拒绝（指令不可静默截断），限内放行；整批中任何一条超长
+// 即整批拒绝，错误带行号，且可识别为 ErrGoalTooLong（入口据此回 400）。
+func TestValidateBriefs(t *testing.T) {
+	require.NoError(t, validateBriefs([]string{strings.Repeat("测", task.MaxGoalRunes), "短"}))
+	err := validateBriefs([]string{"短", strings.Repeat("测", task.MaxGoalRunes+1)})
+	require.ErrorIs(t, err, task.ErrGoalTooLong)
+	assert.Contains(t, err.Error(), "第 2 行")
 }
 func TestEffectiveBrief(t *testing.T) {
 	refs := []attachment.Ref{

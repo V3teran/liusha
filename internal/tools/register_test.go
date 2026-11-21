@@ -14,7 +14,7 @@ import (
 func TestBuildToolsWhitelistSemantics(t *testing.T) {
 	deps := Deps{
 		Tasks:      &task.Store{},
-		Corpus:     &corpus.Store{},
+		Corpus:     &corpus.Service{},
 		ProxyStore: &traffic.ProxyStore{},
 		AgentStore: &traffic.AgentStore{},
 	}

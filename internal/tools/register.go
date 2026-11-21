@@ -29,7 +29,7 @@ func BuildTools(deps Deps, names []string) []registry.Tool {
 		add(newWriteCredentialTool(deps, constants.ToolTimeoutQuick))
 	}
 
-	// corpus（搜索可能慢，写入快）
+	// corpus（检索含向量化与重排，可能较慢）
 	if deps.Corpus != nil {
 		add(newSearchCorpusTool(deps, constants.ToolTimeoutLong))
 	}

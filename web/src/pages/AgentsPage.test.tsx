@@ -14,6 +14,8 @@ import {
   resetAgent,
 } from '@/api/config'
 import type { Agent, AgentDetail, AgentListItem, Tool, ToolKind } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/config', () => ({
   listAgentsPaged: vi.fn(),
@@ -75,6 +77,8 @@ const renderPage = () => {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <AgentsPage />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -100,8 +104,6 @@ describe('AgentsPage', () => {
     mListCandidates.mockImplementation((kind: ToolKind) => Promise.resolve(kind === 'function' ? FUNCTION_TOOLS : CLI_TOOLS))
     mListSkills.mockResolvedValue([])
     mPatch.mockResolvedValue(detail())
-    vi.spyOn(window, 'alert').mockImplementation(() => {})
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('列表卡片展示中文名、英文标识与自定义标记', async () => {
@@ -197,6 +199,7 @@ describe('AgentsPage', () => {
     await userEvent.clear(summary)
     await userEvent.type(summary, '未保存的摘要')
     await userEvent.click(screen.getByText('恢复默认'))
+    await userEvent.click(await screen.findByRole('button', { name: '恢复出厂' }))
     await waitFor(() => expect(mReset).toHaveBeenCalledWith('recon', 'complexity'))
     await waitFor(() => expect(screen.queryByText('已自定义')).toBeNull())
     expect((screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement).value).toBe('未保存的摘要')
@@ -218,6 +221,7 @@ describe('AgentsPage', () => {
     mReset.mockImplementation(() => new Promise((r) => (resolve = r)))
     await openEditor()
     await userEvent.click(screen.getByText('恢复默认'))
+    await userEvent.click(await screen.findByRole('button', { name: '恢复出厂' }))
     const summary = screen.getByLabelText('调度摘要', { exact: false }) as HTMLInputElement
     await userEvent.clear(summary)
     await userEvent.type(summary, '在途时的编辑')
@@ -254,6 +258,7 @@ describe('AgentsPage', () => {
     const archive = screen.getByRole('region', { name: '升级前的自定义提示词' })
     expect(within(archive).getByText('升级前我写的提示词')).toBeTruthy()
     await userEvent.click(within(archive).getByText('我已处理，删除归档'))
+    await userEvent.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(mDeleteArchive).toHaveBeenCalledWith('recon'))
     await waitFor(() => expect(screen.queryByRole('region', { name: '升级前的自定义提示词' })).toBeNull())
   })
@@ -262,11 +267,12 @@ describe('AgentsPage', () => {
     setup(detail())
     await openEditor()
     await userEvent.type(screen.getByLabelText('调度摘要', { exact: false }), 'x')
-    vi.mocked(window.confirm).mockReturnValueOnce(false)
     await userEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await userEvent.click(await screen.findByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(screen.getByRole('dialog')).toBeTruthy()
-    vi.mocked(window.confirm).mockReturnValueOnce(true)
     await userEvent.click(screen.getByRole('button', { name: '关闭' }))
+    await userEvent.click(await screen.findByRole('button', { name: '丢弃修改' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 

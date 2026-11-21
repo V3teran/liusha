@@ -1,5 +1,4 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { conversationJump, taskJumps } from '@/features/relations/taskJumps'
 import type { LLMInvocationDetail } from '@/api/types'
@@ -13,12 +12,17 @@ import { invocationStatus } from './llmInvocationStatus'
 import { isTimeout, throughputLabel } from './llmTiming'
 import { toToolCalls } from './toolCalls'
 import { ToolCallCard } from './ToolCallCard'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface LlmInvocationDrawerProps {
   open: boolean
   detail: LLMInvocationDetail | null
   loading: boolean
   error: string
+  onRetry: () => void
   llmTimeoutMs?: number // 单步 LLM 看门狗（runtime 配置现读；超时判定同源）
   onOpenChange: (open: boolean) => void
 }
@@ -27,7 +31,7 @@ interface LlmInvocationDrawerProps {
 // messages 是 OpenAI 风格消息数组，按条渲染（role 标签 + 正文）；结构不符时退化为 JSON 展示。
 // 解析逻辑（contentToText/toMsgView/reasoning 提取）已抽到同目录 llmMessage.ts 独立测试；
 // 复制状态机抽到 useCopyToClipboard；重复的「标题+复制按钮+内容」结构抽到 CopySection。
-export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs, onOpenChange }: LlmInvocationDrawerProps) {
+export function LlmInvocationDrawer({ open, detail, loading, error, onRetry, llmTimeoutMs, onOpenChange }: LlmInvocationDrawerProps) {
   const { copiedKey, copy } = useCopyToClipboard()
   const jumps = !detail
     ? []
@@ -65,11 +69,12 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
   const { accent: roleColor } = agentAccent(detail?.role)
   const status = detail ? invocationStatus(detail, llmTimeoutMs) : null
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]">
+        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[620px]" onCloseAutoFocus={returnFocus}>
           <Dialog.Title className="sr-only">LLM 调用详情</Dialog.Title>
           <div
             className="border-b border-border border-l-4 px-5 pb-3.5 pt-4"
@@ -93,9 +98,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
               ) : detail ? (
                 <span className="rounded bg-surface-2 px-2 py-0.5 text-xs font-semibold text-text-secondary">{detail.finish_reason || '完成'}</span>
               ) : null}
-              <Dialog.Close className="ml-auto text-text-secondary hover:text-text" aria-label="关闭">
-                <X className="h-4 w-4" aria-hidden="true" />
-              </Dialog.Close>
+              <DialogClose className="ml-auto" />
             </div>
             {detail && (
               <div className="mt-2 font-mono text-sm text-text">
@@ -107,9 +110,9 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
 
           <div className="flex flex-1 min-h-0 flex-col gap-6 overflow-y-auto px-5 py-4">
             {loading ? (
-              <div className="py-10 text-center text-sm text-text-secondary">加载中…</div>
+              <LoadingState className="py-10" />
             ) : error ? (
-              <div className="py-10 text-center text-sm text-sev-critical">⚠ {error}</div>
+              <ErrorState message={error} onRetry={onRetry} />
             ) : detail ? (
               <>
                 {/* 跳转：只看这次调用所属的任务、对话与探索图（规则见 taskJumps）。对话里直接
@@ -153,7 +156,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                     <dd className="font-mono text-sm text-text">
                       总时长 {humanDuration(detail.latency_ms)}
                       {isTimeout(detail, llmTimeoutMs) ? (
-                        <span className="font-semibold text-sev-critical"> · 看门狗超时</span>
+                        <span className="font-semibold text-status-error"> · 看门狗超时</span>
                       ) : (
                         throughputLabel(detail, llmTimeoutMs) && ` · ${throughputLabel(detail, llmTimeoutMs)}`
                       )}
@@ -171,7 +174,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 {detail.error_message && (
                   <section>
                     <h3 className="mb-2.5 text-sm font-semibold text-text">错误</h3>
-                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-xs leading-relaxed text-sev-critical" style={{ borderColor: 'color-mix(in srgb, var(--sev-critical) 40%, var(--border))' }}>
+                    <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border px-2.5 py-2 font-mono text-xs leading-relaxed text-status-error" style={{ borderColor: 'color-mix(in srgb, var(--status-error) 40%, var(--border))' }}>
                       {detail.error_message}
                     </pre>
                   </section>
@@ -215,7 +218,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 {reasoning && (
                   <CopySection
                     title="思考过程"
-                    hint="推理链"
                     copyText={reasoning}
                     copied={copiedKey === 'rsn'}
                     onCopy={() => void copy('rsn', reasoning)}

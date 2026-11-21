@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scenario"
 	"github.com/V3teran/liusha/internal/task"
@@ -50,12 +51,11 @@ func (h *Handler) runCognition(
 		ToolCalls: h.ToolCalls,
 		Tasks:     h.Tasks,
 
-		Findings:   h.Findings,
-		Corpus:     h.Corpus,
-		Embedder:   h.Embedder,
-		Reranker:   h.Reranker,
-		ProxyStore: h.ProxyStore,
-		AgentStore: h.AgentStore,
+		Findings:    h.Findings,
+		Corpus:      h.Corpus,
+		CorpusScope: corpusScope(tk),
+		ProxyStore:  h.ProxyStore,
+		AgentStore:  h.AgentStore,
 
 		MaxActionsPerTask: h.RunnerCfg.MaxActionsPerTask,
 		StepLLMTimeout:    stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
@@ -94,4 +94,13 @@ func stepLLMTimeout(settingSeconds, deploySeconds int) time.Duration {
 		return time.Duration(settingSeconds) * time.Second
 	}
 	return time.Duration(deploySeconds) * time.Second
+}
+
+// corpusScope 是任务检索知识库的可见范围：任务场景的知识与通用知识；无场景的任务只见通用知识。
+func corpusScope(tk task.Task) corpus.Scope {
+	if tk.Scenario == nil {
+		return corpus.Scope{}
+	}
+	code := tk.Scenario.Code
+	return corpus.Scope{Scenario: &code}
 }

@@ -39,13 +39,12 @@ describe('ModelPage', () => {
     mockedUseSaveAgentComplexity.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
-  it('渲染页面标题与副标题（单页设置流，无独立导出入口）', () => {
+  it('渲染页面标题（单页设置流，无独立导出入口）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
-    expect(screen.getByText('LLM 配置')).toBeTruthy()
-    expect(screen.getByText('接入 provider；按推理档位（深度 / 标准 / 轻量）分配模型')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'LLM 配置' })).toBeTruthy()
   })
 
   it('渲染两个分区：模型提供商、能力路由', () => {

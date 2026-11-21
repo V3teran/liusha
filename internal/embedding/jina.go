@@ -1,8 +1,7 @@
-// Package embedding 封装 Jina 的 embedding + rerank HTTP client，供 corpus 的 hybrid RAG 用。
+// Package embedding 是知识库语义检索的模型服务客户端（Jina 的向量与重排接口）。
 //
-// 密钥是配置 embedding.api_key（经 LIUSHA_EMBEDDING_API_KEY 注入，配置文件里留空）。
-// 密钥缺失时构造返回 ErrNoAPIKey，调用方据此降级（corpus 写入只落行不 embed、检索退纯 sparse）——
-// 渗透主流程不该被知识库可用性阻塞。
+// 密钥是配置 embedding.api_key（经 LIUSHA_EMBEDDING_API_KEY 注入，配置文件里留空），同一个
+// 密钥同时启用向量与重排。密钥缺失时知识库只做字面检索，不阻塞主流程。
 package embedding
 
 import (
@@ -14,25 +13,36 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/V3teran/liusha/internal/corpus"
 )
 
 const (
 	// EmbedDim 是 jina-embeddings-v5-text-small 的维度（实测确认），与 corpus.embedding vector(1024) 对齐。
 	EmbedDim = 1024
 
-	defaultModel        = "jina-embeddings-v5-text-small"
-	defaultRerankModel  = "jina-reranker-v2-base-multilingual"
-	embedURL            = "https://api.jina.ai/v1/embeddings"
-	rerankURL           = "https://api.jina.ai/v1/rerank"
-	httpTimeout         = 30 * time.Second
-	taskRetrievalQuery  = "retrieval.query"   // 检索时的 query 向量
-	taskRetrievalPassge = "retrieval.passage" // 入库时的 passage 向量（非对称检索，Jina 最佳实践）
+	defaultModel         = "jina-embeddings-v5-text-small"
+	defaultRerankModel   = "jina-reranker-v2-base-multilingual"
+	embedURL             = "https://api.jina.ai/v1/embeddings"
+	rerankURL            = "https://api.jina.ai/v1/rerank"
+	httpTimeout          = 30 * time.Second
+	taskRetrievalQuery   = "retrieval.query"   // 检索查询的向量
+	taskRetrievalPassage = "retrieval.passage" // 入库文本的向量（非对称检索）
 )
 
-// ErrNoAPIKey 表示 embedding.api_key 未配置——调用方据此降级，不 fail-fast。
+// ErrNoAPIKey 表示 embedding.api_key 未配置。
 var ErrNoAPIKey = errors.New("embedding: embedding.api_key 未配置")
 
-// Client 是 Jina 的 Embedder + Reranker 实现。
+// Models 用密钥构造知识库的语义检索模型；密钥为空返回零值（知识库只做字面检索）。
+func Models(apiKey string) corpus.Models {
+	c, err := NewClient(apiKey)
+	if err != nil {
+		return corpus.Models{}
+	}
+	return corpus.Models{Embedder: c, Reranker: c, EmbeddingModel: c.model, RerankModel: c.rerankModel}
+}
+
+// Client 是向量与重排接口的客户端，实现 corpus.Embedder 与 corpus.Reranker。
 type Client struct {
 	apiKey      string
 	model       string
@@ -40,7 +50,7 @@ type Client struct {
 	httpc       *http.Client
 }
 
-// NewClient 用 apiKey 构造。apiKey 为空返回 ErrNoAPIKey（调用方降级）。
+// NewClient 用 apiKey 构造。apiKey 为空返回 ErrNoAPIKey。
 func NewClient(apiKey string) (*Client, error) {
 	if apiKey == "" {
 		return nil, ErrNoAPIKey
@@ -66,15 +76,15 @@ type embedResponse struct {
 	} `json:"data"`
 }
 
-// EmbedPassage 编码入库文本。空输入返回空结果（不打网络）。
+// EmbedPassage 编码入库文本。空输入返回空结果（不发请求）。
 func (c *Client) EmbedPassage(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	return c.embed(ctx, taskRetrievalPassge, texts)
+	return c.embed(ctx, taskRetrievalPassage, texts)
 }
 
-// EmbedQuery 编码单条检索 query。
+// EmbedQuery 编码一条检索查询。
 func (c *Client) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
 	vecs, err := c.embed(ctx, taskRetrievalQuery, []string{text})
 	if err != nil {
@@ -110,39 +120,41 @@ func (c *Client) embed(ctx context.Context, task string, texts []string) ([][]fl
 }
 
 type rerankRequest struct {
-	Model     string   `json:"model"`
-	Query     string   `json:"query"`
-	Documents []string `json:"documents"`
-	TopN      int      `json:"top_n"`
+	Model           string   `json:"model"`
+	Query           string   `json:"query"`
+	Documents       []string `json:"documents"`
+	TopN            int      `json:"top_n"`
+	ReturnDocuments bool     `json:"return_documents"`
 }
 
 type rerankResponse struct {
 	Results []struct {
-		Index int `json:"index"`
+		Index          int     `json:"index"`
+		RelevanceScore float64 `json:"relevance_score"`
 	} `json:"results"`
 }
 
-// Rerank 返回按相关性降序的原始下标（长度 ≤ topK）。空文档返回 nil。
-func (c *Client) Rerank(ctx context.Context, query string, docs []string, topK int) ([]int, error) {
+// Rerank 返回按相关度降序的打分结果（下标指向 docs，至多 topN 条）。空文档返回 nil。
+func (c *Client) Rerank(ctx context.Context, query string, docs []string, topN int) ([]corpus.Ranked, error) {
 	if len(docs) == 0 {
 		return nil, nil
 	}
-	if topK <= 0 || topK > len(docs) {
-		topK = len(docs)
+	if topN <= 0 || topN > len(docs) {
+		topN = len(docs)
 	}
 	var resp rerankResponse
 	if err := c.post(ctx, rerankURL, rerankRequest{
 		Model:     c.rerankModel,
 		Query:     query,
 		Documents: docs,
-		TopN:      topK,
+		TopN:      topN,
 	}, &resp); err != nil {
 		return nil, err
 	}
-	out := make([]int, 0, len(resp.Results))
+	out := make([]corpus.Ranked, 0, len(resp.Results))
 	for _, r := range resp.Results {
 		if r.Index >= 0 && r.Index < len(docs) {
-			out = append(out, r.Index)
+			out = append(out, corpus.Ranked{Index: r.Index, Score: r.RelevanceScore})
 		}
 	}
 	return out, nil

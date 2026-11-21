@@ -29,50 +29,16 @@
   border-color: var(--accent) !important;
 }
 
-/* ========== 终端装饰元素 ========== */
-
-/* 光标闪烁：加载/空态末尾 ▋，reduced-motion 下不闪 */
-.terminal-cursor::after {
-  content: "▋";
-  margin-left: 2px;
-  color: var(--accent);
-  animation: cursor-blink 1.1s step-end infinite;
-}
-
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-/* ========== 状态指示器 ========== */
-
-/* 脉冲动画：用于进行中的状态 */
-.status-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 /* ========== 动画入场 ========== */
 
-/* 淡入 */
-.animate-fade-in {
-  animation: fade-in var(--duration-normal) var(--ease-out);
+/* 加载态延迟出现：前 200ms 不可见，之后淡入——快速返回的请求不让界面闪一下 */
+.loading-reveal {
+  animation: loading-reveal var(--duration-fast) var(--ease-out) 200ms both;
 }
 
-@keyframes fade-in {
+@keyframes loading-reveal {
   from {
     opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
@@ -154,20 +120,16 @@
   background: var(--accent);
 }
 
-/* ========== 无障碍 ========== */
-
-/* 仅对屏幕阅读器可见 */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
+/* 不显示滚动条、仍可滚动（触控、触控板、Shift+滚轮）：只用于放不下时才横向滑动的分页条一类。 */
+.scrollbar-none {
+  scrollbar-width: none;
 }
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ========== 无障碍 ========== */
 
 /* 跳过动画（用户偏好）*/
 @media (prefers-reduced-motion: reduce) {
@@ -178,11 +140,6 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-
-  .terminal-cursor::after,
-  .status-pulse {
-    animation: none !important;
   }
 }
 

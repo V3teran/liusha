@@ -116,6 +116,14 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		c.Target = deriveTarget(c.Repro)
 	}
 
+	// 类型收进台账的封闭词表：评估者给出词表之外的类别（场景被改写、或没遵守词表）或没给出时
+	// 归入「其他」，原值记日志备查
+	class := NormalizeClass(c.Class)
+	if class == ClassOther && c.Class != "" && c.Class != ClassOther {
+		findingLog.Info().Str("task_id", c.TaskID).Str("result_node_id", c.ResultNodeID).
+			Str("class", c.Class).Msg("发现类型不在词表内，归入其他")
+	}
+
 	var agentRunID *string
 	if s.agentRunID != "" {
 		agentRunID = &s.agentRunID
@@ -127,6 +135,7 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		Host:         host,
 		Summary:      summary,
 		Severity:     severity,
+		Class:        class,
 		Remediation:  c.Suggestion, // 处理建议随主张坐实落台账（空串由 store NULLIF 归 NULL）
 		Evaluation:   evaluation,
 		Target:       c.Target,

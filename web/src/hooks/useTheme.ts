@@ -36,8 +36,13 @@ function readTheme(): Theme {
   return systemQuery()?.matches ? 'light' : 'dark'
 }
 
+/** 浏览器界面色（地址栏等）：与 index.html 首屏脚本同值，取 --background 的换算值。 */
+const THEME_COLOR: Record<Theme, string> = { dark: '#09090b', light: '#fafafa' }
+
 function applyTheme(theme: Theme) {
   const root = document.documentElement
+  // 两条按系统偏好的 theme-color 都改写成当前主题：手动选的主题可能与系统偏好相反
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', THEME_COLOR[theme]))
   // 冻结过渡 → 翻主题 → 下一帧解冻：切换成为单帧原子重绘，
   // 避免 body 即刻变色与其余表面 150–250ms 渐变拼贴出的闪烁。
   root.classList.add('theme-switching')

@@ -13,6 +13,7 @@ import (
 	"github.com/V3teran/liusha/internal/override"
 	"github.com/V3teran/liusha/internal/scenariostore"
 	"github.com/V3teran/liusha/internal/skillstore"
+	"github.com/V3teran/liusha/internal/task"
 )
 
 // apiLog 是 httpapi 包级结构化日志器（logx 同进程共享底层 writer）。
@@ -43,7 +44,7 @@ func respondErr(c *gin.Context, status int, err error) {
 	if status >= http.StatusInternalServerError {
 		switch {
 		case errors.Is(err, override.ErrInvalid), errors.Is(err, llmconfig.ErrInvalid),
-			errors.Is(err, scenariostore.ErrUnavailable):
+			errors.Is(err, scenariostore.ErrUnavailable), errors.Is(err, task.ErrGoalTooLong):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		case errors.Is(err, skillstore.ErrConflict), errors.Is(err, llmconfig.ErrConflict),

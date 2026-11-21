@@ -140,7 +140,7 @@ func (h *Handler) executeTask(
 	return nil
 }
 
-// finishConvergedTask 处理自然收敛（或动作预算用尽）的任务终态、时间线与经验蒸馏。
+// finishConvergedTask 处理自然收敛（或动作预算用尽）的任务终态、时间线与经验沉淀的投递。
 func (h *Handler) finishConvergedTask(doneCtx context.Context, taskLogger zerolog.Logger, p worker.Payload, taskID string, report cognition.Report) {
 	if err := h.completeTask(doneCtx, taskID, report); errors.Is(err, task.ErrStaleConvergence) {
 		// 收敛之后目标被调整或又有了待执行动作：本 run 按它的依据收敛了，任务却还有事
@@ -154,21 +154,12 @@ func (h *Handler) finishConvergedTask(doneCtx context.Context, taskLogger zerolo
 		h.appendTaskStatus(doneCtx, taskLogger, p.ConversationID,
 			conversation.TaskStatusCompleted, "任务完成", h.completionFields(doneCtx, taskLogger, p.ConversationID, taskID, report))
 
-		// 经验蒸馏（仅自然收敛触发；被终止任务的过程性结论可能误导后续任务）：
-		// 把复现门验证过的结论蒸馏成跨任务教训写回 corpus。独立短超时 ctx 异步
-		// best-effort——教训写入失败不影响任务交付（与 reclaimSessionIdentity
-		// 同一惯例）。
-		if h.Distiller != nil {
-			// #nosec G118 -- 蒸馏有意脱离请求上下文：任务已终态，教训写入应超出 handler 生命周期（独立短超时）。
-			go func(taskID string) {
-				dctx, cancel := context.WithTimeout(context.Background(), distillTimeout)
-				defer cancel()
-				if n, err := h.Distiller.DistillTask(dctx, taskID); err != nil {
-					taskLogger.Warn().Err(err).Str("task_id", taskID).Msg("任务经验蒸馏失败（corpus 无新教训）")
-				} else if n > 0 {
-					taskLogger.Info().Str("task_id", taskID).Int("lessons", n).Msg("任务经验已沉淀到知识库")
-				}
-			}(taskID)
+		// 经验沉淀（仅自然收敛触发；被终止任务的过程性结论可能误导后续任务）：投递为持久化的队列
+		// 任务，停机或失败都会重试；投递失败只告警，不影响任务交付。
+		if h.Distiller != nil && h.DistillQueue != nil {
+			if err := h.DistillQueue.EnqueueDistill(doneCtx, taskID, distillTimeout); err != nil {
+				taskLogger.Warn().Err(err).Msg("投递经验沉淀失败（本任务不沉淀经验）")
+			}
 		}
 	}
 }
@@ -200,8 +191,8 @@ func (h *Handler) reclaimIfEnded(taskLogger zerolog.Logger, taskID, host string)
 	h.reclaimSessionIdentity(ctx, taskLogger, taskID, host)
 }
 
-// distillTimeout 是任务经验蒸馏的总预算（LLM 生成 + embedding + 写库）。
-const distillTimeout = 2 * time.Minute
+// distillTimeout 是单次经验沉淀的时限：提炼与整合两次 LLM 调用，加上检索近似条目与写入。
+const distillTimeout = 5 * time.Minute
 
 // finishTimedOutTask 处理 run 超时的任务终态与时间线：task 落 aborted。停止方或 reaper 可能
 // 已先行写了终态（CAS 先到者赢），Abort 随之幂等或被拒，此时不重复落节点。
@@ -280,18 +271,20 @@ func (h *Handler) findingsCount(ctx context.Context, taskID string) int {
 }
 
 // reclaimSessionIdentity 删除本任务的自动会话身份（task:{taskID}:session）。
-// best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；成功落审计。
+// best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；真的删掉了才落审计——
+// 多数任务没有会话身份，不能每次收尾都记一条没发生过的删除。
 func (h *Handler) reclaimSessionIdentity(ctx context.Context, taskLogger zerolog.Logger, taskID, host string) {
 	if h.Creds == nil || host == "" || taskID == "" {
 		return
 	}
 	name := credential.SessionIdentityName(taskID)
-	if err := h.Creds.DeleteIdentity(ctx, host, name); err != nil {
+	deleted, err := h.Creds.DeleteIdentity(ctx, host, name)
+	if err != nil {
 		taskLogger.Warn().Err(err).Str("host", host).
 			Msg("会话身份回收失败（终态清扫器将按任务状态兜底）")
 		return
 	}
-	if h.Audit != nil {
+	if deleted && h.Audit != nil {
 		if _, aErr := h.Audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorRunner,
 			Action:     audit.ActionCredentialDelete,

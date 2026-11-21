@@ -21,13 +21,15 @@ import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { useScopeLabel } from '@/features/relations/useScopeLabel'
 import { shortDateTime } from '@/lib/format'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
-import { getFindingTaskFacets } from '@/api/findings'
+import { getFindingClassFacets, getFindingTaskFacets } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { toast } from '@/components/ui/toast'
 
 /**
  * 「任务」选择框的候选：有发现的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
- * 列全）。结构化筛选（来源、状态、严重度、主机）照常收窄候选；同一目标常被反复下发，次要
+ * 列全）。结构化筛选（来源、状态、严重度、类型、主机）照常收窄候选；同一目标常被反复下发，次要
  * 信息里的创建时间用来区分。
  */
 function fetchTaskOptions(filters: FindingFilters) {
@@ -58,8 +60,18 @@ export function FindingsPage() {
     source: filters.source,
     status: filters.status,
     severity: filters.severity,
+    class: filters.class,
     host: filters.host,
   }
+  // 类型选项由服务端按其余筛选聚合（类型自身不收窄选项）
+  const { class: _class, page: _page, size: _size, ...classFacetFilters } = filters
+  const classFacets = useQuery({
+    queryKey: ['findings', 'class-options', classFacetFilters],
+    queryFn: () => getFindingClassFacets(classFacetFilters),
+    placeholderData: keepPreviousData,
+  })
+  const classOptions = classFacets.data ?? []
+  const classMissing = filters.class !== undefined && filters.class !== '' && !classOptions.some((o) => o.class === filters.class)
 
   // 关键词搜索在服务端执行（覆盖全部页，与分页、统计同一口径），停顿后写入 URL
   const [query, setQuery] = useState(filters.search ?? '')
@@ -119,7 +131,7 @@ export function FindingsPage() {
       queryClient.setQueryData<FindingRow>(findingKeys.detail(updated.id), (prev) => (prev ? { ...prev, ...updated } : prev))
       invalidateList()
     } catch {
-      window.alert('处置保存失败，请重试')
+      toast.error('处置保存失败，请重试')
     } finally {
       setSavingId('')
     }
@@ -138,7 +150,7 @@ export function FindingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="发现" subtitle="每条附复现证据链与配方；可处置：确认 / 已修复 / 误报 / 接受" />
+      <PageHeader title="发现" />
 
       {/* 指标卡：台账总量 + 处置进度 + 严重度分布（分布条与图例可点击按等级筛选） */}
       <section aria-label="发现概况" className="flex-shrink-0 px-6 pt-4">
@@ -152,11 +164,11 @@ export function FindingsPage() {
           <dl className="flex flex-1 items-center gap-4 whitespace-nowrap text-xs">
             <div className="flex items-baseline gap-2">
               <dt className="text-text-tertiary">待处理</dt>
-              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.open ?? 0}</dd>
+              <dd className="text-lg font-semibold tabular-nums text-text">{stat?.by_status?.open ?? 0}</dd>
             </div>
             <div className="flex items-baseline gap-2">
               <dt className="text-text-tertiary">已确认</dt>
-              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.confirmed ?? 0}</dd>
+              <dd className="text-lg font-semibold tabular-nums text-text">{stat?.by_status?.confirmed ?? 0}</dd>
             </div>
           </dl>
 
@@ -197,7 +209,7 @@ export function FindingsPage() {
                 >
                   <span className="h-2 w-2 rounded-sm" style={{ background: severityColorOf(x.sev) }} />
                   <span className="text-text-secondary">{severityLabel[x.sev]}</span>
-                  <span className="font-mono font-semibold tabular-nums text-text">{x.n}</span>
+                  <span className="font-semibold tabular-nums text-text">{x.n}</span>
                 </button>
               ))}
             </div>
@@ -264,6 +276,22 @@ export function FindingsPage() {
           ))}
         </Select>
 
+        <Select
+          value={filters.class ?? ''}
+          onChange={(e) => setFilters({ ...filters, class: e.target.value })}
+          className="w-40"
+          aria-label="按类型筛选"
+        >
+          <option value="">全部类型</option>
+          {/* 经链接带入、当前筛选下已没有发现的类型照样列出，选择框如实显示当前筛选 */}
+          {classMissing && <option value={filters.class}>{filters.class}</option>}
+          {classOptions.map((o) => (
+            <option key={o.class} value={o.class}>
+              {o.name}（{o.count}）
+            </option>
+          ))}
+        </Select>
+
         <SearchInput
           className="w-64"
           value={query}
@@ -275,7 +303,7 @@ export function FindingsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {listError ? (
-          <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+          <ErrorState message={listError} onRetry={() => void listQuery.refetch()} />
         ) : (
           /* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
              严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */

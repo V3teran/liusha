@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   deletePromptArchive,
   getAgent,
@@ -10,7 +9,8 @@ import {
 } from '@/api/config'
 import type { AgentDetail, AgentListItem, SkillListItem, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
-import { INPUT_CLASS, TEXTAREA_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { Select } from '@/components/ui/Select'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
@@ -29,6 +29,8 @@ import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { agentProfile } from '@/lib/agentColor'
 import { COMPLEXITY_GROUPS, groupMeta } from '@/features/model/roles'
 import { toggleAll, toggleChecked } from '@/lib/override'
+import { toast } from '@/components/ui/toast'
+import { confirmAction, confirmDiscard } from '@/components/ui/confirm'
 
 // 智能体页（/config/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
 // 章程、调度摘要、迭代上限、档位与三份白名单。保存只提交改动的字段；与出厂相同的值不算
@@ -82,7 +84,7 @@ export function AgentsPage() {
       .then((d) => {
         if (openCodeRef.current === code) setDetail(d)
       })
-      .catch((e: unknown) => window.alert(e instanceof Error ? e.message : '加载失败'))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : '加载失败'))
   }
 
   // 详情与候选目录都就绪后才生成草稿：「全部」模式要按目录全集展开勾选项。
@@ -96,8 +98,8 @@ export function AgentsPage() {
     close()
   }
 
-  const requestClose = () => {
-    if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
+  const requestClose = async () => {
+    if (dirty && !(await confirmDiscard())) return
     closeDrawer()
   }
 
@@ -109,7 +111,7 @@ export function AgentsPage() {
       closeDrawer()
       reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '保存失败')
+      toast.error(e instanceof Error ? e.message : '保存失败')
     } finally {
       setSaving(false)
     }
@@ -118,8 +120,12 @@ export function AgentsPage() {
   // 恢复默认是即时的服务端操作；其它字段上未保存的编辑保留。
   const onReset = async (field?: keyof AgentDraft) => {
     if (!detail || !draft || !baseline) return
-    const what = field ? '该项' : '全部字段'
-    if (!window.confirm(`把${what}恢复为出厂值？`)) return
+    const ok = await confirmAction({
+      title: field ? '恢复出厂值' : '全部恢复出厂值',
+      message: `把${field ? '该项' : '全部字段'}恢复为出厂值？自定义内容会被清除。`,
+      confirmLabel: field ? '恢复出厂' : '全部恢复',
+    })
+    if (!ok) return
     const code = detail.agent.code
     setResetting(field ?? 'all')
     try {
@@ -131,7 +137,7 @@ export function AgentsPage() {
       setDetail(fresh)
       rebase(newBaseline, (cur) => (field ? rebaseDraft(baseline, cur, newBaseline, field) : newBaseline))
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '恢复失败')
+      toast.error(e instanceof Error ? e.message : '恢复失败')
     } finally {
       setResetting(null)
     }
@@ -139,13 +145,19 @@ export function AgentsPage() {
 
   const onDismissArchive = async () => {
     if (!detail) return
-    if (!window.confirm('确认已对照处理升级前的提示词？删除后无法找回。')) return
+    const ok = await confirmAction({
+      title: '删除提示词归档',
+      message: '确认已对照处理升级前的提示词？归档删除后无法找回。',
+      confirmLabel: '确认删除',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await deletePromptArchive(detail.agent.code)
       setDetail({ ...detail, prompt_archive: null })
       reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '删除失败')
+      toast.error(e instanceof Error ? e.message : '删除失败')
     }
   }
 
@@ -179,8 +191,9 @@ export function AgentsPage() {
   return (
     <>
       <ConfigListShell
+        onRetry={reload}
         title="智能体"
-        subtitle="出厂配置随版本更新；在此自定义章程、工具与技能，改过的项可随时恢复默认"
+        columns={2}
         loading={loading}
         error={error}
         empty={rows.length === 0}
@@ -207,7 +220,7 @@ export function AgentsPage() {
                   className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
                   style={{ color: profile.accent, background: profile.soft }}
                 >
-                  <Icon className="h-4 w-4" strokeWidth={2.2} />
+                  <Icon className="h-4 w-4" />
                 </span>
               }
               name={
@@ -245,18 +258,14 @@ export function AgentsPage() {
                   label: '基本信息',
                   content: (
                     <>
-                      <Field
-                        label="调度摘要"
-                        hint="面向编排者的角色分工摘要：planner 规划时读取"
-                        aside={status('description')}
-                      >
+                      <Field label="调度摘要" aside={status('description')}>
                         <input
                           className={INPUT_CLASS}
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
-                      <Field label="最大迭代轮数" hint="ReAct 推理循环上限（1–1000）" aside={status('max_iterations')}>
+                      <Field label="最大迭代轮数" aside={status('max_iterations')}>
                         <input
                           type="number"
                           min={1}
@@ -269,19 +278,7 @@ export function AgentsPage() {
                           }}
                         />
                       </Field>
-                      <Field
-                        label="复杂度档"
-                        hint={
-                          <>
-                            决定该智能体的 LLM 路由档位。在
-                            <Link className="text-accent hover:underline" to="/config/models?tab=assignment">
-                              「模型」页
-                            </Link>
-                            把每档指到某个部署。
-                          </>
-                        }
-                        aside={status('complexity')}
-                      >
+                      <Field label="复杂度档" aside={status('complexity')}>
                         <Select
                           className="w-full"
                           value={draft.complexity}
@@ -314,7 +311,7 @@ export function AgentsPage() {
                   value: 'charter',
                   label: '章程',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-3">
+                    <div className="flex flex-col gap-3">
                       {detail.prompt_archive && (
                         <section
                           aria-label="升级前的自定义提示词"
@@ -326,7 +323,7 @@ export function AgentsPage() {
                           </p>
                           <details className="mt-2">
                             <summary className="cursor-pointer text-text-secondary">查看归档原文</summary>
-                            <pre tabIndex={0} className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono">
+                            <pre className="mt-1 whitespace-pre-wrap break-words rounded border border-border bg-background p-2 font-mono">
                               {detail.prompt_archive.prompt}
                             </pre>
                           </details>
@@ -340,18 +337,16 @@ export function AgentsPage() {
                         </section>
                       )}
                       {status('charter', true)}
-                      <textarea
+                      <AutoTextarea
                         aria-label="章程"
-                        className={TEXTAREA_CLASS + ' min-h-[20rem] flex-1 resize-y font-mono'}
+                        className="min-h-[20rem] font-mono"
                         value={draft.charter}
                         onChange={(e) => patch({ charter: e.target.value })}
                       />
                       {detail.contract && (
                         <details className="rounded-md border border-border px-3 py-2 text-xs">
-                          <summary className="cursor-pointer text-text-secondary">
-                            输出契约（随程序版本，不可修改；附在章程之后发给模型）
-                          </summary>
-                          <pre tabIndex={0} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-text-secondary">
+                          <summary className="cursor-pointer text-text-secondary">输出契约</summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-text-secondary">
                             {detail.contract}
                           </pre>
                         </details>

@@ -13,6 +13,10 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { PageSizeSelect } from '@/components/ui/PageSizeSelect'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { toast } from '@/components/ui/toast'
+import { confirmAction } from '@/components/ui/confirm'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 
 export interface ConversationListHandle {
   refresh: () => Promise<void>
@@ -22,7 +26,6 @@ interface ConversationListProps {
   activeId?: string
   source?: string
   allowNew?: boolean
-  heading?: string
   /** 无数据时的空态：名词与说明（数据从哪来）；搜索无结果统一为「没有匹配的X」 */
   emptyState: { noun: string; hint: string }
   /** 首次加载成功且当前无选中时，自动打开最新一条会话（一次性，不劫持后续交互）。 */
@@ -33,9 +36,6 @@ interface ConversationListProps {
   onDeleted: (convID: string) => void
 }
 
-// 每页条数：侧栏高度有限，配合翻页没必要拉大页；与后端默认对齐（parseLimit 默认也是 30）。
-const PAGE_SIZE_OPTIONS = [30, 50, 100]
-const DEFAULT_PAGE_SIZE = 30
 
 // 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。
 function displayTitle(c: Conversation): string {
@@ -52,16 +52,12 @@ function fullTitle(c: Conversation): string {
 
 const TASK_ACTIVE_HINT = '任务进行中，无法删除。请先在对话页停止任务，删除前先等任务结束。'
 
-// 头部主控件共用尺寸：「+ 新会话」按钮与代理捕获 tab 下不可点的「流量批次」占位保持同一盒模型，
-// 两个 tab 切换时头部高度、字重、圆角完全一致，不做「按钮 vs 文字」的降级展示。
-const HEADER_CONTROL = 'flex-1 inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold'
-
 // 会话侧栏：按页拉会话（offset 翻页，见 api/client.ts listConversations 注释），点击向上抛选中 ID；
-// 顶部「+ 新会话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
+// 顶部「新对话」抛 new。列表项展示序号 + 真实状态点 + 标题 + 相对时间，hover 出 ⋯ 更多菜单
 // （删除/重命名），当前选中高亮。source 过滤（direct/proxy）下沉到服务端——分页边界建立在已过滤集合上。
 export const ConversationList = forwardRef<ConversationListHandle, ConversationListProps>(
   function ConversationList(
-    { activeId, source, allowNew = true, emptyState, heading, autoSelect, onSelect, onNew, onDeleted },
+    { activeId, source, allowNew = true, emptyState, autoSelect, onSelect, onNew, onDeleted },
     ref,
   ) {
     const [searchParams, setSearchParams] = useSearchParams()
@@ -181,17 +177,23 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       if (deleting) return
       // 活跃扫描不许删（业界惯例：先停后删，防「删了会话、扫描脱缰、UI 再停不掉」的孤儿）。
       if (c.run_status === 'active') {
-        window.alert(TASK_ACTIVE_HINT)
+        toast.error(TASK_ACTIVE_HINT)
         return
       }
-      if (!window.confirm(`删除对话「${displayTitle(c)}」？\n对话和消息会删除，扫描成果（发现/图）保留。`)) return
+      const ok = await confirmAction({
+        title: '删除对话',
+        message: `删除对话「${displayTitle(c)}」？对话和消息会删除，扫描成果（发现、探索图）保留。`,
+        confirmLabel: '确认删除',
+        danger: true,
+      })
+      if (!ok) return
       setDeleting(c.id)
       try {
         await deleteConversation(c.id)
         setItems((prev) => prev.filter((x) => x.id !== c.id))
         onDeleted(c.id)
       } catch (e) {
-        window.alert(e instanceof Error && e.message === 'TASK_ACTIVE' ? TASK_ACTIVE_HINT : '删除失败，请重试')
+        toast.error(e instanceof Error && e.message === 'TASK_ACTIVE' ? TASK_ACTIVE_HINT : '删除对话失败，请重试')
       } finally {
         setDeleting('')
       }
@@ -213,18 +215,19 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       const next = renameText.trim()
       setRenamingId('')
       const prev = c.title || ''
-      if (next === fullTitle(c)) return // 无变化
+      // 清空后提交等于取消（文件、频道改名的通行做法）：空标题只能显示一串 ID，原标题也就丢了
+      if (next === '' || next === fullTitle(c)) return
       setTitle(c.id, next) // 乐观更新
       try {
         await renameConversation(c.id, next)
       } catch {
         setTitle(c.id, prev) // 回滚
-        window.alert('重命名失败，请重试')
+        toast.error('重命名失败，已恢复原标题')
       }
     }
 
     return (
-      <aside className="flex h-full min-h-0 flex-col gap-2">
+      <aside aria-label="对话列表" className="flex h-full min-h-0 flex-col gap-2">
         {/* 人工下发/代理捕获 tab：按来源（source=direct/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
@@ -250,34 +253,24 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             代理捕获
           </NavLink>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1.5">
-          {allowNew ? (
-            <Button className="flex-1" onClick={onNew}>
-              <Plus />
-              新对话
-            </Button>
-          ) : (
-            <span
-              aria-disabled="true"
-              className={cn(HEADER_CONTROL, 'cursor-default border border-border bg-surface-2 text-text-secondary')}
-            >
-              {heading || '对话'}
-            </span>
-          )}
-          <Button variant="secondary" className="w-9 px-0" title="刷新列表" aria-label="刷新列表" onClick={() => void load(offset)}>
-            <RefreshCw />
+        {/* 发起入口只在可发起的来源出现（代理捕获没有）；刷新跟着搜索框走，两种来源同一位置 */}
+        {allowNew && (
+          <Button className="w-full flex-shrink-0" onClick={onNew}>
+            <Plus />
+            新对话
           </Button>
-        </div>
-        <div className="flex-shrink-0 border-b border-border pb-2.5">
-          {/* 图标/输入框独立成 relative 内层：外层的分隔线 padding 不参与图标垂直居中
-              （此前 top-1/2 相对带 pb 的外层算，图标整体偏低 ~5px）。 */}
+        )}
+        <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-border pb-2.5">
           <SearchInput
-            className="w-full"
+            className="min-w-0 flex-1"
             value={query}
             onChange={setQuery}
             placeholder="搜索对话标题、任务目标、ID…"
             ariaLabel="搜索对话"
           />
+          <Button variant="secondary" className="w-9 flex-shrink-0 px-0" title="刷新列表" aria-label="刷新列表" onClick={() => void load(offset)}>
+            <RefreshCw />
+          </Button>
         </div>
         {items.length > 0 && (
           <div className="flex-shrink-0 px-0.5 pb-0.5 font-mono text-xs text-text-secondary">
@@ -285,7 +278,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
             {`第 ${offset + 1}–${offset + items.length} 条 · ${shownQuery ? '匹配' : '共'} ${total} 条`}
           </div>
         )}
-        {items.length === 0 && !loadError ? null : (
+        {items.length === 0 ? null : (
         <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-0.5">
           {items.map((c) => {
             const meta = taskStatusMeta(c.run_status)
@@ -326,7 +319,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
                         }
                       }}
                       onBlur={() => void commitRename(c)}
-                      className="w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 text-sm text-text outline-none"
+                      className="w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 text-sm max-sm:text-base text-text outline-none"
                     />
                   ) : (
                     <div className="flex items-center justify-between gap-2">
@@ -370,17 +363,16 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
               </li>
             )
           })}
-          {loadError && (
-            <li className="cursor-default justify-center text-xs text-sev-critical">
-              ⚠ 列表加载失败：{loadError}
-            </li>
-          )}
         </ul>
         )}
+        {/* 加载失败只提示一处：已有的列表保留（刷新失败不清空屏幕），提示与重试排在它下面 */}
         {loadError && (
-          <div className="rounded-xl border border-sev-critical/40 bg-surface p-4 text-center text-xs text-sev-critical">
-            ⚠ 列表加载失败：{loadError}
-          </div>
+          <ErrorState
+            title="对话列表加载失败"
+            message={loadError}
+            onRetry={() => void load(offsetRef.current)}
+            className={items.length > 0 ? 'py-6' : 'min-h-0 flex-1'}
+          />
         )}
         {!loadError && !loading && items.length === 0 && (
           /* 空态撑满列表区：空数据也是一等界面状态 */

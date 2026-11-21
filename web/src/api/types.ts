@@ -433,8 +433,9 @@ export interface FindingRow {
   severity: string
   summary: string
   host: string
-  cwe_id?: string
-  owasp_category?: string
+  class: string // 发现类型：台账词表的取值（词表之外的与未给出的为 other）
+  class_name: string // 类型展示名
+  cwe: string // 类型对应的 CWE 编号（如 CWE-89）；没有合适编号的为空
   remediation?: string
   target?: FindingTarget
   // evaluation 是复现门证据链 jsonb：第一层 judge_reasoning/verification_tier/
@@ -460,10 +461,18 @@ export interface FindingFilters {
   search?: string // 关键词：发现摘要、主机、路径、所属任务的目标（服务端检索）
   host?: string
   severity?: string
+  class?: string // 发现类型
   status?: string
   source?: string
   page?: number // 1-based
   size?: number
+}
+
+// GET /findings/classes：台账「类型」筛选的选项——出现过的发现类型、展示名与发现数。
+export interface FindingClassFacet {
+  class: string
+  name: string
+  count: number
 }
 
 // GET /findings/tasks：台账「任务」筛选的选项——有发现的任务（按最近一次发现倒序）。
@@ -637,11 +646,9 @@ export interface CredentialIdentity {
   task_status?: string // active/completed/aborted/failed/gone
 }
 
-/** host 汇总行（枚举只含计数，不含凭证值）。 */
-export interface CredentialHostSummary {
+/** 凭证列表行：一个登录身份连同它所在的 host（存储键归一的 host[:port]）。 */
+export interface CredentialListItem extends CredentialIdentity {
   host: string
-  usernames: number
-  sessions: number
 }
 
 /* ============================================================

@@ -24,7 +24,7 @@ type Cipher struct {
 }
 
 // NewFromHex 用 hex 编码的 32 字节密钥（配置 llm.encryption_key）构造 Cipher——调 LLM 的组件
-// （api、runner、corpus-import）共用同一套 fail-fast 校验。生成密钥：openssl rand -hex 32。
+// （api、runner）共用同一套 fail-fast 校验。生成密钥：openssl rand -hex 32。
 func NewFromHex(hexKey string) (*Cipher, error) {
 	if hexKey == "" {
 		return nil, fmt.Errorf("密钥为空")

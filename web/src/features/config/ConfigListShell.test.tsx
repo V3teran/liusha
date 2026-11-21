@@ -15,7 +15,6 @@ function renderShell(props: { n?: number; server?: ServerPaging; loading?: boole
   return render(
     <ConfigListShell
       title="智能体"
-      subtitle="sub"
       loading={props.loading ?? false}
       error={props.error ?? ''}
       empty={n === 0}

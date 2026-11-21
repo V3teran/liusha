@@ -116,11 +116,12 @@ func TestDeletePaths(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	if err := p.DeleteIdentity(ctx, "t.com", "user"); err != nil {
-		t.Fatalf("delete identity: %v", err)
+	if deleted, err := p.DeleteIdentity(ctx, "t.com", "user"); err != nil || !deleted {
+		t.Fatalf("delete identity: deleted=%v err=%v", deleted, err)
 	}
-	if err := p.DeleteIdentity(ctx, "t.com", "user"); err != nil {
-		t.Fatalf("删除不存在身份应幂等: %v", err)
+	// 不存在的身份：不报错，但如实报告没有删掉任何东西（调用方据此决定是否落审计、是否 404）
+	if deleted, err := p.DeleteIdentity(ctx, "t.com", "user"); err != nil || deleted {
+		t.Fatalf("删除不存在的身份应报告未删除: deleted=%v err=%v", deleted, err)
 	}
 
 }

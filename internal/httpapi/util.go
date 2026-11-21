@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -77,4 +79,31 @@ func matchesQuery(q string, fields ...string) bool {
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
+}
+
+// timeQuery 解析 RFC3339 时间参数：缺省返回 nil；写错返回带参数名的错误——筛选参数写错时
+// 悄悄不筛，调用方会把未筛选的结果当成筛选后的。
+func timeQuery(c *gin.Context, key string) (*time.Time, error) {
+	s := strings.TrimSpace(c.Query(key))
+	if s == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil, fmt.Errorf("%s 不是 RFC3339 时间：%q", key, s)
+	}
+	return &t, nil
+}
+
+// intQuery 解析整数参数：缺省返回 0；写错返回带参数名的错误（理由同 timeQuery）。
+func intQuery(c *gin.Context, key string) (int, error) {
+	s := strings.TrimSpace(c.Query(key))
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("%s 不是整数：%q", key, s)
+	}
+	return v, nil
 }

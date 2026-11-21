@@ -15,6 +15,8 @@ import {
   restoreScenario,
 } from '@/api/config'
 import type { Scenario, ScenarioDetail, ScenarioListItem } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster, useToastStore } from '@/components/ui/toast'
 
 vi.mock('@/api/config', () => ({
   createScenario: vi.fn(),
@@ -85,6 +87,8 @@ function renderPage(entry = '/config/scenarios') {
       <MemoryRouter initialEntries={[entry]}>
         <ScenariosPage />
         <LocationProbe />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -94,9 +98,6 @@ describe('ScenariosPage', () => {
   beforeEach(() => {
     for (const m of [mList, mGet, mPatch, mCreate, mDelete, mReset, mDeleted, mRestore]) m.mockReset()
     mDeleted.mockResolvedValue([])
-    // spyOn 对已被监视的函数返回同一个 spy：清零调用记录，测试之间互不串扰。
-    vi.spyOn(window, 'alert').mockImplementation(() => {}).mockClear()
-    vi.spyOn(window, 'confirm').mockReturnValue(true).mockClear()
   })
 
   it('列表标出缺省、来源、自定义、遮蔽与停用', async () => {
@@ -130,11 +131,32 @@ describe('ScenariosPage', () => {
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
 
+  it('停用缺省场景时就地提示后果', async () => {
+    mList.mockResolvedValue({ scenarios: [item(sc())], total: 1 })
+    mGet.mockResolvedValue(detail(sc()))
+    const user = userEvent.setup()
+    renderPage('/config/scenarios?selected=pentest')
+    const enabled = await screen.findByRole('checkbox')
+    expect(screen.queryByRole('note')).toBeNull()
+    await user.click(enabled)
+    expect(screen.getByRole('note')).toHaveTextContent('不指定场景的下发即无场景')
+  })
+
+  it('停用非缺省场景不提示缺省后果', async () => {
+    const ctf = sc({ code: 'ctf', name: 'CTF', is_default: false })
+    mList.mockResolvedValue({ scenarios: [item(ctf)], total: 1 })
+    mGet.mockResolvedValue(detail(ctf))
+    const user = userEvent.setup()
+    renderPage('/config/scenarios?selected=ctf')
+    await user.click(await screen.findByRole('checkbox'))
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('按链接直接打开场景；场景不存在时提示并关闭', async () => {
     mList.mockResolvedValue({ scenarios: [], total: 0 })
     mGet.mockRejectedValue(new Error('资源不存在'))
     renderPage('/config/scenarios?selected=gone')
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('资源不存在'))
+    expect(await screen.findByText('资源不存在')).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
 
@@ -149,7 +171,7 @@ describe('ScenariosPage', () => {
     mGet.mockRejectedValue(new Error('网络断开'))
     await queryClient.invalidateQueries()
     await waitFor(() => expect(mGet).toHaveBeenCalledTimes(2))
-    expect(vi.mocked(window.alert).mock.calls).toEqual([])
+    expect(useToastStore.getState().items).toEqual([])
     expect(screen.getByDisplayValue('草稿中')).toBeTruthy()
     expect(screen.getByTestId('loc').textContent).toBe('?selected=pentest')
   })

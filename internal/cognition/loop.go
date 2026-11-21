@@ -70,12 +70,12 @@ type Deps struct {
 	Tasks     *task.Store
 
 	// 工具域存储
-	Findings   *finding.Store
-	Corpus     *corpus.Store
-	Embedder   corpus.Embedder
-	Reranker   corpus.Reranker
-	ProxyStore *traffic.ProxyStore
-	AgentStore *traffic.AgentStore
+	Findings *finding.Store
+	Corpus   *corpus.Service
+	// CorpusScope 是本任务检索知识库的可见范围（任务场景的知识与通用知识）。
+	CorpusScope corpus.Scope
+	ProxyStore  *traffic.ProxyStore
+	AgentStore  *traffic.AgentStore
 
 	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
@@ -321,8 +321,7 @@ func (d *Deps) assembleStack(
 			Logger:       d.Logger,
 			Tasks:        d.Tasks,
 			Corpus:       d.Corpus,
-			Embedder:     d.Embedder,
-			Reranker:     d.Reranker,
+			CorpusScope:  d.CorpusScope,
 			ProxyStore:   d.ProxyStore,
 			AgentStore:   d.AgentStore,
 			Creds:        d.Creds,
