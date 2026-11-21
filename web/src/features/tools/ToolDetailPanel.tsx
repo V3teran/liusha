@@ -72,7 +72,7 @@ export function ToolDetailPanel({
         </dl>
         {tool.installed === false && allowedCount > 0 && (
           <p role="note" className="rounded-md border border-status-warning/40 px-3 py-2 text-xs text-status-warning">
-            已允许 · 未安装：已装配它的 {allowedCount} 个智能体运行时无法调用，在沙盒装上后自动生效
+            沙盒未安装：装配它的 {allowedCount} 个智能体运行时无法调用
           </p>
         )}
         <section>

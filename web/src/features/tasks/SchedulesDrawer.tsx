@@ -59,9 +59,7 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
                 <CalendarClock className="h-4 w-4 text-accent" aria-hidden />
                 定时模板
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs leading-relaxed text-text-secondary">
-                到点按清单每条展开一个任务。停用后不再触发；重新启用从当时起按 cron 计算下次触发，停用期间错过的不补跑。
-              </Dialog.Description>
+              <Dialog.Description className="sr-only">定时模板列表</Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button

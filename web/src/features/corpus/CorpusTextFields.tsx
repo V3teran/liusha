@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import type { CorpusDraft } from '@/api/corpus'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS } from '@/components/ui/control'
 import { cn } from '@/lib/utils'
 
 // 知识的标题与正文输入（新建对话框与详情抽屉的编辑态共用）。上限与后端一致：标题 80 字、
@@ -25,7 +26,7 @@ export function charCount(s: string): number {
 interface CorpusTextFieldsProps {
   value: CorpusDraft
   onChange: (next: CorpusDraft) => void
-  contentRows?: number
+  contentRows?: number // 正文框的最小行数（随内容长高）
   autoFocus?: boolean
 }
 
@@ -59,10 +60,9 @@ export function CorpusTextFields({ value, onChange, contentRows = 10, autoFocus 
           </label>
           <Counter n={contentLen} max={MAX_CONTENT} />
         </div>
-        <textarea
+        <AutoTextarea
           id={contentId}
           rows={contentRows}
-          className={cn(TEXTAREA_CLASS, 'resize-y')}
           value={value.content}
           aria-invalid={contentLen > MAX_CONTENT}
           onChange={(e) => onChange({ ...value, content: e.target.value })}

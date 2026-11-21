@@ -13,17 +13,9 @@ export function AgentAssignSection({
   savingCode: string | null
   onToggle: (code: string, next: boolean) => void
 }) {
-  const involvedCount = agents.filter((a) => a.involved).length
-
   return (
     <section>
-      <p className="mb-2 flex items-baseline gap-1.5 text-xs font-medium text-text-secondary">
-        装配到智能体
-        <span className="font-normal text-text-tertiary">
-          已装配 {involvedCount}/{agents.length}
-        </span>
-        <span className="font-normal text-text-tertiary">· 点击胶囊装/卸</span>
-      </p>
+      <h3 className="mb-2 text-xs font-medium text-text-secondary">装配到智能体</h3>
       {agents.length === 0 ? (
         <p className="text-sm text-text-secondary">暂无智能体</p>
       ) : (

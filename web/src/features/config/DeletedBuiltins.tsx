@@ -59,9 +59,7 @@ export function DeletedBuiltins({ noun, items, onRestore }: DeletedBuiltinsProps
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
-          <Dialog.Description className="px-5 pt-3 text-xs text-text-secondary">
-            删除的内置{noun}升级时不会自动补回。恢复后为当前版本的出厂内容。
-          </Dialog.Description>
+          <Dialog.Description className="sr-only">已删除的内置{noun}，恢复后为当前版本的出厂内容</Dialog.Description>
           <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto px-5 py-3" tabIndex={0} aria-label={`已删除的内置${noun}`}>
             {items.length === 0 && <li className="py-6 text-center text-sm text-text-tertiary">没有已删除的内置{noun}</li>}
             {items.map((it) => (

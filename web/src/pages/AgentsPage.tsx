@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   deletePromptArchive,
   getAgent,
@@ -10,7 +9,8 @@ import {
 } from '@/api/config'
 import type { AgentDetail, AgentListItem, SkillListItem, Tool } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
-import { INPUT_CLASS, TEXTAREA_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
 import { Select } from '@/components/ui/Select'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
@@ -245,18 +245,14 @@ export function AgentsPage() {
                   label: '基本信息',
                   content: (
                     <>
-                      <Field
-                        label="调度摘要"
-                        hint="面向编排者的角色分工摘要：planner 规划时读取"
-                        aside={status('description')}
-                      >
+                      <Field label="调度摘要" aside={status('description')}>
                         <input
                           className={INPUT_CLASS}
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
-                      <Field label="最大迭代轮数" hint="ReAct 推理循环上限（1–1000）" aside={status('max_iterations')}>
+                      <Field label="最大迭代轮数" aside={status('max_iterations')}>
                         <input
                           type="number"
                           min={1}
@@ -269,19 +265,7 @@ export function AgentsPage() {
                           }}
                         />
                       </Field>
-                      <Field
-                        label="复杂度档"
-                        hint={
-                          <>
-                            决定该智能体的 LLM 路由档位。在
-                            <Link className="text-accent hover:underline" to="/config/models?tab=assignment">
-                              「模型」页
-                            </Link>
-                            把每档指到某个部署。
-                          </>
-                        }
-                        aside={status('complexity')}
-                      >
+                      <Field label="复杂度档" aside={status('complexity')}>
                         <Select
                           className="w-full"
                           value={draft.complexity}
@@ -314,7 +298,7 @@ export function AgentsPage() {
                   value: 'charter',
                   label: '章程',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-3">
+                    <div className="flex flex-col gap-3">
                       {detail.prompt_archive && (
                         <section
                           aria-label="升级前的自定义提示词"
@@ -326,7 +310,7 @@ export function AgentsPage() {
                           </p>
                           <details className="mt-2">
                             <summary className="cursor-pointer text-text-secondary">查看归档原文</summary>
-                            <pre tabIndex={0} className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 font-mono">
+                            <pre className="mt-1 whitespace-pre-wrap break-words rounded border border-border bg-background p-2 font-mono">
                               {detail.prompt_archive.prompt}
                             </pre>
                           </details>
@@ -340,18 +324,16 @@ export function AgentsPage() {
                         </section>
                       )}
                       {status('charter', true)}
-                      <textarea
+                      <AutoTextarea
                         aria-label="章程"
-                        className={TEXTAREA_CLASS + ' min-h-[20rem] flex-1 resize-y font-mono'}
+                        className="min-h-[20rem] font-mono"
                         value={draft.charter}
                         onChange={(e) => patch({ charter: e.target.value })}
                       />
                       {detail.contract && (
                         <details className="rounded-md border border-border px-3 py-2 text-xs">
-                          <summary className="cursor-pointer text-text-secondary">
-                            输出契约（随程序版本，不可修改；附在章程之后发给模型）
-                          </summary>
-                          <pre tabIndex={0} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-text-secondary">
+                          <summary className="cursor-pointer text-text-secondary">输出契约</summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-text-secondary">
                             {detail.contract}
                           </pre>
                         </details>

@@ -1,4 +1,5 @@
 import { useEffect, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
 import { codesToText, linesToList, listToLines, textToCodes } from './listText'
 
 // 名单 / 状态码的文本编辑：编辑期间以原始文本为草稿，只把解析结果上报——若每次按键都
@@ -19,11 +20,11 @@ type ListTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'valu
   onChange: (v: string[]) => void
 }
 
-/** 每行一项的字符串名单。 */
+/** 每行一项的字符串名单：随行数长高，不在框内滚动。 */
 export function ListTextarea({ value, onChange, ...rest }: ListTextareaProps) {
   const [raw, setRaw] = useRawText(value, listToLines, linesToList)
   return (
-    <textarea
+    <AutoTextarea
       {...rest}
       value={raw}
       onChange={(e) => {

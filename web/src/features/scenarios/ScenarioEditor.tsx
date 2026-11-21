@@ -4,7 +4,8 @@ import { errorText } from '@/api/client'
 import { createScenario, deleteScenario, patchScenario, resetScenario, type ScenarioPatch } from '@/api/config'
 import type { ScenarioDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS } from '@/components/ui/control'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { OverrideStatus } from '@/features/config/OverrideStatus'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
@@ -219,7 +220,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                       )}
                       <Field
                         label="名称"
-                        hint={`智能体看到的场景名，也显示在下发入口的选择框里 · ${nameRunes} / ${MAX_NAME_RUNES} 字`}
+                        hint={`${nameRunes} / ${MAX_NAME_RUNES}`}
                         aside={status('name')}
                       >
                         <input
@@ -232,23 +233,15 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                       {nameRunes > MAX_NAME_RUNES && (
                         <p className="text-xs text-status-error">名称超过 {MAX_NAME_RUNES} 字上限。</p>
                       )}
-                      <Field label="说明" hint="给人看的简介：选择场景时作为提示，不进智能体提示词" aside={status('description', true)}>
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[4rem] resize-y'}
+                      <Field label="说明" aside={status('description', true)}>
+                        <AutoTextarea
+                          className="min-h-[4rem]"
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
                       {!isNew && (
-                        <Field
-                          label="启用"
-                          hint={
-                            isDefault
-                              ? '缺省场景：下发不指定场景时使用。停用或删除后，缺省即无场景'
-                              : '停用后不能再用于新任务；已建任务照常使用自己的场景快照'
-                          }
-                          aside={status('enabled')}
-                        >
+                        <Field label="启用" aside={status('enabled')}>
                           <span className="flex items-center gap-2 text-sm text-text">
                             <input
                               type="checkbox"
@@ -259,9 +252,15 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                           </span>
                         </Field>
                       )}
+                      {/* 停用缺省场景改变的是此后所有不指定场景的下发：只在用户正要这样做时提示后果 */}
+                      {isDefault && !draft.enabled && (
+                        <p role="note" className="text-xs text-status-warning">
+                          这是缺省场景：停用后，不指定场景的下发即无场景
+                        </p>
+                      )}
                       {customizedCount > 0 && (
                         <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs text-text-secondary">
-                          <span>已自定义 {customizedCount} 项（改过的内容不随版本更新）</span>
+                          <span>已自定义 {customizedCount} 项</span>
                           <button
                             type="button"
                             disabled={resetting !== null}
@@ -279,14 +278,11 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
                   value: 'content',
                   label: '场景内容',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex flex-col gap-2">
                       {status('body', true)}
-                      <Field
-                        label="场景正文（Markdown）"
-                        hint={`整份拼在四个智能体系统提示词的末尾 · ${bodyRunes} / ${MAX_BODY_RUNES} 字`}
-                      >
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[24rem] resize-y font-mono'}
+                      <Field label="场景正文（Markdown）" hint={`${bodyRunes} / ${MAX_BODY_RUNES}`}>
+                        <AutoTextarea
+                          className="min-h-[24rem] font-mono"
                           value={draft.body}
                           aria-invalid={bodyRunes > MAX_BODY_RUNES}
                           onChange={(e) => patch({ body: e.target.value })}

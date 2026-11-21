@@ -82,11 +82,10 @@ export function AssignmentView() {
 
   return (
     <section aria-label="能力路由">
-      {/* 卡内头部与行同内边距节奏（与模型提供商卡同构）；回落细节在标准推理行说明中 */}
+      {/* 卡内头部与行同内边距节奏（与模型提供商卡同构） */}
       <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-text">能力路由</h2>
-          <p className="mt-0.5 text-xs text-text-secondary">为每个复杂度档位分配模型，并把智能体归入对应档</p>
         </div>
         {loading ? (
           <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
@@ -199,7 +198,6 @@ function ComplexityRow({
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-xs text-text-secondary">{meta.desc}</p>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
@@ -236,7 +234,7 @@ function ComplexityRow({
 
 // 单档的 agent 归属胶囊区（与工具模块装配胶囊同一设计：同尺寸、仅配色区分——
 // 归属本档 = accent 高亮，未归属 = 幽灵可点移入；单值归属，归属档点击无操作）。
-// 全部渲染为 button + aria-pressed 表达归属态；头部带「已归入 N/M」计数。
+// 全部渲染为 button + aria-pressed 表达归属态。
 function AgentPicker({
   group,
   groupLabel,
@@ -252,7 +250,6 @@ function AgentPicker({
   moving: Set<string>
   onMove: (agentCode: string, group: string) => void
 }) {
-  const inCount = agents.filter((h) => (complexityBy.get(h.code) ?? 'medium') === group).length
   return (
     <div
       role="group"
@@ -260,7 +257,7 @@ function AgentPicker({
       className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2"
     >
       <span className="mr-1 text-[11px] text-text-tertiary">
-        智能体 · 已归入 {inCount}/{agents.length}
+        智能体
       </span>
       {agents.map((h) => {
         const inGroup = (complexityBy.get(h.code) ?? 'medium') === group

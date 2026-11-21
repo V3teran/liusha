@@ -10,9 +10,12 @@ import { cn } from '@/lib/utils'
 
 export type ControlSize = 'sm' | 'md'
 
+// 无效态：取值违反控件自身约束（min / max / step / required，用户动过之后才判定）或调用方标了
+// aria-invalid 时边框转为错误色——约束由字段自己表达，不在标签旁常驻「须 >0」之类的说明。
 const FRAME =
   'border border-border bg-surface text-text outline-none transition-[border-color,box-shadow] duration-150 ' +
   'placeholder:text-text-tertiary hover:border-border-strong focus:border-accent focus:glow-accent ' +
+  'user-invalid:border-status-error aria-[invalid=true]:border-status-error ' +
   'disabled:cursor-not-allowed disabled:opacity-60'
 
 const SIZE: Record<ControlSize, string> = {

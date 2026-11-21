@@ -113,13 +113,10 @@ function ProxyAccessBody({ status, phase }: { status: ProxyStatus; phase: Phase 
       </Section>
 
       <Section title="2. 安装并信任根证书">
-        <div className="flex flex-wrap items-center gap-3">
-          <a href={PROXY_CA_URL} download="liusha-ca.crt" className={buttonVariants()}>
-            <Download />
-            下载根证书
-          </a>
-          <span className="text-xs text-text-secondary">永久有效，每个浏览器或设备只需安装一次</span>
-        </div>
+        <a href={PROXY_CA_URL} download="liusha-ca.crt" className={cn(buttonVariants(), 'self-start')}>
+          <Download />
+          下载根证书
+        </a>
         <p className="text-xs leading-5 text-text-secondary">
           不信任这张证书，浏览器会拦下所有 HTTPS 站点。核对已安装的证书时看 SHA-256 指纹：
         </p>

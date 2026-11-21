@@ -152,22 +152,16 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-baseline justify-between">
-                <label htmlFor="nt-scenario" className={FIELD_LABEL_CLASS}>
-                  场景
-                </label>
-                <span className="text-[11.5px] text-text-tertiary">任务所处情境的说明，建任务时固定</span>
-              </div>
+              <label htmlFor="nt-scenario" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                场景
+              </label>
               <ScenarioSelect id="nt-scenario" value={scenario} onChange={setScenario} className="w-full" />
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-baseline justify-between">
-                <label htmlFor="nt-briefs" className={FIELD_LABEL_CLASS}>
-                  任务目标
-                </label>
-                <span className="text-[11.5px] text-text-tertiary">每行一个任务</span>
-              </div>
+              <label htmlFor="nt-briefs" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                任务目标
+              </label>
               <LinedTextarea
                 value={briefsText}
                 onChange={setBriefsText}
@@ -210,13 +204,12 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
           <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-2/50 px-5 py-3.5">
             <span className="mr-auto text-[11px] text-text-tertiary">
-              {briefs.length > 0 ? `共 ${briefs.length} 个任务` : '至少写一行任务目标'}
-              <span className="ml-2">⌘/Ctrl+Enter 创建</span>
+              {briefs.length > 0 && `共 ${briefs.length} 个任务`}
             </span>
             <Dialog.Close asChild>
               <Button variant="secondary">取消</Button>
             </Dialog.Close>
-            <Button onClick={submit} disabled={briefs.length === 0 || mutation.isPending}>
+            <Button onClick={submit} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={briefs.length === 0 || mutation.isPending}>
               {mutation.isPending ? '创建中…' : '创建'}
             </Button>
           </div>

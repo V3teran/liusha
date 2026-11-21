@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button'
 // 「放弃」撤销未保存的编辑；「全部恢复出厂」清除本组全部自定义（即时生效）。
 export function SettingsSection({
   title,
-  subtitle,
   loading,
   error,
   saving,
@@ -21,7 +20,6 @@ export function SettingsSection({
   children,
 }: {
   title: string
-  subtitle: string
   loading: boolean
   error: string
   saving: boolean
@@ -43,7 +41,6 @@ export function SettingsSection({
       <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div>
           <h2 className="font-mono text-sm font-semibold text-text">{title}</h2>
-          <p className="mt-0.5 text-xs text-text-secondary">{subtitle}</p>
         </div>
         {onResetAll && customizedCount > 0 && (
           <button

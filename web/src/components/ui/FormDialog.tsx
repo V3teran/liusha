@@ -87,11 +87,15 @@ export function FormDialog({
               )}
             </div>
             <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-2/50 px-5 py-3.5">
-              <span className="mr-auto text-[11px] text-text-tertiary">⌘/Ctrl+Enter 提交</span>
               <Button type="button" variant="secondary" disabled={pending} onClick={() => onOpenChange(false)}>
                 取消
               </Button>
-              <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={!canSubmit || pending}>
+              <Button
+                type="submit"
+                variant={danger ? 'danger' : 'primary'}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                disabled={!canSubmit || pending}
+              >
                 {pending ? '提交中…' : submitLabel}
               </Button>
             </div>

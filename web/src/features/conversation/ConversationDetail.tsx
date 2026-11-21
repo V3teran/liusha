@@ -319,7 +319,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         <EmptyState
           kind="unselected"
           noun="代理批次"
-          hint="选择一个批次，查看智能体的分析过程与发现产出，可随时插话追问。"
+          hint="选择一个批次查看分析过程。"
           className="min-h-0 flex-1"
         />
       ) : (

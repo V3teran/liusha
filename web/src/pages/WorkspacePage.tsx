@@ -286,7 +286,7 @@ export function WorkspacePage() {
         {/* 查看 / 编辑 */}
         <div className="rounded-xl border border-border bg-surface p-3 shadow-sm">
           {!selected ? (
-            <EmptyState kind="unselected" noun="文件" hint="选择一个文件查看内容；悬停文件行可下载或删除。" />
+            <EmptyState kind="unselected" noun="文件" hint="选择一个文件查看内容。" />
           ) : fileQuery.isLoading ? (
             <p className="p-4 text-sm text-text-secondary">加载中…</p>
           ) : fileQuery.data?.binary ? (

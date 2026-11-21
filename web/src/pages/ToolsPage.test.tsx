@@ -65,7 +65,7 @@ describe('ToolsPage', () => {
     mList.mockResolvedValue({ tools: [missing], total: 1 })
     mGet.mockResolvedValue(detailOf(missing, [agent('executor', '执行者', true), agent('planner', '规划者', false)]))
     renderPage()
-    expect(await screen.findByRole('note')).toHaveTextContent('已允许 · 未安装：已装配它的 1 个智能体运行时无法调用')
+    expect(await screen.findByRole('note')).toHaveTextContent('沙盒未安装：装配它的 1 个智能体运行时无法调用')
     expect(screen.getAllByText('未安装').length).toBeGreaterThan(0)
   })
 

@@ -215,7 +215,6 @@ export function LlmInvocationDrawer({ open, detail, loading, error, llmTimeoutMs
                 {reasoning && (
                   <CopySection
                     title="思考过程"
-                    hint="推理链"
                     copyText={reasoning}
                     copied={copiedKey === 'rsn'}
                     onCopy={() => void copy('rsn', reasoning)}

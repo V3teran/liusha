@@ -197,3 +197,11 @@ html.theme-switching *::after {
   animation-duration: 0s !important;
   animation-iteration-count: 1 !important;
 }
+
+/* 不显示滚动条、仍可滚动（触控、触控板、Shift+滚轮）：只用于放不下时才横向滑动的分页条一类。 */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

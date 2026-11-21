@@ -130,6 +130,27 @@ describe('ScenariosPage', () => {
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
 
+  it('停用缺省场景时就地提示后果', async () => {
+    mList.mockResolvedValue({ scenarios: [item(sc())], total: 1 })
+    mGet.mockResolvedValue(detail(sc()))
+    const user = userEvent.setup()
+    renderPage('/config/scenarios?selected=pentest')
+    const enabled = await screen.findByRole('checkbox')
+    expect(screen.queryByRole('note')).toBeNull()
+    await user.click(enabled)
+    expect(screen.getByRole('note')).toHaveTextContent('不指定场景的下发即无场景')
+  })
+
+  it('停用非缺省场景不提示缺省后果', async () => {
+    const ctf = sc({ code: 'ctf', name: 'CTF', is_default: false })
+    mList.mockResolvedValue({ scenarios: [item(ctf)], total: 1 })
+    mGet.mockResolvedValue(detail(ctf))
+    const user = userEvent.setup()
+    renderPage('/config/scenarios?selected=ctf')
+    await user.click(await screen.findByRole('checkbox'))
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('按链接直接打开场景；场景不存在时提示并关闭', async () => {
     mList.mockResolvedValue({ scenarios: [], total: 0 })
     mGet.mockRejectedValue(new Error('资源不存在'))

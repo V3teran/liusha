@@ -135,10 +135,7 @@ export function DiagnosisPanel({
   return (
     <section aria-label="连接诊断" className="rounded-lg border border-border bg-surface px-4 py-3">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="text-sm font-medium text-text">连接诊断</h4>
-          <p className="mt-0.5 text-xs text-text-tertiary">实测端点、鉴权、模型列表、模型与工具调用，自动识别鉴权方式等细节</p>
-        </div>
+        <h4 className="min-w-0 text-sm font-medium text-text">连接诊断</h4>
         <Button variant="secondary" size="sm" onClick={() => void run()} disabled={running}>
           {running ? <Loader2 className="animate-spin" /> : <Stethoscope />}
           {running ? '诊断中…' : '运行诊断'}

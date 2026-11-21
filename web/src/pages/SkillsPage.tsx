@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, useId } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { errorText } from '@/api/client'
 import {
@@ -16,7 +16,8 @@ import type { SkillAgent, SkillDetail } from '@/api/types'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { INPUT_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
+import { AutoTextarea } from '@/components/ui/AutoTextarea'
+import { INPUT_CLASS } from '@/components/ui/control'
 import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { ConfigListShell, ConfigRow } from '@/features/config/ConfigListShell'
 import { DeletedBuiltins } from '@/features/config/DeletedBuiltins'
@@ -60,6 +61,7 @@ export function SkillsPage() {
   const { draft, patch, open, close, rebase, baseline } = useDirtyDraft<SkillDraft>()
   const [detail, setDetail] = useState<SkillDetail | null>(null)
   const [isNew, setIsNew] = useState(false)
+  const categoryListId = useId()
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState<string | null>(null)
   const [assignAgents, setAssignAgents] = useState<SkillAgent[] | null>(null)
@@ -292,27 +294,28 @@ export function SkillsPage() {
                       <Field label="名称" aside={status('name')}>
                         <input className={INPUT_CLASS} value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
                       </Field>
-                      <Field label="分类" hint={isBuiltin ? '内置技能的分类随出厂固定' : '知识域：vuln（漏洞知识）/ tool（工具使用知识）'}>
+                      <Field label="分类">
                         <input
                           className={INPUT_CLASS}
                           value={draft.category}
                           disabled={!isNew}
+                          list={categoryListId}
                           onChange={(e) => patch({ category: e.target.value })}
                         />
                       </Field>
-                      <Field
-                        label="描述"
-                        hint="进智能体技能索引的摘要——直接决定 LLM 何时选用本技能"
-                        aside={status('description', true)}
-                      >
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[4rem] resize-y'}
+                      <datalist id={categoryListId}>
+                        <option value="vuln">漏洞知识</option>
+                        <option value="tool">工具使用知识</option>
+                      </datalist>
+                      <Field label="描述" aside={status('description', true)}>
+                        <AutoTextarea
+                          className="min-h-[4rem]"
                           value={draft.description}
                           onChange={(e) => patch({ description: e.target.value })}
                         />
                       </Field>
                       {!isNew && (
-                        <Field label="启用" hint="停用后不进任何智能体的技能索引" aside={status('enabled')}>
+                        <Field label="启用" aside={status('enabled')}>
                           <span className="flex items-center gap-2 text-sm text-text">
                             <input
                               type="checkbox"
@@ -349,11 +352,11 @@ export function SkillsPage() {
                   value: 'content',
                   label: '知识内容',
                   content: (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex flex-col gap-2">
                       {status('body', true)}
-                      <Field label="技能文档（Markdown）" hint="read_skill 全文读取的方法论正文">
-                        <textarea
-                          className={TEXTAREA_CLASS + ' min-h-[24rem] resize-y font-mono'}
+                      <Field label="技能文档（Markdown）">
+                        <AutoTextarea
+                          className="min-h-[24rem] font-mono"
                           value={draft.body}
                           onChange={(e) => patch({ body: e.target.value })}
                         />

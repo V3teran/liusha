@@ -22,18 +22,18 @@ export const TYPE_LABEL: Record<ProviderType, string> = {
   anthropic: 'Anthropic',
 }
 
-// 协议说明：只讲协议约定（报文格式、Base URL 写法），不列举任何具体服务。
+// 协议选项：以协议的接口名区分，不列举任何具体服务；Base URL 的写法由占位示例与「实际请求」预览表达。
 const PROTOCOLS: { value: ProviderType; title: string; desc: string; placeholder: string }[] = [
   {
     value: 'openai_compat',
     title: 'OpenAI 兼容',
-    desc: 'Chat Completions 协议；Base URL 含版本段（如 …/v1）',
+    desc: 'Chat Completions',
     placeholder: 'https://api.example.com/v1',
   },
   {
     value: 'anthropic',
     title: 'Anthropic',
-    desc: 'Messages 协议；Base URL 不含 /v1',
+    desc: 'Messages',
     placeholder: 'https://api.example.com/anthropic',
   },
 ]
@@ -58,7 +58,6 @@ function ProtocolPicker({
     <div className="flex flex-col gap-1.5">
       <span id="provider-protocol-label" className={FIELD_LABEL_CLASS}>
         协议
-        {!value && <span className="ml-2 font-normal text-text-tertiary">先选择该服务使用的接口协议</span>}
       </span>
       <div role="radiogroup" aria-labelledby="provider-protocol-label" className="grid grid-cols-2 gap-2">
         {PROTOCOLS.map((p) => {
@@ -113,10 +112,11 @@ function BaseUrlField({
   const preview =
     draft.base_url.trim() && !error ? chatRequestUrl(protocol, normalizeBaseUrl(protocol, draft.base_url)) : ''
   return (
-    <Field label="Base URL" hint="服务地址；粘贴完整端点也可，保存时按协议自动归一">
+    <Field label="Base URL">
       <input
         className={INPUT_CLASS}
         value={draft.base_url}
+        required
         spellCheck={false}
         placeholder={PROTOCOLS.find((p) => p.value === protocol)?.placeholder}
         onChange={(e) => patch({ base_url: e.target.value })}
@@ -146,7 +146,7 @@ function AuthSchemeField({
   onChange: (v: AuthScheme) => void
 }) {
   return (
-    <Field label="鉴权方式" hint="运行诊断会自动识别；一般无需手改">
+    <Field label="鉴权方式">
       <Select className="w-full" value={value} onChange={(e) => onChange(e.target.value as AuthScheme)}>
         {(Object.keys(AUTH_SCHEME_LABEL) as AuthScheme[]).map((s) => (
           <option key={s} value={s}>
@@ -171,14 +171,10 @@ function ModelField({
   models: string[]
 }) {
   const inputId = useId()
-  const hint = models.length
-    ? `诊断拉到 ${models.length} 个模型，点右侧箭头查看全部，也可直接填写`
-    : '填写服务方的模型名；留空运行诊断时，自动选用拉到的模型列表第一个并回填'
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={inputId} className={FIELD_LABEL_CLASS}>
         默认模型
-        <span className="ml-2 font-normal text-text-tertiary">{hint}</span>
       </label>
       <Combobox
         id={inputId}
@@ -207,6 +203,7 @@ function ApiKeyField({
   isNew: boolean
 }) {
   const [reveal, setReveal] = useState(false)
+  const labelId = useId()
   // 编辑态且已有密钥时，默认收起输入（只展示脱敏尾号）；点「更换密钥」才展开。
   const [rotating, setRotating] = useState(false)
 
@@ -214,7 +211,12 @@ function ApiKeyField({
   // 收起态：只读展示脱敏尾号「···· 9f2c」+「更换密钥」入口。
   if (editingHasKey && !rotating) {
     return (
-      <Field label="API Key" hint="密钥加密落库，永不回显；如需替换请点「更换密钥」">
+      // 收起态没有输入控件：不用 Field（<label> 会把唯一的按钮当作被标注控件、改写它的可访问名），
+      // 以分组 + aria-labelledby 命名。
+      <div role="group" aria-labelledby={labelId} className="flex flex-col gap-1.5">
+        <span id={labelId} className={FIELD_LABEL_CLASS}>
+          API Key
+        </span>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2">
           <span className="flex min-w-0 items-center gap-2 text-sm text-text">
             <KeyRound className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
@@ -235,17 +237,14 @@ function ApiKeyField({
             </Button>
           </div>
         </div>
-      </Field>
+      </div>
     )
   }
 
-  const hint = isNew
-    ? '明文提交，后端加密后落库，此后不再展示'
-    : rotating
-      ? '填入新密钥替换已存（留空取消则保留原密钥）'
-      : '该 provider 尚无密钥，调用会失败——请填入后保存'
+  // 编辑态且没有密钥：该 provider 的调用必然失败，就地告警促其补齐。
+  const missing = !isNew && !rotating && !draft.api_key
   return (
-    <Field label="API Key" hint={hint}>
+    <Field label="API Key">
       <div className="relative">
         <input
           className={INPUT_CLASS + ' pr-9'}
@@ -265,6 +264,11 @@ function ApiKeyField({
           {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
       </div>
+      {missing && (
+        <p role="alert" className="mt-1 text-xs text-sev-critical">
+          尚无密钥，调用会失败
+        </p>
+      )}
       {rotating && (
         <button
           type="button"
@@ -275,7 +279,7 @@ function ApiKeyField({
           }}
           className="mt-1.5 text-xs text-text-tertiary transition-colors hover:text-text-secondary"
         >
-          取消更换（保留原密钥）
+          取消更换
         </button>
       )}
     </Field>
@@ -344,25 +348,20 @@ function GroupLabel({ children }: { children: ReactNode }) {
 }
 
 
-// 布尔设置行：标题 + 说明在左、开关在右的两端对齐行（设置页标准布局）。
+// 布尔设置行：标题在左、开关在右的两端对齐行（设置页标准布局）。
 // 替代原生 checkbox——开关语义（启用/能力声明）与全站控件体系一致，热区也更大。
 function ToggleField({
   label,
-  hint,
   checked,
   onCheckedChange,
 }: {
   label: string
-  hint?: string
   checked: boolean
   onCheckedChange: (v: boolean) => void
 }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2/50 px-4 py-2.5">
-      <span className="min-w-0">
-        <span className="block text-sm text-text">{label}</span>
-        {hint && <span className="mt-0.5 block text-xs leading-snug text-text-tertiary">{hint}</span>}
-      </span>
+      <span className="min-w-0 text-sm text-text">{label}</span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
     </div>
   )
@@ -395,10 +394,11 @@ export function ProviderFormBody({
       <ProtocolPicker value={draft.type} onChange={onProtocol} />
       {draft.type && (
         <>
-          <Field label="显示名称" hint="必填；列表与能力路由按它显示，不可重名，可随时改">
+          <Field label="显示名称">
             <input
               className={INPUT_CLASS}
               value={draft.display_name}
+              required
               spellCheck={false}
               placeholder="主力模型"
               onChange={(e) => patch({ display_name: e.target.value })}
@@ -411,7 +411,6 @@ export function ProviderFormBody({
           {diagnosis}
           <ToggleField
             label="启用"
-            hint="停用后运行期跳过该 provider，它所在的档位由相邻档承接；配置保留"
             checked={draft.enabled}
             onCheckedChange={(v) => patch({ enabled: v })}
           />
@@ -419,25 +418,24 @@ export function ProviderFormBody({
           <GroupLabel>能力</GroupLabel>
           <NumberField
             label="上下文窗口"
-            hint="model 总上下文 tokens；ReAct 历史压缩按此算阈值，必填 > 0"
             value={draft.context_window}
             min={1}
             error={
               typeof draft.context_window !== 'number' || draft.context_window <= 0
-                ? '必填且需大于 0——为空或 0 时保存不可用'
+                ? '需大于 0'
                 : undefined
             }
             onValue={(v) => patch({ context_window: v })}
           />
           <NumberField
             label="单次最大输出 tokens"
-            hint="0 表示按协议默认（4096）"
+            hint="0 即协议默认"
             value={draft.max_tokens}
             min={0}
             onValue={(v) => patch({ max_tokens: v })}
           />
           {draft.type === 'openai_compat' && (
-            <Field label="输出上限字段" hint="多数服务用 max_tokens，部分推理模型只认 max_completion_tokens；运行诊断与运行期都会自动识别">
+            <Field label="输出上限字段">
               <Select
                 className="w-full"
                 value={draft.output_limit_param}
@@ -451,7 +449,7 @@ export function ProviderFormBody({
           {draft.type === 'anthropic' && (
             <NumberField
               label="扩展思考预算"
-              hint="thinking budget tokens：0 关闭；开启时至少 1024，且小于单次最大输出 tokens"
+              hint="0 即关闭"
               value={draft.thinking_budget_tokens}
               min={0}
               error={thinkingBudgetError(draft)}
@@ -461,13 +459,11 @@ export function ProviderFormBody({
           {/* 工具/视觉能力：工具调用由运行诊断实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
           <ToggleField
             label="支持工具调用"
-            hint="运行诊断会实测并自动设置；四个智能体都依赖工具调用，未支持的 provider承接智能体所在档位时能力路由会告警"
             checked={draft.supports_tools}
             onCheckedChange={(v) => patch({ supports_tools: v })}
           />
           <ToggleField
             label="支持视觉"
-            hint="含图消息的路由依赖此标志，须按服务实际能力声明"
             checked={draft.supports_vision}
             onCheckedChange={(v) => patch({ supports_vision: v })}
           />

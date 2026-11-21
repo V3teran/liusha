@@ -168,14 +168,11 @@ export function ProvidersView() {
 
   return (
     <section aria-label="模型提供商">
-      {/* 列表卡：卡内头部（标题+说明 | 搜索+新建）与行同内边距节奏，border-b 分隔；
+      {/* 列表卡：卡内头部（标题 | 搜索+新建）与行同内边距节奏，border-b 分隔；
           点击行在下拉展开编辑面板（手风琴，同刻至多一行） */}
       <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-text">模型提供商</h2>
-            <p className="mt-0.5 text-xs text-text-secondary">接入哪些 provider，连接参数与能力标志</p>
-          </div>
+          <h2 className="min-w-0 text-sm font-semibold text-text">模型提供商</h2>
           <div className="flex items-center gap-2 sm:flex-shrink-0">
             <SearchInput
               className="min-w-0 flex-1 sm:w-72 sm:flex-none"
