@@ -69,6 +69,11 @@ export function Toolbar({
   return (
     <FilterBar
       label="探索图筛选"
+      canReset={filterKind !== 'all' || filterState !== 'all'}
+      onReset={() => {
+        onFilterKind('all')
+        onFilterState('all')
+      }}
       trailing={
         showFilters ? (
           <span className="whitespace-nowrap font-mono text-xs text-text-tertiary">

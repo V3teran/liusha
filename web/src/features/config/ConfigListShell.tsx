@@ -71,6 +71,8 @@ export function ConfigListShell({
 
       <FilterBar
         label={`${title}筛选`}
+        canReset={!!search?.value}
+        onReset={() => search?.onChange('')}
         trailing={
           <PaginationToolbar
             page={server.page}

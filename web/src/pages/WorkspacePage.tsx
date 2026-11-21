@@ -176,6 +176,8 @@ export function WorkspacePage() {
 
       <FilterBar
         label="工作区筛选"
+        canReset={query !== ''}
+        onReset={() => setQuery('')}
         trailing={
           allEntries.length > 0 ? (
             <span className="whitespace-nowrap text-sm text-text-secondary">

@@ -65,7 +65,7 @@ export function ToolsPage() {
       <PageHeader title="工具" />
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
-      <FilterBar label="工具筛选">
+      <FilterBar label="工具筛选" canReset={query !== ''} onReset={() => setQuery('')}>
         <SearchInput className="w-64" value={query} onChange={setQuery} placeholder="搜索工具名 / 描述" ariaLabel="搜索工具" />
       </FilterBar>
 

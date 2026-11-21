@@ -1,6 +1,5 @@
 import { SearchInput } from '@/components/SearchInput'
-import { X } from 'lucide-react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 
 interface LlmAuditSearchBarProps {
   value: string
@@ -37,29 +36,12 @@ export function LlmAuditSearchBar({ value, onChange, placeholder = '搜索对话
     return () => clearTimeout(timer)
   }, [localValue, value, onChange])
 
-  const handleClear = useCallback(() => {
-    setLocalValue('')
-    onChange('')
-  }, [onChange])
-
   return (
     <SearchInput
       className={className}
       value={localValue}
       onChange={setLocalValue}
       placeholder={placeholder}
-      trailing={
-        localValue ? (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="text-text-secondary hover:text-text"
-            aria-label="清空搜索"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        ) : undefined
-      }
     />
   )
 }

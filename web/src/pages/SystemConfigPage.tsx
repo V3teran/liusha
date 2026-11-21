@@ -50,7 +50,7 @@ export function SystemConfigPage() {
       <PageHeader title="系统配置" />
 
       {/* 搜索归筛选栏（全站筛选控件唯一位置）：放进页头右槽会在窄屏把标题挤到零宽。 */}
-      <FilterBar label="系统配置筛选">
+      <FilterBar label="系统配置筛选" canReset={query !== ''} onReset={() => setQuery('')}>
         <SearchInput
           className="w-full sm:w-72"
           value={query}
