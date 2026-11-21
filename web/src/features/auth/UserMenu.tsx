@@ -49,7 +49,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
             title={collapsed ? username : undefined}
             className={cn(
               'flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-accent-soft text-accent',
-              'ring-1 ring-accent/20 transition-all hover:bg-accent-softer hover:scale-105',
+              'ring-1 ring-accent/20 transition-colors hover:bg-accent-softer',
             )}
           >
             <UserRound className="h-4 w-4" strokeWidth={2.2} />
@@ -64,13 +64,13 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
             className="app-menu w-52 rounded-xl border border-border bg-surface py-1.5 shadow-lg"
           >
             <div className="border-b border-border px-3.5 pb-2 pt-1.5">
-              <div className="truncate text-[13px] font-semibold text-text">{username}</div>
-              <div className="mt-0.5 text-[11px] text-text-tertiary">管理员</div>
+              <div className="truncate text-sm font-semibold text-text">{username}</div>
+              <div className="mt-0.5 text-2xs text-text-tertiary">管理员</div>
             </div>
             <div className="py-1">
               <DropdownMenu.Item
                 onSelect={() => setPwdOpen(true)}
-                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-[13px] text-text-secondary outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-text"
+                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-sm text-text-secondary outline-none transition-colors data-[highlighted]:bg-surface-2 data-[highlighted]:text-text"
               >
                 <KeyRound className="h-3.5 w-3.5" />
                 修改密码
@@ -78,7 +78,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
               <DropdownMenu.Item
                 onSelect={() => void handleLogout()}
                 disabled={loggingOut}
-                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-[13px] text-text-secondary outline-none transition-colors data-[highlighted]:bg-status-error/10 data-[highlighted]:text-status-error"
+                className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-sm text-text-secondary outline-none transition-colors data-[highlighted]:bg-status-error/10 data-[highlighted]:text-status-error"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 {loggingOut ? '退出中…' : '退出登录'}

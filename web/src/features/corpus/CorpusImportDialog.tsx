@@ -90,7 +90,7 @@ export function CorpusImportDialog({ open, onOpenChange, onImported }: CorpusImp
           }}
         />
         {files.length > MAX_FILES && (
-          <p role="alert" className="text-xs text-sev-critical">
+          <p role="alert" className="text-xs text-status-error">
             一次最多导入 {MAX_FILES} 个文件
           </p>
         )}

@@ -83,7 +83,7 @@ export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
                 className={cn(
                   rail
                     ? 'sr-only'
-                    : 'px-3 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary',
+                    : 'px-3 pb-1.5 pt-1 text-2xs font-semibold uppercase tracking-wider text-text-tertiary',
                 )}
               >
                 {group.label}

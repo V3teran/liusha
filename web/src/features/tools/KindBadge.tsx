@@ -1,17 +1,13 @@
 import type { ToolKind } from '@/api/types'
+import { Badge } from '@/components/ui/Badge'
 import { KIND_LABEL } from './toolMeta'
 
-// 种类徽章：内部函数 = accent 绿；外部 CLI = amber。列表与详情面板共用（DRY）。
+// 种类徽章：内部函数用强调色，外部 CLI 用分类色橙——两者只区分「是哪一类」，不表达好坏。
+// 走全站 Badge 的软底配方（色字对自身软底按 AA 校准），不另写一套配色。
 export function KindBadge({ kind }: { kind: ToolKind }) {
-  const isFn = kind === 'function'
   return (
-    <span
-      className={
-        'inline-flex w-fit flex-shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold leading-none ' +
-        (isFn ? 'bg-accent/15 text-accent' : 'bg-amber-500/15 text-amber-500 dark:text-amber-400')
-      }
-    >
+    <Badge dot={false} size="sm" color={kind === 'function' ? 'var(--accent)' : 'var(--cat-orange)'}>
       {KIND_LABEL[kind]}
-    </span>
+    </Badge>
   )
 }

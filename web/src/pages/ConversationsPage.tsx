@@ -67,7 +67,6 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     if (convID === currentConv) setCurrentConv('', { replace: true })
   }
 
-  const heading = source === 'proxy' ? '代理批次' : undefined
   const emptyState =
     source === 'proxy'
       ? { noun: '代理批次', hint: PROXY_SETUP_HINT }
@@ -91,7 +90,6 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
               activeId={currentConv || undefined}
               source={source}
               allowNew={source === 'direct'}
-              heading={heading}
               emptyState={emptyState}
               autoSelect={isWide}
               onSelect={selectConversation}

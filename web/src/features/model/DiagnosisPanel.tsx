@@ -26,8 +26,8 @@ const STEP_LABEL: Record<DiagnosisStepKey, string> = {
 
 const STATUS_STYLE: Record<DiagnosisStepStatus, { icon: typeof CheckCircle2; className: string }> = {
   ok: { icon: CheckCircle2, className: 'text-accent' },
-  fail: { icon: XCircle, className: 'text-sev-critical' },
-  warn: { icon: AlertTriangle, className: 'text-sev-high' },
+  fail: { icon: XCircle, className: 'text-status-error' },
+  warn: { icon: AlertTriangle, className: 'text-status-warning' },
   skip: { icon: CircleDashed, className: 'text-text-tertiary' },
 }
 
@@ -143,14 +143,14 @@ export function DiagnosisPanel({
       </div>
 
       {error && (
-        <p role="alert" className="mt-3 text-xs text-sev-critical">
+        <p role="alert" className="mt-3 text-xs text-status-error">
           {error}
         </p>
       )}
 
       {result && (
         <div className={cn('mt-3 flex flex-col gap-2', stale && 'opacity-60')}>
-          <p className={cn('text-xs font-medium', result.ok ? 'text-accent' : 'text-sev-critical')}>
+          <p className={cn('text-xs font-medium', result.ok ? 'text-accent' : 'text-status-error')}>
             {result.ok ? '配置可用' : '未通过'}
             {stale && <span className="ml-2 font-normal text-text-tertiary">配置已改动，请重新诊断</span>}
           </p>
@@ -188,7 +188,7 @@ function StepRow({ step }: { step: DiagnosisStep }) {
         <span className="font-medium text-text">{STEP_LABEL[step.key]}</span>
         {step.detail && <span className="ml-2 text-text-secondary">{step.detail}</span>}
         {step.request && (
-          <span className="block break-all font-mono text-[11px] text-text-tertiary">
+          <span className="block break-all font-mono text-2xs text-text-tertiary">
             {step.request}
             {step.latency_ms ? ` · ${step.latency_ms}ms` : ''}
           </span>

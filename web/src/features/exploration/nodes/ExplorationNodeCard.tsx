@@ -32,10 +32,10 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
     >
       <div className="flex items-center gap-1.5 pr-3 pt-2">
         <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: profile.accent }} />
-        <span className="text-[10px] font-semibold tracking-wider text-text-secondary">{profile.label}</span>
+        <span className="text-2xs font-semibold tracking-wider text-text-secondary">{profile.label}</span>
         {chips.priority && (
           <span
-            className={cn('ml-auto rounded bg-surface-2 px-1 py-px font-mono text-[10px] font-semibold', chips.priority.className)}
+            className={cn('ml-auto rounded bg-surface-2 px-1 py-px font-mono text-2xs font-semibold', chips.priority.className)}
             title="优先级（P0 关键 / P1 高 / P2 中 / P3 低）"
           >
             {chips.priority.code}
@@ -48,7 +48,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
       </p>
 
       {/* 徽章行统一语法：可选色点 + 中性文字——色相只落在点上，文字永可读 */}
-      <div className="mt-auto flex items-center gap-1.5 overflow-hidden pb-2 pr-3 text-[10px] text-text-secondary">
+      <div className="mt-auto flex items-center gap-1.5 overflow-hidden pb-2 pr-3 text-2xs text-text-secondary">
         {chips.state && (
           <span className="inline-flex flex-shrink-0 items-center gap-1">
             <span className={cn('h-1.5 w-1.5 rounded-full', chips.state.dotClass)} />

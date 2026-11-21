@@ -138,7 +138,7 @@ export function Composer({ convId, disabled = false, placeholder, scenarioContro
           focus 走 accent + 辉光；错误态整体转红。 */}
       <div
         className={cn(
-          'rounded-xl border bg-background transition-all duration-200',
+          'rounded-xl border bg-background transition-[border-color,box-shadow] duration-200',
           'focus-within:border-accent focus-within:glow-accent',
           busyMsg ? 'border-status-error' : 'border-border'
         )}
@@ -181,7 +181,7 @@ export function Composer({ convId, disabled = false, placeholder, scenarioContro
           placeholder={effectivePlaceholder}
           className={cn(
             'w-full min-h-[72px] max-h-[240px] resize-y bg-transparent px-4 pt-3.5 pb-2',
-            'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
+            'text-sm max-sm:text-base leading-relaxed text-text placeholder:text-text-tertiary',
             'outline-none disabled:opacity-50 disabled:cursor-not-allowed'
           )}
         />

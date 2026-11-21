@@ -122,12 +122,12 @@ function BaseUrlField({
         onChange={(e) => patch({ base_url: e.target.value })}
       />
       {error ? (
-        <p role="alert" className="mt-1 text-xs text-sev-critical">
+        <p role="alert" className="mt-1 text-xs text-status-error">
           {error}
         </p>
       ) : (
         preview && (
-          <p className="mt-1 break-all font-mono text-[11px] text-text-tertiary">
+          <p className="mt-1 break-all font-mono text-2xs text-text-tertiary">
             实际请求：POST {preview}
           </p>
         )
@@ -265,7 +265,7 @@ function ApiKeyField({
         </button>
       </div>
       {missing && (
-        <p role="alert" className="mt-1 text-xs text-sev-critical">
+        <p role="alert" className="mt-1 text-xs text-status-error">
           尚无密钥，调用会失败
         </p>
       )}
@@ -328,7 +328,7 @@ function NumberField({
         }}
       />
       {error && (
-        <p role="alert" className="mt-1 text-xs text-sev-critical">
+        <p role="alert" className="mt-1 text-xs text-status-error">
           {error}
         </p>
       )}

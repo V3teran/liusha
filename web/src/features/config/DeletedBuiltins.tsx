@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { RotateCcw, X } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { errorText } from '@/api/client'
 import { Button } from '@/components/ui/Button'
+import { DialogClose } from '@/components/ui/DialogClose'
 
 // 「已删除的内置」：技能页与场景页共用。内置条目被删除后升级不再补回，这里列出它们，可逐个恢复
 // 成当前版本的出厂内容。没有已删除的内置条目时不显示入口。
@@ -54,10 +55,8 @@ export function DeletedBuiltins({ noun, items, onRestore }: DeletedBuiltinsProps
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 flex max-h-[80vh] w-[520px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-border bg-surface shadow-lg outline-none">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-            <Dialog.Title className="text-sm font-semibold text-text">已删除的内置{noun}</Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 text-text-tertiary hover:bg-surface-2 hover:text-text" aria-label="关闭">
-              <X className="h-4 w-4" />
-            </Dialog.Close>
+            <Dialog.Title className="text-base font-semibold text-text">已删除的内置{noun}</Dialog.Title>
+            <DialogClose />
           </div>
           <Dialog.Description className="sr-only">已删除的内置{noun}，恢复后为当前版本的出厂内容</Dialog.Description>
           <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto px-5 py-3" tabIndex={0} aria-label={`已删除的内置${noun}`}>

@@ -57,7 +57,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
       <Select
         value={filters.contentType}
         onChange={(e) => onChange({ ...filters, contentType: e.target.value })}
-        className="w-48"
+        className="w-40"
         aria-label="按 Content-Type 筛选"
       >
         <option value="">全部类型</option>
@@ -97,7 +97,7 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
       </Select>
 
       <SearchInput
-        className="w-64"
+        className="w-56"
         value={localSearch}
         onChange={setLocalSearch}
         placeholder="搜索主机、URL（* 通配）"

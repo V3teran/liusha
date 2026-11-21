@@ -78,7 +78,7 @@ function InlineInput({
         }
       }}
       className={
-        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-sm text-text outline-none focus:border-accent focus:glow-accent ' +
+        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-sm max-sm:text-base text-text outline-none focus:border-accent focus:glow-accent ' +
         (mono ? 'font-mono' : '')
       }
     />

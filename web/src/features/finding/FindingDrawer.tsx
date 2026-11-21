@@ -1,6 +1,5 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
@@ -15,6 +14,7 @@ import { buildEvidenceView } from './findingEvidence'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { sourceColor, sourceLabel } from '@/lib/source'
+import { DialogClose } from '@/components/ui/DialogClose'
 
 interface FindingDrawerProps {
   open: boolean
@@ -84,15 +84,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 {finding.summary}
               </Dialog.Title>
             </div>
-            <Dialog.Close
-              aria-label="关闭"
-              className={cn(
-                'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
-                'text-text-secondary transition-all hover:bg-surface-2 hover:text-text'
-              )}
-            >
-              <X className="h-5 w-5" />
-            </Dialog.Close>
+            <DialogClose />
           </div>
 
           {/* 内容区域 */}
@@ -338,8 +330,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       placeholder="记录处置思路、修复方案或风险评估…"
                       className={cn(
                         'w-full resize-y rounded-lg border border-border bg-surface px-3 py-2',
-                        'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
-                        'outline-none transition-all focus:border-accent focus:glow-accent'
+                        'text-sm max-sm:text-base leading-relaxed text-text placeholder:text-text-tertiary',
+                        'outline-none transition-[border-color,box-shadow] focus:border-accent focus:glow-accent'
                       )}
                     />
                   </div>

@@ -5,7 +5,7 @@ import type { ComponentType, ReactNode } from 'react'
 export type JumpLinkSize = 'md' | 'sm'
 
 const SIZE_CLASS: Record<JumpLinkSize, string> = {
-  md: 'gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px]',
+  md: 'gap-1.5 rounded-lg px-3 py-1.5 text-xs',
   sm: 'gap-1 rounded-md px-2 py-1 text-xs',
 }
 

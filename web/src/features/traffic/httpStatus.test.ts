@@ -12,14 +12,14 @@ describe('statusColor', () => {
     expect(statusColor(304)).toBe('var(--status-neutral)')
   })
 
-  it('4xx → sev-medium', () => {
-    expect(statusColor(404)).toBe('var(--sev-medium)')
-    expect(statusColor(429)).toBe('var(--sev-medium)')
+  it('4xx → status-warning', () => {
+    expect(statusColor(404)).toBe('var(--status-warning)')
+    expect(statusColor(429)).toBe('var(--status-warning)')
   })
 
-  it('5xx → sev-critical', () => {
-    expect(statusColor(500)).toBe('var(--sev-critical)')
-    expect(statusColor(503)).toBe('var(--sev-critical)')
+  it('5xx → status-error', () => {
+    expect(statusColor(500)).toBe('var(--status-error)')
+    expect(statusColor(503)).toBe('var(--status-error)')
   })
 
   it('区间外（含 0/未知）→ status-neutral', () => {
@@ -30,15 +30,15 @@ describe('statusColor', () => {
 })
 
 describe('methodColor', () => {
-  it('DELETE → sev-critical', () => {
-    expect(methodColor('DELETE')).toBe('var(--sev-critical)')
-    expect(methodColor('delete')).toBe('var(--sev-critical)') // 大小写无关
+  it('DELETE → status-error', () => {
+    expect(methodColor('DELETE')).toBe('var(--status-error)')
+    expect(methodColor('delete')).toBe('var(--status-error)') // 大小写无关
   })
 
-  it('写方法 POST/PUT/PATCH → sev-info（蓝）', () => {
-    expect(methodColor('POST')).toBe('var(--sev-info)')
-    expect(methodColor('put')).toBe('var(--sev-info)')
-    expect(methodColor('Patch')).toBe('var(--sev-info)')
+  it('写方法 POST/PUT/PATCH → status-info（蓝）', () => {
+    expect(methodColor('POST')).toBe('var(--status-info)')
+    expect(methodColor('put')).toBe('var(--status-info)')
+    expect(methodColor('Patch')).toBe('var(--status-info)')
   })
 
   it('读方法及其它 → status-neutral', () => {

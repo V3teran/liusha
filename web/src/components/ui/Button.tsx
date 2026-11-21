@@ -22,7 +22,7 @@ export const buttonVariants = cva(
           'border border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text active:bg-surface-2 disabled:hover:border-border disabled:hover:text-text-secondary',
         ghost: 'text-text-secondary hover:bg-surface-2 hover:text-text active:bg-surface-3',
         danger:
-          'border border-sev-critical/40 text-sev-critical hover:bg-sev-critical/10 active:bg-sev-critical/15 disabled:hover:bg-transparent',
+          'border border-status-error/40 text-status-error hover:bg-status-error/10 active:bg-status-error/15 disabled:hover:bg-transparent',
       },
       size: {
         xs: 'h-7 rounded-md px-2.5 text-xs font-medium [&_svg]:h-3.5 [&_svg]:w-3.5',

@@ -23,7 +23,8 @@ interface FilterBarProps {
  * 列表页筛选栏（全站唯一形态）：位于页头与内容滚动区之间、不随内容滚动。有筛选条件生效时
  * 出现「清空筛选」——每个筛选栏都必须接上清空（canReset / onReset 必填），全站同一种退出方式。
  *
- * 布局：左侧筛选控件组可换行；右侧附属区固定在首行右端。窄屏（< sm）上下堆叠。
+ * 布局：左侧筛选控件组可换行；右侧附属区固定在首行右端。窄屏（< sm）上下堆叠，筛选控件
+ * 改排成两列网格、各自撑满一格（桌面上的定宽在窄屏换行后左右参差），搜索框通栏。
  */
 export function FilterBar({ children, trailing, canReset, onReset, label = '筛选', className }: FilterBarProps) {
   return (
@@ -35,7 +36,7 @@ export function FilterBar({ children, trailing, canReset, onReset, label = '筛�
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5 max-sm:grid max-sm:grid-cols-2 max-sm:[&>*]:w-full">
         <InFilterBar.Provider value={true}>{children}</InFilterBar.Provider>
         {canReset && (
           <button

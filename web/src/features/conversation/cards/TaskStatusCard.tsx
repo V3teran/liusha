@@ -21,7 +21,7 @@ function statusShape(md: TimelineEventMeta): StatusShape {
     case 'aborted':
       return { icon: Square, label: '任务已停止', color: 'var(--status-neutral)' }
     case 'failed':
-      return { icon: XCircle, label: '任务执行失败', color: 'var(--color-sev-critical)' }
+      return { icon: XCircle, label: '任务执行失败', color: 'var(--color-status-error)' }
     case 'paused':
       return { icon: PauseCircle, label: '任务已暂停', color: 'var(--status-neutral)' }
     case 'resumed':

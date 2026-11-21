@@ -179,42 +179,38 @@ function buildTaskColumns(
         )
       },
     }),
-    // 操作列：active 行提供 暂停/继续（按 paused 单键切换）+ 停止；终态行空占位。
-    // 暂停在服务端是 task.paused 的同步 CAS——响应返回即已生效，onOperated 刷新
-    // 后按钮随之翻转，无需考虑事件延迟。
+    // 操作列：进行中的行提供 暂停/继续（按 paused 单键切换）+ 停止；已结束的行留空——
+    // 列宽固定，留空不会让布局跳动；不可用的控件留在每一行只会稀释可操作行的信号。
+    // 为什么不能操作由详情面板（禁用态 + 说明）交代。暂停在服务端是 task.paused 的同步 CAS——
+    // 响应返回即已生效，onOperated 刷新后按钮随之翻转，无需考虑事件延迟。
     columnHelper.display({
       id: 'actions',
-      header: '\u64cd\u4f5c',
+      header: '操作',
       size: 84,
       cell: (ctx) => {
         const t = ctx.row.original
-        // 按钮恒显、按状态禁用（affordance 可见：操作位不随数据闪没，位置稳定）
-        const terminal = t.status !== 'active'
+        if (t.status !== 'active') return null
         const run = (action: 'pause' | 'resume' | 'terminate') => {
           requestControl?.(t, action)
         }
-        const disabledCls = 'cursor-not-allowed opacity-30 hover:bg-transparent hover:text-text-secondary'
-        const idleCls = 'transition-colors hover:bg-surface-2 hover:text-text'
         return (
           <span className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
             {/* 暂停/继续合并为随 paused 翻转的单切换钮；停止独立（终态，走确认） */}
             <button
               type="button"
-              aria-label={terminal ? '任务已结束' : t.paused ? '继续任务' : '暂停任务'}
-              title={terminal ? '任务已结束' : t.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可继续）'}
-              disabled={terminal}
+              aria-label={t.paused ? '继续任务' : '暂停任务'}
+              title={t.paused ? '继续（从探索图进度恢复执行）' : '暂停（保留进度，可继续）'}
               onClick={() => run(t.paused ? 'resume' : 'pause')}
-              className={`rounded-md p-1.5 text-text-secondary ${terminal ? disabledCls : idleCls}`}
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
             >
               {t.paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
             </button>
             <button
               type="button"
               aria-label="停止任务"
-              title={terminal ? '任务已结束' : '停止（终态，可重新下发）'}
-              disabled={terminal}
+              title="停止（终态，可重新下发）"
               onClick={() => run('terminate')}
-              className={`rounded-md p-1.5 text-text-secondary ${terminal ? disabledCls : 'hover:bg-status-error/10 hover:text-status-error'}`}
+              className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-status-error/10 hover:text-status-error"
             >
               <Square className="h-3.5 w-3.5" />
             </button>

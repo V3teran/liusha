@@ -39,7 +39,7 @@ export function SearchInput({
     ) : null
   const right = trailing ?? clear
   return (
-    <div className={cn('relative', className)}>
+    <div className={cn('relative', inFilterBar && 'max-sm:col-span-2', className)}>
       <Search
         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary"
         aria-hidden
@@ -52,7 +52,7 @@ export function SearchInput({
         aria-label={ariaLabel ?? '搜索'}
         spellCheck={false}
         className={cn(
-          'h-9 w-full rounded-lg border border-border bg-surface text-sm text-text',
+          'h-9 w-full rounded-lg border border-border bg-surface text-sm max-sm:text-base text-text',
           'outline-none transition-colors placeholder:text-text-tertiary focus:border-accent focus:glow-accent',
           right ? 'pl-10 pr-10' : 'pl-10 pr-3',
         )}

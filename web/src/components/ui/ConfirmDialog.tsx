@@ -14,12 +14,14 @@ interface ConfirmDialogProps {
   /** 危险操作（不可逆）：确认钮用 danger 变体 + 标题带警示图标。 */
   danger?: boolean
   onConfirm: () => void
+  /** 关闭后焦点还给谁：缺省由 Radix 还给触发按钮；以代码打开（没有触发按钮）时由调用方给出。 */
+  returnFocusTo?: HTMLElement | null
 }
 
 // 通用确认弹层：替代 window.confirm 的站内形态（原生 confirm 无法套 Token、
 // 在部分嵌入环境行为不一致）。取摆在 Confirm 前——首个可聚焦元素落在取消侧，
 // 危险操作的安全默认是「不动手」。Esc/遮罩点击由 Radix 统一映射为取消。
-export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel, danger, onConfirm }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel, danger, onConfirm, returnFocusTo }: ConfirmDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -28,12 +30,17 @@ export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel
           role="alertdialog"
           aria-modal
           className="tac-modal fixed left-1/2 top-1/2 w-[360px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface p-5 shadow-lg outline-none"
+          onCloseAutoFocus={(e) => {
+            if (!returnFocusTo?.isConnected) return
+            e.preventDefault()
+            returnFocusTo.focus()
+          }}
         >
-          <Dialog.Title className="flex items-center gap-2 text-sm font-semibold text-text">
-            {danger && <AlertTriangle className="h-4 w-4 text-sev-critical" aria-hidden />}
+          <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-text">
+            {danger && <AlertTriangle className="h-4 w-4 text-status-error" aria-hidden />}
             {title}
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-[12.5px] leading-relaxed text-text-secondary">
+          <Dialog.Description className="mt-2 text-xs leading-relaxed text-text-secondary">
             {message}
           </Dialog.Description>
           <div className="mt-4 flex justify-end gap-2">

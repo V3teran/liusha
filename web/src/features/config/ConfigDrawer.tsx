@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
-import { X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS } from '@/components/ui/control'
+import { DialogClose } from '@/components/ui/DialogClose'
 
 // 抽屉内的一个分页：value 作 Radix Tabs 的稳定键，label 为顶部按钮文案，content 为该页表单。
 export interface DrawerTab {
@@ -50,10 +50,8 @@ export function ConfigDrawer({
         <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
           <Tabs.Root value={active} onValueChange={setActive} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
-              <Dialog.Close className="text-text-secondary hover:text-text" aria-label="关闭">
-                <X className="h-4 w-4" />
-              </Dialog.Close>
+              <Dialog.Title className="truncate text-lg font-semibold text-text">{title}</Dialog.Title>
+              <DialogClose />
             </div>
 
             {/* 底线画在分页条内部（inset 阴影）：选中下划线不必下移 1px 去压住边框，分页条也就不会因

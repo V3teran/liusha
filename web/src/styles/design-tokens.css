@@ -7,6 +7,13 @@
 @theme {
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* 字号阶梯（全站只用这几级，不写 text-[Npx]）：
+     2xs 11px 次要元数据（徽章、等宽时间戳、分组小标题、行号）
+     xs 12px 辅助文字与表单标签 / sm 14px 正文与控件 / base 16px 页面与弹层标题
+     lg 18px 抽屉内的数值强调 / 2xl 24px 统计主数字 */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
 }
 
 :root {

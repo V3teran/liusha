@@ -121,7 +121,7 @@ export function Toolbar({
                   aria-pressed={active}
                   title={active ? `清除「${profile.label}」筛选` : `只看${profile.label}节点`}
                   className={cn(
-                    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-all',
+                    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors',
                     active ? 'font-semibold' : 'border-border bg-surface text-text-secondary hover:bg-surface-2 hover:text-text',
                   )}
                   // 激活态 = 淡底 + 同色描边 + 色点；文字保持中性色——小号彩字在浅色主题保不住对比度

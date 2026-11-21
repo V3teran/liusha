@@ -159,7 +159,7 @@ export function Combobox({
             }}
             onMouseEnter={() => setActive(i)}
             className={cn(
-              'flex cursor-pointer items-center gap-2 px-3 py-1.5 font-mono text-[13px] text-text-secondary',
+              'flex cursor-pointer items-center gap-2 px-3 py-1.5 font-mono text-sm text-text-secondary',
               i === active && 'bg-surface-2 text-text',
             )}
           >
