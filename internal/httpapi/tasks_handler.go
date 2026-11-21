@@ -199,7 +199,7 @@ func createTasksHandler(api TaskDispatchAPI) gin.HandlerFunc {
 		assignmentID, items, err := api.DispatchBatch(c.Request.Context(),
 			strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs, req.Scenario)
 		if err != nil {
-			respondErr(c, http.StatusInternalServerError, err)
+			respondErr(c, http.StatusInternalServerError, err) // 目标超长、场景不可用由 respondErr 收敛为 400
 			return
 		}
 		c.JSON(http.StatusCreated, gin.H{
