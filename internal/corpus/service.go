@@ -203,6 +203,34 @@ func (s *Service) Revise(ctx context.Context, seen Entry, title, content, taskID
 	return s.store.confirm(ctx, seen.ID, taskID)
 }
 
+func sameScenario(a, b *string) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+// Merge 用一次收尾整合的结论把讲同一件事的若干条任务沉淀合成一条：keep 改写为新文本，
+// absorbed 的印证转给 keep 后删除，并记下 taskID 的印证。条目都是整合时看到的版本：其中有
+// 人工内容返回 ErrAuthored，其间被改过或删除返回 ErrStale；适用范围不同的条目不能合并（合并会
+// 悄悄改变可见范围），返回 ErrInvalid。
+func (s *Service) Merge(ctx context.Context, keep Entry, absorbed []Entry, title, content, taskID string) error {
+	if len(absorbed) == 0 {
+		return fmt.Errorf("%w：合并至少需要两条条目", ErrInvalid)
+	}
+	for _, e := range append([]Entry{keep}, absorbed...) {
+		if e.Source != SourceAgent {
+			return ErrAuthored
+		}
+		if !sameScenario(e.Scenario, keep.Scenario) {
+			return fmt.Errorf("%w：只能合并适用范围相同的条目", ErrInvalid)
+		}
+	}
+	title, content = strings.TrimSpace(title), strings.TrimSpace(content)
+	if err := validate(title, content); err != nil {
+		return err
+	}
+	f := fields{Title: title, Content: content, Scenario: keep.Scenario, Source: SourceAgent}
+	return s.store.merge(ctx, keep, absorbed, f, s.embed(ctx, Text(title, content)), taskID)
+}
+
 // Exclusive 在知识库写锁下执行 fn（跨进程互斥）。收尾整合「检索近似条目 → 判定 → 写入」
 // 必须整体在锁内，否则并发的两次整合会各自判定为新增、写出重复知识。
 func (s *Service) Exclusive(ctx context.Context, fn func(ctx context.Context) error) error {

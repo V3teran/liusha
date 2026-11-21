@@ -364,3 +364,67 @@ func (s *Store) facets(ctx context.Context, q ListQuery) (Facets, error) {
 	}
 	return out, rows.Err()
 }
+
+// merge 在一个事务里把 absorbed 并入 keep：keep 改写为新文本，absorbed 的印证转给 keep 后删除
+// absorbed，再记下 taskID 的印证。任一条目已不是读到时的版本（被改过或删除）返回 ErrStale。
+func (s *Store) merge(ctx context.Context, keep Entry, absorbed []Entry, f fields, embedding []float32, taskID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	all := append([]Entry{keep}, absorbed...)
+	ids := make([]string, len(all))
+	for i, e := range all {
+		ids[i] = e.ID
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text, updated_at FROM corpus WHERE id::text = ANY($1) FOR UPDATE`, ids)
+	if err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	current := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			rows.Close()
+			return fmt.Errorf("合并知识条目: %w", err)
+		}
+		current[id] = at
+	}
+	rows.Close()
+	for _, e := range all {
+		if at, ok := current[e.ID]; !ok || !at.Equal(e.UpdatedAt) {
+			return ErrStale
+		}
+	}
+
+	absorbedIDs := ids[1:]
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO corpus_confirmation (entry_id, task_id, confirmed_at)
+		SELECT $1, task_id, min(confirmed_at) FROM corpus_confirmation
+		WHERE entry_id::text = ANY($2) GROUP BY task_id
+		ON CONFLICT DO NOTHING`, keep.ID, absorbedIDs); err != nil {
+		return fmt.Errorf("转移印证: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM corpus WHERE id::text = ANY($1)`, absorbedIDs); err != nil {
+		return fmt.Errorf("删除被合并的条目: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE corpus SET title = $2, content = $3, content_hash = $4, embedding = $5::vector, updated_at = now()
+		WHERE id = $1`, keep.ID, f.Title, f.Content, contentHash(f.Content), vectorArg(embedding)); err != nil {
+		if isDuplicate(err) {
+			return ErrDuplicate
+		}
+		return fmt.Errorf("改写合并后的条目: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO corpus_confirmation (entry_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, keep.ID, taskID); err != nil {
+		return fmt.Errorf("记录印证: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	return nil
+}

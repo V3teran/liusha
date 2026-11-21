@@ -379,3 +379,47 @@ func TestImport_SplitsAndSkipsDuplicates(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, page.Total)
 }
+
+// 合并：保留第一条并改写，其余的印证转给它后删除；同一任务的印证只记一次。
+func TestMerge_MovesConfirmationsAndDeletesAbsorbed(t *testing.T) {
+	s, store := newService(t, Models{})
+	ctx := context.Background()
+	t1, t2, t3 := seedTask(t, store), seedTask(t, store), seedTask(t, store)
+	keep := mustCreate(t, s, Draft{Title: "甲", Content: "甲正文"})
+	b := mustCreate(t, s, Draft{Title: "乙", Content: "乙正文"})
+	require.NoError(t, s.Confirm(ctx, keep.ID, t1))
+	require.NoError(t, s.Confirm(ctx, b.ID, t1))
+	require.NoError(t, s.Confirm(ctx, b.ID, t2))
+
+	keep, _, _ = s.Get(ctx, keep.ID)
+	b, _, _ = s.Get(ctx, b.ID)
+	require.NoError(t, s.Merge(ctx, keep, []Entry{b}, "合并后", "合并后的正文", t3))
+
+	got, confirmations, err := s.Get(ctx, keep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "合并后的正文", got.Content)
+	assert.Equal(t, 3, got.Confirmations, "t1 两边都有只记一次，加上 t2 与本次的 t3")
+	assert.Len(t, confirmations, 3)
+	_, _, err = s.Get(ctx, b.ID)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestMerge_Guards(t *testing.T) {
+	s, store := newService(t, Models{})
+	ctx := context.Background()
+	task := seedTask(t, store)
+	a := mustCreate(t, s, Draft{Title: "甲", Content: "甲正文"})
+	b := mustCreate(t, s, Draft{Title: "乙", Content: "乙正文"})
+	human := mustCreate(t, s, Draft{Title: "人", Content: "人工正文", Source: SourceExpert})
+	scoped := mustCreate(t, s, Draft{Title: "场", Content: "场景正文", Scenario: ptr("ctf")})
+
+	assert.ErrorIs(t, s.Merge(ctx, a, []Entry{human}, "x", "y", task), ErrAuthored)
+	assert.ErrorIs(t, s.Merge(ctx, a, []Entry{scoped}, "x", "y", task), ErrInvalid, "适用范围不同不能合并")
+	assert.ErrorIs(t, s.Merge(ctx, a, nil, "x", "y", task), ErrInvalid)
+
+	_, err := s.Update(ctx, b.ID, Patch{ScenarioSet: true}) // 其间被改过
+	require.NoError(t, err)
+	assert.ErrorIs(t, s.Merge(ctx, a, []Entry{b}, "x", "y", task), ErrStale)
+	_, _, err = s.Get(ctx, b.ID)
+	assert.NoError(t, err, "合并失败不删任何条目")
+}
