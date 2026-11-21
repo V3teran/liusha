@@ -192,6 +192,13 @@ pre {
   }
 }
 
+/* 条形从基线长出：只动 scale（合成层），终态即自然状态；延迟由使用点按行错开。 */
+@keyframes bar-grow {
+  from {
+    scale: 0 1;
+  }
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

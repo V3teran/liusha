@@ -81,6 +81,40 @@ func (c *Client) Enqueue(ctx context.Context, role TaskRole, p Payload) (string,
 	return info.ID, info.Queue, nil
 }
 
+// Runner 是一个在线的 runner 实例（队列的消费进程）。队列库按心跳在 Redis 里登记每个实例、
+// 带过期时间，进程退出后登记随之失效——列得出来就是活着的。
+type Runner struct {
+	Host        string
+	PID         int
+	StartedAt   time.Time
+	Concurrency int    // 可同时执行的任务数
+	Active      int    // 正在执行的任务数
+	Status      string // 队列库报告的状态：active 正常取任务；stopped / closed 停机过程中，不再取新任务
+}
+
+// RunnerStatusActive 是正常取任务的实例状态。
+const RunnerStatusActive = "active"
+
+// Runners 列出在线的 runner 实例。
+func (c *Client) Runners() ([]Runner, error) {
+	servers, err := c.insp.Servers()
+	if err != nil {
+		return nil, fmt.Errorf("worker: 列出 runner 实例失败: %w", err)
+	}
+	out := make([]Runner, 0, len(servers))
+	for _, s := range servers {
+		out = append(out, Runner{
+			Host:        s.Host,
+			PID:         s.PID,
+			StartedAt:   s.Started,
+			Concurrency: s.Concurrency,
+			Active:      len(s.ActiveWorkers),
+			Status:      s.Status,
+		})
+	}
+	return out, nil
+}
+
 // RunQueued 报告 run 在队列层是否还会被执行（run ID 即 asynq 的 task ID）：排队、定时、重试中或
 // 正在处理返回 true；查不到（入队后 Redis 数据丢失）、已归档（处理中进程被硬杀、租约过期后因不重试
 // 直接归档）或已完成返回 false。查询失败返回错误——调用方不得把它当作「不在队列」。

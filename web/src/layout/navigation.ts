@@ -13,6 +13,7 @@ import {
   Library,
   ListChecks,
   MessageSquare,
+  LayoutGrid,
   ScrollText,
   SlidersHorizontal,
   Wrench,
@@ -39,6 +40,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: '作业',
     items: [
+      // 概览：组件状态、进行中的工作、待处理与近期产出的汇总，作业的起点，居首。
+      { to: '/overview', label: '概览', icon: LayoutGrid },
       // 任务是对话的上游容器（批次 → 任务 → 对话），置于对话之上。
       { to: '/tasks', label: '任务', icon: ListChecks },
       { to: '/conversations/direct', label: '对话', icon: MessageSquare, match: '/conversations' },

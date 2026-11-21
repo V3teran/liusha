@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -293,5 +294,28 @@ func TestAgentStore_ListByTaskFiltered(t *testing.T) {
 		if sum.Host != "test.example.com" {
 			t.Fatalf("过滤后混入了 host=%q", sum.Host)
 		}
+	}
+}
+
+// TestProxyStore_CountSince 验证：按捕获时间统计时间窗内的代理流量（概览的近期流量）。
+func TestProxyStore_CountSince(t *testing.T) {
+	ctx := context.Background()
+	pool, _ := newProxyTask(t)
+	s := NewProxyStore(pool)
+	for range 3 {
+		if _, err := s.Append(ctx, ProxyTraffic{Host: "h.example", Method: "GET", URL: "http://h.example/", Path: "/"}); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE proxy_traffic SET captured_at = now() - interval '2 hours'
+		WHERE id = (SELECT min(id) FROM proxy_traffic)`); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CountSince(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("近一小时应有 2 条，得 %d", n)
 	}
 }

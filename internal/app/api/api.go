@@ -40,6 +40,7 @@ import (
 	"github.com/V3teran/liusha/internal/llmprobe"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/overview"
 	"github.com/V3teran/liusha/internal/proxystatus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
@@ -213,6 +214,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
 			Settings:           settingStore,
 			Traffic:            proxyTrafficStore,
+			Overview:           overview.NewStore(pool),
+			ProxyTraffic:       proxyTrafficStore,
+			Runners:            enq,
+			DataStores:         db.DataStores{Pool: pool, Redis: rdb},
 			Conversations:      conversationStore,
 			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb},
 			UsageLLM:           invocationStore,

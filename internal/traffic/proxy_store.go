@@ -336,3 +336,12 @@ func scanProxy(r db.RowScanner, f *ProxyTraffic) error {
 	return r.Scan(&f.ID, &f.Host, &f.Method, &f.Scheme, &f.URL, &f.Path, &f.StatusCode,
 		&f.RequestRaw, &f.ResponseRaw, &f.ContentType, &f.HTTPVersion, &f.RespLen, &f.CapturedAt)
 }
+
+// CountSince 返回 since 之后捕获的代理流量条数（概览的代理一项：近期流量）。
+func (s *ProxyStore) CountSince(ctx context.Context, since time.Time) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM proxy_traffic WHERE captured_at >= $1`, since).Scan(&n); err != nil {
+		return 0, fmt.Errorf("统计代理流量: %w", err)
+	}
+	return n, nil
+}
