@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import * as Tabs from '@radix-ui/react-tabs'
 import { FileUp, Plus, X } from 'lucide-react'
-import type { CorpusEntry, CorpusFacets, CorpusFilters, CorpusStatus } from '@/api/corpus'
+import type { CorpusEntry, CorpusFacets, CorpusFilters, CorpusScenarioRef, CorpusStatus } from '@/api/corpus'
 import { DataTable } from '@/components/DataTable'
 import { FilterBar } from '@/components/FilterBar'
 import { PageHeader } from '@/components/PageHeader'
@@ -16,6 +16,7 @@ import { CorpusDrawer } from '@/features/corpus/CorpusDrawer'
 import { CorpusImportDialog } from '@/features/corpus/CorpusImportDialog'
 import { CorpusRetrieval } from '@/features/corpus/CorpusRetrieval'
 import { useCorpusFacets, useCorpusFilters, useCorpusList, useCorpusStatus } from '@/features/corpus/useCorpusQueries'
+import { useScenarioOptions } from '@/features/scenarios/useScenarioQueries'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { CORPUS_SOURCE_OPTIONS, corpusScopeLabel } from '@/lib/corpus'
@@ -85,6 +86,7 @@ export function CorpusPage() {
   const list = useCorpusList(filters, page, size)
   const facets = useCorpusFacets(filters).data
   const status = useCorpusStatus().data
+  const scenarios = useScenarioOptions()
   const [selected, select] = useSelectedParam()
   const [dialog, setDialog] = useState<'' | 'create' | 'import'>('')
   const [imported, setImported] = useState<{
@@ -108,9 +110,18 @@ export function CorpusPage() {
   const totalPages = Math.max(1, Math.ceil(total / size))
   const hasFilter = filters.search !== '' || filters.scenario !== '' || filters.general || filters.source !== ''
 
-  // 范围选项来自服务端分面：有知识的场景（含已删除的场景），当前选中的即使没有条目也保留
-  const scenarioFacets = (facets?.scenarios ?? []).flatMap((f) => (f.scenario ? [f.scenario] : []))
-  const selectedMissing = filters.scenario !== '' && !scenarioFacets.some((s) => s.code === filters.scenario)
+  // 范围选项：通用 + 全部现存场景（场景是知识的归属，没有条目也列出，计数取服务端分面）+ 已删除
+  // 但仍有知识的场景；当前选中的即使都不在其中也保留
+  const scopeOptions = useMemo(() => {
+    const out: CorpusScenarioRef[] = (scenarios.data ?? []).map((s) => ({ code: s.code, name: s.name, deleted: false }))
+    for (const f of facets?.scenarios ?? []) {
+      if (f.scenario && !out.some((s) => s.code === f.scenario?.code)) out.push(f.scenario)
+    }
+    if (filters.scenario && !out.some((s) => s.code === filters.scenario)) {
+      out.push({ code: filters.scenario, name: '', deleted: true })
+    }
+    return out
+  }, [scenarios.data, facets, filters.scenario])
 
   const openEntry = (id: string) => {
     setDialog('')
@@ -180,8 +191,7 @@ export function CorpusPage() {
                 通用
                 {facetCount(facets, (f) => f.scenarios.find((s) => !s.scenario)?.count)}
               </option>
-              {selectedMissing && <option value={filters.scenario}>{filters.scenario}（0）</option>}
-              {scenarioFacets.map((s) => (
+              {scopeOptions.map((s) => (
                 <option key={s.code} value={s.code}>
                   {corpusScopeLabel(s)}
                   {facetCount(facets, (f) => f.scenarios.find((x) => x.scenario?.code === s.code)?.count)}
