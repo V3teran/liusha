@@ -637,11 +637,9 @@ export interface CredentialIdentity {
   task_status?: string // active/completed/aborted/failed/gone
 }
 
-/** host 汇总行（枚举只含计数，不含凭证值）。 */
-export interface CredentialHostSummary {
+/** 凭证列表行：一个登录身份连同它所在的 host（存储键归一的 host[:port]）。 */
+export interface CredentialListItem extends CredentialIdentity {
   host: string
-  usernames: number
-  sessions: number
 }
 
 /* ============================================================

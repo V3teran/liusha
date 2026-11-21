@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,7 @@ import (
 type fakeCred struct {
 	byHost     map[string][]credential.Identity
 	deletedIDs []string
+	failHost   string // 读取这个 host 时返回错误（模拟存储故障）
 }
 
 func (f *fakeCred) SaveIdentities(_ context.Context, host string, ids []credential.Identity) error {
@@ -39,6 +41,9 @@ func (f *fakeCred) SaveIdentities(_ context.Context, host string, ids []credenti
 }
 
 func (f *fakeCred) GetIdentitiesByHost(_ context.Context, host string) ([]credential.Identity, error) {
+	if host == f.failHost {
+		return nil, errors.New("redis: connection refused")
+	}
 	src := f.byHost[host]
 	out := make([]credential.Identity, len(src))
 	for i, id := range src {

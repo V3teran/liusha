@@ -1,13 +1,13 @@
 import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { CredentialTable } from '@/features/credential/CredentialTable'
 import { parseCredentialRawLine } from '@/features/credential/credentialColumns'
 import type { CredentialTableMeta } from '@/features/credential/credentialColumns'
 import type { CredentialEntry } from '@/api/types'
 import {
-  useAllCredentialRows,
+  useCredentialList,
   type CredentialRow,
   useDeleteCredentialIdentity,
   useSaveCredentialIdentity,
@@ -19,6 +19,7 @@ import { FilterBar } from '@/components/FilterBar'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { confirmAction } from '@/components/ui/confirm'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -60,39 +61,33 @@ function newRowValid(n: NewRow): boolean {
 }
 
 export function CredentialsPage() {
-  // 搜索词与分页进 URL（刷新、后退、分享都保持）；凭证行在前端拼装（按主机枚举），筛选与分页也在前端。
-  const { page: requestedPage, size, setPage, setSize } = useUrlPageState()
+  // 搜索词与分页进 URL（刷新、后退、分享都保持）；检索、排序、分页都在服务端。
+  const { page, size, setPage, setSize } = useUrlPageState()
   const { filters, setFilters, resetFilters } = useUrlFilterFields({ search: 'q' })
-  const search = filters.search
-  const setSearch = (v: string) => setFilters({ search: v }, { replace: true })
+  // 关键词停顿后写入 URL（打字不是导航：改写当前历史）
+  const [search, setSearch] = useState(filters.search)
+  const debounced = useDebouncedSearch(search.trim())
+  useEffect(() => {
+    if (debounced !== filters.search) setFilters({ search: debounced }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
+  }, [debounced])
+  useEffect(() => {
+    setSearch((q) => (q.trim() === filters.search ? q : filters.search))
+  }, [filters.search])
   const [edit, setEdit] = useState<CellEdit | null>(null)
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
 
-  const { rows, failedHosts, retryDetails, retry, isLoading, isError, error } = useAllCredentialRows()
+  const { query, rows, total } = useCredentialList(filters.search, page, size)
   const saveMutation = useSaveCredentialIdentity()
   const deleteIdentity = useDeleteCredentialIdentity()
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return rows.filter((r) => {
-      if (q) {
-        const creds = r.identity.credentials.map((c) => `${c.key}=${c.value}`).join(' ')
-        const hay = `${r.host} ${r.identity.username} ${r.identity.role} ${creds}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [rows, search])
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / size))
-  // 页码越界（删到最后一页的最后一条、链接里的页码过大）时显示最后一页：渲染期推导，不回写 URL
-  const page = Math.min(requestedPage, totalPages)
-
-  const pageRows = useMemo(
-    () => filtered.slice((page - 1) * size, page * size),
-    [filtered, page, size],
-  )
+  const totalPages = Math.max(1, Math.ceil(total / size))
+  // 页码越界（删掉末页最后一条、链接里的页码过大）：退回最后一页，系统校正不新增历史
+  useEffect(() => {
+    if (query.isSuccess && page > totalPages) setPage(totalPages, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setPage 每次渲染新建，只看页码与总页数
+  }, [query.isSuccess, page, totalPages])
 
   // ─── 行内编辑：以 rowId 反查行 → 改字段 → PUT 整个身份（后端按用户名 upsert）───
   const findRow = (rowId: string) => rows.find((r) => r.rowId === rowId) ?? null
@@ -189,7 +184,7 @@ export function CredentialsPage() {
     onDeleteCred: deleteCred,
   }
 
-  const hasFilter = !!search
+  const hasFilter = search !== ''
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -211,12 +206,15 @@ export function CredentialsPage() {
       <FilterBar
         label="凭证筛选"
         canReset={hasFilter}
-        onReset={resetFilters}
+        onReset={() => {
+          setSearch('')
+          resetFilters()
+        }}
         trailing={
           <PaginationToolbar
             page={page}
             pageSize={size}
-            total={filtered.length}
+            total={total}
             totalPages={totalPages}
             onPageChange={setPage}
             onPageSizeChange={setSize}
@@ -233,20 +231,13 @@ export function CredentialsPage() {
       </FilterBar>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
-        {isError ? (
-          <ErrorState message={error instanceof Error ? error.message : undefined} onRetry={retry} />
+        {query.isError ? (
+          <ErrorState
+            message={query.error instanceof Error ? query.error.message : undefined}
+            onRetry={() => void query.refetch()}
+          />
         ) : (
           <div className="flex flex-col gap-3">
-            {failedHosts.length > 0 && (
-              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-                <span>
-                  {failedHosts.length} 个目标的凭证加载失败，列表不完整：{failedHosts.join('、')}
-                </span>
-                <Button size="sm" variant="secondary" onClick={retryDetails}>
-                  重试
-                </Button>
-              </div>
-            )}
             {/* 录入新行（展开在表格上方；单凭证行起手，更多凭证保存后点凭证单元格追加） */}
             {creating && (
               <div
@@ -296,8 +287,8 @@ export function CredentialsPage() {
             )}
 
             <CredentialTable
-              rows={pageRows}
-              loading={isLoading}
+              rows={rows}
+              loading={query.isPending}
               hasFilter={hasFilter}
               selectedRowId={null}
               meta={meta}

@@ -25,13 +25,17 @@ export function useUrlPageState() {
     return (PAGE_SIZE_OPTIONS as readonly number[]).includes(raw) ? raw : DEFAULT_PAGE_SIZE
   }, [searchParams])
 
-  const setPage = (next: number) => {
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev)
-      if (next > 1) p.set('page', String(next))
-      else p.delete('page')
-      return p
-    })
+  // 用户翻页新增一条历史；系统自动校正页码（如删掉末页最后一条后退回上一页）传 replace
+  const setPage = (next: number, opts?: HistoryOptions) => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        if (next > 1) p.set('page', String(next))
+        else p.delete('page')
+        return p
+      },
+      { replace: opts?.replace },
+    )
   }
   // 换每页条数：回到第一页（否则「第 3 页 · 100 条/页」可能落在数据末尾之外）。
   const setSize = (next: number) => {

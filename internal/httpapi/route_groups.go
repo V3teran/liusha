@@ -12,8 +12,7 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
 		return
 	}
-	r.GET("/credentials", listCredentialHostsHandler(d.Credentials))
-	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
+	r.GET("/credentials", listCredentialsHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 }
