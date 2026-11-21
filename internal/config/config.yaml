@@ -109,7 +109,7 @@ runner:
   url: http://127.0.0.1:8590         # 沙盒访问 runner 的地址
   read_header_timeout_seconds: 5
   shutdown_timeout_seconds: 5
-  concurrency: 6                     # 同时执行的任务数
+  concurrency: 10                    # 同时执行的任务数
   drain_timeout_seconds: 30          # 停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限
   agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
   max_actions_per_task: 0            # 动作预算：单任务最多执行的动作数；0 = 不限

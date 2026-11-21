@@ -35,7 +35,7 @@ func TestLoad_Template(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
-	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 6 || cfg.Runner.URL != "http://127.0.0.1:8590" {
+	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 10 || cfg.Runner.URL != "http://127.0.0.1:8590" {
 		t.Fatalf("取值与 config.yaml 不符: api=%q concurrency=%d runner.url=%q", cfg.API.ListenAddr, cfg.Runner.Concurrency, cfg.Runner.URL)
 	}
 	home, err := os.UserHomeDir()
@@ -81,7 +81,7 @@ func TestLoad_FileRequired(t *testing.T) {
 // 缺键直接报错并列出缺的键，不拿任何值顶替。
 func TestLoad_MissingKeyFails(t *testing.T) {
 	for _, c := range []struct{ line, key string }{
-		{"  concurrency: 6                     # 同时执行的任务数\n", "runner.concurrency"},
+		{"  concurrency: 10                    # 同时执行的任务数\n", "runner.concurrency"},
 		{"  cookie_secure: false", "api.cookie_secure"},
 		{"  level: info                        # debug / info / warn / error\n", "log.level"},
 		{"data_dir: ~/data/liusha\n", "data_dir"},
@@ -105,11 +105,11 @@ func TestLoad_NullValueIsMissing(t *testing.T) {
 // 不认识的键（拼错、已删除的旧键）报错，不静默忽略。
 func TestLoad_UnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ old, new, key string }{
-		{"  concurrency: 6", "  concurency: 6\n  concurrency: 6", "concurency"},
+		{"  concurrency: 10", "  concurency: 10\n  concurrency: 10", "concurency"},
 		// 已删除的键：LLM 种子、内部约定、改名前的旧键。
 		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_compat}\n", "providers"},
 		{"  stream_max_len: 100000", "  stream_name: x\n  stream_max_len: 100000", "stream_name"},
-		{"  concurrency: 6", "  asynq_concurrency: 6\n  concurrency: 6", "asynq_concurrency"},
+		{"  concurrency: 10", "  asynq_concurrency: 10\n  concurrency: 10", "asynq_concurrency"},
 	} {
 		p := editTemplate(t, c.old, c.new)
 		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), c.key) {
@@ -121,7 +121,7 @@ func TestLoad_UnknownKeyFails(t *testing.T) {
 // 没有意义的取值报错，不替换成别的值。
 func TestLoad_InvalidValueFails(t *testing.T) {
 	for _, c := range []struct{ old, new, key string }{
-		{"  concurrency: 6", "  concurrency: 0", "runner.concurrency"},
+		{"  concurrency: 10", "  concurrency: 0", "runner.concurrency"},
 		{"  level: info", "  level: verbose", "log.level"},
 		{"  format: json", "  format: text", "log.format"},
 		{"  max_size_bytes: 104857600", "  max_size_bytes: 1000", "log.max_size_bytes"},
@@ -156,7 +156,7 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("LIUSHA_DATA_DIR", dataDir)
 	t.Setenv("LIUSHA_SANDBOX_URL", "http://sandbox:8591")
-	t.Setenv("LIUSHA_RUNNER_CONCURRENCY", "10")
+	t.Setenv("LIUSHA_RUNNER_CONCURRENCY", "16")
 	t.Setenv("LIUSHA_POSTGRES_URL", "postgres://u:p@db:5432/liusha")
 	t.Setenv("LIUSHA_REDIS_URL", "redis://:p@redis:6379/0")
 	t.Setenv("LIUSHA_LLM_ENCRYPTION_KEY", "ab")
@@ -167,7 +167,7 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DataDir != dataDir || cfg.Sandbox.URL != "http://sandbox:8591" || cfg.Runner.Concurrency != 10 ||
+	if cfg.DataDir != dataDir || cfg.Sandbox.URL != "http://sandbox:8591" || cfg.Runner.Concurrency != 16 ||
 		cfg.Postgres.URL != "postgres://u:p@db:5432/liusha" || cfg.Redis.URL != "redis://:p@redis:6379/0" ||
 		cfg.LLM.EncryptionKey != "ab" || cfg.Admin.InitialPassword != "changeme-admin" || cfg.Embedding.APIKey != "changeme-embedding" {
 		t.Fatalf("环境变量未覆盖: %+v", cfg)
