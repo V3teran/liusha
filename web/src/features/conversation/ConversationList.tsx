@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { toast } from '@/components/ui/toast'
 import { confirmAction } from '@/components/ui/confirm'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 
 export interface ConversationListHandle {
   refresh: () => Promise<void>
@@ -35,9 +36,6 @@ interface ConversationListProps {
   onDeleted: (convID: string) => void
 }
 
-// 每页条数：侧栏高度有限，配合翻页没必要拉大页；与后端默认对齐（parseLimit 默认也是 30）。
-const PAGE_SIZE_OPTIONS = [30, 50, 100]
-const DEFAULT_PAGE_SIZE = 30
 
 // 标题：去「我要扫描」前缀 + 截取 host 让列表更易读；空则回退短 id（智能标题由后端回填）。
 function displayTitle(c: Conversation): string {

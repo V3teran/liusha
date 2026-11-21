@@ -1,6 +1,6 @@
 import { SearchInput } from '@/components/SearchInput'
 import { PageHeader } from '@/components/PageHeader'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { CredentialTable } from '@/features/credential/CredentialTable'
 import { parseCredentialRawLine } from '@/features/credential/credentialColumns'
@@ -18,6 +18,7 @@ import { controlClass } from '@/components/ui/control'
 import { FilterBar } from '@/components/FilterBar'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { confirmAction } from '@/components/ui/confirm'
+import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -59,9 +60,11 @@ function newRowValid(n: NewRow): boolean {
 }
 
 export function CredentialsPage() {
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [size, setSize] = useState(20)
+  // 搜索词与分页进 URL（刷新、后退、分享都保持）；凭证行在前端拼装（按主机枚举），筛选与分页也在前端。
+  const { page: requestedPage, size, setPage, setSize } = useUrlPageState()
+  const { filters, setFilters, resetFilters } = useUrlFilterFields({ search: 'q' })
+  const search = filters.search
+  const setSearch = (v: string) => setFilters({ search: v }, { replace: true })
   const [edit, setEdit] = useState<CellEdit | null>(null)
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
@@ -83,12 +86,8 @@ export function CredentialsPage() {
   }, [rows, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / size))
-  useEffect(() => {
-    setPage(1)
-  }, [search, size])
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
+  // 页码越界（删到最后一页的最后一条、链接里的页码过大）时显示最后一页：渲染期推导，不回写 URL
+  const page = Math.min(requestedPage, totalPages)
 
   const pageRows = useMemo(
     () => filtered.slice((page - 1) * size, page * size),
@@ -212,7 +211,7 @@ export function CredentialsPage() {
       <FilterBar
         label="凭证筛选"
         canReset={hasFilter}
-        onReset={() => setSearch('')}
+        onReset={resetFilters}
         trailing={
           <PaginationToolbar
             page={page}

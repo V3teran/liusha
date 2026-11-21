@@ -8,6 +8,7 @@ import { deleteConversation, listConversations, renameConversation } from '@/api
 import type { Conversation } from '@/api/types'
 import { ConfirmHost } from '@/components/ui/confirm'
 import { Toaster } from '@/components/ui/toast'
+import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
 
 vi.mock('@/api/conversations', () => ({
   listConversations: vi.fn(),
@@ -71,7 +72,7 @@ describe('ConversationList', () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 direct-x.com', source: 'direct' })])
     renderList({ source: 'direct' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 0, source: 'direct', search: '' })
+      expect(listConversations).toHaveBeenCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: 0, source: 'direct', search: '' })
       expect(screen.getByText(/direct-x\.com/)).toBeTruthy()
     })
   })
@@ -90,7 +91,7 @@ describe('ConversationList', () => {
     await userEvent.type(screen.getByLabelText('搜索对话'), 'shop')
 
     await waitFor(() =>
-      expect(listConversations).toHaveBeenLastCalledWith({ limit: 30, offset: 0, source: 'direct', search: 'shop' }),
+      expect(listConversations).toHaveBeenLastCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: 0, source: 'direct', search: 'shop' }),
     )
     expect(await screen.findByText('第 1–1 条 · 匹配 1 条')).toBeTruthy()
     expect(screen.getByText(/shop\.local/)).toBeTruthy()
@@ -311,6 +312,14 @@ describe('ConversationList', () => {
     })
   })
 
+  it('每页条数选择框显示的就是实际请求的条数', async () => {
+    mockPage([mkConv({ id: 'c1' })])
+    renderList()
+    await waitFor(() => expect(listConversations).toHaveBeenCalled())
+    const limit = vi.mocked(listConversations).mock.calls[0][0]?.limit
+    expect((screen.getByRole('combobox', { name: '每页条数' }) as HTMLSelectElement).value).toBe(String(limit))
+  })
+
   it('翻页：hasMore=true 时显示下一页按钮，点击后拉取 offset=PAGE_SIZE', async () => {
     vi.mocked(listConversations)
       .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true, total: 1 })
@@ -323,7 +332,7 @@ describe('ConversationList', () => {
     expect(nextBtn).not.toBeDisabled()
     await userEvent.click(nextBtn)
 
-    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 30, source: '', search: '' }))
+    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: DEFAULT_PAGE_SIZE, source: '', search: '' }))
     await waitFor(() => expect(screen.getByText(/page2\.com/)).toBeTruthy())
     expect(screen.queryByText(/page1\.com/)).toBeFalsy()
   })

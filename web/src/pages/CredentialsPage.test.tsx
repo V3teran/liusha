@@ -12,6 +12,7 @@ import {
 import type { CredentialHostSummary, CredentialIdentity } from '@/api/types'
 import { ConfirmHost } from '@/components/ui/confirm'
 import { Toaster } from '@/components/ui/toast'
+import { MemoryRouter } from 'react-router-dom'
 
 vi.mock('@/api/credentials', () => ({
   listCredentialHosts: vi.fn(),
@@ -42,9 +43,11 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <CredentialsPage />
-      <ConfirmHost />
-      <Toaster />
+      <MemoryRouter>
+        <CredentialsPage />
+        <ConfirmHost />
+        <Toaster />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -160,6 +163,20 @@ describe('CredentialsPage（列表形态）', () => {
     await waitFor(() =>
       expect(mockedDeleteIdentity).toHaveBeenCalledWith('a.com', 'task:t1:session'),
     )
+  })
+
+  it('每页条数与搜索词取自 URL：选择框显示的就是生效的条数', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/credentials?q=guest-tk&size=10']}>
+          <CredentialsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(countText('共 1 条')).toBeTruthy())
+    expect((screen.getByRole('combobox', { name: '每页条数' }) as HTMLSelectElement).value).toBe('10')
+    expect((screen.getByPlaceholderText('搜索主机 / 用户名 / 键 / 值…') as HTMLInputElement).value).toBe('guest-tk')
   })
 
   it('搜索栏可用：按凭证值过滤且不崩溃', async () => {
