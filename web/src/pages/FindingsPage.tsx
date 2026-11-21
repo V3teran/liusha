@@ -138,7 +138,7 @@ export function FindingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="发现" subtitle="每条附复现证据链与配方；可处置：确认 / 已修复 / 误报 / 接受" />
+      <PageHeader title="发现" />
 
       {/* 指标卡：台账总量 + 处置进度 + 严重度分布（分布条与图例可点击按等级筛选） */}
       <section aria-label="发现概况" className="flex-shrink-0 px-6 pt-4">

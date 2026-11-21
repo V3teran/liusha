@@ -26,7 +26,6 @@ export interface SearchBox {
 
 interface ConfigListShellProps {
   title: string
-  subtitle: string
   loading: boolean
   error: string
   empty: boolean
@@ -47,7 +46,6 @@ interface ConfigListShellProps {
  */
 export function ConfigListShell({
   title,
-  subtitle,
   loading,
   error,
   empty,
@@ -61,7 +59,7 @@ export function ConfigListShell({
 }: ConfigListShellProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title={title} subtitle={subtitle}>
+      <PageHeader title={title}>
         {headerExtra}
         {onNew && (
           <Button onClick={onNew}>

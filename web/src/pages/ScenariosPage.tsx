@@ -33,7 +33,6 @@ export function ScenariosPage() {
     <>
       <ConfigListShell
         title="场景"
-        subtitle="任务所处情境的说明：下发时选定，整份交给四个智能体。内置场景随版本更新，可编辑"
         loading={list.loading}
         error={list.error}
         empty={list.rows.length === 0}

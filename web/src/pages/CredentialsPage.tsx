@@ -186,7 +186,7 @@ export function CredentialsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="凭证库" subtitle="任务捕获或手动录入的登录凭据，按目标归档、跨任务复用">
+      <PageHeader title="凭证库">
         {/* 主创建动作与全站新建同位（头部右上）；筛选行只承担搜索/分页 */}
         {/* 录入中由行内「保存 / 取消」收尾：页头不再兼任取消（加号配「取消」语义自相矛盾）。 */}
         <Button

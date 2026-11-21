@@ -57,7 +57,7 @@ export function TasksPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="任务" subtitle="一个批次是一次下发（可含多目标）；运行中的任务可暂停 / 继续 / 停止">
+      <PageHeader title="任务">
         <Button variant="secondary" onClick={() => openSchedules(null)}>
           <CalendarClock />
           定时模板

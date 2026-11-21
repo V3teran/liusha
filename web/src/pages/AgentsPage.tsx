@@ -180,7 +180,6 @@ export function AgentsPage() {
     <>
       <ConfigListShell
         title="智能体"
-        subtitle="出厂配置随版本更新；在此自定义章程、工具与技能，改过的项可随时恢复默认"
         loading={loading}
         error={error}
         empty={rows.length === 0}

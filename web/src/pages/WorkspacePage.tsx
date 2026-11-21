@@ -172,7 +172,7 @@ export function WorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="工作空间" subtitle="浏览、编辑各任务在沙箱内产生与使用的文件" />
+      <PageHeader title="工作空间" />
 
       <FilterBar
         label="工作区筛选"

@@ -222,7 +222,6 @@ export function SkillsPage() {
     <>
       <ConfigListShell
         title="技能"
-        subtitle="供智能体检索的方法论文档：摘要进索引，全文按需读取。内置技能随版本更新，可自定义"
         loading={list.loading}
         error={list.error}
         empty={rows.length === 0}

@@ -59,7 +59,7 @@ export function TrafficPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="代理流量" subtitle="代理捕获的 HTTP 请求 / 响应原文，及其被消费的批次">
+      <PageHeader title="代理流量">
         <ProxyAccess />
       </PageHeader>
 
