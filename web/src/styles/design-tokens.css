@@ -69,14 +69,14 @@
 
   /* 分类色：无语义的「身份区分」色板（智能体身份、消息角色、指标类别）。
      与语义色正交——不表达好坏/严重度，只表达「这是哪一类」。对比度约束同上。 */
-  --cat-violet: oklch(52% 0.2 293);
-  --cat-emerald: oklch(48% 0.12 163);
-  --cat-sky: oklch(50% 0.13 235);
-  --cat-pink: oklch(52% 0.2 350);
-  --cat-cyan: oklch(48% 0.1 211);
-  --cat-orange: oklch(51% 0.16 50);
-  --cat-lime: oklch(50% 0.14 131);
-  --cat-neutral: oklch(50% 0 0);
+  --cat-violet: oklch(49% 0.2 293);
+  --cat-emerald: oklch(44.5% 0.12 163);
+  --cat-sky: oklch(45% 0.13 235);
+  --cat-pink: oklch(47% 0.2 350);
+  --cat-cyan: oklch(45% 0.1 211);
+  --cat-orange: oklch(47.5% 0.16 50);
+  --cat-lime: oklch(46% 0.14 131);
+  --cat-neutral: oklch(47.5% 0 0);
 
   /* ========== 空间系统 ========== */
   --space-0: 0;
