@@ -105,6 +105,7 @@ func (s *Store) recallDense(ctx context.Context, vec []float32, scope Scope, n i
 }
 
 // recallLexical 按词元召回并打分：得分是命中的查询词元的 IDF 之和占全部查询词元 IDF 之和的比例。
+// 查询有多个词元时，条目至少要命中两个才算召回。
 // 库里没有的查询词按最高权重计入分母——它们最能说明条目与查询无关；只计出现过的词会让只命中一个
 // 常见词的条目拿到满分。IDF 在可见范围内计算。
 func (s *Store) recallLexical(ctx context.Context, text string, scope Scope, n int) ([]Hit, error) {
@@ -123,6 +124,9 @@ func (s *Store) recallLexical(ctx context.Context, text string, scope Scope, n i
 			SELECT c.id,
 				(SELECT sum(w.idf) FROM w WHERE w.t = ANY (c.terms)) / NULLIF((SELECT sum(idf) FROM w), 0) AS score
 			FROM visible c, q WHERE c.terms && q.terms
+				-- 多词元的查询至少命中两个：只共有一个词（往往是常见词）说明不了相关
+				AND cardinality(ARRAY(SELECT unnest(c.terms) INTERSECT SELECT unnest(q.terms)))
+					>= least(2, cardinality(q.terms))
 		)
 		SELECT `+entryCols+`, scored.score FROM scored JOIN corpus c ON c.id = scored.id
 		WHERE scored.score IS NOT NULL

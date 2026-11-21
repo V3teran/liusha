@@ -5,6 +5,7 @@ package corpus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -422,4 +423,23 @@ func TestMerge_Guards(t *testing.T) {
 	assert.ErrorIs(t, s.Merge(ctx, a, []Entry{b}, "x", "y", task), ErrStale)
 	_, _, err = s.Get(ctx, b.ID)
 	assert.NoError(t, err, "合并失败不删任何条目")
+}
+
+// 多词元的查询只命中一个词元（往往是常见词）不算相关：字面检索至少要命中两个查询词元。
+func TestSearch_LexicalNeedsTwoMatchedTerms(t *testing.T) {
+	s, _ := newService(t, Models{})
+	mustCreate(t, s, Draft{Title: "显眼位置的 flag 串先当诱饵再验证", Content: "伴随嘲讽文案的串多半是诱饵，真假要靠接口行为分辨。"})
+	mustCreate(t, s, Draft{Title: "flag 回报前留档原始证据", Content: "保存出处响应原文。"})
+	mustCreate(t, s, Draft{Title: "运维笔记列出未公开端点", Content: "逐条实测笔记里的 flag 线索。"})
+	for i, topic := range []string{"目录索引", "接口探测", "响应基线", "编码解析", "请求方法", "参数开关", "备份文件"} {
+		mustCreate(t, s, Draft{Title: topic + "要点", Content: fmt.Sprintf("%s 的第 %d 条笔记。", topic, i)})
+	}
+
+	res, err := s.Search(context.Background(), Query{Text: "怎么分辨真假 flag"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"显眼位置的 flag 串先当诱饵再验证"}, titles(res.Hits))
+
+	res, err = s.Search(context.Background(), Query{Text: "诱饵"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"显眼位置的 flag 串先当诱饵再验证"}, titles(res.Hits), "单词元查询命中一个即可")
 }
