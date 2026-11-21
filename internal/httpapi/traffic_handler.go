@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -39,9 +38,8 @@ const (
 //	search=<host|url 子串/通配> status_min= status_max= since=<RFC3339> until=<RFC3339> page= size=
 //
 // page 缺省/非法=1；size clamp 到 [1,maxTrafficPageSize]。offset 由 (page-1)*size 派生。
-// 时间用 RFC3339（前端 Date.toISOString() 直出）；解析失败视为未传（不筛该端），不打 400——
-// 浏览筛选是查询辅助，坏参数应退化成不筛而非整页失败（对齐 parseInvocationFilter 口径）。
-func parseTrafficFilter(c *gin.Context) (traffic.ProxyListFilter, int, int) {
+// 时间用 RFC3339（前端 Date.toISOString() 直出）。时间与状态码写错时返回错误（handler 回 400）。
+func parseTrafficFilter(c *gin.Context) (traffic.ProxyListFilter, int, int, error) {
 	page, size := parsePagination(c.Query("page"), c.Query("size"), defaultTrafficPageSize, maxTrafficPageSize)
 	f := traffic.ProxyListFilter{
 		Host:        strings.TrimSpace(c.Query("host")),
@@ -49,22 +47,31 @@ func parseTrafficFilter(c *gin.Context) (traffic.ProxyListFilter, int, int) {
 		Path:        strings.TrimSpace(c.Query("path")),
 		ContentType: strings.TrimSpace(c.Query("content_type")),
 		Search:      strings.TrimSpace(c.Query("search")),
-		StatusMin:   atoiOr(c.Query("status_min"), 0),
-		StatusMax:   atoiOr(c.Query("status_max"), 0),
 		Limit:       size,
 		Offset:      (page - 1) * size,
 	}
-	if s := c.Query("since"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Since = t
-		}
+	var err error
+	if f.StatusMin, err = intQuery(c, "status_min"); err != nil {
+		return f, page, size, err
 	}
-	if s := c.Query("until"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Until = t
-		}
+	if f.StatusMax, err = intQuery(c, "status_max"); err != nil {
+		return f, page, size, err
 	}
-	return f, page, size
+	since, err := timeQuery(c, "since")
+	if err != nil {
+		return f, page, size, err
+	}
+	until, err := timeQuery(c, "until")
+	if err != nil {
+		return f, page, size, err
+	}
+	if since != nil {
+		f.Since = *since
+	}
+	if until != nil {
+		f.Until = *until
+	}
+	return f, page, size, nil
 }
 
 // listTrafficHandler 处理 GET /traffic?host=&method=&path=&status_min=&status_max=&page=&size=。
@@ -75,7 +82,11 @@ func parseTrafficFilter(c *gin.Context) (traffic.ProxyListFilter, int, int) {
 func listTrafficHandler(api TrafficAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		f, page, size := parseTrafficFilter(c)
+		f, page, size, err := parseTrafficFilter(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
 		rows, err := api.ListPagedGlobal(ctx, f)
 		if err != nil {

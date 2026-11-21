@@ -13,6 +13,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ const (
 //
 //	task=<任务 UUID> conversation=<对话 UUID>（范围：只看这个任务 / 这个对话的任务；非法 400）
 //	source=<direct|proxy> status=<active|completed|aborted> search=<目标/批次名 子串>
-//	since=<RFC3339> until=<RFC3339>（按创建时间；解析失败视为未传，退化成不筛）
+//	since=<RFC3339> until=<RFC3339>（按创建时间）；取值写错时 400
 //
 // page 缺省 1、size clamp 到上限。返回 ok=false 时 400 已写出。
 func parseTaskFilter(c *gin.Context, source string) (f task.ListFilter, page, size int, ok bool) {
@@ -76,15 +77,27 @@ func parseTaskFilter(c *gin.Context, source string) (f task.ListFilter, page, si
 		Limit:          size,
 		Offset:         (page - 1) * size,
 	}
-	if s := c.Query("since"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Since = t
-		}
+	switch task.Status(f.Status) {
+	case "", task.StatusActive, task.StatusCompleted, task.StatusAborted:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("status 取值无效（可选 %s / %s / %s）", task.StatusActive, task.StatusCompleted, task.StatusAborted)})
+		return task.ListFilter{}, 0, 0, false
 	}
-	if s := c.Query("until"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Until = t
-		}
+	since, err := timeQuery(c, "since")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return task.ListFilter{}, 0, 0, false
+	}
+	until, err := timeQuery(c, "until")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return task.ListFilter{}, 0, 0, false
+	}
+	if since != nil {
+		f.Since = *since
+	}
+	if until != nil {
+		f.Until = *until
 	}
 	return f, page, size, true
 }
