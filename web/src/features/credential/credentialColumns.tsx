@@ -318,7 +318,7 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
 /** 操作列：删除该用户名的全部凭证。 */
 const actionCol = columnHelper.display({
   id: 'actions',
-  header: '',
+  header: '操作',
   // 权重=最小可读像素：图标按钮 28px + 单元格左右内边距 32px = 60——
   // 此前 40 在 min-width 下只分到 40px，按钮被 overflow-hidden 裁剪变形。
   size: 60,

@@ -81,8 +81,9 @@ export const findingColumns = [
   }),
   columnHelper.display({
     id: 'expand',
-    header: '',
+    // 箭头只示意「整行可点开」：表头给读屏一个列名，图标本身不播报
+    header: () => <span className="sr-only">详情</span>,
     size: 48,
-    cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
+    cell: () => <ChevronRight aria-hidden className="h-4 w-4 text-text-tertiary opacity-50" />,
   }),
 ]

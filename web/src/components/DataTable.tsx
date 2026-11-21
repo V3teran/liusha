@@ -84,7 +84,9 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                 <th
                   key={h.id}
                   className={cn(
-                    `${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary`,
+                    // relative：表头里的 sr-only 列名（绝对定位）以单元格为参照、随表格滚动容器裁剪，
+                    // 否则它按页面定位，落在宽表格最右侧的位置把整页撑出横向滚动。
+                    `relative ${cellPadding} py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-text-tertiary`,
                     h.column.columnDef.meta?.align === 'right' && 'text-right',
                   )}
                 >

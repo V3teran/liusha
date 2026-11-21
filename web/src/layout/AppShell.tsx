@@ -111,6 +111,7 @@ export function AppShell() {
         </Dialog.Root>
       ) : (
         <aside
+          aria-label="侧栏"
           className={cn(
             // 收起 / 展开不做宽度过渡：宽度动画逐帧重排整个主区（大表格、探索图画布），代价远大于收益。
             'flex-shrink-0 overflow-hidden border-r border-border bg-surface shadow-sm print:hidden',

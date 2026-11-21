@@ -226,7 +226,7 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
     }
 
     return (
-      <aside className="flex h-full min-h-0 flex-col gap-2">
+      <aside aria-label="对话列表" className="flex h-full min-h-0 flex-col gap-2">
         {/* 人工下发/代理捕获 tab：按来源（source=direct/proxy）切换，两个 tab 是同一视图组件的两条路由。 */}
         <div className="flex flex-shrink-0 gap-1 rounded-lg bg-surface-2 p-0.5">
           <NavLink
