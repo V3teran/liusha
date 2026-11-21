@@ -36,7 +36,7 @@ var credLog = logx.New("httpapi.credential")
 type CredentialsAPI interface {
 	SaveIdentities(ctx context.Context, host string, ids []credential.Identity) error
 	GetIdentitiesByHost(ctx context.Context, host string) ([]credential.Identity, error)
-	DeleteIdentity(ctx context.Context, host, name string) error
+	DeleteIdentity(ctx context.Context, host, name string) (bool, error)
 	ListHosts(ctx context.Context) ([]credential.HostSummary, error)
 }
 
@@ -243,8 +243,13 @@ func deleteCredentialIdentityHandler(api CredentialsAPI, aud CredentialAudit) gi
 			c.JSON(http.StatusBadRequest, gin.H{"error": "host 与 username 必填"})
 			return
 		}
-		if err := api.DeleteIdentity(c.Request.Context(), host, username); err != nil {
+		deleted, err := api.DeleteIdentity(c.Request.Context(), host, username)
+		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		if !deleted {
+			c.JSON(http.StatusNotFound, gin.H{"error": "该主机下没有这个登录身份"})
 			return
 		}
 		auditCredential(c.Request.Context(), aud, audit.ActionCredentialDelete, host, gin.H{"username": username})

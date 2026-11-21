@@ -247,6 +247,22 @@ func TestCredentialUpsert_ValidationAndHostNormalization(t *testing.T) {
 	}
 }
 
+// TestCredentialDelete_MissingIdentity 锁定删除不存在的身份：404，且不落审计——审计里不能出现没发生过的删除。
+func TestCredentialDelete_MissingIdentity(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{
+		"a.com": {{Username: "admin"}},
+	}, nil, true)
+
+	resp := doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com/usernames/ghost", "")
+	_ = resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("删除不存在的身份应 404，得 %d", resp.StatusCode)
+	}
+	if len(env.auditEv.events) != 0 {
+		t.Fatalf("没删掉任何东西不应落审计: %+v", env.auditEv.events)
+	}
+}
+
 // TestCredentialDelete_Identity 锁定单身份删除：只删指定身份并落审计。
 func TestCredentialDelete_Identity(t *testing.T) {
 	env := newCredentialTestServer(t, map[string][]credential.Identity{

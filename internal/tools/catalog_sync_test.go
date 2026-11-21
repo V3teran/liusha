@@ -24,7 +24,9 @@ func (noOpCredProvider) SaveIdentities(_ context.Context, _ string, _ []credenti
 func (noOpCredProvider) GetIdentitiesByHost(_ context.Context, _ string) ([]credential.Identity, error) {
 	return nil, nil
 }
-func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 func (noOpCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
 	return nil, nil
 }

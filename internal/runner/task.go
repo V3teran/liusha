@@ -271,18 +271,20 @@ func (h *Handler) findingsCount(ctx context.Context, taskID string) int {
 }
 
 // reclaimSessionIdentity 删除本任务的自动会话身份（task:{taskID}:session）。
-// best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；成功落审计。
+// best-effort：失败仅告警（终态清扫器会按任务状态兜底回收）；真的删掉了才落审计——
+// 多数任务没有会话身份，不能每次收尾都记一条没发生过的删除。
 func (h *Handler) reclaimSessionIdentity(ctx context.Context, taskLogger zerolog.Logger, taskID, host string) {
 	if h.Creds == nil || host == "" || taskID == "" {
 		return
 	}
 	name := credential.SessionIdentityName(taskID)
-	if err := h.Creds.DeleteIdentity(ctx, host, name); err != nil {
+	deleted, err := h.Creds.DeleteIdentity(ctx, host, name)
+	if err != nil {
 		taskLogger.Warn().Err(err).Str("host", host).
 			Msg("会话身份回收失败（终态清扫器将按任务状态兜底）")
 		return
 	}
-	if h.Audit != nil {
+	if deleted && h.Audit != nil {
 		if _, aErr := h.Audit.Append(ctx, audit.Event{
 			Actor:      audit.ActorRunner,
 			Action:     audit.ActionCredentialDelete,

@@ -86,8 +86,8 @@ func (p *stubCredProvider) SaveIdentities(_ context.Context, _ string, _ []crede
 	return nil
 }
 
-func (p *stubCredProvider) DeleteIdentity(_ context.Context, _, _ string) error {
-	return nil
+func (p *stubCredProvider) DeleteIdentity(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
 }
 
 func (p *stubCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {

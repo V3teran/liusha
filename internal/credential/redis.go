@@ -198,12 +198,13 @@ func (r *RedisProvider) GetIdentitiesByHost(ctx context.Context, host string) ([
 	return out, nil
 }
 
-// DeleteIdentity 删除单个登录身份（field 级）。field 不存在时幂等成功。
-func (r *RedisProvider) DeleteIdentity(ctx context.Context, host, name string) error {
-	if err := r.client.HDel(ctx, r.hashKey(host), name).Err(); err != nil {
-		return fmt.Errorf("hdel credential %s/%s: %w", host, name, err)
+// DeleteIdentity 删除单个登录身份（field 级）。field 不存在时不报错，deleted 为 false。
+func (r *RedisProvider) DeleteIdentity(ctx context.Context, host, name string) (bool, error) {
+	n, err := r.client.HDel(ctx, r.hashKey(host), name).Result()
+	if err != nil {
+		return false, fmt.Errorf("hdel credential %s/%s: %w", host, name, err)
 	}
-	return nil
+	return n > 0, nil
 }
 
 // ListHosts 枚举有凭证的 host：SCAN 前缀匹配 + 逐键类型校验（只认 hash——

@@ -208,7 +208,9 @@ func (f *fakeCredsProvider) GetIdentitiesByHost(_ context.Context, host string) 
 	}
 	return out, f.getErr
 }
-func (f *fakeCredsProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (f *fakeCredsProvider) DeleteIdentity(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 func (f *fakeCredsProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
 	return nil, nil
 }

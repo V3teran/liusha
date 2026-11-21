@@ -57,7 +57,7 @@ func (f *fakeCred) GetIdentitiesByHost(_ context.Context, host string) ([]creden
 	return out, nil
 }
 
-func (f *fakeCred) DeleteIdentity(_ context.Context, host, name string) error {
+func (f *fakeCred) DeleteIdentity(_ context.Context, host, name string) (bool, error) {
 	f.deletedIDs = append(f.deletedIDs, credential.CanonicalHost(host)+"/"+name)
 	kept := f.byHost[host][:0]
 	for _, id := range f.byHost[host] {
@@ -65,8 +65,9 @@ func (f *fakeCred) DeleteIdentity(_ context.Context, host, name string) error {
 			kept = append(kept, id)
 		}
 	}
+	deleted := len(kept) < len(f.byHost[host])
 	f.byHost[host] = kept
-	return nil
+	return deleted, nil
 }
 
 func (f *fakeCred) ListHosts(_ context.Context) ([]credential.HostSummary, error) {

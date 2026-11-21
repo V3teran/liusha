@@ -17,8 +17,9 @@ type Provider interface {
 	// 按存储序返回，不注入 anonymous。
 	GetIdentitiesByHost(ctx context.Context, host string) ([]Identity, error)
 
-	// DeleteIdentity 删除单个身份（field 级）。
-	DeleteIdentity(ctx context.Context, host, name string) error
+	// DeleteIdentity 删除单个身份（field 级），报告是否真的删掉了一个——身份不存在时不报错、
+	// deleted 为 false，调用方据此决定是否 404、是否落审计（审计里不能有没发生过的删除）。
+	DeleteIdentity(ctx context.Context, host, name string) (deleted bool, err error)
 
 	// ListHosts 枚举有凭证的 host 及其用户名计数（只读 field 名，不读凭证值）。
 	ListHosts(ctx context.Context) ([]HostSummary, error)
@@ -72,7 +73,7 @@ func SweepTerminalSessions(ctx context.Context, p Provider, lookup TaskStatusLoo
 			if exists && status == statusActive {
 				continue
 			}
-			if dErr := p.DeleteIdentity(ctx, h.Host, id.Username); dErr == nil {
+			if deleted, dErr := p.DeleteIdentity(ctx, h.Host, id.Username); dErr == nil && deleted {
 				removed++
 			}
 		}
