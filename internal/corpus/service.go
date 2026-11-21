@@ -50,14 +50,46 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	return out, nil
 }
 
-// Search 检索知识。语义检索出故障时退回字面检索并在结果里注明（调用方取消除外）。
+// Search 检索给读者用的知识：按相关度门槛过滤，宁可返回空。语义检索出故障时退回字面检索并在
+// 结果里注明（调用方取消除外）。
 func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
-	q.Text = strings.TrimSpace(q.Text)
-	if q.Text == "" {
+	res, err := s.rank(ctx, q.Text, q.Scope)
+	if err != nil {
+		return Result{}, err
+	}
+	threshold := minRelevance
+	if res.Mode == ModeLexical {
+		threshold = minCoverage
+	}
+	res.Hits = keep(res.Hits, threshold, q.limit())
+	return res, nil
+}
+
+// Neighbors 取与 text 最接近的 k 条已有知识，不设相关度门槛：供收尾整合判断候选经验是新增、
+// 印证还是合并。两种用途的代价相反——给读者的检索多一条无关条目会占上下文、误导判断，要精确；
+// 整合多给一条近邻只是让判定多看一眼，漏掉一条重复就会重复写入，要召回。标定显示以经验全文
+// 为查询时，重复条目与其余条目的分数重叠很大（重复条目最低 0.21），却几乎都排在前 3 名。
+func (s *Service) Neighbors(ctx context.Context, text string, scope Scope, k int) ([]Entry, error) {
+	res, err := s.rank(ctx, text, scope)
+	if err != nil {
+		return nil, err
+	}
+	hits := keep(res.Hits, 0, k)
+	out := make([]Entry, len(hits))
+	for i, h := range hits {
+		out[i] = h.Entry
+	}
+	return out, nil
+}
+
+// rank 按配置的检索方式给可见范围内的候选排序（全部候选，不过滤）。
+func (s *Service) rank(ctx context.Context, text string, scope Scope) (Result, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
 		return Result{}, fmt.Errorf("%w：检索内容不能为空", ErrInvalid)
 	}
 	if s.models.Semantic() {
-		hits, err := s.store.searchSemantic(ctx, s.models, q)
+		hits, err := s.store.rankSemantic(ctx, s.models, text, scope)
 		if err == nil {
 			return Result{Mode: ModeSemantic, Hits: hits}, nil
 		}
@@ -65,13 +97,13 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 			return Result{}, err
 		}
 		s.logger.Warn().Err(err).Msg("语义检索失败，本次退回字面检索")
-		hits, lexErr := s.store.searchLexical(ctx, q)
+		hits, lexErr := s.store.recallLexical(ctx, text, scope, recallSize)
 		if lexErr != nil {
 			return Result{}, errors.Join(err, lexErr)
 		}
 		return Result{Mode: ModeLexical, Fallback: err.Error(), Hits: hits}, nil
 	}
-	hits, err := s.store.searchLexical(ctx, q)
+	hits, err := s.store.recallLexical(ctx, text, scope, recallSize)
 	if err != nil {
 		return Result{}, err
 	}

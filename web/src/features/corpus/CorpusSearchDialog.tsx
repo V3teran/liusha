@@ -66,6 +66,7 @@ export function CorpusSearchDialog({ open, onOpenChange, onOpenEntry }: CorpusSe
                 autoFocus
                 className={INPUT_CLASS}
                 value={query}
+                placeholder="一句话描述遇到的情境，如：接口返回的数据是编码过的，怎么处理？"
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>

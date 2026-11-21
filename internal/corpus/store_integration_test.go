@@ -443,3 +443,26 @@ func TestSearch_LexicalNeedsTwoMatchedTerms(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"显眼位置的 flag 串先当诱饵再验证"}, titles(res.Hits), "单词元查询命中一个即可")
 }
+
+// 近邻不设相关度门槛：门槛之下、给读者的检索不返回的条目，整合时照样能看到（按得分排序、限量）。
+func TestNeighbors_IgnoreRelevanceThreshold(t *testing.T) {
+	models, _, _ := semanticModels()
+	s, _ := newService(t, models)
+	ctx := context.Background()
+	mustCreate(t, s, Draft{Title: "诱饵串不提交", Content: "带 fake 字样的串是诱饵"})
+	mustCreate(t, s, Draft{Title: "编码载荷先看结构", Content: "标注 encoded 的载荷先看结构"})
+	mustCreate(t, s, Draft{Title: "场景专属", Content: "只对 ctf 可见", Scenario: ptr("ctf")})
+
+	res, err := s.Search(ctx, Query{Text: "怎么处理编码过的数据"})
+	require.NoError(t, err)
+	assert.Empty(t, res.Hits, "重排分数在门槛之下")
+
+	got, err := s.Neighbors(ctx, "怎么处理编码过的数据", Scope{}, 5)
+	require.NoError(t, err)
+	assert.Len(t, got, 2, "门槛之下也返回，但只在可见范围内")
+
+	got, err = s.Neighbors(ctx, "诱饵怎么分辨", Scope{}, 1)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "诱饵串不提交", got[0].Title, "按得分取前 k 条")
+}

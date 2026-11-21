@@ -11,8 +11,8 @@ import (
 	"github.com/V3teran/liusha/internal/task"
 )
 
-// neighborLimit 是整合时每条候选带上的已有条目数。
-const neighborLimit = 3
+// neighborLimit 是整合时每条候选带上的已有条目数（不设相关度门槛，见 corpus.Service.Neighbors）。
+const neighborLimit = 5
 
 const consolidateSystemPrompt = `你是知识库整理员。一个任务沉淀出若干条候选经验（C1、C2……），每条附上知识库里与它最接近的已有条目（E1、E2……）。逐条判定候选与已有条目的关系：
 - add：已有条目讲的都不是同一件事，候选作为新条目写入；
@@ -59,14 +59,11 @@ func (s *Service) consolidate(ctx context.Context, tk task.Task, lessons []Lesso
 	cands := make([]candidate, len(lessons))
 	anyNeighbor := false
 	for i, l := range lessons {
-		res, err := s.corpus.Search(ctx, corpus.Query{Text: corpus.Text(l.Title, l.Content), Scope: scope, Limit: neighborLimit})
+		neighbors, err := s.corpus.Neighbors(ctx, corpus.Text(l.Title, l.Content), scope, neighborLimit)
 		if err != nil {
 			return Outcome{}, fmt.Errorf("检索近似条目: %w", err)
 		}
-		cands[i] = candidate{lesson: l}
-		for _, h := range res.Hits {
-			cands[i].neighbors = append(cands[i].neighbors, h.Entry)
-		}
+		cands[i] = candidate{lesson: l, neighbors: neighbors}
 		anyNeighbor = anyNeighbor || len(cands[i].neighbors) > 0
 	}
 

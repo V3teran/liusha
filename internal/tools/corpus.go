@@ -17,7 +17,7 @@ import (
 var searchCorpusSchema = json.RawMessage(fmt.Sprintf(`{
   "type": "object",
   "properties": {
-    "query": {"type": "string", "description": "检索内容：关键词或自然语言描述。"},
+    "query": {"type": "string", "description": "用一句话描述当前遇到的情境或要解决的问题（如「某接口返回的数据是编码过的，应该怎么处理」），不要罗列关键词：相关度按句子的语义判定，关键词串会让相关与无关的条目难以区分。"},
     "top_k": {"type": "integer", "description": "最多返回条数，默认 %d，最多 %d。"}
   },
   "required": ["query"]

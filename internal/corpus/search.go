@@ -17,18 +17,20 @@ const (
 	ModeLexical  Mode = "lexical"  // 只按词元匹配
 )
 
-// 检索参数。两个门槛用库内真实条目与历史上的真实查询（多为一串关键词）标定：
-//   - 重排相关度：相关条目 0.30~0.62，无关条目多在 0.30 以下、个别到 0.4 左右，两者有重叠。
-//     多返回一条无关条目只占用一点上下文、由读者判断取舍；漏掉相关条目则知识白存，门槛取重叠区下沿。
+// 检索参数。门槛用人工标注的查询标定（10 个查询 × 库内 20 条，其中 3 个查询没有相关条目）：
+//   - 重排相关度：查询写成一句话描述情境时，相关条目中位 0.65，没有相关条目的查询最高只到 0.24；
+//     门槛 0.45 时召回 0.86、精确率 0.80。查询写成关键词串时两者混在一起（无关查询最高 0.38），
+//     任何门槛都两头不讨好——查询的写法由 search_corpus 的参数说明约定。
 //   - 字面覆盖率：多词查询里的情境词（库里没有）把覆盖率整体压低，相关条目 0.067~0.54、无关条目
-//     0.037~0.13，重叠更大；门槛只切掉只命中一个常见词的最弱匹配。
+//     0.037~0.13，重叠更大；门槛只切掉最弱的匹配，区分主要靠「至少命中两个查询词元」。
+// 门槛只用于给读者的检索（Search）：整合时找近似条目（Neighbors）不设门槛，见其说明。
 const (
 	DefaultLimit = 5
 	MaxLimit     = 10
 	// recallSize 是每一路召回的候选数（之后统一重排或打分）。
 	recallSize = 20
 	// minRelevance 是重排相关度门槛（语义模式）。
-	minRelevance = 0.3
+	minRelevance = 0.45
 	// minCoverage 是 IDF 加权的查询词覆盖率门槛（字面模式）。
 	minCoverage = 0.05
 )
@@ -156,26 +158,17 @@ func collectHits(rows pgx.Rows) ([]Hit, error) {
 	return out, nil
 }
 
-// searchLexical 是字面检索：词元召回，按覆盖率门槛过滤。
-func (s *Store) searchLexical(ctx context.Context, q Query) ([]Hit, error) {
-	hits, err := s.recallLexical(ctx, q.Text, q.Scope, recallSize)
-	if err != nil {
-		return nil, err
-	}
-	return keep(hits, minCoverage, q.limit()), nil
-}
-
-// searchSemantic 是语义检索：向量与词元两路召回，合并去重后统一重排，按相关度门槛过滤。
-func (s *Store) searchSemantic(ctx context.Context, m Models, q Query) ([]Hit, error) {
-	vec, err := m.Embedder.EmbedQuery(ctx, q.Text)
+// rankSemantic 是语义排序：向量与词元两路召回，合并去重后统一重排，按相关度降序返回全部候选。
+func (s *Store) rankSemantic(ctx context.Context, m Models, text string, scope Scope) ([]Hit, error) {
+	vec, err := m.Embedder.EmbedQuery(ctx, text)
 	if err != nil {
 		return nil, fmt.Errorf("查询向量化: %w", err)
 	}
-	dense, err := s.recallDense(ctx, vec, q.Scope, recallSize)
+	dense, err := s.recallDense(ctx, vec, scope, recallSize)
 	if err != nil {
 		return nil, err
 	}
-	lexical, err := s.recallLexical(ctx, q.Text, q.Scope, recallSize)
+	lexical, err := s.recallLexical(ctx, text, scope, recallSize)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +191,7 @@ func (s *Store) searchSemantic(ctx context.Context, m Models, q Query) ([]Hit, e
 	for i, e := range candidates {
 		docs[i] = e.Text()
 	}
-	ranked, err := m.Reranker.Rerank(ctx, q.Text, docs, len(docs))
+	ranked, err := m.Reranker.Rerank(ctx, text, docs, len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("重排: %w", err)
 	}
@@ -208,7 +201,7 @@ func (s *Store) searchSemantic(ctx context.Context, m Models, q Query) ([]Hit, e
 			hits = append(hits, Hit{Entry: candidates[r.Index], Score: r.Score})
 		}
 	}
-	return keep(hits, minRelevance, q.limit()), nil
+	return hits, nil
 }
 
 // keep 按得分降序取门槛以上的前 limit 条。
