@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Pause, Play, Square } from 'lucide-react'
+import { Crosshair, Pause, Play, Square } from 'lucide-react'
 import { listMessages } from '@/api/conversations'
 import { controlTask } from '@/api/tasks'
 import { ApiError } from '@/api/client'
@@ -17,6 +17,8 @@ import { TimelineThread } from './TimelineThread'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { toast } from '@/components/ui/toast'
 
 interface ConversationDetailProps {
   convId?: string
@@ -196,7 +198,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
     try {
       await controlTask(taskID, action)
     } catch (e) {
-      window.alert(`操作失败：${(e as Error).message}`)
+      toast.error(`操作失败：${(e as Error).message}`)
       return
     }
     await queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskID) })
@@ -223,8 +225,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
               {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
             </span>
             {streamStatus === 'reconnecting' && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-sev-medium" title="实时连接断开，正在自动重连…">
-                <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-sev-medium/40 border-t-sev-medium" />
+              <span className="inline-flex items-center gap-1.5 text-xs text-status-warning" title="实时连接断开，正在自动重连…">
+                <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-status-warning/40 border-t-status-warning" />
                 重连中…
               </span>
             )}
@@ -283,25 +285,16 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       )}
 
       {loadError ? (
-        <div className="flex flex-1 min-h-0 items-center justify-center p-6">
-          <div className="max-w-[420px] text-center text-text-secondary">
-            <div className="mb-3.5 text-4xl leading-none text-accent">⚠</div>
-            {loadError === 'missing' ? (
-              <>
-                <h2 className="mb-2 text-[17px] text-text">对话不存在</h2>
-                <p className="text-sm leading-relaxed">该对话可能已被删除，请重新选择。</p>
-              </>
-            ) : (
-              <>
-                <h2 className="mb-2 text-[17px] text-text">加载对话失败</h2>
-                <p className="text-sm leading-relaxed">无法拉取历史消息，可能是网络或服务暂时不可用。</p>
-                <Button className="mt-4" onClick={retryLoad}>
-                  重试
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
+        loadError === 'missing' ? (
+          <ErrorState title="对话不存在" message="它可能已被删除，从左侧重新选择一个对话。" className="min-h-0 flex-1" />
+        ) : (
+          <ErrorState
+            title="加载对话失败"
+            message="无法拉取历史消息，可能是网络或服务暂时不可用。"
+            onRetry={retryLoad}
+            className="min-h-0 flex-1"
+          />
+        )
       ) : loading ? (
         <div className="flex flex-1 min-h-0 flex-col gap-4 overflow-hidden px-4 py-5" aria-busy="true" aria-label="正在加载对话">
           {[1, 2, 3, 4, 5].map((n) => (
@@ -325,9 +318,11 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       ) : (
         /* 人工下发的新对话：发起引导（对话框就在下方），不是空态 */
         <div className="flex flex-1 min-h-0 items-center justify-center p-6">
-          <div className="max-w-[420px] text-center text-text-secondary">
-            <div className="mb-3.5 text-4xl leading-none text-accent">⌖</div>
-            <h2 className="mb-2 text-[17px] text-text">发起一次渗透测试任务</h2>
+          <div className="flex max-w-[420px] flex-col items-center text-center text-text-secondary">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <Crosshair aria-hidden className="h-5 w-5" />
+            </span>
+            <h2 className="mb-1.5 mt-3 text-base font-semibold text-text">发起一次渗透测试任务</h2>
             <p className="text-sm leading-relaxed">
               在下方描述目标（URL / 账号 / 测试方向），实时观察智能体调度、工具调用与发现产出。
             </p>

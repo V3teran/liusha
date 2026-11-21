@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Pencil, Trash2, X } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { errorText } from '@/api/client'
 import type { CorpusDraft, CorpusEntry } from '@/api/corpus'
 import { Badge } from '@/components/ui/Badge'
@@ -15,6 +15,10 @@ import { cn } from '@/lib/utils'
 import { CorpusScopeSelect } from './CorpusScopeSelect'
 import { CorpusTextFields, draftValid } from './CorpusTextFields'
 import { useCorpusDetail, useDeleteCorpusEntry, useUpdateCorpusEntry } from './useCorpusQueries'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { InlineError } from '@/components/ui/InlineError'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 interface CorpusDrawerProps {
   /** 打开的条目 ID；空 = 关闭 */
@@ -107,21 +111,14 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
               <Dialog.Title className="text-lg font-semibold text-text">{entry?.title ?? '知识'}</Dialog.Title>
               <Dialog.Description className="sr-only">知识条目详情</Dialog.Description>
             </div>
-            <Dialog.Close
-              aria-label="关闭"
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-2 hover:text-text"
-            >
-              <X className="h-5 w-5" />
-            </Dialog.Close>
+            <DialogClose />
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {detail.isError && !entry ? (
-              <p role="alert" className="text-sm text-sev-critical">
-                ⚠ {errorText(detail.error, '加载失败')}
-              </p>
+              <ErrorState message={errorText(detail.error, '加载失败')} onRetry={() => void detail.refetch()} />
             ) : !entry ? (
-              <p className="text-sm text-text-tertiary">加载中…</p>
+              <LoadingState />
             ) : draft ? (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
@@ -157,7 +154,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
                             <p className="truncate text-sm text-text" title={c.task_goal}>
                               {c.task_goal.replace(/\s+/g, ' ')}
                             </p>
-                            <p className="font-mono text-[11px] text-text-tertiary">{fullTime(c.confirmed_at)}</p>
+                            <p className="font-mono text-2xs text-text-tertiary">{fullTime(c.confirmed_at)}</p>
                           </div>
                           <JumpLinks
                             size="sm"
@@ -193,9 +190,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
               {editing ? (
                 <>
                   {update.isError ? (
-                    <p role="alert" className="mr-auto text-xs text-sev-critical">
-                      ⚠ {errorText(update.error, '保存失败')}
-                    </p>
+                    <InlineError className="mr-auto">{errorText(update.error, '保存失败')}</InlineError>
                   ) : entry.source === 'agent' && textChanged ? (
                     <p className="mr-auto text-xs text-text-secondary">保存后成为人工内容，任务收尾不再改写它</p>
                   ) : (
@@ -211,9 +206,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
               ) : (
                 <>
                   {remove.isError && (
-                    <p role="alert" className="text-xs text-sev-critical">
-                      ⚠ {errorText(remove.error, '删除失败')}
-                    </p>
+                    <InlineError>{errorText(remove.error, '删除失败')}</InlineError>
                   )}
                   <Button variant="danger" className="mr-auto" onClick={() => setConfirmDelete(true)}>
                     <Trash2 className="h-4 w-4" />

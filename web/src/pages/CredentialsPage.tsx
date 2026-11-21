@@ -16,6 +16,8 @@ import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { Button } from '@/components/ui/Button'
 import { controlClass } from '@/components/ui/control'
 import { FilterBar } from '@/components/FilterBar'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { confirmAction } from '@/components/ui/confirm'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -64,7 +66,7 @@ export function CredentialsPage() {
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
 
-  const { rows, failedHosts, retryDetails, isLoading, isError, error } = useAllCredentialRows()
+  const { rows, failedHosts, retryDetails, retry, isLoading, isError, error } = useAllCredentialRows()
   const saveMutation = useSaveCredentialIdentity()
   const deleteIdentity = useDeleteCredentialIdentity()
 
@@ -147,8 +149,14 @@ export function CredentialsPage() {
     saveIdentity(row.host, id.username, id.role, id.credentials.filter((_, i) => i !== credIndex).map((c) => ({ ...c })))
   }
 
-  const handleDeleteIdentity = (host: string, username: string) => {
-    if (!confirm(`删除用户名 ${username} 的全部凭证？不可恢复。`)) return
+  const handleDeleteIdentity = async (host: string, username: string) => {
+    const ok = await confirmAction({
+      title: '删除凭证',
+      message: `删除用户名 ${username} 在 ${host} 的全部凭证？不可恢复。`,
+      confirmLabel: '确认删除',
+      danger: true,
+    })
+    if (!ok) return
     deleteIdentity.mutate({ host, username })
   }
 
@@ -227,13 +235,11 @@ export function CredentialsPage() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-4">
         {isError ? (
-          <div className="py-16 text-center text-sm text-sev-critical">
-            ⚠ {error instanceof Error ? error.message : '加载失败'}
-          </div>
+          <ErrorState message={error instanceof Error ? error.message : undefined} onRetry={retry} />
         ) : (
           <div className="flex flex-col gap-3">
             {failedHosts.length > 0 && (
-              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-sev-medium/40 bg-sev-medium/10 px-3 py-2 text-sm text-sev-medium">
+              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
                 <span>
                   {failedHosts.length} 个目标的凭证加载失败，列表不完整：{failedHosts.join('、')}
                 </span>

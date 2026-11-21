@@ -11,6 +11,7 @@ import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { StatChip } from '@/components/StatChip'
 import { catColor } from '@/lib/categoricalColor'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 export function LlmAuditPage() {
   // 打开的调用写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉
@@ -102,9 +103,10 @@ export function LlmAuditPage() {
 
       <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
         {searchQueryResult.isError ? (
-          <div className="py-16 text-center text-sm text-sev-critical">
-            ⚠ 加载失败：{searchQueryResult.error instanceof Error ? searchQueryResult.error.message : '未知错误'}
-          </div>
+          <ErrorState
+            message={searchQueryResult.error instanceof Error ? searchQueryResult.error.message : undefined}
+            onRetry={() => void searchQueryResult.refetch()}
+          />
         ) : (
           <LlmAuditTable
             rows={rows}
@@ -123,6 +125,7 @@ export function LlmAuditPage() {
         detail={detailQuery.data ?? null}
         loading={detailQuery.isPending && selectedId != null}
         error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
+        onRetry={() => void detailQuery.refetch()}
         llmTimeoutMs={llmTimeoutMs}
         onOpenChange={(open) => {
           if (!open) select('')

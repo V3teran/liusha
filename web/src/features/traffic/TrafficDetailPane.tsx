@@ -6,11 +6,14 @@ import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
 import { methodColor, statusColor } from './httpStatus'
 import { RawMessageBlock } from './RawMessageBlock'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 interface TrafficDetailPaneProps {
   detail: TrafficDetail | null
   loading: boolean
   error: string
+  onRetry: () => void
   onClose: () => void // 关闭详情，列表恢复占满全高
 }
 
@@ -37,12 +40,12 @@ function ConsumerRow({ c }: { c: TrafficConsumer }) {
 // 顶部元信息行（#序号 · 方法 · 状态 · URL · 时间 + 关闭按钮）让详情区自明「我在看哪条」——
 // 翻页/换筛选后选中行不在本页时（孤儿报文场景）仍可辨认，列表滚动后选中行滚出视口同理。
 // 其下为消费任务列表（M:N，空则隐藏；每个任务带它的跳转）；再下为请求/响应两块整条报文文本（各自带 原文/美化 切换）。
-export function TrafficDetailPane({ detail, loading, error, onClose }: TrafficDetailPaneProps) {
+export function TrafficDetailPane({ detail, loading, error, onRetry, onClose }: TrafficDetailPaneProps) {
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
+    return <LoadingState className="h-full" />
   }
   if (error) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-sm text-sev-critical">⚠ {error}</div>
+    return <ErrorState message={error} onRetry={onRetry} className="h-full" />
   }
   if (!detail) return null
 

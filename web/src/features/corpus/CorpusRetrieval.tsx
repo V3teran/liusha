@@ -8,6 +8,7 @@ import { INPUT_CLASS } from '@/components/ui/control'
 import { corpusHitColumns } from './corpusColumns'
 import { CorpusScopeSelect } from './CorpusScopeSelect'
 import { useCorpusRetrievalParams, useCorpusSearch } from './useCorpusQueries'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 function modeLine(r: CorpusSearchResult): string {
   if (r.fallback) return `字面检索 · 覆盖率 ≥ ${r.threshold} · 语义检索暂不可用：${r.fallback}`
@@ -80,9 +81,7 @@ export function CorpusRetrieval({ selectedId, onOpenEntry, onHits }: CorpusRetri
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4" aria-live="polite">
         {search.isError ? (
-          <p role="alert" className="py-16 text-center text-sm text-sev-critical">
-            ⚠ {errorText(search.error, '检索失败')}
-          </p>
+          <ErrorState title="检索失败" message={errorText(search.error, '检索失败')} onRetry={() => void search.refetch()} />
         ) : search.data ? (
           <div className="flex flex-col gap-3">
             <p className="text-xs text-text-tertiary">{modeLine(search.data)}</p>

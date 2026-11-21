@@ -6,6 +6,8 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { FindingsPage } from './FindingsPage'
 import { getFindingStat, getFindingTaskFacets, listFindings, updateFindingTriage } from '@/api/findings'
 import type { FindingRow, FindingListResponse } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/findings', () => ({
   listFindings: vi.fn(),
@@ -95,6 +97,8 @@ function renderPage(entry = '/findings') {
       <MemoryRouter initialEntries={[entry]}>
         <FindingsPage />
         <HistoryProbe />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -104,8 +108,7 @@ describe('FindingsPage', () => {
   beforeEach(() => {
     mockedListFindings.mockReset()
     mockedUpdateFindingTriage.mockReset()
-    
-    vi.spyOn(window, 'alert').mockImplementation(() => {})
+
     // stat 默认空口径（汇总条测试内显式覆盖）
     mockedGetFindingStat.mockResolvedValue({ total: 0, by_status: {}, by_severity: {} })
   })
@@ -303,7 +306,7 @@ describe('FindingsPage', () => {
     )
   })
 
-  it('保存 triage 失败时 alert 提示', async () => {
+  it('保存 triage 失败时弹出失败通知', async () => {
     const user = userEvent.setup()
     const finding = makeFinding({ id: 'f-fail', status: 'open', triage_note: '' })
     mockedListFindings.mockResolvedValue(makeListResponse([finding]))
@@ -319,7 +322,7 @@ describe('FindingsPage', () => {
     const saveBtn = screen.getByRole('button', { name: '保存处置' })
     await user.click(saveBtn)
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('处置保存失败，请重试'))
+    expect(await screen.findByText('处置保存失败，请重试')).toBeTruthy()
     expect(mockedUpdateFindingTriage).toHaveBeenCalled()
   })
 

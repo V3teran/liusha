@@ -1,7 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import type { FormEvent, ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
+import { DialogClose } from './DialogClose'
+import { InlineError } from './InlineError'
 
 interface FormDialogProps {
   open: boolean
@@ -56,24 +58,15 @@ export function FormDialog({
             }}
           >
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-              <Dialog.Title className="flex items-center gap-2 text-sm font-semibold text-text">
-                {danger && <AlertTriangle className="h-4 w-4 text-sev-critical" aria-hidden />}
+              <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-text">
+                {danger && <AlertTriangle className="h-4 w-4 text-status-error" aria-hidden />}
                 {title}
               </Dialog.Title>
-              <Dialog.Close asChild>
-                <button
-                  type="button"
-                  aria-label="关闭"
-                  disabled={pending}
-                  className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text disabled:opacity-50"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </Dialog.Close>
+              <DialogClose disabled={pending} />
             </div>
             <div className="flex flex-col gap-4 px-5 py-4">
               {description ? (
-                <Dialog.Description className="text-[12.5px] leading-relaxed text-text-secondary">
+                <Dialog.Description className="text-xs leading-relaxed text-text-secondary">
                   {description}
                 </Dialog.Description>
               ) : (
@@ -81,9 +74,7 @@ export function FormDialog({
               )}
               {children}
               {error && (
-                <p role="alert" className="text-xs text-sev-critical">
-                  ⚠ {error}
-                </p>
+                <InlineError>{error}</InlineError>
               )}
             </div>
             <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-2/50 px-5 py-3.5">

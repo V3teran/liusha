@@ -12,6 +12,8 @@ import {
 } from './useModelQueries'
 import { Select } from '@/components/ui/Select'
 import { ToggleChip } from '@/components/ui/ToggleChip'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。
 // 某档未绑定、或其provider 停用/缺钥时，运行期按就近降级由相邻档承接。
@@ -88,11 +90,16 @@ export function AssignmentView() {
           <h2 className="text-sm font-semibold text-text">能力路由</h2>
         </div>
         {loading ? (
-          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
+          <LoadingState className="py-10" />
         ) : loadError ? (
-          <div className="py-10 text-center font-mono text-sm text-sev-critical">
-            ⚠ {loadError instanceof Error ? loadError.message : '加载失败'}
-          </div>
+          <ErrorState
+            message={loadError instanceof Error ? loadError.message : undefined}
+            onRetry={() => {
+              void providersQuery.refetch()
+              void routingQuery.refetch()
+              void agentsQuery.refetch()
+            }}
+          />
         ) : (
         <div className="flex flex-col divide-y divide-border">
           {rows.map((m) => (
@@ -114,9 +121,9 @@ export function AssignmentView() {
       </div>
 
       {actionError && (
-        <div className="mt-2 flex items-start gap-2 rounded-lg border border-sev-critical/40 bg-sev-critical/5 px-4 py-2.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sev-critical" />
-          <p className="min-w-0 flex-1 break-all text-xs text-sev-critical">{actionError}</p>
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-status-error/40 bg-status-error/5 px-4 py-2.5">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-status-error" />
+          <p className="min-w-0 flex-1 break-all text-xs text-status-error">{actionError}</p>
           <button
             type="button"
             onClick={() => setActionError('')}
@@ -170,29 +177,29 @@ function ComplexityRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-text">{meta.label}</span>
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text-tertiary">
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-tertiary">
               {meta.key}
             </code>
             {missing && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-critical">
+              <span className="flex items-center gap-1 text-2xs text-status-error">
                 <AlertTriangle className="h-3 w-3" />
                 provider 缺失
               </span>
             )}
             {disabledProv && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 provider 停用
               </span>
             )}
             {noKey && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 密钥未就绪
               </span>
             )}
             {noTools && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="智能体依赖工具调用，该 provider未声明支持">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="智能体依赖工具调用，该 provider未声明支持">
                 <AlertTriangle className="h-3 w-3" />
                 未声明工具调用
               </span>
@@ -256,7 +263,7 @@ function AgentPicker({
       aria-label={`${groupLabel} 归属`}
       className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2"
     >
-      <span className="mr-1 text-[11px] text-text-tertiary">
+      <span className="mr-1 text-2xs text-text-tertiary">
         智能体
       </span>
       {agents.map((h) => {

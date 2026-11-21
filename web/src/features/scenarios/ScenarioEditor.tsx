@@ -10,6 +10,8 @@ import { ConfigDrawer, Field } from '@/features/config/ConfigDrawer'
 import { OverrideStatus } from '@/features/config/OverrideStatus'
 import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { SCENARIOS_KEY, useScenarioDetail } from './useScenarioQueries'
+import { toast } from '@/components/ui/toast'
+import { confirmDiscard } from '@/components/ui/confirm'
 
 // 场景编辑抽屉：新建自建场景，或编辑一个已有场景（内置与自建同一表单）。内置场景可编辑、停用、
 // 恢复出厂、删除（删除后可在「已删除的内置」里恢复）；被定时模板引用的场景不可删除、停用（服务端
@@ -75,7 +77,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
   const loadFailed = !!detailQuery.error && !detailQuery.data
   useEffect(() => {
     if (!loadFailed) return
-    window.alert(errorText(detailQuery.error, '加载场景失败'))
+    toast.error(errorText(detailQuery.error, '加载场景失败'))
     onClose({ replace: true })
   }, [loadFailed, detailQuery.error, onClose])
 
@@ -99,9 +101,9 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
   }, [draft, baseline])
   const dirty = isNew ? JSON.stringify(draft) !== JSON.stringify(EMPTY_DRAFT) : Object.keys(changes).length > 0
 
-  const requestClose = () => {
+  const requestClose = async () => {
     if (saving) return // 写请求在途：等它落定，结果决定是否关闭
-    if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
+    if (dirty && !(await confirmDiscard())) return
     onClose()
   }
 
@@ -132,7 +134,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
       void invalidate()
       if (alive.current) onClose()
     } catch (e) {
-      window.alert(errorText(e, '保存失败'))
+      toast.error(errorText(e, '保存失败'))
     } finally {
       setSaving(false)
     }
@@ -148,7 +150,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
       if (alive.current) onClose({ replace: true })
     } catch (e) {
       setConfirmDelete(false)
-      window.alert(errorText(e, '删除失败'))
+      toast.error(errorText(e, '删除失败'))
     } finally {
       setSaving(false)
     }
@@ -174,7 +176,7 @@ export function ScenarioEditor({ code, onClose }: ScenarioEditorProps) {
         return merged
       })
     } catch (e) {
-      window.alert(errorText(e, '恢复失败'))
+      toast.error(errorText(e, '恢复失败'))
     } finally {
       setResetting(null)
     }

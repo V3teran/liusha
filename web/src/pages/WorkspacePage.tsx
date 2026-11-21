@@ -21,6 +21,9 @@ import { FileTree } from '@/features/workspace/FileTree'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { errorText } from '@/api/client'
 import { displayPath } from '@/features/workspace/displayPath'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { confirmAction } from '@/components/ui/confirm'
 
 // 文件树工具栏的方形图标按钮（28px 热区，图标居中）。
 const TOOL_ICON = 'w-7 px-0'
@@ -154,7 +157,13 @@ export function WorkspacePage() {
   }
 
   async function remove(path: string) {
-    if (!window.confirm(`删除 ${path}？（目录递归删除，不可恢复）`)) return
+    const ok = await confirmAction({
+      title: '删除文件',
+      message: `删除 ${displayPath(path)}？目录会连同其中的内容一起删除，不可恢复。`,
+      confirmLabel: '确认删除',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await deleteWorkspacePath(path)
       if (selected === path) {
@@ -258,11 +267,9 @@ export function WorkspacePage() {
             </div>
           )}
           {treeQuery.isPending ? (
-            <p className="p-4 text-sm text-text-secondary">加载中…</p>
+            <LoadingState />
           ) : treeQuery.isError && allEntries.length === 0 ? (
-            <p role="alert" className="p-4 text-sm text-sev-critical">
-              ⚠ {errorText(treeQuery.error, '加载工作空间失败')}
-            </p>
+            <ErrorState message={errorText(treeQuery.error, '加载工作空间失败')} onRetry={() => void treeQuery.refetch()} />
           ) : allEntries.length === 0 ? (
             <EmptyState kind="empty" noun="文件" hint="任务在沙盒中产生和使用的文件会出现在这里。" />
           ) : entries.length === 0 ? (
@@ -288,12 +295,12 @@ export function WorkspacePage() {
           {!selected ? (
             <EmptyState kind="unselected" noun="文件" hint="选择一个文件查看内容。" />
           ) : fileQuery.isLoading ? (
-            <p className="p-4 text-sm text-text-secondary">加载中…</p>
+            <LoadingState />
           ) : fileQuery.data?.binary ? (
             <div className="space-y-2 p-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Badge size="sm" color="neutral">二进制</Badge>
+                  <Badge size="sm" color="var(--status-neutral)">二进制</Badge>
                   <span className="text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                   <span className="text-xs text-text-secondary">{fileQuery.data.size} 字节（base64 预览禁用编辑）</span>
                 </div>
@@ -340,7 +347,7 @@ export function WorkspacePage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm text-text" title={displayPath(selected)}>{displayPath(selected)}</span>
                 <div className="flex items-center gap-2">
-                  {dirty && <Badge size="sm" color="neutral">未保存</Badge>}
+                  {dirty && <Badge size="sm" color="var(--status-neutral)">未保存</Badge>}
                   <Button variant="secondary" size="xs" onClick={() => void download(selected)}>
                     <Download /> 下载
                   </Button>
@@ -359,7 +366,7 @@ export function WorkspacePage() {
                   '[&_.cm-editor]:min-h-[384px] [&_.cm-editor]:bg-surface-2 [&_.cm-gutters]:bg-surface-2 [&_.cm-gutters]:border-r-border',
                 )}
               >
-                <Suspense fallback={<p className="p-3 text-text-secondary">编辑器加载中…</p>}>
+                <Suspense fallback={<LoadingState label="编辑器加载中…" />}>
                   <FileEditor
                     path={selected}
                     value={draft ?? fileQuery.data?.content ?? ''}

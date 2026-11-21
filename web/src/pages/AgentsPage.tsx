@@ -29,6 +29,8 @@ import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { agentProfile } from '@/lib/agentColor'
 import { COMPLEXITY_GROUPS, groupMeta } from '@/features/model/roles'
 import { toggleAll, toggleChecked } from '@/lib/override'
+import { toast } from '@/components/ui/toast'
+import { confirmAction, confirmDiscard } from '@/components/ui/confirm'
 
 // 智能体页（/config/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
 // 章程、调度摘要、迭代上限、档位与三份白名单。保存只提交改动的字段；与出厂相同的值不算
@@ -82,7 +84,7 @@ export function AgentsPage() {
       .then((d) => {
         if (openCodeRef.current === code) setDetail(d)
       })
-      .catch((e: unknown) => window.alert(e instanceof Error ? e.message : '加载失败'))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : '加载失败'))
   }
 
   // 详情与候选目录都就绪后才生成草稿：「全部」模式要按目录全集展开勾选项。
@@ -96,8 +98,8 @@ export function AgentsPage() {
     close()
   }
 
-  const requestClose = () => {
-    if (dirty && !window.confirm('有未保存的更改，确认丢弃？')) return
+  const requestClose = async () => {
+    if (dirty && !(await confirmDiscard())) return
     closeDrawer()
   }
 
@@ -109,7 +111,7 @@ export function AgentsPage() {
       closeDrawer()
       reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '保存失败')
+      toast.error(e instanceof Error ? e.message : '保存失败')
     } finally {
       setSaving(false)
     }
@@ -118,8 +120,12 @@ export function AgentsPage() {
   // 恢复默认是即时的服务端操作；其它字段上未保存的编辑保留。
   const onReset = async (field?: keyof AgentDraft) => {
     if (!detail || !draft || !baseline) return
-    const what = field ? '该项' : '全部字段'
-    if (!window.confirm(`把${what}恢复为出厂值？`)) return
+    const ok = await confirmAction({
+      title: field ? '恢复出厂值' : '全部恢复出厂值',
+      message: `把${field ? '该项' : '全部字段'}恢复为出厂值？自定义内容会被清除。`,
+      confirmLabel: field ? '恢复出厂' : '全部恢复',
+    })
+    if (!ok) return
     const code = detail.agent.code
     setResetting(field ?? 'all')
     try {
@@ -131,7 +137,7 @@ export function AgentsPage() {
       setDetail(fresh)
       rebase(newBaseline, (cur) => (field ? rebaseDraft(baseline, cur, newBaseline, field) : newBaseline))
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '恢复失败')
+      toast.error(e instanceof Error ? e.message : '恢复失败')
     } finally {
       setResetting(null)
     }
@@ -139,13 +145,19 @@ export function AgentsPage() {
 
   const onDismissArchive = async () => {
     if (!detail) return
-    if (!window.confirm('确认已对照处理升级前的提示词？删除后无法找回。')) return
+    const ok = await confirmAction({
+      title: '删除提示词归档',
+      message: '确认已对照处理升级前的提示词？归档删除后无法找回。',
+      confirmLabel: '确认删除',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await deletePromptArchive(detail.agent.code)
       setDetail({ ...detail, prompt_archive: null })
       reload()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : '删除失败')
+      toast.error(e instanceof Error ? e.message : '删除失败')
     }
   }
 
@@ -179,6 +191,7 @@ export function AgentsPage() {
   return (
     <>
       <ConfigListShell
+        onRetry={reload}
         title="智能体"
         columns={2}
         loading={loading}

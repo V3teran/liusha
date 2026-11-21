@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Download, X } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { PROXY_CA_URL } from '@/api/proxy'
 import { errorText } from '@/api/client'
 import type { ProxyStatus } from '@/api/types'
@@ -11,6 +11,9 @@ import { fullTime, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { proxyAddress } from './proxyAddress'
 import { useProxyStatus } from './useProxyStatus'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 /** 代理的三种可见状态：运行中、已停止（运行过）、未启动（从未运行过，没有地址与证书）。 */
 type Phase = 'online' | 'stopped' | 'never'
@@ -50,25 +53,15 @@ export function ProxyAccess() {
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 max-h-[calc(100vh-32px)] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg outline-none">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-            <Dialog.Title className="text-sm font-semibold text-text">代理接入</Dialog.Title>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="关闭"
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </Dialog.Close>
+            <Dialog.Title className="text-base font-semibold text-text">代理接入</Dialog.Title>
+            <DialogClose />
           </div>
           <Dialog.Description className="sr-only">代理的运行状态、代理地址与根证书安装</Dialog.Description>
           <div className="flex flex-col gap-5 px-5 py-4">
             {query.isError ? (
-              <p role="alert" className="text-sm text-sev-critical">
-                ⚠ {errorText(query.error, '读取代理状态失败')}
-              </p>
+              <ErrorState message={errorText(query.error, '读取代理状态失败')} onRetry={() => void query.refetch()} />
             ) : query.isPending ? (
-              <p className="text-sm text-text-secondary">加载中…</p>
+              <LoadingState />
             ) : (
               <ProxyAccessBody status={query.data} phase={phase} />
             )}
@@ -121,7 +114,7 @@ function ProxyAccessBody({ status, phase }: { status: ProxyStatus; phase: Phase 
           不信任这张证书，浏览器会拦下所有 HTTPS 站点。核对已安装的证书时看 SHA-256 指纹：
         </p>
         <div className="flex items-start gap-1 rounded-lg border border-border bg-surface-2 py-1 pl-3 pr-1">
-          <code className="min-w-0 flex-1 break-all py-1 font-mono text-[11.5px] leading-5 text-text-secondary">
+          <code className="min-w-0 flex-1 break-all py-1 font-mono text-2xs leading-5 text-text-secondary">
             {status.ca_fingerprint}
           </code>
           <CopyButton size="sm" copied={copiedKey === 'fp'} onClick={() => void copy('fp', status.ca_fingerprint)} />
@@ -155,7 +148,7 @@ function StatusLine({ dot, label, children }: { dot: string; label: string; chil
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-[13px] font-semibold text-text">{title}</h3>
+      <h3 className="text-sm font-semibold text-text">{title}</h3>
       {children}
     </section>
   )

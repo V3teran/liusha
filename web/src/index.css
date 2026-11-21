@@ -126,6 +126,50 @@ pre {
   animation: fade-out 100ms ease-in;
 }
 
+/* 操作通知（toast）：恒在最上层——它可能由弹层里的操作触发，须压在对话框之上。
+ * 自右侧滑入；滑动关闭跟手（Radix 写入 swipe 位移变量）。 */
+.app-toast-viewport {
+  z-index: var(--z-tooltip);
+}
+
+.app-toast[data-state='open'] {
+  animation: toast-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-toast[data-state='closed'] {
+  animation: fade-out 120ms ease-in;
+}
+
+.app-toast[data-swipe='move'] {
+  translate: var(--radix-toast-swipe-move-x) 0;
+}
+
+.app-toast[data-swipe='cancel'] {
+  translate: 0 0;
+  transition: translate 200ms ease-out;
+}
+
+.app-toast[data-swipe='end'] {
+  animation: toast-swipe-out 120ms ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    translate: 24px 0;
+  }
+}
+
+@keyframes toast-swipe-out {
+  from {
+    translate: var(--radix-toast-swipe-end-x) 0;
+  }
+  to {
+    translate: 100% 0;
+    opacity: 0;
+  }
+}
+
 @keyframes drawer-in {
   from {
     translate: -100% 0;
@@ -168,10 +212,6 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tac-cursor::after {
-    animation: none;
-  }
-
   .tac-modal[data-state='open'],
   .tac-modal[data-state='closed'],
   .app-drawer[data-state='open'],
@@ -181,13 +221,16 @@ pre {
   .app-popover[data-state='open'],
   .app-popover[data-state='closed'],
   .app-menu[data-state='open'],
-  .app-menu[data-state='closed'] {
+  .app-menu[data-state='closed'],
+  .app-toast[data-state='open'],
+  .app-toast[data-state='closed'],
+  .app-toast[data-swipe='end'] {
     animation: none;
   }
 }
 
 /* 主题切换瞬断：明暗切换时由 useTheme 临时挂上本类，冻结全部过渡/动画——
- * CSS 变量翻新让 body 即刻变色，而 37 处 transition-all / .card 等仍按各自
+ * CSS 变量翻新让 body 即刻变色，而各处 transition-colors 等仍按各自
  * 150–250ms 渐变，整页成为新旧主题的拼贴闪烁。冻结后主题变更为单帧原子
  * 重绘，下一帧移除本类恢复悬停过渡。 */
 html.theme-switching *,
@@ -196,12 +239,4 @@ html.theme-switching *::after {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
   animation-iteration-count: 1 !important;
-}
-
-/* 不显示滚动条、仍可滚动（触控、触控板、Shift+滚轮）：只用于放不下时才横向滑动的分页条一类。 */
-.scrollbar-none {
-  scrollbar-width: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
 }

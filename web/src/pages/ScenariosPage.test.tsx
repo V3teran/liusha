@@ -15,6 +15,8 @@ import {
   restoreScenario,
 } from '@/api/config'
 import type { Scenario, ScenarioDetail, ScenarioListItem } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster, useToastStore } from '@/components/ui/toast'
 
 vi.mock('@/api/config', () => ({
   createScenario: vi.fn(),
@@ -85,6 +87,8 @@ function renderPage(entry = '/config/scenarios') {
       <MemoryRouter initialEntries={[entry]}>
         <ScenariosPage />
         <LocationProbe />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -94,9 +98,6 @@ describe('ScenariosPage', () => {
   beforeEach(() => {
     for (const m of [mList, mGet, mPatch, mCreate, mDelete, mReset, mDeleted, mRestore]) m.mockReset()
     mDeleted.mockResolvedValue([])
-    // spyOn 对已被监视的函数返回同一个 spy：清零调用记录，测试之间互不串扰。
-    vi.spyOn(window, 'alert').mockImplementation(() => {}).mockClear()
-    vi.spyOn(window, 'confirm').mockReturnValue(true).mockClear()
   })
 
   it('列表标出缺省、来源、自定义、遮蔽与停用', async () => {
@@ -155,7 +156,7 @@ describe('ScenariosPage', () => {
     mList.mockResolvedValue({ scenarios: [], total: 0 })
     mGet.mockRejectedValue(new Error('资源不存在'))
     renderPage('/config/scenarios?selected=gone')
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('资源不存在'))
+    expect(await screen.findByText('资源不存在')).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
 
@@ -170,7 +171,7 @@ describe('ScenariosPage', () => {
     mGet.mockRejectedValue(new Error('网络断开'))
     await queryClient.invalidateQueries()
     await waitFor(() => expect(mGet).toHaveBeenCalledTimes(2))
-    expect(vi.mocked(window.alert).mock.calls).toEqual([])
+    expect(useToastStore.getState().items).toEqual([])
     expect(screen.getByDisplayValue('草稿中')).toBeTruthy()
     expect(screen.getByTestId('loc').textContent).toBe('?selected=pentest')
   })

@@ -294,7 +294,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 前端
 
-- 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
+- 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值；字号只用其中定义的阶梯（`text-2xs` / `xs` / `sm` / `base` / `lg` / `2xl`），不写 `text-[Npx]`。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
 - 避免不必要的辅助标签与说明文字，让布局本身发挥解释作用——结构、分组与留白先行，补充文案是最后手段；只约束可见文案，可访问性要求不放松（纯图标按钮照常带 `aria-label`）。页头只有标题（`PageHeader` 不接受副标题）：页面用途靠结构与控件说明，概念说明放在用到它的字段或空态里。
 - 每个筛选栏都要能一键清空（`FilterBar` 的 `canReset` / `onReset` 必填，含搜索词）；栏内的搜索框不再自带清空钮，独立使用的 `SearchInput` 有内容时自带——同一处只有一种清空方式。
 - 页面文件命名为 `*Page.tsx`，只做编排；实现放进 `features/<领域>/`，后端调用放 `api/`，错误文案经 `errorText` 取后端中文原因。
@@ -304,7 +304,8 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 页面状态进 URL 并遵守同一套历史规则：列表页打开的条目（详情面板 / 抽屉）与探索图打开的节点是 `?selected=`（`hooks/useSelectedParam`），对话页打开的对话是 `?conversation=`，窄屏「列表 / 详情」由它们决定（返回列表 = 清除它，与浏览器后退一致）。用户主动的导航（打开、切换、关闭条目，改筛选、翻页、清除范围、换选任务）新增一条历史；系统自动的定位（进页打开最新对话、定位最新任务、新对话建立后落到它、删除当前对话）、键盘逐行移动与搜索框输入用 `replace`。
 - 服务端数据一律走 TanStack Query（`features/<领域>/use*Queries.ts`）：取消过期请求、写操作后失效重取，不手写序号防过期，不把服务端数据复制进全局 store。React 状态更新函数必须是纯函数（StrictMode 会重放，原地修改 prev 会重复追加）。
 - 弹层层级只有一个事实源 `index.css`：遮罩写 `className="app-overlay"`，对话框 / 抽屉内容带 `tac-modal` 或 `app-drawer`，锚定浮层带 `app-popover` / `app-menu`；使用点不写定位与 `z-*`（`components/ui/dialogLayering.test.ts` 按源码守住）。菜单、弹层用 Radix 原语，不手写 portal——模态打开时 body 为 `pointer-events:none`，手写浮层会点不到。
-- 不可逆操作经 `ConfirmDialog`（`danger`）确认，确认按钮文案用具体动词（「确认删除」）。
+- 不可逆操作经确认（事件处理里 `await confirmAction(...)`，受控场景用 `ConfirmDialog`，`danger`），确认按钮文案用具体动词（「确认删除」）；不用原生 `window.confirm` / `alert`。
+- 反馈分三层，各有一个组件：区域加载 / 加载失败用 `LoadingState` / `ErrorState`（能重试就给 `onRetry`），表单提交这类就地失败用 `InlineError` 贴在触发处，触发点不在原位的操作结果（行内按钮、菜单项、抽屉关闭后的回写）用 `toast`。
 - 主题只经 `hooks/useTheme` 读写（全局共享，一处切换全部调用点同步）：用户选过的 > 系统深浅偏好 > 深色，未选过时随系统实时变化。`index.html` 的首屏内联脚本与它同口径，改一处必须同步另一处。登录页不放主题切换（业界惯例：跟随系统，偏好设置在登录后）。
 - 可访问性是功能的一部分：表单控件经 `htmlFor` / `useId` 关联标签，纯图标按钮带 `aria-label`，可滚动区域可聚焦，tab 触发器指向真实的 tabpanel，可见内容不放进 `aria-hidden`；动效走 `motion-safe:`，不对文字做透明度脉冲。
 

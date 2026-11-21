@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { CalendarClock, Trash2, X } from 'lucide-react'
+import { CalendarClock, Trash2 } from 'lucide-react'
 import { errorText } from '@/api/client'
 import type { ScheduleRow } from '@/api/types'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +12,9 @@ import { cn } from '@/lib/utils'
 import { cronHuman } from './cron'
 import { ScenarioName } from '@/features/scenarios/ScenarioName'
 import { useDeleteSchedule, useSchedules, useToggleSchedule } from './useScheduleQueries'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 interface SchedulesDrawerProps {
   open: boolean
@@ -61,20 +64,12 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
               </Dialog.Title>
               <Dialog.Description className="sr-only">定时模板列表</Dialog.Description>
             </div>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="关闭"
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </Dialog.Close>
+            <DialogClose />
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             {actionError && (
-              <p role="alert" className="mb-3 rounded-lg border border-sev-critical/30 bg-sev-critical/5 px-3 py-2 text-xs text-sev-critical">
+              <p role="alert" className="mb-3 rounded-lg border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error">
                 {actionError}
               </p>
             )}
@@ -84,11 +79,9 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
               </p>
             )}
             {query.isPending ? (
-              <p className="py-16 text-center text-sm text-text-tertiary">加载中…</p>
+              <LoadingState className="py-16" />
             ) : query.isError ? (
-              <p role="alert" className="py-16 text-center text-sm text-sev-critical">
-                ⚠ {errorText(query.error, '加载定时模板失败')}
-              </p>
+              <ErrorState message={errorText(query.error, '加载定时模板失败')} onRetry={() => void query.refetch()} className="py-16" />
             ) : rows.length === 0 ? (
               <EmptyState kind="empty" noun="定时模板" hint="新建任务时开启「定时执行」即可创建。" className="py-16" />
             ) : (

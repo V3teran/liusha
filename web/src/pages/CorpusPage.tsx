@@ -21,6 +21,7 @@ import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
 import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { CORPUS_SOURCE_OPTIONS, corpusScopeLabel } from '@/lib/corpus'
 import { cn } from '@/lib/utils'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 /** 页面的两个视图：知识条目（缺省）与检索测试，写在 URL 的 ?view=。 */
 const VIEW_RETRIEVAL = 'retrieval'
@@ -48,10 +49,10 @@ function ModeChip({ status }: { status: CorpusStatus | undefined }) {
       className={cn(
         // 手机宽度不显示：页头固定一行，让给标题与动作
         'hidden h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs sm:inline-flex md:px-3',
-        semantic ? 'border-border text-text-secondary' : 'border-sev-medium/40 text-sev-medium',
+        semantic ? 'border-border text-text-secondary' : 'border-status-warning/40 text-status-warning',
       )}
     >
-      <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', semantic ? 'bg-status-success' : 'bg-sev-medium')} />
+      <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', semantic ? 'bg-status-success' : 'bg-status-warning')} />
       {semantic ? '语义检索' : '字面检索'}
       {semantic && status.pending > 0 && (
         <span className="hidden text-text-tertiary lg:inline">· {status.pending} 条待建索引</span>
@@ -244,9 +245,10 @@ export function CorpusPage() {
               </div>
             )}
             {list.isError ? (
-              <div className="py-16 text-center text-sm text-sev-critical">
-                ⚠ {list.error instanceof Error ? list.error.message : '加载失败'}
-              </div>
+              <ErrorState
+                message={list.error instanceof Error ? list.error.message : undefined}
+                onRetry={() => void list.refetch()}
+              />
             ) : (
               <DataTable
                 ariaLabel="知识列表"

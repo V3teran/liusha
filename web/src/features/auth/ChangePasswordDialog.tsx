@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { loginPath } from '@/lib/loginRedirect'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Eye, EyeOff, X } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { changePassword } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { byteLength, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { InlineError } from '@/components/ui/InlineError'
 
 /**
  * 修改密码弹层。
@@ -102,16 +104,8 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[440px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-            <Dialog.Title className="text-sm font-semibold text-text">修改密码</Dialog.Title>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="关闭"
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </Dialog.Close>
+            <Dialog.Title className="text-base font-semibold text-text">修改密码</Dialog.Title>
+            <DialogClose />
           </div>
 
           <form className="flex flex-col gap-4 px-5 py-4" onSubmit={submit}>
@@ -151,9 +145,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             ))}
 
             {error && (
-              <div className="text-xs text-status-error" role="alert">
-                ⚠ {error}
-              </div>
+              <InlineError>{error}</InlineError>
             )}
             {success && <div className="text-xs text-status-success">✓ 密码已修改，全部会话已下线，正在前往登录页…</div>}
 

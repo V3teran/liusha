@@ -4,6 +4,7 @@ import { controlTask } from '@/api/tasks'
 import { buildTaskColumns, goalHead } from './taskColumns'
 import { DataTable } from '@/components/DataTable'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { toast } from '@/components/ui/toast'
 
 type ControlAction = 'pause' | 'resume' | 'terminate'
 
@@ -27,7 +28,7 @@ export function TaskTable({ rows, loading, hasFilter, offset, selectedId, onRowC
   const execute = (task: TaskSummary, action: ControlAction) => {
     controlTask(task.id, action)
       .then(() => onOperated?.())
-      .catch((e: Error) => window.alert(`操作失败：${e.message}`))
+      .catch((e: Error) => toast.error(`操作失败：${e.message}`))
   }
   const handleControl = (task: TaskSummary, action: ControlAction) => {
     if (action === 'terminate') {

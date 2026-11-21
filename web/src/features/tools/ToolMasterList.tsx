@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { Tool, ToolKind } from '@/api/types'
 import { KIND_LABEL, categoryLabel } from './toolMeta'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 种类段：全部 / 内部函数 / 外部 CLI。'' = 不过滤。
 export type KindFilter = '' | ToolKind
@@ -64,6 +66,7 @@ export function ToolMasterList({
   onKind,
   loading,
   error,
+  onRetry,
   empty,
   filtered,
   selected,
@@ -75,6 +78,7 @@ export function ToolMasterList({
   onKind: (k: KindFilter) => void
   loading: boolean
   error: string
+  onRetry: () => void
   empty: boolean
   /** 有搜索词或种类筛选：空结果是「没有匹配」而不是目录为空 */
   filtered: boolean
@@ -142,9 +146,9 @@ export function ToolMasterList({
         className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:border-accent"
       >
         {loading ? (
-          <div className="terminal-cursor py-16 text-center font-mono text-sm text-text-secondary">加载中</div>
+          <LoadingState className="py-16" />
         ) : error ? (
-          <div className="px-4 py-16 text-center font-mono text-sm text-sev-critical">⚠ {error}</div>
+          <ErrorState message={error} onRetry={onRetry} className="py-16" />
         ) : empty ? (
           filtered ? (
             <EmptyState kind="no-match" noun="工具" className="py-16" />

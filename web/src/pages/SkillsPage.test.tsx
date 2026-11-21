@@ -15,6 +15,8 @@ import {
   restoreSkill,
 } from '@/api/config'
 import type { Skill, SkillDetail, SkillListItem } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/config', () => ({
   createSkill: vi.fn(),
@@ -67,6 +69,8 @@ function renderPage() {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <SkillsPage />
+        <ConfirmHost />
+        <Toaster />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -79,8 +83,6 @@ describe('SkillsPage', () => {
     vi.mocked(restoreSkill).mockReset()
     mList.mockResolvedValue({ skills: [item(sk())], total: 1 })
     mGet.mockResolvedValue(detail(sk()))
-    vi.spyOn(window, 'alert').mockImplementation(() => {})
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('列表展示来源与自定义标记', async () => {
@@ -117,6 +119,7 @@ describe('SkillsPage', () => {
     await user.click(await screen.findByRole('tab', { name: '知识内容' }))
     expect(screen.getByText('升级前的修改')).toBeTruthy()
     await user.click(screen.getByText('恢复默认'))
+    await user.click(await screen.findByRole('button', { name: '恢复出厂' }))
     await waitFor(() => expect(mReset).toHaveBeenCalledWith('bac', 'body'))
     await waitFor(() => expect((screen.getByLabelText(/技能文档/) as HTMLTextAreaElement).value).toBe('# BAC 指南正文'))
   })

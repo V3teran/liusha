@@ -14,6 +14,7 @@ import { useTaskDetail, useTaskList } from '@/features/tasks/useTaskQueries'
 import type { TaskSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { Button } from '@/components/ui/Button'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 // 任务模块：assignment（批次）→ task（执行实体）的列表视图。人工下发 1 assignment → N task，
 // 代理捕获 1 assignment → 1 task；每 task 绑一个对话（详情板跳转）。
@@ -98,7 +99,7 @@ export function TasksPage() {
               className="min-h-0 flex-1 overflow-y-auto px-6 py-4 outline-none"
             >
               {listError ? (
-                <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+                <ErrorState message={listError} onRetry={() => void listQuery.refetch()} />
               ) : (
                 <TaskTable
                   rows={rows}
@@ -120,6 +121,7 @@ export function TasksPage() {
               task={detail}
               loading={detailQuery.isPending && !rowTask}
               error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
+              onRetry={() => void detailQuery.refetch()}
               onClose={closeDetail}
               onOperated={() => {
                 void detailQuery.refetch()

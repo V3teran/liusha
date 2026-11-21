@@ -14,6 +14,8 @@ import {
 } from './useModelQueries'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 /** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
 const INTERACTIVE =
@@ -188,14 +190,9 @@ export function ProvidersView() {
           </div>
         </div>
         {isLoading ? (
-          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
+          <LoadingState className="py-10" />
         ) : isError ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-sm text-sev-critical">
-            <span>⚠ {error instanceof Error ? error.message : '加载失败'}</span>
-            <Button variant="secondary" size="xs" onClick={() => void refetch()}>
-              重试
-            </Button>
-          </div>
+          <ErrorState message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
         ) : filtered.length === 0 && !isNew ? (
           query.trim() ? (
             <EmptyState kind="no-match" scope="search" noun="provider" />

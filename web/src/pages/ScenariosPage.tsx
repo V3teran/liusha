@@ -32,6 +32,7 @@ export function ScenariosPage() {
   return (
     <>
       <ConfigListShell
+        onRetry={list.reload}
         title="场景"
         loading={list.loading}
         error={list.error}

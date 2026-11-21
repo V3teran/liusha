@@ -2,8 +2,9 @@ import type { ToolDetail } from '@/api/types'
 import { categoryLabel } from './toolMeta'
 import { KindBadge } from './KindBadge'
 import { AgentAssignSection } from '@/components/AgentAssignSection'
-import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 工具详情面板（主从视图右栏常驻，非 modal）。四态：未选 / 加载中 / 加载失败 / 已选。
 // 已选态展示：种类徽章 + 分类 + 沙盒安装状态 + 完整描述 + 全量智能体（已装配者高亮，点击装/卸）。
@@ -29,7 +30,7 @@ export function ToolDetailPanel({
   if (loading && !detail) {
     return (
       <PanelFrame>
-        <div className="terminal-cursor py-16 text-center font-mono text-sm text-text-secondary">加载中</div>
+        <LoadingState className="py-16" />
       </PanelFrame>
     )
   }
@@ -37,12 +38,7 @@ export function ToolDetailPanel({
   if (error && !detail) {
     return (
       <PanelFrame>
-        <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
-          <p className="font-mono text-sm text-sev-critical">⚠ {error}</p>
-          <Button variant="secondary" size="sm" onClick={onRetry}>
-            重试
-          </Button>
-        </div>
+        <ErrorState message={error} onRetry={onRetry} className="h-full py-16" />
       </PanelFrame>
     )
   }

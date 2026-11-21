@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
+import { InlineError } from '@/components/ui/InlineError'
 
 /**
  * 登录页（AppShell 之外的独立路由）。
@@ -139,9 +140,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-xs text-status-error" role="alert">
-              ⚠ {error}
-            </div>
+            <InlineError>{error}</InlineError>
           )}
 
           <Button type="submit" disabled={busy} className="mt-1 w-full">

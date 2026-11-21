@@ -10,6 +10,7 @@ import { useTrafficFilters } from '@/features/traffic/useTrafficFilters'
 import { useTrafficContentTypes, useTrafficDetail, useTrafficList } from '@/features/traffic/useTrafficQueries'
 import type { TrafficSummary } from '@/api/types'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 // 流量模块：代理捕获流量（proxy_traffic）全局只读浏览。按 host 归属、先于 task，是被分析的输入。
 // 布局：Burp 式常驻左右分栏——左列表（筛选 + 密集表 + 分页）+ 右详情面板（整条请求/响应报文）。
@@ -92,7 +93,7 @@ export function TrafficPage() {
           }`}
         >
           {listError ? (
-            <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+            <ErrorState message={listError} onRetry={() => void listQuery.refetch()} />
           ) : (
             <TrafficTable
               rows={rows}
@@ -111,6 +112,7 @@ export function TrafficPage() {
               detail={detailQuery.data ?? null}
               loading={detailQuery.isPending}
               error={detailQuery.isError ? (detailQuery.error instanceof Error ? detailQuery.error.message : '加载详情失败') : ''}
+              onRetry={() => void detailQuery.refetch()}
               onClose={closeDetail}
             />
           </div>

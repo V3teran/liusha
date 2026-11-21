@@ -89,6 +89,7 @@ export function useAllCredentialRows() {
     rows: detailsQuery.data?.rows ?? [],
     failedHosts: detailsQuery.data?.failedHosts ?? [],
     retryDetails: () => void detailsQuery.refetch(),
+    retry: () => void hostsQuery.refetch(),
     hosts,
     isLoading: hostsQuery.isLoading || (detailsQuery.isPending && hosts.length > 0),
     isError: hostsQuery.isError,

@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })))
@@ -23,7 +24,7 @@ const CorpusPage = lazy(() => import('@/pages/CorpusPage').then((m) => ({ defaul
 const LogsPage = lazy(() => import('@/pages/LogsPage').then((m) => ({ default: m.LogsPage })))
 
 function Loading() {
-  return <div className="flex h-full items-center justify-center text-sm text-text-secondary">加载中…</div>
+  return <LoadingState className="h-full" />
 }
 
 function withSuspense(el: React.ReactNode) {

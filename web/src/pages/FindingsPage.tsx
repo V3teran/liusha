@@ -24,6 +24,8 @@ import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
 import { getFindingTaskFacets } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { toast } from '@/components/ui/toast'
 
 /**
  * 「任务」选择框的候选：有发现的任务，由服务端按目标关键词检索、限量（任务会持续增长，不一次
@@ -119,7 +121,7 @@ export function FindingsPage() {
       queryClient.setQueryData<FindingRow>(findingKeys.detail(updated.id), (prev) => (prev ? { ...prev, ...updated } : prev))
       invalidateList()
     } catch {
-      window.alert('处置保存失败，请重试')
+      toast.error('处置保存失败，请重试')
     } finally {
       setSavingId('')
     }
@@ -275,7 +277,7 @@ export function FindingsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {listError ? (
-          <div className="py-16 text-center text-sm text-sev-critical">⚠ {listError}</div>
+          <ErrorState message={listError} onRetry={() => void listQuery.refetch()} />
         ) : (
           /* 表格：外壳（列宽/骨架/空态/行交互）走 DataTable 通用组件；
              严重度左条（--sev 悬停）与保存中降透明经 rowStyle/rowClassName 注入 */

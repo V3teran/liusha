@@ -10,6 +10,8 @@ import {
   saveCredentialIdentity,
 } from '@/api/credentials'
 import type { CredentialHostSummary, CredentialIdentity } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
 
 vi.mock('@/api/credentials', () => ({
   listCredentialHosts: vi.fn(),
@@ -41,6 +43,8 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <CredentialsPage />
+      <ConfirmHost />
+      <Toaster />
     </QueryClientProvider>,
   )
 }
@@ -145,12 +149,13 @@ describe('CredentialsPage（列表形态）', () => {
 
   it('行内删除按钮走单删 API', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
     await screen.findByText(`Cookie: ${PLAINTEXT}`)
 
     const delBtn = await screen.findByRole('button', { name: '删除用户名 task:t1:session 的凭证' })
     await user.click(delBtn)
+    expect(mockedDeleteIdentity).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: '确认删除' }))
 
     await waitFor(() =>
       expect(mockedDeleteIdentity).toHaveBeenCalledWith('a.com', 'task:t1:session'),

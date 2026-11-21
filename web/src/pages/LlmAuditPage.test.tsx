@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -155,11 +155,16 @@ describe('LlmAuditPage', () => {
     expect(await screen.findByText('暂无 LLM 调用记录')).toBeTruthy()
   })
 
-  it('加载失败显示错误态', async () => {
+  it('加载失败显示错误态，重试重新请求', async () => {
     mockedSearch.mockRejectedValue(new Error('500'))
     renderPage()
 
-    expect(await screen.findByText(/加载失败：500/)).toBeTruthy()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('加载失败')
+    expect(alert).toHaveTextContent('500')
+    const calls = mockedSearch.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(mockedSearch.mock.calls.length).toBeGreaterThan(calls))
   })
 
   it('点击行打开详情抽屉并按 id 拉取详情', async () => {
