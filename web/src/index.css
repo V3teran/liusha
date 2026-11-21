@@ -63,7 +63,7 @@ pre {
    ============================================================ */
 
 .brand-mark {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .app-overlay {

@@ -137,7 +137,8 @@ function SidebarLink({ item, rail, active, onNavigate }: { item: NavItem; rail: 
         'group flex items-center rounded-lg text-sm font-medium transition-colors duration-150',
         rail ? 'h-9 justify-center' : 'gap-3 px-3 py-1.5',
         active
-          ? 'bg-accent-soft text-accent shadow-[var(--glow-accent)]'
+          ? // 当前页用正文主色 + 中性底：「你在这里」是导航里对比最高的一项；其余项是次级灰，悬停转主色
+            'bg-surface-3 text-text'
           : 'text-text-secondary hover:bg-surface-2 hover:text-text',
       )}
     >
