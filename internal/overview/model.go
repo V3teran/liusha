@@ -3,7 +3,11 @@
 // 数字与各明细页同一口径（待处理 = 发现状态 open，LLM 错误 = error_message 非空）。
 package overview
 
-import "time"
+import (
+	"time"
+
+	"github.com/V3teran/liusha/internal/finding"
+)
 
 // WindowDays 是趋势与「近期」统计的时间窗（按天，含今天）。
 const WindowDays = 14
@@ -11,8 +15,8 @@ const WindowDays = 14
 // TargetLimit 是目标排行返回的条数上限。
 const TargetLimit = 8
 
-// Severities 是发现严重级的固定顺序（由重到轻），也是按天序列与排行里各计数的键。
-var Severities = []string{"critical", "high", "medium", "low", "info"}
+// Severities 是发现严重级的固定顺序（由重到轻），也是按天序列与排行里各计数的键；取自台账的五档。
+var Severities = finding.Severities
 
 // Query 是一次快照的参数。Location 决定「一天」的边界——按天统计必须按查看者所在时区切分，
 // 否则服务器时区与查看者的「今天」错开，当天的数字落进昨天。

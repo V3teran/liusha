@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -24,6 +25,8 @@ type fakeFindings struct {
 
 	classFacets    []finding.ClassFacet
 	gotClassFilter finding.LedgerFilter
+
+	triageErr error
 }
 
 func (f *fakeFindings) ClassFacets(_ context.Context, fl finding.LedgerFilter) ([]finding.ClassFacet, error) {
@@ -86,8 +89,8 @@ func TestFindings_GetOne(t *testing.T) {
 	}
 }
 
-func (f *fakeFindings) UpdateTriage(_ context.Context, _, _, _, _ string) (finding.Finding, error) {
-	return finding.Finding{}, nil
+func (f *fakeFindings) UpdateTriage(_ context.Context, id, _, _, _ string) (finding.Finding, error) {
+	return finding.Finding{ID: id}, f.triageErr
 }
 
 // TestFindingsRoutes_StatRegistered 回归：GET /findings/stat 必须注册。
@@ -240,5 +243,28 @@ func TestFindingJSON_ClassNameAndCWE(t *testing.T) {
 	got = findingJSON(finding.LedgerRow{Finding: finding.Finding{Class: "security_misconfiguration"}})
 	if got["class_name"] != "安全配置缺陷" || got["cwe"] != "" {
 		t.Fatalf("没有合适 CWE 的类型应为空: %v", got["cwe"])
+	}
+}
+
+// 处置失败按错误类型分流，不看错误文本：处置不合法 400、发现不存在 404、其余 500。
+func TestUpdateFindingStatus_ErrorMapping(t *testing.T) {
+	const id = "44444444-4444-4444-8444-444444444444"
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{nil, 200},
+		{fmt.Errorf("x: %w", finding.ErrInvalidTriage), 400},
+		{fmt.Errorf("update finding triage %s: %w", id, pgx.ErrNoRows), 404},
+		{errors.New("connection refused"), 500},
+	} {
+		fk := &fakeFindings{triageErr: tc.err}
+		srv := newTestServer(t, Deps{Findings: fk})
+		resp := doReq(t, "PATCH", srv.URL+"/api/findings/"+id+"/status", `{"status":"open"}`)
+		_ = resp.Body.Close()
+		srv.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("%v 应 %d，得 %d", tc.err, tc.want, resp.StatusCode)
+		}
 	}
 }

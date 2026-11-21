@@ -7,8 +7,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -144,15 +144,11 @@ func updateFindingStatusHandler(api FindingsAPI) gin.HandlerFunc {
 		}
 		updated, err := api.UpdateTriage(c.Request.Context(), id, body.Status, body.Severity, body.Note)
 		if err != nil {
-			msg := err.Error()
-			switch {
-			case strings.Contains(msg, "not found"):
-				c.JSON(http.StatusNotFound, gin.H{"error": msg, "id": id})
-			case strings.Contains(msg, "非法 status"):
-				c.JSON(http.StatusBadRequest, gin.H{"error": msg})
-			default:
-				c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			if errors.Is(err, finding.ErrInvalidTriage) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
 			}
+			respondErr(c, http.StatusInternalServerError, err) // 发现不存在（pgx.ErrNoRows）收敛为 404
 			return
 		}
 		// 回传更新后的行（含后端权威 triaged_at + 覆盖后的 severity）——前端据此覆盖乐观值，消除时钟偏差。

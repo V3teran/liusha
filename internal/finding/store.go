@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -388,10 +389,14 @@ func (s *Store) StatFiltered(ctx context.Context, f LedgerFilter) (Stat, error) 
 // note 可空。finding 不存在返错（ErrNoRows）。返回行含后端权威 triaged_at（前端据此覆盖乐观值）。
 func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note string) (Finding, error) {
 	if id == "" {
-		return Finding{}, fmt.Errorf("finding.UpdateTriage: id 必填")
+		return Finding{}, fmt.Errorf("%w：id 必填", ErrInvalidTriage)
 	}
 	if !validStatus(status) {
-		return Finding{}, fmt.Errorf("finding.UpdateTriage: 非法 status %q（须为 open/confirmed/fixed/false_positive/accepted）", status)
+		return Finding{}, fmt.Errorf("%w：状态 %q 须为 open/confirmed/fixed/false_positive/accepted", ErrInvalidTriage, status)
+	}
+	severity = strings.ToLower(strings.TrimSpace(severity))
+	if severity != "" && !slices.Contains(Severities, severity) {
+		return Finding{}, fmt.Errorf("%w：严重度 %q 须为 %s", ErrInvalidTriage, severity, strings.Join(Severities, "/"))
 	}
 	// severity 用 NULLIF 空跳过：传空保留原值，非空覆盖。COALESCE 让 SQL 单句表达「空则不改」。
 	row := s.pool.QueryRow(ctx,
@@ -403,14 +408,17 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 		status, severity, note, id)
 	var updated Finding
 	if err := scan(row, &updated); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Finding{}, fmt.Errorf("update finding triage %s: not found", id)
-		}
-		return Finding{}, fmt.Errorf("update finding triage %s: %w", id, err)
+		return Finding{}, fmt.Errorf("update finding triage %s: %w", id, err) // 不存在时可识别为 pgx.ErrNoRows
 	}
 	findingLog.Info().Str("finding_id", id).Str("status", status).Str("severity", updated.Severity).Msg("finding triaged ✓")
 	return updated, nil
 }
+
+// Severities 是发现严重度的五档（由重到轻）：人工处置只能取这几档，统计与概览按它计数。
+var Severities = []string{"critical", "high", "medium", "low", "info"}
+
+// ErrInvalidTriage 表示处置请求不合法（状态或严重度取值不对），是调用方可修复的输入错误。
+var ErrInvalidTriage = errors.New("处置不合法")
 
 // validStatus 校验 triage 五态（与 DB CHECK 约束 finding_status_check 一致）。
 func validStatus(s string) bool {
