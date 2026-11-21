@@ -180,6 +180,7 @@ export function AgentsPage() {
     <>
       <ConfigListShell
         title="智能体"
+        columns={2}
         loading={loading}
         error={error}
         empty={rows.length === 0}

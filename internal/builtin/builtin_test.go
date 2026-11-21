@@ -18,7 +18,8 @@ func TestAgentsAreTheFourRoles(t *testing.T) {
 	for _, a := range builtin.Agents() {
 		got = append(got, a.Code)
 	}
-	want := []string{constants.AgentCodeEvaluator, constants.AgentCodeExecutor, constants.AgentCodeMonitor, constants.AgentCodePlanner}
+	// 按工作流的先后呈现（规划 → 执行 → 评估，监察在旁），不按标识的字母序
+	want := []string{constants.AgentCodePlanner, constants.AgentCodeExecutor, constants.AgentCodeEvaluator, constants.AgentCodeMonitor}
 	if !slices.Equal(got, want) {
 		t.Fatalf("出厂 agent = %v，应为四个角色 %v", got, want)
 	}

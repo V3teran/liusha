@@ -37,6 +37,8 @@ interface ConfigListShellProps {
   search?: SearchBox
   server: ServerPaging
   headerExtra?: ReactNode
+  /** 卡片至多两列：条目少且固定的资源（如四个智能体）铺满两列，不在三列网格里留下落单的一张 */
+  columns?: 2
 }
 
 /**
@@ -56,6 +58,7 @@ export function ConfigListShell({
   search,
   server,
   headerExtra,
+  columns,
 }: ConfigListShellProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -114,7 +117,15 @@ export function ConfigListShell({
             <EmptyState kind="empty" noun={noun} hint={emptyHint} className="py-20" />
           )
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">{children}</div>
+          <div
+            className={
+              columns === 2
+                ? 'grid grid-cols-1 gap-4 lg:grid-cols-2'
+                : 'grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4'
+            }
+          >
+            {children}
+          </div>
         )}
       </div>
     </div>
