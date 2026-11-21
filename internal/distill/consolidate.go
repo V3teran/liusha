@@ -20,7 +20,7 @@ const consolidateSystemPrompt = `你是知识库整理员。一个任务沉淀�
 - revise：某条已有条目讲的是同一件事，但候选让它更准确或更完整（补充适用条件、纠正错误）；给出改写后的完整标题与正文，保留已有条目里仍然成立的内容；
 - merge：候选与两条及以上已有条目讲的是同一件事（已有条目彼此重复）；把它们合成一条，给出合并后的完整标题与正文，第一条保留，其余并入后删除。
 
-只能改写或合并来源为「任务沉淀」的条目，「人工录入」的条目只能 confirm 或另行 add；合并的条目适用范围必须相同。被多个任务印证过的条目，改写要更谨慎。
+只能改写或合并来源为「任务沉淀」的条目，「人工编写」的条目只能 confirm 或另行 add；合并的条目适用范围必须相同。被多个任务印证过的条目，改写要更谨慎。
 
 targets 写已有条目的编号：confirm 与 revise 一个，merge 两个及以上，add 为空数组。title 与 content 只在 revise、merge 时填写，标题不超过 40 字、正文不超过 300 字。
 
@@ -137,7 +137,7 @@ func consolidationPrompt(cands []candidate) (string, map[string]corpus.Entry) {
 func describe(e corpus.Entry) string {
 	src := "任务沉淀"
 	if e.Source == corpus.SourceExpert {
-		src = "人工录入"
+		src = "人工编写"
 	}
 	scope := "通用"
 	if e.Scenario != nil {

@@ -98,6 +98,16 @@ func (f *fakeCorpus) Search(_ context.Context, q corpus.Query) (corpus.Result, e
 	return corpus.Result{Mode: corpus.ModeSemantic, Hits: []corpus.Hit{{Entry: f.entry, Score: 0.8}}}, nil
 }
 
+func (f *fakeCorpus) PreviewImport(_ context.Context, docs []string) ([][]corpus.ImportSection, error) {
+	out := make([][]corpus.ImportSection, len(docs))
+	for i, md := range docs {
+		for j, sec := range corpus.SplitMarkdown(md) {
+			out[i] = append(out[i], corpus.ImportSection{Section: sec, Duplicate: j > 0})
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeCorpus) Import(_ context.Context, md string, scenario *string) (corpus.ImportResult, error) {
 	f.imported = append(f.imported, md)
 	f.importSc = scenario
@@ -262,6 +272,22 @@ func TestCorpusImport(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Equal(t, map[string]any{"imported": float64(2), "duplicates": float64(1)}, corpusBody(t, w))
 	assert.Equal(t, "ctf", *kb.importSc)
+
+	assert.Len(t, kb.imported, 1)
+
+	body, ct := corpusImportBody(t, map[string]string{"b.md": "# 甲\n一\n# 乙\n二"}, "")
+	mw := httptest.NewRequest(http.MethodPost, "/corpus/import", body)
+	mw.Header.Set("Content-Type", ct)
+	_ = mw.ParseMultipartForm(1 << 20)
+	mw.MultipartForm.Value["dry_run"] = []string{"true"}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, mw)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, []any{
+		map[string]any{"file": "b.md", "title": "甲", "content": "一", "duplicate": false},
+		map[string]any{"file": "b.md", "title": "乙", "content": "二", "duplicate": true},
+	}, corpusBody(t, w)["sections"])
+	assert.Len(t, kb.imported, 1, "预览不写入")
 
 	assert.Equal(t, http.StatusBadRequest, post(map[string]string{"a.txt": "x"}, "").Code, "只收 .md")
 	assert.Equal(t, http.StatusBadRequest, post(map[string]string{"a.md": "\xff\xfe"}, "").Code, "只收 UTF-8")

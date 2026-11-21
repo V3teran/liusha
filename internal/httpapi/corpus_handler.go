@@ -1,6 +1,6 @@
 // Package httpapi: 知识库 handler（前端「知识库」页）。
 //
-// 知识库是跨任务的长期知识：任务收尾沉淀与人工录入。页面提供浏览、检索预览（与 agent 的
+// 知识库是跨任务的长期知识：任务收尾沉淀与人工编写。页面提供浏览、检索测试（与 agent 的
 // search_corpus 同一检索）、录入、Markdown 导入、修改与删除。每条知识归属一个场景或通用；
 // 改了标题或正文的条目成为人工内容，此后任务收尾整合只能印证、不再改写它。
 package httpapi
@@ -33,6 +33,7 @@ type CorpusAPI interface {
 	Delete(ctx context.Context, id string) error
 	Search(ctx context.Context, q corpus.Query) (corpus.Result, error)
 	Import(ctx context.Context, md string, scenario *string) (corpus.ImportResult, error)
+	PreviewImport(ctx context.Context, docs []string) ([][]corpus.ImportSection, error)
 }
 
 // CorpusScenarios 是知识库 handler 解析场景名称与校验场景存在所需的窄接口。
@@ -352,11 +353,12 @@ func (h corpusHandlers) search(c *gin.Context) {
 	for _, hit := range res.Hits {
 		hits = append(hits, gin.H{"entry": corpusEntryJSON(hit.Entry, names), "score": hit.Score})
 	}
-	c.JSON(http.StatusOK, gin.H{"mode": res.Mode, "fallback": res.Fallback, "hits": hits})
+	c.JSON(http.StatusOK, gin.H{"mode": res.Mode, "fallback": res.Fallback, "threshold": res.Threshold, "hits": hits})
 }
 
-// importMarkdown 处理 POST /corpus/import（multipart：files 一个或多个 .md，scenario 可空 = 通用）
-// → {imported, duplicates}。按标题切成条目作为人工内容写入；正文与已有条目相同的跳过。
+// importMarkdown 处理 POST /corpus/import（multipart：files 一个或多个 .md，scenario 可空 = 通用，
+// dry_run=true 只预览）→ {imported, duplicates}；预览返回 {sections:[{file, title, content, duplicate}]}。
+// 按标题切成条目作为人工内容写入；正文与已有条目相同的跳过。
 func (h corpusHandlers) importMarkdown(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCorpusImportBytes+multipartOverhead)
 	form, err := c.MultipartForm()
@@ -404,6 +406,21 @@ func (h corpusHandlers) importMarkdown(c *gin.Context) {
 			return
 		}
 		docs = append(docs, string(b))
+	}
+	if v := form.Value["dry_run"]; len(v) > 0 && v[0] == "true" {
+		preview, err := h.kb.PreviewImport(c.Request.Context(), docs)
+		if err != nil {
+			respondErr(c, http.StatusInternalServerError, err)
+			return
+		}
+		sections := []gin.H{}
+		for i, secs := range preview {
+			for _, sec := range secs {
+				sections = append(sections, gin.H{"file": files[i].Filename, "title": sec.Title, "content": sec.Content, "duplicate": sec.Duplicate})
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"sections": sections})
+		return
 	}
 	var total corpus.ImportResult
 	for i, md := range docs {

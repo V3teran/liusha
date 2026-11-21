@@ -7,6 +7,7 @@ import {
   getCorpusStatus,
   importCorpus,
   listCorpus,
+  searchCorpus,
   updateCorpusEntry,
   type CorpusDraft,
   type CorpusFilters,
@@ -24,10 +25,16 @@ export const corpusKeys = {
   facets: (f: CorpusFilters) => [...CORPUS_KEY, 'facets', f] as const,
   status: [...CORPUS_KEY, 'status'] as const,
   detail: (id: string) => [...CORPUS_KEY, 'detail', id] as const,
+  search: (query: string, scenario: string) => [...CORPUS_KEY, 'search', query, scenario] as const,
 }
 
 // 筛选写在 URL：search / scenario / general / source / page / size（打开的条目是 ?selected=）。
-const FIELDS = { search: 'search', scenario: 'scenario', general: 'general', source: 'source' } as const
+const FIELDS = {
+  search: 'search',
+  scenario: 'scenario',
+  general: 'general',
+  source: 'source',
+} as const
 
 export interface CorpusUrlState {
   filters: CorpusFilters
@@ -71,7 +78,32 @@ export function useCorpusList(f: CorpusFilters, page: number, size: number) {
 }
 
 export function useCorpusFacets(f: CorpusFilters) {
-  return useQuery({ queryKey: corpusKeys.facets(f), queryFn: () => getCorpusFacets(f), placeholderData: keepPreviousData })
+  return useQuery({
+    queryKey: corpusKeys.facets(f),
+    queryFn: () => getCorpusFacets(f),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** 检索测试：以 scenario 场景下的任务视角检索（'' = 无场景的任务）；query 为空不请求。 */
+export function useCorpusSearch(query: string, scenario: string) {
+  return useQuery({
+    queryKey: corpusKeys.search(query, scenario),
+    queryFn: () => searchCorpus(query, scenario),
+    enabled: query !== '',
+  })
+}
+
+// 检索测试的查询与任务视角写在 URL：q / as（as 空 = 无场景的任务）。提交检索新增一条历史。
+const RETRIEVAL_FIELDS = { query: 'q', scenario: 'as' } as const
+
+export function useCorpusRetrievalParams() {
+  const { filters, setFilters } = useUrlFilterFields(RETRIEVAL_FIELDS)
+  return {
+    query: filters.query,
+    scenario: filters.scenario,
+    submit: (query: string, scenario: string) => setFilters({ query, scenario }),
+  }
 }
 
 export function useCorpusStatus() {
@@ -80,7 +112,11 @@ export function useCorpusStatus() {
 
 /** 单条知识与印证过它的任务；id 为空不请求。 */
 export function useCorpusDetail(id: string) {
-  return useQuery({ queryKey: corpusKeys.detail(id), queryFn: () => getCorpusEntry(id), enabled: id !== '' })
+  return useQuery({
+    queryKey: corpusKeys.detail(id),
+    queryFn: () => getCorpusEntry(id),
+    enabled: id !== '',
+  })
 }
 
 function useInvalidateCorpus() {
@@ -90,7 +126,10 @@ function useInvalidateCorpus() {
 
 export function useCreateCorpusEntry() {
   const invalidate = useInvalidateCorpus()
-  return useMutation({ mutationFn: (d: CorpusDraft) => createCorpusEntry(d), onSuccess: invalidate })
+  return useMutation({
+    mutationFn: (d: CorpusDraft) => createCorpusEntry(d),
+    onSuccess: invalidate,
+  })
 }
 
 export function useUpdateCorpusEntry() {

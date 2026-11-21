@@ -32,7 +32,7 @@ func TestConsolidationPrompt_SharesRefsAndDescribesEntries(t *testing.T) {
 	assert.Equal(t, "id-1", refs["E1"].ID)
 	assert.Equal(t, "id-2", refs["E2"].ID)
 	assert.Equal(t, 2, strings.Count(prompt, "- E1（"), "共用编号在两个候选下各列一次")
-	assert.Contains(t, prompt, "来源：人工录入，适用范围：通用，0 个任务印证")
+	assert.Contains(t, prompt, "来源：人工编写，适用范围：通用，0 个任务印证")
 	assert.Contains(t, prompt, "来源：任务沉淀，适用范围：场景 ctf，3 个任务印证")
 	assert.Contains(t, prompt, "### C3\n标题：候选三\n正文：三\n最接近的已有条目：无")
 }

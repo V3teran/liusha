@@ -61,6 +61,7 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	if res.Mode == ModeLexical {
 		threshold = minCoverage
 	}
+	res.Threshold = threshold
 	res.Hits = keep(res.Hits, threshold, q.limit())
 	return res, nil
 }
@@ -320,6 +321,39 @@ func (s *Service) IndexPending(ctx context.Context) (int, error) {
 			return done, nil // 整批都在补齐期间被改写：留给下一轮，避免空转
 		}
 	}
+}
+
+// ImportSection 是导入预览里的一条：切分出的条目与它是否与已有正文重复（重复的导入时跳过）。
+type ImportSection struct {
+	Section
+	Duplicate bool
+}
+
+// PreviewImport 预览一批 Markdown 各会被切成哪些条目，不写入。按导入的顺序判重：与已有正文
+// 相同、或与本批前面的条目相同的，导入时都会跳过。
+func (s *Service) PreviewImport(ctx context.Context, docs []string) ([][]ImportSection, error) {
+	split := make([][]Section, len(docs))
+	var hashes []string
+	for i, md := range docs {
+		split[i] = SplitMarkdown(md)
+		for _, sec := range split[i] {
+			hashes = append(hashes, contentHash(sec.Content))
+		}
+	}
+	existing, err := s.store.existingHashes(ctx, hashes)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]ImportSection, len(docs))
+	for i, secs := range split {
+		out[i] = make([]ImportSection, len(secs))
+		for j, sec := range secs {
+			h := contentHash(sec.Content)
+			out[i][j] = ImportSection{Section: sec, Duplicate: existing[h]}
+			existing[h] = true
+		}
+	}
+	return out, nil
 }
 
 // ImportResult 是一次 Markdown 导入的结果。

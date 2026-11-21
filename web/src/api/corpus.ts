@@ -2,7 +2,7 @@
  * 知识库域 API 客户端（/corpus 系列）。
  *
  * 知识条目的场景归属：null = 通用（任何任务可见），否则是一个场景（deleted = 场景已被删除）。
- * 检索预览与 agent 的 search_corpus 是同一次检索，以某个场景下的任务视角执行。
+ * 检索测试与 agent 的 search_corpus 是同一次检索，以某个场景下的任务视角执行。
  */
 
 import { API_BASE, del, get, patch, post, raise } from './client'
@@ -66,6 +66,8 @@ export interface CorpusSearchResult {
   mode: CorpusMode
   /** 非空 = 语义检索出了故障、本次退回字面检索，值为原因 */
   fallback: string
+  /** 本次检索方式的得分门槛：语义检索是重排相关度，字面检索是词元覆盖率 */
+  threshold: number
   hits: { entry: CorpusEntry; score: number }[]
 }
 
@@ -85,7 +87,11 @@ function filterParams(f: CorpusFilters): URLSearchParams {
   return p
 }
 
-export function listCorpus(f: CorpusFilters, page: number, size: number): Promise<{ items: CorpusEntry[]; total: number }> {
+export function listCorpus(
+  f: CorpusFilters,
+  page: number,
+  size: number,
+): Promise<{ items: CorpusEntry[]; total: number }> {
   const p = filterParams(f)
   p.set('page', String(page))
   p.set('size', String(size))
@@ -118,18 +124,42 @@ export function deleteCorpusEntry(id: string): Promise<void> {
   return del(`/corpus/${encodeURIComponent(id)}`)
 }
 
-/** 检索预览：以 scenario 场景下的任务视角检索（'' = 无场景的任务，只见通用知识）。 */
+/** 检索测试：以 scenario 场景下的任务视角检索（'' = 无场景的任务，只见通用知识）。 */
 export function searchCorpus(query: string, scenario: string): Promise<CorpusSearchResult> {
   return post('/corpus/search', { query, scenario })
 }
 
-/** 导入 Markdown：按标题切成条目，作为人工内容写入；scenario 为 null 即通用。 */
-export async function importCorpus(files: File[], scenario: string | null): Promise<{ imported: number; duplicates: number }> {
+/** 导入预览里的一条：切分出的条目，duplicate = 与已有正文或本批前面的条目相同（导入时跳过）。 */
+export interface CorpusImportSection {
+  file: string
+  title: string
+  content: string
+  duplicate: boolean
+}
+
+async function postImport<T>(files: File[], fields: Record<string, string>): Promise<T> {
   const form = new FormData()
   for (const f of files) form.append('files', f)
-  if (scenario) form.append('scenario', scenario)
+  for (const [k, v] of Object.entries(fields)) form.append(k, v)
   const path = '/corpus/import'
   const res = await fetch(API_BASE + path, { method: 'POST', body: form })
   if (!res.ok) await raise(res, 'POST', path)
   return res.json()
+}
+
+/** 预览一批 Markdown 会被切成哪些条目（不写入）。 */
+export async function previewCorpusImport(files: File[]): Promise<CorpusImportSection[]> {
+  return (
+    await postImport<{ sections: CorpusImportSection[] }>(files, {
+      dry_run: 'true',
+    })
+  ).sections
+}
+
+/** 导入 Markdown：按标题切成条目，作为人工内容写入；scenario 为 null 即通用。 */
+export function importCorpus(
+  files: File[],
+  scenario: string | null,
+): Promise<{ imported: number; duplicates: number }> {
+  return postImport(files, scenario ? { scenario } : {})
 }

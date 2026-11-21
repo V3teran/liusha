@@ -1,11 +1,12 @@
-// 知识条目的来源（corpus.source）→ 展示文案 / 色。单一真相源：列表、详情、检索预览、筛选下拉
-// 全部从此取值。取值与 DB corpus_source_check 一致：agent 任务沉淀 / expert 人工录入。
+// 知识条目的来源（corpus.source）→ 展示文案 / 色。单一真相源：列表、详情、检索测试、筛选下拉
+// 全部从此取值。取值与 DB corpus_source_check 一致：agent 任务沉淀 / expert 人工编写（录入、导入，
+// 或人工改写过的任务沉淀）。
 
 import type { CorpusScenarioRef, CorpusSource } from '@/api/corpus'
 
 const CORPUS_SOURCE_META: Record<CorpusSource, { label: string; color: string }> = {
   agent: { label: '任务沉淀', color: 'var(--corpus-agent)' },
-  expert: { label: '人工录入', color: 'var(--corpus-expert)' },
+  expert: { label: '人工编写', color: 'var(--corpus-expert)' },
 }
 
 export function corpusSourceLabel(source: string): string {

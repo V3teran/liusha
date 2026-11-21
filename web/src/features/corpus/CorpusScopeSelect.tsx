@@ -15,7 +15,15 @@ interface CorpusScopeSelectProps {
   'aria-label'?: string
 }
 
-export function CorpusScopeSelect({ id, value, onChange, emptyLabel = '通用', disabled, className, ...rest }: CorpusScopeSelectProps) {
+export function CorpusScopeSelect({
+  id,
+  value,
+  onChange,
+  emptyLabel = '通用',
+  disabled,
+  className,
+  ...rest
+}: CorpusScopeSelectProps) {
   const q = useScenarioOptions()
   const scenarios = q.data ?? []
   const missing = value !== null && !scenarios.some((s) => s.code === value)

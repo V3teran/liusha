@@ -37,9 +37,9 @@ func newSearchCorpusTool(deps Deps, timeout time.Duration) *searchCorpusTool {
 func (t *searchCorpusTool) Name() string      { return "search_corpus" }
 func (t *searchCorpusTool) ShortDesc() string { return "检索跨任务长期知识库" }
 func (t *searchCorpusTool) Desc() string {
-	return "检索跨任务长期知识库：以往任务沉淀与人工录入的方法、经验与教训，范围是本任务场景下的知识与通用知识。" +
+	return "检索跨任务长期知识库：以往任务沉淀与人工编写的方法、经验与教训，范围是本任务场景下的知识与通用知识。" +
 		"结果已按与查询的相关度过滤，至多返回 top_k 条；返回为空表示知识库里没有与查询相关的条目。" +
-		"每条注明来源（任务沉淀或人工录入）与印证过它的任务数。"
+		"每条注明来源（任务沉淀或人工编写）与印证过它的任务数。"
 }
 func (t *searchCorpusTool) Schema() json.RawMessage { return searchCorpusSchema }
 
@@ -91,7 +91,7 @@ func renderSearchResult(res corpus.Result) string {
 func provenance(e corpus.Entry) string {
 	src := "任务沉淀"
 	if e.Source == corpus.SourceExpert {
-		src = "人工录入"
+		src = "人工编写"
 	}
 	if e.Confirmations == 0 {
 		return "来源：" + src

@@ -1,63 +1,129 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight } from 'lucide-react'
-import type { CorpusEntry } from '@/api/corpus'
+import type { CorpusEntry, CorpusSearchResult } from '@/api/corpus'
 import { Badge } from '@/components/ui/Badge'
 import { corpusScopeLabel, corpusSourceColor, corpusSourceLabel } from '@/lib/corpus'
 import { shortDateTime } from '@/lib/format'
 
-const columnHelper = createColumnHelper<CorpusEntry>()
+// 知识列表与检索结果共用的单元格：同一条目，同一种呈现。
 
-// 知识库表的列定义：标题撑满，范围、来源、印证、更新时间收窄。
-export const corpusColumns = [
-  columnHelper.accessor('title', {
-    header: '知识',
-    size: 420,
-    cell: (ctx) => (
-      <span className="block truncate" title={ctx.getValue()}>
-        {ctx.getValue()}
+/** 标题与一行正文摘要：不用逐条打开也能浏览。 */
+function KnowledgeCell({ entry }: { entry: CorpusEntry }) {
+  return (
+    <span className="flex min-w-0 flex-col gap-0.5 py-0.5">
+      <span className="truncate text-text" title={entry.title}>
+        {entry.title}
       </span>
-    ),
+      <span className="truncate text-xs text-text-tertiary">{entry.content.replace(/\s+/g, ' ')}</span>
+    </span>
+  )
+}
+
+function ScopeCell({ entry }: { entry: CorpusEntry }) {
+  const sc = entry.scenario
+  return (
+    <span className={sc?.deleted ? 'text-text-tertiary' : sc ? 'text-text' : 'text-text-secondary'}>
+      {corpusScopeLabel(sc)}
+    </span>
+  )
+}
+
+function SourceCell({ entry }: { entry: CorpusEntry }) {
+  return (
+    <Badge dot={false} size="sm" color={corpusSourceColor(entry.source)}>
+      {corpusSourceLabel(entry.source)}
+    </Badge>
+  )
+}
+
+function ConfirmationsCell({ entry }: { entry: CorpusEntry }) {
+  return (
+    <span className="block text-right font-mono text-xs tabular-nums text-text-secondary">
+      {entry.confirmations || '—'}
+    </span>
+  )
+}
+
+const expandColumn = {
+  id: 'expand',
+  header: '',
+  size: 40,
+  cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
+}
+
+const entryColumn = createColumnHelper<CorpusEntry>()
+
+export const corpusColumns = [
+  entryColumn.display({
+    id: 'knowledge',
+    header: '知识',
+    size: 460,
+    cell: (c) => <KnowledgeCell entry={c.row.original} />,
   }),
-  columnHelper.accessor('scenario', {
+  entryColumn.display({
+    id: 'scope',
     header: '适用范围',
     size: 140,
-    cell: (ctx) => {
-      const sc = ctx.getValue()
-      return (
-        <span className={sc?.deleted ? 'text-text-tertiary' : sc ? 'text-text' : 'text-text-secondary'}>
-          {corpusScopeLabel(sc)}
-        </span>
-      )
-    },
+    cell: (c) => <ScopeCell entry={c.row.original} />,
   }),
-  columnHelper.accessor('source', {
+  entryColumn.display({
+    id: 'source',
     header: '来源',
     size: 96,
-    cell: (ctx) => (
-      <Badge dot={false} size="sm" color={corpusSourceColor(ctx.getValue())}>
-        {corpusSourceLabel(ctx.getValue())}
-      </Badge>
-    ),
+    cell: (c) => <SourceCell entry={c.row.original} />,
   }),
-  columnHelper.accessor('confirmations', {
+  entryColumn.display({
+    id: 'confirmations',
     header: '印证',
     size: 64,
     meta: { align: 'right' },
-    cell: (ctx) => (
-      <span className="block text-right font-mono text-xs tabular-nums text-text-secondary">
-        {ctx.getValue() || '—'}
-      </span>
-    ),
+    cell: (c) => <ConfirmationsCell entry={c.row.original} />,
   }),
-  columnHelper.accessor('updated_at', {
+  entryColumn.accessor('updated_at', {
     header: '更新',
     size: 120,
-    cell: (ctx) => <span className="font-mono text-xs text-text-tertiary">{shortDateTime(ctx.getValue())}</span>,
+    cell: (c) => <span className="font-mono text-xs text-text-tertiary">{shortDateTime(c.getValue())}</span>,
   }),
-  columnHelper.display({
-    id: 'expand',
-    header: '',
-    size: 40,
-    cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
+  entryColumn.display(expandColumn),
+]
+
+type Hit = CorpusSearchResult['hits'][number]
+const hitColumn = createColumnHelper<Hit>()
+
+/** 检索结果：得分在前，其余与知识列表一致（不列更新时间：排序依据是得分）。 */
+export const corpusHitColumns = [
+  hitColumn.accessor('score', {
+    header: '得分',
+    size: 64,
+    meta: { align: 'right' },
+    cell: (c) => (
+      <span className="block text-right font-mono text-xs tabular-nums text-text">{c.getValue().toFixed(2)}</span>
+    ),
   }),
+  hitColumn.display({
+    id: 'knowledge',
+    header: '知识',
+    size: 460,
+    cell: (c) => <KnowledgeCell entry={c.row.original.entry} />,
+  }),
+  hitColumn.display({
+    id: 'scope',
+    header: '适用范围',
+    size: 140,
+    cell: (c) => <ScopeCell entry={c.row.original.entry} />,
+  }),
+  hitColumn.display({
+    id: 'source',
+    header: '来源',
+    size: 96,
+    cell: (c) => <SourceCell entry={c.row.original.entry} />,
+  }),
+  hitColumn.display({
+    id: 'confirmations',
+    header: '印证',
+    size: 64,
+    meta: { align: 'right' },
+    cell: (c) => <ConfirmationsCell entry={c.row.original.entry} />,
+  }),
+  hitColumn.display(expandColumn),
 ]

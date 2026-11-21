@@ -24,7 +24,7 @@ import (
 // Source 取值：当前内容的作者。
 const (
 	SourceAgent  = "agent"  // 任务收尾沉淀
-	SourceExpert = "expert" // 人工录入、导入，或人工改写过
+	SourceExpert = "expert" // 人工编写：录入、导入，或人工改写过
 )
 
 // 条目体量上限。正文上限对齐重排模型单篇文档的有效长度，超出的导入内容按段落切分。

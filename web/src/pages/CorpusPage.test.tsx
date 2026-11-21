@@ -11,7 +11,9 @@ import {
   getCorpusEntry,
   getCorpusFacets,
   getCorpusStatus,
+  importCorpus,
   listCorpus,
+  previewCorpusImport,
   searchCorpus,
   updateCorpusEntry,
   type CorpusEntry,
@@ -28,6 +30,7 @@ vi.mock('@/api/corpus', () => ({
   deleteCorpusEntry: vi.fn(),
   searchCorpus: vi.fn(),
   importCorpus: vi.fn(),
+  previewCorpusImport: vi.fn(),
 }))
 
 vi.mock('@/api/config', () => ({ listScenarios: vi.fn() }))
@@ -164,20 +167,62 @@ describe('CorpusPage', () => {
     await waitFor(() => expect(location).toContain('selected=e1'))
   })
 
-  it('检索预览展示检索方式与得分', async () => {
+  it('检索测试：查询与视角写进 URL，打开条目不丢结果', async () => {
     mocked(searchCorpus).mockResolvedValue({
       mode: 'lexical',
       fallback: '重排: timeout',
+      threshold: 0.05,
       hits: [{ entry: entry(), score: 0.42 }],
     })
     renderPage()
-    await userEvent.click(await screen.findByRole('button', { name: '检索预览' }))
-    const dialog = await screen.findByRole('dialog', { name: '检索预览' })
-    await userEvent.type(within(dialog).getByLabelText('查询'), '诱饵')
-    await userEvent.selectOptions(within(dialog).getByLabelText('任务场景'), 'CTF')
-    await userEvent.click(within(dialog).getByRole('button', { name: '检索' }))
-    expect(await within(dialog).findByText('字面检索 · 语义检索暂不可用：重排: timeout')).toBeInTheDocument()
-    expect(within(dialog).getByText('0.42')).toBeInTheDocument()
-    expect(mocked(searchCorpus)).toHaveBeenCalledWith('诱饵', 'ctf')
+    await userEvent.click(await screen.findByRole('tab', { name: '检索测试' }))
+    await userEvent.type(screen.getByLabelText('查询'), '诱饵怎么分辨')
+    await userEvent.selectOptions(screen.getByLabelText('任务场景'), 'CTF')
+    await userEvent.click(screen.getByRole('button', { name: '检索' }))
+    expect(await screen.findByText('字面检索 · 覆盖率 ≥ 0.05 · 语义检索暂不可用：重排: timeout')).toBeInTheDocument()
+    expect(screen.getByText('0.42')).toBeInTheDocument()
+    expect(mocked(searchCorpus)).toHaveBeenCalledWith('诱饵怎么分辨', 'ctf')
+    expect(location).toContain('view=retrieval')
+    expect(location).toContain('as=ctf')
+
+    await userEvent.click(screen.getByRole('row', { name: '查看知识：显眼位置的 flag 串先当诱饵再验证' }))
+    const drawer = await screen.findByRole('dialog')
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(drawer).not.toBeInTheDocument())
+    expect(screen.getByText('0.42'), '关闭详情后检索结果还在').toBeInTheDocument()
+  })
+
+  it('编辑中途关闭要先确认放弃修改', async () => {
+    renderPage('/corpus?selected=e1')
+    const drawer = await screen.findByRole('dialog')
+    await userEvent.click(await within(drawer).findByRole('button', { name: '编辑' }))
+    await userEvent.type(within(drawer).getByLabelText('标题'), '改')
+    await userEvent.keyboard('{Escape}')
+    const confirm = await screen.findByRole('alertdialog', { name: '放弃修改' })
+    await userEvent.click(within(confirm).getByRole('button', { name: '取消' }))
+    expect(within(drawer).getByLabelText('标题')).toHaveValue('显眼位置的 flag 串先当诱饵再验证改')
+    await userEvent.click(within(drawer).getByRole('button', { name: '取消' }))
+    await userEvent.click(await screen.findByRole('button', { name: '确认放弃' }))
+    expect(await within(drawer).findByRole('button', { name: '编辑' })).toBeInTheDocument()
+    expect(mocked(updateCorpusEntry)).not.toHaveBeenCalled()
+  })
+
+  it('导入先预览切分结果，跳过重复后确认导入', async () => {
+    mocked(previewCorpusImport).mockResolvedValue([
+      { file: 'a.md', title: '甲', content: '一', duplicate: false },
+      { file: 'a.md', title: '乙', content: '二', duplicate: true },
+    ])
+    mocked(importCorpus).mockResolvedValue({ imported: 1, duplicates: 1 })
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '导入' }))
+    const dialog = await screen.findByRole('dialog', { name: '导入 Markdown' })
+    const file = new File(['# 甲\n一\n# 乙\n二'], 'a.md', { type: 'text/markdown' })
+    await userEvent.upload(within(dialog).getByLabelText('文件'), file)
+    await userEvent.click(within(dialog).getByRole('button', { name: '预览' }))
+    expect(await within(dialog).findByText('切出 2 条，其中 1 条与已有正文相同、导入时跳过')).toBeInTheDocument()
+    expect(mocked(importCorpus)).not.toHaveBeenCalled()
+    await userEvent.click(within(dialog).getByRole('button', { name: '导入 1 条' }))
+    await waitFor(() => expect(mocked(importCorpus)).toHaveBeenCalledWith([file], null))
+    expect(await screen.findByText('导入完成：新增 1 条，1 条与已有正文相同已跳过')).toBeInTheDocument()
   })
 })

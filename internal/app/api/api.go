@@ -328,7 +328,7 @@ func (a llmReadiness) Ready(ctx context.Context) error {
 	return err
 }
 
-// newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索预览要用重排）并记下实际启用的检索方式。
+// newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）并记下实际启用的检索方式。
 func newCorpus(pool *pgxpool.Pool, apiKey string, logger zerolog.Logger) *corpus.Service {
 	models := embedding.Models(apiKey)
 	if models.Semantic() {

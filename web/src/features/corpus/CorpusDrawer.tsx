@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
 import { corpusScopeLabel, corpusSourceColor, corpusSourceLabel } from '@/lib/corpus'
+import { useDirtyDraft } from '@/hooks/useDirtyDraft'
 import { fullTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { CorpusScopeSelect } from './CorpusScopeSelect'
@@ -35,7 +36,11 @@ function changesOf(entry: CorpusEntry, d: CorpusDraft): Partial<CorpusDraft> {
 }
 
 function draftOf(e: CorpusEntry): CorpusDraft {
-  return { title: e.title, content: e.content, scenario: e.scenario?.code ?? null }
+  return {
+    title: e.title,
+    content: e.content,
+    scenario: e.scenario?.code ?? null,
+  }
 }
 
 export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawerProps) {
@@ -44,36 +49,42 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
   const confirmations = detail.data?.confirmations ?? []
   const update = useUpdateCorpusEntry()
   const remove = useDeleteCorpusEntry()
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<CorpusDraft>({ title: '', content: '', scenario: null })
+  const edit = useDirtyDraft<CorpusDraft>()
+  const draft = edit.draft
+  const editing = draft !== null
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 有未保存的修改时要离开编辑（关闭抽屉或取消）：先确认，确认后执行 leave
+  const [leave, setLeave] = useState<(() => void) | null>(null)
   const scopeId = useId()
 
   // 换了条目就退出编辑（草稿属于上一条）
   useEffect(() => {
-    setEditing(false)
+    edit.close()
     update.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只随条目切换
   }, [id])
 
   const startEdit = () => {
     if (!entry) return
-    setDraft(draftOf(entry))
     update.reset()
-    setEditing(true)
+    edit.open(draftOf(entry))
   }
 
-  const changes = entry ? changesOf(entry, draft) : {}
+  const changes = entry && draft ? changesOf(entry, draft) : {}
   const textChanged = changes.title !== undefined || changes.content !== undefined
-  const canSave = Object.keys(changes).length > 0 && draftValid(draft)
+  const canSave = draft !== null && Object.keys(changes).length > 0 && draftValid(draft)
 
   const save = () => {
     if (!entry || !canSave) return
-    update.mutate({ id: entry.id, changes }, { onSuccess: () => setEditing(false) })
+    update.mutate({ id: entry.id, changes }, { onSuccess: () => edit.close() })
   }
 
+  const guard = (action: () => void) => () => (edit.isDirty ? setLeave(() => action) : action())
+  const cancelEdit = guard(() => edit.close())
+  const close = guard(onClose)
+
   return (
-    <Dialog.Root open={id !== ''} onOpenChange={(open) => !open && onClose()}>
+    <Dialog.Root open={id !== ''} onOpenChange={(open) => !open && close()}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
         <Dialog.Content
@@ -111,7 +122,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
               </p>
             ) : !entry ? (
               <p className="text-sm text-text-tertiary">加载中…</p>
-            ) : editing ? (
+            ) : draft ? (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor={scopeId} className="text-xs font-medium text-text-secondary">
@@ -120,10 +131,10 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
                   <CorpusScopeSelect
                     id={scopeId}
                     value={draft.scenario}
-                    onChange={(scenario) => setDraft({ ...draft, scenario })}
+                    onChange={(scenario) => edit.patch({ scenario })}
                   />
                 </div>
-                <CorpusTextFields value={draft} onChange={setDraft} contentRows={14} />
+                <CorpusTextFields value={draft} onChange={edit.setDraft} contentRows={14} />
               </div>
             ) : (
               <div className="flex flex-col gap-8">
@@ -131,7 +142,8 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
 
                 <section aria-labelledby={`${scopeId}-confirmations`}>
                   <h3 id={`${scopeId}-confirmations`} className="mb-3 text-sm font-semibold text-text">
-                    印证 <span className="font-mono text-xs font-normal text-text-tertiary">{confirmations.length}</span>
+                    印证{' '}
+                    <span className="font-mono text-xs font-normal text-text-tertiary">{confirmations.length}</span>
                   </h3>
                   {confirmations.length === 0 ? (
                     <p className="text-xs text-text-tertiary">
@@ -150,7 +162,15 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
                           <JumpLinks
                             size="sm"
                             onNavigate={onClose}
-                            jumps={taskJumps({ taskId: c.task_id, conversationId: '', source: '', from: 'task' }, ['task'])}
+                            jumps={taskJumps(
+                              {
+                                taskId: c.task_id,
+                                conversationId: '',
+                                source: '',
+                                from: 'task',
+                              },
+                              ['task'],
+                            )}
                           />
                         </li>
                       ))}
@@ -181,7 +201,7 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
                   ) : (
                     <span className="mr-auto" />
                   )}
-                  <Button variant="secondary" disabled={update.isPending} onClick={() => setEditing(false)}>
+                  <Button variant="secondary" disabled={update.isPending} onClick={cancelEdit}>
                     取消
                   </Button>
                   <Button disabled={!canSave || update.isPending} onClick={save}>
@@ -208,6 +228,18 @@ export function CorpusDrawer({ id, placeholder, semantic, onClose }: CorpusDrawe
             </div>
           )}
 
+          <ConfirmDialog
+            open={leave !== null}
+            onOpenChange={(open) => !open && setLeave(null)}
+            danger
+            title="放弃修改"
+            message="有尚未保存的修改，放弃后不可恢复。"
+            confirmLabel="确认放弃"
+            onConfirm={() => {
+              edit.close()
+              leave?.()
+            }}
+          />
           <ConfirmDialog
             open={confirmDelete}
             onOpenChange={setConfirmDelete}

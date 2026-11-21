@@ -466,3 +466,26 @@ func TestNeighbors_IgnoreRelevanceThreshold(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "诱饵串不提交", got[0].Title, "按得分取前 k 条")
 }
+
+// 导入预览不写入；与已有正文相同、或与本批前面（含前面的文件）相同的条目标为重复。
+func TestPreviewImport_MarksDuplicatesAcrossBatch(t *testing.T) {
+	s, _ := newService(t, Models{})
+	ctx := context.Background()
+	mustCreate(t, s, Draft{Title: "已有", Content: "已有正文", Source: SourceExpert})
+
+	got, err := s.PreviewImport(ctx, []string{"# 一\n已有正文\n# 二\n新正文", "# 三\n新正文\n# 四\n另一段"})
+	require.NoError(t, err)
+
+	dup := func(secs []ImportSection) []bool {
+		out := make([]bool, len(secs))
+		for i, s := range secs {
+			out[i] = s.Duplicate
+		}
+		return out
+	}
+	assert.Equal(t, []bool{true, false}, dup(got[0]))
+	assert.Equal(t, []bool{true, false}, dup(got[1]), "与前一个文件的条目相同")
+	page, err := s.List(ctx, ListQuery{Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, 1, page.Total, "预览不写入")
+}

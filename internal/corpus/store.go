@@ -428,3 +428,24 @@ func (s *Store) merge(ctx context.Context, keep Entry, absorbed []Entry, f field
 	}
 	return nil
 }
+
+// existingHashes 返回 hashes 中已有条目的正文哈希。
+func (s *Store) existingHashes(ctx context.Context, hashes []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT content_hash FROM corpus WHERE content_hash = ANY($1)`, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("查询已有正文: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("查询已有正文: %w", err)
+		}
+		out[h] = true
+	}
+	return out, rows.Err()
+}

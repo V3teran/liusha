@@ -23,6 +23,7 @@ const (
 //     任何门槛都两头不讨好——查询的写法由 search_corpus 的参数说明约定。
 //   - 字面覆盖率：多词查询里的情境词（库里没有）把覆盖率整体压低，相关条目 0.067~0.54、无关条目
 //     0.037~0.13，重叠更大；门槛只切掉最弱的匹配，区分主要靠「至少命中两个查询词元」。
+//
 // 门槛只用于给读者的检索（Search）：整合时找近似条目（Neighbors）不设门槛，见其说明。
 const (
 	DefaultLimit = 5
@@ -52,10 +53,12 @@ type Hit struct {
 }
 
 // Result 是检索结果。Fallback 非空表示语义检索出了故障、本次退回字面检索，值为故障原因。
+// Threshold 是本次检索方式的得分门槛（Search 填写；Neighbors 不设门槛）。
 type Result struct {
-	Mode     Mode
-	Fallback string
-	Hits     []Hit
+	Mode      Mode
+	Fallback  string
+	Threshold float64
+	Hits      []Hit
 }
 
 func (q Query) limit() int {
