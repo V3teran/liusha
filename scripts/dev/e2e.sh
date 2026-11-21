@@ -12,6 +12,8 @@
 #   - redis：FLUSHDB；并立即 XGROUP CREATE MKSTREAM 重建 ingestor consumer group
 #   - 日志：先关 service，再删数据目录 logs/ 下宿主三个组件（proxy / api / runner）的日志——
 #     确保文件句柄已释放，新 service 写干净日志；同目录里沙盒容器的日志不动
+#   - 任务工作区：删数据目录 workspace/ 下的全部批次目录——任务表已清空，留下的目录没有对应的
+#     批次与任务，工作空间页只能按 ID 显示它们
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -24,6 +26,7 @@ HEALTHZ_WAIT_SECONDS="${HEALTHZ_WAIT_SECONDS:-120}"  # 含编译 liusha 的时�
 # shellcheck source=scripts/dev/env.sh
 . scripts/dev/env.sh
 LOG_DIR="$LIUSHA_DATA_DIR/logs"
+WORKSPACE_DIR="$LIUSHA_DATA_DIR/workspace"
 export LIUSHA_E2E_API_BASE="${LIUSHA_E2E_API_BASE:-http://localhost:8580}"  # 与 run-svc.sh 默认端口一致
 
 echo "===== 1/6 跑 migrate（确保 schema 跟得上代码改动）====="
@@ -102,7 +105,7 @@ sleep 1
 echo "  ✓ 旧 service 已关停（端口 8588/8580/8590 释放 + runner 进程兜底 pkill）"
 
 echo ""
-echo "===== 4/6 清宿主组件日志（fd 已释放，rm 真正删除）====="
+echo "===== 4/6 清宿主组件日志与任务工作区（fd 已释放，rm 真正删除）====="
 removed=0
 shopt -s nullglob 2>/dev/null || true
 for f in "$LOG_DIR"/proxy.log* "$LOG_DIR"/api.log* "$LOG_DIR"/runner.log* \
@@ -110,6 +113,12 @@ for f in "$LOG_DIR"/proxy.log* "$LOG_DIR"/api.log* "$LOG_DIR"/runner.log* \
   rm -f "$f" 2>/dev/null && removed=$((removed + 1))
 done
 echo "  ✓ $LOG_DIR 下宿主组件日志已清空（删 ${removed} 个文件）"
+# 工作区按批次 / 任务归档，任务表已清空即全部成为孤儿目录（只删批次目录，工作区根保留）
+if [ -n "${LIUSHA_DATA_DIR:-}" ] && [ -d "$WORKSPACE_DIR" ]; then
+  batches=("$WORKSPACE_DIR"/*/)
+  for d in "${batches[@]}"; do rm -rf -- "$d"; done
+  echo "  ✓ $WORKSPACE_DIR 下任务工作区已清空（删 ${#batches[@]} 个批次目录）"
+fi
 
 echo ""
 echo "===== 5/6 重启 service ====="
