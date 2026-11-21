@@ -178,7 +178,7 @@ type ConversationRenamer interface {
 }
 
 // renameConversationHandler 处理 PATCH /conversations/:id：改标题。
-// body: {"title": "..."}。空 title 由 store 存 NULL（回落到首条消息摘要展示）。
+// body: {"title": "..."}。标题不能为空白：空标题在列表里只能显示一串 ID，原标题也就丢了。
 func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -189,6 +189,10 @@ func renameConversationHandler(api ConversationRenamer) gin.HandlerFunc {
 			return
 		}
 		title := strings.TrimSpace(body.Title)
+		if title == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "标题不能为空"})
+			return
+		}
 		if len([]rune(title)) > maxConversationTitleRunes {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "标题过长"})
 			return

@@ -215,7 +215,8 @@ export const ConversationList = forwardRef<ConversationListHandle, ConversationL
       const next = renameText.trim()
       setRenamingId('')
       const prev = c.title || ''
-      if (next === fullTitle(c)) return // 无变化
+      // 清空后提交等于取消（文件、频道改名的通行做法）：空标题只能显示一串 ID，原标题也就丢了
+      if (next === '' || next === fullTitle(c)) return
       setTitle(c.id, next) // 乐观更新
       try {
         await renameConversation(c.id, next)

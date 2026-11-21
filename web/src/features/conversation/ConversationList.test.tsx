@@ -237,6 +237,21 @@ describe('ConversationList', () => {
     })
   })
 
+  it('重命名时把标题清空再提交等于取消：不发请求，保留原标题', async () => {
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 keep-me.com', run_status: 'completed' })])
+    renderList()
+    await waitFor(() => expect(screen.getByText(/keep-me\.com/)).toBeTruthy())
+
+    await userEvent.click(screen.getByTitle('更多'))
+    await userEvent.click(await screen.findByText('重命名'))
+    const input = screen.getByDisplayValue('keep-me.com')
+    await userEvent.clear(input)
+    await userEvent.type(input, '   {Enter}')
+
+    expect(renameConversation).not.toHaveBeenCalled()
+    expect(screen.getByText(/keep-me\.com/)).toBeTruthy()
+  })
+
   it('重命名失败时回滚标题并弹提示', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 rollback.com', run_status: 'completed' })])
     vi.mocked(renameConversation).mockRejectedValue(new Error('fail'))
