@@ -198,7 +198,7 @@ export function CredentialsPage() {
             setNewRow(EMPTY_NEW_ROW)
           }}
         >
-          <Plus strokeWidth={2.4} />
+          <Plus />
           录入
         </Button>
       </PageHeader>

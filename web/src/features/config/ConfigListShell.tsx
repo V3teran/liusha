@@ -71,7 +71,7 @@ export function ConfigListShell({
         {headerExtra}
         {onNew && (
           <Button onClick={onNew}>
-            <Plus strokeWidth={2.4} />
+            <Plus />
             新建
           </Button>
         )}

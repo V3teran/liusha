@@ -41,7 +41,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       size: 48,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">
+        <span className="block text-right text-xs tabular-nums text-text-tertiary">
           {(ctx.table.options.meta as LlmAuditTableMeta).startIndex + ctx.row.index + 1}
         </span>
       ),
@@ -113,7 +113,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
           <span className="flex flex-col gap-px whitespace-nowrap text-sm">
             <span className="flex items-center gap-1.5">
               <i className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot}`} />
-              <span className="font-mono tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>
+              <span className="tabular-nums" title={timeout ? '达到 LLM 看门狗上限（5 分钟），该数字非真实响应耗时' : undefined}>
                 {humanDuration(v.latency_ms)}
               </span>
               {!timeout && status?.level !== 'critical' && throughputLabel(v, llmTimeoutMs) && (

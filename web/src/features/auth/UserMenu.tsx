@@ -52,7 +52,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
               'ring-1 ring-accent/20 transition-colors hover:bg-accent-softer',
             )}
           >
-            <UserRound className="h-4 w-4" strokeWidth={2.2} />
+            <UserRound className="h-4 w-4" />
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>

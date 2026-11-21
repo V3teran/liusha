@@ -259,7 +259,7 @@ function ApiKeyField({
           type="button"
           onClick={() => setReveal((v) => !v)}
           aria-label={reveal ? '隐藏密钥' : '显示密钥'}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text-secondary"
+          className="absolute inset-y-0 right-2.5 flex items-center text-text-tertiary transition-colors hover:text-text-secondary"
         >
           {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>

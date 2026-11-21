@@ -23,7 +23,7 @@ export function TokenPair({
   if (cachedTokens && cachedTokens > 0) title.push(`缓存命中 ${cachedTokens.toLocaleString()}`)
   return (
     <span
-      className={cn('whitespace-nowrap font-mono text-xs tabular-nums text-text', className)}
+      className={cn('whitespace-nowrap text-xs tabular-nums text-text', className)}
       title={title.join(' · ')}
     >
       <span title="输入">↑{compact(inTokens)}</span>{' '}

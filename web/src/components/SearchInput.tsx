@@ -41,7 +41,7 @@ export function SearchInput({
   return (
     <div className={cn('relative', inFilterBar && 'max-sm:col-span-2', className)}>
       <Search
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary"
+        className="pointer-events-none absolute inset-y-0 left-3 my-auto h-4 w-4 text-text-tertiary"
         aria-hidden
       />
       <input
@@ -57,7 +57,7 @@ export function SearchInput({
           right ? 'pl-10 pr-10' : 'pl-10 pr-3',
         )}
       />
-      {right && <div className="absolute right-3 top-1/2 flex -translate-y-1/2">{right}</div>}
+      {right && <div className="absolute inset-y-0 right-3 flex items-center">{right}</div>}
     </div>
   )
 }

@@ -21,7 +21,7 @@ export function StatChip({ color, label, value, title }: StatChipProps) {
       title={title}
     >
       <span className="text-text-secondary">{label}</span>
-      <b className="font-mono text-sm font-semibold tabular-nums text-text">{value}</b>
+      <b className="text-sm font-semibold tabular-nums text-text">{value}</b>
     </span>
   )
 }

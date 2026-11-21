@@ -139,7 +139,7 @@ export function CorpusPage() {
           <span className="hidden md:inline">导入</span>
         </Button>
         <Button aria-label="录入" onClick={() => setDialog('create')}>
-          <Plus strokeWidth={2.4} />
+          <Plus />
           <span className="hidden md:inline">录入</span>
         </Button>
       </PageHeader>

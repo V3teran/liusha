@@ -220,7 +220,7 @@ export function AgentsPage() {
                   className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
                   style={{ color: profile.accent, background: profile.soft }}
                 >
-                  <Icon className="h-4 w-4" strokeWidth={2.2} />
+                  <Icon className="h-4 w-4" />
                 </span>
               }
               name={

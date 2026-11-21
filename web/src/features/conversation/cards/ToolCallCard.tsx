@@ -73,7 +73,6 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
             'h-3.5 w-3.5 flex-shrink-0 text-text-tertiary transition-transform duration-200',
             open && 'rotate-90'
           )}
-          strokeWidth={2.5}
         />
 
         {/* 状态指示器 */}
@@ -117,7 +116,7 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
 
           {/* 耗时 */}
           {!running && result && (
-            <span className="flex-shrink-0 font-mono text-xs tabular-nums text-text-tertiary">
+            <span className="flex-shrink-0 text-xs tabular-nums text-text-tertiary">
               {result.durationMs}ms
             </span>
           )}

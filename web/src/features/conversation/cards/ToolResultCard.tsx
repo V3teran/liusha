@@ -45,7 +45,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
           err && 'border-status-error',
         )}
       >
-        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-text-secondary transition-transform', open && 'rotate-90')} strokeWidth={2.5} />
+        <ChevronRight className={cn('h-3 w-3 flex-shrink-0 text-text-secondary transition-transform', open && 'rotate-90')} />
         <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-status-error' : 'bg-status-success')} />
         <code className="font-mono text-text-secondary">{tool}</code>
         <span className="text-xs text-text-secondary">{durationMs}ms</span>

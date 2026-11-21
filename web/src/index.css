@@ -30,7 +30,17 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* 图标线宽全站一个值：lucide 按 24px 画布描边，缩到 12/14/16px 时线宽变成 1/1.17/1.33px，
+ * 各尺寸粗细不一，非整数线宽在屏幕上发虚。描边改按屏幕像素计（non-scaling-stroke），
+ * 任何尺寸都是同一线宽（CSS 声明优先于组件上的 stroke-width 属性）。 */
+svg.lucide {
+  stroke-width: 1.5px;
+}
+
+svg.lucide * {
+  vector-effect: non-scaling-stroke;
 }
 
 code,

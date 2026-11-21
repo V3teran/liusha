@@ -64,7 +64,7 @@ export function TasksPage() {
           定时模板
         </Button>
         <Button onClick={() => setDialogOpen(true)}>
-          <Plus strokeWidth={2.4} />
+          <Plus />
           新建任务
         </Button>
       </PageHeader>

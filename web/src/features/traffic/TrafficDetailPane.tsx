@@ -56,12 +56,12 @@ export function TrafficDetailPane({ detail, loading, error, onRetry, onClose }: 
     <div className="flex h-full min-h-0 flex-col">
       {/* 元信息行：详情区自明条目身份（孤儿报文场景下仍可辨认）；关闭按钮同行右对齐，Esc 亦可关闭。 */}
       <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-4 py-2">
-        <span className="flex-shrink-0 font-mono text-xs tabular-nums text-text-tertiary">#{detail.id}</span>
+        <span className="flex-shrink-0 text-xs tabular-nums text-text-tertiary">#{detail.id}</span>
         <Badge dot={false} color={methodColor(detail.method)}>
           {detail.method}
         </Badge>
         <span
-          className="flex-shrink-0 font-mono text-sm font-semibold tabular-nums"
+          className="flex-shrink-0 text-sm font-semibold tabular-nums"
           style={{ color: statusColor(detail.status_code) }}
         >
           {detail.status_code || '—'}

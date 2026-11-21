@@ -104,7 +104,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[440px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto h-fit w-[440px] max-w-[calc(100vw-48px)] rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <Dialog.Title className="text-base font-semibold text-text">修改密码</Dialog.Title>
             <DialogClose />
@@ -137,7 +137,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
                       type="button"
                       onClick={() => setReveal((v) => !v)}
                       aria-label={reveal ? '隐藏密码' : '显示密码'}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text"
+                      className="absolute inset-y-0 right-2.5 flex items-center text-text-tertiary transition-colors hover:text-text"
                     >
                       {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>

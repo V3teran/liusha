@@ -52,7 +52,7 @@ export function FormDialog({
     <Dialog.Root open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[520px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto h-fit w-[520px] max-w-[calc(100vw-32px)] rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <form
             onSubmit={submit}
             onKeyDown={(e) => {

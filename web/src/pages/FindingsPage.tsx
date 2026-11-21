@@ -154,11 +154,11 @@ export function FindingsPage() {
           <dl className="flex flex-1 items-center gap-4 whitespace-nowrap text-xs">
             <div className="flex items-baseline gap-2">
               <dt className="text-text-tertiary">待处理</dt>
-              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.open ?? 0}</dd>
+              <dd className="text-lg font-semibold tabular-nums text-text">{stat?.by_status?.open ?? 0}</dd>
             </div>
             <div className="flex items-baseline gap-2">
               <dt className="text-text-tertiary">已确认</dt>
-              <dd className="font-mono text-lg font-semibold tabular-nums text-text">{stat?.by_status?.confirmed ?? 0}</dd>
+              <dd className="text-lg font-semibold tabular-nums text-text">{stat?.by_status?.confirmed ?? 0}</dd>
             </div>
           </dl>
 
@@ -199,7 +199,7 @@ export function FindingsPage() {
                 >
                   <span className="h-2 w-2 rounded-sm" style={{ background: severityColorOf(x.sev) }} />
                   <span className="text-text-secondary">{severityLabel[x.sev]}</span>
-                  <span className="font-mono font-semibold tabular-nums text-text">{x.n}</span>
+                  <span className="font-semibold tabular-nums text-text">{x.n}</span>
                 </button>
               ))}
             </div>

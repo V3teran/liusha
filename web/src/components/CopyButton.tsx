@@ -37,9 +37,9 @@ export function CopyButton({ copied, onClick, size = 'md', className }: CopyButt
       )}
     >
       {copied ? (
-        <Check className={cn(iconSizes[size], 'animate-scale-in')} strokeWidth={2.5} />
+        <Check className={cn(iconSizes[size], 'animate-scale-in')} />
       ) : (
-        <Copy className={iconSizes[size]} strokeWidth={2} />
+        <Copy className={iconSizes[size]} />
       )}
     </button>
   )

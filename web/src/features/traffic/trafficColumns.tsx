@@ -16,7 +16,7 @@ const seqCol = columnHelper.accessor('id', {
   size: 68,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
+    <span className="block text-right text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
   ),
 })
 
@@ -74,7 +74,7 @@ const statusCol = columnHelper.accessor('status_code', {
   cell: (ctx) => {
     const code = ctx.getValue()
     return (
-      <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: statusColor(code) }}>
+      <span className="text-sm font-semibold tabular-nums" style={{ color: statusColor(code) }}>
         {code || '—'}
       </span>
     )
@@ -112,7 +112,7 @@ const lengthCol = columnHelper.accessor('resp_len', {
   size: 80,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-sm tabular-nums text-text-secondary">{humanBytes(ctx.getValue())}</span>
+    <span className="block text-right text-sm tabular-nums text-text-secondary">{humanBytes(ctx.getValue())}</span>
   ),
 })
 

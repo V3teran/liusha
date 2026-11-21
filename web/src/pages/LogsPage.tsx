@@ -240,7 +240,7 @@ export function LogsPage() {
           <button
             type="button"
             onClick={followNow}
-            className="absolute bottom-4 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-3.5 py-1.5 text-xs text-accent shadow-md transition-colors hover:bg-accent/15"
+            className="absolute inset-x-0 bottom-4 mx-auto flex w-fit items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-3.5 py-1.5 text-xs text-accent shadow-md transition-colors hover:bg-accent/15"
           >
             <ArrowDown aria-hidden className="h-3.5 w-3.5" />
             {pending} 条新日志，回到底部跟随

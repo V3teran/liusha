@@ -132,7 +132,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() => setReveal((v) => !v)}
                 aria-label={reveal ? '隐藏密码' : '显示密码'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text"
+                className="absolute inset-y-0 right-2.5 flex items-center text-text-tertiary transition-colors hover:text-text"
               >
                 {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>

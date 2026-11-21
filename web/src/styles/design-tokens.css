@@ -4,7 +4,8 @@
    ============================================================ */
 
 /* 字体家族：IBM Plex 自托管（main.tsx 引入，按 Unicode 区段分片、只下载用到的字符；离线部署不依赖外网）。
-   中文没有打包字体，走系统字体（苹方 / 微软雅黑）。等宽字体用于标识符、地址、数字与代码。 */
+   中文没有打包字体，走系统字体（苹方 / 微软雅黑）。等宽字体只用于标识符、地址与代码；
+   数字用正文字体的等宽数字（tabular-nums），与同一行的文字同一字形。 */
 @theme {
   --font-sans: "IBM Plex Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "PingFang SC", "Microsoft YaHei", monospace;

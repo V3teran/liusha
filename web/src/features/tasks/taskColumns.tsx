@@ -32,7 +32,7 @@ function buildTaskColumns(
       size: 44,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">
+        <span className="block text-right text-xs tabular-nums text-text-tertiary">
           {offset + ctx.row.index + 1}
         </span>
       ),
@@ -145,7 +145,7 @@ function buildTaskColumns(
         const n = ctx.getValue()
         return (
           <span
-            className="block whitespace-nowrap text-right font-mono text-xs tabular-nums text-text-secondary"
+            className="block whitespace-nowrap text-right text-xs tabular-nums text-text-secondary"
             title={ctx.row.original.status === 'active' ? `已执行 ${n} 步` : `共 ${n} 步`}
           >
             {n} 步

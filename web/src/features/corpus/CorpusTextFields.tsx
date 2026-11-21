@@ -12,7 +12,7 @@ export const MAX_CONTENT = 1000
 
 function Counter({ n, max }: { n: number; max: number }) {
   return (
-    <span className={cn('font-mono text-2xs tabular-nums', n > max ? 'text-status-error' : 'text-text-tertiary')}>
+    <span className={cn('text-2xs tabular-nums', n > max ? 'text-status-error' : 'text-text-tertiary')}>
       {n}/{max}
     </span>
   )

@@ -32,7 +32,7 @@ export function ConfirmDialog({ open, onOpenChange, title, message, confirmLabel
         <Dialog.Content
           role="alertdialog"
           aria-modal
-          className="tac-modal fixed left-1/2 top-1/2 w-[360px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface p-5 shadow-lg outline-none"
+          className="tac-modal fixed inset-0 m-auto h-fit w-[360px] max-w-[calc(100vw-48px)] rounded-xl border border-border bg-surface p-5 shadow-lg outline-none"
           onCloseAutoFocus={(e) => {
             if (!returnFocusTo?.isConnected) return returnFocus(e)
             e.preventDefault()

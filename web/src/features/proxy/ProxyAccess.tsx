@@ -51,7 +51,7 @@ export function ProxyAccess() {
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 max-h-[calc(100vh-32px)] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto h-fit max-h-[calc(100vh-32px)] w-[560px] max-w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-border bg-surface shadow-lg outline-none">
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
             <Dialog.Title className="text-base font-semibold text-text">代理接入</Dialog.Title>
             <DialogClose />

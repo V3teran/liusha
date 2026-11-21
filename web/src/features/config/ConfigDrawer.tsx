@@ -49,7 +49,7 @@ export function ConfigDrawer({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none" onCloseAutoFocus={returnFocus}>
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none" onCloseAutoFocus={returnFocus}>
           <Tabs.Root value={active} onValueChange={setActive} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <Dialog.Title className="truncate text-lg font-semibold text-text">{title}</Dialog.Title>
