@@ -3,7 +3,7 @@
 ## [0.14.0](https://github.com/V3teran/liusha/compare/v0.13.5...v0.14.0) (2026-11-22)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **config:** 配置文件的 embedding 段已删除，继续保留会因未知键拒绝启动；升级前从 config.yaml 删掉 embedding 段并从 .env 删掉 LIUSHA_EMBEDDING_API_KEY，启动后到「模型配置」页「检索模型」分区填写密钥（不填则知识库只做字面检索，对话与任务不受影响）
 * **llm:** LLM 调用接口不再返回 request_id，调用以 id 标识；调用方改用 id。
