@@ -182,8 +182,7 @@ func (s *Store) SlideSession(ctx context.Context, tokenHash string) (time.Time, 
 	err := s.pool.QueryRow(ctx, `
 		UPDATE account_session
 		SET expires_at = LEAST(now() + make_interval(secs => $1),
-		                       created_at + make_interval(secs => $2)),
-		    renewed_at = now()
+		                       created_at + make_interval(secs => $2))
 		WHERE token_hash = $3
 		RETURNING expires_at`,
 		int64(SessionTTL.Seconds()), int64(SessionMaxAge.Seconds()), tokenHash,

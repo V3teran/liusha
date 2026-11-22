@@ -66,16 +66,12 @@ type Aggregate struct {
 	DurationMs int64 // 工具执行耗时合计（ms）
 }
 
-// AggregateByTask 合计某 task 的全部 tool_invocation 用量（仅叶子工具）。task 无记录时返回零值。
-//
-// 排除 tool_name='task'：task 是"派发子代理"的工具，其 duration_ms 是子代理整段运行的墙钟，
-// 已包含该子代理自身的 run_command 等叶子工具耗时（同 task 另有明细行）+ 子代理 LLM 耗时
-// （单独计入 llm_invocation.latency_ms）。计入 task 会与这两者重叠，导致总耗时翻倍。
+// AggregateByTask 合计某 task 的全部 tool_invocation 用量。task 无记录时返回零值。
 func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(duration_ms),0)
-		FROM tool_invocation WHERE task_id=$1::uuid AND tool_name <> 'task'`, taskID).
+		FROM tool_invocation WHERE task_id=$1::uuid`, taskID).
 		Scan(&a.Calls, &a.DurationMs)
 	if err != nil {
 		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by task %s: %w", taskID, err)
