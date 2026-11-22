@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.14.0](https://github.com/V3teran/liusha/compare/v0.13.5...v0.14.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** 配置文件的 embedding 段已删除，继续保留会因未知键拒绝启动；升级前从 config.yaml 删掉 embedding 段并从 .env 删掉 LIUSHA_EMBEDDING_API_KEY，启动后到「模型配置」页「检索模型」分区填写密钥（不填则知识库只做字面检索，对话与任务不受影响）
+* **llm:** LLM 调用接口不再返回 request_id，调用以 id 标识；调用方改用 id。
+* **traffic:** 流量详情不再返回 scheme 与 http_version，二者分别在 url 与 request_raw 里；调用方改从 url 与原始报文读取。
+* **conversation:** 对话消息不再返回 id 字段，以 seq 标识消息；角色只有 user / assistant，存量的 system / tool 归入 assistant；调用方改用 seq。
+* **dispatch:** POST /tasks 立即下发（cron 为空）时带非空 description 返回 400，批次不再保存描述与下发清单；调用方立即下发时不要带 description。
+* **finding:** 漏洞接口不再返回 first_seen_at（与 created_at 恒等），存量严重度规整为 critical / high / medium / low / info 五档小写（词表外的归 medium）；调用方改读 created_at。
+* **finding:** GET /findings 与 GET /findings/:id 的响应删除 cwe_id、owasp_category 字段（从未有值），改为 class、class_name、cwe；读取这两个字段的调用方改读 cwe。
+* **httpapi:** GET /credentials 由 host 汇总改为登录身份分页列表 {items, total}（参数 search / page / size），GET /credentials/:host 已删除；直接调用凭证接口的脚本改用 GET /credentials?search=<host> 取某个主机的身份。
+* **exploration:** 移除 `liusha corpus-import` 命令，Markdown 知识改在控制台「知识库」页导入。
+
+### 新功能
+
+* **audit:** 审计日志可查看 ([5032d21](https://github.com/V3teran/liusha/commit/5032d21b634da36dbffc2fa63dcd9d49b202ede5))
+* **config:** 工具调用与流量记录可配留存天数 ([766ef09](https://github.com/V3teran/liusha/commit/766ef09e047527645a2c0bd503eb5277d5d3e56c))
+* **config:** 新部署默认同时执行 10 个任务 ([379c3ba](https://github.com/V3teran/liusha/commit/379c3bab588c8de81b60820a9ae6d184cc78bb0a))
+* **config:** 检索模型可配置服务地址与模型名 ([66d737b](https://github.com/V3teran/liusha/commit/66d737b4e95b2b9cb7971ef11d9af688a677c5b8))
+* **config:** 检索模型密钥改前端配置 ([d845767](https://github.com/V3teran/liusha/commit/d845767051d0f71d9b9f7cb2732a8108b2084c09))
+* **conversation:** 对话消息只用序号标识 ([29ff04c](https://github.com/V3teran/liusha/commit/29ff04cfe7a0fd7c48be8a2e116b38adc3861e2f))
+* **corpus:** 检索方式标识显示运行降级 ([c1d2362](https://github.com/V3teran/liusha/commit/c1d2362af6b717ebfee4d05b9f610274a79689e0))
+* **dispatch:** 新建任务的描述只在定时执行时填写 ([9a118ce](https://github.com/V3teran/liusha/commit/9a118ceee398c9142deaf3a4b5d2d73897957acf))
+* **exploration:** 知识库检索按相关度过滤，沉淀的经验不再重复堆积 ([debf9db](https://github.com/V3teran/liusha/commit/debf9dbdb9550277584094abde45ef951d7f4784))
+* **finding:** 发现按类型记录，台账可按类型筛选、详情给出 CWE ([6c382bf](https://github.com/V3teran/liusha/commit/6c382bf1864e34345455740dc300b97e00ea4d4d))
+* **finding:** 漏洞详情只保留一个发现时间 ([ca5a692](https://github.com/V3teran/liusha/commit/ca5a692cfb3cd12e3a8a744044ac7cb839f88e30))
+* **httpapi:** 凭证库的搜索与分页改在服务端完成 ([4abb6f8](https://github.com/V3teran/liusha/commit/4abb6f8a5a76fba18a3981b4ff1408d83148b44a))
+* **llm:** LLM 调用详情改以调用编号标识 ([0e6d5e9](https://github.com/V3teran/liusha/commit/0e6d5e91148decc113e398e2ad6583866e6082af))
+* **overview:** 模型消耗面板删去最近 24 小时读数 ([0259984](https://github.com/V3teran/liusha/commit/0259984cf4aa3c7f218bbdec67604ad5f97488d4))
+* **overview:** 趋势面板改平滑渐变面积图，时间窗可切 7 / 14 / 30 天 ([b01cfa0](https://github.com/V3teran/liusha/commit/b01cfa030b22391cff4154930d5f96da939b8606))
+* **task:** 任务详情显示终止原因 ([821f33e](https://github.com/V3teran/liusha/commit/821f33ee266e12341ba9d40cbf4d4a53e8bfd1d7))
+* **traffic:** 流量详情不再单列协议与 HTTP 版本 ([2a0a001](https://github.com/V3teran/liusha/commit/2a0a0014a33e522b69675d55b421c50728af6e83))
+* **ui:** LLM 配置页更名「模型配置」 ([cac14d2](https://github.com/V3teran/liusha/commit/cac14d2729f2377cf0f90322506d06d3c7bc8724))
+* **ui:** 加载失败可重试，操作结果改用站内通知与确认 ([112bb2d](https://github.com/V3teran/liusha/commit/112bb2d5e65339ac3a43e50909fe9d08176d811f))
+* **ui:** 新增概览页，一屏看清组件健康与待处理的问题 ([5c27bf2](https://github.com/V3teran/liusha/commit/5c27bf2884e5f55f4c90468df728f0c7ac3eaaa1))
+* **ui:** 新增知识库页面，可查看、录入、导入与检索预览 ([4e656e5](https://github.com/V3teran/liusha/commit/4e656e5bcc882f663c9c946c97bf386851bf1059))
+* **ui:** 检索模型表单对齐业界交互细节 ([ef5c5c5](https://github.com/V3teran/liusha/commit/ef5c5c5bcf82be5e080272d7a147216d5712aaec))
+* **ui:** 界面改用 IBM Plex 字体与小圆角，列表更紧凑 ([f024dfb](https://github.com/V3teran/liusha/commit/f024dfb81e3e4c3c36c7274c18554f335ba3a8a4))
+* **ui:** 知识库检索测试成为独立视图，导入前可预览切分结果 ([d4ead8e](https://github.com/V3teran/liusha/commit/d4ead8ee772c37804ab745ed4fbd301fc61b42f0))
+* **ui:** 观测组三页更名重排 ([9b6d222](https://github.com/V3teran/liusha/commit/9b6d2225a1e2fda96ad854089ed7844fa5dac51d))
+* **ui:** 趋势平滑改 Catmull–Rom 样条，峰顶圆滑过渡 ([a1c2304](https://github.com/V3teran/liusha/commit/a1c230444fe4e8b09c75f492e73694f87ac2a3c2))
+
+
+### 问题修复
+
+* **audit:** 审计日志不再记录没有发生过的凭证删除 ([bc8565c](https://github.com/V3teran/liusha/commit/bc8565c829a8cbb545affb4a35a253bedef43652))
+* **audit:** 工具调用记录里的中文输出不再变成乱码 ([e2c31c8](https://github.com/V3teran/liusha/commit/e2c31c817fd22b2de9f9636b381e68629de80329))
+* **conversation:** 重命名时清空标题等于取消，原标题不会丢 ([0613aca](https://github.com/V3teran/liusha/commit/0613aca4608d4caafb88f5f37f599dac2461c0a0))
+* **deploy:** 数据库错误日志不再写出查询参数 ([0b5121e](https://github.com/V3teran/liusha/commit/0b5121e554c56037de4fe0105a602c53feafc838))
+* **dispatch:** 超长的任务目标在下发时一律拒绝，不再建出任务 ([822c3e5](https://github.com/V3teran/liusha/commit/822c3e55876780606d39ec52fafce586d2f879a4))
+* **exploration:** 只有付出过代价的教训才沉淀为经验 ([d51598b](https://github.com/V3teran/liusha/commit/d51598bb001002ecfe47f0c101bc401c6828f65a))
+* **exploration:** 查看智能体流量时请求与响应体按原文给出 ([a22142b](https://github.com/V3teran/liusha/commit/a22142b43ece901994113fb4bddc3a41378e0846))
+* **exploration:** 沉淀的经验不再用「本题」指代原任务 ([49185e5](https://github.com/V3teran/liusha/commit/49185e5e41ffb04f5f70e78de4a913f1f37d7675))
+* **exploration:** 知识库字面检索不再因共有一个常见词召回无关条目 ([d122e5a](https://github.com/V3teran/liusha/commit/d122e5ae250644ed4f282e6984d783bdecffcdc7))
+* **exploration:** 知识库检索门槛按标注标定，整合找近似条目不设门槛 ([c3d3198](https://github.com/V3teran/liusha/commit/c3d3198fbd93d198e3e17e1427a8d64e6e440d70))
+* **exploration:** 规划者不再在后续轮次重复检索同一方向的知识 ([e4dfbf4](https://github.com/V3teran/liusha/commit/e4dfbf4d4f79c592865841d492f36524df540e08))
+* **finding:** 处置发现时严重度只能取五档 ([8af3b67](https://github.com/V3teran/liusha/commit/8af3b6780450e8d927242e4a4d4df1f30de38cc6))
+* **httpapi:** 凭证库只接受合法的主机，非法主机直接拒绝 ([1200d34](https://github.com/V3teran/liusha/commit/1200d347f0a7e047e5c3268ffe105e6c935ebde4))
+* **httpapi:** 列表的筛选条件写错时提示错误，不再悄悄不筛 ([b668415](https://github.com/V3teran/liusha/commit/b668415d57eceed5ef4df19b223aa89532f728bb))
+* **llmconfig:** 检索模型 KeepExistingKey 的 COALESCE 不能写在 VALUES 里 ([4f07e98](https://github.com/V3teran/liusha/commit/4f07e98e11957ce565c8abe1c7235a7c821b7d99))
+* **llmconfig:** 检索模型未配置判定改用 errors.Is ([eee8bb4](https://github.com/V3teran/liusha/commit/eee8bb4c152c7db7aa12258dc13faec617c9efd2))
+* **sandbox:** 任务开始时不再偶发看不到任何工具 ([34c0676](https://github.com/V3teran/liusha/commit/34c06769263d2b3a54ceda6efa0ccde55ff14040))
+* **ui:** 侧栏当前页改用正文主色，深浅主题下都是黑白 ([cc1c28a](https://github.com/V3teran/liusha/commit/cc1c28a80048fd1144d32430ce5c97e10dc29e6d))
+* **ui:** 图标粗细统一，弹窗与输入框里的文字不再发虚 ([986862e](https://github.com/V3teran/liusha/commit/986862ed824eb67bb55691bdab196cbebf5a08b6))
+* **ui:** 弹层关闭后焦点回到打开它的位置 ([1e9f62f](https://github.com/V3teran/liusha/commit/1e9f62fb6c655cdc068d6f653b2a72ce632fac22))
+* **ui:** 所有页面的筛选栏都能一键清空筛选 ([25c1af0](https://github.com/V3teran/liusha/commit/25c1af0b431570d9005211b9e0d0e3c71423a7ee))
+* **ui:** 智能体按工作流顺序排列，四张卡片两列对齐 ([ad5fbc0](https://github.com/V3teran/liusha/commit/ad5fbc086c7321488522c11be25320bb41e23d1f))
+* **ui:** 每页条数选择框显示的就是实际条数 ([f1dc54d](https://github.com/V3teran/liusha/commit/f1dc54dd86c5f89675be3227de8d275b40e98ea8))
+* **ui:** 浅色主题下智能体身份色的文字对比度达标 ([396f0f7](https://github.com/V3teran/liusha/commit/396f0f7670d850bad49ac12bda35405f446d978f))
+* **ui:** 知识库的适用范围筛选列出全部场景 ([b832caf](https://github.com/V3teran/liusha/commit/b832cafe8fed897f60ec31ddd279111fc9b84933))
+* **ui:** 统一字号阶梯与状态配色，修正多处界面细节 ([482d16a](https://github.com/V3teran/liusha/commit/482d16ab1b14d12c84b771899a5aa9d78ccdca19))
+* **ui:** 读屏能分清侧栏与对话列表，表格每列都有列名 ([8f8d6f8](https://github.com/V3teran/liusha/commit/8f8d6f84e33e3e5b98951f13e4236714aee89002))
+* **ui:** 趋势曲线在陡峰处越出图顶被裁平 ([c744cf2](https://github.com/V3teran/liusha/commit/c744cf274357017eeae9ad4358c0ff70c14873ea))
+* **ui:** 趋势曲线在陡峰处越出图顶被裁平（补齐早退分支的返回结构） ([c498c21](https://github.com/V3teran/liusha/commit/c498c2183bfe45da58f3f48f68378ccca0fc1825))
+* **ui:** 趋势曲线的 FC 钳制判据补上段横距归一，切线分段共享 ([3536f7c](https://github.com/V3teran/liusha/commit/3536f7ce4c0200c148a0a41532b358bb057e6cbd))
+* **ui:** 配置与表单去掉多余的滚动条和说明文字 ([262ad6b](https://github.com/V3teran/liusha/commit/262ad6b3c8300a6d6c643d2df94c48a0f22e3a63))
+* **ui:** 页面标题下不再常驻一行说明文字 ([8529113](https://github.com/V3teran/liusha/commit/852911303ae169c62062a603b4c31a1dfca14455))
+
 ## [0.13.5](https://github.com/V3teran/liusha/compare/v0.13.4...v0.13.5) (2026-11-20)
 
 
