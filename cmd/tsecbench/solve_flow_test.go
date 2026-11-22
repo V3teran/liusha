@@ -33,23 +33,51 @@ func TestSolve_FlagFromResultCompletesAndCleansUp(t *testing.T) {
 	f.nodesFn = func(int) []graphNode {
 		return []graphNode{res("捕获 flag：flag{abc}")}
 	}
+	// 任务已自然收敛：通关后不应再终止 liusha 任务（经验沉淀依赖任务 completed 终态）。
+	f.statusFn = func(int) string { return "completed" }
+	s := f.newSolver()
 
-	res, err := f.newSolver().solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	res, err := s.solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
 	if err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 	if !res.Completed || res.CorrectFlags != 1 || res.CumulativeScore != 10 {
 		t.Fatalf("res = %+v", res)
 	}
+	s.watchWG.Wait()
 	starts, closes, _, controls, goals := f.snapshot()
 	if !slices.Equal(starts, []string{"web_01"}) || !slices.Equal(closes, []string{"web_01"}) {
 		t.Fatalf("starts=%v closes=%v", starts, closes)
 	}
-	if len(controls) != 1 || !strings.Contains(controls[0], `"terminate"`) {
-		t.Fatalf("应终止 liusha 任务，controls=%v", controls)
+	if len(controls) != 0 {
+		t.Fatalf("通关任务不应被终止，controls=%v", controls)
 	}
 	if len(goals) != 1 || !strings.Contains(goals[0], "10.0.1.2:8080") {
 		t.Fatalf("goal 应带 start 返回的靶场地址，goals=%v", goals)
+	}
+}
+
+// TestSolve_UnconvergedAfterWindowFallsBackToTerminate 通关任务在收敛窗口内没有自然收敛
+// （引擎迟迟不停止探索）时，观察者兜底终止，不给死靶场上的空转留时间。
+func TestSolve_UnconvergedAfterWindowFallsBackToTerminate(t *testing.T) {
+	f := newFakeStack(t)
+	f.flags["web_01"] = []string{"flag{abc}"}
+	f.nodesFn = func(int) []graphNode {
+		return []graphNode{res("捕获 flag：flag{abc}")}
+	}
+	s := f.newSolver()
+
+	res, err := s.solve(t.Context(), challenge{UniqueCode: "web_01", FlagCount: 1})
+	if err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+	if !res.Completed {
+		t.Fatalf("res = %+v", res)
+	}
+	s.watchWG.Wait()
+	_, _, _, controls, _ := f.snapshot()
+	if len(controls) != 1 || !strings.Contains(controls[0], `"terminate"`) {
+		t.Fatalf("收敛窗口耗尽应兜底终止，controls=%v", controls)
 	}
 }
 
@@ -390,7 +418,7 @@ func TestSchedule_StopsDispatchOnFatal(t *testing.T) {
 	cfg := config{concurrency: 1, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
 	pending := []challenge{{UniqueCode: "a", FlagCount: 1}, {UniqueCode: "b", FlagCount: 1}, {UniqueCode: "c", FlagCount: 1}}
 
-	results := schedule(t.Context(), cfg, s.bench, s.liusha, s.extractor, zerolog.Nop(), pending)
+	results := schedule(t.Context(), s, cfg.concurrency, pending)
 	starts, _, _, _, _ := f.snapshot()
 	if len(starts) != 1 {
 		t.Fatalf("致命错误后不应再派发，starts=%v", starts)
@@ -411,7 +439,7 @@ func TestSchedule_SolvesAll(t *testing.T) {
 	cfg := config{concurrency: 3, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
 	pending := []challenge{{UniqueCode: "a"}, {UniqueCode: "b"}, {UniqueCode: "c"}, {UniqueCode: "d"}}
 
-	results := schedule(t.Context(), cfg, s.bench, s.liusha, s.extractor, zerolog.Nop(), pending)
+	results := schedule(t.Context(), s, cfg.concurrency, pending)
 	if len(results) != 4 {
 		t.Fatalf("results=%+v", results)
 	}

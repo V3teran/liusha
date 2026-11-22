@@ -62,7 +62,7 @@ func TestLiushaClient_CreateTaskErrors(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			})
 			c := &liushaClient{base: url, session: &http.Cookie{Name: liushaSessionCookie, Value: "s"}, client: http.DefaultClient}
-			_, err := c.createTask(t.Context(), "t", "d", "brief")
+			_, err := c.createTask(t.Context(), "t", "brief")
 			if err == nil || !strings.Contains(err.Error(), tc.wantSub) {
 				t.Fatalf("err=%v，期望包含 %q", err, tc.wantSub)
 			}
@@ -86,7 +86,7 @@ func TestLiushaClient_CreateTaskRejectsSplit(t *testing.T) {
 		}
 	})
 	c := &liushaClient{base: url, session: &http.Cookie{Name: liushaSessionCookie, Value: "s"}, client: http.DefaultClient}
-	_, err := c.createTask(t.Context(), "t", "d", "brief")
+	_, err := c.createTask(t.Context(), "t", "brief")
 	if err == nil || !strings.Contains(err.Error(), "2 个任务") {
 		t.Fatalf("err=%v，期望报告建出了 2 个任务", err)
 	}
@@ -246,7 +246,7 @@ func TestLiushaClient_CreateTaskUsesCTFScenario(t *testing.T) {
 		_, _ = w.Write([]byte(`{"tasks":[{"task_id":"a"}]}`))
 	})
 	c := &liushaClient{base: url, session: &http.Cookie{Name: liushaSessionCookie, Value: "s"}, client: http.DefaultClient}
-	if _, err := c.createTask(t.Context(), "t", "d", "brief"); err != nil {
+	if _, err := c.createTask(t.Context(), "t", "brief"); err != nil {
 		t.Fatal(err)
 	}
 	if got["scenario"] != "ctf" {

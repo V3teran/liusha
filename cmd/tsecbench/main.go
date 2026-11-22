@@ -192,7 +192,17 @@ func run(ctx context.Context, cfg config, logger zerolog.Logger) error {
 	releaseLeftovers(ctx, bc, logger, chs)
 
 	// 5. 并发（≤concurrency）逐题求解。致命错误（token 失效 / 任务结束）取消全局。
-	results := schedule(ctx, cfg, bc, lc, extractor, logger, pending)
+	// 通关任务交给收敛观察：规划者要做一轮结果分析并停止探索（分钟级），到点未收敛
+	// 由观察者兜底终止，所以进程收尾前要等观察协程全部落地。
+	s := &solver{
+		bench: bc, liusha: lc, extractor: extractor, logger: logger,
+		pollInterval: cfg.pollInterval, taskDeadline: cfg.taskDeadline, idleWindow: cfg.idleWindow,
+		convergeWait: 6 * time.Minute,
+		convergePoll: 15 * time.Second,
+	}
+	results := schedule(ctx, s, cfg.concurrency, pending)
+	logger.Info().Msg("等待通关任务的收敛观察收尾")
+	s.watchWG.Wait()
 	printSummary(logger, len(chs), results)
 	return nil
 }
@@ -212,20 +222,15 @@ func releaseLeftovers(ctx context.Context, bc *benchClient, logger zerolog.Logge
 	}
 }
 
-// schedule 以 cfg.concurrency 的并发窗口逐题求解，返回各题结果。遇致命错误取消全局。
-func schedule(ctx context.Context, cfg config, bc *benchClient, lc *liushaClient, ex *flagExtractor, logger zerolog.Logger, pending []challenge) []challengeResult {
+// schedule 以并发窗口逐题求解，返回各题结果。遇致命错误取消全局。
+func schedule(ctx context.Context, s *solver, concurrency int, pending []challenge) []challengeResult {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	sem := make(chan struct{}, cfg.concurrency)
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	results := make([]challengeResult, 0, len(pending))
-
-	s := &solver{
-		bench: bc, liusha: lc, extractor: ex, logger: logger,
-		pollInterval: cfg.pollInterval, taskDeadline: cfg.taskDeadline, idleWindow: cfg.idleWindow,
-	}
 
 	for _, ch := range pending {
 		select {
@@ -253,11 +258,11 @@ func schedule(ctx context.Context, cfg config, bc *benchClient, lc *liushaClient
 			if err != nil {
 				var be *benchError
 				if errors.As(err, &be) && (be.tokenInvalid() || be.taskEnded()) {
-					logger.Error().Err(be).Msg("致命：跑分任务结束 / token 失效，停止全局")
+					s.logger.Error().Err(be).Msg("致命：跑分任务结束 / token 失效，停止全局")
 					cancel()
 					return
 				}
-				logger.Warn().Err(err).Str("challenge", ch.UniqueCode).Msg("本题求解出错，跳过")
+				s.logger.Warn().Err(err).Str("challenge", ch.UniqueCode).Msg("本题求解出错，跳过")
 			}
 		}(ch)
 	}

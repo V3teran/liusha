@@ -91,11 +91,12 @@ func (c *liushaClient) req(ctx context.Context, method, path string, body, out a
 // benchScenario 是跑分任务的场景：CTF（flag 的回报规约在场景里，见 internal/builtin/scenarios/ctf.md）。
 const benchScenario = "ctf"
 
-// createTask 以单条 brief 建一个 task（场景 benchScenario），返回 taskID。title/description 便于在控制台归类。
+// createTask 以单条 brief 建一个 task（场景 benchScenario），返回 taskID。title 用于控制台归类。
 // 端点按行拆 brief、每行一个任务：若一次建出了多个任务（brief 含换行），全部终止并报错，
 // 不留下无人跟踪、持续消耗 LLM 额度的任务。
-func (c *liushaClient) createTask(ctx context.Context, title, description, brief string) (string, error) {
-	body := map[string]any{"title": title, "description": description, "briefs": []string{brief}, "scenario": benchScenario}
+func (c *liushaClient) createTask(ctx context.Context, title, brief string) (string, error) {
+	// 描述只属于定时模板（立即下发传描述会 400），批次只留 title。
+	body := map[string]any{"title": title, "briefs": []string{brief}, "scenario": benchScenario}
 	var out dispatchResp
 	if err := c.req(ctx, http.MethodPost, "/api/tasks", body, &out); err != nil {
 		return "", err

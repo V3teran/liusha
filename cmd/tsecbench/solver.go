@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -20,7 +21,7 @@ type challengeResult struct {
 	CumulativeScore int
 }
 
-// solver 驱动单题求解：start 靶场 → 建 liusha task → 轮询产出提取并提交 flag → terminate/close。
+// solver 驱动单题求解：start 靶场 → 建 liusha task → 轮询产出提取并提交 flag → 收敛交接 / terminate / close。
 type solver struct {
 	bench     *benchClient
 	liusha    *liushaClient
@@ -30,6 +31,10 @@ type solver struct {
 	pollInterval time.Duration // 轮询 liusha 产出的间隔
 	taskDeadline time.Duration // 单题 liusha task 轮询上限（0 = 不限）
 	idleWindow   time.Duration // LLM/工具活动停摆多久判定该题跑不动，提前收手
+
+	convergeWait time.Duration  // 通关后等待引擎自然收敛的窗口，超时兜底终止
+	convergePoll time.Duration  // 收敛观察的轮询间隔
+	watchWG      sync.WaitGroup // 收敛观察协程：进程退出前要等它们收尾
 }
 
 // startAttempts 是启动靶场的尝试次数上限：平台把 503 / 500 定义为网络波动、可重试，
@@ -87,24 +92,66 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 
 	// 2. 建 liusha task。
 	goal := buildGoal(ch, start.ContainerAddr)
-	taskID, err := s.liusha.createTask(ctx, "TSecBench "+ch.UniqueCode, "TSecBench 自动跑分", goal)
+	taskID, err := s.liusha.createTask(ctx, "TSecBench "+ch.UniqueCode, goal)
 	if err != nil {
 		return res, fmt.Errorf("建 liusha 任务: %w", err)
 	}
 	log.Info().Str("task_id", taskID).Msg("liusha 任务已创建")
 
-	// 任务结束后优雅终止 liusha task（不再烧 token）。
-	defer func() {
-		tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.liusha.control(tctx, taskID, "terminate"); err != nil &&
-			!strings.Contains(err.Error(), "HTTP 409") { // 409 = 已是终态，正常
-			log.Warn().Err(err).Msg("terminate liusha 任务失败")
-		}
-	}()
-
 	// 3. 轮询产出、提取并提交 flag。
-	return s.harvest(ctx, &log, ch, taskID, res)
+	res, err = s.harvest(ctx, &log, ch, taskID, res)
+
+	// 通关任务交还引擎自行收敛：规划者以「坐实结果数 = 题面 flag 数」为依据停止探索，
+	// 任务落 completed，经验沉淀由此触发——通关瞬间终止会把这条链掐断在起点。观察有
+	// 窗口上限，到点未收敛（或全局停止）则兜底终止，不让死靶场上的空转烧 token。
+	if err == nil && res.Completed {
+		s.watchWG.Add(1)
+		go s.watchConvergence(ctx, &log, taskID)
+		return res, nil
+	}
+	// 其余结局（单题超时、活动停摆、出错）立即终止：目标没有达成，没有等收敛的价值。
+	s.terminate(&log, taskID)
+	return res, err
+}
+
+// terminate 终止 liusha 任务。409 = 已是终态（含任务恰好自然收敛），正常。
+func (s *solver) terminate(log *zerolog.Logger, taskID string) {
+	tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.liusha.control(tctx, taskID, "terminate"); err != nil &&
+		!strings.Contains(err.Error(), "HTTP 409") {
+		log.Warn().Err(err).Msg("terminate liusha 任务失败")
+	}
+}
+
+// watchConvergence 观察通关任务直至自然收敛。规划者要做一轮结果分析并停止探索（分钟级），
+// 期间在途动作可能因靶场容器已关闭而失败——它们正被收回，属预期。窗口耗尽仍未收敛则兜底
+// 终止；全局停止立即终止。
+func (s *solver) watchConvergence(ctx context.Context, log *zerolog.Logger, taskID string) {
+	defer s.watchWG.Done()
+	deadline := time.Now().Add(s.convergeWait)
+	for {
+		st, err := s.liusha.status(ctx, taskID)
+		if err == nil && st.Status != "active" {
+			log.Info().Str("status", st.Status).Msg("通关任务已自然收敛，经验沉淀随任务完成触发")
+			return
+		}
+		if err != nil {
+			log.Warn().Err(err).Msg("查询收敛状态失败，继续等待")
+		}
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("全局停止，终止未收敛的通关任务")
+			s.terminate(log, taskID)
+			return
+		case <-time.After(s.convergePoll):
+		}
+		if time.Now().After(deadline) {
+			log.Info().Msg("通关任务超时未自然收敛，兜底终止")
+			s.terminate(log, taskID)
+			return
+		}
+	}
 }
 
 // errContainerNotReady 表示重试用尽时容器仍未就绪（start 一直没给地址）。

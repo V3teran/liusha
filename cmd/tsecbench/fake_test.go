@@ -250,6 +250,8 @@ func (f *fakeStack) newSolver() *solver {
 		logger:       zerolog.Nop(),
 		pollInterval: time.Millisecond,
 		taskDeadline: 5 * time.Second,
+		convergeWait: 5 * time.Millisecond,
+		convergePoll: time.Millisecond,
 	}
 }
 
