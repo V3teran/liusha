@@ -55,6 +55,22 @@ func TestBuildGoal_SingleLine(t *testing.T) {
 	}
 }
 
+// TestBuildGoal_MetaLine 验证题面元信息（编号、分值、难度）一次说清进目标：分值是
+// 优先级定档的依据、难度帮智能体校准投入；缺的字段不展示，不说空话。
+func TestBuildGoal_MetaLine(t *testing.T) {
+	goal := buildGoal(challenge{UniqueCode: "a-03", TotalScore: 300, Difficulty: "medium"}, []string{"10.0.1.2:8080"})
+	for _, must := range []string{"题目（a-03，分值 300，难度 medium）"} {
+		if !strings.Contains(goal, must) {
+			t.Fatalf("goal 应含 %q：\n%s", must, goal)
+		}
+	}
+	// 元信息缺失的字段不出现占位。
+	goal = buildGoal(challenge{UniqueCode: "x"}, []string{"10.0.1.2:8080"})
+	if !strings.Contains(goal, "题目（x）。") || strings.Contains(goal, "分值") || strings.Contains(goal, "难度") {
+		t.Fatalf("缺省元信息不应有空段：\n%s", goal)
+	}
+}
+
 // TestBuildGoal_FlagCountWritten 验证平台给出数量就写进目标（含 1）：数量是收敛依据，
 // 普通题拿到真 flag 即 1/1 收敛；未知（0）才不写。
 func TestBuildGoal_FlagCountWritten(t *testing.T) {

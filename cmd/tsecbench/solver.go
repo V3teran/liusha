@@ -48,7 +48,7 @@ type solver struct {
 // 一次失败就跳题会白白丢掉整道题；持续失败则放弃本题，不无限占用并发名额。
 const startAttempts = 5
 
-// buildGoal 构造交给 liusha 的任务目标。只给靶场地址、题面与 flag 数量，不注入任何
+// buildGoal 构造交给 liusha 的任务目标。只给靶场地址、题面元信息与题目说明，不注入任何
 // 题解或历史答案——闭卷合规由此处保证。题型不限于 Web，目标不写题型。flag 的回报与
 // 坐实由 ctf 场景说明：执行者把每个 flag 原样写进一条待验证假设观察，经复现门坐实成
 // result；适配器只取坐实的 result 提交。
@@ -63,6 +63,16 @@ func buildGoal(ch challenge, addrs []string) string {
 		"在以下授权 CTF 靶场中解题，找到并捕获该题的 flag。",
 		"靶场入口地址（VPN 内直连）：" + strings.Join(addrs, "、") + "，测试范围仅限上述地址。",
 	}
+	// 题面元信息一次说清：编号是识别符，分值是优先级定档的依据（ctf 场景），难度帮
+	// 智能体校准投入，旗数是收敛依据。缺的字段不展示，不说空话。
+	meta := ch.UniqueCode
+	if ch.TotalScore > 0 {
+		meta += fmt.Sprintf("，分值 %d", ch.TotalScore)
+	}
+	if d := strings.TrimSpace(ch.Difficulty); d != "" {
+		meta += "，难度 " + d
+	}
+	parts = append(parts, "题目（"+meta+"）。")
 	if d := strings.TrimSpace(ch.Description); d != "" {
 		parts = append(parts, "题目说明："+d)
 	}
