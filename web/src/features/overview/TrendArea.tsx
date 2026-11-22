@@ -48,7 +48,14 @@ function shortDate(date: string): string {
  * 不会像普通样条那样在零值密布的序列里上下过冲、画出发明出来的波峰。
  * 返回 SVG 路径（坐标系 0–100，x 由旧到新、y 向下；面积路径沿基线闭合）。
  */
-function smoothPaths(values: number[], max: number): { line: string; area: string } {
+export interface SmoothCurve {
+  line: string
+  area: string
+  /** 每段的 [端点y, 控制点1y, 控制点2y, 端点y]——测试断言凸包不过冲用。 */
+  segments: Array<[number, number, number, number]>
+}
+
+export function smoothPaths(values: number[], max: number): SmoothCurve {
   const n = values.length
   if (n === 0) return { line: '', area: '' }
   // 顶部留 8% 呼吸空间：顶格线（最大值）不贴图顶，它的刻度标签完整落在图内。
@@ -86,12 +93,20 @@ function smoothPaths(values: number[], max: number): { line: string; area: strin
   }
 
   let line = `M 0 ${y[0].toFixed(3)}`
+  const segments: Array<[number, number, number, number]> = []
   for (let i = 0; i < n - 1; i++) {
     const x0 = i * dx
     const x1 = (i + 1) * dx
-    line += ` C ${(x0 + dx / 3).toFixed(3)} ${(y[i] + (m[i] * dx) / 3).toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${(y[i + 1] - (m[i + 1] * dx) / 3).toFixed(3)}, ${x1.toFixed(3)} ${y[i + 1].toFixed(3)}`
+    // 控制点钳制在段两端数据值之间：切线过陡时（长期零值后的陡峰）贝塞尔的凸包会
+    // 越过端点，曲线在图顶被裁平——钳回段内后凸包不过冲，切线只在此时被轻微压平。
+    const lo = Math.min(y[i], y[i + 1])
+    const hi = Math.max(y[i], y[i + 1])
+    const c1 = Math.min(Math.max(y[i] + (m[i] * dx) / 3, lo), hi)
+    const c2 = Math.min(Math.max(y[i + 1] - (m[i + 1] * dx) / 3, lo), hi)
+    segments.push([y[i], c1, c2, y[i + 1]])
+    line += ` C ${(x0 + dx / 3).toFixed(3)} ${c1.toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${c2.toFixed(3)}, ${x1.toFixed(3)} ${y[i + 1].toFixed(3)}`
   }
-  return { line, area: `${line} L 100 100 L 0 100 Z` }
+  return { line, area: `${line} L 100 100 L 0 100 Z`, segments }
 }
 
 /**
