@@ -14,7 +14,7 @@ import { InlineError } from '@/components/ui/InlineError'
  *
  * 会话是 HttpOnly Cookie，前端只拿到用户名。初始管理员由 api 首启时用
  * env 密码建立（无建号端点），这里只做登录。
- * 视觉遵循品牌体系：徽记按主题取正负形成对（深底 mark-white / 浅底 mark-black），
+ * 视觉遵循品牌体系：徽记与 favicon、侧栏统一用同一枚应用图标（黑白），
  * 输入框 / 按钮 / 错误内联反馈均用全站既有 token 与类名，不另造样式。
  */
 
@@ -83,12 +83,9 @@ export function LoginPage() {
         style={{ background: 'radial-gradient(closest-side, var(--glow-accent), transparent)' }}
       />
       <div className="relative w-full max-w-[400px] rounded-xl border border-border bg-surface p-8 shadow-lg">
-        {/* 品牌区：应用图标（黑白形态，即浅色系形态——黑剪影必配浅底，容器为
-            #ffffff→#e7eaef 近白斜向渐变）+ 等宽品牌字。
-            深色主题（默认）下呈现为深卡面上的一枚浅色亮图标，浅色主题下融入卡面
-            ——资产自带 rx=28 圆角容器与 8% 发丝描边（专为浅底边缘分离而设），
-            外面不再加 ring/rounded，避免双边缘。浅色主题下侧栏徽记（BrandMark）用的是
-            同一枚图标；深色主题的侧栏是反白剪影，那是功能尺度的 chrome，此处是品牌 hero。 */}
+        {/* 品牌区：应用图标（黑白形态——黑剪影 + 近白渐变容器）+ 等宽品牌字。
+            与侧栏徽记（BrandMark）、favicon 同一枚资产；资产自带 rx=28 圆角容器与
+            发丝描边，深浅主题下都能与背景分离，外面不再加 ring/rounded，避免双边缘。 */}
         <div className="flex flex-col items-center gap-3">
           <img src="/brand/app-icon.svg" alt="liusha" className="h-12 w-12" />
           <div className="text-center">

@@ -3,7 +3,6 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { loginPath } from '@/lib/loginRedirect'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Menu } from 'lucide-react'
-import { useTheme } from '@/hooks/useTheme'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
@@ -28,7 +27,6 @@ function readRailPreference(): boolean {
  *   < 768   侧栏收入左侧抽屉，顶部 48px 栏提供菜单入口；跳转后自动收起
  */
 export function AppShell() {
-  const { theme } = useTheme()
   const location = useLocation()
   const authStatus = useAuthStore((s) => s.status)
   const bootstrap = useAuthStore((s) => s.bootstrap)
@@ -63,11 +61,7 @@ export function AppShell() {
   if (authStatus === 'checking') {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <img
-          src={theme === 'dark' ? '/brand/mark-white.svg' : '/brand/mark-black.svg'}
-          alt="liusha"
-          className="h-8 w-8 animate-pulse"
-        />
+        <img src="/brand/app-icon.svg" alt="liusha" className="h-8 w-8 animate-pulse" />
       </div>
     )
   }

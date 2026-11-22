@@ -15,26 +15,12 @@ interface SidebarProps {
 }
 
 /**
- * 品牌徽记，按主题取形态：
- * - 浅色：与登录页同一枚应用图标（黑剪影 + 近白渐变容器）。资产自带圆角与发丝描边，
- *   外面不再套容器——套 accent 着色容器会成灰底小剪影，与登录页对不上。
- * - 深色：反白剪影 + accent 着色容器（深底上的功能尺度徽记）。
+ * 品牌徽记：所有语境统一用同一枚应用图标（黑剪影 + 近白渐变容器，与登录页、favicon
+ * 完全一致）。资产自带浅底圆角容器与发丝描边，深浅主题下都能与背景分离；外面不再
+ * 套容器——套 accent 着色容器会成灰底小剪影，与登录页对不上。
  */
 export function BrandMark({ className }: { className?: string }) {
-  const { theme } = useTheme()
-  if (theme === 'light') {
-    return <img src="/brand/app-icon.svg" alt="liusha" className={cn('flex-shrink-0', className ?? 'h-9 w-9')} />
-  }
-  return (
-    <span
-      className={cn(
-        'flex flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 ring-1 ring-accent/20',
-        className ?? 'h-9 w-9',
-      )}
-    >
-      <img src="/brand/mark-white.svg" alt="liusha" className="h-2/3 w-2/3" />
-    </span>
-  )
+  return <img src="/brand/app-icon.svg" alt="liusha" className={cn('flex-shrink-0', className ?? 'h-9 w-9')} />
 }
 
 /**
