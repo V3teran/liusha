@@ -59,3 +59,39 @@ describe('smoothPaths（趋势平滑曲线）', () => {
     }
   })
 })
+
+describe('smoothPaths（趋势平滑曲线）C1 连续性', () => {
+  // 回归锁：此前 FC 钳制判据少乘段横距（dx）失效，兜底钳制让相邻两段在共享数据点
+  // 上的切线不一致——曲线出现棱角。C1 连续（进出切线相等）是这类 bug 的判别性断言。
+  it('每个数据点的进出切线相等（无棱角）', () => {
+    const values = [0, 0, 0, 0, 0, 26, 30, 0, 0]
+    const dx = 100 / (values.length - 1)
+    const { segments } = smoothPaths(values, 30)
+    for (let i = 1; i < segments.length; i++) {
+      const [, , prevOut, y] = segments[i - 1]
+      const nextIn = segments[i][1] // 段起点处的控制点 cy1（与上一段 cy2 共享同一条切线）
+      // 进切线与出切线（y 轴向下，斜率符号一致即可比）
+      const tangentIn = (3 * (y - prevOut)) / dx
+      const tangentOut = (3 * (nextIn - y)) / dx
+      // eslint-disable-next-line no-console
+      console.log('tangent idx', i, 'in', tangentIn.toFixed(3), 'out', tangentOut.toFixed(3), 'prevOut', prevOut.toFixed(2), 'nextIn', nextIn.toFixed(2), 'y', y.toFixed(2))
+      expect(tangentOut).toBeCloseTo(tangentIn, 6)
+    }
+  })
+
+  it('尖峰与零值密布的形态下采样不过冲、不越界', () => {
+    for (const values of [
+      [0, 0, 0, 0, 0, 26, 30, 0, 0],
+      [30, 0, 0, 0, 0, 0, 26, 0, 0],
+      [3, 1, 4, 1, 5, 9, 2, 6, 5],
+    ]) {
+      const { segments } = smoothPaths(values, 30)
+      for (const seg of segments) {
+        for (const y of sampleY(seg)) {
+          expect(y).toBeGreaterThanOrEqual(8 - 1e-9)
+          expect(y).toBeLessThanOrEqual(100 + 1e-9)
+        }
+      }
+    }
+  })
+})

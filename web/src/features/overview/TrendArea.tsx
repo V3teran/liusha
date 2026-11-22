@@ -66,7 +66,7 @@ export function smoothPaths(values: number[], max: number): SmoothCurve {
   }
   const dx = 100 / (n - 1)
 
-  // 相邻差分与初始切线：局部极值点切线水平，避免冲过峰谷。
+  // ① 初始切线：局部极值点切线水平（避免冲过峰谷），端点取单侧割线斜率。
   const delta: number[] = []
   const m: number[] = []
   for (let i = 0; i < n - 1; i++) delta.push(y[i + 1] - y[i])
@@ -75,36 +75,36 @@ export function smoothPaths(values: number[], max: number): SmoothCurve {
     m.push(delta[i - 1] * delta[i] <= 0 ? 0 : (delta[i - 1] + delta[i]) / 2)
   }
   m.push(delta[n - 2])
-  // Fritsch–Carlson 钳制：切线过陡时按比例收回，保证曲线段不越过端点。
+  // ② 平坦段两侧切线归零。
   for (let i = 0; i < n - 1; i++) {
     if (delta[i] === 0) {
       m[i] = 0
       m[i + 1] = 0
-      continue
     }
-    const a = m[i] / delta[i]
-    const b = m[i + 1] / delta[i]
+  }
+  // ③ Fritsch–Carlson 钳制：切线相对「本段横距」归一（a = m·dx/δ），超出单调区
+  //    （a²+b² > 9）时等比收回。少乘 dx 会让判据失效、兜底钳制接管，曲线在数据点
+  //    处出现 C1 断折（棱角）。
+  for (let i = 0; i < n - 1; i++) {
+    if (delta[i] === 0) continue
+    const a = (m[i] * dx) / delta[i]
+    const b = (m[i + 1] * dx) / delta[i]
     const s = a * a + b * b
     if (s > 9) {
       const t = 3 / Math.sqrt(s)
-      m[i] = t * a * delta[i]
-      m[i + 1] = t * b * delta[i]
+      m[i] *= t
+      m[i + 1] *= t
     }
   }
 
+  // ④ 用最终切线建路径：每个数据点只有一个切线值，两侧段共用，曲线 C1 连续无棱角。
   let line = `M 0 ${y[0].toFixed(3)}`
   const segments: Array<[number, number, number, number]> = []
   for (let i = 0; i < n - 1; i++) {
     const x0 = i * dx
     const x1 = (i + 1) * dx
-    // 控制点钳制在段两端数据值之间：切线过陡时（长期零值后的陡峰）贝塞尔的凸包会
-    // 越过端点，曲线在图顶被裁平——钳回段内后凸包不过冲，切线只在此时被轻微压平。
-    const lo = Math.min(y[i], y[i + 1])
-    const hi = Math.max(y[i], y[i + 1])
-    const c1 = Math.min(Math.max(y[i] + (m[i] * dx) / 3, lo), hi)
-    const c2 = Math.min(Math.max(y[i + 1] - (m[i + 1] * dx) / 3, lo), hi)
-    segments.push([y[i], c1, c2, y[i + 1]])
-    line += ` C ${(x0 + dx / 3).toFixed(3)} ${c1.toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${c2.toFixed(3)}, ${x1.toFixed(3)} ${y[i + 1].toFixed(3)}`
+    segments.push([y[i], y[i] + (m[i] * dx) / 3, y[i + 1] - (m[i + 1] * dx) / 3, y[i + 1]])
+    line += ` C ${(x0 + dx / 3).toFixed(3)} ${(y[i] + (m[i] * dx) / 3).toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${(y[i + 1] - (m[i + 1] * dx) / 3).toFixed(3)}, ${x1.toFixed(3)} ${y[i + 1].toFixed(3)}`
   }
   return { line, area: `${line} L 100 100 L 0 100 Z`, segments }
 }
