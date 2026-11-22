@@ -129,7 +129,6 @@ type hypothesisMark struct {
 	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
 	refuteDetail string // 评估者证伪时的理由（机器判出的证伪没有）
-	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
 }
 
 // markHypothesisNode 在假设节点上回写验证结论：验证状态流转（pending → confirmed /
@@ -151,9 +150,6 @@ func (g *PromotionGate) markHypothesisNode(
 	}
 	if m.refuteDetail != "" {
 		mark["refute_detail"] = m.refuteDetail
-	}
-	if m.duplicateOf != "" {
-		mark["duplicate_of"] = m.duplicateOf
 	}
 
 	b, mErr := json.Marshal(mark)

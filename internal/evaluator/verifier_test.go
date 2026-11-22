@@ -796,13 +796,12 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 		t.Fatalf("重复确认的交付应指向既有节点且载荷同源: %+v", fw.claims)
 	}
 
-	// 假设节点标记：confirmed + duplicate_of 指向既有发现
-	// （promoted_node 冗余已裁剪——observation→result 的 generates 边承载归属）
+	// 假设节点标记只有结论：重复归属记在审计链（下方断言），节点上不重复落指针
 	var mark map[string]string
 	if raw := w.metadata["node-source-2"]; raw == nil || json.Unmarshal(raw, &mark) != nil {
 		t.Fatalf("第二假设应有验证标记: %+v", w.metadata["node-source-2"])
 	}
-	if want := map[string]string{"verification_status": "confirmed", "duplicate_of": node1.ID}; !maps.Equal(mark, want) {
+	if want := map[string]string{"verification_status": "confirmed"}; !maps.Equal(mark, want) {
 		t.Fatalf("标记形状不符: %+v", mark)
 	}
 

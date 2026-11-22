@@ -42,6 +42,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	store := explorationgraph.NewStore(pool)
 
 	const taskID = "eeeeeee1-eeee-4eee-8eee-eeeeeeeeeeee"
+	dbtest.SeedTask(t, pool, taskID)
 	defer func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_node WHERE task_id=$1`, taskID)
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_verification WHERE task_id=$1`, taskID)
@@ -128,6 +129,7 @@ func TestEvaluator_WritesOnlyResultNodes(t *testing.T) {
 	store := explorationgraph.NewStore(pool)
 
 	const taskID = "eeeeeee2-eeee-4eee-8eee-eeeeeeeeeeee"
+	dbtest.SeedTask(t, pool, taskID)
 	defer func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_node WHERE task_id=$1`, taskID)
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_verification WHERE task_id=$1`, taskID)

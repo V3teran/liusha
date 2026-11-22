@@ -23,7 +23,7 @@ func newStore(graphStore core.GraphStore) *Store {
 
 // typedMetadataKeys 是 graph metadata 中映射到 Node 类型化字段的键。
 // 其余键在读取时原样进入 Node.Metadata（业务扩展位：refute_reason、
-// failure_reason 等），写入时 Node.Metadata 的键平铺合并进 graph metadata。
+// rejected_by 等），写入时 Node.Metadata 的键平铺合并进 graph metadata。
 var typedMetadataKeys = map[string]bool{
 	"source_type":    true,
 	"priority":       true,

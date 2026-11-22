@@ -356,8 +356,7 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	case duplicate != nil:
 		// 12. 语义重复：既有发现即归属——不新建节点，返回既有节点让上游事件指向它
 		// （新证据已在审计链 replays 里）。重放交付：补齐既有节点此前可能失败的交付，
-		// finding 按结果节点幂等，不会重复或改写已有记录。
-		mark.duplicateOf = duplicate.ID
+		// finding 按结果节点幂等，不会重复或改写已有记录。归属记在审计链（withDuplicateInfo）。
 		if g.logger != nil {
 			g.logger.Info().
 				Str("node_id", a.NodeID).

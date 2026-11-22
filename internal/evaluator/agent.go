@@ -408,8 +408,6 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 	mark, mErr := json.Marshal(map[string]interface{}{
 		"verification_status": explorationgraph.VerificationRefuted,
 		"refute_reason":       refuteReason,
-		"failure_reason":      cause.Error(),
-		"verify_attempts":     attempts,
 	})
 	if mErr != nil {
 		return
@@ -563,11 +561,10 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, cla
 }
 
 // adoptPriorVerdict 把既有验证结论落到当前假设节点上（验证键命中的同假设
-// 同配方假设），并注明系沿用。
+// 同配方假设），标记与原结论同形。
 func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, prev priorVerdict) error {
 	mark := map[string]interface{}{
 		"verification_status": prev.status,
-		"verdict_source":      "same-verdict-key-dedup",
 	}
 	if prev.refuteReason != "" {
 		mark["refute_reason"] = prev.refuteReason
