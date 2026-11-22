@@ -2,7 +2,7 @@ import { useId } from 'react'
 import { cn } from '@/lib/utils'
 
 /** 顶部呼吸空间（绘图高度的百分比）：顶格线与它的刻度标签不贴图顶。 */
-const HEADROOM = 8
+const HEADROOM = 20
 
 export interface TrendPoint {
   /** 日期 YYYY-MM-DD（查看者时区） */
@@ -58,7 +58,7 @@ export interface SmoothCurve {
 export function smoothPaths(values: number[], max: number): SmoothCurve {
   const n = values.length
   if (n === 0) return { line: '', area: '', segments: [] }
-  // 顶部留 8% 呼吸空间：顶格线（最大值）不贴图顶，它的刻度标签完整落在图内。
+  // 顶部留 20% 呼吸空间：数据峰值映射到 y=20（顶格线高度），圆滑鼓出的峰顶不会冲出图顶。
   const y = values.map((v) => (max > 0 ? HEADROOM + (1 - v / max) * (100 - HEADROOM) : 100))
   if (n === 1) {
     const line = `M 0 ${y[0]} L 100 ${y[0]}`
@@ -66,45 +66,21 @@ export function smoothPaths(values: number[], max: number): SmoothCurve {
   }
   const dx = 100 / (n - 1)
 
-  // ① 初始切线：局部极值点切线水平（避免冲过峰谷），端点取单侧割线斜率。
-  const delta: number[] = []
-  const m: number[] = []
-  for (let i = 0; i < n - 1; i++) delta.push(y[i + 1] - y[i])
-  m.push(delta[0])
-  for (let i = 1; i < n - 1; i++) {
-    m.push(delta[i - 1] * delta[i] <= 0 ? 0 : (delta[i - 1] + delta[i]) / 2)
-  }
-  m.push(delta[n - 2])
-  // ② 平坦段两侧切线归零。
-  for (let i = 0; i < n - 1; i++) {
-    if (delta[i] === 0) {
-      m[i] = 0
-      m[i + 1] = 0
-    }
-  }
-  // ③ Fritsch–Carlson 钳制：切线相对「本段横距」归一（a = m·dx/δ），超出单调区
-  //    （a²+b² > 9）时等比收回。少乘 dx 会让判据失效、兜底钳制接管，曲线在数据点
-  //    处出现 C1 断折（棱角）。
-  for (let i = 0; i < n - 1; i++) {
-    if (delta[i] === 0) continue
-    const a = (m[i] * dx) / delta[i]
-    const b = (m[i + 1] * dx) / delta[i]
-    const s = a * a + b * b
-    if (s > 9) {
-      const t = 3 / Math.sqrt(s)
-      m[i] *= t
-      m[i + 1] *= t
-    }
-  }
-
-  // ④ 用最终切线建路径：每个数据点只有一个切线值，两侧段共用，曲线 C1 连续无棱角。
-  let line = `M 0 ${y[0].toFixed(3)}`
+  // Catmull–Rom → 三次贝塞尔：控制点取相邻点的差分 / 6，曲线圆滑穿过数据点、C1 连续
+  // （进出切线由同一组邻居决定，无条件成立，无断折）。尖峰顶端圆滑鼓出、零值处小幅
+  // 沉到基线下——前者落在顶部余量内，后者被 SVG 裁切吃掉，均不可见。
   const segments: Array<[number, number, number, number]> = []
   for (let i = 0; i < n - 1; i++) {
+    const prev = y[Math.max(0, i - 1)]
+    const next = y[Math.min(n - 1, i + 2)]
+    segments.push([y[i], y[i] + (y[i + 1] - prev) / 6, y[i + 1] - (next - y[i]) / 6, y[i + 1]])
+  }
+
+  let line = `M 0 ${y[0].toFixed(3)}`
+  for (let i = 0; i < segments.length; i++) {
     const x0 = i * dx
     const x1 = (i + 1) * dx
-    segments.push([y[i], y[i] + (m[i] * dx) / 3, y[i + 1] - (m[i + 1] * dx) / 3, y[i + 1]])
-    line += ` C ${(x0 + dx / 3).toFixed(3)} ${(y[i] + (m[i] * dx) / 3).toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${(y[i + 1] - (m[i + 1] * dx) / 3).toFixed(3)}, ${x1.toFixed(3)} ${y[i + 1].toFixed(3)}`
+    line += ` C ${(x0 + dx / 3).toFixed(3)} ${segments[i][1].toFixed(3)}, ${(x1 - dx / 3).toFixed(3)} ${segments[i][2].toFixed(3)}, ${x1.toFixed(3)} ${segments[i][3].toFixed(3)}`
   }
   return { line, area: `${line} L 100 100 L 0 100 Z`, segments }
 }
