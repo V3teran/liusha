@@ -33,7 +33,8 @@ func TestProviderParamsValidate(t *testing.T) {
 		{"思考预算用于 openai 兼容", func(p *ProviderParams) { p.Type = ProviderTypeOpenAICompat; p.ThinkingBudgetTokens = 2048 }, false},
 		{"思考预算低于下限", func(p *ProviderParams) { p.ThinkingBudgetTokens = 1023 }, false},
 		{"思考预算等于 max_tokens", func(p *ProviderParams) { p.ThinkingBudgetTokens = 8192 }, false},
-		{"max_tokens 缺省按 4096 判定", func(p *ProviderParams) { p.MaxTokens = 0; p.ThinkingBudgetTokens = 4096 }, false},
+		{"max_tokens 缺省按 16384 判定", func(p *ProviderParams) { p.MaxTokens = 0; p.ThinkingBudgetTokens = 16384 }, false},
+		{"max_tokens 缺省 16384 下思考预算合法", func(p *ProviderParams) { p.MaxTokens = 0; p.ThinkingBudgetTokens = 4096 }, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

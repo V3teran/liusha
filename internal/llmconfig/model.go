@@ -213,18 +213,33 @@ func ValidateBaseURL(raw string) error {
 var ErrConflict = errors.New("模型配置冲突")
 
 // 扩展思考预算的协议约束（anthropic thinking.budget_tokens）：开启时至少 1024，
-// 且必须小于单次最大输出 tokens（max_tokens 为 0 时运行期按 4096 发送）。
+// 且必须小于单次最大输出 tokens。
+//
+// DefaultMaxTokens 是 provider 未配置 max_tokens 时的运行期输出上限。规划契约（多动作
+// 的计划 JSON，含指令与推理全文）在任务状态变大后轻易超过 4096——实测输出被钉死在
+// 上限、JSON 截断、契约解析失败、盲目重试永不提交，任务原地烧完整个预算。16k 覆盖
+// 契约的合理最坏情况；max_tokens 只是不被用到的上限，不产生额外费用。
 const (
 	MinThinkingBudgetTokens = 1024
-	DefaultMaxTokens        = 4096
+	DefaultMaxTokens        = 16384
 )
 
-// EffectiveMaxTokens 是运行期实际发送的单次最大输出 tokens（0 = 协议默认值）。
-func (p ProviderParams) EffectiveMaxTokens() int {
-	if p.MaxTokens > 0 {
-		return p.MaxTokens
+// EffectiveMaxTokens 是运行期实际发送的单次最大输出 tokens（0 = 缺省值）。
+func EffectiveMaxTokens(maxTokens int) int {
+	if maxTokens > 0 {
+		return maxTokens
 	}
 	return DefaultMaxTokens
+}
+
+// EffectiveMaxTokens 实现 Provider 行的运行期输出上限。
+func (p Provider) EffectiveMaxTokens() int {
+	return EffectiveMaxTokens(p.MaxTokens)
+}
+
+// EffectiveMaxTokens 实现 ProviderParams 的运行期输出上限。
+func (p ProviderParams) EffectiveMaxTokens() int {
+	return EffectiveMaxTokens(p.MaxTokens)
 }
 
 // ProviderParams 是 Provider 的 upsert 入参（Key 是稳定引用键，Update 按 Key 定位）。
