@@ -405,10 +405,9 @@ func (t *Traffic) spawnProxyTask(ctx context.Context, host string) {
 			sc = &task.Scenario{Code: def.Code, Name: def.Name, Body: def.Body}
 		}
 	}
-	// 一切下发皆走 assignment：聚合器建 assignment(source=proxy, [host]) → 1 task（fan-in）。
+	// 一切下发皆走 assignment：聚合器按主机建 assignment(source=proxy) → 1 task（fan-in）。
 	asg, err := t.assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceProxy,
-		Items:  []assignment.Item{{Host: host}},
 		Title:  host,
 	})
 	if err != nil {

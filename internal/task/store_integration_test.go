@@ -20,14 +20,10 @@ func newStores(t *testing.T) (*Store, *assignment.Store) {
 	return NewStore(pool), assignment.NewStore(pool)
 }
 
-// mkAssignment 建 1 个含 N 个 item 的 assignment（batch 下发的固定前置）。
-func mkAssignment(t *testing.T, s *assignment.Store, ctx context.Context, briefs ...string) string {
+// mkAssignment 建 1 个 assignment（batch 下发的固定前置）。
+func mkAssignment(t *testing.T, s *assignment.Store, ctx context.Context) string {
 	t.Helper()
-	items := make([]assignment.Item, 0, len(briefs))
-	for _, b := range briefs {
-		items = append(items, assignment.Item{Brief: b})
-	}
-	a, err := s.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: items, Title: "t"})
+	a, err := s.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Title: "t"})
 	if err != nil {
 		t.Fatalf("create assignment: %v", err)
 	}
@@ -38,7 +34,7 @@ func TestCreateAndSummary(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
 
-	asg := mkAssignment(t, assignments, ctx, "对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测")
+	asg := mkAssignment(t, assignments, ctx)
 	for _, brief := range []string{"对 http://a.example.com 做存活探测", "对 http://b.example.com 做存活探测"} {
 		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: brief}); err != nil {
 			t.Fatalf("create task: %v", err)
@@ -96,7 +92,7 @@ func TestStatusTransitions(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
 
-	asg := mkAssignment(t, assignments, ctx, "对 http://c.example.com 做存活探测")
+	asg := mkAssignment(t, assignments, ctx)
 	tk, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "对 http://c.example.com 做存活探测"})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +117,7 @@ func TestListFilteredSearchAndSource(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
 
-	asg := mkAssignment(t, assignments, ctx, "分析 10.0.0.1 的代理流量")
+	asg := mkAssignment(t, assignments, ctx)
 	if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "分析 10.0.0.1 的代理流量"}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +164,7 @@ func TestSummaryScheduleLink(t *testing.T) {
 		t.Fatalf("建模板: %v", err)
 	}
 	asg, err := assignments.Create(ctx, assignment.NewParams{
-		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, Title: "s", ScheduleID: &scheduleID,
+		Source: assignment.SourceDirect, Title: "s", ScheduleID: &scheduleID,
 	})
 	if err != nil {
 		t.Fatalf("建定时批次: %v", err)
@@ -177,7 +173,7 @@ func TestSummaryScheduleLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("建任务: %v", err)
 	}
-	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx, "p"), Goal: "p"})
+	plain, err := tasks.Create(ctx, NewParams{AssignmentID: mkAssignment(t, assignments, ctx), Goal: "p"})
 	if err != nil {
 		t.Fatalf("建普通任务: %v", err)
 	}
@@ -212,7 +208,7 @@ func TestSummaryScheduleLink(t *testing.T) {
 func TestListFilteredSearchByBatchTitle(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
-	asg, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "a"}, {Brief: "b"}}, Title: "夜间复扫"})
+	asg, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Title: "夜间复扫"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +239,7 @@ func TestListFilteredSearchByBatchTitle(t *testing.T) {
 func TestListFilteredScope(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
-	asg := mkAssignment(t, assignments, ctx, "a", "b")
+	asg := mkAssignment(t, assignments, ctx)
 	first, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "扫描 http://a.test"})
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +289,7 @@ func TestListFilteredScope(t *testing.T) {
 func TestListFilteredSearchIsLiteral(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
-	asg := mkAssignment(t, assignments, ctx, "x")
+	asg := mkAssignment(t, assignments, ctx)
 	for _, goal := range []string{"测试 user_id 参数", "测试 userXid 参数", "折扣 100% 的接口"} {
 		if _, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: goal}); err != nil {
 			t.Fatal(err)
@@ -314,7 +310,7 @@ func TestListFilteredSearchIsLiteral(t *testing.T) {
 func TestDirectoryLabels(t *testing.T) {
 	tasks, assignments := newStores(t)
 	ctx := context.Background()
-	titled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "y"}}, Title: "夜间复扫"})
+	titled, err := assignments.Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Title: "夜间复扫"})
 	if err != nil {
 		t.Fatal(err)
 	}

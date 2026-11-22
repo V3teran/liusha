@@ -96,7 +96,7 @@ func TestScenarios_ScheduleReferenceGuards(t *testing.T) {
 	}
 	newSched := func(scenario string) (cronschedule.Schedule, error) {
 		return schedules.Create(ctx, cronschedule.NewParams{
-			CronExpr: "0 3 * * *", Title: "每日审计", Items: []assignment.Item{{Brief: "http://127.0.0.1:8080"}}, Scenario: scenario,
+			CronExpr: "0 3 * * *", Title: "每日审计", Items: []cronschedule.Item{{Brief: "http://127.0.0.1:8080"}}, Scenario: scenario,
 		})
 	}
 	if _, err := newSched("nope"); !errors.Is(err, scenariostore.ErrUnavailable) {
@@ -161,7 +161,7 @@ func TestScenarios_TaskSnapshotSurvivesEditAndDelete(t *testing.T) {
 	if _, err := s.CreateScenario(ctx, scenariostore.Scenario{Code: "audit", Name: "审计", Body: "原正文", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	asg, err := assignment.NewStore(pool).Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, Title: "t"})
+	asg, err := assignment.NewStore(pool).Create(ctx, assignment.NewParams{Source: assignment.SourceDirect, Title: "t"})
 	if err != nil {
 		t.Fatal(err)
 	}

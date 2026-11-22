@@ -16,7 +16,7 @@ func TestDispatchEntriesRejectOverlongGoalBeforeCreatingAnything(t *testing.T) {
 	long := strings.Repeat("x", task.MaxGoalRunes+1)
 	ctx := context.Background()
 
-	if _, _, err := s.DispatchBatch(ctx, "t", "", []string{"正常目标", long}, nil); !errors.Is(err, task.ErrGoalTooLong) {
+	if _, _, err := s.DispatchBatch(ctx, "t", []string{"正常目标", long}, nil); !errors.Is(err, task.ErrGoalTooLong) {
 		t.Errorf("批量下发：应返回 ErrGoalTooLong，得 %v", err)
 	}
 	if _, _, err := s.DispatchScheduled(ctx, "t", "", []string{long}, "0 3 * * *", nil); !errors.Is(err, task.ErrGoalTooLong) {

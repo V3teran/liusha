@@ -12,7 +12,7 @@ import (
 // overlongDispatch 模拟服务层的目标长度校验失败。
 type overlongDispatch struct{}
 
-func (overlongDispatch) DispatchBatch(context.Context, string, string, []string, *string) (string, []DispatchedTask, error) {
+func (overlongDispatch) DispatchBatch(context.Context, string, []string, *string) (string, []DispatchedTask, error) {
 	return "", nil, fmt.Errorf("第 2 行: %w", task.ErrGoalTooLong)
 }
 

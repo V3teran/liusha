@@ -78,7 +78,7 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	if err := s.Dispatcher.requireLLMReady(ctx); err != nil {
 		return err
 	}
-	var items []assignment.Item
+	var items []cronschedule.Item
 	var err error
 	if err = json.Unmarshal(sched.Payload, &items); err != nil {
 		return fmt.Errorf("unmarshal schedule %s payload: %w", sched.ID, err)
@@ -93,11 +93,9 @@ func (s *Scheduler) fireOne(ctx context.Context, sched cronschedule.Schedule) er
 	// 模板条目是用户编写的目标描述（DispatchScheduled 是模板的唯一写入方），
 	// 克隆批次的来源即人工下发。
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceDirect,
-		Items:       items,
-		Title:       sched.Title,
-		Description: sched.Description,
-		ScheduleID:  &scheduleID,
+		Source:     assignment.SourceDirect,
+		Title:      sched.Title,
+		ScheduleID: &scheduleID,
 	})
 	if err != nil {
 		return fmt.Errorf("clone assignment from schedule %s: %w", sched.ID, err)

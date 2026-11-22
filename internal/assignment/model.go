@@ -39,31 +39,19 @@ const (
 	StatusAborted   Status = "aborted"   // 全部子 task 终态且无 completed（全 aborted）
 )
 
-// Assignment 是 assignment 表行的 Go 表示。
-//
-// Payload：下发清单的 jsonb 原文（[]Item 的序列化）。
-// ScheduleID：由哪个定时模板克隆而来（单次人工下发为 nil）。
+// Assignment 是 assignment 表行的 Go 表示：一次下发的分组。下发的内容在各任务的目标里，
+// 批次只记来源、名称与定时模板来源。
 type Assignment struct {
-	ID          string
-	Source      Source
-	Payload     []byte // jsonb 原文（[]Item 的序列化）
-	Title       string
-	Description string // 批次描述（纯展示，任务模块「新建任务」弹层采集；可空）
-	ScheduleID  *string
-	CreatedAt   time.Time
-}
-
-// Item 是 payload 数组的单个条目。人工下发（direct）用 Brief；代理捕获（proxy）用 Host（攒批的目标主机）。
-type Item struct {
-	Brief string `json:"brief,omitempty"`
-	Host  string `json:"host,omitempty"`
+	ID         string
+	Source     Source
+	Title      string
+	ScheduleID *string // 由哪个定时模板克隆而来（单次下发与代理捕获为 nil；模板删除后置空）
+	CreatedAt  time.Time
 }
 
 // NewParams 是 Store.Create 的入参。
 type NewParams struct {
-	Source      Source
-	Items       []Item
-	Title       string
-	Description string  // 批次描述；可空
-	ScheduleID  *string // 定时克隆来源；单次人工下发传 nil
+	Source     Source
+	Title      string
+	ScheduleID *string // 定时克隆来源；单次人工下发传 nil
 }

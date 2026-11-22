@@ -70,7 +70,7 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
-	items := []assignment.Item{{Brief: "夜间复扫 http://target.com"}}
+	items := []cronschedule.Item{{Brief: "夜间复扫 http://target.com"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "nightly",
 	})
@@ -139,7 +139,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
-	items := []assignment.Item{{Brief: "should not fire"}}
+	items := []cronschedule.Item{{Brief: "should not fire"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "disabled",
 	})

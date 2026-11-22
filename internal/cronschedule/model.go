@@ -1,22 +1,22 @@
 // Package cronschedule 实现定时模板：不带终态的"闹钟"，到点由 api 组件的
-// Scheduler goroutine克隆出一次性 assignment 去执行——定时模板本身只有启用/停用两态。
-//
-// payload 复用 assignment.Item（触发时原样克隆进新 assignment 的清单）。
+// Scheduler goroutine 克隆出一次性 assignment，按清单每条展开一个任务——定时模板本身只有
+// 启用/停用两态。
 package cronschedule
 
-import (
-	"time"
+import "time"
 
-	"github.com/V3teran/liusha/internal/assignment"
-)
+// Item 是模板清单的一条：到点展开成一个任务的目标描述。
+type Item struct {
+	Brief string `json:"brief"`
+}
 
 // Schedule 是 cron_schedule 表行的 Go 表示。
 type Schedule struct {
 	ID          string
 	CronExpr    string // 标准 5 段 cron（分 时 日 月 周）
-	Payload     []byte // jsonb 原文（[]assignment.Item 的序列化，触发时克隆进新 assignment）
-	Title       string
-	Description string // 批次描述（触发时克隆进新 assignment.description；可空）
+	Payload     []byte // jsonb 原文（[]Item 的序列化）
+	Title       string // 模板名，也是到点克隆出的批次名
+	Description string // 模板描述（可空）
 	Scenario    string // 到点建任务所用的场景 code（空 = 无场景）；只引用存在且启用的场景
 	Enabled     bool
 	NextRunAt   *time.Time
@@ -27,7 +27,7 @@ type Schedule struct {
 // NewParams 是 Store.Create 的入参。
 type NewParams struct {
 	CronExpr    string
-	Items       []assignment.Item
+	Items       []Item
 	Title       string
 	Description string
 	Scenario    string // 空 = 无场景；非空须存在且启用（建模板时锁住场景行核对）

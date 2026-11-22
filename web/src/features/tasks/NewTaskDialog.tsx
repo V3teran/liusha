@@ -25,10 +25,12 @@ interface NewTaskDialogProps {
  * 且文本不自动折行（长行横向滚动）：折行会让一个任务占多个视觉行，编号随之错位。
  */
 function LinedTextarea({
+  id,
   value,
   onChange,
   onKeyDown,
 }: {
+  id: string
   value: string
   onChange: (v: string) => void
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
@@ -51,6 +53,7 @@ function LinedTextarea({
         ))}
       </div>
       <textarea
+        id={id}
         ref={taRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -62,13 +65,12 @@ function LinedTextarea({
         wrap="off"
         placeholder={'每行一个任务，例如：\n对 http://目标一 做渗透测试，重点检查注入\n对 http://目标二 做指纹识别与端口排查'}
         className="min-h-[110px] min-w-0 flex-1 resize-y border-0 bg-transparent px-3 py-2.5 text-sm max-sm:text-base leading-6 text-text outline-none placeholder:text-text-tertiary"
-        aria-label="任务目标，每行一个"
       />
     </div>
   )
 }
 
-/** 新建任务弹层：批次名称/描述 + 每行一个目标的清单 + 可选 cron 定时。 */
+/** 新建任务弹层：批次名称 + 每行一个目标的清单 + 可选 cron 定时（定时才有模板描述）。 */
 export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
@@ -101,7 +103,12 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
   const mutation = useMutation({
     mutationFn: () =>
-      createTasks({ title: title.trim(), description: description.trim(), briefs, cron: cronOn ? cron.trim() : '', scenario: scenario ?? undefined }),
+      createTasks({
+        title: title.trim(),
+        briefs,
+        ...(cronOn ? { cron: cron.trim(), description: description.trim() } : { cron: '' }),
+        scenario: scenario ?? undefined,
+      }),
     onSuccess: (resp: TaskCreateResponse) => {
       qc.invalidateQueries({ queryKey: TASK_LIST_KEY })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -142,13 +149,6 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
             </div>
 
             <div>
-              <label htmlFor="nt-desc" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
-                描述
-              </label>
-              <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
-            </div>
-
-            <div>
               <label htmlFor="nt-scenario" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
                 场景
               </label>
@@ -160,6 +160,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
                 任务目标
               </label>
               <LinedTextarea
+                id="nt-briefs"
                 value={briefsText}
                 onChange={setBriefsText}
                 onKeyDown={(e) => {
@@ -194,6 +195,15 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
                 </span>
               )}
             </div>
+
+            {cronOn && (
+              <div>
+                <label htmlFor="nt-desc" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                  模板描述
+                </label>
+                <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
+              </div>
+            )}
 
             {success && <div className="text-xs text-status-success">✓ {success}</div>}
             {error && <InlineError>{error}</InlineError>}

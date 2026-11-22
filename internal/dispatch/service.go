@@ -183,7 +183,6 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 	// 一切下发皆走 assignment：单发 = 单元素 assignment(direct) → 1 task。
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceDirect,
-		Items:  []assignment.Item{{Brief: brief}},
 		Title:  BriefTitle(brief),
 	})
 	if err != nil {
@@ -202,10 +201,10 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 
 // DispatchBatch 满足 httpapi.TaskDispatchAPI：任务模块「新建任务」弹层的立即下发。
 //
-// 1 assignment(direct, N items) → N task → N conversation（1:1）：对每个 brief
+// 1 assignment(direct) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatTask 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
-func (s *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string, scenario *string) (string, []httpapi.DispatchedTask, error) {
+func (s *Service) DispatchBatch(ctx context.Context, title string, briefs []string, scenario *string) (string, []httpapi.DispatchedTask, error) {
 	if err := validateBriefs(briefs); err != nil {
 		return "", nil, err
 	}
@@ -213,15 +212,9 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 	if err != nil {
 		return "", nil, err
 	}
-	items := make([]assignment.Item, 0, len(briefs))
-	for _, b := range briefs {
-		items = append(items, assignment.Item{Brief: b})
-	}
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceDirect,
-		Items:       items,
-		Title:       batchTitle(title, briefs),
-		Description: description,
+		Source: assignment.SourceDirect,
+		Title:  batchTitle(title, briefs),
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("create assignment: %w", err)
@@ -270,9 +263,9 @@ func (s *Service) DispatchScheduled(ctx context.Context, title, description stri
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	items := make([]assignment.Item, 0, len(briefs))
+	items := make([]cronschedule.Item, 0, len(briefs))
 	for _, b := range briefs {
-		items = append(items, assignment.Item{Brief: b})
+		items = append(items, cronschedule.Item{Brief: b})
 	}
 	sched, err := s.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr:    cronExpr,

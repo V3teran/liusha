@@ -777,8 +777,8 @@ export interface ScheduleRow {
 
 // TaskCreateRequest 是「新建任务」弹层提交体：每行一个任务目标。
 export interface TaskCreateRequest {
-  title: string // 批次名称
-  description: string // 批次描述（可空）
+  title: string // 批次名称（定时下发时即模板名）
+  description?: string // 定时模板的描述（只随 cron 提交）
   briefs: string[] // 每行一个任务目标
   cron: string // 空 = 立即下发；非空 = 定时模板（5 段 cron）
   scenario?: string // 场景 code；空串 = 无场景；不带 = 服务端缺省场景

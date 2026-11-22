@@ -39,8 +39,8 @@ type DispatchedTask struct {
 
 // TaskDispatchAPI 是「新建任务」的下发窄接口（*dispatch.Service 实现）。
 type TaskDispatchAPI interface {
-	// DispatchBatch 立即下发：1 assignment(direct, N items) → N task → N conversation。
-	DispatchBatch(ctx context.Context, title, description string, briefs []string, scenario *string) (assignmentID string, items []DispatchedTask, err error)
+	// DispatchBatch 立即下发：1 assignment(direct) → N task → N conversation。
+	DispatchBatch(ctx context.Context, title string, briefs []string, scenario *string) (assignmentID string, items []DispatchedTask, err error)
 	// DispatchScheduled 建定时模板（不立即跑）；返回模板 id 与首次触发时间。
 	DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string, scenario *string) (scheduleID string, nextRunAt time.Time, err error)
 }
@@ -154,8 +154,8 @@ func getTaskHandler(api TasksAPI) gin.HandlerFunc {
 
 // taskCreateRequest 是 POST /tasks 请求体（「新建任务」弹层直出）。
 type taskCreateRequest struct {
-	Title       string   `json:"title"`       // 批次名称
-	Description string   `json:"description"` // 批次描述（可空）
+	Title       string   `json:"title"`       // 批次名称（定时下发时即模板名）
+	Description string   `json:"description"` // 定时模板的描述（可空；只随 cron 提交）
 	Briefs      []string `json:"briefs"`      // 每行一个任务目标（已分行）
 	Cron        string   `json:"cron"`        // 可空 = 立即下发；非空 = 定时模板（5 段 cron）
 	Scenario    *string  `json:"scenario"`    // 任务场景（语义同 ChatRequest.Scenario）
@@ -196,8 +196,13 @@ func createTasksHandler(api TaskDispatchAPI) gin.HandlerFunc {
 			return
 		}
 
+		// 描述属于定时模板；立即下发的批次只有名称，不收描述（收了也无处展示）。
+		if strings.TrimSpace(req.Description) != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "描述只用于定时下发的模板，立即下发请去掉描述"})
+			return
+		}
 		assignmentID, items, err := api.DispatchBatch(c.Request.Context(),
-			strings.TrimSpace(req.Title), strings.TrimSpace(req.Description), briefs, req.Scenario)
+			strings.TrimSpace(req.Title), briefs, req.Scenario)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err) // 目标超长、场景不可用由 respondErr 收敛为 400
 			return

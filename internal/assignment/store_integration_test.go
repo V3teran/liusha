@@ -19,13 +19,9 @@ func newStores(t *testing.T) (*Store, *task.Store) {
 	return NewStore(pool), task.NewStore(pool)
 }
 
-func mkAssignment(t *testing.T, s *Store, ctx context.Context, briefs ...string) Assignment {
+func mkAssignment(t *testing.T, s *Store, ctx context.Context) Assignment {
 	t.Helper()
-	items := make([]Item, 0, len(briefs))
-	for _, b := range briefs {
-		items = append(items, Item{Brief: b})
-	}
-	a, err := s.Create(ctx, NewParams{Source: SourceDirect, Items: items, Title: "批次", Description: "d"})
+	a, err := s.Create(ctx, NewParams{Source: SourceDirect, Title: "批次"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -36,12 +32,12 @@ func TestCreateAndGetByID(t *testing.T) {
 	asg, _ := newStores(t)
 	ctx := context.Background()
 
-	a := mkAssignment(t, asg, ctx, "brief-1", "brief-2")
+	a := mkAssignment(t, asg, ctx)
 	got, err := asg.GetByID(ctx, a.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.ID != a.ID || got.Source != SourceDirect || got.Title != "批次" || got.Description != "d" {
+	if got.ID != a.ID || got.Source != SourceDirect || got.Title != "批次" {
 		t.Fatalf("字段回读不符: %+v", got)
 	}
 	if got.ScheduleID != nil {
@@ -53,7 +49,7 @@ func TestDeriveStatus(t *testing.T) {
 	asgs, tasks := newStores(t)
 	ctx := context.Background()
 
-	a := mkAssignment(t, asgs, ctx, "对 http://e.example.com 做存活探测", "对 http://f.example.com 做存活探测")
+	a := mkAssignment(t, asgs, ctx)
 
 	// 空：无子 task
 	if st, err := asgs.DeriveStatus(ctx, a.ID); err != nil || st != StatusEmpty {
@@ -86,10 +82,10 @@ func TestSourceValidation(t *testing.T) {
 	asg, _ := newStores(t)
 	ctx := context.Background()
 
-	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Items: []Item{{Brief: "x"}}, Title: "x"}); err == nil {
+	if _, err := asg.Create(ctx, NewParams{Source: "bogus", Title: "x"}); err == nil {
 		t.Fatal("非法 source 应报错")
 	}
-	if _, err := asg.Create(ctx, NewParams{Source: SourceDirect, Items: []Item{{Brief: "x"}}}); err == nil {
+	if _, err := asg.Create(ctx, NewParams{Source: SourceDirect}); err == nil {
 		t.Fatal("缺批次名应报错（未填写时由下发入口取首个目标）")
 	}
 }
