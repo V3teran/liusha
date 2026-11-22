@@ -29,8 +29,11 @@ type solver struct {
 	logger    zerolog.Logger
 
 	pollInterval time.Duration // 轮询 liusha 产出的间隔
-	taskDeadline time.Duration // 单题 liusha task 轮询上限（0 = 不限）
 	idleWindow   time.Duration // LLM/工具活动停摆多久判定该题跑不动，提前收手
+
+	deadlineEasy   time.Duration // 单题轮询上限按难度分级（0 = 不限）
+	deadlineMedium time.Duration
+	deadlineHard   time.Duration
 
 	convergeWait time.Duration  // 通关后等待引擎自然收敛的窗口，超时兜底终止
 	convergePoll time.Duration  // 收敛观察的轮询间隔
@@ -99,7 +102,7 @@ func (s *solver) solve(ctx context.Context, ch challenge) (challengeResult, erro
 	log.Info().Str("task_id", taskID).Msg("liusha 任务已创建")
 
 	// 3. 轮询产出、提取并提交 flag。
-	res, err = s.harvest(ctx, &log, ch, taskID, res)
+	res, err = s.harvest(ctx, &log, ch, taskID, s.deadlineFor(ch), res)
 
 	// 通关任务交还引擎自行收敛：规划者以「坐实结果数 = 题面 flag 数」为依据停止探索，
 	// 任务落 completed，经验沉淀由此触发——通关瞬间终止会把这条链掐断在起点。观察有
@@ -188,11 +191,25 @@ func (s *solver) startChallenge(ctx context.Context, log *zerolog.Logger, unique
 	}
 }
 
+// deadlineFor 按题目难度取单题轮询上限。同一预算对不同难度意味着不同的完成概率：
+// 实测 easy 的解出全部落在 14 分钟内，medium 的利用链在 30 分钟时仍普遍处于提取
+// 中段——预算与难度错配会把可解的题切死在破题边缘。
+func (s *solver) deadlineFor(ch challenge) time.Duration {
+	switch ch.Difficulty {
+	case "medium":
+		return s.deadlineMedium
+	case "hard":
+		return s.deadlineHard
+	default:
+		return s.deadlineEasy
+	}
+}
+
 // harvest 周期性拉 liusha 产出、提取 flag 候选并提交，直到通关 / task 结束 / 超时 / 停摆。
-func (s *solver) harvest(ctx context.Context, log *zerolog.Logger, ch challenge, taskID string, res challengeResult) (challengeResult, error) {
-	var deadline time.Time
-	if s.taskDeadline > 0 {
-		deadline = time.Now().Add(s.taskDeadline)
+func (s *solver) harvest(ctx context.Context, log *zerolog.Logger, ch challenge, taskID string, deadline time.Duration, res challengeResult) (challengeResult, error) {
+	var cutoff time.Time
+	if deadline > 0 {
+		cutoff = time.Now().Add(deadline)
 	}
 	submitted := make(map[string]bool) // 已成功/重复提交的 flag，避免重复请求
 	var lastActivity int
@@ -228,8 +245,8 @@ func (s *solver) harvest(ctx context.Context, log *zerolog.Logger, ch challenge,
 			}
 		}
 
-		if !deadline.IsZero() && time.Now().After(deadline) {
-			log.Info().Dur("deadline", s.taskDeadline).Msg("单题轮询超时，换题")
+		if !cutoff.IsZero() && time.Now().After(cutoff) {
+			log.Info().Dur("deadline", deadline).Msg("单题轮询超时，换题")
 			return res, nil
 		}
 

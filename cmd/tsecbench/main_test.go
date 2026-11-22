@@ -75,7 +75,9 @@ func TestLoadConfig_RejectsNonPositiveDurations(t *testing.T) {
 	}
 	for _, kv := range [][2]string{
 		{"LIUSHA_TSB_POLL_SECONDS", "0"},
-		{"LIUSHA_TSB_TASK_DEADLINE_SECONDS", "-5"},
+		{"LIUSHA_TSB_DEADLINE_EASY_SECONDS", "-5"},
+		{"LIUSHA_TSB_DEADLINE_MEDIUM_SECONDS", "0"},
+		{"LIUSHA_TSB_DEADLINE_HARD_SECONDS", "x"},
 		{"LIUSHA_TSB_IDLE_SECONDS", "abc"},
 	} {
 		t.Run(kv[0], func(t *testing.T) {

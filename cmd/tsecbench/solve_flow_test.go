@@ -294,7 +294,7 @@ func TestHarvest_StopsWhenIdle(t *testing.T) {
 	f.usageFn = func(int) int { return 7 }
 	s := f.newSolver()
 	s.idleWindow = 20 * time.Millisecond
-	s.taskDeadline = 0 // 只靠停摆判定收手
+	s.deadlineEasy = 0 // 只靠停摆判定收手
 
 	res, err := s.solve(t.Context(), challenge{UniqueCode: "web_05", FlagCount: 1})
 	if err != nil || res.Completed {
@@ -306,7 +306,7 @@ func TestHarvest_StopsWhenIdle(t *testing.T) {
 func TestHarvest_StopsAtDeadline(t *testing.T) {
 	f := newFakeStack(t)
 	s := f.newSolver()
-	s.taskDeadline = 20 * time.Millisecond
+	s.deadlineEasy = 20 * time.Millisecond
 
 	res, err := s.solve(t.Context(), challenge{UniqueCode: "web_06", FlagCount: 1})
 	if err != nil || res.Completed {
@@ -318,7 +318,7 @@ func TestHarvest_StopsAtDeadline(t *testing.T) {
 func TestHarvest_ContextCanceled(t *testing.T) {
 	f := newFakeStack(t)
 	s := f.newSolver()
-	s.taskDeadline = 0
+	s.deadlineEasy = 0
 	s.pollInterval = time.Hour
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -415,7 +415,7 @@ func TestSchedule_StopsDispatchOnFatal(t *testing.T) {
 	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{a}")} }
 	f.submitErr = func(string) (int, string) { return http.StatusConflict, codeInvalidState }
 	s := f.newSolver()
-	cfg := config{concurrency: 1, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
+	cfg := config{concurrency: 1, pollInterval: time.Millisecond, deadlineEasy: 5 * time.Second, deadlineMedium: 5 * time.Second, deadlineHard: 5 * time.Second}
 	pending := []challenge{{UniqueCode: "a", FlagCount: 1}, {UniqueCode: "b", FlagCount: 1}, {UniqueCode: "c", FlagCount: 1}}
 
 	results := schedule(t.Context(), s, cfg.concurrency, pending)
@@ -436,7 +436,7 @@ func TestSchedule_SolvesAll(t *testing.T) {
 	}
 	f.nodesFn = func(int) []graphNode { return []graphNode{res("flag{ok}")} }
 	s := f.newSolver()
-	cfg := config{concurrency: 3, pollInterval: time.Millisecond, taskDeadline: 5 * time.Second}
+	cfg := config{concurrency: 3, pollInterval: time.Millisecond, deadlineEasy: 5 * time.Second, deadlineMedium: 5 * time.Second, deadlineHard: 5 * time.Second}
 	pending := []challenge{{UniqueCode: "a"}, {UniqueCode: "b"}, {UniqueCode: "c"}, {UniqueCode: "d"}}
 
 	results := schedule(t.Context(), s, cfg.concurrency, pending)
