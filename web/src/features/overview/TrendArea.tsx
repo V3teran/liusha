@@ -57,12 +57,12 @@ export interface SmoothCurve {
 
 export function smoothPaths(values: number[], max: number): SmoothCurve {
   const n = values.length
-  if (n === 0) return { line: '', area: '' }
+  if (n === 0) return { line: '', area: '', segments: [] }
   // 顶部留 8% 呼吸空间：顶格线（最大值）不贴图顶，它的刻度标签完整落在图内。
   const y = values.map((v) => (max > 0 ? HEADROOM + (1 - v / max) * (100 - HEADROOM) : 100))
   if (n === 1) {
     const line = `M 0 ${y[0]} L 100 ${y[0]}`
-    return { line, area: `${line} L 100 100 L 0 100 Z` }
+    return { line, area: `${line} L 100 100 L 0 100 Z`, segments: [] }
   }
   const dx = 100 / (n - 1)
 
