@@ -77,6 +77,14 @@ llm:
     backoff_529_ms: 0                # 529 立即重试
   invocation_retention_days: 0       # LLM 调用记录（含完整 prompt / response）留存天数；0 = 永久留存
 
+# ---- tools / traffic：记录表留存 ----
+# 运行过程记录（工具调用、流量）按天数清理；0 = 永久留存。任务证据（消息、探索图、
+# 漏洞、知识）与审计链 audit_log 不按时间清理。
+tools:
+  invocation_retention_days: 0      # 工具调用记录留存天数；0 = 永久留存
+traffic:
+  retention_days: 0                 # 流量记录（代理捕获 + agent 自产，含消费关联行）留存天数；0 = 永久留存
+
 # ---- proxy：MITM 代理入口 + 过滤规则出厂值 ----
 proxy:
   listen_addr: 0.0.0.0:8588

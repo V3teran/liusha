@@ -289,8 +289,9 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		return string(t.Status), true, nil
 	}, logger)
 
-	// LLM 调用记录留存清理（llm.invocation_retention_days > 0 时每日删除到期行）。
-	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.InvocationRetentionDays, logger)
+	// 记录表留存清理：各表到期行每日批删（对应天数配置 0 = 永久留存）。
+	runner.StartRetentionSweep(ctx, st.calls, st.toolCalls, st.proxyStore, st.agentStore,
+		cfg.LLM.InvocationRetentionDays, cfg.Tools.InvocationRetentionDays, cfg.Traffic.RetentionDays, logger)
 }
 
 // newCorpus 装配知识库服务：检索模型密钥每次操作现取（模型配置页热改、跨进程失效），

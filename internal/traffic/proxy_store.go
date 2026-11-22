@@ -345,3 +345,22 @@ func (s *ProxyStore) CountSince(ctx context.Context, since time.Time) (int, erro
 	}
 	return n, nil
 }
+
+// DeleteOlderThan 删除 captured_at 早于 cutoff 的代理捕获流量，单批至多 RetentionBatch 行，
+// 返回删除的流量行数（关联消费行 traffic_task 一并删——它们的写入方语义是「哪条捕获被哪个
+// 任务消费」，捕获行删了关联行就是悬空）。批删而非一次删完：请求/响应原文是 bytea，存量
+// 开启留存时可能很大，一条 DELETE 会长时间持锁；调用方循环调到返回 0。
+func (s *ProxyStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		WITH batch AS (
+			SELECT id FROM proxy_traffic WHERE captured_at < $1 LIMIT $2
+		), del_joins AS (
+			DELETE FROM traffic_task t USING batch b WHERE t.traffic_id = b.id
+		)
+		DELETE FROM proxy_traffic p USING batch b WHERE p.id = b.id`,
+		cutoff, RetentionBatch)
+	if err != nil {
+		return 0, fmt.Errorf("delete proxy_traffic older than %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
+}

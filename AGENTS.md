@@ -221,6 +221,11 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付按结果节点幂等（`result_node_id` 唯一），重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 - 发现类型（`finding.class`）是封闭词表（`internal/finding/class.go`：取值、展示名、CWE）之一：评估者坐实时在主张指纹里给出类别（内置场景向它列出同一份词表，`internal/finding` 的测试守住两边一致），晋升门把它单独记在结果节点 metadata 的 `claim_class`，交付时收进词表——词表之外的与未给出的归入 `other`。CWE 按类型固定映射、不由 LLM 给出（LLM 常编造编号）。台账接口带出展示名与 CWE，前端不另存映射；产品按渗透测试定位，词表固定在台账层，用户改写场景新增的类别归入「其他」。
 
+### 记录表留存（`internal/runner` 的 `retention.go`）
+
+- 记录表留存只覆盖「运行过程记录」（诊断/流水）：`llm_invocation`（`llm.invocation_retention_days`）、`tool_invocation`（`tools.invocation_retention_days`）、两张流量表（`traffic.retention_days` 一键管两表，关联行 `traffic_task` 随捕获行删）。任务证据与用户数据（消息、探索图、漏洞、知识）与审计链 `audit_log` 不按时间清理；`0 = 永久`。
+- runner 每日一次统一留存循环（`StartRetentionSweep`，runner 单实例天然单例）：每表批删循环到删完（单批 5000，防首次开启时大 DELETE 长事务持锁）；`llm_invocation` 删除前先 Flush（唯一有内存写缓冲的表）。任务工作区按 `sandbox.workspace_retention_days` 由沙盒按目录 mtime 清理，不在此循环（机制不同）。
+
 ### 凭证库（`internal/credential`）
 
 - Redis 是唯一事实源。禁止任何过期机制：不用 key EXPIRE / HEXPIRE，也不在 value 里自管过期时间。

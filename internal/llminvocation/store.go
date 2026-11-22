@@ -594,11 +594,18 @@ func (s *Store) distinct(ctx context.Context, col string, f ListFilter) ([]strin
 	return out, rows.Err()
 }
 
-// DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，返回删除行数。
-// 记录含完整 prompt/response 敏感载荷，留存策略由调用方周期执行（如每日）。
-// 删除前调用方应先 Flush()，保证 buffer 内的新记录不被误删窗口漏算。
+// RetentionBatch 是留存清理的单批行数（DeleteOlderThan 每次至多删这么多）。
+const RetentionBatch = 5000
+
+// DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，单批至多 RetentionBatch 行，返回
+// 删除行数。批删而非一次删完：记录含完整 prompt/response（单行 ~26KB），首次开启留存时
+// 可能几十万行，一条 DELETE 会长时间持锁；调用方循环调到返回 0。删除前调用方应先
+// Flush()，保证 buffer 内的新记录不被误删窗口漏算。
 func (s *Store) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM llm_invocation WHERE created_at < $1`, cutoff)
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM llm_invocation
+		WHERE id IN (SELECT id FROM llm_invocation WHERE created_at < $1 LIMIT $2)`,
+		cutoff, RetentionBatch)
 	if err != nil {
 		return 0, fmt.Errorf("delete llm_invocation older than %s: %w", cutoff.Format(time.RFC3339), err)
 	}

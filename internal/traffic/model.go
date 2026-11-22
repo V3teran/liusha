@@ -17,6 +17,9 @@ import (
 	"time"
 )
 
+// RetentionBatch 是留存清理的单批行数（两个流量表的 DeleteOlderThan 每次至多删这么多）。
+const RetentionBatch = 5000
+
 // ProxyTraffic 是 proxy_traffic 表行——代理捕获流量，按 host 归属。
 //
 // 报文以 raw 为单一 canonical 源：RequestRaw/ResponseRaw 存完整报文文本

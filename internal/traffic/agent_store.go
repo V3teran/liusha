@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -137,4 +138,18 @@ func scanAgent(r db.RowScanner, f *AgentTraffic) error {
 	f.RequestHeaders = reqH
 	f.ResponseHeaders = respH
 	return nil
+}
+
+// DeleteOlderThan 删除 created_at 早于 cutoff 的 agent 流量记录，单批至多 RetentionBatch 行，
+// 返回删除行数。批删而非一次删完：请求/响应原文是 bytea，一条大 DELETE 会长时间持锁；
+// 调用方（runner 的统一留存循环）循环调到返回 0。
+func (s *AgentStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM agent_traffic
+		WHERE id IN (SELECT id FROM agent_traffic WHERE created_at < $1 LIMIT $2)`,
+		cutoff, RetentionBatch)
+	if err != nil {
+		return 0, fmt.Errorf("delete agent_traffic older than %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
 }

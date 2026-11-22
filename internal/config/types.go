@@ -28,6 +28,22 @@ type AppConfig struct {
 	Runner       RunnerConfig       `mapstructure:"runner"`
 	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
 	Conversation ConversationConfig `mapstructure:"conversation"`
+	Tools        ToolsConfig        `mapstructure:"tools"`
+	Traffic      TrafficConfig      `mapstructure:"traffic"`
+}
+
+// ToolsConfig 是工具调用记录的留存参数。
+type ToolsConfig struct {
+	// InvocationRetentionDays 是工具调用记录的留存天数；0 = 永久留存。
+	// 记录是运行过程流水（诊断），按时间清理；任务证据与审计链不在此列。
+	InvocationRetentionDays int `mapstructure:"invocation_retention_days"`
+}
+
+// TrafficConfig 是流量记录的留存参数。
+type TrafficConfig struct {
+	// RetentionDays 是流量记录（代理捕获 + agent 自产，连同消费关联行）的留存天数；
+	// 0 = 永久留存。两类流量同生命周期，一个键管两张表。
+	RetentionDays int `mapstructure:"retention_days"`
 }
 
 // WorkspaceDir 是任务工作区根目录（按 批次 / 任务 两级分目录）。沙盒在其中执行命令、写产物，

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,4 +102,21 @@ func truncateUTF8(s string, limit int) string {
 		end--
 	}
 	return s[:end]
+}
+
+// RetentionBatch 是留存清理的单批行数（DeleteOlderThan 每次至多删这么多）。
+const RetentionBatch = 5000
+
+// DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，单批至多 RetentionBatch 行，返回
+// 删除行数。批删而非一次删完：首次开启留存时存量可能几十万行，一条 DELETE 会长时间持锁；
+// 调用方（runner 的统一留存循环）循环调到返回 0。
+func (s *Store) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM tool_invocation
+		WHERE id IN (SELECT id FROM tool_invocation WHERE created_at < $1 LIMIT $2)`,
+		cutoff, RetentionBatch)
+	if err != nil {
+		return 0, fmt.Errorf("delete tool_invocation older than %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
 }
