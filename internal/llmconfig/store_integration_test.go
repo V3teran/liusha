@@ -148,6 +148,30 @@ func TestRetrievalModel_SingleRow(t *testing.T) {
 		t.Fatalf("更换应整行更新: %+v err=%v", row, err)
 	}
 
+	// KeepExistingKey：保留已存密文（编辑表单不重填密钥即保留），其余字段照常更新；
+	// 行不存在时（无密钥可保留）落空密文，HasKey=false。
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://kept.example.com", EmbeddingModel: "embed-z",
+		EncryptedAPIKey: []byte("sealed-2"), APIKeyLast4: "5678",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://kept2.example.com", EmbeddingModel: "embed-z2",
+		KeepExistingKey: true,
+	}); err != nil {
+		t.Fatalf("KeepExistingKey: %v", err)
+	}
+	if row, err = store.GetRetrievalModel(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if string(row.EncryptedAPIKey) != "sealed-2" || row.APIKeyLast4 != "5678" {
+		t.Fatalf("KeepExistingKey 应保留已存密文: %+v", row)
+	}
+	if row.BaseURL != "https://kept2.example.com" || row.EmbeddingModel != "embed-z2" {
+		t.Fatalf("KeepExistingKey 其余字段应照常更新: %+v", row)
+	}
+
 	// 清除只清密钥，保留配置
 	for i := 0; i < 2; i++ {
 		if err = store.ClearRetrievalKey(ctx); err != nil {
@@ -157,7 +181,7 @@ func TestRetrievalModel_SingleRow(t *testing.T) {
 	if row, err = store.GetRetrievalModel(ctx); err != nil || row.HasKey() {
 		t.Fatalf("清除后应无密钥: %+v err=%v", row, err)
 	}
-	if row.BaseURL != "https://other.example.com" || row.EmbeddingModel != "embed-y" {
+	if row.BaseURL != "https://kept2.example.com" || row.EmbeddingModel != "embed-z2" {
 		t.Fatalf("清除应保留地址与模型名: %+v", row)
 	}
 }

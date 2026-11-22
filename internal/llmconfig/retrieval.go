@@ -57,24 +57,37 @@ type RetrievalParams struct {
 }
 
 // UpsertRetrievalModel 写入（首次插入）或整行更新检索模型配置，返回回读行。
+// KeepExistingKey 时已存密文经 CTE 读出后 COALESCE——VALUES 子句里不能引用目标表列
+// （PG 42703），所以「保留已存密钥」在插入行上先解析、ON CONFLICT 整行收口。
 func (s *Store) UpsertRetrievalModel(ctx context.Context, p RetrievalParams) (RetrievalModel, error) {
-	keyExpr := "$4"
-	last4Expr := "$5"
+	// KeepExistingKey 的空密文 / 空尾号转 NULL，让 COALESCE 能落回已存值——空串不是 NULL，
+	// 直接传会把已存值覆盖成空。
+	var keyArg, last4Arg any = p.EncryptedAPIKey, p.APIKeyLast4
 	if p.KeepExistingKey {
-		keyExpr = "COALESCE($4, encrypted_api_key)"
-		last4Expr = "COALESCE($5, api_key_last4)"
+		if len(p.EncryptedAPIKey) == 0 {
+			keyArg = nil
+		}
+		if p.APIKeyLast4 == "" {
+			last4Arg = nil
+		}
 	}
 	row := s.pool.QueryRow(ctx, `
+		WITH existing AS (
+			SELECT encrypted_api_key, api_key_last4 FROM retrieval_model WHERE id = true
+		)
 		INSERT INTO retrieval_model (id, base_url, embedding_model, rerank_model, encrypted_api_key, api_key_last4)
-		VALUES (true, $1, $2, $3, `+keyExpr+`, `+last4Expr+`)
+		SELECT true, $1, $2, $3,
+		       COALESCE($4, e.encrypted_api_key, ''::bytea),
+		       COALESCE($5, e.api_key_last4, '')
+		FROM (SELECT true) dummy LEFT JOIN existing e ON true
 		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url,
 		                            embedding_model = EXCLUDED.embedding_model,
 		                            rerank_model = EXCLUDED.rerank_model,
-		                            encrypted_api_key = `+keyExpr+`,
-		                            api_key_last4 = `+last4Expr+`,
+		                            encrypted_api_key = EXCLUDED.encrypted_api_key,
+		                            api_key_last4 = EXCLUDED.api_key_last4,
 		                            updated_at = now()
 		RETURNING base_url, embedding_model, rerank_model, encrypted_api_key, api_key_last4, updated_at`,
-		p.BaseURL, p.EmbeddingModel, p.RerankModel, p.EncryptedAPIKey, p.APIKeyLast4)
+		p.BaseURL, p.EmbeddingModel, p.RerankModel, keyArg, last4Arg)
 	var r RetrievalModel
 	if err := row.Scan(&r.BaseURL, &r.EmbeddingModel, &r.RerankModel, &r.EncryptedAPIKey, &r.APIKeyLast4, &r.UpdatedAt); err != nil {
 		return RetrievalModel{}, fmt.Errorf("upsert retrieval model: %w", err)
