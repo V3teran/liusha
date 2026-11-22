@@ -63,9 +63,6 @@ func TestStore_Append_ListAll(t *testing.T) {
 	if g.Role != "planner" {
 		t.Errorf("role 错: %q", g.Role)
 	}
-	if g.RequestID == "" {
-		t.Error("request_id 应由 db 侧 gen_random_uuid() 生成，不应为空")
-	}
 }
 
 // TestStore_ListAll_Pagination 验证：offset 分页——limit 截断 + offset 取下一页，

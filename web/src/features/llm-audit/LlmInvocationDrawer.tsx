@@ -128,10 +128,10 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onRetry, llm
                 <section>
                   <h3 className="mb-2.5 text-sm font-semibold text-text">元信息</h3>
                   <dl className="grid grid-cols-[84px_1fr] items-baseline gap-x-3 gap-y-1.5">
-                    <dt className="text-xs text-text-secondary">request_id</dt>
+                    <dt className="text-xs text-text-secondary">编号</dt>
                     <dd className="flex items-center gap-2 break-all font-mono text-sm text-text">
-                      {detail.request_id}
-                      <CopyButton copied={copiedKey === 'rid'} onClick={() => void copy('rid', detail.request_id)} />
+                      #{detail.id}
+                      <CopyButton copied={copiedKey === 'id'} onClick={() => void copy('id', String(detail.id))} />
                     </dd>
                     <dt className="text-xs text-text-secondary">时间</dt>
                     <dd className="font-mono text-sm text-text">{fullTime(detail.created_at)}</dd>

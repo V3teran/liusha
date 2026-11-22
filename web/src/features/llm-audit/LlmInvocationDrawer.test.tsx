@@ -7,7 +7,6 @@ import type { LLMInvocationDetail } from '@/api/types'
 function makeDetail(overrides: Partial<LLMInvocationDetail> = {}): LLMInvocationDetail {
   return {
     id: 1,
-    request_id: 'req-abc-123',
     agent_run_id: null,
     task_id: 'task-1',
     conversation_id: null,
@@ -71,7 +70,7 @@ describe('LlmInvocationDrawer', () => {
     expect(screen.getByText('执行')).toBeTruthy()
     expect(screen.getByText('gpt-5-mini')).toBeTruthy()
     expect(screen.getByText(/anthropic/)).toBeTruthy()
-    expect(screen.getByText('req-abc-123')).toBeTruthy()
+    expect(screen.getByText('#1')).toBeTruthy()
   })
 
   it('跳转区排在元信息之前：回到产出上下文是最先用到的出口', () => {
@@ -149,16 +148,17 @@ describe('LlmInvocationDrawer', () => {
     expect(screen.getByText('无返回内容')).toBeTruthy()
   })
 
-  it('复制按钮：点击复制 request_id', async () => {
+  it('复制按钮：点击复制调用编号', async () => {
     const writeText = navigator.clipboard.writeText
-    const detail = makeDetail({ request_id: 'req-xyz' })
+    const detail = makeDetail({ id: 42 })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onRetry={vi.fn()} onOpenChange={vi.fn()} />)
-    // request_id 旁的复制按钮是图标态（CopyButton 以 aria-label 表达复制/已复制态）。
+    // 编号旁的复制按钮是图标态（CopyButton 以 aria-label 表达复制/已复制态）。
     const copyBtn = screen.getAllByRole('button', { name: '复制' })[0]
     fireEvent.click(copyBtn)
     // copy() 内部 await clipboard.writeText 后才 setState；等按钮态切换（aria-label 变为「已复制」），避免 act() 警告。
     expect(await screen.findByRole('button', { name: '已复制' })).toBeTruthy()
-    expect(writeText).toHaveBeenCalledWith('req-xyz')
+    expect(screen.getByText('#42')).toBeTruthy()
+    expect(writeText).toHaveBeenCalledWith('42')
   })
 
   it('复制按钮：思考过程区块复制 reasoning 内容', async () => {

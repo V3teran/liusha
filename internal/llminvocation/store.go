@@ -331,7 +331,7 @@ const invocationConversation = "COALESCE(cc.id, tc.id)"
 // listSelect 是列表查询共享的列序与 JOIN（ListByTask / ListAll 单一口径）：业务键
 // （conversation/assignment）经 invocationJoins 派生。新增列时同步改 scanListRow。
 const listSelect = `
-	SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+	SELECT li.id, li.agent_run_id, li.task_id::text,
 	       li.provider, li.model,
 	       li.in_tokens, li.out_tokens, li.cached_tokens,
 	       li.latency_ms,
@@ -345,7 +345,7 @@ const listSelect = `
 func scanListRow(rows pgx.Rows, v *Invocation) error {
 	var tid, cid, aid *string
 	if err := rows.Scan(
-		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
+		&v.ID, &v.AgentRunID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs,
@@ -409,7 +409,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 	var v Invocation
 	var tid, cid, aid *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT li.id, li.request_id, li.agent_run_id, li.task_id::text,
+		SELECT li.id, li.agent_run_id, li.task_id::text,
 		       li.provider, li.model,
 		       li.in_tokens, li.out_tokens, li.cached_tokens,
 		       li.latency_ms,
@@ -420,7 +420,7 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 		       COALESCE(a.source, '')
 		FROM llm_invocation li`+invocationJoins+`
 		WHERE li.id=$1`, id).Scan(
-		&v.ID, &v.RequestID, &v.AgentRunID, &tid,
+		&v.ID, &v.AgentRunID, &tid,
 		&v.Provider, &v.Model,
 		&v.InTokens, &v.OutTokens, &v.CachedTokens,
 		&v.LatencyMs,

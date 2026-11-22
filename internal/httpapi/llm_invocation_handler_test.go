@@ -56,7 +56,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 	t.Run("200 返回完整行含 messages/result", func(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{byID: map[int64]llminvocation.Invocation{
-			5: {ID: 5, TaskID: &taskID, RequestID: "r5", Messages: []byte(`[{"role":"user"}]`), Result: []byte(`{"x":1}`)},
+			5: {ID: 5, TaskID: &taskID, Messages: []byte(`[{"role":"user"}]`), Result: []byte(`{"x":1}`)},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()

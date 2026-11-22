@@ -99,7 +99,6 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 		for _, v := range invocations {
 			items = append(items, gin.H{
 				"id":              v.ID,
-				"request_id":      v.RequestID,
 				"agent_run_id":    v.AgentRunID,
 				"task_id":         v.TaskID,
 				"conversation_id": v.ConversationID,
@@ -205,7 +204,6 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"id":              v.ID,
-			"request_id":      v.RequestID,
 			"agent_run_id":    v.AgentRunID,
 			"task_id":         v.TaskID,
 			"conversation_id": v.ConversationID,
