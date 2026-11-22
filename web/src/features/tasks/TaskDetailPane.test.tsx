@@ -48,6 +48,7 @@ function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
     tokens_out: 0,
     created_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    abort_reason: '',
     ...overrides,
   }
 }
@@ -114,5 +115,16 @@ describe('TaskDetailPane 运行中引导', () => {
     expect((screen.getByRole('button', { name: '调整目标' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: '指派动作' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText('任务已结束，可在对话中续接')).toBeTruthy()
+  })
+
+  it('已终止的任务显示终止原因，其它状态不显示', () => {
+    const { unmount } = renderPane(
+      makeTask({ status: 'aborted', ended_at: '2026-01-01T01:00:00Z', abort_reason: '任务运行超时（timeout）' }),
+    )
+    expect(screen.getByText('终止原因')).toBeTruthy()
+    expect(screen.getByText('任务运行超时（timeout）')).toBeTruthy()
+    unmount()
+    renderPane(makeTask({ status: 'completed', ended_at: '2026-01-01T01:00:00Z' }))
+    expect(screen.queryByText('终止原因')).toBeNull()
   })
 })

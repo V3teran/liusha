@@ -20,20 +20,20 @@ var ErrStaleConvergence = fmt.Errorf("收敛依据已失效：目标已调整或
 // API 层据此映射 409。
 var ErrNotActive = fmt.Errorf("任务已结束，仅进行中的任务可执行该操作")
 
-// Abort 把 task 推进到 aborted 终态：写 status / ended_at / error_message。
+// Abort 把 task 推进到 aborted 终态：写 status / ended_at / abort_reason。
 // 用户主动停 / ctx 取消 / 错误路径共用。
 //
 // 守卫：仅 active 可迁入 aborted（CAS）；已 aborted 幂等（并发双写者——用户停止 vs
 // 恢复监控判死——先到者赢）；已 completed 是冲突（迟到的 abort 不得把成功终态改写成
 // aborted），返回错误但不覆盖。applied 报告本次是否真正完成了迁移：时间线的终态节点只由
 // 真正迁移的一方落，幂等的重复停止不重复落节点。
-func (s *Store) Abort(ctx context.Context, id, errMsg string) (applied bool, err error) {
+func (s *Store) Abort(ctx context.Context, id, reason string) (applied bool, err error) {
 	return s.finishApplied(ctx, id, StatusAborted, nil, `
 		UPDATE task SET
 			status='aborted',
 			ended_at=now(),
-			error_message=$2
-		WHERE id=$1 AND status='active'`, errMsg)
+			abort_reason=$2
+		WHERE id=$1 AND status='active'`, reason)
 }
 
 // Complete 把 task 置为 completed（planner run 自然跑完的成功终态），写 ended_at。
@@ -135,7 +135,7 @@ func (s *Store) terminalOrConflict(ctx context.Context, id string, want Status) 
 }
 
 // ReopenTx 在调用方事务内把已终态的 task 置回 active（对话里续接已结束的任务），清
-// ended_at/error_message/paused。paused 必须一并清：上轮生命周期结束时若停在暂停中，
+// ended_at/abort_reason/paused。paused 必须一并清：上轮生命周期结束时若停在暂停中，
 // 残留标记会让新跑的循环被误读为「已暂停」。
 //
 // 累计停顿：复活前把「上次 ended_at → 现在」的用户停顿累加进 paused_ms（PG UPDATE 表达式用行旧值），
@@ -147,7 +147,7 @@ func ReopenTx(ctx context.Context, tx pgx.Tx, id string) error {
 			paused=false,
 			paused_ms = paused_ms + COALESCE((EXTRACT(EPOCH FROM (now() - ended_at)) * 1000)::bigint, 0),
 			ended_at=NULL,
-			error_message=''
+			abort_reason=''
 		WHERE id=$1`, id); err != nil {
 		return fmt.Errorf("reopen task %s: %w", id, err)
 	}

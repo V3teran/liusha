@@ -48,7 +48,7 @@ type Task struct {
 	PausedMs     int64
 	CreatedAt    time.Time
 	EndedAt      *time.Time
-	ErrorMessage string
+	AbortReason  string    // 终止（aborted）的原因；进行中与已完成为空
 	Scenario     *Scenario // 建任务时的场景快照（nil = 无场景）；建后不改
 }
 

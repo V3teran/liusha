@@ -104,6 +104,11 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
                     {task.status === 'active' ? (task.paused ? '已暂停' : '运行中') : taskStatusMeta(task.status).label}
                   </Badge>
                 </Kv>
+                {task.status === 'aborted' && task.abort_reason && (
+                  <Kv k="终止原因">
+                    <span className="text-xs">{task.abort_reason}</span>
+                  </Kv>
+                )}
                 <Kv k="来源">
                   <span className="inline-flex items-center gap-1.5">
                     <Badge dot={false} color={sourceColor(task.source)}>

@@ -737,6 +737,7 @@ export interface TaskSummary {
   tokens_out: number // 累计 LLM 输出 tokens
   created_at: string
   ended_at: string | null
+  abort_reason: string // 终止原因（仅 aborted 有值）
 }
 
 export interface TaskListResponse {

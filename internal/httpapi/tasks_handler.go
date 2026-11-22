@@ -261,6 +261,7 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"tokens_out":       sm.TokensOut,
 		"created_at":       sm.CreatedAt,
 		"ended_at":         sm.EndedAt,
+		"abort_reason":     sm.AbortReason,
 	}
 }
 
