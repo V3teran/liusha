@@ -2,7 +2,6 @@ package agentrun
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -32,7 +31,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanRun() 的字段顺序一一对应。
 const colsSelect = `id, ` +
 	`task_id::text AS task_id, ` +
-	`role, result, status, created_at, updated_at`
+	`status, created_at, updated_at`
 
 // Create 插入一行 pending agent 运行，返回新 id。run 不携带输入：它要做的事（任务目标）
 // 在任务行与探索图上，开跑时读取。TaskID 必填（NOT NULL 外键）。该 task 已有存活 run 时
@@ -40,10 +39,10 @@ const colsSelect = `id, ` +
 func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	var id string
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO agent_run (task_id, role)
-		VALUES ($1::uuid, $2)
+		INSERT INTO agent_run (task_id)
+		VALUES ($1::uuid)
 		RETURNING id`,
-		p.TaskID, p.Role,
+		p.TaskID,
 	).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -69,14 +68,11 @@ func (s *Store) SetRunning(ctx context.Context, id string) error {
 	return nil
 }
 
-// SetCompleted 把 pending|running 推进到 completed，写入 result。
-func (s *Store) SetCompleted(ctx context.Context, id string, result json.RawMessage) error {
-	if result == nil {
-		result = json.RawMessage("{}")
-	}
+// SetCompleted 把 pending|running 推进到 completed。
+func (s *Store) SetCompleted(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='completed', result=$1, updated_at=now()
-		WHERE id=$2 AND status IN ('pending','running')`, []byte(result), id)
+		UPDATE agent_run SET status='completed', updated_at=now()
+		WHERE id=$1 AND status IN ('pending','running')`, id)
 	if err != nil {
 		return fmt.Errorf("set completed %s: %w", id, err)
 	}
@@ -86,12 +82,12 @@ func (s *Store) SetCompleted(ctx context.Context, id string, result json.RawMess
 	return nil
 }
 
-// SetError 把 pending|running 推进到 error；errMsg 序列化为 {"error": ...}。
-func (s *Store) SetError(ctx context.Context, id string, errMsg string) error {
-	body, _ := json.Marshal(map[string]string{"error": errMsg})
+// SetError 把 pending|running 推进到 error（恢复监控按 error run 计重投次数）。出错细节由
+// 调用方记日志；任务因此终止时原因写在任务行。
+func (s *Store) SetError(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='error', result=$1, updated_at=now()
-		WHERE id=$2 AND status IN ('pending','running')`, body, id)
+		UPDATE agent_run SET status='error', updated_at=now()
+		WHERE id=$1 AND status IN ('pending','running')`, id)
 	if err != nil {
 		return fmt.Errorf("set error %s: %w", id, err)
 	}
@@ -179,15 +175,5 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 
 // scanRun 是 colsSelect 列序的统一反序列化点。
 func scanRun(r db.RowScanner, t *Run) error {
-	var result []byte
-	if err := r.Scan(
-		&t.ID,
-		&t.TaskID,
-		&t.Role,
-		&result, &t.Status, &t.CreatedAt, &t.UpdatedAt,
-	); err != nil {
-		return err
-	}
-	t.Result = result
-	return nil
+	return r.Scan(&t.ID, &t.TaskID, &t.Status, &t.CreatedAt, &t.UpdatedAt)
 }

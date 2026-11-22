@@ -85,7 +85,6 @@ func TestCompletionDetector_ReportStatsFromGraph(t *testing.T) {
 	got := d.makeResult(StopReasonConverged)
 	assert.Equal(t, 1, got.Actions, "只计执行过的动作")
 	assert.Equal(t, 1, got.Results)
-	assert.Equal(t, 1, got.Hypotheses, "只计假设，不计事实")
 }
 
 func TestCompletionDetector_AbortWins(t *testing.T) {

@@ -112,7 +112,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, conversationID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
+	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID); setErr != nil {
 		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -176,7 +176,7 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	if tErr != nil {
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
-		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID, "读取任务失败: "+tErr.Error()); err != nil {
+		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID); err != nil {
 			taskLogger.Warn().Err(err).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
 		}
 		taskLogger.Warn().Err(tErr).Msg("读取任务失败：本次 run 出错，任务保持进行中，由恢复监控重试")

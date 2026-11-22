@@ -54,11 +54,10 @@ func (h *Handler) executeTask(
 		case sandbox.Unavailable(err):
 			// 等满上限仍不可达：run 落 error、任务保持 active。恢复监控按出错续跑并计入重投
 			// 上限——沙盒恢复则续跑，持续不可用则任务在上限后落 aborted，不会无限重投。
-			msg := fmt.Sprintf("沙盒 %v 内不可达: %v", sandboxWait, err)
-			if runErr := h.AgentRuns.SetError(writeCtx, p.AgentRunID, msg); runErr != nil {
+			if runErr := h.AgentRuns.SetError(writeCtx, p.AgentRunID); runErr != nil {
 				taskLogger.Warn().Err(runErr).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
 			}
-			taskLogger.Warn().Err(err).Msg("沙盒不可达：本次 run 出错，任务保持进行中，由恢复监控重试")
+			taskLogger.Warn().Err(err).Dur("waited", sandboxWait).Msg("沙盒不可达：本次 run 出错，任务保持进行中，由恢复监控重试")
 			return nil
 		default:
 			// 沙盒拒绝请求（令牌错误等）：配置问题不会自愈，任务以错误结束并说明原因。
@@ -99,7 +98,7 @@ func (h *Handler) executeTask(
 		return h.failTask(ctx, taskLogger, p.AgentRunID, taskID, p.ConversationID, err)
 	}
 
-	// agent_run 终态回写：认知报告随 result 落库，审计面不残留 running 脏态。
+	// agent_run 终态回写：审计面不残留 running 脏态。
 	// 独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
 	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer doneCancel()
@@ -114,14 +113,13 @@ func (h *Handler) executeTask(
 	}
 
 	// run 终态按停止原因分流：被停止（task_terminated）与超时落 aborted——被杀的 run 标
-	// completed 会让审计面误读为自然收敛；认知报告仍随 result 落库（终止时也有 steps/attempts 可读）。
-	reportJSON, _ := json.Marshal(report)
+	// completed 会让审计面误读为自然收敛。
 	terminated := exit == runExitTerminated || exit == runExitTimedOut
 	var runErr error
 	if terminated {
 		runErr = h.AgentRuns.SetAborted(doneCtx, p.AgentRunID)
 	} else {
-		runErr = h.AgentRuns.SetCompleted(doneCtx, p.AgentRunID, reportJSON)
+		runErr = h.AgentRuns.SetCompleted(doneCtx, p.AgentRunID)
 	}
 	if runErr != nil {
 		taskLogger.Warn().Err(runErr).Str("agent_run_id", p.AgentRunID).Msg("agent_run 终态回写失败（审计面残留 running）")
@@ -212,8 +210,7 @@ func (h *Handler) finishTimedOutTask(ctx context.Context, taskLogger zerolog.Log
 
 // completionFields 汇总终态时间线节点的报告字段（completed/aborted 共用口径）。
 func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logger, conversationID, taskID string, report cognition.Report) map[string]any {
-	// 步数 = 一次 agent 推理一步（dispatched 后的 reasoning 终态数），与时间线卡片同
-	// 口径；动作、结果、假设数来自图统计，各是各的字段，不互相顶替。
+	// 步数 = 一次 agent 推理一步（dispatched 后的 reasoning 终态数），与时间线卡片同口径。
 	steps := 0
 	if conversationID != "" {
 		if n, cErr := h.Conversations.CountReasoningSinceDispatched(ctx, conversationID); cErr != nil {
@@ -224,9 +221,6 @@ func (h *Handler) completionFields(ctx context.Context, taskLogger zerolog.Logge
 	}
 	return map[string]any{
 		"steps":       steps,
-		"actions":     report.Actions,
-		"results":     report.Results,
-		"hypotheses":  report.Hypotheses,
 		"stop_reason": report.StopReason,
 		"findings":    h.findingsCount(ctx, taskID),
 	}

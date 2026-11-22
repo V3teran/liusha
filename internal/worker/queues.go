@@ -4,14 +4,12 @@ package worker
 
 // TaskRole 表示 asynq 队道路由 enum——决定一个任务入哪个 redis queue。
 //
-// 这里的 TaskRole 是 **asynq 调度层** 的标识，**不是** 认知循环里的 agent 角色。
-// agent_run 的四种角色（planner/executor/evaluator/monitor，见 agent_run.role
-// CHECK 约束）都走同一个 RoleAgent queue；agent 角色记录在 agent_run.role 列，
-// 跟 asynq 路由解耦。
+// 这里的 TaskRole 是 **asynq 调度层** 的标识，**不是** 认知循环里的 agent 角色：
+// 一次 agent run 是整个四 agent 认知循环，走同一个 RoleAgent queue。
 type TaskRole string
 
 const (
-	// RoleAgent 所有 agent 运行走的统一 queue（四角色共用；role 语义在 agent_run.role 列）。
+	// RoleAgent 所有 agent 运行走的统一 queue。
 	RoleAgent TaskRole = "agent"
 )
 

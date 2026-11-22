@@ -54,7 +54,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("task create: %v", err)
 	}
 	runs := agentrun.NewStore(pool)
-	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
+	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID})
 	if err != nil {
 		t.Fatalf("agent_run create: %v", err)
 	}

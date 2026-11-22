@@ -4,7 +4,6 @@ package agentrun
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -32,10 +31,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	id, err := s.Create(ctx, NewParams{
-		TaskID: taskID,
-		Role:   "planner",
-	})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -54,8 +50,7 @@ func TestStore_CreateThenComplete(t *testing.T) {
 	if err := s.SetRunning(ctx, id); err != nil {
 		t.Fatalf("set running: %v", err)
 	}
-	res, _ := json.Marshal(map[string]any{"terminate_by": "done", "total_steps": 7})
-	if err := s.SetCompleted(ctx, id, res); err != nil {
+	if err := s.SetCompleted(ctx, id); err != nil {
 		t.Fatalf("set done: %v", err)
 	}
 
@@ -64,39 +59,27 @@ func TestStore_CreateThenComplete(t *testing.T) {
 		t.Fatalf("get done: %v", err)
 	}
 	if got.Status != StatusCompleted {
-		t.Fatalf("最终 status 应为 done, got %s", got.Status)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(got.Result, &payload); err != nil {
-		t.Fatalf("result json invalid: %v", err)
-	}
-	if payload["terminate_by"] != "done" {
-		t.Fatalf("result 内容不匹配: %+v", payload)
+		t.Fatalf("最终 status 应为 completed, got %s", got.Status)
 	}
 }
 
-// TestStore_SetError 验证：error 终态会把错误信息序列化进 result。
+// TestStore_SetError 验证：error 终态可达（恢复监控按它计重投次数）。
 func TestStore_SetError(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunning(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetError(ctx, id, "boom"); err != nil {
+	if err := s.SetError(ctx, id); err != nil {
 		t.Fatalf("set error: %v", err)
 	}
 	got, _ := s.GetByID(ctx, id)
 	if got.Status != StatusError {
 		t.Fatalf("status=%s, want error", got.Status)
-	}
-	var p map[string]string
-	_ = json.Unmarshal(got.Result, &p)
-	if p["error"] != "boom" {
-		t.Fatalf("error 信息丢失: %+v", p)
 	}
 }
 
@@ -104,7 +87,7 @@ func TestStore_SetError(t *testing.T) {
 func TestStore_SetAborted(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +104,11 @@ func TestStore_SetAborted(t *testing.T) {
 func TestStore_TerminalIsSticky(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
-	id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+	id, err := s.Create(ctx, NewParams{TaskID: taskID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetCompleted(ctx, id, json.RawMessage(`{"ok":true}`)); err != nil {
+	if err := s.SetCompleted(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunning(ctx, id); err == nil {
@@ -141,7 +124,7 @@ func TestStore_ListByTask(t *testing.T) {
 	s, taskID := setup(t)
 
 	for i := 0; i < 3; i++ {
-		id, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+		id, err := s.Create(ctx, NewParams{TaskID: taskID})
 		if err != nil {
 			t.Fatalf("seed %d: %v", i, err)
 		}
@@ -173,13 +156,13 @@ func TestCreate_OneLiveRunPerTask(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	runID, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"})
+	runID, err := s.Create(ctx, NewParams{TaskID: taskID})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
 	// pending 存活期间：第二个存活 run 被拒。
-	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); !errors.Is(err, ErrLiveRunExists) {
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID}); !errors.Is(err, ErrLiveRunExists) {
 		t.Fatalf("pending 期间再建应返回 ErrLiveRunExists: %v", err)
 	}
 
@@ -187,7 +170,7 @@ func TestCreate_OneLiveRunPerTask(t *testing.T) {
 	if err := s.SetRunning(ctx, runID); err != nil {
 		t.Fatalf("set running: %v", err)
 	}
-	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); !errors.Is(err, ErrLiveRunExists) {
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID}); !errors.Is(err, ErrLiveRunExists) {
 		t.Fatalf("running 期间再建应返回 ErrLiveRunExists: %v", err)
 	}
 
@@ -195,7 +178,7 @@ func TestCreate_OneLiveRunPerTask(t *testing.T) {
 	if err := s.SetAborted(ctx, runID); err != nil {
 		t.Fatalf("set aborted: %v", err)
 	}
-	if _, err := s.Create(ctx, NewParams{TaskID: taskID, Role: "planner"}); err != nil {
+	if _, err := s.Create(ctx, NewParams{TaskID: taskID}); err != nil {
 		t.Fatalf("终态后应可再建: %v", err)
 	}
 }

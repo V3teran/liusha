@@ -24,7 +24,6 @@ import (
 	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/config"
-	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/conversation"
 	"github.com/V3teran/liusha/internal/proxy"
 	"github.com/V3teran/liusha/internal/scenariostore"
@@ -557,7 +556,6 @@ func ProxyTaskGoal(host string, trafficList []traffic.ProxyTraffic) string {
 func (t *Traffic) enqueueProxyTask(ctx context.Context, taskID, conversationID string) error {
 	hid, err := t.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
-		Role:   constants.AgentCodePlanner,
 	})
 	if err != nil {
 		return fmt.Errorf("agentRuns.Create: %w", err)

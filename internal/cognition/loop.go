@@ -127,15 +127,12 @@ type SandboxListener struct {
 	CallbackHost string
 }
 
-// Report 是一次 run 的报告：runner 据此收尾，写入时间线终态节点与 agent_run.result。
+// Report 是一次 run 的报告：runner 据此收尾，停止原因写入时间线终态节点。
 type Report struct {
-	Actions    int    `json:"actions"`     // 执行过的动作数
-	Results    int    `json:"results"`     // 坐实的结果数
-	Hypotheses int    `json:"hypotheses"`  // 提出的假设数
-	StopReason string `json:"stop_reason"` // 停止原因
+	StopReason string // 停止原因
 	// GoalBasis 是收敛所依据的目标（仅自然收敛时有值）：任务以它为前置落 completed，
 	// 收敛之后目标被调整或又有了待执行动作则不结束（见 task.Store.CompleteConverged）。
-	GoalBasis explorationgraph.GoalBasis `json:"-"`
+	GoalBasis explorationgraph.GoalBasis
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -231,9 +228,6 @@ func (d *Deps) run(
 		Msg("认知循环完成")
 
 	report := Report{
-		Actions:    result.Actions,
-		Results:    result.Results,
-		Hypotheses: result.Hypotheses,
 		StopReason: result.StopReason,
 		GoalBasis:  result.GoalBasis,
 	}

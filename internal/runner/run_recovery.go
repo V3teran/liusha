@@ -43,9 +43,6 @@ import (
 // 由用户手动重新触发。重投与其它 run 生产者（继续/续接）的毫秒级竞态由
 // agent_run 的部分唯一索引判定（每任务至多一个存活 run），先建者赢。
 
-// runRecoveryResumeRole 是恢复/重投使用的 agent 角色。
-const runRecoveryResumeRole = "planner"
-
 // messagePublisher 把落库的时间线消息广播给对话的实时订阅者（*convstream.Publisher 满足）。
 type messagePublisher interface {
 	PublishMessage(ctx context.Context, conversationID string, msg any) error
@@ -175,8 +172,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 			Msg("检测到僵尸 run（活动停摆超时），回收并重投")
 
 		// 旧 run 标记失败（UI 与审计如实反映中断）。
-		if err := m.agentRuns.SetError(ctx, z.runID,
-			"runner 中断：活动停摆超过 "+m.timeout.String()+"，已自动回收并重投"); err != nil {
+		if err := m.agentRuns.SetError(ctx, z.runID); err != nil {
 			m.logger.Error().Err(err).Str("agent_run_id", z.runID).Msg("旧 run 标记失败")
 		}
 
@@ -313,7 +309,6 @@ func (m *RunRecoveryMonitor) abortAfterRetries(ctx context.Context, taskID, conv
 func (m *RunRecoveryMonitor) redispatchPlanner(ctx context.Context, taskID, conversationID string) {
 	newID, err := m.agentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
-		Role:   runRecoveryResumeRole,
 	})
 	if err != nil {
 		if errors.Is(err, agentrun.ErrLiveRunExists) {

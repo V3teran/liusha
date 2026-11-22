@@ -128,8 +128,8 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Role != "planner" {
-		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
+	if len(runs) != 1 {
+		t.Fatalf("应建出 1 条 run，got %+v", runs)
 	}
 
 }

@@ -388,7 +388,6 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID string) (string, error) {
 	tid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
-		Role:   "planner",
 	})
 	if err != nil {
 		return "", fmt.Errorf("create agent run: %w", err)
