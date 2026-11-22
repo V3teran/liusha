@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.1](https://github.com/V3teran/liusha/compare/v0.14.0...v0.14.1) (2026-11-22)
+
+
+### 问题修复
+
+* **config:** CTF 场景补充攻击方法：收敛假设、直取旗标 ([77a22aa](https://github.com/V3teran/liusha/commit/77a22aa0f15461dc119962714b276acb6372c62a))
+* **config:** CTF 攻击方法补深度优先纪律：原语走完才换面 ([acb5c08](https://github.com/V3teran/liusha/commit/acb5c08def0a010d42943ffb386ceb75d1c488ad))
+* **config:** e2e 清库豁免检索模型配置表 ([7c88427](https://github.com/V3teran/liusha/commit/7c88427a78aa816cc76d9714bb2d5b68d629f181))
+* **exploration:** 监察者的停滞判定只认打转的过程证据 ([48847b6](https://github.com/V3teran/liusha/commit/48847b6135211ab3b4926f691accf23a343260d6))
+* **llm:** 输出上限缺省提到 16k，规划契约不再被截断 ([2d531e6](https://github.com/V3teran/liusha/commit/2d531e64b0651242821492f940618e2043fc6062))
+* **tsecbench:** 任务目标带全题面元信息 ([da2e89a](https://github.com/V3teran/liusha/commit/da2e89a6eb6ef80de526b44002caeef5e58b0ad9))
+* **tsecbench:** 单题时限按难度分级 ([12905bf](https://github.com/V3teran/liusha/commit/12905bfdead6717250d3d69a6abe4ffba978d396))
+* **tsecbench:** 单题预算改按分值分档；监察者盯假设形成 ([5940e77](https://github.com/V3teran/liusha/commit/5940e77ae0bd37d80f2469ed1c58c42fff44e88e))
+* **tsecbench:** 适配下发契约，通关任务交还引擎收敛 ([36b0b5c](https://github.com/V3teran/liusha/commit/36b0b5c716cf9236d0327f99e419bb26a3de85f0))
+* **ui:** 深色主题徽记统一为同一枚应用图标 ([f6e69ce](https://github.com/V3teran/liusha/commit/f6e69ce06ed01faa2a13aae6228dbbd188b4faf2))
+
 ## [0.14.0](https://github.com/V3teran/liusha/compare/v0.13.5...v0.14.0) (2026-11-22)
 
 
