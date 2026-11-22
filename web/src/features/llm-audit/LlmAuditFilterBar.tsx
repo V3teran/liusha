@@ -17,7 +17,7 @@ interface LlmAuditFilterBarProps {
 }
 
 /**
- * LlmAuditFilterBar - LLM 审计筛选栏
+ * LlmAuditFilterBar - 模型日志筛选栏
  *
  * 全站统一筛选顺序（对齐 TrafficFilterBar/TaskFilterBar/发现页）：
  * 枚举下拉（粗→细：角色→模型）→ 关键词搜索 → 时间范围 → 布尔开关 → 清空 →（最右）分页。

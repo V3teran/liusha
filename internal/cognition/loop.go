@@ -44,7 +44,7 @@ import (
 // 是历史 bug 高发区）。
 type Deps struct {
 	AssignmentID string // 批次 ID（沙盒工作区一级分组）
-	// AgentRunID 是本次认知循环所属的 agent_run.id：LLM 审计、工具调用、agent 流量与
+	// AgentRunID 是本次认知循环所属的 agent_run.id：模型日志、工具调用、agent 流量与
 	// 坐实漏洞都归属到它。由 runner 按投递消息注入——一个任务可有多个 run（暂停后继续、
 	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
 	// 产出全部错记到早已结束的首个 run）。
@@ -473,7 +473,7 @@ func (d *Deps) buildExecutorAgent(
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:              d.Router,
 		Graph:               d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
-		AgentRunID:          agentRunID, // LLM 审计归属本轮 run
+		AgentRunID:          agentRunID, // 模型日志归属本轮 run
 		Registry:            execRegistry,
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）

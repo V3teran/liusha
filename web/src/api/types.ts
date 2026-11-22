@@ -35,7 +35,7 @@ export interface TimelineEventMeta {
   severity: string // finding：分级（critical/high/medium/low/info——info 档为非漏洞信息成果）
   host: string // finding：目标主机
   target: string // finding：目标定位（URL/路径等）
-  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 LLM 审计页按调用可查）
+  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型日志页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
@@ -505,7 +505,7 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   LLM 审计（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
+   模型日志（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
    详情走 GET /llm/invocations/detail/:id 按需拉。
    筛选（q/role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。

@@ -66,7 +66,7 @@ describe('ReasoningCard', () => {
     expect(container.querySelector('.markdown-body')).toBeNull()
   })
 
-  it('叙述正文直出，不再有「原始输出」折叠（面分离：原文在 LLM 审计页按调用可查）', () => {
+  it('叙述正文直出，不再有「原始输出」折叠（面分离：原文在 模型日志页按调用可查）', () => {
     render(<ReasoningCard text="任务收敛，不再派发动作。" />)
     expect(screen.getByText('任务收敛，不再派发动作。')).toBeTruthy()
     expect(screen.queryByText('原始输出')).toBeNull()

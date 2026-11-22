@@ -359,7 +359,7 @@ func (s *Store) ClassFacets(ctx context.Context, f LedgerFilter) ([]ClassFacet, 
 
 // Stat 是台账头部统计 chip 的数据源：与 ListAll/CountAll 同一筛选口径
 // （ledgerWhere 单一口径），按 status / severity 维度聚合——口径与列表一致，
-// 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 LLM 审计页）。
+// 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 模型日志页）。
 type Stat struct {
 	Total      int            `json:"total"`
 	ByStatus   map[string]int `json:"by_status"`

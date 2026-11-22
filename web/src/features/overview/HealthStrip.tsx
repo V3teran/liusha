@@ -16,7 +16,7 @@ const STATE: Record<HealthState, { icon: LucideIcon; label: string; className: s
 interface Item {
   key: string
   name: string
-  /** 这一项的日志（日志页按承载它的进程筛好）；平台不收集日志的数据依赖没有 */
+  /** 这一项的日志（服务器日志页按承载它的进程筛好）；平台不收集日志的数据依赖没有 */
   to?: string
   state: HealthState
   /** 读数：几个带标签的短语，窄处按短语折行 */

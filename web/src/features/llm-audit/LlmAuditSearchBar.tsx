@@ -10,7 +10,7 @@ interface LlmAuditSearchBarProps {
 }
 
 /**
- * LlmAuditSearchBar - LLM 审计搜索栏
+ * LlmAuditSearchBar - 模型日志搜索栏
  *
  * 支持搜索：
  * - 对话 ID (conversation_id)

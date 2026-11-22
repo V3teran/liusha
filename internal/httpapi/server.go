@@ -176,7 +176,7 @@ func NewServer(d Deps) http.Handler {
 		start := time.Now()
 		c.Next()
 		// 降为 debug 的两类高频请求：前端静态资源（每次打开页面几十个）；日志查看
-		// 端点被日志页自身 3s 增量轮询，info 级会在日志页里自我回灌成噪音墙。
+		// 端点被服务器日志页自身 3s 增量轮询，info 级会在服务器日志页里自我回灌成噪音墙。
 		// 默认视图不出现，排查时仍可按级别开启。
 		ev := accessLog.Info()
 		if !isAPIPath(c.Request.URL.Path) || strings.HasPrefix(c.Request.URL.Path, "/api/logs") {
@@ -193,7 +193,7 @@ func NewServer(d Deps) http.Handler {
 			Msg("request")
 	})
 
-	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（日志页数据源）看不到
+	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（服务器日志页数据源）看不到
 	// 崩溃现场。这里结构化记录 panic 值与调用栈后回 500。
 	r.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		apiLog.Error().

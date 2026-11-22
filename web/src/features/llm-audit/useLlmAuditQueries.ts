@@ -3,7 +3,7 @@ import { getLLMInvocationDetail, searchLLMInvocationFacets, searchLLMInvocationS
 import { getRuntimeSettings } from '@/api/settings'
 import type { LLMInvocationFilters } from '@/api/types'
 
-// LLM 审计页数据层：统一走 React Query。
+// 模型日志页数据层：统一走 React Query。
 // query key 含 search + filters + 分页：任一变化即视为新查询，过期请求的结果自动被丢弃
 // （不会出现「快速切换筛选后，旧请求晚回来覆盖新结果」的竞态）。
 // placeholderData: keepPreviousData 让筛选/翻页时旧数据先留在屏幕上，等新数据到达再替换，

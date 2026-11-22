@@ -7,7 +7,7 @@ import { SettingStatus, sectionProps } from './sectionBindings'
 
 export function RuntimeSection() {
   const queryClient = useQueryClient()
-  // onSaved 失效 LLM 审计页的 runtime 缓存（useRuntimeSettings 同 key）：
+  // onSaved 失效模型日志页的 runtime 缓存（useRuntimeSettings 同 key）：
   // 看门狗秒数改完，审计页的超时判定/展示立即可见，不再等 60s staleTime。
   const s = useSettingSection('runtime', () => {
     void queryClient.invalidateQueries({ queryKey: ['settings', 'runtime'] })

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
  * TokenPair：输入/输出 token 的统一呈现——↑输入 ↓输出、tabular-nums 右对齐、
  * 悬停精确值。token 是中性度量数据（不是告警/风险），不借用发现严重度色板
  * （曾用 sev-info/sev-high 把「输出」染成高危红，语义错位）；对话页、任务
- * 列表、LLM 审计三面共用，一处定终身。
+ * 列表、模型日志三面共用，一处定终身。
  */
 export function TokenPair({
   inTokens,

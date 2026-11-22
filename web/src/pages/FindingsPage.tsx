@@ -92,7 +92,7 @@ export function FindingsPage() {
   const total = listQuery.data?.total ?? 0
 
   // 头部统计走服务端聚合（与列表同筛选口径、与翻页无关）——此前按当前页行
-  // 自算，与「共 N 条」的全量口径同屏自相矛盾（LLM 审计页同款问题已修过）。
+  // 自算，与「共 N 条」的全量口径同屏自相矛盾（模型日志页同款问题已修过）。
   const statQuery = useQuery({
     queryKey: ['findings', 'stat', filters],
     queryFn: () => getFindingStat(filters),

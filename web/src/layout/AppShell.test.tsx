@@ -86,7 +86,7 @@ describe('AppShell', () => {
     expect(screen.getByText('对话')).toBeTruthy()
     expect(screen.getByText('发现')).toBeTruthy()
     expect(screen.getByText('探索图')).toBeTruthy()
-    expect(screen.getByText('LLM 审计')).toBeTruthy()
+    expect(screen.getByText('模型日志')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
     expect(screen.getByText('智能体')).toBeTruthy()
     // 左下角「设置」入口已删（/settings 路由同步移除）。
@@ -153,7 +153,9 @@ describe('AppShell', () => {
     const observe = screen.getByRole('group', { name: '观测' })
     const config = screen.getByRole('group', { name: '配置' })
     expect(within(work).getByText('任务')).toBeTruthy()
-    expect(within(observe).getByText('日志')).toBeTruthy()
+    expect(within(observe).getByText('服务器日志')).toBeTruthy()
+    expect(within(observe).getByText('审计日志')).toBeTruthy()
+    expect(within(observe).getByText('模型日志')).toBeTruthy()
     expect(within(config).getByText('系统配置')).toBeTruthy()
   })
 

@@ -61,7 +61,7 @@ export function UsageTrend({
       title={`近 ${days} 天 LLM 消耗`}
       meta={`${compactNumber(total)} tokens`}
       className={className}
-      action={<PanelLink to="/llm-audit">LLM 审计</PanelLink>}
+      action={<PanelLink to="/llm-audit">模型日志</PanelLink>}
     >
       <p className="flex flex-wrap items-baseline gap-x-2.5 text-xs text-text-secondary">
         <span className="font-medium text-text">最近 24 小时</span>

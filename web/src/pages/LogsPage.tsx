@@ -116,7 +116,7 @@ export function LogsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="日志">
+      <PageHeader title="服务器日志">
         <button
           type="button"
           onClick={() => setLive((v) => !v)}

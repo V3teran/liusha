@@ -305,7 +305,7 @@ func TestProcessesInventory(t *testing.T) {
 	if len(api.Instances) != 2 || api.Instances[0] != "72661@hohehoe.local" || api.Instances[1] != "8912@docker-host-2" {
 		t.Errorf("实例枚举不符（去重+首现序）: %+v", api.Instances)
 	}
-	// 没有实例的进程 instances 也是空数组而非 null：前端按数组迭代，null 会让日志页渲染崩溃。
+	// 没有实例的进程 instances 也是空数组而非 null：前端按数组迭代，null 会让服务器日志页渲染崩溃。
 	raw, err := json.Marshal(ps[1])
 	if err != nil {
 		t.Fatal(err)

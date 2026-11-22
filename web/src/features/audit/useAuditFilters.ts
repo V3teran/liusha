@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useUrlPageState } from '@/hooks/useUrlPageState'
 import type { AuditFilters } from '@/api/audit'
 
-// 筛选态迁移进 URL search params（对齐 LLM 审计页同款规则）：
+// 筛选态迁移进 URL search params（对齐模型日志页同款规则）：
 // 参数名 q / action / start / end / page / size；offset 分页。
 
 export interface AuditUrlState {
@@ -71,7 +71,7 @@ export function useAuditFilters(): AuditUrlState {
   return { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters }
 }
 
-/** 防抖搜索输入的本地草稿（300ms，对齐 LLM 审计页同款）。 */
+/** 防抖搜索输入的本地草稿（300ms，对齐模型日志页同款）。 */
 export function useDebouncedQuery(value: string, onChange: (v: string) => void) {
   const [local, setLocal] = useState(value)
   useEffect(() => {

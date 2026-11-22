@@ -8,7 +8,7 @@ import { useAuditList } from '@/features/audit/useAuditQueries'
 
 /**
  * 审计日志页：系统级敏感操作的审计链（只读）。
- * 数据流与 LLM 审计页同构：筛选/分页进 URL、服务端筛选与分页、动作下拉来自后端词表。
+ * 数据流与 模型日志页同构：筛选/分页进 URL、服务端筛选与分页、动作下拉来自后端词表。
  */
 export function AuditPage() {
   const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useAuditFilters()

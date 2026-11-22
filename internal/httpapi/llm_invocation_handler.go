@@ -81,7 +81,7 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		invocations, err := api.ListAll(c.Request.Context(), f)
@@ -140,7 +140,7 @@ func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		a, err := api.AggregateAll(c.Request.Context(), f)
@@ -189,7 +189,7 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 			return
 		}
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		v, err := api.GetDetailByID(c.Request.Context(), id)

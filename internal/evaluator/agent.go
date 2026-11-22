@@ -45,7 +45,7 @@ const maxVerifyAttempts = 3
 //     沿用既有判定，不再烧 judge。
 type Agent struct {
 	taskID        string
-	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	agentRunID    string         // 本轮认知循环的 agent_run.id（模型日志归属）
 	gate          *PromotionGate // 使用具体类型
 	eventBus      bus.EventBus
 	graph         *explorationgraph.Store // 探索图存储
@@ -105,7 +105,7 @@ func (p priorVerdict) settled() bool {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
-	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	AgentRunID    string // 本轮认知循环的 agent_run.id（模型日志归属）
 	Gate          *PromotionGate
 	EventBus      bus.EventBus
 	Graph         *explorationgraph.Store // 探索图存储
@@ -150,7 +150,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("evaluator: Graph is required")
 	}
 
-	// LLM 审计维度：判定调用归 task/本轮 run、角色 evaluator。
+	// 模型日志维度：判定调用归 task/本轮 run、角色 evaluator。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
 	// 在途验证跑在派生 ctx 上：任一退出路径（ctx 取消 / 致命错误）都先取消、再等它们

@@ -61,7 +61,7 @@ type LogConfig struct {
 	Level    string `mapstructure:"level"`     // debug / info / warn / error
 	Format   string `mapstructure:"format"`    // 标准输出的格式：json / console（文件永远是 json）
 	ToStdout bool   `mapstructure:"to_stdout"` // 写标准输出
-	ToFile   bool   `mapstructure:"to_file"`   // 写 <data_dir>/logs/<命令>.log（控制台「日志」页读它）
+	ToFile   bool   `mapstructure:"to_file"`   // 写 <data_dir>/logs/<命令>.log（控制台「服务器日志」页读它）
 	// MaxSizeBytes 是单个日志文件的轮转大小，须为 1 MiB 的整数倍（按 MiB 轮转）。
 	MaxSizeBytes int64 `mapstructure:"max_size_bytes"`
 	MaxBackups   int   `mapstructure:"max_backups"`  // 保留的轮转文件数；0 = 不按个数清理
