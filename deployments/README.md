@@ -57,7 +57,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | `LIUSHA_REDIS_URL` | `redis.url` | 二进制：Redis 连接串 `redis://[用户名]:密码@主机:端口/库号`，TLS 用 `rediss://` | 除 sandbox 外全部 |
 
 密钥与密码用 `openssl rand -hex` 生成：只含十六进制字符，放进连接串无需转义。LLM 在控制台
-「LLM 配置」页接入，密钥加密保存在数据库。
+「模型配置」页接入，密钥加密保存在数据库。
 
 **数据目录**（`data_dir`）是持久数据的根：`workspace/`（任务工作区）、`logs/`（日志）、`certs/`
 （代理的根证书与私钥）都在其下。单镜像与多镜像的数据库数据也放在同一目录
@@ -309,7 +309,7 @@ make dev-down             # 收工（-v 清数据）
   `LIUSHA_EMBEDDING_API_KEY`；`LIUSHA_POSTGRES_DSN` → `LIUSHA_POSTGRES_URL`；`LIUSHA_REDIS_ADDR` +
   `LIUSHA_REDIS_PASSWORD` → `LIUSHA_REDIS_URL`。`LIUSHA_ENV`、`LIUSHA_INSTANCE` 删除（日志格式改
   `log.format`；实例名固定为「进程号@主机名」）。
-- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「LLM 配置」页接入。原先靠环境
+- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「模型配置」页接入。原先靠环境
   变量取密钥的 provider（由种子导入、未在页面上填过密钥）升级后显示「未设置密钥」，在页面上重新填写
   一次即可；对应的环境变量可以删掉。
 - **MITM 根证书**移到 `<data_dir>/certs`：二进制部署原在 `~/.liusha`，把其中的 `cacert.pem` /

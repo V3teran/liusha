@@ -81,7 +81,7 @@ type Deps struct {
 	ToolCatalog ToolCatalogAPI
 	// SandboxInventory 为工具目录附沙盒安装状态；nil 时安装状态一律未知（null）。
 	SandboxInventory SandboxInventoryAPI
-	// Models 为 nil 时 LLM 配置路由（/models 系列）不注册。
+	// Models 为 nil 时 模型配置路由（/models 系列）不注册。
 	// 由 api 组件注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
 	// provider CRUD + 能力路由；写经其失效广播，各进程下次 For(complexity) 读到最新。
 	Models ModelAPI

@@ -67,7 +67,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/config/scenarios', label: '场景', icon: Compass },
       { to: '/config/tools', label: '工具', icon: Wrench },
       { to: '/config/skills', label: '技能', icon: BookOpen },
-      { to: '/config/models', label: 'LLM 配置', icon: Boxes },
+      { to: '/config/models', label: '模型配置', icon: Boxes },
       { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
     ],
   },

@@ -95,7 +95,7 @@ type RedisConfig struct {
 	WriteTimeoutSeconds int    `mapstructure:"write_timeout_seconds"`
 }
 
-// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「LLM 配置」
+// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「模型配置」
 // 页维护、存于数据库，不在配置文件里。
 type LLMConfig struct {
 	// EncryptionKey 加密数据库里保存的 provider 密钥（AES-256-GCM），32 字节 hex（64 个字符）。

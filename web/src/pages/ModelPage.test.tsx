@@ -44,7 +44,7 @@ describe('ModelPage', () => {
 
     renderPage()
 
-    expect(screen.getByRole('heading', { name: 'LLM 配置' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '模型配置' })).toBeTruthy()
   })
 
   it('渲染两个分区：模型提供商、能力路由', () => {

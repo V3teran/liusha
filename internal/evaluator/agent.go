@@ -56,7 +56,7 @@ type Agent struct {
 	// inFlight 收口在途验证 goroutine：Run 退出前等它们落定（ctx 已取消时
 	// 会快速返回），避免停机后仍向 bus/图写事件的竞态。
 	inFlight sync.WaitGroup
-	// fatal 承接异步判定中的致命错误（LLM 配置错误），由 Run 返回终结任务（容量 1：只需首个）。
+	// fatal 承接异步判定中的致命错误（模型配置错误），由 Run 返回终结任务（容量 1：只需首个）。
 	fatal chan error
 
 	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
@@ -183,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case err := <-a.fatal:
-			a.logger.Error().Err(err).Msg("LLM 配置错误，判定无法继续；取消在途验证")
+			a.logger.Error().Err(err).Msg("模型配置错误，判定无法继续；取消在途验证")
 			return err
 
 		case <-ticker.C:
@@ -342,7 +342,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //   - 确定性配方缺陷（复现通道包装为 ErrInvalidRecipe）——重放同样配方必然同样失败，
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, claim Claim, cause error) {
-	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
+	// 模型配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
 	// 出圈），上报为 evaluator 致命错误。
 	if llm.IsConfigError(cause) {
 		select {

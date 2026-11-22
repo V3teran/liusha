@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// LLM 配置错误终止 monitor 循环；其余评估失败记录后继续（监察失败不应拖垮任务）。
+// 模型配置错误终止 monitor 循环；其余评估失败记录后继续（监察失败不应拖垮任务）。
 func TestEvaluationFailure_ConfigErrorIsFatal(t *testing.T) {
 	a := &Agent{logger: zerolog.Nop()}
 	cfgErr := fmt.Errorf("ReAct runtime execution: %w", &llm.HTTPError{Code: 403})

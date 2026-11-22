@@ -1,5 +1,5 @@
 /**
- * LLM 配置 API 客户端（provider / 档位路由 两资源）
+ * 模型配置 API 客户端（provider / 档位路由 两资源）
  *
  * 复用 client.ts 的 get/post/put/del 封装（同源携带会话 Cookie；错误响应体含
  * 409 的中文 FK 原因，经 raise 统一读取透出给调用方）。

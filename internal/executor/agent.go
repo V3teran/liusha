@@ -216,14 +216,14 @@ func (a *Agent) releaseSlot(actionID string) {
 	}
 }
 
-// loopFailure 处置一轮执行失败：LLM 配置错误（鉴权/权限/模型不存在）原样返回——
+// loopFailure 处置一轮执行失败：模型配置错误（鉴权/权限/模型不存在）原样返回——
 // 致命，Run 退出由认知循环终结任务（重试不会自愈）；其余失败记录后继续下一轮。
 func (a *Agent) loopFailure(err error, phase string) error {
 	if err == nil {
 		return nil
 	}
 	if llm.IsConfigError(err) {
-		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，执行无法继续")
+		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，执行无法继续")
 		return err
 	}
 	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("执行失败（下一轮继续）")

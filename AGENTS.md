@@ -216,7 +216,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 配方是信封 `{kind, recipe, assert}`，`kind` 是配方的形状（怎样复现），不是业务领域。`internal/repro` 只定义信封与配方形状注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `steps` 形状：自然语言步骤 + 判据描述），其余形状的 recipe / assert、矫正与机器复现通道归各自的包（一个 HTTP 请求的 `http` 形状在 `internal/httprepro`），在 `cognition` 装配时注册。复现门按信封的 kind 选复现通道；没有通道的形状回显配方、由评估者自主取证（验证档位 `judge_only`）。新增形状实现 `repro.Kind`（与可选的 `evaluator.Replayer`）并在装配处注册，同时在执行者契约里写明它的配方、在评估者契约里写明它的证据（`httprepro` 的测试守住两份契约与实现一致）。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
 - 复现门是终局：http 配方（`httprepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
 - 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `httprepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
-- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
+- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：模型配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
 - 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付（尽力而为：失败只告警，不回滚验证结论）→ 标记假设已验证。验证结论以审计链与图为准；交付是按结果节点幂等的投影，台账缺口由 runner 的周期补交付（`RedeliverUndeliveredFindings`，启动一次 + 每 10 分钟）收账——交付故障不得按验证失败处理，否则复现成功的主张会被重跑复现、按不可复现错驳（实测：交付反复失败曾令坐实成果整批出圈）。
 - 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付按结果节点幂等（`result_node_id` 唯一），重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
 - 发现类型（`finding.class`）是封闭词表（`internal/finding/class.go`：取值、展示名、CWE）之一：评估者坐实时在主张指纹里给出类别（内置场景向它列出同一份词表，`internal/finding` 的测试守住两边一致），晋升门把它单独记在结果节点 metadata 的 `claim_class`，交付时收进词表——词表之外的与未给出的归入 `other`。CWE 按类型固定映射、不由 LLM 给出（LLM 常编造编号）。台账接口带出展示名与 CWE，前端不另存映射；产品按渗透测试定位，词表固定在台账层，用户改写场景新增的类别归入「其他」。
@@ -243,8 +243,8 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### LLM 密钥
 
-- 只有一条路径：在前端「LLM 配置」页填写，`llm_provider.encrypted_api_key` 以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及 LLM 接入，不从环境变量取 provider 密钥。事实源：`internal/llmconfig/apikey.go`。
-- 缺少 LLM 配置不阻止启动：任务下发会被拒绝，并提示到前端配置。
+- 只有一条路径：在前端「模型配置」页填写，`llm_provider.encrypted_api_key` 以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及 LLM 接入，不从环境变量取 provider 密钥。事实源：`internal/llmconfig/apikey.go`。
+- 缺少 模型配置不阻止启动：任务下发会被拒绝，并提示到前端配置。
 - 档位解析（`framework/llm/router.go`）：显式档 → 就近降级到相邻档。provider 停用、缺钥都按「未配置」处理并继续降级；全部候选不可用时保留 `ErrNotConfigured`，任务据此干净终结。
 - provider 只认协议、不认服务：官方、各家兼容端点、中转网关都按 `openai_compat` / `anthropic` 接入，代码里不出现任何服务名单。服务间的差异由「请求画像」承载——`auth_scheme`（`bearer` / `x-api-key`，与协议正交）与 `output_limit_param`（`max_tokens` / `max_completion_tokens`）——由连接诊断实测后记录；运行期 OpenAI 兼容生成器遇上游明确拒绝某个可选字段时也会自适应改写重发（`framework/llm/openai_compat_adapt.go`）。
 - 出站凭据只有一个出口：`ClientPool` 的传输层清掉全部凭据头（含 SDK 从环境变量注入的外来值）后按 `auth_scheme` 只写一个；只跟随同源重定向，跨源重定向不得带出密钥。

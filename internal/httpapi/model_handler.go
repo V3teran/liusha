@@ -1,4 +1,4 @@
-// Package httpapi: LLM 配置 CRUD handler（前端「LLM 配置」页，/models 系列）。
+// Package httpapi: 模型配置 CRUD handler（前端「模型配置」页，/models 系列）。
 //
 // 两资源：llm_provider（provider 注册表）/ llm_role_route（档位 → provider 路由）。写路径一律
 // 走 llmstore（落 DB + redis 广播失效），各进程的 llm.Router 下次 For(complexity) 即读到最新
@@ -31,7 +31,7 @@ type KeyEncrypter interface {
 	Encrypt(plaintext string) ([]byte, error)
 }
 
-// ModelAPI 是 LLM 配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
+// ModelAPI 是 模型配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
 // 读经多级缓存 / 直穿 DB、写经失效广播的语义全在 llmstore 内，handler 只做 HTTP 编解码 + 校验。
 type ModelAPI interface {
 	// provider

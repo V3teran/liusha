@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// LLM 配置错误（鉴权/权限/模型不存在）终止 executor 循环；其余执行失败记录后继续。
+// 模型配置错误（鉴权/权限/模型不存在）终止 executor 循环；其余执行失败记录后继续。
 func TestLoopFailure_ConfigErrorIsFatal(t *testing.T) {
 	a := &Agent{logger: zerolog.Nop()}
 	cfgErr := fmt.Errorf("execute action a1: LLM 调用失败: %w", &llm.HTTPError{Code: 401})

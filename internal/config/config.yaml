@@ -60,7 +60,7 @@ redis:
   write_timeout_seconds: 3
 
 # ---- LLM ----
-# LLM 接入（provider）与档位路由在前端「LLM 配置」页维护，密钥加密保存在数据库。
+# LLM 接入（provider）与档位路由在前端「模型配置」页维护，密钥加密保存在数据库。
 llm:
   encryption_key: ""                 # 密钥（LIUSHA_LLM_ENCRYPTION_KEY）：加密已保存的 provider 密钥，32 字节 hex（openssl rand -hex 32）；生成后不可更改
   # 错误码退避表（429/529/5xx/网络超时），所有调 LLM 的组件共用。

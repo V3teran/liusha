@@ -210,7 +210,7 @@ func TestGenerateNewActions_RespectContextCancellation(t *testing.T) {
 	assert.Equal(t, int32(1), fake.callCount)
 }
 
-// LLM 配置错误（鉴权失败等）是致命错误：规划失败处置必须让 Run 退出，而不是交给
+// 模型配置错误（鉴权失败等）是致命错误：规划失败处置必须让 Run 退出，而不是交给
 // 轮询无限重撞；其余规划失败（瞬时故障耗尽、输出解析失败）仍记录后等下一轮。
 func TestPlanFailure_ConfigErrorIsFatal(t *testing.T) {
 	a := &Agent{taskID: "t1", logger: zerolog.Nop()}

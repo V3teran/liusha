@@ -189,7 +189,7 @@ func (d *CompletionDetector) Converge(reason string, basis explorationgraph.Goal
 	}
 }
 
-// StopReasonAgentFailed 是 agent 致命失败（如 LLM 配置错误）终结任务的停止原因。
+// StopReasonAgentFailed 是 agent 致命失败（如 模型配置错误）终结任务的停止原因。
 const StopReasonAgentFailed = "agent_failed"
 
 // Fail 以致命错误终结检测循环（只取第一个：多个 agent 同因失败时不阻塞）。

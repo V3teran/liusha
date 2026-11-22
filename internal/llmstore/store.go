@@ -1,4 +1,4 @@
-// Package llmstore 是 LLM 配置（provider / 复杂度路由）的多级缓存读写层，
+// Package llmstore 是 模型配置（provider / 复杂度路由）的多级缓存读写层，
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
 // → DB（事实源，由 internal/llmconfig.Store 打）。
 //
@@ -45,7 +45,7 @@ type llmStore interface {
 	GetRouting(ctx context.Context) (llmconfig.Routing, error)
 }
 
-// Store 编排 LLM 配置的多级读写：底层 DB store + 共享 cachestore 内核。
+// Store 编排 模型配置的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
 	db    llmStore
 	cache *cachestore.Cache
@@ -93,7 +93,7 @@ func routeKeys() []string {
 	return []string{keyRouting, keyRoleRoutesList}
 }
 
-// InvalidateAll 清空 LLM 配置的全部读缓存（列表键 + 路由快照 + 路由列表）。
+// InvalidateAll 清空 模型配置的全部读缓存（列表键 + 路由快照 + 路由列表）。
 // 供绕过本 store 写路径的批量导入（启动期 seed 直连 DB）之后调用——不经失效
 // 广播的外部写入会让缓存里的旧值存活到 TTL，重启后读到「已重建却像未配置」。
 func (s *Store) InvalidateAll(ctx context.Context) error {

@@ -107,7 +107,7 @@ func TestCompletionDetector_AbortCarriesPauseReason(t *testing.T) {
 	assert.Equal(t, StopReasonPaused, res.StopReason)
 }
 
-// agent 致命失败（如 LLM 配置错误）必须终结检测循环并携带错误——否则任务永不收敛，
+// agent 致命失败（如 模型配置错误）必须终结检测循环并携带错误——否则任务永不收敛，
 // 停在 active。
 func TestCompletionDetector_FailStopsWithError(t *testing.T) {
 	d, _ := newDetector(t, 0)

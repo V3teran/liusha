@@ -74,7 +74,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	// provider 密钥的加密密钥：缺失或长度不对直接拒启动——前端「LLM 配置」页写密钥、
+	// provider 密钥的加密密钥：缺失或长度不对直接拒启动——前端「模型配置」页写密钥、
 	// LLM 调用读密钥都靠它，静默跳过会让密钥以明文落库或运行期解密报错。
 	llmKeyCipher, err := cryptx.NewFromHex(cfg.LLM.EncryptionKey)
 	if err != nil {
@@ -269,11 +269,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 func bootstrap(ctx context.Context, logger zerolog.Logger, pool *pgxpool.Pool,
 	cfgStore *configstore.Store, toolCatalog *toolstore.Store, tools *manifest.ToolManifest,
 ) {
-	// 零 provider 不拒启：LLM 在前端「LLM 配置」页接入，未接入时下发边界会拒绝并给出指引。
+	// 零 provider 不拒启：LLM 在前端「模型配置」页接入，未接入时下发边界会拒绝并给出指引。
 	if provs, err := llmconfig.NewStore(pool).ListProviders(ctx, false); err != nil {
-		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查 LLM 配置）")
+		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查 模型配置）")
 	} else if len(provs) == 0 {
-		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「LLM 配置」页接入 provider")
+		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「模型配置」页接入 provider")
 	}
 
 	// 工具目录同步：内置函数工具 + 工具清单幂等同步进 tool 表，供工具页与智能体配置页选用。

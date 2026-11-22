@@ -72,7 +72,10 @@ EXCLUDES=(
 # 信息域 / factDomainHeadings：观察类别（ObservationCategory）曾被称为「信息域」，与业务领域撞名，
 #   统一称类别。
 # 夺旗：出厂场景 ctf 的名称统一为「CTF」（迁移 0236 改写存量快照）。
+# LLM 配置：模型接入页统一称「模型配置」——向量与重排模型不是 LLM，页面承载全部模型接入
+#   （对话 provider、档位路由、检索模型密钥），以「模型」统称。
 FORBIDDEN=(
+  'LLM 配置'
   '夺旗'
   'webrepro'
   'web ?域?(复现|配方|形状)'

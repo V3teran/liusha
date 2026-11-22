@@ -10,7 +10,7 @@ import (
 )
 
 // Run 是 planner Agent 的事件循环：订阅 bus 事件 + 轮询图，规划新 action 并写图。
-// LLM 配置错误（鉴权/权限/模型不存在）是致命错误：Run 返回该错误，由认知循环
+// 模型配置错误（鉴权/权限/模型不存在）是致命错误：Run 返回该错误，由认知循环
 // 终结任务——轮询重撞既不会自愈，失败调用又会被僵尸回收当作「仍有活动」，任务将
 // 永远停在 active。
 func (a *Agent) Run(ctx context.Context) error {
@@ -74,7 +74,7 @@ func (a *Agent) planFailure(err error, phase string) error {
 		return nil
 	}
 	if llm.IsConfigError(err) {
-		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，规划无法继续")
+		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，规划无法继续")
 		return err
 	}
 	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("规划失败（下一轮重试）")

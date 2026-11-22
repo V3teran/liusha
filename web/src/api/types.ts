@@ -273,7 +273,7 @@ export interface ToolDetail {
 }
 
 /* ============================================================
-   LLM 配置（GET/POST/PUT/DELETE /models）
+   模型配置（GET/POST/PUT/DELETE /models）
    两资源对应后端 llm_provider / llm_role_route（事实源在 DB）。
    解析链：档位（simple/medium/complex）→ provider code。
    小写键（Go gin.H DTO：providerJSON/roleRouteJSON 单点序列化）。

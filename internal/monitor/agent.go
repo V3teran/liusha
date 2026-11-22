@@ -243,14 +243,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// evaluationFailure 处置一次评估失败：LLM 配置错误原样返回（致命，Run 退出）；
+// evaluationFailure 处置一次评估失败：模型配置错误原样返回（致命，Run 退出）；
 // 其余失败记录后继续——监察是辅助面，单次评估失败不应拖垮任务。
 func (a *Agent) evaluationFailure(err error, phase string) error {
 	if err == nil {
 		return nil
 	}
 	if llm.IsConfigError(err) {
-		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，监察无法继续")
+		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，监察无法继续")
 		return err
 	}
 	a.logger.Error().Err(err).Str("phase", phase).Msg("评估失败（继续运行）")
