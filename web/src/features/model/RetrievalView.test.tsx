@@ -92,6 +92,22 @@ describe('检索模型分区', () => {
     expect(await screen.findByText('已配置 ····6789')).toBeInTheDocument()
   })
 
+  it('服务地址非法：保存禁用并就地提示', async () => {
+    const user = userEvent.setup()
+    renderView()
+    const input = await screen.findByLabelText('服务地址')
+    await user.clear(input)
+    await user.type(input, 'not a url')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(screen.getByText(/http\(s\) 开头的完整地址/)).toBeInTheDocument()
+    // 修正后恢复
+    await user.clear(input)
+    await user.type(input, 'https://gw.example.com')
+    expect(input).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+  })
+
   it('已配置：密钥只显示末 4 位，密钥输入收起；更换密钥展开', async () => {
     const user = userEvent.setup()
     mGet.mockResolvedValue(row({ key_present: true, key_last4: '6789', updated_at: '2026-01-01T00:00:00Z' }))

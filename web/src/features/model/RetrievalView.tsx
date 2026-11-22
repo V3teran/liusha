@@ -47,6 +47,17 @@ export function RetrievalView() {
   )
 
   const busy = saveMutation.isPending || clearMutation.isPending || diagnoseMutation.isPending
+  // 服务地址客户端预检（与服务端 ValidateBaseURL 同口径）：非法时保存禁用并就地提示
+  const urlInvalid = useMemo(() => {
+    const raw = draft.base_url.trim()
+    if (raw === '') return false
+    try {
+      const u = new URL(raw)
+      return u.protocol !== 'http:' && u.protocol !== 'https:'
+    } catch {
+      return true
+    }
+  }, [draft.base_url])
 
   const onSave = () => {
     setActionError('')
@@ -112,10 +123,14 @@ export function RetrievalView() {
                   onChange={(e) => setDraft((d) => ({ ...d, base_url: e.target.value }))}
                   placeholder="https://api.jina.ai（留空 = 出厂默认）"
                   aria-label="检索服务地址"
+                  aria-invalid={urlInvalid || undefined}
                   autoComplete="off"
                   spellCheck={false}
                   className={inputCls}
                 />
+                {urlInvalid && (
+                  <p className="text-xs text-status-error">服务地址必须是 http(s) 开头的完整地址（如 https://api.example.com）</p>
+                )}
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-text-secondary">向量模型</span>
@@ -167,7 +182,7 @@ export function RetrievalView() {
                   onChange={(e) => setKeyDraft(e.target.value)}
                   placeholder="粘贴 API Key（同时启用向量与重排）"
                   aria-label="检索模型 API Key"
-                  autoComplete="off"
+                  autoComplete="new-password"
                   spellCheck={false}
                   className={inputCls}
                 />
@@ -187,21 +202,21 @@ export function RetrievalView() {
         {/* 操作行：测试按表单当前值实测（不落库），保存整行落库 */}
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button size="sm" variant="ghost" disabled={busy} onClick={onTest}>
-            测试
+            {diagnoseMutation.isPending ? '测试中…' : '测试'}
           </Button>
           {configured && !rotating && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onClearKey()}>
               清除密钥
             </Button>
           )}
-          <Button size="sm" disabled={busy} onClick={onSave}>
-            保存
+          <Button size="sm" disabled={busy || urlInvalid} onClick={onSave}>
+            {saveMutation.isPending ? '保存中…' : '保存'}
           </Button>
         </div>
 
         {/* 诊断结果：两步就地展示，成功带耗时、失败带上游原因 */}
         {diagnosis && (
-          <div className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-sm">
+          <div role="status" className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-sm">
             {diagnosis.steps.map((s) => (
               <div key={s.key} className="flex items-baseline justify-between gap-4">
                 <span className="text-text-secondary">{STEP_LABEL[s.key] ?? s.key}</span>
