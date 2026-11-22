@@ -35,26 +35,38 @@ type fakeModel struct {
 	deleteMissing bool  // DeleteProvider 模拟目标不存在
 	routeErr      error // UpsertRoleRoute 的返回错误
 
-	retrieval        llmconfig.RetrievalModel // 当前检索模型密钥行（零值 = 未配置）
-	savedRetrieval   *llmconfig.RetrievalModel
+	retrieval        llmconfig.RetrievalModel // 当前检索模型配置行（零值 = 全部出厂默认）
+	savedRetrieval   *llmconfig.RetrievalParams
 	retrievalCleared bool
 }
 
-// ── 检索模型密钥（内存单行）───────────────────────────────────────────
+// ── 检索模型配置（内存单行）──────────────────────────────────────────
 
 func (f *fakeModel) RetrievalModel(context.Context) (llmconfig.RetrievalModel, error) {
 	return f.retrieval, nil
 }
 
-func (f *fakeModel) SetRetrievalModel(_ context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error) {
-	f.retrieval = llmconfig.RetrievalModel{EncryptedAPIKey: encrypted, APIKeyLast4: last4, UpdatedAt: time.Now()}
-	saved := f.retrieval
+func (f *fakeModel) SetRetrievalModel(_ context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error) {
+	r := llmconfig.RetrievalModel{
+		BaseURL: p.BaseURL, EmbeddingModel: p.EmbeddingModel, RerankModel: p.RerankModel,
+		UpdatedAt: time.Now(),
+	}
+	if p.KeepExistingKey {
+		r.EncryptedAPIKey = f.retrieval.EncryptedAPIKey
+		r.APIKeyLast4 = f.retrieval.APIKeyLast4
+	} else {
+		r.EncryptedAPIKey = p.EncryptedAPIKey
+		r.APIKeyLast4 = p.APIKeyLast4
+	}
+	f.retrieval = r
+	saved := p
 	f.savedRetrieval = &saved
-	return f.retrieval, nil
+	return r, nil
 }
 
-func (f *fakeModel) ClearRetrievalModel(context.Context) error {
-	f.retrieval = llmconfig.RetrievalModel{}
+func (f *fakeModel) ClearRetrievalKey(context.Context) error {
+	f.retrieval.EncryptedAPIKey = nil
+	f.retrieval.APIKeyLast4 = ""
 	f.retrievalCleared = true
 	return nil
 }

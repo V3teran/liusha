@@ -44,10 +44,10 @@ type ModelAPI interface {
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
-	// 检索模型密钥（单行）
+	// 检索模型配置（单行）
 	RetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, error)
-	SetRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error)
-	ClearRetrievalModel(ctx context.Context) error
+	SetRetrievalModel(ctx context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error)
+	ClearRetrievalKey(ctx context.Context) error
 }
 
 // ── provider ──────────────────────────────────────────────────────────

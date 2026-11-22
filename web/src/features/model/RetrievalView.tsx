@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { errorText } from '@/api/client'
-import type { RetrievalDiagnosis } from '@/api/types'
+import type { RetrievalDiagnosis, RetrievalModelDraft } from '@/api/types'
 import { Button } from '@/components/ui/Button'
 import { confirmAction } from '@/components/ui/confirm'
 import { toast } from '@/components/ui/toast'
@@ -17,35 +17,45 @@ import {
 /** 检索模型诊断步骤的展示名（key 与后端 DiagnosisStep 对应）。 */
 const STEP_LABEL: Record<string, string> = { embedding: '向量', rerank: '重排' }
 
-// 检索模型分区：知识库语义检索（向量 + 重排）的密钥接入。模型名与地址固定只读——向量维度
-// 绑定库结构、检索门槛按模型标定，换模型须重建全部向量，故只开放密钥。
-// 未配置时知识库自动字面检索、不阻塞；保存成功后后端立即补齐无向量条目（即时生效），
-// runner 周期巡检兜底。清除需确认：密钥不再回显，只能重新填写（向量保留）。
+// 检索模型分区：与「对话模型」同构的配置表单——服务地址、向量模型、重排模型、一把密钥。
+// 空字段 = 出厂默认（占位提示展示默认值）。换模型的硬约束写进提示与实测：
+// 向量维度须与库结构一致（1024，测试实测校验）；更换向量模型会作废全部旧向量并立即重建。
+// 未配置密钥时知识库自动字面检索、不阻塞；清除只清密钥，保留地址与模型名的自定义。
 export function RetrievalView() {
   const { data: model, isLoading, isError, error, refetch } = useRetrievalModel()
   const saveMutation = useSaveRetrievalModel()
   const clearMutation = useClearRetrievalModel()
   const diagnoseMutation = useDiagnoseRetrievalModel()
 
-  const [draft, setDraft] = useState('')
-  const [rotating, setRotating] = useState(false) // 已配置时点「更换密钥」才展开输入，防误清空
+  const [draft, setDraft] = useState({ base_url: '', embedding_model: '', rerank_model: '' })
+  const [keyDraft, setKeyDraft] = useState('')
+  const [rotating, setRotating] = useState(false) // 已配置时点「更换密钥」才展开密钥输入，防误清空
   const [actionError, setActionError] = useState('')
   const [diagnosis, setDiagnosis] = useState<RetrievalDiagnosis | null>(null)
 
+  // 生效配置到达后作为表单初值（已折算默认值，所见即可保存）
+  useEffect(() => {
+    if (model) setDraft({ base_url: model.base_url, embedding_model: model.embedding_model, rerank_model: model.rerank_model })
+  }, [model])
+
   const configured = model?.key_present ?? false
-  // 输入框可见：未配置，或已配置且正在更换密钥
-  const showInput = !configured || rotating
+  const showKeyInput = !configured || rotating
+
+  const draftBody = useMemo<RetrievalModelDraft & { api_key?: string }>(
+    () => ({ ...draft, api_key: showKeyInput && keyDraft.trim() ? keyDraft.trim() : undefined }),
+    [draft, keyDraft, showKeyInput],
+  )
+
+  const busy = saveMutation.isPending || clearMutation.isPending || diagnoseMutation.isPending
 
   const onSave = () => {
-    const key = draft.trim()
-    if (!key) return
     setActionError('')
-    saveMutation.mutate(key, {
+    saveMutation.mutate(draftBody, {
       onSuccess: () => {
-        setDraft('')
+        setKeyDraft('')
         setRotating(false)
         setDiagnosis(null)
-        toast.success('检索模型密钥已保存，无向量条目正在补齐')
+        toast.success('检索模型已保存，向量重建进行中')
       },
       onError: (e) => setActionError(errorText(e, '保存失败')),
     })
@@ -53,24 +63,23 @@ export function RetrievalView() {
 
   const onTest = () => {
     setActionError('')
-    // 输入框有值测表单当前值（不落库）；否则测已存密钥
-    diagnoseMutation.mutate(showInput && draft.trim() ? draft.trim() : undefined, {
+    diagnoseMutation.mutate(draftBody, {
       onSuccess: (res) => setDiagnosis(res),
       onError: (e) => setActionError(errorText(e, '测试失败')),
     })
   }
 
-  const onClear = async () => {
+  const onClearKey = async () => {
     const ok = await confirmAction({
       title: '清除检索模型密钥？',
-      message: '知识库将回到字面检索。已有向量保留，重新填写密钥后继续使用。',
+      message: '知识库将回到字面检索；地址与模型名的自定义保留，重新填写密钥即恢复。',
       confirmLabel: '确认清除',
     })
     if (!ok) return
     setActionError('')
     clearMutation.mutate(undefined, {
       onSuccess: () => {
-        setDraft('')
+        setKeyDraft('')
         setRotating(false)
         setDiagnosis(null)
         toast.success('检索模型密钥已清除，知识库回到字面检索')
@@ -79,8 +88,8 @@ export function RetrievalView() {
     })
   }
 
-  const busy = saveMutation.isPending || clearMutation.isPending || diagnoseMutation.isPending
-  const saveDisabled = showInput && draft.trim() === ''
+  const inputCls =
+    'w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text placeholder:text-text-tertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
 
   return (
     <section aria-label="检索模型">
@@ -94,16 +103,44 @@ export function RetrievalView() {
           <ErrorState message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
         ) : (
           <div className="flex flex-col divide-y divide-border">
-            {/* 模型名只读展示（固定不可换） */}
-            <div className="flex flex-col gap-1.5 px-4 py-3 text-sm">
-              <div className="flex items-baseline justify-between gap-4">
+            {/* 服务地址与模型名：与「对话模型」表单同密度；空值保存即回出厂默认 */}
+            <div className="flex flex-col gap-3 px-4 py-3">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-text-secondary">服务地址</span>
+                <input
+                  value={draft.base_url}
+                  onChange={(e) => setDraft((d) => ({ ...d, base_url: e.target.value }))}
+                  placeholder="https://api.jina.ai（留空 = 出厂默认）"
+                  aria-label="检索服务地址"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={inputCls}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-text-secondary">向量模型</span>
-                <code className="font-mono text-xs text-text">{model!.embedding_model}</code>
-              </div>
-              <div className="flex items-baseline justify-between gap-4">
+                <input
+                  value={draft.embedding_model}
+                  onChange={(e) => setDraft((d) => ({ ...d, embedding_model: e.target.value }))}
+                  placeholder="jina-embeddings-v5-text-small（留空 = 出厂默认）"
+                  aria-label="向量模型名"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={inputCls}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-text-secondary">重排模型</span>
-                <code className="font-mono text-xs text-text">{model!.rerank_model}</code>
-              </div>
+                <input
+                  value={draft.rerank_model}
+                  onChange={(e) => setDraft((d) => ({ ...d, rerank_model: e.target.value }))}
+                  placeholder="jina-reranker-v2-base-multilingual（留空 = 出厂默认）"
+                  aria-label="重排模型名"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={inputCls}
+                />
+              </label>
             </div>
 
             {/* 密钥：写-only 凭据，落库后永不回显明文 */}
@@ -117,67 +154,50 @@ export function RetrievalView() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={onTest}>
-                    测试
+                {configured && !rotating && (
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRotating(true)}>
+                    更换密钥
                   </Button>
-                  {configured && !rotating ? (
-                    <>
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRotating(true)}>
-                        更换密钥
-                      </Button>
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onClear()}>
-                        清除
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      {configured && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => {
-                            setRotating(false)
-                            setDraft('')
-                            setActionError('')
-                          }}
-                        >
-                          取消
-                        </Button>
-                      )}
-                      <Button size="sm" disabled={busy || saveDisabled} onClick={onSave}>
-                        保存
-                      </Button>
-                    </>
-                  )}
-                </div>
+                )}
               </div>
-              {showInput && (
+              {showKeyInput && (
                 <input
                   type="password"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
                   placeholder="粘贴 API Key（同时启用向量与重排）"
                   aria-label="检索模型 API Key"
                   autoComplete="off"
                   spellCheck={false}
-                  className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-sm text-text placeholder:text-text-tertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className={inputCls}
                 />
               )}
-              {!configured && !rotating && (
+              {!configured && (
                 <p className="text-xs text-text-tertiary">
-                  未配置：知识库只做字面检索。填写密钥后自动启用语义检索，立即生效。
+                  未配置密钥：知识库只做字面检索。填写后自动启用语义检索，立即生效。
                 </p>
               )}
-              {configured && !rotating && model!.updated_at && (
-                <p className="text-xs text-text-tertiary">
-                  更新于 {new Date(model!.updated_at).toLocaleString()}
-                </p>
-              )}
+              <p className="text-xs text-text-tertiary">
+                向量维度须与库结构一致（1024 维，「测试」会实测）；更换向量模型会作废全部旧向量并立即重建。
+              </p>
             </div>
           </div>
         )}
+
+        {/* 操作行：测试按表单当前值实测（不落库），保存整行落库 */}
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onTest}>
+            测试
+          </Button>
+          {configured && !rotating && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onClearKey()}>
+              清除密钥
+            </Button>
+          )}
+          <Button size="sm" disabled={busy} onClick={onSave}>
+            保存
+          </Button>
+        </div>
 
         {/* 诊断结果：两步就地展示，成功带耗时、失败带上游原因 */}
         {diagnosis && (

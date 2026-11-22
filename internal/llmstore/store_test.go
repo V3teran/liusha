@@ -53,12 +53,16 @@ func (f *fakeLLM) GetRetrievalModel(context.Context) (llmconfig.RetrievalModel, 
 	atomic.AddInt64(&f.retrievalHit, 1)
 	return f.retrievalRow, nil
 }
-func (f *fakeLLM) UpsertRetrievalModel(_ context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error) {
-	f.retrievalRow = llmconfig.RetrievalModel{EncryptedAPIKey: encrypted, APIKeyLast4: last4}
+func (f *fakeLLM) UpsertRetrievalModel(_ context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error) {
+	f.retrievalRow = llmconfig.RetrievalModel{
+		BaseURL: p.BaseURL, EmbeddingModel: p.EmbeddingModel, RerankModel: p.RerankModel,
+		EncryptedAPIKey: p.EncryptedAPIKey, APIKeyLast4: p.APIKeyLast4,
+	}
 	return f.retrievalRow, nil
 }
-func (f *fakeLLM) ClearRetrievalModel(context.Context) error {
-	f.retrievalRow = llmconfig.RetrievalModel{}
+func (f *fakeLLM) ClearRetrievalKey(context.Context) error {
+	f.retrievalRow.EncryptedAPIKey = nil
+	f.retrievalRow.APIKeyLast4 = ""
 	return nil
 }
 
@@ -192,22 +196,25 @@ func TestRetrievalModel_CachedAndInvalidated(t *testing.T) {
 		t.Fatalf("第二次读应命中缓存，底层读了 %d 次", got)
 	}
 
-	saved, err := st.SetRetrievalModel(ctx, []byte("sealed"), "abcd")
+	saved, err := st.SetRetrievalModel(ctx, llmconfig.RetrievalParams{
+		BaseURL: "https://gw.example.com", EmbeddingModel: "embed-x", RerankModel: "rerank-x",
+		EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "abcd",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.APIKeyLast4 != "abcd" {
-		t.Fatalf("last4 = %q", saved.APIKeyLast4)
+	if saved.APIKeyLast4 != "abcd" || saved.EmbeddingModel != "embed-x" {
+		t.Fatalf("保存应回读整行: %+v", saved)
 	}
 	row, err := st.RetrievalModel(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !row.HasKey() || row.APIKeyLast4 != "abcd" {
+	if !row.HasKey() || row.APIKeyLast4 != "abcd" || row.BaseURL != "https://gw.example.com" {
 		t.Fatalf("写后应读到新值: %+v", row)
 	}
 
-	if err := st.ClearRetrievalModel(ctx); err != nil {
+	if err := st.ClearRetrievalKey(ctx); err != nil {
 		t.Fatal(err)
 	}
 	row, err = st.RetrievalModel(ctx)
@@ -215,6 +222,9 @@ func TestRetrievalModel_CachedAndInvalidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	if row.HasKey() {
-		t.Fatalf("删后应读到未配置: %+v", row)
+		t.Fatalf("清密钥后应无密钥: %+v", row)
+	}
+	if row.BaseURL != "https://gw.example.com" {
+		t.Fatalf("清密钥应保留地址自定义: %+v", row)
 	}
 }

@@ -373,14 +373,24 @@ export interface DiagnosisStep {
   latency_ms?: number
 }
 
-// RetrievalModelConfig 是检索模型密钥的只读状态（单行；向量与重排共用一把密钥，
-// 模型名与地址固定不可换——向量维度绑定库结构与检索门槛标定，前端只读展示）。
+// RetrievalModelConfig 是检索模型的生效配置（单行；地址与模型名留空 = 出厂默认，
+// 响应里已折算为默认值；向量与重排共用一把密钥）。
 export interface RetrievalModelConfig {
-  key_present: boolean
-  key_last4: string
+  base_url: string
   embedding_model: string
   rerank_model: string
-  updated_at: string | null // 未配置为 null
+  key_present: boolean
+  key_last4: string
+  updated_at: string | null // 从未保存过为 null
+}
+
+// RetrievalModelDraft 是检索模型的保存/实测入参：空字段 = 出厂默认；
+// api_key 仅在更换密钥或首次配置时携带（留空 = 沿用已存密钥）。
+export interface RetrievalModelDraft {
+  base_url: string
+  embedding_model: string
+  rerank_model: string
+  api_key?: string
 }
 
 // RetrievalDiagnosis 是检索模型的一次实测结果：向量与重排各一步。

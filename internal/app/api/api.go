@@ -188,55 +188,55 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	srv := &http.Server{
 		Addr: cfg.API.ListenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
-			Auth:               authStore,
-			AuthAudit:          auditStore,
-			CookieSecure:       cfg.API.CookieSecure,
-			Workspaces:         workspaceStore,
-			WorkspaceLabels:    taskStore,
-			Credentials:        credAPI,
-			CredentialAudit:    auditStore,
-			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
-			Findings:           findStore,
-			Invocations:        invocationStore,
-			AuditReader:        auditStore,
-			Chat:               dispatchService,
-			FollowUp:           dispatchService,
-			Deleter:            dispatchService,
-			Attachments:        attachmentStore,
-			AttachmentContext:  attachmentContext{conversationStore, taskStore},
-			AttachmentMaxBytes: cfg.Conversation.AttachmentMaxBytes,
-			Renamer:            conversationStore,
-			ConfigStore:        cfgStore,
-			SkillStore:         cfgStore,
-			ScenarioStore:      cfgStore,
-			Corpus:             kb,
-			ToolCatalog:        toolCatalog,
-			SandboxInventory:   sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
-			Models:             llmStore,
-			KeyEncrypter:       llmKeyCipher,
-			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
-			RetrievalDiagnoser: retrievalDiagnoser{models: llmStore, cipher: llmKeyCipher},
-			RetrievalBackfill:  retrievalBackfill{kb: kb, logger: logger},
-			Settings:           settingStore,
-			Traffic:            proxyTrafficStore,
-			Overview:           overview.NewStore(pool),
-			ProxyTraffic:       proxyTrafficStore,
-			Runners:            enq,
-			DataStores:         db.DataStores{Pool: pool, Redis: rdb},
-			Conversations:      conversationStore,
-			EventStream:        dispatch.EventStreamAdapter{Rdb: rdb},
-			UsageLLM:           invocationStore,
-			UsageTools:         toolStore,
-			ExplorationGraph:   explorationGraphStore,
-			TaskReader:         taskStore,
-			Tasks:              taskStore,
-			TaskDispatch:       dispatchService,
-			Schedules:          cronStore,
-			TaskControl:        dispatchService,
-			TaskSteering:       dispatchService,
-			Logs:               logx.NewReader(cfg.LogDir()),
-			Proxy:              proxystatus.New(rdb),
-			WebUI:              web.Assets(),
+			Auth:                authStore,
+			AuthAudit:           auditStore,
+			CookieSecure:        cfg.API.CookieSecure,
+			Workspaces:          workspaceStore,
+			WorkspaceLabels:     taskStore,
+			Credentials:         credAPI,
+			CredentialAudit:     auditStore,
+			TaskStatus:          dispatch.TaskStatusAdapter{Tasks: taskStore},
+			Findings:            findStore,
+			Invocations:         invocationStore,
+			AuditReader:         auditStore,
+			Chat:                dispatchService,
+			FollowUp:            dispatchService,
+			Deleter:             dispatchService,
+			Attachments:         attachmentStore,
+			AttachmentContext:   attachmentContext{conversationStore, taskStore},
+			AttachmentMaxBytes:  cfg.Conversation.AttachmentMaxBytes,
+			Renamer:             conversationStore,
+			ConfigStore:         cfgStore,
+			SkillStore:          cfgStore,
+			ScenarioStore:       cfgStore,
+			Corpus:              kb,
+			ToolCatalog:         toolCatalog,
+			SandboxInventory:    sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
+			Models:              llmStore,
+			KeyEncrypter:        llmKeyCipher,
+			ProviderDiagnoser:   llmprobe.New(llmStore, llmKeyCipher),
+			RetrievalDiagnoser:  retrievalDiagnoser{models: llmStore, cipher: llmKeyCipher},
+			RetrievalModelIndex: retrievalIndex{kb: kb, logger: logger},
+			Settings:            settingStore,
+			Traffic:             proxyTrafficStore,
+			Overview:            overview.NewStore(pool),
+			ProxyTraffic:        proxyTrafficStore,
+			Runners:             enq,
+			DataStores:          db.DataStores{Pool: pool, Redis: rdb},
+			Conversations:       conversationStore,
+			EventStream:         dispatch.EventStreamAdapter{Rdb: rdb},
+			UsageLLM:            invocationStore,
+			UsageTools:          toolStore,
+			ExplorationGraph:    explorationGraphStore,
+			TaskReader:          taskStore,
+			Tasks:               taskStore,
+			TaskDispatch:        dispatchService,
+			Schedules:           cronStore,
+			TaskControl:         dispatchService,
+			TaskSteering:        dispatchService,
+			Logs:                logx.NewReader(cfg.LogDir()),
+			Proxy:               proxystatus.New(rdb),
+			WebUI:               web.Assets(),
 		}),
 		ReadTimeout:       time.Duration(cfg.API.ReadTimeoutSeconds) * time.Second,
 		WriteTimeout:      time.Duration(cfg.API.WriteTimeoutSeconds) * time.Second,
@@ -346,13 +346,16 @@ func newCorpus(pool *pgxpool.Pool, models *llmstore.Store, cipher *cryptx.Cipher
 }
 
 // retrievalDiagnoser 实现 httpapi.RetrievalDiagnoser：一次向量 + 一次重排的实测。
-// 上游任何失败都进 Steps（不返回 error）；只有密钥拿不到（未配置 / 解不开）无法发起才返回 error。
+// 规格的空字段按已存值或出厂默认解析（与运行期同一套解析）。上游任何失败都进 Steps
+// （不返回 error）——向量一步含维度校验，换模型的人靠它确认兼容；只有密钥拿不到
+// （未配置 / 解不开）无法发起才返回 error。
 type retrievalDiagnoser struct {
 	models *llmstore.Store
 	cipher *cryptx.Cipher
 }
 
-func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, apiKey string) (httpapi.RetrievalDiagnosis, error) {
+func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, spec httpapi.RetrievalProbeSpec) (httpapi.RetrievalDiagnosis, error) {
+	apiKey := spec.APIKey
 	if apiKey == "" {
 		row, err := d.models.RetrievalModel(ctx)
 		if err != nil {
@@ -365,7 +368,10 @@ func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, apiKey string
 			return httpapi.RetrievalDiagnosis{}, errors.New("检索模型密钥无法解密，请重新填写")
 		}
 	}
-	client, err := embedding.NewClient(apiKey)
+	client, err := embedding.NewClient(embedding.Config{
+		APIKey: apiKey, BaseURL: spec.BaseURL,
+		EmbeddingModel: spec.EmbeddingModel, RerankModel: spec.RerankModel,
+	})
 	if err != nil {
 		return httpapi.RetrievalDiagnosis{}, err
 	}
@@ -384,11 +390,11 @@ func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, apiKey string
 			LatencyMS: time.Since(start).Milliseconds(),
 		})
 	}
-	step(httpapi.StepEmbedding, "POST "+embedding.EmbedURL, func(ctx context.Context) error {
+	step(httpapi.StepEmbedding, "POST "+client.EmbedURL(), func(ctx context.Context) error {
 		_, err := client.EmbedQuery(ctx, "连接诊断")
 		return err
 	})
-	step(httpapi.StepRerank, "POST "+embedding.RerankURL, func(ctx context.Context) error {
+	step(httpapi.StepRerank, "POST "+client.RerankURL(), func(ctx context.Context) error {
 		_, err := client.Rerank(ctx, "连接诊断", []string{"连接诊断文档"}, 1)
 		return err
 	})
@@ -396,27 +402,32 @@ func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, apiKey string
 	return diag, nil
 }
 
-// retrievalBackfill 实现 httpapi.RetrievalBackfill：检索模型密钥保存后立刻补齐无向量条目
-// （即时生效，不必等 runner 的周期巡检）。异步执行不阻塞保存响应；与 runner 的补齐共用
-// 同一份 IndexPending，知识库写锁保证两个进程不重复 embed 同一批条目。失败不重试——
-// runner 周期巡检兜底（≤10 分钟）。
-type retrievalBackfill struct {
+// retrievalIndex 实现 httpapi.RetrievalModelIndex：保存检索模型后的向量收口。
+// ResetVectors 在向量模型更换时作废全部旧向量（不同模型的向量不可混在一个空间）；
+// KickVectorBackfill 随即异步补齐（即时生效，不必等 runner 的周期巡检）。补齐与 runner
+// 共用同一份 IndexPending，知识库写锁保证两个进程不重复 embed 同一批条目。补齐失败不
+// 重试——runner 周期巡检兜底（≤10 分钟）。
+type retrievalIndex struct {
 	kb     *corpus.Service
 	logger zerolog.Logger
 }
 
-func (b retrievalBackfill) KickVectorBackfill() {
+func (i retrievalIndex) ResetVectors(ctx context.Context) (int64, error) {
+	return i.kb.ResetVectors(ctx)
+}
+
+func (i retrievalIndex) KickVectorBackfill() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		err := b.kb.Exclusive(ctx, func(ctx context.Context) error {
-			_, err := b.kb.IndexPending(ctx)
+		err := i.kb.Exclusive(ctx, func(ctx context.Context) error {
+			_, err := i.kb.IndexPending(ctx)
 			return err
 		})
 		if err != nil && ctx.Err() == nil {
-			b.logger.Warn().Err(err).Msg("检索模型密钥已保存，向量补齐未完成（runner 周期巡检将兜底）")
+			i.logger.Warn().Err(err).Msg("检索模型已保存，向量补齐未完成（runner 周期巡检将兜底）")
 			return
 		}
-		b.logger.Info().Msg("检索模型密钥已保存，无向量条目已补齐")
+		i.logger.Info().Msg("检索模型已保存，无向量条目已补齐")
 	}()
 }

@@ -18,6 +18,7 @@ import type {
   RoleRouteConfig,
   RoutingResponse,
 } from './types'
+import type { RetrievalModelDraft } from './types'
 
 // ── provider ───────────────────────────────────────────────────────
 
@@ -78,33 +79,35 @@ export async function diagnoseProvider(req: ProviderDiagnoseRequest): Promise<Di
   return post<Diagnosis>('/models/providers/diagnose', req)
 }
 
-// ── 检索模型密钥（单行；向量与重排共用）──────────────────────────────
+// ── 检索模型配置（单行；向量与重排共用一把密钥）──────────────────────
 
-/** 拉检索模型密钥状态：是否已设置、末 4 位、两个只读模型名。 */
+/** 拉检索模型生效配置：地址与模型名（留空已折算为出厂默认）、密钥状态。 */
 export async function getRetrievalModel(): Promise<RetrievalModelConfig> {
   return (await get<{ retrieval: RetrievalModelConfig }>('/models/retrieval')).retrieval
 }
 
 /**
- * 保存检索模型密钥：明文只在本次请求内存在，后端加密落库。保存后后端立即补齐
- * 无向量的条目（即时生效，不必等周期巡检）。
+ * 保存检索模型配置：地址、两个模型名与密钥一起保存；api_key 留空 = 沿用已存密钥。
+ * 明文只在本次请求内存在，后端加密落库。更换向量模型时后端作废全部旧向量并立即补齐
+ * （即时生效，不必等周期巡检）。
  */
-export async function saveRetrievalModel(apiKey: string): Promise<RetrievalModelConfig> {
-  return (await put<{ retrieval: RetrievalModelConfig }>('/models/retrieval', { api_key: apiKey }))
-    .retrieval
+export async function saveRetrievalModel(p: RetrievalModelDraft): Promise<RetrievalModelConfig> {
+  return (await put<{ retrieval: RetrievalModelConfig }>('/models/retrieval', p)).retrieval
 }
 
-/** 清除检索模型密钥（幂等）：知识库回到字面检索；已有向量保留，重新配置后接着用。 */
+/** 清除检索模型密钥（幂等）：知识库回到字面检索，地址与模型名的自定义保留。 */
 export async function clearRetrievalModel(): Promise<void> {
   await del('/models/retrieval')
 }
 
 /**
- * 检索模型实测（一次向量 + 一次重排）：带 apiKey 测表单当前值（不落库），留空测已存密钥。
- * 上游失败在结果的检查项里；只有无法发起（未配置、请求不合法）才抛错。
+ * 检索模型实测（一次向量 + 一次重排，向量含维度校验）：按表单当前值测，api_key 留空测
+ * 已存密钥。上游失败在结果的检查项里；只有无法发起（未配置、请求不合法）才抛错。
  */
-export async function diagnoseRetrievalModel(apiKey?: string): Promise<RetrievalDiagnosis> {
-  return post<RetrievalDiagnosis>('/models/retrieval/diagnose', apiKey ? { api_key: apiKey } : {})
+export async function diagnoseRetrievalModel(
+  p: RetrievalModelDraft & { api_key?: string },
+): Promise<RetrievalDiagnosis> {
+  return post<RetrievalDiagnosis>('/models/retrieval/diagnose', p)
 }
 
 // ── 档位路由（档位 → provider 直连） ──────────────────────────────────────

@@ -47,10 +47,10 @@ type llmStore interface {
 
 	GetRouting(ctx context.Context) (llmconfig.Routing, error)
 
-	// 检索模型密钥（单行表，无行 = 未配置）
+	// 检索模型配置（单行表，无行 = 全部出厂默认）
 	GetRetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, error)
-	UpsertRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error)
-	ClearRetrievalModel(ctx context.Context) error
+	UpsertRetrievalModel(ctx context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error)
+	ClearRetrievalKey(ctx context.Context) error
 }
 
 // Store 编排模型配置的多级读写：底层 DB store + 共享 cachestore 内核。
@@ -215,29 +215,30 @@ func (s *Store) RetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, e
 		})
 }
 
-// SetRetrievalModel 写入或更换检索模型密钥，失效其缓存键——本进程下次读即新值，
-// 其它进程（runner）经失效广播同样即时生效。
-func (s *Store) SetRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error) {
-	r, err := s.db.UpsertRetrievalModel(ctx, encrypted, last4)
+// SetRetrievalModel 保存检索模型配置（地址、模型名、密钥），失效其缓存键——本进程下次读
+// 即新值，其它进程（runner）经失效广播同样即时生效。
+func (s *Store) SetRetrievalModel(ctx context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error) {
+	r, err := s.db.UpsertRetrievalModel(ctx, p)
 	if err != nil {
 		return llmconfig.RetrievalModel{}, err
 	}
 	return r, s.cache.Invalidate(ctx, keyRetrievalModel)
 }
 
-// ClearRetrievalModel 删除检索模型密钥（幂等），失效其缓存键。
-func (s *Store) ClearRetrievalModel(ctx context.Context) error {
-	if err := s.db.ClearRetrievalModel(ctx); err != nil {
+// ClearRetrievalKey 清除检索模型密钥（幂等，保留地址与模型名），失效其缓存键。
+func (s *Store) ClearRetrievalKey(ctx context.Context) error {
+	if err := s.db.ClearRetrievalKey(ctx); err != nil {
 		return err
 	}
 	return s.cache.Invalidate(ctx, keyRetrievalModel)
 }
 
 // RetrievalModels 返回知识库运行期的模型来源（api 与 runner 装配用）：每次操作读缓存中的
-// 检索模型密钥行，解密后构造向量与重排客户端——与对话侧 RouterStoreAdapter 对称，本层是
-// 模型密钥的运行期解析点。未配置返回零值模型（无原因，知识库退字面检索、页面提示去配置）；
-// 密文解不开（llm.encryption_key 被改过）返回零值并带原因；读取故障同样按不可用处理并带原因。
-// 知识库永远不阻塞：任何不可用都只是退化，不挡对话与任务。
+// 检索模型配置行，解密后按配置的地址与模型名构造向量与重排客户端——与对话侧
+// RouterStoreAdapter 对称，本层是模型接入的运行期解析点。空字段由 embedding.NewClient
+// 落到出厂默认。未配置密钥返回零值模型（无原因，知识库退字面检索、页面提示去配置）；
+// 密文解不开（llm.encryption_key 被改过）返回零值并带原因；读取故障同样按不可用处理并带
+// 原因。知识库永远不阻塞：任何不可用都只是退化，不挡对话与任务。
 func (s *Store) RetrievalModels(cipher llmconfig.KeyDecrypter) corpus.ModelSource {
 	return func(ctx context.Context) (corpus.Models, string) {
 		row, err := s.RetrievalModel(ctx)
@@ -251,7 +252,10 @@ func (s *Store) RetrievalModels(cipher llmconfig.KeyDecrypter) corpus.ModelSourc
 		if err != nil {
 			return corpus.Models{}, "检索模型密钥无法解密，请重新填写"
 		}
-		return embedding.Models(key), ""
+		return embedding.Models(embedding.Config{
+			APIKey: key, BaseURL: row.BaseURL,
+			EmbeddingModel: row.EmbeddingModel, RerankModel: row.RerankModel,
+		}), ""
 	}
 }
 

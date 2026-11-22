@@ -12,10 +12,10 @@ import {
   diagnoseRetrievalModel,
 } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
-import type { ProviderConfig } from '@/api/types'
+import type { ProviderConfig, RetrievalModelDraft } from '@/api/types'
 
 // 模型配置数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
-// providers 缓存由「模型提供商」「能力路由」两个分区共享，任一写操作 invalidate 后两边同步刷新。
+// providers 缓存由「对话模型」「能力路由」两个分区共享，任一写操作 invalidate 后两边同步刷新。
 
 export const modelKeys = {
   providers: ['models', 'providers'] as const,
@@ -24,7 +24,7 @@ export const modelKeys = {
   retrieval: ['models', 'retrieval'] as const,
 }
 
-/** 检索模型密钥状态（单行；保存/清除后同步失效知识库状态缓存——检索方式随密钥切换）。 */
+/** 检索模型配置（单行；保存/清除后同步失效知识库状态缓存——检索方式随密钥切换）。 */
 export function useRetrievalModel() {
   return useQuery({
     queryKey: modelKeys.retrieval,
@@ -35,7 +35,7 @@ export function useRetrievalModel() {
 export function useSaveRetrievalModel() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (apiKey: string) => saveRetrievalModel(apiKey),
+    mutationFn: (p: RetrievalModelDraft) => saveRetrievalModel(p),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['models'] })
       void qc.invalidateQueries({ queryKey: ['corpus', 'status'] })
@@ -54,9 +54,11 @@ export function useClearRetrievalModel() {
   })
 }
 
-/** 检索模型实测（表单当前值或已存密钥）；结果由调用方就地渲染，不进缓存。 */
+/** 检索模型实测（表单当前值，api_key 留空测已存密钥）；结果由调用方就地渲染，不进缓存。 */
 export function useDiagnoseRetrievalModel() {
-  return useMutation({ mutationFn: (apiKey?: string) => diagnoseRetrievalModel(apiKey) })
+  return useMutation({
+    mutationFn: (p: RetrievalModelDraft & { api_key?: string }) => diagnoseRetrievalModel(p),
+  })
 }
 
 /** 全量 provider（含 disabled，路由绑定选择器一次拉全）。 */

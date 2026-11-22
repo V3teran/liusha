@@ -218,7 +218,7 @@ describe('OverviewPage', () => {
     expect(within(panel).getByText('3 条', { selector: 'header span' })).toBeInTheDocument()
     expect(within(panel).getByRole('img', { name: '11/21（今天）：3 条，高危 2、中危 1' })).toBeInTheDocument()
     expect(within(panel).getByRole('img', { name: '11/8：0 条' })).toBeInTheDocument()
-    const usage = screen.getByRole('region', { name: '近 14 天 LLM 消耗' })
+    const usage = screen.getByRole('region', { name: '近 14 天模型消耗' })
     expect(within(usage).getByRole('img', { name: /^11\/21（今天）：10K tokens（输入 9K · 输出 1K），调用 10 次/ })).toBeInTheDocument()
     // 最近 24 小时的读数：错误率 1/10；缓存命中 4500/(9000+4500)（输入 tokens 不含命中缓存的部分）
     expect(within(usage).getByText('最近 24 小时').closest('p')).toHaveTextContent('10K tokens，调用 10 次，错误率 10.0%，缓存命中 33.3%')

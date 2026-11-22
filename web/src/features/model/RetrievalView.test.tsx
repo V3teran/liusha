@@ -32,10 +32,11 @@ const plaintextInput = ['mock', 'retrieval', 'key'].join('-')
 
 function row(overrides: Partial<RetrievalModelConfig> = {}): RetrievalModelConfig {
   return {
+    base_url: 'https://api.jina.ai',
+    embedding_model: 'jina-embeddings-v5-text-small',
+    rerank_model: 'jina-reranker-v2-base-multilingual',
     key_present: false,
     key_last4: '',
-    embedding_model: 'fake-embed',
-    rerank_model: 'fake-rerank',
     updated_at: null,
     ...overrides,
   }
@@ -56,31 +57,42 @@ describe('检索模型分区', () => {
     mGet.mockResolvedValue(row())
   })
 
-  it('未配置：展示只读模型名、密钥输入与保存入口，并提示字面检索', async () => {
+  it('出厂默认：地址与模型名预填为生效值，密钥可填，提示字面检索', async () => {
     renderView()
-    expect(await screen.findByText('fake-embed')).toBeInTheDocument()
+    expect(await screen.findByLabelText('服务地址')).toHaveValue('https://api.jina.ai')
+    expect(screen.getByLabelText('向量模型')).toHaveValue('jina-embeddings-v5-text-small')
+    expect(screen.getByLabelText('重排模型')).toBeInTheDocument()
     expect(screen.getByLabelText('检索模型 API Key')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
     expect(screen.getByText(/只做字面检索/)).toBeInTheDocument()
+    expect(screen.getByText(/1024 维/)).toBeInTheDocument()
   })
 
-  it('保存：输入密钥后可用，调用保存接口并提示成功；空输入不可用', async () => {
+  it('保存：整行配置进保存请求；密钥一并携带', async () => {
     const user = userEvent.setup()
-    // 首次加载未配置；保存后 mutation 失效 ['models'] 触发重拉，改读已配置状态（模拟服务端已落库）
-    mGet.mockResolvedValueOnce(row()).mockResolvedValue(
-      row({ key_present: true, key_last4: '6789', updated_at: '2026-01-01T00:00:00Z' }),
-    )
-    mSave.mockResolvedValue(row({ key_present: true, key_last4: '6789', updated_at: '2026-01-01T00:00:00Z' }))
+    // 首次加载未配置；保存后 mutation 失效 ['models'] 触发重拉，改读已配置状态
+    mGet
+      .mockResolvedValueOnce(row())
+      .mockResolvedValue(row({ key_present: true, key_last4: '6789', updated_at: '2026-01-01T00:00:00Z' }))
+    mSave.mockResolvedValue(row({ key_present: true, key_last4: '6789' }))
     renderView()
-    const input = await screen.findByLabelText('检索模型 API Key')
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
-    await user.type(input, plaintextInput)
+    await user.clear(await screen.findByLabelText('服务地址'))
+    await user.type(screen.getByLabelText('服务地址'), 'https://gw.example.com')
+    await user.clear(screen.getByLabelText('向量模型'))
+    await user.type(screen.getByLabelText('向量模型'), 'embed-x')
+    await user.type(screen.getByLabelText('检索模型 API Key'), plaintextInput)
     await user.click(screen.getByRole('button', { name: '保存' }))
-    await waitFor(() => expect(mSave).toHaveBeenCalledWith(plaintextInput))
+    await waitFor(() =>
+      expect(mSave).toHaveBeenCalledWith({
+        base_url: 'https://gw.example.com',
+        embedding_model: 'embed-x',
+        rerank_model: 'jina-reranker-v2-base-multilingual',
+        api_key: plaintextInput,
+      }),
+    )
     expect(await screen.findByText('已配置 ····6789')).toBeInTheDocument()
   })
 
-  it('已配置：密钥只显示末 4 位，输入框收起，可更换与清除', async () => {
+  it('已配置：密钥只显示末 4 位，密钥输入收起；更换密钥展开', async () => {
     const user = userEvent.setup()
     mGet.mockResolvedValue(row({ key_present: true, key_last4: '6789', updated_at: '2026-01-01T00:00:00Z' }))
     renderView()
@@ -90,30 +102,38 @@ describe('检索模型分区', () => {
     expect(screen.getByLabelText('检索模型 API Key')).toBeInTheDocument()
   })
 
-  it('测试：输入框有值测表单当前值，留空测已存密钥；两步结果就地展示', async () => {
+  it('测试：按表单当前值实测（含未保存的修改），两步结果就地展示', async () => {
     const user = userEvent.setup()
     mDiagnose.mockResolvedValue({
       ok: true,
       steps: [
-        { key: 'embedding', status: 'ok', detail: '成功', latency_ms: 120 },
-        { key: 'rerank', status: 'fail', detail: '上游 401', latency_ms: 50 },
+        { key: 'embedding', status: 'fail', detail: '向量维度 1536 与库结构 1024 不符，请换 1024 维的向量模型' },
+        { key: 'rerank', status: 'ok', detail: '成功', latency_ms: 50 },
       ],
     })
     renderView()
-    await user.click(await screen.findByRole('button', { name: '测试' }))
-    await waitFor(() => expect(mDiagnose).toHaveBeenCalledWith(undefined))
-    expect(await screen.findByText('通过 · 120ms')).toBeInTheDocument()
-    expect(screen.getByText('上游 401')).toBeInTheDocument()
+    await user.clear(await screen.findByLabelText('向量模型名'))
+    await user.type(screen.getByLabelText('向量模型'), 'embed-other-model')
+    await user.click(screen.getByRole('button', { name: '测试' }))
+    await waitFor(() =>
+      expect(mDiagnose).toHaveBeenCalledWith(
+        expect.objectContaining({ embedding_model: 'embed-other-model' }),
+      ),
+    )
+    expect(await screen.findByText(/1024 不符/)).toBeInTheDocument()
+    expect(screen.getByText('通过 · 50ms')).toBeInTheDocument()
   })
 
-  it('清除：经确认后调用清除接口', async () => {
+  it('清除密钥：经确认后调用清除接口，地址与模型名保留', async () => {
     const user = userEvent.setup()
     const { confirmAction } = await import('@/components/ui/confirm')
     mGet.mockResolvedValue(row({ key_present: true, key_last4: '6789' }))
     mClear.mockResolvedValue(undefined)
     renderView()
-    await user.click(await screen.findByRole('button', { name: '清除' }))
+    await user.click(await screen.findByRole('button', { name: '清除密钥' }))
     expect(confirmAction).toHaveBeenCalledOnce()
     await waitFor(() => expect(mClear).toHaveBeenCalledOnce())
+    // 清除后地址与模型名的表单值仍在
+    expect(screen.getByLabelText('服务地址')).toHaveValue('https://api.jina.ai')
   })
 })

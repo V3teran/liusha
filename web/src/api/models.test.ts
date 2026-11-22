@@ -156,19 +156,22 @@ describe('检索模型 API 客户端', () => {
   })
 
   it('getRetrievalModel 拆出 retrieval 对象', async () => {
-    const fn = mockFetch(200, { retrieval: { key_present: false, key_last4: '', embedding_model: 'e', rerank_model: 'r', updated_at: null } })
+    const fn = mockFetch(200, { retrieval: { base_url: 'https://api.jina.ai', embedding_model: 'e', rerank_model: 'r', key_present: false, key_last4: '', updated_at: null } })
     const row = await getRetrievalModel()
     expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
     expect(row.key_present).toBe(false)
   })
 
-  it('saveRetrievalModel 走 PUT /models/retrieval，密钥进 body', async () => {
-    const fn = mockFetch(200, { retrieval: { key_present: true, key_last4: 'abcd', embedding_model: 'e', rerank_model: 'r', updated_at: '2026-01-01T00:00:00Z' } })
-    const row = await saveRetrievalModel(plaintextInput)
+  it('saveRetrievalModel 走 PUT /models/retrieval，整行配置进 body', async () => {
+    const fn = mockFetch(200, { retrieval: { base_url: 'https://api.jina.ai', embedding_model: 'e', rerank_model: 'r', key_present: true, key_last4: 'abcd', updated_at: '2026-01-01T00:00:00Z' } })
+    const row = await saveRetrievalModel({ base_url: 'https://gw.example.com', embedding_model: 'e-x', rerank_model: 'r-x', api_key: plaintextInput })
     expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
     const req = fn.mock.calls[0][1] as RequestInit
     expect(req.method).toBe('PUT')
-    expect(JSON.parse(String(req.body)).api_key).toBe(plaintextInput)
+    const body = JSON.parse(String(req.body))
+    expect(body.base_url).toBe('https://gw.example.com')
+    expect(body.embedding_model).toBe('e-x')
+    expect(body.api_key).toBe(plaintextInput)
     expect(row.key_last4).toBe('abcd')
   })
 
@@ -179,12 +182,12 @@ describe('检索模型 API 客户端', () => {
     expect((fn.mock.calls[0][1] as RequestInit).method).toBe('DELETE')
   })
 
-  it('diagnoseRetrievalModel 带密钥时进 body，留空发空对象', async () => {
+  it('diagnoseRetrievalModel 按表单当前值实测', async () => {
     const fn = mockFetch(200, { ok: true, steps: [] })
-    await diagnoseRetrievalModel(plaintextInput)
+    await diagnoseRetrievalModel({ base_url: '', embedding_model: 'e-x', rerank_model: '', api_key: plaintextInput })
     expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval/diagnose')
-    expect(JSON.parse(String((fn.mock.calls[0][1] as RequestInit).body)).api_key).toBe(plaintextInput)
-    await diagnoseRetrievalModel()
-    expect(JSON.parse(String((fn.mock.calls[1][1] as RequestInit).body))).toEqual({})
+    const body = JSON.parse(String((fn.mock.calls[0][1] as RequestInit).body))
+    expect(body.embedding_model).toBe('e-x')
+    expect(body.api_key).toBe(plaintextInput)
   })
 })

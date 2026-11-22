@@ -93,9 +93,9 @@ type Deps struct {
 	ProviderDiagnoser ProviderDiagnoser
 	// RetrievalDiagnoser 为 nil 时检索模型诊断路由（POST /models/retrieval/diagnose）不注册。
 	RetrievalDiagnoser RetrievalDiagnoser
-	// RetrievalBackfill 为 nil 时保存检索模型密钥不触发即时向量补齐（单测）；
-	// api 组件注入知识库服务适配器——补齐与 runner 的周期巡检共用同一份实现。
-	RetrievalBackfill RetrievalBackfill
+	// RetrievalModelIndex 为 nil 时保存检索模型不触发向量收口（重置 + 即时补齐，单测）；
+	// api 组件注入知识库服务适配器——与 runner 的周期巡检共用同一份实现。
+	RetrievalModelIndex RetrievalModelIndex
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
 	// 由 api 组件注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链。

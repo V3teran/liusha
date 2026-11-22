@@ -210,6 +210,16 @@ func (s *Store) pendingIndex(ctx context.Context, limit int) ([]Entry, error) {
 	return collectEntries(rows)
 }
 
+// resetVectors 清空全部条目的向量，返回受影响行数。换向量模型时调用：不同模型的向量
+// 不可混在一个空间里，旧向量对新模型是错的，作废后由补齐循环按新模型重嵌。
+func (s *Store) resetVectors(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE corpus SET embedding = NULL WHERE embedding IS NOT NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("reset corpus vectors: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // setEmbedding 在条目仍是 seen 版本时写入向量；版本变了说明文本已改，这个向量作废。
 func (s *Store) setEmbedding(ctx context.Context, id string, seen time.Time, embedding []float32) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `UPDATE corpus SET embedding = $3 WHERE id = $1 AND updated_at = $2`,

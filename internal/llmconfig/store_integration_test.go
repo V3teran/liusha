@@ -103,8 +103,9 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 	}
 }
 
-// TestRetrievalModel_SingleRow 锁定检索模型密钥行的语义：无行 = 未配置（零值不算错）；
-// upsert 插入或整行更换；clear 幂等。密文只经本表存取，last4 随密文成对写入。
+// TestRetrievalModel_SingleRow 锁定检索模型配置行的语义：无行 = 全部出厂默认（零值不算错）；
+// upsert 插入或整行更新（含地址与模型名）；清除只清密钥、保留地址与模型名（用户不必为
+// 「临时停用语义检索」丢掉填好的配置）；密文清空后 HasKey=false。全表至多一行由主键保证。
 func TestRetrievalModel_SingleRow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -125,28 +126,38 @@ func TestRetrievalModel_SingleRow(t *testing.T) {
 		t.Fatalf("未配置应无密钥: %+v", row)
 	}
 
-	if _, err = store.UpsertRetrievalModel(ctx, []byte("sealed-1"), "1234"); err != nil {
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://gw.example.com", EmbeddingModel: "embed-x", RerankModel: "rerank-x",
+		EncryptedAPIKey: []byte("sealed-1"), APIKeyLast4: "1234",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	row, err = store.GetRetrievalModel(ctx)
-	if err != nil || !row.HasKey() || row.APIKeyLast4 != "1234" || string(row.EncryptedAPIKey) != "sealed-1" {
-		t.Fatalf("首次写入后应可读回: %+v err=%v", row, err)
+	if err != nil || !row.HasKey() || row.APIKeyLast4 != "1234" || row.BaseURL != "https://gw.example.com" {
+		t.Fatalf("首次保存后应可读回整行: %+v err=%v", row, err)
 	}
 
-	if _, err = store.UpsertRetrievalModel(ctx, []byte("sealed-2"), "5678"); err != nil {
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://other.example.com", EmbeddingModel: "embed-y", RerankModel: "rerank-y",
+		EncryptedAPIKey: []byte("sealed-2"), APIKeyLast4: "5678",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	row, err = store.GetRetrievalModel(ctx)
-	if err != nil || string(row.EncryptedAPIKey) != "sealed-2" || row.APIKeyLast4 != "5678" {
-		t.Fatalf("更换应整行替换: %+v err=%v", row, err)
+	if err != nil || row.BaseURL != "https://other.example.com" || string(row.EncryptedAPIKey) != "sealed-2" {
+		t.Fatalf("更换应整行更新: %+v err=%v", row, err)
 	}
 
+	// 清除只清密钥，保留配置
 	for i := 0; i < 2; i++ {
-		if err = store.ClearRetrievalModel(ctx); err != nil {
+		if err = store.ClearRetrievalKey(ctx); err != nil {
 			t.Fatalf("第 %d 次清除: %v", i+1, err)
 		}
 	}
 	if row, err = store.GetRetrievalModel(ctx); err != nil || row.HasKey() {
-		t.Fatalf("清除后应回到未配置: %+v err=%v", row, err)
+		t.Fatalf("清除后应无密钥: %+v err=%v", row, err)
+	}
+	if row.BaseURL != "https://other.example.com" || row.EmbeddingModel != "embed-y" {
+		t.Fatalf("清除应保留地址与模型名: %+v", row)
 	}
 }

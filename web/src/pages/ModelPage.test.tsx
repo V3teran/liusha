@@ -60,13 +60,17 @@ describe('ModelPage', () => {
     expect(screen.getByRole('heading', { name: '模型配置' })).toBeTruthy()
   })
 
-  it('渲染三个分区：模型提供商、能力路由、检索模型', () => {
+  it('渲染三个分区：对话模型、检索模型、能力路由（按接入到收口排布）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
-    expect(screen.getByText('模型提供商')).toBeTruthy()
-    expect(screen.getByText('能力路由')).toBeTruthy()
+    const sections = screen.getAllByRole('region').filter((el) => el.tagName === 'SECTION')
+    expect(screen.getByText('对话模型')).toBeTruthy()
     expect(screen.getByText('检索模型')).toBeTruthy()
+    expect(screen.getByText('能力路由')).toBeTruthy()
+    // 排布：检索模型在能力路由之前（路由消费前两区的数据）
+    const labels = sections.map((s) => s.getAttribute('aria-label'))
+    expect(labels.indexOf('检索模型')).toBeLessThan(labels.indexOf('能力路由'))
   })
 })

@@ -58,7 +58,7 @@ export function UsageTrend({
   const errorRate = last.calls > 0 ? (last.errors / last.calls) * 100 : 0
   return (
     <Panel
-      title={`近 ${days} 天 LLM 消耗`}
+      title={`近 ${days} 天模型消耗`}
       meta={`${compactNumber(total)} tokens`}
       className={className}
       action={<PanelLink to="/llm-audit">模型日志</PanelLink>}

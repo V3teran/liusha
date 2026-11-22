@@ -338,6 +338,13 @@ func (s *Service) IndexPending(ctx context.Context) (int, error) {
 	}
 }
 
+// ResetVectors 清空全部条目的向量，返回作废的条数。换向量模型时在保存路径调用：
+// 旧模型的向量对新模型是错的，作废后由补齐循环（api 即时触发 + runner 周期巡检）按
+// 新模型重嵌，保证全库同一个向量空间。
+func (s *Service) ResetVectors(ctx context.Context) (int64, error) {
+	return s.store.resetVectors(ctx)
+}
+
 // ImportSection 是导入预览里的一条：切分出的条目与它是否与已有正文重复（重复的导入时跳过）。
 type ImportSection struct {
 	Section

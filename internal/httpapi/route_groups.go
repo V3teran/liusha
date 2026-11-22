@@ -202,11 +202,11 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 	r.PUT("/models/routes/:role", saveRoleRouteHandler(d.Models))
 	r.DELETE("/models/routes/:role", deleteRoleRouteHandler(d.Models))
 
-	// 检索模型密钥（单行；保存路径同样必须能加密明文密钥才开）
+	// 检索模型配置（单行；保存路径同样必须能加密明文密钥才开）
 	r.GET("/models/retrieval", getRetrievalHandler(d.Models))
-	r.DELETE("/models/retrieval", clearRetrievalHandler(d.Models))
+	r.DELETE("/models/retrieval", clearRetrievalKeyHandler(d.Models))
 	if d.KeyEncrypter != nil {
-		r.PUT("/models/retrieval", saveRetrievalHandler(d.Models, d.KeyEncrypter, d.RetrievalBackfill))
+		r.PUT("/models/retrieval", saveRetrievalHandler(d.Models, d.KeyEncrypter, d.RetrievalModelIndex))
 	}
 
 	// 连接诊断（实测，不落库）

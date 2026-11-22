@@ -547,3 +547,42 @@ func TestSearch_FollowsLiveModelSource(t *testing.T) {
 		t.Fatalf("Status 应为语义且无原因: %+v err=%v", st, err)
 	}
 }
+
+// TestResetVectors 锁定换向量模型时的收口语义：有向量的条目全部清空（旧模型向量作废），
+// 无向量的条目不受影响；清空后 pendingIndex 能重新扫到它们（补齐循环按新模型重嵌）。
+func TestResetVectors(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	e, _, _ := semanticModels()
+	kb, store := newService(t, e)
+	a := mustCreate(t, kb, Draft{Title: "条目一", Content: "内容一"})
+	b := mustCreate(t, kb, Draft{Title: "条目二", Content: "内容二"})
+	_ = b
+
+	// 语义服务下两条都带着向量；重置应全部作废
+	n, err := kb.ResetVectors(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("两条都应被作废, got %d", n)
+	}
+	st, err := store.indexStats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Pending != 2 {
+		t.Fatalf("两条都应回到待补齐: %+v", st)
+	}
+	// 重嵌后恢复
+	if _, err = kb.IndexPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{a.ID, b.ID} {
+		got, err := store.get(context.Background(), id)
+		if err != nil || !got.Indexed {
+			t.Fatalf("重嵌后应恢复向量(Indexed) id=%s: %+v err=%v", id, got, err)
+		}
+	}
+}
