@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,6 +50,10 @@ type Engine struct {
 	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
 	// 工厂构建并已包装进共享拦截链），Plan 时按白名单注册进 ReAct，不再经 toolWrap。
 	extraTools []registry.Tool
+
+	// knowledgeQueries 是本次运行发出过的知识库查询（去重，按发出顺序）：每轮规划是一次新的推理，
+	// 看不到前几轮检索过什么，由引擎记下写进状态摘要。Engine 由单个 planner goroutine 串行使用。
+	knowledgeQueries []string
 
 	// toolWrap 是共享拦截链包装器（cognition 注入 reg.WrapTool；nil=不包装），只包装
 	// 引擎自有的图读工具——它们与 executor 工具同一执行面，遥测/时间线无盲区。
@@ -198,6 +203,7 @@ type PlanningContext struct {
 	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
+	KnowledgeQueries  []string                // 本次运行已发出的知识库查询
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -239,11 +245,42 @@ func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string
 		out = append(out, tool)
 	}
 	for _, tool := range e.extraTools {
-		if registry.Allows(functionTools, tool.Name()) {
-			out = append(out, tool)
+		if !registry.Allows(functionTools, tool.Name()) {
+			continue
 		}
+		if tool.Name() == knowledgeSearchTool {
+			tool = &queryRecorder{Tool: tool, record: e.recordKnowledgeQuery}
+		}
+		out = append(out, tool)
 	}
 	return out
+}
+
+// knowledgeSearchTool 是知识库检索工具的名字（tools 包的 search_corpus）。
+const knowledgeSearchTool = "search_corpus"
+
+func (e *Engine) recordKnowledgeQuery(q string) {
+	q = strings.TrimSpace(q)
+	if q == "" || slices.Contains(e.knowledgeQueries, q) {
+		return
+	}
+	e.knowledgeQueries = append(e.knowledgeQueries, q)
+}
+
+// queryRecorder 在执行检索前记下查询文本，执行本身原样转交。
+type queryRecorder struct {
+	registry.Tool
+	record func(query string)
+}
+
+func (r *queryRecorder) Execute(ctx context.Context, args json.RawMessage) (registry.ToolResult, error) {
+	var a struct {
+		Query string `json:"query"`
+	}
+	if json.Unmarshal(args, &a) == nil {
+		r.record(a.Query)
+	}
+	return r.Tool.Execute(ctx, args)
 }
 
 // PlanRequest 是一次规划的入参。
@@ -278,6 +315,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		return PlanOutcome{}, fmt.Errorf("收集规划上下文失败: %w", err)
 	}
 	planCtx.ReplanReasons = req.ReplanReasons
+	planCtx.KnowledgeQueries = slices.Clone(e.knowledgeQueries)
 	prompt := e.buildPlanningPrompt(planCtx)
 
 	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
@@ -491,6 +529,9 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 9. 待验证与已被证伪的假设
 	sb.WriteString(buildPendingHypothesesSection(ctx.PendingHypotheses))
 	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
+
+	// 10. 本次运行已检索过的知识库查询
+	sb.WriteString(buildKnowledgeQueriesSection(ctx.KnowledgeQueries))
 
 	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）
 	sb.WriteString("按系统提示中的「输出契约」只输出一个 JSON 对象。\n")

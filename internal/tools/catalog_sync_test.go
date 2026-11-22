@@ -24,7 +24,9 @@ func (noOpCredProvider) SaveIdentities(_ context.Context, _ string, _ []credenti
 func (noOpCredProvider) GetIdentitiesByHost(_ context.Context, _ string) ([]credential.Identity, error) {
 	return nil, nil
 }
-func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) error { return nil }
+func (noOpCredProvider) DeleteIdentity(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 func (noOpCredProvider) ListHosts(_ context.Context) ([]credential.HostSummary, error) {
 	return nil, nil
 }
@@ -44,7 +46,7 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 
 	deps := Deps{
 		Tasks:      &task.Store{},
-		Corpus:     &corpus.Store{},
+		Corpus:     &corpus.Service{},
 		ProxyStore: &traffic.ProxyStore{},
 		AgentStore: &traffic.AgentStore{},
 		Creds:      noOpCredProvider{},

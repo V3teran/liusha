@@ -106,7 +106,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 | 开始时沙盒暂不可达（连不上 / 5xx），退避重试 2 分钟仍不可达 | error | 保持 active，由恢复监控续跑（计入重投上限，持续不可达时落 aborted） |
 | 执行出错 | error | aborted |
 
-- 一次 run 的归属（LLM 审计、工具调用、agent 流量、坐实漏洞）是投递消息里的 `agent_run_id`，由 runner 注入 `cognition.Deps.AgentRunID`。认知循环不得自行按任务反查 run——同一任务有多个 run，反查会把续跑的产出错记到别的 run。
+- 一次 run 的归属（模型日志、工具调用、agent 流量、坐实漏洞）是投递消息里的 `agent_run_id`，由 runner 注入 `cognition.Deps.AgentRunID`。认知循环不得自行按任务反查 run——同一任务有多个 run，反查会把续跑的产出错记到别的 run。
 
 ### 恢复、停机与清扫
 
@@ -142,7 +142,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 | 层 | 范围 | 领域属性 |
 |---|---|---|
-| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、知识库导入、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
+| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、`corpus`、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
 | 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
 | 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
 
@@ -216,9 +216,15 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 配方是信封 `{kind, recipe, assert}`，`kind` 是配方的形状（怎样复现），不是业务领域。`internal/repro` 只定义信封与配方形状注册表（`Registry.Normalize` 是归一化的唯一入口，内置无机器通道的 `steps` 形状：自然语言步骤 + 判据描述），其余形状的 recipe / assert、矫正与机器复现通道归各自的包（一个 HTTP 请求的 `http` 形状在 `internal/httprepro`），在 `cognition` 装配时注册。复现门按信封的 kind 选复现通道；没有通道的形状回显配方、由评估者自主取证（验证档位 `judge_only`）。新增形状实现 `repro.Kind`（与可选的 `evaluator.Replayer`）并在装配处注册，同时在执行者契约里写明它的配方、在评估者契约里写明它的证据（`httprepro` 的测试守住两份契约与实现一致）。配方只在 executor 落图时归一化这一次；评估者只从图上的假设节点读配方（唯一入口是轮询待验证假设），不得私自改写配方（降级、补字段）。
 - 复现门是终局：http 配方（`httprepro/replayer.go`）断言没有任何机器谓词即为空断言，不可坐实。
 - 断言鉴别力的分工：机器侧（写入侧归一化与复现门同一口径）只拒 `body_contains` 短于 `httprepro.MinBodyContainsLen` 的子串；常规状态码、页面常态特征等是否有鉴别力，由 LLM 评估者结合 baseline 差分终判。不要只在一侧加机器规则：写入侧报错会让配方跳过形状矫正，被复现门以形状错误判死。
-- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：LLM 配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
+- 验证失败的分流（`evaluator/agent.go` 的 `recordVerifyFailure`）：模型配置错误上报致命、不进单条阶梯；LLM 侧瞬时故障不计入失败上限；目标侧不可达（复现通道包装为 `evaluator.ErrTargetUnreachable`）计入上限、耗尽按 `not_reproducible` 出圈——不能与 LLM 瞬时故障混同，否则目标宕机时验证无限重试、任务永不收敛；任务停止导致的重放取消不计入；确定性配方缺陷（复现通道包装为 `evaluator.ErrInvalidRecipe`，损坏的假设同此）立即出圈。分类只认哨兵错误，不按错误文本匹配。出圈原因决定 planner 能否原方向重提，新增原因须同步两处：原因含义（`planner/prompt_builders.go` 的 `refuteReasonHint`）与处置（规划者章程，`internal/builtin` 的测试守住）。
 - 坐实顺序（`evaluator/verifier.go`）：写审计 → 建 result → 交付（尽力而为：失败只告警，不回滚验证结论）→ 标记假设已验证。验证结论以审计链与图为准；交付是按结果节点幂等的投影，台账缺口由 runner 的周期补交付（`RedeliverUndeliveredFindings`，启动一次 + 每 10 分钟）收账——交付故障不得按验证失败处理，否则复现成功的主张会被重跑复现、按不可复现错驳（实测：交付反复失败曾令坐实成果整批出圈）。
-- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付以 `(task_id, result_node_id)` 幂等，重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
+- 一个坐实结果一条 finding：`finding.result_node_id` 指向它的结果节点，交付按结果节点幂等（`result_node_id` 唯一），重试与重放交付不会重复或改写已有记录。主张的语义去重只在复现门里按主张指纹做（`evaluator.ClaimFingerprint`：类别 + 对象 + 作用点，评估者按判定契约给出；同一主张的再次确认折叠进同一结果节点），台账不另设去重键——曾经的「主机 + CWE + 路径 + 方法 + 参数」生成列因 CWE 与参数无写入方，退化成按接口去重，同一接口上先交付的低危主张吞掉了后坐实的高危主张。
+- 发现类型（`finding.class`）是封闭词表（`internal/finding/class.go`：取值、展示名、CWE）之一：评估者坐实时在主张指纹里给出类别（内置场景向它列出同一份词表，`internal/finding` 的测试守住两边一致），晋升门把它单独记在结果节点 metadata 的 `claim_class`，交付时收进词表——词表之外的与未给出的归入 `other`。CWE 按类型固定映射、不由 LLM 给出（LLM 常编造编号）。台账接口带出展示名与 CWE，前端不另存映射；产品按渗透测试定位，词表固定在台账层，用户改写场景新增的类别归入「其他」。
+
+### 记录表留存（`internal/runner` 的 `retention.go`）
+
+- 记录表留存只覆盖「运行过程记录」（诊断/流水）：`llm_invocation`（`llm.invocation_retention_days`）、`tool_invocation`（`tools.invocation_retention_days`）、两张流量表（`traffic.retention_days` 一键管两表，关联行 `traffic_task` 随捕获行删）。任务证据与用户数据（消息、探索图、漏洞、知识）与审计链 `audit_log` 不按时间清理；`0 = 永久`。
+- runner 每日一次统一留存循环（`StartRetentionSweep`，runner 单实例天然单例）：每表批删循环到删完（单批 5000，防首次开启时大 DELETE 长事务持锁）；`llm_invocation` 删除前先 Flush（唯一有内存写缓冲的表）。任务工作区按 `sandbox.workspace_retention_days` 由沙盒按目录 mtime 清理，不在此循环（机制不同）。
 
 ### 凭证库（`internal/credential`）
 
@@ -227,10 +233,23 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - `username` 必须是目标应用的真实登录名；同一账号更新既有条目，不另起代号。这一条只靠提示词约束。
 - 任务级会话身份（`task:{id}:session`）按事件回收：run 收尾落定任务状态后、任务确已结束时由 runner 回收（收敛依据失效、停止后已续接的不回收）（暂停与停机中断不回收——续跑的 run 复用同一登录态），runner 启动时及每 10 分钟由清扫器兜底，另有人工删除。清扫只删「确认终态或确认不存在」的任务的会话，状态查询失败一律保留。持久身份不自动回收。
 
+### 知识库（`internal/corpus`、`internal/distill`）
+
+- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `search_corpus` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
+- 检索方式由检索模型配置决定（前端「模型配置」页「检索模型」分区，单行表 `retrieval_model`：服务地址、向量与重排模型名、一把密钥；与 provider 密钥同一套加密；事实源 `internal/llmconfig/retrieval.go`）：配了密钥是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与出厂模型标定，依据写在 `search.go`。配置字段空 = 出厂默认（Jina）；向量维度绑 `vector(1024)` 列——保存不拦，实测与运行期校验并给出明确报错；**更换向量模型即作废全部旧向量并按新模型重嵌**（不同模型的向量不可混在一个空间），换门槛需复核召回质量。密钥与配置热改即时生效：corpus.Service 的模型来源每次操作现取（`llmstore.RetrievalModels`，缓存写后广播失效），保存后 api 立即收口（必要时作废向量、写锁内补齐），runner 每 10 分钟的巡检兜底。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径；未配置与不可用都不阻塞对话与任务。语义调用失败还会上报降级记录（`retrievalstatus`，Redis 键带 TTL，api 与 runner 谁失败谁写、跨进程可见）：知识库页的检索方式标识显示「语义检索已降级」并带原因与时间；恢复后第一次成功调用清除记录，无人调用时记录到时淡出。清除密钥只清密钥，保留地址与模型名。
+- 词元只有一处实现：数据库函数 `corpus_terms`（英文按词、中文按相邻两字），写入时生成 `terms` 生成列，查询用同一个函数切分查询文本。不要在 Go 里另写一份分词。
+- 每条知识归属一个场景，空 = 通用：任务只看得到本场景与通用的知识，无场景的任务只看得到通用知识。沉淀时由蒸馏判定每条经验是否依赖场景的规定（交付标准、类别词表等），依赖的归本场景。
+- `source` 是当前内容的作者：`agent` 任务沉淀，`expert` 人工。人工改了标题或正文即成为 `expert`（只改场景不变）；收尾整合只能印证人工内容，不能改写。
+- 经验的门槛：经验只能来自付出过代价的地方——材料按编号列出任务过程，弯路（证伪的主张、失败或被否决的动作、做完却没有任何产出的动作）带标注；被中止的动作不算弯路（收口或目标调整时被收回，不含对错判断）。没有弯路的任务不调用 LLM；每条经验必须引用至少一条弯路材料，引用不成立的由代码丢弃（`distill.admit`）；每个任务至多 3 条。常识、本目标的解法复述、关于执行系统自身工具与流程的观察都不是经验——后者是待修的产品问题，要去修工具或说明，不要让知识库记住绕法。
+- 沉淀分两步：提炼候选，再为每条候选检索近似的已有条目，由 LLM 判定新增、印证、修订，或把彼此重复的已有条目合成一条（合并只限任务沉淀、适用范围相同的条目，被并入的条目的印证转给保留的那条）。整个整合在知识库写锁（PG advisory lock，`Service.Exclusive`）内进行，并发的两次整合不会各写一条重复知识；修订与合并以读到的 `updated_at` 为前置，其间被人改过或是人工内容就改为新增。正文一字不差的写入由唯一约束收敛为印证。
+- 「印证」是任务与知识的关系（`corpus_confirmation`）：沉淀出它或整合时判定一致的任务，同一任务重复收敛只计一次。不统计「被检索到几次」——检索次数会让常被检索的条目自我强化。
+- 改了文本的条目清掉旧向量（旧文本的向量对新文本是错的），连同写入时向量化失败的条目，由 runner 周期补齐（`StartCorpusIndexLoop`，启动一次 + 每 10 分钟）。
+- 经验沉淀是持久化的队列任务（`corpus.distill`，独立的 `distill` 队列，权重低于 agent run，按任务幂等）：任务自然收敛后投递，由 runner 消费；它要调用两次 LLM、耗时分钟级，停机中断或调用失败都留在队列里重试（至多 3 次）。不要改回进程内协程——停机宽限期远短于一次沉淀，进程内的沉淀遇重启即丢。
+
 ### LLM 密钥
 
-- 只有一条路径：在前端「LLM 配置」页填写，`llm_provider.encrypted_api_key` 以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及 LLM 接入，不从环境变量取 provider 密钥。事实源：`internal/llmconfig/apikey.go`。
-- 缺少 LLM 配置不阻止启动：任务下发会被拒绝，并提示到前端配置。
+- 只有一条路径：在前端「模型配置」页填写，`llm_provider.encrypted_api_key` 与检索模型密钥（`retrieval_model` 单行表）都以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及模型接入，不从环境变量取模型密钥。事实源：`internal/llmconfig/apikey.go`、`internal/llmconfig/retrieval.go`。
+- 缺少模型配置不阻止启动：任务下发会被拒绝，并提示到前端配置。检索模型密钥缺失不拒绝任何东西：知识库自动退字面检索（语义故障退回见「知识库」）——与对话模型「未配置即拒任务」的语义正好相反。
 - 档位解析（`framework/llm/router.go`）：显式档 → 就近降级到相邻档。provider 停用、缺钥都按「未配置」处理并继续降级；全部候选不可用时保留 `ErrNotConfigured`，任务据此干净终结。
 - provider 只认协议、不认服务：官方、各家兼容端点、中转网关都按 `openai_compat` / `anthropic` 接入，代码里不出现任何服务名单。服务间的差异由「请求画像」承载——`auth_scheme`（`bearer` / `x-api-key`，与协议正交）与 `output_limit_param`（`max_tokens` / `max_completion_tokens`）——由连接诊断实测后记录；运行期 OpenAI 兼容生成器遇上游明确拒绝某个可选字段时也会自适应改写重发（`framework/llm/openai_compat_adapt.go`）。
 - 出站凭据只有一个出口：`ClientPool` 的传输层清掉全部凭据头（含 SDK 从环境变量注入的外来值）后按 `auth_scheme` 只写一个；只跟随同源重定向，跨源重定向不得带出密钥。
@@ -281,7 +300,9 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 前端
 
-- 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
+- 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值；字号只用其中定义的阶梯（`text-2xs` / `xs` / `sm` / `base` / `lg` / `2xl`），不写 `text-[Npx]`。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
+- 避免不必要的辅助标签与说明文字，让布局本身发挥解释作用——结构、分组与留白先行，补充文案是最后手段；只约束可见文案，可访问性要求不放松（纯图标按钮照常带 `aria-label`）。页头只有标题（`PageHeader` 不接受副标题）：页面用途靠结构与控件说明，概念说明放在用到它的字段或空态里。
+- 每个筛选栏都要能一键清空（`FilterBar` 的 `canReset` / `onReset` 必填，含搜索词）；栏内的搜索框不再自带清空钮，独立使用的 `SearchInput` 有内容时自带——同一处只有一种清空方式。
 - 页面文件命名为 `*Page.tsx`，只做编排；实现放进 `features/<领域>/`，后端调用放 `api/`，错误文案经 `errorText` 取后端中文原因。
 - 分页列表的搜索与筛选在服务端执行，与分页、总数、统计同一口径；不要在已分页的单页结果上再过滤（其它页搜不到，条数对不上），筛选项的选项也不从当前页的行推导（由服务端分面接口给，每个维度不受自身筛选影响）。服务端检索的搜索框经 `hooks/useDebouncedSearch` 防抖。
 - 选取值会持续增长的实体（任务、对话）用 `components/ui/EntityPicker`（服务端按关键词检索、限量、提示缩小范围）；取值少而固定的枚举用 `Select`。不要让用户手输实体 ID。
@@ -289,9 +310,10 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 页面状态进 URL 并遵守同一套历史规则：列表页打开的条目（详情面板 / 抽屉）与探索图打开的节点是 `?selected=`（`hooks/useSelectedParam`），对话页打开的对话是 `?conversation=`，窄屏「列表 / 详情」由它们决定（返回列表 = 清除它，与浏览器后退一致）。用户主动的导航（打开、切换、关闭条目，改筛选、翻页、清除范围、换选任务）新增一条历史；系统自动的定位（进页打开最新对话、定位最新任务、新对话建立后落到它、删除当前对话）、键盘逐行移动与搜索框输入用 `replace`。
 - 服务端数据一律走 TanStack Query（`features/<领域>/use*Queries.ts`）：取消过期请求、写操作后失效重取，不手写序号防过期，不把服务端数据复制进全局 store。React 状态更新函数必须是纯函数（StrictMode 会重放，原地修改 prev 会重复追加）。
 - 弹层层级只有一个事实源 `index.css`：遮罩写 `className="app-overlay"`，对话框 / 抽屉内容带 `tac-modal` 或 `app-drawer`，锚定浮层带 `app-popover` / `app-menu`；使用点不写定位与 `z-*`（`components/ui/dialogLayering.test.ts` 按源码守住）。菜单、弹层用 Radix 原语，不手写 portal——模态打开时 body 为 `pointer-events:none`，手写浮层会点不到。
-- 不可逆操作经 `ConfirmDialog`（`danger`）确认，确认按钮文案用具体动词（「确认删除」）。
+- 不可逆操作经确认（事件处理里 `await confirmAction(...)`，受控场景用 `ConfirmDialog`，`danger`），确认按钮文案用具体动词（「确认删除」）；不用原生 `window.confirm` / `alert`。
+- 反馈分三层，各有一个组件：区域加载 / 加载失败用 `LoadingState` / `ErrorState`（能重试就给 `onRetry`），表单提交这类就地失败用 `InlineError` 贴在触发处，触发点不在原位的操作结果（行内按钮、菜单项、抽屉关闭后的回写）用 `toast`。
 - 主题只经 `hooks/useTheme` 读写（全局共享，一处切换全部调用点同步）：用户选过的 > 系统深浅偏好 > 深色，未选过时随系统实时变化。`index.html` 的首屏内联脚本与它同口径，改一处必须同步另一处。登录页不放主题切换（业界惯例：跟随系统，偏好设置在登录后）。
-- 可访问性是功能的一部分：表单控件经 `htmlFor` / `useId` 关联标签，纯图标按钮带 `aria-label`，可滚动区域可聚焦，tab 触发器指向真实的 tabpanel，可见内容不放进 `aria-hidden`；动效走 `motion-safe:`，不对文字做透明度脉冲。
+- 可访问性是功能的一部分：以 state 打开的弹层（没有 Radix `Trigger`）把 `hooks/useReturnFocus` 接到 `Dialog.Content` 的 `onCloseAutoFocus`，关闭后焦点回到打开处；表单控件经 `htmlFor` / `useId` 关联标签，纯图标按钮带 `aria-label`，可滚动区域可聚焦，tab 触发器指向真实的 tabpanel，可见内容不放进 `aria-hidden`；动效走 `motion-safe:`，不对文字做透明度脉冲。
 
 ## 测试
 
@@ -308,6 +330,8 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 已发布的迁移不可修改，改 schema 只能新增迁移。生产形态随 `up` 自动执行，只进不退。
 - 取值改名或语义变更：在同一个迁移里改写存量数据并更新 CHECK 约束，不留兼容别名。
 - 集成测试会自动应用全部迁移，迁移写错会直接体现为集成测试失败。
+- 不保留冗余的列、键与索引：库侧生成的第二个标识、与其它列重复或恒等的信息、没有读取方的派生数据删掉，或接到真正要用它的地方；jsonb 元数据同理。记录产出来源的归属列（各记录表的 `agent_run_id`，见「一次 run 的归属」）是审计链，没有界面读取也保留。索引按实际查询形态建：被其它索引前缀覆盖的、谓词用不上的不建；外键引用列建索引（父行删除时的级联检查按它查找）。
+- 挂在任务下的数据都以外键指向 task：任务的组成部分（运行、探索图、审计链、发现、流量……）随任务删除，独立于任务存在的对话与 LLM 调用记录置空保留；封闭词表的取值（状态、严重度、类型……）在库里有 CHECK 约束，与代码词表一致（改词表就用迁移同时改约束，集成测试守住两边一致）。
 
 ## 提交与发布
 

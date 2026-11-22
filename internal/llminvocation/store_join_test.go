@@ -89,7 +89,7 @@ func TestConversationScopedInvocation(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
 	invStore := NewStore(pool)
 	var assignmentID string
-	if err := pool.QueryRow(ctx, `INSERT INTO assignment (source, payload, title) VALUES ('proxy', '[]', 'p.test') RETURNING id`).
+	if err := pool.QueryRow(ctx, `INSERT INTO assignment (source, title) VALUES ('proxy', 'p.test') RETURNING id`).
 		Scan(&assignmentID); err != nil {
 		t.Fatal(err)
 	}

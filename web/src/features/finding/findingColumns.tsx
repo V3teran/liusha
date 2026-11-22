@@ -3,6 +3,7 @@ import { ChevronRight, StickyNote } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
 import { severityColorOf, severityLabel } from '@/lib/severity'
+import { cn } from '@/lib/utils'
 import { sourceColor, sourceLabel } from '@/lib/source'
 import { findingStatusMeta } from './findingStatus'
 
@@ -15,7 +16,7 @@ export const findingColumns = [
     size: 64,
     meta: { align: 'right' },
     cell: (ctx) => (
-      <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
+      <span className="block text-right text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
     ),
   }),
   columnHelper.accessor('severity', {
@@ -41,6 +42,21 @@ export const findingColumns = [
       )
     },
   }),
+  columnHelper.accessor('class', {
+    header: '类型',
+    size: 130,
+    cell: (ctx) => {
+      const f = ctx.row.original
+      return (
+        <span
+          className={cn('block truncate text-xs', f.class === 'other' ? 'text-text-tertiary' : 'text-text-secondary')}
+          title={f.cwe ? `${f.class_name} · ${f.cwe}` : f.class_name}
+        >
+          {f.class_name}
+        </span>
+      )
+    },
+  }),
   columnHelper.display({
     id: 'location',
     header: '地址',
@@ -50,11 +66,10 @@ export const findingColumns = [
       return (
         <span
           className="block truncate font-mono text-xs text-text-secondary"
-          title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}${f.cwe_id ? ` · ${f.cwe_id}` : ''}`}
+          title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}`}
         >
           {f.target?.method} {f.host}
           {f.target?.path}
-          {f.cwe_id && ` · ${f.cwe_id}`}
         </span>
       )
     },
@@ -81,8 +96,9 @@ export const findingColumns = [
   }),
   columnHelper.display({
     id: 'expand',
-    header: '',
+    // 箭头只示意「整行可点开」：表头给读屏一个列名，图标本身不播报
+    header: () => <span className="sr-only">详情</span>,
     size: 48,
-    cell: () => <ChevronRight className="h-4 w-4 text-text-tertiary opacity-50" />,
+    cell: () => <ChevronRight aria-hidden className="h-4 w-4 text-text-tertiary opacity-50" />,
   }),
 ]

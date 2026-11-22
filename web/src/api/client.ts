@@ -37,12 +37,15 @@ export class ApiError extends Error {
   readonly status: number
   /** 后端错误体里的中文原因（respondErr 单出口）；非 JSON 错误体时为空串。 */
   readonly detail: string
+  /** 错误体的其它字段（如正文重复时的 existing_id）；非 JSON 错误体时为空对象。 */
+  readonly body: Readonly<Record<string, unknown>>
 
-  constructor(method: string, status: number, detail = '') {
+  constructor(method: string, status: number, detail = '', body: Record<string, unknown> = {}) {
     super(`${method} ${status}${detail ? `: ${detail}` : ''}`)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.body = body
   }
 }
 
@@ -61,16 +64,20 @@ export function errorText(e: unknown, fallback: string): string {
  * 响应体非 JSON / 读取失败时回退状态码文本。
  * 401（会话失效）在抛错前先全局跳转登录页。
  */
-async function raise(res: Response, method: string, path: string): Promise<never> {
+export async function raise(res: Response, method: string, path: string): Promise<never> {
   if (res.status === 401) redirectOnSessionExpired(path)
   let detail = ''
+  let body: Record<string, unknown> = {}
   try {
-    const body = (await res.json()) as { error?: string }
-    if (body.error) detail = body.error
+    const parsed: unknown = await res.json()
+    if (parsed && typeof parsed === 'object') {
+      body = parsed as Record<string, unknown>
+      if (typeof body.error === 'string') detail = body.error
+    }
   } catch {
     /* 错误体不是 JSON（网关层错误等），回退状态码 */
   }
-  throw new ApiError(method, res.status, detail)
+  throw new ApiError(method, res.status, detail, body)
 }
 
 /**

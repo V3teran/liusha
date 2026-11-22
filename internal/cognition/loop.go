@@ -44,7 +44,7 @@ import (
 // 是历史 bug 高发区）。
 type Deps struct {
 	AssignmentID string // 批次 ID（沙盒工作区一级分组）
-	// AgentRunID 是本次认知循环所属的 agent_run.id：LLM 审计、工具调用、agent 流量与
+	// AgentRunID 是本次认知循环所属的 agent_run.id：模型日志、工具调用、agent 流量与
 	// 坐实漏洞都归属到它。由 runner 按投递消息注入——一个任务可有多个 run（暂停后继续、
 	// 停机中断续跑、僵尸回收重投），循环不能自行按任务反查（曾取最早的 run，续跑的
 	// 产出全部错记到早已结束的首个 run）。
@@ -70,12 +70,12 @@ type Deps struct {
 	Tasks     *task.Store
 
 	// 工具域存储
-	Findings   *finding.Store
-	Corpus     *corpus.Store
-	Embedder   corpus.Embedder
-	Reranker   corpus.Reranker
-	ProxyStore *traffic.ProxyStore
-	AgentStore *traffic.AgentStore
+	Findings *finding.Store
+	Corpus   *corpus.Service
+	// CorpusScope 是本任务检索知识库的可见范围（任务场景的知识与通用知识）。
+	CorpusScope corpus.Scope
+	ProxyStore  *traffic.ProxyStore
+	AgentStore  *traffic.AgentStore
 
 	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
@@ -127,15 +127,12 @@ type SandboxListener struct {
 	CallbackHost string
 }
 
-// Report 是一次 run 的报告：runner 据此收尾，写入时间线终态节点与 agent_run.result。
+// Report 是一次 run 的报告：runner 据此收尾，停止原因写入时间线终态节点。
 type Report struct {
-	Actions    int    `json:"actions"`     // 执行过的动作数
-	Results    int    `json:"results"`     // 坐实的结果数
-	Hypotheses int    `json:"hypotheses"`  // 提出的假设数
-	StopReason string `json:"stop_reason"` // 停止原因
+	StopReason string // 停止原因
 	// GoalBasis 是收敛所依据的目标（仅自然收敛时有值）：任务以它为前置落 completed，
 	// 收敛之后目标被调整或又有了待执行动作则不结束（见 task.Store.CompleteConverged）。
-	GoalBasis explorationgraph.GoalBasis `json:"-"`
+	GoalBasis explorationgraph.GoalBasis
 }
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
@@ -231,9 +228,6 @@ func (d *Deps) run(
 		Msg("认知循环完成")
 
 	report := Report{
-		Actions:    result.Actions,
-		Results:    result.Results,
-		Hypotheses: result.Hypotheses,
 		StopReason: result.StopReason,
 		GoalBasis:  result.GoalBasis,
 	}
@@ -321,8 +315,7 @@ func (d *Deps) assembleStack(
 			Logger:       d.Logger,
 			Tasks:        d.Tasks,
 			Corpus:       d.Corpus,
-			Embedder:     d.Embedder,
-			Reranker:     d.Reranker,
+			CorpusScope:  d.CorpusScope,
 			ProxyStore:   d.ProxyStore,
 			AgentStore:   d.AgentStore,
 			Creds:        d.Creds,
@@ -480,7 +473,7 @@ func (d *Deps) buildExecutorAgent(
 	engine := executor.NewEngine(executor.EngineConfig{
 		Router:              d.Router,
 		Graph:               d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
-		AgentRunID:          agentRunID, // LLM 审计归属本轮 run
+		AgentRunID:          agentRunID, // 模型日志归属本轮 run
 		Registry:            execRegistry,
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）

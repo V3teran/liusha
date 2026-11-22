@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
 )
 
@@ -73,7 +72,7 @@ func deleteScheduleHandler(api SchedulesAPI) gin.HandlerFunc {
 // scheduleJSON 是定时模板响应的单一序列化点：briefs 由 payload 展开（每条到点展开成一个
 // 任务），解析失败记告警并按空清单下发，不拖垮整个列表。
 func scheduleJSON(s cronschedule.Schedule) gin.H {
-	var items []assignment.Item
+	var items []cronschedule.Item
 	if err := json.Unmarshal(s.Payload, &items); err != nil {
 		apiLog.Warn().Err(err).Str("schedule_id", s.ID).Msg("定时模板 payload 解析失败，briefs 按空下发")
 	}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { inFlightToolCalls } from './threadRows'
 import type { Message } from '@/api/types'
 
-const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
+const base = { conversation_id: 'c', created_at: '', content: '' }
 
 function toolMsg(seq: number, kind: 'tool_call' | 'tool_result', agent: string, tool: string): Message {
   return {

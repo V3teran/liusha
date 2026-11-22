@@ -4,6 +4,7 @@ package explorationgraph
 
 import (
 	"context"
+	"github.com/V3teran/liusha/internal/dbtest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ func TestRecordVerification_NULEvidenceAccepted(t *testing.T) {
 	store := NewStore(pool)
 
 	const taskID = "7a11a11a-1111-4111-8111-111111111111"
+	dbtest.SeedTask(t, pool, taskID)
 	const nodeID = "7a11a11a-2222-4222-8222-222222222222"
 	_, err := store.CreateNode(ctx, Node{
 		ID: nodeID, TaskID: taskID, Kind: "observation", SourceType: SourceExecutor,

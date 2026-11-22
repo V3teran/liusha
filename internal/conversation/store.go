@@ -227,7 +227,7 @@ func (s *Store) LinkTask(ctx context.Context, conversationID, taskID string) err
 	return nil
 }
 
-const msgCols = "seq, id, conversation_id, role, kind, content, metadata, created_at"
+const msgCols = "seq, conversation_id, role, kind, content, metadata, created_at"
 
 // AppendMessage 往会话追加一条消息（普通消息或 agent 过程事件），并刷新 conversation.updated_at
 // 让会话列表按活跃排序。metadata 可为 nil。
@@ -384,7 +384,7 @@ func scanConversationWithRun(r db.RowScanner, c *Conversation) error {
 }
 
 func scanMessage(r db.RowScanner, m *Message) error {
-	return r.Scan(&m.Seq, &m.ID, &m.ConversationID, &m.Role, &m.Kind, &m.Content, &m.Metadata, &m.CreatedAt)
+	return r.Scan(&m.Seq, &m.ConversationID, &m.Role, &m.Kind, &m.Content, &m.Metadata, &m.CreatedAt)
 }
 
 func clampLimit(limit int) int {

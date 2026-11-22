@@ -53,11 +53,11 @@ func TestRunRecovery_AbortAfterRetriesWritesTimeline(t *testing.T) {
 	}
 	// 已中断 2 次（error run），且当前没有存活 run：搁浅任务，达上限 2
 	for i := 0; i < 2; i++ {
-		id, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
+		id, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := runs.SetError(ctx, id, "runner 中断"); err != nil {
+		if err := runs.SetError(ctx, id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -123,7 +123,7 @@ func TestRunRecovery_OrphanPendingRunIsRedispatched(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
+		runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -67,7 +67,6 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     if (convID === currentConv) setCurrentConv('', { replace: true })
   }
 
-  const heading = source === 'proxy' ? '代理批次' : undefined
   const emptyState =
     source === 'proxy'
       ? { noun: '代理批次', hint: PROXY_SETUP_HINT }
@@ -78,7 +77,6 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       {/* 统一头部 */}
       <PageHeader
         title="对话"
-        subtitle={source === 'direct' ? '实时观看智能体干活，可随时插话补充指令' : '选一批捕获的流量，看智能体逐批分析，可插话追问'}
       >
         {source === 'proxy' && <ProxyAccess />}
       </PageHeader>
@@ -92,7 +90,6 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
               activeId={currentConv || undefined}
               source={source}
               allowNew={source === 'direct'}
-              heading={heading}
               emptyState={emptyState}
               autoSelect={isWide}
               onSelect={selectConversation}

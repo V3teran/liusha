@@ -17,7 +17,7 @@ function renderPane(task: TaskSummary) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <TaskDetailPane task={task} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={task} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -48,6 +48,7 @@ function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
     tokens_out: 0,
     created_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    abort_reason: '',
     ...overrides,
   }
 }
@@ -56,7 +57,7 @@ describe('TaskDetailPane', () => {
   it('跳转区排在任务信息之前：从任务去对话、探索图与发现是最先用到的出口', () => {
     render(
       <MemoryRouter>
-        <TaskDetailPane task={makeTask()} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={makeTask()} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>,
     )
     const jump = screen.getByRole('heading', { name: '跳转' })
@@ -73,7 +74,7 @@ describe('TaskDetailPane', () => {
   it('对话已删除的任务仍可看探索图，只是没有对话入口', () => {
     render(
       <MemoryRouter>
-        <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onClose={vi.fn()} />
+        <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
       </MemoryRouter>,
     )
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
@@ -114,5 +115,16 @@ describe('TaskDetailPane 运行中引导', () => {
     expect((screen.getByRole('button', { name: '调整目标' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: '指派动作' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText('任务已结束，可在对话中续接')).toBeTruthy()
+  })
+
+  it('已终止的任务显示终止原因，其它状态不显示', () => {
+    const { unmount } = renderPane(
+      makeTask({ status: 'aborted', ended_at: '2026-01-01T01:00:00Z', abort_reason: '任务运行超时（timeout）' }),
+    )
+    expect(screen.getByText('终止原因')).toBeTruthy()
+    expect(screen.getByText('任务运行超时（timeout）')).toBeTruthy()
+    unmount()
+    renderPane(makeTask({ status: 'completed', ended_at: '2026-01-01T01:00:00Z' }))
+    expect(screen.queryByText('终止原因')).toBeNull()
   })
 })

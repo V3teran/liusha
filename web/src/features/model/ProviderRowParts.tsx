@@ -35,7 +35,7 @@ export function RowHeader({
           <span
             aria-label="密钥未注入"
             title="密钥未注入，调用会失败"
-            className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sev-high"
+            className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-status-warning"
           />
         )}
         <span className="min-w-0 truncate text-sm font-medium text-text">
@@ -93,8 +93,8 @@ export function RowDeleteButton({
       aria-label={confirming ? `确认删除 ${code}` : `删除 provider ${code}`}
       title={confirming ? '再点一次确认删除' : `删除 ${code}`}
       className={cn(
-        'flex flex-shrink-0 items-center justify-center border-l border-border px-3 text-text-tertiary transition-colors hover:bg-sev-critical/10 hover:text-sev-critical',
-        confirming ? 'bg-sev-critical/10 text-sev-critical' : 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100',
+        'flex flex-shrink-0 items-center justify-center border-l border-border px-3 text-text-tertiary transition-colors hover:bg-status-error/10 hover:text-status-error',
+        confirming ? 'bg-status-error/10 text-status-error' : 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100',
         disabled && 'cursor-default opacity-40',
       )}
     >

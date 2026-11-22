@@ -27,7 +27,7 @@ import (
 type Agent struct {
 	thoughts     reasoning.Tap // 思考流出口（nil=不流式）
 	taskID       string
-	agentRunID   string // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	agentRunID   string // 本轮认知循环的 agent_run.id（模型日志归属）
 	graph        *explorationgraph.Store
 	router       *llm.Router // 每次评估现取 provider——配置/密钥变更经 30s TTL 对本任务生效
 	complexity   llm.Complexity
@@ -79,7 +79,7 @@ func (a *Agent) takeReviewReasons() []string {
 // Config 是 Monitor Agent 的配置。
 type Config struct {
 	TaskID     string
-	AgentRunID string // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	AgentRunID string // 本轮认知循环的 agent_run.id（模型日志归属）
 	Graph      *explorationgraph.Store
 	Replanner  Replanner     // 重规划请求直达规划者
 	Router     *llm.Router   // provider 每次评估经 Router.For 现取（与 planner/executor/evaluator 同口径）
@@ -193,7 +193,7 @@ func (a *Agent) hasSupervisableWork(ctx context.Context) bool {
 
 // Run 周期评估主循环（ctx 取消即停止）。
 func (a *Agent) Run(ctx context.Context) error {
-	// LLM 审计维度：监察调用归 task/本轮 run、角色 monitor。
+	// 模型日志维度：监察调用归 task/本轮 run、角色 monitor。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "monitor"})
 
 	a.logger.Info().Dur("interval", a.interval).Msg("monitor agent starting")
@@ -243,14 +243,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// evaluationFailure 处置一次评估失败：LLM 配置错误原样返回（致命，Run 退出）；
+// evaluationFailure 处置一次评估失败：模型配置错误原样返回（致命，Run 退出）；
 // 其余失败记录后继续——监察是辅助面，单次评估失败不应拖垮任务。
 func (a *Agent) evaluationFailure(err error, phase string) error {
 	if err == nil {
 		return nil
 	}
 	if llm.IsConfigError(err) {
-		a.logger.Error().Err(err).Str("phase", phase).Msg("LLM 配置错误，监察无法继续")
+		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，监察无法继续")
 		return err
 	}
 	a.logger.Error().Err(err).Str("phase", phase).Msg("评估失败（继续运行）")

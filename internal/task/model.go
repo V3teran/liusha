@@ -14,6 +14,8 @@
 package task
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"time"
 )
@@ -46,7 +48,7 @@ type Task struct {
 	PausedMs     int64
 	CreatedAt    time.Time
 	EndedAt      *time.Time
-	ErrorMessage string
+	AbortReason  string    // 终止（aborted）的原因；进行中与已完成为空
 	Scenario     *Scenario // 建任务时的场景快照（nil = 无场景）；建后不改
 }
 
@@ -83,6 +85,17 @@ type NewParams struct {
 // 不裁它——超大目标绕过全部预算防线，只能在执行期被长度哨兵拦下。契约在入口拒绝而非
 // 截断：任务指令被静默截断会腐蚀意图（agent 照半截指令干活）。
 const MaxGoalRunes = 20000
+
+// ErrGoalTooLong 表示任务目标超过长度契约（MaxGoalRunes），是调用方可修复的输入错误。
+var ErrGoalTooLong = errors.New("任务目标过长")
+
+// ValidateGoal 校验任务目标的长度契约（按字符计）。所有下发入口在创建任何东西之前调用。
+func ValidateGoal(goal string) error {
+	if n := len([]rune(goal)); n > MaxGoalRunes {
+		return fmt.Errorf("%w（%d 字 > 上限 %d），请精简后重发", ErrGoalTooLong, n, MaxGoalRunes)
+	}
+	return nil
+}
 
 var (
 	// schemeHostRe 匹配目标里带 scheme 的 URL 主机（含端口）——首选派生源。

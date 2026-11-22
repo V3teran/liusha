@@ -31,6 +31,7 @@ type Event struct {
 }
 
 // 常量化常用 actor / action 字符串，避免散落字面量拼写错。
+// 动作词表是审计页筛选下拉的数据源（httpapi 经 FacetActions 取全集），新增动作在这里登记。
 const (
 	ActorSystem = "system"
 	ActorRunner = "runner"
@@ -39,4 +40,15 @@ const (
 	ActionTaskCreate       = "task.create"
 	ActionCredentialSet    = "credential.set"    // #nosec G101 // 枚举字面量，非凭证
 	ActionCredentialDelete = "credential.delete" // #nosec G101 // 枚举字面量，非凭证
+	ActionAuthLogin        = "auth.login"
+	ActionAuthLoginFailed  = "auth.login_failed"
+	ActionAuthLogout       = "auth.logout"
+	ActionAuthPassword     = "auth.password_change"
 )
+
+// FacetActions 是动作词表全集（筛选下拉的固定选项，与 DB 实际出现过的动作可能不完全一致：
+// 库里只存已发生过的事件，词表是「可能发生的动作」）。
+var FacetActions = []string{
+	ActionAuthLogin, ActionAuthLoginFailed, ActionAuthLogout, ActionAuthPassword,
+	ActionTaskCreate, ActionTaskAbort, ActionCredentialSet, ActionCredentialDelete,
+}

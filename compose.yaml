@@ -172,7 +172,6 @@ services:
     environment:
       <<: [*liusha-env, *sandbox-env]
       LIUSHA_LLM_ENCRYPTION_KEY: ${LIUSHA_LLM_ENCRYPTION_KEY:?LIUSHA_LLM_ENCRYPTION_KEY 未设置}
-      LIUSHA_EMBEDDING_API_KEY: ${LIUSHA_EMBEDDING_API_KEY:-} # 可选；空值不覆盖配置文件
       # 对外监听段：与 sandbox 发布的端口是同一个值（容器部署以 .env 为准，见 .env.example）
       LIUSHA_SANDBOX_LISTENER_PORTS: ${LIUSHA_SANDBOX_LISTENER_PORTS:?LIUSHA_SANDBOX_LISTENER_PORTS 未设置}
     volumes:

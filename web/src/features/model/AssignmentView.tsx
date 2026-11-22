@@ -12,6 +12,8 @@ import {
 } from './useModelQueries'
 import { Select } from '@/components/ui/Select'
 import { ToggleChip } from '@/components/ui/ToggleChip'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 // 能力路由分区：agent → complexity → provider 两跳的绑定表单（非实体 CRUD）。
 // 某档未绑定、或其provider 停用/缺钥时，运行期按就近降级由相邻档承接。
@@ -20,7 +22,7 @@ import { ToggleChip } from '@/components/ui/ToggleChip'
 //   2. agent → 档：每档一排归属 chip，点未归属 chip 即把智能体归入本档
 //      （useSaveAgentComplexity 移档，与「智能体」页复杂度下拉读写同一份数据）。
 // inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
-// 排版：与「模型提供商」分区同构——同一分区头解剖 + 同宽单卡表格行（三档），
+// 排版：与「对话模型」分区同构——同一分区头解剖 + 同宽单卡表格行（三档），
 // 文档流排布随页面滚动。乐观更新在 useModelQueries 的 mutation 层（onMutate 写缓存 /
 // onError 回滚 / onSettled 失效），组件只消费 query data 派生视图。
 export function AssignmentView() {
@@ -82,18 +84,22 @@ export function AssignmentView() {
 
   return (
     <section aria-label="能力路由">
-      {/* 卡内头部与行同内边距节奏（与模型提供商卡同构）；回落细节在标准推理行说明中 */}
+      {/* 卡内头部与行同内边距节奏（与对话模型卡同构） */}
       <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-text">能力路由</h2>
-          <p className="mt-0.5 text-xs text-text-secondary">为每个复杂度档位分配模型，并把智能体归入对应档</p>
         </div>
         {loading ? (
-          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
+          <LoadingState className="py-10" />
         ) : loadError ? (
-          <div className="py-10 text-center font-mono text-sm text-sev-critical">
-            ⚠ {loadError instanceof Error ? loadError.message : '加载失败'}
-          </div>
+          <ErrorState
+            message={loadError instanceof Error ? loadError.message : undefined}
+            onRetry={() => {
+              void providersQuery.refetch()
+              void routingQuery.refetch()
+              void agentsQuery.refetch()
+            }}
+          />
         ) : (
         <div className="flex flex-col divide-y divide-border">
           {rows.map((m) => (
@@ -115,9 +121,9 @@ export function AssignmentView() {
       </div>
 
       {actionError && (
-        <div className="mt-2 flex items-start gap-2 rounded-lg border border-sev-critical/40 bg-sev-critical/5 px-4 py-2.5">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sev-critical" />
-          <p className="min-w-0 flex-1 break-all text-xs text-sev-critical">{actionError}</p>
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-status-error/40 bg-status-error/5 px-4 py-2.5">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-status-error" />
+          <p className="min-w-0 flex-1 break-all text-xs text-status-error">{actionError}</p>
           <button
             type="button"
             onClick={() => setActionError('')}
@@ -171,35 +177,34 @@ function ComplexityRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-text">{meta.label}</span>
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text-tertiary">
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-tertiary">
               {meta.key}
             </code>
             {missing && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-critical">
+              <span className="flex items-center gap-1 text-2xs text-status-error">
                 <AlertTriangle className="h-3 w-3" />
                 provider 缺失
               </span>
             )}
             {disabledProv && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 provider 停用
               </span>
             )}
             {noKey && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="运行期跳过该 provider，由相邻档承接">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="运行期跳过该 provider，由相邻档承接">
                 <AlertTriangle className="h-3 w-3" />
                 密钥未就绪
               </span>
             )}
             {noTools && (
-              <span className="flex items-center gap-1 text-[11.5px] text-sev-high" title="智能体依赖工具调用，该 provider未声明支持">
+              <span className="flex items-center gap-1 text-2xs text-status-warning" title="智能体依赖工具调用，该 provider未声明支持">
                 <AlertTriangle className="h-3 w-3" />
                 未声明工具调用
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-xs text-text-secondary">{meta.desc}</p>
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
@@ -236,7 +241,7 @@ function ComplexityRow({
 
 // 单档的 agent 归属胶囊区（与工具模块装配胶囊同一设计：同尺寸、仅配色区分——
 // 归属本档 = accent 高亮，未归属 = 幽灵可点移入；单值归属，归属档点击无操作）。
-// 全部渲染为 button + aria-pressed 表达归属态；头部带「已归入 N/M」计数。
+// 全部渲染为 button + aria-pressed 表达归属态。
 function AgentPicker({
   group,
   groupLabel,
@@ -252,15 +257,14 @@ function AgentPicker({
   moving: Set<string>
   onMove: (agentCode: string, group: string) => void
 }) {
-  const inCount = agents.filter((h) => (complexityBy.get(h.code) ?? 'medium') === group).length
   return (
     <div
       role="group"
       aria-label={`${groupLabel} 归属`}
       className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-2/40 px-3 py-2"
     >
-      <span className="mr-1 text-[11px] text-text-tertiary">
-        智能体 · 已归入 {inCount}/{agents.length}
+      <span className="mr-1 text-2xs text-text-tertiary">
+        智能体
       </span>
       {agents.map((h) => {
         const inGroup = (complexityBy.get(h.code) ?? 'medium') === group

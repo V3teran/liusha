@@ -5,6 +5,8 @@ package finding_test
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -86,6 +88,18 @@ func TestFinding_SaveIdempotentPerResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "confirmed", trianed.Status)
 	assert.Equal(t, "critical", trianed.Severity)
+
+	// 严重度大小写与空白从宽，取值只能是五档之一；状态同理只能是五态之一
+	trianed, err = store.UpdateTriage(ctx, saved.ID, "open", " High ", "")
+	require.NoError(t, err)
+	assert.Equal(t, "high", trianed.Severity)
+	for _, tc := range [][2]string{{"open", "apocalyptic"}, {"bogus", "high"}} {
+		_, err = store.UpdateTriage(ctx, saved.ID, tc[0], tc[1], "")
+		require.ErrorIs(t, err, finding.ErrInvalidTriage, "%v", tc)
+	}
+	// 不存在的发现：可识别为 pgx.ErrNoRows（接口据此回 404）
+	_, err = store.UpdateTriage(ctx, "00000000-0000-4000-8000-000000000000", "open", "", "")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 // TestListAll_CountAll 锁定全局台账的列表 / 计数 / 过滤路径（SQL 引用不存在的列时
@@ -349,4 +363,29 @@ func seedResult(t *testing.T, pool *pgxpool.Pool, taskID string) string {
 		taskID).Scan(&id)
 	require.NoError(t, err)
 	return id
+}
+
+// 库里的严重度与类型约束和代码词表一一对应：改词表须同时用迁移改约束，反之亦然。
+func TestFinding_CheckConstraintsMatchVocabulary(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	listed := func(name string) []string {
+		var def string
+		require.NoError(t, pool.QueryRow(context.Background(),
+			`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, name).Scan(&def))
+		var out []string
+		for _, m := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(def, -1) {
+			out = append(out, m[1])
+		}
+		slices.Sort(out)
+		return out
+	}
+	var classes []string
+	for _, c := range finding.Classes() {
+		classes = append(classes, c.Code)
+	}
+	slices.Sort(classes)
+	assert.Equal(t, classes, listed("finding_class_check"))
+	severities := slices.Clone(finding.Severities)
+	slices.Sort(severities)
+	assert.Equal(t, severities, listed("finding_severity_check"))
 }

@@ -85,7 +85,6 @@ func TestCompletionDetector_ReportStatsFromGraph(t *testing.T) {
 	got := d.makeResult(StopReasonConverged)
 	assert.Equal(t, 1, got.Actions, "只计执行过的动作")
 	assert.Equal(t, 1, got.Results)
-	assert.Equal(t, 1, got.Hypotheses, "只计假设，不计事实")
 }
 
 func TestCompletionDetector_AbortWins(t *testing.T) {
@@ -108,7 +107,7 @@ func TestCompletionDetector_AbortCarriesPauseReason(t *testing.T) {
 	assert.Equal(t, StopReasonPaused, res.StopReason)
 }
 
-// agent 致命失败（如 LLM 配置错误）必须终结检测循环并携带错误——否则任务永不收敛，
+// agent 致命失败（如模型配置错误）必须终结检测循环并携带错误——否则任务永不收敛，
 // 停在 active。
 func TestCompletionDetector_FailStopsWithError(t *testing.T) {
 	d, _ := newDetector(t, 0)

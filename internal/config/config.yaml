@@ -8,8 +8,8 @@
 #
 # 环境变量：键 a.b_c 对应 LIUSHA_A_B_C（如 runner.concurrency → LIUSHA_RUNNER_CONCURRENCY），设置了
 #   即覆盖本文件的值（值为空串时不覆盖）。本文件只写字面值，不引用变量。
-# 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password、
-#   embedding.api_key）在这里留空，经 .env 注入。
+# 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password）
+#   在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型配置」页维护、加密落库。
 # 启动期参数，改后重启生效。运行期可热改的旋钮（工具超时、上下文压缩、代理过滤规则等）在这里给出
 #   出厂值，前端「系统配置」页的自定义叠加其上。
 # ============================================================================
@@ -60,7 +60,7 @@ redis:
   write_timeout_seconds: 3
 
 # ---- LLM ----
-# LLM 接入（provider）与档位路由在前端「LLM 配置」页维护，密钥加密保存在数据库。
+# LLM 接入（provider）与档位路由在前端「模型配置」页维护，密钥加密保存在数据库。
 llm:
   encryption_key: ""                 # 密钥（LIUSHA_LLM_ENCRYPTION_KEY）：加密已保存的 provider 密钥，32 字节 hex（openssl rand -hex 32）；生成后不可更改
   # 错误码退避表（429/529/5xx/网络超时），所有调 LLM 的组件共用。
@@ -77,9 +77,13 @@ llm:
     backoff_529_ms: 0                # 529 立即重试
   invocation_retention_days: 0       # LLM 调用记录（含完整 prompt / response）留存天数；0 = 永久留存
 
-# ---- 知识库检索（向量化与重排服务）----
-embedding:
-  api_key: ""                        # 密钥（LIUSHA_EMBEDDING_API_KEY）；空 = 知识库只做关键词检索
+# ---- tools / traffic：记录表留存 ----
+# 运行过程记录（工具调用、流量）按天数清理；0 = 永久留存。任务证据（消息、探索图、
+# 漏洞、知识）与审计链 audit_log 不按时间清理。
+tools:
+  invocation_retention_days: 0      # 工具调用记录留存天数；0 = 永久留存
+traffic:
+  retention_days: 0                 # 流量记录（代理捕获 + agent 自产，含消费关联行）留存天数；0 = 永久留存
 
 # ---- proxy：MITM 代理入口 + 过滤规则出厂值 ----
 proxy:
@@ -109,7 +113,7 @@ runner:
   url: http://127.0.0.1:8590         # 沙盒访问 runner 的地址
   read_header_timeout_seconds: 5
   shutdown_timeout_seconds: 5
-  concurrency: 6                     # 同时执行的任务数
+  concurrency: 10                    # 同时执行的任务数
   drain_timeout_seconds: 30          # 停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限
   agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
   max_actions_per_task: 0            # 动作预算：单任务最多执行的动作数；0 = 不限

@@ -10,10 +10,16 @@ import { cn } from '@/lib/utils'
 
 export type ControlSize = 'sm' | 'md'
 
+// 窄屏（< sm）字号 ≥16px：iOS Safari 聚焦字号小于 16px 的输入控件时会自动放大页面，
+// 用户得手动缩回去。桌面保持密度档的 14 / 12px。
+//
+// 无效态：取值违反控件自身约束（min / max / step / required，用户动过之后才判定）或调用方标了
+// aria-invalid 时边框转为错误色——约束由字段自己表达，不在标签旁常驻「须 >0」之类的说明。
 const FRAME =
   'border border-border bg-surface text-text outline-none transition-[border-color,box-shadow] duration-150 ' +
   'placeholder:text-text-tertiary hover:border-border-strong focus:border-accent focus:glow-accent ' +
-  'disabled:cursor-not-allowed disabled:opacity-60'
+  'user-invalid:border-status-error aria-[invalid=true]:border-status-error ' +
+  'disabled:cursor-not-allowed disabled:opacity-60 max-sm:text-base'
 
 const SIZE: Record<ControlSize, string> = {
   sm: 'h-8 rounded-md px-2.5 text-xs',

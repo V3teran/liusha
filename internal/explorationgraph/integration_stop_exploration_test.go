@@ -4,6 +4,7 @@ package explorationgraph
 
 import (
 	"context"
+	"github.com/V3teran/liusha/internal/dbtest"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ func TestStopExplorationPostgres(t *testing.T) {
 		doneID    = "2c3f6a9e-2222-4222-8222-000000000004"
 		userID    = "2c3f6a9e-2222-4222-8222-000000000005"
 	)
+	dbtest.SeedTask(t, pool, taskID)
 	mk := func(id string, kind core.NodeKind, source SourceType, state State) Node {
 		return Node{ID: id, TaskID: taskID, Kind: kind, State: &state, SourceType: source,
 			Content: []byte(`{"description":"d","instruction":"i"}`), CreatedAt: time.Now()}

@@ -35,15 +35,16 @@ func (f *fakeVault) GetIdentitiesByHost(_ context.Context, host string) ([]Ident
 	return out, nil
 }
 
-func (f *fakeVault) DeleteIdentity(_ context.Context, host, name string) error {
+func (f *fakeVault) DeleteIdentity(_ context.Context, host, name string) (bool, error) {
 	kept := f.byHost[host][:0]
 	for _, id := range f.byHost[host] {
 		if id.Username != name {
 			kept = append(kept, id)
 		}
 	}
+	deleted := len(kept) < len(f.byHost[host])
 	f.byHost[host] = kept
-	return nil
+	return deleted, nil
 }
 
 func (f *fakeVault) ListHosts(_ context.Context) ([]HostSummary, error) {

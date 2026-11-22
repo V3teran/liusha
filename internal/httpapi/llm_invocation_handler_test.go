@@ -56,7 +56,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 	t.Run("200 返回完整行含 messages/result", func(t *testing.T) {
 		taskID := "t1"
 		fake := &fakeInvocations{byID: map[int64]llminvocation.Invocation{
-			5: {ID: 5, TaskID: &taskID, RequestID: "r5", Messages: []byte(`[{"role":"user"}]`), Result: []byte(`{"x":1}`)},
+			5: {ID: 5, TaskID: &taskID, Messages: []byte(`[{"role":"user"}]`), Result: []byte(`{"x":1}`)},
 		}}
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
@@ -131,5 +131,20 @@ func TestLLMInvocationsHandler_Facets(t *testing.T) {
 	}
 	if fake.gotFacetF.Model != "glm" || !fake.gotFacetF.OnlyErr {
 		t.Fatalf("筛选未透传: %+v", fake.gotFacetF)
+	}
+}
+
+// 时间范围写错时 400，而不是悄悄不筛；列表、统计、分面同一口径。
+func TestLLMInvocationsHandler_InvalidTimeRejected(t *testing.T) {
+	srv := newTestServer(t, Deps{Invocations: &fakeInvocations{}})
+	defer srv.Close()
+	for _, path := range []string{"/api/llm/invocations/search", "/api/llm/invocations/search/stat", "/api/llm/invocations/search/facets"} {
+		for _, q := range []string{"start=bad", "end=2026-02-30T00:00:00Z"} {
+			resp := doReq(t, "GET", srv.URL+path+"?"+q, "")
+			_ = resp.Body.Close()
+			if resp.StatusCode != 400 {
+				t.Errorf("%s?%s 应 400，得 %d", path, q, resp.StatusCode)
+			}
+		}
 	}
 }

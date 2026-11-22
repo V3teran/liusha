@@ -11,6 +11,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 
 	"github.com/google/uuid"
 
@@ -53,7 +54,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("task create: %v", err)
 	}
 	runs := agentrun.NewStore(pool)
-	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID, Role: "planner"})
+	runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID})
 	if err != nil {
 		t.Fatalf("agent_run create: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("tool_invocation append: %v", err)
 	}
 
-	// llm_invocation（LLM 审计；Append 满即丢缓冲，GetByID 前先 Flush）
+	// llm_invocation（模型日志；Append 满即丢缓冲，GetByID 前先 Flush）
 	inv := llminvocation.NewStore(pool)
 	if err := inv.Append(ctx, llminvocation.Invocation{
 		AgentRunID: &runID, TaskID: &tk.ID, Provider: "deepseek", Model: "deepseek-chat",
@@ -113,15 +114,14 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("cron create: %v", err)
 	}
 
-	// corpus（Add 需要 embedding 维度匹配 pgvector 列；传空向量走 SQL 侧 NULL?——
-	// Add 签名要求 embedding，给一个 pgvector 默认维度向量）
-	cp := corpus.NewStore(pool)
-	vec := make([]float32, 1024) // corpus.embedding 列固定 1024 维
-	if _, err := cp.Add(ctx, corpus.Entry{
-		Title: "smoke", Content: "c", Tags: []string{"t"}, Source: "expert",
-		SourceTaskID: tk.ID, Embedding: vec, ContentHash: "h-smoke",
-	}); err != nil {
-		t.Fatalf("corpus add: %v", err)
+	// corpus：写入一条知识并记下任务的印证（印证表外键指向 task）
+	kb := corpus.NewService(corpus.NewStore(pool), corpus.StaticModels(corpus.Models{}), nil, zerolog.Nop())
+	entry, err := kb.Create(ctx, corpus.Draft{Title: "smoke", Content: "c", Source: corpus.SourceExpert})
+	if err != nil {
+		t.Fatalf("corpus create: %v", err)
+	}
+	if err := kb.Confirm(ctx, entry.ID, tk.ID); err != nil {
+		t.Fatalf("corpus confirm: %v", err)
 	}
 
 	// 系统设置自定义层（setting_override，group_key CHECK: compaction/runtime/proxy_filter）

@@ -28,7 +28,9 @@ func TestTaskIsolation(t *testing.T) {
 	store := NewStore(pool)
 
 	taskA := "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	dbtest.SeedTask(t, pool, taskA)
 	taskB := "bbbbbbb2-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	dbtest.SeedTask(t, pool, taskB)
 
 	// taskA 创建 action 节点
 	complexity := ComplexitySimple
@@ -88,6 +90,7 @@ func TestCompleteDataFlow(t *testing.T) {
 	store := NewStore(pool)
 
 	taskID := "ccccccc3-cccc-4ccc-8ccc-cccccccccccc"
+	dbtest.SeedTask(t, pool, taskID)
 
 	// 1. 创建 action
 	complexity := ComplexityModerate
@@ -178,6 +181,7 @@ func TestListOpenActions_ExcludesSettled(t *testing.T) {
 	store := NewStore(pool)
 
 	taskID := "ddddddd4-dddd-4ddd-8ddd-dddddddddddd"
+	dbtest.SeedTask(t, pool, taskID)
 
 	complexity := ComplexitySimple
 	stateOpen := StateOpen
@@ -264,6 +268,7 @@ func TestCreateNodeWithEdgesAtomicity(t *testing.T) {
 	store := NewStore(pool)
 
 	taskID := "55555555-5555-4555-8555-555555555555"
+	dbtest.SeedTask(t, pool, taskID)
 	defer func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM exploration_node WHERE task_id=$1`, taskID)
 	}()

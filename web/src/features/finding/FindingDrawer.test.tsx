@@ -12,9 +12,11 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     severity: 'high',
     summary: 'SQL 注入漏洞',
     host: 'example.com',
+    class: 'other',
+    class_name: '其他',
+    cwe: '',
     source: 'direct',
     status: 'open',
-    first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
@@ -189,11 +191,22 @@ describe('FindingDrawer', () => {
     expect(screen.getByText('使用参数化查询')).toBeTruthy()
   })
 
-  it('cwe_id/owasp_category 存在时渲染在元信息区', () => {
-    const finding = makeFinding({ cwe_id: 'CWE-89', owasp_category: 'A03:2021' })
-    render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
-    expect(screen.getByText('CWE-89')).toBeTruthy()
-    expect(screen.getByText('A03:2021')).toBeTruthy()
+  it('元信息区显示发现类型与 CWE，CWE 链到 MITRE 的定义页；没有 CWE 的不显示这一行', () => {
+    const { rerender } = render(
+      <FindingDrawer
+        open
+        finding={makeFinding({ class: 'sql_injection', class_name: 'SQL 注入', cwe: 'CWE-89' })}
+        onOpenChange={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('SQL 注入')).toBeTruthy()
+    const link = screen.getByRole('link', { name: /CWE-89/ })
+    expect(link).toHaveAttribute('href', 'https://cwe.mitre.org/data/definitions/89.html')
+    expect(link).toHaveAttribute('target', '_blank')
+    rerender(<FindingDrawer open finding={makeFinding()} onOpenChange={vi.fn()} onSave={vi.fn()} />)
+    expect(screen.getByText('其他')).toBeTruthy()
+    expect(screen.queryByText('CWE')).toBeNull()
   })
 
   it('切换到不同 finding 时重新初始化编辑态', () => {

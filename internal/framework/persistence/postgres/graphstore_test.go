@@ -5,11 +5,12 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"github.com/V3teran/liusha/internal/framework/core"
 	"testing"
 	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
+	"github.com/V3teran/liusha/internal/framework/core"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,7 @@ func TestGraphStore_CreateAndGetNode(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -55,7 +56,7 @@ func TestGraphStore_UpdateNode(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -93,7 +94,7 @@ func TestGraphStore_OptimisticLocking(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -139,7 +140,7 @@ func TestGraphStore_GuardedTransition(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -177,7 +178,7 @@ func TestGraphStore_ListNodes(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -266,7 +267,7 @@ func TestGraphStore_CreateAndListEdges(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -323,7 +324,7 @@ func TestGraphStore_CreateNodeWithEdges(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -376,7 +377,7 @@ func TestGraphStore_DeleteNode(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -407,7 +408,7 @@ func TestGraphStore_DeleteEdge(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 
 	store := NewGraphStore(pool)
@@ -455,7 +456,7 @@ func TestGraphStore_VersionPrecondition(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 	ctx := context.Background()
-	pool := dbtest.NewPgPool(t)
+	pool := newGraphPool(t)
 	defer pool.Close()
 	store := NewGraphStore(pool)
 
@@ -511,4 +512,22 @@ func TestGraphStore_VersionPrecondition(t *testing.T) {
 	}
 	require.NoError(t, writer.Commit(ctx))
 	require.ErrorIs(t, <-done, core.ErrVersionMismatch, "等到改写提交后按最新版本判定")
+}
+
+// graphTaskIDs 是本文件测试节点所属的任务：节点以外键挂在任务上，先建任务。
+var graphTaskIDs = []string{
+	"cccccccc-0000-4000-8000-000000000001",
+	"cccccccc-0000-4000-8000-000000000002",
+	"cccccccc-0000-4000-8000-0000000000a1",
+	"cccccccc-0000-4000-8000-0000000000a2",
+}
+
+// newGraphPool 起一个全迁移的库并建好测试用到的任务。
+func newGraphPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool := dbtest.NewPgPool(t)
+	for _, id := range graphTaskIDs {
+		dbtest.SeedTask(t, pool, id)
+	}
+	return pool
 }

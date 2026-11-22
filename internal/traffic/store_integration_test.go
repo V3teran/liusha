@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -48,7 +49,6 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 		RequestRaw:  reqRaw,
 		ResponseRaw: respRaw,
 		ContentType: "application/json",
-		HTTPVersion: "HTTP/1.1",
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -67,7 +67,7 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	if got.Method != "POST" || got.Path != "/api/x" || got.StatusCode != 200 {
 		t.Fatalf("scalar fields mismatch: %+v", got)
 	}
-	if got.ContentType != "application/json" || got.HTTPVersion != "HTTP/1.1" {
+	if got.ContentType != "application/json" || got.URL != "http://test.example.com/api/x" {
 		t.Fatalf("meta fields mismatch: %+v", got)
 	}
 }
@@ -293,5 +293,138 @@ func TestAgentStore_ListByTaskFiltered(t *testing.T) {
 		if sum.Host != "test.example.com" {
 			t.Fatalf("过滤后混入了 host=%q", sum.Host)
 		}
+	}
+}
+
+// TestProxyStore_CountSince 验证：按捕获时间统计时间窗内的代理流量（概览的近期流量）。
+func TestProxyStore_CountSince(t *testing.T) {
+	ctx := context.Background()
+	pool, _ := newProxyTask(t)
+	s := NewProxyStore(pool)
+	for range 3 {
+		if _, err := s.Append(ctx, ProxyTraffic{Host: "h.example", Method: "GET", URL: "http://h.example/", Path: "/"}); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE proxy_traffic SET captured_at = now() - interval '2 hours'
+		WHERE id = (SELECT min(id) FROM proxy_traffic)`); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CountSince(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("近一小时应有 2 条，得 %d", n)
+	}
+}
+
+// TestRetention_DeleteOlderThan 锁定两张流量表的留存批删语义：
+//   - proxy_traffic：captured_at 过期的行连同 traffic_task 关联行一起删，新鲜行与关联行保留；
+//   - agent_traffic：created_at 过期的行删除，新鲜行保留；
+//   - 两者都循环批删到返回 0。
+func TestRetention_DeleteOlderThan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool, taskID := newProxyTask(t)
+	proxy := NewProxyStore(pool)
+	agent := NewAgentStore(pool)
+
+	reqRaw := []byte("GET / HTTP/1.1\r\nHost: old.example.com\r\n\r\n")
+	oldID, err := proxy.Append(ctx, ProxyTraffic{
+		Host: "old.example.com", Method: "GET", URL: "http://old.example.com/", Path: "/",
+		StatusCode: 200, RequestRaw: reqRaw,
+	})
+	if err != nil {
+		t.Fatalf("append old: %v", err)
+	}
+	freshID, err := proxy.Append(ctx, ProxyTraffic{
+		Host: "fresh.example.com", Method: "GET", URL: "http://fresh.example.com/", Path: "/",
+		StatusCode: 200, RequestRaw: reqRaw,
+	})
+	if err != nil {
+		t.Fatalf("append fresh: %v", err)
+	}
+	// 过期捕获行回写 captured_at 并领取建关联
+	base := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	if _, err = pool.Exec(ctx, "UPDATE proxy_traffic SET captured_at=$1 WHERE id=$2", base, oldID); err != nil {
+		t.Fatalf("回写 captured_at: %v", err)
+	}
+	claimed, err := proxy.ClaimUnconsumedByHost(ctx, taskID, "old.example.com", 10)
+	if err != nil || claimed != 1 {
+		t.Fatalf("领取建关联: claimed=%d err=%v", claimed, err)
+	}
+
+	// agent 流量：过期一条 + 新鲜一条
+	agentOld, err := agent.Append(ctx, AgentTraffic{
+		TaskID: taskID, Tool: "curl", Method: "GET", URL: "http://old.example.com/a", Path: "/a", StatusCode: 200,
+	})
+	if err != nil {
+		t.Fatalf("append agent old: %v", err)
+	}
+	if _, err = pool.Exec(ctx, "UPDATE agent_traffic SET created_at=$1 WHERE id=$2", base, agentOld); err != nil {
+		t.Fatalf("回写 created_at: %v", err)
+	}
+	if _, err = agent.Append(ctx, AgentTraffic{
+		TaskID: taskID, Tool: "curl", Method: "GET", URL: "http://fresh.example.com/a", Path: "/a", StatusCode: 200,
+	}); err != nil {
+		t.Fatalf("append agent fresh: %v", err)
+	}
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+
+	// 循环批删代理流量：过期行与关联行一起删
+	var deleted int64
+	for {
+		n, err := proxy.DeleteOlderThan(ctx, cutoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deleted += n
+		if n == 0 {
+			break
+		}
+	}
+	if deleted != 1 {
+		t.Fatalf("应删除 1 条捕获流量, got %d", deleted)
+	}
+	var joins int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM traffic_task WHERE traffic_id=$1", oldID).Scan(&joins); err != nil {
+		t.Fatal(err)
+	}
+	if joins != 0 {
+		t.Fatalf("关联行应随捕获行删除, got %d", joins)
+	}
+	var freshExists bool
+	if err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM proxy_traffic WHERE id=$1)", freshID).Scan(&freshExists); err != nil {
+		t.Fatal(err)
+	}
+	if !freshExists {
+		t.Fatal("新鲜捕获行应保留")
+	}
+	var freshJoin int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM traffic_task WHERE traffic_id=$1", freshID).Scan(&freshJoin); err != nil {
+		t.Fatal(err)
+	}
+	if freshJoin != 0 {
+		t.Fatalf("新鲜捕获行未被领取过, joins=%d", freshJoin)
+	}
+
+	// agent 流量：过期一条
+	deleted = 0
+	for {
+		n, err := agent.DeleteOlderThan(ctx, cutoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deleted += n
+		if n == 0 {
+			break
+		}
+	}
+	if deleted != 1 {
+		t.Fatalf("agent 流量应删除 1 条, got %d", deleted)
 	}
 }

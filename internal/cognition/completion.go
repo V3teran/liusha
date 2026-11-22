@@ -51,7 +51,6 @@ type convergence struct {
 type Result struct {
 	Actions    int    // 执行过的动作数
 	Results    int    // 坐实的结果数
-	Hypotheses int    // 提出的假设数
 	StopReason string // 停止原因
 	Duration   time.Duration
 	Err        error // 致命失败（StopReasonAgentFailed）的原因；其余停止为 nil
@@ -158,7 +157,7 @@ func (d *CompletionDetector) makeResult(stopWhy string) Result {
 		d.logger.Warn().Err(err).Msg("统计任务图失败，报告统计为 0")
 		return res
 	}
-	res.Actions, res.Results, res.Hypotheses = st.ExecutedActions, st.Results, st.Hypotheses
+	res.Actions, res.Results = st.ExecutedActions, st.Results
 	return res
 }
 
@@ -190,7 +189,7 @@ func (d *CompletionDetector) Converge(reason string, basis explorationgraph.Goal
 	}
 }
 
-// StopReasonAgentFailed 是 agent 致命失败（如 LLM 配置错误）终结任务的停止原因。
+// StopReasonAgentFailed 是 agent 致命失败（如模型配置错误）终结任务的停止原因。
 const StopReasonAgentFailed = "agent_failed"
 
 // Fail 以致命错误终结检测循环（只取第一个：多个 agent 同因失败时不阻塞）。

@@ -44,3 +44,20 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     disconnect() {}
   }
 }
+
+// 全站反馈（toast、确认）是模块级 store：每个用例结束后清空，前一个用例的通知与未决确认不串到下一个。
+import { afterEach } from 'vitest'
+import { useToastStore } from '@/components/ui/toast'
+import { useConfirmStore } from '@/components/ui/confirm'
+
+afterEach(() => {
+  useToastStore.setState({ items: [] })
+  useConfirmStore.getState().settle(false)
+})
+
+// jsdom 未实现 Pointer Capture：Radix Toast 的滑动关闭在 pointerdown 上调用它。
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+  Element.prototype.setPointerCapture = () => {}
+  Element.prototype.releasePointerCapture = () => {}
+}

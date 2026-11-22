@@ -81,7 +81,7 @@ type Deps struct {
 	ToolCatalog ToolCatalogAPI
 	// SandboxInventory 为工具目录附沙盒安装状态；nil 时安装状态一律未知（null）。
 	SandboxInventory SandboxInventoryAPI
-	// Models 为 nil 时 LLM 配置路由（/models 系列）不注册。
+	// Models 为 nil 时模型配置路由（/models 系列）不注册。
 	// 由 api 组件注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
 	// provider CRUD + 能力路由；写经其失效广播，各进程下次 For(complexity) 读到最新。
 	Models ModelAPI
@@ -91,6 +91,11 @@ type Deps struct {
 	KeyEncrypter KeyEncrypter
 	// ProviderDiagnoser 为 nil 时连接诊断路由（POST /models/providers/diagnose）不注册。
 	ProviderDiagnoser ProviderDiagnoser
+	// RetrievalDiagnoser 为 nil 时检索模型诊断路由（POST /models/retrieval/diagnose）不注册。
+	RetrievalDiagnoser RetrievalDiagnoser
+	// RetrievalModelIndex 为 nil 时保存检索模型不触发向量收口（重置 + 即时补齐，单测）；
+	// api 组件注入知识库服务适配器——与 runner 的周期巡检共用同一份实现。
+	RetrievalModelIndex RetrievalModelIndex
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
 	// 由 api 组件注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链。
@@ -106,6 +111,11 @@ type Deps struct {
 	SkillStore SkillAPI
 	// ScenarioStore 为 nil 时场景路由（/scenarios 系列）不注册；api 组件注入 *configstore.Store。
 	ScenarioStore ScenarioAPI
+	// Corpus 为 nil（或 ScenarioStore 为 nil）时知识库路由（/corpus 系列）不注册；api 组件注入 *corpus.Service。
+	Corpus CorpusAPI
+	// RetrievalHealth 为 nil 时知识库状态不带运行降级信息（单测）；
+	// api 组件注入 *retrievalstatus.Store（语义检索最近一次失败的跨进程记录）。
+	RetrievalHealth RetrievalHealthReader
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI
@@ -121,10 +131,22 @@ type Deps struct {
 	// Schedules 为 nil 时定时模板管理路由（/schedules 系列：查看 / 启停 / 删除）不注册。
 	// 由 api 组件注入 *cronschedule.Store。
 	Schedules SchedulesAPI
+	// AuditReader 为 nil 时审计查看路由（GET /audit）不注册。
+	// 由 api 组件注入 *audit.Store（自动满足窄接口）——audit_log 的唯一读取入口（只读）。
+	AuditReader AuditReader
 	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
 	// 由 api 组件注入 logx.NewReader(<data_dir>/logs)（自动满足 LogsAPI 窄接口）——
 	// 尾读各进程的 JSON lines 日志文件，冷读 + 游标增量轮询。
 	Logs LogsAPI
+	// Overview 为 nil 时「概览」路由（/overview 系列）不注册。由 api 组件注入 *overview.Store；
+	// 组件健康检查用 Runners / Proxy / ProxyTraffic / SandboxInventory / DataStores，缺哪项哪项报 unknown。
+	Overview OverviewAPI
+	// Runners 列出在线的 runner 实例（由 api 组件注入 *worker.Client）。
+	Runners RunnerRegistryAPI
+	// ProxyTraffic 统计代理捕获的流量（由 api 组件注入 *traffic.ProxyStore）。
+	ProxyTraffic ProxyTrafficAPI
+	// DataStores 探测 PostgreSQL 与 Redis（由 api 组件注入 db.DataStores）。
+	DataStores DataStoresAPI
 	// Proxy 为 nil 时代理接入路由（/proxy 系列）不注册。由 api 组件注入 *proxystatus.Store。
 	Proxy ProxyStatusAPI
 }
@@ -157,7 +179,7 @@ func NewServer(d Deps) http.Handler {
 		start := time.Now()
 		c.Next()
 		// 降为 debug 的两类高频请求：前端静态资源（每次打开页面几十个）；日志查看
-		// 端点被日志页自身 3s 增量轮询，info 级会在日志页里自我回灌成噪音墙。
+		// 端点被服务器日志页自身 3s 增量轮询，info 级会在服务器日志页里自我回灌成噪音墙。
 		// 默认视图不出现，排查时仍可按级别开启。
 		ev := accessLog.Info()
 		if !isAPIPath(c.Request.URL.Path) || strings.HasPrefix(c.Request.URL.Path, "/api/logs") {
@@ -174,7 +196,7 @@ func NewServer(d Deps) http.Handler {
 			Msg("request")
 	})
 
-	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（日志页数据源）看不到
+	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（服务器日志页数据源）看不到
 	// 崩溃现场。这里结构化记录 panic 值与调用栈后回 500。
 	r.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		apiLog.Error().
@@ -216,14 +238,17 @@ func NewServer(d Deps) http.Handler {
 func registerRouteGroups(r gin.IRouter, d Deps) {
 	// 按业务模块注册路由（auth 最先：登录是其余路由的入口前提）
 	registerAuthRoutes(r, d)
+	registerOverviewRoutes(r, d)
 	registerCredentialsRoutes(r, d)
 	registerFindingsRoutes(r, d)
 	registerLLMInvocationRoutes(r, d)
 	registerAgentConfigRoutes(r, d)
 	registerSkillRoutes(r, d)
 	registerScenarioRoutes(r, d)
+	registerCorpusRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
+	registerAuditRoutes(r, d)
 	registerLogsRoutes(r, d)
 	registerProxyRoutes(r, d)
 	registerTrafficRoutes(r, d)

@@ -147,7 +147,7 @@ func TestErrJudgeUnavailableWrapping(t *testing.T) {
 	}
 }
 
-// LLM 配置错误：不计入单条假设的重试阶梯（否则每条假设都被误标 judge_unavailable
+// 模型配置错误：不计入单条假设的重试阶梯（否则每条假设都被误标 judge_unavailable
 // 出圈），而是上报为 evaluator 致命错误，由 Run 返回终结任务。
 func TestRecordVerifyFailure_ConfigErrorIsFatalNotPerHypothesis(t *testing.T) {
 	a := NewAgent(AgentConfig{Logger: zerolog.New(io.Discard)})

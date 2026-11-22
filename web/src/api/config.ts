@@ -27,7 +27,7 @@ const enc = encodeURIComponent
 
 // ── 智能体 ──────────────────────────────────────────────────────────
 
-/** 拉全部智能体（不分页；LLM 配置页「能力路由」消费）。 */
+/** 拉全部智能体（不分页；模型配置页「能力路由」消费）。 */
 export async function listAgents(): Promise<AgentListItem[]> {
   return (await get<{ agents: AgentListItem[] }>('/agents')).agents
 }

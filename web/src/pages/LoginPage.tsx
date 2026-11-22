@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
+import { InlineError } from '@/components/ui/InlineError'
 
 /**
  * 登录页（AppShell 之外的独立路由）。
@@ -131,7 +132,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() => setReveal((v) => !v)}
                 aria-label={reveal ? '隐藏密码' : '显示密码'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text"
+                className="absolute inset-y-0 right-2.5 flex items-center text-text-tertiary transition-colors hover:text-text"
               >
                 {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -139,9 +140,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-xs text-status-error" role="alert">
-              ⚠ {error}
-            </div>
+            <InlineError>{error}</InlineError>
           )}
 
           <Button type="submit" disabled={busy} className="mt-1 w-full">

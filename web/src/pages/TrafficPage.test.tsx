@@ -35,8 +35,6 @@ function summary(o: Partial<TrafficSummary> = {}): TrafficSummary {
 function detail(o: Partial<TrafficDetail> = {}): TrafficDetail {
   return {
     ...summary(),
-    scheme: 'http',
-    http_version: 'HTTP/1.1',
     request_raw: 'GET /login.php HTTP/1.1\r\nHost: dvwa.local\r\n\r\n',
     response_raw: 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<form ...>',
     consumed_by: [],

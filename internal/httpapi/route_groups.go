@@ -12,8 +12,7 @@ func registerCredentialsRoutes(r gin.IRouter, d Deps) {
 	if d.Credentials == nil {
 		return
 	}
-	r.GET("/credentials", listCredentialHostsHandler(d.Credentials))
-	r.GET("/credentials/:host", getCredentialDetailHandler(d.Credentials, d.TaskStatus))
+	r.GET("/credentials", listCredentialsHandler(d.Credentials, d.TaskStatus))
 	r.PUT("/credentials/:host/usernames", upsertCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 	r.DELETE("/credentials/:host/usernames/:username", deleteCredentialIdentityHandler(d.Credentials, d.CredentialAudit))
 }
@@ -32,6 +31,7 @@ func registerFindingsRoutes(r gin.IRouter, d Deps) {
 	r.GET("/findings", listFindingsHandler(d.Findings))
 	r.GET("/findings/stat", findingStatHandler(d.Findings))
 	r.GET("/findings/tasks", findingTaskFacetsHandler(d.Findings))
+	r.GET("/findings/classes", findingClassFacetsHandler(d.Findings))
 	r.GET("/findings/:id", uuidID, getFindingHandler(d.Findings))
 	r.PATCH("/findings/:id/status", uuidID, updateFindingStatusHandler(d.Findings))
 }
@@ -138,6 +138,14 @@ func registerProxyRoutes(r gin.IRouter, d Deps) {
 	r.GET("/proxy/ca.crt", getProxyCAHandler(d.Proxy))
 }
 
+// registerAuditRoutes 注册审计事件查看路由（前端 /audit 页，audit_log 的唯一读取入口）。
+func registerAuditRoutes(r gin.IRouter, d Deps) {
+	if d.AuditReader == nil {
+		return
+	}
+	r.GET("/audit", listAuditHandler(d.AuditReader))
+}
+
 // registerLogsRoutes 注册日志查看路由（前端 /logs 页）。
 func registerLogsRoutes(r gin.IRouter, d Deps) {
 	if d.Logs == nil {
@@ -194,9 +202,19 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 	r.PUT("/models/routes/:role", saveRoleRouteHandler(d.Models))
 	r.DELETE("/models/routes/:role", deleteRoleRouteHandler(d.Models))
 
+	// 检索模型配置（单行；保存路径同样必须能加密明文密钥才开）
+	r.GET("/models/retrieval", getRetrievalHandler(d.Models))
+	r.DELETE("/models/retrieval", clearRetrievalKeyHandler(d.Models))
+	if d.KeyEncrypter != nil {
+		r.PUT("/models/retrieval", saveRetrievalHandler(d.Models, d.KeyEncrypter, d.RetrievalModelIndex))
+	}
+
 	// 连接诊断（实测，不落库）
 	if d.ProviderDiagnoser != nil {
 		r.POST("/models/providers/diagnose", diagnoseProviderHandler(d.ProviderDiagnoser))
+	}
+	if d.RetrievalDiagnoser != nil {
+		r.POST("/models/retrieval/diagnose", diagnoseRetrievalHandler(d.Models, d.RetrievalDiagnoser))
 	}
 }
 

@@ -23,7 +23,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, assignment_id, goal, target_host, status, paused, paused_ms, " +
-	"created_at, ended_at, error_message, scenario, scenario_name, scenario_body"
+	"created_at, ended_at, abort_reason, scenario, scenario_name, scenario_body"
 
 const (
 	defaultListLimit = 50 // 对齐 httpapi parseTaskFilter 的缺省 50——两层钳制数值必须一致
@@ -173,7 +173,7 @@ func scan(r db.RowScanner, t *Task) error {
 	var scCode, scName, scBody *string
 	if err := r.Scan(&t.ID, &t.AssignmentID, &t.Goal, &t.TargetHost, &status, &t.Paused,
 		&t.PausedMs,
-		&t.CreatedAt, &t.EndedAt, &t.ErrorMessage, &scCode, &scName, &scBody); err != nil {
+		&t.CreatedAt, &t.EndedAt, &t.AbortReason, &scCode, &scName, &scBody); err != nil {
 		return err
 	}
 	t.Status = Status(status)
@@ -246,6 +246,8 @@ type Summary struct {
 	TokensOut int64
 	CreatedAt time.Time
 	EndedAt   *time.Time
+	// AbortReason 是终止的原因（「用户手动停止」「任务运行超时」……）；未终止为空。
+	AbortReason string
 }
 
 // summaryStepCount 是 StepCount 的统一口径表达式：会话内最近一次 dispatched 之后的
@@ -279,7 +281,7 @@ const summarySelect = `
 	` + summaryStepCount + `,
 	(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 	(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
-	t.created_at, t.ended_at`
+	t.created_at, t.ended_at, t.abort_reason`
 
 // searchArg 把搜索框输入转成「包含」模式（元字符按字面匹配）；空输入保持空串，筛选子句据此不筛。
 func searchArg(q string) string {
@@ -325,7 +327,7 @@ func scanSummary(r db.RowScanner, s *Summary) error {
 	if err := r.Scan(&s.ID, &s.Goal, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.ScheduleID,
 		&s.CronExpr, &s.ConversationID, &s.ScenarioCode, &s.ScenarioName, &s.ScenarioDeleted, &s.FindingCount, &s.StepCount,
-		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt); err != nil {
+		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt, &s.AbortReason); err != nil {
 		return err
 	}
 	s.Status = Status(status)

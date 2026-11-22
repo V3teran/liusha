@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -33,36 +32,32 @@ const (
 	maxInvocationPageSize     = 1000
 )
 
-// parseInvocationFilter 从 query 解析筛选条件（列表/统计共用，保证口径一致）。
+// parseInvocationFilter 从 query 解析筛选条件（列表/统计/分面共用，保证口径一致）。
 //
 //	q=<search> role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
 //
-// 时间用 RFC3339（前端 Date.toISOString() 直出）；解析失败的时间视为未传，不报错——
-// 审计筛选是查询辅助，宁可退化成不筛也不要因为一个坏参数把整页打成 400。
+// 时间用 RFC3339（前端 Date.toISOString() 直出）；写错时返回错误（handler 回 400）。
 //
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 Count 算总页数。
-func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFilter {
+func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFilter, error) {
 	f := llminvocation.ListFilter{
 		Search:  c.Query("q"), // 允许为空：空 = 全量（按时间倒序），全局审计不强制先选对话
 		Role:    c.Query("role"),
 		Model:   c.Query("model"),
 		OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
 	}
-	if s := c.Query("start"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Start = &t
-		}
+	var err error
+	if f.Start, err = timeQuery(c, "start"); err != nil {
+		return f, err
 	}
-	if s := c.Query("end"); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.End = &t
-		}
+	if f.End, err = timeQuery(c, "end"); err != nil {
+		return f, err
 	}
 	if size > 0 {
 		f.Limit = size
 		f.Offset = (page - 1) * size
 	}
-	return f
+	return f, nil
 }
 
 // llmInvocationsSearchHandler 处理 GET /llm/invocations/search?q=<search>&page=&size=&role=&model=&only_err=&start=&end=。
@@ -79,10 +74,14 @@ func parseInvocationFilter(c *gin.Context, page, size int) llminvocation.ListFil
 func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultInvocationPageSize, maxInvocationPageSize)
-		f := parseInvocationFilter(c, page, size)
+		f, err := parseInvocationFilter(c, page, size)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		invocations, err := api.ListAll(c.Request.Context(), f)
@@ -100,7 +99,6 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 		for _, v := range invocations {
 			items = append(items, gin.H{
 				"id":              v.ID,
-				"request_id":      v.RequestID,
 				"agent_run_id":    v.AgentRunID,
 				"task_id":         v.TaskID,
 				"conversation_id": v.ConversationID,
@@ -135,10 +133,14 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 // 「共 197 条」同屏打架；列表与统计吃同一份 parseInvocationFilter，口径永不打架。
 func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		f := parseInvocationFilter(c, 0, 0) // 统计不吃分页
+		f, err := parseInvocationFilter(c, 0, 0) // 统计不吃分页
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		a, err := api.AggregateAll(c.Request.Context(), f)
@@ -161,7 +163,12 @@ func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
 // 角色 / 模型筛选的选项，来自整个筛选结果集而非当前页，每个维度不受自身筛选影响。
 func llmInvocationsFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		facets, err := api.Facets(c.Request.Context(), parseInvocationFilter(c, 0, 0))
+		f, err := parseInvocationFilter(c, 0, 0)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		facets, err := api.Facets(c.Request.Context(), f)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
@@ -182,7 +189,7 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 			return
 		}
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("llm 审计补写失败（审计行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
 		}
 
 		v, err := api.GetDetailByID(c.Request.Context(), id)
@@ -197,7 +204,6 @@ func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"id":              v.ID,
-			"request_id":      v.RequestID,
 			"agent_run_id":    v.AgentRunID,
 			"task_id":         v.TaskID,
 			"conversation_id": v.ConversationID,

@@ -23,12 +23,27 @@ type AppConfig struct {
 	Postgres     PostgresConfig     `mapstructure:"postgres"`
 	Redis        RedisConfig        `mapstructure:"redis"`
 	LLM          LLMConfig          `mapstructure:"llm"`
-	Embedding    EmbeddingConfig    `mapstructure:"embedding"`
 	Proxy        ProxyConfig        `mapstructure:"proxy"`
 	Ingestor     IngestorConfig     `mapstructure:"ingestor"`
 	Runner       RunnerConfig       `mapstructure:"runner"`
 	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
 	Conversation ConversationConfig `mapstructure:"conversation"`
+	Tools        ToolsConfig        `mapstructure:"tools"`
+	Traffic      TrafficConfig      `mapstructure:"traffic"`
+}
+
+// ToolsConfig 是工具调用记录的留存参数。
+type ToolsConfig struct {
+	// InvocationRetentionDays 是工具调用记录的留存天数；0 = 永久留存。
+	// 记录是运行过程流水（诊断），按时间清理；任务证据与审计链不在此列。
+	InvocationRetentionDays int `mapstructure:"invocation_retention_days"`
+}
+
+// TrafficConfig 是流量记录的留存参数。
+type TrafficConfig struct {
+	// RetentionDays 是流量记录（代理捕获 + agent 自产，连同消费关联行）的留存天数；
+	// 0 = 永久留存。两类流量同生命周期，一个键管两张表。
+	RetentionDays int `mapstructure:"retention_days"`
 }
 
 // WorkspaceDir 是任务工作区根目录（按 批次 / 任务 两级分目录）。沙盒在其中执行命令、写产物，
@@ -46,7 +61,7 @@ type LogConfig struct {
 	Level    string `mapstructure:"level"`     // debug / info / warn / error
 	Format   string `mapstructure:"format"`    // 标准输出的格式：json / console（文件永远是 json）
 	ToStdout bool   `mapstructure:"to_stdout"` // 写标准输出
-	ToFile   bool   `mapstructure:"to_file"`   // 写 <data_dir>/logs/<命令>.log（控制台「日志」页读它）
+	ToFile   bool   `mapstructure:"to_file"`   // 写 <data_dir>/logs/<命令>.log（控制台「服务器日志」页读它）
 	// MaxSizeBytes 是单个日志文件的轮转大小，须为 1 MiB 的整数倍（按 MiB 轮转）。
 	MaxSizeBytes int64 `mapstructure:"max_size_bytes"`
 	MaxBackups   int   `mapstructure:"max_backups"`  // 保留的轮转文件数；0 = 不按个数清理
@@ -95,7 +110,7 @@ type RedisConfig struct {
 	WriteTimeoutSeconds int    `mapstructure:"write_timeout_seconds"`
 }
 
-// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「LLM 配置」
+// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「模型配置」
 // 页维护、存于数据库，不在配置文件里。
 type LLMConfig struct {
 	// EncryptionKey 加密数据库里保存的 provider 密钥（AES-256-GCM），32 字节 hex（64 个字符）。
@@ -116,12 +131,6 @@ type RetryConfig struct {
 	Backoff5xxSeconds []int `mapstructure:"backoff_5xx_seconds"`
 	BackoffNetSeconds []int `mapstructure:"backoff_net_seconds"`
 	Backoff529Ms      int   `mapstructure:"backoff_529_ms"`
-}
-
-// EmbeddingConfig 是知识库检索所用的向量化与重排服务。
-type EmbeddingConfig struct {
-	// APIKey 是该服务的密钥，经 LIUSHA_EMBEDDING_API_KEY 注入；空 = 知识库只做关键词检索。
-	APIKey string `mapstructure:"api_key"`
 }
 
 // ProxyConfig 是 MITM 代理入口与流量过滤规则的部署默认（过滤规则可在前端「系统配置」自定义）。

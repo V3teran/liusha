@@ -35,7 +35,6 @@ import (
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/distill"
-	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -43,6 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/retrievalstatus"
 	"github.com/V3teran/liusha/internal/runner"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
@@ -118,7 +118,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	st := newStores(pool)
 	defer func() { _ = st.calls.Close() }()
 
-	embedder, reranker := newCorpusEmbedder(cfg.Embedding.APIKey, logger)
 	tools := manifest.Default()
 
 	redisOpt := worker.RedisOpt(redisOpts)
@@ -141,6 +140,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(tools))
 	llmStore := llmstore.New(pool, cache)
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
+
+	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
+	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
 	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options())
 	// LLM 调用装配：单步看门狗（挂死的调用会阻塞 agent 事件循环）+ llm_invocation 审计（含失败）。
@@ -165,9 +167,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Findings:        st.findings,
 		Sandbox:         sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 		SandboxListener: resolveSandboxContract(cfg, logger),
-		Corpus:          st.corpus,
-		Embedder:        embedder,
-		Reranker:        reranker,
+		Corpus:          kb,
 		ProxyStore:      st.proxyStore,
 		AgentStore:      st.agentStore,
 		Calls:           st.calls,
@@ -185,12 +185,13 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		EventPublisher:  convstream.NewPublisher(rdb),
 		Graph:           st.graph,
 		EventBus:        bus.New(ctx),
-		// 任务终态经验蒸馏：embedder 缺席时教训降级纯 sparse 检索，不阻塞写入。
-		Distiller: distill.New(router, st.graph, st.corpus, embedder, logger),
+		Distiller:       distill.New(router, st.graph, st.tasks, kb, logger),
+		DistillQueue:    wc,
 	}
 
 	mux := worker.NewMux()
 	mux.Register(worker.RoleAgent, h.Handle)
+	mux.HandleDistill(h.HandleDistill)
 
 	// 后台循环共用一个 ctx：停机第一步取消它，停止接收新流量与各类巡检。
 	bgCtx, stopBackground := context.WithCancel(ctx)
@@ -218,7 +219,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	}()
 
-	startBackgroundLoops(bgCtx, cfg, pool, wc, st, creds, rdb, logger)
+	startBackgroundLoops(bgCtx, cfg, pool, wc, st, kb, creds, rdb, logger)
 
 	ts := newTaskServer(redisOpt, runnerCfg, logger)
 	if err := ts.Start(mux.AsynqMux()); err != nil {
@@ -245,7 +246,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 // startBackgroundLoops 启动恢复监控与各类清扫器（随 ctx 取消退出）。
 func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpool.Pool, wc *worker.Client,
-	st *stores, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
+	st *stores, kb *corpus.Service, creds *credential.RedisProvider, rdb *redis.Client, logger zerolog.Logger,
 ) {
 	runnerCfg := cfg.Runner
 	// 僵尸 run 回收与搁浅任务重投。
@@ -274,6 +275,9 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		}
 	}()
 
+	// 知识库向量补齐：写入时向量化失败、或在配置密钥之前写入的条目。
+	runner.StartCorpusIndexLoop(ctx, kb, logger)
+
 	// 会话身份终态清扫：任务终态回收（handler 内）的崩溃兜底，按任务状态回收、不依赖过期时间。
 	credential.StartSweepLoop(ctx, creds, func(ctx context.Context, taskID string) (string, bool, error) {
 		t, err := st.tasks.GetByID(ctx, taskID)
@@ -286,19 +290,15 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		return string(t.Status), true, nil
 	}, logger)
 
-	// LLM 调用记录留存清理（llm.invocation_retention_days > 0 时每日删除到期行）。
-	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.InvocationRetentionDays, logger)
+	// 记录表留存清理：各表到期行每日批删（对应天数配置 0 = 永久留存）。
+	runner.StartRetentionSweep(ctx, st.calls, st.toolCalls, st.proxyStore, st.agentStore,
+		cfg.LLM.InvocationRetentionDays, cfg.Tools.InvocationRetentionDays, cfg.Traffic.RetentionDays, logger)
 }
 
-// newCorpusEmbedder 构造知识库 embedding + rerank client。embedding.api_key 为空时返回 nil，
-// 知识库降级（检索退纯 sparse、写入不 embed），不阻塞主流程。
-func newCorpusEmbedder(apiKey string, logger zerolog.Logger) (corpus.Embedder, corpus.Reranker) {
-	jc, err := embedding.NewClient(apiKey)
-	if err != nil {
-		logger.Warn().Err(err).Msg("embedding.api_key 未配置，知识库降级为纯关键词检索（不影响主流程）")
-		return nil, nil
-	}
-	return jc, jc
+// newCorpus 装配知识库服务：检索模型密钥每次操作现取（模型配置页热改、跨进程失效），
+// 未配置时知识库只做字面检索，不阻塞对话与任务。
+func newCorpus(store *corpus.Store, models *llmstore.Store, cipher *cryptx.Cipher, rdb *redis.Client, logger zerolog.Logger) *corpus.Service {
+	return corpus.NewService(store, models.RetrievalModels(cipher), retrievalstatus.NewSink(rdb, logger), logger)
 }
 
 // resolveSandboxContract 解析沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
@@ -384,8 +384,8 @@ func newTaskServer(redisOpt asynq.RedisConnOpt, runnerCfg config.RunnerConfig, l
 	return &taskServer{
 		srv: asynq.NewServer(redisOpt, asynq.Config{
 			Concurrency: runnerCfg.Concurrency,
-			// 只有一个队列：权重没有比较对象，取 1。
-			Queues:          map[string]int{worker.QueueAgent: 1},
+			// 经验沉淀是收尾的后台工作，权重低于 agent run：积压时不挤占任务执行。
+			Queues:          map[string]int{worker.QueueAgent: 6, worker.QueueDistill: 1},
 			ShutdownTimeout: time.Duration(runnerCfg.DrainTimeoutSeconds) * time.Second,
 			// asynq 内部日志（投递重试 / 处理错误）事关任务是否丢失，接进 logx。
 			Logger: asynqLogAdapter{logger},
@@ -419,7 +419,7 @@ func (s *taskServer) Shutdown() {
 func shutdown(logger zerolog.Logger, runnerCfg config.RunnerConfig, ts *taskServer, hs *http.Server, stopBackground context.CancelFunc) {
 	stopBackground()
 	ts.Shutdown()
-	logger.Info().Msg("在途 run 已按停机中断收尾，任务由恢复监控续跑")
+	logger.Info().Msg("在途 run 已按停机中断收尾，任务由恢复监控续跑；中断的经验沉淀留在队列里重试")
 
 	hsCtx, hsCancel := context.WithTimeout(context.Background(), time.Duration(runnerCfg.ShutdownTimeoutSeconds)*time.Second)
 	defer hsCancel()

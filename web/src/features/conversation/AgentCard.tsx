@@ -48,7 +48,7 @@ export function AgentCard({
               '--tw-ring-color': profile.accent + '40',
             } as React.CSSProperties}
           >
-            <Icon className="h-4 w-4" strokeWidth={2.2} />
+            <Icon className="h-4 w-4" />
           </div>
 
           {/* 内容气泡 */}

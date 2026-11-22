@@ -107,14 +107,26 @@ var load = sync.OnceValue(func() catalog {
 	return catalog{agents: agents, skills: skills, scenarios: scenarios}
 })
 
-// Agents 返回全部出厂 agent（按 code 升序，返回副本）。
+// Agents 返回全部出厂 agent（按工作流顺序，返回副本）。
 func Agents() []Agent {
 	src := load().agents
 	out := make([]Agent, len(src))
 	for i, a := range src {
 		out[i] = a.clone()
 	}
+	slices.SortStableFunc(out, func(a, b Agent) int { return agentRank(a.Code) - agentRank(b.Code) })
 	return out
+}
+
+// agentOrder 是智能体的呈现顺序：工作流的先后（规划 → 执行 → 评估），监察者在旁监督排最后。
+// 配置页、团队名册等按它排列，而不是按标识的字母序。
+var agentOrder = []string{"planner", "executor", "evaluator", "monitor"}
+
+func agentRank(code string) int {
+	if i := slices.Index(agentOrder, code); i >= 0 {
+		return i
+	}
+	return len(agentOrder)
 }
 
 // AgentByCode 按角色 code 取出厂 agent。

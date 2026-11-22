@@ -26,7 +26,7 @@ export function Select({ size = 'md', className, children, ...rest }: SelectProp
       <ChevronDown
         aria-hidden
         className={cn(
-          'pointer-events-none absolute top-1/2 -translate-y-1/2 text-text-tertiary',
+          'pointer-events-none absolute inset-y-0 my-auto text-text-tertiary',
           size === 'sm' ? 'right-2 h-3.5 w-3.5' : 'right-2.5 h-4 w-4',
         )}
       />

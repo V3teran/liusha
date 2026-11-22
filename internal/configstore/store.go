@@ -140,7 +140,7 @@ func (s *Store) Agents(ctx context.Context) ([]agent.Agent, error) {
 }
 
 // AgentDetails 返回全部 agent 的生效配置、出厂值、各已自定义字段状态与提示词归档
-// （按 code 升序）。
+// （按工作流顺序，见 builtin.Agents）。
 func (s *Store) AgentDetails(ctx context.Context) ([]AgentDetail, error) {
 	ovs, err := s.agentOverrides(ctx)
 	if err != nil {

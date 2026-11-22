@@ -10,6 +10,7 @@ import { ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { toast } from '@/components/ui/toast'
 
 
 // 工具目录（主从双栏）：左栏按种类/分类分组、可搜索、点选；右栏常驻详情面板。
@@ -55,17 +56,17 @@ export function ToolsPage() {
     if (!selected) return
     assign.mutate(
       { tool: selected, code, involved },
-      { onError: (e) => window.alert(errorText(e, '保存失败')) },
+      { onError: (e) => toast.error(errorText(e, '装配状态保存失败')) },
     )
   }
   const savingCode = assign.isPending && assign.variables?.tool === selected ? assign.variables.code : null
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="工具" subtitle="智能体可调用的工具清单，按智能体启停装配" />
+      <PageHeader title="工具" />
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
-      <FilterBar label="工具筛选">
+      <FilterBar label="工具筛选" canReset={query !== ''} onReset={() => setQuery('')}>
         <SearchInput className="w-64" value={query} onChange={setQuery} placeholder="搜索工具名 / 描述" ariaLabel="搜索工具" />
       </FilterBar>
 
@@ -78,6 +79,7 @@ export function ToolsPage() {
             onKind={setKind}
             loading={list.isLoading}
             error={list.isError ? errorText(list.error, '加载工具目录失败') : ''}
+            onRetry={() => void list.refetch()}
             empty={tools.length === 0}
             filtered={!!query.trim() || kind !== ''}
             selected={selected}

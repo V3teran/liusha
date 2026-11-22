@@ -33,8 +33,8 @@ const (
 	LogFlushInterval = 1 * time.Second
 )
 
-// Agent 码：出厂 agent（internal/builtin/agents/<code>.md）的身份键——agent_override.agent_code、
-// agent_run.role 与运行时按码取配置共用，写错一个字母只会静默降级为空配置。
+// Agent 码：出厂 agent（internal/builtin/agents/<code>.md）的身份键——agent_override.agent_code
+// 与运行时按码取配置共用，写错一个字母只会静默降级为空配置。
 const (
 	AgentCodeExecutor  = "executor"
 	AgentCodePlanner   = "planner"

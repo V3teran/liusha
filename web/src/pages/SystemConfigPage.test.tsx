@@ -11,6 +11,7 @@ import type {
   SettingsDetail,
   SettingsGroup,
 } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
 
 vi.mock('@/api/settings', () => ({
   getSettings: vi.fn(),
@@ -56,7 +57,12 @@ const byGroup: Record<SettingsGroup, SettingsDetail<unknown>> = {
 // RuntimeSection 保存后失效 React Query 缓存（useQueryClient）——测试壳须提供 Provider。
 function renderWithQueryClient(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={qc}>
+      {ui}
+      <ConfirmHost />
+    </QueryClientProvider>,
+  )
 }
 
 describe('SystemConfigPage', () => {
@@ -64,7 +70,6 @@ describe('SystemConfigPage', () => {
     mGet.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
     mPatch.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
     mReset.mockReset()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('三组旋钮各自加载并渲染当前值', async () => {
@@ -118,6 +123,8 @@ describe('SystemConfigPage', () => {
     mReset.mockResolvedValue(byGroup.runtime)
     renderWithQueryClient(<SystemConfigPage />)
     await user.click(await screen.findByText('恢复默认'))
+    expect(mReset).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: '恢复出厂' }))
     await waitFor(() => expect(mReset).toHaveBeenCalledWith('runtime', 'step_llm_timeout_seconds'))
     await waitFor(() => expect(screen.queryByText('已自定义')).toBeNull())
     expect(screen.getByDisplayValue('300')).toBeInTheDocument()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,16 +67,12 @@ type Aggregate struct {
 	DurationMs int64 // 工具执行耗时合计（ms）
 }
 
-// AggregateByTask 合计某 task 的全部 tool_invocation 用量（仅叶子工具）。task 无记录时返回零值。
-//
-// 排除 tool_name='task'：task 是"派发子代理"的工具，其 duration_ms 是子代理整段运行的墙钟，
-// 已包含该子代理自身的 run_command 等叶子工具耗时（同 task 另有明细行）+ 子代理 LLM 耗时
-// （单独计入 llm_invocation.latency_ms）。计入 task 会与这两者重叠，导致总耗时翻倍。
+// AggregateByTask 合计某 task 的全部 tool_invocation 用量。task 无记录时返回零值。
 func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, error) {
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(duration_ms),0)
-		FROM tool_invocation WHERE task_id=$1::uuid AND tool_name <> 'task'`, taskID).
+		FROM tool_invocation WHERE task_id=$1::uuid`, taskID).
 		Scan(&a.Calls, &a.DurationMs)
 	if err != nil {
 		return Aggregate{}, fmt.Errorf("aggregate tool_invocation by task %s: %w", taskID, err)
@@ -105,4 +102,21 @@ func truncateUTF8(s string, limit int) string {
 		end--
 	}
 	return s[:end]
+}
+
+// RetentionBatch 是留存清理的单批行数（DeleteOlderThan 每次至多删这么多）。
+const RetentionBatch = 5000
+
+// DeleteOlderThan 删除 created_at 早于 cutoff 的调用记录，单批至多 RetentionBatch 行，返回
+// 删除行数。批删而非一次删完：首次开启留存时存量可能几十万行，一条 DELETE 会长时间持锁；
+// 调用方（runner 的统一留存循环）循环调到返回 0。
+func (s *Store) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM tool_invocation
+		WHERE id IN (SELECT id FROM tool_invocation WHERE created_at < $1 LIMIT $2)`,
+		cutoff, RetentionBatch)
+	if err != nil {
+		return 0, fmt.Errorf("delete tool_invocation older than %s: %w", cutoff.Format(time.RFC3339), err)
+	}
+	return tag.RowsAffected(), nil
 }

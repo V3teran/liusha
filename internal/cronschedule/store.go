@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/robfig/cron/v3"
 
-	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/scenariostore"
 )
@@ -50,7 +49,7 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Schedule, error) {
 	}
 	items := p.Items
 	if items == nil {
-		items = []assignment.Item{}
+		items = []Item{}
 	}
 	payload, err := json.Marshal(items)
 	if err != nil {

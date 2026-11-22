@@ -13,19 +13,32 @@ import {
   MiniMap,
   Panel,
   useReactFlow,
+  useStore,
   type Edge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
-import { EDGE_COLORS, type ExplorationFlowNode } from './layout'
+import { EDGE_COLORS, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
 
 // useReactFlow 在 <ReactFlow> 之外取实例，必须显式包一层 Provider
 /** 静态全图适配的缩放下限：节点卡片正文在此缩放下仍可辨认。 */
 const LEGIBLE_MIN_ZOOM = 0.6
+/** 全图适配的留白（占视口比例，与 fitView 的 padding 同义） */
+const FIT_PADDING = 0.15
+/** 大图从根目标读起时的缩放与左侧留白（px） */
+const ANCHOR_ZOOM = 0.9
+const ANCHOR_MARGIN = 48
+
+/** 根目标：代表任务本身的目标（来源 user，最早创建）。布局自左向右，它在最左列。 */
+function rootObjective(nodes: ExplorationFlowNode[]): ExplorationFlowNode | undefined {
+  return nodes
+    .filter((n) => n.data.node.kind === 'objective' && n.data.node.source_type === 'user')
+    .sort((a, b) => a.data.node.created_at.localeCompare(b.data.node.created_at))[0]
+}
 
 export function GraphCanvas(props: {
   nodes: ExplorationFlowNode[]
@@ -56,7 +69,11 @@ function GraphCanvasInner({
   focusNodeId: string
   onNodeClick: (id: string) => void
 }) {
-  const { fitView } = useReactFlow()
+  const { fitView, getNodesBounds, setViewport } = useReactFlow()
+  const viewportWidth = useStore((st) => st.width)
+  const viewportHeight = useStore((st) => st.height)
+  const sizeRef = useRef({ w: viewportWidth, h: viewportHeight })
+  sizeRef.current = { w: viewportWidth, h: viewportHeight }
   const prevCount = useRef(-1)
   const prevReset = useRef(resetKey)
   // 最新节点经 ref 读取：fitView 回调触发时取当下状态（含 running 前沿）
@@ -80,10 +97,11 @@ function GraphCanvasInner({
       fitPendingRef.current = true
       requestAnimationFrame(() => {
         fitPendingRef.current = false
-        // 智能初始视口：图在跑（存在 running 节点）时定位到活动前沿，随新节点
-        // 到来持续跟进；图静止时适配全图，但缩放不低于可读下限——大图全量装进视口时
-        // 节点字号会缩到不可辨认，全局鸟瞰交给右下角小地图，主画布保证卡片可读。
-        // 有打开的节点时先对准它（从发现跳来看坐实它的结果），其次才是活动前沿与全图。
+        // 智能初始视口：有打开的节点时先对准它（从发现跳来看坐实它的结果）；图在跑
+        // （存在 running 节点）时定位到活动前沿，随新节点到来持续跟进；图静止且全图在
+        // 可读缩放下装得下时适配全图。装不下的大图从根目标读起（布局自左向右，根在最左列）：
+        // 以可读缩放把它放在左侧、垂直居中——按下限缩放去「适配」只会把视口落在整张图的
+        // 几何中心，那里通常是几列之间的空白。全局鸟瞰交给右下角小地图。
         const focus = focusRef.current
         const running = nodesRef.current.filter((n) => n.data.node.state === 'running').map((n) => n.id)
         if (focus && nodesRef.current.some((n) => n.id === focus)) {
@@ -91,11 +109,26 @@ function GraphCanvasInner({
         } else if (running.length > 0) {
           void fitView({ nodes: running.map((id) => ({ id })), padding: 0.35, duration: 300, minZoom: 0.3, maxZoom: 1 })
         } else {
-          void fitView({ padding: 0.15, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
+          const { w, h } = sizeRef.current
+          const bounds = getNodesBounds(nodesRef.current)
+          const fitZoom = Math.min(w / (bounds.width * (1 + 2 * FIT_PADDING)), h / (bounds.height * (1 + 2 * FIT_PADDING)))
+          const root = rootObjective(nodesRef.current)
+          if (fitZoom >= LEGIBLE_MIN_ZOOM || !root || w === 0) {
+            void fitView({ padding: FIT_PADDING, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
+          } else {
+            void setViewport(
+              {
+                x: ANCHOR_MARGIN - root.position.x * ANCHOR_ZOOM,
+                y: h / 2 - (root.position.y + NODE_HEIGHT / 2) * ANCHOR_ZOOM,
+                zoom: ANCHOR_ZOOM,
+              },
+              { duration: 300 },
+            )
+          }
         }
       })
     }
-  }, [nodes.length, resetKey, fitView])
+  }, [nodes.length, resetKey, fitView, getNodesBounds, setViewport])
 
   return (
     <ReactFlow
@@ -122,7 +155,7 @@ function GraphCanvasInner({
       {/* 图例放左上：Controls 默认在左下，避免遮挡。
           四个样本统一为"线"：三种关系线型 + 执行中的流动动画态 */}
       <Panel position="top-left">
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-[10px] text-text-secondary backdrop-blur-sm">
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
           <span className="flex items-center gap-1.5">
             <svg width="18" height="4" aria-hidden>
               <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.generates} strokeWidth="2" />

@@ -4,6 +4,7 @@ package explorationgraph
 
 import (
 	"context"
+	"github.com/V3teran/liusha/internal/dbtest"
 	"testing"
 	"time"
 
@@ -31,6 +32,8 @@ func TestSteeringPostgres(t *testing.T) {
 		mine    = "5c2f6a9e-1111-4111-8111-000000000003"
 		done    = "5c2f6a9e-1111-4111-8111-000000000004"
 	)
+	dbtest.SeedTask(t, pool, taskID)
+	dbtest.SeedTask(t, pool, other)
 	require.NoError(t, CreateRootObjective(ctx, pool, taskID, "目标"))
 	action := func(id string, state State, source SourceType) {
 		_, err := store.CreateNode(ctx, Node{ID: id, TaskID: taskID, Kind: core.KindAction, State: &state,

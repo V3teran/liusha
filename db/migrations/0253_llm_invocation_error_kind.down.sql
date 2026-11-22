@@ -1,0 +1,1 @@
+ALTER TABLE llm_invocation DROP CONSTRAINT llm_invocation_error_kind_check;

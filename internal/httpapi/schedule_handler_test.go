@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/V3teran/liusha/internal/assignment"
 	"github.com/V3teran/liusha/internal/cronschedule"
 )
 
@@ -51,7 +50,7 @@ const schedID = "11111111-1111-1111-1111-111111111111"
 
 func newFakeSchedules() *fakeSchedules {
 	next := time.Date(2026, 11, 12, 4, 0, 0, 0, time.UTC)
-	payload, _ := json.Marshal([]assignment.Item{{Brief: "夜间复扫 http://a"}, {Brief: "夜间复扫 http://b"}})
+	payload, _ := json.Marshal([]cronschedule.Item{{Brief: "夜间复扫 http://a"}, {Brief: "夜间复扫 http://b"}})
 	return &fakeSchedules{rows: []cronschedule.Schedule{{
 		ID: schedID, CronExpr: "0 4 * * *", Payload: payload, Title: "夜间复扫",
 		Enabled: true, NextRunAt: &next, CreatedAt: next.Add(-24 * time.Hour),

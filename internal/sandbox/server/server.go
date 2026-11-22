@@ -163,7 +163,12 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.inventory.get(r.Context()))
+	inv, err := s.inventory.get(r.Context())
+	if err != nil {
+		// 只有请求方在首次探测结束前放弃时才会走到这里，响应已无人接收
+		return
+	}
+	writeJSON(w, http.StatusOK, inv)
 }
 
 // writeError 写 plain text 错误响应。

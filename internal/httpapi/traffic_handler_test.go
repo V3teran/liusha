@@ -157,7 +157,7 @@ func TestTrafficHandler_Detail(t *testing.T) {
 	t.Run("详情：命中返回 body，未命中 404", func(t *testing.T) {
 		fake := &fakeTraffic{byID: map[int64]traffic.ProxyTraffic{
 			5: {ID: 5, Host: "a.com", Method: "POST", URL: "https://a.com/login", Path: "/login",
-				StatusCode: 200, ContentType: "text/plain", HTTPVersion: "HTTP/1.1",
+				StatusCode: 200, ContentType: "text/plain",
 				RequestRaw:  []byte("POST /login HTTP/1.1\r\nHost: a.com\r\n\r\nu=admin"),
 				ResponseRaw: []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok"),
 				ConsumedBy:  []traffic.ConsumerTask{{TaskID: "t1", Host: "a.com", Status: "completed", Source: "proxy", ConversationID: "c1", FindingCount: 2}}},
@@ -203,4 +203,17 @@ func TestTrafficHandler_Detail(t *testing.T) {
 			t.Errorf("未命中应 404，got %d", resp2.StatusCode)
 		}
 	})
+}
+
+// 筛选参数写错时 400，而不是悄悄不筛：调用方会把未筛选的结果当成筛选后的。
+func TestTrafficHandler_InvalidFilterRejected(t *testing.T) {
+	srv := newTestServer(t, Deps{Traffic: &fakeTraffic{}})
+	defer srv.Close()
+	for _, q := range []string{"since=yesterday", "until=2026-13-01", "status_min=abc", "status_max=2xx"} {
+		resp := doReq(t, "GET", srv.URL+"/api/traffic?"+q, "")
+		_ = resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s 应 400，得 %d", q, resp.StatusCode)
+		}
+	}
 }

@@ -14,6 +14,10 @@ const mockedUseRouting = queries.useRouting as unknown as ReturnType<typeof vi.f
 const mockedUseAgents = queries.useAgents as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveRoleRoute = queries.useSaveRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mockedUseSaveAgentComplexity = queries.useSaveAgentComplexity as unknown as ReturnType<typeof vi.fn>
+const mockedUseRetrievalModel = queries.useRetrievalModel as unknown as ReturnType<typeof vi.fn>
+const mockedUseSaveRetrievalModel = queries.useSaveRetrievalModel as unknown as ReturnType<typeof vi.fn>
+const mockedUseClearRetrievalModel = queries.useClearRetrievalModel as unknown as ReturnType<typeof vi.fn>
+const mockedUseDiagnoseRetrievalModel = queries.useDiagnoseRetrievalModel as unknown as ReturnType<typeof vi.fn>
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -37,23 +41,36 @@ describe('ModelPage', () => {
     mockedUseAgents.mockReturnValue({ data: [], isLoading: false })
     mockedUseSaveRoleRoute.mockReturnValue({ mutate: vi.fn() })
     mockedUseSaveAgentComplexity.mockReturnValue({ mutate: vi.fn(), isPending: false })
+
+    // Mock RetrievalView 需要的 hooks
+    mockedUseRetrievalModel.mockReturnValue({
+      data: { base_url: 'https://api.jina.ai', embedding_model: 'e', rerank_model: 'r', key_present: false, key_last4: '', updated_at: null },
+      isLoading: false,
+    })
+    mockedUseSaveRetrievalModel.mockReturnValue({ isPending: false, mutate: vi.fn() })
+    mockedUseClearRetrievalModel.mockReturnValue({ isPending: false, mutate: vi.fn() })
+    mockedUseDiagnoseRetrievalModel.mockReturnValue({ isPending: false, mutate: vi.fn() })
   })
 
-  it('渲染页面标题与副标题（单页设置流，无独立导出入口）', () => {
+  it('渲染页面标题（单页设置流，无独立导出入口）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
-    expect(screen.getByText('LLM 配置')).toBeTruthy()
-    expect(screen.getByText('接入 provider；按推理档位（深度 / 标准 / 轻量）分配模型')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '模型配置' })).toBeTruthy()
   })
 
-  it('渲染两个分区：模型提供商、能力路由', () => {
+  it('渲染三个分区：对话模型、检索模型、能力路由（按接入到收口排布）', () => {
     mockedUseProviders.mockReturnValue({ data: [], isLoading: false })
 
     renderPage()
 
-    expect(screen.getByText('模型提供商')).toBeTruthy()
+    const sections = screen.getAllByRole('region').filter((el) => el.tagName === 'SECTION')
+    expect(screen.getByText('对话模型')).toBeTruthy()
+    expect(screen.getByText('检索模型')).toBeTruthy()
     expect(screen.getByText('能力路由')).toBeTruthy()
+    // 排布：检索模型在能力路由之前（路由消费前两区的数据）
+    const labels = sections.map((s) => s.getAttribute('aria-label'))
+    expect(labels.indexOf('检索模型')).toBeLessThan(labels.indexOf('能力路由'))
   })
 })

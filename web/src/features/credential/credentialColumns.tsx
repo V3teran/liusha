@@ -78,7 +78,7 @@ function InlineInput({
         }
       }}
       className={
-        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-sm text-text outline-none focus:border-accent focus:glow-accent ' +
+        'h-7 w-full rounded-md border border-accent/60 bg-surface px-2 text-sm max-sm:text-base text-text outline-none focus:border-accent focus:glow-accent ' +
         (mono ? 'font-mono' : '')
       }
     />
@@ -318,7 +318,7 @@ const updatedCol = columnHelper.accessor('identity.updated_at', {
 /** 操作列：删除该用户名的全部凭证。 */
 const actionCol = columnHelper.display({
   id: 'actions',
-  header: '',
+  header: '操作',
   // 权重=最小可读像素：图标按钮 28px + 单元格左右内边距 32px = 60——
   // 此前 40 在 min-width 下只分到 40px，按钮被 overflow-hidden 裁剪变形。
   size: 60,
@@ -349,7 +349,7 @@ const seqCol = columnHelper.display({
   size: 44,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right font-mono text-xs tabular-nums text-text-tertiary">
+    <span className="block text-right text-xs tabular-nums text-text-tertiary">
       {(ctx.table.options.meta as CredentialTableMeta).startIndex + ctx.row.index + 1}
     </span>
   ),

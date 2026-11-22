@@ -17,6 +17,9 @@ import (
 	"time"
 )
 
+// RetentionBatch 是留存清理的单批行数（两个流量表的 DeleteOlderThan 每次至多删这么多）。
+const RetentionBatch = 5000
+
 // ProxyTraffic 是 proxy_traffic 表行——代理捕获流量，按 host 归属。
 //
 // 报文以 raw 为单一 canonical 源：RequestRaw/ResponseRaw 存完整报文文本
@@ -27,14 +30,12 @@ type ProxyTraffic struct {
 	ID          int64
 	Host        string // 归属轴（先于 task）
 	Method      string
-	Scheme      string
-	URL         string
+	URL         string // 完整 URL（scheme://host[:port]/path?query），协议在其中
 	Path        string
 	StatusCode  int
 	RequestRaw  []byte // 完整请求报文文本（request-line + 头 + body）
 	ResponseRaw []byte // 完整响应报文文本（status-line + 头 + body，body 已解压/截断）
 	ContentType string // 响应 Content-Type 主类型（前端 Pretty 判定）
-	HTTPVersion string // 协议版本 token（HTTP/1.1 等）
 	RespLen     int64  // 响应体字节数（已解压/截断后），前端「长度」列
 	CapturedAt  time.Time
 	// ConsumedBy 是消费本条流量的代理捕获 task 列表（M:N）；仅 GetByID JOIN 装填，其余读为空。

@@ -1,8 +1,9 @@
-// Package embedding 封装 Jina 的 embedding + rerank HTTP client，供 corpus 的 hybrid RAG 用。
+// Package embedding 是知识库语义检索的模型服务客户端（OpenAI 兼容的向量与重排接口）。
 //
-// 密钥是配置 embedding.api_key（经 LIUSHA_EMBEDDING_API_KEY 注入，配置文件里留空）。
-// 密钥缺失时构造返回 ErrNoAPIKey，调用方据此降级（corpus 写入只落行不 embed、检索退纯 sparse）——
-// 渗透主流程不该被知识库可用性阻塞。
+// 服务地址与两个模型名可由用户在「模型配置」页填写（空 = 出厂默认 Jina），密钥同页维护
+// （AES-256-GCM 加密落库），同一个密钥同时启用向量与重排。密钥缺失时知识库只做字面检索，
+// 不阻塞主流程。向量维度在请求响应处校验（须与 corpus.embedding 的 vector(1024) 一致），
+// 不一致报错退字面检索——保存不拦维度，实测与运行期给明确提示。
 package embedding
 
 import (
@@ -13,45 +14,107 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/corpus"
 )
 
 const (
-	// EmbedDim 是 jina-embeddings-v5-text-small 的维度（实测确认），与 corpus.embedding vector(1024) 对齐。
+	// EmbedDim 是出厂默认向量模型 jina-embeddings-v5-text-small 的维度（实测确认），
+	// 与 corpus.embedding vector(1024) 对齐。换向量模型必须同维度（测试时实测校验），
+	// 换模型即全量重建向量（不同模型的向量不可混在一个空间）。
 	EmbedDim = 1024
 
-	defaultModel        = "jina-embeddings-v5-text-small"
-	defaultRerankModel  = "jina-reranker-v2-base-multilingual"
-	embedURL            = "https://api.jina.ai/v1/embeddings"
-	rerankURL           = "https://api.jina.ai/v1/rerank"
-	httpTimeout         = 30 * time.Second
-	taskRetrievalQuery  = "retrieval.query"   // 检索时的 query 向量
-	taskRetrievalPassge = "retrieval.passage" // 入库时的 passage 向量（非对称检索，Jina 最佳实践）
+	// DefaultBaseURL / EmbeddingModelName / RerankModelName 是出厂默认（界面上只读展示为
+	// 占位提示）。字段留空即用它们，沿用「出厂默认 + 用户层」语义。
+	DefaultBaseURL     = "https://api.jina.ai"
+	EmbeddingModelName = "jina-embeddings-v5-text-small"
+	RerankModelName    = "jina-reranker-v2-base-multilingual"
+
+	httpTimeout          = 30 * time.Second
+	taskRetrievalQuery   = "retrieval.query"   // 检索查询的向量
+	taskRetrievalPassage = "retrieval.passage" // 入库文本的向量（非对称检索）
 )
 
-// ErrNoAPIKey 表示 embedding.api_key 未配置——调用方据此降级，不 fail-fast。
-var ErrNoAPIKey = errors.New("embedding: embedding.api_key 未配置")
+// ErrNoAPIKey 表示检索模型密钥未配置。
+var ErrNoAPIKey = errors.New("embedding: 检索模型密钥未配置")
 
-// Client 是 Jina 的 Embedder + Reranker 实现。
+// Config 是检索模型客户端的连接参数；空字段用出厂默认。
+type Config struct {
+	APIKey         string
+	BaseURL        string // 服务地址；空 = DefaultBaseURL
+	EmbeddingModel string // 向量模型名；空 = EmbeddingModelName
+	RerankModel    string // 重排模型名；空 = RerankModelName
+}
+
+// NormalizeBaseURL 把用户填的服务地址归一为「不带版本段与操作路径的基础地址」：
+// 去首尾空白与末尾斜杠、去掉误粘的 /embeddings / /rerank 操作路径；版本段 /v1 统一由
+// 客户端拼接（基础地址含 /v1 与不含都落成同一结果）。无法解析的地址原样返回，交给
+// 调用方的 http(s) 校验。
+func NormalizeBaseURL(raw string) string {
+	base := strings.TrimRight(strings.TrimSpace(raw), "/")
+	for _, suffix := range []string{"/embeddings", "/rerank"} {
+		if strings.HasSuffix(strings.ToLower(base), suffix) {
+			base = base[:len(base)-len(suffix)]
+			break
+		}
+	}
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(strings.ToLower(base), "/v1") {
+		base = base[:len(base)-len("/v1")]
+	}
+	return base
+}
+
+// Client 是向量与重排接口的客户端，实现 corpus.Embedder 与 corpus.Reranker。
 type Client struct {
 	apiKey      string
+	embedURL    string
+	rerankURL   string
 	model       string
 	rerankModel string
 	httpc       *http.Client
 }
 
-// NewClient 用 apiKey 构造。apiKey 为空返回 ErrNoAPIKey（调用方降级）。
-func NewClient(apiKey string) (*Client, error) {
-	if apiKey == "" {
+// NewClient 按配置构造。apiKey 为空返回 ErrNoAPIKey。
+func NewClient(cfg Config) (*Client, error) {
+	if cfg.APIKey == "" {
 		return nil, ErrNoAPIKey
 	}
+	base := NormalizeBaseURL(cfg.BaseURL)
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	model, rerankModel := cfg.EmbeddingModel, cfg.RerankModel
+	if model == "" {
+		model = EmbeddingModelName
+	}
+	if rerankModel == "" {
+		rerankModel = RerankModelName
+	}
 	return &Client{
-		apiKey:      apiKey,
-		model:       defaultModel,
-		rerankModel: defaultRerankModel,
+		apiKey:      cfg.APIKey,
+		embedURL:    base + "/v1/embeddings",
+		rerankURL:   base + "/v1/rerank",
+		model:       model,
+		rerankModel: rerankModel,
 		httpc:       &http.Client{Timeout: httpTimeout},
 	}, nil
 }
+
+// Models 用配置构造知识库的语义检索模型；密钥为空返回零值（知识库只做字面检索）。
+func Models(cfg Config) corpus.Models {
+	c, err := NewClient(cfg)
+	if err != nil {
+		return corpus.Models{}
+	}
+	return corpus.Models{Embedder: c, Reranker: c, EmbeddingModel: c.model, RerankModel: c.rerankModel}
+}
+
+// EmbedURL / RerankURL 是本客户端实际请求的两个端点（连接诊断展示实际请求地址）。
+func (c *Client) EmbedURL() string  { return c.embedURL }
+func (c *Client) RerankURL() string { return c.rerankURL }
 
 type embedRequest struct {
 	Model      string   `json:"model"`
@@ -66,15 +129,15 @@ type embedResponse struct {
 	} `json:"data"`
 }
 
-// EmbedPassage 编码入库文本。空输入返回空结果（不打网络）。
+// EmbedPassage 编码入库文本。空输入返回空结果（不发请求）。
 func (c *Client) EmbedPassage(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	return c.embed(ctx, taskRetrievalPassge, texts)
+	return c.embed(ctx, taskRetrievalPassage, texts)
 }
 
-// EmbedQuery 编码单条检索 query。
+// EmbedQuery 编码一条检索查询。
 func (c *Client) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
 	vecs, err := c.embed(ctx, taskRetrievalQuery, []string{text})
 	if err != nil {
@@ -88,7 +151,7 @@ func (c *Client) EmbedQuery(ctx context.Context, text string) ([]float32, error)
 
 func (c *Client) embed(ctx context.Context, task string, texts []string) ([][]float32, error) {
 	var resp embedResponse
-	if err := c.post(ctx, embedURL, embedRequest{
+	if err := c.post(ctx, c.embedURL, embedRequest{
 		Model:      c.model,
 		Task:       task,
 		Normalized: true, // 归一化 → corpus 用 cosine（vector_cosine_ops）
@@ -102,7 +165,7 @@ func (c *Client) embed(ctx context.Context, task string, texts []string) ([][]fl
 	out := make([][]float32, len(resp.Data))
 	for i, d := range resp.Data {
 		if len(d.Embedding) != EmbedDim {
-			return nil, fmt.Errorf("embedding: 维度 %d 与预期 %d 不符", len(d.Embedding), EmbedDim)
+			return nil, fmt.Errorf("向量维度 %d 与库结构 %d 不符，请换 %d 维的向量模型", len(d.Embedding), EmbedDim, EmbedDim)
 		}
 		out[i] = d.Embedding
 	}
@@ -110,39 +173,41 @@ func (c *Client) embed(ctx context.Context, task string, texts []string) ([][]fl
 }
 
 type rerankRequest struct {
-	Model     string   `json:"model"`
-	Query     string   `json:"query"`
-	Documents []string `json:"documents"`
-	TopN      int      `json:"top_n"`
+	Model           string   `json:"model"`
+	Query           string   `json:"query"`
+	Documents       []string `json:"documents"`
+	TopN            int      `json:"top_n"`
+	ReturnDocuments bool     `json:"return_documents"`
 }
 
 type rerankResponse struct {
 	Results []struct {
-		Index int `json:"index"`
+		Index          int     `json:"index"`
+		RelevanceScore float64 `json:"relevance_score"`
 	} `json:"results"`
 }
 
-// Rerank 返回按相关性降序的原始下标（长度 ≤ topK）。空文档返回 nil。
-func (c *Client) Rerank(ctx context.Context, query string, docs []string, topK int) ([]int, error) {
+// Rerank 返回按相关度降序的打分结果（下标指向 docs，至多 topN 条）。空文档返回 nil。
+func (c *Client) Rerank(ctx context.Context, query string, docs []string, topN int) ([]corpus.Ranked, error) {
 	if len(docs) == 0 {
 		return nil, nil
 	}
-	if topK <= 0 || topK > len(docs) {
-		topK = len(docs)
+	if topN <= 0 || topN > len(docs) {
+		topN = len(docs)
 	}
 	var resp rerankResponse
-	if err := c.post(ctx, rerankURL, rerankRequest{
+	if err := c.post(ctx, c.rerankURL, rerankRequest{
 		Model:     c.rerankModel,
 		Query:     query,
 		Documents: docs,
-		TopN:      topK,
+		TopN:      topN,
 	}, &resp); err != nil {
 		return nil, err
 	}
-	out := make([]int, 0, len(resp.Results))
+	out := make([]corpus.Ranked, 0, len(resp.Results))
 	for _, r := range resp.Results {
 		if r.Index >= 0 && r.Index < len(docs) {
-			out = append(out, r.Index)
+			out = append(out, corpus.Ranked{Index: r.Index, Score: r.RelevanceScore})
 		}
 	}
 	return out, nil
@@ -169,7 +234,7 @@ func (c *Client) post(ctx context.Context, url string, reqBody, out any) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("jina %s: status %d: %s", url, resp.StatusCode, string(b))
+		return fmt.Errorf("retrieval %s: status %d: %s", url, resp.StatusCode, string(b))
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode response: %w", err)

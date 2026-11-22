@@ -6,17 +6,59 @@ import {
   getRouting,
   saveRoleRoute,
   deleteRoleRoute,
+  getRetrievalModel,
+  saveRetrievalModel,
+  clearRetrievalModel,
+  diagnoseRetrievalModel,
 } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
-import type { ProviderConfig } from '@/api/types'
+import type { ProviderConfig, RetrievalModelDraft } from '@/api/types'
 
-// LLM 配置数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
-// providers 缓存由「模型提供商」「能力路由」两个分区共享，任一写操作 invalidate 后两边同步刷新。
+// 模型配置数据层：统一走 React Query（对齐凭证库/流量模块的 useXxxQueries 模式）。
+// providers 缓存由「对话模型」「能力路由」两个分区共享，任一写操作 invalidate 后两边同步刷新。
 
 export const modelKeys = {
   providers: ['models', 'providers'] as const,
   routing: ['models', 'routing'] as const,
   agents: ['agents', 'configs'] as const,
+  retrieval: ['models', 'retrieval'] as const,
+}
+
+/** 检索模型配置（单行；保存/清除后同步失效知识库状态缓存——检索方式随密钥切换）。 */
+export function useRetrievalModel() {
+  return useQuery({
+    queryKey: modelKeys.retrieval,
+    queryFn: getRetrievalModel,
+  })
+}
+
+export function useSaveRetrievalModel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (p: RetrievalModelDraft) => saveRetrievalModel(p),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['models'] })
+      void qc.invalidateQueries({ queryKey: ['corpus', 'status'] })
+    },
+  })
+}
+
+export function useClearRetrievalModel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => clearRetrievalModel(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['models'] })
+      void qc.invalidateQueries({ queryKey: ['corpus', 'status'] })
+    },
+  })
+}
+
+/** 检索模型实测（表单当前值，api_key 留空测已存密钥）；结果由调用方就地渲染，不进缓存。 */
+export function useDiagnoseRetrievalModel() {
+  return useMutation({
+    mutationFn: (p: RetrievalModelDraft & { api_key?: string }) => diagnoseRetrievalModel(p),
+  })
 }
 
 /** 全量 provider（含 disabled，路由绑定选择器一次拉全）。 */
@@ -43,7 +85,7 @@ export function useAgents() {
   })
 }
 
-/** 写后失效 LLM 配置全部缓存（providers 变更会连带影响路由绑定展示）。 */
+/** 写后失效模型配置全部缓存（providers 变更会连带影响路由绑定展示）。 */
 function useInvalidateModels() {
   const qc = useQueryClient()
   return () => {

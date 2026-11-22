@@ -47,9 +47,7 @@
    ============================================================ */
 
 @media print {
-  /* 隐藏导航和交互元素 */
-  .sidebar,
-  .no-print,
+  /* 隐藏交互元素（侧栏由 AppShell 以 print:hidden 隐藏） */
   button,
   input,
   select {

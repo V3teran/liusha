@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/audit"
 	"github.com/V3teran/liusha/internal/credential"
@@ -61,28 +62,33 @@ func decode(t *testing.T, resp *http.Response, out any) {
 	}
 }
 
-// TestCredentialHosts_List 锁定枚举：host 汇总 + 身份分类计数。
-func TestCredentialHosts_List(t *testing.T) {
-	env := newCredentialTestServer(t, map[string][]credential.Identity{
-		"a.com": {{Username: "admin"}, {Username: credential.SessionIdentityName("t1")}},
-	}, nil, false)
-
-	var body struct {
-		Hosts []credential.HostSummary `json:"hosts"`
-	}
-	resp := doReq(t, "GET", env.srv.URL+"/api/credentials", "")
+// listCredentials 请求 GET /api/credentials 并解码分页响应。
+func listCredentials(t *testing.T, env *credentialTestEnv, query string) (items []credentialRowView, total int) {
+	t.Helper()
+	resp := doReq(t, "GET", env.srv.URL+"/api/credentials"+query, "")
 	if resp.StatusCode != 200 {
-		t.Fatalf("status=%d", resp.StatusCode)
+		t.Fatalf("GET /credentials%s status=%d", query, resp.StatusCode)
+	}
+	var body struct {
+		Items []credentialRowView `json:"items"`
+		Total int                 `json:"total"`
 	}
 	decode(t, resp, &body)
-	if len(body.Hosts) != 1 || body.Hosts[0].Usernames != 1 || body.Hosts[0].Sessions != 1 {
-		t.Fatalf("hosts=%+v", body.Hosts)
-	}
+	return body.Items, body.Total
 }
 
-// TestCredentialDetail_Plaintext 锁定明文口径：凭证值原样返回（操作台要
-// 看/要复制原文），读取不落审计（改必审计、读不审计）。
-func TestCredentialDetail_Plaintext(t *testing.T) {
+func at(minute int) *time.Time {
+	t := time.Date(2026, 11, 21, 10, minute, 0, 0, time.UTC)
+	return &t
+}
+
+func cookie(v string) []credential.Credential {
+	return []credential.Credential{{Type: credential.TypeHeaders, Key: "Cookie", Value: v}}
+}
+
+// TestCredentialList_Plaintext 锁定明文口径：凭证值原样返回（操作台要看 / 要复制原文），
+// 每行带上所在 host；读取不落审计（改必审计、读不审计）。
+func TestCredentialList_Plaintext(t *testing.T) {
 	long := "PHPSESSID=abcdef0123456789; security=low"
 	env := newCredentialTestServer(t, map[string][]credential.Identity{
 		"a.com": {
@@ -93,15 +99,11 @@ func TestCredentialDetail_Plaintext(t *testing.T) {
 		},
 	}, nil, true)
 
-	var body struct {
-		Identities []credentialIdentityView `json:"identities"`
+	items, total := listCredentials(t, env, "")
+	if total != 1 || len(items) != 1 || items[0].Host != "a.com" {
+		t.Fatalf("total=%d items=%+v", total, items)
 	}
-	resp := doReq(t, "GET", env.srv.URL+"/api/credentials/a.com", "")
-	if resp.StatusCode != 200 {
-		t.Fatalf("status=%d", resp.StatusCode)
-	}
-	decode(t, resp, &body)
-	creds := body.Identities[0].Credentials
+	creds := items[0].Credentials
 	if creds[0].Value != long || creds[1].Value != "s3cret" {
 		t.Fatalf("值应原样返回: %+v", creds)
 	}
@@ -110,28 +112,28 @@ func TestCredentialDetail_Plaintext(t *testing.T) {
 	}
 }
 
-// TestCredentialDetail_SessionEnrichment 锁定会话行的任务状态注入：
-// active/completed 如实标注，任务行已删标 gone。
-func TestCredentialDetail_SessionEnrichment(t *testing.T) {
+// TestCredentialList_SessionEnrichment 锁定会话行的任务状态注入：active/completed 如实标注，
+// 任务行已删标 gone；没有凭证的空壳会话身份不进列表。
+func TestCredentialList_SessionEnrichment(t *testing.T) {
 	env := newCredentialTestServer(t, map[string][]credential.Identity{
 		"a.com": {
-			{Username: credential.SessionIdentityName("t-live")},
-			{Username: credential.SessionIdentityName("t-done")},
-			{Username: credential.SessionIdentityName("t-gone")},
-			{Username: "admin"},
+			{Username: credential.SessionIdentityName("t-live"), Credentials: cookie("l")},
+			{Username: credential.SessionIdentityName("t-done"), Credentials: cookie("d")},
+			{Username: credential.SessionIdentityName("t-gone"), Credentials: cookie("g")},
+			{Username: credential.SessionIdentityName("t-empty")},
+			{Username: "admin", Credentials: cookie("a")},
 		},
 	}, fakeTaskStatus{"t-live": "active", "t-done": "completed"}, false)
 
-	var body struct {
-		Identities []credentialIdentityView `json:"identities"`
+	items, total := listCredentials(t, env, "")
+	if total != 4 {
+		t.Fatalf("空壳会话身份不应计入: total=%d", total)
 	}
-	resp := doReq(t, "GET", env.srv.URL+"/api/credentials/a.com", "")
-	decode(t, resp, &body)
-	byName := map[string]credentialIdentityView{}
-	for _, v := range body.Identities {
+	byName := map[string]credentialRowView{}
+	for _, v := range items {
 		byName[v.Username] = v
 	}
-	if v := byName["task:t-live:session"]; v.Kind != "session" || v.TaskStatus != "active" {
+	if v := byName["task:t-live:session"]; v.Kind != "session" || v.TaskID != "t-live" || v.TaskStatus != "active" {
 		t.Fatalf("live 会话视图: %+v", v)
 	}
 	if v := byName["task:t-done:session"]; v.TaskStatus != "completed" {
@@ -142,6 +144,69 @@ func TestCredentialDetail_SessionEnrichment(t *testing.T) {
 	}
 	if v := byName["admin"]; v.Kind != "persistent" || v.TaskStatus != "" {
 		t.Fatalf("持久身份视图: %+v", v)
+	}
+}
+
+// TestCredentialList_SearchPageAndOrder 锁定服务端检索与分页：关键词跨 host / 用户名 / 角色 /
+// 凭证键值不区分大小写匹配，总数是匹配总数；按录入时间倒序，缺录入时间的排最后。
+func TestCredentialList_SearchPageAndOrder(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{
+		"a.com": {
+			{Username: "admin", Role: "admin", Credentials: cookie("tok-a"), CreatedAt: at(1)},
+			{Username: "guest", Role: "user", Credentials: cookie("guest-TK"), CreatedAt: at(3)},
+		},
+		"b.com:8080": {
+			{Username: "ops", Role: "user", Credentials: cookie("tok-b"), CreatedAt: at(2)},
+			{Username: "legacy", Role: "user", Credentials: cookie("old")},
+		},
+	}, nil, false)
+
+	items, total := listCredentials(t, env, "")
+	got := []string{}
+	for _, v := range items {
+		got = append(got, v.Host+"/"+v.Username)
+	}
+	want := []string{"a.com/guest", "b.com:8080/ops", "a.com/admin", "b.com:8080/legacy"}
+	if total != 4 || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("顺序 got=%v want=%v total=%d", got, want, total)
+	}
+
+	cases := []struct {
+		query string
+		names []string
+		total int
+	}{
+		{"?search=guest-tk", []string{"guest"}, 1},            // 凭证值，不区分大小写
+		{"?search=B.COM", []string{"ops", "legacy"}, 2},       // host
+		{"?search=cookie%3Dtok", []string{"ops", "admin"}, 2}, // 键=值
+		{"?search=%20admin%20", []string{"admin"}, 1},         // 首尾空白忽略；用户名 / 角色
+		{"?size=2&page=2", []string{"admin", "legacy"}, 4},    // 第二页，总数不变
+		{"?size=2&page=9", []string{}, 4},                     // 越界页为空
+	}
+	for _, tc := range cases {
+		items, total := listCredentials(t, env, tc.query)
+		names := []string{}
+		for _, v := range items {
+			names = append(names, v.Username)
+		}
+		if total != tc.total || strings.Join(names, ",") != strings.Join(tc.names, ",") {
+			t.Errorf("%s: names=%v total=%d, want %v total=%d", tc.query, names, total, tc.names, tc.total)
+		}
+	}
+}
+
+// TestCredentialList_ReadFailure 锁定故障口径：任一 host 读取失败即整体 500，
+// 不把「读不到」伪装成「没有」的残缺列表。
+func TestCredentialList_ReadFailure(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{
+		"a.com": {{Username: "admin", Credentials: cookie("a")}},
+		"b.com": {{Username: "ops", Credentials: cookie("b")}},
+	}, nil, false)
+	env.fake.failHost = "b.com"
+	resp := doReq(t, "GET", env.srv.URL+"/api/credentials", "")
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500", resp.StatusCode)
 	}
 }
 
@@ -182,6 +247,22 @@ func TestCredentialUpsert_ValidationAndHostNormalization(t *testing.T) {
 	}
 }
 
+// TestCredentialDelete_MissingIdentity 锁定删除不存在的身份：404，且不落审计——审计里不能出现没发生过的删除。
+func TestCredentialDelete_MissingIdentity(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{
+		"a.com": {{Username: "admin"}},
+	}, nil, true)
+
+	resp := doReq(t, "DELETE", env.srv.URL+"/api/credentials/a.com/usernames/ghost", "")
+	_ = resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("删除不存在的身份应 404，得 %d", resp.StatusCode)
+	}
+	if len(env.auditEv.events) != 0 {
+		t.Fatalf("没删掉任何东西不应落审计: %+v", env.auditEv.events)
+	}
+}
+
 // TestCredentialDelete_Identity 锁定单身份删除：只删指定身份并落审计。
 func TestCredentialDelete_Identity(t *testing.T) {
 	env := newCredentialTestServer(t, map[string][]credential.Identity{
@@ -195,5 +276,21 @@ func TestCredentialDelete_Identity(t *testing.T) {
 	}
 	if len(env.auditEv.events) != 1 {
 		t.Fatalf("删除操作应落审计: %+v", env.auditEv.events)
+	}
+}
+
+// 录入非法主机 400，且什么都不写：凭证按主机键匹配目标，非法主机的条目永远用不上。
+func TestCredentialPut_InvalidHost(t *testing.T) {
+	env := newCredentialTestServer(t, map[string][]credential.Identity{}, nil, true)
+	body := `{"username":"alice","credentials":[{"type":"headers","key":"Cookie","value":"v"}]}`
+	for _, h := range []string{"bad%20host!", "host:99999"} {
+		resp := doReq(t, "PUT", env.srv.URL+"/api/credentials/"+h+"/usernames", body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s 应 400，得 %d", h, resp.StatusCode)
+		}
+	}
+	if len(env.fake.byHost) != 0 || len(env.auditEv.events) != 0 {
+		t.Fatalf("非法主机不应写入或落审计: %+v %+v", env.fake.byHost, env.auditEv.events)
 	}
 }

@@ -129,7 +129,6 @@ type hypothesisMark struct {
 	status       explorationgraph.VerificationStatus // confirmed / refuted
 	refuteReason string
 	refuteDetail string // 评估者证伪时的理由（机器判出的证伪没有）
-	duplicateOf  string // 非空 = 语义重复（同指纹确认折叠为既有发现的佐证）
 }
 
 // markHypothesisNode 在假设节点上回写验证结论：验证状态流转（pending → confirmed /
@@ -152,9 +151,6 @@ func (g *PromotionGate) markHypothesisNode(
 	if m.refuteDetail != "" {
 		mark["refute_detail"] = m.refuteDetail
 	}
-	if m.duplicateOf != "" {
-		mark["duplicate_of"] = m.duplicateOf
-	}
 
 	b, mErr := json.Marshal(mark)
 	if mErr != nil {
@@ -169,12 +165,14 @@ func (g *PromotionGate) markHypothesisNode(
 // createVerifiedNode 创建已验证的 result 节点，并落 observation → result 的
 // generates 溯源边——推导链 objective →(generates)→ action →(generates)→
 // observation →(generates)→ result 全程可溯，result 不是图孤儿。
-// fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键。
+// fingerprintKey 非空时随 metadata 落库，作为后续语义去重的对照键；class 非空时一同落库，
+// 是交付给出主张类别的出处。
 func (g *PromotionGate) createVerifiedNode(
 	ctx context.Context,
 	a Claim,
 	nodeID string,
 	fingerprintKey string,
+	class string,
 ) (*explorationgraph.Node, error) {
 	node := explorationgraph.Node{
 		ID:         nodeID,
@@ -186,8 +184,15 @@ func (g *PromotionGate) createVerifiedNode(
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
+	meta := map[string]string{}
 	if fingerprintKey != "" {
-		if b, err := json.Marshal(map[string]string{claimFingerprintMetadataKey: fingerprintKey}); err == nil {
+		meta[claimFingerprintMetadataKey] = fingerprintKey
+	}
+	if class != "" {
+		meta[claimClassMetadataKey] = class
+	}
+	if len(meta) > 0 {
+		if b, err := json.Marshal(meta); err == nil {
 			node.Metadata = b
 		}
 	}

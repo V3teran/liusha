@@ -86,7 +86,7 @@ describe('AppShell', () => {
     expect(screen.getByText('对话')).toBeTruthy()
     expect(screen.getByText('发现')).toBeTruthy()
     expect(screen.getByText('探索图')).toBeTruthy()
-    expect(screen.getByText('LLM 审计')).toBeTruthy()
+    expect(screen.getByText('模型日志')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
     expect(screen.getByText('智能体')).toBeTruthy()
     // 左下角「设置」入口已删（/settings 路由同步移除）。
@@ -105,15 +105,15 @@ describe('AppShell', () => {
 
     const activeLink = screen.getByText('对话').closest('a')
     const inactiveLink = screen.getByText('发现').closest('a')
-    expect(activeLink?.className).toContain('bg-accent-soft')
-    expect(inactiveLink?.className).not.toContain('bg-accent-soft')
+    expect(activeLink).toHaveAttribute('aria-current', 'page')
+    expect(inactiveLink).not.toHaveAttribute('aria-current')
   })
 
   it('对话导航项在 /conversations 任意子路径下都高亮（startsWith 匹配）', () => {
     mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
     renderShell('/conversations/direct')
     const activeLink = screen.getByText('对话').closest('a')
-    expect(activeLink?.className).toContain('bg-accent-soft')
+    expect(activeLink).toHaveAttribute('aria-current', 'page')
   })
 
   it('切换路径后不同导航项高亮', () => {
@@ -122,8 +122,8 @@ describe('AppShell', () => {
 
     const findingsLink = screen.getByText('发现').closest('a')
     const conversationsLink = screen.getByText('对话').closest('a')
-    expect(findingsLink?.className).toContain('bg-accent-soft')
-    expect(conversationsLink?.className).not.toContain('bg-accent-soft')
+    expect(findingsLink).toHaveAttribute('aria-current', 'page')
+    expect(conversationsLink).not.toHaveAttribute('aria-current')
   })
 
   it('dark 主题下显示太阳图标（切换到浅色），点击调用 toggle', async () => {
@@ -153,7 +153,9 @@ describe('AppShell', () => {
     const observe = screen.getByRole('group', { name: '观测' })
     const config = screen.getByRole('group', { name: '配置' })
     expect(within(work).getByText('任务')).toBeTruthy()
-    expect(within(observe).getByText('日志')).toBeTruthy()
+    expect(within(observe).getByText('服务器日志')).toBeTruthy()
+    expect(within(observe).getByText('审计日志')).toBeTruthy()
+    expect(within(observe).getByText('模型日志')).toBeTruthy()
     expect(within(config).getByText('系统配置')).toBeTruthy()
   })
 

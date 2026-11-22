@@ -2,7 +2,6 @@ package assignment
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/V3teran/liusha/internal/db"
@@ -18,9 +17,9 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
-const colsSelect = "id, source, payload, title, description, schedule_id, created_at"
+const colsSelect = "id, source, title, schedule_id, created_at"
 
-// Create 建一个新 assignment（下发容器）。Items 序列化进 payload jsonb。
+// Create 建一个新 assignment（下发分组）。
 // 调用方随后据返回的 assignment.ID 展开子 task（task.assignment_id 强外键）。
 func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 	switch p.Source {
@@ -31,19 +30,11 @@ func (s *Store) Create(ctx context.Context, p NewParams) (Assignment, error) {
 	if p.Title == "" {
 		return Assignment{}, fmt.Errorf("create assignment: title 必填（未填写时由下发入口取首个目标）")
 	}
-	items := p.Items
-	if items == nil {
-		items = []Item{}
-	}
-	payload, err := json.Marshal(items)
-	if err != nil {
-		return Assignment{}, fmt.Errorf("marshal assignment payload: %w", err)
-	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO assignment (source, payload, title, description, schedule_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO assignment (source, title, schedule_id)
+		VALUES ($1, $2, $3)
 		RETURNING `+colsSelect,
-		string(p.Source), payload, p.Title, p.Description, p.ScheduleID)
+		string(p.Source), p.Title, p.ScheduleID)
 	var a Assignment
 	if err := scan(row, &a); err != nil {
 		return Assignment{}, fmt.Errorf("create assignment: %w", err)
@@ -93,8 +84,7 @@ func (s *Store) DeriveStatus(ctx context.Context, assignmentID string) (Status, 
 // scan 是 colsSelect 列序的统一反序列化点。
 func scan(r db.RowScanner, a *Assignment) error {
 	var source string
-	if err := r.Scan(&a.ID, &source, &a.Payload, &a.Title, &a.Description,
-		&a.ScheduleID, &a.CreatedAt); err != nil {
+	if err := r.Scan(&a.ID, &source, &a.Title, &a.ScheduleID, &a.CreatedAt); err != nil {
 		return err
 	}
 	a.Source = Source(source)

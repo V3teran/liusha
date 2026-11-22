@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 // （error 行的红底、悬停的 surface-2），半透明徽标会叠出更深的底，文字对比度跌破 4.5:1。
 // 不透明底让徽标在任何行上都与它在 --surface 上一样（语义色 token 的对比度约束即以此为前提）。
 const LEVEL_BADGE: Record<string, string> = {
-  error: 'bg-[color-mix(in_oklab,var(--sev-critical)_15%,var(--surface))] text-sev-critical',
-  warn: 'bg-[color-mix(in_oklab,var(--sev-high)_15%,var(--surface))] text-sev-high',
-  warning: 'bg-[color-mix(in_oklab,var(--sev-high)_15%,var(--surface))] text-sev-high',
+  error: 'bg-[color-mix(in_oklab,var(--status-error)_15%,var(--surface))] text-status-error',
+  warn: 'bg-[color-mix(in_oklab,var(--status-warning)_15%,var(--surface))] text-status-warning',
+  warning: 'bg-[color-mix(in_oklab,var(--status-warning)_15%,var(--surface))] text-status-warning',
   info: 'bg-[color-mix(in_oklab,var(--status-info)_15%,var(--surface))] text-status-info',
   debug: 'bg-surface-3 text-text-tertiary',
 }
@@ -118,8 +118,8 @@ export const LogRow = memo(function LogRow({
         }}
         className={cn(
           // 窄屏（< 640）摘要换到第二行：时间 + 级别 + 进程已占满一行宽，同行只剩零宽。
-          'flex cursor-pointer flex-wrap items-baseline gap-x-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-[12.5px] leading-relaxed sm:flex-nowrap',
-          e.level === 'error' ? 'bg-sev-critical/6 hover:bg-sev-critical/10' : 'hover:bg-surface-2',
+          'flex cursor-pointer flex-wrap items-baseline gap-x-2.5 whitespace-nowrap px-4 py-[3px] font-mono text-xs leading-relaxed sm:flex-nowrap',
+          e.level === 'error' ? 'bg-status-error/6 hover:bg-status-error/10' : 'hover:bg-surface-2',
         )}
       >
         <span className="shrink-0 text-text-tertiary" title={e.time}>
@@ -127,7 +127,7 @@ export const LogRow = memo(function LogRow({
         </span>
         <span
           className={cn(
-            'w-11 shrink-0 rounded px-0 text-center text-[10.5px] font-bold leading-5',
+            'w-11 shrink-0 rounded px-0 text-center text-2xs font-bold leading-5',
             badgeClass(e.level),
           )}
         >
@@ -145,17 +145,17 @@ export const LogRow = memo(function LogRow({
         <span className="min-w-0 flex-1 basis-full truncate text-text sm:basis-auto" title={summary}>
           {summary}
         </span>
-        {e.caller && <span className="hidden shrink-0 text-[11px] text-text-tertiary sm:inline">{e.caller}</span>}
+        {e.caller && <span className="hidden shrink-0 text-2xs text-text-tertiary sm:inline">{e.caller}</span>}
       </div>
       {open && (
         <div
           className={cn(
             'mb-1.5 ml-[92px] mr-4 whitespace-pre-wrap break-all rounded-lg bg-surface-2 px-3 py-2 font-mono text-xs text-text-secondary',
-            e.level === 'error' ? 'border-l-2 border-sev-critical' : 'border-l-2 border-border-strong',
+            e.level === 'error' ? 'border-l-2 border-status-error' : 'border-l-2 border-border-strong',
           )}
         >
           {rowDetail(e).map(({ label, value, tone }) => (
-            <div key={label} className={tone === 'error' ? 'text-sev-critical' : undefined}>
+            <div key={label} className={tone === 'error' ? 'text-status-error' : undefined}>
               {label}: {value}
             </div>
           ))}

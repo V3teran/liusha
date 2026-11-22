@@ -18,6 +18,8 @@ type fakeLLM struct {
 	providersHit int64 // ListProviders 打底层次数
 	routes       []llmconfig.RoleRoute
 	routesHit    int64 // ListRoleRoutes 打底层次数
+	retrievalRow llmconfig.RetrievalModel
+	retrievalHit int64 // GetRetrievalModel 打底层次数
 }
 
 func (f *fakeLLM) CreateProvider(_ context.Context, p llmconfig.ProviderParams) (llmconfig.Provider, error) {
@@ -45,6 +47,23 @@ func (f *fakeLLM) ListRoleRoutes(_ context.Context) ([]llmconfig.RoleRoute, erro
 }
 func (f *fakeLLM) GetRouting(_ context.Context) (llmconfig.Routing, error) {
 	return llmconfig.Routing{Roles: map[string]string{}}, nil
+}
+
+func (f *fakeLLM) GetRetrievalModel(context.Context) (llmconfig.RetrievalModel, error) {
+	atomic.AddInt64(&f.retrievalHit, 1)
+	return f.retrievalRow, nil
+}
+func (f *fakeLLM) UpsertRetrievalModel(_ context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error) {
+	f.retrievalRow = llmconfig.RetrievalModel{
+		BaseURL: p.BaseURL, EmbeddingModel: p.EmbeddingModel, RerankModel: p.RerankModel,
+		EncryptedAPIKey: p.EncryptedAPIKey, APIKeyLast4: p.APIKeyLast4,
+	}
+	return f.retrievalRow, nil
+}
+func (f *fakeLLM) ClearRetrievalKey(context.Context) error {
+	f.retrievalRow.EncryptedAPIKey = nil
+	f.retrievalRow.APIKeyLast4 = ""
+	return nil
 }
 
 // newLLMTestStore 用 miniredis + 假底层 store 构造 Store。
@@ -157,5 +176,55 @@ func TestDeleteRoleRoute_InvalidatesRoutingSnapshot(t *testing.T) {
 	}
 	if s.cache.L1Has(keyRouting) {
 		t.Fatal("删路由应失效路由快照哨兵")
+	}
+}
+
+// TestRetrievalModel_CachedAndInvalidated 验证：检索模型密钥走缓存（二读不打底层），
+// 写后失效——本进程下次读即新值（跨进程靠广播，与 provider 同机制）。
+func TestRetrievalModel_CachedAndInvalidated(t *testing.T) {
+	f := &fakeLLM{}
+	st := newLLMTestStore(t, f)
+	ctx := context.Background()
+
+	if _, err := st.RetrievalModel(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RetrievalModel(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt64(&f.retrievalHit); got != 1 {
+		t.Fatalf("第二次读应命中缓存，底层读了 %d 次", got)
+	}
+
+	saved, err := st.SetRetrievalModel(ctx, llmconfig.RetrievalParams{
+		BaseURL: "https://gw.example.com", EmbeddingModel: "embed-x", RerankModel: "rerank-x",
+		EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "abcd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.APIKeyLast4 != "abcd" || saved.EmbeddingModel != "embed-x" {
+		t.Fatalf("保存应回读整行: %+v", saved)
+	}
+	row, err := st.RetrievalModel(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !row.HasKey() || row.APIKeyLast4 != "abcd" || row.BaseURL != "https://gw.example.com" {
+		t.Fatalf("写后应读到新值: %+v", row)
+	}
+
+	if err := st.ClearRetrievalKey(ctx); err != nil {
+		t.Fatal(err)
+	}
+	row, err = st.RetrievalModel(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.HasKey() {
+		t.Fatalf("清密钥后应无密钥: %+v", row)
+	}
+	if row.BaseURL != "https://gw.example.com" {
+		t.Fatalf("清密钥应保留地址自定义: %+v", row)
 	}
 }

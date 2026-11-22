@@ -43,15 +43,15 @@ type AuthAudit interface {
 	Append(ctx context.Context, e audit.Event) (int64, error)
 }
 
-// 审计 actor 前缀与 action 常量。
+// 审计 actor 前缀与 action 常量（动作词表在 audit 包，筛选下拉同源）。
 const (
 	authActorPrefix = "user:"
 	authActorAnon   = "anonymous"
 
-	authActionLogin       = "auth.login"
-	authActionLoginFailed = "auth.login_failed"
-	authActionLogout      = "auth.logout"
-	authActionPasswd      = "auth.password_change"
+	authActionLogin       = audit.ActionAuthLogin
+	authActionLoginFailed = audit.ActionAuthLoginFailed
+	authActionLogout      = audit.ActionAuthLogout
+	authActionPasswd      = audit.ActionAuthPassword
 )
 
 // loginRequest 是 POST /auth/login 请求体。

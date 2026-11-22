@@ -63,7 +63,7 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.VerificationStatus = &v
 	}
 
-	// 其余键 → Node.Metadata（refute_reason / failure_reason 等业务扩展位）
+	// 其余键 → Node.Metadata（refute_reason / rejected_by 等业务扩展位）
 	leftover := make(map[string]interface{}, len(graphNode.Metadata))
 	for k, v := range graphNode.Metadata {
 		if !typedMetadataKeys[k] {

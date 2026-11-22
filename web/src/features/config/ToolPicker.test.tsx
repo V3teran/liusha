@@ -12,7 +12,7 @@ describe('ToolPicker', () => {
   it('沙盒未安装的工具标「未安装」，并统计已允许但未安装的数量', () => {
     render(<ToolPicker catalog={catalog} draft={{ all: false, checked: ['nmap', 'sqlmap'] }} onToggle={vi.fn()} emptyHint="" />)
     // 已允许 sqlmap 未安装；ffuf 未安装但未允许，不计入。
-    expect(screen.getByText(/已允许 · 未安装 1 个/)).toBeTruthy()
+    expect(screen.getByText(/1 个已允许的工具沙盒未安装/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'sqlmap · 未安装' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'ffuf · 未安装' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByRole('button', { name: 'nmap' })).toBeTruthy()
@@ -21,7 +21,7 @@ describe('ToolPicker', () => {
   it('全部已安装或状态未知时不提示', () => {
     const unknown = catalog.map((t) => ({ ...t, installed: null }))
     render(<ToolPicker catalog={unknown} draft={{ all: true, checked: ['nmap', 'sqlmap', 'ffuf'] }} onToggle={vi.fn()} emptyHint="" />)
-    expect(screen.queryByText(/已允许 · 未安装/)).toBeNull()
+    expect(screen.queryByText(/已允许的工具沙盒未安装/)).toBeNull()
     expect(screen.queryByText(/未安装/)).toBeNull()
   })
 })

@@ -34,7 +34,7 @@ export async function resetSettings<G extends SettingsGroup>(
   return del<SettingsDetail<SettingsByGroup[G]>>(`/settings/${group}/overrides${suffix}`)
 }
 
-/** 工具运行时设置的生效值（LLM 审计页的超时判定与之同源）。 */
+/** 工具运行时设置的生效值（模型日志页的超时判定与之同源）。 */
 export async function getRuntimeSettings(): Promise<RuntimeSettings> {
   return (await getSettings('runtime')).values
 }

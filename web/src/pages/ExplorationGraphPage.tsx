@@ -1,7 +1,6 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertCircle } from 'lucide-react'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLatestTaskId, useTaskGraph, useTaskVerifications } from '@/features/exploration/useExplorationQueries'
 import { applyFocus, buildFlowGraph, type GraphStats } from '@/features/exploration/layout'
@@ -14,6 +13,8 @@ import { scopeOf } from '@/features/relations/scope'
 import { useScopeLabel } from '@/features/relations/useScopeLabel'
 import { TaskJumpLinks } from '@/features/relations/TaskJumpLinks'
 import { useSelectedParam } from '@/hooks/useSelectedParam'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
 
@@ -95,7 +96,7 @@ export function ExplorationGraphPage() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <PageHeader title="探索图" subtitle="每个任务一张图：智能体的目标、行动与结论如何达成" />
+      <PageHeader title="探索图" />
 
       <Toolbar
         scopeId={scope?.id ?? ''}
@@ -118,22 +119,13 @@ export function ExplorationGraphPage() {
       {/* 画布区域 */}
       <div className="relative flex-1 bg-background">
         {resolvingLatest || loading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-accent border-t-transparent" />
-            <span className="font-mono text-sm text-text-secondary terminal-cursor">
-              {resolvingLatest ? '定位最新任务' : '加载中'}
-            </span>
-          </div>
+          <LoadingState label={resolvingLatest ? '定位最新任务…' : '加载中…'} className="h-full" />
         ) : error ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-status-error/10">
-              <AlertCircle className="h-8 w-8 text-status-error" />
-            </div>
-            <div className="text-lg font-medium text-status-error">{error}</div>
-            <div className="max-w-md text-center text-sm text-text-secondary">
-              {scope?.kind === 'conversation' ? '对话' : '任务'}不存在或已删除，请重新选择任务。
-            </div>
-          </div>
+          <ErrorState
+            title={error}
+            message={`${scope?.kind === 'conversation' ? '对话' : '任务'}不存在或已删除，请重新选择任务。`}
+            className="h-full"
+          />
         ) : chatOnly ? (
           <EmptyState kind="empty" noun="探索图" hint="这个对话是纯聊天，没有任务。" className="h-full" />
         ) : taskId && !hasGraph ? (

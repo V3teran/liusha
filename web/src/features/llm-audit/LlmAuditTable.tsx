@@ -28,7 +28,7 @@ export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeo
       getRowId={(row) => String(row.id)}
       onRowClick={onRowClick}
       rowError={(row) => !!row.error_message}
-      rowAriaLabel={(row) => `查看调用详情 ${row.request_id}`}
+      rowAriaLabel={(row) => `查看调用详情 #${row.id}`}
     />
   )
 }

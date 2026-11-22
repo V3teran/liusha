@@ -136,21 +136,19 @@ describe('ConversationsPage', () => {
     expect(lastDetailCall.convId).toBe('conv-selected')
   })
 
-  it('人工下发(direct)：allowNew=true，无自定义 heading，空态名词为对话', () => {
+  it('人工下发(direct)：allowNew=true，空态名词为对话', () => {
     listProps.mockClear()
     renderPage('direct')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(true)
-    expect(lastListCall.heading).toBeUndefined()
     expect(lastListCall.emptyState.noun).toBe('对话')
   })
 
-  it('代理捕获(proxy)：allowNew=false，heading=代理批次，空态引导挂代理', () => {
+  it('代理捕获(proxy)：allowNew=false，空态引导挂代理', () => {
     listProps.mockClear()
     renderPage('proxy')
     const lastListCall = listProps.mock.calls[listProps.mock.calls.length - 1][0]
     expect(lastListCall.allowNew).toBe(false)
-    expect(lastListCall.heading).toBe('代理批次')
     expect(lastListCall.emptyState.noun).toBe('代理批次')
     expect(lastListCall.emptyState.hint).toMatch(/代理接入/)
   })

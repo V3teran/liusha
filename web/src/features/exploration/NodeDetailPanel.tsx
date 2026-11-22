@@ -157,7 +157,7 @@ export function NodeDetailPanel({
                       <pre
                         tabIndex={0}
                         aria-label={CONTENT_FIELD_LABELS[k] ?? k}
-                        className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed"
+                        className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-2xs leading-relaxed"
                       >
                         {JSON.stringify(v, null, 2)}
                       </pre>
@@ -177,7 +177,7 @@ export function NodeDetailPanel({
               验证审计链
               <span
                 className={cn(
-                  'rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                  'rounded px-1.5 py-0.5 text-2xs font-semibold',
                   verification.outcome === 'confirmed'
                     ? 'bg-status-success/15 text-status-success'
                     : 'bg-status-error/15 text-status-error',
@@ -193,7 +193,7 @@ export function NodeDetailPanel({
               {verification.duration_ms > 0 && <div>复现耗时：{verification.duration_ms} ms</div>}
             </div>
             {verification.evidence != null && (
-              <pre tabIndex={0} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-[10px] leading-relaxed text-text">
+              <pre tabIndex={0} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background p-2 font-mono text-2xs leading-relaxed text-text">
                 {typeof verification.evidence === 'string'
                   ? verification.evidence
                   : JSON.stringify(verification.evidence, null, 2)}

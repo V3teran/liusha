@@ -45,7 +45,7 @@ const maxVerifyAttempts = 3
 //     沿用既有判定，不再烧 judge。
 type Agent struct {
 	taskID        string
-	agentRunID    string         // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	agentRunID    string         // 本轮认知循环的 agent_run.id（模型日志归属）
 	gate          *PromotionGate // 使用具体类型
 	eventBus      bus.EventBus
 	graph         *explorationgraph.Store // 探索图存储
@@ -56,7 +56,7 @@ type Agent struct {
 	// inFlight 收口在途验证 goroutine：Run 退出前等它们落定（ctx 已取消时
 	// 会快速返回），避免停机后仍向 bus/图写事件的竞态。
 	inFlight sync.WaitGroup
-	// fatal 承接异步判定中的致命错误（LLM 配置错误），由 Run 返回终结任务（容量 1：只需首个）。
+	// fatal 承接异步判定中的致命错误（模型配置错误），由 Run 返回终结任务（容量 1：只需首个）。
 	fatal chan error
 
 	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
@@ -105,7 +105,7 @@ func (p priorVerdict) settled() bool {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
-	AgentRunID    string // 本轮认知循环的 agent_run.id（LLM 审计归属）
+	AgentRunID    string // 本轮认知循环的 agent_run.id（模型日志归属）
 	Gate          *PromotionGate
 	EventBus      bus.EventBus
 	Graph         *explorationgraph.Store // 探索图存储
@@ -150,7 +150,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("evaluator: Graph is required")
 	}
 
-	// LLM 审计维度：判定调用归 task/本轮 run、角色 evaluator。
+	// 模型日志维度：判定调用归 task/本轮 run、角色 evaluator。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "evaluator"})
 
 	// 在途验证跑在派生 ctx 上：任一退出路径（ctx 取消 / 致命错误）都先取消、再等它们
@@ -183,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case err := <-a.fatal:
-			a.logger.Error().Err(err).Msg("LLM 配置错误，判定无法继续；取消在途验证")
+			a.logger.Error().Err(err).Msg("模型配置错误，判定无法继续；取消在途验证")
 			return err
 
 		case <-ticker.C:
@@ -342,7 +342,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 //   - 确定性配方缺陷（复现通道包装为 ErrInvalidRecipe）——重放同样配方必然同样失败，
 //     立即终局出圈，不烧重试阶梯（通用原则：确定性错误 fail-fast）。
 func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, claim Claim, cause error) {
-	// LLM 配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
+	// 模型配置错误与具体假设无关：不进单条重试阶梯（否则每条假设都被误标验证失败
 	// 出圈），上报为 evaluator 致命错误。
 	if llm.IsConfigError(cause) {
 		select {
@@ -408,8 +408,6 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 	mark, mErr := json.Marshal(map[string]interface{}{
 		"verification_status": explorationgraph.VerificationRefuted,
 		"refute_reason":       refuteReason,
-		"failure_reason":      cause.Error(),
-		"verify_attempts":     attempts,
 	})
 	if mErr != nil {
 		return
@@ -563,11 +561,10 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, cla
 }
 
 // adoptPriorVerdict 把既有验证结论落到当前假设节点上（验证键命中的同假设
-// 同配方假设），并注明系沿用。
+// 同配方假设），标记与原结论同形。
 func (a *Agent) adoptPriorVerdict(ctx context.Context, observationID string, prev priorVerdict) error {
 	mark := map[string]interface{}{
 		"verification_status": prev.status,
-		"verdict_source":      "same-verdict-key-dedup",
 	}
 	if prev.refuteReason != "" {
 		mark["refute_reason"] = prev.refuteReason

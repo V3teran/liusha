@@ -13,32 +13,75 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox/browser"
 )
 
-// inventoryTTL 是安装状态的缓存期：浏览器能力探测要拉起 Python 导入依赖（秒级），而工具页与
-// 每个任务开始时都会查询；安装状态变化以分钟计，一分钟的滞后可以接受。
+// inventoryTTL 是安装状态的缓存期：浏览器能力探测要拉起 Python 导入依赖（秒级），而工具页、
+// 概览页与每个任务开始时都会查询；安装状态变化以分钟计，一分钟的滞后可以接受。
 const inventoryTTL = time.Minute
 
+// inventoryProbeTimeout 是一次探测的上限（浏览器探测自带 30 秒上限，余下留给 CLI 工具探测）。
+const inventoryProbeTimeout = time.Minute
+
 // inventoryCache 缓存沙盒的安装状态。
+//
+// 探测与任何一个请求方的生命周期解耦：它在自己的超时下运行，同一时刻至多一次，结果对所有
+// 请求方生效。若绑在发起请求的 ctx 上，一个提前放弃的请求方（超时、断开）会让探测中途失败，
+// 「全部未安装」随即被缓存整整一个周期——这期间开始的任务看不到任何工具。
+// 过期后先返回旧值、在后台刷新：只有从未探测过时才需要等待。
 type inventoryCache struct {
 	probe func(context.Context) sandbox.Inventory
 
-	mu      sync.Mutex
-	value   sandbox.Inventory
-	expires time.Time
+	mu       sync.Mutex
+	value    sandbox.Inventory
+	probed   bool
+	expires  time.Time
+	inflight chan struct{} // 非 nil 表示正在探测，探测结束时关闭
 }
 
 func newInventoryCache(probe func(context.Context) sandbox.Inventory) *inventoryCache {
 	return &inventoryCache{probe: probe}
 }
 
-func (c *inventoryCache) get(ctx context.Context) sandbox.Inventory {
+// get 返回安装状态。从未探测过时等待首次探测结束；ctx 先结束则返回它的错误。
+func (c *inventoryCache) get(ctx context.Context) (sandbox.Inventory, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if time.Now().Before(c.expires) {
-		return c.value
+	if c.probed && time.Now().Before(c.expires) {
+		v := c.value
+		c.mu.Unlock()
+		return v, nil
 	}
-	c.value = c.probe(ctx)
-	c.expires = time.Now().Add(inventoryTTL)
-	return c.value
+	done := c.refreshLocked()
+	if c.probed {
+		v := c.value
+		c.mu.Unlock()
+		return v, nil
+	}
+	c.mu.Unlock()
+	select {
+	case <-done:
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.value, nil
+	case <-ctx.Done():
+		return sandbox.Inventory{}, ctx.Err()
+	}
+}
+
+// refreshLocked 启动一次探测（已在探测时复用它），返回它结束时关闭的 channel。调用方持有 mu。
+func (c *inventoryCache) refreshLocked() <-chan struct{} {
+	if c.inflight != nil {
+		return c.inflight
+	}
+	done := make(chan struct{})
+	c.inflight = done
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), inventoryProbeTimeout)
+		defer cancel()
+		v := c.probe(ctx)
+		c.mu.Lock()
+		c.value, c.probed, c.expires, c.inflight = v, true, time.Now().Add(inventoryTTL), nil
+		c.mu.Unlock()
+		close(done)
+	}()
+	return done
 }
 
 // probeInventory 探测工具清单中每个 CLI 工具能否被命令调用，以及浏览器能力。browser-use 命令

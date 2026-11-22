@@ -1,7 +1,7 @@
-// Package llmconfig 是 LLM 配置（provider / 复杂度路由）的持久化层。
+// Package llmconfig 是模型配置（provider / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
-// 事实源是 DB（前端「LLM 配置」页改这里），配置文件不涉及 LLM 接入。
+// 事实源是 DB（前端「模型配置」页改这里），配置文件不涉及 LLM 接入。
 // 运行期消费方经 internal/llmstore（多级缓存）读，不直连本包 Store（跨进程一致性）。
 //
 // 路由模型：调用方 → 档位 → provider 两跳。
@@ -86,7 +86,7 @@ func (p Provider) HasKey() bool {
 }
 
 // ErrInvalid 标记不合法的 provider 配置；HTTP 层收敛为 400。
-var ErrInvalid = errors.New("llm 配置不合法")
+var ErrInvalid = errors.New("模型配置不合法")
 
 // classifiedError 是带分类哨兵的错误：Error() 只给作者写的中文原文（直接面向
 // 操作者），哨兵经 Unwrap 供 errors.Is 分类——分类信息不混进文案。
@@ -210,7 +210,7 @@ func ValidateBaseURL(raw string) error {
 
 // ErrConflict 标记与既有状态冲突的写操作（code 已存在、无环境变量可回落时清除
 // 已存密钥等）；HTTP 层收敛为 409。
-var ErrConflict = errors.New("llm 配置冲突")
+var ErrConflict = errors.New("模型配置冲突")
 
 // 扩展思考预算的协议约束（anthropic thinking.budget_tokens）：开启时至少 1024，
 // 且必须小于单次最大输出 tokens（max_tokens 为 0 时运行期按 4096 发送）。

@@ -12,11 +12,14 @@ import { taskStatusMeta } from '@/lib/taskStatus'
 import { sourceColor, sourceLabel } from '@/lib/source'
 import { goalHead } from './taskColumns'
 import { AdjustGoalDialog, AssignActionDialog } from './SteeringDialogs'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { toast } from '@/components/ui/toast'
 
 interface TaskDetailPaneProps {
   task: TaskSummary | null
   loading: boolean
   error: string
+  onRetry: () => void
   onClose: () => void
   /** 控制操作（暂停/继续/停止）完成后的刷新回调。 */
   onOperated?: () => void
@@ -36,7 +39,7 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
 /** 任务详情板（右侧常驻，点行选中驱动）：三跳转 + 任务信息 KV + 控制组 + 目标全文。
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
  * 表格行内是快捷路径，两面并存。 */
-export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
+export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
   // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
   // 只有不可逆的停止过确认弹层（danger 形态）。
   const [confirmTerminate, setConfirmTerminate] = useState(false)
@@ -47,7 +50,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
     try {
       await controlTask(task.id, action)
     } catch (e) {
-      window.alert(`操作失败：${(e as Error).message}`)
+      toast.error(`操作失败：${(e as Error).message}`)
       return
     }
     onOperated?.()
@@ -64,7 +67,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
       <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text" title={task?.goal}>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text" title={task?.goal}>
           {task ? task.goal : '任务详情'}
         </span>
         <button
@@ -79,7 +82,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {error ? (
-          <div className="py-10 text-center text-sm text-status-error">⚠ {error}</div>
+          <ErrorState message={error} onRetry={onRetry} />
         ) : loading && !task ? (
           <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -90,17 +93,22 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
           <div className="flex flex-col gap-5">
             {/* 跳转排在首位：从任务去对话、发现与探索图是最先用到的出口（只看这个任务的）。 */}
             <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
+              <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
               <JumpLinks jumps={taskJumps(jumpContext(task, 'task'), ['conversation', 'findings', 'exploration'])} />
             </section>
             <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
+              <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>
                 <Kv k="状态">
                   <Badge dot color={taskStatusMeta(task.status).color}>
                     {task.status === 'active' ? (task.paused ? '已暂停' : '运行中') : taskStatusMeta(task.status).label}
                   </Badge>
                 </Kv>
+                {task.status === 'aborted' && task.abort_reason && (
+                  <Kv k="终止原因">
+                    <span className="text-xs">{task.abort_reason}</span>
+                  </Kv>
+                )}
                 <Kv k="来源">
                   <span className="inline-flex items-center gap-1.5">
                     <Badge dot={false} color={sourceColor(task.source)}>
@@ -163,7 +171,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
                 </Kv>
               </dl>
 
-              {/* 控制组恒显按状态禁用（与表格操作列同一行为）：终态行灰置。
+              {/* 详情是检查面：控制组恒显、任务结束后禁用并在下方说明原因（表格操作列只在进行中出现）。
                   暂停/继续合并为随 paused 翻转的单切换钮，停止独立。 */}
               <div className="mt-3.5 flex gap-2">
                 <Button
@@ -192,10 +200,10 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
             </section>
 
             <section aria-labelledby="task-goal-heading">
-              <h4 id="task-goal-heading" className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-secondary">
+              <h4 id="task-goal-heading" className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">
                 目标
               </h4>
-              <div className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] leading-relaxed text-text-secondary">
+              <div className="whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-text-secondary">
                 {task.goal}
               </div>
               {/* 运行中引导：修正往哪跑（与上方控制组「跑不跑」分开）。已结束的任务在对话里续接。 */}
@@ -222,7 +230,7 @@ export function TaskDetailPane({ task, loading, error, onClose, onOperated, onOp
                 </Button>
               </div>
               {task.status !== 'active' && (
-                <p className="mt-1.5 text-[11.5px] text-text-tertiary">任务已结束，可在对话中续接</p>
+                <p className="mt-1.5 text-2xs text-text-tertiary">任务已结束，可在对话中续接</p>
               )}
             </section>
 

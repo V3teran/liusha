@@ -53,6 +53,7 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     tokens_out: 0,
     created_at: '2026-06-10T00:00:00Z',
     ended_at: null,
+    abort_reason: '',
     ...o,
   }
 }

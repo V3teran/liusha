@@ -177,13 +177,12 @@ type AttachmentStore interface {
 // conversationID）。会话发起（StartChatTask）与会话内追加下发（HandleMessage）共用。
 // 会话发起时随入队成功落 dispatched 状态节点（时间线任务边界：何时下发）。
 func (s *Service) createTask(ctx context.Context, brief, conversationID string, attachments []attachment.Ref, userMsgSeq int64, sc *task.Scenario) (string, string, error) {
-	if err := validateBrief(brief); err != nil {
+	if err := task.ValidateGoal(brief); err != nil {
 		return "", "", err
 	}
 	// 一切下发皆走 assignment：单发 = 单元素 assignment(direct) → 1 task。
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
 		Source: assignment.SourceDirect,
-		Items:  []assignment.Item{{Brief: brief}},
 		Title:  BriefTitle(brief),
 	})
 	if err != nil {
@@ -202,23 +201,20 @@ func (s *Service) createTask(ctx context.Context, brief, conversationID string, 
 
 // DispatchBatch 满足 httpapi.TaskDispatchAPI：任务模块「新建任务」弹层的立即下发。
 //
-// 1 assignment(direct, N items) → N task → N conversation（1:1）：对每个 brief
+// 1 assignment(direct) → N task → N conversation（1:1）：对每个 brief
 // 复用 StartChatTask 的会话语义（建会话 + 落用户 brief + dispatched 时间线节点 +
 // 异步生成标题），展开走同一份 expandItem——批次内任务互不串扰，各绑独立对话。
-func (s *Service) DispatchBatch(ctx context.Context, title, description string, briefs []string, scenario *string) (string, []httpapi.DispatchedTask, error) {
+func (s *Service) DispatchBatch(ctx context.Context, title string, briefs []string, scenario *string) (string, []httpapi.DispatchedTask, error) {
+	if err := validateBriefs(briefs); err != nil {
+		return "", nil, err
+	}
 	sc, err := s.resolveScenario(ctx, scenario)
 	if err != nil {
 		return "", nil, err
 	}
-	items := make([]assignment.Item, 0, len(briefs))
-	for _, b := range briefs {
-		items = append(items, assignment.Item{Brief: b})
-	}
 	asg, err := s.Assignments.Create(ctx, assignment.NewParams{
-		Source:      assignment.SourceDirect,
-		Items:       items,
-		Title:       batchTitle(title, briefs),
-		Description: description,
+		Source: assignment.SourceDirect,
+		Title:  batchTitle(title, briefs),
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("create assignment: %w", err)
@@ -255,6 +251,9 @@ func (s *Service) DispatchBatch(ctx context.Context, title, description string, 
 // （含批次名/描述与目标清单），不立即执行；到点由 Scheduler 克隆 assignment 展开
 // （见 Scheduler.fireOne）。cron 表达式当场校验（cronschedule.NextRun）。
 func (s *Service) DispatchScheduled(ctx context.Context, title, description string, briefs []string, cronExpr string, scenario *string) (string, time.Time, error) {
+	if err := validateBriefs(briefs); err != nil {
+		return "", time.Time{}, err
+	}
 	// 模板创建时就校验：不许创建到点必败的模板（LLM 未配置时每次触发都失败）。
 	if err := s.requireLLMReady(ctx); err != nil {
 		return "", time.Time{}, err
@@ -264,9 +263,9 @@ func (s *Service) DispatchScheduled(ctx context.Context, title, description stri
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	items := make([]assignment.Item, 0, len(briefs))
+	items := make([]cronschedule.Item, 0, len(briefs))
 	for _, b := range briefs {
-		items = append(items, assignment.Item{Brief: b})
+		items = append(items, cronschedule.Item{Brief: b})
 	}
 	sched, err := s.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr:    cronExpr,
@@ -382,7 +381,6 @@ func (s *Service) expandItem(ctx context.Context, assignmentID, brief, conversat
 func (s *Service) enqueuePlannerRun(ctx context.Context, taskID, conversationID string) (string, error) {
 	tid, err := s.AgentRuns.Create(ctx, agentrun.NewParams{
 		TaskID: taskID,
-		Role:   "planner",
 	})
 	if err != nil {
 		return "", fmt.Errorf("create agent run: %w", err)
@@ -760,10 +758,13 @@ func renderFindingsSummary(fs []finding.Finding) string {
 	return b.String()
 }
 
-// validateBrief 校验下发输入：brief 就是任务目标的主体，守目标的长度契约（见 task.MaxGoalRunes）。
-func validateBrief(brief string) error {
-	if n := len([]rune(brief)); n > task.MaxGoalRunes {
-		return fmt.Errorf("任务描述过长（%d 字 > 上限 %d），请精简后重发", n, task.MaxGoalRunes)
+// validateBriefs 逐条校验一批下发输入：brief 就是任务目标的主体，守目标的长度契约
+// （task.ValidateGoal）。任何一条不合格整批拒绝，错误带上行号。
+func validateBriefs(briefs []string) error {
+	for i, b := range briefs {
+		if err := task.ValidateGoal(b); err != nil {
+			return fmt.Errorf("第 %d 行：%w", i+1, err)
+		}
 	}
 	return nil
 }
@@ -911,12 +912,16 @@ func (s *Service) Publish(ctx context.Context, conversationID string, payload []
 //
 // scenario 是消息被判为要执行时所建任务的场景（nil = 缺省，"" = 无场景），在建会话之前核对。
 func (s *Service) StartChatTask(ctx context.Context, brief string, attachments []attachment.Ref, scenario *string) (string, string, error) {
+	// 纯附件消息：时间线存原文（空文本 + 芯片），分类/标题/下发用附件名折算值。
+	dispatchBrief := effectiveBrief(brief, attachments)
+	// 目标长度在建会话、落消息、意图分类之前核对：超长的消息不该留下空会话、白付一次分类调用
+	if err := task.ValidateGoal(dispatchBrief); err != nil {
+		return "", "", err
+	}
 	sc, err := s.resolveScenario(ctx, scenario)
 	if err != nil {
 		return "", "", err
 	}
-	// 纯附件消息：时间线存原文（空文本 + 芯片），分类/标题/下发用附件名折算值。
-	dispatchBrief := effectiveBrief(brief, attachments)
 	created, err := s.Conversations.CreateConversation(ctx, BriefTitle(dispatchBrief), "")
 	if err != nil {
 		return "", "", fmt.Errorf("create conversation: %w", err)

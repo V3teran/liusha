@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { CalendarClock, Trash2, X } from 'lucide-react'
+import { CalendarClock, Trash2 } from 'lucide-react'
 import { errorText } from '@/api/client'
 import type { ScheduleRow } from '@/api/types'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +12,10 @@ import { cn } from '@/lib/utils'
 import { cronHuman } from './cron'
 import { ScenarioName } from '@/features/scenarios/ScenarioName'
 import { useDeleteSchedule, useSchedules, useToggleSchedule } from './useScheduleQueries'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface SchedulesDrawerProps {
   open: boolean
@@ -48,35 +52,26 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
     remove.mutate(r.id, { onError: (e) => setActionError(errorText(e, '删除失败')) })
   }
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[560px]">
+        <Dialog.Content className="tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col bg-surface shadow-2xl focus:outline-none sm:max-w-[560px]" onCloseAutoFocus={returnFocus}>
           <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
             <div className="min-w-0">
               <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-text">
                 <CalendarClock className="h-4 w-4 text-accent" aria-hidden />
                 定时模板
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs leading-relaxed text-text-secondary">
-                到点按清单每条展开一个任务。停用后不再触发；重新启用从当时起按 cron 计算下次触发，停用期间错过的不补跑。
-              </Dialog.Description>
+              <Dialog.Description className="sr-only">定时模板列表</Dialog.Description>
             </div>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="关闭"
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </Dialog.Close>
+            <DialogClose />
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             {actionError && (
-              <p role="alert" className="mb-3 rounded-lg border border-sev-critical/30 bg-sev-critical/5 px-3 py-2 text-xs text-sev-critical">
+              <p role="alert" className="mb-3 rounded-lg border border-status-error/30 bg-status-error/5 px-3 py-2 text-xs text-status-error">
                 {actionError}
               </p>
             )}
@@ -86,11 +81,9 @@ export function SchedulesDrawer({ open, onOpenChange, focusId }: SchedulesDrawer
               </p>
             )}
             {query.isPending ? (
-              <p className="py-16 text-center text-sm text-text-tertiary">加载中…</p>
+              <LoadingState className="py-16" />
             ) : query.isError ? (
-              <p role="alert" className="py-16 text-center text-sm text-sev-critical">
-                ⚠ {errorText(query.error, '加载定时模板失败')}
-              </p>
+              <ErrorState message={errorText(query.error, '加载定时模板失败')} onRetry={() => void query.refetch()} className="py-16" />
             ) : rows.length === 0 ? (
               <EmptyState kind="empty" noun="定时模板" hint="新建任务时开启「定时执行」即可创建。" className="py-16" />
             ) : (

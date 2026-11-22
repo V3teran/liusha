@@ -13,7 +13,7 @@ type KeyDecrypter interface {
 // 未设置密钥 → 明确报错，不静默返回空字符串（避免下游拿空 key 打出请求后才报 401）。
 func ResolveAPIKey(p Provider, dec KeyDecrypter) (string, error) {
 	if len(p.EncryptedAPIKey) == 0 {
-		return "", fmt.Errorf("provider %q 未设置密钥（在「LLM 配置」页填写）", p.Code)
+		return "", fmt.Errorf("provider %q 未设置密钥（在「模型配置」页填写）", p.Code)
 	}
 	if dec == nil {
 		return "", fmt.Errorf("provider %q: 已加密存储密钥但未配置解密器", p.Code)

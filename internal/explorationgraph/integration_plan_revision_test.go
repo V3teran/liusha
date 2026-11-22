@@ -5,6 +5,7 @@ package explorationgraph
 import (
 	"context"
 	"errors"
+	"github.com/V3teran/liusha/internal/dbtest"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func TestRevisePlanPostgres(t *testing.T) {
 		newC     = "1b2f6a9e-1111-4111-8111-00000000000c"
 		actionID = "1b2f6a9e-1111-4111-8111-0000000000a1"
 	)
+	dbtest.SeedTask(t, pool, taskID)
 	open := StateOpen
 	mk := func(id string, kind core.NodeKind, source SourceType, state *State) Node {
 		return Node{ID: id, TaskID: taskID, Kind: kind, State: state, SourceType: source,
@@ -125,6 +127,7 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 		actionID = "2b2f6a9e-1111-4111-8111-000000000001"
 		resultID = "2b2f6a9e-1111-4111-8111-000000000002"
 	)
+	dbtest.SeedTask(t, pool, taskID)
 	open := StateOpen
 	_, err := store.CreateNode(ctx, Node{ID: "2b2f6a9e-1111-4111-8111-0000000000ff", TaskID: taskID, Kind: core.KindObjective,
 		State: &open, SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
@@ -176,6 +179,7 @@ func TestRevisePlanConsumesOncePostgres(t *testing.T) {
 		firstID  = "3b2f6a9e-1111-4111-8111-00000000000a"
 		secondID = "3b2f6a9e-1111-4111-8111-00000000000b"
 	)
+	dbtest.SeedTask(t, pool, taskID)
 	open := StateOpen
 	_, err := store.CreateNode(ctx, Node{ID: rootID, TaskID: taskID, Kind: core.KindObjective, State: &open,
 		SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})

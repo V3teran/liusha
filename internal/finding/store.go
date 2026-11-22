@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,8 +22,8 @@ var findingLog = logx.New("finding")
 // Store 封装 finding 表的所有持久化操作。
 //
 // 设计要点：
-//   - severity 自由文本（前端按前缀配色）
-//   - 交付按 (task_id, result_node_id) 幂等：同一坐实结果重放交付返回既有记录
+//   - severity、class 取各自的封闭词表（DB CHECK 约束兜底）
+//   - 交付按结果节点幂等：同一坐实结果重放交付返回既有记录
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -33,11 +34,11 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT / RETURNING 路径的统一列序，与 scan() 字段一一对应。
 const colsSelect = "id, task_id::text AS task_id, COALESCE(result_node_id::text, ''), " +
 	"agent_run_id, host, severity, summary, target, evaluation, " +
-	"COALESCE(cwe_id, ''), COALESCE(owasp_category, ''), first_seen_at, COALESCE(remediation, ''), " +
+	"class, COALESCE(remediation, ''), " +
 	"status, COALESCE(triage_note, ''), triaged_at, created_at, seq, repro"
 
-// Save 按 (task_id, result_node_id) UPSERT 一行 finding：同一坐实结果的重放交付（交付失败后
-// 下一轮重试、同一主张再次确认）返回既有记录，不重复、不改写。
+// Save 按结果节点幂等写入一行 finding：同一坐实结果的重放交付（交付失败后下一轮重试、同一主张
+// 再次确认）返回既有记录，不重复、不改写。
 func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	if f.ResultNodeID == "" {
 		return Finding{}, fmt.Errorf("finding.ResultNodeID 必填")
@@ -51,6 +52,9 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	if f.Severity == "" {
 		f.Severity = "medium"
 	}
+	if f.Class == "" {
+		f.Class = ClassOther
+	}
 	for _, p := range []*json.RawMessage{&f.Target, &f.Evaluation} {
 		if *p == nil {
 			*p = json.RawMessage("{}")
@@ -63,23 +67,26 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 后 rollback 是 no-op
 
-	// UNIQUE(task_id, result_node_id)：重放交付保留首次写入（first_seen_at 取较早），返回既有行。
+	// UNIQUE(result_node_id)：重放交付不写入，取回既有行（首次写入即定稿）。
 	row := tx.QueryRow(ctx, `
 		INSERT INTO finding
 			(task_id, result_node_id, agent_run_id, host, severity, summary, target, evaluation,
-			 cwe_id, owasp_category, remediation, repro)
-		VALUES ($1::uuid, $2::uuid, $3,$4,$5,$6,$7,$8, NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), $12)
-		ON CONFLICT (task_id, result_node_id) DO UPDATE
-		SET first_seen_at = LEAST(finding.first_seen_at, EXCLUDED.first_seen_at)
+			 class, remediation, repro)
+		VALUES ($1::uuid, $2::uuid, $3,$4,$5,$6,$7,$8, $9, NULLIF($10,''), $11)
+		ON CONFLICT (result_node_id) DO NOTHING
 		RETURNING `+colsSelect,
 		f.TaskID, f.ResultNodeID,
 		f.AgentRunID, f.Host, f.Severity,
 		f.Summary, db.ScrubJSONB(f.Target), db.ScrubJSONB(f.Evaluation),
-		f.CWEID, f.OWASPCategory, f.Remediation, db.ScrubJSONB(f.Repro))
+		f.Class, f.Remediation, db.ScrubJSONB(f.Repro))
 
 	var saved Finding
-	if err := scan(row, &saved); err != nil {
-		return Finding{}, fmt.Errorf("upsert finding: %w", err)
+	err = scan(row, &saved)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = scan(tx.QueryRow(ctx, `SELECT `+colsSelect+` FROM finding WHERE result_node_id = $1::uuid`, f.ResultNodeID), &saved)
+	}
+	if err != nil {
+		return Finding{}, fmt.Errorf("save finding: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -132,6 +139,7 @@ type LedgerFilter struct {
 	ConversationID string
 	Host           string
 	Severity       string
+	Class          string // 发现类型（主张类别）
 	Status         string
 	Source         string // direct / proxy（下发来源）
 	Search         string // 关键词：匹配漏洞摘要、主机、路径与所属任务的目标（包含、大小写不敏感、按字面）
@@ -167,6 +175,9 @@ func ledgerWhere(f LedgerFilter) (string, []any) {
 	}
 	if f.Severity != "" {
 		add("f.severity = $%d", f.Severity)
+	}
+	if f.Class != "" {
+		add("f.class = $%d", f.Class)
 	}
 	if f.Status != "" {
 		add("f.status = $%d", f.Status)
@@ -313,9 +324,42 @@ func (s *Store) TaskFacets(ctx context.Context, f LedgerFilter, goalQuery string
 	return out, false, nil
 }
 
+// ClassFacet 是台账「类型」筛选的一个选项：出现过的发现类型及其漏洞数。
+type ClassFacet struct {
+	Class string
+	Count int
+}
+
+// ClassFacets 列出出现过的发现类型（类型筛选的选项），按漏洞数降序。按分面惯例，其余筛选与
+// 范围照常生效，类型自身的筛选不作用于选项——选中一个类型时其余类型仍可选。类型取自封闭
+// 词表，种类有限，全部列出。
+func (s *Store) ClassFacets(ctx context.Context, f LedgerFilter) ([]ClassFacet, error) {
+	f.Class = ""
+	where, args := ledgerWhere(f)
+	rows, err := s.pool.Query(ctx, `SELECT f.class, count(*)`+ledgerFrom+where+`
+		GROUP BY f.class
+		ORDER BY count(*) DESC, f.class`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("finding class facets: %w", err)
+	}
+	defer rows.Close()
+	out := []ClassFacet{}
+	for rows.Next() {
+		var fc ClassFacet
+		if err := rows.Scan(&fc.Class, &fc.Count); err != nil {
+			return nil, fmt.Errorf("scan class facet: %w", err)
+		}
+		out = append(out, fc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding class facets: %w", err)
+	}
+	return out, nil
+}
+
 // Stat 是台账头部统计 chip 的数据源：与 ListAll/CountAll 同一筛选口径
 // （ledgerWhere 单一口径），按 status / severity 维度聚合——口径与列表一致，
-// 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 LLM 审计页）。
+// 前端不再拿当前页行自算（同屏两口径的自相矛盾曾发生在 模型日志页）。
 type Stat struct {
 	Total      int            `json:"total"`
 	ByStatus   map[string]int `json:"by_status"`
@@ -351,10 +395,14 @@ func (s *Store) StatFiltered(ctx context.Context, f LedgerFilter) (Stat, error) 
 // note 可空。finding 不存在返错（ErrNoRows）。返回行含后端权威 triaged_at（前端据此覆盖乐观值）。
 func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note string) (Finding, error) {
 	if id == "" {
-		return Finding{}, fmt.Errorf("finding.UpdateTriage: id 必填")
+		return Finding{}, fmt.Errorf("%w：id 必填", ErrInvalidTriage)
 	}
 	if !validStatus(status) {
-		return Finding{}, fmt.Errorf("finding.UpdateTriage: 非法 status %q（须为 open/confirmed/fixed/false_positive/accepted）", status)
+		return Finding{}, fmt.Errorf("%w：状态 %q 须为 open/confirmed/fixed/false_positive/accepted", ErrInvalidTriage, status)
+	}
+	severity = strings.ToLower(strings.TrimSpace(severity))
+	if severity != "" && !slices.Contains(Severities, severity) {
+		return Finding{}, fmt.Errorf("%w：严重度 %q 须为 %s", ErrInvalidTriage, severity, strings.Join(Severities, "/"))
 	}
 	// severity 用 NULLIF 空跳过：传空保留原值，非空覆盖。COALESCE 让 SQL 单句表达「空则不改」。
 	row := s.pool.QueryRow(ctx,
@@ -366,14 +414,17 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 		status, severity, note, id)
 	var updated Finding
 	if err := scan(row, &updated); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Finding{}, fmt.Errorf("update finding triage %s: not found", id)
-		}
-		return Finding{}, fmt.Errorf("update finding triage %s: %w", id, err)
+		return Finding{}, fmt.Errorf("update finding triage %s: %w", id, err) // 不存在时可识别为 pgx.ErrNoRows
 	}
 	findingLog.Info().Str("finding_id", id).Str("status", status).Str("severity", updated.Severity).Msg("finding triaged ✓")
 	return updated, nil
 }
+
+// Severities 是发现严重度的五档（由重到轻）：人工处置只能取这几档，统计与概览按它计数。
+var Severities = []string{"critical", "high", "medium", "low", "info"}
+
+// ErrInvalidTriage 表示处置请求不合法（状态或严重度取值不对），是调用方可修复的输入错误。
+var ErrInvalidTriage = errors.New("处置不合法")
 
 // validStatus 校验 triage 五态（与 DB CHECK 约束 finding_status_check 一致）。
 func validStatus(s string) bool {
@@ -390,7 +441,7 @@ func validStatus(s string) bool {
 // 与 colsSelect 手工对齐；scanLedger 列序 = 本常量 + 末尾 source, conversation_id。
 const ledgerCols = "f.id, f.task_id::text AS task_id, COALESCE(f.result_node_id::text, ''), " +
 	"f.agent_run_id, f.host, f.severity, f.summary, f.target, f.evaluation, " +
-	"COALESCE(f.cwe_id, ''), COALESCE(f.owasp_category, ''), f.first_seen_at, COALESCE(f.remediation, ''), " +
+	"f.class, COALESCE(f.remediation, ''), " +
 	"f.status, COALESCE(f.triage_note, ''), f.triaged_at, f.created_at, f.seq, f.repro"
 
 // scanLedger 扫 ledgerCols 列序 + 末尾 source, conversation_id（比 scan() 多两列）。
@@ -401,7 +452,7 @@ func scanLedger(r db.RowScanner, out *LedgerRow) error {
 		&out.ID, &out.TaskID, &out.ResultNodeID,
 		&agentID, &out.Host, &out.Severity,
 		&out.Summary, &out.Target, &out.Evaluation,
-		&out.CWEID, &out.OWASPCategory, &out.FirstSeenAt, &out.Remediation,
+		&out.Class, &out.Remediation,
 		&out.Status, &out.TriageNote, &triagedAt,
 		&out.CreatedAt, &out.Seq, &out.Repro,
 		&out.Source, &out.ConversationID,
@@ -422,7 +473,7 @@ func scan(r db.RowScanner, f *Finding) error {
 		&f.ID, &f.TaskID, &f.ResultNodeID,
 		&agentID, &f.Host, &f.Severity,
 		&f.Summary, &f.Target, &f.Evaluation,
-		&f.CWEID, &f.OWASPCategory, &f.FirstSeenAt, &f.Remediation,
+		&f.Class, &f.Remediation,
 		&f.Status, &f.TriageNote, &triagedAt,
 		&f.CreatedAt, &f.Seq, &f.Repro,
 	); err != nil {

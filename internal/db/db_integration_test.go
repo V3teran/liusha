@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +52,13 @@ func TestNewPgPool_Ping(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
+	st, err := ProbePostgres(ctx, pool)
+	if err != nil {
+		t.Fatalf("探测: %v", err)
+	}
+	if st.Version == "" || strings.Contains(st.Version, " ") || st.Latency <= 0 || st.Connections < 1 || st.MaxConnections < st.Connections {
+		t.Fatalf("探测读数不符: %+v", st)
+	}
 }
 
 func TestNewRedis_Ping(t *testing.T) {
@@ -72,5 +80,12 @@ func TestNewRedis_Ping(t *testing.T) {
 	defer r.Close()
 	if err := r.Ping(ctx).Err(); err != nil {
 		t.Fatalf("ping: %v", err)
+	}
+	st, err := ProbeRedis(ctx, r)
+	if err != nil {
+		t.Fatalf("探测: %v", err)
+	}
+	if !strings.HasPrefix(st.Version, "8.") || st.Latency <= 0 || st.UsedMemory <= 0 {
+		t.Fatalf("探测读数不符: %+v", st)
 	}
 }

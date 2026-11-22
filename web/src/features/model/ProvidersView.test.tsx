@@ -58,7 +58,7 @@ async function openEdit(o: Partial<ProviderConfig> = {}) {
   await userEvent.click(await screen.findByText('deepseek'))
 }
 
-describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', () => {
+describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () => {
   beforeEach(() => {
     mList.mockReset()
     mSave.mockReset()
@@ -71,7 +71,7 @@ describe('ProvidersView（模型提供商分区，行内下拉展开编辑）', 
     expect(await screen.findByText('deepseek')).toBeTruthy()
     expect(await screen.findByText('qwen')).toBeTruthy()
     // 分区头：标题 + 新建入口
-    expect(screen.getByText('模型提供商')).toBeTruthy()
+    expect(screen.getByText('对话模型')).toBeTruthy()
     expect(screen.getByRole('button', { name: '新建' })).toBeTruthy()
     // 未展开时无编辑表单
     expect(screen.queryByLabelText('描述')).toBeNull()

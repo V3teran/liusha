@@ -75,7 +75,7 @@ func TestExecuteAction_GenuineFailureMarksFailed(t *testing.T) {
 	assert.Contains(t, *n.StateReason, "command not found")
 }
 
-// LLM 配置错误（401/403/404）不是瞬时故障：不被交还分支吞掉，仍按失败结束并上抛，
+// 模型配置错误（401/403/404）不是瞬时故障：不被交还分支吞掉，仍按失败结束并上抛，
 // 由认知循环终结任务（重试不会自愈）。
 func TestExecuteAction_ConfigErrorNotReleased(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()

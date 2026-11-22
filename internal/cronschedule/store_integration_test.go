@@ -22,7 +22,7 @@ func TestStore_CreateThenGetByID(t *testing.T) {
 
 	c, err := s.Create(ctx, NewParams{
 		CronExpr: "0 4 * * *",
-		Items:    []assignment.Item{{Brief: "夜间复扫 http://target.com"}},
+		Items:    []Item{{Brief: "夜间复扫 http://target.com"}},
 		Title:    "夜间复扫",
 	})
 	if err != nil {
@@ -56,10 +56,10 @@ func TestStore_Create_RejectsMissingBriefOrInvalidCron(t *testing.T) {
 	if _, err := s.Create(ctx, NewParams{}); err == nil {
 		t.Fatal("缺 cron_expr 应报错")
 	}
-	if _, err := s.Create(ctx, NewParams{CronExpr: "not-a-cron", Items: []assignment.Item{{Brief: "b"}}, Title: "b"}); err == nil {
+	if _, err := s.Create(ctx, NewParams{CronExpr: "not-a-cron", Items: []Item{{Brief: "b"}}, Title: "b"}); err == nil {
 		t.Fatal("非法 cron_expr 应报错")
 	}
-	if _, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}}); err == nil {
+	if _, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []Item{{Brief: "b"}}}); err == nil {
 		t.Fatal("缺模板名应报错（未填写时由下发入口取首个目标）")
 	}
 }
@@ -70,7 +70,7 @@ func TestStore_SetEnabled(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestStore_SetEnabled_ReenableDoesNotCatchUp(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestStore_List(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	older, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "a"}}, Title: "older"})
+	older, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []Item{{Brief: "a"}}, Title: "older"})
 	if err != nil {
 		t.Fatalf("create older: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestStore_List(t *testing.T) {
 	if _, err := s.SetEnabled(ctx, older.ID, false); err != nil {
 		t.Fatalf("disable older: %v", err)
 	}
-	newer, err := s.Create(ctx, NewParams{CronExpr: "0 5 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "newer"})
+	newer, err := s.Create(ctx, NewParams{CronExpr: "0 5 * * *", Items: []Item{{Brief: "b"}}, Title: "newer"})
 	if err != nil {
 		t.Fatalf("create newer: %v", err)
 	}
@@ -170,12 +170,12 @@ func TestStore_Delete(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	asg, err := assignment.NewStore(pool).Create(ctx, assignment.NewParams{
-		Source: assignment.SourceDirect, Items: []assignment.Item{{Brief: "b"}}, Title: c.Title, ScheduleID: &c.ID,
+		Source: assignment.SourceDirect, Title: c.Title, ScheduleID: &c.ID,
 	})
 	if err != nil {
 		t.Fatalf("create cloned assignment: %v", err)
@@ -207,7 +207,7 @@ func TestStore_ListDue(t *testing.T) {
 	now := time.Now()
 
 	// 到点且启用：应出现
-	due, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	due, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create due: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 未到点：不应出现
-	notDue, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	notDue, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create not due: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestStore_ListDue(t *testing.T) {
 	}
 
 	// 到点但已停用：不应出现
-	disabled, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	disabled, err := s.Create(ctx, NewParams{CronExpr: "* * * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create disabled: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestStore_MarkFired(t *testing.T) {
 	s := NewStore(pool)
 	ctx := context.Background()
 
-	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []assignment.Item{{Brief: "b"}}, Title: "b"})
+	c, err := s.Create(ctx, NewParams{CronExpr: "0 4 * * *", Items: []Item{{Brief: "b"}}, Title: "b"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

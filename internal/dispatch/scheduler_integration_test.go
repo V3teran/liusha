@@ -70,7 +70,7 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
-	items := []assignment.Item{{Brief: "夜间复扫 http://target.com"}}
+	items := []cronschedule.Item{{Brief: "夜间复扫 http://target.com"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "nightly",
 	})
@@ -128,8 +128,8 @@ func TestFireDue_BriefItem_ExpandsTaskAndAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list executor runs: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Role != "planner" {
-		t.Fatalf("应建出 1 条 planner executor run，got %+v", runs)
+	if len(runs) != 1 {
+		t.Fatalf("应建出 1 条 run，got %+v", runs)
 	}
 
 }
@@ -139,7 +139,7 @@ func TestFireDue_DisabledSchedule_NotFired(t *testing.T) {
 	r, pool := newTestScheduler(t)
 	ctx := context.Background()
 
-	items := []assignment.Item{{Brief: "should not fire"}}
+	items := []cronschedule.Item{{Brief: "should not fire"}}
 	sched, err := r.Schedules.Create(ctx, cronschedule.NewParams{
 		CronExpr: "* * * * *", Items: items, Title: "disabled",
 	})

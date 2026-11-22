@@ -148,7 +148,7 @@ export function EntityPicker({
           className="app-popover flex w-[min(440px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-lg outline-none"
         >
           <div className="relative border-b border-border-subtle p-2">
-            <Search aria-hidden className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-tertiary" />
+            <Search aria-hidden className="pointer-events-none absolute inset-y-0 left-5 my-auto h-4 w-4 text-text-tertiary" />
             <input
               role="combobox"
               aria-label={searchPlaceholder}

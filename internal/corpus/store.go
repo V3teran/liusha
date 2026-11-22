@@ -2,231 +2,460 @@ package corpus
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sort"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 
-	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/db"
 )
 
-var log = logx.New("corpus.store")
+// ErrStale 表示条目在读取之后被改过（乐观锁前置不成立）。
+var ErrStale = errors.New("知识条目已被修改，请刷新后重试")
 
-// Store 封装 corpus 表的持久化 + hybrid 检索。
+// Store 是 corpus 表与印证表的持久化。
 type Store struct{ pool *pgxpool.Pool }
 
-// NewStore 用 pgxpool 构造。
+// NewStore 用连接池构造。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// Add 写一条知识。按 content_hash 去重（重复写视为再次确认：hit_count++、刷新 title/tags/embedding）。
-//
-// embedding 可空（Jina 不可用时降级，只落行）。source 必填 agent|expert。
-func (s *Store) Add(ctx context.Context, e Entry) (Entry, error) {
-	if e.Content == "" {
-		return Entry{}, fmt.Errorf("corpus.Add: content 必填")
-	}
-	if e.Source != SourceAgent && e.Source != SourceExpert {
-		return Entry{}, fmt.Errorf("corpus.Add: source 非法 %q（agent|expert）", e.Source)
-	}
-	e.ContentHash = ContentHash(e.Content)
-	if e.Tags == nil {
-		e.Tags = []string{}
-	}
+// entryCols 是读取条目的列（与 scanEntry 一一对应；c 是 corpus 的别名）。
+const entryCols = `c.id, c.title, c.content, c.scenario, c.source, c.embedding IS NOT NULL,
+	(SELECT count(*) FROM corpus_confirmation f WHERE f.entry_id = c.id), c.created_at, c.updated_at`
 
-	// 向量：非空传 pgvector.Vector（driver.Valuer 编码），空传 NULL。
-	var embArg any
-	if len(e.Embedding) > 0 {
-		embArg = pgvector.NewVector(e.Embedding)
-	}
-	var taskArg any
-	if e.SourceTaskID != "" {
-		taskArg = e.SourceTaskID
-	}
-
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO corpus (title, content, tags, source, source_task_id, embedding, content_hash)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (content_hash) DO UPDATE
-		  SET title      = EXCLUDED.title,
-		      tags       = EXCLUDED.tags,
-		      embedding  = COALESCE(EXCLUDED.embedding, corpus.embedding),
-		      hit_count  = corpus.hit_count + 1,
-		      updated_at = now()
-		RETURNING id, hit_count, created_at, updated_at`,
-		e.Title, e.Content, e.Tags, e.Source, taskArg, embArg, e.ContentHash)
-
-	if err := row.Scan(&e.ID, &e.HitCount, &e.CreatedAt, &e.UpdatedAt); err != nil {
-		return Entry{}, fmt.Errorf("save corpus: %w", err)
-	}
-	return e, nil
+func scanEntry(row pgx.Row) (Entry, error) {
+	var e Entry
+	err := row.Scan(&e.ID, &e.Title, &e.Content, &e.Scenario, &e.Source, &e.Indexed,
+		&e.Confirmations, &e.CreatedAt, &e.UpdatedAt)
+	return e, err
 }
 
-// selectCols 是检索回传列（不含 embedding——向量不需要回给调用方）。
-const selectCols = "id, title, content, tags, source, hit_count, created_at, updated_at"
-
-// recallDense 用 pgvector HNSW cosine 召回 top-n 最近邻。queryVec 为空则跳过（返回 nil）。
-// tags 非空时先 metadata 硬过滤。
-func (s *Store) recallDense(ctx context.Context, queryVec []float32, tags []string, n int) ([]Entry, error) {
-	if len(queryVec) == 0 {
-		return nil, nil // 无 query 向量（Jina 不可用），dense 路跳过
-	}
-	sql := `SELECT ` + selectCols + ` FROM corpus WHERE embedding IS NOT NULL`
-	args := []any{pgvector.NewVector(queryVec)}
-	if len(tags) > 0 {
-		sql += ` AND tags && $2`
-		args = append(args, tags)
-	}
-	sql += ` ORDER BY embedding <=> $1 LIMIT ` + strconv.Itoa(n)
-	rows, err := s.pool.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("corpus dense recall: %w", err)
-	}
+func collectEntries(rows pgx.Rows) ([]Entry, error) {
 	defer rows.Close()
-	return scanRows(rows)
-}
-
-// recallSparse 用 pg_trgm 相似度召回 top-n（content 与 title 取较大相似度）。
-// tags 非空时先 metadata 硬过滤。
-func (s *Store) recallSparse(ctx context.Context, query string, tags []string, n int) ([]Entry, error) {
-	sql := `SELECT ` + selectCols + ` FROM corpus
-		WHERE (content %` + `> $1 OR title %` + `> $1)`
-	args := []any{query}
-	if len(tags) > 0 {
-		sql += ` AND tags && $2`
-		args = append(args, tags)
-	}
-	sql += ` ORDER BY GREATEST(similarity(content,$1), similarity(title,$1)) DESC LIMIT ` + strconv.Itoa(n)
-	rows, err := s.pool.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("corpus sparse recall: %w", err)
-	}
-	defer rows.Close()
-	return scanRows(rows)
-}
-
-// SearchHybrid 是 hybrid 检索入口：dense + sparse 两路各召回 recallN → 按 id 合并去重 → 交给
-// reranker 精排取 topK。queryVec 为空则退纯 sparse；reranker 为空/失败则以效用计数兜底排序
-// （hit_count 降序，稳定序保持 dense 先于 sparse 的召回相关性），不阻塞。
-//
-// 实际返回（被消费）的条目效用计数 +1——检索消费是效用信号，沉淀给兜底排序
-// 与未来的淘汰策略；这是 hit_count 的读路径闭环（写路径的重复确认已在 Add）。
-//
-// dense 召回需调用方先 embed 出 queryVec（本包不依赖 embedding 包，保持解耦、可测）。
-func (s *Store) SearchHybrid(ctx context.Context, query string, queryVec []float32, tags []string, recallN, topK int, rr Reranker) ([]Entry, error) {
-	if recallN <= 0 {
-		recallN = 20
-	}
-	if topK <= 0 {
-		topK = 5
-	}
-
-	dense, err := s.recallDense(ctx, queryVec, tags, recallN)
-	if err != nil {
-		return nil, err
-	}
-	sparse, err := s.recallSparse(ctx, query, tags, recallN)
-	if err != nil {
-		return nil, err
-	}
-
-	// 按 id 合并去重（dense 优先——语义命中通常更相关，作为 rerank 失败时的兜底顺序）。
-	merged := make([]Entry, 0, len(dense)+len(sparse))
-	seen := make(map[string]struct{}, len(dense)+len(sparse))
-	for _, e := range append(dense, sparse...) {
-		if _, dup := seen[e.ID]; dup {
-			continue
-		}
-		seen[e.ID] = struct{}{}
-		merged = append(merged, e)
-	}
-	if len(merged) == 0 {
-		return nil, nil
-	}
-
-	// 无 reranker / rerank 失败 → 效用计数兜底排序（稳定序保召回相关性）。
-	if rr == nil {
-		return s.consume(ctx, sortByUtility(merged), topK), nil
-	}
-	docs := make([]string, len(merged))
-	for i, e := range merged {
-		docs[i] = e.Content
-	}
-	order, err := rr.Rerank(ctx, query, docs, topK)
-	if err != nil {
-		// rerank 失败降级：不阻塞检索，走效用兜底；留痕，否则外部服务故障在线上不可见。
-		log.Warn().Err(err).Int("candidates", len(merged)).Msg("rerank 失败，降级为效用排序")
-		return s.consume(ctx, sortByUtility(merged), topK), nil
-	}
-	if len(order) == 0 {
-		return s.consume(ctx, sortByUtility(merged), topK), nil
-	}
-	ranked := make([]Entry, 0, len(order))
-	for _, idx := range order {
-		if idx >= 0 && idx < len(merged) {
-			ranked = append(ranked, merged[idx])
-		}
-	}
-	return s.consume(ctx, ranked, topK), nil
-}
-
-// sortByUtility 以效用计数为主序的稳定排序：hit_count 高者先（沉淀越多的
-// 教训越靠前）；同计数保持原合并序（dense 召回先于 sparse——语义相关性优先）。
-// rerank 在场时精排全权，本排序只服务于兜底路径。
-func sortByUtility(entries []Entry) []Entry {
-	sorted := make([]Entry, len(entries))
-	copy(sorted, entries)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return sorted[i].HitCount > sorted[j].HitCount
-	})
-	return sorted
-}
-
-// consume 截 topK 并把实际返回条目的效用计数 +1（best-effort：软信号记账，
-// 失败不影响检索交付，也不承担审计义务）。
-func (s *Store) consume(ctx context.Context, entries []Entry, topK int) []Entry {
-	out := capEntries(entries, topK)
-	ids := make([]string, 0, len(out))
-	for _, e := range out {
-		ids = append(ids, e.ID)
-	}
-	// id 列侧转 text：pgx 把 []string 编码为 text[]，uuid = text 无算子会让
-	// 本更新静默报错（错误被吞、计数器永不增长）。转型写在列侧，参数恒为
-	// text[]，对驱动编解码行为零依赖；corpus 是小表，转型扫描成本可忽略。
-	_, _ = s.pool.Exec(ctx,
-		"UPDATE corpus SET hit_count = hit_count + 1 WHERE id::text = ANY($1)", ids)
-	return out
-}
-
-// Reranker 与 embedding.Reranker 同形（此处窄声明，避免 corpus 依赖 embedding 包）。
-type Reranker interface {
-	Rerank(ctx context.Context, query string, docs []string, topK int) ([]int, error)
-}
-
-func capEntries(es []Entry, k int) []Entry {
-	if len(es) > k {
-		return es[:k]
-	}
-	return es
-}
-
-// scanRows 反序列化 SELECT 出的 corpus 行（不取 embedding，检索不需要回传向量）。
-func scanRows(rows pgx.Rows) ([]Entry, error) {
 	var out []Entry
 	for rows.Next() {
-		var e Entry
-		if err := rows.Scan(
-			&e.ID, &e.Title, &e.Content, &e.Tags, &e.Source,
-			&e.HitCount, &e.CreatedAt, &e.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan corpus row: %w", err)
+		e, err := scanEntry(rows)
+		if err != nil {
+			return nil, fmt.Errorf("读取知识条目: %w", err)
 		}
 		out = append(out, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate corpus rows: %w", err)
+		return nil, fmt.Errorf("遍历知识条目: %w", err)
 	}
 	return out, nil
+}
+
+func vectorArg(v []float32) any {
+	if len(v) == 0 {
+		return nil
+	}
+	return pgvector.NewVector(v)
+}
+
+// isDuplicate 判断是否撞上正文唯一约束。
+func isDuplicate(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "corpus_content_hash_uniq"
+}
+
+// mapWriteErr 把正文唯一约束冲突收敛为带出已有条目的 *DuplicateError。
+func (s *Store) mapWriteErr(ctx context.Context, err error, content string) error {
+	if !isDuplicate(err) {
+		return err
+	}
+	var id string
+	if qErr := s.pool.QueryRow(ctx, `SELECT id FROM corpus WHERE content_hash = $1`, contentHash(content)).Scan(&id); qErr != nil {
+		return fmt.Errorf("%w（读取已有条目失败: %w）", ErrDuplicate, qErr)
+	}
+	return &DuplicateError{ExistingID: id}
+}
+
+// writeLockKey 是知识库写锁的 advisory lock 键（任意固定值，只需全库唯一）。
+const writeLockKey int64 = 0x636f72707573 // "corpus"
+
+// exclusive 在知识库写锁下执行 fn：跨进程互斥，用于「先查近似、再决定写什么」这类读后写，
+// 避免并发的两个写入方都没看见对方、各写一条重复知识。锁随连接持有，fn 返回即释放。
+func (s *Store) exclusive(ctx context.Context, fn func(ctx context.Context) error) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("获取知识库写锁: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, writeLockKey); err != nil {
+		return fmt.Errorf("获取知识库写锁: %w", err)
+	}
+	defer func() {
+		// 用独立上下文释放：fn 超时或被取消时仍要放锁（连接回池前必须解锁）。
+		uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(uctx, `SELECT pg_advisory_unlock($1)`, writeLockKey); err != nil {
+			_ = conn.Conn().Close(uctx) // 解锁失败就关掉连接，会话结束锁随之释放；关闭本身的失败无可再做
+		}
+	}()
+	return fn(ctx)
+}
+
+// insert 写入一条新知识（embedding 可空）。正文已存在返回 ErrDuplicate。
+func (s *Store) insert(ctx context.Context, d Draft, embedding []float32) (Entry, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO corpus (title, content, scenario, source, embedding, content_hash)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id`,
+		d.Title, d.Content, d.Scenario, d.Source, vectorArg(embedding), contentHash(d.Content)).Scan(&id)
+	if err != nil {
+		return Entry{}, fmt.Errorf("写入知识条目: %w", s.mapWriteErr(ctx, err, d.Content))
+	}
+	return s.get(ctx, id)
+}
+
+func (s *Store) get(ctx context.Context, id string) (Entry, error) {
+	e, err := scanEntry(s.pool.QueryRow(ctx, `SELECT `+entryCols+` FROM corpus c WHERE c.id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entry{}, fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("读取知识条目 %s: %w", id, err)
+	}
+	return e, nil
+}
+
+// confirmations 列出印证过条目的任务（新的在前）。
+func (s *Store) confirmations(ctx context.Context, id string) ([]Confirmation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT f.task_id, t.goal, f.confirmed_at
+		FROM corpus_confirmation f JOIN task t ON t.id = f.task_id
+		WHERE f.entry_id = $1
+		ORDER BY f.confirmed_at DESC`, id)
+	if err != nil {
+		return nil, fmt.Errorf("读取印证记录: %w", err)
+	}
+	defer rows.Close()
+	out := []Confirmation{}
+	for rows.Next() {
+		var c Confirmation
+		if err := rows.Scan(&c.TaskID, &c.TaskGoal, &c.ConfirmedAt); err != nil {
+			return nil, fmt.Errorf("读取印证记录: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// fields 是一次改写落定的条目字段。
+type fields struct {
+	Title    string
+	Content  string
+	Scenario *string
+	Source   string
+}
+
+// updateIf 在条目仍是 seen 版本时改写它。textChanged 时一并替换向量（embedding 为空即清空，
+// 留给 IndexPending 补齐——旧文本的向量对新文本是错的，宁可暂缺）。
+func (s *Store) updateIf(ctx context.Context, id string, seen time.Time, f fields, textChanged bool, embedding []float32) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE corpus SET title = $3, content = $4, scenario = $5, source = $6,
+			content_hash = $7,
+			embedding = CASE WHEN $8 THEN $9::vector ELSE embedding END,
+			updated_at = now()
+		WHERE id = $1 AND updated_at = $2`,
+		id, seen, f.Title, f.Content, f.Scenario, f.Source, contentHash(f.Content), textChanged, vectorArg(embedding))
+	if err != nil {
+		return fmt.Errorf("改写知识条目: %w", s.mapWriteErr(ctx, err, f.Content))
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := s.get(ctx, id); err != nil {
+			return err
+		}
+		return ErrStale
+	}
+	return nil
+}
+
+func (s *Store) delete(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM corpus WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("删除知识条目: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %w", ErrNotFound, pgx.ErrNoRows)
+	}
+	return nil
+}
+
+// confirm 记下 taskID 印证了条目（幂等）。
+func (s *Store) confirm(ctx context.Context, entryID, taskID string) error {
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO corpus_confirmation (entry_id, task_id) VALUES ($1, $2)
+		ON CONFLICT DO NOTHING`, entryID, taskID); err != nil {
+		return fmt.Errorf("记录印证: %w", err)
+	}
+	return nil
+}
+
+// pendingIndex 取尚无向量的条目（旧的先补）。
+func (s *Store) pendingIndex(ctx context.Context, limit int) ([]Entry, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+entryCols+` FROM corpus c
+		WHERE c.embedding IS NULL ORDER BY c.updated_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("读取待补向量的条目: %w", err)
+	}
+	return collectEntries(rows)
+}
+
+// resetVectors 清空全部条目的向量，返回受影响行数。换向量模型时调用：不同模型的向量
+// 不可混在一个空间里，旧向量对新模型是错的，作废后由补齐循环按新模型重嵌。
+func (s *Store) resetVectors(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE corpus SET embedding = NULL WHERE embedding IS NOT NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("reset corpus vectors: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// setEmbedding 在条目仍是 seen 版本时写入向量；版本变了说明文本已改，这个向量作废。
+func (s *Store) setEmbedding(ctx context.Context, id string, seen time.Time, embedding []float32) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE corpus SET embedding = $3 WHERE id = $1 AND updated_at = $2`,
+		id, seen, vectorArg(embedding))
+	if err != nil {
+		return false, fmt.Errorf("写入向量: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// IndexStats 是向量索引的覆盖情况。
+type IndexStats struct {
+	Total   int
+	Pending int // 尚无向量
+}
+
+func (s *Store) indexStats(ctx context.Context) (IndexStats, error) {
+	var st IndexStats
+	if err := s.pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE embedding IS NULL) FROM corpus`).
+		Scan(&st.Total, &st.Pending); err != nil {
+		return IndexStats{}, fmt.Errorf("统计知识库索引: %w", err)
+	}
+	return st, nil
+}
+
+// ─── 列表与分面 ──────────────────────────────────────────────────────────────
+
+// ListQuery 是知识库列表的筛选与分页。Scenario 与 General 互斥：前者只看该场景的知识，
+// 后者只看通用知识，都不给则不按场景筛选。
+type ListQuery struct {
+	Search   string
+	Scenario string
+	General  bool
+	Source   string
+	Offset   int
+	Limit    int
+}
+
+// Validate 校验筛选参数。
+func (q ListQuery) Validate() error {
+	if q.Scenario != "" && q.General {
+		return fmt.Errorf("%w：场景与通用筛选不能同时指定", ErrInvalid)
+	}
+	if q.Source != "" && q.Source != SourceAgent && q.Source != SourceExpert {
+		return fmt.Errorf("%w：来源 %q 不合法", ErrInvalid, q.Source)
+	}
+	return nil
+}
+
+// filter 拼出筛选条件；skip 指定的维度不参与（分面计数时每个维度不受自身筛选影响）。
+func (q ListQuery) filter(skip string) (string, []any) {
+	var conds []string
+	var args []any
+	add := func(cond string, arg any) {
+		args = append(args, arg)
+		conds = append(conds, strings.ReplaceAll(cond, "?", "$"+strconv.Itoa(len(args))))
+	}
+	if q.Search != "" {
+		add("(c.title ILIKE ? OR c.content ILIKE ?)", db.ContainsPattern(q.Search)) // 两处共用一个参数位
+	}
+	if skip != "scenario" {
+		switch {
+		case q.General:
+			conds = append(conds, "c.scenario IS NULL")
+		case q.Scenario != "":
+			add("c.scenario = ?", q.Scenario)
+		}
+	}
+	if skip != "source" && q.Source != "" {
+		add("c.source = ?", q.Source)
+	}
+	if len(conds) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+func (s *Store) list(ctx context.Context, q ListQuery) ([]Entry, int, error) {
+	where, args := q.filter("")
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM corpus c`+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("统计知识条目: %w", err)
+	}
+	args = append(args, q.Limit, q.Offset)
+	rows, err := s.pool.Query(ctx, `SELECT `+entryCols+` FROM corpus c`+where+
+		` ORDER BY c.updated_at DESC, c.id LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("列出知识条目: %w", err)
+	}
+	items, err := collectEntries(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	if items == nil {
+		items = []Entry{}
+	}
+	return items, total, nil
+}
+
+// ScenarioFacet 是按场景的计数（Scenario 为 nil 即通用）。
+type ScenarioFacet struct {
+	Scenario *string
+	Count    int
+}
+
+// SourceFacet 是按来源的计数。
+type SourceFacet struct {
+	Source string
+	Count  int
+}
+
+// Facets 是列表筛选项的分面计数：每个维度只受其它维度的筛选影响。
+type Facets struct {
+	Scenarios []ScenarioFacet
+	Sources   []SourceFacet
+}
+
+func (s *Store) facets(ctx context.Context, q ListQuery) (Facets, error) {
+	out := Facets{Scenarios: []ScenarioFacet{}, Sources: []SourceFacet{}}
+	where, args := q.filter("scenario")
+	rows, err := s.pool.Query(ctx, `SELECT c.scenario, count(*) FROM corpus c`+where+
+		` GROUP BY c.scenario ORDER BY c.scenario NULLS FIRST`, args...)
+	if err != nil {
+		return Facets{}, fmt.Errorf("统计场景分面: %w", err)
+	}
+	for rows.Next() {
+		var f ScenarioFacet
+		if err := rows.Scan(&f.Scenario, &f.Count); err != nil {
+			rows.Close()
+			return Facets{}, fmt.Errorf("读取场景分面: %w", err)
+		}
+		out.Scenarios = append(out.Scenarios, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return Facets{}, fmt.Errorf("遍历场景分面: %w", err)
+	}
+
+	where, args = q.filter("source")
+	rows, err = s.pool.Query(ctx, `SELECT c.source, count(*) FROM corpus c`+where+
+		` GROUP BY c.source ORDER BY c.source`, args...)
+	if err != nil {
+		return Facets{}, fmt.Errorf("统计来源分面: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f SourceFacet
+		if err := rows.Scan(&f.Source, &f.Count); err != nil {
+			return Facets{}, fmt.Errorf("读取来源分面: %w", err)
+		}
+		out.Sources = append(out.Sources, f)
+	}
+	return out, rows.Err()
+}
+
+// merge 在一个事务里把 absorbed 并入 keep：keep 改写为新文本，absorbed 的印证转给 keep 后删除
+// absorbed，再记下 taskID 的印证。任一条目已不是读到时的版本（被改过或删除）返回 ErrStale。
+func (s *Store) merge(ctx context.Context, keep Entry, absorbed []Entry, f fields, embedding []float32, taskID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	all := append([]Entry{keep}, absorbed...)
+	ids := make([]string, len(all))
+	for i, e := range all {
+		ids[i] = e.ID
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text, updated_at FROM corpus WHERE id::text = ANY($1) FOR UPDATE`, ids)
+	if err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	current := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			rows.Close()
+			return fmt.Errorf("合并知识条目: %w", err)
+		}
+		current[id] = at
+	}
+	rows.Close()
+	for _, e := range all {
+		if at, ok := current[e.ID]; !ok || !at.Equal(e.UpdatedAt) {
+			return ErrStale
+		}
+	}
+
+	absorbedIDs := ids[1:]
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO corpus_confirmation (entry_id, task_id, confirmed_at)
+		SELECT $1, task_id, min(confirmed_at) FROM corpus_confirmation
+		WHERE entry_id::text = ANY($2) GROUP BY task_id
+		ON CONFLICT DO NOTHING`, keep.ID, absorbedIDs); err != nil {
+		return fmt.Errorf("转移印证: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM corpus WHERE id::text = ANY($1)`, absorbedIDs); err != nil {
+		return fmt.Errorf("删除被合并的条目: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE corpus SET title = $2, content = $3, content_hash = $4, embedding = $5::vector, updated_at = now()
+		WHERE id = $1`, keep.ID, f.Title, f.Content, contentHash(f.Content), vectorArg(embedding)); err != nil {
+		if isDuplicate(err) {
+			return ErrDuplicate
+		}
+		return fmt.Errorf("改写合并后的条目: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO corpus_confirmation (entry_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, keep.ID, taskID); err != nil {
+		return fmt.Errorf("记录印证: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("合并知识条目: %w", err)
+	}
+	return nil
+}
+
+// existingHashes 返回 hashes 中已有条目的正文哈希。
+func (s *Store) existingHashes(ctx context.Context, hashes []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT content_hash FROM corpus WHERE content_hash = ANY($1)`, hashes)
+	if err != nil {
+		return nil, fmt.Errorf("查询已有正文: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("查询已有正文: %w", err)
+		}
+		out[h] = true
+	}
+	return out, rows.Err()
 }

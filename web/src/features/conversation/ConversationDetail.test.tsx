@@ -84,7 +84,7 @@ describe('ConversationDetail', () => {
 
   it('有 convId 时拉取历史消息并订阅 SSE', async () => {
     vi.mocked(apiClient.listMessages).mockResolvedValue([
-      { seq: 1, id: 'm1', conversation_id: 'c1', role: 'user', kind: 'message', content: 'hi', metadata: null, created_at: '' },
+      { seq: 1, conversation_id: 'c1', role: 'user', kind: 'message', content: 'hi', metadata: null, created_at: '' },
     ])
     render(<ConversationDetail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledWith('c1'))
@@ -179,7 +179,7 @@ describe('ConversationDetail', () => {
     onRunningChanged.mockClear()
 
     withTask({ status: 'active' })
-    act(() => useConversationStore.getState().ingest({ seq: 9, id: 'm9', conversation_id: 'c1', role: 'assistant', kind: 'event', content: '', metadata: null, created_at: '' }))
+    act(() => useConversationStore.getState().ingest({ seq: 9, conversation_id: 'c1', role: 'assistant', kind: 'event', content: '', metadata: null, created_at: '' }))
     expect(await screen.findByText('智能体工作中…', {}, { timeout: 3000 })).toBeTruthy()
     expect(onRunningChanged).toHaveBeenCalled()
   })
@@ -209,7 +209,7 @@ describe('ConversationDetail', () => {
 
     vi.mocked(apiClient.getConversation).mockResolvedValue(conv({ task_id: 'o1' }))
     withTask({ status: 'active' })
-    act(() => useConversationStore.getState().ingest({ seq: 3, id: 'm3', conversation_id: 'c1', role: 'assistant', kind: 'event', content: '任务已下发', metadata: null, created_at: '' }))
+    act(() => useConversationStore.getState().ingest({ seq: 3, conversation_id: 'c1', role: 'assistant', kind: 'event', content: '任务已下发', metadata: null, created_at: '' }))
     expect(await screen.findByRole('button', { name: '停止任务' }, { timeout: 3000 })).toBeTruthy()
     expect(tasksClient.getTaskDetail).toHaveBeenCalledWith('o1')
   })

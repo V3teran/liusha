@@ -3,23 +3,19 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CredentialsPage } from './CredentialsPage'
-import {
-  deleteCredentialIdentity,
-  getCredentialDetail,
-  listCredentialHosts,
-  saveCredentialIdentity,
-} from '@/api/credentials'
-import type { CredentialHostSummary, CredentialIdentity } from '@/api/types'
+import { deleteCredentialIdentity, listCredentials, saveCredentialIdentity } from '@/api/credentials'
+import type { CredentialIdentity, CredentialListItem } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
+import { MemoryRouter } from 'react-router-dom'
 
 vi.mock('@/api/credentials', () => ({
-  listCredentialHosts: vi.fn(),
-  getCredentialDetail: vi.fn(),
+  listCredentials: vi.fn(),
   saveCredentialIdentity: vi.fn(),
   deleteCredentialIdentity: vi.fn(),
 }))
 
-const mockedHosts = listCredentialHosts as unknown as ReturnType<typeof vi.fn>
-const mockedDetail = getCredentialDetail as unknown as ReturnType<typeof vi.fn>
+const mockedList = vi.mocked(listCredentials)
 const mockedDeleteIdentity = deleteCredentialIdentity as unknown as ReturnType<typeof vi.fn>
 const mockedSaveIdentity = saveCredentialIdentity as unknown as ReturnType<typeof vi.fn>
 
@@ -36,41 +32,49 @@ function makeIdentity(over: Partial<CredentialIdentity> = {}): CredentialIdentit
   }
 }
 
-function renderPage() {
+// 服务端的检索与分页在后端测试里锁定；这里用同口径的内存实现驱动页面。
+const ROWS: CredentialListItem[] = [
+  { host: 'a.com', ...makeIdentity() },
+  {
+    host: 'a.com',
+    ...makeIdentity({
+      username: 'task:t1:session',
+      kind: 'session',
+      task_id: 't1',
+      task_status: 'active',
+      credentials: [{ type: 'headers', key: 'Cookie', value: 'sess-t1-cookie' }],
+    }),
+  },
+  {
+    host: 'b.com',
+    ...makeIdentity({ username: 'guest', role: 'guest', credentials: [{ type: 'query', key: 'token', value: 'guest-tk' }] }),
+  },
+]
+
+function fakeList(search: string, page: number, size: number) {
+  const q = search.toLowerCase()
+  const hit = ROWS.filter((r) =>
+    [r.host, r.username, r.role, ...r.credentials.map((c) => `${c.key}=${c.value}`)].some((f) => f.toLowerCase().includes(q)),
+  )
+  return Promise.resolve({ items: hit.slice((page - 1) * size, page * size), total: hit.length })
+}
+
+function renderPage(entry = '/credentials') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <CredentialsPage />
+      <MemoryRouter initialEntries={[entry]}>
+        <CredentialsPage />
+        <ConfirmHost />
+        <Toaster />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // 双 host：主机列在跨 host 结果下显示（单 host 时按设计隐藏降噪）
-  const hosts: CredentialHostSummary[] = [
-    { host: 'a.com', usernames: 1, sessions: 1 },
-    { host: 'b.com', usernames: 1, sessions: 0 },
-  ]
-  mockedHosts.mockResolvedValue(hosts)
-  mockedDetail.mockImplementation(async (host: string) => {
-    if (host === 'b.com') {
-      return { host, identities: [makeIdentity({ username: 'guest', role: 'guest', credentials: [{ type: 'query', key: 'token', value: 'guest-tk' }] })] }
-    }
-    return {
-      host,
-      identities: [
-        makeIdentity(),
-        makeIdentity({
-          username: 'task:t1:session',
-          kind: 'session',
-          task_id: 't1',
-          task_status: 'active',
-          credentials: [{ type: 'headers', key: 'Cookie', value: 'sess-t1-cookie' }],
-        }),
-      ],
-    }
-  })
+  mockedList.mockImplementation(fakeList)
   mockedDeleteIdentity.mockResolvedValue(undefined)
   mockedSaveIdentity.mockResolvedValue(undefined)
 })
@@ -92,7 +96,7 @@ describe('CredentialsPage（列表形态）', () => {
     expect(screen.getByText('[query] token: guest-tk')).toBeTruthy()
     // 类别列已删（类别/任务状态信息移入详情 Sheet 与筛选器）
     expect(screen.queryByRole('columnheader', { name: '类别' })).toBeNull()
-    // 计数 = 身份数（2 host 共 3 个身份）
+    // 计数 = 服务端给的匹配总数（2 个 host 共 3 个身份）
     expect(countText('共 3 条')).toBeTruthy()
   })
 
@@ -145,16 +149,40 @@ describe('CredentialsPage（列表形态）', () => {
 
   it('行内删除按钮走单删 API', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderPage()
     await screen.findByText(`Cookie: ${PLAINTEXT}`)
 
     const delBtn = await screen.findByRole('button', { name: '删除用户名 task:t1:session 的凭证' })
     await user.click(delBtn)
+    expect(mockedDeleteIdentity).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: '确认删除' }))
 
     await waitFor(() =>
       expect(mockedDeleteIdentity).toHaveBeenCalledWith('a.com', 'task:t1:session'),
     )
+  })
+
+  it('每页条数、页码与搜索词取自 URL，原样交给服务端', async () => {
+    renderPage('/credentials?q=guest-tk&size=10')
+    await waitFor(() => expect(countText('共 1 条')).toBeTruthy())
+    expect(mockedList).toHaveBeenLastCalledWith('guest-tk', 1, 10)
+    expect((screen.getByRole('combobox', { name: '每页条数' }) as HTMLSelectElement).value).toBe('10')
+    expect((screen.getByPlaceholderText('搜索主机 / 用户名 / 键 / 值…') as HTMLInputElement).value).toBe('guest-tk')
+  })
+
+  it('页码越界（如删掉末页最后一条）退回最后一页', async () => {
+    renderPage('/credentials?size=10&page=3')
+    expect(await screen.findByText(`Cookie: ${PLAINTEXT}`)).toBeTruthy()
+    expect(mockedList).toHaveBeenLastCalledWith('', 1, 10)
+  })
+
+  it('加载失败显示错误态，重试重新请求', async () => {
+    mockedList.mockRejectedValueOnce(new Error('凭证库不可用'))
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByRole('alert')).toHaveTextContent('凭证库不可用')
+    await user.click(screen.getByRole('button', { name: '重试' }))
+    expect(await screen.findByText(`Cookie: ${PLAINTEXT}`)).toBeTruthy()
   })
 
   it('搜索栏可用：按凭证值过滤且不崩溃', async () => {
@@ -164,8 +192,9 @@ describe('CredentialsPage（列表形态）', () => {
 
     const box = screen.getByPlaceholderText('搜索主机 / 用户名 / 键 / 值…')
     await user.type(box, 'guest-tk')
-    // 只剩 b.com/guest 身份，计数同步
+    // 停顿后交给服务端检索：只剩 b.com/guest 身份，计数是匹配总数
     await waitFor(() => expect(countText('共 1 条')).toBeTruthy())
+    expect(mockedList).toHaveBeenLastCalledWith('guest-tk', 1, 50)
     await waitFor(() => expect(screen.queryByText(`Cookie: ${PLAINTEXT}`)).toBeNull())
 
     await user.clear(box)

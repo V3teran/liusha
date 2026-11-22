@@ -49,7 +49,7 @@ func (s *Store) ListVerificationsByTask(ctx context.Context, taskID string, limi
 		limit = 200
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, task_id::text, node_id::text, repro, outcome, evidence, duration_ms, created_at
+		SELECT id::text, task_id::text, node_id::text, repro, outcome, evidence, duration_ms, created_at
 		FROM exploration_verification
 		WHERE task_id = $1::uuid
 		ORDER BY created_at DESC
@@ -79,7 +79,7 @@ func (s *Store) ConfirmingVerification(ctx context.Context, resultID string) (Ve
 	}
 	var v Verification
 	err := s.pool.QueryRow(ctx, `
-		SELECT v.id, v.task_id::text, v.node_id::text, v.repro, v.outcome, v.evidence, v.duration_ms, v.created_at
+		SELECT v.id::text, v.task_id::text, v.node_id::text, v.repro, v.outcome, v.evidence, v.duration_ms, v.created_at
 		FROM exploration_node r
 		JOIN exploration_edge e ON e.dst_id = r.id AND e.rel = 'generates'
 		JOIN exploration_verification v ON v.node_id = e.src_id AND v.outcome = 'confirmed' AND v.created_at <= r.created_at

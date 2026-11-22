@@ -151,8 +151,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                 content={r.msg.content}
                 createdAt={r.msg.created_at}
                 attachments={r.msg.metadata?.attachments}
-                copied={copiedKey === r.msg.id}
-                onCopy={() => copy(r.msg.id, r.msg.content)}
+                copied={copiedKey === String(r.msg.seq)}
+                onCopy={() => copy(String(r.msg.seq), r.msg.content)}
               />
             )
           }
@@ -164,8 +164,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                 key={r.key}
                 agentName={r.msg.metadata?.agent_name || 'assistant'}
                 createdAt={r.msg.created_at}
-                copied={copiedKey === r.msg.id}
-                onCopy={() => copy(r.msg.id, r.msg.content)}
+                copied={copiedKey === String(r.msg.seq)}
+                onCopy={() => copy(String(r.msg.seq), r.msg.content)}
                 copyText={r.msg.content}
               >
                 <ThinkingFold text={r.msg.metadata?.thinking} />
@@ -199,8 +199,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               key={r.key}
               agentName={agent}
               createdAt={r.msg.created_at}
-              copied={copiedKey === r.msg.id}
-              onCopy={copyText ? () => copy(r.msg.id, copyText) : undefined}
+              copied={copiedKey === String(r.msg.seq)}
+              onCopy={copyText ? () => copy(String(r.msg.seq), copyText) : undefined}
               copyText={copyText}
             >
               {renderCard(r)}
@@ -238,7 +238,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-accent-soft px-4 py-1.5 text-sm font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
+          className="absolute inset-x-0 bottom-4 z-10 mx-auto flex w-fit items-center gap-1.5 rounded-full bg-accent-soft px-4 py-1.5 text-sm font-medium text-accent shadow-lg hover:bg-accent/10 hover:text-accent-hover"
         >
           <span>{unread > 0 ? `${unread > 99 ? '99+' : unread} 条新动态` : '回到最新'}</span>
           <span className="text-sm leading-none">↓</span>

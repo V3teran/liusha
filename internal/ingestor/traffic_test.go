@@ -2,9 +2,11 @@ package ingestor
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/proxy"
+	"github.com/V3teran/liusha/internal/traffic"
 )
 
 // TestSubmitInternal_Backpressure 锁住进程内 internal 队列的背压契约：
@@ -57,5 +59,16 @@ func TestIsNoGroupErr(t *testing.T) {
 				t.Errorf("isNoGroupErr(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+// 代理任务目标首行的目标 URL 按流量 URL 的协议合成（目标主机由它派生）；没有流量时按 http。
+func TestProxyTaskGoal_SchemeFromTrafficURL(t *testing.T) {
+	https := ProxyTaskGoal("a.test", []traffic.ProxyTraffic{{ID: 1, Method: "GET", URL: "https://a.test/x", Path: "/x", StatusCode: 200}})
+	if !strings.Contains(https, "https://a.test 的 1 条") {
+		t.Fatalf("应按流量 URL 取 https：%s", https)
+	}
+	if plain := ProxyTaskGoal("a.test", nil); !strings.Contains(plain, "http://a.test 的 0 条") {
+		t.Fatalf("没有流量时应按 http：%s", plain)
 	}
 }

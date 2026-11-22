@@ -3,17 +3,11 @@
 //
 // 命名层级：
 //   - task = 业务"扫描任务"（用户视角的 task；来源 direct/proxy 记在所属 assignment 上）
-//   - agent_run 表 = 每次 Agent 运行实例的记录（planner/executor/evaluator/monitor），挂 task_id
-//   - agent 表 = Agent 配置定义（code/name/body/tools），存储 Agent 章程
-//   - role 列 = 发起该 run 的 Agent 角色。当前仅 planner 建 run（一次 run =
-//     整个四 agent 认知循环，executor/evaluator/monitor 共享该行）；列保留
-//     四值枚举为按角色拆 run 留演进位。
+//   - agent_run 表 = 一次执行的记录，挂 task_id：一次 run 是整个四 agent 认知循环，
+//     四个 agent 共享该行（LLM / 工具调用、流量、坐实漏洞都按它归属）
 package agentrun
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // Status 是 agent.status 的取值。
 type Status string
@@ -27,13 +21,11 @@ const (
 	StatusError     Status = "error"
 )
 
-// Run 是 agent_run 表行的 Go 表示——每次 Agent 运行实例的状态快照。
-// Result 在终态前为空 jsonb '{}'。
+// Run 是 agent_run 表行的 Go 表示——一次执行的状态快照。结局的原因不在这里：任务终止
+// 原因记在任务行（task.abort_reason），停止原因记在时间线终态节点，出错细节记日志。
 type Run struct {
 	ID        string
 	TaskID    string // 所属 task.id
-	Role      string
-	Result    json.RawMessage
 	Status    Status
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -43,5 +35,4 @@ type Run struct {
 // TaskID 必填（NOT NULL 外键）。
 type NewParams struct {
 	TaskID string
-	Role   string
 }

@@ -10,9 +10,12 @@ import {
   FolderOpen,
   GitBranch,
   KeyRound,
+  Library,
   ListChecks,
   MessageSquare,
+  LayoutGrid,
   ScrollText,
+  ShieldCheck,
   SlidersHorizontal,
   Wrench,
 } from 'lucide-react'
@@ -31,13 +34,15 @@ export interface NavGroup {
 }
 
 // 侧栏信息架构：按「做什么」分三组，而非 14 项平铺——
-//   作业：一次渗透的上下游（批次/任务 → 对话 → 产出的发现、流量、探索图、工件、凭证）
-//   观测：平台自身的运行面（LLM 调用审计、进程日志）
+//   作业：一次渗透的上下游（批次/任务 → 对话 → 产出的发现、流量、探索图、工件、凭证、知识）
+//   观测：平台自身的运行面（服务器日志、审计日志、模型日志）
 //   配置：智能体与其能力来源（工具、技能、模型路由）+ 系统参数
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '作业',
     items: [
+      // 概览：组件状态、进行中的工作、待处理与近期产出的汇总，作业的起点，居首。
+      { to: '/overview', label: '概览', icon: LayoutGrid },
       // 任务是对话的上游容器（批次 → 任务 → 对话），置于对话之上。
       { to: '/tasks', label: '任务', icon: ListChecks },
       { to: '/conversations/direct', label: '对话', icon: MessageSquare, match: '/conversations' },
@@ -46,13 +51,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/exploration-graph', label: '探索图', icon: GitBranch },
       { to: '/workspace', label: '工作空间', icon: FolderOpen },
       { to: '/credentials', label: '凭证库', icon: KeyRound },
+      { to: '/corpus', label: '知识库', icon: Library },
     ],
   },
   {
     label: '观测',
     items: [
-      { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
-      { to: '/logs', label: '日志', icon: ScrollText },
+      { to: '/logs', label: '服务器日志', icon: ScrollText },
+      { to: '/audit', label: '审计日志', icon: ShieldCheck },
+      { to: '/llm-audit', label: '模型日志', icon: Cpu },
     ],
   },
   {
@@ -62,7 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/config/scenarios', label: '场景', icon: Compass },
       { to: '/config/tools', label: '工具', icon: Wrench },
       { to: '/config/skills', label: '技能', icon: BookOpen },
-      { to: '/config/models', label: 'LLM 配置', icon: Boxes },
+      { to: '/config/models', label: '模型配置', icon: Boxes },
       { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
     ],
   },

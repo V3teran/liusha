@@ -132,15 +132,25 @@ func newEmptyPool(t *testing.T) *pgxpool.Pool {
 }
 
 // SeedAssignment 插入一条最小 assignment 并返回其 id，供需要 task 外键归属的测试复用。
-// ID 传待建 task 所属场景 code，与 task 的 _id 保持一致即可。
 func SeedAssignment(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO assignment (source, payload, title)
-		 VALUES ('direct', '[]'::jsonb, 'test') RETURNING id`).Scan(&id)
+		`INSERT INTO assignment (source, title) VALUES ('direct', 'test') RETURNING id`).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed assignment: %v", err)
 	}
 	return id
+}
+
+// SeedTask 以给定 id 插入一个最小的进行中任务（连同它所属的 assignment），供以任务为外键的
+// 数据（探索图、审计链、发现……）直接落库的测试复用。只写任务行，不建根目标——需要完整
+// 任务语义的测试走 task.Store.Create。
+func SeedTask(t *testing.T, pool *pgxpool.Pool, id string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO task (id, assignment_id, goal) VALUES ($1::uuid, $2::uuid, 'test')`,
+		id, SeedAssignment(t, pool)); err != nil {
+		t.Fatalf("seed task %s: %v", id, err)
+	}
 }

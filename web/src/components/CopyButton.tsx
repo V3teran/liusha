@@ -29,7 +29,7 @@ export function CopyButton({ copied, onClick, size = 'md', className }: CopyButt
       aria-label={copied ? '已复制' : '复制'}
       className={cn(
         'inline-flex items-center justify-center rounded-md',
-        'text-text-tertiary transition-all duration-200',
+        'text-text-tertiary transition-colors duration-200',
         'hover:bg-surface-2 hover:text-accent',
         copied && 'text-status-success',
         sizeClasses[size],
@@ -37,9 +37,9 @@ export function CopyButton({ copied, onClick, size = 'md', className }: CopyButt
       )}
     >
       {copied ? (
-        <Check className={cn(iconSizes[size], 'animate-scale-in')} strokeWidth={2.5} />
+        <Check className={cn(iconSizes[size], 'animate-scale-in')} />
       ) : (
-        <Copy className={iconSizes[size]} strokeWidth={2} />
+        <Copy className={iconSizes[size]} />
       )}
     </button>
   )

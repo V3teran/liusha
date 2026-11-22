@@ -1,12 +1,12 @@
 import { useEffect, useId, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import type { FindingRow } from '@/api/types'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
-import { fullTime, daysSince } from '@/lib/format'
+import { fullTime } from '@/lib/format'
 import { Badge } from '@/components/ui/Badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -15,6 +15,8 @@ import { buildEvidenceView } from './findingEvidence'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { sourceColor, sourceLabel } from '@/lib/source'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface FindingDrawerProps {
   open: boolean
@@ -35,6 +37,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
   const [note, setNote] = useState('')
   const fieldId = useId()
   const { copiedKey, copy } = useCopyToClipboard()
+  // 钩子须在下方的提前返回之前调用
+  const returnFocus = useReturnFocus(open)
 
   useEffect(() => {
     if (finding) {
@@ -64,6 +68,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
             'tac-modal fixed inset-y-0 right-0 flex h-full w-full flex-col sm:max-w-[720px]',
             'border-border bg-surface shadow-2xl sm:rounded-l-2xl sm:border-l'
           )}
+          onCloseAutoFocus={returnFocus}
         >
           {/* 头部 */}
           <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
@@ -84,15 +89,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 {finding.summary}
               </Dialog.Title>
             </div>
-            <Dialog.Close
-              aria-label="关闭"
-              className={cn(
-                'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
-                'text-text-secondary transition-all hover:bg-surface-2 hover:text-text'
-              )}
-            >
-              <X className="h-5 w-5" />
-            </Dialog.Close>
+            <DialogClose />
           </div>
 
           {/* 内容区域 */}
@@ -128,16 +125,24 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       {finding.target?.path}
                     </span>
                   </div>
-                  {finding.cwe_id && (
+                  <div className="flex items-start gap-3">
+                    <span className="w-24 flex-shrink-0 text-text-secondary">类型</span>
+                    <span className="text-text">{finding.class_name}</span>
+                  </div>
+                  {finding.cwe && (
                     <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">CWE ID</span>
-                      <span className="font-mono text-text">{finding.cwe_id}</span>
-                    </div>
-                  )}
-                  {finding.owasp_category && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">OWASP</span>
-                      <span className="font-mono text-text">{finding.owasp_category}</span>
+                      <span className="w-24 flex-shrink-0 text-text-secondary">CWE</span>
+                      {/* 编号链到 MITRE 的定义页：弱点的标准说明与修复参考 */}
+                      <a
+                        href={`https://cwe.mitre.org/data/definitions/${finding.cwe.replace('CWE-', '')}.html`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-xs text-text underline-offset-2 hover:text-accent hover:underline"
+                      >
+                        {finding.cwe}
+                        <ExternalLink aria-hidden className="h-3 w-3" />
+                        <span className="sr-only">（在新标签页打开 MITRE 定义）</span>
+                      </a>
                     </div>
                   )}
                   <div className="flex items-start gap-3">
@@ -147,32 +152,9 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="w-24 flex-shrink-0 text-text-secondary">首次发现</span>
-                    <span className="text-text-secondary" title={fullTime(finding.first_seen_at)}>
-                      {fullTime(finding.first_seen_at)}
-                      {finding.first_seen_at !== finding.created_at && (
-                        <span className="ml-2 text-xs text-text-tertiary">
-                          (存在 {daysSince(finding.first_seen_at)})
-                        </span>
-                      )}
-                    </span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">发现时间</span>
+                    <span className="text-text-secondary">{fullTime(finding.created_at)}</span>
                   </div>
-                  {finding.first_seen_at !== finding.created_at && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">本次发现</span>
-                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
-                        {fullTime(finding.created_at)}
-                      </span>
-                    </div>
-                  )}
-                  {finding.first_seen_at === finding.created_at && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">发现时间</span>
-                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
-                        {fullTime(finding.created_at)}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </section>
 
@@ -338,8 +320,8 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                       placeholder="记录处置思路、修复方案或风险评估…"
                       className={cn(
                         'w-full resize-y rounded-lg border border-border bg-surface px-3 py-2',
-                        'text-sm leading-relaxed text-text placeholder:text-text-tertiary',
-                        'outline-none transition-all focus:border-accent focus:glow-accent'
+                        'text-sm max-sm:text-base leading-relaxed text-text placeholder:text-text-tertiary',
+                        'outline-none transition-[border-color,box-shadow] focus:border-accent focus:glow-accent'
                       )}
                     />
                   </div>

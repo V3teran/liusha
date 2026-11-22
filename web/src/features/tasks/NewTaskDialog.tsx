@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
 import { createTasks } from '@/api/tasks'
 import type { TaskCreateResponse } from '@/api/types'
 import { cn } from '@/lib/utils'
@@ -11,6 +10,9 @@ import { cronHuman } from './cron'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS, INPUT_CLASS } from '@/components/ui/control'
 import { ScenarioSelect } from '@/features/scenarios/ScenarioSelect'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { InlineError } from '@/components/ui/InlineError'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface NewTaskDialogProps {
   open: boolean
@@ -19,13 +21,16 @@ interface NewTaskDialogProps {
 
 /**
  * LinedTextarea —— 带行号槽的多行输入（「每行一个任务」的可视化）。
- * 左侧行号随物理行数增减，滚动与 textarea 同步。
+ * 左侧行号随行数增减，滚动与 textarea 同步。行号与文本共用同一个绝对行高（leading-6），
+ * 且文本不自动折行（长行横向滚动）：折行会让一个任务占多个视觉行，编号随之错位。
  */
 function LinedTextarea({
+  id,
   value,
   onChange,
   onKeyDown,
 }: {
+  id: string
   value: string
   onChange: (v: string) => void
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
@@ -35,11 +40,11 @@ function LinedTextarea({
   const lineCount = useMemo(() => value.split('\n').length, [value])
 
   return (
-    <div className="flex overflow-hidden rounded-lg border border-border bg-surface transition-all focus-within:border-accent">
+    <div className="flex overflow-hidden rounded-lg border border-border bg-surface transition-colors focus-within:border-accent">
       <div
         ref={gutterRef}
         aria-hidden
-        className="w-9 shrink-0 select-none overflow-hidden border-r border-border-subtle bg-surface-2/60 py-2.5 text-right font-mono text-[11px] leading-[1.6] text-text-tertiary"
+        className="w-9 shrink-0 select-none overflow-hidden border-r border-border-subtle bg-surface-2/60 py-2.5 text-right font-mono text-2xs leading-6 text-text-tertiary"
       >
         {Array.from({ length: lineCount }, (_, i) => (
           <div key={i} className="pr-2.5">
@@ -48,6 +53,7 @@ function LinedTextarea({
         ))}
       </div>
       <textarea
+        id={id}
         ref={taRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -56,15 +62,15 @@ function LinedTextarea({
           if (gutterRef.current && taRef.current) gutterRef.current.scrollTop = taRef.current.scrollTop
         }}
         rows={5}
+        wrap="off"
         placeholder={'每行一个任务，例如：\n对 http://目标一 做渗透测试，重点检查注入\n对 http://目标二 做指纹识别与端口排查'}
-        className="min-h-[110px] flex-1 resize-y border-0 bg-transparent px-3 py-2.5 text-[13px] leading-[1.6] text-text outline-none placeholder:text-text-tertiary"
-        aria-label="任务目标，每行一个"
+        className="min-h-[110px] min-w-0 flex-1 resize-y border-0 bg-transparent px-3 py-2.5 text-sm max-sm:text-base leading-6 text-text outline-none placeholder:text-text-tertiary"
       />
     </div>
   )
 }
 
-/** 新建任务弹层：批次名称/描述 + 每行一个目标的清单 + 可选 cron 定时。 */
+/** 新建任务弹层：批次名称 + 每行一个目标的清单 + 可选 cron 定时（定时才有模板描述）。 */
 export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
@@ -97,7 +103,12 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
 
   const mutation = useMutation({
     mutationFn: () =>
-      createTasks({ title: title.trim(), description: description.trim(), briefs, cron: cronOn ? cron.trim() : '', scenario: scenario ?? undefined }),
+      createTasks({
+        title: title.trim(),
+        briefs,
+        ...(cronOn ? { cron: cron.trim(), description: description.trim() } : { cron: '' }),
+        scenario: scenario ?? undefined,
+      }),
     onSuccess: (resp: TaskCreateResponse) => {
       qc.invalidateQueries({ queryKey: TASK_LIST_KEY })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -118,22 +129,15 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
     mutation.mutate()
   }
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 w-[620px] max-w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface shadow-lg outline-none">
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto h-fit w-[620px] max-w-[calc(100vw-48px)] rounded-xl border border-border bg-surface shadow-lg outline-none" onCloseAutoFocus={returnFocus}>
           <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-            <Dialog.Title className="text-sm font-semibold text-text">新建任务</Dialog.Title>
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                aria-label="关闭"
-                className="rounded-md p-1 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </Dialog.Close>
+            <Dialog.Title className="text-base font-semibold text-text">新建任务</Dialog.Title>
+            <DialogClose />
           </div>
 
           <div className="flex flex-col gap-4 px-5 py-4">
@@ -145,30 +149,18 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
             </div>
 
             <div>
-              <label htmlFor="nt-desc" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
-                描述
+              <label htmlFor="nt-scenario" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                场景
               </label>
-              <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
-            </div>
-
-            <div>
-              <div className="mb-1.5 flex items-baseline justify-between">
-                <label htmlFor="nt-scenario" className={FIELD_LABEL_CLASS}>
-                  场景
-                </label>
-                <span className="text-[11.5px] text-text-tertiary">任务所处情境的说明，建任务时固定</span>
-              </div>
               <ScenarioSelect id="nt-scenario" value={scenario} onChange={setScenario} className="w-full" />
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-baseline justify-between">
-                <label htmlFor="nt-briefs" className={FIELD_LABEL_CLASS}>
-                  任务目标
-                </label>
-                <span className="text-[11.5px] text-text-tertiary">每行一个任务</span>
-              </div>
+              <label htmlFor="nt-briefs" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                任务目标
+              </label>
               <LinedTextarea
+                id="nt-briefs"
                 value={briefsText}
                 onChange={setBriefsText}
                 onKeyDown={(e) => {
@@ -195,7 +187,7 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
                   <input
                     value={cron}
                     onChange={(e) => setCron(e.target.value)}
-                    className={cn(INPUT_CLASS, 'w-32 font-mono text-[12.5px]')}
+                    className={cn(INPUT_CLASS, 'w-32 font-mono text-xs')}
                     placeholder="0 9 * * 1"
                     aria-label="cron 表达式"
                   />
@@ -204,19 +196,27 @@ export function NewTaskDialog({ open, onOpenChange }: NewTaskDialogProps) {
               )}
             </div>
 
+            {cronOn && (
+              <div>
+                <label htmlFor="nt-desc" className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
+                  模板描述
+                </label>
+                <input id="nt-desc" className={INPUT_CLASS} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选" />
+              </div>
+            )}
+
             {success && <div className="text-xs text-status-success">✓ {success}</div>}
-            {error && <div className="text-xs text-sev-critical">⚠ {error}</div>}
+            {error && <InlineError>{error}</InlineError>}
           </div>
 
           <div className="flex items-center justify-end gap-2.5 border-t border-border bg-surface-2/50 px-5 py-3.5">
-            <span className="mr-auto text-[11px] text-text-tertiary">
-              {briefs.length > 0 ? `共 ${briefs.length} 个任务` : '至少写一行任务目标'}
-              <span className="ml-2">⌘/Ctrl+Enter 创建</span>
+            <span className="mr-auto text-2xs text-text-tertiary">
+              {briefs.length > 0 && `共 ${briefs.length} 个任务`}
             </span>
             <Dialog.Close asChild>
               <Button variant="secondary">取消</Button>
             </Dialog.Close>
-            <Button onClick={submit} disabled={briefs.length === 0 || mutation.isPending}>
+            <Button onClick={submit} aria-keyshortcuts="Meta+Enter Control+Enter" disabled={briefs.length === 0 || mutation.isPending}>
               {mutation.isPending ? '创建中…' : '创建'}
             </Button>
           </div>

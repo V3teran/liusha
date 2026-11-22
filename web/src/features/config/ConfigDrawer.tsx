@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
-import { X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { FIELD_LABEL_CLASS } from '@/components/ui/control'
+import { DialogClose } from '@/components/ui/DialogClose'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 // 抽屉内的一个分页：value 作 Radix Tabs 的稳定键，label 为顶部按钮文案，content 为该页表单。
 export interface DrawerTab {
@@ -43,28 +44,29 @@ export function ConfigDrawer({
     if (open) setActive(firstTab)
   }, [open, firstTab])
 
+  const returnFocus = useReturnFocus(open)
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="app-overlay" />
-        <Dialog.Content className="tac-modal fixed left-1/2 top-1/2 flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none">
+        <Dialog.Content className="tac-modal fixed inset-0 m-auto flex h-[88vh] w-[820px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-[var(--shadow-lg),var(--glow-accent)] focus:outline-none" onCloseAutoFocus={returnFocus}>
           <Tabs.Root value={active} onValueChange={setActive} className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <Dialog.Title className="font-mono text-base font-semibold text-text">{title}</Dialog.Title>
-              <Dialog.Close className="text-text-secondary hover:text-text" aria-label="关闭">
-                <X className="h-4 w-4" />
-              </Dialog.Close>
+              <Dialog.Title className="truncate text-lg font-semibold text-text">{title}</Dialog.Title>
+              <DialogClose />
             </div>
 
+            {/* 底线画在分页条内部（inset 阴影）：选中下划线不必下移 1px 去压住边框，分页条也就不会因
+                溢出 1px 冒出滚动条。窄屏分页放不下时横向滑动，不显示滚动条。 */}
             <Tabs.List
               aria-label="表单分页"
-              className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border px-5 pt-2"
+              className="scrollbar-none flex flex-shrink-0 gap-1 overflow-x-auto px-5 pt-2 shadow-[inset_0_-1px_0_var(--border)]"
             >
               {tabs.map((t) => (
                 <Tabs.Trigger
                   key={t.value}
                   value={t.value}
-                  className="relative -mb-px flex-shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-text-secondary outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-text"
+                  className="flex-shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-text-secondary outline-none transition-colors hover:text-text focus-visible:text-text data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-text"
                 >
                   {t.label}
                 </Tabs.Trigger>
@@ -76,9 +78,9 @@ export function ConfigDrawer({
                 <Tabs.Content
                   key={t.value}
                   value={t.value}
-                  // h-full：内容区（如工具多选器、长文本域）可以 flex-1 铺满抽屉剩余高度，
-                  // 在自己的面板内滚动——抽屉体不出现第二根滚轮。
-                  className="flex h-full min-h-0 flex-col gap-4 outline-none data-[state=inactive]:hidden"
+                  // 抽屉体是唯一的滚动区：分页内容随内容长高（min-h-full 只保证短内容也铺满），长文本与
+                  // 列表不再各自滚动；内容超出时抽屉体的下内边距落在最后一个元素之后，不贴底。
+                  className="flex min-h-full flex-col gap-4 outline-none data-[state=inactive]:hidden"
                 >
                   {t.content}
                 </Tabs.Content>
@@ -102,7 +104,8 @@ export function ConfigDrawer({
   )
 }
 
-// 表单字段行：label + 控件竖排，配置三页共用。hint 可传节点（如内嵌跨页链接）。
+// 表单字段行：label + 控件竖排，配置各页共用。hint 只放附在标签后的简短数据（字数计数、取值约定），
+// 不放说明文字——字段的含义由标签与控件自身表达。
 export function Field({
   label,
   hint,
@@ -110,7 +113,7 @@ export function Field({
   children,
 }: {
   label: string
-  hint?: ReactNode
+  hint?: string
   // aside 渲染在 <label> 之外（控件下方），用于放可交互的状态条（如「恢复默认」）——
   // 按钮嵌在 label 里会把点击转发给控件，也破坏无障碍语义。
   aside?: ReactNode

@@ -38,9 +38,7 @@ type Handler struct {
 	AgentRuns  *agentrun.Store
 	Tasks      *task.Store
 	Findings   *finding.Store
-	Corpus     *corpus.Store
-	Embedder   corpus.Embedder // Jina embed（可 nil，降级纯 sparse）
-	Reranker   corpus.Reranker
+	Corpus     *corpus.Service
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Calls      *llminvocation.Store
@@ -70,9 +68,30 @@ type Handler struct {
 	Graph    *explorationgraph.Store
 	EventBus bus.EventBus // 统一事件总线
 
-	// Distiller 是任务终态经验蒸馏（corpus source=agent 写入闭环）；
-	// nil=关闭该能力（如 corpus 未装配）。
+	// Distiller 是任务自然收敛后的经验沉淀；nil = 不沉淀。
 	Distiller *distill.Service
+	// DistillQueue 投递经验沉淀（持久化队列任务，由 HandleDistill 消费）；与 Distiller 同时装配。
+	DistillQueue DistillQueue
+}
+
+// DistillQueue 是投递经验沉淀的窄接口（*worker.Client 满足）。
+type DistillQueue interface {
+	EnqueueDistill(ctx context.Context, taskID string, timeout time.Duration) error
+}
+
+// HandleDistill 消费一个任务的经验沉淀。返回错误即由队列重试（停机中断同样如此）：整合对同一
+// 任务幂等，重试不会写出重复知识。
+func (h *Handler) HandleDistill(ctx context.Context, taskID string) error {
+	out, err := h.Distiller.DistillTask(ctx, taskID)
+	if err != nil {
+		h.Logger.Warn().Err(err).Str("task_id", taskID).Msg("任务经验沉淀失败（队列稍后重试）")
+		return err
+	}
+	if out.Total() > 0 {
+		h.Logger.Info().Str("task_id", taskID).Int("added", out.Added).Int("confirmed", out.Confirmed).
+			Int("revised", out.Revised).Msg("任务经验已沉淀到知识库")
+	}
+	return nil
 }
 
 // credentialHost 是本 run 的凭据分区键：任务的目标主机（目标的派生列，见 task.Task），
@@ -93,7 +112,7 @@ func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 func (h *Handler) failTask(ctx context.Context, taskLogger zerolog.Logger, agentRunID, taskID, conversationID string, err error) error {
 	writeCtx, cancel := terminalCtx(ctx)
 	defer cancel()
-	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID, err.Error()); setErr != nil {
+	if setErr := h.AgentRuns.SetError(writeCtx, agentRunID); setErr != nil {
 		taskLogger.Warn().Err(setErr).Str("agent_run_id", agentRunID).
 			Msg("SetError 失败（task 留在 running，原始错误已透传给 caller）")
 	}
@@ -157,7 +176,7 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	if tErr != nil {
 		writeCtx, cancel := terminalCtx(ctx)
 		defer cancel()
-		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID, "读取任务失败: "+tErr.Error()); err != nil {
+		if err := h.AgentRuns.SetError(writeCtx, p.AgentRunID); err != nil {
 			taskLogger.Warn().Err(err).Msg("run 出错终态回写失败（由僵尸 run 回收兜底）")
 		}
 		taskLogger.Warn().Err(tErr).Msg("读取任务失败：本次 run 出错，任务保持进行中，由恢复监控重试")

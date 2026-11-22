@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { cn } from '@/lib/utils'
+import { LoadingState } from '@/components/ui/LoadingState'
+import { ErrorState } from '@/components/ui/ErrorState'
 
 /** 服务端分页参数（配置资源列表一律走服务端分页 + 每页条数）。 */
 export interface ServerPaging {
@@ -26,9 +28,10 @@ export interface SearchBox {
 
 interface ConfigListShellProps {
   title: string
-  subtitle: string
   loading: boolean
   error: string
+  /** 加载失败时的重试（重取列表） */
+  onRetry?: () => void
   empty: boolean
   /** 空态名词；搜索框有词时显示「没有匹配的X」，否则「暂无X」+ emptyHint */
   noun: string
@@ -38,6 +41,8 @@ interface ConfigListShellProps {
   search?: SearchBox
   server: ServerPaging
   headerExtra?: ReactNode
+  /** 卡片至多两列：条目少且固定的资源（如四个智能体）铺满两列，不在三列网格里留下落单的一张 */
+  columns?: 2
 }
 
 /**
@@ -47,9 +52,9 @@ interface ConfigListShellProps {
  */
 export function ConfigListShell({
   title,
-  subtitle,
   loading,
   error,
+  onRetry,
   empty,
   noun,
   emptyHint,
@@ -58,14 +63,15 @@ export function ConfigListShell({
   search,
   server,
   headerExtra,
+  columns,
 }: ConfigListShellProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title={title} subtitle={subtitle}>
+      <PageHeader title={title}>
         {headerExtra}
         {onNew && (
           <Button onClick={onNew}>
-            <Plus strokeWidth={2.4} />
+            <Plus />
             新建
           </Button>
         )}
@@ -73,6 +79,8 @@ export function ConfigListShell({
 
       <FilterBar
         label={`${title}筛选`}
+        canReset={!!search?.value}
+        onReset={() => search?.onChange('')}
         trailing={
           <PaginationToolbar
             page={server.page}
@@ -96,17 +104,9 @@ export function ConfigListShell({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         {loading ? (
-          <div role="status" className="flex flex-col items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden />
-            <p className="mt-4 font-mono text-sm text-text-secondary terminal-cursor">加载中</p>
-          </div>
+          <LoadingState className="py-20" />
         ) : error ? (
-          <div role="alert" className="flex flex-col items-center justify-center py-20">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-status-error/10 text-status-error">
-              <AlertTriangle aria-hidden className="h-6 w-6" />
-            </span>
-            <p className="mt-4 font-mono text-sm text-status-error">{error}</p>
-          </div>
+          <ErrorState message={error} onRetry={onRetry} className="py-20" />
         ) : empty ? (
           search?.value.trim() ? (
             <EmptyState kind="no-match" scope="search" noun={noun} className="py-20" />
@@ -114,7 +114,15 @@ export function ConfigListShell({
             <EmptyState kind="empty" noun={noun} hint={emptyHint} className="py-20" />
           )
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">{children}</div>
+          <div
+            className={
+              columns === 2
+                ? 'grid grid-cols-1 gap-4 lg:grid-cols-2'
+                : 'grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4'
+            }
+          >
+            {children}
+          </div>
         )}
       </div>
     </div>
@@ -152,7 +160,7 @@ export function ConfigRow({
       onClick={onClick}
       className={cn(
         'group flex min-h-[130px] flex-col gap-3 rounded-xl border bg-surface p-5 text-left',
-        'transition-all duration-200',
+        'transition-[color,background-color,border-color,box-shadow] duration-200',
         active
           ? 'row-selected shadow-md'
           : 'border-border shadow-sm hover:border-accent/40 hover:bg-surface-2 hover:shadow-md hover:glow-accent',

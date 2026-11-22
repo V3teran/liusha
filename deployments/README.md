@@ -52,12 +52,11 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | `LIUSHA_SANDBOX_TOKEN` | `sandbox.token` | 沙盒与 runner / api 的共享密钥 | sandbox、runner、api |
 | `LIUSHA_LLM_ENCRYPTION_KEY` | `llm.encryption_key` | 加密数据库里保存的 LLM 密钥（32 字节 hex），生成后不要更改 | api、runner |
 | `LIUSHA_ADMIN_INITIAL_PASSWORD` | `admin.initial_password` | 首次启动创建 admin 的密码 | api |
-| `LIUSHA_EMBEDDING_API_KEY` | `embedding.api_key` | 知识库检索的向量化与重排服务（可选） | runner |
 | `LIUSHA_POSTGRES_URL` | `postgres.url` | 二进制：数据库连接串（容器部署由容器拼出） | 除 sandbox 外全部 |
 | `LIUSHA_REDIS_URL` | `redis.url` | 二进制：Redis 连接串 `redis://[用户名]:密码@主机:端口/库号`，TLS 用 `rediss://` | 除 sandbox 外全部 |
 
-密钥与密码用 `openssl rand -hex` 生成：只含十六进制字符，放进连接串无需转义。LLM 在控制台
-「LLM 配置」页接入，密钥加密保存在数据库。
+密钥与密码用 `openssl rand -hex` 生成：只含十六进制字符，放进连接串无需转义。LLM provider 与
+检索模型的密钥都在控制台「模型配置」页维护，加密保存在数据库（检索模型不配则知识库只做字面检索）。
 
 **数据目录**（`data_dir`）是持久数据的根：`workspace/`（任务工作区）、`logs/`（日志）、`certs/`
 （代理的根证书与私钥）都在其下。单镜像与多镜像的数据库数据也放在同一目录
@@ -309,7 +308,7 @@ make dev-down             # 收工（-v 清数据）
   `LIUSHA_EMBEDDING_API_KEY`；`LIUSHA_POSTGRES_DSN` → `LIUSHA_POSTGRES_URL`；`LIUSHA_REDIS_ADDR` +
   `LIUSHA_REDIS_PASSWORD` → `LIUSHA_REDIS_URL`。`LIUSHA_ENV`、`LIUSHA_INSTANCE` 删除（日志格式改
   `log.format`；实例名固定为「进程号@主机名」）。
-- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「LLM 配置」页接入。原先靠环境
+- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「模型配置」页接入。原先靠环境
   变量取密钥的 provider（由种子导入、未在页面上填过密钥）升级后显示「未设置密钥」，在页面上重新填写
   一次即可；对应的环境变量可以删掉。
 - **MITM 根证书**移到 `<data_dir>/certs`：二进制部署原在 `~/.liusha`，把其中的 `cacert.pem` /

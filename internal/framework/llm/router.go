@@ -184,7 +184,7 @@ func (r *Router) resolve(ctx context.Context, complexity Complexity, accept func
 	}
 	return ProviderSpec{}, fmt.Errorf(
 		"provider/router: no LLM provider configured for complexity %q —"+
-			"请在「LLM 配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
+			"请在「模型配置」页接入 provider 并设置路由: %w", complexity, ErrNotConfigured)
 }
 
 // SetProviderWrapper 注入 Provider 装饰钩子（埋点/限流等），在首次 For() 之前调用。

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,6 +34,41 @@ type fakeModel struct {
 	updateMissing bool  // UpdateProvider 模拟目标不存在
 	deleteMissing bool  // DeleteProvider 模拟目标不存在
 	routeErr      error // UpsertRoleRoute 的返回错误
+
+	retrieval        llmconfig.RetrievalModel // 当前检索模型配置行（零值 = 全部出厂默认）
+	savedRetrieval   *llmconfig.RetrievalParams
+	retrievalCleared bool
+}
+
+// ── 检索模型配置（内存单行）──────────────────────────────────────────
+
+func (f *fakeModel) RetrievalModel(context.Context) (llmconfig.RetrievalModel, error) {
+	return f.retrieval, nil
+}
+
+func (f *fakeModel) SetRetrievalModel(_ context.Context, p llmconfig.RetrievalParams) (llmconfig.RetrievalModel, error) {
+	r := llmconfig.RetrievalModel{
+		BaseURL: p.BaseURL, EmbeddingModel: p.EmbeddingModel, RerankModel: p.RerankModel,
+		UpdatedAt: time.Now(),
+	}
+	if p.KeepExistingKey {
+		r.EncryptedAPIKey = f.retrieval.EncryptedAPIKey
+		r.APIKeyLast4 = f.retrieval.APIKeyLast4
+	} else {
+		r.EncryptedAPIKey = p.EncryptedAPIKey
+		r.APIKeyLast4 = p.APIKeyLast4
+	}
+	f.retrieval = r
+	saved := p
+	f.savedRetrieval = &saved
+	return r, nil
+}
+
+func (f *fakeModel) ClearRetrievalKey(context.Context) error {
+	f.retrieval.EncryptedAPIKey = nil
+	f.retrieval.APIKeyLast4 = ""
+	f.retrievalCleared = true
+	return nil
 }
 
 func fkErr() error { return &pgconn.PgError{Code: "23503", Message: "FK violation"} }

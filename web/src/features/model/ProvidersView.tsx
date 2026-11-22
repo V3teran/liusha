@@ -14,6 +14,8 @@ import {
 } from './useModelQueries'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ErrorState } from '@/components/ui/ErrorState'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 /** 自带点击行为的控件：在列表外按下它们不算「点别处」——切换行、新建、搜索、导航等各有其行为。 */
 const INTERACTIVE =
@@ -26,7 +28,7 @@ function onScrollbar(e: PointerEvent, el: Element): boolean {
   return (el.clientWidth > 0 && e.offsetX > el.clientWidth) || (el.clientHeight > 0 && e.offsetY > el.clientHeight)
 }
 
-// 模型提供商分区：设置页内的实体管理。列表 = 表格行；点击行在行下方**下拉展开**编辑表单
+// 对话模型分区（provider 实体管理）：设置页内的实体管理。列表 = 表格行；点击行在行下方**下拉展开**编辑表单
 // （手风琴式，无弹窗），再点行收起。同一时刻至多展开一行。
 // 数据经 useModelQueries；保存/删除 invalidate 后列表自动刷新，与能力路由共享 providers 缓存。
 // 草稿模型：展开即拍 baseline，dirty 驱动保存可用/重置/收起与切换确认（不静默丢弃草稿）；
@@ -167,15 +169,12 @@ export function ProvidersView() {
   }, [providers, query])
 
   return (
-    <section aria-label="模型提供商">
-      {/* 列表卡：卡内头部（标题+说明 | 搜索+新建）与行同内边距节奏，border-b 分隔；
+    <section aria-label="对话模型">
+      {/* 列表卡：卡内头部（标题 | 搜索+新建）与行同内边距节奏，border-b 分隔；
           点击行在下拉展开编辑面板（手风琴，同刻至多一行） */}
       <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-text">模型提供商</h2>
-            <p className="mt-0.5 text-xs text-text-secondary">接入哪些 provider，连接参数与能力标志</p>
-          </div>
+          <h2 className="min-w-0 text-sm font-semibold text-text">对话模型</h2>
           <div className="flex items-center gap-2 sm:flex-shrink-0">
             <SearchInput
               className="min-w-0 flex-1 sm:w-72 sm:flex-none"
@@ -191,14 +190,9 @@ export function ProvidersView() {
           </div>
         </div>
         {isLoading ? (
-          <div className="terminal-cursor py-10 text-center font-mono text-sm text-text-secondary">加载中</div>
+          <LoadingState className="py-10" />
         ) : isError ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-sm text-sev-critical">
-            <span>⚠ {error instanceof Error ? error.message : '加载失败'}</span>
-            <Button variant="secondary" size="xs" onClick={() => void refetch()}>
-              重试
-            </Button>
-          </div>
+          <ErrorState message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
         ) : filtered.length === 0 && !isNew ? (
           query.trim() ? (
             <EmptyState kind="no-match" scope="search" noun="provider" />

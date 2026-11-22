@@ -102,3 +102,86 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 		t.Fatalf("落库前同样校验，got %v", err)
 	}
 }
+
+// TestRetrievalModel_SingleRow 锁定检索模型配置行的语义：无行 = 全部出厂默认（零值不算错）；
+// upsert 插入或整行更新（含地址与模型名）；清除只清密钥、保留地址与模型名（用户不必为
+// 「临时停用语义检索」丢掉填好的配置）；密文清空后 HasKey=false。全表至多一行由主键保证。
+func TestRetrievalModel_SingleRow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewStore(pool)
+	if _, err := pool.Exec(ctx, "DELETE FROM retrieval_model"); err != nil {
+		t.Fatalf("清理: %v", err)
+	}
+
+	row, err := store.GetRetrievalModel(ctx)
+	if err != nil {
+		t.Fatalf("未配置应返回零值而非错误: %v", err)
+	}
+	if row.HasKey() {
+		t.Fatalf("未配置应无密钥: %+v", row)
+	}
+
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://gw.example.com", EmbeddingModel: "embed-x", RerankModel: "rerank-x",
+		EncryptedAPIKey: []byte("sealed-1"), APIKeyLast4: "1234",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	row, err = store.GetRetrievalModel(ctx)
+	if err != nil || !row.HasKey() || row.APIKeyLast4 != "1234" || row.BaseURL != "https://gw.example.com" {
+		t.Fatalf("首次保存后应可读回整行: %+v err=%v", row, err)
+	}
+
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://other.example.com", EmbeddingModel: "embed-y", RerankModel: "rerank-y",
+		EncryptedAPIKey: []byte("sealed-2"), APIKeyLast4: "5678",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	row, err = store.GetRetrievalModel(ctx)
+	if err != nil || row.BaseURL != "https://other.example.com" || string(row.EncryptedAPIKey) != "sealed-2" {
+		t.Fatalf("更换应整行更新: %+v err=%v", row, err)
+	}
+
+	// KeepExistingKey：保留已存密文（编辑表单不重填密钥即保留），其余字段照常更新；
+	// 行不存在时（无密钥可保留）落空密文，HasKey=false。
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://kept.example.com", EmbeddingModel: "embed-z",
+		EncryptedAPIKey: []byte("sealed-2"), APIKeyLast4: "5678",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UpsertRetrievalModel(ctx, RetrievalParams{
+		BaseURL: "https://kept2.example.com", EmbeddingModel: "embed-z2",
+		KeepExistingKey: true,
+	}); err != nil {
+		t.Fatalf("KeepExistingKey: %v", err)
+	}
+	if row, err = store.GetRetrievalModel(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if string(row.EncryptedAPIKey) != "sealed-2" || row.APIKeyLast4 != "5678" {
+		t.Fatalf("KeepExistingKey 应保留已存密文: %+v", row)
+	}
+	if row.BaseURL != "https://kept2.example.com" || row.EmbeddingModel != "embed-z2" {
+		t.Fatalf("KeepExistingKey 其余字段应照常更新: %+v", row)
+	}
+
+	// 清除只清密钥，保留配置
+	for i := 0; i < 2; i++ {
+		if err = store.ClearRetrievalKey(ctx); err != nil {
+			t.Fatalf("第 %d 次清除: %v", i+1, err)
+		}
+	}
+	if row, err = store.GetRetrievalModel(ctx); err != nil || row.HasKey() {
+		t.Fatalf("清除后应无密钥: %+v err=%v", row, err)
+	}
+	if row.BaseURL != "https://kept2.example.com" || row.EmbeddingModel != "embed-z2" {
+		t.Fatalf("清除应保留地址与模型名: %+v", row)
+	}
+}

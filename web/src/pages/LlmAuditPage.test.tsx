@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -32,7 +32,6 @@ const mockedGetDetail = getLLMInvocationDetail as unknown as ReturnType<typeof v
 function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocationSummary {
   return {
     id: 1,
-    request_id: 'req-1',
     agent_run_id: null,
     task_id: 'owner-1',
     conversation_id: 'conv-1',
@@ -155,11 +154,16 @@ describe('LlmAuditPage', () => {
     expect(await screen.findByText('暂无 LLM 调用记录')).toBeTruthy()
   })
 
-  it('加载失败显示错误态', async () => {
+  it('加载失败显示错误态，重试重新请求', async () => {
     mockedSearch.mockRejectedValue(new Error('500'))
     renderPage()
 
-    expect(await screen.findByText(/加载失败：500/)).toBeTruthy()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('加载失败')
+    expect(alert).toHaveTextContent('500')
+    const calls = mockedSearch.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(mockedSearch.mock.calls.length).toBeGreaterThan(calls))
   })
 
   it('点击行打开详情抽屉并按 id 拉取详情', async () => {
@@ -167,11 +171,11 @@ describe('LlmAuditPage', () => {
     renderPage()
     await screen.findAllByText('gpt-5')
 
-    await userEvent.click(screen.getByRole('row', { name: '查看调用详情 req-1' }))
+    await userEvent.click(screen.getByRole('row', { name: '查看调用详情 #1' }))
 
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
-    // 抽屉渲染详情的 request_id。
-    expect(await screen.findByText('req-1')).toBeTruthy()
+    // 抽屉渲染详情的调用编号。
+    expect(await screen.findByText('#1')).toBeTruthy()
     // 打开的调用写在 URL：跳到任务 / 对话再后退时还原抽屉
     expect(screen.getByTestId('location').textContent).toBe('?selected=1')
   })
@@ -180,7 +184,7 @@ describe('LlmAuditPage', () => {
     setupDefaultMocks()
     renderPage('/llm-audit?selected=1')
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
-    expect(await screen.findByText('req-1')).toBeTruthy()
+    expect(await screen.findByText('#1')).toBeTruthy()
   })
 })
 

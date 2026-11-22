@@ -6,6 +6,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { ConversationList, type ConversationListHandle } from './ConversationList'
 import { deleteConversation, listConversations, renameConversation } from '@/api/conversations'
 import type { Conversation } from '@/api/types'
+import { ConfirmHost } from '@/components/ui/confirm'
+import { Toaster } from '@/components/ui/toast'
+import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
 
 vi.mock('@/api/conversations', () => ({
   listConversations: vi.fn(),
@@ -42,6 +45,8 @@ function renderList(props: Partial<React.ComponentProps<typeof ConversationList>
   const utils = render(
     <MemoryRouter>
       <ConversationList emptyState={EMPTY} onSelect={onSelect} onNew={onNew} onDeleted={onDeleted} {...props} />
+      <ConfirmHost />
+      <Toaster />
     </MemoryRouter>,
   )
   return { ...utils, onSelect, onNew, onDeleted }
@@ -52,8 +57,6 @@ describe('ConversationList', () => {
     vi.mocked(listConversations).mockReset()
     vi.mocked(deleteConversation).mockReset()
     vi.mocked(renameConversation).mockReset()
-    vi.spyOn(window, 'confirm').mockReset()
-    vi.spyOn(window, 'alert').mockReset()
   })
 
   it('挂载时拉取并渲染会话列表', async () => {
@@ -69,7 +72,7 @@ describe('ConversationList', () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 direct-x.com', source: 'direct' })])
     renderList({ source: 'direct' })
     await waitFor(() => {
-      expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 0, source: 'direct', search: '' })
+      expect(listConversations).toHaveBeenCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: 0, source: 'direct', search: '' })
       expect(screen.getByText(/direct-x\.com/)).toBeTruthy()
     })
   })
@@ -88,7 +91,7 @@ describe('ConversationList', () => {
     await userEvent.type(screen.getByLabelText('搜索对话'), 'shop')
 
     await waitFor(() =>
-      expect(listConversations).toHaveBeenLastCalledWith({ limit: 30, offset: 0, source: 'direct', search: 'shop' }),
+      expect(listConversations).toHaveBeenLastCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: 0, source: 'direct', search: 'shop' }),
     )
     expect(await screen.findByText('第 1–1 条 · 匹配 1 条')).toBeTruthy()
     expect(screen.getByText(/shop\.local/)).toBeTruthy()
@@ -143,13 +146,11 @@ describe('ConversationList', () => {
     expect(onNew).toHaveBeenCalled()
   })
 
-  it('allowNew=false 时不显示新建按钮，显示 heading', async () => {
+  it('allowNew=false 时只有刷新、没有新建入口', async () => {
     mockPage([])
-    renderList({ allowNew: false, heading: '会话列表' })
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: '新对话' })).toBeFalsy()
-    })
-    expect(screen.getByText('会话列表')).toBeTruthy()
+    renderList({ allowNew: false })
+    expect(await screen.findByRole('button', { name: '刷新列表' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '新对话' })).toBeFalsy()
   })
 
   it('空列表按名词渲染「暂无X」空态与说明', async () => {
@@ -164,7 +165,6 @@ describe('ConversationList', () => {
   it('删除流程：确认后调用 deleteConversation 并触发 onDeleted', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 del.com', run_status: 'completed' })])
     vi.mocked(deleteConversation).mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { onDeleted } = renderList()
     await waitFor(() => expect(screen.getByText(/del\.com/)).toBeTruthy())
 
@@ -172,23 +172,24 @@ describe('ConversationList', () => {
     await userEvent.click(screen.getByTitle('更多'))
     const delBtn = await screen.findByText('删除对话')
     await userEvent.click(delBtn)
+    expect(deleteConversation).not.toHaveBeenCalled()
+    await userEvent.click(await screen.findByRole('button', { name: '确认删除' }))
 
     await waitFor(() => {
       expect(deleteConversation).toHaveBeenCalledWith('c1')
       expect(onDeleted).toHaveBeenCalledWith('c1')
     })
-    expect(window.confirm).toHaveBeenCalled()
   })
 
   it('删除时取消确认则不调用 deleteConversation', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 keep.com', run_status: 'completed' })])
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderList()
     await waitFor(() => expect(screen.getByText(/keep\.com/)).toBeTruthy())
 
     await userEvent.click(screen.getByTitle('更多'))
     const delBtn = await screen.findByText('删除对话')
     await userEvent.click(delBtn)
+    await userEvent.click(await screen.findByRole('button', { name: '取消' }))
 
     expect(deleteConversation).not.toHaveBeenCalled()
   })
@@ -206,18 +207,15 @@ describe('ConversationList', () => {
   it('删除接口返回 TASK_ACTIVE 错误时弹提示', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 race.com', run_status: 'completed' })])
     vi.mocked(deleteConversation).mockRejectedValue(new Error('TASK_ACTIVE'))
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     renderList()
     await waitFor(() => expect(screen.getByText(/race\.com/)).toBeTruthy())
 
     await userEvent.click(screen.getByTitle('更多'))
     const delBtn = await screen.findByText('删除对话')
     await userEvent.click(delBtn)
+    await userEvent.click(await screen.findByRole('button', { name: '确认删除' }))
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('任务进行中'))
-    })
+    expect(await screen.findByText(/任务进行中，无法删除/)).toBeTruthy()
   })
 
   it('重命名流程：双击菜单里的重命名，输入新标题回车提交', async () => {
@@ -239,10 +237,24 @@ describe('ConversationList', () => {
     })
   })
 
+  it('重命名时把标题清空再提交等于取消：不发请求，保留原标题', async () => {
+    mockPage([mkConv({ id: 'c1', title: '我要扫描 keep-me.com', run_status: 'completed' })])
+    renderList()
+    await waitFor(() => expect(screen.getByText(/keep-me\.com/)).toBeTruthy())
+
+    await userEvent.click(screen.getByTitle('更多'))
+    await userEvent.click(await screen.findByText('重命名'))
+    const input = screen.getByDisplayValue('keep-me.com')
+    await userEvent.clear(input)
+    await userEvent.type(input, '   {Enter}')
+
+    expect(renameConversation).not.toHaveBeenCalled()
+    expect(screen.getByText(/keep-me\.com/)).toBeTruthy()
+  })
+
   it('重命名失败时回滚标题并弹提示', async () => {
     mockPage([mkConv({ id: 'c1', title: '我要扫描 rollback.com', run_status: 'completed' })])
     vi.mocked(renameConversation).mockRejectedValue(new Error('fail'))
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     renderList()
     await waitFor(() => expect(screen.getByText(/rollback\.com/)).toBeTruthy())
 
@@ -254,9 +266,7 @@ describe('ConversationList', () => {
     await userEvent.clear(input)
     await userEvent.type(input, '临时标题{Enter}')
 
-    await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith('重命名失败，请重试')
-    })
+    expect(await screen.findByText('重命名失败，已恢复原标题')).toBeTruthy()
     await waitFor(() => {
       expect(screen.getByText(/rollback\.com/)).toBeTruthy()
     })
@@ -317,6 +327,14 @@ describe('ConversationList', () => {
     })
   })
 
+  it('每页条数选择框显示的就是实际请求的条数', async () => {
+    mockPage([mkConv({ id: 'c1' })])
+    renderList()
+    await waitFor(() => expect(listConversations).toHaveBeenCalled())
+    const limit = vi.mocked(listConversations).mock.calls[0][0]?.limit
+    expect((screen.getByRole('combobox', { name: '每页条数' }) as HTMLSelectElement).value).toBe(String(limit))
+  })
+
   it('翻页：hasMore=true 时显示下一页按钮，点击后拉取 offset=PAGE_SIZE', async () => {
     vi.mocked(listConversations)
       .mockResolvedValueOnce({ conversations: [mkConv({ id: 'c1', title: '我要扫描 page1.com' })], hasMore: true, total: 1 })
@@ -329,7 +347,7 @@ describe('ConversationList', () => {
     expect(nextBtn).not.toBeDisabled()
     await userEvent.click(nextBtn)
 
-    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ limit: 30, offset: 30, source: '', search: '' }))
+    await waitFor(() => expect(listConversations).toHaveBeenCalledWith({ limit: DEFAULT_PAGE_SIZE, offset: DEFAULT_PAGE_SIZE, source: '', search: '' }))
     await waitFor(() => expect(screen.getByText(/page2\.com/)).toBeTruthy())
     expect(screen.queryByText(/page1\.com/)).toBeFalsy()
   })

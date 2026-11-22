@@ -8,7 +8,7 @@
 import type { Source } from '@/lib/source'
 
 export type MessageKind = 'message' | 'event'
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
+export type MessageRole = 'user' | 'assistant'
 
 /**
  * SSE 事件的元数据（agent 过程事件）
@@ -21,7 +21,6 @@ export interface TimelineEventMeta {
   kind: 'reasoning' | 'tool_call' | 'tool_result' | 'task_status' | 'finding' | 'steering' | string
   status: string // task_status：任务生命周期状态（dispatched/completed/aborted/failed/paused/resumed）
   steps: number // task_status/completed：推理步数（与卡片步号同口径：一次 agent 推理=一步）
-  actions: number // task_status/completed：执行过的动作数（报告数据，时间线不渲染）
   findings: number // task_status/completed：坐实发现数（晋升 result 的主张，中性领域词）
   stop_reason: string // task_status/completed：收敛原因（控制面枚举，报告数据，时间线不渲染）
   reason: string // task_status/aborted|failed：原因
@@ -36,7 +35,7 @@ export interface TimelineEventMeta {
   severity: string // finding：分级（critical/high/medium/low/info——info 档为非漏洞信息成果）
   host: string // finding：目标主机
   target: string // finding：目标定位（URL/路径等）
-  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 LLM 审计页按调用可查）
+  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型日志页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
@@ -63,8 +62,7 @@ export interface AttachmentRef {
 }
 
 export interface Message {
-  seq: number
-  id: string
+  seq: number // 主键：会话内稳定顺序键
   conversation_id: string
   role: MessageRole
   kind: MessageKind
@@ -275,7 +273,7 @@ export interface ToolDetail {
 }
 
 /* ============================================================
-   LLM 配置（GET/POST/PUT/DELETE /models）
+   模型配置（GET/POST/PUT/DELETE /models）
    两资源对应后端 llm_provider / llm_role_route（事实源在 DB）。
    解析链：档位（simple/medium/complex）→ provider code。
    小写键（Go gin.H DTO：providerJSON/roleRouteJSON 单点序列化）。
@@ -364,7 +362,7 @@ export interface ProviderDiagnoseRequest {
 }
 
 // 诊断检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型列表 → 模型 → 工具调用），前端按返回顺序渲染。
-export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools'
+export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools' | 'embedding' | 'rerank'
 export type DiagnosisStepStatus = 'ok' | 'fail' | 'warn' | 'skip'
 
 export interface DiagnosisStep {
@@ -373,6 +371,32 @@ export interface DiagnosisStep {
   detail: string
   request?: string // 实际请求，如 "POST https://…/chat/completions"
   latency_ms?: number
+}
+
+// RetrievalModelConfig 是检索模型的生效配置（单行；地址与模型名留空 = 出厂默认，
+// 响应里已折算为默认值；向量与重排共用一把密钥）。
+export interface RetrievalModelConfig {
+  base_url: string
+  embedding_model: string
+  rerank_model: string
+  key_present: boolean
+  key_last4: string
+  updated_at: string | null // 从未保存过为 null
+}
+
+// RetrievalModelDraft 是检索模型的保存/实测入参：空字段 = 出厂默认；
+// api_key 仅在更换密钥或首次配置时携带（留空 = 沿用已存密钥）。
+export interface RetrievalModelDraft {
+  base_url: string
+  embedding_model: string
+  rerank_model: string
+  api_key?: string
+}
+
+// RetrievalDiagnosis 是检索模型的一次实测结果：向量与重排各一步。
+export interface RetrievalDiagnosis {
+  ok: boolean
+  steps: DiagnosisStep[]
 }
 
 // DiagnosisProfile 是实测得到的请求画像（回填表单，保存后运行期按此发请求）。
@@ -433,8 +457,9 @@ export interface FindingRow {
   severity: string
   summary: string
   host: string
-  cwe_id?: string
-  owasp_category?: string
+  class: string // 发现类型：台账词表的取值（词表之外的与未给出的为 other）
+  class_name: string // 类型展示名
+  cwe: string // 类型对应的 CWE 编号（如 CWE-89）；没有合适编号的为空
   remediation?: string
   target?: FindingTarget
   // evaluation 是复现门证据链 jsonb：第一层 judge_reasoning/verification_tier/
@@ -450,7 +475,6 @@ export interface FindingRow {
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
-  first_seen_at: string // 首次发现时间（重放交付不变；追踪发现存续时长）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。
@@ -460,10 +484,18 @@ export interface FindingFilters {
   search?: string // 关键词：发现摘要、主机、路径、所属任务的目标（服务端检索）
   host?: string
   severity?: string
+  class?: string // 发现类型
   status?: string
   source?: string
   page?: number // 1-based
   size?: number
+}
+
+// GET /findings/classes：台账「类型」筛选的选项——出现过的发现类型、展示名与发现数。
+export interface FindingClassFacet {
+  class: string
+  name: string
+  count: number
 }
 
 // GET /findings/tasks：台账「任务」筛选的选项——有发现的任务（按最近一次发现倒序）。
@@ -483,7 +515,7 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   LLM 审计（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
+   模型日志（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
    详情走 GET /llm/invocations/detail/:id 按需拉。
    筛选（q/role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
@@ -491,7 +523,6 @@ export interface FindingListResponse {
 // LLMInvocationSummary 是列表行——不含 messages/result。
 export interface LLMInvocationSummary {
   id: number
-  request_id: string // 跨系统关联键（db 侧 gen_random_uuid() 生成）
   agent_run_id: string | null
   task_id: string | null
   conversation_id: string | null // 派生字段（JOIN conversation），对话标识
@@ -582,11 +613,9 @@ export interface TrafficConsumer {
   conversation_id: string // 任务的对话；空表示没有对话
   finding_count: number // 任务的发现数（为 0 时不放「发现」）
 }
-// TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
+// TrafficDetail 是点击钻取的完整行——整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。
 export interface TrafficDetail extends TrafficSummary {
-  scheme: string
-  http_version: string
   request_raw: string // 整条请求报文原文（唯一存储，无冗余拆分字段）
   response_raw: string // 整条响应报文原文
   consumed_by: TrafficConsumer[] // 消费本条的代理捕获 task；空数组=未消费
@@ -637,11 +666,9 @@ export interface CredentialIdentity {
   task_status?: string // active/completed/aborted/failed/gone
 }
 
-/** host 汇总行（枚举只含计数，不含凭证值）。 */
-export interface CredentialHostSummary {
+/** 凭证列表行：一个登录身份连同它所在的 host（存储键归一的 host[:port]）。 */
+export interface CredentialListItem extends CredentialIdentity {
   host: string
-  usernames: number
-  sessions: number
 }
 
 /* ============================================================
@@ -732,6 +759,7 @@ export interface TaskSummary {
   tokens_out: number // 累计 LLM 输出 tokens
   created_at: string
   ended_at: string | null
+  abort_reason: string // 终止原因（仅 aborted 有值）
 }
 
 export interface TaskListResponse {
@@ -771,8 +799,8 @@ export interface ScheduleRow {
 
 // TaskCreateRequest 是「新建任务」弹层提交体：每行一个任务目标。
 export interface TaskCreateRequest {
-  title: string // 批次名称
-  description: string // 批次描述（可空）
+  title: string // 批次名称（定时下发时即模板名）
+  description?: string // 定时模板的描述（只随 cron 提交）
   briefs: string[] // 每行一个任务目标
   cron: string // 空 = 立即下发；非空 = 定时模板（5 段 cron）
   scenario?: string // 场景 code；空串 = 无场景；不带 = 服务端缺省场景
