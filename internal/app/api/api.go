@@ -183,6 +183,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	go scheduler.Run(ctx)
 
+	kb := newCorpus(pool, llmStore, llmKeyCipher, logger)
+
 	srv := &http.Server{
 		Addr: cfg.API.ListenAddr,
 		Handler: httpapi.NewServer(httpapi.Deps{
@@ -206,12 +208,14 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			ConfigStore:        cfgStore,
 			SkillStore:         cfgStore,
 			ScenarioStore:      cfgStore,
-			Corpus:             newCorpus(pool, cfg.Embedding.APIKey, logger),
+			Corpus:             kb,
 			ToolCatalog:        toolCatalog,
 			SandboxInventory:   sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 			Models:             llmStore,
 			KeyEncrypter:       llmKeyCipher,
 			ProviderDiagnoser:  llmprobe.New(llmStore, llmKeyCipher),
+			RetrievalDiagnoser: retrievalDiagnoser{models: llmStore, cipher: llmKeyCipher},
+			RetrievalBackfill:  retrievalBackfill{kb: kb, logger: logger},
 			Settings:           settingStore,
 			Traffic:            proxyTrafficStore,
 			Overview:           overview.NewStore(pool),
@@ -271,7 +275,7 @@ func bootstrap(ctx context.Context, logger zerolog.Logger, pool *pgxpool.Pool,
 ) {
 	// 零 provider 不拒启：LLM 在前端「模型配置」页接入，未接入时下发边界会拒绝并给出指引。
 	if provs, err := llmconfig.NewStore(pool).ListProviders(ctx, false); err != nil {
-		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查 模型配置）")
+		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查模型配置）")
 	} else if len(provs) == 0 {
 		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「模型配置」页接入 provider")
 	}
@@ -333,14 +337,85 @@ func (a llmReadiness) Ready(ctx context.Context) error {
 	return err
 }
 
-// newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）并记下实际启用的检索方式。
-func newCorpus(pool *pgxpool.Pool, apiKey string, logger zerolog.Logger) *corpus.Service {
-	models := embedding.Models(apiKey)
-	if models.Semantic() {
-		logger.Info().Str("embedding_model", models.EmbeddingModel).Str("rerank_model", models.RerankModel).
-			Msg("知识库启用语义检索（向量 + 重排）")
-	} else {
-		logger.Info().Msg("embedding.api_key 未配置，知识库只做字面检索")
+// newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）。
+// 检索模型密钥是运行期可变的（模型配置页热改、跨进程失效），来源每次操作现取：
+// 未配置退字面检索、不阻塞；配置后下一次操作即语义检索。
+func newCorpus(pool *pgxpool.Pool, models *llmstore.Store, cipher *cryptx.Cipher, logger zerolog.Logger) *corpus.Service {
+	return corpus.NewService(corpus.NewStore(pool), models.RetrievalModels(cipher), logger)
+}
+
+// retrievalDiagnoser 实现 httpapi.RetrievalDiagnoser：一次向量 + 一次重排的实测。
+// 上游任何失败都进 Steps（不返回 error）；只有密钥拿不到（未配置 / 解不开）无法发起才返回 error。
+type retrievalDiagnoser struct {
+	models *llmstore.Store
+	cipher *cryptx.Cipher
+}
+
+func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, apiKey string) (httpapi.RetrievalDiagnosis, error) {
+	if apiKey == "" {
+		row, err := d.models.RetrievalModel(ctx)
+		if err != nil {
+			return httpapi.RetrievalDiagnosis{}, err
+		}
+		if !row.HasKey() {
+			return httpapi.RetrievalDiagnosis{}, errors.New("检索模型密钥未配置，请先填写或保存")
+		}
+		if apiKey, err = d.cipher.Decrypt(row.EncryptedAPIKey); err != nil {
+			return httpapi.RetrievalDiagnosis{}, errors.New("检索模型密钥无法解密，请重新填写")
+		}
 	}
-	return corpus.NewService(corpus.NewStore(pool), models, logger)
+	client, err := embedding.NewClient(apiKey)
+	if err != nil {
+		return httpapi.RetrievalDiagnosis{}, err
+	}
+
+	var diag httpapi.RetrievalDiagnosis
+	step := func(key, request string, fn func(ctx context.Context) error) {
+		start := time.Now()
+		err := fn(ctx)
+		st := httpapi.StepOK
+		detail := "成功"
+		if err != nil {
+			st, detail = httpapi.StepFail, err.Error()
+		}
+		diag.Steps = append(diag.Steps, httpapi.DiagnosisStep{
+			Key: key, Status: st, Detail: detail, Request: request,
+			LatencyMS: time.Since(start).Milliseconds(),
+		})
+	}
+	step(httpapi.StepEmbedding, "POST "+embedding.EmbedURL, func(ctx context.Context) error {
+		_, err := client.EmbedQuery(ctx, "连接诊断")
+		return err
+	})
+	step(httpapi.StepRerank, "POST "+embedding.RerankURL, func(ctx context.Context) error {
+		_, err := client.Rerank(ctx, "连接诊断", []string{"连接诊断文档"}, 1)
+		return err
+	})
+	diag.OK = diag.Steps[0].Status == httpapi.StepOK && diag.Steps[1].Status == httpapi.StepOK
+	return diag, nil
+}
+
+// retrievalBackfill 实现 httpapi.RetrievalBackfill：检索模型密钥保存后立刻补齐无向量条目
+// （即时生效，不必等 runner 的周期巡检）。异步执行不阻塞保存响应；与 runner 的补齐共用
+// 同一份 IndexPending，知识库写锁保证两个进程不重复 embed 同一批条目。失败不重试——
+// runner 周期巡检兜底（≤10 分钟）。
+type retrievalBackfill struct {
+	kb     *corpus.Service
+	logger zerolog.Logger
+}
+
+func (b retrievalBackfill) KickVectorBackfill() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		err := b.kb.Exclusive(ctx, func(ctx context.Context) error {
+			_, err := b.kb.IndexPending(ctx)
+			return err
+		})
+		if err != nil && ctx.Err() == nil {
+			b.logger.Warn().Err(err).Msg("检索模型密钥已保存，向量补齐未完成（runner 周期巡检将兜底）")
+			return
+		}
+		b.logger.Info().Msg("检索模型密钥已保存，无向量条目已补齐")
+	}()
 }

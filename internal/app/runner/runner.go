@@ -35,7 +35,6 @@ import (
 	"github.com/V3teran/liusha/internal/cryptx"
 	"github.com/V3teran/liusha/internal/db"
 	"github.com/V3teran/liusha/internal/distill"
-	"github.com/V3teran/liusha/internal/embedding"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -118,7 +117,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	st := newStores(pool)
 	defer func() { _ = st.calls.Close() }()
 
-	kb := newCorpus(st.corpus, cfg.Embedding.APIKey, logger)
 	tools := manifest.Default()
 
 	redisOpt := worker.RedisOpt(redisOpts)
@@ -141,6 +139,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(tools))
 	llmStore := llmstore.New(pool, cache)
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
+
+	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
+	kb := newCorpus(st.corpus, llmStore, keyCipher, logger)
 
 	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options())
 	// LLM 调用装配：单步看门狗（挂死的调用会阻塞 agent 事件循环）+ llm_invocation 审计（含失败）。
@@ -292,17 +293,10 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 	llminvocation.StartRetentionSweep(ctx, st.calls, cfg.LLM.InvocationRetentionDays, logger)
 }
 
-// newCorpus 装配知识库服务并记下实际启用的检索方式。
-func newCorpus(store *corpus.Store, apiKey string, logger zerolog.Logger) *corpus.Service {
-	models := embedding.Models(apiKey)
-	kb := corpus.NewService(store, models, logger)
-	if models.Semantic() {
-		logger.Info().Str("embedding_model", models.EmbeddingModel).Str("rerank_model", models.RerankModel).
-			Msg("知识库启用语义检索（向量 + 重排）")
-	} else {
-		logger.Info().Msg("embedding.api_key 未配置，知识库只做字面检索")
-	}
-	return kb
+// newCorpus 装配知识库服务：检索模型密钥每次操作现取（模型配置页热改、跨进程失效），
+// 未配置时知识库只做字面检索，不阻塞对话与任务。
+func newCorpus(store *corpus.Store, models *llmstore.Store, cipher *cryptx.Cipher, logger zerolog.Logger) *corpus.Service {
+	return corpus.NewService(store, models.RetrievalModels(cipher), logger)
 }
 
 // resolveSandboxContract 解析沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。

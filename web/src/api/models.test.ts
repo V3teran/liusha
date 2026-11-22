@@ -6,6 +6,10 @@ import {
   getRouting,
   saveRoleRoute,
   deleteRoleRoute,
+  getRetrievalModel,
+  saveRetrievalModel,
+  clearRetrievalModel,
+  diagnoseRetrievalModel,
 } from './models'
 import type { ProviderConfig } from './types'
 
@@ -143,5 +147,44 @@ describe('models API 客户端', () => {
     const fn = mockFetch(200, { providers: [] })
     await listProviders()
     expect(fn.mock.calls[0][1]).toBeUndefined()
+  })
+})
+
+describe('检索模型 API 客户端', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('getRetrievalModel 拆出 retrieval 对象', async () => {
+    const fn = mockFetch(200, { retrieval: { key_present: false, key_last4: '', embedding_model: 'e', rerank_model: 'r', updated_at: null } })
+    const row = await getRetrievalModel()
+    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
+    expect(row.key_present).toBe(false)
+  })
+
+  it('saveRetrievalModel 走 PUT /models/retrieval，密钥进 body', async () => {
+    const fn = mockFetch(200, { retrieval: { key_present: true, key_last4: 'abcd', embedding_model: 'e', rerank_model: 'r', updated_at: '2026-01-01T00:00:00Z' } })
+    const row = await saveRetrievalModel(plaintextInput)
+    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
+    const req = fn.mock.calls[0][1] as RequestInit
+    expect(req.method).toBe('PUT')
+    expect(JSON.parse(String(req.body)).api_key).toBe(plaintextInput)
+    expect(row.key_last4).toBe('abcd')
+  })
+
+  it('clearRetrievalModel 走 DELETE /models/retrieval', async () => {
+    const fn = mockFetch(200, { ok: true })
+    await clearRetrievalModel()
+    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
+    expect((fn.mock.calls[0][1] as RequestInit).method).toBe('DELETE')
+  })
+
+  it('diagnoseRetrievalModel 带密钥时进 body，留空发空对象', async () => {
+    const fn = mockFetch(200, { ok: true, steps: [] })
+    await diagnoseRetrievalModel(plaintextInput)
+    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval/diagnose')
+    expect(JSON.parse(String((fn.mock.calls[0][1] as RequestInit).body)).api_key).toBe(plaintextInput)
+    await diagnoseRetrievalModel()
+    expect(JSON.parse(String((fn.mock.calls[1][1] as RequestInit).body))).toEqual({})
   })
 })

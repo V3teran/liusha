@@ -102,3 +102,51 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 		t.Fatalf("落库前同样校验，got %v", err)
 	}
 }
+
+// TestRetrievalModel_SingleRow 锁定检索模型密钥行的语义：无行 = 未配置（零值不算错）；
+// upsert 插入或整行更换；clear 幂等。密文只经本表存取，last4 随密文成对写入。
+func TestRetrievalModel_SingleRow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewStore(pool)
+	if _, err := pool.Exec(ctx, "DELETE FROM retrieval_model"); err != nil {
+		t.Fatalf("清理: %v", err)
+	}
+
+	row, err := store.GetRetrievalModel(ctx)
+	if err != nil {
+		t.Fatalf("未配置应返回零值而非错误: %v", err)
+	}
+	if row.HasKey() {
+		t.Fatalf("未配置应无密钥: %+v", row)
+	}
+
+	if _, err = store.UpsertRetrievalModel(ctx, []byte("sealed-1"), "1234"); err != nil {
+		t.Fatal(err)
+	}
+	row, err = store.GetRetrievalModel(ctx)
+	if err != nil || !row.HasKey() || row.APIKeyLast4 != "1234" || string(row.EncryptedAPIKey) != "sealed-1" {
+		t.Fatalf("首次写入后应可读回: %+v err=%v", row, err)
+	}
+
+	if _, err = store.UpsertRetrievalModel(ctx, []byte("sealed-2"), "5678"); err != nil {
+		t.Fatal(err)
+	}
+	row, err = store.GetRetrievalModel(ctx)
+	if err != nil || string(row.EncryptedAPIKey) != "sealed-2" || row.APIKeyLast4 != "5678" {
+		t.Fatalf("更换应整行替换: %+v err=%v", row, err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err = store.ClearRetrievalModel(ctx); err != nil {
+			t.Fatalf("第 %d 次清除: %v", i+1, err)
+		}
+	}
+	if row, err = store.GetRetrievalModel(ctx); err != nil || row.HasKey() {
+		t.Fatalf("清除后应回到未配置: %+v err=%v", row, err)
+	}
+}

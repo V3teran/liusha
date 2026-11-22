@@ -59,7 +59,6 @@ func TestLoad_Template(t *testing.T) {
 	for key, v := range map[string]string{
 		"postgres.url": cfg.Postgres.URL, "redis.url": cfg.Redis.URL, "sandbox.token": cfg.Sandbox.Token,
 		"llm.encryption_key": cfg.LLM.EncryptionKey, "admin.initial_password": cfg.Admin.InitialPassword,
-		"embedding.api_key": cfg.Embedding.APIKey,
 	} {
 		if v != "" && os.Getenv("LIUSHA_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_"))) == "" {
 			t.Fatalf("模板里的密钥 %s 应留空，got %q", key, v)
@@ -161,7 +160,6 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 	t.Setenv("LIUSHA_REDIS_URL", "redis://:p@redis:6379/0")
 	t.Setenv("LIUSHA_LLM_ENCRYPTION_KEY", "ab")
 	t.Setenv("LIUSHA_ADMIN_INITIAL_PASSWORD", "changeme-admin")
-	t.Setenv("LIUSHA_EMBEDDING_API_KEY", "changeme-embedding")
 	t.Setenv("LIUSHA_RUNNER_URL", "")
 	cfg, err := Load(templatePath)
 	if err != nil {
@@ -169,7 +167,7 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 	}
 	if cfg.DataDir != dataDir || cfg.Sandbox.URL != "http://sandbox:8591" || cfg.Runner.Concurrency != 16 ||
 		cfg.Postgres.URL != "postgres://u:p@db:5432/liusha" || cfg.Redis.URL != "redis://:p@redis:6379/0" ||
-		cfg.LLM.EncryptionKey != "ab" || cfg.Admin.InitialPassword != "changeme-admin" || cfg.Embedding.APIKey != "changeme-embedding" {
+		cfg.LLM.EncryptionKey != "ab" || cfg.Admin.InitialPassword != "changeme-admin" {
 		t.Fatalf("环境变量未覆盖: %+v", cfg)
 	}
 	if cfg.Runner.URL != "http://127.0.0.1:8590" {

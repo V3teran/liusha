@@ -1,4 +1,4 @@
-// Package llmstore 是 模型配置（provider / 复杂度路由）的多级缓存读写层，
+// Package llmstore 是模型配置（provider / 复杂度路由 / 检索模型密钥）的多级缓存读写层，
 // 构建在资源无关的 cachestore 内核之上：内存 L1（本进程）→ redis L2（跨进程共享 + 失效总线）
 // → DB（事实源，由 internal/llmconfig.Store 打）。
 //
@@ -15,6 +15,7 @@
 //   - 单条 provider 读（热路径：每次 For(role) 解析后按 code 取 provider）。
 //   - 路由快照（全部角色路由，一次读齐），单哨兵键。
 //   - 全量列表读：ListProviders（按 onlyEnabled 分 2 键）、ListRoleRoutes（单键）。
+//   - 检索模型密钥单行（知识库运行期模型来源），单键。
 //
 // 任一 provider/route 写即失效其对应固定键。列表 key 空间有界，L1 无 TTL 也不会堆积。
 package llmstore
@@ -26,6 +27,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/V3teran/liusha/internal/cachestore"
+	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/embedding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/llmconfig"
 )
@@ -43,9 +46,14 @@ type llmStore interface {
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 
 	GetRouting(ctx context.Context) (llmconfig.Routing, error)
+
+	// 检索模型密钥（单行表，无行 = 未配置）
+	GetRetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, error)
+	UpsertRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error)
+	ClearRetrievalModel(ctx context.Context) error
 }
 
-// Store 编排 模型配置的多级读写：底层 DB store + 共享 cachestore 内核。
+// Store 编排模型配置的多级读写：底层 DB store + 共享 cachestore 内核。
 type Store struct {
 	db    llmStore
 	cache *cachestore.Cache
@@ -82,6 +90,9 @@ func keyProvidersList(onlyEnabled bool) string {
 // keyRoleRoutesList 是全量角色路由列表读的缓存键（单键）。任一路由写即失效。
 const keyRoleRoutesList = "llmstore:routes:list"
 
+// keyRetrievalModel 是检索模型密钥行的缓存键（单键）。密钥写/删即失效。
+const keyRetrievalModel = "llmstore:retrieval"
+
 // providerKeys 是一次 provider 写/删要清的全部缓存键：其单条缓存键 + 两个列表键
 // （enabled 变动跨 true/false 两表，一律清最省心且正确）。
 func providerKeys(code string) []string {
@@ -93,11 +104,11 @@ func routeKeys() []string {
 	return []string{keyRouting, keyRoleRoutesList}
 }
 
-// InvalidateAll 清空 模型配置的全部读缓存（列表键 + 路由快照 + 路由列表）。
+// InvalidateAll 清空模型配置的全部读缓存（列表键 + 路由快照 + 路由列表 + 检索模型密钥）。
 // 供绕过本 store 写路径的批量导入（启动期 seed 直连 DB）之后调用——不经失效
 // 广播的外部写入会让缓存里的旧值存活到 TTL，重启后读到「已重建却像未配置」。
 func (s *Store) InvalidateAll(ctx context.Context) error {
-	return s.cache.Invalidate(ctx, append(routeKeys(), keyProvidersList(true), keyProvidersList(false))...)
+	return s.cache.Invalidate(ctx, append(routeKeys(), keyProvidersList(true), keyProvidersList(false), keyRetrievalModel)...)
 }
 
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
@@ -191,6 +202,57 @@ func (s *Store) DeleteRoleRoute(ctx context.Context, role string) error {
 		return err
 	}
 	return s.cache.Invalidate(ctx, routeKeys()...)
+}
+
+// ── 检索模型密钥（单行）───────────────────────────────────────────────
+
+// RetrievalModel 读检索模型密钥行（多级缓存；无行 = 未配置，返回零值不算错误）。
+func (s *Store) RetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, error) {
+	return cachestore.ReadThrough(ctx, s.cache, keyRetrievalModel,
+		func(llmconfig.RetrievalModel) []string { return []string{keyRetrievalModel} },
+		func(ctx context.Context) (llmconfig.RetrievalModel, error) {
+			return s.db.GetRetrievalModel(ctx)
+		})
+}
+
+// SetRetrievalModel 写入或更换检索模型密钥，失效其缓存键——本进程下次读即新值，
+// 其它进程（runner）经失效广播同样即时生效。
+func (s *Store) SetRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error) {
+	r, err := s.db.UpsertRetrievalModel(ctx, encrypted, last4)
+	if err != nil {
+		return llmconfig.RetrievalModel{}, err
+	}
+	return r, s.cache.Invalidate(ctx, keyRetrievalModel)
+}
+
+// ClearRetrievalModel 删除检索模型密钥（幂等），失效其缓存键。
+func (s *Store) ClearRetrievalModel(ctx context.Context) error {
+	if err := s.db.ClearRetrievalModel(ctx); err != nil {
+		return err
+	}
+	return s.cache.Invalidate(ctx, keyRetrievalModel)
+}
+
+// RetrievalModels 返回知识库运行期的模型来源（api 与 runner 装配用）：每次操作读缓存中的
+// 检索模型密钥行，解密后构造向量与重排客户端——与对话侧 RouterStoreAdapter 对称，本层是
+// 模型密钥的运行期解析点。未配置返回零值模型（无原因，知识库退字面检索、页面提示去配置）；
+// 密文解不开（llm.encryption_key 被改过）返回零值并带原因；读取故障同样按不可用处理并带原因。
+// 知识库永远不阻塞：任何不可用都只是退化，不挡对话与任务。
+func (s *Store) RetrievalModels(cipher llmconfig.KeyDecrypter) corpus.ModelSource {
+	return func(ctx context.Context) (corpus.Models, string) {
+		row, err := s.RetrievalModel(ctx)
+		if err != nil {
+			return corpus.Models{}, fmt.Sprintf("读取检索模型配置失败: %v", err)
+		}
+		if !row.HasKey() {
+			return corpus.Models{}, ""
+		}
+		key, err := cipher.Decrypt(row.EncryptedAPIKey)
+		if err != nil {
+			return corpus.Models{}, "检索模型密钥无法解密，请重新填写"
+		}
+		return embedding.Models(key), ""
+	}
 }
 
 // RouterStoreAdapter 把 *Store 包装成 framework llm.RouterStore。

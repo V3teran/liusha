@@ -231,7 +231,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 ### 知识库（`internal/corpus`、`internal/distill`）
 
 - 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `search_corpus` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
-- 检索方式由配置决定：配了 `embedding.api_key` 是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与历史真实查询标定，依据写在 `search.go`。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径。
+- 检索方式由检索模型密钥决定（前端「模型配置」页「检索模型」分区，单行表 `retrieval_model`，与 provider 密钥同一套加密；事实源 `internal/llmconfig/retrieval.go`）：配了密钥是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与历史真实查询标定，依据写在 `search.go`。模型名与地址固定不可换（维度绑 `vector(1024)` 列、门槛按模型标定），只开放密钥。密钥热改即时生效：corpus.Service 的模型来源每次操作现取（`llmstore.RetrievalModels`，缓存写后广播失效），保存后 api 立即在知识库写锁内补齐无向量条目，runner 每 10 分钟的巡检兜底。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径；未配置与不可用都不阻塞对话与任务。
 - 词元只有一处实现：数据库函数 `corpus_terms`（英文按词、中文按相邻两字），写入时生成 `terms` 生成列，查询用同一个函数切分查询文本。不要在 Go 里另写一份分词。
 - 每条知识归属一个场景，空 = 通用：任务只看得到本场景与通用的知识，无场景的任务只看得到通用知识。沉淀时由蒸馏判定每条经验是否依赖场景的规定（交付标准、类别词表等），依赖的归本场景。
 - `source` 是当前内容的作者：`agent` 任务沉淀，`expert` 人工。人工改了标题或正文即成为 `expert`（只改场景不变）；收尾整合只能印证人工内容，不能改写。
@@ -243,8 +243,8 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### LLM 密钥
 
-- 只有一条路径：在前端「模型配置」页填写，`llm_provider.encrypted_api_key` 以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及 LLM 接入，不从环境变量取 provider 密钥。事实源：`internal/llmconfig/apikey.go`。
-- 缺少 模型配置不阻止启动：任务下发会被拒绝，并提示到前端配置。
+- 只有一条路径：在前端「模型配置」页填写，`llm_provider.encrypted_api_key` 与检索模型密钥（`retrieval_model` 单行表）都以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及模型接入，不从环境变量取模型密钥。事实源：`internal/llmconfig/apikey.go`、`internal/llmconfig/retrieval.go`。
+- 缺少模型配置不阻止启动：任务下发会被拒绝，并提示到前端配置。检索模型密钥缺失不拒绝任何东西：知识库自动退字面检索（语义故障退回见「知识库」）——与对话模型「未配置即拒任务」的语义正好相反。
 - 档位解析（`framework/llm/router.go`）：显式档 → 就近降级到相邻档。provider 停用、缺钥都按「未配置」处理并继续降级；全部候选不可用时保留 `ErrNotConfigured`，任务据此干净终结。
 - provider 只认协议、不认服务：官方、各家兼容端点、中转网关都按 `openai_compat` / `anthropic` 接入，代码里不出现任何服务名单。服务间的差异由「请求画像」承载——`auth_scheme`（`bearer` / `x-api-key`，与协议正交）与 `output_limit_param`（`max_tokens` / `max_completion_tokens`）——由连接诊断实测后记录；运行期 OpenAI 兼容生成器遇上游明确拒绝某个可选字段时也会自适应改写重发（`framework/llm/openai_compat_adapt.go`）。
 - 出站凭据只有一个出口：`ClientPool` 的传输层清掉全部凭据头（含 SDK 从环境变量注入的外来值）后按 `auth_scheme` 只写一个；只跟随同源重定向，跨源重定向不得带出密钥。

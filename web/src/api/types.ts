@@ -362,7 +362,7 @@ export interface ProviderDiagnoseRequest {
 }
 
 // 诊断检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型列表 → 模型 → 工具调用），前端按返回顺序渲染。
-export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools'
+export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools' | 'embedding' | 'rerank'
 export type DiagnosisStepStatus = 'ok' | 'fail' | 'warn' | 'skip'
 
 export interface DiagnosisStep {
@@ -371,6 +371,22 @@ export interface DiagnosisStep {
   detail: string
   request?: string // 实际请求，如 "POST https://…/chat/completions"
   latency_ms?: number
+}
+
+// RetrievalModelConfig 是检索模型密钥的只读状态（单行；向量与重排共用一把密钥，
+// 模型名与地址固定不可换——向量维度绑定库结构与检索门槛标定，前端只读展示）。
+export interface RetrievalModelConfig {
+  key_present: boolean
+  key_last4: string
+  embedding_model: string
+  rerank_model: string
+  updated_at: string | null // 未配置为 null
+}
+
+// RetrievalDiagnosis 是检索模型的一次实测结果：向量与重排各一步。
+export interface RetrievalDiagnosis {
+  ok: boolean
+  steps: DiagnosisStep[]
 }
 
 // DiagnosisProfile 是实测得到的请求画像（回填表单，保存后运行期按此发请求）。

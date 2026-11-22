@@ -13,6 +13,8 @@ import type {
   Diagnosis,
   ProviderConfig,
   ProviderDiagnoseRequest,
+  RetrievalDiagnosis,
+  RetrievalModelConfig,
   RoleRouteConfig,
   RoutingResponse,
 } from './types'
@@ -74,6 +76,35 @@ export async function deleteProvider(code: string): Promise<void> {
  */
 export async function diagnoseProvider(req: ProviderDiagnoseRequest): Promise<Diagnosis> {
   return post<Diagnosis>('/models/providers/diagnose', req)
+}
+
+// ── 检索模型密钥（单行；向量与重排共用）──────────────────────────────
+
+/** 拉检索模型密钥状态：是否已设置、末 4 位、两个只读模型名。 */
+export async function getRetrievalModel(): Promise<RetrievalModelConfig> {
+  return (await get<{ retrieval: RetrievalModelConfig }>('/models/retrieval')).retrieval
+}
+
+/**
+ * 保存检索模型密钥：明文只在本次请求内存在，后端加密落库。保存后后端立即补齐
+ * 无向量的条目（即时生效，不必等周期巡检）。
+ */
+export async function saveRetrievalModel(apiKey: string): Promise<RetrievalModelConfig> {
+  return (await put<{ retrieval: RetrievalModelConfig }>('/models/retrieval', { api_key: apiKey }))
+    .retrieval
+}
+
+/** 清除检索模型密钥（幂等）：知识库回到字面检索；已有向量保留，重新配置后接着用。 */
+export async function clearRetrievalModel(): Promise<void> {
+  await del('/models/retrieval')
+}
+
+/**
+ * 检索模型实测（一次向量 + 一次重排）：带 apiKey 测表单当前值（不落库），留空测已存密钥。
+ * 上游失败在结果的检查项里；只有无法发起（未配置、请求不合法）才抛错。
+ */
+export async function diagnoseRetrievalModel(apiKey?: string): Promise<RetrievalDiagnosis> {
+  return post<RetrievalDiagnosis>('/models/retrieval/diagnose', apiKey ? { api_key: apiKey } : {})
 }
 
 // ── 档位路由（档位 → provider 直连） ──────────────────────────────────────

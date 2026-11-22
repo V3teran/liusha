@@ -31,7 +31,7 @@ type KeyEncrypter interface {
 	Encrypt(plaintext string) ([]byte, error)
 }
 
-// ModelAPI 是 模型配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
+// ModelAPI 是模型配置 CRUD 依赖的窄接口；*llmstore.Store 自动满足。
 // 读经多级缓存 / 直穿 DB、写经失效广播的语义全在 llmstore 内，handler 只做 HTTP 编解码 + 校验。
 type ModelAPI interface {
 	// provider
@@ -44,6 +44,10 @@ type ModelAPI interface {
 	ListRoleRoutes(ctx context.Context) ([]llmconfig.RoleRoute, error)
 	UpsertRoleRoute(ctx context.Context, role, providerCode string) (llmconfig.RoleRoute, error)
 	DeleteRoleRoute(ctx context.Context, role string) error
+	// 检索模型密钥（单行）
+	RetrievalModel(ctx context.Context) (llmconfig.RetrievalModel, error)
+	SetRetrievalModel(ctx context.Context, encrypted []byte, last4 string) (llmconfig.RetrievalModel, error)
+	ClearRetrievalModel(ctx context.Context) error
 }
 
 // ── provider ──────────────────────────────────────────────────────────

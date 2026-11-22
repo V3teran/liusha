@@ -22,6 +22,8 @@ const STEP_LABEL: Record<DiagnosisStepKey, string> = {
   models: '模型列表',
   model: '模型',
   tools: '工具调用',
+  embedding: '向量',
+  rerank: '重排',
 }
 
 const STATUS_STYLE: Record<DiagnosisStepStatus, { icon: typeof CheckCircle2; className: string }> = {

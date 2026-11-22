@@ -23,7 +23,6 @@ type AppConfig struct {
 	Postgres     PostgresConfig     `mapstructure:"postgres"`
 	Redis        RedisConfig        `mapstructure:"redis"`
 	LLM          LLMConfig          `mapstructure:"llm"`
-	Embedding    EmbeddingConfig    `mapstructure:"embedding"`
 	Proxy        ProxyConfig        `mapstructure:"proxy"`
 	Ingestor     IngestorConfig     `mapstructure:"ingestor"`
 	Runner       RunnerConfig       `mapstructure:"runner"`
@@ -116,12 +115,6 @@ type RetryConfig struct {
 	Backoff5xxSeconds []int `mapstructure:"backoff_5xx_seconds"`
 	BackoffNetSeconds []int `mapstructure:"backoff_net_seconds"`
 	Backoff529Ms      int   `mapstructure:"backoff_529_ms"`
-}
-
-// EmbeddingConfig 是知识库语义检索所用的模型服务（api 与 runner 都用）。
-type EmbeddingConfig struct {
-	// APIKey 是该服务的密钥，经 LIUSHA_EMBEDDING_API_KEY 注入，同时启用向量与重排；空 = 知识库只做字面检索。
-	APIKey string `mapstructure:"api_key"`
 }
 
 // ProxyConfig 是 MITM 代理入口与流量过滤规则的部署默认（过滤规则可在前端「系统配置」自定义）。

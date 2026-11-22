@@ -81,7 +81,7 @@ type Deps struct {
 	ToolCatalog ToolCatalogAPI
 	// SandboxInventory 为工具目录附沙盒安装状态；nil 时安装状态一律未知（null）。
 	SandboxInventory SandboxInventoryAPI
-	// Models 为 nil 时 模型配置路由（/models 系列）不注册。
+	// Models 为 nil 时模型配置路由（/models 系列）不注册。
 	// 由 api 组件注入 *llmstore.Store（自动满足 ModelAPI 窄接口）。
 	// provider CRUD + 能力路由；写经其失效广播，各进程下次 For(complexity) 读到最新。
 	Models ModelAPI
@@ -91,6 +91,11 @@ type Deps struct {
 	KeyEncrypter KeyEncrypter
 	// ProviderDiagnoser 为 nil 时连接诊断路由（POST /models/providers/diagnose）不注册。
 	ProviderDiagnoser ProviderDiagnoser
+	// RetrievalDiagnoser 为 nil 时检索模型诊断路由（POST /models/retrieval/diagnose）不注册。
+	RetrievalDiagnoser RetrievalDiagnoser
+	// RetrievalBackfill 为 nil 时保存检索模型密钥不触发即时向量补齐（单测）；
+	// api 组件注入知识库服务适配器——补齐与 runner 的周期巡检共用同一份实现。
+	RetrievalBackfill RetrievalBackfill
 	// Settings 为 nil 时系统配置路由（/settings 系列）不注册。
 	// 由 api 组件注入 *settingstore.Store（自动满足 SettingsAPI 窄接口）。
 	// compaction/runtime 写经失效广播 runner 现读即生效；proxy_filter 写触发 proxy 进程热换过滤链。

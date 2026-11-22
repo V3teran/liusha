@@ -75,7 +75,7 @@ func (f *fakeReranker) Rerank(_ context.Context, query string, docs []string, _ 
 func newService(t *testing.T, models Models) (*Service, *Store) {
 	t.Helper()
 	store := NewStore(dbtest.NewPgPool(t))
-	return NewService(store, models, zerolog.Nop()), store
+	return NewService(store, StaticModels(models), zerolog.Nop()), store
 }
 
 func semanticModels() (Models, *fakeEmbedder, *fakeReranker) {
@@ -488,4 +488,62 @@ func TestPreviewImport_MarksDuplicatesAcrossBatch(t *testing.T) {
 	page, err := s.List(ctx, ListQuery{Limit: 10})
 	require.NoError(t, err)
 	assert.Equal(t, 1, page.Total, "预览不写入")
+}
+
+// TestSearch_FollowsLiveModelSource 锁定运行期模型来源语义：来源返回零值模型（未配置 /
+// 密文解不开）时字面检索，Status 带出不可用原因；来源恢复后同一 Service 实例不做任何
+// 重启即回到语义检索——密钥热改后下一次操作立即生效。
+func TestSearch_FollowsLiveModelSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	store := NewStore(dbtest.NewPgPool(t))
+	e, r := &fakeEmbedder{}, &fakeReranker{}
+	semantic := Models{Embedder: e, Reranker: r, EmbeddingModel: "fake-embed", RerankModel: "fake-rerank"}
+	var cur Models
+	var reason string
+	kb := NewService(store, func(context.Context) (Models, string) { return cur, reason }, zerolog.Nop())
+
+	if e := mustCreate(t, kb, Draft{Title: "T", Content: "C"}); e.ID == "" {
+		t.Fatal("写入失败")
+	}
+
+	// 未配置：字面检索，无不可用原因
+	cur, reason = Models{}, ""
+	res, err := kb.Search(context.Background(), Query{Text: "C"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Mode != ModeLexical || res.Fallback != "" {
+		t.Fatalf("未配置应字面检索且无 Fallback: %+v", res)
+	}
+	st, err := kb.Status(context.Background())
+	if err != nil || st.Mode != ModeLexical || st.Unavailable != "" {
+		t.Fatalf("Status 应为字面且无原因: %+v err=%v", st, err)
+	}
+
+	// 密文解不开：字面检索 + 原因透出
+	cur, reason = Models{}, "检索模型密钥无法解密，请重新填写"
+	if _, err = kb.Search(context.Background(), Query{Text: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = kb.Status(context.Background()); err != nil || st.Unavailable == "" {
+		t.Fatalf("Status 应带不可用原因: %+v err=%v", st, err)
+	}
+
+	// 配置生效：同一实例即回语义检索
+	cur, reason = semantic, ""
+	if _, err = kb.IndexPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	res, err = kb.Search(context.Background(), Query{Text: "C"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Mode != ModeSemantic {
+		t.Fatalf("配置生效后应语义检索: %+v", res)
+	}
+	if st, err = kb.Status(context.Background()); err != nil || st.Mode != ModeSemantic || st.Unavailable != "" {
+		t.Fatalf("Status 应为语义且无原因: %+v err=%v", st, err)
+	}
 }

@@ -1,12 +1,14 @@
 import { PageHeader } from '@/components/PageHeader'
 import { ProvidersView } from '@/features/model/ProvidersView'
 import { AssignmentView } from '@/features/model/AssignmentView'
+import { RetrievalView } from '@/features/model/RetrievalView'
 
 // 模型配置页：单页设置流（settings page）。
-// 两个功能是同一件事的两步——先接入 provider（实体 CRUD），再把各档位路由到 provider（表单配置）。
-// 排版统一约束：两个分区共用同一内容列宽与分区头解剖（标题+说明居左、动作居右），
+// 三个分区是模型接入的三步——先接入对话 provider（实体 CRUD），再把各档位路由到 provider
+// （表单配置），最后接检索模型密钥（知识库语义检索；未配置自动字面检索，不阻塞）。
+// 排版统一约束：三个分区共用同一内容列宽与分区头解剖（标题+说明居左、动作居右），
 // 内容全部文档流排布、页面级滚动——不存在内部滚动容器/视口高度的工作台面板，
-// 上下两段宽度、密度、留白完全一致。provider 编辑在列表行下方手风琴展开（同刻至多一行）。
+// 上下三段宽度、密度、留白完全一致。provider 编辑在列表行下方手风琴展开（同刻至多一行）。
 export function ModelPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -16,6 +18,7 @@ export function ModelPage() {
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
           <ProvidersView />
           <AssignmentView />
+          <RetrievalView />
         </div>
       </div>
     </div>

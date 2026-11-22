@@ -9,29 +9,39 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ModelSource 在每次操作时取当前语义检索模型。密钥是运行期可变的（存库热改、跨进程失效），
+// 所以不做进构造函数：每个操作都现取，配置后下一次操作即按新状态执行。
+// 零值 Models = 语义检索不可用（退回字面检索）；reason 是不可用原因，未配置返回空串——
+// 那是常态而非故障，非空时透出到 Status 供页面提示（如密文解不开）。
+type ModelSource func(ctx context.Context) (Models, string)
+
+// StaticModels 把固定模型包成 ModelSource（测试与「密钥恒定」的装配用）。
+func StaticModels(m Models) ModelSource {
+	return func(context.Context) (Models, string) { return m, "" }
+}
+
 // Service 是知识库的唯一入口：检索、增删改、印证与向量补齐。
 type Service struct {
 	store  *Store
-	models Models
+	source ModelSource
 	logger zerolog.Logger
 }
 
-// NewService 构造知识库服务。models 不具备语义检索能力时只做字面检索、写入不生成向量。
-func NewService(store *Store, models Models, logger zerolog.Logger) *Service {
-	return &Service{store: store, models: models, logger: logger.With().Str("component", "corpus").Logger()}
+// NewService 构造知识库服务。来源当前不可用（零值模型）时只做字面检索、写入不生成向量；
+// 不阻塞主流程——知识库永远不挡对话与任务。
+func NewService(store *Store, source ModelSource, logger zerolog.Logger) *Service {
+	return &Service{store: store, source: source, logger: logger.With().Str("component", "corpus").Logger()}
 }
 
-// Mode 是配置决定的检索方式（运行期故障另见 Result.Fallback）。
-func (s *Service) Mode() Mode {
-	if s.models.Semantic() {
-		return ModeSemantic
-	}
-	return ModeLexical
-}
+// current 取当前模型与不可用原因。
+func (s *Service) current(ctx context.Context) (Models, string) { return s.source(ctx) }
 
 // Status 是知识库的检索能力与索引覆盖情况。
 type Status struct {
-	Mode           Mode
+	Mode Mode
+	// Unavailable 是语义检索不可用且非「未配置」时的原因（如密文解不开）；未配置为空——
+	// 页面据此区分「去配置」与「配置有问题」两种提示。
+	Unavailable    string
 	EmbeddingModel string // 语义模式下启用的向量模型
 	RerankModel    string // 语义模式下启用的重排模型
 	Index          IndexStats
@@ -43,9 +53,11 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	out := Status{Mode: s.Mode(), Index: st}
-	if s.models.Semantic() {
-		out.EmbeddingModel, out.RerankModel = s.models.EmbeddingModel, s.models.RerankModel
+	models, reason := s.current(ctx)
+	out := Status{Mode: ModeLexical, Unavailable: reason, Index: st}
+	if models.Semantic() {
+		out.Mode = ModeSemantic
+		out.EmbeddingModel, out.RerankModel = models.EmbeddingModel, models.RerankModel
 	}
 	return out, nil
 }
@@ -83,14 +95,15 @@ func (s *Service) Neighbors(ctx context.Context, text string, scope Scope, k int
 	return out, nil
 }
 
-// rank 按配置的检索方式给可见范围内的候选排序（全部候选，不过滤）。
+// rank 按当前检索方式给可见范围内的候选排序（全部候选，不过滤）。
 func (s *Service) rank(ctx context.Context, text string, scope Scope) (Result, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Result{}, fmt.Errorf("%w：检索内容不能为空", ErrInvalid)
 	}
-	if s.models.Semantic() {
-		hits, err := s.store.rankSemantic(ctx, s.models, text, scope)
+	models, _ := s.current(ctx)
+	if models.Semantic() {
+		hits, err := s.store.rankSemantic(ctx, models, text, scope)
 		if err == nil {
 			return Result{Mode: ModeSemantic, Hits: hits}, nil
 		}
@@ -111,13 +124,14 @@ func (s *Service) rank(ctx context.Context, text string, scope Scope) (Result, e
 	return Result{Mode: ModeLexical, Hits: hits}, nil
 }
 
-// embed 为条目文本生成向量；未启用语义检索返回 nil。失败只记日志、返回 nil——条目照常写入，
-// 向量由 IndexPending 补齐。
+// embed 为条目文本生成向量；语义检索当前不可用返回 nil。失败只记日志、返回 nil——条目照常
+// 写入，向量由 IndexPending 补齐。
 func (s *Service) embed(ctx context.Context, text string) []float32 {
-	if !s.models.Semantic() {
+	models, _ := s.current(ctx)
+	if !models.Semantic() {
 		return nil
 	}
-	vecs, err := s.models.Embedder.EmbedPassage(ctx, []string{text})
+	vecs, err := models.Embedder.EmbedPassage(ctx, []string{text})
 	if err != nil || len(vecs) != 1 {
 		s.logger.Warn().Err(err).Msg("知识条目向量化失败，先写入、稍后补齐")
 		return nil
@@ -283,10 +297,11 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // indexBatch 是一次补齐的条目数（一次向量化请求）。
 const indexBatch = 32
 
-// IndexPending 为尚无向量的条目补齐向量，返回补齐的条数。未启用语义检索时什么都不做。
+// IndexPending 为尚无向量的条目补齐向量，返回补齐的条数。语义检索当前不可用时什么都不做。
 // 条目在补齐期间被改写过的跳过（新文本的向量由改写方生成或下一轮补齐）。
 func (s *Service) IndexPending(ctx context.Context) (int, error) {
-	if !s.models.Semantic() {
+	models, _ := s.current(ctx)
+	if !models.Semantic() {
 		return 0, nil
 	}
 	done := 0
@@ -299,7 +314,7 @@ func (s *Service) IndexPending(ctx context.Context) (int, error) {
 		for i, e := range batch {
 			texts[i] = e.Text()
 		}
-		vecs, err := s.models.Embedder.EmbedPassage(ctx, texts)
+		vecs, err := models.Embedder.EmbedPassage(ctx, texts)
 		if err != nil {
 			return done, fmt.Errorf("补齐向量: %w", err)
 		}

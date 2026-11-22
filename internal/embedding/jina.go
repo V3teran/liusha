@@ -1,7 +1,7 @@
 // Package embedding 是知识库语义检索的模型服务客户端（Jina 的向量与重排接口）。
 //
-// 密钥是配置 embedding.api_key（经 LIUSHA_EMBEDDING_API_KEY 注入，配置文件里留空），同一个
-// 密钥同时启用向量与重排。密钥缺失时知识库只做字面检索，不阻塞主流程。
+// 密钥是检索模型密钥（前端「模型配置」页维护、AES-256-GCM 加密落库），同一个密钥同时
+// 启用向量与重排。密钥缺失时知识库只做字面检索，不阻塞主流程。
 package embedding
 
 import (
@@ -21,17 +21,21 @@ const (
 	// EmbedDim 是 jina-embeddings-v5-text-small 的维度（实测确认），与 corpus.embedding vector(1024) 对齐。
 	EmbedDim = 1024
 
-	defaultModel         = "jina-embeddings-v5-text-small"
-	defaultRerankModel   = "jina-reranker-v2-base-multilingual"
-	embedURL             = "https://api.jina.ai/v1/embeddings"
-	rerankURL            = "https://api.jina.ai/v1/rerank"
+	// EmbeddingModelName / RerankModelName 是启用的两个模型名（向量与重排，界面上只读展示）。
+	// 名字固定不可换：向量维度绑定 corpus.embedding 的 vector(1024) 列、检索门槛按这两个模型
+	// 标定——换模型就要同时换维度、重建全部向量、重新标定门槛。
+	EmbeddingModelName = "jina-embeddings-v5-text-small"
+	RerankModelName    = "jina-reranker-v2-base-multilingual"
+
+	EmbedURL             = "https://api.jina.ai/v1/embeddings"
+	RerankURL            = "https://api.jina.ai/v1/rerank"
 	httpTimeout          = 30 * time.Second
 	taskRetrievalQuery   = "retrieval.query"   // 检索查询的向量
 	taskRetrievalPassage = "retrieval.passage" // 入库文本的向量（非对称检索）
 )
 
-// ErrNoAPIKey 表示 embedding.api_key 未配置。
-var ErrNoAPIKey = errors.New("embedding: embedding.api_key 未配置")
+// ErrNoAPIKey 表示检索模型密钥未配置。
+var ErrNoAPIKey = errors.New("embedding: 检索模型密钥未配置")
 
 // Models 用密钥构造知识库的语义检索模型；密钥为空返回零值（知识库只做字面检索）。
 func Models(apiKey string) corpus.Models {
@@ -57,8 +61,8 @@ func NewClient(apiKey string) (*Client, error) {
 	}
 	return &Client{
 		apiKey:      apiKey,
-		model:       defaultModel,
-		rerankModel: defaultRerankModel,
+		model:       EmbeddingModelName,
+		rerankModel: RerankModelName,
 		httpc:       &http.Client{Timeout: httpTimeout},
 	}, nil
 }
@@ -98,7 +102,7 @@ func (c *Client) EmbedQuery(ctx context.Context, text string) ([]float32, error)
 
 func (c *Client) embed(ctx context.Context, task string, texts []string) ([][]float32, error) {
 	var resp embedResponse
-	if err := c.post(ctx, embedURL, embedRequest{
+	if err := c.post(ctx, EmbedURL, embedRequest{
 		Model:      c.model,
 		Task:       task,
 		Normalized: true, // 归一化 → corpus 用 cosine（vector_cosine_ops）
@@ -143,7 +147,7 @@ func (c *Client) Rerank(ctx context.Context, query string, docs []string, topN i
 		topN = len(docs)
 	}
 	var resp rerankResponse
-	if err := c.post(ctx, rerankURL, rerankRequest{
+	if err := c.post(ctx, RerankURL, rerankRequest{
 		Model:     c.rerankModel,
 		Query:     query,
 		Documents: docs,

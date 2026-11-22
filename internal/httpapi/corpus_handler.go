@@ -171,7 +171,9 @@ func (h corpusHandlers) facets(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"scenarios": scenarios, "sources": sources})
 }
 
-// status 处理 GET /corpus/status → {mode, embedding_model, rerank_model, total, pending}。
+// status 处理 GET /corpus/status → {mode, unavailable?, embedding_model, rerank_model, total, pending}。
+// unavailable 非空 = 语义检索不可用且非「未配置」（如密文解不开），页面据此区分
+// 「去配置」与「配置有问题」两种提示。
 func (h corpusHandlers) status(c *gin.Context) {
 	st, err := h.kb.Status(c.Request.Context())
 	if err != nil {
@@ -179,7 +181,8 @@ func (h corpusHandlers) status(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"mode": st.Mode, "embedding_model": st.EmbeddingModel, "rerank_model": st.RerankModel,
+		"mode": st.Mode, "unavailable": st.Unavailable,
+		"embedding_model": st.EmbeddingModel, "rerank_model": st.RerankModel,
 		"total": st.Index.Total, "pending": st.Index.Pending,
 	})
 }
