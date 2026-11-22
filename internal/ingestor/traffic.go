@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -351,14 +352,12 @@ func (t *Traffic) handleExternalSnap(ctx context.Context, snap *proxy.TrafficSna
 	if _, err := t.proxyStore.Append(ctx, traffic.ProxyTraffic{
 		Host:        snap.Host,
 		Method:      snap.Method,
-		Scheme:      snap.Scheme,
 		URL:         fullURL(snap),
 		Path:        snap.Path,
 		StatusCode:  snap.StatusCode,
 		RequestRaw:  snap.RequestRaw(),
 		ResponseRaw: snap.ResponseRaw(),
 		ContentType: snap.ContentType(),
-		HTTPVersion: snap.HTTPVersion,
 		RespLen:     int64(len(snap.ResponseBody)),
 	}); err != nil {
 		return fmt.Errorf("proxy_traffic 落库失败（host=%s）: %w", snap.Host, err)
@@ -531,14 +530,16 @@ const proxyTaskGoalMaxList = 20
 // ProxyTaskGoal 合成代理捕获任务的目标（一份文本两用：智能体的任务目标 + 会话首条气泡）。
 // 设计要点：
 //   - 首行必须含 scheme://host 形式的目标 URL——目标主机（task.target_host）由它派生；
-//     scheme 取领到的第一条流量，没有则按 http；
+//     scheme 取领到的第一条流量的 URL，没有则按 http；
 //   - 每条流量带 view_traffic 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
 //     list_traffic 就能按 id 拉取任意一条的完整报文；
 //   - 同 host 同 path 的重复请求在目录里无法互辨，id 是唯一可靠的对应键。
 func ProxyTaskGoal(host string, trafficList []traffic.ProxyTraffic) string {
 	scheme := "http"
-	if len(trafficList) > 0 && trafficList[0].Scheme != "" {
-		scheme = trafficList[0].Scheme
+	if len(trafficList) > 0 {
+		if u, err := url.Parse(trafficList[0].URL); err == nil && u.Scheme != "" {
+			scheme = u.Scheme
+		}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "代理流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 view_traffic（id=…）可拉取完整请求与响应原文，也可用 list_traffic（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))

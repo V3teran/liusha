@@ -588,11 +588,9 @@ export interface TrafficConsumer {
   conversation_id: string // 任务的对话；空表示没有对话
   finding_count: number // 任务的发现数（为 0 时不放「发现」）
 }
-// TrafficDetail 是点击钻取的完整行——Burp 式整条 raw 报文文本（请求行/头/体一体）。
+// TrafficDetail 是点击钻取的完整行——整条 raw 报文文本（请求行/头/体一体）。
 // url / content_type 继承自 TrafficSummary（content_type 驱动 Pretty 美化）。
 export interface TrafficDetail extends TrafficSummary {
-  scheme: string
-  http_version: string
   request_raw: string // 整条请求报文原文（唯一存储，无冗余拆分字段）
   response_raw: string // 整条响应报文原文
   consumed_by: TrafficConsumer[] // 消费本条的代理捕获 task；空数组=未消费

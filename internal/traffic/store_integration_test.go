@@ -49,7 +49,6 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 		RequestRaw:  reqRaw,
 		ResponseRaw: respRaw,
 		ContentType: "application/json",
-		HTTPVersion: "HTTP/1.1",
 	})
 	if err != nil {
 		t.Fatalf("append: %v", err)
@@ -68,7 +67,7 @@ func TestProxyStore_Append_RawRoundtrip(t *testing.T) {
 	if got.Method != "POST" || got.Path != "/api/x" || got.StatusCode != 200 {
 		t.Fatalf("scalar fields mismatch: %+v", got)
 	}
-	if got.ContentType != "application/json" || got.HTTPVersion != "HTTP/1.1" {
+	if got.ContentType != "application/json" || got.URL != "http://test.example.com/api/x" {
 		t.Fatalf("meta fields mismatch: %+v", got)
 	}
 }

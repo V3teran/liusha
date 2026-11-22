@@ -22,12 +22,12 @@ func NewProxyStore(pool *pgxpool.Pool) *ProxyStore {
 	return &ProxyStore{pool: pool}
 }
 
-const proxyCols = "id, host, method, scheme, url, path, status_code, " +
-	"request_raw, response_raw, content_type, http_version, resp_len, captured_at"
+const proxyCols = "id, host, method, url, path, status_code, " +
+	"request_raw, response_raw, content_type, resp_len, captured_at"
 
 // proxyColsP 是 proxyCols 的 p. 前缀版（JOIN traffic_task 时消歧义列名）。
-const proxyColsP = "p.id, p.host, p.method, p.scheme, p.url, p.path, p.status_code, " +
-	"p.request_raw, p.response_raw, p.content_type, p.http_version, p.resp_len, p.captured_at"
+const proxyColsP = "p.id, p.host, p.method, p.url, p.path, p.status_code, " +
+	"p.request_raw, p.response_raw, p.content_type, p.resp_len, p.captured_at"
 
 // Append 单条落库（body 已在拼 raw 前截断），返回 bigserial id。host / path 缺省时从 url 抽取。
 func (s *ProxyStore) Append(ctx context.Context, f ProxyTraffic) (int64, error) {
@@ -42,12 +42,12 @@ func (s *ProxyStore) Append(ctx context.Context, f ProxyTraffic) (int64, error) 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO proxy_traffic
-			(host, method, scheme, url, path, status_code,
-			 request_raw, response_raw, content_type, http_version, resp_len)
-		VALUES ($1,$2,$3,$4,$5,$6, $7,$8,$9,$10,$11)
+			(host, method, url, path, status_code,
+			 request_raw, response_raw, content_type, resp_len)
+		VALUES ($1,$2,$3,$4,$5, $6,$7,$8,$9)
 		RETURNING id`,
-		host, f.Method, f.Scheme, f.URL, path, f.StatusCode,
-		f.RequestRaw, f.ResponseRaw, f.ContentType, f.HTTPVersion, f.RespLen,
+		host, f.Method, f.URL, path, f.StatusCode,
+		f.RequestRaw, f.ResponseRaw, f.ContentType, f.RespLen,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append proxy_traffic: %w", err)
@@ -333,8 +333,8 @@ func (s *ProxyStore) ListByTask(ctx context.Context, taskID string) ([]ProxyTraf
 	return out, rows.Err()
 }
 func scanProxy(r db.RowScanner, f *ProxyTraffic) error {
-	return r.Scan(&f.ID, &f.Host, &f.Method, &f.Scheme, &f.URL, &f.Path, &f.StatusCode,
-		&f.RequestRaw, &f.ResponseRaw, &f.ContentType, &f.HTTPVersion, &f.RespLen, &f.CapturedAt)
+	return r.Scan(&f.ID, &f.Host, &f.Method, &f.URL, &f.Path, &f.StatusCode,
+		&f.RequestRaw, &f.ResponseRaw, &f.ContentType, &f.RespLen, &f.CapturedAt)
 }
 
 // CountSince 返回 since 之后捕获的代理流量条数（概览的代理一项：近期流量）。
