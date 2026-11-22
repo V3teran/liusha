@@ -198,6 +198,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			TaskStatus:         dispatch.TaskStatusAdapter{Tasks: taskStore},
 			Findings:           findStore,
 			Invocations:        invocationStore,
+			AuditReader:        auditStore,
 			Chat:               dispatchService,
 			FollowUp:           dispatchService,
 			Deleter:            dispatchService,

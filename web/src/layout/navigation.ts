@@ -15,6 +15,7 @@ import {
   MessageSquare,
   LayoutGrid,
   ScrollText,
+  ShieldCheck,
   SlidersHorizontal,
   Wrench,
 } from 'lucide-react'
@@ -57,6 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '观测',
     items: [
       { to: '/llm-audit', label: 'LLM 审计', icon: Cpu },
+      { to: '/audit', label: '审计日志', icon: ShieldCheck },
       { to: '/logs', label: '日志', icon: ScrollText },
     ],
   },

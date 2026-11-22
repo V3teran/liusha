@@ -138,6 +138,14 @@ func registerProxyRoutes(r gin.IRouter, d Deps) {
 	r.GET("/proxy/ca.crt", getProxyCAHandler(d.Proxy))
 }
 
+// registerAuditRoutes 注册审计事件查看路由（前端 /audit 页，audit_log 的唯一读取入口）。
+func registerAuditRoutes(r gin.IRouter, d Deps) {
+	if d.AuditReader == nil {
+		return
+	}
+	r.GET("/audit", listAuditHandler(d.AuditReader))
+}
+
 // registerLogsRoutes 注册日志查看路由（前端 /logs 页）。
 func registerLogsRoutes(r gin.IRouter, d Deps) {
 	if d.Logs == nil {

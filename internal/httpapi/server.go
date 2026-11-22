@@ -128,6 +128,9 @@ type Deps struct {
 	// Schedules 为 nil 时定时模板管理路由（/schedules 系列：查看 / 启停 / 删除）不注册。
 	// 由 api 组件注入 *cronschedule.Store。
 	Schedules SchedulesAPI
+	// AuditReader 为 nil 时审计查看路由（GET /audit）不注册。
+	// 由 api 组件注入 *audit.Store（自动满足窄接口）——audit_log 的唯一读取入口（只读）。
+	AuditReader AuditReader
 	// Logs 为 nil 时日志查看路由（/logs 系列）不注册。
 	// 由 api 组件注入 logx.NewReader(<data_dir>/logs)（自动满足 LogsAPI 窄接口）——
 	// 尾读各进程的 JSON lines 日志文件，冷读 + 游标增量轮询。
@@ -242,6 +245,7 @@ func registerRouteGroups(r gin.IRouter, d Deps) {
 	registerCorpusRoutes(r, d)
 	registerExplorationGraphRoutes(r, d)
 	registerTasksRoutes(r, d)
+	registerAuditRoutes(r, d)
 	registerLogsRoutes(r, d)
 	registerProxyRoutes(r, d)
 	registerTrafficRoutes(r, d)

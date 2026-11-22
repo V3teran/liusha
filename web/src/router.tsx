@@ -12,6 +12,7 @@ const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((m) => ({ de
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((m) => ({ default: m.WorkspacePage })))
 const FindingsPage = lazy(() => import('@/pages/FindingsPage').then((m) => ({ default: m.FindingsPage })))
 const LlmAuditPage = lazy(() => import('@/pages/LlmAuditPage').then((m) => ({ default: m.LlmAuditPage })))
+const AuditPage = lazy(() => import('@/pages/AuditPage').then((m) => ({ default: m.AuditPage })))
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })))
 const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const ScenariosPage = lazy(() => import('@/pages/ScenariosPage').then((m) => ({ default: m.ScenariosPage })))
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
       { path: 'findings', element: withSuspense(<FindingsPage />) },
       { path: 'traffic', element: withSuspense(<TrafficPage />) },
       { path: 'llm-audit', element: withSuspense(<LlmAuditPage />) },
+      { path: 'audit', element: withSuspense(<AuditPage />) },
       { path: 'exploration-graph', element: withSuspense(<ExplorationGraphPage />) },
       { path: 'workspace', element: withSuspense(<WorkspacePage />) },
       {
