@@ -63,7 +63,7 @@ func TestRun_FatalWaitsForInFlightVerifications(t *testing.T) {
 	select {
 	case err := <-done:
 		if !llm.IsConfigError(err) {
-			t.Fatalf("Run 应以 模型配置错误终结，得 %v", err)
+			t.Fatalf("Run 应以模型配置错误终结，得 %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("致命错误后 Run 应取消在途验证并返回，而不是等到验证自然超时")

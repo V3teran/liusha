@@ -1,4 +1,4 @@
-// Package llmconfig 是 模型配置（provider / 复杂度路由）的持久化层。
+// Package llmconfig 是模型配置（provider / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
 // 事实源是 DB（前端「模型配置」页改这里），配置文件不涉及 LLM 接入。
