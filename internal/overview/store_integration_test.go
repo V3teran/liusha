@@ -77,19 +77,19 @@ func TestSnapshot_CountsWindowAndTimezone(t *testing.T) {
 	seedCall(t, pool, 200, 20, 0, "timeout", now.Add(-2*time.Hour))
 	seedCall(t, pool, 400, 40, 0, "", now.Add(-48*time.Hour)) // 不在 24 小时内
 
-	snap, err := store.Snapshot(ctx, overview.Query{Now: now, Location: shanghai})
+	snap, err := store.Snapshot(ctx, overview.Query{Days: overview.DefaultWindowDays, Now: now, Location: shanghai})
 	require.NoError(t, err)
 
 	assert.Equal(t, overview.Tasks{Running: 1, Paused: 1}, snap.Tasks)
 	assert.Equal(t, overview.SeverityCounts{"critical": 1, "high": 2, "medium": 0, "low": 0, "info": 0}, snap.Findings.Open)
 
-	require.Len(t, snap.Findings.Daily, overview.WindowDays)
-	first, last := snap.Findings.Daily[0], snap.Findings.Daily[overview.WindowDays-1]
+	require.Len(t, snap.Findings.Daily, overview.DefaultWindowDays)
+	first, last := snap.Findings.Daily[0], snap.Findings.Daily[overview.DefaultWindowDays-1]
 	assert.Equal(t, "2026-11-08", first.Date)
 	assert.Equal(t, "2026-11-21", last.Date)
 	assert.Equal(t, 2, last.Counts["high"], "当地今天的两条高危（含 00:30 那条）")
 	assert.Equal(t, 1, last.Counts["low"])
-	assert.Equal(t, 1, snap.Findings.Daily[overview.WindowDays-2].Counts["critical"])
+	assert.Equal(t, 1, snap.Findings.Daily[overview.DefaultWindowDays-2].Counts["critical"])
 	assert.Equal(t, time.Date(2026, 11, 8, 0, 0, 0, 0, shanghai).Unix(), snap.Window.Since.Unix())
 
 	// 类型统计覆盖全部发现（不限时间窗），按数量降序、同数按类型取值，带展示名
@@ -100,9 +100,9 @@ func TestSnapshot_CountsWindowAndTimezone(t *testing.T) {
 	}, snap.Findings.Classes)
 
 	assert.Equal(t, overview.UsageTotals{Calls: 2, Errors: 1, InTokens: 300, OutTokens: 30, CachedTokens: 50}, snap.Usage.Last24h)
-	require.Len(t, snap.Usage.Daily, overview.WindowDays)
-	assert.Equal(t, 2, snap.Usage.Daily[overview.WindowDays-1].Calls)
-	assert.Equal(t, int64(400), snap.Usage.Daily[overview.WindowDays-3].InTokens)
+	require.Len(t, snap.Usage.Daily, overview.DefaultWindowDays)
+	assert.Equal(t, 2, snap.Usage.Daily[overview.DefaultWindowDays-1].Calls)
+	assert.Equal(t, int64(400), snap.Usage.Daily[overview.DefaultWindowDays-3].InTokens)
 
 	require.Len(t, snap.Targets, 3)
 	// b 有一条严重待处理，排在只有高危的 a 之前；c 没有发现，排最后
@@ -120,13 +120,45 @@ func TestSnapshot_CountsWindowAndTimezone(t *testing.T) {
 // TestSnapshot_Empty 锁定空库：计数为零、按天序列补齐、目标为空数组（不是 null）。
 func TestSnapshot_Empty(t *testing.T) {
 	pool := dbtest.NewPgPool(t)
-	snap, err := overview.NewStore(pool).Snapshot(context.Background(), overview.Query{Now: time.Now(), Location: time.UTC})
+	snap, err := overview.NewStore(pool).Snapshot(context.Background(), overview.Query{Days: overview.DefaultWindowDays, Now: time.Now(), Location: time.UTC})
 	require.NoError(t, err)
 	assert.Equal(t, overview.Tasks{}, snap.Tasks)
-	assert.Len(t, snap.Findings.Daily, overview.WindowDays)
-	assert.Len(t, snap.Usage.Daily, overview.WindowDays)
+	assert.Len(t, snap.Findings.Daily, overview.DefaultWindowDays)
+	assert.Len(t, snap.Usage.Daily, overview.DefaultWindowDays)
 	assert.NotNil(t, snap.Targets)
 	assert.Empty(t, snap.Targets)
 	assert.NotNil(t, snap.Findings.Classes)
 	assert.Empty(t, snap.Findings.Classes)
+}
+
+// TestSnapshot_WindowDays 锁定时间窗参数化：7 天与 30 天窗口的序列长度、起点与起点日期
+// 都随天数走（界面在 7 / 14 / 30 天间切换的数据面）。
+func TestSnapshot_WindowDays(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	pool := dbtest.NewPgPool(t)
+	store := overview.NewStore(pool)
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, days := range []int{7, 14, 30} {
+		snap, err := store.Snapshot(context.Background(), overview.Query{Days: days, Now: now, Location: shanghai})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Window.Days != days {
+			t.Fatalf("days=%d: window.days=%d", days, snap.Window.Days)
+		}
+		if len(snap.Findings.Daily) != days || len(snap.Usage.Daily) != days {
+			t.Fatalf("days=%d: 序列长度错误 findings=%d usage=%d", days, len(snap.Findings.Daily), len(snap.Usage.Daily))
+		}
+		wantSince := time.Date(2026, 11, 22, 0, 0, 0, 0, shanghai).AddDate(0, 0, -(days - 1))
+		if snap.Window.Since.Unix() != wantSince.Unix() {
+			t.Fatalf("days=%d: since=%s want %s", days, snap.Window.Since, wantSince)
+		}
+	}
 }

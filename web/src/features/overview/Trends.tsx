@@ -1,7 +1,8 @@
 import type { OverviewSnapshot } from '@/api/overview'
 import { cacheRatePct, compactNumber } from '@/lib/format'
 import { SEVERITIES, severityLabel } from '@/lib/severity'
-import { DailyBars } from './DailyBars'
+import { RangePills } from './RangePills'
+import { TrendArea } from './TrendArea'
 import { Panel, PanelLink } from './Panel'
 import { Phrases } from './Phrases'
 
@@ -9,10 +10,12 @@ import { Phrases } from './Phrases'
 export function FindingsTrend({
   daily,
   days,
+  onDaysChange,
   className,
 }: {
   daily: OverviewSnapshot['findings']['daily']
   days: number
+  onDaysChange: (days: number) => void
   className?: string
 }) {
   const data = daily.map((d) => ({ date: d.date, value: SEVERITIES.reduce((n, s) => n + (d.counts[s] ?? 0), 0) }))
@@ -22,11 +25,17 @@ export function FindingsTrend({
       title={`近 ${days} 天新增发现`}
       meta={`${total} 条`}
       className={className}
-      action={<PanelLink to="/findings">发现台账</PanelLink>}
+      action={
+        <div className="flex items-center gap-3">
+          <RangePills value={days} onChange={onDaysChange} />
+          <PanelLink to="/findings">发现台账</PanelLink>
+        </div>
+      }
     >
-      <DailyBars
+      <TrendArea
         label="每天新增的发现"
         data={data}
+        color="var(--cat-orange)"
         format={(v) => `${v} 条`}
         axis={String}
         detail={(i) => {
@@ -46,10 +55,12 @@ export function FindingsTrend({
 export function UsageTrend({
   usage,
   days,
+  onDaysChange,
   className,
 }: {
   usage: OverviewSnapshot['usage']
   days: number
+  onDaysChange: (days: number) => void
   className?: string
 }) {
   const data = usage.daily.map((d) => ({ date: d.date, value: d.in_tokens + d.out_tokens }))
@@ -61,7 +72,12 @@ export function UsageTrend({
       title={`近 ${days} 天模型消耗`}
       meta={`${compactNumber(total)} tokens`}
       className={className}
-      action={<PanelLink to="/llm-audit">模型日志</PanelLink>}
+      action={
+        <div className="flex items-center gap-3">
+          <RangePills value={days} onChange={onDaysChange} />
+          <PanelLink to="/llm-audit">模型日志</PanelLink>
+        </div>
+      }
     >
       <p className="flex flex-wrap items-baseline gap-x-2.5 text-xs text-text-secondary">
         <span className="font-medium text-text">最近 24 小时</span>
@@ -75,9 +91,10 @@ export function UsageTrend({
           ]}
         />
       </p>
-      <DailyBars
+      <TrendArea
         label="每天的 token 消耗"
         data={data}
+        color="var(--cat-sky)"
         format={(v) => `${compactNumber(v)} tokens`}
         axis={compactNumber}
         detail={(i) => {

@@ -71,8 +71,9 @@ export function viewerTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
 
-export function getOverview(tz: string): Promise<OverviewSnapshot> {
-  return get(`/overview?tz=${encodeURIComponent(tz)}`)
+/** days 是趋势时间窗（7 / 14 / 30 天，缺省 14）。 */
+export function getOverview(tz: string, days: number): Promise<OverviewSnapshot> {
+  return get(`/overview?tz=${encodeURIComponent(tz)}&days=${days}`)
 }
 
 export function getOverviewHealth(): Promise<OverviewHealth> {

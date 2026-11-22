@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,8 +30,9 @@ func registerOverviewRoutes(r gin.IRouter, d Deps) {
 	r.GET("/overview/health", overviewHealthHandler(d))
 }
 
-// overviewSnapshotHandler 处理 GET /overview?tz=<IANA 时区>：按查看者时区切分「天」的快照。
-// tz 缺省按 UTC；不是合法的 IANA 时区名时 400（「Local」这类依赖服务器环境的名字同样拒绝）。
+// overviewSnapshotHandler 处理 GET /overview?tz=<IANA 时区>&days=<7|14|30>：按查看者时区
+// 切分「天」的快照。tz 缺省按 UTC；不是合法的 IANA 时区名时 400（「Local」这类依赖服务器
+// 环境的名字同样拒绝）。days 缺省 14；不在允许档位里时 400。
 func overviewSnapshotHandler(api OverviewAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		loc := time.UTC
@@ -42,7 +44,16 @@ func overviewSnapshotHandler(api OverviewAPI) gin.HandlerFunc {
 			}
 			loc = l
 		}
-		snap, err := api.Snapshot(c.Request.Context(), overview.Query{Now: time.Now(), Location: loc})
+		days := overview.DefaultWindowDays
+		if raw := strings.TrimSpace(c.Query("days")); raw != "" {
+			d, err := strconv.Atoi(raw)
+			if err != nil || !overview.AllowedWindowDays[d] {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "时间窗无效：" + raw + "（允许 7、14、30）"})
+				return
+			}
+			days = d
+		}
+		snap, err := api.Snapshot(c.Request.Context(), overview.Query{Now: time.Now(), Location: loc, Days: days})
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return

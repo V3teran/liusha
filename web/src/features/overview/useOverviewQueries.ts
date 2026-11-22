@@ -10,16 +10,16 @@ export const OVERVIEW_REFRESH_MS = 30_000
 export const ACTIVE_TASK_LIMIT = 6
 
 const keys = {
-  snapshot: (tz: string) => ['overview', 'snapshot', tz] as const,
+  snapshot: (tz: string, days: number) => ['overview', 'snapshot', tz, days] as const,
   health: ['overview', 'health'] as const,
   active: ['overview', 'active-tasks'] as const,
 }
 
-export function useOverviewSnapshot() {
+export function useOverviewSnapshot(days: number) {
   const tz = viewerTimeZone()
   return useQuery({
-    queryKey: keys.snapshot(tz),
-    queryFn: () => getOverview(tz),
+    queryKey: keys.snapshot(tz, days),
+    queryFn: () => getOverview(tz, days),
     refetchInterval: OVERVIEW_REFRESH_MS,
     placeholderData: keepPreviousData,
   })

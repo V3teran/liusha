@@ -20,7 +20,8 @@ type Store struct {
 // NewStore 用 pgxpool 构造 Store。
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-// Snapshot 读一次概览快照。q.Location 必须是 IANA 时区（PostgreSQL 按名字解析），由调用方校验。
+// Snapshot 读一次概览快照。q.Location 必须是 IANA 时区（PostgreSQL 按名字解析），由调用方校验；
+// q.Days 是时间窗天数（AllowedWindowDays 之一），由调用方校验。
 // 各项在同一个只读的可重复读事务里读取：页面上的各块互相印证（待处理总数与各目标的待处理之和、
 // 按天新增与台账），分开读会在并发写入时彼此对不上。
 func (s *Store) Snapshot(ctx context.Context, q Query) (Snapshot, error) {
@@ -31,10 +32,10 @@ func (s *Store) Snapshot(ctx context.Context, q Query) (Snapshot, error) {
 	defer func() { _ = tx.Rollback(ctx) }() // 只读事务，结束即回滚
 
 	loc := q.Location
-	since := windowStart(q.Now, loc)
+	since := windowStart(q.Now, loc, q.Days)
 	snap := Snapshot{
 		GeneratedAt: q.Now,
-		Window:      Window{Days: WindowDays, Since: since},
+		Window:      Window{Days: q.Days, Since: since},
 	}
 	if snap.Tasks, err = countTasks(ctx, tx); err != nil {
 		return Snapshot{}, err
@@ -42,13 +43,13 @@ func (s *Store) Snapshot(ctx context.Context, q Query) (Snapshot, error) {
 	if snap.Findings.Open, err = openFindings(ctx, tx); err != nil {
 		return Snapshot{}, err
 	}
-	if snap.Findings.Daily, err = dailyFindings(ctx, tx, since, loc); err != nil {
+	if snap.Findings.Daily, err = dailyFindings(ctx, tx, since, loc, q.Days); err != nil {
 		return Snapshot{}, err
 	}
 	if snap.Findings.Classes, err = findingClasses(ctx, tx); err != nil {
 		return Snapshot{}, err
 	}
-	if snap.Usage.Daily, err = dailyUsage(ctx, tx, since, loc); err != nil {
+	if snap.Usage.Daily, err = dailyUsage(ctx, tx, since, loc, q.Days); err != nil {
 		return Snapshot{}, err
 	}
 	if snap.Usage.Last24h, err = usageSince(ctx, tx, q.Now.Add(-24*time.Hour)); err != nil {
@@ -60,16 +61,16 @@ func (s *Store) Snapshot(ctx context.Context, q Query) (Snapshot, error) {
 	return snap, nil
 }
 
-// windowStart 是时间窗起点：查看者时区里「今天往前数 WindowDays-1 天」的零点。
-func windowStart(now time.Time, loc *time.Location) time.Time {
+// windowStart 是时间窗起点：查看者时区里「今天往前数 days-1 天」的零点。
+func windowStart(now time.Time, loc *time.Location, days int) time.Time {
 	local := now.In(loc)
 	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
-	return today.AddDate(0, 0, -(WindowDays - 1))
+	return today.AddDate(0, 0, -(days - 1))
 }
 
-// days 返回时间窗内每一天的日期串（由旧到新），按天序列据此补齐没有数据的日子。
-func days(since time.Time) []string {
-	out := make([]string, WindowDays)
+// windowDays 返回时间窗内每一天的日期串（由旧到新），按天序列据此补齐没有数据的日子。
+func windowDays(since time.Time, window int) []string {
+	out := make([]string, window)
 	for i := range out {
 		out[i] = since.AddDate(0, 0, i).Format(time.DateOnly)
 	}
@@ -125,7 +126,7 @@ func openFindings(ctx context.Context, tx pgx.Tx) (SeverityCounts, error) {
 	return out, nil
 }
 
-func dailyFindings(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Location) ([]DailySeverity, error) {
+func dailyFindings(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Location, window int) ([]DailySeverity, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT to_char(created_at AT TIME ZONE $2, 'YYYY-MM-DD'), severity, count(*)
 		FROM finding WHERE created_at >= $1
@@ -149,8 +150,8 @@ func dailyFindings(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Lo
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("概览：按天发现: %w", err)
 	}
-	out := make([]DailySeverity, 0, WindowDays)
-	for _, day := range days(since) {
+	out := make([]DailySeverity, 0, window)
+	for _, day := range windowDays(since, window) {
 		c := byDay[day]
 		if c == nil {
 			c = emptyCounts()
@@ -188,7 +189,7 @@ func findingClasses(ctx context.Context, tx pgx.Tx) ([]ClassCount, error) {
 const usageColumns = `count(*), count(*) FILTER (WHERE error_message <> ''),
 	coalesce(sum(in_tokens), 0), coalesce(sum(out_tokens), 0), coalesce(sum(cached_tokens), 0)`
 
-func dailyUsage(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Location) ([]DailyUsage, error) {
+func dailyUsage(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Location, window int) ([]DailyUsage, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT to_char(created_at AT TIME ZONE $2, 'YYYY-MM-DD'), `+usageColumns+`
 		FROM llm_invocation WHERE created_at >= $1
@@ -209,8 +210,8 @@ func dailyUsage(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Locat
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("概览：按天消耗: %w", err)
 	}
-	out := make([]DailyUsage, 0, WindowDays)
-	for _, day := range days(since) {
+	out := make([]DailyUsage, 0, window)
+	for _, day := range windowDays(since, window) {
 		out = append(out, DailyUsage{Date: day, UsageTotals: byDay[day]})
 	}
 	return out, nil

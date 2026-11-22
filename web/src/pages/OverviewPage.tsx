@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom'
 import { RotateCw } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/Button'
@@ -10,12 +11,23 @@ import { OpenFindings } from '@/features/overview/OpenFindings'
 import { Targets } from '@/features/overview/Targets'
 import { FindingsTrend, UsageTrend } from '@/features/overview/Trends'
 import { useActiveTasks, useLogProcessOf, useOverviewHealth, useOverviewSnapshot } from '@/features/overview/useOverviewQueries'
+import { RANGE_DAYS } from '@/features/overview/RangePills'
 import { clockTime } from '@/lib/format'
 
 // 概览页（/overview）：平台此刻的全貌——组件能不能干活、有多少问题待处理、集中在哪些类型、
 // 哪个目标最需要先看、什么在跑、近期产出与消耗。每块回答一个别处回答不了的问题，不重复。只读，停在页面上时定时刷新；每块都链到承载完整数据的页面。
 export function OverviewPage() {
-  const snapshot = useOverviewSnapshot()
+  // 趋势时间窗进 URL（?days=7|14|30，缺省 14）：改档位是用户主动的筛选，新增一条历史。
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawDays = Number(searchParams.get('days'))
+  const days = (RANGE_DAYS as readonly number[]).includes(rawDays) ? rawDays : 14
+  const setDays = (d: number) =>
+    setSearchParams((prev: URLSearchParams) => {
+      const next = new URLSearchParams(prev)
+      next.set('days', String(d))
+      return next
+    })
+  const snapshot = useOverviewSnapshot(days)
   const health = useOverviewHealth()
   const active = useActiveTasks()
   const logOf = useLogProcessOf()
@@ -68,8 +80,8 @@ export function OverviewPage() {
                 total={snap.tasks.running + snap.tasks.paused}
                 className="lg:col-span-12 2xl:col-span-5"
               />
-              <FindingsTrend daily={snap.findings.daily} days={snap.window.days} className="lg:col-span-6" />
-              <UsageTrend usage={snap.usage} days={snap.window.days} className="lg:col-span-6" />
+              <FindingsTrend daily={snap.findings.daily} days={days} onDaysChange={setDays} className="lg:col-span-6" />
+              <UsageTrend usage={snap.usage} days={days} onDaysChange={setDays} className="lg:col-span-6" />
             </div>
           )}
         </div>

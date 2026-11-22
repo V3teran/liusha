@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,13 +19,14 @@ import (
 	"github.com/V3teran/liusha/internal/proxystatus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/worker"
+	"strconv"
 )
 
 type fakeOverview struct{ got overview.Query }
 
 func (f *fakeOverview) Snapshot(_ context.Context, q overview.Query) (overview.Snapshot, error) {
 	f.got = q
-	return overview.Snapshot{Window: overview.Window{Days: overview.WindowDays}}, nil
+	return overview.Snapshot{Window: overview.Window{Days: overview.DefaultWindowDays}}, nil
 }
 
 func overviewRouter(d Deps) *gin.Engine {
@@ -197,5 +199,23 @@ func TestHealthChecks_BudgetExhaustedIsUnknownNotDown(t *testing.T) {
 	}
 	if got := checkSandbox(context.Background(), fakeInventory{err: errors.New("dial tcp: connection refused")}); got.State != healthDown {
 		t.Fatalf("连不上应为 down，得到 %q", got.State)
+	}
+}
+
+// TestOverviewSnapshot_DaysParam：days 缺省 14；只接受 7 / 14 / 30（其它值 400）；
+// 合法值透传给快照查询。
+func TestOverviewSnapshot_DaysParam(t *testing.T) {
+	fake := &fakeOverview{}
+	r := overviewRouter(Deps{Overview: fake})
+
+	require.Equal(t, http.StatusOK, getJSON(t, r, "/overview", nil))
+	assert.Equal(t, overview.DefaultWindowDays, fake.got.Days)
+
+	for _, d := range []int{7, 30} {
+		require.Equal(t, http.StatusOK, getJSON(t, r, fmt.Sprintf("/overview?days=%d", d), nil), "days="+strconv.Itoa(d))
+		assert.Equal(t, d, fake.got.Days, "days="+strconv.Itoa(d))
+	}
+	for _, d := range []string{"8", "0", "-1", "abc", "31"} {
+		assert.Equal(t, http.StatusBadRequest, getJSON(t, r, "/overview?days="+d, nil), "days="+d)
 	}
 }

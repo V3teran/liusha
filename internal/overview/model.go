@@ -9,8 +9,11 @@ import (
 	"github.com/V3teran/liusha/internal/finding"
 )
 
-// WindowDays 是趋势与「近期」统计的时间窗（按天，含今天）。
-const WindowDays = 14
+// DefaultWindowDays 是时间窗的默认值（按天，含今天）；OverviewPage 可在 7 / 14 / 30 天间切换。
+const DefaultWindowDays = 14
+
+// AllowedWindowDays 是允许的时间窗取值集合；界面上的切换档位与之对应。
+var AllowedWindowDays = map[int]bool{7: true, 14: true, 30: true}
 
 // TargetLimit 是目标排行返回的条数上限。
 const TargetLimit = 8
@@ -23,6 +26,8 @@ var Severities = finding.Severities
 type Query struct {
 	Now      time.Time
 	Location *time.Location
+	// Days 是趋势时间窗的天数（AllowedWindowDays 之一），由 HTTP 层校验。
+	Days int
 }
 
 // Snapshot 是概览快照。
