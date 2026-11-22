@@ -23,7 +23,7 @@ func (f *fakeTimelineWriter) AppendMessage(_ context.Context, _ string, _ conver
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.metas = append(f.metas, meta)
-	return conversation.Message{ID: "m", Metadata: meta}, nil
+	return conversation.Message{Seq: 1, Metadata: meta}, nil
 }
 
 // fakeTimelinePub 记录 SSE 广播。

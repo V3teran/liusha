@@ -8,7 +8,7 @@
 import type { Source } from '@/lib/source'
 
 export type MessageKind = 'message' | 'event'
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
+export type MessageRole = 'user' | 'assistant'
 
 /**
  * SSE 事件的元数据（agent 过程事件）
@@ -62,8 +62,7 @@ export interface AttachmentRef {
 }
 
 export interface Message {
-  seq: number
-  id: string
+  seq: number // 主键：会话内稳定顺序键
   conversation_id: string
   role: MessageRole
   kind: MessageKind

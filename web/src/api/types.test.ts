@@ -5,9 +5,8 @@ import type { Message } from './types'
 describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））', () => {
   const frame: Message = {
     seq: 42,
-    id: 'm1',
     conversation_id: 'c1',
-    role: 'tool',
+    role: 'assistant',
     kind: 'event',
     content: 'done',
     // TimelineEventMeta 是后端手工 map 序列化的小写 snake_case 键（types.ts 契约）。

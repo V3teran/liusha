@@ -17,19 +17,18 @@ import (
 // Role 是消息的发言角色（对齐 LLM 消息角色）。
 type Role string
 
-// 会话消息角色。
+// 会话消息角色：人说的与系统（智能体、任务生命周期）产出的。agent 过程事件的细分在 Kind
+// 与 metadata.kind 上，不在角色上。
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
-	RoleSystem    Role = "system"
-	RoleTool      Role = "tool"
 )
 
 // Kind 区分普通会话消息与 agent 过程事件。
 type Kind string
 
 const (
-	// KindMessage 是普通会话消息（user 提问 / assistant 回复 / system 提示）。
+	// KindMessage 是普通会话消息（user 提问 / assistant 回复）。
 	KindMessage Kind = "message"
 	// KindEvent 是 agent 跑扫描时的过程事件（tool 调用 / 阶段切换 / finding 产出…），
 	// 结构化细节进 Metadata。
@@ -61,8 +60,7 @@ type Conversation struct {
 // Message 是 message 表行的 Go 表示。json tag 是 API 契约：messages 端点、SSE 补历史
 // 与 redis 实时帧都序列化本结构，键统一小写蛇形（前端 store 直接消费）。
 type Message struct {
-	Seq            int64           `json:"seq"` // 全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
-	ID             string          `json:"id"`
+	Seq            int64           `json:"seq"` // 主键：全局自增，会话内稳定顺序键（SSE 高频事件不依赖时间戳精度）
 	ConversationID string          `json:"conversation_id"`
 	Role           Role            `json:"role"`
 	Kind           Kind            `json:"kind"`

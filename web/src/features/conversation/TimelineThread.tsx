@@ -151,8 +151,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                 content={r.msg.content}
                 createdAt={r.msg.created_at}
                 attachments={r.msg.metadata?.attachments}
-                copied={copiedKey === r.msg.id}
-                onCopy={() => copy(r.msg.id, r.msg.content)}
+                copied={copiedKey === String(r.msg.seq)}
+                onCopy={() => copy(String(r.msg.seq), r.msg.content)}
               />
             )
           }
@@ -164,8 +164,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
                 key={r.key}
                 agentName={r.msg.metadata?.agent_name || 'assistant'}
                 createdAt={r.msg.created_at}
-                copied={copiedKey === r.msg.id}
-                onCopy={() => copy(r.msg.id, r.msg.content)}
+                copied={copiedKey === String(r.msg.seq)}
+                onCopy={() => copy(String(r.msg.seq), r.msg.content)}
                 copyText={r.msg.content}
               >
                 <ThinkingFold text={r.msg.metadata?.thinking} />
@@ -199,8 +199,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               key={r.key}
               agentName={agent}
               createdAt={r.msg.created_at}
-              copied={copiedKey === r.msg.id}
-              onCopy={copyText ? () => copy(r.msg.id, copyText) : undefined}
+              copied={copiedKey === String(r.msg.seq)}
+              onCopy={copyText ? () => copy(String(r.msg.seq), copyText) : undefined}
               copyText={copyText}
             >
               {renderCard(r)}

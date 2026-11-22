@@ -47,7 +47,7 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
 	meta := json.RawMessage(`{"tool":"run_command","tag":"sqlmap"}`)
-	m2, err := store.AppendMessage(ctx, c.ID, conversation.RoleTool, conversation.KindEvent, "sqlmap 注入确认", meta)
+	m2, err := store.AppendMessage(ctx, c.ID, conversation.RoleAssistant, conversation.KindEvent, "sqlmap 注入确认", meta)
 	if err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestSetMessageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 2 || msgs[0].ID != m1.ID || msgs[1].ID != m2.ID {
+	if len(msgs) != 2 || msgs[0].Seq != m1.Seq || msgs[1].Seq != m2.Seq {
 		t.Fatalf("应按 seq 读回两条消息，得到 %d 条", len(msgs))
 	}
 	got1, got2 := msgs[0], msgs[1]

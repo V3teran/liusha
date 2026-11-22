@@ -4,7 +4,7 @@ import { TimelineThread } from './TimelineThread'
 import { useConversationStore } from '@/stores/conversation'
 import type { Message, TimelineEventMeta } from '@/api/types'
 
-const base = { id: 'm', conversation_id: 'c', created_at: '', content: '' }
+const base = { conversation_id: 'c', created_at: '', content: '' }
 
 function userMsg(seq: number, content: string): Message {
   return { seq: seq, role: 'user', kind: 'message', metadata: null, ...base, content: content } as Message
@@ -23,7 +23,7 @@ function reasoningMsg(seq: number, agentName: string, text = '思考'): Message 
 function toolCallMsg(seq: number, agentName: string): Message {
   return {
     seq: seq,
-    role: 'tool',
+    role: 'assistant',
     kind: 'event',
     metadata: { kind: 'tool_call', tool_name: 'run_command', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
@@ -33,7 +33,7 @@ function toolCallMsg(seq: number, agentName: string): Message {
 function toolResultMsg(seq: number, agentName: string): Message {
   return {
     seq: seq,
-    role: 'tool',
+    role: 'assistant',
     kind: 'event',
     metadata: { kind: 'tool_result', tool_name: 'run_command', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,

@@ -54,7 +54,7 @@ func (f *fakeWriter) AppendMessage(_ context.Context, _ string, role conversatio
 	defer f.mu.Unlock()
 	f.appended = append(f.appended, conversation.Message{Role: role, Kind: kind, Content: content})
 	f.metas = append(f.metas, meta)
-	return conversation.Message{ID: "m1", Role: role, Kind: kind, Content: content, Metadata: meta}, nil
+	return conversation.Message{Seq: 1, Role: role, Kind: kind, Content: content, Metadata: meta}, nil
 }
 
 func newTestStream(conversationID string) (*Stream, *fakePub, *fakeWriter) {

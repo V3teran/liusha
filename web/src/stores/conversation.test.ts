@@ -4,9 +4,8 @@ import type { Message, TimelineEventMeta } from '@/api/types'
 
 const msg = (seq: number): Message => ({
   seq: seq,
-  id: `m${seq}`,
   conversation_id: 'c1',
-  role: 'tool',
+  role: 'assistant',
   kind: 'event',
   content: '',
   metadata: null,

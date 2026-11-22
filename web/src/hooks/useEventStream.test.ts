@@ -46,9 +46,8 @@ describe('useEventStream', () => {
     MockES.last.onmessage!({
       data: JSON.stringify({
         seq: 1,
-        id: 'm1',
         conversation_id: 'conv-1',
-        role: 'tool',
+        role: 'assistant',
         kind: 'event',
         content: 'x',
         metadata: null,
@@ -59,7 +58,7 @@ describe('useEventStream', () => {
 
     const messages = useConversationStore.getState().messages
     expect(messages).toHaveLength(1)
-    expect(messages[0].id).toBe('m1')
+    expect(messages[0].seq).toBe(1)
     expect(messages[0].seq).toBe(1)
 
     handle.close()
@@ -82,10 +81,9 @@ describe('useEventStream', () => {
     const handle = openEventStream('conv-3', store)
     await flush()
 
-    const frame = (seq: number, id: string) => ({
+    const frame = (seq: number) => ({
       data: JSON.stringify({
         seq: seq,
-        id: id,
         conversation_id: 'conv-3',
         role: 'assistant',
         kind: 'message',
@@ -96,9 +94,9 @@ describe('useEventStream', () => {
       lastEventId: String(seq),
     })
 
-    MockES.last.onmessage!(frame(3, 'm3'))
-    MockES.last.onmessage!(frame(1, 'm1'))
-    MockES.last.onmessage!(frame(2, 'm2'))
+    MockES.last.onmessage!(frame(3))
+    MockES.last.onmessage!(frame(1))
+    MockES.last.onmessage!(frame(2))
 
     const messages = useConversationStore.getState().messages
     expect(messages).toHaveLength(3)

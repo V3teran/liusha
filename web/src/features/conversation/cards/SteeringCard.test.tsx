@@ -6,7 +6,6 @@ import type { Message, TimelineEventMeta } from '@/api/types'
 const msg = (content: string, md: Partial<TimelineEventMeta>): Message =>
   ({
     seq: 1,
-    id: 'm1',
     conversation_id: 'c1',
     role: 'user',
     kind: 'event',
