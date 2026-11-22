@@ -31,9 +31,13 @@ type solver struct {
 	pollInterval time.Duration // 轮询 liusha 产出的间隔
 	idleWindow   time.Duration // LLM/工具活动停摆多久判定该题跑不动，提前收手
 
-	deadlineEasy   time.Duration // 单题轮询上限按难度分级（0 = 不限）
-	deadlineMedium time.Duration
-	deadlineHard   time.Duration
+	// 单题轮询上限按题面分值分档（0 = 不限）。分值是平台自己的工作量估计——难度标签
+	// 不可靠（实测 1200 分的题被标为 medium，300-500 分的反被标为 hard），分值与实测
+	// 解出用时单调一致（100-200 分 ≤14 分钟，500 分 28 分钟，1200 分的链路 30 分钟时
+	// 仍处中段）。
+	deadlineStandard time.Duration // 低分档（≤200）
+	deadlineExtended time.Duration // 中分档（201-600）
+	deadlineDeep     time.Duration // 高分档（>600）
 
 	convergeWait time.Duration  // 通关后等待引擎自然收敛的窗口，超时兜底终止
 	convergePoll time.Duration  // 收敛观察的轮询间隔
@@ -191,17 +195,17 @@ func (s *solver) startChallenge(ctx context.Context, log *zerolog.Logger, unique
 	}
 }
 
-// deadlineFor 按题目难度取单题轮询上限。同一预算对不同难度意味着不同的完成概率：
-// 实测 easy 的解出全部落在 14 分钟内，medium 的利用链在 30 分钟时仍普遍处于提取
-// 中段——预算与难度错配会把可解的题切死在破题边缘。
+// deadlineFor 按题面分值取单题轮询上限。同一预算对不同分值的题目意味着不同的完成
+// 概率：分值是平台对工作量的估计，实测解出用时随分值单调上升——低分档的解出全部
+// 落在 14 分钟内，500 分的用了 28 分钟，1200 分的杀链在 30 分钟时仍处提取中段。
 func (s *solver) deadlineFor(ch challenge) time.Duration {
-	switch ch.Difficulty {
-	case "medium":
-		return s.deadlineMedium
-	case "hard":
-		return s.deadlineHard
+	switch {
+	case ch.TotalScore > 600:
+		return s.deadlineDeep
+	case ch.TotalScore > 200:
+		return s.deadlineExtended
 	default:
-		return s.deadlineEasy
+		return s.deadlineStandard
 	}
 }
 

@@ -244,12 +244,12 @@ func (f *fakeStack) newSolver() *solver {
 		f.t.Fatalf("构造提取器: %v", err)
 	}
 	return &solver{
-		bench:        newBenchClient(f.srv.URL, "tok", nil),
-		liusha:       lc,
-		extractor:    ex,
-		logger:       zerolog.Nop(),
-		pollInterval: time.Millisecond,
-		deadlineEasy: 5 * time.Second, deadlineMedium: 5 * time.Second, deadlineHard: 5 * time.Second,
+		bench:            newBenchClient(f.srv.URL, "tok", nil),
+		liusha:           lc,
+		extractor:        ex,
+		logger:           zerolog.Nop(),
+		pollInterval:     time.Millisecond,
+		deadlineStandard: 5 * time.Second, deadlineExtended: 5 * time.Second, deadlineDeep: 5 * time.Second,
 		convergeWait: 5 * time.Millisecond,
 		convergePoll: time.Millisecond,
 	}

@@ -46,13 +46,13 @@ type config struct {
 	flagPattern  string
 	concurrency  int
 	pollInterval time.Duration
-	// 单题轮询上限按难度分级：同一预算对不同难度意味着不同的完成概率（实测 easy 的
-	// 解出全部落在 14 分钟内，medium 的利用链在 30 分钟时仍普遍处于提取中段）。
-	deadlineEasy   time.Duration
-	deadlineMedium time.Duration
-	deadlineHard   time.Duration
-	idleWindow     time.Duration
-	only           []string // 只跑这些题（unique_code）；空 = 全部未通关题
+	// 单题轮询上限按题面分值分档：分值是平台自己的工作量估计，难度标签不可靠
+	// （1200 分的题被标为 medium）。实测解出用时随分值单调上升。
+	deadlineStandard time.Duration // 低分档（≤200）
+	deadlineExtended time.Duration // 中分档（201-600）
+	deadlineDeep     time.Duration // 高分档（>600）
+	idleWindow       time.Duration
+	only             []string // 只跑这些题（unique_code）；空 = 全部未通关题
 }
 
 // difficultyRank 把难度映射为排序权重（easy 先做，先拿能拿的分）；未知难度最后。
@@ -127,9 +127,9 @@ func loadConfig() (config, error) {
 		fallback int
 	}{
 		{&cfg.pollInterval, "LIUSHA_TSB_POLL_SECONDS", 20},
-		{&cfg.deadlineEasy, "LIUSHA_TSB_DEADLINE_EASY_SECONDS", 1800},
-		{&cfg.deadlineMedium, "LIUSHA_TSB_DEADLINE_MEDIUM_SECONDS", 2700},
-		{&cfg.deadlineHard, "LIUSHA_TSB_DEADLINE_HARD_SECONDS", 3600},
+		{&cfg.deadlineStandard, "LIUSHA_TSB_DEADLINE_STANDARD_SECONDS", 1800},
+		{&cfg.deadlineExtended, "LIUSHA_TSB_DEADLINE_EXTENDED_SECONDS", 2700},
+		{&cfg.deadlineDeep, "LIUSHA_TSB_DEADLINE_DEEP_SECONDS", 5400},
 		{&cfg.idleWindow, "LIUSHA_TSB_IDLE_SECONDS", 300},
 	} {
 		n, err := envPositiveInt(d.key, d.fallback)
@@ -203,7 +203,7 @@ func run(ctx context.Context, cfg config, logger zerolog.Logger) error {
 	s := &solver{
 		bench: bc, liusha: lc, extractor: extractor, logger: logger,
 		pollInterval: cfg.pollInterval, idleWindow: cfg.idleWindow,
-		deadlineEasy: cfg.deadlineEasy, deadlineMedium: cfg.deadlineMedium, deadlineHard: cfg.deadlineHard,
+		deadlineStandard: cfg.deadlineStandard, deadlineExtended: cfg.deadlineExtended, deadlineDeep: cfg.deadlineDeep,
 		convergeWait: 6 * time.Minute,
 		convergePoll: 15 * time.Second,
 	}
