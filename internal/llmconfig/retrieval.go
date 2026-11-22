@@ -2,6 +2,7 @@ package llmconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,7 +32,7 @@ func (s *Store) GetRetrievalModel(ctx context.Context) (RetrievalModel, error) {
 		WHERE id = true`).
 		Scan(&r.EncryptedAPIKey, &r.APIKeyLast4, &r.UpdatedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return RetrievalModel{}, nil
 		}
 		return RetrievalModel{}, fmt.Errorf("get retrieval model: %w", err)

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/V3teran/liusha/internal/dbtest"
 )
 
@@ -24,10 +26,18 @@ func TestDeleteOlderThanPostgres(t *testing.T) {
 		t.Fatalf("清理: %v", err)
 	}
 
+	// tool_invocation 的两列 uuid 都是外键：落一条真实任务与 run，供 Append 落库
+	taskID := uuid.NewString()
+	dbtest.SeedTask(t, pool, taskID)
+	var runID string
+	if err := pool.QueryRow(ctx, "INSERT INTO agent_run (task_id) VALUES ($1::uuid) RETURNING id", taskID).Scan(&runID); err != nil {
+		t.Fatalf("seed agent_run: %v", err)
+	}
+
 	base := time.Now().Add(-24 * time.Hour).Truncate(time.Second)
 	appendAt := func(at time.Time) {
-		id, err := store.Append(ctx, Invocation{AgentRunID: "11111111-2222-4333-8444-555555555555",
-			TaskID: "11111111-2222-4333-8444-555555555556", ToolName: "run_command", DurationMs: 10})
+		id, err := store.Append(ctx, Invocation{AgentRunID: runID,
+			TaskID: taskID, ToolName: "run_command", DurationMs: 10})
 		if err != nil {
 			t.Fatalf("写入: %v", err)
 		}
