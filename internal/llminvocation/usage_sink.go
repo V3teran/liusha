@@ -20,16 +20,7 @@ func (s UsageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 	// 的唯一分类器，审计面直接消费结论而不再各自解析错误文本。
 	errorKind := ""
 	if r.Err != "" {
-		switch llm.Classify(errors.New(r.Err)) {
-		case llm.Class429:
-			errorKind = "rate_limited"
-		case llm.Class529, llm.Class5xx:
-			errorKind = "server"
-		case llm.ClassNet:
-			errorKind = "network"
-		default:
-			errorKind = "error"
-		}
+		errorKind = ErrorKindOf(llm.Classify(errors.New(r.Err)))
 	}
 	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
@@ -58,4 +49,22 @@ func optionalID(id string) *string {
 		return nil
 	}
 	return &id
+}
+
+// ErrorKinds 是失败调用的错误类别（成功为空串）：审计页按它区分限流、服务端、网络与其它错误。
+// 与库里的约束 llm_invocation_error_kind_check 一致（集成测试守住）。
+var ErrorKinds = []string{"rate_limited", "server", "network", "error"}
+
+// ErrorKindOf 把框架的错误分类映射为错误类别。
+func ErrorKindOf(c llm.ErrorClass) string {
+	switch c {
+	case llm.Class429:
+		return "rate_limited"
+	case llm.Class529, llm.Class5xx:
+		return "server"
+	case llm.ClassNet:
+		return "network"
+	default:
+		return "error"
+	}
 }

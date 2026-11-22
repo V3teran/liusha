@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/dbtest"
+	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/task"
 )
 
@@ -310,5 +313,30 @@ func TestStore_Facets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(errOnly.Models, []string{"deepseek-chat"}) {
 		t.Errorf("其它筛选照常收窄: %+v", errOnly.Models)
+	}
+}
+
+// 库里的错误类别约束与代码词表一一对应（成功为空串），且每种框架错误分类都映射到词表内。
+func TestErrorKindConstraintMatchesVocabulary(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	var def string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'llm_invocation_error_kind_check'`).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, m := range regexp.MustCompile(`'([a-z_]*)'`).FindAllStringSubmatch(def, -1) {
+		listed = append(listed, m[1])
+	}
+	want := append([]string{""}, ErrorKinds...)
+	slices.Sort(listed)
+	slices.Sort(want)
+	if !reflect.DeepEqual(listed, want) {
+		t.Fatalf("约束 %v 与词表 %v 不一致", listed, want)
+	}
+	for _, c := range []llm.ErrorClass{llm.Class429, llm.Class529, llm.Class5xx, llm.ClassNet, llm.ClassOther} {
+		if !slices.Contains(ErrorKinds, ErrorKindOf(c)) {
+			t.Errorf("分类 %v 映射到词表外的 %q", c, ErrorKindOf(c))
+		}
 	}
 }
