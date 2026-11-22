@@ -226,3 +226,24 @@ describe('CorpusPage', () => {
     expect(await screen.findByText('导入完成：新增 1 条，1 条与已有正文相同已跳过')).toBeInTheDocument()
   })
 })
+
+describe('CorpusPage 检索方式标识的降级态', () => {
+  it('语义配置在但最近一次语义调用失败：标识显示「语义检索已降级」并带原因与时间', async () => {
+    mocked(getCorpusStatus).mockResolvedValue({
+      mode: 'semantic',
+      degraded: '402 上游欠费',
+      degraded_at: '2026-01-01T08:00:00Z',
+      embedding_model: 'jina-embeddings-v5-text-small',
+      rerank_model: 'jina-reranker-v2-base-multilingual',
+      total: 2,
+      pending: 0,
+    })
+    mocked(listCorpus).mockResolvedValue({ items: [], total: 0 })
+    mocked(getCorpusFacets).mockResolvedValue({ scenarios: [], sources: [] })
+    renderPage()
+    const chip = await screen.findByText('语义检索已降级')
+    expect(chip).toBeInTheDocument()
+    expect(chip.getAttribute('title')).toContain('402 上游欠费')
+    expect(chip.getAttribute('title')).toContain('修复后自动恢复语义')
+  })
+})

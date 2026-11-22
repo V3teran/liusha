@@ -57,6 +57,10 @@ export interface CorpusStatus {
   mode: CorpusMode
   /** 非空 = 语义检索不可用且非「未配置」（如密文解不开），据此区分「去配置」与「配置有问题」 */
   unavailable?: string
+  /** 非空 = 语义配置在但最近一次调用失败（如密钥欠费），实际请求一直在退字面检索 */
+  degraded?: string
+  /** 最近一次语义调用失败的时间（degraded 非空时存在） */
+  degraded_at?: string
   embedding_model: string
   rerank_model: string
   total: number

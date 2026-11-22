@@ -44,7 +44,7 @@ describe('ModelPage', () => {
 
     // Mock RetrievalView 需要的 hooks
     mockedUseRetrievalModel.mockReturnValue({
-      data: { key_present: false, key_last4: '', embedding_model: 'e', rerank_model: 'r', updated_at: null },
+      data: { base_url: 'https://api.jina.ai', embedding_model: 'e', rerank_model: 'r', key_present: false, key_last4: '', updated_at: null },
       isLoading: false,
     })
     mockedUseSaveRetrievalModel.mockReturnValue({ isPending: false, mutate: vi.fn() })

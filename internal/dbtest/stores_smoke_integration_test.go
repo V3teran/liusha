@@ -115,7 +115,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 	}
 
 	// corpus：写入一条知识并记下任务的印证（印证表外键指向 task）
-	kb := corpus.NewService(corpus.NewStore(pool), corpus.StaticModels(corpus.Models{}), zerolog.Nop())
+	kb := corpus.NewService(corpus.NewStore(pool), corpus.StaticModels(corpus.Models{}), nil, zerolog.Nop())
 	entry, err := kb.Create(ctx, corpus.Draft{Title: "smoke", Content: "c", Source: corpus.SourceExpert})
 	if err != nil {
 		t.Fatalf("corpus create: %v", err)

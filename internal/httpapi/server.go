@@ -113,6 +113,9 @@ type Deps struct {
 	ScenarioStore ScenarioAPI
 	// Corpus 为 nil（或 ScenarioStore 为 nil）时知识库路由（/corpus 系列）不注册；api 组件注入 *corpus.Service。
 	Corpus CorpusAPI
+	// RetrievalHealth 为 nil 时知识库状态不带运行降级信息（单测）；
+	// api 组件注入 *retrievalstatus.Store（语义检索最近一次失败的跨进程记录）。
+	RetrievalHealth RetrievalHealthReader
 	// ExplorationGraph 与 TaskReader 都非 nil 时注册探索图路由（/tasks/:id/exploration/*）。
 	// 由 api 组件注入 *explorationgraph.Store（自动满足 ExplorationGraphAPI 窄接口）。
 	ExplorationGraph ExplorationGraphAPI

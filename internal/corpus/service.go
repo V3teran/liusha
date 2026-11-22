@@ -20,17 +20,27 @@ func StaticModels(m Models) ModelSource {
 	return func(context.Context) (Models, string) { return m, "" }
 }
 
+// SemanticHealth 记录语义检索最近一次尝试的结果：失败时上报降级原因，恢复时清除。
+// 实现方负责跨进程可见与过期（Redis 记录，见 retrievalstatus）；nil = 不上报（单测）。
+// 上报绝不阻塞检索：实现方自己吞掉存储故障。
+type SemanticHealth interface {
+	Degraded(ctx context.Context, reason string)
+	Healthy(ctx context.Context)
+}
+
 // Service 是知识库的唯一入口：检索、增删改、印证与向量补齐。
 type Service struct {
 	store  *Store
 	source ModelSource
+	health SemanticHealth
 	logger zerolog.Logger
 }
 
 // NewService 构造知识库服务。来源当前不可用（零值模型）时只做字面检索、写入不生成向量；
-// 不阻塞主流程——知识库永远不挡对话与任务。
-func NewService(store *Store, source ModelSource, logger zerolog.Logger) *Service {
-	return &Service{store: store, source: source, logger: logger.With().Str("component", "corpus").Logger()}
+// 不阻塞主流程——知识库永远不挡对话与任务。health 非 nil 时，语义调用的成败会上报
+// （任务运行中密钥失效，知识库页的检索方式标识据此显示降级）。
+func NewService(store *Store, source ModelSource, health SemanticHealth, logger zerolog.Logger) *Service {
+	return &Service{store: store, source: source, health: health, logger: logger.With().Str("component", "corpus").Logger()}
 }
 
 // current 取当前模型与不可用原因。
@@ -105,10 +115,16 @@ func (s *Service) rank(ctx context.Context, text string, scope Scope) (Result, e
 	if models.Semantic() {
 		hits, err := s.store.rankSemantic(ctx, models, text, scope)
 		if err == nil {
+			if s.health != nil {
+				s.health.Healthy(ctx)
+			}
 			return Result{Mode: ModeSemantic, Hits: hits}, nil
 		}
 		if ctx.Err() != nil {
 			return Result{}, err
+		}
+		if s.health != nil {
+			s.health.Degraded(ctx, err.Error())
 		}
 		s.logger.Warn().Err(err).Msg("语义检索失败，本次退回字面检索")
 		hits, lexErr := s.store.recallLexical(ctx, text, scope, recallSize)
@@ -133,8 +149,14 @@ func (s *Service) embed(ctx context.Context, text string) []float32 {
 	}
 	vecs, err := models.Embedder.EmbedPassage(ctx, []string{text})
 	if err != nil || len(vecs) != 1 {
+		if s.health != nil && err != nil {
+			s.health.Degraded(ctx, err.Error())
+		}
 		s.logger.Warn().Err(err).Msg("知识条目向量化失败，先写入、稍后补齐")
 		return nil
+	}
+	if s.health != nil {
+		s.health.Healthy(ctx)
 	}
 	return vecs[0]
 }
@@ -316,6 +338,9 @@ func (s *Service) IndexPending(ctx context.Context) (int, error) {
 		}
 		vecs, err := models.Embedder.EmbedPassage(ctx, texts)
 		if err != nil {
+			if s.health != nil {
+				s.health.Degraded(ctx, err.Error())
+			}
 			return done, fmt.Errorf("补齐向量: %w", err)
 		}
 		if len(vecs) != len(batch) {
@@ -334,6 +359,9 @@ func (s *Service) IndexPending(ctx context.Context) (int, error) {
 		}
 		if !progressed {
 			return done, nil // 整批都在补齐期间被改写：留给下一轮，避免空转
+		}
+		if s.health != nil {
+			s.health.Healthy(ctx)
 		}
 	}
 }

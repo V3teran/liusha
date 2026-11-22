@@ -74,8 +74,13 @@ func (f *fakeReranker) Rerank(_ context.Context, query string, docs []string, _ 
 
 func newService(t *testing.T, models Models) (*Service, *Store) {
 	t.Helper()
+	return newServiceWithHealth(t, models, nil)
+}
+
+func newServiceWithHealth(t *testing.T, models Models, health SemanticHealth) (*Service, *Store) {
+	t.Helper()
 	store := NewStore(dbtest.NewPgPool(t))
-	return NewService(store, StaticModels(models), zerolog.Nop()), store
+	return NewService(store, StaticModels(models), health, zerolog.Nop()), store
 }
 
 func semanticModels() (Models, *fakeEmbedder, *fakeReranker) {
@@ -502,7 +507,7 @@ func TestSearch_FollowsLiveModelSource(t *testing.T) {
 	semantic := Models{Embedder: e, Reranker: r, EmbeddingModel: "fake-embed", RerankModel: "fake-rerank"}
 	var cur Models
 	var reason string
-	kb := NewService(store, func(context.Context) (Models, string) { return cur, reason }, zerolog.Nop())
+	kb := NewService(store, func(context.Context) (Models, string) { return cur, reason }, nil, zerolog.Nop())
 
 	if e := mustCreate(t, kb, Draft{Title: "T", Content: "C"}); e.ID == "" {
 		t.Fatal("写入失败")
@@ -584,5 +589,53 @@ func TestResetVectors(t *testing.T) {
 		if err != nil || !got.Indexed {
 			t.Fatalf("重嵌后应恢复向量(Indexed) id=%s: %+v err=%v", id, got, err)
 		}
+	}
+}
+
+// recordingHealth 记录 Degraded / Healthy 的调用序列。
+type recordingHealth struct{ events []string }
+
+func (h *recordingHealth) Degraded(_ context.Context, reason string) {
+	h.events = append(h.events, "degraded:"+reason)
+}
+func (h *recordingHealth) Healthy(_ context.Context) {
+	h.events = append(h.events, "healthy")
+}
+
+// TestSearch_ReportsSemanticHealth 锁定健康上报语义：语义调用失败（含嵌入失败）上报
+// Degraded（带原因），恢复后上报 Healthy；字面路径（未配置语义）不上报。
+func TestSearch_ReportsSemanticHealth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	models, embedder, _ := semanticModels()
+	embedder.fail.Store(true) // 嵌入不可用：语义调用必然失败
+	health := &recordingHealth{}
+	kb, _ := newServiceWithHealth(t, models, health)
+
+	if _, err := kb.Search(context.Background(), Query{Text: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(health.events) == 0 || !strings.HasPrefix(health.events[0], "degraded:") {
+		t.Fatalf("语义失败应上报 Degraded: %v", health.events)
+	}
+
+	// 恢复：下一次语义调用成功上报 Healthy
+	embedder.fail.Store(false)
+	if _, err := kb.Search(context.Background(), Query{Text: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	if health.events[len(health.events)-1] != "healthy" {
+		t.Fatalf("恢复应上报 Healthy: %v", health.events)
+	}
+
+	// 字面模式（模型不可用）不上报
+	before := len(health.events)
+	kb2, _ := newServiceWithHealth(t, Models{}, health)
+	if _, err := kb2.Search(context.Background(), Query{Text: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(health.events) != before {
+		t.Fatalf("字面路径不应上报: %v", health.events)
 	}
 }

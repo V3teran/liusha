@@ -36,27 +36,38 @@ function scopeValue(f: CorpusFilters): string {
   return f.general ? GENERAL : f.scenario
 }
 
-/** 检索方式标识：语义检索启用与否一眼可见；悬停看启用的模型与待补向量的条目。 */
+/** 检索方式标识：语义检索启用与否一眼可见；悬停看启用的模型与待补向量的条目。
+ * 语义配置在但最近一次调用失败（密钥欠费 / 上游故障）时显示「已降级」——
+ * 实际请求一直在退字面检索，修复后自动恢复（无需改配置）。 */
 function ModeChip({ status }: { status: CorpusStatus | undefined }) {
   if (!status) return null
   const semantic = status.mode === 'semantic'
-  const title = semantic
-    ? `向量模型 ${status.embedding_model} · 重排模型 ${status.rerank_model}${status.pending ? ` · ${status.pending} 条待建索引` : ''}`
-    : status.unavailable
-      ? `${status.unavailable}：只按词元做字面检索`
-      : '检索模型未配置：只按词元做字面检索，在「模型配置」页填写密钥后启用语义检索'
+  const degraded = semantic && !!status.degraded
+  const title = degraded
+    ? `最近一次语义检索失败（${status.degraded_at ? new Date(status.degraded_at).toLocaleString() : '时间未知'}）：${status.degraded}。期间实际按词元字面检索，修复后自动恢复语义。`
+    : semantic
+      ? `向量模型 ${status.embedding_model} · 重排模型 ${status.rerank_model}${status.pending ? ` · ${status.pending} 条待建索引` : ''}`
+      : status.unavailable
+        ? `${status.unavailable}：只按词元做字面检索`
+        : '检索模型未配置：只按词元做字面检索，在「模型配置」页填写密钥后启用语义检索'
   return (
     <span
       title={title}
       className={cn(
         // 手机宽度不显示：页头固定一行，让给标题与动作
         'hidden h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs sm:inline-flex md:px-3',
-        semantic ? 'border-border text-text-secondary' : 'border-status-warning/40 text-status-warning',
+        semantic && !degraded ? 'border-border text-text-secondary' : 'border-status-warning/40 text-status-warning',
       )}
     >
-      <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', semantic ? 'bg-status-success' : 'bg-status-warning')} />
-      {semantic ? '语义检索' : '字面检索'}
-      {semantic && status.pending > 0 && (
+      <span
+        aria-hidden
+        className={cn(
+          'h-1.5 w-1.5 rounded-full',
+          semantic && !degraded ? 'bg-status-success' : 'bg-status-warning',
+        )}
+      />
+      {degraded ? '语义检索已降级' : semantic ? '语义检索' : '字面检索'}
+      {semantic && !degraded && status.pending > 0 && (
         <span className="hidden text-text-tertiary lg:inline">· {status.pending} 条待建索引</span>
       )}
     </span>

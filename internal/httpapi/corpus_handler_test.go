@@ -19,6 +19,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/retrievalstatus"
 	"github.com/V3teran/liusha/internal/scenariostore"
 )
 
@@ -26,6 +27,7 @@ const corpusID = "11111111-2222-4333-8444-555555555555"
 
 // fakeCorpus 是知识库的内存假实现：只有一条 ID 为 corpusID 的条目。
 type fakeCorpus struct {
+	semantic bool // Status 返回语义模式（降级合并用）
 	entry    corpus.Entry
 	listed   corpus.ListQuery
 	created  corpus.Draft
@@ -37,7 +39,12 @@ type fakeCorpus struct {
 }
 
 func (f *fakeCorpus) Status(context.Context) (corpus.Status, error) {
-	return corpus.Status{Mode: corpus.ModeLexical, Index: corpus.IndexStats{Total: 1}}, nil
+	st := corpus.Status{Mode: corpus.ModeLexical, Index: corpus.IndexStats{Total: 1}}
+	if f.semantic {
+		st.Mode = corpus.ModeSemantic
+		st.EmbeddingModel, st.RerankModel = "e", "r"
+	}
+	return st, nil
 }
 
 func (f *fakeCorpus) List(_ context.Context, q corpus.ListQuery) (corpus.Page, error) {
@@ -293,4 +300,64 @@ func TestCorpusImport(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, post(map[string]string{"a.md": "\xff\xfe"}, "").Code, "只收 UTF-8")
 	assert.Equal(t, http.StatusBadRequest, post(map[string]string{"a.md": "x"}, "nope").Code, "场景不存在")
 	assert.Equal(t, http.StatusBadRequest, post(map[string]string{}, "").Code, "至少一个文件")
+}
+
+// fakeHealthReader 记录读取，返回预置降级记录。
+type fakeHealthReader struct {
+	rec retrievalstatus.Record
+	ok  bool
+}
+
+func (f *fakeHealthReader) Get(context.Context) (retrievalstatus.Record, bool, error) {
+	return f.rec, f.ok, nil
+}
+
+// TestCorpusStatus_DegradedMerge：语义配置在但最近一次语义调用失败（如密钥欠费）时，
+// 状态响应带 degraded 与 degraded_at；健康（无记录）与字面模式不带。
+func TestCorpusStatus_DegradedMerge(t *testing.T) {
+	at := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	fc := &fakeCorpus{semantic: true}
+	fc.entry = corpus.Entry{ID: corpusID, Title: "T", Content: "C"}
+	srv := newTestServer(t, Deps{
+		Corpus:          fc,
+		ScenarioStore:   &fakeScenarios{},
+		RetrievalHealth: &fakeHealthReader{ok: true, rec: retrievalstatus.Record{Reason: "402 上游欠费", At: at}},
+	})
+	defer srv.Close()
+
+	code, body := doJSON(t, "GET", srv.URL+"/api/corpus/status", nil)
+	if code != 200 {
+		t.Fatalf("status=%d", code)
+	}
+	if body["mode"] != "semantic" {
+		t.Fatalf("mode=%v", body["mode"])
+	}
+	if body["degraded"] != "402 上游欠费" || body["degraded_at"] == nil {
+		t.Fatalf("降级信息未合并: %v", body)
+	}
+
+	// 健康（无记录）：不带降级字段
+	srv2 := newTestServer(t, Deps{
+		Corpus:          fc,
+		ScenarioStore:   &fakeScenarios{},
+		RetrievalHealth: &fakeHealthReader{},
+	})
+	defer srv2.Close()
+	code, body = doJSON(t, "GET", srv2.URL+"/api/corpus/status", nil)
+	if code != 200 || body["degraded"] != nil {
+		t.Fatalf("健康不应带降级: %v", body)
+	}
+
+	// 字面模式（未配置）：带 unavailable，不带 degraded
+	fc2 := &fakeCorpus{}
+	srv3 := newTestServer(t, Deps{
+		Corpus:          fc2,
+		ScenarioStore:   &fakeScenarios{},
+		RetrievalHealth: &fakeHealthReader{ok: true, rec: retrievalstatus.Record{Reason: "x", At: at}},
+	})
+	defer srv3.Close()
+	code, body = doJSON(t, "GET", srv3.URL+"/api/corpus/status", nil)
+	if code != 200 || body["degraded"] != nil {
+		t.Fatalf("字面模式不应带降级: %v", body)
+	}
 }

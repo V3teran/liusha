@@ -42,6 +42,7 @@ import (
 	"github.com/V3teran/liusha/internal/llminvocation"
 	"github.com/V3teran/liusha/internal/llmstore"
 	"github.com/V3teran/liusha/internal/logx"
+	"github.com/V3teran/liusha/internal/retrievalstatus"
 	"github.com/V3teran/liusha/internal/runner"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
@@ -141,7 +142,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
 	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
-	kb := newCorpus(st.corpus, llmStore, keyCipher, logger)
+	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
 	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options())
 	// LLM 调用装配：单步看门狗（挂死的调用会阻塞 agent 事件循环）+ llm_invocation 审计（含失败）。
@@ -296,8 +297,8 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 
 // newCorpus 装配知识库服务：检索模型密钥每次操作现取（模型配置页热改、跨进程失效），
 // 未配置时知识库只做字面检索，不阻塞对话与任务。
-func newCorpus(store *corpus.Store, models *llmstore.Store, cipher *cryptx.Cipher, logger zerolog.Logger) *corpus.Service {
-	return corpus.NewService(store, models.RetrievalModels(cipher), logger)
+func newCorpus(store *corpus.Store, models *llmstore.Store, cipher *cryptx.Cipher, rdb *redis.Client, logger zerolog.Logger) *corpus.Service {
+	return corpus.NewService(store, models.RetrievalModels(cipher), retrievalstatus.NewSink(rdb, logger), logger)
 }
 
 // resolveSandboxContract 解析沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。

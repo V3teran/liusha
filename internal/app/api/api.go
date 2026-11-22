@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agentrun"
@@ -42,6 +43,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/overview"
 	"github.com/V3teran/liusha/internal/proxystatus"
+	"github.com/V3teran/liusha/internal/retrievalstatus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/settingstore"
 	"github.com/V3teran/liusha/internal/task"
@@ -183,7 +185,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	go scheduler.Run(ctx)
 
-	kb := newCorpus(pool, llmStore, llmKeyCipher, logger)
+	kb := newCorpus(pool, llmStore, llmKeyCipher, rdb, logger)
 
 	srv := &http.Server{
 		Addr: cfg.API.ListenAddr,
@@ -341,8 +343,9 @@ func (a llmReadiness) Ready(ctx context.Context) error {
 // newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）。
 // 检索模型密钥是运行期可变的（模型配置页热改、跨进程失效），来源每次操作现取：
 // 未配置退字面检索、不阻塞；配置后下一次操作即语义检索。
-func newCorpus(pool *pgxpool.Pool, models *llmstore.Store, cipher *cryptx.Cipher, logger zerolog.Logger) *corpus.Service {
-	return corpus.NewService(corpus.NewStore(pool), models.RetrievalModels(cipher), logger)
+func newCorpus(pool *pgxpool.Pool, models *llmstore.Store, cipher *cryptx.Cipher, rdb *redis.Client, logger zerolog.Logger) *corpus.Service {
+	return corpus.NewService(corpus.NewStore(pool), models.RetrievalModels(cipher),
+		retrievalstatus.NewSink(rdb, logger), logger)
 }
 
 // retrievalDiagnoser 实现 httpapi.RetrievalDiagnoser：一次向量 + 一次重排的实测。

@@ -20,6 +20,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/corpus"
+	"github.com/V3teran/liusha/internal/retrievalstatus"
 )
 
 // CorpusAPI 是知识库 handler 依赖的窄接口；*corpus.Service 满足。
@@ -41,6 +42,12 @@ type CorpusScenarios interface {
 	ScenarioDetails(ctx context.Context) ([]configstore.ScenarioDetail, error)
 }
 
+// RetrievalHealthReader 读检索模型的运行健康（语义检索最近一次失败）；*retrievalstatus.Store 满足。
+// nil 时不合并降级信息（单测），知识库页只按配置态显示检索方式。
+type RetrievalHealthReader interface {
+	Get(ctx context.Context) (retrievalstatus.Record, bool, error)
+}
+
 const (
 	defaultCorpusPageSize = 20
 	maxCorpusPageSize     = 100
@@ -53,7 +60,7 @@ func registerCorpusRoutes(r gin.IRouter, d Deps) {
 	if d.Corpus == nil || d.ScenarioStore == nil {
 		return
 	}
-	h := corpusHandlers{kb: d.Corpus, scenarios: d.ScenarioStore}
+	h := corpusHandlers{kb: d.Corpus, scenarios: d.ScenarioStore, health: d.RetrievalHealth}
 	// 静态子路由先于 :id 注册
 	r.GET("/corpus", h.list)
 	r.GET("/corpus/facets", h.facets)
@@ -69,6 +76,7 @@ func registerCorpusRoutes(r gin.IRouter, d Deps) {
 type corpusHandlers struct {
 	kb        CorpusAPI
 	scenarios CorpusScenarios
+	health    RetrievalHealthReader
 }
 
 // scenarioNames 取全部现存场景的「标识 → 名称」。
@@ -180,11 +188,20 @@ func (h corpusHandlers) status(c *gin.Context) {
 		respondErr(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	out := gin.H{
 		"mode": st.Mode, "unavailable": st.Unavailable,
 		"embedding_model": st.EmbeddingModel, "rerank_model": st.RerankModel,
 		"total": st.Index.Total, "pending": st.Index.Pending,
-	})
+	}
+	// 语义检索配置在但最近一次调用失败（如密钥欠费）：带上降级信息——
+	// 配置层面的不可用（unavailable）与运行层的降级（degraded）分开表达。
+	if h.health != nil && st.Mode == corpus.ModeSemantic {
+		if rec, ok, err := h.health.Get(c.Request.Context()); err == nil && ok {
+			out["degraded"] = rec.Reason
+			out["degraded_at"] = rec.At
+		}
+	}
+	c.JSON(200, out)
 }
 
 // get 处理 GET /corpus/:id → {entry, confirmations}。
