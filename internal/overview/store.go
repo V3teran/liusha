@@ -52,9 +52,6 @@ func (s *Store) Snapshot(ctx context.Context, q Query) (Snapshot, error) {
 	if snap.Usage.Daily, err = dailyUsage(ctx, tx, since, loc, q.Days); err != nil {
 		return Snapshot{}, err
 	}
-	if snap.Usage.Last24h, err = usageSince(ctx, tx, q.Now.Add(-24*time.Hour)); err != nil {
-		return Snapshot{}, err
-	}
 	if snap.Targets, err = targets(ctx, tx); err != nil {
 		return Snapshot{}, err
 	}
@@ -215,16 +212,6 @@ func dailyUsage(ctx context.Context, tx pgx.Tx, since time.Time, loc *time.Locat
 		out = append(out, DailyUsage{Date: day, UsageTotals: byDay[day]})
 	}
 	return out, nil
-}
-
-func usageSince(ctx context.Context, tx pgx.Tx, since time.Time) (UsageTotals, error) {
-	var u UsageTotals
-	err := tx.QueryRow(ctx, `SELECT `+usageColumns+` FROM llm_invocation WHERE created_at >= $1`, since).
-		Scan(&u.Calls, &u.Errors, &u.InTokens, &u.OutTokens, &u.CachedTokens)
-	if err != nil {
-		return UsageTotals{}, fmt.Errorf("概览：24 小时消耗: %w", err)
-	}
-	return u, nil
 }
 
 // targets 按目标主机汇总：先按待处理发现由重到轻排（严重最多的在前），再按最近活动排。

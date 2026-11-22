@@ -77,10 +77,9 @@ type DailySeverity struct {
 	Counts SeverityCounts `json:"counts"`
 }
 
-// Usage 是 LLM 消耗：按天序列与最近 24 小时汇总。
+// Usage 是 LLM 消耗：按天序列。
 type Usage struct {
-	Daily   []DailyUsage `json:"daily"`
-	Last24h UsageTotals  `json:"last_24h"`
+	Daily []DailyUsage `json:"daily"`
 }
 
 // UsageTotals 是一段时间内的 LLM 调用汇总。

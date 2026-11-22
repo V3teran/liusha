@@ -99,7 +99,6 @@ func TestSnapshot_CountsWindowAndTimezone(t *testing.T) {
 		{Class: "other", Name: "其他", Total: 1, Open: 0},
 	}, snap.Findings.Classes)
 
-	assert.Equal(t, overview.UsageTotals{Calls: 2, Errors: 1, InTokens: 300, OutTokens: 30, CachedTokens: 50}, snap.Usage.Last24h)
 	require.Len(t, snap.Usage.Daily, overview.DefaultWindowDays)
 	assert.Equal(t, 2, snap.Usage.Daily[overview.DefaultWindowDays-1].Calls)
 	assert.Equal(t, int64(400), snap.Usage.Daily[overview.DefaultWindowDays-3].InTokens)

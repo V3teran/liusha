@@ -37,7 +37,6 @@ export interface OverviewSnapshot {
   }
   usage: {
     daily: ({ date: string } & UsageTotals)[]
-    last_24h: UsageTotals
   }
   targets: OverviewTarget[]
 }

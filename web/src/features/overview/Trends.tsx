@@ -1,10 +1,9 @@
 import type { OverviewSnapshot } from '@/api/overview'
-import { cacheRatePct, compactNumber } from '@/lib/format'
+import { compactNumber } from '@/lib/format'
 import { SEVERITIES, severityLabel } from '@/lib/severity'
 import { RangePills } from './RangePills'
 import { TrendArea } from './TrendArea'
 import { Panel, PanelLink } from './Panel'
-import { Phrases } from './Phrases'
 
 /** 近 N 天每天新增的发现（总数）；各级别多少在当天的明细里。 */
 export function FindingsTrend({
@@ -49,8 +48,7 @@ export function FindingsTrend({
 }
 
 /**
- * 近 N 天每天的 LLM token 消耗（输入 + 输出），调用次数与错误在当天的明细里；图上方是最近 24 小时的
- * 读数——其中的错误率是 LLM 服务是否正常的信号。
+ * 近 N 天每天的 LLM token 消耗（输入 + 输出），调用次数与错误在当天的明细里。
  */
 export function UsageTrend({
   usage,
@@ -65,8 +63,6 @@ export function UsageTrend({
 }) {
   const data = usage.daily.map((d) => ({ date: d.date, value: d.in_tokens + d.out_tokens }))
   const total = data.reduce((n, d) => n + d.value, 0)
-  const last = usage.last_24h
-  const errorRate = last.calls > 0 ? (last.errors / last.calls) * 100 : 0
   return (
     <Panel
       title={`近 ${days} 天模型消耗`}
@@ -79,18 +75,6 @@ export function UsageTrend({
         </div>
       }
     >
-      <p className="flex flex-wrap items-baseline gap-x-2.5 text-xs text-text-secondary">
-        <span className="font-medium text-text">最近 24 小时</span>
-        <Phrases
-          className="tabular-nums"
-          parts={[
-            `${compactNumber(last.in_tokens + last.out_tokens)} tokens`,
-            `调用 ${last.calls} 次`,
-            `错误率 ${errorRate.toFixed(1)}%`,
-            `缓存命中 ${cacheRatePct(last.in_tokens, last.cached_tokens).toFixed(1)}%`,
-          ]}
-        />
-      </p>
       <TrendArea
         label="每天的 token 消耗"
         data={data}

@@ -42,7 +42,6 @@ function snapshot(over: Partial<OverviewSnapshot> = {}): OverviewSnapshot {
     },
     usage: {
       daily: dates.map((date, i) => ({ date, ...ZERO, ...(i === 13 ? { calls: 10, in_tokens: 9000, out_tokens: 1000 } : {}) })),
-      last_24h: { calls: 10, errors: 1, in_tokens: 9000, out_tokens: 1000, cached_tokens: 4500 },
     },
     targets: [
       {
@@ -220,8 +219,6 @@ describe('OverviewPage', () => {
     expect(within(panel).getByRole('img', { name: '11/8：0 条' })).toBeInTheDocument()
     const usage = screen.getByRole('region', { name: '近 14 天模型消耗' })
     expect(within(usage).getByRole('img', { name: /^11\/21（今天）：10K tokens（输入 9K · 输出 1K），调用 10 次/ })).toBeInTheDocument()
-    // 最近 24 小时的读数：错误率 1/10；缓存命中 4500/(9000+4500)（输入 tokens 不含命中缓存的部分）
-    expect(within(usage).getByText('最近 24 小时').closest('p')).toHaveTextContent('10K tokens，调用 10 次，错误率 10.0%，缓存命中 33.3%')
   })
 
   it('发现类型按数量排行，每类链到按类型筛好的台账，可访问名给出全部与待处理', async () => {
