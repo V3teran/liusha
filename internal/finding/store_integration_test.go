@@ -5,6 +5,8 @@ package finding_test
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -361,4 +363,29 @@ func seedResult(t *testing.T, pool *pgxpool.Pool, taskID string) string {
 		taskID).Scan(&id)
 	require.NoError(t, err)
 	return id
+}
+
+// 库里的严重度与类型约束和代码词表一一对应：改词表须同时用迁移改约束，反之亦然。
+func TestFinding_CheckConstraintsMatchVocabulary(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	listed := func(name string) []string {
+		var def string
+		require.NoError(t, pool.QueryRow(context.Background(),
+			`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, name).Scan(&def))
+		var out []string
+		for _, m := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(def, -1) {
+			out = append(out, m[1])
+		}
+		slices.Sort(out)
+		return out
+	}
+	var classes []string
+	for _, c := range finding.Classes() {
+		classes = append(classes, c.Code)
+	}
+	slices.Sort(classes)
+	assert.Equal(t, classes, listed("finding_class_check"))
+	severities := slices.Clone(finding.Severities)
+	slices.Sort(severities)
+	assert.Equal(t, severities, listed("finding_severity_check"))
 }

@@ -239,11 +239,11 @@ func targets(ctx context.Context, tx pgx.Tx) ([]Target, error) {
 			GROUP BY target_host
 		), f AS (
 			SELECT tk.target_host,
-			       count(*) FILTER (WHERE f.status = 'open' AND lower(f.severity) = 'critical') AS critical,
-			       count(*) FILTER (WHERE f.status = 'open' AND lower(f.severity) = 'high') AS high,
-			       count(*) FILTER (WHERE f.status = 'open' AND lower(f.severity) = 'medium') AS medium,
-			       count(*) FILTER (WHERE f.status = 'open' AND lower(f.severity) = 'low') AS low,
-			       count(*) FILTER (WHERE f.status = 'open' AND lower(f.severity) NOT IN ('critical', 'high', 'medium', 'low')) AS info,
+			       count(*) FILTER (WHERE f.status = 'open' AND f.severity = 'critical') AS critical,
+			       count(*) FILTER (WHERE f.status = 'open' AND f.severity = 'high') AS high,
+			       count(*) FILTER (WHERE f.status = 'open' AND f.severity = 'medium') AS medium,
+			       count(*) FILTER (WHERE f.status = 'open' AND f.severity = 'low') AS low,
+			       count(*) FILTER (WHERE f.status = 'open' AND f.severity = 'info') AS info,
 			       count(*) AS findings,
 			       max(f.created_at) AS last_finding_at
 			FROM finding f JOIN task tk ON tk.id = f.task_id

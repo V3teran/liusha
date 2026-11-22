@@ -6,7 +6,7 @@ import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { taskJumps } from '@/features/relations/taskJumps'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { FINDING_STATUS_OPTIONS, findingStatusMeta } from './findingStatus'
-import { fullTime, daysSince } from '@/lib/format'
+import { fullTime } from '@/lib/format'
 import { Badge } from '@/components/ui/Badge'
 import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -152,32 +152,9 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                     </Badge>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="w-24 flex-shrink-0 text-text-secondary">首次发现</span>
-                    <span className="text-text-secondary" title={fullTime(finding.first_seen_at)}>
-                      {fullTime(finding.first_seen_at)}
-                      {finding.first_seen_at !== finding.created_at && (
-                        <span className="ml-2 text-xs text-text-tertiary">
-                          (存在 {daysSince(finding.first_seen_at)})
-                        </span>
-                      )}
-                    </span>
+                    <span className="w-24 flex-shrink-0 text-text-secondary">发现时间</span>
+                    <span className="text-text-secondary">{fullTime(finding.created_at)}</span>
                   </div>
-                  {finding.first_seen_at !== finding.created_at && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">本次发现</span>
-                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
-                        {fullTime(finding.created_at)}
-                      </span>
-                    </div>
-                  )}
-                  {finding.first_seen_at === finding.created_at && (
-                    <div className="flex items-start gap-3">
-                      <span className="w-24 flex-shrink-0 text-text-secondary">发现时间</span>
-                      <span className="text-text-secondary" title={fullTime(finding.created_at)}>
-                        {fullTime(finding.created_at)}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </section>
 

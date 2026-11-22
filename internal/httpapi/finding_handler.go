@@ -180,7 +180,6 @@ func findingJSON(r finding.LedgerRow) gin.H {
 		"status":          r.Status,
 		"triage_note":     r.TriageNote,
 		"triaged_at":      r.TriagedAt, // *time.Time，未处置为 null
-		"first_seen_at":   r.FirstSeenAt,
 		"created_at":      r.CreatedAt,
 	}
 }

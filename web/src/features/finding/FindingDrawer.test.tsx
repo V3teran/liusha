@@ -17,7 +17,6 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     cwe: '',
     source: 'direct',
     status: 'open',
-    first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }

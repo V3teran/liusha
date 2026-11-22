@@ -68,7 +68,7 @@ func TestSnapshot_CountsWindowAndTimezone(t *testing.T) {
 	// 当地 11-21 00:30 = UTC 11-20 16:30：按 UTC 切分会落进前一天
 	earlyToday := time.Date(2026, 11, 21, 0, 30, 0, 0, shanghai)
 	seedFinding(t, pool, a, "sql_injection", "high", "open", earlyToday)
-	seedFinding(t, pool, a, "sql_injection", "HIGH", "open", now.Add(-time.Hour)) // 严重级大小写不敏感
+	seedFinding(t, pool, a, "sql_injection", "high", "open", now.Add(-time.Hour))
 	seedFinding(t, pool, a, "info_disclosure", "low", "confirmed", now.Add(-time.Hour))
 	seedFinding(t, pool, b, "sql_injection", "critical", "open", now.Add(-24*time.Hour))
 	seedFinding(t, pool, b, "other", "medium", "false_positive", old) // 窗口外：不进按天序列

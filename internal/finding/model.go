@@ -2,7 +2,7 @@
 // 自由文本 summary 主体 + 自由文本 severity（前端按前缀配色）+ 可选 evidence jsonb。
 // LLM 自决全部表达（无 kind / confidence 等强结构化约束）。
 //
-// 一条漏洞对应一个坐实结果节点（ResultNodeID）：交付按 (task_id, result_node_id) 幂等。
+// 一条漏洞对应一个坐实结果节点（ResultNodeID）：交付按结果节点幂等。
 // 主张的语义去重不在这里——复现门按主张指纹在探索图里把同一主张的再次确认折叠进同一
 // 结果节点，台账与结果一一对应。
 package finding
@@ -22,8 +22,7 @@ type Finding struct {
 	ResultNodeID string // 坐实这条漏洞的探索图结果节点（必填；交付幂等键）
 	AgentRunID   *string
 	Host         string
-	// Severity 自由文本（建议 critical/high/medium/low/info 保持配色一致；
-	// 其他值前端配色退化为蓝色）；DB 列无 enum CHECK 约束。
+	// Severity 是 Severities 五档之一（DB CHECK 约束 finding_severity_check）；交付缺省 medium。
 	Severity string
 	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
 	// Store.Save 强制非空。
@@ -36,8 +35,7 @@ type Finding struct {
 	// Class 是发现的类型，取自封闭词表（class.go）：坐实主张时评估者给出的主张类别，词表之外的
 	// 与未给出的归入 other。展示名与 CWE 按类型从词表取。
 	Class       string
-	FirstSeenAt time.Time // 首次发现时间——重放交付不变；新建时与 CreatedAt 一致
-	Remediation string    // 修复建议自然语言；evidence 仍存 PoC
+	Remediation string // 修复建议自然语言；evidence 仍存 PoC
 
 	// —— triage 处置字段 ——
 	// Status 是处置态：open/confirmed/fixed/false_positive/accepted（DB CHECK 约束五态）。

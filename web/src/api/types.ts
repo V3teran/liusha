@@ -451,7 +451,6 @@ export interface FindingRow {
   status: string // open/confirmed/fixed/false_positive/accepted
   triage_note?: string
   triaged_at?: string | null // 未处置为 null
-  first_seen_at: string // 首次发现时间（重放交付不变；追踪发现存续时长）
   created_at: string
 }
 // 台账筛选参数（全为可选，省略=不筛该维度）+ 分页。

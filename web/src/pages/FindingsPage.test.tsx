@@ -24,7 +24,6 @@ vi.mock('@/api/findings', () => ({
     cwe: '',
     source: 'direct',
     status: 'open',
-    first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
   })),
   getFindingClassFacets: vi.fn(async () => [
@@ -77,7 +76,6 @@ function makeFinding(overrides: Partial<FindingRow> = {}): FindingRow {
     cwe: 'CWE-89',
     source: 'direct',
     status: 'open',
-    first_seen_at: '2026-01-01T00:00:00Z',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
