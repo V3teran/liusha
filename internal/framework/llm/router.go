@@ -56,6 +56,9 @@ type Router struct {
 	store     RouterStore
 	pool      *ClientPool
 	retryOpts RetryOptions
+	// cooldown 是各 provider 的额度窗口登记。额度是账户级的状态，同一 provider 的所有
+	// 档位、所有调用方共用一份；挂在 Router 上是因为已构造的 Provider 实例会定期重建。
+	cooldown *cooldown
 	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
 	// 在首次 For() 之前设置；并发不安全。
 	providerWrapper func(Provider) Provider
@@ -75,6 +78,7 @@ func NewRouterWithOpts(store RouterStore, opts RetryOptions) *Router {
 		store:     store,
 		pool:      NewClientPool(),
 		retryOpts: opts,
+		cooldown:  newCooldown(),
 		cached:    make(map[Complexity]cachedProvider),
 	}
 }
@@ -131,17 +135,18 @@ func routeCandidates(c Complexity) []Complexity {
 
 func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, error) {
 	var g Generator
+	var account string
 	_, err := r.resolve(ctx, complexity, func(spec ProviderSpec) error {
 		built, err := BuildGeneratorWithKey(ctx, spec, r.pool)
 		if err == nil {
-			g = built
+			g, account = built, quotaIdentity(spec.BaseURL, spec.APIKey)
 		}
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	prov := WithRetry(NewProvider(g), r.retryOpts)
+	prov := WithRetry(NewProvider(g), r.retryOpts, r.cooldown, account)
 	if r.providerWrapper != nil {
 		prov = r.providerWrapper(prov)
 	}
@@ -194,6 +199,14 @@ func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.providerWrapper = fn
 	r.cached = make(map[Complexity]cachedProvider) // 换钩子后作废旧缓存
 	r.mu.Unlock()
+}
+
+// WithoutQuotaHold 让额度窗口内的调用不在调用内等待、立即把限流交还。给没有外层
+// 重认领循环的调用方用（对话、问答、意图分类）：智能体的调用方交还动作后会立即重新
+// 认领，需要调用层的等待把循环垫慢；对话侧等一分钟再报错，只会把一句清楚的「额度
+// 窗口内」拖成连接超时。在首次 For() 之前调用。
+func (r *Router) WithoutQuotaHold() {
+	r.cooldown.holdInWindow = false
 }
 
 // ContextWindow 返回指定档位当前路由 provider 的上下文窗口（token 数）。

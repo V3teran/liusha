@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -121,13 +123,19 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 }
 
 // wrapOpenAICompatErr 把 openai SDK 错误归一为 *HTTPError（retry 分类按状态码工作）。
+// SDK 的错误对象不暴露响应头，限流的恢复时刻只能从错误体里写明的重置时间取；
+// 标准的 Retry-After 头在这里拿不到。
 func wrapOpenAICompatErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	var apiErr *openai.APIError
-	if errors.As(err, &apiErr) {
-		return &HTTPError{Code: apiErr.HTTPStatusCode, Inner: err}
+	if !errors.As(err, &apiErr) {
+		return err
 	}
-	return err
+	he := &HTTPError{Code: apiErr.HTTPStatusCode, Inner: err}
+	if apiErr.HTTPStatusCode == http.StatusTooManyRequests {
+		he.RetryAt = retryAtFromMessage(apiErr.Error(), time.Now())
+	}
+	return he
 }
