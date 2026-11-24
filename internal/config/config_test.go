@@ -42,6 +42,10 @@ func TestLoad_Template(t *testing.T) {
 	if c := cfg.LLM; c.AccountConcurrency != 4 {
 		t.Fatalf("llm.account_concurrency 出厂值 = %d，期望 4", c.AccountConcurrency)
 	}
+	if r := cfg.Runner; r.ActionParallelism != 4 || r.VerificationParallelism != 3 || r.MonitorIntervalSeconds != 360 {
+		t.Fatalf("任务宽度与监察间隔的出厂值不符: action=%d verification=%d monitor=%ds",
+			r.ActionParallelism, r.VerificationParallelism, r.MonitorIntervalSeconds)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +134,9 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  max_size_bytes: 104857600", "  max_size_bytes: 1000", "log.max_size_bytes"},
 		{"  pool_size: 20", "  pool_size: 0", "redis.pool_size"},
 		{"  account_concurrency: 4", "  account_concurrency: -1", "llm.account_concurrency"},
+		{"  action_parallelism: 4", "  action_parallelism: 0", "runner.action_parallelism"},
+		{"  verification_parallelism: 3", "  verification_parallelism: 0", "runner.verification_parallelism"},
+		{"  monitor_interval_seconds: 360", "  monitor_interval_seconds: 0", "runner.monitor_interval_seconds"},
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
 		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},

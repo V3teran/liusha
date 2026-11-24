@@ -121,6 +121,11 @@ runner:
   read_header_timeout_seconds: 5
   shutdown_timeout_seconds: 5
   concurrency: 10                    # 同时执行的任务数
+  # 任务宽度：一个任务想跑多宽。它们不是对模型账户的保护——同一账户同时在途的请求数由 LLM 层按
+  # llm.account_concurrency 统一限制，超出的调用排队等名额。
+  action_parallelism: 4              # 一个任务同时执行的动作数上限；目标不容忍并发访问（顶掉登录态、对并发断连）时降到 1–2，1 = 串行
+  verification_parallelism: 3        # 评估者同时验证的假设数上限
+  monitor_interval_seconds: 360      # 监察者两次全局评估的间隔；每次评估是一次完整的状态通读，调小更及时、也更费
   drain_timeout_seconds: 30          # 停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限
   agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
   max_actions_per_task: 0            # 动作预算：单任务最多执行的动作数；0 = 不限

@@ -79,6 +79,15 @@ type Deps struct {
 
 	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
+	// 任务宽度与监察节律，取自部署配置（启动期快照，改后重启生效）：ActionParallelism
+	// 是一个任务同时执行的动作数上限，VerificationParallelism 是评估者同时验证的假设数
+	// 上限，MonitorInterval 是监察者两次全局评估的间隔。它们只表达一个任务想跑多宽；
+	// 对模型账户的保护不在这三个数上——同一账户同时在途的请求数由 LLM 层按
+	// llm.account_concurrency 统一限制，超出的调用排队等名额。
+	ActionParallelism       int
+	VerificationParallelism int
+	MonitorInterval         time.Duration
+
 	// StepLLMTimeout 是单步 LLM 看门狗上限（系统配置 runtime 组快照），与工具超时上限
 	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
 	StepLLMTimeout time.Duration
@@ -411,7 +420,7 @@ func (d *Deps) assembleStack(
 		Replanner:           plannerAgent, // 重规划请求直达规划者
 		Router:              d.Router,
 		Complexity:          cfgs.monitor.Complexity,
-		Interval:            constants.MonitorInterval,
+		Interval:            d.MonitorInterval,
 		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
 		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
 	})
@@ -498,7 +507,7 @@ func (d *Deps) buildExecutorAgent(
 		Executor:    engine,
 		EventBus:    d.EventBus,
 		Logger:      d.Logger.With().Str("component", "executor_agent").Logger(),
-		MaxParallel: 4, // open 动作并发执行（浏览器已按 action 隔离 tab）
+		MaxParallel: d.ActionParallelism, // open 动作并发执行（浏览器已按 action 隔离 tab）
 		Activity:    activity,
 		StallTimeout: executor.StallTimeout(d.stepLLMTimeout(),
 			time.Duration(d.ToolLimits.StepToolTimeoutSeconds)*time.Second),
@@ -580,8 +589,7 @@ func (d *Deps) buildEvaluatorAgent(
 		Graph:      d.Graph,
 		Logger:     d.Logger.With().Str("component", "evaluator_agent").Logger(),
 		// 验证并发：每个验证 = 机器复放 + 一轮 judge ReAct（LLM 账单随并发线性放大）
-		// 降低到 3 避免 GLM API 限流
-		MaxConcurrent: 3,
+		MaxConcurrent: d.VerificationParallelism,
 		PollInterval:  5 * time.Second, // 每 5 秒轮询一次未验证的 observation
 	})
 }

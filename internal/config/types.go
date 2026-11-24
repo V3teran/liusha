@@ -176,6 +176,12 @@ type RunnerConfig struct {
 
 	// Concurrency 是同时执行的任务数。
 	Concurrency int `mapstructure:"concurrency"`
+	// ActionParallelism 是一个任务同时执行的动作数上限；1 = 串行。
+	ActionParallelism int `mapstructure:"action_parallelism"`
+	// VerificationParallelism 是评估者同时验证的假设数上限。
+	VerificationParallelism int `mapstructure:"verification_parallelism"`
+	// MonitorIntervalSeconds 是监察者两次全局评估之间的间隔。
+	MonitorIntervalSeconds int `mapstructure:"monitor_interval_seconds"`
 	// DrainTimeoutSeconds 是停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限。
 	DrainTimeoutSeconds int `mapstructure:"drain_timeout_seconds"`
 
