@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -371,13 +373,19 @@ func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []T
 }
 
 // wrapAnthropicErr 把 SDK 的 *anthropic.Error 归一成 *HTTPError（供重试分类读状态码）。
+// 限流响应一并带上恢复时刻：SDK 的错误对象持有原始响应，标准的 Retry-After 头优先，
+// 其次是错误体里写明的重置时间。
 func wrapAnthropicErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	var apiErr *anthropic.Error
-	if errors.As(err, &apiErr) {
-		return &HTTPError{Code: apiErr.StatusCode, Inner: err}
+	if !errors.As(err, &apiErr) {
+		return err
 	}
-	return err
+	he := &HTTPError{Code: apiErr.StatusCode, Inner: err}
+	if apiErr.StatusCode == http.StatusTooManyRequests && apiErr.Response != nil {
+		he.RetryAt = retryAtOf(apiErr.Response.Header, apiErr.Error(), time.Now())
+	}
+	return he
 }

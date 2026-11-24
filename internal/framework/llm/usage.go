@@ -12,6 +12,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -85,8 +86,12 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 	rec := p.baseRecord(meta)
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
 	// messages 无论成败都留存：失败现场（哪些消息触发 4xx）是排障第一证据，
-	// 只记成功等于审计在最需要的地方失明。
-	rec.Messages = auditMessages(req.Messages)
+	// 只记成功等于审计在最需要的地方失明。没有发往上游的调用（额度窗口内被挡下）
+	// 是例外：它没有现场可留，而且每个在途槽位每分钟都会来一次，留存只是把提示词
+	// 反复写进审计。
+	if !isHeld(err) {
+		rec.Messages = auditMessages(req.Messages)
+	}
 	if err != nil {
 		rec.Err = err.Error()
 	} else {
@@ -109,7 +114,9 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 		rec := p.baseRecord(meta)
 		rec.LatencyMs = int(time.Since(start).Milliseconds())
 		rec.Err = err.Error()
-		rec.Messages = auditMessages(req.Messages)
+		if !isHeld(err) {
+			rec.Messages = auditMessages(req.Messages)
+		}
 		p.sink.RecordUsage(ctx, rec)
 		return ch, err
 	}
@@ -228,6 +235,12 @@ func (p *instrumentedProvider) finishStreamRecord(
 
 func (p *instrumentedProvider) ModelID() string    { return p.inner.ModelID() }
 func (p *instrumentedProvider) ProviderID() string { return p.inner.ProviderID() }
+
+// isHeld 报告这次调用是否在额度窗口内被挡下、没有发往上游。
+func isHeld(err error) bool {
+	var he *heldError
+	return errors.As(err, &he)
+}
 
 func (p *instrumentedProvider) baseRecord(meta CallMeta) UsageRecord {
 	return UsageRecord{

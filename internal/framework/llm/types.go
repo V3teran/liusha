@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // MessageRole 是 LLM 消息角色。
@@ -140,6 +141,10 @@ type OptionsGenerator interface {
 type HTTPError struct {
 	Code  int
 	Inner error
+	// RetryAt 是上游告知的恢复时刻（限流响应的 Retry-After 头，或错误体里写明的重置时间）；
+	// 零值 = 上游没有告知。只对限流有意义：速率限制几秒后恢复，额度限制要到重置点才恢复，
+	// 二者的等待时长相差几个数量级，按同一张退避表重试会让后者在恢复前耗尽重试次数。
+	RetryAt time.Time
 }
 
 // Error 满足 error 接口。

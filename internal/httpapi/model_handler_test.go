@@ -215,7 +215,7 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		{"思考预算用于非 anthropic", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
 		{"思考预算过小", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
 		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
-		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 4096}},
+		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": llmconfig.DefaultMaxTokens}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

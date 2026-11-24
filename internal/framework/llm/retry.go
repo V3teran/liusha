@@ -1,11 +1,14 @@
 // Package llm 的重试装饰器：按错误码退避表自动重试，重试耗尽即失败。
 //
 // 退避表与错误分类是框架能力，定义在本包；Router 装配 Provider 时包上本装饰器。
+// 限流以上游告知的恢复时刻为准（见 retry_at.go）：瞬时限流等完接着发，额度窗口转入
+// 冷却（见 cooldown.go），都不按退避表盲等。
 package llm
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -26,9 +29,9 @@ type RetryOptions struct {
 	Backoff529 time.Duration   // 单值（529 只重试 1 次）
 }
 
-// DefaultRetryOptions 返回内置退避表。429 档取长尾：账号级限流
-// （并发/配额型）的恢复窗口以十秒计，短退避只会连撞三次后放弃；四个 Agent
-// 并发调用的场景下，长尾 + 抖动让重试天然错峰。
+// DefaultRetryOptions 返回内置退避表。429 档取长尾：并发型限流的恢复窗口以十秒计，
+// 短退避只会连撞几次后放弃；四个 Agent 并发调用的场景下，长尾 + 抖动让重试天然错峰。
+// 额度型限流（按小时、按天重置）不在这张表的射程内，由额度窗口冷却处理。
 func DefaultRetryOptions() RetryOptions {
 	return RetryOptions{
 		MaxRetries429: 4,
@@ -208,14 +211,18 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// WithRetry 返回带退避重试的 Provider。
-func WithRetry(inner Provider, opts RetryOptions) Provider {
-	return &retryProvider{inner: inner, opts: opts}
+// WithRetry 返回带退避重试的 Provider。cd 是进程内共享的额度窗口登记（由 Router 持有：
+// 已构造的 Provider 实例会定期重建，登记不能挂在实例上），account 是这份 provider 所用
+// 额度的归属标识（见 quotaIdentity）。
+func WithRetry(inner Provider, opts RetryOptions, cd *cooldown, account string) Provider {
+	return &retryProvider{inner: inner, opts: opts, cooldown: cd, account: account}
 }
 
 type retryProvider struct {
-	inner Provider
-	opts  RetryOptions
+	inner    Provider
+	opts     RetryOptions
+	cooldown *cooldown
+	account  string
 }
 
 func (r *retryProvider) ModelID() string    { return r.inner.ModelID() }
@@ -226,14 +233,24 @@ func (r *retryProvider) Complete(ctx context.Context, req Request) (Response, er
 	if err := ctx.Err(); err != nil {
 		return Response{}, err
 	}
+	probe, err := r.awaitRecovery(ctx)
+	if err != nil {
+		return Response{}, err
+	}
 	resp, err := r.inner.Complete(ctx, req)
 	if err == nil {
+		if probe {
+			r.cooldown.lift(r.account)
+		}
 		return resp, nil
 	}
 	switch Classify(err) {
 	case ClassOther:
 		return Response{}, err
 	case Class429:
+		if until, ok := r.registerQuotaWindow(err); ok {
+			return Response{}, r.hold(ctx, until, err)
+		}
 		return r.retryLoop(ctx, req, err, r.opts.MaxRetries429, r.opts.Backoff429)
 	case Class529:
 		return r.retry529(ctx, req, err)
@@ -245,13 +262,94 @@ func (r *retryProvider) Complete(ctx context.Context, req Request) (Response, er
 	return Response{}, err
 }
 
+// awaitRecovery 在发请求前执行：这份额度若处于窗口内，按登记处的准入结果等待、放行探测或
+// 交还。返回这是不是一次放行的探测——探测成功后由调用方解除窗口。
+func (r *retryProvider) awaitRecovery(ctx context.Context) (probe bool, err error) {
+	decision, e := r.cooldown.admit(r.account, time.Now())
+	switch decision {
+	case admitFree:
+		return false, nil
+	case admitProbe:
+		return true, nil
+	case admitTail:
+		// 窗口尾声：等到恢复时刻就发，不必交还外层绕一圈。
+		if r.cooldown.holdInWindow && SleepCtx(ctx, stagger(time.Until(e.until))) == nil {
+			return false, nil
+		}
+		// 等待被打断（预算用尽或调用方取消）：ctx 已结束，下面的等待不再占用时间，
+		// 错误口径与窗口内一致。
+	}
+	// 这一次调用没有发出去：标记下来，审计不留提示词（没有发出去的请求没有失败现场）。
+	return false, &heldError{err: r.hold(ctx, e.until, e.cause)}
+}
+
+// registerQuotaWindow 报告这次限流是否宣告了一个额度窗口（上游告知的恢复时刻超出了
+// 瞬时限流的范围）；是则登记它，并返回那个时刻。
+func (r *retryProvider) registerQuotaWindow(err error) (time.Time, bool) {
+	d, ok := RetryAfter(err, time.Now())
+	if !ok || d <= r.cooldown.window {
+		return time.Time{}, false
+	}
+	until := time.Now().Add(d)
+	r.cooldown.open(r.account, until, err, time.Now())
+	return until, true
+}
+
+// hold 是额度窗口内的静默等待：至多一个窗口分界时长，本次调用的预算（ctx 的截止时间）
+// 先用完就先交还。等待期间不发出请求，结束后把限流交还调用方——调用方对持续限流的
+// 处置是现成的（交还动作、不计失败、稍后重来），这里只负责把循环的节奏放缓。
+func (r *retryProvider) hold(ctx context.Context, until time.Time, cause error) error {
+	d := time.Until(until)
+	if d > r.cooldown.window {
+		d = r.cooldown.window
+	}
+	if !r.cooldown.holdInWindow {
+		d = 0
+	}
+	if d > 0 {
+		// 预算在等待中用尽不是超时故障：调用方等的是上游恢复，如实交还限流，
+		// 审计里才不会把额度耗尽记成网络故障。
+		if err := SleepCtx(ctx, d); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+	}
+	return fmt.Errorf("上游处于额度窗口（至 %s 恢复）: %w", until.Local().Format("2006-01-02 15:04:05"), cause)
+}
+
+// heldError 标记一次没有发往上游的调用：额度窗口内被登记挡下。审计据此不留提示词——
+// 没有发出去的请求没有失败现场，而每个在途槽位每分钟都会来一次。发现窗口的那次调用
+// 不在此列：它真的被上游拒绝了，那正是最该留的证据。
+type heldError struct{ err error }
+
+func (e *heldError) Error() string { return e.err.Error() }
+
+// Unwrap 让审计的「被挡下」判定与错误的分类、瞬时判定都穿透到内层。
+func (e *heldError) Unwrap() error { return e.err }
+
+// pause 是一轮重试之前的等待。上游明确要求等待的限流按它给的时长（只会在窗口分界
+// 以内：更长的等待在撞上时就转入了额度窗口），不按退避表的估计值；其余按退避表。
+// 两者都加抖动：上游给出同一个恢复时刻时，所有等待方会在同一瞬间醒来齐发，恢复的
+// 那一刻成了一次自找的限流。
+func (r *retryProvider) pause(err error, attempt int, schedule []time.Duration) time.Duration {
+	if d, ok := RetryAfter(err, time.Now()); ok {
+		return stagger(d)
+	}
+	if attempt < len(schedule) {
+		return jitterDuration(schedule[attempt])
+	}
+	return 0
+}
+
+// stagger 在一个等待时长之上加随机错峰，落在 [d, 1.5d)：只推迟、不提前，上游要求的
+// 最短等待始终被遵守。
+func stagger(d time.Duration) time.Duration {
+	// #nosec G404 -- 等待时序抖动非安全敏感：只把并发的等待摊开，弱随机足够且免错误分支。
+	return d + time.Duration(rand.Int64N(int64(d/2)+1))
+}
+
 func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr error, maxRetries int, schedule []time.Duration) (Response, error) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		var d time.Duration
-		if attempt < len(schedule) {
-			d = jitterDuration(schedule[attempt])
-		}
-		if err := SleepCtx(ctx, d); err != nil {
+		if err := SleepCtx(ctx, r.pause(lastErr, attempt, schedule)); err != nil {
 			return Response{}, err
 		}
 		resp, err := r.inner.Complete(ctx, req)
@@ -262,6 +360,9 @@ func (r *retryProvider) retryLoop(ctx context.Context, req Request, lastErr erro
 		// 非重试类错误立即上抛，不按上一轮的退避表空转。
 		if Classify(err) == ClassOther {
 			return Response{}, err
+		}
+		if until, ok := r.registerQuotaWindow(err); ok {
+			return Response{}, r.hold(ctx, until, err)
 		}
 		lastErr = err
 	}
@@ -280,6 +381,9 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 		if Classify(err) == ClassOther {
 			return Response{}, err
 		}
+		if until, ok := r.registerQuotaWindow(err); ok {
+			return Response{}, r.hold(ctx, until, err)
+		}
 		lastErr = err
 	}
 	return Response{}, lastErr
@@ -290,14 +394,27 @@ func (r *retryProvider) retry529(ctx context.Context, req Request, lastErr error
 // 与 Complete 一样安全。流建立成功（返回了 channel）之后的中途失败不做重试
 // ——已产出的事件无法收回，整体重跑的决策权在调用方。
 func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	probe, err := r.awaitRecovery(ctx)
+	if err != nil {
+		return nil, err
+	}
 	ch, err := r.inner.Stream(ctx, req)
 	if err == nil {
+		if probe {
+			r.cooldown.lift(r.account)
+		}
 		return ch, nil
 	}
 	switch Classify(err) {
 	case ClassOther:
 		return nil, err
 	case Class429:
+		if until, ok := r.registerQuotaWindow(err); ok {
+			return nil, r.hold(ctx, until, err)
+		}
 		return r.retryStream(ctx, req, err, r.opts.MaxRetries429, r.opts.Backoff429)
 	case Class529:
 		return r.retryStream(ctx, req, err, r.opts.MaxRetries529, []time.Duration{r.opts.Backoff529})
@@ -311,11 +428,7 @@ func (r *retryProvider) Stream(ctx context.Context, req Request) (<-chan StreamE
 
 func (r *retryProvider) retryStream(ctx context.Context, req Request, lastErr error, maxRetries int, schedule []time.Duration) (<-chan StreamEvent, error) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		var d time.Duration
-		if attempt < len(schedule) {
-			d = jitterDuration(schedule[attempt])
-		}
-		if err := SleepCtx(ctx, d); err != nil {
+		if err := SleepCtx(ctx, r.pause(lastErr, attempt, schedule)); err != nil {
 			return nil, err
 		}
 		ch, err := r.inner.Stream(ctx, req)
@@ -324,6 +437,9 @@ func (r *retryProvider) retryStream(ctx context.Context, req Request, lastErr er
 		}
 		if Classify(err) == ClassOther {
 			return nil, err
+		}
+		if until, ok := r.registerQuotaWindow(err); ok {
+			return nil, r.hold(ctx, until, err)
 		}
 		lastErr = err
 	}
