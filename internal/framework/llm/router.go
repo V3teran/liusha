@@ -38,10 +38,10 @@ func ParseComplexity(complexity string) Complexity {
 	}
 }
 
-// providerCacheTTL 是已构造 Provider 实例的缓存有效期。
-// 缓存把 API key/model/baseURL 烤进实例——前端改配置后若缓存不过期，
-// 新配置直到进程重启才生效。TTL 把这个窗口封顶（llmstore 侧的多级缓存
-// 仍负责读路径的即时失效，本 TTL 只兜「已构造实例」这一层）。
+// providerCacheTTL 是已构造 Provider 实例的缓存有效期，也是模型配置变更生效时间的上界。
+// 实例把密钥、模型、服务地址烤在里面：读路径（llmstore）的缓存在写入后即刻失效，已构造的
+// 实例不会——持有 Router 的组件在模型配置变更时调 InvalidateAll 丢掉它们；没经它作废的
+// 变更（绕过写路径直接改库）由这个 TTL 兜底。
 const providerCacheTTL = 30 * time.Second
 
 // cachedProvider 是 Router 的缓存条目（实例 + 构造时刻）。
@@ -50,8 +50,8 @@ type cachedProvider struct {
 	builtAt time.Time
 }
 
-// Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全，
-// 条目经 providerCacheTTL 过期，保证配置变更有界生效）。
+// Router 按 Complexity 路由 Provider，内部缓存已构造实例（线程安全）。模型配置变更时经
+// InvalidateAll 作废它们，此后按新配置构造；条目另有 providerCacheTTL 的有效期。
 type Router struct {
 	store     RouterStore
 	pool      *ClientPool
@@ -65,6 +65,9 @@ type Router struct {
 	providerWrapper func(Provider) Provider
 	mu              sync.Mutex
 	cached          map[Complexity]cachedProvider
+	// invalidations 是缓存被整体作废的次数：一次构造若跨越了作废，它读到的可能是作废前的
+	// 配置，结果不进缓存（见 For）。调用方持锁。
+	invalidations uint64
 }
 
 // NewRouter 构造 Router：框架内置的退避策略，不限账户在途数。
@@ -85,14 +88,14 @@ func NewRouterWithOpts(store RouterStore, opts RetryOptions, accountConcurrency 
 	}
 }
 
-// For 返回指定 Complexity 的 Provider（缓存命中且未过期直接返回）。
-// 配置变更可调用 Invalidate 清缓存；不调用也会经 providerCacheTTL 自然过期。
+// For 返回指定 Complexity 的 Provider：缓存里有未过期的实例就用它，否则按当前配置构造。
 func (r *Router) For(ctx context.Context, complexity Complexity) (Provider, error) {
 	r.mu.Lock()
 	if e, ok := r.cached[complexity]; ok && time.Since(e.builtAt) < providerCacheTTL {
 		r.mu.Unlock()
 		return e.p, nil
 	}
+	seen := r.invalidations
 	r.mu.Unlock()
 
 	p, err := r.build(ctx, complexity)
@@ -101,23 +104,28 @@ func (r *Router) For(ctx context.Context, complexity Complexity) (Provider, erro
 	}
 
 	r.mu.Lock()
-	r.cached[complexity] = cachedProvider{p: p, builtAt: time.Now()}
+	// 构造期间缓存被作废过：这次读到的可能是作废前的配置，结果不进缓存——进了就要再活一个
+	// TTL，这次变更对该档位就不是立即生效。这一次调用照用它的结果：它开始于作废之前，
+	// 与已经发出去的请求同样不受影响。
+	if r.invalidations == seen {
+		r.cached[complexity] = cachedProvider{p: p, builtAt: time.Now()}
+	}
 	r.mu.Unlock()
 	return p, nil
 }
 
-// Invalidate 清除指定 complexity 的缓存（配置热更新时调用）。
-func (r *Router) Invalidate(complexity Complexity) {
+// InvalidateAll 作废全部已构造的实例，下一次 For 按当前配置重新构造。模型配置（provider、
+// 角色路由）变更后调用。已经发出去的请求不受影响——它们用的是作废前构造的实例。
+func (r *Router) InvalidateAll() {
 	r.mu.Lock()
-	delete(r.cached, complexity)
+	r.dropCached()
 	r.mu.Unlock()
 }
 
-// InvalidateAll 清除所有缓存。
-func (r *Router) InvalidateAll() {
-	r.mu.Lock()
+// dropCached 作废全部已构造的实例。调用方持锁。
+func (r *Router) dropCached() {
 	r.cached = make(map[Complexity]cachedProvider)
-	r.mu.Unlock()
+	r.invalidations++
 }
 
 // routeCandidates 返回档位的解析候选序：显式档 → 就近降级（能力相邻档优先）。
@@ -199,7 +207,7 @@ func (r *Router) resolve(ctx context.Context, complexity Complexity, accept func
 func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.mu.Lock()
 	r.providerWrapper = fn
-	r.cached = make(map[Complexity]cachedProvider) // 换钩子后作废旧缓存
+	r.dropCached() // 换钩子后作废旧缓存
 	r.mu.Unlock()
 }
 

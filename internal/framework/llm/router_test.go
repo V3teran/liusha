@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -256,4 +258,151 @@ func TestRouter_FailFastReturnsInsteadOfWaiting(t *testing.T) {
 			t.Fatalf("不应在额度窗口内等候，实际等了 %v", waited)
 		}
 	})
+}
+
+// countingStore 数路由被读过的次数：Router 每按配置构造一次实例，就读一次路由。
+type countingStore struct {
+	fakeRouterStore
+	reads atomic.Int32
+}
+
+func (s *countingStore) GetRouting(ctx context.Context) (RoutingSpec, error) {
+	s.reads.Add(1)
+	return s.fakeRouterStore.GetRouting(ctx)
+}
+
+// gatedStore 把第一次读路由停在「配置已经读完」的地方直到放行，用来让一次构造正好跨越
+// 一次作废。
+type gatedStore struct {
+	countingStore
+	read    chan struct{}
+	proceed chan struct{}
+}
+
+func (s *gatedStore) GetRouting(ctx context.Context) (RoutingSpec, error) {
+	routing, err := s.countingStore.GetRouting(ctx)
+	if s.reads.Load() == 1 {
+		close(s.read)
+		<-s.proceed
+	}
+	return routing, err
+}
+
+// 模型配置变更后作废：下一次 For 按当前配置重新构造。只改配置不作废时仍是缓存里的旧实例
+// （留给 TTL 兜底）——这同时说明后面的新实例来自作废，不是别的什么。
+func TestRouter_InvalidateAllRebuildsFromCurrentConfig(t *testing.T) {
+	s := &countingStore{fakeRouterStore: fakeRouterStore{
+		routes:    map[string]string{"medium": "old"},
+		providers: map[string]ProviderSpec{"old": goodSpec("old"), "new": goodSpec("new")},
+	}}
+	r := NewRouter(s)
+	ctx := context.Background()
+
+	cached, err := r.For(ctx, ComplexityMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := r.For(ctx, ComplexityMedium); err != nil || again != cached {
+		t.Fatalf("未作废时应交出缓存里的同一个实例，实际 %v, %v", again, err)
+	}
+
+	s.routes["medium"] = "new"
+	if p, err := r.For(ctx, ComplexityMedium); err != nil || p.ProviderID() != "old" {
+		t.Fatalf("只改配置不作废，TTL 之内仍是旧实例，实际 %v, %v", p, err)
+	}
+
+	r.InvalidateAll()
+	p, err := r.For(ctx, ComplexityMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ProviderID() != "new" {
+		t.Fatalf("作废后应按新配置构造，实际 %q", p.ProviderID())
+	}
+	if got := s.reads.Load(); got != 2 {
+		t.Fatalf("应只在新旧配置下各构造一次，实际构造了 %d 次", got)
+	}
+}
+
+// 一次构造跨越了作废：它读到的是作废前的配置，结果不进缓存——进了就要再活一个 TTL，这次
+// 变更对该档位就不是立即生效。这一次调用照用它的结果：它开始于作废之前。
+func TestRouter_ConstructionSpanningInvalidationIsNotCached(t *testing.T) {
+	s := &gatedStore{countingStore: countingStore{fakeRouterStore: fakeRouterStore{
+		routes:    map[string]string{"medium": "old"},
+		providers: map[string]ProviderSpec{"old": goodSpec("old"), "new": goodSpec("new")},
+	}}, read: make(chan struct{}), proceed: make(chan struct{})}
+	r := NewRouter(s)
+	ctx := context.Background()
+
+	type outcome struct {
+		p   Provider
+		err error
+	}
+	first := make(chan outcome, 1)
+	go func() {
+		p, err := r.For(ctx, ComplexityMedium)
+		first <- outcome{p, err}
+	}()
+
+	<-s.read // 构造已读完配置（读到的是 old），停在回填缓存之前
+	s.routes["medium"] = "new"
+	r.InvalidateAll()
+	close(s.proceed)
+
+	got := <-first
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.p.ProviderID() != "old" {
+		t.Fatalf("这一次调用开始于作废之前，应照用作废前读到的配置，实际 %q", got.p.ProviderID())
+	}
+
+	next, err := r.For(ctx, ComplexityMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ProviderID() != "new" {
+		t.Fatalf("跨越作废的构造不进缓存，下一次 For 应按新配置构造，实际 %q", next.ProviderID())
+	}
+	if again, err := r.For(ctx, ComplexityMedium); err != nil || again != next {
+		t.Fatalf("作废之后的构造应照常进缓存，实际 %v, %v", again, err)
+	}
+	if got := s.reads.Load(); got != 2 {
+		t.Fatalf("除跨越作废的那一次外，新旧配置各只构造一次，实际路由读了 %d 次", got)
+	}
+}
+
+// 作废与构造并发：InvalidateAll 是收到失效通知时在总线的订阅 goroutine 里调的，随时可能与
+// 任何一次 For 重叠。
+func TestRouter_ForAndInvalidateAllAreSafeConcurrently(t *testing.T) {
+	s := &countingStore{fakeRouterStore: fakeRouterStore{
+		routes:    map[string]string{"medium": "a"},
+		providers: map[string]ProviderSpec{"a": goodSpec("a")},
+	}}
+	r := NewRouter(s)
+	ctx := context.Background()
+
+	const workers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				if _, err := r.For(ctx, ComplexityMedium); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	for j := 0; j < 100; j++ {
+		r.InvalidateAll()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
 }

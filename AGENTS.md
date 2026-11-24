@@ -296,6 +296,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 只有一条路径：在前端「模型」页填写，`llm_provider.encrypted_api_key` 与检索模型密钥（`retrieval_model` 单行表）都以 AES-GCM 落库（加密密钥是配置 `llm.encryption_key`）。配置文件不涉及模型接入，不从环境变量取模型密钥。事实源：`internal/llmconfig/apikey.go`、`internal/llmconfig/retrieval.go`。
 - 缺少模型配置不阻止启动：任务下发会被拒绝，并提示到前端配置。检索模型密钥缺失不拒绝任何东西：知识库自动退字面检索（语义故障退回见「知识库」）——与对话模型「未配置即拒任务」的语义正好相反。
 - 档位解析（`framework/llm/router.go`）：显式档 → 就近降级到相邻档。provider 停用、缺钥都按「未配置」处理并继续降级；全部候选不可用时保留 `ErrNotConfigured`，任务据此干净终结。
+- 模型配置保存后立即生效，两处缓存由同一次写入的失效广播分别作废：读路径的缓存（`llmstore`）由写路径清掉；已构造的 Provider 实例烤着密钥、模型与服务地址，由各持有方挂在同一条总线上的 `llmstore.OnRoutingChange(router.InvalidateAll)` 丢掉。新增持有 Router 的组件时必须挂——漏挂不报错，只是退回实例缓存的有效期（30 秒）。检索模型的密钥不在其列，它只管知识库的检索方式。
 - 限流的等待以上游告知的恢复时刻为准（`framework/llm` 的 `retry_at.go`、`cooldown.go`）：标准的 `Retry-After` 头优先，其次是错误体里写明的重置时间（不带时区的按北京时间读），拿不到才按退避表 `llm.retry` 盲等。等待在一分钟以内是瞬时限流，按它给的时长等完在本次调用内接着发；超过一分钟是额度窗口（额度按小时、按天重置），登记到 Router 持有的额度窗口登记处——按「服务地址 + 密钥」识别账户，同账户的各 provider、各调用方共用一份。窗口内不发请求：智能体的调用在调用预算内静默等待至多一分钟后把限流原样交还（调用方交还动作后立即重新认领，即刻返回就是空转）；对话侧（api 进程）没有这种循环，`Router.FailFast` 让它立即交还。窗口内每 5 分钟放行一次探测，额度提前到账就当场解除。没发出去的调用在审计里不留提示词；预算在等待中用尽如实交还限流，不记成网络超时。调用的预算约束与在途名额见「运行时机制 · 并发模型」。
 - provider 只认协议、不认服务：官方、各家兼容端点、中转网关都按 `openai_compat` / `anthropic` 接入，代码里不出现任何服务名单。服务间的差异由「请求画像」承载——`auth_scheme`（`bearer` / `x-api-key`，与协议正交）与 `output_limit_param`（`max_tokens` / `max_completion_tokens`）——由连接诊断实测后记录；运行期 OpenAI 兼容生成器遇上游明确拒绝某个可选字段时也会自适应改写重发（`framework/llm/openai_compat_adapt.go`）。
 - 出站凭据只有一个出口：`ClientPool` 的传输层清掉全部凭据头（含 SDK 从环境变量注入的外来值）后按 `auth_scheme` 只写一个；只跟随同源重定向，跨源重定向不得带出密钥。
