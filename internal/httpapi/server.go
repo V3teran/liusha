@@ -58,6 +58,9 @@ type Deps struct {
 	TaskControl TaskControlAPI
 	// TaskSteering 为 nil 时运行中引导路由不注册（调整目标 / 指派动作 / 否决动作）。
 	TaskSteering TaskSteeringAPI
+	// LiveRuns 为 nil 时 GET /tasks/:id/run 不注册（任务当前存活的一轮 run 与它的存活心跳）。
+	// api 组件注入 *agentrun.Store。
+	LiveRuns LiveRunReader
 	// Deleter 为 nil 时 DELETE /conversations/:id 不注册（删会话+消息，不动 scan/finding 成果）。
 	Deleter ConversationDeleter
 	// Attachments/AttachmentContext 为 nil（或 AttachmentMaxBytes<=0）时附件上传路由不注册。

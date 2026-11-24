@@ -29,6 +29,9 @@ type Run struct {
 	Status    Status
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// HeartbeatAt 是最近一次存活心跳（见 heartbeat.go 的说明：runner/heartbeat.go）。pending 的
+	// run 没有人续约，取建行时刻；running 的由持有它的进程续约。
+	HeartbeatAt time.Time
 }
 
 // NewParams 是 Store.Create 的入参。

@@ -1,5 +1,5 @@
-// telemetry.go 工具调用遥测：每次工具调用落 tool_invocation（恢复监控判 run 停摆的依据之一）、
-// 活动打点（执行者看门狗判动作停摆的依据）。
+// telemetry.go 工具调用遥测：每次工具调用落 tool_invocation、活动打点（执行者看门狗判动作停摆的
+// 依据），并把工具的超时登记到所属 run 的存活心跳（恢复监控判 run 是否还在被推进的依据）。
 
 package cognition
 
@@ -22,6 +22,12 @@ func (d *Deps) toolRecordInterceptor(agentRunID, taskID string, activity *execut
 		d.Logger.Debug().
 			Str("tool_name", t.Name()).
 			Msg("tool call intercepted")
+
+		// 工具在途期间 run 的存活心跳照常续约：超时拦截器在链的外侧，这里的 ctx 带着工具的超时。
+		if d.RunActivity != nil {
+			until, _ := ctx.Deadline()
+			defer d.RunActivity.Busy(agentRunID, until)()
+		}
 
 		start := time.Now()
 		res, err := next(ctx, t, args)

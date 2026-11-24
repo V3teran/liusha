@@ -156,21 +156,22 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	// LLM 调用装配：单步看门狗（挂死的调用会阻塞 agent 事件循环）+ llm_invocation 审计（含失败）。
 	// 看门狗每次调用现读热配置 runtime.step_llm_timeout_seconds，读失败回落部署值。
 	stepLLMTimeout := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second
+	heartbeats := runner.NewHeartbeats()
 	router.SetProviderWrapper(func(p llm.Provider) llm.Provider {
-		return llm.InstrumentProvider(llm.WithDynamicCallTimeout(p,
-			stepLLMTimeout,
+		return runner.ModelCallChain(p, heartbeats, llminvocation.UsageSink{Store: st.calls}, stepLLMTimeout,
 			func(ctx context.Context) time.Duration {
 				rt, err := sysSettings.Runtime(ctx)
 				if err != nil {
 					return 0
 				}
 				return time.Duration(rt.StepLLMTimeoutSeconds) * time.Second
-			}), llminvocation.UsageSink{Store: st.calls})
+			})
 	})
 
 	creds := credential.NewRedis(rdb)
 	h := &runner.Handler{
 		AgentRuns:       st.agentRuns,
+		Heartbeats:      heartbeats,
 		Tasks:           st.tasks,
 		Findings:        st.findings,
 		Sandbox:         sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),

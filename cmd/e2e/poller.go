@@ -22,28 +22,22 @@ const (
 	terminateGracePeriod  = 3 * time.Minute
 )
 
-// activityIdleWindow 是判定「没有 LLM / 工具活动」的时长，与 runner 恢复监控的活性口径一致：
-// 图停滞 + 活动停摆才算真死。
-const activityIdleWindow = 5 * time.Minute
+// heartbeatIdleWindow 是判定「存活 run 的心跳已停」的时长。心跳是 runner 恢复监控判定一轮 run
+// 是否还在被推进的依据，这里与它看同一个信号：图停滞 + 心跳停摆才算真死。窗口取得比恢复监控
+// 的判定阈值（缺省 120 秒）长，让监控先处置——它重投之后新的 run 续上心跳，这里自然判为活跃。
+// 不按「累计调用次数是否增长」判断：一个有超时的长命令在途时调用次数不增长，会被误判停滞。
+// 心跳时刻取自库端时钟，本工具与开发栈跑在同一主机上。
+const heartbeatIdleWindow = 5 * time.Minute
 
-// activityWatch 按任务累计的 LLM / 工具调用次数判断最近是否有活动：次数增长即有活动。
-type activityWatch struct {
-	count     int
-	changedAt time.Time
-}
-
-// idle 读取最新累计次数，报告是否已有 activityIdleWindow 没有增长。读取失败按「有活动」处理
-// （宁可多等，不误判停滞），并记日志。
-func (w *activityWatch) idle(ctx context.Context, api taskAPI, taskID string, logger *zerolog.Logger) bool {
-	n, err := api.ActivityCount(ctx, taskID)
+// runIdle 报告任务当前这轮 run 的存活心跳是否已超过 heartbeatIdleWindow 没有续约。没有存活的
+// run 时不在这里判（交给任务状态与恢复监控）；读取失败按「有活动」处理（宁可多等，不误判停滞）。
+func runIdle(ctx context.Context, api taskAPI, taskID string, logger *zerolog.Logger) bool {
+	run, live, err := api.LiveRun(ctx, taskID)
 	if err != nil {
-		logger.Warn().Err(err).Msg("读取任务用量失败，按有活动处理")
+		logger.Warn().Err(err).Msg("读取任务当前 run 失败，按有活动处理")
 		return false
 	}
-	if n != w.count || w.changedAt.IsZero() {
-		w.count, w.changedAt = n, time.Now()
-	}
-	return time.Since(w.changedAt) >= activityIdleWindow
+	return live && time.Since(run.HeartbeatAt) >= heartbeatIdleWindow
 }
 
 // terminateAndAwait 走公开 API 下发 terminate 并等待任务落终态，返回最终状态。
@@ -99,7 +93,6 @@ func pollTaskWithGraphStats(
 		Msg("开始轮询任务（探索图模式）")
 
 	var lastStats GraphStats
-	var activity activityWatch
 	noProgressCount := 0
 
 	for {
@@ -119,7 +112,7 @@ func pollTaskWithGraphStats(
 				continue
 			}
 
-			// 停滞判定 = 图无变化持续 stallWindowTicks 且 LLM/工具活动停摆 ≥5 分钟
+			// 停滞判定 = 图无变化持续 stallWindowTicks 且当前 run 的存活心跳停摆 ≥5 分钟
 			// （与 runner 恢复监控同一活性口径；宁可多等不误杀健康任务）。
 			if stats == lastStats {
 				noProgressCount++
@@ -128,8 +121,8 @@ func pollTaskWithGraphStats(
 						Interface("stats", stats).
 						Msg("任务无图变化超过 2 分钟")
 				}
-				if noProgressCount >= stallWindowTicks && activity.idle(ctx, api, taskID, logger) {
-					return fmt.Errorf("任务卡住: 图统计 %v 已无变化超过 %v 且无 LLM/工具活动",
+				if noProgressCount >= stallWindowTicks && runIdle(ctx, api, taskID, logger) {
+					return fmt.Errorf("任务卡住: 图统计 %v 已无变化超过 %v，且当前 run 的存活心跳已停",
 						stats, stallWindowTicks*15*time.Second)
 				}
 			} else {

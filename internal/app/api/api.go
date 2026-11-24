@@ -238,6 +238,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			Schedules:           cronStore,
 			TaskControl:         dispatchService,
 			TaskSteering:        dispatchService,
+			LiveRuns:            agentRunStore,
 			Logs:                logx.NewReader(cfg.LogDir()),
 			Proxy:               proxystatus.New(rdb),
 			WebUI:               web.Assets(),

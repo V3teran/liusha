@@ -7,9 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
-// taskAPI 经公开 API 观察任务（状态、探索图、用量）：与前端同一路径，e2e 不依赖库表结构，
+// taskAPI 经公开 API 观察任务（状态、探索图、当前 run 的存活心跳）：与前端同一路径，e2e 不依赖库表结构，
 // 也不需要数据库凭据。
 type taskAPI struct {
 	base    string
@@ -79,14 +80,22 @@ func (a taskAPI) GraphStats(ctx context.Context, taskID string) (GraphStats, err
 	return s, nil
 }
 
-// ActivityCount 返回任务累计的 LLM 调用与工具调用次数：在一段时间内不增长即没有活动。
-func (a taskAPI) ActivityCount(ctx context.Context, taskID string) (int, error) {
-	var u struct {
-		LLMInvocations  int `json:"llm_calls"`
-		ToolInvocations int `json:"tool_calls"`
+// liveRun 是任务当前存活的一轮 run。
+type liveRun struct {
+	Status      string    `json:"status"`
+	HeartbeatAt time.Time `json:"heartbeat_at"` // 存活心跳：runner 恢复监控判定它是否还在被推进的依据
+}
+
+// LiveRun 返回任务当前存活的一轮 run；没有存活的 run（已结束、暂停、两次重投之间）时 ok 为 false。
+func (a taskAPI) LiveRun(ctx context.Context, taskID string) (run liveRun, ok bool, err error) {
+	var resp struct {
+		Run *liveRun `json:"run"`
 	}
-	if err := a.getJSON(ctx, taskPath(taskID, "/usage"), &u); err != nil {
-		return 0, err
+	if err := a.getJSON(ctx, taskPath(taskID, "/run"), &resp); err != nil {
+		return liveRun{}, false, err
 	}
-	return u.LLMInvocations + u.ToolInvocations, nil
+	if resp.Run == nil {
+		return liveRun{}, false, nil
+	}
+	return *resp.Run, true, nil
 }

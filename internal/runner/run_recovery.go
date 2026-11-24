@@ -25,11 +25,11 @@ import (
 //
 // 本监控补另一半，三条规则：
 //
-//  1. 僵尸 run：running run + LLM/工具活动停摆超过 timeout（6 分钟 ≈ 2 倍单步
-//     LLM 看门狗）→ 旧 run 标记 failed → 以全新
-//     agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
+//  1. 僵尸 run：running run 的存活心跳超过 timeout 没有续约 → 旧 run 标记 error →
+//     以全新 agent_run 重投 planner（认知循环从头跑，探索图历史保留）。暂停中或
 //     已终态的任务例外：只回收僵尸 run 行（含进程死在终态落库之后的脏行），
-//     不重投——恢复分别由继续操作 / 终态判定驱动。
+//     不重投——恢复分别由继续操作 / 终态判定驱动。心跳由持有 run 的进程续约，
+//     进程被硬杀、或活着但卡住了都会停止续约（见 heartbeat.go）。
 //  2. 孤儿 pending run：pending 超过 timeout，队列里却已没有它（入队后 Redis 数据
 //     丢失；领取后、开跑前进程被硬杀，租约过期后因不重试直接归档）→ 标 aborted（从未
 //     执行，不计中断次数），由规则 3 在同一轮重投。按队列实况判定，队列积压不会误判；
@@ -102,10 +102,11 @@ func StartRunRecoveryMonitor(ctx context.Context, pool *pgxpool.Pool, wc *worker
 
 // recoverOnce 扫描并回收僵尸 run、重投搁浅任务。
 //
-// 僵尸判定（与 action 恢复同口径）：run 在跑（running）+ 该 task 的 LLM/工具
-// 活动停摆超过 timeout + run 行自身超过 timeout 未被触碰（排除刚建行、首个
-// LLM 调用在途的新 run）。不限任务状态：进程死在任务终态之后（停止已落库、
-// handler 没跑到回写）同样留下 running 脏行——终态任务只收行，不重投。
+// 僵尸判定只看 run 的存活心跳：在跑（running）且超过 timeout 没有续约。心跳由持有这轮 run
+// 的进程在「有新的操作开始、或有未到期的在途操作」时续约，所以进程被硬杀、或活着但卡住了
+// 都会落入这里，而在等一个有超时的长操作时不会。时间一律取库端 now()，续约与判定同一口钟。
+// 不限任务状态：进程死在任务终态之后（停止已落库、handler 没跑到回写）同样留下 running
+// 脏行——终态任务只收行，不重投。
 func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
 		SELECT ar.id::text, ar.task_id::text, t.paused, t.status::text,
@@ -115,13 +116,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 		FROM agent_run ar
 		JOIN task t ON t.id = ar.task_id
 		WHERE ar.status = 'running'
-		  AND ar.updated_at < NOW() - $1 * INTERVAL '1 second'
-		  AND NOT EXISTS (
-			SELECT 1 FROM llm_invocation li
-			WHERE li.task_id = t.id AND li.created_at > NOW() - $1 * INTERVAL '1 second')
-		  AND NOT EXISTS (
-			SELECT 1 FROM tool_invocation ti
-			WHERE ti.task_id = t.id AND ti.created_at > NOW() - $1 * INTERVAL '1 second')
+		  AND ar.heartbeat_at < NOW() - $1 * INTERVAL '1 second'
 	`, int(m.timeout.Seconds()))
 	if err != nil {
 		return err
@@ -169,7 +164,7 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 			Str("task_id", z.taskID).
 			Int("attempts", z.attempts).
 			Dur("timeout", m.timeout).
-			Msg("检测到僵尸 run（活动停摆超时），回收并重投")
+			Msg("检测到僵尸 run（存活心跳停止续约），回收并重投")
 
 		// 旧 run 标记失败（UI 与审计如实反映中断）。
 		if err := m.agentRuns.SetError(ctx, z.runID); err != nil {
@@ -193,10 +188,11 @@ func (m *RunRecoveryMonitor) recoverOnce(ctx context.Context) error {
 // recoverOrphanPending 回收队列里已不存在的 pending run。只看 pending 超过 timeout 的行：
 // 生产者先建 run 行再入队，刚建的行可能尚未入队。回收只认 pending（AbortPending），与 handler
 // 领取互斥；任务随后由搁浅规则重投（暂停中、已终态的任务只收行，与僵尸 run 同口径）。
+// 排队中的 run 没有存活心跳，年龄按建行时刻算。
 func (m *RunRecoveryMonitor) recoverOrphanPending(ctx context.Context) error {
 	rows, err := m.pool.Query(ctx, `
 		SELECT id::text, task_id::text FROM agent_run
-		WHERE status = 'pending' AND updated_at < NOW() - $1 * INTERVAL '1 second'
+		WHERE status = 'pending' AND created_at < NOW() - $1 * INTERVAL '1 second'
 	`, int(m.timeout.Seconds()))
 	if err != nil {
 		return err

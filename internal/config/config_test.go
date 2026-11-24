@@ -35,6 +35,10 @@ func TestLoad_Template(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
+	// 僵尸判定阈值跟着存活心跳的粒度走：心跳每 30 秒续约一次，120 秒即连续四次没有续约。
+	if cfg.Runner.RunRecoveryTimeoutSeconds != 120 {
+		t.Fatalf("runner.run_recovery_timeout_seconds 出厂值 = %d，期望 120", cfg.Runner.RunRecoveryTimeoutSeconds)
+	}
 	// 任务数的出厂值与缺省账户的在途上限相称：一个任务约占 3–4 个名额，缺省账户跑 3 个任务
 	// 即占满，再多只会让调用排到预算的一半而放弃（动作重做）。账户上限改动时这里要一并复核。
 	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 3 || cfg.Runner.URL != "http://127.0.0.1:8590" {
@@ -140,6 +144,7 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  verification_parallelism: 3", "  verification_parallelism: 0", "runner.verification_parallelism"},
 		{"  monitor_interval_seconds: 360", "  monitor_interval_seconds: 0", "runner.monitor_interval_seconds"},
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
+		{"  run_recovery_timeout_seconds: 120", "  run_recovery_timeout_seconds: 60", "runner.run_recovery_timeout_seconds"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
 		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},
 		{"  public_addr: \"\"", "  public_addr: \":70000\"", "proxy.public_addr"},
