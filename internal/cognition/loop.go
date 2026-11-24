@@ -39,6 +39,12 @@ import (
 	"github.com/V3teran/liusha/internal/traffic"
 )
 
+// RunActivity 向所属 run 的存活心跳登记一个在途操作：until 是它最晚结束的时刻，返回的撤销函数
+// 在操作结束时调用。接口在使用方定义；*runner.Heartbeats 满足它。
+type RunActivity interface {
+	Busy(runID string, until time.Time) (release func())
+}
+
 // Deps 是一次认知循环的全部外部依赖（由 runner 装配注入；全部字段只读）。
 // 显式依赖结构让循环装配可以脱离 asynq/handler 单测（白名单/视图/构造链
 // 是历史 bug 高发区）。
@@ -91,6 +97,10 @@ type Deps struct {
 	// StepLLMTimeout 是单步 LLM 看门狗上限（系统配置 runtime 组快照），与工具超时上限
 	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
 	StepLLMTimeout time.Duration
+
+	// RunActivity 把在途的工具调用登记到所属 run 的存活心跳（由 runner 提供；nil = 不登记）。
+	// 模型调用由 runner 在调用链上自行登记。
+	RunActivity RunActivity
 
 	// ContextRatios 是各角色的上下文历史预算占比（DB compaction 组在任务开始时
 	// 的快照，装配层现读传入；预算 = 比例 × 本角色路由 provider 的 context_window，

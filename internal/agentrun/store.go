@@ -31,7 +31,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // colsSelect 是所有 SELECT 路径的统一列序，与 scanRun() 的字段顺序一一对应。
 const colsSelect = `id, ` +
 	`task_id::text AS task_id, ` +
-	`status, created_at, updated_at`
+	`status, created_at, updated_at, heartbeat_at`
 
 // Create 插入一行 pending agent 运行，返回新 id。run 不携带输入：它要做的事（任务目标）
 // 在任务行与探索图上，开跑时读取。TaskID 必填（NOT NULL 外键）。该 task 已有存活 run 时
@@ -54,16 +54,29 @@ func (s *Store) Create(ctx context.Context, p NewParams) (string, error) {
 	return id, nil
 }
 
-// SetRunning 把 pending agent 运行推进到 running；非 pending 视为非法转换。
+// SetRunning 把 pending agent 运行推进到 running；非 pending 视为非法转换。存活心跳从这里起算：
+// 排队可能排了很久，建行时刻不能代表这轮 run 的存活。
 func (s *Store) SetRunning(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE agent_run SET status='running', updated_at=now()
+		UPDATE agent_run SET status='running', updated_at=now(), heartbeat_at=now()
 		WHERE id=$1 AND status='pending'`, id)
 	if err != nil {
 		return fmt.Errorf("set running %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("agent run %s not in pending state", id)
+	}
+	return nil
+}
+
+// Heartbeat 续约一轮 running 的存活心跳（恢复监控据此判定它是否还在被推进）。只认 running：
+// 续约与 run 收尾并发时，不把已经结束的 run 写成刚活过。
+func (s *Store) Heartbeat(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE agent_run SET heartbeat_at=now()
+		WHERE id=$1 AND status='running'`, id)
+	if err != nil {
+		return fmt.Errorf("heartbeat agent run %s: %w", id, err)
 	}
 	return nil
 }
@@ -149,6 +162,20 @@ func (s *Store) LatestByTask(ctx context.Context, taskID string) (*Run, error) {
 	return &r, nil
 }
 
+// LiveByTask 取任务当前存活的一轮 run（pending / running；每任务至多一个）；没有时返回 nil。
+func (s *Store) LiveByTask(ctx context.Context, taskID string) (*Run, error) {
+	var r Run
+	if err := scanRun(s.pool.QueryRow(ctx,
+		`SELECT `+colsSelect+` FROM agent_run WHERE task_id=$1::uuid AND status IN ('pending','running')`,
+		taskID), &r); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("live agent run by task: %w", err)
+	}
+	return &r, nil
+}
+
 // ListByTask 按 created_at 升序列出 task 下的 agent 运行，最多 limit 条。
 func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run, error) {
 	rows, err := s.pool.Query(ctx,
@@ -175,5 +202,5 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, limit int) ([]Run
 
 // scanRun 是 colsSelect 列序的统一反序列化点。
 func scanRun(r db.RowScanner, t *Run) error {
-	return r.Scan(&t.ID, &t.TaskID, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+	return r.Scan(&t.ID, &t.TaskID, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.HeartbeatAt)
 }

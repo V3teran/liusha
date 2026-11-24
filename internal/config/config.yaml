@@ -135,10 +135,12 @@ runner:
   agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
   max_actions_per_task: 0            # 动作预算：单任务最多执行的动作数；0 = 不限
   step_llm_timeout_seconds: 300      # 单步 LLM 调用看门狗
-  # 僵尸 run 回收：巡检周期 / LLM 与工具活动停摆多久判为僵尸（约 2 倍单步 LLM 看门狗）/
-  # 单任务自动重投上限（按出错的 run 计数，超限任务终止，防崩溃循环烧 LLM 额度）
+  # 僵尸 run 回收：巡检周期 / 一轮 run 的存活心跳多久没有续约判为僵尸 / 单任务自动重投上限（按出错的
+  # run 计数，超限任务终止，防崩溃循环烧 LLM 额度）。心跳每 30 秒续约一次，只在这轮 run 有新的操作开始、
+  # 或有未到期的在途操作时续约：进程被硬杀、或活着但卡住了都会停止续约，而在等一个有超时的长操作时不会。
+  # 120 秒即连续四次没有续约；须不小于 90 秒。
   run_recovery_interval_seconds: 30
-  run_recovery_timeout_seconds: 360
+  run_recovery_timeout_seconds: 120
   run_recovery_max_attempts: 4
 
 # ---- sandbox：工具执行沙盒 ----

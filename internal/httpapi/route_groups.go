@@ -112,6 +112,9 @@ func registerTasksRoutes(r gin.IRouter, d Deps) {
 	if d.TaskDispatch != nil {
 		r.POST("/tasks", createTasksHandler(d.TaskDispatch))
 	}
+	if d.LiveRuns != nil && d.TaskReader != nil {
+		r.GET("/tasks/:id/run", uuidID, getTaskRunHandler(d.TaskReader, d.LiveRuns))
+	}
 	if d.TaskControl != nil {
 		r.POST("/tasks/:id/control", uuidID, taskControlHandler(d.TaskControl))
 	}

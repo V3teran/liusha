@@ -165,6 +165,11 @@ type IngestorConfig struct {
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
+// MinRunRecoveryTimeoutSeconds 是 runner.run_recovery_timeout_seconds 的下界：run 的存活心跳每
+// 30 秒续约一次（internal/runner 的 heartbeatInterval），判定阈值至少要容得下三次续约，否则健康
+// 运行的 run 也会在两次续约之间被当成僵尸。internal/runner 的测试守住这层关系。
+const MinRunRecoveryTimeoutSeconds = 90
+
 // RunnerConfig 是 runner 组件的运行参数。
 type RunnerConfig struct {
 	// ListenAddr 是 runner 的 HTTP 监听地址（healthz 与沙盒浏览器流量回灌）。
@@ -192,8 +197,9 @@ type RunnerConfig struct {
 	// StepLLMTimeoutSeconds 是单步 LLM 调用看门狗（也是系统设置里同名旋钮的出厂值）。
 	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds"`
 
-	// 僵尸 run 回收（详见 internal/runner/run_recovery.go）：巡检周期；LLM / 工具活动停摆多久
-	// 判为僵尸；单任务自动重投上限（按出错的 run 计数，超限任务终止，防崩溃循环烧 LLM 额度）。
+	// 僵尸 run 回收（详见 internal/runner/run_recovery.go 与 heartbeat.go）：巡检周期；一轮 run 的
+	// 存活心跳多久没有续约判为僵尸；单任务自动重投上限（按出错的 run 计数，超限任务终止，防
+	// 崩溃循环烧 LLM 额度）。
 	RunRecoveryIntervalSeconds int `mapstructure:"run_recovery_interval_seconds"`
 	RunRecoveryTimeoutSeconds  int `mapstructure:"run_recovery_timeout_seconds"`
 	RunRecoveryMaxAttempts     int `mapstructure:"run_recovery_max_attempts"`

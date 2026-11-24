@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/V3teran/liusha/internal/dbtest"
 	"github.com/V3teran/liusha/internal/task"
@@ -180,5 +181,64 @@ func TestCreate_OneLiveRunPerTask(t *testing.T) {
 	}
 	if _, err := s.Create(ctx, NewParams{TaskID: taskID}); err != nil {
 		t.Fatalf("终态后应可再建: %v", err)
+	}
+}
+
+// 存活心跳从开跑起算（排队可能排了很久，建行时刻不代表存活），续约只认 running：与 run 收尾
+// 并发时不把已经结束的 run 写成刚活过。
+func TestStore_Heartbeat(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	ts := task.NewStore(pool)
+	tk, err := ts.Create(ctx, task.NewParams{AssignmentID: dbtest.SeedAssignment(t, pool), Goal: "test agent run"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	s := NewStore(pool)
+	id, err := s.Create(ctx, NewParams{TaskID: tk.ID})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	lastBeat := func() time.Time {
+		t.Helper()
+		var at time.Time
+		if err := pool.QueryRow(ctx, `SELECT heartbeat_at FROM agent_run WHERE id = $1`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+	age := func() {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET heartbeat_at = now() - interval '1 hour' WHERE id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	age() // 排了一小时才被领取
+	if err := s.SetRunning(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(lastBeat()) > time.Minute {
+		t.Fatal("开跑时应把心跳重置为当下")
+	}
+
+	age()
+	if err := s.Heartbeat(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(lastBeat()) > time.Minute {
+		t.Fatal("续约应把心跳写到当下")
+	}
+
+	if err := s.SetCompleted(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	age()
+	if err := s.Heartbeat(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(lastBeat()) < 30*time.Minute {
+		t.Fatal("已结束的 run 不应被续约写成刚活过")
 	}
 }

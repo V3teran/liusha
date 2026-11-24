@@ -132,7 +132,7 @@ func TestRunRecovery_OrphanPendingRunIsRedispatched(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := pool.Exec(ctx, `UPDATE agent_run SET updated_at = now() - $2 * interval '1 second' WHERE id = $1`,
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET created_at = now() - $2 * interval '1 second' WHERE id = $1`,
 			runID, int(age.Seconds())); err != nil {
 			t.Fatal(err)
 		}
@@ -189,5 +189,113 @@ func TestRunRecovery_OrphanPendingRunIsRedispatched(t *testing.T) {
 	}
 	if got := status(unknownRun); got != agentrun.StatusPending {
 		t.Errorf("队列状态未知时不得回收，得 %s", got)
+	}
+}
+
+// 僵尸 run 的判定只看存活心跳：在跑的 run 超过 timeout 没有续约即回收——进程被硬杀如此，
+// 活着但卡住了（心跳停止续约）也如此。心跳新鲜的 run 不碰，哪怕它一条模型调用、工具调用的
+// 记录都没有：一个有超时的长操作在途时正是这样（此前按调用记录判定，一个要跑十分钟的命令
+// 会在第 6 分钟被回收重投）。暂停中、已终态的任务只收行、不重投。
+func TestRunRecovery_ZombieIsRunWithoutHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	tasks := task.NewStore(pool)
+	runs := agentrun.NewStore(pool)
+	mr := miniredis.RunT(t)
+	wc := worker.NewClient(asynq.RedisClientOpt{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = wc.Close() })
+
+	running := func(goal string) (string, string) {
+		t.Helper()
+		tk, err := tasks.Create(ctx, task.NewParams{AssignmentID: dbtest.SeedAssignment(t, pool), Goal: goal})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runID, err := runs.Create(ctx, agentrun.NewParams{TaskID: tk.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := runs.SetRunning(ctx, runID); err != nil {
+			t.Fatal(err)
+		}
+		return tk.ID, runID
+	}
+	stall := func(runID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `UPDATE agent_run SET heartbeat_at = now() - interval '10 minutes' WHERE id = $1`, runID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := func(id string) agentrun.Status {
+		t.Helper()
+		r, err := runs.GetByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Status
+	}
+	liveRuns := func(taskID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_run WHERE task_id = $1 AND status IN ('pending','running')`, taskID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	staleTask, staleRun := running("扫描 http://stale.test")
+	freshTask, freshRun := running("扫描 http://fresh.test")
+	pausedTask, pausedRun := running("扫描 http://paused.test")
+	endedTask, endedRun := running("扫描 http://ended.test")
+	stall(staleRun)
+	stall(pausedRun)
+	stall(endedRun)
+	if _, err := tasks.MarkPaused(ctx, pausedTask); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tasks.Abort(ctx, endedTask, "测试终止"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &RunRecoveryMonitor{
+		pool: pool, wc: wc, agentRuns: runs, tasks: tasks, conversations: conversation.NewStore(pool),
+		publisher: &recordingPublisher{}, logger: zerolog.New(io.Discard), timeout: 6 * time.Minute, maxAttempts: 4,
+	}
+	if err := m.recoverOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := status(staleRun); got != agentrun.StatusError {
+		t.Fatalf("心跳停止的 run 应落 error，得 %s", got)
+	}
+	if n := liveRuns(staleTask); n != 1 {
+		t.Fatalf("进行中的任务应重投一个新的 run，实际存活 run %d 个", n)
+	}
+	if got := status(freshRun); got != agentrun.StatusRunning {
+		t.Fatalf("心跳新鲜的 run 不得回收（它没有任何调用记录，正像一个长操作在途的 run），得 %s", got)
+	}
+	if got := status(pausedRun); got != agentrun.StatusAborted {
+		t.Fatalf("暂停中任务的僵尸 run 应只收行，得 %s", got)
+	}
+	if n := liveRuns(pausedTask); n != 0 {
+		t.Fatalf("暂停中的任务不重投，实际存活 run %d 个", n)
+	}
+	if got := status(endedRun); got != agentrun.StatusAborted {
+		t.Fatalf("已终态任务的僵尸 run 应只收行，得 %s", got)
+	}
+	if n := liveRuns(endedTask); n != 0 {
+		t.Fatalf("已终态的任务不重投，实际存活 run %d 个", n)
+	}
+
+	// 判定跟着心跳走：原本新鲜的 run，心跳一停，下一轮即被回收。
+	stall(freshRun)
+	if err := m.recoverOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(freshRun); got != agentrun.StatusError {
+		t.Fatalf("心跳停止后应落 error，得 %s", got)
+	}
+	if n := liveRuns(freshTask); n != 1 {
+		t.Fatalf("进行中的任务应重投一个新的 run，实际存活 run %d 个", n)
 	}
 }

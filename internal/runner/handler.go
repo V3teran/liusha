@@ -44,6 +44,8 @@ type Handler struct {
 	Calls      *llminvocation.Store
 	Settings   *settingstore.Store
 	RunnerCfg  config.RunnerConfig
+	// Heartbeats 是各 run 的存活心跳：run 执行期间续约，恢复监控据此判定它是否还在被推进。
+	Heartbeats *Heartbeats
 	// Sandbox 是沙盒服务客户端：任务开始时查询安装状态，工具经它执行命令，run 结束时释放任务资源。
 	Sandbox sandbox.Client
 	// SandboxListener 是沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
@@ -203,6 +205,9 @@ func (h *Handler) Handle(ctx context.Context, p worker.Payload) (retErr error) {
 	if err := h.AgentRuns.SetRunning(ctx, p.AgentRunID); err != nil {
 		return err
 	}
+
+	// 存活心跳与这次执行同生命周期：执行结束（无论何种收尾）即停止续约。
+	defer h.Heartbeats.Attach(ctx, h.AgentRuns, p.AgentRunID, taskLogger)()
 
 	// 设置超时
 	timeout := h.RunnerCfg.AgentRunTimeoutSeconds
