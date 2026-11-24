@@ -40,8 +40,9 @@ type Agent struct {
 	maxIt    int    // ReAct 迭代上限（0=不设限）
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）。
 	contextRatio        float64
-	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
-	toolOutputTailBytes int               // 工具输出全局尾部钳制字节（0=不钳）
+	distiller           runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	compactionTimeouts  runtime.CompactionTimeouts // 压缩链的时间预算（由单步 LLM 上限推导）
+	toolOutputTailBytes int                        // 工具输出全局尾部钳制字节（0=不钳）
 
 	// 时间序列指标收集器
 	metricsCollector *metrics.Collector
@@ -95,6 +96,8 @@ type Config struct {
 
 	// Distiller 是上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
 	Distiller runtime.Distiller
+	// CompactionTimeouts 是压缩链的时间预算（runtime.CompactionTimeoutsFor 由单步 LLM 上限推导）。
+	CompactionTimeouts runtime.CompactionTimeouts
 
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
@@ -154,6 +157,7 @@ func New(cfg Config) *Agent {
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
+		compactionTimeouts:  cfg.CompactionTimeouts,
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		metricsCollector:    metricsCollector,
 		thoughts:            cfg.Thoughts,
@@ -287,7 +291,7 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		LLMProvider:          provider,
 		MaxIterations:        a.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		Temperature:          0.3,     // 较低温度，确保稳定性
-		MessageModifierChain: runtime.NewCompactionChain(a.contextBudget(ctx), "monitor", a.distiller),
+		MessageModifierChain: runtime.NewCompactionChain(a.contextBudget(ctx), "monitor", a.distiller, a.compactionTimeouts),
 		ToolOutputTailBytes:  a.toolOutputTailBytes,
 		// 监察链路也会多轮调工具（get_global_state 深挖/重试）：循环检测与
 		// 无进展止损与其余三个 agent 同口径；GoalAlignment 不适用（评估目标

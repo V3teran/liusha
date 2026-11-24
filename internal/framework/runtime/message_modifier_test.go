@@ -61,7 +61,7 @@ func TestMessageModifierChain(t *testing.T) {
 	}
 
 	t.Run("FailFast strategy", func(t *testing.T) {
-		chain := NewCompactionChain(8, "test", nil) // 预算 8 token：朴素保留装不下全量历史
+		chain := NewCompactionChain(8, "test", nil, testTimeouts) // 预算 8 token：朴素保留装不下全量历史
 
 		result, err := chain.Apply(context.Background(), messages)
 		if err != nil {
@@ -84,7 +84,7 @@ func TestMessageModifierChain(t *testing.T) {
 		chain := NewMessageModifierChain(
 			[]MessageModifier{
 				failingModifier,
-				NewContextCompactor(8, "test", nil), // 跳过失败者后压缩仍应执行
+				NewContextCompactor(8, "test", nil, testDistillTimeout), // 跳过失败者后压缩仍应执行
 			},
 			ErrorStrategySkip,
 			RetryConfig{MaxAttempts: 0},
@@ -109,7 +109,7 @@ func TestCompactionChain_ValidationSentinel(t *testing.T) {
 		{Role: llm.RoleSystem, Content: "系统提示"},
 		{Role: llm.RoleUser, Content: string(make([]byte, 100001))},
 	}
-	chain := NewCompactionChain(1<<20, "test", nil)
+	chain := NewCompactionChain(1<<20, "test", nil, testTimeouts)
 	if _, err := chain.Apply(context.Background(), messages); err == nil {
 		t.Error("expected validation error for oversized message, got nil")
 	}

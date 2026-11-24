@@ -26,22 +26,23 @@ import (
 // Engine 是基于 LLM + ReAct 的执行引擎
 type Engine struct {
 	router              *llm.Router
-	graph               *explorationgraph.Store // 探索图存储
-	registry            *Registry               // 使用 executor 包的 Registry
-	functionTools       []string                // function_tools 白名单（nil=拒绝，["*"]=全量）
-	toolsManifest       ToolsManifest           // 过滤后的 CLI 工具清单
-	skills              []*skill.Card           // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
-	charter             string                  // 角色章程（生效值：出厂叠加用户自定义）
-	scenario            string                  // 任务场景块（scenario.Render；空 = 无场景）
-	complexity          llm.Complexity          // LLM 档位（agent 生效配置的 complexity；唯一来源）
-	maxIt               int                     // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	contextRatio        float64                 // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
-	distiller           runtime.Distiller       // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
-	toolOutputTailBytes int                     // 工具输出全局尾部钳制字节（0=不钳）
-	agentRunID          string                  // 本轮认知循环的 agent_run.id（模型日志归属）
-	thoughts            reasoning.Tap           // 思考流出口（nil=不流式）
-	activity            *ActivityTracker        // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
-	repro               *repro.Registry         // 复现配方形状（配方落图时按形状归一化）
+	graph               *explorationgraph.Store    // 探索图存储
+	registry            *Registry                  // 使用 executor 包的 Registry
+	functionTools       []string                   // function_tools 白名单（nil=拒绝，["*"]=全量）
+	toolsManifest       ToolsManifest              // 过滤后的 CLI 工具清单
+	skills              []*skill.Card              // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	charter             string                     // 角色章程（生效值：出厂叠加用户自定义）
+	scenario            string                     // 任务场景块（scenario.Render；空 = 无场景）
+	complexity          llm.Complexity             // LLM 档位（agent 生效配置的 complexity；唯一来源）
+	maxIt               int                        // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	contextRatio        float64                    // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
+	distiller           runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	compactionTimeouts  runtime.CompactionTimeouts // 压缩链的时间预算（由单步 LLM 上限推导）
+	toolOutputTailBytes int                        // 工具输出全局尾部钳制字节（0=不钳）
+	agentRunID          string                     // 本轮认知循环的 agent_run.id（模型日志归属）
+	thoughts            reasoning.Tap              // 思考流出口（nil=不流式）
+	activity            *ActivityTracker           // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
+	repro               *repro.Registry            // 复现配方形状（配方落图时按形状归一化）
 	logger              zerolog.Logger
 }
 
@@ -62,6 +63,8 @@ type EngineConfig struct {
 	ContextRatio float64
 	// Distiller 是上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
 	Distiller runtime.Distiller
+	// CompactionTimeouts 是压缩链的时间预算（runtime.CompactionTimeoutsFor 由单步 LLM 上限推导）。
+	CompactionTimeouts runtime.CompactionTimeouts
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
 	AgentRunID          string // 本轮认知循环的 agent_run.id（模型日志归属；空 = 审计行不挂 run）
@@ -90,6 +93,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		maxIt:               cfg.MaxIterations,
 		contextRatio:        cfg.ContextRatio,
 		distiller:           cfg.Distiller,
+		compactionTimeouts:  cfg.CompactionTimeouts,
 		toolOutputTailBytes: cfg.ToolOutputTailBytes,
 		agentRunID:          cfg.AgentRunID,
 		activity:            cfg.Activity,

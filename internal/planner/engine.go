@@ -41,8 +41,9 @@ type Engine struct {
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
 	// compaction 组，任务开始时快照；0=压缩器内置兜底预算）。
 	contextRatio        float64
-	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
-	toolOutputTailBytes int               // 工具输出全局尾部钳制字节（0=不钳）
+	distiller           runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	compactionTimeouts  runtime.CompactionTimeouts // 压缩链的时间预算
+	toolOutputTailBytes int                        // 工具输出全局尾部钳制字节（0=不钳）
 	// roundBudget 是一轮规划的基准预算：整轮 ReAct 的墙钟上限（装配时给定；0=不设限）。
 	// budget 是当前生效的预算：预算不足型失败后放大，任一次成功即回落到基准。
 	roundBudget time.Duration
@@ -116,6 +117,12 @@ func (e *Engine) WithContextRatio(ratio float64) *Engine {
 // WithDistiller 注入上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
 func (e *Engine) WithDistiller(d runtime.Distiller) *Engine {
 	e.distiller = d
+	return e
+}
+
+// WithCompactionTimeouts 注入压缩链的时间预算（runtime.CompactionTimeoutsFor 由单步 LLM 上限推导）。
+func (e *Engine) WithCompactionTimeouts(t runtime.CompactionTimeouts) *Engine {
+	e.compactionTimeouts = t
 	return e
 }
 
@@ -362,7 +369,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		MaxConsecutiveToolFailures: 8,       // 连续工具失败止损阈值（单机制：runtime 内置，随装配按角色调参）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
-		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller),
+		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller, e.compactionTimeouts),
 		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式

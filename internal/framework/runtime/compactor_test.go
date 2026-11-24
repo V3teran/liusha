@@ -83,7 +83,7 @@ func toolPairHistory(n int) []llm.Message {
 
 // TestContextCompactor_UnderBudgetPassthrough 预算内不裁剪、不插占位。
 func TestContextCompactor_UnderBudgetPassthrough(t *testing.T) {
-	comp := NewContextCompactor(1<<20, "planner", nil)
+	comp := NewContextCompactor(1<<20, "planner", nil, testDistillTimeout)
 	msgs := toolPairHistory(3)
 
 	out, err := comp.Modify(context.Background(), msgs)
@@ -95,7 +95,7 @@ func TestContextCompactor_UnderBudgetPassthrough(t *testing.T) {
 // ↔ tool 组从中间切开，且压缩后首条非 system 消息是 user。
 func TestContextCompactor_NeverSplitsToolGroup(t *testing.T) {
 	summaryCache = newSummaryLRU(128)
-	comp := NewContextCompactor(24, "planner", nil) // 尾部预算 12：朴素回退切点会落在组内
+	comp := NewContextCompactor(24, "planner", nil, testDistillTimeout) // 尾部预算 12：朴素回退切点会落在组内
 
 	out, err := comp.Modify(context.Background(), toolPairHistory(4))
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestContextCompactor_DistillsEvictedPrefix(t *testing.T) {
 		out string
 		err error
 	}{{out: "进展：完成了 3 组工具调用", err: nil}}}
-	comp := NewContextCompactor(24, "executor", d)
+	comp := NewContextCompactor(24, "executor", d, testDistillTimeout)
 
 	out, err := comp.Modify(context.Background(), toolPairHistory(4))
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestContextCompactor_DistillFailureFallsBack(t *testing.T) {
 		out string
 		err error
 	}{{out: "", err: errors.New("provider 不可用")}}}
-	comp := NewContextCompactor(24, "executor", d)
+	comp := NewContextCompactor(24, "executor", d, testDistillTimeout)
 
 	out, err := comp.Modify(context.Background(), toolPairHistory(4))
 	require.NoError(t, err, "蒸馏失败绝不能弄死压缩")
@@ -149,7 +149,7 @@ func TestContextCompactor_FoldsPriorSummary(t *testing.T) {
 		out string
 		err error
 	}{{out: "折叠后的新纪要", err: nil}}}
-	comp := NewContextCompactor(24, "executor", d)
+	comp := NewContextCompactor(24, "executor", d, testDistillTimeout)
 
 	msgs := append([]llm.Message{
 		mkMsg(llm.RoleSystem, "system"),
@@ -172,7 +172,7 @@ func TestContextCompactor_CachesSummary(t *testing.T) {
 	}{{out: "唯一纪要", err: nil}}}
 	msgs := toolPairHistory(4)
 
-	comp := NewContextCompactor(24, "executor", d)
+	comp := NewContextCompactor(24, "executor", d, testDistillTimeout)
 	_, err := comp.Modify(context.Background(), msgs)
 	require.NoError(t, err)
 	_, err = comp.Modify(context.Background(), msgs) // 重试同一历史
@@ -185,7 +185,7 @@ func TestContextCompactor_CachesSummary(t *testing.T) {
 // 保尾组直通（空窗口没有收益，悬空 tool 结果会被拒收）。
 func TestContextCompactor_TailGroupFallback(t *testing.T) {
 	summaryCache = newSummaryLRU(128)
-	comp := NewContextCompactor(6, "planner", nil) // 尾部预算 3：装不下任何一条
+	comp := NewContextCompactor(6, "planner", nil, testDistillTimeout) // 尾部预算 3：装不下任何一条
 
 	out, err := comp.Modify(context.Background(), toolPairHistory(3))
 	require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestCallLLM_CompactionCheckpoint(t *testing.T) {
 	r := NewReActRuntime().(*reactRuntime)
 	config := &ReActConfig{
 		LLMProvider:          provider,
-		MessageModifierChain: NewCompactionChain(24, "test", d),
+		MessageModifierChain: NewCompactionChain(24, "test", d, testTimeouts),
 	}
 
 	countSummaries := func(msgs []llm.Message) int {
@@ -266,7 +266,7 @@ func TestCallLLM_CompactionCheckpoint(t *testing.T) {
 func TestContextCompactor_AmortizationGap(t *testing.T) {
 	summaryCache = newSummaryLRU(128)
 	budget := 400
-	comp := NewContextCompactor(budget, "planner", nil)
+	comp := NewContextCompactor(budget, "planner", nil, testDistillTimeout)
 
 	// system 极小 + 大量等长小消息（每对 ~5 token）：总量远超预算，且单条
 	// 消息相对预算可忽略（摊销断言只在无单条支配时成立——toolPairHistory
@@ -298,7 +298,7 @@ func TestCompleteForced_ConvergesHistory(t *testing.T) {
 	config := &ReActConfig{
 		LLMProvider:          provider,
 		MaxTokens:            1000,
-		MessageModifierChain: NewCompactionChain(24, "test", d),
+		MessageModifierChain: NewCompactionChain(24, "test", d, testTimeouts),
 	}
 
 	result := &ReActResult{MessageHistory: toolPairHistory(4)}
