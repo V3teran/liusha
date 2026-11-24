@@ -1,7 +1,8 @@
 // Package settingstore 是系统设置（会话压缩 / 工具运行时 / 代理流量过滤三组）的读写入口。
 //
-// 生效值 = 出厂默认叠加用户自定义：出厂默认由代码与 config.yaml 的部署值算出（各进程
-// 挂载同一份配置，算出的默认值一致），数据库 setting_override 只存用户改过的字段。
+// 生效值 = 出厂默认叠加用户自定义：出厂默认取自部署配置 config.yaml（各进程挂载同一份配置，
+// 算出的默认值一致；代码里不内置第二份），数据库 setting_override 只存用户改过的字段。
+// runtime、compaction 两组的出厂值就是配置文件里的同名段，配置键与设置页的字段同名。
 // 读取经三级缓存（进程内存 L1 → redis L2 → 数据库），只缓存用户层；写入后广播失效，
 // runner 下次现读即新值，proxy 收到 proxy_filter 失效后热换过滤链。
 package settingstore
@@ -23,17 +24,18 @@ import (
 
 // Defaults 是三组设置的出厂默认。
 type Defaults struct {
-	Compaction  CompactionSettings
-	Runtime     RuntimeSettings
+	Compaction  config.CompactionConfig
+	Runtime     config.RuntimeConfig
 	ProxyFilter ProxyFilterSettings
 }
 
-// DefaultsFrom 由部署配置算出出厂默认。
+// DefaultsFrom 由部署配置算出出厂默认：runtime、compaction 两组是配置文件里的同名段，
+// proxy_filter 组是 proxy 段里的过滤字段。
 func DefaultsFrom(cfg config.AppConfig) Defaults {
 	p := cfg.Proxy
 	return Defaults{
-		Compaction: DefaultCompaction(),
-		Runtime:    DefaultRuntime(cfg.Runner.StepLLMTimeoutSeconds),
+		Compaction: cfg.Compaction,
+		Runtime:    cfg.Runtime,
 		ProxyFilter: ProxyFilterSettings{
 			AllowHosts:              p.AllowHosts,
 			ExcludeMethods:          p.ExcludeMethods,
@@ -64,6 +66,12 @@ func New(pool *pgxpool.Pool, cache *cachestore.Cache, defaults Defaults) *Store 
 	}
 }
 
+// Factory 返回三组设置的出厂默认。读不到用户层（库故障）时调用方回落到它——与没有任何
+// 自定义时的取值相同，而不是另一套写在代码里的数。
+func (s *Store) Factory() Defaults {
+	return s.defaults
+}
+
 // overrideKey 是某组用户层的缓存键。
 func overrideKey(g Group) string { return "settingstore:override:" + string(g) }
 
@@ -73,15 +81,15 @@ var KeyProxyFilter = overrideKey(GroupProxyFilter)
 // ── 读 ──────────────────────────────────────────────────────────────
 
 // Compaction 读会话历史压缩设置的生效值。
-func (s *Store) Compaction(ctx context.Context) (CompactionSettings, error) {
-	var v CompactionSettings
+func (s *Store) Compaction(ctx context.Context) (config.CompactionConfig, error) {
+	var v config.CompactionConfig
 	err := s.effective(ctx, GroupCompaction, &v)
 	return v, err
 }
 
 // Runtime 读工具运行时设置的生效值。
-func (s *Store) Runtime(ctx context.Context) (RuntimeSettings, error) {
-	var v RuntimeSettings
+func (s *Store) Runtime(ctx context.Context) (config.RuntimeConfig, error) {
+	var v config.RuntimeConfig
 	err := s.effective(ctx, GroupRuntime, &v)
 	return v, err
 }
@@ -205,7 +213,7 @@ func validate(g Group, doc override.Document) error {
 	var problems []string
 	switch g {
 	case GroupCompaction:
-		var c CompactionSettings
+		var c config.CompactionConfig
 		if err := override.FromDocument(doc, &c); err != nil {
 			return fmt.Errorf("%w：%w", override.ErrInvalid, err)
 		}
@@ -213,12 +221,12 @@ func validate(g Group, doc override.Document) error {
 			"planner_context_ratio": c.PlannerContextRatio, "executor_context_ratio": c.ExecutorContextRatio,
 			"evaluator_context_ratio": c.EvaluatorContextRatio, "monitor_context_ratio": c.MonitorContextRatio,
 		} {
-			if r <= 0 || r > maxContextRatio {
-				problems = append(problems, fmt.Sprintf("%s 须在 (0, %.1f] 之间（历史预算占模型上下文窗口的比例）", name, maxContextRatio))
+			if r <= 0 || r > config.MaxContextRatio {
+				problems = append(problems, fmt.Sprintf("%s 须在 (0, %.1f] 之间（历史预算占模型上下文窗口的比例）", name, config.MaxContextRatio))
 			}
 		}
 	case GroupRuntime:
-		var r RuntimeSettings
+		var r config.RuntimeConfig
 		if err := override.FromDocument(doc, &r); err != nil {
 			return fmt.Errorf("%w：%w", override.ErrInvalid, err)
 		}

@@ -8,13 +8,6 @@ import type { LLMInvocationSummary } from '@/api/types'
 
 export type TimingLevel = 'good' | 'warn' | 'bad'
 
-/**
- * 默认单步 LLM 看门狗（毫秒），与后端 runtime.step_llm_timeout_seconds 的内置默认一致。
- * 权威值从 /api/settings/runtime 现读（LlmAuditPage 传入）——此常量仅作加载完成前的
- * 回退与单测基线。历史上前端硬编码 300s，后端改 yaml 看门狗会导致审计页超时判定全错。
- */
-export const DEFAULT_LLM_TIMEOUT_MS = 300_000
-
 /** 吞吐分档（输出 token/秒）：>=30 好，>=15 一般，更低差。 */
 export function throughputLevel(tokensPerSecond: number): TimingLevel {
   if (tokensPerSecond >= 30) return 'good'
@@ -41,9 +34,13 @@ export function latencyLevel(latencyMs: number, outTokens: number): TimingLevel 
   return throughputLevel(outTokens / seconds)
 }
 
-/** 是否为看门狗超时打点（此时延迟数字不代表真实响应耗时）。 */
-export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>, timeoutMs = DEFAULT_LLM_TIMEOUT_MS): boolean {
-  return v.latency_ms >= timeoutMs
+/**
+ * 是否为看门狗超时打点（此时延迟数字不代表真实响应耗时）。上限以系统配置为准（/api/settings/runtime
+ * 现读，由页面传入）；页面不另记一个出厂值——出厂值只在 config.yaml 一处，这里写死一份，部署方改了
+ * 配置就会判错。上限未知（配置还没读到）时不判。
+ */
+export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>, timeoutMs?: number): boolean {
+  return timeoutMs !== undefined && v.latency_ms >= timeoutMs
 }
 
 /**
@@ -52,7 +49,7 @@ export function isTimeout(v: Pick<LLMInvocationSummary, 'latency_ms'>, timeoutMs
  */
 export function throughputLabel(
   v: Pick<LLMInvocationSummary, 'latency_ms' | 'out_tokens'>,
-  timeoutMs = DEFAULT_LLM_TIMEOUT_MS,
+  timeoutMs?: number,
 ): string {
   if (v.latency_ms <= 0 || v.out_tokens <= 0 || isTimeout(v, timeoutMs)) return ''
   return `${(v.out_tokens / (v.latency_ms / 1000)).toFixed(1)} t/s`

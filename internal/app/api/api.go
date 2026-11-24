@@ -131,7 +131,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	// 会话 / 问答 / 意图分类的 LLM 路由：与 runner 同一埋点口径——单步看门狗（现读热配置
 	// runtime.step_llm_timeout_seconds）+ llm_invocation 审计。这些调用没有外层重认领循环，
 	// 额度窗口内、名额排满时都不在调用内等待：立即交还，用户当场看到原因，而不是等到连接超时。
-	stepLLMTimeout := time.Duration(cfg.Runner.StepLLMTimeoutSeconds) * time.Second
+	stepLLMTimeout := time.Duration(cfg.Runtime.StepLLMTimeoutSeconds) * time.Second
 	llmRouter := fwllm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), cfg.LLM.Retry.Options(), cfg.LLM.AccountConcurrency)
 	llmRouter.FailFast()
 	llmRouter.SetProviderWrapper(func(p fwllm.Provider) fwllm.Provider {

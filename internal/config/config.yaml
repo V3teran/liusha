@@ -10,8 +10,8 @@
 #   即覆盖本文件的值（值为空串时不覆盖）。本文件只写字面值，不引用变量。
 # 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password）
 #   在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型配置」页维护、加密落库。
-# 启动期参数，改后重启生效。运行期可热改的旋钮（工具超时、上下文压缩、代理过滤规则等）在这里给出
-#   出厂值，前端「系统配置」页的自定义叠加其上。
+# 这里列出全部可调的值，出厂值只在这一处。启动期参数改后重启生效；可热改的旋钮（runtime、compaction 两段，
+#   以及 proxy 段里的过滤规则）同样在这里给出出厂值，前端「系统配置」页在其上做字段级自定义（存库、即时生效）。
 # ============================================================================
 
 # 持久数据根目录：任务工作区 workspace/、日志 logs/、MITM 根证书 certs/ 都在其下。
@@ -114,6 +114,23 @@ ingestor:
   aggregate_batch_size: 20           # 同主机攒够这么多条即建一个代理捕获任务
   aggregate_window_seconds: 10       # 或距首条超过这么多秒（先到先触发）
 
+# ---- runtime：工具与模型调用的运行时旋钮 ----
+# 前端「系统配置 · 运行时」可热改（自定义存库、即时生效）；这里给出出厂值，键名与页面上的字段同名。
+runtime:
+  step_llm_timeout_seconds: 300      # 单次 LLM 调用的上限（单步看门狗）：挂死的调用即失败。规划一整轮的预算、压缩链的时限都由它推导
+  step_tool_timeout_seconds: 1800    # run_command 的超时上限（模型自传的 timeout_seconds 不得超过它）
+  run_tail_bytes: 8192               # run_command 输出保留尾部的字节数（输出末段是结果所在）
+  tool_output_tail_bytes: 32768      # 任意工具输出进模型上下文前的全局尾部保留字节数（防单条结果撑爆上下文）
+
+# ---- compaction：各角色会话历史的预算 ----
+# 前端「系统配置 · 会话历史压缩」可热改；预算 = 比例 × 本角色所用模型的上下文窗口，超出部分的历史被裁并蒸馏成纪要。
+# 比例越大上下文越完整、token 越贵；上限 0.9（给模型输出与 system 开销留余地）。
+compaction:
+  planner_context_ratio: 0.6         # 规划链路偏长推理，预算给大些
+  executor_context_ratio: 0.5
+  evaluator_context_ratio: 0.5
+  monitor_context_ratio: 0.5
+
 # ---- runner：任务执行 ----
 runner:
   listen_addr: 0.0.0.0:8590          # healthz 与沙盒浏览器流量回灌
@@ -134,7 +151,6 @@ runner:
   drain_timeout_seconds: 30          # 停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限
   agent_run_timeout_seconds: 0       # 单次 run 墙钟上限；0 = 不限（收敛交给完成检测，正数是防失控的护栏）
   max_actions_per_task: 0            # 动作预算：单任务最多执行的动作数；0 = 不限
-  step_llm_timeout_seconds: 300      # 单步 LLM 调用看门狗
   # 僵尸 run 回收：巡检周期 / 一轮 run 的存活心跳多久没有续约判为僵尸 / 单任务自动重投上限（按出错的
   # run 计数，超限任务终止，防崩溃循环烧 LLM 额度）。心跳每 30 秒续约一次，只在这轮 run 有新的操作开始、
   # 或有未到期的在途操作时续约：进程被硬杀、或活着但卡住了都会停止续约，而在等一个有超时的长操作时不会。

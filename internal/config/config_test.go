@@ -35,6 +35,13 @@ func TestLoad_Template(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
+	// 可热改旋钮的出厂值钉在这里：系统设置页以它们为底，代码不内置第二份。
+	if r := cfg.Runtime; r != (RuntimeConfig{StepLLMTimeoutSeconds: 300, StepToolTimeoutSeconds: 1800, RunTailBytes: 8192, ToolOutputTailBytes: 32768}) {
+		t.Fatalf("runtime 段出厂值不符: %+v", r)
+	}
+	if c := cfg.Compaction; c != (CompactionConfig{PlannerContextRatio: 0.6, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5}) {
+		t.Fatalf("compaction 段出厂值不符: %+v", c)
+	}
 	// 僵尸判定阈值跟着存活心跳的粒度走：心跳每 30 秒续约一次，120 秒即连续四次没有续约。
 	if cfg.Runner.RunRecoveryTimeoutSeconds != 120 {
 		t.Fatalf("runner.run_recovery_timeout_seconds 出厂值 = %d，期望 120", cfg.Runner.RunRecoveryTimeoutSeconds)
@@ -98,6 +105,9 @@ func TestLoad_MissingKeyFails(t *testing.T) {
 		{"  cookie_secure: false", "api.cookie_secure"},
 		{"  level: info                        # debug / info / warn / error\n", "log.level"},
 		{"data_dir: ~/data/liusha\n", "data_dir"},
+		// 可热改的旋钮同样必须在这里给出出厂值：缺了就拒绝启动，不拿代码里的数顶替。
+		{"  step_llm_timeout_seconds: 300", "runtime.step_llm_timeout_seconds"},
+		{"  executor_context_ratio: 0.5\n", "compaction.executor_context_ratio"},
 	} {
 		p := editTemplate(t, c.line, "")
 		_, err := Load(p)
@@ -123,6 +133,8 @@ func TestLoad_UnknownKeyFails(t *testing.T) {
 		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_compat}\n", "providers"},
 		{"  stream_max_len: 100000", "  stream_name: x\n  stream_max_len: 100000", "stream_name"},
 		{"  concurrency: 3", "  asynq_concurrency: 3\n  concurrency: 3", "asynq_concurrency"},
+		// 已改名的键：单步 LLM 看门狗从 runner 段挪到 runtime 段（与设置页的字段同名）。
+		{"  concurrency: 3", "  step_llm_timeout_seconds: 300\n  concurrency: 3", "step_llm_timeout_seconds"},
 	} {
 		p := editTemplate(t, c.old, c.new)
 		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), c.key) {
@@ -145,6 +157,11 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  monitor_interval_seconds: 360", "  monitor_interval_seconds: 0", "runner.monitor_interval_seconds"},
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
 		{"  run_recovery_timeout_seconds: 120", "  run_recovery_timeout_seconds: 60", "runner.run_recovery_timeout_seconds"},
+		{"  step_tool_timeout_seconds: 1800", "  step_tool_timeout_seconds: 0", "runtime.step_tool_timeout_seconds"},
+		{"  run_tail_bytes: 8192", "  run_tail_bytes: -1", "runtime.run_tail_bytes"},
+		{"  tool_output_tail_bytes: 32768", "  tool_output_tail_bytes: 0", "runtime.tool_output_tail_bytes"},
+		{"  planner_context_ratio: 0.6", "  planner_context_ratio: 0.95", "compaction.planner_context_ratio"},
+		{"  evaluator_context_ratio: 0.5", "  evaluator_context_ratio: 0", "compaction.evaluator_context_ratio"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
 		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},
 		{"  public_addr: \"\"", "  public_addr: \":70000\"", "proxy.public_addr"},
