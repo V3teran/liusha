@@ -3,7 +3,10 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -91,4 +94,62 @@ func (p *recordingPlanner) Plan(_ context.Context, _ *explorationgraph.Store, _ 
 
 func (p *recordingPlanner) AnalyzeResults(context.Context, *explorationgraph.Store, string, []explorationgraph.Node) (*ResultAnalysis, error) {
 	return &ResultAnalysis{}, nil
+}
+
+// 目标被调整：在途的那一轮规划当场作废，不等它跑完——它的结论以旧目标为依据，落图时注定
+// 被拒，等它跑完只是白等（模型慢时一轮要几分钟）。监察者的请求带着它所见的图面，不打断
+// 在途的这一轮。被取代的那一轮不算失败，重规划请求仍待处理。
+func TestRequestReplan_GoalChangeAbortsInFlightRound(t *testing.T) {
+	a := NewAgent(AgentConfig{TaskID: "t1"})
+	entered, done := make(chan struct{}), make(chan struct{})
+	var roundErr error
+	go func() {
+		defer close(done)
+		roundErr = a.planningRound(context.Background(), func(ctx context.Context) error {
+			close(entered)
+			<-ctx.Done()
+			return fmt.Errorf("ReAct 规划失败: %w", ctx.Err())
+		})
+	}()
+	<-entered
+
+	a.RequestReplan("探索停滞", &explorationgraph.Surface{})
+	select {
+	case <-done:
+		t.Fatal("监察者的重规划请求不应打断在途的这一轮")
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	a.RequestReplan("任务目标已被用户调整", nil)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("目标被调整后，在途的那一轮规划应立即结束")
+	}
+	if roundErr != nil {
+		t.Fatalf("被取代的那一轮不算失败，实际交还 %v", roundErr)
+	}
+	if reqs := a.takeReplanRequests(); len(reqs) != 2 {
+		t.Fatalf("两条重规划请求都应待处理，实际 %d 条", len(reqs))
+	}
+	a.roundMu.Lock()
+	cancel := a.roundCancel
+	a.roundMu.Unlock()
+	if cancel != nil {
+		t.Fatal("一轮结束后不应还登记着它的取消函数")
+	}
+}
+
+// 规划者自己被停掉（Run 的 ctx 结束）不是「被取代」：错误原样交还，由事件循环收尾。
+func TestPlanningRound_StopIsNotSupersede(t *testing.T) {
+	a := NewAgent(AgentConfig{TaskID: "t1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	err := a.planningRound(ctx, func(c context.Context) error {
+		cancel()
+		<-c.Done()
+		return fmt.Errorf("ReAct 规划失败: %w", c.Err())
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("规划者被停掉时错误应原样交还，实际 %v", err)
+	}
 }

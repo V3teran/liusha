@@ -366,6 +366,7 @@ func (d *Deps) assembleStack(
 		plannerTools[i] = reg.WrapTool(plannerTools[i]) // function 工具入共享审计链（遥测/时间线）
 	}
 	engine := planner.NewEngine(d.Router, d.Logger).
+		WithRoundBudget(planningRoundBudget(d.stepLLMTimeout())).
 		WithCharter(cfgs.planner.Charter).
 		WithScenario(d.Scenario).
 		WithComplexity(cfgs.planner.Complexity).
@@ -618,6 +619,15 @@ func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agen
 		return nil
 	}
 	return cards
+}
+
+// planningRoundBudget 是一轮规划的墙钟上限：单步 LLM 看门狗上限的 2 倍。一轮规划是若干次
+// LLM 调用（常见两次：读一遍图面、给出规划），每次调用各自受单步看门狗约束，整轮的预算按
+// 「两次调用都跑到上限」定。它不能比单次调用的上限还短——那样调用慢一点整轮就被掐断、
+// 下一轮从头再来，被掐断的生成上游照样计费（原先写死 3 分钟、单次上限 5 分钟：实测 10 分钟
+// 里 5 轮规划有 2 轮这样作废）。预算不足时规划者按 adaptBudget 放大下一轮。
+func planningRoundBudget(stepLLM time.Duration) time.Duration {
+	return 2 * stepLLM
 }
 
 // stepLLMTimeout 返回单步 LLM 看门狗上限（未配置时取内置默认 300 秒，与配置默认值一致）。

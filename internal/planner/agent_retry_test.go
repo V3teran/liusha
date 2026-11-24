@@ -1,9 +1,11 @@
 package planner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -234,4 +236,37 @@ func TestGenerateNewActions_ConfigErrorNotRetried(t *testing.T) {
 		t.Fatal("应返回错误")
 	}
 	assert.Equal(t, int32(1), fake.callCount)
+}
+
+// 这一轮被取消（目标被调整，或规划者被停掉）不是规划的失败：不进重试退避——重试只会把一次
+// 取消拖成几秒钟的空等——也不记错误日志。
+func TestGenerateNewActions_CancelledRoundIsNeitherRetriedNorAnError(t *testing.T) {
+	fake := &fakePlanner{result: []explorationgraph.ActionDraft{{Node: explorationgraph.Node{ID: "action-1"}}}}
+	var logs bytes.Buffer
+	agent := &Agent{
+		planner:  fake,
+		logger:   zerolog.New(&logs),
+		graph:    nil,
+		eventBus: &fakeEventBus{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	fake.errors = []error{fmt.Errorf("ReAct 规划失败: %w", ctx.Err())}
+
+	start := time.Now()
+	_, err := agent.generateNewActions(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("被取消的那一轮应以取消交还，实际 %v", err)
+	}
+	if fake.callCount != 1 {
+		t.Fatalf("被取消的那一轮不应重试，实际调用了 %d 次", fake.callCount)
+	}
+	if waited := time.Since(start); waited >= time.Second {
+		t.Fatalf("被取消的那一轮不应进入重试退避，实际耗时 %v", waited)
+	}
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(line, `"level":"error"`) {
+			t.Fatalf("被取消的那一轮不应记错误日志，实际 %s", line)
+		}
+	}
 }

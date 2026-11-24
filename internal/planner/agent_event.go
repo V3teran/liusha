@@ -27,8 +27,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(a.pollInterval)
 	defer ticker.Stop()
 
+	plan := func(c context.Context) error { return a.planningRound(c, a.planActions) }
+
 	// 启动时规划一次
-	if err := a.planFailure(a.planActions(ctx), "初始规划"); err != nil {
+	if err := a.planFailure(plan(ctx), "初始规划"); err != nil {
 		return err
 	}
 
@@ -48,19 +50,21 @@ func (a *Agent) Run(ctx context.Context) error {
 				continue
 			}
 			a.logger.Info().Strs("reasons", reasons).Msg("收到重规划请求，强制重规划")
-			if err := a.planFailure(a.forcePlanActions(ctx, reasons), "强制重规划"); err != nil {
+			if err := a.planFailure(a.planningRound(ctx, func(c context.Context) error {
+				return a.forcePlanActions(c, reasons)
+			}), "强制重规划"); err != nil {
 				return err
 			}
 
 		case event := <-sub.Events():
 			// 处理验证结果事件
-			if err := a.planFailure(a.handleEvent(ctx, event), "事件触发规划（"+string(event.Type)+"）"); err != nil {
+			if err := a.planFailure(a.handleEvent(ctx, event, plan), "事件触发规划（"+string(event.Type)+"）"); err != nil {
 				return err
 			}
 
 		case <-ticker.C:
 			// 定期兜底：检查是否需要新的规划
-			if err := a.planFailure(a.planActions(ctx), "定期规划"); err != nil {
+			if err := a.planFailure(plan(ctx), "定期规划"); err != nil {
 				return err
 			}
 		}
@@ -68,7 +72,8 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 // planFailure 处置一次规划失败：配置错误原样返回（致命，Run 退出）；其余失败记录后
-// 返回 nil，等下一次事件或轮询再试（瞬时故障已在 generateNewActions 内退避重试过）。
+// 返回 nil，等下一次事件或轮询再试（瞬时故障已在 generateNewActions 内退避重试过；
+// 被目标改写取代的那一轮在 planningRound 里已经不算失败）。
 func (a *Agent) planFailure(err error, phase string) error {
 	if err == nil {
 		return nil
@@ -82,19 +87,20 @@ func (a *Agent) planFailure(err error, phase string) error {
 }
 
 // handleEvent 处理事件
-func (a *Agent) handleEvent(ctx context.Context, event bus.Event) error {
+// handleEvent 处理事件；plan 是跑一轮常规规划的入口（带在途取消登记）。
+func (a *Agent) handleEvent(ctx context.Context, event bus.Event, plan func(context.Context) error) error {
 	switch event.Type {
 	case bus.EventVerificationPassed:
 		// 验证通过，可能需要新的规划
 		a.logger.Info().
 			Msg("收到 VerificationPassed 事件，触发新规划")
-		return a.planActions(ctx)
+		return plan(ctx)
 
 	case bus.EventVerificationRefuted:
 		// 证伪，需要调整规划
 		a.logger.Info().
 			Msg("收到 VerificationRefuted 事件，触发调整规划")
-		return a.planActions(ctx)
+		return plan(ctx)
 
 	default:
 		// 忽略其他事件
