@@ -38,14 +38,19 @@ liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限�
 
 ## 仓库地图
 
-- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`；配置文件不指定时取 `LIUSHA_CONFIG`，再取程序所在目录的 `config.yaml`）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
+- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`；配置文件不指定时取 `LIUSHA_CONFIG`，再取程序所在目录的 `config.yaml`）；子命令可声明自己读配置的范围（`command.view`，目前只有沙盒，见「沙盒镜像」）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`agentrun`、`cronschedule`、`dispatch`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`；runner 的任务收尾、恢复监控在 `internal/runner`。
 - `db/migrations`：迁移 SQL，经 `migrations.FS` 编进程序，由 `internal/db.Migrator`（golang-migrate 库，`schema_migrations` 表）执行；`0196_baseline` 是压缩后的基线。
 - `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）、`scenarios/<code>.md`（内置场景）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
 - `internal/override`：「出厂默认 + 用户自定义」的字段级引擎（agent、系统设置）；`internal/overridestore` 是自定义表的读写协议。`internal/builtinsync`：技能与场景的出厂种子同步（「没改过的跟随新版」判定与执行）。
-- `internal/config/config.yaml`：交给部署方的配置文件模板，列出全部键。程序不内置配置、不为缺键补值：读不到文件、缺键、有未知键都拒绝启动（`internal/config` 按结构体推导键表）；新增配置键时同步改它，`internal/config` 的测试直接加载这份。文件只写字面值（不支持 `${VAR}`），`LIUSHA_<键>` 环境变量覆盖文件中的值；密钥一律走环境变量。列出全部可调的值，出厂值只在这一处：只放部署方要决定的事（拓扑、容量、可调策略、密钥），可热改的旋钮（`runtime`、`compaction` 两段与 `proxy` 段里的过滤规则）也在这里给出出厂值；组件之间的内部约定（Stream 名、消费组、键前缀、队列）是代码常量；键名以单位结尾（`_seconds` / `_ms` / `_bytes` / `_days`）。持久数据都在 `data_dir` 下（`workspace/`、`logs/`、`certs/`）。二进制部署放在程序旁边（发布压缩包自带），容器部署由宿主 `~/data/liusha/config.yaml` 挂成 `/data/config.yaml`（镜像设 `LIUSHA_CONFIG`）。
+- `internal/config/config.yaml`：交给部署方的配置文件模板，列出全部键。程序不内置配置、不为缺键补值：读不到文件、缺键、有未知键都拒绝启动（`internal/config` 按结构体推导键表；与配置文件可能不同版本的进程按视角加载，见「沙盒镜像」）；新增配置键时同步改它，`internal/config` 的测试直接加载这份。文件只写字面值（不支持 `${VAR}`），`LIUSHA_<键>` 环境变量覆盖文件中的值；密钥一律走环境变量。列出全部可调的值，出厂值只在这一处：只放部署方要决定的事（拓扑、容量、可调策略、密钥），可热改的旋钮（`runtime`、`compaction` 两段与 `proxy` 段里的过滤规则）也在这里给出出厂值；组件之间的内部约定（Stream 名、消费组、键前缀、队列）是代码常量；键名以单位结尾（`_seconds` / `_ms` / `_bytes` / `_days`）。持久数据都在 `data_dir` 下（`workspace/`、`logs/`、`certs/`）。二进制部署放在程序旁边（发布压缩包自带），容器部署由宿主 `~/data/liusha/config.yaml` 挂成 `/data/config.yaml`（镜像设 `LIUSHA_CONFIG`）。
 - `internal/tools/manifest/tools.yaml`：沙盒 CLI 工具清单（编进程序）；沙盒镜像按它安装，沙盒按它探测已安装工具。
 - `internal/sandbox`：沙盒协议与客户端；`server` 是沙盒服务端，`browser` 是编进程序的浏览器服务脚本。
+- 沙盒镜像里的程序可能与主程序不同版本：镜像 21 GB、由部署方本地构建、不发布，多镜像部署与开发栈升级主程序后它常常还是旧的，而挂进容器的那份 `config.yaml` 随主程序更新（二进制与单镜像里沙盒与主程序是同一个程序，没有这个问题）。所以沙盒服务端只依赖自己的东西，`internal/app/sandbox` 与 `cmd/liusha` 的测试守住这几件事：
+  - 代码依赖面是清单里的 8 个本仓包（`internal/app/sandbox/deps_test.go`）。清单之外的包变更不要求重建沙盒镜像——`internal/config` 与 `internal/tools/manifest` 因此不引用模型框架、工具注册表与出厂自定义引擎（名单判定在零依赖的 `internal/allowlist`，重试参数的换算在 `llmstore.RetryOptions`）。要给沙盒的依赖链添包，先确认它属于沙盒再登记。
+  - `liusha sandbox` 按视角加载配置（`config.View` / `LoadView`；沙盒的范围声明在 `sandbox.ConfigView`，经 `config.ProcessView` 构造）：只要求这些键齐全、取值有效，其余段不读不查。配置文件别的段加键、删键、改值都不要求重建沙盒镜像。
+  - 沙盒入口新读的配置项要登记进 `ConfigView`：漏了不报错，按视角加载出来是零值。测试按源码核对入口读的字段与 `ConfigView` 互相覆盖。
+  - 其余子命令与 `serve` 仍整份加载：配置文件与程序不一致时立刻发现，这条不变。
 - `web`：Go 包 `web` 在带 `webdist` 构建标签时嵌入 `web/dist`（不带时嵌入占位页，`go build` / `go test` 不依赖前端构建）。`web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
 - 部署：二进制、单镜像、多镜像三种方式。仓库根 `Dockerfile` 构建 `liusha` 镜像；`compose.yaml`（多镜像）；`deployments/sandbox`（沙盒镜像）、`deployments/single`（单镜像）、`deployments/nginx`（多镜像用的反向代理配置）。说明见 `deployments/README.md`。`scripts/release` 是发布打包与第三方声明生成。
 - `vendor/`：Go 依赖入库，镜像以 `-mod=vendor` 构建。改依赖必须用 `make tidy`（tidy 后同步 vendor）。

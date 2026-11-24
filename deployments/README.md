@@ -244,7 +244,9 @@ docker compose up -d --build
 
 配置文件与数据都在 `LIUSHA_DATA_DIR`（缺省 `~/data/liusha`）下：`config.yaml`、postgres、redis、
 workspace、logs、certs。`config.yaml` 挂成各 liusha 容器的 `/data/config.yaml`（只读），编辑宿主上的
-文件后 `docker compose restart` 生效；文件不存在时 `docker compose up` 直接报错。数据目录在各容器里
+文件后 `docker compose restart` 生效；跨版本升级用 `docker compose up -d --build`——沙盒镜像里的程序要
+随主程序一起换成新版，旧沙盒镜像读不了键有增删改名的新配置文件。文件不存在时 `docker compose up` 直接
+报错。数据目录在各容器里
 就是 `LIUSHA_DATA_DIR` 这个宿主路径（workspace / logs / certs 以同一路径挂载）。宿主端口：控制台 50080、
 代理 58588；沙盒 58591、PostgreSQL 55432、Redis 56379 只绑回环（供宿主上运行的开发进程访问）。改端口、
 镜像等可选项见 `.env.example`。

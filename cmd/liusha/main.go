@@ -11,7 +11,7 @@
 //     放在一起的 .env（由 .env.example 复制填写）；只在显式给出时读，容器里的环境变量由容器注入
 //   - -config <file>：配置文件，必须存在且列出全部键。不给时取环境变量 LIUSHA_CONFIG（容器镜像
 //     设为挂载进来的 /data/config.yaml），再不给就是程序所在目录的 config.yaml（二进制部署：
-//     liusha、config.yaml、.env 放在同一目录）
+//     liusha、config.yaml、.env 放在同一目录）。sandbox 子命令只要求它读的键（见 config.View）
 package main
 
 import (
@@ -42,6 +42,9 @@ type command struct {
 	name    string
 	summary string
 	run     func(ctx context.Context, cfg config.AppConfig, args []string) error
+	// view 非 nil：这个进程可能与配置文件不同版本，按它列的键加载配置（见 config.View）；
+	// run 收到的配置里其余字段是零值。
+	view config.View
 }
 
 var commands = []command{
@@ -49,7 +52,7 @@ var commands = []command{
 	{name: "api", summary: "运行 api 组件（HTTP API 与控制台）", run: component(api.Run)},
 	{name: "proxy", summary: "运行 proxy 组件（MITM 代理入口）", run: component(proxy.Run)},
 	{name: "runner", summary: "运行 runner 组件（任务执行）", run: component(runner.Run)},
-	{name: "sandbox", summary: "运行 sandbox 组件（工具执行沙盒）", run: component(sandbox.Run)},
+	{name: "sandbox", summary: "运行 sandbox 组件（工具执行沙盒）", run: component(sandbox.Run), view: sandbox.ConfigView},
 	{name: "migrate", summary: "把数据库迁移到最新版本并同步出厂内容", run: migrate},
 }
 
@@ -107,7 +110,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		*configPath = p
 	}
 
-	cfg, err := config.Load(*configPath)
+	load := config.Load
+	if cmd.view != nil {
+		load = func(path string) (config.AppConfig, error) { return config.LoadView(path, cmd.view) }
+	}
+	cfg, err := load(*configPath)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "liusha %s: 加载配置: %v\n", name, err)
 		return 1
