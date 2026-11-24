@@ -35,7 +35,9 @@ func TestLoad_Template(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
-	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 10 || cfg.Runner.URL != "http://127.0.0.1:8590" {
+	// 任务数的出厂值与缺省账户的在途上限相称：一个任务约占 3–4 个名额，缺省账户跑 3 个任务
+	// 即占满，再多只会让调用排到预算的一半而放弃（动作重做）。账户上限改动时这里要一并复核。
+	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 3 || cfg.Runner.URL != "http://127.0.0.1:8590" {
 		t.Fatalf("取值与 config.yaml 不符: api=%q concurrency=%d runner.url=%q", cfg.API.ListenAddr, cfg.Runner.Concurrency, cfg.Runner.URL)
 	}
 	// 并发相关的出厂值钉在这里：它们是实测得出的（见 config.yaml 的注释），改动必须是有意为之。
@@ -88,7 +90,7 @@ func TestLoad_FileRequired(t *testing.T) {
 // 缺键直接报错并列出缺的键，不拿任何值顶替。
 func TestLoad_MissingKeyFails(t *testing.T) {
 	for _, c := range []struct{ line, key string }{
-		{"  concurrency: 10                    # 同时执行的任务数\n", "runner.concurrency"},
+		{"  concurrency: 3                     # 同时执行的任务数\n", "runner.concurrency"},
 		{"  cookie_secure: false", "api.cookie_secure"},
 		{"  level: info                        # debug / info / warn / error\n", "log.level"},
 		{"data_dir: ~/data/liusha\n", "data_dir"},
@@ -112,11 +114,11 @@ func TestLoad_NullValueIsMissing(t *testing.T) {
 // 不认识的键（拼错、已删除的旧键）报错，不静默忽略。
 func TestLoad_UnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ old, new, key string }{
-		{"  concurrency: 10", "  concurency: 10\n  concurrency: 10", "concurency"},
+		{"  concurrency: 3", "  concurency: 3\n  concurrency: 3", "concurency"},
 		// 已删除的键：LLM 种子、内部约定、改名前的旧键。
 		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_compat}\n", "providers"},
 		{"  stream_max_len: 100000", "  stream_name: x\n  stream_max_len: 100000", "stream_name"},
-		{"  concurrency: 10", "  asynq_concurrency: 10\n  concurrency: 10", "asynq_concurrency"},
+		{"  concurrency: 3", "  asynq_concurrency: 3\n  concurrency: 3", "asynq_concurrency"},
 	} {
 		p := editTemplate(t, c.old, c.new)
 		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), c.key) {
@@ -128,7 +130,7 @@ func TestLoad_UnknownKeyFails(t *testing.T) {
 // 没有意义的取值报错，不替换成别的值。
 func TestLoad_InvalidValueFails(t *testing.T) {
 	for _, c := range []struct{ old, new, key string }{
-		{"  concurrency: 10", "  concurrency: 0", "runner.concurrency"},
+		{"  concurrency: 3", "  concurrency: 0", "runner.concurrency"},
 		{"  level: info", "  level: verbose", "log.level"},
 		{"  format: json", "  format: text", "log.format"},
 		{"  max_size_bytes: 104857600", "  max_size_bytes: 1000", "log.max_size_bytes"},
