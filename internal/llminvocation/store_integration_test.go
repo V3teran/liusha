@@ -334,7 +334,7 @@ func TestErrorKindConstraintMatchesVocabulary(t *testing.T) {
 	if !reflect.DeepEqual(listed, want) {
 		t.Fatalf("约束 %v 与词表 %v 不一致", listed, want)
 	}
-	for _, c := range []llm.ErrorClass{llm.Class429, llm.Class529, llm.Class5xx, llm.ClassNet, llm.ClassOther} {
+	for _, c := range []llm.ErrorClass{llm.Class429, llm.Class529, llm.Class5xx, llm.ClassNet, llm.ClassBusy, llm.ClassOther} {
 		if !slices.Contains(ErrorKinds, ErrorKindOf(c)) {
 			t.Errorf("分类 %v 映射到词表外的 %q", c, ErrorKindOf(c))
 		}

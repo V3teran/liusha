@@ -58,7 +58,7 @@ var ErrorKinds = []string{"rate_limited", "server", "network", "error"}
 // ErrorKindOf 把框架的错误分类映射为错误类别。
 func ErrorKindOf(c llm.ErrorClass) string {
 	switch c {
-	case llm.Class429:
+	case llm.Class429, llm.ClassBusy: // 排不到在途名额是本地为账户限流做的节流，与限流同列
 		return "rate_limited"
 	case llm.Class529, llm.Class5xx:
 		return "server"

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // fakeRouterStore 是 RouterStore 的内存实现：routes 缺档/ spec 缺失均可构造，
@@ -161,11 +162,98 @@ func TestRouter_AllUnavailableIsNotConfigured(t *testing.T) {
 
 // 部署方配置的重试次数原样生效：写 0 就是该类错误不重试，不被换成内置值。
 func TestNewRouterWithOpts_HonorsZeroRetries(t *testing.T) {
-	r := NewRouterWithOpts(&fakeRouterStore{routes: map[string]string{}, providers: map[string]ProviderSpec{}}, RetryOptions{})
+	r := NewRouterWithOpts(&fakeRouterStore{routes: map[string]string{}, providers: map[string]ProviderSpec{}}, RetryOptions{}, 0)
 	if r.retryOpts.MaxRetries429 != 0 || r.retryOpts.MaxRetries529 != 0 || r.retryOpts.MaxRetries5xx != 0 || r.retryOpts.MaxRetriesNet != 0 {
 		t.Fatalf("重试次数被改写: %+v", r.retryOpts)
 	}
 	if d := NewRouter(&fakeRouterStore{routes: map[string]string{}, providers: map[string]ProviderSpec{}}).retryOpts; d.MaxRetries429 != DefaultRetryOptions().MaxRetries429 {
 		t.Fatalf("无配置的构造应使用内置策略: %+v", d)
 	}
+}
+
+// 账户并发上限经 Router 落到每个 Provider 实例上，并且按账户归属生效：共用一把密钥的
+// 两个 provider 是同一份额度，换了密钥的另一个 provider 不受约束。
+func TestRouter_AccountConcurrencyIsEnforcedPerAccount(t *testing.T) {
+	shared := goodSpec("a")
+	sibling := goodSpec("a2")
+	sibling.APIKey = shared.APIKey // 同一服务地址、同一把密钥：同一个账户
+	other := goodSpec("b")         // 另一把密钥：另一个账户
+	r := NewRouterWithOpts(&fakeRouterStore{
+		routes:    map[string]string{"simple": "a", "complex": "a2", "medium": "b"},
+		providers: map[string]ProviderSpec{"a": shared, "a2": sibling, "b": other},
+	}, RetryOptions{}, 1)
+	r.governor.inflight.maxWait = 20 * time.Millisecond
+	ctx, cancel := giveUpSoon() // 预算小：排不到名额的调用约 80ms 就放弃
+	defer cancel()
+
+	hold, err := r.governor.inflight.acquire(ctx, quotaIdentity(shared.BaseURL, shared.APIKey), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hold()
+
+	for _, lvl := range []Complexity{ComplexitySimple, ComplexityComplex} {
+		p, err := r.For(ctx, lvl)
+		if err != nil {
+			t.Fatalf("For(%s): %v", lvl, err)
+		}
+		if _, err := p.Complete(ctx, Request{}); !errors.Is(err, ErrInflightBusy) {
+			t.Fatalf("For(%s) 与被占住的账户共用密钥，应排不到名额，实际 %v", lvl, err)
+		}
+	}
+	// 另一个账户不受约束：请求真的发了出去（落到不可达的测试端点上，以网络错误返回）。
+	p, err := r.For(ctx, ComplexityMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Complete(ctx, Request{}); err == nil || errors.Is(err, ErrInflightBusy) {
+		t.Fatalf("另一个账户的调用应照常发出，实际 %v", err)
+	}
+}
+
+// 对话侧没有外层重认领循环：两种「本可以等一等」的情况——账户的在途名额已满、上游处于
+// 额度窗口——都不等，立即交还。等下去（名额排满时至多排掉预算的一半、额度窗口内至多
+// 一分钟）只会把一句清楚的原因拖成连接超时。
+func TestRouter_FailFastReturnsInsteadOfWaiting(t *testing.T) {
+	spec := goodSpec("a")
+	r := NewRouterWithOpts(&fakeRouterStore{
+		routes:    map[string]string{"simple": "a"},
+		providers: map[string]ProviderSpec{"a": spec},
+	}, RetryOptions{}, 1)
+	r.FailFast()
+	account := quotaIdentity(spec.BaseURL, spec.APIKey)
+	ctx, cancel := withBudget(10 * time.Second) // 预算很宽：要等的话等得到超时
+	defer cancel()
+	p, err := r.For(ctx, ComplexitySimple)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("名额已满", func(t *testing.T) {
+		hold, err := r.governor.inflight.acquire(ctx, account, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer hold()
+
+		start := time.Now()
+		_, err = p.Complete(ctx, Request{})
+		if !errors.Is(err, ErrInflightBusy) {
+			t.Fatalf("应因排不到在途名额而交还，实际 %v", err)
+		}
+		if waited := time.Since(start); waited >= 2*time.Second {
+			t.Fatalf("不应为名额排队，实际等了 %v", waited)
+		}
+	})
+
+	t.Run("额度窗口", func(t *testing.T) {
+		r.governor.cooldown.open(account, time.Now().Add(time.Hour), quotaError(time.Hour), time.Now())
+
+		start := time.Now()
+		_, err := p.Complete(ctx, Request{})
+		assertNeverSent(t, err)
+		if waited := time.Since(start); waited >= 2*time.Second {
+			t.Fatalf("不应在额度窗口内等候，实际等了 %v", waited)
+		}
+	})
 }

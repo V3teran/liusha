@@ -161,6 +161,7 @@ func invalidValues(c AppConfig) []string {
 			}
 		}
 	}
+	nonNegative("llm.account_concurrency", int64(c.LLM.AccountConcurrency))
 	nonNegative("llm.invocation_retention_days", int64(c.LLM.InvocationRetentionDays))
 	nonNegative("tools.invocation_retention_days", int64(c.Tools.InvocationRetentionDays))
 	nonNegative("traffic.retention_days", int64(c.Traffic.RetentionDays))

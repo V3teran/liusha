@@ -257,16 +257,21 @@ func TestCooldownAdmit(t *testing.T) {
 type scriptedProvider struct {
 	mu       sync.Mutex
 	calls    int
-	outcomes []error // nil = 成功；用尽后重复最后一项
+	outcomes []error     // nil = 成功；用尽后重复最后一项
+	hook     func(n int) // 第 n 次请求在返回结果之前回调（不持锁）
 }
 
 func (p *scriptedProvider) Complete(context.Context, Request) (Response, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.calls++
 	out := p.outcomes[len(p.outcomes)-1]
 	if p.calls-1 < len(p.outcomes) {
 		out = p.outcomes[p.calls-1]
+	}
+	hook := p.hook
+	p.mu.Unlock()
+	if hook != nil {
+		hook(p.calls)
 	}
 	return Response{}, out
 }
@@ -289,6 +294,16 @@ func (p *scriptedProvider) ModelID() string    { return "m" }
 func (p *scriptedProvider) ProviderID() string { return "p" }
 
 const testAccount = "acct"
+
+// testGovernor 是只带额度窗口登记、不限在途名额的节律治理——额度窗口的用例只验证额度窗口。
+func testGovernor(cd *cooldown) *governor {
+	return &governor{cooldown: cd, inflight: newInflight(0)}
+}
+
+// retryFor 按测试用的退避表包一个 Provider，归属测试账户。
+func retryFor(inner Provider, cd *cooldown) Provider {
+	return WithRetry(inner, retryOptsForTest(), testGovernor(cd), testAccount)
+}
 
 // fastCooldown 把两个时间阈值缩小到毫秒级，让测试在真实时间里走完同样的状态迁移。
 func fastCooldown() *cooldown {
@@ -339,7 +354,7 @@ func assertNeverSent(t *testing.T, err error) {
 // 额度型限流不按退避表盲目重试：登记窗口、静默等待一个周期后把限流交还，只发过那一次请求。
 func TestQuotaWindowHoldsInsteadOfBlindRetrying(t *testing.T) {
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-	p := WithRetry(inner, retryOptsForTest(), fastCooldown(), testAccount)
+	p := retryFor(inner, fastCooldown())
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -364,14 +379,14 @@ func TestQuotaWindowSharedAcrossCallers(t *testing.T) {
 	first := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
-	if _, err := WithRetry(first, retryOptsForTest(), cd, testAccount).Complete(ctx, Request{}); err == nil {
+	if _, err := retryFor(first, cd).Complete(ctx, Request{}); err == nil {
 		t.Fatal("首次调用应撞上额度窗口")
 	}
 
 	// 另一个实例、同一个账户：不发请求，照着登记等待。
 	second := &scriptedProvider{outcomes: []error{nil}}
 	start := time.Now()
-	_, err := WithRetry(second, retryOptsForTest(), cd, testAccount).Complete(ctx, Request{})
+	_, err := retryFor(second, cd).Complete(ctx, Request{})
 	assertNeverSent(t, err)
 	if time.Since(start) < 40*time.Millisecond {
 		t.Fatal("后来者应照着登记静默等待，而不是即刻返回")
@@ -382,7 +397,7 @@ func TestQuotaWindowSharedAcrossCallers(t *testing.T) {
 
 	// 另一个账户：不受约束。
 	other := &scriptedProvider{outcomes: []error{nil}}
-	if _, err := WithRetry(other, retryOptsForTest(), cd, "another-account").Complete(ctx, Request{}); err != nil {
+	if _, err := WithRetry(other, retryOptsForTest(), testGovernor(cd), "another-account").Complete(ctx, Request{}); err != nil {
 		t.Fatalf("别的账户的额度窗口不应约束这个账户：%v", err)
 	}
 	if other.sent() != 1 {
@@ -395,7 +410,7 @@ func TestQuotaWindowSharedAcrossCallers(t *testing.T) {
 func TestQuotaWindowLiftedByProbe(t *testing.T) {
 	cd := fastCooldown() // probeEvery = 200ms
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second), nil, nil}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(2 * time.Second)
 	defer cancel()
 
@@ -419,7 +434,7 @@ func TestQuotaWindowLiftedByProbe(t *testing.T) {
 func TestQuotaWindowProbeAdmitsOnePerInterval(t *testing.T) {
 	cd := fastCooldown() // probeEvery = 200ms
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -445,7 +460,7 @@ func TestQuotaWindowProbeAdmitsOnePerInterval(t *testing.T) {
 func TestQuotaWindowTailWaitsThenSends(t *testing.T) {
 	cd := fastCooldown() // window = 60ms
 	inner := &scriptedProvider{outcomes: []error{quotaError(90 * time.Millisecond), nil}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -465,7 +480,7 @@ func TestQuotaTailInterruptedByBudgetReportsRateLimit(t *testing.T) {
 	cd := newCooldown()
 	cd.window, cd.probeEvery = 300*time.Millisecond, time.Hour
 	inner := &scriptedProvider{outcomes: []error{quotaError(400 * time.Millisecond)}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	if _, err := p.Complete(ctx, Request{}); err == nil {
 		t.Fatal("首次调用应撞上额度窗口")
@@ -486,7 +501,7 @@ func TestQuotaHoldBoundedByCallBudget(t *testing.T) {
 	cd := newCooldown()
 	cd.window, cd.probeEvery = 300*time.Millisecond, time.Hour
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(40 * time.Millisecond)
 	defer cancel()
 
@@ -506,7 +521,7 @@ func TestQuotaHoldHonorsCancel(t *testing.T) {
 	cd := newCooldown()
 	cd.window, cd.probeEvery = time.Hour, time.Hour
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
@@ -531,7 +546,7 @@ func TestQuotaHoldHonorsCancel(t *testing.T) {
 func TestShortAnnouncedWaitIsHonoredInCall(t *testing.T) {
 	cd := fastCooldown()
 	inner := &scriptedProvider{outcomes: []error{quotaError(25 * time.Millisecond), nil}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -553,7 +568,7 @@ func TestShortAnnouncedWaitIsHonoredInCall(t *testing.T) {
 // 上游反复要求短时等待时，次数上限依然管用：不会无限循环。
 func TestRepeatedShortAnnouncedWaitsAreBounded(t *testing.T) {
 	inner := &scriptedProvider{outcomes: []error{quotaError(5 * time.Millisecond)}}
-	p := WithRetry(inner, retryOptsForTest(), fastCooldown(), testAccount) // MaxRetries429 = 3
+	p := retryFor(inner, fastCooldown()) // MaxRetries429 = 3
 	ctx, cancel := withBudget(5 * time.Second)
 	defer cancel()
 
@@ -568,7 +583,7 @@ func TestRepeatedShortAnnouncedWaitsAreBounded(t *testing.T) {
 // 速率型限流（上游未告知恢复时刻）行为不变：按退避表重试，耗尽即失败。
 func TestUnannouncedRateLimitUsesSchedule(t *testing.T) {
 	inner := &scriptedProvider{outcomes: []error{&HTTPError{Code: 429}}}
-	p := WithRetry(inner, retryOptsForTest(), newCooldown(), testAccount)
+	p := retryFor(inner, newCooldown())
 	ctx, cancel := withBudget(5 * time.Second)
 	defer cancel()
 
@@ -583,7 +598,7 @@ func TestUnannouncedRateLimitUsesSchedule(t *testing.T) {
 // 重试途中撞上额度窗口（首发是别的瞬时错误）：同样转入等待，不继续盲试。
 func TestQuotaWindowHitMidRetry(t *testing.T) {
 	inner := &scriptedProvider{outcomes: []error{&HTTPError{Code: 503}, quotaError(10 * time.Second), nil}}
-	p := WithRetry(inner, retryOptsForTest(), fastCooldown(), testAccount)
+	p := retryFor(inner, fastCooldown())
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -600,7 +615,7 @@ func TestQuotaWindowHitMidRetry(t *testing.T) {
 // 流式路径与 Complete 同口径：额度窗口内同样等待、同样不发请求。
 func TestQuotaWindowOnStreamPath(t *testing.T) {
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-	p := WithRetry(inner, retryOptsForTest(), fastCooldown(), testAccount)
+	p := retryFor(inner, fastCooldown())
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 
@@ -636,7 +651,7 @@ func TestInstrumentProviderHeldCallKeepsNoMessages(t *testing.T) {
 	t.Run("发往上游并失败的调用保留失败现场", func(t *testing.T) {
 		sink := &recordingSink{}
 		inner := &scriptedProvider{outcomes: []error{&HTTPError{Code: 400}}}
-		p := InstrumentProvider(WithRetry(inner, retryOptsForTest(), newCooldown(), testAccount), sink)
+		p := InstrumentProvider(retryFor(inner, newCooldown()), sink)
 		_, _ = p.Complete(context.Background(), req)
 		if len(sink.recs) != 1 || len(sink.recs[0].Messages) == 0 {
 			t.Fatalf("发往上游的失败调用应留存提示词，实际 %+v", sink.recs)
@@ -648,7 +663,7 @@ func TestInstrumentProviderHeldCallKeepsNoMessages(t *testing.T) {
 		cd := newCooldown()
 		cd.window, cd.probeEvery = time.Millisecond, time.Hour
 		inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
-		p := InstrumentProvider(WithRetry(inner, retryOptsForTest(), cd, testAccount), sink)
+		p := InstrumentProvider(retryFor(inner, cd), sink)
 		// 首次调用真的发出了（被拒）；随后同一账户的第二次调用是被挡下的。
 		_, _ = p.Complete(context.Background(), req)
 		_, _ = p.Complete(context.Background(), req)
@@ -689,7 +704,7 @@ func TestQuotaWindowWithoutHoldReturnsImmediately(t *testing.T) {
 	cd := fastCooldown()
 	cd.holdInWindow = false
 	inner := &scriptedProvider{outcomes: []error{quotaError(90 * time.Millisecond)}}
-	p := WithRetry(inner, retryOptsForTest(), cd, testAccount)
+	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
 

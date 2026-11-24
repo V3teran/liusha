@@ -61,20 +61,28 @@ func (d *compactionDistiller) Distill(ctx context.Context, role string, evicted 
 	if err != nil {
 		return "", fmt.Errorf("compaction distill: provider: %w", err)
 	}
-	user := renderDistillTranscript(evicted)
-	if prior != "" {
-		user += "\n\n【上一份纪要（折叠合并进新纪要，勿丢失其结论）】\n" + prior
-	}
-	resp, err := p.Complete(ctx, llm.Request{
-		Messages: []llm.Message{
-			{Role: llm.RoleSystem, Content: distillSystemPrompt},
-			{Role: llm.RoleUser, Content: "为「" + role + "」角色压缩以下执行历史：\n\n" + user},
-		},
-	})
+	resp, err := p.Complete(ctx, distillRequest(role, evicted, prior))
 	if err != nil {
 		return "", fmt.Errorf("compaction distill: generate: %w", err)
 	}
 	return strings.TrimSpace(resp.Content), nil
+}
+
+// distillRequest 组装一次纪要蒸馏的请求。它优先取得在途名额：账户满载时普通调用要排队，
+// 蒸馏的预算排不到就作废，作废即丢失这段历史的纪要；而蒸馏稀少又短，让它在队列里
+// 先行不损公平。
+func distillRequest(role string, evicted []llm.Message, prior string) llm.Request {
+	user := renderDistillTranscript(evicted)
+	if prior != "" {
+		user += "\n\n【上一份纪要（折叠合并进新纪要，勿丢失其结论）】\n" + prior
+	}
+	return llm.Request{
+		Priority: true,
+		Messages: []llm.Message{
+			{Role: llm.RoleSystem, Content: distillSystemPrompt},
+			{Role: llm.RoleUser, Content: "为「" + role + "」角色压缩以下执行历史：\n\n" + user},
+		},
+	}
 }
 
 // renderDistillTranscript 把被裁前缀渲染成蒸馏输入文本：逐条 [角色] 正文

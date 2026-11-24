@@ -38,6 +38,10 @@ func TestLoad_Template(t *testing.T) {
 	if cfg.API.ListenAddr != "0.0.0.0:8580" || cfg.Runner.Concurrency != 10 || cfg.Runner.URL != "http://127.0.0.1:8590" {
 		t.Fatalf("取值与 config.yaml 不符: api=%q concurrency=%d runner.url=%q", cfg.API.ListenAddr, cfg.Runner.Concurrency, cfg.Runner.URL)
 	}
+	// 并发相关的出厂值钉在这里：它们是实测得出的（见 config.yaml 的注释），改动必须是有意为之。
+	if c := cfg.LLM; c.AccountConcurrency != 4 {
+		t.Fatalf("llm.account_concurrency 出厂值 = %d，期望 4", c.AccountConcurrency)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +129,7 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  format: json", "  format: text", "log.format"},
 		{"  max_size_bytes: 104857600", "  max_size_bytes: 1000", "log.max_size_bytes"},
 		{"  pool_size: 20", "  pool_size: 0", "redis.pool_size"},
+		{"  account_concurrency: 4", "  account_concurrency: -1", "llm.account_concurrency"},
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
 		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},
