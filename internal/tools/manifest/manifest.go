@@ -18,7 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/allowlist"
 )
 
 // Tool 是单个沙箱预装工具的清单条目。
@@ -122,12 +122,12 @@ func (m *ToolManifest) Names() []string {
 }
 
 // FilterByNames 按 agent cli_tools 白名单过滤工具目录，返回新 ToolManifest（不改原实例——不可变）。
-// 名单语义见 registry.Allows（nil / 空 = 空集，含 "*" = 全部，其余为严格白名单）；
+// 名单语义见 allowlist.Allows（nil / 空 = 空集，含 "*" = 全部，其余为严格白名单）；
 // 白名单里不存在的名字静默忽略（配置漂移不致命）。Categories 元数据保持不变。
 func (m *ToolManifest) FilterByNames(names []string) *ToolManifest {
 	out := make([]Tool, 0, len(m.Tools))
 	for _, t := range m.Tools {
-		if registry.Allows(names, t.Name) {
+		if allowlist.Allows(names, t.Name) {
 			out = append(out, t)
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestIntersectPlannerSafeTools 锁定规划者函数工具的上界：声明名单（语义同 registry.Allows）
+// TestIntersectPlannerSafeTools 锁定规划者函数工具的上界：声明名单（语义同 allowlist.Allows）
 // 与规划安全集求交，执行面工具无论怎么配都进不来。
 func TestIntersectPlannerSafeTools(t *testing.T) {
 	cases := []struct {

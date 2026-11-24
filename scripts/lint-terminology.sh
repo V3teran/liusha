@@ -75,6 +75,9 @@ EXCLUDES=(
 # LLM 配置：模型接入页统一称「模型配置」——向量与重排模型不是 LLM，页面承载全部模型接入
 #   （对话模型、能力路由、检索模型），以「模型」统称。
 # LLM 审计：LLM 调用记录页统一称「模型日志」，与「服务器日志」「审计日志」同列观测组。
+# registry.Allows / override.Wildcard：名单判定下沉为独立的 allowlist 包。名单的使用方（技能
+#   视图、工具清单、HTTP 接口……）不再为此引用工具注册表，再由它带上模型框架与出厂自定义
+#   引擎——沙盒服务端的依赖面曾因此背上这两样。
 FORBIDDEN=(
   'LLM 配置'
   'LLM 审计'
@@ -172,6 +175,8 @@ FORBIDDEN=(
   'adjust_goal'
   'inject_action'
   '多镜像(部署)?（Docker Compose）'
+  'registry\.Allows'
+  'override\.Wildcard'
 )
 
 MODE="${1:-check}"

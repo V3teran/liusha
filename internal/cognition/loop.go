@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/allowlist"
 	"github.com/V3teran/liusha/internal/bus"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
@@ -453,13 +454,13 @@ func (d *Deps) assembleStack(
 // 新增规划安全工具必须在此显式登记——这是角色边界的代码化。
 var plannerSafeTools = []string{"evaluate_progress", "observe_state", "search_corpus"}
 
-// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交，判定同 registry.Allows）：
+// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交，判定同 allowlist.Allows）：
 // 「全部」= 安全集全部，执行面工具无论怎么配都进不来。图读工具（observe_state /
 // evaluate_progress）不走 BuildTools、由 planner.Plan 按原白名单自注册，不在求交影响面内。
 func intersectPlannerSafeTools(whitelist []string) []string {
 	out := make([]string, 0, len(plannerSafeTools))
 	for _, n := range plannerSafeTools {
-		if registry.Allows(whitelist, n) {
+		if allowlist.Allows(whitelist, n) {
 			out = append(out, n)
 		}
 	}

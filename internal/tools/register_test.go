@@ -10,7 +10,7 @@ import (
 )
 
 // TestBuildToolsWhitelistSemantics 锁定白名单契约：nil = 拒绝；空 slice = 空集；["*"] = 全量；
-// 白名单里不存在的名字静默忽略。与 registry.Allows 的语义保持一致。
+// 白名单里不存在的名字静默忽略。与 allowlist.Allows 的语义保持一致。
 func TestBuildToolsWhitelistSemantics(t *testing.T) {
 	deps := Deps{
 		Tasks:      &task.Store{},

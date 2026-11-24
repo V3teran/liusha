@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	evaluatorcontract "github.com/V3teran/liusha/internal/evaluator/contract"
 
 	"github.com/rs/zerolog"
@@ -177,7 +178,7 @@ func (j *RouterJudge) Judge(
 	}
 
 	react := runtime.NewReActRuntime()
-	if replay != nil && registry.Allows(j.functionTools, "replay_for_verification") {
+	if replay != nil && allowlist.Allows(j.functionTools, "replay_for_verification") {
 		replayTool := registry.Tool(newReplayTool(replay))
 		if j.toolWrap != nil {
 			replayTool = j.toolWrap(replayTool)
@@ -187,7 +188,7 @@ func (j *RouterJudge) Judge(
 		}
 	}
 	for _, t := range j.extraTools {
-		if registry.Allows(j.functionTools, t.Name()) {
+		if allowlist.Allows(j.functionTools, t.Name()) {
 			if err := react.RegisterTool(t); err != nil {
 				return Verdict{}, fmt.Errorf("judge: 注册工具 %s 失败: %w", t.Name(), err)
 			}
@@ -296,7 +297,7 @@ func (j *RouterJudge) systemPrompt() string {
 	sb.WriteString("\n\n")
 	sb.WriteString(evaluatorcontract.Text)
 	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
-	if len(j.skills) > 0 && registry.Allows(j.functionTools, "read_skill") {
+	if len(j.skills) > 0 && allowlist.Allows(j.functionTools, "read_skill") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {
 			sb.WriteString("\n")
 			sb.WriteString(idx)

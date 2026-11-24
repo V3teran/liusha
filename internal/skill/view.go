@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/V3teran/liusha/internal/registry"
+	"github.com/V3teran/liusha/internal/allowlist"
 )
 
 // Reader 是 skill 渐进式加载的消费接口（StoreReader 实现，测试可替换）：
@@ -20,7 +20,7 @@ type Reader interface {
 }
 
 // View 是 Reader 的白名单视图：agent.skills 声明哪些 skill，本视图就只暴露哪些。
-// 名单判定与 function_tools / cli_tools 共用 registry.Allows（nil=拒绝，空=空集，含 "*"=全部）。
+// 名单判定与 function_tools / cli_tools 共用 allowlist.Allows（nil=拒绝，空=空集，含 "*"=全部）。
 // 装配层（cognition）按各 agent 配置分别建视图——executor 与 evaluator 可各自独立。
 type View struct {
 	src   Reader
@@ -40,7 +40,7 @@ func (v *View) Metas(ctx context.Context) ([]*Card, error) {
 	}
 	out := make([]*Card, 0, len(all))
 	for _, c := range all {
-		if registry.Allows(v.names, c.Key) {
+		if allowlist.Allows(v.names, c.Key) {
 			out = append(out, c)
 		}
 	}
@@ -49,7 +49,7 @@ func (v *View) Metas(ctx context.Context) ([]*Card, error) {
 
 // Load 仅放行白名单内的名字（Tier 2 正文）。
 func (v *View) Load(ctx context.Context, name string) (*Card, error) {
-	if !registry.Allows(v.names, name) {
+	if !allowlist.Allows(v.names, name) {
 		return nil, fmt.Errorf("skill %q 不在本 agent 的 skills 白名单内", name)
 	}
 	return v.src.Load(ctx, name)

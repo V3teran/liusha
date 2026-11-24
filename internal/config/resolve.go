@@ -9,9 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 const mib = 1 << 20
@@ -45,29 +42,6 @@ func expandHome(p string) (string, error) {
 		return "", fmt.Errorf("data_dir 写的是 %q，但无法确定当前用户主目录：请写绝对路径", p)
 	}
 	return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/")), nil
-}
-
-// Options 把配置换算为框架的重试参数（api / runner 装配 Router 共用）。
-func (c RetryConfig) Options() llm.RetryOptions {
-	return llm.RetryOptions{
-		MaxRetries429: c.Max429,
-		MaxRetries529: c.Max529,
-		MaxRetries5xx: c.Max5xx,
-		MaxRetriesNet: c.MaxNet,
-		Backoff429:    AsDurations(c.Backoff429Seconds),
-		Backoff5xx:    AsDurations(c.Backoff5xxSeconds),
-		BackoffNet:    AsDurations(c.BackoffNetSeconds),
-		Backoff529:    time.Duration(c.Backoff529Ms) * time.Millisecond,
-	}
-}
-
-// AsDurations 把 []int 秒数列表转 []time.Duration。
-func AsDurations(secs []int) []time.Duration {
-	out := make([]time.Duration, len(secs))
-	for i, s := range secs {
-		out[i] = time.Duration(s) * time.Second
-	}
-	return out
 }
 
 // validate 校验部署配置的取值（不碰密钥是否就位：各组件用到时检查）。

@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -128,10 +129,10 @@ func New(cfg Config) *Agent {
 
 	// 注册监察工具（function_tools 白名单过滤；nil=拒绝，[]=空集，["*"]=全量）
 	var registryTools []registry.Tool
-	if registry.Allows(cfg.FunctionTools, "get_global_state") {
+	if allowlist.Allows(cfg.FunctionTools, "get_global_state") {
 		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
 	}
-	if registry.Allows(cfg.FunctionTools, "publish_decision") {
+	if allowlist.Allows(cfg.FunctionTools, "publish_decision") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.Replanner, cfg.TaskID))
 	}
 	for _, tool := range registryTools {

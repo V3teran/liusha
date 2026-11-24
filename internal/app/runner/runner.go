@@ -144,7 +144,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
 	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
-	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options(), cfg.LLM.AccountConcurrency)
+	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), llmstore.RetryOptions(cfg.LLM.Retry), cfg.LLM.AccountConcurrency)
 	// 并发相关的生效值启动时落一行日志：部署方据此确认配置生效，排障时也不必回翻配置文件。
 	logger.Info().
 		Int("llm.account_concurrency", cfg.LLM.AccountConcurrency).

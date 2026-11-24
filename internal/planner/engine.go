@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 
 	"github.com/google/uuid"
@@ -133,7 +134,7 @@ func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
 }
 
 // WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
-// 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
+// 构建；Plan 时经 allowlist.Allows 复核后注册进 ReAct）。
 func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
 	e.extraTools = ts
 	return e
@@ -248,7 +249,7 @@ type PlanOutcome struct {
 func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string) []registry.Tool {
 	var out []registry.Tool
 	for _, tool := range []registry.Tool{NewObserveStateTool(graph), NewEvaluateProgressTool(graph)} {
-		if !registry.Allows(functionTools, tool.Name()) {
+		if !allowlist.Allows(functionTools, tool.Name()) {
 			continue
 		}
 		if e.toolWrap != nil {
@@ -257,7 +258,7 @@ func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string
 		out = append(out, tool)
 	}
 	for _, tool := range e.extraTools {
-		if !registry.Allows(functionTools, tool.Name()) {
+		if !allowlist.Allows(functionTools, tool.Name()) {
 			continue
 		}
 		if tool.Name() == knowledgeSearchTool {

@@ -2,6 +2,7 @@ package cognition
 
 import (
 	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/allowlist"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/tools"
 )
@@ -24,7 +25,7 @@ func (d *Deps) restrictToInstalled(cfg agent.Agent) agent.Agent {
 		}
 		out := []string{}
 		for _, name := range all {
-			if !registry.Allows(allowed, name) {
+			if !allowlist.Allows(allowed, name) {
 				continue
 			}
 			if !installed(name) {
