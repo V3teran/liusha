@@ -126,6 +126,11 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - **上下文压缩优先取得名额**（`llm.Request.Priority`）：压缩链跑在一步推理内部；账户满载时普通调用要排队，蒸馏排不到名额就作废，作废意味着被裁掉的历史不留纪要。优先的调用排在普通调用之前（不打断在途的请求），只给「稀少、短、失败代价高」的调用用，目前只有压缩的蒸馏。看门狗的停摆窗口直接计入压缩链的超时（`runtime.ChainTimeout`），蒸馏的时限先于链超时到期——`internal/executor` 与 `internal/framework/runtime` 的测试守住这两层关系。
 - 任务宽度只表达「想跑多宽」。目标不容忍并发访问（顶掉登录态、对并发断连）时把 `runner.action_parallelism` 降到 1–2；账户的并发额度高（官方高阶额度、自建模型）时调大 `llm.account_concurrency`（0 = 不限），再按需调大任务宽度。缺省值是实测结论，`internal/config` 的测试把它们钉住，改动必须是有意为之。
 
+### 调用审计（`internal/llminvocation`、`internal/toolinvocation`）
+
+- LLM 调用与工具调用的记录是失败现场的第一证据，写入不依赖被审计调用的 ctx：调用超时或被取消时它的 ctx 已经结束，写入若随之作废，丢掉的偏偏是失败现场。LLM 调用记录经 channel 入队（入队不看 ctx，缓冲满丢行并告警）；工具调用记录同步写库，用去掉取消的 ctx，另设时间上限。
+- 失败类别取记录携带的分类（`llm.UsageRecord.ErrClass`，框架层 `Classify` 对真实错误的结论），落库一方不拿错误文本重判：哨兵错误只存在于错误链上，文本重判会把本地的在途名额节流判成「其它错误」。
+
 ### 恢复、停机与清扫
 
 - 动作的执行生命周期（`explorationgraph/action_lifecycle.go`）：认领记下 run 归属（`claimed_by`），结束与交还都以「仍由本 run 认领」为前置——新旧 run 重叠时旧 run 迟到的结果落空。中断不是失败：run 被暂停、停机或超时打断时，在途动作交还 open 由下一个 run 重做；新 run 开始时回收本任务仍 running 的动作。动作之间没有执行依赖，先后由增量规划表达。

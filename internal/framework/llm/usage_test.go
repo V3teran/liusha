@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 // 审计归属链回归：ctx 里的 CallMeta（task/role/agent_run_id）必须原样到达 Sink——
@@ -76,12 +79,16 @@ func TestInstrumentProvider_NilMetaLeavesAttributionEmpty(t *testing.T) {
 
 // providerFuncs 按需注入 Stream/Complete 的测试替身（其余走零值）。
 type providerFuncs struct {
-	stream func() (<-chan StreamEvent, error)
+	stream   func() (<-chan StreamEvent, error)
+	complete func() (Response, error)
 }
 
 func (p providerFuncs) ProviderID() string { return "stub" }
 func (p providerFuncs) ModelID() string    { return "stub-model" }
 func (p providerFuncs) Complete(_ context.Context, _ Request) (Response, error) {
+	if p.complete != nil {
+		return p.complete()
+	}
 	return Response{}, nil
 }
 func (p providerFuncs) Stream(_ context.Context, _ Request) (<-chan StreamEvent, error) {
@@ -198,6 +205,82 @@ func TestInstrumentProvider_StreamErrorOmitsResult(t *testing.T) {
 	if rec.FinishReason != "error: boom" {
 		t.Errorf("FinishReason = %q", rec.FinishReason)
 	}
+}
+
+// drainStream 建流并读到通道关闭（审计在关闭后落库）；建流即败时没有通道可读。
+func drainStream(p Provider, ctx context.Context) {
+	ch, err := p.Stream(ctx, Request{})
+	if err != nil {
+		return
+	}
+	for range ch { //nolint:revive // 排空通道（审计在关闭后落库）
+	}
+}
+
+// 审计记录携带对真实错误的分类，落库一方直接采用——只凭错误文本，本地的在途名额节流
+// 这类哨兵错误认不出来，会被判成「其它错误」。四条失败路径都要带：Complete 报错、建流
+// 即败、流上出错、消费方放弃。
+func TestInstrumentProvider_RecordsErrorClassOfRealError(t *testing.T) {
+	busy := &heldError{err: fmt.Errorf("%w（上限 4）：排队未果，没有请求发出", ErrInflightBusy)}
+
+	t.Run("Complete 报错", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			err  error
+			want ErrorClass
+		}{
+			{"排不到在途名额", busy, ClassBusy},
+			{"上游限流", &HTTPError{Code: 429}, Class429},
+			{"调用超时", context.DeadlineExceeded, ClassNet},
+			{"其它错误", errors.New("boom"), ClassOther},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				sink := &captureSink{}
+				p := InstrumentProvider(providerFuncs{complete: func() (Response, error) {
+					return Response{}, tc.err
+				}}, sink)
+				_, _ = p.Complete(context.Background(), Request{})
+				if got := sink.recs[0].ErrClass; got != tc.want {
+					t.Fatalf("分类应为 %v，实际 %v（错误文本 %q）", tc.want, got, sink.recs[0].Err)
+				}
+			})
+		}
+	})
+
+	t.Run("建流即败", func(t *testing.T) {
+		sink := &captureSink{}
+		p := InstrumentProvider(providerFuncs{stream: func() (<-chan StreamEvent, error) {
+			return nil, busy
+		}}, sink)
+		drainStream(p, context.Background())
+		if got := sink.recs[0].ErrClass; got != ClassBusy {
+			t.Fatalf("分类应为 %v，实际 %v", ClassBusy, got)
+		}
+	})
+
+	t.Run("流上出错", func(t *testing.T) {
+		sink := &captureSink{}
+		p := InstrumentProvider(&streamStubProvider{events: []StreamEvent{
+			{Kind: StreamError, Err: &HTTPError{Code: 529}},
+		}}, sink)
+		drainStream(p, context.Background())
+		if got := sink.recs[0].ErrClass; got != Class529 {
+			t.Fatalf("分类应为 %v，实际 %v", Class529, got)
+		}
+	})
+
+	t.Run("消费方放弃", func(t *testing.T) {
+		sink := &captureSink{}
+		p := InstrumentProvider(&streamStubProvider{events: []StreamEvent{{Kind: StreamText, Content: "部分"}}}, sink)
+		// 截止时间已过的 ctx：放弃的原因是超时（瞬时故障），分类须与之一致，而不是「其它错误」。
+		ctx, cancel := context.WithTimeout(context.Background(), -time.Second)
+		defer cancel()
+		drainStream(p, ctx)
+		rec := sink.recs[0]
+		if rec.ErrClass != ClassNet || !strings.Contains(rec.FinishReason, "stream abandoned") {
+			t.Fatalf("放弃的流应按放弃的原因分类：%v（%q）", rec.ErrClass, rec.FinishReason)
+		}
+	})
 }
 
 // 审计在最需要的地方不能失明：模型返回残缺的工具参数时，回复与回传历史都含非法 JSON，

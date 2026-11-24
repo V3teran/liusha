@@ -35,7 +35,7 @@ func TestStore_Append_ListAll(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	if err := s.Append(ctx, Invocation{
+	s.Append(Invocation{
 		TaskID:       &taskID,
 		Provider:     "deepseek",
 		Model:        "deepseek-chat",
@@ -45,9 +45,7 @@ func TestStore_Append_ListAll(t *testing.T) {
 		LatencyMs:    850,
 		FinishReason: "stop",
 		Role:         "planner",
-	}); err != nil {
-		t.Fatalf("append: %v", err)
-	}
+	})
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
@@ -75,9 +73,7 @@ func TestStore_ListAll_Pagination(t *testing.T) {
 	s, taskID := setup(t)
 
 	for i := 0; i < 3; i++ {
-		if err := s.Append(ctx, Invocation{TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "planner", InTokens: i}); err != nil {
-			t.Fatalf("append %d: %v", i, err)
-		}
+		s.Append(Invocation{TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "planner", InTokens: i})
 	}
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
@@ -113,13 +109,11 @@ func TestStore_GetDetailByID(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	if err := s.Append(ctx, Invocation{
+	s.Append(Invocation{
 		TaskID: &taskID, Provider: "deepseek", Model: "deepseek-chat", Role: "planner",
 		Messages: []byte(`[{"role":"user","content":"hi"}]`),
 		Result:   []byte(`{"content":"hello"}`),
-	}); err != nil {
-		t.Fatalf("append: %v", err)
-	}
+	})
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
@@ -169,9 +163,7 @@ func TestStore_AggregateByTask(t *testing.T) {
 	}
 	for i := range rows {
 		rows[i].TaskID = &taskID
-		if err := s.Append(ctx, rows[i]); err != nil {
-			t.Fatalf("append %d: %v", i, err)
-		}
+		s.Append(rows[i])
 	}
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
@@ -204,9 +196,7 @@ func seedFiltered(t *testing.T, s *Store, taskID string) {
 	for i := range rows {
 		rows[i].TaskID = &taskID
 		rows[i].Provider = "x"
-		if err := s.Append(ctx, rows[i]); err != nil {
-			t.Fatalf("append %d: %v", i, err)
-		}
+		s.Append(rows[i])
 	}
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)

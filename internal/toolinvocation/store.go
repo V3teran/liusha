@@ -9,10 +9,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/V3teran/liusha/internal/constants"
 )
 
 // previewMax 是 output_preview 列的字节上限（截到字符边界）。截断只在这里做一次。
 const previewMax = 4096
+
+// insertTimeout 是单条写入的时间上限：审计是尽力而为，数据库迟迟不响应时不能把调用方
+// （工具执行的收尾）拖住。
+const insertTimeout = constants.DBQueryTimeout
 
 // Store 封装 tool_invocation 表的所有持久化操作。
 type Store struct {
@@ -23,6 +29,10 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // Append 单条插入。args 为 nil 时落空 jsonb；Output 传完整输出，由本函数生成预览。
+//
+// 写入不随 ctx 的取消而作废：调用方传进来的常是工具自己的 ctx，工具超时或被取消时它
+// 已经结束，拿它写库必然失败——丢掉的偏偏是「这次工具调用为什么失败」。ctx 在这里只
+// 用来传递取值，写入本身另有时间上限。
 func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if v.AgentRunID == "" {
 		return 0, fmt.Errorf("tool_invocation: AgentRunID 必填")
@@ -44,6 +54,9 @@ func (s *Store) Append(ctx context.Context, v Invocation) (int64, error) {
 	if v.ErrorMessage != "" {
 		errMsg = sanitizeUTF8(v.ErrorMessage)
 	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), insertTimeout)
+	defer cancel()
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `

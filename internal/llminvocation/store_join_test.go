@@ -39,16 +39,13 @@ func TestListAll_JoinConversationAndAssignment(t *testing.T) {
 	conversationID := conv.ID
 
 	// 3. 写入 llm_invocation
-	err = invStore.Append(ctx, Invocation{
+	invStore.Append(Invocation{
 		TaskID:    &taskID,
 		Provider:  "test",
 		Model:     "test-model",
 		InTokens:  100,
 		OutTokens: 50,
 	})
-	if err != nil {
-		t.Fatalf("append invocation: %v", err)
-	}
 
 	// 4. flush 到数据库
 	err = invStore.Flush(ctx)
@@ -110,9 +107,7 @@ func TestConversationScopedInvocation(t *testing.T) {
 		{TaskID: &tk.ID, Role: "planner", Provider: "p", Model: "m"},
 		{ConversationID: &pureChat.ID, Role: "inspector", Provider: "p", Model: "m"},
 	} {
-		if err := invStore.Append(ctx, inv); err != nil {
-			t.Fatal(err)
-		}
+		invStore.Append(inv)
 	}
 	if err := invStore.Flush(ctx); err != nil {
 		t.Fatal(err)
