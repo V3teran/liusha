@@ -4,7 +4,7 @@
 // 设计取舍：正常完成（finish_reason=stop/tool_calls 或为空）不返回徽章——只在异常时才
 // 提高视觉权重，对齐 FindingsPage 的克制风格（正常态不占视觉噪音，异常态才需要一眼看到）。
 import type { LLMInvocationSummary } from '@/api/types'
-import { DEFAULT_LLM_TIMEOUT_MS, isTimeout } from './llmTiming'
+import { isTimeout } from './llmTiming'
 
 export type StatusLevel = 'critical' | 'warn'
 
@@ -18,10 +18,7 @@ export interface InvocationStatus {
 type StatusInput = Pick<LLMInvocationSummary, 'latency_ms' | 'error_message' | 'error_kind' | 'finish_reason'>
 
 /** 返回 null 表示正常完成，调用方不渲染状态徽章。 */
-export function invocationStatus(
-  v: StatusInput,
-  timeoutMs = DEFAULT_LLM_TIMEOUT_MS,
-): InvocationStatus | null {
+export function invocationStatus(v: StatusInput, timeoutMs?: number): InvocationStatus | null {
   if (v.error_message) {
     // error_kind 是后端写入时按框架错误分类判定的结论；error_kind 缺失的
     // 历史行按错误文本兜底识别限流（429 是唯一需要与普通失败区分开对待的
@@ -38,8 +35,9 @@ export function invocationStatus(
     }
     return { level: 'critical', label: '失败', detail: v.error_message }
   }
-  if (isTimeout(v, timeoutMs)) {
-    return { level: 'critical', label: '超时', detail: '达到 LLM 看门狗上限（5 分钟），未获得响应' }
+  // 上限以系统配置为准，悬停详情里写的是实际生效的值。
+  if (timeoutMs !== undefined && isTimeout(v, timeoutMs)) {
+    return { level: 'critical', label: '超时', detail: `达到 LLM 看门狗上限（${limitLabel(timeoutMs)}），未获得响应` }
   }
   // 截断两provider两叫法：OpenAI=length，Anthropic=max_tokens（stop_reason 直存）
   if (v.finish_reason === 'length' || v.finish_reason === 'max_tokens') {
@@ -49,4 +47,9 @@ export function invocationStatus(
     return { level: 'warn', label: '内容过滤', detail: '模型服务商的内容安全策略拦截了本次输出' }
   }
   return null
+}
+
+/** 看门狗上限的人读写法：整分钟写分钟，否则写秒。 */
+function limitLabel(ms: number): string {
+  return ms % 60_000 === 0 ? `${ms / 60_000} 分钟` : `${Math.round(ms / 1000)} 秒`
 }

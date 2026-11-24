@@ -188,7 +188,19 @@ func invalidValues(c AppConfig) []string {
 	positive("runner.drain_timeout_seconds", int64(c.Runner.DrainTimeoutSeconds))
 	nonNegative("runner.agent_run_timeout_seconds", int64(c.Runner.AgentRunTimeoutSeconds))
 	nonNegative("runner.max_actions_per_task", int64(c.Runner.MaxActionsPerTask))
-	positive("runner.step_llm_timeout_seconds", int64(c.Runner.StepLLMTimeoutSeconds))
+
+	positive("runtime.step_llm_timeout_seconds", int64(c.Runtime.StepLLMTimeoutSeconds))
+	positive("runtime.step_tool_timeout_seconds", int64(c.Runtime.StepToolTimeoutSeconds))
+	positive("runtime.run_tail_bytes", int64(c.Runtime.RunTailBytes))
+	positive("runtime.tool_output_tail_bytes", int64(c.Runtime.ToolOutputTailBytes))
+	for name, r := range map[string]float64{
+		"compaction.planner_context_ratio": c.Compaction.PlannerContextRatio, "compaction.executor_context_ratio": c.Compaction.ExecutorContextRatio,
+		"compaction.evaluator_context_ratio": c.Compaction.EvaluatorContextRatio, "compaction.monitor_context_ratio": c.Compaction.MonitorContextRatio,
+	} {
+		if r <= 0 || r > MaxContextRatio {
+			invalid = append(invalid, fmt.Sprintf("%s 须在 (0, %.1f] 之间（历史预算占模型上下文窗口的比例）", name, MaxContextRatio))
+		}
+	}
 	positive("runner.run_recovery_interval_seconds", int64(c.Runner.RunRecoveryIntervalSeconds))
 	if v := int64(c.Runner.RunRecoveryTimeoutSeconds); v < MinRunRecoveryTimeoutSeconds {
 		invalid = append(invalid, fmt.Sprintf("runner.run_recovery_timeout_seconds 须不小于 %d（存活心跳每 30 秒续约一次，判定阈值至少容得下三次续约），当前 %d",

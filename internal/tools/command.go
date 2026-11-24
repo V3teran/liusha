@@ -7,16 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/registry"
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
 // defaultCommandTimeout 是沙盒命令未指定超时时的默认秒数（run_command 与 drive_browser 共用）。
 const defaultCommandTimeout = 120
-
-// defaultRunTailBytes 是 run_command 输出尾部保留的默认字节数（runtime.run_tail_bytes 未配置时）。
-const defaultRunTailBytes = 8192
 
 // ─── run_command ─────────────────────────────────────────────────────────────
 
@@ -35,7 +31,13 @@ type runCommandTool struct {
 	deps Deps
 }
 
+// newRunCommandTool 构造 run_command。超时钳制上限与输出尾部保留都来自 runtime 配置（出厂值
+// 在 config.yaml，热改值在系统设置），装配处必须给出——工具不再内置出厂值的第二份：配置改了
+// 它不会跟着变，留着只会让人以为「没配也行」。
 func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
+	if deps.StepToolTimeoutSeconds <= 0 || deps.RunTailBytes <= 0 || timeout <= 0 {
+		panic("run_command 需要 runtime.step_tool_timeout_seconds 与 runtime.run_tail_bytes（均须为正，注册表级超时同源）：装配处未给出配置值")
+	}
 	t := &runCommandTool{deps: deps}
 	t.SetTimeout(timeout)
 	return t
@@ -146,20 +148,19 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 }
 
 // runCommandTimeout 返回 run_command 的注册表级超时 = runtime.step_tool_timeout_seconds
-// （DB 旋钮，任务开始时快照；0=内置默认 120s）。它与 Execute 内的钳制上界同源——
-// 此前注册表硬编码 120s 而配置写 1800s，LLM 自传长超时实际仍被 120s 掐死。
+// （配置里的出厂值或页面上的热改值，任务开始时快照）。它与 Execute 内的钳制上界同源——
+// 此前注册表硬编码 120s 而配置写 1800s，LLM 自传长超时实际仍被 120s 掐死。构造时已校验
+// 它为正。
 func runCommandTimeout(deps Deps) time.Duration {
-	if deps.StepToolTimeoutSeconds > 0 {
-		return time.Duration(deps.StepToolTimeoutSeconds) * time.Second
-	}
-	return constants.ToolTimeoutCommand
+	return time.Duration(deps.StepToolTimeoutSeconds) * time.Second
 }
 
-// tailRunOutput 保留 s 的尾部 n 字节（n<=0 用默认 8192）。按字节截断可能切断
+// tailRunOutput 保留 s 的尾部 n 字节（n 须为正，构造时已校验；n<=0 原样返回——
+// 保守失败，不悄悄换成一个写死的数）。按字节截断可能切断
 // 多字节 UTF-8 字符——从截断点回退到字符起始边界再切。
 func tailRunOutput(s string, n int) string {
 	if n <= 0 {
-		n = defaultRunTailBytes
+		return s
 	}
 	b := []byte(s)
 	if len(b) <= n {

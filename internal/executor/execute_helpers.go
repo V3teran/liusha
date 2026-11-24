@@ -100,7 +100,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		Temperature:                0.7,
-		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "executor", e.distiller),
+		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "executor", e.distiller, e.compactionTimeouts),
 		ToolOutputTailBytes:        e.toolOutputTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式

@@ -60,10 +60,10 @@ const stallSlack = 30 * time.Second
 
 // StallTimeout 是判定动作停摆的无进展时长。进展只在工具调用结束与一步推理完成时记录，
 // 两次进展之间是一步推理的最长合法耗时：一步内部的压缩链、一次 LLM 调用（单步 LLM
-// 看门狗上限）、一次工具调用（工具超时上限）。压缩链的超时直接计入，不靠一个碰巧够大
-// 的字面余量。
+// 看门狗上限）、一次工具调用（工具超时上限）。压缩链的超时由同一个单步上限推导
+// （runtime.CompactionTimeoutsFor），直接计入，不靠一个碰巧够大的字面余量。
 func StallTimeout(stepLLM, stepTool time.Duration) time.Duration {
-	return runtime.ChainTimeout + stepLLM + stepTool + stallSlack
+	return runtime.CompactionTimeoutsFor(stepLLM).Chain + stepLLM + stepTool + stallSlack
 }
 
 // inFlightAction 是一个在途动作的看门狗视图。

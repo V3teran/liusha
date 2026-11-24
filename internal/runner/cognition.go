@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/cognition"
+	"github.com/V3teran/liusha/internal/config"
 	"github.com/V3teran/liusha/internal/corpus"
 	"github.com/V3teran/liusha/internal/sandbox"
 	"github.com/V3teran/liusha/internal/scenario"
@@ -22,17 +23,8 @@ func (h *Handler) runCognition(
 	tk task.Task, agentRunID, host, conversationID string,
 	installed sandbox.Inventory,
 ) (cognition.Report, error) {
-	// 系统配置任务开始时现读（多级缓存命中为主）：压缩预算占比 / 工具钳制 /
-	// 尾部保留，热改即对本任务生效。读失败用零值——下游各使用点回退内置默认，
-	// 不阻塞任务。
-	comp, compErr := h.Settings.Compaction(ctx)
-	if compErr != nil {
-		taskLogger.Warn().Err(compErr).Msg("读 compaction 配置失败，压缩预算用内置兜底")
-	}
-	rt, rtErr := h.Settings.Runtime(ctx)
-	if rtErr != nil {
-		taskLogger.Warn().Err(rtErr).Msg("读 runtime 配置失败，工具限制用内置默认")
-	}
+	limits := h.runLimits(ctx, taskLogger)
+	comp, rt := limits.Compaction, limits.Runtime
 	return cognition.Run(ctx, &cognition.Deps{
 		AssignmentID: tk.AssignmentID,
 		AgentRunID:   agentRunID,
@@ -61,7 +53,7 @@ func (h *Handler) runCognition(
 		ActionParallelism:       h.RunnerCfg.ActionParallelism,
 		VerificationParallelism: h.RunnerCfg.VerificationParallelism,
 		MonitorInterval:         time.Duration(h.RunnerCfg.MonitorIntervalSeconds) * time.Second,
-		StepLLMTimeout:          stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
+		StepLLMTimeout:          time.Duration(rt.StepLLMTimeoutSeconds) * time.Second,
 
 		ContextRatios: cognition.ContextRatios{
 			Planner:   comp.PlannerContextRatio,
@@ -91,15 +83,6 @@ func scenarioBlock(tk task.Task) string {
 	return scenario.Render(tk.Scenario.Name, tk.Scenario.Body)
 }
 
-// stepLLMTimeout 取单步 LLM 看门狗上限：系统配置（热改）优先，读取失败或未配置时取
-// 部署配置。
-func stepLLMTimeout(settingSeconds, deploySeconds int) time.Duration {
-	if settingSeconds > 0 {
-		return time.Duration(settingSeconds) * time.Second
-	}
-	return time.Duration(deploySeconds) * time.Second
-}
-
 // corpusScope 是任务检索知识库的可见范围：任务场景的知识与通用知识；无场景的任务只见通用知识。
 func corpusScope(tk task.Task) corpus.Scope {
 	if tk.Scenario == nil {
@@ -107,4 +90,27 @@ func corpusScope(tk task.Task) corpus.Scope {
 	}
 	code := tk.Scenario.Code
 	return corpus.Scope{Scenario: &code}
+}
+
+// RunLimits 是一轮 run 生效的系统配置：各角色会话历史预算占比，与工具 / 模型调用的运行时旋钮。
+type RunLimits struct {
+	Compaction config.CompactionConfig
+	Runtime    config.RuntimeConfig
+}
+
+// runLimits 任务开始时现读系统配置（多级缓存命中为主），热改即对本任务生效。读不到用户层
+// （库故障）时回落到出厂值——与没有任何自定义时同一个取值，而不是各使用点另写的内置默认
+// （读失败时工具输出曾因此完全不做长度钳制）。
+func (h *Handler) runLimits(ctx context.Context, logger zerolog.Logger) RunLimits {
+	var out RunLimits
+	var err error
+	if out.Compaction, err = h.Settings.Compaction(ctx); err != nil {
+		logger.Warn().Err(err).Msg("读 compaction 组失败，用出厂值")
+		out.Compaction = h.Settings.Factory().Compaction
+	}
+	if out.Runtime, err = h.Settings.Runtime(ctx); err != nil {
+		logger.Warn().Err(err).Msg("读 runtime 组失败，用出厂值")
+		out.Runtime = h.Settings.Factory().Runtime
+	}
+	return out
 }

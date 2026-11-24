@@ -26,6 +26,8 @@ type AppConfig struct {
 	Proxy        ProxyConfig        `mapstructure:"proxy"`
 	Ingestor     IngestorConfig     `mapstructure:"ingestor"`
 	Runner       RunnerConfig       `mapstructure:"runner"`
+	Runtime      RuntimeConfig      `mapstructure:"runtime"`
+	Compaction   CompactionConfig   `mapstructure:"compaction"`
 	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
 	Conversation ConversationConfig `mapstructure:"conversation"`
 	Tools        ToolsConfig        `mapstructure:"tools"`
@@ -165,6 +167,36 @@ type IngestorConfig struct {
 	AggregateWindowSeconds int `mapstructure:"aggregate_window_seconds"`
 }
 
+// RuntimeConfig 是工具与模型调用的运行时旋钮（前端「系统配置 · 运行时」那一组）。
+//
+// 这里是它的出厂值，也是唯一的一处：配置键与设置页上的字段同名（json 标签即设置文档的字段名，
+// 设置页的自定义以这份出厂值为底）。所以这个结构体同时带 mapstructure 与 json 两种标签。
+type RuntimeConfig struct {
+	// StepLLMTimeoutSeconds 是单步 LLM 看门狗：一次模型调用的上限，挂死的调用即失败。规划一整轮的
+	// 预算、压缩链的时限都由它推导。
+	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds" json:"step_llm_timeout_seconds"`
+	// StepToolTimeoutSeconds 是 run_command 超时的上限（模型自传的 timeout_seconds 不得超过它）。
+	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds" json:"step_tool_timeout_seconds"`
+	// RunTailBytes 是 run_command 输出保留尾部的字节数（输出末段是结果所在）。
+	RunTailBytes int `mapstructure:"run_tail_bytes" json:"run_tail_bytes"`
+	// ToolOutputTailBytes 是任意工具输出进模型上下文前的全局尾部保留字节数。
+	ToolOutputTailBytes int `mapstructure:"tool_output_tail_bytes" json:"tool_output_tail_bytes"`
+}
+
+// CompactionConfig 是各角色会话历史的预算占比（前端「系统配置 · 会话历史压缩」那一组）：
+// 预算 = 比例 × 本角色所用模型的上下文窗口，超出预算的历史前缀被裁并蒸馏成纪要。比例越大上下文
+// 越完整、token 越贵。出厂值只在这里；配置键与设置页上的字段同名。
+type CompactionConfig struct {
+	PlannerContextRatio   float64 `mapstructure:"planner_context_ratio" json:"planner_context_ratio"`
+	ExecutorContextRatio  float64 `mapstructure:"executor_context_ratio" json:"executor_context_ratio"`
+	EvaluatorContextRatio float64 `mapstructure:"evaluator_context_ratio" json:"evaluator_context_ratio"`
+	MonitorContextRatio   float64 `mapstructure:"monitor_context_ratio" json:"monitor_context_ratio"`
+}
+
+// MaxContextRatio 是历史预算占比的上限：必须给模型输出与 system 开销留余地，预算贴满上下文
+// 窗口等于把压缩推迟到 provider 报超限。
+const MaxContextRatio = 0.9
+
 // MinRunRecoveryTimeoutSeconds 是 runner.run_recovery_timeout_seconds 的下界：run 的存活心跳每
 // 30 秒续约一次（internal/runner 的 heartbeatInterval），判定阈值至少要容得下三次续约，否则健康
 // 运行的 run 也会在两次续约之间被当成僵尸。internal/runner 的测试守住这层关系。
@@ -194,8 +226,6 @@ type RunnerConfig struct {
 	AgentRunTimeoutSeconds int `mapstructure:"agent_run_timeout_seconds"`
 	// MaxActionsPerTask 是动作预算：一个任务最多执行多少个动作（被认领执行过即算）；0 = 不限。
 	MaxActionsPerTask int `mapstructure:"max_actions_per_task"`
-	// StepLLMTimeoutSeconds 是单步 LLM 调用看门狗（也是系统设置里同名旋钮的出厂值）。
-	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds"`
 
 	// 僵尸 run 回收（详见 internal/runner/run_recovery.go 与 heartbeat.go）：巡检周期；一轮 run 的
 	// 存活心跳多久没有续约判为僵尸；单任务自动重投上限（按出错的 run 计数，超限任务终止，防

@@ -7,6 +7,7 @@ package dbtest
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -122,8 +123,13 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("corpus confirm: %v", err)
 	}
 
-	// 系统设置自定义层（setting_override，group_key CHECK: compaction/runtime/proxy_filter）
-	set := settingstore.New(pool, smokeCache(t), settingstore.DefaultsFrom(config.AppConfig{}))
+	// 系统设置自定义层（setting_override，group_key CHECK: compaction/runtime/proxy_filter）。
+	// 出厂值取自配置文件模板（与生产同一装配）；空配置造不出合法的出厂值（校验会拒绝）。
+	cfg, err := config.Load(filepath.Join("..", "config", "config.yaml"))
+	if err != nil {
+		t.Fatalf("load config template: %v", err)
+	}
+	set := settingstore.New(pool, smokeCache(t), settingstore.DefaultsFrom(cfg))
 	if err := set.Patch(ctx, settingstore.GroupRuntime, override.Document{"step_llm_timeout_seconds": json.RawMessage(`240`)}); err != nil {
 		t.Fatalf("setting patch runtime: %v", err)
 	}

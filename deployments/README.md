@@ -263,6 +263,36 @@ make dev-down             # 收工（-v 清数据）
 宿主上的组件由 `scripts/dev/env.sh` 按 `.env` 拼出连接串，经宿主端口访问容器；runner 经
 `127.0.0.1:58591` 调用容器里的沙盒，沙盒的浏览器流量回灌到 `host.docker.internal:8590`。
 
+## 从 0.14 升级
+
+**所有部署方式**
+
+对照新版本的 `config.yaml` 补齐、改名下列各项（缺键、留着旧键都会拒绝启动），然后重启。数据库迁移随
+启动自动执行，无需操作。
+
+- 新增的键（从新版本的模板复制）：
+
+  | 段 | 键 | 缺省 |
+  |---|---|---|
+  | `llm` | `account_concurrency` | 4 |
+  | `runner` | `action_parallelism` / `verification_parallelism` / `monitor_interval_seconds` | 4 / 3 / 360 |
+  | `runtime`（新段） | `step_tool_timeout_seconds` / `run_tail_bytes` / `tool_output_tail_bytes` | 1800 / 8192 / 32768 |
+  | `compaction`（新段） | `planner_context_ratio` / `executor_context_ratio` / `evaluator_context_ratio` / `monitor_context_ratio` | 0.6 / 0.5 / 0.5 / 0.5 |
+
+- 改名的键（写在 `config.yaml` 里或用 `LIUSHA_<键>` 覆盖的都要改）：
+
+  | 原键 | 新键 |
+  |---|---|
+  | `runner.step_llm_timeout_seconds` | `runtime.step_llm_timeout_seconds` |
+
+- `runner.run_recovery_timeout_seconds` 不得小于 90（缺省由 360 改为 120）：判定一轮 run 是否还在
+  被推进，现在看它的存活心跳而不是调用记录，阈值跟着心跳的粒度定。此前设得更小的部署须调高。
+- `runner.concurrency` 的出厂值由 10 改为 3：已有部署保持配置文件里的值不变。只有一个模型账户又常
+  同时跑多个任务的，建议调成 `llm.account_concurrency` 的四分之三左右（缺省账户配 3）——任务再多，
+  模型账户的吞吐不会变，多出来的只是在排队后放弃、从头重做。
+- 系统设置页里的旋钮（运行时、会话历史压缩）出厂值现在取自 `config.yaml` 的 `runtime`、`compaction`
+  两段；页面上已有的自定义继续生效，不受影响。
+
 ## 从 0.11 升级
 
 **所有部署方式**

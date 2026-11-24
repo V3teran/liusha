@@ -68,8 +68,9 @@ docker compose up -d --build
 - 单镜像：检出新版本后重新 `make single-build`，删除旧容器，以同一数据目录重新运行。
 - 多镜像：`git fetch --tags && git checkout vX.Y.Z && docker compose pull && docker compose up -d --build`。
 
-不兼容变更的升级步骤见 [deployments/README.md](deployments/README.md)（本版本：「配置文件与 .env 统一」；
-0.9 升级到 0.10：「从 0.9 升级」）。版本列表见 [Releases](https://github.com/V3teran/liusha/releases)。
+不兼容变更的升级步骤见 [deployments/README.md](deployments/README.md)（本版本：「从 0.14 升级」；
+更早：「从 0.11 升级」「配置文件与 .env 统一」「从 0.9 升级」）。版本列表见
+[Releases](https://github.com/V3teran/liusha/releases)。
 
 ## 许可证
 

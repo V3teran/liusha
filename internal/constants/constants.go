@@ -20,9 +20,6 @@ const (
 	// ToolTimeoutLong 工具执行超时（长工具：图查询/重放）
 	ToolTimeoutLong = 30 * time.Second
 
-	// ToolTimeoutCommand 工具执行超时（沙箱命令）
-	ToolTimeoutCommand = 120 * time.Second
-
 	// ToolTimeoutBrowser 工具执行超时（浏览器自动化）
 	ToolTimeoutBrowser = 180 * time.Second
 

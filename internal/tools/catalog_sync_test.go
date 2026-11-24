@@ -45,13 +45,15 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 	skillSet := &singleCardReader{card: &skill.Card{Key: "probe", Name: "probe", Description: "p", Body: "正文"}}
 
 	deps := Deps{
-		Tasks:      &task.Store{},
-		Corpus:     &corpus.Service{},
-		ProxyStore: &traffic.ProxyStore{},
-		AgentStore: &traffic.AgentStore{},
-		Creds:      noOpCredProvider{},
-		Sandbox:    noOpSandbox{},
-		Skills:     skillSet,
+		Tasks:                  &task.Store{},
+		Corpus:                 &corpus.Service{},
+		ProxyStore:             &traffic.ProxyStore{},
+		AgentStore:             &traffic.AgentStore{},
+		Creds:                  noOpCredProvider{},
+		Sandbox:                noOpSandbox{},
+		StepToolTimeoutSeconds: 1800,
+		RunTailBytes:           8192,
+		Skills:                 skillSet,
 	}
 
 	registered := make(map[string]bool)

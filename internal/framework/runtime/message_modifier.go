@@ -155,10 +155,32 @@ func (c *MessageModifierChain) Apply(ctx context.Context, messages []llm.Message
 // 预设修改器链
 // ─────────────────────────────────────────────
 
-// ChainTimeout 是压缩链的总超时，比单次蒸馏的时限略长：链里只有蒸馏会耗时，蒸馏先于
-// 它到期，慢的蒸馏走降级路径而不是把整步推理弄死。它跑在「一步推理」内部、上一次进展
-// 之后，执行者看门狗的停摆窗口把它直接计入（见 executor.StallTimeout）。
-const ChainTimeout = 155 * time.Second
+// chainSlack 是压缩链总超时比单次蒸馏时限多出的余量。
+const chainSlack = 5 * time.Second
+
+// CompactionTimeouts 是一步推理内部压缩链的时间预算：Distill 是单次纪要蒸馏的时限，Chain 是
+// 整条链的总超时，比蒸馏略长——链里只有蒸馏会耗时，蒸馏先于它到期，慢的蒸馏走降级路径
+// 而不是把整步推理弄死。它跑在「一步推理」内部、上一次进展之后，执行者看门狗的停摆窗口
+// 把 Chain 直接计入（见 executor.StallTimeout）。
+type CompactionTimeouts struct {
+	Distill time.Duration
+	Chain   time.Duration
+}
+
+// CompactionTimeoutsFor 由单步 LLM 看门狗上限推导压缩链的时间预算：蒸馏的时限取它的一半。
+// 不写死成常数：单步上限可以在系统配置里热改，模型慢时调到 900 秒，写死的 150 秒就不够用
+// （蒸馏恰恰在模型慢的时候最容易超时），模型快时它又白等。
+//
+// 按一半取数的依据（缺省单步上限 300 秒时为 150 秒）：蒸馏时限里要容得下两件事。其一，为
+// 账户在途名额排队——蒸馏调用至多用掉剩余预算的一半去排队；蒸馏排在优先队首，拿到的是下一个
+// 空出的名额，重载时四个名额都被长调用占着，要等上几十秒。其二，请求本身——纪要走中档模型，
+// 同形态调用实测中位 19 秒、p90 40 秒、p99 88 秒；150 秒让排队的蒸馏也给请求留下 75 秒。
+// 定得偏紧的代价是纪要整段丢失（被裁掉的历史只剩一句占位声明）：库里留存的蒸馏记录里，
+// 20 秒时限下超时 43 次、成功 16 次；重载时段 90 秒时限下两次蒸馏两次超时。
+func CompactionTimeoutsFor(stepLLM time.Duration) CompactionTimeouts {
+	distill := stepLLM / 2
+	return CompactionTimeouts{Distill: distill, Chain: distill + chainSlack}
+}
 
 // NewCompactionChain 构建默认消息修改链：上下文压缩（token 预算 + 蒸馏纪要）
 // → 长度校验哨兵。
@@ -166,16 +188,16 @@ const ChainTimeout = 155 * time.Second
 // 压缩在前：超预算的臃肿前缀先被裁掉，校验只看裁后的窗口——单条超长消息在
 // 正常路径下由压缩解决，越线即真不变量（工具输出另有运行时钳制兜底）。
 // budgetTokens 是历史总预算（比例 × provider.context_window，引擎侧解析）；
-// role 是角色名（蒸馏 prompt 定侧重）；d 可空（降级纯截断）。
-func NewCompactionChain(budgetTokens int, role string, d Distiller) *MessageModifierChain {
+// role 是角色名（蒸馏 prompt 定侧重）；d 可空（降级纯截断）；timeouts 见 CompactionTimeoutsFor。
+func NewCompactionChain(budgetTokens int, role string, d Distiller, timeouts CompactionTimeouts) *MessageModifierChain {
 	return NewMessageModifierChain(
 		[]MessageModifier{
-			NewContextCompactor(budgetTokens, role, d),
+			NewContextCompactor(budgetTokens, role, d, timeouts.Distill),
 			NewValidateModifier(100000),
 		},
 		ErrorStrategyFailFast,
 		DefaultRetryConfig(),
-		int(ChainTimeout/time.Second),
+		int(timeouts.Chain/time.Second),
 	)
 }
 

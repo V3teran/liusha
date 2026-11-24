@@ -35,21 +35,22 @@ type LLMJudge interface {
 
 // RouterJudge 经 ReAct runtime 跑语义判定：工具（replay_for_verification）+ 终判 JSON。
 type RouterJudge struct {
-	router        *llm.Router
-	logger        zerolog.Logger
-	thoughts      reasoning.Tap                     // 思考流出口（认知循环注入；nil=不流式）
-	functionTools []string                          // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
-	extraTools    []registry.Tool                   // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
-	cliManifest   *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
-	skills        []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
-	charter       string                            // 角色章程（生效值：出厂叠加用户自定义）
-	scenario      string                            // 任务场景块（scenario.Render；空 = 无场景）
-	complexity    llm.Complexity                    // LLM 档位（agent 生效配置的 complexity）
-	maxIt         int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
-	contextRatio  float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
-	distiller     runtime.Distiller                 // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
-	toolTailBytes int                               // 工具输出全局尾部钳制字节（0=不钳）
-	toolWrap      func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
+	router             *llm.Router
+	logger             zerolog.Logger
+	thoughts           reasoning.Tap                     // 思考流出口（认知循环注入；nil=不流式）
+	functionTools      []string                          // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
+	extraTools         []registry.Tool                   // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
+	cliManifest        *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
+	skills             []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
+	charter            string                            // 角色章程（生效值：出厂叠加用户自定义）
+	scenario           string                            // 任务场景块（scenario.Render；空 = 无场景）
+	complexity         llm.Complexity                    // LLM 档位（agent 生效配置的 complexity）
+	maxIt              int                               // ReAct 迭代上限（agent.max_iterations；0=不设限）
+	contextRatio       float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
+	distiller          runtime.Distiller                 // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	compactionTimeouts runtime.CompactionTimeouts        // 压缩链的时间预算
+	toolTailBytes      int                               // 工具输出全局尾部钳制字节（0=不钳）
+	toolWrap           func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 
 // NewRouterJudge 构造 ReAct 评估者。
@@ -113,6 +114,12 @@ func (j *RouterJudge) WithContextRatio(ratio float64) *RouterJudge {
 // WithDistiller 注入上下文压缩纪要蒸馏器（nil=压缩降级纯截断）。
 func (j *RouterJudge) WithDistiller(d runtime.Distiller) *RouterJudge {
 	j.distiller = d
+	return j
+}
+
+// WithCompactionTimeouts 注入压缩链的时间预算（runtime.CompactionTimeoutsFor 由单步 LLM 上限推导）。
+func (j *RouterJudge) WithCompactionTimeouts(t runtime.CompactionTimeouts) *RouterJudge {
+	j.compactionTimeouts = t
 	return j
 }
 
@@ -210,7 +217,7 @@ func (j *RouterJudge) Judge(
 		MaxConsecutiveToolFailures: 12,      // 连续工具失败止损阈值（单机制：runtime 内置，评估链路容忍更高）
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
-		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller),
+		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller, j.compactionTimeouts),
 		ToolOutputTailBytes:        j.toolTailBytes,
 		MiddlewareChain:            middlewareChain,
 		// 判定终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿

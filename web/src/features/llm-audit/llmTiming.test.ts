@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_LLM_TIMEOUT_MS,
   durationLevel,
   isTimeout,
   latencyLevel,
@@ -52,9 +51,18 @@ describe('latencyLevel', () => {
 
 describe('isTimeout', () => {
   it('达到看门狗上限即判为超时打点', () => {
-    expect(isTimeout({ latency_ms: DEFAULT_LLM_TIMEOUT_MS })).toBe(true)
-    expect(isTimeout({ latency_ms: 300_003 })).toBe(true) // 真实数据里的超时值
-    expect(isTimeout({ latency_ms: 8_000 })).toBe(false)
+    expect(isTimeout({ latency_ms: 300_000 }, 300_000)).toBe(true)
+    expect(isTimeout({ latency_ms: 300_003 }, 300_000)).toBe(true) // 真实数据里的超时值
+    expect(isTimeout({ latency_ms: 8_000 }, 300_000)).toBe(false)
+  })
+
+  // 上限以系统配置为准，页面不另记一个出厂值。
+  it('上限未知（系统配置还没读到）时不判超时', () => {
+    expect(isTimeout({ latency_ms: 300_003 })).toBe(false)
+  })
+
+  it('部署方改了上限，同一个耗时不再算超时', () => {
+    expect(isTimeout({ latency_ms: 300_003 }, 900_000)).toBe(false)
   })
 })
 
@@ -70,6 +78,6 @@ describe('throughputLabel', () => {
 
   // 超时打点的分母是被看门狗截断的时长，算出来的速率是假的。
   it('超时打点不给速率', () => {
-    expect(throughputLabel({ latency_ms: 300_003, out_tokens: 500 })).toBe('')
+    expect(throughputLabel({ latency_ms: 300_003, out_tokens: 500 }, 300_000)).toBe('')
   })
 })

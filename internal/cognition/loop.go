@@ -24,6 +24,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/finding"
 	fwllm "github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/httprepro"
 	"github.com/V3teran/liusha/internal/monitor"
 	"github.com/V3teran/liusha/internal/planner"
@@ -391,6 +392,7 @@ func (d *Deps) assembleStack(
 		}).
 		WithContextRatio(d.ContextRatios.Planner).
 		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
+		WithCompactionTimeouts(d.compactionTimeouts()).
 		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
@@ -419,6 +421,7 @@ func (d *Deps) assembleStack(
 	monitorAgent := monitor.New(monitor.Config{
 		ContextRatio:        d.ContextRatios.Monitor,
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		CompactionTimeouts:  d.compactionTimeouts(),
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes,
 		Thoughts:            thoughts.TapFor("monitor"),
 		TaskID:              taskID,
@@ -504,6 +507,7 @@ func (d *Deps) buildExecutorAgent(
 		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
 		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
 		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		CompactionTimeouts:  d.compactionTimeouts(),
 		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
 		Thoughts:            thoughts,                         // 思考流（nil=不流式）
 		Activity:            activity,                         // 每完成一步推理记一次进展
@@ -558,6 +562,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithMaxIterations(cfg.MaxIterations).
 		WithContextRatio(d.ContextRatios.Evaluator).
 		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
+		WithCompactionTimeouts(d.compactionTimeouts()).
 		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
 		WithThoughts(thoughts).
 		WithToolWrapper(reg.WrapTool). // judge 自有的 replay_for_verification 同入审计链
@@ -629,6 +634,12 @@ func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agen
 		return nil
 	}
 	return cards
+}
+
+// compactionTimeouts 是各角色压缩链的时间预算，由本 run 的单步 LLM 上限推导：上限热改之后，
+// 新开始的 run 按新值算。
+func (d *Deps) compactionTimeouts() runtime.CompactionTimeouts {
+	return runtime.CompactionTimeoutsFor(d.StepLLMTimeout)
 }
 
 // planningRoundBudget 是一轮规划的墙钟上限：单步 LLM 看门狗上限的 2 倍。一轮规划是若干次

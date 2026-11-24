@@ -8,9 +8,20 @@ describe('invocationStatus', () => {
   })
 
   it('latency_ms 达到看门狗上限 → critical/超时（优先于 finish_reason）', () => {
-    const s = invocationStatus({ latency_ms: 300_000, error_message: '', error_kind: '', finish_reason: 'stop' })
+    const s = invocationStatus({ latency_ms: 300_000, error_message: '', error_kind: '', finish_reason: 'stop' }, 300_000)
     expect(s?.level).toBe('critical')
     expect(s?.label).toBe('超时')
+    expect(s?.detail).toBe('达到 LLM 看门狗上限（5 分钟），未获得响应')
+  })
+
+  // 上限以系统配置为准：页面不另记一个出厂值，详情里写的是实际生效的值。
+  it('上限未知时不判超时；上限不同时同一个耗时的结论与文案都跟着变', () => {
+    const row = { latency_ms: 300_000, error_message: '', error_kind: '', finish_reason: 'stop' }
+    expect(invocationStatus(row)).toBeNull()
+    expect(invocationStatus(row, 600_000)).toBeNull()
+    expect(invocationStatus({ ...row, latency_ms: 120_000 }, 120_000)?.detail).toBe(
+      '达到 LLM 看门狗上限（2 分钟），未获得响应',
+    )
   })
 
   it('finish_reason=length → warn/截断', () => {
