@@ -115,8 +115,12 @@ type RedisConfig struct {
 type LLMConfig struct {
 	// EncryptionKey 加密数据库里保存的 provider 密钥（AES-256-GCM），32 字节 hex（64 个字符）。
 	// 密钥，经 LIUSHA_LLM_ENCRYPTION_KEY 注入；生成后不可更改，否则已保存的密钥无法解密。
-	EncryptionKey string      `mapstructure:"encryption_key"`
-	Retry         RetryConfig `mapstructure:"retry"`
+	EncryptionKey string `mapstructure:"encryption_key"`
+	// AccountConcurrency 是每个模型账户同时在途的请求数上限（同一服务地址 + 同一密钥为一个
+	// 账户，各 provider、各任务、各 agent 共用）；0 = 不限。限流随在途请求数而来：超出上限的
+	// 调用在队列里等名额，不发出去被拒。
+	AccountConcurrency int         `mapstructure:"account_concurrency"`
+	Retry              RetryConfig `mapstructure:"retry"`
 	// InvocationRetentionDays 是 LLM 调用记录（含完整 prompt / response）的留存天数；0 = 永久留存。
 	InvocationRetentionDays int `mapstructure:"invocation_retention_days"`
 }
@@ -172,6 +176,12 @@ type RunnerConfig struct {
 
 	// Concurrency 是同时执行的任务数。
 	Concurrency int `mapstructure:"concurrency"`
+	// ActionParallelism 是一个任务同时执行的动作数上限；1 = 串行。
+	ActionParallelism int `mapstructure:"action_parallelism"`
+	// VerificationParallelism 是评估者同时验证的假设数上限。
+	VerificationParallelism int `mapstructure:"verification_parallelism"`
+	// MonitorIntervalSeconds 是监察者两次全局评估之间的间隔。
+	MonitorIntervalSeconds int `mapstructure:"monitor_interval_seconds"`
 	// DrainTimeoutSeconds 是停机时等在途 run 中断收尾（终态回写、释放沙盒）的上限。
 	DrainTimeoutSeconds int `mapstructure:"drain_timeout_seconds"`
 

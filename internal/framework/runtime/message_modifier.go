@@ -155,6 +155,11 @@ func (c *MessageModifierChain) Apply(ctx context.Context, messages []llm.Message
 // 预设修改器链
 // ─────────────────────────────────────────────
 
+// ChainTimeout 是压缩链的总超时，比单次蒸馏的时限略长：链里只有蒸馏会耗时，蒸馏先于
+// 它到期，慢的蒸馏走降级路径而不是把整步推理弄死。它跑在「一步推理」内部、上一次进展
+// 之后，执行者看门狗的停摆窗口把它直接计入（见 executor.StallTimeout）。
+const ChainTimeout = 155 * time.Second
+
 // NewCompactionChain 构建默认消息修改链：上下文压缩（token 预算 + 蒸馏纪要）
 // → 长度校验哨兵。
 //
@@ -170,7 +175,7 @@ func NewCompactionChain(budgetTokens int, role string, d Distiller) *MessageModi
 		},
 		ErrorStrategyFailFast,
 		DefaultRetryConfig(),
-		30,
+		int(ChainTimeout/time.Second),
 	)
 }
 

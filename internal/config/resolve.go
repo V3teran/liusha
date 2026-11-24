@@ -161,6 +161,7 @@ func invalidValues(c AppConfig) []string {
 			}
 		}
 	}
+	nonNegative("llm.account_concurrency", int64(c.LLM.AccountConcurrency))
 	nonNegative("llm.invocation_retention_days", int64(c.LLM.InvocationRetentionDays))
 	nonNegative("tools.invocation_retention_days", int64(c.Tools.InvocationRetentionDays))
 	nonNegative("traffic.retention_days", int64(c.Traffic.RetentionDays))
@@ -181,6 +182,9 @@ func invalidValues(c AppConfig) []string {
 	positive("runner.read_header_timeout_seconds", int64(c.Runner.ReadHeaderTimeoutSeconds))
 	positive("runner.shutdown_timeout_seconds", int64(c.Runner.ShutdownTimeoutSeconds))
 	positive("runner.concurrency", int64(c.Runner.Concurrency))
+	positive("runner.action_parallelism", int64(c.Runner.ActionParallelism))
+	positive("runner.verification_parallelism", int64(c.Runner.VerificationParallelism))
+	positive("runner.monitor_interval_seconds", int64(c.Runner.MonitorIntervalSeconds))
 	positive("runner.drain_timeout_seconds", int64(c.Runner.DrainTimeoutSeconds))
 	nonNegative("runner.agent_run_timeout_seconds", int64(c.Runner.AgentRunTimeoutSeconds))
 	nonNegative("runner.max_actions_per_task", int64(c.Runner.MaxActionsPerTask))

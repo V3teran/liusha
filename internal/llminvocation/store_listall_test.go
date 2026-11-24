@@ -14,16 +14,13 @@ func TestListAll_EmptySearch(t *testing.T) {
 	s, taskID := setup(t)
 
 	// 插入测试数据
-	err := s.Append(ctx, Invocation{
+	s.Append(Invocation{
 		TaskID:    &taskID,
 		Provider:  "test",
 		Model:     "test-model",
 		InTokens:  100,
 		OutTokens: 50,
 	})
-	if err != nil {
-		t.Fatalf("append: %v", err)
-	}
 	if err := s.Flush(ctx); err != nil {
 		t.Fatalf("flush: %v", err)
 	}

@@ -64,9 +64,10 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return s
 }
 
-// Append 把 Invocation 推到内部 channel；channel 满则丢一行并 warn（不阻塞 Generate）。
-// 异步落库，不回传 id。
-func (s *Store) Append(ctx context.Context, c Invocation) error {
+// Append 把 Invocation 推到内部 channel，异步落库，不回传 id；channel 满则丢这一行并
+// 告警。入队不看调用方的 ctx：这里记的常常正是一次超时或被取消的调用，它的 ctx 到这里
+// 时已经结束——入队若随它一起放弃，丢掉的偏偏是失败现场。
+func (s *Store) Append(c Invocation) {
 	if len(c.Messages) == 0 {
 		c.Messages = []byte("[]")
 	}
@@ -75,15 +76,11 @@ func (s *Store) Append(ctx context.Context, c Invocation) error {
 	}
 	select {
 	case s.ch <- c:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	default:
 		// channel 满（>1024 条）→ 丢这条，说明 LLM 调用速率超 worker batch 写盘吞吐。
 		s.log.Warn().
 			Str("provider", c.Provider).Str("model", c.Model).Str("role", c.Role).
 			Msg("llm_invocation buffer 满，丢弃一条审计记录")
-		return nil
 	}
 }
 

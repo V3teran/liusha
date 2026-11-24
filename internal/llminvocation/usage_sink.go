@@ -2,7 +2,6 @@ package llminvocation
 
 import (
 	"context"
-	"errors"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
@@ -11,20 +10,26 @@ import (
 // runner 与 api 共用：agent 调用经 CallMeta 携带 task/run 归属；api 侧对话内调用
 // （问答、意图分类、标题生成）携带所在对话与 Role 角色标签。
 // 审计为 best-effort：Append 内部满载丢行并告警，不阻塞 Generate 路径。
-type UsageSink struct{ Store *Store }
+type UsageSink struct{ Store invocationAppender }
+
+// invocationAppender 是审计落库需要的最小写入能力。
+type invocationAppender interface {
+	Append(Invocation)
+}
 
 // RecordUsage 满足 framework llm.UsageSink：把一次 LLM 调用计量落 llm_invocation 表。
 func (s UsageSink) RecordUsage(ctx context.Context, r llm.UsageRecord) {
 	taskID, agentRunID, conversationID := optionalID(r.TaskID), optionalID(r.AgentRunID), optionalID(r.ConversationID)
-	// 错误分类在写入时判定（单一事实源）：框架层 Classify 是全系统瞬时错误
-	// 的唯一分类器，审计面直接消费结论而不再各自解析错误文本。
+	// 错误类别取记录携带的分类：框架层 Classify 对真实错误的结论是全系统瞬时错误的
+	// 唯一分类事实源，审计面直接采用。拿错误文本在这里重新分类是行不通的——哨兵错误
+	// 只存在于错误链上，本地的在途名额节流会因此被判成「其它错误」。
 	errorKind := ""
 	if r.Err != "" {
-		errorKind = ErrorKindOf(llm.Classify(errors.New(r.Err)))
+		errorKind = ErrorKindOf(r.ErrClass)
 	}
 	// AgentRunID 是 agent_run.id 外键（SET NULL）——由 CallMeta 经 ctx 注入本轮 run 行；
 	// 角色维度落 Role 列。
-	_ = s.Store.Append(ctx, Invocation{
+	s.Store.Append(Invocation{
 		ErrorKind:      errorKind,
 		TaskID:         taskID,
 		AgentRunID:     agentRunID,
@@ -58,7 +63,7 @@ var ErrorKinds = []string{"rate_limited", "server", "network", "error"}
 // ErrorKindOf 把框架的错误分类映射为错误类别。
 func ErrorKindOf(c llm.ErrorClass) string {
 	switch c {
-	case llm.Class429:
+	case llm.Class429, llm.ClassBusy: // 排不到在途名额是本地为账户限流做的节流，与限流同列
 		return "rate_limited"
 	case llm.Class529, llm.Class5xx:
 		return "server"

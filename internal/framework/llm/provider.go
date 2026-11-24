@@ -75,6 +75,10 @@ type Request struct {
 	// Temperature 采样温度（0-1）；nil = provider 默认。指针区分「未设置」与 0
 	// （0 = 贪心解码是有效语义，不能当默认吞掉）。
 	Temperature *float64
+	// Priority 让这次调用优先取得账户的在途名额：排在普通调用之前，但不打断已经在途
+	// 的请求。只给「稀少、短、失败代价高」的调用用——账户满载时普通调用要排队，预算
+	// 短的调用排不到就作废；上下文压缩的蒸馏正是如此，作废即丢失一段历史。
+	Priority bool
 }
 
 // Response 是一次调用的完整输出（非流式直出；流式由 CollectStream 聚合得到同构结果）。

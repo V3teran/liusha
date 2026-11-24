@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
@@ -41,6 +42,13 @@ type Agent struct {
 	replanCh       chan struct{}
 	replanMu       sync.Mutex
 	replanRequests []replanRequest
+
+	// roundCancel 取消在途的那一轮规划，roundAborted 记下它是被目标改写取代的（见
+	// RequestReplan 与 planningRound）。规划只在 Run 的事件循环里一轮一轮地跑，这两个
+	// 字段只在那一轮的开头与结尾改写；RequestReplan 从别的协程调用，用锁保护。
+	roundMu      sync.Mutex
+	roundCancel  context.CancelFunc
+	roundAborted bool
 
 	stopCh chan struct{}
 }
@@ -88,8 +96,12 @@ type replanRequest struct {
 }
 
 // RequestReplan 请求一次强制重规划：不看是否还有待执行动作，带着理由再规划一轮。seen 是
-// 发起方作出判断时所见的图面，处理时图面已有实质进展的请求作废；nil 表示无条件有效。
-// 未消费前的多次请求合并为一次，各来源的请求逐条保留（相同理由只留一条）。
+// 发起方作出判断时所见的图面，处理时图面已有实质进展的请求作废；nil 表示无条件有效
+// （目标被调整）。未消费前的多次请求合并为一次，各来源的请求逐条保留（相同理由只留一条）。
+//
+// 目标被调整时，在途的那一轮规划当场作废：它的结论以旧目标为依据，落图时注定被拒
+// （ErrGoalChanged），等它跑完只是白等——模型慢时一轮要几分钟，用户的调整迟迟不生效。
+// 监察者的请求带着它所见的图面，不打断在途的这一轮：那不是注定作废的。
 func (a *Agent) RequestReplan(reason string, seen *explorationgraph.Surface) {
 	a.replanMu.Lock()
 	if !slices.ContainsFunc(a.replanRequests, func(r replanRequest) bool { return r.reason == reason }) {
@@ -100,6 +112,40 @@ func (a *Agent) RequestReplan(reason string, seen *explorationgraph.Surface) {
 	case a.replanCh <- struct{}{}:
 	default:
 	}
+	if seen == nil {
+		a.roundMu.Lock()
+		a.roundAborted = true
+		cancel := a.roundCancel
+		a.roundMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	}
+}
+
+// planningRound 跑一轮规划，期间登记它的取消函数。被目标改写取代的那一轮不算失败：
+// 带着新目标的下一轮（重规划请求已在队列里）紧接着开始。
+func (a *Agent) planningRound(ctx context.Context, round func(context.Context) error) error {
+	roundCtx, cancel := context.WithCancel(ctx)
+	a.roundMu.Lock()
+	a.roundCancel, a.roundAborted = cancel, false
+	a.roundMu.Unlock()
+	defer func() {
+		cancel()
+		a.roundMu.Lock()
+		a.roundCancel = nil
+		a.roundMu.Unlock()
+	}()
+
+	err := round(roundCtx)
+	a.roundMu.Lock()
+	aborted := a.roundAborted
+	a.roundMu.Unlock()
+	if aborted && err != nil {
+		a.logger.Info().Err(err).Msg("任务目标已被调整，在途的这一轮规划作废")
+		return nil
+	}
+	return err
 }
 
 // takeReplanRequests 取走全部待处理的重规划请求。

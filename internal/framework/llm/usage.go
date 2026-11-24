@@ -18,14 +18,18 @@ import (
 
 // UsageRecord 是一次 LLM 调用的审计记录。
 type UsageRecord struct {
-	Provider       string
-	Model          string
-	InTokens       int
-	OutTokens      int
-	CachedTokens   int
-	LatencyMs      int
-	FinishReason   string
+	Provider     string
+	Model        string
+	InTokens     int
+	OutTokens    int
+	CachedTokens int
+	LatencyMs    int
+	FinishReason string
+	// Err 是失败正文（给人读）；ErrClass 是它的分类，取自真实错误（给筛选用）。两者分开
+	// 携带：只留文本的话，落库一方拿文本重新分类时哨兵错误已经认不出来——本地的在途
+	// 名额节流会被判成「其它错误」。成功调用两者皆为空。
 	Err            string
+	ErrClass       ErrorClass
 	Role           string // 调用者角色（planner/executor/monitor/chat 等），空 = 未分类
 	TaskID         string // 归属任务，空 = 任务外调用
 	AgentRunID     string // 归属认知轮次的 agent_run.id，空 = 未接通（历史行恒空）
@@ -86,14 +90,14 @@ func (p *instrumentedProvider) Complete(ctx context.Context, req Request) (Respo
 	rec := p.baseRecord(meta)
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
 	// messages 无论成败都留存：失败现场（哪些消息触发 4xx）是排障第一证据，
-	// 只记成功等于审计在最需要的地方失明。没有发往上游的调用（额度窗口内被挡下）
-	// 是例外：它没有现场可留，而且每个在途槽位每分钟都会来一次，留存只是把提示词
-	// 反复写进审计。
+	// 只记成功等于审计在最需要的地方失明。没有发往上游的调用（额度窗口内被挡下、
+	// 排不到在途名额）是例外：它没有现场可留，而且每逢额度窗口或账户满载就会来一次，
+	// 留存只是把提示词反复写进审计。
 	if !isHeld(err) {
 		rec.Messages = auditMessages(req.Messages)
 	}
 	if err != nil {
-		rec.Err = err.Error()
+		rec = failRecord(rec, err)
 	} else {
 		rec.InTokens = resp.Usage.InTokens
 		rec.OutTokens = resp.Usage.OutTokens
@@ -113,7 +117,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 	if err != nil {
 		rec := p.baseRecord(meta)
 		rec.LatencyMs = int(time.Since(start).Milliseconds())
-		rec.Err = err.Error()
+		rec = failRecord(rec, err)
 		if !isHeld(err) {
 			rec.Messages = auditMessages(req.Messages)
 		}
@@ -125,14 +129,12 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 	go func() {
 		defer close(out)
 		var (
-			usage  Usage
-			finish string
+			usage Usage
 			// 影子聚合：与 Complete 路径同构的 Response——流式调用的审计 Result
 			// 由此而来（content/tool_calls/thinking 原文不再缺失）。
-			shadow      Response
-			failed      bool
-			done        bool // 收到 StreamDone 收尾事件
-			streamError string
+			shadow  Response
+			failure *streamFailure // nil = 尚未失败
+			done    bool           // 收到 StreamDone 收尾事件
 		)
 		for ev := range ch {
 			switch ev.Kind {
@@ -158,14 +160,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 					shadow.Thinking.Signature = ev.Signature
 				}
 			case StreamError:
-				failed = true
-				if ev.Err != nil {
-					streamError = ev.Err.Error()
-					finish = "error: " + streamError
-				} else {
-					streamError = "stream error (no detail)"
-					finish = "error"
-				}
+				failure = newStreamFailure(ev.Err)
 			}
 			// 消费方经 ctx 放弃（如任务中止/超时）时不能傻等发送：等待会让本
 			// goroutine 永久阻塞（消费侧 CollectStream 提前返回后无人再读），
@@ -173,63 +168,87 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 			select {
 			case out <- ev:
 			case <-ctx.Done():
-				if !failed {
-					failed = true
-					streamError = "stream abandoned: " + ctx.Err().Error()
-					finish = "error: " + streamError
+				if failure == nil {
+					failure = abandoned(ctx.Err())
 				}
-				p.sink.RecordUsage(ctx, p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError))
+				p.sink.RecordUsage(ctx, p.finishStreamRecord(meta, start, req, usage, shadow, failure))
 				return
 			}
 		}
 		// 未见收尾事件即关闭：部分正文不得审计为成功（与 CollectStream 同口径）。
 		// 消费方经 ctx 放弃（任务中止/停机）时 provider 直接关通道、不发收尾事件——
 		// 这不是截断，先按取消归因，与上面 select 分支的 abandoned 同口径。
-		if !failed && !done {
-			failed = true
-			if ctx.Err() != nil {
-				streamError = "stream abandoned: " + ctx.Err().Error()
+		if failure == nil && !done {
+			if err := ctx.Err(); err != nil {
+				failure = abandoned(err)
 			} else {
-				streamError = ErrStreamTruncated.Error()
+				failure = newStreamFailure(ErrStreamTruncated)
 			}
-			finish = "error: " + streamError
 		}
-		rec := p.finishStreamRecord(meta, start, req, usage, shadow, failed, finish, streamError)
-		p.sink.RecordUsage(ctx, rec)
+		p.sink.RecordUsage(ctx, p.finishStreamRecord(meta, start, req, usage, shadow, failure))
 	}()
 	return out, nil
+}
+
+// streamFailure 是流式调用失败时的收尾：finish 落 finish_reason 列（终止原因），
+// message 落 error_message 列（错误正文），cause 是供分类的原因错误（nil = 没有可分类的
+// 真实错误）。
+type streamFailure struct {
+	finish  string
+	message string
+	cause   error
+}
+
+// newStreamFailure 以流上给出的错误收尾；err 为 nil 时上游没有说明原因。
+func newStreamFailure(err error) *streamFailure {
+	if err == nil {
+		return &streamFailure{finish: "error", message: "stream error (no detail)"}
+	}
+	return &streamFailure{finish: "error: " + err.Error(), message: err.Error(), cause: err}
+}
+
+// abandoned 以「消费方经 ctx 放弃了这条流」收尾，原因取 ctx 的错误。
+func abandoned(err error) *streamFailure {
+	message := "stream abandoned: " + err.Error()
+	return &streamFailure{finish: "error: " + message, message: message, cause: err}
 }
 
 // finishStreamRecord 把流式调用的影子聚合折成审计记录（成功收尾与放弃/错误
 // 收尾共用一个落库口径）。
 func (p *instrumentedProvider) finishStreamRecord(
 	meta CallMeta, start time.Time, req Request,
-	usage Usage, shadow Response, failed bool, finish, streamError string,
+	usage Usage, shadow Response, failure *streamFailure,
 ) UsageRecord {
 	rec := p.baseRecord(meta)
 	rec.LatencyMs = int(time.Since(start).Milliseconds())
 	rec.InTokens = usage.InTokens
 	rec.OutTokens = usage.OutTokens
 	rec.CachedTokens = usage.CachedTokens
-	if !failed {
+	if failure != nil {
+		// 流上错误同时落 error_message：失败调用的查询口径统一为 error_message <> ''
+		// （此前流错误只在 finish_reason、Complete 错误只在 error_message，「查全部失败」要
+		// OR 两列）。finish_reason 保留 "error: ..." 原值，兼容既有按列查询。
+		rec.FinishReason = failure.finish
+		rec.Err = failure.message
+		rec.ErrClass = Classify(failure.cause)
+	} else {
 		// 成功收尾的终止原因也写列：只进 shadow jsonb 会让 finish_reason
 		// 列在流式路径恒空（实测 197 行里 164 行空串），按列筛选成功调用
 		// 永远查不到；错误（"error: ..."）与成功（"stop"）同列可辨。
-		finish = "stop"
-	} else {
-		// 流上错误同时落 error_message：失败调用的查询口径统一为
-		// error_message <> ''（此前流错误只在 finish_reason、Complete
-		// 错误只在 error_message，「查全部失败」要 OR 两列）。finish_reason
-		// 保留 "error: ..." 原值，兼容既有按列查询。
-		rec.Err = streamError
-	}
-	rec.FinishReason = finish
-	rec.Messages = auditMessages(req.Messages)
-	if !failed {
+		rec.FinishReason = "stop"
 		shadow.Usage = usage
-		shadow.FinishReason = finish
+		shadow.FinishReason = "stop"
 		rec.Result = auditResponse(shadow)
 	}
+	rec.Messages = auditMessages(req.Messages)
+	return rec
+}
+
+// failRecord 在审计记录上记下一次失败：正文给人读，分类给筛选用。分类取自真实错误——
+// 只留文本的话，落库一方拿文本重新分类时哨兵错误已经认不出来。
+func failRecord(rec UsageRecord, err error) UsageRecord {
+	rec.Err = err.Error()
+	rec.ErrClass = Classify(err)
 	return rec
 }
 

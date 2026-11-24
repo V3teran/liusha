@@ -57,8 +57,11 @@ func (h *Handler) runCognition(
 		ProxyStore:  h.ProxyStore,
 		AgentStore:  h.AgentStore,
 
-		MaxActionsPerTask: h.RunnerCfg.MaxActionsPerTask,
-		StepLLMTimeout:    stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
+		MaxActionsPerTask:       h.RunnerCfg.MaxActionsPerTask,
+		ActionParallelism:       h.RunnerCfg.ActionParallelism,
+		VerificationParallelism: h.RunnerCfg.VerificationParallelism,
+		MonitorInterval:         time.Duration(h.RunnerCfg.MonitorIntervalSeconds) * time.Second,
+		StepLLMTimeout:          stepLLMTimeout(rt.StepLLMTimeoutSeconds, h.RunnerCfg.StepLLMTimeoutSeconds),
 
 		ContextRatios: cognition.ContextRatios{
 			Planner:   comp.PlannerContextRatio,

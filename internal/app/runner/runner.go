@@ -144,7 +144,15 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
 	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
-	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options())
+	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), cfg.LLM.Retry.Options(), cfg.LLM.AccountConcurrency)
+	// 并发相关的生效值启动时落一行日志：部署方据此确认配置生效，排障时也不必回翻配置文件。
+	logger.Info().
+		Int("llm.account_concurrency", cfg.LLM.AccountConcurrency).
+		Int("runner.concurrency", runnerCfg.Concurrency).
+		Int("runner.action_parallelism", runnerCfg.ActionParallelism).
+		Int("runner.verification_parallelism", runnerCfg.VerificationParallelism).
+		Int("runner.monitor_interval_seconds", runnerCfg.MonitorIntervalSeconds).
+		Msg("并发配置")
 	// LLM 调用装配：单步看门狗（挂死的调用会阻塞 agent 事件循环）+ llm_invocation 审计（含失败）。
 	// 看门狗每次调用现读热配置 runtime.step_llm_timeout_seconds，读失败回落部署值。
 	stepLLMTimeout := time.Duration(runnerCfg.StepLLMTimeoutSeconds) * time.Second

@@ -56,9 +56,10 @@ type Router struct {
 	store     RouterStore
 	pool      *ClientPool
 	retryOpts RetryOptions
-	// cooldown 是各 provider 的额度窗口登记。额度是账户级的状态，同一 provider 的所有
-	// 档位、所有调用方共用一份；挂在 Router 上是因为已构造的 Provider 实例会定期重建。
-	cooldown *cooldown
+	// governor 是账户级的节律治理（额度窗口的冷却、在途名额的上限）。额度与并发都是
+	// 账户级的状态，同一账户的所有 provider、档位、调用方共用一份；挂在 Router 上是因为
+	// 已构造的 Provider 实例会定期重建。
+	governor *governor
 	// providerWrapper 可选装饰钩子：build() 产出 Provider 后包一层（埋点/限流等）。
 	// 在首次 For() 之前设置；并发不安全。
 	providerWrapper func(Provider) Provider
@@ -66,19 +67,20 @@ type Router struct {
 	cached          map[Complexity]cachedProvider
 }
 
-// NewRouter 构造 Router（框架内置的退避策略 DefaultRetryOptions）。
+// NewRouter 构造 Router：框架内置的退避策略，不限账户在途数。
 func NewRouter(store RouterStore) *Router {
-	return NewRouterWithOpts(store, DefaultRetryOptions())
+	return NewRouterWithOpts(store, DefaultRetryOptions(), 0)
 }
 
-// NewRouterWithOpts 构造 Router，按 opts 原样执行重试（次数为 0 即该类错误不重试）。
-// 部署方的重试策略来自配置 llm.retry，不在这里补值。
-func NewRouterWithOpts(store RouterStore, opts RetryOptions) *Router {
+// NewRouterWithOpts 构造 Router，按 opts 原样执行重试（次数为 0 即该类错误不重试），
+// accountConcurrency 是每个账户同时在途的请求数上限（0 = 不限）。部署方的策略来自
+// 配置 llm.retry 与 llm.account_concurrency，不在这里补值。
+func NewRouterWithOpts(store RouterStore, opts RetryOptions, accountConcurrency int) *Router {
 	return &Router{
 		store:     store,
 		pool:      NewClientPool(),
 		retryOpts: opts,
-		cooldown:  newCooldown(),
+		governor:  &governor{cooldown: newCooldown(), inflight: newInflight(accountConcurrency)},
 		cached:    make(map[Complexity]cachedProvider),
 	}
 }
@@ -146,7 +148,7 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 	if err != nil {
 		return nil, err
 	}
-	prov := WithRetry(NewProvider(g), r.retryOpts, r.cooldown, account)
+	prov := WithRetry(NewProvider(g), r.retryOpts, r.governor, account)
 	if r.providerWrapper != nil {
 		prov = r.providerWrapper(prov)
 	}
@@ -201,12 +203,14 @@ func (r *Router) SetProviderWrapper(fn func(Provider) Provider) {
 	r.mu.Unlock()
 }
 
-// WithoutQuotaHold 让额度窗口内的调用不在调用内等待、立即把限流交还。给没有外层
-// 重认领循环的调用方用（对话、问答、意图分类）：智能体的调用方交还动作后会立即重新
-// 认领，需要调用层的等待把循环垫慢；对话侧等一分钟再报错，只会把一句清楚的「额度
-// 窗口内」拖成连接超时。在首次 For() 之前调用。
-func (r *Router) WithoutQuotaHold() {
-	r.cooldown.holdInWindow = false
+// FailFast 让调用在两种「本可以等一等」的情况下都不等、立即交还：上游处于额度窗口，
+// 或账户的在途名额已满。给没有外层重认领循环的调用方用（对话、问答、意图分类）：
+// 智能体的调用方交还动作后会立即重新认领，需要调用层的等待把循环垫慢；对话侧等
+// 下去（额度窗口内一分钟、名额排满时至多排掉预算的一半）只会把一句清楚的原因拖成
+// 连接超时。在首次 For() 之前调用。
+func (r *Router) FailFast() {
+	r.governor.cooldown.holdInWindow = false
+	r.governor.inflight.failFast = true
 }
 
 // ContextWindow 返回指定档位当前路由 provider 的上下文窗口（token 数）。

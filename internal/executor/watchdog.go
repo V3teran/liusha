@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
 // ActivityTracker 记录每个在途动作最近一次有进展的时刻：一次工具调用结束、一步 LLM
@@ -52,10 +54,16 @@ func (e *stallError) Error() string {
 	return fmt.Sprintf("执行停摆：%s 内无任何工具调用或 LLM 推理进展", e.idle.Round(time.Second))
 }
 
-// StallTimeout 是判定动作停摆的无进展时长：须长于单步最长的合法耗时——一次 LLM
-// 调用（单步 LLM 看门狗上限）加一次工具调用（工具超时上限）——再留一分钟余量。
+// stallSlack 是停摆窗口在「一步最长的合法耗时」之外再留的余量：工具结果整理、提示词
+// 组装、流式聚合这些不记进展的杂务。
+const stallSlack = 30 * time.Second
+
+// StallTimeout 是判定动作停摆的无进展时长。进展只在工具调用结束与一步推理完成时记录，
+// 两次进展之间是一步推理的最长合法耗时：一步内部的压缩链、一次 LLM 调用（单步 LLM
+// 看门狗上限）、一次工具调用（工具超时上限）。压缩链的超时直接计入，不靠一个碰巧够大
+// 的字面余量。
 func StallTimeout(stepLLM, stepTool time.Duration) time.Duration {
-	return stepLLM + stepTool + time.Minute
+	return runtime.ChainTimeout + stepLLM + stepTool + stallSlack
 }
 
 // inFlightAction 是一个在途动作的看门狗视图。

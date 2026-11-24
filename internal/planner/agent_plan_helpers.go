@@ -104,11 +104,14 @@ func (a *Agent) generateNewActions(ctx context.Context) (PlanOutcome, error) {
 			return outcome, nil
 		}
 
-		// 判断是否应该重试
+		// 判断是否应该重试。这一轮被取消（目标被调整，或规划者被停掉）不是规划的失败：
+		// 错误原样交还，不记错误日志。
 		if !isRetriableError(lastErr) {
-			a.logger.Error().
-				Err(lastErr).
-				Msg("Plan() 调用失败（不可重试错误）")
+			if ctx.Err() == nil {
+				a.logger.Error().
+					Err(lastErr).
+					Msg("Plan() 调用失败（不可重试错误）")
+			}
 			return PlanOutcome{}, fmt.Errorf("plan: %w", lastErr)
 		}
 

@@ -29,7 +29,7 @@ type cooldown struct {
 	entries    map[string]*quotaWindowEntry
 	window     time.Duration // 额度窗口与瞬时限流的分界，也是一次调用在窗口内静默等待的上限
 	probeEvery time.Duration // 窗口内放行探测的间隔
-	// holdInWindow 为假时，窗口内的调用不等候、立即交还限流（见 Router.WithoutQuotaHold）。
+	// holdInWindow 为假时，窗口内的调用不等候、立即交还限流（见 Router.FailFast）。
 	// 装配期一次性设置，之后只读。
 	holdInWindow bool
 }

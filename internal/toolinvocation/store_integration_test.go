@@ -79,3 +79,38 @@ func TestDeleteOlderThanPostgres(t *testing.T) {
 		t.Fatalf("应无行可删: n=%d err=%v", n, err)
 	}
 }
+
+// 工具超时或被取消时，调用方传进来的 ctx 已经结束；这条记录——「这次工具调用为什么
+// 失败」——恰恰要在这种时候留下（此前库里带超时字样的工具记录为 0 条）。
+func TestAppendSurvivesEndedContextPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewStore(pool)
+
+	taskID := uuid.NewString()
+	dbtest.SeedTask(t, pool, taskID)
+	var runID string
+	if err := pool.QueryRow(ctx, "INSERT INTO agent_run (task_id) VALUES ($1::uuid) RETURNING id", taskID).Scan(&runID); err != nil {
+		t.Fatalf("seed agent_run: %v", err)
+	}
+
+	ended, cancel := context.WithTimeout(ctx, -time.Second)
+	defer cancel()
+	const timeoutMsg = "工具 run_command 执行超时（30s）"
+	id, err := store.Append(ended, Invocation{AgentRunID: runID, TaskID: taskID,
+		ToolName: "run_command", DurationMs: 30000, ErrorMessage: timeoutMsg})
+	if err != nil {
+		t.Fatalf("ctx 已结束时记录仍应写下: %v", err)
+	}
+	var got string
+	if err := pool.QueryRow(ctx, "SELECT error_message FROM tool_invocation WHERE id=$1", id).Scan(&got); err != nil {
+		t.Fatalf("读回记录: %v", err)
+	}
+	if got != timeoutMsg {
+		t.Fatalf("失败原因应原样留存，实际 %q", got)
+	}
+}

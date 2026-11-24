@@ -43,9 +43,11 @@ type Engine struct {
 	contextRatio        float64
 	distiller           runtime.Distiller // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
 	toolOutputTailBytes int               // 工具输出全局尾部钳制字节（0=不钳）
-	timeout             time.Duration     // 单次规划超时基准（0=不设限；默认 3 分钟）
-	budget              time.Duration     // 当前生效的规划预算：随连续 deadline 失败自适应放大，成功后回落
-	roster              []AgentBrief      // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
+	// roundBudget 是一轮规划的基准预算：整轮 ReAct 的墙钟上限（装配时给定；0=不设限）。
+	// budget 是当前生效的预算：预算不足型失败后放大，任一次成功即回落到基准。
+	roundBudget time.Duration
+	budget      time.Duration
+	roster      []AgentBrief // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
 	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
 	// 工厂构建并已包装进共享拦截链），Plan 时按白名单注册进 ReAct，不再经 toolWrap。
@@ -81,10 +83,8 @@ const maxBudgetFactor = 3
 // NewEngine 创建智能规划器
 func NewEngine(router *llm.Router, logger zerolog.Logger) *Engine {
 	return &Engine{
-		router:  router,
-		logger:  logger.With().Str("component", "planner_intelligence").Logger(),
-		timeout: 3 * time.Minute, // 默认单次规划超时 3 分钟
-		budget:  3 * time.Minute,
+		router: router,
+		logger: logger.With().Str("component", "planner_intelligence").Logger(),
 	}
 }
 
@@ -165,9 +165,14 @@ func (e *Engine) WithToolWrapper(fn func(registry.Tool) registry.Tool) *Engine {
 	return e
 }
 
-// WithTimeout 注入单次规划超时（0=不设限；默认 3 分钟）。
-func (e *Engine) WithTimeout(timeout time.Duration) *Engine {
-	e.timeout = timeout
+// WithRoundBudget 注入一轮规划的基准预算：整轮 ReAct 的墙钟上限，0 = 不设限。
+//
+// 一轮规划是若干次 LLM 调用（常见两次：读一遍图面、给出规划），每次调用各自受单步 LLM
+// 看门狗约束。整轮的预算不能比单次调用的上限还短：那样调用慢一点整轮就被掐断，下一轮从
+// 头再来，被掐断的生成上游照样计费（实测按 3 分钟定、单次上限 5 分钟时，10 分钟里 5 轮
+// 规划有 2 轮这样作废）。预算不足型失败后按 adaptBudget 放大下一轮，成功即回落到这里给的值。
+func (e *Engine) WithRoundBudget(d time.Duration) *Engine {
+	e.roundBudget, e.budget = d, d
 	return e
 }
 
@@ -296,17 +301,17 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	functionTools := req.FunctionTools
 	e.logger.Info().Msg("开始智能规划")
 
-	// 超时保护（防止 LLM 调用无限挂起）+ 自适应预算：deadline 型失败（LLM 慢速期
-	// 预算耗尽）用同一预算重试是确定性失败——预算随连续超时翻倍、封顶基准
-	// maxBudgetFactor 倍，任一次成功即回落。调用方的重试阶梯只退避间隔，
-	// 退避不了预算本身。
+	// 整轮的墙钟上限 + 自适应预算：预算不足型失败（预算在本轮内用尽，或为账户的在途
+	// 名额排队排到了预算的一半）用同一预算重试是确定性失败——预算随连续失败翻倍、封顶
+	// 基准 maxBudgetFactor 倍，任一次成功即回落。调用方的重试阶梯只退避间隔，退避不了
+	// 预算本身。
 	if e.budget > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, e.budget)
 		defer cancel()
 		e.logger.Debug().
-			Str("timeout", e.budget.String()).
-			Msg("规划超时保护已启用")
+			Str("budget", e.budget.String()).
+			Msg("本轮规划的预算已启用")
 	}
 
 	// 1. 收集规划上下文（作为首条输入的紧凑摘要；细节靠工具按需深挖）
@@ -368,7 +373,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		e.adaptBudget(err)
 		return PlanOutcome{}, fmt.Errorf("ReAct 规划失败: %w", err)
 	}
-	e.budget = e.timeout // 成功即回落基准预算
+	e.budget = e.roundBudget // 成功即回落基准预算
 
 	// 4. 解析最终答案为 PlanningResponse。终态叙述在解析边界完成：协议转人读
 	//    摘要作正文（谁解析谁叙述，前端不解释协议；协议原文由审计面保存）；
@@ -569,14 +574,18 @@ func (e *Engine) parsePlanningResponse(content string) (*PlanningResponse, error
 	return &response, nil
 }
 
-// adaptBudget 在 deadline 型失败后放大下一轮规划预算（翻倍，封顶基准
-// maxBudgetFactor 倍）；非 deadline 失败不动预算。Engine 由单个
-// planner goroutine 串行使用，无并发竞争。
+// adaptBudget 在预算不足型失败后放大下一轮规划预算（翻倍，封顶基准
+// maxBudgetFactor 倍）；其它失败不动预算。预算不足有两种表现，处置相同：预算在本轮
+// 内用尽（deadline），或这一轮为账户的在途名额排队、排到了它预算的一半仍没排到
+// （ErrInflightBusy）——后者换同一预算重来只会再排一次同样的队。只认前一种时，同一
+// 个原因会因这一刻有没有空位而得到两种处置。Engine 由单个 planner goroutine 串行
+// 使用，无并发竞争。
 func (e *Engine) adaptBudget(err error) {
-	if !errors.Is(err, context.DeadlineExceeded) || e.timeout <= 0 {
+	budgetSpent := errors.Is(err, context.DeadlineExceeded) || errors.Is(err, llm.ErrInflightBusy)
+	if !budgetSpent || e.roundBudget <= 0 {
 		return
 	}
-	ceiling := e.timeout * maxBudgetFactor
+	ceiling := e.roundBudget * maxBudgetFactor
 	if e.budget < ceiling {
 		e.budget *= 2
 		if e.budget > ceiling {
@@ -584,8 +593,9 @@ func (e *Engine) adaptBudget(err error) {
 		}
 	}
 	e.logger.Warn().
+		Err(err).
 		Str("budget", e.budget.String()).
-		Msg("规划预算耗尽（LLM 慢速期），下一轮预算已放大")
+		Msg("本轮规划没能在预算内完成，下一轮预算已放大")
 }
 
 // filterKnownIDs 过滤 LLM 引用的节点 ID：非 UUID（如 "0"）与图中不存在的 ID（多为
