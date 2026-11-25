@@ -57,7 +57,7 @@ describe('ModelPage', () => {
 
     renderPage()
 
-    expect(screen.getByRole('heading', { name: '模型配置' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '模型' })).toBeTruthy()
   })
 
   it('渲染三个分区：对话模型、检索模型、能力路由（按接入到收口排布）', () => {

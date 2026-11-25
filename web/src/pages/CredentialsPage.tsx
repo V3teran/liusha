@@ -63,7 +63,7 @@ function newRowValid(n: NewRow): boolean {
 export function CredentialsPage() {
   // 搜索词与分页进 URL（刷新、后退、分享都保持）；检索、排序、分页都在服务端。
   const { page, size, setPage, setSize } = useUrlPageState()
-  const { filters, setFilters, resetFilters } = useUrlFilterFields({ search: 'q' })
+  const { filters, setFilters, resetFilters } = useUrlFilterFields({ search: 'search' })
   // 关键词停顿后写入 URL（打字不是导航：改写当前历史）；交给 URL 的词去掉首尾空白
   const search = useSearchDraft(filters.search, (next) => setFilters({ search: next }, { replace: true }), (d) => d.trim())
   const [edit, setEdit] = useState<CellEdit | null>(null)

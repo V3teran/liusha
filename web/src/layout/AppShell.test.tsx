@@ -99,7 +99,7 @@ describe('AppShell', () => {
     expect(screen.getByText('对话')).toBeTruthy()
     expect(screen.getByText('发现')).toBeTruthy()
     expect(screen.getByText('探索图')).toBeTruthy()
-    expect(screen.getByText('模型日志')).toBeTruthy()
+    expect(screen.getByText('模型调用')).toBeTruthy()
     expect(screen.getByText('凭证库')).toBeTruthy()
     expect(screen.getByText('智能体')).toBeTruthy()
     // 左下角「设置」入口已删（/settings 路由同步移除）。
@@ -166,10 +166,27 @@ describe('AppShell', () => {
     const observe = screen.getByRole('group', { name: '观测' })
     const config = screen.getByRole('group', { name: '配置' })
     expect(within(work).getByText('任务')).toBeTruthy()
-    expect(within(observe).getByText('服务器日志')).toBeTruthy()
-    expect(within(observe).getByText('审计日志')).toBeTruthy()
-    expect(within(observe).getByText('模型日志')).toBeTruthy()
-    expect(within(config).getByText('系统配置')).toBeTruthy()
+    expect(within(observe).getByText('服务器')).toBeTruthy()
+    expect(within(observe).getByText('操作')).toBeTruthy()
+    expect(within(observe).getByText('模型调用')).toBeTruthy()
+    expect(within(config).getByText('系统')).toBeTruthy()
+    expect(within(config).getByText('模型')).toBeTruthy()
+  })
+
+  // 页面地址是资源名的一级路径，与后端接口的资源同名；不按侧边栏的分组再加一层前缀。
+  it('导航项的地址是资源名的一级路径', () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    renderShell('/conversations/direct')
+    const hrefOf = (name: string) => screen.getByRole('link', { name }).getAttribute('href')
+    expect(hrefOf('智能体')).toBe('/agents')
+    expect(hrefOf('场景')).toBe('/scenarios')
+    expect(hrefOf('工具')).toBe('/tools')
+    expect(hrefOf('技能')).toBe('/skills')
+    expect(hrefOf('模型')).toBe('/models')
+    expect(hrefOf('系统')).toBe('/settings')
+    expect(hrefOf('服务器')).toBe('/logs')
+    expect(hrefOf('操作')).toBe('/audit')
+    expect(hrefOf('模型调用')).toBe('/model-calls')
   })
 
   it('当前页导航项带 aria-current="page"', () => {

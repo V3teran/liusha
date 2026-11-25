@@ -131,7 +131,7 @@ type RedisConfig struct {
 	WriteTimeoutSeconds int    `mapstructure:"write_timeout_seconds"`
 }
 
-// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「模型配置」
+// LLMConfig 是调用 LLM 的部署参数。LLM 接入（provider）与档位路由是用户数据，在前端「模型」
 // 页维护、存于数据库，不在配置文件里。
 type LLMConfig struct {
 	// EncryptionKey 加密数据库里保存的 provider 密钥（AES-256-GCM），32 字节 hex（64 个字符）。
@@ -158,7 +158,7 @@ type RetryConfig struct {
 	Backoff529Ms      int   `mapstructure:"backoff_529_ms"`
 }
 
-// ProxyConfig 是 MITM 代理入口与流量过滤规则的部署默认（过滤规则可在前端「系统配置」自定义）。
+// ProxyConfig 是 MITM 代理入口与流量过滤规则的部署默认（过滤规则可在前端「系统」自定义）。
 type ProxyConfig struct {
 	ListenAddr string `mapstructure:"listen_addr"`
 	// PublicAddr 是客户端设置代理时填写的地址，控制台「代理接入」显示它：「主机:端口」，或只写
@@ -257,7 +257,7 @@ type RunnerConfig struct {
 // SandboxConfig 是沙盒服务参数：沙盒自身的监听与鉴权、浏览器、工作区留存、对外回连契约。
 //
 // command_run 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
-// runtime.step_tool_timeout_seconds 钳制（前端「系统配置」可热改）。
+// runtime.step_tool_timeout_seconds 钳制（前端「系统」可热改）。
 type SandboxConfig struct {
 	ListenAddr string `mapstructure:"listen_addr"`
 	// URL 是 runner 与 api 访问沙盒的地址。

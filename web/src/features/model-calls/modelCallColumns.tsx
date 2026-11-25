@@ -10,7 +10,7 @@ import { isTimeout, latencyLevel, throughputLabel, type TimingLevel } from './ll
 const columnHelper = createColumnHelper<LLMInvocationSummary>()
 
 /** 表格 meta：# 列页内序号 = startIndex + 行号 + 1（对齐凭证库 # 列口径）。 */
-export interface LlmAuditTableMeta {
+export interface ModelCallTableMeta {
   readonly startIndex: number
 }
 
@@ -33,7 +33,7 @@ const TIMING_DOT: Record<TimingLevel, string> = {
  * 面不存在；完整请求与响应原文在详情抽屉按需读。
  * 对话/批次不占列——行→详情抽屉里提供任务/对话跳转按钮（业务标识属于钻取视角，不是筛读视角）。
  */
-export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: number) {
+export function buildModelCallColumns(showProvider: boolean, llmTimeoutMs?: number) {
   return [
     columnHelper.display({
       id: 'seq',
@@ -42,7 +42,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       meta: { align: 'right' },
       cell: (ctx) => (
         <span className="block text-xs tabular-nums text-text-tertiary">
-          {(ctx.table.options.meta as LlmAuditTableMeta).startIndex + ctx.row.index + 1}
+          {(ctx.table.options.meta as ModelCallTableMeta).startIndex + ctx.row.index + 1}
         </span>
       ),
     }),

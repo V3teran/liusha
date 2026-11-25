@@ -58,7 +58,7 @@ const (
 	maxToolPageSize     = 100
 )
 
-// listToolsHandler 处理 GET /tools?kind=&q=&page=&size= → {tools, total}。
+// listToolsHandler 处理 GET /tools?kind=&search=&page=&size= → {tools, total}。
 // kind 空 = 两套体系都要；page 缺省 = 不分页返回过滤后全量（智能体选工具器依赖此契约，
 // 绝不能被默认 size 截断）；page 存在才分页，从 1 起，非法回退默认页。
 func listToolsHandler(api ToolCatalogAPI, inv SandboxInventoryAPI) gin.HandlerFunc {

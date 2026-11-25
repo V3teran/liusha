@@ -5,7 +5,7 @@ import { conversationPath } from '@/lib/source'
 import { scopeQuery, type Scope } from './scope'
 
 /** 任务相关跳转的目标：任务名下的视图。 */
-export type JumpTarget = 'task' | 'conversation' | 'findings' | 'exploration' | 'llmAudit'
+export type JumpTarget = 'task' | 'conversation' | 'findings' | 'exploration' | 'modelCall'
 
 /** 一个跳转按钮：名字与图标取侧栏导航（同一个目的地的两种入口），to 已按范围限定。 */
 export interface Jump {
@@ -42,14 +42,14 @@ export function jumpContext(task: TaskSummary, from: TaskJumpContext['from']): T
 }
 
 /** 目标的固定顺序与侧栏导航一致。 */
-const ORDER: readonly JumpTarget[] = ['task', 'conversation', 'findings', 'exploration', 'llmAudit']
+const ORDER: readonly JumpTarget[] = ['task', 'conversation', 'findings', 'exploration', 'modelCall']
 
 const NAV_PATH: Record<JumpTarget, string> = {
   task: '/tasks',
   conversation: '/conversations/direct',
   findings: '/findings',
   exploration: '/exploration-graph',
-  llmAudit: '/llm-audit',
+  modelCall: '/model-calls',
 }
 
 function navItem(target: JumpTarget) {
@@ -76,7 +76,7 @@ export function conversationJumps(source: string, conversationId: string, target
  * 对话的内容。
  *
  * 不做通向空页面的按钮——一个去处成立的前提在这里判定，调用方不必自己挡：
- *   - 没有任务（纯聊天对话）：任务、发现、探索图都没有；对话与模型日志照有（问答的调用记在对话名下）
+ *   - 没有任务（纯聊天对话）：任务、发现、探索图都没有；对话与模型调用照有（问答的调用记在对话名下）
  *   - 没有对话不放「对话」；没有发现不放「发现」
  */
 export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]): Jump[] {
@@ -93,8 +93,8 @@ export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]):
     exploration: hasTask
       ? `/exploration-graph?${scopeQuery(scope)}${ctx.explorationNode ? `&selected=${encodeURIComponent(ctx.explorationNode)}` : ''}`
       : null,
-    // 模型日志：按任务筛是这个任务的智能体运行的调用，按对话筛还包括对话里直接发起的调用
-    llmAudit: `/llm-audit?${scopeQuery(scope)}`,
+    // 模型调用：按任务筛是这个任务的智能体运行的调用，按对话筛还包括对话里直接发起的调用
+    modelCall: `/model-calls?${scopeQuery(scope)}`,
   }
   return ORDER.filter((t) => targets.includes(t)).flatMap((target) => {
     const to = href[target]

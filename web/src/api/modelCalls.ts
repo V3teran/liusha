@@ -1,5 +1,5 @@
 /**
- * LLM 调用审计域 API 客户端（全局搜索 / 用量合计 / 单条详情）
+ * 模型调用记录 API 客户端（列表 / 用量合计 / 筛选选项 / 单条详情）
  *
  * 复用 client.ts 的 fetch 封装（同源携带会话 Cookie）。
  */
@@ -38,9 +38,9 @@ function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchPar
 }
 
 /**
- * 按筛选列出调用（全局：不限定任务；可按范围、角色、模型、时间收窄，或按 ID 搜索）。
+ * 按筛选列出调用（全局：不限定任务；可按范围、角色、模型、时间收窄，或按关键词检索）。
  */
-export async function searchLLMInvocations(
+export async function listLLMInvocations(
   search: string,
   page = 1,
   size = 0,
@@ -55,10 +55,10 @@ export async function searchLLMInvocations(
 }
 
 /**
- * 全局搜索口径的用量合计（整个筛选结果集，与翻页无关）——审计页统计 chip 数据源。
- * 与 searchLLMInvocations 吃同一套筛选参数，统计口径永不与列表打架。
+ * 当前筛选口径的用量合计（整个筛选结果集，与翻页无关）——模型调用页头部统计的数据源。
+ * 与 listLLMInvocations 吃同一套筛选参数，统计口径永不与列表打架。
  */
-export async function searchLLMInvocationStat(
+export async function getLLMInvocationsStat(
   search: string,
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationSearchStat> {
@@ -77,7 +77,7 @@ export interface LLMInvocationFacets {
  * 角色 / 模型筛选的选项：服务端按同一套筛选参数取去重值，每个维度不受自身筛选影响——
  * 选中一个模型后其余模型仍可选（从当前页的行推导时，选中后选项只剩它自己）。
  */
-export async function searchLLMInvocationFacets(
+export async function getLLMInvocationsFacets(
   search: string,
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationFacets> {

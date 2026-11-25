@@ -1,4 +1,4 @@
-// Package httpapi: 审计事件查看 handler（前端「审计日志」页，GET /audit）。
+// Package httpapi: 审计事件查看 handler（前端「操作」页，GET /audit）。
 //
 // audit_log 是系统级敏感操作的审计链（登录、任务建/中止、凭证写删），此前只有写入方没有
 // 查看入口。本 handler 只读：筛选（操作者模糊、动作与目标类型精确、时间范围）+ 服务端分页，

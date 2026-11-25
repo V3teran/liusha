@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
-import { SystemConfigPage } from './SystemConfigPage'
+import { SettingsPage } from './SettingsPage'
 import { getSettings, patchSettings, resetSettings } from '@/api/settings'
 import type {
   CompactionSettings,
@@ -65,7 +65,7 @@ function renderWithQueryClient(ui: React.ReactElement) {
   )
 }
 
-describe('SystemConfigPage', () => {
+describe('SettingsPage', () => {
   beforeEach(() => {
     mGet.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
     mPatch.mockReset().mockImplementation((g: SettingsGroup) => Promise.resolve(byGroup[g]))
@@ -73,7 +73,7 @@ describe('SystemConfigPage', () => {
   })
 
   it('三组旋钮各自加载并渲染当前值', async () => {
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     // 三个分区标题
     expect(await screen.findByText('上下文压缩')).toBeInTheDocument()
     expect(screen.getByText('工具运行时')).toBeInTheDocument()
@@ -86,7 +86,7 @@ describe('SystemConfigPage', () => {
 
   it('编辑 compaction 后保存：只提交改动字段', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     const input = await screen.findByDisplayValue('0.6') // planner_context_ratio
     await user.clear(input)
     await user.type(input, '0.7')
@@ -101,7 +101,7 @@ describe('SystemConfigPage', () => {
 
   it('名单字段保存为 {on, off} 操作', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     const allow = await screen.findByDisplayValue('*.target.com')
     await user.clear(allow)
     await user.type(allow, 'app.example')
@@ -121,7 +121,7 @@ describe('SystemConfigPage', () => {
     }
     mGet.mockImplementation((g: SettingsGroup) => Promise.resolve(g === 'runtime' ? customized : byGroup[g]))
     mReset.mockResolvedValue(byGroup.runtime)
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     await user.click(await screen.findByText('恢复默认'))
     expect(mReset).not.toHaveBeenCalled()
     await user.click(await screen.findByRole('button', { name: '恢复出厂' }))
@@ -132,7 +132,7 @@ describe('SystemConfigPage', () => {
 
   it('proxy body 上限清零 → 该区保存按钮禁用', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     const reqBody = await screen.findByDisplayValue('1048576')
     await user.clear(reqBody) // 空 → Number('') = 0 → invalid
 
@@ -144,7 +144,7 @@ describe('SystemConfigPage', () => {
   // 搜索只是筛选显示：被筛掉的分区不得卸载，否则其中未保存的编辑静默丢失。
   it('搜索筛掉分区再清空，未保存的编辑仍在', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     const timeout = await screen.findByDisplayValue('60')
     await user.clear(timeout)
     await user.type(timeout, '120')
@@ -159,7 +159,7 @@ describe('SystemConfigPage', () => {
     const user = userEvent.setup()
     let resolve!: (v: SettingsDetail<unknown>) => void
     mPatch.mockImplementation(() => new Promise((r) => (resolve = r)))
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
     const planner = await screen.findByDisplayValue('0.6')
     await user.clear(planner)
     await user.type(planner, '0.7')
@@ -174,7 +174,7 @@ describe('SystemConfigPage', () => {
 
   it('搜索"压缩"仅显示上下文压缩分区', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
 
     // 等待所有分区加载
     await screen.findByText('上下文压缩')
@@ -193,7 +193,7 @@ describe('SystemConfigPage', () => {
 
   it('搜索"流量"仅显示代理流量过滤规则分区', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
 
     await screen.findByText('上下文压缩')
 
@@ -207,7 +207,7 @@ describe('SystemConfigPage', () => {
 
   it('搜索不存在的关键词显示空状态', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
 
     await screen.findByText('上下文压缩')
 
@@ -222,7 +222,7 @@ describe('SystemConfigPage', () => {
 
   it('清空搜索框恢复显示所有分区', async () => {
     const user = userEvent.setup()
-    renderWithQueryClient(<SystemConfigPage />)
+    renderWithQueryClient(<SettingsPage />)
 
     await screen.findByText('上下文压缩')
 

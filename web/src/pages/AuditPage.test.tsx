@@ -58,7 +58,7 @@ describe('AuditPage', () => {
 
   it('渲染标题、筛选栏与事件行；动作显示中文文案、metadata 就地展示', async () => {
     renderPage()
-    expect(screen.getByRole('heading', { name: '审计日志' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '操作' })).toBeTruthy()
     expect(await screen.findByText('创建任务')).toBeInTheDocument()
     expect(screen.getByText('登录失败')).toBeInTheDocument()
     expect(screen.getByText(/"source":\s*"direct"/)).toBeInTheDocument()

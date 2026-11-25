@@ -42,7 +42,7 @@ interface DataTableProps<T> {
 /**
  * react-table 通用外壳：table-fixed + colgroup 设计像素列宽（columnDef.size 单点
  * 定义——窄容器锁像素出真实横向滚动，宽容器按权重等比拉伸，见 tableLayout）+
- * 骨架屏/空态/行点击与键盘可达/选中态描边。任务 / 流量 / 模型日志 / 发现等列表共用。
+ * 骨架屏/空态/行点击与键盘可达/选中态描边。任务 / 流量 / 模型调用 / 发现等列表共用。
  */
 export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, hasFilter, emptyNoun, emptyHint, rowError, selectedId, getRowId, onRowClick, rowAriaLabel, rowStyle, rowClassName, meta, stickyHeader, ariaLabel }: DataTableProps<T>) {
   const table = useReactTable({
@@ -83,7 +83,7 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
               {hg.headers.map((h) => (
                 <th
                   key={h.id}
-                  // 列定义声明的悬停解释（meta.headerTitle）：此前声明了却没人渲染，模型日志「响应耗时」的提示一直是死的
+                  // 列定义声明的悬停解释（meta.headerTitle）：此前声明了却没人渲染，模型调用「响应耗时」的提示一直是死的
                   title={h.column.columnDef.meta?.headerTitle}
                   className={cn(
                     // relative：表头里的 sr-only 列名（绝对定位）以单元格为参照、随表格滚动容器裁剪，

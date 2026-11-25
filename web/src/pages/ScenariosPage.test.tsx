@@ -73,14 +73,14 @@ function LocationProbe() {
     <>
       <output data-testid="loc">{loc.search}</output>
       {/* 模拟浏览器前进 / 后退把 ?selected= 换成别的场景 */}
-      <button type="button" data-testid="go-ctf" onClick={() => navigate('/config/scenarios?selected=ctf')} />
+      <button type="button" data-testid="go-ctf" onClick={() => navigate('/scenarios?selected=ctf')} />
     </>
   )
 }
 
 let queryClient: QueryClient
 
-function renderPage(entry = '/config/scenarios') {
+function renderPage(entry = '/scenarios') {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -135,7 +135,7 @@ describe('ScenariosPage', () => {
     mList.mockResolvedValue({ scenarios: [item(sc())], total: 1 })
     mGet.mockResolvedValue(detail(sc()))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=pentest')
+    renderPage('/scenarios?selected=pentest')
     const enabled = await screen.findByRole('checkbox')
     expect(screen.queryByRole('note')).toBeNull()
     await user.click(enabled)
@@ -147,7 +147,7 @@ describe('ScenariosPage', () => {
     mList.mockResolvedValue({ scenarios: [item(ctf)], total: 1 })
     mGet.mockResolvedValue(detail(ctf))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=ctf')
+    renderPage('/scenarios?selected=ctf')
     await user.click(await screen.findByRole('checkbox'))
     expect(screen.queryByRole('note')).toBeNull()
   })
@@ -155,7 +155,7 @@ describe('ScenariosPage', () => {
   it('按链接直接打开场景；场景不存在时提示并关闭', async () => {
     mList.mockResolvedValue({ scenarios: [], total: 0 })
     mGet.mockRejectedValue(new Error('资源不存在'))
-    renderPage('/config/scenarios?selected=gone')
+    renderPage('/scenarios?selected=gone')
     expect(await screen.findByText('资源不存在')).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('loc').textContent).toBe(''))
   })
@@ -164,7 +164,7 @@ describe('ScenariosPage', () => {
     mList.mockResolvedValue({ scenarios: [item(sc())], total: 1 })
     mGet.mockResolvedValueOnce(detail(sc()))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=pentest')
+    renderPage('/scenarios?selected=pentest')
     const name = await screen.findByDisplayValue('渗透测试')
     await user.clear(name)
     await user.type(name, '草稿中')
@@ -184,7 +184,7 @@ describe('ScenariosPage', () => {
     let finish!: (d: ScenarioDetail) => void
     mPatch.mockReturnValue(new Promise((r) => (finish = r)))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=pentest')
+    renderPage('/scenarios?selected=pentest')
     const name = await screen.findByDisplayValue('渗透测试')
     await user.clear(name)
     await user.type(name, '渗透')
@@ -204,7 +204,7 @@ describe('ScenariosPage', () => {
     mGet.mockResolvedValue(detail(edited, { overrides: { body: { kind: 'replace', default: '情境正文', baseline: '情境正文', default_changed: false, matches_default: false } } }))
     mReset.mockResolvedValue(detail(sc({ description: '原说明' })))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=pentest')
+    renderPage('/scenarios?selected=pentest')
     const desc = await screen.findByDisplayValue('原说明')
     await user.clear(desc)
     await user.type(desc, '新说明')
@@ -220,7 +220,7 @@ describe('ScenariosPage', () => {
     mGet.mockResolvedValue(detail(mine))
     mDelete.mockResolvedValue()
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=audit')
+    renderPage('/scenarios?selected=audit')
     await user.click(await screen.findByText('删除'))
     await user.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('audit'))
@@ -262,7 +262,7 @@ describe('ScenariosPage', () => {
     mDeleted.mockResolvedValue([sc({ code: 'ctf', name: 'CTF', is_default: false })])
     mRestore.mockResolvedValue(detail(sc({ code: 'ctf', name: 'CTF', is_default: false })))
     const user = userEvent.setup()
-    renderPage('/config/scenarios?selected=pentest')
+    renderPage('/scenarios?selected=pentest')
     await user.click(await screen.findByText('删除'))
     expect(await screen.findByText(/可在「已删除的内置」里恢复/)).toBeTruthy()
     expect(screen.getByText(/删除后缺省即无场景/)).toBeTruthy()

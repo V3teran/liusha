@@ -77,7 +77,7 @@ func Run(ctx context.Context, cfg config.AppConfig, version string) error {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	// provider 密钥的加密密钥：缺失或长度不对直接拒启动——前端「模型配置」页写密钥、
+	// provider 密钥的加密密钥：缺失或长度不对直接拒启动——前端「模型」页写密钥、
 	// LLM 调用读密钥都靠它，静默跳过会让密钥以明文落库或运行期解密报错。
 	llmKeyCipher, err := cryptx.NewFromHex(cfg.LLM.EncryptionKey)
 	if err != nil {
@@ -281,11 +281,11 @@ func Run(ctx context.Context, cfg config.AppConfig, version string) error {
 func bootstrap(ctx context.Context, logger zerolog.Logger, pool *pgxpool.Pool,
 	cfgStore *configstore.Store, toolCatalog *toolstore.Store, tools *manifest.ToolManifest,
 ) {
-	// 零 provider 不拒启：LLM 在前端「模型配置」页接入，未接入时下发边界会拒绝并给出指引。
+	// 零 provider 不拒启：LLM 在前端「模型」页接入，未接入时下发边界会拒绝并给出指引。
 	if provs, err := llmconfig.NewStore(pool).ListProviders(ctx, false); err != nil {
 		logger.Warn().Err(err).Msg("读取 LLM provider 失败（任务下发前请检查模型配置）")
 	} else if len(provs) == 0 {
-		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「模型配置」页接入 provider")
+		logger.Warn().Msg("LLM 未配置：尚无任何 provider——服务可启动，任务下发会被拒绝；请在「模型」页接入 provider")
 	}
 
 	// 工具目录同步：内置函数工具 + 工具清单幂等同步进 tool 表，供工具页与智能体配置页选用。
@@ -346,7 +346,7 @@ func (a llmReadiness) Ready(ctx context.Context) error {
 }
 
 // newCorpus 装配知识库服务（页面的录入、修改要生成向量，检索测试要用重排）。
-// 检索模型密钥是运行期可变的（模型配置页热改、跨进程失效），来源每次操作现取：
+// 检索模型密钥是运行期可变的（「模型」页热改、跨进程失效），来源每次操作现取：
 // 未配置退字面检索、不阻塞；配置后下一次操作即语义检索。
 func newCorpus(pool *pgxpool.Pool, models *llmstore.Store, cipher *cryptx.Cipher, rdb *redis.Client, logger zerolog.Logger) *corpus.Service {
 	return corpus.NewService(corpus.NewStore(pool), models.RetrievalModels(cipher),

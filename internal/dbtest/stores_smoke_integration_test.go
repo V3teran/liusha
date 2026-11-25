@@ -69,7 +69,7 @@ func TestStoresSchemaSmoke(t *testing.T) {
 		t.Fatalf("tool_invocation append: %v", err)
 	}
 
-	// llm_invocation（模型日志；Append 满即丢缓冲，GetByID 前先 Flush）
+	// llm_invocation（模型调用；Append 满即丢缓冲，GetByID 前先 Flush）
 	inv := llminvocation.NewStore(pool)
 	inv.Append(llminvocation.Invocation{
 		AgentRunID: &runID, TaskID: &tk.ID, Provider: "deepseek", Model: "deepseek-chat",

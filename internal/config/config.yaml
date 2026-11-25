@@ -10,9 +10,9 @@
 # 环境变量：键 a.b_c 对应 LIUSHA_A_B_C（如 runner.concurrency → LIUSHA_RUNNER_CONCURRENCY），设置了
 #   即覆盖本文件的值（值为空串时不覆盖）。本文件只写字面值，不引用变量。
 # 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password、
-#   web_search.api_key）在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型配置」页维护、加密落库。
+#   web_search.api_key）在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型」页维护、加密落库。
 # 这里列出全部可调的值，出厂值只在这一处。启动期参数改后重启生效；可热改的旋钮（runtime、compaction 两段，
-#   以及 proxy 段里的过滤规则）同样在这里给出出厂值，前端「系统配置」页在其上做字段级自定义（存库、即时生效）。
+#   以及 proxy 段里的过滤规则）同样在这里给出出厂值，前端「系统」页在其上做字段级自定义（存库、即时生效）。
 # ============================================================================
 
 # 持久数据根目录：任务工作区 workspace/、日志 logs/、MITM 根证书 certs/ 都在其下。
@@ -61,7 +61,7 @@ redis:
   write_timeout_seconds: 3
 
 # ---- LLM ----
-# LLM 接入（provider）与档位路由在前端「模型配置」页维护，密钥加密保存在数据库。
+# LLM 接入（provider）与档位路由在前端「模型」页维护，密钥加密保存在数据库。
 llm:
   encryption_key: ""                 # 密钥（LIUSHA_LLM_ENCRYPTION_KEY）：加密已保存的 provider 密钥，32 字节 hex（openssl rand -hex 32）；生成后不可更改
   # 每个模型账户同时在途的请求数上限（同一服务地址 + 同一密钥算一个账户，各 provider、各任务、各 agent 共用）。

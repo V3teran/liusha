@@ -2,7 +2,7 @@
  * API 客户端内核：fetch 封装 + 会话过期全局拦截。
  *
  * 与 liusha Go 后端通信的统一底座——各业务域端点按域拆分在同级文件
- * （conversations/findings/traffic/credentials/tasks/logs/llmaudit/config/
+ * （conversations/findings/traffic/credentials/tasks/logs/modelCalls/config/
  * models/settings/explorationgraph/auth），全部复用本文件的 get/post/put/patch/del
  * （单一错误解析口径）。
  *

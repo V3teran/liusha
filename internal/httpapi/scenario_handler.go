@@ -33,7 +33,7 @@ type ScenarioAPI interface {
 	RestoreScenario(ctx context.Context, code string) (scenariostore.Scenario, error)
 }
 
-// listScenariosHandler 处理 GET /scenarios?q=&page=&size= → {scenarios, total}。
+// listScenariosHandler 处理 GET /scenarios?search=&page=&size= → {scenarios, total}。
 // 每项附已偏离出厂的字段名；未带 page 返回全部（下发入口的场景选择框用它）。
 // 带 deleted=true 时返回被删除、可恢复的内置场景（内容为当前出厂）。
 func listScenariosHandler(api ScenarioAPI) gin.HandlerFunc {

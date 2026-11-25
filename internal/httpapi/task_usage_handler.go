@@ -110,7 +110,7 @@ func getTaskUsageHandler(tasks TaskReader, llm LLMUsageAggregator, tools ToolUsa
 		if err := llm.Flush(ctx); err != nil {
 			apiLog.Warn().Err(err).Str("task_id", taskID).Msg("LLM 调用记录落盘失败，用量暂按已落库的合计")
 		}
-		// 任务的智能体运行产生的调用：与模型日志按任务筛出的范围同一个口径
+		// 任务的智能体运行产生的调用：与模型调用按任务筛出的范围同一个口径
 		filter := llminvocation.ListFilter{TaskID: taskID}
 		la, err := llm.AggregateAll(ctx, filter)
 		if err != nil {

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useUrlPageState } from '@/hooks/useUrlPageState'
 import type { AuditFilters } from '@/api/audit'
 
-// 筛选态迁移进 URL search params（对齐模型日志页同款规则）：
+// 筛选态迁移进 URL search params（对齐模型调用页同款规则）：
 // 参数名 q / action / start / end / page / size；offset 分页。
 
 export interface AuditUrlState {
@@ -21,7 +21,7 @@ export interface AuditUrlState {
 export function useAuditFilters(): AuditUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const query = searchParams.get('q') ?? ''
+  const query = searchParams.get('search') ?? ''
   const { page, size, setPage, setSize } = useUrlPageState()
   const filters = useMemo<AuditFilters>(
     () => ({
@@ -37,8 +37,8 @@ export function useAuditFilters(): AuditUrlState {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-        if (q) next.set('q', q)
-        else next.delete('q')
+        if (q) next.set('search', q)
+        else next.delete('search')
         next.delete('page')
         return next
       },

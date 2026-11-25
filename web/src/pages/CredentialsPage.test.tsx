@@ -163,7 +163,7 @@ describe('CredentialsPage（列表形态）', () => {
   })
 
   it('每页条数、页码与搜索词取自 URL，原样交给服务端', async () => {
-    renderPage('/credentials?q=guest-tk&size=10')
+    renderPage('/credentials?search=guest-tk&size=10')
     await waitFor(() => expect(countText('共 1 条')).toBeTruthy())
     expect(mockedList).toHaveBeenLastCalledWith('guest-tk', 1, 10)
     expect((screen.getByRole('combobox', { name: '每页条数' }) as HTMLSelectElement).value).toBe('10')

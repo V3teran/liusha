@@ -93,7 +93,7 @@ func listLlmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型调用补写失败（日志行可能缺失）")
 		}
 
 		invocations, err := api.ListAll(c.Request.Context(), f)
@@ -152,7 +152,7 @@ func llmInvocationsStatHandler(api InvocationsAPI) gin.HandlerFunc {
 		}
 
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型调用补写失败（日志行可能缺失）")
 		}
 
 		a, err := api.AggregateAll(c.Request.Context(), f)
@@ -201,7 +201,7 @@ func getLlmInvocationHandler(api InvocationsAPI) gin.HandlerFunc {
 			return
 		}
 		if flushErr := api.Flush(c.Request.Context()); flushErr != nil {
-			apiLog.Warn().Err(flushErr).Msg("模型日志补写失败（日志行可能缺失）")
+			apiLog.Warn().Err(flushErr).Msg("模型调用补写失败（日志行可能缺失）")
 		}
 
 		v, err := api.GetDetailByID(c.Request.Context(), id)

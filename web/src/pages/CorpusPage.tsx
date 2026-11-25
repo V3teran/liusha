@@ -49,7 +49,7 @@ function ModeChip({ status }: { status: CorpusStatus | undefined }) {
       ? `向量模型 ${status.embedding_model} · 重排模型 ${status.rerank_model}${status.pending ? ` · ${status.pending} 条待建索引` : ''}`
       : status.unavailable
         ? `${status.unavailable}：只按词元做字面检索`
-        : '检索模型未配置：只按词元做字面检索，在「模型配置」页填写密钥后启用语义检索'
+        : '检索模型未配置：只按词元做字面检索，在「模型」页填写密钥后启用语义检索'
   return (
     <span
       title={title}

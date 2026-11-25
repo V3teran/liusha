@@ -110,10 +110,10 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
           </div>
         ) : task ? (
           <div className="flex flex-col gap-5">
-            {/* 跳转排在首位：从任务去对话、发现、探索图与模型日志是最先用到的出口（只看这个任务的）。 */}
+            {/* 跳转排在首位：从任务去对话、发现、探索图与模型调用是最先用到的出口（只看这个任务的）。 */}
             <section>
               <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">跳转</h4>
-              <JumpLinks jumps={taskJumps(jumpContext(task, 'task'), ['conversation', 'findings', 'exploration', 'llmAudit'])} />
+              <JumpLinks jumps={taskJumps(jumpContext(task, 'task'), ['conversation', 'findings', 'exploration', 'modelCall'])} />
             </section>
             <section>
               <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>

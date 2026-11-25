@@ -1,4 +1,4 @@
-// Package httpapi: provider 连接诊断 handler（前端「模型配置」页的「运行诊断」）。
+// Package httpapi: provider 连接诊断 handler（前端「模型」页的「运行诊断」）。
 //
 // POST /models/providers/diagnose：按表单当前值实测一个 provider 规格——端点、鉴权、
 // 模型列表、模型、工具调用逐项给出结果与实际请求地址；协商出可用的请求画像（鉴权方式、

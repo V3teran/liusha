@@ -1,4 +1,4 @@
-// Package httpapi: 检索模型配置 handler（前端「模型配置」页「检索模型」分区，/models/retrieval）。
+// Package httpapi: 检索模型配置 handler（前端「模型」页「检索模型」分区，/models/retrieval）。
 //
 // 检索模型（向量 + 重排）可配置四样：服务地址、向量模型名、重排模型名、一把密钥——
 // 空字段 = 出厂默认（Jina），与对话 provider 的表单同构但只保留有意义的字段（单值鉴权、

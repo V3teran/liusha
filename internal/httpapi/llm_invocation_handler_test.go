@@ -150,7 +150,7 @@ func TestLLMInvocationsHandler_InvalidTimeRejected(t *testing.T) {
 	}
 }
 
-// 范围（task / conversation）：从任务或对话跳到模型日志时只看它名下的调用——列表、统计、分面
+// 范围（task / conversation）：从任务或对话跳到模型调用时只看它名下的调用——列表、统计、分面
 // 收到同一份范围；不是合法的 ID 时 400，而不是把它带进 SQL。
 func TestLLMInvocationsHandler_Scope(t *testing.T) {
 	taskID, conversationID := uuid.NewString(), uuid.NewString()

@@ -3,16 +3,16 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { LlmAuditPage } from './LlmAuditPage'
-import { getLLMInvocationDetail, searchLLMInvocationStat, searchLLMInvocations } from '@/api/llmaudit'
+import { ModelCallsPage } from './ModelCallsPage'
+import { getLLMInvocationDetail, getLLMInvocationsStat, listLLMInvocations } from '@/api/modelCalls'
 import type { LLMInvocationDetail, LLMInvocationSummary } from '@/api/types'
 
-// 页面为「全局搜索」形态：不按会话 / 任务圈定，挂载即 searchLLMInvocations 拉全量；
-// 统计 chip 走服务端聚合端点 searchLLMInvocationStat（整个筛选结果集，与翻页无关）。
-vi.mock('@/api/llmaudit', () => ({
-  searchLLMInvocations: vi.fn(),
-  searchLLMInvocationStat: vi.fn(),
-  searchLLMInvocationFacets: vi.fn(async () => ({ roles: ['executor', 'planner'], models: ['deepseek-chat', 'gpt-5'] })),
+// 页面为「全局搜索」形态：不按会话 / 任务圈定，挂载即 listLLMInvocations 拉全量；
+// 统计 chip 走服务端聚合端点 getLLMInvocationsStat（整个筛选结果集，与翻页无关）。
+vi.mock('@/api/modelCalls', () => ({
+  listLLMInvocations: vi.fn(),
+  getLLMInvocationsStat: vi.fn(),
+  getLLMInvocationsFacets: vi.fn(async () => ({ roles: ['executor', 'planner'], models: ['deepseek-chat', 'gpt-5'] })),
   getLLMInvocationDetail: vi.fn(),
 }))
 
@@ -25,8 +25,8 @@ vi.mock('@/api/settings', () => ({
   }),
 }))
 
-const mockedSearch = searchLLMInvocations as unknown as ReturnType<typeof vi.fn>
-const mockedStat = searchLLMInvocationStat as unknown as ReturnType<typeof vi.fn>
+const mockedSearch = listLLMInvocations as unknown as ReturnType<typeof vi.fn>
+const mockedStat = getLLMInvocationsStat as unknown as ReturnType<typeof vi.fn>
 const mockedGetDetail = getLLMInvocationDetail as unknown as ReturnType<typeof vi.fn>
 
 function makeSummary(overrides: Partial<LLMInvocationSummary> = {}): LLMInvocationSummary {
@@ -68,12 +68,12 @@ function setupDefaultMocks() {
 
 // React Query 需要 Provider；筛选/分页状态走 URL 需要 Router。retry:false 避免测试里
 // mock 拒绝时反复重试拖慢用例。
-function renderPage(entry = '/llm-audit') {
+function renderPage(entry = '/model-calls') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[entry]}>
-        <LlmAuditPage />
+        <ModelCallsPage />
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -84,7 +84,7 @@ function LocationProbe() {
   return <output data-testid="location">{useLocation().search}</output>
 }
 
-describe('LlmAuditPage', () => {
+describe('ModelCallsPage', () => {
   beforeEach(() => {
     mockedSearch.mockReset()
     mockedStat.mockReset()
@@ -109,7 +109,7 @@ describe('LlmAuditPage', () => {
     expect(screen.queryByText('planner')).toBeNull()
   })
 
-  it('统计 chip 来自服务端聚合（searchLLMInvocationStat）', async () => {
+  it('统计 chip 来自服务端聚合（getLLMInvocationsStat）', async () => {
     setupDefaultMocks()
     renderPage()
 
@@ -195,13 +195,13 @@ describe('LlmAuditPage', () => {
 
   it('带 ?selected= 进页直接打开这条调用的抽屉', async () => {
     setupDefaultMocks()
-    renderPage('/llm-audit?selected=1')
+    renderPage('/model-calls?selected=1')
     await waitFor(() => expect(mockedGetDetail).toHaveBeenCalledWith(1))
     expect(await screen.findByText('#1')).toBeTruthy()
   })
 })
 
-describe('LlmAuditPage 角色 / 模型选项', () => {
+describe('ModelCallsPage 角色 / 模型选项', () => {
   it('选项来自服务端（整个筛选结果集），不是当前页的行：当前页只有 gpt-5 也能选其它模型', async () => {
     setupDefaultMocks()
     renderPage()

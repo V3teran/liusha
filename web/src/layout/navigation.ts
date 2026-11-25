@@ -33,10 +33,13 @@ export interface NavGroup {
   items: NavItem[]
 }
 
-// 侧栏信息架构：按「做什么」分三组，而非 14 项平铺——
+// 侧栏信息架构：按「做什么」分三组，而非 17 项平铺——
 //   作业：一次渗透的上下游（批次/任务 → 对话 → 产出的发现、流量、探索图、工件、凭证、知识）
-//   观测：平台自身的运行面（服务器日志、审计日志、模型日志）
-//   配置：智能体与其能力来源（工具、技能、模型路由）+ 系统参数
+//   观测：平台自身的运行面（服务器日志、审计记录、模型调用记录）
+//   配置：智能体与其能力来源（工具、技能、模型）+ 系统参数
+//
+// 条目名只写对象：组名已经说明的不再重复（配置组的条目不带「配置」后缀，观测组的条目不带「日志」后缀），
+// 组名没说明的才用后缀补足信息（凭证库、知识库）。条目的地址一律是资源名的一级路径。
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: '作业',
@@ -57,20 +60,20 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: '观测',
     items: [
-      { to: '/logs', label: '服务器日志', icon: ScrollText },
-      { to: '/audit', label: '审计日志', icon: ShieldCheck },
-      { to: '/llm-audit', label: '模型日志', icon: Cpu },
+      { to: '/logs', label: '服务器', icon: ScrollText },
+      { to: '/audit', label: '操作', icon: ShieldCheck },
+      { to: '/model-calls', label: '模型调用', icon: Cpu },
     ],
   },
   {
     label: '配置',
     items: [
-      { to: '/config/agents', label: '智能体', icon: Bot },
-      { to: '/config/scenarios', label: '场景', icon: Compass },
-      { to: '/config/tools', label: '工具', icon: Wrench },
-      { to: '/config/skills', label: '技能', icon: BookOpen },
-      { to: '/config/models', label: '模型配置', icon: Boxes },
-      { to: '/config/system', label: '系统配置', icon: SlidersHorizontal },
+      { to: '/agents', label: '智能体', icon: Bot },
+      { to: '/scenarios', label: '场景', icon: Compass },
+      { to: '/tools', label: '工具', icon: Wrench },
+      { to: '/skills', label: '技能', icon: BookOpen },
+      { to: '/models', label: '模型', icon: Boxes },
+      { to: '/settings', label: '系统', icon: SlidersHorizontal },
     ],
   },
 ]
