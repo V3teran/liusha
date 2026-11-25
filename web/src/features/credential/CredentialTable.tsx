@@ -105,7 +105,14 @@ export function CredentialTable({
                   className="cursor-pointer border-b border-border text-sm transition-colors last:border-b-0 hover:bg-surface-2 aria-selected:!bg-accent/12 aria-selected:shadow-[inset_2px_0_0_var(--accent)]"
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="overflow-hidden px-4 py-2">
+                    // 表头与单元格按同一份声明（meta.align）对齐，与 DataTable 同一个规则；relative 的理由见那里
+                    <td
+                      key={cell.id}
+                      className={cn(
+                        'relative overflow-hidden px-4 py-2',
+                        cell.column.columnDef.meta?.align === 'right' && 'text-right',
+                      )}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

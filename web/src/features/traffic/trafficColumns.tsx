@@ -16,7 +16,7 @@ const seqCol = columnHelper.accessor('id', {
   size: 68,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
+    <span className="block text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
   ),
 })
 
@@ -112,7 +112,7 @@ const lengthCol = columnHelper.accessor('resp_len', {
   size: 80,
   meta: { align: 'right' },
   cell: (ctx) => (
-    <span className="block text-right text-sm tabular-nums text-text-secondary">{humanBytes(ctx.getValue())}</span>
+    <span className="block text-sm tabular-nums text-text-secondary">{humanBytes(ctx.getValue())}</span>
   ),
 })
 

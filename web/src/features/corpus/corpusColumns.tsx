@@ -38,7 +38,7 @@ function SourceCell({ entry }: { entry: CorpusEntry }) {
 
 function ConfirmationsCell({ entry }: { entry: CorpusEntry }) {
   return (
-    <span className="block text-right text-xs tabular-nums text-text-secondary">
+    <span className="block text-xs tabular-nums text-text-secondary">
       {entry.confirmations || '—'}
     </span>
   )
@@ -98,7 +98,7 @@ export const corpusHitColumns = [
     size: 64,
     meta: { align: 'right' },
     cell: (c) => (
-      <span className="block text-right text-xs tabular-nums text-text">{c.getValue().toFixed(2)}</span>
+      <span className="block text-xs tabular-nums text-text">{c.getValue().toFixed(2)}</span>
     ),
   }),
   hitColumn.display({

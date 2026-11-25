@@ -41,7 +41,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       size: 48,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right text-xs tabular-nums text-text-tertiary">
+        <span className="block text-xs tabular-nums text-text-tertiary">
           {(ctx.table.options.meta as LlmAuditTableMeta).startIndex + ctx.row.index + 1}
         </span>
       ),
@@ -85,12 +85,14 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       id: 'tokens',
       header: 'Tokens',
       size: 120,
+      // 数值列：与任务列表的 Tokens 列同靠右（此前这里靠左、任务列表靠右，同一列数据两种对齐）
+      meta: { align: 'right' },
       cell: (ctx) => {
         const v = ctx.row.original
         // TokenPair：与对话页/任务列同一呈现（↑入↓出 + 箭头；此前是
         // "a / b" 无箭头形态，三面语义不统一）
         return (
-          <span className="flex flex-col items-start gap-px whitespace-nowrap">
+          <span className="flex flex-col items-end gap-px whitespace-nowrap">
             <TokenPair inTokens={v.in_tokens} outTokens={v.out_tokens} cachedTokens={v.cached_tokens} className="text-sm" />
           </span>
         )
@@ -100,6 +102,7 @@ export function buildLlmAuditColumns(showProvider: boolean, llmTimeoutMs?: numbe
       id: 'latency',
       header: '响应耗时',
       size: 136,
+      // 不按数值列靠右：这一列由状态点打头，各行的点竖着对成一列才扫得出来；靠右会按耗时长短把点冲散
       meta: { headerTitle: '模型响应耗时。流式另显首字延迟（TTFT）与输出速率（token/秒）；异常态（失败/超时/截断/内容过滤）内联显示在此列' },
       cell: (ctx) => {
         const v = ctx.row.original

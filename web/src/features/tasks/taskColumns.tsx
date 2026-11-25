@@ -17,7 +17,8 @@ export function goalHead(goal: string, max = 24): string {
   return goal.length > max ? `${goal.slice(0, max)}…` : goal
 }
 
-// 任务表列定义（对齐 trafficColumns 的对齐体系：数值/时间列表头与值同靠右，文本/徽章列靠左）。
+// 任务表列定义。对齐只有一个声明点（lib/tableLayout 的 meta.align），表头与单元格同侧：
+// 数值列（序号、Tokens、进度）靠右，文本、时间、徽章列靠左，操作列跟着它的按钮靠右。
 // # 是页内序号（offset+index+1）——task id 是 uuid 不可直显，序号仅定位用。
 // 目标列是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
 //
@@ -37,9 +38,7 @@ function buildTaskColumns(
       size: 44,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right text-xs tabular-nums text-text-tertiary">
-          {offset + ctx.row.index + 1}
-        </span>
+        <span className="block text-xs tabular-nums text-text-tertiary">{offset + ctx.row.index + 1}</span>
       ),
     }),
     columnHelper.accessor('status', {
@@ -125,11 +124,11 @@ function buildTaskColumns(
       cell: (ctx) => {
         const t = ctx.row.original
         if (!t.tokens_in && !t.tokens_out)
-          return <span className="block text-right font-mono text-xs text-text-tertiary">—</span>
+          return <span className="block font-mono text-xs text-text-tertiary">—</span>
         // TokenPair：与对话页/审计页同一呈现（↑入↓出，中性色——token 是
         // 度量数据不是风险信号，不借发现色板）
         return (
-          <span className="block text-right">
+          <span className="block">
             <TokenPair inTokens={t.tokens_in} outTokens={t.tokens_out} />
           </span>
         )
@@ -144,7 +143,7 @@ function buildTaskColumns(
         const n = ctx.getValue()
         return (
           <span
-            className="block whitespace-nowrap text-right text-xs tabular-nums text-text-secondary"
+            className="block whitespace-nowrap text-xs tabular-nums text-text-secondary"
             title={ctx.row.original.status === 'active' ? `已执行 ${n} 步` : `共 ${n} 步`}
           >
             {n} 步
@@ -155,9 +154,8 @@ function buildTaskColumns(
     columnHelper.accessor('created_at', {
       header: '创建时间',
       size: 96,
-      meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(ctx.getValue())}>
+        <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(ctx.getValue())}>
           <span>{dateOnly(ctx.getValue()) || '—'}</span>
           <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(ctx.getValue())}</em>
         </span>
@@ -166,12 +164,11 @@ function buildTaskColumns(
     columnHelper.accessor('ended_at', {
       header: '结束时间',
       size: 96,
-      meta: { align: 'right' },
       cell: (ctx) => {
         const iso = ctx.getValue()
-        if (!iso) return <span className="block text-right font-mono text-xs text-text-tertiary">—</span>
+        if (!iso) return <span className="block font-mono text-xs text-text-tertiary">—</span>
         return (
-          <span className="flex flex-col gap-px whitespace-nowrap text-right font-mono text-xs text-text" title={fullTime(iso)}>
+          <span className="flex flex-col gap-px whitespace-nowrap font-mono text-xs text-text" title={fullTime(iso)}>
             <span>{dateOnly(iso) || '—'}</span>
             <em className="block text-xs font-normal not-italic text-text-tertiary">{clockTime(iso)}</em>
           </span>
@@ -187,6 +184,8 @@ function buildTaskColumns(
       header: '操作',
       // 80：两个图标钮共 54px + 内边距 24px
       size: 80,
+      // 表头跟着按钮靠右：靠左的「操作」两个字下面是一排贴着右缘的按钮，对不上
+      meta: { align: 'right' },
       cell: (ctx) => {
         const t = ctx.row.original
         if (t.status !== 'active') return null

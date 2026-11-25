@@ -16,7 +16,7 @@ export const findingColumns = [
     size: 64,
     meta: { align: 'right' },
     cell: (ctx) => (
-      <span className="block text-right text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
+      <span className="block text-xs tabular-nums text-text-tertiary">{ctx.getValue()}</span>
     ),
   }),
   columnHelper.accessor('severity', {
