@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFlowGraph, applyFocus } from './layout'
+import { applyFocus, buildFlowGraph, EDGE_LOOKS, EDGE_LOOK_LABELS } from './layout'
 import type { ExplorationGraph, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -33,13 +33,14 @@ const GRAPH: ExplorationGraph = {
 }
 
 describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
-  it('buildFlowGraph：LR 方向、三种边型、running 出边流动、统计全量', () => {
+  it('buildFlowGraph：LR 方向、四种线型、running 出边流动、统计全量', () => {
     const { nodes, edges, stats } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
 
     expect(stats).toEqual({
       total: 5,
       edgeCount: 5,
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
+      directionEdgeCount: 1,
     })
     expect(nodes).toHaveLength(5)
     // 节点声明显式尺寸：MiniMap 渲染的前提，也是 dagre 布局的尺寸假设
@@ -50,9 +51,9 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
     expect(pos['n-act-a'].x).toBeGreaterThan(pos['n-obj'].x)
     expect(pos['n-obs'].x).toBeGreaterThan(pos['n-act-a'].x)
 
-    // generates 实线（无虚线）
-    const gens = edges.find((e) => e.id.startsWith('n-obj-n-act-a'))
-    expect(gens?.style?.strokeDasharray).toBeUndefined()
+    // 推导链上的 generates 是实线；目标 → 动作的 generates 是归属（点线）
+    expect(edges.find((e) => e.id.startsWith('n-act-a-n-obs'))?.style?.strokeDasharray).toBeUndefined()
+    expect(edges.find((e) => e.id.startsWith('n-obj-n-act-a'))?.style?.strokeDasharray).toBe(EDGE_LOOKS.ownership.dash)
     // triggers 琥珀虚线
     const trig = edges.find((e) => e.source === 'n-res')
     expect(trig?.style?.strokeDasharray).toBe('6 4')
@@ -84,5 +85,45 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
 
     const cleared = applyFocus(flow, '')
     expect(cleared.nodes.every((n) => !n.className)).toBe(true)
+  })
+})
+
+// 归属（目标 → 它名下的动作）每个动作都有，大图上是从根目标铺开的扇形：画成细点线，
+// 与推导链（动作 → 观测 → 结果）的实线区分主次。
+describe('边的画法', () => {
+  it('目标指向动作的 generates 是归属（细点线），其余 generates 是推导（实线）', () => {
+    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
+    const ownership = edges.find((e) => e.id.startsWith('n-obj-n-act-a'))!
+    const derive = edges.find((e) => e.id.startsWith('n-act-a-n-obs'))!
+    expect(ownership.style?.strokeWidth).toBeLessThan(derive.style?.strokeWidth as number)
+    expect(ownership.style?.strokeDasharray).toBe(EDGE_LOOKS.ownership.dash)
+    expect(derive.style?.strokeDasharray).toBeUndefined()
+    // 样本与画法同源：图例画出来的就是画布上的线
+    expect(EDGE_LOOK_LABELS).toMatchObject({ ownership: '归属', generates: '推导', triggers: '滋生', supersedes: '吸收' })
+  })
+
+  it('只看方向关系：收缩到滋生与吸收两种边及它们两端的节点', () => {
+    const graph: ExplorationGraph = {
+      ...GRAPH,
+      nodes: [...GRAPH.nodes, node({ id: 'n-dir', kind: 'objective', source_type: 'planner', content: { description: '换一个登录入口' } })],
+      edges: [
+        ...GRAPH.edges,
+        { src_id: 'n-res', dst_id: 'n-dir', rel: 'triggers', created_at: '' },
+      ],
+    }
+    const all = buildFlowGraph(graph, 'all', 'all', new Map())
+    expect(all.nodes).toHaveLength(6)
+
+    const { nodes, edges } = buildFlowGraph(graph, 'all', 'all', new Map(), true)
+    // 只剩结果与两个目标；动作、观测（只连着推导与归属）不在内
+    expect(nodes.map((n) => n.id).sort()).toEqual(['n-dir', 'n-obj', 'n-res'])
+    expect(edges.map((e) => e.id)).toEqual(['n-res-n-obj-triggers-0', 'n-res-n-dir-triggers-1'])
+    // 统计仍是全量：筛选只影响画布可见性
+    expect(buildFlowGraph(graph, 'all', 'all', new Map(), true).stats.total).toBe(6)
+  })
+
+  it('只看方向关系时照旧吃节点种类与状态筛选', () => {
+    const { nodes } = buildFlowGraph(GRAPH, 'result', 'all', new Map(), true)
+    expect(nodes.map((n) => n.id)).toEqual(['n-res'])
   })
 })

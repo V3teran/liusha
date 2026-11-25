@@ -33,7 +33,10 @@ describe('探索图 Toolbar', () => {
           onFilterKind={vi.fn()}
           filterState="all"
           onFilterState={vi.fn()}
-          stats={{ total: 0, edgeCount: 0, byKind: {} }}
+          directionEdgeCount={0}
+          directionOnly={false}
+          onDirectionOnly={vi.fn()}
+          stats={{ total: 0, edgeCount: 0, byKind: {}, directionEdgeCount: 0 }}
         />
       </QueryClientProvider>,
     )
@@ -45,5 +48,57 @@ describe('探索图 Toolbar', () => {
     expect(option.textContent).toContain('11-14 08:30 创建 · 进行中')
     await user.click(option)
     expect(onChange).toHaveBeenCalledWith('t-9')
+  })
+})
+
+// 滋生与吸收两种边在整图里稀少：有这种边时给一个开关，把图收缩到它们及两端的节点。
+describe('探索图 Toolbar · 只看方向关系', () => {
+  function setup(over: Partial<Parameters<typeof Toolbar>[0]> = {}) {
+    const user = userEvent.setup()
+    const onDirectionOnly = vi.fn()
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Toolbar
+          scopeId=""
+          onTaskChange={vi.fn()}
+          disabled={false}
+          refreshing={false}
+          onRefresh={vi.fn()}
+          showFilters
+          filterKind="all"
+          onFilterKind={vi.fn()}
+          filterState="all"
+          onFilterState={vi.fn()}
+          directionEdgeCount={23}
+          directionOnly={false}
+          onDirectionOnly={onDirectionOnly}
+          stats={{ total: 487, edgeCount: 499, byKind: {}, directionEdgeCount: 23 }}
+          {...over}
+        />
+      </QueryClientProvider>,
+    )
+    return { user, onDirectionOnly }
+  }
+
+  it('有滋生或吸收的边时出现开关，点它交出取舍', async () => {
+    const { user, onDirectionOnly } = setup()
+    await user.click(screen.getByRole('button', { name: '滋生 · 吸收' }))
+    expect(onDirectionOnly).toHaveBeenCalledWith(true)
+  })
+
+  it('开着时标记为按下，「清空筛选」把它一并复位', async () => {
+    const onFilterKind = vi.fn()
+    const onFilterState = vi.fn()
+    const { user, onDirectionOnly } = setup({ directionOnly: true, onFilterKind, onFilterState })
+    expect(screen.getByRole('button', { name: '滋生 · 吸收' }).getAttribute('aria-pressed')).toBe('true')
+    await user.click(screen.getByRole('button', { name: '清空筛选' }))
+    expect(onDirectionOnly).toHaveBeenCalledWith(false)
+    expect(onFilterKind).toHaveBeenCalledWith('all')
+    expect(onFilterState).toHaveBeenCalledWith('all')
+  })
+
+  it('图上没有这两种边时不出现开关', () => {
+    setup({ directionEdgeCount: 0, stats: { total: 1, edgeCount: 0, byKind: {}, directionEdgeCount: 0 } })
+    expect(screen.queryByRole('button', { name: '滋生 · 吸收' })).toBeNull()
   })
 })
