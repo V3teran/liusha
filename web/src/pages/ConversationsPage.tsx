@@ -40,15 +40,15 @@ function readListCollapsed(): boolean {
 // 切换、返回列表各新增一条历史（后退即撤销这一步）；进页自动打开最新对话、新对话建立后
 // 落到它、删除当前对话用 replace。
 //
-// 执行轨迹按哪个智能体筛选（?agent=）同样在 URL 上：它是用户主动的取舍，换一个对话即清除——
-// 筛选属于它所在的那个对话。
+// 执行轨迹按哪些智能体筛选同样在 URL 上（?agent=executor&agent=evaluator，可多选）：它是用户
+// 主动的取舍，换一个对话即清除——筛选属于它所在的那个对话。
 export function ConversationsPage({ source }: ConversationsPageProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const convListRef = useRef<ConversationListHandle>(null)
   const isWide = useMediaQuery('(min-width: 768px)', true)
   const currentConv = searchParams.get('conversation') ?? ''
-  const agent = searchParams.get('agent')
+  const agents = searchParams.getAll('agent')
   // 窄屏「新对话」还没有对话 ID：用这条历史记录的 state 标记停在详情（输入框）——后退回列表；
   // 刷新后回到列表（空输入框不值得还原）。
   const composing = Boolean((location.state as { composing?: boolean } | null)?.composing)
@@ -83,12 +83,12 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
     [setSearchParams],
   )
 
-  const setAgent = useCallback(
-    (name: string | null) =>
+  const setAgents = useCallback(
+    (names: string[]) =>
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
-        if (name) next.set('agent', name)
-        else next.delete('agent')
+        next.delete('agent')
+        for (const name of names) next.append('agent', name)
         return next
       }),
     [setSearchParams],
@@ -169,8 +169,9 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
               source={source}
               onStarted={onStarted}
               onRunningChanged={() => void convListRef.current?.refresh()}
-              agent={agent}
-              onAgentChange={setAgent}
+              agents={agents}
+              onAgentsChange={setAgents}
+              leading={paneToggle}
             />
           </div>
         )}

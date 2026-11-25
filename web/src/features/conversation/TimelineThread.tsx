@@ -43,13 +43,13 @@ function cardCopyText(r: { msg: Message }): string | undefined {
  */
 export function TimelineThread({
   active,
-  agent,
-  onAgentChange,
+  agents,
+  onAgentsChange,
 }: {
   active?: boolean
-  /** 选中的智能体；null = 全部 */
-  agent: string | null
-  onAgentChange: (name: string | null) => void
+  /** 选中的智能体（筛选）；空 = 全部 */
+  agents: string[]
+  onAgentsChange: (names: string[]) => void
 }) {
   const messages = useConversationStore((s) => s.messages)
   const liveStreams = useConversationStore((s) => s.liveStreams)
@@ -67,10 +67,13 @@ export function TimelineThread({
   const rows = useMemo(() => buildThreadRows(messages, ROW_DEPS), [messages])
   const runningTools = useMemo(() => (active ? inFlightToolCalls(messages) : undefined), [active, messages])
   const toolPairs = useMemo(() => pairToolResults(messages), [messages])
-  const agents = useMemo(() => agentActivity(rows), [rows])
+  const activity = useMemo(() => agentActivity(rows), [rows])
 
-  // 筛选只认这个对话里出现过的智能体：带着筛选切换到没有它的对话时，不生效
-  const selected = agent !== null && agents.some((a) => a.name === agent) ? agent : null
+  // 筛选只认这个对话里出现过的智能体：带着筛选切换到没有它们的对话时，不生效
+  const selected = useMemo(() => {
+    const present = new Set(activity.map((a) => a.name))
+    return agents.filter((name) => present.has(name))
+  }, [agents, activity])
 
   // 已出终稿的行；终稿没到的轮与流式道按智能体合并成卡，排在最后
   const settled = useMemo(() => filterByAgent(rows, selected).filter((r) => r.kind !== 'round'), [rows, selected])
@@ -86,14 +89,14 @@ export function TimelineThread({
       return g
     }
     for (const r of rows) {
-      if (r.kind === 'round' && (selected === null || r.agent === selected)) {
+      if (r.kind === 'round' && (selected.length === 0 || selected.includes(r.agent))) {
         const g = groupOf(r.agent)
         g.rounds.push(r)
         g.first = Math.min(g.first, r.tools[0]?.seq ?? g.first)
       }
     }
     for (const lane of liveOrder) {
-      if (selected === null || lane === selected) groupOf(lane).streaming = true
+      if (selected.length === 0 || selected.includes(lane)) groupOf(lane).streaming = true
     }
     // 只在流式输出、还没调工具的智能体排在后面（稳定排序保持它们的首现顺序）
     return [...groups.values()].sort((a, b) => a.first - b.first)
@@ -152,7 +155,7 @@ export function TimelineThread({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {agents.length > 0 && <AgentFilter agents={agents} value={selected} onChange={onAgentChange} />}
+      {activity.length > 0 && <AgentFilter agents={activity} value={selected} onChange={onAgentsChange} />}
 
       <div
         ref={elRef}

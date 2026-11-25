@@ -106,10 +106,14 @@ export function isSkeleton(row: ThreadRow): boolean {
   return tag === 'user' || tag === 'task-status' || tag === 'steering'
 }
 
-/** 只留某个智能体的行（骨架照旧）；后面再没有可见内容的日期分隔一并去掉，不留空的一天。 */
-export function filterByAgent(rows: ThreadRow[], agent: string | null): ThreadRow[] {
-  if (!agent) return rows
-  const visible = rows.map((r) => r.kind === 'divider' || isSkeleton(r) || (r.kind === 'round' ? r.agent : authorOf(r.msg)) === agent)
+/**
+ * 只留选中的那几个智能体的行（骨架照旧；一个都没选 = 全部）；后面再没有可见内容的日期分隔
+ * 一并去掉，不留空的一天。
+ */
+export function filterByAgent(rows: ThreadRow[], agents: readonly string[]): ThreadRow[] {
+  if (agents.length === 0) return rows
+  const selected = new Set(agents)
+  const visible = rows.map((r) => r.kind === 'divider' || isSkeleton(r) || selected.has(r.kind === 'round' ? r.agent : authorOf(r.msg)))
   let contentFollows = false
   for (let i = rows.length - 1; i >= 0; i--) {
     if (rows[i].kind === 'divider') {
@@ -126,20 +130,34 @@ export interface AgentActivity {
   name: string
   /** 这个智能体在时间线上的条目数：出过终稿的轮各一条，没有终稿的轮也算，坐实的发现归坐实它的评估者 */
   count: number
+  /** 它调用了多少次工具：它各轮的工具调用之和（还没出终稿的轮也算） */
+  toolCalls: number
 }
 
 /**
- * 时间线上出现过的智能体及其条目数（authorOf 的口径）：登记过的身份（与身份配色的登记顺序一致）
- * 在前，其余按首现排在后面。
+ * 时间线上出现过的智能体及其条目数、工具调用数（authorOf 的口径）：登记过的身份（与身份配色的
+ * 登记顺序一致）在前，其余按首现排在后面。
  */
 export function agentActivity(rows: ThreadRow[]): AgentActivity[] {
-  const counts = new Map<string, number>()
+  const entries = new Map<string, AgentActivity>()
+  const activityOf = (name: string): AgentActivity => {
+    let a = entries.get(name)
+    if (!a) {
+      a = { name, count: 0, toolCalls: 0 }
+      entries.set(name, a)
+    }
+    return a
+  }
   for (const r of rows) {
-    const name = r.kind === 'round' ? r.agent : r.kind === 'msg' ? authorOf(r.msg) : ''
-    if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+    if (r.kind === 'divider') continue
+    const name = r.kind === 'round' ? r.agent : authorOf(r.msg)
+    if (!name) continue
+    const a = activityOf(name)
+    a.count += 1
+    if (r.tools) a.toolCalls += r.tools.filter((t) => t.metadata?.kind === 'tool_call').length
   }
   // 不在登记表里的同为一个名次，稳定排序保持它们的首现顺序
-  return [...counts].sort(([a], [b]) => knownRank(a) - knownRank(b)).map(([name, count]) => ({ name, count }))
+  return [...entries.values()].sort((a, b) => knownRank(a.name) - knownRank(b.name))
 }
 
 function knownRank(name: string): number {

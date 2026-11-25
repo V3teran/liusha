@@ -26,9 +26,9 @@ interface ConversationDetailProps {
   source: 'direct' | 'proxy'
   onStarted: (convID: string) => void
   onRunningChanged: () => void
-  /** 执行轨迹按哪个智能体筛选（页面 URL 上的 agent）；null = 全部 */
-  agent: string | null
-  onAgentChange: (name: string | null) => void
+  /** 执行轨迹按哪些智能体筛选（页面 URL 上的 agent）；空 = 全部 */
+  agents: string[]
+  onAgentsChange: (names: string[]) => void
   /** 放在顶栏最前面的控件（宽屏下页面放「收起 / 展开对话列表」的开关）；没有对话时由页面自己放 */
   leading?: ReactNode
 }
@@ -42,7 +42,7 @@ interface ConversationDetailProps {
 // 按任务 ID 取（纯聊天没有任务，不显示这些）。
 //
 // 去处（任务、发现、探索图、模型日志）都在对话列表行的「⋯」菜单里，顶栏不放。
-export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agent, onAgentChange, leading }: ConversationDetailProps) {
+export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agents, onAgentsChange, leading }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
   // 加载失败分两态：missing = 对话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
@@ -319,7 +319,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           ))}
         </div>
       ) : hasConv || store.messages.length > 0 ? (
-        <TimelineThread active={scanning} agent={agent} onAgentChange={onAgentChange} />
+        <TimelineThread active={scanning} agents={agents} onAgentsChange={onAgentsChange} />
       ) : source === 'proxy' ? (
         /* 代理捕获没有发起入口：未选中批次就是普通的「未选择」空态 */
         <EmptyState

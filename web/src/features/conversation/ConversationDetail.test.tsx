@@ -29,8 +29,8 @@ vi.mock('@/hooks/useEventStream', () => ({
 }))
 
 // 按智能体筛选的取舍由页面经属性交给详情：这些用例不关心它，统一给缺省（不筛）。
-function Detail(props: Omit<ComponentProps<typeof ConversationDetail>, 'agent' | 'onAgentChange'>) {
-  return <ConversationDetail {...props} agent={null} onAgentChange={vi.fn()} />
+function Detail(props: Omit<ComponentProps<typeof ConversationDetail>, 'agents' | 'onAgentsChange'>) {
+  return <ConversationDetail {...props} agents={[]} onAgentsChange={vi.fn()} />
 }
 
 // 每个用例一个独立的 QueryClient：缓存不跨用例。rerender 沿用同一个 client。

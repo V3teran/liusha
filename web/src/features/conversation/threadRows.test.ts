@@ -200,8 +200,8 @@ describe('按智能体筛选', () => {
   const outline = (rows: ThreadRowLike[]) =>
     rows.map((r) => (r.kind === 'divider' ? `divider:${r.label}` : r.kind === 'round' ? 'round' : `msg:${r.msg.metadata?.kind ?? r.msg.role}`))
 
-  it('只留该智能体的行；人的指令与系统节点留着做上下文', () => {
-    expect(outline(filterByAgent(sample(), 'executor'))).toEqual([
+  it('只留选中的那几个智能体的行；人的指令与系统节点留着做上下文', () => {
+    expect(outline(filterByAgent(sample(), ['executor']))).toEqual([
       'divider:d1',
       'msg:user',
       'msg:reasoning',
@@ -209,7 +209,7 @@ describe('按智能体筛选', () => {
       'divider:d3',
       'msg:user',
     ])
-    expect(outline(filterByAgent(sample(), 'assistant'))).toEqual([
+    expect(outline(filterByAgent(sample(), ['assistant']))).toEqual([
       'divider:d1',
       'msg:user',
       'msg:task_status',
@@ -220,12 +220,25 @@ describe('按智能体筛选', () => {
     ])
   })
 
-  it('不筛选时原样返回', () => {
-    const rows = sample()
-    expect(filterByAgent(rows, null)).toBe(rows)
+  it('多选：选中的都留着，没选的隐去', () => {
+    expect(outline(filterByAgent(sample(), ['executor', 'assistant']))).toEqual([
+      'divider:d1',
+      'msg:user',
+      'msg:reasoning',
+      'msg:task_status',
+      'divider:d2',
+      'msg:assistant',
+      'divider:d3',
+      'msg:user',
+    ])
   })
 
-  it('智能体清单：登记过的身份在前，其余按首现；条目数一轮算一条', () => {
+  it('一个都没选时原样返回', () => {
+    const rows = sample()
+    expect(filterByAgent(rows, [])).toBe(rows)
+  })
+
+  it('智能体清单：登记过的身份在前，其余按首现；条目数一轮算一条，工具调用数是它各轮的和', () => {
     const rows = buildThreadRows(
       [
         { ...base, seq: 1, role: 'assistant', kind: 'event', content: '', metadata: { kind: 'reasoning', agent_name: 'custom-agent' } } as Message,
@@ -237,11 +250,25 @@ describe('按智能体筛选', () => {
       deps,
     )
     expect(agentActivity(rows)).toEqual([
-      { name: 'planner', count: 1 },
-      { name: 'evaluator', count: 2 },
-      { name: 'assistant', count: 1 },
-      { name: 'custom-agent', count: 1 },
+      { name: 'planner', count: 1, toolCalls: 0 },
+      { name: 'evaluator', count: 2, toolCalls: 1 },
+      { name: 'assistant', count: 1, toolCalls: 0 },
+      { name: 'custom-agent', count: 1, toolCalls: 0 },
     ])
+  })
+
+  it('工具调用数：已出终稿的轮与还没有终稿的轮都算，结果事件不算', () => {
+    const rows = buildThreadRows(
+      [
+        toolMsg(1, 'tool_call', 'executor', 'http_request'),
+        toolMsg(2, 'tool_result', 'executor', 'http_request'),
+        toolMsg(3, 'tool_call', 'executor', 'command_run'),
+        { ...base, seq: 4, role: 'assistant', kind: 'event', content: '', metadata: { kind: 'reasoning', agent_name: 'executor' } } as Message,
+        toolMsg(5, 'tool_call', 'executor', 'graph_read'),
+      ],
+      deps,
+    )
+    expect(agentActivity(rows)).toEqual([{ name: 'executor', count: 2, toolCalls: 3 }])
   })
 })
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
@@ -51,6 +51,9 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
         {props.convId ? (props.leading as ReactNode) : null}
         <button type="button" onClick={() => (props.onStarted as (id: string) => void)('conv-new-started')}>
           start
+        </button>
+        <button type="button" onClick={() => (props.onAgentsChange as (names: string[]) => void)(['executor', 'planner'])}>
+          filter-two
         </button>
       </div>
     )
@@ -351,3 +354,27 @@ describe('ConversationsPage 宽屏：列表的收起与展开', () => {
 })
 
 // 按智能体筛选可以多选，记在地址栏上（每个选中的智能体一个 agent 参数）；筛选属于它所在的那个对话。
+describe('ConversationsPage 多选筛选与地址栏', () => {
+  it('从地址栏读出选中的几个智能体交给详情', () => {
+    renderPage('direct', '/conversations/direct?conversation=c-1&agent=executor&agent=planner')
+    expect(detailProps.mock.lastCall?.[0].agents).toEqual(['executor', 'planner'])
+  })
+
+  it('详情交回几个名字，地址栏就写几个 agent 参数（追加，不是替换）', async () => {
+    renderPage('direct', '/conversations/direct?conversation=c-1&agent=executor')
+    await waitFor(() => expect(detailProps).toHaveBeenCalled())
+    act(() => {
+      screen.getByRole('button', { name: 'filter-two' }).click()
+    })
+    const search = new URLSearchParams(screen.getByTestId('location').textContent ?? '')
+    expect(search.getAll('agent')).toEqual(['executor', 'planner'])
+    expect(detailProps.mock.lastCall?.[0].agents).toEqual(['executor', 'planner'])
+  })
+
+  it('换一个对话即清除筛选', async () => {
+    const user = userEvent.setup()
+    renderPage('direct', '/conversations/direct?conversation=c-1&agent=executor&agent=planner')
+    await user.click(screen.getByRole('button', { name: 'select' }))
+    expect(screen.getByTestId('location').textContent).not.toContain('agent=')
+  })
+})
