@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -203,7 +204,42 @@ func invalidValues(c AppConfig) []violation {
 	nonNegative("sandbox.workspace_retention_days", int64(c.Sandbox.WorkspaceRetentionDays))
 
 	positive("conversation.attachment_max_bytes", c.Conversation.AttachmentMaxBytes)
+
+	ws := c.WebSearch
+	if ws.URL != "" && !httpURL(ws.URL) {
+		add("web_search.url", "须为 http:// 或 https:// 开头的完整地址")
+	}
+	if ws.URL != "" {
+		if h := ws.AuthHeader; h != "" && !validHeaderName(h) {
+			add("web_search.auth_header", "须为合法的请求头名（如 X-Subscription-Token）")
+		}
+	}
+	if ws.APIKey != "" && ws.URL == "" {
+		add("web_search.api_key", "配了密钥但没有 web_search.url：检索不会启用")
+	}
+	if ws.AuthHeader != "" && ws.URL == "" {
+		add("web_search.auth_header", "配了鉴权头名但没有 web_search.url：检索不会启用")
+	}
 	return invalid
+}
+
+// validHeaderName 报告 s 是不是合法的请求头名（RFC 9110 的 token：字母、数字与少数符号）。
+// 启动时就报出写错的头名：运行期它只会表现为每次检索都失败，原因埋在工具输出里。
+func validHeaderName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c)) {
+			continue
+		}
+		return false
+	}
+	return s != ""
+}
+
+// httpURL 报告 s 是否是带主机的 http / https 地址。
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // validHostPort 判断 addr 是「主机:端口」或「:端口」，端口为 1-65535。

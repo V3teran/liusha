@@ -71,7 +71,7 @@ func TestContractsAreDomainNeutral(t *testing.T) {
 var coreSources = []string{
 	"planner", "executor", "evaluator", "monitor", "cognition", "framework",
 	"explorationgraph", "reasoning", "repro", "httprepro", "distill", "skill",
-	"tools/corpus.go", "tools/skill.go", "tools/command.go", "scenario",
+	"websearch", "tools/websearch.go", "tools/corpus.go", "tools/skill.go", "tools/command.go", "scenario",
 }
 
 // isLogCall 判断字符串字面量是否位于日志调用里（日志不进 LLM）。

@@ -12,6 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/websearch"
 )
 
 // noOpCredProvider / noOpSandbox：仅用于构造期注入（BuildTools 只存依赖不调用，
@@ -37,6 +38,12 @@ func (noOpSandbox) Exec(_ context.Context, _ sandbox.ExecRequest) (sandbox.ExecR
 	return sandbox.ExecResult{}, nil
 }
 
+type noOpWebSearch struct{}
+
+func (noOpWebSearch) Search(context.Context, string, int) ([]websearch.Result, error) {
+	return nil, nil
+}
+
 // TestFunctionToolCatalogSync 防漂移：registry.FunctionToolCatalog（前端工具目录
 // 事实源，经 toolstore.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。
 // evaluator 包本地注册的 repro_replay 以白名单追加比对。
@@ -50,6 +57,7 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 		ProxyStore:             &traffic.ProxyStore{},
 		AgentStore:             &traffic.AgentStore{},
 		Creds:                  noOpCredProvider{},
+		WebSearch:              noOpWebSearch{},
 		Sandbox:                noOpSandbox{},
 		StepToolTimeoutSeconds: 1800,
 		RunTailBytes:           8192,

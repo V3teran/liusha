@@ -7,6 +7,7 @@ type FunctionToolCategory string
 const (
 	CatCredentials FunctionToolCategory = "credentials"
 	CatCorpus      FunctionToolCategory = "corpus"
+	CatWebSearch   FunctionToolCategory = "web_search"
 	CatTraffic     FunctionToolCategory = "traffic"
 	CatSandbox     FunctionToolCategory = "sandbox"
 	CatSkill       FunctionToolCategory = "skill"
@@ -21,6 +22,8 @@ func (c FunctionToolCategory) Name() string {
 		return "凭证共享"
 	case CatCorpus:
 		return "知识库"
+	case CatWebSearch:
+		return "网页检索"
 	case CatTraffic:
 		return "流量分析"
 	case CatSandbox:
@@ -49,6 +52,7 @@ var FunctionToolCatalog = []FunctionToolMeta{
 	{"credential_read", CatCredentials, "读取本 host 预录入的真实身份（cookie/token/body 字段），可直接拼请求做重放/越权测试。"},
 	{"credential_write", CatCredentials, "把刚拿到的活凭证录入本 host 凭证池，供同 task 下其他执行者共享复用。"},
 	{"corpus_search", CatCorpus, "检索跨任务长期知识库：以往任务沉淀与人工编写的方法、经验与教训，按相关度过滤。"},
+	{"web_search", CatWebSearch, "检索公开网页：返回与查询相关的网页（标题、地址、内容摘要）。接入方法见 config.yaml 的 web_search 段。"},
 	{"traffic_list", CatTraffic, "列出本次扫描范围内的历史 HTTP 流量摘要，可按 method/path/status 等过滤。"},
 	{"traffic_view", CatTraffic, "取单条历史流量的完整 raw HTTP 请求+响应（headers/body 全量）。"},
 	{"http_request", CatTraffic, "发完整 HTTP 请求（自动注入凭证库身份、保留会话 cookie、抓流落库），漏洞复现配方的采集前端。"},

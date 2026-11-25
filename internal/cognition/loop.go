@@ -82,8 +82,10 @@ type Deps struct {
 	Corpus   *corpus.Service
 	// CorpusScope 是本任务检索知识库的可见范围（任务场景的知识与通用知识）。
 	CorpusScope corpus.Scope
-	ProxyStore  *traffic.ProxyStore
-	AgentStore  *traffic.AgentStore
+	// WebSearch 是公开网页的检索后端（部署方接入了搜索接口才有）；nil 时 web_search 不注册。
+	WebSearch  tools.WebSearcher
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
 
 	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
@@ -337,6 +339,7 @@ func (d *Deps) assembleStack(
 			Tasks:        d.Tasks,
 			Corpus:       d.Corpus,
 			CorpusScope:  d.CorpusScope,
+			WebSearch:    d.WebSearch, // web_search 依赖；未接入时不注册
 			ProxyStore:   d.ProxyStore,
 			AgentStore:   d.AgentStore,
 			Creds:        d.Creds,

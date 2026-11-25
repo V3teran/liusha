@@ -46,8 +46,10 @@ func (h *Handler) runCognition(
 		Findings:    h.Findings,
 		Corpus:      h.Corpus,
 		CorpusScope: corpusScope(tk),
-		ProxyStore:  h.ProxyStore,
-		AgentStore:  h.AgentStore,
+
+		WebSearch:  h.WebSearch,
+		ProxyStore: h.ProxyStore,
+		AgentStore: h.AgentStore,
 
 		MaxActionsPerTask:       h.RunnerCfg.MaxActionsPerTask,
 		ActionParallelism:       h.RunnerCfg.ActionParallelism,

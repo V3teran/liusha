@@ -9,8 +9,8 @@
 #
 # 环境变量：键 a.b_c 对应 LIUSHA_A_B_C（如 runner.concurrency → LIUSHA_RUNNER_CONCURRENCY），设置了
 #   即覆盖本文件的值（值为空串时不覆盖）。本文件只写字面值，不引用变量。
-# 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password）
-#   在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型配置」页维护、加密落库。
+# 密钥（postgres.url、redis.url、sandbox.token、llm.encryption_key、admin.initial_password、
+#   web_search.api_key）在这里留空，经 .env 注入。检索模型密钥不在配置文件：前端「模型配置」页维护、加密落库。
 # 这里列出全部可调的值，出厂值只在这一处。启动期参数改后重启生效；可热改的旋钮（runtime、compaction 两段，
 #   以及 proxy 段里的过滤规则）同样在这里给出出厂值，前端「系统配置」页在其上做字段级自定义（存库、即时生效）。
 # ============================================================================
@@ -180,3 +180,18 @@ sandbox:
 # ---- 会话 ----
 conversation:
   attachment_max_bytes: 104857600    # 单附件上传上限（100 MiB：大 pcap 与字典文件不设卡）
+
+# ---- web_search：公开网页检索的后端 ----
+# 智能体用 web_search 工具查公开网页。程序只认约定、不认服务：接哪家搜索服务由部署方决定，
+# 代码里没有一份服务名单。接入要定三样：
+#   url          程序向这个地址发 GET（后面追加查询词 q）。接口自带的固定参数（语言、条数……）写进
+#                地址里。响应不必适配：结果平铺在 results 里、或嵌在 web.results 里，两种都认。
+#   auth_header  密钥放在哪个请求头里。留空 = Authorization（值写成 Bearer <密钥>）；接口要求别的
+#                头时填它的名字（如 X-Subscription-Token），此时头里放裸密钥。
+#   api_key      密钥。
+# 查询词会原样发给它——是否把任务里的信息（域名、路径、报错原文）交给这个接口，由部署方决定。
+# 地址留空 = 不启用：web_search 不注册，在智能体页给它装配了也没有这个工具，别的不受影响。
+web_search:
+  url: ""                            # 搜索接口地址（http:// 或 https://），留空不启用
+  auth_header: ""                    # 鉴权头名，留空 = Authorization
+  api_key: ""                        # 密钥（LIUSHA_WEB_SEARCH_API_KEY）：接口要鉴权时填

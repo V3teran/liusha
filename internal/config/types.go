@@ -33,6 +33,8 @@ type AppConfig struct {
 	Conversation ConversationConfig `mapstructure:"conversation"`
 	Tools        ToolsConfig        `mapstructure:"tools"`
 	Traffic      TrafficConfig      `mapstructure:"traffic"`
+
+	WebSearch WebSearchConfig `mapstructure:"web_search"`
 }
 
 // ToolsConfig 是工具调用记录的留存参数。
@@ -40,6 +42,22 @@ type ToolsConfig struct {
 	// InvocationRetentionDays 是工具调用记录的留存天数；0 = 永久留存。
 	// 记录是运行过程流水（诊断），按时间清理；任务证据与审计链不在此列。
 	InvocationRetentionDays int `mapstructure:"invocation_retention_days"`
+}
+
+// WebSearchConfig 是公开网页检索的后端（web_search 工具用它取回网页结果）。
+//
+// 程序只认约定、不认服务：这里定的是「接到哪、怎么鉴权」，不定「是哪一家」。接一家搜索服务
+// 通常只需填地址和密钥——两种事实上的响应惯例程序都认（见 internal/websearch）。
+type WebSearchConfig struct {
+	// URL 是搜索接口的地址：程序在它后面追加查询词 q 发起 GET。接口自带的固定参数（语言、
+	// 条数……）写进地址里。空 = 不启用：web_search 工具不注册。
+	URL string `mapstructure:"url"`
+	// AuthHeader 是密钥放在哪个请求头里。空 = Authorization（值写成 Bearer <密钥>，标准做法）；
+	// 接口要求别的头时填它的名字（如 X-Subscription-Token），此时头里放裸密钥。
+	AuthHeader string `mapstructure:"auth_header"`
+	// APIKey 是接口的鉴权密钥；接口不鉴权时留空。
+	// 密钥，经 LIUSHA_WEB_SEARCH_API_KEY 注入。
+	APIKey string `mapstructure:"api_key"`
 }
 
 // TrafficConfig 是流量记录的留存参数。

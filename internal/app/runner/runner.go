@@ -49,8 +49,10 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
+	"github.com/V3teran/liusha/internal/websearch"
 	"github.com/V3teran/liusha/internal/worker"
 )
 
@@ -118,7 +120,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	st := newStores(pool)
 	defer func() { _ = st.calls.Close() }()
 
-	tools := manifest.Default()
+	toolManifest := manifest.Default()
 
 	redisOpt := worker.RedisOpt(redisOpts)
 	wc := worker.NewClient(redisOpt)
@@ -137,7 +139,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}()
 
 	// agent、技能与场景配置经三级缓存读取；api 改配置后广播失效，下个任务即用新配置。
-	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(tools))
+	cfgStore := configstore.New(pool, cache, configstore.ToolCatalogFrom(toolManifest))
 	llmStore := llmstore.New(pool, cache)
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
@@ -168,6 +170,14 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			})
 	})
 
+	// 公开网页检索：部署方接入了搜索接口才装配。没接入时 web_search 不注册——装配了它的
+	// 智能体只是调不到这个工具，别的不受影响。
+	var webSearch tools.WebSearcher
+	if cfg.WebSearch.URL != "" {
+		webSearch = websearch.New(cfg.WebSearch.URL, cfg.WebSearch.AuthHeader, cfg.WebSearch.APIKey)
+		logger.Info().Msg("网页检索已接入：web_search 工具可用")
+	}
+
 	creds := credential.NewRedis(rdb)
 	h := &runner.Handler{
 		AgentRuns:       st.agentRuns,
@@ -177,6 +187,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Sandbox:         sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 		SandboxListener: resolveSandboxContract(cfg, logger),
 		Corpus:          kb,
+		WebSearch:       webSearch,
 		ProxyStore:      st.proxyStore,
 		AgentStore:      st.agentStore,
 		Calls:           st.calls,
@@ -188,7 +199,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Audit:           audit.NewStore(pool),
 		ToolCalls:       st.toolCalls,
 		Skills:          skill.NewStoreReader(cfgStore),
-		ToolsManifest:   tools,
+		ToolsManifest:   toolManifest,
 		CfgStore:        cfgStore,
 		Conversations:   st.conversations,
 		EventPublisher:  convstream.NewPublisher(rdb),

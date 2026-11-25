@@ -28,6 +28,7 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 	"github.com/V3teran/liusha/internal/task"
 	"github.com/V3teran/liusha/internal/toolinvocation"
+	"github.com/V3teran/liusha/internal/tools"
 	"github.com/V3teran/liusha/internal/tools/manifest"
 	"github.com/V3teran/liusha/internal/traffic"
 	"github.com/V3teran/liusha/internal/worker"
@@ -35,10 +36,12 @@ import (
 
 // Handler 持有所有跨任务共享依赖。
 type Handler struct {
-	AgentRuns  *agentrun.Store
-	Tasks      *task.Store
-	Findings   *finding.Store
-	Corpus     *corpus.Service
+	AgentRuns *agentrun.Store
+	Tasks     *task.Store
+	Findings  *finding.Store
+	Corpus    *corpus.Service
+	// WebSearch 是公开网页的检索后端（部署方接入了搜索接口才有）；nil 时 web_search 不注册。
+	WebSearch  tools.WebSearcher
 	ProxyStore *traffic.ProxyStore
 	AgentStore *traffic.AgentStore
 	Calls      *llminvocation.Store

@@ -1,8 +1,8 @@
-// Package tools 提供跨角色共享的 function calling 域工具（共 11 个），每个工具实现
-// registry.Tool 接口；角色专属工具（planner 的 observe_state、monitor 的
-// publish_decision、evaluator 的 replay_for_verification 等）在各角色包内自建。
+// Package tools 提供跨角色共享的 function calling 域工具，每个工具实现 registry.Tool 接口；
+// 角色专属工具（planner 的 graph_read、monitor 的 decision_publish、evaluator 的
+// repro_replay 等）在各角色包内自建。
 //
-// 工具按功能域分文件：credentials / corpus / traffic / sandbox / skill / explore。
+// 工具按功能域分文件：credentials / corpus / websearch / traffic / sandbox / skill。
 // register.go 提供 RegisterAll 一次性注入所有工具到 registry.ToolRegistry。
 package tools
 
@@ -33,11 +33,13 @@ type Deps struct {
 	Tasks       *task.Store
 	Corpus      *corpus.Service
 	CorpusScope corpus.Scope // corpus_search 的可见范围
-	ProxyStore  *traffic.ProxyStore
-	AgentStore  *traffic.AgentStore
-	Creds       credential.Provider
-	Sandbox     CommandRunner // 沙盒命令执行（run_command / drive_browser）；nil 时这两个工具不注册
-	Skills      skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+	// WebSearch 是公开网页的检索后端（部署方接入的搜索接口）；nil 时 web_search 不注册。
+	WebSearch  WebSearcher
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
+	Creds      credential.Provider
+	Sandbox    CommandRunner // 沙盒命令执行（command_run / browser_drive）；nil 时这两个工具不注册
+	Skills     skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 skill_read）
 
 	// StepToolTimeoutSeconds 是 command_run 的超时钳制上限秒（runtime.step_tool_timeout_seconds：
 	// 配置里的出厂值或页面上的热改值，任务开始时快照）。注册表级超时与 LLM 自传 timeout_seconds

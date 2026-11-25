@@ -165,6 +165,13 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
 		{"  public_addr: \"\"", "  public_addr: \"58588\"", "proxy.public_addr"},
 		{"  public_addr: \"\"", "  public_addr: \":70000\"", "proxy.public_addr"},
+		// 检索后端：地址须是带主机的 http(s) 地址；只有密钥没有地址，检索不会启用
+		{"  url: \"\"                            # 搜索接口地址", "  url: \"search.internal:8080\"       # 搜索接口地址", "web_search.url"},
+		{"  url: \"\"                            # 搜索接口地址", "  url: \"ftp://search.internal\"      # 搜索接口地址", "web_search.url"},
+		{"  api_key: \"\"                        # 密钥（LIUSHA_WEB_SEARCH_API_KEY）", "  api_key: \"k\"                       # 密钥（LIUSHA_WEB_SEARCH_API_KEY）", "web_search.api_key"},
+		// 鉴权头名由部署方填：写错了启动时就报出，而不是等到每次检索都失败、原因埋在工具输出里
+		{"  auth_header: \"\"                    # 鉴权头名，留空 = Authorization", "  auth_header: \"bad:name\"", "web_search.auth_header"},
+		{"  auth_header: \"\"                    # 鉴权头名，留空 = Authorization", "  auth_header: \"bad header\"", "web_search.auth_header"},
 		// 相对路径依赖进程工作目录：以服务方式运行时不可靠，拒绝。
 		{"data_dir: ~/data/liusha", "data_dir: data/liusha", "data_dir"},
 	} {
@@ -184,6 +191,35 @@ func TestLoad_ProxyPublicAddr(t *testing.T) {
 		if err != nil || cfg.Proxy.PublicAddr != v {
 			t.Fatalf("public_addr=%q 应可加载，got %q err=%v", v, cfg.Proxy.PublicAddr, err)
 		}
+	}
+}
+
+// 网页检索后端：模板里不启用（地址为空）；地址、鉴权头名与密钥都能由环境变量给，给了即启用。
+func TestLoad_WebSearch(t *testing.T) {
+	cfg, err := Load(templatePath)
+	if err != nil || cfg.WebSearch.URL != "" || cfg.WebSearch.AuthHeader != "" || cfg.WebSearch.APIKey != "" {
+		t.Fatalf("模板应不启用检索，got %+v err=%v", cfg.WebSearch, err)
+	}
+	const endpoint = "http://search.internal:8080/search?format=json"
+	t.Setenv("LIUSHA_WEB_SEARCH_URL", endpoint)
+	t.Setenv("LIUSHA_WEB_SEARCH_AUTH_HEADER", "X-Subscription-Token")
+	t.Setenv("LIUSHA_WEB_SEARCH_API_KEY", "k")
+	cfg, err = Load(templatePath)
+	want := WebSearchConfig{URL: endpoint, AuthHeader: "X-Subscription-Token", APIKey: "k"}
+	if err != nil || cfg.WebSearch != want {
+		t.Fatalf("检索后端应可由环境变量接入，got %+v want %+v err=%v", cfg.WebSearch, want, err)
+	}
+}
+
+// 配了密钥或鉴权头名却没有地址，几乎一定是漏填了地址：拒绝启动，而不是静默不启用。
+func TestLoad_WebSearchKeyWithoutURLRejected(t *testing.T) {
+	for _, env := range []string{"LIUSHA_WEB_SEARCH_API_KEY", "LIUSHA_WEB_SEARCH_AUTH_HEADER"} {
+		t.Setenv(env, "k")
+		_, err := Load(templatePath)
+		if err == nil {
+			t.Fatalf("%s 配了但没有地址：应拒绝启动并指出漏填", env)
+		}
+		t.Setenv(env, "")
 	}
 }
 
