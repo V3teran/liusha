@@ -88,6 +88,12 @@ export function LlmAuditPage() {
         onSearchChange={setQuery}
         onChange={setFilters}
         onReset={resetFilters}
+        onRefresh={() => {
+          // 列表、统计、分面是同一筛选的三个侧面：一起重取，否则同一屏里的数字会来自不同的时刻
+          void searchQueryResult.refetch()
+          void statQuery.refetch()
+          void facetsQuery.refetch()
+        }}
         trailing={
           <PaginationToolbar
             page={page}

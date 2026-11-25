@@ -19,7 +19,7 @@ import { FilterBar } from '@/components/FilterBar'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { confirmAction } from '@/components/ui/confirm'
 import { useUrlFilterFields, useUrlPageState } from '@/hooks/useUrlPageState'
-import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 /**
  * 凭证库页面：全部目标的全部凭证一张密集表（行=登录身份，明文直显）。
@@ -64,16 +64,8 @@ export function CredentialsPage() {
   // 搜索词与分页进 URL（刷新、后退、分享都保持）；检索、排序、分页都在服务端。
   const { page, size, setPage, setSize } = useUrlPageState()
   const { filters, setFilters, resetFilters } = useUrlFilterFields({ search: 'q' })
-  // 关键词停顿后写入 URL（打字不是导航：改写当前历史）
-  const [search, setSearch] = useState(filters.search)
-  const debounced = useDebouncedSearch(search.trim())
-  useEffect(() => {
-    if (debounced !== filters.search) setFilters({ search: debounced }, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
-  }, [debounced])
-  useEffect(() => {
-    setSearch((q) => (q.trim() === filters.search ? q : filters.search))
-  }, [filters.search])
+  // 关键词停顿后写入 URL（打字不是导航：改写当前历史）；交给 URL 的词去掉首尾空白
+  const search = useSearchDraft(filters.search, (next) => setFilters({ search: next }, { replace: true }), (d) => d.trim())
   const [edit, setEdit] = useState<CellEdit | null>(null)
   const [creating, setCreating] = useState(false)
   const [newRow, setNewRow] = useState<NewRow>(EMPTY_NEW_ROW)
@@ -184,7 +176,7 @@ export function CredentialsPage() {
     onDeleteCred: deleteCred,
   }
 
-  const hasFilter = search !== ''
+  const hasFilter = filters.search !== ''
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -207,7 +199,7 @@ export function CredentialsPage() {
         label="凭证筛选"
         canReset={hasFilter}
         onReset={() => {
-          setSearch('')
+          search.setDraft('')
           resetFilters()
         }}
         trailing={
@@ -223,8 +215,10 @@ export function CredentialsPage() {
       >
         <SearchInput
           className="w-64"
-          value={search}
-          onChange={setSearch}
+          value={search.draft}
+          onChange={search.setDraft}
+          onSubmit={search.submit}
+          onRefresh={() => void query.refetch()}
           placeholder="搜索主机 / 用户名 / 键 / 值…"
           ariaLabel="搜索凭证"
         />

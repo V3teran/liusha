@@ -5,7 +5,8 @@ import { Select } from '@/components/ui/Select'
 import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { ScopeChip } from '@/features/relations/ScopeChip'
 import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
-import { LlmAuditSearchBar } from './LlmAuditSearchBar'
+import { SearchInput } from '@/components/SearchInput'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 interface LlmAuditFilterBarProps {
   filters: LLMInvocationFilters
@@ -15,6 +16,8 @@ interface LlmAuditFilterBarProps {
   onSearchChange: (value: string) => void
   onChange: (next: LLMInvocationFilters) => void
   onReset: () => void
+  /** 按当前的筛选重取一遍列表（搜索框上的「刷新」） */
+  onRefresh: () => void
   trailing?: ReactNode
 }
 
@@ -26,7 +29,8 @@ interface LlmAuditFilterBarProps {
  * → 清空 →（最右）分页。
  * 时间范围在 URL 中保存 datetime-local 原值，由 API 层（api/llmaudit.ts）发送前换算为 ISO。
  */
-export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
+export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, onRefresh, trailing }: LlmAuditFilterBarProps) {
+  const query = useSearchDraft(search, onSearchChange)
   const hasFilter = !!(
     filters.task ||
     filters.conversation ||
@@ -70,7 +74,14 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         ))}
       </Select>
 
-      <LlmAuditSearchBar value={search} onChange={onSearchChange} />
+      <SearchInput
+        className="w-64"
+        value={query.draft}
+        onChange={query.setDraft}
+        onSubmit={query.submit}
+        onRefresh={onRefresh}
+        placeholder="搜索任务、对话、批次 ID"
+      />
 
       <DateTimeRange
         start={filters.start}

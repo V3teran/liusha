@@ -2,7 +2,7 @@ import { SearchInput } from '@/components/SearchInput'
 import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
 import { PageHeader } from '@/components/PageHeader'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { updateFindingTriage, getFindingStat } from '@/api/findings'
 import type { FindingRow } from '@/api/types'
 import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
@@ -23,7 +23,7 @@ import { shortDateTime } from '@/lib/format'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
 import { getFindingClassFacets, getFindingTaskFacets } from '@/api/findings'
 import type { FindingFilters } from '@/api/types'
-import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { toast } from '@/components/ui/toast'
 
@@ -73,18 +73,13 @@ export function FindingsPage() {
   const classOptions = classFacets.data ?? []
   const classMissing = filters.class !== undefined && filters.class !== '' && !classOptions.some((o) => o.class === filters.class)
 
-  // 关键词搜索在服务端执行（覆盖全部页，与分页、统计同一口径），停顿后写入 URL
-  const [query, setQuery] = useState(filters.search ?? '')
-  const debouncedQuery = useDebouncedSearch(query.trim())
-  useEffect(() => {
-    // 打字不是导航：改写当前历史记录，后退回到搜索之前而不是逐段删字
-    if (debouncedQuery !== (filters.search ?? '')) setFilters({ ...filters, search: debouncedQuery }, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
-  }, [debouncedQuery])
-  // URL 被外部改写（清空筛选、前进后退）时同步输入框；与输入框去空白后一致时不动（保留正在输入的空格）
-  useEffect(() => {
-    setQuery((q) => (q.trim() === (filters.search ?? '') ? q : (filters.search ?? '')))
-  }, [filters.search])
+  // 关键词搜索在服务端执行（覆盖全部页，与分页、统计同一口径）。输入停顿后写入 URL：打字不是
+  // 导航，改写当前历史记录，后退回到搜索之前而不是逐段删字。交给 URL 的词去掉首尾空白。
+  const search = useSearchDraft(
+    filters.search ?? '',
+    (next) => setFilters({ ...filters, search: next }, { replace: true }),
+    (draft) => draft.trim(),
+  )
 
   const listQuery = useFindingList(filters, page, size)
 
@@ -145,7 +140,7 @@ export function FindingsPage() {
 
   const resetAll = () => {
     resetFilters()
-    setQuery('')
+    search.setDraft('')
   }
 
   return (
@@ -294,8 +289,10 @@ export function FindingsPage() {
 
         <SearchInput
           className="w-64"
-          value={query}
-          onChange={setQuery}
+          value={search.draft}
+          onChange={search.setDraft}
+          onSubmit={search.submit}
+          onRefresh={() => void listQuery.refetch()}
           placeholder="搜索发现、主机、路径、任务目标…"
           ariaLabel="搜索发现、主机、路径或任务目标"
         />

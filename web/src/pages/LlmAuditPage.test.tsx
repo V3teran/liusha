@@ -124,9 +124,20 @@ describe('LlmAuditPage', () => {
     renderPage()
     await screen.findAllByText('gpt-5')
 
-    const box = screen.getByPlaceholderText('搜索对话、批次 ID…')
+    const box = screen.getByPlaceholderText('搜索任务、对话、批次 ID')
     await userEvent.type(box, 'conv-1')
     await waitFor(() => expect(mockedSearch).toHaveBeenCalledWith('conv-1', 1, 50, expect.anything()))
+  })
+
+  // 「想看最新数据时不知道点哪里」：词已经生效时，搜索框上的「刷新」按当前的词重取一遍。
+  it('词已生效时点搜索框的「刷新」重取最新数据', async () => {
+    setupDefaultMocks()
+    renderPage()
+    await screen.findAllByText('gpt-5')
+    mockedSearch.mockClear()
+
+    await userEvent.click(screen.getByRole('button', { name: '刷新' }))
+    await waitFor(() => expect(mockedSearch).toHaveBeenCalledWith('', 1, 50, expect.anything()))
   })
 
   it('切换 role 筛选触发重新加载并重置分页', async () => {

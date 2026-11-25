@@ -4,7 +4,7 @@ import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
 import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { SearchInput } from '@/components/SearchInput'
-import { useDebouncedQuery } from './useAuditFilters'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 interface AuditFilterBarProps {
   filters: AuditFilters
@@ -13,6 +13,8 @@ interface AuditFilterBarProps {
   onSearchChange: (value: string) => void
   onChange: (next: AuditFilters) => void
   onReset: () => void
+  /** 按当前的筛选重取一遍列表（搜索框上的「刷新」） */
+  onRefresh: () => void
   trailing?: ReactNode
 }
 
@@ -21,8 +23,8 @@ interface AuditFilterBarProps {
  * → 时间范围 → 清空 →（最右）分页。搜索框自带 300ms 防抖；时间范围在 URL 中保存
  * datetime-local 原值，由 API 层发送前换算为 ISO。
  */
-export function AuditFilterBar({ filters, actions, search, onSearchChange, onChange, onReset, trailing }: AuditFilterBarProps) {
-  const [localQuery, setLocalQuery] = useDebouncedQuery(search, onSearchChange)
+export function AuditFilterBar({ filters, actions, search, onSearchChange, onChange, onReset, onRefresh, trailing }: AuditFilterBarProps) {
+  const query = useSearchDraft(search, onSearchChange)
   const hasFilter = !!(filters.action || filters.start || filters.end || search)
 
   return (
@@ -43,8 +45,10 @@ export function AuditFilterBar({ filters, actions, search, onSearchChange, onCha
 
       <SearchInput
         className="w-64"
-        value={localQuery}
-        onChange={setLocalQuery}
+        value={query.draft}
+        onChange={query.setDraft}
+        onSubmit={query.submit}
+        onRefresh={onRefresh}
         placeholder="搜索操作者…"
         ariaLabel="按操作者筛选"
       />
