@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLatestTaskId, useTaskGraph, useTaskVerifications } from '@/features/exploration/useExplorationQueries'
+import { useTaskDetail } from '@/features/tasks/useTaskQueries'
 import { applyFocus, buildFlowGraph, type GraphStats } from '@/features/exploration/layout'
 import { GraphCanvas } from '@/features/exploration/GraphCanvas'
 import { Toolbar } from '@/features/exploration/Toolbar'
@@ -50,7 +51,9 @@ export function ExplorationGraphPage() {
     )
   }, [latestQuery.data, scope, shouldResolveLatest, setSearchParams])
 
-  const graphQuery = useTaskGraph(taskId)
+  // 任务在跑（active 且未暂停）时图每 10 秒跟进：认领、观察落图、结果坐实都靠它才看得到
+  const task = useTaskDetail(taskId || null).data
+  const graphQuery = useTaskGraph(taskId, task?.status === 'active' && !task.paused)
   const verifQuery = useTaskVerifications(taskId)
   const graph = graphQuery.data
 
