@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.1](https://github.com/V3teran/liusha/compare/v0.15.0...v0.15.1) (2026-11-25)
+
+
+### 问题修复
+
+* **llm:** 改模型配置后立即生效，不再延迟 30 秒 ([ae45d35](https://github.com/V3teran/liusha/commit/ae45d35974be9c9b7fe86749e5388947bc6fd9d8))
+* **ui:** 页面出错时显示中文错误页与「重新加载」 ([9c7108b](https://github.com/V3teran/liusha/commit/9c7108b4218b2fd3a0f00ab6fbe8831717c40907))
+
 ## [0.15.0](https://github.com/V3teran/liusha/compare/v0.14.1...v0.15.0) (2026-11-25)
 
 
