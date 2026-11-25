@@ -4,6 +4,7 @@ package toolinvocation
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -112,5 +113,67 @@ func TestAppendSurvivesEndedContextPostgres(t *testing.T) {
 	}
 	if got != timeoutMsg {
 		t.Fatalf("失败原因应原样留存，实际 %q", got)
+	}
+}
+
+// 按调用方角色分组的工具用量（任务详情的「智能体调用情况」）：调用多的排前，各分组之和等于全量
+// 合计；没有调用时是空表。
+func TestAggregateByTaskRolePostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	defer pool.Close()
+	store := NewStore(pool)
+	taskID := uuid.NewString()
+	dbtest.SeedTask(t, pool, taskID)
+	var runID string
+	if err := pool.QueryRow(ctx, "INSERT INTO agent_run (task_id) VALUES ($1::uuid) RETURNING id", taskID).Scan(&runID); err != nil {
+		t.Fatalf("seed agent_run: %v", err)
+	}
+
+	got, err := store.AggregateByTaskRole(ctx, taskID)
+	if err != nil {
+		t.Fatalf("aggregate by role on empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("没有调用时应为空表，得 %+v", got)
+	}
+
+	add := func(role string, ms int) {
+		t.Helper()
+		if _, err := store.Append(ctx, Invocation{AgentRunID: runID, TaskID: taskID, Role: role, ToolName: "command_run", DurationMs: ms}); err != nil {
+			t.Fatalf("写入: %v", err)
+		}
+	}
+	add("planner", 10)
+	add("executor", 100)
+	add("executor", 200)
+
+	got, err = store.AggregateByTaskRole(ctx, taskID)
+	if err != nil {
+		t.Fatalf("aggregate by role: %v", err)
+	}
+	want := []RoleAggregate{
+		{Role: "executor", Aggregate: Aggregate{Calls: 2, DurationMs: 300}},
+		{Role: "planner", Aggregate: Aggregate{Calls: 1, DurationMs: 10}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("按调用方分组不符：\n得   %+v\n期望 %+v", got, want)
+	}
+
+	// 各分组之和等于全量合计：同一批记录的两种切法
+	total, err := store.AggregateByTask(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum Aggregate
+	for _, r := range got {
+		sum.Calls += r.Calls
+		sum.DurationMs += r.DurationMs
+	}
+	if sum != total {
+		t.Errorf("各分组之和 %+v 应等于全量合计 %+v", sum, total)
 	}
 }

@@ -94,6 +94,16 @@ export interface Conversation {
  * 非前端按 SSE 事件求和。小写键（Go gin.H DTO）。
  */
 /** 任务的用量合计（GET /tasks/:id/usage）。状态与暂停见 TaskSummary。 */
+// RoleUsage 是某一个调用方名下的用量：四个智能体，或历史压缩等不在认知循环里的调用方。
+export interface RoleUsage {
+  role: string
+  tokens: { in: number; out: number; cached: number }
+  llm_calls: number
+  llm_latency_ms: number
+  tool_calls: number
+  tool_duration_ms: number
+}
+
 export interface TaskUsage {
   tokens: { in: number; out: number; cached: number }
   llm_calls: number
@@ -101,6 +111,7 @@ export interface TaskUsage {
   tool_calls: number
   tool_duration_ms: number // 各工具执行耗时之和
   elapsed_ms: number // 墙钟：发起→结束（进行中到此刻），扣除续接前的停顿；子代理并发时小于上面两者之和
+  by_role: RoleUsage[] // 同一批调用按调用方分开；各项之和等于上面的合计
 }
 
 /* ============================================================

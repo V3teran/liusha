@@ -1,16 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TaskDetailPane } from './TaskDetailPane'
-import type { TaskSummary } from '@/api/types'
-import { adjustTaskGoal, assignTaskAction } from '@/api/tasks'
+import type { TaskSummary, TaskUsage } from '@/api/types'
+import { adjustTaskGoal, assignTaskAction, getTaskUsage } from '@/api/tasks'
 
 vi.mock('@/api/tasks', () => ({
   controlTask: vi.fn(),
   adjustTaskGoal: vi.fn(async () => ({})),
   assignTaskAction: vi.fn(async () => ({ id: 'a-new' })),
+  getTaskUsage: vi.fn(),
 }))
+
+const usageOf = (over: Partial<TaskUsage> = {}): TaskUsage => ({
+  tokens: { in: 0, out: 0, cached: 0 },
+  llm_calls: 0,
+  llm_latency_ms: 0,
+  tool_calls: 0,
+  tool_duration_ms: 0,
+  elapsed_ms: 0,
+  by_role: [],
+  ...over,
+})
 
 function renderPane(task: TaskSummary) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -55,12 +67,12 @@ function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
 }
 
 describe('TaskDetailPane', () => {
+  beforeEach(() => {
+    vi.mocked(getTaskUsage).mockResolvedValue(usageOf())
+  })
+
   it('跳转区排在任务信息之前：从任务去对话、探索图与发现是最先用到的出口', () => {
-    render(
-      <MemoryRouter>
-        <TaskDetailPane task={makeTask()} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
-      </MemoryRouter>,
-    )
+    renderPane(makeTask())
     const jump = screen.getByRole('heading', { name: '跳转' })
     const info = screen.getByRole('heading', { name: '任务信息' })
     expect(jump.compareDocumentPosition(info) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -72,12 +84,49 @@ describe('TaskDetailPane', () => {
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
   })
 
-  it('对话已删除的任务仍可看探索图，只是没有对话入口', () => {
-    render(
-      <MemoryRouter>
-        <TaskDetailPane task={makeTask({ conversation_id: '', finding_count: 0 })} loading={false} error="" onRetry={vi.fn()} onClose={vi.fn()} />
-      </MemoryRouter>,
+  // 详情一次只看一个任务：状态、来源是纯文字（带颜色点），不套徽章；发现数用气泡（五个严重度的颜色本身就是信息）。
+  it('状态与来源是纯文字，不套徽章', () => {
+    renderPane(makeTask({ status: 'aborted' }))
+    expect(screen.getByText('已中止').tagName).toBe('SPAN')
+    expect(screen.getByText('已中止').closest('span')?.className).not.toMatch(/rounded-full/)
+    expect(screen.getByText('人工下发').className).toBe('')
+  })
+
+  it('发现数用气泡按严重度列出，不再是一个总数', async () => {
+    renderPane(makeTask({ finding_count: 3, findings_by_severity: { critical: 1, low: 2 } }))
+    expect(await screen.findByText('严重 1')).toBeTruthy()
+    expect(screen.getByText('低危 2')).toBeTruthy()
+    expect(screen.queryByText('3 个')).toBeNull()
+  })
+
+  // 智能体调用情况排在进度上面：一行一个智能体，登记过的身份在前，其余（历史压缩）在后。
+  it('智能体调用情况在进度上面：一行一个智能体，写明调用了多少次模型、多少次工具', async () => {
+    vi.mocked(getTaskUsage).mockResolvedValue(
+      usageOf({
+        by_role: [
+          { role: 'executor', tokens: { in: 800, out: 200, cached: 0 }, llm_calls: 40, llm_latency_ms: 5000, tool_calls: 89, tool_duration_ms: 9000 },
+          { role: 'compaction', tokens: { in: 10, out: 1, cached: 0 }, llm_calls: 1, llm_latency_ms: 100, tool_calls: 0, tool_duration_ms: 0 },
+          { role: 'planner', tokens: { in: 400, out: 100, cached: 0 }, llm_calls: 14, llm_latency_ms: 2000, tool_calls: 11, tool_duration_ms: 3000 },
+        ],
+      }),
     )
+    renderPane(makeTask({ step_count: 25 }))
+    await screen.findByText('规划')
+    const agents = screen.getByText('智能体调用')
+    const rows = within(agents.parentElement!).getAllByRole('listitem').map((li) => li.textContent)
+    expect(rows).toEqual(['规划调用 14 次 · 工具 11 次↑400 ↓100', '执行调用 40 次 · 工具 89 次↑800 ↓200', '压缩调用 1 次 · 工具 0 次↑10 ↓1'])
+    const progress = screen.getByText(/^25 步/)
+    expect(agents.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('耗时与对话页顶栏同一个口径、同一种写法：取用量接口的墙钟', async () => {
+    vi.mocked(getTaskUsage).mockResolvedValue(usageOf({ elapsed_ms: 65000 }))
+    renderPane(makeTask())
+    expect(await screen.findByText('1分05秒')).toBeTruthy()
+  })
+
+  it('对话已删除的任务仍可看探索图，只是没有对话入口', () => {
+    renderPane(makeTask({ conversation_id: '', finding_count: 0 }))
     expect(screen.getByRole('link', { name: /探索图/ }).getAttribute('href')).toBe('/exploration-graph?task=t-1')
     expect(screen.queryByRole('link', { name: /对话/ })).toBeNull()
     expect(screen.queryByRole('link', { name: /发现/ })).toBeNull()

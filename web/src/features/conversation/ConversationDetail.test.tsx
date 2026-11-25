@@ -58,6 +58,7 @@ const usageOf = (over: Partial<TaskUsage> = {}): TaskUsage => ({
   tool_calls: 0,
   tool_duration_ms: 0,
   elapsed_ms: 0,
+  by_role: [],
   ...over,
 })
 

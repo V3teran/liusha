@@ -444,6 +444,41 @@ func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, erro
 	return a, nil
 }
 
+// RoleAggregate 是某一个调用方角色名下的用量合计（口径同 Aggregate）。
+type RoleAggregate struct {
+	Role string
+	Aggregate
+}
+
+// AggregateByRole 按调用方角色分组合计筛选结果集的用量（任务详情的「智能体调用情况」），调用多的排前。
+// 无匹配记录时返回空表。各分组的和等于 AggregateAll：同一份筛选、同一批记录。
+func (s *Store) AggregateByRole(ctx context.Context, f ListFilter) ([]RoleAggregate, error) {
+	conds, args := f.where()
+	q := fmt.Sprintf(`
+		SELECT COALESCE(li.role, ''), COUNT(*),
+		       COALESCE(SUM(li.in_tokens),0), COALESCE(SUM(li.out_tokens),0),
+		       COALESCE(SUM(li.cached_tokens),0),
+		       COALESCE(SUM(li.latency_ms),0)
+		FROM llm_invocation li`+invocationJoins+`
+		WHERE %s
+		GROUP BY li.role
+		ORDER BY COUNT(*) DESC, li.role`, strings.Join(conds, " AND "))
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate llm_invocation by role: %w", err)
+	}
+	defer rows.Close()
+	var out []RoleAggregate
+	for rows.Next() {
+		var r RoleAggregate
+		if err := rows.Scan(&r.Role, &r.Calls, &r.InTokens, &r.OutTokens, &r.CachedTokens, &r.LatencyMs); err != nil {
+			return nil, fmt.Errorf("scan llm_invocation aggregate by role: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // CountAll 返回匹配筛选的总行数（不含 limit/offset），供前端算总页数。
 func (s *Store) CountAll(ctx context.Context, f ListFilter) (int, error) {
 	conds, args := f.where()
