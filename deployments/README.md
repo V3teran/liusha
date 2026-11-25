@@ -52,6 +52,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | `LIUSHA_SANDBOX_TOKEN` | `sandbox.token` | 沙盒与 runner / api 的共享密钥 | sandbox、runner、api |
 | `LIUSHA_LLM_ENCRYPTION_KEY` | `llm.encryption_key` | 加密数据库里保存的 LLM 密钥（32 字节 hex），生成后不要更改 | api、runner |
 | `LIUSHA_ADMIN_INITIAL_PASSWORD` | `admin.initial_password` | 首次启动创建 admin 的密码 | api |
+| `LIUSHA_WEB_SEARCH_API_KEY` | `web_search.api_key` | 可选：网页检索后端的鉴权密钥（接入方法见 config.yaml 的 `web_search` 段） | runner |
 | `LIUSHA_POSTGRES_URL` | `postgres.url` | 二进制：数据库连接串（容器部署由容器拼出） | 除 sandbox 外全部 |
 | `LIUSHA_REDIS_URL` | `redis.url` | 二进制：Redis 连接串 `redis://[用户名]:密码@主机:端口/库号`，TLS 用 `rediss://` | 除 sandbox 外全部 |
 
@@ -264,6 +265,52 @@ make dev-down             # 收工（-v 清数据）
 
 宿主上的组件由 `scripts/dev/env.sh` 按 `.env` 拼出连接串，经宿主端口访问容器；runner 经
 `127.0.0.1:58591` 调用容器里的沙盒，沙盒的浏览器流量回灌到 `host.docker.internal:8590`。
+
+## 从 0.14 升级到 0.15
+
+**所有部署方式**
+
+对照新版本的 `config.yaml` 补齐下列各项，然后重启。缺键、留着不认识的键都会拒绝启动。数据库迁移随启动自动执行，无需操作。
+
+- 新增的段（从新版本的模板复制，三个键都要有）：
+
+  | 段 | 键 | 缺省 |
+  |---|---|---|
+  | `web_search`（新段） | `url` / `auth_header` / `api_key` | 空 / 空 / 空 |
+
+  智能体查公开网页用的 `web_search` 工具经这个段接入搜索服务。`url` 留空即不启用，程序照常运行。
+  要启用：`url` 填搜索接口的地址，`api_key` 经 `.env` 的 `LIUSHA_WEB_SEARCH_API_KEY` 注入，密钥默认放在
+  `Authorization: Bearer` 头里；接口要求别的请求头时把头名填进 `auth_header`。接哪家服务由你决定，程序
+  只认两种常见的响应形状，不在代码里认服务。接入后还要在「工具」页把 `web_search` 装配给要用它的
+  智能体——它不在任何智能体的出厂名单里。
+
+**内置工具改名**
+
+内置函数工具的名字统一成「对象_动词」。程序、出厂的章程、技能与场景都已跟着改；存量数据（工具调用
+记录、会话时间线）与你在智能体页改过的工具名单由迁移 0257 自动改写，升级后不用处理。
+
+| 原名 | 新名 |
+|---|---|
+| `search_corpus` | `corpus_search` |
+| `run_command` | `command_run` |
+| `drive_browser` | `browser_drive` |
+| `list_traffic` | `traffic_list` |
+| `view_traffic` | `traffic_view` |
+| `read_credentials` | `credential_read` |
+| `write_credential` | `credential_write` |
+| `read_skill` | `skill_read` |
+| `observe_state` | `graph_read` |
+| `evaluate_progress` | `progress_evaluate` |
+| `get_global_state` | `task_survey` |
+| `publish_decision` | `decision_publish` |
+| `replay_for_verification` | `repro_replay` |
+
+要留意的地方：
+
+- 你自己写的内容里如果提到了旧工具名，不会被改写——那是你的文字，程序分不清它是引用工具名还是
+  恰好同名。包括：**改写过正文的内置技能与场景**（它们不跟随新版，正文里还是旧名字）、自建技能、
+  自定义章程、定时模板的任务说明。升级后建议搜一遍旧名字，改成新的，否则智能体按旧名字找不到工具。
+- 没改过正文的内置技能与场景会跟随新版，自动拿到新名字，不用处理。
 
 ## 从 0.14 升级
 
