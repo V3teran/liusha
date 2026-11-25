@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.15.0](https://github.com/V3teran/liusha/compare/v0.14.1...v0.15.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **httpapi:** 6 组接口路径改名、5 个列表接口的 `q` 参数改名为 `search`，调用方按新路径与参数名改写（对照表见升级说明）
+* **tools:** 配置文件新增 `web_search` 段（`url` / `auth_header` / `api_key`），升级前在 config.yaml 里补上这一段（不用网页检索就三项留空），否则程序缺键拒绝启动
+* **tools:** 13 个内置函数工具改名（对照表见升级说明），自己写的章程、技能或场景里按名字引用了工具的，升级后按新名改写
+* **config:** `config.yaml` 须新增 `runtime`（`step_llm_timeout_seconds`、`step_tool_timeout_seconds`、`run_tail_bytes`、`tool_output_tail_bytes`）与 `compaction`（四个 `*_context_ratio`）两段共 8 个键，`runner.step_llm_timeout_seconds` 改名为 `runtime.step_llm_timeout_seconds`，缺键或留着旧键都拒绝启动
+* **runner:** `runner.run_recovery_timeout_seconds` 不得小于 90，此前设得更小的部署须调高，否则程序拒绝启动
+* **runner:** 新增配置键 `runner.action_parallelism`、`runner.verification_parallelism`、`runner.monitor_interval_seconds`，部署方须在 `config.yaml` 的 `runner` 段补上（缺省 4 / 3 / 360），否则程序拒绝启动
+* **llm:** 新增配置键 `llm.account_concurrency`，部署方须在 `config.yaml` 的 `llm` 段补上（缺省 4；0 = 不限），否则程序拒绝启动
+
+### 新功能
+
+* **config:** 系统设置的出厂值统一取自 config.yaml ([a32dac2](https://github.com/V3teran/liusha/commit/a32dac2289231855aa5d96b1f21f36eac60f8840))
+* **conversation:** 时间线支持多选筛选，胶囊带工具调用数 ([24c9974](https://github.com/V3teran/liusha/commit/24c9974e0f84c3e47e0f33ba62e779b70e0ad0a1))
+* **conversation:** 时间线支持按智能体筛选 ([64bb929](https://github.com/V3teran/liusha/commit/64bb929433ad18e6d56fbb0380682e19ef38bc01))
+* **exploration:** 探索图新增「只看方向关系」开关 ([fc5fceb](https://github.com/V3teran/liusha/commit/fc5fcebea46d9a1a5c14a74b0bcb505970be049b))
+* **runner:** 任务内的并行度与监察间隔可配 ([60656ae](https://github.com/V3teran/liusha/commit/60656ae756ee55f1977090003f3f63ecf8fcc4b8))
+* **task:** 任务列表的发现列按严重度分档显示 ([0c360ab](https://github.com/V3teran/liusha/commit/0c360abb15dbd161e9e74f52a1ceb4b9612c963c))
+* **task:** 任务详情新增智能体调用情况 ([f883ca3](https://github.com/V3teran/liusha/commit/f883ca3073ef264ad45f32731b8b62334f0c8398))
+* **tools:** 新增网页检索工具 web_search ([04b32bb](https://github.com/V3teran/liusha/commit/04b32bba5aaf14596c27b7fdf5d7e1e41e6ff1d8))
+* **ui:** 从任务与对话直达它名下的模型日志 ([dc178b3](https://github.com/V3teran/liusha/commit/dc178b39c4345271c134df7e545908b1c6f598a7))
+* **ui:** 侧栏显示程序版本 ([35a7644](https://github.com/V3teran/liusha/commit/35a76442a90cc5d833743c68348e6aa76f5d6eb2))
+* **ui:** 对话列表可向左收起 ([df3e42c](https://github.com/V3teran/liusha/commit/df3e42c1dd0c4bec8540450a3dc8ac5e40cd7403))
+* **ui:** 搜索框回车即时生效，并新增刷新按钮 ([86403de](https://github.com/V3teran/liusha/commit/86403de3affb9a058c34715f518186a9dc987608))
+
+
+### 问题修复
+
+* **config:** 渗透测试交付标准改为影响准入，加固噪音不再报出 ([c631f08](https://github.com/V3teran/liusha/commit/c631f08921c00267705f3b4acbc7e78fc96d7d38))
+* **conversation:** 对话顶栏不再重复任务状态 ([1106bcd](https://github.com/V3teran/liusha/commit/1106bcd78774a58c286c22aea7bb08bebaf11092))
+* **conversation:** 对话顶栏的耗时逐秒走 ([c8b69b8](https://github.com/V3teran/liusha/commit/c8b69b8bdd4d7304d54b0567dfc31a78cc19592a))
+* **exploration:** 任务在跑时探索图持续自动刷新 ([ffa5b58](https://github.com/V3teran/liusha/commit/ffa5b582bdcc3cdf929c61748b9eada268bf91ce))
+* **exploration:** 压缩链的时间预算随单步上限推导 ([a1389f2](https://github.com/V3teran/liusha/commit/a1389f254ca226ee221d0aae3ce1fd6e6930c4ba))
+* **exploration:** 规划一轮的预算不再比单次调用还短 ([1d239a8](https://github.com/V3teran/liusha/commit/1d239a8d4e243c741707276b5e629d4987dba129))
+* **exploration:** 规划者广度与深度并行，线索露头即深入且不被挤掉 ([d1a57d6](https://github.com/V3teran/liusha/commit/d1a57d6ff2af5c20392e72f5415ab9166443f74d))
+* **llm:** 模型账户同时在途的请求数有了上限，不再被限流拖垮 ([e632545](https://github.com/V3teran/liusha/commit/e632545d7cb851dfcb4813c7a499e4eecf9e3332))
+* **llm:** 模型额度用尽时不再空转重试，等到恢复再继续 ([7c35a8a](https://github.com/V3teran/liusha/commit/7c35a8ae9affdb644064140dadd88e3f80180baa))
+* **llm:** 超时或被取消的调用不再丢失审计记录 ([0444cd8](https://github.com/V3teran/liusha/commit/0444cd85e1e046e6049539c1418b4490bea89f5f))
+* **overview:** 概览区块不再被拉高，随内容伸展 ([04a1669](https://github.com/V3teran/liusha/commit/04a1669c79f696d72bfafaf347e705dcb6490b10))
+* **runner:** 同时执行的任务数缺省由 10 改为 3 ([ca08f52](https://github.com/V3teran/liusha/commit/ca08f5276c3409c63d04e5c0fd46e81c15e5c792))
+* **runner:** 执行长命令的任务不再被误判停摆而重跑 ([6f39d2f](https://github.com/V3teran/liusha/commit/6f39d2f277bb54371ebe635f92a34025b9027027))
+* **sandbox:** 旧沙盒镜像读得了新版的配置文件 ([99008b6](https://github.com/V3teran/liusha/commit/99008b6d149ea0c99e850597025667f7d277a55b))
+* **ui:** 侧栏品牌行与导航之间不再画分隔线 ([348d5ec](https://github.com/V3teran/liusha/commit/348d5ecf9b7045490f7b4f3ac6a099e50de39937))
+* **ui:** 列表的表头与内容同侧对齐 ([5eb6ae3](https://github.com/V3teran/liusha/commit/5eb6ae3c81a491b803cf98e89a2cd36bffe7c4ec))
+* **ui:** 日志行与发现类型条的读屏名称对齐屏幕文字 ([5906902](https://github.com/V3teran/liusha/commit/59069027d4e3ee75ea0dfbbe43222a5042d6c074))
+* **ui:** 模型日志里「压缩」不再显示为英文 ([bb67f1c](https://github.com/V3teran/liusha/commit/bb67f1c4a82d7fd588f5eb799f3d68481ae6df96))
+* **ui:** 模型配置的容量字段补填写引导 ([d1ab9d2](https://github.com/V3teran/liusha/commit/d1ab9d2e8a1096b97e2c3f8299dd870643d50f2d))
+
+
+### 重构
+
+* **httpapi:** 接口路径与资源命名对齐 ([8eee907](https://github.com/V3teran/liusha/commit/8eee9075ba9fb562db47e198bcc3e3b8e88173eb))
+* **tools:** 内置工具名统一成「对象_动词」 ([41b534e](https://github.com/V3teran/liusha/commit/41b534e08a2ef62694859b44bac6a57e4d1275cc))
+
 ## [0.14.1](https://github.com/V3teran/liusha/compare/v0.14.0...v0.14.1) (2026-11-22)
 
 
