@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Brain, ChevronDown, Loader2 } from 'lucide-react'
+import { Brain, ChevronDown } from 'lucide-react'
 import type { Message } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
@@ -34,47 +34,19 @@ function cardCopyText(r: { msg: Message }): string | undefined {
   return undefined
 }
 
-function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(t)
-  }, [])
-  const baseRef = useRef<{ ms: number; at: number }>({ ms: elapsedMs ?? 0, at: Date.now() })
-  useEffect(() => {
-    const prev = baseRef.current
-    if ((elapsedMs ?? 0) >= prev.ms) baseRef.current = { ms: elapsedMs ?? 0, at: Date.now() }
-  }, [elapsedMs])
-  const shown = Math.max(0, baseRef.current.ms + (now - baseRef.current.at))
-  const mm = Math.floor(shown / 60000)
-  const ss = Math.floor((shown % 60000) / 1000)
-  const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
-  return (
-    <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-text-secondary">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        <span>智能体工作中</span>
-        <span className="font-mono text-xs">{label}</span>
-      </div>
-    </div>
-  )
-}
-
 /**
  * 对话的执行轨迹：消息流整理成「行」后自上而下渲染。一个智能体的一轮是一张卡——身份、这一轮的
  * 工具调用（折叠）、结论——已出终稿的轮按终稿先后排列；终稿还没到的轮与同一智能体的流式思考
  * 合成一张卡，放在最后，轮出终稿后挪到前面的位置。
  *
- * agent 是筛选：只看某一个智能体（人的指令与系统节点留着做上下文）。
+ * 任务在跑的信号在顶栏（状态与逐秒走的耗时），轨迹里不另放「工作中」的指示。
  */
 export function TimelineThread({
   active,
-  elapsedMs,
   agent,
   onAgentChange,
 }: {
   active?: boolean
-  elapsedMs?: number
   /** 选中的智能体；null = 全部 */
   agent: string | null
   onAgentChange: (name: string | null) => void
@@ -322,8 +294,6 @@ export function TimelineThread({
             </AgentCard>
           </div>
         ))}
-
-        {active && inFlight.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
       </div>
 
       {!atBottom && (

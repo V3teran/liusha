@@ -198,18 +198,14 @@ describe('TimelineThread', () => {
   })
 })
 
-describe('RunningIndicator（间隙运行指示）', () => {
-  it('active 且无活动道时渲染指示器', () => {
-    render(<TimelineThread {...unfiltered} active />)
-    expect(screen.queryByTestId('running') ?? document.querySelector('[data-running-indicator]')).toBeTruthy()
-  })
-
-  it('有活动道时让位（道本身即活动信号）', async () => {
-    const store = useConversationStore.getState()
-    store.appendReasoningDelta('规划中', 'planner')
-    render(<TimelineThread {...unfiltered} active />)
-    await flush()
+// 「任务在跑」的信号在顶栏：状态文字与逐秒走的耗时。轨迹里不再另放一枚「智能体工作中」——
+// 与顶栏重复，占着轨迹最下面一行。
+describe('轨迹里不重复「工作中」的指示', () => {
+  it('任务在跑、哪怕此刻没有在途的卡，也不渲染指示', () => {
+    useConversationStore.getState().reset()
+    const { container } = render(<TimelineThread {...unfiltered} active />)
     expect(document.querySelector('[data-running-indicator]')).toBeNull()
+    expect(within(container).queryByText('智能体工作中')).toBeNull()
     useConversationStore.getState().reset()
   })
 
