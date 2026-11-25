@@ -28,10 +28,10 @@ describe('prettyArgs', () => {
 
 describe('toToolCalls', () => {
   test('解析审计里的 tool_calls 数组（llm.ToolCall：arguments 为 JSON 值）', () => {
-    const calls = toToolCalls([{ id: 'call_1', name: 'run_command', arguments: { cmd: 'id' } }])
+    const calls = toToolCalls([{ id: 'call_1', name: 'command_run', arguments: { cmd: 'id' } }])
     expect(calls).toHaveLength(1)
     expect(calls[0].id).toBe('call_1')
-    expect(calls[0].name).toBe('run_command')
+    expect(calls[0].name).toBe('command_run')
     expect(calls[0].args).toBe('{\n  "cmd": "id"\n}')
   })
 
@@ -53,10 +53,10 @@ describe('toToolCalls', () => {
 
   test('多个工具调用保序', () => {
     const calls = toToolCalls([
-      { id: 'a', name: 'run_command', arguments: {} },
-      { id: 'b', name: 'run_command', arguments: {} },
-      { id: 'c', name: 'write_credential', arguments: {} },
+      { id: 'a', name: 'command_run', arguments: {} },
+      { id: 'b', name: 'command_run', arguments: {} },
+      { id: 'c', name: 'credential_write', arguments: {} },
     ])
-    expect(calls.map((c) => c.name)).toEqual(['run_command', 'run_command', 'write_credential'])
+    expect(calls.map((c) => c.name)).toEqual(['command_run', 'command_run', 'credential_write'])
   })
 })

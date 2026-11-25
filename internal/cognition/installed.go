@@ -8,7 +8,7 @@ import (
 )
 
 // restrictToInstalled 把 agent 的工具名单收窄为「允许 ∩ 已安装」：「全部」（*）先按工具全集展开，
-// 再剔除沙盒未安装的 CLI 工具与浏览器不可用时的 drive_browser。名单为 nil（拒绝）保持 nil。
+// 再剔除沙盒未安装的 CLI 工具与浏览器不可用时的 browser_drive。名单为 nil（拒绝）保持 nil。
 // 被剔除的工具记日志，便于排查「已允许却没用上」。
 func (d *Deps) restrictToInstalled(cfg agent.Agent) agent.Agent {
 	var fnAll, cliAll []string

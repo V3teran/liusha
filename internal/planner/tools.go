@@ -17,7 +17,7 @@ type plannerCtxKey string
 
 const ctxKeyTaskID plannerCtxKey = "task_id"
 
-// WithTaskID 向 ctx 注入 task_id（observe_state/evaluate_progress 经它取归属）。
+// WithTaskID 向 ctx 注入 task_id（graph_read/progress_evaluate 经它取归属）。
 func WithTaskID(ctx context.Context, taskID string) context.Context {
 	return context.WithValue(ctx, ctxKeyTaskID, taskID)
 }
@@ -42,7 +42,7 @@ func NewObserveStateTool(graph *explorationgraph.Store) *ObserveStateTool {
 }
 
 // Name 实现工具接口。
-func (t *ObserveStateTool) Name() string { return "observe_state" }
+func (t *ObserveStateTool) Name() string { return "graph_read" }
 
 // ShortDesc 实现工具接口。
 func (t *ObserveStateTool) ShortDesc() string {
@@ -167,7 +167,7 @@ func (t *ObserveStateTool) Execute(ctx context.Context, argsJSON json.RawMessage
 
 // renderStatements 渲染节点列表的 statement 行——planner 需要的是世界状态
 // 陈述，不是观察的全部载荷（repro/trace 对规划是噪音，整包倾倒会撑爆
-// observe_state 输出）。缺 statement 的载荷行跳过（解析失败不渲染噪音）。
+// graph_read 输出）。缺 statement 的载荷行跳过（解析失败不渲染噪音）。
 func renderStatements(nodes []explorationgraph.Node) string {
 	var b strings.Builder
 	for _, n := range nodes {
@@ -213,7 +213,7 @@ func NewEvaluateProgressTool(graph *explorationgraph.Store) *EvaluateProgressToo
 }
 
 // Name 实现工具接口。
-func (t *EvaluateProgressTool) Name() string { return "evaluate_progress" }
+func (t *EvaluateProgressTool) Name() string { return "progress_evaluate" }
 
 // ShortDesc 实现工具接口。
 func (t *EvaluateProgressTool) ShortDesc() string {

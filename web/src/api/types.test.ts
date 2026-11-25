@@ -18,7 +18,7 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
       stop_reason: '',
       reason: '',
       call_id: 'call-1',
-      tool_name: 'run_command',
+      tool_name: 'command_run',
       args: '',
       result: 'ok',
       duration_ms: 12,
@@ -53,7 +53,7 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
   it('解析 TimelineEventMeta metadata（snake_case 键）', () => {
     const ev = parseEventMeta(frame)
     expect(ev).not.toBeNull()
-    expect(ev?.tool_name).toBe('run_command')
+    expect(ev?.tool_name).toBe('command_run')
     expect(ev?.kind).toBe('tool_result')
     expect(ev?.result).toBe('ok')
     expect(ev?.duration_ms).toBe(12)

@@ -12,7 +12,7 @@ import (
 // validateBrowserArgs 验证浏览器命令参数
 func validateBrowserArgs(a *browserCmdArgs) *string {
 	if a.Action == "" {
-		msg := "drive_browser: action 必填（open/state/click/input/type/select/hover/dblclick/rightclick/scroll/back/keys/wait/eval/get/screenshot）。" +
+		msg := "browser_drive: action 必填（open/state/click/input/type/select/hover/dblclick/rightclick/scroll/back/keys/wait/eval/get/screenshot）。" +
 			"浏览器驱动循环：open URL → state（带编号 DOM）→ click/input 编号 → state 复查"
 		return &msg
 	}
@@ -54,7 +54,7 @@ func (t *driveBrowserTool) executeBrowserCommand(ctx context.Context, command st
 		AgentRunID:     t.deps.AgentRunID,
 		Command:        command,
 		TimeoutSeconds: timeoutSeconds,
-		Tag:            "drive_browser",
+		Tag:            "browser_drive",
 	})
 }
 
@@ -142,14 +142,14 @@ func formatBrowserOutput(res sandbox.ExecResult, timeoutSeconds int) string {
 
 // buildBrowserResult 构建浏览器工具结果。failed（超时 / 自愈耗尽）时输出同时作为
 // ToolResult.Error：运行时据 Error 识别结果性失败、累计连续失败止损——只填 Output
-// 会让持续超时被计为成功。非零退出码不单独算失败（与 run_command 同口径：退出码
+// 会让持续超时被计为成功。非零退出码不单独算失败（与 command_run 同口径：退出码
 // 的含义由输出内容说明）。
 func buildBrowserResult(output string, failed bool) registry.ToolResult {
 	res := registry.ToolResult{
 		Output: output,
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCmdOutput,
-			ToolName: "drive_browser",
+			ToolName: "browser_drive",
 			Content:  truncateOutput(output, 2048),
 			Detail:   output,
 		},

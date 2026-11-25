@@ -1,12 +1,12 @@
 // Package skill 是技能的渐进式加载：agent 的 system prompt 只常驻技能索引
-// （寻址名 + 名称 + 描述，Tier 1），正文由 read_skill 按需拉取（Tier 2）。
+// （寻址名 + 名称 + 描述，Tier 1），正文由 skill_read 按需拉取（Tier 2）。
 // 每个 agent 按其技能白名单得到独立视图。
 package skill
 
 // Card 是一个技能的加载形态。
 type Card struct {
 	// Key 是技能的寻址名（= 技能 code，如 bac / browser-use）。agent 技能白名单与
-	// read_skill(name) 都用 Key；Name 只是给人看的显示名，不可用于寻址。
+	// skill_read(name) 都用 Key；Name 只是给人看的显示名，不可用于寻址。
 	Key         string
 	Name        string
 	Description string

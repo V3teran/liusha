@@ -5,8 +5,8 @@ import { ToolResultCard } from './ToolResultCard'
 
 describe('ToolResultCard', () => {
   it('成功结果默认折叠，显示预览文本', () => {
-    render(<ToolResultCard tool="run_command" result="line1 line2" durationMs={120} err="" />)
-    expect(screen.getByText('run_command')).toBeTruthy()
+    render(<ToolResultCard tool="command_run" result="line1 line2" durationMs={120} err="" />)
+    expect(screen.getByText('command_run')).toBeTruthy()
     expect(screen.getByText('120ms')).toBeTruthy()
     expect(screen.getByText('line1 line2')).toBeTruthy()
   })

@@ -174,7 +174,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 | 层 | 范围 | 领域属性 |
 |---|---|---|
 | 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、`corpus`、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
-| 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
+| 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`browser_drive`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
 | 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
 
 - **判据**：一段进入 LLM 的文本、一个概念或一个枚举能否放进核心层，看它在另一个领域（代码审计、故障排查、资料调研……）的部署里是否依然成立。成立才进核心层，否则放进场景或扩展。核心层只用探索图的词汇表达：目标、动作、观察（假设）、结果、主张、配方、证据。
@@ -224,7 +224,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 | planner | 建 action；停止探索时收回自己排出、还没做完的动作（`StopExploration`：open / running → aborted，以规划依据为前置，用户指派的不动）；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`），并在被分析的 result 上记分析水位（`analyzed`）；结果分析不排动作 |
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
-| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `get_global_state` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
+| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `task_survey` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
 | 认知循环（cognition） | 新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
 | 任务目标（`task.Store`） | 建根 objective（随任务创建，`Create` 同事务，每任务一个，唯一索引兜底）、改写目标（`SetGoal`：任务行与根目标描述同事务） |
 | 运行中引导（`dispatch` 的 `AdjustGoal` / `AssignAction` / `RejectAction`） | 调整目标时撤回规划者排好、尚未开始的动作（→ aborted）；指派 action（来源 user，挂根目标）；否决 action（否决方 user）。与任务行锁、时间线回执同事务 |
@@ -266,7 +266,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 知识库（`internal/corpus`、`internal/distill`）
 
-- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `search_corpus` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
+- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `corpus_search` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
 - 检索方式由检索模型配置决定（前端「模型配置」页「检索模型」分区，单行表 `retrieval_model`：服务地址、向量与重排模型名、一把密钥；与 provider 密钥同一套加密；事实源 `internal/llmconfig/retrieval.go`）：配了密钥是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与出厂模型标定，依据写在 `search.go`。配置字段空 = 出厂默认（Jina）；向量维度绑 `vector(1024)` 列——保存不拦，实测与运行期校验并给出明确报错；**更换向量模型即作废全部旧向量并按新模型重嵌**（不同模型的向量不可混在一个空间），换门槛需复核召回质量。密钥与配置热改即时生效：corpus.Service 的模型来源每次操作现取（`llmstore.RetrievalModels`，缓存写后广播失效），保存后 api 立即收口（必要时作废向量、写锁内补齐），runner 每 10 分钟的巡检兜底。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径；未配置与不可用都不阻塞对话与任务。语义调用失败还会上报降级记录（`retrievalstatus`，Redis 键带 TTL，api 与 runner 谁失败谁写、跨进程可见）：知识库页的检索方式标识显示「语义检索已降级」并带原因与时间；恢复后第一次成功调用清除记录，无人调用时记录到时淡出。清除密钥只清密钥，保留地址与模型名。
 - 词元只有一处实现：数据库函数 `corpus_terms`（英文按词、中文按相邻两字），写入时生成 `terms` 生成列，查询用同一个函数切分查询文本。不要在 Go 里另写一份分词。
 - 每条知识归属一个场景，空 = 通用：任务只看得到本场景与通用的知识，无场景的任务只看得到通用知识。沉淀时由蒸馏判定每条经验是否依赖场景的规定（交付标准、类别词表等），依赖的归本场景。

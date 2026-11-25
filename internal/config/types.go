@@ -176,9 +176,9 @@ type RuntimeConfig struct {
 	// StepLLMTimeoutSeconds 是单步 LLM 看门狗：一次模型调用的上限，挂死的调用即失败。规划一整轮的
 	// 预算、压缩链的时限都由它推导。
 	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds" json:"step_llm_timeout_seconds"`
-	// StepToolTimeoutSeconds 是 run_command 超时的上限（模型自传的 timeout_seconds 不得超过它）。
+	// StepToolTimeoutSeconds 是 command_run 超时的上限（模型自传的 timeout_seconds 不得超过它）。
 	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds" json:"step_tool_timeout_seconds"`
-	// RunTailBytes 是 run_command 输出保留尾部的字节数（输出末段是结果所在）。
+	// RunTailBytes 是 command_run 输出保留尾部的字节数（输出末段是结果所在）。
 	RunTailBytes int `mapstructure:"run_tail_bytes" json:"run_tail_bytes"`
 	// ToolOutputTailBytes 是任意工具输出进模型上下文前的全局尾部保留字节数。
 	ToolOutputTailBytes int `mapstructure:"tool_output_tail_bytes" json:"tool_output_tail_bytes"`
@@ -238,7 +238,7 @@ type RunnerConfig struct {
 
 // SandboxConfig 是沙盒服务参数：沙盒自身的监听与鉴权、浏览器、工作区留存、对外回连契约。
 //
-// run_command 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
+// command_run 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
 // runtime.step_tool_timeout_seconds 钳制（前端「系统配置」可热改）。
 type SandboxConfig struct {
 	ListenAddr string `mapstructure:"listen_addr"`

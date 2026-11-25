@@ -1,9 +1,9 @@
 // Package traffic 实现两张流量表的持久化层，按「流量的产生者」拆分：
 //
 //   - proxy_traffic（ProxyStore）：代理捕获的真实用户流量，被分析的输入，属于 host，
-//     先于任何 task 存在。ingestor external 链路写入；代理捕获任务的认知循环经 list/view_traffic 读它。
+//     先于任何 task 存在。ingestor external 链路写入；代理捕获任务的认知循环经 list/traffic_view 读它。
 //   - agent_traffic（AgentStore）：agent 在 sandbox 自产的流量，干活副产物/弹药，属于 task。
-//     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/view_traffic 工具读它。
+//     ingestor internal 链路写入（不触发分析，防自激震荡）；active 的 replay/list/traffic_view 工具读它。
 //
 // 两表唯一共同点是「长得像 HTTP 请求」——共享的持久化机制（body 截断、header 归一、
 // URL 抽取）在 httputil.go，领域差异（归属、消费标记、身份戳）在各自 store。
@@ -59,7 +59,7 @@ type AgentTraffic struct {
 	ID              int64
 	TaskID          string
 	AgentRunID      string // 产生该流量的认知轮次 agent_run.id（可空；列名 agent_run_id）
-	Identity        string // 身份戳（drive_browser identity / 登录账号；CLI 为空）
+	Identity        string // 身份戳（browser_drive identity / 登录账号；CLI 为空）
 	Tool            string // 工具戳（browser / curl / sqlmap…；external 为空）
 	Host            string
 	Method          string
@@ -74,7 +74,7 @@ type AgentTraffic struct {
 	CreatedAt       time.Time
 }
 
-// AgentSummary 是 agent_traffic 的瘦行（list_traffic 用）：不含 body / headers，避免大 payload。
+// AgentSummary 是 agent_traffic 的瘦行（traffic_list 用）：不含 body / headers，避免大 payload。
 type AgentSummary struct {
 	ID         int64
 	TaskID     string

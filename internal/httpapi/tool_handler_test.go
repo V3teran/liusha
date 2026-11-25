@@ -92,7 +92,7 @@ func (f fakeToolCatalog) Get(_ context.Context, name string) (toolstore.Definiti
 func twoAgents() []agent.Agent {
 	return []agent.Agent{
 		{Code: "executor", Name: "执行者", Config: agent.Config{CliTools: []string{"*"}, FunctionTools: []string{"http_request"}}},
-		{Code: "planner", Name: "规划者", Config: agent.Config{CliTools: []string{}, FunctionTools: []string{"observe_state"}}},
+		{Code: "planner", Name: "规划者", Config: agent.Config{CliTools: []string{}, FunctionTools: []string{"graph_read"}}},
 	}
 }
 
@@ -111,7 +111,7 @@ func toolRouterWith(cfg *fakeConfig, inv SandboxInventoryAPI) *gin.Engine {
 		{Name: "nmap", Kind: toolstore.KindCLI},
 		{Name: "sqlmap", Kind: toolstore.KindCLI},
 		{Name: "http_request", Kind: toolstore.KindFunction},
-		{Name: "drive_browser", Kind: toolstore.KindFunction},
+		{Name: "browser_drive", Kind: toolstore.KindFunction},
 	}}
 	r.GET("/tools", listToolsHandler(tools, inv))
 	r.GET("/tools/:name", getToolHandler(tools, cfg, inv))
@@ -121,7 +121,7 @@ func toolRouterWith(cfg *fakeConfig, inv SandboxInventoryAPI) *gin.Engine {
 
 func toolRouter(cfg *fakeConfig) *gin.Engine { return toolRouterWith(cfg, nil) }
 
-// 安装状态：CLI 工具按沙盒上报，drive_browser 按浏览器能力，其余函数工具恒已安装；
+// 安装状态：CLI 工具按沙盒上报，browser_drive 按浏览器能力，其余函数工具恒已安装；
 // 沙盒不可达时一律 null（未知），不误报「未安装」。
 func TestListTools_InstalledState(t *testing.T) {
 	inv := fakeInventory{inv: sandbox.Inventory{Tools: map[string]bool{"nmap": true, "sqlmap": false}}}
@@ -135,7 +135,7 @@ func TestListTools_InstalledState(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &resp); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"nmap": true, "sqlmap": false, "http_request": true, "drive_browser": false}
+	want := map[string]bool{"nmap": true, "sqlmap": false, "http_request": true, "browser_drive": false}
 	if len(resp.Tools) != len(want) {
 		t.Fatalf("应返回全部工具: %s", body)
 	}

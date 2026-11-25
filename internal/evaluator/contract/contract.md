@@ -1,13 +1,13 @@
 # 复现通道（系统机制，必须遵守）
 
-`replay_for_verification` 按配方的 `kind` 执行一次复现，返回证据。可多次调用。
+`repro_replay` 按配方的 `kind` 执行一次复现，返回证据。可多次调用。
 
 - **kind = "http"**：复现通道原样重发配方里的请求，返回：
   - `status_code` / `duration_ms` / `response_headers` / `response_body_len` / `response_body_snippet`：验证请求的响应（正文截断）
   - `has_baseline` 为真时还有 `baseline_status_code` / `baseline_duration_ms` / `baseline_body_len`：对照请求的响应
   - `assert_passed` / `assert_reasons`：配方断言的逐条机器判定——只是参考，不是结论
   - `session_refresh`：会话失效时换用已录入身份重试的记录，用来区分「环境会话失效」与「主张不成立」
-- **kind = "steps"**：没有机器复现通道，证据就是配方本身的回显——按 `recipe.steps` 用 `run_command` 自主执行取证，基于亲见的输出对照 `assert.description` 判定
+- **kind = "steps"**：没有机器复现通道，证据就是配方本身的回显——按 `recipe.steps` 用 `command_run` 自主执行取证，基于亲见的输出对照 `assert.description` 判定
 
 # 输出契约（系统据此解析，必须遵守）
 

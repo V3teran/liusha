@@ -134,11 +134,11 @@ describe('LlmInvocationDrawer', () => {
   it('result.tool_calls 存在时渲染工具调用卡片', () => {
     const detail = makeDetail({
       result: {
-        tool_calls: [{ id: 'c1', name: 'run_command', arguments: { cmd: 'ls' } }],
+        tool_calls: [{ id: 'c1', name: 'command_run', arguments: { cmd: 'ls' } }],
       },
     })
     renderDrawer(<LlmInvocationDrawer open detail={detail} loading={false} error="" onRetry={vi.fn()} onOpenChange={vi.fn()} />)
-    expect(screen.getByText('run_command')).toBeTruthy()
+    expect(screen.getByText('command_run')).toBeTruthy()
     expect(screen.getByText(/工具调用/)).toBeTruthy()
   })
 

@@ -82,7 +82,7 @@ runner 的工具命令都经沙盒服务执行（`sandbox.url` + `sandbox.token`
 
 - **工具**：工具页标出沙盒未安装的工具，智能体的工具名单里「已允许 · 未安装」的工具运行时
   不可用，装上后自动生效。二进制部署时工具就是本机安装的那些。
-- **浏览器**：`drive_browser` 需要装了 browser-use 0.13.x（1.0 起接口不兼容）的 Python
+- **浏览器**：`browser_drive` 需要装了 browser-use 0.13.x（1.0 起接口不兼容）的 Python
   （`sandbox.browser_python`，沙盒镜像里已配好）。不可用时工具页会说明缺什么。
 - **工作区**：api（文件页、附件）与沙盒必须看到同一目录、同一绝对路径（`<data_dir>/workspace`）。
   多镜像部署以同一路径挂进两个容器。

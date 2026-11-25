@@ -30,7 +30,7 @@ func TestEstimateMessageTokens_ThinkingCounted(t *testing.T) {
 
 // TestEstimateMessageTokens_ToolCallsCounted 工具调用名与参数计入。
 func TestEstimateMessageTokens_ToolCallsCounted(t *testing.T) {
-	m := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{Name: "run_command", Arguments: []byte(`{"cmd":"ls"}`)}}}
+	m := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{Name: "command_run", Arguments: []byte(`{"cmd":"ls"}`)}}}
 	assert.Greater(t, EstimateMessageTokens(m), 0)
 }
 

@@ -2,7 +2,7 @@
  * 知识库域 API 客户端（/corpus 系列）。
  *
  * 知识条目的场景归属：null = 通用（任何任务可见），否则是一个场景（deleted = 场景已被删除）。
- * 检索测试与 agent 的 search_corpus 是同一次检索，以某个场景下的任务视角执行。
+ * 检索测试与 agent 的 corpus_search 是同一次检索，以某个场景下的任务视角执行。
  */
 
 import { API_BASE, del, get, patch, post, raise } from './client'

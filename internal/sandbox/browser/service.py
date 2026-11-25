@@ -49,7 +49,7 @@ os.environ.setdefault("TIMEOUT_BrowserLaunchEvent", "90")
 # ---- B1：CDP Network capture → runner 的 /internal/v1/traffic/ingest ----
 # 本服务持单一 CDP 连接，内建 Network observer 把 chromium 真实认证请求（含凭证位置）抓出 →
 # POST 到沙盒本机接口的 /ingest → 沙盒带令牌转发给 runner → ingestor.handleInternalSnap
-# （source=internal，落 agent_traffic）→ agent 经 list_traffic/view_traffic 看真实请求结构 + 凭证 →
+# （source=internal，落 agent_traffic）→ agent 经 traffic_list/traffic_view 看真实请求结构 + 凭证 →
 # http_request 带身份重放做水平/垂直越权（BAC）测试。本机接口的地址与口令随每个请求由客户端带来
 # （沙盒重启后会变），本进程不持有沙盒令牌。未带 → 不抓。
 # 只抓真实认证请求三类 chromium resourceType——静态资源/图片/字体/脚本不入字典（噪音 + 无凭证）。
@@ -226,7 +226,7 @@ class Service:
         try:
             client.register.Network.requestWillBeSentExtraInfo(self._cap_on_request_extra)
         except Exception:
-            pass  # 降级：无 httpOnly Cookie 捕获，view_traffic/http_request 重放仍带非 httpOnly 头
+            pass  # 降级：无 httpOnly Cookie 捕获，traffic_view/http_request 重放仍带非 httpOnly 头
         client.register.Network.responseReceived(self._cap_on_response)
         client.register.Network.loadingFinished(self._cap_on_finished)
         client.register.Network.loadingFailed(self._cap_on_failed)
@@ -341,7 +341,7 @@ class Service:
         resp_h = {k: [v] for k, v in (ent.get("resp_headers") or {}).items()}
         dur_ms = int(max(0.0, ent.get("finish", 0.0) - ent.get("start", 0.0)) * 1000)
         # 合入 ExtraInfo 抓到的真实 Cookie（含 httpOnly）：requestWillBeSent 的头里没有，
-        # view_traffic / http_request 重放要靠它才带得上登录态。有 cookie 才覆盖，否则保留原头不动。
+        # traffic_view / http_request 重放要靠它才带得上登录态。有 cookie 才覆盖，否则保留原头不动。
         req_h = dict(ent.get("req_headers") or {})
         cookie = ent.get("cookie", "")
         if cookie:

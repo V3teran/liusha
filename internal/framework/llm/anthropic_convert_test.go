@@ -32,8 +32,8 @@ func TestToAnthropicMessages_ParallelToolResultsShareOneUserMessage(t *testing.T
 	msgs := []Message{
 		{Role: RoleUser, Content: "规划"},
 		{Role: RoleAssistant, ToolCalls: []ToolCall{
-			{ID: "call_a", Name: "observe_state", Arguments: json.RawMessage(`{}`)},
-			{ID: "call_b", Name: "search_corpus", Arguments: json.RawMessage(`{"query":"xss"}`)},
+			{ID: "call_a", Name: "graph_read", Arguments: json.RawMessage(`{}`)},
+			{ID: "call_b", Name: "corpus_search", Arguments: json.RawMessage(`{"query":"xss"}`)},
 		}},
 		{Role: RoleTool, ToolCallID: "call_a", Content: "state"},
 		{Role: RoleTool, ToolCallID: "call_b", Content: "corpus"},

@@ -23,7 +23,7 @@ import (
 
 // Skill 是一个技能。
 type Skill struct {
-	Code        string `json:"code"`     // 寻址名：agent.skills 白名单与 read_skill 均用它
+	Code        string `json:"code"`     // 寻址名：agent.skills 白名单与 skill_read 均用它
 	Category    string `json:"category"` // 知识域：vuln（漏洞知识）/ tool（工具使用知识）
 	Name        string `json:"name"`
 	Description string `json:"description"`

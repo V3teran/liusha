@@ -344,7 +344,7 @@ func (s *Store) EnabledSkills(ctx context.Context) ([]skillstore.Skill, error) {
 	return slices.DeleteFunc(all, func(sk skillstore.Skill) bool { return !sk.Enabled }), nil
 }
 
-// Skill 按 code 返回技能（read_skill 的后端）。
+// Skill 按 code 返回技能（skill_read 的后端）。
 func (s *Store) Skill(ctx context.Context, code string) (skillstore.Skill, error) {
 	all, err := s.Skills(ctx)
 	if err != nil {

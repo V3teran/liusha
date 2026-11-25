@@ -123,7 +123,7 @@ func TestInstrumentProvider_StreamRecordsAssembledResult(t *testing.T) {
 		{Kind: StreamText, Content: "先想"},
 		{Kind: StreamText, Content: "后说"},
 		{Kind: StreamThinking, Content: "思考增量"},
-		{Kind: StreamToolCall, Tool: &ToolCall{ID: "c1", Name: "run_command", Arguments: []byte(`{"cmd":"ls"}`)}},
+		{Kind: StreamToolCall, Tool: &ToolCall{ID: "c1", Name: "command_run", Arguments: []byte(`{"cmd":"ls"}`)}},
 		{Kind: StreamDone, Usage: &Usage{InTokens: 7, OutTokens: 9}, Signature: "sig-1"},
 	}}, sink)
 
@@ -151,7 +151,7 @@ func TestInstrumentProvider_StreamRecordsAssembledResult(t *testing.T) {
 	if got.Thinking == nil || got.Thinking.Text != "思考增量" || got.Thinking.Signature != "sig-1" {
 		t.Errorf("思考聚合 = %+v", got.Thinking)
 	}
-	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "run_command" {
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "command_run" {
 		t.Errorf("工具调用聚合 = %+v", got.ToolCalls)
 	}
 }

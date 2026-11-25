@@ -39,9 +39,9 @@ func (noOpSandbox) Exec(_ context.Context, _ sandbox.ExecRequest) (sandbox.ExecR
 
 // TestFunctionToolCatalogSync 防漂移：registry.FunctionToolCatalog（前端工具目录
 // 事实源，经 toolstore.Reconcile 入库）与 BuildTools 实际构造集严格双向一致。
-// evaluator 包本地注册的 replay_for_verification 以白名单追加比对。
+// evaluator 包本地注册的 repro_replay 以白名单追加比对。
 func TestFunctionToolCatalogSync(t *testing.T) {
-	// 一个最小 skill 视图，让 read_skill 进入注册集（空视图不注册）。
+	// 一个最小 skill 视图，让 skill_read 进入注册集（空视图不注册）。
 	skillSet := &singleCardReader{card: &skill.Card{Key: "probe", Name: "probe", Description: "p", Body: "正文"}}
 
 	deps := Deps{
@@ -60,12 +60,12 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 	for _, tl := range BuildTools(deps, []string{"*"}) { // "*" = 全量（nil 现语义为默认拒绝）
 		registered[tl.Name()] = true
 	}
-	registered["replay_for_verification"] = true // evaluator judge 本地注册
+	registered["repro_replay"] = true // evaluator judge 本地注册
 	// planner/monitor 包内本地注册的图工具（不经 tools.BuildTools）
-	registered["observe_state"] = true
-	registered["evaluate_progress"] = true
-	registered["get_global_state"] = true
-	registered["publish_decision"] = true
+	registered["graph_read"] = true
+	registered["progress_evaluate"] = true
+	registered["task_survey"] = true
+	registered["decision_publish"] = true
 
 	inCatalog := make(map[string]bool)
 	for _, meta := range registry.FunctionToolCatalog {

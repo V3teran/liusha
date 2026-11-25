@@ -6,7 +6,7 @@
 //   - 内置技能 internal/builtin/skills/tool/<name>/SKILL.md 是可选的详细手册
 //
 // agent 把按 cli_tools 白名单过滤后的 ToolManifest 渲染成 CLI 工具目录塞进系统提示词（Tier 1 索引），
-// LLM 据此知道"沙箱里有哪些工具可用"。详细手册仍走 read_skill(name) 按需读 SKILL.md。
+// LLM 据此知道"沙箱里有哪些工具可用"。详细手册仍走 skill_read(name) 按需读 SKILL.md。
 package manifest
 
 import (
@@ -65,7 +65,7 @@ func Parse(data []byte) (*ToolManifest, error) {
 	if len(m.Tools) == 0 {
 		return nil, fmt.Errorf("工具清单不含任何工具（tools 列表为空）")
 	}
-	// 工具名是 cli_tools 名单与 run_command 的寻址键：缺名或重名都是清单错误。
+	// 工具名是 cli_tools 名单与 command_run 的寻址键：缺名或重名都是清单错误。
 	seen := make(map[string]bool, len(m.Tools))
 	for i, t := range m.Tools {
 		if strings.TrimSpace(t.Name) == "" {
@@ -111,7 +111,7 @@ func (m *ToolManifest) OrderedCategories() []Category {
 	return sorted
 }
 
-// Names 返回所有工具名（字典序）——供 read_skill / catalog lint 等使用。
+// Names 返回所有工具名（字典序）——供 skill_read / catalog lint 等使用。
 func (m *ToolManifest) Names() []string {
 	out := make([]string, 0, len(m.Tools))
 	for _, t := range m.Tools {

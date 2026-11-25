@@ -30,7 +30,7 @@ type Engine struct {
 	registry            *Registry                  // 使用 executor 包的 Registry
 	functionTools       []string                   // function_tools 白名单（nil=拒绝，["*"]=全量）
 	toolsManifest       ToolsManifest              // 过滤后的 CLI 工具清单
-	skills              []*skill.Card              // Tier 1 skill 索引（agent.skills 声明，正文按需 read_skill)
+	skills              []*skill.Card              // Tier 1 skill 索引（agent.skills 声明，正文按需 skill_read)
 	charter             string                     // 角色章程（生效值：出厂叠加用户自定义）
 	scenario            string                     // 任务场景块（scenario.Render；空 = 无场景）
 	complexity          llm.Complexity             // LLM 档位（agent 生效配置的 complexity；唯一来源）
@@ -230,11 +230,11 @@ func (e *Engine) buildSystemPrompt(registered []registry.Tool) string {
 		e.logger.Warn().Msg("没有可用的 CLI 工具（cli_tools 未配置或为空）")
 	}
 
-	// Tier 1 skill 索引（渐进式加载：索引常驻 prompt，正文按需 read_skill）。仅在
-	// read_skill 实际注册进 ReAct（function_tools 白名单放行）且本 agent 声明了 skills 时
+	// Tier 1 skill 索引（渐进式加载：索引常驻 prompt，正文按需 skill_read）。仅在
+	// skill_read 实际注册进 ReAct（function_tools 白名单放行）且本 agent 声明了 skills 时
 	// 渲染——工具不在场还宣传手册入口，LLM 会徒劳调用。
 	for _, t := range registered {
-		if t.Name() == "read_skill" {
+		if t.Name() == "skill_read" {
 			if idx := skill.RenderIndex(e.skills); idx != "" {
 				b.WriteString("\n" + idx)
 			}
@@ -248,7 +248,7 @@ func (e *Engine) buildSystemPrompt(registered []registry.Tool) string {
 // 使用 manifest.Categories 的顺序和名称，避免硬编码。
 func renderCLICatalog(categoryMap map[string][]manifest.Tool, m *manifest.ToolManifest) string {
 	var b strings.Builder
-	b.WriteString("**沙箱预装工具清单**（通过 run_command 调用）:\n")
+	b.WriteString("**沙箱预装工具清单**（通过 command_run 调用）:\n")
 
 	catByCode := m.CategoryByCode()
 	seen := make(map[string]bool, len(categoryMap))

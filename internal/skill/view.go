@@ -65,7 +65,7 @@ func RenderIndex(cards []*Card) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("**可用技能（skill）索引**（正文用 read_skill(name) 读取）：\n")
+	sb.WriteString("**可用技能（skill）索引**（正文用 skill_read(name) 读取）：\n")
 	for _, c := range cards {
 		key := c.Key
 		if key == "" {

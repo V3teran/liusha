@@ -293,7 +293,7 @@ func buildFactsSection(facts []Fact) string {
 	sb.WriteString("## 已确认的事实\n")
 	shown := dedup
 	if len(dedup) > factRenderLimit {
-		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 observe_state 深挖）\n", len(dedup)-factRenderLimit)
+		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 graph_read 深挖）\n", len(dedup)-factRenderLimit)
 		shown = dedup[:factRenderLimit]
 	}
 	// 按类别分组（同类别内近者在前）：规划器先看清环境的各个侧面，再据此推导。

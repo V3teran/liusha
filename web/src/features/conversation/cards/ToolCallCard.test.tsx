@@ -6,14 +6,14 @@ import { ToolCallCard } from './ToolCallCard'
 describe('ToolCallCard', () => {
   it('渲染工具名，默认折叠不显示参数', () => {
     render(<ToolCallCard tool="run_command" args='{"cmd":"ls"}' />)
-    expect(screen.getByText('run_command')).toBeTruthy()
+    expect(screen.getByText('command_run')).toBeTruthy()
     expect(screen.queryByText(/"cmd"/)).toBeNull()
   })
 
   it('点击展开显示美化后的参数 JSON', async () => {
     const user = userEvent.setup()
     render(<ToolCallCard tool="run_command" args='{"cmd":"ls"}' />)
-    await user.click(screen.getByText('run_command'))
+    await user.click(screen.getByText('command_run'))
     expect(screen.getByText(/"cmd": "ls"/)).toBeTruthy()
   })
 

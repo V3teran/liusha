@@ -1,6 +1,6 @@
 // Package evaluator 实现验证层：复现晋升门 + LLM 语义判定器（ReAct 形态）。
 //
-// judge.go 职责：分工铁律——复现门评估者经 replay_for_verification 工具自主重放取证、
+// judge.go 职责：分工铁律——复现门评估者经 repro_replay 工具自主重放取证、
 // 按需多次验证，最终输出结构化判定。断言命中 ≠ 主张成立（命中内容可能
 // 本就是常态输出），语义终判交给评估者——这是晋升门的最后一道闸。
 package evaluator
@@ -34,14 +34,14 @@ type LLMJudge interface {
 	Judge(ctx context.Context, hypothesis string, recipe, initialEvidence json.RawMessage, replay ReplayFunc) (Verdict, error)
 }
 
-// RouterJudge 经 ReAct runtime 跑语义判定：工具（replay_for_verification）+ 终判 JSON。
+// RouterJudge 经 ReAct runtime 跑语义判定：工具（repro_replay）+ 终判 JSON。
 type RouterJudge struct {
 	router             *llm.Router
 	logger             zerolog.Logger
 	thoughts           reasoning.Tap                     // 思考流出口（认知循环注入；nil=不流式）
 	functionTools      []string                          // function_tools 白名单（nil=拒绝；[]=空集；["*"]=全量；[...]=白名单）
-	extraTools         []registry.Tool                   // 装配层注入的额外工具（run_command 等白名单工具——跨包工具由 cognition 构造）
-	cliManifest        *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 run_command 调用）
+	extraTools         []registry.Tool                   // 装配层注入的额外工具（command_run 等白名单工具——跨包工具由 cognition 构造）
+	cliManifest        *manifest.ToolManifest            // CLI 工具目录（cli_tools 过滤后；渲染进 SystemPrompt 供 command_run 调用）
 	skills             []*skill.Card                     // Tier 1 skill 索引（agent.skills 声明；与 executor 同口径渲染）
 	charter            string                            // 角色章程（生效值：出厂叠加用户自定义）
 	scenario           string                            // 任务场景块（scenario.Render；空 = 无场景）
@@ -63,7 +63,7 @@ func NewRouterJudge(router *llm.Router, logger zerolog.Logger) *RouterJudge {
 }
 
 // WithFunctionTools 注入 function_tools 白名单（链式）。白名单同时约束本包工具
-// （replay_for_verification）与 extraTools——统一口径：不在名单上的工具不装配。
+// （repro_replay）与 extraTools——统一口径：不在名单上的工具不装配。
 func (j *RouterJudge) WithFunctionTools(names []string) *RouterJudge {
 	j.functionTools = names
 	return j
@@ -131,7 +131,7 @@ func (j *RouterJudge) WithToolOutputTailBytes(n int) *RouterJudge {
 }
 
 // WithToolWrapper 注入共享拦截链包装器（遥测/时间线）——评估者对目标的
-// 主动动作（replay_for_verification 重放）与 executor 同一执行面，审计无盲区。
+// 主动动作（repro_replay 重放）与 executor 同一执行面，审计无盲区。
 // nil=不包装（独立部署/测试）。
 func (j *RouterJudge) WithToolWrapper(fn func(registry.Tool) registry.Tool) *RouterJudge {
 	j.toolWrap = fn
@@ -178,13 +178,13 @@ func (j *RouterJudge) Judge(
 	}
 
 	react := runtime.NewReActRuntime()
-	if replay != nil && allowlist.Allows(j.functionTools, "replay_for_verification") {
+	if replay != nil && allowlist.Allows(j.functionTools, "repro_replay") {
 		replayTool := registry.Tool(newReplayTool(replay))
 		if j.toolWrap != nil {
 			replayTool = j.toolWrap(replayTool)
 		}
 		if err := react.RegisterTool(replayTool); err != nil {
-			return Verdict{}, fmt.Errorf("judge: 注册 replay_for_verification 失败: %w", err)
+			return Verdict{}, fmt.Errorf("judge: 注册 repro_replay 失败: %w", err)
 		}
 	}
 	for _, t := range j.extraTools {
@@ -282,8 +282,8 @@ func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence 
 //
 //	章程（可自定义：评估准则、验证流程）
 //	+ 契约（evaluator/contract，与 parseVerdict 同改同测，不可自定义：重放通道语义、判定 JSON）
-//	+ skill 索引（有声明且 read_skill 在白名单时渲染）
-//	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 run_command 调用）
+//	+ skill 索引（有声明且 skill_read 在白名单时渲染）
+//	+ CLI 目录（有 CLI 白名单时渲染，供独立复核经 command_run 调用）
 //	+ 任务场景块（scenario.Render，任务建立时快照；无场景时没有）
 //
 // 章程为空时返回空串让 ReAct.Run 报错——自定义层在写入时已拒绝空章程，此处只是兜底。
@@ -296,15 +296,15 @@ func (j *RouterJudge) systemPrompt() string {
 	sb.WriteString(charter)
 	sb.WriteString("\n\n")
 	sb.WriteString(evaluatorcontract.Text)
-	// Tier 1 与 executor 同口径：read_skill 在白名单里才宣传（宣传=事实）。
-	if len(j.skills) > 0 && allowlist.Allows(j.functionTools, "read_skill") {
+	// Tier 1 与 executor 同口径：skill_read 在白名单里才宣传（宣传=事实）。
+	if len(j.skills) > 0 && allowlist.Allows(j.functionTools, "skill_read") {
 		if idx := skill.RenderIndex(j.skills); idx != "" {
 			sb.WriteString("\n")
 			sb.WriteString(idx)
 		}
 	}
 	if j.cliManifest != nil && len(j.cliManifest.Tools) > 0 {
-		sb.WriteString("\n**沙箱 CLI 工具**（经 run_command 调用，独立复核取证可用）:\n")
+		sb.WriteString("\n**沙箱 CLI 工具**（经 command_run 调用，独立复核取证可用）:\n")
 		for _, t := range j.cliManifest.Tools {
 			sb.WriteString("- " + t.Name + ": " + t.Description + "\n")
 		}
@@ -348,7 +348,7 @@ func stringOrEmpty(b json.RawMessage) string {
 	return string(b)
 }
 
-// ─── replay_for_verification 工具 ────────────────────────────────────────────
+// ─── repro_replay 工具 ────────────────────────────────────────────
 
 // replayTool 把 ReplayFunc 包成 registry.Tool（绑定本 Claim 的配方，LLM 可多次调用取证）。
 type replayTool struct {
@@ -362,7 +362,7 @@ func newReplayTool(replay ReplayFunc) *replayTool {
 	return t
 }
 
-func (t *replayTool) Name() string      { return "replay_for_verification" }
+func (t *replayTool) Name() string      { return "repro_replay" }
 func (t *replayTool) ShortDesc() string { return "重放复现配方取得机器证据" }
 func (t *replayTool) Desc() string {
 	return "按本假设的复现配方执行一次机器复现，返回采集到的证据与断言逐条判定。可多次调用。"

@@ -119,8 +119,8 @@ ingestor:
 # 前端「系统配置 · 运行时」可热改（自定义存库、即时生效）；这里给出出厂值，键名与页面上的字段同名。
 runtime:
   step_llm_timeout_seconds: 300      # 单次 LLM 调用的上限（单步看门狗）：挂死的调用即失败。规划一整轮的预算、压缩链的时限都由它推导
-  step_tool_timeout_seconds: 1800    # run_command 的超时上限（模型自传的 timeout_seconds 不得超过它）
-  run_tail_bytes: 8192               # run_command 输出保留尾部的字节数（输出末段是结果所在）
+  step_tool_timeout_seconds: 1800    # command_run 的超时上限（模型自传的 timeout_seconds 不得超过它）
+  run_tail_bytes: 8192               # command_run 输出保留尾部的字节数（输出末段是结果所在）
   tool_output_tail_bytes: 32768      # 任意工具输出进模型上下文前的全局尾部保留字节数（防单条结果撑爆上下文）
 
 # ---- compaction：各角色会话历史的预算 ----

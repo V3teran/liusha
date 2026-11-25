@@ -133,7 +133,7 @@ func (s *ProxyStore) ClaimUnconsumedByHost(ctx context.Context, taskID, host str
 	return tag.RowsAffected(), nil
 }
 
-// ProxySummary 是 proxy_traffic 的瘦行（list_traffic 用）：不含 body / headers。
+// ProxySummary 是 proxy_traffic 的瘦行（traffic_list 用）：不含 body / headers。
 // URL 是完整请求 URL（前端列表 url 列直显，比裸 path 更可读）；
 // ContentType 是响应主类型（列表 content-type 列 + 前端筛选 facet 命中值）。
 type ProxySummary struct {
@@ -148,7 +148,7 @@ type ProxySummary struct {
 	CapturedAt  time.Time
 }
 
-// ListByTaskFiltered 在某代理捕获 task 消费的流量范围内按多维过滤查摘要（list_traffic 工具用）。
+// ListByTaskFiltered 在某代理捕获 task 消费的流量范围内按多维过滤查摘要（traffic_list 工具用）。
 // 按 captured_at DESC 排（最新优先）。
 func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f ProxyListFilter) ([]ProxySummary, error) {
 	if f.Limit <= 0 {
@@ -164,7 +164,7 @@ func (s *ProxyStore) ListByTaskFiltered(ctx context.Context, taskID string, f Pr
 	if f.Host != "" {
 		// host 列存的是 host:port（与 task.target_host / credentials key 同格式），
 		// 这里不能再剥端口去比——剥了就和存储值对不上，过滤永远零命中（2026-07-14 e2e 实测：
-		// 代理捕获 list_traffic 对已认领的 15 条流量返回空，根因就是这处误剥端口）。
+		// 代理捕获 traffic_list 对已认领的 15 条流量返回空，根因就是这处误剥端口）。
 		add("host=$%d", f.Host)
 	}
 	if f.Method != "" {

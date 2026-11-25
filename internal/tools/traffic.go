@@ -18,7 +18,7 @@ import (
 //
 // agent_traffic 与 proxy_traffic 是两张独立自增表，裸数字 id 跨表撞号（实测两表
 // max 同号共存）。工具边界上的流量 id 一律为「来源前缀化」的字符串——
-// "proxy:126" / "agent:94"：list_traffic 返回它，view_traffic 解析它并**严格路由**
+// "proxy:126" / "agent:94"：traffic_list 返回它，traffic_view 解析它并**严格路由**
 // 到对应表，不做任何跨表回退猜测。正确性由数据形状保证，不依赖调用方（LLM）
 // 记得传 source。
 const (
@@ -36,7 +36,7 @@ func qualifyTrafficRef(source string, id int64) string {
 func parseTrafficRef(ref string) (source string, id int64, err error) {
 	src, num, ok := strings.Cut(strings.TrimSpace(ref), ":")
 	if !ok || (src != trafficSourceProxy && src != trafficSourceAgent) {
-		return "", 0, fmt.Errorf("流量 id 须为 %q 或 %q 形式（list_traffic 返回的 id），得到 %q", "proxy:<id>", "agent:<id>", ref)
+		return "", 0, fmt.Errorf("流量 id 须为 %q 或 %q 形式（traffic_list 返回的 id），得到 %q", "proxy:<id>", "agent:<id>", ref)
 	}
 	id, e := strconv.ParseInt(num, 10, 64)
 	if e != nil || id <= 0 {
@@ -45,7 +45,7 @@ func parseTrafficRef(ref string) (source string, id int64, err error) {
 	return src, id, nil
 }
 
-// ─── list_traffic ────────────────────────────────────────────────────────────
+// ─── traffic_list ────────────────────────────────────────────────────────────
 
 var listTrafficSchema = json.RawMessage(`{
   "type": "object",
@@ -72,7 +72,7 @@ func newListTrafficTool(deps Deps, timeout time.Duration) *listTrafficTool {
 	return t
 }
 
-func (t *listTrafficTool) Name() string      { return "list_traffic" }
+func (t *listTrafficTool) Name() string      { return "traffic_list" }
 func (t *listTrafficTool) ShortDesc() string { return "列出本次扫描历史 HTTP 流量摘要" }
 func (t *listTrafficTool) Desc() string {
 	return "列出本次扫描范围内的历史 HTTP 流量摘要，可按 method/path/status 等过滤。"
@@ -91,7 +91,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		Limit      int    `json:"limit"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("list_traffic: invalid args: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("traffic_list: invalid args: %v", err)}, nil
 	}
 	if a.Limit <= 0 {
 		a.Limit = 20
@@ -126,7 +126,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		list, err := t.deps.AgentStore.ListByTaskFiltered(ctx, t.deps.TaskID, f)
 		if err != nil {
 			// 查询失败静默吞掉会让 agent 以为「没有弹药」——必须留痕并给降级说明
-			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("list_traffic: agent 流量查询失败")
+			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("traffic_list: agent 流量查询失败")
 			degraded = append(degraded, "agent 流量查询失败（该来源证据暂缺）")
 		} else {
 			for _, s := range list {
@@ -151,7 +151,7 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		}
 		list, err := t.deps.ProxyStore.ListByTaskFiltered(ctx, t.deps.TaskID, pf)
 		if err != nil {
-			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("list_traffic: proxy 流量查询失败")
+			t.deps.Logger.Warn().Err(err).Str("task_id", t.deps.TaskID).Msg("traffic_list: proxy 流量查询失败")
 			degraded = append(degraded, "proxy 流量查询失败（该来源证据暂缺）")
 		} else {
 			for _, s := range list {
@@ -175,12 +175,12 @@ func (t *listTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 	return registry.ToolResult{Output: string(b)}, nil
 }
 
-// ─── view_traffic ────────────────────────────────────────────────────────────
+// ─── traffic_view ────────────────────────────────────────────────────────────
 
 var viewTrafficSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
-    "id": {"type": "string", "description": "流量记录引用 id（list_traffic 返回的 \"proxy:123\" / \"agent:94\" 形式，自带来源前缀）。"}
+    "id": {"type": "string", "description": "流量记录引用 id（traffic_list 返回的 \"proxy:123\" / \"agent:94\" 形式，自带来源前缀）。"}
   },
   "required": ["id"]
 }`)
@@ -196,7 +196,7 @@ func newViewTrafficTool(deps Deps, timeout time.Duration) *viewTrafficTool {
 	return t
 }
 
-func (t *viewTrafficTool) Name() string      { return "view_traffic" }
+func (t *viewTrafficTool) Name() string      { return "traffic_view" }
 func (t *viewTrafficTool) ShortDesc() string { return "查看单条历史流量完整内容" }
 func (t *viewTrafficTool) Desc() string {
 	return "取单条历史流量的完整 raw HTTP 请求+响应（headers/body 全量）。"
@@ -208,39 +208,39 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "view_traffic: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "traffic_view: 解析参数失败: " + err.Error()}, nil
 	}
 
-	// id 自带来源前缀（list_traffic 返回 "proxy:126" / "agent:94"），据此严格路由到
+	// id 自带来源前缀（traffic_list 返回 "proxy:126" / "agent:94"），据此严格路由到
 	// 对应表——不做跨表回退猜测（两表 id 独立自增会撞号，回退顺序是错配的根源）。
 	source, id, perr := parseTrafficRef(a.ID)
 	if perr != nil {
-		return registry.ToolResult{Error: "view_traffic: " + perr.Error()}, nil
+		return registry.ToolResult{Error: "traffic_view: " + perr.Error()}, nil
 	}
 
 	switch source {
 	case trafficSourceAgent:
 		if t.deps.AgentStore == nil {
-			return registry.ToolResult{Error: "view_traffic: agent 流量存储未装配"}, nil
+			return registry.ToolResult{Error: "traffic_view: agent 流量存储未装配"}, nil
 		}
 		rec, err := t.deps.AgentStore.GetByID(ctx, id)
 		if err != nil {
-			return registry.ToolResult{Error: fmt.Sprintf("view_traffic: agent 流量 %s 不存在", a.ID)}, nil
+			return registry.ToolResult{Error: fmt.Sprintf("traffic_view: agent 流量 %s 不存在", a.ID)}, nil
 		}
 		b, _ := json.MarshalIndent(agentTrafficView(rec), "", "  ")
 		return registry.ToolResult{
 			Output: string(b),
-			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
+			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "traffic_view",
 				Content: fmt.Sprintf("[agent] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
 		}, nil
 
 	default: // trafficSourceProxy
 		if t.deps.ProxyStore == nil {
-			return registry.ToolResult{Error: "view_traffic: proxy 流量存储未装配"}, nil
+			return registry.ToolResult{Error: "traffic_view: proxy 流量存储未装配"}, nil
 		}
 		rec, err := t.deps.ProxyStore.GetByID(ctx, id)
 		if err != nil {
-			return registry.ToolResult{Error: fmt.Sprintf("view_traffic: proxy 流量 %s 不存在", a.ID)}, nil
+			return registry.ToolResult{Error: fmt.Sprintf("traffic_view: proxy 流量 %s 不存在", a.ID)}, nil
 		}
 		type proxyView struct {
 			ID          int64  `json:"id"`
@@ -258,13 +258,13 @@ func (t *viewTrafficTool) Execute(ctx context.Context, args json.RawMessage) (re
 		b, _ := json.MarshalIndent(v, "", "  ")
 		return registry.ToolResult{
 			Output: string(b),
-			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "view_traffic",
+			Signal: &registry.Signal{Kind: registry.SignalHTTPTrace, ToolName: "traffic_view",
 				Content: fmt.Sprintf("[proxy] %s %s → %d", rec.Method, rec.URL, rec.StatusCode)},
 		}, nil
 	}
 }
 
-// agentTrafficViewRecord 是 view_traffic 给出的一条 agent 流量：请求与响应体是文本。
+// agentTrafficViewRecord 是 traffic_view 给出的一条 agent 流量：请求与响应体是文本。
 type agentTrafficViewRecord struct {
 	ID              string          `json:"id"`
 	Identity        string          `json:"identity,omitempty"`

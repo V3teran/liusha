@@ -11,10 +11,10 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// defaultCommandTimeout 是沙盒命令未指定超时时的默认秒数（run_command 与 drive_browser 共用）。
+// defaultCommandTimeout 是沙盒命令未指定超时时的默认秒数（command_run 与 browser_drive 共用）。
 const defaultCommandTimeout = 120
 
-// ─── run_command ─────────────────────────────────────────────────────────────
+// ─── command_run ─────────────────────────────────────────────────────────────
 
 var runCommandSchema = json.RawMessage(`{
   "type": "object",
@@ -31,19 +31,19 @@ type runCommandTool struct {
 	deps Deps
 }
 
-// newRunCommandTool 构造 run_command。超时钳制上限与输出尾部保留都来自 runtime 配置（出厂值
+// newRunCommandTool 构造 command_run。超时钳制上限与输出尾部保留都来自 runtime 配置（出厂值
 // 在 config.yaml，热改值在系统设置），装配处必须给出——工具不再内置出厂值的第二份：配置改了
 // 它不会跟着变，留着只会让人以为「没配也行」。
 func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
 	if deps.StepToolTimeoutSeconds <= 0 || deps.RunTailBytes <= 0 || timeout <= 0 {
-		panic("run_command 需要 runtime.step_tool_timeout_seconds 与 runtime.run_tail_bytes（均须为正，注册表级超时同源）：装配处未给出配置值")
+		panic("command_run 需要 runtime.step_tool_timeout_seconds 与 runtime.run_tail_bytes（均须为正，注册表级超时同源）：装配处未给出配置值")
 	}
 	t := &runCommandTool{deps: deps}
 	t.SetTimeout(timeout)
 	return t
 }
 
-func (t *runCommandTool) Name() string      { return "run_command" }
+func (t *runCommandTool) Name() string      { return "command_run" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
 func (t *runCommandTool) Desc() string {
 	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。命令以 root 身份执行，sudo 不可用也无必要；预装清单外的命令也能写，但未安装的会报 command not found。"
@@ -74,10 +74,10 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		Tag            string `json:"tag"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "run_command: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "command_run: 解析参数失败: " + err.Error()}, nil
 	}
 	if a.Command == "" {
-		return registry.ToolResult{Error: "run_command: command 必填"}, nil
+		return registry.ToolResult{Error: "command_run: command 必填"}, nil
 	}
 	if a.TimeoutSeconds <= 0 {
 		a.TimeoutSeconds = defaultCommandTimeout
@@ -98,7 +98,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 	}
 	res, err := t.deps.Sandbox.Exec(ctx, req)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("run_command: 沙箱执行失败: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("command_run: 沙箱执行失败: %v", err)}, nil
 	}
 
 	// stdout/stderr 合并后按 runtime.run_tail_bytes 保留尾部——命令输出的结果
@@ -140,14 +140,14 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		Output: output,
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCmdOutput,
-			ToolName: "run_command",
+			ToolName: "command_run",
 			Content:  output,
 			Detail:   combined,
 		},
 	}, nil
 }
 
-// runCommandTimeout 返回 run_command 的注册表级超时 = runtime.step_tool_timeout_seconds
+// runCommandTimeout 返回 command_run 的注册表级超时 = runtime.step_tool_timeout_seconds
 // （配置里的出厂值或页面上的热改值，任务开始时快照）。它与 Execute 内的钳制上界同源——
 // 此前注册表硬编码 120s 而配置写 1800s，LLM 自传长超时实际仍被 120s 掐死。构造时已校验
 // 它为正。

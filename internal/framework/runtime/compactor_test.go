@@ -21,7 +21,7 @@ func mkMsg(role llm.MessageRole, content string) llm.Message {
 func mkToolPair(callID, content string) (llm.Message, llm.Message) {
 	assistant := llm.Message{
 		Role:      llm.RoleAssistant,
-		ToolCalls: []llm.ToolCall{{ID: callID, Name: "run_command", Arguments: []byte(`{}`)}},
+		ToolCalls: []llm.ToolCall{{ID: callID, Name: "command_run", Arguments: []byte(`{}`)}},
 	}
 	tool := llm.Message{Role: llm.RoleTool, ToolCallID: callID, Content: content}
 	return assistant, tool
@@ -250,7 +250,7 @@ func TestCallLLM_CompactionCheckpoint(t *testing.T) {
 
 	// 追加新一轮工具往返（历史重新逼近预算）后二次调用：新前缀新蒸馏，
 	// 旧纪要折叠进新纪要，权威历史仍只有一份纪要。
-	result.AddAssistantMessage("", []llm.ToolCall{{ID: "zz", Name: "run_command", Arguments: []byte(`{}`)}}, nil)
+	result.AddAssistantMessage("", []llm.ToolCall{{ID: "zz", Name: "command_run", Arguments: []byte(`{}`)}}, nil)
 	result.AddToolMessage("zz", strings.Repeat("observation-", 4))
 	_, err = r.callLLM(context.Background(), config, result)
 	require.NoError(t, err)

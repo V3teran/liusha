@@ -110,7 +110,7 @@ type Deps struct {
 	// SkillStore 为 nil 时 Skill 配置路由（/skills 系列）不注册。
 	// 由 api 组件注入 *configstore.Store（L1/L2/DB 多级缓存 + 写失效广播，
 	// 自动满足 SkillAPI 窄接口）。Skill 是 Agent 可访问的知识库文档
-	// （工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgstore 读（read_skill）。
+	// （工具手册、漏洞检测指南等）；运行时 runner 经同一 cfgstore 读（skill_read）。
 	SkillStore SkillAPI
 	// ScenarioStore 为 nil 时场景路由（/scenarios 系列）不注册；api 组件注入 *configstore.Store。
 	ScenarioStore ScenarioAPI

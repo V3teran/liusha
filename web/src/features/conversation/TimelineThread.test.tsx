@@ -25,7 +25,7 @@ function toolCallMsg(seq: number, agentName: string): Message {
     seq: seq,
     role: 'assistant',
     kind: 'event',
-    metadata: { kind: 'tool_call', tool_name: 'run_command', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    metadata: { kind: 'tool_call', tool_name: 'command_run', args: 'ls', result: '', duration_ms: 0, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }
@@ -35,7 +35,7 @@ function toolResultMsg(seq: number, agentName: string): Message {
     seq: seq,
     role: 'assistant',
     kind: 'event',
-    metadata: { kind: 'tool_result', tool_name: 'run_command', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
+    metadata: { kind: 'tool_result', tool_name: 'command_run', args: '', result: 'ok', duration_ms: 12, err: '', agent_name: agentName, text: '', in_tokens: 0, out_tokens: 0, latency_ms: 0, thinking: '' },
     ...base,
   } as Message
 }

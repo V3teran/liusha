@@ -162,7 +162,7 @@ func TestE2E_ProcessAggregation(t *testing.T) {
 	services := []string{
 		"runner",
 		"traffic", "finding", "cognition",
-		"llm.instrument", "llminvocation.store", "tools.run_command",
+		"llm.instrument", "llminvocation.store", "tools.command_run",
 	}
 	loggers := make([]zerolog.Logger, len(services))
 	for i, s := range services {

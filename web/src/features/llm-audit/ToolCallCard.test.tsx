@@ -4,7 +4,7 @@ import { ToolCallCard } from './ToolCallCard'
 import type { ToolCallView } from './toolCalls'
 
 function makeCall(overrides: Partial<ToolCallView> = {}): ToolCallView {
-  return { id: 'call-1', name: 'run_command', args: '', ...overrides }
+  return { id: 'call-1', name: 'command_run', args: '', ...overrides }
 }
 
 describe('ToolCallCard', () => {

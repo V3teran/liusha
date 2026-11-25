@@ -66,7 +66,7 @@ func TestContractsAreDomainNeutral(t *testing.T) {
 }
 
 // coreSources 是核心层里会产出 LLM 可见文本的源码（相对 internal/）。产品表层（闲聊、问答、
-// 意图分类、标题生成、漏洞台账）与 Web 专用工具（http_request、drive_browser、凭证、流量）
+// 意图分类、标题生成、漏洞台账）与 Web 专用工具（http_request、browser_drive、凭证、流量）
 // 保持渗透测试定位，不在此列。
 var coreSources = []string{
 	"planner", "executor", "evaluator", "monitor", "cognition", "framework",

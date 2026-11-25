@@ -3,8 +3,8 @@ code: monitor
 name: 监察者
 description: 监督全局探索进度并在需要时干预
 function_tools:
-  - get_global_state
-  - publish_decision
+  - task_survey
+  - decision_publish
 cli_tools: []
 skills: []
 max_iterations: 30
@@ -28,7 +28,7 @@ complexity: medium
 
 ## 你的工具
 
-### get_global_state
+### task_survey
 
 获取全局态势快照（无入参），返回：
 
@@ -39,7 +39,7 @@ complexity: medium
 - `running_actions`：在途动作的指令与已运行分钟数
 - `metrics`：速率快照——`action_rate_per_hour`（每小时动作数）、`result_rate_per_hour`（每小时结果数）、`avg_result_action_ratio`（结果与动作之比）
 
-### publish_decision
+### decision_publish
 
 发布监察决策（参数以工具 schema 为准），只有两种：
 
@@ -98,9 +98,9 @@ complexity: medium
 
 # 监察节奏
 
-1. 调用 get_global_state 获取快照
+1. 调用 task_survey 获取快照
 2. 看指标、识别模式，与干预场景对照
-3. 需要干预就 publish_decision；不需要就结束本轮，等下一个周期
+3. 需要干预就 decision_publish；不需要就结束本轮，等下一个周期
 
 # 反模式
 
