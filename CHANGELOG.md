@@ -3,7 +3,7 @@
 ## [0.15.0](https://github.com/V3teran/liusha/compare/v0.14.1...v0.15.0) (2026-11-25)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **httpapi:** 6 组接口路径改名、5 个列表接口的 `q` 参数改名为 `search`，调用方按新路径与参数名改写（对照表见升级说明）
 * **tools:** 配置文件新增 `web_search` 段（`url` / `auth_header` / `api_key`），升级前在 config.yaml 里补上这一段（不用网页检索就三项留空），否则程序缺键拒绝启动
