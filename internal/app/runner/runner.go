@@ -147,6 +147,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
 	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), llmstore.RetryOptions(cfg.LLM.Retry), cfg.LLM.AccountConcurrency)
+	// 模型配置在页面上的变更立即生效：丢掉按旧配置构造的 Provider，下一次调用按新配置构造。
+	cache.OnInvalidate(llmstore.OnRoutingChange(router.InvalidateAll))
 	// 并发相关的生效值启动时落一行日志：部署方据此确认配置生效，排障时也不必回翻配置文件。
 	logger.Info().
 		Int("llm.account_concurrency", cfg.LLM.AccountConcurrency).

@@ -135,6 +135,8 @@ func Run(ctx context.Context, cfg config.AppConfig, version string) error {
 	stepLLMTimeout := time.Duration(cfg.Runtime.StepLLMTimeoutSeconds) * time.Second
 	llmRouter := fwllm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), llmstore.RetryOptions(cfg.LLM.Retry), cfg.LLM.AccountConcurrency)
 	llmRouter.FailFast()
+	// 与 runner 同一口径：模型配置在页面上的变更立即生效（对话、意图分类立即用上新模型）。
+	cache.OnInvalidate(llmstore.OnRoutingChange(llmRouter.InvalidateAll))
 	llmRouter.SetProviderWrapper(func(p fwllm.Provider) fwllm.Provider {
 		return fwllm.InstrumentProvider(fwllm.WithDynamicCallTimeout(p,
 			stepLLMTimeout,

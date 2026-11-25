@@ -23,6 +23,7 @@ package llmstore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -76,7 +77,11 @@ func newWithStore(db llmStore, cache *cachestore.Cache) *Store {
 // 任一角色路由写即失效它（见 UpsertRoleRoute/DeleteRoleRoute）。
 const keyRouting = "llmstore:routing"
 
-func keyProvider(code string) string { return "llmstore:provider:code:" + code }
+// keyProviderPrefix 是单条 provider 缓存键的前缀：失效回调拿到的只有键名，按它认出 provider 键
+// （见 OnRoutingChange）。
+const keyProviderPrefix = "llmstore:provider:code:"
+
+func keyProvider(code string) string { return keyProviderPrefix + code }
 
 // keyProvidersList 是全量 provider 列表读的缓存键，按 onlyEnabled 分两键（有界）。
 // 任一 provider 写即失效两键（enabled 变动跨 true/false）。
@@ -93,6 +98,26 @@ const keyRoleRoutesList = "llmstore:routes:list"
 // keyRetrievalModel 是检索模型密钥行的缓存键（单键）。密钥写/删即失效。
 const keyRetrievalModel = "llmstore:retrieval"
 
+// OnRoutingChange 返回挂在缓存失效总线上的回调（cachestore.Cache.OnInvalidate）：一批失效键
+// 里有影响「一次对话模型调用发往哪里、用哪个模型」的，就让 Router 丢掉按旧配置构造的
+// Provider，下一次调用按新配置构造。这类键是 provider 的单条键、两个列表键、路由快照与
+// 路由列表；检索模型的密钥不在其中——它只管知识库的检索方式。
+//
+// 持有 Router 的组件（runner、api）装配时各挂一个。不挂时变更要等 Router 的缓存自然
+// 过期（30 秒）才生效。
+func OnRoutingChange(invalidate func()) func(context.Context, []string) {
+	return func(_ context.Context, keys []string) {
+		for _, key := range keys {
+			if strings.HasPrefix(key, keyProviderPrefix) ||
+				key == keyProvidersList(true) || key == keyProvidersList(false) ||
+				key == keyRouting || key == keyRoleRoutesList {
+				invalidate()
+				return
+			}
+		}
+	}
+}
+
 // providerKeys 是一次 provider 写/删要清的全部缓存键：其单条缓存键 + 两个列表键
 // （enabled 变动跨 true/false 两表，一律清最省心且正确）。
 func providerKeys(code string) []string {
@@ -102,13 +127,6 @@ func providerKeys(code string) []string {
 // routeKeys 是一次角色路由写/删要清的全部缓存键：路由快照哨兵 + 列表键。
 func routeKeys() []string {
 	return []string{keyRouting, keyRoleRoutesList}
-}
-
-// InvalidateAll 清空模型配置的全部读缓存（列表键 + 路由快照 + 路由列表 + 检索模型密钥）。
-// 供绕过本 store 写路径的批量导入（启动期 seed 直连 DB）之后调用——不经失效
-// 广播的外部写入会让缓存里的旧值存活到 TTL，重启后读到「已重建却像未配置」。
-func (s *Store) InvalidateAll(ctx context.Context) error {
-	return s.cache.Invalidate(ctx, append(routeKeys(), keyProvidersList(true), keyProvidersList(false), keyRetrievalModel)...)
 }
 
 // ── 单条 provider 读（L1/L2 缓存，热路径）───────────────────────────────
