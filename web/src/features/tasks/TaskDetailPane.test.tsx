@@ -43,6 +43,7 @@ function makeTask(overrides: Partial<TaskSummary> = {}): TaskSummary {
     scenario_name: '渗透测试',
     scenario_deleted: false,
     finding_count: 2,
+    findings_by_severity: { high: 2 },
     step_count: 5,
     tokens_in: 0,
     tokens_out: 0,

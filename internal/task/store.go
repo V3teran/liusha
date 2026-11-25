@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -235,6 +236,8 @@ type Summary struct {
 	ScenarioName    string // 场景名称快照
 	ScenarioDeleted bool   // 场景此后已被删除（任务照常读自身快照）
 	FindingCount    int
+	// FindingsBySeverity 是发现数按严重度的分布，只有不为 0 的档；FindingCount 是它各档之和。
+	FindingsBySeverity map[string]int
 	// StepCount 是认知循环推理步数（reasoning 终态数，最近一次 dispatched 之后）——
 	// 与对话时间线卡片的「第 N 步」同一口径。会话无推理步（后台任务/旧数据）时
 	// 回退探索图 action 节点数。
@@ -277,7 +280,8 @@ const summarySelect = `
 	COALESCE(c.id::text, ''),
 	COALESCE(t.scenario, ''), COALESCE(t.scenario_name, ''),
 	(t.scenario IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scenario sc WHERE sc.code = t.scenario)),
-	(SELECT count(*) FROM finding f WHERE f.task_id = t.id),
+	(SELECT COALESCE(jsonb_object_agg(fs.severity, fs.n), '{}'::jsonb)
+	   FROM (SELECT f.severity, count(*) AS n FROM finding f WHERE f.task_id = t.id GROUP BY f.severity) fs),
 	` + summaryStepCount + `,
 	(SELECT COALESCE(SUM(li.in_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
 	(SELECT COALESCE(SUM(li.out_tokens), 0) FROM llm_invocation li WHERE li.task_id = t.id),
@@ -324,11 +328,21 @@ func timeArg(t time.Time) any {
 
 func scanSummary(r db.RowScanner, s *Summary) error {
 	var status, source string
+	var findings []byte
 	if err := r.Scan(&s.ID, &s.Goal, &s.TargetHost, &status, &s.Paused,
 		&s.AssignmentID, &s.AssignmentTitle, &s.AssignmentIndex, &s.AssignmentTotal, &source, &s.ScheduleID,
-		&s.CronExpr, &s.ConversationID, &s.ScenarioCode, &s.ScenarioName, &s.ScenarioDeleted, &s.FindingCount, &s.StepCount,
+		&s.CronExpr, &s.ConversationID, &s.ScenarioCode, &s.ScenarioName, &s.ScenarioDeleted, &findings, &s.StepCount,
 		&s.TokensIn, &s.TokensOut, &s.CreatedAt, &s.EndedAt, &s.AbortReason); err != nil {
 		return err
+	}
+	// 没有发现时库里的聚合是 {}：落成空表而不是 nil，调用方不必判空
+	s.FindingsBySeverity = map[string]int{}
+	if err := json.Unmarshal(findings, &s.FindingsBySeverity); err != nil {
+		return fmt.Errorf("decode findings by severity: %w", err)
+	}
+	s.FindingCount = 0
+	for _, n := range s.FindingsBySeverity {
+		s.FindingCount += n
 	}
 	s.Status = Status(status)
 	s.Source = source

@@ -30,6 +30,24 @@ export const severityLabel: Record<string, string> = {
 }
 
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
+export type Severity = (typeof SEVERITIES)[number]
+
+/**
+ * 各档的数量里不为 0 的档，按严重程度从高到低排列。展示「按严重度分档的发现数」的地方共用：
+ * 为 0 的档不列（列出来只是噪声），顺序也不由数据里键的先后决定。
+ */
+export function severityEntries(counts: Readonly<Record<string, number | undefined>>): Array<[Severity, number]> {
+  return SEVERITIES.filter((s) => (counts[s] ?? 0) > 0).map((s) => [s, counts[s] as number])
+}
+
+/**
+ * 把等级色当裸文字用时的取色：向正文色混 15%。等级 token 是按「色字 / 自身的淡底徽章」校准的，
+ * 直接当裸文字压在选中行的淡底上，深色主题下红色会跌到 AA 以下（实测 4.43）；混一点正文色后，
+ * 各档在普通行、悬停行、选中行上都不低于 5.3，色相不变。
+ */
+export function severityTextColor(sev: string): string {
+  return `color-mix(in oklab, ${severityColorOf(sev)} 85%, var(--text))`
+}
 
 // 生成标签徽章的三件套配色（淡底 + 同色字 + 同色边），供 FindingCard 徽章用。
 // 底与边用 color-mix 派生——token 是 var() 引用，不能再拼十六进制透明度后缀。

@@ -4,6 +4,7 @@ import { Pause, Play, Square } from 'lucide-react'
 import { TokenPair } from '@/components/TokenPair'
 import type { TaskSummary } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
+import { SeverityTally } from '@/features/finding/SeverityCounts'
 import { clockTime, dateOnly, fullTime } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
 import { sourceColor, sourceLabel } from '@/lib/source'
@@ -19,6 +20,10 @@ export function goalHead(goal: string, max = 24): string {
 // 任务表列定义（对齐 trafficColumns 的对齐体系：数值/时间列表头与值同靠右，文本/徽章列靠左）。
 // # 是页内序号（offset+index+1）——task id 是 uuid 不可直显，序号仅定位用。
 // 目标列是弹性主列：weight 远大于其它列，收窄时由它承担压缩。
+//
+// 全表设计宽度合计 ≈1130px：1440 视口（侧栏展开）内容区刚好完整放下全部列，不出横向滚动。
+// 发现列从总数换成五个档的计数后宽了 64px，从批次、进度、操作三列各让出一点、目标列再让 18px 补回来
+// （进度列两位数只占一半、操作列两个图标钮共 54px 都实测有富余；目标列截断处有悬停全文）。
 
 function buildTaskColumns(
   offset: number,
@@ -55,9 +60,8 @@ function buildTaskColumns(
     }),
     columnHelper.accessor('goal', {
       header: '目标',
-      // 设计宽度 180：全表设计宽度合计 ≈1130px，1440 视口（侧栏展开）内容区可完整
-      // 放下全部列；宽屏下目标列按权重拉伸，超长目标截断 + title 悬停全文。
-      size: 180,
+      // 162：为发现列让出 18px 后的主列宽度（全表合计见上）；超长目标截断 + 悬停全文
+      size: 162,
       cell: (ctx) => (
         <span className="block truncate text-sm text-text" title={ctx.getValue()}>
           {ctx.getValue()}
@@ -86,7 +90,8 @@ function buildTaskColumns(
     }),
     columnHelper.accessor('assignment_title', {
       header: '批次',
-      size: 150,
+      // 124：批内序号 + 批次名；批次名截断，悬停给全名
+      size: 124,
       cell: (ctx) => {
         const t = ctx.row.original
         // 进度前置（扫到第几个一目了然），悬停给批次全名
@@ -104,18 +109,12 @@ function buildTaskColumns(
         )
       },
     }),
-    columnHelper.accessor('finding_count', {
+    columnHelper.accessor('findings_by_severity', {
       header: '发现',
-      size: 64,
-      meta: { align: 'right' },
-      cell: (ctx) => {
-        const n = ctx.getValue()
-        return (
-          <span className={`block text-right font-mono text-sm tabular-nums ${n > 0 ? 'font-semibold text-sev-high' : 'text-text-secondary'}`}>
-            {n > 0 ? n : '—'}
-          </span>
-        )
-      },
+      // 128：五个数各留两位（「12/34/56/78/90」约 91px）；数的顺序见悬停提示
+      size: 128,
+      meta: { headerTitle: '按严重程度：严重 / 高危 / 中危 / 低危 / 信息' },
+      cell: (ctx) => <SeverityTally counts={ctx.getValue()} />,
     }),
     columnHelper.display({
       id: 'tokens',
@@ -138,8 +137,8 @@ function buildTaskColumns(
     }),
     columnHelper.accessor('step_count', {
       header: '进度',
-      // 88：两位数「12 步」在窄窗下 64px 容不下（12px 字宽×4 字符 + px-4 内边距 32px）会被挤换行
-      size: 88,
+      // 72：「999 步」约 37px + 内边距 24px；再窄会折行
+      size: 72,
       meta: { align: 'right' },
       cell: (ctx) => {
         const n = ctx.getValue()
@@ -186,7 +185,8 @@ function buildTaskColumns(
     columnHelper.display({
       id: 'actions',
       header: '操作',
-      size: 84,
+      // 80：两个图标钮共 54px + 内边距 24px
+      size: 80,
       cell: (ctx) => {
         const t = ctx.row.original
         if (t.status !== 'active') return null

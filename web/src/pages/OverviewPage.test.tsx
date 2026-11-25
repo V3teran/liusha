@@ -91,6 +91,7 @@ function task(over: Partial<TaskSummary> = {}): TaskSummary {
     scenario_name: '渗透测试',
     scenario_deleted: false,
     finding_count: 3,
+    findings_by_severity: { high: 2, medium: 1 },
     step_count: 12,
     tokens_in: 0,
     tokens_out: 0,

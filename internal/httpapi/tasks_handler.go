@@ -242,6 +242,10 @@ func taskSummariesJSON(rows []task.Summary) []gin.H {
 }
 
 func taskSummaryJSON(sm task.Summary) gin.H {
+	bySeverity := sm.FindingsBySeverity
+	if bySeverity == nil {
+		bySeverity = map[string]int{}
+	}
 	return gin.H{
 		"id":               sm.ID,
 		"goal":             sm.Goal,
@@ -261,12 +265,14 @@ func taskSummaryJSON(sm task.Summary) gin.H {
 		"scenario_name":    sm.ScenarioName,
 		"scenario_deleted": sm.ScenarioDeleted,
 		"finding_count":    sm.FindingCount,
-		"step_count":       sm.StepCount,
-		"tokens_in":        sm.TokensIn,
-		"tokens_out":       sm.TokensOut,
-		"created_at":       sm.CreatedAt,
-		"ended_at":         sm.EndedAt,
-		"abort_reason":     sm.AbortReason,
+		// 没有发现时给空表而不是 null：列表的发现列按档取数，不必再判空
+		"findings_by_severity": bySeverity,
+		"step_count":           sm.StepCount,
+		"tokens_in":            sm.TokensIn,
+		"tokens_out":           sm.TokensOut,
+		"created_at":           sm.CreatedAt,
+		"ended_at":             sm.EndedAt,
+		"abort_reason":         sm.AbortReason,
 	}
 }
 
