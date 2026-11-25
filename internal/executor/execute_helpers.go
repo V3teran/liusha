@@ -194,7 +194,7 @@ func (e *Engine) executeReActRuntime(
 		if output, perr := ParseOutput(result); perr == nil && terminalIsJSON(result.FinalAnswer) {
 			round.Summary = outputNarrative(output)
 		}
-		e.thoughts.Done(round)
+		e.thoughts.Done(ctx, round)
 	}
 
 	e.logger.Info().

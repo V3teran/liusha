@@ -144,6 +144,8 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 
 	// 3. 设置 action 上下文（供工具使用）
 	ctx = tools.WithActionID(ctx, action.ID)
+	// 一轮 = 一个动作：本轮的工具过程事件与终稿带同一个轮次标识（执行者并行跑多个动作）
+	ctx = reasoning.BeginRound(ctx)
 
 	e.logger.Info().
 		Str("action_id", action.ID).

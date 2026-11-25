@@ -43,9 +43,10 @@ describe('ToolResultCard', () => {
     expect(screen.getByText('a b c')).toBeTruthy()
   })
 
-  it('有 agentName 时显示中文标签', () => {
-    render(<ToolResultCard tool="x" result="ok" durationMs={1} err="" agentName="planner" />)
-    expect(screen.getByText('规划')).toBeTruthy()
+  it('身份色落在左侧色条上，卡内不重复身份标签（归属由它所在的轮卡表明）', () => {
+    const { container } = render(<ToolResultCard tool="x" result="ok" durationMs={1} err="" accent="#8b5cf6" />)
+    expect(container.querySelector('[data-card="tool-result"] button')?.getAttribute('style')).toContain('rgb(139, 92, 246)')
+    expect(screen.queryByText('规划')).toBeNull()
   })
 
   it('无结果无错误时预览为空字符串（不崩）', () => {

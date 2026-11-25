@@ -71,6 +71,9 @@ const FIXED: Record<string, AgentProfile> = {
   },
 }
 
+/** 登记过的身份，顺序即它们在名单类界面里的排列顺序（认知循环的四个 agent 在前）。 */
+export const KNOWN_AGENTS: readonly string[] = Object.keys(FIXED)
+
 const FALLBACK_PALETTE: CategoricalHue[] = ['pink', 'cyan', 'lime', 'orange', 'violet']
 
 function hashIndex(s: string, mod: number): number {

@@ -38,6 +38,7 @@ export interface TimelineEventMeta {
   text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型日志页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
+  round_id?: string // reasoning/tool_call/tool_result：所属的轮（一次 agent 运行）的标识，同一轮的终稿与工具事件相同；标识上线之前的事件没有
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
   out_tokens: number // reasoning：本轮 LLM 输出 token 累计
   latency_ms: number // reasoning：本轮墙钟耗时(ms)

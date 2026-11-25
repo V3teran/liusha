@@ -94,7 +94,7 @@ func TestStream_DoneFlushesAndPersists(t *testing.T) {
 	tap := s.TapFor("executor")
 
 	tap.Delta("思考片段")
-	tap.Done(Round{Summary: "本轮结论", Thinking: "思考终稿", InTokens: 120, OutTokens: 80, LatencyMs: 2500})
+	tap.Done(context.Background(), Round{Summary: "本轮结论", Thinking: "思考终稿", InTokens: 120, OutTokens: 80, LatencyMs: 2500})
 
 	if len(pub.deltas) != 1 || pub.deltas[0].text != "思考片段" {
 		t.Fatalf("Done 应先冲刷待发增量, got %+v", pub.deltas)
@@ -134,7 +134,7 @@ func TestStream_DisabledWhenNoConversation(t *testing.T) {
 	s, pub, w := newTestStream("")
 	tap := s.TapFor("executor")
 	tap.Delta("x")
-	tap.Done(Round{Summary: "y"})
+	tap.Done(context.Background(), Round{Summary: "y"})
 	s.flush()
 	s.Close()
 	if len(pub.deltas) != 0 || len(pub.payloads) != 0 || len(w.appended) != 0 {
@@ -160,7 +160,7 @@ func TestStream_SummaryTruncated(t *testing.T) {
 	for i := range long {
 		long[i] = '字'
 	}
-	s.TapFor("planner").Done(Round{Summary: string(long)})
+	s.TapFor("planner").Done(context.Background(), Round{Summary: string(long)})
 	got := []rune(w.appended[0].Content)
 	if len(got) > maxSummaryRunes+10 {
 		t.Fatalf("终稿应截断, got %d runes", len(got))
@@ -215,7 +215,7 @@ func TestStream_DualChannelThinkingAndText(t *testing.T) {
 		t.Fatalf("text 帧 = %+v", pub.deltas[1])
 	}
 
-	tap.Done(Round{Summary: "结论", Thinking: "完整思考"})
+	tap.Done(context.Background(), Round{Summary: "结论", Thinking: "完整思考"})
 	var meta struct {
 		Kind      string `json:"kind"`
 		AgentName string `json:"agent_name"`
@@ -226,6 +226,46 @@ func TestStream_DualChannelThinkingAndText(t *testing.T) {
 	}
 	if meta.Kind != "reasoning" || meta.AgentName != "executor" || meta.Thinking != "完整思考" {
 		t.Fatalf("metadata = %+v", meta)
+	}
+	s.Close()
+}
+
+// 轮次标识：BeginRound 给 ctx 一个新标识，RoundID 在轮外为空。
+func TestBeginRound(t *testing.T) {
+	if RoundID(context.Background()) != "" {
+		t.Fatal("轮外不应有标识")
+	}
+	a, b := BeginRound(context.Background()), BeginRound(context.Background())
+	if RoundID(a) == "" || RoundID(a) == RoundID(b) {
+		t.Fatalf("每一轮一个新标识, a=%q b=%q", RoundID(a), RoundID(b))
+	}
+	otherKey := &struct{ n int }{}
+	if RoundID(context.WithValue(a, otherKey, 0)) != RoundID(a) {
+		t.Fatal("标识应沿 ctx 派生下去（工具在派生的 ctx 上执行）")
+	}
+}
+
+// 终稿带本轮的标识：时间线据它把本轮的工具过程事件归到这条终稿名下——同一 agent 并行
+// 多轮时（执行者的几个动作、评估者的几条验证），只凭「同一 agent、上一条终稿之后」分不开。
+// 不在任何一轮里（ctx 没经 BeginRound）就不写这个键。
+func TestStream_DoneCarriesRoundID(t *testing.T) {
+	s, _, w := newTestStream("c1")
+	ctx := BeginRound(context.Background())
+	s.TapFor("executor").Done(ctx, Round{Summary: "结论"})
+	s.TapFor("executor").Done(context.Background(), Round{Summary: "不在轮里"})
+
+	var first, second map[string]any
+	if err := json.Unmarshal(w.metas[0], &first); err != nil {
+		t.Fatalf("metadata 解析: %v", err)
+	}
+	if err := json.Unmarshal(w.metas[1], &second); err != nil {
+		t.Fatalf("metadata 解析: %v", err)
+	}
+	if first["round_id"] != RoundID(ctx) {
+		t.Fatalf("终稿应带本轮标识, metadata = %v", first)
+	}
+	if _, ok := second["round_id"]; ok {
+		t.Fatalf("不在轮里的终稿不应带标识, metadata = %v", second)
 	}
 	s.Close()
 }

@@ -362,6 +362,8 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		onThoughtDelta = e.thoughts.Delta
 		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
+	// 本轮的工具过程事件与终稿带同一个轮次标识
+	ctx = reasoning.BeginRound(ctx)
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:                  prompt,
 		SystemPrompt:               e.buildPlannerSystemPrompt(),
@@ -392,7 +394,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		round.Summary = planningNarrative(*response)
 	}
 	if e.thoughts != nil {
-		e.thoughts.Done(round)
+		e.thoughts.Done(ctx, round)
 	}
 	if perr != nil {
 		return PlanOutcome{}, fmt.Errorf("解析规划输出失败: %w", perr)

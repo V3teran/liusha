@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -165,5 +166,46 @@ func TestTruncateEventRunes(t *testing.T) {
 	}
 	if truncateEventRunes("短文本") != "短文本" {
 		t.Fatalf("短文本不应截断")
+	}
+}
+
+// 工具过程事件带 ctx 所在轮的标识：与这一轮的终稿（reasoning 消息）同一个 round_id，
+// 时间线据它把事件归到那一轮名下。不在轮里（没有 BeginRound 的调用方）不写这个键。
+func TestToolTimelineInterceptor_CarriesRoundID(t *testing.T) {
+	w := &fakeTimelineWriter{}
+	interceptor := newToolTimelineEvents(w, &fakeTimelinePub{}, zerolog.Nop()).interceptor("conv-1")
+	next := registry.ExecuteFunc(func(_ context.Context, _ registry.Tool, _ []byte) (registry.ToolResult, error) {
+		return registry.ToolResult{Output: "观测原文"}, nil
+	})
+
+	ctx := reasoning.BeginRound(WithAgent(context.Background(), "executor"))
+	if _, err := interceptor(ctx, echoTool{}, []byte(`{}`), next); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := interceptor(context.Background(), echoTool{}, []byte(`{}`), next); err != nil {
+		t.Fatal(err)
+	}
+
+	want := reasoning.RoundID(ctx)
+	if want == "" {
+		t.Fatal("前置：ctx 应在一轮里")
+	}
+	for i, meta := range w.metas[:2] {
+		var ev struct {
+			RoundID string `json:"round_id"`
+		}
+		if err := json.Unmarshal(meta, &ev); err != nil {
+			t.Fatalf("事件 %d 解析: %v", i, err)
+		}
+		if ev.RoundID != want {
+			t.Fatalf("事件 %d 应带本轮标识 %q, got %q", i, want, ev.RoundID)
+		}
+	}
+	var outside map[string]any
+	if err := json.Unmarshal(w.metas[2], &outside); err != nil {
+		t.Fatalf("事件解析: %v", err)
+	}
+	if _, ok := outside["round_id"]; ok {
+		t.Fatalf("不在轮里的事件不应带标识, got %v", outside)
 	}
 }

@@ -172,6 +172,8 @@ func (j *RouterJudge) Judge(
 	recipe, initialEvidence json.RawMessage,
 	replay ReplayFunc,
 ) (Verdict, error) {
+	// 一轮 = 一条假设的验证：本轮的工具过程事件与终稿带同一个轮次标识（评估者并行验证多条假设）
+	ctx = reasoning.BeginRound(ctx)
 	provider, err := j.router.For(ctx, j.complexity)
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: 获取 provider: %w", err)
@@ -240,7 +242,7 @@ func (j *RouterJudge) Judge(
 		round.Summary = verdictNarrative(v)
 	}
 	if j.thoughts != nil {
-		j.thoughts.Done(round)
+		j.thoughts.Done(ctx, round)
 	}
 	return v, verr
 }

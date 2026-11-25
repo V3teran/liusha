@@ -316,12 +316,14 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		config.OnThinkingDelta = a.thoughts.ThinkingDelta
 	}
 	// 每轮评估一份所见记录：决策只能基于本轮经 task_survey 看到的态势
+	// 本轮的工具过程事件与终稿带同一个轮次标识
+	ctx = reasoning.BeginRound(ctx)
 	result, err := a.reactRuntime.Run(withSeenSurface(ctx), config)
 	if err != nil {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
 	}
 	if a.thoughts != nil {
-		a.thoughts.Done(reasoning.RoundOf(result))
+		a.thoughts.Done(ctx, reasoning.RoundOf(result))
 	}
 
 	a.logger.Info().

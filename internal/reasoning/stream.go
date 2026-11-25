@@ -4,8 +4,8 @@
 //     丢帧无害。通道分 two lanes：thinking（模型内部 CoT，先流）与 text
 //     （ReAct thought 正文，后流），前端分两个展示区（思考折叠区 + 正文打字机）；
 //   - Done 终稿落 conversation message（kind=event + metadata{kind:reasoning,
-//     agent_name, thinking}）并广播——PG 是断线重连的真相源，前端收到终态即清空
-//     该 agent 的活动气泡。
+//     agent_name, round_id, thinking}）并广播——PG 是断线重连的真相源，前端收到终态即清空
+//     该 agent 的活动气泡。round_id 把终稿与本轮的工具过程事件（见 cognition/timeline.go）归到一轮。
 //
 // 认知循环四个 agent 并发思考，Stream 按 agent 分桶合批、保序广播；
 // conversationID 为空（纯后台扫描）时整体 no-op。
@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
@@ -38,6 +39,9 @@ const maxSummaryRunes = 4000
 // 人读形态（已知协议在解析边界叙述）；协议原文的完整保存在 llm_invocation
 // （审计面），时间线不重复携带。
 type Round struct {
+	// ID 是这一轮的标识，Done 从本轮运行的 ctx 上取（见 BeginRound）：时间线据它把
+	// 本轮的工具过程事件归到这条终稿名下。空 = 不在任何一轮里，终稿不写这个键。
+	ID        string
 	Summary   string
 	Thinking  string
 	InTokens  int
@@ -46,13 +50,32 @@ type Round struct {
 }
 
 // Tap 是单个 agent 的输出流出口。Delta 记正文增量（ReAct thought）；
-// ThinkingDelta 记扩展思考增量（模型内部 CoT）；Done 结束当前一轮——
+// ThinkingDelta 记扩展思考增量；Done 结束当前一轮——
 // Round 携带终稿与用量（落库 + 广播，前端据此清空气泡并渲染用量 chip）。
 // 三者并发安全。
 type Tap interface {
 	Delta(chunk string)
 	ThinkingDelta(chunk string)
-	Done(round Round)
+	// Done 结束当前一轮。ctx 是这一轮运行的 ctx：只从它取轮次标识，落库与广播仍用流
+	// 自己的 ctx——终稿是前端清空气泡的信号，不随这一轮被取消而丢。
+	Done(ctx context.Context, round Round)
+}
+
+// roundKey 是当前轮标识的 context 键。
+type roundKey struct{}
+
+// BeginRound 在 ctx 上开始一轮，返回带轮次标识的 ctx。一轮是一次 ReAct 运行。输出流按
+// agent 分，而同一 agent 会并行跑多轮（执行者的几个动作、评估者的几条验证）：时间线上
+// 只凭「同一 agent、上一条终稿之后」分不清一条工具过程事件属于哪一轮——本轮里发出的
+// 工具事件与终稿带同一个标识。标识只是关联键，不承载语义。
+func BeginRound(ctx context.Context) context.Context {
+	return context.WithValue(ctx, roundKey{}, uuid.NewString())
+}
+
+// RoundID 返回 ctx 所在一轮的标识；不在任何一轮里时为空。
+func RoundID(ctx context.Context) string {
+	id, _ := ctx.Value(roundKey{}).(string)
+	return id
 }
 
 // RoundOf 把 ReAct 运行终稿折成时间线一轮的载荷（四 agent 共用，字段映射单一出处）。
@@ -230,10 +253,11 @@ func (t agentTap) ThinkingDelta(chunk string) {
 
 // Done 结束当前一轮：先冲刷该 agent 的待发增量（保序），再落终态消息并广播。
 // 终稿为空时仍落一条终态——终态帧是前端清空气泡的信号，不可省。
-func (t agentTap) Done(round Round) {
+func (t agentTap) Done(ctx context.Context, round Round) {
 	if t.s.conversationID == "" {
 		return
 	}
+	round.ID = RoundID(ctx)
 	t.s.mu.Lock()
 	buf := t.s.pending[t.agent]
 	delete(t.s.pending, t.agent)
@@ -248,14 +272,18 @@ func (t agentTap) Done(round Round) {
 // publishFinal 落库并广播终态 reasoning 消息（思考原文与用量随 metadata 携带，
 // 前端终态卡以折叠区呈现思考、以 chip 呈现 token/耗时，正文以消息 Content 呈现）。
 func (t agentTap) publishFinal(round Round) {
-	meta, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"kind":       "reasoning",
 		"agent_name": t.agent,
 		"thinking":   textx.TruncateRunes(round.Thinking, maxSummaryRunes, "…（截断）"),
 		"in_tokens":  round.InTokens,
 		"out_tokens": round.OutTokens,
 		"latency_ms": round.LatencyMs,
-	})
+	}
+	if round.ID != "" {
+		fields["round_id"] = round.ID
+	}
+	meta, err := json.Marshal(fields)
 	if err != nil {
 		t.s.logger.Warn().Err(err).Str("agent", t.agent).Msg("reasoning 元数据序列化失败")
 		return

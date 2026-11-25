@@ -1,31 +1,36 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Brain, ChevronDown, Loader2 } from 'lucide-react'
+import type { Message } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
-import { buildThreadRows, inFlightToolCalls, pairToolResults, type ThreadRow } from './threadRows'
+import {
+  agentActivity,
+  authorOf,
+  buildThreadRows,
+  filterByAgent,
+  inFlightToolCalls,
+  pairToolResults,
+  roundKey,
+  type RoundRow,
+} from './threadRows'
 import { classifyMessage } from './messageKind'
 import { useTypewriter } from '@/hooks/useTypewriter'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { AgentCard } from './AgentCard'
+import { AgentFilter } from './AgentFilter'
 import { StepTools } from './StepTools'
+import { useExpansion } from './useExpansion'
 import { CommandBlock } from './cards/CommandBlock'
 import { ReplyBlock } from './cards/ReplyBlock'
-import { ReasoningCard } from './cards/ReasoningCard'
-import { ToolCallCard } from './cards/ToolCallCard'
-import { ToolResultCard } from './cards/ToolResultCard'
+import { ReasoningCard, RoundHeader } from './cards/ReasoningCard'
 import { FindingCard } from './cards/FindingCard'
 import { TaskStatusCard } from './cards/TaskStatusCard'
 import { SteeringCard } from './cards/SteeringCard'
 
-function rowAgent(r: ThreadRow): string {
-  if (r.kind === 'tools') return r.tools[0]?.metadata?.agent_name || ''
-  if (r.kind === 'msg') return r.msg.metadata?.agent_name || ''
-  return ''
-}
+const ROW_DEPS = { dayKey, dayLabel }
 
-function cardCopyText(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>): string | undefined {
-  const m = r.msg
-  if (classifyMessage(m) === 'reasoning') return m.metadata?.text || m.content
+function cardCopyText(r: { msg: Message }): string | undefined {
+  if (classifyMessage(r.msg) === 'reasoning') return r.msg.metadata?.text || r.msg.content
   return undefined
 }
 
@@ -55,11 +60,30 @@ function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
   )
 }
 
-export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapsedMs?: number }) {
+/**
+ * 对话的执行轨迹：消息流整理成「行」后自上而下渲染。一个智能体的一轮是一张卡——身份、这一轮的
+ * 工具调用（折叠）、结论——已出终稿的轮按终稿先后排列；终稿还没到的轮与同一智能体的流式思考
+ * 合成一张卡，放在最后，轮出终稿后挪到前面的位置。
+ *
+ * agent 是筛选：只看某一个智能体（人的指令与系统节点留着做上下文）。
+ */
+export function TimelineThread({
+  active,
+  elapsedMs,
+  agent,
+  onAgentChange,
+}: {
+  active?: boolean
+  elapsedMs?: number
+  /** 选中的智能体；null = 全部 */
+  agent: string | null
+  onAgentChange: (name: string | null) => void
+}) {
   const messages = useConversationStore((s) => s.messages)
   const liveStreams = useConversationStore((s) => s.liveStreams)
   const liveOrder = useConversationStore((s) => s.liveOrder)
   const thinking = useConversationStore((s) => s.thinking)
+  const expansion = useExpansion()
   const elRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [unread, setUnread] = useState(0)
@@ -67,11 +91,42 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
   const { copiedKey, copy } = useCopyToClipboard()
 
   // 派生值 memo 化：本组件订阅 liveStreams，SSE 每帧 delta 都会重渲染——
-  // 三个全量消息推导（行构建/在途工具/结果配对）不缓存的话每帧 O(N) 重算 + 下游卡片全量重渲染。
-  const rows = useMemo(() => buildThreadRows(messages, { dayKey, dayLabel }), [messages, dayKey, dayLabel])
+  // 全量消息推导（行整理/在途工具/结果配对）不缓存的话每帧 O(N) 重算 + 下游卡片全量重渲染。
+  const rows = useMemo(() => buildThreadRows(messages, ROW_DEPS), [messages])
   const runningTools = useMemo(() => (active ? inFlightToolCalls(messages) : undefined), [active, messages])
   const toolPairs = useMemo(() => pairToolResults(messages), [messages])
-  const activityCount = useMemo(() => rows.reduce((n, r) => (r.kind === 'divider' ? n : n + 1), 0), [rows])
+  const agents = useMemo(() => agentActivity(rows), [rows])
+
+  // 筛选只认这个对话里出现过的智能体：带着筛选切换到没有它的对话时，不生效
+  const selected = agent !== null && agents.some((a) => a.name === agent) ? agent : null
+
+  // 已出终稿的行；终稿没到的轮与流式道按智能体合并成卡，排在最后
+  const settled = useMemo(() => filterByAgent(rows, selected).filter((r) => r.kind !== 'round'), [rows, selected])
+  const inFlight = useMemo(() => {
+    // agent → 它在途的轮、首个事件的位置、是否正在流式输出
+    const groups = new Map<string, { agent: string; rounds: RoundRow[]; first: number; streaming: boolean }>()
+    const groupOf = (name: string) => {
+      let g = groups.get(name)
+      if (!g) {
+        g = { agent: name, rounds: [], first: Number.MAX_SAFE_INTEGER, streaming: false }
+        groups.set(name, g)
+      }
+      return g
+    }
+    for (const r of rows) {
+      if (r.kind === 'round' && (selected === null || r.agent === selected)) {
+        const g = groupOf(r.agent)
+        g.rounds.push(r)
+        g.first = Math.min(g.first, r.tools[0]?.seq ?? g.first)
+      }
+    }
+    for (const lane of liveOrder) {
+      if (selected === null || lane === selected) groupOf(lane).streaming = true
+    }
+    // 只在流式输出、还没调工具的智能体排在后面（稳定排序保持它们的首现顺序）
+    return [...groups.values()].sort((a, b) => a.first - b.first)
+  }, [rows, liveOrder, selected])
+  const activityCount = settled.filter((r) => r.kind !== 'divider').length + inFlight.length
 
   const nearBottom = useCallback(() => {
     const e = elRef.current
@@ -125,6 +180,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {agents.length > 0 && <AgentFilter agents={agents} value={selected} onChange={onAgentChange} />}
+
       <div
         ref={elRef}
         className="flex-1 overflow-y-auto py-4 pl-2 pr-4"
@@ -134,7 +191,7 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
         aria-label="执行轨迹"
         onScroll={onScroll}
       >
-        {rows.map((r) => {
+        {settled.map((r) => {
           if (r.kind === 'divider') {
             return (
               <div key={r.key} className="ml-[26px] my-2.5 flex items-center gap-3 text-xs text-text-secondary">
@@ -144,7 +201,8 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               </div>
             )
           }
-          if (r.kind === 'msg' && classifyMessage(r.msg) === 'user') {
+          const tag = classifyMessage(r.msg)
+          if (tag === 'user') {
             return (
               <CommandBlock
                 key={r.key}
@@ -156,54 +214,73 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
               />
             )
           }
-          if (r.kind === 'msg' && classifyMessage(r.msg) === 'assistant') {
-            // 聊天回答与任务 agent 消息同一张卡：头像色环 + 气泡内折叠思考 + 正文。
-            // 时间与复制走卡片常亮元信息，正文块只保留身份头。
-            return (
-              <AgentCard
-                key={r.key}
-                agentName={r.msg.metadata?.agent_name || 'assistant'}
-                createdAt={r.msg.created_at}
-                copied={copiedKey === String(r.msg.seq)}
-                onCopy={() => copy(String(r.msg.seq), r.msg.content)}
-                copyText={r.msg.content}
-              >
-                <ThinkingFold text={r.msg.metadata?.thinking} />
-                <ReplyBlock content={r.msg.content} agentName={r.msg.metadata?.agent_name || 'assistant'} />
-              </AgentCard>
-            )
-          }
-          // 任务生命周期节点 → 居中系统窄条（不套 agent 卡——系统判定无归属）。
-          if (r.kind === 'msg' && classifyMessage(r.msg) === 'task-status') {
+          if (tag === 'task-status') {
+            // 任务生命周期节点 → 居中系统窄条（系统判定无归属）
             return <TaskStatusCard key={r.key} md={r.msg.metadata!} />
           }
-          // 运行中引导的回执 → 同为居中系统窄条（人的操作，不归属任何 agent）。
-          if (r.kind === 'msg' && classifyMessage(r.msg) === 'steering') {
+          if (tag === 'steering') {
+            // 运行中引导的回执 → 同为居中系统窄条（人的操作，不归属任何 agent）
             return <SteeringCard key={r.key} msg={r.msg} />
           }
-          if (r.kind === 'tools') {
+          if (tag === 'finding') {
+            // 坐实的发现 → 系统节点，按严重度着色。它带着评估者的 agent_name 只因为经评估者坐实：
+            // 套上 agent 卡会顶着一个「评估」的头像，看起来像评估者的发言
             return (
-              <StepTools
-                key={r.key}
-                tools={r.tools}
-                runningSeqs={runningTools}
-                pairs={toolPairs}
-                ended={!active}
-              />
+              <div key={r.key} className="pb-6 pl-10">
+                <FindingCard
+                  summary={typeof r.msg.metadata?.summary === 'string' ? r.msg.metadata.summary : ''}
+                  severity={typeof r.msg.metadata?.severity === 'string' ? r.msg.metadata.severity : 'info'}
+                  host={typeof r.msg.metadata?.host === 'string' ? r.msg.metadata.host : undefined}
+                  target={typeof r.msg.metadata?.target === 'string' ? r.msg.metadata.target : undefined}
+                />
+              </div>
             )
           }
-          const agent = rowAgent(r)
+          // 聊天回答与任务 agent 的结论同一张卡：头像色环标识身份 + 卡内折叠思考 + 正文
+          const name = authorOf(r.msg)
           const copyText = cardCopyText(r)
           return (
             <AgentCard
               key={r.key}
-              agentName={agent}
+              agentName={name}
               createdAt={r.msg.created_at}
               copied={copiedKey === String(r.msg.seq)}
               onCopy={copyText ? () => copy(String(r.msg.seq), copyText) : undefined}
               copyText={copyText}
             >
-              {renderCard(r)}
+              {tag === 'assistant' ? (
+                <>
+                  <ThinkingFold text={r.msg.metadata?.thinking} />
+                  <ReplyBlock content={r.msg.content} agentName={name} />
+                </>
+              ) : (
+                // 一轮由外到内：身份 → 做了什么（工具调用）→ 想了什么 → 得出什么。
+                // 工具调用是得出这一条结论的一步，所以排在它自己的结论之前
+                <>
+                  <RoundHeader
+                    agentName={name}
+                    step={r.step}
+                    inTokens={r.msg.metadata?.in_tokens}
+                    outTokens={r.msg.metadata?.out_tokens}
+                    latencyMs={r.msg.metadata?.latency_ms}
+                  />
+                  {r.tools && (
+                    <StepTools
+                      tools={r.tools}
+                      foldKey={roundKey(r.tools)}
+                      expansion={expansion}
+                      runningSeqs={runningTools}
+                      pairs={toolPairs}
+                      ended={!active}
+                    />
+                  )}
+                  <ReasoningCard
+                    text={r.msg.metadata?.text || r.msg.content}
+                    thinking={r.msg.metadata?.thinking || undefined}
+                    agentName={name}
+                  />
+                </>
+              )}
             </AgentCard>
           )
         })}
@@ -225,13 +302,28 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
 
         {/* 流式思考道是用户可见的正文（Markdown 里的 URL 是可聚焦链接），不对读屏隐藏；
             它不是 live region，逐字增量不会被播报，读屏按需浏览即可。 */}
-        {liveOrder.map((lane) => (
-          <div key={lane} data-live-node>
-            <LiveThoughtLane agentName={lane} lane={liveStreams[lane]} />
+        {inFlight.map((g) => (
+          <div key={`live-${g.agent}`} data-live-node={g.streaming ? '' : undefined}>
+            {/* 在途卡里只有工具组、还没有文字身份：头像带名字 */}
+            <AgentCard agentName={g.agent} nameAvatar>
+              {g.rounds.map((r) => (
+                <StepTools
+                  key={r.key}
+                  tools={r.tools}
+                  foldKey={r.key}
+                  expansion={expansion}
+                  runningSeqs={runningTools}
+                  pairs={toolPairs}
+                  ended={!active}
+                  unconcluded={!active}
+                />
+              ))}
+              {g.streaming && <StreamedThought agentName={g.agent} lane={liveStreams[g.agent]} />}
+            </AgentCard>
           </div>
         ))}
 
-        {active && liveOrder.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
+        {active && inFlight.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
       </div>
 
       {!atBottom && (
@@ -246,52 +338,6 @@ export function TimelineThread({ active, elapsedMs }: { active?: boolean; elapse
       )}
     </div>
   )
-}
-
-function renderCard(r: Exclude<ThreadRow, { kind: 'divider' | 'tools' }>) {
-  const m = r.msg
-  const md = m.metadata
-  const tag = classifyMessage(m)
-
-  switch (tag) {
-    case 'reasoning': {
-      const text = md?.text || m.content
-      return (
-        <ReasoningCard
-          text={text}
-          thinking={md?.thinking || undefined}
-          agentName={md?.agent_name}
-          step={r.step}
-          inTokens={md?.in_tokens}
-          outTokens={md?.out_tokens}
-          latencyMs={md?.latency_ms}
-        />
-      )
-    }
-    case 'tool-call':
-      return <ToolCallCard tool={md?.tool_name || ''} args={md?.args || ''} agentName={md?.agent_name} />
-    case 'finding':
-      return (
-        <FindingCard
-          summary={typeof md?.summary === 'string' ? md.summary : ''}
-          severity={typeof md?.severity === 'string' ? md.severity : 'info'}
-          host={typeof md?.host === 'string' ? md.host : undefined}
-          target={typeof md?.target === 'string' ? md.target : undefined}
-        />
-      )
-    case 'tool-result':
-      return (
-        <ToolResultCard
-          tool={md?.tool_name || ''}
-          result={md?.result || ''}
-          durationMs={md?.duration_ms || 0}
-          err={md?.err || ''}
-          agentName={md?.agent_name}
-        />
-      )
-    default:
-      return null
-  }
 }
 
 function ThinkingStream({ text }: { text: string | unknown }) {
@@ -319,8 +365,6 @@ function ThinkingStream({ text }: { text: string | unknown }) {
 }
 
 function ThinkingFold({ text }: { text?: string | unknown }) {
-  // 类型守卫：后端已修复空 thinking 不序列化，但历史数据可能残留空字符串或空对象。
-  // 严格验证类型并过滤空值，确保只渲染有效的思考内容。
   if (!text || typeof text !== 'string' || text.trim() === '') return null
   return (
     <details className="group mb-2 self-start rounded-lg border border-border/60 bg-background/40">
@@ -336,7 +380,8 @@ function ThinkingFold({ text }: { text?: string | unknown }) {
   )
 }
 
-function LiveThoughtLane({
+/** 智能体正在流式输出的思考：卡内先是在途的工具调用，再是流式的正文。 */
+function StreamedThought({
   agentName,
   lane,
 }: {
@@ -344,15 +389,18 @@ function LiveThoughtLane({
   lane: { thinking: string; text: string }
 }) {
   const typed = useTypewriter(lane.text)
-  // 聊天回答与任务 agent 的流式道同构：一张 agent 卡，卡内先思考道后正文。
+  // 聊天回答与任务 agent 的流式道同构：先思考道后正文。
   return (
-    <AgentCard agentName={agentName}>
+    <>
       {lane.thinking ? <ThinkingStream text={lane.thinking} /> : null}
       {agentName === 'assistant' ? (
         <ReplyBlock content={typed} agentName={agentName} />
       ) : (
-        <ReasoningCard text={typed} agentName={agentName} streaming />
+        <>
+          <RoundHeader agentName={agentName} streaming />
+          <ReasoningCard text={typed} agentName={agentName} streaming />
+        </>
       )}
-    </AgentCard>
+    </>
   )
 }

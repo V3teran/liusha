@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { TimelineThread } from './TimelineThread'
 import { useConversationStore } from '@/stores/conversation'
 import type { Message, TimelineEventMeta } from '@/api/types'
@@ -41,6 +42,8 @@ function toolResultMsg(seq: number, agentName: string): Message {
 }
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
+// 用例不关心筛选：不选任何智能体
+const unfiltered = { agent: null, onAgentChange: () => {} }
 
 describe('TimelineThread', () => {
   beforeEach(() => useConversationStore.getState().reset())
@@ -48,7 +51,7 @@ describe('TimelineThread', () => {
   it('渲染 store 中的消息', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, '扫这个目标'))
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     expect(screen.getByText('扫这个目标')).toBeTruthy()
   })
 
@@ -58,7 +61,7 @@ describe('TimelineThread', () => {
     msg.metadata = { ...msg.metadata!, in_tokens: 4348, out_tokens: 800, latency_ms: 58882 }
     s.ingest(userMsg(1, '扫这个目标'))
     s.ingest(msg)
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     expect(screen.getByText('↑ 4.3k')).toBeTruthy()
     expect(screen.getByText('↓ 800')).toBeTruthy()
     expect(screen.getByText('⏱ 58.9s')).toBeTruthy()
@@ -71,19 +74,21 @@ describe('TimelineThread', () => {
     s.ingest(toolResultMsg(3, 'executor'))
     s.ingest(toolCallMsg(4, 'executor')) // 悬挂：已发 call 未见 result
 
-    const { rerender } = render(<TimelineThread active />)
+    const { rerender } = render(<TimelineThread {...unfiltered} active />)
     expect(screen.getByText('执行中…')).toBeTruthy()
 
-    rerender(<TimelineThread />) // 任务终态：门控关闭，悬挂 call 不转
+    rerender(<TimelineThread {...unfiltered} />) // 任务终态：门控关闭，悬挂 call 不转
     expect(screen.queryByText('执行中…')).toBeNull()
   })
 
-  it('普通工具调用折叠进 StepTools', () => {
+  it('工具调用折叠成一组，放在它所属智能体的卡里（还没出终稿的轮也在卡里，卡带可读的身份）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(toolCallMsg(2, 'planner'))
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
+    // 身份不只靠颜色与图标：在途卡里没有文字结论，靠头像的可读名认出是规划者
+    expect(screen.getByRole('img', { name: '规划（planner）' })).toBeTruthy()
   })
 
   // 四 agent 平级平铺：认知循环是平级协作（bus 广播、互相制衡），不存在主从调度——
@@ -100,12 +105,12 @@ describe('TimelineThread', () => {
       content: '你好，我是安全测试助手',
       metadata: { thinking: '用户在打招呼，简单回应' },
     } as Message)
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     // 同一张卡：思考折叠与正文同处一个气泡容器，身份头随卡展示
     const fold = screen.getByText('内部思考').closest('details')
     expect(fold).toBeTruthy()
     expect(fold!.parentElement!.textContent).toContain('你好，我是安全测试助手')
-    expect(screen.getByText('助手')).toBeTruthy()
+    expect(within(fold!.parentElement!).getByText('助手')).toBeTruthy()
   })
 
   it('四 agent 行全部平铺（无主从缩进）', () => {
@@ -114,7 +119,7 @@ describe('TimelineThread', () => {
     s.ingest(reasoningMsg(2, 'planner', '规划任务'))
     s.ingest(reasoningMsg(3, 'executor', '执行注入测试'))
     s.ingest(toolCallMsg(4, 'executor'))
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     expect(container.querySelector('.pl-6')).toBeFalsy()
     expect(screen.getAllByText('执行').length).toBeGreaterThan(0) // ReasoningCard 内 agent 领头
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
@@ -125,7 +130,7 @@ describe('TimelineThread', () => {
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'monitor', '巡查任务'))
     s.ingest(toolCallMsg(3, 'monitor'))
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     expect(container.querySelector('.pl-6')).toBeFalsy()
     expect(screen.getAllByText('监察').length).toBeGreaterThan(0)
   })
@@ -133,7 +138,7 @@ describe('TimelineThread', () => {
   it('流式思考道：增量到达时展示带 agent 配色的活动节点', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('分析中…', 'evaluator')
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     const card = container.querySelector('[data-card="reasoning"]')
     expect(card).toBeTruthy()
     expect(screen.getAllByText('评估').length).toBeGreaterThan(0)
@@ -143,7 +148,7 @@ describe('TimelineThread', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('规划…', 'planner')
     s.appendReasoningDelta('执行…', 'executor')
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     expect(container.querySelectorAll('[data-live-node]')).toHaveLength(2)
     expect(screen.getAllByText('规划').length).toBeGreaterThan(0)
     expect(screen.getAllByText('执行').length).toBeGreaterThan(0)
@@ -153,7 +158,7 @@ describe('TimelineThread', () => {
     const s = useConversationStore.getState()
     s.ingest(reasoningMsg(1, 'planner', '分派'))
     s.appendReasoningDelta('分析中…', 'executor')
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     const liveRow = container.querySelector('[data-live-node]')
     expect(liveRow?.querySelector('.pl-6')).toBeFalsy()
   })
@@ -163,21 +168,21 @@ describe('TimelineThread', () => {
   it('流式思考道不对读屏隐藏，内含链接可正常访问', () => {
     const s = useConversationStore.getState()
     s.appendReasoningDelta('访问 http://192.168.71.25:38080/search 观察回显', 'executor')
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     const live = container.querySelector('[data-live-node]')!
     expect(live.closest('[aria-hidden="true"]')).toBeNull()
     expect(live.querySelector('[aria-hidden="true"] a, [aria-hidden="true"] button')).toBeNull()
   })
 
   it('无思考道时不渲染活动节点', () => {
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     expect(container.querySelector('[data-live-node]')).toBeFalsy()
   })
 
   it('user 消息走右侧指令块（CommandBlock），无卡外图标', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, '扫这个目标'))
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     // 指令块标题「指令」存在；用户块无卡外图标点（h-[26px] w-[26px]），那是 agent 卡专属。
     expect(screen.getByText('指令')).toBeTruthy()
     expect(screen.getByText('扫这个目标')).toBeTruthy()
@@ -188,28 +193,28 @@ describe('TimelineThread', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, 'hi'))
     s.ingest(reasoningMsg(2, 'planner', '分析'))
-    const { container } = render(<TimelineThread />)
+    const { container } = render(<TimelineThread {...unfiltered} />)
     expect(container.querySelector('.h-8.w-8')).toBeTruthy()
   })
 })
 
 describe('RunningIndicator（间隙运行指示）', () => {
   it('active 且无活动道时渲染指示器', () => {
-    render(<TimelineThread active />)
+    render(<TimelineThread {...unfiltered} active />)
     expect(screen.queryByTestId('running') ?? document.querySelector('[data-running-indicator]')).toBeTruthy()
   })
 
   it('有活动道时让位（道本身即活动信号）', async () => {
     const store = useConversationStore.getState()
     store.appendReasoningDelta('规划中', 'planner')
-    render(<TimelineThread active />)
+    render(<TimelineThread {...unfiltered} active />)
     await flush()
     expect(document.querySelector('[data-running-indicator]')).toBeNull()
     useConversationStore.getState().reset()
   })
 
   it('非 active（任务未在跑）不渲染', () => {
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     expect(document.querySelector('[data-running-indicator]')).toBeNull()
   })
 })
@@ -221,7 +226,7 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
       ...base, seq: 1, role: 'assistant', kind: 'event',
       metadata: { kind: 'task_status', status: 'completed', steps: 11, findings: 2, stop_reason: 'task_converged' } as TimelineEventMeta,
     })
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     await flush()
     expect(screen.getByText('任务完成')).toBeTruthy()
     expect(screen.getByText(/11 步/)).toBeTruthy()
@@ -235,10 +240,213 @@ describe('task_status 节点渲染（renderCard 集成）', () => {
       ...base, seq: 2, role: 'assistant', kind: 'event',
       metadata: { kind: 'task_status', status: 'aborted', reason: '用户停止' } as TimelineEventMeta,
     })
-    render(<TimelineThread />)
+    render(<TimelineThread {...unfiltered} />)
     await flush()
     expect(screen.getByText('任务已停止')).toBeTruthy()
     expect(screen.getByText(/用户停止/)).toBeTruthy()
     expect(document.querySelector('[data-live-node]')).toBeNull()
+  })
+})
+
+describe('一轮一张卡：工具调用归在它那一轮的结论名下', () => {
+  beforeEach(() => useConversationStore.getState().reset())
+
+  // 一轮的卡由外到内：身份（谁的、第几步、用了多少）→ 做了什么（工具调用）→ 想了什么（内部思考）
+  // → 得出什么（结论）。工具调用是「得出这一条结论」的一步，不是上一条结论的延伸，所以它排在
+  // 自己那条结论之前；而身份排在最前——先知道这是谁的卡，再看它做了什么。
+  it('一轮的卡：身份在最前，其后是工具调用，最后是结论', () => {
+    const s = useConversationStore.getState()
+    s.ingest(toolCallMsg(1, 'planner'))
+    s.ingest(toolResultMsg(2, 'planner'))
+    const concluded = reasoningMsg(3, 'planner', '规划完成')
+    concluded.metadata = { ...concluded.metadata!, thinking: '先想一下' }
+    s.ingest(concluded)
+    const { container } = render(<TimelineThread {...unfiltered} />)
+    const card = container.querySelector('[role="log"]') as HTMLElement
+    const identity = within(card).getByText('规划')
+    const tools = within(card).getByRole('button', { name: /1 次工具调用/ })
+    const thinking = within(card).getByText('内部思考')
+    const conclusion = within(card).getByText('规划完成')
+    const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    expect(before(identity, tools)).toBe(true)
+    expect(before(tools, thinking)).toBe(true)
+    expect(before(thinking, conclusion)).toBe(true)
+    // 工具与结论同属这一张卡
+    expect(container.querySelectorAll('.animate-slide-up')).toHaveLength(1)
+  })
+
+  it('同一智能体并行的两轮各领各的工具事件（按轮次标识）', () => {
+    const s = useConversationStore.getState()
+    const inRound = (m: Message, id: string) => {
+      m.metadata!.round_id = id
+      return m
+    }
+    s.ingest(inRound(toolCallMsg(1, 'executor'), 'a'))
+    s.ingest(inRound(toolCallMsg(2, 'executor'), 'b'))
+    s.ingest(inRound(toolCallMsg(3, 'executor'), 'b'))
+    s.ingest(inRound(toolResultMsg(4, 'executor'), 'b'))
+    s.ingest(inRound(reasoningMsg(5, 'executor', '动作 A 完成'), 'a'))
+    const { container } = render(<TimelineThread {...unfiltered} />)
+    const [concluded, inFlight] = [...container.querySelectorAll('.animate-slide-up')] as HTMLElement[]
+    // 先出终稿的 a 轮只领走自己的 1 次调用；b 轮的调用不因为同属执行者而被算进来
+    expect(within(concluded!).getByRole('button', { name: /1 次工具调用/ })).toBeTruthy()
+    expect(within(concluded!).getByText(/动作 A 完成/)).toBeTruthy()
+    expect(within(inFlight!).getByRole('button', { name: /2 次工具调用/ })).toBeTruthy()
+    expect(within(inFlight!).queryByText(/动作 A 完成/)).toBeNull()
+  })
+
+  it('在途的轮与同一智能体的流式道在同一张卡里', () => {
+    const s = useConversationStore.getState()
+    s.ingest(toolCallMsg(1, 'executor'))
+    s.appendReasoningDelta('正在探测目标…', 'executor')
+    const { container } = render(<TimelineThread {...unfiltered} active />)
+    const live = container.querySelectorAll('[data-live-node]')
+    expect(live).toHaveLength(1)
+    const card = live[0] as HTMLElement
+    expect(within(card).getByRole('button', { name: /1 次工具调用/ })).toBeTruthy()
+    expect(card.querySelector('[data-card="reasoning"]')).toBeTruthy() // 流式思考的正文（打字机逐字出，这里只看它在同一张卡里）
+  })
+
+  it('展开状态在一轮出终稿后保留（折叠组换了位置，正在读的内容不折回去）', async () => {
+    const user = userEvent.setup()
+    const s = useConversationStore.getState()
+    s.ingest(toolCallMsg(1, 'executor'))
+    const { rerender } = render(<TimelineThread {...unfiltered} active />)
+    await user.click(screen.getByRole('button', { name: /1 次工具调用/ }))
+    expect(screen.getByText('command_run')).toBeTruthy() // 展开后露出调用卡
+
+    act(() => useConversationStore.getState().ingest(reasoningMsg(2, 'executor', '执行完成')))
+    rerender(<TimelineThread {...unfiltered} active />)
+    expect(screen.getByRole('button', { name: /1 次工具调用/ }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('执行完成')).toBeTruthy()
+  })
+
+  it('任务结束后仍没有终稿的轮，组头说明它没有结论', () => {
+    const s = useConversationStore.getState()
+    s.ingest(toolCallMsg(1, 'executor'))
+    s.ingest(toolResultMsg(2, 'executor'))
+    render(<TimelineThread {...unfiltered} />)
+    expect(screen.getByText('未产出结论')).toBeTruthy()
+  })
+})
+
+// 一条发现是「评估者坐实了一条主张」这个事实的可见形态：由复现门在晋升时发出，事件里记的就是
+// 评估者。它归评估者——筛选评估者时出现、计入它的条目数，筛选别的智能体时不出现。
+// 卡本身不套 agent 卡：它按严重度着色，套上会多出一个头像、把结论与发现混成一种东西。
+describe('坐实的发现归评估者', () => {
+  beforeEach(() => useConversationStore.getState().reset())
+
+  const finding = (seq: number): Message =>
+    ({
+      ...base,
+      seq,
+      role: 'assistant',
+      kind: 'event',
+      content: '',
+      metadata: { kind: 'finding', agent_name: 'evaluator', summary: '登录页缺少安全响应头', severity: 'low', host: 'example.com', target: 'https://example.com/' },
+    }) as Message
+
+  it('发现卡不套 agent 卡、不带头像', () => {
+    useConversationStore.getState().ingest(finding(1))
+    const { container } = render(<TimelineThread {...unfiltered} />)
+    expect(container.querySelector('[data-card="finding"]')).toBeTruthy()
+    expect(container.querySelector('.animate-slide-up')).toBeNull()
+  })
+
+  it('筛选评估者：发现出现，并计入它的条目数', () => {
+    const s = useConversationStore.getState()
+    s.ingest(finding(1))
+    s.ingest(finding(2))
+    s.ingest(reasoningMsg(3, 'evaluator', '评估结论：坐实'))
+    render(<TimelineThread {...unfiltered} agent="evaluator" />)
+    expect(document.querySelectorAll('[data-card="finding"]').length).toBe(2)
+    expect(screen.getByText(/评估结论：坐实/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^评估\s*3$/ })).toBeTruthy()
+  })
+
+  it('筛选别的智能体：发现不出现（它不是任何一段工作的共同上下文）', () => {
+    const s = useConversationStore.getState()
+    s.ingest(finding(1))
+    s.ingest(toolCallMsg(2, 'executor'))
+    render(<TimelineThread {...unfiltered} agent="executor" />)
+    expect(document.querySelector('[data-card="finding"]')).toBeNull()
+    // 执行者的这一轮照旧在；评估者的条目数里含这条发现
+    expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^评估\s*1$/ })).toBeTruthy()
+  })
+
+  it('真正的系统节点在各个筛选下都留着', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '开始'))
+    s.ingest({
+      ...base,
+      seq: 2,
+      role: 'assistant',
+      kind: 'event',
+      metadata: { kind: 'task_status', status: 'completed' } as TimelineEventMeta,
+    })
+    s.ingest(toolCallMsg(3, 'monitor'))
+    render(<TimelineThread {...unfiltered} agent="monitor" />)
+    expect(screen.getByText('开始')).toBeTruthy()
+    expect(screen.getByText('任务完成')).toBeTruthy()
+  })
+})
+
+describe('按智能体筛选', () => {
+  beforeEach(() => useConversationStore.getState().reset())
+
+  it('每个出现过的智能体一枚身份胶囊，带条目数', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '开始'))
+    s.ingest(reasoningMsg(2, 'planner', '规划'))
+    s.ingest(reasoningMsg(3, 'executor', '执行 A'))
+    s.ingest(toolCallMsg(4, 'executor'))
+    render(<TimelineThread {...unfiltered} />)
+    const group = screen.getByRole('search', { name: '按智能体筛选' })
+    expect(within(group).getByRole('button', { name: /^规划\s*1$/ })).toBeTruthy()
+    expect(within(group).getByRole('button', { name: /^执行\s*2$/ })).toBeTruthy()
+  })
+
+  it('没有智能体参与过的对话（纯聊天）不放筛选', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '你好'))
+    render(<TimelineThread {...unfiltered} />)
+    expect(screen.queryByRole('search', { name: '按智能体筛选' })).toBeNull()
+  })
+
+  it('点一枚只看它：其余智能体的卡与流式道隐去，人的指令留着', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '开始'))
+    s.ingest(reasoningMsg(2, 'planner', '规划者的结论'))
+    s.ingest(reasoningMsg(3, 'executor', '执行 A'))
+    s.appendReasoningDelta('评估中…', 'evaluator')
+    render(<TimelineThread {...unfiltered} agent="executor" />)
+    expect(screen.getByText('开始')).toBeTruthy()
+    expect(screen.getByText(/执行 A/)).toBeTruthy()
+    expect(screen.queryByText(/规划者的结论/)).toBeNull()
+    expect(document.querySelector('[data-live-node]')).toBeNull()
+  })
+
+  it('点胶囊与清空筛选都把选择交回页面', async () => {
+    const user = userEvent.setup()
+    const onAgentChange = vi.fn()
+    const s = useConversationStore.getState()
+    s.ingest(reasoningMsg(1, 'executor', '执行 A'))
+    const { rerender } = render(<TimelineThread agent={null} onAgentChange={onAgentChange} />)
+    await user.click(screen.getByRole('button', { name: /^执行\s*1$/ }))
+    expect(onAgentChange).toHaveBeenLastCalledWith('executor')
+
+    rerender(<TimelineThread agent="executor" onAgentChange={onAgentChange} />)
+    await user.click(screen.getByRole('button', { name: '清空筛选' }))
+    expect(onAgentChange).toHaveBeenLastCalledWith(null)
+  })
+
+  it('再点一次选中的胶囊回到全部', async () => {
+    const user = userEvent.setup()
+    const onAgentChange = vi.fn()
+    useConversationStore.getState().ingest(reasoningMsg(1, 'executor', '执行 A'))
+    render(<TimelineThread agent="executor" onAgentChange={onAgentChange} />)
+    await user.click(screen.getByRole('button', { name: /^执行\s*1$/ }))
+    expect(onAgentChange).toHaveBeenLastCalledWith(null)
   })
 })
