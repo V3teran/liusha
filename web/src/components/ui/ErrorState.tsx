@@ -10,12 +10,15 @@ export function ErrorState({
   title = '加载失败',
   message,
   onRetry,
+  retryLabel = '重试',
   className,
 }: {
   title?: string
   /** 失败原因（后端中文原因经 errorText 取得） */
   message?: string
   onRetry?: () => void
+  /** 按钮文案，默认「重试」；重试的动作不是重发同一次请求时写明动作（如路由错误页的「重新加载」） */
+  retryLabel?: string
   className?: string
 }) {
   return (
@@ -28,7 +31,7 @@ export function ErrorState({
       {onRetry && (
         <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
           <RotateCw />
-          重试
+          {retryLabel}
         </Button>
       )}
     </div>

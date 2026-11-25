@@ -368,6 +368,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 弹层层级只有一个事实源 `index.css`：遮罩写 `className="app-overlay"`，对话框 / 抽屉内容带 `tac-modal` 或 `app-drawer`，锚定浮层带 `app-popover` / `app-menu`；使用点不写定位与 `z-*`（`components/ui/dialogLayering.test.ts` 按源码守住）。菜单、弹层用 Radix 原语，不手写 portal——模态打开时 body 为 `pointer-events:none`，手写浮层会点不到。
 - 不可逆操作经确认（事件处理里 `await confirmAction(...)`，受控场景用 `ConfirmDialog`，`danger`），确认按钮文案用具体动词（「确认删除」）；不用原生 `window.confirm` / `alert`。
 - 反馈分三层，各有一个组件：区域加载 / 加载失败用 `LoadingState` / `ErrorState`（能重试就给 `onRetry`），表单提交这类就地失败用 `InlineError` 贴在触发处，触发点不在原位的操作结果（行内按钮、菜单项、抽屉关闭后的回写）用 `toast`。
+- 页面级错误有自己的错误页（`pages/RouteErrorPage`）：外壳内侧的无路径布局路由与根路由各挂一个 `errorElement`。页面渲染出错（含代码块取不到——多发生在程序升级后，开着旧版控制台的浏览器还在请求旧文件）时错误页渲染在外壳里，侧栏仍在、给出原因与「重新加载」；只有登录页或外壳自身出错才整页替换。不要让它落到路由库自带的英文默认页（`router.test.tsx`、`routerShellError.test.tsx` 守住）。
 - 主题只经 `hooks/useTheme` 读写（全局共享，一处切换全部调用点同步）：用户选过的 > 系统深浅偏好 > 深色，未选过时随系统实时变化。`index.html` 的首屏内联脚本与它同口径，改一处必须同步另一处。登录页不放主题切换（业界惯例：跟随系统，偏好设置在登录后）。
 - 可访问性是功能的一部分：以 state 打开的弹层（没有 Radix `Trigger`）把 `hooks/useReturnFocus` 接到 `Dialog.Content` 的 `onCloseAutoFocus`，关闭后焦点回到打开处；表单控件经 `htmlFor` / `useId` 关联标签，纯图标按钮带 `aria-label`，可滚动区域可聚焦，tab 触发器指向真实的 tabpanel，可见内容不放进 `aria-hidden`；动效走 `motion-safe:`，不对文字做透明度脉冲。
 

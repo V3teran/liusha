@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/layout/AppShell'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { RouteErrorPage } from '@/pages/RouteErrorPage'
 import { LoadingState } from '@/components/ui/LoadingState'
 
 // 独立成块，不拖慢首屏。ConversationsPage 是最常用入口，保留同类动态导入以保持一致。
@@ -33,51 +34,66 @@ function withSuspense(el: React.ReactNode) {
   return <Suspense fallback={<Loading />}>{el}</Suspense>
 }
 
-// 路由表：根用 AppShell 外壳，子路由为各业务页，一律是资源名的一级路径（与后端接口的资源同名：
-// /agents、/models、/settings……），不按侧边栏分组再加一层前缀——分组是看的方式，页面的地址只说
-// 它是哪个资源。
+// 路由表：登录页与 AppShell 外壳并列挂在根路由下，各业务页是外壳的子路由，一律是资源名的一级路径
+// （与后端接口的资源同名：/agents、/models、/settings……），不按侧边栏分组再加一层前缀——分组是看的方式，
+// 页面的地址只说明它是哪个资源。
 // 对话：按来源分两个 tab——人工下发（source=direct，用户下 brief → AI planner 自主派子代理作战）
 // 与代理捕获（source=proxy，挂代理收流量 → AI 逐批分析挖洞）。来源轴与场景/引擎正交。
 // path 对齐后端 assignment.source：两个子路由都等于 source 枚举值。
+// 页面出错时要有自己的错误页，不能落到路由库自带的英文默认页（它还会连外壳一起换掉）。错误边界挂两级，
+// 同一个 RouteErrorPage：
+//   - 外壳内侧的无路径布局路由：页面渲染出错（含代码块取不到）时在这里接住——渲染在外壳的 Outlet 里，
+//     侧栏还在，用户可以离开这一页，也可以「重新加载」；
+//   - 根路由：登录页或外壳自身出错才整页替换。
 export const router = createBrowserRouter([
-  // 登录页独立于 AppShell（登录前没有侧栏壳体）；直接导入不 lazy——
-  // 它是未登录访问者的第一屏，懒加载只多一次 chunk 往返。
-  { path: '/login', element: <LoginPage /> },
   {
-    path: '/',
-    element: <AppShell />,
+    errorElement: <RouteErrorPage />,
     children: [
-      { index: true, element: <Navigate to="/conversations/direct" replace /> },
-      { path: 'overview', element: withSuspense(<OverviewPage />) },
-      // 任务：批次（assignment）→ 任务（task）列表与下发，位于对话上游。
-      { path: 'tasks', element: withSuspense(<TasksPage />) },
+      // 登录页独立于 AppShell（登录前没有侧栏壳体）；直接导入不 lazy——
+      // 它是未登录访问者的第一屏，懒加载只多一次 chunk 往返。
+      { path: '/login', element: <LoginPage /> },
       {
-        path: 'conversations',
+        path: '/',
+        element: <AppShell />,
         children: [
-          { index: true, element: <Navigate to="/conversations/direct" replace /> },
-          { path: 'direct', element: withSuspense(<ConversationsPage source="direct" />) },
-          { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
+          {
+            errorElement: <RouteErrorPage />,
+            children: [
+              { index: true, element: <Navigate to="/conversations/direct" replace /> },
+              { path: 'overview', element: withSuspense(<OverviewPage />) },
+              // 任务：批次（assignment）→ 任务（task）列表与下发，位于对话上游。
+              { path: 'tasks', element: withSuspense(<TasksPage />) },
+              {
+                path: 'conversations',
+                children: [
+                  { index: true, element: <Navigate to="/conversations/direct" replace /> },
+                  { path: 'direct', element: withSuspense(<ConversationsPage source="direct" />) },
+                  { path: 'proxy', element: withSuspense(<ConversationsPage source="proxy" />) },
+                ],
+              },
+              { path: 'findings', element: withSuspense(<FindingsPage />) },
+              { path: 'traffic', element: withSuspense(<TrafficPage />) },
+              { path: 'model-calls', element: withSuspense(<ModelCallsPage />) },
+              { path: 'audit', element: withSuspense(<AuditPage />) },
+              { path: 'exploration-graph', element: withSuspense(<ExplorationGraphPage />) },
+              { path: 'workspace', element: withSuspense(<WorkspacePage />) },
+              { path: 'agents', element: withSuspense(<AgentsPage />) },
+              { path: 'scenarios', element: withSuspense(<ScenariosPage />) },
+              { path: 'tools', element: withSuspense(<ToolsPage />) },
+              { path: 'skills', element: withSuspense(<SkillsPage />) },
+              { path: 'models', element: withSuspense(<ModelPage />) },
+              // 系统级的运行参数（运行时、上下文压缩、代理过滤）：与后端 /settings 同名
+              { path: 'settings', element: withSuspense(<SettingsPage />) },
+              { path: 'credentials', element: withSuspense(<CredentialsPage />) },
+              { path: 'corpus', element: withSuspense(<CorpusPage />) },
+              // 日志：各组件运行日志（api 尾读 logs/ 目录），运维排障视图。
+              { path: 'logs', element: withSuspense(<LogsPage />) },
+              // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。
+              { path: '*', element: <NotFoundPage /> },
+            ],
+          },
         ],
       },
-      { path: 'findings', element: withSuspense(<FindingsPage />) },
-      { path: 'traffic', element: withSuspense(<TrafficPage />) },
-      { path: 'model-calls', element: withSuspense(<ModelCallsPage />) },
-      { path: 'audit', element: withSuspense(<AuditPage />) },
-      { path: 'exploration-graph', element: withSuspense(<ExplorationGraphPage />) },
-      { path: 'workspace', element: withSuspense(<WorkspacePage />) },
-      { path: 'agents', element: withSuspense(<AgentsPage />) },
-      { path: 'scenarios', element: withSuspense(<ScenariosPage />) },
-      { path: 'tools', element: withSuspense(<ToolsPage />) },
-      { path: 'skills', element: withSuspense(<SkillsPage />) },
-      { path: 'models', element: withSuspense(<ModelPage />) },
-      // 系统级的运行参数（运行时、上下文压缩、代理过滤）：与后端 /settings 同名
-      { path: 'settings', element: withSuspense(<SettingsPage />) },
-      { path: 'credentials', element: withSuspense(<CredentialsPage />) },
-      { path: 'corpus', element: withSuspense(<CorpusPage />) },
-      // 日志：各组件运行日志（api 尾读 logs/ 目录），运维排障视图。
-      { path: 'logs', element: withSuspense(<LogsPage />) },
-      // 兜底：未匹配路径在外壳内渲染 404，侧栏仍可导航（不落到路由库默认报错页）。
-      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ])
