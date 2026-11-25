@@ -189,12 +189,14 @@ describe('ConversationDetail', () => {
     expect(onRunningChanged).toHaveBeenCalled()
   })
 
-  // 跳转在对话列表行的「⋯」菜单里，顶栏不重复
-  it('顶栏不放跳转', async () => {
+  // 去处（任务、发现、探索图、模型日志）都在对话列表行的「⋯」菜单里，顶栏一个都不放
+  it('顶栏不放去处', async () => {
     withTask({ status: 'completed', conversation_id: 'c1', finding_count: 2, source: 'direct' })
     render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
     await waitFor(() => expect(tasksClient.getTaskDetail).toHaveBeenCalledWith('o1'))
-    expect(screen.queryByRole('link', { name: '发现' })).toBeNull()
+    for (const name of ['任务', '发现', '探索图', '模型日志']) {
+      expect(screen.queryByRole('link', { name })).toBeNull()
+    }
   })
 
   it('纯聊天对话（没有任务）不显示控制组，也不取任务', async () => {

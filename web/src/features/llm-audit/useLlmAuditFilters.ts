@@ -6,7 +6,8 @@ import { useUrlPageState } from '@/hooks/useUrlPageState'
 // 筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/排序/分页应作为 URL state」）：
 // 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
 //
-// 参数名：q / role / model / only_err / start / end / page / size。
+// 参数名：q / role / model / only_err / start / end / page / size，以及范围 task / conversation
+// （从任务或对话跳来时带着，与任务页、发现页、探索图页同一对参数）。
 // offset 分页（非游标）：对齐流量/发现模块的「共 X 条 + N/M 页 + 每页条数」体验。
 
 export interface LlmAuditUrlState {
@@ -33,6 +34,8 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
       onlyErr: searchParams.get('only_err') === '1',
       start: searchParams.get('start') ?? '',
       end: searchParams.get('end') ?? '',
+      task: searchParams.get('task') ?? '',
+      conversation: searchParams.get('conversation') ?? '',
     }),
     [searchParams],
   )
@@ -54,6 +57,10 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
   const setFilters = (nextFilters: LLMInvocationFilters) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
+      if (nextFilters.task) next.set('task', nextFilters.task)
+      else next.delete('task')
+      if (nextFilters.conversation) next.set('conversation', nextFilters.conversation)
+      else next.delete('conversation')
       if (nextFilters.role) next.set('role', nextFilters.role)
       else next.delete('role')
       if (nextFilters.model) next.set('model', nextFilters.model)
@@ -74,7 +81,7 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
   const resetFilters = () =>
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      for (const key of ['q', 'role', 'model', 'only_err', 'start', 'end', 'page']) next.delete(key)
+      for (const key of ['q', 'role', 'model', 'only_err', 'start', 'end', 'page', 'task', 'conversation']) next.delete(key)
       return next
     })
 

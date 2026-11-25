@@ -15,7 +15,7 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// Store 封装 llm_call 表的所有持久化操作。
+// Store 封装 llm_invocation 表的持久化操作：调用记录的写入与按筛选的查询。
 //
 // 写入采用 channel + 后台 worker 批量 INSERT 模式（性能优化）：
 //   - Append 把 Invocation 推到 buffered channel 立即返回，Generate 路径 0 阻塞
@@ -25,7 +25,7 @@ import (
 // 设计取舍：
 //   - Append 只回报入队结果，不回传 id（异步路径无 RETURNING）。
 //   - 进程崩溃可能丢 buffer 内未 flush 的行（最差 100 行 / 1s）；这是行为日志非交易，可接受。
-//   - 一致性场景（如 AggregateByTask / ListByTask）调用方需先调 Flush() 同步等待。
+//   - 读到最新记录的场景（查询前要看到缓冲里的行）调用方需先调 Flush() 同步等待。
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Invocation
@@ -84,7 +84,7 @@ func (s *Store) Append(c Invocation) {
 	}
 }
 
-// Flush 请求 worker 立即落库当前 batch 并等其确认；测试与 AggregateByTask/ListByTask 前用。
+// Flush 请求 worker 立即落库当前 batch 并等其确认；测试与要求最新口径的查询前用。
 //
 // 请求-确认语义：向 worker 发一个「立即 flush」信号 + 回传 chan，worker 处理到这条信号
 // 时立即落库当前 batch 再关闭回传 chan，Flush 一收到就返回。不盲等 flushInterval：查询
@@ -219,62 +219,49 @@ func (s *Store) copyFromBatch(ctx context.Context, batch []Invocation) error {
 	return nil
 }
 
-// maxListLimit 是 ListByTask 单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
+// maxListLimit 是列表单页硬上限——防无界查询（无论调用方传多大 limit，都不超它）。
 const maxListLimit = 1000
 
-// defaultListLimit 对齐 httpapi defaultInvocationPageSize=200——≤0 兜底用缺省而非上限。
+// defaultListLimit 是列表的默认页大小；Limit 没给时用它。
 const defaultListLimit = 200
 
-// ListFilter 是列表 / 统计共用的筛选条件（零值 = 不筛，等价于全量）。
+// ListFilter 是列表、计数、合计、分面共用的筛选条件（零值 = 不筛，等价于全量）。
 //
 // 关键：列表与统计吃同一份筛选，否则筛选后"明细 3 条、合计仍是全量"会互相打脸。
 type ListFilter struct {
-	Role    string     // 精确匹配调用者角色；空 = 不筛
-	Model   string     // 精确匹配模型名；空 = 不筛
-	OnlyErr bool       // true = 只看失败调用（error_message 非空）
-	Start   *time.Time // created_at >= Start；nil = 不限
-	End     *time.Time // created_at <= End；nil = 不限
-	Search  string     // 全局搜索：匹配 task_id/conversation_id/assignment_id；空 = 不筛
-	Limit   int        // 本页上限；<=0 或超 maxListLimit 收敛到 maxListLimit
-	Offset  int        // 本页起点（offset 分页——对齐流量/漏洞模块的总数+跳页体验）
+	// TaskID 限定任务：智能体运行里属于它的调用（调用自己记下的 task_id）。对话里直接发起的调用
+	// （问答、意图分类、标题生成）不属于任务，不在内——与任务用量合计（GET /tasks/:id/usage）
+	// 同一口径，任务详情上的调用次数与按任务筛出的条数对得上。
+	TaskID string
+	// ConversationID 限定对话：这个对话里的全部调用——对话里直接发起的，和它的任务的智能体运行
+	// 产生的（调用所属的对话见 invocationConversation）。
+	ConversationID string
+	Role           string     // 精确匹配调用者角色；空 = 不筛
+	Model          string     // 精确匹配模型名；空 = 不筛
+	OnlyErr        bool       // true = 只看失败调用（error_message 非空）
+	Start          *time.Time // created_at >= Start；nil = 不限
+	End            *time.Time // created_at <= End；nil = 不限
+	Search         string     // 全局搜索：匹配 task_id/conversation_id/assignment_id；空 = 不筛
+	Limit          int        // 本页上限；<=0 或超 maxListLimit 收敛到 maxListLimit
+	Offset         int        // 本页起点（offset 分页——对齐流量/漏洞模块的总数+跳页体验）
 }
 
-// where 把筛选拼成 SQL 条件与参数（task_id 恒为 $1，故从 $2 起编号）。
-// 返回的 conds 已含 task_id 条件，调用方直接 strings.Join(conds, " AND ")。
-// 列名加 li. 前缀以支持 JOIN 查询。
-func (f ListFilter) where(taskID string) (conds []string, args []any) {
-	args = []any{taskID}
-	conds = []string{"li.task_id=$1::uuid"}
+// where 把筛选拼成 SQL 条件与参数（列名带 li. 前缀，供带归属联表的查询使用）。
+//
+// 范围条件直接写在 llm_invocation 自己的列上（task_id、conversation_id 都有索引），不经归属
+// 联表的派生列——照派生列筛要先把全表的行连出来。无条件时返回 TRUE（全量）。
+func (f ListFilter) where() (conds []string, args []any) {
 	add := func(cond string, val any) {
 		args = append(args, val)
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
 	}
-	if f.Role != "" {
-		add("li.role = $%d", f.Role)
+	if f.TaskID != "" {
+		add("li.task_id = $%d::uuid", f.TaskID)
 	}
-	if f.Model != "" {
-		add("li.model = $%d", f.Model)
-	}
-	if f.OnlyErr {
-		conds = append(conds, "li.error_message <> ''")
-	}
-	if f.Start != nil {
-		add("li.created_at >= $%d", *f.Start)
-	}
-	if f.End != nil {
-		add("li.created_at <= $%d", *f.End)
-	}
-	return conds, args
-}
-
-// whereAll 把筛选拼成 SQL 条件（全局搜索，不限定 task_id）。
-// Search 为空时返回所有数据，否则匹配 task_id/conversation_id/assignment_id 之一。
-func (f ListFilter) whereAll() (conds []string, args []any) {
-	args = []any{}
-	conds = []string{}
-	add := func(cond string, val any) {
-		args = append(args, val)
-		conds = append(conds, fmt.Sprintf(cond, len(args)))
+	if f.ConversationID != "" {
+		// 与 invocationConversation 同一归属口径：自己记下的对话优先，否则是所属任务的对话
+		add("(li.conversation_id = $%d::uuid OR (li.conversation_id IS NULL AND li.task_id IN "+
+			"(SELECT task_id FROM conversation WHERE id = $%[1]d::uuid)))", f.ConversationID)
 	}
 	if f.Search != "" {
 		// 搜索：匹配 task_id/conversation_id/assignment_id（对话与批次按 invocationJoins 的归属口径）
@@ -325,8 +312,8 @@ const invocationJoins = `
 // invocationConversation 是调用所属对话的表达式：自己记下的对话优先，否则是任务的对话。
 const invocationConversation = "COALESCE(cc.id, tc.id)"
 
-// listSelect 是列表查询共享的列序与 JOIN（ListByTask / ListAll 单一口径）：业务键
-// （conversation/assignment）经 invocationJoins 派生。新增列时同步改 scanListRow。
+// listSelect 是列表查询的列序与 JOIN：业务键（conversation/assignment）经 invocationJoins 派生。
+// 新增列时同步改 scanListRow。
 const listSelect = `
 	SELECT li.id, li.agent_run_id, li.task_id::text,
 	       li.provider, li.model,
@@ -358,22 +345,16 @@ func scanListRow(rows pgx.Rows, v *Invocation) error {
 	return nil
 }
 
-// ListByTask 列出 task 下的 LLM invocation，按 id ASC + offset 翻页
-// （对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 CountByTask 算总页数）。
-//
-// 筛选条件见 ListFilter（role/model/仅错误/时间范围 + limit/offset）；
-// 与 AggregateByTask 吃同一份 filter，保证「明细」与「合计」口径一致。
+// ListAll 按筛选列出调用，offset 分页。
 //
 // 用 id 而非 created_at 排序：批量 worker 同一 flush 内的行 created_at 几乎相同（写入时刻，
 // 非调用时刻），排序不稳定；bigserial id 在同一批 CopyFrom 内严格单调，才是可靠的排序键。
 // 调用方有责任先 Flush() 等异步 buffer commit，否则可能缺最近 0-1s 的记录。
 //
-// 列表不选 messages/result（大字段，详情另走 GetByID 按需拉，见 docs 中"列表/详情分离"设计），
-// 审计表要能一眼看出一次调用属于哪个任务、用了什么模型、成败如何
-// 「这次调用干了什么」（派活 / 跑命令 / 写漏洞），否则得逐行点开详情才知道。
-// 工具清单在库内算完再出网，仍不传大字段。
-func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]Invocation, error) {
-	conds, args := f.where(taskID)
+// 列表不选 messages/result（大字段，详情另走 GetDetailByID 按需拉）：审计表要能一眼看出
+// 一次调用属于哪个任务、用了什么模型、成败如何；「这次调用干了什么」点开详情才看。
+func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error) {
+	conds, args := f.where()
 	args = append(args, f.limitOrDefault(), f.Offset)
 	q := fmt.Sprintf(listSelect+`
 		WHERE %[1]s
@@ -382,7 +363,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		strings.Join(conds, " AND "), len(args)-1, len(args))
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list llm_invocation by task: %w", err)
+		return nil, fmt.Errorf("list llm_invocation: %w", err)
 	}
 	defer rows.Close()
 
@@ -394,10 +375,7 @@ func (s *Store) ListByTask(ctx context.Context, taskID string, f ListFilter) ([]
 		}
 		out = append(out, v)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate llm_invocation: %w", err)
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // GetDetailByID 通过 ID 直接获取详情（不需要 task_id），用于全局搜索后点击详情。
@@ -434,10 +412,9 @@ func (s *Store) GetDetailByID(ctx context.Context, id int64) (Invocation, error)
 	return v, nil
 }
 
-// Aggregate 是某 task 下所有 LLM 调用的合计（会话用量总览）。
+// Aggregate 是一组调用的用量合计。
 // 权威口径：框架层埋点（framework/llm.InstrumentProvider）对每次 Provider 调用（含纯
-// tool_call、含失败）都落一行，
-// 故此合计覆盖全部调用，不受"无文字推理不发 SSE 事件"影响。
+// tool_call、含失败）都落一行，故此合计覆盖全部调用，不受"无文字推理不发 SSE 事件"影响。
 type Aggregate struct {
 	Calls        int   // 调用次数
 	InTokens     int64 // 输入 token 合计
@@ -446,105 +423,39 @@ type Aggregate struct {
 	LatencyMs    int64 // LLM 调用耗时合计（ms）
 }
 
-// AggregateByTask 合计某 task 的 llm_invocation 用量，按 filter 筛选（零值 filter = 全量）。
-// 无匹配记录时返回零值。调用前应先 Flush() 确保异步 buffer 已落库。
-//
-// 与 ListByTask 共用 ListFilter：审计页筛选后，合计跟着筛选变（对齐 NewAPI GetLogsStat 的做法），
-// 不会出现「明细只剩 3 条、合计仍是全量」的自相矛盾。Limit/Offset 不参与统计——
-// 统计是整个筛选结果集的合计，与翻到第几页无关。
-func (s *Store) AggregateByTask(ctx context.Context, taskID string, f ListFilter) (Aggregate, error) {
-	conds, args := f.where(taskID)
+// AggregateAll 合计整个筛选结果集的用量，与翻页无关（Limit/Offset 不参与）。无匹配记录时
+// 返回零值。调用前应先 Flush() 确保异步 buffer 已落库。任务的用量合计（GET /tasks/:id/usage）
+// 以 TaskID 表达，走的是同一个入口。
+func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, error) {
+	conds, args := f.where()
 	q := fmt.Sprintf(`
 		SELECT COUNT(*),
-		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
-		       COALESCE(SUM(cached_tokens),0),
-		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation li WHERE %s`, strings.Join(conds, " AND "))
+		       COALESCE(SUM(li.in_tokens),0), COALESCE(SUM(li.out_tokens),0),
+		       COALESCE(SUM(li.cached_tokens),0),
+		       COALESCE(SUM(li.latency_ms),0)
+		FROM llm_invocation li`+invocationJoins+`
+		WHERE %s`, strings.Join(conds, " AND "))
 	var a Aggregate
 	err := s.pool.QueryRow(ctx, q, args...).
 		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
 	if err != nil {
-		return Aggregate{}, fmt.Errorf("aggregate llm_invocation by task %s: %w", taskID, err)
+		return Aggregate{}, fmt.Errorf("aggregate llm_invocation: %w", err)
 	}
 	return a, nil
 }
 
-// CountByTask 返回该 task 下匹配 filter 的总行数（不含 limit/offset），供前端算总页数。
-// 与 ListByTask/AggregateByTask 共用同一份筛选口径。
-func (s *Store) CountByTask(ctx context.Context, taskID string, f ListFilter) (int, error) {
-	conds, args := f.where(taskID)
-	q := fmt.Sprintf(`SELECT COUNT(*) FROM llm_invocation li WHERE %s`, strings.Join(conds, " AND "))
-	var total int
-	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
-		return 0, fmt.Errorf("count llm_invocation by task %s: %w", taskID, err)
-	}
-	return total, nil
-}
-
-// ListAll 全局搜索 LLM 调用（不限定 task_id）。
-// Search 字段匹配 task_id/conversation_id/assignment_id 之一。
-func (s *Store) ListAll(ctx context.Context, f ListFilter) ([]Invocation, error) {
-	conds, args := f.whereAll()
-	// 追加 LIMIT 和 OFFSET 参数
-	limitIdx := len(args) + 1
-	offsetIdx := len(args) + 2
-	args = append(args, f.limitOrDefault(), f.Offset)
-
-	q := fmt.Sprintf(listSelect+`
-		WHERE %[1]s
-		ORDER BY li.id DESC
-		LIMIT $%[2]d OFFSET $%[3]d`,
-		strings.Join(conds, " AND "), limitIdx, offsetIdx)
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list all llm_invocation: %w", err)
-	}
-	defer rows.Close()
-
-	var out []Invocation
-	for rows.Next() {
-		var v Invocation
-		if err := scanListRow(rows, &v); err != nil {
-			return nil, fmt.Errorf("scan llm_invocation: %w", err)
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}
-
-// CountAll 全局搜索的总数统计。
+// CountAll 返回匹配筛选的总行数（不含 limit/offset），供前端算总页数。
 func (s *Store) CountAll(ctx context.Context, f ListFilter) (int, error) {
-	conds, args := f.whereAll()
+	conds, args := f.where()
 	q := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM llm_invocation li`+invocationJoins+`
 		WHERE %s`, strings.Join(conds, " AND "))
 	var total int
 	if err := s.pool.QueryRow(ctx, q, args...).Scan(&total); err != nil {
-		return 0, fmt.Errorf("count all llm_invocation: %w", err)
+		return 0, fmt.Errorf("count llm_invocation: %w", err)
 	}
 	return total, nil
-}
-
-// AggregateAll 全局搜索口径的用量合计（calls/tokens/耗时），与 ListAll/CountAll
-// 共用同一份筛选（含 JOIN——Search 条件引用 task/conversation 列）。
-// 全局审计页头部统计 chip 的数据源：统计是整个筛选结果集的合计，与翻页无关。
-func (s *Store) AggregateAll(ctx context.Context, f ListFilter) (Aggregate, error) {
-	conds, args := f.whereAll()
-	q := fmt.Sprintf(`
-		SELECT COUNT(*),
-		       COALESCE(SUM(in_tokens),0), COALESCE(SUM(out_tokens),0),
-		       COALESCE(SUM(cached_tokens),0),
-		       COALESCE(SUM(latency_ms),0)
-		FROM llm_invocation li`+invocationJoins+`
-		WHERE %s`, strings.Join(conds, " AND "))
-	var a Aggregate
-	err := s.pool.QueryRow(ctx, q, args...).
-		Scan(&a.Calls, &a.InTokens, &a.OutTokens, &a.CachedTokens, &a.LatencyMs)
-	if err != nil {
-		return Aggregate{}, fmt.Errorf("aggregate all llm_invocation: %w", err)
-	}
-	return a, nil
 }
 
 // Facets 是角色 / 模型筛选的选项。
@@ -554,7 +465,7 @@ type Facets struct {
 }
 
 // Facets 取角色与模型的可选值：来自整个筛选结果集（不是当前页），每个维度不受自身筛选
-// 影响——选中一个模型后其余模型仍可选；其它筛选（搜索、仅错误、时间）照常收窄。
+// 影响——选中一个模型后其余模型仍可选；其它筛选（范围、搜索、仅错误、时间）照常收窄。
 func (s *Store) Facets(ctx context.Context, f ListFilter) (Facets, error) {
 	roleFilter, modelFilter := f, f
 	roleFilter.Role, modelFilter.Model = "", ""
@@ -571,7 +482,7 @@ func (s *Store) Facets(ctx context.Context, f ListFilter) (Facets, error) {
 
 // distinct 取筛选结果集里某列的非空去重值（升序）。col 只取自本包常量，不来自输入。
 func (s *Store) distinct(ctx context.Context, col string, f ListFilter) ([]string, error) {
-	conds, args := f.whereAll()
+	conds, args := f.where()
 	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT %[1]s FROM llm_invocation li`+invocationJoins+`
 		WHERE %[2]s AND %[1]s <> ''

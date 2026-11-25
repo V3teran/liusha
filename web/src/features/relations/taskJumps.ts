@@ -5,7 +5,7 @@ import { conversationPath } from '@/lib/source'
 import { scopeQuery, type Scope } from './scope'
 
 /** 任务相关跳转的目标：任务名下的视图。 */
-export type JumpTarget = 'task' | 'conversation' | 'findings' | 'exploration'
+export type JumpTarget = 'task' | 'conversation' | 'findings' | 'exploration' | 'llmAudit'
 
 /** 一个跳转按钮：名字与图标取侧栏导航（同一个目的地的两种入口），to 已按范围限定。 */
 export interface Jump {
@@ -42,13 +42,14 @@ export function jumpContext(task: TaskSummary, from: TaskJumpContext['from']): T
 }
 
 /** 目标的固定顺序与侧栏导航一致。 */
-const ORDER: readonly JumpTarget[] = ['task', 'conversation', 'findings', 'exploration']
+const ORDER: readonly JumpTarget[] = ['task', 'conversation', 'findings', 'exploration', 'llmAudit']
 
 const NAV_PATH: Record<JumpTarget, string> = {
   task: '/tasks',
   conversation: '/conversations/direct',
   findings: '/findings',
   exploration: '/exploration-graph',
+  llmAudit: '/llm-audit',
 }
 
 function navItem(target: JumpTarget) {
@@ -62,26 +63,38 @@ function jump(target: JumpTarget, to: string): Jump {
   return { target, label, icon, to }
 }
 
-/** 跳到一个对话（没有任务的对话内记录，如问答类 LLM 调用，只有这一个去处）。 */
-export function conversationJump(source: string, conversationId: string): Jump {
-  return jump('conversation', conversationPath(source, conversationId))
+/**
+ * 从一个对话出发的跳转：落点按这个对话限定（对话页顶栏、调用详情都用它）。纯聊天对话没有任务，
+ * 只对对话本身成立的目标才可用。
+ */
+export function conversationJumps(source: string, conversationId: string, targets: readonly JumpTarget[]): Jump[] {
+  return taskJumps({ taskId: '', conversationId, source, from: 'conversation' }, targets)
 }
 
 /**
- * 任务相关跳转（全站唯一规则）：按 targets 取需要的目标，固定顺序；没有对话不放「对话」，
- * 没有发现不放「发现」（不做通向空页面的按钮）。落点只显示这个任务 / 这个对话的内容。
+ * 任务相关跳转（全站唯一规则）：按 targets 取需要的目标，固定顺序。落点只显示这个任务 / 这个
+ * 对话的内容。
+ *
+ * 不做通向空页面的按钮——一个去处成立的前提在这里判定，调用方不必自己挡：
+ *   - 没有任务（纯聊天对话）：任务、发现、探索图都没有；对话与模型日志照有（问答的调用记在对话名下）
+ *   - 没有对话不放「对话」；没有发现不放「发现」
  */
 export function taskJumps(ctx: TaskJumpContext, targets: readonly JumpTarget[]): Jump[] {
+  const hasTask = ctx.taskId !== ''
   const scope: Scope =
     ctx.from === 'conversation' && ctx.conversationId
       ? { kind: 'conversation', id: ctx.conversationId }
       : { kind: 'task', id: ctx.taskId }
   const href: Record<JumpTarget, string | null> = {
     // 任务页：列表收窄到这一个任务并打开它的详情
-    task: `/tasks?${scopeQuery(scope)}&selected=${encodeURIComponent(ctx.taskId)}`,
+    task: hasTask ? `/tasks?${scopeQuery(scope)}&selected=${encodeURIComponent(ctx.taskId)}` : null,
     conversation: ctx.conversationId ? conversationPath(ctx.source, ctx.conversationId) : null,
-    findings: (ctx.findingCount ?? 0) > 0 ? `/findings?${scopeQuery(scope)}` : null,
-    exploration: `/exploration-graph?${scopeQuery(scope)}${ctx.explorationNode ? `&selected=${encodeURIComponent(ctx.explorationNode)}` : ''}`,
+    findings: hasTask && (ctx.findingCount ?? 0) > 0 ? `/findings?${scopeQuery(scope)}` : null,
+    exploration: hasTask
+      ? `/exploration-graph?${scopeQuery(scope)}${ctx.explorationNode ? `&selected=${encodeURIComponent(ctx.explorationNode)}` : ''}`
+      : null,
+    // 模型日志：按任务筛是这个任务的智能体运行的调用，按对话筛还包括对话里直接发起的调用
+    llmAudit: `/llm-audit?${scopeQuery(scope)}`,
   }
   return ORDER.filter((t) => targets.includes(t)).flatMap((target) => {
     const to = href[target]

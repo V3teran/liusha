@@ -15,6 +15,8 @@ import type {
 function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchParams {
   const params = new URLSearchParams()
   if (!f) return params
+  if (f.task) params.set('task', f.task)
+  if (f.conversation) params.set('conversation', f.conversation)
   if (f.role) params.set('role', f.role)
   if (f.model) params.set('model', f.model)
   if (f.onlyErr) params.set('only_err', '1')
@@ -36,7 +38,7 @@ function invocationFilterParams(f?: Partial<LLMInvocationFilters>): URLSearchPar
 }
 
 /**
- * 全局搜索 LLM 调用（不限定 task_id），支持搜索 task_id/conversation_id/assignment_id。
+ * 按筛选列出调用（全局：不限定任务；可按范围、角色、模型、时间收窄，或按 ID 搜索）。
  */
 export async function searchLLMInvocations(
   search: string,

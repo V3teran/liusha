@@ -8,6 +8,7 @@ import (
 
 	"github.com/V3teran/liusha/internal/llminvocation"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -145,6 +146,46 @@ func TestLLMInvocationsHandler_InvalidTimeRejected(t *testing.T) {
 			if resp.StatusCode != 400 {
 				t.Errorf("%s?%s 应 400，得 %d", path, q, resp.StatusCode)
 			}
+		}
+	}
+}
+
+// 范围（task / conversation）：从任务或对话跳到模型日志时只看它名下的调用——列表、统计、分面
+// 收到同一份范围；不是合法的 ID 时 400，而不是把它带进 SQL。
+func TestLLMInvocationsHandler_Scope(t *testing.T) {
+	taskID, conversationID := uuid.NewString(), uuid.NewString()
+	fake := &fakeInvocations{}
+	srv := newTestServer(t, Deps{Invocations: fake})
+	defer srv.Close()
+
+	want := llminvocation.ListFilter{TaskID: taskID, ConversationID: conversationID, Limit: defaultInvocationPageSize}
+	for _, path := range []string{
+		"/api/llm/invocations/search",
+		"/api/llm/invocations/search/stat",
+		"/api/llm/invocations/search/facets",
+	} {
+		code, _ := doJSON(t, "GET", srv.URL+path+"?task="+taskID+"&conversation="+conversationID, nil)
+		if code != 200 {
+			t.Fatalf("%s 状态码=%d，期望 200", path, code)
+		}
+	}
+	// 统计与分面不分页：范围照收，Limit 不设
+	wantNoPage := llminvocation.ListFilter{TaskID: taskID, ConversationID: conversationID}
+	if fake.gotFilter != want {
+		t.Errorf("列表收到的筛选 = %+v，期望 %+v", fake.gotFilter, want)
+	}
+	if fake.gotAggF != wantNoPage {
+		t.Errorf("统计收到的筛选 = %+v，期望 %+v", fake.gotAggF, wantNoPage)
+	}
+	if fake.gotFacetF != wantNoPage {
+		t.Errorf("分面收到的筛选 = %+v，期望 %+v", fake.gotFacetF, wantNoPage)
+	}
+
+	for _, param := range []string{"task", "conversation"} {
+		resp := doReq(t, "GET", srv.URL+"/api/llm/invocations/search?"+param+"=not-a-uuid", "")
+		_ = resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s 不是合法的 ID 应 400，得 %d", param, resp.StatusCode)
 		}
 	}
 }

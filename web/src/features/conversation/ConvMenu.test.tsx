@@ -22,17 +22,20 @@ async function openMenu(c: Conversation, handlers: { onRename?: () => void; onDe
 }
 
 describe('ConvMenu', () => {
-  // 从对话出发只看这个对话的：任务、发现、探索图都按对话限定（落点显示对话标题）
-  it('任务、发现、探索图都跳到「这个对话的」', async () => {
+  // 从对话出发只看这个对话的：任务、发现、探索图、模型日志都按对话限定（落点显示对话标题）
+  it('任务、发现、探索图、模型日志都跳到「这个对话的」', async () => {
     await openMenu(conv({}))
     expect(screen.getByRole('menuitem', { name: '任务' }).getAttribute('href')).toBe('/tasks?conversation=c-1&selected=t-1')
     expect(screen.getByRole('menuitem', { name: '发现' }).getAttribute('href')).toBe('/findings?conversation=c-1')
     expect(screen.getByRole('menuitem', { name: '探索图' }).getAttribute('href')).toBe('/exploration-graph?conversation=c-1')
+    // 模型日志按对话筛：含对话里直接发起的调用（问答、意图分类、标题生成）
+    expect(screen.getByRole('menuitem', { name: '模型日志' }).getAttribute('href')).toBe('/llm-audit?conversation=c-1')
   })
 
-  it('纯聊天对话（没有任务）只有重命名与删除', async () => {
+  // 纯聊天没有任务：任务相关的去处没有；模型日志照有（问答的调用记在它名下）
+  it('纯聊天对话（没有任务）：去处只有模型日志', async () => {
     await openMenu(conv({ task_id: '' }))
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['重命名', '删除对话'])
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['模型日志', '重命名', '删除对话'])
   })
 
   it('没有发现的对话没有发现入口（无洞不跳）', async () => {

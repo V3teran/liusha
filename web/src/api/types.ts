@@ -579,6 +579,9 @@ export interface LLMInvocationFacets {
 }
 // LLMInvocationFilters 是前端持有的筛选态，序列化进 query 后由服务端筛。
 export interface LLMInvocationFilters {
+  /** 范围：从任务或对话跳来时只看它名下的调用（二者至多一个非空，见 features/relations/scope.ts） */
+  task?: string
+  conversation?: string
   role: string
   model: string
   onlyErr: boolean

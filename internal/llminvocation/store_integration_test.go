@@ -151,8 +151,8 @@ func TestStore_GetDetailByID(t *testing.T) {
 	}
 }
 
-// TestStore_AggregateByTask 验证：插多条 → 合计 token/latency/calls 等于各项之和。
-func TestStore_AggregateByTask(t *testing.T) {
+// TestStore_AggregateAll 验证：插多条 → 按 TaskID 范围合计 token/latency/calls 等于各项之和。
+func TestStore_AggregateAll(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
@@ -169,7 +169,7 @@ func TestStore_AggregateByTask(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{})
+	agg, err := s.AggregateAll(ctx, ListFilter{TaskID: taskID})
 	if err != nil {
 		t.Fatalf("aggregate: %v", err)
 	}
@@ -234,14 +234,14 @@ func TestStore_ListAll_Filters(t *testing.T) {
 	}
 }
 
-// TestStore_AggregateByTask_Filtered 验证统计吃筛选（与列表同源），且不受分页游标影响——
+// TestStore_AggregateAll_Filtered 验证统计吃筛选（与列表同源），且不受分页游标影响——
 // 否则会出现「明细筛剩 1 条、合计仍是全量」的自相矛盾。
-func TestStore_AggregateByTask_Filtered(t *testing.T) {
+func TestStore_AggregateAll_Filtered(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 	seedFiltered(t, s, taskID)
 
-	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{Role: "executor"})
+	agg, err := s.AggregateAll(ctx, ListFilter{TaskID: taskID, Role: "executor"})
 	if err != nil {
 		t.Fatalf("aggregate filtered: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestStore_AggregateByTask_Filtered(t *testing.T) {
 	}
 
 	// 分页（Offset/Limit）只属于列表；统计是整个筛选结果集的合计，与翻页无关。
-	withPaging, err := s.AggregateByTask(ctx, taskID, ListFilter{Offset: 1, Limit: 1})
+	withPaging, err := s.AggregateAll(ctx, ListFilter{TaskID: taskID, Offset: 1, Limit: 1})
 	if err != nil {
 		t.Fatalf("aggregate with paging: %v", err)
 	}
@@ -259,12 +259,12 @@ func TestStore_AggregateByTask_Filtered(t *testing.T) {
 	}
 }
 
-// TestStore_AggregateByTask_Empty 验证：无任何调用时返回零值，不报错。
-func TestStore_AggregateByTask_Empty(t *testing.T) {
+// TestStore_AggregateAll_Empty 验证：无任何调用时返回零值，不报错。
+func TestStore_AggregateAll_Empty(t *testing.T) {
 	ctx := context.Background()
 	s, taskID := setup(t)
 
-	agg, err := s.AggregateByTask(ctx, taskID, ListFilter{})
+	agg, err := s.AggregateAll(ctx, ListFilter{TaskID: taskID})
 	if err != nil {
 		t.Fatalf("aggregate on empty: %v", err)
 	}

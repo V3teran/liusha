@@ -15,7 +15,7 @@ import (
 type LLMUsageAggregator interface {
 	// Flush 把异步缓冲的调用记录落库，合计前调用，拿到的是最新口径。
 	Flush(ctx context.Context) error
-	AggregateByTask(ctx context.Context, taskID string, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
+	AggregateAll(ctx context.Context, f llminvocation.ListFilter) (llminvocation.Aggregate, error)
 }
 
 // ToolUsageAggregator 合计某任务的工具用量（*toolinvocation.Store 满足）。
@@ -56,7 +56,8 @@ func getTaskUsageHandler(tasks TaskReader, llm LLMUsageAggregator, tools ToolUsa
 		if err := llm.Flush(ctx); err != nil {
 			apiLog.Warn().Err(err).Str("task_id", taskID).Msg("LLM 调用记录落盘失败，用量暂按已落库的合计")
 		}
-		la, err := llm.AggregateByTask(ctx, taskID, llminvocation.ListFilter{})
+		// 任务的智能体运行产生的调用：与模型日志按任务筛出的范围同一个口径
+		la, err := llm.AggregateAll(ctx, llminvocation.ListFilter{TaskID: taskID})
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
