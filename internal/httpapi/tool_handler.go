@@ -68,7 +68,7 @@ func listToolsHandler(api ToolCatalogAPI, inv SandboxInventoryAPI) gin.HandlerFu
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 kind（应为 function|cli 或留空）"})
 			return
 		}
-		params := toolstore.ListParams{Q: c.Query("q"), Kind: kind}
+		params := toolstore.ListParams{Search: c.Query("search"), Kind: kind}
 		// page 显式传入才分页；缺省时 Limit 留 0 → store 返回全量（供选择器）。
 		if raw := c.Query("page"); raw != "" {
 			page, size := parsePagination(raw, c.Query("size"), defaultToolPageSize, maxToolPageSize)

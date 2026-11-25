@@ -345,7 +345,7 @@ export interface RoleRouteConfig {
   updated_at?: string
 }
 
-// RoutingResponse 是 GET /models/routing 的信封：能力档→provider 路由表。
+// RoutingResponse 是 GET /models/routes 的信封：能力档→provider 路由表。
 export interface RoutingResponse {
   routes: RoleRouteConfig[]
 }
@@ -527,9 +527,9 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   模型日志（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
+   模型调用记录（列表 GET /llm/invocations + 统计 stat + 分面 facets + 单条 :id）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
-   详情走 GET /llm/invocations/detail/:id 按需拉。
+   详情走 GET /llm/invocations/:id 按需拉。
    筛选（q/role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
    ============================================================ */
 // LLMInvocationSummary 是列表行——不含 messages/result。
@@ -564,7 +564,7 @@ export interface LLMInvocationsResponse {
   size: number
   items: LLMInvocationSummary[]
 }
-// LLMInvocationSearchStat 是 GET /llm/invocations/search/stat 的全局筛选合计
+// LLMInvocationSearchStat 是 GET /llm/invocations/stat 的当前筛选合计
 // （整个筛选结果集，与翻页无关）——审计页统计 chip 数据源。
 export interface LLMInvocationSearchStat {
   calls: number

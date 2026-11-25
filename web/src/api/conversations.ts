@@ -76,12 +76,12 @@ export async function listMessages(convID: string, afterSeq = 0): Promise<Messag
  * @param scenario 消息被判为要执行时所建任务的场景 code（空串 = 无场景；不传 = 后端缺省渗透测试）
  * @returns conversation_id 和 task_id（闲聊/qa 意图不下发 task 时 task_id 为空）
  */
-export async function startChat(
+export async function startConversation(
   brief: string,
   attachments: AttachmentRef[] = [],
   scenario?: string
 ): Promise<{ conversation_id: string; task_id: string }> {
-  return post('/chat', { brief, attachments: attachments.length > 0 ? attachments : undefined, scenario })
+  return post('/conversations', { brief, attachments: attachments.length > 0 ? attachments : undefined, scenario })
 }
 
 /**
@@ -95,7 +95,7 @@ export async function followUp(
   convID: string,
   content: string,
   attachments: AttachmentRef[] = [],
-  scenario?: string // 会话尚未绑定任务时，消息被判为要执行所建任务的场景（语义同 startChat）
+  scenario?: string // 会话尚未绑定任务时，消息被判为要执行所建任务的场景（语义同 startConversation）
 ): Promise<{ intent: string }> {
   return post(`/conversations/${convID}/messages`, {
     content,

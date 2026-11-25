@@ -134,7 +134,7 @@ func saveRetrievalHandler(api ModelAPI, enc KeyEncrypter, index RetrievalModelIn
 	}
 }
 
-// clearRetrievalKeyHandler 处理 DELETE /models/retrieval：清除密钥（幂等），保留地址与
+// clearRetrievalKeyHandler 处理 DELETE /models/retrieval/key：只清除密钥（幂等），保留地址与
 // 模型名的自定义。知识库回到字面检索；重配密钥即恢复。
 func clearRetrievalKeyHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

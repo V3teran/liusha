@@ -175,7 +175,7 @@ func TestClearRetrievalKey_Idempotent(t *testing.T) {
 	defer srv.Close()
 
 	for i := 0; i < 2; i++ {
-		code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/retrieval", nil)
+		code, _ := doJSON(t, "DELETE", srv.URL+"/api/models/retrieval/key", nil)
 		if code != http.StatusOK {
 			t.Fatalf("第 %d 次 status=%d", i+1, code)
 		}

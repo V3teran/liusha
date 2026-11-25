@@ -44,11 +44,11 @@ type Deps struct {
 	Workspaces WorkspaceFileAPI
 	// WorkspaceLabels 给工作区批次 / 任务目录取显示名（nil = 目录按 ID 显示）。
 	WorkspaceLabels WorkspaceLabelsAPI
-	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
+	// Invocations 为 nil 时 /llm/invocations 系列路由不注册。
 	// 由 api 组件注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
 	// 会话式平台（任一为 nil 时对应路由不注册）：
-	//   Chat          POST /chat 发起会话扫描（api 组件注入 *dispatch.Service）
+	//   Chat          POST /conversations 发起会话（api 组件注入 *dispatch.Service）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
 	//   EventStream   GET /conversations/:id/stream SSE（api 组件注入 redis 适配器）
 	Chat          ChatAPI

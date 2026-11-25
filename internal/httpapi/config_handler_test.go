@@ -25,7 +25,7 @@ func TestListAgents_SearchAndPage(t *testing.T) {
 		Agents []map[string]any `json:"agents"`
 		Total  int              `json:"total"`
 	}
-	w := serve(r, http.MethodGet, "/agents?q=规划", "")
+	w := serve(r, http.MethodGet, "/agents?search=规划", "")
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if w.Code != http.StatusOK || body.Total != 1 || body.Agents[0]["code"] != "planner" {
 		t.Fatalf("按名称搜索: %d %s", w.Code, w.Body.String())

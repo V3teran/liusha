@@ -152,6 +152,31 @@ func TestListTools_InstalledState(t *testing.T) {
 	}
 }
 
+// 文本筛选参数叫 search（与其它列表接口同名），原样交给工具目录去筛。
+func TestListTools_Search(t *testing.T) {
+	rec := &recordingToolCatalog{fakeToolCatalog: fakeToolCatalog{tools: []toolstore.Definition{{Name: "nmap", Kind: toolstore.KindCLI}}}}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	registerToolCatalogRoutes(r, Deps{ToolCatalog: rec, ConfigStore: &fakeConfig{}})
+	if w := serve(r, http.MethodGet, "/tools?search=nmap", ""); w.Code != http.StatusOK {
+		t.Fatalf("状态码 %d，期望 200", w.Code)
+	}
+	if rec.got.Search != "nmap" {
+		t.Errorf("目录收到的文本筛选 = %q，期望 nmap", rec.got.Search)
+	}
+}
+
+// recordingToolCatalog 记下列表收到的入参（筛选在目录层做，这里不筛）。
+type recordingToolCatalog struct {
+	fakeToolCatalog
+	got toolstore.ListParams
+}
+
+func (f *recordingToolCatalog) List(_ context.Context, p toolstore.ListParams) ([]toolstore.Definition, error) {
+	f.got = p
+	return f.tools, nil
+}
+
 // 装配态按生效名单判断，"*" 即全部。
 func TestGetTool_InvolvedFollowsEffectiveList(t *testing.T) {
 	r := toolRouter(&fakeConfig{agents: twoAgents()})

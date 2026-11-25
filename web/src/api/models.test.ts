@@ -3,12 +3,12 @@ import {
   listProviders,
   saveProvider,
   deleteProvider,
-  getRouting,
+  listRoutes,
   saveRoleRoute,
   deleteRoleRoute,
   getRetrievalModel,
   saveRetrievalModel,
-  clearRetrievalModel,
+  clearRetrievalKey,
   diagnoseRetrievalModel,
 } from './models'
 import type { ProviderConfig } from './types'
@@ -111,12 +111,12 @@ describe('models API 客户端', () => {
     await expect(deleteProvider('deepseek')).rejects.toThrow('该 provider 仍被角色路由引用')
   })
 
-  it('getRouting 打 /models/routing 返回 routes', async () => {
+  it('listRoutes 打 /models/routes 返回 routes', async () => {
     const fn = mockFetch(200, {
       routes: [{ role: 'medium', provider_code: 'deepseek' }],
     })
-    const r = await getRouting()
-    expect(fn.mock.calls[0][0]).toBe('/api/models/routing')
+    const r = await listRoutes()
+    expect(fn.mock.calls[0][0]).toBe('/api/models/routes')
     expect(r.routes[0].role).toBe('medium')
     expect(r.routes[0].provider_code).toBe('deepseek')
   })
@@ -175,10 +175,10 @@ describe('检索模型 API 客户端', () => {
     expect(row.key_last4).toBe('abcd')
   })
 
-  it('clearRetrievalModel 走 DELETE /models/retrieval', async () => {
+  it('clearRetrievalKey 走 DELETE /models/retrieval/key（只清密钥）', async () => {
     const fn = mockFetch(200, { ok: true })
-    await clearRetrievalModel()
-    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval')
+    await clearRetrievalKey()
+    expect(fn.mock.calls[0][0]).toBe('/api/models/retrieval/key')
     expect((fn.mock.calls[0][1] as RequestInit).method).toBe('DELETE')
   })
 

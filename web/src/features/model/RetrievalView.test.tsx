@@ -6,7 +6,7 @@ import { RetrievalView } from './RetrievalView'
 import {
   getRetrievalModel,
   saveRetrievalModel,
-  clearRetrievalModel,
+  clearRetrievalKey,
   diagnoseRetrievalModel,
 } from '@/api/models'
 import type { RetrievalModelConfig } from '@/api/types'
@@ -14,7 +14,7 @@ import type { RetrievalModelConfig } from '@/api/types'
 vi.mock('@/api/models', () => ({
   getRetrievalModel: vi.fn(),
   saveRetrievalModel: vi.fn(),
-  clearRetrievalModel: vi.fn(),
+  clearRetrievalKey: vi.fn(),
   diagnoseRetrievalModel: vi.fn(),
 }))
 
@@ -24,7 +24,7 @@ vi.mock('@/components/ui/confirm', () => ({
 
 const mGet = getRetrievalModel as unknown as ReturnType<typeof vi.fn>
 const mSave = saveRetrievalModel as unknown as ReturnType<typeof vi.fn>
-const mClear = clearRetrievalModel as unknown as ReturnType<typeof vi.fn>
+const mClear = clearRetrievalKey as unknown as ReturnType<typeof vi.fn>
 const mDiagnose = diagnoseRetrievalModel as unknown as ReturnType<typeof vi.fn>
 
 // 明文密钥位走变量引用而非字面量：静态扫描对凭据字段上的字面量一律报硬编码凭据。

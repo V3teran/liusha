@@ -3,12 +3,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Composer } from '@/features/conversation/Composer'
-import { followUp, startChat } from '@/api/conversations'
+import { followUp, startConversation } from '@/api/conversations'
 import { listScenarios } from '@/api/config'
 import type { ScenarioListItem } from '@/api/types'
 import { ScenarioSelect, selectableScenarios } from './ScenarioSelect'
 
-vi.mock('@/api/conversations', () => ({ followUp: vi.fn(), startChat: vi.fn() }))
+vi.mock('@/api/conversations', () => ({ followUp: vi.fn(), startConversation: vi.fn() }))
 vi.mock('@/api/config', () => ({ listScenarios: vi.fn() }))
 
 const sc = (o: Partial<ScenarioListItem>): ScenarioListItem => ({
@@ -38,12 +38,12 @@ describe('ScenarioSelect', () => {
   })
 
   it('未选时不带场景（服务端落定缺省）', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
     renderComposer()
     await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '扫一下')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(startChat).toHaveBeenCalledWith('扫一下', [], undefined))
+    await waitFor(() => expect(startConversation).toHaveBeenCalledWith('扫一下', [], undefined))
   })
 
   it('选中的场景已不可用时如实标注，不换成别的场景', async () => {
@@ -78,7 +78,7 @@ describe('ScenarioSelect', () => {
   })
 
   it('新对话发起后保留选择一次；之后来回切换对话都回到未选（新 → A → B → A）', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'A', task_id: '' })
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'A', task_id: '' })
     vi.mocked(listScenarios).mockResolvedValue(SCENARIOS)
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const ui = (convId?: string) => (
@@ -92,7 +92,7 @@ describe('ScenarioSelect', () => {
     await userEvent.selectOptions(pick(), 'ctf')
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '聊聊')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(startChat).toHaveBeenCalledWith('聊聊', [], 'ctf'))
+    await waitFor(() => expect(startConversation).toHaveBeenCalledWith('聊聊', [], 'ctf'))
     rerender(ui('A'))
     expect(pick().value).toBe('ctf') // 刚发起的对话：同一份草稿的延续
     rerender(ui('B'))
@@ -103,7 +103,7 @@ describe('ScenarioSelect', () => {
   })
 
   it('对话发起时缺省显示渗透测试，末位可选无场景，所选场景随消息提交', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'c', task_id: 't' })
     renderComposer()
     const select = screen.getByRole('combobox', { name: '任务场景' })
     await waitFor(() => expect(screen.getByRole('option', { name: 'CTF' })).toBeTruthy())
@@ -115,7 +115,7 @@ describe('ScenarioSelect', () => {
     await userEvent.selectOptions(select, 'ctf')
     await userEvent.type(screen.getByRole('textbox', { name: '消息输入' }), '解题')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
-    await waitFor(() => expect(startChat).toHaveBeenCalledWith('解题', [], 'ctf'))
+    await waitFor(() => expect(startConversation).toHaveBeenCalledWith('解题', [], 'ctf'))
   })
 
   it('尚未绑定任务的会话追加消息时带上场景；选「无场景」提交空串', async () => {

@@ -1,4 +1,4 @@
-// Package httpapi: LLM invocation 审计 handler（按 agent_id 分组；列表/详情/统计三端点分离）。
+// Package httpapi: 模型调用记录（llm_invocation）的只读接口：列表、统计、分面与单条详情。
 
 package httpapi
 
@@ -36,7 +36,7 @@ const (
 
 // parseInvocationFilter 从 query 解析筛选条件（列表/统计/分面共用，保证口径一致）。
 //
-//	q=<search> role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
+//	search=<关键词> role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
 //	task=<任务 ID> conversation=<对话 ID>
 //
 // 时间用 RFC3339（前端 Date.toISOString() 直出）；写错时返回错误（handler 回 400）。
@@ -45,7 +45,7 @@ const (
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 Count 算总页数。
 func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFilter, error) {
 	f := llminvocation.ListFilter{
-		Search:  c.Query("q"), // 允许为空：空 = 全量（按 id 倒序），全局审计不强制先选对话
+		Search:  c.Query("search"), // 允许为空：空 = 全量（按 id 倒序）
 		Role:    c.Query("role"),
 		Model:   c.Query("model"),
 		OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
@@ -73,10 +73,9 @@ func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFi
 	return f, nil
 }
 
-// llmInvocationsSearchHandler 处理 GET /llm/invocations/search（筛选参数见 parseInvocationFilter）。
+// listLlmInvocationsHandler 处理 GET /llm/invocations（筛选参数见 parseInvocationFilter）。
 //
-// q 为空时返回所有数据（按 id 倒序），不需要先选对话，适用于全局审计场景；q 非空时按
-// task_id/conversation_id/assignment_id 搜索。
+// search 为空时返回所有数据（按 id 倒序）；非空时按 task_id/conversation_id/assignment_id 搜索。
 //
 // 响应结构：
 //
@@ -84,7 +83,7 @@ func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFi
 //	  "total": 19, "page": 1, "size": 200,
 //	  "items": [{...含 conversation_id/assignment_id}]
 //	}
-func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
+func listLlmInvocationsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		page, size := parsePagination(c.Query("page"), c.Query("size"), defaultInvocationPageSize, maxInvocationPageSize)
 		f, err := parseInvocationFilter(c, page, size)
@@ -139,12 +138,12 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 	}
 }
 
-// llmInvocationsSearchStatHandler 处理 GET /llm/invocations/search/stat（与列表同一套筛选参数）。
+// llmInvocationsStatHandler 处理 GET /llm/invocations/stat（与列表同一套筛选参数）。
 //
-// 全局搜索口径的用量合计（整个筛选结果集，与翻到第几页无关）——审计页头部统计 chip
+// 当前筛选口径的用量合计（整个筛选结果集，与翻到第几页无关）——模型调用页头部统计
 // 的数据源。此前前端用当页行自行 reduce 聚合，50 条/页时「调用 50」与分页器
 // 「共 197 条」同屏打架；列表与统计吃同一份 parseInvocationFilter，口径永不打架。
-func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
+func llmInvocationsStatHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		f, err := parseInvocationFilter(c, 0, 0) // 统计不吃分页
 		if err != nil {
@@ -172,7 +171,7 @@ func llmInvocationsSearchStatHandler(api InvocationsAPI) gin.HandlerFunc {
 	}
 }
 
-// llmInvocationsFacetsHandler 处理 GET /llm/invocations/search/facets（与列表同一套筛选参数）：
+// llmInvocationsFacetsHandler 处理 GET /llm/invocations/facets（与列表同一套筛选参数）：
 // 角色 / 模型筛选的选项，来自整个筛选结果集而非当前页，每个维度不受自身筛选影响。
 func llmInvocationsFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -190,10 +189,10 @@ func llmInvocationsFacetsHandler(api InvocationsAPI) gin.HandlerFunc {
 	}
 }
 
-// llmInvocationDetailByIDHandler 处理 GET /llm/invocations/detail/:id。
+// getLlmInvocationHandler 处理 GET /llm/invocations/:id：按调用记录的 ID 取单条详情。
 //
-// 通过 invocation ID 直接获取详情（不需要 task_id），用于全局搜索后点击详情的场景。
-func llmInvocationDetailByIDHandler(api InvocationsAPI) gin.HandlerFunc {
+// id 是自增的 bigint（不是 UUID），格式与取值在这里校验。
+func getLlmInvocationHandler(api InvocationsAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)

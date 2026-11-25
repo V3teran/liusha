@@ -47,11 +47,11 @@ export async function searchLLMInvocations(
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationsResponse> {
   const params = invocationFilterParams(filters)
-  params.set('q', search)
+  params.set('search', search)
   if (page > 1) params.set('page', String(page))
   if (size > 0) params.set('size', String(size))
   const q = params.toString()
-  return get<LLMInvocationsResponse>(`/llm/invocations/search?${q}`)
+  return get<LLMInvocationsResponse>(`/llm/invocations?${q}`)
 }
 
 /**
@@ -63,8 +63,8 @@ export async function searchLLMInvocationStat(
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationSearchStat> {
   const params = invocationFilterParams(filters)
-  params.set('q', search)
-  return get<LLMInvocationSearchStat>(`/llm/invocations/search/stat?${params.toString()}`)
+  params.set('search', search)
+  return get<LLMInvocationSearchStat>(`/llm/invocations/stat?${params.toString()}`)
 }
 
 /** 角色 / 模型筛选的选项（来自整个筛选结果集，不是当前页）。 */
@@ -82,13 +82,13 @@ export async function searchLLMInvocationFacets(
   filters?: Partial<LLMInvocationFilters>,
 ): Promise<LLMInvocationFacets> {
   const params = invocationFilterParams(filters)
-  params.set('q', search)
-  return get<LLMInvocationFacets>(`/llm/invocations/search/facets?${params.toString()}`)
+  params.set('search', search)
+  return get<LLMInvocationFacets>(`/llm/invocations/facets?${params.toString()}`)
 }
 
 /**
  * 拉取单条 LLM 调用的完整原文（含 messages/result），列表页点击钻取用。
  */
 export async function getLLMInvocationDetail(id: number): Promise<LLMInvocationDetail> {
-  return get<LLMInvocationDetail>(`/llm/invocations/detail/${id}`)
+  return get<LLMInvocationDetail>(`/llm/invocations/${id}`)
 }

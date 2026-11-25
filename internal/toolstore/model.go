@@ -31,12 +31,12 @@ type Definition struct {
 }
 
 // ListParams 是 Store.List 的查询入参（可选过滤 + 分页）。
-//   - Q     ：按 name/description 模糊匹配（空 = 不过滤）
+//   - Search：按 name/description 模糊匹配（空 = 不过滤）；对应接口参数 search
 //   - Kind  ：按体系过滤（空 = 两套都要）
 //   - Limit ：<=0 表示不分页（全量），供无翻页场景复用
 //   - Offset：分页偏移
 type ListParams struct {
-	Q      string
+	Search string
 	Kind   Kind
 	Limit  int
 	Offset int

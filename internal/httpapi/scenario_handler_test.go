@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -117,6 +119,23 @@ func TestListScenarios_MarksCustomizedAndDefault(t *testing.T) {
 	body := w.Body.String()
 	if w.Code != http.StatusOK || !strings.Contains(body, `"customized":["body"]`) || !strings.Contains(body, `"is_default":true`) {
 		t.Fatalf("列表项应标出已自定义字段与缺省场景: %d %s", w.Code, body)
+	}
+}
+
+// 文本筛选参数叫 search（与其它列表接口同名）：按标识、名称、说明做字面包含匹配。
+func TestListScenarios_Search(t *testing.T) {
+	r := scenarioRouter(newFakeScenarios())
+	for q, want := range map[string]int{"": 3, "pentest": 1, "渗透": 1, "nothing-here": 0} {
+		w := serve(r, http.MethodGet, "/scenarios?search="+url.QueryEscape(q), "")
+		var resp struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("search=%q: %v", q, err)
+		}
+		if w.Code != http.StatusOK || resp.Total != want {
+			t.Errorf("search=%q 应命中 %d 条，得 %d（状态码 %d）", q, want, resp.Total, w.Code)
+		}
 	}
 }
 

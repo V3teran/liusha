@@ -15,7 +15,7 @@ import type { Conversation, TaskSummary, TaskUsage } from '@/api/types'
 vi.mock('@/api/conversations', () => ({
   listMessages: vi.fn(),
   getConversation: vi.fn(),
-  startChat: vi.fn(),
+  startConversation: vi.fn(),
   followUp: vi.fn(),
 }))
 

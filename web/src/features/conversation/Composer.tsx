@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Loader2, Paperclip, Send, X } from 'lucide-react'
 import { ApiError } from '@/api/client'
-import { followUp, startChat } from '@/api/conversations'
+import { followUp, startConversation } from '@/api/conversations'
 import { uploadAttachment } from '@/api/attachments'
 import type { AttachmentRef } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
@@ -27,7 +27,7 @@ interface ComposerProps {
 /**
  * Composer - 消息输入组件（含附件）：📎 选择即上传（逐个落位），
  * 芯片挂在输入框上方可摘除；发送时随消息提交引用，服务端收口进任务工作区。
- * 会话未创建（新会话首条）时上传落 pending 暂存区，随 startChat 一并认领——
+ * 会话未创建（新会话首条）时上传落 pending 暂存区，随 startConversation 一并认领——
  * 「先传字典再一句话下发」的主流程不打断。条数上界与服务端同源（10 条）：
  * 发送按钮在「上传进行中」禁用——部分已传的引用先发出去会让用户误以为
  * 全部附件随行。
@@ -106,7 +106,7 @@ export function Composer({ convId, disabled = false, placeholder, scenarioContro
         beginThinking()
         onAppended(beforeSeq)
       } else {
-        const { conversation_id } = await startChat(brief, attachments, scenario ?? undefined)
+        const { conversation_id } = await startConversation(brief, attachments, scenario ?? undefined)
         startedConvRef.current = conversation_id
         setBrief('')
         setAttachments([])

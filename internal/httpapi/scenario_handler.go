@@ -56,7 +56,7 @@ func listScenariosHandler(api ScenarioAPI) gin.HandlerFunc {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		q := c.Query("q")
+		q := c.Query("search")
 		items := make([]gin.H, 0, len(all))
 		for _, d := range all {
 			sc := d.Scenario
