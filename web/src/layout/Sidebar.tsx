@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Moon, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
+import { PaneToggle } from '@/components/ui/PaneToggle'
 import { UserMenu } from '@/features/auth/UserMenu'
 import { cn } from '@/lib/utils'
 import { NAV_GROUPS, type NavItem } from './navigation'
@@ -51,18 +52,12 @@ export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
           </div>
         )}
         {onToggleRail && (
-          <button
-            type="button"
-            onClick={onToggleRail}
-            aria-label={rail ? '展开侧边栏' : '收起侧边栏'}
-            title={rail ? '展开侧边栏' : '收起侧边栏'}
-            className={cn(
-              'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 hover:text-text',
-              !rail && 'ml-auto',
-            )}
-          >
-            {rail ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
+          <PaneToggle
+            open={!rail}
+            onToggle={onToggleRail}
+            label={rail ? '展开侧边栏' : '收起侧边栏'}
+            className={cn(!rail && 'ml-auto')}
+          />
         )}
       </div>
 

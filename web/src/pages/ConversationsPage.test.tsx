@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { ConversationsPage } from './ConversationsPage'
@@ -45,6 +46,9 @@ vi.mock('@/features/conversation/ConversationDetail', () => ({
     detailProps(props)
     return (
       <div data-testid="conv-detail">
+        {/* 页面交下来的顶栏前置控件（列表的收起 / 展开开关）：真实组件只在有顶栏（打开了对话）时
+            把它放在顶栏最前面 */}
+        {props.convId ? (props.leading as ReactNode) : null}
         <button type="button" onClick={() => (props.onStarted as (id: string) => void)('conv-new-started')}>
           start
         </button>
@@ -304,3 +308,46 @@ describe('ConversationsPage 窄屏（< 768）主从单栏', () => {
     expect(screen.queryByRole('button', { name: '返回对话列表' })).toBeNull()
   })
 })
+
+const COLLAPSED_KEY = 'liusha-conversation-list-collapsed'
+
+// 列表可以向左收起：开关固定在详情这一栏的左上角（与侧栏的收起开关同款），收起后对话占满。
+// 这是「怎么看」而不是「打开了什么」，所以记在本地、不进地址栏。
+describe('ConversationsPage 宽屏：列表的收起与展开', () => {
+  afterEach(() => localStorage.removeItem(COLLAPSED_KEY))
+
+  it('顶栏最前面的开关把列表向左收起，再点展开；偏好记在本地', async () => {
+    const user = userEvent.setup()
+    renderPage('direct', '/conversations/direct?conversation=c-1')
+    const toggle = screen.getByRole('button', { name: '收起对话列表' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.getAttribute('aria-controls')).toBe('conversation-list-pane')
+    expect(document.getElementById('conversation-list-pane')).toBeTruthy()
+
+    await user.click(toggle)
+    expect(screen.queryByTestId('conv-list')).toBeNull()
+    const reopen = screen.getByRole('button', { name: '展开对话列表' })
+    expect(reopen.getAttribute('aria-expanded')).toBe('false')
+    expect(localStorage.getItem(COLLAPSED_KEY)).toBe('1')
+    // 收起不改变打开的对话
+    expect(screen.getByTestId('location').textContent).toBe('?conversation=c-1')
+
+    await user.click(reopen)
+    expect(screen.getByTestId('conv-list')).toBeTruthy()
+    expect(localStorage.getItem(COLLAPSED_KEY)).toBe('0')
+  })
+
+  it('重新进入时保持上次的取舍', () => {
+    localStorage.setItem(COLLAPSED_KEY, '1')
+    renderPage('direct', '/conversations/direct?conversation=c-1')
+    expect(screen.queryByTestId('conv-list')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开对话列表' })).toBeTruthy()
+  })
+
+  it('没有打开的对话（没有顶栏）时开关照样在', () => {
+    renderPage('direct', '/conversations/direct')
+    expect(screen.getByRole('button', { name: '收起对话列表' })).toBeTruthy()
+  })
+})
+
+// 按智能体筛选可以多选，记在地址栏上（每个选中的智能体一个 agent 参数）；筛选属于它所在的那个对话。

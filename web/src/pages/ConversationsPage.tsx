@@ -1,24 +1,39 @@
 import { PageHeader } from '@/components/PageHeader'
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import type { HistoryOptions } from '@/hooks/useSelectedParam'
 import { ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PaneToggle } from '@/components/ui/PaneToggle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { ConversationDetail } from '@/features/conversation/ConversationDetail'
 import { ConversationList, type ConversationListHandle } from '@/features/conversation/ConversationList'
 import { PROXY_SETUP_HINT } from '@/lib/source'
+import { cn } from '@/lib/utils'
 import { ProxyAccess } from '@/features/proxy/ProxyAccess'
 
 interface ConversationsPageProps {
   source: 'direct' | 'proxy'
 }
 
+// 列表收不收起是「怎么看」而不是「打开了什么」：不进 URL（刷新、分享链接还原的是打开哪个对话），
+// 与侧栏的收起一样记在本地。
+const LIST_COLLAPSED_KEY = 'liusha-conversation-list-collapsed'
+
+function readListCollapsed(): boolean {
+  try {
+    return localStorage.getItem(LIST_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 // 对话页：主从双栏——左 ConversationList + 右 ConversationDetail。source 由路由决定
 // （/conversations/direct、/conversations/proxy 共用本组件），人工下发/代理捕获两个 tab
 // 差异仅在列表文案/是否可发起新对话，详情区的 SSE/用量/状态/插话全在 ConversationDetail 内。
 // 窄屏（< 768）主从单栏：同一时刻只显示列表或详情，详情顶部带返回；列表不自动选中，
-// 否则一进页面就被推进详情、看不到列表。
+// 否则一进页面就被推进详情、看不到列表。宽屏的列表可以向左收起（详情顶栏最前面的开关），
+// 让对话占满。
 //
 // 打开的对话以 URL 的 ?conversation= 为唯一状态：刷新、分享链接、前进后退都还原同一视图，
 // 跨页跳转也走这个入口；窄屏「列表 / 详情」由它决定。历史规则与列表页一致：用户点开、
@@ -38,7 +53,18 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
   // 刷新后回到列表（空输入框不值得还原）。
   const composing = Boolean((location.state as { composing?: boolean } | null)?.composing)
   const narrowDetail = currentConv !== '' || composing
-  const showList = isWide || !narrowDetail
+  const [listCollapsed, setListCollapsed] = useState(readListCollapsed)
+  const toggleList = () =>
+    setListCollapsed((v) => {
+      try {
+        localStorage.setItem(LIST_COLLAPSED_KEY, v ? '0' : '1')
+      } catch {
+        // 存储不可用（隐私模式等）时仅本次会话生效
+      }
+      return !v
+    })
+  // 宽屏：列表按用户的取舍显示或收起；窄屏：同一时刻只显示列表或详情
+  const showList = isWide ? !listCollapsed : !narrowDetail
   const showDetail = isWide || narrowDetail
 
   const setCurrentConv = useCallback(
@@ -88,6 +114,16 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       ? { noun: '代理批次', hint: PROXY_SETUP_HINT }
       : { noun: '对话', hint: '点击「新对话」，描述目标与测试方向即可发起任务。' }
 
+  // 开关固定在详情这一栏的左上角：列表收起后它随栏的左缘一起移过来，与侧栏的收起开关同一个位置逻辑
+  const paneToggle = isWide ? (
+    <PaneToggle
+      open={!listCollapsed}
+      onToggle={toggleList}
+      label={listCollapsed ? '展开对话列表' : '收起对话列表'}
+      controls={listCollapsed ? undefined : 'conversation-list-pane'}
+    />
+  ) : undefined
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 统一头部 */}
@@ -98,9 +134,9 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
       </PageHeader>
 
       {/* 主从双栏（窄屏单栏） */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[304px_1fr]">
+      <div className={cn('grid min-h-0 flex-1 grid-cols-1', showList && 'md:grid-cols-[304px_1fr]')}>
         {showList && (
-          <div className="flex h-full min-h-0 flex-col p-2.5 md:border-r md:border-border">
+          <div id="conversation-list-pane" className="flex h-full min-h-0 flex-col p-2.5 md:border-r md:border-border">
             <ConversationList
               ref={convListRef}
               activeId={currentConv || undefined}
@@ -116,7 +152,11 @@ export function ConversationsPage({ source }: ConversationsPageProps) {
         )}
         {showDetail && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
-            {!isWide && (
+            {isWide ? (
+              // 顶栏由 ConversationDetail 渲染、开关放在它的最前面；没有打开的对话时没有顶栏，
+              // 开关单独占一条同样高度的横栏——打开第一个对话时它不会上下跳
+              currentConv ? null : <div className="flex h-12 flex-shrink-0 items-center border-b border-border px-3">{paneToggle}</div>
+            ) : (
               <div className="flex-shrink-0 border-b border-border px-2 py-1.5">
                 <Button variant="ghost" size="sm" onClick={backToList}>
                   <ChevronLeft />

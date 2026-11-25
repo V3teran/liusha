@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Crosshair, Pause, Play, Square } from 'lucide-react'
 import { listMessages } from '@/api/conversations'
@@ -28,6 +28,8 @@ interface ConversationDetailProps {
   /** 执行轨迹按哪个智能体筛选（页面 URL 上的 agent）；null = 全部 */
   agent: string | null
   onAgentChange: (name: string | null) => void
+  /** 放在顶栏最前面的控件（宽屏下页面放「收起 / 展开对话列表」的开关）；没有对话时由页面自己放 */
+  leading?: ReactNode
 }
 
 
@@ -39,7 +41,7 @@ interface ConversationDetailProps {
 // 按任务 ID 取（纯聊天没有任务，不显示这些）。
 //
 // 去处（任务、发现、探索图、模型日志）都在对话列表行的「⋯」菜单里，顶栏不放。
-export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agent, onAgentChange }: ConversationDetailProps) {
+export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agent, onAgentChange, leading }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
   // 加载失败分两态：missing = 对话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
@@ -222,6 +224,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {hasConv && (
         <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 whitespace-nowrap border-b border-border px-4 py-2.5">
           <div className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {leading}
             <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
               <span
                 className={cn('h-2 w-2 rounded-full', scanning && 'motion-safe:animate-pulse')}
