@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { TokenPair } from '@/components/TokenPair'
 import { Clock, ListPlus, Pause, PencilLine, Play, Square, X } from 'lucide-react'
 import { controlTask } from '@/api/tasks'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
 import { jumpContext, taskJumps } from '@/features/relations/taskJumps'
-import type { TaskSummary } from '@/api/types'
-import { Badge } from '@/components/ui/Badge'
+import { useTaskUsage } from './useTaskQueries'
+import type { RoleUsage, TaskSummary } from '@/api/types'
+import { SeverityBadges } from '@/features/finding/SeverityCounts'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { fullTime, humanDuration } from '@/lib/format'
+import { agentAccent, agentLabel, KNOWN_AGENTS } from '@/lib/agentColor'
+import { clockDuration, fullTime, humanDuration } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
-import { sourceColor, sourceLabel } from '@/lib/source'
+import { sourceLabel } from '@/lib/source'
 import { goalHead } from './taskColumns'
 import { AdjustGoalDialog, AssignActionDialog } from './SteeringDialogs'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -36,9 +39,23 @@ function Kv({ k, children }: { k: string; children: React.ReactNode }) {
   )
 }
 
-/** 任务详情板（右侧常驻，点行选中驱动）：三跳转 + 任务信息 KV + 控制组 + 目标全文。
+/** 智能体调用情况的先后：登记过的身份按登记顺序在前（规划者、执行者、评估者、监察者），其余（历史压缩等）照接口给的先后。 */
+function rolesInOrder(roles: RoleUsage[]): RoleUsage[] {
+  const rank = (role: string) => {
+    const i = KNOWN_AGENTS.indexOf(role)
+    return i === -1 ? KNOWN_AGENTS.length : i
+  }
+  return [...roles].sort((a, b) => rank(a.role) - rank(b.role))
+}
+
+/**
+ * 任务详情板（右侧常驻，点行选中驱动）：跳转 + 任务信息 KV + 控制组 + 目标全文。
  * 控制组与表格操作列/对话页头部同一端点、同一语义——详情是检查面，命中区域更大，
- * 表格行内是快捷路径，两面并存。 */
+ * 表格行内是快捷路径，两面并存。
+ *
+ * 这里一次只看一个任务，信息以纯文字为主：状态、来源是带颜色点的文字（列表里用徽章是为了在行与行
+ * 之间扫读，详情里没有必要）；只有发现数用气泡——五个严重度的颜色本身就是信息。
+ */
 export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOperated, onOpenSchedule }: TaskDetailPaneProps) {
   // 暂停/继续合并为随 paused 翻转的切换钮（可逆，直接执行）；
   // 只有不可逆的停止过确认弹层（danger 形态）。
@@ -63,6 +80,8 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
     }
     await doControl(action)
   }
+  // 用量（智能体调用情况、耗时）：任务进行中每 10 秒跟着刷新
+  const usage = useTaskUsage(task?.id ?? null, task?.status === 'active').data
 
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
@@ -100,9 +119,10 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
               <h4 className="mb-2 text-2xs font-semibold uppercase tracking-wider text-text-secondary">任务信息</h4>
               <dl>
                 <Kv k="状态">
-                  <Badge dot color={taskStatusMeta(task.status).color}>
+                  <span className="inline-flex items-center gap-1.5 text-xs">
+                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: taskStatusMeta(task.status).color }} />
                     {task.status === 'active' ? (task.paused ? '已暂停' : '运行中') : taskStatusMeta(task.status).label}
-                  </Badge>
+                  </span>
                 </Kv>
                 {task.status === 'aborted' && task.abort_reason && (
                   <Kv k="终止原因">
@@ -110,10 +130,8 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
                   </Kv>
                 )}
                 <Kv k="来源">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Badge dot={false} color={sourceColor(task.source)}>
-                      {sourceLabel(task.source)}
-                    </Badge>
+                  <span className="inline-flex items-center gap-1.5 text-xs">
+                    <span>{sourceLabel(task.source)}</span>
                     {task.scheduled &&
                       (onOpenSchedule ? (
                         <button
@@ -142,6 +160,31 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
                     {task.assignment_title}（第 {task.assignment_index} / {task.assignment_total} 个）
                   </span>
                 </Kv>
+                {/* 智能体调用情况：谁调了多少次模型、多少次工具、各花了多少 token（纯文字，一行一个智能体） */}
+                <Kv k="智能体调用">
+                  {!usage ? (
+                    <span className="text-xs text-text-tertiary">加载中…</span>
+                  ) : usage.by_role.length === 0 ? (
+                    <span className="text-xs text-text-tertiary">—</span>
+                  ) : (
+                    <ul className="flex flex-col gap-0.5">
+                      {rolesInOrder(usage.by_role).map((r) => (
+                        <li key={r.role} className="flex flex-wrap items-center gap-x-2 text-xs">
+                          <span className="inline-flex w-12 shrink-0 items-center gap-1.5">
+                            <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: agentAccent(r.role).accent }} />
+                            <span className="truncate">{agentLabel(r.role) || r.role}</span>
+                          </span>
+                          <span className="text-text-secondary">
+                            调用 {r.llm_calls} 次 · 工具 {r.tool_calls} 次
+                          </span>
+                          {(r.tokens.in > 0 || r.tokens.out > 0) && (
+                            <TokenPair inTokens={r.tokens.in} outTokens={r.tokens.out} cachedTokens={r.tokens.cached} />
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Kv>
                 <Kv k="进度">
                   <span className="font-mono text-xs">
                     {task.step_count} 步{task.status === 'active' ? (task.paused ? ' · 已暂停' : ' · 进行中') : ''}
@@ -159,15 +202,16 @@ export function TaskDetailPane({ task, loading, error, onRetry, onClose, onOpera
                 </Kv>
                 <Kv k="耗时">
                   <span className="font-mono text-xs">
-                    {task.ended_at
-                      ? humanDuration(new Date(task.ended_at).getTime() - new Date(task.created_at).getTime())
-                      : '—'}
+                    {/* 与对话页顶栏同一个口径、同一种写法（扣除续接前的停顿）；用量还没回来时先按起止时间估 */}
+                    {usage
+                      ? clockDuration(usage.elapsed_ms)
+                      : task.ended_at
+                        ? humanDuration(new Date(task.ended_at).getTime() - new Date(task.created_at).getTime())
+                        : '—'}
                   </span>
                 </Kv>
                 <Kv k="发现">
-                  <span className={task.finding_count > 0 ? 'font-semibold text-sev-high' : 'text-text'}>
-                    {task.finding_count} 个
-                  </span>
+                  <SeverityBadges counts={task.findings_by_severity} />
                 </Kv>
               </dl>
 

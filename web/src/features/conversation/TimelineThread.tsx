@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Brain, ChevronDown, Loader2 } from 'lucide-react'
+import { Brain, ChevronDown } from 'lucide-react'
 import type { Message } from '@/api/types'
 import { useConversationStore } from '@/stores/conversation'
 import { dayKey, dayLabel } from '@/lib/format'
@@ -34,50 +34,22 @@ function cardCopyText(r: { msg: Message }): string | undefined {
   return undefined
 }
 
-function RunningIndicator({ elapsedMs }: { elapsedMs?: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(t)
-  }, [])
-  const baseRef = useRef<{ ms: number; at: number }>({ ms: elapsedMs ?? 0, at: Date.now() })
-  useEffect(() => {
-    const prev = baseRef.current
-    if ((elapsedMs ?? 0) >= prev.ms) baseRef.current = { ms: elapsedMs ?? 0, at: Date.now() }
-  }, [elapsedMs])
-  const shown = Math.max(0, baseRef.current.ms + (now - baseRef.current.at))
-  const mm = Math.floor(shown / 60000)
-  const ss = Math.floor((shown % 60000) / 1000)
-  const label = mm >= 60 ? `${Math.floor(mm / 60)}h${mm % 60}m` : `${mm}m${String(ss).padStart(2, '0')}s`
-  return (
-    <div className="flex justify-center py-2" role="status" aria-live="polite" data-running-indicator>
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-4 py-1.5 text-xs text-text-secondary">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        <span>智能体工作中</span>
-        <span className="font-mono text-xs">{label}</span>
-      </div>
-    </div>
-  )
-}
-
 /**
  * 对话的执行轨迹：消息流整理成「行」后自上而下渲染。一个智能体的一轮是一张卡——身份、这一轮的
  * 工具调用（折叠）、结论——已出终稿的轮按终稿先后排列；终稿还没到的轮与同一智能体的流式思考
  * 合成一张卡，放在最后，轮出终稿后挪到前面的位置。
  *
- * agent 是筛选：只看某一个智能体（人的指令与系统节点留着做上下文）。
+ * 任务在跑的信号在顶栏（状态与逐秒走的耗时），轨迹里不另放「工作中」的指示。
  */
 export function TimelineThread({
   active,
-  elapsedMs,
-  agent,
-  onAgentChange,
+  agents,
+  onAgentsChange,
 }: {
   active?: boolean
-  elapsedMs?: number
-  /** 选中的智能体；null = 全部 */
-  agent: string | null
-  onAgentChange: (name: string | null) => void
+  /** 选中的智能体（筛选）；空 = 全部 */
+  agents: string[]
+  onAgentsChange: (names: string[]) => void
 }) {
   const messages = useConversationStore((s) => s.messages)
   const liveStreams = useConversationStore((s) => s.liveStreams)
@@ -95,10 +67,13 @@ export function TimelineThread({
   const rows = useMemo(() => buildThreadRows(messages, ROW_DEPS), [messages])
   const runningTools = useMemo(() => (active ? inFlightToolCalls(messages) : undefined), [active, messages])
   const toolPairs = useMemo(() => pairToolResults(messages), [messages])
-  const agents = useMemo(() => agentActivity(rows), [rows])
+  const activity = useMemo(() => agentActivity(rows), [rows])
 
-  // 筛选只认这个对话里出现过的智能体：带着筛选切换到没有它的对话时，不生效
-  const selected = agent !== null && agents.some((a) => a.name === agent) ? agent : null
+  // 筛选只认这个对话里出现过的智能体：带着筛选切换到没有它们的对话时，不生效
+  const selected = useMemo(() => {
+    const present = new Set(activity.map((a) => a.name))
+    return agents.filter((name) => present.has(name))
+  }, [agents, activity])
 
   // 已出终稿的行；终稿没到的轮与流式道按智能体合并成卡，排在最后
   const settled = useMemo(() => filterByAgent(rows, selected).filter((r) => r.kind !== 'round'), [rows, selected])
@@ -114,14 +89,14 @@ export function TimelineThread({
       return g
     }
     for (const r of rows) {
-      if (r.kind === 'round' && (selected === null || r.agent === selected)) {
+      if (r.kind === 'round' && (selected.length === 0 || selected.includes(r.agent))) {
         const g = groupOf(r.agent)
         g.rounds.push(r)
         g.first = Math.min(g.first, r.tools[0]?.seq ?? g.first)
       }
     }
     for (const lane of liveOrder) {
-      if (selected === null || lane === selected) groupOf(lane).streaming = true
+      if (selected.length === 0 || selected.includes(lane)) groupOf(lane).streaming = true
     }
     // 只在流式输出、还没调工具的智能体排在后面（稳定排序保持它们的首现顺序）
     return [...groups.values()].sort((a, b) => a.first - b.first)
@@ -180,7 +155,7 @@ export function TimelineThread({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {agents.length > 0 && <AgentFilter agents={agents} value={selected} onChange={onAgentChange} />}
+      {activity.length > 0 && <AgentFilter agents={activity} value={selected} onChange={onAgentsChange} />}
 
       <div
         ref={elRef}
@@ -322,8 +297,6 @@ export function TimelineThread({
             </AgentCard>
           </div>
         ))}
-
-        {active && inFlight.length === 0 && <RunningIndicator elapsedMs={elapsedMs} />}
       </div>
 
       {!atBottom && (

@@ -184,6 +184,51 @@ func TestStore_AggregateAll(t *testing.T) {
 	}
 }
 
+// TestStore_AggregateByRole 验证：按调用方角色分组的合计调用多的排前，各分组之和等于全量合计；
+// 没有调用时是空表。
+func TestStore_AggregateByRole(t *testing.T) {
+	ctx := context.Background()
+	s, taskID := setup(t)
+
+	byRole, err := s.AggregateByRole(ctx, ListFilter{TaskID: taskID})
+	if err != nil {
+		t.Fatalf("aggregate by role on empty: %v", err)
+	}
+	if len(byRole) != 0 {
+		t.Fatalf("没有调用时应为空表，得 %+v", byRole)
+	}
+
+	seedFiltered(t, s, taskID)
+	byRole, err = s.AggregateByRole(ctx, ListFilter{TaskID: taskID})
+	if err != nil {
+		t.Fatalf("aggregate by role: %v", err)
+	}
+	want := []RoleAggregate{
+		{Role: "executor", Aggregate: Aggregate{Calls: 2, InTokens: 600, OutTokens: 60}},
+		{Role: "planner", Aggregate: Aggregate{Calls: 1, InTokens: 100, OutTokens: 10}},
+	}
+	if !reflect.DeepEqual(byRole, want) {
+		t.Fatalf("按角色分组不符：\n得   %+v\n期望 %+v", byRole, want)
+	}
+
+	// 各分组之和等于全量合计：同一批记录的两种切法
+	total, err := s.AggregateAll(ctx, ListFilter{TaskID: taskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum Aggregate
+	for _, r := range byRole {
+		sum.Calls += r.Calls
+		sum.InTokens += r.InTokens
+		sum.OutTokens += r.OutTokens
+		sum.CachedTokens += r.CachedTokens
+		sum.LatencyMs += r.LatencyMs
+	}
+	if sum != total {
+		t.Errorf("各分组之和 %+v 应等于全量合计 %+v", sum, total)
+	}
+}
+
 // seedFiltered 插入一组差异化的调用（role/model/error/时间各不同），供筛选类测试复用。
 func seedFiltered(t *testing.T, s *Store, taskID string) {
 	t.Helper()

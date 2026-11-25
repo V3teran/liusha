@@ -4,6 +4,7 @@ package task
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/assignment"
@@ -331,5 +332,68 @@ func TestDirectoryLabels(t *testing.T) {
 	}
 	if _, ok := asgLabels[missing]; ok {
 		t.Error("查不到的 ID 不应出现")
+	}
+}
+
+// 任务摘要的发现数按严重度分档（列表的发现列按档显示）；总数是各档之和，不另查一遍。
+// 没有发现时是空表而不是 nil；列表行与详情板同一口径。
+func TestSummaryFindingsBySeverity(t *testing.T) {
+	pool := dbtest.NewPgPool(t)
+	tasks, assignments := NewStore(pool), assignment.NewStore(pool)
+	ctx := context.Background()
+	asg := mkAssignment(t, assignments, ctx)
+	withFindings, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "有发现的目标"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	bare, err := tasks.Create(ctx, NewParams{AssignmentID: asg, Goal: "没有发现的目标"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	want := map[string]int{"critical": 1, "high": 2, "info": 3}
+	for _, sev := range []string{"info", "critical", "high", "high", "info", "info"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO finding (task_id, severity, summary) VALUES ($1, $2, '测试发现')`, withFindings.ID, sev); err != nil {
+			t.Fatalf("insert finding: %v", err)
+		}
+	}
+
+	got, err := tasks.GetSummary(ctx, withFindings.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if !reflect.DeepEqual(got.FindingsBySeverity, want) {
+		t.Errorf("发现按严重度分档不符：得 %v，期望 %v", got.FindingsBySeverity, want)
+	}
+	if got.FindingCount != 6 {
+		t.Errorf("发现总数应是各档之和 6，得 %d", got.FindingCount)
+	}
+
+	none, err := tasks.GetSummary(ctx, bare.ID)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if none.FindingsBySeverity == nil || len(none.FindingsBySeverity) != 0 {
+		t.Errorf("没有发现时应为空表（不是 nil），得 %#v", none.FindingsBySeverity)
+	}
+	if none.FindingCount != 0 {
+		t.Errorf("没有发现时总数应为 0，得 %d", none.FindingCount)
+	}
+
+	rows, err := tasks.ListFiltered(ctx, ListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	seen := false
+	for _, r := range rows {
+		if r.ID != withFindings.ID {
+			continue
+		}
+		seen = true
+		if !reflect.DeepEqual(r.FindingsBySeverity, want) || r.FindingCount != 6 {
+			t.Errorf("列表行与详情板的发现分档不一致：得 %v / %d", r.FindingsBySeverity, r.FindingCount)
+		}
+	}
+	if !seen {
+		t.Error("列表里应有带发现的那个任务")
 	}
 }

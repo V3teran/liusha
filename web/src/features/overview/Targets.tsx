@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { OverviewTarget } from '@/api/overview'
 import { relativeTime } from '@/lib/format'
-import { SEVERITIES, severityColorOf, severityLabel } from '@/lib/severity'
+import { severityColorOf, severityEntries, severityLabel } from '@/lib/severity'
 import { Panel, PanelEmpty } from './Panel'
 
 const LINK = 'rounded text-xs text-text-secondary underline-offset-2 transition-colors hover:text-accent hover:underline'
@@ -33,7 +33,7 @@ export function Targets({ targets, className }: { targets: OverviewTarget[]; cla
             <tbody>
               {targets.map((t) => {
                 const q = encodeURIComponent(t.host)
-                const open = SEVERITIES.filter((s) => (t.open[s] ?? 0) > 0)
+                const open = severityEntries(t.open)
                 return (
                   <tr key={t.host} className="border-b border-border-subtle last:border-b-0">
                     <td className="max-w-[16rem] truncate py-2.5 pr-4 font-mono text-xs text-text" title={t.host}>
@@ -44,10 +44,10 @@ export function Targets({ targets, className }: { targets: OverviewTarget[]; cla
                         <span className="text-xs text-text-tertiary">无</span>
                       ) : (
                         <span className="flex flex-wrap gap-x-3 text-xs tabular-nums text-text-secondary">
-                          {open.map((s) => (
+                          {open.map(([s, n]) => (
                             <span key={s} className="inline-flex items-center gap-1">
                               <span aria-hidden className="h-2 w-2 rounded-sm" style={{ background: severityColorOf(s) }} />
-                              {severityLabel[s]} {t.open[s]}
+                              {severityLabel[s]} {n}
                             </span>
                           ))}
                         </span>

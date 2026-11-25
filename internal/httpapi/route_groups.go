@@ -6,6 +6,11 @@ import "github.com/gin-gonic/gin"
 // traffic 与 llm 调用记录的 :id 是 bigint 自增键，由各自 handler 解析。
 var uuidID = requireUUIDParam("id")
 
+// registerVersionRoute 注册程序版本路由（控制台侧栏显示的版本号）。不依赖任何存储。
+func registerVersionRoute(r gin.IRouter, d Deps) {
+	r.GET("/version", versionHandler(d.Version))
+}
+
 // registerCredentialsRoutes 注册凭证库路由（资源式；host 段经 CanonicalHost 归一）。
 // 静态子路由先于参数路由注册，避免 gin 树冲突。
 func registerCredentialsRoutes(r gin.IRouter, d Deps) {

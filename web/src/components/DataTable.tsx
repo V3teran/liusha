@@ -83,6 +83,8 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
               {hg.headers.map((h) => (
                 <th
                   key={h.id}
+                  // 列定义声明的悬停解释（meta.headerTitle）：此前声明了却没人渲染，模型日志「响应耗时」的提示一直是死的
+                  title={h.column.columnDef.meta?.headerTitle}
                   className={cn(
                     // relative：表头里的 sr-only 列名（绝对定位）以单元格为参照、随表格滚动容器裁剪，
                     // 否则它按页面定位，落在宽表格最右侧的位置把整页撑出横向滚动。
@@ -142,7 +144,18 @@ export function DataTable<T>({ rows, columns, cellPadding = 'px-4', loading, has
                   )}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className={cellCls}>
+                    // 表头与单元格按同一份声明（meta.align）对齐：全站列表同一个规则——数值列靠右
+                    // （按位比大小），文本、时间、徽章列靠左。列定义里不再各写一遍，写了两处就会错位。
+                    // relative 与表头同理：单元格里的 sr-only 文字是绝对定位的，不以单元格为参照就会按页面
+                    // 定位、逃出横向滚动区，把整页撑出横向滚动。
+                    <td
+                      key={cell.id}
+                      className={cn(
+                        'relative',
+                        cellCls,
+                        cell.column.columnDef.meta?.align === 'right' && 'text-right',
+                      )}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

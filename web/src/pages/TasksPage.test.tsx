@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -48,6 +48,7 @@ function task(o: Partial<TaskSummary> = {}): TaskSummary {
     scenario_name: '渗透测试',
     scenario_deleted: false,
     finding_count: 2,
+    findings_by_severity: { high: 2 },
     step_count: 5,
     tokens_in: 0,
     tokens_out: 0,
@@ -105,8 +106,32 @@ describe('TasksPage（任务模块）', () => {
     expect(mList).toHaveBeenCalled()
   })
 
-  // 从其它页面跳来只看这一个任务：列表按范围筛选，范围显示在筛选栏里，进页即打开详情；
-  // 清除范围回到全部任务。
+  // 发现列不显示总数，写成一串按 严重 / 高危 / 中危 / 低危 / 信息 排列的五个数（各档用它自己的颜色，
+  // 0 也占位）；表头的悬停提示写出这个顺序。
+  it('发现列是 1/3/2/1/1：五个档各一个数，为 0 的档照样占位', async () => {
+    mList.mockResolvedValue({
+      items: [
+        task({ finding_count: 8, findings_by_severity: { critical: 1, high: 3, medium: 2, low: 1, info: 1 } }),
+        task({ id: 't-2', goal: '没有发现的目标', finding_count: 0, findings_by_severity: {} }),
+      ],
+      total: 2,
+      page: 1,
+      size: 20,
+    })
+    renderPage()
+    await screen.findByText('没有发现的目标')
+    const tally = screen.getByTitle('严重 1 / 高危 3 / 中危 2 / 低危 1 / 信息 1')
+    expect(tally.textContent).toMatch(/^1\/3\/2\/1\/1（严重 1 \/ 高危 3 \/ 中危 2 \/ 低危 1 \/ 信息 1）$/)
+    // 有发现的那几档着色（等级色向正文色混 15%，压在选中行的淡底上对比度也够）；没有发现的任务是 0/0/0/0/0
+    const digits = within(tally).getAllByText(/^\d$/)
+    expect(digits).toHaveLength(5)
+    expect(digits[0].getAttribute('style')).toContain('color-mix(in oklab, var(--sev-critical) 85%, var(--text))')
+    expect(digits[1].getAttribute('style')).toContain('--sev-high')
+    expect(screen.getByTitle('严重 0 / 高危 0 / 中危 0 / 低危 0 / 信息 0')).toBeTruthy()
+    expect(screen.queryByText(/^8$/)).toBeNull()
+    expect(screen.getByRole('columnheader', { name: '发现' }).getAttribute('title')).toContain('严重 / 高危 / 中危 / 低危 / 信息')
+  })
+
   it('从对话跳来：列表只剩这个对话的任务并打开详情，筛选栏显示对话标题，可清除', async () => {
     mList.mockImplementation(async (_p: number, _s: number, f?: { conversation?: string }) =>
       f?.conversation

@@ -27,6 +27,9 @@ type Deps struct {
 	// CookieSecure 控制会话 Cookie 的 Secure 属性（配置 api.cookie_secure）：经 HTTPS
 	// 访问时 true；纯 http 访问须 false（否则浏览器不种）。
 	CookieSecure bool
+	// Version 是程序版本（构建时注入，liusha version 打印的就是它），控制台侧栏经 GET /version 取它显示。
+	// 由 api 组件从入口接过来注入；不依赖任何存储，路由总是注册。
+	Version string
 	// CredentialAudit 是凭证库审计出口（*audit.Store 满足）；nil 时变更/明文读取
 	// 不落审计（单测），生产必配——凭证库是敏感操作面。
 	CredentialAudit CredentialAudit
@@ -241,6 +244,7 @@ func NewServer(d Deps) http.Handler {
 func registerRouteGroups(r gin.IRouter, d Deps) {
 	// 按业务模块注册路由（auth 最先：登录是其余路由的入口前提）
 	registerAuthRoutes(r, d)
+	registerVersionRoute(r, d)
 	registerOverviewRoutes(r, d)
 	registerCredentialsRoutes(r, d)
 	registerFindingsRoutes(r, d)

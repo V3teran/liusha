@@ -93,6 +93,35 @@ func (s *Store) AggregateByTask(ctx context.Context, taskID string) (Aggregate, 
 	return a, nil
 }
 
+// RoleAggregate 是某一个调用方角色名下的工具用量合计。
+type RoleAggregate struct {
+	Role string
+	Aggregate
+}
+
+// AggregateByTaskRole 按调用方角色分组合计某 task 的工具用量（任务详情的「智能体调用情况」），调用多的排前。
+// task 无记录时返回空表；各分组的和等于 AggregateByTask 的结果。
+func (s *Store) AggregateByTaskRole(ctx context.Context, taskID string) ([]RoleAggregate, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT COALESCE(role, ''), COUNT(*), COALESCE(SUM(duration_ms),0)
+		FROM tool_invocation WHERE task_id=$1::uuid
+		GROUP BY role
+		ORDER BY COUNT(*) DESC, role`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate tool_invocation by task and role %s: %w", taskID, err)
+	}
+	defer rows.Close()
+	var out []RoleAggregate
+	for rows.Next() {
+		var r RoleAggregate
+		if err := rows.Scan(&r.Role, &r.Calls, &r.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan tool_invocation aggregate by role: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // preview 生成落库的输出预览：先把非法字节替换为替换字符，再按字节上限截到字符边界。
 // 不猜测其它编码：截断不当或混入二进制都会让串非法，把它按某种编码重新解码只会造出乱码。
 func preview(s string) string {

@@ -50,7 +50,7 @@ export function buildAuditColumns() {
       size: 48,
       meta: { align: 'right' },
       cell: (ctx) => (
-        <span className="block text-right text-xs tabular-nums text-text-tertiary">
+        <span className="block text-xs tabular-nums text-text-tertiary">
           {(ctx.table.options.meta as AuditTableMeta).startIndex + ctx.row.index + 1}
         </span>
       ),

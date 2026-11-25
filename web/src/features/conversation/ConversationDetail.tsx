@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Crosshair, Pause, Play, Square } from 'lucide-react'
 import { listMessages } from '@/api/conversations'
@@ -8,9 +8,9 @@ import { taskKeys, useTaskDetail, useTaskUsage } from '@/features/tasks/useTaskQ
 import { conversationKeys, useConversation } from './useConversationQueries'
 import { useConversationStore } from '@/stores/conversation'
 import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/useEventStream'
-import { fullTime, humanDuration, humanTokens } from '@/lib/format'
+import { useStopwatch } from '@/hooks/useStopwatch'
+import { clockDuration, fullTime, humanTokens } from '@/lib/format'
 import { TokenPair } from '@/components/TokenPair'
-import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
@@ -25,13 +25,16 @@ interface ConversationDetailProps {
   source: 'direct' | 'proxy'
   onStarted: (convID: string) => void
   onRunningChanged: () => void
-  /** 执行轨迹按哪个智能体筛选（页面 URL 上的 agent）；null = 全部 */
-  agent: string | null
-  onAgentChange: (name: string | null) => void
+  /** 执行轨迹按哪些智能体筛选（页面 URL 上的 agent）；空 = 全部 */
+  agents: string[]
+  onAgentsChange: (names: string[]) => void
+  /** 放在顶栏最前面的控件（宽屏下页面放「收起 / 展开对话列表」的开关）；没有对话时由页面自己放 */
+  leading?: ReactNode
 }
 
 
-// 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
+// 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶栏（发起时间、用量、耗时与
+// 控制组）+ 插话框。
 // 人工下发(direct) 与 代理捕获(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 //
@@ -39,7 +42,7 @@ interface ConversationDetailProps {
 // 按任务 ID 取（纯聊天没有任务，不显示这些）。
 //
 // 去处（任务、发现、探索图、模型日志）都在对话列表行的「⋯」菜单里，顶栏不放。
-export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agent, onAgentChange }: ConversationDetailProps) {
+export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agents, onAgentsChange, leading }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)
   // 加载失败分两态：missing = 对话不存在（已删除的旧深链，重试无意义）；failed = 可重试的故障。
@@ -78,8 +81,10 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const taskActive = hasConv && !!taskID && task?.status === 'active'
   const paused = taskActive && !!task?.paused
   const scanning = taskActive && !paused
-  const topStatus = taskStatusMeta(taskID ? task?.status : undefined)
   const usage = useTaskUsage(taskID || null, taskActive).data
+  // 顶栏的耗时逐秒走：以服务端的累计时长为基准在本地走秒（用量 10 秒才轮询一次，直接显示它的值会一格一格跳）。
+  // 暂停中也走：服务端的耗时是发起以来的墙钟，只扣续接前的停顿
+  const elapsed = useStopwatch(usage?.elapsed_ms, taskActive)
 
   // 事件驱动刷新：每有新消息落定（seq 增长）防抖 800ms 重取对话（可能刚关联上任务）与任务的
   // 状态、用量；任务进行中另有轮询兜底「最后一条消息之后的状态翻转」。
@@ -172,11 +177,12 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
         `${usage.llm_calls} 次 LLM 调用`,
       ].join(' · ')
     : ''
+  // 几个耗时同一种写法，与屏幕上的数字对得上
   const durationTip = usage
     ? [
-        `墙钟 ${humanDuration(usage.elapsed_ms)}（发起→完成）`,
-        `工作时间 ${humanDuration(usage.llm_latency_ms + usage.tool_duration_ms)}（含子代理并发累加，故 > 墙钟）`,
-        `LLM ${humanDuration(usage.llm_latency_ms)} · 工具 ${humanDuration(usage.tool_duration_ms)} · ${usage.tool_calls} 次工具调用`,
+        `墙钟 ${clockDuration(elapsed ?? 0)}（发起到现在，续接前的停顿不计）`,
+        `工作时间 ${clockDuration(usage.llm_latency_ms + usage.tool_duration_ms)}（各调用并行累加，可能大于墙钟）`,
+        `LLM ${clockDuration(usage.llm_latency_ms)} · 工具 ${clockDuration(usage.tool_duration_ms)} · ${usage.tool_calls} 次工具调用`,
       ].join(' · ')
     : ''
 
@@ -222,13 +228,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {hasConv && (
         <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 whitespace-nowrap border-b border-border px-4 py-2.5">
           <div className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
-              <span
-                className={cn('h-2 w-2 rounded-full', scanning && 'motion-safe:animate-pulse')}
-                style={{ background: topStatus.color }}
-              />
-              {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
-            </span>
+            {/* 任务状态不在这里：对话列表的那一行已经带着状态徽章，顶栏再写一遍是重复。 */}
+            {leading}
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-status-warning" title="实时连接断开，正在自动重连…">
                 <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-status-warning/40 border-t-status-warning" />
@@ -253,7 +254,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
                   </span>
                   <span className="inline-flex items-baseline gap-1.5 text-xs" title={durationTip}>
                     <span className="text-text-secondary">耗时</span>
-                    <span className="font-mono text-text">{humanDuration(usage.elapsed_ms)}</span>
+                    <span className="font-mono text-text tabular-nums">{clockDuration(elapsed ?? 0)}</span>
                   </span>
                 </span>
               )}
@@ -311,7 +312,7 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
           ))}
         </div>
       ) : hasConv || store.messages.length > 0 ? (
-        <TimelineThread active={scanning} elapsedMs={usage?.elapsed_ms} agent={agent} onAgentChange={onAgentChange} />
+        <TimelineThread active={scanning} agents={agents} onAgentsChange={onAgentsChange} />
       ) : source === 'proxy' ? (
         /* 代理捕获没有发起入口：未选中批次就是普通的「未选择」空态 */
         <EmptyState

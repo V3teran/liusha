@@ -49,6 +49,20 @@ export function humanDuration(ms: number): string {
   return s ? `${m}分${s}秒` : `${m}分`
 }
 
+/**
+ * 任务墙钟耗时的写法（ms → 人类可读），对话顶栏与任务详情共用：秒位恒两位（9秒、1分05秒、2时03分07秒），
+ * 不带小数、整分也照样显示秒。逐秒走动时每秒变一次数字而宽度不跳；同一个耗时在两处也是同一个样子。
+ */
+export function clockDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}时${pad(m)}分${pad(s)}秒`
+  if (m > 0) return `${m}分${pad(s)}秒`
+  return `${s}秒`
+}
+
 /** 响应体字节数（1024 进制）：0 → "0 B"、1536 → "1.5 KB"、5242880 → "5 MB"。 */
 export function humanBytes(n: number): string {
   if (!n || n < 0) return '0 B'

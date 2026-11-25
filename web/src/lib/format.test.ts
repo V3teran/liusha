@@ -10,6 +10,7 @@ import {
   humanTokens,
   relativeTime,
   shortDateTime,
+  clockDuration,
 } from './format'
 
 describe('format', () => {
@@ -138,5 +139,18 @@ describe('shortDateTime', () => {
     expect(shortDateTime('2026-11-14T06:49:30')).toBe('11-14 06:49')
     expect(shortDateTime('')).toBe('')
     expect(shortDateTime('not-a-date')).toBe('')
+  })
+})
+
+describe('clockDuration', () => {
+  it('任务墙钟耗时的写法：秒位恒两位、不带小数，整分也显示秒（走秒时宽度不跳）', () => {
+    expect(clockDuration(9200)).toBe('9秒')
+    expect(clockDuration(65000)).toBe('1分05秒')
+    expect(clockDuration(60000)).toBe('1分00秒')
+    expect(clockDuration(3_600_000 + 180_000 + 7000)).toBe('1时03分07秒')
+  })
+
+  it('负数按 0 算', () => {
+    expect(clockDuration(-5)).toBe('0秒')
   })
 })

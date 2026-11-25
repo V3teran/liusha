@@ -34,7 +34,8 @@ import (
 	"github.com/V3teran/liusha/internal/logx"
 )
 
-// version 由发布构建经 -ldflags "-X main.version=<版本>" 注入。
+// version 由发布构建经 -ldflags "-X main.version=<版本>" 注入；没注入的开发构建是 dev。
+// 它是版本号唯一的来源：liusha version 打印它，api 经 GET /version 把它交给控制台显示。
 var version = "dev"
 
 // command 是一个子命令。
@@ -49,7 +50,7 @@ type command struct {
 
 var commands = []command{
 	{name: "serve", summary: "同一进程运行全部组件", run: serve},
-	{name: "api", summary: "运行 api 组件（HTTP API 与控制台）", run: component(api.Run)},
+	{name: "api", summary: "运行 api 组件（HTTP API 与控制台）", run: component(withVersion(api.Run))},
 	{name: "proxy", summary: "运行 proxy 组件（MITM 代理入口）", run: component(proxy.Run)},
 	{name: "runner", summary: "运行 runner 组件（任务执行）", run: component(runner.Run)},
 	{name: "sandbox", summary: "运行 sandbox 组件（工具执行沙盒）", run: component(sandbox.Run), view: sandbox.ConfigView},
@@ -180,6 +181,11 @@ func component(run func(context.Context, config.AppConfig) error) func(context.C
 	}
 }
 
+// withVersion 把构建注入的版本交给需要它的组件：api 经 GET /version 让控制台显示。
+func withVersion(run func(context.Context, config.AppConfig, string) error) func(context.Context, config.AppConfig) error {
+	return func(ctx context.Context, cfg config.AppConfig) error { return run(ctx, cfg, version) }
+}
+
 func migrate(ctx context.Context, cfg config.AppConfig, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("不接受参数 %q", args)
@@ -201,6 +207,6 @@ func serve(ctx context.Context, cfg config.AppConfig, args []string) error {
 	// 沙盒在底层：runner 停机排空在途任务期间，沙盒仍在服务。
 	return app.Serve(ctx,
 		[]app.Component{bind("sandbox", sandbox.Run)},
-		[]app.Component{bind("api", api.Run), bind("proxy", proxy.Run), bind("runner", runner.Run)},
+		[]app.Component{bind("api", withVersion(api.Run)), bind("proxy", proxy.Run), bind("runner", runner.Run)},
 	)
 }

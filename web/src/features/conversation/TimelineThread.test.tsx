@@ -43,7 +43,7 @@ function toolResultMsg(seq: number, agentName: string): Message {
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0))
 // 用例不关心筛选：不选任何智能体
-const unfiltered = { agent: null, onAgentChange: () => {} }
+const unfiltered = { agents: [] as string[], onAgentsChange: () => {} }
 
 describe('TimelineThread', () => {
   beforeEach(() => useConversationStore.getState().reset())
@@ -198,24 +198,15 @@ describe('TimelineThread', () => {
   })
 })
 
-describe('RunningIndicator（间隙运行指示）', () => {
-  it('active 且无活动道时渲染指示器', () => {
-    render(<TimelineThread {...unfiltered} active />)
-    expect(screen.queryByTestId('running') ?? document.querySelector('[data-running-indicator]')).toBeTruthy()
-  })
-
-  it('有活动道时让位（道本身即活动信号）', async () => {
-    const store = useConversationStore.getState()
-    store.appendReasoningDelta('规划中', 'planner')
-    render(<TimelineThread {...unfiltered} active />)
-    await flush()
-    expect(document.querySelector('[data-running-indicator]')).toBeNull()
+// 「任务在跑」的信号在顶栏：状态文字与逐秒走的耗时。轨迹里不再另放一枚「智能体工作中」——
+// 与顶栏重复，占着轨迹最下面一行。
+describe('轨迹里不重复「工作中」的指示', () => {
+  it('任务在跑、哪怕此刻没有在途的卡，也不渲染指示', () => {
     useConversationStore.getState().reset()
-  })
-
-  it('非 active（任务未在跑）不渲染', () => {
-    render(<TimelineThread {...unfiltered} />)
+    const { container } = render(<TimelineThread {...unfiltered} active />)
     expect(document.querySelector('[data-running-indicator]')).toBeNull()
+    expect(within(container).queryByText('智能体工作中')).toBeNull()
+    useConversationStore.getState().reset()
   })
 })
 
@@ -358,21 +349,21 @@ describe('坐实的发现归评估者', () => {
     s.ingest(finding(1))
     s.ingest(finding(2))
     s.ingest(reasoningMsg(3, 'evaluator', '评估结论：坐实'))
-    render(<TimelineThread {...unfiltered} agent="evaluator" />)
+    render(<TimelineThread {...unfiltered} agents={['evaluator']} />)
     expect(document.querySelectorAll('[data-card="finding"]').length).toBe(2)
     expect(screen.getByText(/评估结论：坐实/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /^评估\s*3$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^评估\s*3，工具调用\s*0$/ })).toBeTruthy()
   })
 
   it('筛选别的智能体：发现不出现（它不是任何一段工作的共同上下文）', () => {
     const s = useConversationStore.getState()
     s.ingest(finding(1))
     s.ingest(toolCallMsg(2, 'executor'))
-    render(<TimelineThread {...unfiltered} agent="executor" />)
+    render(<TimelineThread {...unfiltered} agents={['executor']} />)
     expect(document.querySelector('[data-card="finding"]')).toBeNull()
     // 执行者的这一轮照旧在；评估者的条目数里含这条发现
     expect(screen.getByText(/1 次工具调用/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /^评估\s*1$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^评估\s*1，工具调用\s*0$/ })).toBeTruthy()
   })
 
   it('真正的系统节点在各个筛选下都留着', () => {
@@ -386,7 +377,7 @@ describe('坐实的发现归评估者', () => {
       metadata: { kind: 'task_status', status: 'completed' } as TimelineEventMeta,
     })
     s.ingest(toolCallMsg(3, 'monitor'))
-    render(<TimelineThread {...unfiltered} agent="monitor" />)
+    render(<TimelineThread {...unfiltered} agents={['monitor']} />)
     expect(screen.getByText('开始')).toBeTruthy()
     expect(screen.getByText('任务完成')).toBeTruthy()
   })
@@ -394,59 +385,81 @@ describe('坐实的发现归评估者', () => {
 
 describe('按智能体筛选', () => {
   beforeEach(() => useConversationStore.getState().reset())
+  const group = () => screen.getByRole('search', { name: /^按智能体筛选/ })
 
-  it('每个出现过的智能体一枚身份胶囊，带条目数', () => {
+  it('每个出现过的智能体一枚身份胶囊，带条目数和工具调用数（在途的轮都算）', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, '开始'))
     s.ingest(reasoningMsg(2, 'planner', '规划'))
     s.ingest(reasoningMsg(3, 'executor', '执行 A'))
     s.ingest(toolCallMsg(4, 'executor'))
     render(<TimelineThread {...unfiltered} />)
-    const group = screen.getByRole('search', { name: '按智能体筛选' })
-    expect(within(group).getByRole('button', { name: /^规划\s*1$/ })).toBeTruthy()
-    expect(within(group).getByRole('button', { name: /^执行\s*2$/ })).toBeTruthy()
+    expect(within(group()).getByRole('button', { name: /^规划\s*1，工具调用\s*0$/ })).toBeTruthy()
+    expect(within(group()).getByRole('button', { name: /^执行\s*2，工具调用\s*1$/ })).toBeTruthy()
+    // 两个数的含义写在区域名里，读屏进到这一区就听得到
+    expect(group().getAttribute('aria-label')).toContain('依次是条目数和工具调用数')
   })
 
   it('没有智能体参与过的对话（纯聊天）不放筛选', () => {
-    const s = useConversationStore.getState()
-    s.ingest(userMsg(1, '你好'))
+    useConversationStore.getState().ingest(userMsg(1, '你好'))
     render(<TimelineThread {...unfiltered} />)
     expect(screen.queryByRole('search', { name: '按智能体筛选' })).toBeNull()
   })
 
-  it('点一枚只看它：其余智能体的卡与流式道隐去，人的指令留着', () => {
+  it('只选一个：其余智能体的卡与流式道隐去，人的指令留着', () => {
     const s = useConversationStore.getState()
     s.ingest(userMsg(1, '开始'))
     s.ingest(reasoningMsg(2, 'planner', '规划者的结论'))
     s.ingest(reasoningMsg(3, 'executor', '执行 A'))
     s.appendReasoningDelta('评估中…', 'evaluator')
-    render(<TimelineThread {...unfiltered} agent="executor" />)
+    render(<TimelineThread {...unfiltered} agents={['executor']} />)
     expect(screen.getByText('开始')).toBeTruthy()
     expect(screen.getByText(/执行 A/)).toBeTruthy()
     expect(screen.queryByText(/规划者的结论/)).toBeNull()
     expect(document.querySelector('[data-live-node]')).toBeNull()
+    expect(within(group()).getByRole('button', { name: /^执行\s*1，工具调用\s*0$/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(group()).getByRole('button', { name: /^规划\s*1，工具调用\s*0$/ }).getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('点胶囊与清空筛选都把选择交回页面', async () => {
+  it('多选：选中的都留着，没选的隐去', () => {
+    const s = useConversationStore.getState()
+    s.ingest(userMsg(1, '开始'))
+    s.ingest(reasoningMsg(2, 'planner', '规划者的结论'))
+    s.ingest(reasoningMsg(3, 'executor', '执行 A'))
+    s.ingest(reasoningMsg(4, 'monitor', '监察结论'))
+    render(<TimelineThread {...unfiltered} agents={['executor', 'planner']} />)
+    expect(screen.getByText(/规划者的结论/)).toBeTruthy()
+    expect(screen.getByText(/执行 A/)).toBeTruthy()
+    expect(screen.queryByText(/监察结论/)).toBeNull()
+  })
+
+  it('带着这个对话里没有的智能体进来时，筛选不生效', () => {
+    useConversationStore.getState().ingest(reasoningMsg(1, 'executor', '执行 A'))
+    render(<TimelineThread {...unfiltered} agents={['monitor']} />)
+    expect(screen.getByText(/执行 A/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '清空筛选' })).toBeNull()
+  })
+
+  it('点胶囊是多选的取舍：点没选中的是加上，点选中的是去掉；清空筛选交回空', async () => {
     const user = userEvent.setup()
-    const onAgentChange = vi.fn()
+    const onAgentsChange = vi.fn()
     const s = useConversationStore.getState()
     s.ingest(reasoningMsg(1, 'executor', '执行 A'))
-    const { rerender } = render(<TimelineThread agent={null} onAgentChange={onAgentChange} />)
-    await user.click(screen.getByRole('button', { name: /^执行\s*1$/ }))
-    expect(onAgentChange).toHaveBeenLastCalledWith('executor')
+    s.ingest(reasoningMsg(2, 'planner', '规划'))
+    const { rerender } = render(<TimelineThread agents={[]} onAgentsChange={onAgentsChange} />)
+    await user.click(within(group()).getByRole('button', { name: /^执行\s*1，工具调用\s*0$/ }))
+    expect(onAgentsChange).toHaveBeenLastCalledWith(['executor'])
 
-    rerender(<TimelineThread agent="executor" onAgentChange={onAgentChange} />)
+    rerender(<TimelineThread agents={['executor']} onAgentsChange={onAgentsChange} />)
+    await user.click(within(group()).getByRole('button', { name: /^规划\s*1，工具调用\s*0$/ }))
+    expect(onAgentsChange).toHaveBeenLastCalledWith(['executor', 'planner'])
+
+    rerender(<TimelineThread agents={['executor', 'planner']} onAgentsChange={onAgentsChange} />)
+    await user.click(within(group()).getByRole('button', { name: /^执行\s*1，工具调用\s*0$/ }))
+    expect(onAgentsChange).toHaveBeenLastCalledWith(['planner'])
+
+    rerender(<TimelineThread agents={['planner']} onAgentsChange={onAgentsChange} />)
     await user.click(screen.getByRole('button', { name: '清空筛选' }))
-    expect(onAgentChange).toHaveBeenLastCalledWith(null)
-  })
-
-  it('再点一次选中的胶囊回到全部', async () => {
-    const user = userEvent.setup()
-    const onAgentChange = vi.fn()
-    useConversationStore.getState().ingest(reasoningMsg(1, 'executor', '执行 A'))
-    render(<TimelineThread agent="executor" onAgentChange={onAgentChange} />)
-    await user.click(screen.getByRole('button', { name: /^执行\s*1$/ }))
-    expect(onAgentChange).toHaveBeenLastCalledWith(null)
+    expect(onAgentsChange).toHaveBeenLastCalledWith([])
   })
 })
