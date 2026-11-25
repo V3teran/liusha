@@ -69,19 +69,25 @@ export function OverviewPage() {
               className="py-20"
             />
           ) : (
-            // 第一排是要处理的问题（多少、什么类型），第二排是在哪里与正在做什么，第三排是近期走势。
-            // 较窄时目标表与进行中的任务各占一行（目标表需要整行宽度才不被横向截断）。
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+            // 六个区块回答六个问题，按「要处理什么 → 在哪里、什么在跑 → 近期走势」读下来。每个区块
+            // 只列排行的前几条（接口限量），随内容伸展、不做内部滚动；整页滚动看完。
+            //
+            // 一排的高度由其中最高的区块决定。同排放高度相近的，并各贴各的内容高度（items-start）：
+            // 矮的（多半是进行中的任务）与长表同排时，它身上会留出一大片空白，整页也被拉长。
+            //   ≥ 1280：待处理发现 | 发现类型 → 目标（整行：表格要宽度）→ 进行中的任务 | 两张趋势
+            //   1024–1279：同上，但目标、进行中的任务各占一行（放不下一排），两张趋势仍并排
+            //   < 1024：单列，依次向下
+            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
               <OpenFindings open={snap.findings.open} className="lg:col-span-5 2xl:col-span-4" />
               <FindingClasses classes={snap.findings.classes} className="lg:col-span-7 2xl:col-span-8" />
-              <Targets targets={snap.targets} className="lg:col-span-12 2xl:col-span-7" />
+              <Targets targets={snap.targets} className="lg:col-span-12" />
               <ActiveTasks
                 tasks={active.data?.items ?? []}
                 total={snap.tasks.running + snap.tasks.paused}
-                className="lg:col-span-12 2xl:col-span-5"
+                className="lg:col-span-12 xl:col-span-4"
               />
-              <FindingsTrend daily={snap.findings.daily} days={days} onDaysChange={setDays} className="lg:col-span-6" />
-              <UsageTrend usage={snap.usage} days={days} onDaysChange={setDays} className="lg:col-span-6" />
+              <FindingsTrend daily={snap.findings.daily} days={days} onDaysChange={setDays} className="lg:col-span-6 xl:col-span-4" />
+              <UsageTrend usage={snap.usage} days={days} onDaysChange={setDays} className="lg:col-span-6 xl:col-span-4" />
             </div>
           )}
         </div>

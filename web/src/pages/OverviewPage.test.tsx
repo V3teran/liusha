@@ -221,13 +221,16 @@ describe('OverviewPage', () => {
     expect(within(usage).getByRole('img', { name: /^11\/21（今天）：10K tokens（输入 9K · 输出 1K），调用 10 次/ })).toBeInTheDocument()
   })
 
-  it('发现类型按数量排行，每类链到按类型筛好的台账，可访问名给出全部与待处理', async () => {
+  // 可访问名由内容生成：以屏幕上可见的「类型名」「总数」开头（两格相邻，读作「SQL 注入 2」；语音控制
+  // 照着屏幕上的字说出来也选得中），后面接只有读屏需要的明细
+  it('发现类型按数量排行，每类链到按类型筛好的台账，可访问名以可见文字开头并给出全部与待处理', async () => {
     renderPage()
     const panel = await screen.findByRole('region', { name: '发现类型' })
     expect(within(panel).getByText('3 类 · 4 条')).toBeInTheDocument()
-    const sqli = within(panel).getByRole('link', { name: 'SQL 注入：共 2 条，待处理 2 条' })
+    const sqli = within(panel).getByRole('link', { name: 'SQL 注入2：共 2 条，待处理 2 条' })
+    expect(sqli.textContent).toMatch(/^SQL 注入\s*2/) // 可见文字
     expect(sqli).toHaveAttribute('href', '/findings?class=sql_injection')
-    expect(within(panel).getByRole('link', { name: '其他：共 1 条，待处理 0 条' })).toHaveAttribute('href', '/findings?class=other')
+    expect(within(panel).getByRole('link', { name: '其他1：共 1 条，待处理 0 条' })).toHaveAttribute('href', '/findings?class=other')
   })
 
   it('发现类型超过八种时，余下的合成一行', async () => {
@@ -235,7 +238,8 @@ describe('OverviewPage', () => {
     mocked(getOverview).mockResolvedValue(snapshot({ findings: { ...snapshot().findings, classes } }))
     renderPage()
     const panel = await screen.findByRole('region', { name: '发现类型' })
-    expect(within(panel).getAllByRole('link', { name: /^类型\d：/ })).toHaveLength(7)
+    expect(within(panel).getAllByRole('link', { name: /^类型\d\d+：/ })).toHaveLength(7)
+    // 「其余 N 类」不是链接：名字由 aria-label 给出（列表项不从子内容取名）
     expect(within(panel).getByRole('listitem', { name: '其余 3 类：共 6 条，待处理 0 条' })).toBeInTheDocument()
   })
 
@@ -248,6 +252,22 @@ describe('OverviewPage', () => {
       'href',
       '/findings?search=192.168.71.36%3A8099',
     )
+  })
+
+  // 同排放高度相近的区块、并各贴各的内容高度：矮的（多半是进行中的任务）与长表同排时，
+  // 栅格会把同排拉成同高，它身上留出一大片空白，整页被拉长、看起来像到了底。
+  it('矮的区块与长表不同排，同排不被互相拉高', async () => {
+    renderPage()
+    const panel = await screen.findByRole('region', { name: '进行中的任务' })
+    const grid = panel.closest('.grid')!
+    expect(grid.className).toMatch(/\bitems-start\b/)
+    // 1280 起它和两张趋势图同排（跨度 4 + 4 + 4，正好一整行），不与目标表同排
+    const classes = (name: string) => screen.getByRole('region', { name }).className
+    expect(classes('进行中的任务')).toMatch(/\bxl:col-span-4\b/)
+    expect(classes('目标')).toMatch(/\bcol-span-12\b/)
+    for (const title of ['近 14 天新增发现', '近 14 天模型消耗']) {
+      expect(screen.getByRole('region', { name: title }).className).toMatch(/\bxl:col-span-4\b/)
+    }
   })
 
   it('没有数据时各块给出空态', async () => {
