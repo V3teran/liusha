@@ -33,8 +33,9 @@ export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 品牌行：与页头同为 56px 高，底边线贯穿壳体 */}
-      <div className={cn('flex h-14 flex-shrink-0 items-center border-b border-border px-3', rail && 'justify-center gap-1')}>
+      {/* 品牌行：与页头同为 56px 高，与下方导航之间不画线——品牌标识不是导航的一项，
+          一条横线会让它看起来像「导航栏的标题」。侧栏自己的底色已经把它和内容区分开 */}
+      <div className={cn('flex h-14 flex-shrink-0 items-center px-3', rail && 'justify-center gap-1')}>
         <BrandMark />
         {!rail && (
           <div className="ml-3 min-w-0 flex-1">

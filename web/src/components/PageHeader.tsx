@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
-// 页面统一头部：固定 56px（h-14）+ 底部分隔线，与侧栏 logo 区（h-14 border-b）连成一条贯穿
-// 壳体的横线。只有标题，不设副标题：页面靠结构与控件本身说明用途，概念说明放在用到它的地方
+// 页面统一头部：固定 56px（h-14，与侧栏品牌行同高）+ 底部分隔线，把标题与下方内容分开。
+// 只有标题，不设副标题：页面靠结构与控件本身说明用途，概念说明放在用到它的地方
 // （字段、空态），不在页头常驻一行复述。右侧动作区经 children 注入。
 export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
   return (
