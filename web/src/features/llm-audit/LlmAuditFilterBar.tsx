@@ -6,6 +6,7 @@ import { DateTimeRange } from '@/components/ui/DateTimeRange'
 import { ScopeChip } from '@/features/relations/ScopeChip'
 import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { SearchInput } from '@/components/SearchInput'
+import { agentLabel } from '@/lib/agentColor'
 import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 interface LlmAuditFilterBarProps {
@@ -53,9 +54,10 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         aria-label="按角色筛选"
       >
         <option value="">全部角色</option>
+        {/* 选项显示中文名（与表格里的徽章同一份身份登记）；没登记过的角色名原样显示 */}
         {roles.map((r) => (
           <option key={r} value={r}>
-            {r}
+            {agentLabel(r)}
           </option>
         ))}
       </Select>

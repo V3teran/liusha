@@ -48,15 +48,16 @@ const FIXED: Record<string, AgentProfile> = {
     icon: Bot,
     label: '助手'
   },
-  // 轻量路由键（非认知循环 agent，无独立配置行）：api 侧意图分类/摘要与 runner 侧
-  // 历史压缩。审计页不再让它们以英文原样落进中文标签体系。
+  // 不在认知循环里的调用方（没有独立的配置行）：api 侧的意图分类与标题生成、runner 侧的
+  // 会话历史压缩。键是后端写进模型日志的角色名（CallMeta.Role），两边的拼写必须一致——
+  // 对不上时页面上就会显示英文原样。
   inspector: {
     accent: catColor('cyan'),
     soft: catSoft('cyan'),
     icon: Waypoints,
     label: '路由'
   },
-  compactor: {
+  compaction: {
     accent: catColor('orange'),
     soft: catSoft('orange'),
     icon: FoldVertical,

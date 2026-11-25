@@ -537,7 +537,7 @@ export interface LLMInvocationSummary {
   finish_reason: string
   error_message: string
   error_kind: string
-  role: string // 调用者角色：planner / executor / evaluator / monitor，及路由键 inspector / compactor / distill
+  role: string // 调用者角色：planner / executor / evaluator / monitor，以及不在认知循环里的 inspector / compaction / distill
   created_at: string
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。

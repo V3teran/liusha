@@ -104,7 +104,9 @@ describe('LlmAuditPage', () => {
       ),
     )
     expect((await screen.findAllByText('gpt-5')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('planner').length).toBeGreaterThan(0)
+    // 角色在表格徽章与下拉选项里都显示中文名（同一份身份登记），不显示英文角色名
+    expect(screen.getAllByText('规划').length).toBeGreaterThan(0)
+    expect(screen.queryByText('planner')).toBeNull()
   })
 
   it('统计 chip 来自服务端聚合（searchLLMInvocationStat）', async () => {
@@ -206,6 +208,6 @@ describe('LlmAuditPage 角色 / 模型选项', () => {
     const model = (await screen.findByRole('combobox', { name: /模型/ })) as HTMLSelectElement
     await waitFor(() => expect(within(model).getByRole('option', { name: 'deepseek-chat' })).toBeTruthy())
     const role = screen.getByRole('combobox', { name: /角色/ }) as HTMLSelectElement
-    expect(within(role).getByRole('option', { name: /executor|执行者/ })).toBeTruthy()
+    expect(within(role).getByRole('option', { name: '执行' })).toBeTruthy()
   })
 })
