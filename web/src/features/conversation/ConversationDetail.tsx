@@ -11,7 +11,6 @@ import { openEventStream, type StreamHandle, type StreamStatus } from '@/hooks/u
 import { useStopwatch } from '@/hooks/useStopwatch'
 import { clockDuration, fullTime, humanTokens } from '@/lib/format'
 import { TokenPair } from '@/components/TokenPair'
-import { taskStatusMeta } from '@/lib/taskStatus'
 import { cn } from '@/lib/utils'
 import { Composer } from './Composer'
 import { TimelineThread } from './TimelineThread'
@@ -34,7 +33,8 @@ interface ConversationDetailProps {
 }
 
 
-// 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶部状态栏 + 插话框。
+// 会话详情主区（主从双栏的「从」）：给定 convId，渲染其作战轨迹 + 顶栏（发起时间、用量、耗时与
+// 控制组）+ 插话框。
 // 人工下发(direct) 与 代理捕获(proxy) 两页共用此组件——统一骨架，右侧渲染同一 TimelineThread
 // （多代理→脊柱缩进分叉；单代理→自然扁平），差异由数据本身表达，不做两套渲染器。
 //
@@ -81,7 +81,6 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
   const taskActive = hasConv && !!taskID && task?.status === 'active'
   const paused = taskActive && !!task?.paused
   const scanning = taskActive && !paused
-  const topStatus = taskStatusMeta(taskID ? task?.status : undefined)
   const usage = useTaskUsage(taskID || null, taskActive).data
   // 顶栏的耗时逐秒走：以服务端的累计时长为基准在本地走秒（用量 10 秒才轮询一次，直接显示它的值会一格一格跳）。
   // 暂停中也走：服务端的耗时是发起以来的墙钟，只扣续接前的停顿
@@ -229,14 +228,8 @@ export function ConversationDetail({ convId, source, onStarted, onRunningChanged
       {hasConv && (
         <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 whitespace-nowrap border-b border-border px-4 py-2.5">
           <div className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {/* 任务状态不在这里：对话列表的那一行已经带着状态徽章，顶栏再写一遍是重复。 */}
             {leading}
-            <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
-              <span
-                className={cn('h-2 w-2 rounded-full', scanning && 'motion-safe:animate-pulse')}
-                style={{ background: topStatus.color }}
-              />
-              {paused ? '已暂停（进度保留）' : scanning ? '智能体工作中…' : topStatus.label}
-            </span>
             {streamStatus === 'reconnecting' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-status-warning" title="实时连接断开，正在自动重连…">
                 <span className="h-[11px] w-[11px] animate-spin rounded-full border-2 border-status-warning/40 border-t-status-warning" />

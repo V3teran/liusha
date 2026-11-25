@@ -4,6 +4,7 @@ import type { ComponentProps, ReactElement } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ConversationDetail } from './ConversationDetail'
+import { conversationKeys } from './useConversationQueries'
 import { useConversationStore } from '@/stores/conversation'
 import * as apiClient from '@/api/conversations'
 import * as tasksClient from '@/api/tasks'
@@ -42,7 +43,12 @@ function render(ui: ReactElement) {
     </QueryClientProvider>
   )
   const r = rtlRender(wrap(ui))
-  return { ...r, rerender: (el: ReactElement) => r.rerender(wrap(el)) }
+  return { ...r, client, rerender: (el: ReactElement) => r.rerender(wrap(el)) }
+}
+
+/** 等对话本身加载完：后面「没有去取任务」的断言才算数（加载完才知道它没有关联任务）。 */
+function settledConversation(client: QueryClient) {
+  return waitFor(() => expect(client.getQueryState(conversationKeys.detail('c1'))?.status).toBe('success'))
 }
 
 const conv = (over: Partial<Conversation> = {}): Conversation =>
@@ -134,21 +140,30 @@ describe('ConversationDetail', () => {
     await waitFor(() => expect(apiClient.listMessages).toHaveBeenCalledTimes(2))
   })
 
-  it('扫描运行中显示"智能体工作中"与 暂停/停止 控制组', async () => {
+  // 任务状态只在对话列表的那一行（状态徽章）：顶栏不再写一遍，运行中、暂停中、已结束都一样。
+  it('扫描运行中显示 暂停/停止 控制组，顶栏不放状态文字', async () => {
     withTask({ status: 'active' })
     render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('智能体工作中…')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '暂停任务' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
-  })
-
-  it('暂停中显示"已暂停"与 继续/停止 控制组', async () => {
-    withTask({ status: 'active', paused: true })
-    render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('已暂停（进度保留）')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '继续任务' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '暂停任务' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
     expect(screen.queryByText('智能体工作中…')).toBeNull()
+  })
+
+  it('暂停中显示 继续/停止 控制组，顶栏不放状态文字', async () => {
+    withTask({ status: 'active', paused: true })
+    render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
+    expect(await screen.findByRole('button', { name: '继续任务' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止任务' })).toBeTruthy()
+    expect(screen.queryByText('已暂停（进度保留）')).toBeNull()
+    expect(screen.queryByText('智能体工作中…')).toBeNull()
+  })
+
+  it('已结束的任务顶栏同样不放状态文字', async () => {
+    withTask({ status: 'aborted' })
+    render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
+    await waitFor(() => expect(tasksClient.getTaskDetail).toHaveBeenCalledWith('o1'))
+    expect(screen.queryByText('已中止')).toBeNull()
+    expect(screen.queryByText('已完成')).toBeNull()
   })
 
   it('点击暂停任务直接调用任务控制端点（可逆，无确认弹层）', async () => {
@@ -196,7 +211,7 @@ describe('ConversationDetail', () => {
 
     withTask({ status: 'active' })
     act(() => useConversationStore.getState().ingest({ seq: 9, conversation_id: 'c1', role: 'assistant', kind: 'event', content: '', metadata: null, created_at: '' }))
-    expect(await screen.findByText('智能体工作中…', {}, { timeout: 3000 })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '暂停任务' }, { timeout: 3000 })).toBeTruthy()
     expect(onRunningChanged).toHaveBeenCalled()
   })
 
@@ -212,8 +227,8 @@ describe('ConversationDetail', () => {
 
   it('纯聊天对话（没有任务）不显示控制组，也不取任务', async () => {
     vi.mocked(apiClient.getConversation).mockResolvedValue(conv({ task_id: '' }))
-    render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    expect(await screen.findByText('对话')).toBeTruthy()
+    const { client } = render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
+    await settledConversation(client)
     expect(screen.queryByRole('button', { name: '停止任务' })).toBeNull()
     expect(screen.queryByRole('link', { name: '任务' })).toBeNull()
     expect(tasksClient.getTaskDetail).not.toHaveBeenCalled()
@@ -222,8 +237,8 @@ describe('ConversationDetail', () => {
 
   it('纯聊天转为执行后（对话关联上任务），新消息落定即接上任务状态与控制组', async () => {
     vi.mocked(apiClient.getConversation).mockResolvedValue(conv({ task_id: '' }))
-    render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
-    await screen.findByText('对话')
+    const { client } = render(<Detail convId="c1" source="direct" onStarted={vi.fn()} onRunningChanged={vi.fn()} />)
+    await settledConversation(client)
 
     vi.mocked(apiClient.getConversation).mockResolvedValue(conv({ task_id: 'o1' }))
     withTask({ status: 'active' })
