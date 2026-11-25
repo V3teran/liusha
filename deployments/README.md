@@ -270,7 +270,8 @@ make dev-down             # 收工（-v 清数据）
 
 **所有部署方式**
 
-对照新版本的 `config.yaml` 补齐下列各项，然后重启。缺键、留着不认识的键都会拒绝启动。数据库迁移随启动自动执行，无需操作。
+对照新版本的 `config.yaml` 补齐、改名下列各项（缺键、留着旧键都会拒绝启动），然后重启。数据库迁移随
+启动自动执行，无需操作。
 
 - 新增的段（从新版本的模板复制，三个键都要有）：
 
@@ -283,6 +284,34 @@ make dev-down             # 收工（-v 清数据）
   `Authorization: Bearer` 头里；接口要求别的请求头时把头名填进 `auth_header`。接哪家服务由你决定，程序
   只认两种常见的响应形状，不在代码里认服务。接入后还要在「工具」页把 `web_search` 装配给要用它的
   智能体——它不在任何智能体的出厂名单里。
+
+- 新增的键（从新版本的模板复制）：
+
+  | 段 | 键 | 缺省 |
+  |---|---|---|
+  | `llm` | `account_concurrency` | 4 |
+  | `runner` | `action_parallelism` / `verification_parallelism` / `monitor_interval_seconds` | 4 / 3 / 360 |
+  | `runtime`（新段） | `step_tool_timeout_seconds` / `run_tail_bytes` / `tool_output_tail_bytes` | 1800 / 8192 / 32768 |
+  | `compaction`（新段） | `planner_context_ratio` / `executor_context_ratio` / `evaluator_context_ratio` / `monitor_context_ratio` | 0.6 / 0.5 / 0.5 / 0.5 |
+
+- 改名的键（写在 `config.yaml` 里或用 `LIUSHA_<键>` 覆盖的都要改）：
+
+  | 原键 | 新键 |
+  |---|---|
+  | `runner.step_llm_timeout_seconds` | `runtime.step_llm_timeout_seconds` |
+
+- `runner.run_recovery_timeout_seconds` 不得小于 90（缺省由 360 改为 120）：判定一轮 run 是否还在
+  被推进，现在看它的存活心跳而不是调用记录，阈值跟着心跳的粒度定。此前设得更小的部署须调高。
+- `runner.concurrency` 的出厂值由 10 改为 3：已有部署保持配置文件里的值不变。只有一个模型账户又常
+  同时跑多个任务的，建议调成 `llm.account_concurrency` 的四分之三左右（缺省账户配 3）——任务再多，
+  模型账户的吞吐不会变，多出来的只是在排队后放弃、从头重做。
+- 系统设置页里的旋钮（运行时、会话历史压缩）出厂值现在取自 `config.yaml` 的 `runtime`、`compaction`
+  两段；页面上已有的自定义继续生效，不受影响。
+
+**多镜像**
+
+升级用 `docker compose up -d --build`，不要只拉新镜像再启动：0.14 的沙盒镜像里的程序读不了改名后的
+配置文件，沙盒镜像不重建，沙盒容器会一直重启。
 
 **内置工具改名**
 
@@ -341,41 +370,6 @@ make dev-down             # 收工（-v 清数据）
 
 「观测」组的条目去掉了「日志」后缀：「服务器日志」改叫「服务器」，「审计日志」改叫「操作」，地址不变
 （`/logs`、`/audit`）。模型调用页与操作页地址栏里的搜索参数由 `q` 改为 `search`。
-
-## 从 0.14 升级
-
-**所有部署方式**
-
-对照新版本的 `config.yaml` 补齐、改名下列各项（缺键、留着旧键都会拒绝启动），然后重启。数据库迁移随
-启动自动执行，无需操作。
-
-**多镜像**
-
-升级用 `docker compose up -d --build`，不要只拉新镜像再启动：0.14 的沙盒镜像里的程序读不了改名后的
-配置文件，沙盒镜像不重建，沙盒容器会一直重启。
-
-- 新增的键（从新版本的模板复制）：
-
-  | 段 | 键 | 缺省 |
-  |---|---|---|
-  | `llm` | `account_concurrency` | 4 |
-  | `runner` | `action_parallelism` / `verification_parallelism` / `monitor_interval_seconds` | 4 / 3 / 360 |
-  | `runtime`（新段） | `step_tool_timeout_seconds` / `run_tail_bytes` / `tool_output_tail_bytes` | 1800 / 8192 / 32768 |
-  | `compaction`（新段） | `planner_context_ratio` / `executor_context_ratio` / `evaluator_context_ratio` / `monitor_context_ratio` | 0.6 / 0.5 / 0.5 / 0.5 |
-
-- 改名的键（写在 `config.yaml` 里或用 `LIUSHA_<键>` 覆盖的都要改）：
-
-  | 原键 | 新键 |
-  |---|---|
-  | `runner.step_llm_timeout_seconds` | `runtime.step_llm_timeout_seconds` |
-
-- `runner.run_recovery_timeout_seconds` 不得小于 90（缺省由 360 改为 120）：判定一轮 run 是否还在
-  被推进，现在看它的存活心跳而不是调用记录，阈值跟着心跳的粒度定。此前设得更小的部署须调高。
-- `runner.concurrency` 的出厂值由 10 改为 3：已有部署保持配置文件里的值不变。只有一个模型账户又常
-  同时跑多个任务的，建议调成 `llm.account_concurrency` 的四分之三左右（缺省账户配 3）——任务再多，
-  模型账户的吞吐不会变，多出来的只是在排队后放弃、从头重做。
-- 系统设置页里的旋钮（运行时、会话历史压缩）出厂值现在取自 `config.yaml` 的 `runtime`、`compaction`
-  两段；页面上已有的自定义继续生效，不受影响。
 
 ## 从 0.11 升级
 
